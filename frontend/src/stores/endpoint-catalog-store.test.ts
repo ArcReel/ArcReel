@@ -16,6 +16,10 @@ const FIXTURE: EndpointDescriptor[] = [
     request_path_template: "/v1/chat/completions",
     image_capabilities: null,
     end_image_capable: false,
+    size_fixed: false,
+    duration_fixed: false,
+    duration_tier_empty: false,
+    native_resolution: null,
   },
   {
     key: "newapi-video",
@@ -29,6 +33,10 @@ const FIXTURE: EndpointDescriptor[] = [
     request_path_template: "/v1/video/generations",
     image_capabilities: null,
     end_image_capable: true,
+    size_fixed: false,
+    duration_fixed: false,
+    duration_tier_empty: false,
+    native_resolution: null,
   },
   {
     key: "openai-images",
@@ -42,6 +50,10 @@ const FIXTURE: EndpointDescriptor[] = [
     request_path_template: "/v1/images/{generations,edits}",
     image_capabilities: ["text_to_image", "image_to_image"],
     end_image_capable: false,
+    size_fixed: false,
+    duration_fixed: false,
+    duration_tier_empty: false,
+    native_resolution: null,
   },
   {
     key: "openai-images-generations",
@@ -55,6 +67,10 @@ const FIXTURE: EndpointDescriptor[] = [
     request_path_template: "/v1/images/generations",
     image_capabilities: ["text_to_image"],
     end_image_capable: false,
+    size_fixed: false,
+    duration_fixed: false,
+    duration_tier_empty: false,
+    native_resolution: null,
   },
   {
     key: "openai-images-edits",
@@ -68,6 +84,10 @@ const FIXTURE: EndpointDescriptor[] = [
     request_path_template: "/v1/images/edits",
     image_capabilities: ["image_to_image"],
     end_image_capable: false,
+    size_fixed: false,
+    duration_fixed: false,
+    duration_tier_empty: false,
+    native_resolution: null,
   },
 ];
 

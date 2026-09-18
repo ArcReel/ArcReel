@@ -268,6 +268,9 @@ MESSAGES = {
         "参考图节点 {node} 的图流并没有接到节点 {consumer} 的 {input} 入口：记错了消费者，"
         "张数变少时会按一个不相干的入口去改图"
     ),
+    "val_ce_comfyui_fps_conflict": (
+        "帧率有多个互相矛盾的来源（{values}）：时长换算成帧数只能按一个帧率，请只保留一处帧率来源"
+    ),
     "val_ce_comfyui_ui_format_workflow": "这是 ComfyUI 的 UI 格式 workflow，提交不了：请在 ComfyUI 里改用「Export (API)」导出",
     # ---- ComfyUI 端点 · 节点绑定推断的信号说明与提示 ----
     "val_ce_infer_manual_binding": "已保存的节点绑定，沿用用户确认过的落点",

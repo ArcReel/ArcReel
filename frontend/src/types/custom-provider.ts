@@ -28,6 +28,14 @@ export interface EndpointDescriptor {
   image_capabilities: ImageCap[] | null;
   /** 执行层是否真的下传尾帧约束；仅 video 类有意义，其余恒为 false。 */
   end_image_capable: boolean;
+  /** 尺寸由端点固定（ComfyUI 端点上宽高不是两侧都绑了节点）：比例与分辨率选择对它无效。 */
+  size_fixed: boolean;
+  /** 时长由端点固定（ComfyUI 端点上 frames 未绑定节点）：决定只读态的文案说哪一句。 */
+  duration_fixed: boolean;
+  /** 档位根本给不出来（frames 未绑定，或绑了却没有帧率来源）：档位不可编辑，成片长度以 workflow 为准。 */
+  duration_tier_empty: boolean;
+  /** 不选分辨率档位时这份 workflow 实际会出的那一档；非 ComfyUI 端点或读不出字面尺寸时为 null。 */
+  native_resolution: string | null;
 }
 
 export interface CustomProviderInfo {

@@ -227,6 +227,10 @@ class TestEndpointCatalog:
                 "request_path_template",
                 "image_capabilities",
                 "end_image_capable",
+                "size_fixed",
+                "duration_fixed",
+                "duration_tier_empty",
+                "native_resolution",
             }
             assert entry["request_method"] == "POST"
             assert entry["request_path_template"].startswith("/")

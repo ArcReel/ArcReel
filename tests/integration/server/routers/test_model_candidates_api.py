@@ -354,3 +354,65 @@ class TestBucketJudgement:
 
     def test_text_endpoint_yields_no_buckets(self):
         assert custom_model_buckets(endpoint="openai-chat", model_id="gpt-4o") == frozenset()
+
+    def test_a_comfyui_model_row_takes_its_buckets_from_the_node_bindings(self):
+        """ComfyUI 模型行的桶归属只看绑定表：首帧格子进 i2v，参考图格子进 r2v。"""
+        from lib.custom_provider.endpoints import comfyui_endpoint_spec
+        from tests.factories import comfyui_endpoint_definition
+
+        t2v = comfyui_endpoint_definition()
+        i2v = comfyui_endpoint_definition()
+        i2v["bindings"]["start_image"] = [{"node": "11", "input": "image", "class_type": "LoadImage"}]
+        flf = comfyui_endpoint_definition()
+        flf["bindings"]["start_image"] = [{"node": "11", "input": "image", "class_type": "LoadImage"}]
+        flf["bindings"]["end_image"] = [{"node": "12", "input": "image", "class_type": "LoadImage"}]
+        r2v = comfyui_endpoint_definition()
+        r2v["bindings"]["reference_images"] = [{"node": "11", "input": "image", "class_type": "LoadImage"}]
+
+        def buckets(definition: dict) -> frozenset[str]:
+            return custom_model_buckets(
+                endpoint="ce-7", model_id="my-wan-workflow", endpoint_spec=comfyui_endpoint_spec("ce-7", definition)
+            )
+
+        # 纯文生：i2v 桶按 has_image=True 判首帧，没有首帧格子就进不去。
+        assert buckets(t2v) == frozenset()
+        assert buckets(i2v) == frozenset({"i2v"})
+        # 尾帧是「支持」而非另一个桶：首尾帧 workflow 仍在 i2v，尾帧作为能力位单独透出。
+        assert buckets(flf) == frozenset({"i2v"})
+        assert comfyui_endpoint_spec("ce-7", flf).end_image_capable is True
+        assert buckets(r2v) == frozenset({"r2v"})
+
+    def test_a_stored_capability_override_does_not_move_a_comfyui_row(self):
+        """该协议关闭能力覆盖：存量脏值在合成侧被丢弃，桶归属仍只由绑定决定。"""
+        from lib.custom_provider.endpoints import comfyui_endpoint_spec
+        from tests.factories import comfyui_endpoint_definition
+
+        spec = comfyui_endpoint_spec("ce-7", comfyui_endpoint_definition())
+
+        assert (
+            custom_model_buckets(
+                endpoint="ce-7",
+                model_id="m",
+                capability_overrides={"last_frame": True, "max_reference_audio_count": 4},
+                endpoint_spec=spec,
+            )
+            == frozenset()
+        )
+
+    def test_a_comfyui_image_row_takes_its_bucket_from_the_reference_image_binding(self):
+        from lib.custom_provider.endpoints import comfyui_endpoint_spec
+        from tests.factories import comfyui_endpoint_definition
+
+        t2i = comfyui_endpoint_definition(media_type="image")
+        t2i["bindings"].pop("fps")
+        i2i = comfyui_endpoint_definition(media_type="image")
+        i2i["bindings"].pop("fps")
+        i2i["bindings"]["reference_images"] = [{"node": "11", "input": "image", "class_type": "LoadImage"}]
+
+        def buckets(definition: dict) -> frozenset[str]:
+            return custom_model_buckets(
+                endpoint="ce-7", model_id="m", endpoint_spec=comfyui_endpoint_spec("ce-7", definition)
+            )
+
+        assert buckets(t2i) == frozenset({"t2i"})
+        assert buckets(i2i) == frozenset({"i2i"})

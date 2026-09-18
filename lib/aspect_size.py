@@ -145,3 +145,13 @@ def resolution_to_short_edge(
 
     logger.warning("无法解析 resolution=%r，回退默认短边 %d", resolution, default_short)
     return default_short
+
+
+def short_edge_to_resolution(short_edge: int, *, tier_map: dict[str, int]) -> str:
+    """把短边像素说回一个档位词，取最接近的一档。
+
+    :func:`resolution_to_short_edge` 的展示侧逆向：档位是离散的，任意短边未必恰好落在某一档上
+    （workflow 作者调的 848 不是 720p 也不是 1080p），取最近的一档比报一个用户在选择器里找不到
+    的字面数字更有用。并列时取较小的那一档——把「比 480p 稍大一点」说成 720p 会高估画质。
+    """
+    return min(tier_map, key=lambda tier: (abs(tier_map[tier] - short_edge), tier_map[tier]))

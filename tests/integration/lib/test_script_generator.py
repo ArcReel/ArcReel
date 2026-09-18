@@ -9,7 +9,7 @@ from typing import ClassVar, cast
 import pytest
 
 from lib.artifact_activation import activate_artifact_target_state
-from lib.config.resolver import ConfigResolver
+from lib.config.resolver import ENDPOINT_FIXED_PLANNING_DURATIONS, ConfigResolver
 from lib.project_migrations import CURRENT_SCHEMA_VERSION
 from lib.script_generator import PromptAuthoringTargets, ScriptGenerator
 from lib.script_review import content_fingerprint, script_plan_path
@@ -1145,6 +1145,42 @@ def test_resolve_supported_durations_raises_when_unset(tmp_path):
 
     with pytest.raises(ValueError, match="supported_durations"):
         sg._resolve_supported_durations(None, gen_mode="storyboard")
+
+
+class TestEndpointFixedDurationStillPlans:
+    """时长由端点固定的模型行不该把剧本规划也一并挡下（``docs/adr/0082``）。
+
+    ComfyUI 的 workflow 自己决定出多长，档位因此是合法的空集；但剧本规划仍要有「一个分镜大概
+    多长」的篇幅依据。没有这条分叉，``resolve_raw_supported_durations`` 会返回 None，规划链以
+    「supported_durations 无法解析…请确保 model 配置完整」断掉——而那份配置其实是完整的。
+    """
+
+    def _sg(self, tmp_path) -> ScriptGenerator:
+        sg = ScriptGenerator.__new__(ScriptGenerator)
+        sg.project_path = tmp_path
+        sg.project_json = {"video_backend": "custom-3/my-wan-workflow"}
+        return sg
+
+    def test_an_endpoint_fixed_tier_borrows_the_planning_durations(self, tmp_path):
+        caps = {
+            "provider_id": "custom-3",
+            "model": "my-wan-workflow",
+            "supported_durations": [],
+            "duration_endpoint_fixed": True,
+        }
+
+        sg = self._sg(tmp_path)
+
+        assert sg._resolve_raw_supported_durations(caps) == ENDPOINT_FIXED_PLANNING_DURATIONS
+        assert sg._resolve_supported_durations(caps, gen_mode="storyboard") == ENDPOINT_FIXED_PLANNING_DURATIONS
+        assert sg._resolve_max_duration(caps, gen_mode="storyboard") == max(ENDPOINT_FIXED_PLANNING_DURATIONS)
+
+    def test_an_empty_tier_without_that_flag_still_raises(self, tmp_path):
+        """空集本身不是放行理由：其余协议的空集仍是配置缺陷（``docs/adr/0018``）。"""
+        caps = {"provider_id": "custom-3", "model": "m", "supported_durations": []}
+
+        with pytest.raises(ValueError, match="supported_durations"):
+            self._sg(tmp_path)._resolve_supported_durations(caps, gen_mode="storyboard")
 
 
 class TestFetchVideoCapabilitiesErrorHandling:

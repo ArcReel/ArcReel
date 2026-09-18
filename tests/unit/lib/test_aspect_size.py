@@ -13,6 +13,7 @@ from lib.aspect_size import (
     aspect_size,
     parse_aspect_ratio,
     resolution_to_short_edge,
+    short_edge_to_resolution,
 )
 
 ALL_ASPECTS = ["9:16", "16:9", "1:1", "3:4", "4:3", "2:3", "3:2", "21:9"]
@@ -181,3 +182,22 @@ def test_resolution_unparseable_falls_back_with_warning(caplog):
     with caplog.at_level(logging.WARNING):
         assert resolution_to_short_edge("garbage", tier_map=IMAGE_TIER_SHORT_EDGE) == 720
     assert any("无法解析 resolution" in r.message for r in caplog.records)
+
+
+@pytest.mark.parametrize(
+    ("short_edge", "expected"),
+    [(480, "480p"), (720, "720p"), (848, "720p"), (1100, "1080p"), (4000, "4K")],
+)
+def test_short_edge_says_back_the_nearest_tier(short_edge, expected):
+    # 档位离散，作者调的短边未必恰好落在某一档上，取最近的一档。
+    assert short_edge_to_resolution(short_edge, tier_map=VIDEO_TIER_SHORT_EDGE) == expected
+
+
+def test_a_short_edge_exactly_between_two_tiers_takes_the_smaller_one():
+    # 600 到 480p 与 720p 等距：取较小那一档，把「比 480p 稍大一点」说成 720p 会高估画质。
+    assert short_edge_to_resolution(600, tier_map=VIDEO_TIER_SHORT_EDGE) == "480p"
+
+
+def test_the_tier_table_decides_the_vocabulary():
+    # 同一个短边在图像档位表里说出的是另一个词。
+    assert short_edge_to_resolution(1024, tier_map=IMAGE_TIER_SHORT_EDGE) == "1K"

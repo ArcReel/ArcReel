@@ -80,6 +80,11 @@ class TestRegistry:
             "video_max_reference_images": None,
             "end_image_capable": False,
             "reference_audio_capable": False,
+            # 参数约束四项只有 ComfyUI 端点会取非默认值；其余端点的尺寸与时长由请求参数决定。
+            "size_fixed": False,
+            "duration_fixed": False,
+            "duration_tier_empty": False,
+            "native_resolution": None,
         }
 
     def test_new_video_endpoints_have_unset_cap(self):

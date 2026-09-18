@@ -7,6 +7,11 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+from typing import Any
+
+from .workflow import node_inputs
+
 #: 视频端点可用的全部语义键，也是 schema 里 ``bindings`` 的封闭键集。
 VIDEO_BINDING_KEYS = (
     "prompt",
@@ -41,3 +46,53 @@ BINDING_KEYS_BY_MEDIA_TYPE: dict[str, frozenset[str]] = {
 
 #: 两种媒体类型都必须绑定的语义键：没有提示词无从下笔，没有产物取不到成片。
 REQUIRED_BINDING_KEYS = ("prompt", "output")
+
+
+def targets_of(raw: object) -> tuple[Mapping[str, Any], ...]:
+    """一个语义键的目标列表。
+
+    三态里「空列表」与「键缺失」在此同形：两者都是「没有目标」，区别只在导入时要不要重跑推断，
+    与填值、校验、能力推导都无关。非列表值与列表里的非对象条目一并丢掉——schema 已把形状挡在
+    保存期之前，这里只保证读侧拿到的每一项都可当条目用。
+    """
+    if not isinstance(raw, list):
+        return ()
+    return tuple(target for target in raw if isinstance(target, Mapping))
+
+
+def literal_of(workflow: Mapping[str, Any], target: Mapping[str, Any]) -> object:
+    """一个目标当前的字面值；节点或字段已不在图里则 ``None``。
+
+    填值、校验与能力推导读的是同一份字面值，判据因此只此一处：三个消费方各写一份的话，「节点不在
+    图里」这类边界迟早各判各的，而它们本该对同一份 workflow 得出同一个结论。
+    """
+    node = workflow.get(str(target["node"]))
+    name = target.get("input")
+    if not isinstance(node, Mapping) or not isinstance(name, str):
+        return None
+    return node_inputs(node).get(name)
+
+
+def int_literal_of(workflow: Mapping[str, Any], target: Mapping[str, Any]) -> int | None:
+    """字面值取整数；布尔不算数——``True`` 是 ``int`` 的子类，当尺寸或帧数用会静默变成 1。"""
+    raw = literal_of(workflow, target)
+    return raw if isinstance(raw, int) and not isinstance(raw, bool) else None
+
+
+def positive_number(raw: object) -> float | None:
+    """正数值，否则 ``None``。帧率与尺寸都只在正数时有意义。"""
+    return float(raw) if isinstance(raw, int | float) and not isinstance(raw, bool) and raw > 0 else None
+
+
+def bound_fps(workflow: Mapping[str, Any], bindings: Mapping[str, Any]) -> float | None:
+    """``fps`` 只读绑定读出的、这份 workflow 实际在用的帧率。
+
+    多个只读绑定读出不同字面值时取第一个：那是一份自相矛盾的定义，保存期已由
+    ``comfyui_fps_conflict`` 挡下（``lib/custom_provider/comfyui/validator.py``），到这里只剩存量
+    数据，取谁都是猜，取第一个至少让填值与推导口径一致。
+    """
+    for target in targets_of(bindings.get("fps")):
+        fps = positive_number(literal_of(workflow, target))
+        if fps is not None:
+            return fps
+    return None

@@ -372,6 +372,10 @@ MESSAGES = {
         "Luồng từ node ảnh tham chiếu {node} không hề đến đầu vào {input} của node {consumer}: ghi sai node tiêu "
         "thụ, khi số ảnh giảm đi hệ thống sẽ sửa một đầu vào không liên quan"
     ),
+    "val_ce_comfyui_fps_conflict": (
+        "Tốc độ khung hình có nhiều nguồn mâu thuẫn ({values}): việc quy đổi thời lượng thành số khung hình chỉ "
+        "dùng được một tốc độ, hãy chỉ giữ lại một nguồn"
+    ),
     "val_ce_comfyui_ui_format_workflow": (
         "Đây là workflow định dạng UI của ComfyUI và không thể gửi đi; hãy xuất bằng Export (API) trong ComfyUI"
     ),

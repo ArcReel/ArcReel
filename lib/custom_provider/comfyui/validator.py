@@ -27,7 +27,8 @@ from lib.custom_provider.definition_diagnostics import (
 )
 from lib.custom_provider.definition_schema_errors import most_specific, translate_schema_error
 
-from .bindings import BINDING_KEYS_BY_MEDIA_TYPE, REQUIRED_BINDING_KEYS
+from .bindings import BINDING_KEYS_BY_MEDIA_TYPE, REQUIRED_BINDING_KEYS, positive_number, targets_of
+from .capabilities import fps_literals
 from .graph import ancestors, link_of
 from .workflow import is_link, node_inputs
 
@@ -95,6 +96,7 @@ def _semantic_issues(document: Mapping[str, Any]) -> Iterator[DefinitionIssue]:
     yield from _media_type_issues(bindings, media_type)
     yield from _target_issues(bindings, workflow, media_type)
     yield from _collision_issues(bindings, media_type)
+    yield from _fps_issues(bindings, workflow, media_type)
     yield from _api_key_outside_auth_issues(document)
 
 
@@ -257,6 +259,34 @@ def _collision_issues(bindings: Mapping[str, Any], media_type: str) -> Iterator[
                 )
                 continue
             owners[landing] = key
+
+
+def _fps_issues(bindings: Mapping[str, Any], workflow: Mapping[str, Any], media_type: str) -> Iterator[DefinitionIssue]:
+    """帧率只能有一个真相源：多个 ``fps`` 只读绑定读出的字面值必须一致。
+
+    ``frames`` 的换算（``round(时长 × 帧率) + 1``）把一个帧率套到全部帧数目标上。两条只读绑定
+    读出不同字面值时，这份定义自己就说不清这份 workflow 跑在哪个帧率上，构造层取第一个、另一条
+    分支的帧数于是按错的帧率算出来，成片比用户选的长或短而无人报错；同一个数值由 ``fps`` 绑定与
+    ``frames`` 条目上手填的常量各说一遍时同理。读不出字面值的绑定不参与判定——那是节点或字段已
+    不在图里，由目标校验单独报。
+
+    图像端点没有这两个语义键（``BINDING_KEYS_BY_MEDIA_TYPE``），不进此判。
+    """
+    if "fps" not in BINDING_KEYS_BY_MEDIA_TYPE[media_type]:
+        return
+    literals = fps_literals(workflow, bindings)
+    manual = [value for target in targets_of(bindings.get("frames")) if (value := positive_number(target.get("fps")))]
+    distinct = sorted({*literals, *manual})
+    if len(distinct) > 1:
+        yield DefinitionIssue(
+            join_path("bindings", "fps"),
+            DefinitionErrorCode.COMFYUI_FPS_CONFLICT,
+            {"values": " / ".join(_format_fps(value) for value in distinct)},
+        )
+
+
+def _format_fps(value: float) -> str:
+    return str(int(value)) if value.is_integer() else str(value)
 
 
 def _write_landing(target: Mapping[str, Any]) -> tuple[str, str] | None:

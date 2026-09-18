@@ -25,6 +25,10 @@ const CHAT_ENDPOINT: EndpointDescriptor = {
   request_path_template: "/v1/chat/completions",
   image_capabilities: null,
   end_image_capable: false,
+  size_fixed: false,
+  duration_fixed: false,
+  duration_tier_empty: false,
+  native_resolution: null,
 };
 
 const DECLARATIVE_VIDEO_ENDPOINT: EndpointDescriptor = {
@@ -39,6 +43,10 @@ const DECLARATIVE_VIDEO_ENDPOINT: EndpointDescriptor = {
   request_path_template: "/v1/video/create",
   image_capabilities: null,
   end_image_capable: true,
+  size_fixed: false,
+  duration_fixed: false,
+  duration_tier_empty: false,
+  native_resolution: null,
 };
 
 const COMFYUI_VIDEO_ENDPOINT: EndpointDescriptor = {
@@ -53,6 +61,10 @@ const COMFYUI_VIDEO_ENDPOINT: EndpointDescriptor = {
   request_path_template: "/prompt",
   image_capabilities: null,
   end_image_capable: false,
+  size_fixed: false,
+  duration_fixed: false,
+  duration_tier_empty: false,
+  native_resolution: null,
 };
 
 const ALL_ENDPOINTS = [CHAT_ENDPOINT, DECLARATIVE_VIDEO_ENDPOINT, COMFYUI_VIDEO_ENDPOINT];
@@ -365,6 +377,84 @@ describe("CustomProviderForm（comfyui 协议）", () => {
     fireEvent.click(within(listbox).getByRole("option", { name: /我的声明式端点/ }));
 
     expect(await screen.findByRole("radiogroup", { name: "尾帧能力覆盖" })).toBeInTheDocument();
+  });
+
+  it("shows the duration tier read-only when the workflow fixes its duration", async () => {
+    useEndpointCatalogStore.setState(useEndpointCatalogStore.getInitialState(), true);
+    vi.spyOn(API, "listEndpointCatalog").mockResolvedValue({
+      endpoints: [CHAT_ENDPOINT, { ...COMFYUI_VIDEO_ENDPOINT, duration_fixed: true, duration_tier_empty: true }],
+    });
+    renderForm();
+    await waitFor(() => expect(useEndpointCatalogStore.getState().initialized).toBe(true));
+    selectProtocol("comfyui");
+    fireEvent.click(screen.getByRole("button", { name: "手动添加模型" }));
+
+    const durations = screen.getByLabelText("支持秒数");
+    expect(durations).toBeDisabled();
+    expect(durations).toHaveAttribute("placeholder", "此 workflow 时长固定");
+    // 禁用原因要有一行可见说明，不能只靠 title。
+    expect(screen.getByText(/此 workflow 时长固定：帧数没有绑定到节点/)).toBeInTheDocument();
+  });
+
+  it("shows the duration tier read-only when the workflow has no frame rate to convert with", async () => {
+    useEndpointCatalogStore.setState(useEndpointCatalogStore.getInitialState(), true);
+    vi.spyOn(API, "listEndpointCatalog").mockResolvedValue({
+      // frames 绑了、读不到帧率来源：档位同样是空集，但这是一份可修的定义，不能说成「时长天生固定」。
+      endpoints: [CHAT_ENDPOINT, { ...COMFYUI_VIDEO_ENDPOINT, duration_fixed: false, duration_tier_empty: true }],
+    });
+    renderForm();
+    await waitFor(() => expect(useEndpointCatalogStore.getState().initialized).toBe(true));
+    selectProtocol("comfyui");
+    fireEvent.click(screen.getByRole("button", { name: "手动添加模型" }));
+
+    const durations = screen.getByLabelText("支持秒数");
+    expect(durations).toBeDisabled();
+    expect(durations).toHaveAttribute("placeholder", "此 workflow 未提供帧率，时长固定");
+    expect(screen.getByText(/帧数已绑定，但这份定义里没有帧率来源/)).toBeInTheDocument();
+    expect(screen.queryByText(/帧数没有绑定到节点/)).not.toBeInTheDocument();
+  });
+
+  it("keeps the duration tier editable when frames are bound", async () => {
+    renderForm();
+    await waitFor(() => expect(useEndpointCatalogStore.getState().initialized).toBe(true));
+    selectProtocol("comfyui");
+    fireEvent.click(screen.getByRole("button", { name: "手动添加模型" }));
+
+    expect(screen.getByLabelText("支持秒数")).toBeEnabled();
+  });
+
+  it("disables the resolution picker and names the native tier when the size is fixed", async () => {
+    useEndpointCatalogStore.setState(useEndpointCatalogStore.getInitialState(), true);
+    vi.spyOn(API, "listEndpointCatalog").mockResolvedValue({
+      endpoints: [
+        CHAT_ENDPOINT,
+        { ...COMFYUI_VIDEO_ENDPOINT, size_fixed: true, native_resolution: "480p" },
+      ],
+    });
+    renderForm();
+    await waitFor(() => expect(useEndpointCatalogStore.getState().initialized).toBe(true));
+    selectProtocol("comfyui");
+    fireEvent.click(screen.getByRole("button", { name: "手动添加模型" }));
+
+    const picker = screen.getByLabelText("分辨率");
+    expect(picker).toBeDisabled();
+    expect(picker).toHaveAttribute("placeholder", "workflow 原生（480p）");
+    expect(screen.getByText(/此 workflow 尺寸固定：宽高没有绑定到节点/)).toBeInTheDocument();
+  });
+
+  it("keeps the resolution picker usable while still naming the native tier", async () => {
+    useEndpointCatalogStore.setState(useEndpointCatalogStore.getInitialState(), true);
+    vi.spyOn(API, "listEndpointCatalog").mockResolvedValue({
+      endpoints: [CHAT_ENDPOINT, { ...COMFYUI_VIDEO_ENDPOINT, native_resolution: "720p" }],
+    });
+    renderForm();
+    await waitFor(() => expect(useEndpointCatalogStore.getState().initialized).toBe(true));
+    selectProtocol("comfyui");
+    fireEvent.click(screen.getByRole("button", { name: "手动添加模型" }));
+
+    const picker = screen.getByLabelText("分辨率");
+    expect(picker).toBeEnabled();
+    expect(picker).toHaveAttribute("placeholder", "workflow 原生（720p）");
   });
 
   it("announces the per-protocol concurrency default of one", () => {

@@ -27,6 +27,12 @@ from lib.aspect_size import DEFAULT_SHORT_EDGE, IMAGE_TIER_SHORT_EDGE, VIDEO_TIE
 from lib.aspect_size import resolution_to_short_edge as short_edge_of_resolution
 from lib.prompt_utils import append_avoid_text, split_avoid_lines
 
+from .bindings import bound_fps as _bound_fps
+from .bindings import int_literal_of as _int_literal
+from .bindings import literal_of as _literal
+from .bindings import positive_number as _positive_number
+from .bindings import targets_of as _targets
+from .capabilities import size_is_fixed
 from .failures import IMAGE_DROP_UNSUPPORTED, ComfyuiError
 from .inference_rules import InferenceRules, MergeNode, load_inference_rules
 from .workflow import is_link, node_inputs
@@ -102,7 +108,7 @@ def build_workflow(
     dropped = _apply_media(workflow, bindings, media or MediaInputs(), load_inference_rules(media_type))
 
     body, avoid_text = split_avoid_lines(prompt)
-    _write_all(workflow, bindings.get("prompt"), body)
+    _write_all(workflow, _targets(bindings.get("prompt")), body)
     _write_negative_prompt(workflow, bindings.get("negative_prompt"), avoid_text)
     width, height = _write_size(workflow, bindings, aspect_ratio=aspect_ratio, resolution=resolution, media=media_type)
     frames = _write_frames(workflow, bindings, duration_seconds=duration_seconds)
@@ -154,30 +160,15 @@ def _write_one(workflow: dict[str, Any], target: Mapping[str, Any], value: objec
     _mutable_inputs(workflow[node_id])[name] = value
 
 
-def _write_all(workflow: dict[str, Any], targets: object, value: object) -> None:
-    for target in _targets(targets):
+def _write_all(workflow: dict[str, Any], targets: Sequence[Mapping[str, Any]], value: object) -> None:
+    """把同一个值写进一个语义键的全部目标。
+
+    收 已规范化 的条目序列，不在内部再规范一次：调用方手里本就有 :func:`_targets` 的结果，函数
+    再收一次原始值就会出现「传进来的到底是哪一种」的歧义——传规范化过的结果进来反而被判成形状
+    不对而整批丢掉。
+    """
+    for target in targets:
         _write_one(workflow, target, value)
-
-
-def _targets(targets: object) -> list[Mapping[str, Any]]:
-    """把一个语义键的目标列表收窄成可遍历的条目。三态里空列表与键缺失在此同形。"""
-    if not isinstance(targets, list):
-        return []
-    return [target for target in targets if isinstance(target, Mapping)]
-
-
-def _literal(workflow: Mapping[str, Any], target: Mapping[str, Any]) -> object:
-    """读一个目标当前的字面值；节点或字段不在则 ``None``。"""
-    node = workflow.get(str(target["node"]))
-    name = target.get("input")
-    if node is None or not isinstance(name, str):
-        return None
-    return node_inputs(node).get(name)
-
-
-def _int_literal(workflow: Mapping[str, Any], target: Mapping[str, Any]) -> int | None:
-    raw = _literal(workflow, target)
-    return raw if isinstance(raw, int) and not isinstance(raw, bool) else None
 
 
 def _step(target: Mapping[str, Any]) -> int:
@@ -219,11 +210,16 @@ def _write_size(
 
     分辨率未选时短边取 workflow 字面宽高的较小者：这份 workflow 的原生尺寸就是作者调好的那一档，
     比例仍按项目走。字面值读不出整数时退到跨后端统一的兜底短边。
+
+    尺寸这一维驱不驱动得了走 :func:`~lib.custom_provider.comfyui.capabilities.size_is_fixed` 这一份
+    判据——界面据它禁用分辨率选择器，填值据它决定写不写，两处不各写一份。只绑一侧时它判为固定：
+    派生出的宽高只写得进绑了的那一侧，另一侧仍是 workflow 的字面值，产出的比例既不是原生的也不是
+    用户要的。
     """
+    if size_is_fixed(bindings):
+        return None, None
     width_targets = _targets(bindings.get("width"))
     height_targets = _targets(bindings.get("height"))
-    if not width_targets and not height_targets:
-        return None, None
 
     round_to = math.lcm(*[_step(target) for target in (*width_targets, *height_targets)])
     tier_map = IMAGE_TIER_SHORT_EDGE if media == "image" else VIDEO_TIER_SHORT_EDGE
@@ -298,19 +294,6 @@ def _write_frames(
         written = _align_frames(round(duration_seconds * fps) + 1, step)
         _write_one(workflow, target, written)
     return written
-
-
-def _bound_fps(workflow: Mapping[str, Any], bindings: Mapping[str, Any]) -> float | None:
-    """从 ``fps`` 只读绑定读出这份 workflow 实际使用的帧率。"""
-    for target in _targets(bindings.get("fps")):
-        fps = _positive_number(_literal(workflow, target))
-        if fps is not None:
-            return fps
-    return None
-
-
-def _positive_number(raw: object) -> float | None:
-    return float(raw) if isinstance(raw, int | float) and not isinstance(raw, bool) and raw > 0 else None
 
 
 def _align_frames(frames: int, step: int) -> int:
@@ -404,7 +387,7 @@ def _apply_reference_images(
     if any(not _adjustable(target, rules) for target in spare):
         logger.info("参考图格子 %d 个、本次 %d 张，但有格子的 consumer 改不动图，改图跳过", len(targets), len(values))
         if values:
-            _write_all(workflow, list(spare), values[-1])
+            _write_all(workflow, spare, values[-1])
         return []
     return [str(target["node"]) for target in spare]
 

@@ -90,6 +90,10 @@ function descriptor(overrides: Partial<EndpointDescriptor>): EndpointDescriptor 
     request_path_template: "/v1/videos",
     image_capabilities: null,
     end_image_capable: false,
+    size_fixed: false,
+    duration_fixed: false,
+    duration_tier_empty: false,
+    native_resolution: null,
     ...overrides,
   };
 }

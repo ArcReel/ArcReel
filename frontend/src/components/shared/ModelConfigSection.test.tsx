@@ -4,7 +4,14 @@ import type { ComponentProps } from "react";
 import userEvent from "@testing-library/user-event";
 import { API, type VideoCapabilitiesQuery } from "@/api";
 import { ModelConfigSection } from "./ModelConfigSection";
-import type { DurationConstraints, ProviderInfo, VideoCapabilities } from "@/types";
+import { useEndpointCatalogStore } from "@/stores/endpoint-catalog-store";
+import type {
+  CustomProviderInfo,
+  DurationConstraints,
+  EndpointDescriptor,
+  ProviderInfo,
+  VideoCapabilities,
+} from "@/types";
 import { lookupSupportedDurations } from "@/utils/provider-models";
 
 const PROVIDERS: ProviderInfo[] = [
@@ -1279,5 +1286,144 @@ describe("音频开关的模型可控性", () => {
       expect(await omniRowIn(user, "文生图")).not.toMatch(/有声|无声/);
       expect(await omniRowIn(user, "图生图")).not.toMatch(/有声|无声/);
     });
+  });
+});
+
+// -------------------------------------------------------------------------
+// ComfyUI 模型行：尺寸 / 时长被 workflow 固定时，对应控件禁用并说清原因
+// -------------------------------------------------------------------------
+describe("dimensions a ComfyUI workflow fixes", () => {
+  const COMFY_ENDPOINT: EndpointDescriptor = {
+    key: "ce-2",
+    media_type: "video",
+    family: "custom",
+    kind: "comfyui",
+    source: "custom",
+    display_name_key: "",
+    display_name: "我的 Wan workflow",
+    request_method: "POST",
+    request_path_template: "/prompt",
+    image_capabilities: null,
+    end_image_capable: false,
+    size_fixed: false,
+    duration_fixed: false,
+    duration_tier_empty: false,
+    native_resolution: null,
+  };
+
+  const COMFY_PROVIDER: CustomProviderInfo = {
+    id: 3,
+    display_name: "我的 ComfyUI",
+    discovery_format: "comfyui",
+    base_url: "http://comfy.invalid:8188",
+    api_key_masked: "",
+    created_at: "2026-01-01T00:00:00Z",
+    image_max_workers: null,
+    video_max_workers: null,
+    audio_max_workers: null,
+    models: [
+      {
+        id: 1,
+        model_id: "my-wan-workflow",
+        display_name: "My Workflow",
+        endpoint: "ce-2",
+        is_default: true,
+        is_enabled: true,
+        price_unit: null,
+        price_input: null,
+        price_output: null,
+        currency: null,
+        supported_durations: null,
+        resolution: null,
+        system_capabilities: null,
+        capability_overrides: null,
+        global_bucket_refs: [],
+      },
+    ],
+  };
+
+  const BACKEND = "custom-3/my-wan-workflow";
+
+  /** 挂着一个 ComfyUI 模型行的项目：端点目录按用例给出的约束应答。 */
+  function renderWithConstraints(overrides: Partial<EndpointDescriptor>, durations: number[]) {
+    useEndpointCatalogStore.setState(useEndpointCatalogStore.getInitialState(), true);
+    vi.spyOn(API, "listEndpointCatalog").mockResolvedValue({
+      endpoints: [{ ...COMFY_ENDPOINT, ...overrides }],
+    });
+    const constraints: DurationConstraints = {
+      resolution: null,
+      uses_reference_images: false,
+      allowed: durations,
+      allowed_without_reference_images: durations,
+      excluded: {},
+    };
+    vi.spyOn(API, "getModelVideoCapabilities").mockResolvedValue({
+      provider_id: "custom-3",
+      model: "my-wan-workflow",
+      supported_durations: durations,
+      max_duration: durations.length > 0 ? Math.max(...durations) : 0,
+      max_reference_images: 0,
+      first_frame: true,
+      last_frame: false,
+      source: "custom",
+      voice_consistency: "soft",
+      duration_constraints: constraints,
+    });
+    render(
+      <ModelConfigSection
+        value={{ ...EMPTY_VALUE, videoBackend: BACKEND }}
+        onChange={() => {}}
+        providers={[]}
+        customProviders={[COMFY_PROVIDER]}
+        options={{
+          videoBackends: [BACKEND],
+          imageBackends: [],
+          textBackends: [],
+          providerNames: { "custom-3": "我的 ComfyUI" },
+        }}
+        globalDefaults={EMPTY_GLOBALS}
+        enable={{ image: false, text: false }}
+      />,
+    );
+  }
+
+  it("disables the resolution picker and names the native tier when the size is fixed", async () => {
+    renderWithConstraints({ size_fixed: true, native_resolution: "480p" }, [5]);
+
+    const picker = await screen.findByRole("combobox", { name: "分辨率" });
+    expect(picker).toBeDisabled();
+    expect(picker).toHaveAttribute("placeholder", "workflow 原生（480p）");
+    // 禁用原因要有一行可见说明，不能只靠 title。
+    expect(screen.getByText(/此 workflow 尺寸固定：宽高没有绑定到节点/)).toBeInTheDocument();
+  });
+
+  it("keeps the resolution picker usable while still naming the native tier", async () => {
+    renderWithConstraints({ native_resolution: "720p" }, [5]);
+
+    const picker = await screen.findByRole("combobox", { name: "分辨率" });
+    expect(picker).toBeEnabled();
+    expect(picker).toHaveAttribute("placeholder", "workflow 原生（720p）");
+  });
+
+  it("says why the duration control is absent when the workflow fixes its duration", async () => {
+    renderWithConstraints({ duration_fixed: true, duration_tier_empty: true }, []);
+
+    expect(await screen.findByText(/时长不由 ArcReel 决定/)).toBeInTheDocument();
+    expect(screen.queryByRole("radiogroup", { name: "默认时长" })).not.toBeInTheDocument();
+  });
+
+  it("says why the duration control is absent when the frame rate cannot be read either", async () => {
+    // frames 绑了却没有帧率来源：项目页看到的结果与时长固定那一支一样，也要有一行说明。
+    renderWithConstraints({ duration_fixed: false, duration_tier_empty: true }, []);
+
+    expect(await screen.findByText(/时长不由 ArcReel 决定/)).toBeInTheDocument();
+    expect(screen.queryByRole("radiogroup", { name: "默认时长" })).not.toBeInTheDocument();
+  });
+
+  it("renders the duration control as usual when the tier is not empty", async () => {
+    renderWithConstraints({}, [5]);
+
+    expect(await screen.findByRole("radiogroup", { name: "默认时长" })).toBeInTheDocument();
+    expect(screen.queryByText(/时长不由 ArcReel 决定/)).not.toBeInTheDocument();
   });
 });

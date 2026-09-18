@@ -132,6 +132,18 @@ class TestSize:
         assert _inputs(built, "5")["width"] == 832
         assert _inputs(built, "5")["height"] == 480
 
+    @pytest.mark.parametrize("dropped", ["width", "height"])
+    def test_binding_only_one_side_leaves_both_literals_alone(self, dropped: str):
+        """写得动一侧、另一侧固定时派生出的比例两头不靠，故整维当作固定、一个字节都不改。"""
+        definition = comfyui_endpoint_definition()
+        del definition["bindings"][dropped]
+
+        built = _build(definition, aspect_ratio="9:16", resolution="1080p")
+
+        assert (built.width, built.height) == (None, None)
+        assert _inputs(built, "5")["width"] == 832
+        assert _inputs(built, "5")["height"] == 480
+
     def test_a_non_integer_literal_falls_back_to_the_shared_default_short_edge(self):
         definition = comfyui_endpoint_definition()
         definition["workflow"]["5"]["inputs"]["width"] = "832"

@@ -31,6 +31,7 @@ from lib.custom_provider.capabilities import (
     system_video_capabilities,
 )
 from lib.custom_provider.discovery_formats import endpoint_attachment_holds, is_comfyui_protocol
+from lib.custom_provider.endpoint_definition import COMFYUI_KIND
 from lib.custom_provider.endpoint_resolution import endpoint_spec_from_row, resolve_endpoint_spec
 from lib.custom_provider.endpoints import (
     ENDPOINT_REGISTRY,
@@ -185,19 +186,31 @@ class ModelInput(BaseModel):
         统一归一为缺省并由 duration_presets 启发式填补。
         非视频类 endpoint 保持 None。
 
+        ComfyUI 端点不走那套启发式，也不把空集当缺省：时长这一维由节点绑定决定（``docs/adr/0082``）。
+        ``frames`` 未绑定或读不到帧率来源时这份 workflow 的时长根本不由 ArcReel 驱动，服务端把该
+        模型行的档位钉死为空集——用户在界面上改不动它，改了也无处生效；两者齐备时默认只含 workflow
+        的原生时长，用户可在模型行里增删。模型名在这条通道上与 workflow 能出多长毫无关系。
+
         媒体类型读调用方已解析好的 spec：``ce-`` 端点的媒体类型写在它那份定义里，键前缀推不出来。
         """
+        from lib.custom_provider.comfyui.capabilities import default_supported_durations
         from lib.custom_provider.duration_presets import infer_supported_durations
 
         d = self.model_dump()
         durations = self.supported_durations
         is_video = endpoint_spec.media_type == "video"
-        # video endpoint：把 [] 当作缺省（下游/前端都不接受空列表），交给 preset 兜底
-        if is_video and durations is not None and len(durations) == 0:
-            durations = None
-        if durations is None and is_video:
-            # endpoint 经 EndpointType 校验，值必在 ENDPOINT_REGISTRY 内，无需 ValueError 兜底
-            durations = infer_supported_durations(self.model_id)
+        definition = endpoint_spec.definition
+        if is_video and definition is not None and endpoint_spec.kind == COMFYUI_KIND:
+            # 默认集为空 = 这份 workflow 的时长不由 ArcReel 驱动，用户传什么都钉回空集。
+            default = default_supported_durations(definition)
+            durations = (durations or default) if default else default
+        else:
+            # video endpoint：把 [] 当作缺省（下游/前端都不接受空列表），交给 preset 兜底
+            if is_video and durations is not None and len(durations) == 0:
+                durations = None
+            if durations is None and is_video:
+                # endpoint 经 EndpointType 校验，值必在 ENDPOINT_REGISTRY 内，无需 ValueError 兜底
+                durations = infer_supported_durations(self.model_id)
         d["supported_durations"] = json.dumps(durations) if durations is not None else None
         return d
 
@@ -326,6 +339,16 @@ class EndpointDescriptor(BaseModel):
     # 该 endpoint 的执行层是否真的下传尾帧约束；仅 video 类有意义。前端据此收窄 last_frame
     # 覆盖控件里「强制开」的可选范围——否则用户只能撞上写入侧的 422 才知道这条路不通。
     end_image_capable: bool = False
+    # 参数约束四项，只有 ComfyUI 端点会取非默认值（``docs/adr/0082``）：尺寸 / 时长这两维由节点
+    # 绑定决定 ArcReel 驱不驱动得了，驱动不了时对应的选择器禁用并明示；native_resolution 是不选
+    # 档位时这份 workflow 实际会出的那一档，用作分辨率选择器的空值占位。
+    size_fixed: bool = False
+    duration_fixed: bool = False
+    # 档位根本给不出来（frames 未绑定，或绑了却没有帧率来源）：时长这一维不由 ArcReel 驱动，
+    # 模型行的档位编辑区只读、项目页的时长控件不渲染。duration_fixed 是它的子集，只决定文案说
+    # 「天生固定」还是「缺帧率来源、补一处即可」。
+    duration_tier_empty: bool = False
+    native_resolution: str | None = None
 
 
 class EndpointCatalogResponse(BaseModel):

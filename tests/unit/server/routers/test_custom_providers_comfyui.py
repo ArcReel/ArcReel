@@ -99,7 +99,7 @@ class TestComfyuiProviderCreation:
     async def test_a_comfyui_endpoint_reaches_the_endpoint_catalog(
         self, comfyui_client, custom_providers_app_session_factory
     ):
-        """ComfyUI 端点在端点目录里：媒体类型读定义，能力位留空，由节点绑定推导补齐。"""
+        """ComfyUI 端点在端点目录里：媒体类型与能力位都读定义，能力由节点绑定推导。"""
         key = await _store_endpoint(custom_providers_app_session_factory, comfyui_endpoint_definition())
         catalog = comfyui_client.get("/api/v1/custom-providers/endpoints").json()["endpoints"]
         entry = next(e for e in catalog if e["key"] == key)
@@ -121,7 +121,8 @@ class TestComfyuiProviderCreation:
         catalog = comfyui_client.get("/api/v1/custom-providers/endpoints").json()["endpoints"]
         entry = next(e for e in catalog if e["key"] == key)
         assert entry["media_type"] == "image"
-        assert entry["image_capabilities"] == []
+        # 夹具没有参考图绑定：这份 workflow 只走得通文生图那一条（``docs/adr/0082``）。
+        assert entry["image_capabilities"] == ["text_to_image"]
 
 
 # ---------------------------------------------------------------------------
@@ -413,3 +414,82 @@ class TestComfyuiCapabilityOverrides:
             await session.commit()
         read_back = comfyui_client.get(f"/api/v1/custom-providers/{provider['id']}").json()
         assert read_back["models"][0]["capability_overrides"] is None
+
+
+def _comfyui_spec(definition: dict[str, Any]):
+    from lib.custom_provider.endpoints import comfyui_endpoint_spec
+
+    return comfyui_endpoint_spec("ce-7", definition)
+
+
+def _with_frames(**frames_extra: Any) -> dict[str, Any]:
+    """一份帧数可驱动的定义：``length`` 字面 81、``fps`` 只读绑定读出 16 → 原生 5 秒。"""
+    definition = comfyui_endpoint_definition()
+    definition["workflow"]["5"]["inputs"]["length"] = 81
+    definition["bindings"]["frames"] = [
+        {"node": "5", "input": "length", "class_type": "EmptyLatentImage", **frames_extra}
+    ]
+    return definition
+
+
+class TestComfyuiSupportedDurations:
+    """时长档位由节点绑定决定，不走模型名启发式（``docs/adr/0082``）。"""
+
+    def test_the_default_tier_is_the_workflow_native_duration(self):
+        from server.routers.custom_providers import ModelInput
+
+        model = ModelInput(model_id="my-wan-workflow", display_name="m", endpoint="ce-7")
+
+        assert model.to_db_dict(_comfyui_spec(_with_frames()))["supported_durations"] == "[5]"
+
+    def test_the_model_name_heuristic_never_runs_on_this_protocol(self):
+        """``my-wan-workflow`` 在启发式预设表里会得到 ``[4, 8]``，与这份 workflow 毫无关系。"""
+        from lib.custom_provider.duration_presets import infer_supported_durations
+        from server.routers.custom_providers import ModelInput
+
+        model = ModelInput(model_id="my-wan-workflow", display_name="m", endpoint="ce-7")
+
+        assert infer_supported_durations("my-wan-workflow") == [4, 8]
+        assert model.to_db_dict(_comfyui_spec(_with_frames()))["supported_durations"] == "[5]"
+
+    def test_a_user_edited_tier_is_kept_when_frames_are_drivable(self):
+        from server.routers.custom_providers import ModelInput
+
+        model = ModelInput(model_id="m", display_name="m", endpoint="ce-7", supported_durations=[3, 5, 8])
+
+        assert model.to_db_dict(_comfyui_spec(_with_frames()))["supported_durations"] == "[3, 5, 8]"
+
+    def test_frames_unbound_pins_the_tier_to_the_empty_set(self):
+        """时长固定的 workflow 上用户改不动档位，传什么都钉回空集。"""
+        from server.routers.custom_providers import ModelInput
+
+        model = ModelInput(model_id="m", display_name="m", endpoint="ce-7", supported_durations=[3, 5])
+
+        assert model.to_db_dict(_comfyui_spec(comfyui_endpoint_definition()))["supported_durations"] == "[]"
+
+    def test_frames_bound_without_a_frame_rate_source_pins_it_too(self):
+        from server.routers.custom_providers import ModelInput
+
+        definition = _with_frames()
+        definition["bindings"].pop("fps")
+        model = ModelInput(model_id="m", display_name="m", endpoint="ce-7", supported_durations=[3, 5])
+
+        assert model.to_db_dict(_comfyui_spec(definition))["supported_durations"] == "[]"
+
+    def test_a_manual_frame_rate_on_the_entry_makes_the_tier_derivable_again(self):
+        from server.routers.custom_providers import ModelInput
+
+        definition = _with_frames(fps=20)
+        definition["bindings"].pop("fps")
+        model = ModelInput(model_id="m", display_name="m", endpoint="ce-7")
+
+        assert model.to_db_dict(_comfyui_spec(definition))["supported_durations"] == "[4]"
+
+    def test_an_image_comfyui_endpoint_stores_no_tier_at_all(self):
+        from server.routers.custom_providers import ModelInput
+
+        definition = comfyui_endpoint_definition(media_type="image")
+        definition["bindings"].pop("fps")
+        model = ModelInput(model_id="m", display_name="m", endpoint="ce-7")
+
+        assert model.to_db_dict(_comfyui_spec(definition))["supported_durations"] is None

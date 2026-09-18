@@ -231,6 +231,44 @@ class TestReferenceImageConsumer:
         assert not validate_definition(definition).valid
 
 
+class TestSingleFrameRateSourceOfTruth:
+    def test_two_read_only_fps_bindings_with_different_literals_are_refused(self):
+        """一个帧率要套到全部帧数目标上；两个字面值时这份定义说不清 workflow 跑在哪个帧率上。"""
+        definition = comfyui_endpoint_definition()
+        definition["workflow"]["21"] = {"class_type": "CreateVideo", "inputs": {"fps": 24}}
+        definition["bindings"]["fps"].append(
+            {"node": "21", "input": "fps", "class_type": "CreateVideo", "direction": "read"}
+        )
+
+        assert ("bindings.fps", "comfyui_fps_conflict") in _codes(validate_definition(definition))
+
+    def test_a_manually_typed_fps_that_contradicts_the_binding_is_refused_too(self):
+        definition = comfyui_endpoint_definition()
+        definition["workflow"]["5"]["inputs"]["length"] = 81
+        definition["bindings"]["frames"] = [
+            {"node": "5", "input": "length", "class_type": "EmptyLatentImage", "fps": 30}
+        ]
+
+        assert ("bindings.fps", "comfyui_fps_conflict") in _codes(validate_definition(definition))
+
+    def test_several_sources_agreeing_on_one_value_pass(self):
+        definition = comfyui_endpoint_definition()
+        definition["workflow"]["21"] = {"class_type": "CreateVideo", "inputs": {"fps": 16}}
+        definition["bindings"]["fps"].append(
+            {"node": "21", "input": "fps", "class_type": "CreateVideo", "direction": "read"}
+        )
+        definition["workflow"]["5"]["inputs"]["length"] = 81
+        definition["bindings"]["frames"] = [
+            {"node": "5", "input": "length", "class_type": "EmptyLatentImage", "fps": 16}
+        ]
+
+        assert validate_definition(definition).errors == ()
+
+    def test_an_image_endpoint_is_out_of_scope(self):
+        """图像端点没有帧数与帧率这两个语义键，不进此判。"""
+        assert validate_definition(_image_endpoint()).errors == ()
+
+
 class TestAuthScope:
     def test_the_api_key_placeholder_is_refused_outside_auth(self):
         """workflow 是原样内嵌的底稿，里面写占位符既不生效，又会随导出文件把凭证分发出去。"""

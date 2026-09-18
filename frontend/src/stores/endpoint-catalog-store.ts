@@ -13,6 +13,16 @@ export interface EndpointPath {
   path: string;
 }
 
+/** 一个端点对尺寸与时长这两维的约束。只有 ComfyUI 端点会取非默认值（docs/adr/0082）。 */
+export interface EndpointConstraints {
+  sizeFixed: boolean;
+  /** 只决定时长只读态的文案：workflow 天生时长固定，还是它没提供帧率。 */
+  durationFixed: boolean;
+  /** 时长这一维给不出任何档位——档位编辑区只读、项目页的时长控件不渲染，判据取这一位。 */
+  durationTierEmpty: boolean;
+  nativeResolution: string | null;
+}
+
 interface EndpointCatalogState {
   endpoints: EndpointDescriptor[];
   /** key → media_type，组件层不再每次重 derive。 */
@@ -23,6 +33,8 @@ interface EndpointCatalogState {
   endpointToImageCapabilities: Record<string, ImageCap[]>;
   /** key → 执行层是否下传尾帧约束（仅 video 类为 true）；决定 last_frame 覆盖能否强制开启。 */
   endpointToEndImageCapable: Record<string, boolean>;
+  /** key → 参数约束三项：尺寸 / 时长这两维该端点驱不驱动得了，以及不选档位时的原生分辨率。 */
+  endpointConstraints: Record<string, EndpointConstraints>;
   loading: boolean;
   initialized: boolean;
   /** 短路：已初始化或加载中 → 直接 return；否则触发一次 refresh。 */
@@ -36,11 +48,13 @@ function deriveMaps(endpoints: EndpointDescriptor[]): {
   endpointPaths: Record<string, EndpointPath>;
   endpointToImageCapabilities: Record<string, ImageCap[]>;
   endpointToEndImageCapable: Record<string, boolean>;
+  endpointConstraints: Record<string, EndpointConstraints>;
 } {
   const endpointToMediaType: Record<string, MediaType> = {};
   const endpointPaths: Record<string, EndpointPath> = {};
   const endpointToImageCapabilities: Record<string, ImageCap[]> = {};
   const endpointToEndImageCapable: Record<string, boolean> = {};
+  const endpointConstraints: Record<string, EndpointConstraints> = {};
   for (const e of endpoints) {
     endpointToMediaType[e.key] = e.media_type;
     endpointPaths[e.key] = { method: e.request_method, path: e.request_path_template };
@@ -48,8 +62,20 @@ function deriveMaps(endpoints: EndpointDescriptor[]): {
       endpointToImageCapabilities[e.key] = e.image_capabilities;
     }
     endpointToEndImageCapable[e.key] = e.end_image_capable;
+    endpointConstraints[e.key] = {
+      sizeFixed: e.size_fixed,
+      durationFixed: e.duration_fixed,
+      durationTierEmpty: e.duration_tier_empty,
+      nativeResolution: e.native_resolution,
+    };
   }
-  return { endpointToMediaType, endpointPaths, endpointToImageCapabilities, endpointToEndImageCapable };
+  return {
+    endpointToMediaType,
+    endpointPaths,
+    endpointToImageCapabilities,
+    endpointToEndImageCapable,
+    endpointConstraints,
+  };
 }
 
 export const useEndpointCatalogStore = create<EndpointCatalogState>((set, get) => ({
@@ -58,6 +84,7 @@ export const useEndpointCatalogStore = create<EndpointCatalogState>((set, get) =
   endpointPaths: {},
   endpointToImageCapabilities: {},
   endpointToEndImageCapable: {},
+  endpointConstraints: {},
   loading: false,
   initialized: false,
 
@@ -71,14 +98,20 @@ export const useEndpointCatalogStore = create<EndpointCatalogState>((set, get) =
     set({ loading: true });
     try {
       const res = await API.listEndpointCatalog();
-      const { endpointToMediaType, endpointPaths, endpointToImageCapabilities, endpointToEndImageCapable } =
-        deriveMaps(res.endpoints);
+      const {
+        endpointToMediaType,
+        endpointPaths,
+        endpointToImageCapabilities,
+        endpointToEndImageCapable,
+        endpointConstraints,
+      } = deriveMaps(res.endpoints);
       set({
         endpoints: res.endpoints,
         endpointToMediaType,
         endpointPaths,
         endpointToImageCapabilities,
         endpointToEndImageCapable,
+        endpointConstraints,
         loading: false,
         initialized: true,
       });

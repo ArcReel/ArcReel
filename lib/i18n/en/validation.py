@@ -364,6 +364,10 @@ MESSAGES = {
         "The flow from reference image node {node} never reaches input {input} of node {consumer}: with the wrong "
         "consumer recorded, a request with fewer images would rewire an unrelated input"
     ),
+    "val_ce_comfyui_fps_conflict": (
+        "The frame rate has several conflicting sources ({values}): converting a duration into a frame count needs "
+        "exactly one frame rate, so keep only one of them"
+    ),
     "val_ce_comfyui_ui_format_workflow": (
         "This is a ComfyUI UI-format workflow and cannot be submitted; export it with Export (API) in ComfyUI instead"
     ),

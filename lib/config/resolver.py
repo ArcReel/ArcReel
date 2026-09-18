@@ -655,6 +655,15 @@ def duration_constraints_report(
     }
 
 
+#: 时长这一维由端点固定的模型行，在剧本规划里借用的档位。
+#:
+#: 这不是「这个模型支持几秒」——那一维不由 ArcReel 驱动，成片多长以 workflow 为准。它只是剧本
+#: 规划需要的「一个分镜大概多长」的篇幅依据：没有它，分镜拆不出来，整条规划链就断在
+#: :func:`resolve_raw_supported_durations` 返回 None 上。取值与 ``duration_presets`` 的无信息兜底
+#: 同为 ``[4, 8]``，但不从那里 import——``lib.config`` 按分层契约够不到 ``lib.custom_provider``。
+ENDPOINT_FIXED_PLANNING_DURATIONS: list[int] = [4, 8]
+
+
 def resolve_raw_supported_durations(project: dict, caps: dict | None = None) -> list[int] | None:
     """收窄前的时长全集：caps → registry 两级解析。
 
@@ -663,6 +672,12 @@ def resolve_raw_supported_durations(project: dict, caps: dict | None = None) -> 
     先解析 caps 再调本函数，不带 caps 调用对这类项目恒为 None。本函数本身保持同步，供仍在
     同步路径上的调用方（归档导入）复用同一份 registry 解析。
 
+    档位是空集且 caps 报了 ``duration_endpoint_fixed`` 时不走 registry、也不返回 None，而是给出
+    :data:`ENDPOINT_FIXED_PLANNING_DURATIONS`：那种模型行的时长不由 ArcReel 驱动（ComfyUI 的
+    workflow 自己决定出多长），但剧本规划仍要有个篇幅依据，否则整条规划链会以「型号配置不全」
+    的名义断掉——而那份配置其实是完整的。界面侧不受影响：能力查询回的 ``supported_durations``
+    与 ``duration_constraints.allowed`` 仍是空集，时长控件照常禁用。
+
     registry 级的项目自报身份按 generation_mode 定桶取（``project_video_backend_ids``），不直取
     项目默认层——降级掉的只是 DB，桶键就在同一个 project.json 里。
 
@@ -670,6 +685,8 @@ def resolve_raw_supported_durations(project: dict, caps: dict | None = None) -> 
     """
     if caps and caps.get("supported_durations"):
         return list(caps["supported_durations"])
+    if caps and caps.get("duration_endpoint_fixed"):
+        return list(ENDPOINT_FIXED_PLANNING_DURATIONS)
     ids = project_video_backend_ids(project)
     if ids is not None:
         provider_meta = PROVIDER_REGISTRY.get(ids[0])
@@ -1011,8 +1028,8 @@ class ConfigResolver:
             {
               "provider_id": str,
               "model": str,
-              "supported_durations": list[int],    # 来自 model (单一真相源)
-              "max_duration": int,                 # max(supported_durations) 派生
+              "supported_durations": list[int],    # 来自 model (单一真相源)；ComfyUI 端点上可为空集
+              "max_duration": int,                 # max(supported_durations) 派生；空集时为 0
               "max_reference_images": int,         # backend 声明；custom: 合成后的生效值
               "first_frame": bool,                 # 生效值（系统判定 ⊕ 用户覆盖），与执行层同源
               "last_frame": bool,                  # 同上
@@ -1030,7 +1047,8 @@ class ConfigResolver:
             }
 
         Raises:
-            ValueError: 当 video_backend 解析失败 / model 找不到 / supported_durations 为空。
+            ValueError: 当 video_backend 解析失败 / model 找不到 / supported_durations 为空
+                （ComfyUI 端点除外：该协议上空集是「时长不由 ArcReel 驱动」的合法态）。
             VideoBucketCapabilityError: （ValueError 子类）解析出的模型缺该桶所需能力，或配置
                 引用已不可用。
         """
@@ -1588,6 +1606,11 @@ class ConfigResolver:
             # 挡在入队之外。与上一行 default_tier_generates_audio 同口径：无信号时假定有声、
             # 开关保持可控，不凭空判定为真无声模型。
             has_audio = True
+            # ComfyUI 端点的时长可以整维不由 ArcReel 驱动（``docs/adr/0082``）：``frames`` 未绑定
+            # 或读不到帧率来源时，该模型行的档位就是空集，提交时不下发时长、让 workflow 出它自己
+            # 那一档。这是该协议的合法状态，不适用下面那条「空集即 fail loud」——ADR 0018 守的是
+            # 「型号声明缺失」，而这里是「这一维在该端点上不存在」。其余协议照旧 fail loud。
+            durations_optional = endpoint_spec.duration_tier_optional
             raw_durations = model.supported_durations
             supported_durations: list[int] = []
             if raw_durations:
@@ -1601,6 +1624,7 @@ class ConfigResolver:
                     supported_durations = [int(d) for d in parsed]
         else:
             source = "registry"
+            durations_optional = False
             provider_meta = PROVIDER_REGISTRY.get(provider_id)
             if provider_meta is None:
                 raise ValueError(f"provider not in PROVIDER_REGISTRY: {provider_id}")
@@ -1632,10 +1656,12 @@ class ConfigResolver:
                     f"cannot resolve video pricing capabilities for {provider_id}/{model_id}: {exc}"
                 ) from exc
 
-        if not supported_durations:
+        if not supported_durations and not durations_optional:
             raise ValueError(f"supported_durations is empty for {provider_id}/{model_id}; cannot derive capabilities")
 
-        max_duration = max(supported_durations)
+        # 空集时 ``max_duration`` 为 0，与 ``supported_durations == []`` 同义：这一维不由 ArcReel
+        # 驱动，消费方不该从它派生任何可选档位，界面据此禁用时长控件。
+        max_duration = max(supported_durations, default=0)
 
         # requested_generate_audio 是**用户的无声意图**（全局设置 ← project.json 覆盖），与执行层
         # MediaGenerator 读的 video_generate_audio 同源；下面的 generate_audio 是**计价口径**（叠加了
@@ -1706,6 +1732,9 @@ class ConfigResolver:
             "max_reference_audio_count": max_reference_audio_count,
             "reference_audio_per_image": reference_audio_per_image,
             "source": source,
+            # 档位是空集且该端点允许空集 = 这一维由端点固定（CONTEXT.md「维度由端点固定」）。
+            # 消费方据此区分「这一维在该端点上不存在」与「档位声明缺失」——后者已在上面 fail loud。
+            "duration_endpoint_fixed": not supported_durations and durations_optional,
             "default_duration": default_duration,
             "episode_target_duration": episode_target_duration,
             "content_mode": content_mode,

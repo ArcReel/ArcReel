@@ -107,6 +107,7 @@ class DefinitionErrorCode(StrEnum):
     COMFYUI_TARGET_COLLISION = "comfyui_target_collision"
     COMFYUI_CLASS_TYPE_MISMATCH = "comfyui_class_type_mismatch"
     COMFYUI_CONSUMER_NOT_FED = "comfyui_consumer_not_fed"
+    COMFYUI_FPS_CONFLICT = "comfyui_fps_conflict"
 
     # ---- ComfyUI 导入分流 ----
     COMFYUI_UI_FORMAT_WORKFLOW = "comfyui_ui_format_workflow"

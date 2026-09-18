@@ -214,8 +214,12 @@ _Avoid_: 用 resolution 指代供应商解析。
 _Avoid_: 把 size 当比例或清晰度的同义词。
 
 **可选时长（supported_durations）**：
-某视频模型允许的离散时长集合（秒）（见 `docs/adr/0018`）。
-_Avoid_: 全局时长白名单。
+某视频模型允许的离散时长集合（秒）（见 `docs/adr/0018`）。空集只在时长这一维「由端点固定」时成立，其余情形的空集是配置缺陷、解析期 fail loud。
+_Avoid_: 全局时长白名单；把「由端点固定」的空集当作配置缺失去补默认值。
+
+**维度由端点固定（endpoint-fixed dimension）**：
+尺寸或时长这一维不由 ArcReel 驱动、只由端点自身决定的状态；当前只有 ComfyUI 端点会进入——宽高两侧不都有节点绑定即尺寸固定，`frames` 未绑定即时长固定（见 `docs/adr/0082`）。对应的选择器在界面上禁用并给出可见的原因说明，提交时该维度不下发。
+_Avoid_: 把它说成「不支持该维度」或「配置缺失」；只绑宽高一侧就当尺寸可驱动。
 
 **时长联动约束（duration_resolution_constraints / reference_image_durations）**：
 在 `supported_durations` 全集之上，按分辨率或参考图上下文进一步收窄可选时长的两条逐模型声明。收窄规则只在后端 `lib/config/resolver.py` 求值，收窄结果与成因经 video-capabilities 端点的 `duration_constraints` 回传，前端只查表。

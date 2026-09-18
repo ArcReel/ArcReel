@@ -712,6 +712,90 @@ class TestVideoCapabilities:
         # newapi-video endpoint 不接受参考图，max=0（来源：EndpointSpec.video_max_reference_images）
         assert caps["max_reference_images"] == 0
 
+    async def test_a_comfyui_row_with_an_empty_tier_resolves_instead_of_failing_loud(self, db_factory):
+        """时长可以整维不由 ArcReel 驱动（``docs/adr/0082``）：空集在该协议上是合法态。
+
+        ADR 0018 的「空集即 fail loud」守的是「型号声明缺失」，而这里是「这一维在该端点上不存在」
+        ——``frames`` 未绑定的 workflow 出它自己那一档，界面据此禁用时长控件。
+        """
+        from lib.db.models.custom_endpoint import CustomEndpoint
+        from lib.db.models.custom_provider import CustomProvider, CustomProviderModel
+        from tests.factories import comfyui_endpoint_definition
+
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(settings={})
+        async with db_factory() as session:
+            definition = comfyui_endpoint_definition()
+            definition["bindings"]["start_image"] = [{"node": "11", "input": "image", "class_type": "LoadImage"}]
+            endpoint = CustomEndpoint(
+                definition=definition,
+                kind="comfyui",
+                schema_version="1.0.0",
+                media_type="video",
+                display_name="示例 ComfyUI 端点",
+            )
+            session.add(endpoint)
+            provider = CustomProvider(
+                display_name="Comfy", discovery_format="comfyui", base_url="http://comfy.test:8188", api_key=""
+            )
+            session.add(provider)
+            await session.flush()
+            session.add(
+                CustomProviderModel(
+                    provider_id=provider.id,
+                    model_id="my-wan-workflow",
+                    display_name="My Workflow",
+                    endpoint=f"ce-{endpoint.id}",
+                    supported_durations="[]",
+                )
+            )
+            await session.flush()
+
+            with patch("lib.config.resolver.get_project_manager") as mock_pm:
+                mock_pm.return_value.load_project.return_value = {
+                    "video_backend": f"custom-{provider.id}/my-wan-workflow",
+                }
+                caps = await resolver._resolve_video_capabilities(fake_svc, session, "demo")
+
+        assert caps["supported_durations"] == []
+        assert caps["max_duration"] == 0
+        assert caps["duration_constraints"]["allowed"] == []
+        # 这一位把「这一维由端点固定」与「档位声明缺失」分开，剧本规划据它借篇幅依据而不是报错。
+        assert caps["duration_endpoint_fixed"] is True
+        # 能力位照常由绑定推导，与时长这一维互不牵连。
+        assert caps["first_frame"] is True
+        assert caps["text_to_video"] is False
+
+    async def test_a_non_comfyui_row_with_an_empty_tier_still_fails_loud(self, db_factory):
+        """ADR 0018 对其余协议不变：档位声明缺失仍要把用户引到配置页去修。"""
+        from lib.db.models.custom_provider import CustomProvider, CustomProviderModel
+
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(settings={})
+        async with db_factory() as session:
+            provider = CustomProvider(
+                display_name="Custom X", discovery_format="openai", base_url="https://example.com", api_key="xxx"
+            )
+            session.add(provider)
+            await session.flush()
+            session.add(
+                CustomProviderModel(
+                    provider_id=provider.id,
+                    model_id="my-video-model",
+                    display_name="My Video",
+                    endpoint="newapi-video",
+                    supported_durations="[]",
+                )
+            )
+            await session.flush()
+
+            with patch("lib.config.resolver.get_project_manager") as mock_pm:
+                mock_pm.return_value.load_project.return_value = {
+                    "video_backend": f"custom-{provider.id}/my-video-model",
+                }
+                with pytest.raises(ValueError, match="supported_durations is empty"):
+                    await resolver._resolve_video_capabilities(fake_svc, session, "demo")
+
     async def test_custom_video_openai_endpoint_resolves_max_one(self, db_factory):
         """custom-<id>/<model> 经 openai-video endpoint 解析出 max_reference_images=1（不再静默落 9）。"""
         from lib.db.models.custom_provider import CustomProvider, CustomProviderModel

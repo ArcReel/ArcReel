@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 from urllib.parse import urlsplit
 
+from lib.aspect_size import IMAGE_TIER_SHORT_EDGE, VIDEO_TIER_SHORT_EDGE, short_edge_to_resolution
 from lib.audio_backends.openai import OpenAIAudioBackend
 from lib.config.url_utils import ensure_google_base_url, ensure_openai_base_url
 from lib.custom_provider import is_custom_endpoint
@@ -35,8 +36,17 @@ from lib.custom_provider.builtin_definitions import (
     declarative_video_capabilities,
     load_builtin_definitions,
 )
+from lib.custom_provider.comfyui.capabilities import (
+    default_supported_durations,
+    derive_video_capabilities,
+    duration_is_fixed,
+    native_short_edge,
+    size_is_fixed,
+    takes_reference_images,
+)
 from lib.custom_provider.comfyui_backend import ComfyuiVideoBackend
 from lib.custom_provider.declarative_backend import DeclarativeVideoBackend, request_urls
+from lib.custom_provider.endpoint_definition.kinds import COMFYUI_KIND
 from lib.image_backends.base import ImageCapability
 from lib.image_backends.dashscope import DashScopeImageBackend
 from lib.image_backends.gemini import GeminiImageBackend
@@ -46,7 +56,7 @@ from lib.image_backends.openai import OpenAIImageBackend
 from lib.text_backends.gemini import GeminiTextBackend
 from lib.text_backends.openai import OpenAITextBackend
 from lib.video_backends.ark import ArkVideoBackend
-from lib.video_backends.base import ReferenceAudioMode, VideoCapabilities
+from lib.video_backends.base import ReferenceAudioMode, VideoAudioMode, VideoCapabilities
 from lib.video_backends.dashscope import DashScopeVideoBackend, classify_wan_model
 from lib.video_backends.kling import KlingVideoBackend
 from lib.video_backends.openai import OpenAIVideoBackend
@@ -112,6 +122,65 @@ class EndpointSpec:
         ``python`` 不是定义容器的 kind——它没有定义可读，是「没有定义」这件事本身的名字。
         """
         return "python" if self.definition is None else str(self.definition["kind"])
+
+    @property
+    def duration_tier_optional(self) -> bool:
+        """该端点的 ``supported_durations`` 允不允许是空集。
+
+        ComfyUI 端点的时长可以整维不由 ArcReel 驱动（``docs/adr/0082``）：``frames`` 未绑定或读不到
+        帧率来源时，这份 workflow 出它自己那一档，档位空集是如实的声明而非缺失。其余端点照 ADR 0018
+        办——空集即配置缺陷，解析期 fail loud 把用户引回配置页。
+
+        判据挂在 spec 上而不是留给各消费方比 ``kind``：能力解析在 ``lib.config`` 层，那一层按分层
+        契约够不到 ``kind`` 常量所在的模块，取一个已解析好的 spec 上的属性则无需 import。
+        """
+        return self.kind == COMFYUI_KIND
+
+    @property
+    def size_fixed(self) -> bool:
+        """尺寸这一维是不是由端点固定、比例与分辨率选择对它无效。
+
+        只有 ComfyUI 端点会为真：宽高两侧不都有节点绑定时 ArcReel 驱动不动尺寸，界面据此禁用
+        分辨率选择器并明示，而不是照收用户的选择再在填值期丢掉。其余端点的尺寸一律由请求参数
+        决定，没有「固定」这一形态。
+        """
+        return self.definition is not None and self.kind == COMFYUI_KIND and size_is_fixed(self.definition["bindings"])
+
+    @property
+    def duration_fixed(self) -> bool:
+        """时长这一维是不是由端点固定：ComfyUI 端点上 ``frames`` 未绑定即为真。
+
+        与 :attr:`duration_tier_optional` 是两件事：后者说的是「档位允不允许是空集」，本属性说的
+        是「用户能不能编辑档位」。绑了 ``frames`` 却读不到帧率来源时档位同样是空集，但那是一份
+        可修的定义（补一个 ``fps`` 绑定或手填帧率），不是这份 workflow 的时长天生固定。
+        """
+        return (
+            self.definition is not None and self.kind == COMFYUI_KIND and duration_is_fixed(self.definition["bindings"])
+        )
+
+    @property
+    def duration_tier_empty(self) -> bool:
+        """时长这一维根本给不出档位：ComfyUI 端点上原生时长推不出来即为真。
+
+        两支都落在这里——``frames`` 未绑定（读不到字面帧数），以及绑了 ``frames`` 却没有帧率来源
+        （既无 ``fps`` 只读绑定、也无条目手填 fps）。界面的只读与禁用判据是本属性而不是
+        :attr:`duration_fixed`：用户编不动的是「档位为空」这件事，而 :attr:`duration_fixed` 只决定
+        说给用户听的是哪一句——「这份 workflow 时长天生固定」还是「它没提供帧率，补一处就能恢复」。
+        """
+        if self.definition is None or self.kind != COMFYUI_KIND or self.media_type != "video":
+            return False
+        return not default_supported_durations(self.definition)
+
+    @property
+    def native_resolution(self) -> str | None:
+        """这份 workflow 不选分辨率档位时实际会出的那一档；非 ComfyUI 端点或读不出字面尺寸时 None。"""
+        if self.definition is None or self.kind != COMFYUI_KIND:
+            return None
+        short_edge = native_short_edge(self.definition)
+        if short_edge is None:
+            return None
+        tier_map = IMAGE_TIER_SHORT_EDGE if self.media_type == "image" else VIDEO_TIER_SHORT_EDGE
+        return short_edge_to_resolution(short_edge, tier_map=tier_map)
 
     @property
     def display_name(self) -> str | None:
@@ -567,20 +636,40 @@ def _build_comfyui_runtime(
     return build
 
 
+def _comfyui_image_capabilities(definition: Mapping[str, Any]) -> frozenset[ImageCapability]:
+    """图像 ComfyUI 端点的能力集：有参考图格子即仅图生图，没有即仅文生图（``docs/adr/0082``）。"""
+    if takes_reference_images(definition):
+        return frozenset({ImageCapability.IMAGE_TO_IMAGE})
+    return frozenset({ImageCapability.TEXT_TO_IMAGE})
+
+
 def comfyui_endpoint_spec(key: str, definition: Mapping[str, Any]) -> EndpointSpec:
     """把一份 ComfyUI 定义派生成 EndpointSpec。纯函数：不读库、不发请求。
 
     媒体类型读定义自身声明的 ``media_type``——一份 workflow 产图还是产视频只有它自己知道。能力
-    位一律留空而不是沿用 :class:`VideoCapabilities` 的宽松默认：能力由节点绑定推导，推导尚未
-    落地时宣称「支持文生视频、支持首帧」会让设置页展示一份执行层兑现不了的声明。
+    全部从节点绑定推导（``docs/adr/0082``），不看模型名也不读定义里的能力声明（定义里没有那一
+    节）：能力对每个 model 是同一份，因为 workflow 只有一份，模型行换名字不改它能做什么。
 
     实现落在本模块而非 ``comfyui`` 子包：子包受「不依赖声明式运行时」的 import 契约约束，而
-    ``EndpointSpec`` 与它的不变式都在这里，子包够到本模块即间接够到声明式 backend。
+    ``EndpointSpec`` 与它的不变式都在这里，子包够到本模块即间接够到声明式 backend。推导本身在
+    子包的 ``comfyui.capabilities`` 里——它只依赖绑定表与 workflow，与 ``EndpointSpec`` 无关。
     """
     media_type = str(definition["media_type"])
     is_video = media_type == "video"
-    # 能力对每个 model 是同一份：workflow 只有一份，模型行换名字不改它能做什么。
-    caps = VideoCapabilities(text_to_video=False, first_frame=False)
+    # 绑定表的结论在子包里推，装进 backend 层的能力类型在这里做：子包够不到 VideoCapabilities
+    # （import 契约，见上）。参考音频三项与提示词上限保持默认——绑定表里没有对应的语义键。
+    bound = derive_video_capabilities(definition) if is_video else None
+    caps = (
+        VideoCapabilities(
+            text_to_video=bound.text_to_video,
+            first_frame=bound.first_frame,
+            last_frame=bound.last_frame,
+            max_reference_images=bound.max_reference_images,
+            audio_track=VideoAudioMode(bound.audio_track),
+        )
+        if bound is not None
+        else None
+    )
     spec = EndpointSpec(
         key=key,
         media_type=media_type,
@@ -593,8 +682,10 @@ def comfyui_endpoint_spec(key: str, definition: Mapping[str, Any]) -> EndpointSp
         request_method="POST",
         request_path_template="/prompt",
         build_backend=_build_comfyui_runtime(definition),
-        image_capabilities=None if is_video else frozenset(),
-        video_caps_for_model=(lambda _model_id: caps) if is_video else None,
+        image_capabilities=None if is_video else _comfyui_image_capabilities(definition),
+        video_caps_for_model=(lambda _model_id: caps) if caps is not None else None,
+        # 两个运输位与声明式端点同处理：从 caps 反推，而不是各写一份判据。
+        end_image_capable=caps.last_frame if caps is not None else False,
         definition=definition,
     )
     validate_video_caps_declaration(spec)
@@ -688,6 +779,11 @@ def endpoint_spec_to_dict(spec: EndpointSpec) -> dict:
     data.pop("definition", None)
     data["kind"] = spec.kind
     data["display_name"] = spec.display_name
+    # 参数约束的投影：界面据此禁用分辨率 / 时长控件并写出空值占位，判据与执行层同源。
+    data["size_fixed"] = spec.size_fixed
+    data["duration_fixed"] = spec.duration_fixed
+    data["duration_tier_empty"] = spec.duration_tier_empty
+    data["native_resolution"] = spec.native_resolution
     if spec.image_capabilities is not None:
         data["image_capabilities"] = sorted(c.value for c in spec.image_capabilities)
     else:

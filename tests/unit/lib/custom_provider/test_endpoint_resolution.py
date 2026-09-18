@@ -18,7 +18,8 @@ from lib.custom_provider.endpoint_resolution import (
 )
 from lib.custom_provider.endpoints import ENDPOINT_REGISTRY, get_endpoint_spec
 from lib.db.repositories.custom_endpoint_repo import CustomEndpointRepository
-from lib.video_backends.base import ReferenceAudioMode
+from lib.image_backends.base import ImageCapability
+from lib.video_backends.base import ReferenceAudioMode, VideoAudioMode
 from tests.factories import comfyui_endpoint_definition, custom_endpoint_definition
 
 if TYPE_CHECKING:
@@ -118,19 +119,145 @@ class TestKindDispatch:
         assert spec.source == "custom"
         assert spec.display_name == "示例 ComfyUI 端点"
 
-    def test_a_comfyui_spec_declares_no_capabilities_yet(self):
-        """能力由节点绑定推导，推导未落地时一位都不宣称——宽松默认会让设置页展示执行层兑现不了的声明。"""
+    def test_a_comfyui_spec_reads_its_capabilities_off_the_bindings(self):
+        """夹具没有任何图绑定：纯文生视频，首尾帧与参考图都不支持。"""
         row = SimpleNamespace(id=7, definition=comfyui_endpoint_definition())
 
         spec = endpoint_spec_from_row(cast("CustomEndpoint", row))
         caps = spec.video_caps_for_model("wan-t2v") if spec.video_caps_for_model else None
 
         assert caps is not None
-        assert caps.text_to_video is False
+        assert caps.text_to_video is True
         assert caps.first_frame is False
         assert caps.max_reference_images == 0
         assert spec.end_image_capable is False
         assert spec.reference_audio_capable is False
+
+    def test_the_dimensions_the_bindings_say_nothing_about_stay_unclaimed(self):
+        """绑定表里没有对应语义键的维度保持 ``VideoCapabilities`` 的默认值，不凭空声明。"""
+        row = SimpleNamespace(id=7, definition=comfyui_endpoint_definition())
+
+        spec = endpoint_spec_from_row(cast("CustomEndpoint", row))
+        caps = spec.video_caps_for_model("m") if spec.video_caps_for_model else None
+
+        assert caps is not None
+        assert caps.reference_audio_mode is ReferenceAudioMode.NONE
+        assert caps.max_reference_audio_count == 0
+        assert caps.max_prompt_chars is None
+        assert caps.first_frame_ratio_adaptive_only is False
+
+    def test_the_audio_track_is_read_off_the_output_chain_and_is_never_controllable(self):
+        definition = comfyui_endpoint_definition()
+        definition["workflow"]["20"] = {"class_type": "VHS_VideoCombine", "inputs": {"audio": ["21", 0]}}
+        definition["bindings"]["output"] = [{"node": "20", "class_type": "VHS_VideoCombine"}]
+        row = SimpleNamespace(id=7, definition=definition)
+
+        spec = endpoint_spec_from_row(cast("CustomEndpoint", row))
+        caps = spec.video_caps_for_model("m") if spec.video_caps_for_model else None
+
+        assert caps is not None
+        assert caps.audio_track is VideoAudioMode.ALWAYS_ON
+        assert caps.audio_track_for_route("r2v") is VideoAudioMode.ALWAYS_ON
+
+    def test_the_size_dimension_is_fixed_unless_both_sides_are_bound(self):
+        drivable = SimpleNamespace(id=7, definition=comfyui_endpoint_definition())
+        one_sided = comfyui_endpoint_definition()
+        one_sided["bindings"].pop("height")
+
+        assert endpoint_spec_from_row(cast("CustomEndpoint", drivable)).size_fixed is False
+        assert endpoint_spec_from_row(cast("CustomEndpoint", SimpleNamespace(id=7, definition=one_sided))).size_fixed
+
+    def test_the_duration_dimension_is_fixed_when_frames_are_unbound(self):
+        """``duration_fixed`` 与 ``duration_tier_optional`` 是两件事：前者说用户编不编得动档位。"""
+        fixed = SimpleNamespace(id=7, definition=comfyui_endpoint_definition())
+        drivable = comfyui_endpoint_definition()
+        drivable["bindings"]["frames"] = [{"node": "5", "input": "length", "class_type": "EmptyLatentImage"}]
+
+        assert endpoint_spec_from_row(cast("CustomEndpoint", fixed)).duration_fixed is True
+        spec = endpoint_spec_from_row(cast("CustomEndpoint", SimpleNamespace(id=7, definition=drivable)))
+        assert spec.duration_fixed is False
+        assert spec.duration_tier_optional is True
+
+    def test_both_ways_of_having_no_tier_report_the_same_empty_bit(self):
+        """界面的只读 / 禁用判据是「档位为空」，两支都要为真；``duration_fixed`` 只挑文案。"""
+        unbound = SimpleNamespace(id=7, definition=comfyui_endpoint_definition())
+        no_fps = comfyui_endpoint_definition()
+        no_fps["workflow"]["5"]["inputs"]["length"] = 81
+        no_fps["bindings"].pop("fps")
+        no_fps["bindings"]["frames"] = [{"node": "5", "input": "length", "class_type": "EmptyLatentImage"}]
+        derivable = comfyui_endpoint_definition()
+        derivable["workflow"]["5"]["inputs"]["length"] = 81
+        derivable["bindings"]["frames"] = [{"node": "5", "input": "length", "class_type": "EmptyLatentImage"}]
+
+        def spec_of(definition: dict):
+            return endpoint_spec_from_row(cast("CustomEndpoint", SimpleNamespace(id=7, definition=definition)))
+
+        assert (spec_of(unbound.definition).duration_tier_empty, spec_of(unbound.definition).duration_fixed) == (
+            True,
+            True,
+        )
+        assert (spec_of(no_fps).duration_tier_empty, spec_of(no_fps).duration_fixed) == (True, False)
+        assert (spec_of(derivable).duration_tier_empty, spec_of(derivable).duration_fixed) == (False, False)
+        assert get_endpoint_spec("openai-video").duration_tier_empty is False
+
+    def test_the_native_resolution_is_the_tier_nearest_the_literal_short_edge(self):
+        """夹具的字面宽高是 832 × 480，短边 480 → 视频档位表里的 480p。"""
+        row = SimpleNamespace(id=7, definition=comfyui_endpoint_definition())
+
+        assert endpoint_spec_from_row(cast("CustomEndpoint", row)).native_resolution == "480p"
+
+    def test_an_unreadable_literal_size_leaves_the_native_resolution_unknown(self):
+        definition = comfyui_endpoint_definition()
+        definition["workflow"]["5"]["inputs"]["width"] = "832"
+        definition["workflow"]["5"]["inputs"]["height"] = "480"
+        row = SimpleNamespace(id=7, definition=definition)
+
+        assert endpoint_spec_from_row(cast("CustomEndpoint", row)).native_resolution is None
+
+    def test_a_declarative_endpoint_declares_no_fixed_dimension(self):
+        """尺寸与时长「被端点固定」只是 ComfyUI 的形态，其余端点由请求参数决定。"""
+        spec = get_endpoint_spec("openai-video")
+
+        assert (spec.size_fixed, spec.duration_fixed, spec.native_resolution) == (False, False, None)
+
+    def test_only_a_comfyui_spec_lets_its_duration_tier_be_empty(self):
+        """ADR 0018 的空集 fail loud 对其余端点不变，判据挂在 spec 上供能力解析层直读。"""
+        row = SimpleNamespace(id=7, definition=comfyui_endpoint_definition())
+
+        assert endpoint_spec_from_row(cast("CustomEndpoint", row)).duration_tier_optional is True
+        assert get_endpoint_spec("openai-video").duration_tier_optional is False
+
+    def test_the_model_name_does_not_enter_the_derivation(self):
+        """一份 workflow 恰是一个型号：模型行换名字不改它能做什么。"""
+        definition = comfyui_endpoint_definition()
+        definition["bindings"]["start_image"] = [{"node": "11", "input": "image", "class_type": "LoadImage"}]
+        row = SimpleNamespace(id=7, definition=definition)
+
+        spec = endpoint_spec_from_row(cast("CustomEndpoint", row))
+        caps_fn = spec.video_caps_for_model
+
+        assert caps_fn is not None
+        assert caps_fn("wan-t2v") == caps_fn("完全不相干的名字")
+        assert caps_fn("wan-t2v").first_frame is True
+        assert caps_fn("wan-t2v").text_to_video is False
+
+    def test_the_end_frame_binding_reaches_the_end_image_transport_bit(self):
+        """``end_image_capable`` 与声明式端点同处理：从 caps 反推，不另写一份判据。"""
+        definition = comfyui_endpoint_definition()
+        definition["bindings"]["end_image"] = [{"node": "12", "input": "image", "class_type": "LoadImage"}]
+        row = SimpleNamespace(id=7, definition=definition)
+
+        assert endpoint_spec_from_row(cast("CustomEndpoint", row)).end_image_capable is True
+
+    def test_an_image_comfyui_spec_derives_its_image_capabilities(self):
+        definition = comfyui_endpoint_definition(media_type="image")
+        definition["bindings"].pop("fps")
+        row = SimpleNamespace(id=7, definition=definition)
+
+        spec = endpoint_spec_from_row(cast("CustomEndpoint", row))
+
+        assert spec.image_capabilities == frozenset({ImageCapability.TEXT_TO_IMAGE})
+        assert spec.video_caps_for_model is None
 
     def test_a_comfyui_spec_builds_the_comfyui_video_backend(self):
         """投影按 kind 分叉产出 Python 实现的 ComfyUI backend，仍走自定义供应商的包装层。"""

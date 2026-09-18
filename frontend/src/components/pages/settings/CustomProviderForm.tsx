@@ -31,7 +31,11 @@ import { EndpointSelect } from "./EndpointSelect";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { CapabilityOverrideRow } from "./CapabilityOverrideRow";
 import { ResolutionPicker } from "@/components/shared/ResolutionPicker";
-import { IMAGE_STANDARD_RESOLUTIONS, VIDEO_STANDARD_RESOLUTIONS } from "@/utils/provider-models";
+import {
+  IMAGE_STANDARD_RESOLUTIONS,
+  VIDEO_STANDARD_RESOLUTIONS,
+  resolutionPlaceholder,
+} from "@/utils/provider-models";
 import {
   compactRangeFormat,
   parseDurationInput,
@@ -246,9 +250,15 @@ const DURATION_ERROR_KEY: Record<DurationParseErrorCode, string> = {
 function DurationsInputRow({
   value,
   onChange,
+  tierEmpty = false,
+  fixed = false,
 }: {
   value: string;
   onChange: (v: string) => void;
+  /** 这份 workflow 给不出任何档位：输入框只读，改了也无处生效。 */
+  tierEmpty?: boolean;
+  /** 只读的原因是「时长天生固定」（frames 未绑定）而非「缺帧率来源」：决定说哪一句。 */
+  fixed?: boolean;
 }) {
   const { t } = useTranslation("dashboard");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -281,12 +291,25 @@ function DurationsInputRow({
           type="text"
           value={value}
           onChange={(e) => handleChange(e.target.value)}
-          placeholder={t("supported_durations_placeholder")}
+          placeholder={t(
+            tierEmpty
+              ? fixed
+                ? "supported_durations_fixed_placeholder"
+                : "supported_durations_no_fps_placeholder"
+              : "supported_durations_placeholder",
+          )}
           aria-label={t("supported_durations_label")}
-          className={`${COMPACT_INPUT_CLS} flex-1`}
+          disabled={tierEmpty}
+          className={`${COMPACT_INPUT_CLS} flex-1 disabled:cursor-not-allowed disabled:opacity-45`}
         />
       </div>
-      {errorMsg ? (
+      {/* 禁用原因必须有一行可见说明：title 对键盘与触屏不可达。缺帧率来源那一支是可修的定义，
+          文案指向怎么修，不说成「这份 workflow 时长天生固定」。 */}
+      {tierEmpty ? (
+        <p className="text-[11px] text-text-4">
+          {t(fixed ? "supported_durations_fixed_hint" : "supported_durations_no_fps_hint")}
+        </p>
+      ) : errorMsg ? (
         <p className="text-[11px] text-warm-bright">
           {t("supported_durations_invalid", { message: errorMsg })}
         </p>
@@ -328,6 +351,7 @@ export function CustomProviderForm({
   const endpointToMediaType = useEndpointCatalogStore((s) => s.endpointToMediaType);
   const endpointToImageCapabilities = useEndpointCatalogStore((s) => s.endpointToImageCapabilities);
   const endpointToEndImageCapable = useEndpointCatalogStore((s) => s.endpointToEndImageCapable);
+  const endpointConstraints = useEndpointCatalogStore((s) => s.endpointConstraints);
   const catalogEndpoints = useEndpointCatalogStore((s) => s.endpoints);
   const catalogInitialized = useEndpointCatalogStore((s) => s.initialized);
   const fetchEndpointCatalog = useEndpointCatalogStore((s) => s.fetch);
@@ -890,6 +914,7 @@ export function CustomProviderForm({
               {filteredModels.map((m) => {
                 const pl = priceLabel(m.endpoint, endpointToMediaType, t);
                 const media = endpointToMediaType[m.endpoint];
+                const constraints = endpointConstraints[m.endpoint];
                 return (
                   <div
                     key={m.key}
@@ -1039,18 +1064,25 @@ export function CustomProviderForm({
 
                     {/* Resolution row（仅 image/video，audio 无分辨率维度） */}
                     {(media === "image" || media === "video") && (
-                      <div className="mt-2 flex items-center gap-2 pl-6">
-                        <span className="font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-3 whitespace-nowrap">
-                          {t("resolution_label")}
-                        </span>
-                        <ResolutionPicker
-                          mode="combobox"
-                          options={media === "image" ? IMAGE_STANDARD_RESOLUTIONS : VIDEO_STANDARD_RESOLUTIONS}
-                          value={m.resolution || null}
-                          onChange={(v) => updateModel(m.key, { resolution: v ?? "" })}
-                          placeholder={t("resolution_default_placeholder")}
-                          aria-label={t("resolution_label")}
-                        />
+                      <div className="mt-2 flex flex-col gap-1 pl-6">
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-3 whitespace-nowrap">
+                            {t("resolution_label")}
+                          </span>
+                          <ResolutionPicker
+                            mode="combobox"
+                            options={media === "image" ? IMAGE_STANDARD_RESOLUTIONS : VIDEO_STANDARD_RESOLUTIONS}
+                            value={m.resolution || null}
+                            onChange={(v) => updateModel(m.key, { resolution: v ?? "" })}
+                            placeholder={resolutionPlaceholder(constraints, t)}
+                            aria-label={t("resolution_label")}
+                            disabled={constraints?.sizeFixed ?? false}
+                          />
+                        </div>
+                        {/* 禁用原因必须有一行可见说明：title 对键盘与触屏不可达。 */}
+                        {constraints?.sizeFixed && (
+                          <p className="text-[11px] text-text-4">{t("resolution_fixed_hint")}</p>
+                        )}
                       </div>
                     )}
 
@@ -1059,6 +1091,8 @@ export function CustomProviderForm({
                       <DurationsInputRow
                         value={m.supported_durations_text}
                         onChange={(v) => updateModel(m.key, { supported_durations_text: v })}
+                        tierEmpty={constraints?.durationTierEmpty ?? false}
+                        fixed={constraints?.durationFixed ?? false}
                       />
                     )}
 
