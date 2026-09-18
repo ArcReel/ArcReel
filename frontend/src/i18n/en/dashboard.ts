@@ -2185,7 +2185,7 @@ export default {
   'ce_cf_test_stage_state_done': 'done',
   'ce_cf_test_stage_state_pending': 'in progress',
   'ce_cf_test_stage_state_skipped': 'not reached',
-  'ce_cf_test_elapsed': 'took {{seconds}}s',
+  'ce_cf_test_clip_length': '{{seconds}}s of video',
   'ce_cf_test_poll_stopped': 'Stopped reading this test\'s progress. The remote job may still be running; cancel it to release the slot on the server before testing again.',
   'ce_cf_test_action_configure': 'This kind of failure is fixed on the provider side: add the model or change the configuration on the ComfyUI machine, or edit the workflow and import it again.',
   'ce_cf_test_action_retry': 'This kind of failure is usually momentary — ComfyUI restarted, someone interrupted the job, or the assets did not upload. Try again.',

@@ -95,10 +95,10 @@ Image tiers are `512px`, `1K`, `2K`, and `4K`; video tiers are `480p`, `720p`, `
 An empty video duration tier list has three distinct causes, and the UI names them separately:
 
 - **`frames` is not bound.** ArcReel has no pointer to the input holding the frame count, so the workflow fixes the duration and no frame count is written.
-- **`frames` is bound, but there is no frame-rate source** — neither a read-only `fps` binding nor a frame rate typed into the frames entry — so seconds cannot be converted. This is a **fixable definition**: add an `fps` binding or enter a frame rate. It does not mean the workflow has a fixed duration.
-- **`frames` and a frame rate are both available, but every frame-count input already holds its own clip length and no whole-second tier writes back unchanged.** For example, 81 frames at 24fps rounds to 3 seconds, but converting 3 seconds back yields 73 frames. A tier labeled "native" that alters the graph when selected is worse than no tier at all, so none is offered and the frame count is left alone.
+- **`frames` is bound, but there is no frame-rate source** — neither a read-only `fps` binding nor a frame rate typed into the frames entry — so seconds cannot be converted. This does not mean the workflow has a fixed duration; it is a **fixable definition**. Add an `fps` binding, or type a frame rate on the frames entry: ArcReel needs one of them before it can work out any duration tiers (and even then the definition may land in the next case).
+- **`frames` is bound and a frame rate is readable, but no whole-second tier writes back to this workflow unchanged.** For example, 81 frames at 24fps rounds to 3 seconds, but converting 3 seconds back yields 73 frames; a frame-count input fed by a link, or holding a placeholder such as `1`, has no readable clip length and yields no tier either. A tier labeled "native" that alters the graph when selected is worse than no tier at all, so none is offered. Only the first shape — every frame-count input holding its own clip length — also leaves the frame count alone on submission; the other two have no clip length to preserve, so the frame count is still written from the duration the planning layer borrows.
 
-Outside those three, when frame count and frame rate are both usable and write back unchanged, ArcReel derives the workflow's native duration with `frames = round(seconds × fps) + 1` and offers it as the default tier; you can add or remove tiers on the model row.
+Outside those three, when frame count and frame rate are both usable and write back unchanged, ArcReel derives the workflow's native duration as `seconds = round((literal frames − 1) ÷ fps)` and offers it as the default tier; "writes back unchanged" means the inverse conversion `frames = round(seconds × fps) + 1`, aligned to the step, still equals the literal frame count. You can add or remove tiers on the model row.
 
 An empty tier list is not a generic "no durations configured for this model" error. Script planning still borrows a set of reference tiers for content length so it is not blocked, but the workflow always determines the actual output duration.
 
@@ -158,7 +158,7 @@ Test runs appear in the ComfyUI queue as `endpoint-test-…`, with a random suff
 | `comfyui_output_type_mismatch` | The artifact extension does not match the endpoint media type. Rebind the node that exports the final media |
 | `comfyui_image_drop_unsupported` | Removing a branch for a missing asset would affect the output. Supply the asset or use another workflow |
 
-The first four codes and `comfyui_interrupted` are usually environmental — retry, or repair ComfyUI. The remaining four point at the endpoint configuration and call for a binding change or a different workflow.
+`comfyui_upload_failed`, `comfyui_job_lost`, and `comfyui_interrupted` are transient environment problems, and both the failure card and the project page point at retrying. The remaining five point at the endpoint configuration: change a binding in the endpoint detail, or fix the workflow in ComfyUI and re-import it.
 
 If a task reports multiple outputs but keeps only one, that is the current channel selection rule; it does not mean ComfyUI generated fewer files. Confirm the output node in the preview, then inspect the complete output in ComfyUI history.
 

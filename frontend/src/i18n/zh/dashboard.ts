@@ -2184,7 +2184,7 @@ export default {
   'ce_cf_test_stage_state_done': '已完成',
   'ce_cf_test_stage_state_pending': '进行中',
   'ce_cf_test_stage_state_skipped': '未到达',
-  'ce_cf_test_elapsed': '执行 {{seconds}} 秒',
+  'ce_cf_test_clip_length': '成片 {{seconds}} 秒',
   'ce_cf_test_poll_stopped': '已停止读取这次测试的进度。远端任务可能仍在跑；点「取消」放掉服务端这次占用后才能再测一次。',
   'ce_cf_test_action_configure': '这类失败要去「配置供应商」那一侧处理：到 ComfyUI 机器上补模型或改配置，或改完 workflow 重新导入。',
   'ce_cf_test_action_retry': '这类失败多半是一时的：ComfyUI 重启、任务被人手动中断或素材没传上去，再试一次即可。',

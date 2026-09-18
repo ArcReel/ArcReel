@@ -2183,7 +2183,7 @@ export default {
   'ce_cf_test_stage_state_done': 'đã xong',
   'ce_cf_test_stage_state_pending': 'đang chạy',
   'ce_cf_test_stage_state_skipped': 'chưa tới',
-  'ce_cf_test_elapsed': 'chạy {{seconds}} giây',
+  'ce_cf_test_clip_length': 'video {{seconds}} giây',
   'ce_cf_test_poll_stopped': 'Đã ngừng đọc tiến độ của lần thử này. Tác vụ từ xa có thể vẫn đang chạy; hãy bấm «Huỷ» để giải phóng suất chạy trên máy chủ trước khi thử lại.',
   'ce_cf_test_action_configure': 'Loại lỗi này phải xử lý ở phía nhà cung cấp: bổ sung mô hình hoặc sửa cấu hình trên máy ComfyUI, hoặc sửa workflow rồi nhập lại.',
   'ce_cf_test_action_retry': 'Loại lỗi này thường chỉ nhất thời — ComfyUI khởi động lại, ai đó ngắt tác vụ, hoặc tư liệu chưa tải lên được. Hãy thử lại.',

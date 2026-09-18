@@ -148,6 +148,28 @@ describe("ComfyuiEndpointTestSection", () => {
     expect(within(conversions).getByText("9f2c4b1a")).toBeInTheDocument();
   });
 
+  it("lets the duration box be cleared and sends the placeholder seconds while it is empty", async () => {
+    const preview = vi.spyOn(API, "previewEndpointRequest").mockResolvedValue(PREVIEW);
+    renderSection();
+
+    const duration = screen.getByLabelText("时长（秒）") as HTMLInputElement;
+    await userEvent.clear(duration);
+    expect(duration.value).toBe("");
+    expect(duration.placeholder).toBe("5");
+
+    await userEvent.click(screen.getByRole("button", { name: "渲染 /prompt 请求体" }));
+    await waitFor(() =>
+      expect(preview).toHaveBeenCalledWith(
+        expect.objectContaining({ parameters: expect.objectContaining({ duration_seconds: 5 }) }),
+        { assets: {} },
+      ),
+    );
+
+    // 清空之后打的秒数原样进请求，而不是接在一个被填回来的数字后面。
+    await userEvent.type(duration, "8");
+    expect(duration.value).toBe("8");
+  });
+
   it("says outright which dimension does not drive this workflow", async () => {
     vi.spyOn(API, "previewEndpointRequest").mockResolvedValue({
       ...PREVIEW,
@@ -186,7 +208,8 @@ describe("ComfyuiEndpointTestSection", () => {
 
     expect(await screen.findByLabelText("测试连接产物")).toHaveAttribute("src", "blob:trial-artifact");
     expect(screen.getByText("prompt_id p-1")).toBeInTheDocument();
-    expect(screen.getByText("执行 42 秒")).toBeInTheDocument();
+    // run.duration_seconds 是成片秒数（VideoGenerationResult 抄的那一位），不是墙钟耗时。
+    expect(screen.getByText("成片 42 秒")).toBeInTheDocument();
     const stages = screen.getByRole("list");
     for (const stage of ["提交", "轮询", "取得结果", "取回产物"]) {
       expect(within(stages).getByText(stage)).toBeInTheDocument();

@@ -34,6 +34,9 @@ const RESOLUTION_TIERS: Record<ComfyuiMediaType, readonly string[]> = {
 /** 项目的画幅比例只有竖屏与横屏两档，测试参数照它给。 */
 const ASPECT_RATIOS = ["9:16", "16:9"] as const;
 
+/** 时长输入清空时按这个秒数发出，占位符把它写在空输入框里。 */
+const DEFAULT_DURATION_SECONDS = 5;
+
 /** 能从节点绑定推出素材格子的三个语义键，按渲染次序。 */
 const ASSET_KEYS = ["start_image", "end_image", "reference_images"] as const;
 
@@ -90,7 +93,7 @@ export function ComfyuiEndpointTestSection({ definition, providers, blocked }: C
   const [prompt, setPrompt] = useState("");
   const [aspectRatio, setAspectRatio] = useState<string>(ASPECT_RATIOS[0]);
   const [resolution, setResolution] = useState("");
-  const [durationSeconds, setDurationSeconds] = useState(5);
+  const [durationSeconds, setDurationSeconds] = useState<number | null>(DEFAULT_DURATION_SECONDS);
   const [assetFiles, setAssetFiles] = useState<Partial<Record<ComfyuiAssetKey, File[]>>>({});
 
   const [credSource, setCredSource] = useState<"provider" | "inline">(
@@ -139,7 +142,7 @@ export function ComfyuiEndpointTestSection({ definition, providers, blocked }: C
       prompt,
       aspect_ratio: aspectRatio,
       resolution: resolution === "" ? null : resolution,
-      ...(isVideo ? { duration_seconds: durationSeconds } : {}),
+      ...(isVideo ? { duration_seconds: durationSeconds ?? DEFAULT_DURATION_SECONDS } : {}),
     }),
     [definition.meta.name, prompt, aspectRatio, resolution, durationSeconds, isVideo],
   );
@@ -217,8 +220,14 @@ export function ComfyuiEndpointTestSection({ definition, providers, blocked }: C
               step={1}
               inputMode="numeric"
               autoComplete="off"
-              value={durationSeconds}
-              onChange={(e) => setDurationSeconds(Math.max(1, Number(e.target.value) || 1))}
+              placeholder={String(DEFAULT_DURATION_SECONDS)}
+              value={durationSeconds ?? ""}
+              onChange={(e) => {
+                // 非正整数（含退格清空后的空串）落成空态，输入框据此显示占位符而不是被填回一个
+                // 数字——改秒数的第一步就是清空它。空态按占位符那个秒数发出。
+                const seconds = Number(e.target.value);
+                setDurationSeconds(Number.isInteger(seconds) && seconds >= 1 ? seconds : null);
+              }}
               className={`${INPUT_CLS} tabular-nums`}
             />
           </label>
@@ -517,7 +526,9 @@ function TrialRunReport({
             prompt_id {run.provider_job_id}
           </span>
         )}
-        {run.duration_seconds !== null && <span>{t("ce_cf_test_elapsed", { seconds: run.duration_seconds })}</span>}
+        {run.duration_seconds !== null && (
+          <span>{t("ce_cf_test_clip_length", { seconds: run.duration_seconds })}</span>
+        )}
         {run.api_call_id !== null && (
           <a
             href={`/app/settings?section=usage&record=${run.api_call_id}`}
