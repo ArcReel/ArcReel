@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import json
 from pathlib import Path
 from typing import Any
@@ -499,9 +500,11 @@ def test_malformed_item_container_returns_schema_failure_without_writes(
     assert project_path.read_bytes() == before_project
 
 
-def test_same_content_episode_rebind_conflicts_without_writing(
+def test_episode_rebound_to_another_script_conflicts_without_writing(
     editor: tuple[ProjectManager, ScriptBatchEditor, Path],
 ) -> None:
+    """账本此刻绑的已不是调用方读到的那份剧本：按改绑冲突拒绝，两份剧本都不写。"""
+
     pm, service, project_dir = editor
     current = pm.load_script("demo", "episode_1.json")
     command = ScriptBatchEditCommand.model_validate(
@@ -512,15 +515,21 @@ def test_same_content_episode_rebind_conflicts_without_writing(
             "operations": [{"op": "update", "id": "E1S01", "fields": {"note": "stale"}}],
         }
     )
-    pm.save_script("demo", current, "episode_1_copy.json")
+    pm.save_script("demo", {**copy.deepcopy(current), "episode": 2}, "episode_2.json")
+
+    def _rebind(project: dict) -> None:
+        next(entry for entry in project["episodes"] if entry["episode"] == 1)["script_file"] = "scripts/episode_2.json"
+
+    pm.update_project("demo", _rebind)
     original_path = project_dir / "scripts" / "episode_1.json"
-    rebound_path = project_dir / "scripts" / "episode_1_copy.json"
+    rebound_path = project_dir / "scripts" / "episode_2.json"
     before_original = original_path.read_bytes()
     before_rebound = rebound_path.read_bytes()
 
     result = service.execute("demo", command)
 
     assert result.success is False
+    # 冲突在解析绑定时就抛出，结果指的是调用方点名的那份剧本。
     assert result.script == "episode_1.json"
     assert result.problems[0].code == "revision_conflict"
     assert result.problems[0].reason == "script_binding_changed"

@@ -309,31 +309,8 @@ class TestRenameAssetCascade:
         unit = pm_with_assets.load_script("demo", "episode_2.json")["video_units"][0]
         assert unit["text"] == "@[主角甲] 走进 @[场景A]"
 
-    def test_bound_script_without_an_episode_number_is_rewritten(self, pm_with_assets: ProjectManager) -> None:
-        """迁移跳过的集仍绑在自定义文件名上：那份是该集的权威剧本，引用改写必须覆盖它。"""
-        pm_with_assets.save_script("demo", _narration_script(), "episode_1.json")
-        scripts_dir = _project_dir(pm_with_assets) / "scripts"
-        (scripts_dir / "episode_1.json").rename(scripts_dir / "custom.json")
-
-        def _rebind(project: dict[str, Any]) -> None:
-            project["episodes"][0]["script_file"] = "scripts/custom.json"
-
-        pm_with_assets.update_project("demo", _rebind)
-
-        report = pm_with_assets.rename_asset("demo", "characters", "角色A", "主角甲")
-
-        assert report.references == 1
-        bound = json.loads((scripts_dir / "custom.json").read_text(encoding="utf-8"))
-        assert bound["segments"][0]["characters_in_segment"] == ["主角甲"]
-        # 改写不借机改绑：账本仍指向那份自定义文件名。
-        assert pm_with_assets.load_project("demo")["episodes"][0]["script_file"] == "scripts/custom.json"
-
-    def test_unbound_script_without_an_episode_number_is_left_alone(self, pm_with_assets: ProjectManager) -> None:
-        """没有任何一集绑它的无集号 JSON 认不出归属，仍不随资产改名改写。
-
-        ``scripts/`` 下的剧本一律上锁，归属在项目锁内按当时绑定判一次：绑定在取锁前后之间被撤掉的
-        剧本走的是同一条跳过路径。
-        """
+    def test_script_without_a_canonical_name_is_left_alone(self, pm_with_assets: ProjectManager) -> None:
+        """文件名不是规范名的 JSON 不属于任何一集，不随资产改名改写。"""
         pm_with_assets.save_script("demo", _narration_script(), "episode_1.json")
         scripts_dir = _project_dir(pm_with_assets) / "scripts"
         orphan = scripts_dir / "custom.json"

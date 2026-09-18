@@ -6,7 +6,6 @@ from pathlib import Path
 
 import pytest
 
-from lib.project_migration_report import MigrationNormalizedBinding, MigrationReport, write_migration_report
 from lib.project_migrations.runner import (
     CURRENT_SCHEMA_VERSION,
     cleanup_stale_backups,
@@ -256,66 +255,6 @@ def test_cleanup_retains_v7_recovery_backups_until_schema_promotion_succeeds(tmp
     cleanup_stale_backups(tmp_projects, max_age_days=7)
 
     assert all(backup.exists() for backup in backups)
-
-
-def test_cleanup_reclaims_expired_grid_and_presentation_record_backups(tmp_projects: Path) -> None:
-    """v14→v15 规范化剧本绑定时备份的宫格记录与持久化呈现，与其他迁移输入的备份一同回收。"""
-    import os
-
-    project_dir = _write_project(tmp_projects, "p1", {"schema_version": CURRENT_SCHEMA_VERSION, "episodes": []})
-    sources = [
-        project_dir / "grids" / "grid_0123456789ab.json",
-        project_dir / "presentations" / "episode_1" / "RTFTMDE.post_production.json",
-    ]
-    expired = time.time() - 8 * 86400
-    backups = []
-    for source in sources:
-        source.parent.mkdir(parents=True, exist_ok=True)
-        source.write_text("{}", encoding="utf-8")
-        backup = source.with_name(f"{source.name}.bak.v14-100000000")
-        backup.write_text("{}", encoding="utf-8")
-        os.utime(backup, (expired, expired))
-        backups.append(backup)
-
-    cleanup_stale_backups(tmp_projects, max_age_days=7)
-
-    assert not any(backup.exists() for backup in backups)
-    assert all(source.exists() for source in sources)
-
-
-def test_cleanup_reclaims_the_backup_left_under_a_retired_script_binding(tmp_projects: Path) -> None:
-    """v14→v15 改名前备份的是退役的绑定名；账本此后指向规范路径，只看当前绑定就永远回收不到它。"""
-    import os
-
-    project_dir = _write_project(
-        tmp_projects,
-        "p1",
-        {
-            "schema_version": CURRENT_SCHEMA_VERSION,
-            "episodes": [{"episode": 1, "script_file": "scripts/episode_1.json"}],
-        },
-    )
-    (project_dir / "scripts").mkdir()
-    (project_dir / "scripts" / "episode_1.json").write_text("{}", encoding="utf-8")
-    write_migration_report(
-        project_dir,
-        MigrationReport(
-            migrated_at="2026-01-01T00:00:00Z",
-            from_schema_version=CURRENT_SCHEMA_VERSION - 1,
-            to_schema_version=CURRENT_SCHEMA_VERSION,
-            normalized_bindings=[
-                MigrationNormalizedBinding(episode=1, from_path="scripts/custom.json", to_path="scripts/episode_1.json")
-            ],
-        ),
-    )
-    retired = project_dir / "scripts" / "custom.json.bak.v14-100000000"
-    retired.write_text("old-script", encoding="utf-8")
-    expired = time.time() - 8 * 86400
-    os.utime(retired, (expired, expired))
-
-    cleanup_stale_backups(tmp_projects, max_age_days=7)
-
-    assert not retired.exists()
 
 
 def test_hardlink_backup_clues_creates_mirror(tmp_projects: Path, monkeypatch):

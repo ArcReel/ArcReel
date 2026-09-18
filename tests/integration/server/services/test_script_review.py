@@ -625,36 +625,6 @@ class TestConfirmMaterializesScript:
         assert not old_claims.keys() & snapshot.keys()
         assert ArtifactKey.episode_script(1) in snapshot
 
-    async def test_episode_bound_to_a_custom_script_file_lists_and_overwrites_that_file(self, tmp_path):
-        """集绑在非规范文件名上：覆盖清单读绑定的文件，认可后原地覆盖它，绑定不变、不另写规范文件。"""
-        pm = _make_project(tmp_path, "narration")
-        _write_script_plan(pm, "narration", _narration_script_plan())
-        pm.save_script(
-            "demo",
-            _narration_script(_narration_script_segment("E1S01"), _narration_script_segment("E1S09")),
-            "custom_episode_1.json",
-        )
-        project_path = pm.get_project_path("demo")
-        adapter = ProjectArtifactManifestAdapter(project_path)
-        removed_claims = _entry_claims("E1S09")
-        for key, entry in removed_claims.items():
-            adapter.put_entry(key, entry)
-        svc = _service(pm)
-
-        listing = (await svc.get_state("demo", 1))["script_overwrite"]
-        assert [entry["id"] for entry in listing["entries"]] == ["E1S01", "E1S09"]
-        with pytest.raises(ScriptReviewError) as exc:
-            await svc.confirm("demo", 1)
-        assert exc.value.code == "overwrite_required"
-
-        await svc.confirm("demo", 1, overwrite_revision=listing["revision"])
-
-        script = json.loads((project_path / "scripts" / "custom_episode_1.json").read_text(encoding="utf-8"))
-        assert [segment["segment_id"] for segment in script["segments"]] == ["E1S01"]
-        assert not (project_path / "scripts" / "episode_1.json").exists()
-        assert find_episode(pm.load_project("demo"), 1)["script_file"] == "scripts/custom_episode_1.json"
-        assert not removed_claims.keys() & adapter.snapshot_entries().keys()
-
     async def test_acknowledgement_of_an_outdated_script_is_refused_with_the_current_listing(self, tmp_path):
         """认可只对应被列出的那份正式脚本：列出之后正式脚本又有变化，带旧版本的确认按新清单再次拒绝。"""
         pm = _make_project(tmp_path, "narration")

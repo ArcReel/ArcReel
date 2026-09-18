@@ -9,13 +9,12 @@ import shutil
 import time
 import traceback
 from collections.abc import Callable
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from lib.episode_ledger import parse_positive_episode_num
 from lib.episode_paths import episode_drafts_dir
 from lib.path_safety import try_safe_join
-from lib.project_manager import ProjectManager
 from lib.project_migration_failure import (
     MigrationFailureRecord,
     ProjectMigrationError,
@@ -24,9 +23,7 @@ from lib.project_migration_failure import (
 )
 from lib.project_migration_report import (
     ArtifactBackfillOutcome,
-    MigrationNormalizedBinding,
     build_migration_report,
-    load_migration_report,
     write_migration_report,
 )
 from lib.project_migrations.backups import (
@@ -73,32 +70,11 @@ _MIGRATORS_WITH_OWNED_BACKUP = frozenset({7, 8, 9, 12, 14})
 _MIGRATOR_PREFLIGHTS: dict[int, Callable[[Path], None]] = {5: ensure_disk_headroom}
 
 
-def _retired_script_sources(project_dir: Path) -> tuple[Path, ...]:
-    """Resolve the pre-rename binding of every script a migration moved to its canonical path.
-
-    规范化集绑定的那一步备份的是改名前的来源，而提交之后账本指向的已是规范路径：只按当前绑定
-    推导来源的话，退役的那个名字下的备份没有任何回收路径，会越过保留期长期留存。迁移报告的
-    ``normalized_bindings.from_path`` 记的正是这些名字。
-    """
-
-    report = load_migration_report(project_dir)
-    if report is None:
-        return ()
-    sources: list[Path] = []
-    for binding in report.normalized_bindings:
-        filename = ProjectManager.normalize_script_filename(binding.from_path)
-        source = try_safe_join(project_dir / "scripts", filename) if filename else None
-        if source is not None:
-            sources.append(source)
-    return tuple(sources)
-
-
 def _bound_script_sources(project_dir: Path) -> tuple[Path, ...]:
     """Resolve every script-shaped source a migration was allowed to back up.
 
-    账本里绑定的剧集脚本，加上迁移报告记下的退役绑定名（见 ``_retired_script_sources``），再加上
-    同集的 script_plan 草稿——草稿是同一份正文的上一形态，改写脚本的迁移同批改写它，备份因此成对
-    出现，回收也必须成对，否则草稿备份没有任何清理路径。
+    账本里绑定的剧集脚本，加上同集的 script_plan 草稿——草稿是同一份正文的上一形态，改写脚本的
+    迁移同批改写它，备份因此成对出现，回收也必须成对，否则草稿备份没有任何清理路径。
     """
 
     try:
@@ -108,7 +84,7 @@ def _bound_script_sources(project_dir: Path) -> tuple[Path, ...]:
     episodes = project.get("episodes") if isinstance(project, dict) else None
     if not isinstance(episodes, list):
         return ()
-    sources: list[Path] = list(_retired_script_sources(project_dir))
+    sources: list[Path] = []
     for episode in episodes:
         if not isinstance(episode, dict):
             continue
@@ -189,7 +165,6 @@ def migrate_project_dir(project_dir: Path) -> bool:
         return False
     start_version = version
     outcome: ArtifactBackfillOutcome | None = None
-    normalized_bindings: list[MigrationNormalizedBinding] = []
     while version < CURRENT_SCHEMA_VERSION:
         # Activation migrations must finish their complete read-only preflight
         # before creating any backup.  Their commit boundary owns the backup so
@@ -207,15 +182,13 @@ def migrate_project_dir(project_dir: Path) -> bool:
         step_outcome = migrator(project_dir)
         if step_outcome is not None:
             outcome = step_outcome
-            normalized_bindings.extend(step_outcome.normalized_bindings)
         version += 1
     if outcome is not None:
-        # 链上最后一次清单改写描述的是迁移完成时清单的全貌，报告只留这一份；绑定规范化不随
-        # 后续步骤的清单全貌重述，逐步累积。
+        # 链上最后一次清单改写描述的是迁移完成时清单的全貌，报告只留这一份。
         write_migration_report(
             project_dir,
             build_migration_report(
-                replace(outcome, normalized_bindings=tuple(normalized_bindings)),
+                outcome,
                 from_schema_version=start_version,
                 to_schema_version=CURRENT_SCHEMA_VERSION,
             ),
@@ -333,9 +306,6 @@ def cleanup_stale_backups(projects_root: Path, max_age_days: int = 7) -> None:
             # v13→v14 改写受风格值归一与风格描述补记影响的条目，v14→v15 改写剧本登记。
             (project_dir / ".arcreel_artifacts.json", project_backup_versions),
             *((source, project_backup_versions) for source in _bound_script_sources(project_dir)),
-            # v14→v15 规范化剧本绑定时改写宫格记录与持久化呈现里的剧本文件名。
-            *((source, project_backup_versions) for source in sorted(project_dir.glob("grids/*.json"))),
-            *((source, project_backup_versions) for source in sorted(project_dir.glob("presentations/*/*.json"))),
         )
         for source, versions in sources:
             for bak in versioned_backup_candidates(source, versions):
