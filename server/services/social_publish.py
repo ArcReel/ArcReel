@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -38,6 +39,10 @@ _EXTERNAL_ID_MAX = 255
 # 各平台标题上限差异极大（TikTok 2200、YouTube 100…），逐平台校验会把平台策略搬进本仓并
 # 随上游漂移。这里只挡住明显异常的长度，真正的上限由上游按平台裁决。
 _TITLE_MAX = 2200
+
+# 投递标识的形状。它同时是 ``Idempotency-Key``，会原样进请求头，因此只收不含空白与控制字符的
+# 有界字符串——客户端自带的那一个也走这条校验。
+_REQUEST_ID_RE = re.compile(r"^arcreel-[A-Za-z0-9]{8,64}$")
 
 
 class UnitPresentationReader(Protocol):
@@ -112,10 +117,18 @@ class SocialPublishService:
         description: str | None = None,
         scheduled_date: str | None = None,
         timezone: str | None = None,
+        request_id: str | None = None,
     ) -> PublishSubmission:
-        """把选中的成片投递到指定平台。"""
+        """把选中的成片投递到指定平台。
+
+        ``request_id`` 由调用方带来时原样沿用，这是重试能不重复发布的唯一依据：上传在上游
+        已受理、响应却丢在半路（客户端超时、504）时，本端这一侧什么都没留下；调用方拿着同一个
+        id 重试，上游按 ``Idempotency-Key`` 认出是同一次投递并返回原任务，而不是再发一遍——
+        而社交平台侧无法回滚。缺省才现生成一个。
+        """
         chosen = _validate_platforms(platforms)
         caption = _validate_title(title)
+        submission_id = _validate_request_id(request_id)
 
         result = await self._reader.materialize_unit(
             project_name=project_name,
@@ -133,9 +146,7 @@ class SocialPublishService:
             platforms=chosen,
             video_path=video_path,
             title=caption,
-            # 服务端生成：上游文档说明回执丢失时仍可凭它查状态，交给客户端生成就会在
-            # 超时那一刻彻底失联。
-            request_id=f"arcreel-{uuid.uuid4().hex}",
+            request_id=submission_id,
             description=description or None,
             scheduled_date=scheduled_date or None,
             timezone=timezone or None,
@@ -163,6 +174,14 @@ def _validate_platforms(platforms: tuple[str, ...]) -> tuple[str, ...]:
     if unsupported:
         raise UnprocessableError("social_publish_platform_unsupported", platform=unsupported[0])
     return unique
+
+
+def _validate_request_id(request_id: str | None) -> str:
+    if request_id is None:
+        return f"arcreel-{uuid.uuid4().hex}"
+    if _REQUEST_ID_RE.fullmatch(request_id) is None:
+        raise UnprocessableError("social_publish_request_id_invalid")
+    return request_id
 
 
 def _validate_title(title: str) -> str:

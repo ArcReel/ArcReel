@@ -23,7 +23,7 @@ What gets published is always the exact rendition the player has selected — th
 
 Open **System Settings → Distribution** and fill in two fields:
 
-- **API key**: the key generated in the Upload-Post dashboard. It is stored only in the local database and reads return a masked value, so the frontend never receives the original.
+- **API key**: the key generated in the Upload-Post dashboard. It is stored only in the local database, and reading the configuration returns nothing but whether a key is set — not even a mask, since a few leading and trailing characters are enough to identify which key it is.
 - **Profile name**: the Upload-Post profile name (not a social handle). It selects which group of connected accounts receives the post.
 
 Leave **Service address** empty to use the official endpoint. Only a self-hosted proxy or a staging environment needs a value, and it must be an https URL without credentials or a query string.
@@ -60,7 +60,7 @@ The API key is invalid or expired; generate a new one in the Upload-Post dashboa
 Upload-Post caps monthly publishes per plan. Upgrade the plan or wait for the quota to reset.
 
 **A platform stays on "processing"**
-Transcoding and review times differ per platform and are noticeably longer for long videos. Closing the dialog does not stop the background delivery, and reopening it does not publish again.
+Transcoding and review times differ per platform and are noticeably longer for long videos. Closing the dialog does not stop the background delivery, but it does clear the local progress panel — reopening gives you a fresh submission form.
 
 **"The selected media is unavailable"**
 The version file the player selected was cleaned up or renamed. Regenerate it, or switch to a version that still exists, and publish again.

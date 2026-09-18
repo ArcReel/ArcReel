@@ -11,6 +11,7 @@ import { Loader2, RefreshCw } from "lucide-react";
 import { API } from "@/api";
 import type { SystemConfigPatch, SystemConfigSettings } from "@/types/system";
 import type { SocialPublishProfile } from "@/types/social-publish";
+import { InlineWarning } from "@/components/ui/InlineWarning";
 import { useAppStore } from "@/stores/app-store";
 import { errMsg } from "@/utils/async";
 import { ACCENT_BTN_CLS, ACCENT_BUTTON_STYLE, CARD_STYLE } from "@/components/ui/darkroom-tokens";
@@ -48,6 +49,7 @@ export function SocialPublishSection() {
   const { t } = useTranslation(["dashboard", "common"]);
 
   const [settings, setSettings] = useState<SystemConfigSettings | null>(null);
+  const [configError, setConfigError] = useState<string | null>(null);
   const [draft, setDraft] = useState<SystemConfigPatch>({});
   const [saving, setSaving] = useState(false);
   const [profiles, setProfiles] = useState<SocialPublishProfile[] | null>(null);
@@ -55,9 +57,16 @@ export function SocialPublishSection() {
   const [loadingProfiles, setLoadingProfiles] = useState(false);
 
   const fetchConfig = useCallback(async () => {
-    const res = await API.getSystemConfig();
-    setSettings(res.settings);
-    setDraft({});
+    // 读配置失败要说出来：静默吞掉 rejection 会让 settings 一直是 null，界面卡在
+    // 转圈图标上，除非整块重新挂载。
+    setConfigError(null);
+    try {
+      const res = await API.getSystemConfig();
+      setSettings(res.settings);
+      setDraft({});
+    } catch (err) {
+      setConfigError(errMsg(err));
+    }
   }, []);
 
   useEffect(() => {
@@ -98,8 +107,21 @@ export function SocialPublishSection() {
 
   if (!settings) {
     return (
-      <div className="flex items-center justify-center p-10 text-text-4">
-        <Loader2 className="h-4 w-4 motion-safe:animate-spin" aria-hidden />
+      <div className="flex flex-col items-center justify-center gap-3 p-10 text-text-4">
+        {configError === null ? (
+          <Loader2 className="h-4 w-4 motion-safe:animate-spin" aria-hidden />
+        ) : (
+          <>
+            <InlineWarning message={configError} />
+            <button
+              type="button"
+              onClick={() => void fetchConfig()}
+              className="rounded-[8px] border border-hairline bg-bg-grad-a/55 px-4 py-2 text-[12.5px] text-text-2 transition-colors hover:border-hairline-strong hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            >
+              {t("common:retry")}
+            </button>
+          </>
+        )}
       </div>
     );
   }
@@ -128,7 +150,7 @@ export function SocialPublishSection() {
               value={draft.upload_post_api_key ?? ""}
               placeholder={
                 keyIsSet
-                  ? (settings.upload_post_api_key?.masked ?? "")
+                  ? t("dashboard:social_publish_api_key_configured")
                   : t("dashboard:social_publish_api_key_placeholder")
               }
               onChange={(event) =>

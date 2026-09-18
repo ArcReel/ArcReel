@@ -404,11 +404,9 @@ async def get_system_config(
         "text_backend_simple": all_s.get("text_backend_simple") or "",
         "text_backend_complex": all_s.get("text_backend_complex") or "",
         "market_github_proxy_prefix": all_s.get(PROXY_PREFIX_SETTING) or "",
-        # 社交分发凭证：与 anthropic_api_key 同样只回「是否已配置 + 掩码」，原值不出库。
-        "upload_post_api_key": {
-            "is_set": bool(all_s.get(SETTING_API_KEY, "")),
-            "masked": mask_secret(all_s[SETTING_API_KEY]) if all_s.get(SETTING_API_KEY) else None,
-        },
+        # 社交分发凭证：只回「是否已配置」，连掩码都不回。mask_secret 会露出首尾各 4 个字符，
+        # 而这一段足以在别处比对出是哪一把密钥；界面只需要知道填没填。
+        "upload_post_api_key": {"is_set": bool(all_s.get(SETTING_API_KEY, ""))},
         "upload_post_profile": all_s.get(SETTING_PROFILE) or "",
         "upload_post_base_url": all_s.get(SETTING_BASE_URL) or "",
     }

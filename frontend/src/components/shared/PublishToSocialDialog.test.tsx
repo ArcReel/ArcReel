@@ -130,6 +130,68 @@ describe("PublishToSocialDialog", () => {
     expect(link).toHaveAttribute("href", "https://tiktok.com/@studio/video/1");
   });
 
+  it("reuses the same request id when a failed submission is retried", async () => {
+    const publish = vi
+      .spyOn(API, "publishPresentation")
+      .mockRejectedValueOnce(new Error("tiempo de espera agotado"))
+      .mockResolvedValue({
+        request_id: "arcreel-1",
+        job_id: null,
+        scheduled_date: null,
+        total_platforms: 1,
+      });
+    vi.spyOn(API, "getSocialPublishStatus").mockResolvedValue({
+      request_id: "arcreel-1",
+      job_id: null,
+      status: "completed",
+      completed: 1,
+      total: 1,
+      terminal: true,
+      outcomes: [],
+    });
+    const user = userEvent.setup();
+    renderDialog();
+
+    await user.click(await screen.findByRole("checkbox", { name: /tiktok/ }));
+    await user.click(screen.getByRole("button", { name: "发布" }));
+    await screen.findByRole("alert");
+    await user.click(screen.getByRole("button", { name: "发布" }));
+
+    await waitFor(() => expect(publish).toHaveBeenCalledTimes(2));
+    const first = publish.mock.calls[0][3].request_id;
+    expect(first).toMatch(/^arcreel-[A-Za-z0-9]{8,64}$/);
+    // id nuevo en el reintento = el upstream lo trata como otra publicación y duplica el post
+    expect(publish.mock.calls[1][3].request_id).toBe(first);
+  });
+
+  it("polls at a fixed interval instead of hammering the status endpoint while results are empty", async () => {
+    vi.spyOn(API, "publishPresentation").mockResolvedValue({
+      request_id: "arcreel-1",
+      job_id: null,
+      scheduled_date: null,
+      total_platforms: 1,
+    });
+    // 非终态y sin outcomes: el caso que antes producía un bucle con delay 0
+    const status = vi.spyOn(API, "getSocialPublishStatus").mockResolvedValue({
+      request_id: "arcreel-1",
+      job_id: null,
+      status: "processing",
+      completed: 0,
+      total: 1,
+      terminal: false,
+      outcomes: [],
+    });
+    const user = userEvent.setup();
+    renderDialog();
+
+    await user.click(await screen.findByRole("checkbox", { name: /tiktok/ }));
+    await user.click(screen.getByRole("button", { name: "发布" }));
+
+    await waitFor(() => expect(status).toHaveBeenCalledTimes(1));
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(status).toHaveBeenCalledTimes(1);
+  });
+
   it("surfaces a missing credential instead of an empty platform list", async () => {
     vi.spyOn(API, "getSocialPublishProfiles").mockRejectedValue(new Error("尚未配置社交分发"));
     renderDialog();

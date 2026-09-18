@@ -24,7 +24,7 @@ function config(overrides: Record<string, unknown> = {}): GetSystemConfigRespons
       claude_code_subagent_model: "",
       agent_session_cleanup_delay_seconds: 300,
       agent_max_concurrent_sessions: 5,
-      upload_post_api_key: { is_set: false, masked: null },
+      upload_post_api_key: { is_set: false },
       upload_post_profile: "",
       upload_post_base_url: "",
       ...overrides,
@@ -38,17 +38,33 @@ describe("SocialPublishSection", () => {
     vi.restoreAllMocks();
   });
 
-  it("never renders the stored key, only whether it is set and its mask", async () => {
+  it("never renders the stored key, not even a masked fragment of it", async () => {
     vi.spyOn(API, "getSystemConfig").mockResolvedValue(
-      config({ upload_post_api_key: { is_set: true, masked: "up-1…cdef" }, upload_post_profile: "studio" }),
+      config({ upload_post_api_key: { is_set: true }, upload_post_profile: "studio" }),
     );
 
     render(<SocialPublishSection />);
 
     const input = await screen.findByLabelText("API Key");
     expect(input).toHaveValue("");
-    expect(input).toHaveAttribute("placeholder", "up-1…cdef");
+    expect(input).toHaveAttribute("placeholder", "已配置（不回显）");
     expect(screen.getByLabelText("档案名")).toHaveValue("studio");
+  });
+
+  it("reports a failed config load with a retry instead of spinning forever", async () => {
+    const getConfig = vi
+      .spyOn(API, "getSystemConfig")
+      .mockRejectedValueOnce(new Error("no se pudo leer la configuración"))
+      .mockResolvedValue(config({ upload_post_profile: "studio" }));
+    const user = userEvent.setup();
+    render(<SocialPublishSection />);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("no se pudo leer la configuración");
+
+    await user.click(screen.getByRole("button", { name: "重试" }));
+
+    expect(await screen.findByLabelText("档案名")).toHaveValue("studio");
+    expect(getConfig).toHaveBeenCalledTimes(2);
   });
 
   it("saves the credential and reloads the connected accounts with it", async () => {

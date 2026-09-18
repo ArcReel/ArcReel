@@ -91,6 +91,7 @@ def test_publish_forwards_selection_and_returns_request_id() -> None:
             "description": "说明",
             "scheduled_date": "2026-12-31T23:45:00Z",
             "timezone": "Europe/Madrid",
+            "request_id": "arcreel-abc12345",
         },
     )
 
@@ -110,6 +111,7 @@ def test_publish_forwards_selection_and_returns_request_id() -> None:
             "description": "说明",
             "scheduled_date": "2026-12-31T23:45:00Z",
             "timezone": "Europe/Madrid",
+            "request_id": "arcreel-abc12345",
         }
     ]
 

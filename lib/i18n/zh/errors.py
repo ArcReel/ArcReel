@@ -481,6 +481,7 @@ MESSAGES = {
     "social_publish_upstream_malformed": "Upload-Post 返回了无法解析的内容，请稍后重试",
     "social_publish_platform_required": "请至少选择一个发布平台",
     "social_publish_platform_unsupported": "平台 '{platform}' 不支持视频投递",
+    "social_publish_request_id_invalid": "投递标识格式无效",
     "social_publish_title_required": "发布标题不能为空",
     "social_publish_title_too_long": "发布标题不能超过 {limit} 个字符",
     "upload_post_base_url_invalid": "Upload-Post 地址必须是不含账号口令与查询串的 https 地址",
