@@ -14,7 +14,7 @@ import re
 from collections.abc import Callable, Mapping
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, NoReturn
+from typing import TYPE_CHECKING, Any, Literal
 from urllib.parse import urlsplit
 
 from lib.audio_backends.openai import OpenAIAudioBackend
@@ -35,6 +35,7 @@ from lib.custom_provider.builtin_definitions import (
     declarative_video_capabilities,
     load_builtin_definitions,
 )
+from lib.custom_provider.comfyui_backend import ComfyuiVideoBackend
 from lib.custom_provider.declarative_backend import DeclarativeVideoBackend, request_urls
 from lib.image_backends.base import ImageCapability
 from lib.image_backends.dashscope import DashScopeImageBackend
@@ -538,14 +539,32 @@ def declarative_endpoint_spec(
     return spec
 
 
-def _build_comfyui_runtime(_provider: CustomProvider, _model_id: str) -> NoReturn:
-    """ComfyUI 端点的 backend 构造占位：运行时尚未落地，构造即抛。
+def _build_comfyui_runtime(
+    definition: Mapping[str, Any],
+) -> Callable[[CustomProvider, str], CustomVideoBackend]:
+    """ComfyUI 端点的 backend 构造闭包。
 
-    抛 ``NotImplementedError`` 而非 ``ValueError``：后者是本层「端点不认识」的既有含义，沿途
-    多处 ``except ValueError`` 会把它降级成「端点已不在」，而这里的实情是端点合法、只是还没有
-    能执行它的 backend。
+    只产出视频 backend：图像通道另有自己的 backend 协议与工厂，尚未落地。那一格抛
+    ``NotImplementedError`` 而非 ``ValueError``——后者是本层「端点不认识」的既有含义，沿途多处
+    ``except ValueError`` 会把它降级成「端点已不在」，而实情是端点合法、只是还没有能执行它的
+    backend。
     """
-    raise NotImplementedError("ComfyUI 端点的运行时尚未落地，无法构造 backend")
+
+    def build(provider: CustomProvider, model_id: str) -> CustomVideoBackend:
+        if str(definition.get("media_type")) != "video":
+            raise NotImplementedError("ComfyUI 图像端点的运行时尚未落地，无法构造 backend")
+        if not provider.base_url:
+            raise ValueError("ComfyUI 调用端点需要 base_url")
+        delegate = ComfyuiVideoBackend(
+            provider_id=provider.provider_id,
+            model=model_id,
+            base_url=provider.base_url,
+            api_key=provider.api_key,
+            definition=definition,
+        )
+        return CustomVideoBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
+
+    return build
 
 
 def comfyui_endpoint_spec(key: str, definition: Mapping[str, Any]) -> EndpointSpec:
@@ -573,7 +592,7 @@ def comfyui_endpoint_spec(key: str, definition: Mapping[str, Any]) -> EndpointSp
         # 可配的方法——两者都不是定义里的可取值，故写在投影处而非读自定义。
         request_method="POST",
         request_path_template="/prompt",
-        build_backend=_build_comfyui_runtime,
+        build_backend=_build_comfyui_runtime(definition),
         image_capabilities=None if is_video else frozenset(),
         video_caps_for_model=(lambda _model_id: caps) if is_video else None,
         definition=definition,

@@ -15,7 +15,6 @@
 from __future__ import annotations
 
 import json
-import re
 from collections.abc import Callable, Iterator, Mapping
 from functools import cache
 from pathlib import Path
@@ -24,6 +23,12 @@ from urllib.parse import parse_qsl
 
 from jsonschema import Draft202012Validator
 
+from lib.custom_provider.auth_section import (
+    check_auth_section,
+    duplicate_header_issues,
+    malformed_placeholders,
+    placeholder_names,
+)
 from lib.custom_provider.comfyui.validator import (
     CURRENT_SCHEMA_VERSION as COMFYUI_SCHEMA_VERSION,
 )
@@ -138,12 +143,6 @@ REMOVED_FIELD_REASONS: Mapping[str, str] = {
     "mime_types": "val_ce_removed_reason_mime_types",
     "media_type": "val_ce_removed_reason_media_type",
 }
-
-_PLACEHOLDER = re.compile(r"\{\{\s*([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)\s*\}\}")
-
-#: 模板里每一处 ``{{``。不落在 ``_PLACEHOLDER`` 起点上的即写法不合法：格式只认裸变量，
-#: 过滤器、下标、表达式与未闭合的开括号都不是占位符，渲染时会原样发给供应商。
-_PLACEHOLDER_OPEN = re.compile(r"\{\{")
 
 
 @cache
@@ -286,20 +285,19 @@ class _SemanticChecker:
     # ---- auth ----
 
     def _check_auth_section(self) -> None:
-        headers: Mapping[str, Any] = self._auth.get("headers") or {}
-        query: Mapping[str, Any] = self._auth.get("query") or {}
-        scope = _Scope(section="auth")
-        for group, values in (("headers", headers), ("query", query)):
-            for name, template in values.items():
-                path = join_path(join_path("auth", group), name)
-                self._scan_template(template, path, scope)
-                if _looks_like_literal_credential(str(template)):
-                    self._warn(path, DefinitionErrorCode.AUTH_LITERAL_CREDENTIAL)
-        self._check_header_names(join_path("auth", "headers"), headers)
-        if not headers and not query:
-            return
-        if not any("api_key" in _placeholder_names(str(value)) for value in (*headers.values(), *query.values())):
-            self._error("auth", DefinitionErrorCode.AUTH_WITHOUT_API_KEY)
+        """auth 节的检查与 ComfyUI 定义同一份实现，只有变量作用域是本 kind 自己的。"""
+        issues = check_auth_section(self._auth, variable_issues=self._auth_variable_issues)
+        self.errors.extend(issues.errors)
+        self.warnings.extend(issues.warnings)
+
+    def _auth_variable_issues(self, path: str, name: str) -> list[DefinitionIssue]:
+        """auth 节里 ``api_key`` 以外的变量：走与其余节同一条作用域判定。
+
+        声明式定义的 auth 节允许引用 ``base_url`` 这类基础变量（凭证按供应商地址分发的形态），
+        故这里不是「除 api_key 一律拒绝」，而是把整条作用域规则套在 auth 这个 section 上。
+        """
+        issue = self._variable_issue(name, path, _Scope(section="auth"))
+        return [] if issue is None else [issue]
 
     # ---- 请求节 ----
 
@@ -315,16 +313,11 @@ class _SemanticChecker:
             self._scan_node(request["body"], join_path(section, "body"), scope)
         self._check_auth_collisions(section, request, url)
         self._check_extract(section, request.get("extract") or {})
-        if section == "poll" and "task_id" not in _placeholder_names(json.dumps(request, ensure_ascii=False)):
+        if section == "poll" and "task_id" not in placeholder_names(json.dumps(request, ensure_ascii=False)):
             self._warn("poll", DefinitionErrorCode.POLL_WITHOUT_TASK_ID)
 
     def _check_header_names(self, path: str, headers: Mapping[str, Any]) -> None:
-        """同一张头表里不得有大小写不同的同名键：HTTP 头名不区分大小写，两条会一起发出去。"""
-        seen: dict[str, str] = {}
-        for name in headers:
-            first = seen.setdefault(name.lower(), name)
-            if first != name:
-                self._error(join_path(path, name), DefinitionErrorCode.HEADER_NAME_DUPLICATE, header=name, first=first)
+        self.errors.extend(duplicate_header_issues(path, headers))
 
     def _check_auth_collisions(self, section: str, request: Mapping[str, Any], url: object) -> None:
         auth_headers = {name.lower() for name in (self._auth.get("headers") or {})}
@@ -416,49 +409,53 @@ class _SemanticChecker:
     def _scan_template(self, template: object, path: str, scope: _Scope) -> None:
         if not isinstance(template, str):
             return
-        for fragment in _malformed_placeholders(template):
+        for fragment in malformed_placeholders(template):
             self._error(path, DefinitionErrorCode.MALFORMED_PLACEHOLDER, fragment=fragment)
-        for name in _placeholder_names(template):
+        for name in placeholder_names(template):
             self._check_variable(name, path, scope)
 
     def _check_variable(self, name: str, path: str, scope: _Scope) -> None:
-        if name == "api_key":
-            if scope.section != "auth":
-                self._error(path, DefinitionErrorCode.API_KEY_OUTSIDE_AUTH)
-            return
-        if name == "task_id":
-            if scope.section not in {"poll", "result"}:
-                self._error(path, DefinitionErrorCode.TASK_ID_OUT_OF_SCOPE)
-            return
-        if name == "result_id":
-            self._check_result_id(path, scope)
-            return
-        if name in scope.locals or name in BASE_VARIABLES:
-            return
-        if name.startswith("inputs."):
-            self._check_input_reference(name.removeprefix("inputs."), path, scope)
-            return
-        self._error(path, DefinitionErrorCode.UNDECLARED_VARIABLE, name=name)
+        issue = self._variable_issue(name, path, scope)
+        if issue is not None:
+            self.errors.append(issue)
 
-    def _check_result_id(self, path: str, scope: _Scope) -> None:
+    def _variable_issue(self, name: str, path: str, scope: _Scope) -> DefinitionIssue | None:
+        """一处占位符引用是否越界，越界即给出那一条诊断。
+
+        产出诊断而非就地记账：auth 节的检查由两种 kind 共用的实现驱动，它要拿到诊断本身才能
+        按严重度归列。
+        """
+        if name == "api_key":
+            return None if scope.section == "auth" else DefinitionIssue(path, DefinitionErrorCode.API_KEY_OUTSIDE_AUTH)
+        if name == "task_id":
+            if scope.section in {"poll", "result"}:
+                return None
+            return DefinitionIssue(path, DefinitionErrorCode.TASK_ID_OUT_OF_SCOPE)
+        if name == "result_id":
+            return self._result_id_issue(path, scope)
+        if name in scope.locals or name in BASE_VARIABLES:
+            return None
+        if name.startswith("inputs."):
+            return self._input_reference_issue(name.removeprefix("inputs."), path, scope)
+        return DefinitionIssue(path, DefinitionErrorCode.UNDECLARED_VARIABLE, {"name": name})
+
+    def _result_id_issue(self, path: str, scope: _Scope) -> DefinitionIssue | None:
         if scope.section != "result":
-            self._error(path, DefinitionErrorCode.RESULT_ID_OUT_OF_SCOPE)
-            return
+            return DefinitionIssue(path, DefinitionErrorCode.RESULT_ID_OUT_OF_SCOPE)
         poll_extract = (self._document.get("poll") or {}).get("extract") or {}
         if "result_id" not in poll_extract:
-            self._error(path, DefinitionErrorCode.RESULT_ID_WITHOUT_EXTRACT)
+            return DefinitionIssue(path, DefinitionErrorCode.RESULT_ID_WITHOUT_EXTRACT)
+        return None
 
-    def _check_input_reference(self, name: str, path: str, scope: _Scope) -> None:
+    def _input_reference_issue(self, name: str, path: str, scope: _Scope) -> DefinitionIssue | None:
         if name not in self._inputs:
-            self._error(path, DefinitionErrorCode.UNDECLARED_VARIABLE, name=f"inputs.{name}")
-            return
+            return DefinitionIssue(path, DefinitionErrorCode.UNDECLARED_VARIABLE, {"name": f"inputs.{name}"})
         if scope.section != "submit":
-            self._error(path, DefinitionErrorCode.INPUT_OUT_OF_SCOPE, name=name)
-            return
+            return DefinitionIssue(path, DefinitionErrorCode.INPUT_OUT_OF_SCOPE, {"name": name})
         if name in self._list_inputs:
-            self._error(path, DefinitionErrorCode.LIST_INPUT_REQUIRES_EACH, name=name)
-            return
+            return DefinitionIssue(path, DefinitionErrorCode.LIST_INPUT_REQUIRES_EACH, {"name": name})
         self._referenced_inputs.add(name)
+        return None
 
     # ---- 字典与能力 ----
 
@@ -585,37 +582,6 @@ def _capability_is_on(capability: str, value: object) -> bool:
     if capability == "reference_audio_mode":
         return value is not None and value != "none"
     return value is True
-
-
-def _placeholder_names(text: str) -> list[str]:
-    return _PLACEHOLDER.findall(text)
-
-
-#: 凭证长相：20+ 位含数字的 token 串（API key / JWT / base64 的公共形态）。版本号、固定
-#: 字段这类短静态值不命中；误报的代价只是一条不拦保存的 warning。
-_CREDENTIAL_TOKEN = re.compile(r"[A-Za-z0-9+/_=-]{20,}")
-
-
-def _looks_like_literal_credential(template: str) -> bool:
-    """auth 值剔除占位符后，剩余字面部分是否形似直接写入的凭证。
-
-    凭证以 api_key 占位符形态出现是导出剥凭证的前提；字面凭证会随导出与「复制为我的」
-    原样外流，只能靠形态识别提示。
-    """
-    literal = _PLACEHOLDER.sub(" ", template)
-    return any(any(ch.isdigit() for ch in token) for token in _CREDENTIAL_TOKEN.findall(literal))
-
-
-def _malformed_placeholders(text: str) -> list[str]:
-    """所有不构成合法占位符的 ``{{`` 片段，取到最近的 ``}}``（没有就到串尾）。"""
-    valid_starts = {match.start() for match in _PLACEHOLDER.finditer(text)}
-    fragments: list[str] = []
-    for match in _PLACEHOLDER_OPEN.finditer(text):
-        if match.start() in valid_starts:
-            continue
-        closing = text.find("}}", match.start())
-        fragments.append(text[match.start() : closing + 2] if closing != -1 else text[match.start() :])
-    return fragments
 
 
 def _url_query_names(url: object) -> set[str]:

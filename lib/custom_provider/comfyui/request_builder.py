@@ -27,6 +27,7 @@ from lib.aspect_size import DEFAULT_SHORT_EDGE, IMAGE_TIER_SHORT_EDGE, VIDEO_TIE
 from lib.aspect_size import resolution_to_short_edge as short_edge_of_resolution
 from lib.prompt_utils import append_avoid_text, split_avoid_lines
 
+from .failures import IMAGE_DROP_UNSUPPORTED, ComfyuiError
 from .inference_rules import InferenceRules, MergeNode, load_inference_rules
 from .workflow import is_link, node_inputs
 
@@ -35,25 +36,8 @@ logger = logging.getLogger(__name__)
 #: 随机种子的取值区间上界（不含）：ComfyUI 各采样器的 seed 输入按 32 位无符号整数收。
 SEED_UPPER_BOUND = 2**32
 
-#: 参考图或首尾帧要删的读图节点，其级联触到了产物节点——这份 workflow 的成片链路本身依赖那张
-#: 图，少一张就出不了片，只能让这次生成失败而不是提交一份必然报错的 workflow。
-IMAGE_DROP_UNSUPPORTED = "comfyui_image_drop_unsupported"
-
 #: 种子条目缺省策略，与 schema 的 ``default`` 同值。
 _DEFAULT_SEED_POLICY = "random"
-
-
-class ComfyuiRequestError(RuntimeError):
-    """构造实发 workflow 失败，携带可持久化、可本地化的稳定失败码。
-
-    形状与声明式运行时的同类异常一致（``code`` + ``params``），失败原因的编码与渲染两侧因此
-    不必为 ComfyUI 另写一条路径。
-    """
-
-    def __init__(self, code: str, **params: Any) -> None:
-        self.code = code
-        self.params: dict[str, Any] = params
-        super().__init__(code)
 
 
 @dataclass(frozen=True)
@@ -458,7 +442,7 @@ def _drop_nodes(
         if node_id not in workflow:
             continue
         if node_id in output_nodes:
-            raise ComfyuiRequestError(IMAGE_DROP_UNSUPPORTED, node=node_id)
+            raise ComfyuiError(IMAGE_DROP_UNSUPPORTED, node=node_id)
         orphan_candidates.update(_link_sources(workflow[node_id]))
         del workflow[node_id]
         deleted.append(node_id)

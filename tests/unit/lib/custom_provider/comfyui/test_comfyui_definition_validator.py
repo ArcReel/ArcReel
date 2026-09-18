@@ -249,6 +249,35 @@ class TestAuthScope:
 
         assert ("auth.query.url", "undeclared_variable") in _codes(validate_definition(definition))
 
+    def test_a_malformed_placeholder_next_to_a_good_one_is_reported(self):
+        """混写过得了「引用了 api_key」那一关：坏模板会被原样发给反向代理，认不出是哪一处写错。"""
+        definition = comfyui_endpoint_definition(
+            auth={"headers": {"Authorization": "{{api_key}}-{{ api_key | upper }}"}}
+        )
+
+        diagnostics = validate_definition(definition)
+
+        assert ("auth.headers.Authorization", "malformed_placeholder") in _codes(diagnostics)
+
+    def test_a_literal_credential_is_warned_about_without_blocking_the_save(self):
+        """字面凭证会随导出与「复制为我的」原样外流，但它本身是合法配置，只提示。"""
+        definition = comfyui_endpoint_definition(
+            auth={"headers": {"Authorization": "Bearer {{ api_key }}", "X-Team": "sk-9f2c41ab77de05631b8a"}}
+        )
+
+        diagnostics = validate_definition(definition)
+
+        assert diagnostics.valid
+        assert ("auth.headers.X-Team", "auth_literal_credential") in _warning_codes(diagnostics)
+
+    def test_header_names_differing_only_in_case_are_refused(self):
+        """HTTP 头名不区分大小写，两条会一起发出去，服务端收到哪一条全看实现。"""
+        definition = comfyui_endpoint_definition(
+            auth={"headers": {"Authorization": "Bearer {{ api_key }}", "authorization": "{{ api_key }}"}}
+        )
+
+        assert ("auth.headers.authorization", "header_name_duplicate") in _codes(validate_definition(definition))
+
 
 class TestDiagnosticPayload:
     def test_a_capabilities_section_is_reported_as_removed_with_its_reason(self):
@@ -304,3 +333,7 @@ def _image_endpoint(**bindings: object) -> dict[str, object]:
 
 def _codes(diagnostics: DefinitionDiagnostics) -> list[tuple[str, str]]:
     return [(issue.path, issue.code.value) for issue in diagnostics.errors]
+
+
+def _warning_codes(diagnostics: DefinitionDiagnostics) -> list[tuple[str, str]]:
+    return [(issue.path, issue.code.value) for issue in diagnostics.warnings]

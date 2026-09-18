@@ -51,6 +51,7 @@ _ORPHAN_RESCAN_LEASE_LOST_MULT = 3
 
 from lib.api_errors import ApiError
 from lib.config.resolver import VideoBucketCapabilityError
+from lib.custom_provider.comfyui.failures import ComfyuiError
 from lib.custom_provider.declarative_backend import DeclarativeRuntimeError
 from lib.generation_queue import (
     I2I_ONLY_TASK_TYPES,
@@ -139,7 +140,8 @@ def _encode_task_failure_message(exc: Exception) -> str:
         | ReferenceProjectionBlockedError
         | NarratedVideoDurationBlockedError
         | ReferenceExecutionIdentityError
-        | DeclarativeRuntimeError,
+        | DeclarativeRuntimeError
+        | ComfyuiError,
     ):
         # 结构化执行拒绝没有通用兜底 code 可退，退回 str(exc)（即 code 本身）——
         # 非结构化文本在读侧原样透传，不会丢失原因。

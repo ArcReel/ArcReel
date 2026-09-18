@@ -7,10 +7,9 @@ from typing import Any
 
 import pytest
 
+from lib.custom_provider.comfyui.failures import IMAGE_DROP_UNSUPPORTED, ComfyuiError
 from lib.custom_provider.comfyui.request_builder import (
-    IMAGE_DROP_UNSUPPORTED,
     SEED_UPPER_BOUND,
-    ComfyuiRequestError,
     MediaInputs,
     build_workflow,
     workflow_sha256,
@@ -399,7 +398,7 @@ class TestImageDrop:
         definition = _reference_definition()
         definition["workflow"]["30"]["class_type"] = "SomeCustomVideoNode"
 
-        with pytest.raises(ComfyuiRequestError) as caught:
+        with pytest.raises(ComfyuiError) as caught:
             _build(definition, media=MediaInputs(reference_images=()))
 
         assert caught.value.code == IMAGE_DROP_UNSUPPORTED

@@ -84,6 +84,8 @@ FIRST_IMPORT_MODULES = [
     "lib.custom_provider.comfyui.inference",
     "lib.custom_provider.comfyui.request_builder",
     "lib.custom_provider.comfyui.validator",
+    "lib.custom_provider.comfyui_backend",
+    "lib.custom_provider.comfyui_client",
     "lib.custom_provider.discovery",
     "lib.custom_provider.endpoint_definition",
     "lib.custom_provider.endpoints",

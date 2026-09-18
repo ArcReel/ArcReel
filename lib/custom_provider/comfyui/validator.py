@@ -11,7 +11,6 @@
 from __future__ import annotations
 
 import json
-import re
 from collections.abc import Iterator, Mapping
 from functools import cache
 from pathlib import Path
@@ -19,6 +18,7 @@ from typing import Any
 
 from jsonschema import Draft202012Validator
 
+from lib.custom_provider.auth_section import API_KEY_VARIABLE, PLACEHOLDER, check_auth_section
 from lib.custom_provider.definition_diagnostics import (
     DefinitionDiagnostics,
     DefinitionErrorCode,
@@ -41,11 +41,6 @@ CURRENT_SCHEMA_VERSION = "1.0.0"
 REMOVED_FIELD_REASONS: Mapping[str, str] = {
     "capabilities": "val_ce_removed_reason_comfyui_capabilities",
 }
-
-#: ``auth`` 里唯一可用的变量。
-_API_KEY_VARIABLE = "api_key"
-
-_PLACEHOLDER = re.compile(r"\{\{\s*([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)\s*\}\}")
 
 
 @cache
@@ -70,7 +65,11 @@ def validate_comfyui_definition(document: Mapping[str, Any]) -> DefinitionDiagno
     structural = structural_diagnostics(document)
     if structural.errors:
         return structural
-    return DefinitionDiagnostics(errors=tuple(_semantic_issues(document)))
+    auth = check_auth_section(document.get("auth") or {}, variable_issues=_auth_variable_issues)
+    return DefinitionDiagnostics(
+        errors=(*_semantic_issues(document), *auth.errors),
+        warnings=auth.warnings,
+    )
 
 
 def structural_diagnostics(document: object) -> DefinitionDiagnostics:
@@ -96,7 +95,7 @@ def _semantic_issues(document: Mapping[str, Any]) -> Iterator[DefinitionIssue]:
     yield from _media_type_issues(bindings, media_type)
     yield from _target_issues(bindings, workflow, media_type)
     yield from _collision_issues(bindings, media_type)
-    yield from _auth_issues(document)
+    yield from _api_key_outside_auth_issues(document)
 
 
 def _required_binding_issues(bindings: Mapping[str, Any]) -> Iterator[DefinitionIssue]:
@@ -268,31 +267,23 @@ def _write_landing(target: Mapping[str, Any]) -> tuple[str, str] | None:
     return (str(target["node"]), name) if isinstance(name, str) else None
 
 
-def _auth_issues(document: Mapping[str, Any]) -> Iterator[DefinitionIssue]:
-    """凭证只从 ``auth`` 节写入，且该节只认 ``api_key`` 一个变量。
+def _auth_variable_issues(path: str, name: str) -> list[DefinitionIssue]:
+    """ComfyUI 的 ``auth`` 节只认 ``api_key``：别的变量都无处取值。
+
+    声明式定义的 auth 节可以引用 ``base_url`` 这类基础变量，ComfyUI 客户端没有那套模板上下文
+    ——凭证之外的模板求值在这一侧根本不存在。
+    """
+    return [DefinitionIssue(path, DefinitionErrorCode.UNDECLARED_VARIABLE, {"name": name})]
+
+
+def _api_key_outside_auth_issues(document: Mapping[str, Any]) -> Iterator[DefinitionIssue]:
+    """凭证只从 ``auth`` 节写入。
 
     workflow 是原样内嵌的底稿、提交时不作模板渲染，里面写 ``{{api_key}}`` 既不会生效，又会把
     真实凭证随导出文件分发出去。
     """
-    auth: Mapping[str, Any] = document.get("auth") or {}
-    references_api_key = False
-    for path, template in _auth_templates(auth):
-        for name in _PLACEHOLDER.findall(template):
-            if name == _API_KEY_VARIABLE:
-                references_api_key = True
-            else:
-                yield DefinitionIssue(path, DefinitionErrorCode.UNDECLARED_VARIABLE, {"name": name})
-    if auth and not references_api_key:
-        yield DefinitionIssue("auth", DefinitionErrorCode.AUTH_WITHOUT_API_KEY)
     for path in _api_key_outside_auth(document):
         yield DefinitionIssue(path, DefinitionErrorCode.API_KEY_OUTSIDE_AUTH)
-
-
-def _auth_templates(auth: Mapping[str, Any]) -> Iterator[tuple[str, str]]:
-    for group in ("headers", "query"):
-        values: Mapping[str, Any] = auth.get(group) or {}
-        for name, template in values.items():
-            yield join_path(join_path("auth", group), name), str(template)
 
 
 def _api_key_outside_auth(document: Mapping[str, Any]) -> Iterator[str]:
@@ -304,7 +295,7 @@ def _api_key_outside_auth(document: Mapping[str, Any]) -> Iterator[str]:
 
 def _api_key_references(path: str, value: object) -> Iterator[str]:
     if isinstance(value, str):
-        if _API_KEY_VARIABLE in _PLACEHOLDER.findall(value):
+        if API_KEY_VARIABLE in PLACEHOLDER.findall(value):
             yield path
     elif isinstance(value, Mapping):
         for key, child in value.items():

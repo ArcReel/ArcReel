@@ -1,4 +1,5 @@
 import asyncio
+import json
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import ClassVar
@@ -15,7 +16,7 @@ from lib.media_generator import (
     task_video_staging_path,
 )
 from lib.version_manager import PaidVersionCommit
-from tests.factories import custom_endpoint_definition
+from tests.factories import comfyui_endpoint_definition, custom_endpoint_definition
 from tests.fakes import FakeConfigResolver, bounded_poll_clock, select_formal_video
 from tests.http_capture import capture_http
 
@@ -49,6 +50,8 @@ class _FakeVideoResult:
         self.usage_tokens = 0
         self.generate_audio = True
         self.duration_seconds = duration_seconds
+        self.seed = None
+        self.provenance = None
 
 
 class _FakeVideoBackend:
@@ -255,6 +258,51 @@ class TestMediaGenerator:
                 "usage": {"duration": 7.5},
             },
         )
+
+    async def test_comfyui_video_records_the_actual_seed_and_workflow_fingerprint(self, tmp_path):
+        """两者都只有生成过一次才知道：元数据在提交前定稿，装不下它们，故落盘前再并一次。"""
+        from lib.custom_provider.backends import CustomVideoBackend
+        from lib.custom_provider.comfyui.request_builder import workflow_sha256
+        from lib.custom_provider.comfyui_backend import ComfyuiVideoBackend
+        from lib.video_backends.base import VideoCapabilities
+
+        gen = _build_generator(tmp_path)
+        gen._video_provider_id = "custom-1"
+        delegate = ComfyuiVideoBackend(
+            provider_id="custom-1",
+            model="wan-t2v",
+            base_url="https://comfy.test",
+            api_key="",
+            definition=comfyui_endpoint_definition(),
+        )
+        # 能力由节点绑定推导，推导尚未落地；照工厂的做法把生效能力注入包装层，否则请求闸门
+        # 会以「该端点不支持文生视频」拦在 backend 之前。
+        gen._video_backend = CustomVideoBackend(
+            provider_id="custom-1", delegate=delegate, model="wan-t2v"
+        ).with_video_capabilities(VideoCapabilities(text_to_video=True), overrides={"text_to_video": True})
+        history = {
+            "status": {"completed": True},
+            "outputs": {"9": {"gifs": [{"filename": "final.mp4", "subfolder": "video", "type": "output"}]}},
+        }
+
+        with capture_http() as router, bounded_poll_clock():
+            submit = router.post("https://comfy.test/prompt").mock(
+                return_value=httpx.Response(200, json={"prompt_id": "p-1"})
+            )
+            router.get("https://comfy.test/history/p-1").mock(return_value=httpx.Response(200, json=history))
+            router.get("https://comfy.test/view").mock(return_value=httpx.Response(200, content=b"video"))
+
+            output, _version, _ref, _uri = await gen.generate_video_async(
+                prompt="一只猫走过屋顶",
+                resource_type="videos",
+                resource_id="E1S01",
+                duration_seconds=5,
+            )
+
+        sent = json.loads(submit.calls.last.request.content)["prompt"]
+        assert output.read_bytes() == b"video"
+        assert gen.versions.add_calls[-1]["workflow_sha256"] == workflow_sha256(sent)
+        assert gen.versions.add_calls[-1]["seed"] == sent["3"]["inputs"]["seed"]
 
     async def test_cancelled_formal_image_generation_never_replaces_the_canonical_file(self, tmp_path):
         gen = _build_generator(tmp_path)

@@ -167,6 +167,12 @@ _TASK_FAILURE_ACTIONS: dict[str, GenerationAction] = {
     "declarative_template_render_failed": GenerationAction.CONFIGURE_PROVIDER,
     "declarative_response_extract_failed": GenerationAction.CONFIGURE_PROVIDER,
     "comfyui_image_drop_unsupported": GenerationAction.CONFIGURE_PROVIDER,
+    # 传不上去多半是地址、凭据或磁盘的一次性问题，重发同一请求可能就好了。
+    "comfyui_upload_failed": GenerationAction.RETRY,
+    # 以下三条都指向这份 workflow 或这台机器的环境：缺模型、参数越界、产物节点接错。
+    "comfyui_node_errors": GenerationAction.CONFIGURE_PROVIDER,
+    "comfyui_output_missing": GenerationAction.CONFIGURE_PROVIDER,
+    "comfyui_output_type_mismatch": GenerationAction.CONFIGURE_PROVIDER,
     # 供应商已出片、只是没取回来：重发同一请求会再建一个付费任务，正确的一步是接续取件。
     "artifact_download_failed": GenerationAction.RETRY_ARTIFACT_DOWNLOAD,
     "execution_identity_unrecoverable": GenerationAction.RETRY,

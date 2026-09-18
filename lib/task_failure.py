@@ -120,6 +120,10 @@ FAILURE_CODE_KEYS: dict[str, str] = {
     "declarative_response_extract_failed": "task_fail_declarative_response_extract_failed",
     # 参考图或首尾帧不足时的改图失败：级联触到产物节点，这份 workflow 出片本身依赖那张图。
     "comfyui_image_drop_unsupported": "task_fail_comfyui_image_drop_unsupported",
+    "comfyui_upload_failed": "task_fail_comfyui_upload_failed",
+    "comfyui_node_errors": "task_fail_comfyui_node_errors",
+    "comfyui_output_missing": "task_fail_comfyui_output_missing",
+    "comfyui_output_type_mismatch": "task_fail_comfyui_output_type_mismatch",
     "artifact_download_failed": "task_fail_artifact_download_failed",
     "restart_lost_checkpoint_no_job_id": "task_fail_restart_lost_checkpoint_no_job_id",
     "execution_identity_unrecoverable": "task_fail_execution_identity_unrecoverable",

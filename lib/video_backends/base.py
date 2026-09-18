@@ -10,7 +10,7 @@ from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
-from typing import Literal, Protocol, cast
+from typing import Any, Literal, Protocol, cast
 from urllib.parse import urlsplit
 
 import httpx
@@ -746,6 +746,15 @@ class _Hop:
         return _Hop(str(target), self.headers, None, self.auth_query)
 
 
+@dataclass(frozen=True)
+class _Body:
+    """一次请求的请求体。跟随重定向改写成 GET 时整个丢掉，三个字段不会各丢一半。"""
+
+    json: object | None = None
+    files: Mapping[str, Any] | None = None
+    data: Mapping[str, Any] | None = None
+
+
 async def request_with_scoped_credentials(
     client: httpx.AsyncClient,
     method: str,
@@ -754,6 +763,8 @@ async def request_with_scoped_credentials(
     headers: Mapping[str, str] | None,
     json: object | None,
     auth_query: Mapping[str, str] | None = None,
+    files: Mapping[str, Any] | None = None,
+    data: Mapping[str, Any] | None = None,
 ) -> httpx.Response:
     """发一次请求并自行逐跳跟随重定向，跳出本请求的源时卸掉 ``headers`` 里的凭证。
 
@@ -762,19 +773,24 @@ async def request_with_scoped_credentials(
 
     凭证的作用域取 ``url`` 自己的源，而不是某个外部基准：调用方指定的地址就是凭证的去处，
     需要防的是服务端用 ``Location`` 把它引到别处。
+
+    ``files`` / ``data`` 走 multipart 的请求体，与 ``json`` 三选一；续跳时原样重发，故 ``files``
+    的内容要是字节而不是文件句柄——句柄读到结尾后第二跳会发出一个空体。
     """
     credential_origin = url_origin(url)
     # 首跳的 auth.query 已经拼在 url 上，params 不重复带；只在同源续跳时补回。
     hop = _Hop(url, headers, None, auth_query)
     current_method = method.upper()
-    current_json = json
+    body = _Body(json, files, data)
     for _ in range(_MAX_REDIRECTS + 1):
         response = await client.request(
             current_method,
             hop.url,
             headers=hop.headers,
             params=hop.params,
-            json=current_json,
+            json=body.json,
+            files=body.files,
+            data=body.data,
             follow_redirects=False,
         )
         location = _redirect_location(response)
@@ -782,7 +798,7 @@ async def request_with_scoped_credentials(
             return response
         if _rewrites_to_get(response.status_code, current_method):
             current_method = "GET"
-            current_json = None
+            body = _Body()
         hop = hop.redirected_to(location, credential_origin)
     raise RuntimeError(f"request exceeded {_MAX_REDIRECTS} redirects: {_without_query(url)}")
 
@@ -1202,6 +1218,11 @@ class VideoGenerationResult:
     usage_tokens: int | None = None
     task_id: str | None = None
     generate_audio: bool | None = None
+
+    # 这一次生成才确定、且要随成片一起留档的事实（如 ComfyUI 的实发 workflow 指纹）。调用方把
+    # 它并进产物版本元数据：请求侧的那份元数据在提交前就已定稿，装不下只有执行过一次才知道的值。
+    # 键名由各 backend 自己定，内容必须可 JSON 序列化——它会原样落进版本记录。
+    provenance: Mapping[str, Any] | None = None
 
 
 async def notify_provider_response(request: VideoGenerationRequest, stage: ProviderResponseStage, body: object) -> None:
