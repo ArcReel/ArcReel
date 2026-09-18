@@ -5,7 +5,7 @@
 .prompt-editor {
   font-family: var(--font-mono);
   font-size: 0.875rem;
-  background: oklch(0.20 0.011 265 / 0.6);
+  background: var(--color-surface-muted);
   border: 1px solid var(--color-hairline-soft);
   border-radius: 0.5rem;
   padding: 0.75rem;
@@ -15,7 +15,7 @@
 /* 强调色 */
 .accent-gradient {
   background: linear-gradient(180deg, var(--color-accent-2), var(--color-accent));
-  color: oklch(0.14 0 0);
+  color: var(--color-accent-contrast);
 }
 
 .accent-gradient-text {
@@ -24,7 +24,7 @@
 
 /* 片段卡片 */
 .segment-card {
-  background: linear-gradient(180deg, oklch(0.22 0.012 265 / 0.5), oklch(0.20 0.012 265 / 0.35));
+  background: linear-gradient(180deg, var(--color-surface-3), var(--color-surface-muted));
   border: 1px solid var(--color-hairline-soft);
   border-radius: 0.75rem;
 }
@@ -129,12 +129,12 @@
   border-radius: 5px;
   color: var(--color-text-2);
   border: 1px solid var(--color-hairline);
-  background: oklch(0.22 0.011 265 / 0.5);
+  background: var(--color-surface-muted);
   transition: background .12s, color .12s;
   cursor: pointer;
 }
 .sv-navbtn:not(:disabled):hover {
-  background: oklch(0.26 0.013 265 / 0.7);
+  background: var(--color-surface-2);
   color: var(--color-text);
 }
 .sv-navbtn:disabled {
@@ -149,7 +149,7 @@
   font-size: 0.78125rem;
   line-height: 1.65;
   color: var(--color-text);
-  background: linear-gradient(180deg, oklch(0.225 0.003 285 / 0.55), oklch(0.195 0.003 285 / 0.4));
+  background: linear-gradient(180deg, var(--color-surface-3), var(--color-surface-muted));
   border: 1px solid var(--color-hairline-soft);
   border-radius: 8px;
   font-family: var(--font-sans);
@@ -172,7 +172,7 @@
   appearance: none;
   height: 4px;
   border-radius: 999px;
-  background: oklch(0.30 0.010 265 / 0.7);
+  background: var(--color-hairline);
   outline: none;
   cursor: pointer;
 }
@@ -203,7 +203,7 @@
 .theme-slider::-moz-range-track {
   height: 4px;
   border-radius: 999px;
-  background: oklch(0.30 0.010 265 / 0.7);
+  background: var(--color-hairline);
 }
 .theme-slider:disabled {
   opacity: 0.5;
@@ -216,7 +216,7 @@
   font-size: 0.78125rem;
   line-height: 1.4;
   color: var(--color-text);
-  background: linear-gradient(180deg, oklch(0.20 0.011 265 / 0.6), oklch(0.18 0.010 265 / 0.45));
+  background: linear-gradient(180deg, var(--color-surface-muted), var(--color-surface-muted));
   border: 1px solid var(--color-hairline-soft);
   border-radius: 6px;
   outline: none;

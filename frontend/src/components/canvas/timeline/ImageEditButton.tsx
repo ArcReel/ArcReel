@@ -28,7 +28,7 @@ interface ImageEditButtonProps {
 
 const FIELD_STYLE: CSSProperties = {
   background:
-    "linear-gradient(180deg, oklch(0.20 0.011 265 / 0.6), oklch(0.18 0.010 265 / 0.45))",
+    "linear-gradient(180deg, var(--color-surface-3), var(--color-surface-2))",
   border: "1px solid var(--color-hairline)",
   color: "var(--color-text)",
   boxShadow: "inset 0 1px 2px oklch(0 0 0 / 0.2)",
@@ -188,7 +188,7 @@ export function ImageEditButton({
               disabled={submitting || instruction.trim().length === 0 || disabled}
               className="focus-ring inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[12px] font-medium transition-transform disabled:cursor-not-allowed disabled:opacity-50"
               style={{
-                color: "oklch(0.14 0 0)",
+                color: "var(--color-accent-contrast)",
                 background:
                   "linear-gradient(135deg, var(--color-accent-2), var(--color-accent))",
                 boxShadow:

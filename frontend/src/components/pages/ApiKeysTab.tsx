@@ -23,7 +23,7 @@ import type { ApiKeyInfo, CreateApiKeyResponse } from "@/types";
 
 const MODAL_STYLE: CSSProperties = {
   background:
-    "linear-gradient(180deg, oklch(0.21 0.012 270 / 0.96), oklch(0.16 0.010 265 / 0.96))",
+    "linear-gradient(180deg, var(--color-surface-3), var(--color-surface-2))",
 };
 
 // ---------------------------------------------------------------------------

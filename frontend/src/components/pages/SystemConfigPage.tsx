@@ -10,13 +10,16 @@ import {
   Info,
   KeyRound,
   Languages,
+  Moon,
   Plug,
   ScrollText,
   Store,
+  Sun,
   Waypoints,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useConfigStatusStore } from "@/stores/config-status-store";
+import { useThemeStore } from "@/stores/theme-store";
 import { ONBOARDING_ANCHORS } from "@/onboarding/anchors";
 import { AgentConfigTab } from "./AgentConfigTab";
 import { ApiKeysTab } from "./ApiKeysTab";
@@ -144,6 +147,9 @@ export function SystemConfigPage() {
     void i18n.changeLanguage(SUPPORTED_LANGUAGES[nextIdx]);
   };
 
+  const theme = useThemeStore((s) => s.theme);
+  const toggleTheme = useThemeStore((s) => s.toggleTheme);
+
   // -------------------------------------------------------------------------
   // Main render
   // -------------------------------------------------------------------------
@@ -151,24 +157,17 @@ export function SystemConfigPage() {
   return (
     <div
       className="relative flex h-screen flex-col text-text"
-      style={
-        {
-          background:
-            "radial-gradient(900px 480px at 8% -10%, oklch(0.32 0.05 295 / 0.22), transparent 55%), radial-gradient(800px 460px at 100% 110%, oklch(0.26 0.04 260 / 0.22), transparent 55%), linear-gradient(180deg, var(--color-bg-grad-a), var(--color-bg-grad-b))",
-        }
-      }
+      style={{ background: "var(--color-bg)" }}
     >
       {/* ─── Top bar ─── */}
       <header
         className="shrink-0 sticky top-0 z-30"
         style={{
-          background:
-            "linear-gradient(180deg, oklch(0.20 0.011 265 / 0.55), oklch(0.15 0.010 265 / 0.45))",
+          background: "var(--color-surface-2)",
           backdropFilter: "blur(28px) saturate(1.5)",
           WebkitBackdropFilter: "blur(28px) saturate(1.5)",
           borderBottom: "1px solid var(--color-hairline)",
-          boxShadow:
-            "inset 0 1px 0 oklch(1 0 0 / 0.05), 0 6px 24px -12px oklch(0 0 0 / 0.45)",
+          boxShadow: "var(--shadow-glow)",
         }}
       >
         <div className="mx-auto flex max-w-[1320px] items-center gap-5 px-6 py-4">
@@ -201,18 +200,29 @@ export function SystemConfigPage() {
               </span>
             </h1>
           </div>
-          <button
-            type="button"
-            onClick={cycleLang}
-            className="inline-flex items-center gap-2 rounded-md border border-hairline-soft bg-bg-grad-a/45 px-2.5 py-1.5 text-[12px] text-text-3 transition-colors hover:border-hairline hover:bg-bg-grad-a hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-            title={langDisplay}
-            aria-label={t("dashboard:language_setting")}
-          >
-            <Languages className="h-3.5 w-3.5" />
-            <span className="font-mono text-[10.5px] font-bold uppercase tracking-[0.14em]">
-              {currentLang}
-            </span>
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={toggleTheme}
+              className="inline-flex items-center gap-2 rounded-md border border-hairline-soft bg-bg-grad-a/45 px-2.5 py-1.5 text-[12px] text-text-3 transition-colors hover:border-hairline hover:bg-bg-grad-a hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+              title={theme === "dark" ? t("dashboard:switch_to_light") : t("dashboard:switch_to_dark")}
+              aria-label={theme === "dark" ? t("dashboard:switch_to_light") : t("dashboard:switch_to_dark")}
+            >
+              {theme === "dark" ? <Sun className="h-3.5 w-3.5" /> : <Moon className="h-3.5 w-3.5" />}
+            </button>
+            <button
+              type="button"
+              onClick={cycleLang}
+              className="inline-flex items-center gap-2 rounded-md border border-hairline-soft bg-bg-grad-a/45 px-2.5 py-1.5 text-[12px] text-text-3 transition-colors hover:border-hairline hover:bg-bg-grad-a hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+              title={langDisplay}
+              aria-label={t("dashboard:language_setting")}
+            >
+              <Languages className="h-3.5 w-3.5" />
+              <span className="font-mono text-[10.5px] font-bold uppercase tracking-[0.14em]">
+                {currentLang}
+              </span>
+            </button>
+          </div>
         </div>
       </header>
 
@@ -222,7 +232,7 @@ export function SystemConfigPage() {
         <nav
           aria-label={t("common:settings")}
           className="w-[220px] shrink-0 overflow-y-auto border-r border-hairline-soft px-3 py-5"
-          style={{ background: "oklch(0.16 0.010 265 / 0.45)" }}
+          style={{ background: "var(--color-hairline-soft)" }}
         >
           {SECTION_GROUPS.map((group, gi) => (
             <div key={group.kicker} className={gi > 0 ? "mt-5" : undefined}>
@@ -272,7 +282,7 @@ export function SystemConfigPage() {
                         aria-label={t("dashboard:config_incomplete")}
                         className="grid h-4 w-4 place-items-center rounded-full"
                         style={{
-                          background: "oklch(0.30 0.10 25 / 0.22)",
+                          background: "var(--color-danger-soft-hover)",
                           color: "var(--color-warm-bright)",
                         }}
                       >

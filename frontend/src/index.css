@@ -3,11 +3,105 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 @theme {
+    /* 工作台基础色 — oklch 系（浅色为默认） */
+    --color-bg: oklch(0.985 0.002 265);
+    --color-bg-grad-a: oklch(0.975 0.003 270);
+    --color-bg-grad-b: oklch(0.965 0.002 260);
+    --color-surface-2: oklch(0.945 0.004 265);
+    --color-surface-3: oklch(0.925 0.005 265);
+
+    /* 描边 */
+    --color-hairline: oklch(0.85 0.008 265 / 0.35);
+    --color-hairline-strong: oklch(0.75 0.010 265 / 0.55);
+    --color-hairline-soft: oklch(0.88 0.006 265 / 0.25);
+
+    /* 文字四档 */
+    --color-text: oklch(0.15 0.010 265);
+    --color-text-2: oklch(0.30 0.015 265);
+    --color-text-3: oklch(0.45 0.012 265);
+    --color-text-4: oklch(0.55 0.010 265);
+
+    /* Accent — 紫色 */
+    --color-accent: oklch(0.55 0.15 295);
+    --color-accent-2: oklch(0.45 0.12 295);
+    --color-accent-soft: oklch(0.55 0.15 295 / 0.15);
+    --color-accent-dim: oklch(0.55 0.15 295 / 0.08);
+    --color-accent-glow: oklch(0.55 0.15 295 / 0.25);
+    --color-accent-contrast: oklch(0.98 0 0);
+
+    /* 状态色 */
+    --color-good: oklch(0.55 0.15 155);
+    --color-good-soft: oklch(0.55 0.15 155 / 0.14);
+    --color-warn: oklch(0.65 0.18 70);
+    --color-warn-soft: oklch(0.65 0.18 70 / 0.14);
+    --color-danger: oklch(0.55 0.22 25);
+    --color-danger-soft: oklch(0.55 0.22 25 / 0.14);
+    --color-danger-soft-hover: oklch(0.55 0.22 25 / 0.25);
+    --color-warn-soft-hover: oklch(0.65 0.18 70 / 0.22);
+    --color-error-detail-bg: oklch(0.55 0.22 25 / 0.06);
+    --color-error-detail-text: oklch(0.40 0.12 25);
+    --color-error-detail-border: oklch(0.55 0.22 25 / 0.25);
+    --color-warning-detail-bg: oklch(0.65 0.18 70 / 0.06);
+    --color-warning-detail-text: oklch(0.45 0.14 70);
+    --color-warning-detail-border: oklch(0.65 0.18 70 / 0.25);
+    --color-surface-muted: oklch(0.88 0.006 265 / 0.35);
+
+    /* 暖色调 — 警告 / stale / 暖系强调（琥珀） */
+    --color-warm: oklch(0.65 0.18 75);
+    --color-warm-bright: oklch(0.55 0.18 75);
+    --color-warm-contrast: oklch(0.18 0.02 75);
+    --color-warm-fade: oklch(0.65 0.18 75 / 0.5);
+    --color-warm-soft: oklch(0.95 0.05 75 / 0.16);
+    --color-warm-tint: oklch(0.95 0.05 75 / 0.25);
+    --color-warm-tint-faint: oklch(0.95 0.05 75 / 0.08);
+    --color-warm-ring: oklch(0.65 0.18 75 / 0.40);
+    --color-warm-glow: oklch(0.65 0.18 75 / 0.35);
+
+    /* 危险色（高亮变体） — 用于覆盖/删除等有损动作 CTA */
+    --color-danger-2: oklch(0.55 0.22 25);
+    --color-danger-bright: oklch(0.45 0.22 25);
+    --color-danger-ring: oklch(0.55 0.22 25 / 0.40);
+    --color-danger-glow: oklch(0.55 0.22 25 / 0.35);
+
+    /* 字体 — 设计稿统一使用 Inter，display 仅在字号/字重上做区分 */
+    --font-sans: "Inter", "Noto Sans SC", system-ui, sans-serif;
+    --font-display: "Inter", "Noto Sans SC", system-ui, sans-serif;
+    --font-mono: "JetBrains Mono", "Fira Code", "Noto Sans Mono", ui-monospace, monospace;
+    /* 衬线 — 仅项目大厅 (Darkroom) 用于编辑式电影感大标题 */
+    --font-editorial: "Instrument Serif", "Songti SC", "Noto Serif SC", Georgia, serif;
+
+    /* 阴影 */
+    --shadow-glow: 0 0 0 1px oklch(0.55 0.15 295 / 0.20), 0 18px 40px oklch(0 0 0 / 0.12);
+
+    /* ---- Legacy aliases — 旧组件继续可用，逐步迁移 ---- */
+    --color-ink-950: oklch(0.985 0.002 260);
+    --color-ink-900: oklch(0.975 0.003 265);
+    --color-ink-850: oklch(0.965 0.002 270);
+    --color-ink-800: oklch(0.945 0.004 265);
+    --color-ink-700: oklch(0.925 0.005 265);
+    --color-neon-500: oklch(0.55 0.15 295);
+    --color-neon-400: oklch(0.50 0.13 295);
+    --color-neon-300: oklch(0.45 0.12 295);
+    --color-amberx-500: oklch(0.65 0.18 70);
+    --color-amberx-400: oklch(0.60 0.16 70);
+    --color-amberx-300: oklch(0.55 0.15 75);
+
+    /* studio-* 旧别名映射 */
+    --color-studio-bg: var(--color-bg);
+    --color-studio-panel: var(--color-bg-grad-a);
+    --color-studio-border: var(--color-hairline);
+    --color-accent-start: var(--color-accent);
+    --color-accent-end: var(--color-accent-2);
+}
+
+/* ─── 深色主题覆盖 ─── */
+.dark {
     /* 工作台基础色 — oklch 系 */
     --color-bg: oklch(0.168 0.009 265);
     --color-bg-grad-a: oklch(0.182 0.011 270);
     --color-bg-grad-b: oklch(0.148 0.009 260);
     --color-surface-2: oklch(0.250 0.012 265);
+    --color-surface-3: oklch(0.310 0.013 265);
 
     /* 描边 */
     --color-hairline: oklch(0.40 0.012 265 / 0.35);
@@ -26,15 +120,29 @@
     --color-accent-soft: oklch(0.76 0.09 295 / 0.22);
     --color-accent-dim: oklch(0.76 0.09 295 / 0.12);
     --color-accent-glow: oklch(0.76 0.09 295 / 0.35);
+    --color-accent-contrast: oklch(0.14 0 0);
 
     /* 状态色 */
     --color-good: oklch(0.78 0.10 155);
+    --color-good-soft: oklch(0.30 0.10 155 / 0.18);
     --color-warn: oklch(0.80 0.12 70);
+    --color-warn-soft: oklch(0.35 0.10 70 / 0.22);
     --color-danger: oklch(0.70 0.18 25);
+    --color-danger-soft: oklch(0.30 0.10 25 / 0.18);
+    --color-danger-soft-hover: oklch(0.30 0.10 25 / 0.30);
+    --color-warn-soft-hover: oklch(0.35 0.10 70 / 0.28);
+    --color-error-detail-bg: oklch(0.30 0.10 25 / 0.10);
+    --color-error-detail-text: oklch(0.85 0.10 25);
+    --color-error-detail-border: oklch(0.45 0.18 25 / 0.30);
+    --color-warning-detail-bg: oklch(0.35 0.10 70 / 0.10);
+    --color-warning-detail-text: oklch(0.86 0.09 70);
+    --color-warning-detail-border: oklch(0.50 0.12 70 / 0.30);
+    --color-surface-muted: oklch(0.40 0.012 265 / 0.35);
 
     /* 暖色调 — 警告 / stale / 暖系强调（琥珀） */
     --color-warm: oklch(0.85 0.13 75);
     --color-warm-bright: oklch(0.92 0.13 75);
+    --color-warm-contrast: oklch(0.18 0.02 75);
     --color-warm-fade: oklch(0.85 0.13 75 / 0.5);
     --color-warm-soft: oklch(0.30 0.10 75 / 0.16);
     --color-warm-tint: oklch(0.30 0.10 75 / 0.25);
@@ -45,19 +153,19 @@
     /* 危险色（高亮变体） — 用于覆盖/删除等有损动作 CTA */
     --color-danger-2: oklch(0.85 0.10 25);
     --color-danger-bright: oklch(0.92 0.10 25);
-    --color-danger-soft: oklch(0.30 0.10 25 / 0.16);
     --color-danger-ring: oklch(0.45 0.18 25 / 0.40);
     --color-danger-glow: oklch(0.45 0.18 25 / 0.45);
 
-    /* 字体 — 设计稿统一使用 Inter，display 仅在字号/字重上做区分 */
-    --font-sans: "Inter", "Noto Sans SC", system-ui, sans-serif;
-    --font-display: "Inter", "Noto Sans SC", system-ui, sans-serif;
-    --font-mono: "JetBrains Mono", "Fira Code", "Noto Sans Mono", ui-monospace, monospace;
-    /* 衬线 — 仅项目大厅 (Darkroom) 用于编辑式电影感大标题 */
-    --font-editorial: "Instrument Serif", "Songti SC", "Noto Serif SC", Georgia, serif;
-
     /* 阴影 */
     --shadow-glow: 0 0 0 1px oklch(0.76 0.09 295 / 0.28), 0 18px 40px oklch(0 0 0 / 0.45);
+
+    /* 深色表面 — 组件级面板 / 卡片 / 输入框 / 遮罩 */
+    --color-surface-overlay: oklch(0.12 0 0);
+    --color-surface-dark-1: oklch(0.14 0.008 265);
+    --color-surface-dark-2: oklch(0.182 0.011 270);
+    --color-surface-dark-3: oklch(0.20 0.012 265);
+    --color-surface-dark-4: oklch(0.22 0.012 265);
+    --color-surface-dark-5: oklch(0.24 0.012 265);
 
     /* ---- Legacy aliases — 旧组件继续可用，逐步迁移 ---- */
     --color-ink-950: oklch(0.148 0.009 260);
@@ -81,13 +189,11 @@
 }
 
 /* 全局 body 背景 — radial+linear 复合梯度 */
-html { color-scheme: dark; }
+html { color-scheme: light; }
+.dark { color-scheme: dark; }
 
 body {
-    background:
-        radial-gradient(1000px 500px at 8% -10%, oklch(0.32 0.05 295 / 0.28), transparent 55%),
-        radial-gradient(900px 500px at 98% 110%, oklch(0.26 0.04 260 / 0.25), transparent 55%),
-        linear-gradient(180deg, var(--color-bg-grad-a), var(--color-bg-grad-b));
+    background: var(--color-bg);
     background-attachment: fixed;
     color: var(--color-text);
     font-family: var(--font-sans);
@@ -121,13 +227,13 @@ body {
 /* 滚动条 */
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-thumb {
-    background: oklch(0.42 0.010 265 / 0.35);
+    background: var(--color-hairline);
     border-radius: 10px;
     border: 2px solid transparent;
     background-clip: padding-box;
 }
 ::-webkit-scrollbar-thumb:hover {
-    background: oklch(0.55 0.012 265 / 0.55);
+    background: var(--color-hairline-strong);
     border: 2px solid transparent;
     background-clip: padding-box;
 }
@@ -160,13 +266,11 @@ body {
 
 /* 玻璃面板 — GlassModal / GlassPopover 的内容容器样式 */
 .arc-glass-panel {
-    background: linear-gradient(180deg, oklch(0.21 0.012 265 / 0.96), oklch(0.18 0.010 265 / 0.96));
+    background: var(--color-surface-2);
     border: 1px solid var(--color-hairline);
     backdrop-filter: blur(14px);
     -webkit-backdrop-filter: blur(14px);
-    box-shadow:
-        0 24px 60px -12px oklch(0 0 0 / 0.6),
-        inset 0 1px 0 oklch(1 0 0 / 0.05);
+    box-shadow: var(--shadow-glow);
 }
 
 /* 顶部 hairline 渐变线（accent 默认 / warm 用 data-tone="warm"） */
@@ -189,19 +293,19 @@ body {
 }
 .arc-close-btn:hover {
     color: var(--color-text);
-    background: oklch(1 0 0 / 0.05);
+    background: var(--color-hairline-soft);
 }
 
 /* 玻璃次按钮（Cancel / 普通操作） */
 .arc-btn-secondary {
     color: var(--color-text-3);
     border: 1px solid var(--color-hairline);
-    background: oklch(0.22 0.011 265 / 0.5);
+    background: var(--color-hairline-soft);
     transition: color 150ms, background 150ms, border-color 150ms;
 }
 .arc-btn-secondary:hover:not(:disabled) {
     color: var(--color-text);
-    background: oklch(0.26 0.013 265 / 0.7);
+    background: var(--color-surface-2);
     border-color: var(--color-hairline-strong);
 }
 .arc-btn-secondary:disabled {
@@ -211,7 +315,7 @@ body {
 
 /* 主按钮 CTA — accent 默认，warm/danger 用 data-tone */
 .arc-btn-primary {
-    color: oklch(0.14 0 0);
+    color: var(--color-accent-contrast);
     background: linear-gradient(135deg, var(--color-accent-2), var(--color-accent));
     box-shadow:
         inset 0 1px 0 oklch(1 0 0 / 0.35),
@@ -220,6 +324,7 @@ body {
     transition: transform 150ms, opacity 150ms;
 }
 .arc-btn-primary[data-tone="warm"] {
+    color: var(--color-warm-contrast);
     background: linear-gradient(135deg, var(--color-warm-bright), var(--color-warm));
     box-shadow:
         inset 0 1px 0 oklch(1 0 0 / 0.35),

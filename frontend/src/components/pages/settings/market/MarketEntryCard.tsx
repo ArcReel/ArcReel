@@ -62,8 +62,7 @@ export function EntryIcon({ entry }: { entry: MarketEntry }) {
         width: ICON_SIZE,
         height: ICON_SIZE,
         fontSize: ICON_SIZE * 0.48,
-        background:
-          "linear-gradient(180deg, oklch(0.22 0.011 265 / 0.7), oklch(0.17 0.010 265 / 0.7))",
+        background: "var(--color-surface-muted)",
       }}
     >
       {entry.name.trim().charAt(0).toUpperCase()}
@@ -126,7 +125,7 @@ export function MarketEntryCard({
       )}
       <div
         className="relative flex aspect-[2/1] items-center justify-center border-b border-hairline-soft"
-        style={{ background: "oklch(0.14 0.010 265 / 0.6)" }}
+        style={{ background: "var(--color-surface-muted)" }}
       >
         <div aria-hidden className="absolute inset-0 opacity-[0.06]" style={posterGridStyle({ size: 20 })} />
         <EntryIcon entry={entry} />

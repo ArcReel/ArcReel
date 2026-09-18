@@ -35,7 +35,7 @@ const STEPS = [
 ] as const;
 
 const STEP_BADGE_GRADIENT =
-  "linear-gradient(180deg, oklch(0.30 0.05 295 / 0.65), oklch(0.20 0.02 280 / 0.65))";
+  "linear-gradient(180deg, oklch(0.30 0.05 295 / 0.65), var(--color-surface-3))";
 
 const STEP_BADGE_ACTIVE_STYLE: CSSProperties = {
   background: STEP_BADGE_GRADIENT,
@@ -49,7 +49,7 @@ const STEP_BADGE_DONE_STYLE: CSSProperties = {
 };
 
 const STEP_BADGE_INACTIVE_STYLE: CSSProperties = {
-  background: "oklch(0.16 0.010 265 / 0.55)",
+  background: "var(--color-surface-muted)",
 };
 
 const STEP_CONNECTOR_DONE_STYLE: CSSProperties = {
@@ -385,7 +385,7 @@ export function CreateProjectModal() {
         className="relative w-full max-w-3xl overflow-hidden rounded-[14px] border border-hairline bg-bg-grad-a/95 shadow-[0_40px_100px_-30px_oklch(0_0_0_/_0.85)] backdrop-blur-md max-h-[92vh] flex flex-col"
         style={{
           background:
-            "linear-gradient(180deg, oklch(0.20 0.012 270 / 0.95), oklch(0.16 0.010 265 / 0.95))",
+            "linear-gradient(180deg, var(--color-surface-3), var(--color-surface-2))",
         }}
       >
         {/* Hero header */}
@@ -435,7 +435,7 @@ export function CreateProjectModal() {
         </div>
 
         {/* Step indicator strip */}
-        <div className="shrink-0 border-y border-hairline-soft bg-[oklch(0.16_0.010_265_/_0.55)] px-6">
+        <div className="shrink-0 border-y border-hairline-soft bg-[var(--color-surface-muted)] px-6">
           <StepIndicator current={step} />
         </div>
 

@@ -75,7 +75,7 @@ export function TodoListPanel({ turns, draftTurn }: TodoListPanelProps) {
       className="mx-3 mb-1 overflow-hidden rounded-lg"
       style={{
         border: "1px solid var(--color-hairline-soft)",
-        background: "oklch(0.20 0.012 265 / 0.5)",
+        background: "var(--color-surface-3)",
         backdropFilter: "blur(6px)",
         WebkitBackdropFilter: "blur(6px)",
       }}
@@ -89,7 +89,7 @@ export function TodoListPanel({ turns, draftTurn }: TodoListPanelProps) {
         className="flex w-full items-center gap-2 px-3 py-2 text-left transition-colors"
         style={{ color: "var(--color-text-2)" }}
         onMouseEnter={(e) => {
-          e.currentTarget.style.background = "oklch(0.24 0.012 265 / 0.5)";
+          e.currentTarget.style.background = "var(--color-surface-3)";
         }}
         onMouseLeave={(e) => {
           e.currentTarget.style.background = "transparent";

@@ -223,7 +223,7 @@ function MessageEditor({
                 onClick={() => removeImage(id)}
                 className="focus-ring absolute -right-1 -top-1 grid h-4 w-4 place-items-center rounded-full transition-colors hover:bg-[var(--color-danger)] disabled:cursor-not-allowed disabled:opacity-50"
                 style={{
-                  background: "oklch(0.14 0.008 265)",
+                  background: "var(--color-surface-2)",
                   color: "var(--color-text-2)",
                   border: "1px solid var(--color-hairline)",
                 }}
@@ -296,7 +296,7 @@ function MessageEditor({
         }}
         className="focus-ring w-full resize-none rounded-md px-2 py-1.5 text-[12.5px] leading-[1.55] disabled:opacity-60"
         style={{
-          background: "oklch(0.17 0.01 260 / 0.6)",
+          background: "var(--color-surface-2)",
           border: "1px solid var(--color-hairline-soft)",
           color: "var(--color-text)",
         }}
@@ -322,7 +322,7 @@ function MessageEditor({
           onClick={submit}
           title={t("message_edit_resend_hint")}
           className="focus-ring rounded-md px-2.5 py-1 text-[11.5px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50"
-          style={{ background: "var(--color-accent)", color: "oklch(0.12 0 0)" }}
+          style={{ background: "var(--color-accent)", color: "var(--color-accent-contrast)" }}
         >
           {submitting ? t("message_edit_resending") : t("message_edit_resend")}
         </button>

@@ -13,7 +13,7 @@ import type { GenerationRoute } from "@/utils/generation-mode";
  */
 
 const ROUTE_FRAME_STYLE: CSSProperties = {
-  background: "linear-gradient(180deg, oklch(0.19 0.011 268 / 0.6), oklch(0.15 0.010 262 / 0.6))",
+  background: "var(--color-surface-muted)",
 };
 
 /**

@@ -31,7 +31,7 @@ const ROW_BTN_CLS =
 const INPUT_CLS =
   "focus-ring w-full rounded-md px-2 py-1 text-[12px] outline-none placeholder:text-[var(--color-text-4)]";
 const INPUT_STYLE: React.CSSProperties = {
-  background: "oklch(0.16 0.010 265 / 0.7)",
+  background: "var(--color-surface-2)",
   border: "1px solid var(--color-hairline)",
   color: "var(--color-text)",
 };
@@ -288,7 +288,7 @@ export function CharacterDerivativesButton({
                 <div className="mt-1.5 flex items-center gap-1">
                   <code
                     className="min-w-0 flex-1 truncate rounded px-1.5 py-0.5 font-mono text-[10px]"
-                    style={{ background: "oklch(0.16 0.010 265 / 0.7)", color: "var(--color-text-3)" }}
+                    style={{ background: "var(--color-surface-2)", color: "var(--color-text-3)" }}
                   >
                     {derivativeToken(characterName, name)}
                   </code>

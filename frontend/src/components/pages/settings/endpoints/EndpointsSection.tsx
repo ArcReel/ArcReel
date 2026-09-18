@@ -352,7 +352,7 @@ export function EndpointsSection() {
       <nav
         aria-label={t("ce_section_title")}
         className="sticky top-0 max-h-screen w-60 shrink-0 self-start overflow-y-auto border-r border-hairline-soft px-3 py-5"
-        style={{ background: "oklch(0.16 0.010 265 / 0.45)" }}
+        style={{ background: "var(--color-surface-muted)" }}
       >
         <div className="mb-3 flex items-center gap-1.5 px-1">
           <button

@@ -67,7 +67,7 @@ type GreetingKey =
   | "lobby_hero_greeting_late";
 
 const ACCENT_BUTTON_STYLE: CSSProperties = {
-  color: "oklch(0.14 0 0)",
+  color: "var(--color-accent-contrast)",
   background:
     "linear-gradient(180deg, var(--color-accent-2), var(--color-accent))",
   boxShadow:
@@ -152,7 +152,7 @@ function NowEditingCard({ project, styleLabel, phaseLabels, t }: NowEditingCardP
         <span
           aria-hidden
           className="font-editorial pointer-events-none absolute right-[-6px] top-2 italic"
-          style={{ fontSize: 120, lineHeight: 1, color: "oklch(0.22 0.013 280)" }}
+          style={{ fontSize: 120, lineHeight: 1, color: "var(--color-surface-3)" }}
         >
           now
         </span>
@@ -243,7 +243,7 @@ function NowEditingCard({ project, styleLabel, phaseLabels, t }: NowEditingCardP
             <div
               key={cell.k}
               className="px-3.5 py-3"
-              style={{ background: "oklch(0.16 0.010 265 / 0.6)" }}
+              style={{ background: "var(--color-surface-muted)" }}
             >
               <div className="font-mono text-[9px] font-bold uppercase tracking-[0.1em] text-text-3">
                 {cell.k}
@@ -298,7 +298,7 @@ function PlaceholderTile({ onClick, title, kicker, icon, ariaLabel }: Placeholde
           style={{
             aspectRatio: "2 / 1",
             background:
-              "radial-gradient(120% 80% at 30% 30%, oklch(0.26 0.04 290 / 0.5) 0%, transparent 60%), oklch(0.18 0.011 265 / 0.55)",
+              "radial-gradient(120% 80% at 30% 30%, oklch(0.26 0.04 290 / 0.5) 0%, transparent 60%), var(--color-surface-2)",
           }}
         >
           <div className="flex flex-col items-center gap-2.5 transition-transform motion-safe:group-hover:-translate-y-0.5">
@@ -307,7 +307,7 @@ function PlaceholderTile({ onClick, title, kicker, icon, ariaLabel }: Placeholde
               className="grid h-12 w-12 place-items-center rounded-[12px]"
               style={{
                 background:
-                  "linear-gradient(180deg, oklch(0.30 0.04 290), oklch(0.22 0.02 280))",
+                  "linear-gradient(180deg, oklch(0.30 0.04 290), var(--color-surface-3))",
                 border: "1px solid oklch(0.76 0.09 295 / 0.4)",
                 boxShadow:
                   "inset 0 1px 0 oklch(1 0 0 / 0.06), 0 8px 22px -14px var(--color-accent)",
@@ -341,7 +341,7 @@ function PlaceholderTile({ onClick, title, kicker, icon, ariaLabel }: Placeholde
         </div>
         <div
           className="grid grid-cols-4 overflow-hidden rounded-[7px] border border-dashed border-hairline"
-          style={{ background: "oklch(0.16 0.010 265 / 0.45)" }}
+          style={{ background: "var(--color-surface-muted)" }}
         >
           {[0, 1, 2, 3].map((i) => (
             <div
@@ -406,7 +406,7 @@ function TopBar({
       className="sticky top-0 z-30"
       style={{
         background:
-          "linear-gradient(180deg, oklch(0.20 0.011 265 / 0.55), oklch(0.15 0.010 265 / 0.45))",
+          "linear-gradient(180deg, var(--color-surface-3), var(--color-surface-2))",
         backdropFilter: "blur(28px) saturate(1.5)",
         WebkitBackdropFilter: "blur(28px) saturate(1.5)",
         borderBottom: "1px solid oklch(1 0 0 / 0.06)",
@@ -636,7 +636,7 @@ function HeroStrip({ totals, t }: HeroStripProps) {
         <div
           data-testid="lobby-hero-stats"
           className="flex items-stretch overflow-hidden rounded-[10px] border border-hairline-soft"
-          style={{ background: "oklch(0.16 0.010 265 / 0.4)" }}
+          style={{ background: "var(--color-surface-muted)" }}
         >
           {stats.map((s, i) => (
             <div
@@ -696,7 +696,7 @@ function FilterPills({ active, onChange, counts, phaseLabels, t }: FilterPillsPr
       style={{
         top: "var(--lobby-topbar-h, 57px)",
         background:
-          "linear-gradient(180deg, oklch(0.20 0.011 265 / 0.55), oklch(0.15 0.010 265 / 0.45))",
+          "linear-gradient(180deg, var(--color-surface-3), var(--color-surface-2))",
         backdropFilter: "blur(16px) saturate(1.1)",
         borderTopWidth: 1,
         borderTopColor: "var(--color-hairline-soft)",
@@ -715,7 +715,7 @@ function FilterPills({ active, onChange, counts, phaseLabels, t }: FilterPillsPr
                 "inline-flex items-center rounded-full px-3 py-1 text-[11.5px] font-medium backdrop-blur-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent " +
                 (isActive
                   ? "border border-accent/40 bg-accent/45 text-text"
-                  : "border border-hairline-soft bg-[oklch(0.22_0.012_265_/_0.7)] text-text-3 hover:border-hairline hover:bg-[oklch(0.24_0.012_265_/_0.78)] hover:text-text-2")
+                  : "border border-hairline-soft bg-[var(--color-surface-3)] text-text-3 hover:border-hairline hover:bg-[var(--color-surface-3)] hover:text-text-2")
               }
             >
               {c.label}
@@ -983,8 +983,7 @@ export function ProjectsPage() {
         {
           // FilterPills 的 sticky top 读这个变量；TopBar = logo h-8 (32) + py-3 (24) + 1px border
           "--lobby-topbar-h": "57px",
-          background:
-            "radial-gradient(1100px 540px at 8% -10%, oklch(0.32 0.05 295 / 0.28), transparent 55%), radial-gradient(900px 500px at 100% 110%, oklch(0.26 0.04 260 / 0.25), transparent 55%), linear-gradient(180deg, var(--color-bg-grad-a), var(--color-bg-grad-b))",
+          background: "var(--color-bg)",
         } as CSSProperties
       }
     >

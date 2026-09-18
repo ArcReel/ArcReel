@@ -95,7 +95,7 @@ export function ToolCallWithResult({ block }: ToolCallWithResultProps) {
       }
     : {
         border: "1px solid var(--color-hairline-soft)",
-        background: "oklch(0.21 0.012 265 / 0.5)",
+        background: "var(--color-surface-3)",
       };
 
   const labelColor = isError ? "var(--color-danger)" : "var(--color-warn)";
@@ -170,7 +170,7 @@ export function ToolCallWithResult({ block }: ToolCallWithResultProps) {
           {/* Tool Input */}
           <div
             className="px-2.5 py-2"
-            style={{ background: "oklch(0.16 0.010 265 / 0.5)" }}
+            style={{ background: "var(--color-surface-muted)" }}
           >
             <div
               className="mb-1 text-[10px] uppercase tracking-wide"
@@ -196,7 +196,7 @@ export function ToolCallWithResult({ block }: ToolCallWithResultProps) {
                   : "1px solid var(--color-hairline-soft)",
                 background: isError
                   ? "oklch(0.70 0.18 25 / 0.08)"
-                  : "oklch(0.16 0.010 265 / 0.5)",
+                  : "var(--color-surface-muted)",
               }}
             >
               <div
@@ -242,7 +242,7 @@ function TodoWriteCompact({ block }: Readonly<{ block: ContentBlock }>) {
       className="my-1.5 min-w-0 overflow-hidden rounded-lg"
       style={{
         border: "1px solid var(--color-hairline-soft)",
-        background: "oklch(0.21 0.012 265 / 0.5)",
+        background: "var(--color-surface-3)",
       }}
     >
       <div className="flex items-center justify-between px-2.5 py-1.5">
