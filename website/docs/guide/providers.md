@@ -337,6 +337,8 @@ ArcReel 可以接入 OpenAI 兼容或 Google 兼容服务。典型用途：
 
 需要的调用端点如果已经有人适配过，可以从[市场](./market.md)直接安装，不必自己编写定义。
 
+自建 ComfyUI 可以直接导入 API 格式 workflow，并把提示词、素材、尺寸、时长与产物映射到节点；完整步骤与运行限制见[接入 ComfyUI workflow](./comfyui.md)。
+
 ### 10.1 端点测试三模式 {#custom-endpoint-tests}
 
 在设置页的调用端点详情中，可以按风险从低到高使用三种测试模式：

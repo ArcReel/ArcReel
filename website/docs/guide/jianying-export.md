@@ -1,7 +1,7 @@
 ---
 id: jianying-export
 title: 剪映草稿导出
-sidebar_position: 5
+sidebar_position: 6
 update_docs: fact-check
 ---
 

@@ -336,6 +336,8 @@ The model discovery protocol only determines which type of model-listing interfa
 
 If someone has already adapted the call endpoint you need, you can install it directly from the [Market](./market.md) instead of writing the definition yourself.
 
+For a self-hosted ComfyUI instance, you can import an API-format workflow and map prompts, assets, dimensions, duration, and output to its nodes. See [Connect a ComfyUI Workflow](./comfyui.md) for the complete setup and operational constraints.
+
 ### 10.1 Three Endpoint Test Modes {#custom-endpoint-tests}
 
 The call endpoint detail page in Settings offers three test modes, ordered from lowest to highest risk:

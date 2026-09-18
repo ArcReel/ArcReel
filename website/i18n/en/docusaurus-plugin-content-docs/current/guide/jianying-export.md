@@ -1,7 +1,7 @@
 ---
 id: jianying-export
 title: Jianying Draft Export
-sidebar_position: 5
+sidebar_position: 6
 ---
 
 # Jianying Draft Export {#jianying-export}
