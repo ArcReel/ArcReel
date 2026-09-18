@@ -497,6 +497,15 @@ describe("ReferenceVideoCanvas", () => {
     expect(Array.from(select.options).map((o) => o.value)).toEqual(["3", "4", "8"]);
   });
 
+  // 项目没配可用的 i2v 桶时服务端给不出无参考图单元的档位（该字段为 null）：控件降级为只读，
+  // 而不是回落到 r2v 那份带参考图约束的档位——那会让这些单元以为自己能选一个执行期不成立的秒数。
+  it("shows a read-only duration for a no-reference unit when the no-reference tiers are unknown", async () => {
+    vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [mkUnit("E1U1")] });
+    render(<ReferenceVideoCanvas projectName="proj" episode={1} durationOptions={[8]} />);
+    expect((await screen.findAllByText("3s")).length).toBeGreaterThan(0);
+    expect(screen.queryByRole("combobox", { name: /Duration|时长/ })).not.toBeInTheDocument();
+  });
+
   it("offers the reference-narrowed tier set for a unit whose body mentions an asset", async () => {
     useProjectsStore.setState({
       currentProjectName: "proj",
