@@ -6,6 +6,7 @@ import pytest
 from lib.config.resolver import (
     ConfigResolver,
     VideoBucketCapabilityError,
+    VideoGenerationType,
     caps_generation_mode,
     constrain_durations_for_project,
     resolve_raw_supported_durations,
@@ -61,10 +62,10 @@ class _FakeConfigService:
         return [_make_ready_provider("gemini-aistudio", ["text", "image", "video"])]
 
 
-async def _video_caps(db_factory, project: dict) -> dict:
+async def _video_caps(db_factory, project: dict, *, generation_type: VideoGenerationType | None = None) -> dict:
     """按项目字典解析视频能力；项目落盘不参与本组判据，故 project_manager 只做占位。"""
     with patch("lib.config.resolver.get_project_manager"):
-        return await ConfigResolver(db_factory).video_capabilities_for_project(project)
+        return await ConfigResolver(db_factory).video_capabilities_for_project(project, generation_type=generation_type)
 
 
 class TestVideoGenerateAudio:
@@ -1971,6 +1972,70 @@ class TestProjectGenerationModeCaps:
         )
         assert caps["generation_mode"] == "reference_video"
         assert caps["max_reference_images"] == 1
+
+
+class TestNoReferenceBucketDurations:
+    """参考生视频的 ``allowed_without_reference_images`` 由 i2v 桶模型自己解析。
+
+    无参考图的视频单元执行时落 i2v 桶（``lib.reference_video.units.reference_video_bucket``），
+    与 r2v 桶可以是两个模型：同分辨率下把 r2v 模型的参考图约束摘掉，只在两桶同模型时才碰巧
+    是这些单元能选的档位。
+    """
+
+    VEO = "gemini-aistudio/veo-3.1-generate-preview"
+    SEEDANCE = "ark/doubao-seedance-2-0-260128"
+
+    async def test_i2v_bucket_model_drives_the_no_reference_tiers(self, db_factory):
+        """两桶配成不同模型时，该字段是 i2v 桶模型的收窄结果，不是 r2v 模型摘掉参考图约束的那份。"""
+        caps = await _video_caps(
+            db_factory,
+            {
+                "generation_mode": "reference_video",
+                "video_provider_r2v": self.VEO,
+                "video_provider_i2v": self.SEEDANCE,
+            },
+        )
+        assert caps["model"] == "veo-3.1-generate-preview"
+        assert caps["supported_durations"] == [4, 6, 8]
+        constraints = caps["duration_constraints"]
+        # r2v 路径：参考图约束 + 供应商兜底分辨率，veo 只剩 8 秒。
+        assert constraints["allowed"] == [8]
+        # 无参考图单元按 seedance 的 i2v 档位全集走，与 veo 的 8 秒无关。
+        assert constraints["allowed_without_reference_images"] == list(range(4, 16))
+
+    async def test_same_model_both_buckets_matches_a_standalone_i2v_query(self, db_factory):
+        """两桶同模型时，该字段与单独按 i2v 桶查一次得到的 ``allowed`` 逐项相等。"""
+        project = {
+            "generation_mode": "reference_video",
+            "video_provider_r2v": self.VEO,
+            "video_provider_i2v": self.VEO,
+            "model_settings": {self.VEO: {"resolution": "1080p"}},
+        }
+        caps = await _video_caps(db_factory, project)
+        i2v_only = await _video_caps(db_factory, project, generation_type="i2v")
+        assert (
+            caps["duration_constraints"]["allowed_without_reference_images"]
+            == i2v_only["duration_constraints"]["allowed"]
+        )
+
+    async def test_project_without_a_usable_i2v_bucket_reports_unknown(self, db_factory):
+        """项目没配可用的 i2v 桶（S2V-01 只吃参考图，无首帧能力）时该字段为 None，其余能力照常返回。
+
+        回退到 r2v 模型摘掉参考图约束的结果等于把一份落差一个约束的档位表谎报成这些单元能选的
+        档位；让整份能力应答失败则会把时长、首尾帧、声音一致性随这一个字段一起丢掉。
+        """
+        caps = await _video_caps(
+            db_factory, {"generation_mode": "reference_video", "video_provider_r2v": "minimax/S2V-01"}
+        )
+        assert caps["model"] == "S2V-01"
+        assert caps["duration_constraints"]["allowed_without_reference_images"] is None
+
+    async def test_storyboard_project_keeps_the_same_model_result(self, db_factory):
+        """分镜项目的主桶就是 i2v，该字段仍是同一模型摘掉参考图约束的结果。"""
+        caps = await _video_caps(db_factory, {"video_backend": self.SEEDANCE})
+        constraints = caps["duration_constraints"]
+        assert constraints["allowed"] == list(range(4, 16))
+        assert constraints["allowed_without_reference_images"] == list(range(4, 16))
 
 
 class TestResolveRawSupportedDurations:

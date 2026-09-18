@@ -730,8 +730,9 @@ export function StudioCanvasRouter() {
           const durationOptions = capabilities.supportedDurations ?? undefined;
           // reference_video 的参考图约束是按 unit 而非按集生效（同集内不带 references 的
           // unit 不受此约束，见 lib.reference_video.request_projection 的
-          // ReferenceUnitRequestProjector 按可用参考图定 r2v / i2v 的判据）：服务端多备一份
-          // 不叠加参考图收窄的档位，供画布按每个 unit 自己的引用状态选用。
+          // ReferenceUnitRequestProjector 按可用参考图定 r2v / i2v 的判据）：服务端另按 i2v 桶
+          // 模型解析一份属于它的档位表，供画布按每个 unit 自己的引用状态选用。两个桶可以是两个
+          // 模型，故这不是上面那份去掉参考图约束的结果；项目没配 i2v 桶时服务端回 null。
           const durationOptionsNoReference =
             capabilities.supportedDurationsWithoutReference ?? undefined;
           const durationWarningReason = (seconds: number) =>
