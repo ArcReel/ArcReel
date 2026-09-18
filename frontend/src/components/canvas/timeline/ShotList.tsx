@@ -104,7 +104,7 @@ export function ShotList({
         style={{
           width: 44,
           borderRight: "1px solid var(--color-hairline)",
-          background: "oklch(0.19 0.011 265 / 0.5)",
+          background: "var(--color-surface-muted)",
         }}
       >
         <button
@@ -114,7 +114,7 @@ export function ShotList({
           aria-label={t("shot_list_expand")}
           className="grid h-7 w-7 place-items-center rounded-md focus-ring"
           style={{
-            background: "oklch(0.24 0.012 265 / 0.5)",
+            background: "var(--color-surface-3)",
             border: "1px solid var(--color-hairline-soft)",
             color: "var(--color-text-3)",
           }}
@@ -144,11 +144,11 @@ export function ShotList({
                 title={id}
                 className="num grid h-7 w-7 place-items-center rounded-[5px] text-[9.5px] font-bold focus-ring"
                 style={{
-                  color: i === selectedIndex ? "oklch(0.14 0 0)" : "var(--color-text-3)",
+                  color: i === selectedIndex ? "var(--color-accent-contrast)" : "var(--color-text-3)",
                   background:
                     i === selectedIndex
                       ? "linear-gradient(180deg, var(--color-accent-2), var(--color-accent))"
-                      : "oklch(0.22 0.011 265 / 0.5)",
+                      : "var(--color-surface-3)",
                   border: "1px solid var(--color-hairline-soft)",
                 }}
               >
@@ -166,7 +166,7 @@ export function ShotList({
       style={{
         borderRight: "1px solid var(--color-hairline)",
         background:
-          "linear-gradient(180deg, oklch(0.19 0.011 265 / 0.5), oklch(0.17 0.010 265 / 0.35))",
+          "linear-gradient(180deg, var(--color-surface-muted), var(--color-surface-2))",
       }}
       className="flex h-full min-w-0 flex-col"
     >
@@ -207,7 +207,7 @@ export function ShotList({
         <div
           className="flex items-center gap-1.5 rounded-md px-2 py-1.5"
           style={{
-            background: "oklch(0.20 0.011 265 / 0.55)",
+            background: "var(--color-surface-3)",
             border: "1px solid var(--color-hairline-soft)",
           }}
         >
@@ -253,13 +253,13 @@ export function ShotList({
                 ref={virtualizer.measureElement}
                 data-index={virt.index}
                 className={`absolute left-0 right-0 grid w-full items-center gap-2.5 rounded-lg p-2 text-left transition-colors focus-ring ${
-                  active ? "" : "hover:bg-[oklch(0.24_0.012_265_/_0.4)]"
+                  active ? "" : "hover:bg-[var(--color-surface-3)]"
                 }`}
                 style={{
                   gridTemplateColumns: "auto 1fr",
                   transform: `translateY(${virt.start}px)`,
                   background: active
-                    ? "linear-gradient(180deg, oklch(0.26 0.018 290 / 0.5), oklch(0.22 0.015 280 / 0.35))"
+                    ? "linear-gradient(180deg, oklch(0.26 0.018 290 / 0.5), var(--color-surface-3))"
                     : undefined,
                   border: active
                     ? "1px solid var(--color-accent-soft)"
@@ -295,7 +295,7 @@ export function ShotList({
                       className="flex h-full w-full items-center justify-center"
                       style={{
                         background:
-                          "linear-gradient(135deg, oklch(0.30 0.05 280), oklch(0.18 0.02 260))",
+                          "linear-gradient(135deg, oklch(0.30 0.05 280), var(--color-surface-2))",
                       }}
                     />
                   )}

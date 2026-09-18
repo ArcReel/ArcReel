@@ -31,7 +31,7 @@ function ProgressPulse() {
     <div
       aria-hidden="true"
       className="mt-1 h-0.5 w-full overflow-hidden rounded-full"
-      style={{ background: "oklch(0.16 0.010 265 / 0.7)" }}
+      style={{ background: "var(--color-surface-muted)" }}
     >
       <div className="animate-progress-pulse h-full w-1/3 rounded-full bg-accent" />
     </div>

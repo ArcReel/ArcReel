@@ -47,6 +47,8 @@ export default {
   'episodes_in_production': 'episodes in production',
   'episodes_completed': 'episodes completed',
   'progress': 'Progress',
+  'switch_to_light': 'Switch to light mode',
+  'switch_to_dark': 'Switch to dark mode',
   'style_not_set': 'Style not set',
   'style_custom': 'Custom style',
   'project_style_section_title': 'Project style',

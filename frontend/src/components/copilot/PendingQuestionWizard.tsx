@@ -171,7 +171,7 @@ export function PendingQuestionWizard({
       style={{
         borderTop: "1px solid var(--color-accent-soft)",
         background:
-          "linear-gradient(180deg, oklch(0.76 0.09 295 / 0.10), transparent 60%), oklch(0.18 0.010 265 / 0.6)",
+          "linear-gradient(180deg, oklch(0.76 0.09 295 / 0.10), transparent 60%), var(--color-surface-2)",
         backdropFilter: "blur(10px)",
         WebkitBackdropFilter: "blur(10px)",
       }}
@@ -234,7 +234,7 @@ export function PendingQuestionWizard({
                       ? "var(--color-accent)"
                       : isVisitedStep
                         ? "var(--color-accent-soft)"
-                        : "oklch(0.30 0.012 265 / 0.4)",
+                        : "var(--color-surface-3)",
                     boxShadow: isActiveStep
                       ? "0 0 8px var(--color-accent-glow)"
                       : "none",
@@ -295,7 +295,7 @@ export function PendingQuestionWizard({
               className="mt-3 overflow-hidden rounded-lg"
               style={{
                 border: "1px solid var(--color-hairline-soft)",
-                background: "oklch(0.16 0.010 265 / 0.45)",
+                background: "var(--color-surface-muted)",
               }}
             >
               {currentQuestionOptions.map((option, optionIndex) => {
@@ -355,7 +355,7 @@ export function PendingQuestionWizard({
                               width: currentQuestion.multiSelect ? "8px" : "5px",
                               height: currentQuestion.multiSelect ? "8px" : "5px",
                               borderRadius: currentQuestion.multiSelect ? "1px" : "9999px",
-                              background: "oklch(0.14 0 0)",
+                              background: "var(--color-accent-contrast)",
                             }}
                           />
                         )}
@@ -439,7 +439,7 @@ export function PendingQuestionWizard({
               className="w-full resize-none rounded-md px-3 py-2 text-[12.5px] leading-[1.55] outline-none transition-colors focus-ring"
               style={{
                 border: "1px solid var(--color-accent-soft)",
-                background: "oklch(0.16 0.010 265 / 0.7)",
+                background: "var(--color-surface-muted)",
                 color: "var(--color-text)",
                 maxHeight: `${OTHER_TEXTAREA_MAX_PX}px`,
                 overflowY: "hidden",
@@ -491,7 +491,7 @@ export function PendingQuestionWizard({
                 disabled={answeringQuestion || !allQuestionsReady}
                 className="rounded-lg px-4 py-2 text-[12.5px] font-semibold transition-all focus-ring disabled:cursor-not-allowed disabled:opacity-40"
                 style={{
-                  color: "oklch(0.14 0 0)",
+                  color: "var(--color-accent-contrast)",
                   background:
                     "linear-gradient(180deg, var(--color-accent-2), var(--color-accent))",
                   boxShadow:
@@ -510,7 +510,7 @@ export function PendingQuestionWizard({
                 disabled={answeringQuestion || !currentQuestionReady}
                 className="rounded-lg px-4 py-2 text-[12.5px] font-semibold transition-all focus-ring disabled:cursor-not-allowed disabled:opacity-40"
                 style={{
-                  color: "oklch(0.14 0 0)",
+                  color: "var(--color-accent-contrast)",
                   background:
                     "linear-gradient(180deg, var(--color-accent-2), var(--color-accent))",
                   boxShadow:

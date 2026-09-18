@@ -80,7 +80,7 @@ export function Poster({ project, styleLabel, large = false }: PosterProps) {
         width: "100%",
         aspectRatio: aspect,
         borderRadius: radius,
-        background: `radial-gradient(120% 80% at 30% 30%, oklch(0.55 0.15 ${hue1}) 0%, oklch(0.28 0.08 ${(hue1 + 10) % 360}) 45%, oklch(0.14 0.02 265) 100%)`,
+        background: `radial-gradient(120% 80% at 30% 30%, oklch(0.55 0.15 ${hue1}) 0%, oklch(0.28 0.08 ${(hue1 + 10) % 360}) 45%, var(--color-surface-2) 100%)`,
         boxShadow: "inset 0 0 0 1px oklch(1 0 0 / 0.06)",
       }}
     >
@@ -210,7 +210,7 @@ function episodeDotColor(
     return { bg: "var(--color-accent)", glow: "0 0 6px var(--color-accent-glow)" };
   }
   if (i < scriptedEnd) return { bg: "oklch(0.55 0.010 265)" };
-  return { bg: "oklch(0.22 0.011 265)" };
+  return { bg: "var(--color-surface-3)" };
 }
 
 function EpisodeStrip({ summary }: { summary: ProjectStatus["episodes_summary"] }) {
@@ -237,7 +237,7 @@ export function gradientProgressStyles(variant: "accent" | "good"): {
   trackStyle: CSSProperties;
   barStyle: CSSProperties;
 } {
-  const trackStyle: CSSProperties = { background: "oklch(0.16 0.010 265)" };
+  const trackStyle: CSSProperties = { background: "var(--color-surface-muted)" };
   if (variant === "good") {
     return {
       trackStyle,
@@ -407,7 +407,7 @@ export function ProjectCard(props: ProjectCardProps) {
 
         <div
           className="mt-3 grid grid-cols-4 overflow-hidden rounded-[7px] border border-hairline-soft"
-          style={{ background: "oklch(0.16 0.010 265 / 0.5)" }}
+          style={{ background: "var(--color-surface-muted)" }}
         >
           {(
             [

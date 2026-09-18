@@ -12,11 +12,9 @@ interface AdInitCanvasProps {
   onDone: () => void | Promise<void>;
 }
 
-const CARD_BG =
-  "linear-gradient(180deg, oklch(0.22 0.012 265 / 0.55), oklch(0.19 0.010 265 / 0.40))";
+const CARD_BG = "var(--color-surface-muted)";
 const FIELD_STYLE: React.CSSProperties = {
-  background:
-    "linear-gradient(180deg, oklch(0.20 0.011 265 / 0.6), oklch(0.18 0.010 265 / 0.45))",
+  background: "var(--color-surface-muted)",
   border: "1px solid var(--color-hairline)",
   color: "var(--color-text)",
   boxShadow: "inset 0 1px 2px oklch(0 0 0 / 0.2)",
@@ -281,7 +279,7 @@ export function AdInitCanvas({ projectName, onDone }: AdInitCanvasProps) {
         disabled={!canSubmit}
         className="focus-ring inline-flex items-center gap-1.5 rounded-md px-4 py-2 text-[13px] font-medium transition-transform disabled:cursor-not-allowed disabled:opacity-50"
         style={{
-          color: "oklch(0.14 0 0)",
+          color: "var(--color-accent-contrast)",
           background:
             "linear-gradient(135deg, var(--color-accent-2), var(--color-accent))",
           boxShadow:

@@ -160,8 +160,7 @@ export function SourceFileViewer({ projectName, filename }: SourceFileViewerProp
             onChange={(e) => setEditContent(e.target.value)}
             className="focus-ring h-full w-full resize-none rounded-lg p-4 font-mono text-[13px] leading-[1.7] outline-none"
             style={{
-              background:
-                "linear-gradient(180deg, oklch(0.225 0.003 285 / 0.55), oklch(0.195 0.003 285 / 0.4))",
+              background: "var(--color-surface-muted)",
               border: "1px solid var(--color-hairline-soft)",
               color: "var(--color-text)",
               boxShadow: "inset 0 1px 0 oklch(1 0 0 / 0.03)",
@@ -171,8 +170,7 @@ export function SourceFileViewer({ projectName, filename }: SourceFileViewerProp
           <pre
             className="whitespace-pre-wrap rounded-lg p-4 font-mono text-[13px] leading-[1.7]"
             style={{
-              background:
-                "linear-gradient(180deg, oklch(0.20 0.011 265 / 0.5), oklch(0.18 0.010 265 / 0.35))",
+              background: "var(--color-surface-muted)",
               border: "1px solid var(--color-hairline-soft)",
               color: "var(--color-text-2)",
               boxShadow: "inset 0 1px 0 oklch(1 0 0 / 0.03)",
@@ -207,8 +205,7 @@ function ViewerToolbar({
     <div
       className="sticky top-0 z-10 flex items-center gap-3 px-5 py-3"
       style={{
-        background:
-          "linear-gradient(180deg, oklch(0.20 0.012 265 / 0.85), oklch(0.18 0.010 265 / 0.65))",
+        background: "var(--color-surface-muted)",
         backdropFilter: "blur(10px)",
         WebkitBackdropFilter: "blur(10px)",
         borderBottom: "1px solid var(--color-hairline-soft)",
@@ -221,16 +218,16 @@ function ViewerToolbar({
         style={{
           color: "var(--color-text-3)",
           border: "1px solid var(--color-hairline)",
-          background: "oklch(0.22 0.011 265 / 0.5)",
+          background: "var(--color-surface-3)",
         }}
         onMouseEnter={(e) => {
           e.currentTarget.style.color = "var(--color-text)";
-          e.currentTarget.style.background = "oklch(0.26 0.013 265 / 0.7)";
+          e.currentTarget.style.background = "var(--color-surface-2)";
           e.currentTarget.style.borderColor = "var(--color-accent-soft)";
         }}
         onMouseLeave={(e) => {
           e.currentTarget.style.color = "var(--color-text-3)";
-          e.currentTarget.style.background = "oklch(0.22 0.011 265 / 0.5)";
+          e.currentTarget.style.background = "var(--color-surface-3)";
           e.currentTarget.style.borderColor = "var(--color-hairline)";
         }}
       >
@@ -286,7 +283,7 @@ function ToolbarButton({
         disabled={disabled}
         className="focus-ring inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[11.5px] font-medium transition-transform disabled:cursor-not-allowed disabled:opacity-50"
         style={{
-          color: "oklch(0.14 0 0)",
+          color: "var(--color-accent-contrast)",
           background:
             "linear-gradient(135deg, var(--color-accent-2), var(--color-accent))",
           boxShadow:
@@ -316,7 +313,7 @@ function ToolbarButton({
         if (!disabled) {
           if (tone === "danger") {
             e.currentTarget.style.color = dangerColor;
-            e.currentTarget.style.background = "oklch(0.30 0.10 25 / 0.18)";
+            e.currentTarget.style.background = "var(--color-danger-soft-hover)";
           } else {
             e.currentTarget.style.color = "var(--color-text)";
             e.currentTarget.style.background = "oklch(1 0 0 / 0.05)";

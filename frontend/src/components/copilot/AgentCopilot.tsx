@@ -58,7 +58,7 @@ function SessionSelector({
         className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[11.5px] transition-colors focus-ring"
         style={{ color: "var(--color-text-3)" }}
         onMouseEnter={(e) => {
-          e.currentTarget.style.background = "oklch(0.26 0.012 265 / 0.6)";
+          e.currentTarget.style.background = "var(--color-surface-muted)";
           e.currentTarget.style.color = "var(--color-text)";
         }}
         onMouseLeave={(e) => {
@@ -100,7 +100,7 @@ function SessionSelector({
                   }
                   onMouseEnter={(e) => {
                     if (!isActive)
-                      e.currentTarget.style.background = "oklch(0.26 0.012 265 / 0.5)";
+                      e.currentTarget.style.background = "var(--color-surface-muted)";
                   }}
                   onMouseLeave={(e) => {
                     if (!isActive) e.currentTarget.style.background = "transparent";
@@ -382,7 +382,7 @@ export function AgentCopilot() {
   return (
     <div
       className="relative isolate flex h-full flex-col"
-      style={{ background: "oklch(0.19 0.011 250 / 0.5)" }}
+      style={{ background: "var(--color-surface-muted)" }}
     >
       {/* Header */}
       <div
@@ -396,7 +396,7 @@ export function AgentCopilot() {
             className="shrink-0 rounded p-1 transition-colors focus-ring"
             style={{ color: "var(--color-text-3)" }}
             onMouseEnter={(e) => {
-              e.currentTarget.style.background = "oklch(0.28 0.012 265 / 0.6)";
+              e.currentTarget.style.background = "var(--color-surface-muted)";
               e.currentTarget.style.color = "var(--color-text)";
             }}
             onMouseLeave={(e) => {
@@ -413,7 +413,7 @@ export function AgentCopilot() {
             style={{
               background:
                 "linear-gradient(135deg, var(--color-accent), oklch(0.60 0.10 280))",
-              color: "oklch(0.12 0 0)",
+              color: "var(--color-accent-contrast)",
             }}
           >
             <Bot className="h-3.5 w-3.5" />
@@ -444,7 +444,7 @@ export function AgentCopilot() {
             className="rounded p-1 transition-colors focus-ring"
             style={{ color: "var(--color-text-3)" }}
             onMouseEnter={(e) => {
-              e.currentTarget.style.background = "oklch(0.26 0.012 265 / 0.6)";
+              e.currentTarget.style.background = "var(--color-surface-muted)";
               e.currentTarget.style.color = "var(--color-text)";
             }}
             onMouseLeave={(e) => {
@@ -470,7 +470,7 @@ export function AgentCopilot() {
               className="mb-3 grid h-12 w-12 place-items-center rounded-2xl"
               style={{
                 background:
-                  "linear-gradient(135deg, var(--color-accent-dim), oklch(0.22 0.011 265 / 0.6))",
+                  "linear-gradient(135deg, var(--color-accent-dim), var(--color-surface-3))",
                 border: "1px solid var(--color-accent-soft)",
                 boxShadow: "0 0 24px -8px var(--color-accent-glow)",
               }}
@@ -575,17 +575,17 @@ export function AgentCopilot() {
                   onClick={() => removeImage(img.id)}
                   className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full transition-colors focus-ring"
                   style={{
-                    background: "oklch(0.14 0.008 265)",
+                    background: "var(--color-surface-2)",
                     color: "var(--color-text-2)",
                     border: "1px solid var(--color-hairline)",
                   }}
                   onMouseEnter={(e) => {
                     e.currentTarget.style.background = "var(--color-danger)";
-                    e.currentTarget.style.color = "oklch(0.14 0 0)";
+                    e.currentTarget.style.color = "var(--color-accent-contrast)";
                     e.currentTarget.style.borderColor = "var(--color-danger)";
                   }}
                   onMouseLeave={(e) => {
-                    e.currentTarget.style.background = "oklch(0.14 0.008 265)";
+                    e.currentTarget.style.background = "var(--color-surface-2)";
                     e.currentTarget.style.color = "var(--color-text-2)";
                     e.currentTarget.style.borderColor = "var(--color-hairline)";
                   }}
@@ -604,7 +604,7 @@ export function AgentCopilot() {
             border: `1px solid ${isDragOver ? "var(--color-accent)" : "var(--color-hairline)"}`,
             background: isDragOver
               ? "var(--color-accent-dim)"
-              : "oklch(0.20 0.012 265 / 0.7)",
+              : "var(--color-surface-3)",
             backdropFilter: "blur(8px)",
             WebkitBackdropFilter: "blur(8px)",
             boxShadow: isDragOver
@@ -661,7 +661,7 @@ export function AgentCopilot() {
             style={{ color: "var(--color-text-3)" }}
             onMouseEnter={(e) => {
               if (!attachDisabled) {
-                e.currentTarget.style.background = "oklch(0.26 0.012 265 / 0.6)";
+                e.currentTarget.style.background = "var(--color-surface-muted)";
                 e.currentTarget.style.color = "var(--color-text)";
               }
             }}
@@ -699,7 +699,7 @@ export function AgentCopilot() {
               }
               className="shrink-0 rounded-md p-1.5 transition-opacity focus-ring disabled:cursor-not-allowed disabled:opacity-30"
               style={{
-                color: "oklch(0.14 0 0)",
+                color: "var(--color-accent-contrast)",
                 background:
                   "linear-gradient(180deg, var(--color-accent-2), var(--color-accent))",
                 boxShadow:

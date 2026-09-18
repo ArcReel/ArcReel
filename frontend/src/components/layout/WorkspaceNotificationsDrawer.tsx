@@ -27,17 +27,17 @@ const TONE_TOKENS: Record<
 > = {
   success: {
     color: "var(--color-good)",
-    soft: "oklch(0.30 0.10 155 / 0.18)",
+    soft: "var(--color-good-soft)",
     ring: "oklch(0.45 0.10 155 / 0.40)",
   },
   warning: {
     color: "oklch(0.85 0.13 75)",
-    soft: "oklch(0.30 0.10 75 / 0.18)",
+    soft: "var(--color-warm-soft)",
     ring: "oklch(0.45 0.13 75 / 0.40)",
   },
   error: {
     color: "oklch(0.85 0.10 25)",
-    soft: "oklch(0.30 0.10 25 / 0.18)",
+    soft: "var(--color-danger-soft)",
     ring: "oklch(0.45 0.18 25 / 0.40)",
   },
   info: {
@@ -130,7 +130,7 @@ export function WorkspaceNotificationsDrawer({
             style={{
               border: "1px dashed var(--color-hairline)",
               background:
-                "radial-gradient(400px 200px at 50% -10%, var(--color-accent-dim), transparent 60%), oklch(0.18 0.010 265 / 0.30)",
+                "radial-gradient(400px 200px at 50% -10%, var(--color-accent-dim), transparent 60%), var(--color-surface-muted)",
             }}
           >
             <span
@@ -176,7 +176,7 @@ export function WorkspaceNotificationsDrawer({
                       ? "1px solid var(--color-accent-soft)"
                       : `1px solid ${tone.ring}`,
                     background: actionable
-                      ? "linear-gradient(135deg, var(--color-accent-dim) 0%, oklch(0.20 0.011 265 / 0.5) 60%)"
+                      ? "linear-gradient(135deg, var(--color-accent-dim) 0%, var(--color-surface-muted) 60%)"
                       : tone.soft,
                     boxShadow: actionable
                       ? "inset 0 1px 0 oklch(1 0 0 / 0.04), 0 6px 18px -6px var(--color-accent-glow)"
@@ -187,7 +187,7 @@ export function WorkspaceNotificationsDrawer({
                     <span
                       className="mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-lg"
                       style={{
-                        background: "oklch(0.16 0.010 265 / 0.6)",
+                        background: "var(--color-surface-muted)",
                         border: `1px solid ${tone.ring}`,
                         color: tone.color,
                       }}
@@ -222,7 +222,7 @@ export function WorkspaceNotificationsDrawer({
                             onClick={() => onNavigate(item)}
                             className="focus-ring inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-[11px] font-medium transition-transform"
                             style={{
-                              color: "oklch(0.14 0 0)",
+                              color: "var(--color-accent-contrast)",
                               background:
                                 "linear-gradient(135deg, var(--color-accent-2), var(--color-accent))",
                               boxShadow:

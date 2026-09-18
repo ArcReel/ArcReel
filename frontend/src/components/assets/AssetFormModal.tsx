@@ -160,7 +160,7 @@ export function AssetFormModal({
               onClick={() => fileRef.current?.click()}
               className="focus-ring group relative aspect-video w-full overflow-hidden rounded-xl transition-colors"
               style={{
-                background: "oklch(0.16 0.010 265 / 0.6)",
+                background: "var(--color-surface-muted)",
                 border: "1px dashed var(--color-hairline)",
               }}
               onMouseEnter={(e) => {
@@ -246,7 +246,7 @@ export function AssetFormModal({
                 onChange={(e) => setName(e.target.value)}
                 className="focus-ring rounded-lg px-3 py-2 text-[13px] outline-none"
                 style={{
-                  background: "oklch(0.16 0.010 265 / 0.6)",
+                  background: "var(--color-surface-muted)",
                   border: "1px solid var(--color-hairline)",
                   color: "var(--color-text)",
                 }}
@@ -260,7 +260,7 @@ export function AssetFormModal({
                 rows={4}
                 className="focus-ring resize-none rounded-lg px-3 py-2 text-[13px] leading-[1.55] outline-none"
                 style={{
-                  background: "oklch(0.16 0.010 265 / 0.6)",
+                  background: "var(--color-surface-muted)",
                   border: "1px solid var(--color-hairline)",
                   color: "var(--color-text)",
                 }}
@@ -274,7 +274,7 @@ export function AssetFormModal({
                   onChange={(e) => setVoiceStyle(e.target.value)}
                   className="focus-ring rounded-lg px-3 py-2 text-[13px] outline-none"
                   style={{
-                    background: "oklch(0.16 0.010 265 / 0.6)",
+                    background: "var(--color-surface-muted)",
                     border: "1px solid var(--color-hairline)",
                     color: "var(--color-text)",
                   }}
@@ -335,7 +335,7 @@ export function AssetFormModal({
           className="flex items-center gap-2 px-6 py-4"
           style={{
             borderTop: "1px solid var(--color-hairline-soft)",
-            background: "oklch(0.17 0.010 250 / 0.5)",
+            background: "var(--color-surface-2)",
           }}
         >
           <SecondaryButton size="sm" onClick={onClose}>

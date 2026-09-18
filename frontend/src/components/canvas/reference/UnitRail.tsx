@@ -21,13 +21,13 @@ export function UnitRail({ units, selectedId, onSelect, onExpand, dirtyMap, stat
   const { t } = useTranslation("dashboard");
 
   return (
-    <div className="flex h-full min-h-0 w-[56px] flex-col overflow-hidden border-r border-[var(--color-hairline)] bg-[linear-gradient(180deg,oklch(0.19_0.011_265_/_0.5),oklch(0.17_0.010_265_/_0.35))]">
+    <div className="flex h-full min-h-0 w-[56px] flex-col overflow-hidden border-r border-[var(--color-hairline)] bg-[var(--color-surface-muted)]">
       <button
         type="button"
         onClick={onExpand}
         title={t("reference_unit_rail_expand")}
         aria-label={t("reference_unit_rail_expand")}
-        className="focus-ring mx-auto mb-1.5 mt-2.5 grid h-[30px] w-[34px] place-items-center rounded border border-[var(--color-hairline-soft)] bg-[oklch(0.22_0.011_265_/_0.5)] text-[var(--color-text-3)] hover:text-[var(--color-text)]"
+        className="focus-ring mx-auto mb-1.5 mt-2.5 grid h-[30px] w-[34px] place-items-center rounded border border-[var(--color-hairline-soft)] bg-[var(--color-surface-3)] text-[var(--color-text-3)] hover:text-[var(--color-text)]"
       >
         <LayoutGrid className="h-4 w-4" aria-hidden="true" />
       </button>
@@ -47,8 +47,8 @@ export function UnitRail({ units, selectedId, onSelect, onExpand, dirtyMap, stat
               title={`${u.unit_id} · ${t(conf.i18nKey)}`}
               className={`focus-ring relative flex w-full flex-col items-center gap-1 rounded-md py-2 ${
                 sel
-                  ? "border border-[var(--color-accent-soft)] bg-[linear-gradient(180deg,oklch(0.26_0.018_290_/_0.5),oklch(0.22_0.015_280_/_0.35))]"
-                  : "border border-transparent hover:bg-[oklch(0.22_0.011_265_/_0.4)]"
+                  ? "border border-[var(--color-accent-soft)] bg-[var(--color-surface-muted)]"
+                  : "border border-transparent hover:bg-[var(--color-surface-3)]"
               }`}
             >
               {sel && (
@@ -61,8 +61,8 @@ export function UnitRail({ units, selectedId, onSelect, onExpand, dirtyMap, stat
                 translate="no"
                 className={`rounded px-1.5 py-0.5 font-mono text-[10.5px] font-bold ${
                   sel
-                    ? "text-[oklch(0.14_0_0)] [background:linear-gradient(180deg,var(--color-accent-2),var(--color-accent))]"
-                    : "bg-[oklch(0.22_0.011_265_/_0.6)] text-[var(--color-text-3)]"
+                    ? "text-[var(--color-accent-contrast)] [background:linear-gradient(180deg,var(--color-accent-2),var(--color-accent))]"
+                    : "bg-[var(--color-surface-3)] text-[var(--color-text-3)]"
                 }`}
               >
                 {shortId}

@@ -35,7 +35,7 @@ function EpisodeHeader({
         className="num grid h-11 w-11 shrink-0 place-items-center rounded-lg text-[13px] font-bold"
         style={{
           background: "linear-gradient(135deg, var(--color-accent) 0%, oklch(0.45 0.12 285) 100%)",
-          color: "oklch(0.14 0 0)",
+          color: "var(--color-accent-contrast)",
           boxShadow:
             "inset 0 1px 0 oklch(1 0 0 / 0.25), 0 0 0 1px oklch(1 0 0 / 0.12), 0 4px 12px -4px var(--color-accent-glow)",
         }}
@@ -113,7 +113,7 @@ function GuideSection({ meta }: { meta: EpisodeMeta | undefined }) {
   return (
     <section
       className="mt-4 overflow-hidden rounded-xl"
-      style={{ background: "oklch(0.21 0.012 265 / 0.35)", border: "1px solid var(--color-hairline)" }}
+      style={{ background: "var(--color-surface-3)", border: "1px solid var(--color-hairline)" }}
     >
       <button
         type="button"
@@ -149,7 +149,7 @@ function GuideSection({ meta }: { meta: EpisodeMeta | undefined }) {
                 <div
                   key={i}
                   className="rounded-lg px-3.5 py-3"
-                  style={{ background: "oklch(0.24 0.012 265 / 0.55)", border: "1px solid var(--color-hairline-soft)" }}
+                  style={{ background: "var(--color-surface-3)", border: "1px solid var(--color-hairline-soft)" }}
                 >
                   <span className="num text-[15px] font-bold" style={{ color: "var(--color-accent-2)" }}>
                     {i + 1}
@@ -235,7 +235,7 @@ export function EpisodeSourceReview({
           <div
             className="min-h-0 flex-1 overflow-y-auto rounded-2xl px-12 py-9"
             style={{
-              background: "linear-gradient(180deg, oklch(0.215 0.011 265 / 0.75), oklch(0.195 0.010 265 / 0.75))",
+              background: "var(--color-surface-muted)",
               border: "1px solid var(--color-hairline)",
               boxShadow: "inset 0 1px 0 oklch(1 0 0 / 0.04)",
             }}

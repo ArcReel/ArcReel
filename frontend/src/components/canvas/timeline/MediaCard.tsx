@@ -189,7 +189,7 @@ export function MediaCard({
             className="flex h-full w-full flex-col items-center justify-center gap-2 rounded-[10px]"
             style={{
               border: "1px dashed var(--color-hairline)",
-              background: "oklch(0.18 0.010 265 / 0.4)",
+              background: "var(--color-surface-2)",
               color: "var(--color-text-4)",
             }}
           >
@@ -212,7 +212,7 @@ export function MediaCard({
           }
           className="mt-2.5 inline-flex w-full items-center justify-center gap-1.5 rounded-[10px] px-3.5 py-2.5 text-[13px] font-semibold transition-opacity focus-ring disabled:cursor-not-allowed disabled:opacity-50"
           style={{
-            color: "oklch(0.14 0 0)",
+            color: "var(--color-accent-contrast)",
             background: "linear-gradient(180deg, var(--color-accent-2), var(--color-accent))",
             boxShadow:
               "inset 0 1px 0 oklch(1 0 0 / 0.3), 0 4px 14px -4px var(--color-accent-glow)",

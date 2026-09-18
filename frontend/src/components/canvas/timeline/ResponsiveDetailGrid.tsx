@@ -73,7 +73,7 @@ export function ResponsiveDetailGrid({ left, mid, right }: ResponsiveDetailGridP
           className="flex gap-0.5 px-3 py-2"
           style={{
             borderBottom: "1px solid var(--color-hairline-soft)",
-            background: "oklch(0.20 0.011 265 / 0.3)",
+            background: "var(--color-surface-3)",
           }}
         >
           {tabs.map((x) => {
@@ -112,7 +112,7 @@ export function ResponsiveDetailGrid({ left, mid, right }: ResponsiveDetailGridP
         className="flex items-center gap-1.5 px-3 py-1.5"
         style={{
           borderBottom: "1px solid var(--color-hairline-soft)",
-          background: "oklch(0.20 0.011 265 / 0.3)",
+          background: "var(--color-surface-3)",
         }}
       >
         <button
@@ -121,7 +121,7 @@ export function ResponsiveDetailGrid({ left, mid, right }: ResponsiveDetailGridP
           className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[11.5px] font-medium focus-ring"
           style={{
             color: leftOpen ? "var(--color-accent-2)" : "var(--color-text-3)",
-            background: leftOpen ? "var(--color-accent-dim)" : "oklch(0.22 0.011 265 / 0.5)",
+            background: leftOpen ? "var(--color-accent-dim)" : "var(--color-surface-3)",
             border: "1px solid " + (leftOpen ? "var(--color-accent-soft)" : "var(--color-hairline-soft)"),
           }}
         >

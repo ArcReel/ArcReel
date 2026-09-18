@@ -224,8 +224,7 @@ export function SourceFilesPage({ projectName }: SourceFilesPageProps) {
       <div
         className="sticky top-0 z-10 flex items-center gap-3 px-5 py-3"
         style={{
-          background:
-            "linear-gradient(180deg, oklch(0.20 0.012 265 / 0.85), oklch(0.18 0.010 265 / 0.65))",
+          background: "var(--color-surface-muted)",
           backdropFilter: "blur(10px)",
           WebkitBackdropFilter: "blur(10px)",
           borderBottom: "1px solid var(--color-hairline-soft)",
@@ -271,7 +270,7 @@ export function SourceFilesPage({ projectName }: SourceFilesPageProps) {
           disabled={uploading}
           className="focus-ring inline-flex items-center gap-1.5 rounded-md px-3 py-1 text-[11.5px] font-medium transition-transform hover:-translate-y-px disabled:translate-y-0 disabled:opacity-50"
           style={{
-            color: "oklch(0.14 0 0)",
+            color: "var(--color-accent-contrast)",
             background:
               "linear-gradient(135deg, var(--color-accent-2), var(--color-accent))",
             boxShadow:
@@ -311,8 +310,8 @@ export function SourceFilesPage({ projectName }: SourceFilesPageProps) {
                 isDragging ? "var(--color-accent)" : "var(--color-hairline)"
               }`,
               background: isDragging
-                ? "radial-gradient(600px 280px at 50% -10%, var(--color-accent-soft), transparent 60%), oklch(0.20 0.011 265 / 0.45)"
-                : "radial-gradient(600px 280px at 50% -10%, var(--color-accent-dim), transparent 60%), oklch(0.18 0.010 265 / 0.35)",
+                ? "radial-gradient(600px 280px at 50% -10%, var(--color-accent-soft), transparent 60%), var(--color-surface-3)"
+                : "radial-gradient(600px 280px at 50% -10%, var(--color-accent-dim), transparent 60%), var(--color-surface-2)",
             }}
           >
             <span
@@ -360,12 +359,12 @@ export function SourceFilesPage({ projectName }: SourceFilesPageProps) {
               <span
                 className="mt-1 inline-flex items-center gap-1.5 rounded-md px-3 py-1 text-[11.5px] font-medium transition-transform group-hover:translate-y-[-1px]"
                 style={{
-                  color: "oklch(0.14 0 0)",
-                  background:
-                    "linear-gradient(135deg, var(--color-accent-2), var(--color-accent))",
-                  boxShadow:
-                    "inset 0 1px 0 oklch(1 0 0 / 0.35), 0 6px 18px -4px var(--color-accent-glow), 0 0 0 1px var(--color-accent-soft)",
-                }}
+                    color: "var(--color-accent-contrast)",
+                    background:
+                      "linear-gradient(135deg, var(--color-accent-2), var(--color-accent))",
+                    boxShadow:
+                      "inset 0 1px 0 oklch(1 0 0 / 0.35), 0 6px 18px -4px var(--color-accent-glow), 0 0 0 1px var(--color-accent-soft)",
+                  }}
               >
                 <Plus className="h-3.5 w-3.5" />
                 {t("dashboard:upload_source_files")}
@@ -388,8 +387,7 @@ export function SourceFilesPage({ projectName }: SourceFilesPageProps) {
               border: `1px solid ${
                 isDragging ? "var(--color-accent-soft)" : "var(--color-hairline-soft)"
               }`,
-              background:
-                "linear-gradient(180deg, oklch(0.22 0.012 265 / 0.5), oklch(0.19 0.010 265 / 0.35))",
+              background: "var(--color-surface-muted)",
               boxShadow:
                 "inset 0 1px 0 oklch(1 0 0 / 0.04), 0 8px 24px -10px oklch(0 0 0 / 0.5)",
               transition: "border-color .12s ease",
@@ -438,7 +436,7 @@ export function SourceFilesPage({ projectName }: SourceFilesPageProps) {
                       idx === 0 ? "none" : "1px solid var(--color-hairline-soft)",
                   }}
                   onMouseEnter={(e) => {
-                    e.currentTarget.style.background = "oklch(0.24 0.012 265 / 0.45)";
+                    e.currentTarget.style.background = "var(--color-surface-3)";
                   }}
                   onMouseLeave={(e) => {
                     e.currentTarget.style.background = "transparent";
@@ -495,7 +493,7 @@ export function SourceFilesPage({ projectName }: SourceFilesPageProps) {
                     style={{
                       color: "var(--color-text-3)",
                       border: "1px solid var(--color-hairline)",
-                      background: "oklch(0.22 0.011 265 / 0.5)",
+                      background: "var(--color-surface-3)",
                     }}
                     onMouseEnter={(e) => {
                       e.currentTarget.style.color = "var(--color-text)";
@@ -519,7 +517,7 @@ export function SourceFilesPage({ projectName }: SourceFilesPageProps) {
                     style={{ color: "var(--color-text-4)" }}
                     onMouseEnter={(e) => {
                       e.currentTarget.style.color = "var(--color-danger, oklch(0.72 0.18 25))";
-                      e.currentTarget.style.background = "oklch(0.30 0.10 25 / 0.18)";
+                      e.currentTarget.style.background = "var(--color-danger-soft-hover)";
                     }}
                     onMouseLeave={(e) => {
                       e.currentTarget.style.color = "var(--color-text-4)";

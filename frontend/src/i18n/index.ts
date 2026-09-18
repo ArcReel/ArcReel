@@ -18,6 +18,23 @@ function pathFor(lang: string, ns: string): string {
 export const SUPPORTED_LANGUAGES = ['zh', 'en', 'vi'] as const;
 export type SupportedLanguage = typeof SUPPORTED_LANGUAGES[number];
 
+// 默认语言为中文：仅当用户此前显式选择过其他语言（detector 缓存在
+// i18nextLng）时沿用其选择，否则一律以 zh 启动，不再跟随浏览器语言。
+function initialLanguage(): SupportedLanguage {
+  try {
+    const stored = window.localStorage.getItem('i18nextLng');
+    if (stored) {
+      const match = SUPPORTED_LANGUAGES.find((lang) =>
+        stored.toLowerCase().startsWith(lang),
+      );
+      if (match) return match;
+    }
+  } catch {
+    // localStorage 不可用时静默失败
+  }
+  return 'zh';
+}
+
 export const LANGUAGE_DISPLAY_LABELS: Record<SupportedLanguage, string> = {
   zh: '中文',
   en: 'English',
@@ -79,6 +96,7 @@ export const i18nReady = i18n
   .use(LanguageDetector)
   .use(initReactI18next)
   .init({
+    lng: initialLanguage(),
     fallbackLng: 'zh',
     supportedLngs: SUPPORTED_LANGUAGES,
     debug: false,

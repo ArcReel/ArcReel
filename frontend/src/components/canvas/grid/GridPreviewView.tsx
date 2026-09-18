@@ -147,7 +147,7 @@ export function GridPreviewView({
         className="mb-4 flex flex-wrap items-center gap-2 rounded-md border px-3.5 py-2.5"
         style={{
           borderColor: "var(--color-hairline-soft)",
-          background: "oklch(0.18 0.010 265 / 0.5)",
+          background: "var(--color-surface-2)",
         }}
       >
         <span
@@ -173,7 +173,7 @@ export function GridPreviewView({
               className="overflow-hidden rounded-md border"
               style={{
                 borderColor: "var(--color-hairline-soft)",
-                background: "oklch(0.20 0.011 265 / 0.35)",
+                background: "var(--color-surface-3)",
               }}
             >
               <div

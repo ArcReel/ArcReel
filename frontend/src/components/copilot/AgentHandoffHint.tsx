@@ -106,7 +106,7 @@ export function AgentHandoffHint({ triggerKey, storageScope }: AgentHandoffHintP
           padding: "16px 18px 14px",
           border: "1px solid var(--color-hairline)",
           background:
-            "linear-gradient(180deg, oklch(0.22 0.014 285 / 0.96), oklch(0.18 0.011 270 / 0.94))",
+            "linear-gradient(180deg, var(--color-surface-3), var(--color-surface-2))",
           boxShadow:
             "0 28px 64px -24px oklch(0 0 0 / 0.85), 0 0 0 1px oklch(1 0 0 / 0.04), inset 0 1px 0 oklch(1 0 0 / 0.06)",
           backdropFilter: "blur(16px) saturate(1.1)",
@@ -179,7 +179,7 @@ export function AgentHandoffHint({ triggerKey, storageScope }: AgentHandoffHintP
               style={{
                 background:
                   "linear-gradient(135deg, oklch(0.85 0.08 295), oklch(0.70 0.12 280))",
-                color: "oklch(0.14 0 0)",
+                color: "var(--color-accent-contrast)",
                 boxShadow:
                   "0 6px 18px -6px var(--color-accent-glow), inset 0 1px 0 oklch(1 0 0 / 0.4)",
               }}

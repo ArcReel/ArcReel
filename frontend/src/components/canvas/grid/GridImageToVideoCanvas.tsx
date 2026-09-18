@@ -255,7 +255,7 @@ export function GridImageToVideoCanvas({
         className="flex items-center gap-0.5 px-5"
         style={{
           borderBottom: "1px solid var(--color-hairline)",
-          background: "oklch(0.19 0.012 250 / 0.5)",
+          background: "var(--color-surface-2)",
         }}
       >
         {showTabs && renderTabButton("preprocessing", t("tab_script_plan"))}
