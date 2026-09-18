@@ -1,6 +1,6 @@
 """市场源工具库：索引 schema、生成器与校验器；命令行入口是 ``python -m lib.market``。"""
 
-from .entry import ENDPOINT_MEDIA_TYPE, PROJECTED_META_FIELDS, check_entry_definition, project_meta
+from .entry import PROJECTED_META_FIELDS, check_entry_definition, project_meta
 from .generate import GenerateError, build_index, render_index, write_index
 from .icon import ICON_FORMATS, ICON_MAX_BYTES, inspect_icon
 from .index import (
@@ -20,7 +20,6 @@ from .source import check_source
 
 __all__ = [
     "ENDPOINT_ENTRY_TYPE",
-    "ENDPOINT_MEDIA_TYPE",
     "ICON_FORMATS",
     "ICON_MAX_BYTES",
     "INDEX_FILENAME",

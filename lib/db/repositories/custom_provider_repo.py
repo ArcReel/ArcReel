@@ -172,7 +172,8 @@ class CustomProviderRepository(BaseRepository):
     async def list_enabled_models_by_media_type(self, media_type: str) -> list[CustomProviderModel]:
         """跨所有供应商获取指定媒体类型的已启用模型。
 
-        通过 ENDPOINT_KEYS_BY_MEDIA_TYPE 查表得到对应的 endpoint 集合，再按 endpoint 过滤。
+        媒体类型按 :func:`_media_type_endpoint_filter` 判：内置键查表，``ce-`` 行读自己那一行的
+        镜像列——一份 ComfyUI workflow 产图还是产视频从键上推不出来。
         """
         stmt = (
             select(CustomProviderModel)
@@ -223,7 +224,10 @@ class CustomProviderRepository(BaseRepository):
     async def get_default_model(self, provider_id: int, media_type: str) -> CustomProviderModel | None:
         """获取指定供应商 + 媒体类型的默认已启用模型。
 
-        通过 ENDPOINT_KEYS_BY_MEDIA_TYPE 查表得到对应的 endpoint 集合，再按 endpoint 过滤。
+        媒体类型的判法同 :meth:`list_enabled_models_by_media_type`。
+
+        同一媒体类型下有多行同时是默认时抛 ``MultipleResultsFound``：保存期的唯一性检查按 image
+        能力集判互斥（t2i 与 i2i 各设一个默认是放行的），这里只按媒体类型取、取不出该要哪一个。
         """
         stmt = select(CustomProviderModel).where(
             CustomProviderModel.provider_id == provider_id,

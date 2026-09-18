@@ -347,6 +347,67 @@ class TestMediaGenerator:
 
         assert collected == [{"key": "comfyui_multiple_outputs", "params": {"count": 2, "filename": "final_00001.mp4"}}]
 
+    async def test_comfyui_image_to_image_stores_the_artifact_as_an_image_version(self, tmp_path):
+        """图像通道端到端一条：参考图上传 → 提交 → 轮询 → 产物入库为一版分镜图。
+
+        走 ``generate_image_async`` 而不是直接调 backend：i2i 的能力闸门、参考图压缩与版本入库都在
+        那条路上，backend 单测看不到它们。
+        """
+        from lib.custom_provider.backends import CustomImageBackend
+        from lib.custom_provider.comfyui_image_backend import ComfyuiImageBackend
+
+        definition = comfyui_endpoint_definition(media_type="image")
+        definition["workflow"]["20"] = {"class_type": "LoadImage", "inputs": {"image": "draft.png"}}
+        definition["bindings"] = {
+            "prompt": [{"node": "6", "input": "text", "class_type": "CLIPTextEncode"}],
+            "reference_images": [{"node": "20", "input": "image", "class_type": "LoadImage"}],
+            "seed": [{"node": "3", "input": "seed", "class_type": "KSampler", "policy": "random"}],
+            "output": [{"node": "9", "class_type": "SaveImage"}],
+        }
+        definition["workflow"]["9"] = {"class_type": "SaveImage", "inputs": {"images": ["8", 0]}}
+
+        gen = _build_generator(tmp_path)
+        gen._image_provider_id = "custom-1"
+        delegate = ComfyuiImageBackend(
+            provider_id="custom-1",
+            model="qwen-edit",
+            base_url="https://comfy.test",
+            api_key="",
+            definition=definition,
+            job_label="job-7",
+        )
+        gen._image_backend = CustomImageBackend(provider_id="custom-1", delegate=delegate, model="qwen-edit")
+        reference = _solid_png(tmp_path, "ref.png", 64, 64)
+        history = {
+            "status": {"completed": True},
+            "outputs": {"9": {"images": [{"filename": "ArcReel_00001_.png", "subfolder": "", "type": "output"}]}},
+        }
+
+        with capture_http() as router:
+            upload = router.post("https://comfy.test/upload/image").mock(
+                return_value=httpx.Response(200, json={"name": "job-7-reference_images-1.png", "subfolder": "arcreel"})
+            )
+            submit = router.post("https://comfy.test/prompt").mock(
+                return_value=httpx.Response(200, json={"prompt_id": "p-1"})
+            )
+            router.get("https://comfy.test/history/p-1").mock(return_value=httpx.Response(200, json=history))
+            router.get("https://comfy.test/view").mock(return_value=httpx.Response(200, content=b"png"))
+
+            output, version = await gen.generate_image_async(
+                prompt="把这张图改成夜景",
+                resource_type="storyboards",
+                resource_id="E1S01",
+                reference_images=[reference],
+            )
+
+        assert output.read_bytes() == b"png"
+        assert version == 1
+        assert upload.call_count == 1
+        assert gen.versions.add_calls[-1]["resource_id"] == "E1S01"
+        sent = json.loads(submit.calls.last.request.content)["prompt"]
+        assert sent["20"]["inputs"]["image"] == "arcreel/job-7-reference_images-1.png"
+        assert gen.ledger.outcomes[0]["status"] == "success"
+
     async def test_cancelled_formal_image_generation_never_replaces_the_canonical_file(self, tmp_path):
         gen = _build_generator(tmp_path)
         backend_written = asyncio.Event()

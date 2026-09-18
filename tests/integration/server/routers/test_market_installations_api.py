@@ -58,7 +58,7 @@ async def install_client(session_factory: async_sessionmaker[AsyncSession]) -> A
                                 "type": "endpoint",
                                 "slug": "example",
                                 "path": "endpoints/example/definition.json",
-                                **project_meta(definition["meta"]),
+                                **project_meta(definition),
                             }
                         ],
                     },

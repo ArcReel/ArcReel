@@ -166,13 +166,20 @@ class ComfyuiClient:
         workflow: Mapping[str, Any],
         *,
         client_id: str,
-        record: RecordResponse,
+        record: RecordResponse | None = None,
     ) -> str:
         """提交一份实发 workflow，返回服务端分配的 ``prompt_id``。
 
         ``node_errors`` 随 200 回来与 400 同判失败：ComfyUI 对「图能提交、但某个节点的入参过不了
         校验」回的就是这两种形状，放行它等于让任务进轮询后永远等不到产物。
+
+        ``record`` 可缺省：图像通道没有留痕通道（``ImageGenerationRequest`` 不带诊断回调），传一个
+        什么都不做的回调只是把这件事写成看起来有。
         """
+
+        async def note(stage: ProviderResponseStage, body: object) -> None:
+            if record is not None:
+                await record(stage, body)
 
         async def post() -> httpx.Response:
             response = await request_with_scoped_credentials(
@@ -185,7 +192,7 @@ class ComfyuiClient:
             )
             if response.status_code >= 400:
                 body = _body_or_text(response)
-                await record("submit", body)
+                await note("submit", body)
                 if response.status_code == 400:
                     # 400 是 ComfyUI 拒收这份图的固定形状，与 200 带 node_errors 同因；交给
                     # submit_post 按状态码分流会把它说成一次通用的上游拒绝。
@@ -194,7 +201,7 @@ class ComfyuiClient:
 
         response = await retry_async(lambda: submit_post(post, provider="comfyui"), retry_if=should_retry_submit)
         body = _body_or_text(response)
-        await record("submit", body)
+        await note("submit", body)
         if isinstance(body, Mapping) and body.get("node_errors"):
             raise _node_errors_error(body, workflow)
         prompt_id = str(body.get("prompt_id") or "").strip() if isinstance(body, Mapping) else ""

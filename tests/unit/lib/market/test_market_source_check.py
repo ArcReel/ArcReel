@@ -12,7 +12,7 @@ import pytest
 from PIL import Image
 
 from lib.market import INDEX_FILENAME, check_source
-from tests.factories import custom_endpoint_definition
+from tests.factories import comfyui_endpoint_definition, custom_endpoint_definition
 
 
 def _png(width: int = 64, height: int = 64, fmt: str = "PNG") -> bytes:
@@ -329,7 +329,28 @@ class TestProjectionRule:
 
         assert _codes(source.write()) == [(INDEX_FILENAME, "entries[0].min_app_version", "projection_mismatch")]
 
-    def test_media_type_is_fixed_to_video(self, source: _Source):
+    def test_a_declarative_definition_always_projects_video(self, source: _Source):
+        """声明式定义描述的是「JSON in/out + 提交 / 轮询」的视频协议，索引说别的即不符。"""
         source.add("demo", media_type="image")
+
+        assert _codes(source.write()) == [(INDEX_FILENAME, "entries[0].media_type", "projection_mismatch")]
+
+    def test_a_comfyui_definition_projects_the_media_type_it_declares(self, source: _Source):
+        """一份 ComfyUI workflow 产图还是产视频由它自己声明，索引照抄那一个值。
+
+        读法与端点投影、镜像列共用一份实现：对不上会让一个图像端点在市场里显示成视频。
+        """
+        definition = comfyui_endpoint_definition(media_type="image")
+        del definition["bindings"]["fps"]
+        definition["meta"] = {"name": "演示出图", "author": "ArcReel", "version": "1.0.0"}
+        source.add("demo", definition, media_type="image")
+
+        assert _codes(source.write()) == []
+
+    def test_a_comfyui_image_definition_listed_as_video_is_reported(self, source: _Source):
+        definition = comfyui_endpoint_definition(media_type="image")
+        del definition["bindings"]["fps"]
+        definition["meta"] = {"name": "演示出图", "author": "ArcReel", "version": "1.0.0"}
+        source.add("demo", definition)
 
         assert _codes(source.write()) == [(INDEX_FILENAME, "entries[0].media_type", "projection_mismatch")]

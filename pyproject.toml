@@ -186,7 +186,9 @@ type = "forbidden"
 allow_indirect_imports = true
 source_modules = [
     "lib.custom_provider.comfyui_client",
+    "lib.custom_provider.comfyui_execution",
     "lib.custom_provider.comfyui_backend",
+    "lib.custom_provider.comfyui_image_backend",
 ]
 forbidden_modules = [
     "lib.custom_provider.declarative_backend",

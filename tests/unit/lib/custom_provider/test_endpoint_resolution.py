@@ -334,13 +334,32 @@ class TestKindDispatch:
         with pytest.raises(ValueError, match="base_url"):
             spec.build_backend(cast("Any", provider), "wan-t2v")
 
-    def test_building_a_backend_for_a_comfyui_image_spec_says_the_runtime_is_missing(self):
-        """图像通道还没有 backend：抛带失败码的 ComfyuiError，不与「端点不认识」混同。
+    def test_building_a_backend_for_a_comfyui_image_spec_gives_the_image_channel(self):
+        """媒体类型决定走哪条通道：图像定义装出图像 backend 的包装，不是视频那一条。"""
+        from lib.custom_provider.backends import CustomImageBackend
 
-        码进 ``FAILURE_CODE_KEYS``，worker 据此落结构化失败、读侧按语言渲染——落一段裸文本的话，
-        非中文用户在任务列表里看到的是一句中文。
+        definition = comfyui_endpoint_definition(media_type="image")
+        del definition["bindings"]["fps"]
+        row = SimpleNamespace(id=7, definition=definition)
+        provider = SimpleNamespace(provider_id="custom-1", base_url="https://comfy.test", api_key="")
+
+        spec = endpoint_spec_from_row(cast("CustomEndpoint", row))
+        backend = spec.build_backend(cast("Any", provider), "flux")
+
+        assert isinstance(backend, CustomImageBackend)
+        assert (backend.name, backend.model) == ("custom-1", "flux")
+
+    def test_building_a_backend_for_an_out_of_range_media_type_says_the_runtime_is_missing(self):
+        """schema 只放行 image / video：走到第三个值意味着手工改过库。
+
+        抛带失败码的 ComfyuiError、不与「端点不认识」混同；码进 ``FAILURE_CODE_KEYS``，worker 据此
+        落结构化失败、读侧按语言渲染——落一段裸文本的话，非中文用户在任务列表里看到的是一句中文。
         """
-        row = SimpleNamespace(id=7, definition=comfyui_endpoint_definition(media_type="image"))
+        definition = comfyui_endpoint_definition(media_type="image")
+        del definition["bindings"]["fps"]
+        # 绕过 schema 直接改库才会出现的形状，故不过 validate_definition。
+        definition["media_type"] = "audio"
+        row = SimpleNamespace(id=7, definition=definition)
         provider = SimpleNamespace(provider_id="custom-1", base_url="https://comfy.test", api_key="")
 
         spec = endpoint_spec_from_row(cast("CustomEndpoint", row))
@@ -349,7 +368,7 @@ class TestKindDispatch:
             spec.build_backend(cast("Any", provider), "flux")
 
         assert caught.value.code == "provider_unsupported_media"
-        assert caught.value.params == {"provider_id": "custom-1", "media_type": "image"}
+        assert caught.value.params == {"provider_id": "custom-1", "media_type": "audio"}
         assert caught.value.code in FAILURE_CODE_KEYS
 
     def test_media_type_of_an_unsupported_kind_is_refused(self):

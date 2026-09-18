@@ -3,24 +3,34 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from contextlib import suppress
 from typing import Any
 
 from lib.custom_provider.endpoint_definition import validate_definition
+from lib.custom_provider.endpoint_resolution import definition_media_type
 
 from .index import ENDPOINT_ENTRY_TYPE, MarketIndexEntry
 from .issues import INDEX_FILENAME, ROOT_PATH, MarketIssue, MarketIssueCode, join_path
-
-#: 调用端点条目的媒体类型固定为视频（定义格式本身只描述视频端点）。
-ENDPOINT_MEDIA_TYPE = "video"
 
 #: 从定义 ``meta`` 投影进索引条目的字段，顺序即生成器写出的顺序。
 PROJECTED_META_FIELDS = ("name", "author", "version", "description", "homepage", "min_app_version")
 
 
-def project_meta(meta: Mapping[str, Any]) -> dict[str, Any]:
-    """定义 ``meta`` 在索引条目里的投影：只含 meta 里出现的字段，外加固定的 ``media_type``。"""
+def project_meta(definition: Mapping[str, Any]) -> dict[str, Any]:
+    """一份定义在索引条目里的投影：``meta`` 里出现的那些字段，加上按 ``kind`` 读出的媒体类型。
+
+    媒体类型不是固定值：``kind: comfyui`` 的定义自己声明产图还是产视频，声明式定义描述的恒是
+    视频协议。读法与端点投影、镜像列共用 ``definition_media_type`` 一份实现——市场索引上的
+    ``media_type`` 就是这份定义装进库以后镜像列会写下的那个值，两处对不上会让一个图像端点在市场
+    里显示成视频。
+
+    ``kind`` 缺失或本版本不认得时投影里没有 ``media_type``：那份定义本身不合法，
+    :func:`validate_definition` 已在同一次检查里说了这件事，这里再猜一个值只会掩盖它。
+    """
+    meta: Mapping[str, Any] = definition.get("meta") or {}
     projection = {field: meta[field] for field in PROJECTED_META_FIELDS if field in meta}
-    projection["media_type"] = ENDPOINT_MEDIA_TYPE
+    with suppress(KeyError, ValueError):
+        projection["media_type"] = definition_media_type(definition)
     return projection
 
 
@@ -42,13 +52,13 @@ def check_entry_definition(
         for issue in validate_definition(definition).errors
     ]
     meta = definition.get("meta") if isinstance(definition, Mapping) else None
-    if isinstance(meta, Mapping):
-        issues.extend(_projection_issues(entry, meta, entry_path))
+    if isinstance(definition, Mapping) and isinstance(meta, Mapping):
+        issues.extend(_projection_issues(entry, definition, entry_path))
     return issues
 
 
-def _projection_issues(entry: MarketIndexEntry, meta: Mapping[str, Any], entry_path: str) -> list[MarketIssue]:
-    expected = project_meta(meta)
+def _projection_issues(entry: MarketIndexEntry, definition: Mapping[str, Any], entry_path: str) -> list[MarketIssue]:
+    expected = project_meta(definition)
     actual: dict[str, Any] = {
         "name": entry.name,
         "author": entry.author,

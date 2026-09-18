@@ -1661,6 +1661,58 @@ def test_check_unique_defaults_refuses_two_image_defaults_that_declare_no_capabi
     assert excinfo.value.status_code == 422
 
 
+def _comfyui_image_spec(key: str, *, reference_slots: int) -> EndpointSpec:
+    """一条 ComfyUI 图像端点的 spec：参考图格子决定它落在 t2i 还是 i2i 那一格。"""
+    from lib.custom_provider.endpoints import comfyui_endpoint_spec
+    from tests.factories import comfyui_endpoint_definition
+
+    definition = comfyui_endpoint_definition(media_type="image")
+    del definition["bindings"]["fps"]
+    if reference_slots:
+        definition["workflow"]["20"] = {"class_type": "LoadImage", "inputs": {"image": "draft.png"}}
+        definition["bindings"]["reference_images"] = [
+            {"node": "20", "input": "image", "class_type": "LoadImage"}
+        ] * reference_slots
+    return comfyui_endpoint_spec(key, definition)
+
+
+def test_check_unique_defaults_separates_two_comfyui_image_endpoints_by_capability():
+    """一份文生图 workflow 与一份图生图 workflow 各设默认：能力集不相交，互不冲突。"""
+    from server.routers.custom_providers import ModelInput, _check_unique_defaults
+
+    models = [
+        ModelInput(model_id="t2i", display_name="t2i", endpoint="ce-7", is_default=True),
+        ModelInput(model_id="i2i", display_name="i2i", endpoint="ce-8", is_default=True),
+    ]
+    specs = {
+        "ce-7": _comfyui_image_spec("ce-7", reference_slots=0),
+        "ce-8": _comfyui_image_spec("ce-8", reference_slots=1),
+    }
+
+    _check_unique_defaults(models, specs, lambda key, **params: key)
+
+
+def test_check_unique_defaults_rejects_two_comfyui_text_to_image_defaults():
+    """两份都只会文生图：同一格里两个默认，取默认模型时会一次查出两行。"""
+    from fastapi import HTTPException
+
+    from server.routers.custom_providers import ModelInput, _check_unique_defaults
+
+    models = [
+        ModelInput(model_id="m1", display_name="m1", endpoint="ce-7", is_default=True),
+        ModelInput(model_id="m2", display_name="m2", endpoint="ce-8", is_default=True),
+    ]
+    specs = {
+        "ce-7": _comfyui_image_spec("ce-7", reference_slots=0),
+        "ce-8": _comfyui_image_spec("ce-8", reference_slots=0),
+    }
+
+    with pytest.raises(HTTPException) as excinfo:
+        _check_unique_defaults(models, specs, lambda key, **params: f"{key}:{params}")
+
+    assert excinfo.value.status_code == 422
+
+
 def test_check_unique_defaults_allows_one_image_default_without_capabilities():
     """一条这样的默认没有分不开的对象，照常放行。"""
     from server.routers.custom_providers import ModelInput, _check_unique_defaults

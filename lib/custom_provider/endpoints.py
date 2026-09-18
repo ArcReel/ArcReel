@@ -42,10 +42,10 @@ from lib.custom_provider.comfyui.capabilities import (
     frame_rate_is_missing,
     native_short_edge,
     size_is_fixed,
-    takes_reference_images,
 )
 from lib.custom_provider.comfyui.failures import ComfyuiError
 from lib.custom_provider.comfyui_backend import ComfyuiVideoBackend, binding_video_capabilities
+from lib.custom_provider.comfyui_image_backend import ComfyuiImageBackend, binding_image_capabilities
 from lib.custom_provider.declarative_backend import DeclarativeVideoBackend, request_urls
 from lib.custom_provider.endpoint_definition.kinds import COMFYUI_KIND
 from lib.image_backends.base import ImageCapability
@@ -634,40 +634,49 @@ def declarative_endpoint_spec(
 
 def _build_comfyui_runtime(
     definition: Mapping[str, Any],
-) -> Callable[[CustomProvider, str], CustomVideoBackend]:
-    """ComfyUI 端点的 backend 构造闭包。
+) -> Callable[[CustomProvider, str], CustomImageBackend | CustomVideoBackend]:
+    """ComfyUI 端点的 backend 构造闭包，按定义声明的 ``media_type`` 分叉。
 
-    只产出视频 backend：图像通道另有自己的 backend 协议与工厂，尚未落地。那一格抛带失败码的
-    ``ComfyuiError``——worker 据此把任务落成结构化失败，文案留到读侧按语言渲染；落一段裸文本的话
-    非中文用户在任务列表里看到的是一句中文。借 ``provider_unsupported_media`` 而不另立新码：它说
-    的正是「这个供应商给不出这一类生成」，读侧的 ``CONFIGURE_PROVIDER`` 指向也对。
+    两种 kind 的同一件事：一份 workflow 产图还是产视频只有定义自己知道（键前缀推不出来），而两条
+    通道各有自己的 backend 协议与包装类。媒体类型不是这两种时抛带失败码的 ``ComfyuiError``——
+    schema 只放行这两个值，走到这里意味着手工改过库；worker 据此把任务落成结构化失败，文案留到
+    读侧按语言渲染，落一段裸文本的话非中文用户在任务列表里看到的是一句中文。借
+    ``provider_unsupported_media`` 而不另立新码：它说的正是「这个供应商给不出这一类生成」，读侧的
+    ``CONFIGURE_PROVIDER`` 指向也对。
 
     不抛 ``ValueError``：那是本层「端点不认识」的既有含义，沿途多处 ``except ValueError`` 会把它
-    降级成「端点已不在」，而实情是端点合法、只是还没有能执行它的 backend。
+    降级成「端点已不在」，而实情是端点合法、只是媒体类型不是本层认得的那两个。
+
+    图像那一路的包装保持纯转发（``CustomImageBackend`` 本就只覆写 name / model）：能力注入是视频
+    专属的形态（系统判定 ⊕ 用户覆盖），而 ComfyUI 协议的 ``capability_overrides`` 整节关闭
+    （``docs/adr/0081``），图像能力只从绑定表推导，没有可叠加的第二个来源。
     """
 
-    def build(provider: CustomProvider, model_id: str) -> CustomVideoBackend:
-        if str(definition.get("media_type")) != "video":
-            raise ComfyuiError("provider_unsupported_media", provider_id=provider.provider_id, media_type="image")
+    def build(provider: CustomProvider, model_id: str) -> CustomImageBackend | CustomVideoBackend:
+        media_type = str(definition.get("media_type"))
+        if media_type not in ("image", "video"):
+            raise ComfyuiError("provider_unsupported_media", provider_id=provider.provider_id, media_type=media_type)
         if not provider.base_url:
             raise ValueError("ComfyUI 调用端点需要 base_url")
-        delegate = ComfyuiVideoBackend(
+        if media_type == "image":
+            image_delegate = ComfyuiImageBackend(
+                provider_id=provider.provider_id,
+                model=model_id,
+                base_url=provider.base_url,
+                api_key=provider.api_key,
+                definition=definition,
+            )
+            return CustomImageBackend(provider_id=provider.provider_id, delegate=image_delegate, model=model_id)
+        video_delegate = ComfyuiVideoBackend(
             provider_id=provider.provider_id,
             model=model_id,
             base_url=provider.base_url,
             api_key=provider.api_key,
             definition=definition,
         )
-        return CustomVideoBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
+        return CustomVideoBackend(provider_id=provider.provider_id, delegate=video_delegate, model=model_id)
 
     return build
-
-
-def _comfyui_image_capabilities(definition: Mapping[str, Any]) -> frozenset[ImageCapability]:
-    """图像 ComfyUI 端点的能力集：有参考图格子即仅图生图，没有即仅文生图（``docs/adr/0082``）。"""
-    if takes_reference_images(definition):
-        return frozenset({ImageCapability.IMAGE_TO_IMAGE})
-    return frozenset({ImageCapability.TEXT_TO_IMAGE})
 
 
 def comfyui_endpoint_spec(key: str, definition: Mapping[str, Any]) -> EndpointSpec:
@@ -679,12 +688,13 @@ def comfyui_endpoint_spec(key: str, definition: Mapping[str, Any]) -> EndpointSp
 
     实现落在本模块而非 ``comfyui`` 子包：子包受「不依赖声明式运行时」的 import 契约约束，而
     ``EndpointSpec`` 与它的不变式都在这里，子包够到本模块即间接够到声明式 backend。推导本身在
-    子包的 ``comfyui.capabilities`` 里——它只依赖绑定表与 workflow，与 ``EndpointSpec`` 无关。
+    子包的 ``comfyui.capabilities`` 里——它只依赖绑定表与 workflow，与 ``EndpointSpec`` 无关；
+    两种媒体类型的装箱各借对应 backend 模块那一份，backend 自己的能力声明也用它。
     """
     media_type = str(definition["media_type"])
     is_video = media_type == "video"
-    # 装箱借 backend 模块那一份：backend 自己的 video_capabilities 也用它，而生成前的能力闸门
-    # 读的是 backend 那一份、不是这里投影出来的 caps，两处各写一份就会在闸门上打架。
+    # 生成前的能力闸门读的是 backend 那一份、不是这里投影出来的 caps，两处各写一份就会在闸门上
+    # 打架，故两种媒体类型的能力都借 backend 模块的装箱函数算。
     caps = binding_video_capabilities(definition) if is_video else None
     spec = EndpointSpec(
         key=key,
@@ -698,7 +708,7 @@ def comfyui_endpoint_spec(key: str, definition: Mapping[str, Any]) -> EndpointSp
         request_method="POST",
         request_path_template="/prompt",
         build_backend=_build_comfyui_runtime(definition),
-        image_capabilities=None if is_video else _comfyui_image_capabilities(definition),
+        image_capabilities=None if is_video else binding_image_capabilities(definition),
         video_caps_for_model=(lambda _model_id: caps) if caps is not None else None,
         # 两个运输位与声明式端点同处理：从 caps 反推，而不是各写一份判据。
         end_image_capable=caps.last_frame if caps is not None else False,

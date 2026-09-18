@@ -139,7 +139,7 @@ def _entry_of(directory: Path, issues: list[MarketIssue]) -> dict[str, Any] | No
         return None
 
     entry: dict[str, Any] = {"type": ENDPOINT_ENTRY_TYPE, "slug": slug, "path": definition_path}
-    entry.update(project_meta(meta))
+    entry.update(project_meta(definition))
     if len(icons) == 1:
         entry["icon"] = f"{relative_dir}/{icons[0]}"
     return entry

@@ -399,19 +399,19 @@ def test_artifact_download_failure_is_eligible_for_retry_download():
 
 
 def test_an_endpoint_whose_media_runtime_is_missing_fails_in_the_reader_s_language():
-    """ComfyUI 图像端点当前可选而运行时尚未落地，构造 backend 即失败。
+    """媒体类型不是 ComfyUI 端点认得的那两个（schema 之外，手工改库才会出现）时构造 backend 即失败。
 
     那一笔必须落成结构化失败：落一段裸文本的话，非中文用户在任务列表里看到的是一句中文。
     """
     stored = _encode_task_failure_message(
-        ComfyuiError("provider_unsupported_media", provider_id="custom-1", media_type="image")
+        ComfyuiError("provider_unsupported_media", provider_id="custom-1", media_type="audio")
     )
 
     assert stored.startswith("[provider_unsupported_media]")
     for locale in ("zh", "en", "vi"):
         assert render_failure(stored, _translator(locale)) == MESSAGES[locale][
             "task_fail_provider_unsupported_media"
-        ].format(provider_id="custom-1", media_type="image")
+        ].format(provider_id="custom-1", media_type="audio")
 
 
 def test_encode_covers_every_capability_exception_type():
