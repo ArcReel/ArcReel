@@ -309,6 +309,41 @@ class TestRenameAssetCascade:
         unit = pm_with_assets.load_script("demo", "episode_2.json")["video_units"][0]
         assert unit["text"] == "@[主角甲] 走进 @[场景A]"
 
+    def test_bound_script_without_an_episode_number_is_rewritten(self, pm_with_assets: ProjectManager) -> None:
+        """迁移跳过的集仍绑在自定义文件名上：那份是该集的权威剧本，引用改写必须覆盖它。"""
+        pm_with_assets.save_script("demo", _narration_script(), "episode_1.json")
+        scripts_dir = _project_dir(pm_with_assets) / "scripts"
+        (scripts_dir / "episode_1.json").rename(scripts_dir / "custom.json")
+
+        def _rebind(project: dict[str, Any]) -> None:
+            project["episodes"][0]["script_file"] = "scripts/custom.json"
+
+        pm_with_assets.update_project("demo", _rebind)
+
+        report = pm_with_assets.rename_asset("demo", "characters", "角色A", "主角甲")
+
+        assert report.references == 1
+        bound = json.loads((scripts_dir / "custom.json").read_text(encoding="utf-8"))
+        assert bound["segments"][0]["characters_in_segment"] == ["主角甲"]
+        # 改写不借机改绑：账本仍指向那份自定义文件名。
+        assert pm_with_assets.load_project("demo")["episodes"][0]["script_file"] == "scripts/custom.json"
+
+    def test_unbound_script_without_an_episode_number_is_left_alone(self, pm_with_assets: ProjectManager) -> None:
+        """没有任何一集绑它的无集号 JSON 认不出归属，仍不随资产改名改写。
+
+        ``scripts/`` 下的剧本一律上锁，归属在项目锁内按当时绑定判一次：绑定在取锁前后之间被撤掉的
+        剧本走的是同一条跳过路径。
+        """
+        pm_with_assets.save_script("demo", _narration_script(), "episode_1.json")
+        scripts_dir = _project_dir(pm_with_assets) / "scripts"
+        orphan = scripts_dir / "custom.json"
+        atomic_write_json(orphan, _narration_script())
+        before = orphan.read_bytes()
+
+        pm_with_assets.rename_asset("demo", "characters", "角色A", "主角甲")
+
+        assert orphan.read_bytes() == before
+
     def test_rename_keeps_reference_integrity(self, pm_with_assets: ProjectManager) -> None:
         from lib.data_validator import DataValidator
 
@@ -972,6 +1007,22 @@ class TestDerivativeReferenceCascade:
         ]
         unit = pm_with_assets.load_script("demo", "episode_2.json")["video_units"][0]
         assert unit["text"] == "@[角色A] @[角色A/夜行衣] @[角色A/兽化]"
+
+    def test_derivative_rename_skips_an_unbound_script_without_an_episode_number(
+        self, pm_with_assets: ProjectManager
+    ) -> None:
+        """衍生改名与本体改名同一口径：锁内认不出归属的无集号剧本跳过，不中断整次改名。"""
+        self._register(pm_with_assets, "劲装")
+        pm_with_assets.save_script("demo", self._script_with_derivative_references(), "episode_1.json")
+        scripts_dir = _project_dir(pm_with_assets) / "scripts"
+        unbound = scripts_dir / "custom.json"
+        atomic_write_json(unbound, self._script_with_derivative_references())
+        before = unbound.read_bytes()
+
+        pm_with_assets.rename_asset_derivative("character", "demo", "角色A", "劲装", "夜行衣")
+
+        assert _load_script(pm_with_assets)["segments"][0]["characters_in_segment"] == ["角色A", "角色A/夜行衣"]
+        assert unbound.read_bytes() == before
 
     def test_derivative_rename_keeps_the_description(self, pm_with_assets: ProjectManager) -> None:
         self._register(pm_with_assets, "劲装")

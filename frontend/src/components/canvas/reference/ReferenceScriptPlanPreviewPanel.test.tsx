@@ -307,6 +307,28 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
     expect(screen.getByRole("button", { name: "确认并覆盖正式脚本" })).toBeDisabled();
   });
 
+  it("disables the in-dialog confirm when the video model turns out unresolvable after the dialog opened", async () => {
+    const overwrite = { revision: "sha256-v1:listed", entries: [], storyboard_count: 0, video_count: 0 };
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(pendingState({ script_overwrite: overwrite }));
+    let rejectCapabilities: (reason: unknown) => void = () => {};
+    vi.spyOn(API, "getVideoCapabilities").mockReturnValue(
+      new Promise<VideoCapabilities>((_resolve, reject) => {
+        rejectCapabilities = reject;
+      }),
+    );
+
+    render(<ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
+    fireEvent.click(await screen.findByRole("button", { name: "确认并覆盖正式脚本" }));
+    expect(await screen.findByRole("button", { name: "覆盖并确认" })).toBeEnabled();
+
+    await act(async () => {
+      rejectCapabilities(new ApiRequestError("无法解析", undefined, 422));
+    });
+
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "覆盖并确认" })).toBeDisabled();
+  });
+
   it("shows no video model warning once capabilities resolve", async () => {
     vi.spyOn(API, "getScriptReview").mockResolvedValue(pendingState());
     const capabilities = vi.spyOn(API, "getVideoCapabilities").mockResolvedValue(VIDEO_CAPS);

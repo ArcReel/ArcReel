@@ -9,6 +9,7 @@ import pytest
 from lib.artifact_manifest import ArtifactKey, ArtifactManifestEntry, ProjectArtifactManifestAdapter
 from lib.project_manager import EmptySourceError, ProjectManager
 from lib.providers import CallPurpose
+from lib.script_review import formal_script_filename
 
 
 def _write(path: Path, text: str):
@@ -370,6 +371,33 @@ class TestProjectManager:
         assert (scripts_dir / "custom.json").read_bytes() == custom_before
         assert pm.load_project("demo")["episodes"][0]["script_file"] == "scripts/episode_1.json"
 
+    def test_scene_asset_restore_rewrites_a_bound_script_without_an_episode_number(self, tmp_path):
+        """迁移跳过的集仍绑在自定义文件名上：版本恢复必须改写那份，否则剧本内的分镜图停在旧值。"""
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo", "Anime", "narration")
+        pm.save_script("demo", _narration_script("E1S01"), "episode_1.json", validate=False)
+        scripts_dir = project_dir / "scripts"
+        (scripts_dir / "episode_1.json").rename(scripts_dir / "custom.json")
+
+        def _rebind(project):
+            project["episodes"][0]["script_file"] = "scripts/custom.json"
+
+        pm.update_project("demo", _rebind)
+
+        changed = pm.update_scene_asset_across_scripts(
+            "demo",
+            ["custom.json"],
+            "E1S01",
+            "storyboard_image",
+            "storyboards/scene_E1S01.png",
+        )
+
+        assert changed == ("custom.json",)
+        bound = json.loads((scripts_dir / "custom.json").read_text(encoding="utf-8"))
+        assert bound["segments"][0]["generated_assets"]["storyboard_image"] == "storyboards/scene_E1S01.png"
+        assert pm.load_project("demo")["episodes"][0]["script_file"] == "scripts/custom.json"
+
     def test_batch_update_scene_assets_persists_all(self, tmp_path):
         """batch_update_scene_assets 单次锁内写多个分镜，命中全部 id 时持久化所有更新。"""
         pm = ProjectManager(tmp_path / "projects")
@@ -509,6 +537,81 @@ class TestProjectManager:
         # 关键断言：文件不应被写入磁盘（原子性保持）
         scripts_dir = pm.get_project_path("demo") / "scripts"
         assert not (scripts_dir / "episode_10.json").exists()
+
+    def test_writes_go_through_for_a_bound_script_without_an_episode_number(self, tmp_path):
+        """迁移跳过的集仍绑在自定义文件名上：内容确认与 ScriptGenerator 都解析到它，写盘必须收下它。"""
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo", "Anime", "narration")
+        pm.save_script("demo", _narration_script("E1S01"), "episode_1.json", validate=False)
+        scripts_dir = project_dir / "scripts"
+        (scripts_dir / "episode_1.json").rename(scripts_dir / "custom.json")
+
+        def _rebind(project):
+            project["episodes"][0]["script_file"] = "scripts/custom.json"
+
+        pm.update_project("demo", _rebind)
+        assert formal_script_filename(project_dir, pm.load_project("demo"), 1) == "custom.json"
+
+        pm.save_script("demo", _narration_script("E1S02"), "custom.json", validate=False)
+        with pm.locked_episode_script("demo", lambda project: project["episodes"][0]["script_file"]) as script:
+            script["title"] = "改过的标题"
+
+        stored = json.loads((scripts_dir / "custom.json").read_text(encoding="utf-8"))
+        assert stored["segments"][0]["segment_id"] == "E1S02"
+        assert stored["title"] == "改过的标题"
+        # 写盘不借机改绑，也不新建一条集条目。
+        episodes = pm.load_project("demo")["episodes"]
+        assert [(entry["episode"], entry["script_file"]) for entry in episodes] == [(1, "scripts/custom.json")]
+
+    @pytest.mark.parametrize("bogus_episode", [True, 0, -1])
+    def test_malformed_ledger_episode_does_not_authorize_an_unnumbered_write(self, tmp_path, bogus_episode):
+        """project.json 是裸读进来的：True 既是 int 又等于 1，脏条目不得冒充第 1 集放行写盘。"""
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo", "Anime", "narration")
+        script = _narration_script("E1S01")
+        _write(project_dir / "scripts" / "custom.json", json.dumps(script))
+
+        def _forge(project):
+            project["episodes"] = [{"episode": bogus_episode, "script_file": "scripts/custom.json"}]
+
+        pm.update_project("demo", _forge)
+
+        with pytest.raises(ValueError, match="不含集号"):
+            pm.save_script("demo", script, "custom.json", validate=False)
+        assert pm.load_project("demo")["episodes"] == [{"episode": bogus_episode, "script_file": "scripts/custom.json"}]
+
+    @pytest.mark.parametrize("bogus_episode", [True, 0, -1])
+    def test_malformed_script_episode_does_not_reach_the_ledger(self, tmp_path, bogus_episode):
+        """剧本 JSON 也是裸读进来的：内部 episode 不是正整数时按「没记集号」处理，归属仍看文件名。
+
+        认它作集号会让集元数据同步往账本里写一条 `episode: True` / `0`，而账本的集号判据只认
+        正整数，那条条目此后既不被任何一集认领，又让目标态规划整体拒绝这个项目。
+        """
+        pm = ProjectManager(tmp_path / "projects")
+        pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo", "Anime", "narration")
+        script = {**_narration_script("E1S01"), "episode": bogus_episode}
+
+        pm.save_script("demo", script, "episode_1.json", validate=False)
+
+        [entry] = pm.load_project("demo")["episodes"]
+        # True == 1，按值比分不出来：集号的类型本身就是断言的一部分。
+        assert (type(entry["episode"]), entry["episode"], entry["script_file"]) == (int, 1, "scripts/episode_1.json")
+
+    def test_filename_whose_episode_number_is_not_positive_is_rejected(self, tmp_path):
+        """`episode_0.json`：0 不对应任何一集，认它作归属会让账本多出一条 `episode: 0`。"""
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo", "Anime", "narration")
+        script = _narration_script("E1S01")
+
+        assert ProjectManager.filename_episode("episode_0.json") is None
+        with pytest.raises(ValueError, match="不含集号"):
+            pm.save_script("demo", script, "episode_0.json", validate=False)
+        assert not (project_dir / "scripts" / "episode_0.json").exists()
+        assert pm.load_project("demo")["episodes"] == []
 
     @pytest.mark.parametrize("filename", ["custom.json", "scripts/ep1.json"])
     def test_filename_without_episode_number_is_rejected(self, tmp_path, filename):

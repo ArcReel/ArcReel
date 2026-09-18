@@ -7,6 +7,8 @@ interface ScriptOverwriteConfirmDialogProps {
   open: boolean;
   overwrite: ScriptOverwrite;
   loading: boolean;
+  /** 确认前置条件未满足（如视频模型无法解析）时禁用框内确认按钮。 */
+  confirmDisabled?: boolean;
   onConfirm: () => void | Promise<void>;
   onCancel: () => void;
 }
@@ -19,6 +21,7 @@ export function ScriptOverwriteConfirmDialog({
   open,
   overwrite,
   loading,
+  confirmDisabled = false,
   onConfirm,
   onCancel,
 }: ScriptOverwriteConfirmDialogProps) {
@@ -33,6 +36,7 @@ export function ScriptOverwriteConfirmDialog({
       confirmLabel={t("review_overwrite_confirm")}
       loadingLabel={t("review_confirming")}
       loading={loading}
+      confirmDisabled={confirmDisabled}
       onConfirm={onConfirm}
       onCancel={onCancel}
       description={

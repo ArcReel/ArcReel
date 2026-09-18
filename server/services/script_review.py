@@ -57,6 +57,7 @@ class ScriptReviewError(Exception):
         *,
         admission: SpeechAdmission | None = None,
         overwrite: dict[str, Any] | None = None,
+        script_filename: str | None = None,
     ):
         super().__init__(message or code)
         self.code = code
@@ -64,6 +65,8 @@ class ScriptReviewError(Exception):
         self.admission = admission
         #: ``overwrite_required`` 携带将被覆盖的正式脚本（``FormalScriptOverwrite.to_dict()``）。
         self.overwrite = overwrite
+        #: ``foreign_formal_script`` 携带占着本集规范路径的那份文件名。
+        self.script_filename = script_filename
 
 
 def _require_changed_speech_admitted(kind: str, previous: object, candidate: object) -> None:
@@ -548,6 +551,10 @@ class ScriptReviewService:
                 "尚未配置可用的视频模型，无法确定分镜时长档位；请在「全局设置 → 供应商」配置视频供应商，"
                 "或在项目设置中选择视频模型后重新确认",
             ) from exc
+        except script_review.ForeignFormalScriptError as exc:
+            # 先于下面的 ValueError 分支：绑定失联而规范路径上是别集剧本时，转换在写盘前被拒，
+            # 既不重建那一集的剧本也不改本集的绑定，提示要指向可操作的那一处。
+            raise ScriptReviewError("foreign_formal_script", str(exc), script_filename=exc.filename) from exc
         except (ValueError, FileNotFoundError) as exc:
             raise ScriptReviewError("conversion_refused", str(exc)) from exc
 

@@ -472,6 +472,9 @@ export function ScriptReviewGate({ projectName, episode, contentMode, onOpenTime
           open={overwriteOpen}
           overwrite={overwrite}
           loading={confirming}
+          // 框在能力请求返回之前就可能被打开，之后答复模型无法解析：框内的确认按钮与触发它的
+          // 那颗按钮同一判据，否则这里还能提交一次注定被服务端拒绝的确认。
+          confirmDisabled={videoModelBlocked}
           onConfirm={async () => {
             // 失败（如确认期间该集被并发写入）时框保持打开，呈现刷新后的覆盖清单。
             if (await handleConfirm({ overwriteRevision: overwrite.revision })) setOverwriteOpen(false);

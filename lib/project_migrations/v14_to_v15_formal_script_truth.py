@@ -6,8 +6,10 @@
   时改名过去；规范路径上已有内容不同的文件时，绑定文件（界面、生成与清单一直在用的那份）占规范
   路径，原文件另存为 ``episode_N.json.displaced-v14``。清单里登记在旧路径下的条目、宫格记录与持久化
   呈现里的剧本文件名、版本记录的 ``execution_script_file`` 随之改到规范路径。规范路径已绑给另一集、
-  同一文件绑给多集、绑定越出 ``scripts/``、绑定文件缺席而规范路径上是别集的文件时绑定原样保留，
-  进迁移报告。
+  绑定文件缺席而规范路径上是别集的文件时绑定原样保留，进迁移报告。账本里同一集号出现多条、同一
+  文件绑给多集、绑定越出 ``scripts/``、要原样保留的绑定带目录段、绑定文件不是本集剧本（读不成对象
+  或内部集号不符）时整个项目在改名前被拒，失败裁决写明集号与绑定：这几种形态目标态规划必然拒绝，
+  报告写不出来，改名后再失败还会让重跑把绑定留在已消失的旧路径上。
 - **指纹字段**：剧本条目的 ``script_plan_entry_revision`` 与剧本 metadata 的 ``script_plan_revision``
   删除。
 - **已确认、尚无正式脚本的集**：按确认过的脚本规划整份转为正式脚本（全部条目待编写），与内容
@@ -48,13 +50,14 @@ from lib.artifact_manifest import (
     ArtifactManifestEntry,
     ProjectArtifactManifestAdapter,
 )
-from lib.artifact_planner import ArtifactTargetStatePlan, TargetStatePlanner
+from lib.artifact_planner import ArtifactTargetStatePlan, TargetStatePlanner, normalize_script_binding
 from lib.artifact_provenance import SCRIPT_PLAN_BASIS_INPUT_KEY, project_episode_script_prompt_inputs
 from lib.episode_paths import episode_script_relpath
 from lib.formal_write import project_metadata_lock
 from lib.json_io import atomic_write_bytes, atomic_write_json
 from lib.path_safety import try_safe_join
-from lib.project_manager import ProjectManager
+from lib.project_manager import ProjectManager, is_episode_number
+from lib.project_migration_failure import ProjectMigrationError
 from lib.project_migration_report import (
     ArtifactBackfillOutcome,
     MigrationNormalizedBinding,
@@ -143,6 +146,39 @@ def _load_object(path: Path) -> dict[str, Any] | None:
     except (OSError, ValueError):
         return None
     return parsed if isinstance(parsed, dict) else None
+
+
+def _require_retainable_binding(episode: int, raw_binding: str) -> None:
+    r"""原样保留这条绑定之前，先确认目标态规划认得出它。
+
+    判据直接调用规划器的 ``normalize_script_binding``，不另写一份：带目录段的绑定过得了
+    ``try_safe_join``，但保留下来后规划会整体拒绝这个项目，runner 只落失败裁决，跳过项根本写不进
+    迁移报告；在此拒绝才能把集号与绑定写进裁决。自己按 ``/`` 判一次会与规划器的分隔符语义分叉——
+    它先把 ``\`` 换成 ``/`` 再判，而 ``normalize_script_filename`` 走 posix 语义、``\`` 只是普通
+    字符，``scripts/archive\custom.json`` 这种写法会从按 ``/`` 的判据下漏过去。改名到规范路径那条
+    路不受此限——它会把绑定收敛掉。
+    """
+
+    try:
+        normalize_script_binding(raw_binding)
+    except ValueError as exc:
+        raise ProjectMigrationError(
+            "retained script binding is not a flat name under scripts/", episode=episode, file=raw_binding
+        ) from exc
+
+
+def _holds_episode(script: dict[str, Any] | None, episode: int) -> bool:
+    """这份剧本内部记的集号是否正是 ``episode``。
+
+    集号按正整数严格判：剧本是裸读进来的，JSON ``true`` 变成 Python ``True``，它既是 ``int``
+    又等于 ``1``，按 ``!=`` 比会让脏文件冒充第 1 集通过归属校验、被改名到规范路径，而随后的目标
+    态规划仍会拒绝它——文件已经不在原处，重跑只会把绑定留在已消失的旧路径上。
+    """
+
+    if script is None:
+        return False
+    value = script.get("episode")
+    return type(value) is int and value == episode
 
 
 def _strip_revisions(script: dict[str, Any]) -> None:
@@ -248,6 +284,25 @@ def _displaced_slot(project_dir: Path, canonical: str) -> tuple[str, bytes]:
     return candidate, content
 
 
+def _existing_displaced_slot(project_dir: Path, canonical: str) -> str | None:
+    """规范路径已有的另存位置：没有时返回 None。
+
+    供绑定文件缺席的重跑分支用：上一次尝试已改名并另存、但没提交 ``project.json``，重跑时另存内容
+    已不在规范路径上、无从比对，只能按 ``_displaced_slot`` 的候选序列认这些位置。取序列里最后一个
+    在盘上的——上一次尝试若开了新位置，它就是那个；若复用了同内容的旧位置，序列里每一份都是为本集
+    保留下来的、不会被自动清理的文件，报告指向其中一份同样把用户带到该看的地方。
+    """
+
+    base = f"{canonical}{_DISPLACED_SUFFIX}"
+    found: str | None = None
+    candidate, index = base, 1
+    while (project_dir / candidate).exists():
+        found = candidate
+        index += 1
+        candidate = f"{base}-{index}"
+    return found
+
+
 def _normalize_binding(
     project_dir: Path,
     plan: _Plan,
@@ -256,9 +311,15 @@ def _normalize_binding(
     raw_binding: str,
     bound: Mapping[str, object],
 ) -> tuple[str, str]:
-    """把该集绑定改到规范路径；返回 (改后的绑定, 预检读剧本用的项目内相对路径)。
+    """把该集绑定改到规范路径；返回 (剧本提交后所在的项目内相对路径, 预检读它用的项目内相对路径)。
 
-    绑定文件在盘上时预检仍从它读，落盘时才改名；改不过去时绑定原样保留并进迁移报告。
+    两个值都是归一后的项目内路径，账本字面只由本函数就地写回 ``entry["script_file"]``：绑定原样
+    保留的分支不动账本，但交出去的路径仍要归一——裸名（``custom.json``）拿去拼项目根会指到
+    ``<project>/custom.json``，预检从那里读不到剧本，落盘还会把剧本写到项目根下。
+
+    绑定文件在盘上时预检仍从它读，落盘时才改名；改不过去时绑定原样保留并进迁移报告。同一文件绑给
+    多集不进报告而是直接拒绝：绑定原样保留时目标态规划必然按绑定不唯一（或非规范绑定形态）拒绝这个
+    项目，报告根本写不出来，在此拒绝才能把集号与绑定写进失败裁决，也不必先改名再失败。
     """
 
     canonical = episode_script_relpath(episode)
@@ -266,35 +327,51 @@ def _normalize_binding(
         return raw_binding, raw_binding
     source_rel = f"scripts/{ProjectManager.normalize_script_filename(raw_binding)}"
     if bound.get(source_rel) != episode:
-        # 同一文件绑给多集时改名只能跟到其中一集：绑定原样保留，由目标态规划按绑定不唯一拒绝项目。
-        _skip_script(plan, episode, raw_binding, "script binding is shared by several episodes")
-        return raw_binding, raw_binding
+        # 同一文件绑给多集时改名只能跟到其中一集，绑定无法规范化。
+        raise ProjectMigrationError("script binding is shared by several episodes", episode=episode, file=raw_binding)
     if source_rel == canonical:
         # 同一文件的别名写法（``episode_1.json``、``./scripts/episode_1.json``）：只改绑定字面。
         entry["script_file"] = canonical
         plan.normalized.append(MigrationNormalizedBinding(episode=episode, from_path=raw_binding, to_path=canonical))
         return canonical, canonical
     if bound.get(canonical, episode) != episode:
+        _require_retainable_binding(episode, raw_binding)
         _skip_script(plan, episode, canonical, "canonical script path is bound to another episode")
-        return raw_binding, raw_binding
+        # 不改名：提交后剧本仍在 source_rel 上。账本字面不动（本分支不写 entry）。
+        return source_rel, source_rel
     source = try_safe_join(project_dir / "scripts", ProjectManager.normalize_script_filename(raw_binding))
     if source is None:
-        _skip_script(plan, episode, raw_binding, "script binding points outside the scripts directory")
-        return raw_binding, raw_binding
+        # 逃出 scripts/ 的绑定与「同一文件绑给多集」同法直接拒绝：绑定原样保留时目标态规划必然按
+        # 非规范绑定形态拒绝这个项目，runner 只落失败裁决，跳过项根本写不进迁移报告；在此拒绝才能
+        # 把集号与绑定写进裁决。
+        raise ProjectMigrationError(
+            "script binding points outside the scripts directory", episode=episode, file=raw_binding
+        )
     canonical_path = project_dir / canonical
     move: _BindingMove | None = None
+    displaced_rel: str | None = None
     if source.is_file():
+        script = _load_object(source)
+        if not _holds_episode(script, episode):
+            # 改名前认一次身份，判据与目标态规划对绑定剧本的完全一致：读不成对象、或内部集号与绑定
+            # 不符的文件改名过去后，规划必然拒绝，而绑定文件已经不在原处，重跑走缺席分支只会跳过这一
+            # 集、把绑定留在已消失的旧路径上，项目反而带着失联的绑定升到 v15。
+            raise ProjectMigrationError(
+                "script binding does not hold this episode's script", episode=episode, file=raw_binding
+            )
         move = _BindingMove(source=source, target_rel=canonical)
         if canonical_path.is_file() and not _same_json(canonical_path, source):
             move.displaced_rel, move.displaced_bytes = _displaced_slot(project_dir, canonical)
-        script = _load_object(source)
+        displaced_rel = move.displaced_rel
         read_rel = source_rel
     else:
         # 绑定文件缺席：规范路径上是本集剧本时（含上一次迁移已改名而未提交 project.json）补绑定。
         script = _load_object(canonical_path) if canonical_path.is_file() else None
-        if canonical_path.is_file() and (script is None or script.get("episode") != episode):
+        if canonical_path.is_file() and not _holds_episode(script, episode):
+            _require_retainable_binding(episode, raw_binding)
             _skip_script(plan, episode, canonical, "canonical script path holds a file of another episode")
-            return raw_binding, raw_binding
+            return source_rel, source_rel
+        displaced_rel = _existing_displaced_slot(project_dir, canonical)
         read_rel = canonical
     entry["script_file"] = canonical
     if script is not None and isinstance(script.get("title"), str):
@@ -307,7 +384,7 @@ def _normalize_binding(
             episode=episode,
             from_path=raw_binding,
             to_path=canonical,
-            displaced_path=move.displaced_rel if move is not None else None,
+            displaced_path=displaced_rel,
         )
     )
     return canonical, read_rel
@@ -362,22 +439,37 @@ def _preflight(project_dir: Path, project: dict[str, Any]) -> _Plan:
     episodes: list[Any] = raw_episodes if isinstance(raw_episodes, list) else []
     #: 规范化前各绑定（归一到 ``scripts/<name>``）→ 绑定它的集号；多集绑同一文件时为 None。
     bound: dict[str, object] = {}
+    seen_episodes: set[int] = set()
     for entry in episodes:
-        if isinstance(entry, dict) and isinstance(entry.get("script_file"), str) and entry["script_file"]:
+        if not isinstance(entry, dict):
+            continue
+        entry_episode = entry.get("episode")
+        if is_episode_number(entry_episode):
+            if entry_episode in seen_episodes:
+                # 同一集号出现两次、各绑一份剧本时，两条绑定都会规划改名到同一个规范路径：顺序
+                # os.replace 先把前一份顶掉，目标态规划之后才按「绑定不唯一」拒绝，项目停在 v14
+                # 而两份来源都已离开原处，只能靠备份找回。在只读预检里拒绝，裁决写明集号与绑定。
+                raise ProjectMigrationError(
+                    "ledger has more than one entry for this episode",
+                    episode=entry_episode,
+                    file=entry.get("script_file") if isinstance(entry.get("script_file"), str) else "project.json",
+                )
+            seen_episodes.add(entry_episode)
+        if isinstance(entry.get("script_file"), str) and entry["script_file"]:
             bound_rel = f"scripts/{ProjectManager.normalize_script_filename(entry['script_file'])}"
-            bound[bound_rel] = None if bound_rel in bound else entry.get("episode")
+            bound[bound_rel] = None if bound_rel in bound else entry_episode
     confirmed_at = datetime.now(UTC).isoformat()
     for entry in episodes:
         if not isinstance(entry, dict):
             continue
         episode = entry.get("episode")
-        if type(episode) is not int or episode < 1:
+        if not is_episode_number(episode):
             continue
         raw_binding = entry.get("script_file")
         if isinstance(raw_binding, str) and raw_binding:
-            binding, read_rel = _normalize_binding(project_dir, plan, entry, episode, raw_binding, bound)
+            script_rel, read_rel = _normalize_binding(project_dir, plan, entry, episode, raw_binding, bound)
         else:
-            binding = read_rel = episode_script_relpath(episode)
+            script_rel = read_rel = episode_script_relpath(episode)
         binding_path = try_safe_join(project_dir, read_rel)
         plan_path = script_plan_path(project_dir, migrated, episode) if kind is not None else None
         plan_document = _load_object(plan_path) if plan_path is not None else None
@@ -394,9 +486,9 @@ def _preflight(project_dir: Path, project: dict[str, Any]) -> _Plan:
             _strip_revisions(script)
             if migrated.get("content_mode") != "ad":
                 _fill_from_plan(kind, script, plan_document, episode)
-            work = _EpisodeWork(episode=episode, script_rel=binding, script=script if script != original else None)
+            work = _EpisodeWork(episode=episode, script_rel=script_rel, script=script if script != original else None)
             plan.works.append(work)
-            plan.registrations[episode] = (binding, plan_document)
+            plan.registrations[episode] = (script_rel, plan_document)
             if (
                 plan_fingerprint is not None
                 and entry.get("ledger_status") != "stale"
@@ -414,7 +506,7 @@ def _preflight(project_dir: Path, project: dict[str, Any]) -> _Plan:
         if script is None:
             _skip_script(plan, episode, canonical, reason or "confirmed script_plan could not be materialized")
             continue
-        if canonical != binding and bound.get(canonical, episode) != episode:
+        if canonical != script_rel and bound.get(canonical, episode) != episode:
             _skip_script(plan, episode, canonical, "canonical script path is bound to another episode")
             continue
         canonical_path = project_dir / canonical
@@ -548,6 +640,10 @@ def migrate_v14_to_v15(project_dir: Path) -> ArtifactBackfillOutcome | None:
     plan.project["schema_version"] = TARGET_SCHEMA_VERSION
 
     ensure_versioned_backup(project_file, TARGET_SCHEMA_VERSION - 1)
+    # 改名的来源先全部备份再动，与其它改名步一致：改名之后旧路径上不再有内容，而备份的 project.json
+    # 记的正是旧路径，缺了这份备份，按它回退的项目会绑到一个不存在的文件上。
+    for move in plan.moves:
+        ensure_versioned_backup(move.source, TARGET_SCHEMA_VERSION - 1)
     for move in plan.moves:
         if move.displaced_rel is not None and move.displaced_bytes is not None:
             atomic_write_bytes(project_dir / move.displaced_rel, move.displaced_bytes)

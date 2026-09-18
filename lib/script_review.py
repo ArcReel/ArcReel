@@ -483,20 +483,55 @@ class FormalScriptOverwrite:
         }
 
 
+def _bound_script_filename(project: Mapping[str, Any], episode: int) -> str | None:
+    """该集 project.json 绑定的剧本文件名（归一到 ``scripts/`` 下的名字）；未绑定时 None。"""
+
+    entry = find_episode(project, episode)
+    binding = entry.get("script_file") if isinstance(entry, dict) else None
+    if not isinstance(binding, str) or not binding:
+        return None
+    return ProjectManager.normalize_script_filename(binding) or None
+
+
+class ForeignFormalScriptError(ValueError):
+    """该集没有可读写的正式脚本位置：绑定不在盘上，而规范路径上那份文件不是本集剧本。
+
+    携带集号与占位的文件名，供调用方给出可定位的提示。继承 ``ValueError`` 让尚未单独处置这一形态
+    的调用点也按「拒绝」而不是按「成功」收场。
+    """
+
+    def __init__(self, episode: int, filename: str) -> None:
+        super().__init__(f"第 {episode} 集的规范剧本路径 scripts/{filename} 上是另一集的剧本，不能当作本集正式脚本读写")
+        self.episode = episode
+        self.filename = filename
+
+
 def formal_script_filename(project_path: Path, project: Mapping[str, Any], episode: int) -> str:
     """该集正式脚本在 ``scripts/`` 下的文件名。
 
     project.json 绑定的 ``script_file`` 指向盘上文件时取绑定；绑定缺失、越界或文件不存在时回落规范
     文件名 ``episode_N.json``。内容确认读覆盖清单与写正式脚本都经这里，两者始终是同一份文件。
+
+    回落只在规范路径空着、或那上面确是本集剧本时成立：迁移跳过的集绑着已消失的旧路径，而规范路径
+    上放着别集剧本，无条件回落会让读拿到别集内容、让写整份重建别集的在世剧本并把本集绑上去。这一
+    形态抛 ``ForeignFormalScriptError``；归属判据（读不成对象或内部集号不符）与 v14→v15 改名前的
+    那次校验一致。
     """
-    entry = find_episode(project, episode)
-    binding = entry.get("script_file") if isinstance(entry, dict) else None
-    if isinstance(binding, str) and binding:
-        filename = ProjectManager.normalize_script_filename(binding)
-        path = try_safe_join(project_path / "scripts", filename) if filename else None
+    filename = _bound_script_filename(project, episode)
+    if filename is not None:
+        path = try_safe_join(project_path / "scripts", filename)
         if path is not None and path.is_file():
             return filename
-    return episode_script_filename(episode)
+    canonical = episode_script_filename(episode)
+    canonical_path = project_path / "scripts" / canonical
+    if canonical_path.is_file():
+        script = load_json_or_none(canonical_path)
+        # 集号按正整数严格判：剧本是裸读进来的，JSON ``true`` 变成 Python ``True``，它既是 ``int``
+        # 又等于 ``1``，按 ``!=`` 比会让脏文件冒充第 1 集通过归属校验。
+        recorded = script.get("episode") if isinstance(script, dict) else None
+        if type(recorded) is not int or recorded != episode:
+            raise ForeignFormalScriptError(episode, canonical)
+    return canonical
 
 
 def formal_script_overwrite(
@@ -506,8 +541,15 @@ def formal_script_overwrite(
 
     读的是 ``formal_script_filename`` 解析出的那份剧本，即确认转换将写入的文件。文件存在但读不成
     剧本（非法 JSON、条目数组损坏）时照样算已有正式脚本、条目列表为空：覆盖它仍需认可。
+
+    规范路径上是别集剧本时按无剧本返回 None——那份内容不属本集，不能列进本集的覆盖清单充数；
+    确认转换会在写盘前以 ``ForeignFormalScriptError`` 拒绝。
     """
-    path = project_path / "scripts" / formal_script_filename(project_path, project, episode)
+    try:
+        filename = formal_script_filename(project_path, project, episode)
+    except ForeignFormalScriptError:
+        return None
+    path = project_path / "scripts" / filename
     try:
         raw = path.read_bytes()
     except FileNotFoundError:
@@ -541,9 +583,13 @@ def formal_script_overwrite(
 def prompt_authoring_generated(project_path: Path, project: dict[str, Any], episode: int) -> bool:
     """该集 prompt_authoring 产物（生成的剧本 JSON）是否已存在——存量 grandfather 判据。
 
-    按 ``formal_script_filename`` 解析，与内容确认、ScriptGenerator 读写的是同一份剧本。
+    绑定在场时只认绑定的那份文件，不走 ``formal_script_filename`` 的规范路径回落：绑定文件缺席而
+    规范路径上是别集文件，正是迁移记进报告的跳过形态，据那份别集文件判成「已有产出」会把这一集
+    grandfather 成 confirmed——脚本规划随即转只读、确认动作被锁。未绑定时按规范路径判。
     """
-    return (project_path / "scripts" / formal_script_filename(project_path, project, episode)).exists()
+    filename = _bound_script_filename(project, episode) or episode_script_filename(episode)
+    path = try_safe_join(project_path / "scripts", filename)
+    return path is not None and path.is_file()
 
 
 def review_status(project_path: Path, project: dict[str, Any], episode: int) -> ReviewStatus:

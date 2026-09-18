@@ -176,6 +176,7 @@ MESSAGES = {
     "script_review_overwrite_required": "本集已有正式脚本，确认会覆盖它：旧分镜全部移除，其分镜图与视频不再显示。请确认覆盖后重试",
     "script_review_conversion_refused": "脚本规划暂不能转为正式脚本，本次确认未完成；请检查分镜时长、台词与脚本规划状态后重试",
     "script_review_video_model_unresolved": "尚未配置可用的视频模型，无法确定分镜时长档位，本次确认未完成；请在「全局设置 → 供应商」配置视频供应商，或在项目设置中选择视频模型后重试",
+    "script_review_foreign_formal_script": "第 {episode} 集绑定的剧本文件已不在，而规范路径 scripts/{filename} 上是另一集的剧本，本次确认未完成——写进去会重建那一集的剧本；请把该集的 script_file 改回它自己的剧本文件后重试",
     "script_review_quarantine_unreadable": "待修复草稿文件已损坏或格式不符，无法读取，请让 Agent 重新拆分该集",
     # Source loader
     "source_unsupported_format": "不支持的源文件格式：{ext}（支持 .txt / .md / .docx / .epub / .pdf）",

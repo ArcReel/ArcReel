@@ -680,6 +680,33 @@ class TestConfirmMaterializesScript:
         assert (pm.get_project_path("demo") / "scripts" / "episode_1.json").read_bytes() == before
         assert script_review.stored_review(pm.load_project("demo"), 1) == {}
 
+    async def test_binding_lost_with_another_episode_at_the_canonical_path_is_refused(self, tmp_path):
+        """绑定文件已不在、规范路径上是别集剧本：确认在写盘前被拒，那一集的剧本与本集绑定都不动。
+
+        迁移跳过的集就是这个形态。回落到规范路径会让确认整份重建别集的在世剧本，并把本集绑上去。
+        """
+        pm = _make_project(tmp_path, "narration")
+        _write_script_plan(pm, "narration", _narration_script_plan())
+        project_path = pm.get_project_path("demo")
+        foreign = {**_narration_script(_narration_script_segment("E2S01")), "episode": 2}
+        atomic_write_json(project_path / "scripts" / "episode_1.json", foreign)
+
+        def _rebind(project: dict) -> None:
+            find_episode(project, 1)["script_file"] = "scripts/custom.json"
+
+        pm.update_project("demo", _rebind)
+        svc = _service(pm)
+
+        assert (await svc.get_state("demo", 1))["script_overwrite"] is None
+        with pytest.raises(ScriptReviewError) as exc:
+            await svc.confirm("demo", 1)
+
+        assert exc.value.code == "foreign_formal_script"
+        assert exc.value.script_filename == "episode_1.json"
+        assert json.loads((project_path / "scripts" / "episode_1.json").read_text(encoding="utf-8")) == foreign
+        assert find_episode(pm.load_project("demo"), 1)["script_file"] == "scripts/custom.json"
+        assert script_review.stored_review(pm.load_project("demo"), 1) == {}
+
     async def test_unresolvable_video_model_is_refused_with_a_configuration_hint(self, tmp_path):
         """确认转换要确定分镜时长档位：视频模型解析不到时拒绝确认，指明去配置视频模型。"""
         pm = _make_project(tmp_path, "narration")

@@ -184,6 +184,11 @@ MESSAGES = {
     "script_review_overwrite_required": "Tập này đã có kịch bản chính thức. Xác nhận sẽ ghi đè: mọi phân cảnh cũ bị xóa, ảnh phân cảnh và video của chúng không còn hiển thị. Hãy đồng ý ghi đè rồi thử lại",
     "script_review_conversion_refused": "Kế hoạch kịch bản chưa thể chuyển thành kịch bản chính thức nên chưa được xác nhận; hãy kiểm tra thời lượng phân cảnh, lời thoại và trạng thái kế hoạch kịch bản rồi thử lại",
     "script_review_video_model_unresolved": "Chưa cấu hình mô hình video khả dụng nên không xác định được các mức thời lượng phân cảnh, xác nhận chưa hoàn tất; hãy cấu hình nhà cung cấp video trong Cài đặt → Nhà cung cấp, hoặc chọn mô hình video trong cài đặt dự án rồi thử lại",
+    "script_review_foreign_formal_script": (
+        "Tệp kịch bản được gán cho tập {episode} không còn, còn đường dẫn chuẩn scripts/{filename} lại chứa kịch bản "
+        "của tập khác nên xác nhận chưa hoàn tất — ghi vào đó sẽ dựng lại kịch bản của tập kia; hãy trỏ script_file "
+        "của tập này về đúng kịch bản của nó rồi thử lại"
+    ),
     "script_review_quarantine_unreadable": (
         "Tệp bản nháp cần sửa đã hỏng hoặc sai định dạng, không thể đọc được; hãy để tác nhân chia lại tập này"
     ),

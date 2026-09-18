@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from lib.project_migration_report import MigrationNormalizedBinding, MigrationReport, write_migration_report
 from lib.project_migrations.runner import (
     CURRENT_SCHEMA_VERSION,
     cleanup_stale_backups,
@@ -280,6 +281,41 @@ def test_cleanup_reclaims_expired_grid_and_presentation_record_backups(tmp_proje
 
     assert not any(backup.exists() for backup in backups)
     assert all(source.exists() for source in sources)
+
+
+def test_cleanup_reclaims_the_backup_left_under_a_retired_script_binding(tmp_projects: Path) -> None:
+    """v14→v15 改名前备份的是退役的绑定名；账本此后指向规范路径，只看当前绑定就永远回收不到它。"""
+    import os
+
+    project_dir = _write_project(
+        tmp_projects,
+        "p1",
+        {
+            "schema_version": CURRENT_SCHEMA_VERSION,
+            "episodes": [{"episode": 1, "script_file": "scripts/episode_1.json"}],
+        },
+    )
+    (project_dir / "scripts").mkdir()
+    (project_dir / "scripts" / "episode_1.json").write_text("{}", encoding="utf-8")
+    write_migration_report(
+        project_dir,
+        MigrationReport(
+            migrated_at="2026-01-01T00:00:00Z",
+            from_schema_version=CURRENT_SCHEMA_VERSION - 1,
+            to_schema_version=CURRENT_SCHEMA_VERSION,
+            normalized_bindings=[
+                MigrationNormalizedBinding(episode=1, from_path="scripts/custom.json", to_path="scripts/episode_1.json")
+            ],
+        ),
+    )
+    retired = project_dir / "scripts" / "custom.json.bak.v14-100000000"
+    retired.write_text("old-script", encoding="utf-8")
+    expired = time.time() - 8 * 86400
+    os.utime(retired, (expired, expired))
+
+    cleanup_stale_backups(tmp_projects, max_age_days=7)
+
+    assert not retired.exists()
 
 
 def test_hardlink_backup_clues_creates_mirror(tmp_projects: Path, monkeypatch):

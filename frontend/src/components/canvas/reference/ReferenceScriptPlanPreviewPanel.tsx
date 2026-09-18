@@ -505,6 +505,9 @@ export function ReferenceScriptPlanPreviewPanel({
       );
   const allViolations = quarantine?.violations ?? [];
   const hasDraftViolations = allViolations.length > 0;
+  // 覆盖确认的拦截条件，触发按钮与框内确认按钮共用一位：能力请求可能在框打开之后才答复
+  // 模型无法解析，此时框内还留着一颗能提交、但服务端必拒的确认按钮。
+  const overwriteBlocked = videoModelBlocked || outOfTierUnitKeys.size > 0;
   const confirmBlockedHint = quarantined
     ? t(hasDraftViolations ? "reference_script_plan_confirm_blocked_hint" : "reference_script_plan_editable_hint")
     : videoModelBlocked
@@ -604,7 +607,7 @@ export function ReferenceScriptPlanPreviewPanel({
             <PrimaryButton
               tone="danger"
               onClick={() => setOverwriteOpen(true)}
-              disabled={busy || quarantined || outOfTierUnitKeys.size > 0 || videoModelBlocked}
+              disabled={busy || quarantined || overwriteBlocked}
               title={confirmBlockedHint}
               leadingIcon={quarantined ? <Lock className="h-3.5 w-3.5" /> : <AlertTriangle className="h-3.5 w-3.5" />}
             >
@@ -639,6 +642,7 @@ export function ReferenceScriptPlanPreviewPanel({
           open={overwriteOpen}
           overwrite={overwrite}
           loading={confirming}
+          confirmDisabled={overwriteBlocked}
           onConfirm={async () => {
             // 失败（如确认期间该集被并发写入）时框保持打开，呈现刷新后的覆盖清单。
             if (await handleConfirm({ overwriteRevision: overwrite.revision })) setOverwriteOpen(false);

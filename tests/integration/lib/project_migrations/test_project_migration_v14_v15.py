@@ -299,7 +299,9 @@ def test_rerun_after_a_crash_before_project_json_finishes_the_same_normalization
     _bind_episode_1_to_custom(project_dir, canonical_path)
     _reference_the_bound_script(project_dir)
     project_before = (project_dir / "project.json").read_bytes()
-    migrate_v14_to_v15(project_dir)
+    first = migrate_v14_to_v15(project_dir)
+    assert first is not None
+    [first_binding] = first.normalized_bindings
 
     def _state() -> dict[str, bytes]:
         return {
@@ -312,12 +314,18 @@ def test_rerun_after_a_crash_before_project_json_finishes_the_same_normalization
     migrated_ledger = _read_json(project_dir / "project.json")["episodes"][0]
     (project_dir / "project.json").write_bytes(project_before)
 
-    migrate_v14_to_v15(project_dir)
+    outcome = migrate_v14_to_v15(project_dir)
 
     assert _state() == state
     ledger = _read_json(project_dir / "project.json")["episodes"][0]
     assert (ledger["script_file"], ledger["title"]) == (migrated_ledger["script_file"], migrated_ledger["title"])
     assert _read_json(project_dir / "project.json")["schema_version"] == 15
+    # 另存位置是用户找回被顶掉文件的唯一线索，重跑给出的报告条目与首次一致。
+    assert outcome is not None
+    assert outcome.normalized_bindings == (first_binding,)
+    if canonical_path == "occupied":
+        assert first_binding.displaced_path is not None
+        assert (project_dir / first_binding.displaced_path).is_file()
 
 
 def test_canonical_bindings_are_left_verbatim(tmp_path: Path) -> None:
