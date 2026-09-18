@@ -41,6 +41,7 @@ from lib.http_status_errors import raise_for_status_redacted
 from lib.httpx_shared import get_http_client
 from lib.i18n import DEFAULT_LOCALE, Locale, Translator, translate_or
 from lib.market.sources import PROXY_PREFIX_SETTING
+from lib.social_publish.settings import SETTING_API_KEY, SETTING_BASE_URL, SETTING_PROFILE
 from server.dependencies import get_config_service
 from server.routers._validators import validate_backend_value
 
@@ -318,6 +319,11 @@ class SystemConfigPatchRequest(BaseModel):
     # 各档未设置回退 default_text_backend。
     text_backend_simple: str | None = None
     text_backend_complex: str | None = None
+    # 社交分发（Upload-Post）：api_key 为密钥，profile 是上游「档案」名；
+    # base_url 留空走官方地址，自建/联调环境才需要填。
+    upload_post_api_key: str | None = None
+    upload_post_profile: str | None = None
+    upload_post_base_url: str | None = None
 
 
 # Setting keys that map directly to string DB settings
@@ -398,6 +404,13 @@ async def get_system_config(
         "text_backend_simple": all_s.get("text_backend_simple") or "",
         "text_backend_complex": all_s.get("text_backend_complex") or "",
         "market_github_proxy_prefix": all_s.get(PROXY_PREFIX_SETTING) or "",
+        # 社交分发凭证：与 anthropic_api_key 同样只回「是否已配置 + 掩码」，原值不出库。
+        "upload_post_api_key": {
+            "is_set": bool(all_s.get(SETTING_API_KEY, "")),
+            "masked": mask_secret(all_s[SETTING_API_KEY]) if all_s.get(SETTING_API_KEY) else None,
+        },
+        "upload_post_profile": all_s.get(SETTING_PROFILE) or "",
+        "upload_post_base_url": all_s.get(SETTING_BASE_URL) or "",
     }
 
     options = await _build_options(svc, session, locale)
@@ -491,6 +504,30 @@ def _is_valid_proxy_prefix(prefix: str) -> bool:
     )
 
 
+def _is_valid_https_base_url(value: str) -> bool:
+    """分发上游地址：https、带主机名、不含凭证与查询串。
+
+    与 ``_is_valid_proxy_prefix`` 分开：该前缀只拼在 raw.githubusercontent.com 之前、允许
+    以路径结尾做前缀拼接；这里是一个 REST 根地址，凭证会随每个请求发到它，收紧到不含
+    userinfo 与查询串是必须的。
+    """
+    if not value.isprintable() or any(char.isspace() for char in value):
+        return False
+    try:
+        parts = urlsplit(value)
+        parts.port  # noqa: B018 -- 访问即校验端口，非法端口抛 ValueError
+    except ValueError:
+        return False
+    return (
+        parts.scheme == "https"
+        and bool(parts.hostname)
+        and parts.username is None
+        and parts.password is None
+        and "?" not in value
+        and "#" not in value
+    )
+
+
 @router.patch("/system/config")
 async def patch_system_config(
     req: SystemConfigPatchRequest,
@@ -562,6 +599,19 @@ async def patch_system_config(
             await svc.set_setting("anthropic_api_key", str(value).strip())
         else:
             await svc.set_setting("anthropic_api_key", "")
+
+    # 社交分发凭证：api_key 空串 = 清除；base_url 只接受 https 绝对地址，空串 = 回落官方地址
+    if "upload_post_api_key" in patch:
+        await svc.set_setting(SETTING_API_KEY, str(patch["upload_post_api_key"] or "").strip())
+
+    if "upload_post_profile" in patch:
+        await svc.set_setting(SETTING_PROFILE, str(patch["upload_post_profile"] or "").strip())
+
+    if "upload_post_base_url" in patch:
+        base_url = str(patch["upload_post_base_url"] or "").strip()
+        if base_url and not _is_valid_https_base_url(base_url):
+            raise UnprocessableError("upload_post_base_url_invalid")
+        await svc.set_setting(SETTING_BASE_URL, base_url)
 
     # Integer settings with range validation
     _INT_SETTINGS_RANGES = {
