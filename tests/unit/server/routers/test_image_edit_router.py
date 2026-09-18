@@ -36,7 +36,7 @@ def _project_dict() -> dict:
         "style": "anime",
         "style_description": "anime style",
         "aspect_ratio": "9:16",
-        "episodes": [{"episode": 1, "script_file": "episode_1.json"}],
+        "episodes": [{"episode": 1, "script_file": "scripts/episode_1.json"}],
         "characters": {"Alice": {"description": "少女", "character_sheet": "characters/Alice.png"}},
         "scenes": {"祠堂": {"description": "祠堂", "scene_sheet": "scenes/祠堂.png"}},
         "props": {"玉佩": {"description": "玉佩", "prop_sheet": "props/玉佩.png"}},

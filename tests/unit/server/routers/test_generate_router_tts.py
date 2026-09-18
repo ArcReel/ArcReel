@@ -33,7 +33,7 @@ class _FakePM:
         # 生产项目一律处于当前 schema，剧本一律在 episodes 账本里绑定。
         self.project: dict[str, Any] = {
             "schema_version": CURRENT_PROJECT_SCHEMA_VERSION,
-            "episodes": [{"episode": 1, "script_file": "episode_1.json"}],
+            "episodes": [{"episode": 1, "script_file": "scripts/episode_1.json"}],
             "content_mode": "narration",
         }
         self.script = {

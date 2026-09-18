@@ -61,7 +61,7 @@ def project_with_script(tmp_path):
                 "style_description": "胶片颗粒，低饱和",
                 "generation_mode": "storyboard",
                 "grid_storyboard": True,
-                "episodes": [{"episode": 1, "script_file": "episode_1.json"}],
+                "episodes": [{"episode": 1, "script_file": "scripts/episode_1.json"}],
                 "characters": {},
                 "clues": {},
             }

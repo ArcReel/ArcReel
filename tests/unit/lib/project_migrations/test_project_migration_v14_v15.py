@@ -237,10 +237,10 @@ def test_ad_project_only_bumps_the_schema_version(tmp_path: Path) -> None:
     assert _read_json(project_dir / "scripts" / "episode_1.json") == script
 
 
-@pytest.mark.parametrize("binding", ["episode_1.json", "scripts/episode_1.json"])
-def test_binding_spelled_as_an_alias_of_the_canonical_script_is_left_verbatim(tmp_path: Path, binding: str) -> None:
-    """归一后同名的几种写法指的是同一份剧本：照常升级，账本字面不动。"""
+def test_canonical_binding_is_left_verbatim(tmp_path: Path) -> None:
+    """绑定逐字等于该集规范剧本：照常升级，账本字面不动。"""
 
+    binding = "scripts/episode_1.json"
     project_dir = write_legacy_script_plan_project(tmp_path, variant="drama")
     project = _project(project_dir)
     project["episodes"][0]["script_file"] = binding
@@ -258,7 +258,9 @@ def test_binding_spelled_as_an_alias_of_the_canonical_script_is_left_verbatim(tm
     "binding",
     [
         "scripts/custom.json",
+        "episode_1.json",
         "./scripts/episode_1.json",
+        "scripts\\episode_1.json",
         "scripts/episode_01.json",
         "scripts/episode_2.json",
         "scripts/archive/custom.json",
@@ -267,7 +269,7 @@ def test_binding_spelled_as_an_alias_of_the_canonical_script_is_left_verbatim(tm
     ],
 )
 def test_binding_that_is_not_the_canonical_script_is_rejected_with_the_episode(tmp_path: Path, binding: str) -> None:
-    """绑定指向该集规范剧本以外的任何位置：整个项目被拒，盘上一个字节都不动。"""
+    """绑定字面不等于该集规范剧本：整个项目被拒，盘上一个字节都不动。"""
 
     project_dir = write_legacy_script_plan_project(tmp_path, variant="drama")
     project = _project(project_dir)

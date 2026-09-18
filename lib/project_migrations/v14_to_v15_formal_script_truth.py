@@ -2,10 +2,9 @@
 
 存量项目在这一步收编成新机制的形态：
 
-- **集绑定**：``script_file`` 只认该集的规范剧本 ``scripts/episode_N.json``（``episode_N.json``
-  这类归一后同名的写法算同一条绑定，账本字面不动）。指向别处的绑定与同一集号在账本里出现多条时
-  整个项目在写盘前被拒，失败裁决写明集号与绑定；本步不改名、不另存、不改写任何引用，运维把剧本
-  挪到规范路径并改绑后重跑。绑定缺席的集按规范路径处理。
+- **集绑定**：``script_file`` 只认逐字等于该集规范剧本 ``scripts/episode_N.json`` 的绑定。其余写法
+  与同一集号在账本里出现多条时整个项目在写盘前被拒，失败裁决写明集号与绑定；本步不改名、不另存、
+  不改写任何引用，运维把剧本挪到规范路径并改绑后重跑。绑定缺席的集按规范路径处理。
 - **指纹字段**：剧本条目的 ``script_plan_entry_revision`` 与剧本 metadata 的 ``script_plan_revision``
   删除。
 - **已确认、尚无正式脚本的集**：按确认过的脚本规划整份转为正式脚本（全部条目待编写），与内容
@@ -43,7 +42,7 @@ from lib.artifact_manifest import (
     ArtifactManifestEntry,
     ProjectArtifactManifestAdapter,
 )
-from lib.artifact_planner import ArtifactTargetStatePlan, TargetStatePlanner, normalize_script_binding
+from lib.artifact_planner import ArtifactTargetStatePlan, TargetStatePlanner
 from lib.artifact_provenance import SCRIPT_PLAN_BASIS_INPUT_KEY, project_episode_script_prompt_inputs
 from lib.episode_paths import episode_script_relpath
 from lib.formal_write import project_metadata_lock
@@ -117,19 +116,15 @@ def _load_object(path: Path) -> dict[str, Any] | None:
 
 
 def _is_canonical_binding(raw_binding: str, episode: int) -> bool:
-    r"""这条绑定指的是不是该集的规范剧本 ``scripts/episode_N.json``。
+    r"""这条绑定是不是逐字等于该集规范剧本 ``scripts/episode_N.json``。
 
-    归一直接调用规划器的 ``normalize_script_binding``，不另写一份：账本里的绑定最终要由目标态规划
-    解析，判据分叉就会让规划认不出的写法（``./scripts/episode_1.json``、带目录段的
-    ``scripts/archive\custom.json``，反斜杠写法同样算）从这里漏过去，随后整个项目在规划处被拒，
-    而那时剧本已经改写落盘。规划认得出、且正指向该集规范剧本的写法（``episode_1.json`` 与
-    ``scripts/episode_1.json``）是同一条绑定，账本字面不动。
+    判据是字面相等，不做任何归一：裸名 ``episode_1.json``、``./`` 前缀、反斜杠写法
+    （``scripts\episode_1.json``）、带目录段的 ``scripts/archive/custom.json``、序号不符的
+    ``scripts/episode_01.json`` 一律算非规范绑定。后端所有写入点都写规范名，v15 起绑定恒为规范名，
+    本步比目标态规划器更严。
     """
 
-    try:
-        return normalize_script_binding(raw_binding) == episode_script_relpath(episode)
-    except ValueError:
-        return False
+    return raw_binding == episode_script_relpath(episode)
 
 
 def _strip_revisions(script: dict[str, Any]) -> None:
