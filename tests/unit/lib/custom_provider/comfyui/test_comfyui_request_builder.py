@@ -347,27 +347,60 @@ class TestImageDrop:
         assert "22" not in built.workflow
         assert _inputs(built, "30")["reference_image"] == ["20", 0]
 
-    def test_an_unknown_consumer_is_deleted_and_the_cascade_continues_past_it(self):
-        """名录外的类型按「其他节点」删掉并继续级联，到下一个可选入口才停。"""
+    def test_a_merge_whose_two_inputs_share_one_loader_is_not_bypassed(self):
+        """合并节点两个入口接的是同一个读图节点：剩下那一路指的正是刚删掉的节点。
+
+        照它改接，下游会拿到一条悬空连线，而 workflow 仍会照常提交出去，远端才报错。摘不掉就
+        只能把合并节点也删掉并继续级联——这张图上级联一路走到产物节点，那正是「改不动」。
+        """
         definition = _reference_definition()
-        definition["workflow"]["22"]["class_type"] = "SomeCustomImageMasher"
+        definition["workflow"]["22"]["inputs"]["image2"] = ["20", 0]
+        definition["bindings"]["reference_images"] = definition["bindings"]["reference_images"][:1]
+        # 合并节点的下游排在它前面：删节点那一遍扫到下游时合并还没摘，改接留下的死链没有第二次
+        # 机会被顺手清掉。反过来排的图上同一个缺陷会被后面那一跳掩盖，故这里固定这个次序。
+        nodes = definition["workflow"]
+        definition["workflow"] = {"30": nodes.pop("30"), **nodes}
+
+        built = _build(definition, media=MediaInputs(reference_images=()))
+
+        assert _dangling_links(built.workflow) == []
+        assert "22" not in built.workflow, "摘不掉就该连它一起删，而不是照一条死链改接下游"
+        assert "reference_image" not in _inputs(built, "30")
+
+    def test_a_consumer_outside_the_two_tables_repeats_the_last_image_instead(self):
+        """格子接进的入口不在可选入口表也不在合并节点表：改不动图，退回重复最后一张。
+
+        推断在保存这份绑定时就按同一条判据提示过「减少张数会重复填充最后一张」，两侧同口径。
+        """
+        definition = _masher_definition()
 
         built = _build(definition, media=MediaInputs(reference_images=("a.png",)))
 
-        assert "21" not in built.workflow
+        assert _inputs(built, "20")["image"] == "a.png"
+        assert _inputs(built, "21")["image"] == "a.png"
+        assert "22" in built.workflow
+        assert built.dropped_nodes == ()
+
+    def test_the_cascade_continues_past_a_node_type_outside_the_two_tables(self):
+        """级联第二跳往后撞上名录外的类型：按「其他节点」删掉并继续，到下一个可选入口才停。"""
+        definition = _reference_definition()
+        definition["workflow"]["23"] = {"class_type": "SomeCustomImageMasher", "inputs": {"images": ["22", 0]}}
+        definition["workflow"]["30"]["inputs"]["reference_image"] = ["23", 0]
+
+        built = _build(definition, media=MediaInputs(reference_images=()))
+
         assert "22" not in built.workflow
+        assert "23" not in built.workflow
         assert "30" in built.workflow
         assert "reference_image" not in _inputs(built, "30")
-        assert "20" not in built.workflow
 
     def test_reaching_the_output_node_is_refused(self):
         """整条成片链路都不认得这张图缺席，级联一路走到产物节点——这次生成只能失败。"""
         definition = _reference_definition()
-        definition["workflow"]["22"]["class_type"] = "SomeCustomImageMasher"
         definition["workflow"]["30"]["class_type"] = "SomeCustomVideoNode"
 
         with pytest.raises(ComfyuiRequestError) as caught:
-            _build(definition, media=MediaInputs(reference_images=("a.png",)))
+            _build(definition, media=MediaInputs(reference_images=()))
 
         assert caught.value.code == IMAGE_DROP_UNSUPPORTED
         assert caught.value.params == {"node": "9"}
@@ -406,7 +439,7 @@ class TestImageDrop:
         assert "22" not in built.workflow
         assert "reference_image" not in _inputs(built, "30")
 
-    def test_an_unrecorded_consumer_repeats_the_last_image_instead(self):
+    def test_a_slot_with_no_consumer_recorded_repeats_the_last_image_instead(self):
         definition = _reference_definition()
         del definition["bindings"]["reference_images"][1]["consumer"]
 
@@ -417,7 +450,7 @@ class TestImageDrop:
         assert "22" in built.workflow
         assert built.dropped_nodes == ()
 
-    def test_an_unrecorded_consumer_with_no_image_at_all_keeps_the_literals(self):
+    def test_a_slot_with_no_consumer_recorded_and_no_image_at_all_keeps_the_literals(self):
         definition = _reference_definition()
         del definition["bindings"]["reference_images"][0]["consumer"]
         del definition["bindings"]["reference_images"][1]["consumer"]
@@ -472,6 +505,16 @@ def _i2v_definition() -> dict[str, Any]:
     return definition
 
 
+def _dangling_links(workflow: dict[str, Any]) -> list[tuple[str, str, str]]:
+    """指向图里已经不存在的节点的连线：``(消费方, 入口名, 上游)``。"""
+    return [
+        (node_id, name, raw[0])
+        for node_id, node in workflow.items()
+        for name, raw in (node.get("inputs") or {}).items()
+        if isinstance(raw, list) and len(raw) == 2 and isinstance(raw[0], str) and raw[0] not in workflow
+    ]
+
+
 def _reference_definition() -> dict[str, Any]:
     """两个参考图格子经 ``ImageBatch`` 汇成一路，再进视频节点的可选入口。"""
     definition = comfyui_endpoint_definition()
@@ -497,4 +540,13 @@ def _reference_definition() -> dict[str, Any]:
             "consumer": {"node": "22", "input": "image2", "class_type": "ImageBatch"},
         },
     ]
+    return definition
+
+
+def _masher_definition() -> dict[str, Any]:
+    """两个参考图格子接进一个名录外的自定义节点——推断认得出是参考图，却改不动图。"""
+    definition = _reference_definition()
+    definition["workflow"]["22"]["class_type"] = "SomeCustomImageMasher"
+    for target in definition["bindings"]["reference_images"]:
+        target["consumer"]["class_type"] = "SomeCustomImageMasher"
     return definition

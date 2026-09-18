@@ -5,7 +5,9 @@ from __future__ import annotations
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from lib.db.repositories.custom_endpoint_repo import CustomEndpointRepository
 from lib.db.repositories.custom_provider_repo import CustomProviderPrice, CustomProviderRepository
+from tests.factories import comfyui_endpoint_definition, custom_endpoint_definition
 
 
 class TestProviderCRUD:
@@ -570,3 +572,42 @@ async def test_list_enabled_models_by_media_type_uses_endpoint(db_session):
     assert {m.model_id for m in text_models} == {"gpt-4o"}
     video_models = await repo.list_enabled_models_by_media_type("video")
     assert {m.model_id for m in video_models} == {"kling-2"}
+
+
+class TestCustomEndpointMediaType:
+    """自定义端点的媒体类型读它自己那一行，不按 ``ce-`` 前缀一律记作视频。"""
+
+    async def _attach(self, db_session: AsyncSession, definition: dict, media_type: str, model_id: str) -> None:
+        endpoints = CustomEndpointRepository(db_session)
+        row = await endpoints.create(
+            definition=definition,
+            kind=definition["kind"],
+            schema_version=definition["schema_version"],
+            media_type=media_type,
+            display_name=definition["meta"]["name"],
+        )
+        await db_session.flush()
+        await CustomProviderRepository(db_session).create_provider(
+            display_name=f"P-{model_id}",
+            discovery_format="comfyui" if definition["kind"] == "comfyui" else "openai",
+            base_url="https://x",
+            api_key="k",
+            models=[{"model_id": model_id, "display_name": model_id, "endpoint": f"ce-{row.id}", "is_enabled": True}],
+        )
+        await db_session.flush()
+
+    async def test_an_image_comfyui_endpoint_only_answers_image_queries(self, db_session: AsyncSession):
+        definition = comfyui_endpoint_definition(media_type="image")
+        del definition["bindings"]["fps"]
+        await self._attach(db_session, definition, "image", "comfy-img")
+
+        repo = CustomProviderRepository(db_session)
+        assert {m.model_id for m in await repo.list_enabled_models_by_media_type("image")} == {"comfy-img"}
+        assert await repo.list_enabled_models_by_media_type("video") == []
+
+    async def test_a_declarative_endpoint_still_answers_video_queries(self, db_session: AsyncSession):
+        await self._attach(db_session, custom_endpoint_definition(), "video", "decl-vid")
+
+        repo = CustomProviderRepository(db_session)
+        assert {m.model_id for m in await repo.list_enabled_models_by_media_type("video")} == {"decl-vid"}
+        assert await repo.list_enabled_models_by_media_type("image") == []

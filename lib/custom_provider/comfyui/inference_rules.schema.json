@@ -79,12 +79,12 @@
       "additionalProperties": { "type": "string", "minLength": 1 }
     },
     "optional_inputs": {
-      "description": "可选入口：参考图张数少于格子数时，摘掉这个键即可，不必改图。",
+      "description": "可选入口：上游的读图节点删掉后，把这个键从 inputs 里摘掉即可，节点本身照跑。",
       "type": "array",
       "items": { "$ref": "#/$defs/nodeInput" }
     },
     "merge_nodes": {
-      "description": "两两合并节点：少一张图时对该级做 bypass，把它的消费者重接到剩下的那个输入。",
+      "description": "两两合并节点：少一路时对该级做 bypass，把它的消费者重接到剩下那一路。只收固定两个输入的类型——带 inputcount 的动态多路节点少一路仍剩若干路，按两两合并摘掉会把其余几路一并丢掉。",
       "type": "array",
       "items": { "$ref": "#/$defs/mergeNode" }
     },
@@ -204,8 +204,10 @@
       "properties": {
         "class_type": { "type": "string", "minLength": 1 },
         "inputs": {
+          "description": "该类型的两个同型输入名。bypass 把消费者改接到剩下那一路，多于两路就没有「剩下那一路」可言。",
           "type": "array",
           "minItems": 2,
+          "maxItems": 2,
           "items": { "type": "string", "minLength": 1 }
         }
       }

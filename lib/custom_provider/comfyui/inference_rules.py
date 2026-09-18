@@ -5,11 +5,11 @@
 迭代长期漂移，因此放在 ``inference_rules.<media_type>.json`` 里，改一行 JSON 不动一行 Python。
 
 两种媒体类型各一份：图像端点没有首尾帧与时间轴，产物候选顺序也不同，合成一份就得在每条规则上
-再挂一个「这条只对视频有效」的开关。共用的几节（常量节点、合并节点、外部节点族、种子闸门）在
-两份里逐字相同，由测试守住不漂移。
+再挂一个「这条只对视频有效」的开关。节点类型的事实那几节（常量节点、可选入口、合并节点、外部
+节点族、种子闸门）与端点产图还是产视频无关，两份里逐字相同，由测试守住不漂移。
 
-文件在读入时即过 ``inference_rules.schema.json``：它是随包发布的数据，写坏了该在启动时炸，而
-不是变成某个语义键悄悄推断不出来。
+文件在读入时即过 ``inference_rules.schema.json``，再核一遍它提到的语义键都在该媒体类型的名录
+里：它是随包发布的数据，写坏了该在启动时炸，而不是变成某个语义键悄悄推断不出来。
 """
 
 from __future__ import annotations
@@ -22,6 +22,8 @@ from pathlib import Path
 from typing import Any
 
 from jsonschema import Draft202012Validator
+
+from .bindings import BINDING_KEYS_BY_MEDIA_TYPE
 
 RULES_SCHEMA_PATH = Path(__file__).parent / "inference_rules.schema.json"
 
@@ -223,6 +225,17 @@ class InferenceRules:
                 return node
         return None
 
+    def adjustable_input(self, class_type: str, input_name: str) -> bool:
+        """图里少一张图时，这个入口改得动吗：可选入口摘键、两两合并节点 bypass，其余都不认识。
+
+        推断与实发构造读的是同一条判据：推断据此提示「这个格子在张数变少时改不动图」，构造据此
+        决定改图还是重复填充最后一张。两侧分开实现过一次，提示与实际处置就会各说各话。
+        """
+        if self.is_optional_input(class_type, input_name):
+            return True
+        merge = self.merge_node(class_type)
+        return merge is not None and input_name in merge.inputs
+
     def seed_gate(self, class_type: str) -> SeedGate | None:
         for gate in self.seed_gates:
             if gate.class_type == class_type:
@@ -260,7 +273,33 @@ def load_inference_rules(media_type: str) -> InferenceRules:
     """读入某种媒体类型的规则表。未登记的媒体类型是调用方的错，直接 ``KeyError``。"""
     document = json.loads(RULES_PATHS[media_type].read_text(encoding="utf-8"))
     _validator().validate(document)
+    unknown = sorted(semantic_key_names(document) - set(BINDING_KEYS_BY_MEDIA_TYPE[media_type]))
+    if unknown:
+        raise ValueError(f"inference_rules.{media_type}.json 提到 {media_type} 端点没有的语义键：{', '.join(unknown)}")
     return _rules_from(document)
+
+
+def semantic_key_names(document: Mapping[str, Any]) -> frozenset[str]:
+    """一份规则表里提到的全部语义键名，无论写在键位上还是值位上。
+
+    schema 管不到这一层：两种媒体类型共用一份 schema，可用的键集却各有一份。写错一个键名——
+    ``reference_images`` 写成 ``reference_image``、或者把 ``frames`` 写进图像表——schema 照样过，
+    结果是那一节规则谁都读不到，那个语义键悄悄推断不出来。
+    """
+    keyed = {
+        key
+        for section in ("semantic_keys", "consumer_ports", "class_type_tiers", "steps")
+        for key in _mapping(document.get(section))
+    }
+    valued = {
+        str(key)
+        for section in ("sampler_ports", "conditioning_slots")
+        for key in _mapping(document.get(section)).values()
+    }
+    listed = {
+        key for item in _items(document.get("manual_only_class_types")) for key in _strings(item.get("binding_keys"))
+    }
+    return frozenset(keyed | valued | listed)
 
 
 @cache

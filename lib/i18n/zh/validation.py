@@ -257,6 +257,17 @@ MESSAGES = {
     "val_ce_comfyui_node_not_found": "workflow 里没有节点 {node}：workflow 改过之后节点 id 会变，请重新导入并确认节点绑定",
     "val_ce_comfyui_input_not_found": "节点 {node} 没有名为 {input} 的输入",
     "val_ce_comfyui_input_is_link": "节点 {node} 的 {input} 接的是上游连线，填进去的值运行时会被上游覆盖：请绑到字面值字段",
+    "val_ce_comfyui_target_collision": (
+        "节点 {node} 的 {input} 已经是 {owner} 的写入落点，{binding_key} 不能再写同一个字段：后填的值会盖掉先填的"
+    ),
+    "val_ce_comfyui_class_type_mismatch": (
+        "条目记的节点 {node} 是 {class_type}，workflow 里它现在是 {actual}：重匹配按类型认身份，"
+        "对不上会把绑定搬到别的节点上。请重新导入并确认节点绑定"
+    ),
+    "val_ce_comfyui_consumer_not_fed": (
+        "参考图节点 {node} 的图流并没有接到节点 {consumer} 的 {input} 入口：记错了消费者，"
+        "张数变少时会按一个不相干的入口去改图"
+    ),
     "val_ce_comfyui_ui_format_workflow": "这是 ComfyUI 的 UI 格式 workflow，提交不了：请在 ComfyUI 里改用「Export (API)」导出",
     # ---- ComfyUI 端点 · 节点绑定推断的信号说明与提示 ----
     "val_ce_infer_manual_binding": "已保存的节点绑定，沿用用户确认过的落点",
@@ -283,6 +294,10 @@ MESSAGES = {
     "val_ce_infer_note_rematched": "{binding_key} 的条目已重匹配到新节点 {nodes}",
     "val_ce_infer_note_binding_lost": (
         "{binding_key} 的条目在新 workflow 里找不到落点（原节点 {nodes}），已重跑推断，请确认"
+    ),
+    "val_ce_infer_note_target_taken": (
+        "{binding_key} 的候选落在节点 {node} 的 {input} 上，而 {others} 也要写这个字段；"
+        "同一个字段只能写一项语义，已把它从 {binding_key} 的候选里去掉"
     ),
     "val_ce_poll_without_task_id": "轮询请求没有引用 task_id，请确认这是有意的",
     "val_ce_jsonpath_wildcard_order": (

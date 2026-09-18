@@ -156,7 +156,8 @@ export interface CustomEndpointInfo {
   kind: string;
   schema_version: string;
   media_type: string;
-  definition: EndpointDefinition;
+  /** 两种 kind 都可能：ComfyUI 定义没有 `submit` / `poll`，读它之前先用 `isDeclarativeDefinition` 收窄。 */
+  definition: AnyEndpointDefinition;
   created_at: string | null;
   updated_at: string | null;
 }

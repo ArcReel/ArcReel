@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 
 from lib.custom_provider.comfyui.validator import REMOVED_FIELD_REASONS
@@ -96,6 +98,15 @@ class TestTargetsAgainstTheWorkflow:
 
         assert ("bindings.prompt[0].input", "comfyui_input_not_found") in _codes(validate_definition(definition))
 
+    def test_a_target_class_type_that_drifted_is_refused(self):
+        """重匹配按类型认身份：记错一个类型，绑定会悄悄搬到用户没指过的节点上。"""
+        definition = comfyui_endpoint_definition()
+        definition["bindings"]["prompt"][0]["class_type"] = "T5TextEncode"
+
+        codes = _codes(validate_definition(definition))
+
+        assert ("bindings.prompt[0].class_type", "comfyui_class_type_mismatch") in codes
+
     def test_a_target_input_wired_from_upstream_is_refused(self):
         """连线字段的值运行时由上游产生，往那里填值只会被覆盖。"""
         definition = comfyui_endpoint_definition()
@@ -115,6 +126,109 @@ class TestTargetsAgainstTheWorkflow:
         definition["bindings"]["seed"][0]["input"] = "model"
 
         assert validate_definition(definition).valid
+
+
+class TestOneFieldOneBinding:
+    def test_two_semantic_keys_cannot_write_the_same_field(self):
+        """实发构造按语义键逐项填值，共用一个字段时用户拿到的负向提示词其实是正向那条。"""
+        definition = comfyui_endpoint_definition()
+        definition["bindings"]["negative_prompt"][0]["node"] = "6"
+
+        codes = _codes(validate_definition(definition))
+
+        assert ("bindings.negative_prompt[0].input", "comfyui_target_collision") in codes
+
+    def test_two_entries_of_one_key_cannot_write_the_same_field(self):
+        """参考图两个格子落在一处时第二张会盖掉第一张。"""
+        definition = comfyui_endpoint_definition()
+        definition["bindings"]["prompt"].append(dict(definition["bindings"]["prompt"][0]))
+
+        assert ("bindings.prompt[1].input", "comfyui_target_collision") in _codes(validate_definition(definition))
+
+    def test_a_read_only_target_does_not_claim_the_field_it_reads(self):
+        """只读目标只取值、不写回，它与写入落点落在一处不冲突。"""
+        definition = comfyui_endpoint_definition()
+        definition["bindings"]["fps"] = [
+            {"node": "5", "input": "width", "class_type": "EmptyLatentImage", "direction": "read"}
+        ]
+
+        assert validate_definition(definition).valid
+
+    def test_the_node_level_output_target_claims_no_field(self):
+        definition = comfyui_endpoint_definition()
+        definition["bindings"]["output"][0] |= {"node": "5", "class_type": "EmptyLatentImage"}
+
+        assert validate_definition(definition).valid
+
+
+class TestReferenceImageConsumer:
+    """``consumer`` 记的是「这张图接进了谁的哪个入口」，实发构造照它决定改图还是重复填充。"""
+
+    def test_a_consumer_consistent_with_the_workflow_passes(self):
+        assert validate_definition(_reference_endpoint()).valid
+
+    def test_a_consumer_node_must_exist_in_the_workflow(self):
+        definition = _reference_endpoint()
+        definition["bindings"]["reference_images"][0]["consumer"]["node"] = "404"
+
+        codes = _codes(validate_definition(definition))
+
+        assert ("bindings.reference_images[0].consumer.node", "comfyui_node_not_found") in codes
+
+    def test_a_consumer_input_must_exist_on_that_node(self):
+        definition = _reference_endpoint()
+        definition["bindings"]["reference_images"][0]["consumer"]["input"] = "image9"
+
+        codes = _codes(validate_definition(definition))
+
+        assert ("bindings.reference_images[0].consumer.input", "comfyui_input_not_found") in codes
+
+    def test_a_consumer_class_type_that_drifted_is_refused(self):
+        """类型对不上时「张数变少能不能改图」的判断依据的是一份过期的图。"""
+        definition = _reference_endpoint()
+        definition["bindings"]["reference_images"][0]["consumer"]["class_type"] = "ImageStitch"
+
+        codes = _codes(validate_definition(definition))
+
+        assert ("bindings.reference_images[0].consumer.class_type", "comfyui_class_type_mismatch") in codes
+
+    def test_a_consumer_the_loader_does_not_feed_is_refused(self):
+        """入口存在、类型也对，却与这个格子无关：实发构造会据此去改一个不相干的入口。"""
+        definition = _reference_endpoint()
+        definition["workflow"]["22"] = {
+            "class_type": "ImageBatch",
+            "inputs": {"image1": ["8", 0], "image2": ["8", 0]},
+            "_meta": {"title": "别处的批次"},
+        }
+        definition["bindings"]["reference_images"][0]["consumer"] |= {"node": "22", "title": "别处的批次"}
+
+        codes = _codes(validate_definition(definition))
+
+        assert ("bindings.reference_images[0].consumer.input", "comfyui_consumer_not_fed") in codes
+
+    def test_a_consumer_reached_through_an_intermediate_node_is_accepted(self):
+        """推断记的不一定是直接消费者：图会先过一段转接节点再落到收图的那个入口。"""
+        definition = _reference_endpoint()
+        definition["workflow"]["19"] = {"class_type": "ImageScale", "inputs": {"image": ["20", 0]}}
+        definition["workflow"]["21"]["inputs"]["image1"] = ["19", 0]
+
+        assert validate_definition(definition).valid
+
+    def test_a_consumer_input_holding_a_literal_is_refused(self):
+        """那个入口根本没接线，谈不上由这个格子喂着。"""
+        definition = _reference_endpoint()
+        definition["workflow"]["21"]["inputs"]["image1"] = "写死的图.png"
+
+        codes = _codes(validate_definition(definition))
+
+        assert ("bindings.reference_images[0].consumer.input", "comfyui_consumer_not_fed") in codes
+
+    def test_a_consumer_without_its_class_type_is_refused_by_the_schema(self):
+        """实发构造要靠 ``class_type`` 查表，缺了它这条记录用不上。"""
+        definition = _reference_endpoint()
+        del definition["bindings"]["reference_images"][0]["consumer"]["class_type"]
+
+        assert not validate_definition(definition).valid
 
 
 class TestAuthScope:
@@ -157,6 +271,26 @@ class TestDiagnosticPayload:
         definition["bindings"]["prompt"] = []
 
         assert _codes(validate_definition(definition)) == [("workflow", "invalid_type")]
+
+
+def _reference_endpoint() -> dict[str, Any]:
+    """一份带参考图格子的定义：读图节点经 ``ImageBatch`` 汇成一路。"""
+    definition = comfyui_endpoint_definition()
+    definition["workflow"]["20"] = {"class_type": "LoadImage", "inputs": {"image": "a.png"}}
+    definition["workflow"]["21"] = {
+        "class_type": "ImageBatch",
+        "inputs": {"image1": ["20", 0], "image2": ["20", 0]},
+        "_meta": {"title": "Image Batch"},
+    }
+    definition["bindings"]["reference_images"] = [
+        {
+            "node": "20",
+            "input": "image",
+            "class_type": "LoadImage",
+            "consumer": {"node": "21", "input": "image1", "class_type": "ImageBatch", "title": "Image Batch"},
+        }
+    ]
+    return definition
 
 
 def _image_endpoint(**bindings: object) -> dict[str, object]:

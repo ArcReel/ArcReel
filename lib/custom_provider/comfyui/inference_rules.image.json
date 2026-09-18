@@ -108,9 +108,27 @@
     { "class_type": "TextEncodeQwenImageEditPlus", "input": "image2" },
     { "class_type": "TextEncodeQwenImageEditPlus", "input": "image3" },
     { "class_type": "ImageStitch", "input": "image2" },
-    { "class_type": "ReferenceLatent", "input": "latent" }
+    { "class_type": "ReferenceLatent", "input": "latent" },
+    { "class_type": "Wan22ImageToVideoLatent", "input": "start_image" },
+    { "class_type": "WanCameraImageToVideo", "input": "start_image" },
+    { "class_type": "WanCameraImageToVideo", "input": "clip_vision_output" },
+    { "class_type": "WanCameraImageToVideo", "input": "camera_conditions" },
+    { "class_type": "WanFirstLastFrameToVideo", "input": "start_image" },
+    { "class_type": "WanFirstLastFrameToVideo", "input": "end_image" },
+    { "class_type": "WanFirstLastFrameToVideo", "input": "clip_vision_start_image" },
+    { "class_type": "WanFirstLastFrameToVideo", "input": "clip_vision_end_image" },
+    { "class_type": "WanFunInpaintToVideo", "input": "end_image" },
+    { "class_type": "WanImageToVideo", "input": "start_image" },
+    { "class_type": "WanImageToVideo", "input": "clip_vision_output" },
+    { "class_type": "WanVaceToVideo", "input": "reference_image" },
+    { "class_type": "WanVaceToVideo", "input": "control_video" },
+    { "class_type": "WanVaceToVideo", "input": "control_masks" }
   ],
-  "merge_nodes": [{ "class_type": "ImageBatch", "inputs": ["image1", "image2"] }],
+  "merge_nodes": [
+    { "class_type": "ImageBatch", "inputs": ["image1", "image2"] },
+    { "class_type": "LatentBatch", "inputs": ["samples1", "samples2"] },
+    { "class_type": "ConditioningCombine", "inputs": ["conditioning_1", "conditioning_2"] }
+  ],
   "external_families": [
     {
       "name": "ComfyUI-Deploy",

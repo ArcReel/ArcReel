@@ -128,3 +128,84 @@ def test_entry_level_extras_survive_the_migration():
     result = rematch(renumbered("3", "103"), {"seed": [seed]})
     assert result.keys["seed"].selected_targets[0]["policy"] == "keep"
     assert result.keys["seed"].selected_targets[0]["node"] == "103"
+
+
+def test_an_entry_bound_to_an_explicit_null_literal_is_not_reported_lost():
+    """``null`` 是个存在的字面值字段，填得进去；校验器那侧也按键判在不在，两边同口径。"""
+    graph = workflow()
+    graph["6"]["inputs"]["text"] = None
+
+    result = rematch(graph, {"prompt": [POSITIVE]})
+
+    assert result.keys["prompt"].state is BindingState.AUTO_SELECTED
+    assert origins(result, "prompt") == ["kept"]
+
+
+def reference_workflow() -> dict:
+    """两个参考图格子经 ``ImageStitch`` 汇成一路，再进视频节点的参考图入口。"""
+    graph = workflow()
+    graph["20"] = {"class_type": "LoadImage", "inputs": {"image": "ref_a.png"}, "_meta": {"title": "参考图 A"}}
+    graph["21"] = {"class_type": "LoadImage", "inputs": {"image": "ref_b.png"}, "_meta": {"title": "参考图 B"}}
+    graph["22"] = {
+        "class_type": "ImageStitch",
+        "inputs": {"image1": ["20", 0], "image2": ["21", 0]},
+        "_meta": {"title": "Image Stitch"},
+    }
+    graph["30"] = {
+        "class_type": "WanVaceToVideo",
+        "inputs": {"positive": ["6", 0], "reference_image": ["22", 0]},
+        "_meta": {"title": "VACE"},
+    }
+    graph["3"]["inputs"]["latent_image"] = ["30", 0]
+    return graph
+
+
+def reference_entry(node: str, title: str, consumer_node: str, consumer_input: str) -> dict:
+    return {
+        "node": node,
+        "input": "image",
+        "class_type": "LoadImage",
+        "title": title,
+        "consumer": {
+            "node": consumer_node,
+            "input": consumer_input,
+            "class_type": "ImageStitch",
+            "title": "Image Stitch",
+        },
+    }
+
+
+def test_a_migrated_entry_re_derives_its_consumer_from_the_live_graph():
+    """读图节点与它的消费者常常一起换号：``consumer`` 只由推断得出，照搬旧值会指向不存在的节点。"""
+    graph = reference_workflow()
+    graph["122"] = graph.pop("22")
+    graph["30"]["inputs"]["reference_image"] = ["122", 0]
+    saved = [reference_entry("20", "参考图 A", "22", "image1"), reference_entry("21", "参考图 B", "22", "image2")]
+
+    targets = rematch(graph, {"reference_images": saved}).keys["reference_images"].selected_targets
+
+    assert [target["consumer"]["node"] for target in targets] == ["122", "122"]
+    assert [target["consumer"]["input"] for target in targets] == ["image1", "image2"]
+
+
+def test_a_consumer_that_no_longer_exists_is_dropped_from_the_entry():
+    """重推不出消费者即「这张图接到了谁没看懂」，与从未推断出 ``consumer`` 同义——留着旧值会让
+    实发构造按一个不存在的落点去改图。"""
+    graph = reference_workflow()
+    graph["30"]["inputs"]["reference_image"] = ["8", 0]
+    del graph["22"]
+    saved = [reference_entry("20", "参考图 A", "22", "image1")]
+
+    target = rematch(graph, {"reference_images": saved}).keys["reference_images"].selected_targets[0]
+
+    assert target["node"] == "20"
+    assert "consumer" not in target
+
+
+def test_a_carried_over_entry_picks_up_a_consumer_it_never_had():
+    """条目上没记 ``consumer`` 不是用户的选择，是上次没推出来；这次推得出就补上。"""
+    entry = {"node": "20", "input": "image", "class_type": "LoadImage", "title": "参考图 A"}
+
+    target = rematch(reference_workflow(), {"reference_images": [entry]}).keys["reference_images"].selected_targets[0]
+
+    assert target["consumer"] == {"node": "22", "input": "image1", "class_type": "ImageStitch", "title": "Image Stitch"}

@@ -1,6 +1,9 @@
 """API 格式 workflow 的图原语。"""
 
+import sys
+
 from lib.custom_provider.comfyui.graph import (
+    Resolution,
     ancestors,
     class_type_of,
     consumers_by_node,
@@ -53,6 +56,24 @@ def test_dependency_depth_stops_on_a_cycle_instead_of_recursing():
     """合法 workflow 是 DAG，但导入的是用户文件：遇到环要收敛到有限值而不是撞进无限递归。"""
     cyclic = {"1": {"class_type": "A", "inputs": {"x": ["2", 0]}}, "2": {"class_type": "B", "inputs": {"y": ["1", 0]}}}
     assert dependency_depth(cyclic, "1") <= len(cyclic)
+
+
+def test_dependency_depth_walks_a_chain_longer_than_the_recursion_limit():
+    """导入的 workflow 节点数没有上限：一条足够长的合法链不能把遍历打穿成 RecursionError。"""
+    deep = {"0": {"class_type": "PrimitiveInt", "inputs": {"value": 1}}}
+    for index in range(1, sys.getrecursionlimit() + 100):
+        deep[str(index)] = {"class_type": "ImageScale", "inputs": {"image": [str(index - 1), 0]}}
+
+    assert dependency_depth(deep, str(len(deep) - 1)) == len(deep) - 1
+
+
+def test_an_explicit_null_literal_is_a_field_that_exists():
+    """``"value": null`` 是个填得进去的字面值字段，与「这个节点没有这个入口」不是一回事。"""
+    workflow = chain()
+    workflow["1"]["inputs"]["value"] = None
+
+    assert resolve_literal(workflow, "1", "value", constants=CONSTANTS) == Resolution("1", "value", None)
+    assert not resolve_literal(workflow, "1", "缺席的入口", constants=CONSTANTS).found
 
 
 def test_ancestors_exclude_the_node_itself():

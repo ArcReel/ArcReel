@@ -36,7 +36,6 @@ from lib.custom_provider.endpoints import (
     ENDPOINT_REGISTRY,
     EndpointSpec,
     endpoint_spec_to_dict,
-    endpoint_to_image_capabilities,
     get_endpoint_spec,
     static_media_type,
 )
@@ -680,23 +679,20 @@ def _check_unique_defaults(models: list[ModelInput], specs: dict[str, EndpointSp
     - 非 image endpoint（text / video / audio）：同一 media_type 至多 1 个 is_default=True。
     - image endpoint：image capability 集合两两不相交（即同一 capability 至多 1 个默认）。
 
-    媒体类型读 ``specs`` 里已解析好的 spec：``ce-`` 端点的媒体类型写在定义里，键前缀推不出来。
-    ``specs`` 由 :func:`_resolve_model_endpoint_specs` 现解析，解析不出的行已在那里被 422 拦下。
+    媒体类型与能力位都读 ``specs`` 里已解析好的 spec：``ce-`` 端点的这两项写在定义里，键前缀推
+    不出来，内置查表对它一律抛错。``specs`` 由 :func:`_resolve_model_endpoint_specs` 现解析，
+    解析不出的行已在那里被 422 拦下。
     """
     text_video_defaults: dict[str, list[str]] = {}
     image_defaults: list[tuple[str, frozenset[ImageCapability]]] = []
     for m in models:
         if not m.is_default:
             continue
-        mt = specs[m.endpoint].media_type
-        if mt != "image":
-            text_video_defaults.setdefault(mt, []).append(m.model_id)
+        spec = specs[m.endpoint]
+        if spec.media_type != "image":
+            text_video_defaults.setdefault(spec.media_type, []).append(m.model_id)
             continue
-        try:
-            caps = endpoint_to_image_capabilities(m.endpoint)
-        except ValueError:
-            continue
-        image_defaults.append((m.model_id, caps))
+        image_defaults.append((m.model_id, spec.image_capabilities or frozenset()))
 
     duplicates: dict[str, list[str]] = {mt: ids for mt, ids in text_video_defaults.items() if len(ids) > 1}
 
@@ -706,6 +702,10 @@ def _check_unique_defaults(models: list[ModelInput], specs: dict[str, EndpointSp
         for c in caps:
             cap_to_ids.setdefault(c, []).append(mid)
     conflict_ids = [mid for ids in cap_to_ids.values() if len(ids) > 1 for mid in ids]
+    # 能力集为空即「这个端点没说自己能做什么」：它与任何一个 image 默认都分不开，只要还有别的
+    # image 默认就算冲突。放两个进去保存期看着没事，取默认模型时会一次查出两行、在生成期炸掉。
+    if len(image_defaults) > 1 and any(not caps for _mid, caps in image_defaults):
+        conflict_ids = [mid for mid, _caps in image_defaults]
     if conflict_ids:
         duplicates["image"] = list(dict.fromkeys(conflict_ids))
 

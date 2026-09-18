@@ -5,11 +5,25 @@ import json
 import pytest
 from jsonschema import Draft202012Validator
 
+from lib.custom_provider.comfyui import inference_rules as rules_module
+from lib.custom_provider.comfyui.bindings import BINDING_KEYS_BY_MEDIA_TYPE
 from lib.custom_provider.comfyui.inference import SIGNAL_WEIGHTS, WEAKEST_GRADED_WEIGHT, BindingSignal
-from lib.custom_provider.comfyui.inference_rules import RULES_PATHS, load_inference_rules, load_rules_schema
+from lib.custom_provider.comfyui.inference_rules import (
+    RULES_PATHS,
+    load_inference_rules,
+    load_rules_schema,
+    semantic_key_names,
+)
 
 #: 两份规则表里逐字相同的几节：它们是节点类型的事实，与产图还是产视频无关。
-SHARED_SECTIONS = ("constant_nodes", "merge_nodes", "external_families", "seed_gates", "sampler_ports")
+SHARED_SECTIONS = (
+    "constant_nodes",
+    "optional_inputs",
+    "merge_nodes",
+    "external_families",
+    "seed_gates",
+    "sampler_ports",
+)
 
 
 def read(media_type: str) -> dict:
@@ -27,6 +41,56 @@ def test_shipped_rules_pass_their_schema(media_type):
 def test_node_type_facts_are_identical_across_both_rule_files(section):
     """与媒体类型无关的几节不得漂移：同一个节点不会因为端点产图还是产视频而改变形状。"""
     assert read("image")[section] == read("video")[section]
+
+
+@pytest.mark.parametrize("media_type", sorted(RULES_PATHS))
+def test_every_adjustable_input_comes_from_one_of_the_two_tables(media_type):
+    """张数变少时改得动的入口只有两种：可选入口摘键、两两合并节点 bypass。
+
+    推断的「这个格子改不动图」提示与实发构造的「改图还是重复填充」读的是这同一条判据，它落在
+    规则表上而不是各写一份表。
+    """
+    rules = load_inference_rules(media_type)
+
+    assert rules.adjustable_input("WanVaceToVideo", "reference_image")
+    assert rules.adjustable_input("ImageBatch", "image2")
+    assert not rules.adjustable_input("ImageStitch", "image1")
+    assert not rules.adjustable_input("SomeCustomImageMasher", "image1")
+
+
+@pytest.mark.parametrize("media_type", sorted(RULES_PATHS))
+def test_every_semantic_key_the_rules_mention_is_on_that_media_types_roster(media_type):
+    """规则表提到的键名都得在名录里：写错一个 schema 照样过，那一节规则却谁都读不到。"""
+    assert semantic_key_names(read(media_type)) <= set(BINDING_KEYS_BY_MEDIA_TYPE[media_type])
+
+
+@pytest.mark.parametrize(
+    "section",
+    [
+        {"semantic_keys": {"framez": {}}},
+        {"consumer_ports": {"framez": []}},
+        {"class_type_tiers": {"framez": []}},
+        {"steps": {"framez": {"default": 8}}},
+        {"sampler_ports": {"positive": "framez"}},
+        {"conditioning_slots": {"0": "framez"}},
+        {"manual_only_class_types": [{"class_type": "X", "binding_keys": ["framez"]}]},
+    ],
+)
+def test_a_mistyped_key_name_is_seen_wherever_a_section_names_one(section):
+    assert "framez" in semantic_key_names(section)
+
+
+def test_a_rule_table_naming_a_key_off_the_roster_fails_at_load(tmp_path, monkeypatch):
+    """随包数据写坏了在读入时就炸，而不是让某个语义键悄悄推断不出来。"""
+    path = tmp_path / "inference_rules.video.json"
+    path.write_text(json.dumps(read("video") | {"consumer_ports": {"framez": []}}), encoding="utf-8")
+    monkeypatch.setattr(rules_module, "RULES_PATHS", {**RULES_PATHS, "video": path})
+    load_inference_rules.cache_clear()
+
+    with pytest.raises(ValueError, match="framez"):
+        load_inference_rules("video")
+
+    load_inference_rules.cache_clear()
 
 
 def sub_signal_ceiling() -> int:

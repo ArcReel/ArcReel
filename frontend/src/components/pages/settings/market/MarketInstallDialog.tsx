@@ -17,7 +17,7 @@ import { ModalCloseButton } from "@/components/ui/ModalCloseButton";
 import { ACCENT_BTN_SM_CLS, ACCENT_BUTTON_STYLE, GHOST_BTN_CLS } from "@/components/ui/darkroom-tokens";
 import { useEndpointCatalogStore } from "@/stores/endpoint-catalog-store";
 import { errMsg } from "@/utils/async";
-import { isRenderableDefinition } from "../endpoints/endpoint-definition-draft";
+import { isDeclarativeDefinition, isRenderableDefinition } from "../endpoints/endpoint-definition-draft";
 import { EndpointDuplicateChoices } from "../endpoints/EndpointDuplicateChoices";
 import { EndpointReferenceList, endpointReferences } from "../endpoints/EndpointReferenceList";
 import { exportEndpointDefinition } from "../endpoints/export-endpoint-definition";
@@ -130,8 +130,11 @@ export function MarketInstallDialog({
         }
       : shown;
   const marketVersion = header.version;
+  // 市场条目恒为声明式定义；导出按钮吃的也是它，非声明式的保存记录在此没有可导出的东西。
+  const installedRecord = preview?.endpoints.find((item) => item.id === installed?.endpoint_id)?.definition;
   const installedDefinition =
-    currentEndpointDefinition ?? preview?.endpoints.find((item) => item.id === installed?.endpoint_id)?.definition;
+    currentEndpointDefinition ??
+    (installedRecord && isDeclarativeDefinition(installedRecord) ? installedRecord : undefined);
   const close = () => {
     if (!busy) onClose();
   };

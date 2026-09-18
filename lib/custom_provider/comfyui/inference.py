@@ -52,6 +52,9 @@ READ_ONLY_BINDING_KEYS = frozenset({"fps"})
 #: 候选即有序格子、并列不算歧义的语义键。
 LIST_BINDING_KEYS = frozenset({"reference_images"})
 
+#: 条目上记着 ``consumer``（这张图接到了谁的哪个入口）的语义键。
+CONSUMER_BINDING_KEYS = frozenset({"reference_images"})
+
 #: 值本身是一张图的语义键：它们的落点只能是读图节点承载文件名的那个字段。与
 #: :data:`.bindings.IMAGE_BINDING_KEYS`（图像端点允许的语义键）不是一回事。
 IMAGE_VALUED_KEYS = frozenset({"start_image", "end_image", "reference_images"})
@@ -101,6 +104,7 @@ class InferenceNote(StrEnum):
     COMPUTED_SOURCE = "computed_source"
     REMATCHED = "rematched"
     BINDING_LOST = "binding_lost"
+    TARGET_TAKEN = "target_taken"
 
 
 class BindingState(StrEnum):
@@ -235,11 +239,19 @@ class BindingInference:
     def savable(self) -> bool:
         """照这份结果直接落盘能不能过校验。
 
-        两条：任何键处于歧义或待确认都不行——用户要么选一个，要么把它清空为显式不支持；提示词
-        与产物必须有着落，这两项是校验器的硬闸门。
+        三条：任何键处于歧义或待确认都不行——用户要么选一个，要么把它清空为显式不支持；提示词
+        与产物必须有着落；两个语义键不能写同一个字段。三条都是校验器的硬闸门，这里报的是同一件事。
         """
         blocked = {BindingState.AMBIGUOUS, BindingState.NEEDS_CONFIRMATION}
         if any(result.state in blocked for result in self.keys.values()):
+            return False
+        landings = [
+            landing
+            for result in self.keys.values()
+            for target in result.selected_targets
+            if (landing := _target_landing(target)) is not None
+        ]
+        if len(landings) != len(set(landings)):
             return False
         return all(self.keys.get(key, _MISSING).selected_targets for key in REQUIRED_BINDING_KEYS)
 
@@ -275,7 +287,88 @@ def infer_bindings(definition: Mapping[str, Any]) -> BindingInference:
             results[key] = _rematch(key, saved, workflow, engine)
         else:
             results[key] = engine.infer_key(key)
+    _resolve_target_collisions(results)
     return BindingInference(media_type, results, engine.workflow_notes())
+
+
+def _target_landing(target: Mapping[str, Any]) -> tuple[str, str] | None:
+    """这个目标会往哪个字段写值。只读目标不写回，节点级的产物目标没有字段。"""
+    if target.get("direction") == "read":
+        return None
+    name = target.get("input")
+    return (str(target["node"]), name) if isinstance(name, str) else None
+
+
+def _resolve_target_collisions(results: dict[str, KeyInference]) -> None:
+    """同一个字段不能同时是两个语义键的写入落点。
+
+    标题标记这类强信号是按节点给的，一个字段可以同时满足两个键的判据：节点 7 标上
+    ``ARCREEL:prompt`` 后，``prompt`` 与 ``negative_prompt`` 都会落在它的 ``text`` 上，实发构造
+    先写正向提示词、再把 Avoid 文本追加到同一个字段，用户拿到的负向提示词其实是正向那条。分数高
+    的那个键留下，另一个让出这条候选并重新定状态——让出后它多半报「没找到」，那正是实情。
+
+    分数并列时谁都不留：两个键同样有理由要这个字段，交给用户挑比替他挑一个强。已保存的节点绑定
+    权重最高，自然赢过推断出来的候选；两边都是已保存条目时不动它们，那是定义本身不自洽，由校验器
+    在保存时拦下。
+
+    一次让出算一轮，让完重新收集认领：让出的键会改选它的次选，而那条次选可能又落在另一个键已经
+    认领的字段上——只收集一次的话这第二次撞车没人处理，两个键一起落在同一个字段上出去。每轮至少
+    从某个键上去掉一条候选，候选总数有限，循环必停。
+    """
+    while _yield_one_collision(results):
+        pass
+
+
+def _claimants_by_landing(results: Mapping[str, KeyInference]) -> dict[tuple[str, str], list[tuple[str, int]]]:
+    """落点 → 认领它的 ``(语义键, 分数)``。只看已自动选中的键，待定的键还没认领任何字段。"""
+    claims: dict[tuple[str, str], list[tuple[str, int]]] = {}
+    for key, result in results.items():
+        if result.state is not BindingState.AUTO_SELECTED:
+            continue
+        for candidate in result.candidates:
+            landing = _target_landing(candidate.target) if candidate.selected else None
+            if landing is not None:
+                claims.setdefault(landing, []).append((key, candidate.score))
+    return claims
+
+
+def _yield_one_collision(results: dict[str, KeyInference]) -> bool:
+    """按文档序找第一个有人能让出的争抢落点，让分低的一方让出；没有这样的落点时返回 ``False``。
+
+    没人能让出的落点（两边都是已保存条目）要跳过接着找下一个，否则这一轮报了「有冲突」却什么也
+    没改，外层就停不下来。
+    """
+    for landing, claimants in sorted(_claimants_by_landing(results).items()):
+        if len({key for key, _score in claimants}) < 2:
+            continue
+        best = max(score for _key, score in claimants)
+        leaders = [key for key, score in claimants if score == best]
+        winner = leaders[0] if len(leaders) == 1 else None
+        losers = [key for key, _score in claimants if key != winner and not _from_saved_bindings(results[key])]
+        if not losers:
+            continue
+        for key in losers:
+            results[key] = _yield_landing(key, results[key], landing, claimants)
+        return True
+    return False
+
+
+def _from_saved_bindings(result: KeyInference) -> bool:
+    """这个键的候选来自已保存的节点绑定：用户确认过的落点不由推断让出。"""
+    return any(hit.signal is BindingSignal.MANUAL_BINDING for c in result.candidates for hit in c.signals)
+
+
+def _yield_landing(
+    key: str, result: KeyInference, landing: tuple[str, str], claimants: Sequence[tuple[str, int]]
+) -> KeyInference:
+    """把某个落点上的候选从这个键里去掉，并按剩下的候选重新定状态。"""
+    others = sorted({other for other, _score in claimants if other != key})
+    note = Note(
+        InferenceNote.TARGET_TAKEN,
+        {"binding_key": key, "node": landing[0], "input": landing[1], "others": " / ".join(others)},
+    )
+    remaining = [c for c in result.candidates if _target_landing(c.target) != landing]
+    return _decide(key, remaining, (*result.notes, note))
 
 
 def _rematch(key: str, saved: Sequence[Any], workflow: Mapping[str, Any], engine: _Engine) -> KeyInference:
@@ -298,6 +391,7 @@ def _rematch(key: str, saved: Sequence[Any], workflow: Mapping[str, Any], engine
         node_id, origin = landing
         node = workflow[node_id]
         target = {**entry, "node": node_id, "class_type": class_type_of(node), "title": node_title(node)}
+        _refresh_consumer(target, key, node_id, engine)
         kept.append(
             Candidate(
                 target,
@@ -343,12 +437,41 @@ def _relocate(entry: Mapping[str, Any], workflow: Mapping[str, Any]) -> tuple[st
     return (matches[0], MatchOrigin.REMATCHED) if len(matches) == 1 else None
 
 
+def _refresh_consumer(target: dict[str, Any], key: str, node_id: str, engine: _Engine) -> None:
+    """条目落位后从活图重推它嵌套的 ``consumer``。
+
+    ``consumer`` 只由推断得出，用户没有编辑它的面，因此不必像 ``step`` / ``policy`` 那样原样随迁。
+    重新导出一份 workflow 时读图节点与它的消费者常常一起换号，照搬旧值会留下一个指向不存在节点的
+    落点。重推不出来就把这个键摘掉：那正是「这张图接到了谁没看懂」，与从未推断出 ``consumer`` 同义。
+    """
+    if key not in CONSUMER_BINDING_KEYS:
+        return
+    consumer = engine.consumer_of(key, node_id)
+    if consumer is None:
+        target.pop("consumer", None)
+    else:
+        target["consumer"] = _consumer_entry(consumer)
+
+
+def _consumer_entry(consumer: Consumer) -> dict[str, Any]:
+    """一条 ``consumer`` 记录：写进 ``bindings`` 的那四项。"""
+    return {
+        "node": consumer.node,
+        "input": consumer.input,
+        "class_type": consumer.class_type,
+        "title": consumer.title,
+    }
+
+
 def _writable(node: Mapping[str, Any], input_name: object) -> bool:
-    """条目指的那个字段还在，且仍是字面值。产物条目是节点级的，没有字段要查。"""
+    """条目指的那个字段还在，且仍是字面值。产物条目是节点级的，没有字段要查。
+
+    按键判在不在：``"text": null`` 是个存在的字面值字段，与校验器同口径——那一侧也按键判。
+    """
     if not isinstance(input_name, str):
         return True
-    raw = node_inputs(node).get(input_name)
-    return raw is not None and not is_link(raw)
+    inputs = node_inputs(node)
+    return input_name in inputs and not is_link(inputs[input_name])
 
 
 class _Engine:
@@ -573,7 +696,7 @@ class _Engine:
                     {"consumer": consumer.node, "input": consumer.input},
                 ),
             )
-            if key == "reference_images" and not self._known_consumer(consumer):
+            if key == "reference_images" and not self.rules.adjustable_input(consumer.class_type, consumer.input):
                 notes.append(
                     Note(
                         InferenceNote.REFERENCE_CONSUMER_UNKNOWN,
@@ -596,6 +719,10 @@ class _Engine:
                     seen.add(consumer.node)
                     queue.append(consumer.node)
 
+    def consumer_of(self, key: str, node_id: str) -> Consumer | None:
+        """这个读图节点在本图上承载该语义键时，它的图流落在谁的哪个入口。"""
+        return self._matching_consumer(node_id, self.rules.consumer_ports.get(key, ()))
+
     def _matching_consumer(self, node_id: str, ports: Sequence[ConsumerPort]) -> Consumer | None:
         """这条图流上第一个落在这些入口上的消费者。"""
         return next(
@@ -616,13 +743,6 @@ class _Engine:
         return any(
             self.rules.blocks_image(consumer.class_type, consumer.input) for consumer in self._downstream(node_id)
         )
-
-    def _known_consumer(self, consumer: Consumer) -> bool:
-        """这个入口在张数变少时改得动吗：可选入口摘键、两两合并节点 bypass，其余都不认识。"""
-        if self.rules.is_optional_input(consumer.class_type, consumer.input):
-            return True
-        merge = self.rules.merge_node(consumer.class_type)
-        return merge is not None and consumer.input in merge.inputs
 
     def _output_candidates(self) -> list[Candidate]:
         builder = _Collector()
@@ -696,13 +816,10 @@ class _Engine:
             target["direction"] = "read"
         if key == "seed":
             target["policy"] = "random"
-        if consumer is not None:
-            target["consumer"] = {
-                "node": consumer.node,
-                "input": consumer.input,
-                "class_type": consumer.class_type,
-                "title": consumer.title,
-            }
+        # 只有参考图的条目声明了 consumer（schema 里 writeTarget 是 additionalProperties: false）：
+        # 别的键附上它，推断出来的结果就存不回去。与 _refresh_consumer 同一道口径。
+        if consumer is not None and key in CONSUMER_BINDING_KEYS:
+            target["consumer"] = _consumer_entry(consumer)
         return target
 
     def _gated_out(self, node: Mapping[str, Any]) -> bool:
@@ -717,16 +834,7 @@ class _Engine:
         return unwrap_value(node_inputs(node).get(gate.input)) != gate.enabled_value
 
     def _select(self, key: str, candidates: list[Candidate], notes: tuple[Note, ...]) -> KeyInference:
-        if not candidates:
-            return KeyInference(BindingState.NOT_FOUND, (), notes)
-        scored = [self._with_chain(candidate) for candidate in candidates]
-        scored.sort(key=lambda candidate: (-candidate.score, _node_order(candidate.node)))
-        chosen = set(_pick(scored, key))
-        selected = tuple(
-            Candidate(c.target, c.signals, index in chosen, c.origin, c.depth) for index, c in enumerate(scored)
-        )
-        state = BindingState.AUTO_SELECTED if chosen else BindingState.AMBIGUOUS
-        return KeyInference(state, selected, notes)
+        return _decide(key, [self._with_chain(candidate) for candidate in candidates], notes)
 
     def _with_chain(self, candidate: Candidate) -> Candidate:
         if candidate.node not in self.output_chain:
@@ -864,6 +972,19 @@ def _weight(signal: BindingSignal) -> int:
 def _normalized(parameter: str) -> str:
     """外部约定里的参数名规范化后与语义键比对：各家的参数名由用户自己起。"""
     return re.sub(r"[^a-z0-9]+", "_", parameter.strip().lower()).strip("_")
+
+
+def _decide(key: str, scored: Sequence[Candidate], notes: tuple[Note, ...]) -> KeyInference:
+    """按分排序定选中项与状态。分数已经算全，同一批候选反复跑结果一致。"""
+    if not scored:
+        return KeyInference(BindingState.NOT_FOUND, (), notes)
+    ranked = sorted(scored, key=lambda candidate: (-candidate.score, _node_order(candidate.node)))
+    chosen = set(_pick(ranked, key))
+    selected = tuple(
+        Candidate(c.target, c.signals, index in chosen, c.origin, c.depth) for index, c in enumerate(ranked)
+    )
+    state = BindingState.AUTO_SELECTED if chosen else BindingState.AMBIGUOUS
+    return KeyInference(state, selected, notes)
 
 
 def _node_order(node_id: str) -> tuple[int, str]:

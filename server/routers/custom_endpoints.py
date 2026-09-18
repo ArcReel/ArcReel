@@ -23,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from lib.api_errors import ConflictError, NotFoundError, UnprocessableError
 from lib.custom_provider import make_endpoint_key
 from lib.custom_provider.comfyui.import_shapes import ImportShape, route_import_payload, ui_workflow_refusal
+from lib.custom_provider.discovery_formats import endpoint_attachment_holds
 from lib.custom_provider.endpoint_definition import (
     DefinitionDiagnostics,
     SchemaVersionLevel,
@@ -388,6 +389,13 @@ async def update_endpoint(
     definition = _accepted_definition(body, _t)
     mirror = derive_mirror_columns(definition)
     repo = CustomEndpointRepository(session)
+    current = await repo.get(endpoint_id)
+    if current is None:
+        raise NotFoundError("custom_endpoint_not_found")
+    if mirror.kind != current.kind:
+        await _check_kind_change_keeps_attachments(repo, endpoint_id, mirror.kind, _t)
+    if mirror.media_type != current.media_type:
+        await _check_media_type_change_has_no_attachments(repo, endpoint_id, mirror.media_type)
     row = await repo.update(
         endpoint_id,
         definition=definition,
@@ -402,6 +410,53 @@ async def update_endpoint(
     await _invalidate_backend_cache()
     await session.refresh(row)
     return endpoint_response(row, await endpoint_installation(session, row.id))
+
+
+async def _check_kind_change_keeps_attachments(
+    repo: CustomEndpointRepository,
+    endpoint_id: int,
+    new_kind: str,
+    _t: Callable[..., str],
+) -> None:
+    """换了容器类型的定义不得把在用的挂接弄坏。
+
+    「端点 × 供应商协议」的双向配对原先只在供应商侧写入时判（``docs/adr/0081``），而整份替换会
+    原地改掉 ``kind``、键与模型行引用不变：一份 ComfyUI 定义因此能盖掉挂在 OpenAI 协议供应商上的
+    声明式端点，反向亦然，两边在保存期都毫无征兆。判据与供应商侧同一个谓词，错挂在两条写入路径上
+    都拒得住。先改模型行的挂接、再替换定义，两步各自仍然可行。
+    """
+    for attachment in await repo.list_attachments(make_endpoint_key(endpoint_id)):
+        if endpoint_attachment_holds(endpoint_kind=new_kind, discovery_format=attachment.discovery_format):
+            continue
+        raise UnprocessableError(
+            "custom_endpoint_kind_conflicts_with_attachment",
+            model_id=attachment.model_id,
+            provider=attachment.provider_display_name,
+        )
+
+
+async def _check_media_type_change_has_no_attachments(
+    repo: CustomEndpointRepository,
+    endpoint_id: int,
+    new_media_type: str,
+) -> None:
+    """换了媒体类型的定义不得原地改掉在用模型行的所属媒体。
+
+    模型行不自带媒体类型，它归哪一路由端点说了算。一份产图的 ComfyUI 定义被一份产视频的盖掉后，
+    挂着它的模型行全部原地改判为视频行：本来图像与视频各一个默认模型的供应商，替换后成了两个视频
+    默认，取默认模型时一次查出两行，生成期才炸。时长档位的归一同样按媒体类型走，也会一并错位。
+
+    与换 ``kind`` 那条不同，这里没有「还成立」的情形可言：改的不是配对关系，而是模型行的归属。
+    先摘掉挂接、再替换定义，两步各自仍然可行。
+    """
+    attachments = await repo.list_attachments(make_endpoint_key(endpoint_id))
+    if attachments:
+        raise UnprocessableError(
+            "custom_endpoint_media_type_conflicts_with_attachment",
+            media_type=new_media_type,
+            model_id=attachments[0].model_id,
+            provider=attachments[0].provider_display_name,
+        )
 
 
 @router.delete("/{endpoint_id}", status_code=204)

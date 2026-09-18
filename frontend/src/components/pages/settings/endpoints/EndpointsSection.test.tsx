@@ -53,6 +53,26 @@ const MINE: CustomEndpointInfo = {
   updated_at: null,
 };
 
+const COMFYUI_MINE: CustomEndpointInfo = {
+  installation: null,
+  id: 8,
+  key: "ce-8",
+  display_name: "我的 ComfyUI",
+  kind: "comfyui",
+  schema_version: "1.0.0",
+  media_type: "video",
+  definition: {
+    kind: "comfyui",
+    schema_version: "1.0.0",
+    meta: { name: "我的 ComfyUI", author: "Ada", version: "1.0.0" },
+    media_type: "video",
+    workflow: { "9": { class_type: "SaveVideo", inputs: {} } },
+    bindings: { prompt: [{ node: "6", input: "text", class_type: "CLIPTextEncode" }] },
+  },
+  created_at: null,
+  updated_at: null,
+};
+
 function descriptor(overrides: Partial<EndpointDescriptor>): EndpointDescriptor {
   return {
     key: "ce-7",
@@ -89,6 +109,7 @@ const CATALOG: EndpointDescriptor[] = [
   descriptor({
     key: "openai-image",
     media_type: "image",
+    source: "builtin",
     display_name: "OpenAI Image",
   }),
 ];
@@ -190,13 +211,14 @@ describe("EndpointsSection", () => {
     expect(within(list).getByText("内置 · Python")).toBeInTheDocument();
   });
 
-  it("lists only video endpoints", async () => {
+  it("leaves built-in image endpoints out", async () => {
+    // 本节是自定义端点的管理面；内置图像端点在这里没有可做的事。
     renderSection();
     const list = await screen.findByRole("navigation");
     expect(within(list).queryByText("OpenAI Image")).not.toBeInTheDocument();
   });
 
-  it("rejects an image endpoint selected through the URL", async () => {
+  it("rejects a built-in image endpoint selected through the URL", async () => {
     renderSection("section=endpoints&endpoint=openai-image");
     expect(await screen.findByText("选择一个端点查看其定义。")).toBeInTheDocument();
     expect(screen.queryByText("该端点由代码实现，仅展示接口信息。")).not.toBeInTheDocument();
@@ -375,6 +397,75 @@ describe("EndpointsSection", () => {
     expect(screen.getAllByLabelText("请求头名称")).toHaveLength(2);
     expect(add).toBeDisabled();
     expect(screen.getByText("先为新增的这一行填写名称，再添加下一行。")).toBeInTheDocument();
+  });
+
+  describe("ComfyUI endpoints", () => {
+    beforeEach(() => {
+      useEndpointCatalogStore.setState({
+        endpoints: [...CATALOG, descriptor({ key: "ce-8", kind: "comfyui", display_name: "我的 ComfyUI" })],
+        loading: false,
+        initialized: true,
+      });
+      vi.spyOn(API, "listCustomEndpoints").mockResolvedValue({ endpoints: [MINE, COMFYUI_MINE] });
+    });
+
+    it("shows a read-only notice instead of the declarative form", async () => {
+      // 声明式表单直接解引用 submit / poll，ComfyUI 定义上没有这两节，走到那里就是一次白屏。
+      renderSection("section=endpoints&endpoint=ce-8");
+
+      expect(await screen.findByText(/这是一个 ComfyUI 端点/)).toBeInTheDocument();
+      expect(screen.getByRole("heading", { name: "我的 ComfyUI" })).toBeInTheDocument();
+      expect(screen.queryByText("提交生成任务")).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "保存更改" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    });
+
+    it("keeps the delete action so an imported endpoint can still be removed", async () => {
+      const remove = vi.spyOn(API, "deleteCustomEndpoint").mockResolvedValue(undefined);
+      renderSection("section=endpoints&endpoint=ce-8");
+
+      await userEvent.click(await screen.findByRole("button", { name: "删除" }));
+      await userEvent.click(screen.getAllByRole("button", { name: "删除" }).at(-1)!);
+
+      await waitFor(() => expect(remove).toHaveBeenCalledWith(8));
+    });
+
+    it("lists an imported image endpoint under mine and opens it", async () => {
+      // 一份 ComfyUI workflow 产图还是产视频由定义自己声明；本节按 video 过滤时，导进来的
+      // 图像端点在设置页里既看不到也删不掉，而别处没有自定义端点的管理面。
+      useEndpointCatalogStore.setState({
+        endpoints: [...CATALOG, descriptor({ key: "ce-9", kind: "comfyui", media_type: "image", display_name: "我的画图 workflow" })],
+        loading: false,
+        initialized: true,
+      });
+      vi.spyOn(API, "listCustomEndpoints").mockResolvedValue({
+        endpoints: [{ ...COMFYUI_MINE, id: 9, key: "ce-9", media_type: "image", display_name: "我的画图 workflow" }],
+      });
+      renderSection("section=endpoints&endpoint=ce-9");
+
+      expect(await screen.findByRole("button", { name: /我的画图 workflow/ })).toBeInTheDocument();
+      expect(screen.getByRole("heading", { name: "我的画图 workflow" })).toBeInTheDocument();
+    });
+
+    it("keeps the export action so a saved definition can still be backed up", async () => {
+      // 端点定义不含凭证，导出即备份与分享的那一步；ComfyUI 端点没有草稿，导出的必须是已保存的
+      // 那份定义本身——绑定与 workflow 一并在内，否则导出来的备份还原不回这个端点。
+      const downloads = captureDownloads();
+      renderSection("section=endpoints&endpoint=ce-8");
+
+      await userEvent.click(await screen.findByRole("button", { name: "导出" }));
+
+      expect(downloads).toHaveLength(1);
+      expect(downloads[0].name).toBe("comfyui.json");
+      expect(await downloads[0].blob.text()).toBe(JSON.stringify(COMFYUI_MINE.definition, null, 2));
+    });
+
+    it("still shows the declarative form for my declarative endpoint", async () => {
+      renderSection("section=endpoints&endpoint=ce-7");
+
+      expect(await screen.findByDisplayValue("Example Video API")).toBeEnabled();
+      expect(screen.queryByText(/这是一个 ComfyUI 端点/)).not.toBeInTheDocument();
+    });
   });
 
   it("shows only the request details for an endpoint implemented in code", async () => {

@@ -104,6 +104,9 @@ class DefinitionErrorCode(StrEnum):
     COMFYUI_NODE_NOT_FOUND = "comfyui_node_not_found"
     COMFYUI_INPUT_NOT_FOUND = "comfyui_input_not_found"
     COMFYUI_INPUT_IS_LINK = "comfyui_input_is_link"
+    COMFYUI_TARGET_COLLISION = "comfyui_target_collision"
+    COMFYUI_CLASS_TYPE_MISMATCH = "comfyui_class_type_mismatch"
+    COMFYUI_CONSUMER_NOT_FED = "comfyui_consumer_not_fed"
 
     # ---- ComfyUI 导入分流 ----
     COMFYUI_UI_FORMAT_WORKFLOW = "comfyui_ui_format_workflow"

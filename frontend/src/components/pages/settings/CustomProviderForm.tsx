@@ -95,12 +95,19 @@ interface ModelRow {
   original_global_bucket_refs: string[];
 }
 
+//: 新模型行默认挂的端点；协议从 ComfyUI 切走时，挂不住的行也退回它。
+const DEFAULT_ENDPOINT = "openai-chat" as EndpointKey;
+
+//: 「这一行还没有端点」。切进 ComfyUI 协议而一个 ComfyUI 端点都还没有时，挂不住的行停在这里：
+//: 选择器显示未选择，保存被拦下，直到用户导入端点并为它选一个。
+const UNSET_ENDPOINT = "" as EndpointKey;
+
 function newModelRow(partial?: Partial<ModelRow>): ModelRow {
   const base = {
     key: uid(),
     model_id: "",
     display_name: "",
-    endpoint: "openai-chat" as EndpointKey,
+    endpoint: DEFAULT_ENDPOINT,
     is_default: false,
     is_enabled: true,
     price_unit: "",
@@ -322,6 +329,7 @@ export function CustomProviderForm({
   const endpointToImageCapabilities = useEndpointCatalogStore((s) => s.endpointToImageCapabilities);
   const endpointToEndImageCapable = useEndpointCatalogStore((s) => s.endpointToEndImageCapable);
   const catalogEndpoints = useEndpointCatalogStore((s) => s.endpoints);
+  const catalogInitialized = useEndpointCatalogStore((s) => s.initialized);
   const fetchEndpointCatalog = useEndpointCatalogStore((s) => s.fetch);
   useEffect(() => {
     void fetchEndpointCatalog();
@@ -329,7 +337,8 @@ export function CustomProviderForm({
 
   // --- Form state ---
   const [displayName, setDisplayName] = useState(existing?.display_name ?? "");
-  const [discoveryFormat, setDiscoveryFormat] = useState<DiscoveryFormat>(existing?.discovery_format ?? "openai");
+  // 「用户还没选过协议」与「他选了 openai」不是一回事：只有前者才让接线过来的端点定协议。
+  const [pickedFormat, setDiscoveryFormat] = useState<DiscoveryFormat | null>(existing?.discovery_format ?? null);
   const [baseUrl, setBaseUrl] = useState(existing?.base_url ?? initialBaseUrl ?? "");
   const [apiKey, setApiKey] = useState("");
   const [showApiKey, setShowApiKey] = useState(false);
@@ -342,6 +351,14 @@ export function CustomProviderForm({
         ? [newModelRow({ endpoint: initialEndpoint })]
         : [],
   );
+  // 接线过来的端点定协议：ComfyUI 端点只挂得上 ComfyUI 供应商（docs/adr/0081 的双向配对），
+  // 让用户自己去把协议改过来就是先让他撞一次保存失败——那一行在端点选择器里还是隐着的。端点
+  // 目录是异步取的，因此这里取派生值而不是初始值：目录到齐后协议随之落定。
+  const wiredFormat: DiscoveryFormat | null = useMemo(() => {
+    const descriptor = catalogEndpoints.find((item) => item.key === initialEndpoint);
+    return descriptor && isComfyuiEndpoint(descriptor) ? "comfyui" : null;
+  }, [catalogEndpoints, initialEndpoint]);
+  const discoveryFormat = pickedFormat ?? wiredFormat ?? "openai";
   // ComfyUI 协议：凭证可留空、没有模型发现、能力不接受覆盖、端点选择器只列 ComfyUI 端点。
   const isComfyui = isComfyuiProtocol(discoveryFormat);
   const [imageMaxWorkers, setImageMaxWorkers] = useState(workersToStr(existing?.image_max_workers));
@@ -388,11 +405,48 @@ export function CustomProviderForm({
     focusedModelRef.current?.scrollIntoView({ block: "center" });
   }, [focusModelId]);
 
+  // 新建的模型行默认挂哪个端点：ComfyUI 协议下只有 ComfyUI 端点挂得上去。
+  const comfyuiEndpoints = useMemo(
+    () => catalogEndpoints.filter(isComfyuiEndpoint),
+    [catalogEndpoints],
+  );
+
+  // 行挂不挂得住当前协议是一路派生下来的，不是切协议那一刻改写一遍行就算数：ComfyUI 端点只挂得上
+  // ComfyUI 供应商，反之亦然（docs/adr/0081 的双向配对），而这份判断要查端点目录——目录是异步取的，
+  // 切协议那一刻它可能还没回来，回来之后也不会有人再重算一遍。留着挂不住的旧值，那一行在端点选择器
+  // 里是隐着的（选择器按协议过滤），用户看不见它，保存时才吃一个 422。
+  //
+  // 改挂的去处：切进 ComfyUI 取第一个 ComfyUI 端点，切走退回新行的默认端点；一个 ComfyUI 端点都
+  // 还没有时没有去处，行落在 UNSET_ENDPOINT 上——用户看得见、保存拦得住，比留个隐形的旧端点强。
+  // 派生而非改写还带来一点：切走再切回来，原先手选的那个端点自己回来了，models 里存的始终是用户
+  // 最后一次显式选择。
+  const effectiveModels = useMemo(() => {
+    // 目录还没回来时一行都判不了：不动它们，由下面的保存门控把这段时间拦住。
+    if (!catalogInitialized) return models;
+    return models.map((row) => {
+      const descriptor = catalogEndpoints.find((item) => item.key === row.endpoint);
+      if (descriptor !== undefined && isComfyuiEndpoint(descriptor) === isComfyui) return row;
+      const endpoint = (isComfyui ? comfyuiEndpoints[0]?.key : DEFAULT_ENDPOINT) ?? UNSET_ENDPOINT;
+      // 换了一路，默认标记与能力覆盖随之作废：覆盖的合法性本就绑在 (endpoint, model_id) 上，
+      // 而 ComfyUI 协议整个关闭覆盖（服务端 _check_protocol_constraints），留着必被拒。
+      return { ...row, endpoint, is_default: false, ...capabilityFieldsFor(row, row.model_id, endpoint) };
+    });
+  }, [models, catalogInitialized, catalogEndpoints, comfyuiEndpoints, isComfyui]);
+
+  // 停在 UNSET_ENDPOINT 的行保存不了：服务端按行校验协议配对，一行没有端点整份配置都落不了库。
+  // 禁用态不分是否启用——停用的行同样随 payload 提交。
+  const hasUnsetEndpoint = effectiveModels.some((m) => !m.endpoint);
+  // 协议要么由接线过来的端点定，要么由用户自己选；这两种情形下判定都要查端点目录，目录没取回来
+  // 时判不了：接线端点还没解析出来，协议就回退成了 openai，那一行照样吃 422。有模型行要提交就先
+  // 拦住。两种情形都没有时表单停在默认协议与默认端点上，本来就不用查目录。
+  const catalogPending =
+    !catalogInitialized && models.length > 0 && (initialEndpoint !== undefined || pickedFormat !== null);
+
   const filteredModels = useMemo(() => {
-    if (!modelFilter.trim()) return models;
+    if (!modelFilter.trim()) return effectiveModels;
     const q = modelFilter.toLowerCase();
-    return models.filter((m) => m.model_id.toLowerCase().includes(q));
-  }, [models, modelFilter]);
+    return effectiveModels.filter((m) => m.model_id.toLowerCase().includes(q));
+  }, [effectiveModels, modelFilter]);
 
   const allFilteredEnabled = useMemo(
     () => filteredModels.length > 0 && filteredModels.every((m) => m.is_enabled),
@@ -436,10 +490,10 @@ export function CustomProviderForm({
     () =>
       authFreeEndpoints === null
         ? []
-        : models
+        : effectiveModels
             .filter((m) => m.is_enabled && m.model_id.trim() && !authFreeEndpoints.has(m.endpoint))
             .map((m) => m.model_id),
-    [models, authFreeEndpoints],
+    [effectiveModels, authFreeEndpoints],
   );
 
   // base_url 相对存储值是否变更：变更后必须用 UI 上的新地址 + 新 key 走明文路径，
@@ -452,11 +506,6 @@ export function CustomProviderForm({
   // 凭证是否可以为空。ComfyUI 本体零鉴权，反向代理的凭据模板写在端点定义的 auth 节
   // （docs/adr/0081），供应商行的 api_key 留空是常态，不该被必填校验堵住。
   const keyOptional = noApiKey || isComfyui;
-  // 新建的模型行默认挂哪个端点：ComfyUI 协议下只有 ComfyUI 端点挂得上去。
-  const comfyuiEndpoints = useMemo(
-    () => catalogEndpoints.filter(isComfyuiEndpoint),
-    [catalogEndpoints],
-  );
 
   // --- Discover models ---
   const handleDiscover = useCallback(async () => {
@@ -534,7 +583,7 @@ export function CustomProviderForm({
       showError(t("fill_api_key"));
       return;
     }
-    const enabledModels = models.filter((m) => m.is_enabled);
+    const enabledModels = effectiveModels.filter((m) => m.is_enabled);
     if (enabledModels.length === 0) {
       showError(t("enable_one_model"));
       return;
@@ -544,11 +593,17 @@ export function CustomProviderForm({
       showError(t("enabled_model_needs_id"));
       return;
     }
+    // 目录没取回来时行挂不挂得住当前协议判不了，这一版 payload 不该送出去。排在自有输入校验
+    // 之后：用户自己填漏的字段先说，不拿一条「稍候再试」盖住它。
+    if (catalogPending) {
+      showError(t("cp_endpoint_catalog_pending"));
+      return;
+    }
     // 在拼装 payload 前显式校验所有行的 supported_durations 格式：失败则阻断保存，
     // 让用户回去修正标红字段；不再让 rowToInput 静默把非法降级为 null
     let payloadModels: CustomProviderModelInput[];
     try {
-      payloadModels = models.map(rowToInput);
+      payloadModels = effectiveModels.map(rowToInput);
     } catch (e) {
       if (e instanceof DurationParseError) {
         const msg = t(DURATION_ERROR_KEY[e.code], e.params);
@@ -608,7 +663,8 @@ export function CustomProviderForm({
     keyOptional,
     baseUrl,
     apiKey,
-    models,
+    effectiveModels,
+    catalogPending,
     imageMaxWorkers,
     videoMaxWorkers,
     audioMaxWorkers,
@@ -620,8 +676,10 @@ export function CustomProviderForm({
   ]);
 
   // --- Model row helpers ---
+  // 用户改动以派生后的行为基准写回，派生结果就此坐实。否则那些由派生兜底改写的字段（改挂的端点、
+  // 随之作废的默认标记）会在下一次派生里被同一条规则再改一遍，用户的改动看不见效果。
   const updateModel = (key: string, patch: Partial<ModelRow>) => {
-    setModels((prev) => prev.map((m) => (m.key === key ? { ...m, ...patch } : m)));
+    setModels(effectiveModels.map((m) => (m.key === key ? { ...m, ...patch } : m)));
   };
 
   const removeModel = (key: string) => {
@@ -892,8 +950,13 @@ export function CustomProviderForm({
                       <button
                         type="button"
                         onClick={() =>
-                          setModels((prev) =>
-                            toggleDefaultReducer(prev, m.key, endpointToMediaType, endpointToImageCapabilities),
+                          setModels(
+                            toggleDefaultReducer(
+                              effectiveModels,
+                              m.key,
+                              endpointToMediaType,
+                              endpointToImageCapabilities,
+                            ),
                           )
                         }
                         className="rounded-[6px] px-2 py-1 font-mono text-[10px] font-bold uppercase tracking-[0.14em] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
@@ -1128,7 +1191,7 @@ export function CustomProviderForm({
           <button
             type="button"
             onClick={() => void handleSave()}
-            disabled={saving}
+            disabled={saving || hasUnsetEndpoint}
             className={ACCENT_BTN_CLS}
             style={ACCENT_BUTTON_STYLE}
           >
@@ -1166,6 +1229,11 @@ export function CustomProviderForm({
             {t("common:cancel")}
           </button>
         </div>
+        {hasUnsetEndpoint && (
+          <p className="mt-2 text-[11.5px] text-warm-bright/90">
+            {t("cp_model_endpoint_unselected")}
+          </p>
+        )}
       </div>
 
       <ConfirmDialog

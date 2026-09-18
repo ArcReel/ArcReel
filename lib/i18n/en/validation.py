@@ -352,6 +352,18 @@ MESSAGES = {
         "Input {input} of node {node} is wired from an upstream node and would be overwritten at run time; "
         "bind a literal field instead"
     ),
+    "val_ce_comfyui_target_collision": (
+        "Input {input} of node {node} is already where {owner} is written, so {binding_key} cannot write the "
+        "same field: whichever is filled last overwrites the other"
+    ),
+    "val_ce_comfyui_class_type_mismatch": (
+        "The entry records node {node} as a {class_type}, but the workflow now has it as {actual}: rematching "
+        "identifies nodes by type, so a mismatch moves the binding elsewhere. Re-import and confirm the bindings"
+    ),
+    "val_ce_comfyui_consumer_not_fed": (
+        "The flow from reference image node {node} never reaches input {input} of node {consumer}: with the wrong "
+        "consumer recorded, a request with fewer images would rewire an unrelated input"
+    ),
     "val_ce_comfyui_ui_format_workflow": (
         "This is a ComfyUI UI-format workflow and cannot be submitted; export it with Export (API) in ComfyUI instead"
     ),
@@ -385,6 +397,10 @@ MESSAGES = {
     "val_ce_infer_note_binding_lost": (
         "The {binding_key} entries have no target in the new workflow (previously node {nodes}); "
         "inference was re-run, please confirm"
+    ),
+    "val_ce_infer_note_target_taken": (
+        "The {binding_key} candidate lands on input {input} of node {node}, which {others} also writes to; "
+        "one field can carry only one binding, so it was dropped from the {binding_key} candidates"
     ),
     "val_ce_poll_without_task_id": "The polling request never references task_id; confirm that this is intended",
     "val_ce_jsonpath_wildcard_order": (

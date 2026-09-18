@@ -139,9 +139,13 @@ export function EndpointSelect({
     ? selected.path.replace(/^\/v1beta\/models\//, "/").replace(/^\/v1/, "")
     : "";
   // 已选 endpoint 不在当前 catalog（数据漂移或后端临时移除）：用原始 key 兜底显示。
+  // 空 value 是「这一行还没有端点」（宿主切到 ComfyUI 协议却无端点可挂）：按 catalog 取回来没有
+  // 判「未选择」，而不是按本协议下有没有选项——无端点可挂正是选项为空的那一刻，用它判会说成加载中。
   const triggerLabel = selected
     ? (selected.displayName ?? t(selected.labelKey))
-    : value || t("endpoint_catalog_loading");
+    : value !== ""
+      ? value
+      : t(initialized ? "cp_endpoint_unselected" : "endpoint_catalog_loading");
 
   const handleSelect = useCallback(
     (next: EndpointKey) => {

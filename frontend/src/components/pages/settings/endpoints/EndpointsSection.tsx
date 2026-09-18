@@ -19,7 +19,7 @@ import type {
   MarketEntry,
 } from "@/types";
 import { MarketInstallDialog } from "../market/MarketInstallDialog";
-import { newEndpointDefinition } from "./endpoint-definition-draft";
+import { isDeclarativeDefinition, newEndpointDefinition } from "./endpoint-definition-draft";
 import { EndpointDetail, type EndpointSelection } from "./EndpointDetail";
 import { EndpointImportDialog } from "./EndpointImportDialog";
 
@@ -125,8 +125,11 @@ export function EndpointsSection() {
     return counts;
   }, [providers]);
 
-  const videoCatalog = useMemo(
-    () => catalog.filter((endpoint) => endpoint.media_type === "video"),
+  // 本节管的是自定义端点，内置那两组只作参照。自定义端点的媒体类型由定义自己声明（一份
+  // ComfyUI workflow 可以产图），因此自定义端点不按 video 过滤——否则导进来的图像端点在设置页
+  // 里既看不到也删不掉。内置端点仍只列视频：内置图像端点在这里没有管理面。
+  const sectionCatalog = useMemo(
+    () => catalog.filter((endpoint) => endpoint.media_type === "video" || endpoint.source === "custom"),
     [catalog],
   );
 
@@ -140,33 +143,38 @@ export function EndpointsSection() {
     return [
       {
         labelKey: "ce_group_mine",
-        entries: videoCatalog.filter((e) => e.source === "custom").map(toEntry),
+        entries: sectionCatalog.filter((e) => e.source === "custom").map(toEntry),
       },
       {
         labelKey: "ce_group_builtin",
-        entries: videoCatalog
+        entries: sectionCatalog
           .filter((e) => e.source === "builtin" && e.kind === "declarative")
           .map(toEntry),
       },
       {
         labelKey: "ce_group_builtin_python",
-        entries: videoCatalog.filter((e) => e.kind === "python").map(toEntry),
+        entries: sectionCatalog.filter((e) => e.kind === "python").map(toEntry),
       },
     ];
-  }, [videoCatalog, referenceCounts, t]);
+  }, [sectionCatalog, referenceCounts, t]);
 
   const selection = useMemo((): EndpointSelection | null => {
     if (selectedKey === "new") {
       return { mode: "new", definition: newEndpointDefinition("") };
     }
-    const record = customEndpoints.find((e) => e.key === selectedKey && e.media_type === "video");
-    if (record) return { mode: "custom", record };
-    const descriptor = videoCatalog.find((e) => e.key === selectedKey);
+    const record = customEndpoints.find((e) => e.key === selectedKey);
+    if (record) {
+      // 详情表单只吃声明式定义；ComfyUI 端点走它自己那一路，否则表单会解引用它没有的 submit / poll。
+      return isDeclarativeDefinition(record.definition)
+        ? { mode: "custom", record, definition: record.definition }
+        : { mode: "comfyui", record };
+    }
+    const descriptor = sectionCatalog.find((e) => e.key === selectedKey);
     if (!descriptor) return null;
     return descriptor.kind === "python"
       ? { mode: "python", descriptor }
       : { mode: "builtin", descriptor };
-  }, [selectedKey, customEndpoints, videoCatalog]);
+  }, [selectedKey, customEndpoints, sectionCatalog]);
 
   // --- 导入 ---
 

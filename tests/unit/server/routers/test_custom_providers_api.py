@@ -1632,6 +1632,39 @@ def test_check_unique_defaults_reads_the_media_type_from_the_resolved_spec():
     _check_unique_defaults(models, split_lanes, t)
 
 
+def test_check_unique_defaults_refuses_two_image_defaults_that_declare_no_capabilities():
+    """能力集为空的图像端点分不开彼此：两条这样的默认放过去，取默认模型时会一次查出两行。
+
+    ``ce-`` 端点的能力位内置查表查不到，此前整条被跳过，于是这类默认从不参与互斥校验。
+    """
+    from fastapi import HTTPException
+
+    from server.routers.custom_providers import ModelInput, _check_unique_defaults
+
+    models = [
+        ModelInput(model_id="m1", display_name="m1", endpoint="ce-7", is_default=True),
+        ModelInput(model_id="m2", display_name="m2", endpoint="ce-8", is_default=True),
+    ]
+    specs = {"ce-7": _custom_endpoint_spec("ce-7", "image"), "ce-8": _custom_endpoint_spec("ce-8", "image")}
+
+    def t(key, **params):
+        return f"{key}:{params}"
+
+    with pytest.raises(HTTPException) as excinfo:
+        _check_unique_defaults(models, specs, t)
+
+    assert excinfo.value.status_code == 422
+
+
+def test_check_unique_defaults_allows_one_image_default_without_capabilities():
+    """一条这样的默认没有分不开的对象，照常放行。"""
+    from server.routers.custom_providers import ModelInput, _check_unique_defaults
+
+    models = [ModelInput(model_id="m1", display_name="m1", endpoint="ce-7", is_default=True)]
+
+    _check_unique_defaults(models, {"ce-7": _custom_endpoint_spec("ce-7", "image")}, lambda key, **params: key)
+
+
 def test_check_unique_defaults_rejects_two_generations_defaults():
     """同 provider 内两条 -generations 都设默认 → 422。"""
     from fastapi import HTTPException

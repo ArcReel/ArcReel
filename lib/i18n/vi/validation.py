@@ -360,6 +360,18 @@ MESSAGES = {
         "Đầu vào {input} của node {node} được nối từ node phía trên nên giá trị điền vào sẽ bị ghi đè khi chạy; "
         "hãy liên kết tới một trường giá trị trực tiếp"
     ),
+    "val_ce_comfyui_target_collision": (
+        "Đầu vào {input} của node {node} đã là nơi ghi của {owner}, nên {binding_key} không thể ghi vào cùng "
+        "một trường: giá trị được điền sau sẽ ghi đè giá trị điền trước"
+    ),
+    "val_ce_comfyui_class_type_mismatch": (
+        "Mục này ghi node {node} là {class_type}, nhưng trong workflow nó hiện là {actual}: việc khớp lại nhận "
+        "dạng node theo kiểu, sai lệch sẽ chuyển liên kết sang node khác. Hãy nhập lại và xác nhận các liên kết"
+    ),
+    "val_ce_comfyui_consumer_not_fed": (
+        "Luồng từ node ảnh tham chiếu {node} không hề đến đầu vào {input} của node {consumer}: ghi sai node tiêu "
+        "thụ, khi số ảnh giảm đi hệ thống sẽ sửa một đầu vào không liên quan"
+    ),
     "val_ce_comfyui_ui_format_workflow": (
         "Đây là workflow định dạng UI của ComfyUI và không thể gửi đi; hãy xuất bằng Export (API) trong ComfyUI"
     ),
@@ -393,6 +405,10 @@ MESSAGES = {
     "val_ce_infer_note_binding_lost": (
         "Các mục {binding_key} không còn đích trong workflow mới (trước đây là node {nodes}); "
         "đã chạy lại suy luận, hãy xác nhận"
+    ),
+    "val_ce_infer_note_target_taken": (
+        "Ứng viên của {binding_key} rơi vào đầu vào {input} của node {node}, mà {others} cũng ghi vào trường "
+        "đó; một trường chỉ mang được một ngữ nghĩa, nên nó đã bị loại khỏi danh sách ứng viên của {binding_key}"
     ),
     "val_ce_poll_without_task_id": "Yêu cầu hỏi trạng thái không tham chiếu task_id; hãy xác nhận đây là chủ ý",
     "val_ce_jsonpath_wildcard_order": (

@@ -28,6 +28,7 @@ from lib.custom_provider.definition_diagnostics import (
 from lib.custom_provider.definition_schema_errors import most_specific, translate_schema_error
 
 from .bindings import BINDING_KEYS_BY_MEDIA_TYPE, REQUIRED_BINDING_KEYS
+from .graph import ancestors, link_of
 from .workflow import is_link, node_inputs
 
 SCHEMA_PATH = Path(__file__).parent / "schema.json"
@@ -94,6 +95,7 @@ def _semantic_issues(document: Mapping[str, Any]) -> Iterator[DefinitionIssue]:
     yield from _required_binding_issues(bindings)
     yield from _media_type_issues(bindings, media_type)
     yield from _target_issues(bindings, workflow, media_type)
+    yield from _collision_issues(bindings, media_type)
     yield from _auth_issues(document)
 
 
@@ -140,8 +142,10 @@ def _one_target_issues(path: str, target: Mapping[str, Any], workflow: Mapping[s
     if node is None:
         yield DefinitionIssue(join_path(path, "node"), DefinitionErrorCode.COMFYUI_NODE_NOT_FOUND, {"node": node_id})
         return
+    yield from _class_type_issues(path, target, node)
     name = target.get("input")
     if name is None:
+        yield from _consumer_issues(path, target, workflow)
         return
     inputs = node_inputs(node)
     input_path = join_path(path, "input")
@@ -154,6 +158,114 @@ def _one_target_issues(path: str, target: Mapping[str, Any], workflow: Mapping[s
         yield DefinitionIssue(
             input_path, DefinitionErrorCode.COMFYUI_INPUT_IS_LINK, {"node": node_id, "input": str(name)}
         )
+        return
+    yield from _consumer_issues(path, target, workflow)
+
+
+def _consumer_issues(path: str, target: Mapping[str, Any], workflow: Mapping[str, Any]) -> Iterator[DefinitionIssue]:
+    """参考图条目嵌套的 ``consumer`` 也要对得上 workflow。
+
+    它记的是「这个格子的图接进了谁的哪个入口」，实发构造照它决定张数变少时改图还是重复填充最后
+    一张。三样都要对得上活图：节点在、入口在、类型没变，还要这个入口真的由这个格子喂着。
+
+    只查前三样不够。定义是可分享、可手改的，随手写上一个存在且确实可选、却与这个格子无关的入口，
+    前三关都过得去，实发构造于是判定「改得动图」，转而按必需分支去删节点——那一路可能直接撞上
+    ``comfyui_image_drop_unsupported``，而正确处置本该是重复填充最后一张。
+    """
+    consumer = target.get("consumer")
+    if not isinstance(consumer, Mapping):
+        return
+    consumer_path = join_path(path, "consumer")
+    node_id = str(consumer["node"])
+    node = workflow.get(node_id)
+    if node is None:
+        yield DefinitionIssue(
+            join_path(consumer_path, "node"), DefinitionErrorCode.COMFYUI_NODE_NOT_FOUND, {"node": node_id}
+        )
+        return
+    name = str(consumer["input"])
+    inputs = node_inputs(node)
+    if name not in inputs:
+        yield DefinitionIssue(
+            join_path(consumer_path, "input"),
+            DefinitionErrorCode.COMFYUI_INPUT_NOT_FOUND,
+            {"node": node_id, "input": name},
+        )
+    elif not _feeds(workflow, str(target["node"]), inputs[name]):
+        yield DefinitionIssue(
+            join_path(consumer_path, "input"),
+            DefinitionErrorCode.COMFYUI_CONSUMER_NOT_FED,
+            {"node": str(target["node"]), "consumer": node_id, "input": name},
+        )
+    yield from _class_type_issues(consumer_path, consumer, node)
+
+
+def _class_type_issues(path: str, record: Mapping[str, Any], node: Mapping[str, Any]) -> Iterator[DefinitionIssue]:
+    """条目记下的 ``class_type`` 要与它指的那个节点现在的类型一致。
+
+    这一项不是装饰：重匹配拿它认身份——节点还在、类型对不上，重匹配就不认这个落点，转而在全图
+    找「类型加标题唯一」的另一个节点迁过去，或者判这条丢了。记错一个类型，绑定会悄悄搬到一个用户
+    没指过的节点上。参考图的 ``consumer`` 同理，实发构造照它查可选入口表决定改不改图。
+    """
+    recorded = record.get("class_type")
+    actual = node.get("class_type")
+    if isinstance(recorded, str) and isinstance(actual, str) and actual != recorded:
+        yield DefinitionIssue(
+            join_path(path, "class_type"),
+            DefinitionErrorCode.COMFYUI_CLASS_TYPE_MISMATCH,
+            {"node": str(record["node"]), "class_type": recorded, "actual": actual},
+        )
+
+
+def _feeds(workflow: Mapping[str, Any], node_id: str, raw: object) -> bool:
+    """某个入口上的这条连线，顺上游走得回这个节点吗。
+
+    推断记下的消费者不一定是直接消费者：图会先过一段转接节点再落到收图的那个入口，因此这里按
+    可达性判，而不是只比一条边的两端。
+    """
+    link = link_of(raw)
+    if link is None:
+        return False
+    return link[0] == node_id or node_id in ancestors(workflow, link[0])
+
+
+def _collision_issues(bindings: Mapping[str, Any], media_type: str) -> Iterator[DefinitionIssue]:
+    """一个字段只能是一个语义键的写入落点。
+
+    实发构造按语义键逐项填值，两个键落在同一个字段上时后填的那项盖掉先填的——``prompt`` 与
+    ``negative_prompt`` 共用一个 ``text`` 入口时，用户拿到的负向提示词其实是正向那条，出图不对
+    却看不出哪里错。同一个键上的两个条目落在一处同理：参考图第二张会盖掉第一张。
+
+    只读目标不占落点（它只取值、不写回），节点级的产物目标没有字段可占。
+
+    按定义里的书写顺序认定归属：先写的那个键留着落点，后写的那条报重复——报在用户能对上的位置。
+    """
+    allowed = BINDING_KEYS_BY_MEDIA_TYPE[media_type]
+    owners: dict[tuple[str, str], str] = {}
+    for key in bindings:
+        if key not in allowed:
+            continue
+        for index, target in enumerate(bindings[key]):
+            landing = _write_landing(target)
+            if landing is None:
+                continue
+            if landing in owners:
+                path = join_path(join_path(join_path("bindings", key), index), "input")
+                yield DefinitionIssue(
+                    path,
+                    DefinitionErrorCode.COMFYUI_TARGET_COLLISION,
+                    {"node": landing[0], "input": landing[1], "binding_key": key, "owner": owners[landing]},
+                )
+                continue
+            owners[landing] = key
+
+
+def _write_landing(target: Mapping[str, Any]) -> tuple[str, str] | None:
+    """这个目标会往哪个字段写值。只读目标与节点级的产物目标都没有落点。"""
+    if target.get("direction") == "read":
+        return None
+    name = target.get("input")
+    return (str(target["node"]), name) if isinstance(name, str) else None
 
 
 def _auth_issues(document: Mapping[str, Any]) -> Iterator[DefinitionIssue]:

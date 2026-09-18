@@ -27,7 +27,7 @@ from lib.aspect_size import DEFAULT_SHORT_EDGE, IMAGE_TIER_SHORT_EDGE, VIDEO_TIE
 from lib.aspect_size import resolution_to_short_edge as short_edge_of_resolution
 from lib.prompt_utils import append_avoid_text, split_avoid_lines
 
-from .node_tables import MERGE_INPUT_PAIRS, OPTIONAL_INPUTS
+from .inference_rules import InferenceRules, MergeNode, load_inference_rules
 from .workflow import is_link, node_inputs
 
 logger = logging.getLogger(__name__)
@@ -113,9 +113,9 @@ def build_workflow(
     """
     workflow = deepcopy(dict(definition["workflow"]))
     bindings: Mapping[str, Any] = definition.get("bindings") or {}
-    media_type = str(definition.get("media_type") or "video")
+    media_type = "image" if definition.get("media_type") == "image" else "video"
 
-    dropped = _apply_media(workflow, bindings, media or MediaInputs())
+    dropped = _apply_media(workflow, bindings, media or MediaInputs(), load_inference_rules(media_type))
 
     body, avoid_text = split_avoid_lines(prompt)
     _write_all(workflow, bindings.get("prompt"), body)
@@ -373,7 +373,9 @@ def _write_seed(
 # ---------------------------------------------------------------- 改图
 
 
-def _apply_media(workflow: dict[str, Any], bindings: Mapping[str, Any], media: MediaInputs) -> tuple[str, ...]:
+def _apply_media(
+    workflow: dict[str, Any], bindings: Mapping[str, Any], media: MediaInputs, rules: InferenceRules
+) -> tuple[str, ...]:
     """填入本次带上的素材，并把没有素材可填的读图节点连同下游一并删掉。
 
     首尾帧与参考图都是「绑定了但这次没给值」就要改图：读图节点留在图里会按 workflow 的字面
@@ -386,21 +388,28 @@ def _apply_media(workflow: dict[str, Any], bindings: Mapping[str, Any], media: M
             _write_all(workflow, targets, value)
         else:
             doomed.extend(str(target["node"]) for target in targets)
-    doomed.extend(_apply_reference_images(workflow, _targets(bindings.get("reference_images")), media.reference_images))
+    doomed.extend(
+        _apply_reference_images(workflow, _targets(bindings.get("reference_images")), media.reference_images, rules)
+    )
     if not doomed:
         return ()
-    return _drop_nodes(workflow, doomed, output_nodes=_output_nodes(bindings))
+    return _drop_nodes(workflow, doomed, output_nodes=_output_nodes(bindings), rules=rules)
 
 
 def _apply_reference_images(
-    workflow: dict[str, Any], targets: Sequence[Mapping[str, Any]], values: Sequence[str]
+    workflow: dict[str, Any],
+    targets: Sequence[Mapping[str, Any]],
+    values: Sequence[str],
+    rules: InferenceRules,
 ) -> list[str]:
     """按张数填参考图，回传要删的读图节点。
 
     张数少于格子数时删多余的格子，而不是把最后一张重复填满——重复一张会让模型把它当成被强调了
-    两次的主体。前提是知道这个格子接到了谁：``consumer`` 是保存绑定时记下的落点，没有它就无从
-    判断删掉之后下游还跑不跑得起来，此时退回重复最后一张，宁可构图偏了也不提交一份必然报错的
-    workflow。一张都没给时连可重复的都没有，读图节点保持底稿字面值。
+    两次的主体。前提是认得这个格子接到的那个入口：``consumer`` 是保存绑定时记下的落点，它落在
+    可选入口或两两合并节点上才改得动图。没记下 ``consumer``、或它落在这两张表之外，都算不认识
+    ——此时退回重复最后一张，宁可构图偏了也不凭猜测把一个必需输入摘掉、让 ComfyUI 在提交时报
+    ``node_errors``。保存这份绑定时推断已按同一条判据给过提示。一张都没给时连可重复的都没有，
+    读图节点保持底稿字面值。
     """
     filled = min(len(targets), len(values))
     for index in range(filled):
@@ -408,24 +417,38 @@ def _apply_reference_images(
     spare = targets[filled:]
     if not spare:
         return []
-    if any("consumer" not in target for target in spare):
-        logger.info("参考图格子 %d 个、本次 %d 张，但有格子未记下 consumer，改图跳过", len(targets), len(values))
+    if any(not _adjustable(target, rules) for target in spare):
+        logger.info("参考图格子 %d 个、本次 %d 张，但有格子的 consumer 改不动图，改图跳过", len(targets), len(values))
         if values:
             _write_all(workflow, list(spare), values[-1])
         return []
     return [str(target["node"]) for target in spare]
 
 
+def _adjustable(target: Mapping[str, Any], rules: InferenceRules) -> bool:
+    """这个参考图格子在张数变少时改得动图吗。"""
+    consumer = target.get("consumer")
+    if not isinstance(consumer, Mapping):
+        return False
+    class_type = consumer.get("class_type")
+    input_name = consumer.get("input")
+    if not isinstance(class_type, str) or not isinstance(input_name, str):
+        return False
+    return rules.adjustable_input(class_type, input_name)
+
+
 def _output_nodes(bindings: Mapping[str, Any]) -> frozenset[str]:
     return frozenset(str(target["node"]) for target in _targets(bindings.get("output")))
 
 
-def _drop_nodes(workflow: dict[str, Any], seeds: Sequence[str], *, output_nodes: frozenset[str]) -> tuple[str, ...]:
+def _drop_nodes(
+    workflow: dict[str, Any], seeds: Sequence[str], *, output_nodes: frozenset[str], rules: InferenceRules
+) -> tuple[str, ...]:
     """删掉给定的节点，前向级联到下游、后向清理只喂给它们的上游。
 
-    前向三种处置按节点类型分（见 :mod:`.node_tables`）：允许缺席的输入摘键、两两合并节点 bypass、
-    其余连它一起删并继续级联。级联触到产物节点即失败：成片链路本身依赖这张图，提交一份缺了它的
-    workflow 只会换来一次远端报错加一次等待。
+    前向三种处置按节点类型分（判据在推断规则表的可选入口与合并节点两节）：允许缺席的输入摘键、
+    两两合并节点 bypass、其余连它一起删并继续级联。级联触到产物节点即失败：成片链路本身依赖这张
+    图，提交一份缺了它的 workflow 只会换来一次远端报错加一次等待。
     """
     deleted: list[str] = []
     orphan_candidates: set[str] = set()
@@ -439,7 +462,7 @@ def _drop_nodes(workflow: dict[str, Any], seeds: Sequence[str], *, output_nodes:
         orphan_candidates.update(_link_sources(workflow[node_id]))
         del workflow[node_id]
         deleted.append(node_id)
-        pending.extend(_detach_consumers(workflow, node_id, output_nodes, deleted, orphan_candidates))
+        pending.extend(_detach_consumers(workflow, node_id, output_nodes, deleted, orphan_candidates, rules))
     _prune_orphans(workflow, orphan_candidates, pinned=output_nodes, deleted=deleted)
     return tuple(deleted)
 
@@ -450,6 +473,7 @@ def _detach_consumers(
     output_nodes: frozenset[str],
     deleted: list[str],
     orphan_candidates: set[str],
+    rules: InferenceRules,
 ) -> list[str]:
     """处置引用了刚删掉那个节点的全部下游，回传其中必须一并删除的。"""
     doomed: list[str] = []
@@ -462,13 +486,12 @@ def _detach_consumers(
         if not names:
             continue
         class_type = str(consumer.get("class_type") or "")
-        optional = OPTIONAL_INPUTS.get(class_type, frozenset())
-        pair = MERGE_INPUT_PAIRS.get(class_type)
+        merge = rules.merge_node(class_type)
         for name in names:
-            if name in optional:
+            if rules.is_optional_input(class_type, name):
                 del inputs[name]
-            elif pair is not None and name in pair and consumer_id not in output_nodes:
-                if _bypass_merge(workflow, consumer_id, pair, name, deleted, orphan_candidates):
+            elif merge is not None and name in merge.inputs and consumer_id not in output_nodes:
+                if _bypass_merge(workflow, consumer_id, merge, name, deleted, orphan_candidates):
                     break
                 doomed.append(consumer_id)
             else:
@@ -479,19 +502,23 @@ def _detach_consumers(
 def _bypass_merge(
     workflow: dict[str, Any],
     merge_id: str,
-    pair: tuple[str, str],
+    merge: MergeNode,
     dropped: str,
     deleted: list[str],
     orphan_candidates: set[str],
 ) -> bool:
     """把一个两两合并节点从图里摘掉，它的下游改接剩下那一路。
 
-    剩下那一路必须是条连线才摘得掉：换成字面值就没有「上游」可以改接，此时只能把这个节点也删掉
-    并继续级联。不新增节点，只改下游的引用。
+    剩下那一路必须是条还连着活节点的连线才摘得掉。两种情况摘不掉，都只能把这个节点也删掉、继续
+    级联：换成字面值就没有「上游」可以改接；两个入口接的是同一个读图节点时，「剩下那一路」指的
+    正是刚刚删掉的那个节点，照它改接只会给下游留一条悬空连线，而这份 workflow 照样会提交出去。
+
+    不新增节点，只改下游的引用。
     """
     inputs = _mutable_inputs(workflow[merge_id])
-    survivor = _as_link(inputs.get(pair[1] if dropped == pair[0] else pair[0]))
-    if survivor is None:
+    first, second = merge.inputs
+    survivor = _as_link(inputs.get(second if dropped == first else first))
+    if survivor is None or str(survivor[0]) not in workflow:
         return False
     for other_id in list(workflow):
         if other_id == merge_id:

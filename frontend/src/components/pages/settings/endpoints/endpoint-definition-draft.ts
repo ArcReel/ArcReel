@@ -1,4 +1,5 @@
 import type {
+  AnyEndpointDefinition,
   EndpointDefinition,
   EndpointExtractSpec,
   EndpointInputEncoding,
@@ -150,6 +151,14 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /**
+ * 这份定义是不是声明式的。ComfyUI 定义只有 `workflow` 与 `bindings`，详情表单与头部直接解引用的
+ * `submit` / `poll` 在它上面根本不存在，两者只能在同一个判据上分道。
+ */
+export function isDeclarativeDefinition(value: AnyEndpointDefinition): value is EndpointDefinition {
+  return value.kind === "declarative";
+}
+
+/**
  * JSON 视图写回草稿前的结构闸：表单与头部不做防御性访问（草稿即定义），
  * 直接解引用 meta、submit.extract、poll.extract 这几个容器，缺任一即不可渲染。
  * 字段级缺失（如 meta.name）只影响单个控件的取值，交给服务端校验诊断。
@@ -169,7 +178,7 @@ export function isRenderableDefinition(value: unknown): value is EndpointDefinit
  * 导出文件名，与市场条目 slug 同一规则 `^[a-z0-9][a-z0-9-]{0,63}$`：从 meta.name 去重音、转小写，
  * 其余字符折成连字符，没有可用 ASCII 字符时退化为 `endpoint`。有安装记录的端点直接用记录里的 slug。
  */
-export function definitionFileName(definition: EndpointDefinition, installationSlug?: string | null): string {
+export function definitionFileName(definition: AnyEndpointDefinition, installationSlug?: string | null): string {
   if (installationSlug) return `${installationSlug}.json`;
   const slug = (definition.meta?.name ?? "")
     .normalize("NFKD")

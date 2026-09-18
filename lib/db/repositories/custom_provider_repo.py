@@ -5,9 +5,10 @@ from __future__ import annotations
 import logging
 from typing import NamedTuple
 
-from sqlalchemy import delete, or_, select
+from sqlalchemy import String, cast, delete, literal, or_, select
 
 from lib.custom_provider import CUSTOM_ENDPOINT_KEY_PREFIX, is_custom_provider, parse_provider_id
+from lib.db.models.custom_endpoint import CustomEndpoint
 from lib.db.models.custom_provider import CustomProvider, CustomProviderModel
 from lib.db.repositories.base import BaseRepository
 
@@ -15,18 +16,19 @@ logger = logging.getLogger(__name__)
 
 
 def _media_type_endpoint_filter(media_type: str):
-    """按媒体类型筛 endpoint：内置键查表得到，视频另放行全部声明式端点。
+    """按媒体类型筛 endpoint：内置键查表得到，自定义端点读它自己那一行的镜像列。
 
-    声明式端点的键系统分配、不在内置注册表里，媒体类型恒为 video（见
-    ``lib.custom_provider.builtin_definitions.DECLARATIVE_MEDIA_TYPE``；分层契约不允许本层
-    引用该模块，故此处按字面量比较），因此按键前缀直接入选，不必为每一行回表读定义。
+    自定义端点的键系统分配、不在内置注册表里，媒体类型写在 ``custom_endpoint.media_type``
+    这个镜像列上（``docs/adr/0067``），一份 workflow 产图还是产视频由定义自己说了算、从键上
+    推不出来。故按 ``ce-<id>`` 与镜像列匹配，而不是按键前缀一律记作视频。
     """
     from lib.custom_provider.endpoints import ENDPOINT_KEYS_BY_MEDIA_TYPE
 
     builtin = CustomProviderModel.endpoint.in_(ENDPOINT_KEYS_BY_MEDIA_TYPE.get(media_type, ()))
-    if media_type != "video":
-        return builtin
-    return or_(builtin, CustomProviderModel.endpoint.startswith(CUSTOM_ENDPOINT_KEY_PREFIX))
+    custom = select(literal(CUSTOM_ENDPOINT_KEY_PREFIX).concat(cast(CustomEndpoint.id, String))).where(
+        CustomEndpoint.media_type == media_type
+    )
+    return or_(builtin, CustomProviderModel.endpoint.in_(custom))
 
 
 class CustomProviderPrice(NamedTuple):

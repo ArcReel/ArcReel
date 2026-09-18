@@ -16,6 +16,8 @@ from lib.custom_provider.comfyui.inference import (
     InferenceNote,
     infer_bindings,
 )
+from lib.custom_provider.endpoint_definition.validator import validate_definition
+from tests.factories import comfyui_endpoint_definition
 
 DATA = Path(__file__).parent / "data"
 
@@ -195,12 +197,12 @@ def test_a_missing_key_is_inferred_from_scratch():
 
 
 def test_a_title_marker_suppresses_the_other_signals_on_that_key_only():
-    """标记按语义键抑制推断：正向文本改判给被标记的节点，负向仍按端口反溯。"""
+    """标记按语义键抑制推断：正向文本改判给被标记的节点，别的键照原样推断。"""
     workflow = marked(sample_workflow("wan21_t2v"), "7", "ARCREEL:prompt 我说了算")
     result = infer_sample("wan21_t2v", workflow=workflow)
     assert landings(result, "prompt") == [("7", "text")]
     assert graded_on(result, "prompt") == {BindingSignal.TITLE_MARKER.value}
-    assert landings(result, "negative_prompt") == [("7", "text")]
+    assert landings(result, "seed") == landings(infer_sample("wan21_t2v"), "seed")
 
 
 def test_a_title_marker_is_case_insensitive_and_stops_at_the_first_space():
@@ -421,6 +423,104 @@ def test_a_batch_field_above_one_is_reported_without_touching_the_workflow():
     result = infer_sample("sdxl_batch_t2i")
     codes = {note.code.value for note in result.notes}
     assert InferenceNote.BATCH_SIZE_ABOVE_ONE.value in codes
+
+
+# ---------------------------------------------------------------------------
+# 落点互斥
+# ---------------------------------------------------------------------------
+
+
+def test_two_keys_cannot_both_write_one_field_and_the_weaker_one_yields_it():
+    """标记是按节点给的，一个文本字段可以同时满足正负两极的判据。
+
+    真让两个键都落在那里，实发构造会先写正向提示词、再把 Avoid 文本追加到同一个字段，用户拿到的
+    负向提示词其实是正向那条。分数高的那个键留下，另一个让出这条候选。
+    """
+    workflow = marked(sample_workflow("wan21_t2v"), "7", "ARCREEL:prompt")
+    result = infer_sample("wan21_t2v", workflow=workflow)
+
+    assert landings(result, "prompt") == [("7", "text")]
+    assert result.keys["negative_prompt"].state is BindingState.NOT_FOUND
+    assert InferenceNote.TARGET_TAKEN.value in {note.code.value for note in result.keys["negative_prompt"].notes}
+
+
+def test_a_field_two_keys_want_equally_is_left_to_neither():
+    """同一张读图既接首帧入口又接参考图入口：两个键分数并列，谁都不自动拿。"""
+    workflow = sample_workflow("wan21_t2v")
+    workflow["20"] = {"class_type": "LoadImage", "inputs": {"image": "a.png"}, "_meta": {"title": "图"}}
+    workflow["21"] = {"class_type": "WanImageToVideo", "inputs": {"positive": ["6", 0], "start_image": ["20", 0]}}
+    workflow["22"] = {"class_type": "WanVaceToVideo", "inputs": {"positive": ["6", 0], "reference_image": ["20", 0]}}
+
+    result = infer_sample("wan21_t2v", workflow=workflow)
+
+    assert result.keys["start_image"].state is BindingState.NOT_FOUND
+    assert result.keys["reference_images"].state is BindingState.NOT_FOUND
+
+
+def test_a_saved_binding_keeps_its_field_and_inference_yields_it_instead():
+    """用户确认过的落点不由推断让出：已保存绑定的权重高于任何推断信号，标记也压不过它。"""
+    workflow = marked(sample_workflow("wan21_t2v"), "7", "ARCREEL:prompt")
+    saved = {"negative_prompt": [{"node": "7", "input": "text", "class_type": "CLIPTextEncode", "title": "负向"}]}
+
+    result = infer_sample("wan21_t2v", workflow=workflow, bindings=saved)
+
+    assert landings(result, "negative_prompt") == [("7", "text")]
+    assert result.keys["prompt"].state is BindingState.NOT_FOUND
+
+
+def test_two_saved_bindings_on_one_field_are_not_savable():
+    """两边都是用户确认过的落点时推断不动它们，但这份定义不自洽，落盘前要拦下。"""
+    entry = {"node": "6", "input": "text", "class_type": "CLIPTextEncode", "title": "正向"}
+
+    assert infer_sample("wan21_t2v", bindings={"prompt": [entry], "negative_prompt": [entry]}).savable is False
+
+
+def test_a_key_that_yields_a_field_does_not_settle_on_another_one_already_taken():
+    """让出后改选的次选可能又撞上别人：一轮解不完，要一直解到没人再让。
+
+    尾帧靠标记拿下 78 的读图，首帧让出它、改选 90；而参考图也认领着 90。只收集一次认领时这第二次
+    撞车没人处理，首帧与参考图一起落在 90 上出去——正是落点互斥要挡的那一幕。
+    """
+    workflow = marked(sample_workflow("ltxv_i2v"), "78", "ARCREEL:end_image")
+    workflow["90"] = {"class_type": "LoadImage", "inputs": {"image": "b.png"}, "_meta": {"title": "Load Image"}}
+    workflow["91"] = {"class_type": "WanVaceToVideo", "inputs": {"reference_image": ["90", 0]}}
+    workflow["92"] = {"class_type": "WanImageToVideo", "inputs": {"start_image": ["90", 0]}}
+
+    result = infer_sample("ltxv_i2v", workflow=workflow)
+
+    assert landings(result, "end_image") == [("78", "image")]
+    # 90 上首帧与参考图同分，按并列规则谁都不留；两个键都该听见自己让出了什么。
+    assert landings(result, "start_image") == []
+    assert landings(result, "reference_images") == []
+    assert note_codes(result, "reference_images") == {InferenceNote.TARGET_TAKEN.value}
+    assert result.savable is True
+
+
+def test_a_read_only_key_does_not_claim_the_field_it_reads():
+    """帧率只从字段取值、不写回，它与写入落点不冲突。"""
+    result = infer_sample("wan21_t2v")
+
+    assert landings(result, "fps") != []
+    assert result.keys["fps"].state is BindingState.AUTO_SELECTED
+
+
+def test_the_inference_result_saves_as_a_definition_without_errors():
+    """推断出来的条目照原样落盘必须过得了定义校验。
+
+    推断与定义 schema 是同一票的两半：条目上多一项 schema 没声明的字段（writeTarget 是
+    ``additionalProperties: false``），推出来的就是一份存不回去的结果，而这在保存那一刻才显形。
+    ltxv_i2v 有读图节点接进首帧端口，正好覆盖只有参考图才带 ``consumer`` 这条口径。
+    """
+    workflow = sample_workflow("ltxv_i2v")
+    result = infer_sample("ltxv_i2v", workflow=workflow)
+    definition = comfyui_endpoint_definition(
+        media_type="video",
+        workflow=workflow,
+        bindings={key: list(r.selected_targets) for key, r in result.keys.items() if r.selected_targets},
+    )
+
+    assert landings(result, "start_image") == [("78", "image")]
+    assert validate_definition(definition).errors == ()
 
 
 def test_a_result_is_savable_only_when_nothing_is_pending_and_the_two_required_keys_landed():

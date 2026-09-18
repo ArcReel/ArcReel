@@ -190,6 +190,50 @@ class TestCapacityTable:
         assert table.get("custom-2", "video") == 4
         assert table.get("custom-2", "image") == 0
 
+    async def test_from_db_reads_the_endpoint_lane_through_the_real_repositories(self, monkeypatch, file_db_factory):
+        """ce- 端点的 lane 投影走真实库与真实仓储跑一遍。
+
+        同组其余用例把三个数据源换成内存值，跑得快但碰不到真实的 SQL 与行形状——这条用例落真行、
+        用真仓储，端点解析那一路上的查询或列名走样时它会失败。
+        """
+        from lib.db.repositories.custom_endpoint_repo import CustomEndpointRepository
+        from lib.db.repositories.custom_provider_repo import CustomProviderRepository
+        from tests.factories import comfyui_endpoint_definition
+
+        for env in ("IMAGE_MAX_WORKERS", "VIDEO_MAX_WORKERS", "AUDIO_MAX_WORKERS"):
+            monkeypatch.delenv(env, raising=False)
+        definition = comfyui_endpoint_definition(media_type="image")
+        async with file_db_factory() as session:
+            endpoint = await CustomEndpointRepository(session).create(
+                definition=definition,
+                kind="comfyui",
+                schema_version=definition["schema_version"],
+                media_type="image",
+                display_name="我的画图 workflow",
+            )
+            await CustomProviderRepository(session).create_provider(
+                display_name="我的 ComfyUI",
+                discovery_format="comfyui",
+                base_url="http://comfy.invalid:8188",
+                api_key="",
+                models=[
+                    {
+                        "model_id": "wan-i2i",
+                        "display_name": "wan-i2i",
+                        "endpoint": f"ce-{endpoint.id}",
+                    }
+                ],
+                image_max_workers=6,
+            )
+            await session.commit()
+        bind_safe_session_factory(monkeypatch, file_db_factory)
+
+        table = await CapacityTable.from_db()
+
+        # 端点定义说这是图像端点，lane 就落在 image 上——键前缀不蕴含媒体类型。
+        assert table.get("custom-1", "image") == 6
+        assert table.get("custom-1", "video") == 0
+
     async def test_from_db_comfyui_provider_defaults_each_lane_to_one(self, monkeypatch):
         """comfyui 协议、并发列为 NULL：图像与视频各 1，而不是全局默认的 5 / 3。
 

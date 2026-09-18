@@ -105,22 +105,30 @@ def dependency_depth(workflow: Mapping[str, Any], node_id: str) -> int:
     """该节点上游最长链的长度。两段式 workflow 里第二段的产物深度严格大于第一段。
 
     环在合法的 workflow 里不存在（ComfyUI 的执行器要求 DAG），但导入的是用户文件，遇到环时按
-    「不再往回走」收敛，而不是撞进无限递归。
+    「不再往回走」收敛：回边上的节点记 0，不再往回走第二遍。
+
+    显式栈而非递归：推断接口收的是用户导入的整份 workflow，节点数与链路长度都没有上限，一条足够
+    长的合法链会把递归打穿成 ``RecursionError``——那会让一份没有任何问题的 workflow 拿到 500。
     """
     memo: dict[str, int] = {}
-
-    def depth(current: str, path: frozenset[str]) -> int:
+    on_path: set[str] = set()
+    stack: list[tuple[str, bool]] = [(node_id, False)]
+    while stack:
+        current, expanded = stack.pop()
+        if expanded:
+            on_path.discard(current)
+            parents = [parent for _, (parent, _slot) in upstream_of(workflow, current)]
+            # 此刻不在 memo 里的父节点只可能是回边：它还在当前路径上，按 0 计。
+            memo[current] = 1 + max(memo.get(parent, 0) for parent in parents) if parents else 0
+            continue
         if current in memo:
-            return memo[current]
-        if current in path:
-            return 0
-        deeper = path | {current}
-        parents = [depth(parent, deeper) for _, (parent, _slot) in upstream_of(workflow, current)]
-        value = 1 + max(parents) if parents else 0
-        memo[current] = value
-        return value
-
-    return depth(node_id, frozenset())
+            continue
+        on_path.add(current)
+        stack.append((current, True))
+        for _, (parent, _slot) in upstream_of(workflow, current):
+            if parent not in memo and parent not in on_path:
+                stack.append((parent, False))
+    return memo[node_id]
 
 
 @dataclass(frozen=True)
@@ -156,9 +164,12 @@ def resolve_literal(
     node = workflow.get(node_id)
     if not isinstance(node, Mapping):
         return UNRESOLVED
-    raw = node_inputs(node).get(input_name)
-    if raw is None:
+    inputs = node_inputs(node)
+    # 按键判在不在，而不是按值是不是 None：``"text": null`` 是个存在的字面值字段，填得进去，
+    # 与「这个节点根本没有这个入口」不是一回事。
+    if input_name not in inputs:
         return UNRESOLVED
+    raw = inputs[input_name]
     link = link_of(raw)
     if link is None:
         return Resolution(node_id, input_name, unwrap_value(raw))
@@ -172,9 +183,10 @@ def resolve_literal(
         constant_input = constants.get(class_type_of(upstream))
         if constant_input is None:
             return UNRESOLVED
-        value = node_inputs(upstream).get(constant_input)
-        if value is None:
+        upstream_inputs = node_inputs(upstream)
+        if constant_input not in upstream_inputs:
             return UNRESOLVED
+        value = upstream_inputs[constant_input]
         next_link = link_of(value)
         if next_link is None:
             return Resolution(current, constant_input, unwrap_value(value))

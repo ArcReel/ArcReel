@@ -54,15 +54,18 @@ def endpoints_client(endpoints_app: FastAPI) -> Generator[TestClient, None, None
 
 @pytest.fixture
 async def attach_model(db_engine):
-    """把一个自定义模型行挂到指定 endpoint 键上，制造删除时的引用。"""
+    """把一个自定义模型行挂到指定 endpoint 键上，制造删除时的引用。
+
+    ``discovery_format`` 决定这条挂接的供应商协议，用于「端点 × 供应商协议」的配对用例。
+    """
     session_factory = async_sessionmaker(db_engine, expire_on_commit=False)
 
-    async def _attach(endpoint_key: str) -> int:
+    async def _attach(endpoint_key: str, discovery_format: str = "openai") -> int:
         async with session_factory() as session:
             repo = CustomProviderRepository(session)
             provider = await repo.create_provider(
                 display_name="中转站",
-                discovery_format="openai",
+                discovery_format=discovery_format,
                 base_url="https://api.example.com",
                 api_key="sk-test",
                 models=[
@@ -78,6 +81,14 @@ async def attach_model(db_engine):
             return models[0].id
 
     return _attach
+
+
+def _comfyui_image_definition() -> dict:
+    """一份产图的 ComfyUI 定义：视频专属的语义键摘干净，否则媒体类型白名单先拦下它。"""
+    definition = comfyui_endpoint_definition(media_type="image")
+    for key in ("start_image", "end_image", "frames", "fps"):
+        definition["bindings"].pop(key, None)
+    return definition
 
 
 def _create(client: TestClient, definition: dict[str, Any]) -> dict[str, Any]:
@@ -516,6 +527,71 @@ class TestImportRouting:
 
         assert resp.status_code == 422
         assert [e["code"] for e in resp.json()["diagnostic"]["errors"]] == ["missing_field"]
+
+    async def test_replacing_a_declarative_definition_with_comfyui_is_refused_while_attached(
+        self, endpoints_client: TestClient, attach_model
+    ):
+        """整份替换原地改掉 kind、键与引用不变，于是能把挂接弄坏——这条路上同样要拒。"""
+        created = _create(endpoints_client, custom_endpoint_definition())
+        await attach_model(created["key"])
+
+        resp = endpoints_client.put(f"/api/v1/custom-endpoints/{created['id']}", json=comfyui_endpoint_definition())
+
+        assert resp.status_code == 422
+        assert "demo-video" in resp.json()["detail"]
+        assert endpoints_client.get(f"/api/v1/custom-endpoints/{created['id']}").json()["kind"] == "declarative"
+
+    async def test_replacing_a_comfyui_definition_with_declarative_is_refused_while_attached(
+        self, endpoints_client: TestClient, attach_model
+    ):
+        created = _create(endpoints_client, comfyui_endpoint_definition())
+        await attach_model(created["key"], discovery_format="comfyui")
+
+        resp = endpoints_client.put(f"/api/v1/custom-endpoints/{created['id']}", json=custom_endpoint_definition())
+
+        assert resp.status_code == 422
+        assert endpoints_client.get(f"/api/v1/custom-endpoints/{created['id']}").json()["kind"] == "comfyui"
+
+    async def test_replacing_a_definition_with_the_same_kind_stays_allowed_while_attached(
+        self, endpoints_client: TestClient, attach_model
+    ):
+        """配对没被改动就不该多拦一道：改名、改模板都走这条路。"""
+        created = _create(endpoints_client, custom_endpoint_definition())
+        await attach_model(created["key"])
+        renamed = custom_endpoint_definition(meta={"name": "改名后", "author": "ArcReel", "version": "0.2.0"})
+
+        resp = endpoints_client.put(f"/api/v1/custom-endpoints/{created['id']}", json=renamed)
+
+        assert resp.status_code == 200
+
+    async def test_replacing_an_image_definition_with_a_video_one_is_refused_while_attached(
+        self, endpoints_client: TestClient, attach_model
+    ):
+        """模型行不自带媒体类型，归哪一路由端点决定：原地改判会把它们整批挪到另一路去。"""
+        created = _create(endpoints_client, _comfyui_image_definition())
+        await attach_model(created["key"], discovery_format="comfyui")
+
+        resp = endpoints_client.put(f"/api/v1/custom-endpoints/{created['id']}", json=comfyui_endpoint_definition())
+
+        assert resp.status_code == 422
+        assert "demo-video" in resp.json()["detail"]
+        assert endpoints_client.get(f"/api/v1/custom-endpoints/{created['id']}").json()["media_type"] == "image"
+
+    def test_changing_the_media_type_is_allowed_while_nothing_references_it(self, endpoints_client: TestClient):
+        created = _create(endpoints_client, _comfyui_image_definition())
+
+        resp = endpoints_client.put(f"/api/v1/custom-endpoints/{created['id']}", json=comfyui_endpoint_definition())
+
+        assert resp.status_code == 200
+        assert resp.json()["media_type"] == "video"
+
+    def test_changing_the_kind_is_allowed_while_nothing_references_it(self, endpoints_client: TestClient):
+        created = _create(endpoints_client, custom_endpoint_definition())
+
+        resp = endpoints_client.put(f"/api/v1/custom-endpoints/{created['id']}", json=comfyui_endpoint_definition())
+
+        assert resp.status_code == 200
+        assert resp.json()["kind"] == "comfyui"
 
 
 class TestEndpointCatalog:

@@ -276,6 +276,13 @@ MESSAGES = {
     "discovery_not_applicable_comfyui": (
         "ComfyUI 协议没有可发现的模型列表：能调用什么由 workflow 自身决定，请改为导入 ComfyUI 端点并挂到模型行上"
     ),
+    "custom_endpoint_kind_conflicts_with_attachment": (
+        "这份定义换了容器类型，与该端点当前的挂接不相容：模型 {model_id}（供应商 {provider}）的协议接不了它。请先改动模型行的挂接，再替换定义"
+    ),
+    "custom_endpoint_media_type_conflicts_with_attachment": (
+        "这份定义产出的是{media_type}，与端点当前的媒体类型不同，而模型 {model_id}（供应商 {provider}）还挂着它："
+        "模型行归哪一路由端点决定。请先摘掉挂接，再替换定义"
+    ),
     "comfyui_endpoint_requires_comfyui_provider": (
         "模型 {model_id} 挂的 ComfyUI 端点 {endpoint} 只能用在 ComfyUI 协议的供应商上"
     ),
