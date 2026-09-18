@@ -266,6 +266,7 @@ MESSAGES = {
     "val_ce_auth_query_conflict": (
         "URL đã mang tham số query {param} trùng với auth.query: chỉ mục auth mới được ghi query xác thực"
     ),
+    "val_ce_auth_query_reserved": "Mục {param} trong auth.query trùng tên với tham số mà bước tải sản phẩm đã mang theo; thông tin xác thực sẽ bị ghi đè khi tải, hãy đổi tên khác",
     "val_ce_task_id_out_of_scope": "task_id chỉ dùng được trong mục poll và result",
     "val_ce_result_id_out_of_scope": "result_id chỉ dùng được trong mục result",
     "val_ce_result_id_without_extract": "Đã tham chiếu result_id nhưng poll.extract không khai báo result_id",

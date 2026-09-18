@@ -264,7 +264,6 @@ class TestMediaGenerator:
         from lib.custom_provider.backends import CustomVideoBackend
         from lib.custom_provider.comfyui.request_builder import workflow_sha256
         from lib.custom_provider.comfyui_backend import ComfyuiVideoBackend
-        from lib.video_backends.base import VideoCapabilities
 
         gen = _build_generator(tmp_path)
         gen._video_provider_id = "custom-1"
@@ -275,11 +274,9 @@ class TestMediaGenerator:
             api_key="",
             definition=comfyui_endpoint_definition(),
         )
-        # 能力由节点绑定推导，推导尚未落地；照工厂的做法把生效能力注入包装层，否则请求闸门
-        # 会以「该端点不支持文生视频」拦在 backend 之前。
-        gen._video_backend = CustomVideoBackend(
-            provider_id="custom-1", delegate=delegate, model="wan-t2v"
-        ).with_video_capabilities(VideoCapabilities(text_to_video=True), overrides={"text_to_video": True})
+        # 不注入合成能力：请求闸门读的正是 delegate 自己那份由绑定推导出来的声明，注入一份合成
+        # 值会把这条用例要守的那一段跳过去。
+        gen._video_backend = CustomVideoBackend(provider_id="custom-1", delegate=delegate, model="wan-t2v")
         history = {
             "status": {"completed": True},
             "outputs": {"9": {"gifs": [{"filename": "final.mp4", "subfolder": "video", "type": "output"}]}},

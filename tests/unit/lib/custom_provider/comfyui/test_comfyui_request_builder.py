@@ -218,6 +218,24 @@ class TestFrames:
 
         assert built.frames == 9
 
+    def test_a_workflow_that_keeps_its_own_length_is_not_rewritten(self):
+        """81 帧 @ 24fps 凑不出整档，端点因此对外说时长不由 ArcReel 驱动；填值层要给同一个答案。"""
+        definition = self._with_frames(1, fps=24)
+        definition["workflow"]["9"]["inputs"]["length"] = 81
+
+        built = _build(definition, duration_seconds=4)
+
+        assert built.frames is None
+        assert _inputs(built, "9")["length"] == 81
+
+    def test_a_length_that_does_map_to_a_tier_is_still_driven(self):
+        definition = self._with_frames(4, fps=16)
+        definition["workflow"]["9"]["inputs"]["length"] = 81
+
+        built = _build(definition, duration_seconds=3)
+
+        assert built.frames == 49
+
     def test_an_unbound_frames_key_writes_nothing(self):
         definition = comfyui_endpoint_definition()
 

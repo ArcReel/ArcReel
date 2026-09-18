@@ -309,4 +309,6 @@ export interface VideoCapabilities {
   /** 声音一致性三级标识（模型能力 × generation_mode 二维派生），服务端唯一派生点。 */
   voice_consistency: VoiceConsistencyTier;
   duration_constraints: DurationConstraints;
+  /** 时长这一维由端点固定（ComfyUI workflow 自己定片长）：档位为空集不是「声明缺失」。 */
+  duration_endpoint_fixed?: boolean;
 }

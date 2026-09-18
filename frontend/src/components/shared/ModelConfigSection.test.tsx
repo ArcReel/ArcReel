@@ -1397,6 +1397,14 @@ describe("dimensions a ComfyUI workflow fixes", () => {
     expect(screen.getByText(/此 workflow 尺寸固定：宽高没有绑定到节点/)).toBeInTheDocument();
   });
 
+  it("says the workflow decides the size when there is no literal to name", async () => {
+    renderWithConstraints({ size_fixed: true, native_resolution: null }, [5]);
+
+    const picker = await screen.findByRole("combobox", { name: "分辨率" });
+    expect(picker).toBeDisabled();
+    expect(picker).toHaveAttribute("placeholder", "尺寸由 workflow 决定");
+  });
+
   it("keeps the resolution picker usable while still naming the native tier", async () => {
     renderWithConstraints({ native_resolution: "720p" }, [5]);
 

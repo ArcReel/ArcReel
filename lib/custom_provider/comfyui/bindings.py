@@ -7,10 +7,13 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Mapping
 from typing import Any
 
 from .workflow import node_inputs
+
+logger = logging.getLogger(__name__)
 
 #: 视频端点可用的全部语义键，也是 schema 里 ``bindings`` 的封闭键集。
 VIDEO_BINDING_KEYS = (
@@ -96,3 +99,24 @@ def bound_fps(workflow: Mapping[str, Any], bindings: Mapping[str, Any]) -> float
         if fps is not None:
             return fps
     return None
+
+
+def step_of(target: Mapping[str, Any]) -> int:
+    """条目声明的步长；未声明按 1 看待——没有步长信息时不替 workflow 作者假设一个。"""
+    raw = target.get("step")
+    return raw if isinstance(raw, int) and raw >= 1 else 1
+
+
+def align_frames(frames: int, step: int) -> int:
+    """向下对齐到 ``frames ≡ 1 (mod step)``，下限 ``1 + step``。
+
+    下限只留日志不报错：时长短到连一个步长都凑不出时，提交最小合法帧数仍能出片，把这次生成拒了
+    反而不如让用户看见一段比预期短的成片。
+
+    填值与能力推导共读这一份：前者据它写帧数，后者据它判「这一档选中之后还是不是原来那份图」。
+    """
+    aligned = frames - (frames - 1) % step
+    if aligned < 1 + step:
+        logger.info("帧数 %d 低于步长 %d 的最小合法值，按 %d 提交", frames, step, 1 + step)
+        return 1 + step
+    return aligned

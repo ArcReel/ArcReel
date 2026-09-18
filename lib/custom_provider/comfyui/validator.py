@@ -68,9 +68,30 @@ def validate_comfyui_definition(document: Mapping[str, Any]) -> DefinitionDiagno
         return structural
     auth = check_auth_section(document.get("auth") or {}, variable_issues=_auth_variable_issues)
     return DefinitionDiagnostics(
-        errors=(*_semantic_issues(document), *auth.errors),
+        errors=(*_semantic_issues(document), *auth.errors, *_reserved_auth_query_issues(document)),
         warnings=auth.warnings,
     )
+
+
+#: 取产物那一跳（``GET /view``）自己要带的查询参数。凭证 query 与它们同名时，拼请求的那一步
+#: 由产物参数覆盖凭证，提交与轮询都过得去、下载却少了凭证，代理多半回 401。
+_VIEW_RESERVED_QUERY = frozenset({"filename", "subfolder", "type"})
+
+
+def _reserved_auth_query_issues(document: Mapping[str, Any]) -> Iterator[DefinitionIssue]:
+    """``auth.query`` 里占用了产物下载路由自带参数名的条目。
+
+    两者占不了同一个键：ComfyUI 认这三个参数才给得出文件，换掉它们等于换掉要下载的东西。
+    保存期拒掉，好过让用户在一次已经出完片的执行上撞 401。
+    """
+    query: Mapping[str, Any] = (document.get("auth") or {}).get("query") or {}
+    for name in query:
+        if str(name) in _VIEW_RESERVED_QUERY:
+            yield DefinitionIssue(
+                join_path(join_path("auth", "query"), str(name)),
+                DefinitionErrorCode.AUTH_QUERY_RESERVED,
+                {"param": str(name)},
+            )
 
 
 def structural_diagnostics(document: object) -> DefinitionDiagnostics:

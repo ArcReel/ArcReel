@@ -44,6 +44,8 @@ interface ShotSplitViewProps {
   generatingVideo?: (segmentId: string) => boolean;
   generatingNarration?: (segmentId: string) => boolean;
   durationOptions?: number[];
+  /** 档位为空是因为这一维由端点固定（workflow 自己定片长），不是型号没登记时长。 */
+  durationEndpointFixed?: boolean;
   /** 已保存时长越界的成因判定；缺省时 ShotDetail 退回不区分成因的通用警告文案。 */
   durationWarningReason?: (seconds: number) => DurationOutOfRangeReason | null;
 }
@@ -72,6 +74,7 @@ export function ShotSplitView({
   generatingVideo,
   generatingNarration,
   durationOptions,
+  durationEndpointFixed,
   durationWarningReason,
 }: ShotSplitViewProps) {
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -203,6 +206,7 @@ export function ShotSplitView({
         generatingVideo={generatingVideo?.(segmentId)}
         generatingNarration={generatingNarration?.(segmentId)}
         durationOptions={durationOptions}
+        durationEndpointFixed={durationEndpointFixed}
         durationWarningReason={durationWarningReason}
       />
     </div>

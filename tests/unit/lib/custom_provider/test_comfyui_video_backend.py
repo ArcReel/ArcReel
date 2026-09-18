@@ -6,7 +6,8 @@ import asyncio
 import itertools
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Any
+from types import SimpleNamespace
+from typing import Any, cast
 
 import httpx
 import pytest
@@ -15,14 +16,19 @@ from lib.custom_provider.comfyui.failures import ComfyuiError
 from lib.custom_provider.comfyui.request_builder import workflow_sha256
 from lib.custom_provider.comfyui_backend import ComfyuiVideoBackend
 from lib.custom_provider.endpoint_definition import validate_definition
+from lib.custom_provider.endpoint_resolution import endpoint_spec_from_row
+from lib.custom_provider.factory import create_custom_backend
 from lib.generation_worker import _encode_task_failure_message
 from lib.task_failure import render_failure
 from lib.video_backends.base import (
     VIDEO_POLL_MAX_CONSECUTIVE_FAILURES,
     ProviderResponseStage,
     ResumeExpiredError,
+    VideoAudioMode,
+    VideoCapabilities,
     VideoGenerationRequest,
 )
+from lib.video_frame_slots import gate_video_request, resolve_video_capabilities
 from tests.factories import comfyui_endpoint_definition, make_translator
 from tests.fakes import bounded_poll_clock, captured_provider_job_ids
 from tests.http_capture import capture_http, only_request, request_json
@@ -105,6 +111,50 @@ def _with_image_bindings() -> dict[str, Any]:
     ]
     assert validate_definition(definition).valid
     return definition
+
+
+class TestDeclaredCapabilities:
+    """backend 自己那份能力声明，以及生成前的能力闸门读到的是哪一份。"""
+
+    @staticmethod
+    def _gate(definition: dict[str, Any], *, has_image: bool) -> VideoCapabilities:
+        """照生产那条路取能力：工厂建包装层 → 档位查询 → 闸门。
+
+        包装层的档位查询刻意不短路回工厂注入的合成结果，而是以被包装 backend 的声明为基底
+        （``CustomVideoBackend.video_capabilities_for_tier``）。backend 少宣称一位，闸门就会在请求
+        到达 ``generate`` 之前把它挡掉。
+        """
+        spec = endpoint_spec_from_row(cast("Any", SimpleNamespace(id=7, definition=definition)))
+        provider = SimpleNamespace(provider_id="custom-1", base_url=BASE_URL, api_key="")
+        backend = create_custom_backend(
+            provider=cast("Any", provider), model_id="wan-t2v", endpoint="ce-7", endpoint_spec=spec
+        )
+        caps = resolve_video_capabilities(backend, service_tier="default", resolution=None)
+        gate_video_request(
+            caps=caps,
+            provider="custom-1",
+            model="wan-t2v",
+            prompt="一只猫走过屋顶",
+            has_image=has_image,
+            end_image=None,
+            reference_images=None,
+            reference_audio_files=None,
+            reference_audio_total_seconds=None,
+        )
+        return caps
+
+    def test_a_text_only_workflow_gets_past_the_capability_gate(self):
+        caps = self._gate(_definition(), has_image=False)
+
+        assert (caps.text_to_video, caps.first_frame, caps.audio_track) == (True, False, VideoAudioMode.ALWAYS_OFF)
+
+    def test_a_workflow_with_a_start_image_gets_past_it_as_image_to_video(self):
+        definition = _definition()
+        definition["bindings"]["start_image"] = [{"node": "11", "input": "image", "class_type": "LoadImage"}]
+
+        caps = self._gate(definition, has_image=True)
+
+        assert (caps.text_to_video, caps.first_frame) == (False, True)
 
 
 class TestGenerate:
@@ -536,6 +586,31 @@ class TestMultipleArtifacts:
             {"key": "comfyui_multiple_outputs", "params": {"count": 2, "filename": "final_00001.mp4"}},
         )
 
+    async def test_a_thumbnail_beside_the_video_does_not_pass_for_the_result(self, tmp_path: Path):
+        """同一个绑定节点既写缩略图又写成片时，取的是成片。
+
+        ``_output_artifacts`` 的次序是 ``images`` / ``gifs`` / ``audio`` 这三个键自己的次序，与
+        「哪个是成片」无关；照次序取第一个会把一次成功的出片报成产物类型不符。
+        """
+        outputs = {
+            "9": {
+                "images": [{"filename": "preview_00001.png", "subfolder": "", "type": "output"}],
+                "gifs": [{"filename": "final_00001.mp4", "subfolder": "video", "type": "output"}],
+            }
+        }
+
+        with capture_http() as router, bounded_poll_clock(), captured_provider_job_ids():
+            router.post(f"{BASE_URL}/prompt").mock(return_value=httpx.Response(200, json={"prompt_id": "p-1"}))
+            router.get(f"{BASE_URL}/history/p-1").mock(return_value=httpx.Response(200, json=_history(outputs)))
+            view = router.get(f"{BASE_URL}/view").mock(return_value=httpx.Response(200, content=b"mp4"))
+
+            result = await _backend().generate(_request(tmp_path))
+
+        assert only_request(view).url.params["filename"] == "final_00001.mp4"
+        assert result.warnings == (
+            {"key": "comfyui_multiple_outputs", "params": {"count": 2, "filename": "final_00001.mp4"}},
+        )
+
     async def test_a_single_artifact_reports_nothing(self, tmp_path: Path):
         with capture_http() as router, bounded_poll_clock(), captured_provider_job_ids():
             router.post(f"{BASE_URL}/prompt").mock(return_value=httpx.Response(200, json={"prompt_id": "p-1"}))
@@ -765,6 +840,24 @@ class TestJobLost:
 
         assert result.video_path.read_bytes() == b"mp4"
 
+    async def test_a_json_body_without_the_two_lists_is_unreadable_too(self, tmp_path: Path):
+        """代理重启期回 ``{"error": "restarting"}``：解得出 JSON 不代表读得到队列。"""
+        with capture_http() as router, bounded_poll_clock(), captured_provider_job_ids():
+            router.post(f"{BASE_URL}/prompt").mock(return_value=httpx.Response(200, json={"prompt_id": "p-1"}))
+            router.get(f"{BASE_URL}/history/p-1").mock(
+                side_effect=[
+                    httpx.Response(200, json={}),
+                    httpx.Response(200, json={}),
+                    httpx.Response(200, json=_history({"9": _video_output()})),
+                ]
+            )
+            router.get(f"{BASE_URL}/queue").mock(return_value=httpx.Response(200, json={"error": "restarting"}))
+            router.get(f"{BASE_URL}/view").mock(return_value=httpx.Response(200, content=b"mp4"))
+
+            result = await _backend().generate(_request(tmp_path))
+
+        assert result.video_path.read_bytes() == b"mp4"
+
 
 class TestResume:
     """``provider_job_id`` 就是 ``prompt_id``：接续的是同一次执行，不重传也不重提交。"""
@@ -786,6 +879,26 @@ class TestResume:
         assert submit.call_count == 0
         # 提交发生在上一个进程里，这一次没有新的 job_id 要落库。
         assert persisted == []
+
+    async def test_a_resume_polls_the_host_the_job_was_submitted_to(self, tmp_path: Path):
+        """供应商的 base_url 可以在提交之后被改，而这一笔活在原来那台 ComfyUI 上。
+
+        照当前域名去问，问的是另一台机器，它答「没有这个 prompt_id」——一次仍在出片的执行会被
+        判成丢失，用户的显卡还在为它转。
+        """
+        submitted = "https://old-comfy.test"
+        with capture_http() as router, bounded_poll_clock(), captured_provider_job_ids():
+            current = router.get(f"{BASE_URL}/history/p-1")
+            router.get(f"{submitted}/history/p-1").mock(
+                return_value=httpx.Response(200, json=_history({"9": _video_output()}))
+            )
+            view = router.get(f"{submitted}/view").mock(return_value=httpx.Response(200, content=b"mp4"))
+
+            result = await _backend().resume_video("p-1", _request(tmp_path, submitted_base_url=submitted))
+
+        assert result.video_path.read_bytes() == b"mp4"
+        assert current.call_count == 0
+        assert view.call_count == 1
 
     async def test_a_resume_carries_no_seed_or_fingerprint(self, tmp_path: Path):
         """两者只在提交那一次的构造里存在；这条路不构造，故一起缺席而不是各给一个假值。"""

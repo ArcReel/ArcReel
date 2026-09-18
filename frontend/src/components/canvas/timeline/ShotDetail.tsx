@@ -105,6 +105,8 @@ interface ShotDetailProps {
   generatingVideo?: boolean;
   generatingNarration?: boolean;
   durationOptions?: number[];
+  /** 档位为空是因为这一维由端点固定（workflow 自己定片长），不是型号没登记时长。 */
+  durationEndpointFixed?: boolean;
   /** 已保存时长越界的成因判定；缺省时退回不区分成因的通用警告文案。 */
   durationWarningReason?: (seconds: number) => DurationOutOfRangeReason | null;
 }
@@ -197,6 +199,7 @@ interface DurationPillProps {
   /** 本集剧本文件名；宫格任务按它做 scriptFile 粒度的占用判定。 */
   scriptFile?: string;
   durationOptions: number[];
+  durationEndpointFixed?: boolean;
   durationWarningReason?: ShotDetailProps["durationWarningReason"];
   onUpdatePrompt?: ShotDetailProps["onUpdatePrompt"];
   /** 该分镜有分镜图 / 视频任务在跑；置真时禁止改时长（在跑的任务已捕获旧值，改了两边就不一致）。 */
@@ -209,6 +212,7 @@ function DurationPill({
   projectName,
   scriptFile,
   durationOptions,
+  durationEndpointFixed = false,
   durationWarningReason,
   onUpdatePrompt,
   busy = false,
@@ -327,7 +331,7 @@ function DurationPill({
           busy
             ? t("duration_locked_generating")
             : noOptions
-              ? t("duration_no_options")
+              ? t(durationEndpointFixed ? "duration_not_driven_notice" : "duration_no_options")
               : undefined
         }
         className={`${baseClass} transition-colors disabled:cursor-not-allowed disabled:opacity-60`}
@@ -474,6 +478,7 @@ export function ShotDetail({
   generatingVideo,
   generatingNarration,
   durationOptions = [],
+  durationEndpointFixed,
   durationWarningReason,
 }: ShotDetailProps) {
   const { t } = useTranslation("dashboard");
@@ -1327,6 +1332,7 @@ export function ShotDetail({
           projectName={projectName}
           scriptFile={scriptFile}
           durationOptions={durationOptions}
+          durationEndpointFixed={durationEndpointFixed}
           durationWarningReason={durationWarningReason}
           onUpdatePrompt={onUpdatePrompt}
           busy={!!generatingStoryboard || !!generatingVideo}

@@ -114,8 +114,8 @@ describe("EndpointImportDialog", () => {
     renderDialog(validation({ import_shape: "comfyui_api_workflow" }), { onMediaTypeChange });
 
     expect(screen.getByText("这份 workflow 产出")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "video" })).toHaveAttribute("aria-pressed", "true");
-    await userEvent.click(screen.getByRole("button", { name: "image" }));
+    expect(screen.getByRole("button", { name: "视频" })).toHaveAttribute("aria-pressed", "true");
+    await userEvent.click(screen.getByRole("button", { name: "图片" }));
 
     expect(onMediaTypeChange).toHaveBeenCalledWith("image");
   });
@@ -183,6 +183,56 @@ describe("EndpointImportDialog", () => {
     expect(screen.getByLabelText("粘贴端点定义或 workflow")).toHaveValue(workflow);
   });
 
+  it("keeps the file the user picked last, whichever one finishes reading first", async () => {
+    // file.text() 没有可取消的句柄：先选 A 再选 B，A 读完得晚也不该把 B 顶掉。
+    const onSource = vi.fn();
+    renderDialog(validation(), { onSource });
+    const picker = document.querySelector<HTMLInputElement>('input[type="file"]');
+    if (picker === null) throw new Error("no file input");
+    const slow = new File(["slow"], "slow.json", { type: "application/json" });
+    const fast = new File(["fast"], "fast.json", { type: "application/json" });
+    let release = () => {};
+    vi.spyOn(slow, "text").mockReturnValue(
+      new Promise<string>((resolve) => {
+        release = () => resolve("slow");
+      }),
+    );
+
+    await userEvent.upload(picker, slow);
+    await userEvent.upload(picker, fast);
+    await waitFor(() => expect(onSource).toHaveBeenCalledWith("fast", "fast.json"));
+    release();
+    await Promise.resolve();
+
+    expect(onSource).toHaveBeenLastCalledWith("fast", "fast.json");
+    expect(screen.getByLabelText("粘贴端点定义或 workflow")).toHaveValue("fast");
+  });
+
+  it("keeps what the user typed while a file was still being read", async () => {
+    // 读文件期间改文本框，屏幕上这份才是用户手上那份：在途的读回来不该顶掉它，也不该拿它去识别。
+    const onSource = vi.fn();
+    renderDialog(validation(), { onSource });
+    const picker = document.querySelector<HTMLInputElement>('input[type="file"]');
+    if (picker === null) throw new Error("no file input");
+    const slow = new File(["slow"], "slow.json", { type: "application/json" });
+    let release = () => {};
+    vi.spyOn(slow, "text").mockReturnValue(
+      new Promise<string>((resolve) => {
+        release = () => resolve("slow");
+      }),
+    );
+
+    await userEvent.upload(picker, slow);
+    const box = screen.getByLabelText("粘贴端点定义或 workflow");
+    await userEvent.click(box);
+    await userEvent.paste("typed");
+    release();
+    await Promise.resolve();
+
+    expect(box).toHaveValue("typed");
+    expect(onSource).not.toHaveBeenCalled();
+  });
+
   it("sends a ComfyUI definition on to the binding editor instead of saving it here", async () => {
     const onBindNodes = vi.fn();
     const onCreateCopy = vi.fn();
@@ -197,5 +247,42 @@ describe("EndpointImportDialog", () => {
 
     expect(onBindNodes).toHaveBeenCalledOnce();
     expect(onCreateCopy).not.toHaveBeenCalled();
+  });
+
+  it("drops a recognition result once the pasted text no longer matches it", async () => {
+    // 识别完再改文本框，手上那份结果说的就不是屏幕上这份载荷了：继续下去存的是旧的那一份。
+    const onBindNodes = vi.fn();
+    renderDialog(validation({ import_shape: "comfyui_api_workflow" }), {
+      definition: COMFYUI_DEFINITION,
+      onBindNodes,
+      fileName: "",
+    });
+    const box = screen.getByLabelText("粘贴端点定义或 workflow");
+    await userEvent.type(box, "first");
+    await userEvent.click(screen.getByRole("button", { name: "识别" }));
+    expect(screen.getByRole("button", { name: "去绑定节点" })).toBeEnabled();
+
+    await userEvent.type(box, "-edited");
+
+    // 识别结果连同它认出的形状一起作废，动作按钮退回未识别时的样子并禁用。
+    expect(screen.queryByRole("button", { name: "去绑定节点" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "导入" })).toBeDisabled();
+  });
+
+  it("takes the edited text once it has been recognized again", async () => {
+    const onSource = vi.fn();
+    renderDialog(validation({ import_shape: "comfyui_api_workflow" }), {
+      definition: COMFYUI_DEFINITION,
+      onSource,
+      fileName: "",
+    });
+    const box = screen.getByLabelText("粘贴端点定义或 workflow");
+    await userEvent.type(box, "first");
+    await userEvent.click(screen.getByRole("button", { name: "识别" }));
+    await userEvent.type(box, "-edited");
+    await userEvent.click(screen.getByRole("button", { name: "识别" }));
+
+    expect(onSource).toHaveBeenLastCalledWith("first-edited", "");
+    expect(screen.getByRole("button", { name: "去绑定节点" })).toBeEnabled();
   });
 });

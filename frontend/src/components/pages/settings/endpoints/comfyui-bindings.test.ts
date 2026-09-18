@@ -9,6 +9,7 @@ import {
   bindingKeysFor,
   bindingsFromInference,
   classTypeCounts,
+  definitionFingerprint,
   isLinkInput,
   literalInputText,
   manualTargets,
@@ -76,10 +77,11 @@ describe("isLinkInput", () => {
     expect(isLinkInput([1, 2, 3])).toBe(false);
   });
 
-  it("unwraps __value__ before judging, so a wrapped array literal stays bindable", () => {
-    // 长度 2 的数组字面值被包装后仍是字面值；不解包就会被当成连线而绑不上去。
+  it("reads the __value__ wrapper as a literal whatever it wraps", () => {
+    // 包装是作者刻意声明的「这是字面数组」，与服务端 workflow.is_link 同序：先看包装再判形状。
+    // 反过来先解包，{"__value__": ["4", 0]} 会被判成连线，一个真能填值的输入就从手选里消失了。
     expect(isLinkInput({ __value__: ["a", "b"] })).toBe(false);
-    expect(isLinkInput({ __value__: ["4", 0] })).toBe(true);
+    expect(isLinkInput({ __value__: ["4", 0] })).toBe(false);
   });
 });
 
@@ -359,5 +361,33 @@ describe("saveBlockers", () => {
     );
 
     expect(blockers).toEqual([]);
+  });
+});
+
+describe("definitionFingerprint", () => {
+  it("reads an empty title the same as no title at all", () => {
+    // 手选进来的条目在无标题节点上不写 title，服务端重匹配回来的那一份写的是 ""。
+    const picked = definition({ bindings: { prompt: [{ node: "10", input: "text", class_type: "CLIPTextEncode" }] } });
+    const returned = definition({
+      bindings: { prompt: [{ node: "10", input: "text", class_type: "CLIPTextEncode", title: "" }] },
+    });
+
+    expect(definitionFingerprint(picked)).toBe(definitionFingerprint(returned));
+  });
+
+  it("does not care which order the keys arrived in", () => {
+    const one = definition();
+    const reversed = Object.fromEntries(Object.entries(one).reverse());
+
+    expect(definitionFingerprint(reversed)).toBe(definitionFingerprint(one));
+  });
+
+  it("still sees a real change", () => {
+    const picked = definition({ bindings: { prompt: [{ node: "10", input: "text", class_type: "CLIPTextEncode" }] } });
+    const moved = definition({
+      bindings: { prompt: [{ node: "10", input: "text", class_type: "CLIPTextEncode", title: "Positive" }] },
+    });
+
+    expect(definitionFingerprint(picked)).not.toBe(definitionFingerprint(moved));
   });
 });

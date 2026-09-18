@@ -297,6 +297,20 @@ class TestAuthScope:
 
         assert ("auth.headers.Authorization", "malformed_placeholder") in _codes(diagnostics)
 
+    @pytest.mark.parametrize("name", ["filename", "subfolder", "type"])
+    def test_a_credential_cannot_take_a_name_the_artifact_download_already_needs(self, name: str):
+        """取产物那一跳自己要带这三个参数，凭证与它们占不了同一个键。
+
+        撞名时提交与轮询都过得去，只有下载那一跳少了凭证——反向代理回 401，一次已经出完片的
+        执行白跑。保存期拒掉，用户还改得动。
+        """
+        definition = comfyui_endpoint_definition(auth={"query": {name: "{{ api_key }}"}})
+
+        assert (f"auth.query.{name}", "auth_query_reserved") in _codes(validate_definition(definition))
+
+    def test_a_credential_query_under_any_other_name_is_fine(self):
+        assert validate_definition(comfyui_endpoint_definition(auth={"query": {"token": "{{ api_key }}"}})).valid
+
     def test_a_literal_credential_is_warned_about_without_blocking_the_save(self):
         """字面凭证会随导出与「复制为我的」原样外流，但它本身是合法配置，只提示。"""
         definition = comfyui_endpoint_definition(

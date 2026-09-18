@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import "@/i18n";
@@ -208,9 +208,38 @@ describe("ComfyuiEndpointDetail", () => {
       }),
     });
 
-    await userEvent.click(within(screen.getByRole("radiogroup", { name: "候选落点" })).getAllByRole("radio")[0]);
+    // 宽高可以有多个落点，候选列表因此是多选组而不是单选组。
+    await userEvent.click(within(screen.getByRole("group", { name: "候选落点" })).getAllByRole("checkbox")[0]);
 
     expect(screen.getByLabelText(/对齐步长/)).toBeInTheDocument();
+  });
+
+  it("refuses a step that is not a whole positive number", async () => {
+    // `min={1}` 只拦得住上下箭头；负数与 `Infinity` 手打得进来，保存时又不再过一次表单校验。
+    const width: ComfyuiBindingTarget = { node: "50", input: "width", class_type: "WanImageToVideo" };
+    renderDetail({
+      inference: inference({
+        bindings: {
+          prompt: picked(PROMPT),
+          output: picked(OUTPUT),
+          width: { state: "ambiguous", candidates: [candidate(width)], notes: [] },
+        },
+      }),
+    });
+    await userEvent.click(within(screen.getByRole("group", { name: "候选落点" })).getAllByRole("checkbox")[0]);
+    const step = screen.getByLabelText(/对齐步长/);
+
+    await userEvent.type(step, "16");
+    expect(step).toHaveValue(16);
+
+    await userEvent.clear(step);
+    await userEvent.type(step, "-4");
+    expect(step).toHaveValue(null);
+
+    // schema 把 step 声明为整数：小数存下去会被定义校验打回。
+    await userEvent.clear(step);
+    await userEvent.type(step, "1.5");
+    expect(step).toHaveValue(null);
   });
 
   it("marks on the row itself what a re-import kept and what it moved, without opening anything", () => {
@@ -273,6 +302,34 @@ describe("ComfyuiEndpointDetail", () => {
     expect(within(row("negative_prompt")).getByText("手动指定")).toBeInTheDocument();
   });
 
+  it("keeps the other targets of a dimension when one candidate is toggled", async () => {
+    // 宽高帧数帧率都写/读全部落点：点中一个候选只增删这一条，把同键其余落点顶掉会让那几路
+    // 分支再也收不到尺寸与帧数。
+    const widthA: ComfyuiBindingTarget = { node: "50", input: "width", class_type: "WanImageToVideo" };
+    const widthB: ComfyuiBindingTarget = { node: "61", input: "width", class_type: "SaveVideo" };
+    renderDetail({
+      inference: inference({
+        bindings: {
+          prompt: picked(PROMPT),
+          output: picked(OUTPUT),
+          width: { state: "ambiguous", candidates: [candidate(widthA), candidate(widthB)], notes: [] },
+        },
+      }),
+    });
+    const group = screen.getByRole("group", { name: "候选落点" });
+
+    await userEvent.click(within(group).getAllByRole("checkbox")[0]);
+    await userEvent.click(within(group).getAllByRole("checkbox")[1]);
+
+    expect(within(group).getAllByRole("checkbox")[0]).toBeChecked();
+    expect(within(group).getAllByRole("checkbox")[1]).toBeChecked();
+
+    // 再点一次即取消，只去掉这一条。
+    await userEvent.click(within(group).getAllByRole("checkbox")[0]);
+    expect(within(group).getAllByRole("checkbox")[0]).not.toBeChecked();
+    expect(within(group).getAllByRole("checkbox")[1]).toBeChecked();
+  });
+
   it("lets the user reach any literal input in the workflow when nothing was recognized", async () => {
     renderDetail({
       inference: inference({
@@ -323,6 +380,34 @@ describe("ComfyuiEndpointDetail", () => {
     await waitFor(() => expect(within(row("prompt")).getByText(/#7/)).toBeInTheDocument());
   });
 
+  it("leaves a pick made while recognition was still running in place", async () => {
+    // 重新识别在途时用户自己定了同一项：他后按的那一下比在途那轮新，结果回来不该把它改掉。
+    let release: (value: ComfyuiInferResponse) => void = () => {};
+    const pending = new Promise<ComfyuiInferResponse>((resolve) => {
+      release = resolve;
+    });
+    vi.spyOn(API, "inferComfyuiBindings").mockReturnValue(pending);
+    renderDetail({
+      inference: inference({
+        bindings: {
+          output: picked(OUTPUT),
+          prompt: { state: "ambiguous", candidates: [candidate(PROMPT), candidate(NEGATIVE)], notes: [] },
+        },
+      }),
+    });
+
+    await userEvent.click(screen.getAllByRole("button", { name: "重新识别" })[0]);
+    const group = screen.getByRole("radiogroup", { name: "候选落点" });
+    await userEvent.click(within(group).getAllByRole("radio")[1]);
+    release(inference({ bindings: { prompt: picked(PROMPT), output: picked(OUTPUT) } }));
+    await act(async () => {
+      await pending;
+    });
+
+    expect(within(row("prompt")).getByText("手动指定")).toBeInTheDocument();
+    expect(within(row("prompt")).getByText(/#7/)).toBeInTheDocument();
+  });
+
   it("holds the save back and says why, one line per reason", () => {
     renderDetail({
       definition: definition({ meta: { name: "ComfyUI workflow", author: "unknown", version: "1.0.0" } }),
@@ -354,6 +439,20 @@ describe("ComfyuiEndpointDetail", () => {
     expect(await screen.findByRole("button", { name: "已保存" })).toBeDisabled();
   });
 
+  it("opens an already saved endpoint on the saved button", async () => {
+    // 服务端重匹配对无标题节点一律回填 title: ""，落盘的那一份省略这个键：同一份绑定，两种写法。
+    const defn = definition({ bindings: { prompt: [PROMPT], output: [OUTPUT] } });
+    renderDetail({
+      record: savedRecord(defn),
+      definition: defn,
+      inference: inference({
+        bindings: { prompt: picked(PROMPT), output: picked({ ...OUTPUT, title: "" }) },
+      }),
+    });
+
+    expect(screen.getByRole("button", { name: "已保存" })).toBeDisabled();
+  });
+
   it("goes back to an enabled save as soon as anything changes again", async () => {
     const defn = definition({ bindings: { prompt: [PROMPT], output: [OUTPUT] } });
     renderDetail({ record: savedRecord(defn), definition: defn });
@@ -376,7 +475,7 @@ describe("ComfyuiEndpointDetail", () => {
     const infer = vi.spyOn(API, "inferComfyuiBindings").mockResolvedValue(inference({ media_type: "image" }));
     renderDetail();
 
-    await userEvent.click(screen.getByRole("button", { name: "image" }));
+    await userEvent.click(screen.getByRole("button", { name: "图片" }));
 
     await waitFor(() => expect(infer).toHaveBeenCalledOnce());
     expect((infer.mock.calls[0][0] as ComfyuiEndpointDefinition).media_type).toBe("image");
@@ -428,5 +527,21 @@ describe("ComfyuiEndpointDetail", () => {
     await waitFor(() => expect(infer).toHaveBeenCalledOnce());
     expect(infer.mock.calls[0][0]).toEqual(defn);
     expect((await screen.findAllByText("自动识别")).length).toBe(2);
+  });
+
+  it("shows the credentials this endpoint actually sends, query ones included", async () => {
+    // 只在 query 里配了凭据的端点实发时照样把它拼进 URL；只认 headers 的话，展示的是一句
+    // 它根本不用的 Authorization。
+    renderDetail({ definition: definition({ auth: { query: { token: "{{ api_key }}" } } }) });
+
+    expect(await screen.findByText(/query:/)).toBeInTheDocument();
+    expect(screen.getByText(/token: \{\{ api_key \}\}/)).toBeInTheDocument();
+    expect(screen.queryByText(/Authorization/)).not.toBeInTheDocument();
+  });
+
+  it("falls back to the template when the definition declares no credentials at all", async () => {
+    renderDetail({ definition: definition() });
+
+    expect(await screen.findByText(/Authorization: Bearer \{\{ api_key \}\}/)).toBeInTheDocument();
   });
 });

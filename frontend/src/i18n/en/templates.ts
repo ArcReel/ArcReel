@@ -115,6 +115,7 @@ export default {
   resolution_label: "Resolution",
   resolution_default_placeholder: "Default (unset)",
   resolution_native_placeholder: "Workflow native ({{value}})",
+  resolution_endpoint_fixed_placeholder: "Decided by the workflow",
   resolution_fixed_hint: "This workflow has a fixed frame size: width/height are not bound to any node, so aspect ratio and resolution do not apply. Change it by editing the node bindings.",
   duration_not_driven_notice: "Duration is not driven by ArcReel for this model: the workflow decides how long each clip is.",
   tab_custom_desc: "Upload a style reference image; AI will analyze it. Choosing this tab clears the template selection.",

@@ -75,6 +75,8 @@ export interface ReferenceVideoCanvasProps {
    * 秒数，不编造档位。
    */
   durationOptions?: number[];
+  /** 档位为空是因为这一维由端点固定（workflow 自己定片长），不是型号没登记时长。 */
+  durationEndpointFixed?: boolean;
   /**
    * 同一模型能力下、不叠加参考图约束的档位（仍按分辨率收窄）。供正文里没有可解析引用的
    * unit 使用——参考图约束按 unit 生效，不能因同集内其它 unit 带图就收窄这类 unit 的可选档位。
@@ -167,6 +169,7 @@ export function ReferenceVideoCanvas({
   showPreprocess = true,
   freeDuration = false,
   durationOptions,
+  durationEndpointFixed = false,
   durationOptionsNoReference,
   requestOptions,
 }: ReferenceVideoCanvasProps) {
@@ -1106,7 +1109,10 @@ export function ReferenceVideoCanvas({
                           ))}
                         </select>
                       ) : (
-                        <span className="font-mono tabular-nums" title={t("duration_no_options")}>
+                        <span
+                          className="font-mono tabular-nums"
+                          title={t(durationEndpointFixed ? "duration_not_driven_notice" : "duration_no_options")}
+                        >
                           {selected.duration_seconds}s
                         </span>
                       )}

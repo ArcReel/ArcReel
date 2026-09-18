@@ -442,6 +442,22 @@ describe("CustomProviderForm（comfyui 协议）", () => {
     expect(screen.getByText(/此 workflow 尺寸固定：宽高没有绑定到节点/)).toBeInTheDocument();
   });
 
+  it("says the workflow decides the size when there is no literal to name", async () => {
+    // 宽高两侧都没绑定：选择器已禁用，通用的「默认（不传）」会让人以为还有个「不传」可挑。
+    useEndpointCatalogStore.setState(useEndpointCatalogStore.getInitialState(), true);
+    vi.spyOn(API, "listEndpointCatalog").mockResolvedValue({
+      endpoints: [CHAT_ENDPOINT, { ...COMFYUI_VIDEO_ENDPOINT, size_fixed: true, native_resolution: null }],
+    });
+    renderForm();
+    await waitFor(() => expect(useEndpointCatalogStore.getState().initialized).toBe(true));
+    selectProtocol("comfyui");
+    fireEvent.click(screen.getByRole("button", { name: "手动添加模型" }));
+
+    const picker = screen.getByLabelText("分辨率");
+    expect(picker).toBeDisabled();
+    expect(picker).toHaveAttribute("placeholder", "尺寸由 workflow 决定");
+  });
+
   it("keeps the resolution picker usable while still naming the native tier", async () => {
     useEndpointCatalogStore.setState(useEndpointCatalogStore.getInitialState(), true);
     vi.spyOn(API, "listEndpointCatalog").mockResolvedValue({

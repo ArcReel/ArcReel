@@ -22,6 +22,7 @@ import type {
 import {
   bindingsFromInference,
   classTypeCounts,
+  definitionFingerprint,
   pruneBindings,
   saveBlockers,
   workflowNodes,
@@ -35,6 +36,8 @@ export const COMFYUI_PLACEHOLDER_NAME = "ComfyUI workflow";
 
 const KICKER_CLS = "font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-accent-2";
 const MEDIA_TYPES: readonly ComfyuiMediaType[] = ["video", "image"];
+/** `auth` 节里的两张表，按渲染次序。 */
+const AUTH_SECTIONS = ["headers", "query"] as const;
 
 function Section({
   kicker,
@@ -103,15 +106,19 @@ export function ComfyuiEndpointDetail({
   const [reinferring, setReinferring] = useState<ComfyuiBindingKey | null>(null);
   const [saving, setSaving] = useState(false);
   const [savedJson, setSavedJson] = useState<string | null>(() =>
-    record ? JSON.stringify(record.definition) : null,
+    record ? definitionFingerprint(record.definition) : null,
   );
 
   // 推断链轮换：换媒体类型与逐键重新识别都作废上一轮，避免旧结果盖掉新的。
   const inferRef = useRef<AbortController | null>(null);
+  // 各语义键被手动定过的次数。逐键重新识别发出时记下这一格的次数，结果回来时次数已经变了，
+  // 说明用户在等待期间亲手定过这个键：他后按的那一下比在途的推断新，推断结果不再压过去。
+  const manualSeq = useRef(new Map<ComfyuiBindingKey, number>());
 
   /**
-   * 跑一轮推断并接手结果。`focusKey` 非空时只换这一个语义键（逐键重新识别），其余原样保留；
-   * 为空时整表重来，只有 `keep` 里的条目压过新结果——那是用户本轮亲手定过的。
+   * 跑一轮推断并接手结果。`focusKey` 非空时只换这一个语义键（逐键重新识别），其余原样保留，
+   * 且这一格的手动接管序号仍是 `sinceEdit` 才写——等待期间被用户亲手定过就只留下推断结果本身，
+   * 供候选列表使用。`focusKey` 为空时整表重来，只有 `keep` 里的条目压过新结果。
    *
    * 进详情那一轮由 effect 发起，所以第一个 await 之前不碰 state：重来一轮时该清的上一次错误
    * 由发起方在事件回调里清。
@@ -119,7 +126,11 @@ export function ComfyuiEndpointDetail({
   const load = useCallback(
     async (
       payload: ComfyuiEndpointDefinition,
-      { focusKey = null, keep = {} }: { focusKey?: ComfyuiBindingKey | null; keep?: ComfyuiBindings } = {},
+      {
+        focusKey = null,
+        keep = {},
+        sinceEdit = 0,
+      }: { focusKey?: ComfyuiBindingKey | null; keep?: ComfyuiBindings; sinceEdit?: number } = {},
     ) => {
       inferRef.current?.abort();
       const controller = new AbortController();
@@ -131,7 +142,7 @@ export function ComfyuiEndpointDetail({
         const inferred = bindingsFromInference(result, payload.media_type);
         if (focusKey === null) {
           setBindings({ ...inferred, ...keep });
-        } else {
+        } else if ((manualSeq.current.get(focusKey) ?? 0) === sinceEdit) {
           setBindings((current) => {
             const next = { ...current };
             const fresh = inferred[focusKey];
@@ -177,7 +188,7 @@ export function ComfyuiEndpointDetail({
   const chips = useMemo(() => classTypeCounts(nodes), [nodes]);
 
   const draft = useMemo<ComfyuiEndpointDefinition>(() => ({ ...definition, bindings }), [definition, bindings]);
-  const draftJson = JSON.stringify(draft);
+  const draftJson = definitionFingerprint(draft);
   const dirty = draftJson !== savedJson;
 
   const blockers = inference ? saveBlockers(bindings, inference, definition, COMFYUI_PLACEHOLDER_NAME) : [];
@@ -190,6 +201,7 @@ export function ComfyuiEndpointDetail({
       else next[key] = targets;
       return next;
     });
+    manualSeq.current.set(key, (manualSeq.current.get(key) ?? 0) + 1);
     setTouched((current) => new Set(current).add(key));
   }, []);
 
@@ -199,7 +211,9 @@ export function ComfyuiEndpointDetail({
       delete without[key];
       setReinferring(key);
       setInferError(null);
-      voidCall(load({ ...definition, bindings: without }, { focusKey: key }));
+      voidCall(
+        load({ ...definition, bindings: without }, { focusKey: key, sinceEdit: manualSeq.current.get(key) ?? 0 }),
+      );
     },
     [bindings, definition, load],
   );
@@ -245,7 +259,7 @@ export function ComfyuiEndpointDetail({
         record === null
           ? await API.createCustomEndpoint(draft)
           : await API.updateCustomEndpoint(record.id, draft);
-      setSavedJson(JSON.stringify(saved.definition));
+      setSavedJson(definitionFingerprint(saved.definition));
       pushToast(t("ce_saved"), "success");
       onSaved(saved);
     } catch (e) {
@@ -376,7 +390,7 @@ export function ComfyuiEndpointDetail({
                       : "border-hairline-soft text-text-3 hover:text-text"
                   }`}
                 >
-                  {media}
+                  {t(media === "image" ? "endpoint_image_group" : "endpoint_video_group")}
                 </button>
               ))}
             </div>
@@ -420,12 +434,18 @@ function onlyTouched(bindings: ComfyuiBindings, touched: ReadonlySet<ComfyuiBind
   return kept;
 }
 
-/** 定义里有 `auth` 就照它自己那份显示，没有就给出这一节该长什么样的模板。 */
+/**
+ * 定义里配了什么就照它自己那份显示，一条也没配才给出这一节该长什么样的模板。
+ *
+ * 两张表都要看：只在 `query` 里配了凭据的端点实发时照样把它拼进 URL，这里却只认 `headers`
+ * 的话，展示的是一句它根本不用的 `Authorization`。
+ */
 function authPreview(definition: ComfyuiEndpointDefinition): string {
-  const headers = definition.auth?.headers;
-  if (headers && Object.keys(headers).length > 0) {
-    return ["headers:", ...Object.entries(headers).map(([name, value]) => `  ${name}: ${value}`)].join("\n");
-  }
-  return "headers:\n  Authorization: Bearer {{ api_key }}";
+  const configured = AUTH_SECTIONS.flatMap((name) => {
+    const table = definition.auth?.[name];
+    if (!table || Object.keys(table).length === 0) return [];
+    return [[`${name}:`, ...Object.entries(table).map(([key, value]) => `  ${key}: ${value}`)].join("\n")];
+  });
+  return configured.length > 0 ? configured.join("\n") : "headers:\n  Authorization: Bearer {{ api_key }}";
 }
 

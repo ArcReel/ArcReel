@@ -33,7 +33,7 @@ interface EndpointCatalogState {
   endpointToImageCapabilities: Record<string, ImageCap[]>;
   /** key → 执行层是否下传尾帧约束（仅 video 类为 true）；决定 last_frame 覆盖能否强制开启。 */
   endpointToEndImageCapable: Record<string, boolean>;
-  /** key → 参数约束三项：尺寸 / 时长这两维该端点驱不驱动得了，以及不选档位时的原生分辨率。 */
+  /** key → 参数约束四项：尺寸 / 时长这两维该端点驱不驱动得了、档位给不给得出来，以及不选档位时的原生分辨率。 */
   endpointConstraints: Record<string, EndpointConstraints>;
   loading: boolean;
   initialized: boolean;

@@ -2854,8 +2854,8 @@ async def _finalize_video_task(
 ) -> dict[str, Any]:
     """Normal + resume 共用的 finalize 逻辑：写 scene asset + 抽缩略图 + 返回 result dict。
 
-    ``warnings`` 为空时结果不带该键：分镜视频此前从来没有过 warning，恒写一个空列表会让读侧
-    多出一个它不曾见过的形状。
+    ``warnings`` 为空时结果不带该键：读侧按「有没有这个键」判断这一版带不带提示，恒写一个空
+    列表会让每一版都多出一个永远为空的形状。
     """
 
     def _update_video_metadata():

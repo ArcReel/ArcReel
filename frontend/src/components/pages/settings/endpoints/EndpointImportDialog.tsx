@@ -68,16 +68,32 @@ export function EndpointImportDialog({
   const titleId = useId();
   // 手上这份待识别的载荷。选了文件就把内容铺进文本框，用户改过之后它不再算那个文件的内容。
   const [source, setSource] = useState({ text: "", fileName: "" });
+  // 最后一次交出去识别的原文。文本框改过之后它与 source.text 不再相等，手上那份识别结果说的
+  // 就不是屏幕上这份载荷了——此时按导入会把旧载荷存下去，故一律当作还没识别过。
+  const [detected, setDetected] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  // 来源输入的接管序号：``file.text()`` 没有可取消的句柄，读完之前用户可以再选一个文件，也可以
+  // 直接往文本框里粘一份。任一动作先领一个号，在途的读回来时号已经不是最新的就整份丢弃——父层
+  // 那个 run token 拦不住这一格，它要等 onSource 发出去之后才递增。
+  const sourceSeq = useRef(0);
 
-  const schemaVersion = validation?.schema_version;
-  const minAppVersion = validation?.min_app_version;
-  const shapeNoticeKey = validation ? SHAPE_NOTICE_KEYS[validation.import_shape] : undefined;
-  const isRawWorkflow = validation?.import_shape === "comfyui_api_workflow";
+  const stale = detected !== null && detected !== source.text;
+  const result = stale ? null : validation;
+  const detectedDefinition = stale ? null : definition;
+
+  const submitSource = (text: string, name: string) => {
+    setDetected(text);
+    onSource(text, name);
+  };
+
+  const schemaVersion = result?.schema_version;
+  const minAppVersion = result?.min_app_version;
+  const shapeNoticeKey = result ? SHAPE_NOTICE_KEYS[result.import_shape] : undefined;
+  const isRawWorkflow = result?.import_shape === "comfyui_api_workflow";
   // ComfyUI 端点在弹窗里只走到「进绑定编辑器」；同作者同名的判定留到那边改完名字再说。
-  const toBindings = definition?.kind === "comfyui";
+  const toBindings = detectedDefinition?.kind === "comfyui";
   // 自动包装出来的定义节点绑定必然是空的，这一条在此刻不是错误、是它的真实状态。
-  const errors = (validation?.errors ?? []).filter(
+  const errors = (result?.errors ?? []).filter(
     (issue) => !(isRawWorkflow && issue.code === "comfyui_binding_required"),
   );
   const hasErrors = errors.length > 0;
@@ -96,9 +112,9 @@ export function EndpointImportDialog({
         </h2>
         <p className="mt-1 text-[12px] text-text-3">
           {[
-            fileName || (validation || pending ? t("ce_import_pasted") : ""),
-            definition?.meta?.name,
-            definition?.meta?.version ? `v${definition.meta.version}` : "",
+            fileName || (result || pending ? t("ce_import_pasted") : ""),
+            detectedDefinition?.meta?.name,
+            detectedDefinition?.meta?.version ? `v${detectedDefinition.meta.version}` : "",
           ]
             .filter(Boolean)
             .join(" · ")}
@@ -126,10 +142,13 @@ export function EndpointImportDialog({
                 // 同一份文件再选一次也要触发 change，因此每次读完就清空。
                 event.target.value = "";
                 if (!file) return;
+                sourceSeq.current += 1;
+                const pick = sourceSeq.current;
                 voidCall(
                   file.text().then((text) => {
+                    if (pick !== sourceSeq.current) return;
                     setSource({ text, fileName: file.name });
-                    onSource(text, file.name);
+                    submitSource(text, file.name);
                   }),
                 );
               }}
@@ -143,13 +162,16 @@ export function EndpointImportDialog({
             spellCheck={false}
             translate="no"
             value={source.text}
-            onChange={(event) => setSource({ text: event.target.value, fileName: "" })}
+            onChange={(event) => {
+              sourceSeq.current += 1;
+              setSource({ text: event.target.value, fileName: "" });
+            }}
           />
           <div className="mt-2 flex justify-end">
             <button
               type="button"
               disabled={busy || pending || source.text.trim() === ""}
-              onClick={() => onSource(source.text, source.fileName)}
+              onClick={() => submitSource(source.text, source.fileName)}
               className={GHOST_BTN_CLS}
             >
               {t("ce_import_detect")}
@@ -207,14 +229,14 @@ export function EndpointImportDialog({
                     : "border-hairline-soft text-text-3 hover:text-text"
                 }`}
               >
-                {media}
+                {t(media === "image" ? "endpoint_image_group" : "endpoint_video_group")}
               </button>
             ))}
             <span className="w-full text-[11.5px] text-text-4">{t("ce_import_media_type_note")}</span>
           </div>
         )}
 
-        {validation && (errors.length > 0 || validation.warnings.length > 0) && (
+        {result && (errors.length > 0 || result.warnings.length > 0) && (
           <div className="mt-3 space-y-1.5">
             {errors.map((issue) => (
               <div key={`e-${issue.path}-${issue.code}`} className="flex items-start gap-2">
@@ -222,7 +244,7 @@ export function EndpointImportDialog({
                 <span className="text-[12px] leading-[1.55] text-text-2">{issue.message}</span>
               </div>
             ))}
-            {validation.warnings.map((issue) => (
+            {result.warnings.map((issue) => (
               <div key={`w-${issue.path}-${issue.code}`} className="flex items-start gap-2">
                 <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0 text-text-3" aria-hidden />
                 <span className="text-[12px] leading-[1.55] text-text-2">{issue.message}</span>
@@ -231,25 +253,25 @@ export function EndpointImportDialog({
           </div>
         )}
 
-        {validation?.hints?.base_url && (
+        {result?.hints?.base_url && (
           <p className="mt-3 text-[12px] text-text-3">
-            {t("ce_import_hint_base_url", { url: validation.hints.base_url })}
+            {t("ce_import_hint_base_url", { url: result.hints.base_url })}
           </p>
         )}
-        {validation?.hints?.suggested_models && validation.hints.suggested_models.length > 0 && (
+        {result?.hints?.suggested_models && result.hints.suggested_models.length > 0 && (
           <p className="mt-1 text-[12px] text-text-3">
             {t("ce_import_hint_models", {
               models: formatNameList(
-                validation.hints.suggested_models.map((m) => m.label ?? m.id),
+                result.hints.suggested_models.map((m) => m.label ?? m.id),
                 i18n.language,
               ),
             })}
           </p>
         )}
 
-        {validation && !toBindings && (
+        {result && !toBindings && (
           <EndpointDuplicateChoices
-            duplicates={validation.duplicates}
+            duplicates={result.duplicates}
             disabled={busy || hasErrors}
             onOverwrite={onOverwrite}
           />
@@ -261,14 +283,14 @@ export function EndpointImportDialog({
           </button>
           <button
             type="button"
-            disabled={busy || hasErrors || !definition || validation === null}
+            disabled={busy || hasErrors || !detectedDefinition || result === null}
             onClick={toBindings ? onBindNodes : onCreateCopy}
             className={ACCENT_BTN_SM_CLS}
             style={ACCENT_BUTTON_STYLE}
           >
             {toBindings
               ? t("ce_import_to_bindings")
-              : validation && validation.duplicates.length > 0
+              : result && result.duplicates.length > 0
                 ? t("ce_import_create_copy")
                 : t("ce_import_create")}
           </button>

@@ -22,7 +22,7 @@ from .inputs import EndpointTestAssets, EndpointTestCredentials, EndpointTestPar
 from .preview import RequestPreview, preview_request
 from .trial_run import TrialRunTarget, declarative_target
 
-#: 视频批次内测试连接只构造视频请求；图像端点的测试连接首期不提供（Spec #2546 Out of Scope）。
+#: 测试连接只构造视频请求，图像端点跑不了；预览请求与媒体类型无关，两种端点都给得出。
 TRIAL_RUN_IMAGE_UNSUPPORTED = "endpoint_test_trial_run_image_unsupported"
 
 

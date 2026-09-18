@@ -52,6 +52,7 @@ class DefinitionErrorCode(StrEnum):
     AUTH_HEADER_CONFLICT = "auth_header_conflict"
     HEADER_NAME_DUPLICATE = "header_name_duplicate"
     AUTH_QUERY_CONFLICT = "auth_query_conflict"
+    AUTH_QUERY_RESERVED = "auth_query_reserved"
     TASK_ID_OUT_OF_SCOPE = "task_id_out_of_scope"
     RESULT_ID_OUT_OF_SCOPE = "result_id_out_of_scope"
     RESULT_ID_WITHOUT_EXTRACT = "result_id_without_extract"

@@ -12,6 +12,7 @@ from lib.custom_provider.comfyui.capabilities import (
     duration_is_fixed,
     fps_literals,
     native_duration,
+    native_short_edge,
     size_is_fixed,
     takes_reference_images,
 )
@@ -153,6 +154,33 @@ class TestSizeIsFixedUnlessBothSidesAreBound:
 
         assert size_is_fixed(bindings) is True
 
+    def test_two_width_inputs_that_disagree_leave_the_native_short_edge_unknown(self):
+        """两路消费者各写各的尺寸：这份图没有「原生」那一档，报较小的那个等于替用户选了一路。"""
+        definition = comfyui_endpoint_definition()
+        definition["workflow"]["5"]["inputs"].update({"width": 1024, "height": 576})
+        definition["workflow"]["12"] = {"class_type": "WanVideoSize", "inputs": {"width": 512, "height": 512}}
+        definition["bindings"]["width"].append({"node": "12", "input": "width", "class_type": "WanVideoSize"})
+        definition["bindings"]["height"].append({"node": "12", "input": "height", "class_type": "WanVideoSize"})
+
+        assert native_short_edge(definition) is None
+
+    def test_a_dimension_input_that_reads_no_literal_leaves_the_short_edge_unknown(self):
+        definition = comfyui_endpoint_definition()
+        definition["workflow"]["5"]["inputs"].update({"width": 832, "height": 480})
+        definition["workflow"]["12"] = {"class_type": "WanVideoSize", "inputs": {"width": ["5", 0]}}
+        definition["bindings"]["width"].append({"node": "12", "input": "width", "class_type": "WanVideoSize"})
+
+        assert native_short_edge(definition) is None
+
+    def test_agreeing_inputs_still_give_the_shorter_of_the_two_sides(self):
+        definition = comfyui_endpoint_definition()
+        definition["workflow"]["5"]["inputs"].update({"width": 832, "height": 480})
+        definition["workflow"]["12"] = {"class_type": "WanVideoSize", "inputs": {"width": 832, "height": 480}}
+        definition["bindings"]["width"].append({"node": "12", "input": "width", "class_type": "WanVideoSize"})
+        definition["bindings"]["height"].append({"node": "12", "input": "height", "class_type": "WanVideoSize"})
+
+        assert native_short_edge(definition) == 480
+
 
 class TestNativeDurationAndTheDefaultTier:
     def test_frames_and_a_read_only_fps_give_the_workflow_its_own_tier(self):
@@ -192,6 +220,51 @@ class TestNativeDurationAndTheDefaultTier:
     def test_a_frames_target_whose_literal_is_missing_yields_no_native_duration(self):
         definition = comfyui_endpoint_definition()
         definition["bindings"]["frames"] = [_frames_target()]
+
+        assert native_duration(definition) is None
+
+    def test_one_unreadable_target_among_several_voids_the_tier_too(self):
+        """接了链接的那一格照样会被填值层写，它回写成什么无从判断，这一档因此不成立。"""
+        definition = comfyui_endpoint_definition()
+        definition["workflow"]["5"]["inputs"]["length"] = 81
+        definition["workflow"]["12"] = {"class_type": "WanVideoLength", "inputs": {"num_frames": ["5", 0]}}
+        definition["bindings"]["frames"] = [
+            _frames_target(step=4),
+            {"node": "12", "input": "num_frames", "class_type": "WanVideoLength"},
+        ]
+
+        assert native_duration(definition) is None
+
+    def test_a_second_frames_input_that_the_tier_would_rewrite_leaves_no_native_tier(self):
+        """两个帧数入口字面值不一致：选中 5 秒会把 65 那个也写成 81，这一档不算原生。"""
+        definition = comfyui_endpoint_definition()
+        definition["workflow"]["5"]["inputs"]["length"] = 81
+        definition["workflow"]["12"] = {"class_type": "WanVideoLength", "inputs": {"num_frames": 65}}
+        definition["bindings"]["frames"] = [
+            _frames_target(step=4),
+            {"node": "12", "input": "num_frames", "class_type": "WanVideoLength"},
+        ]
+
+        assert native_duration(definition) is None
+        assert default_supported_durations(definition) == []
+
+    def test_every_frames_input_writing_back_its_own_literal_keeps_the_tier(self):
+        definition = comfyui_endpoint_definition()
+        definition["workflow"]["5"]["inputs"]["length"] = 81
+        definition["workflow"]["12"] = {"class_type": "WanVideoLength", "inputs": {"num_frames": 81}}
+        definition["bindings"]["frames"] = [
+            _frames_target(step=4),
+            {"node": "12", "input": "num_frames", "class_type": "WanVideoLength", "step": 4},
+        ]
+
+        assert native_duration(definition) == 5
+
+    def test_a_literal_the_step_itself_would_realign_is_not_a_native_tier_either(self):
+        """76 帧 @ 15fps 正好折回 5 秒，但步长 4 会把它对齐到 73：选中即改图，故不是原生档。"""
+        definition = comfyui_endpoint_definition()
+        definition["workflow"]["9"]["inputs"]["fps"] = 15
+        definition["workflow"]["5"]["inputs"]["length"] = 76
+        definition["bindings"]["frames"] = [_frames_target(step=4)]
 
         assert native_duration(definition) is None
 

@@ -176,6 +176,26 @@ forbidden_modules = [
     "lib.custom_provider.endpoint_definition.jsonpath_subset",
 ]
 
+# 同一条墙的另一半：ComfyUI 的客户端与 backend 落在 lib.custom_provider 顶层（子包够不到
+# lib.video_backends.base——那条链会间接绕回声明式 backend），于是上一条契约的 source_modules
+# 看不住它们。这里按直接 import 立一条同义契约：allow_indirect_imports 只查这几个模块自己写下的
+# import，正是把它们逼出子包的那条间接链绕开的一格。新增顶层 comfyui_* 模块时加进 source_modules。
+[[tool.importlinter.contracts]]
+name = "ComfyUI 顶层实现模块不直接依赖声明式运行时"
+type = "forbidden"
+allow_indirect_imports = true
+source_modules = [
+    "lib.custom_provider.comfyui_client",
+    "lib.custom_provider.comfyui_backend",
+]
+forbidden_modules = [
+    "lib.custom_provider.declarative_backend",
+    "lib.custom_provider.endpoint_definition.validator",
+    "lib.custom_provider.endpoint_definition.template_engine",
+    "lib.custom_provider.endpoint_definition.response_extractor",
+    "lib.custom_provider.endpoint_definition.jsonpath_subset",
+]
+
 # 路线中立层不得依赖某一条具体路线的子包。违约条目类型（draft_violation）、草稿信封
 # （draft_quarantine）、正式 script_plan 的路径与写禁表（episode_paths）、已登记引用名的
 # 构造入口（reference_catalog）对 drama / narration / reference_video 一视同仁，任一处

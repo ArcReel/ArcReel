@@ -17,10 +17,11 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from random import Random
+from secrets import token_hex
 from typing import Any
 from urllib.parse import urlencode
 
-from lib.custom_provider.auth_section import render_auth
+from lib.custom_provider.auth_section import declares_credentials, render_auth
 from lib.custom_provider.comfyui.request_builder import BuiltWorkflow, MediaInputs, build_workflow
 from lib.custom_provider.comfyui_backend import ComfyuiVideoBackend
 from lib.custom_provider.comfyui_client import client_id_for, normalize_comfyui_base_url
@@ -38,6 +39,9 @@ from .trial_run import TrialRunTarget, provider_from_base_url
 
 #: 提交之后才有的值：预览恒保持占位符，与声明式那一侧的 ``{{ task_id }}`` 同形。
 UNRESOLVED_PROMPT_ID = "{{ prompt_id }}"
+
+#: 测试连接发出的那一笔在 ComfyUI 上的名字前缀，接一段随机后缀。
+_TRIAL_RUN_LABEL_PREFIX = "endpoint-test-"
 
 
 @dataclass(frozen=True)
@@ -150,9 +154,12 @@ def comfyui_credential_needs(definition: Mapping[str, Any]) -> tuple[bool, bool]
     """这份定义要不要 ``base_url`` / ``api_key``。
 
     ``base_url`` 恒需要：ComfyUI 的路由全在服务地址根下，定义里一个绝对地址都不写。``api_key``
-    只在 ``auth`` 节非空时需要——ComfyUI 原生无鉴权，凭据只有套在反向代理后面的部署才有。
+    只在 ``auth`` 节真会发出凭据时需要——ComfyUI 原生无鉴权，凭据只有套在反向代理后面的部署才
+    有。「非空」按两张表里有没有条目算（:func:`declares_credentials`），不按 ``auth`` 这个对象
+    本身算：``{"headers": {}}`` 是合法定义、渲染出来一个头都没有，为它索要 api_key 会把一台不
+    设防的 ComfyUI 挡在预览与测试连接之外。
     """
-    return True, bool(definition.get("auth"))
+    return True, declares_credentials(definition.get("auth") or {})
 
 
 def comfyui_target(
@@ -171,6 +178,11 @@ def comfyui_target(
     把一份预览摆进结果体会让用户以为提交的就是它。请求形状去预览请求那张卡看。
     """
     label = provider or provider_from_base_url(credentials.base_url)
+    # 这一笔在 ComfyUI 队列界面上的名字（``client_id`` 是 ``arcreel-<job_label>``，上传的素材
+    # 也按它命名）。测试连接不走 worker，没有 task_id，backend 的回落值是一串随机 hex——用户
+    # 在自己手动跑的队列里认不出哪一笔是刚点的「测试连接」。后缀保留一段随机串：同一个端点可以
+    # 被连着测好几次，重名会让上传的素材互相覆盖。
+    job_label = f"{_TRIAL_RUN_LABEL_PREFIX}{token_hex(4)}"
 
     async def build() -> ComfyuiVideoBackend:
         return ComfyuiVideoBackend(
@@ -179,6 +191,7 @@ def comfyui_target(
             base_url=credentials.base_url,
             api_key=credentials.api_key,
             definition=definition,
+            job_label=job_label,
         )
 
     return TrialRunTarget(

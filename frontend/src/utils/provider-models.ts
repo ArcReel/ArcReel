@@ -241,17 +241,19 @@ export function lookupEndpointConstraints(
   return model ? endpointConstraints[model.endpoint] : undefined;
 }
 
-/** 分辨率选择器的空值占位：端点报得出原生档位就说清「不选会得到什么」，否则沿用通用「默认」。
+/** 分辨率选择器的空值占位：说清「不选会得到什么」。
  *
- *  ComfyUI 端点不选档位时短边取 workflow 字面值，那一档由端点目录带过来（native_resolution）；
- *  其余端点不选即不下发该参数，没有可说的原生档位。
+ *  三种说法。端点报得出原生尺寸（ComfyUI 端点的宽高绑定读得到字面值）就报它；尺寸由该端点
+ *  固定、却连字面值都读不出来（宽高两侧都没绑定是最常见的一种）时说「由 workflow 决定」——
+ *  此时选择器本就禁用，通用的「默认（不传）」会让人以为这里还有一个「不传」的选项可挑；其余
+ *  端点不选即不下发该参数，那句「默认（不传）」说的正是实情。
  */
 export function resolutionPlaceholder(
   constraints: EndpointConstraints | undefined,
   t: (key: string, params?: Record<string, unknown>) => string,
 ): string {
   const native = constraints?.nativeResolution;
-  return native
-    ? t("resolution_native_placeholder", { value: native })
-    : t("resolution_default_placeholder");
+  if (native) return t("resolution_native_placeholder", { value: native });
+  if (constraints?.sizeFixed) return t("resolution_endpoint_fixed_placeholder");
+  return t("resolution_default_placeholder");
 }

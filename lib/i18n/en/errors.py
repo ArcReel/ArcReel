@@ -393,7 +393,7 @@ MESSAGES = {
     "ref_missing_asset": "Reference to {type} '{name}' is not in the project asset library, please generate it first",
     "ref_duration_exceeded": "The script runs {total}s, beyond {model}'s longest duration option; generated at {duration}s, so the clip is shorter than the script",
     "ref_duration_rounded_up": "The script runs {total}s, which is not one of {model}'s duration options; generated at {duration}s, so the clip is longer than the script",
-    "comfyui_multiple_outputs": "ComfyUI produced {count} files this run; kept the first one ({filename})",
+    "comfyui_multiple_outputs": "ComfyUI produced {count} files this run; kept {filename}",
     "ref_too_many_images": "Reference image count {count} exceeds {model} limit of {max_count}, kept the first {max_count}",
     "ref_payload_too_large": "Reference image payload exceeded provider limits, retried with extra compression",
     "ref_payload_floor_exceeded": "Reference images are too large or too many; even compressed to the lowest quality they still exceed the provider's request size limit. Please reduce the number of reference images or their resolution and try again",

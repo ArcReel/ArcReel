@@ -21,7 +21,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from .bindings import bound_fps, int_literal_of, literal_of, positive_number, targets_of
+from .bindings import align_frames, bound_fps, int_literal_of, literal_of, positive_number, step_of, targets_of
 from .graph import class_type_of, link_of
 from .inference_rules import AudioTrackSource, load_inference_rules
 from .workflow import is_link, node_inputs
@@ -136,21 +136,35 @@ def size_is_fixed(bindings: Mapping[str, Any]) -> bool:
 
 
 def native_short_edge(definition: Mapping[str, Any]) -> int | None:
-    """workflow 字面宽高的较小者，即这份图的原生短边。读不出整数时 ``None``。
+    """workflow 字面宽高的较小者，即这份图的原生短边。说不准时 ``None``。
 
-    与构造层「分辨率未选时短边取字面值」同一个取法（``request_builder._literal_short_edge``），
     界面据它给分辨率选择器的空值占位写出「workflow 原生（480p）」这类文案——用户看得见「不选
-    档位会得到什么」，而不是一个不知所指的「默认」。
+    档位会得到什么」，而不是一个不知所指的「默认」。这句话说的是这份图自己那一档，因此宽高两侧
+    各自的每个入口都要给得出同一个字面值：一侧绑了两个入口而字面值不一致（1024×576 与 512×512
+    两路消费者）时，这份图没有「原生」那一档可言，报较小的那个等于替用户认下其中一路；其中一个
+    入口读不出字面值（接的是链接）时同样不报——填值层照样会写它，回写一致性无从谈起。
+
+    尺寸判为固定时同样没有这个值：``_write_size`` 在那一支直接返回，根本走不到字面短边那一步，
+    说出的档位不对应任何实际行为。那一支的占位文案改由 ``size_fixed`` 那一位给出。
+
+    构造层不选档位时仍按 ``request_builder._literal_short_edge`` 取所有字面值的较小者：它必须写
+    出一个尺寸，图里那几个数中的较小者比一个全局兜底常量更贴近这份图；界面这一侧是「能不能称
+    其为原生」，判据因此比它严。
     """
     workflow: Mapping[str, Any] = definition["workflow"]
     bindings: Mapping[str, Any] = definition["bindings"]
-    literals = [
-        value
-        for key in ("width", "height")
-        for target in targets_of(bindings.get(key))
-        if (value := int_literal_of(workflow, target)) is not None and value > 0
-    ]
-    return min(literals) if literals else None
+    if size_is_fixed(bindings):
+        return None
+    edges: list[int] = []
+    for key in ("width", "height"):
+        targets = targets_of(bindings.get(key))
+        literals = [
+            value for target in targets if (value := int_literal_of(workflow, target)) is not None and value > 0
+        ]
+        if len(literals) != len(targets) or len(set(literals)) != 1:
+            return None
+        edges.append(literals[0])
+    return min(edges)
 
 
 def duration_is_fixed(bindings: Mapping[str, Any]) -> bool:
@@ -169,21 +183,57 @@ def native_duration(definition: Mapping[str, Any]) -> int | None:
     指针指向帧数所在的那个输入），帧率取 ``fps`` 只读绑定读出的字面值、没有该绑定时取 ``frames``
     条目上手填的常量。推不出来就不推——凭一个猜出来的帧率给出一个默认时长，用户选了它却出一段
     别的长度的片，比让这一维明示「不由 ArcReel 驱动」更糟。
+
+    选中之后会改掉图的档位同样 ``None``：81 帧 @ 24fps 折成 3 秒，而提交 3 秒会让构造层把帧数
+    写成 73；绑了多个帧数入口而字面值不一致时，报出的那一档也会把其余入口一起改掉。一个名为
+    「原生」、选中却改动原图的档位比没有档位更坏，故每个绑定入口都要能原样写回它现在的值——
+    含各自的帧率来源与步长，判据与填值层共读 :func:`~.bindings.align_frames`。其中一个入口读不出
+    字面帧数（接的是链接、或值本身不合法）时同样不报：填值层照样会写它，那一格回写成什么无从判断。
     """
     bindings: Mapping[str, Any] = definition["bindings"]
     workflow: Mapping[str, Any] = definition["workflow"]
     frames_targets = targets_of(bindings.get("frames"))
-    frames = next(
-        (value for target in frames_targets if (value := int_literal_of(workflow, target)) and value > 1), None
-    )
-    if frames is None:
+    literals = [
+        (target, value)
+        for target in frames_targets
+        if (value := int_literal_of(workflow, target)) is not None and value > 1
+    ]
+    if not literals or len(literals) != len(frames_targets):
         return None
-    fps = bound_fps(workflow, bindings) or next(
-        (value for target in frames_targets if (value := positive_number(target.get("fps")))), None
-    )
-    if fps is None:
+    bound = bound_fps(workflow, bindings)
+
+    def fps_of(target: Mapping[str, Any]) -> float | None:
+        return bound if bound is not None else positive_number(target.get("fps"))
+
+    first_fps = fps_of(literals[0][0])
+    if first_fps is None:
         return None
-    return round((frames - 1) / fps)
+    seconds = round((literals[0][1] - 1) / first_fps)
+    if seconds <= 0:
+        return None
+    for target, value in literals:
+        fps = fps_of(target)
+        if fps is None or align_frames(round(seconds * fps) + 1, step_of(target)) != value:
+            return None
+    return seconds
+
+
+def keeps_its_own_frame_count(definition: Mapping[str, Any]) -> bool:
+    """帧数入口都写着自己的帧数（字面值 > 1），而这些值凑不出一档原生时长。
+
+    这种图对外的声明正是「时长不由 ArcReel 驱动」——``endpoint_durations`` 为空、界面只读禁用、
+    规划层借一个默认秒数过关。填值层因此也不该按那个借来的时长改写帧数：81 帧 @ 24fps 换算成
+    4 秒会被写成 97 帧，一边说不驱动一边把片长改掉。两处对同一件事要给同一个答案。
+
+    ``length`` 还是 1 这类占位值不算「自己的帧数」：那种图没有片长可保，帧数照常由请求驱动。
+    """
+    bindings: Mapping[str, Any] = definition["bindings"]
+    workflow: Mapping[str, Any] = definition["workflow"]
+    targets = targets_of(bindings.get("frames"))
+    if not targets:
+        return False
+    literals = [value for target in targets if (value := int_literal_of(workflow, target)) is not None and value > 1]
+    return len(literals) == len(targets) and native_duration(definition) is None
 
 
 def default_supported_durations(definition: Mapping[str, Any]) -> list[int]:

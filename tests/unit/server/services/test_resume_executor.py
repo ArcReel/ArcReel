@@ -320,7 +320,7 @@ async def test_execute_resume_video_calls_backend_resume_directly(monkeypatch, f
 
 @pytest.mark.asyncio
 async def test_execute_resume_carries_backend_warnings_into_the_result(monkeypatch, fake_pm, video_task):
-    """续跑期 backend 产生的提示要落到任务 result 上；分镜视频此前从没有过 warning 这一键。"""
+    """续跑期 backend 产生的提示要落到任务 result 上。"""
     from server.services.resume_executor import execute_resume_video_task
 
     warning = {"key": "comfyui_multiple_outputs", "params": {"count": 2, "filename": "final.mp4"}}

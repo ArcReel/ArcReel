@@ -80,6 +80,16 @@ def auth_templates(auth: Mapping[str, Any]) -> Iterator[tuple[str, str, str, str
             yield group, str(name), join_path(join_path("auth", group), str(name)), str(template)
 
 
+def declares_credentials(auth: Mapping[str, Any]) -> bool:
+    """这一节到底会不会发出凭据。
+
+    按两张表里有没有条目算，不按 ``auth`` 这个对象本身算：``{"headers": {}}`` 一个头都不会发
+    出去，与整节缺席等效——:func:`check_auth_section` 与 :func:`render_auth` 都是这个口径，
+    「这份定义要不要 api_key」自然也得是。
+    """
+    return any(True for _ in auth_templates(auth))
+
+
 def duplicate_header_issues(path: str, headers: Mapping[str, Any]) -> Iterator[DefinitionIssue]:
     """同一张头表里大小写不同的同名键：HTTP 头名不区分大小写，两条会一起发出去。"""
     seen: dict[str, str] = {}
@@ -118,9 +128,7 @@ def check_auth_section(
     errors: list[DefinitionIssue] = []
     warnings: list[DefinitionIssue] = []
     references_api_key = False
-    declares_anything = False
     for _group, _name, path, template in auth_templates(auth):
-        declares_anything = True
         errors.extend(
             DefinitionIssue(path, DefinitionErrorCode.MALFORMED_PLACEHOLDER, {"fragment": fragment})
             for fragment in malformed_placeholders(template)
@@ -133,7 +141,7 @@ def check_auth_section(
         if looks_like_literal_credential(template):
             warnings.append(DefinitionIssue(path, DefinitionErrorCode.AUTH_LITERAL_CREDENTIAL))
     errors.extend(duplicate_header_issues(join_path("auth", "headers"), auth.get("headers") or {}))
-    if declares_anything and not references_api_key:
+    if declares_credentials(auth) and not references_api_key:
         errors.append(DefinitionIssue("auth", DefinitionErrorCode.AUTH_WITHOUT_API_KEY))
     return AuthIssues(tuple(errors), tuple(warnings))
 

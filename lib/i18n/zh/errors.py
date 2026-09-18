@@ -360,7 +360,7 @@ MESSAGES = {
     "ref_missing_asset": "参考图引用的{type}「{name}」不在项目资产库中，请先生成",
     "ref_duration_exceeded": "脚本编排 {total}s 超出 {model} 最大档位，已按 {duration}s 生成，成片短于脚本编排",
     "ref_duration_rounded_up": "脚本编排 {total}s 不在 {model} 的时长档位内，已按 {duration}s 生成，成片长于脚本编排",
-    "comfyui_multiple_outputs": "ComfyUI 这次产出了 {count} 个文件，已取第 1 个（{filename}）",
+    "comfyui_multiple_outputs": "ComfyUI 这次产出了 {count} 个文件，已取其中的 {filename}",
     "ref_too_many_images": "参考图数量 {count} 超出 {model} 上限 {max_count}，已取前 {max_count} 张",
     "ref_payload_too_large": "参考图请求体超出供应商限制，已二次压缩重试",
     "ref_payload_floor_exceeded": "参考图过大或过多，压缩到最低画质仍超出供应商请求体上限，请减少参考图数量或降低分辨率后重试",

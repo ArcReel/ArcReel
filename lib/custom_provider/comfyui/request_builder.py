@@ -27,12 +27,13 @@ from lib.aspect_size import DEFAULT_SHORT_EDGE, IMAGE_TIER_SHORT_EDGE, VIDEO_TIE
 from lib.aspect_size import resolution_to_short_edge as short_edge_of_resolution
 from lib.prompt_utils import append_avoid_text, split_avoid_lines
 
+from .bindings import align_frames, step_of
 from .bindings import bound_fps as _bound_fps
 from .bindings import int_literal_of as _int_literal
 from .bindings import literal_of as _literal
 from .bindings import positive_number as _positive_number
 from .bindings import targets_of as _targets
-from .capabilities import size_is_fixed
+from .capabilities import keeps_its_own_frame_count, size_is_fixed
 from .failures import IMAGE_DROP_UNSUPPORTED, ComfyuiError
 from .inference_rules import InferenceRules, MergeNode, load_inference_rules
 from .workflow import is_link, node_inputs
@@ -111,7 +112,10 @@ def build_workflow(
     _write_all(workflow, _targets(bindings.get("prompt")), body)
     _write_negative_prompt(workflow, bindings.get("negative_prompt"), avoid_text)
     width, height = _write_size(workflow, bindings, aspect_ratio=aspect_ratio, resolution=resolution, media=media_type)
-    frames = _write_frames(workflow, bindings, duration_seconds=duration_seconds)
+    # 图自己写着片长、而这份片长凑不出一档原生时长时不动帧数：端点对外说的正是「时长不由
+    # ArcReel 驱动」（档位为空、界面只读），请求里那个秒数是规划层借的，不是用户选的。
+    driven = None if keeps_its_own_frame_count(definition) else duration_seconds
+    frames = _write_frames(workflow, bindings, duration_seconds=driven)
     actual_seed = _write_seed(workflow, bindings, requested=seed, rng=rng or Random())
 
     return BuiltWorkflow(
@@ -171,12 +175,6 @@ def _write_all(workflow: dict[str, Any], targets: Sequence[Mapping[str, Any]], v
         _write_one(workflow, target, value)
 
 
-def _step(target: Mapping[str, Any]) -> int:
-    """条目声明的步长；未声明按 1 看待——没有步长信息时不替 workflow 作者假设一个。"""
-    raw = target.get("step")
-    return raw if isinstance(raw, int) and raw >= 1 else 1
-
-
 # ---------------------------------------------------------------- 负向提示词
 
 
@@ -221,7 +219,7 @@ def _write_size(
     width_targets = _targets(bindings.get("width"))
     height_targets = _targets(bindings.get("height"))
 
-    round_to = math.lcm(*[_step(target) for target in (*width_targets, *height_targets)])
+    round_to = math.lcm(*[step_of(target) for target in (*width_targets, *height_targets)])
     tier_map = IMAGE_TIER_SHORT_EDGE if media == "image" else VIDEO_TIER_SHORT_EDGE
     if resolution and resolution.strip():
         short_edge = short_edge_of_resolution(resolution, tier_map=tier_map)
@@ -254,7 +252,7 @@ def _write_stepped(workflow: dict[str, Any], targets: Sequence[Mapping[str, Any]
     """把一个派生尺寸按各条目的步长向下对齐后写入，回传最后写出的值。"""
     written: int | None = None
     for target in targets:
-        written = _align_down(value, _step(target))
+        written = _align_down(value, step_of(target))
         _write_one(workflow, target, written)
     return written
 
@@ -278,6 +276,9 @@ def _write_frames(
     帧率改帧数，比让 workflow 保持它自己的字面值更容易出片长不符。
 
     步长对帧数的含义是 ``frames ≡ 1 (mod step)``（4n+1 / 8n+1 这类），向下对齐、下限 ``1 + step``。
+
+    ``duration_seconds`` 为 ``None`` 即「这一维不由本次请求驱动」，调用方在端点给不出档位时传的
+    就是它：那种情形下 workflow 的字面帧数原样留着。
     """
     targets = _targets(bindings.get("frames"))
     if not targets or duration_seconds is None:
@@ -290,23 +291,10 @@ def _write_frames(
         if fps is None:
             logger.info("帧数未写：既无 fps 只读绑定，条目也未手填帧率")
             continue
-        step = _step(target)
-        written = _align_frames(round(duration_seconds * fps) + 1, step)
+        step = step_of(target)
+        written = align_frames(round(duration_seconds * fps) + 1, step)
         _write_one(workflow, target, written)
     return written
-
-
-def _align_frames(frames: int, step: int) -> int:
-    """向下对齐到 ``frames ≡ 1 (mod step)``，下限 ``1 + step``。
-
-    下限只留日志不报错：时长短到连一个步长都凑不出时，提交最小合法帧数仍能出片，把这次生成拒了
-    反而不如让用户看见一段比预期短的成片。
-    """
-    aligned = frames - (frames - 1) % step
-    if aligned < 1 + step:
-        logger.info("帧数 %d 低于步长 %d 的最小合法值，按 %d 提交", frames, step, 1 + step)
-        return 1 + step
-    return aligned
 
 
 # ---------------------------------------------------------------- 种子

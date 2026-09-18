@@ -13,6 +13,7 @@ import type {
 import {
   bindingKeysFor,
   isListBindingKey,
+  isMultiTargetBindingKey,
   isRequiredBindingKey,
   literalInputText,
   manualTargets,
@@ -22,6 +23,7 @@ import {
   selectedCandidateIndexes,
   statusTally,
   toggleListTarget,
+  toggleSetTarget,
   type ComfyuiNodeEntry,
   type ComfyuiRowStatus,
 } from "./comfyui-bindings";
@@ -70,7 +72,8 @@ interface CandidateListProps {
 function CandidateList({ bindingKey, candidates, targets, onToggle }: CandidateListProps) {
   const { t } = useTranslation("dashboard");
   const groupName = useId();
-  const multiple = isListBindingKey(bindingKey);
+  const multiple = isListBindingKey(bindingKey) || isMultiTargetBindingKey(bindingKey);
+  const ordered = isListBindingKey(bindingKey);
   const chosen = selectedCandidateIndexes(candidates, targets);
   const best = candidates[0]?.score ?? 1;
 
@@ -79,7 +82,7 @@ function CandidateList({ bindingKey, candidates, targets, onToggle }: CandidateL
     <div className="space-y-1" role={multiple ? "group" : "radiogroup"} aria-label={t("ce_cf_candidates_label")}>
       {candidates.map((candidate, index) => {
         const selected = chosen.has(index);
-        const order = selected && multiple ? (targets ?? []).findIndex((x) => sameTarget(x, candidate.target)) + 1 : 0;
+        const order = selected && ordered ? (targets ?? []).findIndex((x) => sameTarget(x, candidate.target)) + 1 : 0;
         return (
           <label
             key={`${candidate.target.node}.${candidate.target.input ?? ""}`}
@@ -173,6 +176,24 @@ interface ExtrasProps {
   onPatch: (patch: Partial<ComfyuiBindingTarget>) => void;
 }
 
+/**
+ * 手填帧率：有限且不小于 1 才收下，否则给 `undefined`（这一项不声明）。允许小数——29.97 这类
+ * 帧率是真实存在的。
+ *
+ * `min={1}` 只拦得住原生控件的上下箭头，手打的负数、`Infinity` 与空串照样进得来；定义保存时
+ * 不再走一次表单校验，故在写进状态这一步就挡掉。
+ */
+function positiveNumber(raw: string): number | undefined {
+  const value = Number(raw);
+  return Number.isFinite(value) && value >= 1 ? value : undefined;
+}
+
+/** 对齐步长：schema 声明为整数，小数存下去会被定义校验打回，故在这里就不收。 */
+function positiveInteger(raw: string): number | undefined {
+  const value = Number(raw);
+  return Number.isInteger(value) && value >= 1 ? value : undefined;
+}
+
 /** 条目自带的附加项：对齐步长、手填帧率、种子策略、帧率的只读说明。 */
 function BindingExtras({ bindingKey, targets, onPatch }: ExtrasProps) {
   const { t } = useTranslation("dashboard");
@@ -193,7 +214,7 @@ function BindingExtras({ bindingKey, targets, onPatch }: ExtrasProps) {
             inputMode="numeric"
             autoComplete="off"
             value={target.step ?? ""}
-            onChange={(event) => onPatch({ step: Number(event.target.value) || undefined })}
+            onChange={(event) => onPatch({ step: positiveInteger(event.target.value) })}
             className={`${INPUT_CLS} w-16 py-0.5 text-[12px]`}
           />
         </label>
@@ -209,7 +230,7 @@ function BindingExtras({ bindingKey, targets, onPatch }: ExtrasProps) {
                 inputMode="decimal"
                 autoComplete="off"
                 value={target.fps ?? ""}
-                onChange={(event) => onPatch({ fps: Number(event.target.value) || undefined })}
+                onChange={(event) => onPatch({ fps: positiveNumber(event.target.value) })}
                 className={`${INPUT_CLS} w-20 py-0.5 text-[12px]`}
               />
             </label>
@@ -414,11 +435,16 @@ export function ComfyuiBindingTable({
                       candidates={candidates}
                       targets={targets}
                       onToggle={(candidate) => {
-                        if (!isListBindingKey(key)) {
+                        if (isListBindingKey(key)) {
+                          const ordered = toggleListTarget(candidates, targets ?? [], candidate.target);
+                          onChange(key, ordered.length > 0 ? ordered : undefined);
+                          return;
+                        }
+                        if (!isMultiTargetBindingKey(key)) {
                           onChange(key, [candidate.target]);
                           return;
                         }
-                        const next = toggleListTarget(candidates, targets ?? [], candidate.target);
+                        const next = toggleSetTarget(targets ?? [], candidate.target);
                         onChange(key, next.length > 0 ? next : undefined);
                       }}
                     />
@@ -428,13 +454,19 @@ export function ComfyuiBindingTable({
                       bindingKey={key}
                       nodes={nodes}
                       onPick={(target) => {
-                        if (!isListBindingKey(key)) {
+                        const current = targets ?? [];
+                        if (isListBindingKey(key)) {
+                          if (current.some((entry) => sameTarget(entry, target))) return;
+                          onChange(key, toggleListTarget(candidates, current, target));
+                          return;
+                        }
+                        if (!isMultiTargetBindingKey(key)) {
                           onChange(key, [target]);
                           return;
                         }
-                        const current = targets ?? [];
+                        // 手选只做加法：同键的其余落点是别的分支在用的，删要从候选列表里取消勾选。
                         if (current.some((entry) => sameTarget(entry, target))) return;
-                        onChange(key, toggleListTarget(candidates, current, target));
+                        onChange(key, [...current, target]);
                       }}
                     />
                     <BindingExtras

@@ -118,6 +118,7 @@ export default {
   resolution_label: "Độ phân giải",
   resolution_default_placeholder: "Mặc định (chưa đặt)",
   resolution_native_placeholder: "Gốc của workflow ({{value}})",
+  resolution_endpoint_fixed_placeholder: "Do workflow quyết định",
   resolution_fixed_hint: "Workflow này có kích thước cố định: chiều rộng/cao không liên kết với node nào, nên tỉ lệ và độ phân giải không có tác dụng. Hãy sửa liên kết node để thay đổi.",
   duration_not_driven_notice: "Thời lượng của model này không do ArcReel quyết định: workflow tự định đoạt độ dài mỗi đoạn.",
   tab_custom_desc: "Tải lên ảnh tham chiếu phong cách; AI sẽ phân tích. Chọn tab này sẽ xóa mẫu đang chọn.",

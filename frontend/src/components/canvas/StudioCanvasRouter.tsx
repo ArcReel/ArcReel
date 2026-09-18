@@ -736,6 +736,8 @@ export function StudioCanvasRouter() {
             capabilities.supportedDurationsWithoutReference ?? undefined;
           const durationWarningReason = (seconds: number) =>
             durationOutOfRangeReason(seconds, capabilities);
+          // 档位空集的两种成因说给用户听的不是同一句：型号没登记时长 vs 这份 workflow 自己定片长。
+          const durationEndpointFixed = capabilities.durationEndpointFixed;
           const hasDraft =
             episode?.script_status === "segmented" || episode?.script_status === "generated";
           const isAd = currentProjectData?.content_mode === "ad";
@@ -793,6 +795,7 @@ export function StudioCanvasRouter() {
                     // unit 时长档位随所选模型能力变化（已按本集参考图路径收窄）
                     durationOptions={durationOptions}
                     durationOptionsNoReference={durationOptionsNoReference}
+                    durationEndpointFixed={durationEndpointFixed}
                   />
                 ) : gridStoryboardEnabled(currentProjectData) ? (
                   <GridImageToVideoCanvas
@@ -835,6 +838,7 @@ export function StudioCanvasRouter() {
                     projectData={currentProjectData}
                     durationOptions={durationOptions}
                     durationWarningReason={durationWarningReason}
+                    durationEndpointFixed={durationEndpointFixed}
                     onUpdatePrompt={awaitedUpdatePrompt}
                     onMoveShot={isAd ? handleMoveShot : undefined}
                     onInsertShot={handleInsertShot}

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, cast
 
@@ -10,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from lib.custom_provider import is_custom_endpoint, make_endpoint_key
 from lib.custom_provider.backends import CustomVideoBackend
+from lib.custom_provider.comfyui.failures import ComfyuiError
 from lib.custom_provider.endpoint_resolution import (
     definition_media_type,
     derive_mirror_columns,
@@ -19,6 +21,7 @@ from lib.custom_provider.endpoint_resolution import (
 from lib.custom_provider.endpoints import ENDPOINT_REGISTRY, get_endpoint_spec
 from lib.db.repositories.custom_endpoint_repo import CustomEndpointRepository
 from lib.image_backends.base import ImageCapability
+from lib.task_failure import FAILURE_CODE_KEYS
 from lib.video_backends.base import ReferenceAudioMode, VideoAudioMode
 from tests.factories import comfyui_endpoint_definition, custom_endpoint_definition
 
@@ -200,11 +203,40 @@ class TestKindDispatch:
         assert (spec_of(derivable).duration_tier_empty, spec_of(derivable).duration_fixed) == (False, False)
         assert get_endpoint_spec("openai-video").duration_tier_empty is False
 
-    def test_the_native_resolution_is_the_tier_nearest_the_literal_short_edge(self):
-        """夹具的字面宽高是 832 × 480，短边 480 → 视频档位表里的 480p。"""
+    def test_a_native_duration_that_cannot_round_trip_is_no_tier_at_all(self):
+        """81 帧 @ 24fps 折成 3 秒，而选中 3 秒会让构造层把帧数改写成 73。
+
+        一个名为「原生」、选中却改掉原图的档位比没有档位更坏，故这一维照「不由 ArcReel 驱动」
+        对待。同一份帧数配 16fps 恰好回得去，仍报 5 秒。
+        """
+        off = comfyui_endpoint_definition()
+        off["workflow"]["5"]["inputs"]["length"] = 81
+        off["workflow"]["9"]["inputs"]["fps"] = 24
+        off["bindings"]["frames"] = [{"node": "5", "input": "length", "class_type": "EmptyLatentImage"}]
+        exact = json.loads(json.dumps(off))
+        exact["workflow"]["9"]["inputs"]["fps"] = 16
+
+        def spec_of(definition: dict):
+            return endpoint_spec_from_row(cast("CustomEndpoint", SimpleNamespace(id=7, definition=definition)))
+
+        assert spec_of(off).duration_tier_empty is True
+        assert spec_of(exact).duration_tier_empty is False
+        assert spec_of(exact).endpoint_durations == [5]
+
+    def test_the_native_resolution_borrows_a_tier_word_only_on_an_exact_hit(self):
+        """夹具的字面宽高是 832 × 480，短边 480 恰好是视频档位表里的 480p。"""
         row = SimpleNamespace(id=7, definition=comfyui_endpoint_definition())
 
         assert endpoint_spec_from_row(cast("CustomEndpoint", row)).native_resolution == "480p"
+
+    def test_a_short_edge_off_the_tiers_is_reported_as_pixels(self):
+        """848 既不是 720p 也不是 1080p：报最近的档位会让人以为选中它得到的是同一份画面。"""
+        definition = comfyui_endpoint_definition()
+        definition["workflow"]["5"]["inputs"]["width"] = 848
+        definition["workflow"]["5"]["inputs"]["height"] = 1504
+        row = SimpleNamespace(id=7, definition=definition)
+
+        assert endpoint_spec_from_row(cast("CustomEndpoint", row)).native_resolution == "848px"
 
     def test_an_unreadable_literal_size_leaves_the_native_resolution_unknown(self):
         definition = comfyui_endpoint_definition()
@@ -213,6 +245,20 @@ class TestKindDispatch:
         row = SimpleNamespace(id=7, definition=definition)
 
         assert endpoint_spec_from_row(cast("CustomEndpoint", row)).native_resolution is None
+
+    def test_a_one_sided_size_binding_reports_no_native_resolution(self):
+        """只绑一侧时尺寸整维判为固定，构造层压根走不到「字面短边」那一步。
+
+        读得到的那个字面值也未必是短边：把 832 的长边说成「原生 832px」，用户会以为不选档位就
+        得到一张短边 832 的画面。这一支的占位文案改由 ``size_fixed`` 那一位给出。
+        """
+        definition = comfyui_endpoint_definition()
+        definition["bindings"].pop("height")
+        row = SimpleNamespace(id=7, definition=definition)
+
+        spec = endpoint_spec_from_row(cast("CustomEndpoint", row))
+
+        assert (spec.size_fixed, spec.native_resolution) == (True, None)
 
     def test_a_declarative_endpoint_declares_no_fixed_dimension(self):
         """尺寸与时长「被端点固定」只是 ComfyUI 的形态，其余端点由请求参数决定。"""
@@ -282,14 +328,22 @@ class TestKindDispatch:
             spec.build_backend(cast("Any", provider), "wan-t2v")
 
     def test_building_a_backend_for_a_comfyui_image_spec_says_the_runtime_is_missing(self):
-        """图像通道还没有 backend：抛 NotImplementedError，不与「端点不认识」混同。"""
+        """图像通道还没有 backend：抛带失败码的 ComfyuiError，不与「端点不认识」混同。
+
+        码进 ``FAILURE_CODE_KEYS``，worker 据此落结构化失败、读侧按语言渲染——落一段裸文本的话，
+        非中文用户在任务列表里看到的是一句中文。
+        """
         row = SimpleNamespace(id=7, definition=comfyui_endpoint_definition(media_type="image"))
         provider = SimpleNamespace(provider_id="custom-1", base_url="https://comfy.test", api_key="")
 
         spec = endpoint_spec_from_row(cast("CustomEndpoint", row))
 
-        with pytest.raises(NotImplementedError, match="ComfyUI"):
+        with pytest.raises(ComfyuiError) as caught:
             spec.build_backend(cast("Any", provider), "flux")
+
+        assert caught.value.code == "provider_unsupported_media"
+        assert caught.value.params == {"provider_id": "custom-1", "media_type": "image"}
+        assert caught.value.code in FAILURE_CODE_KEYS
 
     def test_media_type_of_an_unsupported_kind_is_refused(self):
         definition = custom_endpoint_definition(kind="unregistered")

@@ -1611,7 +1611,11 @@ class ConfigResolver:
             # 那一档。这是该协议的合法状态，不适用下面那条「空集即 fail loud」——ADR 0018 守的是
             # 「型号声明缺失」，而这里是「这一维在该端点上不存在」。其余协议照旧 fail loud。
             durations_optional = endpoint_spec.duration_tier_optional
-            raw_durations = model.supported_durations
+            # 档位的真相源是端点，不是模型行：端点说这一维给不出档位时，行上存着的那份一律作废。
+            # 写入侧（``ModelInput.to_db_dict``）只在保存那一刻取端点的判断，而端点定义此后可以
+            # 独立改动，两边因此会分叉；分叉时以端点为准，能力接口、剧本规划与端点目录才是同一个
+            # 答案。
+            raw_durations = None if endpoint_spec.duration_tier_empty else model.supported_durations
             supported_durations: list[int] = []
             if raw_durations:
                 try:
@@ -1622,6 +1626,11 @@ class ConfigResolver:
                     ) from exc
                 if isinstance(parsed, list):
                     supported_durations = [int(d) for d in parsed]
+            if not supported_durations and endpoint_spec.endpoint_durations:
+                # 同一条规则的另一侧：行上是空集而端点给得出档位时，按端点的来。空集只在端点也
+                # 驱动不了这一维时才成立——留着它，时长控件会禁着、剧本规划会借固定篇幅，而请求
+                # 构造已经在往图里写帧数。
+                supported_durations = list(endpoint_spec.endpoint_durations)
         else:
             source = "registry"
             durations_optional = False

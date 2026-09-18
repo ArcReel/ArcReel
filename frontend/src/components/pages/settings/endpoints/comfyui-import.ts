@@ -11,6 +11,14 @@ import type {
  * 键与模型行挂接不变。
  */
 export interface ComfyuiImportDraft {
+  /**
+   * 这一次导入的一次性身份，每产生一份草稿换一个值。
+   *
+   * 详情组件把定义、绑定与推断结果都收在自己的 `useState` 里，只在挂载那一刻取自 props；重新
+   * 导入保留端点键与选中项，不换实例的话屏幕上还是旧 workflow、保存下去的也是旧的。详情的
+   * React key 带上它，换一份草稿即换一个实例。
+   */
+  token: string;
   record: CustomEndpointInfo | null;
   definition: ComfyuiEndpointDefinition;
   /** 这份定义是从哪个文件来的，详情头部据此显示来源。 */

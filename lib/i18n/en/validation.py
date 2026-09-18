@@ -263,6 +263,7 @@ MESSAGES = {
         "The URL already carries the query parameter {param} declared in auth.query: "
         "only the auth section may write credential query parameters"
     ),
+    "val_ce_auth_query_reserved": "auth.query entry {param} collides with a parameter the artifact download already carries; the credential is overwritten at download time, so pick another name",
     "val_ce_task_id_out_of_scope": "task_id is only available in the poll and result sections",
     "val_ce_result_id_out_of_scope": "result_id is only available in the result section",
     "val_ce_result_id_without_extract": "result_id is referenced but poll.extract does not declare result_id",

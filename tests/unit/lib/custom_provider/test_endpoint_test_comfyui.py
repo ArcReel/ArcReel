@@ -16,6 +16,7 @@ from lib.custom_provider.endpoint_test import (
     preview_comfyui_request,
     support_for_kind,
 )
+from lib.custom_provider.endpoint_test.comfyui import comfyui_credential_needs
 from tests.factories import comfyui_endpoint_definition
 
 CREDENTIALS = EndpointTestCredentials(base_url="https://comfy.test", api_key="sk-secret-key-1234")
@@ -237,3 +238,26 @@ class TestTrialRunTarget:
     def test_it_leaves_the_result_body_without_a_rendered_request(self):
         """实发 workflow 的种子与素材引用名要到提交那一刻才定下来。"""
         assert support_for_kind("comfyui").trial_run_request_preview is False
+
+
+class TestCredentialNeeds:
+    def test_base_url_is_always_required(self):
+        """ComfyUI 的路由全在服务地址根下，定义里一个绝对地址都不写。"""
+        assert comfyui_credential_needs(_definition())[0] is True
+
+    def test_an_auth_section_that_sends_something_asks_for_an_api_key(self):
+        definition = _definition()
+        definition["auth"] = {"headers": {"X-API-Key": "{{ api_key }}"}}
+
+        assert comfyui_credential_needs(definition)[1] is True
+
+    def test_two_empty_tables_ask_for_nothing(self):
+        """``{"headers": {}}`` 是合法定义、渲染出来一个头都没有：为它索要 api_key 会把一台
+        不设防的 ComfyUI 挡在预览与测试连接之外。校验器与渲染都按这个口径。"""
+        definition = _definition()
+        definition["auth"] = {"headers": {}}
+
+        assert comfyui_credential_needs(definition) == (True, False)
+
+    def test_no_auth_section_asks_for_nothing(self):
+        assert comfyui_credential_needs(_definition()) == (True, False)

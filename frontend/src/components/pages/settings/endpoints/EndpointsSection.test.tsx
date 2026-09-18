@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Router } from "wouter";
@@ -581,6 +581,39 @@ describe("EndpointsSection", () => {
       expect(screen.getByText(/先给这份 workflow 起个名字/)).toBeInTheDocument();
     });
 
+    it("drops an inference that comes back after the dialog was dismissed", async () => {
+      // 推断在途时取消：迟到的那一份会把一个已经被放弃的 workflow 装进详情并跳过去。
+      const workflow = { "9": { class_type: "SaveVideo", inputs: { fps: 16 } } };
+      const wrapped: ComfyuiEndpointDefinition = {
+        kind: "comfyui",
+        schema_version: "1.0.0",
+        meta: { name: "ComfyUI workflow", author: "unknown", version: "1.0.0" },
+        media_type: "video",
+        workflow,
+        bindings: {},
+      };
+      vi.spyOn(API, "validateCustomEndpoint").mockResolvedValue(
+        validation({ import_shape: "comfyui_api_workflow", wrapped_definition: wrapped }),
+      );
+      let release: (value: ComfyuiInferResponse) => void = () => {};
+      const pending = new Promise<ComfyuiInferResponse>((resolve) => {
+        release = resolve;
+      });
+      vi.spyOn(API, "inferComfyuiBindings").mockReturnValue(pending);
+      renderSection();
+      await screen.findByRole("navigation");
+
+      await pasteSource(JSON.stringify(workflow));
+      await userEvent.click(await screen.findByRole("button", { name: "去绑定节点" }));
+      await userEvent.click(screen.getByRole("button", { name: "取消" }));
+      release(inference());
+      await act(async () => {
+        await pending;
+      });
+
+      expect(screen.queryByLabelText("端点名称")).not.toBeInTheDocument();
+    });
+
     it("takes a workflow pasted into the dialog down the same path as an uploaded one", async () => {
       const workflow = { "9": { class_type: "SaveVideo", inputs: { fps: 16 } } };
       const wrapped: ComfyuiEndpointDefinition = {
@@ -617,7 +650,7 @@ describe("EndpointsSection", () => {
       await screen.findByRole("navigation");
 
       await pickFile(new File([JSON.stringify(workflow)], "workflow_api.json", { type: "application/json" }));
-      await userEvent.click(await screen.findByRole("button", { name: "image" }));
+      await userEvent.click(await screen.findByRole("button", { name: "图片" }));
 
       await waitFor(() => expect(validate).toHaveBeenCalledTimes(2));
       expect(validate.mock.calls[0][1]).toMatchObject({ mediaType: "video" });
@@ -661,6 +694,85 @@ describe("EndpointsSection", () => {
       expect(validate.mock.calls[0][1]).toMatchObject({ excludeId: 8 });
       expect(await screen.findByText("来自 v2_api.json")).toBeInTheDocument();
       expect(screen.getByLabelText("端点名称")).toHaveValue("我的 ComfyUI");
+    });
+
+    it("puts the re-imported workflow on screen instead of the one it replaced", async () => {
+      // 详情把定义收在自己的 state 里，只在挂载那一刻取自 props：重新导入不换实例的话，来源
+      // 文件名换了、屏幕上的 workflow 还是旧的，保存下去的也是旧的。
+      const workflow = { "12": { class_type: "VHS_VideoCombine", inputs: {} } };
+      vi.spyOn(API, "validateCustomEndpoint").mockResolvedValue(
+        validation({
+          import_shape: "comfyui_api_workflow",
+          wrapped_definition: {
+            kind: "comfyui",
+            schema_version: "1.0.0",
+            meta: { name: "ComfyUI workflow", author: "unknown", version: "1.0.0" },
+            media_type: "video",
+            workflow,
+            bindings: {},
+          },
+        }),
+      );
+      vi.spyOn(API, "inferComfyuiBindings").mockResolvedValue(
+        inference({ bindings: { prompt: keyInference(PROMPT_TARGET, "kept") } }),
+      );
+      renderSection("section=endpoints&endpoint=ce-8");
+      await screen.findByLabelText("端点名称");
+      expect(screen.getByText(/SaveVideo/, { selector: "span" })).toBeInTheDocument();
+
+      await userEvent.click(screen.getByRole("button", { name: "重新导入" }));
+      const picker = document.querySelector<HTMLInputElement>('input[type="file"]');
+      if (picker === null) throw new Error("no file input");
+      fireEvent.change(picker, {
+        target: { files: [new File([JSON.stringify(workflow)], "v2_api.json", { type: "application/json" })] },
+      });
+      await userEvent.click(await screen.findByRole("button", { name: "去绑定节点" }));
+
+      expect(await screen.findByText(/VHS_VideoCombine/, { selector: "span" })).toBeInTheDocument();
+      expect(screen.queryByText(/SaveVideo/, { selector: "span" })).not.toBeInTheDocument();
+    });
+
+    it("re-imports onto the endpoint the user is looking at, not the one a stale draft came from", async () => {
+      // 手上留着端点 A 的未保存草稿、人却走到端点 B 上点重新导入时，沿用 A 的身份会把 B 的
+      // workflow 存到 A 身上——那是一次谁都没要求过的覆盖。
+      const workflow = { "12": { class_type: "SaveVideo", inputs: {} } };
+      const validate = vi.spyOn(API, "validateCustomEndpoint").mockResolvedValue(
+        validation({
+          import_shape: "comfyui_api_workflow",
+          wrapped_definition: {
+            kind: "comfyui",
+            schema_version: "1.0.0",
+            meta: { name: "ComfyUI workflow", author: "unknown", version: "1.0.0" },
+            media_type: "video",
+            workflow,
+            bindings: {},
+          },
+        }),
+      );
+      const pickFile = async (name: string) => {
+        const picker = document.querySelector<HTMLInputElement>('input[type="file"]');
+        if (picker === null) throw new Error("no file input");
+        fireEvent.change(picker, {
+          target: { files: [new File([JSON.stringify(workflow)], name, { type: "application/json" })] },
+        });
+        await userEvent.click(await screen.findByRole("button", { name: "去绑定节点" }));
+      };
+
+      renderSection("section=endpoints&endpoint=ce-8");
+      await screen.findByLabelText("端点名称");
+      await userEvent.click(screen.getByRole("button", { name: "重新导入" }));
+      await pickFile("v2_api.json");
+      await screen.findByText("来自 v2_api.json");
+
+      // 不保存这份草稿，直接走到另一个 workflow 端点上再点重新导入。
+      const list = await screen.findByRole("navigation");
+      await userEvent.click(within(list).getByRole("button", { name: /我的画图 workflow/ }));
+      await screen.findByLabelText("端点名称");
+      await userEvent.click(screen.getByRole("button", { name: "重新导入" }));
+      await pickFile("v3_api.json");
+
+      // excludeId 取的就是这份草稿背着的 record.id，它也是保存时会被写回的那一行。
+      expect(validate.mock.calls.at(-1)?.[1]).toMatchObject({ excludeId: 9 });
     });
 
     it("still shows the declarative form for my declarative endpoint", async () => {

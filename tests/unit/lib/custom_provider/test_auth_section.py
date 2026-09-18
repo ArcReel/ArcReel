@@ -27,7 +27,7 @@ class TestSharedChecks:
         assert _codes({}) == ([], [])
 
     def test_two_empty_tables_are_the_same_as_no_section_at_all(self):
-        """``{"headers": {}}`` 一个头都不会发出去，与整节缺席等效——两种 kind 曾在这里判得不一样。"""
+        """``{"headers": {}}`` 一个头都不会发出去，与整节缺席等效；两种 kind 在这里判得一样。"""
         assert _codes({"headers": {}, "query": {}}) == ([], [])
 
     def test_a_section_that_never_references_the_api_key_is_refused(self):

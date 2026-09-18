@@ -19,6 +19,7 @@ import pytest
 from lib import task_failure
 from lib.api_errors import ConflictError
 from lib.config.resolver import VideoBucketCapabilityError, VideoGenerationType
+from lib.custom_provider.comfyui.failures import ComfyuiError
 from lib.db.repositories.task_repo import _encode_bounded_cascade_failure
 from lib.generation_worker import _encode_task_failure_message
 from lib.i18n import MESSAGES
@@ -395,6 +396,22 @@ def test_artifact_download_failure_is_eligible_for_retry_download():
         assert render_failure(stored, _translator(locale)) == MESSAGES[locale][
             "task_fail_artifact_download_failed"
         ].format(detail="cdn unavailable")
+
+
+def test_an_endpoint_whose_media_runtime_is_missing_fails_in_the_reader_s_language():
+    """ComfyUI 图像端点当前可选而运行时尚未落地，构造 backend 即失败。
+
+    那一笔必须落成结构化失败：落一段裸文本的话，非中文用户在任务列表里看到的是一句中文。
+    """
+    stored = _encode_task_failure_message(
+        ComfyuiError("provider_unsupported_media", provider_id="custom-1", media_type="image")
+    )
+
+    assert stored.startswith("[provider_unsupported_media]")
+    for locale in ("zh", "en", "vi"):
+        assert render_failure(stored, _translator(locale)) == MESSAGES[locale][
+            "task_fail_provider_unsupported_media"
+        ].format(provider_id="custom-1", media_type="image")
 
 
 def test_encode_covers_every_capability_exception_type():

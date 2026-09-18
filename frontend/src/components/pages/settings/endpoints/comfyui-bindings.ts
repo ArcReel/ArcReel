@@ -27,9 +27,29 @@ export function isRequiredBindingKey(key: ComfyuiBindingKey): boolean {
   return COMFYUI_REQUIRED_BINDING_KEYS.includes(key);
 }
 
-/** 参考图是一条有序列表，其余语义键各自只有一个落点。 */
+/** 参考图是一条有序列表：列表次序即参考图序号，勾选与取消都要按次序重排。 */
 export function isListBindingKey(key: ComfyuiBindingKey): boolean {
   return key === "reference_images";
+}
+
+/**
+ * 这些键可以有多个落点，且次序不带含义：一份 workflow 里两路消费者各有自己的宽高，帧数同理；
+ * `fps` 允许多个只读落点（校验只禁止它们的值互相冲突）。构造层写宽高帧数时逐个写、读帧率时逐个
+ * 读，因此编辑器里点中一个候选只能增删这一条，不能把同键的其余落点顶掉——顶掉之后那几路分支
+ * 就再也收不到尺寸与帧数了。
+ */
+export function isMultiTargetBindingKey(key: ComfyuiBindingKey): boolean {
+  return key === "width" || key === "height" || key === "frames" || key === "fps";
+}
+
+/** 无序多落点键的勾选与取消：在场即移除，不在场即追加，其余落点原样留着。 */
+export function toggleSetTarget(
+  current: ComfyuiBindingTarget[],
+  target: ComfyuiBindingTarget,
+): ComfyuiBindingTarget[] {
+  return current.some((entry) => sameTarget(entry, target))
+    ? current.filter((entry) => !sameTarget(entry, target))
+    : [...current, target];
 }
 
 /** 一行在绑定表里的状态。`required_unbound` 由必填键没有落点派生，不是服务端的推断状态。 */
@@ -97,18 +117,28 @@ export function classTypeCounts(nodes: ComfyuiNodeEntry[]): { classType: string;
 
 /**
  * 一个输入是不是连线。ComfyUI 的连线形如 `[上游节点 id, 输出序号]`；`{"__value__": [...]}`
- * 是生态里给数组字面值加的包装，解包后才是真值，因此绑得上去。
+ * 是生态里给数组字面值加的包装，作者刻意声明的字面数组，因此绑得上去。
+ *
+ * 先看包装再判形状，与服务端的 `workflow.is_link` 同序：反过来先解包会把
+ * `{"__value__": ["4", 0]}` 判成连线，于是一个真能填值的输入在手选下拉里不见了。
  */
 export function isLinkInput(value: unknown): boolean {
-  const unwrapped = unwrapValue(value);
-  return Array.isArray(unwrapped) && unwrapped.length === 2 && typeof unwrapped[1] === "number";
+  if (isWrappedValue(value)) return false;
+  return Array.isArray(value) && value.length === 2 && typeof value[1] === "number";
+}
+
+function isWrappedValue(value: unknown): value is { __value__: unknown } {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    !Array.isArray(value) &&
+    Object.keys(value).length === 1 &&
+    "__value__" in value
+  );
 }
 
 function unwrapValue(value: unknown): unknown {
-  if (typeof value === "object" && value !== null && "__value__" in value) {
-    return (value).__value__;
-  }
-  return value;
+  return isWrappedValue(value) ? value.__value__ : value;
 }
 
 /** 该输入当前的字面值，供手选下拉展示；连线与缺席都得不到值。 */
@@ -339,4 +369,25 @@ export function saveBlockers(
     }
   }
   return blockers;
+}
+
+/**
+ * 一份定义用于「改过没有」比对的规范形。
+ *
+ * 直接串比会把两份内容相同的定义判成不同：空标题在手选那一侧是「不写 `title` 这个键」
+ * （见 `withTitle`），服务端重匹配回来的却是 `"title": ""`；键的次序也各按各的来源。
+ * 递归按键名排序、并把空 `title` 一律当作缺省，两侧才在同一把尺子上。这只影响按钮文案与
+ * 可点性，落盘的仍是原样的 `draft`。
+ */
+export function definitionFingerprint(definition: object): string {
+  return JSON.stringify(canonical(definition));
+}
+
+function canonical(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonical);
+  if (value === null || typeof value !== "object") return value;
+  const entries = Object.entries(value as Record<string, unknown>)
+    .filter(([key, raw]) => !(key === "title" && raw === ""))
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+  return Object.fromEntries(entries.map(([key, raw]) => [key, canonical(raw)]));
 }

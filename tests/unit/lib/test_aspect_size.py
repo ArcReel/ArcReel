@@ -186,18 +186,19 @@ def test_resolution_unparseable_falls_back_with_warning(caplog):
 
 @pytest.mark.parametrize(
     ("short_edge", "expected"),
-    [(480, "480p"), (720, "720p"), (848, "720p"), (1100, "1080p"), (4000, "4K")],
+    [(480, "480p"), (720, "720p"), (1080, "1080p"), (2160, "4K")],
 )
-def test_short_edge_says_back_the_nearest_tier(short_edge, expected):
-    # 档位离散，作者调的短边未必恰好落在某一档上，取最近的一档。
+def test_a_short_edge_that_lands_on_a_tier_says_that_tier(short_edge, expected):
     assert short_edge_to_resolution(short_edge, tier_map=VIDEO_TIER_SHORT_EDGE) == expected
 
 
-def test_a_short_edge_exactly_between_two_tiers_takes_the_smaller_one():
-    # 600 到 480p 与 720p 等距：取较小那一档，把「比 480p 稍大一点」说成 720p 会高估画质。
-    assert short_edge_to_resolution(600, tier_map=VIDEO_TIER_SHORT_EDGE) == "480p"
+@pytest.mark.parametrize("short_edge", [848, 600, 1100, 4000])
+def test_a_short_edge_between_tiers_says_the_pixels_it_really_is(short_edge):
+    # 「不选档位会得到什么」这句话上借最近的档位词会骗人：选中 720p 得到的短边是 720，不是 848。
+    assert short_edge_to_resolution(short_edge, tier_map=VIDEO_TIER_SHORT_EDGE) == f"{short_edge}px"
 
 
 def test_the_tier_table_decides_the_vocabulary():
-    # 同一个短边在图像档位表里说出的是另一个词。
+    # 同一个短边在图像档位表里命中的是另一个词，在视频表里一档都不命中。
     assert short_edge_to_resolution(1024, tier_map=IMAGE_TIER_SHORT_EDGE) == "1K"
+    assert short_edge_to_resolution(1024, tier_map=VIDEO_TIER_SHORT_EDGE) == "1024px"

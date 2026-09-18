@@ -38,13 +38,13 @@ from lib.custom_provider.builtin_definitions import (
 )
 from lib.custom_provider.comfyui.capabilities import (
     default_supported_durations,
-    derive_video_capabilities,
     duration_is_fixed,
     native_short_edge,
     size_is_fixed,
     takes_reference_images,
 )
-from lib.custom_provider.comfyui_backend import ComfyuiVideoBackend
+from lib.custom_provider.comfyui.failures import ComfyuiError
+from lib.custom_provider.comfyui_backend import ComfyuiVideoBackend, binding_video_capabilities
 from lib.custom_provider.declarative_backend import DeclarativeVideoBackend, request_urls
 from lib.custom_provider.endpoint_definition.kinds import COMFYUI_KIND
 from lib.image_backends.base import ImageCapability
@@ -56,7 +56,7 @@ from lib.image_backends.openai import OpenAIImageBackend
 from lib.text_backends.gemini import GeminiTextBackend
 from lib.text_backends.openai import OpenAITextBackend
 from lib.video_backends.ark import ArkVideoBackend
-from lib.video_backends.base import ReferenceAudioMode, VideoAudioMode, VideoCapabilities
+from lib.video_backends.base import ReferenceAudioMode, VideoCapabilities
 from lib.video_backends.dashscope import DashScopeVideoBackend, classify_wan_model
 from lib.video_backends.kling import KlingVideoBackend
 from lib.video_backends.openai import OpenAIVideoBackend
@@ -159,6 +159,20 @@ class EndpointSpec:
         )
 
     @property
+    def endpoint_durations(self) -> list[int] | None:
+        """端点自己那一份时长档位；档位不由端点说了算时为 ``None``。
+
+        只有 ComfyUI 视频端点给得出——它由绑定表推导，对每个挂在这个端点上的模型行都是同一份。
+        其余端点的档位声明在模型行 / 注册表上，本属性不越俎代庖。
+
+        空列表与 ``None`` 是两件事：空列表说「这个端点确实答了，答案是这一维它驱动不了」，
+        ``None`` 说「这个问题不该问端点」。
+        """
+        if self.definition is None or self.kind != COMFYUI_KIND or self.media_type != "video":
+            return None
+        return default_supported_durations(self.definition)
+
+    @property
     def duration_tier_empty(self) -> bool:
         """时长这一维根本给不出档位：ComfyUI 端点上原生时长推不出来即为真。
 
@@ -167,9 +181,7 @@ class EndpointSpec:
         :attr:`duration_fixed`：用户编不动的是「档位为空」这件事，而 :attr:`duration_fixed` 只决定
         说给用户听的是哪一句——「这份 workflow 时长天生固定」还是「它没提供帧率，补一处就能恢复」。
         """
-        if self.definition is None or self.kind != COMFYUI_KIND or self.media_type != "video":
-            return False
-        return not default_supported_durations(self.definition)
+        return self.endpoint_durations == []
 
     @property
     def native_resolution(self) -> str | None:
@@ -613,15 +625,18 @@ def _build_comfyui_runtime(
 ) -> Callable[[CustomProvider, str], CustomVideoBackend]:
     """ComfyUI 端点的 backend 构造闭包。
 
-    只产出视频 backend：图像通道另有自己的 backend 协议与工厂，尚未落地。那一格抛
-    ``NotImplementedError`` 而非 ``ValueError``——后者是本层「端点不认识」的既有含义，沿途多处
-    ``except ValueError`` 会把它降级成「端点已不在」，而实情是端点合法、只是还没有能执行它的
-    backend。
+    只产出视频 backend：图像通道另有自己的 backend 协议与工厂，尚未落地。那一格抛带失败码的
+    ``ComfyuiError``——worker 据此把任务落成结构化失败，文案留到读侧按语言渲染；落一段裸文本的话
+    非中文用户在任务列表里看到的是一句中文。借 ``provider_unsupported_media`` 而不另立新码：它说
+    的正是「这个供应商给不出这一类生成」，读侧的 ``CONFIGURE_PROVIDER`` 指向也对。
+
+    不抛 ``ValueError``：那是本层「端点不认识」的既有含义，沿途多处 ``except ValueError`` 会把它
+    降级成「端点已不在」，而实情是端点合法、只是还没有能执行它的 backend。
     """
 
     def build(provider: CustomProvider, model_id: str) -> CustomVideoBackend:
         if str(definition.get("media_type")) != "video":
-            raise NotImplementedError("ComfyUI 图像端点的运行时尚未落地，无法构造 backend")
+            raise ComfyuiError("provider_unsupported_media", provider_id=provider.provider_id, media_type="image")
         if not provider.base_url:
             raise ValueError("ComfyUI 调用端点需要 base_url")
         delegate = ComfyuiVideoBackend(
@@ -656,20 +671,9 @@ def comfyui_endpoint_spec(key: str, definition: Mapping[str, Any]) -> EndpointSp
     """
     media_type = str(definition["media_type"])
     is_video = media_type == "video"
-    # 绑定表的结论在子包里推，装进 backend 层的能力类型在这里做：子包够不到 VideoCapabilities
-    # （import 契约，见上）。参考音频三项与提示词上限保持默认——绑定表里没有对应的语义键。
-    bound = derive_video_capabilities(definition) if is_video else None
-    caps = (
-        VideoCapabilities(
-            text_to_video=bound.text_to_video,
-            first_frame=bound.first_frame,
-            last_frame=bound.last_frame,
-            max_reference_images=bound.max_reference_images,
-            audio_track=VideoAudioMode(bound.audio_track),
-        )
-        if bound is not None
-        else None
-    )
+    # 装箱借 backend 模块那一份：backend 自己的 video_capabilities 也用它，而生成前的能力闸门
+    # 读的是 backend 那一份、不是这里投影出来的 caps，两处各写一份就会在闸门上打架。
+    caps = binding_video_capabilities(definition) if is_video else None
     spec = EndpointSpec(
         key=key,
         media_type=media_type,

@@ -766,6 +766,108 @@ class TestVideoCapabilities:
         assert caps["first_frame"] is True
         assert caps["text_to_video"] is False
 
+    async def test_a_stale_tier_on_the_row_is_dropped_when_the_endpoint_lost_its_frames_binding(self, db_factory):
+        """端点说这一维给不出档位时，行上存着的那份一律作废：真相源是端点，不是行。
+
+        两边分叉时沿用行上的 ``[5]``，能力接口与剧本规划就会宣称 5 秒，而端点目录已经把时长
+        控件禁掉——同一个问题两处答案不一样。
+        """
+        from lib.db.models.custom_endpoint import CustomEndpoint
+        from lib.db.models.custom_provider import CustomProvider, CustomProviderModel
+        from tests.factories import comfyui_endpoint_definition
+
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(settings={})
+        async with db_factory() as session:
+            definition = comfyui_endpoint_definition()
+            definition["bindings"]["start_image"] = [{"node": "11", "input": "image", "class_type": "LoadImage"}]
+            assert "frames" not in definition["bindings"]
+            endpoint = CustomEndpoint(
+                definition=definition,
+                kind="comfyui",
+                schema_version="1.0.0",
+                media_type="video",
+                display_name="示例 ComfyUI 端点",
+            )
+            session.add(endpoint)
+            provider = CustomProvider(
+                display_name="Comfy", discovery_format="comfyui", base_url="http://comfy.test:8188", api_key=""
+            )
+            session.add(provider)
+            await session.flush()
+            session.add(
+                CustomProviderModel(
+                    provider_id=provider.id,
+                    model_id="my-wan-workflow",
+                    display_name="My Workflow",
+                    endpoint=f"ce-{endpoint.id}",
+                    # 行上存着的那份档位，与端点此刻的答案分叉。
+                    supported_durations="[5]",
+                )
+            )
+            await session.flush()
+
+            with patch("lib.config.resolver.get_project_manager") as mock_pm:
+                mock_pm.return_value.load_project.return_value = {
+                    "video_backend": f"custom-{provider.id}/my-wan-workflow",
+                }
+                caps = await resolver._resolve_video_capabilities(fake_svc, session, "demo")
+
+        assert caps["supported_durations"] == []
+        assert caps["max_duration"] == 0
+        assert caps["duration_endpoint_fixed"] is True
+
+    async def test_an_empty_tier_on_the_row_gives_way_once_the_endpoint_can_drive_duration(self, db_factory):
+        """同一条规则的另一侧：行上是空集而端点给得出档位时，按端点的来。
+
+        沿用行上那份空集会让时长控件禁着、剧本规划借固定篇幅，而请求构造正在往图里写帧数。
+        """
+        from lib.db.models.custom_endpoint import CustomEndpoint
+        from lib.db.models.custom_provider import CustomProvider, CustomProviderModel
+        from tests.factories import comfyui_endpoint_definition
+
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(settings={})
+        async with db_factory() as session:
+            definition = comfyui_endpoint_definition()
+            definition["workflow"]["5"]["inputs"]["length"] = 81
+            definition["bindings"]["frames"] = [{"node": "5", "input": "length", "class_type": "EmptyLatentImage"}]
+            definition["bindings"]["start_image"] = [{"node": "11", "input": "image", "class_type": "LoadImage"}]
+            endpoint = CustomEndpoint(
+                definition=definition,
+                kind="comfyui",
+                schema_version="1.0.0",
+                media_type="video",
+                display_name="示例 ComfyUI 端点",
+            )
+            session.add(endpoint)
+            provider = CustomProvider(
+                display_name="Comfy", discovery_format="comfyui", base_url="http://comfy.test:8188", api_key=""
+            )
+            session.add(provider)
+            await session.flush()
+            session.add(
+                CustomProviderModel(
+                    provider_id=provider.id,
+                    model_id="my-wan-workflow",
+                    display_name="My Workflow",
+                    endpoint=f"ce-{endpoint.id}",
+                    # 行上是空集，而端点此刻推得出一档原生时长。
+                    supported_durations="[]",
+                )
+            )
+            await session.flush()
+
+            with patch("lib.config.resolver.get_project_manager") as mock_pm:
+                mock_pm.return_value.load_project.return_value = {
+                    "video_backend": f"custom-{provider.id}/my-wan-workflow",
+                }
+                caps = await resolver._resolve_video_capabilities(fake_svc, session, "demo")
+
+        assert caps["supported_durations"] == [5]
+        assert caps["max_duration"] == 5
+        assert caps["duration_endpoint_fixed"] is False
+
     async def test_a_non_comfyui_row_with_an_empty_tier_still_fails_loud(self, db_factory):
         """ADR 0018 对其余协议不变：档位声明缺失仍要把用户引到配置页去修。"""
         from lib.db.models.custom_provider import CustomProvider, CustomProviderModel

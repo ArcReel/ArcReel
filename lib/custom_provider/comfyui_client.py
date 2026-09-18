@@ -208,6 +208,9 @@ class ComfyuiClient:
 
         两种形状都接受：``{prompt_id: {...}}`` 包裹的与根即条目的。不同版本与代理各有一种，按
         其中一种写死会让另一半部署永远轮询不到终态。
+
+        2xx 却读不出记录（非 JSON 的代理错误页、``{"error": ...}`` 之类）不在这里吸收：这一格
+        与声明式通道同口径，判为确定性失败而不是继续轮询。
         """
         response = await request_with_scoped_credentials(
             http,
@@ -235,8 +238,10 @@ class ComfyuiClient:
         ``{"prompt_id": ...}`` 形态的条目，反向代理改写这张表时给的是后者。
 
         读不出这张表时给 ``None`` 而不是两张空单子：调用方据「不在队列里」判任务丢失，把一份
-        看不懂的响应算成空队列会因为代理回了一页 HTML 就把仍在跑的执行判死。``None`` 只管响应体
-        读不懂这一种；HTTP 失败照常抛出，由调用方按自己那一格该不该据此判死来处置。
+        看不懂的响应算成空队列会因为代理回了一页 HTML 就把仍在跑的执行判死。两张单子缺一或不是
+        数组同属读不出——``{"error": "restarting"}`` 这类 200 响应解得出 JSON，却同样没有队列
+        内容可读。``None`` 只管响应体读不懂这一种；HTTP 失败照常抛出，由调用方按自己那一格该不该
+        据此判死来处置。
         """
         response = await request_with_scoped_credentials(
             http,
@@ -256,7 +261,10 @@ class ComfyuiClient:
             return None
         if not isinstance(body, Mapping):
             return None
-        return _queue_ids(body.get("queue_running")), _queue_ids(body.get("queue_pending"))
+        running, pending = body.get("queue_running"), body.get("queue_pending")
+        if not isinstance(running, list) or not isinstance(pending, list):
+            return None
+        return _queue_ids(running), _queue_ids(pending)
 
     async def server_version(self, http: httpx.AsyncClient) -> str | None:
         """``GET /system_stats`` 回的 ``system.comfyui_version``；读不到给 ``None``。

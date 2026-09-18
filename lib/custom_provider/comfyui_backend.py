@@ -29,6 +29,7 @@ from uuid import uuid4
 
 import httpx
 
+from lib.custom_provider.comfyui.capabilities import derive_video_capabilities
 from lib.custom_provider.comfyui.failures import (
     EXECUTION_ERROR,
     INTERRUPTED,
@@ -42,6 +43,7 @@ from lib.custom_provider.comfyui_client import ComfyuiClient, client_id_for, upl
 from lib.video_backends.base import (
     ProviderJobIdPersistenceMixin,
     ResumeExpiredError,
+    VideoAudioMode,
     VideoCapabilities,
     VideoGenerationRequest,
     VideoGenerationResult,
@@ -88,10 +90,20 @@ class ComfyuiVideoBackend(ProviderJobIdPersistenceMixin):
         base_url: str,
         api_key: str,
         definition: Mapping[str, Any],
+        job_label: str | None = None,
     ) -> None:
+        """``job_label`` 是非 worker 路径的任务标识，进上传文件名与 ``client_id``。
+
+        worker 路径不传：那里有 ``request.task_id``，它才是这一笔在 ArcReel 这一侧的身份。两者
+        都没有时回落到一串随机 hex——在 ComfyUI 的队列界面上认不出是谁发的，但至少不会与别的
+        调用方撞名。
+        """
         self._provider = provider_id
         self._model = model
         self._definition = definition
+        self._job_label = job_label
+        self._base_url = base_url
+        self._api_key = api_key
         self._client = ComfyuiClient(base_url=base_url, api_key=api_key, definition=definition)
 
     @property
@@ -104,15 +116,17 @@ class ComfyuiVideoBackend(ProviderJobIdPersistenceMixin):
 
     @property
     def video_capabilities(self) -> VideoCapabilities:
-        """能力由节点绑定推导，推导尚未落地时一位都不宣称。
+        """这份 workflow 的绑定表说它能做什么。
 
-        工厂路径下这份声明不会被读到——包装层注入的是「系统判定 ⊕ 用户覆盖」的合成结果；只有绕过
-        工厂直接构造时才回落到这里。
+        这不是一份只在绕过工厂时才读的兜底声明：包装层的档位查询
+        （``CustomVideoBackend.video_capabilities_for_tier``）刻意不短路回工厂注入的合成结果，而是
+        以被包装 backend 的这份声明为基底再叠加用户覆盖。生成前的能力闸门走的正是那条路——这里
+        少宣称一位，闸门就会在请求到达 :meth:`generate` 之前把它挡掉。
         """
-        return VideoCapabilities(text_to_video=False, first_frame=False)
+        return binding_video_capabilities(self._definition)
 
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
-        job_label = request.task_id or uuid4().hex
+        job_label = request.task_id or self._job_label or uuid4().hex
         async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT_SECONDS, follow_redirects=True) as http:
             media = await self._upload_media(http, request, job_label=job_label)
             built = build_workflow(
@@ -145,9 +159,28 @@ class ComfyuiVideoBackend(ProviderJobIdPersistenceMixin):
         过绑定时，按新绑定去取产物是唯一说得通的口径，取不到即 ``comfyui_output_missing``。
 
         实发种子与 workflow 指纹不随续跑回来：两者只在提交那一次的构造里存在，而这条路不构造。
+
+        域名取提交那一次的（``submitted_base_url``，由 resume_executor 从任务行回放），与声明式
+        运行时同一口径：供应商的 base_url 可以在提交之后被改，而这一笔活在原来那台 ComfyUI 上。
+        照当前域名去问，问的是另一台机器，它答「没有这个 prompt_id」——一次仍在出片的执行会被
+        判成丢失，用户的显卡还在为它转。域名是连接维度，不是协议维度。
         """
+        submitted = request.submitted_base_url
+        if submitted and submitted != self._base_url:
+            return await self._bound_to(submitted).resume_video(job_id, request)
         async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT_SECONDS, follow_redirects=True) as http:
             return await self._poll_download_or_stop(http, job_id, request, built=None, is_resume=True)
+
+    def _bound_to(self, base_url: str) -> ComfyuiVideoBackend:
+        """同一份定义、换一个域名的另一个实例：轮询、取件与叫停这一路都得落在同一台机器上。"""
+        return ComfyuiVideoBackend(
+            provider_id=self._provider,
+            model=self._model,
+            base_url=base_url,
+            api_key=self._api_key,
+            definition=self._definition,
+            job_label=self._job_label,
+        )
 
     # ------------------------------------------------------------------ 叫停远端
 
@@ -298,13 +331,15 @@ class ComfyuiVideoBackend(ProviderJobIdPersistenceMixin):
         artifacts = _output_artifacts(entry, output_nodes)
         if not artifacts:
             raise ComfyuiError(OUTPUT_MISSING, nodes=" / ".join(output_nodes))
-        artifact = artifacts[0]
+        artifact = _first_video(artifacts)
+        if artifact is None:
+            raise ComfyuiError(
+                OUTPUT_TYPE_MISMATCH, filename=str(artifacts[0].get("filename") or ""), media_type="video"
+            )
         filename = str(artifact.get("filename") or "")
-        if Path(filename).suffix.lower() not in VIDEO_SUFFIXES:
-            raise ComfyuiError(OUTPUT_TYPE_MISMATCH, filename=filename, media_type="video")
         warnings: tuple[Mapping[str, Any], ...] = ()
         if len(artifacts) > 1:
-            logger.warning("ComfyUI 产物共 %d 个，取第 1 个: %s", len(artifacts), filename)
+            logger.warning("ComfyUI 产物共 %d 个，取: %s", len(artifacts), filename)
             warnings = ({"key": "comfyui_multiple_outputs", "params": {"count": len(artifacts), "filename": filename}},)
         await notify_provider_response(request, "result", {"artifact": dict(artifact), "count": len(artifacts)})
         await self._client.download_output(http, artifact, request.output_path, max_wait=request.poll_timeout_seconds)
@@ -462,6 +497,38 @@ def _output_artifacts(entry: Mapping[str, Any], output_nodes: Sequence[str]) -> 
                 item for item in items if isinstance(item, Mapping) and str(item.get("type") or "") == "output"
             )
     return found
+
+
+def binding_video_capabilities(definition: Mapping[str, Any]) -> VideoCapabilities:
+    """把一份视频端点定义的绑定表装进 backend 层的能力类型。
+
+    推导本身在 ``comfyui`` 子包里（它只认绑定表与 workflow）；装箱落在本模块，因为子包受
+    「不依赖声明式运行时」的 forbidden 契约约束，够不到 ``VideoCapabilities``。端点投影
+    （``endpoints.comfyui_endpoint_spec``）与 backend 自己的声明共用这一份，两处不各写一份——
+    它们各自喂给能力闸门的不同一段，说的却必须是同一件事。
+
+    参考音频三项与 ``max_prompt_chars`` 保持默认：绑定表里没有对应的语义键。
+    """
+    bound = derive_video_capabilities(definition)
+    return VideoCapabilities(
+        text_to_video=bound.text_to_video,
+        first_frame=bound.first_frame,
+        last_frame=bound.last_frame,
+        max_reference_images=bound.max_reference_images,
+        audio_track=VideoAudioMode(bound.audio_track),
+    )
+
+
+def _first_video(artifacts: Sequence[Mapping[str, Any]]) -> Mapping[str, Any] | None:
+    """这批产物里第一个视频文件；一个都没有时 ``None``。
+
+    按扩展名挑而不是取第一个：一个绑定节点可以同时往 ``images`` 与 ``gifs`` 写（缩略图加成片），
+    而 :func:`_output_artifacts` 给出的次序是 ``_ARTIFACT_KEYS`` 自己的次序，与「哪个是成片」无关。
+    """
+    return next(
+        (item for item in artifacts if Path(str(item.get("filename") or "")).suffix.lower() in VIDEO_SUFFIXES),
+        None,
+    )
 
 
 def _history_digest(entry: Mapping[str, Any], output_nodes: Sequence[str]) -> dict[str, Any]:

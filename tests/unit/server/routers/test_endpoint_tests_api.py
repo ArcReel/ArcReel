@@ -1107,6 +1107,27 @@ class TestComfyuiEndpoints:
         assert fetched["extractions"] == {}
         assert client.get(f"/api/v1/custom-endpoints/trial-runs/{run_id}/artifact").content == b"mp4"
 
+    def test_the_queue_shows_a_readable_name_for_a_trial_run(self, client: TestClient, trial_runs: TrialRunManager):
+        """用户在自己手动跑的 ComfyUI 队列里要认得出哪一笔是刚点的「测试连接」。"""
+        with capture_http() as router, bounded_poll_clock():
+            _mock_successful_comfyui_run(router)
+            created = _post(
+                client,
+                "trial-runs",
+                {
+                    "definition": comfyui_endpoint_definition(),
+                    "parameters": PARAMETERS,
+                    "credentials": COMFYUI_CREDENTIALS,
+                },
+            )
+            run_id = created.json()["id"]
+            _drain(client, trial_runs, run_id)
+            submitted = json.loads(
+                next(call.request for call in router.calls if call.request.url.path == "/prompt").content
+            )
+
+        assert submitted["client_id"].startswith("arcreel-endpoint-test-")
+
     def test_a_refused_workflow_comes_back_as_a_localised_failure_code(
         self, client: TestClient, trial_runs: TrialRunManager
     ):
