@@ -632,6 +632,9 @@ def duration_constraints_report(
 
     ``allowed_without_reference_images`` 供参考生视频画布使用：参考图约束按视频单元是否真的携带
     参考图生效，而非按项目一刀切，画布据此为无参考图的单元换用另一档位表，不必再发一次查询。
+    此处按**同一个模型**摘掉参考图约束求值，只在主桶就是 i2v 时是正确口径；主桶为 r2v 时，
+    调用方（:meth:`ConfigResolver._no_reference_durations`）会用 i2v 桶模型自己的结果覆盖它——
+    两个桶是两个模型，档位表不能串。
 
     成因判定与 :func:`constrain_durations` 的优先级一致：参考图约束先于分辨率约束——两条都
     剔除同一时长时报 ``reference``，改分辨率也救不回该值，提示用户改分辨率是误导。
@@ -1600,11 +1603,15 @@ class ConfigResolver:
 
         只传选择身份：有效身份收敛由 ``_resolve_video_caps_for_model`` 统一做，在此先做一遍会让
         自定义供应商多跑一轮 model 查询。
+
+        落在 r2v 桶时另解析一次 i2v 桶，用它自己的档位覆盖 ``allowed_without_reference_images``
+        （见 :meth:`_no_reference_durations`，解析不出时该字段为 ``None``）。两个桶是两个模型，
+        这条覆盖让读侧的「无参考图单元会拿到什么档位」与执行路径同源。
         """
         if generation_type is None:
             generation_type = video_bucket_for_generation_mode(caps_generation_mode(project))
         selected = await self._resolve_video_provider_model(svc, session, project, None, generation_type)
-        return await self._resolve_video_caps_for_model(
+        caps = await self._resolve_video_caps_for_model(
             svc,
             session,
             selected.provider_id,
@@ -1614,6 +1621,50 @@ class ConfigResolver:
             resolution=resolution,
             uses_reference_images=uses_reference_images,
         )
+        if generation_type == "r2v":
+            # 参考生视频项目内，无参考图的视频单元执行时落 i2v 桶（``lib.script.reference_video.units``
+            # 的 ``reference_video_bucket``），与 r2v 桶可以是两个不同模型。画布据这份值给那些
+            # 单元换档位，故它必须由 i2v 桶模型自己算出：从上面这份 r2v 结果里摘掉参考图约束，
+            # 只在两桶模型相同时才碰巧相等。
+            caps["duration_constraints"]["allowed_without_reference_images"] = await self._no_reference_durations(
+                svc, session, project
+            )
+        return caps
+
+    async def _no_reference_durations(
+        self,
+        svc: ConfigService,
+        session: AsyncSession,
+        project: dict | None,
+    ) -> list[int] | None:
+        """无参考图的视频单元实际会执行的那个桶（i2v）的时长候选，升序；解析不出为 None。
+
+        与执行路径共用 ``_resolve_video_provider_model``。解析失败既**不回退**到 r2v 模型摘掉
+        参考图约束的结果（``docs/adr/0018`` 无隐性 fallback：那等于把一份落差一个约束的档位表
+        谎报成这些单元能选的档位），也**不拖垮整份能力应答**——项目没配 i2v 桶（如只用主体参考
+        模型 S2V-01 的参考生视频项目）是项目级配置，与型号声明缺失无关，报错会让时长、首尾帧、
+        声音一致性随这一个字段一起丢掉。返回 None 让消费方按「未知」降级：这类项目里本就没有
+        可执行的无参考图单元，真去入队时预检与执行仍会硬报错。
+
+        分辨率按项目为该 i2v 模型保存的档位求值，不沿用调用方给 r2v 模型的显式 ``resolution``：
+        两个桶是不同的模型，档位表不能串。i2v 桶请求不带参考图，收窄按 ``uses_reference_images=False``。
+        """
+        try:
+            selected = await self._resolve_video_provider_model(svc, session, project, None, "i2v")
+            caps = await self._resolve_video_caps_for_model(
+                svc,
+                session,
+                selected.provider_id,
+                selected.model_id,
+                project,
+                generation_type="i2v",
+                uses_reference_images=False,
+            )
+        except ValueError:
+            # 桶解析闸（``VideoBucketCapabilityError``）与层级解析失败（无可用供应商、模型不在
+            # 注册表、档位空集）都是 ValueError 子类，一律按「这个项目没有可用的 i2v 桶」处理。
+            return None
+        return caps["duration_constraints"]["allowed"]
 
     async def _resolve_video_caps_for_model(
         self,
