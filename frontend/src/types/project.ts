@@ -281,8 +281,12 @@ export interface DurationConstraints {
   uses_reference_images: boolean;
   /** 收窄结果，升序。 */
   allowed: number[];
-  /** 同分辨率下不走参考图路径的收窄结果，升序；参考生视频画布为无参考图的单元换用它。 */
-  allowed_without_reference_images: number[];
+  /**
+   * 无参考图的视频单元实际会执行的那个桶（i2v）自己的时长收窄结果，升序；参考生视频画布为
+   * 无参考图的单元换用它。项目没配 i2v 桶时为 null（未知，不谎报）：这类项目里这些单元本就
+   * 无法执行，画布按「档位未知」降级而不是拿到一份落差一个参考图约束的假档位。
+   */
+  allowed_without_reference_images: number[] | null;
   /** 全集中被剔除的时长（键为秒数字符串）→ 成因。 */
   excluded: Record<string, DurationExclusionReason>;
 }
