@@ -543,6 +543,7 @@ MESSAGES = {
     "social_publish_upstream_malformed": "Upload-Post trả về nội dung không thể phân tích; vui lòng thử lại sau",
     "social_publish_platform_required": "Hãy chọn ít nhất một nền tảng để đăng",
     "social_publish_platform_unsupported": "Nền tảng '{platform}' không nhận video",
+    "social_publish_request_id_invalid": "Định danh lần gửi có định dạng không hợp lệ",
     "social_publish_title_required": "Tiêu đề bài đăng không được để trống",
     "social_publish_title_too_long": "Tiêu đề bài đăng không được vượt quá {limit} ký tự",
     "upload_post_base_url_invalid": "Địa chỉ Upload-Post phải là URL https không chứa thông tin đăng nhập hay chuỗi truy vấn",

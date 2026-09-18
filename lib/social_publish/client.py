@@ -131,8 +131,13 @@ class UploadPostClient:
                 extra_headers={"Idempotency-Key": request_id},
             )
         payload = _decode(response)
+        echoed = _text(payload.get("request_id"))
+        if echoed is not None and echoed != request_id:
+            # 幂等键用的是本端这一个；跟着上游改口会让后续轮询问的是另一次投递，
+            # 而重试时发出去的仍是本端 id。只记一条日志，回执照旧用本端 id。
+            logger.warning("Upload-Post 回传了不同的 request_id，按本端 id 记账")
         return PublishSubmission(
-            request_id=_text(payload.get("request_id")) or request_id,
+            request_id=request_id,
             job_id=_text(payload.get("job_id")),
             scheduled_date=_text(payload.get("scheduled_date")),
             total_platforms=_int(payload.get("total_platforms"), default=len(platforms)),
@@ -270,7 +275,8 @@ def _parse_outcome(entry: dict[str, Any]) -> PlatformOutcome:
         status=status,
         success=success,
         url=_first_url(entry),
-        error=_text(entry.get("error")),
+        # 上游拒因是社交平台自己的措辞，用户按它去修；只做长度封顶，不放行整页错误内容。
+        error=_truncate(_text(entry.get("error"))),
     )
 
 
@@ -284,10 +290,22 @@ def _first_url(entry: dict[str, Any]) -> str | None:
 
 
 def _parse_status(value: object) -> SubmissionStatus:
+    """聚合状态必须是契约里的那几个之一。
+
+    缺失或不认得的状态曾按 ``pending`` 收下，代价是调用方拿着一个永远不会转终态的值
+    一直轮询下去——畸形响应就此绕过 ``social_publish_upstream_malformed`` 静默生效。
+    上游新增状态时先把它显式写进契约，再放行。
+    """
     text = _text(value)
     if text in _KNOWN_STATUSES:
         return cast(SubmissionStatus, text)
-    return "pending"
+    raise BadGatewayError("social_publish_upstream_malformed")
+
+
+def _truncate(value: str | None) -> str | None:
+    if value is None:
+        return None
+    return value[:_REASON_TRUNCATE]
 
 
 def _text(value: object) -> str | None:

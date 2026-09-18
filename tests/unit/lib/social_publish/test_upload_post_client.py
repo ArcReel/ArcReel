@@ -127,6 +127,26 @@ async def test_publish_video_keeps_local_request_id_when_upstream_omits_it(
     assert submission.total_platforms == 1
 
 
+async def test_publish_video_ignores_a_request_id_the_upstream_rewrote(
+    upload_post_client: UploadPostClient, video: Path
+) -> None:
+    """幂等键用的是本端 id；跟着上游改口会让后续轮询问的是另一次投递。"""
+    with capture_http() as router:
+        router.post(f"{_BASE_URL}/upload").mock(
+            return_value=httpx.Response(200, json={"success": True, "request_id": "upstream-other"})
+        )
+
+        submission = await upload_post_client.publish_video(
+            profile="studio",
+            platforms=("tiktok",),
+            video_path=video,
+            title="第一章",
+            request_id="arcreel-6",
+        )
+
+    assert submission.request_id == "arcreel-6"
+
+
 async def test_fetch_progress_maps_platform_outcomes(upload_post_client: UploadPostClient) -> None:
     with capture_http() as router:
         route = router.get(f"{_BASE_URL}/uploadposts/status").mock(
@@ -184,6 +204,20 @@ async def test_fetch_progress_ignores_non_url_post_url_placeholder(upload_post_c
 
     assert progress.terminal is True
     assert progress.outcomes[0].url is None
+
+
+@pytest.mark.parametrize("payload", [{"completed": 0, "total": 1}, {"status": "half_done"}])
+async def test_fetch_progress_rejects_an_unknown_aggregate_status(
+    upload_post_client: UploadPostClient, payload: dict[str, object]
+) -> None:
+    """未知或缺失的聚合状态曾按 pending 收下，调用方会拿着一个永不转终态的值一直轮询。"""
+    with capture_http() as router:
+        router.get(f"{_BASE_URL}/uploadposts/status").mock(return_value=httpx.Response(200, json=payload))
+
+        with pytest.raises(BadGatewayError) as excinfo:
+            await upload_post_client.fetch_progress(request_id="arcreel-1")
+
+    assert excinfo.value.key == "social_publish_upstream_malformed"
 
 
 @pytest.mark.parametrize(

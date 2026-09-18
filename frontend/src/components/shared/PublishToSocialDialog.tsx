@@ -6,6 +6,9 @@
  *
  * 投递后按 request_id 轮询到终态。终态之前不关窗，也不把「已受理」当成「已发布」——两者
  * 之间隔着各平台的转码与审核，混为一谈会让失败无人知晓。
+ *
+ * 由调用方按需挂载（关闭即卸载），本组件不负责自清：``ModalShell`` 在 ``open=false`` 时只
+ * 返回 null 而不卸载，常驻渲染会让下次打开直接看到上一次的结果面板、且轮询定时器还在跑。
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -30,6 +33,14 @@ const INPUT_CLS =
   "w-full rounded-[8px] border border-hairline bg-bg-grad-a/55 px-3 py-2 text-[12.5px] text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent";
 const LABEL_CLS =
   "mb-1.5 block font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-4";
+
+/** 投递标识，同时是上游幂等键；形状要与服务端的校验一致。 */
+function newRequestId(): string {
+  const uuid = globalThis.crypto?.randomUUID?.().replace(/-/g, "");
+  // randomUUID 只在安全上下文里有；退路只要够唯一即可，这不是凭证。
+  const token = uuid ?? `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 12)}`;
+  return `arcreel-${token}`;
+}
 
 export interface PublishToSocialDialogProps {
   open: boolean;
@@ -63,7 +74,12 @@ export function PublishToSocialDialog({
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [progress, setProgress] = useState<SocialPublishProgress | null>(null);
+  // 每完成一次查询就自增，轮询 effect 据此排下一次：成功与失败都要排，否则一次网络抖动
+  // 就让轮询永久停摆，界面停在非终态。
+  const [pollTick, setPollTick] = useState(0);
   const requestIdRef = useRef<string | null>(null);
+  // 同一次投递的重试要带同一个 id（见 handlePublish）。
+  const attemptIdRef = useRef<string | null>(null);
 
   const loadAccounts = useCallback(async () => {
     setLoadError(null);
@@ -85,21 +101,26 @@ export function PublishToSocialDialog({
     void loadAccounts();
   }, [open, loadAccounts]);
 
+  const fetchProgress = useCallback(async (requestId: string) => {
+    try {
+      setProgress(await API.getSocialPublishStatus(requestId));
+    } catch {
+      // 轮询失败不清空已知进度：一次网络抖动不该让结果面板变回空白。
+    } finally {
+      setPollTick((tick) => tick + 1);
+    }
+  }, []);
+
   useEffect(() => {
     if (progress === null || progress.terminal) return;
     const requestId = requestIdRef.current;
     if (requestId === null) return;
-    // 受理回执本身不带任何平台结果，等满一个轮询周期才去问会让面板空着 5 秒；
-    // 之后的轮询才按周期走。
-    const delay = progress.outcomes.length === 0 ? 0 : POLL_INTERVAL_MS;
-    const timer = window.setTimeout(() => {
-      void API.getSocialPublishStatus(requestId)
-        .then(setProgress)
-        // 轮询失败不清空已知进度：一次网络抖动不该让结果面板变回空白。
-        .catch(() => undefined);
-    }, delay);
+    // 间隔恒定：曾按「结果还空着就立刻再问」提速，可上游在排队阶段本来就回空结果，
+    // 于是每次响应都触发下一次零延迟查询，转成一条打满浏览器与后端的死循环。
+    // 首帧进度改由 handlePublish 提交成功后主动拉一次。
+    const timer = window.setTimeout(() => void fetchProgress(requestId), POLL_INTERVAL_MS);
     return () => window.clearTimeout(timer);
-  }, [progress]);
+  }, [progress, pollTick, fetchProgress]);
 
   const togglePlatform = (platform: string) => {
     setSelected((prev) =>
@@ -110,6 +131,11 @@ export function PublishToSocialDialog({
   const handlePublish = async () => {
     setSubmitting(true);
     setSubmitError(null);
+    // 重试必须复用同一个 id：上传可能已被上游受理、响应却丢在半路（超时、504），本端这一侧
+    // 什么都没留下。换个新 id 重试会被上游当成新投递，把同一条成片发两遍，而社交平台侧
+    // 无法回滚。整个弹窗周期内它只生成一次，关闭时随其余状态清掉。
+    const requestId = attemptIdRef.current ?? newRequestId();
+    attemptIdRef.current = requestId;
     try {
       const submission = await API.publishPresentation(projectName, resourceType, resourceId, {
         platforms: selected,
@@ -120,6 +146,7 @@ export function PublishToSocialDialog({
         description: description.trim() || undefined,
         scheduled_date: scheduledAt ? new Date(scheduledAt).toISOString() : undefined,
         timezone: scheduledAt ? Intl.DateTimeFormat().resolvedOptions().timeZone : undefined,
+        request_id: requestId,
       });
       requestIdRef.current = submission.request_id;
       setProgress({
@@ -131,6 +158,8 @@ export function PublishToSocialDialog({
         terminal: false,
         outcomes: [],
       });
+      // 受理回执不带任何平台结果，主动拉一次首帧，之后交给恒定间隔的轮询。
+      void fetchProgress(submission.request_id);
     } catch (err) {
       setSubmitError(errMsg(err));
     } finally {

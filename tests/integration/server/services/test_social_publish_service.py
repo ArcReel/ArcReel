@@ -152,7 +152,8 @@ async def test_publish_sends_the_selected_video_bytes_and_forwards_version_selec
     assert video.read_bytes() in body
     assert b'name="user"\r\n\r\nstudio' in body
     assert b'name="external_id"\r\n\r\ndemo:E1S01' in body
-    assert submission.request_id == "arcreel-x"
+    # 回执报的是本端发出去的那个 id，不是上游回传的：幂等键用的就是它
+    assert f'name="request_id"\r\n\r\n{submission.request_id}'.encode() in body
 
 
 async def test_publish_generates_a_server_side_request_id(tmp_path: Path) -> None:
@@ -182,6 +183,62 @@ async def test_publish_generates_a_server_side_request_id(tmp_path: Path) -> Non
     sent_id = request.content.split(b'name="request_id"\r\n\r\n')[1].split(b"\r\n")[0].decode()
     assert sent_id.startswith("arcreel-")
     assert request.headers["idempotency-key"] == sent_id
+
+
+async def test_publish_reuses_a_caller_supplied_request_id_as_idempotency_key(tmp_path: Path) -> None:
+    """重试带同一个 id 才不会重复发布：上传可能已被上游受理而响应丢在半路。"""
+    pm, project_path = _project(tmp_path)
+    video = project_path / "versions" / "videos" / "E1S01_v1.mp4"
+    make_test_video(video)
+    reader = _Reader(_presentation(project_path, video))
+
+    async with httpx.AsyncClient() as http:
+        with capture_http() as router:
+            route = router.post(f"{_BASE_URL}/upload").mock(return_value=httpx.Response(200, json={"success": True}))
+
+            submission = await _service(pm, reader, http).publish_unit(
+                _CREDENTIALS,
+                project_name="demo",
+                resource_type="videos",
+                resource_id="E1S01",
+                variant="post_production",
+                platforms=("tiktok",),
+                title="第一章",
+                request_id="arcreel-retryme01",
+            )
+
+    request = only_request(route)
+    assert b'name="request_id"\r\n\r\narcreel-retryme01' in request.content
+    assert request.headers["idempotency-key"] == "arcreel-retryme01"
+    assert submission.request_id == "arcreel-retryme01"
+
+
+@pytest.mark.parametrize(
+    "request_id",
+    ["", "sin-prefijo", "arcreel-short", "arcreel-con espacio", "arcreel-salto\nlinea"],
+)
+async def test_publish_refuses_a_malformed_request_id(tmp_path: Path, request_id: str) -> None:
+    """它会原样进请求头，形状不受控就等于让调用方往头里塞任意内容。"""
+    pm, project_path = _project(tmp_path)
+    video = project_path / "versions" / "videos" / "E1S01_v1.mp4"
+    make_test_video(video)
+    reader = _Reader(_presentation(project_path, video))
+
+    async with httpx.AsyncClient() as http:
+        with pytest.raises(UnprocessableError) as excinfo:
+            await _service(pm, reader, http).publish_unit(
+                _CREDENTIALS,
+                project_name="demo",
+                resource_type="videos",
+                resource_id="E1S01",
+                variant="post_production",
+                platforms=("tiktok",),
+                title="第一章",
+                request_id=request_id,
+            )
+
+    assert excinfo.value.key == "social_publish_request_id_invalid"
+    assert reader.calls == []
 
 
 async def test_publish_deduplicates_platforms_preserving_order(tmp_path: Path) -> None:

@@ -543,6 +543,7 @@ MESSAGES = {
     "social_publish_upstream_malformed": "Upload-Post returned content that could not be parsed; try again later",
     "social_publish_platform_required": "Select at least one platform to publish to",
     "social_publish_platform_unsupported": "Platform '{platform}' does not accept video submissions",
+    "social_publish_request_id_invalid": "The submission identifier has an invalid format",
     "social_publish_title_required": "The publish title cannot be empty",
     "social_publish_title_too_long": "The publish title cannot exceed {limit} characters",
     "upload_post_base_url_invalid": "The Upload-Post address must be an https URL without credentials or a query string",

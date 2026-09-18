@@ -453,16 +453,19 @@ export function PresentationPlayer({
           )}
         </button>
       </div>
-      <PublishToSocialDialog
-        open={publishOpen}
-        onClose={() => setPublishOpen(false)}
-        projectName={projectName}
-        resourceType={resourceType}
-        resourceId={resourceId}
-        variant={presentation.variant}
-        videoVersion={presentation.video.version}
-        audioVersion={presentation.narration_audio?.version}
-      />
+      {/* 按需挂载：关闭即卸载，投递状态随之清干净（见 PublishToSocialDialog 的说明）。 */}
+      {publishOpen && (
+        <PublishToSocialDialog
+          open
+          onClose={() => setPublishOpen(false)}
+          projectName={projectName}
+          resourceType={resourceType}
+          resourceId={resourceId}
+          variant={presentation.variant}
+          videoVersion={presentation.video.version}
+          audioVersion={presentation.narration_audio?.version}
+        />
+      )}
     </div>
   );
 }

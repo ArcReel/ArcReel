@@ -54,6 +54,9 @@ class PublishRequest(BaseModel):
     scheduled_date: str | None = None
     #: IANA 时区名，配合 scheduled_date 解释其挂钟时间；留空按 UTC。
     timezone: str | None = None
+    #: 本次投递的标识，同时用作上游幂等键。重试同一次投递要带同一个值，否则会重复发布；
+    #: 留空由服务端生成（适合不打算重试的调用方）。
+    request_id: str | None = None
 
 
 @router.get("/social/publish/profiles")
@@ -100,6 +103,7 @@ async def publish_presentation(
             description=body.description,
             scheduled_date=body.scheduled_date,
             timezone=body.timezone,
+            request_id=body.request_id,
         )
     except PresentationUnavailableError as exc:
         # 与预览、打包下载同一回法：选中的版本不在了是客户端可修正的状态，不是服务端故障。

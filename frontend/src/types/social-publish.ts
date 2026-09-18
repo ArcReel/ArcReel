@@ -68,4 +68,6 @@ export interface SocialPublishRequest {
   scheduled_date?: string;
   /** IANA 时区名，配合 scheduled_date 使用。 */
   timezone?: string;
+  /** 本次投递的标识，同时用作上游幂等键；重试同一次投递要带同一个值。 */
+  request_id?: string;
 }

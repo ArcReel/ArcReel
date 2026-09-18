@@ -506,7 +506,7 @@ class TestPatchSystemConfig:
             res = client.get("/api/v1/system/config")
         assert res.json()["settings"]["market_github_proxy_prefix"] == "https://proxy.example.net/"
 
-    def test_get_masks_the_upload_post_api_key(self):
+    def test_get_never_returns_any_part_of_the_upload_post_api_key(self):
         mock_svc = _make_mock_svc(
             settings={
                 "upload_post_api_key": "up-1234567890abcdef",
@@ -516,8 +516,9 @@ class TestPatchSystemConfig:
         with TestClient(_make_app_with_mock(mock_svc)) as client:
             res = client.get("/api/v1/system/config")
         settings = res.json()["settings"]
-        assert settings["upload_post_api_key"]["is_set"] is True
-        assert "1234567890" not in settings["upload_post_api_key"]["masked"]
+        assert settings["upload_post_api_key"] == {"is_set": True}
+        # 连掩码都不下发：首尾各 4 个字符足以在别处比对出是哪一把密钥
+        assert "1234567890" not in res.text
         assert settings["upload_post_profile"] == "studio"
 
     def test_patch_sets_and_clears_upload_post_credentials(self):
