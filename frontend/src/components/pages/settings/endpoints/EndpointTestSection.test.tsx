@@ -39,6 +39,8 @@ const RUNNING: TrialRunInfo = {
   created_at: 1,
   finished_at: null,
   api_call_id: null,
+  provider_job_id: null,
+  stages: {},
   request: null,
   submit_response: null,
   result_response: null,
@@ -47,6 +49,8 @@ const RUNNING: TrialRunInfo = {
   video_url: null,
   duration_seconds: null,
   error: null,
+  error_code: null,
+  error_action: null,
   has_artifact: false,
 };
 
@@ -68,6 +72,7 @@ describe("EndpointTestSection", () => {
       submit: { method: "POST", url: "https://example.test/videos", headers: {}, body: {} },
       poll: { method: "GET", url: "https://example.test/videos/task", headers: {}, body: null },
       result: null,
+      conversions: null,
     });
     const createTrialRun = vi.spyOn(API, "createTrialRun").mockResolvedValue(FINISHED);
     const { rerender } = render(<EndpointTestSection definition={DEFINITION} providers={[]} />);

@@ -1099,6 +1099,8 @@ class TestComfyuiEndpoints:
 
         fetched = client.get(f"/api/v1/custom-endpoints/trial-runs/{run_id}").json()
         assert fetched["status"] == "succeeded", fetched["error"]
+        assert fetched["error_code"] is None
+        assert fetched["error_action"] is None
         assert fetched["provider_job_id"] == "p-1"
         assert fetched["stages"] == {"submit": "done", "poll": "done", "result": "done", "artifact": "done"}
         # 实发 workflow 的种子与素材引用名要到提交那一刻才定下来，结果体不摆一份预览充数。
@@ -1153,8 +1155,40 @@ class TestComfyuiEndpoints:
         fetched = client.get(f"/api/v1/custom-endpoints/trial-runs/{run_id}").json()
         assert fetched["status"] == "failed"
         assert "KSampler: value too large" in fetched["error"]
+        # 文案随 Accept-Language 变，码不变：读侧按码分流「这是哪一类失败、该去做什么」。
+        assert fetched["error_code"] == "comfyui_node_errors"
+        # 动作取自项目页生成失败那一份对照表，不是这里另写的一句：ComfyUI 的八条码里有三条指向重试。
+        assert fetched["error_action"] == "configure_provider"
         assert fetched["provider_job_id"] is None
         assert fetched["stages"]["submit"] == "done"
+
+    def test_a_lost_job_points_at_retrying_rather_than_at_the_provider_settings(
+        self, client: TestClient, trial_runs: TrialRunManager
+    ):
+        """一时的失败与配置错误在卡上要说不同的话，动作由失败码本身决定。"""
+        with capture_http() as router, bounded_poll_clock():
+            router.post("https://comfy.test/prompt").mock(return_value=httpx.Response(200, json={"prompt_id": "p-1"}))
+            # 队列与历史里都没有这一笔：ComfyUI 多半重启过，重试就能好。
+            router.get("https://comfy.test/queue").mock(
+                return_value=httpx.Response(200, json={"queue_running": [], "queue_pending": []})
+            )
+            router.get("https://comfy.test/history/p-1").mock(return_value=httpx.Response(200, json={}))
+            created = _post(
+                client,
+                "trial-runs",
+                {
+                    "definition": comfyui_endpoint_definition(),
+                    "parameters": PARAMETERS,
+                    "credentials": COMFYUI_CREDENTIALS,
+                },
+            )
+            run_id = created.json()["id"]
+            _drain(client, trial_runs, run_id)
+
+        fetched = client.get(f"/api/v1/custom-endpoints/trial-runs/{run_id}").json()
+        assert fetched["status"] == "failed"
+        assert fetched["error_code"] == "comfyui_job_lost"
+        assert fetched["error_action"] == "retry"
 
     def test_a_trial_run_needs_the_service_address(self, client: TestClient, trial_runs: TrialRunManager):
         """ComfyUI 的路由全在服务地址根下，定义里一个绝对地址都不写。"""

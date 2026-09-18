@@ -18,6 +18,7 @@ import type {
   ComfyuiInferResponse,
   ComfyuiMediaType,
   CustomEndpointInfo,
+  CustomProviderInfo,
 } from "@/types";
 import {
   bindingsFromInference,
@@ -25,10 +26,12 @@ import {
   definitionFingerprint,
   pruneBindings,
   saveBlockers,
+  testRefused,
   workflowNodes,
   type ComfyuiSaveBlocker,
 } from "./comfyui-bindings";
 import { ComfyuiBindingTable } from "./ComfyuiBindingTable";
+import { ComfyuiEndpointTestSection } from "./ComfyuiEndpointTestSection";
 import { exportEndpointDefinition } from "./export-endpoint-definition";
 
 /** 自动包装原始 workflow 时写进 `meta.name` 的占位值，与服务端 `import_shapes.py` 同一个。 */
@@ -71,6 +74,8 @@ export interface ComfyuiEndpointDetailProps {
   /** 导入时已经跑过一轮推断的话带过来，省掉进详情后的第二次请求。 */
   initialInference: ComfyuiInferResponse | null;
   referenceCount: number;
+  /** 测试连接的凭证来源；只列 comfyui 协议的供应商，别的协议连不上这台机器。 */
+  providers: CustomProviderInfo[];
   onSaved: (record: CustomEndpointInfo) => void;
   /** 把当前这份草稿交出去，重新导入的新 workflow 接到它上面。 */
   onReimport: (current: ComfyuiEndpointDefinition) => void;
@@ -78,7 +83,7 @@ export interface ComfyuiEndpointDetailProps {
 }
 
 /**
- * ComfyUI 端点详情：头部 → 节点绑定表 → 定义 → workflow 本体。
+ * ComfyUI 端点详情：头部 → 节点绑定表 → 定义 → workflow 本体 → 端点测试两卡。
  *
  * 推断只产出候选，用户在绑定表里确认后随定义一并落盘（`docs/adr/0082`）；服务端不留状态，
  * 因此每次进来都拿当前这份定义（连同它已确认的节点绑定）重跑一次，重导入的重匹配也走同一条路。
@@ -89,6 +94,7 @@ export function ComfyuiEndpointDetail({
   sourceFileName,
   initialInference,
   referenceCount,
+  providers,
   onSaved,
   onReimport,
   deleteButton,
@@ -420,6 +426,10 @@ export function ComfyuiEndpointDetail({
             </span>
           ))}
         </div>
+      </Section>
+
+      <Section kicker="Test" title={t("ce_cf_test_title")} description={t("ce_cf_test_desc")}>
+        <ComfyuiEndpointTestSection definition={draft} providers={providers} blocked={testRefused(blockers)} />
       </Section>
     </div>
   );

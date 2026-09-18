@@ -66,8 +66,9 @@ from lib.db import async_session_factory, get_async_session
 from lib.db.models.custom_provider import CustomProvider
 from lib.db.repositories.custom_endpoint_repo import CustomEndpointRepository
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository
+from lib.generation_result import problem_from_task_failure
 from lib.i18n import Translator
-from lib.task_failure import encode_failure, render_failure
+from lib.task_failure import encode_failure, parse_failure, render_failure
 
 logger = logging.getLogger(__name__)
 
@@ -189,6 +190,10 @@ class TrialRunResponse(BaseModel):
     video_url: str | None = None
     duration_seconds: int | None = None
     error: str | None = None
+    #: ``error`` 背后那个稳定失败码。读侧据它分流：失败码有对照表与排查方向可给，裸异常文本没有。
+    error_code: str | None = None
+    #: 这条失败码该让用户去做什么（``GenerationAction``），与生成失败在项目页给出的是同一份判定。
+    error_action: str | None = None
     has_artifact: bool = False
 
 
@@ -498,8 +503,18 @@ def _previewed(section: Any) -> PreviewedRequestResponse:
 
 
 def _run_response(run: TrialRun, translate: Translator) -> TrialRunResponse:
+    """结果体本地化：失败原因渲染成当前语言，失败码与它的后续动作另给一份原文。
+
+    码与动作一并给出，而不是让读侧从文案里认：文案随语言变，而「这是哪一类失败、该去做什么」
+    按码分流。动作取自 :func:`problem_from_task_failure`——同一条失败码在项目页与这里该给出
+    同一个后续动作，两处各写一份必然分叉（ComfyUI 的八条码里就有三条指向重试而非配置供应商）。
+    编不出码的裸异常文本两者皆无。
+    """
     payload = run.to_payload()
+    parsed = parse_failure(run.error)
     payload["error"] = render_failure(run.error, translate)
+    payload["error_code"] = parsed[0] if parsed else None
+    payload["error_action"] = problem_from_task_failure(run.error).action.value if parsed else None
     return TrialRunResponse(**payload)
 
 

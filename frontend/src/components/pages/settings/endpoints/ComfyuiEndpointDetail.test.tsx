@@ -100,6 +100,7 @@ function renderDetail(
       sourceFileName={options.fileName ?? "wan22_i2v_api.json"}
       initialInference={options.inference === undefined ? inference() : options.inference}
       referenceCount={0}
+      providers={[]}
       onSaved={options.onSaved ?? vi.fn()}
       onReimport={options.onReimport ?? vi.fn()}
       deleteButton={null}
@@ -543,5 +544,21 @@ describe("ComfyuiEndpointDetail", () => {
     renderDetail({ definition: definition() });
 
     expect(await screen.findByText(/Authorization: Bearer \{\{ api_key \}\}/)).toBeInTheDocument();
+  });
+
+  it("puts both endpoint-test cards within reach at the end of the detail", async () => {
+    renderDetail();
+
+    expect(await screen.findByText("端点测试")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "渲染 /prompt 请求体" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "真实提交一次" })).toBeEnabled();
+  });
+
+  it("holds the endpoint test shut while a required binding has nowhere to land", async () => {
+    // 服务端校验器会按 comfyui_binding_required 拒收这份定义，两卡先在界面上挡住。
+    renderDetail({ inference: inference({ bindings: { prompt: picked(PROMPT) } }) });
+
+    expect(await screen.findByRole("button", { name: "渲染 /prompt 请求体" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "真实提交一次" })).toBeDisabled();
   });
 });

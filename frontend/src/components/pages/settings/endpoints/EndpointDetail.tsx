@@ -349,6 +349,8 @@ export function EndpointDetail({
   // 详情与绑定编辑器另有其形；删除入口仍由本组件提供，两种 kind 共用同一条生命周期。
   if (selection.mode === "comfyui" || selection.mode === "comfyui-draft") {
     const draftRecord = selection.mode === "comfyui" ? selection.record : selection.draft.record;
+    // 端点测试的凭证来源只列 comfyui 协议的供应商：别的协议的地址与密钥打不到一台 ComfyUI 上。
+    const comfyuiProviders = providers.filter((provider) => provider.discovery_format === "comfyui");
     return (
       <>
         <ComfyuiEndpointDetail
@@ -357,6 +359,7 @@ export function EndpointDetail({
           sourceFileName={selection.mode === "comfyui" ? null : selection.draft.fileName}
           initialInference={selection.mode === "comfyui" ? null : selection.draft.inference}
           referenceCount={referenceCount}
+          providers={comfyuiProviders}
           onSaved={onSaved}
           onReimport={onReimportComfyui}
           deleteButton={deleteButton}

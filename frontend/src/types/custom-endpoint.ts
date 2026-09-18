@@ -383,10 +383,34 @@ export interface PreviewedRequest {
   body: unknown;
 }
 
+/**
+ * 「这份请求是怎么算出来的」。ComfyUI 端点的尺寸、帧数、种子与改图都是算出来的，光看一份几十个
+ * 节点的 workflow JSON 答不出「我选的 720p 到底变成了多少像素」。
+ *
+ * `width` / `height` / `frames` / `seed` 为 null 表示这一维没有驱动这份 workflow（未绑定，或尺寸
+ * 只绑了一侧因而判为固定），workflow 里的字面值原样保留。
+ */
+export interface ComfyuiRequestConversions {
+  /** 实发 workflow 的指纹，与成片版本元数据里记的是同一个值。 */
+  workflow_sha256: string;
+  aspect_ratio: string;
+  resolution: string | null;
+  duration_seconds: number | null;
+  width: number | null;
+  height: number | null;
+  frames: number | null;
+  seed: number | null;
+  negative_prompt: string;
+  /** 这次按参考图张数改图删掉的节点。 */
+  dropped_nodes: string[];
+}
+
 export interface EndpointPreviewResponse {
   submit: PreviewedRequest;
   poll: PreviewedRequest;
   result: PreviewedRequest | null;
+  /** 声明式端点的请求全部来自模板直填，没有可说明的换算，为 null。 */
+  conversions: ComfyuiRequestConversions | null;
 }
 
 export type EndpointTestStage = "submit" | "poll" | "result";
@@ -419,6 +443,14 @@ export interface EndpointStageReport {
 
 export type TrialRunStatus = "queued" | "running" | "succeeded" | "failed";
 
+/** 测试连接的四段：提交、轮询、取得结果、取回产物。 */
+export const TRIAL_RUN_STAGES = ["submit", "poll", "result", "artifact"] as const;
+
+export type TrialRunStage = (typeof TRIAL_RUN_STAGES)[number];
+
+/** 到达过的段是 done；没到达的段终态上是 skipped、运行中是 pending。不标「失败落在哪一段」。 */
+export type TrialRunStageState = "done" | "pending" | "skipped";
+
 export interface TrialRunInfo {
   id: string;
   status: TrialRunStatus;
@@ -428,6 +460,9 @@ export interface TrialRunInfo {
   created_at: number;
   finished_at: number | null;
   api_call_id: number | null;
+  /** 供应商给这一笔的 id（ComfyUI 即 `prompt_id`）；提交之前或认不出时为 null。 */
+  provider_job_id: string | null;
+  stages: Partial<Record<TrialRunStage, TrialRunStageState>>;
   request: PreviewedRequest | null;
   submit_response: unknown;
   poll_responses: unknown[];
@@ -436,6 +471,10 @@ export interface TrialRunInfo {
   video_url: string | null;
   duration_seconds: number | null;
   error: string | null;
+  /** `error` 背后那个稳定失败码；裸异常文本没有码，为 null。 */
+  error_code: string | null;
+  /** 这条失败码该让用户去做什么，取值同项目页生成失败那一套 `GenerationAction`。 */
+  error_action: string | null;
   has_artifact: boolean;
 }
 

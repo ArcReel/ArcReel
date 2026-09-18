@@ -372,6 +372,18 @@ export function saveBlockers(
 }
 
 /**
+ * 这份定义连端点测试都过不去吗。
+ *
+ * 保存门控里只有这两条同时是服务端**校验器**的硬闸门（`comfyui_binding_required` 与
+ * `comfyui_target_collision`），带着它们去预览或测试连接只会换回一条 422。另外三条不是：并列
+ * 候选未定与原绑定失效只是这一维没绑上，预览照样渲得出来——换算说明里那个「未驱动这份 workflow」
+ * 正是它该有的样子；占位名只挡保存。
+ */
+export function testRefused(blockers: readonly ComfyuiSaveBlocker[]): boolean {
+  return blockers.some((blocker) => blocker.code === "required_unbound" || blocker.code === "target_taken");
+}
+
+/**
  * 一份定义用于「改过没有」比对的规范形。
  *
  * 直接串比会把两份内容相同的定义判成不同：空标题在手选那一侧是「不写 `title` 这个键」
