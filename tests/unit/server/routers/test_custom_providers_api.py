@@ -208,6 +208,7 @@ class TestEndpointCatalog:
             "minimax-h3",
             "kling-image",
             "kling-video",
+            "muapi-video",
             "openai-tts",
         }
 

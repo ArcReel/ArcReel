@@ -39,6 +39,7 @@ class TestRegistry:
             "minimax-h3",
             "kling-image",
             "kling-video",
+            "muapi-video",
             "openai-tts",
         }
 
@@ -46,7 +47,18 @@ class TestRegistry:
         for key, spec in ENDPOINT_REGISTRY.items():
             assert spec.key == key
             assert spec.media_type in {"text", "image", "video", "audio"}
-            assert spec.family in {"openai", "google", "newapi", "v2", "ark", "vidu", "dashscope", "minimax", "kling"}
+            assert spec.family in {
+                "openai",
+                "google",
+                "newapi",
+                "v2",
+                "ark",
+                "vidu",
+                "dashscope",
+                "minimax",
+                "kling",
+                "muapi",
+            }
             # 注册表里的都是内置端点，来源恒为 builtin；用户端点不进注册表，由 ce- 键现构造。
             assert spec.source == "builtin"
             # 显示名两种来源恰有其一：Python 内置走 i18n key，声明式端点走定义里的 meta.name。
@@ -100,6 +112,7 @@ class TestRegistry:
             "minimax-s2v-01",
             "minimax-h3",
             "kling-video",
+            "muapi-video",
         ):
             assert ENDPOINT_REGISTRY[key].video_max_reference_images is None
         # 既有显式 int 保留，行为零变化
@@ -123,6 +136,7 @@ class TestRegistry:
             "minimax-s2v-01",
             "minimax-h3",
             "kling-video",
+            "muapi-video",
         ):
             assert ENDPOINT_REGISTRY[key].video_caps_for_model is not None
         # 显式 int 的 video endpoint 不应再绑 caps 函数
@@ -252,6 +266,7 @@ class TestRegistry:
             "minimax-s2v-01",
             "minimax-h3",
             "kling-video",
+            "muapi-video",
         }
 
 

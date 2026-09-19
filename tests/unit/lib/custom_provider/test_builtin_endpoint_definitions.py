@@ -232,6 +232,7 @@ def test_declared_capabilities_reach_the_endpoint_flags():
     [
         ("newapi-video", "newapi"),
         ("v2-video-generations", "v2"),
+        ("muapi-video", "muapi"),
         ("minimax", "minimax"),
     ],
 )
