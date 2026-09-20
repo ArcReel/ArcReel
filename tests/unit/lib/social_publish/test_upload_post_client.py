@@ -206,6 +206,69 @@ async def test_fetch_progress_ignores_non_url_post_url_placeholder(upload_post_c
     assert progress.outcomes[0].url is None
 
 
+async def test_fetch_progress_ignores_a_request_id_the_upstream_rewrote(
+    upload_post_client: UploadPostClient,
+) -> None:
+    """问的是本端这个 id；跟着上游改口会把进度挂到另一次投递上。"""
+    with capture_http() as router:
+        router.get(f"{_BASE_URL}/uploadposts/status").mock(
+            return_value=httpx.Response(
+                200,
+                json={"request_id": "upstream-other", "status": "completed", "completed": 1, "total": 1},
+            )
+        )
+
+        progress = await upload_post_client.fetch_progress(request_id="arcreel-1")
+
+    assert progress.request_id == "arcreel-1"
+
+
+async def test_fetch_progress_rejects_an_unknown_platform_status(upload_post_client: UploadPostClient) -> None:
+    """认不出的平台状态曾按处理中收下：顶层已终态、读侧却把它永远画成转圈。"""
+    with capture_http() as router:
+        router.get(f"{_BASE_URL}/uploadposts/status").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "status": "completed",
+                    "completed": 1,
+                    "total": 1,
+                    "results": [{"platform": "tiktok", "status": "rejected", "success": False}],
+                },
+            )
+        )
+
+        with pytest.raises(BadGatewayError) as excinfo:
+            await upload_post_client.fetch_progress(request_id="arcreel-1")
+
+    assert excinfo.value.key == "social_publish_upstream_malformed"
+
+
+async def test_fetch_progress_infers_a_missing_platform_status_from_success(
+    upload_post_client: UploadPostClient,
+) -> None:
+    """排队阶段上游可能只给 success 标志，缺状态时仍要能读。"""
+    with capture_http() as router:
+        router.get(f"{_BASE_URL}/uploadposts/status").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "status": "in_progress",
+                    "completed": 1,
+                    "total": 2,
+                    "results": [
+                        {"platform": "x", "success": True},
+                        {"platform": "tiktok", "success": False},
+                    ],
+                },
+            )
+        )
+
+        progress = await upload_post_client.fetch_progress(request_id="arcreel-1")
+
+    assert [(o.platform, o.status) for o in progress.outcomes] == [("x", "completed"), ("tiktok", "processing")]
+
+
 @pytest.mark.parametrize("payload", [{"completed": 0, "total": 1}, {"status": "half_done"}])
 async def test_fetch_progress_rejects_an_unknown_aggregate_status(
     upload_post_client: UploadPostClient, payload: dict[str, object]

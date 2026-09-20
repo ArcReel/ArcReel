@@ -56,16 +56,18 @@ export function SocialPublishSection() {
   const [profilesError, setProfilesError] = useState<string | null>(null);
   const [loadingProfiles, setLoadingProfiles] = useState(false);
 
+  /** 回读是否成功。读配置失败要说出来：静默吞掉 rejection 会让 settings 一直是 null，
+   *  界面卡在转圈图标上，除非整块重新挂载。 */
   const fetchConfig = useCallback(async () => {
-    // 读配置失败要说出来：静默吞掉 rejection 会让 settings 一直是 null，界面卡在
-    // 转圈图标上，除非整块重新挂载。
     setConfigError(null);
     try {
       const res = await API.getSystemConfig();
       setSettings(res.settings);
       setDraft({});
+      return true;
     } catch (err) {
       setConfigError(errMsg(err));
+      return false;
     }
   }, []);
 
@@ -94,7 +96,10 @@ export function SocialPublishSection() {
     setSaving(true);
     try {
       await API.updateSystemConfig(draft);
-      await fetchConfig();
+      // PATCH 成功但回读失败时不报成功：旧的 settings 还在，界面看起来像是已经刷新，
+      // 而用户看到的其实是保存前的那一份。
+      const reloaded = await fetchConfig();
+      if (!reloaded) return;
       useAppStore.getState().pushToast(t("dashboard:social_publish_saved"), "success");
       // 凭证刚换过，旧的账号列表已经无效：重取而不是留着上一份显示。
       void loadProfiles();
@@ -133,6 +138,9 @@ export function SocialPublishSection() {
 
   return (
     <div className="space-y-4 p-6">
+      {/* 首次加载失败走上面的空态分支；这里是「已经有一份配置、但刚才那次回读失败了」，
+          不画出来的话保存后界面看着像已刷新，其实显示的是保存前的那一份。 */}
+      {configError !== null && <InlineWarning message={configError} />}
       <SectionCard
         kicker="Distribution"
         title={t("dashboard:social_publish_credentials_title")}

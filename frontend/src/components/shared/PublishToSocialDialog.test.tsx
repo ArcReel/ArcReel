@@ -2,7 +2,11 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { API } from "@/api";
-import type { SocialPublishProfilesResponse, SocialPublishProgress } from "@/types/social-publish";
+import type {
+  SocialPublishProfilesResponse,
+  SocialPublishProgress,
+  SocialPublishSubmission,
+} from "@/types/social-publish";
 import { PublishToSocialDialog } from "./PublishToSocialDialog";
 
 const profiles: SocialPublishProfilesResponse = {
@@ -190,6 +194,67 @@ describe("PublishToSocialDialog", () => {
     await waitFor(() => expect(status).toHaveBeenCalledTimes(1));
     await new Promise((resolve) => setTimeout(resolve, 200));
     expect(status).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses to close while the submission is in flight", async () => {
+    let release: (submission: SocialPublishSubmission) => void = () => undefined;
+    vi.spyOn(API, "publishPresentation").mockImplementation(
+      () =>
+        new Promise<SocialPublishSubmission>((resolve) => {
+          release = resolve;
+        }),
+    );
+    const onClose = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <PublishToSocialDialog
+        open
+        onClose={onClose}
+        projectName="demo"
+        resourceType="videos"
+        resourceId="E1S01"
+        variant="post_production"
+      />,
+    );
+
+    await user.click(await screen.findByRole("checkbox", { name: /tiktok/ }));
+    await user.click(screen.getByRole("button", { name: "发布" }));
+
+    // cerrar aquí perdería el request_id: el upstream puede haberla aceptado ya
+    await user.click(screen.getByTestId("modal-backdrop"));
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "取消" })).toBeDisabled();
+
+    release({ request_id: "arcreel-1", job_id: null, scheduled_date: null, total_platforms: 1 });
+  });
+
+  it("marks a skipped platform as settled instead of leaving it spinning", async () => {
+    vi.spyOn(API, "publishPresentation").mockResolvedValue({
+      request_id: "arcreel-1",
+      job_id: null,
+      scheduled_date: null,
+      total_platforms: 1,
+    });
+    vi.spyOn(API, "getSocialPublishStatus").mockResolvedValue({
+      request_id: "arcreel-1",
+      job_id: null,
+      status: "completed",
+      completed: 1,
+      total: 1,
+      terminal: true,
+      outcomes: [
+        { platform: "tiktok", status: "skipped", success: false, url: null, error: null },
+      ],
+    });
+    const user = userEvent.setup();
+    renderDialog();
+
+    await user.click(await screen.findByRole("checkbox", { name: /tiktok/ }));
+    await user.click(screen.getByRole("button", { name: "发布" }));
+
+    expect(await screen.findByText("未连接，已跳过")).toBeInTheDocument();
+    //轮询已停：转圈图标再也不会变，不能用它表示终态
+    expect(document.querySelector(".animate-spin")).toBeNull();
   });
 
   it("surfaces a missing credential instead of an empty platform list", async () => {

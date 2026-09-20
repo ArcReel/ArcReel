@@ -156,7 +156,9 @@ class UploadPostClient:
         results = raw_results if isinstance(raw_results, list) else []
         outcomes = tuple(_parse_outcome(entry) for entry in results if isinstance(entry, dict))
         return PublishProgress(
-            request_id=_text(payload.get("request_id")) or request_id,
+            # 与投递回执同一条规矩：问的是本端这个 id，回传不一致就跟着改会把进度挂到
+            # 另一次投递上。这是独立的一条响应路径，投递侧的那道防护覆盖不到这里。
+            request_id=request_id,
             job_id=_text(payload.get("job_id")),
             status=_parse_status(payload.get("status")),
             completed=_int(payload.get("completed"), default=0),
@@ -262,12 +264,15 @@ def _parse_profile(entry: dict[str, Any]) -> PublishProfile:
 def _parse_outcome(entry: dict[str, Any]) -> PlatformOutcome:
     raw_status = _text(entry.get("status"))
     success = bool(entry.get("success"))
-    if raw_status in _KNOWN_PLATFORM_STATUSES:
+    if raw_status is None:
+        # 进度接口在排队阶段可能只给 success 标志，缺状态时按它归档。
+        status: PlatformStatus = "completed" if success else "processing"
+    elif raw_status in _KNOWN_PLATFORM_STATUSES:
         status = cast(PlatformStatus, raw_status)
     else:
-        # 进度接口在排队阶段可能只给 success 标志；未知措辞按已完成/处理中归档，
-        # 不新增第四种「未知」状态去污染读侧的三态渲染。
-        status = "completed" if success else "processing"
+        # 认不出的措辞曾按「处理中」收下，代价是顶层已 completed、读侧却把这个平台
+        # 永远画成转圈：轮询已经停了，那个图标再也不会变。宁可判畸形。
+        raise BadGatewayError("social_publish_upstream_malformed")
     if bool(entry.get("skipped")):
         status = "skipped"
     return PlatformOutcome(

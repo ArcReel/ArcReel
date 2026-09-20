@@ -2,6 +2,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { API } from "@/api";
+import { useAppStore } from "@/stores/app-store";
 import type { GetSystemConfigResponse } from "@/types/system";
 import { SocialPublishSection } from "./SocialPublishSection";
 
@@ -36,6 +37,8 @@ function config(overrides: Record<string, unknown> = {}): GetSystemConfigRespons
 describe("SocialPublishSection", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    // el store es global: sin esto el toast de un caso anterior se cuela en el siguiente
+    useAppStore.setState({ toast: null });
   });
 
   it("never renders the stored key, not even a masked fragment of it", async () => {
@@ -90,6 +93,24 @@ describe("SocialPublishSection", () => {
 
     await waitFor(() => expect(update).toHaveBeenCalledWith({ upload_post_profile: "studio" }));
     await waitFor(() => expect(profiles).toHaveBeenCalled());
+  });
+
+  it("does not claim a successful save when reading the config back fails", async () => {
+    vi.spyOn(API, "getSystemConfig")
+      .mockResolvedValueOnce(config())
+      .mockRejectedValue(new Error("no se pudo releer la configuración"));
+    vi.spyOn(API, "updateSystemConfig").mockResolvedValue(config());
+    const profiles = vi.spyOn(API, "getSocialPublishProfiles");
+    const user = userEvent.setup();
+    render(<SocialPublishSection />);
+
+    await user.type(await screen.findByLabelText("档案名"), "studio");
+    await user.click(screen.getByRole("button", { name: "保存" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("no se pudo releer la configuración");
+    // el aviso de guardado haría creer que en pantalla está lo recién guardado
+    expect(useAppStore.getState().toast).toBeNull();
+    expect(profiles).not.toHaveBeenCalled();
   });
 
   it("reports why the accounts could not be listed instead of showing an empty list", async () => {

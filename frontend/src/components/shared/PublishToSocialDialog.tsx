@@ -13,7 +13,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { CheckCircle2, ExternalLink, Loader2, XCircle } from "lucide-react";
+import { CheckCircle2, ExternalLink, Loader2, MinusCircle, XCircle } from "lucide-react";
 import { API } from "@/api";
 import { GlassModal } from "@/components/ui/GlassModal";
 import { ModalCloseButton } from "@/components/ui/ModalCloseButton";
@@ -168,11 +168,20 @@ export function PublishToSocialDialog({
   };
 
   const canPublish = selected.length > 0 && title.trim().length > 0 && !submitting;
+  // 提交在途时不许关：此刻上游可能已经受理、响应还没回来，而 request_id 只活在本组件里
+  // （关闭即卸载）。这时关掉再重开会现生成新的 id，重试就成了第二次投递。受理之后再关是
+  // 安全的——那时 id 已经用掉了，重开是一次全新的投递，不是重试。
+  const canClose = !submitting;
+  const handleClose = () => {
+    if (canClose) onClose();
+  };
 
   return (
     <GlassModal
       open={open}
-      onClose={onClose}
+      onClose={handleClose}
+      closeOnBackdrop={canClose}
+      closeOnEscape={canClose}
       labelledBy="publish-to-social-title"
       widthClassName="w-full max-w-lg"
       panelClassName="max-h-[85vh] overflow-y-auto"
@@ -187,7 +196,7 @@ export function PublishToSocialDialog({
               {t("dashboard:social_publish_dialog_title", { unit: resourceId })}
             </h3>
           </div>
-          <ModalCloseButton onClick={onClose} />
+          <ModalCloseButton onClick={handleClose} disabled={!canClose} />
         </div>
 
         {loadError && <InlineWarning message={loadError} className="mb-3" />}
@@ -283,8 +292,9 @@ export function PublishToSocialDialog({
             <div className="flex justify-end gap-2 pt-1">
               <button
                 type="button"
-                onClick={onClose}
-                className="rounded-[8px] border border-hairline bg-bg-grad-a/55 px-4 py-2 text-[12.5px] text-text-2 transition-colors hover:border-hairline-strong hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                onClick={handleClose}
+                disabled={!canClose}
+                className="rounded-[8px] border border-hairline bg-bg-grad-a/55 px-4 py-2 text-[12.5px] text-text-2 transition-colors hover:border-hairline-strong hover:text-text disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
               >
                 {t("common:cancel")}
               </button>
@@ -303,7 +313,7 @@ export function PublishToSocialDialog({
             </div>
           </div>
         ) : (
-          <PublishProgressPanel progress={progress} onClose={onClose} />
+          <PublishProgressPanel progress={progress} onClose={handleClose} />
         )}
       </div>
     </GlassModal>
@@ -359,6 +369,9 @@ function PublishOutcomeRow({ outcome }: { outcome: SocialPlatformOutcome }) {
         <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-emerald-400" aria-hidden />
       ) : outcome.status === "failed" ? (
         <XCircle className="h-3.5 w-3.5 shrink-0 text-warm" aria-hidden />
+      ) : outcome.status === "skipped" ? (
+        // 也是终态：档案没连这个平台。画成转圈会让它在轮询停止后永远转下去。
+        <MinusCircle className="h-3.5 w-3.5 shrink-0 text-text-4" aria-hidden />
       ) : (
         <Loader2 className="h-3.5 w-3.5 shrink-0 motion-safe:animate-spin text-text-4" aria-hidden />
       )}
