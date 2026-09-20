@@ -144,6 +144,9 @@ export function PublishToSocialDialog({
         video_version: videoVersion,
         audio_version: audioVersion,
         description: description.trim() || undefined,
+        // datetime-local 给的是本机挂钟时间，转成带 Z 的绝对时刻再发。上游按偏移量优先：
+        // 带 Z 时以它为准，timezone 只用于渲染回显；不带偏移量的字符串才按 timezone 解释。
+        // 对 QA 环境实测过（含与本机不同的 timezone），两种写法落到同一个时刻，不会叠加偏移。
         scheduled_date: scheduledAt ? new Date(scheduledAt).toISOString() : undefined,
         timezone: scheduledAt ? Intl.DateTimeFormat().resolvedOptions().timeZone : undefined,
         request_id: requestId,
