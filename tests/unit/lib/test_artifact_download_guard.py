@@ -44,6 +44,8 @@ class TestDestinationGuard:
             "http://[fe80::1]/a.mp4",
             "http://[::ffff:169.254.169.254]/a.mp4",
             "http://[fd00:ec2::254]/a.mp4",
+            "http://100.100.100.200/latest/meta-data/",
+            "http://192.0.0.192/opc/v1/instance/",
         ],
     )
     async def test_rejects_link_local_and_metadata_literals(self, url: str):
@@ -96,6 +98,7 @@ class TestDestinationGuard:
             ("http://[::1]:8188/view", ()),
             ("https://cdn.example/a.mp4", ("93.184.216.34",)),
             ("http://comfy.lan:8188/view", ("10.0.0.5",)),
+            ("http://100.100.100.100:8188/view", ()),
         ],
     )
     async def test_allows_loopback_private_and_public(self, url: str, resolved: tuple[str, ...]):
