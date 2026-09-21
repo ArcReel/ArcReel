@@ -19,11 +19,13 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 
 # 核心子模块白名单。新增包时请在此追加（而不是用 pkgutil.walk_packages，
 # 以避免意外拉起 lib.i18n.zh/en 的翻译数据包和 alembic.versions 迁移脚本）。
-# 参与模块级互引的模块（lib.config ↔ lib.custom_provider，端点定义的分派方 ↔ 各 kind 的实现方）
-# 另需登记 FIRST_IMPORT_MODULES。
+# 参与模块级互引的模块（lib.config ↔ lib.custom_provider、端点定义的分派方 ↔ 各 kind 的实现方）
+# 及要求保持轻量的基础模块另需登记 FIRST_IMPORT_MODULES。
 MODULES = [
     # lib 顶层单文件模块
     "lib.backends.ark_shared",
+    "lib.backends.backend_runtime",
+    "lib.backends.video_backend_contract",
     "lib.project.asset_fingerprints",
     "lib.billing.cost_calculator",
     "lib.project.data_validator",
@@ -77,15 +79,18 @@ MODULES = [
 
 # 首位导入必须成立的模块，逐个在全新解释器里验证（理由见用例 docstring）。
 FIRST_IMPORT_MODULES = [
+    "lib.backends.backend_runtime",
+    "lib.backends.image_backends.base",
+    "lib.backends.video_backend_contract",
     "lib.config.resolver",
     "lib.custom_provider.backends",
     "lib.custom_provider.capabilities",
+    "lib.custom_provider.comfyui.comfyui_backend",
+    "lib.custom_provider.comfyui.comfyui_client",
     "lib.custom_provider.comfyui.import_shapes",
     "lib.custom_provider.comfyui.inference",
     "lib.custom_provider.comfyui.request_builder",
     "lib.custom_provider.comfyui.validator",
-    "lib.custom_provider.comfyui_backend",
-    "lib.custom_provider.comfyui_client",
     "lib.custom_provider.discovery",
     "lib.custom_provider.endpoint_definition",
     "lib.custom_provider.endpoint_test",
@@ -125,3 +130,28 @@ def test_module_imports_first_in_fresh_process(module_name: str) -> None:
         # 而不是把 CI job 挂满时限。
         pytest.fail(f"{module_name} 首位导入超时，疑似存在阻塞式顶层副作用")
     assert result.returncode == 0, f"{module_name} 无法作为首个导入：\n{result.stderr}"
+
+
+def test_video_backend_contract_first_import_stays_light() -> None:
+    """视频契约首位导入不加载运行支持、第三方 HTTP/ORM 或视频实现包。"""
+    code = """
+import sys
+import lib.backends.video_backend_contract
+
+forbidden = {
+    "httpx",
+    "sqlalchemy",
+    "lib.backends.backend_runtime",
+    "lib.backends.video_backends",
+}
+assert forbidden.isdisjoint(sys.modules), forbidden & sys.modules.keys()
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", code],
+        cwd=str(_REPO_ROOT),
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=120,
+    )
+    assert result.returncode == 0, f"视频契约首位导入加载了运行依赖：\n{result.stderr}"

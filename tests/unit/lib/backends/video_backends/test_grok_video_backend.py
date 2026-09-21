@@ -12,7 +12,7 @@ import pytest
 import respx
 
 from lib.backends.providers import PROVIDER_GROK
-from lib.backends.video_backends.base import VideoGenerationRequest
+from lib.backends.video_backend_contract import VideoGenerationRequest
 from tests.fakes import bounded_poll_clock
 from tests.http_capture import capture_http
 

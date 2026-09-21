@@ -14,6 +14,7 @@ from collections.abc import AsyncGenerator, Callable
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Any
 
+from lib.backends.backend_runtime import install_provider_job_id_store
 from lib.db import safe_session_factory
 from lib.db.base import DEFAULT_USER_ID
 from lib.db.repositories.task_repo import TaskRepository
@@ -849,3 +850,7 @@ def get_generation_queue() -> GenerationQueue:
 
 def read_queue_poll_interval() -> float:
     return max(0.1, float(TASK_POLL_INTERVAL_SEC))
+
+
+# 调用通道提交后的供应商任务 id 经本队列落库。按名字取单例，打桩本模块的 get_generation_queue 照常生效。
+install_provider_job_id_store(lambda: get_generation_queue())

@@ -56,7 +56,7 @@ from lib.artifacts.visual_artifact_provenance import (
     build_storyboard_video_artifact_visual_basis,
     project_basis_style_description,
 )
-from lib.backends.video_backends.base import VideoCapabilityError
+from lib.backends.video_backend_contract import VideoCapabilityError
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.resolver import constrain_durations, video_bucket_for_generation_mode
 from lib.config.service import DEFAULT_VIDEO_POLL_TIMEOUT_SECONDS

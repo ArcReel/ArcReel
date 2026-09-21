@@ -12,7 +12,7 @@ import logging
 
 from sqlalchemy.exc import SQLAlchemyError
 
-from lib.backends.video_backends.base import VideoAudioMode
+from lib.backends.video_backend_contract import VideoAudioMode
 from lib.config.resolver import (
     ConfigResolver,
     VideoBucketCapabilityError,

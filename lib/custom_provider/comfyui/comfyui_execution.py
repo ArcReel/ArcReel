@@ -2,12 +2,8 @@
 
 图像与视频两条通道从提交那一刻起做的是同一件事——``prompt_id`` 到手之后，剩下的只有「这次执行
 走完了没有」「走完是成功还是失败」「产物是哪个文件」「本地不要了怎么把远端也停掉」。这四个判断
-与媒体类型无关（差别只在产物扩展名白名单，收在 :mod:`.comfyui.artifacts` 的那张表上），两个
+与媒体类型无关（差别只在产物扩展名白名单，收在 :mod:`.artifacts` 的那张表上），两个
 backend 各写一份的话，判丢失与叫停这类只在异常路径上跑到的逻辑迟早各判各的。
-
-住在 ``lib.custom_provider`` 顶层而非 ``comfyui`` 子包，与 :mod:`.comfyui_client` 同一个理由：
-本模块要用 ``lib.backends.video_backends.base`` 的轮询原语，而子包受「不依赖声明式运行时」的 import 契约
-约束，那条链绕一圈会间接够到声明式 backend。
 """
 
 from __future__ import annotations
@@ -24,7 +20,7 @@ from urllib.parse import urlencode
 import httpx
 
 from lib.backends.artifact_download_guard import ARTIFACT_MAX_BYTES_BY_MEDIA_TYPE
-from lib.backends.video_backends.base import poll_with_retry, should_retry_poll
+from lib.backends.backend_runtime import poll_with_retry, should_retry_poll
 from lib.custom_provider.comfyui.artifacts import (
     filename_of,
     history_digest,
@@ -33,8 +29,8 @@ from lib.custom_provider.comfyui.artifacts import (
     pick_artifact,
     terminal_failure,
 )
+from lib.custom_provider.comfyui.comfyui_client import ComfyuiClient, RecordResponse
 from lib.custom_provider.comfyui.failures import JOB_LOST, OUTPUT_MISSING, OUTPUT_TYPE_MISMATCH, ComfyuiError
-from lib.custom_provider.comfyui_client import ComfyuiClient, RecordResponse
 
 logger = logging.getLogger(__name__)
 

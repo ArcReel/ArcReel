@@ -7,6 +7,7 @@ from pathlib import Path
 import httpx
 import pytest
 
+from lib.backends.http_status_errors import ProviderRejectedError
 from lib.backends.image_backends.base import (
     ImageCapability,
     ImageCapabilityError,
@@ -22,7 +23,6 @@ from lib.backends.image_backends.vidu import (
     ViduImageBackend,
 )
 from lib.backends.providers import PROVIDER_VIDU
-from lib.backends.video_backends.base import ProviderRejectedError
 from tests.http_capture import capture_http
 
 

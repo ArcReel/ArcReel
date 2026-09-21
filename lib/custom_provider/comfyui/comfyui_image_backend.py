@@ -1,8 +1,7 @@
 """ComfyUI 端点的图像调用通道。
 
-与视频通道同住 ``lib.custom_provider`` 顶层（理由见 :mod:`.comfyui_backend` 的模块说明），共用
-同一个客户端（:mod:`.comfyui_client`）、同一个请求体构造层（``comfyui.request_builder``）与同一
-份执行层（:mod:`.comfyui_execution`）。本模块只剩图像这一侧独有的三件事：参考图的上传、``bindings``
+与视频通道（:mod:`.comfyui_backend`）共用同一个客户端（:mod:`.comfyui_client`）、同一个请求体
+构造层（:mod:`.request_builder`）与同一份执行层（:mod:`.comfyui_execution`）。本模块只剩图像这一侧独有的三件事：参考图的上传、``bindings``
 推出的能力集与参考图上限、把取回的产物装成 ``ImageGenerationResult``。
 
 与视频通道的两处实质差别：
@@ -34,9 +33,9 @@ from lib.backends.image_backends.base import (
 )
 from lib.custom_provider.comfyui.bindings import targets_of
 from lib.custom_provider.comfyui.capabilities import takes_reference_images
+from lib.custom_provider.comfyui.comfyui_client import ComfyuiClient, client_id_for, upload_filename
+from lib.custom_provider.comfyui.comfyui_execution import HTTP_TIMEOUT_SECONDS, ComfyuiExecution
 from lib.custom_provider.comfyui.request_builder import MediaInputs, build_workflow
-from lib.custom_provider.comfyui_client import ComfyuiClient, client_id_for, upload_filename
-from lib.custom_provider.comfyui_execution import HTTP_TIMEOUT_SECONDS, ComfyuiExecution
 
 logger = logging.getLogger(__name__)
 

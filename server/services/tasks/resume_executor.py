@@ -11,7 +11,7 @@ import asyncio
 import logging
 from typing import Any
 
-from lib.backends.video_backends.base import ResumeEndpointChangedError
+from lib.backends.video_backend_contract import ResumeEndpointChangedError
 from lib.config.service import DEFAULT_VIDEO_POLL_TIMEOUT_SECONDS
 from lib.project.project_change_hints import project_change_source
 from lib.script.reference_video.execution_checkpoint import (

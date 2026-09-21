@@ -1447,7 +1447,7 @@ async def test_execute_reference_video_task_uses_real_media_generator(tmp_path: 
     lib.project.resource_paths 时，这条测试会立刻爆 ValueError。
     """
     from lib.artifacts.version_manager import VersionManager
-    from lib.backends.video_backends.base import VideoCapabilities, VideoGenerationResult
+    from lib.backends.video_backend_contract import VideoCapabilities, VideoGenerationResult
     from lib.generation.media_generator import MediaGenerator
     from server.services.tasks import reference_video_tasks as rvt
 

@@ -654,7 +654,7 @@ def captured_provider_job_ids() -> Generator[list[dict[str, Any]]]:
             }
         )
 
-    with patch("lib.backends.video_backends.base.persist_provider_job_id", _record):
+    with patch("lib.backends.backend_runtime.persist_provider_job_id", _record):
         yield records
 
 

@@ -15,17 +15,9 @@ from lib.backends.artifact_download_guard import (
     ArtifactDestinationRejectedError,
     ArtifactTooLargeError,
 )
-from lib.backends.video_backends.base import (
+from lib.backends.backend_runtime import (
     PROVIDER_REASON_MAX_CHARS,
-    TERMINAL_PROVIDER_STATUSES,
-    AmbiguousSubmitError,
     ProviderJobIdPersistenceMixin,
-    ProviderJobStatus,
-    ProviderRejectedError,
-    ProviderResponseStage,
-    ResumeExpiredError,
-    VideoGenerationRequest,
-    VideoGenerationResult,
     _dig,
     _rewrites_to_get,
     download_resumable_video,
@@ -34,7 +26,6 @@ from lib.backends.video_backends.base import (
     first_mapping_by_paths,
     first_str_by_paths,
     is_retryable_http_status,
-    normalize_provider_status,
     persist_provider_job_id,
     poll_with_retry,
     provider_reason_summary,
@@ -47,6 +38,12 @@ from lib.backends.video_backends.base import (
     submit_post,
     url_origin,
     with_artifact_retry,
+)
+from lib.backends.http_status_errors import AmbiguousSubmitError, ProviderRejectedError
+from lib.backends.video_backend_contract import (
+    ProviderResponseStage,
+    ResumeExpiredError,
+    VideoGenerationRequest,
 )
 from tests.fakes import bounded_poll_clock, captured_provider_job_ids
 from tests.http_capture import capture_http
@@ -71,7 +68,7 @@ class _FakeClock:
 
 
 def _http_status_error(status_code: int, *, text: str = "boom") -> httpx.HTTPStatusError:
-    """构造真实 httpx.HTTPStatusError；URL 故意含 "503" 子串以验证不再走字符串误判。"""
+    """构造真实 httpx.HTTPStatusError；URL 故意含 "503" 子串以验证不会按字符串误判。"""
     request = httpx.Request("GET", "https://relay.example/v2/video/generations?generation_id=task-503")
     response = httpx.Response(status_code, request=request, text=text)
     return httpx.HTTPStatusError(f"error '{status_code}'", request=request, response=response)
@@ -81,64 +78,6 @@ def _http_status_error_with_headers(status_code: int, headers: dict[str, str]) -
     request = httpx.Request("GET", "https://relay.example/tasks/1")
     response = httpx.Response(status_code, request=request, headers=headers)
     return httpx.HTTPStatusError(f"error '{status_code}'", request=request, response=response)
-
-
-class TestVideoGenerationRequest:
-    def test_defaults(self):
-        req = VideoGenerationRequest(prompt="test", output_path=Path("/tmp/out.mp4"))
-        assert req.aspect_ratio == "9:16"
-        assert req.duration_seconds == 5
-        assert req.resolution is None
-        assert req.start_image is None
-        assert req.generate_audio is True
-        assert req.reference_audio_files is None
-        assert req.poll_timeout_seconds == 3600
-        assert req.service_tier == "default"
-        assert req.seed is None
-
-    def test_all_fields(self):
-        req = VideoGenerationRequest(
-            prompt="action",
-            output_path=Path("/tmp/out.mp4"),
-            aspect_ratio="16:9",
-            duration_seconds=8,
-            resolution="720p",
-            start_image=Path("/tmp/frame.png"),
-            generate_audio=False,
-            service_tier="flex",
-            seed=42,
-        )
-        assert req.duration_seconds == 8
-        assert req.seed == 42
-        assert req.service_tier == "flex"
-
-
-class TestVideoGenerationResult:
-    def test_required_fields(self):
-        result = VideoGenerationResult(
-            video_path=Path("/tmp/out.mp4"),
-            provider="gemini",
-            model="veo-3.1-generate-001",
-            duration_seconds=8,
-        )
-        assert result.video_uri is None
-        assert result.seed is None
-        assert result.usage_tokens is None
-        assert result.task_id is None
-
-    def test_optional_fields(self):
-        result = VideoGenerationResult(
-            video_path=Path("/tmp/out.mp4"),
-            provider="ark",
-            model="doubao-seedance-1-5-pro-251215",
-            duration_seconds=5,
-            video_uri="https://cdn.example.com/video.mp4",
-            seed=58944,
-            usage_tokens=246840,
-            task_id="cgt-20250101",
-        )
-        assert result.usage_tokens == 246840
-        assert result.task_id == "cgt-20250101"
 
 
 class TestPollWithRetry:
@@ -408,53 +347,6 @@ class TestPollWithRetry:
         assert poll_fn.await_count == 3
 
 
-class TestNormalizeProviderStatus:
-    """跨厂商状态串归一：OpenAI 兼容代理会把底层厂商的状态串原样透传。"""
-
-    @pytest.mark.parametrize(
-        ("raw", "expected"),
-        [
-            ("completed", ProviderJobStatus.SUCCEEDED),
-            ("succeeded", ProviderJobStatus.SUCCEEDED),
-            ("succeed", ProviderJobStatus.SUCCEEDED),
-            ("success", ProviderJobStatus.SUCCEEDED),
-            ("SUCCEEDED", ProviderJobStatus.SUCCEEDED),
-            ("  succeeded  ", ProviderJobStatus.SUCCEEDED),
-            ("failed", ProviderJobStatus.FAILED),
-            ("fail", ProviderJobStatus.FAILED),
-            ("error", ProviderJobStatus.FAILED),
-            ("FAILED", ProviderJobStatus.FAILED),
-            ("canceled", ProviderJobStatus.FAILED),
-            ("cancelled", ProviderJobStatus.FAILED),
-            ("in_progress", ProviderJobStatus.RUNNING),
-            ("Processing", ProviderJobStatus.RUNNING),
-            ("generating", ProviderJobStatus.RUNNING),
-            ("PENDING", ProviderJobStatus.QUEUED),
-            ("submitted", ProviderJobStatus.QUEUED),
-            # 未知 / 非字符串 → 当 running 继续轮询（保守：不对未就绪任务触发下载）
-            ("NOT_START", ProviderJobStatus.RUNNING),
-            ("weird-status", ProviderJobStatus.RUNNING),
-            (None, ProviderJobStatus.RUNNING),
-            (99, ProviderJobStatus.RUNNING),
-        ],
-    )
-    def test_normalize(self, raw, expected):
-        assert normalize_provider_status(raw) is expected
-
-    @pytest.mark.parametrize("raw", ["expired", "EXPIRED", " Expired "])
-    def test_expired_is_its_own_bucket(self, raw):
-        """expired 不得折进 failed：caller 据其按 generate / resume 分流抛不同异常。"""
-        assert normalize_provider_status(raw) is ProviderJobStatus.EXPIRED
-
-    def test_terminal_set(self):
-        assert (
-            frozenset({ProviderJobStatus.SUCCEEDED, ProviderJobStatus.FAILED, ProviderJobStatus.EXPIRED})
-            == TERMINAL_PROVIDER_STATUSES
-        )
-        assert ProviderJobStatus.RUNNING not in TERMINAL_PROVIDER_STATUSES
-        assert ProviderJobStatus.QUEUED not in TERMINAL_PROVIDER_STATUSES
-
-
 class TestDigAndFirstStrByPaths:
     def test_walks_dict_and_list_index(self):
         payload = {"data": {"videos": [{"url": "u0"}, {"url": "u1"}]}}
@@ -588,7 +480,7 @@ class TestRetryPredicates:
             assert should_retry_poll(exc) is True
 
     def test_ambiguous_submit_error_never_retries(self):
-        # AmbiguousSubmitError 是终态：被装饰器捕获后谓词须返回 False，不再重试。
+        # AmbiguousSubmitError 是终态：被装饰器捕获后谓词须返回 False。
         assert should_retry_submit(AmbiguousSubmitError(provider="v2")) is False
         assert should_retry_poll(AmbiguousSubmitError(provider="v2")) is False
 
@@ -608,7 +500,7 @@ class TestRetryPredicates:
         assert should_retry_poll(httpx.RemoteProtocolError("server disconnected")) is True
 
     def test_business_exceptions_fail_fast(self):
-        # ResumeExpiredError 的 job_id 含 "503" 子串：旧字符串兜底会误判重试，新谓词不会。
+        # ResumeExpiredError 的 job_id 含 "503" 子串：若按字符串兜底会误判为可重试。
         resume_exc = ResumeExpiredError(job_id="job-503", provider="v2")
         assert should_retry_poll(resume_exc) is False
         assert should_retry_submit(resume_exc) is False
@@ -856,7 +748,7 @@ class TestSubmitPost:
             return resp
 
         with (
-            caplog.at_level(logging.WARNING, logger="lib.backends.video_backends.base"),
+            caplog.at_level(logging.WARNING, logger="lib.backends.backend_runtime"),
             pytest.raises(httpx.HTTPStatusError),
         ):
             await submit_post(_post, provider="v2")
@@ -1003,7 +895,7 @@ class TestPersistJobIdRetry:
         with (
             patch("lib.generation.generation_queue.get_generation_queue", return_value=fake_queue),
             bounded_poll_clock(),
-            caplog.at_level(logging.INFO, logger="lib.backends.video_backends.base"),
+            caplog.at_level(logging.INFO, logger="lib.backends.backend_runtime"),
         ):
             await persist_provider_job_id("task-1", "job-1", provider="openai")
 
@@ -1027,7 +919,7 @@ class TestPersistJobIdRetry:
         with (
             patch("lib.generation.generation_queue.get_generation_queue", return_value=fake_queue),
             bounded_poll_clock(),
-            caplog.at_level(logging.ERROR, logger="lib.backends.video_backends.base"),
+            caplog.at_level(logging.ERROR, logger="lib.backends.backend_runtime"),
             pytest.raises(OperationalError),
         ):
             await persist_provider_job_id("task-X", "job-X", provider="ark")
@@ -1068,9 +960,8 @@ class TestPersistJobIdRetry:
     async def test_no_retry_for_value_error_with_transient_string(self):
         """业务异常即使消息含 ``timed out`` / ``503`` 等串，也不该被字符串兜底吞掉重试。
 
-        默认 `_should_retry` 在 isinstance 不匹配时做 RETRYABLE_STATUS_PATTERNS 字符串
-        子串兜底，会把 `ValueError("Connection timed out: rate")` 当瞬态错误重试；
-        改用 `retry_if=lambda e: isinstance(e, _PERSIST_RETRYABLE_ERRORS)` 后严格 isinstance。
+        `_should_retry` 在 isinstance 不匹配时会做 RETRYABLE_STATUS_PATTERNS 字符串子串兜底，
+        因而须显式传 `retry_if=lambda e: isinstance(e, _PERSIST_RETRYABLE_ERRORS)` 严格按类型判断。
         """
         attempts = 0
 
@@ -1164,7 +1055,7 @@ class TestProviderJobIdPersistenceMixin:
         """持久化失败抛出原异常，由 worker finally 兜底 mark_failed（fail-fast，不吞）。"""
         boom = _make_operational_error("database is locked")
         with (
-            patch("lib.backends.video_backends.base.persist_provider_job_id", new=AsyncMock(side_effect=boom)),
+            patch("lib.backends.backend_runtime.persist_provider_job_id", new=AsyncMock(side_effect=boom)),
             pytest.raises(OperationalError),
         ):
             await self._backend()._persist_provider_job_id(

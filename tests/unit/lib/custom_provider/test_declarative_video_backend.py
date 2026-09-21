@@ -9,10 +9,10 @@ import httpx
 import pytest
 
 from lib.backends.artifact_download_guard import ArtifactDestinationRejectedError
-from lib.backends.video_backends.base import (
-    VIDEO_POLL_MAX_CONSECUTIVE_FAILURES,
+from lib.backends.backend_runtime import VIDEO_POLL_MAX_CONSECUTIVE_FAILURES
+from lib.backends.http_status_errors import ProviderRejectedError
+from lib.backends.video_backend_contract import (
     ProviderJobStatus,
-    ProviderRejectedError,
     ProviderResponseStage,
     ResumeExpiredError,
     VideoGenerationRequest,

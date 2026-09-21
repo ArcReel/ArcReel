@@ -7,16 +7,16 @@ import logging
 from datetime import timedelta
 from pathlib import Path
 
+from lib.backends.backend_runtime import download_video
 from lib.backends.data_uri import image_to_data_uri
 from lib.backends.grok_shared import create_grok_client
 from lib.backends.providers import PROVIDER_GROK
-from lib.backends.video_backends.base import (
+from lib.backends.video_backend_contract import (
     IMAGE_MIME_TYPES,
     VideoAudioMode,
     VideoCapabilities,
     VideoGenerationRequest,
     VideoGenerationResult,
-    download_video,
 )
 from lib.db.repositories.usage_repo import MAX_BILLED_DURATION_SECONDS
 from lib.infra.logging_utils import format_kwargs_for_log

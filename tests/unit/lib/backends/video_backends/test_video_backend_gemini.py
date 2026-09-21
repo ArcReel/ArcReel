@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from lib.backends.gemini_shared import VERTEX_SCOPES
-from lib.backends.video_backends.base import (
+from lib.backends.video_backend_contract import (
     VideoGenerationRequest,
     VideoGenerationResult,
 )
@@ -426,7 +426,7 @@ class TestGeminiResumeVideo:
     """resume_video 路径：初次 + mid-poll NOT_FOUND 都归类为 ResumeExpiredError。"""
 
     async def test_mid_poll_not_found_classified_as_resume_expired(self, gemini_backend, tmp_path):
-        from lib.backends.video_backends.base import ResumeExpiredError
+        from lib.backends.video_backend_contract import ResumeExpiredError
 
         # 初次 operations.get 返回 pending 让 poll 进入循环；poll_fn 中抛 NOT_FOUND
         pending_op = MagicMock()
@@ -449,7 +449,7 @@ class TestGeminiResumeVideo:
         assert ei.value.job_id == "op-xyz"
 
     async def test_initial_get_not_found_classified_as_resume_expired(self, gemini_backend, tmp_path):
-        from lib.backends.video_backends.base import ResumeExpiredError
+        from lib.backends.video_backend_contract import ResumeExpiredError
 
         gemini_backend._client.aio.operations.get = AsyncMock(side_effect=RuntimeError("operation not found"))
         rebuilt_op = MagicMock()

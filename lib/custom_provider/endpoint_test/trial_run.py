@@ -29,7 +29,7 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from lib.backends.providers import CallPurpose
-from lib.backends.video_backends.base import ProviderResponseStage, VideoGenerationRequest
+from lib.backends.video_backend_contract import ProviderResponseStage, VideoGenerationRequest
 from lib.backends.video_frame_slots import resolve_first_frame_aspect_ratio
 from lib.billing.ledger import Ledger
 from lib.config.resolver import ConfigResolver

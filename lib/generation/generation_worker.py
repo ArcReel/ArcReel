@@ -49,8 +49,9 @@ from datetime import UTC, datetime
 # 不触发。lease_ttl 默认 10s → 阈值 30s。常量化便于单测注入与未来调参。
 _ORPHAN_RESCAN_LEASE_LOST_MULT = 3
 
+from lib.backends.http_status_errors import ArtifactDownloadError, ProviderRejectedError
 from lib.backends.image_backends.base import ImageCapabilityError
-from lib.backends.video_backends.base import ArtifactDownloadError, ProviderRejectedError, VideoCapabilityError
+from lib.backends.video_backend_contract import VideoCapabilityError
 from lib.config.resolver import VideoBucketCapabilityError
 from lib.custom_provider.comfyui.failures import ComfyuiError
 from lib.custom_provider.declarative_backend import DeclarativeRuntimeError
@@ -1057,7 +1058,7 @@ class GenerationWorker:
             job_id,
         )
 
-        from lib.backends.video_backends.base import ResumeEndpointChangedError, ResumeExpiredError
+        from lib.backends.video_backend_contract import ResumeEndpointChangedError, ResumeExpiredError
         from server.services.tasks.resume_executor import execute_resume_video_task
 
         async def _execute_with_video_cleanup() -> dict[str, Any]:

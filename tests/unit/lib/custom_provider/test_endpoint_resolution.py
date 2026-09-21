@@ -10,7 +10,7 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from lib.backends.image_backends.base import ImageCapability
-from lib.backends.video_backends.base import ReferenceAudioMode, VideoAudioMode
+from lib.backends.video_backend_contract import ReferenceAudioMode, VideoAudioMode
 from lib.custom_provider import is_custom_endpoint, make_endpoint_key
 from lib.custom_provider.backends import CustomVideoBackend
 from lib.custom_provider.comfyui.failures import ComfyuiError

@@ -365,7 +365,7 @@
       }
     },
     "capabilities": {
-      "description": "协议级能力声明，与 lib/backends/video_backends/base.py 的 VideoCapabilities 同名同义，是能力的唯一来源；模型行沿用 capability_overrides 覆盖。校验器与 submit 实际引用到的 inputs 做两向一致性检查。整节可省略（全部取默认值，即无素材输入）。",
+      "description": "协议级能力声明，与 lib/backends/video_backend_contract.py 的 VideoCapabilities 同名同义，是能力的唯一来源；模型行沿用 capability_overrides 覆盖。校验器与 submit 实际引用到的 inputs 做两向一致性检查。整节可省略（全部取默认值，即无素材输入）。",
       "type": "object",
       "additionalProperties": false,
       "properties": {

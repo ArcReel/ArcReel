@@ -6,11 +6,6 @@
 本模块只管协议形状（发什么、收到的原文长什么样），不判业务终态：一次执行是成功、失败还是仍在
 排队，要读 ``output`` 绑定的那个节点才知道，那是 backend 的事。故这里只在「连协议都不成立」时
 抛失败码——上传没成功、提交被拒。
-
-住在 ``lib.custom_provider`` 顶层而非 ``comfyui`` 子包：子包受「不依赖声明式运行时」的 import
-契约约束，而 import-linter 连间接引用一起查——本模块要用 ``lib.backends.video_backends.base`` 的提交包装
-与下载器，那条链绕一圈会回到声明式 backend。同 ``comfyui_endpoint_spec`` 落在 ``endpoints.py``
-的理由。
 """
 
 from __future__ import annotations
@@ -24,10 +19,7 @@ from typing import Any
 
 import httpx
 
-from lib.backends.video_backends.base import (
-    IMAGE_MIME_TYPES,
-    ProviderResponseStage,
-    redacted_status_error,
+from lib.backends.backend_runtime import (
     request_with_scoped_credentials,
     should_retry_submit,
     stream_to_file,
@@ -35,6 +27,8 @@ from lib.backends.video_backends.base import (
     url_origin,
     with_artifact_retry,
 )
+from lib.backends.http_status_errors import redacted_status_error
+from lib.backends.video_backend_contract import IMAGE_MIME_TYPES, ProviderResponseStage
 from lib.custom_provider.auth_section import render_auth
 from lib.custom_provider.comfyui.failures import NODE_ERRORS, UPLOAD_FAILED, ComfyuiError
 from lib.infra.logging_utils import format_kwargs_for_log

@@ -1890,7 +1890,7 @@ class TestGenerationWorker:
     @pytest.mark.asyncio
     async def test_process_resume_task_resume_expired(self, monkeypatch):
         """ResumeExpiredError → mark_failed [resume_expired]。"""
-        from lib.backends.video_backends.base import ResumeExpiredError
+        from lib.backends.video_backend_contract import ResumeExpiredError
 
         queue = _FakeQueue()
         worker = GenerationWorker(queue=queue)
@@ -1912,7 +1912,7 @@ class TestGenerationWorker:
         任务侧落的是任务失败码（``[resume_expired_detail]``），记录表读的是调用行的
         error_message / error_code——两张表各有自己的失败登记，调用行那份只能从这里落。
         """
-        from lib.backends.video_backends.base import ResumeExpiredError
+        from lib.backends.video_backend_contract import ResumeExpiredError
         from lib.db.repositories.usage_repo import UsageRepository
 
         async with worker_db() as session:
@@ -1939,7 +1939,7 @@ class TestGenerationWorker:
     @pytest.mark.asyncio
     async def test_process_resume_task_endpoint_changed(self, monkeypatch):
         """ResumeEndpointChangedError → mark_failed [resume_endpoint_changed]，错误可归因。"""
-        from lib.backends.video_backends.base import ResumeEndpointChangedError
+        from lib.backends.video_backend_contract import ResumeEndpointChangedError
 
         queue = _FakeQueue()
         worker = GenerationWorker(queue=queue)

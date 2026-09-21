@@ -16,8 +16,9 @@ from pathlib import Path
 import httpx
 import pytest
 
+from lib.backends.http_status_errors import ArtifactDownloadError, ProviderRejectedError
 from lib.backends.image_backends.base import ImageCapabilityError
-from lib.backends.video_backends.base import ArtifactDownloadError, ProviderRejectedError, VideoCapabilityError
+from lib.backends.video_backend_contract import VideoCapabilityError
 from lib.config.resolver import VideoBucketCapabilityError, VideoGenerationType
 from lib.custom_provider.comfyui.failures import ComfyuiError
 from lib.db.repositories.task_repo import _encode_bounded_cascade_failure
@@ -267,8 +268,8 @@ def test_scanner_reads_code_from_keyword_form(source, expected_codes, expected_d
 @pytest.mark.parametrize(
     ("import_line", "call"),
     [
-        ("from lib.backends.video_backends.base import VideoCapabilityError as VCE", 'VCE("new_code")'),
-        ("import lib.backends.video_backends.base as base", 'base.VideoCapabilityError("new_code")'),
+        ("from lib.backends.video_backend_contract import VideoCapabilityError as VCE", 'VCE("new_code")'),
+        ("import lib.backends.video_backend_contract as base", 'base.VideoCapabilityError("new_code")'),
         (
             "from lib.references.reference_compression import ReferencePayloadFloorError as RPFE",
             'RPFE(code="new_code")',

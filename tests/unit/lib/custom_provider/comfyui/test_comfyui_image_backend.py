@@ -1,7 +1,7 @@
 """ComfyUI 图像通道：能力推导、参考图上传、产物白名单、不续跑与叫停远端。
 
 提交之后那一段（轮询、终态判定、判丢失、留痕摘要）与视频通道共用
-``lib.custom_provider.comfyui_execution``，已由 ``test_comfyui_video_backend.py`` 逐条钉住；本文件
+``lib.custom_provider.comfyui.comfyui_execution``，已由 ``test_comfyui_video_backend.py`` 逐条钉住；本文件
 只覆盖图像这一侧独有的部分，以及那份共用实现在图像通道上必须仍然成立的几处（白名单、叫停）。
 """
 
@@ -16,8 +16,8 @@ import httpx
 import pytest
 
 from lib.backends.image_backends.base import ImageCapability, ImageGenerationRequest, ReferenceImage
+from lib.custom_provider.comfyui.comfyui_image_backend import ComfyuiImageBackend
 from lib.custom_provider.comfyui.failures import ComfyuiError
-from lib.custom_provider.comfyui_image_backend import ComfyuiImageBackend
 from lib.custom_provider.endpoint_definition import validate_definition
 from lib.custom_provider.endpoint_resolution import endpoint_spec_from_row
 from lib.custom_provider.factory import create_custom_backend

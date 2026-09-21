@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock
 from lib.backends.audio_backends.base import AudioCapability, AudioSynthesisRequest, AudioSynthesisResult
 from lib.backends.image_backends.base import ImageCapability, ImageGenerationRequest, ImageGenerationResult
 from lib.backends.text_backends.base import TextCapability, TextGenerationRequest, TextGenerationResult
-from lib.backends.video_backends.base import (
+from lib.backends.video_backend_contract import (
     VideoCapabilities,
     VideoGenerationRequest,
     VideoGenerationResult,

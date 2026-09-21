@@ -11,6 +11,7 @@ import httpx
 import pytest
 import respx
 
+from lib.backends.http_status_errors import ProviderRejectedError
 from lib.backends.image_backends.base import (
     ImageCapability,
     ImageCapabilityError,
@@ -18,7 +19,6 @@ from lib.backends.image_backends.base import (
     ReferenceImage,
 )
 from lib.backends.providers import PROVIDER_DASHSCOPE
-from lib.backends.video_backends.base import ProviderRejectedError
 from tests.fakes import bounded_poll_clock
 from tests.http_capture import capture_http, only_request, request_json
 

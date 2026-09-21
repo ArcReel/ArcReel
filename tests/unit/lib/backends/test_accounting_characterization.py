@@ -35,7 +35,7 @@ from lib.backends.image_backends.base import ImageCapability, ImageGenerationReq
 from lib.backends.providers import CallPurpose
 from lib.backends.text_backends.base import TextCapability, TextGenerationRequest, TextGenerationResult
 from lib.backends.text_generator import TextGenerator
-from lib.backends.video_backends.base import (
+from lib.backends.video_backend_contract import (
     ResumeExpiredError,
     VideoCapabilities,
     VideoGenerationRequest,

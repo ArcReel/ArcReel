@@ -21,7 +21,7 @@ from lib.backends.image_backends.base import (
     ImageGenerationResult,
 )
 from lib.backends.text_backends.base import TextBackend, TextCapability, TextGenerationRequest, TextGenerationResult
-from lib.backends.video_backends.base import (
+from lib.backends.video_backend_contract import (
     VideoBackend,
     VideoCapabilities,
     VideoGenerationRequest,

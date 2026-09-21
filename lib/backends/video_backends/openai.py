@@ -7,12 +7,12 @@ import logging
 from pathlib import Path
 
 from lib.backends.aspect_size import VIDEO_TIER_SHORT_EDGE, parse_aspect_ratio, resolution_to_short_edge
+from lib.backends.backend_runtime import ProviderJobIdPersistenceMixin, poll_with_retry, with_artifact_retry
 from lib.backends.openai_shared import OPENAI_RETRYABLE_ERRORS, create_openai_client
 from lib.backends.providers import PROVIDER_OPENAI
-from lib.backends.video_backends.base import (
+from lib.backends.video_backend_contract import (
     IMAGE_MIME_TYPES,
     TERMINAL_PROVIDER_STATUSES,
-    ProviderJobIdPersistenceMixin,
     ProviderJobStatus,
     ResumeExpiredError,
     VideoAudioMode,
@@ -20,8 +20,6 @@ from lib.backends.video_backends.base import (
     VideoGenerationRequest,
     VideoGenerationResult,
     normalize_provider_status,
-    poll_with_retry,
-    with_artifact_retry,
 )
 from lib.infra.logging_utils import format_kwargs_for_log
 from lib.infra.retry import with_retry_async

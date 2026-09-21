@@ -15,7 +15,7 @@ from lib.artifacts.artifact_manifest import (
     ProjectArtifactManifestAdapter,
 )
 from lib.artifacts.video_visual_provenance import build_storyboard_video_visual_basis
-from lib.backends.video_backends.base import VideoCapabilities, VideoCapabilityError
+from lib.backends.video_backend_contract import VideoCapabilities, VideoCapabilityError
 from lib.backends.video_frame_slots import gate_video_request
 from lib.speech.narration_delivery import (
     USE_TTS,

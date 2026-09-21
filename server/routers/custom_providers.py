@@ -19,7 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from lib.backends.http_status_errors import raise_for_status_redacted
 from lib.backends.image_backends.base import ImageCapability
-from lib.backends.video_backends.base import ReferenceAudioMode, audio_capability_pair_is_coherent
+from lib.backends.video_backend_contract import ReferenceAudioMode, audio_capability_pair_is_coherent
 from lib.config.repository import mask_secret
 from lib.custom_provider import is_custom_endpoint, make_provider_id
 from lib.custom_provider.capabilities import (

@@ -24,7 +24,7 @@ from lib.backends.kling_shared import kling_auth_mode
 
 if TYPE_CHECKING:
     from lib.backends.backend_assembly.loaded_config import LoadedConfig
-    from lib.backends.video_backends.base import VideoCapabilities
+    from lib.backends.video_backend_contract import VideoCapabilities
 
 
 @dataclass(frozen=True)
@@ -507,7 +507,7 @@ def builtin_effective_generate_audio_for_model(provider_id: str, model_id: str) 
     spec = get_provider_spec(provider_id, "video")
     if spec.registry_backend == "declarative":
         # 计价口径与能力声明同源：定义声明成片恒无音轨时，默认执行档不可能产出人声。
-        from lib.backends.video_backends.base import VideoAudioMode
+        from lib.backends.video_backend_contract import VideoAudioMode
 
         return builtin_video_capabilities_for_model(provider_id, model_id).audio_track is not VideoAudioMode.ALWAYS_OFF
     from lib.backends.video_backends.registry import effective_generate_audio_for_model

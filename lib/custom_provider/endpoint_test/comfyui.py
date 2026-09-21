@@ -22,9 +22,9 @@ from typing import Any
 from urllib.parse import urlencode
 
 from lib.custom_provider.auth_section import declares_credentials, render_auth
+from lib.custom_provider.comfyui.comfyui_backend import ComfyuiVideoBackend
+from lib.custom_provider.comfyui.comfyui_client import client_id_for, normalize_comfyui_base_url
 from lib.custom_provider.comfyui.request_builder import BuiltWorkflow, MediaInputs, build_workflow
-from lib.custom_provider.comfyui_backend import ComfyuiVideoBackend
-from lib.custom_provider.comfyui_client import client_id_for, normalize_comfyui_base_url
 
 from .inputs import EndpointTestAssets, EndpointTestCredentials, EndpointTestParameters
 from .preview import (

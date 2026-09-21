@@ -21,18 +21,10 @@ from urllib.parse import quote
 import httpx
 
 from lib.backends.artifact_download_guard import VIDEO_ARTIFACT_MAX_BYTES, artifact_http_client
-from lib.backends.video_backends.base import (
-    IMAGE_MIME_TYPES,
+from lib.backends.backend_runtime import (
     ProviderJobIdPersistenceMixin,
-    ProviderJobStatus,
-    ProviderResponseStage,
-    ResumeExpiredError,
-    VideoCapabilities,
-    VideoGenerationRequest,
-    VideoGenerationResult,
     notify_provider_response,
     poll_with_retry,
-    redacted_status_error,
     request_with_scoped_credentials,
     should_retry_poll,
     should_retry_submit,
@@ -40,6 +32,16 @@ from lib.backends.video_backends.base import (
     submit_post,
     url_origin,
     with_artifact_retry,
+)
+from lib.backends.http_status_errors import redacted_status_error
+from lib.backends.video_backend_contract import (
+    IMAGE_MIME_TYPES,
+    ProviderJobStatus,
+    ProviderResponseStage,
+    ResumeExpiredError,
+    VideoCapabilities,
+    VideoGenerationRequest,
+    VideoGenerationResult,
 )
 from lib.custom_provider.endpoint_definition import (
     AssetData,

@@ -17,8 +17,8 @@ from lib.backends.artifact_download_guard import (
     ArtifactDestinationRejectedError,
     ArtifactTooLargeError,
 )
-from lib.backends.video_backends.base import (
-    VIDEO_POLL_MAX_CONSECUTIVE_FAILURES,
+from lib.backends.backend_runtime import VIDEO_POLL_MAX_CONSECUTIVE_FAILURES
+from lib.backends.video_backend_contract import (
     ProviderResponseStage,
     ResumeExpiredError,
     VideoAudioMode,
@@ -26,9 +26,9 @@ from lib.backends.video_backends.base import (
     VideoGenerationRequest,
 )
 from lib.backends.video_frame_slots import gate_video_request, resolve_video_capabilities
+from lib.custom_provider.comfyui.comfyui_backend import ComfyuiVideoBackend
 from lib.custom_provider.comfyui.failures import ComfyuiError
 from lib.custom_provider.comfyui.request_builder import workflow_sha256
-from lib.custom_provider.comfyui_backend import ComfyuiVideoBackend
 from lib.custom_provider.endpoint_definition import validate_definition
 from lib.custom_provider.endpoint_resolution import endpoint_spec_from_row
 from lib.custom_provider.factory import create_custom_backend
@@ -510,7 +510,7 @@ class TestFailures:
             raise RuntimeError("db is down")
 
         with capture_http() as router, bounded_poll_clock(), pytest.MonkeyPatch.context() as patch:
-            patch.setattr("lib.backends.video_backends.base.persist_provider_job_id", _boom)
+            patch.setattr("lib.backends.backend_runtime.persist_provider_job_id", _boom)
             router.post(f"{BASE_URL}/prompt").mock(return_value=httpx.Response(200, json={"prompt_id": "p-1"}))
             history = router.get(f"{BASE_URL}/history/p-1")
 
