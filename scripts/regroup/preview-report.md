@@ -2,7 +2,7 @@
 
 > 本文件由 `uv run python scripts/regroup/preview.py --write` 生成，勿手工编辑。
 > 输入：`scripts/regroup/module_map.toml` 与当前 `lib/`、`server/` 源码的静态导入图。
-> 各项裁定的理由见 `scripts/regroup/module_map.toml` 的 `[rulings]` 与 `[accepted_edges]`。
+> 各项裁定的理由见 `scripts/regroup/module_map.toml` 的 `[rulings]`、`[accepted_edges]` 与 `[accepted_server_edges]`。
 
 ## 结论
 
@@ -10,7 +10,7 @@
 - 有包间环的强连通分量 7 个，分布在 6 个父包
 - 断环需豁免的包间依赖 38 条（模块级 import 131 条，其中 34 条本身就在现有的模块级环上）；未登记 0 条；登记了但不存在 0 条
 - 既有 import-linter 契约改写路径后判定变化 0 条
-- 路线中立违规 0 处；核心库 → 服务端依赖 2 条
+- 路线中立违规 0 处；核心库 → 服务端依赖 2 条，未登记 0 条；登记了但不存在 0 条
 - 镜像测试移动 222 项；无法推导去向 0 个
 - 预演判定：通过
 
@@ -510,7 +510,7 @@ import 上层」的逆向依赖所含的模块级 import 总数最小；逆向�
 | `tests/unit/lib/test_video_workflow_prompt.py` | `tests/unit/lib/generation/test_video_workflow_prompt.py` | 提及 8 次 |
 | `tests/unit/lib/test_vidu_cost.py` | `tests/unit/lib/backends/test_vidu_cost.py` | 提及 5 次 |
 | `tests/unit/lib/test_vidu_shared.py` | `tests/unit/lib/backends/test_vidu_shared.py` | 文件名 |
-| `tests/unit/lib/test_workflow_action_types.py` | `tests/unit/lib/generation/test_workflow_action_types.py` | 提及 2 次（并列取字典序） |
+| `tests/unit/lib/test_workflow_action_types.py` | `tests/unit/lib/workflow/test_workflow_action_types.py` | 提及 2 次（并列取文件名前缀匹配） |
 | `tests/unit/lib/test_workflow_plan.py` | `tests/unit/lib/workflow/test_workflow_plan.py` | 文件名 |
 | `tests/unit/server/services/test_diagnostics_service.py` | `tests/unit/server/services/system/test_diagnostics_service.py` | 文件名 |
 | `tests/unit/server/services/test_execute_tts_task.py` | `tests/unit/server/services/tasks/test_execute_tts_task.py` | 提及 5 次 |

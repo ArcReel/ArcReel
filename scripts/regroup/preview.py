@@ -25,11 +25,12 @@ from __future__ import annotations
 
 import argparse
 import ast
+import os
 import sys
 import tomllib
 from collections import Counter, defaultdict
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -54,6 +55,7 @@ class ModuleMap:
     accepted_edges: dict[str, str]
     route_neutral_sources: list[str]
     route_specific: str
+    accepted_server_edges: dict[str, str] = field(default_factory=dict)
 
     def rename(self, module: str) -> str:
         """最长前缀匹配：命中映射表的模块或其子模块按新路径改名，其余原样返回。"""
@@ -77,6 +79,7 @@ def load_map(path: Path = MAP_PATH) -> ModuleMap:
         accepted_edges=dict(data.get("accepted_edges", {})),
         route_neutral_sources=list(route["sources"]),
         route_specific=route["forbidden"],
+        accepted_server_edges=dict(data.get("accepted_server_edges", {})),
     )
 
 
@@ -102,6 +105,8 @@ def _resolve_relative(module: str, is_package: bool, level: int, target: str | N
     if not is_package:
         base = base[:-1]
     if level > 1:
+        if level - 1 >= len(base):
+            raise ValueError(f"{module}: 相对导入层级 {level} 越过顶层包")
         base = base[: len(base) - (level - 1)]
     return ".".join([*base, target] if target else base)
 
@@ -296,19 +301,22 @@ def module_cycle_ids(graph: Mapping[str, set[str]]) -> dict[str, int]:
 
 
 def find_cycles(graph: Mapping[str, set[str]], mapping: ModuleMap) -> tuple[list[CycleFinding], list[str]]:
-    """逐个父包求兄弟子项之间的环；``[accepted_edges]`` 以包对登记，移除后该父包须无环。"""
+    """逐个父包求兄弟子项之间的环；``[accepted_edges]`` 以包对登记，移除后该父包须无环。
+
+    登记的包对不在任何现存环内（依赖已消失，或反向依赖已消失、只剩单向）即为过期。
+    """
     accepted = {_parse_edge(e) for e in mapping.accepted_edges}
-    seen_pairs: set[Edge] = set()
+    cyclic_pairs: set[Edge] = set()
     findings: list[CycleFinding] = []
     for ancestor in sorted({*CYCLE_ANCESTORS, *mapping.packages}):
         edges = sibling_edges(graph, ancestor)
-        seen_pairs.update(edges)
         nodes = {n for pair in edges for n in pair}
         residual = [k for k in edges if k not in accepted]
         still_cyclic = {n for c in strongly_connected(nodes, residual) for n in c}
         for component in strongly_connected(nodes, edges):
             members = set(component)
             inner = {k: v for k, v in edges.items() if k[0] in members and k[1] in members}
+            cyclic_pairs.update(inner)
             if members & still_cyclic:
                 order = layer_order(component, {k: len(v) for k, v in inner.items()})
                 breakers = backward_edges(order, inner)
@@ -318,7 +326,7 @@ def find_cycles(graph: Mapping[str, set[str]], mapping: ModuleMap) -> tuple[list
                 order = topological_order(component, [k for k in inner if k not in accepted])
                 unwaived = []
             findings.append(CycleFinding(ancestor, component, order, breakers, inner, unwaived))
-    stale = sorted(f"{a} -> {b}" for a, b in accepted if (a, b) not in seen_pairs)
+    stale = sorted(f"{a} -> {b}" for a, b in accepted - cyclic_pairs)
     return findings, stale
 
 
@@ -365,6 +373,15 @@ def lib_to_server_edges(graph: Mapping[str, set[str]]) -> list[Edge]:
         for t in imported
         if t == "server" or t.startswith("server.")
     )
+
+
+def unwaived_server_edges(graph: Mapping[str, set[str]], mapping: ModuleMap) -> tuple[list[Edge], list[str]]:
+    """核心库 → 服务端的依赖中未在 ``[accepted_server_edges]`` 登记的边，以及登记了但不存在的条目。"""
+    edges = lib_to_server_edges(graph)
+    accepted = {_parse_edge(e) for e in mapping.accepted_server_edges}
+    unwaived = [e for e in edges if e not in accepted]
+    stale = sorted(f"{a} -> {b}" for a, b in accepted.difference(edges))
+    return unwaived, stale
 
 
 def coverage_problems(modules: Mapping[str, Path], mapping: ModuleMap) -> list[str]:
@@ -555,8 +572,8 @@ def derive_test_moves(mapping: ModuleMap) -> tuple[list[TestMove], list[str]]:
     - 被整体移动的源码目录（如 ``lib.pricing``）对应的测试目录整体跟随；
     - 与被移动模块同处一个源码目录镜像下的散文件，依次按：
       1. 文件名：去掉 ``test_`` 后等于某个被移动模块名、或以「模块名_」开头（取最长匹配）；
-      2. 提及：import 与字符串模块路径提及的同目录被移动模块，按其新父包汇总计数取最多者，并列取字典序
-         并注明；
+      2. 提及：import 与字符串模块路径提及的同目录被移动模块，按其新父包汇总计数取最多者；并列时取
+         被提及模块名与测试文件名共享前缀最长的包，仍并列取字典序，并注明所用规则；
       3. 辅助文件：import 了同目录里已推导出去向的辅助模块（如 ``*_support.py``），随辅助模块走；
       4. 全局提及：同 2，但计数范围扩大到全部映射条目——测的是别处源码的测试随被测源码走。
     """
@@ -570,7 +587,11 @@ def derive_test_moves(mapping: ModuleMap) -> tuple[list[TestMove], list[str]]:
             if src.is_dir():
                 dst = base / new_dir.replace(".", "/")
                 moves.append(
-                    TestMove(str(src.relative_to(REPO_ROOT)) + "/", str(dst.relative_to(REPO_ROOT)) + "/", "目录跟随")
+                    TestMove(
+                        src.relative_to(REPO_ROOT).as_posix() + "/",
+                        dst.relative_to(REPO_ROOT).as_posix() + "/",
+                        "目录跟随",
+                    )
                 )
         for source_dir in ("lib", "server/services"):
             directory = base / source_dir
@@ -609,7 +630,7 @@ def derive_test_moves(mapping: ModuleMap) -> tuple[list[TestMove], list[str]]:
                     placed[path.stem] = placed[helpers[0]]
                     moves.append(_test_move(base, path, placed[helpers[0]], f"随辅助模块 {helpers[0]}"))
                 elif not _place_by_mentions(mapping, base, path, mapping.moves, placed, moves):
-                    unresolved.append(str(path.relative_to(REPO_ROOT)))
+                    unresolved.append(path.relative_to(REPO_ROOT).as_posix())
     return moves, unresolved
 
 
@@ -621,21 +642,40 @@ def _place_by_mentions(
     placed: dict[str, str],
     moves: list[TestMove],
 ) -> bool:
-    per_package: Counter[str] = Counter()
-    for old, count in _mentioned_modules(path, scope).items():
-        per_package[mapping.moves[old].rsplit(".", 1)[0]] += count
-    if not per_package:
+    mentions = _mentioned_modules(path, scope)
+    if not mentions:
         return False
+    package, rule = pick_test_package(mapping, path.stem, mentions)
+    placed[path.stem] = package
+    moves.append(_test_move(base, path, package, rule))
+    return True
+
+
+def pick_test_package(mapping: ModuleMap, test_stem: str, mentions: Mapping[str, int]) -> tuple[str, str]:
+    """按被提及模块的新父包汇总计数取最多者；并列时取被提及模块名与测试文件名共享前缀最长的包，仍并列取字典序。"""
+    per_package: Counter[str] = Counter()
+    shared: dict[str, int] = defaultdict(int)
+    stem_tokens = test_stem.removeprefix("test_").split("_")
+    for old, count in mentions.items():
+        package = mapping.moves[old].rsplit(".", 1)[0]
+        per_package[package] += count
+        name_tokens = old.rsplit(".", 1)[-1].split("_")
+        shared[package] = max(shared[package], len(os.path.commonprefix([stem_tokens, name_tokens])))
     best = max(per_package.values())
     tied = sorted(p for p, c in per_package.items() if c == best)
-    placed[path.stem] = tied[0]
-    moves.append(_test_move(base, path, tied[0], f"提及 {best} 次" + ("（并列取字典序）" if len(tied) > 1 else "")))
-    return True
+    rule = f"提及 {best} 次"
+    if len(tied) == 1:
+        return tied[0], rule
+    longest = max(shared[p] for p in tied)
+    by_prefix = [p for p in tied if shared[p] == longest]
+    if longest and len(by_prefix) == 1:
+        return by_prefix[0], rule + "（并列取文件名前缀匹配）"
+    return by_prefix[0], rule + "（并列取字典序）"
 
 
 def _test_move(base: Path, path: Path, new_package: str, rule: str) -> TestMove:
     dst = base / new_package.replace(".", "/") / path.name
-    return TestMove(str(path.relative_to(REPO_ROOT)), str(dst.relative_to(REPO_ROOT)), rule)
+    return TestMove(path.relative_to(REPO_ROOT).as_posix(), dst.relative_to(REPO_ROOT).as_posix(), rule)
 
 
 # ---------------------------------------------------------------- 报告
@@ -661,6 +701,7 @@ def render_report(mapping: ModuleMap) -> tuple[str, bool]:
     contracts = check_contracts(graph, new_graph, mapping)
     violations = route_neutral_violations(new_graph, mapping)
     server_edges = lib_to_server_edges(new_graph)
+    unwaived_server, stale_server = unwaived_server_edges(new_graph, mapping)
     test_moves, unresolved_tests = derive_test_moves(mapping)
     for target, count in sorted(Counter(m.new for m in test_moves).items()):
         if count > 1 or (REPO_ROOT / target).exists():
@@ -676,6 +717,8 @@ def render_report(mapping: ModuleMap) -> tuple[str, bool]:
         and not stale
         and not violations
         and not contract_drift
+        and not unwaived_server
+        and not stale_server
         and not any(c.unwaived for c in cycles)
         and not unresolved_tests
     )
@@ -686,7 +729,9 @@ def render_report(mapping: ModuleMap) -> tuple[str, bool]:
     w("")
     w("> 本文件由 `uv run python scripts/regroup/preview.py --write` 生成，勿手工编辑。")
     w("> 输入：`scripts/regroup/module_map.toml` 与当前 `lib/`、`server/` 源码的静态导入图。")
-    w("> 各项裁定的理由见 `scripts/regroup/module_map.toml` 的 `[rulings]` 与 `[accepted_edges]`。")
+    w(
+        "> 各项裁定的理由见 `scripts/regroup/module_map.toml` 的 `[rulings]`、`[accepted_edges]` 与 `[accepted_server_edges]`。"
+    )
     w("")
     w("## 结论")
     w("")
@@ -698,7 +743,10 @@ def render_report(mapping: ModuleMap) -> tuple[str, bool]:
         f"未登记 {sum(len(c.unwaived) for c in cycles)} 条；登记了但不存在 {len(stale)} 条"
     )
     w(f"- 既有 import-linter 契约改写路径后判定变化 {len(contract_drift)} 条")
-    w(f"- 路线中立违规 {len(violations)} 处；核心库 → 服务端依赖 {len(server_edges)} 条")
+    w(
+        f"- 路线中立违规 {len(violations)} 处；核心库 → 服务端依赖 {len(server_edges)} 条，"
+        f"未登记 {len(unwaived_server)} 条；登记了但不存在 {len(stale_server)} 条"
+    )
     w(f"- 镜像测试移动 {len(test_moves)} 项；无法推导去向 {len(unresolved_tests)} 个")
     w(f"- 预演判定：{'通过' if ok else '不通过'}")
     w("")
@@ -779,6 +827,16 @@ def render_report(mapping: ModuleMap) -> tuple[str, bool]:
     if not server_edges:
         w("无。")
     w("")
+    if unwaived_server:
+        w("以下依赖未在 `[accepted_server_edges]` 登记：")
+        w("")
+        out.extend(f"- `{a}` → `{b}`" for a, b in unwaived_server)
+        w("")
+    if stale_server:
+        w("`[accepted_server_edges]` 登记了但不存在：")
+        w("")
+        out.extend(f"- `{e}`" for e in stale_server)
+        w("")
     w("## 镜像测试移动")
     w("")
     w("| 旧路径 | 新路径 | 推导依据 |")

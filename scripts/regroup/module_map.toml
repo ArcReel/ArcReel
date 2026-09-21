@@ -381,3 +381,9 @@ forbidden = "lib.script.reference_video"
 "server.services.tasks.derivative_sheet_tasks -> server.services.tasks.generation_tasks" = "既有模块环（生成任务入口与各执行器互引，靠函数体内延迟导入绕环）；由 Out of Scope 的「正式图像提交」议题消除。"
 "server.services.tasks.generation_tasks -> server.services.tasks.image_edit_tasks" = "同上，既有模块环。"
 "server.services.tasks.generation_tasks -> server.services.tasks.reference_video_tasks" = "同上，既有模块环。"
+
+[accepted_server_edges]
+# 键是新路径下的「核心库模块 -> 服务端模块」：核心库对服务端的存量依赖，逐条登记理由；未登记的新增依赖让预演失败。
+
+"lib.generation.generation_worker -> server.services.tasks.generation_tasks" = "生成 Worker 按任务类型分派到服务端的执行器入口；改为由应用装配处注入执行器属行为重构，对应 Spec Out of Scope 的「生成 Worker」议题。"
+"lib.generation.generation_worker -> server.services.tasks.resume_executor" = "同上，Worker 重启自愈时调用服务端的续跑执行器；由「生成 Worker」议题改为注入后清零。"
