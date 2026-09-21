@@ -15,8 +15,9 @@ from lib.backends.providers import CallStatus, CallType
 from lib.billing.usage_summary import UsageFilterOptions, UsageWindowTooWideError, build_summary
 from lib.db import async_session_factory
 from lib.db.repositories.usage_repo import UsageCursor, UsageCursorError, UsageFilters, UsageRepository, as_utc
-from lib.i18n import Locale, translate_or
+from lib.i18n import translate_or
 from lib.infra.api_errors import NotFoundError, UnprocessableError
+from server.i18n import Locale
 
 router = APIRouter()
 _CALL_STATUS_DESCRIPTION = f"状态 ({'/'.join(CallStatus)})"

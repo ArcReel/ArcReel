@@ -24,7 +24,6 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict
 
-from lib.i18n import Translator
 from lib.infra.api_errors import NotFoundError, UnprocessableError
 from lib.project.asset_rename import (
     AssetRenameConflictError,
@@ -41,6 +40,7 @@ from lib.project.asset_types import (
 )
 from lib.project.project_change_hints import project_change_source
 from lib.project.project_manager import ProjectManager
+from server.i18n import Translator
 from server.routers._asset_derivative_status import register_derivative_status_routes
 from server.routers._asset_derivatives import register_derivative_routes
 

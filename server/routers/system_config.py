@@ -37,11 +37,12 @@ from lib.config.repository import mask_secret
 from lib.config.resolver import ConfigResolver
 from lib.config.service import DEFAULT_VIDEO_POLL_TIMEOUT_SECONDS, ConfigService
 from lib.db import get_async_session
-from lib.i18n import DEFAULT_LOCALE, Locale, Translator, translate_or
+from lib.i18n import DEFAULT_LOCALE, translate_or
 from lib.infra.api_errors import UnprocessableError
 from lib.infra.httpx_shared import get_http_client
 from lib.market.sources import PROXY_PREFIX_SETTING
 from server.dependencies import get_config_service
+from server.i18n import Locale, Translator
 from server.routers._validators import validate_backend_value
 
 logger = logging.getLogger(__name__)

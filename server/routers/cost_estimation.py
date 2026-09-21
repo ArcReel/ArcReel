@@ -9,11 +9,11 @@ from fastapi import APIRouter, HTTPException
 
 from lib.config.resolver import ConfigResolver
 from lib.db import async_session_factory
-from lib.i18n import Translator
 from lib.infra.api_errors import NotFoundError
 from lib.project.project_manager import get_project_manager
 from lib.script.reference_video import find_reference_unit
 from lib.script.reference_video.request_projection import POST_PRODUCTION, NarrationDelivery, ReferenceRequestOptions
+from server.i18n import Translator
 from server.services.admission.cost_estimation import CostEstimationService
 
 router = APIRouter()

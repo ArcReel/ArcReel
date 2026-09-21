@@ -16,6 +16,8 @@ from urllib.parse import urlsplit
 
 import httpx
 
+from lib.i18n import _
+
 from .address import GITHUB_RAW_HOST
 from .index import INDEX_SCHEMA_VERSION, InvalidIndexError, MarketIndex, UnsupportedIndexSchemaError, parse_index
 from .issues import MarketIssue
@@ -130,7 +132,7 @@ async def _follow_redirects(
     deadline_seconds: float,
 ) -> RawResponse:
     current = url
-    for _ in range(MAX_REDIRECTS + 1):
+    for _hop in range(MAX_REDIRECTS + 1):
         if urlsplit(current).scheme != "https":
             raise MarketTransportError(f"refused non-https URL: {current}")
         request_url = with_proxy_prefix(current, proxy_prefix)
@@ -267,8 +269,6 @@ def _nesting_exceeds(document: Any, limit: int) -> bool:
 
 
 def _describe_issues(issues: tuple[MarketIssue, ...]) -> str:
-    from lib.i18n import _
-
     def translate(key: str, **params: Any) -> str:
         return _(key, locale="en", **params)
 

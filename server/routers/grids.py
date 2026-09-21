@@ -21,7 +21,6 @@ from lib.artifacts.artifact_activation import (
 from lib.artifacts.artifact_version_provenance import IMAGE_ARTIFACT_BASIS_FIELD
 from lib.artifacts.version_manager import VersionManager
 from lib.generation.generation_queue import get_generation_queue
-from lib.i18n import Translator
 from lib.infra.api_errors import BadRequestError, ConflictError, NotFoundError
 from lib.infra.async_thread import run_noninterruptible_sync
 from lib.infra.image_utils import MAX_UPLOAD_PIXELS, ImagePixelLimitError, normalize_storyboard_upload
@@ -37,6 +36,7 @@ from lib.script.grid.models import GridGeneration, build_grid_task_payload
 from lib.script.grid.prompt_builder import build_grid_prompt, pending_grid_prompt_ids
 from lib.script.storyboard_sequence import get_storyboard_items, group_scenes_by_segment_break
 from server.auth import CurrentUser
+from server.i18n import Translator
 from server.services.admission.reference_admission import require_admitted_storyboard_references
 from server.services.currency.upload_finalize import (
     UPLOAD_VERSION_SOURCE,

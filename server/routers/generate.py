@@ -26,7 +26,6 @@ from lib.artifacts.artifact_manifest import ArtifactKey
 from lib.config.resolver import ConfigResolver, video_bucket_for_generation_mode
 from lib.generation.generation_queue import get_generation_queue
 from lib.generation.generation_queue_client import TaskSpec
-from lib.i18n import Translator
 from lib.infra.api_errors import BadRequestError, ConflictError, NotFoundError
 from lib.infra.json_io import domain_error_on_value_error
 from lib.infra.path_safety import safe_exists, safe_join
@@ -57,6 +56,7 @@ from lib.speech.narration_delivery import (
 )
 from lib.speech.speech_composition import SpeechMode, admit_script_unit
 from server.auth import CurrentUser
+from server.i18n import Translator
 from server.routers._validators import require_audio_switch_supported, require_video_bucket_capability
 from server.services.admission.cost_estimation import quote_video_request
 from server.services.admission.reference_admission import require_admitted_storyboard_references

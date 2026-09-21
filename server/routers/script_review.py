@@ -10,10 +10,10 @@ import logging
 from fastapi import APIRouter, Body, Depends
 from pydantic import BaseModel, ConfigDict, Field
 
-from lib.i18n import Translator
 from lib.infra.api_errors import NotFoundError
 from lib.project.project_manager import get_project_manager
 from server.dependencies import require_project_migration_ok
+from server.i18n import Translator
 from server.routers._script_review_errors import raise_review_error
 from server.services.project.script_review import ScriptReviewError, ScriptReviewService
 

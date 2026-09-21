@@ -36,10 +36,11 @@ from lib.config.url_utils import normalize_base_url
 from lib.db import async_session_factory, get_async_session
 from lib.db.base import dt_to_iso
 from lib.db.repositories.credential_repository import CredentialRepository
-from lib.i18n import Locale, Translator, translate_or
+from lib.i18n import translate_or
 from lib.infra.api_errors import BadRequestError
 from lib.infra.app_data_dir import app_data_dir
 from server.dependencies import get_config_service
+from server.i18n import Locale, Translator
 from server.routers._validators import split_video_backend_query
 
 if TYPE_CHECKING:

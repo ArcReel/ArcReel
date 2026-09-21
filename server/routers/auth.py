@@ -11,13 +11,13 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel
 
-from lib.i18n import Translator
 from server.auth import (
     CurrentUser,
     check_credentials,
     create_token,
     is_auth_enabled,
 )
+from server.i18n import Translator
 
 logger = logging.getLogger(__name__)
 

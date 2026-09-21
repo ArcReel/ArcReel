@@ -22,7 +22,6 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from lib.i18n import Translator
 from lib.infra.api_errors import NotFoundError, UnprocessableError
 from lib.project.asset_derivative_cleanup import purge_derivative_sheets
 from lib.project.asset_derivatives import ensure_derivative_table
@@ -41,6 +40,7 @@ from lib.project.asset_types import (
 )
 from lib.project.project_change_hints import project_change_source
 from lib.project.project_manager import ProjectManager
+from server.i18n import Translator
 
 logger = logging.getLogger(__name__)
 

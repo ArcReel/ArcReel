@@ -21,8 +21,8 @@ from lib.config.url_utils import InvalidAnthropicBaseUrlError, validate_anthropi
 from lib.db import get_async_session
 from lib.db.base import dt_to_iso
 from lib.db.repositories.agent_credential_repo import AgentCredentialRepository
-from lib.i18n import Translator
 from lib.infra.api_errors import UnprocessableError
+from server.i18n import Translator
 
 logger = logging.getLogger(__name__)
 

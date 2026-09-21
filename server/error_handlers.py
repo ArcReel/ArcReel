@@ -21,9 +21,9 @@ from fastapi.responses import JSONResponse
 
 from lib.generation.generation_queue import ActiveTaskRequestConflict
 from lib.generation.generation_queue_client import TaskSpecValidationError
-from lib.i18n import get_translator
 from lib.infra.api_errors import ApiError
 from lib.script.script_editor import ScriptEditError
+from server.i18n import get_translator
 
 logger = logging.getLogger(__name__)
 

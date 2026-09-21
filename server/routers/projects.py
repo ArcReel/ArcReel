@@ -45,7 +45,6 @@ from lib.episode.episode_target_duration import (
     MIN_EPISODE_TARGET_DURATION,
     is_valid_episode_target_duration,
 )
-from lib.i18n import Translator
 from lib.infra.api_errors import ApiError, BadRequestError, NotFoundError, UnprocessableError
 from lib.infra.json_io import domain_error_on_value_error
 from lib.project.asset_fingerprints import compute_asset_fingerprints
@@ -63,6 +62,7 @@ from lib.workflow.workflow_plan import WorkflowPlan, WorkflowPlanRequest
 from lib.workflow.workflow_state import ProjectSummary, WorkflowRequestError, WorkflowStateService, WorkflowStatus
 from server.auth import CurrentUser, create_download_token, verify_download_token
 from server.dependencies import require_project_migration_ok
+from server.i18n import Translator
 from server.routers._reorder import full_permutation_error
 from server.routers._script_edits import (
     execute_current_script_edit,

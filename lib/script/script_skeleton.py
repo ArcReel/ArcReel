@@ -244,8 +244,6 @@ class SkeletonRouteMismatchError(ValueError):
         super().__init__()
 
     def __str__(self) -> str:
-        # 渲染推迟到取文本时：本模块是零依赖叶子，构造期渲染会把 ``lib.i18n``（及其
-        # fastapi 依赖）拉进不需要它的轻量入口。
         return self._message.render()
 
     def to_validation_message(self) -> ValidationMessage:

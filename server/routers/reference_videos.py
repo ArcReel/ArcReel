@@ -32,7 +32,6 @@ from lib.generation.generation_result import (
     enqueue_problem,
     normalize_requested_ids,
 )
-from lib.i18n import Translator
 from lib.infra.api_errors import ApiError, BadRequestError, NotFoundError
 from lib.infra.path_safety import PathTraversalError, safe_join
 from lib.project.project_change_hints import project_change_source
@@ -59,6 +58,7 @@ from lib.speech.narration_delivery import (
 from lib.speech.speech_composition import admit_script_unit, refresh_video_unit_replan_state
 from server.auth import CurrentUser
 from server.error_handlers import script_edit_detail
+from server.i18n import Translator
 from server.routers._reorder import full_permutation_error
 from server.routers._script_edits import execute_current_episode_edit, require_script_edit_result
 from server.services.admission.cost_estimation import quote_video_request

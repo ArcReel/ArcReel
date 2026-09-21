@@ -16,6 +16,8 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
+from lib.i18n import DEFAULT_LOCALE, _
+
 #: ``ValidationMessage.literal`` 用的透传 key：消息体本身已是成品文本（Pydantic 报错、
 #: 第三方异常文案），没有可翻译的结构，占位后原样输出。
 LITERAL_KEY = "val_literal"
@@ -117,8 +119,7 @@ def _resolve_param(value: Any, translate: Callable[..., str]) -> Any:
 
 
 def _default_translate() -> Callable[..., str]:
-    """默认语言的 translator。惰性 import：``lib.i18n`` 依赖 fastapi，不让它进本模块导入期。"""
-    from lib.i18n import DEFAULT_LOCALE, _
+    """默认语言的 translator。"""
 
     def translate(key: str, **kwargs: Any) -> str:
         return _(key, locale=DEFAULT_LOCALE, **kwargs)

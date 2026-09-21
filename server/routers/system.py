@@ -10,8 +10,8 @@ from datetime import UTC, datetime
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 
-from lib.i18n import Translator
 from lib.infra.logging_config import resolve_log_dir
+from server.i18n import Translator
 from server.services.system.diagnostics import collect_diagnostics
 
 router = APIRouter()

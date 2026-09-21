@@ -20,7 +20,6 @@ from lib.artifacts.artifact_manifest import ArtifactKey
 from lib.db import async_session_factory
 from lib.db.models.asset import AssetDerivative
 from lib.db.repositories.asset_repo import AssetRepository
-from lib.i18n import Translator
 from lib.infra.api_errors import NotFoundError
 from lib.project.asset_derivatives import (
     derivative_artifact_key,
@@ -42,6 +41,7 @@ from lib.project.asset_types import (
     validate_asset_name,
 )
 from lib.project.project_manager import ProjectManager, get_project_manager
+from server.i18n import Translator
 from server.routers._asset_router_factory import localize_project_asset_name_conflict
 
 logger = logging.getLogger(__name__)

@@ -16,11 +16,11 @@ from fastapi import APIRouter, HTTPException
 
 from lib.artifacts.artifact_activation import active_artifact_currency_resolver
 from lib.artifacts.artifact_manifest import ArtifactStatus
-from lib.i18n import Translator
 from lib.infra.api_errors import NotFoundError
 from lib.project.asset_derivatives import derivative_artifact_key, derivative_table
 from lib.project.asset_types import DERIVATIVES_FIELD, AssetSpec, asset_name_comparison_key, resolve_asset_key
 from lib.project.project_manager import ProjectManager
+from server.i18n import Translator
 
 logger = logging.getLogger(__name__)
 

@@ -67,8 +67,8 @@ from lib.db.repositories.custom_endpoint_repo import CustomEndpointRepository
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 from lib.generation.generation_result import problem_from_task_failure
 from lib.generation.task_failure import encode_failure, parse_failure, render_failure
-from lib.i18n import Translator
 from lib.infra.api_errors import BadRequestError, ConflictError, NotFoundError, UnprocessableError
+from server.i18n import Translator
 
 logger = logging.getLogger(__name__)
 

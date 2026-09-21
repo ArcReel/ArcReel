@@ -28,7 +28,6 @@ from lib.episode.episode_paths import (
     episode_drafts_dir,
     script_plan_read_candidates,
 )
-from lib.i18n import Translator
 from lib.infra.api_errors import BadRequestError, NotFoundError
 from lib.infra.image_utils import normalize_uploaded_image, validate_image_bytes
 from lib.infra.json_io import atomic_write_bytes
@@ -53,6 +52,7 @@ from lib.speech.audio_utils import (
     AUDIO_REFERENCE_MIN_SECONDS,
     probe_audio_duration_seconds,
 )
+from server.i18n import Translator
 from server.routers._script_review_errors import raise_review_error
 from server.services.project.script_review import ScriptReviewError, ScriptReviewService
 

@@ -46,9 +46,9 @@ from lib.db import get_async_session
 from lib.db.base import dt_to_iso
 from lib.db.repositories.custom_endpoint_repo import CustomEndpointRepository
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository
-from lib.i18n import Translator
 from lib.infra.api_errors import BadRequestError
 from lib.infra.httpx_shared import get_http_client
+from server.i18n import Translator
 
 
 def _validate_endpoint(value: str) -> str:

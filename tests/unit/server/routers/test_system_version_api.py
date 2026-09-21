@@ -10,10 +10,10 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from lib.i18n import get_translator
 from lib.infra.httpx_shared import shutdown_http_client, startup_http_client
 from server.auth import CurrentUserInfo, get_current_user
 from server.dependencies import get_config_service
+from server.i18n import get_translator
 from server.routers import system_config
 from server.routers.system_config import _parse_version
 from tests.auth_deps import AUTH_DEPENDENCIES

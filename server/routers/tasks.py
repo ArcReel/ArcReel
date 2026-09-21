@@ -11,8 +11,8 @@ from fastapi import APIRouter, Query, Request
 
 from lib.generation.generation_queue import get_generation_queue
 from lib.generation.task_failure import parse_failure, render_failure
-from lib.i18n import Translator
 from lib.infra.api_errors import BadRequestError, NotFoundError
+from server.i18n import Translator
 
 router = APIRouter()
 

@@ -17,10 +17,10 @@ from contextlib import contextmanager
 from fastapi import APIRouter, File, HTTPException, UploadFile
 from pydantic import BaseModel
 
-from lib.i18n import Translator
 from lib.infra.api_errors import ApiError, NotFoundError
 from lib.script.script_editor import ScriptEditError
 from server.error_handlers import script_edit_detail
+from server.i18n import Translator
 from server.services.currency.upload_finalize import (
     UploadTooLargeError,
     UploadValidationError,

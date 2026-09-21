@@ -33,7 +33,7 @@ from fastapi.sse import ServerSentEvent
 from lib.agent.agent_profile import agent_profile_dir
 from lib.agent.profile_frontmatter import FrontmatterError, parse_profile_metadata
 from lib.agent.profile_manifest import VALID_CONTENT_MODES
-from lib.i18n import DEFAULT_LOCALE, get_locale
+from lib.i18n import DEFAULT_LOCALE
 from lib.infra.app_data_dir import app_data_dir
 from lib.project.project_manager import ProjectManager
 from server.agent_runtime.event_log import (
@@ -54,6 +54,7 @@ from server.agent_runtime.session_branch import (
 )
 from server.agent_runtime.session_manager import SessionManager
 from server.agent_runtime.session_store import SessionMetaStore
+from server.i18n import get_locale
 
 
 class MessageRewriteError(RuntimeError):

@@ -110,7 +110,10 @@ exclude_lines = [
 ]
 
 [tool.importlinter]
-root_packages = ["lib"]
+# server 进入分析范围，「核心库不依赖服务端」才看得见跨包的边；外部包只作叶子节点计入，
+# 供「核心库不依赖 HTTP 框架」点名 fastapi / starlette。
+root_packages = ["lib", "server"]
+include_external_packages = true
 
 # lib.config < lib.backends.*_backends < lib.custom_provider < lib.market：config 是配置解析的基础层，backends
 # 在其上组装出各供应商实现，custom_provider 再在 backends 之上拼装自定义供应商，market 以调用端点
@@ -216,6 +219,30 @@ source_modules = [
     "lib.references.reference_catalog",
 ]
 forbidden_modules = ["lib.script.reference_video"]
+
+# 核心库与服务端的分界（website/docs/dev/architecture.md「核心库与服务端的分界」）：核心库是领域逻辑与
+# 基础设施，服务端是交付层与多入口共用的用例编排，依赖只能由服务端指向核心库。
+# ignore_imports 是存量违规的 baseline：生成 Worker 按任务类型直接调用服务端的执行器与续跑执行器，
+# 由「生成 Worker」议题改为应用装配处注入后清零；清零一条即删一行，不再新增。
+[[tool.importlinter.contracts]]
+name = "核心库不依赖服务端"
+type = "forbidden"
+source_modules = ["lib"]
+forbidden_modules = ["server"]
+ignore_imports = [
+    "lib.generation.generation_worker -> server.services.tasks.generation_tasks",
+    "lib.generation.generation_worker -> server.services.tasks.resume_executor",
+]
+
+# 核心库不知道 HTTP 的存在：请求级的语言解析、依赖注入等框架胶水归服务端（server.i18n 等）。
+# 只查核心库自己写下的 import——经由服务端间接够到框架的链已由上一条契约拦住，这里再算一遍
+# 只会把那两条存量豁免重复登记一次。
+[[tool.importlinter.contracts]]
+name = "核心库不依赖 HTTP 框架"
+type = "forbidden"
+allow_indirect_imports = true
+source_modules = ["lib"]
+forbidden_modules = ["fastapi", "starlette"]
 
 [tool.deptry]
 # 扫描范围与 basedpyright 的 include 对齐：核心库、服务端、迁移基础设施、脚本与测试。

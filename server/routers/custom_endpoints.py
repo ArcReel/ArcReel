@@ -39,8 +39,8 @@ from lib.db import get_async_session
 from lib.db.base import dt_to_iso
 from lib.db.models.custom_endpoint import CustomEndpoint
 from lib.db.repositories.custom_endpoint_repo import CustomEndpointRepository, EndpointReference
-from lib.i18n import Translator
 from lib.infra.api_errors import ConflictError, NotFoundError, UnprocessableError
+from server.i18n import Translator
 from server.routers import comfyui_inference, endpoint_tests
 from server.routers._market_installations import (
     EndpointInstallationResponse,

@@ -20,7 +20,6 @@ from typing import Literal
 from fastapi import APIRouter, File, HTTPException, UploadFile
 
 from lib.artifacts.version_manager import VersionManager
-from lib.i18n import Translator
 from lib.infra.api_errors import ApiError, NotFoundError
 from lib.infra.image_utils import normalize_storyboard_upload
 from lib.infra.path_safety import PathTraversalError, safe_join
@@ -30,6 +29,7 @@ from lib.project.resource_paths import resource_relative_path
 from lib.script.script_editor import ScriptEditError
 from lib.script.storyboard_sequence import find_storyboard_item, get_storyboard_items
 from server.error_handlers import script_edit_detail
+from server.i18n import Translator
 from server.services.currency.upload_finalize import (
     UploadTooLargeError,
     UploadValidationError,
