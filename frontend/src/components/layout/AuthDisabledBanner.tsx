@@ -40,7 +40,7 @@ export function AuthDisabledBanner() {
       ref={ref}
       role="status"
       className="sticky top-0 z-50 flex items-start gap-2.5 border-b px-5 py-2"
-      style={{ borderColor: "var(--color-warm-ring)", background: "var(--color-warm-soft)" }}
+      style={{ borderColor: "var(--color-warm-ring)", background: "linear-gradient(var(--color-warm-soft), var(--color-warm-soft)), var(--color-bg)" }}
     >
       <ShieldOff
         className="mt-0.5 h-4 w-4 shrink-0"

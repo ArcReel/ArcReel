@@ -189,7 +189,7 @@ export function AssetLibraryPage() {
       {/* Decorative ambient glow */}
       <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-72" style={HEADER_GLOW_STYLE} />
 
-      <header className="sticky top-0 z-30 border-b border-hairline bg-bg/85 backdrop-blur-[28px]">
+      <header className="sticky top-app-banner z-30 border-b border-hairline bg-bg/85 backdrop-blur-[28px]">
         <div className="mx-auto flex max-w-6xl items-start justify-between gap-6 px-6 py-6">
           <div className="flex items-start gap-4">
             <button

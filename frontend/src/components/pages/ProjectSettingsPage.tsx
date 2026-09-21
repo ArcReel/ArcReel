@@ -610,7 +610,7 @@ export function ProjectSettingsPage() {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex flex-col text-text"
+      className="fixed inset-x-0 bottom-0 top-app-banner z-50 flex flex-col text-text"
       style={
         {
           background:
