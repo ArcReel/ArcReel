@@ -65,6 +65,16 @@ def is_auth_enabled() -> bool:
     return os.environ.get("AUTH_ENABLED", "true").strip().lower() not in _AUTH_DISABLED_VALUES
 
 
+def warn_if_auth_disabled() -> None:
+    """认证关闭时输出一条 WARNING，提示全部管理接口无需认证。"""
+    if is_auth_enabled():
+        return
+    logger.warning(
+        "AUTH_ENABLED=false：全部管理接口无需认证即可访问。"
+        "该模式仅适用于受独立网络边界保护的本机环境，远程部署请保持认证开启"
+    )
+
+
 def _anonymous_user() -> "CurrentUserInfo":
     """关闭认证时返回的固定匿名用户。"""
     from lib.db.base import DEFAULT_USER_ID

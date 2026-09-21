@@ -40,7 +40,7 @@ from lib.logging_config import attach_file_handler, migrate_legacy_log_dir, setu
 from lib.path_safety import try_safe_join
 from lib.project_migrations import cleanup_stale_backups, run_project_migrations
 from lib.source_loader.migration import migrate_project_source_encoding
-from server.auth import ensure_auth_password, get_current_user
+from server.auth import ensure_auth_password, get_current_user, warn_if_auth_disabled
 from server.cors_config import resolve_cors_policy
 from server.dependencies import require_project_migration_ok
 from server.error_handlers import register_error_handlers
@@ -362,6 +362,7 @@ async def lifespan(app: FastAPI):
     attach_file_handler()
 
     ensure_auth_password()
+    warn_if_auth_disabled()
 
     # Run Alembic migrations (auto-creates tables on first start)
     await init_db()

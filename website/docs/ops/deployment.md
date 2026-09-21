@@ -156,6 +156,7 @@ ArcReel 在应用启动时运行 Alembic 迁移，将数据库结构升级到当
 | `AUTH_USERNAME` | `admin` | 可修改管理员用户名 |
 | `AUTH_PASSWORD` | 空 | 正式部署必须显式设置强密码 |
 | `AUTH_TOKEN_SECRET` | 空 | 正式部署必须设置长期固定随机值 |
+| `AUTH_ENABLED` | `true` | 远程部署不得关闭；设为 `false` 时全部管理接口无需认证 |
 | `LOG_LEVEL` | `INFO` | 排障时临时改为 `DEBUG`，完成后恢复 |
 | `POSTGRES_PASSWORD` | 无 | 仅生产部署需要，必须设置 |
 | `TZ` | `Asia/Shanghai` | 可在 Compose 环境中覆盖 |
@@ -167,6 +168,7 @@ ArcReel 在应用启动时运行 Alembic 迁移，将数据库结构升级到当
 注意：
 
 - `AUTH_TOKEN_SECRET` 变化后，现有登录 Token 会失效。
+- `AUTH_ENABLED=false` 仅适用于受独立网络边界保护的本机环境。Compose 默认把 `1241` 端口发布到宿主机所有网卡，远程部署不得关闭认证。认证关闭时，启动日志会输出 WARNING，界面顶部显示常驻提示条。
 - `.env` 中可能包含密钥，不要提交到版本库。
 - Vertex 凭据文件应只授予运行 ArcReel 的用户读取权限。
 - 第三方模型 API Key 通常在 ArcReel 设置页中管理，不要写入公开文档。

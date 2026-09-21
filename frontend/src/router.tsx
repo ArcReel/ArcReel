@@ -25,6 +25,7 @@ import { useProjectsStore } from "@/stores/projects-store";
 import { useAppStore } from "@/stores/app-store";
 import { useAssistantStore } from "@/stores/assistant-store";
 import { useAuthStore } from "@/stores/auth-store";
+import { AuthDisabledBanner } from "@/components/layout/AuthDisabledBanner";
 import { useConfigStatusStore } from "@/stores/config-status-store";
 import { errMsg } from "@/utils/async";
 import {
@@ -88,7 +89,7 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
       <div
         role="status"
         aria-live="polite"
-        className="flex h-screen items-center justify-center gap-2 bg-bg text-[13px] text-text-4"
+        className="flex h-[calc(100vh-var(--app-banner-h,0px))] items-center justify-center gap-2 bg-bg text-[13px] text-text-4"
       >
         <Loader2 aria-hidden className="h-4 w-4 motion-safe:animate-spin" />
         <span>{t("loading")}</span>
@@ -195,6 +196,7 @@ function StudioWorkspace() {
 export function AppRoutes() {
   return (
     <>
+      <AuthDisabledBanner />
       <ConfigStatusLoader />
       <OnboardingTour />
       <Switch>

@@ -157,7 +157,7 @@ export function StudioLayout({ children }: StudioLayoutProps) {
 
   return (
     <div
-      className="flex h-screen flex-col"
+      className="flex h-[calc(100vh-var(--app-banner-h,0px))] flex-col"
       style={{ color: "var(--color-text)" }}
     >
       <TaskFailureListener projectName={sseProjectName} />
