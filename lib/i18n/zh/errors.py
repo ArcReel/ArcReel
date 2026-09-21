@@ -442,6 +442,9 @@ MESSAGES = {
     # Agent 凭证
     "agent_preset_unknown": "未知预设供应商: {preset_id}",
     "agent_base_url_required_custom": "自定义配置需要填写 base_url",
+    "agent_api_key_required": "请填写 api_key 或选择要导入的自定义供应商",
+    "agent_api_key_source_conflict": "从自定义供应商导入时不能同时提供 api_key",
+    "agent_import_provider_no_key": "所选自定义供应商未配置 api_key",
     "agent_base_url_invalid": "Agent 凭证地址不支持查询参数、锚点或用户名密码，请填写形如 https://host/path 的地址",
     "agent_no_fields_to_update": "没有需要更新的字段",
     "agent_credential_not_found": "凭证不存在",

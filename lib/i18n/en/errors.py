@@ -504,6 +504,9 @@ MESSAGES = {
     # Agent credentials
     "agent_preset_unknown": "Unknown preset provider: {preset_id}",
     "agent_base_url_required_custom": "base_url is required for custom configuration",
+    "agent_api_key_required": "Provide an api_key or choose a custom provider to import from",
+    "agent_api_key_source_conflict": "api_key cannot be provided when importing from a custom provider",
+    "agent_import_provider_no_key": "The selected custom provider has no api_key configured",
     "agent_base_url_invalid": "Agent credential URLs cannot carry query strings, fragments or userinfo; use a plain https://host/path address",
     "agent_no_fields_to_update": "No fields to update",
     "agent_credential_not_found": "Credential not found",

@@ -311,11 +311,6 @@ class DiscoverAnthropicRequest(BaseModel):
     api_key: str | None = None
 
 
-class CredentialsResponse(BaseModel):
-    base_url: str
-    api_key: str
-
-
 class EndpointDescriptor(BaseModel):
     """前端从 catalog API 拿到的单条 endpoint 描述（与 lib.custom_provider.endpoints.EndpointSpec 对齐，去掉闭包）。"""
 
@@ -872,27 +867,6 @@ async def get_provider(
         models,
         await _global_bucket_refs_for_provider(session, provider_id),
         await _read_endpoint_specs(session, models),
-    )
-
-
-@router.get("/{provider_id}/credentials", response_model=CredentialsResponse)
-async def get_provider_credentials(
-    provider_id: int,
-    _t: Translator,
-    session: AsyncSession = Depends(get_async_session),
-):
-    """返回明文 base_url + api_key，供 Agent 配置导入复用。
-
-    仅 CurrentUser 鉴权,与现有 PATCH 接口对齐;日志不打印 body。
-    多用户场景需重新评估细粒度授权。
-    """
-    repo = CustomProviderRepository(session)
-    provider = await repo.get_provider(provider_id)
-    if provider is None:
-        raise HTTPException(status_code=404, detail=_t("provider_not_found"))
-    return CredentialsResponse(
-        base_url=provider.base_url or "",
-        api_key=provider.api_key or "",
     )
 
 

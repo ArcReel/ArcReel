@@ -14,7 +14,9 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
+from lib.db.models.custom_provider import CustomProvider
 from lib.db.repositories.custom_endpoint_repo import CustomEndpointRepository
+from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 from lib.httpx_shared import shutdown_http_client, startup_http_client
 from tests.factories import comfyui_endpoint_definition, custom_endpoint_definition
 from tests.http_capture import capture_http, only_request
@@ -48,6 +50,13 @@ async def _store_endpoint(session_factory, definition: dict[str, Any]) -> str:
         return f"ce-{row.id}"
 
 
+async def _stored_provider(session_factory, provider_id: int) -> CustomProvider:
+    async with session_factory() as session:
+        provider = await CustomProviderRepository(session).get_provider(provider_id)
+        assert provider is not None
+        return provider
+
+
 def _create_provider(client: TestClient, **overrides: Any) -> dict[str, Any]:
     body: dict[str, Any] = {
         "display_name": "我的 ComfyUI",
@@ -74,13 +83,13 @@ def _model(endpoint: str, **overrides: Any) -> dict[str, Any]:
 
 
 class TestComfyuiProviderCreation:
-    def test_an_empty_api_key_is_accepted(self, comfyui_client: TestClient):
+    def test_an_empty_api_key_is_accepted(self, comfyui_client: TestClient, custom_providers_app_session_factory):
         """ComfyUI 本体零鉴权，凭据模板在端点定义里：供应商行的 api_key 留空须能保存。"""
         provider = _create_provider(comfyui_client)
         assert provider["discovery_format"] == "comfyui"
-        stored = comfyui_client.get(f"/api/v1/custom-providers/{provider['id']}/credentials").json()
-        assert stored["api_key"] == ""
-        assert stored["base_url"] == _COMFY_URL
+        stored = asyncio.run(_stored_provider(custom_providers_app_session_factory, provider["id"]))
+        assert stored.api_key == ""
+        assert stored.base_url == _COMFY_URL
 
     def test_an_unknown_protocol_is_refused_at_the_request_boundary(self, comfyui_client: TestClient):
         """协议名录是封闭的：新增取值只能由 DiscoveryFormatLiteral 放行。"""

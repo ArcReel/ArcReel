@@ -109,7 +109,7 @@ An unauthenticated caller can reach public endpoints, submit login attempts, ins
 
 ### 6.2 Attacker with a stolen JWT or API key
 
-A stolen login JWT normally provides complete administrator access, including API-key management. A stolen `arc-` API key authorizes most project, provider, generation, task, agent, and system APIs, but the API-key management router explicitly requires a subject that does not begin with `apikey:`. The same API key can enumerate custom providers and retrieve each stored custom-provider `api_key` verbatim from `GET /api/v1/custom-providers/{provider_id}/credentials`, creating a credential-escalation path. API keys otherwise have no scopes or RBAC boundaries that materially reduce their impact.
+A stolen login JWT normally provides complete administrator access, including API-key management. A stolen `arc-` API key authorizes most project, provider, generation, task, agent, and system APIs, but the API-key management router explicitly requires a subject that does not begin with `apikey:`. Provider and Agent credential responses return only masked secrets; the same API key can still change provider and Agent credential configuration, including the base URLs that stored credentials are sent to. API keys otherwise have no scopes or RBAC boundaries that materially reduce their impact.
 
 ### 6.3 Malicious content author or project supplier
 
@@ -199,16 +199,16 @@ Public routes include authentication bootstrap/login, project/global file delive
 
 ### 9.2 Secret handling
 
-- API responses generally mask stored secrets. The custom-provider credentials endpoint is a material exception: it returns the stored `api_key` in plaintext to any caller accepted by the generic authentication dependency, including an `arc-` API key.
+- API responses mask stored secrets. No route returns a stored provider or Agent `api_key` in plaintext. Creating an Agent credential from a custom provider (`from_custom_provider_id` on `POST /api/v1/agent/credentials`) copies that provider's key server-side; the key never passes through the client. The new credential uses the base URL given in the request, or the provider's base URL when none is given.
 - The server fails fast when provider secrets are present in the parent process environment, reducing automatic inheritance by sandboxed child processes.
 - Agent policy denies sensitive-file reads and scrubs provider and secret-like environment variables from sandboxed
   Bash execution. The dedicated short-lived `ARCREEL_API_TOKEN` is intentionally retained so the embedded Agent can
-  call ArcReel's HTTP API. That retention cancels most of the scrubbing's value: the token authenticates the
-  custom-provider credentials endpoint described above, so an Agent holding it can read back the same provider
-  `api_key` values in plaintext over HTTP.
+  call ArcReel's HTTP API. The token carries administrator authority over provider and Agent credential
+  configuration, so the scrubbing hides secret values from the sandboxed process but does not bound what an Agent
+  holding the token can do with the stored credentials through the API.
 - Vertex credential files are written with restrictive permissions where supported.
 
-Built-in provider, custom-provider, and Agent credentials are nevertheless stored in plaintext database columns. API masking does not protect a copied database, backup, snapshot, or compromised database account, and it does not protect custom-provider credentials from the authenticated plaintext-read endpoint described above.
+Built-in provider, custom-provider, and Agent credentials are nevertheless stored in plaintext database columns. API masking does not protect a copied database, backup, snapshot, or compromised database account.
 
 ### 9.3 Path and project controls
 
@@ -253,7 +253,7 @@ SDK built-in `Read`, `Write`, `Edit`, `Glob`, and `Grep` tools execute in the ma
 The embedded Agent receives a 15-minute administrator session JWT, outbound access to any domain, and — through
 `allowLocalBinding` — reachability of the host's loopback interface. Prompt injection in fetched provider
 documentation can therefore exfiltrate that token to an arbitrary host, exercise any authenticated ArcReel API
-during its lifetime (including the plaintext credentials read of section 9.2), and reach loopback services that are
+during its lifetime (including provider and Agent credential configuration, see section 9.2), and reach loopback services that are
 not ArcReel at all: a database, another application's development server, or any private service bound to
 `127.0.0.1` on the same machine. Filesystem confinement remains in force and covers none of these paths.
 
@@ -289,7 +289,7 @@ The MCP SDK's DNS-rebinding protection is disabled (`TransportSecuritySettings(e
 ### 10.1 Authentication and bearer tokens
 
 - Automated login attempts may be sent without built-in rate limiting.
-- A stolen login JWT normally provides full administrative access; a stolen API key provides broad access except to API-key management. A login username beginning with `apikey:` collides with the current subject-prefix check and is also denied by API-key management routes. A stolen API key can read custom-provider API keys in plaintext and use them independently of ArcReel.
+- A stolen login JWT normally provides full administrative access; a stolen API key provides broad access except to API-key management. A login username beginning with `apikey:` collides with the current subject-prefix check and is also denied by API-key management routes. A stolen API key cannot read stored provider API keys back in plaintext, but it can reconfigure providers and Agent credentials that use them.
 - A leaked download token can be replayed and used as a broad administrator bearer credential during its five-minute validity; if minted through an API key, its inherited `apikey:` subject remains excluded from API-key management.
 - Seven-day JWT lifetime increases the useful period of a stolen token.
 - Event-stream routes accept only the `Authorization` header; a session JWT or API key in a query parameter is rejected with 401 (ADR 0071). The frontend consumes them through `fetch` rather than `EventSource`.

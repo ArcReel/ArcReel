@@ -1926,10 +1926,9 @@ class TestDiscoverAnthropic:
         assert mock_discover.call_args.kwargs["api_key"] == "sk-stored"
 
 
-class TestGetProviderCredentials:
-    def test_returns_plaintext(self, custom_providers_client: TestClient):
-        """正常路径返回明文 base_url + api_key。"""
-        # 先创建 provider
+class TestProviderSecretReadback:
+    def test_stored_api_key_has_no_readback_route(self, custom_providers_client: TestClient):
+        """供应商密钥只以掩码形式出现在响应中，不提供按 id 读回明文的路由。"""
         create_resp = custom_providers_client.post(
             "/api/v1/custom-providers",
             json={
@@ -1944,14 +1943,9 @@ class TestGetProviderCredentials:
         provider_id = create_resp.json()["id"]
 
         resp = custom_providers_client.get(f"/api/v1/custom-providers/{provider_id}/credentials")
-        assert resp.status_code == 200
-        body = resp.json()
-        assert body["base_url"] == "https://oneapi.example.com"
-        assert body["api_key"] == "sk-secret"
-
-    def test_returns_404_for_unknown_provider(self, custom_providers_client: TestClient):
-        resp = custom_providers_client.get("/api/v1/custom-providers/99999/credentials")
-        assert resp.status_code == 404
+        assert resp.status_code in (404, 405)
+        detail = custom_providers_client.get(f"/api/v1/custom-providers/{provider_id}")
+        assert "sk-secret" not in detail.text
 
 
 class TestSupportedDurationsAutoFill:

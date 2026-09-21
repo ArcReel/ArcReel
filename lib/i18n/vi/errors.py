@@ -504,6 +504,9 @@ MESSAGES = {
     # Agent credentials
     "agent_preset_unknown": "Nhà cung cấp đặt sẵn không xác định: {preset_id}",
     "agent_base_url_required_custom": "Cấu hình tuỳ chỉnh yêu cầu base_url",
+    "agent_api_key_required": "Hãy nhập api_key hoặc chọn nhà cung cấp tùy chỉnh để nhập",
+    "agent_api_key_source_conflict": "Không thể cung cấp api_key khi nhập từ nhà cung cấp tùy chỉnh",
+    "agent_import_provider_no_key": "Nhà cung cấp tùy chỉnh đã chọn chưa cấu hình api_key",
     "agent_base_url_invalid": "Địa chỉ chứng thực Agent không hỗ trợ tham số truy vấn, fragment hay tên người dùng/mật khẩu; hãy dùng dạng https://host/path",
     "agent_no_fields_to_update": "Không có trường nào để cập nhật",
     "agent_credential_not_found": "Không tìm thấy xác thực",
