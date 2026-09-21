@@ -73,7 +73,7 @@ async def extract_video_thumbnail(
         字段」的现有分支；前端 ``<video poster>`` 在 poster 为空时浏览器会
         原生从视频流取首帧渲染，无需 server-side placeholder。
     """
-    if not video_path.exists():  # noqa: ASYNC240 -- 输入视频存在性检查，本地元数据；抽帧本身走 create_subprocess_exec
+    if not video_path.exists():  # noqa: ASYNC240 -- 输入视频存在性检查，本地元数据；抽帧本身走 run_with_deadline 子进程
         return None
 
     if not _ffmpeg_available():
@@ -226,7 +226,7 @@ async def extract_video_last_frame(
     Returns:
         输出路径（成功）或 None（失败 / ffmpeg 或 ffprobe 不可用）
     """
-    if not video_path.exists():  # noqa: ASYNC240 -- 输入视频存在性检查，本地元数据；抽帧本身走 create_subprocess_exec
+    if not video_path.exists():  # noqa: ASYNC240 -- 输入视频存在性检查，本地元数据；抽帧本身走 run_with_deadline 子进程
         return None
 
     if not _ffmpeg_available() or not _ffprobe_available():

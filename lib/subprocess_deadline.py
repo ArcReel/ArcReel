@@ -12,7 +12,7 @@ import contextlib
 from collections.abc import Awaitable, Callable, Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Protocol
 
 DEFAULT_TERMINATE_GRACE_SECONDS = 2.0
 
@@ -34,7 +34,7 @@ class _Process(Protocol):
     async def communicate(self) -> tuple[bytes | None, bytes | None]: ...
 
 
-Spawner = Callable[..., Awaitable[Any]]
+Spawner = Callable[..., Awaitable[_Process]]
 
 
 @dataclass(frozen=True)
@@ -43,7 +43,14 @@ class SubprocessResult:
     stdout: bytes
 
 
-async def _reap(proc: _Process, grace: float) -> None:
+async def _reap(proc: _Process, grace: float, cleanup: list[Path]) -> None:
+    try:
+        await _terminate(proc, grace)
+    finally:
+        _remove(cleanup)
+
+
+async def _terminate(proc: _Process, grace: float) -> None:
     if proc.returncode is not None:
         return
     with contextlib.suppress(ProcessLookupError):
@@ -79,7 +86,7 @@ async def run_with_deadline(
         asyncio.CancelledError: 所在任务被取消；清理同上后原样传播。
     """
     cleanup = list(cleanup_paths)
-    proc: _Process = await (spawn or asyncio.create_subprocess_exec)(
+    proc = await (spawn or asyncio.create_subprocess_exec)(
         *args,
         stdin=asyncio.subprocess.DEVNULL,
         stdout=asyncio.subprocess.PIPE if capture_stdout else asyncio.subprocess.DEVNULL,
@@ -92,12 +99,10 @@ async def run_with_deadline(
             await asyncio.wait_for(proc.wait(), timeout=deadline_seconds)
             stdout = b""
     except TimeoutError:
-        await asyncio.shield(_reap(proc, grace))
-        _remove(cleanup)
+        await asyncio.shield(_reap(proc, grace, cleanup))
         raise SubprocessDeadlineExceeded(f"{args[0]} 未在 {deadline_seconds}s 内退出") from None
     except asyncio.CancelledError:
-        await asyncio.shield(_reap(proc, grace))
-        _remove(cleanup)
+        await asyncio.shield(_reap(proc, grace, cleanup))
         raise
 
     assert proc.returncode is not None
