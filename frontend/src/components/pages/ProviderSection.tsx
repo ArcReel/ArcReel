@@ -154,7 +154,7 @@ export function ProviderSection() {
       {/* Provider list sidebar */}
       <nav
         aria-label={t("provider_list")}
-        className="sticky top-0 max-h-screen w-56 shrink-0 self-start overflow-y-auto border-r border-hairline-soft px-3 py-5"
+        className="sticky top-app-banner max-h-app-screen w-56 shrink-0 self-start overflow-y-auto border-r border-hairline-soft px-3 py-5"
         style={{ background: "oklch(0.16 0.010 265 / 0.45)" }}
       >
         <div className="mb-2 px-3 font-mono text-[9.5px] font-bold uppercase tracking-[0.16em] text-text-4">

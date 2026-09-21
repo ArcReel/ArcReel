@@ -4,14 +4,14 @@ import { useTranslation } from "react-i18next";
 
 import { useAuthStore } from "@/stores/auth-store";
 
-/** 提示条高度写入的 CSS 变量；定高布局用它从视口高度里扣除提示条。 */
-const BANNER_HEIGHT_VAR = "--app-banner-h";
+/** 提示条高度写入的 CSS 变量；`.h-app-screen` 等工具类据此从视口高度里扣除提示条。 */
+const BANNER_HEIGHT_VAR = "--auth-banner-h";
 
 /**
  * 后端认证关闭（``AUTH_ENABLED=false``）时挂在应用最顶部的常驻提示条。
  *
  * 这是持续存在的部署状态而非一次性通知，所以没有关闭按钮；形态取工作台 warm 提示条。
- * 渲染期间把自身高度写入 ``--app-banner-h``，定高（h-screen）布局据此让出空间。
+ * 渲染期间把自身高度写入 ``--auth-banner-h``，定高布局与 sticky 侧栏据此让出空间。
  */
 export function AuthDisabledBanner() {
   const { t } = useTranslation("auth");
@@ -38,7 +38,7 @@ export function AuthDisabledBanner() {
   return (
     <div
       ref={ref}
-      role="alert"
+      role="status"
       className="sticky top-0 z-50 flex items-start gap-2.5 border-b px-5 py-2"
       style={{ borderColor: "var(--color-warm-ring)", background: "var(--color-warm-soft)" }}
     >

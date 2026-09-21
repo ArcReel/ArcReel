@@ -48,7 +48,7 @@ export const useAuthStore = create<AuthState>((set) => ({
         set(enabled ? { authEnabled: true } : { authEnabled: false, isAuthenticated: true });
       })
       .catch((err) => {
-        console.warn("[auth] /auth/status fetch failed; defaulting to login", err);
+        console.warn("[auth] /auth/status fetch failed; auth state unknown", err);
       })
       .finally(() => {
         clearTimeout(timeoutId);

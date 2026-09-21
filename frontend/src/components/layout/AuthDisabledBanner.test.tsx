@@ -12,7 +12,7 @@ describe("AuthDisabledBanner", () => {
   it("认证关闭时渲染常驻提示条", () => {
     useAuthStore.setState({ authEnabled: false });
     render(<AuthDisabledBanner />);
-    const banner = screen.getByRole("alert");
+    const banner = screen.getByRole("status");
     expect(banner).toBeInTheDocument();
     expect(banner.querySelector("button")).toBeNull();
   });
@@ -20,11 +20,11 @@ describe("AuthDisabledBanner", () => {
   it("认证开启时不渲染", () => {
     useAuthStore.setState({ authEnabled: true });
     render(<AuthDisabledBanner />);
-    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
   });
 
   it("认证状态未知时不渲染", () => {
     render(<AuthDisabledBanner />);
-    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
   });
 });

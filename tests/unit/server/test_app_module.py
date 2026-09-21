@@ -54,6 +54,31 @@ class TestAppModule:
         assert worker.stopped
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize(("auth_enabled", "expect_warning"), [("false", True), ("true", False)])
+    async def test_lifespan_warns_when_auth_disabled(self, monkeypatch, caplog, auth_enabled, expect_warning):
+        monkeypatch.setenv("AUTH_ENABLED", auth_enabled)
+        monkeypatch.setattr(app_module, "create_generation_worker", lambda: _FakeWorker())
+        monkeypatch.setattr(app_module, "ensure_auth_password", lambda: "test")
+        monkeypatch.setattr(app_module, "init_db", _noop_async)
+        monkeypatch.setattr(lib.db, "init_db", _noop_async)
+        monkeypatch.setattr(assistant_router.assistant_service, "startup", _noop_async)
+        monkeypatch.setattr(assistant_router.assistant_service, "shutdown", _noop_async)
+
+        app = app_module.app
+        app.state = SimpleNamespace()
+
+        with caplog.at_level("WARNING", logger="server.auth"):
+            async with app_module.lifespan(app):
+                pass
+
+        warnings = [
+            r
+            for r in caplog.records
+            if r.name == "server.auth" and r.levelname == "WARNING" and "AUTH_ENABLED" in r.getMessage()
+        ]
+        assert bool(warnings) is expect_warning
+
+    @pytest.mark.asyncio
     async def test_lifespan_clears_callback_after_worker_stop(self, monkeypatch):
         """lifespan 应先 worker.stop()（drain inflight + callback 仍可用），
         再清掉 set_worker_cancel_callback(None)。

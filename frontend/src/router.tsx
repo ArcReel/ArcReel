@@ -89,7 +89,7 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
       <div
         role="status"
         aria-live="polite"
-        className="flex h-[calc(100vh-var(--app-banner-h,0px))] items-center justify-center gap-2 bg-bg text-[13px] text-text-4"
+        className="flex h-app-screen items-center justify-center gap-2 bg-bg text-[13px] text-text-4"
       >
         <Loader2 aria-hidden className="h-4 w-4 motion-safe:animate-spin" />
         <span>{t("loading")}</span>
