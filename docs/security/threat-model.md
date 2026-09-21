@@ -195,7 +195,7 @@ There is no account-level RBAC, scoped API key, MFA, JWT revocation list, centra
 
 The absence of a `CurrentUser` parameter in a route function does not establish that the route is unauthenticated. The built-in `providers.router` is currently protected by the centralized registration dependency.
 
-Public routes include authentication bootstrap/login, project/global file delivery, `/health`, and `/agent-installation-guide.md`. Self-authenticating routes are limited to the project export routes that verify a short-lived download token; event streams are ordinary protected routes consumed by the frontend through `fetch` with an `Authorization` header (ADR 0071).
+Public routes include authentication bootstrap/login, project/global media delivery, `/health`, and `/agent-installation-guide.md`. Project and global file delivery serves only media: a request must resolve inside the root, fall under an allowlisted media directory (or the project-root style reference image), and carry an image, video, or audio extension; anything else returns the same 404 as a missing file (ADR 0071). Self-authenticating routes are limited to the project export routes that verify a short-lived download token; event streams are ordinary protected routes consumed by the frontend through `fetch` with an `Authorization` header (ADR 0071).
 
 ### 9.2 Secret handling
 
@@ -218,7 +218,7 @@ Built-in provider, custom-provider, and Agent credentials are nevertheless store
 - Project schemas and imported data are validated and migrated.
 - Media and source upload routes enforce supported extensions. Project imports and Vertex credential uploads validate content without requiring a matching original filename extension. Dedicated storyboard, shot-video, end-frame, and character reference-audio flows also enforce byte limits; general asset-image upload flows currently read the complete request without an explicit byte ceiling.
 
-Path containment prevents escape from a root. It does not authorize anonymous access to every file inside that root.
+Path containment prevents escape from a root. It does not authorize anonymous access to every file inside that root; the public file routes add a directory and extension allowlist on top of containment, evaluated against the resolved path.
 
 ### 9.4 Project archive controls
 
@@ -306,6 +306,8 @@ Browser-native `<img>`, `<video>`, and download navigation create pressure to by
 - MIME inference and inline rendering.
 - Cache behavior.
 - Query-string logging.
+
+The project and global file routes currently restrict responses to allowlisted image, video, and audio extensions, so active formats such as HTML, SVG, XML, and JavaScript are not served, and every file response carries `X-Content-Type-Options: nosniff`. The allowlists live in `server/routers/files.py`; widening them is a change to this boundary.
 
 ### 10.3 Provider configuration and outbound requests
 
