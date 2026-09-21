@@ -6,7 +6,7 @@ from typing import Any
 
 from claude_agent_sdk import tool
 
-from lib.workflow_plan import WorkflowPlanRequest
+from lib.workflow.workflow_plan import WorkflowPlanRequest
 from server.media_tools.context import ToolContext, tool_outcome_response, tool_services
 from server.tool_runtime import ToolOutcome, ToolProblem, ToolRequest, get_workflow_plan
 

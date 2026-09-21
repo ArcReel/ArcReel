@@ -15,13 +15,13 @@ from sqlalchemy import delete as sa_delete
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from lib.backends.providers import CallStatus
 from lib.db.base import DEFAULT_USER_ID, dt_to_iso, utc_now
 from lib.db.models.api_call import ApiCall
 from lib.db.models.task import BatchTask, GenerationBatch, Task, WorkerLease
 from lib.db.repositories.base import BaseRepository, rowcount
-from lib.providers import CallStatus
-from lib.task_failure import bound_reason, collapse_cascade_reason, encode_failure, parse_failure
-from lib.task_terminal_events import TERMINAL_TASK_STATUSES
+from lib.generation.task_failure import bound_reason, collapse_cascade_reason, encode_failure, parse_failure
+from lib.generation.task_terminal_events import TERMINAL_TASK_STATUSES
 
 logger = logging.getLogger(__name__)
 

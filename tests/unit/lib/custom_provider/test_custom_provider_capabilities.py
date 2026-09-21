@@ -6,6 +6,7 @@ import logging
 
 import pytest
 
+from lib.backends.video_backends.base import ReferenceAudioMode, VideoAudioMode, VideoCapabilities
 from lib.custom_provider.capabilities import (
     CAPABILITY_OVERRIDE_FIELDS,
     capability_type_name,
@@ -17,7 +18,6 @@ from lib.custom_provider.capabilities import (
     video_capabilities_from_definition,
 )
 from lib.custom_provider.endpoints import EndpointSpec, comfyui_endpoint_spec
-from lib.video_backends.base import ReferenceAudioMode, VideoAudioMode, VideoCapabilities
 from tests.factories import comfyui_endpoint_definition
 
 
@@ -179,7 +179,7 @@ class TestSystemCapabilities:
 
     def test_endpoint_with_caps_fn_delegates_to_backend_declaration(self):
         """endpoint 未声明硬上限时走 backend 的 per-model 纯函数，四字段全量取其声明。"""
-        from lib.video_backends.vidu import ViduVideoBackend
+        from lib.backends.video_backends.vidu import ViduVideoBackend
 
         caps = system_video_capabilities(endpoint="vidu-video", model_id="viduq3")
         assert caps == ViduVideoBackend.video_capabilities_for_model("viduq3")

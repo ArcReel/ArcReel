@@ -2,7 +2,7 @@
 
 > 日期：2026-09-02。对应 [#2287](https://github.com/ArcReel/ArcReel/issues/2287)（地图 [#2286](https://github.com/ArcReel/ArcReel/issues/2286)）。
 > 目标：使用记录以「一次调用」为行，进行中的生成任务（`tasks`）与已结束的供应商调用（`api_calls`）要合成同一条时间线。本文逐条回答工单的 5 个问题，每条结论附代码位置（行号以 main `1b6a0c2be` 为准），最后给出「统一行」的可行拼法与缺口清单。
-> 调查范围：`lib/db/models/{api_call,task}.py`、`lib/db/repositories/{usage_repo,task_repo,base}.py`、`lib/ledger.py`、`lib/media_generator.py`、`lib/text_generator.py`、`lib/generation_worker.py`、`server/agent_runtime/session_manager.py`、`lib/custom_provider/endpoint_test/trial_run.py`、`server/routers/{usage,tasks}.py`、`server/auth.py`、前端 `GlobalHeader` / `UsageDrawer` / `TaskHud` / `StudioLayout` / `useTaskRefresh` / `usage-store` / `tasks-store`、ADR 0021 / 0053。未跑代码，全部为静态阅读结论；标注「未验证」处为推断。
+> 调查范围：`lib/db/models/{api_call,task}.py`、`lib/db/repositories/{usage_repo,task_repo,base}.py`、`lib/billing/ledger.py`、`lib/generation/media_generator.py`、`lib/backends/text_generator.py`、`lib/generation/generation_worker.py`、`server/agent_runtime/session_manager.py`、`lib/custom_provider/endpoint_test/trial_run.py`、`server/routers/{usage,tasks}.py`、`server/auth.py`、前端 `GlobalHeader` / `UsageDrawer` / `TaskHud` / `StudioLayout` / `useTaskRefresh` / `usage-store` / `tasks-store`、ADR 0021 / 0053。未跑代码，全部为静态阅读结论；标注「未验证」处为推断。
 
 ## 结论速览
 
@@ -26,22 +26,22 @@
 
 | 线索 | 能否对上 | 依据 |
 |---|---|---|
-| `tasks.payload_json["api_call_id"]` → `api_calls.id` | **精确，但只有 video / reference_video 任务写** | 写入点唯一在视频记账括号内：`lib/media_generator.py:1007-1014`（`task_id is not None` 时调 `persist_api_call_id`），落到 `lib/db/repositories/task_repo.py:1049-1056`（`_merge_payload_field` 写进 payload）。image 记账括号（`media_generator.py:613-624`）与 audio 记账括号（`media_generator.py:729-737`）都不写；image/tts 任务的 `task_id` 只用于 staging 路径（`media_generator.py:48-71`）。 |
+| `tasks.payload_json["api_call_id"]` → `api_calls.id` | **精确，但只有 video / reference_video 任务写** | 写入点唯一在视频记账括号内：`lib/generation/media_generator.py:1007-1014`（`task_id is not None` 时调 `persist_api_call_id`），落到 `lib/db/repositories/task_repo.py:1049-1056`（`_merge_payload_field` 写进 payload）。image 记账括号（`media_generator.py:613-624`）与 audio 记账括号（`media_generator.py:729-737`）都不写；image/tts 任务的 `task_id` 只用于 staging 路径（`media_generator.py:48-71`）。 |
 | `tasks.resource_id` ↔ `api_calls.segment_id` | **弱匹配，仅白名单资源** | `segment_id_for`（`media_generator.py:141-154`）：image 只在 `storyboards/videos/grids`、video 只在 `storyboards/videos/reference_videos` 时把 `resource_id` 写进 `segment_id`；audio 无条件透传。角色/场景/道具/产品图的 `segment_id` 为 NULL（ADR 0053 `docs/adr/0053-cost-attribution-ledger-key-primary.md:7`）。且 ADR 0053:14 明确 ID 不全局唯一、不保证与所在集一致，同一 `resource_id` 会随重生成累积多条调用。 |
 | `tasks.provider_job_id` ↔ `api_calls.?` | **对不上** | `api_calls` 无此列。`provider_job_id` 只在 tasks 侧由 `persist_provider_job_id` 写（`task_repo.py:966-992`）。`last_provider_response` 是任意 JSON 快照（`usage_repo.py:42-56` 限 64 KiB），里面可能含供应商 job id，但无结构化保证（未验证）。 |
-| `api_calls.output_path` ↔ 任务产物 | **弱匹配，仅成功行** | `output_path` 只在成功结算时写（`lib/ledger.py:146` → `usage_repo.py:367-411` 的 `finish_call(output_path=...)`）；失败 / pending 行为 NULL。tasks 侧对应路径在 `result_json` 里（`task_repo.py:551` `mark_succeeded(result)`，结构未验证），无独立列。 |
+| `api_calls.output_path` ↔ 任务产物 | **弱匹配，仅成功行** | `output_path` 只在成功结算时写（`lib/billing/ledger.py:146` → `usage_repo.py:367-411` 的 `finish_call(output_path=...)`）；失败 / pending 行为 NULL。tasks 侧对应路径在 `result_json` 里（`task_repo.py:551` `mark_succeeded(result)`，结构未验证），无独立列。 |
 | `project_name` + `call_type` + 时间窗 | **启发式** | 两表都有 `project_name`；`tasks.media_type`（`task.py:20`）≈ `api_calls.call_type`；`api_calls.started_at` 落在 `tasks.started_at..finished_at` 内。并发同类任务时会串。 |
 
 **一个任务是否可能产生多条调用**：调查到的所有路径都复用同一条 `api_calls` 行：
 
 - 重试下载：`task_repo.retry_artifact_download`（`task_repo.py:601-648`）把原 `ApiCall` 从 failed/pending 翻回 pending，注释明写「仍是同一条调用，不新增计费行」（L623-625）。
-- resume（重启续跑 / 崩溃窗口）：`generate_video_resume_async` 不开新记账括号（`media_generator.py:1135-1138`），只经 `ledger.resume_success` / `resume_failed` 按 `call_id` 精准翻 pending（`lib/ledger.py:152-162`，`media_generator.py:1229-1239`）；派发前判死也是翻原行（`lib/generation_worker.py:1337-1355`）。
+- resume（重启续跑 / 崩溃窗口）：`generate_video_resume_async` 不开新记账括号（`media_generator.py:1135-1138`），只经 `ledger.resume_success` / `resume_failed` 按 `call_id` 精准翻 pending（`lib/billing/ledger.py:152-162`，`media_generator.py:1229-1239`）；派发前判死也是翻原行（`lib/generation/generation_worker.py:1337-1355`）。
 - `api_calls.retry_count` 列（`api_call.py:33`）没有任何写入点，只在 `_row_to_dict` 读出（`usage_repo.py:144`），恒为 0。
 - 未验证：`grid` / `reference_video` 任务内部是否会对同一 task 连续发起多次 backend 调用（例如多单元参考生视频）；若有，也只有最后一次 video 调用的 id 会留在 `payload.api_call_id`（`_merge_payload_field` 覆盖写）。
 
 **一条调用是否可能无任务**：大量存在。
 
-- 全部文本调用：`TextGenerator.generate`（`lib/text_generator.py:51-66`）不接 task；调用点包括剧本生成（`lib/script_generator.py:262,1328`）、分集规划（`lib/episode_planner.py:412,659`）、项目概览（`lib/project_manager.py:3612-3625`）、风格分析（`server/routers/files.py:1023-1024`）、`server/text_generation.py:850,1512,1659`。
+- 全部文本调用：`TextGenerator.generate`（`lib/backends/text_generator.py:51-66`）不接 task；调用点包括剧本生成（`lib/script/script_generator.py:262,1328`）、分集规划（`lib/episode/episode_planner.py:412,659`）、项目概览（`lib/project/project_manager.py:3612-3625`）、风格分析（`server/routers/files.py:1023-1024`）、`server/text_generation.py:850,1512,1659`。
 - 助手会话补录：`session_manager._record_assistant_usage` 走 `ledger.backfill`（`server/agent_runtime/session_manager.py:1184-1210`），一次写终态行。
 - 自定义端点试跑：`trial_run.py:375-386`，`project_name=""`、`call_type="video"`，无任务。
 - 记账括号任何调用点在 `task_id=None` 时都不留任务线索（`media_generator.py:487,532` 的 `task_id: str | None = None` 默认）。
@@ -63,7 +63,7 @@
 
 ### 现状
 
-写入口只有两条：`ledger.record`（`lib/ledger.py:95-111` 的入参集合）与 `ledger.backfill`（`ledger.py:169-207`）。文本行实际落库字段：
+写入口只有两条：`ledger.record`（`lib/billing/ledger.py:95-111` 的入参集合）与 `ledger.backfill`（`ledger.py:169-207`）。文本行实际落库字段：
 
 | 字段 | 值 | 依据 |
 |---|---|---|
@@ -96,7 +96,7 @@
 - 读侧过滤点是 `BaseRepository._scope_query`，开源版为 no-op（`lib/db/repositories/base.py:17-19`）。`UsageRepository.get_calls` 与 `get_stats*` 都套了它（`usage_repo.py:665,672`）；`TaskRepository.get / list_tasks / get_stats` 同样（`task_repo.py:1195,1224,1235,1252`）。
 - 路由层不接用户参数：`/usage/calls`（`server/routers/usage.py:56-81`）与 `/tasks*`（`server/routers/tasks.py:114-165`）都没有 `CurrentUser` 依赖，也不向仓储传 `user_id`。
 - 认证层无论 token 内容如何都返回 `DEFAULT_USER_ID`（`server/auth.py:69-73` `_anonymous_user`，`server/auth.py:426-432` `_payload_to_user`）。
-- 写侧：video/image/audio 记账 `user_id` 取 `MediaGenerator._user_id`（`media_generator.py:173,622,736,1001`）；文本调用不传 `user_id`，走 `ledger.record` 默认 `DEFAULT_USER_ID`（`ledger.py:107`，`text_generator.py:57-63`）；助手补录 `getattr(self, "_user_id", DEFAULT_USER_ID)`（`session_manager.py:1202`）。任务入队 `user_id` 由调用方传（`lib/generation_queue.py:398`；`server/tool_runtime.py:254-265`），去重唯一索引含 `user_id`（`task.py:57-68`）。
+- 写侧：video/image/audio 记账 `user_id` 取 `MediaGenerator._user_id`（`media_generator.py:173,622,736,1001`）；文本调用不传 `user_id`，走 `ledger.record` 默认 `DEFAULT_USER_ID`（`ledger.py:107`，`text_generator.py:57-63`）；助手补录 `getattr(self, "_user_id", DEFAULT_USER_ID)`（`session_manager.py:1202`）。任务入队 `user_id` 由调用方传（`lib/generation/generation_queue.py:398`；`server/tool_runtime.py:254-265`），去重唯一索引含 `user_id`（`task.py:57-68`）。
 - ADR 0021（`docs/adr/0021-multi-user-preembed-scope-query.md:7-12`）：商业版通过子类覆盖 `_scope_query` 注入过滤；`claim_next` 走原生 SQL 是已知例外。
 
 ### 可行拼法

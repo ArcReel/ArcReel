@@ -1,5 +1,5 @@
 /**
- * 生成模式工具 — mirrors lib/project_manager.py。
+ * 生成模式工具 — mirrors lib/project/project_manager.py。
  *
  * 生成模式二值 `storyboard | reference_video`，创建时锁定、之后不可更改。宫格是分镜图生视频内的
  * 装配选项（`grid_storyboard` 布尔），不改变喂给视频模型的输入契约，故不是第三种生成模式。
@@ -20,7 +20,7 @@ export function normalizeRoute(value: unknown): GenerationRoute {
 }
 
 /**
- * 宫格是否生效 — mirrors lib/project_manager.py:grid_storyboard_enabled()。
+ * 宫格是否生效 — mirrors lib/project/project_manager.py:grid_storyboard_enabled()。
  * 参考生视频上残留的 `grid_storyboard=true` 不激活宫格。
  */
 export function gridStoryboardEnabled(

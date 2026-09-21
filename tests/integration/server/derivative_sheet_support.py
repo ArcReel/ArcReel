@@ -18,12 +18,12 @@ from typing import Any
 import httpx
 from PIL import Image
 
-from lib.artifact_manifest import ArtifactKey
-from lib.asset_types import DERIVATIVES_FIELD
-from lib.media_generator import MediaGenerator
-from lib.project_manager import ProjectManager
+from lib.artifacts.artifact_manifest import ArtifactKey
+from lib.generation.media_generator import MediaGenerator
+from lib.project.asset_types import DERIVATIVES_FIELD
+from lib.project.project_manager import ProjectManager
 from tests.fakes import FakeConfigResolver
-from tests.integration.server.services.generation_tasks_support import register_stale_visual_claim
+from tests.integration.server.services.tasks.generation_tasks_support import register_stale_visual_claim
 
 #: 本体资产图的可辨识内容：左右两半各一个纯色块，压缩后仍能按像素认出来。
 OWNER_SHEET_SIZE = (96, 48)
@@ -170,10 +170,10 @@ def run_derivative_generation(
     derivative: str = "战斗装",
 ) -> bytes:
     """跑一次真实的衍生资产图生成（出站请求由 respx 应答），返回落盘的图片字节。"""
-    from lib.image_backends.dashscope import DashScopeImageBackend
-    from server.services import derivative_sheet_tasks, generation_tasks
+    from lib.backends.image_backends.dashscope import DashScopeImageBackend
+    from server.services.tasks import derivative_sheet_tasks, generation_tasks
     from tests.http_capture import capture_http
-    from tests.integration.server.services.generation_tasks_support import fake_resolve_ctx
+    from tests.integration.server.services.tasks.generation_tasks_support import fake_resolve_ctx
 
     generator = build_generator(project_path, DashScopeImageBackend(api_key="sk", model="qwen-image-2.0"))
     monkeypatch.setattr(derivative_sheet_tasks, "get_project_manager", lambda: pm)

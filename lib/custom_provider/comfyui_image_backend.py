@@ -26,16 +26,16 @@ from uuid import uuid4
 
 import httpx
 
+from lib.backends.image_backends.base import (
+    ImageCapability,
+    ImageGenerationRequest,
+    ImageGenerationResult,
+)
 from lib.custom_provider.comfyui.bindings import targets_of
 from lib.custom_provider.comfyui.capabilities import takes_reference_images
 from lib.custom_provider.comfyui.request_builder import MediaInputs, build_workflow
 from lib.custom_provider.comfyui_client import ComfyuiClient, client_id_for, upload_filename
 from lib.custom_provider.comfyui_execution import HTTP_TIMEOUT_SECONDS, ComfyuiExecution
-from lib.image_backends.base import (
-    ImageCapability,
-    ImageGenerationRequest,
-    ImageGenerationResult,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +54,7 @@ IMAGE_POLL_TIMEOUT_SECONDS = 1800
 class ComfyuiImageBackend:
     """把一份 ComfyUI 端点定义跑成一张图。
 
-    实现 ``lib.image_backends.base.ImageBackend`` 协议。一次生成的四段与视频通道同构：上传参考图
+    实现 ``lib.backends.image_backends.base.ImageBackend`` 协议。一次生成的四段与视频通道同构：上传参考图
     换回服务端认的引用名 → 在底稿深拷贝上构造实发 workflow → ``POST /prompt`` 拿 ``prompt_id`` →
     轮询 ``/history`` 到终态后按 ``output`` 绑定取产物下载入库。
     """

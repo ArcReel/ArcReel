@@ -10,7 +10,7 @@ import pytest
 
 import lib.db
 import server.app as app_module
-from lib.project_migrations.runner import CURRENT_SCHEMA_VERSION
+from lib.project.project_migrations.runner import CURRENT_SCHEMA_VERSION
 from server.routers import assistant as assistant_router
 
 

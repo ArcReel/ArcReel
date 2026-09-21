@@ -21,13 +21,13 @@ from typing import Any, Literal
 
 import httpx
 
-from lib.agent_provider_catalog import CUSTOM_SENTINEL_ID, get_preset
+from lib.agent.agent_provider_catalog import CUSTOM_SENTINEL_ID, get_preset
 from lib.config.url_utils import (
     ANTHROPIC_MESSAGES_PATH,
     anthropic_endpoint_url,
     validate_anthropic_base_url,
 )
-from lib.httpx_shared import get_http_client
+from lib.infra.httpx_shared import get_http_client
 
 logger = logging.getLogger(__name__)
 

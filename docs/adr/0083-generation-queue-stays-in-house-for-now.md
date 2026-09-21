@@ -4,7 +4,7 @@ status: accepted
 
 # 生成任务队列现阶段保持自研，不引入第三方任务队列库
 
-生成任务的持久化、认领、并发与重启自愈由 ArcReel 自己实现（`lib/generation_queue.py`、`lib/generation_worker.py`、`lib/db/repositories/task_repo.py`），没有建立在 Celery、dramatiq、arq、taskiq、procrastinate、APScheduler 之类的任务队列库之上。我们评估过换库，决定现阶段不换，理由有两条，缺一条结论都会不同。
+生成任务的持久化、认领、并发与重启自愈由 ArcReel 自己实现（`lib/generation/generation_queue.py`、`lib/generation/generation_worker.py`、`lib/db/repositories/task_repo.py`），没有建立在 Celery、dramatiq、arq、taskiq、procrastinate、APScheduler 之类的任务队列库之上。我们评估过换库，决定现阶段不换，理由有两条，缺一条结论都会不同。
 
 第一，受支持的部署形态里找不到成熟的候选。ArcReel 要能以「默认 SQLite、不依赖任何额外服务、Windows 原生可跑」的单机形态运行，队列状态与业务状态同在一个 `DATABASE_URL` 指向的库里（ADR 0020），SQLite 与 PostgreSQL 两种方言都要支持。各候选的阻断条件不同，但都落在同一处——要么得在应用之外再起一个消息服务，要么不能把任务状态持久化进与业务状态同一个、两种方言皆可的库：
 

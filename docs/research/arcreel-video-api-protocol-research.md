@@ -9,7 +9,7 @@
 
 ## 0. 调研范围与定位
 
-本报告是**调研性质**的素材汇编，**不包含**具体的目录结构、Adapter 类设计、实施计划。这些内容应在后续 PRD 和设计文档阶段，基于 ArcReel 当前 `lib/video_backends/` + `lib/custom_provider/` 架构产出。
+本报告是**调研性质**的素材汇编，**不包含**具体的目录结构、Adapter 类设计、实施计划。这些内容应在后续 PRD 和设计文档阶段，基于 ArcReel 当前 `lib/backends/video_backends/` + `lib/custom_provider/` 架构产出。
 
 调研覆盖的问题：
 1. 中转站视频 API 端口格式有哪些事实标准
@@ -34,14 +34,14 @@
 
 ### 1.1 视频 backend 抽象层
 
-ArcReel 已在 `lib/video_backends/` 建立成熟的视频生成抽象：
+ArcReel 已在 `lib/backends/video_backends/` 建立成熟的视频生成抽象：
 
 | 关键元素 | 位置 | 说明 |
 |---|---|---|
-| `VideoBackend` Protocol | `lib/video_backends/base.py` | 鸭子类型契约，要求 `name` / `model` / `capabilities` / `generate()` |
-| `VideoCapability` 枚举 | `lib/video_backends/base.py` | 能力位图：`TEXT_TO_VIDEO` / `IMAGE_TO_VIDEO` / `GENERATE_AUDIO` / `NEGATIVE_PROMPT` / `VIDEO_EXTEND` / `SEED_CONTROL` / `FLEX_TIER` |
+| `VideoBackend` Protocol | `lib/backends/video_backends/base.py` | 鸭子类型契约，要求 `name` / `model` / `capabilities` / `generate()` |
+| `VideoCapability` 枚举 | `lib/backends/video_backends/base.py` | 能力位图：`TEXT_TO_VIDEO` / `IMAGE_TO_VIDEO` / `GENERATE_AUDIO` / `NEGATIVE_PROMPT` / `VIDEO_EXTEND` / `SEED_CONTROL` / `FLEX_TIER` |
 | `VideoGenerationRequest` / `VideoGenerationResult` | 同上 | 统一请求/响应数据类 |
-| `register_backend(name, factory)` | `lib/video_backends/registry.py` | 注册机制 |
+| `register_backend(name, factory)` | `lib/backends/video_backends/registry.py` | 注册机制 |
 | 已有 backend 实现 | `gemini.py` / `ark.py` / `grok.py` / `openai.py` / `newapi.py` / `vidu.py` | 6 家供应商 |
 
 **ArcReel 词汇表约定**：用 **backend**（按 provider + model 构造、真正调用 API 的客户端对象）指代生成后端，术语表 `_Avoid` 标注避免使用 `adapter` 一词。其本质是 Ports & Adapters 范式中的 Adapter 角色，但 ArcReel 统称 backend 以保持与 provider 派生语义、frontend 对仗、三套媒体后端的命名一致（与 SQLAlchemy / Django 用 backend 命名同类角色的惯例一致）。架构对齐的讨论见 9.1。
@@ -484,7 +484,7 @@ ArcReel 当前**自定义供应商接入流程已经存在且不需要重新设�
 6. 保存到 `custom_provider` + `custom_provider_model` 表
 
 **新增协议（如 Kling 官方、DashScope）的工程动作**：
-1. 在 `lib/video_backends/` 新建 backend 类（实现 `VideoBackend` Protocol）
+1. 在 `lib/backends/video_backends/` 新建 backend 类（实现 `VideoBackend` Protocol）
 2. 在 `ENDPOINT_REGISTRY` 注册新 endpoint key 和 build_backend 闭包
 3. 在 `infer_endpoint()` 加启发式规则
 4. 在 i18n 文件加 `endpoint_xxx_display` 三语
@@ -499,7 +499,7 @@ ArcReel 当前**自定义供应商接入流程已经存在且不需要重新设�
 | 场景 | 描述 | 当前支持度 |
 |---|---|---|
 | **场景 A：协议已支持，接新中转站** | 用户找到一家新的 NewAPI / 流派 C 聚合站 / OpenAI 兼容站 | ✅ 纯 UI 操作，零代码（7.3 已述） |
-| **场景 B：协议未支持，需新增协议适配** | 用户想接 Kling 官方（JWT）/ DashScope（特殊 header）/ 某个全新的私有中转协议 | ⚠️ 当前需改 `lib/video_backends/` + `ENDPOINT_REGISTRY` 源码 |
+| **场景 B：协议未支持，需新增协议适配** | 用户想接 Kling 官方（JWT）/ DashScope（特殊 header）/ 某个全新的私有中转协议 | ⚠️ 当前需改 `lib/backends/video_backends/` + `ENDPOINT_REGISTRY` 源码 |
 
 **场景 A 占绝大多数用户需求**，体验已经很顺畅。**场景 B 当前存在体验断层**——接新协议必须改源码、重新构建、走 PR 或本地 fork。运行时 plugin 功能正是为了消除场景 B 的断层、支持社区化协议分享。
 
@@ -529,7 +529,7 @@ ArcReel 当前**自定义供应商接入流程已经存在且不需要重新设�
        return _BACKEND_FACTORIES[name](**kwargs)
    ```
 
-2. **注册时机是模块 import**。`lib/video_backends/__init__.py` 在加载时显式 `register_backend(PROVIDER_GROK, GrokVideoBackend)` 等，把所有内置 backend 注册进字典。`register_backend()` 本身已经是公开 API，**运行时再调一次完全合法**——这是运行时 plugin 的天然切入点。
+2. **注册时机是模块 import**。`lib/backends/video_backends/__init__.py` 在加载时显式 `register_backend(PROVIDER_GROK, GrokVideoBackend)` 等，把所有内置 backend 注册进字典。`register_backend()` 本身已经是公开 API，**运行时再调一次完全合法**——这是运行时 plugin 的天然切入点。
 
 3. **协议归属在 `ENDPOINT_REGISTRY`（静态字典）**。`CustomProviderModel.endpoint` 字段只能取 `ENDPOINT_REGISTRY` 已注册的 key。这是当前最大的运行时扩展障碍：**用户即使运行时注册了新 backend，也无法注册新的 endpoint key 供模型挂载**。
 
@@ -682,7 +682,7 @@ ArcReel 需要在 channel 配置层维护 model name 别名映射，或者在 `i
 
 ### 9.1 架构对齐评估（先于具体协议接入决策）
 
-> 这一组是**比单个协议接入更高层的决策**：在大规模新增协议之前，先评估当前 `lib/video_backends/` + `lib/custom_provider/` 架构是否需要对齐业内成熟实现做调整。**重要前提：避免被命名带偏。**
+> 这一组是**比单个协议接入更高层的决策**：在大规模新增协议之前，先评估当前 `lib/backends/video_backends/` + `lib/custom_provider/` 架构是否需要对齐业内成熟实现做调整。**重要前提：避免被命名带偏。**
 
 **关于命名（先澄清，避免误导）**：
 - ArcReel 当前的 `VideoBackend` Protocol + 各 `XxxVideoBackend` 实现，**本质上已经是业内推崇的 Ports & Adapters（六边形架构）范式**——Protocol 即 Port，各 backend 即 Adapter。架构骨架已对齐优秀实践。
@@ -760,5 +760,5 @@ ArcReel 需要在 channel 配置层维护 model name 别名映射，或者在 `i
 ---
 
 **报告版本**：v1（最终调研版）
-**对齐架构**：ArcReel `lib/video_backends/` + `lib/custom_provider/` + `ENDPOINT_REGISTRY`
+**对齐架构**：ArcReel `lib/backends/video_backends/` + `lib/custom_provider/` + `ENDPOINT_REGISTRY`
 **下一步**：基于本报告撰写具体 endpoint 接入的 PRD 和设计文档

@@ -2,8 +2,8 @@
  * Project-related type definitions.
  *
  * Maps to backend models in:
- * - lib/project_manager.py (ProjectOverview, project.json structure)
- * - lib/workflow_state.py (ProjectStatus / EpisodeMeta read-time fields, from the project summary)
+ * - lib/project/project_manager.py (ProjectOverview, project.json structure)
+ * - lib/workflow/workflow_state.py (ProjectStatus / EpisodeMeta read-time fields, from the project summary)
  * - server/routers/projects.py (ProjectSummary list response)
  */
 
@@ -146,7 +146,7 @@ export interface EpisodeMeta {
   videos?: ArtifactCount;
 }
 
-/** 角色声音绑定方式；与后端 `lib.character_voice.CharacterVoiceBinding` 一一对应，取值增减须两侧同步。 */
+/** 角色声音绑定方式；与后端 `lib.speech.character_voice.CharacterVoiceBinding` 一一对应，取值增减须两侧同步。 */
 export type CharacterVoiceBinding = "prompt" | "reference_audio";
 
 /** 未声明时的取值：提示词软约束。参考音频是可选增强，须由用户显式选择才生效。 */

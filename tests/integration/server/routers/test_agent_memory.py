@@ -10,11 +10,11 @@ import pytest
 from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
 
-from lib.agent_memory_paths import project_memory_dir, user_memory_dir
-from lib.agent_memory_store import INDEX_FILENAME, MAX_FILE_BYTES
+from lib.agent.agent_memory_paths import project_memory_dir, user_memory_dir
+from lib.agent.agent_memory_store import INDEX_FILENAME, MAX_FILE_BYTES
 from lib.i18n.zh import errors as zh_errors
-from lib.project_manager import ProjectManager
-from lib.project_migration_failure import record_migration_failure
+from lib.project.project_manager import ProjectManager
+from lib.project.project_migration_failure import record_migration_failure
 from server.dependencies import require_project_migration_ok
 from server.error_handlers import register_error_handlers
 from server.routers import agent_memory
@@ -209,7 +209,7 @@ class TestProjectScoping:
         assert client.get(PROJECT_BASE).json()["files"] == []
 
     def test_blocked_migration_freezes_project_writes_but_not_reads(self, client, projects_root, monkeypatch):
-        import lib.project_migration_guard as guard
+        import lib.project.project_migration_guard as guard
 
         client.put(f"{PROJECT_BASE}/files/tone.md", content=b"body")
         record_migration_failure(projects_root / "demo", RuntimeError("broken chain"), schema_version=1)

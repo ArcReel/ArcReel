@@ -2,9 +2,9 @@
 
 import json
 
-from lib.artifact_manifest import ArtifactKey, ArtifactManifestEntry, ProjectArtifactManifestAdapter
+from lib.artifacts.artifact_manifest import ArtifactKey, ArtifactManifestEntry, ProjectArtifactManifestAdapter
 from lib.i18n.zh import errors as zh_errors
-from lib.project_manager import ProjectManager
+from lib.project.project_manager import ProjectManager
 from tests.integration.server.routers.projects_router_support import (
     _FakePM,
     build_projects_client,

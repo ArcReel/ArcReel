@@ -1,0 +1,1051 @@
+"""Transactional batch editing for complete episode-script aggregates.
+
+The module is the single admission and commit seam used by transport adapters.  It applies
+an ordered command to an in-memory candidate, validates the whole aggregate, checks
+optimistic concurrency under the episode lock, then commits the script, project index, and
+applicable Artifact Manifest entry as one recoverable operation.
+"""
+
+from __future__ import annotations
+
+import copy
+import logging
+import re
+from collections.abc import Callable, Mapping
+from pathlib import Path
+from typing import Annotated, Any, Literal, Protocol
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from lib.artifacts.artifact_activation import (
+    prepare_episode_script_manifest_commit,
+)
+from lib.artifacts.artifact_manifest import (
+    ArtifactManifestAdapter,
+    ArtifactManifestError,
+    ProjectArtifactManifestAdapter,
+)
+from lib.episode.episode_ledger import discover_sources, normalize_source_text
+from lib.episode.episode_paths import episode_script_filename, episode_source_relpath
+from lib.infra.content_digest import prefixed
+from lib.infra.path_safety import try_safe_join
+from lib.infra.validation_messages import ValidationMessage
+from lib.project.data_validator import DataValidator
+from lib.project.project_manager import EpisodeScriptReboundError, ProjectManager
+from lib.project.project_migration_failure import (
+    MIGRATION_FAILURE_CODE,
+    RETRY_MIGRATION_ACTION,
+    ProjectMigrationError,
+    load_migration_verdict,
+)
+from lib.script.reference_video.draft_validation import is_verbatim_source_anchor
+from lib.script.script_editor import ScriptEditError, patch_field, resolve_items
+from lib.script.script_models import PENDING_AUTHORING_FIELD
+from lib.script.script_review import content_fingerprint_of_data
+from lib.script.script_structure_validator import validate_script_structure
+from lib.script.storyboard_mentions import storyboard_mention_warnings
+from lib.speech.speech_composition import SpeechAdmission, admit_script_unit, refresh_video_unit_replan_state
+
+_REVISION_PATTERN = r"^sha256-v1:[0-9a-f]{64}$"
+
+#: 各条目形态的视觉层字段。参考生视频单元的正文即其视觉层。
+_VISUAL_LAYER_FIELDS: dict[str, tuple[str, ...]] = {
+    "segments": ("image_prompt", "video_prompt"),
+    "scenes": ("image_prompt", "video_prompt"),
+    "shots": ("image_prompt", "video_prompt"),
+    "video_units": ("text",),
+}
+
+logger = logging.getLogger(__name__)
+
+
+class UpdateOperation(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    op: Literal["update"]
+    id: str = Field(min_length=1)
+    fields: dict[str, Any] = Field(min_length=1)
+
+
+class InsertAfterOperation(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    op: Literal["insert_after"]
+    after_id: str | None
+    item: dict[str, Any]
+
+
+class MoveAfterOperation(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    op: Literal["move_after"]
+    id: str = Field(min_length=1)
+    after_id: str | None
+
+
+class RemoveOperation(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    op: Literal["remove"]
+    id: str = Field(min_length=1)
+
+
+ScriptBatchOperation = Annotated[
+    UpdateOperation | InsertAfterOperation | MoveAfterOperation | RemoveOperation,
+    Field(discriminator="op"),
+]
+
+
+class ScriptBatchEditCommand(BaseModel):
+    """Transport-neutral ordered edit command.
+
+    Exactly one target coordinate is accepted: ``episode`` resolves the project ledger
+    binding, while ``script`` addresses an already known script filename. Episode-scoped
+    compatibility adapters may also pin the binding they originally loaded so a same-content
+    rebind cannot evade the revision check.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    script: str | None = Field(default=None, min_length=1)
+    episode: int | None = Field(default=None, ge=1, strict=True)
+    expected_script_file: str | None = Field(default=None, min_length=1)
+    expected_revision: str = Field(pattern=_REVISION_PATTERN)
+    operations: list[ScriptBatchOperation] = Field(min_length=1)
+
+    @field_validator("script", "expected_script_file")
+    @classmethod
+    def _safe_script_filename(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.removeprefix("scripts/")
+        if (
+            not normalized
+            or normalized in {".", ".."}
+            or "/" in normalized
+            or "\\" in normalized
+            or not normalized.endswith(".json")
+        ):
+            raise ValueError("script must be a JSON filename, optionally prefixed by scripts/")
+        return value
+
+    @model_validator(mode="after")
+    def _exactly_one_target(self) -> ScriptBatchEditCommand:
+        if (self.script is None) == (self.episode is None):
+            raise ValueError("exactly one of script or episode is required")
+        if self.expected_script_file is not None and self.episode is None:
+            raise ValueError("expected_script_file requires an episode target")
+        return self
+
+
+class ScriptBatchEditLocation(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    path: tuple[str | int, ...]
+    line: int | None = None
+
+
+class ScriptBatchEditProblem(BaseModel):
+    """Stable machine-facing failure detail shared by REST and MCP adapters."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    code: str
+    operation_index: int | None
+    unit_id: str | None
+    locations: tuple[ScriptBatchEditLocation, ...] = ()
+    reason: str
+    next_action: str
+
+
+class ScriptBatchEditResult(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    success: bool
+    script: str
+    episode: int | None
+    before_revision: str
+    revision: str
+    affected_ids: tuple[str, ...] = ()
+    problems: tuple[ScriptBatchEditProblem, ...] = ()
+    #: 提交成功后对受影响条目的提示（如画面描述里没绑定参考图的 ``@[名称]``），
+    #: locale-neutral 的 ``{"key", "params"}`` 条目，不影响 ``success``。
+    warnings: tuple[dict[str, Any], ...] = ()
+
+
+class _ManifestAdapterFactory(Protocol):
+    def __call__(self, project_dir: Path) -> ArtifactManifestAdapter:
+        raise NotImplementedError
+
+
+class _AbortEdit(Exception):
+    def __init__(self, result: ScriptBatchEditResult) -> None:
+        super().__init__(result.problems[0].code if result.problems else "script_batch_edit_rejected")
+        self.result = result
+
+
+class _OperationApplyError(ScriptEditError):
+    def __init__(self, message: str, *, location: tuple[str | int, ...]) -> None:
+        super().__init__(message)
+        self.location = location
+
+
+def script_revision(script: object) -> str:
+    """Return the canonical JSON optimistic-concurrency token for a script aggregate."""
+
+    return prefixed(content_fingerprint_of_data(script))
+
+
+class ScriptBatchEditor:
+    """Preflight and commit ordered script operations through one deep public interface."""
+
+    def __init__(
+        self,
+        project_manager: ProjectManager,
+        *,
+        manifest_adapter_factory: _ManifestAdapterFactory = ProjectArtifactManifestAdapter,
+    ) -> None:
+        self._pm = project_manager
+        self._manifest_adapter_factory = manifest_adapter_factory
+
+    def execute(
+        self,
+        project_name: str,
+        command: ScriptBatchEditCommand,
+        *,
+        fresh_insert_indexes: frozenset[int] = frozenset(),
+    ) -> ScriptBatchEditResult:
+        """Commit a command; marked inserts create fresh identities even when an ID is reused."""
+
+        # 迁移裁决先于任何解析与写入：清单是读取已生成产物的唯一口径，未升级的项目没有
+        # 清单可写。放在入口而不是提交处，是因为提交前有几条早退（如剧本集号不成立就
+        # 不预备清单提交），逐条补闸会漏，入口一道闸对所有路径同时成立。
+        verdict = load_migration_verdict(self._pm.get_project_path(project_name))
+        if verdict is not None:
+            return self._failure(
+                script=self._pm.normalize_script_filename(command.script) if command.script is not None else "",
+                episode=command.episode,
+                revision=command.expected_revision,
+                code=MIGRATION_FAILURE_CODE,
+                reason=verdict.reason,
+                next_action=RETRY_MIGRATION_ACTION,
+            )
+        expected_script_file = (
+            self._pm.normalize_script_filename(command.expected_script_file)
+            if command.expected_script_file is not None
+            else None
+        )
+        resolved_script = (
+            self._pm.normalize_script_filename(command.script)
+            if command.script is not None
+            else expected_script_file or episode_script_filename(command.episode or 0)
+        )
+        episode_number: int | None = command.episode
+        before_revision = command.expected_revision
+        affected_ids: list[str] = []
+        fresh_insert_ids: set[str] = set()
+        commit_manifest: Callable[[], None] | None = None
+        resolved_project: dict[str, Any] = {}
+
+        def resolve_script_file(project: dict[str, Any]) -> str:
+            nonlocal resolved_script
+            resolved_project["value"] = project
+            if command.script is not None:
+                resolved_script = self._pm.normalize_script_filename(command.script)
+                return resolved_script
+            episodes = project.get("episodes")
+            if not isinstance(episodes, list):
+                raise FileNotFoundError(f"episode {command.episode} has no script binding")
+            entry = next(
+                (item for item in episodes if isinstance(item, Mapping) and item.get("episode") == command.episode),
+                None,
+            )
+            if entry is None or not isinstance(entry.get("script_file"), str):
+                raise FileNotFoundError(f"episode {command.episode} has no script binding")
+            bound_script = self._pm.normalize_script_filename(entry["script_file"])
+            if expected_script_file is not None and bound_script != expected_script_file:
+                raise EpisodeScriptReboundError(
+                    f"episode script binding changed: {expected_script_file} -> {bound_script}"
+                )
+            resolved_script = bound_script
+            return resolved_script
+
+        def finalize_manifest(_script_path: Path) -> None:
+            if commit_manifest is not None:
+                commit_manifest()
+
+        try:
+            with self._pm.locked_episode_script(
+                project_name,
+                resolve_script_file,
+                on_commit=finalize_manifest,
+            ) as candidate:
+                before_revision = script_revision(candidate)
+                episode_value = candidate.get("episode")
+                if command.episode is None and isinstance(episode_value, int) and not isinstance(episode_value, bool):
+                    episode_number = episode_value
+                if command.expected_revision != before_revision:
+                    raise _AbortEdit(
+                        self._failure(
+                            script=resolved_script,
+                            episode=episode_number,
+                            revision=before_revision,
+                            code="revision_conflict",
+                            reason="revision_mismatch",
+                            next_action="refresh_script",
+                        )
+                    )
+
+                expected_episode = command.episode or _filename_episode(resolved_script)
+                if expected_episode is not None and episode_value != expected_episode:
+                    raise _AbortEdit(
+                        self._failure(
+                            script=resolved_script,
+                            episode=episode_number,
+                            revision=before_revision,
+                            code="schema_invalid",
+                            reason="episode_binding_mismatch",
+                            next_action="refresh_script",
+                            locations=(ScriptBatchEditLocation(path=("episode",)),),
+                        )
+                    )
+
+                original = copy.deepcopy(candidate)
+                project = resolved_project["value"]
+                try:
+                    before_admissions = _admissions(original)
+                except ScriptEditError as exc:
+                    kind = exc.params.get("kind")
+                    locations = (ScriptBatchEditLocation(path=(kind,)),) if isinstance(kind, str) else ()
+                    raise _AbortEdit(
+                        self._failure(
+                            script=resolved_script,
+                            episode=episode_number,
+                            revision=before_revision,
+                            code="schema_invalid",
+                            reason="stored_schema_invalid",
+                            next_action="repair_script",
+                            locations=locations,
+                        )
+                    ) from exc
+                last_touch: dict[str, int] = {}
+                speech_change: dict[str, int] = {}
+                removed_items: dict[str, dict[str, Any]] = {}
+
+                for index, operation in enumerate(command.operations):
+                    try:
+                        item_id, before_admission, after_admission = _apply_operation(
+                            candidate,
+                            operation,
+                            removed_items,
+                            preserve_removed_assets=index not in fresh_insert_indexes,
+                        )
+                    except ScriptEditError as exc:
+                        raise _AbortEdit(
+                            self._failure(
+                                script=resolved_script,
+                                episode=episode_number,
+                                revision=before_revision,
+                                code="operation_invalid",
+                                reason="operation_invalid",
+                                next_action="fix_operation",
+                                operation_index=index,
+                                unit_id=_operation_id(operation),
+                                locations=(_operation_error_location(index, operation, exc),),
+                            )
+                        ) from exc
+                    if item_id is not None:
+                        if index in fresh_insert_indexes and isinstance(operation, InsertAfterOperation):
+                            fresh_insert_ids.add(item_id)
+                        last_touch[item_id] = index
+                        if item_id not in affected_ids:
+                            affected_ids.append(item_id)
+                        if before_admission != after_admission:
+                            speech_change[item_id] = index
+
+                # 分镜图生视频的一集至少保留一个分镜：空集合能过结构校验，却让该集在工作流中阻塞、
+                # 时间线也没有新增入口。参考生视频画布可从空集合新增单元，不受此限。按整批结果判定
+                # 而不是在单条 remove 处判定，同批先删后插（拆分锚点、整体替换）照常成立。
+                remaining_items, _remaining_id_field, collection_kind = resolve_items(candidate)
+                if not remaining_items and collection_kind != "video_units":
+                    last_remove = max(
+                        (i for i, op in enumerate(command.operations) if isinstance(op, RemoveOperation)),
+                        default=None,
+                    )
+                    raise _AbortEdit(
+                        self._failure(
+                            script=resolved_script,
+                            episode=episode_number,
+                            revision=before_revision,
+                            code="schema_invalid",
+                            reason="script_collection_empty",
+                            next_action="fix_operation",
+                            operation_index=last_remove,
+                            unit_id=_operation_id(command.operations[last_remove]) if last_remove is not None else None,
+                            locations=(ScriptBatchEditLocation(path=(collection_kind,)),),
+                        )
+                    )
+
+                speech_problems = _new_speech_problems(
+                    candidate,
+                    before_admissions=before_admissions,
+                    speech_change=speech_change,
+                    last_touch=last_touch,
+                )
+                if speech_problems:
+                    raise _AbortEdit(
+                        ScriptBatchEditResult(
+                            success=False,
+                            script=resolved_script,
+                            episode=episode_number,
+                            before_revision=before_revision,
+                            revision=before_revision,
+                            affected_ids=(),
+                            problems=tuple(speech_problems),
+                        )
+                    )
+
+                structure = validate_script_structure(copy.deepcopy(candidate))
+                if not structure.valid:
+                    message = structure.error_messages[0]
+                    location = _validation_location(message)
+                    item_id = _unit_id_at_location(candidate, location.path)
+                    operation_index = _responsible_operation(
+                        item_id,
+                        location.path,
+                        command.operations,
+                    )
+                    raise _AbortEdit(
+                        self._failure(
+                            script=resolved_script,
+                            episode=episode_number,
+                            revision=before_revision,
+                            code="schema_invalid",
+                            reason="candidate_schema_invalid",
+                            next_action="fix_operation" if operation_index is not None else "repair_script",
+                            operation_index=operation_index,
+                            unit_id=item_id,
+                            locations=(location,),
+                        )
+                    )
+
+                project_dir = self._pm.get_project_path(project_name)
+                source_text_problems = _source_text_problems(
+                    project_dir,
+                    episode_number,
+                    original,
+                    candidate,
+                    command.operations,
+                )
+                if source_text_problems:
+                    raise _AbortEdit(
+                        ScriptBatchEditResult(
+                            success=False,
+                            script=resolved_script,
+                            episode=episode_number,
+                            before_revision=before_revision,
+                            revision=before_revision,
+                            affected_ids=(),
+                            problems=source_text_problems,
+                        )
+                    )
+                reference_validation = DataValidator(self._pm.projects_root).validate_episode_payload(
+                    project_dir,
+                    project,
+                    candidate,
+                    validate_artifacts=False,
+                    validate_route=False,
+                )
+                validation_errors = _candidate_validation_errors(candidate, reference_validation.error_messages)
+                if validation_errors:
+                    message = validation_errors[0]
+                    location = _validation_location(message)
+                    item_id = _unit_id_at_location(candidate, location.path)
+                    operation_index = _responsible_operation(
+                        item_id,
+                        location.path,
+                        command.operations,
+                    )
+                    raise _AbortEdit(
+                        self._failure(
+                            script=resolved_script,
+                            episode=episode_number,
+                            revision=before_revision,
+                            code="references_invalid",
+                            reason="candidate_references_invalid",
+                            next_action="fix_operation" if operation_index is not None else "repair_script",
+                            operation_index=operation_index,
+                            unit_id=item_id,
+                            locations=(location,),
+                        )
+                    )
+
+                try:
+                    final_items, final_id_field, _kind = resolve_items(candidate)
+                    final_ids = {
+                        item[final_id_field] for item in final_items if isinstance(item.get(final_id_field), str)
+                    }
+                    commit_manifest = self._prepare_manifest_commit(
+                        project_dir=project_dir,
+                        project=project,
+                        script=candidate,
+                        script_file=resolved_script,
+                        resource_ids=frozenset(final_ids),
+                        removed_resource_ids=frozenset(affected_ids) - final_ids,
+                        replaced_resource_ids=frozenset(fresh_insert_ids),
+                    )
+                except ProjectMigrationError:
+                    # 项目未升级到当前数据版本，交给外层按迁移口径回执；它同时是
+                    # ArtifactManifestError 与 ValueError，不先接住就会被下面这条泛化成
+                    # 「清单不可用、请重试」。
+                    raise
+                except (ArtifactManifestError, OSError, UnicodeError, ValueError) as exc:
+                    raise _AbortEdit(
+                        self._failure(
+                            script=resolved_script,
+                            episode=episode_number,
+                            revision=before_revision,
+                            code="manifest_invalid",
+                            reason="artifact_manifest_unavailable",
+                            next_action="retry",
+                        )
+                    ) from exc
+        except _AbortEdit as exc:
+            return exc.result
+        except FileNotFoundError:
+            raise
+        except EpisodeScriptReboundError:
+            return self._failure(
+                script=resolved_script,
+                episode=episode_number,
+                revision=before_revision,
+                code="revision_conflict",
+                reason="script_binding_changed",
+                next_action="refresh_script",
+            )
+        except ProjectMigrationError as exc:
+            # 未升级到当前数据版本的项目在提交清单时被阻断。这条要带着迁移的原因与动作回去：
+            # 泛化成 commit_failed/retry 会让调用方原样重试，而重试永远不会让项目完成迁移。
+            return self._failure(
+                script=resolved_script,
+                episode=episode_number,
+                revision=before_revision,
+                code=MIGRATION_FAILURE_CODE,
+                reason=exc.violation,
+                next_action=RETRY_MIGRATION_ACTION,
+            )
+        except Exception:
+            logger.exception("script batch edit commit failed")
+            return self._failure(
+                script=resolved_script,
+                episode=episode_number,
+                revision=before_revision,
+                code="commit_failed",
+                reason="durable_commit_failed",
+                next_action="retry",
+            )
+
+        revision = script_revision(candidate)
+        return ScriptBatchEditResult(
+            success=True,
+            script=resolved_script,
+            episode=episode_number,
+            before_revision=before_revision,
+            revision=revision,
+            affected_ids=tuple(affected_ids),
+            warnings=tuple(storyboard_mention_warnings(project, candidate, unit_ids=affected_ids)),
+        )
+
+    def _prepare_manifest_commit(
+        self,
+        *,
+        project_dir: Path,
+        project: dict[str, Any],
+        script: dict[str, Any],
+        script_file: str,
+        resource_ids: frozenset[str],
+        removed_resource_ids: frozenset[str],
+        replaced_resource_ids: frozenset[str],
+    ) -> Callable[[], None] | None:
+        episode = script.get("episode")
+        if not isinstance(episode, int) or isinstance(episode, bool) or episode < 1:
+            return None
+        artifact_path = f"scripts/{self._pm.normalize_script_filename(script_file)}"
+        return prepare_episode_script_manifest_commit(
+            project_dir,
+            episode=episode,
+            artifact_path=artifact_path,
+            resource_ids=tuple(sorted(resource_ids)),
+            removed_resource_ids=tuple(sorted(removed_resource_ids)),
+            replaced_resource_ids=tuple(sorted(replaced_resource_ids)),
+            adapter=self._manifest_adapter_factory(project_dir),
+        )
+
+    @staticmethod
+    def _failure(
+        *,
+        script: str,
+        episode: int | None,
+        revision: str,
+        code: str,
+        reason: str,
+        next_action: str,
+        operation_index: int | None = None,
+        unit_id: str | None = None,
+        locations: tuple[ScriptBatchEditLocation, ...] = (),
+    ) -> ScriptBatchEditResult:
+        return ScriptBatchEditResult(
+            success=False,
+            script=script,
+            episode=episode,
+            before_revision=revision,
+            revision=revision,
+            affected_ids=(),
+            problems=(
+                ScriptBatchEditProblem(
+                    code=code,
+                    operation_index=operation_index,
+                    unit_id=unit_id,
+                    locations=locations,
+                    reason=reason,
+                    next_action=next_action,
+                ),
+            ),
+        )
+
+
+#: 分镜图生视频各条目形态的空条目内容字段；时长沿用锚点分镜，视觉层留空待编写。
+_BLANK_ITEM_FIELDS: dict[str, dict[str, Any]] = {
+    "segments": {
+        "segment_break": False,
+        "novel_text": "",
+        "characters_in_segment": [],
+        "scenes": [],
+        "props": [],
+    },
+    "scenes": {
+        "segment_break": False,
+        "characters_in_scene": [],
+        "scenes": [],
+        "props": [],
+        "utterances": [],
+    },
+    "shots": {
+        "section": "",
+        "voiceover_text": "",
+        "characters_in_shot": [],
+        "scenes": [],
+        "props": [],
+        "products_in_shot": [],
+    },
+}
+
+
+def blank_item_after(script: dict[str, Any], after_id: str) -> dict[str, Any]:
+    """构造紧随 ``after_id`` 插入的空分镜（分镜图生视频的 segments / scenes / shots）。
+
+    id 为 ``E{集}S{序号}``，序号取本集现存主序号的最大值顺延，不回填中间空缺；只看现存条目，
+    因此末尾分镜被移除后再新增会取回其序号。集号取剧本 ``episode``，缺失时取锚点 id 的集号前缀。
+    视觉层留空，由批量编辑 insert 置待编写。
+    """
+    items, id_field, kind = resolve_items(script)
+    if kind not in _BLANK_ITEM_FIELDS:
+        raise ScriptEditError(f"{kind} does not support blank item insertion")
+    anchor = items[_find_index(items, id_field, after_id)]
+    episode = script.get("episode")
+    if not isinstance(episode, int) or isinstance(episode, bool) or episode < 1:
+        match = re.match(r"^E(\d+)S", after_id)
+        episode = int(match.group(1)) if match is not None else 1
+    existing = {str(item.get(id_field)) for item in items if isinstance(item, dict)}
+    pattern = re.compile(rf"^E{episode}S(\d+)(?:_\d+)?$")
+    numbers = [int(match.group(1)) for item_id in existing if (match := pattern.match(item_id)) is not None]
+    number = max(numbers, default=0) + 1
+    while (item_id := f"E{episode}S{number:02d}") in existing:
+        number += 1
+    duration = anchor.get("duration_seconds")
+    if isinstance(duration, float) and duration.is_integer():
+        # JSON 里的 5.0 与 5 是同一个整数时长，剧本结构校验同样接受。
+        duration = int(duration)
+    return {
+        id_field: item_id,
+        "duration_seconds": duration if isinstance(duration, int) and not isinstance(duration, bool) else 8,
+        **copy.deepcopy(_BLANK_ITEM_FIELDS[kind]),
+        "image_prompt": None,
+        "video_prompt": None,
+    }
+
+
+def _operation_id(operation: ScriptBatchOperation) -> str | None:
+    if isinstance(operation, InsertAfterOperation):
+        _items = operation.item
+        for field in ("segment_id", "scene_id", "shot_id", "unit_id"):
+            value = _items.get(field)
+            if isinstance(value, str):
+                return value
+        return None
+    return operation.id
+
+
+def _filename_episode(script_file: str) -> int | None:
+    match = re.search(r"episode[-_\s]*(\d+)", script_file, re.IGNORECASE)
+    return int(match.group(1)) if match is not None else None
+
+
+def _visual_layer_complete(kind: str, item: dict[str, Any]) -> bool:
+    """条目的视觉层字段都已写入非空值。"""
+    for field in _VISUAL_LAYER_FIELDS[kind]:
+        value = item.get(field)
+        if not (value.strip() if isinstance(value, str) else value):
+            return False
+    return True
+
+
+def _find_index(items: list[Any], id_field: str, item_id: str) -> int:
+    for index, item in enumerate(items):
+        if isinstance(item, dict) and str(item.get(id_field)) == item_id:
+            return index
+    raise ScriptEditError(f"item not found: {item_id}")
+
+
+def _admission_for(script: dict[str, Any], item_id: str) -> SpeechAdmission | None:
+    items, id_field, kind = resolve_items(script)
+    for item in items:
+        if isinstance(item, dict) and str(item.get(id_field)) == item_id:
+            return admit_script_unit(kind, item)
+    return None
+
+
+def _apply_operation(
+    script: dict[str, Any],
+    operation: ScriptBatchOperation,
+    removed_items: dict[str, dict[str, Any]],
+    *,
+    preserve_removed_assets: bool,
+) -> tuple[str | None, SpeechAdmission | None, SpeechAdmission | None]:
+    if isinstance(operation, UpdateOperation):
+        item_id = operation.id
+        before = _admission_for(script, item_id)
+        items, id_field, kind = resolve_items(script)
+        try:
+            item_index = _find_index(items, id_field, item_id)
+        except ScriptEditError as exc:
+            raise _OperationApplyError(str(exc), location=("id",)) from exc
+        item = items[item_index]
+        before_content_admission = admit_script_unit(kind, item, ignore_marker=True)
+        for field, value in operation.fields.items():
+            try:
+                patch_field(script, item_id, field, value)
+            except ScriptEditError as exc:
+                raise _OperationApplyError(
+                    f"{field}: {exc}",
+                    location=("fields", *_parse_path(field)),
+                ) from exc
+        roots = {field.split(".", 1)[0] for field in operation.fields}
+        # 手写视觉层等同编写完成：写入后视觉层齐备即清除待编写，默认编写不再覆盖它。
+        if roots & set(_VISUAL_LAYER_FIELDS[kind]) and _visual_layer_complete(kind, item):
+            item.pop(PENDING_AUTHORING_FIELD, None)
+        if kind == "video_units":
+            if roots & {"text", "duration_seconds"}:
+                refresh_video_unit_replan_state(item)
+        else:
+            after_content_admission = admit_script_unit(kind, item, ignore_marker=True)
+            if (
+                after_content_admission.preparation != before_content_admission.preparation
+                and after_content_admission.allowed
+            ):
+                item.pop("needs_replan", None)
+        return item_id, before, _admission_for(script, item_id)
+
+    if isinstance(operation, InsertAfterOperation):
+        items, id_field, kind = resolve_items(script)
+        item = copy.deepcopy(operation.item)
+        item_id = item.get(id_field)
+        if not isinstance(item_id, str) or not item_id:
+            raise _OperationApplyError(
+                f"inserted item must contain non-empty {id_field}",
+                location=("item", id_field),
+            )
+        if any(isinstance(existing, dict) and str(existing.get(id_field)) == item_id for existing in items):
+            raise _OperationApplyError(f"duplicate item id: {item_id}", location=("item", id_field))
+        if operation.after_id is None:
+            insert_at = 0
+        else:
+            try:
+                insert_at = _find_index(items, id_field, operation.after_id) + 1
+            except ScriptEditError as exc:
+                raise _OperationApplyError(str(exc), location=("after_id",)) from exc
+        removed = removed_items.pop(item_id, None)
+        if not preserve_removed_assets:
+            removed = None
+        # 待编写标记不接受调用方自带的值，只看插入的条目是否带齐视觉层；同 id 重插（拆分锚点、
+        # 先删后插）同样按此判定。
+        item.pop(PENDING_AUTHORING_FIELD, None)
+        if not _visual_layer_complete(kind, item):
+            item[PENDING_AUTHORING_FIELD] = True
+        if removed is None:
+            item["generated_assets"] = {}
+            item.pop("end_frame_image", None)
+        else:
+            assets = removed.get("generated_assets")
+            item["generated_assets"] = copy.deepcopy(assets) if isinstance(assets, dict) else {}
+            if removed.get("end_frame_image") is None:
+                item.pop("end_frame_image", None)
+            else:
+                item["end_frame_image"] = removed["end_frame_image"]
+        if kind == "video_units":
+            refresh_video_unit_replan_state(item)
+        items.insert(insert_at, item)
+        return item_id, None, _admission_for(script, item_id)
+
+    if isinstance(operation, MoveAfterOperation):
+        if operation.after_id == operation.id:
+            raise _OperationApplyError("move target cannot be its own anchor", location=("after_id",))
+        items, id_field, _kind = resolve_items(script)
+        try:
+            source_index = _find_index(items, id_field, operation.id)
+        except ScriptEditError as exc:
+            raise _OperationApplyError(str(exc), location=("id",)) from exc
+        before = _admission_for(script, operation.id)
+        item = items.pop(source_index)
+        if operation.after_id is None:
+            insert_at = 0
+        else:
+            try:
+                insert_at = _find_index(items, id_field, operation.after_id) + 1
+            except ScriptEditError as exc:
+                raise _OperationApplyError(str(exc), location=("after_id",)) from exc
+        items.insert(insert_at, item)
+        return operation.id, before, _admission_for(script, operation.id)
+
+    items, id_field, _kind = resolve_items(script)
+    try:
+        index = _find_index(items, id_field, operation.id)
+    except ScriptEditError as exc:
+        raise _OperationApplyError(str(exc), location=("id",)) from exc
+    before = _admission_for(script, operation.id)
+    removed_items[operation.id] = copy.deepcopy(items.pop(index))
+    return operation.id, before, None
+
+
+def _source_text_problems(
+    project_dir: Path,
+    episode: int | None,
+    original: dict[str, Any],
+    candidate: dict[str, Any],
+    operations: list[ScriptBatchOperation],
+) -> tuple[ScriptBatchEditProblem, ...]:
+    """本次写入的对应原文须是本集源文的逐字子串，与参考生视频拆分工具同一判定口径。
+
+    只查新增或改动过的非空 ``source_text``：未动的条目即使源文后来变了也不拦无关编辑，清空
+    对应原文始终允许。比对源文见 :func:`_anchor_sources`；项目没有源文时不校验。
+    """
+    items, id_field, kind = resolve_items(candidate)
+    original_items, original_id_field, _original_kind = resolve_items(original)
+    previous = {
+        item.get(original_id_field): item.get("source_text")
+        for item in original_items
+        if isinstance(item, dict) and isinstance(item.get(original_id_field), str)
+    }
+    written: list[tuple[int, str, str]] = []
+    for index, item in enumerate(items):
+        if not isinstance(item, dict):
+            continue
+        item_id = item.get(id_field)
+        source_text = item.get("source_text")
+        if not isinstance(item_id, str) or not isinstance(source_text, str) or not source_text.strip():
+            continue
+        if item_id in previous and previous[item_id] == source_text:
+            continue
+        written.append((index, item_id, source_text))
+    if not written:
+        return ()
+    sources = _anchor_sources(project_dir, episode)
+    problems: list[ScriptBatchEditProblem] = []
+    for index, item_id, source_text in written:
+        if not sources or any(is_verbatim_source_anchor(source_text, source) for source in sources):
+            continue
+        path: tuple[str | int, ...] = (kind, index, "source_text")
+        problems.append(
+            ScriptBatchEditProblem(
+                code="source_text_not_verbatim",
+                operation_index=_responsible_operation(item_id, path, operations),
+                unit_id=item_id,
+                locations=(ScriptBatchEditLocation(path=path),),
+                reason="source_text_not_verbatim",
+                next_action="fix_operation",
+            )
+        )
+    return tuple(problems)
+
+
+def _anchor_sources(project_dir: Path, episode: int | None) -> list[str]:
+    """对应原文的比对源文。
+
+    本集派生源文 ``source/episode_N.txt`` 可读且非空时只认它，与拆分工具生成对应原文时读的
+    是同一份；缺失或集号未知时回落到项目源文（命中任一份即可），项目也没有源文时返回空列表。
+    """
+    episode_source = (
+        None if episode is None else try_safe_join(project_dir, episode_source_relpath(episode), require_file=True)
+    )
+    if episode_source is not None:
+        try:
+            text = normalize_source_text(episode_source.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError):
+            text = ""
+        if text.strip():
+            return [text]
+    return [doc.text for doc in discover_sources(project_dir)]
+
+
+def _admissions(script: dict[str, Any]) -> dict[str, SpeechAdmission]:
+    items, id_field, kind = resolve_items(script)
+    return {
+        str(item.get(id_field)): admit_script_unit(kind, item)
+        for item in items
+        if isinstance(item, dict) and isinstance(item.get(id_field), str)
+    }
+
+
+def _candidate_validation_errors(
+    candidate: dict[str, Any],
+    errors: list[ValidationMessage],
+) -> list[ValidationMessage]:
+    """Drop archive-only nonempty rules after the Pydantic aggregate schema passed.
+
+    Empty scripts are valid editable drafts in every script model. DataValidator also
+    serves export/readiness checks and intentionally rejects those drafts; this command
+    uses it for project-reference validation, not generation-mode admission or to turn
+    remove-last into an impossible operation.
+    """
+
+    items, _id_field, _kind = resolve_items(candidate)
+    if items:
+        return errors
+    archive_nonempty = {"val_array_empty", "val_ad_shots_missing", "val_video_units_missing"}
+    return [message for message in errors if message.key not in archive_nonempty]
+
+
+def _new_speech_problems(
+    candidate: dict[str, Any],
+    *,
+    before_admissions: dict[str, SpeechAdmission],
+    speech_change: dict[str, int],
+    last_touch: dict[str, int],
+) -> list[ScriptBatchEditProblem]:
+    problems: list[ScriptBatchEditProblem] = []
+    for item_id, admission in _admissions(candidate).items():
+        if admission.allowed:
+            continue
+        previous = before_admissions.get(item_id)
+        if previous is not None and previous.preparation == admission.preparation:
+            continue
+        operation_index = speech_change.get(item_id, last_touch.get(item_id))
+        actionable = admission.problems
+        if any(problem.code.value != "needs_replan" for problem in actionable):
+            actionable = tuple(problem for problem in actionable if problem.code.value != "needs_replan")
+        problems.extend(
+            ScriptBatchEditProblem(
+                code=problem.code.value,
+                operation_index=operation_index,
+                unit_id=problem.unit_id,
+                locations=tuple(
+                    ScriptBatchEditLocation(path=location.path, line=location.line) for location in problem.locations
+                ),
+                reason=problem.reason.value,
+                next_action=problem.action.value,
+            )
+            for problem in actionable
+        )
+    return problems
+
+
+def _operation_error_location(
+    index: int,
+    operation: ScriptBatchOperation,
+    error: ScriptEditError,
+) -> ScriptBatchEditLocation:
+    if isinstance(error, _OperationApplyError):
+        return ScriptBatchEditLocation(path=("operations", index, *error.location))
+    if isinstance(operation, UpdateOperation):
+        field = next(iter(operation.fields), "fields")
+        return ScriptBatchEditLocation(path=("operations", index, "fields", *field.split(".")))
+    if isinstance(operation, InsertAfterOperation):
+        return ScriptBatchEditLocation(path=("operations", index, "item"))
+    return ScriptBatchEditLocation(path=("operations", index, "id"))
+
+
+def _validation_location(message: ValidationMessage) -> ScriptBatchEditLocation:
+    prefix = message.params.get("prefix")
+    field = message.params.get("field")
+    if isinstance(prefix, str):
+        path = _parse_path(prefix)
+        if isinstance(field, str):
+            field_path = _parse_path(field)
+            if field_path[: len(path)] != path:
+                path += field_path
+        return ScriptBatchEditLocation(path=path)
+    if isinstance(field, str):
+        return ScriptBatchEditLocation(path=_parse_path(field))
+    rendered = message.render()
+    prefix = rendered.split(":", 1)[0]
+    return ScriptBatchEditLocation(path=_parse_path(prefix))
+
+
+def _parse_path(value: str) -> tuple[str | int, ...]:
+    value = value.replace(": ", ".").replace(":", ".")
+    parts: list[str | int] = []
+    for name, index in re.findall(r"([^.\[\]]+)|\[(\d+)\]", value):
+        if name:
+            parts.extend(int(part) if part.isdecimal() else part for part in name.split(".") if part)
+        elif index:
+            parts.append(int(index))
+    return tuple(parts)
+
+
+def _unit_id_at_location(script: dict[str, Any], path: tuple[str | int, ...]) -> str | None:
+    items, id_field, kind = resolve_items(script)
+    if len(path) < 2 or path[0] != kind or not isinstance(path[1], int):
+        return None
+    index = path[1]
+    if index < 0 or index >= len(items) or not isinstance(items[index], dict):
+        return None
+    value = items[index].get(id_field)
+    return value if isinstance(value, str) else None
+
+
+def _responsible_operation(
+    item_id: str | None,
+    location: tuple[str | int, ...],
+    operations: list[ScriptBatchOperation],
+) -> int | None:
+    relative_path = location[2:] if len(location) >= 3 and isinstance(location[1], int) else ()
+    if item_id is not None and relative_path:
+        for index in range(len(operations) - 1, -1, -1):
+            operation = operations[index]
+            if isinstance(operation, UpdateOperation) and operation.id == item_id:
+                if any(_operation_field_affects_location(field, relative_path) for field in operation.fields):
+                    return index
+            elif isinstance(operation, InsertAfterOperation) and _operation_id(operation) == item_id:
+                return index
+    return None
+
+
+def _operation_field_affects_location(field: str, location: tuple[str | int, ...]) -> bool:
+    field_path = _parse_path(field)
+    return field_path[: len(location)] == location or location[: len(field_path)] == field_path
+
+
+__all__ = [
+    "InsertAfterOperation",
+    "MoveAfterOperation",
+    "RemoveOperation",
+    "ScriptBatchEditCommand",
+    "ScriptBatchEditLocation",
+    "ScriptBatchEditProblem",
+    "ScriptBatchEditResult",
+    "ScriptBatchEditor",
+    "ScriptBatchOperation",
+    "UpdateOperation",
+    "blank_item_after",
+    "script_revision",
+]

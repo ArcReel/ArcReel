@@ -12,11 +12,15 @@ from typing import Annotated, Any, Literal, NamedTuple, Protocol, cast
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from lib import script_review
-from lib.artifact_manifest import ArtifactBasis
-from lib.async_thread import run_sync_transaction
+from lib.artifacts.artifact_manifest import ArtifactBasis
 from lib.config.resolver import ConfigResolver
-from lib.draft_quarantine import (
+from lib.episode.episode_paths import SCRIPT_PLAN_FILENAMES, episode_drafts_dir, episode_script_filename
+from lib.infra.async_thread import run_sync_transaction
+from lib.infra.json_io import atomic_write_json, load_json_or_none
+from lib.project.project_manager import ProjectManager, ScriptWriteConflict
+from lib.references.reference_catalog import build_reference_catalog
+from lib.script import script_review
+from lib.script.draft_quarantine import (
     DOC_TYPE_TO_QUARANTINE_KIND,
     PROMOTE_TOOL_NAME,
     QUARANTINE_KIND_DRAMA_SCRIPT_PLAN,
@@ -35,18 +39,14 @@ from lib.draft_quarantine import (
     read_quarantine,
     write_quarantine,
 )
-from lib.draft_violation import DraftViolation
-from lib.episode_paths import SCRIPT_PLAN_FILENAMES, episode_drafts_dir, episode_script_filename
-from lib.json_io import atomic_write_json, load_json_or_none
-from lib.project_manager import ProjectManager, ScriptWriteConflict
-from lib.reference_catalog import build_reference_catalog
-from lib.script_generator import ScriptGenerator
-from lib.script_models import (
+from lib.script.draft_violation import DraftViolation
+from lib.script.script_generator import ScriptGenerator
+from lib.script.script_models import (
     NarrationScriptPlanDraft,
     build_drama_normalized_script_model,
     build_reference_units_script_plan_model,
 )
-from lib.speech_composition import admit_script_unit
+from lib.speech.speech_composition import admit_script_unit
 from server.text_generation import (
     SOFT_VIOLATION_NOTE_QUARANTINED,
     ReferenceSplitCaps,
@@ -161,7 +161,7 @@ async def revalidate_reference_script_plan_draft(
     源文，重判要对着现值判。
 
     不依赖 ``DraftContext``（``project_path`` / ``project`` 由调用方传入而非从 ctx 派生）：
-    内容确认的读时重算（``server/services/script_review.py``）没有 Agent 工具的 ctx，
+    内容确认的读时重算（``server/services/project/script_review.py``）没有 Agent 工具的 ctx，
     只有 ``ProjectManager``；两处共用本函数而不各自加载 project，调用方各自加载一次即可。
 
     ``meta.source`` 缺失（草稿被改坏、无从重判）时抛 ``ValueError``。
@@ -401,7 +401,7 @@ async def _promote_reference_script_plan(
         raise DraftWorkflowError("draft_invalid", report + _soft_violation_section(revalidation))
 
     units = _build_reference_units_from_flat(flat_units, project, episode=episode, max_refs=split_caps.max_refs)
-    # 写盘经单一出口（lib.script_review.write_script_plan_locked）：锁、基线比对、prompt_authoring 草稿清理
+    # 写盘经单一出口（lib.script.script_review.write_script_plan_locked）：锁、基线比对、prompt_authoring 草稿清理
     # 只存在那一处。基线指纹取自取回 / 草稿产出时记进 meta 的 base_fingerprint——正式文件在草稿
     # 产出后被其他写入方（Web 端保存、另一次拆分）改过时晋升中止、返回冲突报告让 Agent 合并，
     # 不静默覆盖对方的修改。缺少 base_fingerprint 的草稿按无基线晋升。

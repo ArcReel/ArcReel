@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from lib.config.service import ConfigService
 from lib.db import get_async_session
-from lib.project_migration_guard import assert_project_migration_ok
+from lib.project.project_migration_guard import assert_project_migration_ok
 
 _READ_ONLY_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 

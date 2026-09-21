@@ -2,7 +2,7 @@
  * Script / segment / scene type definitions.
  *
  * Maps to backend models in:
- * - lib/script_models.py (NarrationSegment, DramaScene, ImagePrompt, VideoPrompt, etc.)
+ * - lib/script/script_models.py (NarrationSegment, DramaScene, ImagePrompt, VideoPrompt, etc.)
  */
 
 import type { ReferenceScriptPlanDraft, ScriptReviewQuarantine } from "./reference-video";
@@ -106,7 +106,7 @@ export interface VoiceoverUtterance {
 export type Utterance = DialogueUtterance | VoiceoverUtterance;
 
 /**
- * script_plan 结构化中间态（内容确认的可审 / 可改对象）。映射后端 lib/script_models.py 的
+ * script_plan 结构化中间态（内容确认的可审 / 可改对象）。映射后端 lib/script/script_models.py 的
  * DramaSceneContent / DramaNormalizedScript 与 NarrationScriptPlanSegment / NarrationScriptPlanDraft：
  * script_plan 已定内容层，prompt_authoring 视觉生成（image_prompt / video_prompt）由用户确认后才触发。
  */

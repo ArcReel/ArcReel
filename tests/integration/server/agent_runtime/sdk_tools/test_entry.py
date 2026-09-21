@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from lib.project_manager import ProjectManager
+from lib.project.project_manager import ProjectManager
 from server.agent_runtime.sdk_tools.entry import create_project_tool, list_projects_tool, upload_source_tool
 from server.media_tools.context import ToolContext
 

@@ -9,14 +9,13 @@ from __future__ import annotations
 
 from typing import Any
 
-from lib.artifact_activation import ArtifactCurrencyResolver, active_artifact_currency_resolver
-from lib.artifact_manifest import ArtifactKey
-from lib.asset_types import ASSET_SPECS, AssetSpec, asset_name_comparison_key, resolve_asset_key
-from lib.generation_queue_client import (
+from lib.artifacts.artifact_activation import ArtifactCurrencyResolver, active_artifact_currency_resolver
+from lib.artifacts.artifact_manifest import ArtifactKey
+from lib.generation.generation_queue_client import (
     TaskSpec,
     batch_enqueue_and_wait,
 )
-from lib.generation_result import (
+from lib.generation.generation_result import (
     GenerationAction,
     GenerationCandidate,
     GenerationProblem,
@@ -28,7 +27,8 @@ from lib.generation_result import (
     record_batch_outcomes,
     select_generation_targets,
 )
-from lib.project_manager import ProjectManager
+from lib.project.asset_types import ASSET_SPECS, AssetSpec, asset_name_comparison_key, resolve_asset_key
+from lib.project.project_manager import ProjectManager
 from server.media_tools.context import (
     ToolContext,
     generation_batch_submission_outcome,
@@ -43,7 +43,7 @@ from server.media_tools.definition import tool
 from server.tool_runtime import ToolOutcome, submit_media_generation
 
 # Asset-type emoji shown in tool output. Other display fields (bucket_key,
-# label_zh, subdir) come from lib.asset_types.ASSET_SPECS — the cross-app
+# label_zh, subdir) come from lib.project.asset_types.ASSET_SPECS — the cross-app
 # source of truth.
 _EMOJI: dict[str, str] = {"character": "🧑", "scene": "🏠", "prop": "📦", "product": "🛍️"}
 

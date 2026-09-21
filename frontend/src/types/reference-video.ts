@@ -1,5 +1,5 @@
 /**
- * Reference-to-video unit types — mirrors lib/script_models.py Pydantic models.
+ * Reference-to-video unit types — mirrors lib/script/script_models.py Pydantic models.
  *
  * One "unit" produces one rendered video clip. Its body (`text`) is the single
  * source of truth: reference images are resolved from the `@[名称]` mentions at
@@ -15,7 +15,7 @@ import type {
 
 export type AssetKind = "product" | "character" | "scene" | "prop";
 
-/** Project.json sheet field for each asset kind. Mirrors lib/asset_types.py SHEET_KEY. */
+/** Project.json sheet field for each asset kind. Mirrors lib/project/asset_types.py SHEET_KEY. */
 export const SHEET_FIELD: Record<AssetKind, "product_sheet" | "character_sheet" | "scene_sheet" | "prop_sheet"> = {
   product: "product_sheet",
   character: "character_sheet",
@@ -25,7 +25,7 @@ export const SHEET_FIELD: Record<AssetKind, "product_sheet" | "character_sheet" 
 
 /**
  * Raw persisted status value returned by the backend in `generated_assets.status`.
- * Mirrors lib/script_models.py:GeneratedAssets.status Pydantic Literal exactly.
+ * Mirrors lib/script/script_models.py:GeneratedAssets.status Pydantic Literal exactly.
  * Note: "storyboard_ready" never appears for reference_video units — it's a legacy
  * storyboard-mode value retained in the shared GeneratedAssets model.
  */
@@ -198,7 +198,7 @@ export interface ScriptPreview {
 
 /**
  * reference_video script_plan 结构化中间态（内容确认的可审 / 可改对象）。映射后端
- * lib/script_models.py 的 ReferenceScriptPlanUnit / ReferenceScriptPlanDraft：script_plan 定内容层
+ * lib/script/script_models.py 的 ReferenceScriptPlanUnit / ReferenceScriptPlanDraft：script_plan 定内容层
  * （unit 边界 + unit 时长 + 单元正文），prompt_authoring 视觉编排由用户确认后才触发。
  */
 export interface ReferenceScriptPlanUnit {
@@ -218,7 +218,7 @@ export interface ReferenceScriptPlanDraft {
 /**
  * script_plan 的扁平草稿结构（草稿装的是这个，不是落盘的 `ReferenceScriptPlanDraft`）：
  * `unit_id` 机器派生，落盘前才有——草稿中只有时长 + 原文锚 + 一段引用语法正文。
- * Mirrors lib/script_models.py ReferenceScriptPlanFlatUnit。
+ * Mirrors lib/script/script_models.py ReferenceScriptPlanFlatUnit。
  */
 export interface ReferenceScriptPlanFlatUnit {
   duration_seconds: number;
@@ -227,7 +227,7 @@ export interface ReferenceScriptPlanFlatUnit {
 }
 
 /**
- * 草稿违约条目。Mirrors lib/draft_quarantine.py::violation_entries。
+ * 草稿违约条目。Mirrors lib/script/draft_quarantine.py::violation_entries。
  * `label` 是定位前缀，形如 `"unit E1U02"`（参考生视频，数组下标 = 派生 unit 序号 - 1）或
  * `"segment E1S03"`（narration，与 `segment_id` 对应）；集级违约无定位、为空串。
  * `line` 是该单元正文内 0-based 原始行号（与 `useUnitPromptHighlight.ts` 的 `sourceLine` 同

@@ -54,7 +54,7 @@ MESSAGES: dict[str, str] = {
     "model_name_kling_kling-v3-omni-image": "可灵 V3-Omni（图像）",
     "model_name_kling_kling-image-o1": "可灵图像 O1",
     "model_name_kling_kling-video-o1": "可灵 Video O1",
-    # Agent preset notes (lib/agent_provider_catalog.py)
+    # Agent preset notes (lib/agent/agent_provider_catalog.py)
     "preset_notes_deepseek": "DeepSeek 官方 Anthropic 兼容端点，需 sk- 开头的 API Key",
     "preset_notes_xiaomi_mimo": "小米 MiMo 仅支持已知模型名，未公开模型列表",
     "preset_notes_ark_coding_plan": "火山方舟 Coding Plan 套餐；不提供模型列表接口，请从建议模型中选择已在控制台开通的模型",

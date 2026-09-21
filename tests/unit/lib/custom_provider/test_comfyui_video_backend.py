@@ -12,15 +12,7 @@ from typing import Any, cast
 import httpx
 import pytest
 
-from lib.custom_provider.comfyui.failures import ComfyuiError
-from lib.custom_provider.comfyui.request_builder import workflow_sha256
-from lib.custom_provider.comfyui_backend import ComfyuiVideoBackend
-from lib.custom_provider.endpoint_definition import validate_definition
-from lib.custom_provider.endpoint_resolution import endpoint_spec_from_row
-from lib.custom_provider.factory import create_custom_backend
-from lib.generation_worker import _encode_task_failure_message
-from lib.task_failure import render_failure
-from lib.video_backends.base import (
+from lib.backends.video_backends.base import (
     VIDEO_POLL_MAX_CONSECUTIVE_FAILURES,
     ProviderResponseStage,
     ResumeExpiredError,
@@ -28,7 +20,15 @@ from lib.video_backends.base import (
     VideoCapabilities,
     VideoGenerationRequest,
 )
-from lib.video_frame_slots import gate_video_request, resolve_video_capabilities
+from lib.backends.video_frame_slots import gate_video_request, resolve_video_capabilities
+from lib.custom_provider.comfyui.failures import ComfyuiError
+from lib.custom_provider.comfyui.request_builder import workflow_sha256
+from lib.custom_provider.comfyui_backend import ComfyuiVideoBackend
+from lib.custom_provider.endpoint_definition import validate_definition
+from lib.custom_provider.endpoint_resolution import endpoint_spec_from_row
+from lib.custom_provider.factory import create_custom_backend
+from lib.generation.generation_worker import _encode_task_failure_message
+from lib.generation.task_failure import render_failure
 from tests.factories import comfyui_endpoint_definition, make_translator
 from tests.fakes import bounded_poll_clock, captured_provider_job_ids
 from tests.http_capture import capture_http, only_request, request_json
@@ -473,7 +473,7 @@ class TestFailures:
             raise RuntimeError("db is down")
 
         with capture_http() as router, bounded_poll_clock(), pytest.MonkeyPatch.context() as patch:
-            patch.setattr("lib.video_backends.base.persist_provider_job_id", _boom)
+            patch.setattr("lib.backends.video_backends.base.persist_provider_job_id", _boom)
             router.post(f"{BASE_URL}/prompt").mock(return_value=httpx.Response(200, json={"prompt_id": "p-1"}))
             history = router.get(f"{BASE_URL}/history/p-1")
 

@@ -55,7 +55,7 @@ MCP 工具内部通过 `ScriptGenerator` 完成以下步骤：
 
 1. **加载 project.json** — 读取 content_mode、characters、scenes、props、overview、style
 2. **加载正式脚本** — 取本次要编写的条目（待编写条目，或 `entry_ids` 点名的条目）；ad 尚无正式脚本时整份生成
-3. **构建 Prompt** — 由 `lib.prompt_builders_script`、`lib.prompt_builders_reference` 或 `lib.prompt_builders_ad` 生成，输入是这些条目的内容字段
+3. **构建 Prompt** — 由 `lib.prompts.prompt_builders_script`、`lib.prompts.prompt_builders_reference` 或 `lib.prompts.prompt_builders_ad` 生成，输入是这些条目的内容字段
 4. **调用 TextBackend** — 由 `TextGenerator` 按项目配置选择文本模型，传入 Pydantic schema 作为 `response_schema` 强约束 JSON 结构
 5. **Pydantic 验证与写回** — LLM 只产出视觉层，后端按条目 id 写回正式脚本，内容字段不进 LLM 输出，从工程上杜绝其经 Structured Outputs 漂移：
    - narration → `NarrationVisualEpisodeScript`（`segment_id` + image_prompt + video_prompt）
