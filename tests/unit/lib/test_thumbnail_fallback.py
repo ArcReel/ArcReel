@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -25,11 +25,9 @@ async def test_returns_none_when_ffmpeg_missing(tmp_path: Path):
     video.write_bytes(b"\x00")  # nominal file; we never actually decode
     out = tmp_path / "out.jpg"
 
-    with (
-        patch("lib.thumbnail.shutil.which", return_value=None),
-        patch("lib.subprocess_deadline.asyncio.create_subprocess_exec") as spawn,
-    ):
-        result = await thumbnail_module.extract_video_thumbnail(video, out)
+    spawn = AsyncMock()
+    with patch("lib.thumbnail.shutil.which", return_value=None):
+        result = await thumbnail_module.extract_video_thumbnail(video, out, spawn=spawn)
 
     assert result is None
     assert not out.exists()
@@ -62,14 +60,9 @@ async def test_ffmpeg_available_attempts_extraction(tmp_path: Path):
         async def wait(self):
             return None
 
-    with (
-        patch("lib.thumbnail.shutil.which", return_value="/usr/bin/ffmpeg"),
-        patch(
-            "lib.subprocess_deadline.asyncio.create_subprocess_exec",
-            return_value=_FakeProc(),
-        ) as spawn,
-    ):
-        result = await thumbnail_module.extract_video_thumbnail(video, out)
+    spawn = AsyncMock(return_value=_FakeProc())
+    with patch("lib.thumbnail.shutil.which", return_value="/usr/bin/ffmpeg"):
+        result = await thumbnail_module.extract_video_thumbnail(video, out, spawn=spawn)
 
     assert result is None
     spawn.assert_called_once()
@@ -94,11 +87,9 @@ async def test_last_frame_returns_none_when_ffmpeg_missing(tmp_path: Path):
     video.write_bytes(b"\x00")
     out = tmp_path / "out.png"
 
-    with (
-        patch("lib.thumbnail.shutil.which", return_value=None),
-        patch("lib.subprocess_deadline.asyncio.create_subprocess_exec") as spawn,
-    ):
-        result = await thumbnail_module.extract_video_last_frame(video, out)
+    spawn = AsyncMock()
+    with patch("lib.thumbnail.shutil.which", return_value=None):
+        result = await thumbnail_module.extract_video_last_frame(video, out, spawn=spawn)
 
     assert result is None
     assert not out.exists()
@@ -115,11 +106,9 @@ async def test_last_frame_returns_none_when_only_ffprobe_missing(tmp_path: Path)
     def _which(name: str):
         return "/usr/bin/ffmpeg" if name == "ffmpeg" else None
 
-    with (
-        patch("lib.thumbnail.shutil.which", side_effect=_which),
-        patch("lib.subprocess_deadline.asyncio.create_subprocess_exec") as spawn,
-    ):
-        result = await thumbnail_module.extract_video_last_frame(video, out)
+    spawn = AsyncMock()
+    with patch("lib.thumbnail.shutil.which", side_effect=_which):
+        result = await thumbnail_module.extract_video_last_frame(video, out, spawn=spawn)
 
     assert result is None
     spawn.assert_not_called()
@@ -181,11 +170,8 @@ async def test_last_frame_falls_back_to_count_frames(tmp_path: Path):
     def _which(name: str):
         return f"/usr/bin/{name}"
 
-    with (
-        patch("lib.thumbnail.shutil.which", side_effect=_which),
-        patch("lib.subprocess_deadline.asyncio.create_subprocess_exec", side_effect=_spawn),
-    ):
-        result = await thumbnail_module.extract_video_last_frame(video, out)
+    with patch("lib.thumbnail.shutil.which", side_effect=_which):
+        result = await thumbnail_module.extract_video_last_frame(video, out, spawn=_spawn)
 
     assert result == out
     assert len(call_log) == 3
@@ -239,11 +225,8 @@ async def test_last_frame_retries_precise_count_when_fast_extract_writes_nothing
     def _which(name: str):
         return f"/usr/bin/{name}"
 
-    with (
-        patch("lib.thumbnail.shutil.which", side_effect=_which),
-        patch("lib.subprocess_deadline.asyncio.create_subprocess_exec", side_effect=_spawn),
-    ):
-        result = await thumbnail_module.extract_video_last_frame(video, out)
+    with patch("lib.thumbnail.shutil.which", side_effect=_which):
+        result = await thumbnail_module.extract_video_last_frame(video, out, spawn=_spawn)
 
     assert result == out
     assert out.read_bytes() == b"fresh"
