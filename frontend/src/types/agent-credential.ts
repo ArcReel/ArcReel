@@ -57,7 +57,7 @@ export interface CreateAgentCredentialRequest {
 }
 
 export type UpdateAgentCredentialRequest = Partial<
-  Omit<CreateAgentCredentialRequest, "preset_id" | "activate">
+  Omit<CreateAgentCredentialRequest, "preset_id" | "activate" | "from_custom_provider_id">
 >;
 
 export interface ProbeResult {

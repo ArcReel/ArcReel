@@ -83,11 +83,11 @@ def _model(endpoint: str, **overrides: Any) -> dict[str, Any]:
 
 
 class TestComfyuiProviderCreation:
-    def test_an_empty_api_key_is_accepted(self, comfyui_client: TestClient, custom_providers_app_session_factory):
+    async def test_an_empty_api_key_is_accepted(self, comfyui_client: TestClient, custom_providers_app_session_factory):
         """ComfyUI 本体零鉴权，凭据模板在端点定义里：供应商行的 api_key 留空须能保存。"""
         provider = _create_provider(comfyui_client)
         assert provider["discovery_format"] == "comfyui"
-        stored = asyncio.run(_stored_provider(custom_providers_app_session_factory, provider["id"]))
+        stored = await _stored_provider(custom_providers_app_session_factory, provider["id"])
         assert stored.api_key == ""
         assert stored.base_url == _COMFY_URL
 
