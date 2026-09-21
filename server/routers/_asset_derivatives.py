@@ -7,7 +7,7 @@
 
 本模块只做登记（新增、改描述、删除）与改名；衍生资产图的生成、版本与过期判定不在此处。
 改名与删除是例外：那张图的落盘坐标含衍生名，改名要连带搬图、版本历史与清单键
-（``lib.asset_derivative_rename``），删除要连带清掉三者（``lib.asset_derivative_cleanup``），
+（``lib.project.asset_derivative_rename``），删除要连带清掉三者（``lib.project.asset_derivative_cleanup``），
 两者都与登记写入同属一次提交。
 """
 
@@ -22,25 +22,25 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from lib.api_errors import NotFoundError, UnprocessableError
-from lib.asset_derivative_cleanup import purge_derivative_sheets
-from lib.asset_derivatives import ensure_derivative_table
-from lib.asset_rename import (
+from lib.i18n import Translator
+from lib.infra.api_errors import NotFoundError, UnprocessableError
+from lib.project.asset_derivative_cleanup import purge_derivative_sheets
+from lib.project.asset_derivatives import ensure_derivative_table
+from lib.project.asset_rename import (
     AssetRenameConflictError,
     AssetRenameFileCollisionError,
     AssetRenameHistoryCollisionError,
     AssetRenameNotFoundError,
 )
-from lib.asset_types import (
+from lib.project.asset_types import (
     ASSET_SPECS,
     DERIVATIVES_FIELD,
     AssetSpec,
     resolve_asset_key,
     validate_asset_name,
 )
-from lib.i18n import Translator
-from lib.project_change_hints import project_change_source
-from lib.project_manager import ProjectManager
+from lib.project.project_change_hints import project_change_source
+from lib.project.project_manager import ProjectManager
 
 logger = logging.getLogger(__name__)
 

@@ -14,7 +14,7 @@ from datetime import date, datetime
 from enum import StrEnum
 from pathlib import Path
 
-from lib.video_backends import (
+from lib.backends.video_backends import (
     PROVIDER_ARK,
     PROVIDER_GEMINI,
     PROVIDER_GROK,
@@ -23,7 +23,7 @@ from lib.video_backends import (
     VideoGenerationRequest,
     create_backend,
 )
-from lib.video_backends.base import VideoCapabilities
+from lib.backends.video_backends.base import VideoCapabilities
 from scripts.fixtures.reference_video.generate_fixtures import generate_color_refs
 
 
@@ -208,7 +208,7 @@ _PROVIDER_TO_BACKEND: dict[Provider, str] = {
 
 
 def resolve_backend(provider: Provider) -> VideoBackend:
-    """直接复用 lib.video_backends 的注册表——import lib.video_backends 已自动注册全部后端。"""
+    """直接复用 lib.backends.video_backends 的注册表——import lib.backends.video_backends 已自动注册全部后端。"""
     return create_backend(_PROVIDER_TO_BACKEND[provider])
 
 

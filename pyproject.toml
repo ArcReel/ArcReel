@@ -112,7 +112,7 @@ exclude_lines = [
 [tool.importlinter]
 root_packages = ["lib"]
 
-# lib.config < lib.*_backends < lib.custom_provider < lib.market：config 是配置解析的基础层，backends
+# lib.config < lib.backends.*_backends < lib.custom_provider < lib.market：config 是配置解析的基础层，backends
 # 在其上组装出各供应商实现，custom_provider 再在 backends 之上拼装自定义供应商，market 以调用端点
 # 定义为条目载荷、复用其校验器，位于最上层。四个 backend 包为同层 sibling（`:` 分隔），彼此复用
 # video_backends.base 的工具不算方向违规。
@@ -120,12 +120,12 @@ root_packages = ["lib"]
 # （project_manager / cost_calculator / usage_repo 等）后续新增的反向依赖仍会被契约拦下。
 # 新增条目前先确认该边无法就地清零；清零一条即删一行。
 [[tool.importlinter.contracts]]
-name = "lib.config / lib.*_backends / lib.custom_provider / lib.market 分层契约"
+name = "lib.config / lib.backends.*_backends / lib.custom_provider / lib.market 分层契约"
 type = "layers"
 layers = [
     "market",
     "custom_provider",
-    "image_backends : video_backends : audio_backends : text_backends",
+    "backends.image_backends : backends.video_backends : backends.audio_backends : backends.text_backends",
     "config",
 ]
 containers = ["lib"]
@@ -135,25 +135,25 @@ ignore_imports = [
     "lib.config.resolver -> lib.custom_provider.capabilities",
     "lib.config.resolver -> lib.custom_provider.endpoint_resolution",
     # lib.config.resolver 直接向上引用 backend 层
-    "lib.config.resolver -> lib.text_backends.base",
+    "lib.config.resolver -> lib.backends.text_backends.base",
     # 中间模块把 backend 层拉回 config 之下的可达范围
-    "lib.backend_assembly.specs -> lib.audio_backends.registry",
-    "lib.backend_assembly.specs -> lib.image_backends.registry",
-    "lib.backend_assembly.specs -> lib.video_backends.registry",
-    "lib.backend_assembly.specs -> lib.video_backends.base",
-    "lib.backend_assembly.specs -> lib.text_backends.registry",
+    "lib.backends.backend_assembly.specs -> lib.backends.audio_backends.registry",
+    "lib.backends.backend_assembly.specs -> lib.backends.image_backends.registry",
+    "lib.backends.backend_assembly.specs -> lib.backends.video_backends.registry",
+    "lib.backends.backend_assembly.specs -> lib.backends.video_backends.base",
+    "lib.backends.backend_assembly.specs -> lib.backends.text_backends.registry",
     # 声明式内置端点的装配接缝（ADR 0039）：spec 行按 registry_backend="declarative" 从
     # 随版定义读能力与构造 backend，spec 表因此同时够到 backend 层与 custom_provider 层。
-    "lib.backend_assembly.specs -> lib.custom_provider.builtin_definitions",
-    "lib.backend_assembly.specs -> lib.custom_provider.declarative_backend",
-    "lib.backend_assembly.specs -> lib.custom_provider.endpoints",
-    "lib.project_manager -> lib.text_backends.base",
-    "lib.text_generator -> lib.text_backends.base",
-    "lib.text_generator -> lib.text_backends.factory",
+    "lib.backends.backend_assembly.specs -> lib.custom_provider.builtin_definitions",
+    "lib.backends.backend_assembly.specs -> lib.custom_provider.declarative_backend",
+    "lib.backends.backend_assembly.specs -> lib.custom_provider.endpoints",
+    "lib.project.project_manager -> lib.backends.text_backends.base",
+    "lib.backends.text_generator -> lib.backends.text_backends.base",
+    "lib.backends.text_generator -> lib.backends.text_backends.factory",
     # 中间模块反向引用 custom_provider（provider_id 解析与自定义供应商记账）
-    "lib.backend_assembly.assembler -> lib.custom_provider",
-    "lib.backend_assembly.assembler -> lib.custom_provider.loader",
-    "lib.cost_calculator -> lib.custom_provider",
+    "lib.backends.backend_assembly.assembler -> lib.custom_provider",
+    "lib.backends.backend_assembly.assembler -> lib.custom_provider.loader",
+    "lib.billing.cost_calculator -> lib.custom_provider",
     "lib.db.repositories.usage_repo -> lib.custom_provider",
     "lib.db.repositories.custom_provider_repo -> lib.custom_provider",
     "lib.db.repositories.custom_provider_repo -> lib.custom_provider.endpoints",
@@ -177,7 +177,7 @@ forbidden_modules = [
 ]
 
 # 同一条墙的另一半：ComfyUI 的客户端与 backend 落在 lib.custom_provider 顶层（子包够不到
-# lib.video_backends.base——那条链会间接绕回声明式 backend），于是上一条契约的 source_modules
+# lib.backends.video_backends.base——那条链会间接绕回声明式 backend），于是上一条契约的 source_modules
 # 看不住它们。这里按直接 import 立一条同义契约：allow_indirect_imports 只查这几个模块自己写下的
 # import，正是把它们逼出子包的那条间接链绕开的一格。新增顶层 comfyui_* 模块时加进 source_modules。
 [[tool.importlinter.contracts]]
@@ -201,21 +201,21 @@ forbidden_modules = [
 # 路线中立层不得依赖某一条具体路线的子包。违约条目类型（draft_violation）、草稿信封
 # （draft_quarantine）、正式 script_plan 的路径与写禁表（episode_paths）、已登记引用名的
 # 构造入口（reference_catalog）对 drama / narration / reference_video 一视同仁，任一处
-# import lib.reference_video 都是把三条路线共用的机制绑在其中一条上。
-# lib.script_review 不在列：它另有一条 lib.reference_video.duration_migration 的依赖（参考
+# import lib.script.reference_video 都是把三条路线共用的机制绑在其中一条上。
+# lib.script.script_review 不在列：它另有一条 lib.script.reference_video.duration_migration 的依赖（参考
 # 生视频专属的时长收编），纳入就要加 baseline 掩盖，那等于让契约声明一件它此刻并不成立的事。
-# lib.script_references 同理不在列：它按设计依赖 lib.reference_video.text_parser——「引用名落在
+# lib.script.script_references 同理不在列：它按设计依赖 lib.script.reference_video.text_parser——「引用名落在
 # 载荷哪些位置」里有一类是正文的 @[名称] 记号，识别它的解析器只此一份。
 [[tool.importlinter.contracts]]
 name = "路线中立层不依赖参考生视频子包"
 type = "forbidden"
 source_modules = [
-    "lib.draft_violation",
-    "lib.draft_quarantine",
-    "lib.episode_paths",
-    "lib.reference_catalog",
+    "lib.script.draft_violation",
+    "lib.script.draft_quarantine",
+    "lib.episode.episode_paths",
+    "lib.references.reference_catalog",
 ]
-forbidden_modules = ["lib.reference_video"]
+forbidden_modules = ["lib.script.reference_video"]
 
 [tool.deptry]
 # 扫描范围与 basedpyright 的 include 对齐：核心库、服务端、迁移基础设施、脚本与测试。
@@ -369,28 +369,28 @@ reportMissingImports = "none"
 # 必须显式写：不写时 mutmut 只推断出 lib/，漏掉 server/
 source_paths = ["lib", "server"]
 # 按批次填写待变异模块；留空则变异 source_paths 全域（一轮数小时，不实用）
-# only_mutate = ["lib/speech_rate.py"]
+# only_mutate = ["lib/speech/speech_rate.py"]
 # 变异后的模块 import mutmut.__main__，而该 import 在模块级就按 CWD 解析 [tool.mutmut]；
 # tests/unit/test_skill_script_path_guards.py 的用例一律在项目外的 tmp 目录启子进程跑 skill 脚本，
 # 子进程 CWD 无 pyproject.toml 即崩在 _guess_source_paths()，故整体排除。
-# 这些子进程确实会 import lib.project_manager / lib.script_models，排除后由它们独家覆盖的
+# 这些子进程确实会 import lib.project.project_manager / lib.script.script_models，排除后由它们独家覆盖的
 # mutant 会掉进存活集合；但保留同样杀不死——子进程在断言前就崩在上面那个 import。
 # 排除只把这类 mutant 推向假存活（多复核一个），不会造成假杀死（把无效测试藏起来）。
 # tests.mutmut_plugin 给每个 mutmut 会话一个私有 basetemp，让并行子进程收尾时不再竞争共享根下的软链；
 # 它只在这里加载，本地与 CI 的 pytest 不带它。
-# tests/integration/lib/test_task_failure_capability.py 里三个用例用 ast 扫 lib/ server/ 源码里的 capability code
+# tests/integration/lib/generation/test_task_failure_capability.py 里三个用例用 ast 扫 lib/ server/ 源码里的 capability code
 # 字面量并与登记表比对；mutants/ 里的源文件同时含全部字符串 mutant 变体（XXcodeXX / CODE），扫描必报「未登记」，
 # stats 阶段直接失败。凡读源码文本而非 import 模块的用例都要这样按 nodeid --deselect，不整文件 --ignore：
 # 同文件其余用例是 bound_reason / collapse_cascade_reason / 级联渲染的行为测试，其中部分路径由它们独家覆盖，
-# 整文件排除会让 lib/task_failure.py 的真变异体记成存活。
+# 整文件排除会让 lib/generation/task_failure.py 的真变异体记成存活。
 # 只排除扫描用例同样只会多出假存活：它们独家能杀的只有 code 字面量的变体，而各 backend 用例都断言 exc.code。
 pytest_add_cli_args = [
     "-p",
     "tests.mutmut_plugin",
     "--ignore=tests/unit/test_skill_script_path_guards.py",
-    "--deselect=tests/integration/lib/test_task_failure_capability.py::test_capability_codes_registered_no_drift",
-    "--deselect=tests/integration/lib/test_task_failure_capability.py::test_no_unscannable_capability_construction_sites",
-    "--deselect=tests/integration/lib/test_task_failure_capability.py::test_capability_construction_sites_supply_every_template_param",
+    "--deselect=tests/integration/lib/generation/test_task_failure_capability.py::test_capability_codes_registered_no_drift",
+    "--deselect=tests/integration/lib/generation/test_task_failure_capability.py::test_no_unscannable_capability_construction_sites",
+    "--deselect=tests/integration/lib/generation/test_task_failure_capability.py::test_capability_construction_sites_supply_every_template_param",
 ]
 # pytest_add_cli_args_test_selection 不设：走全量 testpaths。仅 tests/unit 快 5.5 倍，
 # 但存活集合约 45% 是假存活，复核每个都要跑一次全量套件，总账反而更贵。

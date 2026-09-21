@@ -5,7 +5,7 @@ from typing import ClassVar
 import pytest
 
 import scripts.verify_reference_video_sdks as mod
-from lib.video_backends.base import (
+from lib.backends.video_backends.base import (
     VideoCapabilities,
     VideoGenerationRequest,
     VideoGenerationResult,
@@ -250,7 +250,7 @@ def test_clamp_refs_backend_without_reference_support():
 
 
 def test_resolve_backend_delegates_to_create_backend(monkeypatch):
-    """resolve_backend 应把 Provider 映射到 lib.video_backends 名称并调用 create_backend。"""
+    """resolve_backend 应把 Provider 映射到 lib.backends.video_backends 名称并调用 create_backend。"""
     called: list[str] = []
     monkeypatch.setattr(mod, "create_backend", lambda name: called.append(name) or _FakeBackend())
 

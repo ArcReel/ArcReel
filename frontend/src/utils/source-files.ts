@@ -1,7 +1,7 @@
 /**
  * Source file helpers — single source of truth for accepted novel source formats.
  *
- * Mirrors the backend whitelist (lib/source_loader/loader.py: SUPPORTED_EXTS and
+ * Mirrors the backend whitelist (lib/script/source_loader/loader.py: SUPPORTED_EXTS and
  * server/routers/files.py: ALLOWED_EXTENSIONS["source"]). Keep these in sync.
  */
 

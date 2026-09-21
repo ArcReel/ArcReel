@@ -18,23 +18,12 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from lib.artifact_activation import ArtifactCurrencyResolver, active_artifact_currency_resolver
-from lib.asset_inventory import (
-    AssetInventoryError,
-    AssetInventoryInvalidRequest,
-    AssetInventoryRevisionConflict,
-    AssetInventorySourceBlocked,
-)
-from lib.asset_inventory import (
-    complete_asset_inventory as complete_asset_inventory_service,
-)
-from lib.asset_types import ASSET_SPECS
-from lib.async_thread import run_sync_transaction as _run_sync_transaction
-from lib.character_voice import VALID_CHARACTER_VOICE_BINDINGS
+from lib.agent.profile_manifest import ContentMode
+from lib.artifacts.artifact_activation import ArtifactCurrencyResolver, active_artifact_currency_resolver
+from lib.artifacts.formal_write import FormalWriteReceipt, project_metadata_lock
 from lib.config.resolver import ConfigResolver
-from lib.content_digest import prefixed, prefixed_canonical_json_digest
 from lib.db import async_session_factory
-from lib.episode_paths import (
+from lib.episode.episode_paths import (
     DRAMA_SCRIPT_PLAN_QUARANTINE_FILENAME,
     NARRATION_SCRIPT_PLAN_QUARANTINE_FILENAME,
     REFERENCE_VIDEO_PROMPT_AUTHORING_QUARANTINE_FILENAME,
@@ -44,29 +33,28 @@ from lib.episode_paths import (
     SCRIPT_PLAN_FILENAMES,
     SCRIPT_PLAN_LEGACY_FILENAMES,
 )
-from lib.episode_planner import EpisodePlanner, EpisodePlanningError, LedgerStats, PlanResult
-from lib.episode_reset import (
+from lib.episode.episode_planner import EpisodePlanner, EpisodePlanningError, LedgerStats, PlanResult
+from lib.episode.episode_reset import (
     EpisodeResetError,
     ResetConfirmationRequired,
 )
-from lib.episode_reset import (
+from lib.episode.episode_reset import (
     reset_episode_planning as reset_episode_planning_service,
 )
-from lib.episode_target_duration import (
+from lib.episode.episode_target_duration import (
     EPISODE_TARGET_DURATION_FIELD,
     MAX_EPISODE_TARGET_DURATION,
     MIN_EPISODE_TARGET_DURATION,
     is_valid_episode_target_duration,
 )
-from lib.episode_target_volume import EPISODE_TARGET_UNITS_FIELD
-from lib.formal_write import FormalWriteReceipt, project_metadata_lock
-from lib.generation_batch import (
+from lib.episode.episode_target_volume import EPISODE_TARGET_UNITS_FIELD
+from lib.generation.generation_batch import (
     GenerationBatchReadModel,
     GenerationBatchRequestedItem,
     GenerationBatchRequestSnapshot,
     build_generation_batch_admission,
 )
-from lib.generation_queue import (
+from lib.generation.generation_queue import (
     ActiveTaskRequestConflict,
     CompensableGenerationResult,
     GenerationBatchNotFound,
@@ -74,7 +62,7 @@ from lib.generation_queue import (
     cleanup_fresh_generation_batch,
     get_generation_queue,
 )
-from lib.generation_queue_client import (
+from lib.generation.generation_queue_client import (
     BatchTaskResult,
     TaskSpec,
     WorkerOfflineError,
@@ -82,7 +70,7 @@ from lib.generation_queue_client import (
     submit_generation_batch,
     wait_for_task,
 )
-from lib.generation_result import (
+from lib.generation.generation_result import (
     GenerationAction,
     GenerationBatchResult,
     GenerationProblem,
@@ -93,19 +81,31 @@ from lib.generation_result import (
     migration_problem,
     problem_from_task_failure,
 )
-from lib.path_safety import safe_join
-from lib.profile_manifest import ContentMode
-from lib.project_manager import ProjectManager, SourceKind, is_reference_video_project
-from lib.project_migration_failure import (
+from lib.infra.async_thread import run_sync_transaction as _run_sync_transaction
+from lib.infra.content_digest import prefixed, prefixed_canonical_json_digest
+from lib.infra.path_safety import safe_join
+from lib.infra.schema_guards import is_int, is_str
+from lib.project.asset_inventory import (
+    AssetInventoryError,
+    AssetInventoryInvalidRequest,
+    AssetInventoryRevisionConflict,
+    AssetInventorySourceBlocked,
+)
+from lib.project.asset_inventory import (
+    complete_asset_inventory as complete_asset_inventory_service,
+)
+from lib.project.asset_types import ASSET_SPECS
+from lib.project.project_manager import ProjectManager, SourceKind, is_reference_video_project
+from lib.project.project_migration_failure import (
     MIGRATION_FAILURE_CODE,
     MigrationFailureRecord,
     ProjectMigrationError,
     load_migration_failure,
 )
-from lib.project_migration_guard import project_migration_failure
-from lib.project_migrations import migrate_project_with_verdict
-from lib.schema_guards import is_int, is_str
-from lib.script_batch_edit import (
+from lib.project.project_migration_guard import project_migration_failure
+from lib.project.project_migrations import migrate_project_with_verdict
+from lib.project.source_revision import SourceScope
+from lib.script.script_batch_edit import (
     ScriptBatchEditCommand,
     ScriptBatchEditLocation,
     ScriptBatchEditor,
@@ -113,7 +113,7 @@ from lib.script_batch_edit import (
     ScriptBatchEditResult,
     script_revision,
 )
-from lib.script_editor import (
+from lib.script.script_editor import (
     ScriptEditError,
     insert_segment,
     patch_field,
@@ -121,8 +121,12 @@ from lib.script_editor import (
     resolve_items,
     split_segment,
 )
-from lib.script_review import ScriptPlanRebuildCompletionError, complete_stale_script_plan_rebuild, script_plan_kind
-from lib.source_loader import (
+from lib.script.script_review import (
+    ScriptPlanRebuildCompletionError,
+    complete_stale_script_plan_rebuild,
+    script_plan_kind,
+)
+from lib.script.source_loader import (
     ConflictError,
     CorruptFileError,
     FileSizeExceededError,
@@ -131,9 +135,9 @@ from lib.source_loader import (
     SourceLoader,
     UnsupportedFormatError,
 )
-from lib.source_revision import SourceScope
-from lib.workflow_plan import WorkflowPlan, WorkflowPlanRequest
-from lib.workflow_state import WorkflowRequestError
+from lib.speech.character_voice import VALID_CHARACTER_VOICE_BINDINGS
+from lib.workflow.workflow_plan import WorkflowPlan, WorkflowPlanRequest
+from lib.workflow.workflow_state import WorkflowRequestError
 from server.draft_workflow import (
     DiscardDraftRequest,
     DraftContext,
@@ -143,9 +147,9 @@ from server.draft_workflow import (
     PatchDraftRequest,
     PromoteDraftRequest,
 )
-from server.services.prompt_preview import ItemPromptPreview, ScriptItemNotFound, preview_item_prompts
-from server.services.video_caps import annotate_reference_unit_tiers
-from server.services.workflow_planner import WorkflowPlanner
+from server.services.admission.prompt_preview import ItemPromptPreview, ScriptItemNotFound, preview_item_prompts
+from server.services.project.workflow_planner import WorkflowPlanner
+from server.services.tasks.video_caps import annotate_reference_unit_tiers
 from server.text_generation import (
     CompensableTextGenerationResult,
     ScriptOverwriteRequiredError,

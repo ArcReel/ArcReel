@@ -4,7 +4,7 @@
 处理分镜图、视频、角色图、线索图的生成请求。
 所有生成请求入队到 GenerationQueue，由 GenerationWorker 异步执行。
 
-错误处理：路由函数体只保留 happy path。领域异常（``lib.api_errors``）与 lib 层异常
+错误处理：路由函数体只保留 happy path。领域异常（``lib.infra.api_errors``）与 lib 层异常
 （``FileNotFoundError`` / ``ScriptEditError`` / ``TaskSpecValidationError`` / 未预期异常）
 由 app 级 exception handler 统一映射为 HTTP 响应并脱敏（见 ``server/error_handlers.py``）。
 """
@@ -16,22 +16,35 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from lib.api_errors import BadRequestError, ConflictError, NotFoundError
-from lib.artifact_activation import (
+from lib.artifacts.artifact_activation import (
     active_artifact_currency_resolver,
     artifact_is_usable,
     resolve_artifact_episode,
     resolve_usable_storyboard_video_inputs,
 )
-from lib.artifact_manifest import ArtifactKey
-from lib.asset_derivatives import DERIVATIVE_TASK_TYPE, DerivativeSheetSource, resolve_derivative_sheet_source
-from lib.asset_types import ASSET_SPECS, resolve_asset_key, validate_asset_name
+from lib.artifacts.artifact_manifest import ArtifactKey
 from lib.config.resolver import ConfigResolver, video_bucket_for_generation_mode
-from lib.generation_queue import get_generation_queue
-from lib.generation_queue_client import TaskSpec
+from lib.generation.generation_queue import get_generation_queue
+from lib.generation.generation_queue_client import TaskSpec
 from lib.i18n import Translator
-from lib.json_io import domain_error_on_value_error
-from lib.narration_delivery import (
+from lib.infra.api_errors import BadRequestError, ConflictError, NotFoundError
+from lib.infra.json_io import domain_error_on_value_error
+from lib.infra.path_safety import safe_exists, safe_join
+from lib.project.asset_derivatives import DERIVATIVE_TASK_TYPE, DerivativeSheetSource, resolve_derivative_sheet_source
+from lib.project.asset_types import ASSET_SPECS, resolve_asset_key, validate_asset_name
+from lib.project.project_change_hints import build_change_label, emit_project_change_batch, project_change_source
+from lib.project.project_manager import get_project_manager, is_reference_video_project
+from lib.script.reference_video.request_projection import ProjectionResolutionError
+from lib.script.script_editor import resolve_items
+from lib.script.script_models import get_generated_assets
+from lib.script.script_skeleton import resolve_script_kind
+from lib.script.storyboard_sequence import (
+    EndFrameImageUnavailable,
+    StoryboardImageUnavailable,
+    find_storyboard_item,
+    get_storyboard_items,
+)
+from lib.speech.narration_delivery import (
     POST_PRODUCTION,
     USE_TTS,
     NarratedVideoDurationPreparation,
@@ -42,35 +55,22 @@ from lib.narration_delivery import (
     video_request_requires_exact_quote,
     video_request_reuses_current_visual,
 )
-from lib.path_safety import safe_exists, safe_join
-from lib.project_change_hints import build_change_label, emit_project_change_batch, project_change_source
-from lib.project_manager import get_project_manager, is_reference_video_project
-from lib.reference_video.request_projection import ProjectionResolutionError
-from lib.script_editor import resolve_items
-from lib.script_models import get_generated_assets
-from lib.script_skeleton import resolve_script_kind
-from lib.speech_composition import SpeechMode, admit_script_unit
-from lib.storyboard_sequence import (
-    EndFrameImageUnavailable,
-    StoryboardImageUnavailable,
-    find_storyboard_item,
-    get_storyboard_items,
-)
+from lib.speech.speech_composition import SpeechMode, admit_script_unit
 from server.auth import CurrentUser
 from server.routers._validators import require_audio_switch_supported, require_video_bucket_capability
-from server.services.cost_estimation import quote_video_request
-from server.services.derivative_sheet_tasks import build_derivative_sheet_instruction
-from server.services.generation_context import AudioLaneRequest, resolve_generation_context
-from server.services.image_edit_tasks import (
+from server.services.admission.cost_estimation import quote_video_request
+from server.services.admission.reference_admission import require_admitted_storyboard_references
+from server.services.tasks.derivative_sheet_tasks import build_derivative_sheet_instruction
+from server.services.tasks.generation_context import AudioLaneRequest, resolve_generation_context
+from server.services.tasks.image_edit_tasks import (
     EDITABLE_RESOURCE_TYPES,
     resolve_usable_image_edit_source,
 )
-from server.services.narration_delivery_tasks import (
+from server.services.tasks.narration_delivery_tasks import (
     active_narrated_video_resource_ids,
     prepare_current_storyboard_narrated_video_duration,
     tts_task_in_progress,
 )
-from server.services.reference_admission import require_admitted_storyboard_references
 
 logger = logging.getLogger(__name__)
 

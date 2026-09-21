@@ -10,12 +10,12 @@ import logging
 from fastapi import APIRouter, Body, Depends
 from pydantic import BaseModel, ConfigDict, Field
 
-from lib.api_errors import NotFoundError
 from lib.i18n import Translator
-from lib.project_manager import get_project_manager
+from lib.infra.api_errors import NotFoundError
+from lib.project.project_manager import get_project_manager
 from server.dependencies import require_project_migration_ok
 from server.routers._script_review_errors import raise_review_error
-from server.services.script_review import ScriptReviewError, ScriptReviewService
+from server.services.project.script_review import ScriptReviewError, ScriptReviewService
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +39,7 @@ def _localize_quarantine_violations(quarantine: dict | None, _t: Translator) -> 
     """把 ``quarantine_unreadable`` 违约的固定中文文案换成按 ``_t`` 渲染的本地化文本。
 
     该 code 只由两处产出（草稿信封本身损坏 / 重算所需的 meta 缺失损坏），两处都是不带
-    插值的固定字符串，不涉及 ``lib.reference_video.draft_validation`` 里其余违约类型那种
+    插值的固定字符串，不涉及 ``lib.script.reference_video.draft_validation`` 里其余违约类型那种
     产出时已渲染好插值的模板——本地化改造范围限定在这两条，不牵动其余违约消息的展示形态。
     """
     if quarantine is None:

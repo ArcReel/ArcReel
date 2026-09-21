@@ -16,8 +16,8 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from pydantic_core import PydanticCustomError
 
 from lib import PROJECT_ROOT
-from lib.api_errors import BadRequestError, ConflictError, NotFoundError, ServiceUnavailableError
 from lib.i18n import Translator, get_locale
+from lib.infra.api_errors import BadRequestError, ConflictError, NotFoundError, ServiceUnavailableError
 from server.agent_runtime.failure_observation import build_startup_failure_observation
 from server.agent_runtime.models import SessionMeta
 from server.agent_runtime.service import (

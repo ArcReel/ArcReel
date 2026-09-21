@@ -18,8 +18,8 @@ from pathlib import Path
 from typing import NoReturn
 from urllib.parse import unquote
 
-from lib.profile_frontmatter import FrontmatterError, ProfileMetadata, parse_profile_metadata
-from lib.profile_manifest import VALID_CONTENT_MODES, ProfileMisconfiguredError, resolve_profile_files_for_mode
+from lib.agent.profile_frontmatter import FrontmatterError, ProfileMetadata, parse_profile_metadata
+from lib.agent.profile_manifest import VALID_CONTENT_MODES, ProfileMisconfiguredError, resolve_profile_files_for_mode
 from server.agent_runtime.sdk_tools import ARCREEL_MCP_TOOL_IDS
 
 _MCP_RE = re.compile(r"mcp__arcreel__([a-zA-Z0-9_*.-]+)")

@@ -14,13 +14,13 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException
 
-from lib.api_errors import NotFoundError
-from lib.artifact_activation import active_artifact_currency_resolver
-from lib.artifact_manifest import ArtifactStatus
-from lib.asset_derivatives import derivative_artifact_key, derivative_table
-from lib.asset_types import DERIVATIVES_FIELD, AssetSpec, asset_name_comparison_key, resolve_asset_key
+from lib.artifacts.artifact_activation import active_artifact_currency_resolver
+from lib.artifacts.artifact_manifest import ArtifactStatus
 from lib.i18n import Translator
-from lib.project_manager import ProjectManager
+from lib.infra.api_errors import NotFoundError
+from lib.project.asset_derivatives import derivative_artifact_key, derivative_table
+from lib.project.asset_types import DERIVATIVES_FIELD, AssetSpec, asset_name_comparison_key, resolve_asset_key
+from lib.project.project_manager import ProjectManager
 
 logger = logging.getLogger(__name__)
 

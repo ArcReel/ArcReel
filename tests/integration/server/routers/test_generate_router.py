@@ -6,17 +6,17 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from lib.artifact_activation import ArtifactKey, register_current_artifact_if_provable
-from lib.artifact_manifest import ArtifactManifest, ProjectArtifactManifestAdapter
+from lib.artifacts.artifact_activation import ArtifactKey, register_current_artifact_if_provable
+from lib.artifacts.artifact_manifest import ArtifactManifest, ProjectArtifactManifestAdapter
 from lib.config.resolver import ConfigResolver, ProviderModel
 from lib.i18n import _ as i18n_message
-from lib.narration_delivery import TtsSynthesisSettings, build_narration_audio_basis
-from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
-from lib.speech_composition import admit_script_unit
+from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
+from lib.speech.narration_delivery import TtsSynthesisSettings, build_narration_audio_basis
+from lib.speech.speech_composition import admit_script_unit
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import generate
-from server.services.narration_delivery_tasks import CurrentTtsSettingsResolver
+from server.services.tasks.narration_delivery_tasks import CurrentTtsSettingsResolver
 from tests.auth_deps import AUTH_DEPENDENCIES
 from tests.factories import wav_bytes
 from tests.speech_contract_cases import SPEECH_CONTRACT_CASES, SpeechContractCase
@@ -190,7 +190,7 @@ def _client(monkeypatch, fake_pm, fake_queue, *, register_storyboards=True, user
     else:
         fake_pm.sync_disk()
     monkeypatch.setattr(generate, "get_project_manager", lambda: fake_pm)
-    monkeypatch.setattr("lib.generation_queue.get_generation_queue", lambda: fake_queue)
+    monkeypatch.setattr("lib.generation.generation_queue.get_generation_queue", lambda: fake_queue)
     monkeypatch.setattr(generate, "get_generation_queue", lambda: fake_queue)
     # 视频桶预检需要 DB（system_settings）；router 单测无 DB，能力闸行为由
     # test_config_resolver / test_validators_video_bucket 覆盖，这里只保 happy path 放行
@@ -236,14 +236,14 @@ class TestGenerateRouter:
         assert fake_queue.calls == []
 
     async def test_short_same_tier_video_keeps_the_paid_quote(self, monkeypatch):
-        from lib.narration_delivery import (
+        from lib.speech.narration_delivery import (
             USE_TTS,
             NarratedVideoDurationPreparation,
             NarrationDeliveryPreparation,
             NarrationTtsStatus,
             VideoRequestCostFacts,
         )
-        from server.services.cost_estimation import VideoRequestQuote
+        from server.services.admission.cost_estimation import VideoRequestQuote
 
         preparation = NarratedVideoDurationPreparation(
             narration=NarrationDeliveryPreparation(
@@ -375,15 +375,15 @@ class TestGenerateRouter:
             assert call["payload"]["duration_seconds"] == 5
 
     def test_video_use_tts_requires_fresh_audio_without_enqueuing_tts(self, tmp_path, monkeypatch):
-        from lib.artifact_manifest import ArtifactComparison, ArtifactStatus
-        from lib.narration_delivery import (
+        from lib.artifacts.artifact_manifest import ArtifactComparison, ArtifactStatus
+        from lib.speech.narration_delivery import (
             USE_TTS,
             NarrationAudioEvidence,
             TtsSynthesisSettings,
             prepare_narrated_video_duration,
             prepare_narration_delivery,
         )
-        from lib.speech_composition import admit_script_unit
+        from lib.speech.speech_composition import admit_script_unit
 
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
@@ -481,8 +481,8 @@ class TestGenerateRouter:
     def test_video_use_tts_confirms_only_the_current_higher_tier(self, tmp_path, monkeypatch):
         from dataclasses import replace
 
-        from lib.artifact_manifest import ArtifactComparison, ArtifactStatus
-        from lib.narration_delivery import (
+        from lib.artifacts.artifact_manifest import ArtifactComparison, ArtifactStatus
+        from lib.speech.narration_delivery import (
             USE_TTS,
             NarrationAudioEvidence,
             TtsSynthesisSettings,
@@ -490,8 +490,8 @@ class TestGenerateRouter:
             prepare_narrated_video_duration,
             prepare_narration_delivery,
         )
-        from lib.speech_composition import admit_script_unit
-        from server.services.cost_estimation import VideoRequestQuote
+        from lib.speech.speech_composition import admit_script_unit
+        from server.services.admission.cost_estimation import VideoRequestQuote
 
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
@@ -566,8 +566,8 @@ class TestGenerateRouter:
     def test_video_use_tts_blocks_when_cross_tier_cost_is_unavailable(self, tmp_path, monkeypatch):
         from dataclasses import replace
 
-        from lib.artifact_manifest import ArtifactComparison, ArtifactStatus
-        from lib.narration_delivery import (
+        from lib.artifacts.artifact_manifest import ArtifactComparison, ArtifactStatus
+        from lib.speech.narration_delivery import (
             USE_TTS,
             NarrationAudioEvidence,
             TtsSynthesisSettings,
@@ -575,7 +575,7 @@ class TestGenerateRouter:
             prepare_narrated_video_duration,
             prepare_narration_delivery,
         )
-        from lib.speech_composition import admit_script_unit
+        from lib.speech.speech_composition import admit_script_unit
 
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
@@ -798,7 +798,7 @@ class TestGenerateRouter:
 
     def test_video_enqueue_bucket_capability_error_returns_400(self, tmp_path, monkeypatch):
         """i2v 桶预检失败（如默认模型缺首帧能力）→ 提交入口 400 + 修复指引，不入队。"""
-        from lib.api_errors import BadRequestError
+        from lib.infra.api_errors import BadRequestError
 
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
@@ -824,7 +824,7 @@ class TestGenerateRouter:
 
     def test_video_enqueue_rejected_when_audio_switch_unsupported(self, tmp_path, monkeypatch):
         """恒有声模型遇到「关闭音频」的配置 → 提交入口 400，不入队（无声裁剪不得带着不可能实现的意图执行）。"""
-        from lib.api_errors import BadRequestError
+        from lib.infra.api_errors import BadRequestError
 
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
@@ -1033,7 +1033,7 @@ class TestGenerateRouter:
         本测试保 default `storyboards/scene_E1S01.png` 存在(否则会被 line 192 的
         「先生成分镜图」分支挡住,无法暴露 surprise 路径)。
         """
-        from lib.script_editor import ScriptEditError
+        from lib.script.script_editor import ScriptEditError
 
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)

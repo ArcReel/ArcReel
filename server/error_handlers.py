@@ -19,11 +19,11 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
-from lib.api_errors import ApiError
-from lib.generation_queue import ActiveTaskRequestConflict
-from lib.generation_queue_client import TaskSpecValidationError
+from lib.generation.generation_queue import ActiveTaskRequestConflict
+from lib.generation.generation_queue_client import TaskSpecValidationError
 from lib.i18n import get_translator
-from lib.script_editor import ScriptEditError
+from lib.infra.api_errors import ApiError
+from lib.script.script_editor import ScriptEditError
 
 logger = logging.getLogger(__name__)
 

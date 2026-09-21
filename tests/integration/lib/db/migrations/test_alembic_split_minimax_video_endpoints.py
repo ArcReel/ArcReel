@@ -7,7 +7,7 @@ from pathlib import Path
 import sqlalchemy as sa
 
 from alembic import command
-from lib.reference_video.execution_checkpoint import ReferenceSubmissionCheckpoint
+from lib.script.reference_video.execution_checkpoint import ReferenceSubmissionCheckpoint
 
 REVISION = "8c2b1e7d4a90"
 DOWN_REVISION = "3b7c921d5e44"

@@ -1,10 +1,10 @@
 """ComfyUI 端点的视频调用通道。
 
-住在 ``lib.custom_provider`` 顶层，两侧各有一条理由。不在 ``lib.video_backends``：本 backend 的
+住在 ``lib.custom_provider`` 顶层，两侧各有一条理由。不在 ``lib.backends.video_backends``：本 backend 的
 输入是一份 ComfyUI 端点定义（workflow + 节点绑定），读它要用 ``comfyui`` 子包的构造层，而分层
 契约（``pyproject.toml`` ``[tool.importlinter]``）不允许 backend 层反向依赖 ``lib.custom_provider``；
 方向与声明式运行时一致——上层消费下层，下层不知道端点定义的存在。也不在 ``comfyui`` 子包内：那里
-受「不依赖声明式运行时」的 forbidden 契约约束，而本模块要用的 ``lib.video_backends.base`` 绕一圈
+受「不依赖声明式运行时」的 forbidden 契约约束，而本模块要用的 ``lib.backends.video_backends.base`` 绕一圈
 会间接够到声明式 backend。
 
 一次生成的四段：上传素材换回服务端认的引用名 → 在底稿深拷贝上构造实发 workflow → ``POST /prompt``
@@ -30,11 +30,7 @@ from uuid import uuid4
 
 import httpx
 
-from lib.custom_provider.comfyui.capabilities import derive_video_capabilities
-from lib.custom_provider.comfyui.request_builder import BuiltWorkflow, MediaInputs, build_workflow
-from lib.custom_provider.comfyui_client import ComfyuiClient, client_id_for, upload_filename
-from lib.custom_provider.comfyui_execution import HTTP_TIMEOUT_SECONDS, ComfyuiExecution, PickedArtifact
-from lib.video_backends.base import (
+from lib.backends.video_backends.base import (
     ProviderJobIdPersistenceMixin,
     ResumeExpiredError,
     VideoAudioMode,
@@ -43,6 +39,10 @@ from lib.video_backends.base import (
     VideoGenerationResult,
     notify_provider_response,
 )
+from lib.custom_provider.comfyui.capabilities import derive_video_capabilities
+from lib.custom_provider.comfyui.request_builder import BuiltWorkflow, MediaInputs, build_workflow
+from lib.custom_provider.comfyui_client import ComfyuiClient, client_id_for, upload_filename
+from lib.custom_provider.comfyui_execution import HTTP_TIMEOUT_SECONDS, ComfyuiExecution, PickedArtifact
 
 logger = logging.getLogger(__name__)
 

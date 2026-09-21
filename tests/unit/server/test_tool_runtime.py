@@ -11,13 +11,13 @@ from typing import ClassVar
 import pytest
 from pydantic import ValidationError
 
-from lib.async_thread import run_sync_transaction
-from lib.generation_queue import ActiveTaskRequestConflict
-from lib.project_manager import ProjectManager
-from lib.project_migration_failure import ProjectMigrationError
-from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
-from lib.workflow_plan import WorkflowPlanRequest, build_workflow_plan
-from lib.workflow_state import WorkflowStatus
+from lib.generation.generation_queue import ActiveTaskRequestConflict
+from lib.infra.async_thread import run_sync_transaction
+from lib.project.project_manager import ProjectManager
+from lib.project.project_migration_failure import ProjectMigrationError
+from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
+from lib.workflow.workflow_plan import WorkflowPlanRequest, build_workflow_plan
+from lib.workflow.workflow_state import WorkflowStatus
 from server import draft_workflow, tool_runtime
 from server import text_generation as shared_text_generation
 from server.agent_runtime.sdk_tools import text_generation as sdk_text_generation
@@ -401,7 +401,7 @@ def test_text_generation_dependency_points_from_host_adapters_to_shared_handler(
 
 
 async def test_patch_episode_meta_returns_typed_domain_outcome(tmp_path: Path, monkeypatch) -> None:
-    from lib.project_manager import ProjectManager
+    from lib.project.project_manager import ProjectManager
 
     projects = ProjectManager(tmp_path / "projects")
     projects.create_project("demo")

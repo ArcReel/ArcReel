@@ -25,21 +25,21 @@ from packaging.version import InvalidVersion, Version
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from lib.api_errors import UnprocessableError
-from lib.config.registry import PROVIDER_REGISTRY
-from lib.config.repository import mask_secret
-from lib.config.resolver import ConfigResolver
-from lib.config.service import DEFAULT_VIDEO_POLL_TIMEOUT_SECONDS, ConfigService
-from lib.db import get_async_session
-from lib.generation_type_buckets import (
+from lib.backends.generation_type_buckets import (
     BUCKETS_BY_MEDIA_TYPE,
     GenerationTypeBucket,
     builtin_model_buckets,
     custom_model_buckets,
 )
-from lib.http_status_errors import raise_for_status_redacted
-from lib.httpx_shared import get_http_client
+from lib.backends.http_status_errors import raise_for_status_redacted
+from lib.config.registry import PROVIDER_REGISTRY
+from lib.config.repository import mask_secret
+from lib.config.resolver import ConfigResolver
+from lib.config.service import DEFAULT_VIDEO_POLL_TIMEOUT_SECONDS, ConfigService
+from lib.db import get_async_session
 from lib.i18n import DEFAULT_LOCALE, Locale, Translator, translate_or
+from lib.infra.api_errors import UnprocessableError
+from lib.infra.httpx_shared import get_http_client
 from lib.market.sources import PROXY_PREFIX_SETTING
 from server.dependencies import get_config_service
 from server.routers._validators import validate_backend_value

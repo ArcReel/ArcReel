@@ -101,7 +101,7 @@ pytest `asyncio_mode = "auto"`，异步用例无需手动标记。
 - **优先级**：真实对象（内存 SQLite、`tmp_path`）＞ `tests/fakes.py` 手写替身（收录边界见其模块 docstring）＞ 带 `spec`/`autospec` 的 Mock ＞ 裸 `MagicMock`/`AsyncMock`。Mock 只替换仓库边界（第三方 SDK、网络传输、子进程、文件系统、时钟）；仓库内的依赖对象用真实实例；替身只出现在无法用真实对象触发的分支（异常、超时、外部失败）。
 - **禁止 patch 生产代码私有符号**（闸门，无豁免）：`patch("lib.x._y")`、`monkeypatch.setattr(mod, "_y")`、`patch.object(Cls, "_y")` 三种形式一律禁止。需要控制内部行为时走 seam。
 - **seam 即显式参数注入**：构造参数或关键字参数，带生产默认值，不改变生产行为，如 `retry_async(operation, *, clock=..., jitter=...)`；不引入模块级可替换全局。适用范围：轮询时钟/间隔/退避、能力解析器、HTTP 探测客户端、文件系统与子进程。
-- **进程级缓存的重置钩子取公开名**：生产模块用 `functools.cache` 之类的进程级缓存时，为测试暴露的重置入口写成公开的 `reset_*_for_tests()`（如 `lib.app_data_dir.reset_for_tests`），不写下划线私有名——测试 import 私有符号既撞上上一条禁令，也会被 basedpyright 的 `reportUnusedFunction` 判成死代码。钩子只清缓存、不改生产行为。它是过渡形态，新代码优先按上一条做参数注入。
+- **进程级缓存的重置钩子取公开名**：生产模块用 `functools.cache` 之类的进程级缓存时，为测试暴露的重置入口写成公开的 `reset_*_for_tests()`（如 `lib.infra.app_data_dir.reset_for_tests`），不写下划线私有名——测试 import 私有符号既撞上上一条禁令，也会被 basedpyright 的 `reportUnusedFunction` 判成死代码。钩子只清缓存、不改生产行为。它是过渡形态，新代码优先按上一条做参数注入。
 - **出站 HTTP 断言用 respx**：保留真实 httpx 客户端，在 transport 层拦截（`AsyncOpenAI` 流量同样被捕获），断言真实序列化后的请求。
 - **patch 收编**（闸门）：同一 patch 目标字符串出现在 ≥3 个测试文件时收编为共享 fixture / helper，各文件不再各自定义；FastAPI 路由依赖优先 `app.dependency_overrides` 而非 patch。
 
@@ -129,7 +129,7 @@ pytest `asyncio_mode = "auto"`，异步用例无需手动标记。
 
 - 等待、重试、超时逻辑一律经时钟 seam 或事件握手驱动，不使用 `time.sleep` 之类的真实时间等待。
 - 偶发失败（flaky）视同普通缺陷：就地修复（时钟 seam / 事件握手），无法修复或不值得修复的按无意义测试判据删除。不引入自动重试（pytest-rerunfailures、CI job 级 retry）——自动重试会掩盖本应暴露的失败。
-- 概率性 stress 用例（真实并发 + 真实时间）须在本节显式登记。当前唯一登记的豁免：`tests/integration/lib/test_project_manager_concurrent_save.py` 的原子写压力用例。
+- 概率性 stress 用例（真实并发 + 真实时间）须在本节显式登记。当前唯一登记的豁免：`tests/integration/lib/project/test_project_manager_concurrent_save.py` 的原子写压力用例。
 
 ### 覆盖率
 
@@ -185,7 +185,7 @@ uv run basedpyright --warnings
 - `reportUnreachable` 不用忽略注释绕过：穷尽分支后的防御性兜底改 `assert_never(x)`，真正的死分支删除；回调里产出、外层消费的结果用单元素列表当信箱，别写 `x: T | None = None` + `nonlocal`（basedpyright 不跟踪回调里的赋值，会把外层的空值判定当成恒真）
 - `reportUnusedFunction` 把函数作用域内的任何符号一律判为私有，装饰器就地注册的处理器（`@app.exception_handler`、`@router.*`、`@server.tool`、`@event.listens_for`）因此被误报：逐个挂 `# pyright: ignore[reportUnusedFunction]`，并在注册块开头写一条注释说明理由。模块级的 `_` 前缀函数若被别的模块 import，改公开名而不是加豁免；模块级 pytest fixture 同理取公开名（由 pytest 按名收集、无人 import，本规则一律判它未被访问）
 - tests/ 内 `reportOptional*`、`reportArgumentType`、`reportAttributeAccessIssue` 等设为 `none`（不做闸门）：测试的断言式访问与 mock 返回值 narrow 噪声大。scripts/ 与 alembic/ 的 `reportMissingImports` 同理，两处都用 `sys.path` 注入或运行期注入符号，静态不可解析
-- 标注表达期望、判定负责实际：从磁盘 JSON 重建的数据类，其构造期形状校验走 `lib/schema_guards.py`（谓词以 `object` 收参），不要写成对自身标注的同义反复；只校验外层容器类型的访问器把元素标注写成 `Any`，别写成 `dict[str, Any]`
+- 标注表达期望、判定负责实际：从磁盘 JSON 重建的数据类，其构造期形状校验走 `lib/infra/schema_guards.py`（谓词以 `object` 收参），不要写成对自身标注的同义反复；只校验外层容器类型的访问器把元素标注写成 `Any`，别写成 `dict[str, Any]`
 
 **Import 分层契约（import-linter）：**
 
@@ -193,7 +193,7 @@ uv run basedpyright --warnings
 uv run lint-imports
 ```
 
-- 校验 `lib.config < lib.*_backends < lib.custom_provider < lib.market` 分层契约，是 CI backend-static 的必过步骤
+- 校验 `lib.config < lib.backends.*_backends < lib.custom_provider < lib.market` 分层契约，是 CI backend-static 的必过步骤
 - 新增 ignore 条目前先确认该依赖边无法直接消除（约定见 `pyproject.toml`）
 
 **依赖卫生（deptry）：**

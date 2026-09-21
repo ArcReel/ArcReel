@@ -12,9 +12,9 @@ from uuid import uuid4
 
 import pytest
 
-from lib.agent_session_store import make_project_key
-from lib.agent_session_store.store import DbSessionStore
-from lib.project_manager import ProjectManager
+from lib.agent.agent_session_store import make_project_key
+from lib.agent.agent_session_store.store import DbSessionStore
+from lib.project.project_manager import ProjectManager
 from server.agent_runtime.event_log import EventLogService, EventLogStore
 from server.agent_runtime.sdk_transcript_adapter import SdkTranscriptAdapter
 from server.agent_runtime.service import (

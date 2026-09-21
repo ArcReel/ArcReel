@@ -12,8 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from lib.agent_provider_catalog import CUSTOM_SENTINEL_ID, get_preset, list_presets
-from lib.api_errors import UnprocessableError
+from lib.agent.agent_provider_catalog import CUSTOM_SENTINEL_ID, get_preset, list_presets
 from lib.config.anthropic_probe import DiagnosisCode, run_test
 from lib.config.anthropic_probe import ProbeResult as ProbeResultDC
 from lib.config.anthropic_probe import TestConnectionResponse as TestConnectionResponseDC
@@ -23,6 +22,7 @@ from lib.db import get_async_session
 from lib.db.base import dt_to_iso
 from lib.db.repositories.agent_credential_repo import AgentCredentialRepository
 from lib.i18n import Translator
+from lib.infra.api_errors import UnprocessableError
 
 logger = logging.getLogger(__name__)
 

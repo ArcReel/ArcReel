@@ -12,6 +12,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
+from lib.backends.video_backends.base import ProviderJobStatus
 from lib.custom_provider.declarative_backend import (
     DeclarativeRuntimeError,
     ProviderState,
@@ -19,7 +20,6 @@ from lib.custom_provider.declarative_backend import (
     text_or_none,
 )
 from lib.custom_provider.endpoint_definition import JsonPathEvaluationError, extract_value, normalize_extract_spec
-from lib.video_backends.base import ProviderJobStatus
 
 from .errors import EndpointTestDefinitionError
 

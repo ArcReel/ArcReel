@@ -17,11 +17,11 @@ from typing import Annotated, Any, Literal
 from fastapi import APIRouter, Body
 from pydantic import BaseModel
 
-from lib.api_errors import UnprocessableError
 from lib.custom_provider.comfyui.import_shapes import ImportShape, route_import_payload, ui_workflow_refusal
 from lib.custom_provider.comfyui.inference import infer_bindings
 from lib.custom_provider.comfyui.validator import structural_diagnostics
 from lib.i18n import Translator
+from lib.infra.api_errors import UnprocessableError
 
 router = APIRouter(prefix="/comfyui", tags=["Custom Endpoints"])
 

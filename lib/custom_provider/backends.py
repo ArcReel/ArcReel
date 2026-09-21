@@ -7,16 +7,21 @@ from __future__ import annotations
 
 from dataclasses import replace
 
-from lib.audio_backends.base import (
+from lib.backends.audio_backends.base import (
     AudioBackend,
     AudioCapability,
     AudioSynthesisRequest,
     AudioSynthesisResult,
     VoiceOption,
 )
-from lib.image_backends.base import ImageBackend, ImageCapability, ImageGenerationRequest, ImageGenerationResult
-from lib.text_backends.base import TextBackend, TextCapability, TextGenerationRequest, TextGenerationResult
-from lib.video_backends.base import (
+from lib.backends.image_backends.base import (
+    ImageBackend,
+    ImageCapability,
+    ImageGenerationRequest,
+    ImageGenerationResult,
+)
+from lib.backends.text_backends.base import TextBackend, TextCapability, TextGenerationRequest, TextGenerationResult
+from lib.backends.video_backends.base import (
     VideoBackend,
     VideoCapabilities,
     VideoGenerationRequest,

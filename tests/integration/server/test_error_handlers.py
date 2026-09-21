@@ -6,10 +6,10 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from lib.api_errors import ApiError, BadRequestError, NotFoundError, UnprocessableError
-from lib.generation_queue import ActiveTaskRequestConflict
-from lib.generation_queue_client import TaskSpecValidationError
-from lib.script_editor import ScriptEditError
+from lib.generation.generation_queue import ActiveTaskRequestConflict
+from lib.generation.generation_queue_client import TaskSpecValidationError
+from lib.infra.api_errors import ApiError, BadRequestError, NotFoundError, UnprocessableError
+from lib.script.script_editor import ScriptEditError
 from server.error_handlers import register_error_handlers
 
 # 运行时基于系统 tmp 目录构造，不提交机器特定的绝对路径。

@@ -11,11 +11,11 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from lib.grid.models import GridGeneration
-from lib.grid_manager import GridManager
 from lib.i18n import _ as i18n_message
-from lib.project_manager import ProjectManager
-from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
+from lib.project.project_manager import ProjectManager
+from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
+from lib.script.grid.grid_manager import GridManager
+from lib.script.grid.models import GridGeneration
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import grids
@@ -1021,7 +1021,7 @@ def _make_completed_grid(tmp_path, *, with_image: bool = True) -> GridGeneration
 def test_split_grid_success(monkeypatch, tmp_path):
     grid = _make_completed_grid(tmp_path)
 
-    from server.services.grid_split import GridSplitResult
+    from server.services.grid.grid_split import GridSplitResult
 
     calls = []
 
@@ -1119,7 +1119,7 @@ def _jpeg_bytes(size=(64, 64), color=(9, 9, 9)) -> bytes:
 
 def test_upload_grid_image_normalizes_to_png_and_versions(monkeypatch, tmp_path):
     """非 PNG 输入归一化为 PNG 并登记新版本；宫格记录复位为「联合图就绪、待切分」。"""
-    from lib.version_manager import VersionManager
+    from lib.artifacts.version_manager import VersionManager
 
     grid = _make_completed_grid(tmp_path)
     grid.status = "failed"
@@ -1128,7 +1128,7 @@ def test_upload_grid_image_normalizes_to_png_and_versions(monkeypatch, tmp_path)
     GridManager(tmp_path).save(grid)
 
     monkeypatch.setattr(
-        "server.services.generation_tasks.emit_generation_success_batch",
+        "server.services.tasks.generation_tasks.emit_generation_success_batch",
         lambda **kw: {f"grids/{grid.id}.png": 123},
     )
     client = _client(monkeypatch, get_project_manager=lambda: _FakePMRegenerate(tmp_path))
@@ -1169,10 +1169,10 @@ def test_restoring_an_uploaded_grid_version_preserves_its_manifest_claim(monkeyp
 
     from PIL import Image
 
-    from lib.artifact_activation import ArtifactCurrencyResolver
-    from lib.artifact_manifest import ArtifactKey, ArtifactStatus
-    from lib.version_manager import VersionManager
-    from server.services.upload_finalize import UPLOAD_VERSION_SOURCE
+    from lib.artifacts.artifact_activation import ArtifactCurrencyResolver
+    from lib.artifacts.artifact_manifest import ArtifactKey, ArtifactStatus
+    from lib.artifacts.version_manager import VersionManager
+    from server.services.currency.upload_finalize import UPLOAD_VERSION_SOURCE
 
     pm = ProjectManager(tmp_path / "projects")
     pm.create_project("demo")
@@ -1206,7 +1206,7 @@ def test_restoring_an_uploaded_grid_version_preserves_its_manifest_claim(monkeyp
 
     monkeypatch.setattr(grids, "get_project_manager", lambda: pm)
     monkeypatch.setattr(versions_router, "get_project_manager", lambda: pm)
-    monkeypatch.setattr("server.services.generation_tasks.emit_generation_success_batch", lambda **_kwargs: {})
+    monkeypatch.setattr("server.services.tasks.generation_tasks.emit_generation_success_batch", lambda **_kwargs: {})
     app = FastAPI()
     app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
     app.include_router(grids.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
@@ -1252,7 +1252,7 @@ def test_upload_grid_image_refreshes_frozen_aspect_ratio(monkeypatch, tmp_path):
     GridManager(tmp_path).save(grid)
 
     monkeypatch.setattr(
-        "server.services.generation_tasks.emit_generation_success_batch",
+        "server.services.tasks.generation_tasks.emit_generation_success_batch",
         lambda **kw: {},
     )
     # _FakePMRegenerate 的项目比例为 9:16，与记录冻结的 16:9 不同
@@ -1270,7 +1270,7 @@ def test_upload_grid_image_refreshes_frozen_aspect_ratio(monkeypatch, tmp_path):
 
 
 def test_upload_grid_image_registration_failure_restores_file_version_and_record(monkeypatch, tmp_path):
-    from lib.version_manager import VersionManager
+    from lib.artifacts.version_manager import VersionManager
 
     grid = _make_completed_grid(tmp_path)
     grid.split_at = "2026-01-01T00:00:00+00:00"
@@ -1305,7 +1305,7 @@ def test_upload_grid_image_does_not_downscale(monkeypatch, tmp_path):
     """联合图上传不缩放：超过分镜图 2048 上限的大图原尺寸保留（4K 联合图切格不失真）。"""
     grid = _make_completed_grid(tmp_path)
     monkeypatch.setattr(
-        "server.services.generation_tasks.emit_generation_success_batch",
+        "server.services.tasks.generation_tasks.emit_generation_success_batch",
         lambda **kw: {},
     )
     client = _client(monkeypatch, get_project_manager=lambda: _FakePMRegenerate(tmp_path))

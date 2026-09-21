@@ -1,6 +1,6 @@
 """项目级资产 CRUD 路由的统一工厂（character / scene / prop / product）。
 
-按 lib.asset_types.ASSET_SPECS 驱动，各类资产共用同一份路由模板。每类资产仅用 5 行
+按 lib.project.asset_types.ASSET_SPECS 驱动，各类资产共用同一份路由模板。每类资产仅用 5 行
 启用：
 
     router = build_asset_router(asset_type="character", pm_getter=lambda: get_project_manager())
@@ -24,23 +24,23 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict
 
-from lib.api_errors import NotFoundError, UnprocessableError
-from lib.asset_rename import (
+from lib.i18n import Translator
+from lib.infra.api_errors import NotFoundError, UnprocessableError
+from lib.project.asset_rename import (
     AssetRenameConflictError,
     AssetRenameFileCollisionError,
     AssetRenameHistoryCollisionError,
     AssetRenameNotFoundError,
 )
-from lib.asset_types import (
+from lib.project.asset_types import (
     ASSET_SPECS,
     DERIVATIVES_FIELD,
     ProjectAssetNameConflictError,
     localize_asset_type,
     validate_asset_name,
 )
-from lib.i18n import Translator
-from lib.project_change_hints import project_change_source
-from lib.project_manager import ProjectManager
+from lib.project.project_change_hints import project_change_source
+from lib.project.project_manager import ProjectManager
 from server.routers._asset_derivative_status import register_derivative_status_routes
 from server.routers._asset_derivatives import register_derivative_routes
 

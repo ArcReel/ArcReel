@@ -19,18 +19,9 @@ logger = logging.getLogger(__name__)
 from fastapi import APIRouter, Body, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, PlainTextResponse
 
-from lib import script_review
-from lib.api_errors import BadRequestError, NotFoundError
-from lib.artifact_activation import register_current_resource_artifact
-from lib.asset_types import ASSET_SPECS, GLOBAL_LIBRARY_ASSET_TYPES, resolve_asset_key, validate_asset_name
-from lib.audio_utils import (
-    AUDIO_REFERENCE_MAX_BYTES,
-    AUDIO_REFERENCE_MAX_SECONDS,
-    AUDIO_REFERENCE_MIN_SECONDS,
-    probe_audio_duration_seconds,
-)
+from lib.artifacts.artifact_activation import register_current_resource_artifact
 from lib.config.resolver import VisionCapabilityError
-from lib.episode_paths import (
+from lib.episode.episode_paths import (
     REFERENCE_VIDEO_SCRIPT_PLAN_FILENAME,
     REFERENCE_VIDEO_SCRIPT_PLAN_LEGACY_FILENAME,
     SCRIPT_PLAN_FILENAMES,
@@ -38,12 +29,15 @@ from lib.episode_paths import (
     script_plan_read_candidates,
 )
 from lib.i18n import Translator
-from lib.image_utils import normalize_uploaded_image, validate_image_bytes
-from lib.json_io import atomic_write_bytes
-from lib.path_safety import PathTraversalError, safe_join
-from lib.project_change_hints import build_change_label, emit_project_change_batch, project_change_source
-from lib.project_manager import ProjectManager, get_project_manager
-from lib.source_loader import (
+from lib.infra.api_errors import BadRequestError, NotFoundError
+from lib.infra.image_utils import normalize_uploaded_image, validate_image_bytes
+from lib.infra.json_io import atomic_write_bytes
+from lib.infra.path_safety import PathTraversalError, safe_join
+from lib.project.asset_types import ASSET_SPECS, GLOBAL_LIBRARY_ASSET_TYPES, resolve_asset_key, validate_asset_name
+from lib.project.project_change_hints import build_change_label, emit_project_change_batch, project_change_source
+from lib.project.project_manager import ProjectManager, get_project_manager
+from lib.script import script_review
+from lib.script.source_loader import (
     ConflictError,
     CorruptFileError,
     FileSizeExceededError,
@@ -53,8 +47,14 @@ from lib.source_loader import (
     SourceLoader,
     UnsupportedFormatError,
 )
+from lib.speech.audio_utils import (
+    AUDIO_REFERENCE_MAX_BYTES,
+    AUDIO_REFERENCE_MAX_SECONDS,
+    AUDIO_REFERENCE_MIN_SECONDS,
+    probe_audio_duration_seconds,
+)
 from server.routers._script_review_errors import raise_review_error
-from server.services.script_review import ScriptReviewError, ScriptReviewService
+from server.services.project.script_review import ScriptReviewError, ScriptReviewService
 
 router = APIRouter()
 
@@ -96,7 +96,7 @@ class UploadSpec:
     它由 ``_handle_source_upload`` 全权接管，表项只提供类型校验与扩展名白名单。
 
     按剧本条目定位（script_file + shot_id）、需回写剧本元数据的上传不入本表，走各自的
-    分镜级路由，校验与落盘共用 ``server.services.upload_finalize`` 的 helper。
+    分镜级路由，校验与落盘共用 ``server.services.currency.upload_finalize`` 的 helper。
     """
 
     allowed_exts: tuple[str, ...]
@@ -1023,10 +1023,10 @@ async def upload_style_image(project_name: str, _t: Translator, file: UploadFile
         output_path, style_filename = await asyncio.to_thread(_sync_prepare)
 
         # 调用 TextGenerator 分析风格（自动追踪用量）
-        from lib.prompt_templates.builtin import builtin_templates
-        from lib.providers import CallPurpose
-        from lib.text_backends.base import ImageInput, TextGenerationRequest, TextTaskType
-        from lib.text_generator import TextGenerator
+        from lib.backends.providers import CallPurpose
+        from lib.backends.text_backends.base import ImageInput, TextGenerationRequest, TextTaskType
+        from lib.backends.text_generator import TextGenerator
+        from lib.prompts.prompt_templates.builtin import builtin_templates
 
         generator = await TextGenerator.create(
             TextTaskType.STYLE_ANALYSIS, project_name, purpose=CallPurpose.STYLE_ANALYSIS

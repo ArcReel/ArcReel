@@ -22,7 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from lib.config.repository import SystemSettingRepository
 from lib.db.models.market_source import MarketSource
 from lib.db.repositories.market_source_repo import MarketSourceRepository
-from lib.httpx_shared import get_http_client
+from lib.infra.httpx_shared import get_http_client
 
 from .fetch import (
     INDEX_MAX_BYTES,

@@ -8,6 +8,14 @@ from typing import ClassVar
 import httpx
 import pytest
 
+from lib.backends.video_backends.base import (
+    VIDEO_POLL_MAX_CONSECUTIVE_FAILURES,
+    ProviderJobStatus,
+    ProviderRejectedError,
+    ProviderResponseStage,
+    ResumeExpiredError,
+    VideoGenerationRequest,
+)
 from lib.custom_provider.declarative_backend import (
     DeclarativeRuntimeError,
     DeclarativeVideoBackend,
@@ -16,15 +24,7 @@ from lib.custom_provider.declarative_backend import (
 )
 from lib.custom_provider.endpoint_definition import validate_definition
 from lib.db.repositories.usage_repo import MAX_BILLED_DURATION_SECONDS
-from lib.generation_worker import _encode_task_failure_message
-from lib.video_backends.base import (
-    VIDEO_POLL_MAX_CONSECUTIVE_FAILURES,
-    ProviderJobStatus,
-    ProviderRejectedError,
-    ProviderResponseStage,
-    ResumeExpiredError,
-    VideoGenerationRequest,
-)
+from lib.generation.generation_worker import _encode_task_failure_message
 from tests.factories import custom_endpoint_definition
 from tests.fakes import bounded_poll_clock
 from tests.http_capture import capture_http, request_json

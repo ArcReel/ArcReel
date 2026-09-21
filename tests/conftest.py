@@ -55,7 +55,7 @@ if not os.environ.get("DATABASE_URL", "").strip() or os.environ.get(_OWNED_DB_MA
     # 与收集期中断都只 import conftest、不跑 fixture。
     atexit.register(_remove_owned_test_db_dir)
 
-import lib.generation_queue as generation_queue_module
+import lib.generation.generation_queue as generation_queue_module
 from lib.db.base import Base
 from server.agent_runtime.session_manager import SessionManager
 from server.agent_runtime.session_store import SessionMetaStore
@@ -98,7 +98,7 @@ def reset_app_data_dir_cache():
     """``app_data_dir()`` uses ``functools.cache`` for production; reset it between
     tests so per-test monkeypatching of ARCREEL_DATA_DIR / AI_ANIME_PROJECTS takes
     effect immediately."""
-    from lib.app_data_dir import reset_for_tests
+    from lib.infra.app_data_dir import reset_for_tests
 
     reset_for_tests()
     yield
@@ -216,7 +216,7 @@ def _register_models() -> None:
     不这么做时建表范围取决于被测模块的 import 链，同一 fixture 在不同文件下建出的
     schema 不同。
     """
-    from lib.agent_session_store.models import register_models as register_agent_session_models
+    from lib.agent.agent_session_store.models import register_models as register_agent_session_models
     from lib.db.models import register_models as register_db_models
 
     register_agent_session_models()

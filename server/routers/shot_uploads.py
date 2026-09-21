@@ -19,19 +19,18 @@ from typing import Literal
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
 
-from lib.api_errors import ApiError, NotFoundError
+from lib.artifacts.version_manager import VersionManager
 from lib.i18n import Translator
-from lib.image_utils import normalize_storyboard_upload
-from lib.path_safety import PathTraversalError, safe_join
-from lib.project_change_hints import project_change_source
-from lib.project_manager import get_project_manager
-from lib.resource_paths import resource_relative_path
-from lib.script_editor import ScriptEditError
-from lib.storyboard_sequence import find_storyboard_item, get_storyboard_items
-from lib.version_manager import VersionManager
+from lib.infra.api_errors import ApiError, NotFoundError
+from lib.infra.image_utils import normalize_storyboard_upload
+from lib.infra.path_safety import PathTraversalError, safe_join
+from lib.project.project_change_hints import project_change_source
+from lib.project.project_manager import get_project_manager
+from lib.project.resource_paths import resource_relative_path
+from lib.script.script_editor import ScriptEditError
+from lib.script.storyboard_sequence import find_storyboard_item, get_storyboard_items
 from server.error_handlers import script_edit_detail
-from server.services.generation_tasks import emit_generation_success_batch
-from server.services.upload_finalize import (
+from server.services.currency.upload_finalize import (
     UploadTooLargeError,
     UploadValidationError,
     commit_manual_storyboard_upload,
@@ -40,6 +39,7 @@ from server.services.upload_finalize import (
     stage_uploaded_video_stream,
     validate_upload,
 )
+from server.services.tasks.generation_tasks import emit_generation_success_batch
 
 logger = logging.getLogger(__name__)
 

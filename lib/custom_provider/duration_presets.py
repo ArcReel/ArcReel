@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import re
 
-from lib.video_backends.dashscope import classify_wan_model
+from lib.backends.video_backends.dashscope import classify_wan_model
 
 DEFAULT_FALLBACK: list[int] = [4, 8]
 
@@ -22,7 +22,7 @@ _WAN27_DURATIONS: list[int] = list(range(2, 16))
 # Alibaba HappyHorse（3-15 任意）。
 _HAPPYHORSE_DURATIONS: list[int] = list(range(3, 16))
 
-# wan3 / wan2.7 / happyhorse 三个家族的归属判定复用 classify_wan_model（lib.video_backends.dashscope
+# wan3 / wan2.7 / happyhorse 三个家族的归属判定复用 classify_wan_model（lib.backends.video_backends.dashscope
 # 的单一判定入口），不在本模块另写正则——与 endpoints.py 路由推断、DashScopeVideoBackend 能力档
 # 推断共用同一结论，避免三处宽度各自漂移。下方 PRESETS 里其余家族（sora/veo/kling 等）不受该判定
 # 入口覆盖，仍按各自厂商关键字匹配；末尾的通用 wan 兜底同理（见该条目处的说明）。

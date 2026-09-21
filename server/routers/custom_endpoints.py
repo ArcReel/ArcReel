@@ -20,7 +20,6 @@ from fastapi import APIRouter, Body, Depends
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from lib.api_errors import ConflictError, NotFoundError, UnprocessableError
 from lib.custom_provider import make_endpoint_key
 from lib.custom_provider.comfyui.import_shapes import ImportShape, route_import_payload, ui_workflow_refusal
 from lib.custom_provider.discovery_formats import endpoint_attachment_holds
@@ -41,6 +40,7 @@ from lib.db.base import dt_to_iso
 from lib.db.models.custom_endpoint import CustomEndpoint
 from lib.db.repositories.custom_endpoint_repo import CustomEndpointRepository, EndpointReference
 from lib.i18n import Translator
+from lib.infra.api_errors import ConflictError, NotFoundError, UnprocessableError
 from server.routers import comfyui_inference, endpoint_tests
 from server.routers._market_installations import (
     EndpointInstallationResponse,
@@ -285,7 +285,7 @@ async def _invalidate_backend_cache() -> None:
 
     已在轮询的任务持有构造时的 spec，改动只影响新任务——这是接受的行为，不做在途版本锁。
     """
-    from server.services.generation_context import invalidate_backend_cache
+    from server.services.tasks.generation_context import invalidate_backend_cache
 
     invalidate_backend_cache()
 

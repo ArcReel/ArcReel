@@ -1,6 +1,6 @@
 """声明式 JSON 提交/轮询视频调用通道。
 
-住在 ``lib.custom_provider`` 而非 ``lib.video_backends``：本 backend 的输入是自定义调用端点
+住在 ``lib.custom_provider`` 而非 ``lib.backends.video_backends``：本 backend 的输入是自定义调用端点
 的定义格式，读定义要用模板引擎与响应提取，而分层契约（``pyproject.toml``
 ``[tool.importlinter]``）不允许 backend 层反向依赖 ``lib.custom_provider``。方向与
 ``endpoints.py`` 装配各家 backend 一致——上层消费下层，下层不知道声明式定义的存在。
@@ -20,22 +20,7 @@ from urllib.parse import quote
 
 import httpx
 
-from lib.custom_provider.endpoint_definition import (
-    AssetData,
-    JsonPathEvaluationError,
-    RenderedRequest,
-    TemplateRenderError,
-    build_context,
-    encode_inputs,
-    extract_value,
-    map_status,
-    render_request,
-)
-from lib.db.repositories.usage_repo import MAX_BILLED_DURATION_SECONDS
-from lib.logging_utils import format_kwargs_for_log
-from lib.retry import retry_async
-from lib.validation_messages import ValidationMessage
-from lib.video_backends.base import (
+from lib.backends.video_backends.base import (
     IMAGE_MIME_TYPES,
     ProviderJobIdPersistenceMixin,
     ProviderJobStatus,
@@ -55,6 +40,21 @@ from lib.video_backends.base import (
     url_origin,
     with_artifact_retry,
 )
+from lib.custom_provider.endpoint_definition import (
+    AssetData,
+    JsonPathEvaluationError,
+    RenderedRequest,
+    TemplateRenderError,
+    build_context,
+    encode_inputs,
+    extract_value,
+    map_status,
+    render_request,
+)
+from lib.db.repositories.usage_repo import MAX_BILLED_DURATION_SECONDS
+from lib.infra.logging_utils import format_kwargs_for_log
+from lib.infra.retry import retry_async
+from lib.infra.validation_messages import ValidationMessage
 
 _HTTP_TIMEOUT_SECONDS = 60
 logger = logging.getLogger(__name__)

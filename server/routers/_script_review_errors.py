@@ -9,9 +9,9 @@ from typing import NoReturn
 
 from fastapi import HTTPException
 
-from lib.api_errors import ConflictError, UnprocessableError
 from lib.i18n import Translator
-from server.services.script_review import ScriptReviewError
+from lib.infra.api_errors import ConflictError, UnprocessableError
+from server.services.project.script_review import ScriptReviewError
 
 # gate 领域错误码 → HTTP 状态。invalid_content / episode_not_found 带参数另行注入。
 _ERROR_STATUS: dict[str, int] = {

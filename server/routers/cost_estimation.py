@@ -7,14 +7,14 @@ import logging
 
 from fastapi import APIRouter, HTTPException
 
-from lib.api_errors import NotFoundError
 from lib.config.resolver import ConfigResolver
 from lib.db import async_session_factory
 from lib.i18n import Translator
-from lib.project_manager import get_project_manager
-from lib.reference_video import find_reference_unit
-from lib.reference_video.request_projection import POST_PRODUCTION, NarrationDelivery, ReferenceRequestOptions
-from server.services.cost_estimation import CostEstimationService
+from lib.infra.api_errors import NotFoundError
+from lib.project.project_manager import get_project_manager
+from lib.script.reference_video import find_reference_unit
+from lib.script.reference_video.request_projection import POST_PRODUCTION, NarrationDelivery, ReferenceRequestOptions
+from server.services.admission.cost_estimation import CostEstimationService
 
 router = APIRouter()
 logger = logging.getLogger(__name__)

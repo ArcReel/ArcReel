@@ -15,15 +15,19 @@ from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
 from sqlalchemy.exc import IntegrityError
 
-from lib.api_errors import NotFoundError
-from lib.artifact_activation import register_artifact_entries_atomically, resolve_current_artifact_target
-from lib.artifact_manifest import ArtifactKey
-from lib.asset_derivatives import (
+from lib.artifacts.artifact_activation import register_artifact_entries_atomically, resolve_current_artifact_target
+from lib.artifacts.artifact_manifest import ArtifactKey
+from lib.db import async_session_factory
+from lib.db.models.asset import AssetDerivative
+from lib.db.repositories.asset_repo import AssetRepository
+from lib.i18n import Translator
+from lib.infra.api_errors import NotFoundError
+from lib.project.asset_derivatives import (
     derivative_artifact_key,
     derivative_sheet_relative_path,
     derivative_table,
 )
-from lib.asset_types import (
+from lib.project.asset_types import (
     ASSET_SPECS,
     BUCKET_KEY,
     DERIVATIVES_FIELD,
@@ -37,11 +41,7 @@ from lib.asset_types import (
     resolve_asset_key,
     validate_asset_name,
 )
-from lib.db import async_session_factory
-from lib.db.models.asset import AssetDerivative
-from lib.db.repositories.asset_repo import AssetRepository
-from lib.i18n import Translator
-from lib.project_manager import ProjectManager, get_project_manager
+from lib.project.project_manager import ProjectManager, get_project_manager
 from server.routers._asset_router_factory import localize_project_asset_name_conflict
 
 logger = logging.getLogger(__name__)

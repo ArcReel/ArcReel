@@ -7,18 +7,18 @@ from typing import Any
 
 import pytest
 
-from lib.generation_queue import GenerationQueue
-from lib.generation_queue_client import wait_for_task
-from lib.generation_worker import CapacityTable, GenerationWorker
-from lib.project_change_hints import register_project_change_batch_listener
+from lib.generation.generation_queue import GenerationQueue
+from lib.generation.generation_queue_client import wait_for_task
+from lib.generation.generation_worker import CapacityTable, GenerationWorker
+from lib.project.project_change_hints import register_project_change_batch_listener
 from server.media_tools.context import ToolContext
 from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import FakePM, fake_caps_resolver
 
 
 def _build_fake_ctx(tmp_path: Path, session_factory, monkeypatch: pytest.MonkeyPatch) -> ToolContext:
     monkeypatch.setattr("lib.db.async_session_factory", session_factory)
-    monkeypatch.setattr("server.services.video_batch_admission.async_session_factory", session_factory)
-    monkeypatch.setattr("server.services.video_caps.async_session_factory", session_factory)
+    monkeypatch.setattr("server.services.admission.video_batch_admission.async_session_factory", session_factory)
+    monkeypatch.setattr("server.services.tasks.video_caps.async_session_factory", session_factory)
     project_dir = tmp_path / "demo"
     project_dir.mkdir()
     (project_dir / "storyboards").mkdir()

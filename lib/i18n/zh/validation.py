@@ -1,7 +1,7 @@
 """校验与归档诊断消息（中文）。
 
-由 ``lib.data_validator`` / ``server.services.project_archive`` / ``lib.script_skeleton``
-以 ``lib.validation_messages.ValidationMessage`` 的形式产出、在各消费边界渲染。
+由 ``lib.project.data_validator`` / ``server.services.project.project_archive`` / ``lib.script.script_skeleton``
+以 ``lib.infra.validation_messages.ValidationMessage`` 的形式产出、在各消费边界渲染。
 """
 
 MESSAGES = {

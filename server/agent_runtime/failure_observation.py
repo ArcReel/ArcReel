@@ -10,7 +10,7 @@ from typing import Any
 
 from fastapi.encoders import jsonable_encoder
 
-from lib.logging_utils import sanitize_diagnostic_payload
+from lib.infra.logging_utils import sanitize_diagnostic_payload
 
 
 def _utc_now_iso() -> str:

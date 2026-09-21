@@ -7,7 +7,7 @@ export interface GridLayout {
 }
 
 /**
- * 档位阶梯，与后端 lib/grid/layout.py 的 _GRID_LADDER 逐项对应:
+ * 档位阶梯，与后端 lib/script/grid/layout.py 的 _GRID_LADDER 逐项对应:
  * 全部为 N×N 平方切分,单格比例恒等于整图比例(即项目视频比例)。
  * 哪几档可用由格数上限决定,上限取自后端 /grid-capability 的 max_cell_count
  * (4K 门控要经供应商解析才能定,前端不自行推导分辨率档)。

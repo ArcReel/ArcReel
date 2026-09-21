@@ -13,8 +13,8 @@ import threading
 
 import pytest
 
-from lib import script_review
-from lib.draft_quarantine import (
+from lib.script import script_review
+from lib.script.draft_quarantine import (
     QUARANTINE_KIND_DRAMA_SCRIPT_PLAN,
     QUARANTINE_KIND_NARRATION_SCRIPT_PLAN,
     QUARANTINE_KIND_PROMPT_AUTHORING,
