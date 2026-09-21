@@ -837,3 +837,37 @@ def bind_safe_session_factory(monkeypatch, factory) -> None:
     ``async_sessionmaker``，也可以是只出一个假 session 的上下文管理器。
     """
     monkeypatch.setattr("lib.db.safe_session_factory", factory)
+
+
+class HangingProcess:
+    """永不自行退出的子进程替身（asyncio Process 形状）；可配置是否响应 terminate。"""
+
+    def __init__(self, *, honors_terminate: bool) -> None:
+        self._honors_terminate = honors_terminate
+        self._exited = asyncio.Event()
+        self.waiting = asyncio.Event()
+        self.returncode: int | None = None
+        self.signals: list[str] = []
+
+    def terminate(self) -> None:
+        self.signals.append("terminate")
+        if self._honors_terminate:
+            self._exit(-15)
+
+    def kill(self) -> None:
+        self.signals.append("kill")
+        self._exit(-9)
+
+    def _exit(self, code: int) -> None:
+        self.returncode = code
+        self._exited.set()
+
+    async def wait(self) -> int:
+        self.waiting.set()
+        await self._exited.wait()
+        assert self.returncode is not None
+        return self.returncode
+
+    async def communicate(self) -> tuple[bytes, None]:
+        await self.wait()
+        return b"", None

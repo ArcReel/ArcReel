@@ -8,6 +8,7 @@ from unittest.mock import patch
 import pytest
 
 import lib.thumbnail as thumbnail_module
+from tests.fakes import HangingProcess
 
 
 @pytest.fixture(autouse=True)
@@ -26,7 +27,7 @@ async def test_returns_none_when_ffmpeg_missing(tmp_path: Path):
 
     with (
         patch("lib.thumbnail.shutil.which", return_value=None),
-        patch("lib.thumbnail.asyncio.create_subprocess_exec") as spawn,
+        patch("lib.subprocess_deadline.asyncio.create_subprocess_exec") as spawn,
     ):
         result = await thumbnail_module.extract_video_thumbnail(video, out)
 
@@ -64,7 +65,7 @@ async def test_ffmpeg_available_attempts_extraction(tmp_path: Path):
     with (
         patch("lib.thumbnail.shutil.which", return_value="/usr/bin/ffmpeg"),
         patch(
-            "lib.thumbnail.asyncio.create_subprocess_exec",
+            "lib.subprocess_deadline.asyncio.create_subprocess_exec",
             return_value=_FakeProc(),
         ) as spawn,
     ):
@@ -95,7 +96,7 @@ async def test_last_frame_returns_none_when_ffmpeg_missing(tmp_path: Path):
 
     with (
         patch("lib.thumbnail.shutil.which", return_value=None),
-        patch("lib.thumbnail.asyncio.create_subprocess_exec") as spawn,
+        patch("lib.subprocess_deadline.asyncio.create_subprocess_exec") as spawn,
     ):
         result = await thumbnail_module.extract_video_last_frame(video, out)
 
@@ -116,7 +117,7 @@ async def test_last_frame_returns_none_when_only_ffprobe_missing(tmp_path: Path)
 
     with (
         patch("lib.thumbnail.shutil.which", side_effect=_which),
-        patch("lib.thumbnail.asyncio.create_subprocess_exec") as spawn,
+        patch("lib.subprocess_deadline.asyncio.create_subprocess_exec") as spawn,
     ):
         result = await thumbnail_module.extract_video_last_frame(video, out)
 
@@ -182,7 +183,7 @@ async def test_last_frame_falls_back_to_count_frames(tmp_path: Path):
 
     with (
         patch("lib.thumbnail.shutil.which", side_effect=_which),
-        patch("lib.thumbnail.asyncio.create_subprocess_exec", side_effect=_spawn),
+        patch("lib.subprocess_deadline.asyncio.create_subprocess_exec", side_effect=_spawn),
     ):
         result = await thumbnail_module.extract_video_last_frame(video, out)
 
@@ -240,7 +241,7 @@ async def test_last_frame_retries_precise_count_when_fast_extract_writes_nothing
 
     with (
         patch("lib.thumbnail.shutil.which", side_effect=_which),
-        patch("lib.thumbnail.asyncio.create_subprocess_exec", side_effect=_spawn),
+        patch("lib.subprocess_deadline.asyncio.create_subprocess_exec", side_effect=_spawn),
     ):
         result = await thumbnail_module.extract_video_last_frame(video, out)
 
@@ -261,3 +262,95 @@ def test_ffprobe_available_is_cached():
         assert thumbnail_module._ffprobe_available() is False
     with patch("lib.thumbnail.shutil.which", return_value="/usr/bin/ffprobe"):
         assert thumbnail_module._ffprobe_available() is False
+
+
+_ZERO_DEADLINES = thumbnail_module.FrameExtractionDeadlines(probe=0, extract=0, count_frames=0, grace=0)
+
+
+def _write_partial(target: str) -> None:
+    Path(target).write_bytes(b"partial")
+
+
+def _all_tools_available(name: str):
+    return f"/usr/bin/{name}"
+
+
+@pytest.mark.asyncio
+async def test_thumbnail_deadline_kills_ffmpeg_and_removes_partial_output(tmp_path: Path):
+    """ffmpeg 不退出时到 deadline 被终止，半成品缩略图被删除，返回 None。"""
+    video = tmp_path / "fake.mp4"
+    video.write_bytes(b"\x00")
+    out = tmp_path / "out.jpg"
+    procs: list[HangingProcess] = []
+    call_log: list[list[str]] = []
+
+    async def _spawn(*args, **_kwargs):
+        call_log.append(list(args))
+        _write_partial(args[-1])
+        proc = HangingProcess(honors_terminate=False)
+        procs.append(proc)
+        return proc
+
+    with patch("lib.thumbnail.shutil.which", side_effect=_all_tools_available):
+        result = await thumbnail_module.extract_video_thumbnail(video, out, deadlines=_ZERO_DEADLINES, spawn=_spawn)
+
+    assert result is None
+    assert not out.exists()
+    assert [p.signals for p in procs] == [["terminate", "kill"]]
+    assert "-nostdin" in call_log[0]
+
+
+@pytest.mark.asyncio
+async def test_last_frame_deadline_kills_ffmpeg_and_removes_temp_output(tmp_path: Path):
+    """按帧号抽帧的 ffmpeg 不退出时被终止，临时输出被删除，不产出尾帧。"""
+    video = tmp_path / "fake.mp4"
+    video.write_bytes(b"\x00")
+    out = tmp_path / "out.png"
+    ffmpeg_procs: list[HangingProcess] = []
+
+    class _ProbeProc:
+        returncode = 0
+
+        async def communicate(self):
+            return b"30\n", b""
+
+    async def _spawn(*args, **_kwargs):
+        if args[0] == "ffprobe":
+            return _ProbeProc()
+        _write_partial(args[-1])
+        proc = HangingProcess(honors_terminate=False)
+        ffmpeg_procs.append(proc)
+        return proc
+
+    deadlines = thumbnail_module.FrameExtractionDeadlines(probe=3600, extract=0, count_frames=3600, grace=0)
+    with patch("lib.thumbnail.shutil.which", side_effect=_all_tools_available):
+        result = await thumbnail_module.extract_video_last_frame(video, out, deadlines=deadlines, spawn=_spawn)
+
+    assert result is None
+    assert not out.exists()
+    assert sorted(p.name for p in tmp_path.iterdir()) == [video.name]  # noqa: ASYNC240 -- 断言阶段读取 tmp_path
+    assert ffmpeg_procs
+    assert all(p.returncode is not None for p in ffmpeg_procs)
+
+
+@pytest.mark.asyncio
+async def test_last_frame_deadline_on_frame_count_probe_returns_none(tmp_path: Path):
+    """ffprobe 计帧不退出时被终止，不再继续抽帧。"""
+    video = tmp_path / "fake.mp4"
+    video.write_bytes(b"\x00")
+    out = tmp_path / "out.png"
+    call_log: list[list[str]] = []
+    procs: list[HangingProcess] = []
+
+    async def _spawn(*args, **_kwargs):
+        call_log.append(list(args))
+        proc = HangingProcess(honors_terminate=True)
+        procs.append(proc)
+        return proc
+
+    with patch("lib.thumbnail.shutil.which", side_effect=_all_tools_available):
+        result = await thumbnail_module.extract_video_last_frame(video, out, deadlines=_ZERO_DEADLINES, spawn=_spawn)
+
+    assert result is None
+    assert [args[0] for args in call_log] == ["ffprobe", "ffprobe"]
+    assert all(p.returncode is not None for p in procs)
