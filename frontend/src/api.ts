@@ -20,7 +20,6 @@ import type {
   ImagePayload,
   EntriesResponse,
   TimelineEntry,
-  FailureObservation,
   SkillInfo,
   ProjectOverview,
   ProjectChangeBatchPayload,
@@ -77,8 +76,6 @@ import type {
   DramaScene,
   NarrationSegment,
   ReferenceDurationPrecheck,
-  ReferenceProjectionAdmission,
-  NarratedVideoDurationAdmission,
   ReferenceGenerationRequestOptions,
   ReferenceBatchAdmission,
   ReferenceBatchGenerateRequest,
@@ -91,7 +88,6 @@ import type {
   ReferenceScriptPlanDraft,
   VideoCapabilities,
 } from "@/types";
-import type { GenerationRoute } from "@/utils/generation-mode";
 import type { GridCapability, GridGeneration } from "@/types/grid";
 import type {
   PresentationReadModel,
@@ -109,15 +105,65 @@ import type {
   TestConnectionResponse,
   UpdateAgentCredentialRequest,
 } from "@/types/agent-credential";
-import { getToken, clearToken } from "@/utils/auth";
-import { openSseStream, type SseStreamError, type SseStreamHandle } from "@/utils/sse-stream";
-import { isDemoProject } from "@/onboarding/demo-project";
-import i18n from "./i18n";
+import { openSseStream, type SseStreamHandle } from "@/utils/sse-stream";
+import {
+  API_BASE,
+  handleUnauthorized,
+  parseSseJson,
+  requestJson,
+  sseErrorHandler,
+  sseHeaders,
+  throwIfNotOk,
+  withAuth,
+} from "./api/transport";
+import {
+  ConflictError,
+  type ImportErrorPayload,
+  type ScriptEditResult,
+} from "./api/errors";
+import type {
+  AgentProfileStatus,
+  AssetRenameResult,
+  AssistantEntriesStreamOptions,
+  CreateProjectPayload,
+  EpisodeScriptSnapshot,
+  ProjectAssetType,
+  ProjectEventStreamOptions,
+  ScriptEditCommand,
+  ShotUploadResult,
+  SuccessResponse,
+  TaskListFilters,
+  UsageRecordsQuery,
+  UsageSummaryQuery,
+  VersionInfo,
+  VideoCapabilitiesQuery,
+} from "./api/types";
 
-// ==================== Helper types ====================
+export {
+  AgentFailureError,
+  ApiRequestError,
+  ConflictError,
+  NarratedVideoDurationError,
+  ReadOnlyModeError,
+  ReferenceProjectionError,
+  ScriptEditCommandError,
+  SpeechAdmissionError,
+  type ErrorResponse,
+} from "./api/errors";
+export type {
+  AgentProfileStatus,
+  AssetRenameResult,
+  LoginResponse,
+  ProjectAssetType,
+  ProjectEventStreamOptions,
+  UsageRecordsQuery,
+  UsageSummaryQuery,
+  VersionInfo,
+  VideoCapabilitiesQuery,
+} from "./api/types";
+export { setApiReadOnly } from "./api/transport";
 
-/** 项目内四类资产（与后端 ASSET_SPECS 的 asset_type 对齐）。 */
-export type ProjectAssetType = "character" | "scene" | "prop" | "product";
+// ==================== Endpoint helpers ====================
 
 /** asset_type → REST 路径段（与后端 spec.subdir 对齐）。 */
 const ASSET_TYPE_PATH: Record<ProjectAssetType, string> = {
@@ -178,325 +224,6 @@ function presentationEndpoint(
   return `/projects/${encodeURIComponent(projectName)}/presentations/${resourceType}/${encodeURIComponent(resourceId)}${suffix}?${query.toString()}`;
 }
 
-/** 资产级联重命名的影响报告（dry_run 预览与执行同一结构）。 */
-export interface AssetRenameResult {
-  success: boolean;
-  dry_run: boolean;
-  old_name: string;
-  new_name: string;
-  episodes: number;
-  references: number;
-  files: number;
-}
-
-/** Login response from POST /auth/token (mirrors backend TokenResponse). */
-export interface LoginResponse {
-  access_token: string;
-  token_type: string;
-}
-
-/** Standard error response body from backend (mirrors FastAPI HTTPException detail). */
-export interface ErrorResponse {
-  /** 后端附加的诊断或修复信息；调用方可按请求语境解析，永不并进 detail 摘要。 */
-  diagnostic?: unknown;
-  detail:
-    | string
-    | { msg?: string }[]
-    | AgentFailureDetail
-    | SpeechAdmission
-    | ScriptEditResult
-    | ReferenceProjectionAdmission
-    | NarratedVideoDurationAdmission;
-}
-
-export interface SpeechAdmissionLocation {
-  path: (string | number)[];
-  line: number | null;
-}
-
-export interface SpeechAdmissionProblem {
-  code: "mixed_speech" | "needs_replan" | "parse_failed" | "empty_speaker";
-  unit_id: string;
-  locations: SpeechAdmissionLocation[];
-  reason: string;
-  action: string;
-}
-
-export interface SpeechAdmission {
-  allowed: false;
-  unit_id: string;
-  mode: null;
-  problems: SpeechAdmissionProblem[];
-}
-
-export type ScriptEditOperation =
-  | { op: "update"; id: string; fields: Record<string, unknown> }
-  | { op: "insert_after"; after_id: string | null; item: Record<string, unknown> }
-  | { op: "move_after"; id: string; after_id: string | null }
-  | { op: "remove"; id: string };
-
-export interface ScriptEditCommand {
-  script?: string;
-  episode?: number;
-  expected_revision: string;
-  operations: ScriptEditOperation[];
-}
-
-export interface ScriptEditProblem {
-  code: string;
-  operation_index: number | null;
-  unit_id: string | null;
-  locations: SpeechAdmissionLocation[];
-  reason: string;
-  next_action: string;
-}
-
-export interface ScriptEditResult {
-  success: boolean;
-  script: string;
-  episode: number | null;
-  before_revision: string;
-  revision: string;
-  affected_ids: string[];
-  problems: ScriptEditProblem[];
-}
-
-export class ScriptEditCommandError extends Error {
-  readonly code = "script_edit_rejected" as const;
-
-  constructor(public readonly result: ScriptEditResult) {
-    super(formatScriptEditResult(result));
-    this.name = "ScriptEditCommandError";
-  }
-}
-
-export interface EpisodeScriptSnapshot {
-  script: EpisodeScript;
-  revision: string;
-}
-
-/** Preserves the structured speech blocker for UI actions and diagnostics. */
-export class SpeechAdmissionError extends Error {
-  readonly code = "speech_admission_blocked" as const;
-
-  constructor(public readonly admission: SpeechAdmission) {
-    super(formatSpeechAdmission(admission));
-    this.name = "SpeechAdmissionError";
-  }
-}
-
-/** Preserves reference request blockers so the UI can show a repair action. */
-/**
- * 请求失败的通用错误：`message` 是后端给出的产品语言摘要，可直接展示给使用者；
- * `diagnostic` 是可选的诊断或修复信息，由调用方按请求语境解析，不拼进 `message`。
- */
-export class ApiRequestError extends Error {
-  constructor(
-    message: string,
-    public readonly diagnostic?: unknown,
-    /** HTTP 状态码；调用方据此区分「资源已不存在」与瞬时网络/服务错误。 */
-    public readonly status?: number,
-  ) {
-    super(message);
-    this.name = "ApiRequestError";
-  }
-}
-
-export class ReferenceProjectionError extends Error {
-  readonly code = "reference_request_projection_blocked" as const;
-
-  constructor(public readonly projection: ReferenceProjectionAdmission) {
-    const firstBlocking = projection.problems.find(({ blocking }) => blocking);
-    super(firstBlocking?.message || firstBlocking?.code || "reference_request_projection_blocked");
-    this.name = "ReferenceProjectionError";
-  }
-}
-
-/** Preserves current TTS/duration blockers so callers can perform an exact-tier retry. */
-export class NarratedVideoDurationError extends Error {
-  readonly code = "narrated_video_duration_blocked" as const;
-
-  constructor(public readonly admission: NarratedVideoDurationAdmission) {
-    const firstBlocking = admission.problems.find(({ blocking }) => blocking);
-    super(firstBlocking?.message || firstBlocking?.code || "narrated_video_duration_blocked");
-    this.name = "NarratedVideoDurationError";
-  }
-}
-
-/** Structured detail returned when the local Agent process cannot start. */
-export interface AgentFailureDetail {
-  code: "agent_startup_failed";
-  message: string;
-  failure: FailureObservation;
-}
-
-/** Keeps the redacted failure observation attached while remaining a normal Error. */
-export class AgentFailureError extends Error {
-  readonly code = "agent_startup_failed" as const;
-
-  constructor(
-    message: string,
-    public readonly failure: FailureObservation,
-  ) {
-    super(message);
-    this.name = "AgentFailureError";
-  }
-}
-
-/**
- * Error thrown when uploading a source file conflicts with an existing file
- * (HTTP 409). Carries the existing filename and a server-suggested alternative
- * so callers can prompt the user to retry with `on_conflict=rename|replace`.
- */
-export class ConflictError extends Error {
-  constructor(
-    public readonly existing: string,
-    public readonly suggestedName: string,
-    message: string
-  ) {
-    super(message);
-    this.name = "ConflictError";
-  }
-}
-
-/** Error payload from the import project endpoint (extends ErrorResponse with import-specific fields). */
-interface ImportErrorPayload {
-  detail?: string | { msg?: string }[];
-  errors?: string[];
-  warnings?: string[];
-  conflict_project_name?: string;
-  diagnostics?: unknown;
-}
-
-/** Version metadata returned by the versions API. */
-export interface VersionInfo {
-  version: number;
-  filename: string;
-  created_at: string;
-  file_size: number;
-  is_current: boolean;
-  /** Whether this history record carries verified provenance for restore. */
-  restorable?: boolean;
-  /** Whether the shared presentation reader can preview/export this video version. */
-  presentation_available?: boolean;
-  file_url?: string;
-  prompt?: string;
-  restored_from?: number;
-  /** 版本来源标记；"manual_upload" 表示用户手动上传 */
-  source?: string;
-}
-
-/** 分镜/视频单元媒体上传的统一响应。 */
-export interface ShotUploadResult {
-  success: boolean;
-  path: string;
-  version: number;
-  asset_fingerprints: Record<string, number>;
-}
-
-export interface ProjectEventStreamOptions {
-  projectName: string;
-  /** 每次建连（含断线重建）后服务端都会先发一次 snapshot。 */
-  onSnapshot?: (payload: ProjectEventSnapshotPayload) => void;
-  onChanges?: (payload: ProjectChangeBatchPayload) => void;
-  /** 项目目录被删除后收到一次，随后服务端正常关流；订阅方应在此关闭句柄以停止自动重建。 */
-  onProjectDeleted?: (payload: ProjectDeletedPayload) => void;
-  /** 连接失败或中断；`retryable` 为 true 时客户端随后自动重建。 */
-  onError?: (error: SseStreamError) => void;
-}
-
-export interface AssistantEntriesStreamOptions {
-  projectName: string;
-  sessionId: string;
-  /** 冷订阅游标（seq）；断线重建的续传由 `Last-Event-ID` 承担。 */
-  after?: number;
-  onEvent: (event: string, payload: Record<string, unknown>) => void;
-  onError?: (error: SseStreamError) => void;
-}
-
-/** Filters for {@link API.listTasks} and {@link API.listProjectTasks}. */
-export interface TaskListFilters {
-  projectName?: string;
-  status?: string;
-  taskType?: string;
-  source?: string;
-  page?: number;
-  pageSize?: number;
-}
-
-/** {@link API.getUsageRecords} 的筛选；数组维度在查询串里逗号分隔。 */
-export interface UsageRecordsQuery {
-  /** 空串筛选端点试跑记录，`undefined` 表示不按项目筛。 */
-  projectName?: string;
-  providers?: readonly string[];
-  models?: readonly string[];
-  mediaTypes?: readonly string[];
-  statuses?: readonly string[];
-  segmentIds?: readonly string[];
-  /** ISO 8601 时刻，半开区间 [since, until)，作用于 started_at。 */
-  since?: string;
-  until?: string;
-  limit?: number;
-  /** 上一页返回的不透明游标。 */
-  cursor?: string;
-}
-
-/** {@link API.getUsageSummary} 的筛选；不收状态，pending 不进聚合。 */
-export interface UsageSummaryQuery {
-  /** 空串筛选端点试跑记录，`undefined` 表示不按项目筛。 */
-  projectName?: string;
-  provider?: string;
-  model?: string;
-  mediaType?: string;
-  since?: string;
-  until?: string;
-  /** IANA 时区名，按此切天；缺省 UTC。 */
-  tz?: string;
-}
-
-/** Generic success response used by many endpoints. */
-export interface SuccessResponse {
-  success: boolean;
-  message?: string;
-}
-
-export interface AgentProfileStatus {
-  customized: boolean;
-  customized_files: string[];
-}
-
-/** Payload for {@link API.createProject}. */
-export interface CreateProjectPayload {
-  title: string;
-  name?: string;
-  content_mode?: "narration" | "drama" | "ad";
-  /** 源文件性质：novel（默认）/ screenplay。仅 drama 暴露，创建即定、不可变。 */
-  source_kind?: "novel" | "screenplay";
-  aspect_ratio?: "9:16" | "16:9";
-  /** 生成模式，创建时必填二选一、无默认值（后端缺失即 422）。 */
-  generation_mode: GenerationRoute;
-  /** 多宫格分镜装配开关，可随创建写入；仅分镜图生视频有意义。 */
-  grid_storyboard?: boolean;
-  /** 口播语速估算（阅读单位 / 秒）；留空即按项目语言的默认速度估算。 */
-  speech_rate_units_per_second?: number | null;
-  default_duration?: number | null;
-  /** 单集目标时长（秒）；未设即不传。ad 项目服务端拒绝该字段。 */
-  episode_target_duration?: number | null;
-  /** 仅 ad：目标总时长（秒），UI 四档 15/30/60/90。 */
-  target_duration?: number;
-  /** 仅 ad：创作诉求短文本（可空）。 */
-  brief?: string | null;
-  style_template_id?: string | null;
-  video_backend?: string | null;
-  image_backend?: string | null;
-  /** 项目默认图片模型。创建向导只暴露默认层（docs/adr/0054），任务类型桶留给项目设置页。 */
-  default_image_backend?: string | null;
-  text_backend_simple?: string | null;
-  text_backend_complex?: string | null;
-  default_text_backend?: string | null;
-  model_settings?: Record<string, { resolution?: string | null }>;
-}
-
 function normalizeDiagnosticsBucket(value: unknown): { code: string; message: string; location?: string }[] {
   if (!Array.isArray(value)) {
     return [];
@@ -534,353 +261,6 @@ function normalizeExportDiagnostics(value: unknown): ExportDiagnostics {
   };
 }
 
-// ==================== API class ====================
-
-const API_BASE = "/api/v1";
-
-/**
- * 从后端 detail 中取一句可读的说明。
- *
- * 后端把 `{ code, message, ... }` 这样的信封当 detail 抛出的场合（如批量入队中途失败后的
- * 撤销结果），只按字符串与数组取字会把已翻译的说明整段丢掉，用户只收到一句「请求失败」。
- */
-function messageFromDetail(detail: unknown, fallback: string): string {
-  if (typeof detail === "string") return detail || fallback;
-  if (Array.isArray(detail) && detail.length > 0) {
-    return (
-      detail
-        .map((e) => (typeof e === "string" ? e : (e as { msg?: string } | null)?.msg))
-        .filter(Boolean)
-        .join("; ") || fallback
-    );
-  }
-  if (detail && typeof detail === "object") {
-    const message = (detail as { message?: unknown }).message;
-    if (typeof message === "string" && message) return message;
-  }
-  return fallback;
-}
-
-/**
- * 检查 fetch 响应状态，抛出包含后端错误信息的 Error。
- * 用于不经过 API.request() 的自定义 fetch 调用。
- */
-async function throwIfNotOk(response: Response, fallbackMsg: string): Promise<void> {
-  if (!response.ok) {
-    handleUnauthorized(response);
-    const error = await response
-      .json()
-      .catch(() => ({ detail: response.statusText })) as ErrorResponse;
-    const detail = error.detail;
-    if (isReferenceProjectionAdmission(detail)) {
-      throw new ReferenceProjectionError(detail);
-    }
-    if (isNarratedVideoDurationAdmission(detail)) {
-      throw new NarratedVideoDurationError(detail);
-    }
-    if (isSpeechAdmission(detail)) {
-      throw new SpeechAdmissionError(detail);
-    }
-    throw new ApiRequestError(messageFromDetail(detail, fallbackMsg), error.diagnostic, response.status);
-  }
-}
-
-function handleUnauthorized(response: Response): void {
-  if (response.status !== 401) return;
-  redirectToLogin();
-  throw new Error("认证已过期，请重新登录");
-}
-
-function redirectToLogin(): void {
-  clearToken();
-  // 携带当前所在的站内地址，登录成功后回跳；仅对 /app/ 下的页面附加 from，
-  // 避免把登录页自身等非应用路径写进回跳参数。
-  const current = `${globalThis.location.pathname}${globalThis.location.search}${globalThis.location.hash}`;
-  globalThis.location.href = current.startsWith("/app/")
-    ? `/login?from=${encodeURIComponent(current)}`
-    : "/login";
-}
-
-function isAgentFailureDetail(value: unknown): value is AgentFailureDetail {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-  const detail = value as Record<string, unknown>;
-  return (
-    detail.code === "agent_startup_failed"
-    && typeof detail.message === "string"
-    && Boolean(detail.failure)
-    && typeof detail.failure === "object"
-    && !Array.isArray(detail.failure)
-  );
-}
-
-function isSpeechAdmission(value: unknown): value is SpeechAdmission {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-  const detail = value as Record<string, unknown>;
-  return (
-    detail.allowed === false
-    && typeof detail.unit_id === "string"
-    && detail.mode === null
-    && Array.isArray(detail.problems)
-    && detail.problems.length > 0
-    && detail.problems.every((problem) => {
-      if (!problem || typeof problem !== "object" || Array.isArray(problem)) return false;
-      const entry = problem as Record<string, unknown>;
-      return (
-        ["mixed_speech", "needs_replan", "parse_failed", "empty_speaker"].includes(String(entry.code))
-        && typeof entry.unit_id === "string"
-        && Array.isArray(entry.locations)
-        && entry.locations.every((location) => {
-          if (!location || typeof location !== "object" || Array.isArray(location)) return false;
-          const field = location as Record<string, unknown>;
-          return (
-            Array.isArray(field.path)
-            && field.path.every((part) => typeof part === "string" || typeof part === "number")
-            && (field.line === null || typeof field.line === "number")
-          );
-        })
-        && typeof entry.reason === "string"
-        && typeof entry.action === "string"
-      );
-    })
-  );
-}
-
-function isScriptEditResult(value: unknown): value is ScriptEditResult {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-  const result = value as Record<string, unknown>;
-  return (
-    result.success === false
-    && typeof result.script === "string"
-    && typeof result.revision === "string"
-    && Array.isArray(result.problems)
-    && result.problems.length > 0
-  );
-}
-
-function isReferenceProjectionAdmission(value: unknown): value is ReferenceProjectionAdmission {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-  const detail = value as Record<string, unknown>;
-  return (
-    detail.allowed === false
-    && detail.kind === "reference_request_projection"
-    && typeof detail.unit_id === "string"
-    && Array.isArray(detail.problems)
-    && detail.problems.length > 0
-    && detail.problems.every((problem) => {
-      if (!problem || typeof problem !== "object" || Array.isArray(problem)) return false;
-      const entry = problem as Record<string, unknown>;
-      return (
-        typeof entry.code === "string"
-        && typeof entry.blocking === "boolean"
-        && typeof entry.unit_id === "string"
-        && Array.isArray(entry.locations)
-        && entry.locations.every((location) => {
-          if (!location || typeof location !== "object" || Array.isArray(location)) return false;
-          const field = location as Record<string, unknown>;
-          return (
-            Array.isArray(field.path)
-            && field.path.every((part) => typeof part === "string" || typeof part === "number")
-            && (field.line === null || typeof field.line === "number")
-          );
-        })
-        && Boolean(entry.params)
-        && typeof entry.params === "object"
-        && !Array.isArray(entry.params)
-        && typeof entry.action === "string"
-        && (entry.message === undefined || typeof entry.message === "string")
-      );
-    })
-  );
-}
-
-function isNarratedVideoDurationAdmission(value: unknown): value is NarratedVideoDurationAdmission {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-  const detail = value as Record<string, unknown>;
-  return (
-    detail.allowed === false
-    && detail.kind === "narrated_video_duration"
-    && typeof detail.unit_id === "string"
-    && typeof detail.narration_delivery === "object"
-    && detail.narration_delivery !== null
-    && !Array.isArray(detail.narration_delivery)
-    && typeof detail.planned_duration === "number"
-    && typeof detail.duration_input === "number"
-    && (detail.request_duration === null || typeof detail.request_duration === "number")
-    && (
-      detail.adjustment === null
-      || detail.adjustment === "exact"
-      || detail.adjustment === "up"
-      || detail.adjustment === "down"
-    )
-    && Array.isArray(detail.problems)
-    && detail.problems.length > 0
-    && detail.problems.every((problem) => {
-      if (!problem || typeof problem !== "object" || Array.isArray(problem)) return false;
-      const entry = problem as Record<string, unknown>;
-      return (
-        typeof entry.code === "string"
-        && typeof entry.blocking === "boolean"
-        && typeof entry.unit_id === "string"
-        && Array.isArray(entry.locations)
-        && Boolean(entry.params)
-        && typeof entry.params === "object"
-        && !Array.isArray(entry.params)
-        && typeof entry.action === "string"
-        && (entry.message === undefined || typeof entry.message === "string")
-      );
-    })
-  );
-}
-
-function formatSpeechAdmission(admission: SpeechAdmission): string {
-  const problem = admission.problems.find(({ code }) => code !== "needs_replan") ?? admission.problems[0];
-  const location = problem.locations
-    .map(({ path, line }) => `${path.join(".")}${line === null ? "" : `:${line + 1}`}`)
-    .join(", ");
-  const key = {
-    mixed_speech: "speech_admission_mixed_speech",
-    needs_replan: "speech_admission_needs_replan",
-    parse_failed: "speech_admission_parse_failed",
-    empty_speaker: "speech_admission_empty_speaker",
-  }[problem.code];
-  return i18n.t(`dashboard:${key}`, { unitId: problem.unit_id, location });
-}
-
-function formatScriptEditResult(result: ScriptEditResult): string {
-  const first = result.problems[0];
-  if (!first) return i18n.t("dashboard:script_edit_rejected");
-  const speechCodes: SpeechAdmissionProblem["code"][] = [
-    "mixed_speech",
-    "needs_replan",
-    "parse_failed",
-    "empty_speaker",
-  ];
-  if (speechCodes.includes(first.code as SpeechAdmissionProblem["code"]) && first.unit_id !== null) {
-    const unitId = first.unit_id;
-    const problems = result.problems
-      .filter(({ code, unit_id }) => (
-        unit_id === unitId && speechCodes.includes(code as SpeechAdmissionProblem["code"])
-      ))
-      .map((problem) => ({
-        code: problem.code as SpeechAdmissionProblem["code"],
-        unit_id: problem.unit_id ?? unitId,
-        locations: problem.locations,
-        reason: problem.reason,
-        action: problem.next_action,
-      }));
-    return formatSpeechAdmission({ allowed: false, unit_id: unitId, mode: null, problems });
-  }
-  const key = {
-    revision_conflict: "script_edit_revision_conflict",
-    operation_invalid: "script_edit_operation_invalid",
-    schema_invalid: "script_edit_schema_invalid",
-    references_invalid: "script_edit_references_invalid",
-    manifest_invalid: "script_edit_manifest_invalid",
-    commit_failed: "script_edit_commit_failed",
-  }[first.code] ?? "script_edit_rejected";
-  return i18n.t(`dashboard:${key}`);
-}
-
-/** 为 fetch options 注入 Authorization header */
-let apiReadOnly = false;
-
-/**
- * 进入 / 离开只读态（引导演示工作台）。只读期间任何非 GET / HEAD 请求会在发出前被拒绝。
- *
- * 演示工作台是用真组件渲染假数据，写操作的入口都已经不渲染；这道闸门是结构性兜底 ——
- * 漏掉一个入口时会得到一个明确的异常，而不是一条真写进用户项目的请求。
- */
-export function setApiReadOnly(readOnly: boolean): void {
-  apiReadOnly = readOnly;
-}
-
-export class ReadOnlyModeError extends Error {
-  constructor(method: string) {
-    super(`Blocked ${method} request: the workspace is in read-only demo mode`);
-    this.name = "ReadOnlyModeError";
-  }
-}
-
-// 静态归档导入端点，不是「项目名恰好叫 import」——项目名允许字母数字中划线，
-// `import` 本身是合法项目名（ProjectManager.normalize_project_name 不排除它），
-// 按精确路径匹配而非按名称黑名单，避免把 `/projects/import/...`（真实项目名为
-// import 的写请求）一并误判成不带项目归属
-const RESERVED_PROJECT_ENDPOINTS = new Set(["/projects/import"]);
-
-// 不带项目归属、但本身不写入任何项目数据的系统级端点：闸门默认拦截所有无项目归属的
-// 写请求（全局资产库、供应商凭证等），这里是唯一的窄豁免。引导 tour 退出时会在仍处于
-// 演示路由（apiReadOnly 尚未复位）期间写这一条「已看过」标记，它只影响当前用户的引导
-// 状态，不属于闸门要防的「误写演示态/其他项目数据」范畴。
-const READ_ONLY_GATE_EXEMPT_ENDPOINTS = new Set(["/onboarding/seen"]);
-
-/** 从形如 `/projects/{name}` 或 `/projects/{name}/...` 的 endpoint 中取出项目名；非项目路径或静态保留端点返回 null */
-function extractProjectName(endpoint: string): string | null {
-  if (RESERVED_PROJECT_ENDPOINTS.has(endpoint)) return null;
-  const match = /^\/projects\/([^/?]+)/.exec(endpoint);
-  if (!match) return null;
-  return decodeURIComponent(match[1]);
-}
-
-/**
- * 只读闸门是否应拦截这次请求。指向某个具体真实项目的写请求放行 ——
- * 演示态可能在该请求发出前才切入，但它拦不住已经从真实项目发起的操作；
- * 指向演示项目本身或不带项目归属的请求（全局资产库等）仍按闸门原意拦截，
- * 窄豁免名单中的系统端点除外。
- */
-function isReadOnlyGateBlocking(endpoint: string): boolean {
-  if (!apiReadOnly) return false;
-  if (READ_ONLY_GATE_EXEMPT_ENDPOINTS.has(endpoint)) return false;
-  const projectName = extractProjectName(endpoint);
-  return projectName === null || isDemoProject(projectName);
-}
-
-function withAuth(endpoint: string, options: RequestInit = {}): RequestInit {
-  const method = (options.method ?? "GET").toUpperCase();
-  if (method !== "GET" && method !== "HEAD" && isReadOnlyGateBlocking(endpoint)) {
-    throw new ReadOnlyModeError(method);
-  }
-  const token = getToken();
-  const headers = new Headers(options.headers);
-  if (token) {
-    headers.set("Authorization", `Bearer ${token}`);
-  }
-  // Add Accept-Language header based on current i18n language
-  headers.set("Accept-Language", i18n.language || "zh");
-  return { ...options, headers };
-}
-
-/** SSE 建连请求头：与 {@link withAuth} 同一套凭证与语言，每次重建前重新取。 */
-function sseHeaders(): HeadersInit {
-  const headers: Record<string, string> = { "Accept-Language": i18n.language || "zh" };
-  const token = getToken();
-  if (token) {
-    headers.Authorization = `Bearer ${token}`;
-  }
-  return headers;
-}
-
-function parseSseJson(data: string, label: string): Record<string, unknown> | null {
-  try {
-    const parsed: unknown = JSON.parse(data || "{}");
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
-      ? (parsed as Record<string, unknown>)
-      : null;
-  } catch (err) {
-    console.error(`解析${label} SSE 数据失败:`, err, data);
-    return null;
-  }
-}
-
-/** 事件流被服务端以 401 拒绝时与普通请求同样处理：清凭证并回登录页。 */
-function sseErrorHandler(onError?: (error: SseStreamError) => void) {
-  return (error: SseStreamError) => {
-    if (error.status === 401) {
-      redirectToLogin();
-    }
-    onError?.(error);
-  };
-}
-
 function endpointTestRequest(
   body: unknown,
   assets: EndpointTestAssets = {},
@@ -894,14 +274,6 @@ function endpointTestRequest(
   form.append("payload", JSON.stringify(body));
   for (const [source, file] of files) form.append(source, file);
   return { method: "POST", headers: {}, body: form, signal };
-}
-
-export interface VideoCapabilitiesQuery {
-  signal?: AbortSignal;
-  videoBackend?: string;
-  /** undefined = 服务端按项目已保存档位；null = 显式「自动」（发空串）；字符串 = 按该档位。 */
-  resolution?: string | null;
-  usesReferenceImages?: boolean;
 }
 
 function videoCapabilitiesQuery(options: VideoCapabilitiesQuery): string {
@@ -921,6 +293,8 @@ function agentMemoryBase(scope: AgentMemoryScope): string {
     : `/projects/${encodeURIComponent(scope.projectName)}/agent-memory`;
 }
 
+// ==================== API class ====================
+
 class API {
   /**
    * 通用请求方法
@@ -929,46 +303,7 @@ class API {
     endpoint: string,
     options: RequestInit = {}
   ): Promise<T> {
-    const url = `${API_BASE}${endpoint}`;
-    const defaultOptions: RequestInit = {
-      headers: {
-        "Content-Type": "application/json",
-      },
-    };
-
-    const response = await fetch(url, withAuth(endpoint, { ...defaultOptions, ...options }));
-
-    if (!response.ok) {
-      handleUnauthorized(response);
-      const payload = await response
-        .json()
-        .catch(() => ({ detail: response.statusText })) as unknown;
-      if (isScriptEditResult(payload)) {
-        throw new ScriptEditCommandError(payload);
-      }
-      const error = payload as ErrorResponse;
-      if (isScriptEditResult(error.detail)) {
-        throw new ScriptEditCommandError(error.detail);
-      }
-      if (isAgentFailureDetail(error.detail)) {
-        throw new AgentFailureError(error.detail.message, error.detail.failure);
-      }
-      if (isReferenceProjectionAdmission(error.detail)) {
-        throw new ReferenceProjectionError(error.detail);
-      }
-      if (isNarratedVideoDurationAdmission(error.detail)) {
-        throw new NarratedVideoDurationError(error.detail);
-      }
-      if (isSpeechAdmission(error.detail)) {
-        throw new SpeechAdmissionError(error.detail);
-      }
-      throw new ApiRequestError(messageFromDetail(error.detail, "请求失败"), error.diagnostic, response.status);
-    }
-
-    if (response.status === 204) {
-      return undefined as T;
-    }
-    return response.json() as Promise<T>;
+    return requestJson<T>(endpoint, options);
   }
 
   // ==================== 系统配置 ====================
@@ -1041,7 +376,6 @@ class API {
       body: JSON.stringify(patch),
     });
   }
-
 
   // ==================== 项目管理 ====================
 
