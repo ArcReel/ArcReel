@@ -28,7 +28,14 @@ from lib.http_status_errors import ProviderRejectedError as ProviderRejectedErro
 from lib.http_status_errors import provider_rejected_error, redacted_status_error
 from lib.http_status_errors import raise_for_status_redacted as raise_for_status_redacted
 from lib.logging_utils import redact_diagnostic_text, sanitize_diagnostic_payload
-from lib.retry import BASE_RETRYABLE_ERRORS, AsyncClock, SystemClock, _should_retry, with_retry_async
+from lib.retry import (
+    BASE_RETRYABLE_ERRORS,
+    AsyncClock,
+    NonRetryableError,
+    SystemClock,
+    _should_retry,
+    with_retry_async,
+)
 
 # `_should_retry` 默认会做字符串模式兜底（"timeout"/"503" 等），
 # 而 persist 重试要严格"DB 瞬态错误"语义——业务异常（如
@@ -937,9 +944,14 @@ async def download_video(
 
 
 async def download_resumable_video(url: str, output_path: Path, *, label: str) -> None:
-    """下载可续跑任务的成片；预算耗尽转成可重试下载的稳定失败。"""
+    """下载可续跑任务的成片；预算耗尽转成可重试下载的稳定失败。
+
+    ``NonRetryableError``（目的地不合规、超出体积上限）原样抛出：重新取件结果不会变。
+    """
     try:
         await download_video(url, output_path, label=label)
+    except NonRetryableError:
+        raise
     except Exception as exc:
         raise ArtifactDownloadError(detail=str(exc)) from exc
 

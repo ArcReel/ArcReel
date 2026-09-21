@@ -34,7 +34,7 @@ from lib.custom_provider.endpoint_definition import (
 )
 from lib.db.repositories.usage_repo import MAX_BILLED_DURATION_SECONDS
 from lib.logging_utils import format_kwargs_for_log
-from lib.retry import retry_async
+from lib.retry import NonRetryableError, retry_async
 from lib.validation_messages import ValidationMessage
 from lib.video_backends.base import (
     IMAGE_MIME_TYPES,
@@ -551,7 +551,7 @@ class DeclarativeVideoBackend(ProviderJobIdPersistenceMixin):
                     retry_if=should_retry_poll,
                     max_wait=request.poll_timeout_seconds,
                 )
-            except (ResumeExpiredError, DeclarativeRuntimeError):
+            except (ResumeExpiredError, DeclarativeRuntimeError, NonRetryableError):
                 raise
             except Exception as exc:
                 raise DeclarativeRuntimeError("artifact_download_failed", detail=str(exc)) from exc
@@ -656,5 +656,8 @@ class DeclarativeVideoBackend(ProviderJobIdPersistenceMixin):
                 label=f"{self._provider} artifact download",
                 max_wait=max_wait,
             )
+        except NonRetryableError:
+            # 目的地不合规、超出体积上限：重新取件结果不会变，不落可重试下载
+            raise
         except Exception as exc:
             raise DeclarativeRuntimeError("artifact_download_failed", detail=str(exc)) from exc

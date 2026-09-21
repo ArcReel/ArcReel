@@ -9,7 +9,12 @@ import httpx
 import pytest
 from sqlalchemy.exc import OperationalError
 
-from lib.artifact_download_guard import ERROR_BODY_MAX_BYTES, ArtifactDestinationRejectedError, ArtifactTooLargeError
+from lib.artifact_download_guard import (
+    ERROR_BODY_MAX_BYTES,
+    VIDEO_ARTIFACT_MAX_BYTES,
+    ArtifactDestinationRejectedError,
+    ArtifactTooLargeError,
+)
 from lib.video_backends.base import (
     PROVIDER_REASON_MAX_CHARS,
     TERMINAL_PROVIDER_STATUSES,
@@ -23,6 +28,7 @@ from lib.video_backends.base import (
     VideoGenerationResult,
     _dig,
     _rewrites_to_get,
+    download_resumable_video,
     download_video,
     extract_provider_error_message,
     first_mapping_by_paths,
@@ -1296,6 +1302,25 @@ class TestDownloadVideoDestination:
         assert first.call_count == 1
         assert target.call_count == 0
         assert not output.exists()
+
+    async def test_resumable_download_keeps_destination_rejection_terminal(self, tmp_path: Path):
+        # 目的地不合规重试取件也不会变，不落可重试下载的 ArtifactDownloadError
+        with capture_http() as router:
+            target = router.get("http://169.254.169.254/a.mp4").mock(return_value=httpx.Response(200))
+            with pytest.raises(ArtifactDestinationRejectedError):
+                await download_resumable_video("http://169.254.169.254/a.mp4", tmp_path / "out.mp4", label="test")
+
+        assert target.call_count == 0
+
+    async def test_resumable_download_keeps_size_limit_terminal(self, tmp_path: Path):
+        with capture_http() as router:
+            router.get("https://cdn.test/a.mp4").mock(
+                return_value=httpx.Response(200, headers={"Content-Length": str(VIDEO_ARTIFACT_MAX_BYTES + 1)})
+            )
+            with pytest.raises(ArtifactTooLargeError):
+                await download_resumable_video("https://cdn.test/a.mp4", tmp_path / "out.mp4", label="test")
+
+        assert not (tmp_path / "out.mp4").exists()
 
 
 class TestRecordingPoll:
