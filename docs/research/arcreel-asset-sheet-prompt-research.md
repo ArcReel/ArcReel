@@ -1,6 +1,6 @@
 # 资产图提示词调研：多格构图、i2i 参考图副作用、防崩与反向尾句
 
-> 用途：为 [#2058](https://github.com/ArcReel/ArcReel/issues/2058)「资产图提示词模板优化」提供一手证据，覆盖 `lib/prompt_builders.py` 中 `_CHARACTER_LAYOUT` / `_SCENE_LAYOUT` / `_PROP_LAYOUT` / `_PRODUCT_LAYOUT`、`_*_GUARD`、`_NEGATIVE_TAIL_*` 三类内化文本。
+> 用途：为 [#2058](https://github.com/ArcReel/ArcReel/issues/2058)「资产图提示词模板优化」提供一手证据，覆盖 `lib/prompts/prompt_builders.py` 中 `_CHARACTER_LAYOUT` / `_SCENE_LAYOUT` / `_PROP_LAYOUT` / `_PRODUCT_LAYOUT`、`_*_GUARD`、`_NEGATIVE_TAIL_*` 三类内化文本。
 > 范围：五个问题块——A 多格 / 多视图 / sheet 式构图的官方口径；B 多格拼贴图作为 i2i 参考图的副作用；C 正向防崩句与文本化反向尾句的实际有效性；D 作为条件输入的参考图其画面应当是什么样（景别 / 视角 / 姿态 / 背景 / 张数）；E 宽高比。D、E 两块为 2026-08-24 定向补充调研，回答「单图该画什么、用什么宽高比」。
 > 来源纪律：只采信官方文档站 / 模型卡 / 供应商 cookbook / API reference，以及 arXiv 与同行评审论文。二手博客、论坛、聚合教程不进结论，仅在需要标注「社区口传无官方背书」时提及并如此标注。每条结论附来源 URL 与发布/更新日期；取不到日期写「日期未标注」。查不到官方说法一律写「未找到官方表述」，不以推测填补。
 > 抓取方式说明：多家供应商文档站为前端渲染或对直连返回 403（`docs.midjourney.com`、`www.volcengine.com/docs`、`docs.byteplus.com`、`platform.minimax.io`）。这些页面的正文经渲染代理取得，引文与 URL 均为官方原页内容，不引用任何二手转述。
@@ -162,7 +162,7 @@ Seedream 4.0 技术报告：「reference-based generation presents a more challe
   来源：https://arxiv.org/abs/2411.17066 、https://arxiv.org/html/2411.17066v1 （2024-11-26，v1）
 - **底层文本编码器对否定近乎无感。**《Vision-Language Models Do Not Understand Negation》（arXiv:2501.09425，v1 2025-01-16，v2 2025-05-13，**CVPR 2025**）：「Our evaluation reveals that modern VLMs struggle significantly with negation, **often performing at chance level**.」该文针对 CLIP 族——即多数扩散模型的文本条件编码器。
   来源：https://arxiv.org/abs/2501.09425
-- **必须与之区分的一条：负向通道（negative_prompt）有独立的、有效的作用机制，不能拿它为文本否定背书。**《Understanding the Impact of Negative Prompts: When and How Do They Take Effect?》（arXiv:2406.02965，2024-06-05）刻画的两种行为——Delayed Effect（负向作用发生在正向内容已被渲染之后）与 Deletion Through Neutralization（在潜空间与正向条件相互抵消）——依赖的是 CFG 的独立负向条件分支，**与把否定句写进正向 prompt 是两套机制**。ArcReel 当前在 `lib/prompt_builders.py` 模块 docstring 中已声明放弃 negative_prompt 参数通道、统一走文本尾句，因此这篇论文的结论**不支持**当前实现，反而是当前实现放弃的那条路径的有利证据。
+- **必须与之区分的一条：负向通道（negative_prompt）有独立的、有效的作用机制，不能拿它为文本否定背书。**《Understanding the Impact of Negative Prompts: When and How Do They Take Effect?》（arXiv:2406.02965，2024-06-05）刻画的两种行为——Delayed Effect（负向作用发生在正向内容已被渲染之后）与 Deletion Through Neutralization（在潜空间与正向条件相互抵消）——依赖的是 CFG 的独立负向条件分支，**与把否定句写进正向 prompt 是两套机制**。ArcReel 当前在 `lib/prompts/prompt_builders.py` 模块 docstring 中已声明放弃 negative_prompt 参数通道、统一走文本尾句，因此这篇论文的结论**不支持**当前实现，反而是当前实现放弃的那条路径的有利证据。
   来源：https://arxiv.org/abs/2406.02965 （2024-06-05）
 
 **「提及即强化」的措辞校正**：论文证据支持的是「否定句常常不被执行，被否定的实体仍然出现」（服从率低），而不是更强的「写了反而比不写更容易出现」（主动强化）。本次未找到任何一手来源做过「写否定 vs 不写」的对照实验并报告前者更差。把结论表述为「提及即强化」会超出证据。
@@ -380,7 +380,7 @@ Google 官方（Aspect ratios and image size 小节原文）：「By default, th
 **修订/细化的部分**
 1. **火山的否定式归类需要按图像/视频线拆分**。既有报告 Q3 把火山归入「类型 C：官方鼓励在正文里直接写禁止/排除约束句」，依据是 Seedance 2.0 视频 prompt 指南的「约束词」小节。本次核对 Seedream 4.0–4.5 **图像** prompt guide（Last updated 2026-07-06）全文，**未见排除项/约束词小节**。既有报告的结论对火山视频线成立，对火山图像线**无据**。ArcReel 的资产图走图像线，引用时须注意这一分界。
 2. **既有报告 Q3 的「共同隐含底线」可以再收紧一档**。既有报告的表述是「否定式不是万能，且几家明确约束非 100% 可控」；本报告补入的论文证据把「不是万能」量化到了具体数量级（未改写否定 prompt 准确率 12.3%）。
-3. **既有报告 Q3 未区分的一件关键事**：negative_prompt **参数通道** 与 prompt 正文里的**文本否定**是两套机制。既有报告的三分类是按「供应商是否提供 negative 通道 / 是否推荐正文写否定」组织的，未讨论两者的效力是否可以互相推断。本报告给出的答案是不能：arXiv:2406.02965 的机制解释只覆盖参数通道；`lib/prompt_builders.py` 现有实现走的是文本尾句，因此该论文不为其背书。
+3. **既有报告 Q3 未区分的一件关键事**：negative_prompt **参数通道** 与 prompt 正文里的**文本否定**是两套机制。既有报告的三分类是按「供应商是否提供 negative 通道 / 是否推荐正文写否定」组织的，未讨论两者的效力是否可以互相推断。本报告给出的答案是不能：arXiv:2406.02965 的机制解释只覆盖参数通道；`lib/prompts/prompt_builders.py` 现有实现走的是文本尾句，因此该论文不为其背书。
 4. **时效核验**：既有报告引用的 Google 图像最佳实践页 URL（`cloud.google.com/gemini-enterprise-agent-platform/...`）现 301 重定向至 `docs.cloud.google.com/...`，内容仍在，Last updated 2026-08-21 UTC，「Describe what you want, not what you don't」原文未变。OpenAI cookbook 页更新至 2026-04-21，「State exclusions and invariants explicitly」原文未变。既有报告 Q3 中这两条不需要修订。
 
 ---

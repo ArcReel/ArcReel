@@ -28,17 +28,17 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
-from lib.app_data_dir import app_data_dir
+from lib.backends.providers import CallPurpose
+from lib.backends.video_backends.base import ProviderResponseStage, VideoGenerationRequest
+from lib.backends.video_frame_slots import resolve_first_frame_aspect_ratio
+from lib.billing.ledger import Ledger
 from lib.config.resolver import ConfigResolver
 from lib.custom_provider.comfyui.failures import ComfyuiError
 from lib.custom_provider.declarative_backend import DeclarativeRuntimeError, DeclarativeVideoBackend
 from lib.db.base import DEFAULT_USER_ID
 from lib.db.repositories.usage_repo import bound_provider_response
-from lib.ledger import Ledger
-from lib.providers import CallPurpose
-from lib.task_failure import encode_failure
-from lib.video_backends.base import ProviderResponseStage, VideoGenerationRequest
-from lib.video_frame_slots import resolve_first_frame_aspect_ratio
+from lib.generation.task_failure import encode_failure
+from lib.infra.app_data_dir import app_data_dir
 
 from .check import STAGES, check_response, stage_report_payload
 from .inputs import EndpointTestCredentials, EndpointTestParameters
@@ -560,8 +560,8 @@ async def _gate_trial_request(
     parameters: EndpointTestParameters,
     assets: Mapping[str, Path | list[Path] | None],
 ) -> None:
-    from lib.audio_utils import probe_reference_audio_total_seconds
-    from lib.video_frame_slots import gate_video_request, plan_frame_slots
+    from lib.backends.video_frame_slots import gate_video_request, plan_frame_slots
+    from lib.speech.audio_utils import probe_reference_audio_total_seconds
 
     reference_images = assets.get("reference_images")
     reference_audio = assets.get("reference_audio_files")
@@ -636,7 +636,7 @@ def model_ref_target(
     """
 
     async def build() -> Any:
-        from lib.backend_assembly import assemble_backend
+        from lib.backends.backend_assembly import assemble_backend
 
         return await assemble_backend(provider_id=provider_id, media_type="video", model_id=model_id, resolver=resolver)
 

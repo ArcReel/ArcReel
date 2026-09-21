@@ -18,17 +18,17 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from PIL import Image
 
-from lib.data_validator import DataValidator
+from lib.artifacts.version_manager import VersionManager
 from lib.i18n import _ as i18n_message
-from lib.json_io import atomic_write_json
-from lib.project_manager import ProjectManager
-from lib.script_editor import ScriptEditError
-from lib.version_manager import VersionManager
+from lib.infra.json_io import atomic_write_json
+from lib.project.data_validator import DataValidator
+from lib.project.project_manager import ProjectManager
+from lib.script.script_editor import ScriptEditError
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import end_frames
-from server.services import end_frame as end_frame_service
-from server.services import upload_finalize
+from server.services.currency import upload_finalize
+from server.services.project import end_frame as end_frame_service
 from tests.auth_deps import AUTH_DEPENDENCIES
 
 END_FRAME_REL = "end_frames/scene_E1S01.png"

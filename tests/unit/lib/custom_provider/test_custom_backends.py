@@ -5,19 +5,19 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
-from lib.audio_backends.base import AudioCapability, AudioSynthesisRequest, AudioSynthesisResult
+from lib.backends.audio_backends.base import AudioCapability, AudioSynthesisRequest, AudioSynthesisResult
+from lib.backends.image_backends.base import ImageCapability, ImageGenerationRequest, ImageGenerationResult
+from lib.backends.text_backends.base import TextCapability, TextGenerationRequest, TextGenerationResult
+from lib.backends.video_backends.base import (
+    VideoCapabilities,
+    VideoGenerationRequest,
+    VideoGenerationResult,
+)
 from lib.custom_provider.backends import (
     CustomAudioBackend,
     CustomImageBackend,
     CustomTextBackend,
     CustomVideoBackend,
-)
-from lib.image_backends.base import ImageCapability, ImageGenerationRequest, ImageGenerationResult
-from lib.text_backends.base import TextCapability, TextGenerationRequest, TextGenerationResult
-from lib.video_backends.base import (
-    VideoCapabilities,
-    VideoGenerationRequest,
-    VideoGenerationResult,
 )
 
 # ---------------------------------------------------------------------------
@@ -314,7 +314,7 @@ class TestCustomAudioBackend:
         delegate.synthesize.assert_awaited_once_with(request)
 
     def test_list_voices_delegates(self):
-        from lib.audio_backends.base import VoiceOption
+        from lib.backends.audio_backends.base import VoiceOption
 
         expected_voices = [VoiceOption(id="alloy", label="alloy")]
         delegate = AsyncMock()

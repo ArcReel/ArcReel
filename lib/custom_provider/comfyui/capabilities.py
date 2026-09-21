@@ -29,7 +29,7 @@ from .workflow import is_link, node_inputs
 #: 决定「有没有图输入」的三项语义键。三项全空即这份 workflow 不吃任何图片素材。
 _IMAGE_BINDING_KEYS = ("start_image", "end_image", "reference_images")
 
-#: 音轨的两种结论，取值与 :class:`lib.video_backends.base.VideoAudioMode` 的成员值逐字相同。
+#: 音轨的两种结论，取值与 :class:`lib.backends.video_backends.base.VideoAudioMode` 的成员值逐字相同。
 #: 永远不会是 ``controllable``：ComfyUI 侧没有可下发的音轨开关。
 AudioTrack = Literal["always_on", "always_off"]
 

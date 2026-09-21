@@ -9,8 +9,8 @@ from lib.db.models.api_call import ApiCall
 from lib.db.models.task import Task
 from lib.db.repositories.task_repo import TaskRepository
 from lib.db.repositories.usage_repo import SettlementInput, UsageRepository
+from lib.generation.task_failure import encode_failure, render_failure
 from lib.i18n import _ as translate_message
-from lib.task_failure import encode_failure, render_failure
 
 
 async def stored_calls(session) -> list[ApiCall]:

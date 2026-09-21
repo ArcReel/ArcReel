@@ -6,12 +6,17 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from lib.artifact_activation import ArtifactCurrencyResolver
-from lib.artifact_manifest import ArtifactKey, ArtifactManifestEntry, ArtifactStatus, ProjectArtifactManifestAdapter
-from lib.asset_derivatives import derivative_artifact_key, derivative_sheet_relative_path
-from lib.asset_types import DERIVATIVES_FIELD
+from lib.artifacts.artifact_activation import ArtifactCurrencyResolver
+from lib.artifacts.artifact_manifest import (
+    ArtifactKey,
+    ArtifactManifestEntry,
+    ArtifactStatus,
+    ProjectArtifactManifestAdapter,
+)
 from lib.i18n import _ as translate_message
-from lib.project_manager import ProjectManager
+from lib.project.asset_derivatives import derivative_artifact_key, derivative_sheet_relative_path
+from lib.project.asset_types import DERIVATIVES_FIELD
+from lib.project.project_manager import ProjectManager
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import assets
@@ -1098,7 +1103,7 @@ class TestApplyToProject:
         assert data["scenes"]["A"]["scene_sheet"] == "scenes/A.png"
 
     def test_multi_file_copy_failure_rolls_back_batch(self, assets_env, monkeypatch):
-        from lib import project_manager as project_manager_module
+        from lib.project import project_manager as project_manager_module
 
         client = assets_env["client"]
         pm = assets_env["pm"]
@@ -1139,7 +1144,7 @@ class TestApplyToProject:
         assert not list(target_dir.glob(".*.bak"))
 
     def test_second_file_install_failure_restores_all_overwritten_media(self, assets_env, monkeypatch):
-        from lib import project_manager as project_manager_module
+        from lib.project import project_manager as project_manager_module
 
         client = assets_env["client"]
         pm = assets_env["pm"]
@@ -1193,7 +1198,7 @@ class TestApplyToProject:
         assert not list(target_dir.glob(".*.bak"))
 
     def test_project_json_failure_restores_overwritten_media(self, assets_env, monkeypatch):
-        from lib import project_manager as project_manager_module
+        from lib.project import project_manager as project_manager_module
 
         client = assets_env["client"]
         pm = assets_env["pm"]

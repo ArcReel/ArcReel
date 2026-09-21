@@ -12,7 +12,7 @@ import { OptionalNumberField } from "@/components/ui/OptionalNumberField";
  * 两套总量口径并存会互相竞争。
  */
 
-/** 硬区间（闭区间，秒）：与后端 lib.episode_target_duration 的 is_valid_episode_target_duration 同一把尺。 */
+/** 硬区间（闭区间，秒）：与后端 lib.episode.episode_target_duration 的 is_valid_episode_target_duration 同一把尺。 */
 const EPISODE_TARGET_DURATION_MIN = 10;
 const EPISODE_TARGET_DURATION_MAX = 600;
 

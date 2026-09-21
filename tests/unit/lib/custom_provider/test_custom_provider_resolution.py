@@ -310,11 +310,11 @@ async def test_custom_video_max_refs_negative_caps_raises(db_session: AsyncSessi
     """endpoint cap=None，caps 函数返回负数 → raise ValueError（不静默下传坏值）。"""
     import dataclasses
 
+    from lib.backends.video_backends.base import VideoCapabilities
     from lib.config.resolver import ConfigResolver, VideoBucketCapabilityError
     from lib.config.service import ConfigService
     from lib.custom_provider import make_provider_id
     from lib.custom_provider.endpoints import ENDPOINT_REGISTRY
-    from lib.video_backends.base import VideoCapabilities
 
     def _negative_caps(model: str) -> VideoCapabilities:
         return VideoCapabilities(max_reference_images=-1)

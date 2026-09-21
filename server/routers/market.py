@@ -19,12 +19,11 @@ from pydantic import BaseModel, Field
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from lib.api_errors import BadGatewayError, BadRequestError, ConflictError, NotFoundError, UnprocessableError
 from lib.custom_provider.endpoint_definition import meets_min_app_version, validate_definition
 from lib.db import get_async_session
 from lib.db.models.market_source import MarketSource
 from lib.db.repositories.market_source_repo import OFFICIAL_KIND, MarketSourceRepository
-from lib.i18n import Translator
+from lib.infra.api_errors import BadGatewayError, BadRequestError, ConflictError, NotFoundError, UnprocessableError
 from lib.market import ENDPOINT_ENTRY_TYPE, check_entry_definition
 from lib.market.address import SourceAddressError
 from lib.market.entries import (
@@ -44,6 +43,7 @@ from lib.market.index import MarketIndexEntry
 from lib.market.installations import definition_digest, write_installation
 from lib.market.issues import MarketIssue, MarketIssueCode
 from lib.market.sources import DuplicateSourceError, MarketSourceService, get_market_source_service
+from server.i18n import Translator
 from server.routers._market_installations import (
     EntryInstallationResponse,
     endpoint_installation,
@@ -532,7 +532,7 @@ async def install_entry(
     except IntegrityError as exc:
         await session.rollback()
         raise ConflictError("market_entry_already_installed") from exc
-    from server.services.generation_context import invalidate_backend_cache
+    from server.services.tasks.generation_context import invalidate_backend_cache
 
     invalidate_backend_cache()
     await session.refresh(endpoint)

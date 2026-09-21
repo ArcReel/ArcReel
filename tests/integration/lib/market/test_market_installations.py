@@ -6,9 +6,9 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from lib.api_errors import ConflictError
 from lib.db.models.custom_endpoint import CustomEndpoint
 from lib.db.models.market_installation import MarketInstallation
+from lib.infra.api_errors import ConflictError
 from lib.market.installations import write_installation
 from tests.factories import custom_endpoint_definition
 

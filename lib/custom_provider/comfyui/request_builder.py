@@ -23,9 +23,9 @@ from dataclasses import dataclass
 from random import Random
 from typing import Any
 
-from lib.aspect_size import DEFAULT_SHORT_EDGE, IMAGE_TIER_SHORT_EDGE, VIDEO_TIER_SHORT_EDGE, aspect_size
-from lib.aspect_size import resolution_to_short_edge as short_edge_of_resolution
-from lib.prompt_utils import append_avoid_text, split_avoid_lines
+from lib.backends.aspect_size import DEFAULT_SHORT_EDGE, IMAGE_TIER_SHORT_EDGE, VIDEO_TIER_SHORT_EDGE, aspect_size
+from lib.backends.aspect_size import resolution_to_short_edge as short_edge_of_resolution
+from lib.prompts.prompt_utils import append_avoid_text, split_avoid_lines
 
 from .bindings import align_frames, step_of
 from .bindings import bound_fps as _bound_fps
@@ -202,7 +202,7 @@ def _write_size(
 ) -> tuple[int | None, int | None]:
     """按项目比例与分辨率档派生宽高，逐条目按步长向下对齐后写入。
 
-    ``round_to`` 取宽高两侧全部步长的最小公倍数：:func:`~lib.aspect_size.aspect_size` 产出的宽高
+    ``round_to`` 取宽高两侧全部步长的最小公倍数：:func:`~lib.backends.aspect_size.aspect_size` 产出的宽高
     都是它的整数倍，于是每个条目各自的步长天然被整除，比例零偏差。写入前仍按条目步长再向下对齐
     一次——对齐是 workflow 那个输入自己的约束，它成立与否不该取决于 ``round_to`` 恰好怎么取。
 

@@ -12,18 +12,18 @@ from typing import Any
 
 from sqlalchemy import ColumnElement, and_, func, or_, select, update
 
-from lib.call_failure import CallErrorCode
-from lib.cost_calculator import cost_calculator
+from lib.backends.providers import PROVIDER_GEMINI, CallPurpose, CallStatus, CallType
+from lib.billing.call_failure import CallErrorCode
+from lib.billing.cost_calculator import cost_calculator
+from lib.billing.pricing.strategies import PricingParams
+from lib.billing.usage_summary import UsageFilterOptions, UsageSummaryRow
 from lib.custom_provider import is_custom_provider, parse_provider_id
 from lib.db.base import DEFAULT_USER_ID, utc_now
 from lib.db.models.api_call import ApiCall
 from lib.db.models.task import Task
 from lib.db.repositories.base import BaseRepository, rowcount
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository
-from lib.pricing.strategies import PricingParams
-from lib.providers import PROVIDER_GEMINI, CallPurpose, CallStatus, CallType
-from lib.task_terminal_events import TERMINAL_TASK_STATUSES
-from lib.usage_summary import UsageFilterOptions, UsageSummaryRow
+from lib.generation.task_terminal_events import TERMINAL_TASK_STATUSES
 
 # 计费时长合理上限（24 小时），语义单点定义：repo 写入层是全部 backend 落账的最后防线，
 # 超出上限的计费时长视同未提供、回落请求时长，防超大数值写入 DB Integer 列溢出；
@@ -666,7 +666,7 @@ class UsageRepository(BaseRepository):
         return _record_detail_to_dict(row[0], row[1]) if row is not None else None
 
     # --- 汇总读接口（GET /usage/summary）------------------------------------------------
-    # 只取行，不在 SQL 里聚合：切天与桶填充交给 lib/usage_summary.py，回避 SQLite 与
+    # 只取行，不在 SQL 里聚合：切天与桶填充交给 lib/billing/usage_summary.py，回避 SQLite 与
     # PostgreSQL 的日期函数差异，也让时区与异常判定的边界能脱离数据库单独驱动。
 
     async def _provider_display_names(self, provider_ids: set[str]) -> dict[str, str]:

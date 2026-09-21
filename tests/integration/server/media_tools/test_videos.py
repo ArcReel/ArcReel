@@ -11,13 +11,13 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from lib.artifact_manifest import ArtifactStatus
-from lib.generation_queue import GenerationQueue
-from lib.generation_result import GenerationBatchResult
-from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
-from lib.resource_paths import resource_relative_path
-from lib.script_skeleton import SkeletonRouteMismatchError
-from lib.version_manager import MANUAL_UPLOAD_VERSION_SOURCE, VersionManager
+from lib.artifacts.artifact_manifest import ArtifactStatus
+from lib.artifacts.version_manager import MANUAL_UPLOAD_VERSION_SOURCE, VersionManager
+from lib.generation.generation_queue import GenerationQueue
+from lib.generation.generation_result import GenerationBatchResult
+from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
+from lib.project.resource_paths import resource_relative_path
+from lib.script.script_skeleton import SkeletonRouteMismatchError
 from server.media_tools import videos as enqueue_videos_mod
 from server.media_tools.context import ToolContext
 from server.media_tools.videos import generate_videos_tool
@@ -77,7 +77,7 @@ class _MissingEverythingResolver:
     """An active Manifest that never admits a formal artifact as usable."""
 
     def compare(self, key, *, artifact_path=None):
-        from lib.artifact_manifest import ArtifactComparison
+        from lib.artifacts.artifact_manifest import ArtifactComparison
 
         return ArtifactComparison(status=ArtifactStatus.MISSING, artifact_path=artifact_path or "")
 
@@ -89,7 +89,7 @@ def _activated_project(project_dir: Path, storyboard_ids: dict[str, str] | None 
     唯一口径，没有登记的分镜图不能作为视频输入。
     """
 
-    from lib.artifact_manifest import (
+    from lib.artifacts.artifact_manifest import (
         ArtifactKey,
         ArtifactManifest,
         ArtifactManifestEntry,
@@ -137,7 +137,7 @@ async def test_generate_videos_episode_scope_happy(fake_ctx: ToolContext, monkey
     from server.media_tools import videos as mod
 
     async def fake_batch(*, project_name, specs, on_success=None, on_failure=None, **_batch_kwargs):
-        from lib.generation_queue_client import BatchTaskResult
+        from lib.generation.generation_queue_client import BatchTaskResult
 
         for spec in specs:
             br = BatchTaskResult(
@@ -175,7 +175,7 @@ async def test_generate_videos_episode_scope_declares_the_missing_only_selection
 
 async def test_generate_videos_episode_scope_skips_current_clip(fake_ctx: ToolContext, monkeypatch) -> None:
     """整集调用复用仍是 current 的旧片段。"""
-    from lib.artifact_manifest import ArtifactComparison
+    from lib.artifacts.artifact_manifest import ArtifactComparison
     from server.media_tools import videos as mod
 
     project = fake_ctx.pm.project_payload
@@ -197,7 +197,7 @@ async def test_generate_videos_episode_scope_skips_current_clip(fake_ctx: ToolCo
             return ArtifactComparison(status=ArtifactStatus.CURRENT, artifact_path=artifact_path)
 
         def resolve_usable_entry(self, key, *, artifact_path):
-            from lib.artifact_manifest import ArtifactManifestEntry
+            from lib.artifacts.artifact_manifest import ArtifactManifestEntry
 
             return ArtifactManifestEntry(artifact_path=artifact_path, basis_digest="selected")
 
@@ -230,7 +230,7 @@ async def test_generate_videos_episode_scope_blocks_a_clip_whose_manifest_state_
 ) -> None:
     """整集调用里某片段的 Manifest 比对抛错（BLOCKED）时必须报 blocked，不能落入
     「既不可复用也不算 blocked」的空档而被当作缺失去付费重生——不可读不等于没有。"""
-    from lib.artifact_manifest import ArtifactComparison
+    from lib.artifacts.artifact_manifest import ArtifactComparison
     from server.media_tools import videos as mod
 
     project = fake_ctx.pm.project_payload
@@ -287,7 +287,7 @@ async def test_generate_videos_episode_scope_rejects_unbound_active_script_befor
     fake_ctx: ToolContext,
     monkeypatch,
 ) -> None:
-    from lib.generation_queue_client import TaskSpec
+    from lib.generation.generation_queue_client import TaskSpec
     from server.media_tools import videos as mod
 
     activate_unbound_project(fake_ctx)
@@ -323,7 +323,7 @@ async def test_generate_videos_episode_scope_resolves_episode_from_canonical_fil
     字段、与账本绑定一致的剧本，该集分镜图的状态因此不可读，整批停在建任务之前。
     """
     from server.media_tools import videos as mod
-    from server.services import video_batch_admission as admission_mod
+    from server.services.admission import video_batch_admission as admission_mod
 
     fake_ctx.pm.script_payload.pop("episode")
     fake_ctx.pm.project_payload.update(
@@ -342,7 +342,7 @@ async def test_generate_videos_episode_scope_resolves_episode_from_canonical_fil
         return build_video_specs(**kwargs)
 
     async def _batch(*, project_name, specs, on_success=None, on_failure=None, **_batch_kwargs):
-        from lib.generation_queue_client import BatchTaskResult
+        from lib.generation.generation_queue_client import BatchTaskResult
 
         for spec in specs:
             if on_success is not None:
@@ -479,7 +479,7 @@ async def test_generate_videos_episode_scope_reference_duration_needs_confirmati
     fake_ctx: ToolContext, monkeypatch
 ) -> None:
     """申请秒数与剧本总时长不一致时，首次调用不入队，返回内容含总时长/申请秒数/差异说明。"""
-    from lib.reference_video.duration_slots import UP, DurationSlot
+    from lib.script.reference_video.duration_slots import UP, DurationSlot
     from server.media_tools import videos as mod
 
     use_reference_route(fake_ctx)
@@ -498,11 +498,13 @@ async def test_generate_videos_episode_scope_reference_duration_needs_confirmati
         return []
 
     monkeypatch.setattr(
-        "server.services.video_batch_admission.project_reference_unit_request",
+        "server.services.admission.video_batch_admission.project_reference_unit_request",
         fake_reference_projection(fake_precheck),
     )
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
-    monkeypatch.setattr("server.services.video_batch_admission.get_active_tasks_for_resources", fake_active_tasks)
+    monkeypatch.setattr(
+        "server.services.admission.video_batch_admission.get_active_tasks_for_resources", fake_active_tasks
+    )
 
     tool_obj = _episode_scope(fake_ctx)
     out = await call(tool_obj, {"script": "episode_1.json"})
@@ -568,7 +570,7 @@ async def test_generate_videos_episode_scope_reference_returns_structured_projec
     monkeypatch,
 ) -> None:
     """Agent 失败信封保留公共投影的稳定 problem 字段，不只返回人读文本。"""
-    from lib.reference_video.request_projection import ProjectionProblem
+    from lib.script.reference_video.request_projection import ProjectionProblem
 
     use_reference_route(fake_ctx)
     fake_ctx.pm.script_payload = reference_video_script()
@@ -606,7 +608,7 @@ async def test_generate_videos_episode_scope_reference_returns_structured_projec
     async def _blocked(**_kwargs):
         return _BlockedProjection()
 
-    monkeypatch.setattr("server.services.video_batch_admission.project_reference_unit_request", _blocked)
+    monkeypatch.setattr("server.services.admission.video_batch_admission.project_reference_unit_request", _blocked)
 
     out = await call(_episode_scope(fake_ctx), {"script": "episode_1.json"})
 
@@ -659,8 +661,8 @@ async def test_generate_videos_episode_scope_reference_duration_confirm_enqueues
     fake_ctx: ToolContext, monkeypatch
 ) -> None:
     """带精确申请档位的再次调用按取档结果入队并生成成功。"""
-    from lib.generation_queue_client import BatchTaskResult
-    from lib.reference_video.duration_slots import UP, DurationSlot
+    from lib.generation.generation_queue_client import BatchTaskResult
+    from lib.script.reference_video.duration_slots import UP, DurationSlot
     from server.media_tools import videos as mod
 
     use_reference_route(fake_ctx)
@@ -686,7 +688,7 @@ async def test_generate_videos_episode_scope_reference_duration_confirm_enqueues
         return [], []
 
     monkeypatch.setattr(
-        "server.services.video_batch_admission.project_reference_unit_request",
+        "server.services.admission.video_batch_admission.project_reference_unit_request",
         fake_reference_projection(fake_precheck),
     )
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
@@ -894,8 +896,8 @@ async def test_generate_videos_episode_scope_confirms_two_tiers_in_one_batch(
     fake_ctx: ToolContext, monkeypatch
 ) -> None:
     """一批里档位不止一个时按 unit 确认，原目标集合仍作为一批重发，不必拆成几次调用。"""
-    from lib.generation_queue_client import BatchTaskResult
-    from lib.reference_video.duration_slots import UP, DurationSlot
+    from lib.generation.generation_queue_client import BatchTaskResult
+    from lib.script.reference_video.duration_slots import UP, DurationSlot
     from server.media_tools import videos as mod
 
     use_reference_route(fake_ctx)
@@ -936,7 +938,7 @@ async def test_generate_videos_episode_scope_confirms_two_tiers_in_one_batch(
         return [], []
 
     monkeypatch.setattr(
-        "server.services.video_batch_admission.project_reference_unit_request",
+        "server.services.admission.video_batch_admission.project_reference_unit_request",
         fake_reference_projection(fake_precheck),
     )
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
@@ -1068,7 +1070,7 @@ async def test_generate_videos_episode_scope_reference_honors_requested_narratio
     fake_ctx: ToolContext,
     monkeypatch,
 ) -> None:
-    from lib.generation_queue_client import BatchTaskResult
+    from lib.generation.generation_queue_client import BatchTaskResult
     from server.media_tools import videos as mod
 
     use_reference_route(fake_ctx)
@@ -1099,8 +1101,10 @@ async def test_generate_videos_episode_scope_reference_honors_requested_narratio
         return await base_projection(**kwargs)
 
     active_tts = AsyncMock(return_value=frozenset())
-    monkeypatch.setattr("server.services.video_batch_admission.project_reference_unit_request", _capture_delivery)
-    monkeypatch.setattr("server.services.video_batch_admission.active_tts_resource_ids", active_tts)
+    monkeypatch.setattr(
+        "server.services.admission.video_batch_admission.project_reference_unit_request", _capture_delivery
+    )
+    monkeypatch.setattr("server.services.admission.video_batch_admission.active_tts_resource_ids", active_tts)
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
     tool_obj = _episode_scope(fake_ctx)
 
@@ -1144,7 +1148,7 @@ async def test_generate_videos_episode_scope_reference_duration_repeat_without_c
     fake_ctx: ToolContext, monkeypatch
 ) -> None:
     """不带确认参数的重复调用仍不入队。"""
-    from lib.reference_video.duration_slots import UP, DurationSlot
+    from lib.script.reference_video.duration_slots import UP, DurationSlot
     from server.media_tools import videos as mod
 
     use_reference_route(fake_ctx)
@@ -1160,7 +1164,7 @@ async def test_generate_videos_episode_scope_reference_duration_repeat_without_c
         return [], []
 
     monkeypatch.setattr(
-        "server.services.video_batch_admission.project_reference_unit_request",
+        "server.services.admission.video_batch_admission.project_reference_unit_request",
         fake_reference_projection(fake_precheck),
     )
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
@@ -1177,7 +1181,7 @@ async def test_generate_videos_episode_scope_reference_duration_exact_enqueues_d
     fake_ctx: ToolContext, monkeypatch
 ) -> None:
     """总时长为档位成员时单次调用直接入队，行为与现状一致。"""
-    from lib.reference_video.duration_slots import EXACT, DurationSlot
+    from lib.script.reference_video.duration_slots import EXACT, DurationSlot
     from server.media_tools import videos as mod
 
     use_reference_route(fake_ctx)
@@ -1189,7 +1193,7 @@ async def test_generate_videos_episode_scope_reference_duration_exact_enqueues_d
     enqueued: list[Any] = []
 
     async def fake_batch(*, project_name, specs, on_success=None, on_failure=None, **_batch_kwargs):
-        from lib.generation_queue_client import BatchTaskResult
+        from lib.generation.generation_queue_client import BatchTaskResult
 
         successes = []
         for spec in specs:
@@ -1206,7 +1210,7 @@ async def test_generate_videos_episode_scope_reference_duration_exact_enqueues_d
         return successes, []
 
     monkeypatch.setattr(
-        "server.services.video_batch_admission.project_reference_unit_request",
+        "server.services.admission.video_batch_admission.project_reference_unit_request",
         fake_reference_projection(fake_precheck),
     )
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
@@ -1227,7 +1231,7 @@ async def test_generate_videos_episode_scope_reference_duration_skips_unit_witho
     预检若仍去解析它，申请时长的转述本身就是失实的，用户会被要求确认一个
     不存在的请求。
     """
-    from lib.reference_video.duration_slots import EXACT, DurationSlot
+    from lib.script.reference_video.duration_slots import EXACT, DurationSlot
     from server.media_tools import videos as mod
 
     script = reference_video_script()
@@ -1244,7 +1248,7 @@ async def test_generate_videos_episode_scope_reference_duration_skips_unit_witho
     enqueued: list[Any] = []
 
     async def fake_batch(*, project_name, specs, on_success=None, on_failure=None, **_batch_kwargs):
-        from lib.generation_queue_client import BatchTaskResult
+        from lib.generation.generation_queue_client import BatchTaskResult
 
         successes = []
         for spec in specs:
@@ -1261,7 +1265,7 @@ async def test_generate_videos_episode_scope_reference_duration_skips_unit_witho
         return successes, []
 
     monkeypatch.setattr(
-        "server.services.video_batch_admission.project_reference_unit_request",
+        "server.services.admission.video_batch_admission.project_reference_unit_request",
         fake_reference_projection(fake_precheck),
     )
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
@@ -1283,7 +1287,7 @@ async def test_generate_videos_episode_scope_reference_duration_resolves_project
     fake_ctx: ToolContext, monkeypatch
 ) -> None:
     """批量预检让每个可入队 unit 都经过公共 request projection。"""
-    from lib.reference_video.duration_slots import UP, DurationSlot
+    from lib.script.reference_video.duration_slots import UP, DurationSlot
     from server.media_tools import videos as mod
 
     script = reference_video_script()
@@ -1316,7 +1320,7 @@ async def test_generate_videos_episode_scope_reference_duration_resolves_project
         return [], []
 
     monkeypatch.setattr(
-        "server.services.video_batch_admission.project_reference_unit_request",
+        "server.services.admission.video_batch_admission.project_reference_unit_request",
         fake_reference_projection(fake_precheck, calls=context_calls),
     )
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
@@ -1349,7 +1353,7 @@ async def test_generate_videos_episode_scope_reference_skips_duration_context_wh
         return [], []
 
     monkeypatch.setattr(
-        "server.services.video_batch_admission.project_reference_unit_request",
+        "server.services.admission.video_batch_admission.project_reference_unit_request",
         fake_reference_projection(calls=projection_calls),
     )
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
@@ -1379,7 +1383,7 @@ async def test_generate_videos_episode_scope_reference_skips_duration_context_wh
         return [], []
 
     monkeypatch.setattr(
-        "server.services.video_batch_admission.project_reference_unit_request",
+        "server.services.admission.video_batch_admission.project_reference_unit_request",
         fake_reference_projection(calls=projection_calls),
     )
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
@@ -1395,7 +1399,7 @@ async def test_generate_videos_episode_scope_ad_reference_duration_needs_confirm
     ad_reference_ctx: ToolContext, monkeypatch
 ) -> None:
     """广告/短片的参考生视频走同一条视频单元时长确认闸门。"""
-    from lib.reference_video.duration_slots import UP, DurationSlot
+    from lib.script.reference_video.duration_slots import UP, DurationSlot
     from server.media_tools import videos as mod
 
     seen_units: list[dict[str, Any]] = []
@@ -1411,7 +1415,7 @@ async def test_generate_videos_episode_scope_ad_reference_duration_needs_confirm
         return [], []
 
     monkeypatch.setattr(
-        "server.services.video_batch_admission.project_reference_unit_request",
+        "server.services.admission.video_batch_admission.project_reference_unit_request",
         fake_reference_projection(fake_precheck),
     )
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
@@ -1437,8 +1441,8 @@ async def test_generate_video_reference_duration_confirmation_across_entries(
     fake_ctx: ToolContext, monkeypatch, make_tool, extra_args: dict[str, Any]
 ) -> None:
     """reference 路径的整集与点名入口共用确认闸门：未确认不入队、确认后入队。"""
-    from lib.generation_queue_client import BatchTaskResult
-    from lib.reference_video.duration_slots import UP, DurationSlot
+    from lib.generation.generation_queue_client import BatchTaskResult
+    from lib.script.reference_video.duration_slots import UP, DurationSlot
     from server.media_tools import videos as mod
 
     use_reference_route(fake_ctx)
@@ -1467,11 +1471,13 @@ async def test_generate_video_reference_duration_confirmation_across_entries(
         return []
 
     monkeypatch.setattr(
-        "server.services.video_batch_admission.project_reference_unit_request",
+        "server.services.admission.video_batch_admission.project_reference_unit_request",
         fake_reference_projection(fake_precheck),
     )
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
-    monkeypatch.setattr("server.services.video_batch_admission.get_active_tasks_for_resources", fake_active_tasks)
+    monkeypatch.setattr(
+        "server.services.admission.video_batch_admission.get_active_tasks_for_resources", fake_active_tasks
+    )
 
     tool_obj = make_tool(fake_ctx)
     pending = await call(tool_obj, {"script": "episode_1.json", **extra_args})
@@ -1496,10 +1502,10 @@ async def test_generate_videos_scene_scope_reference_use_tts_exposes_the_shared_
     fake_ctx: ToolContext,
     monkeypatch,
 ) -> None:
-    from lib.generation_queue_client import BatchTaskResult
-    from lib.reference_video.duration_slots import EXACT, DurationSlot
+    from lib.generation.generation_queue_client import BatchTaskResult
+    from lib.script.reference_video.duration_slots import EXACT, DurationSlot
     from server.media_tools import videos as mod
-    from server.services.cost_estimation import VideoRequestQuote
+    from server.services.admission.cost_estimation import VideoRequestQuote
 
     use_reference_route(fake_ctx)
     fake_ctx.pm.script_payload = reference_video_script()
@@ -1532,21 +1538,22 @@ async def test_generate_videos_scene_scope_reference_use_tts_exposes_the_shared_
         return [], []
 
     monkeypatch.setattr(
-        "server.services.video_batch_admission.prepare_current_reference_video_request_options", _current_options
+        "server.services.admission.video_batch_admission.prepare_current_reference_video_request_options",
+        _current_options,
     )
     monkeypatch.setattr(
-        "server.services.video_batch_admission.project_reference_unit_request",
+        "server.services.admission.video_batch_admission.project_reference_unit_request",
         fake_reference_projection(fake_precheck),
     )
     monkeypatch.setattr(
-        "server.services.video_batch_admission.active_tts_resource_ids", AsyncMock(return_value=frozenset())
+        "server.services.admission.video_batch_admission.active_tts_resource_ids", AsyncMock(return_value=frozenset())
     )
     monkeypatch.setattr(
-        "server.services.video_batch_admission.get_active_tasks_for_resources", AsyncMock(return_value=[])
+        "server.services.admission.video_batch_admission.get_active_tasks_for_resources", AsyncMock(return_value=[])
     )
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
     monkeypatch.setattr(
-        "server.services.video_batch_admission.quote_video_request",
+        "server.services.admission.video_batch_admission.quote_video_request",
         AsyncMock(return_value=VideoRequestQuote(0.8, "USD", "fake", "fake-r2v", 8)),
     )
     tool_obj = _scene_scope(fake_ctx)
@@ -1596,7 +1603,7 @@ async def test_generate_videos_scene_scope_happy(fake_ctx: ToolContext, monkeypa
 async def test_generate_videos_scene_scope_use_tts_returns_structured_blocker_without_enqueuing(
     fake_ctx: ToolContext, monkeypatch
 ) -> None:
-    from lib.narration_delivery import (
+    from lib.speech.narration_delivery import (
         USE_TTS,
         NarrationDeliveryPreparation,
         NarrationDeliveryProblem,
@@ -1632,10 +1639,10 @@ async def test_generate_videos_scene_scope_use_tts_returns_structured_blocker_wi
 
     enqueue = AsyncMock()
     monkeypatch.setattr(
-        "server.services.video_batch_admission.active_tts_resource_ids", AsyncMock(return_value=frozenset())
+        "server.services.admission.video_batch_admission.active_tts_resource_ids", AsyncMock(return_value=frozenset())
     )
     monkeypatch.setattr(
-        "server.services.video_batch_admission.prepare_current_storyboard_narrated_video_duration",
+        "server.services.admission.video_batch_admission.prepare_current_storyboard_narrated_video_duration",
         fake_prepare,
     )
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", enqueue)
@@ -1653,7 +1660,7 @@ async def test_generate_videos_scene_scope_use_tts_returns_structured_blocker_wi
 async def test_generate_videos_scene_scope_use_tts_requires_exact_tier_and_queues_only_request_facts(
     fake_ctx: ToolContext, monkeypatch
 ) -> None:
-    from lib.narration_delivery import (
+    from lib.speech.narration_delivery import (
         USE_TTS,
         NarrationDeliveryPreparation,
         NarrationTtsStatus,
@@ -1661,7 +1668,7 @@ async def test_generate_videos_scene_scope_use_tts_requires_exact_tier_and_queue
         prepare_narrated_video_duration,
     )
     from server.media_tools import videos as mod
-    from server.services.cost_estimation import VideoRequestQuote
+    from server.services.admission.cost_estimation import VideoRequestQuote
 
     async def fake_prepare(**kwargs):
         narration = NarrationDeliveryPreparation(
@@ -1686,14 +1693,14 @@ async def test_generate_videos_scene_scope_use_tts_requires_exact_tier_and_queue
 
     enqueue = AsyncMock(side_effect=fake_scene_batch)
     monkeypatch.setattr(
-        "server.services.video_batch_admission.active_tts_resource_ids", AsyncMock(return_value=frozenset())
+        "server.services.admission.video_batch_admission.active_tts_resource_ids", AsyncMock(return_value=frozenset())
     )
     monkeypatch.setattr(
-        "server.services.video_batch_admission.prepare_current_storyboard_narrated_video_duration",
+        "server.services.admission.video_batch_admission.prepare_current_storyboard_narrated_video_duration",
         fake_prepare,
     )
     monkeypatch.setattr(
-        "server.services.video_batch_admission.quote_video_request",
+        "server.services.admission.video_batch_admission.quote_video_request",
         AsyncMock(return_value=VideoRequestQuote(1.2, "USD", "openai", "sora-2", 12)),
     )
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", enqueue)
@@ -1740,7 +1747,7 @@ async def test_generate_videos_scene_scope_use_tts_blocks_when_exact_cost_is_una
     fake_ctx: ToolContext,
     monkeypatch,
 ) -> None:
-    from lib.narration_delivery import (
+    from lib.speech.narration_delivery import (
         USE_TTS,
         NarrationDeliveryPreparation,
         NarrationTtsStatus,
@@ -1772,13 +1779,15 @@ async def test_generate_videos_scene_scope_use_tts_blocks_when_exact_cost_is_una
 
     enqueue = AsyncMock()
     monkeypatch.setattr(
-        "server.services.video_batch_admission.active_tts_resource_ids", AsyncMock(return_value=frozenset())
+        "server.services.admission.video_batch_admission.active_tts_resource_ids", AsyncMock(return_value=frozenset())
     )
     monkeypatch.setattr(
-        "server.services.video_batch_admission.prepare_current_storyboard_narrated_video_duration",
+        "server.services.admission.video_batch_admission.prepare_current_storyboard_narrated_video_duration",
         fake_prepare,
     )
-    monkeypatch.setattr("server.services.video_batch_admission.quote_video_request", AsyncMock(return_value=None))
+    monkeypatch.setattr(
+        "server.services.admission.video_batch_admission.quote_video_request", AsyncMock(return_value=None)
+    )
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", enqueue)
 
     result = await call(
@@ -1907,7 +1916,7 @@ async def test_generate_videos_episode_scope_storyboard_batch_blocks_on_mixed_sp
 
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
     monkeypatch.setattr(
-        "server.services.video_batch_admission.get_active_tasks_for_resources", AsyncMock(return_value=[])
+        "server.services.admission.video_batch_admission.get_active_tasks_for_resources", AsyncMock(return_value=[])
     )
 
     out = await call(_episode_scope(fake_ctx), {"script": "episode_1.json"})
@@ -1953,7 +1962,7 @@ async def test_generate_videos_episode_scope_storyboard_batch_blocks_when_a_vide
 
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
     monkeypatch.setattr(
-        "server.services.video_batch_admission.get_active_tasks_for_resources", AsyncMock(return_value=[])
+        "server.services.admission.video_batch_admission.get_active_tasks_for_resources", AsyncMock(return_value=[])
     )
 
     out = await call(_episode_scope(fake_ctx), {"script": "episode_1.json"})
@@ -1981,7 +1990,7 @@ async def test_six_route_agent_single_video_generation_returns_structured_admiss
     # reference_video 生成模式在准入失败前先探测在途任务（真实 DB 查询）；三个 storyboard
     # case 走的是不摸 DB 的直连准入分支，只有 reference_video 三个 case 需要这个 mock。
     monkeypatch.setattr(
-        "server.services.video_batch_admission.get_active_tasks_for_resources", AsyncMock(return_value=[])
+        "server.services.admission.video_batch_admission.get_active_tasks_for_resources", AsyncMock(return_value=[])
     )
 
     out = await call(_scene_scope(fake_ctx), {"script": "episode_1.json", "scene_id": case.unit_id})
@@ -2025,7 +2034,7 @@ async def test_generate_videos_all_scope_happy(fake_ctx: ToolContext, monkeypatc
     from server.media_tools import videos as mod
 
     async def fake_batch(*, project_name, specs, on_success=None, on_failure=None, **_batch_kwargs):
-        from lib.generation_queue_client import BatchTaskResult
+        from lib.generation.generation_queue_client import BatchTaskResult
 
         succ = [
             BatchTaskResult(
@@ -2049,7 +2058,7 @@ async def test_generate_videos_all_scope_preserves_the_selected_manual_upload(
     source: Any,
 ) -> None:
     from lib.db.base import DEFAULT_USER_ID
-    from lib.generation_queue_client import TaskSpec
+    from lib.generation.generation_queue_client import TaskSpec
     from server.media_tools import videos as mod
     from server.tool_runtime import CallerContext
 
@@ -2112,7 +2121,7 @@ async def test_generate_videos_selected_scope_happy(fake_ctx: ToolContext, monke
     from server.media_tools import videos as mod
 
     async def fake_batch(*, project_name, specs, on_success=None, on_failure=None, **_batch_kwargs):
-        from lib.generation_queue_client import BatchTaskResult
+        from lib.generation.generation_queue_client import BatchTaskResult
 
         for s in specs:
             if on_success:
@@ -2141,7 +2150,7 @@ async def test_generate_videos_selected_scope_no_match(fake_ctx: ToolContext) ->
 def test_asset_description_gate_rejects_invalid_description() -> None:
     """空白 / 非字符串描述都拿不到可用 description，由调用方按逐 ID blocked 报告，
     不应抛错（.strip()）或漏到 from_request 而中断整批。"""
-    from lib.asset_types import ASSET_SPECS
+    from lib.project.asset_types import ASSET_SPECS
     from server.media_tools.assets import _description_of, asset_unit_id
 
     bucket = ASSET_SPECS["character"].bucket_key
@@ -2161,7 +2170,7 @@ def test_asset_description_gate_rejects_invalid_description() -> None:
 def test_asset_requested_ids_resolve_nfd_registered_key() -> None:
     """Agent 给的名字与桶 key 形态可以不同：按坐标系解析后落到真实落盘 key 的 unit ID。"""
 
-    from lib.asset_types import ASSET_SPECS
+    from lib.project.asset_types import ASSET_SPECS
     from server.media_tools.assets import _requested_unit_ids, asset_unit_id
 
     name_nfc = unicodedata.normalize("NFC", "Hiếu")
@@ -2176,7 +2185,7 @@ def test_asset_requested_ids_resolve_nfd_registered_key() -> None:
 
 def test_build_video_specs_does_not_validate_duration_at_enqueue(tmp_path) -> None:
     """duration 是能力维度，入队侧不再校验——任意 duration 都透传给执行层（见 ADR-0001）。"""
-    from server.services.video_batch_admission import build_storyboard_video_specs as _build_video_specs
+    from server.services.admission.video_batch_admission import build_storyboard_video_specs as _build_video_specs
 
     (tmp_path / "storyboards").mkdir()
     (tmp_path / "storyboards" / "scene_S01.png").write_bytes(b"png")
@@ -2231,7 +2240,7 @@ def test_build_video_specs_skips_invalid_storyboard_image_without_aborting_batch
 ) -> None:
     """批量入队场景下，单个条目 storyboard_image 非法（脏数据/越界/绝对路径）只记为该 ID 的
     blocked，不应让 `project_dir / storyboard_image` 抛未处理异常中断整批。"""
-    from server.services.video_batch_admission import build_storyboard_video_specs as _build_video_specs
+    from server.services.admission.video_batch_admission import build_storyboard_video_specs as _build_video_specs
 
     (tmp_path / "storyboards").mkdir()
     (tmp_path / "storyboards" / "scene_S02.png").write_bytes(b"png")
@@ -2267,7 +2276,7 @@ def test_build_video_specs_skips_invalid_storyboard_image_without_aborting_batch
 def test_build_video_specs_skips_non_dict_generated_assets_without_aborting_batch(tmp_path: Path) -> None:
     """generated_assets 容器本身被外部编辑损坏为非 dict（如 list）时按「没有分镜图」跳过，
     不应让 `.get("storyboard_image")` 在非 dict 上抛未处理 AttributeError 中断整批。"""
-    from server.services.video_batch_admission import build_storyboard_video_specs as _build_video_specs
+    from server.services.admission.video_batch_admission import build_storyboard_video_specs as _build_video_specs
 
     (tmp_path / "storyboards").mkdir()
     (tmp_path / "storyboards" / "scene_S02.png").write_bytes(b"png")
@@ -2317,7 +2326,7 @@ def _admitted_video_yaml(item: dict, **kwargs) -> dict:
     """
     import yaml
 
-    from server.services.video_batch_admission import storyboard_video_prompt
+    from server.services.admission.video_batch_admission import storyboard_video_prompt
 
     return yaml.safe_load(storyboard_video_prompt(item, **kwargs))
 
@@ -2409,7 +2418,7 @@ def test_storyboard_video_prompt_strips_caller_supplied_voice_profiles_for_non_d
 
 async def test_resolve_voice_context_skips_non_drama(fake_ctx: ToolContext) -> None:
     """narration/ad：不解析 voice_consistency，直接跳过（无 drama dialogue speaker 概念）。"""
-    from server.services.video_batch_admission import resolve_voice_context as _resolve_voice_context
+    from server.services.admission.video_batch_admission import resolve_voice_context as _resolve_voice_context
 
     assert await _resolve_voice_context(fake_ctx.pm.project_payload, "narration") is None
 
@@ -2418,7 +2427,7 @@ async def test_resolve_voice_context_drama_reads_project_characters_and_gate(
     fake_ctx: ToolContext, monkeypatch
 ) -> None:
     """drama：读项目角色资产，无声（C 类真无声、或本集关闭音频）时退回不注入。"""
-    from server.services import video_batch_admission as admission_mod
+    from server.services.admission import video_batch_admission as admission_mod
 
     async def fake_not_silent(_project, _episode=None):
         return False
@@ -2490,7 +2499,7 @@ def test_build_reference_specs_skips_mixed_speech_without_aborting_batch(tmp_pat
 def test_screening_keeps_bad_unit_ids_out_of_spec_building(tmp_path) -> None:
     """unit_id 为空或键缺失（Agent 裸写 JSON 可致）在筛查处按位置记名拒收，健康的 unit 照常构造。"""
     from server.media_tools.videos import _build_reference_specs
-    from server.services.video_batch_admission import screen_script_entries
+    from server.services.admission.video_batch_admission import screen_script_entries
 
     entries = [
         {"unit_id": "", "text": "@张三 推门"},  # 空串
@@ -2565,7 +2574,7 @@ def ad_reference_ctx(fake_ctx: ToolContext) -> ToolContext:
 
 def _successful_reference_batch(ctx: ToolContext, enqueued: list[Any]):
     async def fake_batch(*, project_name: str, specs: list[Any], on_success=None, on_failure=None, **_batch_kwargs):
-        from lib.generation_queue_client import BatchTaskResult
+        from lib.generation.generation_queue_client import BatchTaskResult
 
         successes: list[BatchTaskResult] = []
         for spec in specs:
@@ -2690,7 +2699,7 @@ async def test_generate_videos_episode_scope_reference_blocks_a_clip_whose_manif
     blocked，不能让 ``artifact_is_usable`` 的 fail-loud 异常穿透成整批 tool_error——
     与 storyboard 整集路线的同一场判定必须同步处理（同一个不可读产物、两条路线）。
     """
-    from lib.artifact_manifest import ArtifactBlocker, ArtifactComparison
+    from lib.artifacts.artifact_manifest import ArtifactBlocker, ArtifactComparison
     from server.media_tools import videos as mod
 
     project_path = ad_reference_ctx.project_path

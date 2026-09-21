@@ -17,6 +17,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
+from lib.billing.ledger import Ledger
 from lib.custom_provider.endpoint_test import (
     TRIAL_RUN_TTL_SECONDS,
     EndpointTestCredentials,
@@ -29,7 +30,6 @@ from lib.custom_provider.endpoint_test import (
     provider_from_base_url,
 )
 from lib.db.models.api_call import ApiCall
-from lib.ledger import Ledger
 from tests.factories import custom_endpoint_definition
 from tests.fakes import bounded_poll_clock
 from tests.http_capture import capture_http

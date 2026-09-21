@@ -10,20 +10,20 @@ from fastapi.middleware.cors import CORSMiddleware
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 
-from lib.api_errors import ConflictError
-from lib.artifact_activation import register_current_artifact_if_provable
-from lib.artifact_manifest import ArtifactKey
-from lib.draft_quarantine import QUARANTINE_KIND_DRAMA_SCRIPT_PLAN, read_quarantine
-from lib.generation_batch import GenerationBatchRequestSnapshot
-from lib.generation_queue import GenerationQueue
-from lib.generation_queue_client import submit_generation_batch
-from lib.generation_result import GenerationSelectionMode
-from lib.generation_worker import CapacityTable, GenerationWorker
-from lib.project_manager import ProjectManager
-from lib.project_migration_failure import MIGRATION_FAILURE_CODE, record_migration_failure
-from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
-from lib.workflow_plan import WorkflowPlanRequest, build_workflow_plan
-from lib.workflow_state import WorkflowStatus
+from lib.artifacts.artifact_activation import register_current_artifact_if_provable
+from lib.artifacts.artifact_manifest import ArtifactKey
+from lib.generation.generation_batch import GenerationBatchRequestSnapshot
+from lib.generation.generation_queue import GenerationQueue
+from lib.generation.generation_queue_client import submit_generation_batch
+from lib.generation.generation_result import GenerationSelectionMode
+from lib.generation.generation_worker import CapacityTable, GenerationWorker
+from lib.infra.api_errors import ConflictError
+from lib.project.project_manager import ProjectManager
+from lib.project.project_migration_failure import MIGRATION_FAILURE_CODE, record_migration_failure
+from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
+from lib.script.draft_quarantine import QUARANTINE_KIND_DRAMA_SCRIPT_PLAN, read_quarantine
+from lib.workflow.workflow_plan import WorkflowPlanRequest, build_workflow_plan
+from lib.workflow.workflow_state import WorkflowStatus
 from server.agent_runtime.sdk_tools import ARCREEL_MCP_TOOL_IDS
 from server.agent_runtime.sdk_tools.text_generation import generate_episode_script_tool
 from server.auth import create_download_token, create_token

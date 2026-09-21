@@ -14,12 +14,12 @@ import argparse
 import sys
 from pathlib import Path
 
-# Put repo root on sys.path so `from lib.app_data_dir import app_data_dir` resolves
+# Put repo root on sys.path so `from lib.infra.app_data_dir import app_data_dir` resolves
 # when this script is invoked directly (python scripts/migrate_claude_symlinks.py).
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_REPO_ROOT))
 
-from lib.app_data_dir import app_data_dir
+from lib.infra.app_data_dir import app_data_dir
 
 SYMLINKS = {
     ".claude": "../../agent_runtime_profile/.claude",

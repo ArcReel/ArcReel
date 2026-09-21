@@ -8,26 +8,27 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
-from lib.artifact_activation import (
+from lib.artifacts.artifact_activation import (
     ArtifactCurrencyResolver,
     active_artifact_currency_resolver,
     artifact_is_usable,
     resolve_artifact_episode,
 )
-from lib.artifact_manifest import ArtifactKey, ArtifactManifestError, ArtifactStatus
-from lib.batch_admission import (
+from lib.artifacts.artifact_manifest import ArtifactKey, ArtifactManifestError, ArtifactStatus
+from lib.artifacts.version_manager import VersionManager
+from lib.generation.batch_admission import (
     BatchAdmission,
     BatchAdmissionDecision,
     UnitAdmissionTicket,
     refused_ticket,
 )
-from lib.generation_batch import GenerationBatchReadModel
-from lib.generation_queue_client import (
+from lib.generation.generation_batch import GenerationBatchReadModel
+from lib.generation.generation_queue_client import (
     BatchTaskResult,
     TaskSpec,
     batch_enqueue_and_wait,
 )
-from lib.generation_result import (
+from lib.generation.generation_result import (
     GenerationAction,
     GenerationBatchResult,
     GenerationCandidate,
@@ -40,20 +41,19 @@ from lib.generation_result import (
     record_batch_outcomes,
     select_generation_targets,
 )
-from lib.project_manager import ProjectManager, is_reference_video_project
-from lib.reference_video.request_projection import (
+from lib.project.project_manager import ProjectManager, is_reference_video_project
+from lib.script.reference_video.request_projection import (
     POST_PRODUCTION,
     USE_TTS,
     ReferenceRequestOptions,
 )
-from lib.script_models import get_generated_assets, resolve_content_mode
-from lib.script_skeleton import ensure_route_skeleton, resolve_script_kind
-from lib.speech_composition import (
+from lib.script.script_models import get_generated_assets, resolve_content_mode
+from lib.script.script_skeleton import ensure_route_skeleton, resolve_script_kind
+from lib.script.storyboard_sequence import get_storyboard_items
+from lib.speech.speech_composition import (
     SpeechAdmissionError,
     video_unit_replan_problems,
 )
-from lib.storyboard_sequence import get_storyboard_items
-from lib.version_manager import VersionManager
 from server.media_tools.context import (
     ToolContext,
     generation_batch_submission_outcome,
@@ -63,7 +63,7 @@ from server.media_tools.context import (
     validate_script_filename,
 )
 from server.media_tools.definition import tool
-from server.services.video_batch_admission import (
+from server.services.admission.video_batch_admission import (
     admit_reference_video_batch,
     admit_storyboard_video_request,
     artifact_state_tickets,

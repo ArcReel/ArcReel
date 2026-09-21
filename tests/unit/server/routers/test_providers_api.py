@@ -18,8 +18,8 @@ from lib.config.service import ConfigService, ProviderStatus
 from lib.db import get_async_session
 from lib.db.models.credential import ProviderCredential
 from lib.db.repositories.credential_repository import CredentialRepository
-from lib.i18n import get_translator
 from server.dependencies import get_config_service
+from server.i18n import get_translator
 from server.routers import providers
 from tests.auth_deps import AUTH_DEPENDENCIES, override_auth
 from tests.factories import make_translator

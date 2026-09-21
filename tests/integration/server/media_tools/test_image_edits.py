@@ -7,8 +7,8 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from lib.artifact_manifest import ArtifactStatus
-from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
+from lib.artifacts.artifact_manifest import ArtifactStatus
+from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from server.media_tools.context import ToolContext
 from server.media_tools.image_edits import edit_images_tool
 from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
@@ -39,7 +39,7 @@ async def test_edit_images_happy(fake_ctx: ToolContext, monkeypatch) -> None:
     fake_ctx.pm.project_payload["characters"]["张三"]["character_sheet"] = "characters/zhangsan.png"
 
     async def fake_batch(*, project_name, specs, **_batch_kwargs):
-        from lib.generation_queue_client import BatchTaskResult
+        from lib.generation.generation_queue_client import BatchTaskResult
 
         succ = [
             BatchTaskResult(
@@ -75,7 +75,7 @@ async def test_edit_images_failure_preserves_the_untouched_source_path(fake_ctx:
     fake_ctx.pm.project_payload["characters"]["张三"]["character_sheet"] = "characters/zhangsan.png"
 
     async def fake_batch(*, project_name, specs, **_batch_kwargs):
-        from lib.generation_queue_client import BatchTaskResult
+        from lib.generation.generation_queue_client import BatchTaskResult
 
         fail = [
             BatchTaskResult(resource_id=s.resource_id, task_id="t1", status="failed", error="provider rejected")
@@ -121,7 +121,7 @@ async def test_edit_images_active_asset_without_a_manifest_claim_is_not_enqueued
     fake_ctx: ToolContext,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from lib.artifact_manifest import ArtifactComparison, ArtifactKey
+    from lib.artifacts.artifact_manifest import ArtifactComparison, ArtifactKey
     from server.media_tools import image_edits as mod
 
     project_path = fake_ctx.project_path
@@ -166,8 +166,8 @@ async def test_edit_images_one_manifest_fail_loud_error_does_not_abort_the_batch
     per-edit 循环必须单独捕获它，否则会逃出循环、被 handler 级 ``except`` 接住变成
     整批不可读的纯文本错误——张三之外，李四这条本可正常入队的编辑也一起丢了结论。
     """
-    from lib.artifact_manifest import ArtifactManifestError
-    from server.services.image_edit_tasks import _ImageEditSource
+    from lib.artifacts.artifact_manifest import ArtifactManifestError
+    from server.services.tasks.image_edit_tasks import _ImageEditSource
 
     project_path = fake_ctx.project_path
     (project_path / "characters").mkdir()
@@ -179,7 +179,7 @@ async def test_edit_images_one_manifest_fail_loud_error_does_not_abort_the_batch
     fake_ctx.pm.project_payload["characters"]["李四"]["description"] = "配角"
 
     async def fake_batch(*, project_name, specs, **_batch_kwargs):
-        from lib.generation_queue_client import BatchTaskResult
+        from lib.generation.generation_queue_client import BatchTaskResult
 
         succ = [
             BatchTaskResult(
@@ -299,7 +299,7 @@ async def test_edit_images_build_specs_warnings(fake_ctx: ToolContext, monkeypat
     fake_ctx.pm.project_payload["characters"]["张三"]["character_sheet"] = "characters/zhangsan.png"
 
     async def fake_batch(*, project_name, specs, **_batch_kwargs):
-        from lib.generation_queue_client import BatchTaskResult
+        from lib.generation.generation_queue_client import BatchTaskResult
 
         succ = [
             BatchTaskResult(
@@ -350,7 +350,7 @@ async def test_edit_images_storyboard_happy(fake_ctx: ToolContext, monkeypatch) 
     from server.media_tools import image_edits as mod
 
     async def fake_batch(*, project_name, specs, **_batch_kwargs):
-        from lib.generation_queue_client import BatchTaskResult
+        from lib.generation.generation_queue_client import BatchTaskResult
 
         succ = [
             BatchTaskResult(
@@ -388,7 +388,7 @@ async def test_edit_images_reports_failures(fake_ctx: ToolContext, monkeypatch) 
     fake_ctx.pm.project_payload["characters"]["张三"]["character_sheet"] = "characters/zhangsan.png"
 
     async def fake_batch(*, project_name, specs, **_batch_kwargs):
-        from lib.generation_queue_client import BatchTaskResult
+        from lib.generation.generation_queue_client import BatchTaskResult
 
         fail = [
             BatchTaskResult(resource_id=s.resource_id, task_id="t1", status="failed", error="provider timeout")

@@ -21,9 +21,9 @@ from lib.i18n.zh import errors as zh_errors
 from lib.i18n.zh import events as zh_events
 from lib.i18n.zh import system as zh_system
 from lib.i18n.zh import templates as zh_templates
-from lib.prompt_templates.builtin import builtin_templates
-from lib.prompt_templates.engine import TemplateAxis
-from lib.style_templates import list_template_ids
+from lib.prompts.prompt_templates.builtin import builtin_templates
+from lib.prompts.prompt_templates.engine import TemplateAxis
+from lib.prompts.style_templates import list_template_ids
 
 
 def test_all_locales_have_same_keys():
@@ -156,9 +156,9 @@ def test_batch_admission_problem_codes_are_translated():
     failure envelope, not from admission.
     """
 
-    from lib.generation_result import GenerationProblemCode
-    from lib.reference_video.request_projection import _PROBLEM_PRESENTATION
-    from lib.speech_composition import SpeechProblemCode
+    from lib.generation.generation_result import GenerationProblemCode
+    from lib.script.reference_video.request_projection import _PROBLEM_PRESENTATION
+    from lib.speech.speech_composition import SpeechProblemCode
 
     execution_only = {
         GenerationProblemCode.ENQUEUE_FAILED,
@@ -194,8 +194,8 @@ def test_events_module_keys_match():
 
 def test_every_event_label_key_is_translated():
     """事件载荷可能携带的 label_key 全部有翻译，且没有无人使用的残留 key。"""
-    from lib.script_skeleton import SKELETON_ITEM_LABEL_KEYS
-    from server.services.generation_tasks import _SKELETON_TASK_LABEL_KEYS, _TASK_CHANGE_SPECS
+    from lib.script.script_skeleton import SKELETON_ITEM_LABEL_KEYS
+    from server.services.tasks.generation_tasks import _SKELETON_TASK_LABEL_KEYS, _TASK_CHANGE_SPECS
 
     emitted = {spec[2] for spec in _TASK_CHANGE_SPECS.values()}
     emitted |= set(_SKELETON_TASK_LABEL_KEYS.values())

@@ -7,14 +7,14 @@ from threading import Event
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-import lib.project_manager as project_manager_module
-from lib.audio_backends.base import VoiceOption
+import lib.project.project_manager as project_manager_module
+from lib.backends.audio_backends.base import VoiceOption
 from lib.config.resolver import ConfigResolver, ProviderModel
-from lib.resource_paths import resource_relative_path
+from lib.project.resource_paths import resource_relative_path
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import generate
-from server.services.generation_context import AudioLaneResult, GenerationContext
+from server.services.tasks.generation_context import AudioLaneResult, GenerationContext
 from tests.auth_deps import AUTH_DEPENDENCIES
 
 
@@ -105,7 +105,7 @@ class TestAudioBackendVoices:
                 narration_voice="Cherry",
                 narration_speed=None,
                 # 生产口径：label 是 lib/i18n 翻译 key，不是直出文案（见
-                # lib/audio_backends/dashscope.py 的 _VOICE_CATALOG 注释）。
+                # lib/backends/audio_backends/dashscope.py 的 _VOICE_CATALOG 注释）。
                 voices=(VoiceOption(id="Cherry", label="voice_label_dashscope_cherry"),),
             ),
         )

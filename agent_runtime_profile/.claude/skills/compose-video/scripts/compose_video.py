@@ -41,8 +41,8 @@ PROJECT_ROOT = _find_repo_root(Path(__file__).resolve())
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from lib.project_manager import ProjectManager
-from lib.script_models import get_generated_assets
+from lib.project.project_manager import ProjectManager
+from lib.script.script_models import get_generated_assets
 
 FFMPEG_TOOLS_HINT = "需要 ffmpeg 和 ffprobe 同时可用（在 PATH 中，或位于下列常见安装位之一）"
 

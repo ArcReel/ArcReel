@@ -1,7 +1,7 @@
 """Tests for projects_prompt_preview."""
 
 from server.routers import projects
-from server.services.prompt_preview import (
+from server.services.admission.prompt_preview import (
     UNAVAILABLE_MISSING,
     ItemPromptPreview,
     RenderedPrompt,

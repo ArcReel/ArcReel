@@ -21,7 +21,7 @@ import { formatShortDateTime, parseIsoTimestamp } from "@/utils/date-format";
 const INDEX_FILENAME = "MEMORY.md";
 const INDEX_LINE_LIMIT = 200;
 
-/** 与 `lib/agent_memory_store.py` 同一把尺子；本地预校验只为让重名与拼错就地可见，判据仍在服务端。 */
+/** 与 `lib/agent/agent_memory_store.py` 同一把尺子；本地预校验只为让重名与拼错就地可见，判据仍在服务端。 */
 const FILENAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*\.md$/;
 const FILENAME_MAX_LENGTH = 100;
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from lib.project_manager import ProjectManager
+from lib.project.project_manager import ProjectManager
 from server.media_tools.assets import (
     generate_assets_tool,
     list_pending_assets_tool,
@@ -73,7 +73,7 @@ async def test_generate_assets_happy(fake_ctx: ToolContext, monkeypatch) -> None
     from server.media_tools import assets as mod
 
     async def fake_batch(*, project_name, specs, on_success=None, on_failure=None, **_batch_kwargs):
-        from lib.generation_queue_client import BatchTaskResult
+        from lib.generation.generation_queue_client import BatchTaskResult
 
         succ = [
             BatchTaskResult(
@@ -115,7 +115,7 @@ async def test_generate_assets_legacy_project_reverifies_sheet_file_on_disk(fake
     enqueued: list[str] = []
 
     async def fake_batch(*, project_name, specs, on_success=None, on_failure=None, **_batch_kwargs):
-        from lib.generation_queue_client import BatchTaskResult
+        from lib.generation.generation_queue_client import BatchTaskResult
 
         enqueued.extend(s.resource_id for s in specs)
         succ = [

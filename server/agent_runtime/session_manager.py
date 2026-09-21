@@ -14,12 +14,12 @@ from pathlib import Path
 from typing import Any, ClassVar, Optional
 from uuid import uuid4
 
-from lib.agent_memory_paths import project_memory_dir
+from lib.agent.agent_memory_paths import project_memory_dir
 from lib.db.base import DEFAULT_USER_ID
 from lib.i18n import DEFAULT_LOCALE
-from lib.logging_config import resolve_log_dir
-from lib.logging_utils import redact_diagnostic_text
-from lib.path_safety import PathTraversalError, safe_join
+from lib.infra.logging_config import resolve_log_dir
+from lib.infra.logging_utils import redact_diagnostic_text
+from lib.infra.path_safety import PathTraversalError, safe_join
 from server.agent_runtime.agent_access_policy import AgentAccessPolicy
 from server.agent_runtime.entry_pipeline import SessionEntryPipeline
 from server.agent_runtime.event_log import (
@@ -66,10 +66,10 @@ from claude_agent_sdk.types import (
     PermissionResultDeny,
 )
 
+from lib.backends.providers import PROVIDER_ANTHROPIC, CallPurpose, CallStatus
+from lib.billing.ledger import Ledger
 from lib.config.service import ConfigService
 from lib.db import async_session_factory
-from lib.ledger import Ledger
-from lib.providers import PROVIDER_ANTHROPIC, CallPurpose, CallStatus
 
 SDK_AVAILABLE = True
 
@@ -370,7 +370,7 @@ class SessionManager:
         self._project_root_resolved = self.project_root.resolve()
         # agent_runtime_profile 实际位置：``ARCREEL_PROFILE_DIR`` env 覆盖 >
         # ``self.project_root / "agent_runtime_profile"``（test-friendly：
-        # 不读 ``lib.env_init.PROJECT_ROOT`` 全局）。
+        # 不读 ``lib.infra.env_init.PROJECT_ROOT`` 全局）。
         profile_override = os.getenv("ARCREEL_PROFILE_DIR", "").strip()
         if profile_override:
             self._agent_profile_root = Path(profile_override).expanduser().resolve(strict=False)

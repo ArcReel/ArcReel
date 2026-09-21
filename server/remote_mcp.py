@@ -27,12 +27,12 @@ from starlette.types import Receive, Scope, Send
 from lib.config.resolver import ConfigResolver
 from lib.db import async_session_factory
 from lib.db.base import DEFAULT_USER_ID
-from lib.generation_batch import GenerationBatchReadModel
-from lib.project_manager import ProjectManager, get_project_manager
-from lib.script_batch_edit import ScriptBatchEditResult
-from lib.source_loader import SourceLoader
-from lib.source_revision import SourceScope
-from lib.workflow_plan import NarrationDelivery, WorkflowPlanRequest
+from lib.generation.generation_batch import GenerationBatchReadModel
+from lib.project.project_manager import ProjectManager, get_project_manager
+from lib.project.source_revision import SourceScope
+from lib.script.script_batch_edit import ScriptBatchEditResult
+from lib.script.source_loader import SourceLoader
+from lib.workflow.workflow_plan import NarrationDelivery, WorkflowPlanRequest
 from server.auth import API_KEY_PREFIX, _verify_api_key
 from server.draft_workflow import (
     DiscardDraftRequest,
@@ -50,7 +50,7 @@ from server.media_tools.image_edits import edit_images_tool
 from server.media_tools.narration_audio import generate_narration_audio_tool
 from server.media_tools.storyboards import generate_storyboards_tool
 from server.media_tools.videos import generate_videos_tool
-from server.services import workflow_planner
+from server.services.project import workflow_planner
 from server.text_generation import SCOPE_REMOVED_MESSAGE, TextGenerationRequest
 from server.tool_runtime import (
     CallerContext,

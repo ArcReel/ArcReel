@@ -8,11 +8,11 @@ import logging
 from google import genai
 from openai import OpenAI
 
+from lib.backends.http_status_errors import raise_for_status_redacted
 from lib.config.anthropic_probe import anthropic_auth_headers
 from lib.config.url_utils import anthropic_endpoint_url, validate_anthropic_base_url
 from lib.custom_provider.endpoints import endpoint_to_media_type, infer_endpoint
-from lib.http_status_errors import raise_for_status_redacted
-from lib.httpx_shared import get_http_client
+from lib.infra.httpx_shared import get_http_client
 
 logger = logging.getLogger(__name__)
 

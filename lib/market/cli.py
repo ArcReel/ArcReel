@@ -8,14 +8,14 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
 
+from lib.i18n import DEFAULT_LOCALE, SUPPORTED_LOCALES, _
+
 from .generate import GenerateError, build_index, render_index, write_index
 from .issues import MarketIssue
 from .source import check_source
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    from lib.i18n import DEFAULT_LOCALE, SUPPORTED_LOCALES
-
     parser = argparse.ArgumentParser(prog="python -m lib.market", description="ArcReel market source tools")
     parser.add_argument("--locale", choices=SUPPORTED_LOCALES, default=DEFAULT_LOCALE)
     commands = parser.add_subparsers(dest="command", required=True)
@@ -77,8 +77,6 @@ def _report(issues: Sequence[MarketIssue], translate: Callable[..., str]) -> Non
 
 
 def _translator(locale: str) -> Callable[..., str]:
-    from lib.i18n import _
-
     def translate(key: str, **kwargs: Any) -> str:
         return _(key, locale=locale, **kwargs)
 

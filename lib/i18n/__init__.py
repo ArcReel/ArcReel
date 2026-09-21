@@ -1,10 +1,7 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable
-from typing import Annotated, Any
-
-from fastapi import Depends, Request
+from typing import Any
 
 from .en import assets as en_assets
 from .en import emails as en_emails
@@ -77,39 +74,6 @@ MESSAGES: dict[str, dict[str, str]] = {
         **vi_validation.MESSAGES,
     },
 }
-
-
-def get_locale(request: Request) -> str:
-    """Get locale from Accept-Language header."""
-    accept_lang = request.headers.get("accept-language", "")
-    if not accept_lang:
-        return DEFAULT_LOCALE
-
-    # Simple parser for Accept-Language header
-    # e.g., "en-US,en;q=0.9,zh-CN;q=0.8,zh;q=0.7"
-    for lang_range in accept_lang.split(","):
-        lang = lang_range.split(";")[0].split("-")[0].strip().lower()
-        if lang in SUPPORTED_LOCALES:
-            return lang
-
-    return DEFAULT_LOCALE
-
-
-def get_translator(request: Request) -> Callable[..., str]:
-    """Dependency to get a translator function for the current request."""
-    locale = get_locale(request)
-
-    def translate(key: str, **kwargs: Any) -> str:
-        return _(key, locale=locale, **kwargs)
-
-    return translate
-
-
-Translator = Annotated[Callable[..., str], Depends(get_translator)]
-
-#: 请求语言本身。取译名需要「键缺失时回退到数据源里的原名」的地方（见 translate_or）用它，
-#: 常规成文仍用 Translator。
-Locale = Annotated[str, Depends(get_locale)]
 
 
 def _(key: str, locale: str = DEFAULT_LOCALE, **kwargs: Any) -> str:

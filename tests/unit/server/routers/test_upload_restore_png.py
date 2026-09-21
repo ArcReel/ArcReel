@@ -3,9 +3,9 @@ from io import BytesIO
 from PIL import Image
 
 import server.routers.versions as versions_router
-from lib.image_utils import convert_image_bytes_to_png
-from lib.project_manager import ProjectManager
-from lib.version_manager import VersionManager
+from lib.artifacts.version_manager import VersionManager
+from lib.infra.image_utils import convert_image_bytes_to_png
+from lib.project.project_manager import ProjectManager
 
 
 class TestUploadRestorePng:

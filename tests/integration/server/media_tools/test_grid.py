@@ -7,9 +7,9 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from lib.artifact_manifest import ArtifactStatus
-from lib.generation_queue_client import BatchTaskResult, is_interrupted_wait_error
-from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
+from lib.artifacts.artifact_manifest import ArtifactStatus
+from lib.generation.generation_queue_client import BatchTaskResult, is_interrupted_wait_error
+from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from server.media_tools.context import ToolContext
 from server.media_tools.grid import generate_grid_tool
 from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
@@ -133,7 +133,7 @@ async def test_generate_grid_falls_back_on_null_aspect_ratio(
 ) -> None:
     # project.json 允许把 aspect_ratio 显式写为 null；SDK 入队路径须回退到默认比例，
     # 否则 None 会写进宫格规划、任务 payload 与记录上冻结的比例
-    from lib.grid_manager import GridManager
+    from lib.script.grid.grid_manager import GridManager
 
     fake_ctx.pm.project_payload["generation_mode"] = "storyboard"
     fake_ctx.pm.project_payload["grid_storyboard"] = True
@@ -157,7 +157,7 @@ async def test_generate_grid_falls_back_on_null_aspect_ratio(
         return {"status": "succeeded"}
 
     async def fake_split(project_name: str, grid: Any, *, only_scene_ids: Any = None) -> Any:
-        from server.services.grid_split import GridSplitResult
+        from server.services.grid.grid_split import GridSplitResult
 
         return GridSplitResult(updated_scene_ids=list(grid.scene_ids), missing_scene_ids=[], asset_fingerprints={})
 
@@ -269,7 +269,7 @@ async def test_generate_grid_wait_timeout_is_reported_as_interrupted_not_failed(
 ) -> None:
     """宫格工具经共享 batch waiter 等待时，同样不能把等待被
     打断（任务可能仍在跑）报成终态失败——那会诱导调用方重试、造成重复付费提交。"""
-    from lib.generation_queue_client import TaskWaitTimeoutError
+    from lib.generation.generation_queue_client import TaskWaitTimeoutError
 
     fake_ctx.pm.project_payload["generation_mode"] = "storyboard"
     fake_ctx.pm.project_payload["grid_storyboard"] = True
@@ -325,7 +325,7 @@ async def test_generate_grid_reports_each_scene_of_a_shared_grid(
         return {"status": "succeeded", "provider_id": "openai", "provider_job_id": "job-1"}
 
     async def partial_split(project_name: str, grid: Any, *, only_scene_ids: Any = None) -> Any:
-        from server.services.grid_split import GridSplitResult
+        from server.services.grid.grid_split import GridSplitResult
 
         # 最后一格对应的分镜已不在剧本里，切分时被跳过。
         return GridSplitResult(
@@ -517,7 +517,7 @@ async def test_generate_grid_blocks_the_whole_group_when_one_scene_state_is_unre
     ``requested`` 减去已知集合去猜，违反 ``requested = succeeded ∪ failed ∪ blocked``
     不变式。
     """
-    from lib.artifact_manifest import ArtifactComparison, ArtifactStatus
+    from lib.artifacts.artifact_manifest import ArtifactComparison, ArtifactStatus
 
     fake_ctx.pm.project_payload.update(
         {
@@ -577,7 +577,7 @@ async def test_generate_grid_spares_an_already_reusable_sibling_when_one_scene_s
     """同组一格状态不可读会挡住整张宫格的重生成，但不牵连已确认可用的旧图：
     那些场景各自的产物状态是好的，只是恰好和坏的那格共享一张联合图。报它们
     "产物状态不可读、需要修复"是错误结论，仍应按正常复用记为 skipped。"""
-    from lib.artifact_manifest import ArtifactComparison, ArtifactStatus
+    from lib.artifacts.artifact_manifest import ArtifactComparison, ArtifactStatus
 
     fake_ctx.pm.project_payload.update(
         {
@@ -647,8 +647,8 @@ async def test_generate_grid_cleans_superseded_records(fake_ctx: ToolContext, mo
     通过 generate_grid 重生成某组宫格后，该组旧的已完成记录（同脚本同集、
     scene_ids 是当前组子集）被清理；其它组/代与非在途无关的记录不得误删。
     """
-    from lib.grid.models import GridGeneration
-    from lib.grid_manager import GridManager
+    from lib.script.grid.grid_manager import GridManager
+    from lib.script.grid.models import GridGeneration
 
     fake_ctx.pm.project_payload["generation_mode"] = "storyboard"
     fake_ctx.pm.project_payload["grid_storyboard"] = True
@@ -669,7 +669,7 @@ async def test_generate_grid_cleans_superseded_records(fake_ctx: ToolContext, mo
         return {"status": "succeeded"}
 
     async def fake_split(project_name: str, grid: Any, *, only_scene_ids: Any = None) -> Any:
-        from server.services.grid_split import GridSplitResult
+        from server.services.grid.grid_split import GridSplitResult
 
         return GridSplitResult(updated_scene_ids=list(grid.scene_ids), missing_scene_ids=[], asset_fingerprints={})
 
@@ -724,8 +724,8 @@ async def test_generate_grid_cleanup_spares_a_fully_reusable_chunk_of_an_oversiz
     """超上限分组切成多张宫格时，清理范围不能按整组算——某一张可能整张都落在
     已复用成员上（该张没有缺口，不会被生成替代品）。若仍按整组 ID 清理，会删掉
     这张对应的旧完成记录却不产出新图，产物与 Manifest 记账双双丢失（悬空占用）。"""
-    from lib.grid.models import GridGeneration
-    from lib.grid_manager import GridManager
+    from lib.script.grid.grid_manager import GridManager
+    from lib.script.grid.models import GridGeneration
 
     fake_ctx.pm.project_payload["generation_mode"] = "storyboard"
     fake_ctx.pm.project_payload["grid_storyboard"] = True
@@ -760,7 +760,7 @@ async def test_generate_grid_cleanup_spares_a_fully_reusable_chunk_of_an_oversiz
         return {"status": "succeeded"}
 
     async def fake_split(project_name: str, grid: Any, *, only_scene_ids: Any = None) -> Any:
-        from server.services.grid_split import GridSplitResult
+        from server.services.grid.grid_split import GridSplitResult
 
         return GridSplitResult(updated_scene_ids=list(grid.scene_ids), missing_scene_ids=[], asset_fingerprints={})
 
@@ -816,7 +816,7 @@ async def test_generate_grid_splits_oversized_group_into_multiple_grids(
     fake_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     # 12 个分镜 + 非 4K（上限 9）：入队 2 张宫格，分镜不重不漏，每张 prompt 分镜数与格数一致
-    from lib.grid_manager import GridManager
+    from lib.script.grid.grid_manager import GridManager
 
     fake_ctx.pm.project_payload["generation_mode"] = "storyboard"
     fake_ctx.pm.project_payload["grid_storyboard"] = True
@@ -844,7 +844,7 @@ async def test_generate_grid_splits_oversized_group_into_multiple_grids(
     split_calls: list[str] = []
 
     async def fake_split(project_name: str, grid: Any, *, only_scene_ids: Any = None) -> Any:
-        from server.services.grid_split import GridSplitResult
+        from server.services.grid.grid_split import GridSplitResult
 
         split_calls.append(grid.id)
         return GridSplitResult(updated_scene_ids=list(grid.scene_ids), missing_scene_ids=[], asset_fingerprints={})

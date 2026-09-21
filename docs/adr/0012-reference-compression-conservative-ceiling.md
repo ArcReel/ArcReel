@@ -4,7 +4,7 @@ status: accepted
 
 # 参考图压缩用保守通用上限 + 被动 413，只动上传副本
 
-I2I / I2V / R2V 场景常把多张体积较大的资产图（character/scene/prop sheet、上一张分镜图、参考图）作为参考图发送给供应商，base64 内嵌后总请求体易超出各家上限而调用失败。决定在 `media_generator` 咽喉层（所有生成的唯一汇流点）对**参考上传副本**做主动压缩 + 预检降档，并保留一道被动 413 兜底；压缩逻辑集中在 `lib/reference_compression.py`，只处理发送后即删除的临时副本。
+I2I / I2V / R2V 场景常把多张体积较大的资产图（character/scene/prop sheet、上一张分镜图、参考图）作为参考图发送给供应商，base64 内嵌后总请求体易超出各家上限而调用失败。决定在 `media_generator` 咽喉层（所有生成的唯一汇流点）对**参考上传副本**做主动压缩 + 预检降档，并保留一道被动 413 兜底；压缩逻辑集中在 `lib/references/reference_compression.py`，只处理发送后即删除的临时副本。
 
 ## 决定
 

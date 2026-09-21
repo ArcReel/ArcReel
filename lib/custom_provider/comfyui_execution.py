@@ -6,7 +6,7 @@
 backend 各写一份的话，判丢失与叫停这类只在异常路径上跑到的逻辑迟早各判各的。
 
 住在 ``lib.custom_provider`` 顶层而非 ``comfyui`` 子包，与 :mod:`.comfyui_client` 同一个理由：
-本模块要用 ``lib.video_backends.base`` 的轮询原语，而子包受「不依赖声明式运行时」的 import 契约
+本模块要用 ``lib.backends.video_backends.base`` 的轮询原语，而子包受「不依赖声明式运行时」的 import 契约
 约束，那条链绕一圈会间接够到声明式 backend。
 """
 
@@ -23,6 +23,7 @@ from urllib.parse import urlencode
 
 import httpx
 
+from lib.backends.video_backends.base import poll_with_retry, should_retry_poll
 from lib.custom_provider.comfyui.artifacts import (
     filename_of,
     history_digest,
@@ -33,7 +34,6 @@ from lib.custom_provider.comfyui.artifacts import (
 )
 from lib.custom_provider.comfyui.failures import JOB_LOST, OUTPUT_MISSING, OUTPUT_TYPE_MISMATCH, ComfyuiError
 from lib.custom_provider.comfyui_client import ComfyuiClient, RecordResponse
-from lib.video_backends.base import poll_with_retry, should_retry_poll
 
 logger = logging.getLogger(__name__)
 

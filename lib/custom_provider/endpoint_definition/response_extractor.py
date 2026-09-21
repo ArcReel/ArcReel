@@ -8,9 +8,9 @@ from typing import Any
 
 from jsonpath_rfc9535 import JSONPathError, find
 
+from lib.backends.video_backends.base import ProviderJobStatus, normalize_provider_status
 from lib.custom_provider.definition_diagnostics import DefinitionErrorCode, message_key
-from lib.validation_messages import ValidationMessage
-from lib.video_backends.base import ProviderJobStatus, normalize_provider_status
+from lib.infra.validation_messages import ValidationMessage
 
 from .jsonpath_subset import parse_json_path
 
