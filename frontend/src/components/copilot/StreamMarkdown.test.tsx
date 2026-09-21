@@ -118,7 +118,7 @@ describe("StreamMarkdown 渲染惰性", () => {
       expect(collectActiveContent(container), `cut=${cut} 前段`).toEqual([]);
       // 前段中不完整链接渲染为占位链接按钮，点击后既不打开确认框也不打开窗口。
       for (const el of container.querySelectorAll('a, button, [data-streamdown="link"]')) fireEvent.click(el);
-      expect(screen.queryByRole("button", { name: "Open link" }), `cut=${cut} 前段确认框`).toBeNull();
+      expect(screen.queryByRole("button", { name: "Open link" }), `cut=${cut} 前段确认框`).not.toBeInTheDocument();
       expect(open, `cut=${cut} 前段打开窗口`).not.toHaveBeenCalled();
       rerender(<StreamMarkdown content={payload} />);
       expect(collectActiveContent(container), `cut=${cut} 全文`).toEqual([]);
