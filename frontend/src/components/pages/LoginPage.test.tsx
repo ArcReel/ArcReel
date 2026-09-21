@@ -2,7 +2,7 @@ import { fireEvent, render, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
-import { LoginPage } from "@/pages/LoginPage";
+import { LoginPage } from "@/components/pages/LoginPage";
 import { useAuthStore } from "@/stores/auth-store";
 
 // wouter 的 useLocation/useSearch 钩子只暴露 pathname / search，不暴露 hash，
