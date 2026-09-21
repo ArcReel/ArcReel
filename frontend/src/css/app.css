@@ -34,10 +34,6 @@ body {
     height: calc(100vh - var(--auth-banner-h, 0px));
 }
 
-.max-h-app-screen {
-    max-height: calc(100vh - var(--auth-banner-h, 0px));
-}
-
 .top-app-banner {
     top: var(--auth-banner-h, 0px);
 }
