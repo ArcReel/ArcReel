@@ -579,7 +579,12 @@ def derive_test_moves(mapping: ModuleMap) -> tuple[list[TestMove], list[str]]:
     """
     moves: list[TestMove] = []
     unresolved: list[str] = []
-    moved_dirs = {old: new for old, new in mapping.moves.items() if (REPO_ROOT / old.replace(".", "/")).is_dir()}
+    # 旧目录已搬走时按新目录判定，搬迁后重跑推导仍把子包条目当作目录
+    moved_dirs = {
+        old: new
+        for old, new in mapping.moves.items()
+        if (REPO_ROOT / old.replace(".", "/")).is_dir() or (REPO_ROOT / new.replace(".", "/")).is_dir()
+    }
     for test_root in TEST_ROOTS:
         base = REPO_ROOT / test_root
         for old_dir, new_dir in sorted(moved_dirs.items()):

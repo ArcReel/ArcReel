@@ -256,6 +256,15 @@ Use lowercase words separated by hyphens for `slug`, briefly describing the bran
 
 The time from creation to merge must be ≤3 days. If it runs longer, split it or rebase it onto the main branch first—**do not** drag a one-month-old branch directly into review.
 
+After the directory regrouping lands on `main`, code added on branches cut earlier may still reference old module paths, since the move leaves no compatibility layer. Once you have synced with the main branch (merge or rebase), run the same migration script to rewrite them, then self-check with its residual mode:
+
+```bash
+uv run python scripts/regroup/migrate.py          # moves newly added mirror tests and rewrites old paths in imports, patch targets, config and docs; safe to rerun
+uv run python scripts/regroup/migrate.py --check  # exits non-zero while files remain to move or old paths are still referenced
+```
+
+The script exits with an error when it finds a loose module at the top level of the core library or the application service layer that is not in the mapping table (`scripts/regroup/module_map.toml`): move it into the domain package it belongs to first, then rerun.
+
 ### Squash merge {#squash-merge}
 
 Squash each PR into one commit when merging into `main`, with a conventional commit message (see the next section). Choose "Squash and merge" from the GitHub merge button.
