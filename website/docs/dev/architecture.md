@@ -219,7 +219,6 @@ flowchart LR
 主要能力：
 
 - 异步执行；
-- RPM 限制；
 - Image / Video / Audio 独立并发；
 - 状态持久化；
 - 中断恢复；

@@ -155,8 +155,8 @@ _Avoid_: request snapshot、resume payload、current marker。
 _Avoid_: 重试、重新提交、重启自愈（那是成因描述，不是路径名）。
 
 **取消（cancel）**：
-用户主动停止一个生成任务的日常路径，要求秒级响应——真正中断执行中的生成并立即释放其并发容量，对 `queued` 和 `running` 都开放。
-_Avoid_: abort、stop。
+用户主动撤下一个尚未开始执行的生成任务，只对 `queued` 开放；任务一旦开始执行就不可取消——已发出的供应商调用照常跑完、结果照常成为产物，不让已产生的费用落空。
+_Avoid_: abort、stop、把取消理解为中断执行中的生成。
 
 **取消来源（cancelled_by）**：
 取消来源标记：`user` 表示用户从 UI 触发，`cascade` 表示下游依赖被一并取消；系统内部超时回收不算取消。
