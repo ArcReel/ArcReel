@@ -277,10 +277,11 @@ def _all_tools_available(name: str):
 
 @pytest.mark.asyncio
 async def test_thumbnail_deadline_kills_ffmpeg_and_removes_partial_output(tmp_path: Path):
-    """ffmpeg 不退出时到 deadline 被终止，半成品缩略图被删除，返回 None。"""
+    """ffmpeg 不退出时到 deadline 被终止，半成品被删除、已有缩略图保持不变，返回 None。"""
     video = tmp_path / "fake.mp4"
     video.write_bytes(b"\x00")
     out = tmp_path / "out.jpg"
+    out.write_bytes(b"previous")
     procs: list[HangingProcess] = []
     call_log: list[list[str]] = []
 
@@ -295,7 +296,8 @@ async def test_thumbnail_deadline_kills_ffmpeg_and_removes_partial_output(tmp_pa
         result = await thumbnail_module.extract_video_thumbnail(video, out, deadlines=_ZERO_DEADLINES, spawn=_spawn)
 
     assert result is None
-    assert not out.exists()
+    assert out.read_bytes() == b"previous"
+    assert sorted(p.name for p in tmp_path.iterdir()) == sorted([video.name, out.name])  # noqa: ASYNC240 -- 断言阶段读取 tmp_path
     assert [p.signals for p in procs] == [["terminate", "kill"]]
     assert "-nostdin" in call_log[0]
 

@@ -83,29 +83,13 @@ async def extract_video_thumbnail(
     thumbnail_path.parent.mkdir(parents=True, exist_ok=True)
 
     try:
-        result = await run_with_deadline(
-            [
-                "ffmpeg",
-                "-nostdin",
-                "-i",
-                str(video_path),
-                "-vframes",
-                "1",
-                "-q:v",
-                "2",
-                "-y",
-                str(thumbnail_path),
-            ],
-            deadline_seconds=deadlines.extract,
-            grace=deadlines.grace,
-            cleanup_paths=[thumbnail_path],
+        written = await _run_ffmpeg_to_output(
+            ["ffmpeg", "-nostdin", "-y", "-i", str(video_path), "-vframes", "1", "-q:v", "2"],
+            thumbnail_path,
+            deadlines=deadlines,
             spawn=spawn,
         )
-
-        if result.returncode != 0 or not thumbnail_path.exists():  # noqa: ASYNC240 -- 抽帧产物存在性检查，本地元数据
-            return None
-
-        return thumbnail_path
+        return thumbnail_path if written else None
     except Exception:
         logger.warning("提取视频缩略图失败: %s", video_path, exc_info=True)
         return None
@@ -161,6 +145,36 @@ async def _probe_frame_count(
         return None
 
 
+async def _run_ffmpeg_to_output(
+    args: list[str],
+    output_path: Path,
+    *,
+    deadlines: FrameExtractionDeadlines,
+    spawn: Spawner | None,
+) -> bool:
+    """ffmpeg 先写同目录临时文件，成功且非空才原子替换 ``output_path``；失败或超时不动已有产物。
+
+    ``args`` 为不含输出路径的 ffmpeg 参数。
+    """
+    temp_path = output_path.with_name(f".{output_path.stem}.tmp{output_path.suffix}")
+    temp_path.unlink(missing_ok=True)
+
+    result = await run_with_deadline(
+        [*args, str(temp_path)],
+        deadline_seconds=deadlines.extract,
+        grace=deadlines.grace,
+        cleanup_paths=[temp_path],
+        spawn=spawn,
+    )
+
+    if result.returncode != 0 or not temp_path.exists() or temp_path.stat().st_size < 1:
+        temp_path.unlink(missing_ok=True)
+        return False
+
+    temp_path.replace(output_path)
+    return True
+
+
 async def _extract_frame_at_index(
     video_path: Path,
     output_path: Path,
@@ -169,11 +183,7 @@ async def _extract_frame_at_index(
     deadlines: FrameExtractionDeadlines,
     spawn: Spawner | None,
 ) -> bool:
-    temp_path = output_path.with_name(f".{output_path.stem}.tmp{output_path.suffix}")
-    if temp_path.exists():
-        temp_path.unlink()
-
-    result = await run_with_deadline(
+    return await _run_ffmpeg_to_output(
         [
             "ffmpeg",
             "-nostdin",
@@ -186,21 +196,11 @@ async def _extract_frame_at_index(
             "vfr",
             "-frames:v",
             "1",
-            str(temp_path),
         ],
-        deadline_seconds=deadlines.extract,
-        grace=deadlines.grace,
-        cleanup_paths=[temp_path],
+        output_path,
+        deadlines=deadlines,
         spawn=spawn,
     )
-
-    if result.returncode != 0 or not temp_path.exists() or temp_path.stat().st_size < 1:
-        if temp_path.exists():
-            temp_path.unlink()
-        return False
-
-    temp_path.replace(output_path)
-    return True
 
 
 async def extract_video_last_frame(
