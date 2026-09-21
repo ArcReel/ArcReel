@@ -619,6 +619,29 @@ class TestDeclarativeVideoBackend:
             "status": 400,
         }
 
+    async def test_artifact_on_a_link_local_address_is_not_fetched(self, tmp_path: Path):
+        artifact_url = "http://169.254.169.254/latest/job-42.mp4"
+        with capture_http() as router, bounded_poll_clock():
+            router.post("https://relay.test/v1/video/create").mock(
+                return_value=httpx.Response(200, json={"task_id": "job-42"})
+            )
+            router.get("https://relay.test/v1/video/fetch/job-42").mock(
+                return_value=httpx.Response(200, json={"status": "completed", "video_url": artifact_url})
+            )
+            download = router.get(artifact_url).mock(return_value=httpx.Response(200, content=b"video"))
+
+            with pytest.raises(DeclarativeRuntimeError) as caught:
+                await DeclarativeVideoBackend(
+                    api_key="secret",
+                    base_url="https://relay.test",
+                    model="video-x",
+                    definition=_definition(),
+                    provider="custom-1",
+                ).generate(_request(tmp_path))
+
+        assert caught.value.code == "artifact_download_failed"
+        assert download.call_count == 0
+
     async def test_download_exhausts_shared_ten_failure_budget(self, tmp_path: Path):
         with capture_http() as router, bounded_poll_clock():
             router.post("https://relay.test/v1/video/create").mock(

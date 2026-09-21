@@ -20,6 +20,7 @@ from urllib.parse import quote
 
 import httpx
 
+from lib.artifact_download_guard import VIDEO_ARTIFACT_MAX_BYTES, artifact_http_client
 from lib.custom_provider.endpoint_definition import (
     AssetData,
     JsonPathEvaluationError,
@@ -280,7 +281,7 @@ class DeclarativeVideoBackend(ProviderJobIdPersistenceMixin):
 
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
         context = self._request_context(request, require_declared_inputs=True)
-        async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT_SECONDS, follow_redirects=True) as client:
+        async with artifact_http_client(timeout=_HTTP_TIMEOUT_SECONDS, follow_redirects=True) as client:
             job_id = await self._submit(client, context, request)
             # 落提交域名供续跑回放：用户在途改了供应商 base_url 时，按新域名轮旧 job 会查无，
             # 把一笔已付费的任务误判成过期丢掉。
@@ -289,7 +290,7 @@ class DeclarativeVideoBackend(ProviderJobIdPersistenceMixin):
 
     async def resume_video(self, job_id: str, request: VideoGenerationRequest) -> VideoGenerationResult:
         context = self._request_context(request)
-        async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT_SECONDS, follow_redirects=True) as client:
+        async with artifact_http_client(timeout=_HTTP_TIMEOUT_SECONDS, follow_redirects=True) as client:
             return await self._poll_download(client, job_id, request, context=context, is_resume=True)
 
     def _request_context(
@@ -643,6 +644,7 @@ class DeclarativeVideoBackend(ProviderJobIdPersistenceMixin):
                 client,
                 rendered.url if rendered is not None else url,
                 output_path,
+                max_bytes=VIDEO_ARTIFACT_MAX_BYTES,
                 headers=rendered.headers if rendered is not None else None,
                 credential_origin=credential_origin if rendered is not None else None,
                 auth_query=rendered.auth_query if rendered is not None else None,

@@ -149,7 +149,7 @@ A compromised Python package, Node package, container image, SDK, ffmpeg build, 
 | FastAPI → database | Secrets, hashes, configuration, task and usage state | ORM parameterization, API masking, DB permissions | Credential and state disclosure, persistence tampering |
 | FastAPI → project filesystem | Names, paths, archives, generated files, agent writes | Name normalization, `safe_join`, project locks, atomic writes, schema validation | Traversal, cross-project access, overwrite, persistent malicious content |
 | FastAPI → external providers | Credentials, prompts, media, base URLs, job IDs | Authentication, provider registry, configured endpoints, path-specific HTTP timeouts | SSRF, secret forwarding, malformed responses, unexpected cost |
-| Provider → ArcReel download/parser pipeline | URLs, response headers, media bytes | Path-specific HTTP timeouts, artifact-path handling, downstream format checks; Vertex Gemini URI downloads currently lack an explicit deadline | SSRF, memory/disk exhaustion, parser compromise |
+| Provider → ArcReel download/parser pipeline | URLs, response headers, media bytes | Shared artifact download entry (`lib/artifact_download_guard.py`): per-request and per-redirect scheme and destination checks, per-media-type total byte limits, capped error-body reads, `.part` staging with atomic rename; path-specific HTTP timeouts, downstream format checks; Vertex Gemini URI downloads currently lack an explicit deadline | SSRF, memory/disk exhaustion, parser compromise |
 | Application → SDK built-in file tools | LLM-selected `Read`, `Write`, `Edit`, `Glob`, and `Grep` paths | Main-process `PreToolUse` hooks backed by `AgentAccessPolicy` | Sensitive-file access, cross-project access, protected-file modification |
 | Application → sandboxed Bash | Commands, paths, environment, and network destinations | Kernel sandbox profile, `AgentAccessPolicy`, command policy, environment scrubbing | Sensitive-file access, cross-project access, command execution, network abuse |
 | Application → in-process MCP tools | LLM-selected structured arguments | Closure-bound project context, strict validation, protected workflows | Sandbox bypass through main-process capability |
@@ -317,6 +317,14 @@ Authenticated administrators can configure supported provider URLs and custom en
 - Malicious or compromised provider responses.
 
 Outbound requests must be assessed for private-address reachability, cloud metadata access, scheme handling, redirects, response limits, timeouts, and credential forwarding.
+
+Current state for provider-returned artifact URLs: built-in video, image, and audio backends and the declarative and ComfyUI custom-provider runtimes download artifacts through `lib/artifact_download_guard.py`.
+
+- Every request, including each redirect hop, is checked before it is sent. Only `http` and `https` are accepted. Hostnames are resolved with the event loop's asynchronous `getaddrinfo`, and destinations in `169.254.0.0/16`, `fe80::/10`, or `fd00:ec2::254` (including IPv4-mapped IPv6 forms) are refused. When local resolution fails, the request is left to the transport.
+- Loopback and RFC 1918 private addresses are intentionally allowed because self-hosted providers such as ComfyUI or Ollama legitimately run there. The check resolves once before connecting and does not pin the connected address.
+- Response bodies are limited per media type (video 2 GiB, image and audio 256 MiB). An oversized declared `Content-Length` is refused early, the actual byte count is authoritative, and aborted downloads leave no `.part` file. Error-response bodies are read up to 64 KiB.
+- The declarative and ComfyUI runtimes share one guarded client for submit, poll, and download, so the destination check also applies to administrator-configured base URLs on those paths. Base-URL probing for custom providers (model discovery and connectivity tests) is not routed through this entry.
+- SDK-mediated downloads from configured base URLs (OpenAI-compatible video content, Gemini file downloads) are not routed through this entry.
 
 ### 10.4 Imports, uploads, and project data
 

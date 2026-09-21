@@ -9,6 +9,7 @@ import httpx
 import pytest
 from sqlalchemy.exc import OperationalError
 
+from lib.artifact_download_guard import ERROR_BODY_MAX_BYTES, ArtifactDestinationRejectedError, ArtifactTooLargeError
 from lib.video_backends.base import (
     PROVIDER_REASON_MAX_CHARS,
     TERMINAL_PROVIDER_STATUSES,
@@ -22,6 +23,7 @@ from lib.video_backends.base import (
     VideoGenerationResult,
     _dig,
     _rewrites_to_get,
+    download_video,
     extract_provider_error_message,
     first_mapping_by_paths,
     first_str_by_paths,
@@ -1203,6 +1205,9 @@ class TestWithArtifactRetry:
         assert not never_ready.is_set()
 
 
+_LIMIT = 64 * 1024 * 1024
+
+
 class TestStreamToFile:
     async def test_writes_body_and_leaves_no_partial_file(self, tmp_path: Path):
         output = tmp_path / "nested" / "out.mp4"
@@ -1211,7 +1216,7 @@ class TestStreamToFile:
         with capture_http() as router:
             router.get("https://cdn.test/a.mp4").mock(return_value=httpx.Response(200, content=payload))
             async with httpx.AsyncClient() as client:
-                await stream_to_file(client, "https://cdn.test/a.mp4", output)
+                await stream_to_file(client, "https://cdn.test/a.mp4", output, max_bytes=_LIMIT)
 
         assert output.read_bytes() == payload
         assert not (output.parent / f"{output.name}.part").exists()
@@ -1228,6 +1233,7 @@ class TestStreamToFile:
                         client,
                         "https://relay.test/a.mp4",
                         output,
+                        max_bytes=_LIMIT,
                         headers={"X-API-Key": "secret"},
                         credential_origin=url_origin("https://relay.test"),
                     )
@@ -1241,10 +1247,55 @@ class TestStreamToFile:
             router.get("https://cdn.test/a.mp4").mock(return_value=httpx.Response(404, text="gone"))
             async with httpx.AsyncClient() as client:
                 with pytest.raises(httpx.HTTPStatusError):
-                    await stream_to_file(client, "https://cdn.test/a.mp4", output)
+                    await stream_to_file(client, "https://cdn.test/a.mp4", output, max_bytes=_LIMIT)
 
         assert not output.exists()
         assert not (tmp_path / f"{output.name}.part").exists()
+
+    async def test_body_over_limit_is_aborted_without_leftovers(self, tmp_path: Path):
+        output = tmp_path / "out.mp4"
+
+        with capture_http() as router:
+            router.get("https://cdn.test/a.mp4").mock(
+                return_value=httpx.Response(200, headers={"Content-Length": "8"}, content=b"x" * 65)
+            )
+            async with httpx.AsyncClient() as client:
+                with pytest.raises(ArtifactTooLargeError):
+                    await stream_to_file(client, "https://cdn.test/a.mp4", output, max_bytes=64)
+
+        assert not output.exists()
+        assert not (tmp_path / f"{output.name}.part").exists()
+
+    async def test_error_response_body_is_read_up_to_the_error_limit(self, tmp_path: Path):
+        output = tmp_path / "out.mp4"
+
+        with capture_http() as router:
+            router.get("https://cdn.test/a.mp4").mock(
+                return_value=httpx.Response(500, content=b"e" * (ERROR_BODY_MAX_BYTES * 4))
+            )
+            async with httpx.AsyncClient() as client:
+                with pytest.raises(httpx.HTTPStatusError) as excinfo:
+                    await stream_to_file(client, "https://cdn.test/a.mp4", output, max_bytes=_LIMIT)
+
+        assert excinfo.value.response.status_code == 500
+        assert len(excinfo.value.response.content) == ERROR_BODY_MAX_BYTES
+
+
+class TestDownloadVideoDestination:
+    async def test_redirect_to_link_local_is_rejected_without_retry(self, tmp_path: Path):
+        output = tmp_path / "out.mp4"
+
+        with capture_http() as router:
+            first = router.get("http://203.0.113.7/a.mp4").mock(
+                return_value=httpx.Response(302, headers={"Location": "http://169.254.169.254/latest/"})
+            )
+            target = router.get("http://169.254.169.254/latest/").mock(return_value=httpx.Response(200))
+            with pytest.raises(ArtifactDestinationRejectedError):
+                await download_video("http://203.0.113.7/a.mp4", output, label="test")
+
+        assert first.call_count == 1
+        assert target.call_count == 0
+        assert not output.exists()
 
 
 class TestRecordingPoll:
