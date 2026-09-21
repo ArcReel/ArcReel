@@ -30,7 +30,7 @@ class _FakePM(FakeProjectAssetMutationMixin):
         self.projects = {"demo": {"characters": {}, "scenes": {}, "props": {}, "products": {}}}
 
     def _add_asset(self, asset_type, project_name, name, entry):
-        from lib.asset_types import ASSET_SPECS, ensure_project_asset_name_available
+        from lib.project.asset_types import ASSET_SPECS, ensure_project_asset_name_available
 
         if project_name not in self.projects:
             raise FileNotFoundError(project_name)
@@ -47,8 +47,8 @@ class _FakePM(FakeProjectAssetMutationMixin):
         return self.projects[project_name]
 
     def rename_asset(self, project_name, table, old_name, new_name, *, dry_run=False):
-        from lib.asset_rename import AssetRenameConflictError, AssetRenameNotFoundError, AssetRenameReport
-        from lib.asset_types import resolve_asset_key
+        from lib.project.asset_rename import AssetRenameConflictError, AssetRenameNotFoundError, AssetRenameReport
+        from lib.project.asset_types import resolve_asset_key
 
         if project_name not in self.projects:
             raise FileNotFoundError(project_name)

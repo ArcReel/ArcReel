@@ -1227,7 +1227,7 @@ class TestValidateBackendValueCustomPrefix:
     """回归: validate_backend_value 应接受 custom-* 前缀。"""
 
     def test_custom_prefix_accepted(self):
-        from lib.api_errors import BadRequestError
+        from lib.infra.api_errors import BadRequestError
         from server.routers._validators import validate_backend_value
 
         # custom- 前缀不在 PROVIDER_REGISTRY 中，仍须放行（逐模型能力由供应商 API 把关）
@@ -1236,7 +1236,7 @@ class TestValidateBackendValueCustomPrefix:
         assert validate_backend_value("custom-3/gpt-4o", "default_text_backend") is None
 
     def test_unknown_provider_rejected(self):
-        from lib.api_errors import BadRequestError
+        from lib.infra.api_errors import BadRequestError
         from server.routers._validators import validate_backend_value
 
         with pytest.raises(BadRequestError) as exc_info:

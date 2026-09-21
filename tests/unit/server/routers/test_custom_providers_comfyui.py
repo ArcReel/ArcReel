@@ -17,7 +17,7 @@ from fastapi.testclient import TestClient
 from lib.db.models.custom_provider import CustomProvider
 from lib.db.repositories.custom_endpoint_repo import CustomEndpointRepository
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository
-from lib.httpx_shared import shutdown_http_client, startup_http_client
+from lib.infra.httpx_shared import shutdown_http_client, startup_http_client
 from tests.factories import comfyui_endpoint_definition, custom_endpoint_definition
 from tests.http_capture import capture_http, only_request
 

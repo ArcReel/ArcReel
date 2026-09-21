@@ -7,8 +7,8 @@ import pytest
 from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
 
-from lib.project_manager import ProjectManager
-from lib.workflow_state import WorkflowRequestError, WorkflowStateService
+from lib.project.project_manager import ProjectManager
+from lib.workflow.workflow_state import WorkflowRequestError, WorkflowStateService
 from server.agent_runtime.sdk_tools.workflow_status import complete_script_plan_rebuild_tool
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers

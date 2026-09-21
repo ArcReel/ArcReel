@@ -8,11 +8,11 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from lib.artifact_manifest import ArtifactStatus
+from lib.artifacts.artifact_manifest import ArtifactStatus
 from lib.db.models.user import User
-from lib.narration_delivery import TtsSynthesisSettings
+from lib.speech.narration_delivery import TtsSynthesisSettings
 from server.media_tools.context import ToolContext
-from server.services.narration_delivery_tasks import ResolvedTtsSettingsResolver, active_tts_resource_ids
+from server.services.tasks.narration_delivery_tasks import ResolvedTtsSettingsResolver, active_tts_resource_ids
 from server.tool_runtime import CallerContext
 from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
     call,
@@ -39,7 +39,7 @@ async def test_generate_videos_episode_scope_reports_an_interrupted_batch_enqueu
     fake_ctx: ToolContext, monkeypatch
 ) -> None:
     """入队中断逐 ID 报告：建成的算 succeeded，没轮到的带「入队中断」问题码且未计费。"""
-    from lib.generation_queue_client import BatchTaskResult
+    from lib.generation.generation_queue_client import BatchTaskResult
     from server.media_tools import videos as mod
 
     fake_ctx.pm.script_payload["segments"] = [
@@ -241,8 +241,8 @@ async def test_generate_videos_all_scope_creates_zero_tasks_when_one_artifact_st
     """产物状态读不出的场景属于这次请求：它带着自己的问题进准入，整批停下，健康的场景不入队计费。"""
     from dataclasses import replace as dc_replace
 
-    from lib.artifact_manifest import ArtifactBlocker
-    from lib.generation_result import GenerationCandidate, GenerationTargetState
+    from lib.artifacts.artifact_manifest import ArtifactBlocker
+    from lib.generation.generation_result import GenerationCandidate, GenerationTargetState
     from server.media_tools import videos as mod
 
     fake_ctx.pm.script_payload["segments"].append(
@@ -351,7 +351,7 @@ async def test_generate_videos_all_scope_admits_legacy_narration_stored_under_sc
     (fake_ctx.project_path / "storyboards" / "scene_E1S01.png").write_bytes(b"\x89PNG")
 
     async def fake_batch(*, project_name, specs, on_success=None, on_failure=None, **_batch_kwargs):
-        from lib.generation_queue_client import BatchTaskResult
+        from lib.generation.generation_queue_client import BatchTaskResult
 
         return [
             BatchTaskResult(
@@ -378,8 +378,8 @@ async def test_generate_videos_all_scope_reports_an_all_unreadable_selection_as_
     """全部目标的产物状态都读不出时不能报成空的成功：那会把每一条状态问题都藏起来。"""
     from dataclasses import replace as dc_replace
 
-    from lib.artifact_manifest import ArtifactBlocker
-    from lib.generation_result import GenerationCandidate, GenerationTargetState
+    from lib.artifacts.artifact_manifest import ArtifactBlocker
+    from lib.generation.generation_result import GenerationCandidate, GenerationTargetState
     from server.media_tools import videos as mod
 
     select_targets = mod.select_generation_targets

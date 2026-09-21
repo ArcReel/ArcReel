@@ -6,8 +6,8 @@ import json
 from typing import Any
 from unittest.mock import AsyncMock
 
-from lib.artifact_manifest import ArtifactKey, ArtifactStatus
-from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
+from lib.artifacts.artifact_manifest import ArtifactKey, ArtifactStatus
+from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from server.media_tools.context import ToolContext
 from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
     activate_unbound_project,
@@ -47,7 +47,7 @@ class _AllStaleResolver:
     """An active Manifest whose every artifact is usable but no longer current."""
 
     def compare(self, key, *, artifact_path=None):
-        from lib.artifact_manifest import ArtifactComparison
+        from lib.artifacts.artifact_manifest import ArtifactComparison
 
         return ArtifactComparison(status=ArtifactStatus.STALE, artifact_path=artifact_path or "")
 
@@ -89,7 +89,7 @@ async def test_generate_narration_audio_explicit_ids_regenerate_a_stale_recordin
     captured: list[Any] = []
 
     async def fake_batch(*, project_name, specs, on_success=None, on_failure=None, **_batch_kwargs):
-        from lib.generation_queue_client import BatchTaskResult
+        from lib.generation.generation_queue_client import BatchTaskResult
 
         captured.extend(specs)
         return [
@@ -117,7 +117,7 @@ async def test_generate_narration_audio_enqueues_missing_segments(fake_ctx: Tool
     captured: list[Any] = []
 
     async def fake_batch(*, project_name, specs, on_success=None, on_failure=None, **_batch_kwargs):
-        from lib.generation_queue_client import BatchTaskResult
+        from lib.generation.generation_queue_client import BatchTaskResult
 
         captured.extend(specs)
         succ = [
@@ -158,7 +158,7 @@ async def test_generate_narration_audio_covers_reference_video_units(fake_ctx: T
     captured: list[Any] = []
 
     async def fake_batch(*, project_name, specs, on_success=None, on_failure=None, **_batch_kwargs):
-        from lib.generation_queue_client import BatchTaskResult
+        from lib.generation.generation_queue_client import BatchTaskResult
 
         captured.extend(specs)
         return [
@@ -229,7 +229,7 @@ async def test_generate_narration_audio_uses_canonical_filename_when_episode_fie
     captured: list[Any] = []
 
     async def _batch(*, project_name, specs, on_success=None, on_failure=None, **_batch_kwargs):
-        from lib.generation_queue_client import BatchTaskResult
+        from lib.generation.generation_queue_client import BatchTaskResult
 
         captured.extend(specs)
         return [
@@ -258,7 +258,7 @@ async def test_generate_narration_audio_selects_item_with_corrupt_generated_asse
     captured: list[Any] = []
 
     async def fake_batch(*, project_name, specs, on_success=None, on_failure=None, **_batch_kwargs):
-        from lib.generation_queue_client import BatchTaskResult
+        from lib.generation.generation_queue_client import BatchTaskResult
 
         captured.extend(specs)
         succ = [
@@ -288,7 +288,7 @@ async def test_generate_narration_audio_explicit_ids_regenerate(fake_ctx: ToolCo
     captured: list[Any] = []
 
     async def fake_batch(*, project_name, specs, on_success=None, on_failure=None, **_batch_kwargs):
-        from lib.generation_queue_client import BatchTaskResult
+        from lib.generation.generation_queue_client import BatchTaskResult
 
         captured.extend(specs)
         return [
@@ -313,7 +313,7 @@ async def test_generate_narration_audio_blank_text_reported(fake_ctx: ToolContex
     captured: list[Any] = []
 
     async def fake_batch(*, project_name, specs, on_success=None, on_failure=None, **_batch_kwargs):
-        from lib.generation_queue_client import BatchTaskResult
+        from lib.generation.generation_queue_client import BatchTaskResult
 
         captured.extend(specs)
         return [
@@ -353,7 +353,7 @@ async def test_generate_narration_audio_partial_unmatched_reported(fake_ctx: Too
     captured: list[Any] = []
 
     async def fake_batch(*, project_name, specs, on_success=None, on_failure=None, **_batch_kwargs):
-        from lib.generation_queue_client import BatchTaskResult
+        from lib.generation.generation_queue_client import BatchTaskResult
 
         captured.extend(specs)
         return [
@@ -512,7 +512,7 @@ async def test_generate_narration_audio_skips_segment_without_id(fake_ctx: ToolC
     captured: list[Any] = []
 
     async def fake_batch(*, project_name, specs, on_success=None, on_failure=None, **_batch_kwargs):
-        from lib.generation_queue_client import BatchTaskResult
+        from lib.generation.generation_queue_client import BatchTaskResult
 
         captured.extend(specs)
         return [
@@ -561,7 +561,7 @@ async def test_generate_narration_audio_task_failures_surface(fake_ctx: ToolCont
     fake_ctx.pm.script_payload = _narration_audio_script()
 
     async def fake_batch(*, project_name, specs, on_success=None, on_failure=None, **_batch_kwargs):
-        from lib.generation_queue_client import BatchTaskResult
+        from lib.generation.generation_queue_client import BatchTaskResult
 
         fails = [
             BatchTaskResult(resource_id=s.resource_id, task_id="t1", status="failed", error="provider down")

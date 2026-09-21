@@ -15,11 +15,11 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from lib.episode_paths import REFERENCE_VIDEO_SCRIPT_PLAN_FILENAME, episode_drafts_dir
-from lib.project_manager import ProjectManager
-from lib.project_migrations.runner import migrate_project_dir
-from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
-from lib.reference_video.script_preview import WARN_UNREGISTERED_MENTION
+from lib.episode.episode_paths import REFERENCE_VIDEO_SCRIPT_PLAN_FILENAME, episode_drafts_dir
+from lib.project.project_manager import ProjectManager
+from lib.project.project_migrations.runner import migrate_project_dir
+from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
+from lib.script.reference_video.script_preview import WARN_UNREGISTERED_MENTION
 from server.agent_runtime.sdk_tools.content_read import get_episode_script_tool
 from server.agent_runtime.sdk_tools.patch_script import patch_episode_script_tool
 from server.auth import CurrentUserInfo, get_current_user

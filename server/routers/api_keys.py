@@ -14,7 +14,6 @@ from sqlalchemy.exc import IntegrityError
 
 from lib.db import async_session_factory
 from lib.db.repositories.api_key_repository import ApiKeyRepository
-from lib.i18n import Translator
 from server.auth import (
     API_KEY_PREFIX,
     CurrentUser,
@@ -22,6 +21,7 @@ from server.auth import (
     _hash_api_key,
     invalidate_api_key_cache,
 )
+from server.i18n import Translator
 
 router = APIRouter()
 

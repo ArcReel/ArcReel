@@ -483,7 +483,7 @@ export default {
   'confirm_cancel': 'Xác nhận hủy',
   'go_back': 'Quay lại',
   // task_type display names (backend task_type không có enum tập trung — literal
-  // rải rác tại các điểm enqueue + key của lib/asset_types.ASSET_SPECS; giá trị
+  // rải rác tại các điểm enqueue + key của lib/project/asset_types.ASSET_SPECS; giá trị
   // ngoài bảng này sẽ hiển thị nguyên chuỗi gốc ở frontend)
   'task_type_image_edit': 'Chỉnh sửa ảnh',
   'task_type_storyboard': 'Storyboard',

@@ -25,7 +25,7 @@ import { LABEL_CLS, MONO_INPUT_CLS } from "./endpoint-form-primitives";
 import { RequestPreview, TestCard } from "./endpoint-test-primitives";
 import { useTrialRun } from "./use-trial-run";
 
-/** 两种媒体类型各自的分辨率档，与服务端 `lib/aspect_size.py` 的短边表同名同序。 */
+/** 两种媒体类型各自的分辨率档，与服务端 `lib/backends/aspect_size.py` 的短边表同名同序。 */
 const RESOLUTION_TIERS: Record<ComfyuiMediaType, readonly string[]> = {
   video: ["480p", "720p", "1080p", "4K"],
   image: ["512px", "1K", "2K", "4K"],

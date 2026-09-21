@@ -15,12 +15,12 @@ from typing import Any, cast
 import httpx
 import pytest
 
+from lib.backends.image_backends.base import ImageCapability, ImageGenerationRequest, ReferenceImage
 from lib.custom_provider.comfyui.failures import ComfyuiError
 from lib.custom_provider.comfyui_image_backend import ComfyuiImageBackend
 from lib.custom_provider.endpoint_definition import validate_definition
 from lib.custom_provider.endpoint_resolution import endpoint_spec_from_row
 from lib.custom_provider.factory import create_custom_backend
-from lib.image_backends.base import ImageCapability, ImageGenerationRequest, ReferenceImage
 from tests.factories import comfyui_endpoint_definition
 from tests.http_capture import capture_http, only_request, request_json
 

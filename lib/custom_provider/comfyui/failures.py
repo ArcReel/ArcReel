@@ -4,7 +4,7 @@
 ``params``）与读侧的渲染路径也是同一条，分成两个类型只会让 worker 的异常联合与 ``call_failure``
 的分类各多一格，而没有任何一处按类型分叉。
 
-``code`` 必须已登记进 ``lib.task_failure`` 的 ``FAILURE_CODE_KEYS`` 与 ``lib.generation_result``
+``code`` 必须已登记进 ``lib.generation.task_failure`` 的 ``FAILURE_CODE_KEYS`` 与 ``lib.generation.generation_result``
 的 ``_TASK_FAILURE_ACTIONS``，否则 worker 编码失败原因时会降级成裸文本。
 """
 

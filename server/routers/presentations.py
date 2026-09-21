@@ -12,10 +12,13 @@ from fastapi.responses import FileResponse
 # fastapi 只 re-export 复数的 BackgroundTasks，单数版本只能取 starlette。
 from starlette.background import BackgroundTask
 
-from lib.api_errors import ApiError
-from lib.project_manager import get_project_manager
-from server.services.presentation_bundle import PresentationBundleService
-from server.services.presentation_read_model import PresentationReadModelService, PresentationUnavailableError
+from lib.infra.api_errors import ApiError
+from lib.project.project_manager import get_project_manager
+from server.services.presentation.presentation_bundle import PresentationBundleService
+from server.services.presentation.presentation_read_model import (
+    PresentationReadModelService,
+    PresentationUnavailableError,
+)
 
 router = APIRouter()
 ResourceType = Literal["videos", "reference_videos"]

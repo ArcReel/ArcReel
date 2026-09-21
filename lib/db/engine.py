@@ -29,7 +29,7 @@ def get_database_url() -> str:
     url = os.environ.get("DATABASE_URL", "").strip()
     if url:
         return url
-    from lib.app_data_dir import app_data_dir
+    from lib.infra.app_data_dir import app_data_dir
 
     db_path = app_data_dir() / ".arcreel.db"
     return f"sqlite+aiosqlite:///{db_path}"

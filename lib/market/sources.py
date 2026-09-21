@@ -22,7 +22,7 @@ from lib.config.repository import SystemSettingRepository
 from lib.db.base import utc_now
 from lib.db.models.market_source import MarketSource
 from lib.db.repositories.market_source_repo import CUSTOM_KIND, OFFICIAL_KIND, MarketSourceRepository
-from lib.httpx_shared import get_http_client
+from lib.infra.httpx_shared import get_http_client
 
 from .address import resolve_source_address, source_identity
 from .fetch import MarketFetchError, SourceStatus, fetch_index

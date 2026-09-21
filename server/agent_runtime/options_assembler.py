@@ -18,18 +18,18 @@ from collections.abc import Awaitable, Callable, Sequence
 from pathlib import Path
 from typing import Any
 
-from lib.agent_memory_index import INDEX_FILENAME, truncate_memory_index
-from lib.agent_memory_paths import is_valid_memory_user_id, project_memory_dir, user_memory_dir
-from lib.agent_session_store import (
+from lib.agent.agent_memory_index import INDEX_FILENAME, truncate_memory_index
+from lib.agent.agent_memory_paths import is_valid_memory_user_id, project_memory_dir, user_memory_dir
+from lib.agent.agent_session_store import (
     is_known_session_store_mode,
     session_store_flush_mode,
     session_store_mode,
 )
-from lib.agent_session_store.store import DbSessionStore
+from lib.agent.agent_session_store.store import DbSessionStore
 from lib.db.base import DEFAULT_USER_ID
 from lib.db.engine import async_session_factory as default_async_session_factory
 from lib.i18n import DEFAULT_LOCALE, LOCALE_LANGUAGE_MAP
-from lib.prompt_templates.builtin import builtin_templates
+from lib.prompts.prompt_templates.builtin import builtin_templates
 from server.agent_runtime.agent_access_policy import AgentAccessPolicy
 from server.agent_runtime.sdk_tools import build_arcreel_mcp_server
 from server.auth import create_token, is_auth_enabled

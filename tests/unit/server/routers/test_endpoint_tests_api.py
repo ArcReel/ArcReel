@@ -16,6 +16,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
+from lib.billing.ledger import Ledger
 from lib.config.resolver import ConfigResolver
 from lib.config.service import ConfigService
 from lib.custom_provider import make_endpoint_key, make_provider_id
@@ -23,7 +24,6 @@ from lib.custom_provider.endpoint_test import TrialRunManager
 from lib.db import get_async_session
 from lib.db.repositories.custom_endpoint_repo import CustomEndpointRepository
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository
-from lib.ledger import Ledger
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import custom_endpoints

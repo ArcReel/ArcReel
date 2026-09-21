@@ -12,10 +12,10 @@ from typing import Any
 
 import pytest
 
-from lib.artifact_manifest import ArtifactKey, ArtifactManifestEntry, ProjectArtifactManifestAdapter
-from lib.project_manager import ProjectManager
-from lib.reference_video.request_projection import unit_reference_declarations
-from lib.script_batch_edit import script_revision
+from lib.artifacts.artifact_manifest import ArtifactKey, ArtifactManifestEntry, ProjectArtifactManifestAdapter
+from lib.project.project_manager import ProjectManager
+from lib.script.reference_video.request_projection import unit_reference_declarations
+from lib.script.script_batch_edit import script_revision
 from server.agent_runtime.sdk_tools.content_read import get_episode_script_tool
 from server.agent_runtime.sdk_tools.patch_episode_meta import patch_episode_meta_tool
 from server.agent_runtime.sdk_tools.patch_project import patch_project_tool
@@ -359,7 +359,7 @@ class TestPatchEpisodeScript:
 
     async def test_unbound_scene_mentions_are_reported_as_warnings(self, ctx: ToolContext) -> None:
         """画面描述里的 @[名称] 对不上该分镜引用字段或未登记时，提交成功但带 warnings。"""
-        from lib.storyboard_mentions import WARN_STORYBOARD_MENTION_UNBOUND
+        from lib.script.storyboard_mentions import WARN_STORYBOARD_MENTION_UNBOUND
 
         out = await _patch(
             ctx,

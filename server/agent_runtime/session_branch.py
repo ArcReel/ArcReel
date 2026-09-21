@@ -13,8 +13,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from uuid import uuid4
 
-from lib.agent_session_store import make_project_key
-from lib.agent_session_store.prefix_fork import InvalidAnchorError, SessionStoreLike, copy_session_prefix
+from lib.agent.agent_session_store import make_project_key
+from lib.agent.agent_session_store.prefix_fork import InvalidAnchorError, SessionStoreLike, copy_session_prefix
 from server.agent_runtime.event_log import EventLogService
 from server.agent_runtime.session_store import SessionMetaStore
 

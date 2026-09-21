@@ -8,9 +8,9 @@ from typing import Any
 from claude_agent_sdk import tool
 
 from lib.i18n import _ as translate
-from lib.script_batch_edit import ScriptBatchEditResult, script_revision
-from lib.script_editor import ScriptEditError
-from lib.storyboard_mentions import render_storyboard_mention_warnings
+from lib.script.script_batch_edit import ScriptBatchEditResult, script_revision
+from lib.script.script_editor import ScriptEditError
+from lib.script.storyboard_mentions import render_storyboard_mention_warnings
 from server.media_tools.context import (
     ToolContext,
     tool_error,

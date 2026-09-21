@@ -8,7 +8,7 @@ from typing import Any
 
 from claude_agent_sdk import tool
 
-from lib.draft_quarantine import OPEN_DRAFT_TOOL_NAME, PROMOTE_TOOL_NAME
+from lib.script.draft_quarantine import OPEN_DRAFT_TOOL_NAME, PROMOTE_TOOL_NAME
 from server.draft_workflow import DiscardDraftRequest, DraftLocator, PatchDraftRequest, PromoteDraftRequest
 from server.media_tools.context import (
     MAX_INSTRUCTIONS_LEN,

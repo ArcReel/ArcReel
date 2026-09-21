@@ -507,8 +507,8 @@ def test_image_endpoint_registry_entries():
 
 
 def test_split_endpoints_have_single_capability():
+    from lib.backends.image_backends import ImageCapability
     from lib.custom_provider.endpoints import endpoint_to_image_capabilities
-    from lib.image_backends import ImageCapability
 
     assert endpoint_to_image_capabilities("openai-images-generations") == frozenset({ImageCapability.TEXT_TO_IMAGE})
     assert endpoint_to_image_capabilities("openai-images-edits") == frozenset({ImageCapability.IMAGE_TO_IMAGE})
@@ -516,12 +516,12 @@ def test_split_endpoints_have_single_capability():
 
 def test_existing_image_endpoints_have_full_capabilities():
     """EndpointSpec 新增 image_capabilities 字段；已存在的 image entry 默认填两个能力。"""
+    from lib.backends.image_backends import ImageCapability
     from lib.custom_provider.endpoints import (
         ENDPOINT_REGISTRY,
         endpoint_spec_to_dict,
         endpoint_to_image_capabilities,
     )
-    from lib.image_backends import ImageCapability
 
     full = frozenset({ImageCapability.TEXT_TO_IMAGE, ImageCapability.IMAGE_TO_IMAGE})
     assert ENDPOINT_REGISTRY["openai-images"].image_capabilities == full

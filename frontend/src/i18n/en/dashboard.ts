@@ -490,7 +490,7 @@ export default {
   'confirm_cancel': 'Confirm Cancel',
   'go_back': 'Back',
   // task_type display names (backend task_type has no central enum — scattered
-  // literals at enqueue call sites + lib/asset_types.ASSET_SPECS keys; unknown
+  // literals at enqueue call sites + lib/project/asset_types.ASSET_SPECS keys; unknown
   // values outside this table fall back to the raw string on the frontend)
   'task_type_image_edit': 'Image Edit',
   'task_type_storyboard': 'Storyboard',

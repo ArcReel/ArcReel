@@ -11,7 +11,7 @@ from fastapi.testclient import TestClient
 
 from server.error_handlers import register_error_handlers
 from server.routers import presentations
-from server.services.presentation_read_model import PresentationUnavailableError
+from server.services.presentation.presentation_read_model import PresentationUnavailableError
 
 
 class _Result:

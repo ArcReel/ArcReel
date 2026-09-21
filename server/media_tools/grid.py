@@ -12,18 +12,18 @@ import logging
 from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
 from typing import Any
 
-from lib.artifact_activation import (
+from lib.artifacts.artifact_activation import (
     ArtifactCurrencyResolver,
     active_artifact_currency_resolver,
     resolve_artifact_episode,
 )
-from lib.artifact_manifest import ArtifactKey
-from lib.generation_queue_client import (
+from lib.artifacts.artifact_manifest import ArtifactKey
+from lib.generation.generation_queue_client import (
     BatchTaskResult,
     TaskSpec,
     batch_enqueue_and_wait,
 )
-from lib.generation_result import (
+from lib.generation.generation_result import (
     GenerationAction,
     GenerationCandidate,
     GenerationProblem,
@@ -41,18 +41,19 @@ from lib.generation_result import (
     provider_checkpoint_from_task,
     select_generation_targets,
 )
-from lib.grid.layout import GridLayout, plan_grid_chunks, video_aspect_ratio_of
-from lib.grid.models import GridGeneration, build_grid_task_payload
-from lib.grid.prompt_builder import build_grid_prompt, pending_grid_prompt_ids
-from lib.grid_manager import GridManager
-from lib.project_manager import grid_storyboard_enabled
-from lib.prompt_style import normalize_style_value
-from lib.reference_admission import admit_storyboard_items
-from lib.reference_catalog import build_reference_catalog
-from lib.resource_paths import resource_relative_path
-from lib.script_models import get_generated_assets, resolve_content_mode
-from lib.script_skeleton import ensure_route_skeleton
-from lib.storyboard_sequence import get_storyboard_items, group_scenes_by_segment_break
+from lib.project.project_manager import grid_storyboard_enabled
+from lib.project.resource_paths import resource_relative_path
+from lib.prompts.prompt_style import normalize_style_value
+from lib.references.reference_admission import admit_storyboard_items
+from lib.references.reference_catalog import build_reference_catalog
+from lib.script.grid.grid_manager import GridManager
+from lib.script.grid.grid_resolution import resolve_large_grid_allowed
+from lib.script.grid.layout import GridLayout, plan_grid_chunks, video_aspect_ratio_of
+from lib.script.grid.models import GridGeneration, build_grid_task_payload
+from lib.script.grid.prompt_builder import build_grid_prompt, pending_grid_prompt_ids
+from lib.script.script_models import get_generated_assets, resolve_content_mode
+from lib.script.script_skeleton import ensure_route_skeleton
+from lib.script.storyboard_sequence import get_storyboard_items, group_scenes_by_segment_break
 from server.media_tools.context import (
     ToolContext,
     generation_batch_submission_outcome,
@@ -63,9 +64,8 @@ from server.media_tools.context import (
     validate_script_filename,
 )
 from server.media_tools.definition import tool
-from server.services.grid_resolution import resolve_large_grid_allowed
-from server.services.grid_split import apply_grid_split
-from server.services.reference_admission import reference_admission_problems
+from server.services.admission.reference_admission import reference_admission_problems
+from server.services.grid.grid_split import apply_grid_split
 from server.tool_runtime import ToolOutcome, submit_media_generation
 
 logger = logging.getLogger(__name__)

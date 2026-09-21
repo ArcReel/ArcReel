@@ -23,7 +23,7 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
 
-from lib.validation_messages import ValidationMessage
+from lib.infra.validation_messages import ValidationMessage
 
 from .bindings import BINDING_KEYS_BY_MEDIA_TYPE, REQUIRED_BINDING_KEYS
 from .graph import (

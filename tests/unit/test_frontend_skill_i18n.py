@@ -18,8 +18,8 @@ from pathlib import Path
 
 import pytest
 
-from lib.profile_frontmatter import parse_profile_metadata
-from lib.profile_manifest import VALID_CONTENT_MODES
+from lib.agent.profile_frontmatter import parse_profile_metadata
+from lib.agent.profile_manifest import VALID_CONTENT_MODES
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SKILLS_ROOT = REPO_ROOT / "agent_runtime_profile" / ".claude" / "skills"

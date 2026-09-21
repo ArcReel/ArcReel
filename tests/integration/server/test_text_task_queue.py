@@ -10,30 +10,30 @@ from typing import Any, Literal
 import pytest
 from sqlalchemy import func, select
 
-from lib.api_errors import ConflictError
-from lib.artifact_activation import activate_artifact_target_state
-from lib.artifact_manifest import ArtifactKey, ProjectArtifactManifestAdapter
-from lib.async_thread import run_sync_transaction
+from lib.artifacts.artifact_activation import activate_artifact_target_state
+from lib.artifacts.artifact_manifest import ArtifactKey, ProjectArtifactManifestAdapter
+from lib.backends.text_backends.base import TextGenerationResult as BackendTextGenerationResult
 from lib.config.resolver import ConfigResolver
 from lib.db import async_session_factory
 from lib.db.base import DEFAULT_USER_ID
 from lib.db.models.task import GenerationBatch
-from lib.draft_quarantine import (
+from lib.episode.episode_planner import EpisodePlanner, EpisodePlanningError, EpisodePlanSummary, PlanResult
+from lib.generation.generation_batch import GenerationBatchRequestedItem, GenerationBatchRequestSnapshot
+from lib.generation.generation_queue import CompensableGenerationResult, GenerationQueue
+from lib.generation.generation_queue_client import wait_for_task
+from lib.generation.generation_result import GenerationAction, GenerationSelectionMode, problem_from_task_failure
+from lib.generation.generation_worker import CapacityTable, GenerationWorker
+from lib.infra.api_errors import ConflictError
+from lib.infra.async_thread import run_sync_transaction
+from lib.project.project_manager import ProjectManager
+from lib.project.project_migration_failure import ProjectMigrationError, record_migration_failure
+from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
+from lib.script.draft_quarantine import (
     QUARANTINE_KIND_NARRATION_SCRIPT_PLAN,
     QUARANTINE_KIND_SCRIPT_PLAN,
     quarantine_path,
 )
-from lib.episode_planner import EpisodePlanner, EpisodePlanningError, EpisodePlanSummary, PlanResult
-from lib.generation_batch import GenerationBatchRequestedItem, GenerationBatchRequestSnapshot
-from lib.generation_queue import CompensableGenerationResult, GenerationQueue
-from lib.generation_queue_client import wait_for_task
-from lib.generation_result import GenerationAction, GenerationSelectionMode, problem_from_task_failure
-from lib.generation_worker import CapacityTable, GenerationWorker
-from lib.project_manager import ProjectManager
-from lib.project_migration_failure import ProjectMigrationError, record_migration_failure
-from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
-from lib.text_backends.base import TextGenerationResult as BackendTextGenerationResult
-from lib.workflow_state import WorkflowStateService
+from lib.workflow.workflow_state import WorkflowStateService
 from server import tool_runtime
 from server.text_generation import (
     CompensableTextGenerationResult,
@@ -776,7 +776,7 @@ async def test_cancel_during_invalid_script_plan_quarantine_leaves_no_workflow_b
             started.set()
             release.wait()
 
-    monkeypatch.setattr("lib.json_io.os.replace", blocking_replace)
+    monkeypatch.setattr("lib.infra.json_io.os.replace", blocking_replace)
     queue = GenerationQueue(session_factory=file_db_factory, project_manager=projects)
 
     async def execute(task: dict[str, Any], *, claimed_provider_id: str | None = None) -> dict[str, Any]:

@@ -6,7 +6,6 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from lib.i18n import get_translator
 from server.agent_runtime.service import (
     InterruptSettleTimeoutError,
     PendingQuestionError,
@@ -18,6 +17,7 @@ from server.agent_runtime.session_branch import SessionBranchError
 from server.agent_runtime.session_manager import SessionBusyError, SessionCapacityError
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
+from server.i18n import get_translator
 from server.routers import assistant
 from tests.auth_deps import AUTH_DEPENDENCIES
 from tests.factories import make_translator
