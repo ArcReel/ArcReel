@@ -13,6 +13,7 @@ _UNMANAGED_FILES = [
     "versions/scenes/Hero_v1_20260101T000000.png",
     "versions/characters/Hero_v1_20260101T000000.txt",
     "project.json",
+    "versions/characters/Hero\x00_v1_20260101T000000.png",
 ]
 
 

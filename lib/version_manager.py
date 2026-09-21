@@ -163,7 +163,12 @@ class VersionManager:
     def is_managed_snapshot_path(cls, resource_type: str, relative_path: object) -> bool:
         """Whether a record points to a canonical file in its typed history bucket."""
 
-        if resource_type not in cls.RESOURCE_TYPES or not isinstance(relative_path, str) or "\\" in relative_path:
+        if (
+            resource_type not in cls.RESOURCE_TYPES
+            or not isinstance(relative_path, str)
+            or "\\" in relative_path
+            or "\x00" in relative_path
+        ):
             return False
         path = PurePosixPath(relative_path)
         bucket = PurePosixPath(version_snapshot_dir(resource_type)).parts

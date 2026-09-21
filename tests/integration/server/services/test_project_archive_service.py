@@ -1256,6 +1256,7 @@ class TestProjectArchiveService:
             "versions\\storyboards\\E1S01_v1.png",
             "versions/characters/E1S01_v1.png",
             "versions/storyboards/E1S01_v1.txt",
+            "versions/storyboards/E1S01\x00_v1.png",
         ],
     )
     def test_import_rejects_unmanaged_version_snapshot_paths(self, tmp_path, snapshot):
