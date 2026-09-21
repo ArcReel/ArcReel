@@ -69,6 +69,11 @@ const PAYLOADS: Record<string, string> = {
   "图片协议大小写混合": "![x](JaVaScRiPt:window.__marker=1)",
   "图片协议含制表符": "![x](java\tscript:window.__marker=1)",
   "图片协议实体编码": "![x](&#106;avascript:window.__marker=1)",
+  "图片协议实体编码制表符": "![x](java&#9;script:window.__marker=1)",
+  "图片 data 大小写混合": "![x](DaTa:text/html,window.__marker=1)",
+  "图片 data 实体编码": "![x](&#100;ata:text/html,window.__marker=1)",
+  "图片 data 十六进制实体": "![x](&#x64;ata:text/html,window.__marker=1)",
+  "图片 data 实体编码换行": "![x](da&#10;ta:text/html,window.__marker=1)",
   "链接协议大小写混合": "[x](JaVaScRiPt:window.__marker=1)",
   "链接协议含制表符": "[x](java\tscript:window.__marker=1)",
   "链接协议含换行": "[x](<java\nscript:window.__marker=1>)",
@@ -78,6 +83,13 @@ const PAYLOADS: Record<string, string> = {
   "链接协议实体编码": "[x](&#106;avascript:window.__marker=1)",
   "链接协议冒号实体编码": "[x](javascript&colon;window.__marker=1)",
   "链接协议十六进制实体": "[x](&#x6A;&#x61;vascript:window.__marker=1)",
+  "链接协议实体编码制表符": "[x](java&#9;script:window.__marker=1)",
+  "链接协议实体编码换行": "[x](java&#10;script:window.__marker=1)",
+  "链接协议实体编码前导控制字符": "[x](&#1;javascript:window.__marker=1)",
+  "链接 data 大小写混合": "[x](DaTa:text/html,window.__marker=1)",
+  "链接 data 实体编码": "[x](&#100;ata:text/html,window.__marker=1)",
+  "链接 data 十六进制实体": "[x](&#x64;ata:text/html,window.__marker=1)",
+  "链接 data 实体编码换行": "[x](da&#10;ta:text/html,window.__marker=1)",
   "引用式链接": "[x][r]\n\n[r]: javascript:window.__marker=1",
   "raw HTML 块链接": '<div>\n<a href="javascript:window.__marker=1">x</a>\n</div>',
   "行内 HTML 链接": 'text <a href="javascript:window.__marker=1">x</a> text',
@@ -98,11 +110,16 @@ describe("StreamMarkdown 渲染惰性", () => {
   });
 
   it.each(Object.entries(PAYLOADS))("%s 在任意位置分两段增量渲染时每一步都是惰性内容", async (_name, payload) => {
+    const open = vi.spyOn(window, "open").mockReturnValue(null);
     const { rerender } = await renderLoaded("");
     const container = document.body;
     for (let cut = 1; cut < payload.length; cut += 1) {
       rerender(<StreamMarkdown content={payload.slice(0, cut)} />);
       expect(collectActiveContent(container), `cut=${cut} 前段`).toEqual([]);
+      // 前段中不完整链接渲染为占位链接按钮，点击后既不打开确认框也不打开窗口。
+      for (const el of container.querySelectorAll('a, button, [data-streamdown="link"]')) fireEvent.click(el);
+      expect(screen.queryByRole("button", { name: "Open link" }), `cut=${cut} 前段确认框`).toBeNull();
+      expect(open, `cut=${cut} 前段打开窗口`).not.toHaveBeenCalled();
       rerender(<StreamMarkdown content={payload} />);
       expect(collectActiveContent(container), `cut=${cut} 全文`).toEqual([]);
       expect(clickableElements(container), `cut=${cut} 全文可点击元素`).toEqual([]);
