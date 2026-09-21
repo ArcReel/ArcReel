@@ -39,6 +39,11 @@ function collectActiveContent(root: HTMLElement): string[] {
   return findings;
 }
 
+// 链接按钮不带 href，地址只保存在点击回调里，DOM 属性检查看不到；PAYLOADS 不含允许的链接，完整渲染后不应出现链接按钮。
+function linkButtons(root: HTMLElement): string[] {
+  return Array.from(root.querySelectorAll('[data-streamdown="link"]'), (el) => el.textContent ?? "");
+}
+
 async function renderLoaded(content: string) {
   const view = render(<StreamMarkdown content={content} />);
   await waitFor(() => {
@@ -71,7 +76,7 @@ const PAYLOADS: Record<string, string> = {
   "行内 HTML 事件属性": 'text <b onclick="window.__marker=1">x</b> text',
   "行内 HTML 实体编码协议": 'text <a href="&#106;avascript:window.__marker=1">x</a>',
   "autolink javascript": "<javascript:window.__marker=1>",
-  "裸 URL autolink": "见 javascript:window.__marker=1 与 www.example.com",
+  "裸 URL autolink": "见 javascript:window.__marker=1 与后文",
   "autolink data": "<data:text/html,window.__marker=1>",
   "form formaction": '<form><button formaction="javascript:window.__marker=1">x</button></form>',
   "style 标签": "<style>body{background:url(javascript:window.__marker=1)}</style>",
@@ -81,6 +86,7 @@ describe("StreamMarkdown 渲染惰性", () => {
   it.each(Object.entries(PAYLOADS))("%s 渲染为惰性内容", async (_name, payload) => {
     await renderLoaded(`前文\n\n${payload}\n\n后文`);
     expect(collectActiveContent(document.body)).toEqual([]);
+    expect(linkButtons(document.body)).toEqual([]);
   });
 
   it.each(Object.entries(PAYLOADS))("%s 在任意位置分两段增量渲染时每一步都是惰性内容", async (_name, payload) => {
@@ -91,6 +97,7 @@ describe("StreamMarkdown 渲染惰性", () => {
       expect(collectActiveContent(container), `cut=${cut} 前段`).toEqual([]);
       rerender(<StreamMarkdown content={payload} />);
       expect(collectActiveContent(container), `cut=${cut} 全文`).toEqual([]);
+      expect(linkButtons(container), `cut=${cut} 全文链接`).toEqual([]);
     }
   });
 
