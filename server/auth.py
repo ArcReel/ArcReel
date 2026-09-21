@@ -126,7 +126,9 @@ def create_token(username: str, *, expiry_seconds: int = TOKEN_EXPIRY_SECONDS) -
 
 
 def verify_token(token: str) -> dict | None:
-    """验证 JWT token
+    """验证会话 JWT token
+
+    带 ``purpose`` 声明的 token（如下载 token）只供对应端点自行校验，不作为会话凭据。
 
     Args:
         token: JWT token 字符串
@@ -135,9 +137,12 @@ def verify_token(token: str) -> dict | None:
         成功返回 payload dict，失败返回 None
     """
     try:
-        return jwt.decode(token, get_token_secret(), algorithms=["HS256"])
+        payload = jwt.decode(token, get_token_secret(), algorithms=["HS256"])
     except (jwt.InvalidTokenError, jwt.ExpiredSignatureError):
         return None
+    if "purpose" in payload:
+        return None
+    return payload
 
 
 DOWNLOAD_TOKEN_EXPIRY_SECONDS = 300  # 5 分钟

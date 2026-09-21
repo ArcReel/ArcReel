@@ -240,3 +240,17 @@ def test_auth_disabled_bypasses_enforcement(auth_coverage_client):
     """AUTH_ENABLED=false 时不拦截，保持本地无认证部署可用。"""
     with patch.dict(os.environ, {"AUTH_ENABLED": "false"}):
         assert auth_coverage_client.get(_PROBE_ENDPOINT).status_code == 200
+
+
+def test_download_token_rejected_as_bearer(auth_coverage_client):
+    """带 purpose 声明的下载 token 不作为会话凭据：受保护端点以 Bearer 携带时 401。"""
+    token = auth_module.create_download_token("testuser", "demo")
+    response = auth_coverage_client.get(_PROBE_ENDPOINT, headers={"Authorization": f"Bearer {token}"})
+    assert response.status_code == 401
+
+
+def test_export_endpoint_accepts_download_token(auth_coverage_client):
+    """下载端点自带校验仍接受同一 token：认证层放行，后续状态由端点自身决定。"""
+    token = auth_module.create_download_token("testuser", "demo")
+    response = auth_coverage_client.get("/api/v1/projects/demo/export", params={"download_token": token})
+    assert response.status_code not in (401, 403)
