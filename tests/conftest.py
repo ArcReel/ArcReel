@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
 import atexit
+import ipaddress
 import os
 import shutil
+import socket
 import sys
 import tempfile
 import uuid as _uuid
@@ -119,6 +122,35 @@ def stub_sandbox_check(monkeypatch, request):
     if request.path.name == "test_startup_assertions.py":
         return
     monkeypatch.setattr("server.app.check_sandbox_available", lambda: True)
+
+
+#: 测试内主机名统一解析到的地址（TEST-NET-3，公网段、不可路由）。
+_OFFLINE_DNS_ADDRESS = "203.0.113.10"
+
+
+@pytest.fixture(autouse=True)
+def offline_dns(monkeypatch):
+    """事件循环的 ``getaddrinfo`` 对主机名一律回 ``_OFFLINE_DNS_ADDRESS``，不发真实 DNS 查询。
+
+    产物下载入口在每次请求前解析目标主机；出站流量由 respx 在 transport 层拦截，解析这一步
+    却会落到本机解析器上。IP 字面量与 ``localhost``（本地数据库、测试服务器）仍走真实解析。
+    """
+    real_getaddrinfo = asyncio.base_events.BaseEventLoop.getaddrinfo
+
+    async def getaddrinfo(self, host, port, *args, **kwargs):
+        if host is None or host == "localhost" or _is_ip_literal(host):
+            return await real_getaddrinfo(self, host, port, *args, **kwargs)
+        return [(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", (_OFFLINE_DNS_ADDRESS, port or 0))]
+
+    monkeypatch.setattr(asyncio.base_events.BaseEventLoop, "getaddrinfo", getaddrinfo)
+
+
+def _is_ip_literal(host: str | bytes) -> bool:
+    try:
+        ipaddress.ip_address(host.decode() if isinstance(host, bytes) else host)
+    except ValueError:
+        return False
+    return True
 
 
 @pytest.fixture(scope="session", autouse=True)

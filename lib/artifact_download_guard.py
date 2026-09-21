@@ -17,7 +17,7 @@ import asyncio
 import ipaddress
 import os
 import socket
-from collections.abc import Awaitable, Callable, Iterable
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterable
 from pathlib import Path
 from typing import Any
 
@@ -37,6 +37,9 @@ ARTIFACT_MAX_BYTES_BY_MEDIA_TYPE: dict[str, int] = {
     "image": IMAGE_ARTIFACT_MAX_BYTES,
     "audio": AUDIO_ARTIFACT_MAX_BYTES,
 }
+
+#: 主机名解析的时限。解析不走 httpx 的超时配置，单独兜住。
+DNS_RESOLVE_TIMEOUT_SECONDS = 10.0
 
 #: 错误响应体读取上限：够状态错误带出诊断摘要即可。
 ERROR_BODY_MAX_BYTES = 64 * 1024
@@ -80,11 +83,16 @@ def _is_rejected_address(address: str) -> bool:
     return any(ip in network for network in _REJECTED_NETWORKS)
 
 
-async def check_destination(url: httpx.URL, *, resolver: Resolver = resolve_host) -> None:
+async def check_destination(
+    url: httpx.URL,
+    *,
+    resolver: Resolver = resolve_host,
+    resolve_timeout: float = DNS_RESOLVE_TIMEOUT_SECONDS,
+) -> None:
     """校验一次请求的目标；不在允许范围内抛 :class:`ArtifactDestinationRejectedError`。
 
-    主机名解析失败时不作判定，交给传输层照常连接（连不上即按网络错误失败）：经代理出网的
-    部署里本机可能解析不了目标主机。
+    主机名解析失败或超过 ``resolve_timeout`` 秒时不作判定，交给传输层照常连接
+    （连不上即按网络错误失败）：经代理出网的部署里本机可能解析不了目标主机。
     """
     if url.scheme not in _ALLOWED_SCHEMES:
         raise ArtifactDestinationRejectedError(f"artifact URL scheme is not allowed: {url.scheme or '(none)'}")
@@ -94,21 +102,27 @@ async def check_destination(url: httpx.URL, *, resolver: Resolver = resolve_host
     except ValueError:
         port = url.port or (443 if url.scheme == "https" else 80)
         try:
-            addresses = await resolver(host, port)
-        except OSError:
+            async with asyncio.timeout(resolve_timeout):
+                addresses = await resolver(host, port)
+        except OSError:  # TimeoutError 亦是 OSError
             return
     if any(_is_rejected_address(address) for address in addresses):
         raise ArtifactDestinationRejectedError(f"artifact host resolves to a disallowed address: {host}")
 
 
-def artifact_http_client(*, resolver: Resolver = resolve_host, **kwargs: Any) -> httpx.AsyncClient:
+def artifact_http_client(
+    *,
+    resolver: Resolver = resolve_host,
+    resolve_timeout: float = DNS_RESOLVE_TIMEOUT_SECONDS,
+    **kwargs: Any,
+) -> httpx.AsyncClient:
     """构造对每次请求（含每一跳重定向）先做目的地校验的 ``httpx.AsyncClient``。
 
     其余关键字参数原样交给 ``httpx.AsyncClient``。
     """
 
     async def guard(request: httpx.Request) -> None:
-        await check_destination(request.url, resolver=resolver)
+        await check_destination(request.url, resolver=resolver, resolve_timeout=resolve_timeout)
 
     return httpx.AsyncClient(event_hooks={"request": [guard]}, **kwargs)
 
@@ -124,22 +138,25 @@ def _too_large(max_bytes: int) -> ArtifactTooLargeError:
     return ArtifactTooLargeError(f"artifact response exceeds the {max_bytes}-byte limit")
 
 
-async def read_body_capped(response: httpx.Response, *, max_bytes: int) -> bytes:
-    """把流式响应的响应体读进内存，超过 ``max_bytes`` 抛 :class:`ArtifactTooLargeError`。
+async def _capped_chunks(response: httpx.Response, max_bytes: int) -> AsyncIterator[bytes]:
+    """逐块产出响应体，累计超过 ``max_bytes`` 抛 :class:`ArtifactTooLargeError`。
 
-    ``Content-Length`` 声明超限时提前拒绝；是否超限以实际读到的字节数为准。
+    ``Content-Length`` 声明超限时在读取前拒绝；是否超限以实际读到的字节数为准。
     """
     declared = _declared_length(response)
     if declared is not None and declared > max_bytes:
         raise _too_large(max_bytes)
-    chunks: list[bytes] = []
     received = 0
     async for chunk in response.aiter_bytes(chunk_size=_CHUNK_BYTES):
         received += len(chunk)
         if received > max_bytes:
             raise _too_large(max_bytes)
-        chunks.append(chunk)
-    return b"".join(chunks)
+        yield chunk
+
+
+async def read_body_capped(response: httpx.Response, *, max_bytes: int) -> bytes:
+    """把流式响应的响应体读进内存，超过 ``max_bytes`` 抛 :class:`ArtifactTooLargeError`。"""
+    return b"".join([chunk async for chunk in _capped_chunks(response, max_bytes)])
 
 
 async def stream_body_to_file(response: httpx.Response, output_path: Path, *, max_bytes: int) -> None:
@@ -149,16 +166,15 @@ async def stream_body_to_file(response: httpx.Response, output_path: Path, *, ma
     不会留下截断的文件。攒够 8 MiB 再一次 ``to_thread`` 落盘：既不为每个分片调度一次线程池任务，
     也不把整段产物留在内存里。
     """
-    declared = _declared_length(response)
-    if declared is not None and declared > max_bytes:
-        raise _too_large(max_bytes)
+    chunks = _capped_chunks(response, max_bytes)
+    # 先取首块：声明超限在此抛出，不建 .part
+    first = await anext(chunks, b"")
     await asyncio.to_thread(output_path.parent.mkdir, parents=True, exist_ok=True)
     partial_path = output_path.with_name(f"{output_path.name}.part")
     try:
         with open(partial_path, "wb") as handle:  # noqa: ASYNC230 -- 只在此取句柄，实际写入均由下方 to_thread 卸载
-            buffered: list[bytes] = []
-            buffered_bytes = 0
-            received = 0
+            buffered: list[bytes] = [first]
+            buffered_bytes = len(first)
 
             async def flush() -> None:
                 nonlocal buffered, buffered_bytes
@@ -169,10 +185,7 @@ async def stream_body_to_file(response: httpx.Response, output_path: Path, *, ma
                 buffered_bytes = 0
                 await asyncio.to_thread(handle.write, payload)
 
-            async for chunk in response.aiter_bytes(chunk_size=_CHUNK_BYTES):
-                received += len(chunk)
-                if received > max_bytes:
-                    raise _too_large(max_bytes)
+            async for chunk in chunks:
                 buffered.append(chunk)
                 buffered_bytes += len(chunk)
                 if buffered_bytes >= _WRITE_BUFFER_BYTES:

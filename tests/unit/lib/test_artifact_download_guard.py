@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable, Iterable
 from pathlib import Path
 
@@ -109,6 +110,19 @@ class TestDestinationGuard:
         with capture_http() as router:
             route = router.get("https://cdn.example/a.mp4").mock(return_value=httpx.Response(200))
             async with artifact_http_client(resolver=_unresolvable) as client:
+                await client.get("https://cdn.example/a.mp4")
+        assert route.call_count == 1
+
+    async def test_resolution_past_the_deadline_is_left_to_the_transport(self):
+        never = asyncio.Event()
+
+        async def hanging(host: str, port: int) -> Iterable[str]:
+            await never.wait()
+            return ()
+
+        with capture_http() as router:
+            route = router.get("https://cdn.example/a.mp4").mock(return_value=httpx.Response(200))
+            async with artifact_http_client(resolver=hanging, resolve_timeout=0) as client:
                 await client.get("https://cdn.example/a.mp4")
         assert route.call_count == 1
 

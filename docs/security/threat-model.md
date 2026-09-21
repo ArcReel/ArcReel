@@ -320,11 +320,11 @@ Outbound requests must be assessed for private-address reachability, cloud metad
 
 Current state for provider-returned artifact URLs: built-in video, image, and audio backends and the declarative and ComfyUI custom-provider runtimes download artifacts through `lib/artifact_download_guard.py`.
 
-- Every request, including each redirect hop, is checked before it is sent. Only `http` and `https` are accepted. Hostnames are resolved with the event loop's asynchronous `getaddrinfo`, and destinations in `169.254.0.0/16`, `fe80::/10`, or `fd00:ec2::254` (including IPv4-mapped IPv6 forms) are refused. When local resolution fails, the request is left to the transport.
+- Every request, including each redirect hop, is checked before it is sent. Only `http` and `https` are accepted. Hostnames are resolved with the event loop's asynchronous `getaddrinfo` under a 10-second deadline, and destinations in `169.254.0.0/16`, `fe80::/10`, or `fd00:ec2::254` (including IPv4-mapped IPv6 forms) are refused. When local resolution fails or times out, the request is left to the transport.
 - Loopback and RFC 1918 private addresses are intentionally allowed because self-hosted providers such as ComfyUI or Ollama legitimately run there. The check resolves once before connecting and does not pin the connected address.
 - Response bodies are limited per media type (video 2 GiB, image and audio 256 MiB). An oversized declared `Content-Length` is refused early, the actual byte count is authoritative, and aborted downloads leave no `.part` file. Error-response bodies are read up to 64 KiB.
 - The declarative and ComfyUI runtimes share one guarded client for submit, poll, and download, so the destination check also applies to administrator-configured base URLs on those paths. Base-URL probing for custom providers (model discovery and connectivity tests) is not routed through this entry.
-- SDK-mediated downloads from configured base URLs (OpenAI-compatible video content, Gemini file downloads) are not routed through this entry.
+- SDK-mediated downloads from configured base URLs (OpenAI-compatible video content, Gemini file downloads) are not routed through this entry. OpenAI-compatible speech synthesis reads success bodies through the audio limit, but its error bodies are read by the SDK without this cap.
 
 ### 10.4 Imports, uploads, and project data
 
