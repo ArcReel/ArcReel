@@ -6,4 +6,4 @@
 - 接口与能力：总入口中的 Image Generation、Text to Video、Image to Video 与 Multi-image to Video API
 - 模型说明：[Kling Video 3 model guide](https://app.klingai.com/cn/quickstart/klingai-video-3-model-user-guide)
 - 计费：[Kling AI API Pricing](https://app.klingai.com/global/dev/document-api/productBilling/prePaidResourcePackage)
-- 代码：`lib/config/registry.py::PROVIDER_REGISTRY["kling"]`、`lib/image_backends/kling.py::KlingImageBackend`、`lib/video_backends/kling.py::KlingVideoBackend`
+- 代码：`lib/config/registry.py::PROVIDER_REGISTRY["kling"]`、`lib/backends/image_backends/kling.py::KlingImageBackend`、`lib/backends/video_backends/kling.py::KlingVideoBackend`

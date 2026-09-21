@@ -35,7 +35,7 @@ MySQL 8 不支持部分索引：直接迁移会得到**无条件唯一索引**�
 
 ### 3. 运行时 DML 方言分支（待补）
 
-`lib/agent_session_store/store.py` 的批量插入只区分 postgresql / sqlite 两个分支，其余方言（含 MySQL）会走 SQLite 的 `on_conflict_do_nothing()`，在 MySQL 上编译失败。引擎层适配时需补 MySQL insert 策略（`INSERT IGNORE` 或 `ON DUPLICATE KEY`）及兼容测试。
+`lib/agent/agent_session_store/store.py` 的批量插入只区分 postgresql / sqlite 两个分支，其余方言（含 MySQL）会走 SQLite 的 `on_conflict_do_nothing()`，在 MySQL 上编译失败。引擎层适配时需补 MySQL insert 策略（`INSERT IGNORE` 或 `ON DUPLICATE KEY`）及兼容测试。
 
 ### 4. JSON 类型（待验证）
 

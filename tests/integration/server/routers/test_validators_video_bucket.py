@@ -9,8 +9,8 @@ from __future__ import annotations
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from lib.api_errors import BadRequestError
 from lib.config.service import ConfigService
+from lib.infra.api_errors import BadRequestError
 from server.routers._validators import require_video_bucket_capability
 
 

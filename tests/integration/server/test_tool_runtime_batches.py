@@ -9,13 +9,13 @@ from sqlalchemy import select
 
 from lib.db.models.task import GenerationBatch
 from lib.db.models.user import User
-from lib.generation_batch import GenerationBatchRequestedItem, GenerationBatchRequestSnapshot
-from lib.generation_queue import GenerationBatchNotFound, GenerationQueue
-from lib.generation_queue_client import TaskSpec, batch_enqueue_only
-from lib.generation_result import GenerationResultBuilder, GenerationSelectionMode
-from lib.project_manager import ProjectManager
-from lib.workflow_plan import WorkflowPlanRequest, build_workflow_plan
-from lib.workflow_state import WorkflowStatus
+from lib.generation.generation_batch import GenerationBatchRequestedItem, GenerationBatchRequestSnapshot
+from lib.generation.generation_queue import GenerationBatchNotFound, GenerationQueue
+from lib.generation.generation_queue_client import TaskSpec, batch_enqueue_only
+from lib.generation.generation_result import GenerationResultBuilder, GenerationSelectionMode
+from lib.project.project_manager import ProjectManager
+from lib.workflow.workflow_plan import WorkflowPlanRequest, build_workflow_plan
+from lib.workflow.workflow_state import WorkflowStatus
 from server.tool_runtime import CallerContext, ProjectScope, Services, submit_media_generation
 
 

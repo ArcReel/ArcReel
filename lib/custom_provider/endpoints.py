@@ -17,8 +17,22 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 from urllib.parse import urlsplit
 
-from lib.aspect_size import IMAGE_TIER_SHORT_EDGE, VIDEO_TIER_SHORT_EDGE, short_edge_to_resolution
-from lib.audio_backends.openai import OpenAIAudioBackend
+from lib.backends.aspect_size import IMAGE_TIER_SHORT_EDGE, VIDEO_TIER_SHORT_EDGE, short_edge_to_resolution
+from lib.backends.audio_backends.openai import OpenAIAudioBackend
+from lib.backends.image_backends.base import ImageCapability
+from lib.backends.image_backends.dashscope import DashScopeImageBackend
+from lib.backends.image_backends.gemini import GeminiImageBackend
+from lib.backends.image_backends.kling import KlingImageBackend
+from lib.backends.image_backends.minimax import MiniMaxImageBackend
+from lib.backends.image_backends.openai import OpenAIImageBackend
+from lib.backends.text_backends.gemini import GeminiTextBackend
+from lib.backends.text_backends.openai import OpenAITextBackend
+from lib.backends.video_backends.ark import ArkVideoBackend
+from lib.backends.video_backends.base import ReferenceAudioMode, VideoCapabilities
+from lib.backends.video_backends.dashscope import DashScopeVideoBackend, classify_wan_model
+from lib.backends.video_backends.kling import KlingVideoBackend
+from lib.backends.video_backends.openai import OpenAIVideoBackend
+from lib.backends.video_backends.vidu import ViduVideoBackend
 from lib.config.url_utils import ensure_google_base_url, ensure_openai_base_url
 from lib.custom_provider import is_custom_endpoint
 from lib.custom_provider.backends import (
@@ -48,20 +62,6 @@ from lib.custom_provider.comfyui_backend import ComfyuiVideoBackend, binding_vid
 from lib.custom_provider.comfyui_image_backend import ComfyuiImageBackend, binding_image_capabilities
 from lib.custom_provider.declarative_backend import DeclarativeVideoBackend, request_urls
 from lib.custom_provider.endpoint_definition.kinds import COMFYUI_KIND
-from lib.image_backends.base import ImageCapability
-from lib.image_backends.dashscope import DashScopeImageBackend
-from lib.image_backends.gemini import GeminiImageBackend
-from lib.image_backends.kling import KlingImageBackend
-from lib.image_backends.minimax import MiniMaxImageBackend
-from lib.image_backends.openai import OpenAIImageBackend
-from lib.text_backends.gemini import GeminiTextBackend
-from lib.text_backends.openai import OpenAITextBackend
-from lib.video_backends.ark import ArkVideoBackend
-from lib.video_backends.base import ReferenceAudioMode, VideoCapabilities
-from lib.video_backends.dashscope import DashScopeVideoBackend, classify_wan_model
-from lib.video_backends.kling import KlingVideoBackend
-from lib.video_backends.openai import OpenAIVideoBackend
-from lib.video_backends.vidu import ViduVideoBackend
 
 if TYPE_CHECKING:
     from lib.db.models.custom_provider import CustomProvider
@@ -881,7 +881,7 @@ def infer_endpoint(model_id: str, discovery_format: str) -> str:
     is_image = bool(_IMAGE_PATTERN.search(model_id))
     # 走百炼原生端点的万相/happyhorse 家族 id（视频与图像变体都命中），下面路由与 is_video 排除
     # 各用一次。家族归属、分隔符归一化、标识符边界、image-to-video 续接语法、videoedit 模态排除
-    # 全部只在 classify_wan_model（lib.video_backends.dashscope）里判定一次，本函数与
+    # 全部只在 classify_wan_model（lib.backends.video_backends.dashscope）里判定一次，本函数与
     # DashScopeVideoBackend._profile_for_model、duration_presets.infer_supported_durations 三处
     # 只消费其结论，不再各自对 model_id 做正则匹配——避免三处宽度各自漂移，出现"路由到本后端却拿
     # 不到对应能力档"一类互斥组合。

@@ -18,10 +18,10 @@ from typing import Any
 from fastapi import APIRouter, Request
 from fastapi.responses import Response
 
-from lib.agent_memory_paths import project_memory_dir, user_memory_dir
-from lib.agent_memory_store import AgentMemoryStore
-from lib.api_errors import BadRequestError, NotFoundError
-from lib.project_manager import get_project_manager
+from lib.agent.agent_memory_paths import project_memory_dir, user_memory_dir
+from lib.agent.agent_memory_store import AgentMemoryStore
+from lib.infra.api_errors import BadRequestError, NotFoundError
+from lib.project.project_manager import get_project_manager
 from server.auth import CurrentUser, CurrentUserInfo
 
 user_router = APIRouter(prefix="/agent/memory")

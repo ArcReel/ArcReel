@@ -14,6 +14,7 @@ from typing import Any
 
 import pytest
 
+from lib.backends.video_backends.base import ReferenceAudioMode, VideoAudioMode
 from lib.custom_provider import CUSTOM_ENDPOINT_KEY_PREFIX
 from lib.custom_provider.builtin_definitions import (
     BUILTIN_DEFINITION_AUTHOR,
@@ -32,7 +33,6 @@ from lib.custom_provider.endpoints import (
     endpoint_spec_to_dict,
     merge_builtin_definitions,
 )
-from lib.video_backends.base import ReferenceAudioMode, VideoAudioMode
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 EXAMPLE_TEMPLATES_DIR = REPO_ROOT / "frontend" / "src" / "data" / "example-templates"

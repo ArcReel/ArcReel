@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
 
-from lib.validation_messages import ValidationMessage
+from lib.infra.validation_messages import ValidationMessage
 
 MESSAGE_KEY_PREFIX = "val_market_"
 

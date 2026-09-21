@@ -9,15 +9,16 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from PIL import Image
 
+from lib.artifacts.version_manager import VersionManager
 from lib.i18n.zh import errors as zh_errors
-from lib.project_change_hints import get_project_change_source
-from lib.project_manager import ProjectManager
-from lib.version_manager import VersionManager
+from lib.project.project_change_hints import get_project_change_source
+from lib.project.project_manager import ProjectManager
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import reference_videos, shot_uploads
 from server.routers import versions as versions_router
-from server.services import generation_tasks, reference_video_tasks, upload_finalize
+from server.services.currency import upload_finalize
+from server.services.tasks import generation_tasks, reference_video_tasks
 from tests.auth_deps import AUTH_DEPENDENCIES
 
 
@@ -147,8 +148,8 @@ class TestShotStoryboardUpload:
         assert info["versions"][0]["original_filename"] == "board.jpg"
 
     def test_restoring_a_manual_upload_preserves_its_manifest_claim(self, tmp_path, monkeypatch):
-        from lib.artifact_activation import ArtifactCurrencyResolver
-        from lib.artifact_manifest import ArtifactKey, ArtifactStatus
+        from lib.artifacts.artifact_activation import ArtifactCurrencyResolver
+        from lib.artifacts.artifact_manifest import ArtifactKey, ArtifactStatus
 
         client, pm = _client(monkeypatch, tmp_path)
         with client:

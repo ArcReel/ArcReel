@@ -6,9 +6,9 @@ status: accepted
 
 > 本 ADR 中「无正式 script_plan 的剧本按无计划依据登记，重跑规划后剧本因依据变化判 stale」的部分已由 `docs/adr/0080` 取代：剧本依据不以脚本规划为输入，有无计划都按同一种依据登记；旧媒体版本记录的来源投影仍然有效。
 
-产物清单（`docs/adr/0062`）与演示读模型都只认版本记录上的类型化来源：剧本绑定、集号、请求时长、请求摘要与视频描述（`lib/artifact_version_provenance.py`）。这些字段随 0.27 引入，由生成任务在提交那一刻写入版本记录、此后不再改动。更早生成的视频记录只有 `version / file / prompt / created_at / duration_seconds` 五个字段，清单补录与演示读取一律解析失败——补录把「解析不出」当作「产物不存在」静默跳过，用户升级后看到的是视频计数 0/N、制作状态退回准备、预览报「所选视频演示不可用」。这违反 ADR 0062「补录即 current、用户不该被误导去重生已付费产物」。
+产物清单（`docs/adr/0062`）与演示读模型都只认版本记录上的类型化来源：剧本绑定、集号、请求时长、请求摘要与视频描述（`lib/artifacts/artifact_version_provenance.py`）。这些字段随 0.27 引入，由生成任务在提交那一刻写入版本记录、此后不再改动。更早生成的视频记录只有 `version / file / prompt / created_at / duration_seconds` 五个字段，清单补录与演示读取一律解析失败——补录把「解析不出」当作「产物不存在」静默跳过，用户升级后看到的是视频计数 0/N、制作状态退回准备、预览报「所选视频演示不可用」。这违反 ADR 0062「补录即 current、用户不该被误导去重生已付费产物」。
 
-决定：新增一步 schema 迁移（v12→v13，`lib/project_migrations/v12_to_v13_legacy_media_provenance.py`），对每个剧本条目仍指向、且选中版本记录无类型化来源的视频，**按迁移那一刻的项目状态投影出全部类型化来源字段写回记录**（`lib/legacy_media_provenance.py`），再整份重投影清单。投影用的是时效比对同一个依据构造器（`lib/media_artifact_currency.py` 的 `project_video_basis_components`），登记值与期望值同源，因此这些视频补录即 current。冻结形状取「无参考音频、无音色说话人、无参考图上限、时长档只有请求时长一档」；供应商音轨开关按项目当前设置投影。每条被补写的记录加 `provenance_backfilled_at`，读路径不区分它与生成时冻结的记录，只在排查时用来区分「投影的」与「冻结的」。
+决定：新增一步 schema 迁移（v12→v13，`lib/project/project_migrations/v12_to_v13_legacy_media_provenance.py`），对每个剧本条目仍指向、且选中版本记录无类型化来源的视频，**按迁移那一刻的项目状态投影出全部类型化来源字段写回记录**（`lib/project/legacy_media_provenance.py`），再整份重投影清单。投影用的是时效比对同一个依据构造器（`lib/artifacts/media_artifact_currency.py` 的 `project_video_basis_components`），登记值与期望值同源，因此这些视频补录即 current。冻结形状取「无参考音频、无音色说话人、无参考图上限、时长档只有请求时长一档」；供应商音轨开关按项目当前设置投影。每条被补写的记录加 `provenance_backfilled_at`，读路径不区分它与生成时冻结的记录，只在排查时用来区分「投影的」与「冻结的」。
 
 同一步里，**没有正式 script_plan 的剧本按无计划依据登记**（`structured-content/episode-script-without-plan`，只含集号）：它永远 current，直到用户重跑规划产生正式计划，剧本条目因依据变化判 stale、切回常规路线。制作状态对这类集跳过计划门与计划确认门，直接按剧本与下游产物判状态。
 

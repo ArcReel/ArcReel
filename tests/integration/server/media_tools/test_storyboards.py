@@ -52,7 +52,7 @@ async def test_generate_storyboards_happy(fake_ctx: ToolContext, monkeypatch) ->
     captured: list[Any] = []
 
     async def fake_batch(*, project_name, specs, on_success=None, on_failure=None, **_batch_kwargs):
-        from lib.generation_queue_client import BatchTaskResult
+        from lib.generation.generation_queue_client import BatchTaskResult
 
         captured.extend(specs)
         succ = [
@@ -102,7 +102,7 @@ async def test_generate_storyboards_legacy_project_reverifies_image_file_on_disk
     enqueued: list[str] = []
 
     async def fake_batch(*, project_name, specs, on_success=None, on_failure=None, **_batch_kwargs):
-        from lib.generation_queue_client import BatchTaskResult
+        from lib.generation.generation_queue_client import BatchTaskResult
 
         enqueued.extend(spec.resource_id for spec in specs)
         return [
@@ -158,7 +158,7 @@ async def test_generate_storyboards_selects_item_with_corrupt_generated_assets(
     captured: list[Any] = []
 
     async def fake_batch(*, project_name, specs, on_success=None, on_failure=None, **_batch_kwargs):
-        from lib.generation_queue_client import BatchTaskResult
+        from lib.generation.generation_queue_client import BatchTaskResult
 
         captured.extend(specs)
         succ = [
@@ -259,8 +259,8 @@ async def test_generate_storyboards_reports_a_partial_batch_per_id(fake_ctx: Too
     ]
 
     async def fake_batch(*, project_name, specs, on_success=None, on_failure=None, **_batch_kwargs):
-        from lib.generation_queue_client import BatchTaskResult
-        from lib.task_failure import encode_failure
+        from lib.generation.generation_queue_client import BatchTaskResult
+        from lib.generation.task_failure import encode_failure
 
         succeeded = [
             BatchTaskResult(

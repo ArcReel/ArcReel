@@ -10,8 +10,8 @@ import { ProjectsPage } from "@/components/pages/ProjectsPage";
 import { SystemConfigPage } from "@/components/pages/SystemConfigPage";
 import { ProjectSettingsPage } from "@/components/pages/ProjectSettingsPage";
 import { AssetLibraryPage } from "@/components/pages/AssetLibraryPage";
-import { LoginPage } from "@/pages/LoginPage";
-import { NotFoundPage } from "@/pages/NotFoundPage";
+import { LoginPage } from "@/components/pages/LoginPage";
+import { NotFoundPage } from "@/components/pages/NotFoundPage";
 import { ToastOverlay } from "@/components/layout/ToastOverlay";
 import { OnboardingTour } from "@/onboarding/OnboardingTour";
 import {

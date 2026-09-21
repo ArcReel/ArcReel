@@ -62,7 +62,7 @@ const DEMO_STATUS: ProjectStatus = {
 /**
  * 8 集的状态分布，与 `DEMO_STATUS.episodes_summary` 的计数对齐。
  * 只有第 1 集在演示里带剧本，真实后端对没有剧本的分集只会算出 draft（见
- * `lib/workflow_state.py::_episode_production_status`）——第 2-8 集因此不能标成
+ * `lib/workflow/workflow_state.py::_episode_production_status`）——第 2-8 集因此不能标成
  * scripted/completed，否则点进去发现只有占位说明，统计与内容对不上。
  */
 const EPISODE_STATUSES: NonNullable<EpisodeMeta["status"]>[] = [

@@ -6,7 +6,7 @@
 
 ## 背景
 
-ArcReel 的内嵌创作 Agent 通过 `server/agent_runtime/options_assembler.py` 以 `SystemPromptPreset(preset="claude_code")` + `setting_sources=["project"]` 启动 SDK 会话，cwd 为 `app_data_dir()/<project_name>`，默认即仓库内 `<repo>/projects/<project_name>`（`lib/app_data_dir.py`）。本调研回答 auto memory 在这一配置下是否生效、落在哪里、能否重定向，以及子智能体 memory 的语义。
+ArcReel 的内嵌创作 Agent 通过 `server/agent_runtime/options_assembler.py` 以 `SystemPromptPreset(preset="claude_code")` + `setting_sources=["project"]` 启动 SDK 会话，cwd 为 `app_data_dir()/<project_name>`，默认即仓库内 `<repo>/projects/<project_name>`（`lib/infra/app_data_dir.py`）。本调研回答 auto memory 在这一配置下是否生效、落在哪里、能否重定向，以及子智能体 memory 的语义。
 
 ## 结论速览
 
@@ -197,4 +197,4 @@ CHANGELOG 未出现 `autoMemoryEnabled`、`CLAUDE_CODE_DISABLE_AUTO_MEMORY` 的�
 
 官方文档（均可访问）：memory、settings、settings-reference、env-vars、sub-agents、sessions、claude-directory、cli-reference、headless、errors、agent-sdk/{modifying-system-prompts, sessions, subagents, python, typescript, hosting, claude-code-features, permissions, secure-deployment}，前缀 `https://code.claude.com/docs/en/`。
 CHANGELOG：`https://raw.githubusercontent.com/anthropics/claude-code/main/CHANGELOG.md`；`https://raw.githubusercontent.com/anthropics/claude-agent-sdk-python/main/CHANGELOG.md`。
-本机：`.venv/lib/python3.12/site-packages/claude_agent_sdk/{types.py,_cli_version.py,_internal/transport/subprocess_cli.py,_bundled/claude}`；`server/agent_runtime/options_assembler.py`；`lib/app_data_dir.py`；探针脚本见本票 issue 评论描述（scratchpad，未入库）。
+本机：`.venv/lib/python3.12/site-packages/claude_agent_sdk/{types.py,_cli_version.py,_internal/transport/subprocess_cli.py,_bundled/claude}`；`server/agent_runtime/options_assembler.py`；`lib/infra/app_data_dir.py`；探针脚本见本票 issue 评论描述（scratchpad，未入库）。

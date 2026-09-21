@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import pytest
 
+from lib.backends.video_backends.base import ProviderJobStatus
 from lib.custom_provider.endpoint_definition import JsonPathEvaluationError, extract_value, map_status
 from lib.i18n import _
-from lib.video_backends.base import ProviderJobStatus
 
 COMFYUI_STATUS = {"paths": ["$.code"], "accept": "scalar"}
 COMFYUI_VIDEO_URL = ["$.data[?@.fileType == 'mp4'].fileUrl"]

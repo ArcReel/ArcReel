@@ -10,16 +10,21 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from PIL import Image
 
-import lib.project_manager as project_manager_module
-from lib.artifact_activation import ArtifactCurrencyResolver
-from lib.artifact_manifest import MANIFEST_FILENAME, ArtifactKey, ArtifactStatus, ProjectArtifactManifestAdapter
+import lib.project.project_manager as project_manager_module
+from lib.artifacts.artifact_activation import ArtifactCurrencyResolver
+from lib.artifacts.artifact_manifest import (
+    MANIFEST_FILENAME,
+    ArtifactKey,
+    ArtifactStatus,
+    ProjectArtifactManifestAdapter,
+)
+from lib.backends.providers import CallPurpose
 from lib.i18n.en import assets as en_assets
 from lib.i18n.vi import assets as vi_assets
 from lib.i18n.zh import assets as zh_assets
 from lib.i18n.zh import errors as zh_errors
-from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
-from lib.prompt_templates.builtin import builtin_templates
-from lib.providers import CallPurpose
+from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
+from lib.prompts.prompt_templates.builtin import builtin_templates
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import files
@@ -42,7 +47,7 @@ class _FakeTextBackend:
         return set()
 
     async def generate(self, request):
-        from lib.text_backends.base import TextGenerationResult
+        from lib.backends.text_backends.base import TextGenerationResult
 
         _FakeTextBackend.requests.append(request)
         return TextGenerationResult(text="cinematic, high contrast", provider="fake", model="fake-model")
@@ -68,7 +73,7 @@ def _client(monkeypatch, tmp_path):
     pm.add_product("demo", "保温杯", "不锈钢保温杯")
 
     monkeypatch.setattr(files, "get_project_manager", lambda: pm)
-    monkeypatch.setattr("lib.text_generator.create_text_backend_for_task", _fake_create_backend)
+    monkeypatch.setattr("lib.backends.text_generator.create_text_backend_for_task", _fake_create_backend)
 
     app = FastAPI()
     register_error_handlers(app)
@@ -722,7 +727,7 @@ class TestFilesRouter:
             assert any(item["name"] == "保温杯.jpg" for item in listed.json()["files"]["products"])
 
     def test_style_image_endpoints(self, tmp_path, monkeypatch):
-        from lib.text_generator import TextGenerator
+        from lib.backends.text_generator import TextGenerator
 
         client, pm = _client(monkeypatch, tmp_path)
         captured: dict[str, object] = {}
@@ -1146,7 +1151,7 @@ class TestFilesRouter:
 
         with monkeypatch.context() as registration_patch:
             registration_patch.setattr(
-                "lib.artifact_activation.register_current_artifact_if_provable",
+                "lib.artifacts.artifact_activation.register_current_artifact_if_provable",
                 _fail_registration,
             )
             with pytest.raises(RuntimeError, match="manifest unavailable"):
@@ -1545,7 +1550,7 @@ class TestSourceMultiFormatUpload:
 
     def test_upload_source_rejects_oversized_upload_by_content_length(self, tmp_path, monkeypatch):
         client, _ = _client(monkeypatch, tmp_path)
-        from lib.source_loader import SourceLoader
+        from lib.script.source_loader import SourceLoader
 
         # We don't actually send 50MB+ of data — instead post a small body with a fake
         # content-length header. Starlette validates content-length vs actual body length
@@ -1663,8 +1668,8 @@ class TestFilesUnexpectedErrorsMapTo500:
 
     def test_upload_style_image_vision_unsupported_maps_to_localized_400(self, tmp_path, monkeypatch):
         """简单档模型不支持 vision 时，400 detail 走 i18n 翻译，不透出裸中文技术消息。"""
+        from lib.backends.text_backends.base import TextTaskType
         from lib.config.resolver import VisionCapabilityError
-        from lib.text_backends.base import TextTaskType
 
         async def _raise_vision_error(*args, **kwargs):
             raise VisionCapabilityError(
@@ -1674,7 +1679,7 @@ class TestFilesUnexpectedErrorsMapTo500:
             )
 
         client, _ = _client(monkeypatch, tmp_path)
-        monkeypatch.setattr("lib.text_generator.create_text_backend_for_task", _raise_vision_error)
+        monkeypatch.setattr("lib.backends.text_generator.create_text_backend_for_task", _raise_vision_error)
         with client:
             resp = client.post(
                 "/api/v1/projects/demo/style-image",
@@ -1695,7 +1700,7 @@ class TestFilesUnexpectedErrorsMapTo500:
             raise ValueError(f"凭证文件 {sentinel} 中未找到 project_id")
 
         client, _ = _client(monkeypatch, tmp_path)
-        monkeypatch.setattr("lib.text_generator.create_text_backend_for_task", _raise_backend_error)
+        monkeypatch.setattr("lib.backends.text_generator.create_text_backend_for_task", _raise_backend_error)
         with client:
             resp = client.post(
                 "/api/v1/projects/demo/style-image",

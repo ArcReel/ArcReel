@@ -31,7 +31,7 @@ const RESTRICT_CAPABILITIES = {
 
 const RESTRICT_MODULE_MOCK = {
   selector:
-    "CallExpression[callee.object.name='vi'][callee.property.name='mock'][arguments.0.value=/^(@\\/api|react-i18next)$/]",
+    "CallExpression[callee.object.name='vi'][callee.property.name='mock'][arguments.0.value=/^(@\\/api(\\/.+)?|react-i18next)$/]",
   message:
     "禁止整模块 mock：API 打桩用 vi.spyOn(API, method)；i18n 用全局 setup 已加载的真实中文资源（整体 mock 后翻译缺失无法被发现）。",
 };
@@ -133,7 +133,7 @@ export default tseslint.config(
   //   登记进 RESTRICT_ENQUEUE 的清单。
   // - 模型能力只能经 src/hooks/useModelCapabilities 消费——各能力维度的真相源、失效时机与
   //   「未知不谎报不支持」的降级规则都收在那里，组件直调会让目录侧与服务端侧重新分叉。
-  // - 测试不得整模块 mock `@/api` 与 `react-i18next`，该条对全部文件生效、无豁免。
+  // - 测试不得整模块 mock `@/api`（含其 `@/api/*` 子模块）与 `react-i18next`，该条对全部文件生效、无豁免。
   // src/api.test.ts 豁免前两条：它测试的是 API 层本体的端点路径与请求体。
   {
     files: ["src/**/*.{ts,tsx}"],

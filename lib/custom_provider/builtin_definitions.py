@@ -20,9 +20,9 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
+from lib.backends.video_backends.base import VideoCapabilities
 from lib.custom_provider import CUSTOM_ENDPOINT_KEY_PREFIX
 from lib.custom_provider.endpoint_definition import DefinitionIssue, validate_definition
-from lib.video_backends.base import VideoCapabilities
 
 #: 随版定义所在目录。文件名（不含 ``.json``）即内置端点键。
 BUILTIN_DEFINITIONS_DIR = Path(__file__).parent / "builtin_endpoints"

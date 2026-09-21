@@ -10,10 +10,10 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from lib.asset_rename import AssetRenameReport
-from lib.episode_reset import EpisodeResetResult
-from lib.project_manager import ProjectManager
-from lib.project_migration_failure import MIGRATION_FAILURE_CODE, record_migration_failure
+from lib.episode.episode_reset import EpisodeResetResult
+from lib.project.asset_rename import AssetRenameReport
+from lib.project.project_manager import ProjectManager
+from lib.project.project_migration_failure import MIGRATION_FAILURE_CODE, record_migration_failure
 from server import tool_runtime as tool_runtime_module
 from server.tool_runtime import (
     CallerContext,

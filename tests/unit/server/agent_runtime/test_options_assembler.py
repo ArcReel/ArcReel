@@ -14,7 +14,7 @@ from unittest.mock import patch
 
 import pytest
 
-from lib.agent_memory_paths import project_memory_dir, user_memory_dir
+from lib.agent.agent_memory_paths import project_memory_dir, user_memory_dir
 from lib.db.base import DEFAULT_USER_ID
 from server.agent_runtime.agent_access_policy import AgentAccessPolicy
 from server.agent_runtime.options_assembler import (

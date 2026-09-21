@@ -8,7 +8,7 @@ from unittest.mock import patch
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from lib.project_manager import ProjectManager
+from lib.project.project_manager import ProjectManager
 from server.auth import CurrentUserInfo, create_download_token, create_token, get_current_user
 from server.routers import projects
 from tests.auth_deps import AUTH_DEPENDENCIES

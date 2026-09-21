@@ -1,7 +1,7 @@
 /**
  * Grid image-to-video type definitions.
  *
- * Maps to backend models in lib/grid_manager.py and server/routers/grids.py.
+ * Maps to backend models in lib/script/grid/grid_manager.py and server/routers/grids.py.
  */
 
 export interface ReferenceImage {

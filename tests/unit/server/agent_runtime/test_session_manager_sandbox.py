@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from lib.agent_memory_paths import project_memory_dir
+from lib.agent.agent_memory_paths import project_memory_dir
 from server.agent_runtime.agent_access_policy import AgentAccessPolicy
 from server.agent_runtime.session_manager import ManagedSession, SessionManager
 from server.agent_runtime.session_store import SessionMetaStore

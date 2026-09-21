@@ -11,9 +11,10 @@ from typing import Any
 
 import pytest
 
-from lib import script_review
-from lib.artifact_manifest import ArtifactKey, ProjectArtifactManifestAdapter
-from lib.draft_quarantine import (
+from lib.artifacts.artifact_manifest import ArtifactKey, ProjectArtifactManifestAdapter
+from lib.project.project_manager import ProjectManager
+from lib.script import script_review
+from lib.script.draft_quarantine import (
     QUARANTINE_KIND_NARRATION_SCRIPT_PLAN,
     QUARANTINE_KIND_PROMPT_AUTHORING,
     QUARANTINE_KIND_SCRIPT_PLAN,
@@ -22,8 +23,7 @@ from lib.draft_quarantine import (
     read_quarantine,
     write_quarantine,
 )
-from lib.project_manager import ProjectManager
-from lib.reference_video.draft_validation import DraftViolation
+from lib.script.reference_video.draft_validation import DraftViolation
 from server.agent_runtime.sdk_tools.text_generation import (
     generate_episode_script_tool,
     generate_script_plan_tool,
@@ -764,7 +764,7 @@ def _write_rv_formal_script(fake_ctx: ToolContext, text: str) -> str | None:
 async def test_promote_draft_prompt_authoring_uses_async_factory(fake_ctx: ToolContext, monkeypatch) -> None:
     """prompt_authoring 晋升走 ``ScriptGenerator.create``：晋升同样经 _add_metadata 落盘，裸构造会把
     metadata.generator 记成 "unknown"，与直接生成路径的同一份产物对不上。"""
-    from lib.text_generator import TextGenerator
+    from lib.backends.text_generator import TextGenerator
 
     rv_project(fake_ctx)
     baseline = _write_rv_formal_script(fake_ctx, "@[张三] 在 @[村口] 等候")
@@ -798,7 +798,7 @@ async def test_promote_draft_prompt_authoring_uses_async_factory(fake_ctx: ToolC
 async def test_promote_draft_waits_for_file_lock_without_blocking_event_loop(
     fake_ctx: ToolContext, monkeypatch
 ) -> None:
-    from lib.text_generator import TextGenerator
+    from lib.backends.text_generator import TextGenerator
 
     rv_project(fake_ctx)
     baseline = _write_rv_formal_script(fake_ctx, "@[张三] 起身")
@@ -914,7 +914,7 @@ async def test_promote_draft_prompt_authoring_ignores_unconfirmed_script_plan(
     fake_ctx: ToolContext, monkeypatch
 ) -> None:
     """prompt_authoring 草稿按正式剧本晋升：脚本规划重跑后尚未确认不阻塞晋升，与编写入口同口径。"""
-    from lib.text_generator import TextGenerator
+    from lib.backends.text_generator import TextGenerator
 
     rv_project(fake_ctx)
     baseline = _write_rv_formal_script(fake_ctx, "@[张三] 起身")

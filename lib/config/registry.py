@@ -4,11 +4,11 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Literal
 
-from lib.agnes_shared import AGNES_BASE_URL
-from lib.ark_shared import ARK_BASE_URL
-from lib.dashscope_shared import DASHSCOPE_BASE_URL
-from lib.minimax_shared import MINIMAX_BASE_URL
-from lib.pricing.types import (
+from lib.backends.agnes_shared import AGNES_BASE_URL
+from lib.backends.ark_shared import ARK_BASE_URL
+from lib.backends.dashscope_shared import DASHSCOPE_BASE_URL
+from lib.backends.minimax_shared import MINIMAX_BASE_URL
+from lib.billing.pricing.types import (
     PerCharacter,
     PerImageByResolution,
     PerImageFlat,
@@ -29,7 +29,7 @@ ModelCapability = Literal[
     "text_generation",
     "structured_output",  # 消费点：文本 backend 结构化输出探测
     "vision",  # 消费点：文本解析的 vision 闸（lib/config/resolver.py）
-    "text_to_image",  # 消费点：图片任务类型桶判定（lib/generation_type_buckets.py）
+    "text_to_image",  # 消费点：图片任务类型桶判定（lib/backends/generation_type_buckets.py）
     "image_to_image",  # 消费点：同上
     "text_to_speech",
 ]
@@ -44,7 +44,7 @@ class ModelInfo:
     # 此声明——它们的真相源是各 backend 的 VideoCapabilities 与请求期 gate，与请求构造同源，
     # 也只有那里表达得了「同一 model 内按执行子路径分叉」（可灵 v3-omni 走多图主体子路径时
     # 请求体没有音轨开关）。补一份视频能力位声明即引入第二份手写来源，由
-    # tests/unit/lib/video_backends/test_video_backend_capabilities.py::TestVideoCapabilitySingleSourceOfTruth 拦下。
+    # tests/unit/lib/backends/video_backends/test_video_backend_capabilities.py::TestVideoCapabilitySingleSourceOfTruth 拦下。
     capabilities: list[ModelCapability]
     default: bool = False
     supported_durations: list[int] = field(default_factory=list)
@@ -913,7 +913,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
         secret_keys=["api_key"],
         models={
             # --- image ---
-            # Vidu 计费以响应 credits 为准，费率逻辑在 lib.vidu_shared；此处统一委托标记。
+            # Vidu 计费以响应 credits 为准，费率逻辑在 lib.backends.vidu_shared；此处统一委托标记。
             "viduq2": ModelInfo(
                 display_name="Vidu Q2 Image",
                 media_type="image",
@@ -980,7 +980,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
         required_keys=["api_key"],
         # wan3_base_url：万相 3.0 走独立 maas 域名，且域名里含地域与 workspace，
         # 无法由通用 base_url 派生，故单列一键。仅 wan3.0-video 的请求消费它（见
-        # lib/video_backends/dashscope.py），留空则该模型回落通用 base_url。
+        # lib/backends/video_backends/dashscope.py），留空则该模型回落通用 base_url。
         optional_keys=["base_url", "wan3_base_url", "image_max_workers", "video_max_workers", "audio_max_workers"],
         secret_keys=["api_key"],
         models={
