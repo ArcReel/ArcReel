@@ -516,6 +516,7 @@ MESSAGES = {
     "grid_generation_in_progress": "Multi-grid storyboard '{grid_id}' is being generated; wait for it to finish first",
     "version_not_found": "Version {version} does not exist",
     "version_resource_not_found": "Resource '{resource_type}/{resource_id}' does not exist",
+    "version_snapshot_path_unmanaged": "A '{resource_type}' version record points to an unmanaged snapshot path; the operation was refused",
     "session_busy": "The session is busy; wait for the current reply to finish before sending",
     "session_capacity_exceeded": "Concurrent session limit reached, please try again later",
     "session_question_unavailable": "The session is not running or has no pending question",

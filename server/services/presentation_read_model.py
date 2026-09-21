@@ -42,7 +42,7 @@ from lib.speech_presentation import (
     materialize_speech_presentation,
     presentation_artifact_paths,
 )
-from lib.version_manager import VersionManager
+from lib.version_manager import UnmanagedSnapshotPathError, VersionManager
 from server.services.artifact_version_restore import (
     TypedMediaRestoreTarget,
     parse_typed_media_version_record,
@@ -483,9 +483,11 @@ class PresentationReadModelService:
         if not isinstance(raw_path, str) or type(raw_version) is not int or raw_version <= 0:
             raise PresentationUnavailableError("media version record has an invalid file identity")
         try:
-            path = safe_join(project_path, raw_path, require_file=True)
-        except (FileNotFoundError, ValueError) as exc:
-            raise PresentationUnavailableError("selected media file is unavailable") from exc
+            path = VersionManager.resolve_snapshot_path(project_path, resource_type, raw_path)
+        except UnmanagedSnapshotPathError as exc:
+            raise PresentationUnavailableError("media version record has an invalid file identity") from exc
+        if not path.is_file():
+            raise PresentationUnavailableError("selected media file is unavailable")
         return _SelectedVersion(
             record=selected_record,
             target=target,

@@ -62,7 +62,7 @@ from lib.script_models import resolve_content_mode
 from lib.script_skeleton import resolve_script_kind
 from lib.speech_composition import admit_script_unit
 from lib.storyboard_sequence import resolve_storyboard_video_inputs
-from lib.version_manager import VersionManager
+from lib.version_manager import UnmanagedSnapshotPathError, VersionManager
 from lib.video_artifact_facts import VideoArtifactCurrencyFacts
 from lib.video_visual_provenance import (
     build_reference_video_visual_basis,
@@ -179,11 +179,11 @@ def _selected_current_video_record(
         return None
     if not visual_basis_digest or current_record.get("visual_basis_digest") != visual_basis_digest:
         return None
-    snapshot_rel = current_record.get("file")
-    if not isinstance(snapshot_rel, str):
+    try:
+        snapshot_file = VersionManager.resolve_snapshot_path(project_path, resource_type, current_record.get("file"))
+    except UnmanagedSnapshotPathError:
         return None
-    snapshot_file = try_safe_join(project_path, snapshot_rel, require_file=True)
-    if snapshot_file is None:
+    if not snapshot_file.is_file():
         return None
     try:
         if not filecmp.cmp(formal_file, snapshot_file, shallow=False):

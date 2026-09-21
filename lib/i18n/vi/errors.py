@@ -516,6 +516,7 @@ MESSAGES = {
     "grid_generation_in_progress": "Phân cảnh đa lưới '{grid_id}' đang được tạo; vui lòng đợi hoàn tất trước khi thao tác",
     "version_not_found": "Phiên bản {version} không tồn tại",
     "version_resource_not_found": "Tài nguyên '{resource_type}/{resource_id}' không tồn tại",
+    "version_snapshot_path_unmanaged": "Bản ghi phiên bản '{resource_type}' trỏ tới đường dẫn ảnh chụp không được quản lý; thao tác đã bị từ chối",
     "session_busy": "Phiên đang xử lý; vui lòng đợi phản hồi hiện tại hoàn tất trước khi gửi",
     "session_capacity_exceeded": "Đã đạt giới hạn phiên đồng thời, vui lòng thử lại sau",
     "session_question_unavailable": "Phiên chưa chạy hoặc không có câu hỏi đang chờ",
