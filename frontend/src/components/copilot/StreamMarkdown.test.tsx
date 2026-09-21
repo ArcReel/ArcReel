@@ -1,5 +1,5 @@
-import { render, waitFor } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
 import { StreamMarkdown } from "./StreamMarkdown";
 
 const URL_ATTRS = ["href", "src", "xlink:href", "action", "formaction", "srcdoc", "data"];
@@ -29,10 +29,8 @@ function collectActiveContent(root: HTMLElement): string[] {
       }
       if (URL_ATTRS.includes(name)) {
         const scheme = urlScheme(attr.value);
-        if (scheme === "javascript" || scheme === "vbscript") {
-          findings.push(`${tag}[${name}=${attr.value}]`);
-        }
-        if (scheme === "data" && !/^\s*data:image\/(png|jpe?g|gif|webp);/i.test(attr.value)) {
+        const activeData = scheme === "data" && !/^\s*data:image\/(png|jpe?g|gif|webp);/i.test(attr.value);
+        if (scheme === "javascript" || scheme === "vbscript" || activeData) {
           findings.push(`${tag}[${name}=${attr.value}]`);
         }
       }
@@ -60,6 +58,9 @@ const PAYLOADS: Record<string, string> = {
   "图片 javascript 协议": "![x](javascript:window.__marker=1)",
   "链接协议大小写混合": "[x](JaVaScRiPt:window.__marker=1)",
   "链接协议含制表符": "[x](java\tscript:window.__marker=1)",
+  "链接协议含换行": "[x](<java\nscript:window.__marker=1>)",
+  "链接协议含回车": "[x](<java\rscript:window.__marker=1>)",
+  "链接协议前导空格": "[x]( javascript:window.__marker=1)",
   "链接协议前导控制字符": "[x](\u0001javascript:window.__marker=1)",
   "链接协议实体编码": "[x](&#106;avascript:window.__marker=1)",
   "链接协议冒号实体编码": "[x](javascript&colon;window.__marker=1)",
@@ -70,6 +71,7 @@ const PAYLOADS: Record<string, string> = {
   "行内 HTML 事件属性": 'text <b onclick="window.__marker=1">x</b> text',
   "行内 HTML 实体编码协议": 'text <a href="&#106;avascript:window.__marker=1">x</a>',
   "autolink javascript": "<javascript:window.__marker=1>",
+  "裸 URL autolink": "见 javascript:window.__marker=1 与 www.example.com",
   "autolink data": "<data:text/html,window.__marker=1>",
   "form formaction": '<form><button formaction="javascript:window.__marker=1">x</button></form>',
   "style 标签": "<style>body{background:url(javascript:window.__marker=1)}</style>",
@@ -77,12 +79,13 @@ const PAYLOADS: Record<string, string> = {
 
 describe("StreamMarkdown 渲染惰性", () => {
   it.each(Object.entries(PAYLOADS))("%s 渲染为惰性内容", async (_name, payload) => {
-    const { container } = await renderLoaded(`前文\n\n${payload}\n\n后文`);
-    expect(collectActiveContent(container)).toEqual([]);
+    await renderLoaded(`前文\n\n${payload}\n\n后文`);
+    expect(collectActiveContent(document.body)).toEqual([]);
   });
 
   it.each(Object.entries(PAYLOADS))("%s 在任意位置分两段增量渲染时每一步都是惰性内容", async (_name, payload) => {
-    const { container, rerender } = await renderLoaded("");
+    const { rerender } = await renderLoaded("");
+    const container = document.body;
     for (let cut = 1; cut < payload.length; cut += 1) {
       rerender(<StreamMarkdown content={payload.slice(0, cut)} />);
       expect(collectActiveContent(container), `cut=${cut} 前段`).toEqual([]);
@@ -98,5 +101,26 @@ describe("StreamMarkdown 渲染惰性", () => {
     expect(container.querySelector("a[href]")).toBeNull();
     expect(container.querySelector("img")?.getAttribute("src")).toBe("https://example.com/b.png");
     expect(collectActiveContent(container)).toEqual([]);
+  });
+
+  it.each([
+    "[x](javascript:window.__marker=1)",
+    "[x](JaVaScRiPt:window.__marker=1)",
+    "[x](data:text/html,x)",
+    "<javascript:window.__marker=1>",
+    'text <a href="javascript:window.__marker=1">x</a>',
+  ])("不允许的链接协议 %s 渲染为不可点击的文本", async (payload) => {
+    const { container } = await renderLoaded(payload);
+    expect(container.querySelector('[data-streamdown="link"]')).toBeNull();
+    expect(container.querySelector("button, a")).toBeNull();
+  });
+
+  it("外链经确认后以 noreferrer 在新窗口打开", async () => {
+    const open = vi.spyOn(window, "open").mockReturnValue(null);
+    const { container } = await renderLoaded("[站点](https://example.com/a)");
+    fireEvent.click(container.querySelector('[data-streamdown="link"]')!);
+    expect(open).not.toHaveBeenCalled();
+    fireEvent.click(await screen.findByRole("button", { name: "Open link" }));
+    expect(open).toHaveBeenCalledWith("https://example.com/a", "_blank", "noreferrer");
   });
 });
