@@ -39,9 +39,12 @@ function collectActiveContent(root: HTMLElement): string[] {
   return findings;
 }
 
-// 链接按钮不带 href，地址只保存在点击回调里，DOM 属性检查看不到；PAYLOADS 不含允许的链接，完整渲染后不应出现链接按钮。
-function linkButtons(root: HTMLElement): string[] {
-  return Array.from(root.querySelectorAll('[data-streamdown="link"]'), (el) => el.textContent ?? "");
+// 链接按钮不带 href，地址只保存在点击回调里，DOM 属性检查看不到；PAYLOADS 不含允许的链接，完整渲染后不应出现可点击元素。
+function clickableElements(root: HTMLElement): string[] {
+  return Array.from(
+    root.querySelectorAll('a, button, [data-streamdown="link"]'),
+    (el) => `<${el.tagName.toLowerCase()}>${el.textContent ?? ""}`,
+  );
 }
 
 async function renderLoaded(content: string) {
@@ -86,7 +89,7 @@ describe("StreamMarkdown 渲染惰性", () => {
   it.each(Object.entries(PAYLOADS))("%s 渲染为惰性内容", async (_name, payload) => {
     await renderLoaded(`前文\n\n${payload}\n\n后文`);
     expect(collectActiveContent(document.body)).toEqual([]);
-    expect(linkButtons(document.body)).toEqual([]);
+    expect(clickableElements(document.body)).toEqual([]);
   });
 
   it.each(Object.entries(PAYLOADS))("%s 在任意位置分两段增量渲染时每一步都是惰性内容", async (_name, payload) => {
@@ -97,7 +100,7 @@ describe("StreamMarkdown 渲染惰性", () => {
       expect(collectActiveContent(container), `cut=${cut} 前段`).toEqual([]);
       rerender(<StreamMarkdown content={payload} />);
       expect(collectActiveContent(container), `cut=${cut} 全文`).toEqual([]);
-      expect(linkButtons(container), `cut=${cut} 全文链接`).toEqual([]);
+      expect(clickableElements(container), `cut=${cut} 全文可点击元素`).toEqual([]);
     }
   });
 
@@ -110,17 +113,6 @@ describe("StreamMarkdown 渲染惰性", () => {
     expect(collectActiveContent(container)).toEqual([]);
   });
 
-  it.each([
-    "[x](javascript:window.__marker=1)",
-    "[x](JaVaScRiPt:window.__marker=1)",
-    "[x](data:text/html,x)",
-    "<javascript:window.__marker=1>",
-    'text <a href="javascript:window.__marker=1">x</a>',
-  ])("不允许的链接协议 %s 渲染为不可点击的文本", async (payload) => {
-    const { container } = await renderLoaded(payload);
-    expect(container.querySelector('[data-streamdown="link"]')).toBeNull();
-    expect(container.querySelector("button, a")).toBeNull();
-  });
 
   it("外链经确认后以 noreferrer 在新窗口打开", async () => {
     const open = vi.spyOn(window, "open").mockReturnValue(null);
