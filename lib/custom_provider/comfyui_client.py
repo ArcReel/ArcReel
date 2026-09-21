@@ -334,8 +334,9 @@ class ComfyuiClient:
         output_path: Path,
         *,
         max_wait: float,
+        max_bytes: int,
     ) -> None:
-        """按一条产物条目取文件落到 ``output_path``。
+        """按一条产物条目取文件落到 ``output_path``，响应体超过 ``max_bytes`` 即中止。
 
         ``/view`` 与其余路由同源，故带上同一份凭据；VHS 的 ``fullpath`` 不用——那是服务端本机的
         绝对路径，只有与 ComfyUI 同机部署时才碰巧可读。
@@ -346,6 +347,7 @@ class ComfyuiClient:
                 http,
                 self._url("/view"),
                 output_path,
+                max_bytes=max_bytes,
                 headers=self._headers,
                 # 凭证与产物参数同走首跳的 params：``stream_to_file`` 的 ``params`` 会整串替换
                 # 查询串，拼进 URL 的那一份会被它冲掉。同源续跳时由 ``auth_query`` 补回。

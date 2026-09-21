@@ -14,6 +14,12 @@ from pathlib import Path
 
 import httpx
 
+from lib.backends.artifact_download_guard import (
+    AUDIO_ARTIFACT_MAX_BYTES,
+    artifact_http_client,
+    buffered_error_response,
+    read_body_capped,
+)
 from lib.backends.audio_backends.base import (
     AudioCapability,
     AudioSynthesisRequest,
@@ -185,8 +191,10 @@ class DashScopeAudioBackend:
     async def _fetch_audio(self, url: str, output_path: Path) -> None:
         # 日志与异常只带去掉 query 的 URL：预签名参数在有效期内等同下载凭证
         safe_url = url.split("?", 1)[0]
-        async with httpx.AsyncClient(timeout=self._http_timeout) as client:
-            resp = await client.get(url)
+        async with (
+            artifact_http_client(timeout=self._http_timeout) as client,
+            client.stream("GET", url) as resp,
+        ):
             if resp.status_code >= 400:
                 logger.warning("DashScope 音频下载返回 %s: %s", resp.status_code, safe_url)
                 # 不用 raise_for_status：它生成的异常文本携带完整预签名 URL；
@@ -194,13 +202,14 @@ class DashScopeAudioBackend:
                 raise httpx.HTTPStatusError(
                     f"DashScope 音频下载返回 {resp.status_code}: {safe_url}",
                     request=resp.request,
-                    response=resp,
+                    response=await buffered_error_response(resp),
                 )
-            if not resp.content:
-                # 200 但空体：不写 0 字节 wav
-                raise _EmptyDownloadError(f"DashScope 音频下载返回空内容: {safe_url}")
-            # 走 run_sync_transaction 而非裸 to_thread：调用方 MediaGenerator.generate_audio_async
-            # 的 finally 会 unlink staging 路径，取消时线程若仍在写就会与该清理交错
-            # （POSIX 下写出孤儿文件，Windows 下 unlink 报 PermissionError）。写入先结算、
-            # 再放取消传出去。
-            await run_sync_transaction(output_path.write_bytes, resp.content)
+            content = await read_body_capped(resp, max_bytes=AUDIO_ARTIFACT_MAX_BYTES)
+        if not content:
+            # 200 但空体：不写 0 字节 wav
+            raise _EmptyDownloadError(f"DashScope 音频下载返回空内容: {safe_url}")
+        # 走 run_sync_transaction 而非裸 to_thread：调用方 MediaGenerator.generate_audio_async
+        # 的 finally 会 unlink staging 路径，取消时线程若仍在写就会与该清理交错
+        # （POSIX 下写出孤儿文件，Windows 下 unlink 报 PermissionError）。写入先结算、
+        # 再放取消传出去。
+        await run_sync_transaction(output_path.write_bytes, content)

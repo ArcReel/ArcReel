@@ -9,10 +9,9 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Protocol
 
-import httpx
-
+from lib.backends.artifact_download_guard import IMAGE_ARTIFACT_MAX_BYTES, artifact_http_client
 from lib.backends.data_uri import image_to_data_uri as _image_to_data_uri
-from lib.backends.video_backends.base import IMAGE_MIME_TYPES, redacted_status_error
+from lib.backends.video_backends.base import IMAGE_MIME_TYPES, stream_to_file
 
 
 def image_to_base64_data_uri(image_path: Path) -> str:
@@ -21,21 +20,9 @@ def image_to_base64_data_uri(image_path: Path) -> str:
 
 
 async def download_image_to_path(url: str, output_path: Path, *, timeout: int = 60) -> None:  # noqa: ASYNC109 -- 转交 httpx 的 I/O 超时配置，非 async 取消 deadline
-    """从 URL 异步下载图片到本地文件。"""
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(url, timeout=timeout)
-        try:
-            resp.raise_for_status()
-        except httpx.HTTPStatusError as exc:
-            # 产物地址的查询串可能是签名，也可能是按 query 传的凭证——都不该进日志与任务记录。
-            raise redacted_status_error(exc) from None
-        content = resp.content
-
-    def _save() -> None:
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        output_path.write_bytes(content)
-
-    await asyncio.to_thread(_save)
+    """从 URL 异步流式下载图片到本地文件；目的地与体积受产物下载入口约束。"""
+    async with artifact_http_client() as client:
+        await stream_to_file(client, url, output_path, max_bytes=IMAGE_ARTIFACT_MAX_BYTES, timeout=timeout)
 
 
 async def save_image_from_response_item(item, output_path: Path) -> None:

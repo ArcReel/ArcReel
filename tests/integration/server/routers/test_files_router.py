@@ -1,6 +1,8 @@
 import dataclasses
 import json
+import os
 import shutil
+import sys
 from io import BytesIO
 from pathlib import Path
 from typing import ClassVar
@@ -101,8 +103,7 @@ class TestFilesRouter:
             assert any(item["name"] == "chapter.txt" for item in listed.json()["files"]["source"])
 
             served = client.get("/api/v1/files/demo/source/chapter.txt")
-            assert served.status_code == 200
-            assert served.text == "hello"
+            assert served.status_code == 404
 
             get_source = client.get("/api/v1/projects/demo/source/chapter.txt")
             assert get_source.status_code == 200
@@ -1197,6 +1198,7 @@ class TestFilesRouter:
             resp = client.get("/api/v1/files/demo/versions/storyboards/E1S01_v1.png")
             assert resp.status_code == 200
             assert "immutable" in resp.headers.get("cache-control", "")
+            assert resp.headers["x-content-type-options"] == "nosniff"
 
     def test_no_cache_control_without_version(self, tmp_path, monkeypatch):
         """无 ?v= 参数且非 versions 路径时不应有 immutable 头"""
@@ -1445,6 +1447,136 @@ class TestFilesRouter:
         with client:
             r = client.get("/api/v1/global-assets/character/evil.png")
             assert r.status_code == 403
+
+
+class TestPublicFileRouteServesMediaOnly:
+    """公开文件路由只放行媒体目录内的媒体扩展名文件，其余与文件不存在同形返回 404。"""
+
+    @pytest.mark.parametrize(
+        "rel_path",
+        [
+            "storyboards/scene_E1S01.png",
+            "end_frames/scene_E1S01.png",
+            "videos/scene_E1S01.mp4",
+            "reference_videos/E1U1.mp4",
+            "reference_videos/thumbnails/E1U1.jpg",
+            "thumbnails/scene_E1S01.jpg",
+            "characters/Alice.png",
+            "characters/refs/Alice.webp",
+            "characters/refs_audio/Alice.mp3",
+            "characters/derivatives/Alice/young.png",
+            "scenes/酒馆.jpeg",
+            "props/玉佩.png",
+            "products/refs/cup_1.jpg",
+            "grids/grid_1.png",
+            "audio/segment_E1S01.wav",
+            "versions/storyboards/scene_E1S01_v1_20260101T000000.png",
+            "versions/audio/segment_E1S01_v2_20260101T000000.wav",
+            "style_reference.png",
+        ],
+    )
+    def test_media_file_is_served_with_nosniff(self, tmp_path, monkeypatch, rel_path):
+        client, pm = _client(monkeypatch, tmp_path)
+        target = pm.get_project_path("demo") / rel_path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(b"media-bytes")
+
+        with client:
+            resp = client.get(f"/api/v1/files/demo/{rel_path}")
+        assert resp.status_code == 200
+        assert resp.content == b"media-bytes"
+        assert resp.headers["x-content-type-options"] == "nosniff"
+
+    @pytest.mark.parametrize(
+        "rel_path",
+        [
+            "project.json",
+            "scripts/episode_1.json",
+            "source/chapter.txt",
+            "drafts/episode_1/step1_segments.md",
+            "subtitles/episode_1/segments.json",
+            "output/final.mp4",
+            "versions/versions.json",
+            "grids/grid_1.json",
+            "storyboards/page.html",
+            "storyboards/page.htm",
+            "characters/icon.svg",
+            "videos/meta.xml",
+            "audio/notes.txt",
+            "thumbnails/app.js",
+            "versions/scripts/episode_1.png",
+            "versions/scene_E1S01.png",
+            "style_reference.svg",
+            "style_reference.mp4",
+            "STYLE_REFERENCE.png",
+            "Storyboards/scene_E1S01.png",
+            "videos/scene_E1S01.webm",
+            "cover.png",
+            ".claude/settings.json",
+        ],
+    )
+    def test_non_media_file_returns_404(self, tmp_path, monkeypatch, rel_path):
+        client, pm = _client(monkeypatch, tmp_path)
+        target = pm.get_project_path("demo") / rel_path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(b"content")
+
+        with client:
+            resp = client.get(f"/api/v1/files/demo/{rel_path}")
+        assert resp.status_code == 404
+        assert b"content" not in resp.content
+
+    def test_non_media_file_and_missing_file_share_not_found_response(self, tmp_path, monkeypatch):
+        client, _ = _client(monkeypatch, tmp_path)
+        not_found = zh_errors.MESSAGES["file_not_found"]
+
+        with client:
+            existing = client.get("/api/v1/files/demo/project.json")
+            missing = client.get("/api/v1/files/demo/missing.json")
+        assert existing.status_code == missing.status_code == 404
+        assert existing.json() == {"detail": not_found.format(path="project.json")}
+        assert missing.json() == {"detail": not_found.format(path="missing.json")}
+
+    def test_media_named_symlink_to_non_media_file_returns_404(self, tmp_path, monkeypatch):
+        if sys.platform == "win32":
+            pytest.skip("symlinks require admin on Windows")
+        client, pm = _client(monkeypatch, tmp_path)
+        project_dir = pm.get_project_path("demo")
+        link = project_dir / "storyboards" / "scene_E1S01.png"
+        link.parent.mkdir(parents=True, exist_ok=True)
+        os.symlink(project_dir / "project.json", link)
+
+        with client:
+            resp = client.get("/api/v1/files/demo/storyboards/scene_E1S01.png")
+        assert resp.status_code == 404
+
+    def test_extension_check_is_case_insensitive(self, tmp_path, monkeypatch):
+        client, pm = _client(monkeypatch, tmp_path)
+        target = pm.get_project_path("demo") / "storyboards" / "scene_E1S01.PNG"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(b"img")
+
+        with client:
+            resp = client.get("/api/v1/files/demo/storyboards/scene_E1S01.PNG")
+        assert resp.status_code == 200
+
+    def test_global_asset_media_is_served_with_nosniff(self, tmp_path, monkeypatch):
+        client, pm = _client(monkeypatch, tmp_path)
+        (pm.get_global_assets_root() / "character" / "abc.webp").write_bytes(b"img")
+
+        with client:
+            resp = client.get("/api/v1/global-assets/character/abc.webp")
+        assert resp.status_code == 200
+        assert resp.headers["x-content-type-options"] == "nosniff"
+
+    @pytest.mark.parametrize("filename", ["abc.svg", "abc.html", "abc.json", "abc.txt"])
+    def test_global_asset_non_media_returns_404(self, tmp_path, monkeypatch, filename):
+        client, pm = _client(monkeypatch, tmp_path)
+        (pm.get_global_assets_root() / "character" / filename).write_bytes(b"content")
+
+        with client:
+            resp = client.get(f"/api/v1/global-assets/character/{filename}")
+        assert resp.status_code == 404
 
 
 # ==================== Source 多格式上传 ====================

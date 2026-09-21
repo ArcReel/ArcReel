@@ -12,6 +12,11 @@ from typing import Any, cast
 import httpx
 import pytest
 
+from lib.backends.artifact_download_guard import (
+    VIDEO_ARTIFACT_MAX_BYTES,
+    ArtifactDestinationRejectedError,
+    ArtifactTooLargeError,
+)
 from lib.backends.video_backends.base import (
     VIDEO_POLL_MAX_CONSECUTIVE_FAILURES,
     ProviderResponseStage,
@@ -370,6 +375,38 @@ class TestGenerate:
         assert "x-api-key" not in followed.calls.last.request.headers
         # 同源那一跳仍要带上，否则套了反代的部署一条都发不出去。
         assert upload.calls.last.request.headers["x-api-key"] == "secret"
+
+    async def test_view_redirect_to_a_link_local_address_is_not_followed(self, tmp_path: Path):
+        metadata = "http://169.254.169.254/latest/"
+        with capture_http() as router, bounded_poll_clock(), captured_provider_job_ids():
+            router.post(f"{BASE_URL}/prompt").mock(return_value=httpx.Response(200, json={"prompt_id": "p-1"}))
+            router.get(f"{BASE_URL}/history/p-1").mock(
+                return_value=httpx.Response(200, json=_history({"9": _video_output()}))
+            )
+            view = router.get(f"{BASE_URL}/view").mock(return_value=httpx.Response(302, headers={"location": metadata}))
+            target = router.get(metadata).mock(return_value=httpx.Response(200, content=b"mp4"))
+
+            with pytest.raises(ArtifactDestinationRejectedError):
+                await _backend().generate(_request(tmp_path))
+
+        assert view.call_count == 1
+        assert target.call_count == 0
+
+    async def test_view_body_over_the_video_limit_is_aborted(self, tmp_path: Path):
+        oversized = {"Content-Length": str(VIDEO_ARTIFACT_MAX_BYTES + 1)}
+        request = _request(tmp_path)
+        with capture_http() as router, bounded_poll_clock(), captured_provider_job_ids():
+            router.post(f"{BASE_URL}/prompt").mock(return_value=httpx.Response(200, json={"prompt_id": "p-1"}))
+            router.get(f"{BASE_URL}/history/p-1").mock(
+                return_value=httpx.Response(200, json=_history({"9": _video_output()}))
+            )
+            view = router.get(f"{BASE_URL}/view").mock(return_value=httpx.Response(200, headers=oversized, content=b""))
+
+            with pytest.raises(ArtifactTooLargeError):
+                await _backend().generate(request)
+
+        assert view.call_count == 1
+        assert not request.output_path.exists()
 
     async def test_a_same_origin_redirect_keeps_the_query_credential(self, tmp_path: Path):
         """``Location`` 整串替换查询串，凭证不补回就会在一次 ``/view`` → ``/view/`` 规范化跳转上丢掉。"""

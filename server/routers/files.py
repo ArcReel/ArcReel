@@ -7,6 +7,7 @@
 import asyncio
 import json
 import logging
+import os
 import shutil
 import tempfile
 from collections.abc import Callable
@@ -58,9 +59,55 @@ from server.services.project.script_review import ScriptReviewError, ScriptRevie
 
 router = APIRouter()
 
-# 公开端点：前端经 <img src> / <video src> 加载，浏览器原生请求带不了 Authorization header。
-# 两者都有 safe_join 路径穿越防护，但内容本身对未认证请求可读。
+_IMAGE_EXTS: tuple[str, ...] = (".png", ".jpg", ".jpeg", ".webp")
+
+# 公开端点：前端经 <img src> / <video src> / <audio src> 加载，浏览器原生请求带不了
+# Authorization header。按 ADR 0071「静态媒体维持匿名可读」，公开端点只放行媒体：
+# 路径先经 safe_join 收在根目录内，再须同时满足下方的目录白名单与扩展名白名单。
 public_router = APIRouter()
+
+# 公开端点可读的媒体范围，是 ADR 0071「静态媒体」在实现上的唯一定义处。
+# 目录：项目内由生成/上传流程写入、前端以媒体元素直接引用的子目录，含其嵌套子目录
+# （characters/refs、characters/refs_audio、characters/derivatives、products/refs、
+# reference_videos/thumbnails 等）；versions/ 下只放行这些目录各自的快照桶。
+PUBLIC_MEDIA_DIRS: frozenset[str] = frozenset(
+    {
+        "storyboards",
+        "end_frames",
+        "videos",
+        "reference_videos",
+        "thumbnails",
+        "characters",
+        "scenes",
+        "props",
+        "products",
+        "grids",
+        "audio",
+    }
+)
+PUBLIC_VERSIONS_DIR = "versions"
+# 项目根目录下唯一的媒体文件：风格参考图（仅图片扩展名）
+PUBLIC_ROOT_MEDIA_STEM = "style_reference"
+# 扩展名：仅图片 / 视频 / 音频，不区分大小写；同目录下的 .json 等元数据文件不在其列。
+# 目录名与根文件名区分大小写。
+PUBLIC_MEDIA_EXTENSIONS: frozenset[str] = frozenset({*_IMAGE_EXTS, ".mp4", ".wav", ".mp3"})
+# 公开端点的所有文件响应都禁止浏览器按内容嗅探 MIME
+_PUBLIC_FILE_HEADERS: dict[str, str] = {"X-Content-Type-Options": "nosniff"}
+
+
+def is_public_media_path(relative_parts: tuple[str, ...]) -> bool:
+    """项目内相对路径（按段拆分）是否属于公开端点可读的媒体。"""
+    if not relative_parts:
+        return False
+    name = Path(relative_parts[-1])
+    if name.suffix.lower() not in PUBLIC_MEDIA_EXTENSIONS:
+        return False
+    if len(relative_parts) == 1:
+        return name.stem == PUBLIC_ROOT_MEDIA_STEM and name.suffix.lower() in _IMAGE_EXTS
+    top = relative_parts[0]
+    if top == PUBLIC_VERSIONS_DIR:
+        return len(relative_parts) >= 3 and relative_parts[1] in PUBLIC_MEDIA_DIRS
+    return top in PUBLIC_MEDIA_DIRS
 
 
 def _require_filename(file: UploadFile, _t: Callable[..., str]) -> str:
@@ -68,8 +115,6 @@ def _require_filename(file: UploadFile, _t: Callable[..., str]) -> str:
         raise HTTPException(status_code=400, detail=_t("missing_filename"))
     return file.filename
 
-
-_IMAGE_EXTS: tuple[str, ...] = (".png", ".jpg", ".jpeg", ".webp")
 
 # 落盘文件名策略
 #   stable_png — 稳定单图名 `{name}.png`（实际后缀由图片归一化结果决定）
@@ -198,7 +243,7 @@ ALLOWED_EXTENSIONS = {upload_type: list(spec.allowed_exts) for upload_type, spec
 
 @public_router.get("/files/{project_name}/{path:path}")
 async def serve_project_file(project_name: str, path: str, request: Request, _t: Translator):
-    """服务项目内的静态文件（图片/视频）"""
+    """服务项目内的媒体文件（图片/视频/音频），范围见 ``is_public_media_path``"""
     try:
 
         def _sync():
@@ -211,7 +256,10 @@ async def serve_project_file(project_name: str, path: str, request: Request, _t:
             except PathTraversalError as exc:
                 raise HTTPException(status_code=403, detail=_t("forbidden_access")) from exc
 
-            if not file_path.exists():
+            # 媒体范围按解析后的真实路径判定（symlink 指向非媒体文件同样拒绝）；
+            # 非媒体与文件不存在同形返回 404
+            relative_parts = file_path.relative_to(os.path.realpath(project_dir)).parts
+            if not is_public_media_path(relative_parts) or not file_path.is_file():
                 raise HTTPException(status_code=404, detail=_t("file_not_found", path=path))
 
             return file_path
@@ -219,7 +267,7 @@ async def serve_project_file(project_name: str, path: str, request: Request, _t:
         file_path = await asyncio.to_thread(_sync)
 
         # 内容寻址缓存：带 ?v= 参数或 versions/ 路径时设 immutable
-        headers = {}
+        headers = dict(_PUBLIC_FILE_HEADERS)
         if request.query_params.get("v") or path.startswith("versions/"):
             headers["Cache-Control"] = "public, max-age=31536000, immutable"
 
@@ -230,7 +278,7 @@ async def serve_project_file(project_name: str, path: str, request: Request, _t:
 
 @public_router.get("/global-assets/{asset_type}/{filename}")
 async def serve_global_asset(asset_type: str, filename: str, _t: Translator):
-    """服务 _global_assets 下的全局资产图片（仅全局库类型：character/scene/prop）"""
+    """服务 _global_assets 下的全局资产媒体文件（仅全局库类型：character/scene/prop）"""
     if asset_type not in GLOBAL_LIBRARY_ASSET_TYPES:
         raise HTTPException(status_code=400, detail=_t("invalid_asset_type"))
     if "/" in filename or ".." in filename:
@@ -244,10 +292,10 @@ async def serve_global_asset(asset_type: str, filename: str, _t: Translator):
     except PathTraversalError as exc:
         raise HTTPException(status_code=403, detail=_t("forbidden_access")) from exc
 
-    if not path.is_file():
+    if path.suffix.lower() not in PUBLIC_MEDIA_EXTENSIONS or not path.is_file():
         raise HTTPException(status_code=404, detail=_t("file_not_found", path=filename))
 
-    return FileResponse(str(path))
+    return FileResponse(str(path), headers=_PUBLIC_FILE_HEADERS)
 
 
 @router.post("/projects/{project_name}/upload/{upload_type}")

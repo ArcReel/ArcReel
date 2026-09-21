@@ -30,6 +30,7 @@ from uuid import uuid4
 
 import httpx
 
+from lib.backends.artifact_download_guard import artifact_http_client
 from lib.backends.video_backends.base import (
     ProviderJobIdPersistenceMixin,
     ResumeExpiredError,
@@ -100,7 +101,7 @@ class ComfyuiVideoBackend(ProviderJobIdPersistenceMixin):
 
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
         job_label = request.task_id or self._job_label or uuid4().hex
-        async with httpx.AsyncClient(timeout=HTTP_TIMEOUT_SECONDS, follow_redirects=True) as http:
+        async with artifact_http_client(timeout=HTTP_TIMEOUT_SECONDS, follow_redirects=True) as http:
             media = await self._upload_media(http, request, job_label=job_label)
             built = build_workflow(
                 self._definition,
@@ -148,7 +149,7 @@ class ComfyuiVideoBackend(ProviderJobIdPersistenceMixin):
         submitted = request.submitted_base_url
         if submitted and submitted != self._base_url:
             return await self._bound_to(submitted).resume_video(job_id, request)
-        async with httpx.AsyncClient(timeout=HTTP_TIMEOUT_SECONDS, follow_redirects=True) as http:
+        async with artifact_http_client(timeout=HTTP_TIMEOUT_SECONDS, follow_redirects=True) as http:
             picked = await self._execution.fetch_artifact(
                 http,
                 job_id,
