@@ -1,4 +1,4 @@
-"""TaskRepository SQL WHERE 守卫状态机测试（ADR 0006）。
+"""TaskRepository SQL WHERE 守卫状态机测试。
 
 只验证外部可观察行为：合法源 → rows=1 + DB 变化；非法源 → rows=0 + DB 不变。
 """
@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import pytest
 
-from lib.db.repositories.task_repo import TaskRepository
+from lib.db.repositories.task_repo import TaskNotCancellableError, TaskRepository
 
 
 @pytest.mark.asyncio
@@ -54,26 +54,7 @@ class TestRepoStateMachineGuards:
         assert rows == 1
         assert (await repo.get(t["task_id"]))["status"] == "failed"
 
-    async def test_mark_cancelling_only_from_running(self, db_session):
-        repo = TaskRepository(db_session)
-        t = await repo.enqueue(
-            project_name="demo",
-            task_type="storyboard",
-            media_type="image",
-            resource_id="r1",
-            payload={},
-            script_file="ep1.json",
-        )
-        # queued → 0 rows
-        affected = await repo._mark_cancelling(t["task_id"])
-        assert affected == 0
-
-        await repo.claim_next("image")
-        affected = await repo._mark_cancelling(t["task_id"])
-        assert affected == 1
-        assert (await repo.get(t["task_id"]))["status"] == "cancelling"
-
-    async def test_finalize_cancelled_accepts_queued_or_cancelling(self, db_session):
+    async def test_finalize_interrupted_accepts_queued(self, db_session):
         repo = TaskRepository(db_session)
         t = await repo.enqueue(
             project_name="demo",
@@ -84,31 +65,12 @@ class TestRepoStateMachineGuards:
             script_file="ep1.json",
         )
         # queued → cancelled
-        result = await repo.finalize_cancelled(t["task_id"], cancelled_by="user")
-        assert result["rows"] == 1
-        assert result["cancelling"] == []
+        assert await repo.finalize_interrupted(t["task_id"]) == 1
         assert (await repo.get(t["task_id"]))["status"] == "cancelled"
         # 重复调 → 0 rows
-        result = await repo.finalize_cancelled(t["task_id"], cancelled_by="user")
-        assert result["rows"] == 0
+        assert await repo.finalize_interrupted(t["task_id"]) == 0
 
-    async def test_finalize_cancelled_from_cancelling(self, db_session):
-        repo = TaskRepository(db_session)
-        t = await repo.enqueue(
-            project_name="demo",
-            task_type="storyboard",
-            media_type="image",
-            resource_id="r1",
-            payload={},
-            script_file="ep1.json",
-        )
-        await repo.claim_next("image")
-        await repo._mark_cancelling(t["task_id"])
-        result = await repo.finalize_cancelled(t["task_id"], cancelled_by="user")
-        assert result["rows"] == 1
-        assert (await repo.get(t["task_id"]))["status"] == "cancelled"
-
-    async def test_finalize_cancelled_rejects_terminal(self, db_session):
+    async def test_finalize_interrupted_rejects_terminal(self, db_session):
         """从 succeeded/failed 等终态不可转入 cancelled。"""
         repo = TaskRepository(db_session)
         t = await repo.enqueue(
@@ -121,11 +83,10 @@ class TestRepoStateMachineGuards:
         )
         await repo.claim_next("image")
         await repo.mark_succeeded(t["task_id"], {"x": 1})
-        result = await repo.finalize_cancelled(t["task_id"], cancelled_by="user")
-        assert result["rows"] == 0
+        assert await repo.finalize_interrupted(t["task_id"]) == 0
         assert (await repo.get(t["task_id"]))["status"] == "succeeded"
 
-    async def test_cancel_task_running_returns_cancelling_intent(self, db_session):
+    async def test_cancel_task_rejects_running_and_leaves_it_running(self, db_session):
         repo = TaskRepository(db_session)
         t = await repo.enqueue(
             project_name="demo",
@@ -136,27 +97,14 @@ class TestRepoStateMachineGuards:
             script_file="ep1.json",
         )
         await repo.claim_next("image")
-        result = await repo.cancel_task(t["task_id"])
-        assert result["cancelling"] == [t["task_id"]]
-        assert result["cancelled"] == []
-        assert (await repo.get(t["task_id"]))["status"] == "cancelling"
+        with pytest.raises(TaskNotCancellableError) as exc_info:
+            await repo.cancel_task(t["task_id"])
+        assert exc_info.value.task_id == t["task_id"]
+        assert (await repo.get(t["task_id"]))["status"] == "running"
 
-    async def test_cancel_task_cancelling_is_idempotent(self, db_session):
-        repo = TaskRepository(db_session)
-        t = await repo.enqueue(
-            project_name="demo",
-            task_type="storyboard",
-            media_type="image",
-            resource_id="r1",
-            payload={},
-            script_file="ep1.json",
-        )
-        await repo.claim_next("image")
-        await repo._mark_cancelling(t["task_id"])
-        # 已 cancelling → 幂等：不再加入 cancelling 列表
-        result = await repo.cancel_task(t["task_id"])
-        assert result["cancelling"] == []
-        assert result["cancelled"] == []
+        # 被拒绝的取消不改变执行：任务照常收尾为 succeeded
+        assert await repo.mark_succeeded(t["task_id"], {"x": 1}) == 1
+        assert (await repo.get(t["task_id"]))["status"] == "succeeded"
 
     async def test_cancel_task_terminal_is_skipped(self, db_session):
         repo = TaskRepository(db_session)
@@ -171,9 +119,8 @@ class TestRepoStateMachineGuards:
         await repo.claim_next("image")
         await repo.mark_succeeded(t["task_id"], {"x": 1})
         result = await repo.cancel_task(t["task_id"])
-        assert len(result["skipped_terminal"]) == 1
-        assert result["cancelling"] == []
-        assert result["cancelled"] == []
+        assert result == {"cancelled": [], "skipped_terminal": [result["skipped_terminal"][0]]}
+        assert result["skipped_terminal"][0]["task_id"] == t["task_id"]
 
     async def test_persist_provider_job_id_writes_column(self, db_session):
         repo = TaskRepository(db_session)
@@ -315,7 +262,7 @@ class TestRepoStateMachineGuards:
         assert refreshed["execution_checkpoint_json"] == "first"
         assert refreshed["provider_id"] == "provider-a"
 
-    async def test_list_orphan_returns_running_and_cancelling(self, db_session):
+    async def test_list_orphan_returns_running_only(self, db_session):
         repo = TaskRepository(db_session)
         t1 = await repo.enqueue(
             project_name="demo",
@@ -334,12 +281,11 @@ class TestRepoStateMachineGuards:
             script_file="ep1.json",
         )
         await repo.claim_next("image")
-        await repo.claim_next("video")
-        await repo._mark_cancelling(t2["task_id"])
 
         orphans = await repo.list_orphan_tasks_on_start()
         statuses = {o["task_id"]: o["status"] for o in orphans}
-        assert statuses == {t1["task_id"]: "running", t2["task_id"]: "cancelling"}
+        assert statuses == {t1["task_id"]: "running"}
+        assert (await repo.get(t2["task_id"]))["status"] == "queued"
 
     async def test_claim_next_excludes_pool_full_providers(self, db_session):
         """claim_next 用 pool_full_providers 黑名单：排除池满 provider；NULL 和未知 provider 不受影响。"""
@@ -420,13 +366,8 @@ class TestRepoStateMachineGuards:
         assert claimed is not None
         assert claimed["task_id"] == reference["task_id"]
 
-    async def test_finalize_cancelled_from_running(self, db_session):
-        """finalize_cancelled 也能从 running 直接落 cancelled。
-
-        进程级 cancel（SIGTERM / asyncio.Task.cancel 直接打到 running）跳过 cancelling
-        中间态，靠 finalize_cancelled 的 SQL 守卫 IN ('queued','cancelling','running') 兜底。
-        守卫被改动时这条用例先红。
-        """
+    async def test_finalize_interrupted_from_running(self, db_session):
+        """进程级打断把 running 直接落 cancelled，任务不会停在 running 被重启自愈反复拉起。"""
         repo = TaskRepository(db_session)
         t = await repo.enqueue(
             project_name="demo",
@@ -441,9 +382,7 @@ class TestRepoStateMachineGuards:
         assert claimed is not None
         assert claimed["task_id"] == t["task_id"]
 
-        # running → finalize_cancelled 直接落 cancelled，不需要走 cancelling
-        result = await repo.finalize_cancelled(t["task_id"], cancelled_by="user")
-        assert result["rows"] == 1
+        assert await repo.finalize_interrupted(t["task_id"]) == 1
         final = await repo.get(t["task_id"])
         assert final["status"] == "cancelled"
         assert final["cancelled_by"] == "user"

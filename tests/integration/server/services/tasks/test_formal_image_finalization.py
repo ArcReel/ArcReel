@@ -1,6 +1,5 @@
 """Tests for formal_image_finalization."""
 
-import asyncio
 import json
 import threading
 
@@ -9,10 +8,8 @@ import pytest
 from lib.artifacts.artifact_manifest import (
     ArtifactBasis,
     ArtifactKey,
-    ArtifactManifest,
     ProjectArtifactManifestAdapter,
 )
-from lib.generation.generation_queue import CompensableGenerationResult
 from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from server.services.tasks import generation_tasks
 from tests.fakes import hook_claim_recheck
@@ -198,7 +195,6 @@ class TestGenerationTasks:
             project_path=project_path,
             grid_manager=manager,
             grid=grid,
-            initial_grid=grid.to_dict(),
             resource_id=grid.id,
             prompt="grid",
             versions=VersionManager(project_path),
@@ -486,13 +482,9 @@ class TestGenerationTasks:
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
         monkeypatch.setattr(generation_tasks, "resolve_generation_context", fake_resolve_ctx(fake_generator))
 
-        class _Receipt:
-            def compensate_cancelled(self) -> None:
-                pass
-
         def _register(*_args, **kwargs):
             captured.append(kwargs["basis"])
-            return _Receipt()
+            return True
 
         monkeypatch.setattr(generation_tasks, "register_task_current_resource_artifact", _register)
 
@@ -550,13 +542,9 @@ class TestGenerationTasks:
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
         monkeypatch.setattr(generation_tasks, "resolve_generation_context", fake_resolve_ctx(fake_generator))
 
-        class _Receipt:
-            def compensate_cancelled(self) -> None:
-                pass
-
         def _register(*_args, **kwargs):
             captured.append(kwargs["basis"])
-            return _Receipt()
+            return True
 
         monkeypatch.setattr(generation_tasks, "register_task_current_resource_artifact", _register)
 
@@ -651,171 +639,6 @@ class TestGenerationTasks:
             aspect_ratio="16:9",
         )
         assert ArtifactBasis.from_evidence_dict(record["artifact_image_basis"]) == expected
-
-    async def test_storyboard_cancellation_waits_for_registration_and_returns_compensation(self, tmp_path, monkeypatch):
-        project_path = prepare_files(tmp_path)
-        fake_pm = _FakePM(project_path)
-        fake_generator = FakeGenerator()
-        registration_started = threading.Event()
-        finish_registration = threading.Event()
-        compensated: list[str] = []
-
-        class _Receipt:
-            def compensate_cancelled(self) -> None:
-                compensated.append("manifest")
-
-        def _register(*_args, **_kwargs):
-            registration_started.set()
-            assert finish_registration.wait(timeout=5)
-            return _Receipt()
-
-        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
-        monkeypatch.setattr(generation_tasks, "resolve_generation_context", fake_resolve_ctx(fake_generator))
-        monkeypatch.setattr(generation_tasks, "register_current_resource_artifact", _register)
-        monkeypatch.setattr(generation_tasks, "register_task_current_resource_artifact", _register, raising=False)
-
-        task = asyncio.create_task(
-            generation_tasks.execute_storyboard_task(
-                "demo",
-                "E1S01",
-                {"script_file": "episode_1.json", "prompt": "direct prompt"},
-                task_id="storyboard-task",
-            )
-        )
-        assert await asyncio.to_thread(registration_started.wait, 5)
-        task.cancel()
-        finish_registration.set()
-
-        result = await task
-
-        assert isinstance(result, CompensableGenerationResult)
-        result.compensate_cancelled()
-        assert compensated == ["manifest"]
-
-    async def test_storyboard_cancellation_restores_selected_media_version_and_metadata(self, tmp_path, monkeypatch):
-        from lib.artifacts.version_manager import VersionManager
-        from lib.project.project_manager import ProjectManager
-
-        projects_root = tmp_path / "projects"
-        pm = ProjectManager(projects_root)
-        pm.create_project("demo")
-        pm.create_project_metadata("demo", "Demo", "Anime", "narration")
-        pm.add_episode("demo", 1, "E1", "scripts/episode_1.json")
-        pm.save_script(
-            "demo",
-            {
-                "episode": 1,
-                "content_mode": "narration",
-                "segments": [
-                    {
-                        "segment_id": "E1S01",
-                        "novel_text": "旁白",
-                        "image_prompt": "queued prompt",
-                        "generated_assets": {"storyboard_image": "storyboards/old.png", "status": "pending"},
-                    }
-                ],
-            },
-            "episode_1.json",
-            validate=False,
-        )
-        project_path = pm.get_project_path("demo")
-        current = project_path / "storyboards" / "scene_E1S01.png"
-        current.parent.mkdir(parents=True, exist_ok=True)
-        current.write_bytes(b"old-image")
-        version_manager = VersionManager(project_path)
-        old_version = version_manager.add_version("storyboards", "E1S01", "old", source_file=current)
-        current.write_bytes(b"cancelled-image")
-        selected_version = version_manager.add_version("storyboards", "E1S01", "new", source_file=current)
-
-        class _Generator:
-            versions = version_manager
-
-            async def generate_image_async(self, **_kwargs):
-                return current, selected_version
-
-        compensated: list[str] = []
-
-        class _Receipt:
-            def compensate_cancelled(self) -> None:
-                compensated.append("manifest")
-
-        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: pm)
-        monkeypatch.setattr(generation_tasks, "resolve_generation_context", fake_resolve_ctx(_Generator()))
-        monkeypatch.setattr(generation_tasks, "register_task_current_resource_artifact", lambda *_a, **_kw: _Receipt())
-        ArtifactManifest(ProjectArtifactManifestAdapter(project_path)).register(
-            ArtifactKey.episode_script(1),
-            artifact_path="scripts/episode_1.json",
-            basis=ArtifactBasis.build("test/episode-script", kind_version=1, inputs={}),
-        )
-
-        result = await generation_tasks.execute_storyboard_task(
-            "demo",
-            "E1S01",
-            {"script_file": "episode_1.json", "prompt": "queued prompt"},
-            task_id="storyboard-task",
-        )
-        committed = pm.load_script("demo", "episode_1.json")["segments"][0]["generated_assets"]
-        assert committed["storyboard_image"] == "storyboards/scene_E1S01.png"
-        assert version_manager.get_current_version("storyboards", "E1S01") == selected_version
-
-        assert isinstance(result, CompensableGenerationResult)
-        result.compensate_cancelled()
-
-        restored = pm.load_script("demo", "episode_1.json")["segments"][0]["generated_assets"]
-        assert restored == {"storyboard_image": "storyboards/old.png", "status": "pending"}
-        assert version_manager.get_current_version("storyboards", "E1S01") == old_version
-        assert current.read_bytes() == b"old-image"
-        assert compensated == ["manifest"]
-
-    async def test_asset_sheet_cancellation_uses_the_same_full_selection_compensation(self, tmp_path, monkeypatch):
-        from lib.artifacts.version_manager import VersionManager
-        from lib.project.project_manager import ProjectManager
-
-        pm = ProjectManager(tmp_path / "projects")
-        pm.create_project("demo")
-        pm.create_project_metadata("demo", "Demo", "Anime", "narration")
-        pm.add_character("demo", "Alice", "hero")
-
-        def _set_old_sheet(project):
-            project["characters"]["Alice"]["character_sheet"] = "characters/old.png"
-
-        pm.update_project("demo", _set_old_sheet)
-        project_path = pm.get_project_path("demo")
-        current = project_path / "characters" / "Alice.png"
-        current.parent.mkdir(parents=True, exist_ok=True)
-        current.write_bytes(b"old-sheet")
-        version_manager = VersionManager(project_path)
-        old_version = version_manager.add_version("characters", "Alice", "old", source_file=current)
-        current.write_bytes(b"cancelled-sheet")
-        selected_version = version_manager.add_version("characters", "Alice", "new", source_file=current)
-
-        class _Generator:
-            versions = version_manager
-
-        class _Receipt:
-            def compensate_cancelled(self) -> None:
-                pass
-
-        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: pm)
-        monkeypatch.setattr(generation_tasks, "register_task_current_resource_artifact", lambda *_a, **_kw: _Receipt())
-
-        _created_at, receipt = await generation_tasks._finalize_asset_sheet_task(
-            asset_type="character",
-            project_name="demo",
-            resource_id="Alice",
-            sheet_path="characters/Alice.png",
-            generator=_Generator(),
-            version=selected_version,
-            task_id="character-task",
-        )
-        assert receipt is not None
-        assert pm.load_project("demo")["characters"]["Alice"]["character_sheet"] == "characters/Alice.png"
-
-        receipt.compensate_cancelled()
-
-        assert pm.load_project("demo")["characters"]["Alice"]["character_sheet"] == "characters/old.png"
-        assert version_manager.get_current_version("characters", "Alice") == old_version
-        assert current.read_bytes() == b"old-sheet"
 
     async def test_asset_generation_registration_failure_never_exposes_uncommitted_image(self, tmp_path, monkeypatch):
         from lib.artifacts.version_manager import VersionManager

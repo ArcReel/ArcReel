@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from pathlib import Path
 
 import httpx
@@ -951,7 +952,7 @@ async def test_remote_mcp_text_generation_and_script_patch_return_structured_con
     assert patched.structuredContent["script_patch"]["problems"][0]["code"] == "revision_conflict"
 
 
-async def test_text_task_is_shared_by_remote_and_embedded_hosts_and_cancelled_best_effort(
+async def test_text_task_is_shared_by_remote_and_embedded_hosts_and_running_member_is_not_cancellable(
     tmp_path: Path, file_db_factory
 ) -> None:
     class RecordingQueue(GenerationQueue):
@@ -986,17 +987,17 @@ async def test_text_task_is_shared_by_remote_and_embedded_hosts_and_cancelled_be
         token_verifier=ArcApiKeyVerifier(verify_api_key),
     )
     started = asyncio.Event()
-    cancelled = asyncio.Event()
+    interrupted = asyncio.Event()
     release = asyncio.Event()
 
-    async def noninterruptible_text(_task, *, claimed_provider_id=None):
+    async def blocking_text(_task, *, claimed_provider_id=None):
         del claimed_provider_id
         started.set()
         try:
             await release.wait()
         except asyncio.CancelledError:
-            cancelled.set()
-            await release.wait()
+            interrupted.set()
+            raise
         return {"message": "done"}
 
     async def text_provider(_task):
@@ -1006,12 +1007,11 @@ async def test_text_task_is_shared_by_remote_and_embedded_hosts_and_cancelled_be
         queue=queue,
         capacity=CapacityTable(_limits={}, _defaults={"text": 1}),
         provider_projection=text_provider,
-        executor=noninterruptible_text,
+        executor=blocking_text,
         lanes=("text",),
     )
     worker.poll_interval = 0.01
     worker.heartbeat_interval = 0.01
-    queue.set_worker_cancel_callback(worker.request_cancel)
     await worker.start()
 
     app = _mounted(server)
@@ -1048,26 +1048,32 @@ async def test_text_task_is_shared_by_remote_and_embedded_hosts_and_cancelled_be
             cancel_result = await session.call_tool(
                 "cancel_generation_batch", {"project": "demo", "batch_id": remote_batch["batch_id"]}
             )
-            await cancelled.wait()
+            task_id = remote_batch["members"][0]["task_id"]
+            still_running = await queue.get_task(task_id)
             release.set()
             embedded_result = await embedded
             terminal = await session.call_tool(
                 "get_generation_batch", {"project": "demo", "batch_id": remote_batch["batch_id"]}
             )
 
-        assert cancel_result.structuredContent["generation_batch_cancellation"]["cancelling"] == [
-            remote_batch["members"][0]["task_id"]
-        ]
-        assert embedded_result["problem"]["code"] == "generation_task_cancelled"
+        assert not cancel_result.isError
+        assert cancel_result.structuredContent["generation_batch_cancellation"] == {
+            "cancelled": [],
+            "skipped_running": [task_id],
+            "skipped_terminal": [],
+        }
+        assert still_running is not None
+        assert still_running["status"] == "running"
+        assert not interrupted.is_set()
+        assert json.loads(embedded_result["content"][0]["text"])["text_generation"]["message"] == "done"
         assert terminal.structuredContent["generation_batch"]["done"] is True
-        assert terminal.structuredContent["generation_batch"]["members"][0]["status"] == "cancelled"
+        assert terminal.structuredContent["generation_batch"]["members"][0]["status"] == "succeeded"
         second = await queue.get_generation_batch(project_name="demo", batch_id=queue.batch_ids[1])
-        assert second.members[0].task_id == remote_batch["members"][0]["task_id"]
+        assert second.members[0].task_id == task_id
         assert second.members[0].deduped is True
     finally:
         release.set()
         await worker.stop()
-        queue.set_worker_cancel_callback(None)
 
 
 @pytest.mark.parametrize("tool", ["generate_script_plan", "generate_episode_script"])

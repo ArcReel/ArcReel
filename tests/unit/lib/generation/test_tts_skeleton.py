@@ -457,7 +457,7 @@ class TestWorkerAudioLane:
         claimed = await w._claim_tasks()
         assert claimed is True
         assert w._slots.occupied("dashscope", "audio") == 1
-        assert w._slots.find_by_task("T1") is not None
+        assert w._slots.active_task_ids() == {"T1"}
         await asyncio.gather(*w._slots.all_active_tasks(), return_exceptions=True)
 
 
@@ -479,7 +479,6 @@ class TestOrphanAudioRestartLost:
         class _Q:
             def __init__(self):
                 self.failed = []
-                self.cancelled = []
 
             async def list_orphan_tasks_on_start(self):
                 return [
@@ -496,9 +495,6 @@ class TestOrphanAudioRestartLost:
                 self.failed.append((task_id, error))
                 return 1
 
-            async def mark_task_cancelled(self, task_id, cancelled_by="user"):
-                self.cancelled.append(task_id)
-
         q = _Q()
         w = GenerationWorker(
             queue=q,
@@ -506,7 +502,6 @@ class TestOrphanAudioRestartLost:
         )
         await w._handle_orphan_tasks_on_start()
         assert q.failed == [("A1", "[restart_lost_audio]")]
-        assert q.cancelled == []
 
 
 class TestDeriveExecutionModelForEnqueueAudio:

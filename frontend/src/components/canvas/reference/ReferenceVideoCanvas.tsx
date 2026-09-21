@@ -327,7 +327,6 @@ export function ReferenceVideoCanvas({
   // 两条路径上 queueRow 始终非空，statusMap 的乐观分支不生效，仅看 status 会在入队到
   // 任务行落库之间的窗口内漏禁用生成按钮。
   const selectedBusy = !!(selected && busyUnitIds.has(selected.unit_id));
-  const selectedCancelling = !!(selected && tasksByUnit.get(selected.unit_id)?.status === "cancelling");
 
   const failureMessage = useMemo(() => {
     if (!selected) return null;
@@ -403,7 +402,7 @@ export function ReferenceVideoCanvas({
    * 用户既看不到缺口也失去了全有或全无的保证。
    *
    * 已有成片的单元不同：它已经不是「缺成片」的目标。任务完成后该 unit 不再 busy，而队列
-   * 去重只看 queued/running/cancelling，确认弹窗停留期间完成的单元若原样提交，会再跑一次
+   * 去重只看 queued/running，确认弹窗停留期间完成的单元若原样提交，会再跑一次
    * 生成、重复计费并覆盖刚出的成片。实时读 store 而非渲染期 units 快照。
    *
    * 本地写入（成片上传、版本恢复、时长保存）服务端看不见，也即将改写该 unit，同样排除。
@@ -1351,7 +1350,6 @@ export function ReferenceVideoCanvas({
                           status={statusMap[selected.unit_id]}
                           errorMessage={failureMessage}
                           busy={selectedBusy}
-                          cancelling={selectedCancelling}
                           estimatedCost={displayedEstimatedCost}
                           actualCost={actualCost}
                           narrationText={selectedNarrationText}
@@ -1387,7 +1385,6 @@ export function ReferenceVideoCanvas({
                   status={selected ? statusMap[selected.unit_id] : undefined}
                   errorMessage={failureMessage}
                   busy={selectedBusy}
-                  cancelling={selectedCancelling}
                   estimatedCost={displayedEstimatedCost}
                   actualCost={actualCost}
                   narrationText={selectedNarrationText}

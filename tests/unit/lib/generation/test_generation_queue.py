@@ -4,9 +4,9 @@ import asyncio
 
 import pytest
 
+from lib.db.repositories.task_repo import TaskNotCancellableError
 from lib.generation.generation_admission import generation_admission_lock
 from lib.generation.generation_queue import (
-    CompensableGenerationResult,
     GenerationQueue,
     reference_projection_for_queued_task,
 )
@@ -187,53 +187,6 @@ class TestGenerationQueue:
 
         assert duplicate["deduped"] is True
         assert duplicate["task_id"] == first["task_id"]
-
-    async def test_cancel_that_wins_completion_compensates_activated_result(self, queue):
-        task = await queue.enqueue_task(
-            project_name="demo",
-            task_type="tts",
-            media_type="audio",
-            resource_id="E1S01",
-            payload={"script_file": "episode_01.json"},
-        )
-        assert await queue.claim_next_task(media_type="audio") is not None
-        compensated: list[str] = []
-        result = CompensableGenerationResult(
-            {"file_path": "audio/segment_E1S01.wav"},
-            cancel_compensation=lambda: compensated.append("restored"),
-        )
-
-        cancelled = await queue.cancel_task(task["task_id"])
-        assert cancelled["cancelling"] == [task["task_id"]]
-        assert await queue.mark_task_succeeded(task["task_id"], result) == 0
-
-        assert compensated == ["restored"]
-
-    async def test_cancel_compensation_failure_preserves_terminal_update_contract_and_is_not_retried(self, queue):
-        task = await queue.enqueue_task(
-            project_name="demo",
-            task_type="tts",
-            media_type="audio",
-            resource_id="E1S01",
-            payload={"script_file": "episode_01.json"},
-        )
-        assert await queue.claim_next_task(media_type="audio") is not None
-        attempts = 0
-
-        def _fail_compensation() -> None:
-            nonlocal attempts
-            attempts += 1
-            raise RuntimeError("restore failed")
-
-        result = CompensableGenerationResult(
-            {"file_path": "audio/segment_E1S01.wav"},
-            cancel_compensation=_fail_compensation,
-        )
-        assert (await queue.cancel_task(task["task_id"]))["cancelling"] == [task["task_id"]]
-
-        assert await queue.mark_task_succeeded(task["task_id"], result) == 0
-        assert await queue.mark_task_succeeded(task["task_id"], result) == 0
-        assert attempts == 1
 
     async def test_reference_rate_limit_projection_ignores_narration_delivery(self, monkeypatch, tmp_path):
         seen_options = []
@@ -494,63 +447,9 @@ class TestGenerationQueue:
         assert task is not None
         assert task["provider_job_id"] == "job-abc-123"
 
-    async def test_mark_task_cancelled_wrapper(self, queue):
-        """mark_task_cancelled wrapper → repo.finalize_cancelled,SQL 守卫接住 queued/cancelling/running。"""
-        enqueued = await queue.enqueue_task(
-            project_name="demo",
-            task_type="video",
-            media_type="video",
-            resource_id="r1",
-            payload={},
-            script_file="ep1.json",
-        )
-        # 从 queued 直接落 cancelled(进程级 cancel 兜底路径)
-        rows = await queue.mark_task_cancelled(enqueued["task_id"], cancelled_by="restart")
-        assert rows == 1
-        task = await queue.get_task(enqueued["task_id"])
-        assert task is not None
-        assert task["status"] == "cancelled"
-        # 终态再调一次返回 0(SQL 守卫排除终态)
-        rows = await queue.mark_task_cancelled(enqueued["task_id"])
-        assert rows == 0
-
-    async def test_cancel_task_dispatches_worker_callback(self, queue):
-        """cancel_task 把 cancelling 列表派发给 worker_cancel_callback(秒级响应)。"""
-        # 先把任务推到 running,这样 cancel 走 cancelling 中间态
-        enqueued = await queue.enqueue_task(
-            project_name="demo",
-            task_type="video",
-            media_type="video",
-            resource_id="r1",
-            payload={},
-            script_file="ep1.json",
-        )
-        await queue.claim_next_task("video")
-
-        signaled: list[str] = []
-
-        def _fake_cancel(task_id: str) -> bool:
-            signaled.append(task_id)
-            return True
-
-        queue.set_worker_cancel_callback(_fake_cancel)
-        result = await queue.cancel_task(enqueued["task_id"])
-        # running task 应进入 cancelling
-        assert signaled == [enqueued["task_id"]]
-        assert result["cancelling"] == [enqueued["task_id"]]
-
-    async def test_finalize_cancelled_dispatches_cascade_callback(self, queue):
-        """mark_task_cancelled(finalize 入口) 把级联出的 running 子任务派发给 callback。
-
-        A(running)→B(running)→C(queued)：worker finally 调 finalize_cancelled(A)，
-        cascade 把 B 标 cancelling，须同步调 callback(B) 让 worker request_cancel(B)
-        立刻发 in-process cancel，而非等 B 跑完 provider 调用。
-        """
-        from sqlalchemy import update as sql_update
-
-        from lib.db.models.task import Task
-
-        a_task = await queue.enqueue_task(
+    async def test_mark_task_interrupted_finalizes_running_task_and_cascades_queued_dependents(self, queue):
+        """进程级打断兜底：running 任务落 cancelled，排队中下游级联取消；终态再调返回 0。"""
+        parent = await queue.enqueue_task(
             project_name="demo",
             task_type="storyboard",
             media_type="image",
@@ -558,37 +457,28 @@ class TestGenerationQueue:
             payload={},
             script_file="ep1.json",
         )
-        b_task = await queue.enqueue_task(
+        child = await queue.enqueue_task(
             project_name="demo",
             task_type="video",
             media_type="video",
             resource_id="E1S01",
             payload={},
             script_file="ep1.json",
-            dependency_task_id=a_task["task_id"],
+            dependency_task_id=parent["task_id"],
         )
+        assert await queue.claim_next_task(media_type="image") is not None
 
-        # 把 A 拉到 running、B 也直接 set 成 running（跳过 dep 守卫）
-        await queue.claim_next_task("image")
-        async with queue._session_factory() as session:
-            await session.execute(sql_update(Task).where(Task.task_id == b_task["task_id"]).values(status="running"))
-            await session.commit()
+        assert await queue.mark_task_interrupted(parent["task_id"]) == 1
 
-        signaled: list[str] = []
+        parent_row = await queue.get_task(parent["task_id"])
+        child_row = await queue.get_task(child["task_id"])
+        assert parent_row is not None
+        assert parent_row["status"] == "cancelled"
+        assert child_row is not None
+        assert child_row["status"] == "cancelled"
+        assert await queue.mark_task_interrupted(parent["task_id"]) == 0
 
-        def _fake_cancel(task_id: str) -> bool:
-            signaled.append(task_id)
-            return True
-
-        queue.set_worker_cancel_callback(_fake_cancel)
-        # finalize_cancelled(A) 级联：A → cancelled、B(running) → cancelling
-        rows = await queue.mark_task_cancelled(a_task["task_id"], cancelled_by="user")
-        assert rows == 1
-        # B 必须被分发 callback —— Repository 返回意图、Queue 上层分发
-        assert b_task["task_id"] in signaled
-
-    async def test_cancel_task_callback_exception_does_not_break(self, queue):
-        """callback 抛异常不影响 cancel_task 返回(best-effort 信号)。"""
+    async def test_cancel_running_task_is_rejected_and_task_runs_to_success(self, queue):
         enqueued = await queue.enqueue_task(
             project_name="demo",
             task_type="video",
@@ -597,28 +487,51 @@ class TestGenerationQueue:
             payload={},
             script_file="ep1.json",
         )
-        await queue.claim_next_task("video")
+        assert await queue.claim_next_task("video") is not None
 
-        def _bad_cancel(_task_id: str) -> bool:
-            raise RuntimeError("worker not responding")
+        with pytest.raises(TaskNotCancellableError) as exc_info:
+            await queue.cancel_task(enqueued["task_id"])
+        assert exc_info.value.task_id == enqueued["task_id"]
+        with pytest.raises(TaskNotCancellableError):
+            await queue.get_cancel_preview(enqueued["task_id"])
 
-        queue.set_worker_cancel_callback(_bad_cancel)
-        # 不应抛
-        result = await queue.cancel_task(enqueued["task_id"])
-        assert result["cancelling"] == [enqueued["task_id"]]
+        still_running = await queue.get_task(enqueued["task_id"])
+        assert still_running is not None
+        assert still_running["status"] == "running"
+        assert await queue.mark_task_succeeded(enqueued["task_id"], {"file_path": "videos/r1.mp4"}) == 1
+        done = await queue.get_task(enqueued["task_id"])
+        assert done is not None
+        assert done["status"] == "succeeded"
+        assert done["result"] == {"file_path": "videos/r1.mp4"}
 
-    async def test_get_cancel_preview_wrapper(self, queue):
-        """get_cancel_preview wrapper → repo.get_cancel_preview。"""
-        enqueued = await queue.enqueue_task(
+    async def test_cancel_queued_task_cascades_to_queued_dependents(self, queue):
+        parent = await queue.enqueue_task(
             project_name="demo",
-            task_type="video",
-            media_type="video",
-            resource_id="r1",
+            task_type="storyboard",
+            media_type="image",
+            resource_id="E1S01",
             payload={},
             script_file="ep1.json",
         )
-        preview = await queue.get_cancel_preview(enqueued["task_id"])
-        assert preview["task"]["task_id"] == enqueued["task_id"]
+        child = await queue.enqueue_task(
+            project_name="demo",
+            task_type="video",
+            media_type="video",
+            resource_id="E1S01",
+            payload={},
+            script_file="ep1.json",
+            dependency_task_id=parent["task_id"],
+        )
+
+        preview = await queue.get_cancel_preview(parent["task_id"])
+        assert [item["task_id"] for item in preview["cascaded"]] == [child["task_id"]]
+
+        result = await queue.cancel_task(parent["task_id"])
+        assert set(result) == {"cancelled", "skipped_terminal"}
+        assert {item["task_id"] for item in result["cancelled"]} == {parent["task_id"], child["task_id"]}
+        child_row = await queue.get_task(child["task_id"])
+        assert child_row is not None
+        assert child_row["status"] == "cancelled"
 
 
 @pytest.fixture

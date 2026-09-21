@@ -1,11 +1,10 @@
 """Tests for execute_generation_task."""
 
 import asyncio
-import threading
 
 import pytest
 
-from lib.generation.generation_queue import CompensableGenerationResult
+from lib.artifacts.artifact_manifest import ArtifactKey, ProjectArtifactManifestAdapter
 from lib.script.storyboard_sequence import StoryboardImageBindingRequired
 from server.services.tasks import generation_tasks
 from tests.integration.server.services.tasks.generation_tasks_support import (
@@ -182,66 +181,45 @@ class TestGenerationTasks:
         assert change["entity_id"] == "E1S01"
         assert change["script_file"] == "episode_1.json"
 
-    async def test_generation_event_failure_keeps_committed_media(self, tmp_path, monkeypatch):
-        """事件发送失败被吞在通知边界内：产物已落盘，不因通知失败回撤，任务照常返回。"""
-        compensation_threads: list[int] = []
-        result_payload = {"resource_type": "storyboards", "resource_id": "E1S01"}
+    @pytest.mark.parametrize("failure", [RuntimeError("event emission failed"), asyncio.CancelledError()])
+    async def test_generation_event_failure_keeps_committed_media(self, tmp_path, monkeypatch, failure):
+        """成功事件发出失败不回撤已写入的产物：普通异常在通知边界内记录后任务照常返回，
+        BaseException 穿透通知边界照常上抛；两种情况下产物、版本与清单登记都保持有效。"""
+        project_path = prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_generator = FakeGenerator(project_path)
+        emit_attempts: list[str] = []
 
-        async def _executor(*_args, **_kwargs):
-            return CompensableGenerationResult(
-                result_payload,
-                cancel_compensation=lambda: compensation_threads.append(threading.get_ident()),
-            )
+        def _fail_emit(project_name, _changes):
+            emit_attempts.append(project_name)
+            raise failure
 
-        def _fail_emit(_project_name, _changes):
-            raise RuntimeError("event emission failed")
-
-        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: _FakePM(prepare_files(tmp_path)))
-        monkeypatch.setitem(generation_tasks._TASK_EXECUTORS, "storyboard", _executor)
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+        monkeypatch.setattr(generation_tasks, "resolve_generation_context", fake_resolve_ctx(fake_generator))
         monkeypatch.setattr(generation_tasks, "emit_project_change_batch", _fail_emit)
+        task = {
+            "task_id": "storyboard-task",
+            "task_type": "storyboard",
+            "project_name": "demo",
+            "resource_id": "E1S01",
+            "payload": {"script_file": "episode_1.json", "prompt": "direct prompt"},
+        }
 
-        result = await generation_tasks.execute_generation_task(
-            {
-                "task_type": "storyboard",
-                "project_name": "demo",
-                "resource_id": "E1S01",
-                "payload": {},
-            }
-        )
+        if isinstance(failure, Exception):
+            result = await generation_tasks.execute_generation_task(task)
+            assert result["resource_type"] == "storyboards"
+            assert result["resource_id"] == "E1S01"
+        else:
+            with pytest.raises(type(failure)):
+                await generation_tasks.execute_generation_task(task)
 
-        assert result == result_payload
-        assert compensation_threads == []
-
-    async def test_cancellation_during_event_runs_media_compensation_off_the_event_loop(self, tmp_path, monkeypatch):
-        """取消穿透通知边界（BaseException 不被吞）：补偿跑在事件循环之外，不阻塞循环。"""
-        event_loop_thread = threading.get_ident()
-        compensation_threads: list[int] = []
-
-        async def _executor(*_args, **_kwargs):
-            return CompensableGenerationResult(
-                {"resource_type": "storyboards", "resource_id": "E1S01"},
-                cancel_compensation=lambda: compensation_threads.append(threading.get_ident()),
-            )
-
-        def _cancel_emit(_project_name, _changes):
-            raise asyncio.CancelledError
-
-        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: _FakePM(prepare_files(tmp_path)))
-        monkeypatch.setitem(generation_tasks._TASK_EXECUTORS, "storyboard", _executor)
-        monkeypatch.setattr(generation_tasks, "emit_project_change_batch", _cancel_emit)
-
-        with pytest.raises(asyncio.CancelledError):
-            await generation_tasks.execute_generation_task(
-                {
-                    "task_type": "storyboard",
-                    "project_name": "demo",
-                    "resource_id": "E1S01",
-                    "payload": {},
-                }
-            )
-
-        assert len(compensation_threads) == 1
-        assert compensation_threads[0] != event_loop_thread
+        assert emit_attempts == ["demo"]
+        assert (project_path / "storyboards" / "scene_E1S01.png").read_bytes() == b"png"
+        assert fake_generator.get_current_version("storyboards", "E1S01") == 1
+        assert fake_pm.script["segments"][0]["generated_assets"]["storyboard_image"] == "storyboards/scene_E1S01.png"
+        entry = ProjectArtifactManifestAdapter(project_path).get_entry(ArtifactKey.episode_storyboard(1, "E1S01"))
+        assert entry is not None
+        assert entry.artifact_path == "storyboards/scene_E1S01.png"
 
     async def test_execute_task_validation_errors(self, tmp_path, monkeypatch):
         project_path = prepare_files(tmp_path)

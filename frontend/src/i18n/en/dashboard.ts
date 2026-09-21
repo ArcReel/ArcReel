@@ -478,7 +478,6 @@ export default {
   'retry_download': 'Retry download',
   'retry_download_failed': "Retry download couldn't start; please try again later",
   'retrying_download': 'Retrying…',
-  'cancel_running_warning': 'Already-submitted provider requests are not refundable',
   'cancel_all': 'Cancel All',
   'cancel_all_queued_aria': 'Cancel all queued tasks',
   'cancel_confirm_aria': 'Cancel confirmation',

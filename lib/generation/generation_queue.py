@@ -10,14 +10,14 @@ import asyncio
 import logging
 import threading
 import uuid
-from collections.abc import AsyncGenerator, Callable
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Any
 
 from lib.backends.backend_runtime import install_provider_job_id_store
 from lib.db import safe_session_factory
 from lib.db.base import DEFAULT_USER_ID
-from lib.db.repositories.task_repo import TaskRepository
+from lib.db.repositories.task_repo import TaskNotCancellableError, TaskRepository
 from lib.generation.generation_admission import generation_admission_lock
 from lib.generation.generation_batch import (
     GenerationBatchBlockedItem,
@@ -320,36 +320,13 @@ async def _derive_execution_model_for_enqueue(
 #: 精确解析，其余图片任务取 t2i 作代表性 provider。
 I2I_ONLY_TASK_TYPES: frozenset[str] = frozenset({"image_edit", DERIVATIVE_TASK_TYPE})
 
-ACTIVE_TASK_STATUSES = ("queued", "running", "cancelling")
+ACTIVE_TASK_STATUSES = ("queued", "running")
 TASK_WORKER_LEASE_TTL_SEC = 10.0
 TASK_WORKER_HEARTBEAT_SEC = 3.0
 TASK_POLL_INTERVAL_SEC = 1.0
 
 _QUEUE_LOCK = threading.Lock()
 _QUEUE_INSTANCE: GenerationQueue | None = None
-
-
-WorkerCancelCallback = Callable[[str], bool]
-
-
-class CompensableGenerationResult(dict[str, Any]):
-    """Runtime-only result whose activated media can be undone if cancellation wins.
-
-    The callback is intentionally absent from the JSON payload persisted for a
-    succeeded task.  It only spans the executor-return → terminal-UPDATE window,
-    where a user cancellation may already have moved the row to ``cancelling``.
-    """
-
-    def __init__(self, result: dict[str, Any], *, cancel_compensation: Callable[[], None]) -> None:
-        super().__init__(result)
-        self._cancel_compensation = cancel_compensation
-        self._compensated = False
-
-    def compensate_cancelled(self) -> None:
-        if self._compensated:
-            return
-        self._compensated = True
-        self._cancel_compensation()
 
 
 class GenerationQueue:
@@ -363,19 +340,11 @@ class GenerationQueue:
     ):
         self._session_factory = session_factory or safe_session_factory
         self._project_manager = project_manager
-        # in-process callback to signal a running asyncio.Task to cancel;
-        # set by server.app boot via set_worker_cancel_callback before worker.start()
-        self._worker_cancel_callback: WorkerCancelCallback | None = None
 
     @property
     def session_factory(self):
         """本队列落库用的 session factory；与队列协作的记账写入沿用同一处接线。"""
         return self._session_factory
-
-    def set_worker_cancel_callback(self, callback: WorkerCancelCallback | None) -> None:
-        """Attach in-process worker cancel callback. Must be called before worker.start()
-        so cancel API can deliver signals synchronously (ADR 0006 秒级响应)."""
-        self._worker_cancel_callback = callback
 
     async def assert_project_migration_ok(self, project_name: str) -> None:
         await asyncio.to_thread(assert_project_migration_ok, project_name, self._project_manager)
@@ -587,30 +556,34 @@ class GenerationQueue:
             raise GenerationBatchNotFound(f"batch '{batch_id}' does not belong to project '{project_name}'")
 
         initial = {item["task_id"]: item["status"] for item in batch["memberships"]}
+        not_cancellable: set[str] = set()
         for task_id, status in initial.items():
-            if status not in TERMINAL_TASK_STATUSES and status != "cancelling":
+            if status in TERMINAL_TASK_STATUSES:
+                continue
+            try:
                 await self.cancel_task(task_id)
+            except TaskNotCancellableError:
+                not_cancellable.add(task_id)
 
         async with self._task_repo() as repo:
             updated = await repo.get_batch(project_name=project_name, batch_id=batch_id, user_id=user_id)
         assert updated is not None
         current = {item["task_id"]: item["status"] for item in updated["memberships"]}
         cancelled: list[str] = []
-        cancelling: list[str] = []
+        skipped_running: list[str] = []
         skipped_terminal: list[str] = []
         for task_id, previous in initial.items():
-            status = current[task_id]
             if previous in TERMINAL_TASK_STATUSES:
                 skipped_terminal.append(task_id)
-            elif status == "cancelled":
+            elif current[task_id] == "cancelled":
                 cancelled.append(task_id)
-            elif status == "cancelling":
-                cancelling.append(task_id)
+            elif task_id in not_cancellable:
+                skipped_running.append(task_id)
             else:
                 skipped_terminal.append(task_id)
         return GenerationBatchCancelResult(
             cancelled=cancelled,
-            cancelling=cancelling,
+            skipped_running=skipped_running,
             skipped_terminal=skipped_terminal,
         )
 
@@ -682,78 +655,36 @@ class GenerationQueue:
             await repo.persist_execution_provider_id(task_id, provider_id)
 
     async def mark_task_succeeded(self, task_id: str, result: dict[str, Any] | None) -> int:
-        """Returns rows_affected (0 = 已被外部翻成非 running 终/中间态，worker 走 0-rows-cancelled 协议)."""
+        """Returns rows_affected (0 = 任务已不在 running，该写入不生效)."""
         async with self._task_repo() as repo:
             affected = await repo.mark_succeeded(task_id, result)
         if affected > 0:
             logger.info("任务成功 task_id=%s", task_id)
         else:
-            logger.info("mark_succeeded 0 rows task_id=%s (已被外部翻状态)", task_id)
-            if isinstance(result, CompensableGenerationResult):
-                try:
-                    await asyncio.to_thread(result.compensate_cancelled)
-                except Exception:
-                    logger.exception("取消补偿失败 task_id=%s", task_id)
+            logger.info("mark_succeeded 0 rows task_id=%s (任务已不在 running)", task_id)
         return affected
 
     async def mark_task_failed(self, task_id: str, error_message: str) -> int:
-        """Returns rows_affected (0 = 已被外部翻状态，worker 走 0-rows-cancelled 协议)."""
+        """Returns rows_affected (0 = 任务已不在 running，该写入不生效)."""
         async with self._task_repo() as repo:
             affected = await repo.mark_failed(task_id, error_message)
         if affected > 0:
             logger.warning("任务失败 task_id=%s error=%s", task_id, error_message[:200])
         else:
-            logger.info("mark_failed 0 rows task_id=%s (已被外部翻状态)", task_id)
+            logger.info("mark_failed 0 rows task_id=%s (任务已不在 running)", task_id)
         return affected
 
-    async def mark_task_cancelled(self, task_id: str, *, cancelled_by: str = "user") -> int:
-        """Worker finally 0-rows-cancelled 协议兜底入口（SQL 守卫 status IN queued|cancelling|running）。
-
-        Repository 返回 ``{"rows", "cancelling"}``：cancelling 是级联出来的 running 下游
-        task_id 列表——这里同步调 worker callback 分发 in-process cancel（与 cancel_task
-        模式一致），让父任务 finalize 时打到的 running 子任务也能立刻收到 cancel 信号，
-        而不必等它跑完整个 provider 调用。返回 rows 兼容现有 0-rows-cancelled 协议 caller。
-        """
+    async def mark_task_interrupted(self, task_id: str) -> int:
+        """进程级打断的兜底：把被打断的任务落 cancelled 并级联排队中的下游，返回受影响行数。"""
         async with self._task_repo() as repo:
-            result = await repo.finalize_cancelled(task_id, cancelled_by=cancelled_by)
-
-        callback = self._worker_cancel_callback
-        if callback is not None:
-            for tid in result.get("cancelling", []):
-                try:
-                    callback(tid)
-                except Exception:
-                    logger.exception("worker cancel callback 派发失败 task_id=%s (finalize cascade)", tid)
-
-        return int(result.get("rows", 0))
+            return await repo.finalize_interrupted(task_id)
 
     async def cancel_task(self, task_id: str) -> dict[str, Any]:
+        """取消排队中的任务及其排队中下游；执行中的任务抛 ``TaskNotCancellableError``。"""
         async with self._task_repo() as repo:
             result = await repo.cancel_task(task_id)
-
-        # Repository 返回 cancelling 意图列表 → GenerationQueue 同步分发 in-process 信号。
-        # callback 同步调用：worker request_cancel 是 asyncio.Task.cancel()，O(1) 无 I/O。
-        # 不用 asyncio.create_task fire-and-forget——会让 API 立刻返回但信号延迟到下次调度，
-        # 破坏 ADR 0006 「秒级响应」。callback 不命中（task 已不在 inflight，
-        # 例如 finally 阶段刚 pop）是 best-effort 失败：DB 已是 cancelling，worker
-        # finally 走 mark_cancelled 兜底（SQL 守卫 IN ('queued','cancelling') 接住）。
-        callback = self._worker_cancel_callback
-        if callback is not None:
-            for tid in result.get("cancelling", []):
-                try:
-                    callback(tid)
-                except Exception:
-                    logger.exception("worker cancel callback 派发失败 task_id=%s", tid)
-
-        cancelled_count = len(result.get("cancelled", []))
-        cancelling_count = len(result.get("cancelling", []))
-        if cancelled_count or cancelling_count:
-            logger.info(
-                "任务取消 task_id=%s cancelled=%d cancelling=%d",
-                task_id,
-                cancelled_count,
-                cancelling_count,
-            )
+        if result["cancelled"]:
+            logger.info("任务取消 task_id=%s cancelled=%d", task_id, len(result["cancelled"]))
         return result
 
     async def get_cancel_preview(self, task_id: str) -> dict[str, Any]:

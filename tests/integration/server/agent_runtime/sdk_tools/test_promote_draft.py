@@ -11,7 +11,6 @@ from typing import Any
 
 import pytest
 
-from lib.artifacts.artifact_manifest import ArtifactKey, ProjectArtifactManifestAdapter
 from lib.project.project_manager import ProjectManager
 from lib.script import script_review
 from lib.script.draft_quarantine import (
@@ -177,68 +176,6 @@ async def test_reference_script_plan_write_transaction_does_not_block_event_loop
     assert result.message.startswith("✅")
     assert worker_threads
     assert all(thread != caller_thread for thread in worker_threads)
-
-
-async def test_cancelled_reference_script_plan_commit_restores_files_and_manifest(
-    fake_ctx: ToolContext, monkeypatch
-) -> None:
-    rv_source(fake_ctx)
-    resolver = use_fake_caps(fake_ctx)
-    from server import text_generation as mod
-
-    write_rv_script_plan(fake_ctx, [rv_saved_unit("@[张三] 等待")])
-    write_quarantine(
-        fake_ctx.project_path,
-        1,
-        QUARANTINE_KIND_SCRIPT_PLAN,
-        content={"units": [rv_unit("@[张三] 等待")]},
-        violations=[],
-    )
-    write_quarantine(
-        fake_ctx.project_path,
-        1,
-        QUARANTINE_KIND_PROMPT_AUTHORING,
-        content={"title": "旧草稿", "units": [{"text": "旧内容"}]},
-        violations=[],
-    )
-    paths = (
-        rv_script_plan_path(fake_ctx),
-        rv_quarantine_path(fake_ctx),
-        quarantine_path(fake_ctx.project_path, 1, QUARANTINE_KIND_PROMPT_AUTHORING),
-    )
-    before = {path: path.read_bytes() for path in paths}
-    adapter = ProjectArtifactManifestAdapter(fake_ctx.project_path)
-    key = ArtifactKey.episode_script_plan(1)
-    manifest_before = adapter.get_entry(key)
-    monkeypatch.setattr(mod.TextGenerator, "create", rv_generator_returning([rv_unit("@[张三] 起身")]))
-    started = threading.Event()
-    release = threading.Event()
-
-    def before_commit() -> None:
-        started.set()
-        release.wait()
-
-    generation = asyncio.create_task(
-        generate_reference_script_plan(
-            TextGenerationRequest(episode=1),
-            project_name=fake_ctx.project_name,
-            projects=fake_ctx.pm,
-            config_resolver=resolver,
-            before_commit=before_commit,
-        )
-    )
-    try:
-        assert await asyncio.to_thread(started.wait, 1)
-        generation.cancel()
-        await asyncio.sleep(0)
-        assert not generation.done()
-    finally:
-        release.set()
-
-    with pytest.raises(asyncio.CancelledError):
-        await asyncio.wait_for(generation, timeout=1)
-    assert {path: path.read_bytes() for path in paths} == before
-    assert adapter.get_entry(key) == manifest_before
 
 
 async def test_promote_draft_promotes_after_repair(fake_ctx: ToolContext, monkeypatch) -> None:

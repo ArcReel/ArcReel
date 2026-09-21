@@ -123,7 +123,7 @@ class TestLibExceptionHandlers:
         assert resp.status_code == 409
         assert resp.json()["detail"] == (
             "Unit 'E1S01' already has a video task using different narration delivery options; "
-            "wait for it to finish or cancel it before retrying."
+            "wait for it to finish before retrying (a task that is still queued can be cancelled first)."
         )
 
     def test_task_spec_validation_error_400(self):

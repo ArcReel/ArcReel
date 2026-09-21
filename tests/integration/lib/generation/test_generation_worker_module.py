@@ -206,13 +206,13 @@ def _storyboard_orphan(task_id: str, *, provider_id: str = "ark", job_id: str = 
 
 
 class _FakeQueue:
-    def __init__(self, *, succeeded_rows: int = 1, failed_rows: int = 1):
+    def __init__(self, *, failed_rows: int = 1):
         self.released = False
         self.succeeded = []
         self.failed = []
-        self.cancelled = []
+        self.interrupted: list[str] = []
+        self.claim_after_interruption = asyncio.Event()
         self._lease_calls = 0
-        self._succeeded_rows = succeeded_rows
         self._failed_rows = failed_rows
         self._orphans: list[dict] = []
         self.persisted_providers: list[tuple[str, str]] = []
@@ -241,18 +241,19 @@ class _FakeQueue:
         return self._orphans
 
     async def claim_next_task(self, media_type, **_kwargs):
-        return None
+        if self.interrupted:
+            self.claim_after_interruption.set()
 
     async def mark_task_succeeded(self, task_id, result):
         self.succeeded.append((task_id, result))
-        return self._succeeded_rows
+        return 1
 
     async def mark_task_failed(self, task_id, error):
         self.failed.append((task_id, error))
         return self._failed_rows
 
-    async def mark_task_cancelled(self, task_id, *, cancelled_by="user"):
-        self.cancelled.append((task_id, cancelled_by))
+    async def mark_task_interrupted(self, task_id):
+        self.interrupted.append(task_id)
         return 1
 
 
@@ -295,6 +296,32 @@ async def _task_status(factory, task_id: str) -> str | None:
     async with factory() as session:
         row = await session.get(Task, task_id)
         return None if row is None else row.status
+
+
+async def _task_error(factory, task_id: str) -> str | None:
+    from lib.db.models.task import Task
+
+    async with factory() as session:
+        row = await session.get(Task, task_id)
+        return None if row is None else row.error_message
+
+
+def _db_queue(factory):
+    """真实的 GenerationQueue，落库到测试库。"""
+    from lib.generation.generation_queue import GenerationQueue
+
+    return GenerationQueue(session_factory=factory)
+
+
+async def _fixed_projection(_task) -> str:
+    return "test"
+
+
+def _active_task_named(slots: SlotTable, name: str) -> asyncio.Future[Any]:
+    """按执行体的 task 名从占用台账取在跑的执行体。"""
+    matches = [t for t in slots.all_active_tasks() if isinstance(t, asyncio.Task) and t.get_name() == name]
+    assert len(matches) == 1, f"占用台账里没有唯一名为 {name} 的执行体"
+    return matches[0]
 
 
 @pytest.fixture
@@ -788,7 +815,8 @@ class TestGenerationWorker:
                 '[dispatch_provider_requeue_failed] {"actual_provider_id": "minimax", "claimed_provider_id": "ark"}',
             )
         ]
-        assert queue.cancelled == ([] if failed_rows else [("ref-provider-changed", "user")])
+        # 终态写入命中 0 行时任务保持原状，不被改判为打断
+        assert queue.interrupted == []
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(("affected", "expected"), [(1, True), (0, False)])
@@ -894,58 +922,87 @@ class TestGenerationWorker:
         assert queue.failed[0] == ("t_circular", "[script_edit_error]")
 
     @pytest.mark.asyncio
-    async def test_process_task_cancelled_error_marks_cancelled(self, monkeypatch):
-        """ADR 0006: asyncio.CancelledError 走 finally → mark_cancelled。"""
-        queue = _FakeQueue()
-        worker = GenerationWorker(queue=queue)
+    async def test_process_task_executor_cancelled_error_lands_cancelled(self, worker_db):
+        """执行器抛 CancelledError（进程级打断）：任务不停在 running，落 cancelled 后重新抛出。"""
+        await _seed_running_task(worker_db, "tc", task_type="storyboard", media_type="image")
 
-        async def _cancelled(_task):
+        async def _cancelled(_task, *, claimed_provider_id):
             raise asyncio.CancelledError
 
-        monkeypatch.setattr("server.services.tasks.generation_tasks.execute_generation_task", _cancelled)
+        worker = GenerationWorker(
+            queue=_db_queue(worker_db), provider_projection=_fixed_projection, executor=_cancelled
+        )
         with pytest.raises(asyncio.CancelledError):
-            await worker._process_task({"task_id": "tc"})
-        assert queue.cancelled
-        assert queue.cancelled[0][0] == "tc"
+            await worker._process_task({"task_id": "tc", "media_type": "image"})
+
+        assert await _task_status(worker_db, "tc") == "cancelled"
 
     @pytest.mark.asyncio
-    async def test_process_task_zero_rows_succeeded_falls_through_to_cancelled(self, monkeypatch):
-        """ADR 0006 0-rows-cancelled 协议：mark_succeeded 返回 0 时 finally 调 mark_cancelled。"""
-        queue = _FakeQueue(succeeded_rows=0)
-        worker = GenerationWorker(queue=queue)
+    @pytest.mark.parametrize("outcome", ["succeeded", "failed"])
+    async def test_process_task_zero_row_terminal_write_leaves_task_untouched(self, worker_db, outcome: str):
+        """终态写入命中 0 行（任务已不在 running）：该写入不生效，任务不被改判为 cancelled。"""
+        # 行处于 queued：终态写入的守卫只放行 running，而打断兜底会把 queued 翻成 cancelled
+        await _seed_running_task(worker_db, "t0rows", status="queued", started_at=None)
 
-        async def _ok(_task):
+        async def _execute(_task, *, claimed_provider_id):
+            if outcome == "failed":
+                raise RuntimeError("boom")
             return {"result": "ok"}
 
-        monkeypatch.setattr("server.services.tasks.generation_tasks.execute_generation_task", _ok)
-        await worker._process_task({"task_id": "t0rows"})
-        # mark_succeeded 调过但返回 0 rows → mark_cancelled 兜底
-        assert queue.succeeded == [("t0rows", {"result": "ok"})]
-        assert queue.cancelled
-        assert queue.cancelled[0][0] == "t0rows"
+        worker = GenerationWorker(queue=_db_queue(worker_db), provider_projection=_fixed_projection, executor=_execute)
+        await worker._process_task({"task_id": "t0rows", "media_type": "video"})
+
+        assert await _task_status(worker_db, "t0rows") == "queued"
 
     @pytest.mark.asyncio
-    async def test_request_cancel_signals_inflight_task(self):
-        queue = _FakeQueue()
-        worker = GenerationWorker(queue=queue)
+    async def test_stop_waits_for_running_task_to_finish_as_succeeded(self, concurrent_session_factory, monkeypatch):
+        """服务关停不取消在跑任务：stop 等它跑完，任务落 succeeded；关停期间一直是 running。"""
+        bind_safe_session_factory(monkeypatch, concurrent_session_factory)
+        worker_db = concurrent_session_factory
+        await _seed_running_task(worker_db, "shutdown-run", task_type="storyboard", media_type="image")
+        started = asyncio.Event()
+        release = asyncio.Event()
 
-        async def _long():
-            await asyncio.sleep(10)
+        async def _execute(_task, *, claimed_provider_id):
+            started.set()
+            await release.wait()
+            return {"ok": True}
 
-        t = asyncio.create_task(_long())
-        worker._slots.register("test", "video", "tid", t)
+        worker = GenerationWorker(queue=_db_queue(worker_db), provider_projection=_fixed_projection, executor=_execute)
+        worker.heartbeat_interval = 0.01
+        worker.poll_interval = 0.01
+        running = asyncio.create_task(
+            worker._process_task({"task_id": "shutdown-run", "media_type": "image"}),
+            name="generation-image-shutdown-run",
+        )
+        worker._slots.register("test", "image", "shutdown-run", running)
 
-        assert worker.request_cancel("tid") is True
-        # asyncio 会在下次调度时 cancel
-        await asyncio.sleep(0)
-        assert t.cancelled() or t.done()
+        await worker.start()
+        await started.wait()
+        assert await _task_status(worker_db, "shutdown-run") == "running"
+        stop_started = asyncio.Event()
 
-        # 不在 inflight → False
-        assert worker.request_cancel("ghost") is False
+        async def _stop_worker() -> None:
+            stop_started.set()
+            await worker.stop()
+
+        stopping = asyncio.create_task(_stop_worker())
+        await stop_started.wait()
+
+        assert not stopping.done(), "stop 必须等在跑任务跑完"
+        assert not running.done(), "stop 不得打断在跑任务"
+
+        release.set()
+        await asyncio.wait_for(running, timeout=2.0)
+        await asyncio.wait_for(stopping, timeout=2.0)
+
+        assert not running.cancelled()
+        assert await _task_status(worker_db, "shutdown-run") == "succeeded"
+        assert worker._main_task is None
 
     @pytest.mark.asyncio
     async def test_drain_finished_tasks_absorbs_cancelled_error(self):
-        """取消的 inflight task 被 drain：不抛、从台账移除，并 drain 端兜底 mark_cancelled。"""
+        """被打断的执行体被 drain：不抛、从台账移除，并由 drain 端兜底落终态。"""
         queue = _FakeQueue()
         worker = GenerationWorker(queue=queue)
 
@@ -961,13 +1018,12 @@ class TestGenerationWorker:
         # 同步判定 .cancelled()：不 await，不抛 CancelledError，task 已被 drain 移除。
         await worker._drain_finished_tasks()
         assert worker._slots.occupied("test", "video") == 0
-        # 子任务来不及自落终态时，drain 端兜底 mark_cancelled。
-        assert queue.cancelled
-        assert queue.cancelled[0][0] == "tid"
+        # 子任务来不及自落终态时，drain 端兜底落终态。
+        assert queue.interrupted == ["tid"]
 
     @pytest.mark.asyncio
     async def test_drain_finished_tasks_drains_success_and_failure(self):
-        """非取消路径：成功 task 走 .result() 无异常，失败 task 走 except 分支，均不触发兜底取消。"""
+        """非打断路径：成功 task 走 .result() 无异常，失败 task 走 except 分支，均不触发兜底。"""
         queue = _FakeQueue()
         worker = GenerationWorker(queue=queue)
 
@@ -986,15 +1042,14 @@ class TestGenerationWorker:
         await worker._drain_finished_tasks()  # 不抛
         assert worker._slots.occupied("test", "image") == 0
         assert worker._slots.occupied("test", "video") == 0
-        # 非取消任务不应触发 drain 兜底 mark_cancelled
-        assert queue.cancelled == []
+        assert queue.interrupted == []
 
     @pytest.mark.asyncio
-    async def test_drain_fallback_mark_cancelled_failure_does_not_propagate(self):
-        """drain 端兜底 mark_cancelled 自身抛错时只 warning，不冒泡（不挂掉主循环）。"""
+    async def test_drain_fallback_terminal_write_failure_does_not_propagate(self):
+        """drain 端兜底落终态自身抛错时只 warning，不冒泡（不挂掉主循环）。"""
 
         class _RaisingQueue(_FakeQueue):
-            async def mark_task_cancelled(self, task_id, *, cancelled_by="user"):
+            async def mark_task_interrupted(self, task_id):
                 raise RuntimeError("db down")
 
         queue = _RaisingQueue()
@@ -1009,19 +1064,19 @@ class TestGenerationWorker:
         assert t.cancelled()
         worker._slots.register("test", "video", "tid", t)
 
-        # mark_cancelled 抛错被 except 吞掉，drain 不抛、task 仍被移除
+        # 兜底抛错被 except 吞掉，drain 不抛、task 仍被移除
         await worker._drain_finished_tasks()
         assert worker._slots.occupied("test", "video") == 0
 
     @pytest.mark.asyncio
-    async def test_drain_marks_cancelled_when_cancel_hits_before_process_task_try(self, monkeypatch):
-        """取消落在 _process_task 进 try 之前（provider 投影 await）：drain 端兜底落终态。"""
+    async def test_drain_lands_cancelled_when_interruption_hits_before_process_task_try(self, monkeypatch):
+        """打断落在 _process_task 进 try 之前（provider 投影 await）：drain 端兜底落终态。"""
         queue = _FakeQueue()
         in_extract = asyncio.Event()
 
         async def _blocking_projection(_task):
             in_extract.set()
-            await asyncio.sleep(10)  # 停在入口解析，模拟 cancel 落在 _process_task 的 try 之前
+            await asyncio.sleep(10)  # 停在入口解析，模拟打断落在 _process_task 的 try 之前
             return "test"
 
         worker = GenerationWorker(queue=queue, provider_projection=_blocking_projection)
@@ -1029,7 +1084,7 @@ class TestGenerationWorker:
         worker.poll_interval = 0.01
 
         async def _execute(_task):
-            raise AssertionError("execute 不应被调用：cancel 在 provider 投影阶段就到")
+            raise AssertionError("execute 不应被调用：打断在 provider 投影阶段就到")
 
         monkeypatch.setattr("server.services.tasks.generation_tasks.execute_generation_task", _execute)
 
@@ -1041,12 +1096,11 @@ class TestGenerationWorker:
 
         await worker.start()
         await in_extract.wait()  # 确保停在 provider 投影（try 之前）
-        assert worker.request_cancel("tid") is True
-        await asyncio.sleep(0.1)
+        t.cancel()
+        await asyncio.wait_for(queue.claim_after_interruption.wait(), timeout=2.0)
 
-        # _process_task 没机会 mark（cancel 在 try 之前）→ drain 端兜底 mark_cancelled
-        assert queue.cancelled
-        assert queue.cancelled[0][0] == "tid"
+        # _process_task 没机会落终态（打断在 try 之前）→ drain 端兜底
+        assert queue.interrupted == ["tid"]
         # 主循环仍存活
         assert worker._main_task is not None
         assert not worker._main_task.done()
@@ -1054,8 +1108,8 @@ class TestGenerationWorker:
         await asyncio.wait_for(worker.stop(), timeout=2.0)
 
     @pytest.mark.asyncio
-    async def test_run_loop_survives_inflight_task_cancellation(self, monkeypatch):
-        """用户取消运行中的任务：任务 mark_cancelled，但 worker 主循环不退出。"""
+    async def test_run_loop_survives_inflight_task_interruption(self, monkeypatch):
+        """单个执行体被打断：任务落终态，但 worker 主循环不退出，显式 stop 才退出。"""
         queue = _FakeQueue()
         worker = GenerationWorker(queue=queue)
         worker.heartbeat_interval = 0.01
@@ -1078,22 +1132,22 @@ class TestGenerationWorker:
         await worker.start()
         await started.wait()  # 确保 _process_task 已进入 execute（_extract_provider 已完成）
 
-        assert worker.request_cancel("tid") is True
-        await asyncio.sleep(0.1)  # 跨多个 loop tick：取消落地 + drain
+        t.cancel()
+        await asyncio.wait_for(queue.claim_after_interruption.wait(), timeout=2.0)
 
-        # 任务被正确 mark_cancelled
-        assert queue.cancelled
-        assert queue.cancelled[0][0] == "tid"
+        # _process_task 自落终态后 drain 端再兜底一次，守卫保证第二次无副作用
+        assert set(queue.interrupted) == {"tid"}
         # 主循环吸收 CancelledError 后仍存活
         assert worker._main_task is not None
         assert not worker._main_task.done()
 
         await asyncio.wait_for(worker.stop(), timeout=2.0)
+        assert worker._main_task is None
         assert queue.released
 
     @pytest.mark.asyncio
-    async def test_run_loop_survives_consecutive_cancellations_and_keeps_claiming(self, monkeypatch):
-        """连续取消多个 inflight 任务后，主循环仍存活并能继续 claim 新任务。"""
+    async def test_run_loop_survives_consecutive_interruptions_and_keeps_claiming(self, monkeypatch):
+        """连续打断多个 inflight 执行体后，主循环仍存活并能继续 claim 新任务。"""
 
         class _GatedQueue(_FakeQueue):
             def __init__(self):
@@ -1118,11 +1172,14 @@ class TestGenerationWorker:
         worker.poll_interval = 0.01
 
         release = asyncio.Event()
+        fresh_started = asyncio.Event()
         entered: set[str] = set()
         all_entered = asyncio.Event()
 
         async def _block(task):
             entered.add(task["task_id"])
+            if task["task_id"] == "fresh-img":
+                fresh_started.set()
             if set(vid_ids) <= entered:
                 all_entered.set()
             await release.wait()
@@ -1131,93 +1188,37 @@ class TestGenerationWorker:
         monkeypatch.setattr("server.services.tasks.generation_tasks.execute_generation_task", _block)
 
         vid_ids = ["vid-0", "vid-1", "vid-2"]
+        running: list[asyncio.Task] = []
         for tid in vid_ids:
             t = asyncio.create_task(
                 worker._process_task({"task_id": tid, "media_type": "video"}),
                 name=f"generation-video-{tid}",
             )
             worker._slots.register("gemini-aistudio", "video", tid, t)
+            running.append(t)
 
         await worker.start()
         await all_entered.wait()  # 等三个任务都进入 execute
 
-        for tid in vid_ids:
-            assert worker.request_cancel(tid) is True
-        await asyncio.sleep(0.1)
+        for t in running:
+            t.cancel()
+        await asyncio.gather(*running, return_exceptions=True)
 
-        # 主循环存活 + 三个任务都 mark_cancelled
+        # 主循环存活 + 三个任务都落终态
         assert worker._main_task is not None
         assert not worker._main_task.done()
-        assert set(vid_ids) <= {c[0] for c in queue.cancelled}
+        assert set(vid_ids) <= set(queue.interrupted)
 
-        # 取消后仍能 claim 并 dispatch 新任务
+        # 打断后仍能 claim 并 dispatch 新任务
         queue.allow_new = True
-        await asyncio.sleep(0.1)
+        await asyncio.wait_for(fresh_started.wait(), timeout=2.0)
         assert queue.new_dispatched is True
-        assert worker._slots.find_by_task("fresh-img") is not None
+        assert "fresh-img" in worker._slots.active_task_ids()
 
         # 收尾：放行 fresh-img 后正常停机
         release.set()
         await asyncio.wait_for(worker.stop(), timeout=2.0)
         assert queue.released
-
-    @pytest.mark.asyncio
-    async def test_stop_event_exits_loop_even_with_cancellations(self, monkeypatch):
-        """语义对比：单任务取消不退出，但显式 stop（set stop event）必须让 worker 退出。"""
-        queue = _FakeQueue()
-        worker = GenerationWorker(queue=queue)
-        worker.heartbeat_interval = 0.01
-        worker.poll_interval = 0.01
-
-        started = asyncio.Event()
-
-        async def _block(_task):
-            started.set()
-            await asyncio.sleep(10)
-
-        monkeypatch.setattr("server.services.tasks.generation_tasks.execute_generation_task", _block)
-
-        t = asyncio.create_task(
-            worker._process_task({"task_id": "tid", "media_type": "video"}),
-            name="generation-video-tid",
-        )
-        worker._slots.register("test", "video", "tid", t)
-
-        await worker.start()
-        await started.wait()
-        assert worker.request_cancel("tid") is True
-        await asyncio.sleep(0.05)
-        # 取消阶段：主循环仍存活
-        assert worker._main_task is not None
-        assert not worker._main_task.done()
-        assert queue.cancelled
-        assert queue.cancelled[0][0] == "tid"
-
-        # 显式 stop → worker 正常退出
-        await asyncio.wait_for(worker.stop(), timeout=2.0)
-        assert worker._main_task is None
-        assert queue.released
-
-    @pytest.mark.asyncio
-    async def test_handle_orphan_cancelling_marks_cancelled(self, monkeypatch):
-        """ADR 0007：orphan cancelling 状态 → mark_cancelled。"""
-        queue = _FakeQueue()
-        queue._orphans = [
-            {
-                "task_id": "orphan-cancelling",
-                "status": "cancelling",
-                "provider_id": None,
-                "provider_job_id": None,
-                "media_type": "video",
-                "task_type": "video",
-                "payload": {},
-                "project_name": "demo",
-            }
-        ]
-        worker = GenerationWorker(queue=queue)
-        await worker._handle_orphan_tasks_on_start()
-        assert queue.cancelled
-        assert queue.cancelled[0][0] == "orphan-cancelling"
 
     @pytest.mark.asyncio
     async def test_video_orphan_cleanup_removes_provider_media_and_task_output(self, tmp_path, monkeypatch):
@@ -1476,9 +1477,8 @@ class TestGenerationWorker:
         claimed = await worker._claim_tasks()
         assert claimed
         assert worker._slots.occupied("gemini-aistudio", "image") == 1
-        assert worker._slots.find_by_task("img1") is not None
         assert worker._slots.occupied("ark", "video") == 1
-        assert worker._slots.find_by_task("vid1") is not None
+        assert worker._slots.active_task_ids() == {"img1", "vid1"}
 
         # Wait for tasks to complete
         await asyncio.gather(*worker._slots.all_active_tasks(), return_exceptions=True)
@@ -1641,16 +1641,40 @@ class TestGenerationWorker:
         assert PROVIDER_GROK in queue.failed[0][1]
 
     @pytest.mark.asyncio
-    async def test_handle_orphan_discard_paths_fallback_to_cancelled_on_zero_rows(self, monkeypatch):
-        """非 resumable 路径 mark_failed 返 0 rows（race：被外部 cancel）→ 兜底 mark_cancelled。
-
-        image / Grok / Vidu 三个丢弃路径都共用「mark_failed → 0 rows 时 mark_cancelled 兜底」协议；
-        覆盖 image 一条即可代表（其它两路同源代码块）。
-        """
+    async def test_handle_orphan_running_routes_through_real_queue(self, worker_db, staged_project):
+        """重启自愈只扫 running：image / 不可 resume 的视频孤儿落 failed，其余状态的行不被触碰。"""
         from lib.backends.providers import PROVIDER_GROK
 
-        queue = _FakeQueue(failed_rows=0)  # 模拟 SQL guard 拒绝（task 已被 cancel）
-        queue._orphans = [
+        await _seed_running_task(worker_db, "img-run", task_type="storyboard", media_type="image", resource_id="E1S02")
+        await _seed_running_task(
+            worker_db,
+            "grok-run",
+            script_file="scripts/episode_1.json",
+            provider_id=PROVIDER_GROK,
+            provider_job_id="job",
+            execution_checkpoint_json=_worker_storyboard_checkpoint("grok-run", provider_id=PROVIDER_GROK),
+        )
+        await _seed_running_task(
+            worker_db, "img-queued", task_type="storyboard", media_type="image", resource_id="E1S03", status="queued"
+        )
+
+        worker = GenerationWorker(queue=_db_queue(worker_db))
+        await worker._handle_orphan_tasks_on_start()
+
+        assert await _task_status(worker_db, "img-run") == "failed"
+        assert await _task_error(worker_db, "img-run") == "[restart_lost_image]"
+        assert await _task_status(worker_db, "grok-run") == "failed"
+        assert "[resume_unsupported_provider]" in (await _task_error(worker_db, "grok-run") or "")
+        assert await _task_status(worker_db, "img-queued") == "queued"
+        assert worker._orphan_dispatcher_task is None
+
+    @pytest.mark.asyncio
+    async def test_handle_orphan_discard_paths_zero_rows_leave_task_untouched(self, worker_db, staged_project):
+        """丢弃路径的 mark_failed 命中 0 行（扫描后行已离开 running）：任务保持原状，不被改判为 cancelled。"""
+        from lib.backends.providers import PROVIDER_GROK
+        from lib.generation.generation_queue import GenerationQueue
+
+        stale_snapshot = [
             {
                 "task_id": "img-raced",
                 "status": "running",
@@ -1663,10 +1687,22 @@ class TestGenerationWorker:
             },
             _storyboard_orphan("grok-raced", provider_id=PROVIDER_GROK, job_id="job"),
         ]
-        worker = GenerationWorker(queue=queue)
+
+        class _StaleScanQueue(GenerationQueue):
+            async def list_orphan_tasks_on_start(self):
+                return stale_snapshot
+
+        # 行在扫描之后回到 queued：终态写入的守卫只放行 running，而打断兜底会把 queued 翻成 cancelled
+        await _seed_running_task(
+            worker_db, "img-raced", task_type="storyboard", media_type="image", status="queued", started_at=None
+        )
+        await _seed_running_task(worker_db, "grok-raced", status="queued", started_at=None)
+
+        worker = GenerationWorker(queue=_StaleScanQueue(session_factory=worker_db))
         await worker._handle_orphan_tasks_on_start()
-        cancelled_ids = {tid for tid, _by in queue.cancelled}
-        assert cancelled_ids == {"img-raced", "grok-raced"}
+
+        assert await _task_status(worker_db, "img-raced") == "queued"
+        assert await _task_status(worker_db, "grok-raced") == "queued"
 
     @pytest.mark.asyncio
     async def test_handle_orphan_uses_checkpoint_provider_id(self, monkeypatch, worker_db, staged_project):
@@ -1906,11 +1942,15 @@ class TestGenerationWorker:
         assert "[resume_expired_detail]" in queue.failed[0][1]
 
     @pytest.mark.asyncio
-    async def test_process_resume_task_settles_the_call_row_with_the_failure_text(self, monkeypatch, worker_db):
+    @pytest.mark.parametrize("failed_rows", [1, 0])
+    async def test_process_resume_task_settles_the_call_row_with_the_failure_text(
+        self, monkeypatch, worker_db, failed_rows: int
+    ):
         """派发侧终态失败：判死这次续跑的异常要随补账落到调用行，不能只翻任务。
 
         任务侧落的是任务失败码（``[resume_expired_detail]``），记录表读的是调用行的
         error_message / error_code——两张表各有自己的失败登记，调用行那份只能从这里落。
+        任务终态写入命中 0 行时调用行照样按失败结算，不改判为 cancelled。
         """
         from lib.backends.video_backend_contract import ResumeExpiredError
         from lib.db.repositories.usage_repo import UsageRepository
@@ -1920,7 +1960,7 @@ class TestGenerationWorker:
                 project_name="demo", call_type="video", model="m", task_id="exp-row"
             )
 
-        queue = _FakeQueue()
+        queue = _FakeQueue(failed_rows=failed_rows)
         worker = GenerationWorker(queue=queue)
 
         async def _expire(_task, *, job_id):
@@ -1928,6 +1968,7 @@ class TestGenerationWorker:
 
         monkeypatch.setattr("server.services.tasks.resume_executor.execute_resume_video_task", _expire)
         await worker._process_resume_task(_storyboard_resume_task("exp-row", job_id="x"))
+        assert queue.interrupted == []
 
         async with worker_db() as session:
             row = await session.get(ApiCall, call_id)
@@ -2030,7 +2071,7 @@ class TestGenerationWorker:
 
     @pytest.mark.asyncio
     async def test_process_resume_task_cancelled_error(self, monkeypatch, worker_db):
-        """CancelledError → task / ApiCall 都结算 cancelled，再重新抛出。"""
+        """进程级打断（CancelledError）→ task / ApiCall 都结算 cancelled，再重新抛出。"""
         from lib.db.repositories.usage_repo import UsageRepository
 
         async with worker_db() as session:
@@ -2050,8 +2091,7 @@ class TestGenerationWorker:
         task = _storyboard_resume_task("rc", job_id="x")
         with pytest.raises(asyncio.CancelledError):
             await worker._process_resume_task(task)
-        assert queue.cancelled
-        assert queue.cancelled[0][0] == "rc"
+        assert queue.interrupted == ["rc"]
         async with worker_db() as session:
             stored = await stored_calls(session)
         assert [(row.id, row.status) for row in stored] == [
@@ -2180,37 +2220,8 @@ class TestDispatcherFailFastAndPendingTracking:
         await dispatcher
 
     @pytest.mark.asyncio
-    async def test_request_cancel_finds_sem_queued_task_in_pending(self, monkeypatch, staged_project):
-        """cancel sem 排队中的 task → request_cancel 命中并触发 cancel。"""
-        queue = _FakeQueue()
-        worker = GenerationWorker(queue=queue, capacity=_cap({"ark": {"image": 0, "video": 1}}))
-
-        gate = asyncio.Event()
-        process_started: asyncio.Event = asyncio.Event()
-
-        async def _gated(_task, *, job_id):
-            process_started.set()
-            await gate.wait()
-            return {"job_id": job_id}
-
-        monkeypatch.setattr("server.services.tasks.resume_executor.execute_resume_video_task", _gated)
-
-        tasks = [_storyboard_resume_task(f"orphan-{i}", job_id=f"job-{i}") for i in range(2)]
-        dispatcher = asyncio.create_task(worker._dispatch_provider_bucket("ark", tasks))
-
-        await asyncio.wait_for(process_started.wait(), timeout=1.0)
-        _inflight, pending = _phase_ids(worker._slots, "ark", "video")
-        assert "orphan-1" in pending
-
-        ok = worker.request_cancel("orphan-1")
-        assert ok is True
-
-        gate.set()
-        await dispatcher
-
-    @pytest.mark.asyncio
-    async def test_sem_queued_cancel_marks_task_cancelled(self, monkeypatch, staged_project):
-        """sem 排队期被 cancel：_run_one 应显式 mark_task_cancelled，DB 不留 cancelling。"""
+    async def test_sem_queued_interruption_lands_terminal(self, monkeypatch, staged_project):
+        """sem 排队期被打断：_run_one 显式落终态，任务不停在 running。"""
         queue = _FakeQueue()
         worker = GenerationWorker(queue=queue, capacity=_cap({"ark": {"image": 0, "video": 1}}))
 
@@ -2232,25 +2243,22 @@ class TestDispatcherFailFastAndPendingTracking:
         _inflight, pending = _phase_ids(worker._slots, "ark", "video")
         assert "orphan-1" in pending
 
-        # 取消 sem 排队中的 orphan-1
-        queued_task = worker._slots.find_by_task("orphan-1")
-        assert queued_task is not None
-        queued_task.cancel()
+        # 打断 sem 排队中的 orphan-1
+        _active_task_named(worker._slots, "resume-video-orphan-1").cancel()
 
         # 让 dispatcher 跑完
         gate.set()
         await dispatcher
 
-        # orphan-1 应被显式 mark_task_cancelled（sem 排队期 cancel 路径），不能停在 cancelling
-        cancelled_ids = {tid for tid, _ in queue.cancelled}
-        assert "orphan-1" in cancelled_ids
+        assert queue.interrupted == ["orphan-1"]
+        assert [tid for tid, _ in queue.succeeded] == ["orphan-0"]
 
     @pytest.mark.asyncio
-    async def test_acquired_pre_process_cancel_marks_task_cancelled(self, staged_project):
-        """acquire 后、_process_resume_task 入 try 之前 cancel：_run_one 应兜底 mark cancelled。
+    async def test_acquired_pre_process_interruption_lands_terminal(self, staged_project):
+        """acquire 后、_process_resume_task 入 try 之前被打断：_run_one 兜底落终态。
 
-        漏窗就是 _process_resume_task 内 try 块之前那段 provider 投影 await：cancel 落在
-        那里时内部不会调 mark，必须由 _run_one 兜底。任务不带 checkpoint 才会走到投影。
+        漏窗就是 _process_resume_task 内 try 块之前那段 provider 投影 await：打断落在
+        那里时内部不会落终态，必须由 _run_one 兜底。任务不带 checkpoint 才会走到投影。
         """
         queue = _FakeQueue()
 
@@ -2283,16 +2291,14 @@ class TestDispatcherFailFastAndPendingTracking:
         await asyncio.wait_for(acquired_event.wait(), timeout=1.0)
 
         # 现在 task 在 acquired=True（已 promote 为 INFLIGHT）状态，但内部还没接管终态
-        sub_task = worker._slots.find_by_task("orphan-pre-try")
-        assert sub_task is not None
-        sub_task.cancel()
+        _active_task_named(worker._slots, "resume-video-orphan-pre-try").cancel()
 
         # gate 放开（CancelledError 已经在路上）
         pre_try_gate.set()
         await dispatcher
 
-        # 必须落 cancelled 终态，不能停在 cancelling
-        assert "orphan-pre-try" in {tid for tid, _ in queue.cancelled}
+        # 必须落终态，不能停在 running
+        assert queue.interrupted == ["orphan-pre-try"]
 
     @pytest.mark.asyncio
     async def test_dispatcher_handle_set_after_handle_orphan(self, monkeypatch, staged_project):

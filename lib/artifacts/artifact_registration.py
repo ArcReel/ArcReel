@@ -7,7 +7,6 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
 from pathlib import Path
 
 from lib.artifacts.artifact_currency import resolve_current_artifact_basis, resolve_current_artifact_target
@@ -15,7 +14,6 @@ from lib.artifacts.artifact_manifest import (
     ArtifactBasis,
     ArtifactBasisDescriptor,
     ArtifactEntryRekeyPlan,
-    ArtifactEntryRekeyReceipt,
     ArtifactKey,
     ArtifactKind,
     ArtifactManifest,
@@ -30,26 +28,6 @@ from lib.project.asset_types import ASSET_SPECS
 from lib.project.project_migration_failure import ProjectMigrationError
 from lib.project.project_schema import project_schema_is_current
 from lib.project.resource_paths import CHARACTER_DERIVATIVE_RESOURCE_TYPE, resource_relative_path
-
-
-@dataclass(frozen=True, slots=True)
-class ArtifactRegistrationReceipt:
-    """A task-local current claim that can be rolled back if cancellation wins."""
-
-    adapter: ProjectArtifactManifestAdapter | None
-    key: ArtifactKey | None
-    registered: ArtifactManifestEntry | None
-    previous: ArtifactManifestEntry | None
-    changed: bool = False
-
-    def compensate_cancelled(self) -> None:
-        if not self.changed or self.adapter is None or self.key is None or self.registered is None:
-            return
-        self.adapter.replace_entry_if_matches(
-            self.key,
-            expected=self.registered,
-            replacement=self.previous,
-        )
 
 
 def register_current_artifact(
@@ -204,8 +182,8 @@ def register_task_current_resource_artifact(
     script_file: str | None = None,
     artifact_path: str | None = None,
     basis: ArtifactBasis | ArtifactBasisDescriptor | None = None,
-) -> ArtifactRegistrationReceipt:
-    """Register a task's frozen evidence and return its terminal-cancel receipt."""
+) -> bool:
+    """Register a task's frozen evidence; an unprovable current target fails the task."""
 
     key = artifact_key_for_resource(
         project_dir,
@@ -223,16 +201,7 @@ def register_task_current_resource_artifact(
             artifact_path=artifact_path or resource_relative_path(resource_type, resource_id),
             basis_digest=descriptor.digest,
         )
-    adapter = ProjectArtifactManifestAdapter(project_dir)
-    previous = adapter.get_entry(key)
-    changed = ArtifactManifest(adapter).register_entry_transactionally(key, entry)
-    return ArtifactRegistrationReceipt(
-        adapter=adapter,
-        key=key,
-        registered=entry,
-        previous=previous,
-        changed=changed,
-    )
+    return ArtifactManifest(ProjectArtifactManifestAdapter(project_dir)).register_entry_transactionally(key, entry)
 
 
 def register_artifact_entries_atomically(
@@ -241,7 +210,6 @@ def register_artifact_entries_atomically(
     *,
     expected_entries: Mapping[ArtifactKey, ArtifactManifestEntry | None] | None = None,
     adapter: ArtifactManifestAdapter | None = None,
-    cancellation_receipts: list[ArtifactEntryRekeyReceipt] | None = None,
 ) -> bool:
     """Replace a frozen batch of formal claims in one guarded Manifest commit.
 
@@ -270,20 +238,11 @@ def register_artifact_entries_atomically(
     if any(observed[key] != value for key, value in expected.items()):
         raise ArtifactManifestError("artifact manifest changed during batch registration")
     if all(observed[key] == value for key, value in replacements.items()):
-        if cancellation_receipts is not None:
-            cancellation_receipts.append(
-                ArtifactEntryRekeyReceipt(
-                    adapter=storage,
-                    before=observed,
-                    after=observed,
-                    changed=False,
-                )
-            )
         return False
     after = dict(observed)
     after.update(replacements)
     try:
-        receipt = ArtifactEntryRekeyPlan(
+        return ArtifactEntryRekeyPlan(
             adapter=storage,
             before=observed,
             after=after,
@@ -293,9 +252,6 @@ def register_artifact_entries_atomically(
         if str(exc) == "artifact claims changed after the rekey preflight":
             raise ArtifactManifestError("artifact manifest changed during batch registration") from exc
         raise
-    if cancellation_receipts is not None:
-        cancellation_receipts.append(receipt)
-    return receipt.changed
 
 
 def forget_current_resource_artifact(

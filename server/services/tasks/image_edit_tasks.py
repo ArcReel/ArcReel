@@ -57,7 +57,6 @@ from server.services.tasks.generation_tasks import (
     _finalize_asset_sheet_task,
     _finalize_storyboard_image_task,
     _storyboard_formal_image_callback,
-    compensable_formal_task_result,
     get_aspect_ratio,
     get_project_manager,
 )
@@ -491,9 +490,9 @@ async def execute_image_edit_task(
 
     if formal_outcomes:
         outcome = formal_outcomes[0]
-        version, created_at, receipt = outcome.version, outcome.created_at, outcome.receipt
+        version, created_at = outcome.version, outcome.created_at
     elif resource_type == DERIVATIVE_TASK_TYPE:
-        created_at, receipt = await finalize_derivative_sheet_task(
+        created_at = await finalize_derivative_sheet_task(
             project_name=project_name,
             target=_derivative_target(resource_key),
             generator=generator,
@@ -503,7 +502,7 @@ async def execute_image_edit_task(
             project_manager=get_project_manager(),
         )
     elif resource_type == "storyboard":
-        created_at, receipt = await _finalize_storyboard_image_task(
+        created_at = await _finalize_storyboard_image_task(
             project_name=project_name,
             script_file=str(script_file),
             resource_id=resource_key,
@@ -515,7 +514,7 @@ async def execute_image_edit_task(
             project_manager=get_project_manager(),
         )
     else:
-        created_at, receipt = await _finalize_asset_sheet_task(
+        created_at = await _finalize_asset_sheet_task(
             asset_type=resource_type,
             project_name=project_name,
             resource_id=resource_key,
@@ -527,13 +526,10 @@ async def execute_image_edit_task(
             project_manager=get_project_manager(),
         )
 
-    return compensable_formal_task_result(
-        {
-            "version": version,
-            "file_path": canonical_rel,
-            "created_at": created_at,
-            "resource_type": version_resource_type,
-            "resource_id": resource_key,
-        },
-        receipt,
-    )
+    return {
+        "version": version,
+        "file_path": canonical_rel,
+        "created_at": created_at,
+        "resource_type": version_resource_type,
+        "resource_id": resource_key,
+    }

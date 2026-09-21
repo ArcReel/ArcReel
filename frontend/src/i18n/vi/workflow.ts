@@ -74,7 +74,6 @@ export default {
   'task_type_reference_video': 'Video',
   'task_status_queued': 'đang xếp hàng',
   'task_status_running': 'đang chạy',
-  'task_status_cancelling': 'đang hủy',
   'task_status_succeeded': 'đã xong',
   'task_status_failed': 'đã thất bại',
   'task_status_cancelled': 'đã hủy',

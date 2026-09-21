@@ -26,7 +26,7 @@ _SCHEMA = {
 def _batch_tool(ctx: ToolContext, *, cancel: bool):
     name = "cancel_generation_batch" if cancel else "get_generation_batch"
     description = (
-        "取消整个生成批次。queued 立即取消，running 进入 cancelling；重复调用安全。"
+        "取消生成批次中仍在排队的成员；已开始执行的成员不可取消，照常跑完并出现在 skipped_running；重复调用安全。"
         if cancel
         else "查询生成批次的成员状态、计数、建议轮询间隔与终态 generation_result。"
     )

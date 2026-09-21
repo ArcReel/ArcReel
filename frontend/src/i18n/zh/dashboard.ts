@@ -478,7 +478,6 @@ export default {
   'retry_download': '重试下载',
   'retry_download_failed': '重试下载没能开始，请稍后再试',
   'retrying_download': '正在重试…',
-  'cancel_running_warning': '已发出的供应商请求费用不会退还',
   'cancel_all': '全部取消',
   'cancel_all_queued_aria': '取消所有排队中的任务',
   'cancel_confirm_aria': '取消确认',

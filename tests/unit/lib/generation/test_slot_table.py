@@ -1,7 +1,7 @@
 """SlotTable 占用台账纯内存单测。
 
 容量无关、被动数据结构：register / promote / release / has_room / drain_finished /
-occupied_providers / find_by_task。用 ``loop.create_future()`` 造 dummy 执行体。
+occupied_providers / active_task_ids / all_active_tasks。用 ``loop.create_future()`` 造 dummy 执行体。
 """
 
 import asyncio
@@ -47,7 +47,7 @@ class TestSlotTable:
         st.register("p", "image", "t1", f1)
         st.register("p", "image", "t1", f2)  # 同 id 覆盖
         assert st.occupied("p", "image") == 1
-        assert st.find_by_task("t1") is f2
+        assert st.all_active_tasks() == [f2]
         # release 不存在 → no-op
         st.release("p", "image", "ghost")
         assert st.occupied("p", "image") == 1
@@ -93,17 +93,8 @@ class TestSlotTable:
         # promote 不存在 → no-op
         st.promote("p", "video", "ghost")
 
-    async def test_find_by_task(self):
-        """⑦ find_by_task：命中正确执行体、未知返回 None。"""
-        st = SlotTable()
-        f = _pending_future()
-        st.register("p", "image", "t1", f)
-        assert st.find_by_task("t1") is f
-        assert st.find_by_task("ghost") is None
-        f.cancel()
-
     async def test_drain_finished_only_done_inflight(self):
-        """⑧ drain_finished 只返回 done 的 INFLIGHT，pending 与未完成保留。"""
+        """⑦ drain_finished 只返回 done 的 INFLIGHT，pending 与未完成保留。"""
         st = SlotTable()
         done_inflight = _done_future()
         running_inflight = _pending_future()
@@ -114,14 +105,13 @@ class TestSlotTable:
 
         drained = dict(st.drain_finished())
         assert set(drained) == {"done"}
-        # 未完成的 inflight 保留
-        assert st.find_by_task("running") is running_inflight
-        # done 但仍是 PENDING 的不被 drain
-        assert st.find_by_task("queued") is done_pending
+        # 未完成的 inflight 与 done 但仍是 PENDING 的占用都保留
+        assert st.active_task_ids() == {"running", "queued"}
+        assert set(st.all_active_tasks()) == {running_inflight, done_pending}
         running_inflight.cancel()
 
     async def test_active_views_and_clear(self):
-        """⑨ active_task_ids / all_active_tasks（pending+inflight）/ clear。"""
+        """⑧ active_task_ids / all_active_tasks（pending+inflight）/ clear。"""
         st = SlotTable()
         a = _pending_future()
         b = _pending_future()
@@ -136,7 +126,7 @@ class TestSlotTable:
         b.cancel()
 
     async def test_occupied_providers_by_media_and_empty_bucket_pruned(self):
-        """⑩ [关键] occupied_providers：按 media 分隔；释放/ drain 掉最后一个占用后不残留。
+        """⑨ [关键] occupied_providers：按 media 分隔；释放/ drain 掉最后一个占用后不残留。
 
         这是池满黑名单决策的支点：空 bucket 必须被剪除，否则已清空的 provider 会
         永远出现在黑名单源里。

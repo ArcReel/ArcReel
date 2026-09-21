@@ -16,7 +16,6 @@ i2i，与 ``image_edit`` 同属入队即知任务类型的例外。
 from __future__ import annotations
 
 import asyncio
-import copy
 from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
@@ -28,7 +27,6 @@ from lib.artifacts.artifact_activation import (
     assert_artifact_input_claims_usable,
 )
 from lib.artifacts.artifact_manifest import ArtifactBasis, ArtifactBasisDescriptor, ArtifactKey
-from lib.artifacts.image_artifact_currency import OptimisticMappingPatch
 from lib.artifacts.image_reference_snapshot import freeze_image_references
 from lib.db.base import DEFAULT_USER_ID
 from lib.infra.api_errors import BadRequestError
@@ -45,11 +43,9 @@ from lib.project.project_manager import ProjectManager
 from lib.project.resource_paths import CHARACTER_DERIVATIVE_RESOURCE_TYPE
 from lib.prompts.prompt_builders import build_character_derivative_prompt
 from server.services.tasks.generation_tasks import (
-    _CancellationReceipt,
     _finalize_formal_image_task,
     _FormalImageCommitOutcome,
     _FormalImagePlan,
-    _MetadataCompensator,
     _run_formal_image_task,
     _staged_formal_image_callback,
     _StagedImageCommit,
@@ -85,43 +81,14 @@ def _derivative_sheet_metadata_mutator(
     owner_name: str,
     derivative_name: str,
     sheet_path: str,
-    mutation_box: list[OptimisticMappingPatch],
 ) -> Callable[[dict[str, Any]], None]:
-    """Point one derivative at its new sheet and record the patch for compensation."""
+    """Point one derivative at its new sheet."""
 
     def _mutate(project: dict[str, Any]) -> None:
         derivative = _locate_derivative(project, owner_name, derivative_name)
-        before = copy.deepcopy(derivative)
         derivative[_SPEC.sheet_field] = sheet_path
-        mutation_box.append(OptimisticMappingPatch.capture(before, derivative))
 
     return _mutate
-
-
-def _derivative_sheet_metadata_compensator(
-    *,
-    pm: ProjectManager,
-    project_name: str,
-    owner_name: str,
-    derivative_name: str,
-    mutation: OptimisticMappingPatch,
-) -> _MetadataCompensator:
-    """Roll the derivative entry back to the pre-write patch inside the rejecting transaction."""
-
-    def _compensate_metadata(reject: Callable[[], None]) -> None:
-        def _restore(project: dict[str, Any]) -> None:
-            try:
-                derivative = _locate_derivative(project, owner_name, derivative_name)
-            except KeyError:
-                return
-            mutation.restore(derivative)
-
-        def _reject(_project_file: Path) -> None:
-            reject()
-
-        pm.update_project(project_name, _restore, on_commit=_reject)
-
-    return _compensate_metadata
 
 
 def _write_back(
@@ -130,26 +97,17 @@ def _write_back(
     project_name: str,
     target: DerivativeSheetTarget,
     activate: Callable[[Path], None],
-) -> _MetadataCompensator:
+) -> None:
     """Point the derivative at its new sheet inside the caller's commit."""
 
-    mutation_box: list[OptimisticMappingPatch] = []
     pm.update_project(
         project_name,
         _derivative_sheet_metadata_mutator(
             owner_name=target.owner_key,
             derivative_name=target.derivative_key,
             sheet_path=target.sheet_path,
-            mutation_box=mutation_box,
         ),
         on_commit=activate,
-    )
-    return _derivative_sheet_metadata_compensator(
-        pm=pm,
-        project_name=project_name,
-        owner_name=target.owner_key,
-        derivative_name=target.derivative_key,
-        mutation=mutation_box[0],
     )
 
 
@@ -187,15 +145,13 @@ def derivative_sheet_commit_callback(
     pm = project_manager or get_project_manager()
     project_path = pm.get_project_path(project_name)
 
-    def _commit_metadata(activate: Callable[[], None]) -> _MetadataCompensator | None:
-        compensator = _write_back(
+    def _commit_metadata(activate: Callable[[], None]) -> None:
+        _write_back(
             pm=pm,
             project_name=project_name,
             target=target,
             activate=lambda _project_file: activate(),
         )
-        # 无任务身份的直生没有终局取消窗口，不需要补偿器。
-        return compensator if task_id is not None else None
 
     return _staged_formal_image_callback(
         versions=versions,
@@ -221,15 +177,12 @@ async def finalize_derivative_sheet_task(
     task_id: str | None,
     basis: ArtifactBasis | ArtifactBasisDescriptor | None,
     project_manager: ProjectManager | None = None,
-) -> tuple[str, _CancellationReceipt | None]:
-    """未走活化回调时的收尾：提交衍生条目指针并跨过终局取消窗口。"""
+) -> str:
+    """未走活化回调时的收尾：提交衍生条目指针与版本选择。"""
     pm = project_manager or get_project_manager()
 
-    def _commit(register: Callable[[Path], None]) -> _MetadataCompensator:
-        return _write_back(pm=pm, project_name=project_name, target=target, activate=register)
-
-    def _commit_untracked(register: Callable[[Path], None]) -> None:
-        _commit(register)
+    def _commit(register: Callable[[Path], None]) -> None:
+        _write_back(pm=pm, project_name=project_name, target=target, activate=register)
 
     return await _finalize_formal_image_task(
         project_path=pm.get_project_path(project_name),
@@ -241,9 +194,8 @@ async def finalize_derivative_sheet_task(
         version=version,
         task_id=task_id,
         basis=basis,
-        commit_current=_commit_untracked,
+        commit_current=_commit,
         commit_tracked=_commit,
-        missing_receipt_error="task-aware derivative sheet registration did not return a receipt",
     )
 
 
@@ -315,7 +267,7 @@ async def execute_character_derivative_task(
             project_manager=pm,
         )
 
-    async def _finalize(generator: Any, version: int) -> tuple[str, _CancellationReceipt | None]:
+    async def _finalize(generator: Any, version: int) -> str:
         return await finalize_derivative_sheet_task(
             project_name=project_name,
             target=source.target,

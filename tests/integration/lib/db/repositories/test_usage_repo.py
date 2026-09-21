@@ -1011,7 +1011,7 @@ class TestSettleInterruptedPendingCalls:
         assert row.status == "failed"
         assert row.error_code is None
 
-    @pytest.mark.parametrize("task_status", ["queued", "running", "cancelling"])
+    @pytest.mark.parametrize("task_status", ["queued", "running"])
     async def test_call_of_live_task_is_left_pending(self, async_session, task_status):
         await self._seed_task(async_session, "t-live", task_status)
         call_id = await self._seed_pending_call(async_session, task_id="t-live")

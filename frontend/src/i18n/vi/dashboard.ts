@@ -471,7 +471,6 @@ export default {
   'retry_download': 'Thử tải lại',
   'retry_download_failed': 'Không thể bắt đầu tải lại, vui lòng thử lại sau',
   'retrying_download': 'Đang thử lại…',
-  'cancel_running_warning': 'Các yêu cầu đã gửi tới nhà cung cấp sẽ không được hoàn tiền',
   'cancel_all': 'Hủy tất cả',
   'cancel_all_queued_aria': 'Hủy tất cả tác vụ đang chờ',
   'cancel_confirm_aria': 'Xác nhận hủy',

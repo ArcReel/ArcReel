@@ -365,10 +365,9 @@ class MediaGenerator:
     ) -> PaidVersionCommit:
         """Run the shared normal/resume disk transaction without blocking the event loop.
 
-        User cancellation first marks the queue row as cancelling and then cancels
-        this coroutine. The sync transaction cannot be interrupted safely, so wait
-        for its thread before continuing to the queue's terminal row gate; that gate
-        compensates a selected result when cancellation already won.
+        The sync transaction cannot be interrupted safely: if a process-level
+        shutdown cancels this coroutine, wait for its thread before propagating so
+        the committed selection is never left half-written.
         """
 
         return await run_noninterruptible_sync(

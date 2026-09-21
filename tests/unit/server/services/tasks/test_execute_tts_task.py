@@ -26,7 +26,6 @@ from lib.artifacts.artifact_manifest import (
 )
 from lib.artifacts.version_manager import PaidVersionCommit
 from lib.config.resolver import ConfigResolver, ProviderModel
-from lib.generation.generation_queue import CompensableGenerationResult
 from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from lib.script.script_editor import resolve_items
 from lib.speech.narration_delivery import (
@@ -662,52 +661,6 @@ class TestExecuteTtsTask:
         assert isinstance(result["tts_basis_digest"], str)
         assert pm.script["video_units"][0]["generated_assets"]["narration_audio"] == "audio/segment_E1U2.wav"
 
-    async def test_reference_video_cancel_uses_video_units_when_ad_script_also_has_shots(self, tts_env):
-        pm, gen = tts_env
-        pm.project.update({"content_mode": "ad", "generation_mode": "reference_video"})
-        prior_assets = {"narration_audio": "audio/prior-selection.wav", "status": "old-status"}
-        pm.script = {
-            "episode": 1,
-            "content_mode": "ad",
-            "shots": [
-                {
-                    "shot_id": "E1S01",
-                    "voiceover_text": "不属于视频单元的旧广告旁白。",
-                    "generated_assets": {"status": "decoy"},
-                }
-            ],
-            "video_units": [
-                {
-                    "unit_id": "E1U2",
-                    "text": "镜头缓缓推进。\n{视频单元旁白。}",
-                    "generated_assets": copy.deepcopy(prior_assets),
-                }
-            ],
-        }
-        formal = pm.project_path / "audio" / "segment_E1U2.wav"
-        formal.parent.mkdir(parents=True, exist_ok=True)
-        formal.write_bytes(b"paid-old-audio")
-
-        result = await generation_tasks.execute_tts_task(
-            "demo",
-            "E1U2",
-            {"script_file": "episode_1.json"},
-            task_id="tts-reference-task",
-        )
-
-        assert isinstance(result, CompensableGenerationResult)
-        pm.script["video_units"][0]["generated_assets"]["video_clip"] = "reference_videos/E1U2.mp4"
-        result.compensate_cancelled()
-
-        assert formal.read_bytes() == b"paid-old-audio"
-        assert gen.rejected_versions == [3]
-        assert pm.script["video_units"][0]["generated_assets"] == {
-            "narration_audio": "audio/prior-selection.wav",
-            "video_clip": "reference_videos/E1U2.mp4",
-            "status": "completed",
-        }
-        assert pm.script["shots"][0]["generated_assets"] == {"status": "decoy"}
-
     async def test_manifest_basis_tracks_actual_backend_model_identity(self, tts_env, monkeypatch):
         pm, gen = tts_env
         monkeypatch.setattr(
@@ -831,103 +784,6 @@ class TestExecuteTtsTask:
             basis=old_basis,
         )
         assert comparison.status is ArtifactStatus.CURRENT
-
-    async def test_cancel_after_formal_commit_can_compensate_audio_script_and_basis(self, tts_env):
-        pm, gen = tts_env
-        formal = pm.project_path / "audio" / "segment_E1S01.wav"
-        formal.parent.mkdir(parents=True, exist_ok=True)
-        formal.write_bytes(b"paid-old-audio")
-        prior_assets = {"narration_audio": "audio/prior-selection.wav", "status": "old-status"}
-        pm.script["segments"][0]["generated_assets"] = copy.deepcopy(prior_assets)
-        items, _id_field, kind = resolve_items(pm.script)
-        settings = TtsSynthesisSettings("dashscope", "qwen3-tts-flash", "Cherry", None)
-        old_basis = register_narration_audio_transactionally(
-            project_path=pm.project_path,
-            episode=1,
-            preparation=admit_script_unit(kind, items[0]).preparation,
-            settings=settings,
-        )
-        pm.script["segments"][0]["novel_text"] = "取消前刚合成的新旁白。"
-
-        result = await generation_tasks.execute_tts_task(
-            "demo",
-            "E1S01",
-            {"script_file": "episode_1.json"},
-            task_id="tts-task",
-        )
-
-        assert isinstance(result, CompensableGenerationResult)
-        assert formal.read_bytes() == b"RIFF-current-audio"
-        pm.script["segments"][0]["generated_assets"]["video_clip"] = "videos/concurrent.mp4"
-        result.compensate_cancelled()
-
-        assert formal.read_bytes() == b"paid-old-audio"
-        assert gen.rejected_versions == [3]
-        assert pm.script["segments"][0]["generated_assets"] == {
-            "narration_audio": "audio/prior-selection.wav",
-            "video_clip": "videos/concurrent.mp4",
-            "status": "completed",
-        }
-        comparison = ArtifactManifest(ProjectArtifactManifestAdapter(pm.project_path)).compare(
-            ArtifactKey.episode_audio(1, "E1S01"),
-            artifact_path="audio/segment_E1S01.wav",
-            basis=old_basis,
-        )
-        assert comparison.status is ArtifactStatus.CURRENT
-
-    async def test_cancel_after_first_tts_commit_removes_the_new_script_binding(self, tts_env):
-        pm, _gen = tts_env
-        pm.script["segments"][0]["generated_assets"] = {"status": "pending"}
-
-        result = await generation_tasks.execute_tts_task(
-            "demo",
-            "E1S01",
-            {"script_file": "episode_1.json"},
-            task_id="first-tts-task",
-        )
-
-        assert isinstance(result, CompensableGenerationResult)
-        result.compensate_cancelled()
-
-        assert not (pm.project_path / "audio" / "segment_E1S01.wav").exists()
-        assert "narration_audio" not in pm.script["segments"][0]["generated_assets"]
-
-    async def test_cancel_after_episode_rebind_still_rejects_selected_tts(self, tts_env):
-        pm, gen = tts_env
-
-        result = await generation_tasks.execute_tts_task(
-            "demo",
-            "E1S01",
-            {"script_file": "episode_1.json"},
-            task_id="rebound-tts-task",
-        )
-        pm.project["episodes"] = [{"episode": 1, "script_file": "scripts/rebound_episode_1.json"}]
-
-        assert isinstance(result, CompensableGenerationResult)
-        result.compensate_cancelled()
-
-        assert gen.rejected_versions == [3]
-        assert not (pm.project_path / "audio" / "segment_E1S01.wav").exists()
-        assert ProjectArtifactManifestAdapter(pm.project_path).get_entry(ArtifactKey.episode_audio(1, "E1S01")) is None
-
-    async def test_cancel_after_unit_removal_still_rejects_selected_tts(self, tts_env):
-        pm, gen = tts_env
-
-        result = await generation_tasks.execute_tts_task(
-            "demo",
-            "E1S01",
-            {"script_file": "episode_1.json"},
-            task_id="removed-unit-tts-task",
-        )
-        pm.script["segments"].clear()
-
-        assert isinstance(result, CompensableGenerationResult)
-        result.compensate_cancelled()
-
-        assert gen.rejected_versions == [3]
-        assert not (pm.project_path / "audio" / "segment_E1S01.wav").exists()
-        assert ProjectArtifactManifestAdapter(pm.project_path).get_entry(ArtifactKey.episode_audio(1, "E1S01")) is None
-        assert pm.script["segments"] == []
 
     async def test_narration_speed_passed_to_generator(self, tts_env, monkeypatch):
         _pm, gen = tts_env

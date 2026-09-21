@@ -50,6 +50,7 @@ MESSAGES = {
     "invalid_encoding": "文件编码错误，请使用 UTF-8 编码的文本文件",
     "unauthorized": "用户名或密码错误",
     "task_not_found": "任务 '{id}' 不存在",
+    "task_running_not_cancellable": "任务 '{id}' 已开始执行，不可取消；它会照常跑完并保留结果",
     "task_retry_download_unavailable": "任务 '{id}' 当前不可重试下载",
     # 任务失败原因（GenerationWorker 写入错误码 + 参数，tasks API 读取时按语言渲染）
     "task_fail_provider_unsupported_media": "供应商 {provider_id} 不支持 {media_type} 生成",
@@ -436,9 +437,9 @@ MESSAGES = {
     "video_reference_audio_unreadable": "模型 {model} 有参考音频缺失或无法读取，已中止生成：{names}；请检查参考音频路径",
     "video_reference_audio_format_unsupported": "参考音频 {name} 的格式不受支持（仅支持 {supported}）；请更换音频文件",
     "video_prompt_too_long": "{provider}/{model} 的提示词最多 {limit} 个字符，当前 {count} 个；超出部分会被供应商静默截断，已中止生成。请缩短提示词",
-    "video_request_conflicts_with_active_task": "单元「{resource_id}」已有使用不同旁白交付方式或确认时长的视频任务在处理中；请等待完成或取消任务后重试",
-    "tts_conflicts_with_active_narrated_video": "单元「{resource_id}」已有使用当前 TTS 的视频任务在处理中；请等待完成或取消任务后再重新生成旁白配音",
-    "audio_restore_conflicts_with_active_task": "单元「{resource_id}」的旁白正在生成或被视频任务使用；请等待完成或取消任务后再切换音频版本",
+    "video_request_conflicts_with_active_task": "单元「{resource_id}」已有使用不同旁白交付方式或确认时长的视频任务在处理中；请等待任务完成后重试（仍在排队的任务可先取消）",
+    "tts_conflicts_with_active_narrated_video": "单元「{resource_id}」已有使用当前 TTS 的视频任务在处理中；请等待任务完成后再重新生成旁白配音（仍在排队的任务可先取消）",
+    "audio_restore_conflicts_with_active_task": "单元「{resource_id}」的旁白正在生成或被视频任务使用；请等待任务完成后再切换音频版本（仍在排队的任务可先取消）",
     # Agent 凭证
     "agent_preset_unknown": "未知预设供应商: {preset_id}",
     "agent_base_url_required_custom": "自定义配置需要填写 base_url",

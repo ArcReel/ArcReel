@@ -21,23 +21,6 @@ class _FileSnapshot:
     symlink_is_directory: bool = False
 
 
-@dataclass(frozen=True, slots=True)
-class FormalWriteReceipt:
-    """Restore a committed file set only while it still matches this write."""
-
-    before: tuple[_FileSnapshot, ...]
-    committed: tuple[_FileSnapshot, ...]
-
-    def matches_current(self) -> bool:
-        return tuple(_snapshot_file(item.path) for item in self.committed) == self.committed
-
-    def compensate_cancelled(self) -> bool:
-        if not self.matches_current():
-            return False
-        _restore_snapshots(self.before)
-        return True
-
-
 def _snapshot_file(path: Path) -> _FileSnapshot:
     if path.is_symlink():
         return _FileSnapshot(
@@ -88,10 +71,7 @@ def project_metadata_lock(project_dir: Path) -> Generator[None]:
 
 
 @contextmanager
-def formal_write_transaction(
-    *paths: Path,
-    cancellation_receipts: list[FormalWriteReceipt] | None = None,
-) -> Generator[None]:
+def formal_write_transaction(*paths: Path) -> Generator[None]:
     """Restore exact pre-write bytes when a formal multi-file commit fails.
 
     Callers must hold the domain locks that serialize writes to ``paths`` for
@@ -122,14 +102,6 @@ def formal_write_transaction(
             rollback_error.__cause__ = failure
             raise RuntimeError("formal write failed and durable rollback was incomplete") from rollback_error
         raise
-    else:
-        if cancellation_receipts is not None:
-            cancellation_receipts.append(
-                FormalWriteReceipt(
-                    before=tuple(snapshots),
-                    committed=tuple(_snapshot_file(snapshot.path) for snapshot in snapshots),
-                )
-            )
 
 
-__all__ = ["FormalWriteReceipt", "formal_write_transaction", "project_metadata_lock"]
+__all__ = ["formal_write_transaction", "project_metadata_lock"]

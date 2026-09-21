@@ -50,6 +50,7 @@ MESSAGES = {
     "invalid_encoding": "Lỗi mã hóa tệp, vui lòng dùng tệp văn bản mã hóa UTF-8",
     "unauthorized": "Tên đăng nhập hoặc mật khẩu không đúng",
     "task_not_found": "Tác vụ '{id}' không tồn tại",
+    "task_running_not_cancellable": "Tác vụ '{id}' đã bắt đầu chạy nên không thể hủy; tác vụ sẽ chạy đến khi hoàn tất và giữ lại kết quả",
     "task_retry_download_unavailable": "Tác vụ '{id}' hiện không thể thử tải lại",
     # Lý do tác vụ thất bại (GenerationWorker lưu mã lỗi + tham số; tasks API kết xuất theo ngôn ngữ khi đọc)
     "task_fail_provider_unsupported_media": "Nhà cung cấp {provider_id} không hỗ trợ tạo {media_type}",
@@ -498,9 +499,9 @@ MESSAGES = {
     "video_reference_audio_unreadable": "Mô hình {model} có âm thanh tham chiếu bị thiếu hoặc không đọc được; đã hủy tạo: {names}; hãy kiểm tra đường dẫn âm thanh tham chiếu",
     "video_reference_audio_format_unsupported": "Âm thanh tham chiếu {name} có định dạng không được hỗ trợ (chỉ {supported}); hãy dùng tệp âm thanh khác",
     "video_prompt_too_long": "{provider}/{model} chỉ chấp nhận câu lệnh tối đa {limit} ký tự nhưng nhận được {count}; phần vượt quá sẽ bị nhà cung cấp cắt bỏ âm thầm nên đã hủy tạo. Hãy rút ngắn câu lệnh",
-    "video_request_conflicts_with_active_task": "Đơn vị '{resource_id}' đã có tác vụ video đang xử lý với lựa chọn bàn giao lời dẫn hoặc thời lượng xác nhận khác; hãy đợi tác vụ hoàn tất hoặc hủy rồi thử lại.",
-    "tts_conflicts_with_active_narrated_video": "Đơn vị '{resource_id}' có tác vụ video đang dùng TTS hiện tại; hãy đợi tác vụ hoàn tất hoặc hủy trước khi tạo lại lời dẫn.",
-    "audio_restore_conflicts_with_active_task": "Đơn vị '{resource_id}' đang tạo lời dẫn hoặc lời dẫn đang được tác vụ video sử dụng; hãy đợi hoàn tất hoặc hủy trước khi chuyển phiên bản âm thanh.",
+    "video_request_conflicts_with_active_task": "Đơn vị '{resource_id}' đã có tác vụ video đang xử lý với lựa chọn bàn giao lời dẫn hoặc thời lượng xác nhận khác; hãy đợi tác vụ hoàn tất rồi thử lại (tác vụ còn đang xếp hàng có thể hủy trước).",
+    "tts_conflicts_with_active_narrated_video": "Đơn vị '{resource_id}' có tác vụ video đang dùng TTS hiện tại; hãy đợi tác vụ hoàn tất trước khi tạo lại lời dẫn (tác vụ còn đang xếp hàng có thể hủy trước).",
+    "audio_restore_conflicts_with_active_task": "Đơn vị '{resource_id}' đang tạo lời dẫn hoặc lời dẫn đang được tác vụ video sử dụng; hãy đợi hoàn tất trước khi chuyển phiên bản âm thanh (tác vụ còn đang xếp hàng có thể hủy trước).",
     # Agent credentials
     "agent_preset_unknown": "Nhà cung cấp đặt sẵn không xác định: {preset_id}",
     "agent_base_url_required_custom": "Cấu hình tuỳ chỉnh yêu cầu base_url",

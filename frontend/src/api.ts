@@ -1854,7 +1854,6 @@ class API {
     taskId: string
   ): Promise<{
     cancelled: TaskItem[];
-    cancelling: string[];
     skipped_terminal: TaskItem[];
   }> {
     return this.request(`/tasks/${encodeURIComponent(taskId)}/cancel`, {

@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import threading
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 import pytest
 
@@ -154,6 +154,8 @@ async def test_generate_episode_script_dry_run(fake_ctx: ToolContext, monkeypatc
     (project_path / "project.json").write_text(json.dumps({"content_mode": "narration"}), encoding="utf-8")
 
     class _FakeGenerator:
+        project_json: ClassVar[dict[str, Any]] = {}
+
         def __init__(self, _path, **_kwargs):
             pass
 
@@ -187,6 +189,7 @@ async def test_generate_episode_script_writes_to_default_project_scripts(fake_ct
     captured: dict[str, dict[str, Any]] = {"calls": {}}
 
     class _FakeGenerator:
+        project_json: ClassVar[dict[str, Any]] = {}
         content_mode = "narration"
 
         @classmethod
@@ -217,6 +220,7 @@ async def test_generate_episode_script_ad_skips_script_plan(fake_ctx: ToolContex
     )
 
     class _FakeGenerator:
+        project_json: ClassVar[dict[str, Any]] = {}
         content_mode = "ad"
 
         @classmethod
@@ -243,6 +247,7 @@ async def test_generate_episode_script_entry_ids_reach_the_generator(fake_ctx: T
     captured: dict[str, Any] = {}
 
     class _FakeGenerator:
+        project_json: ClassVar[dict[str, Any]] = {}
         content_mode = "ad"
 
         @classmethod
@@ -279,6 +284,8 @@ async def test_generate_episode_script_without_pending_entries_says_how_to_rewri
     )
 
     class _FakeGenerator:
+        project_json: ClassVar[dict[str, Any]] = {}
+
         @classmethod
         async def create(cls, _path, **_kwargs):
             generator = cls()
@@ -319,6 +326,8 @@ async def test_generate_episode_script_reports_unbound_scene_mentions(fake_ctx: 
     }
 
     class _FakeGenerator:
+        project_json: ClassVar[dict[str, Any]] = {}
+
         @classmethod
         async def create(cls, _path, **_kwargs):
             return cls()
@@ -352,6 +361,8 @@ async def test_generate_episode_script_unknown_entry_id_is_refused_not_internal(
     )
 
     class _FakeGenerator:
+        project_json: ClassVar[dict[str, Any]] = {}
+
         @classmethod
         async def create(cls, _path, **_kwargs):
             return cls()
@@ -652,6 +663,8 @@ async def test_normalize_drama_script_passes_project_name_to_backend(fake_ctx: T
     captured: dict[str, Any] = {}
 
     class _FakeGenerator:
+        project_json: ClassVar[dict[str, Any]] = {}
+
         async def generate(self, _request, project_name=None):
             captured["generate_project_name"] = project_name
 
@@ -864,6 +877,8 @@ async def test_normalize_drama_script_marks_mixed_machine_candidate_before_revie
     (source_dir / "episode_1.txt").write_text("从前有座山", encoding="utf-8")
 
     class _FakeGenerator:
+        project_json: ClassVar[dict[str, Any]] = {}
+
         async def generate(self, _request, project_name=None):
             class _Result:
                 text = json.dumps(
@@ -997,6 +1012,7 @@ async def test_generate_episode_script_forwards_instructions(fake_ctx: ToolConte
     captured: dict[str, Any] = {}
 
     class _FakeGenerator:
+        project_json: ClassVar[dict[str, Any]] = {}
         content_mode = "narration"
 
         def __init__(self, _path, **_kwargs):

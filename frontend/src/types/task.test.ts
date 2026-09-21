@@ -10,7 +10,7 @@ describe("isTerminalStatus", () => {
   });
 
   it("counts in-flight statuses as non-terminal", () => {
-    const live: TaskStatus[] = ["queued", "running", "cancelling"];
+    const live: TaskStatus[] = ["queued", "running"];
     for (const status of live) expect(isTerminalStatus(status)).toBe(false);
   });
 });

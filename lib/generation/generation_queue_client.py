@@ -251,7 +251,7 @@ async def get_active_tasks_for_resources(
     user_id: str = DEFAULT_USER_ID,
     queue: GenerationQueue | None = None,
 ) -> list[dict[str, Any]]:
-    """查询命中入队去重键、当前处于活动态（queued/running/cancelling）的任务。
+    """查询命中入队去重键、当前处于活动态（queued/running）的任务。
 
     match 条件与 ``GenerationQueue.enqueue_task`` 的唯一索引去重口径一致（``resource_type``
     固定 None——调用方均非 image_edit 任务，不占用该维度）。供调用方在真正入队前探测冲突并

@@ -22,7 +22,6 @@ from lib.artifacts.visual_artifact_provenance import (
     build_reference_video_artifact_visual_basis,
     build_storyboard_video_artifact_visual_basis,
 )
-from lib.generation.generation_queue import CompensableGenerationResult
 from lib.script.reference_video.execution_checkpoint import NarrationExecutionFacts
 from lib.script.reference_video.request_projection import (
     FilesystemReferenceAssets,
@@ -511,7 +510,7 @@ async def test_failed_formal_selection_validation_archives_paid_video_without_cu
 
 
 @pytest.mark.parametrize("script_change", ["none", "rebound", "removed", "legacy"])
-def test_selected_video_cancellation_compensation_restores_media_manifest_and_only_video_asset_fields(
+def test_selected_video_compensation_restores_media_manifest_and_only_video_asset_fields(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     script_change: str,
@@ -762,36 +761,17 @@ async def test_selected_video_finalize_failure_is_compensated_before_reraising()
 
 
 @pytest.mark.asyncio
-async def test_selected_video_finalize_result_compensates_once_when_terminal_cancellation_wins() -> None:
+async def test_selected_video_finalize_success_keeps_the_selection() -> None:
     committer = MagicMock()
     committer.outcome = PaidVersionCommit(version=2, selected=True)
-    committer.compensate_selection.return_value = True
 
     async def _finalize() -> dict[str, object]:
         return {"version": 2, "selected_current": True}
 
     result = await finalize_selected_video_result(committer=committer, finalize=_finalize)
 
-    assert isinstance(result, CompensableGenerationResult)
     assert result == {"version": 2, "selected_current": True}
-    result.compensate_cancelled()
-    result.compensate_cancelled()
-    committer.compensate_selection.assert_called_once_with()
-
-
-@pytest.mark.asyncio
-async def test_terminal_cancellation_does_not_silently_ignore_incomplete_video_compensation() -> None:
-    committer = MagicMock()
-    committer.outcome = PaidVersionCommit(version=2, selected=True)
-    committer.compensate_selection.return_value = False
-
-    async def _finalize() -> dict[str, object]:
-        return {"version": 2, "selected_current": True}
-
-    result = await finalize_selected_video_result(committer=committer, finalize=_finalize)
-
-    with pytest.raises(RuntimeError, match="remains selected"):
-        result.compensate_cancelled()
+    committer.compensate_selection.assert_not_called()
 
 
 def _storyboard_state(tmp_path: Path) -> tuple[Path, dict, dict, dict[str, object]]:

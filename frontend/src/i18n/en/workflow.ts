@@ -72,7 +72,6 @@ export default {
   'task_type_reference_video': 'Video',
   'task_status_queued': 'queued',
   'task_status_running': 'running',
-  'task_status_cancelling': 'cancelling',
   'task_status_succeeded': 'finished',
   'task_status_failed': 'failed',
   'task_status_cancelled': 'cancelled',

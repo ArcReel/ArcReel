@@ -82,11 +82,9 @@ async def fake_ctx(
         owner_id=worker.owner_id,
         ttl_seconds=worker.lease_ttl,
     )
-    queue.set_worker_cancel_callback(worker.request_cancel)
     await worker.start()
     try:
         yield ctx
     finally:
         await worker.stop()
-        queue.set_worker_cancel_callback(None)
         unregister()

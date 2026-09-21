@@ -753,7 +753,7 @@ class TestBatchEnqueueOnly:
         class _Queue:
             async def cancel_task(self, task_id: str) -> dict[str, Any]:
                 cancelled.append(task_id)
-                return {"cancelled": [{"task_id": task_id, "status": "cancelled"}], "cancelling": []}
+                return {"cancelled": [{"task_id": task_id, "status": "cancelled"}], "skipped_terminal": []}
 
         mock_queue.return_value = _Queue()
         specs = [
@@ -808,7 +808,7 @@ async def test_batch_enqueue_only_keeps_created_tasks_when_the_caller_is_cancell
     class _FakeQueue:
         async def cancel_task(self, task_id: str):
             cancelled.append(task_id)
-            return {"cancelled": [{"task_id": task_id}], "cancelling": [], "skipped_terminal": []}
+            return {"cancelled": [{"task_id": task_id}], "skipped_terminal": []}
 
     monkeypatch.setattr(mod, "enqueue_task_only", fake_enqueue)
     monkeypatch.setattr(mod, "get_generation_queue", lambda: _FakeQueue())

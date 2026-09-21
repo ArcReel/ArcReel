@@ -231,7 +231,7 @@ Key capabilities include:
 - persistent state;
 - recovery after interruption;
 - failure records;
-- task cancellation;
+- cancellation of queued tasks;
 - project event notifications and task status refreshes.
 
 ### 8.1 Why Tasks Must Be Persistent {#why-persistent-tasks}
@@ -427,7 +427,7 @@ A complete integration of a new provider usually requires:
 8. integrating with the Settings page;
 9. adding unit and integration tests;
 10. updating provider documentation;
-11. verifying cancellation, timeouts, and retries.
+11. verifying timeouts and retries.
 
 Do not implement only the happy path. Polling, timeouts, failures, and duplicate submissions for video providers are often more complex than request creation.
 

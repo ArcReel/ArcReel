@@ -50,6 +50,7 @@ MESSAGES = {
     "invalid_encoding": "File encoding error, please use UTF-8 encoded text file",
     "unauthorized": "Invalid username or password",
     "task_not_found": "Task '{id}' does not exist",
+    "task_running_not_cancellable": "Task '{id}' has already started and cannot be cancelled; it will run to completion and its result will be kept",
     "task_retry_download_unavailable": "Task '{id}' is not eligible for download retry",
     # Task failure reasons (GenerationWorker stores a code + params; tasks API renders per locale on read)
     "task_fail_provider_unsupported_media": "Provider {provider_id} does not support {media_type} generation",
@@ -498,9 +499,9 @@ MESSAGES = {
     "video_reference_audio_unreadable": "Model {model} has reference audio that is missing or unreadable; generation aborted: {names}; check the reference audio paths",
     "video_reference_audio_format_unsupported": "Reference audio {name} has an unsupported format (only {supported}); use a different audio file",
     "video_prompt_too_long": "{provider}/{model} accepts prompts of at most {limit} characters but received {count}; the provider would silently truncate the excess, so generation was aborted. Shorten the prompt",
-    "video_request_conflicts_with_active_task": "Unit '{resource_id}' already has a video task using different narration delivery options; wait for it to finish or cancel it before retrying.",
-    "tts_conflicts_with_active_narrated_video": "Unit '{resource_id}' has an active video task using the current TTS; wait for it to finish or cancel it before regenerating narration.",
-    "audio_restore_conflicts_with_active_task": "Unit '{resource_id}' has narration being generated or consumed by a video task; wait for it to finish or cancel it before switching audio versions.",
+    "video_request_conflicts_with_active_task": "Unit '{resource_id}' already has a video task using different narration delivery options; wait for it to finish before retrying (a task that is still queued can be cancelled first).",
+    "tts_conflicts_with_active_narrated_video": "Unit '{resource_id}' has an active video task using the current TTS; wait for it to finish before regenerating narration (a task that is still queued can be cancelled first).",
+    "audio_restore_conflicts_with_active_task": "Unit '{resource_id}' has narration being generated or consumed by a video task; wait for it to finish before switching audio versions (a task that is still queued can be cancelled first).",
     # Agent credentials
     "agent_preset_unknown": "Unknown preset provider: {preset_id}",
     "agent_base_url_required_custom": "base_url is required for custom configuration",

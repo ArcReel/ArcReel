@@ -173,7 +173,7 @@ def test_manifest_does_not_apply_an_old_path_claim_to_a_new_pointer() -> None:
     assert not comparison.usable
 
 
-def test_manifest_rekey_plan_moves_one_claim_atomically_and_can_compensate() -> None:
+def test_manifest_rekey_plan_moves_one_claim_atomically() -> None:
     old_key = ArtifactKey.asset_sheet("character", "角色A")
     new_key = ArtifactKey.asset_sheet("character", "主角甲")
     unrelated_key = ArtifactKey.episode_script(1)
@@ -190,17 +190,12 @@ def test_manifest_rekey_plan_moves_one_claim_atomically_and_can_compensate() -> 
     )
 
     assert adapter.get_entry(old_key) == old_entry
-    receipt = plan.commit()
+    assert plan.commit() is True
     assert adapter.get_entry(old_key) is None
     assert adapter.get_entry(new_key) == ArtifactManifestEntry(
         "characters/主角甲.png",
         old_entry.basis_digest,
     )
-    assert adapter.get_entry(unrelated_key) == unrelated_entry
-
-    assert receipt.compensate()
-    assert adapter.get_entry(old_key) == old_entry
-    assert adapter.get_entry(new_key) is None
     assert adapter.get_entry(unrelated_key) == unrelated_entry
 
 

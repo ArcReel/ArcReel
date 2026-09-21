@@ -39,8 +39,8 @@ from lib.agent.profile_manifest import (
 from lib.agent.profile_manifest import (
     force_resync_profile as _force_resync_profile,
 )
-from lib.artifacts.artifact_manifest import ArtifactBasisDescriptor, ArtifactEntryRekeyReceipt
-from lib.artifacts.formal_write import FormalWriteReceipt, formal_write_transaction, project_metadata_lock
+from lib.artifacts.artifact_manifest import ArtifactBasisDescriptor
+from lib.artifacts.formal_write import formal_write_transaction, project_metadata_lock
 from lib.episode.episode_ledger import SOURCE_TEXT_SUFFIXES
 from lib.episode.episode_paths import (
     REFERENCE_VIDEO_SCRIPT_PLAN_FILENAME,
@@ -704,8 +704,6 @@ class ProjectManager:
         validate: bool = True,
         artifact_basis: ArtifactBasisDescriptor | None = None,
         expected_fingerprint: str | _Unset | None = _UNSET,
-        cancellation_file_receipts: list[FormalWriteReceipt] | None = None,
-        cancellation_manifest_receipts: list[ArtifactEntryRekeyReceipt] | None = None,
         replaced_resource_ids: Sequence[str] = (),
         project_update: Callable[[dict[str, Any]], None] | None = None,
     ) -> Path:
@@ -780,7 +778,6 @@ class ProjectManager:
                         removed_resource_ids=tuple(set(previous_resource_ids) - set(resource_ids)),
                         replaced_resource_ids=replaced_resource_ids,
                         basis=artifact_basis,
-                        cancellation_receipts=cancellation_manifest_receipts,
                     )
                     if manifest_commit is None:
                         return None
@@ -799,7 +796,6 @@ class ProjectManager:
                 validate=validate,
                 before=before_script,
                 prepare_on_commit=prepare_on_commit,
-                cancellation_receipts=cancellation_file_receipts,
                 project_update=project_update,
             )
 
@@ -813,7 +809,6 @@ class ProjectManager:
         before: dict | _Unset | None = _UNSET,
         on_commit: Callable[[Path], None] | None = None,
         prepare_on_commit: Callable[[], Callable[[Path], None] | None] | None = None,
-        cancellation_receipts: list[FormalWriteReceipt] | None = None,
         project_update: Callable[[dict[str, Any]], None] | None = None,
     ) -> Path:
         """Commit a script, its project index, and an optional sidecar hook together.
@@ -840,7 +835,7 @@ class ProjectManager:
             with self._project_lock(project_name):
                 prepared_on_commit = prepare_on_commit() if prepare_on_commit is not None else on_commit
                 transaction_paths = (output_path, project_file) if sync_project else (output_path,)
-                with formal_write_transaction(*transaction_paths, cancellation_receipts=cancellation_receipts):
+                with formal_write_transaction(*transaction_paths):
                     output = self._write_script_unlocked(
                         project_name,
                         script,
@@ -867,7 +862,7 @@ class ProjectManager:
             changed_paths = [f"scripts/{output_path.name}", *([self.PROJECT_FILE] if sync_project else [])]
         else:
             prepared_on_commit = prepare_on_commit() if prepare_on_commit is not None else on_commit
-            with formal_write_transaction(output_path, cancellation_receipts=cancellation_receipts):
+            with formal_write_transaction(output_path):
                 output = self._write_script_unlocked(
                     project_name,
                     script,
@@ -2004,7 +1999,6 @@ class ProjectManager:
         *,
         on_commit: Callable[[Path], None] | None = None,
         formal_paths: Sequence[Path] = (),
-        cancellation_receipts: list[FormalWriteReceipt] | None = None,
     ) -> dict:
         """原子性地更新 project.json：加文件锁 → 读 → 修改 → 原子写回。
 
@@ -2021,14 +2015,8 @@ class ProjectManager:
         project_file = self._get_project_file_path(project_name)
 
         with self._project_lock(project_name), ExitStack() as transaction:
-            if on_commit is not None or formal_paths or cancellation_receipts is not None:
-                transaction.enter_context(
-                    formal_write_transaction(
-                        project_file,
-                        *formal_paths,
-                        cancellation_receipts=cancellation_receipts,
-                    )
-                )
+            if on_commit is not None or formal_paths:
+                transaction.enter_context(formal_write_transaction(project_file, *formal_paths))
             with open(project_file, encoding="utf-8") as f:
                 project = json.load(f)
             self._apply_project_mutation_unlocked(project, mutate_fn)

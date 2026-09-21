@@ -74,7 +74,6 @@ export default {
   'task_type_reference_video': '视频',
   'task_status_queued': '排队中',
   'task_status_running': '生成中',
-  'task_status_cancelling': '取消中',
   'task_status_succeeded': '已完成',
   'task_status_failed': '已失败',
   'task_status_cancelled': '已取消',
