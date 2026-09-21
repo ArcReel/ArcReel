@@ -454,6 +454,7 @@ MESSAGES = {
     "grid_generation_in_progress": "多宫格分镜图 '{grid_id}' 正在生成中，请等待完成后再操作",
     "version_not_found": "版本 {version} 不存在",
     "version_resource_not_found": "资源 '{resource_type}/{resource_id}' 不存在",
+    "version_snapshot_path_unmanaged": "'{resource_type}' 的版本记录指向非托管的快照路径，已拒绝该操作",
     "session_busy": "会话正在处理中，请等待当前回复完成后再发送",
     "session_capacity_exceeded": "并发会话数已达上限，请稍后再试",
     "session_question_unavailable": "会话未运行或没有待回答的问题",

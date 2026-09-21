@@ -15,7 +15,7 @@ from lib.artifacts.artifact_manifest import (
     ArtifactManifestEntry,
     ProjectArtifactManifestAdapter,
 )
-from lib.artifacts.version_manager import VersionManager
+from lib.artifacts.version_manager import UnmanagedSnapshotPathError, VersionManager
 from lib.generation.generation_admission import generation_admission_lock
 from lib.infra.json_io import atomic_write_bytes, atomic_write_json
 from lib.infra.path_safety import safe_join
@@ -483,9 +483,11 @@ class PresentationReadModelService:
         if not isinstance(raw_path, str) or type(raw_version) is not int or raw_version <= 0:
             raise PresentationUnavailableError("media version record has an invalid file identity")
         try:
-            path = safe_join(project_path, raw_path, require_file=True)
-        except (FileNotFoundError, ValueError) as exc:
-            raise PresentationUnavailableError("selected media file is unavailable") from exc
+            path = VersionManager.resolve_snapshot_path(project_path, resource_type, raw_path)
+        except UnmanagedSnapshotPathError as exc:
+            raise PresentationUnavailableError("media version record has an invalid file identity") from exc
+        if not path.is_file():
+            raise PresentationUnavailableError("selected media file is unavailable")
         return _SelectedVersion(
             record=selected_record,
             target=target,

@@ -6,8 +6,8 @@ from __future__ import annotations
 import asyncio
 import re
 import threading
-from collections.abc import Generator
-from contextlib import contextmanager
+from collections.abc import AsyncGenerator, Generator
+from contextlib import asynccontextmanager, contextmanager
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, NamedTuple
@@ -17,6 +17,11 @@ import httpx
 import pytest
 import respx
 
+from lib.backends.artifact_download_guard import (
+    AUDIO_ARTIFACT_MAX_BYTES,
+    ArtifactDestinationRejectedError,
+    ArtifactTooLargeError,
+)
 from lib.backends.audio_backends import (
     AudioCapability,
     AudioSynthesisRequest,
@@ -302,6 +307,31 @@ class TestDashScopeAudioBackend:
 
         assert out.read_bytes() == b"RIFFwavbytes"
 
+    async def test_download_over_audio_limit_is_rejected_without_retry(self, tmp_path: Path, poll_clock):
+        from lib.backends.audio_backends.dashscope import DashScopeAudioBackend
+
+        oversized = httpx.Response(200, headers={"Content-Length": str(AUDIO_ARTIFACT_MAX_BYTES + 1)}, content=b"")
+        with _dashscope_audio_routes(download=oversized) as routes:
+            b = DashScopeAudioBackend(api_key="sk")
+            out = tmp_path / "big.wav"
+            with pytest.raises(ArtifactTooLargeError):
+                await b.synthesize(AudioSynthesisRequest(text="你好", output_path=out, voice="Cherry"))
+
+        assert routes.download.call_count == 1
+        assert not out.exists()
+
+    async def test_download_to_link_local_address_is_rejected(self, tmp_path: Path, poll_clock):
+        from lib.backends.audio_backends.dashscope import DashScopeAudioBackend
+
+        with _dashscope_audio_routes(audio_url="http://169.254.169.254/out.wav") as routes:
+            b = DashScopeAudioBackend(api_key="sk")
+            out = tmp_path / "o.wav"
+            with pytest.raises(ArtifactDestinationRejectedError):
+                await b.synthesize(AudioSynthesisRequest(text="你好", output_path=out, voice="Cherry"))
+
+        assert routes.download.call_count == 0
+        assert not out.exists()
+
 
 class _GatedWritePath(Path):
     """写入被闸门挡住的 ``output_path``：观测取消与线程写入的交错。
@@ -321,24 +351,29 @@ class _GatedWritePath(Path):
 
 
 class _RecordingSpeechClient:
-    """OpenAI 兼容 TTS 客户端替身：记录每次 speech.create 的请求参数，回固定字节。
+    """OpenAI 兼容 TTS 客户端替身：记录每次流式 speech.create 的请求参数，回固定字节。
 
     上线参数、落盘格式这些契约都是「发出去的请求长什么样」，断言落在 ``requests`` 里的
     请求内容上，而不是替身的调用对象。
     """
 
-    def __init__(self, content: bytes = b"RIFFwavbytes") -> None:
+    def __init__(self, content: bytes = b"RIFFwavbytes", headers: dict[str, str] | None = None) -> None:
         self.requests: list[dict[str, Any]] = []
-        self._response = SimpleNamespace(content=content)
-        self.audio = SimpleNamespace(speech=SimpleNamespace(create=self._create))
+        self._content = content
+        self._headers = headers
+        streaming = SimpleNamespace(create=self._create)
+        self.audio = SimpleNamespace(speech=SimpleNamespace(with_streaming_response=streaming))
 
-    async def _create(self, **kwargs: Any) -> SimpleNamespace:
+    @asynccontextmanager
+    async def _create(self, **kwargs: Any) -> AsyncGenerator[SimpleNamespace]:
         self.requests.append(kwargs)
-        return self._response
+        yield SimpleNamespace(http_response=httpx.Response(200, headers=self._headers, content=self._content))
 
 
-def _mock_speech_client(content: bytes = b"RIFFwavbytes") -> _RecordingSpeechClient:
-    return _RecordingSpeechClient(content)
+def _mock_speech_client(
+    content: bytes = b"RIFFwavbytes", headers: dict[str, str] | None = None
+) -> _RecordingSpeechClient:
+    return _RecordingSpeechClient(content, headers)
 
 
 class TestOpenAIAudioBackend:
@@ -490,3 +525,16 @@ class TestOpenAIAudioBackend:
                 await b.synthesize(req)
 
         assert len(mock_client.requests) == 1, "写盘失败不得重跑计费的合成调用"
+
+    async def test_body_over_audio_limit_is_rejected_without_rebill(self, tmp_path: Path):
+        mock_client = _mock_speech_client(headers={"Content-Length": str(AUDIO_ARTIFACT_MAX_BYTES + 1)})
+        with captured_openai_clients(mock_client):
+            from lib.backends.audio_backends.openai import OpenAIAudioBackend
+
+            b = OpenAIAudioBackend(api_key="sk", model="tts-1")
+            out = tmp_path / "big.wav"
+            with pytest.raises(ArtifactTooLargeError):
+                await b.synthesize(AudioSynthesisRequest(text="hi", output_path=out, voice="alloy"))
+
+        assert len(mock_client.requests) == 1
+        assert not out.exists()

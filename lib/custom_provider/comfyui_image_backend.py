@@ -26,6 +26,7 @@ from uuid import uuid4
 
 import httpx
 
+from lib.backends.artifact_download_guard import artifact_http_client
 from lib.backends.image_backends.base import (
     ImageCapability,
     ImageGenerationRequest,
@@ -111,7 +112,7 @@ class ComfyuiImageBackend:
 
     async def generate(self, request: ImageGenerationRequest) -> ImageGenerationResult:
         job_label = self._job_label or uuid4().hex
-        async with httpx.AsyncClient(timeout=HTTP_TIMEOUT_SECONDS, follow_redirects=True) as http:
+        async with artifact_http_client(timeout=HTTP_TIMEOUT_SECONDS, follow_redirects=True) as http:
             media = await self._upload_media(http, request, job_label=job_label)
             built = build_workflow(
                 self._definition,

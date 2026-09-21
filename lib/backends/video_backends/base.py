@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 import re
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
@@ -16,6 +15,12 @@ from urllib.parse import urlsplit
 import httpx
 from sqlalchemy.exc import InterfaceError, OperationalError
 
+from lib.backends.artifact_download_guard import (
+    VIDEO_ARTIFACT_MAX_BYTES,
+    artifact_http_client,
+    buffered_error_response,
+    stream_body_to_file,
+)
 from lib.backends.data_uri import file_to_data_uri
 from lib.backends.http_status_errors import ArtifactDownloadError as ArtifactDownloadError
 from lib.backends.http_status_errors import ProviderRejectedError as ProviderRejectedError
@@ -23,7 +28,14 @@ from lib.backends.http_status_errors import provider_rejected_error, redacted_st
 from lib.backends.http_status_errors import raise_for_status_redacted as raise_for_status_redacted
 from lib.config.service import DEFAULT_VIDEO_POLL_TIMEOUT_SECONDS
 from lib.infra.logging_utils import redact_diagnostic_text, sanitize_diagnostic_payload
-from lib.infra.retry import BASE_RETRYABLE_ERRORS, AsyncClock, SystemClock, _should_retry, with_retry_async
+from lib.infra.retry import (
+    BASE_RETRYABLE_ERRORS,
+    AsyncClock,
+    NonRetryableError,
+    SystemClock,
+    _should_retry,
+    with_retry_async,
+)
 
 # `_should_retry` 默认会做字符串模式兜底（"timeout"/"503" 等），
 # 而 persist 重试要严格"DB 瞬态错误"语义——业务异常（如
@@ -803,15 +815,12 @@ async def request_with_scoped_credentials(
     raise RuntimeError(f"request exceeded {_MAX_REDIRECTS} redirects: {_without_query(url)}")
 
 
-#: 产物落盘的攒批阈值：驻留内存的上界，同时把线程池调度摊薄到每 8 MiB 一次。
-_WRITE_BUFFER_BYTES = 8 * 1024 * 1024
-
-
 async def stream_to_file(
     client: httpx.AsyncClient,
     url: str,
     output_path: Path,
     *,
+    max_bytes: int,
     timeout: int = 120,  # noqa: ASYNC109 -- 转交 httpx 的 I/O 超时配置，非 async 取消 deadline
     headers: Mapping[str, str] | None = None,
     params: Mapping[str, str] | None = None,
@@ -820,50 +829,26 @@ async def stream_to_file(
 ) -> None:
     """把 URL 内容流式写入本地文件，不含重试——重试由 :func:`with_artifact_retry` 统一承担。
 
+    响应体超过 ``max_bytes`` 即中止并抛 :class:`ArtifactTooLargeError`，产物路径上不留残片；
+    错误响应的响应体只读前 ``ERROR_BODY_MAX_BYTES`` 字节。出站目的地由调用方传入的 ``client``
+    约束（见 :func:`lib.backends.artifact_download_guard.artifact_http_client`）。
+
     ``credential_origin`` 给出 ``headers`` 里的凭证只许发往哪个源。给了它就自行逐跳跟随
     重定向，跳到别的源时把 ``headers`` 整个丢掉：httpx 跨源只摘 ``Authorization``，而端点
     定义的 auth 节可以用 ``X-API-Key`` 之类的任意头名，交给 ``follow_redirects`` 会把这些
     凭证原样送到重定向目标（对象存储 / CDN）去。
     """
-    await asyncio.to_thread(output_path.parent.mkdir, parents=True, exist_ok=True)
 
     async def _write(resp: httpx.Response) -> None:
         if resp.status_code >= 400:
-            # 流式模式下需先读取响应体，否则 HTTPStatusError.response.text 不可用
-            await resp.aread()
+            # 换成读完（且截断）响应体的副本，HTTPStatusError.response.text 才可用
+            resp = await buffered_error_response(resp)
         try:
             resp.raise_for_status()
         except httpx.HTTPStatusError as exc:
             # 产物地址的查询串可能是签名，也可能是按 query 传的凭证——都不该进日志与任务记录。
             raise redacted_status_error(exc) from None
-        # 先落同目录临时文件、成功后原子改名：下载中途失败不会在产物路径上留下截断的文件。
-        partial_path = output_path.with_name(f"{output_path.name}.part")
-        try:
-            with open(partial_path, "wb") as handle:  # noqa: ASYNC230 -- 只在此取句柄，实际写入均由下方 to_thread 卸载
-                # 攒够 _WRITE_BUFFER_BYTES 再一次 to_thread 落盘：既不为每个 64KB 分片调度一次
-                # 线程池任务，也不把整段产物留在内存里——大成片会把 worker 的驻留内存顶上去。
-                buffered: list[bytes] = []
-                buffered_bytes = 0
-
-                async def flush() -> None:
-                    nonlocal buffered, buffered_bytes
-                    if not buffered:
-                        return
-                    payload = b"".join(buffered)
-                    buffered = []
-                    buffered_bytes = 0
-                    await asyncio.to_thread(handle.write, payload)
-
-                async for chunk in resp.aiter_bytes(chunk_size=65536):
-                    buffered.append(chunk)
-                    buffered_bytes += len(chunk)
-                    if buffered_bytes >= _WRITE_BUFFER_BYTES:
-                        await flush()
-                await flush()
-            await asyncio.to_thread(os.replace, partial_path, output_path)
-        except BaseException:
-            await asyncio.to_thread(partial_path.unlink, True)
-            raise
+        await stream_body_to_file(resp, output_path, max_bytes=max_bytes)
 
     if credential_origin is None:
         async with client.stream("GET", url, timeout=timeout, headers=headers, params=params) as resp:
@@ -950,8 +935,8 @@ async def download_video(
     """从 URL 流式下载视频到本地文件，重试走共用的产物下载预算。"""
 
     async def attempt() -> None:
-        async with httpx.AsyncClient(follow_redirects=True) as http_client:
-            await stream_to_file(http_client, url, output_path, timeout=timeout)
+        async with artifact_http_client(follow_redirects=True) as http_client:
+            await stream_to_file(http_client, url, output_path, max_bytes=VIDEO_ARTIFACT_MAX_BYTES, timeout=timeout)
 
     await with_artifact_retry(
         attempt, label=label, retry_if=retry_if, retryable_errors=retryable_errors, max_wait=max_wait
@@ -959,9 +944,14 @@ async def download_video(
 
 
 async def download_resumable_video(url: str, output_path: Path, *, label: str) -> None:
-    """下载可续跑任务的成片；预算耗尽转成可重试下载的稳定失败。"""
+    """下载可续跑任务的成片；预算耗尽转成可重试下载的稳定失败。
+
+    ``NonRetryableError``（目的地不合规、超出体积上限）原样抛出：重新取件结果不会变。
+    """
     try:
         await download_video(url, output_path, label=label)
+    except NonRetryableError:
+        raise
     except Exception as exc:
         raise ArtifactDownloadError(detail=str(exc)) from exc
 

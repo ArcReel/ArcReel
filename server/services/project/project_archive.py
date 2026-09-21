@@ -28,6 +28,7 @@ from lib.artifacts.artifact_manifest import (
     encode_artifact_manifest_payload,
 )
 from lib.artifacts.formal_write import project_metadata_lock
+from lib.artifacts.version_manager import VersionManager
 from lib.config.resolver import resolve_raw_supported_durations
 from lib.episode.episode_ledger import parse_positive_episode_num
 from lib.infra.content_digest import digest_stream, sha256_file
@@ -344,6 +345,8 @@ class ProjectArchiveService:
                         staging_dir,
                     )
 
+                    # 版本历史先于修复与迁移收口：后续步骤读取 versions.json 时只见到已校验的快照路径。
+                    self._confine_version_history(staging_dir)
                     diagnostics = self._repair_project_tree(staging_dir)
                     # 在校验前对 staging 副本跑完整迁移链（归一化 legacy provider 名 / 拆分 image_backend /
                     # 生成模式重编码）：启动期 run_project_migrations 只覆盖启动时已存在的项目，启动后导入的
@@ -1632,6 +1635,61 @@ class ProjectArchiveService:
                 continue
             index.setdefault(item.name, []).append(relative.as_posix())
         return index
+
+    def _confine_version_history(self, project_dir: Path) -> None:
+        """Keep only typed history buckets and require every record to name a managed snapshot.
+
+        Buckets of resource types this version does not know (such as ``clues``
+        left behind by the v0→v1 migration) are dropped before installation.  In a
+        typed bucket, a malformed resource entry or history, or a single record
+        that is not an object naming a managed snapshot path, rejects the whole
+        package.
+        """
+
+        versions_path = project_dir / "versions" / "versions.json"
+        if not versions_path.is_file():
+            return
+        payload = self._load_json_file(versions_path)
+        if not isinstance(payload, dict):
+            return
+
+        unknown = [key for key in payload if key not in VersionManager.RESOURCE_TYPES]
+        for key in unknown:
+            records = sum(len(history) for _, history in self._iter_version_histories(payload.pop(key)))
+            logger.info("导入包的版本历史含未知资源类型桶 %r（%d 条版本记录），已剔除", key, records)
+
+        errors: list[ValidationMessage] = []
+        for resource_type, bucket in payload.items():
+            if not isinstance(bucket, dict):
+                errors.append(ValidationMessage("arch_version_history_malformed", {"location": resource_type}))
+                continue
+            for resource_id, info in bucket.items():
+                location = f"{resource_type}/{resource_id}"
+                history = info.get("versions", []) if isinstance(info, dict) else None
+                if not isinstance(history, list) or not all(isinstance(record, dict) for record in history):
+                    errors.append(ValidationMessage("arch_version_history_malformed", {"location": location}))
+                elif not all(
+                    VersionManager.is_managed_snapshot_path(resource_type, record.get("file")) for record in history
+                ):
+                    errors.append(ValidationMessage("arch_version_snapshot_path_unmanaged", {"location": location}))
+        if errors:
+            raise ProjectArchiveValidationError(ValidationMessage("arch_import_validation_failed"), errors=errors)
+        if unknown:
+            self._write_json_file(versions_path, payload)
+
+    @staticmethod
+    def _iter_version_histories(bucket: object) -> Iterator[tuple[str, list[Any]]]:
+        """Yield ``(resource_id, versions)`` for well-formed entries of one versions.json bucket.
+
+        Only used to count records of dropped buckets; typed buckets are validated strictly.
+        """
+
+        if not isinstance(bucket, dict):
+            return
+        for resource_id, info in bucket.items():
+            history = info.get("versions") if isinstance(info, dict) else None
+            if isinstance(history, list):
+                yield str(resource_id), history
 
     def _load_versions_payload(self, project_dir: Path) -> dict[str, Any]:
         versions_path = project_dir / "versions" / "versions.json"

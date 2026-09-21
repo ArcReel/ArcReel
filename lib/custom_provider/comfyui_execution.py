@@ -23,6 +23,7 @@ from urllib.parse import urlencode
 
 import httpx
 
+from lib.backends.artifact_download_guard import ARTIFACT_MAX_BYTES_BY_MEDIA_TYPE
 from lib.backends.video_backends.base import poll_with_retry, should_retry_poll
 from lib.custom_provider.comfyui.artifacts import (
     filename_of,
@@ -103,7 +104,13 @@ class ComfyuiExecution:
             picked = self._pick(entry)
             if record is not None:
                 await record("result", {"artifact": dict(picked.artifact), "count": picked.count})
-            await self._client.download_output(http, picked.artifact, output_path, max_wait=poll_timeout_seconds)
+            await self._client.download_output(
+                http,
+                picked.artifact,
+                output_path,
+                max_wait=poll_timeout_seconds,
+                max_bytes=ARTIFACT_MAX_BYTES_BY_MEDIA_TYPE[self._media_type],
+            )
             return picked
         except (asyncio.CancelledError, TimeoutError):
             await self.stop_remote(prompt_id)

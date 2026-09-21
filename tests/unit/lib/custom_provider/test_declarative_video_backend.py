@@ -8,6 +8,7 @@ from typing import ClassVar
 import httpx
 import pytest
 
+from lib.backends.artifact_download_guard import ArtifactDestinationRejectedError
 from lib.backends.video_backends.base import (
     VIDEO_POLL_MAX_CONSECUTIVE_FAILURES,
     ProviderJobStatus,
@@ -618,6 +619,62 @@ class TestDeclarativeVideoBackend:
             "provider_reason": "PromptRejected: prompt violates the policy",
             "status": 400,
         }
+
+    async def test_artifact_on_a_link_local_address_is_not_fetched(self, tmp_path: Path):
+        artifact_url = "http://169.254.169.254/latest/job-42.mp4"
+        with capture_http() as router, bounded_poll_clock():
+            router.post("https://relay.test/v1/video/create").mock(
+                return_value=httpx.Response(200, json={"task_id": "job-42"})
+            )
+            router.get("https://relay.test/v1/video/fetch/job-42").mock(
+                return_value=httpx.Response(200, json={"status": "completed", "video_url": artifact_url})
+            )
+            download = router.get(artifact_url).mock(return_value=httpx.Response(200, content=b"video"))
+
+            # 目的地不合规是确定性结果，不落可重试下载的 artifact_download_failed
+            with pytest.raises(ArtifactDestinationRejectedError):
+                await DeclarativeVideoBackend(
+                    api_key="secret",
+                    base_url="https://relay.test",
+                    model="video-x",
+                    definition=_definition(),
+                    provider="custom-1",
+                ).generate(_request(tmp_path))
+
+        assert download.call_count == 0
+
+    async def test_result_fetch_redirected_to_link_local_is_not_downgraded_to_download_failure(self, tmp_path: Path):
+        definition = _definition()
+        definition["poll"]["extract"] = {"status": ["$.status"], "result_id": ["$.result_id"]}
+        definition["result"] = {
+            "method": "GET",
+            "url": "{{ base_url }}/v1/video/result/{{ result_id }}",
+            "extract": {"video_url": ["$.video_url"]},
+        }
+
+        with capture_http() as router, bounded_poll_clock():
+            router.post("https://relay.test/v1/video/create").mock(
+                return_value=httpx.Response(200, json={"task_id": "job-42"})
+            )
+            router.get("https://relay.test/v1/video/fetch/job-42").mock(
+                return_value=httpx.Response(200, json={"status": "completed", "result_id": "r-9"})
+            )
+            result = router.get("https://relay.test/v1/video/result/r-9").mock(
+                return_value=httpx.Response(302, headers={"Location": "http://169.254.169.254/latest/"})
+            )
+            target = router.get("http://169.254.169.254/latest/").mock(return_value=httpx.Response(200, json={}))
+
+            with pytest.raises(ArtifactDestinationRejectedError):
+                await DeclarativeVideoBackend(
+                    api_key="secret",
+                    base_url="https://relay.test",
+                    model="video-x",
+                    definition=definition,
+                    provider="custom-1",
+                ).generate(_request(tmp_path))
+
+        assert result.call_count == 1
+        assert target.call_count == 0
 
     async def test_download_exhausts_shared_ten_failure_budget(self, tmp_path: Path):
         with capture_http() as router, bounded_poll_clock():
