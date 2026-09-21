@@ -9,10 +9,13 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import logging
 from collections.abc import Awaitable, Callable, Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_TERMINATE_GRACE_SECONDS = 2.0
 
@@ -63,9 +66,27 @@ async def _terminate(proc: _Process, grace: float) -> None:
         await proc.wait()
 
 
+async def _reap_to_completion(proc: _Process, grace: float, cleanup: list[Path]) -> None:
+    """清理结束前不返回；清理期间收到的取消在清理结束后再抛出。"""
+    reap = asyncio.ensure_future(_reap(proc, grace, cleanup))
+    cancelled = False
+    while not reap.done():
+        try:
+            await asyncio.shield(reap)
+        except asyncio.CancelledError:
+            cancelled = True
+    reap.result()
+    if cancelled:
+        raise asyncio.CancelledError
+
+
 def _remove(paths: Iterable[Path]) -> None:
+    """尽力删除；删除失败只记录，不覆盖正在传播的超时或取消。"""
     for path in paths:
-        path.unlink(missing_ok=True)
+        try:
+            path.unlink(missing_ok=True)
+        except OSError:
+            logger.warning("未能删除子进程输出 %s", path, exc_info=True)
 
 
 async def run_with_deadline(
@@ -99,10 +120,10 @@ async def run_with_deadline(
             await asyncio.wait_for(proc.wait(), timeout=deadline_seconds)
             stdout = b""
     except TimeoutError:
-        await asyncio.shield(_reap(proc, grace, cleanup))
+        await _reap_to_completion(proc, grace, cleanup)
         raise SubprocessDeadlineExceeded(f"{args[0]} 未在 {deadline_seconds}s 内退出") from None
     except asyncio.CancelledError:
-        await asyncio.shield(_reap(proc, grace, cleanup))
+        await _reap_to_completion(proc, grace, cleanup)
         raise
 
     assert proc.returncode is not None

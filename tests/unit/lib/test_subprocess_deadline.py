@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import shutil
 from pathlib import Path
 
 import pytest
@@ -110,17 +109,42 @@ async def test_cancellation_during_communicate_reaps_process(tmp_path: Path):
     assert proc.returncode is not None
 
 
-@pytest.mark.skipif(shutil.which("sleep") is None, reason="sleep not available")
-async def test_real_process_is_reaped_after_deadline():
-    spawned: list[asyncio.subprocess.Process] = []
+async def test_repeated_cancellation_waits_for_cleanup_to_finish(tmp_path: Path):
+    proc = HangingProcess(honors_terminate=False)
+    partial = tmp_path / "partial.png"
+    partial.write_bytes(b"half")
 
-    async def spawn(*args, **kwargs):
-        proc = await asyncio.create_subprocess_exec(*args, **kwargs)
-        spawned.append(proc)
-        return proc
+    task = asyncio.create_task(
+        run_with_deadline(["ffmpeg"], deadline_seconds=3600, grace=3600, cleanup_paths=[partial], spawn=_Spawner(proc))
+    )
+    await proc.waiting.wait()
+    task.cancel()
+    for _ in range(5):
+        await asyncio.sleep(0)
+    assert proc.signals == ["terminate"]
+    task.cancel()
+    for _ in range(5):
+        await asyncio.sleep(0)
+
+    assert not task.done()
+    assert partial.exists()
+
+    proc.kill()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert not partial.exists()
+
+
+async def test_deadline_is_reported_even_if_output_cannot_be_removed(tmp_path: Path):
+    undeletable = tmp_path / "out"
+    undeletable.mkdir()
 
     with pytest.raises(SubprocessDeadlineExceeded):
-        await run_with_deadline(["sleep", "3600"], deadline_seconds=0, spawn=spawn)
-
-    (proc,) = spawned
-    assert proc.returncode is not None
+        await run_with_deadline(
+            ["ffmpeg"],
+            deadline_seconds=0,
+            grace=0,
+            cleanup_paths=[undeletable],
+            spawn=_Spawner(HangingProcess(honors_terminate=False)),
+        )
