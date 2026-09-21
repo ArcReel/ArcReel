@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
@@ -339,3 +340,36 @@ async def test_last_frame_deadline_on_frame_count_probe_returns_none(tmp_path: P
     assert result is None
     assert [args[0] for args in call_log] == ["ffprobe", "ffprobe"]
     assert all(p.returncode is not None for p in procs)
+
+
+@pytest.mark.asyncio
+async def test_concurrent_extractions_write_distinct_temp_files(tmp_path: Path):
+    """同一目标的并发抽帧各写各的临时文件（同目录、保留后缀），互不覆盖或删除。"""
+    video = tmp_path / "fake.mp4"
+    video.write_bytes(b"\x00")
+    out = tmp_path / "out.jpg"
+    targets: list[Path] = []
+
+    class _FfmpegProc:
+        returncode = 0
+
+        def __init__(self, target: Path):
+            self._target = target
+
+        async def wait(self):
+            self._target.write_bytes(b"frame")
+
+    async def _spawn(*args, **_kwargs):
+        targets.append(Path(args[-1]))
+        return _FfmpegProc(Path(args[-1]))
+
+    with patch("lib.infra.thumbnail.shutil.which", side_effect=_all_tools_available):
+        results = await asyncio.gather(
+            thumbnail_module.extract_video_thumbnail(video, out, spawn=_spawn),
+            thumbnail_module.extract_video_thumbnail(video, out, spawn=_spawn),
+        )
+
+    assert results == [out, out]
+    assert len(set(targets)) == 2
+    assert all(t.parent == out.parent and t.suffix == out.suffix for t in targets)
+    assert out.read_bytes() == b"frame"

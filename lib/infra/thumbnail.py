@@ -5,6 +5,7 @@ import logging
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
+from uuid import uuid4
 
 from lib.infra.subprocess_deadline import (
     DEFAULT_TERMINATE_GRACE_SECONDS,
@@ -152,12 +153,11 @@ async def _run_ffmpeg_to_output(
     deadlines: FrameExtractionDeadlines,
     spawn: Spawner | None,
 ) -> bool:
-    """ffmpeg 先写同目录临时文件，成功且非空才原子替换 ``output_path``；失败或超时不动已有产物。
+    """ffmpeg 先写同目录的独立临时文件（每次调用唯一），成功且非空才原子替换 ``output_path``；失败或超时不动已有产物。
 
     ``args`` 为不含输出路径的 ffmpeg 参数。
     """
-    temp_path = output_path.with_name(f".{output_path.stem}.tmp{output_path.suffix}")
-    temp_path.unlink(missing_ok=True)
+    temp_path = output_path.with_name(f".{output_path.stem}.{uuid4().hex}.tmp{output_path.suffix}")
 
     result = await run_with_deadline(
         [*args, str(temp_path)],
