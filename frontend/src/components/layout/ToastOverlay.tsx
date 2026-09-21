@@ -52,7 +52,7 @@ export function ToastOverlay() {
 
   return (
     <div
-      className={`fixed top-14 left-1/2 -translate-x-1/2 ${UI_LAYERS.toast} pointer-events-none`}
+      className={`fixed top-[calc(var(--auth-banner-h,0px)+3.5rem)] left-1/2 -translate-x-1/2 ${UI_LAYERS.toast} pointer-events-none`}
     >
       <div
         key={toast.id}
