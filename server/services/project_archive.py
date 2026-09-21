@@ -1639,8 +1639,8 @@ class ProjectArchiveService:
 
         Buckets of resource types this version does not know (such as ``clues``
         left behind by the v0→v1 migration) are dropped before installation.  In a
-        typed bucket, a single record whose ``file`` is not a managed snapshot path
-        rejects the whole package.
+        typed bucket, a single record that is not an object naming a managed
+        snapshot path rejects the whole package.
         """
 
         versions_path = project_dir / "versions" / "versions.json"
@@ -1653,14 +1653,14 @@ class ProjectArchiveService:
         unknown = [key for key in payload if key not in VersionManager.RESOURCE_TYPES]
         for key in unknown:
             records = sum(len(history) for _, history in self._iter_version_histories(payload.pop(key)))
-            logger.info("导入包的版本历史含未知资源类型桶 %s（%d 条版本记录），已剔除", key, records)
+            logger.info("导入包的版本历史含未知资源类型桶 %r（%d 条版本记录），已剔除", key, records)
 
         errors: list[ValidationMessage] = []
         for resource_type, bucket in payload.items():
             for resource_id, history in self._iter_version_histories(bucket):
                 if any(
-                    isinstance(record, dict)
-                    and not VersionManager.is_managed_snapshot_path(resource_type, record.get("file"))
+                    not isinstance(record, dict)
+                    or not VersionManager.is_managed_snapshot_path(resource_type, record.get("file"))
                     for record in history
                 ):
                     errors.append(

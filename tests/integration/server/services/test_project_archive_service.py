@@ -1259,12 +1259,20 @@ class TestProjectArchiveService:
         ],
     )
     def test_import_rejects_unmanaged_version_snapshot_paths(self, tmp_path, snapshot):
+        self._assert_import_rejects_storyboard_version_record(tmp_path, {"version": 1, "file": snapshot})
+
+    @pytest.mark.parametrize("record", ["versions/storyboards/E1S01_v1.png", None, 1])
+    def test_import_rejects_non_object_version_records(self, tmp_path, record):
+        self._assert_import_rejects_storyboard_version_record(tmp_path, record)
+
+    @staticmethod
+    def _assert_import_rejects_storyboard_version_record(tmp_path, record):
         pm = ProjectManager(tmp_path / "projects")
         project_dir = _create_project(pm)
         service = ProjectArchiveService(pm)
         _write_json(
             project_dir / "versions" / "versions.json",
-            {"storyboards": {"E1S01": {"current_version": 1, "versions": [{"version": 1, "file": snapshot}]}}},
+            {"storyboards": {"E1S01": {"current_version": 1, "versions": [record]}}},
         )
         archive_path = tmp_path / "unmanaged-snapshot.zip"
         _make_manual_zip(project_dir, archive_path)
