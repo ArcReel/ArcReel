@@ -465,8 +465,26 @@ describe("AddCredentialModal", () => {
       const payload = onSubmit.mock.calls[0][0];
       expect(payload.from_custom_provider_id).toBe(42);
       expect(payload.preset_id).toBe("__custom__");
-      expect(payload.base_url).toBe("https://api.deepseek.com");
+      // 预填地址未改动时交给服务端取供应商的当前地址
+      expect(payload.base_url).toBeUndefined();
       expect(payload.api_key).toBeUndefined();
+    });
+
+    it("submits an edited base_url as an override", async () => {
+      const onSubmit = await renderAndImport();
+
+      const baseUrlInput = (await screen.findByLabelText(
+        /base[_ ]url|代理地址/i,
+      )) as HTMLInputElement;
+      fireEvent.change(baseUrlInput, { target: { value: "https://api.deepseek.com/anthropic" } });
+      const submit = screen.getByRole("button", { name: /^(add|添加)$/i });
+      await waitFor(() => expect(submit).toBeEnabled());
+      fireEvent.click(submit);
+
+      await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+      const payload = onSubmit.mock.calls[0][0];
+      expect(payload.from_custom_provider_id).toBe(42);
+      expect(payload.base_url).toBe("https://api.deepseek.com/anthropic");
     });
 
     it("switching back to manual entry submits the typed key without the provider id", async () => {

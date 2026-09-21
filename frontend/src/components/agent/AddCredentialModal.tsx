@@ -289,9 +289,17 @@ export function AddCredentialModal({
     setSubmitError(null);
     try {
       const req = form.buildRequest();
+      // 预填地址未改动时不带 base_url，由服务端取供应商提交时的地址；用户改过才作为覆盖提交
+      const baseUrlOverride =
+        importSource && form.baseUrl.trim() !== importSource.base_url ? req.base_url : undefined;
       await onSubmit(
         importSource
-          ? { ...req, api_key: undefined, from_custom_provider_id: importSource.id }
+          ? {
+              ...req,
+              api_key: undefined,
+              base_url: baseUrlOverride,
+              from_custom_provider_id: importSource.id,
+            }
           : req,
       );
       onClose();
