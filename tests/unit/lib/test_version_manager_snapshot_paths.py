@@ -47,7 +47,7 @@ class TestResolveSnapshotPath:
 
         resolved = VersionManager.resolve_snapshot_path(project, "characters", rel)
 
-        assert resolved == (project / rel).resolve()
+        assert resolved == project / rel
 
     @pytest.mark.parametrize("relative", [*_UNMANAGED_FILES, str(Path("/tmp/Hero_v1.png")), None, 3])
     def test_rejects_paths_outside_the_typed_history_bucket(self, tmp_path, relative):
@@ -197,6 +197,37 @@ class TestSnapshotSinksKeepManagedBehavior:
 
         assert current.read_bytes() == b"v1"
         assert vm.get_current_version("characters", "Hero") == 1
+
+
+class TestSnapshotSinksActOnTheRecordedPath:
+    @staticmethod
+    def _linked_snapshot(project: Path) -> tuple[VersionManager, Path]:
+        rel = "versions/characters/Hero_v1_20260101T000000.png"
+        link = project / rel
+        link.parent.mkdir(parents=True)
+        link.symlink_to(project / "project.json")
+        _write_history(project, "characters", "Hero", [{"version": 1, "file": rel}], current=1)
+        return VersionManager(project), link
+
+    def test_purge_removes_a_symlinked_snapshot_without_touching_its_target(self, tmp_path):
+        project = _project(tmp_path)
+        vm, link = self._linked_snapshot(project)
+
+        assert vm.purge_resource("characters", "Hero") == 1
+
+        assert not link.is_symlink()
+        assert (project / "project.json").read_text(encoding="utf-8") == "{}"
+
+    def test_rename_moves_a_symlinked_snapshot_without_moving_its_target(self, tmp_path):
+        project = _project(tmp_path)
+        vm, link = self._linked_snapshot(project)
+
+        assert vm.rename_resource("characters", "Hero", "Villain") == 1
+
+        renamed = project / vm.get_versions("characters", "Villain")["versions"][0]["file"]
+        assert renamed.is_symlink()
+        assert not link.is_symlink()
+        assert (project / "project.json").read_text(encoding="utf-8") == "{}"
 
 
 class TestSnapshotSinksRejectUnknownResourceTypes:

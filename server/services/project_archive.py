@@ -1639,8 +1639,9 @@ class ProjectArchiveService:
 
         Buckets of resource types this version does not know (such as ``clues``
         left behind by the v0→v1 migration) are dropped before installation.  In a
-        typed bucket, a single record that is not an object naming a managed
-        snapshot path rejects the whole package.
+        typed bucket, a malformed resource entry or history, or a single record
+        that is not an object naming a managed snapshot path, rejects the whole
+        package.
         """
 
         versions_path = project_dir / "versions" / "versions.json"
@@ -1657,18 +1658,18 @@ class ProjectArchiveService:
 
         errors: list[ValidationMessage] = []
         for resource_type, bucket in payload.items():
-            for resource_id, history in self._iter_version_histories(bucket):
-                if any(
-                    not isinstance(record, dict)
-                    or not VersionManager.is_managed_snapshot_path(resource_type, record.get("file"))
-                    for record in history
+            if not isinstance(bucket, dict):
+                errors.append(ValidationMessage("arch_version_history_malformed", {"location": resource_type}))
+                continue
+            for resource_id, info in bucket.items():
+                location = f"{resource_type}/{resource_id}"
+                history = info.get("versions", []) if isinstance(info, dict) else None
+                if not isinstance(history, list) or not all(isinstance(record, dict) for record in history):
+                    errors.append(ValidationMessage("arch_version_history_malformed", {"location": location}))
+                elif not all(
+                    VersionManager.is_managed_snapshot_path(resource_type, record.get("file")) for record in history
                 ):
-                    errors.append(
-                        ValidationMessage(
-                            "arch_version_snapshot_path_unmanaged",
-                            {"location": f"{resource_type}/{resource_id}"},
-                        )
-                    )
+                    errors.append(ValidationMessage("arch_version_snapshot_path_unmanaged", {"location": location}))
         if errors:
             raise ProjectArchiveValidationError(ValidationMessage("arch_import_validation_failed"), errors=errors)
         if unknown:
@@ -1676,7 +1677,10 @@ class ProjectArchiveService:
 
     @staticmethod
     def _iter_version_histories(bucket: object) -> Iterator[tuple[str, list[Any]]]:
-        """Yield ``(resource_id, versions)`` for well-formed entries of one versions.json bucket."""
+        """Yield ``(resource_id, versions)`` for well-formed entries of one versions.json bucket.
+
+        Only used to count records of dropped buckets; typed buckets are validated strictly.
+        """
 
         if not isinstance(bucket, dict):
             return

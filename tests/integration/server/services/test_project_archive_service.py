@@ -1265,15 +1265,29 @@ class TestProjectArchiveService:
     def test_import_rejects_non_object_version_records(self, tmp_path, record):
         self._assert_import_rejects_storyboard_version_record(tmp_path, record)
 
+    @pytest.mark.parametrize(
+        ("storyboards", "location"),
+        [
+            ([], "storyboards"),
+            ({"E1S01": "versions/storyboards/E1S01_v1.png"}, "storyboards/E1S01"),
+            ({"E1S01": {"current_version": 1, "versions": {"1": {"version": 1}}}}, "storyboards/E1S01"),
+        ],
+    )
+    def test_import_rejects_malformed_version_history_containers(self, tmp_path, storyboards, location):
+        self._assert_import_rejects_versions_payload(tmp_path, {"storyboards": storyboards}, location)
+
+    @classmethod
+    def _assert_import_rejects_storyboard_version_record(cls, tmp_path, record):
+        cls._assert_import_rejects_versions_payload(
+            tmp_path, {"storyboards": {"E1S01": {"current_version": 1, "versions": [record]}}}, "storyboards/E1S01"
+        )
+
     @staticmethod
-    def _assert_import_rejects_storyboard_version_record(tmp_path, record):
+    def _assert_import_rejects_versions_payload(tmp_path, payload, location):
         pm = ProjectManager(tmp_path / "projects")
         project_dir = _create_project(pm)
         service = ProjectArchiveService(pm)
-        _write_json(
-            project_dir / "versions" / "versions.json",
-            {"storyboards": {"E1S01": {"current_version": 1, "versions": [record]}}},
-        )
+        _write_json(project_dir / "versions" / "versions.json", payload)
         archive_path = tmp_path / "unmanaged-snapshot.zip"
         _make_manual_zip(project_dir, archive_path)
         shutil.rmtree(project_dir)
@@ -1282,7 +1296,7 @@ class TestProjectArchiveService:
             service.import_project_archive(archive_path, uploaded_filename="unmanaged-snapshot.zip")
 
         assert exc_info.value.detail.render() == "导入包校验失败"
-        assert any("storyboards/E1S01" in error for error in exc_info.value.render_errors())
+        assert any(error.startswith(f"{location}:") for error in exc_info.value.render_errors())
         assert list(pm.projects_root.iterdir()) == []
 
     def test_import_drops_version_buckets_of_unknown_resource_types(self, tmp_path, caplog):

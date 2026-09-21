@@ -178,19 +178,22 @@ class VersionManager:
 
     @classmethod
     def resolve_snapshot_path(cls, project_path: Path, resource_type: str, relative_path: object) -> Path:
-        """Resolve a version record's snapshot to an absolute path inside ``project_path``.
+        """Return the recorded snapshot path under ``project_path`` once it is known to be managed.
 
         The record must name a canonical file in its typed history bucket and must
         still resolve inside the project after symlinks are followed.  Anything
         else raises :class:`UnmanagedSnapshotPathError` before the filesystem is
         touched; the caller refuses the operation and leaves its data unchanged.
+        The returned path is the recorded one, not its symlink target, so unlink
+        and rename act on the snapshot entry itself.
         """
 
         if isinstance(relative_path, str) and cls.is_managed_snapshot_path(resource_type, relative_path):
             try:
-                return safe_join(project_path, relative_path)
+                safe_join(project_path, relative_path)
             except PathTraversalError as exc:
                 raise UnmanagedSnapshotPathError(resource_type) from exc
+            return Path(project_path) / relative_path
         raise UnmanagedSnapshotPathError(resource_type)
 
     def _resolve_snapshot(self, resource_type: str, record: Mapping[str, Any]) -> Path:
