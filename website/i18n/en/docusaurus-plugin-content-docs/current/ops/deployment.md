@@ -167,7 +167,7 @@ The default deployment examples currently include these core variables:
 Notes:
 
 - Changing `AUTH_TOKEN_SECRET` invalidates existing login tokens.
-- `AUTH_ENABLED=false` is only for a local machine protected by its own network boundary. Compose publishes port `1241` on all host interfaces by default, so never disable authentication for remote deployments. While authentication is off, startup logs a WARNING and the UI shows a persistent banner at the top.
+- `AUTH_ENABLED=false` is only for a local machine protected by its own network boundary. Compose publishes port `1241` on all host interfaces by default, so never disable authentication for remote deployments. While authentication is off, startup logs a WARNING.
 - `.env` may contain secrets. Do not commit it to version control.
 - Vertex credential files should be readable only by the user who runs ArcReel.
 - Third-party model API keys are normally managed on the ArcReel Settings page. Do not include them in public documentation.

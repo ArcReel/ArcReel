@@ -29,15 +29,6 @@ body {
     font-family: var(--font-display);
 }
 
-/* 视口高度扣除 AuthDisabledBanner 写入的提示条高度；无提示条时等同 100vh。 */
-.h-app-screen {
-    height: calc(100vh - var(--auth-banner-h, 0px));
-}
-
-.top-app-banner {
-    top: var(--auth-banner-h, 0px);
-}
-
 .app-frame {
     min-height: 100vh;
 }

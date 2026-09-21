@@ -293,7 +293,7 @@ The MCP SDK's DNS-rebinding protection is disabled (`TransportSecuritySettings(e
 - A leaked download token can be replayed against the export routes of its bound project during its five-minute validity; other protected routes reject it.
 - Seven-day JWT lifetime increases the useful period of a stolen token.
 - Event-stream routes accept only the `Authorization` header; a session JWT or API key in a query parameter is rejected with 401 (ADR 0071). The frontend consumes them through `fetch` rather than `EventSource`.
-- `AUTH_ENABLED=false` causes authentication dependencies to return an anonymous administrator identity. The state is surfaced but not blocked: startup logs a WARNING and the frontend shows a persistent, non-dismissible banner. No second confirmation is required and port binding is unchanged.
+- `AUTH_ENABLED=false` causes authentication dependencies to return an anonymous administrator identity. The state is surfaced but not blocked: startup logs a WARNING. No second confirmation is required and port binding is unchanged.
 
 ### 10.2 Public and self-authenticating routes
 

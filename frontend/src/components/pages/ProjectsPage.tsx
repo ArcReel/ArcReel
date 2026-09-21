@@ -403,7 +403,7 @@ function TopBar({
   const { t } = useTranslation(["common", "dashboard", "assets"]);
   return (
     <div
-      className="sticky top-app-banner z-30"
+      className="sticky top-0 z-30"
       style={{
         background:
           "linear-gradient(180deg, oklch(0.20 0.011 265 / 0.55), oklch(0.15 0.010 265 / 0.45))",
@@ -694,7 +694,7 @@ function FilterPills({ active, onChange, counts, phaseLabels, t }: FilterPillsPr
     <div
       className="sticky z-20 border-b border-hairline backdrop-blur-md"
       style={{
-        top: "calc(var(--auth-banner-h, 0px) + var(--lobby-topbar-h, 57px))",
+        top: "var(--lobby-topbar-h, 57px)",
         background:
           "linear-gradient(180deg, oklch(0.20 0.011 265 / 0.55), oklch(0.15 0.010 265 / 0.45))",
         backdropFilter: "blur(16px) saturate(1.1)",

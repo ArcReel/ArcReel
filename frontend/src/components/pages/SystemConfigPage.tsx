@@ -150,7 +150,7 @@ export function SystemConfigPage() {
 
   return (
     <div
-      className="relative flex h-app-screen flex-col text-text"
+      className="relative flex h-screen flex-col text-text"
       style={
         {
           background:

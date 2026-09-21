@@ -157,7 +157,7 @@ export function StudioLayout({ children }: StudioLayoutProps) {
 
   return (
     <div
-      className="flex h-app-screen flex-col"
+      className="flex h-screen flex-col"
       style={{ color: "var(--color-text)" }}
     >
       <TaskFailureListener projectName={sseProjectName} />
@@ -233,7 +233,7 @@ export function StudioLayout({ children }: StudioLayoutProps) {
         disabled={assistantPanelOpen}
         tabIndex={assistantPanelOpen ? -1 : 0}
         aria-hidden={assistantPanelOpen}
-        className={`fixed right-4 top-[calc(var(--auth-banner-h,0px)+3.5rem)] grid h-10 w-10 place-items-center rounded-xl transition-all duration-300 ease-in-out ${UI_LAYERS.workspaceFloating} ${
+        className={`fixed right-4 top-14 grid h-10 w-10 place-items-center rounded-xl transition-all duration-300 ease-in-out ${UI_LAYERS.workspaceFloating} ${
           assistantPanelOpen
             ? "scale-0 pointer-events-none opacity-0"
             : "scale-100 cursor-pointer opacity-100"
