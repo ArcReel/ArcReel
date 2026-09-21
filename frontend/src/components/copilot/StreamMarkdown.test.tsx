@@ -65,7 +65,7 @@ const PAYLOADS: Record<string, string> = {
   "链接 data html": "[x](data:text/html,<script>window.__marker=1</script>)",
   "图片 javascript 协议": "![x](javascript:window.__marker=1)",
   "图片 data html": "![x](data:text/html,<script>window.__marker=1</script>)",
-  "图片 data svg": "![x](data:image/svg+xml,<svg onload='window.__marker=1'/>)",
+  "图片 data svg": "![x](data:image/svg+xml,%3Csvg%20onload%3D%22window.__marker%3D1%22%2F%3E)",
   "图片协议大小写混合": "![x](JaVaScRiPt:window.__marker=1)",
   "图片协议含制表符": "![x](java\tscript:window.__marker=1)",
   "图片协议实体编码": "![x](&#106;avascript:window.__marker=1)",
