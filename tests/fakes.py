@@ -846,11 +846,13 @@ class HangingProcess:
         self._honors_terminate = honors_terminate
         self._exited = asyncio.Event()
         self.waiting = asyncio.Event()
+        self.terminate_requested = asyncio.Event()
         self.returncode: int | None = None
         self.signals: list[str] = []
 
     def terminate(self) -> None:
         self.signals.append("terminate")
+        self.terminate_requested.set()
         if self._honors_terminate:
             self._exit(-15)
 

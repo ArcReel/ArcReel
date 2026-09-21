@@ -119,17 +119,15 @@ async def test_repeated_cancellation_waits_for_cleanup_to_finish(tmp_path: Path)
     )
     await proc.waiting.wait()
     task.cancel()
-    for _ in range(5):
-        await asyncio.sleep(0)
-    assert proc.signals == ["terminate"]
+    await proc.terminate_requested.wait()
     task.cancel()
-    for _ in range(5):
-        await asyncio.sleep(0)
+    await asyncio.sleep(0)  # 取消经一次回调送达任务
 
     assert not task.done()
     assert partial.exists()
 
     proc.kill()
+
     with pytest.raises(asyncio.CancelledError):
         await task
 
