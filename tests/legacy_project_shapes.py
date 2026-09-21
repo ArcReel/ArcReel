@@ -11,11 +11,11 @@ import json
 from pathlib import Path
 from typing import Any, Literal
 
-from lib.artifact_manifest import ArtifactKey, ArtifactManifestEntry, ProjectArtifactManifestAdapter
-from lib.grid.models import GridGeneration, build_frame_chain
-from lib.project_migrations.runner import MIGRATORS
-from lib.script_review import content_fingerprint
-from lib.source_revision import SourceScope, compute_source_revision
+from lib.artifacts.artifact_manifest import ArtifactKey, ArtifactManifestEntry, ProjectArtifactManifestAdapter
+from lib.project.project_migrations.runner import MIGRATORS
+from lib.project.source_revision import SourceScope, compute_source_revision
+from lib.script.grid.models import GridGeneration, build_frame_chain
+from lib.script.script_review import content_fingerprint
 
 _LEGACY_SNAPSHOT_TIMESTAMP = "20260302T145652"
 

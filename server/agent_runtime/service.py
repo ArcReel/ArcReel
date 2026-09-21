@@ -30,12 +30,12 @@ logger = logging.getLogger(__name__)
 from fastapi import Request
 from fastapi.sse import ServerSentEvent
 
-from lib.agent_profile import agent_profile_dir
-from lib.app_data_dir import app_data_dir
+from lib.agent.agent_profile import agent_profile_dir
+from lib.agent.profile_frontmatter import FrontmatterError, parse_profile_metadata
+from lib.agent.profile_manifest import VALID_CONTENT_MODES
 from lib.i18n import DEFAULT_LOCALE, get_locale
-from lib.profile_frontmatter import FrontmatterError, parse_profile_metadata
-from lib.profile_manifest import VALID_CONTENT_MODES
-from lib.project_manager import ProjectManager
+from lib.infra.app_data_dir import app_data_dir
+from lib.project.project_manager import ProjectManager
 from server.agent_runtime.event_log import (
     EventLogService,
     EventLogStore,

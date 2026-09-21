@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from lib.agent_session_store.store import DbSessionStore
+from lib.agent.agent_session_store.store import DbSessionStore
 from server.agent_runtime.session_manager import SessionManager
 
 

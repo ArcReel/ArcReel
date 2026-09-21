@@ -7,7 +7,7 @@ from collections.abc import AsyncIterator
 import httpx
 import pytest
 
-from lib.agent_provider_catalog import CUSTOM_SENTINEL_ID, get_preset
+from lib.agent.agent_provider_catalog import CUSTOM_SENTINEL_ID, get_preset
 from lib.config.anthropic_probe import (
     DiagnosisCode,
     ProbeResult,

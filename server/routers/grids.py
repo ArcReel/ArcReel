@@ -13,39 +13,39 @@ from pathlib import Path
 from fastapi import APIRouter, File, HTTPException, UploadFile
 from pydantic import BaseModel
 
-from lib.api_errors import BadRequestError, ConflictError, NotFoundError
-from lib.artifact_activation import (
+from lib.artifacts.artifact_activation import (
     register_current_resource_artifact,
     resolve_artifact_episode,
     resolve_current_resource_artifact_basis,
 )
-from lib.artifact_version_provenance import IMAGE_ARTIFACT_BASIS_FIELD
-from lib.async_thread import run_noninterruptible_sync
-from lib.generation_queue import get_generation_queue
-from lib.grid.layout import grid_aspect_ratio_for, max_cell_count, plan_grid_chunks, video_aspect_ratio_of
-from lib.grid.models import GridGeneration, build_grid_task_payload
-from lib.grid.prompt_builder import build_grid_prompt, pending_grid_prompt_ids
-from lib.grid_manager import GridManager
+from lib.artifacts.artifact_version_provenance import IMAGE_ARTIFACT_BASIS_FIELD
+from lib.artifacts.version_manager import VersionManager
+from lib.generation.generation_queue import get_generation_queue
 from lib.i18n import Translator
-from lib.image_utils import MAX_UPLOAD_PIXELS, ImagePixelLimitError, normalize_storyboard_upload
-from lib.json_io import domain_error_on_value_error
-from lib.project_change_hints import project_change_source
-from lib.project_manager import get_project_manager
-from lib.prompt_style import normalize_style_value
-from lib.storyboard_sequence import get_storyboard_items, group_scenes_by_segment_break
-from lib.version_manager import VersionManager
+from lib.infra.api_errors import BadRequestError, ConflictError, NotFoundError
+from lib.infra.async_thread import run_noninterruptible_sync
+from lib.infra.image_utils import MAX_UPLOAD_PIXELS, ImagePixelLimitError, normalize_storyboard_upload
+from lib.infra.json_io import domain_error_on_value_error
+from lib.project.project_change_hints import project_change_source
+from lib.project.project_manager import get_project_manager
+from lib.prompts.prompt_style import normalize_style_value
+from lib.script.grid.grid_access import ensure_grid_writable
+from lib.script.grid.grid_manager import GridManager
+from lib.script.grid.grid_resolution import resolve_large_grid_allowed
+from lib.script.grid.layout import grid_aspect_ratio_for, max_cell_count, plan_grid_chunks, video_aspect_ratio_of
+from lib.script.grid.models import GridGeneration, build_grid_task_payload
+from lib.script.grid.prompt_builder import build_grid_prompt, pending_grid_prompt_ids
+from lib.script.storyboard_sequence import get_storyboard_items, group_scenes_by_segment_break
 from server.auth import CurrentUser
-from server.services.grid_access import ensure_grid_writable
-from server.services.grid_resolution import resolve_large_grid_allowed
-from server.services.grid_split import GridImageNotReadyError, apply_grid_split
-from server.services.reference_admission import require_admitted_storyboard_references
-from server.services.upload_finalize import (
+from server.services.admission.reference_admission import require_admitted_storyboard_references
+from server.services.currency.upload_finalize import (
     UPLOAD_VERSION_SOURCE,
     UploadTooLargeError,
     UploadValidationError,
     stage_uploaded_bytes,
     validate_upload,
 )
+from server.services.grid.grid_split import GridImageNotReadyError, apply_grid_split
 
 router = APIRouter(prefix="/projects/{project_name}", tags=["grids"])
 
@@ -500,7 +500,7 @@ async def upload_grid_image(
         finally:
             await asyncio.to_thread(staged_file.unlink, missing_ok=True)
 
-        from server.services.generation_tasks import emit_generation_success_batch
+        from server.services.tasks.generation_tasks import emit_generation_success_batch
 
         fingerprints = await asyncio.to_thread(
             emit_generation_success_batch,

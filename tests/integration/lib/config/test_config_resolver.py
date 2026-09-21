@@ -1513,7 +1513,7 @@ class TestResolveVideoBackendBuckets:
     """generation_type 给定时的视频四级解析（项目桶 > 项目默认 > 全局桶 > 全局默认 > 自动推断）与能力闸。
 
     能力闸样本取 backend 声明的真实能力位：vidu/viduq3-pro 仅 i2v、dashscope/happyhorse-1.0-r2v
-    仅 r2v、ark 全系两桶齐备（见 lib/generation_type_buckets.py 的判定口径）。
+    仅 r2v、ark 全系两桶齐备（见 lib/backends/generation_type_buckets.py 的判定口径）。
     """
 
     async def test_project_bucket_wins_over_project_default(self):
@@ -1786,7 +1786,7 @@ class TestTextBackendTierResolution:
     async def test_five_level_priority_all_combinations(self, p_tier, p_def, g_tier, g_def):
         from unittest.mock import MagicMock
 
-        from lib.text_backends.base import TextTaskType
+        from lib.backends.text_backends.base import TextTaskType
 
         settings = {}
         if g_tier:
@@ -1820,7 +1820,7 @@ class TestTextBackendTierResolution:
     async def test_no_project_name_skips_project_levels(self):
         from unittest.mock import MagicMock
 
-        from lib.text_backends.base import TextTaskType
+        from lib.backends.text_backends.base import TextTaskType
 
         resolver = ConfigResolver.__new__(ConfigResolver)
         fake_svc = _FakeConfigService(settings={"text_backend_complex": "g-tier/m", "default_text_backend": "g-def/m"})
@@ -1831,7 +1831,7 @@ class TestTextBackendTierResolution:
         """OVERVIEW / STYLE_ANALYSIS 归简单档，读 text_backend_simple 而非复杂档键。"""
         from unittest.mock import MagicMock
 
-        from lib.text_backends.base import TextTaskType
+        from lib.backends.text_backends.base import TextTaskType
 
         resolver = ConfigResolver.__new__(ConfigResolver)
         fake_svc = _FakeConfigService(settings={"text_backend_simple": "simple/m", "text_backend_complex": "complex/m"})
@@ -1842,7 +1842,7 @@ class TestTextBackendTierResolution:
     async def test_script_task_reads_complex_key(self):
         from unittest.mock import MagicMock
 
-        from lib.text_backends.base import TextTaskType
+        from lib.backends.text_backends.base import TextTaskType
 
         resolver = ConfigResolver.__new__(ConfigResolver)
         fake_svc = _FakeConfigService(settings={"text_backend_simple": "simple/m", "text_backend_complex": "complex/m"})
@@ -1853,7 +1853,7 @@ class TestTextBackendTierResolution:
         """无 "/" 的脏值视为未设置，落到下一级。"""
         from unittest.mock import MagicMock
 
-        from lib.text_backends.base import TextTaskType
+        from lib.backends.text_backends.base import TextTaskType
 
         resolver = ConfigResolver.__new__(ConfigResolver)
         fake_svc = _FakeConfigService(settings={"text_backend_complex": "no-slash", "default_text_backend": "g-def/m"})
@@ -1865,7 +1865,7 @@ class TestTextBackendTierResolution:
         不静默回退到全局默认的另一供应商。与图片 / 视频的项目层同构。"""
         from unittest.mock import MagicMock
 
-        from lib.text_backends.base import TextTaskType
+        from lib.backends.text_backends.base import TextTaskType
 
         resolver = ConfigResolver.__new__(ConfigResolver)
         fake_svc = _FakeConfigService(settings={"default_text_backend": "g-def/m"})
@@ -1881,7 +1881,7 @@ class TestStyleAnalysisVisionGuard:
     async def test_rejects_registry_model_without_vision(self):
         from unittest.mock import MagicMock
 
-        from lib.text_backends.base import TextTaskType
+        from lib.backends.text_backends.base import TextTaskType
 
         resolver = ConfigResolver.__new__(ConfigResolver)
         # gemini-3.1-flash-lite-preview 在 registry 中未声明 vision
@@ -1892,7 +1892,7 @@ class TestStyleAnalysisVisionGuard:
     async def test_accepts_registry_model_with_vision(self):
         from unittest.mock import MagicMock
 
-        from lib.text_backends.base import TextTaskType
+        from lib.backends.text_backends.base import TextTaskType
 
         resolver = ConfigResolver.__new__(ConfigResolver)
         fake_svc = _FakeConfigService(settings={"text_backend_simple": "gemini-aistudio/gemini-3-flash-preview"})
@@ -1903,7 +1903,7 @@ class TestStyleAnalysisVisionGuard:
         """registry 之外（自定义供应商等）无逐模型能力事实，放行不猜测。"""
         from unittest.mock import MagicMock
 
-        from lib.text_backends.base import TextTaskType
+        from lib.backends.text_backends.base import TextTaskType
 
         resolver = ConfigResolver.__new__(ConfigResolver)
         fake_svc = _FakeConfigService(settings={"text_backend_simple": "custom-abc/some-model"})
@@ -1914,7 +1914,7 @@ class TestStyleAnalysisVisionGuard:
         """vision 校验只针对需要图像输入的任务，SCRIPT 不受限。"""
         from unittest.mock import MagicMock
 
-        from lib.text_backends.base import TextTaskType
+        from lib.backends.text_backends.base import TextTaskType
 
         resolver = ConfigResolver.__new__(ConfigResolver)
         fake_svc = _FakeConfigService(

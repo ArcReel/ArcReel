@@ -14,7 +14,7 @@ from lib.custom_provider.comfyui.request_builder import (
     build_workflow,
     workflow_sha256,
 )
-from lib.task_failure import FAILURE_CODE_KEYS, encode_failure, render_failure
+from lib.generation.task_failure import FAILURE_CODE_KEYS, encode_failure, render_failure
 from tests.factories import comfyui_endpoint_definition, make_translator
 
 

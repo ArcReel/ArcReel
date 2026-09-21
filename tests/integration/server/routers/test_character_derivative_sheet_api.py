@@ -13,14 +13,14 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from lib.artifact_manifest import ProjectArtifactManifestAdapter
-from lib.asset_derivatives import (
+from lib.artifacts.artifact_manifest import ProjectArtifactManifestAdapter
+from lib.config.resolver import ProviderModel
+from lib.project.asset_derivatives import (
     derivative_artifact_key,
     derivative_sheet_dir,
     derivative_sheet_relative_path,
     derivative_version_dir,
 )
-from lib.config.resolver import ProviderModel
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import characters, generate, versions

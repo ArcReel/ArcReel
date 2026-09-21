@@ -35,7 +35,7 @@ class ApiCall(TimestampMixin, UserOwnedMixin, Base):
     purpose: Mapped[str | None] = mapped_column(String, nullable=True)
     session_id: Mapped[str | None] = mapped_column(String, nullable=True)
     # 这次调用发出去的输入：参考图 [{path, label, role}]、首帧 / 尾帧、音色、未单列成列的请求参数；
-    # 路径为项目内相对路径（见 lib/media_generator.py 的输入归一）。
+    # 路径为项目内相对路径（见 lib/generation/media_generator.py 的输入归一）。
     inputs: Mapped[object | None] = mapped_column(JSON, nullable=True)
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

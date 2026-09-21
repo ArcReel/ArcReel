@@ -18,9 +18,10 @@ from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, Res
 from pydantic import AfterValidator, BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from lib.api_errors import BadRequestError
-from lib.app_data_dir import app_data_dir
-from lib.backend_assembly.specs import builtin_video_capabilities_for_model
+from lib.backends.backend_assembly.specs import builtin_video_capabilities_for_model
+from lib.backends.gemini_shared import VERTEX_SCOPES
+from lib.backends.http_status_errors import raise_for_status_redacted
+from lib.backends.video_backends.base import VideoAudioMode
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.repository import mask_secret
 from lib.config.resolver import (
@@ -35,10 +36,9 @@ from lib.config.url_utils import normalize_base_url
 from lib.db import async_session_factory, get_async_session
 from lib.db.base import dt_to_iso
 from lib.db.repositories.credential_repository import CredentialRepository
-from lib.gemini_shared import VERTEX_SCOPES
-from lib.http_status_errors import raise_for_status_redacted
 from lib.i18n import Locale, Translator, translate_or
-from lib.video_backends.base import VideoAudioMode
+from lib.infra.api_errors import BadRequestError
+from lib.infra.app_data_dir import app_data_dir
 from server.dependencies import get_config_service
 from server.routers._validators import split_video_backend_query
 
@@ -310,7 +310,7 @@ def _cred_to_response(cred: ProviderCredential) -> CredentialResponse:
 
 
 async def _invalidate_caches(request: Request) -> None:
-    from server.services.generation_context import invalidate_backend_cache
+    from server.services.tasks.generation_context import invalidate_backend_cache
 
     invalidate_backend_cache()
     worker = getattr(request.app.state, "generation_worker", None)
@@ -823,7 +823,7 @@ def _extract_gemini_models(pager) -> list[str]:
 
 def _check_ark(config: dict[str, str], _t: Callable[..., str]) -> ConnectivityCheckResponse:
     """通过 tasks.list 验证 Ark API Key。"""
-    from lib.ark_shared import create_ark_client
+    from lib.backends.ark_shared import create_ark_client
 
     client = create_ark_client(api_key=config["api_key"], base_url=config.get("base_url"))
     # 轻量级调用验证连通性，不创建任何资源
@@ -871,8 +871,8 @@ def _check_openai(config: dict[str, str], _t: Callable[..., str]) -> Connectivit
 
 
 def _check_vidu(config: dict[str, str], _t: Callable[..., str]) -> ConnectivityCheckResponse:
-    """Vidu 连通性检查 — HTTP 细节封装在 lib.vidu_shared.test_vidu_connection（fork-only）。"""
-    from lib.vidu_shared import test_vidu_connection
+    """Vidu 连通性检查 — HTTP 细节封装在 lib.backends.vidu_shared.test_vidu_connection（fork-only）。"""
+    from lib.backends.vidu_shared import test_vidu_connection
 
     test_vidu_connection(config)
     return ConnectivityCheckResponse(
@@ -890,7 +890,7 @@ def _check_dashscope(config: dict[str, str], _t: Callable[..., str]) -> Connecti
     """
     from openai import OpenAI
 
-    from lib.dashscope_shared import dashscope_text_base_url
+    from lib.backends.dashscope_shared import dashscope_text_base_url
 
     client = OpenAI(
         api_key=config["api_key"],
@@ -913,7 +913,7 @@ def _check_minimax(config: dict[str, str], _t: Callable[..., str]) -> Connectivi
     """
     from openai import OpenAI
 
-    from lib.minimax_shared import minimax_text_base_url
+    from lib.backends.minimax_shared import minimax_text_base_url
 
     client = OpenAI(
         api_key=config["api_key"],
@@ -940,7 +940,7 @@ def _check_kling(config: dict[str, str], _t: Callable[..., str]) -> Connectivity
 
     import httpx
 
-    from lib.kling_shared import (
+    from lib.backends.kling_shared import (
         KLING_BASE_URL,
         KlingJWTManager,
         kling_auth_mode,

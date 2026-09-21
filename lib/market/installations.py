@@ -13,13 +13,13 @@ from typing import Any, NamedTuple
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from lib.api_errors import ConflictError, NotFoundError
 from lib.custom_provider.endpoint_resolution import derive_mirror_columns
 from lib.db.base import utc_now
 from lib.db.models.custom_endpoint import CustomEndpoint
 from lib.db.models.market_installation import MarketInstallation
 from lib.db.models.market_source import MarketSource
 from lib.db.repositories.custom_endpoint_repo import CustomEndpointRepository
+from lib.infra.api_errors import ConflictError, NotFoundError
 
 from .address import source_identity
 from .entries import snapshot_entries

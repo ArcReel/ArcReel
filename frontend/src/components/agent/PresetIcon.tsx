@@ -9,7 +9,7 @@ type IconLoader = () => Promise<{ default: ComponentType<IconProps> }>;
 /**
  * iconKey → @lobehub/icons 子组件路径。
  *
- * 与 lib/agent_provider_catalog.py 的 PresetProvider.icon_key 一一对应。
+ * 与 lib/agent/agent_provider_catalog.py 的 PresetProvider.icon_key 一一对应。
  * 优先使用 Color 变体；当上游包没有提供 Color 时回退 Mono。
  * 新增供应商时如缺失映射，组件会 fallback 到 monogram。
  */

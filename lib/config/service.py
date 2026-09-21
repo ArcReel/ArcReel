@@ -11,7 +11,7 @@ from lib.config.env_keys import ANTHROPIC_ENV_KEYS
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.repository import ProviderConfigRepository, SystemSettingRepository
 from lib.db.repositories.credential_repository import CredentialRepository
-from lib.schema_guards import is_int
+from lib.infra.schema_guards import is_int
 
 _DEFAULT_VIDEO_BACKEND = "gemini-aistudio/veo-3.1-lite-generate-preview"
 _DEFAULT_IMAGE_BACKEND = "gemini-aistudio/gemini-3.1-flash-image-preview"
@@ -25,7 +25,7 @@ MIN_VIDEO_POLL_TIMEOUT_SECONDS = 60
 
 # 参考上传副本的保守通用请求体上限（ArcReel 侧安全策略常量，非任一供应商的真实字节限；
 # 被动 413 兜底负责自我纠正）。可经 per-provider 配置 key 覆盖。
-# 与 lib/reference_compression.DEFAULT_* 数值一致（单测断言对齐）。
+# 与 lib/references/reference_compression.DEFAULT_* 数值一致（单测断言对齐）。
 _DEFAULT_REFERENCE_TOTAL_MAX_BYTES = 8 * 1024 * 1024
 _DEFAULT_REFERENCE_SINGLE_MAX_BYTES = 4 * 1024 * 1024
 

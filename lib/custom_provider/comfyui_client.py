@@ -8,7 +8,7 @@
 抛失败码——上传没成功、提交被拒。
 
 住在 ``lib.custom_provider`` 顶层而非 ``comfyui`` 子包：子包受「不依赖声明式运行时」的 import
-契约约束，而 import-linter 连间接引用一起查——本模块要用 ``lib.video_backends.base`` 的提交包装
+契约约束，而 import-linter 连间接引用一起查——本模块要用 ``lib.backends.video_backends.base`` 的提交包装
 与下载器，那条链绕一圈会回到声明式 backend。同 ``comfyui_endpoint_spec`` 落在 ``endpoints.py``
 的理由。
 """
@@ -24,11 +24,7 @@ from typing import Any
 
 import httpx
 
-from lib.custom_provider.auth_section import render_auth
-from lib.custom_provider.comfyui.failures import NODE_ERRORS, UPLOAD_FAILED, ComfyuiError
-from lib.logging_utils import format_kwargs_for_log
-from lib.retry import retry_async
-from lib.video_backends.base import (
+from lib.backends.video_backends.base import (
     IMAGE_MIME_TYPES,
     ProviderResponseStage,
     redacted_status_error,
@@ -39,6 +35,10 @@ from lib.video_backends.base import (
     url_origin,
     with_artifact_retry,
 )
+from lib.custom_provider.auth_section import render_auth
+from lib.custom_provider.comfyui.failures import NODE_ERRORS, UPLOAD_FAILED, ComfyuiError
+from lib.infra.logging_utils import format_kwargs_for_log
+from lib.infra.retry import retry_async
 
 logger = logging.getLogger(__name__)
 

@@ -10,7 +10,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from lib.validation_messages import ValidationMessage
+from lib.infra.validation_messages import ValidationMessage
 
 from .entry import project_meta
 from .icon import ICON_FORMATS

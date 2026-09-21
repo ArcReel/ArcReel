@@ -28,18 +28,18 @@ from starlette.datastructures import MutableHeaders
 from starlette.types import Message, Receive, Scope, Send
 
 from lib import PROJECT_ROOT
-from lib.agent_session_store import session_store_enabled
-from lib.agent_session_store.import_local import migrate_local_transcripts_to_store
-from lib.agent_session_store.store import DbSessionStore
-from lib.app_data_dir import app_data_dir
+from lib.agent.agent_session_store import session_store_enabled
+from lib.agent.agent_session_store.import_local import migrate_local_transcripts_to_store
+from lib.agent.agent_session_store.store import DbSessionStore
 from lib.config.env_keys import PROVIDER_SECRET_KEYS
 from lib.db import async_session_factory, close_db, init_db
-from lib.generation_worker import GenerationWorker
-from lib.httpx_shared import shutdown_http_client, startup_http_client
-from lib.logging_config import attach_file_handler, migrate_legacy_log_dir, setup_logging
-from lib.path_safety import try_safe_join
-from lib.project_migrations import cleanup_stale_backups, run_project_migrations
-from lib.source_loader.migration import migrate_project_source_encoding
+from lib.generation.generation_worker import GenerationWorker
+from lib.infra.app_data_dir import app_data_dir
+from lib.infra.httpx_shared import shutdown_http_client, startup_http_client
+from lib.infra.logging_config import attach_file_handler, migrate_legacy_log_dir, setup_logging
+from lib.infra.path_safety import try_safe_join
+from lib.project.project_migrations import cleanup_stale_backups, run_project_migrations
+from lib.script.source_loader.migration import migrate_project_source_encoding
 from server.auth import ensure_auth_password, get_current_user
 from server.cors_config import resolve_cors_policy
 from server.dependencies import require_project_migration_ok
@@ -79,7 +79,7 @@ from server.routers import (
     versions,
 )
 from server.routers import auth as auth_router
-from server.services.project_events import ProjectEventService
+from server.services.project.project_events import ProjectEventService
 
 
 def assert_no_provider_secrets_in_environ() -> None:
@@ -437,7 +437,7 @@ async def lifespan(app: FastAPI):
         logger.warning("official market source seed failed (non-fatal): %s", exc)
 
     # 把 agent_runtime_profile 物化到存量项目（文件 I/O → worker 线程）
-    from lib.project_manager import get_project_manager
+    from lib.project.project_manager import get_project_manager
 
     _pm = get_project_manager()
     _profile_sync_stats = await asyncio.to_thread(_pm.sync_all_agent_profiles)
@@ -455,7 +455,7 @@ async def lifespan(app: FastAPI):
     app.state.generation_worker = worker
     # 注入 in-process cancel 回调必须在 worker.start() 之前，
     # 否则有窗口期 callback 为 None、cancel running 信号丢失（违反 ADR 0006 秒级响应）。
-    from lib.generation_queue import get_generation_queue
+    from lib.generation.generation_queue import get_generation_queue
 
     get_generation_queue().set_worker_cancel_callback(worker.request_cancel)
     await worker.start()
@@ -479,7 +479,7 @@ async def lifespan(app: FastAPI):
     worker = getattr(app.state, "generation_worker", None)
     if worker:
         logger.info("正在停止 GenerationWorker...")
-        from lib.generation_queue import get_generation_queue
+        from lib.generation.generation_queue import get_generation_queue
 
         # 先 stop（内部 drain inflight + 退出主循环）：期间 cancel API 仍可发起，
         # callback 仍可用，避免重新部署窗口期 cancel 信号被丢弃。

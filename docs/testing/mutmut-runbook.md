@@ -26,7 +26,7 @@ uv sync --group mutation
 
   不带参数则按目录汇总跳过行占比，用来看哪些目录整体值得挑。
 
-- **优先级**：按「没跑过、测试多、代码量大」挑，`server/services`、`lib/video_backends`、`lib/custom_provider`、`lib/reference_video` 优先。不找预测候选率或可处置率的规则：替身密度、弱断言用例占比都试过，对结果没有预测力。测试快慢也不是准入条件，超时与并行子进程的问题已在 `tests/conftest.py` 与 `tests/mutmut_plugin.py` 里消除，DB 档集成用例同样跑得干净。
+- **优先级**：按「没跑过、测试多、代码量大」挑，`server/services`、`lib/backends/video_backends`、`lib/custom_provider`、`lib/script/reference_video` 优先。不找预测候选率或可处置率的规则：替身密度、弱断言用例占比都试过，对结果没有预测力。测试快慢也不是准入条件，超时与并行子进程的问题已在 `tests/conftest.py` 与 `tests/mutmut_plugin.py` 里消除，DB 档集成用例同样跑得干净。
 - **终点**：不设。每批跑完算可处置率（判为 ③ 值得保护的存活 mutant 数 / 存活 mutant 数），连续两批明显下降就停。
 
 ### 2.2 跑一轮
@@ -68,10 +68,10 @@ uv sync --group mutation
 
 ```bash
 # 在项目根跑：tests-for-mutant 读 mutants/mutmut-stats.json，在 mutants/ 里跑会报 Failed to load stats
-uv run mutmut tests-for-mutant lib.speech_rate.x_estimate_spoken_seconds__mutmut_8 > nodeids.txt
+uv run mutmut tests-for-mutant lib.speech.speech_rate.x_estimate_spoken_seconds__mutmut_8 > nodeids.txt
 
 # 在 mutants/ 里跑，用 .venv 的解释器，不要用 uv run（见第 6 节）
-cd mutants && MUTANT_UNDER_TEST=lib.speech_rate.x_estimate_spoken_seconds__mutmut_8 \
+cd mutants && MUTANT_UNDER_TEST=lib.speech.speech_rate.x_estimate_spoken_seconds__mutmut_8 \
   ../.venv/bin/python -m pytest -x -q @../nodeids.txt
 ```
 
@@ -142,21 +142,21 @@ uv run python scripts/mutmut_compare.py \
 
 | 模块 | 批次 | 票号 | 研究分支 |
 | --- | --- | --- | --- |
-| `lib/generation_type_buckets.py` | 首批 A 组 | #2257 | `research/mutmut-batch-1`（`baseline/A/`） |
-| `lib/content_digest.py` | 首批 A 组 | #2257 | `research/mutmut-batch-1`（`baseline/A/`） |
-| `lib/episode_paths.py` | 首批 A 组 | #2257 | `research/mutmut-batch-1`（`baseline/A/`） |
-| `lib/grid/splitter.py` | 首批 A 组 | #2257 | `research/mutmut-batch-1`（`baseline/A/`） |
-| `lib/speech_rate.py` | 首批 A 组 | #2257 | `research/mutmut-batch-1`（`baseline/A/`） |
-| `lib/text_metrics.py` | 首批 A 组 | #2257 | `research/mutmut-batch-1`（`baseline/A/`） |
+| `lib/backends/generation_type_buckets.py` | 首批 A 组 | #2257 | `research/mutmut-batch-1`（`baseline/A/`） |
+| `lib/infra/content_digest.py` | 首批 A 组 | #2257 | `research/mutmut-batch-1`（`baseline/A/`） |
+| `lib/episode/episode_paths.py` | 首批 A 组 | #2257 | `research/mutmut-batch-1`（`baseline/A/`） |
+| `lib/script/grid/splitter.py` | 首批 A 组 | #2257 | `research/mutmut-batch-1`（`baseline/A/`） |
+| `lib/speech/speech_rate.py` | 首批 A 组 | #2257 | `research/mutmut-batch-1`（`baseline/A/`） |
+| `lib/infra/text_metrics.py` | 首批 A 组 | #2257 | `research/mutmut-batch-1`（`baseline/A/`） |
 | `lib/custom_provider/discovery.py` | 首批 B 组 | #2257 | `research/mutmut-batch-1`（`baseline/B/`） |
-| `lib/text_backends/openai.py` | 首批 B 组 | #2257 | `research/mutmut-batch-1`（`baseline/B/`） |
-| `lib/text_backends/instructor_support.py` | 第二批池 1 | #2297 | `research/mutmut-batch-2` |
-| `lib/text_backends/ark.py` | 第二批池 1 | #2297 | `research/mutmut-batch-2` |
-| `lib/text_backends/gemini.py` | 第二批池 1 | #2297 | `research/mutmut-batch-2` |
-| `lib/text_backends/grok.py` | 第二批池 1 | #2297 | `research/mutmut-batch-2` |
-| `lib/video_backends/gemini.py` | 第二批池 1 | #2297 | `research/mutmut-batch-2` |
-| `lib/image_backends/dashscope.py` | 第二批池 1 | #2297 | `research/mutmut-batch-2` |
-| `lib/image_backends/minimax.py` | 第二批池 1 | #2297 | `research/mutmut-batch-2` |
+| `lib/backends/text_backends/openai.py` | 首批 B 组 | #2257 | `research/mutmut-batch-1`（`baseline/B/`） |
+| `lib/backends/text_backends/instructor_support.py` | 第二批池 1 | #2297 | `research/mutmut-batch-2` |
+| `lib/backends/text_backends/ark.py` | 第二批池 1 | #2297 | `research/mutmut-batch-2` |
+| `lib/backends/text_backends/gemini.py` | 第二批池 1 | #2297 | `research/mutmut-batch-2` |
+| `lib/backends/text_backends/grok.py` | 第二批池 1 | #2297 | `research/mutmut-batch-2` |
+| `lib/backends/video_backends/gemini.py` | 第二批池 1 | #2297 | `research/mutmut-batch-2` |
+| `lib/backends/image_backends/dashscope.py` | 第二批池 1 | #2297 | `research/mutmut-batch-2` |
+| `lib/backends/image_backends/minimax.py` | 第二批池 1 | #2297 | `research/mutmut-batch-2` |
 | `lib/custom_provider/backends.py` | 第二批池 1 | #2297 | `research/mutmut-batch-2` |
 | `server/agent_runtime/sdk_tools/asset_inventory.py` | 第二批池 2 | #2298 | `research/mutmut-batch-2`（`pool2/`） |
 | `server/agent_runtime/sdk_tools/enqueue_assets.py` | 第二批池 2 | #2298 | `research/mutmut-batch-2`（`pool2/`） |

@@ -17,20 +17,20 @@ from contextlib import contextmanager
 from fastapi import APIRouter, File, HTTPException, UploadFile
 from pydantic import BaseModel
 
-from lib.api_errors import ApiError, NotFoundError
 from lib.i18n import Translator
-from lib.script_editor import ScriptEditError
+from lib.infra.api_errors import ApiError, NotFoundError
+from lib.script.script_editor import ScriptEditError
 from server.error_handlers import script_edit_detail
-from server.services.end_frame import (
+from server.services.currency.upload_finalize import (
+    UploadTooLargeError,
+    UploadValidationError,
+    validate_upload,
+)
+from server.services.project.end_frame import (
     EndFrameError,
     clear_end_frame,
     set_end_frame_from_bytes,
     set_end_frame_from_project_image,
-)
-from server.services.upload_finalize import (
-    UploadTooLargeError,
-    UploadValidationError,
-    validate_upload,
 )
 
 logger = logging.getLogger(__name__)

@@ -490,7 +490,7 @@ export default {
   'confirm_cancel': '确认取消',
   'go_back': '返回',
   // task_type display names（后端 task_type 无集中枚举，散落在各入队调用点字面量 +
-  // lib/asset_types.ASSET_SPECS 的 key；词表外未知值前端兜底显示原始串）
+  // lib/project/asset_types.ASSET_SPECS 的 key；词表外未知值前端兜底显示原始串）
   'task_type_image_edit': '图片编辑',
   'task_type_storyboard': '分镜图',
   'task_type_video': '视频',

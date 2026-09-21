@@ -260,7 +260,7 @@ export function ReferenceVideoCanvas({
     ? (durationDrafts[selectedDurationKey] ?? String(selected?.duration_seconds ?? ""))
     : "";
 
-  // 参考图约束按 unit 而非按集生效（同 lib.reference_video.request_projection 的
+  // 参考图约束按 unit 而非按集生效（同 lib.script.reference_video.request_projection 的
   // ReferenceUnitRequestProjector 按可用参考图定 r2v / i2v 的判据）：正文里解析不出已登记
   // 引用的 unit 用不叠加该约束的档位，否则同集内其它 unit 带图会连带把它的可选档位收窄到
   // 一个它本不受限的子集。

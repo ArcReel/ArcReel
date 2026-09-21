@@ -14,18 +14,18 @@ from typing import Any
 from fastapi import APIRouter, File, HTTPException, Response, UploadFile, status
 from pydantic import BaseModel, ConfigDict, Field, PositiveInt
 
-from lib.api_errors import ApiError, BadRequestError, NotFoundError
-from lib.artifact_activation import resolve_artifact_episode
-from lib.batch_admission import BatchAdmission, BatchAdmissionDecision, refused_ticket
+from lib.artifacts.artifact_activation import resolve_artifact_episode
+from lib.artifacts.version_manager import VersionManager
 from lib.db import async_session_factory
-from lib.generation_queue import get_generation_queue
-from lib.generation_queue_client import (
+from lib.generation.batch_admission import BatchAdmission, BatchAdmissionDecision, refused_ticket
+from lib.generation.generation_queue import get_generation_queue
+from lib.generation.generation_queue_client import (
     BatchTaskResult,
     TaskSpec,
     TaskSpecValidationError,
     batch_enqueue_only,
 )
-from lib.generation_result import (
+from lib.generation.generation_result import (
     GenerationAction,
     GenerationProblemCode,
     GenerationSelectionMode,
@@ -33,7 +33,22 @@ from lib.generation_result import (
     normalize_requested_ids,
 )
 from lib.i18n import Translator
-from lib.narration_delivery import (
+from lib.infra.api_errors import ApiError, BadRequestError, NotFoundError
+from lib.infra.path_safety import PathTraversalError, safe_join
+from lib.project.project_change_hints import project_change_source
+from lib.project.project_manager import get_project_manager, is_reference_video_project
+from lib.project.resource_paths import resource_relative_path
+from lib.script.reference_video import derive_references_from_text
+from lib.script.reference_video.request_projection import (
+    ReferenceRequestOptions,
+    ReferenceUnitRequestProjection,
+    project_reference_unit_request,
+)
+from lib.script.reference_video.script_preview import build_script_preview
+from lib.script.reference_video.units import reference_video_bucket
+from lib.script.reference_video.voice_settings import VoiceRenderSettings
+from lib.script.script_editor import ScriptEditError
+from lib.speech.narration_delivery import (
     POST_PRODUCTION,
     USE_TTS,
     NarrationDelivery,
@@ -41,44 +56,13 @@ from lib.narration_delivery import (
     video_request_requires_exact_quote,
     video_request_reuses_current_visual,
 )
-from lib.path_safety import PathTraversalError, safe_join
-from lib.project_change_hints import project_change_source
-from lib.project_manager import get_project_manager, is_reference_video_project
-from lib.reference_video import derive_references_from_text
-from lib.reference_video.request_projection import (
-    ReferenceRequestOptions,
-    ReferenceUnitRequestProjection,
-    project_reference_unit_request,
-)
-from lib.reference_video.script_preview import build_script_preview
-from lib.reference_video.units import reference_video_bucket
-from lib.reference_video.voice_settings import VoiceRenderSettings
-from lib.resource_paths import resource_relative_path
-from lib.script_editor import ScriptEditError
-from lib.speech_composition import admit_script_unit, refresh_video_unit_replan_state
-from lib.version_manager import VersionManager
+from lib.speech.speech_composition import admit_script_unit, refresh_video_unit_replan_state
 from server.auth import CurrentUser
 from server.error_handlers import script_edit_detail
 from server.routers._reorder import full_permutation_error
 from server.routers._script_edits import execute_current_episode_edit, require_script_edit_result
-from server.services.cost_estimation import quote_video_request
-from server.services.generation_tasks import emit_generation_success_batch
-from server.services.narration_delivery_tasks import (
-    prepare_current_reference_video_request_options,
-    tts_task_in_progress,
-)
-from server.services.reference_video_tasks import (
-    apply_unit_video_assets,
-    default_unit_duration,
-    resolve_project_duration_context,
-)
-from server.services.upload_finalize import (
-    UploadValidationError,
-    commit_manual_video_upload,
-    stage_uploaded_video_stream,
-    validate_upload,
-)
-from server.services.video_batch_admission import (
+from server.services.admission.cost_estimation import quote_video_request
+from server.services.admission.video_batch_admission import (
     admit_reference_video_batch,
     artifact_state_tickets,
     reference_unit_task_spec,
@@ -86,7 +70,23 @@ from server.services.video_batch_admission import (
     resolve_reference_batch_targets,
     screen_script_entries,
 )
-from server.services.video_caps import project_video_caps
+from server.services.currency.upload_finalize import (
+    UploadValidationError,
+    commit_manual_video_upload,
+    stage_uploaded_video_stream,
+    validate_upload,
+)
+from server.services.tasks.generation_tasks import emit_generation_success_batch
+from server.services.tasks.narration_delivery_tasks import (
+    prepare_current_reference_video_request_options,
+    tts_task_in_progress,
+)
+from server.services.tasks.reference_video_tasks import (
+    apply_unit_video_assets,
+    default_unit_duration,
+    resolve_project_duration_context,
+)
+from server.services.tasks.video_caps import project_video_caps
 
 logger = logging.getLogger(__name__)
 

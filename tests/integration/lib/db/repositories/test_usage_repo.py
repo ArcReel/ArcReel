@@ -8,6 +8,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from sqlalchemy import select
 
+from lib.backends.providers import CallStatus
 from lib.db.base import DEFAULT_USER_ID, utc_now
 from lib.db.models.api_call import ApiCall
 from lib.db.models.task import Task
@@ -19,7 +20,6 @@ from lib.db.repositories.usage_repo import (
     UsageFilters,
     UsageRepository,
 )
-from lib.providers import CallStatus
 
 
 async def stored_calls(session, project_name: str = "demo") -> list[ApiCall]:
@@ -145,7 +145,7 @@ class TestFinalizePendingByCallId:
 
     async def test_service_tier_passed_to_cost_calculator(self, async_session, monkeypatch):
         """service_tier 应从 caller 透传到 cost_calculator.calculate_cost，非 default 档位才算对。"""
-        from lib import cost_calculator as cc_module
+        from lib.billing import cost_calculator as cc_module
 
         captured: dict[str, str] = {}
 
@@ -173,7 +173,7 @@ class TestFinalizePendingByCallId:
     async def test_usage_tokens_passed_to_cost_calculator(self, async_session, monkeypatch):
         """Ark video 按 usage_tokens 计费，repo 必须把 caller 传入的 usage_tokens 透传到 cost_calculator，
         否则按 token 计费的视频走 usage_tokens or 0 路径 → cost 永远为 0 CNY。"""
-        from lib import cost_calculator as cc_module
+        from lib.billing import cost_calculator as cc_module
 
         captured: dict[str, object] = {}
 
@@ -207,7 +207,7 @@ class TestFinalizePendingByCallId:
         """provider 成功响应但漏报 usage（``usage_tokens`` 为 None）时，实付结算必须如实按
         0 计费，不能借费用预估侧的 token 近似换算兜底把估算近似值当成真实支出记录——
         该兜底只应在 ``CostCalculator.calculate_cost(estimate_only=True)`` 时生效
-        （见 ``server/services/cost_estimation.py`` 的视频预估分支），
+        （见 ``server/services/admission/cost_estimation.py`` 的视频预估分支），
         ``UsageRepository._settle`` 走真实结算，不传 ``estimate_only``。"""
         repo = UsageRepository(async_session)
         call_id = await repo.start_call(
@@ -227,7 +227,7 @@ class TestFinalizePendingByCallId:
     async def test_billed_duration_passed_to_cost_calculator_and_ledger(self, async_session, monkeypatch):
         """provider 回报的实际计费时长必须透传到 cost_calculator 并回写 ApiCall.duration_seconds，
         与 finish_call 的 billed_duration_seconds 覆盖语义一致（resume 路径不分叉）。"""
-        from lib import cost_calculator as cc_module
+        from lib.billing import cost_calculator as cc_module
 
         captured: dict[str, object] = {}
 
@@ -257,7 +257,7 @@ class TestFinalizePendingByCallId:
 
     async def test_billed_duration_non_positive_falls_back_to_request_duration(self, async_session, monkeypatch):
         """非正的实际计费时长视同未提供：cost_calculator 入参与账本均回落 start_call 的请求时长。"""
-        from lib import cost_calculator as cc_module
+        from lib.billing import cost_calculator as cc_module
 
         captured: dict[str, object] = {}
 
@@ -288,7 +288,7 @@ class TestFinalizePendingByCallId:
     async def test_billed_duration_over_limit_falls_back_to_request_duration(self, async_session, monkeypatch):
         """超出合理上限（24h）的计费时长视同未提供：repo 写入层是全部 backend 的最后防线，
         防超大数值写入 DB Integer 列溢出。"""
-        from lib import cost_calculator as cc_module
+        from lib.billing import cost_calculator as cc_module
         from lib.db.repositories.usage_repo import MAX_BILLED_DURATION_SECONDS
 
         captured: dict[str, object] = {}
@@ -424,7 +424,7 @@ class TestFinalizePendingByCallId:
         """provider 在 submit 后可能降级/关闭音频；finalize 接受 caller 透传的 generate_audio
         覆盖 ApiCall 行上 start_call 时的请求值（与 finish_call 同语义），cost_calculator 也应收到
         覆盖后的值，避免按请求值误计费。"""
-        from lib import cost_calculator as cc_module
+        from lib.billing import cost_calculator as cc_module
 
         captured: dict[str, object] = {}
 

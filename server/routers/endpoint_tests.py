@@ -33,8 +33,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 # 判定，解析器产出的是 starlette.datastructures.UploadFile，用子类判定会全部落空。
 from starlette.datastructures import FormData, UploadFile
 
-from lib.api_errors import BadRequestError, ConflictError, NotFoundError, UnprocessableError
-from lib.backend_assembly.specs import builtin_declarative_video_diagnostics
+from lib.backends.backend_assembly.specs import builtin_declarative_video_diagnostics
 from lib.config.registry import PROVIDER_REGISTRY, ProviderMeta, model_info_for
 from lib.config.resolver import ConfigResolver
 from lib.custom_provider import is_custom_provider, parse_provider_id
@@ -66,9 +65,10 @@ from lib.db import async_session_factory, get_async_session
 from lib.db.models.custom_provider import CustomProvider
 from lib.db.repositories.custom_endpoint_repo import CustomEndpointRepository
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository
-from lib.generation_result import problem_from_task_failure
+from lib.generation.generation_result import problem_from_task_failure
+from lib.generation.task_failure import encode_failure, parse_failure, render_failure
 from lib.i18n import Translator
-from lib.task_failure import encode_failure, parse_failure, render_failure
+from lib.infra.api_errors import BadRequestError, ConflictError, NotFoundError, UnprocessableError
 
 logger = logging.getLogger(__name__)
 

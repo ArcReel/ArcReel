@@ -9,6 +9,8 @@ from typing import TYPE_CHECKING, Any, cast
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from lib.backends.image_backends.base import ImageCapability
+from lib.backends.video_backends.base import ReferenceAudioMode, VideoAudioMode
 from lib.custom_provider import is_custom_endpoint, make_endpoint_key
 from lib.custom_provider.backends import CustomVideoBackend
 from lib.custom_provider.comfyui.failures import ComfyuiError
@@ -20,9 +22,7 @@ from lib.custom_provider.endpoint_resolution import (
 )
 from lib.custom_provider.endpoints import ENDPOINT_REGISTRY, get_endpoint_spec
 from lib.db.repositories.custom_endpoint_repo import CustomEndpointRepository
-from lib.image_backends.base import ImageCapability
-from lib.task_failure import FAILURE_CODE_KEYS
-from lib.video_backends.base import ReferenceAudioMode, VideoAudioMode
+from lib.generation.task_failure import FAILURE_CODE_KEYS
 from tests.factories import comfyui_endpoint_definition, custom_endpoint_definition
 
 if TYPE_CHECKING:

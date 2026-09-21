@@ -3,7 +3,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from lib.api_errors import BadRequestError, NotFoundError
+from lib.infra.api_errors import BadRequestError, NotFoundError
 from server.routers import project_events as project_events_router
 
 

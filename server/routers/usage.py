@@ -11,12 +11,12 @@ from zoneinfo import ZoneInfo
 from fastapi import APIRouter, Query
 from pydantic import BaseModel, Field
 
-from lib.api_errors import NotFoundError, UnprocessableError
+from lib.backends.providers import CallStatus, CallType
+from lib.billing.usage_summary import UsageFilterOptions, UsageWindowTooWideError, build_summary
 from lib.db import async_session_factory
 from lib.db.repositories.usage_repo import UsageCursor, UsageCursorError, UsageFilters, UsageRepository, as_utc
 from lib.i18n import Locale, translate_or
-from lib.providers import CallStatus, CallType
-from lib.usage_summary import UsageFilterOptions, UsageWindowTooWideError, build_summary
+from lib.infra.api_errors import NotFoundError, UnprocessableError
 
 router = APIRouter()
 _CALL_STATUS_DESCRIPTION = f"状态 ({'/'.join(CallStatus)})"
@@ -148,7 +148,7 @@ async def get_usage_record(record_id: int) -> UsageRecordDetail:
 
 # --- 汇总读接口（GET /usage/summary）---------------------------------------------------
 # 设置页总览与顶栏入口共用这一次请求：KPI、日桶趋势、三维构成、需要关注与筛选候选值。
-# 聚合规则在 lib/usage_summary.py，这里只负责取参、取行与形状声明。
+# 聚合规则在 lib/billing/usage_summary.py，这里只负责取参、取行与形状声明。
 
 
 class UsageStats(BaseModel):

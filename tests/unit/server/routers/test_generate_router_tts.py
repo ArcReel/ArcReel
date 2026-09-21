@@ -6,10 +6,10 @@ from typing import Any
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from lib.artifact_manifest import ArtifactComparison, ArtifactKey, ArtifactStatus
+from lib.artifacts.artifact_manifest import ArtifactComparison, ArtifactKey, ArtifactStatus
 from lib.config.resolver import ConfigResolver, ProviderModel
 from lib.i18n import _ as i18n_message
-from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
+from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import generate

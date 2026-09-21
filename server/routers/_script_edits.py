@@ -7,8 +7,8 @@ from typing import Any, Protocol
 
 from fastapi import HTTPException
 
-from lib.project_manager import ProjectManager
-from lib.script_batch_edit import (
+from lib.project.project_manager import ProjectManager
+from lib.script.script_batch_edit import (
     ScriptBatchEditCommand,
     ScriptBatchEditor,
     ScriptBatchEditResult,

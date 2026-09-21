@@ -22,11 +22,11 @@ from collections.abc import AsyncGenerator
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from lib.backend_assembly.specs import (
+from lib.backends.backend_assembly.specs import (
     builtin_effective_generate_audio_for_model,
     builtin_video_capabilities_for_model,
 )
-from lib.character_voice import CharacterVoiceBinding, character_voice_binding
+from lib.backends.text_backends.base import TEXT_TASK_TIERS, VISION_REQUIRED_TASKS, TextTaskTier, TextTaskType
 from lib.config.registry import (
     PROVIDER_REGISTRY,
     default_model_for_provider,
@@ -44,9 +44,9 @@ from lib.config.service import (
 from lib.custom_provider import is_custom_provider, parse_provider_id
 from lib.db.repositories.credential_repository import CredentialRepository
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository
-from lib.episode_target_duration import project_episode_target_duration
-from lib.project_manager import get_project_manager
-from lib.text_backends.base import TEXT_TASK_TIERS, VISION_REQUIRED_TASKS, TextTaskTier, TextTaskType
+from lib.episode.episode_target_duration import project_episode_target_duration
+from lib.project.project_manager import get_project_manager
+from lib.speech.character_voice import CharacterVoiceBinding, character_voice_binding
 
 logger = logging.getLogger(__name__)
 
@@ -234,9 +234,9 @@ VideoGenerationType = Literal["i2v", "r2v"]
 
 #: 视频任务类型 → 任务类型桶。执行路径与桶的映射固定在代码里（docs/adr/0054）：图生视频 /
 #: 宫格生视频（task_type ``video``）→ i2v；参考生视频按视频单元是否携带参考图分流
-#: （``lib.reference_video.units``），本表登记其代表桶 r2v，仅供剧本 / unit 读不到时回退。
-#: 表外任务类型无视频桶，调用方按「不定桶」处理。定义在本模块（而非 lib.generation_type_buckets）
-#: 是分层约束：队列 / worker 的入队与认领路径处于 lib.video_backends 的依赖闭包内，不得经
+#: （``lib.script.reference_video.units``），本表登记其代表桶 r2v，仅供剧本 / unit 读不到时回退。
+#: 表外任务类型无视频桶，调用方按「不定桶」处理。定义在本模块（而非 lib.backends.generation_type_buckets）
+#: 是分层约束：队列 / worker 的入队与认领路径处于 lib.backends.video_backends 的依赖闭包内，不得经
 #: 桶判定模块间接引入 lib.custom_provider。
 VIDEO_BUCKET_BY_TASK_TYPE: dict[str, VideoGenerationType] = {
     "video": "i2v",
@@ -246,7 +246,7 @@ VIDEO_BUCKET_BY_TASK_TYPE: dict[str, VideoGenerationType] = {
 #: 生成模式 → 任务类型桶。与 ``VIDEO_BUCKET_BY_TASK_TYPE`` 描述同一套映射的两个入口：执行路径按
 #: 已成形任务的 task_type 定桶，读侧（能力查询 / 时长约束收窄等）在任务成形前只有项目的
 #: generation_mode，按它定同一个桶，两侧因此回答同一个「当前配置真正会执行的模型」。
-#: 参考生视频项目中无参考图分镜的降级（→ i2v）不经本表，见 ``lib.reference_video.units``。
+#: 参考生视频项目中无参考图分镜的降级（→ i2v）不经本表，见 ``lib.script.reference_video.units``。
 VIDEO_BUCKET_BY_GENERATION_MODE: dict[str, VideoGenerationType] = {
     "storyboard": "i2v",
     "reference_video": "r2v",
@@ -334,10 +334,10 @@ def video_capability_satisfied(
 ) -> bool:
     """一组视频能力声明是否满足某个桶——桶归属判定的唯一口径。
 
-    解析闸（``_ensure_video_bucket_capability``）与桶候选下拉（``lib.generation_type_buckets``）共用本
+    解析闸（``_ensure_video_bucket_capability``）与桶候选下拉（``lib.backends.generation_type_buckets``）共用本
     函数，不各写一份布尔式：下拉挡掉的组合解析层必然也挡，反之亦然。``has_image`` 区分
     i2v 桶内的纯文生与带首帧请求。取标量参数而非
-    ``VideoCapabilities``，一是不在 lib.config 层导入 lib.video_backends.base（分层契约），二是让
+    ``VideoCapabilities``，一是不在 lib.config 层导入 lib.backends.video_backends.base（分层契约），二是让
     内置（backend 声明）与自定义供应商（endpoint ⊕ 模型级覆盖的合成）两条来源都能直接喂进来。
     """
     if generation_type == "i2v":
@@ -353,7 +353,7 @@ def builtin_video_audio_track(provider_id: str, model_id: str, *, generation_typ
     （可灵 v3-omni 走多图主体子路径时请求体不含 ``sound``，成片必然无声）。展示层、入队预检与
     声音一致性派生共读本函数，不各自解读一份声明。
 
-    返回值是 ``lib.video_backends.base.VideoAudioMode`` 的字面量。此处不导入该枚举：分层契约以
+    返回值是 ``lib.backends.video_backends.base.VideoAudioMode`` 的字面量。此处不导入该枚举：分层契约以
     lib.config 为最底层，与 ``derive_voice_consistency`` 按字面量比较 ``ReferenceAudioMode`` 同一
     做法（``StrEnum`` 与字面量可直接 ``==``）。
 
@@ -448,7 +448,7 @@ def derive_voice_consistency(
     ``character_voice_binding=None`` 调同一函数，前端不复制第二份公式。
 
     ``reference_audio_mode`` 按字面量比较（``ReferenceAudioMode`` 是 ``StrEnum``，两者可
-    直接 ``==``），不在 lib.config 层导入 lib.video_backends（分层契约，config 是最底层）。
+    直接 ``==``），不在 lib.config 层导入 lib.backends.video_backends（分层契约，config 是最底层）。
 
     native 蕴含有音轨：generation_mode 非参考生视频、或项目选的是提示词软约束
     （``character_voice_binding == "prompt"``，默认档）时一律降格 soft，不降到 none。降格是全链路
@@ -575,7 +575,7 @@ def _resolution_for_constraints(
       合法。此时按兜底档位求值会凭空收窄：未配置分辨率的 Veo 项目剧本节奏会被锁死 8 秒，而
       供应商本来就接受 4/6 秒。故未配置时返回 ``None``（不施加分辨率约束）。
     - 参考生视频路径是唯一需要非空档位的调用方，执行期取 ``resolution_or_fallback``（见
-      ``server/services/reference_video_tasks.py``），故这里同样补 ``get_provider_fallback``，
+      ``server/services/tasks/reference_video_tasks.py``），故这里同样补 ``get_provider_fallback``，
       让约束与实际下发的档位描述同一件事。
 
     ``get_provider_fallback`` 本身是费用估算与参考生视频路径的内部口径，不是「用户没配分辨率时
@@ -742,7 +742,7 @@ class VideoBucketCapabilityError(ValueError):
     """视频解析闸报错：解析出的模型缺所属任务类型桶要求的能力，或配置引用已不可用。
 
     ``code`` 是 errors 目录 key、``params`` 是其渲染参数：router 可直接
-    ``_t(exc.code, **exc.params)`` 本地化，worker 落库经 ``lib.task_failure.encode_failure``
+    ``_t(exc.code, **exc.params)`` 本地化，worker 落库经 ``lib.generation.task_failure.encode_failure``
     结构化编码。``str(exc)`` 是英文技术消息，供 log / 非用户可见路径直接使用。"""
 
     def __init__(
@@ -808,7 +808,7 @@ class ConfigResolver:
 
     # ── 唯一的默认值定义点 ──
     # 与 Seedance / Grok 默认开启、storyboard 用户期望一致。
-    # server/routers/system_config.py 与 lib/media_generator.py 均通过引用此常量读取。
+    # server/routers/system_config.py 与 lib/generation/media_generator.py 均通过引用此常量读取。
     _DEFAULT_VIDEO_GENERATE_AUDIO = True
 
     def __init__(
@@ -1129,7 +1129,7 @@ class ConfigResolver:
         """费用预估用的有效 ``generate_audio``：读能力接口，解析不出时降级，绝不抛错。
 
         能力解析会对注册表里已下线的 model id 抛错，而价目查询对同一 id 仍会回落到该 provider
-        的默认模型出价（见 ``lib/pricing/lookup.py``）——此时估算仍要出数。降级口径分两层：
+        的默认模型出价（见 ``lib/billing/pricing/lookup.py``）——此时估算仍要出数。降级口径分两层：
         恒含音出账的 provider 按 provider 级规则取 True；其余 provider 没有默认执行档的信息，
         只能回到请求值（backend 也正是照请求值下发并结算），若一律取 False，这些历史 model
         会被按静音档低估。
@@ -1375,7 +1375,7 @@ class ConfigResolver:
     ) -> None:
         """能力闸：校验解析出的模型具备该桶所需能力，不满足直接报错、不静默换模型。
 
-        判定经 ``video_capability_satisfied`` 与桶候选下拉（``lib.generation_type_buckets``）共用一份
+        判定经 ``video_capability_satisfied`` 与桶候选下拉（``lib.backends.generation_type_buckets``）共用一份
         口径：内置模型两维都取 backend ``VideoCapabilities``（与请求构造同源，也是这两维唯一的
         声明处；registry ``ModelInfo`` 不声明视频能力位）。身份先过
         ``_ensure_video_identity_resolvable``，悬空引用（模型被删 /
@@ -1643,7 +1643,7 @@ class ConfigResolver:
             supported_durations = list(model_info.supported_durations or [])
             # 视频能力位与参考图上限只在 backend 声明：backend 是执行期真正构造请求的一方，
             # 也是能力闸（`_ensure_video_bucket_capability`）与桶候选下拉
-            # （`lib.generation_type_buckets`）的口径，展示层与执行层因此严格同源。
+            # （`lib.backends.generation_type_buckets`）的口径，展示层与执行层因此严格同源。
             try:
                 builtin_caps = builtin_video_capabilities_for_model(provider_id, model_id)
             except ValueError as exc:
@@ -1689,7 +1689,7 @@ class ConfigResolver:
         content_mode: str | None = None
         # 单集目标时长不是模型能力，随能力查询一起回传只因它与 default_duration 同为「决定时长时
         # 要看的项目偏好」：脚本规划子智能体一次 get_video_capabilities 就能拿齐决策所需的全部输入，
-        # 不必为一个偏好字段另开一个工具往返。解析走 lib.episode_target_duration 的读时守卫。
+        # 不必为一个偏好字段另开一个工具往返。解析走 lib.episode.episode_target_duration 的读时守卫。
         episode_target_duration = project_episode_target_duration(project)
         if project is not None:
             raw_default = project.get("default_duration")

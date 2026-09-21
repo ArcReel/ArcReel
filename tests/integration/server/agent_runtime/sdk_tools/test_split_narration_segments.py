@@ -6,7 +6,7 @@ import json
 import unicodedata
 from typing import Any
 
-from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
+from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from server.agent_runtime.sdk_tools.text_generation import (
     generate_script_plan_tool,
 )
@@ -110,8 +110,8 @@ async def test_split_narration_segments_happy(fake_ctx: ToolContext, monkeypatch
 async def test_split_narration_segments_registers_the_frozen_default_source_basis(
     fake_ctx: ToolContext, monkeypatch
 ) -> None:
-    from lib.artifact_manifest import ArtifactKey, ProjectArtifactManifestAdapter
-    from lib.artifact_provenance import build_script_plan_basis
+    from lib.artifacts.artifact_manifest import ArtifactKey, ProjectArtifactManifestAdapter
+    from lib.artifacts.artifact_provenance import build_script_plan_basis
     from server import text_generation as mod
 
     project = {

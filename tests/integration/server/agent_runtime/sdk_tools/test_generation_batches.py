@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import json
 
-from lib.generation_batch import GenerationBatchRequestedItem, GenerationBatchRequestSnapshot
-from lib.generation_queue import GenerationQueue
-from lib.generation_result import GenerationSelectionMode
-from lib.project_manager import ProjectManager
+from lib.generation.generation_batch import GenerationBatchRequestedItem, GenerationBatchRequestSnapshot
+from lib.generation.generation_queue import GenerationQueue
+from lib.generation.generation_result import GenerationSelectionMode
+from lib.project.project_manager import ProjectManager
 from server.agent_runtime.sdk_tools.generation_batches import (
     cancel_generation_batch_tool,
     get_generation_batch_tool,

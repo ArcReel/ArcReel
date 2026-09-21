@@ -173,7 +173,7 @@ const ASSET_TYPE_PATH: Record<ProjectAssetType, string> = {
   product: "products",
 };
 
-/** 角色衍生资产图在版本与图片编辑端点上的资源类型名（与后端 `lib/resource_paths` 一致）。 */
+/** 角色衍生资产图在版本与图片编辑端点上的资源类型名（与后端 `lib/project/resource_paths` 一致）。 */
 export const CHARACTER_DERIVATIVE_RESOURCE_TYPE = "character_derivatives";
 
 /** 衍生的复合资源 id：本体名与衍生名各占一段，与后端的落盘、队列与版本口径一致。 */

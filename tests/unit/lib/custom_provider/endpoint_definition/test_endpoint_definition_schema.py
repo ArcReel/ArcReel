@@ -6,8 +6,8 @@ from dataclasses import fields
 
 from jsonschema import Draft202012Validator
 
+from lib.backends.video_backends.base import VideoCapabilities
 from lib.custom_provider.endpoint_definition import CURRENT_SCHEMA_VERSION, load_schema
-from lib.video_backends.base import VideoCapabilities
 
 
 def test_schema_is_a_valid_2020_12_schema():

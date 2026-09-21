@@ -58,7 +58,7 @@ class TestAppModule:
         """lifespan 应先 worker.stop()（drain inflight + callback 仍可用），
         再清掉 set_worker_cancel_callback(None)。
         """
-        from lib.generation_queue import get_generation_queue
+        from lib.generation.generation_queue import get_generation_queue
 
         # 用一个会在 stop() 时记录 callback 状态的 fake worker
         callback_during_stop: list[bool] = []

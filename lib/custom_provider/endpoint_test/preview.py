@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from typing import Any
 from urllib.parse import quote
 
+from lib.backends.video_frame_slots import resolve_first_frame_aspect_ratio
 from lib.custom_provider.builtin_definitions import declarative_video_capabilities
 from lib.custom_provider.declarative_backend import normalize_declarative_base_url
 from lib.custom_provider.endpoint_definition import (
@@ -21,7 +22,6 @@ from lib.custom_provider.endpoint_definition import (
     build_context,
     render_request,
 )
-from lib.video_frame_slots import resolve_first_frame_aspect_ratio
 
 from .errors import EndpointTestDefinitionError
 from .inputs import ASSET_SOURCES, EndpointTestAssets, EndpointTestCredentials, EndpointTestParameters

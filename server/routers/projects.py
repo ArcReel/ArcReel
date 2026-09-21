@@ -1,7 +1,7 @@
 """
 项目管理路由
 
-处理项目的 CRUD 操作，复用 lib/project_manager.py
+处理项目的 CRUD 操作，复用 lib/project/project_manager.py
 
 本模块多数处理器以 ``except Exception`` 兜底为 500。领域异常（``ApiError`` 及其子类）
 可以在被兜底覆盖的写盘闭包内抛出（如 backend 字段校验、脚本结构校验），因此各处理器的
@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 if TYPE_CHECKING:
-    from server.services.jianying_draft_service import JianyingDraftService
+    from server.services.presentation.jianying_draft_service import JianyingDraftService
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi import Path as FastAPIPath
@@ -36,31 +36,31 @@ from starlette.background import BackgroundTask
 
 logger = logging.getLogger(__name__)
 
-from lib.api_errors import ApiError, BadRequestError, NotFoundError, UnprocessableError
-from lib.asset_fingerprints import compute_asset_fingerprints
-from lib.asset_types import asset_name_comparison_key
-from lib.character_voice import PROJECT_FIELD as CHARACTER_VOICE_BINDING_FIELD
-from lib.character_voice import VALID_CHARACTER_VOICE_BINDINGS
+from lib.agent.profile_manifest import ContentMode
 from lib.config.resolver import ConfigResolver, VideoBucketCapabilityError
 from lib.db import async_session_factory
-from lib.episode_target_duration import (
+from lib.episode.episode_target_duration import (
     EPISODE_TARGET_DURATION_FIELD,
     MAX_EPISODE_TARGET_DURATION,
     MIN_EPISODE_TARGET_DURATION,
     is_valid_episode_target_duration,
 )
 from lib.i18n import Translator
-from lib.json_io import domain_error_on_value_error
-from lib.profile_manifest import ContentMode
-from lib.project_change_hints import project_change_source
-from lib.project_manager import EmptySourceError, EpisodeScriptReboundError, SourceKind, get_project_manager
-from lib.script_batch_edit import ScriptBatchEditCommand, ScriptBatchEditor, blank_item_after, script_revision
-from lib.script_editor import resolve_items
-from lib.script_references import annotate_derivative_references
-from lib.speech_rate import MAX_SPEECH_RATE_UPS, MIN_SPEECH_RATE_UPS, SPEECH_RATE_FIELD, is_valid_speech_rate
-from lib.style_templates import is_known_template, resolve_template_prompt
-from lib.workflow_plan import WorkflowPlan, WorkflowPlanRequest
-from lib.workflow_state import ProjectSummary, WorkflowRequestError, WorkflowStateService, WorkflowStatus
+from lib.infra.api_errors import ApiError, BadRequestError, NotFoundError, UnprocessableError
+from lib.infra.json_io import domain_error_on_value_error
+from lib.project.asset_fingerprints import compute_asset_fingerprints
+from lib.project.asset_types import asset_name_comparison_key
+from lib.project.project_change_hints import project_change_source
+from lib.project.project_manager import EmptySourceError, EpisodeScriptReboundError, SourceKind, get_project_manager
+from lib.prompts.style_templates import is_known_template, resolve_template_prompt
+from lib.script.script_batch_edit import ScriptBatchEditCommand, ScriptBatchEditor, blank_item_after, script_revision
+from lib.script.script_editor import resolve_items
+from lib.script.script_references import annotate_derivative_references
+from lib.speech.character_voice import PROJECT_FIELD as CHARACTER_VOICE_BINDING_FIELD
+from lib.speech.character_voice import VALID_CHARACTER_VOICE_BINDINGS
+from lib.speech.speech_rate import MAX_SPEECH_RATE_UPS, MIN_SPEECH_RATE_UPS, SPEECH_RATE_FIELD, is_valid_speech_rate
+from lib.workflow.workflow_plan import WorkflowPlan, WorkflowPlanRequest
+from lib.workflow.workflow_state import ProjectSummary, WorkflowRequestError, WorkflowStateService, WorkflowStatus
 from server.auth import CurrentUser, create_download_token, verify_download_token
 from server.dependencies import require_project_migration_ok
 from server.routers._reorder import full_permutation_error
@@ -70,13 +70,13 @@ from server.routers._script_edits import (
     script_batch_status,
 )
 from server.routers._validators import split_video_backend_query, validate_backend_value
-from server.services import workflow_planner as workflow_plan_service
-from server.services.project_archive import (
+from server.services.admission.prompt_preview import ScriptItemNotFound, preview_item_prompts
+from server.services.project import workflow_planner as workflow_plan_service
+from server.services.project.project_archive import (
     ProjectArchiveService,
     ProjectArchiveValidationError,
 )
-from server.services.project_cover import resolve_project_cover
-from server.services.prompt_preview import ScriptItemNotFound, preview_item_prompts
+from server.services.project.project_cover import resolve_project_cover
 
 router = APIRouter()
 
@@ -178,7 +178,7 @@ SpeechRateOverride = Annotated[float | None, BeforeValidator(_reject_bool_speech
 def _validated_episode_target_duration(value: int, _t: Translator) -> int:
     """把创建 / PATCH 传入的单集目标时长收进硬区间，越界即 422。
 
-    区间与 ``lib.episode_target_duration`` 的读时守卫、``patch_project`` 的强制转换、
+    区间与 ``lib.episode.episode_target_duration`` 的读时守卫、``patch_project`` 的强制转换、
     前端输入校验同一把尺（``is_valid_episode_target_duration``），不在这里另写边界数字。
     """
     if not is_valid_episode_target_duration(value):
@@ -196,7 +196,7 @@ def _validated_episode_target_duration(value: int, _t: Translator) -> int:
 def _validated_speech_rate(value: float, _t: Translator) -> float:
     """把创建 / PATCH 传入的口播语速估算收进硬区间，越界即 422。
 
-    区间与 ``lib.speech_rate`` 的读时守卫、前端输入校验同一把尺（``is_valid_speech_rate``），
+    区间与 ``lib.speech.speech_rate`` 的读时守卫、前端输入校验同一把尺（``is_valid_speech_rate``），
     不在这里另写边界数字。
     """
     rate = float(value)
@@ -229,7 +229,7 @@ class CreateProjectRequest(BaseModel):
     # 宫格分镜开关：只改变分镜图的生产方式，不是独立生成模式；仅 storyboard 生成模式有意义，
     # 创建后可经项目 PATCH 随时切换。ad 项目拒绝开启。
     grid_storyboard: bool = False
-    # 口播语速估算（阅读单位 / 秒）项目级覆盖：空 = 回退 lib.speech_rate 的语言默认。
+    # 口播语速估算（阅读单位 / 秒）项目级覆盖：空 = 回退 lib.speech.speech_rate 的语言默认。
     # 与 TTS 的 narration_speed（供应商配音倍率）无关，两者不联动。
     speech_rate_units_per_second: SpeechRateOverride = None
     style_template_id: str | None = None
@@ -452,7 +452,7 @@ async def export_project_archive(
 
 
 def get_jianying_draft_service() -> JianyingDraftService:
-    from server.services.jianying_draft_service import JianyingDraftService
+    from server.services.presentation.jianying_draft_service import JianyingDraftService
 
     return JianyingDraftService(get_project_manager())
 
@@ -503,8 +503,8 @@ async def export_jianying_draft(
     draft_path = _validate_draft_path(draft_path, _t)
 
     # 3. 调用服务
-    from server.services.jianying_draft_service import NoCompletedSegmentsError
-    from server.services.presentation_read_model import PresentationUnavailableError
+    from server.services.presentation.jianying_draft_service import NoCompletedSegmentsError
+    from server.services.presentation.presentation_read_model import PresentationUnavailableError
 
     try:
         zip_path = await svc.export_episode_draft(
@@ -672,7 +672,7 @@ async def create_project(
                 if value:
                     validate_backend_value(value, field_name)
 
-            # 口播语速估算：可选，未填则不落盘（缺省即回退 lib.speech_rate 的语言默认）。
+            # 口播语速估算：可选，未填则不落盘（缺省即回退 lib.speech.speech_rate 的语言默认）。
             # 在 create_project 之前判，越界请求不留下半成品项目目录。
             speech_rate = (
                 None

@@ -17,22 +17,41 @@ from typing import Any, NamedTuple, cast
 
 from pydantic import BaseModel, ValidationError
 
-from lib import script_review
-from lib.artifact_manifest import (
+from lib.artifacts.artifact_manifest import (
     ArtifactBasis,
     ArtifactEntryRekeyReceipt,
     ArtifactKey,
     ProjectArtifactManifestAdapter,
 )
-from lib.artifact_provenance import ScriptPlanPromptVariant, build_script_plan_request
-from lib.artifact_registration import ArtifactRegistrationReceipt
-from lib.asset_types import BUCKET_KEY, asset_name_comparison_key
-from lib.async_thread import run_noninterruptible_sync, run_sync_transaction
+from lib.artifacts.artifact_provenance import ScriptPlanPromptVariant, build_script_plan_request
+from lib.artifacts.artifact_registration import ArtifactRegistrationReceipt
+from lib.artifacts.formal_write import FormalWriteReceipt, formal_write_transaction, project_metadata_lock
+from lib.backends.providers import CallPurpose
+from lib.backends.text_backends.base import DEFAULT_MAX_OUTPUT_TOKENS, TextTaskType
+from lib.backends.text_backends.base import TextGenerationRequest as BackendTextGenerationRequest
+from lib.backends.text_generator import TextGenerator
 from lib.config.resolver import ConfigResolver
-from lib.content_digest import prefixed_sha256_file
 from lib.custom_provider.duration_presets import DEFAULT_FALLBACK
 from lib.db import async_session_factory
-from lib.draft_quarantine import (
+from lib.episode.episode_paths import (
+    SCRIPT_PLAN_FILENAMES,
+    episode_drafts_dir,
+    episode_script_filename,
+    episode_source_relpath,
+)
+from lib.i18n import _ as translate
+from lib.infra.async_thread import run_noninterruptible_sync, run_sync_transaction
+from lib.infra.content_digest import prefixed_sha256_file
+from lib.infra.path_safety import PathTraversalError, safe_join
+from lib.infra.schema_guards import is_int, is_str
+from lib.infra.text_utils import strip_json_code_fences
+from lib.project.asset_types import BUCKET_KEY, asset_name_comparison_key
+from lib.project.project_manager import ProjectManager, is_reference_video_project
+from lib.prompts.prompt_builders_reference import build_reference_units_split_prompt
+from lib.prompts.prompt_builders_script import build_narration_split_prompt, build_normalize_prompt
+from lib.references.reference_catalog import ReferenceCatalog, build_reference_catalog
+from lib.script import script_review
+from lib.script.draft_quarantine import (
     PROMOTE_TOOL_NAME,
     QUARANTINE_KIND_DRAMA_SCRIPT_PLAN,
     QUARANTINE_KIND_NARRATION_SCRIPT_PLAN,
@@ -44,27 +63,13 @@ from lib.draft_quarantine import (
     quarantine_path,
     read_quarantine,
 )
-from lib.draft_violation import DraftViolation, collect_violations
-from lib.episode_paths import (
-    SCRIPT_PLAN_FILENAMES,
-    episode_drafts_dir,
-    episode_script_filename,
-    episode_source_relpath,
-)
-from lib.formal_write import FormalWriteReceipt, formal_write_transaction, project_metadata_lock
-from lib.i18n import _ as translate
-from lib.path_safety import PathTraversalError, safe_join
-from lib.project_manager import ProjectManager, is_reference_video_project
-from lib.prompt_builders_reference import build_reference_units_split_prompt
-from lib.prompt_builders_script import build_narration_split_prompt, build_normalize_prompt
-from lib.providers import CallPurpose
-from lib.reference_catalog import ReferenceCatalog, build_reference_catalog
-from lib.reference_video.draft_validation import (
+from lib.script.draft_violation import DraftViolation, collect_violations
+from lib.script.reference_video.draft_validation import (
     validate_dialogue_load,
     validate_source_text_anchor,
     validate_unit_text,
 )
-from lib.reference_video.script_preview import (
+from lib.script.reference_video.script_preview import (
     WARN_REFERENCE_AUDIO_OVERFLOW,
     WARN_SILENT_EPISODE,
     WARN_SILENT_MODEL,
@@ -74,23 +79,18 @@ from lib.reference_video.script_preview import (
     derive_voice_bindings,
     unit_lacks_scene_reference,
 )
-from lib.reference_video.text_parser import extract_mentions
-from lib.reference_video.voice_settings import VoiceRenderSettings
-from lib.schema_guards import is_int, is_str
-from lib.script_generator import PromptAuthoringTargetError, ScriptGenerator
-from lib.script_models import (
+from lib.script.reference_video.text_parser import extract_mentions
+from lib.script.reference_video.voice_settings import VoiceRenderSettings
+from lib.script.script_generator import PromptAuthoringTargetError, ScriptGenerator
+from lib.script.script_models import (
     NarrationScriptPlanDraft,
     build_drama_normalized_script_model,
     build_reference_units_script_plan_model,
 )
-from lib.speech_composition import admit_script_unit
-from lib.speech_rate import project_speech_rate_override
-from lib.storyboard_mentions import render_storyboard_mention_warnings, storyboard_mention_warnings
-from lib.text_backends.base import DEFAULT_MAX_OUTPUT_TOKENS, TextTaskType
-from lib.text_backends.base import TextGenerationRequest as BackendTextGenerationRequest
-from lib.text_generator import TextGenerator
-from lib.text_utils import strip_json_code_fences
-from server.services.video_caps import (
+from lib.script.storyboard_mentions import render_storyboard_mention_warnings, storyboard_mention_warnings
+from lib.speech.speech_composition import admit_script_unit
+from lib.speech.speech_rate import project_speech_rate_override
+from server.services.tasks.video_caps import (
     constrained_caps_durations,
     reference_unit_duration_tiers,
     resolve_video_caps,
@@ -720,7 +720,7 @@ async def confirm_script_review(
     projects: ProjectManager,
     config_resolver: ConfigResolver,
 ) -> TextGenerationResult:
-    from server.services.script_review import ScriptReviewError, ScriptReviewService
+    from server.services.project.script_review import ScriptReviewError, ScriptReviewService
 
     try:
         state = await ScriptReviewService(projects, config_resolver=config_resolver).confirm(
@@ -1287,7 +1287,7 @@ def _narration_segment_label(segment: dict[str, Any], index: int) -> str:
 def _normalize_for_coverage(text: str) -> str:
     """Unicode NFC 归一后把连续空白折叠为单个空格，只消除编码与空白差异，不删除空白本身。
 
-    NFC 与 ``lib.episode_ledger.normalize_source_text`` 定义的源文坐标系一致，也与参考生视频
+    NFC 与 ``lib.episode.episode_ledger.normalize_source_text`` 定义的源文坐标系一致，也与参考生视频
     ``_normalize_for_anchor`` 同口径：带组合附加符的语种（如 vi）源文可能以 NFD 落盘、模型
     回写 NFC，不归一会把纯编码形式差异判成删字改字，而覆盖违约会落成草稿、堵住内容确认
     确认与 prompt_authoring 生成。
