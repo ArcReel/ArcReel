@@ -136,6 +136,7 @@ modules = ["lib.config", "lib.custom_provider", "lib.db", "lib.i18n", "lib.marke
 "lib.path_safety" = "lib.infra.path_safety"
 "lib.retry" = "lib.infra.retry"
 "lib.schema_guards" = "lib.infra.schema_guards"
+"lib.subprocess_deadline" = "lib.infra.subprocess_deadline"
 "lib.text_metrics" = "lib.infra.text_metrics"
 "lib.text_utils" = "lib.infra.text_utils"
 "lib.thumbnail" = "lib.infra.thumbnail"

@@ -71,8 +71,8 @@ def _m4a_bytes(duration_seconds: float = 3.0) -> bytes:
 class TestFfprobeUnavailable:
     async def test_returns_none_without_spawning(self):
         with (
-            patch("lib.audio_utils.shutil.which", return_value=None),
-            patch("lib.subprocess_deadline.asyncio.create_subprocess_exec") as spawn,
+            patch("lib.speech.audio_utils.shutil.which", return_value=None),
+            patch("lib.infra.subprocess_deadline.asyncio.create_subprocess_exec") as spawn,
         ):
             result = await audio_utils_module.probe_audio_duration_seconds(wav_bytes(3), ".wav")
         assert result is None
@@ -119,7 +119,7 @@ class TestFfprobeAvailable:
             calls.append(args)
             return await orig_exec(*args, **kwargs)
 
-        with patch("lib.subprocess_deadline.asyncio.create_subprocess_exec", side_effect=_spy):
+        with patch("lib.infra.subprocess_deadline.asyncio.create_subprocess_exec", side_effect=_spy):
             await audio_utils_module.probe_audio_duration_seconds(wav_bytes(3), ".wav")
 
         assert calls, "ffprobe 应至少被调用一次"

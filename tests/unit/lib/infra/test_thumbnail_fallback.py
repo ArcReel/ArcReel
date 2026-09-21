@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-import lib.thumbnail as thumbnail_module
+import lib.infra.thumbnail as thumbnail_module
 from tests.fakes import HangingProcess
 
 
@@ -26,7 +26,7 @@ async def test_returns_none_when_ffmpeg_missing(tmp_path: Path):
     out = tmp_path / "out.jpg"
 
     spawn = AsyncMock()
-    with patch("lib.thumbnail.shutil.which", return_value=None):
+    with patch("lib.infra.thumbnail.shutil.which", return_value=None):
         result = await thumbnail_module.extract_video_thumbnail(video, out, spawn=spawn)
 
     assert result is None
@@ -61,7 +61,7 @@ async def test_ffmpeg_available_attempts_extraction(tmp_path: Path):
             return None
 
     spawn = AsyncMock(return_value=_FakeProc())
-    with patch("lib.thumbnail.shutil.which", return_value="/usr/bin/ffmpeg"):
+    with patch("lib.infra.thumbnail.shutil.which", return_value="/usr/bin/ffmpeg"):
         result = await thumbnail_module.extract_video_thumbnail(video, out, spawn=spawn)
 
     assert result is None
@@ -88,7 +88,7 @@ async def test_last_frame_returns_none_when_ffmpeg_missing(tmp_path: Path):
     out = tmp_path / "out.png"
 
     spawn = AsyncMock()
-    with patch("lib.thumbnail.shutil.which", return_value=None):
+    with patch("lib.infra.thumbnail.shutil.which", return_value=None):
         result = await thumbnail_module.extract_video_last_frame(video, out, spawn=spawn)
 
     assert result is None
@@ -107,7 +107,7 @@ async def test_last_frame_returns_none_when_only_ffprobe_missing(tmp_path: Path)
         return "/usr/bin/ffmpeg" if name == "ffmpeg" else None
 
     spawn = AsyncMock()
-    with patch("lib.thumbnail.shutil.which", side_effect=_which):
+    with patch("lib.infra.thumbnail.shutil.which", side_effect=_which):
         result = await thumbnail_module.extract_video_last_frame(video, out, spawn=spawn)
 
     assert result is None
@@ -170,7 +170,7 @@ async def test_last_frame_falls_back_to_count_frames(tmp_path: Path):
     def _which(name: str):
         return f"/usr/bin/{name}"
 
-    with patch("lib.thumbnail.shutil.which", side_effect=_which):
+    with patch("lib.infra.thumbnail.shutil.which", side_effect=_which):
         result = await thumbnail_module.extract_video_last_frame(video, out, spawn=_spawn)
 
     assert result == out
@@ -225,7 +225,7 @@ async def test_last_frame_retries_precise_count_when_fast_extract_writes_nothing
     def _which(name: str):
         return f"/usr/bin/{name}"
 
-    with patch("lib.thumbnail.shutil.which", side_effect=_which):
+    with patch("lib.infra.thumbnail.shutil.which", side_effect=_which):
         result = await thumbnail_module.extract_video_last_frame(video, out, spawn=_spawn)
 
     assert result == out
@@ -275,7 +275,7 @@ async def test_thumbnail_deadline_kills_ffmpeg_and_removes_partial_output(tmp_pa
         procs.append(proc)
         return proc
 
-    with patch("lib.thumbnail.shutil.which", side_effect=_all_tools_available):
+    with patch("lib.infra.thumbnail.shutil.which", side_effect=_all_tools_available):
         result = await thumbnail_module.extract_video_thumbnail(video, out, deadlines=_ZERO_DEADLINES, spawn=_spawn)
 
     assert result is None
@@ -308,7 +308,7 @@ async def test_last_frame_deadline_kills_ffmpeg_and_removes_temp_output(tmp_path
         return proc
 
     deadlines = thumbnail_module.FrameExtractionDeadlines(probe=3600, extract=0, count_frames=3600, grace=0)
-    with patch("lib.thumbnail.shutil.which", side_effect=_all_tools_available):
+    with patch("lib.infra.thumbnail.shutil.which", side_effect=_all_tools_available):
         result = await thumbnail_module.extract_video_last_frame(video, out, deadlines=deadlines, spawn=_spawn)
 
     assert result is None
@@ -333,7 +333,7 @@ async def test_last_frame_deadline_on_frame_count_probe_returns_none(tmp_path: P
         procs.append(proc)
         return proc
 
-    with patch("lib.thumbnail.shutil.which", side_effect=_all_tools_available):
+    with patch("lib.infra.thumbnail.shutil.which", side_effect=_all_tools_available):
         result = await thumbnail_module.extract_video_last_frame(video, out, deadlines=_ZERO_DEADLINES, spawn=_spawn)
 
     assert result is None

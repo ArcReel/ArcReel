@@ -7,7 +7,7 @@ import shutil
 
 import pytest
 
-from lib.subprocess_deadline import SubprocessDeadlineExceeded, run_with_deadline
+from lib.infra.subprocess_deadline import SubprocessDeadlineExceeded, run_with_deadline
 
 
 @pytest.mark.skipif(shutil.which("sleep") is None, reason="sleep not available")

@@ -29,6 +29,7 @@ tests/integration/lib/test_script_generator_incremental.py	tests/integration/lib
 tests/integration/lib/test_script_generator_reference_branch.py	tests/integration/lib/script/test_script_generator_reference_branch.py
 tests/integration/lib/test_source_revision.py	tests/integration/lib/project/test_source_revision.py
 tests/integration/lib/test_speech_artifact_provenance_integration.py	tests/integration/lib/speech/test_speech_artifact_provenance_integration.py
+tests/integration/lib/test_subprocess_deadline.py	tests/integration/lib/infra/test_subprocess_deadline.py
 tests/integration/lib/test_task_failure_capability.py	tests/integration/lib/generation/test_task_failure_capability.py
 tests/integration/lib/test_task_terminal_events.py	tests/integration/lib/generation/test_task_terminal_events.py
 tests/integration/lib/test_video_artifact_commit.py	tests/integration/lib/artifacts/test_video_artifact_commit.py
@@ -184,6 +185,7 @@ tests/unit/lib/test_speech_rate.py	tests/unit/lib/speech/test_speech_rate.py
 tests/unit/lib/test_storyboard_mentions.py	tests/unit/lib/script/test_storyboard_mentions.py
 tests/unit/lib/test_storyboard_sequence.py	tests/unit/lib/script/test_storyboard_sequence.py
 tests/unit/lib/test_style_templates.py	tests/unit/lib/prompts/test_style_templates.py
+tests/unit/lib/test_subprocess_deadline.py	tests/unit/lib/infra/test_subprocess_deadline.py
 tests/unit/lib/test_system_config.py	tests/unit/lib/config/test_system_config.py
 tests/unit/lib/test_task_failure.py	tests/unit/lib/generation/test_task_failure.py
 tests/unit/lib/test_task_localization.py	tests/unit/lib/generation/test_task_localization.py

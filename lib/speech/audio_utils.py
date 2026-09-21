@@ -13,8 +13,8 @@ from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import cast
 
-from lib.path_safety import safe_resolve
-from lib.subprocess_deadline import SubprocessDeadlineExceeded, run_with_deadline
+from lib.infra.path_safety import safe_resolve
+from lib.infra.subprocess_deadline import SubprocessDeadlineExceeded, run_with_deadline
 
 logger = logging.getLogger(__name__)
 

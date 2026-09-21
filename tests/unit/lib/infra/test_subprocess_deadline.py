@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from lib.subprocess_deadline import SubprocessDeadlineExceeded, run_with_deadline
+from lib.infra.subprocess_deadline import SubprocessDeadlineExceeded, run_with_deadline
 from tests.fakes import HangingProcess
 
 
