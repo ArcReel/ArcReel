@@ -373,3 +373,31 @@ async def test_concurrent_extractions_write_distinct_temp_files(tmp_path: Path):
     assert len(set(targets)) == 2
     assert all(t.parent == out.parent and t.suffix == out.suffix for t in targets)
     assert out.read_bytes() == b"frame"
+
+
+@pytest.mark.asyncio
+async def test_temp_output_removed_when_replacing_target_fails(tmp_path: Path):
+    """临时文件写成功但替换目标失败时返回 None，且不留下临时文件。"""
+    video = tmp_path / "fake.mp4"
+    video.write_bytes(b"\x00")
+    out = tmp_path / "out.jpg"
+    out.mkdir()
+    (out / "occupied").write_bytes(b"")
+
+    class _FfmpegProc:
+        returncode = 0
+
+        def __init__(self, target: Path):
+            self._target = target
+
+        async def wait(self):
+            self._target.write_bytes(b"frame")
+
+    async def _spawn(*args, **_kwargs):
+        return _FfmpegProc(Path(args[-1]))
+
+    with patch("lib.infra.thumbnail.shutil.which", side_effect=_all_tools_available):
+        result = await thumbnail_module.extract_video_thumbnail(video, out, spawn=_spawn)
+
+    assert result is None
+    assert sorted(p.name for p in tmp_path.iterdir()) == sorted([video.name, out.name])  # noqa: ASYNC240 -- 断言阶段读取 tmp_path

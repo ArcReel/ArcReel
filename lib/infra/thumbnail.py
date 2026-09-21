@@ -167,12 +167,13 @@ async def _run_ffmpeg_to_output(
         spawn=spawn,
     )
 
-    if result.returncode != 0 or not temp_path.exists() or temp_path.stat().st_size < 1:
+    try:
+        if result.returncode != 0 or not temp_path.exists() or temp_path.stat().st_size < 1:
+            return False
+        temp_path.replace(output_path)
+        return True
+    finally:
         temp_path.unlink(missing_ok=True)
-        return False
-
-    temp_path.replace(output_path)
-    return True
 
 
 async def _extract_frame_at_index(
