@@ -171,14 +171,14 @@ def run_derivative_generation(
 ) -> bytes:
     """跑一次真实的衍生资产图生成（出站请求由 respx 应答），返回落盘的图片字节。"""
     from lib.backends.image_backends.dashscope import DashScopeImageBackend
-    from server.services.tasks import derivative_sheet_tasks, generation_tasks
+    from server.services.tasks import derivative_sheet_tasks, formal_image_commit, generation_tasks
     from tests.http_capture import capture_http
     from tests.integration.server.services.tasks.generation_tasks_support import fake_resolve_ctx
 
     generator = build_generator(project_path, DashScopeImageBackend(api_key="sk", model="qwen-image-2.0"))
     monkeypatch.setattr(derivative_sheet_tasks, "get_project_manager", lambda: pm)
     monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: pm)
-    monkeypatch.setattr(generation_tasks, "resolve_generation_context", fake_resolve_ctx(generator))
+    monkeypatch.setattr(formal_image_commit, "resolve_generation_context", fake_resolve_ctx(generator))
 
     result_bytes = solid_png_bytes(result_rgb)
     with capture_http() as router:

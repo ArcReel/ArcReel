@@ -220,7 +220,6 @@ MOTIVE_OVERRIDES = {
     "server.agent_runtime.event_log._is_client_key_violation": MOTIVE_LOGIC,
     "lib.backends.video_backends.v2_video_generations._LARGE_IMAGE_WARN_BYTES": MOTIVE_LOGIC,
     "server.services.admission.cost_estimation.quote_video_request_from_price": MOTIVE_LOGIC,
-    "server.services.tasks.generation_tasks._execute_reference_video_task_proxy": MOTIVE_LOGIC,
     "lib.generation.generation_worker.GenerationWorker._dispatch_resume_orphans_background": MOTIVE_LOGIC,
 }
 

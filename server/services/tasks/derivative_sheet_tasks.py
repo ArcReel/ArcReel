@@ -39,18 +39,17 @@ from lib.project.asset_derivatives import (
     split_derivative_artifact_id,
 )
 from lib.project.asset_types import ASSET_SPECS, DERIVATIVES_FIELD, resolve_asset_key
-from lib.project.project_manager import ProjectManager
+from lib.project.project_manager import ProjectManager, get_project_manager
 from lib.project.resource_paths import CHARACTER_DERIVATIVE_RESOURCE_TYPE
 from lib.prompts.prompt_builders import build_character_derivative_prompt
-from server.services.tasks.generation_tasks import (
-    _finalize_formal_image_task,
-    _FormalImageCommitOutcome,
-    _FormalImagePlan,
-    _run_formal_image_task,
-    _staged_formal_image_callback,
-    _StagedImageCommit,
+from server.services.tasks.formal_image_commit import (
+    FormalImageCommitOutcome,
+    FormalImagePlan,
+    StagedImageCommit,
+    finalize_formal_image_task,
     get_aspect_ratio,
-    get_project_manager,
+    run_formal_image_task,
+    staged_formal_image_callback,
 )
 
 _SPEC = ASSET_SPECS[DERIVATIVE_ASSET_TYPE]
@@ -135,9 +134,9 @@ def derivative_sheet_commit_callback(
     versions: Any,
     task_id: str | None,
     basis: ArtifactBasis | ArtifactBasisDescriptor | None,
-    outcome_box: list[_FormalImageCommitOutcome],
+    outcome_box: list[FormalImageCommitOutcome],
     project_manager: ProjectManager | None = None,
-) -> _StagedImageCommit:
+) -> StagedImageCommit:
     """衍生资产图的正式活化回调：写回衍生条目 + 版本活化 + 清单登记同一次提交。
 
     生成与图片编辑共用它，两条路线的写回口径因此不分叉。
@@ -153,7 +152,7 @@ def derivative_sheet_commit_callback(
             activate=lambda _project_file: activate(),
         )
 
-    return _staged_formal_image_callback(
+    return staged_formal_image_callback(
         versions=versions,
         project_path=project_path,
         resource_type=CHARACTER_DERIVATIVE_RESOURCE_TYPE,
@@ -184,7 +183,7 @@ async def finalize_derivative_sheet_task(
     def _commit(register: Callable[[Path], None]) -> None:
         _write_back(pm=pm, project_name=project_name, target=target, activate=register)
 
-    return await _finalize_formal_image_task(
+    return await finalize_formal_image_task(
         project_path=pm.get_project_path(project_name),
         resource_type=CHARACTER_DERIVATIVE_RESOURCE_TYPE,
         resource_id=target.artifact_id,
@@ -255,7 +254,7 @@ async def execute_character_derivative_task(
     instruction = build_derivative_sheet_instruction(source.description)
     pm = get_project_manager()
 
-    def _build_commit(generator: Any, outcome_box: list[_FormalImageCommitOutcome]) -> _StagedImageCommit:
+    def _build_commit(generator: Any, outcome_box: list[FormalImageCommitOutcome]) -> StagedImageCommit:
         return derivative_sheet_commit_callback(
             project_name=project_name,
             target=source.target,
@@ -281,14 +280,14 @@ async def execute_character_derivative_task(
     async def _before_submit() -> None:
         await asyncio.to_thread(assert_artifact_input_claims_usable, project_path, project, formal_claims)
 
-    return await _run_formal_image_task(
+    return await run_formal_image_task(
         project_name=project_name,
         payload=payload,
         project=project,
         user_id=user_id,
         task_id=task_id,
         frozen_references=frozen,
-        plan=_FormalImagePlan(
+        plan=FormalImagePlan(
             resource_type=CHARACTER_DERIVATIVE_RESOURCE_TYPE,
             resource_id=source.target.artifact_id,
             artifact_path=source.target.sheet_path,

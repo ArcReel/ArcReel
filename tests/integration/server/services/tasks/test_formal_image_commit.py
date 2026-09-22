@@ -1,5 +1,6 @@
-"""Tests for formal_image_finalization."""
+"""Tests for formal_image_commit."""
 
+import asyncio
 import json
 import threading
 
@@ -11,7 +12,7 @@ from lib.artifacts.artifact_manifest import (
     ProjectArtifactManifestAdapter,
 )
 from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
-from server.services.tasks import generation_tasks
+from server.services.tasks import formal_image_commit, generation_tasks
 from tests.fakes import hook_claim_recheck
 from tests.integration.server.services.tasks.generation_tasks_support import (
     FakeGenerator,
@@ -25,6 +26,22 @@ from tests.integration.server.services.tasks.generation_tasks_support import (
 
 
 class TestGenerationTasks:
+    async def test_formal_finalizer_defers_cancellation(self):
+        started = threading.Event()
+        release = threading.Event()
+
+        def _finalize() -> str:
+            started.set()
+            assert release.wait(timeout=5)
+            return "committed"
+
+        task = asyncio.create_task(formal_image_commit.run_formal_task_finalizer(_finalize))
+        assert await asyncio.to_thread(started.wait, 5)
+        task.cancel()
+        release.set()
+
+        assert await task == "committed"
+
     async def test_storyboard_registers_manifest_only_after_finalization_succeeds(self, tmp_path, monkeypatch):
         project_path = prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
@@ -38,7 +55,7 @@ class TestGenerationTasks:
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
         monkeypatch.setattr(generation_tasks, "resolve_generation_context", fake_resolve_ctx(fake_generator))
         monkeypatch.setattr(
-            generation_tasks,
+            formal_image_commit,
             "register_current_resource_artifact",
             lambda *args, **kwargs: registered.append((args, kwargs)),
         )
@@ -60,7 +77,7 @@ class TestGenerationTasks:
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
         monkeypatch.setattr(generation_tasks, "resolve_generation_context", fake_resolve_ctx(fake_generator))
         monkeypatch.setattr(
-            generation_tasks,
+            formal_image_commit,
             "register_current_resource_artifact",
             lambda *args, **kwargs: registered.append((args, kwargs)),
         )
@@ -89,7 +106,7 @@ class TestGenerationTasks:
 
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
         monkeypatch.setattr(generation_tasks, "resolve_generation_context", fake_resolve_ctx(fake_generator))
-        monkeypatch.setattr(generation_tasks, "register_current_resource_artifact", lambda *_args, **_kwargs: True)
+        monkeypatch.setattr(formal_image_commit, "register_current_resource_artifact", lambda *_args, **_kwargs: True)
 
         await generation_tasks.execute_storyboard_task(
             "demo",
@@ -191,7 +208,7 @@ class TestGenerationTasks:
         current = manager.image_path(grid.id)
         basis = ArtifactBasis.build("test/grid", kind_version=1, inputs={"grid": grid.id})
         outcomes = []
-        commit = generation_tasks._grid_formal_image_callback(
+        commit = formal_image_commit.grid_formal_image_callback(
             project_path=project_path,
             grid_manager=manager,
             grid=grid,
@@ -408,7 +425,7 @@ class TestGenerationTasks:
             captured_basis.append(kwargs["basis"])
             return True
 
-        monkeypatch.setattr(generation_tasks, "register_current_resource_artifact", _register)
+        monkeypatch.setattr(formal_image_commit, "register_current_resource_artifact", _register)
 
         await generation_tasks.execute_storyboard_task(
             "demo",
@@ -447,11 +464,11 @@ class TestGenerationTasks:
 
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
         monkeypatch.setattr(
-            generation_tasks,
+            formal_image_commit,
             "resolve_generation_context",
             fake_resolve_ctx(_IncompleteVersions()),
         )
-        monkeypatch.setattr(generation_tasks, "register_current_resource_artifact", lambda *_args, **_kwargs: True)
+        monkeypatch.setattr(formal_image_commit, "register_current_resource_artifact", lambda *_args, **_kwargs: True)
 
         with pytest.raises(RuntimeError, match="creation timestamp"):
             await generation_tasks.execute_character_task(
@@ -486,7 +503,7 @@ class TestGenerationTasks:
             captured.append(kwargs["basis"])
             return True
 
-        monkeypatch.setattr(generation_tasks, "register_task_current_resource_artifact", _register)
+        monkeypatch.setattr(formal_image_commit, "register_task_current_resource_artifact", _register)
 
         await generation_tasks.execute_storyboard_task(
             "demo",
@@ -540,13 +557,13 @@ class TestGenerationTasks:
 
         fake_generator.generate_image_async = _generate
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
-        monkeypatch.setattr(generation_tasks, "resolve_generation_context", fake_resolve_ctx(fake_generator))
+        monkeypatch.setattr(formal_image_commit, "resolve_generation_context", fake_resolve_ctx(fake_generator))
 
         def _register(*_args, **kwargs):
             captured.append(kwargs["basis"])
             return True
 
-        monkeypatch.setattr(generation_tasks, "register_task_current_resource_artifact", _register)
+        monkeypatch.setattr(formal_image_commit, "register_task_current_resource_artifact", _register)
 
         await generation_tasks.execute_character_task(
             "demo",
@@ -615,8 +632,8 @@ class TestGenerationTasks:
                 return current, version
 
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: pm)
-        monkeypatch.setattr(generation_tasks, "resolve_generation_context", fake_resolve_ctx(_Generator()))
-        monkeypatch.setattr(generation_tasks, "register_current_resource_artifact", lambda *_args, **_kwargs: True)
+        monkeypatch.setattr(formal_image_commit, "resolve_generation_context", fake_resolve_ctx(_Generator()))
+        monkeypatch.setattr(formal_image_commit, "register_current_resource_artifact", lambda *_args, **_kwargs: True)
 
         result = await generation_tasks.execute_character_task(
             "demo",
@@ -668,9 +685,9 @@ class TestGenerationTasks:
                 return current, version
 
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: pm)
-        monkeypatch.setattr(generation_tasks, "resolve_generation_context", fake_resolve_ctx(_Generator()))
+        monkeypatch.setattr(formal_image_commit, "resolve_generation_context", fake_resolve_ctx(_Generator()))
         monkeypatch.setattr(
-            generation_tasks,
+            formal_image_commit,
             "register_task_current_resource_artifact",
             lambda *_a, **_kw: (_ for _ in ()).throw(RuntimeError("manifest commit failed")),
         )

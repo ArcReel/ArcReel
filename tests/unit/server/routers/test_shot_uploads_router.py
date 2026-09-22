@@ -18,7 +18,7 @@ from server.error_handlers import register_error_handlers
 from server.routers import reference_videos, shot_uploads
 from server.routers import versions as versions_router
 from server.services.currency import upload_finalize
-from server.services.tasks import generation_tasks, reference_video_tasks
+from server.services.tasks import formal_image_commit, generation_tasks, reference_video_tasks
 from tests.auth_deps import AUTH_DEPENDENCIES
 
 
@@ -107,7 +107,7 @@ class TestShotStoryboardUpload:
         def _fail_registration(*_args, **_kwargs):
             raise RuntimeError("injected registration failure")
 
-        monkeypatch.setattr(generation_tasks, "register_formal_task_artifact", _fail_registration)
+        monkeypatch.setattr(formal_image_commit, "register_formal_task_artifact", _fail_registration)
 
         with client:
             response = _upload(client, "storyboard", "replacement.png", _img_bytes("PNG"))

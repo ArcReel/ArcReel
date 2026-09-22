@@ -21,9 +21,6 @@ from lib.artifacts.artifact_activation import (
     assert_current_artifact_input_claims_usable,
     bind_artifact_input_claims_to_content_digests,
     bind_artifact_input_claims_to_frozen_visuals,
-    register_current_resource_artifact,
-    register_task_current_resource_artifact,
-    resolve_current_resource_artifact_basis,
     resolve_usable_episode_script_input,
     resolve_usable_storyboard_video_inputs,
 )
@@ -33,12 +30,10 @@ from lib.artifacts.artifact_manifest import (
     ArtifactKey,
     compose_video_artifact_basis,
 )
-from lib.artifacts.artifact_version_provenance import IMAGE_ARTIFACT_BASIS_FIELD
-from lib.artifacts.image_artifact_currency import reject_failed_image_selection
 from lib.artifacts.image_reference_snapshot import FrozenImageReferences, freeze_image_references
 from lib.artifacts.version_manager import PaidVersionCommit
 from lib.artifacts.video_artifact_facts import VideoArtifactCurrencyFacts
-from lib.artifacts.video_visual_provenance import build_storyboard_video_visual_basis, resolve_video_aspect_ratio
+from lib.artifacts.video_visual_provenance import build_storyboard_video_visual_basis
 from lib.artifacts.visual_artifact_provenance import (
     GridStoryboardVisual,
     VisualReference,
@@ -66,7 +61,6 @@ from lib.infra.thumbnail import extract_video_thumbnail
 from lib.project.asset_derivatives import DERIVATIVE_ASSET_TYPE, DERIVATIVE_TASK_TYPE
 from lib.project.asset_types import (
     ASSET_SPECS,
-    AssetSpec,
     normalize_asset_bucket,
     normalize_asset_name,
     resolve_asset_key,
@@ -134,13 +128,27 @@ from server.services.currency.video_artifact_currency import (
     complete_video_artifact_commit,
     freeze_video_speech_facts,
 )
+from server.services.tasks.derivative_sheet_tasks import execute_character_derivative_task
+from server.services.tasks.formal_image_commit import (
+    FormalImageCommitOutcome,
+    FormalImagePlan,
+    StagedImageCommit,
+    finalize_storyboard_image_task,
+    get_aspect_ratio,
+    grid_formal_image_callback,
+    register_formal_task_artifact,
+    run_asset_sheet_image_task,
+    run_formal_image_task,
+    run_formal_task_finalizer,
+    storyboard_formal_image_callback,
+)
 from server.services.tasks.generation_context import (
     AudioLaneRequest,
-    GenerationContext,
     ImageLaneRequest,
     VideoLaneRequest,
     resolve_generation_context,
 )
+from server.services.tasks.image_edit_tasks import execute_image_edit_task
 from server.services.tasks.narration_delivery_tasks import (
     CurrentTtsSettingsResolver,
     ResolvedTtsSettingsResolver,
@@ -149,177 +157,9 @@ from server.services.tasks.narration_delivery_tasks import (
     reuse_current_video_for_tier,
     tts_task_in_progress,
 )
+from server.services.tasks.reference_video_tasks import execute_reference_video_task
 
 logger = logging.getLogger(__name__)
-
-
-def register_formal_task_artifact(
-    project_path: Path,
-    *,
-    resource_type: str,
-    resource_id: str,
-    script_file: str | None,
-    task_id: str | None,
-    artifact_path: str | None = None,
-    basis: ArtifactBasis | ArtifactBasisDescriptor | None = None,
-) -> None:
-    """Register a formal image claim; a task run fails closed when its target is unprovable."""
-
-    if task_id is None:
-        register_current_resource_artifact(
-            project_path,
-            resource_type=resource_type,
-            resource_id=resource_id,
-            script_file=script_file,
-            artifact_path=artifact_path,
-            basis=basis,
-        )
-        return
-    register_task_current_resource_artifact(
-        project_path,
-        resource_type=resource_type,
-        resource_id=resource_id,
-        script_file=script_file,
-        artifact_path=artifact_path,
-        basis=basis,
-    )
-
-
-async def run_formal_task_finalizer[T](
-    finalize: Callable[[], T],
-    *,
-    task_id: str | None,
-    compensate_failure: Callable[[], None] | None = None,
-) -> T:
-    """Finish a task's formal-write transaction, rejecting the selection when it fails."""
-
-    def _finalize_with_compensation() -> T:
-        try:
-            return finalize()
-        except BaseException as failure:
-            if compensate_failure is not None:
-                try:
-                    compensate_failure()
-                except BaseException as compensation_failure:
-                    failure.add_note(f"formal image selection compensation also failed: {compensation_failure}")
-            raise
-
-    # A synchronous formal-write thread cannot be stopped after cancellation.
-    # Always await its durable outcome before the caller leaves this boundary.
-    return await run_noninterruptible_sync(_finalize_with_compensation)
-
-
-def get_aspect_ratio(project: dict, resource_type: str) -> str:
-    if resource_type in ("characters", "scenes", "props", "products", CHARACTER_DERIVATIVE_RESOURCE_TYPE):
-        # 资产图生成必须显式指定宽高比；四类资产与角色衍生当前均固定为 16:9。
-        return "16:9"
-    return resolve_video_aspect_ratio(project, resource_type)
-
-
-@dataclass(frozen=True, slots=True)
-class _FormalImageCommitOutcome:
-    """Durable result produced inside the shared image activation seam."""
-
-    version: int
-    created_at: str
-
-
-# 正式图提交的公共签名：活化回调 / 元数据提交器。
-type _StagedImageCommit = Callable[[Path, Path, Mapping[str, Any]], int]
-type _MetadataCommitter = Callable[[Callable[[], None]], None]
-
-
-def _created_at_for_version(versions: Any, resource_type: str, resource_id: str, version: int) -> str:
-    records = versions.get_versions(resource_type, resource_id).get("versions", [])
-    for record in records:
-        if record.get("version") == version:
-            created_at = record.get("created_at")
-            if isinstance(created_at, str) and created_at:
-                return created_at
-    raise RuntimeError("formal image version metadata is missing its creation timestamp")
-
-
-def _commit_staged_formal_image(
-    *,
-    versions: Any,
-    project_path: Path,
-    resource_type: str,
-    resource_id: str,
-    script_file: str | None,
-    artifact_path: str,
-    prompt: str,
-    staged_file: Path,
-    current_file: Path,
-    version_metadata: Mapping[str, Any],
-    task_id: str | None,
-    basis: ArtifactBasis | ArtifactBasisDescriptor | None,
-    commit_metadata: _MetadataCommitter,
-) -> _FormalImageCommitOutcome:
-    """Commit metadata → selected bytes/version → Manifest through one nested transaction.
-
-    Every formal image entry point supplies only its metadata mutation.  Version
-    activation and registration stay centralized so no caller can publish a
-    canonical file before all dependent state is ready to commit.
-    """
-
-    version_box: list[int] = []
-    created_at_box: list[str] = []
-    registered_version_box: list[int] = []
-    resolved_basis_box: list[ArtifactBasis | ArtifactBasisDescriptor | None] = []
-
-    def _register() -> None:
-        registered_version = versions.get_current_version(resource_type, resource_id)
-        if type(registered_version) is not int or registered_version < 1:
-            raise RuntimeError("formal image staged activation has no selected version")
-        registered_version_box.append(registered_version)
-        created_at_box.append(_created_at_for_version(versions, resource_type, resource_id, registered_version))
-        register_formal_task_artifact(
-            project_path,
-            resource_type=resource_type,
-            resource_id=resource_id,
-            script_file=script_file,
-            task_id=task_id,
-            artifact_path=artifact_path,
-            basis=resolved_basis_box[0],
-        )
-
-    def _activate() -> None:
-        resolved_basis = basis
-        if resolved_basis is None:
-            resolved_basis = resolve_current_resource_artifact_basis(
-                project_path,
-                resource_type=resource_type,
-                resource_id=resource_id,
-                script_file=script_file,
-            )
-        resolved_basis_box.append(resolved_basis)
-        committed_metadata = dict(version_metadata)
-        if IMAGE_ARTIFACT_BASIS_FIELD in committed_metadata:
-            raise ValueError(f"{IMAGE_ARTIFACT_BASIS_FIELD} is reserved for formal image activation")
-        if isinstance(resolved_basis, ArtifactBasis):
-            committed_metadata[IMAGE_ARTIFACT_BASIS_FIELD] = resolved_basis.to_evidence_dict()
-        version_box.append(
-            versions.commit_staged_version(
-                resource_type=resource_type,
-                resource_id=resource_id,
-                prompt=prompt,
-                staged_file=staged_file,
-                current_file=current_file,
-                on_commit=_register,
-                **committed_metadata,
-            )
-        )
-
-    commit_metadata(_activate)
-    if (
-        len(version_box) != 1
-        or len(registered_version_box) != 1
-        or version_box != registered_version_box
-        or len(created_at_box) != 1
-        or len(resolved_basis_box) != 1
-    ):
-        raise RuntimeError("formal image metadata commit skipped staged activation")
-    return _FormalImageCommitOutcome(version=version_box[0], created_at=created_at_box[0])
 
 
 def _normalize_storyboard_prompt(
@@ -737,492 +577,6 @@ def collect_storyboard_references(
     )
 
 
-def _staged_formal_image_callback(
-    *,
-    versions: Any,
-    project_path: Path,
-    resource_type: str,
-    resource_id: str,
-    script_file: str | None,
-    artifact_path: str,
-    prompt: str,
-    task_id: str | None,
-    basis: ArtifactBasis | ArtifactBasisDescriptor | None,
-    outcome_box: list[_FormalImageCommitOutcome],
-    commit_metadata: _MetadataCommitter,
-) -> _StagedImageCommit:
-    """Wrap one metadata committer into the staged activation callback of an image task."""
-
-    def _commit(staged_file: Path, current_file: Path, version_metadata: Mapping[str, Any]) -> int:
-        outcome = _commit_staged_formal_image(
-            versions=versions,
-            project_path=project_path,
-            resource_type=resource_type,
-            resource_id=resource_id,
-            script_file=script_file,
-            artifact_path=artifact_path,
-            prompt=prompt,
-            staged_file=staged_file,
-            current_file=current_file,
-            version_metadata=version_metadata,
-            task_id=task_id,
-            basis=basis,
-            commit_metadata=commit_metadata,
-        )
-        outcome_box.append(outcome)
-        return outcome.version
-
-    return _commit
-
-
-def _asset_sheet_metadata_mutator(
-    *,
-    spec: AssetSpec,
-    resource_id: str,
-    sheet_path: str,
-) -> Callable[[dict[str, Any]], None]:
-    """Point one asset entry at its new sheet."""
-
-    def _mutate(project: dict[str, Any]) -> None:
-        bucket = project.get(spec.bucket_key)
-        key = resolve_asset_key(bucket, resource_id)
-        if not isinstance(bucket, dict) or key is None:
-            raise KeyError(f"{spec.label_zh} '{resource_id}' 不存在")
-        entry = bucket[key]
-        if not isinstance(entry, dict):
-            raise ValueError(f"{spec.label_zh} '{resource_id}' metadata must be an object")
-        entry[spec.sheet_field] = sheet_path
-
-    return _mutate
-
-
-def _write_storyboard_image_metadata(
-    *,
-    pm: ProjectManager,
-    project_name: str,
-    script_file: str,
-    resource_id: str,
-    artifact_path: str,
-    on_commit: Callable[[Path], None],
-) -> None:
-    """Point one storyboard item at its new image."""
-
-    with pm.locked_script(project_name, script_file, validate=False, on_commit=on_commit) as script:
-        items, id_field, _char_field, _scene_field, _prop_field = get_storyboard_items(script)
-        resolved = find_storyboard_item(items, id_field, resource_id)
-        if resolved is None:
-            raise KeyError(f"场景 '{resource_id}' 不存在")
-        item, _index = resolved
-        pm._set_scene_asset_in_script(script, resource_id, "storyboard_image", artifact_path)
-        if not isinstance(item.get("generated_assets"), Mapping):
-            raise RuntimeError("storyboard metadata commit did not produce generated_assets")
-
-
-def _asset_sheet_formal_image_callback(
-    *,
-    asset_type: str,
-    project_name: str,
-    resource_id: str,
-    sheet_path: str,
-    prompt: str,
-    versions: Any,
-    task_id: str | None,
-    basis: ArtifactBasis | ArtifactBasisDescriptor | None,
-    outcome_box: list[_FormalImageCommitOutcome],
-    project_manager: ProjectManager | None = None,
-) -> _StagedImageCommit:
-    """Build the shared staged activation callback for every asset-sheet task."""
-
-    spec = ASSET_SPECS[asset_type]
-    pm = project_manager or get_project_manager()
-    project_path = pm.get_project_path(project_name)
-
-    def _commit_metadata(activate: Callable[[], None]) -> None:
-        def _activate(_project_file: Path) -> None:
-            activate()
-
-        pm.update_project(
-            project_name,
-            _asset_sheet_metadata_mutator(spec=spec, resource_id=resource_id, sheet_path=sheet_path),
-            on_commit=_activate,
-        )
-
-    return _staged_formal_image_callback(
-        versions=versions,
-        project_path=project_path,
-        resource_type=spec.bucket_key,
-        resource_id=resource_id,
-        script_file=None,
-        artifact_path=sheet_path,
-        prompt=prompt,
-        task_id=task_id,
-        basis=basis,
-        outcome_box=outcome_box,
-        commit_metadata=_commit_metadata,
-    )
-
-
-async def _finalize_formal_image_task(
-    *,
-    project_path: Path,
-    resource_type: str,
-    resource_id: str,
-    script_file: str | None,
-    artifact_path: str,
-    generator: Any,
-    version: int,
-    task_id: str | None,
-    basis: ArtifactBasis | ArtifactBasisDescriptor | None,
-    commit_current: Callable[[Callable[[Path], None]], None],
-    commit_tracked: Callable[[Callable[[Path], None]], None],
-) -> str:
-    """Commit one image's metadata plus selection; returns the selected version's creation time."""
-
-    def _finalize() -> str:
-        created_at = generator.versions.get_versions(resource_type, resource_id)["versions"][-1]["created_at"]
-        if task_id is None:
-
-            def _register_current(_committed_file: Path) -> None:
-                register_formal_task_artifact(
-                    project_path,
-                    resource_type=resource_type,
-                    resource_id=resource_id,
-                    script_file=script_file,
-                    task_id=None,
-                    artifact_path=artifact_path,
-                    basis=basis,
-                )
-
-            commit_current(_register_current)
-            return created_at
-
-        def _register(_committed_file: Path) -> None:
-            register_formal_task_artifact(
-                project_path,
-                resource_type=resource_type,
-                resource_id=resource_id,
-                script_file=script_file,
-                task_id=task_id,
-                artifact_path=artifact_path,
-                basis=basis,
-            )
-
-        commit_tracked(_register)
-        return created_at
-
-    def _compensate_failed_selection() -> None:
-        reject_failed_image_selection(
-            versions=generator.versions,
-            resource_type=resource_type,
-            resource_id=resource_id,
-            version=version,
-            current_file=project_path / artifact_path,
-        )
-
-    return await run_formal_task_finalizer(
-        _finalize,
-        task_id=task_id,
-        compensate_failure=_compensate_failed_selection,
-    )
-
-
-async def _finalize_asset_sheet_task(
-    *,
-    asset_type: str,
-    project_name: str,
-    resource_id: str,
-    sheet_path: str,
-    generator: Any,
-    version: int,
-    task_id: str | None,
-    basis: ArtifactBasis | ArtifactBasisDescriptor | None = None,
-    project_manager: ProjectManager | None = None,
-) -> str:
-    """Commit one asset sheet and its selection."""
-
-    spec = ASSET_SPECS[asset_type]
-    pm = project_manager or get_project_manager()
-
-    def _commit_current(register: Callable[[Path], None]) -> None:
-        pm._update_asset_sheet(
-            asset_type,
-            project_name,
-            resource_id,
-            sheet_path,
-            on_commit=register,
-        )
-
-    def _commit_tracked(register: Callable[[Path], None]) -> None:
-        pm.update_project(
-            project_name,
-            _asset_sheet_metadata_mutator(spec=spec, resource_id=resource_id, sheet_path=sheet_path),
-            on_commit=register,
-        )
-
-    return await _finalize_formal_image_task(
-        project_path=pm.get_project_path(project_name),
-        resource_type=spec.bucket_key,
-        resource_id=resource_id,
-        script_file=None,
-        artifact_path=sheet_path,
-        generator=generator,
-        version=version,
-        task_id=task_id,
-        basis=basis,
-        commit_current=_commit_current,
-        commit_tracked=_commit_tracked,
-    )
-
-
-def _storyboard_formal_image_callback(
-    *,
-    project_name: str,
-    script_file: str,
-    resource_id: str,
-    artifact_path: str,
-    prompt: str,
-    versions: Any,
-    task_id: str | None,
-    basis: ArtifactBasis | ArtifactBasisDescriptor | None,
-    outcome_box: list[_FormalImageCommitOutcome],
-    project_manager: ProjectManager | None = None,
-) -> _StagedImageCommit:
-    """Build a staged storyboard activation using the shared formal image seam."""
-
-    pm = project_manager or get_project_manager()
-    project_path = pm.get_project_path(project_name)
-
-    def _commit_metadata(activate: Callable[[], None]) -> None:
-        def _activate(_script_path: Path) -> None:
-            activate()
-
-        _write_storyboard_image_metadata(
-            pm=pm,
-            project_name=project_name,
-            script_file=script_file,
-            resource_id=resource_id,
-            artifact_path=artifact_path,
-            on_commit=_activate,
-        )
-
-    return _staged_formal_image_callback(
-        versions=versions,
-        project_path=project_path,
-        resource_type="storyboards",
-        resource_id=resource_id,
-        script_file=script_file,
-        artifact_path=artifact_path,
-        prompt=prompt,
-        task_id=task_id,
-        basis=basis,
-        outcome_box=outcome_box,
-        commit_metadata=_commit_metadata,
-    )
-
-
-async def _finalize_storyboard_image_task(
-    *,
-    project_name: str,
-    script_file: str,
-    resource_id: str,
-    artifact_path: str,
-    generator: Any,
-    version: int,
-    task_id: str | None,
-    basis: ArtifactBasis | ArtifactBasisDescriptor | None = None,
-    project_manager: ProjectManager | None = None,
-) -> str:
-    """Commit storyboard metadata and image selection through one shared seam."""
-
-    pm = project_manager or get_project_manager()
-
-    def _commit_current(register: Callable[[Path], None]) -> None:
-        pm.update_scene_asset(
-            project_name=project_name,
-            script_filename=script_file,
-            scene_id=resource_id,
-            asset_type="storyboard_image",
-            asset_path=artifact_path,
-            on_commit=register,
-        )
-
-    def _commit_tracked(register: Callable[[Path], None]) -> None:
-        _write_storyboard_image_metadata(
-            pm=pm,
-            project_name=project_name,
-            script_file=script_file,
-            resource_id=resource_id,
-            artifact_path=artifact_path,
-            on_commit=register,
-        )
-
-    return await _finalize_formal_image_task(
-        project_path=pm.get_project_path(project_name),
-        resource_type="storyboards",
-        resource_id=resource_id,
-        script_file=script_file,
-        artifact_path=artifact_path,
-        generator=generator,
-        version=version,
-        task_id=task_id,
-        basis=basis,
-        commit_current=_commit_current,
-        commit_tracked=_commit_tracked,
-    )
-
-
-@dataclass(frozen=True, slots=True)
-class _FormalImagePlan:
-    """Per-task differences of the shared formal image submit/activate pipeline."""
-
-    resource_type: str
-    resource_id: str
-    artifact_path: str
-    prompt: str
-    aspect_ratio: str
-    build_commit_callback: Callable[[Any, list[_FormalImageCommitOutcome]], _StagedImageCommit]
-    finalize: Callable[[Any, int], Awaitable[str]]
-    pre_submit: Callable[[], Awaitable[None]] | None = None
-    before_submit: Callable[[], Awaitable[None]] | None = None
-    #: 写进任务 ``result.warnings`` 的非阻断提示（如参考图超限裁剪）；为空时结果不带该键。
-    warnings: tuple[dict[str, Any], ...] = ()
-
-
-async def _run_formal_image_task(
-    *,
-    project_name: str,
-    payload: dict[str, Any],
-    project: dict[str, Any],
-    user_id: str,
-    task_id: str | None,
-    frozen_references: FrozenImageReferences,
-    plan: _FormalImagePlan,
-    context: GenerationContext | None = None,
-) -> dict[str, Any]:
-    """Submit one formal image, then take either the staged activation or the finalizer path.
-
-    ``context`` 供已经解析过 image lane 的调用方复用同一次解析——提示词里的参考图编号按
-    backend 的上限裁剪过，重解析可能落到别的 backend、让编号与实发张数错位。不传则在提交
-    前按参考图有无定 t2i / i2i 槽自行解析。
-    """
-
-    reference_images = frozen_references.reference_images
-    formal_outcomes: list[_FormalImageCommitOutcome] = []
-
-    async def _submit() -> tuple[Any, tuple[Path, int]]:
-        ctx = context or await resolve_generation_context(
-            project_name,
-            payload,
-            project=project,
-            user_id=user_id,
-            image=ImageLaneRequest(generation_type="i2i" if reference_images else "t2i"),
-        )
-        if plan.pre_submit is not None:
-            await plan.pre_submit()
-        generator = ctx.generator
-        # before_submit 只在声明了 checkpoint 的任务上出现，不声明就不落进 kwargs
-        optional: dict[str, Any] = {}
-        if plan.before_submit is not None:
-            optional["before_submit"] = plan.before_submit
-        generated = await generator.generate_image_async(
-            prompt=plan.prompt,
-            resource_type=plan.resource_type,
-            resource_id=plan.resource_id,
-            reference_images=reference_images,
-            aspect_ratio=plan.aspect_ratio,
-            image_size=ctx.image.resolution,
-            formal_output=True,
-            task_id=task_id,
-            commit_formal_output=plan.build_commit_callback(generator, formal_outcomes),
-            **optional,
-        )
-        return generator, generated
-
-    try:
-        generator, (_generated_path, version) = await _submit()
-    finally:
-        await run_noninterruptible_sync(frozen_references.cleanup)
-
-    if formal_outcomes:
-        outcome = formal_outcomes[0]
-        version, created_at = outcome.version, outcome.created_at
-    else:
-        created_at = await plan.finalize(generator, version)
-
-    result: dict[str, Any] = {
-        "version": version,
-        "file_path": plan.artifact_path,
-        "created_at": created_at,
-        "resource_type": plan.resource_type,
-        "resource_id": plan.resource_id,
-    }
-    if plan.warnings:
-        result["warnings"] = list(plan.warnings)
-    return result
-
-
-async def _run_asset_sheet_image_task(
-    *,
-    asset_type: str,
-    project_name: str,
-    resource_id: str,
-    payload: dict[str, Any],
-    user_id: str,
-    task_id: str | None,
-    project: dict[str, Any],
-    full_prompt: str,
-    frozen_references: FrozenImageReferences,
-    basis: ArtifactBasis | ArtifactBasisDescriptor | None,
-) -> dict[str, Any]:
-    """Run the submit/activate pipeline shared by every asset-sheet image task."""
-
-    bucket_key = ASSET_SPECS[asset_type].bucket_key
-    sheet_path = f"{bucket_key}/{resource_id}.png"
-
-    def _build_commit(generator: Any, outcome_box: list[_FormalImageCommitOutcome]) -> _StagedImageCommit:
-        return _asset_sheet_formal_image_callback(
-            asset_type=asset_type,
-            project_name=project_name,
-            resource_id=resource_id,
-            sheet_path=sheet_path,
-            prompt=full_prompt,
-            versions=generator.versions,
-            task_id=task_id,
-            basis=basis,
-            outcome_box=outcome_box,
-        )
-
-    async def _finalize(generator: Any, version: int) -> str:
-        return await _finalize_asset_sheet_task(
-            asset_type=asset_type,
-            project_name=project_name,
-            resource_id=resource_id,
-            sheet_path=sheet_path,
-            generator=generator,
-            version=version,
-            task_id=task_id,
-            basis=basis,
-        )
-
-    return await _run_formal_image_task(
-        project_name=project_name,
-        payload=payload,
-        project=project,
-        user_id=user_id,
-        task_id=task_id,
-        frozen_references=frozen_references,
-        plan=_FormalImagePlan(
-            resource_type=bucket_key,
-            resource_id=resource_id,
-            artifact_path=sheet_path,
-            prompt=full_prompt,
-            aspect_ratio=get_aspect_ratio(project, bucket_key),
-            build_commit_callback=_build_commit,
-            finalize=_finalize,
-        ),
-    )
-
-
 def _episode_from_script(script: dict[str, Any] | None) -> int | None:
     if not isinstance(script, dict):
         return None
@@ -1586,8 +940,8 @@ async def execute_storyboard_task(
     async def _assert_claims_usable() -> None:
         await asyncio.to_thread(assert_current_artifact_input_claims_usable, project_path, formal_claims)
 
-    def _build_commit(generator: Any, outcome_box: list[_FormalImageCommitOutcome]) -> _StagedImageCommit:
-        return _storyboard_formal_image_callback(
+    def _build_commit(generator: Any, outcome_box: list[FormalImageCommitOutcome]) -> StagedImageCommit:
+        return storyboard_formal_image_callback(
             project_name=project_name,
             script_file=str(script_file),
             resource_id=resource_id,
@@ -1597,10 +951,11 @@ async def execute_storyboard_task(
             task_id=task_id,
             basis=storyboard_basis,
             outcome_box=outcome_box,
+            project_manager=get_project_manager(),
         )
 
     async def _finalize(generator: Any, version: int) -> str:
-        return await _finalize_storyboard_image_task(
+        return await finalize_storyboard_image_task(
             project_name=project_name,
             script_file=str(script_file),
             resource_id=resource_id,
@@ -1609,9 +964,10 @@ async def execute_storyboard_task(
             version=version,
             task_id=task_id,
             basis=storyboard_basis,
+            project_manager=get_project_manager(),
         )
 
-    return await _run_formal_image_task(
+    return await run_formal_image_task(
         project_name=project_name,
         payload=payload,
         project=project,
@@ -1619,7 +975,7 @@ async def execute_storyboard_task(
         task_id=task_id,
         frozen_references=frozen_references,
         context=context,
-        plan=_FormalImagePlan(
+        plan=FormalImagePlan(
             resource_type="storyboards",
             resource_id=resource_id,
             artifact_path=artifact_path,
@@ -2670,7 +2026,7 @@ async def execute_character_task(
         return _project, _full_prompt, _frozen, _basis
 
     project, full_prompt, frozen_references, basis = await asyncio.to_thread(_prepare_char)
-    return await _run_asset_sheet_image_task(
+    return await run_asset_sheet_image_task(
         asset_type="character",
         project_name=project_name,
         resource_id=resource_id,
@@ -2681,6 +2037,7 @@ async def execute_character_task(
         full_prompt=full_prompt,
         frozen_references=frozen_references,
         basis=basis,
+        project_manager=get_project_manager(),
     )
 
 
@@ -2771,7 +2128,7 @@ async def execute_design_task(
         return project, full_prompt, frozen, basis
 
     project, full_prompt, frozen_references, basis = await asyncio.to_thread(_prepare)
-    return await _run_asset_sheet_image_task(
+    return await run_asset_sheet_image_task(
         asset_type=kind,
         project_name=project_name,
         resource_id=resource_id,
@@ -2782,6 +2139,7 @@ async def execute_design_task(
         full_prompt=full_prompt,
         frozen_references=frozen_references,
         basis=basis,
+        project_manager=get_project_manager(),
     )
 
 
@@ -2890,50 +2248,6 @@ def _collect_grid_reference_images(
         for _provider, reference in zip(references, selected_visuals, strict=True)
     ]
     return [reference["image"] for reference in references] or None, metadata
-
-
-def _grid_formal_image_callback(
-    *,
-    project_path: Path,
-    grid_manager: Any,
-    grid: Any,
-    resource_id: str,
-    prompt: str,
-    versions: Any,
-    task_id: str | None,
-    basis: ArtifactBasis | ArtifactBasisDescriptor,
-    outcome_box: list[_FormalImageCommitOutcome],
-) -> _StagedImageCommit:
-    """Build a staged grid-composite activation through the shared image seam."""
-
-    artifact_path = f"grids/{resource_id}.png"
-
-    def _commit_metadata(activate: Callable[[], None]) -> None:
-        def _complete(current_grid: Any) -> None:
-            current_grid.grid_image_path = artifact_path
-            current_grid.status = "completed"
-            current_grid.split_at = None
-
-        committed_grid = grid_manager.update_formal(resource_id, _complete, on_commit=activate)
-        if committed_grid is None:
-            raise ValueError(f"grid not found: {resource_id}")
-        grid.grid_image_path = committed_grid.grid_image_path
-        grid.status = committed_grid.status
-        grid.split_at = committed_grid.split_at
-
-    return _staged_formal_image_callback(
-        versions=versions,
-        project_path=project_path,
-        resource_type="grids",
-        resource_id=resource_id,
-        script_file=None,
-        artifact_path=artifact_path,
-        prompt=prompt,
-        task_id=task_id,
-        basis=basis,
-        outcome_box=outcome_box,
-        commit_metadata=_commit_metadata,
-    )
 
 
 async def execute_grid_task(
@@ -3088,7 +2402,7 @@ async def execute_grid_task(
         # 保底档与档位门控（``large_grid_allowed``）取同一常量，避免门控按 2K 判定、
         # 渲染却按别的档位下发
         image_size = ctx.image.resolution or GRID_FALLBACK_RESOLUTION
-        formal_outcomes: list[_FormalImageCommitOutcome] = []
+        formal_outcomes: list[FormalImageCommitOutcome] = []
 
         await asyncio.to_thread(assert_current_artifact_input_claims_usable, project_path, formal_claims)
 
@@ -3105,7 +2419,7 @@ async def execute_grid_task(
             before_submit=_before_submit,
             formal_output=True,
             task_id=task_id,
-            commit_formal_output=_grid_formal_image_callback(
+            commit_formal_output=grid_formal_image_callback(
                 project_path=project_path,
                 grid_manager=grid_manager,
                 grid=grid,
@@ -3149,7 +2463,7 @@ async def execute_grid_task(
         if formal_outcomes:
             version = formal_outcomes[0].version
         else:
-            await run_formal_task_finalizer(_commit_grid, task_id=task_id)
+            await run_formal_task_finalizer(_commit_grid)
 
     except Exception as failure:
         if version is not None and generator is not None:
@@ -3231,60 +2545,6 @@ async def execute_grid_task(
     return grid_result
 
 
-async def _execute_reference_video_task_proxy(
-    project_name: str,
-    resource_id: str,
-    payload: dict[str, Any],
-    *,
-    script_file: str | None = None,
-    user_id: str,
-    task_id: str | None = None,
-    claimed_provider_id: str | None = None,
-    poll_timeout_seconds: int = DEFAULT_VIDEO_POLL_TIMEOUT_SECONDS,
-) -> dict[str, Any]:
-    """Lazy proxy to avoid circular import: reference_video_tasks imports from this module."""
-    from server.services.tasks.reference_video_tasks import execute_reference_video_task
-
-    return await execute_reference_video_task(
-        project_name,
-        resource_id,
-        payload,
-        script_file=script_file,
-        user_id=user_id,
-        task_id=task_id,
-        claimed_provider_id=claimed_provider_id,
-        poll_timeout_seconds=poll_timeout_seconds,
-    )
-
-
-async def _execute_character_derivative_task_proxy(
-    project_name: str,
-    resource_id: str,
-    payload: dict[str, Any],
-    *,
-    user_id: str,
-    task_id: str | None = None,
-) -> dict[str, Any]:
-    """Lazy proxy to avoid circular import: derivative_sheet_tasks imports from this module."""
-    from server.services.tasks.derivative_sheet_tasks import execute_character_derivative_task
-
-    return await execute_character_derivative_task(project_name, resource_id, payload, user_id=user_id, task_id=task_id)
-
-
-async def _execute_image_edit_task_proxy(
-    project_name: str,
-    resource_id: str,
-    payload: dict[str, Any],
-    *,
-    user_id: str,
-    task_id: str | None = None,
-) -> dict[str, Any]:
-    """Lazy proxy to avoid circular import: image_edit_tasks imports from this module."""
-    from server.services.tasks.image_edit_tasks import execute_image_edit_task
-
-    return await execute_image_edit_task(project_name, resource_id, payload, user_id=user_id, task_id=task_id)
-
-
 _TASK_EXECUTORS = {
     "storyboard": execute_storyboard_task,
     "video": execute_video_task,
@@ -3295,9 +2555,9 @@ _TASK_EXECUTORS = {
     "prop": execute_prop_task,
     "product": execute_product_task,
     "grid": execute_grid_task,
-    "reference_video": _execute_reference_video_task_proxy,
-    "image_edit": _execute_image_edit_task_proxy,
-    DERIVATIVE_TASK_TYPE: _execute_character_derivative_task_proxy,
+    "reference_video": execute_reference_video_task,
+    "image_edit": execute_image_edit_task,
+    DERIVATIVE_TASK_TYPE: execute_character_derivative_task,
 }
 
 
@@ -3328,18 +2588,7 @@ async def execute_generation_task(task: dict[str, Any], *, claimed_provider_id: 
         # 能力类异常（Image/VideoCapabilityError、ReferencePayloadFloorError）原样上抛：
         # worker 的 _encode_task_failure_message 按 code + params 落库，渲染留到读侧
         # Translator，同一失败任务按 Accept-Language 显示 zh/en/vi。
-        if task_type == "reference_video":
-            result = await _execute_reference_video_task_proxy(
-                project_name,
-                resource_id,
-                payload,
-                script_file=task.get("script_file"),
-                user_id=user_id,
-                task_id=queue_task_id,
-                claimed_provider_id=claimed_provider_id,
-                poll_timeout_seconds=video_poll_timeout_seconds,
-            )
-        elif task_type == "video":
+        if task_type in ("video", "reference_video"):
             result = await executor(
                 project_name,
                 resource_id,

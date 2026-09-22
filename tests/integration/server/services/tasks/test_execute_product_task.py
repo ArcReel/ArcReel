@@ -1,6 +1,6 @@
 """Tests for execute_product_task."""
 
-from server.services.tasks import generation_tasks
+from server.services.tasks import formal_image_commit, generation_tasks
 from tests.integration.server.services.tasks.generation_tasks_support import (
     FakeGenerator,
     _FakePM,
@@ -18,7 +18,7 @@ class TestGenerationTasks:
         fake_generator = FakeGenerator(project_path)
 
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
-        monkeypatch.setattr(generation_tasks, "resolve_generation_context", fake_resolve_ctx(fake_generator))
+        monkeypatch.setattr(formal_image_commit, "resolve_generation_context", fake_resolve_ctx(fake_generator))
 
         result = await generation_tasks.execute_product_task(
             "demo",
@@ -47,7 +47,7 @@ class TestGenerationTasks:
         fake_generator = FakeGenerator(project_path)
 
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
-        monkeypatch.setattr(generation_tasks, "resolve_generation_context", fake_resolve_ctx(fake_generator))
+        monkeypatch.setattr(formal_image_commit, "resolve_generation_context", fake_resolve_ctx(fake_generator))
 
         await generation_tasks.execute_product_task("demo", "保温杯", {"prompt": "保温杯"})
         assert fake_generator.image_calls[0]["reference_images"] is None
