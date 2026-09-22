@@ -191,6 +191,19 @@ describe("SystemConfigPage", () => {
     expect(screen.queryByText("当前配置存在以下问题，可能会影响部分功能：")).not.toBeInTheDocument();
   });
 
+  it("hides the config issues banner on the prompt templates section only", async () => {
+    vi.spyOn(API, "getProviders").mockResolvedValue(makeProviders({ status: "unconfigured" }));
+    vi.spyOn(API, "listPromptTemplates").mockResolvedValue({ templates: [] });
+
+    renderPage("/app/settings?section=prompt-templates");
+    await screen.findByText("暂无提示词模版。");
+    await waitFor(() => expect(useConfigStatusStore.getState().issues).not.toHaveLength(0));
+    expect(screen.queryByText("当前配置存在以下问题，可能会影响部分功能：")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /使用记录/ }));
+    expect(await screen.findByText("当前配置存在以下问题，可能会影响部分功能：")).toBeInTheDocument();
+  });
+
   it("renders the back link that navigates to projects", () => {
     renderPage();
     const link = screen.getByRole("link", { name: "返回" });

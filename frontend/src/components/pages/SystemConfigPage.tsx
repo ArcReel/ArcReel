@@ -298,8 +298,8 @@ export function SystemConfigPage() {
             <MarketSection />
           ) : (
             <div className="mx-auto max-w-4xl px-8 py-8">
-              {/* Quick alert for config issues */}
-              {configIssues.length > 0 && (
+              {/* Quick alert for config issues (hidden on the read-only prompt-templates section) */}
+              {configIssues.length > 0 && activeSection !== "prompt-templates" && (
                 <div
                   className="mb-7 rounded-[10px] border p-4"
                   style={{

@@ -90,6 +90,8 @@ export default {
   'prompt_templates_count_one': '{{count}} 个模版',
   'prompt_templates_count_other': '{{count}} 个模版',
   'prompt_templates_back': '返回模版列表',
+  'prompt_templates_filter_all': '全部',
+  'prompt_templates_filter_empty': '没有模版适用于当前筛选，换个取值试试。',
   'prompt_templates_category_text': '文本生成',
   'prompt_templates_category_asset': '资产图',
   'prompt_templates_category_storyboard': '分镜图',

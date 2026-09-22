@@ -89,6 +89,8 @@ export default {
   'prompt_templates_count_one': '{{count}} template',
   'prompt_templates_count_other': '{{count}} templates',
   'prompt_templates_back': 'Back to templates',
+  'prompt_templates_filter_all': 'All',
+  'prompt_templates_filter_empty': 'No templates match the current filters. Try a different value.',
   'prompt_templates_category_text': 'Text Generation',
   'prompt_templates_category_asset': 'Asset Images',
   'prompt_templates_category_storyboard': 'Storyboard Images',
