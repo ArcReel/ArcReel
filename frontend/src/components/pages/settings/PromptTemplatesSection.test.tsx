@@ -75,7 +75,7 @@ describe("PromptTemplatesSection", () => {
     expect(within(screen.getByRole("region", { name: "lab" })).getByText("实验草稿")).toBeInTheDocument();
   });
 
-  it("opens a template to show axes, slots, marked source and every partial body", async () => {
+  it("opens a template and expands the selected partial inline", async () => {
     const user = userEvent.setup();
     const getDetail = vi.spyOn(API, "getPromptTemplate").mockResolvedValue(SHEET_DETAIL);
     render(<PromptTemplatesSection />);
@@ -85,15 +85,15 @@ describe("PromptTemplatesSection", () => {
     expect(getDetail).toHaveBeenCalledWith("asset/sheet", expect.anything());
     expect(await screen.findByRole("heading", { level: 2, name: "资产图" })).toBeInTheDocument();
     expect(screen.getByText("character")).toBeInTheDocument();
-    expect(screen.getByText("{{ description }}", { selector: "dt" })).toBeInTheDocument();
+    expect(screen.getByText("description", { selector: "dt" })).toBeInTheDocument();
     expect(screen.getByText("外观描述")).toBeInTheDocument();
-    expect(screen.getByText("{{ description }}", { selector: "mark" })).toBeInTheDocument();
-    expect(
-      screen.getByText('{{ variant("asset/sheet/title", asset_type) }}', { selector: "mark" }),
-    ).toBeInTheDocument();
-    expect(screen.getByText("asset/sheet/title/scene")).toBeInTheDocument();
+    expect(screen.getByTitle("外观描述")).toHaveTextContent("description");
+    expect(screen.getByRole("heading", { name: "模版正文" })).toBeInTheDocument();
+    expect(screen.queryByText("引用的片段")).not.toBeInTheDocument();
+    expect(screen.queryByText("角色设定图，三视图")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: '{{ variant("asset/sheet/title", asset_type) }}' }));
     expect(screen.getByText("角色设定图，三视图")).toBeVisible();
-    expect(screen.getByText("空片段：该取值下不追加措辞。")).toBeInTheDocument();
+    expect(screen.getByText("asset/sheet/title/character")).toBeVisible();
     expect(screen.queryByText("输出结构")).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "返回模版列表" }));
