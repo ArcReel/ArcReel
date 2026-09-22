@@ -140,6 +140,8 @@ _TASK_FAILURE_ACTIONS: dict[str, GenerationAction] = {
     "tts_stale": GenerationAction.REGENERATE_TTS,
     "tts_generating": GenerationAction.WAIT_FOR_TASK,
     "tts_not_applicable": GenerationAction.FIX_INPUT,
+    # 时长这一维不由 ArcReel 驱动，换供应商配置也拿不回控制权：能改的只有这次请求的交付方式。
+    "tts_duration_endpoint_fixed": GenerationAction.FIX_INPUT,
     "tts_not_configured": GenerationAction.CONFIGURE_PROVIDER,
     "tts_state_unavailable": GenerationAction.REPAIR_ARTIFACT_STATE,
     "tts_duration_unavailable": GenerationAction.REGENERATE_TTS,

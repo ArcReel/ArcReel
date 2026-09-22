@@ -1998,6 +1998,7 @@ export default {
   'narration_delivery_label': 'Cách giao lời dẫn',
   'narration_delivery_post_production': 'Thêm ở hậu kỳ',
   'narration_delivery_use_tts': 'Dùng TTS hiện tại',
+  'narration_delivery_tts_duration_endpoint_fixed': 'Thời lượng thành phẩm của model này do endpoint quyết định, không thể yêu cầu video đủ dài cho lời dẫn; hãy thêm lời dẫn ở hậu kỳ.',
 
   // 自定义调用端点
   'ce_section_title': 'Điểm gọi',

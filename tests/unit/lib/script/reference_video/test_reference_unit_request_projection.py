@@ -428,6 +428,56 @@ async def test_projection_blocks_empty_duration_metadata_without_cost_facts() ->
     ]
 
 
+async def _endpoint_fixed_projector() -> ReferenceUnitRequestProjector:
+    """时长这一维由端点固定的投影器：档位集是合法空集，成片多长由 workflow 决定。"""
+
+    base = await _FakeCapabilities().resolve_candidate({}, "i2v")
+    candidate = replace(base, supported_durations=(), duration_endpoint_fixed=True)
+
+    class _EndpointFixedDurations:
+        async def resolve_candidate(self, project: dict, generation_type: str) -> ProviderProjectionCandidate:
+            del project, generation_type
+            return candidate
+
+    return ReferenceUnitRequestProjector(_EndpointFixedDurations(), _FakeAssets(set()))
+
+
+@pytest.mark.asyncio
+async def test_projection_passes_the_planned_duration_through_endpoint_fixed_durations() -> None:
+    """时长由端点固定时空集是合法状态：不收窄、不要求确认，规划秒数原样透传。"""
+
+    projector = await _endpoint_fixed_projector()
+    unit = {"unit_id": "E1U1", "text": "空镜：海面翻涌。", "duration_seconds": 10}
+    result = await projector.project_current(project={}, script={"video_units": [unit]}, unit=unit, resolved_assets=[])
+
+    assert result.problems == ()
+    assert result.request_duration is not None
+    assert (result.request_duration.seconds, result.request_duration.adjustment) == (10, "unconstrained")
+    assert result.request_duration.needs_confirmation is False
+    assert result.cost is not None
+    assert result.cost.duration_seconds == 10
+
+
+@pytest.mark.asyncio
+async def test_projection_refuses_tts_delivery_on_endpoint_fixed_durations() -> None:
+    """时长不由 ArcReel 驱动就申请不到装得下旁白的成片：结构化拒绝，不说「无法报价」。"""
+
+    projector = await _endpoint_fixed_projector()
+    unit = {"unit_id": "E1U1", "text": "空镜：海面翻涌。", "duration_seconds": 10}
+    result = await projector.project_current(
+        project={},
+        script={"video_units": [unit]},
+        unit=unit,
+        resolved_assets=[],
+        options=ReferenceRequestOptions(narration_delivery=USE_TTS, current_tts_duration_seconds=14.5),
+    )
+
+    assert [(problem.code, problem.blocking) for problem in result.problems] == [("tts_duration_endpoint_fixed", True)]
+    assert result.request_duration is None
+    assert result.cost is None
+    assert result.problem_payloads()[0]["action"] == "choose_post_production"
+
+
 @pytest.mark.asyncio
 async def test_projection_sanitizes_unexpected_capability_failures() -> None:
     class _BrokenCapabilities:
@@ -586,6 +636,34 @@ async def test_config_adapter_resolves_candidate_and_rejects_missing_durations()
     with pytest.raises(ProjectionResolutionError, match=r"reference_supported_durations_invalid") as invalid_values_exc:
         await ConfigReferenceCapabilityProjection(_InvalidValuesResolver()).resolve_candidate({}, "r2v")
     assert invalid_values_exc.value.code == "reference_supported_durations_invalid"
+
+
+@pytest.mark.asyncio
+async def test_config_adapter_keeps_an_endpoint_fixed_empty_tier_set() -> None:
+    """``duration_endpoint_fixed`` 的空集不过 ``strict_reference_durations``，也不阻断。"""
+
+    class _EndpointFixedResolver:
+        async def video_capabilities_for_project(self, project: dict, *, generation_type: str) -> dict:
+            del project, generation_type
+            return {
+                "provider_id": "custom-1",
+                "model": "comfyui-wan",
+                "supported_durations": [],
+                "duration_endpoint_fixed": True,
+                "max_reference_images": 1,
+                "generate_audio": False,
+                "requested_generate_audio": False,
+                "voice_consistency": "none",
+            }
+
+        async def resolve_resolution(self, project: dict, provider_id: str, model_id: str) -> str:
+            del project, provider_id, model_id
+            return "720p"
+
+    candidate = await ConfigReferenceCapabilityProjection(_EndpointFixedResolver()).resolve_candidate({}, "i2v")
+
+    assert candidate.supported_durations == ()
+    assert candidate.duration_endpoint_fixed is True
 
 
 def test_strict_reference_durations_uses_shared_constraints_and_rejects_empty_intersection() -> None:

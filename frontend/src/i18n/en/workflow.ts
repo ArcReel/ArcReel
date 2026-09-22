@@ -156,4 +156,5 @@ export default {
   'problem_reference_asset_unregistered': 'This unit references assets that are not registered.',
   'problem_reference_asset_missing': 'A referenced asset has no asset sheet yet.',
   'problem_tts_not_configured': 'No text-to-speech model is configured.',
+  'problem_tts_duration_endpoint_fixed': "This model's output duration is fixed by the endpoint, so no clip long enough for the narration can be requested.",
 };

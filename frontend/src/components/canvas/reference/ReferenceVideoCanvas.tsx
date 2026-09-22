@@ -978,6 +978,7 @@ export function ReferenceVideoCanvas({
             <NarrationDeliveryChoice
               value={narrationDelivery}
               onChange={setNarrationDelivery}
+              ttsDurationEndpointFixed={durationEndpointFixed}
               compact
             />
             <button

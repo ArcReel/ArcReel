@@ -2000,6 +2000,7 @@ export default {
   'narration_delivery_label': 'Narration delivery',
   'narration_delivery_post_production': 'Add in post-production',
   'narration_delivery_use_tts': 'Use current TTS',
+  'narration_delivery_tts_duration_endpoint_fixed': "This model's output duration is fixed by the endpoint, so no clip long enough for the narration can be requested; add narration in post-production.",
 
   // 自定义调用端点
   'ce_section_title': 'Endpoints',

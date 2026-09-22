@@ -126,6 +126,7 @@ MESSAGES = {
     "tts_novel_text_missing": "分镜「{segment_id}」没有可配音的小说原文",
     "tts_narration_text_missing": "该单元没有可合成的旁白正文",
     "tts_not_applicable": "TTS 仅适用于旁白归属的画外音单元；请选择后期配音交付",
+    "tts_duration_endpoint_fixed": "该 workflow 的成片时长由端点固定，ArcReel 无法为旁白申请足够长的成片；请选择后期配音交付",
     "tts_not_configured": "使用 TTS 交付前，请先配置语音合成供应商",
     "tts_missing": "使用 TTS 交付前，请先为该单元生成旁白配音",
     "tts_generating": "旁白配音仍在生成；请等待完成后再使用 TTS 交付",
