@@ -132,6 +132,10 @@ MESSAGES = {
     "tts_novel_text_missing": "Phân cảnh '{segment_id}' không có văn bản tiểu thuyết để thuyết minh",
     "tts_narration_text_missing": "Đơn vị này không có lời thuyết minh để tổng hợp",
     "tts_not_applicable": "TTS chỉ áp dụng cho đơn vị có lời dẫn thuộc người thuyết minh; hãy chọn hậu kỳ",
+    "tts_duration_endpoint_fixed": (
+        "Thời lượng thành phẩm của workflow này do endpoint quyết định, ArcReel không thể yêu cầu video đủ dài "
+        "cho lời dẫn; hãy chọn hậu kỳ"
+    ),
     "tts_not_configured": "Hãy cấu hình nhà cung cấp chuyển văn bản thành giọng nói trước khi dùng TTS",
     "tts_missing": "Hãy tạo âm thanh thuyết minh cho đơn vị này trước khi dùng TTS",
     "tts_generating": "Âm thanh thuyết minh vẫn đang được tạo; hãy chờ hoàn tất trước khi dùng TTS",

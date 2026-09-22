@@ -215,11 +215,13 @@ _Avoid_: 把 size 当比例或清晰度的同义词。
 
 **可选时长（supported_durations）**：
 某视频模型允许的离散时长集合（秒）（见 `docs/adr/0018`）。空集只在时长这一维「由端点固定」时成立，其余情形的空集是配置缺陷、解析期 fail loud。
-_Avoid_: 全局时长白名单；把「由端点固定」的空集当作配置缺失去补默认值。
+「由端点固定」的豁免落在全部三处消费点，各处的表现不同：剧本规划借 `ENDPOINT_FIXED_PLANNING_DURATIONS` 当篇幅依据（`lib/config/resolver.py`）；请求投影（`lib/script/reference_video/duration_slots.py` 的 `project_request_duration`，参考生视频与分镜两条路线共用）不收窄、不要求确认、规划秒数原样透传；界面的时长控件禁用。
+_Avoid_: 全局时长白名单；把「由端点固定」的空集当作配置缺失去补默认值；只在其中一处消费点放行。
 
 **维度由端点固定（endpoint-fixed dimension）**：
 尺寸或时长这一维不由 ArcReel 驱动、只由端点自身决定的状态；当前只有 ComfyUI 端点会进入——宽高两侧不都有节点绑定即尺寸固定，`frames` 未绑定即时长固定（见 `docs/adr/0082`）。对应的选择器在界面上禁用并给出可见的原因说明，提交时该维度不下发。
-_Avoid_: 把它说成「不支持该维度」或「配置缺失」；只绑宽高一侧就当尺寸可驱动。
+时长由端点固定时 TTS 旁白交付（`use_tts`）不支持：申请不到装得下旁白的时长，入队前以 `tts_duration_endpoint_fixed` 结构化拒绝、引导后期配音，两条视频路线同码同文案。
+_Avoid_: 把它说成「不支持该维度」或「配置缺失」；只绑宽高一侧就当尺寸可驱动；把 `use_tts` 的拒绝说成「无法报价」或「档位声明缺失」。
 
 **时长联动约束（duration_resolution_constraints / reference_image_durations）**：
 在 `supported_durations` 全集之上，按分辨率或参考图上下文进一步收窄可选时长的两条逐模型声明。收窄规则只在后端 `lib/config/resolver.py` 求值，收窄结果与成因经 video-capabilities 端点的 `duration_constraints` 回传，前端只查表。

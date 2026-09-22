@@ -72,6 +72,7 @@ REFERENCE_PROJECTION_FAILURE_CODES: frozenset[str] = frozenset(
         "reference_supported_durations_incompatible",
         "reference_supported_durations_invalid",
         "reference_supported_durations_missing",
+        "tts_duration_endpoint_fixed",
         "video_audio_switch_not_supported",
         "video_capability_missing_i2v",
         "video_capability_missing_r2v",
@@ -83,6 +84,7 @@ NARRATION_DELIVERY_FAILURE_CODES: frozenset[str] = frozenset(
     {
         "needs_replan",
         "reference_duration_confirmation_required",
+        "tts_duration_endpoint_fixed",
         "tts_duration_unavailable",
         "tts_generating",
         "tts_conflicts_with_active_narrated_video",

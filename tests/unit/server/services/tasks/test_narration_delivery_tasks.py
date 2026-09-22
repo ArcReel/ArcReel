@@ -282,6 +282,61 @@ async def test_active_narrated_video_observation_filters_post_production_tasks()
     assert active == frozenset({"E1S01"})
 
 
+class _EndpointFixedDurationResolver:
+    """时长这一维由端点固定的配置解析替身：档位集是合法空集。"""
+
+    async def video_capabilities_for_project(self, project: dict, *, generation_type: str) -> dict:
+        del project, generation_type
+        return {
+            "provider_id": "custom-1",
+            "model": "comfyui-wan",
+            "supported_durations": [],
+            "duration_endpoint_fixed": True,
+            "max_reference_images": 0,
+            "generate_audio": False,
+            "requested_generate_audio": False,
+            "voice_consistency": "none",
+        }
+
+    async def resolve_resolution(self, project: dict, provider_id: str, model_id: str) -> str:
+        del project, provider_id, model_id
+        return "720p"
+
+
+class _UnconfiguredTtsResolver:
+    async def resolve_tts_synthesis_settings(self, project: dict) -> object:
+        del project
+        raise ValueError("tts provider unavailable")
+
+
+async def test_storyboard_tts_on_endpoint_fixed_durations_is_refused_without_a_tier_lookup(
+    tmp_path: Path,
+) -> None:
+    """规划时长缺省且档位集为空时不去档位里取第一档，按「时长由端点固定」结构化拒绝 TTS。"""
+
+    result = await narration_delivery_tasks.prepare_current_storyboard_narrated_video_duration(
+        project_name="demo",
+        project={"name": "demo", "episodes": [{"episode": 1, "script_file": "scripts/episode_1.json"}]},
+        project_path=tmp_path,
+        script={"episode": 1, "shots": [{"shot_id": "E1S01", "voiceover_text": "旁白。"}]},
+        script_file="scripts/episode_1.json",
+        item={"shot_id": "E1S01", "voiceover_text": "旁白。"},
+        visual_prompt={"action": "Run.", "camera_motion": "Static"},
+        seed=None,
+        generation_type="i2v",
+        planned_duration_seconds=None,
+        confirmed_request_duration_seconds=None,
+        tts_in_progress=False,
+        config_resolver=_EndpointFixedDurationResolver(),
+        tts_settings_resolver=_UnconfiguredTtsResolver(),
+    )
+
+    assert result.allowed is False
+    assert result.request_duration_seconds is None
+    assert result.planned_duration_seconds == 8
+    assert "tts_duration_endpoint_fixed" in [problem.code for problem in result.problems]
+
+
 async def test_reference_tts_materialization_resolves_episode_from_script_filename(monkeypatch, tmp_path: Path) -> None:
     from lib.script.reference_video.request_projection import ReferenceRequestOptions
     from lib.speech.narration_delivery import USE_TTS

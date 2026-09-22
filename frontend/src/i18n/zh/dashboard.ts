@@ -1999,6 +1999,7 @@ export default {
   'narration_delivery_label': '旁白交付',
   'narration_delivery_post_production': '后期配音',
   'narration_delivery_use_tts': '使用当前 TTS',
+  'narration_delivery_tts_duration_endpoint_fixed': '该模型的成片时长由端点固定，无法为旁白申请足够长的成片；请用后期配音。',
 
   // 自定义调用端点
   'ce_section_title': '调用端点',

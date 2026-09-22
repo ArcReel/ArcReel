@@ -351,6 +351,46 @@ class TestGenerationTasks:
         assert len(fake_generator.video_calls) == 1
         assert len(seen_lane_requests) == 2
 
+    async def test_execute_video_task_blocks_use_tts_when_duration_is_endpoint_fixed(self, monkeypatch, tmp_path):
+        """执行期能力已变成「时长由端点固定」时，use_tts 请求按 tts_duration_endpoint_fixed 拒绝。
+
+        走真实的当前态旁白准备：本单元没有旁白产物，因此旁白侧另有 ``tts_missing``；能力事实
+        排在它之前，读侧取首条时拿到的是「改选后期配音」而不是「去生成旁白」。
+        """
+        project_path = prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        seed_current_storyboard(fake_pm)
+        # 旁白归属的画外音单元：有可合成的原文、没有结构化角色台词，use_tts 因此本来是可选的。
+        fake_pm.script["segments"][0]["novel_text"] = "海面翻涌，风把灯塔的光切成碎片。"
+        fake_pm.script["segments"][0]["video_prompt"] = None
+        fake_generator = FakeGenerator()
+
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+        monkeypatch.setattr(
+            generation_tasks,
+            "resolve_generation_context",
+            fake_resolve_ctx(fake_generator, supported_durations=(), duration_endpoint_fixed=True),
+        )
+        monkeypatch.setattr(generation_tasks, "tts_task_in_progress", AsyncMock(return_value=False))
+        monkeypatch.setattr(generation_tasks, "extract_video_thumbnail", async_return(None))
+        monkeypatch.setattr(generation_tasks, "emit_project_change_batch", lambda *a, **kw: None)
+
+        with pytest.raises(NarratedVideoDurationBlockedError) as exc:
+            await generation_tasks.execute_video_task(
+                "demo",
+                "E1S01",
+                {
+                    "script_file": "episode_1.json",
+                    "prompt": {"action": "跑", "camera_motion": "Static", "dialogue": []},
+                    "narration_delivery_options": {"narration_delivery": USE_TTS},
+                },
+            )
+
+        payloads = exc.value.preparation.problem_payloads()
+        assert [payload["code"] for payload in payloads] == ["tts_duration_endpoint_fixed", "tts_missing"]
+        assert payloads[0]["action"] == "choose_post_production"
+        assert fake_generator.video_calls == []
+
     async def test_execute_video_task_reuses_selected_visual_in_the_latest_tts_tier_without_side_effects(
         self,
         monkeypatch,

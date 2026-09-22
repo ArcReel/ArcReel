@@ -27,7 +27,7 @@ from lib.artifacts.artifact_manifest import (
 from lib.infra.path_safety import safe_join
 from lib.infra.schema_guards import is_int
 from lib.project.resource_paths import resource_relative_path
-from lib.script.reference_video.duration_slots import Adjustment, resolve_duration_slot
+from lib.script.reference_video.duration_slots import Adjustment, project_request_duration
 from lib.speech.audio_utils import probe_existing_audio_duration_seconds
 from lib.speech.speech_composition import (
     SpeechFieldLocation,
@@ -508,30 +508,46 @@ def prepare_narrated_video_duration(
     planned_duration_seconds: int,
     supported_durations: Sequence[int],
     confirmed_request_duration_seconds: int | None,
+    duration_endpoint_fixed: bool = False,
     current_visual_duration_seconds: int | None = None,
     current_reusable_visual_duration_seconds: int | None = None,
 ) -> NarratedVideoDurationPreparation:
-    """Apply a current TTS duration floor to one storyboard video tier."""
+    """Apply a current TTS duration floor to one storyboard video tier.
 
-    if isinstance(planned_duration_seconds, bool) or planned_duration_seconds <= 0:
-        raise ValueError("planned_duration_seconds must be a positive integer")
-    if current_visual_duration_seconds is not None and (
-        isinstance(current_visual_duration_seconds, bool) or current_visual_duration_seconds <= 0
-    ):
-        raise ValueError("current_visual_duration_seconds must be a positive integer or null")
+    取档判定本身在 :func:`project_request_duration`，与参考生视频路线同一份实现；本函数只把
+    它的结论翻译成分镜路线的 problem 信封。
+    """
+
     if current_reusable_visual_duration_seconds is not None and (
         isinstance(current_reusable_visual_duration_seconds, bool) or current_reusable_visual_duration_seconds <= 0
     ):
         raise ValueError("current_reusable_visual_duration_seconds must be a positive integer or null")
-    durations = tuple(
-        sorted({duration for duration in supported_durations if not isinstance(duration, bool) and duration > 0})
-    )
-    duration_input: int | float = max(
-        planned_duration_seconds,
-        narration.duration_floor or 0,
+    projected = project_request_duration(
+        planned_duration_seconds=planned_duration_seconds,
+        supported_durations=supported_durations,
+        narration_duration_floor=narration.duration_floor,
+        duration_endpoint_fixed=duration_endpoint_fixed,
+        uses_tts=narration.delivery == USE_TTS,
+        current_visual_duration_seconds=current_visual_duration_seconds,
+        confirmed_request_duration_seconds=confirmed_request_duration_seconds,
     )
     problems = list(narration.problems)
-    if not durations:
+    request_duration = projected.slot.seconds if projected.slot is not None else None
+    # 前两类是模型能力事实，与本单元 TTS 产物的新鲜度无关，故不受「已有旁白问题就不再判时长」
+    # 的约束；后两类描述的是这次取档与用户已知时长的关系，旁白侧已经挡住时无须再追加。
+    if projected.problem == "tts_duration_endpoint_fixed":
+        # 排在旁白侧问题之前：读侧（问题信封、工作流计划、界面）都取首条阻断项作为指引，而
+        # 「配好 TTS / 等它生成完」在这种模型上做完也仍然不能用 use_tts，唯一出路是改选后期配音。
+        problems.insert(
+            0,
+            _problem(
+                "tts_duration_endpoint_fixed",
+                reason="video_duration_fixed_by_endpoint",
+                action="choose_post_production",
+                path=("narration_delivery",),
+            ),
+        )
+    elif projected.problem == "supported_durations_missing":
         problems.append(
             _problem(
                 "video_supported_durations_missing",
@@ -540,21 +556,8 @@ def prepare_narrated_video_duration(
                 path=("duration_seconds",),
             )
         )
-        return NarratedVideoDurationPreparation(
-            narration=narration,
-            planned_duration_seconds=planned_duration_seconds,
-            duration_input=duration_input,
-            request_duration_seconds=None,
-            adjustment=None,
-            problems=tuple(problems),
-            current_visual_duration_seconds=current_visual_duration_seconds,
-            current_reusable_visual_duration_seconds=current_reusable_visual_duration_seconds,
-        )
-
-    slot = resolve_duration_slot(duration_input, durations)
-    request_duration: int | None = slot.seconds
-    if not problems:
-        if slot.adjustment == "down":
+    elif not narration.problems:
+        if projected.problem == "needs_replan":
             request_duration = None
             problems.append(
                 _problem(
@@ -562,14 +565,11 @@ def prepare_narrated_video_duration(
                     reason="request_duration_exceeds_maximum",
                     action="replan_unit",
                     path=("duration_seconds",),
-                    duration_input=duration_input,
-                    maximum_duration=slot.seconds,
+                    duration_input=projected.duration_input,
+                    maximum_duration=projected.slot.seconds if projected.slot is not None else None,
                 )
             )
-        elif (
-            slot.seconds != (current_visual_duration_seconds or planned_duration_seconds)
-            and confirmed_request_duration_seconds != slot.seconds
-        ):
+        elif projected.problem == "confirmation_required" and projected.slot is not None:
             problems.append(
                 _problem(
                     "reference_duration_confirmation_required",
@@ -577,18 +577,18 @@ def prepare_narrated_video_duration(
                     action="confirm_duration",
                     path=("duration_seconds",),
                     script_duration=planned_duration_seconds,
-                    duration_input=duration_input,
-                    request_duration=slot.seconds,
-                    adjustment=slot.adjustment,
+                    duration_input=projected.duration_input,
+                    request_duration=projected.slot.seconds,
+                    adjustment=projected.slot.adjustment,
                     current_visual_duration=current_visual_duration_seconds,
                 )
             )
     return NarratedVideoDurationPreparation(
         narration=narration,
         planned_duration_seconds=planned_duration_seconds,
-        duration_input=duration_input,
+        duration_input=projected.duration_input,
         request_duration_seconds=request_duration,
-        adjustment=slot.adjustment,
+        adjustment=projected.slot.adjustment if projected.slot is not None else None,
         problems=tuple(problems),
         current_visual_duration_seconds=current_visual_duration_seconds,
         current_reusable_visual_duration_seconds=current_reusable_visual_duration_seconds,
@@ -751,6 +751,7 @@ async def prepare_current_narrated_video_duration(
     supported_durations: Sequence[int],
     confirmed_request_duration_seconds: int | None,
     resolver: TtsSettingsResolver,
+    duration_endpoint_fixed: bool = False,
     tts_in_progress: bool = False,
     current_visual_duration_seconds: int | None = None,
 ) -> NarratedVideoDurationPreparation:
@@ -770,6 +771,7 @@ async def prepare_current_narrated_video_duration(
         planned_duration_seconds=planned_duration_seconds,
         supported_durations=supported_durations,
         confirmed_request_duration_seconds=confirmed_request_duration_seconds,
+        duration_endpoint_fixed=duration_endpoint_fixed,
         current_visual_duration_seconds=current_visual_duration_seconds,
     )
 

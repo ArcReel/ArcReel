@@ -158,4 +158,5 @@ export default {
   'problem_reference_asset_unregistered': '这个单元引用了未登记的资产名。',
   'problem_reference_asset_missing': '引用的资产还没有资产图。',
   'problem_tts_not_configured': '还没有配置语音合成模型。',
+  'problem_tts_duration_endpoint_fixed': '该模型的成片时长由端点固定，申请不到装得下旁白的时长。',
 } satisfies Record<keyof typeof enWorkflow, string>;

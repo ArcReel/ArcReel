@@ -132,6 +132,10 @@ MESSAGES = {
     "tts_novel_text_missing": "Shot '{segment_id}' has no novel text to narrate",
     "tts_narration_text_missing": "This unit has no narrator text to synthesize",
     "tts_not_applicable": "TTS applies only to narrator-owned voiceover units; choose post-production delivery",
+    "tts_duration_endpoint_fixed": (
+        "This workflow's output duration is fixed by the endpoint, so ArcReel cannot request a clip long enough "
+        "for the narration; choose post-production delivery"
+    ),
     "tts_not_configured": "Configure a text-to-speech provider before using TTS delivery",
     "tts_missing": "Generate narration audio for this unit before using TTS delivery",
     "tts_generating": "Narration audio is still generating; wait for it to finish before using TTS delivery",

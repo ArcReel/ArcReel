@@ -225,6 +225,10 @@ class VideoLaneResult:
     max_duration: int | None
     max_reference_images: int | None
     text_to_video: bool = True
+    # 时长这一维由端点固定（见 docs/adr/0082）：``supported_durations`` 是合法空集，成片多长
+    # 由端点自己决定。能力解析失败时留在 False——此时的空档位是「读不到能力」，仍按结构化
+    # blocker 处理，不能被误读成端点固定而放行一个无约束申请。
+    duration_endpoint_fixed: bool = False
     # 费用与实际 provider 出账口径的有声档位，直接来自 video capabilities。
     # 它与下方的 requested_generate_audio（用户开关意图）不等价。
     generate_audio: bool = False
@@ -386,6 +390,7 @@ async def resolve_generation_context(
             max_duration: int | None = None
             max_reference_images: int | None = None
             text_to_video = True
+            duration_endpoint_fixed = False
             generate_audio = False
             voice_consistency: VoiceConsistency = "soft"
             max_reference_audio_count = 0
@@ -403,6 +408,7 @@ async def resolve_generation_context(
                 max_duration = caps.get("max_duration")
                 max_reference_images = caps.get("max_reference_images")
                 text_to_video = bool(caps.get("text_to_video", True))
+                duration_endpoint_fixed = bool(caps.get("duration_endpoint_fixed"))
                 generate_audio = bool(caps.get("generate_audio"))
                 voice_consistency = caps.get("voice_consistency") or "soft"
                 max_reference_audio_count = int(caps.get("max_reference_audio_count") or 0)
@@ -424,6 +430,7 @@ async def resolve_generation_context(
                 max_duration=max_duration,
                 max_reference_images=max_reference_images,
                 text_to_video=text_to_video,
+                duration_endpoint_fixed=duration_endpoint_fixed,
                 generate_audio=generate_audio,
                 voice_consistency=voice_consistency,
                 requested_generate_audio=requested_generate_audio,

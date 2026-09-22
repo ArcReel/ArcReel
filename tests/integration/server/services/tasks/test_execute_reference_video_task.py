@@ -50,6 +50,7 @@ def _wire_context(
     max_refs: int | None = None,
     max_duration: int | None = None,
     supported_durations: tuple[int, ...] = (3,),
+    duration_endpoint_fixed: bool = False,
     voice_consistency: str = "soft",
     max_reference_audio_count: int = 0,
     reference_audio_per_image: bool = False,
@@ -97,6 +98,7 @@ def _wire_context(
         resolution=resolution,
         resolution_or_fallback=resolution_or_fallback,
         supported_durations=supported_durations,
+        duration_endpoint_fixed=duration_endpoint_fixed,
         max_duration=max_duration,
         max_reference_images=max_refs,
         voice_consistency=voice_consistency,
@@ -177,6 +179,76 @@ async def test_execute_reference_video_task_success(tmp_path: Path, monkeypatch:
     assert result["resource_type"] == "reference_videos"
     assert result["resource_id"] == "E1U1"
     assert result["file_path"].endswith("E1U1.mp4")
+
+
+@pytest.mark.asyncio
+async def test_execute_reference_video_task_passes_planned_duration_when_endpoint_fixed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """时长由端点固定的模型在执行期同样放行：不按档位声明缺失拒绝，规划秒数原样透传。
+
+    带 ``task_id`` 走正式提交路径，产物时效事实的档位集因此也一并受检。
+    """
+
+    proj_dir = write_project(tmp_path)
+
+    from lib.script.reference_video.execution_checkpoint import ReferenceSubmissionCheckpoint
+    from server.services.tasks import reference_video_tasks as rvt
+
+    fake_pm = MagicMock()
+    fake_pm.load_project.return_value = json.loads((proj_dir / "project.json").read_text(encoding="utf-8"))
+    fake_pm.get_project_path.return_value = proj_dir
+    fake_pm.load_script.side_effect = lambda _project_name, _filename: json.loads(
+        (proj_dir / "scripts" / "episode_1.json").read_text(encoding="utf-8")
+    )
+    _wire_locked_script(fake_pm)
+    monkeypatch.setattr(rvt, "get_project_manager", lambda: fake_pm)
+
+    async def _fake_generate_video_async(**kwargs):
+        await kwargs["before_submit"]()
+        out = proj_dir / "reference_videos" / "E1U1.mp4"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_bytes(b"\x00\x00\x00 ftypmp42")
+        return out, 1, None, None
+
+    fake_generator = MagicMock()
+    fake_generator.generate_video_async = AsyncMock(side_effect=_fake_generate_video_async)
+    fake_generator.versions.get_versions.return_value = {"versions": [{"created_at": "2026-04-17T10:00:00"}]}
+    _wire_context(
+        monkeypatch,
+        rvt,
+        fake_generator,
+        backend_name="ark",
+        backend_model="doubao-seedance-2-0-260128",
+        supported_durations=(),
+        duration_endpoint_fixed=True,
+    )
+
+    async def _fake_extract(*_a, **_k):
+        return True
+
+    monkeypatch.setattr(rvt, "extract_video_thumbnail", _fake_extract)
+    persisted: dict[str, Any] = {}
+    fake_queue = MagicMock()
+    fake_queue.persist_execution_checkpoint = AsyncMock(
+        side_effect=lambda task_id, raw, provider_id: persisted.update(raw=raw)
+    )
+    monkeypatch.setattr(rvt, "get_generation_queue", lambda: fake_queue)
+
+    result = await rvt.execute_reference_video_task(
+        "demo",
+        "E1U1",
+        {"script_file": "scripts/episode_1.json"},
+        user_id="u1",
+        task_id="task-endpoint-fixed",
+    )
+
+    assert result["resource_id"] == "E1U1"
+    assert fake_generator.generate_video_async.await_args.kwargs["duration_seconds"] == 3
+    # 产物时效事实要求档位集非空且含付费档；端点固定时长下唯一档位就是那次透传的秒数。
+    checkpoint = ReferenceSubmissionCheckpoint.from_json(persisted["raw"])
+    assert checkpoint.duration_seconds == 3
+    assert checkpoint.artifact_duration_tiers == (3,)
 
 
 @pytest.mark.asyncio
