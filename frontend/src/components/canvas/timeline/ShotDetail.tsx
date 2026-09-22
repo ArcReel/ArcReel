@@ -34,7 +34,7 @@ import { NarrationAudioCard } from "./NarrationAudioCard";
 import { NarrationDeliveryChoice } from "@/components/shared/NarrationDeliveryChoice";
 import { ReferenceDurationConfirmDialog } from "../reference/ReferenceDurationConfirmDialog";
 import { NotesDrawer } from "./NotesDrawer";
-import { PromptPreviewPanel } from "./PromptPreviewPanel";
+import { PromptPreviewButton } from "@/components/shared/PromptPreviewButton";
 import { ReferencesSection } from "./ReferencesSection";
 import { StatusBadge, statusFromAssets } from "./StatusBadge";
 import { ShotStructureActions } from "./ShotStructureActions";
@@ -781,6 +781,21 @@ export function ShotDetail({
     );
   };
 
+  // 预览读已保存的剧本：与执行期同一渲染出口，草稿脏时由口径说明提示差异。
+  const renderPromptPreview = (side: PromptSide) => {
+    if (!scriptFile) return null;
+    const previewSide = side === "image" ? "storyboard_image" : "video";
+    return (
+      <PromptPreviewButton
+        title={t(side === "image" ? "prompt_preview_title_storyboard_image" : "prompt_preview_title_video")}
+        load={async (signal) =>
+          (await API.previewScriptItemPrompts(projectName, segmentId, scriptFile, { signal }))[previewSide]
+        }
+        notice={dirty ? t("prompt_preview_saved_only_dirty") : t("prompt_preview_saved_only")}
+      />
+    );
+  };
+
   const handleNotesCommit = (value: string) => {
     if (value === note) return;
     void onUpdatePrompt?.(segmentId, "note", value);
@@ -1085,6 +1100,7 @@ export function ShotDetail({
               {t("detail_field_chars_count", { count: imgDraft.scene.length })}
             </span>
           )}
+          {renderPromptPreview("image")}
           {renderFormToggle("image", isStructIp)}
         </div>
         {imgDraft ? (
@@ -1099,15 +1115,6 @@ export function ShotDetail({
             readOnly={refsReadOnly}
             placeholder={t("detail_image_prompt_placeholder")}
             style={{ minHeight: 124 }}
-          />
-        )}
-        {scriptFile && (
-          <PromptPreviewPanel
-            projectName={projectName}
-            scriptFile={scriptFile}
-            segmentId={segmentId}
-            side="storyboard_image"
-            dirty={dirty}
           />
         )}
         {renderFormSwitchError("image")}
@@ -1134,6 +1141,7 @@ export function ShotDetail({
               {t("detail_field_chars_count", { count: vidDraft.action.length })}
             </span>
           )}
+          {renderPromptPreview("video")}
           {renderFormToggle("video", isStructVp)}
         </div>
         {vidDraft ? (
@@ -1148,15 +1156,6 @@ export function ShotDetail({
             readOnly={refsReadOnly}
             placeholder={t("detail_video_prompt_placeholder")}
             style={{ minHeight: 88 }}
-          />
-        )}
-        {scriptFile && (
-          <PromptPreviewPanel
-            projectName={projectName}
-            scriptFile={scriptFile}
-            segmentId={segmentId}
-            side="video"
-            dirty={dirty}
           />
         )}
         {renderFormSwitchError("video")}

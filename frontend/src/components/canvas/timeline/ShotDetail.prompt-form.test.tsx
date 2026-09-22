@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { ShotDetail } from "./ShotDetail";
 import { API } from "@/api";
@@ -109,5 +109,36 @@ describe("ShotDetail 提示词形态切换", () => {
     for (const button of screen.getAllByRole("button", { name: "文本" })) {
       expect(button).toBeDisabled();
     }
+  });
+});
+
+describe("ShotDetail 最终提示词预览", () => {
+  it("分镜图与视频各有入口，打开哪一侧就只展示哪一侧的最终文本", async () => {
+    const spy = vi.spyOn(API, "previewScriptItemPrompts").mockResolvedValue(preview());
+    renderDetail(makeSegment());
+
+    const [, videoButton] = screen.getAllByRole("button", { name: "查看提示词" });
+    expect(spy).not.toHaveBeenCalled();
+    fireEvent.click(videoButton);
+
+    const dialog = screen.getByRole("dialog", { name: "视频最终提示词" });
+    expect(await within(dialog).findByText("最终视频提示词")).toBeInTheDocument();
+    expect(within(dialog).queryByText(/Scene: 雨夜街道/)).not.toBeInTheDocument();
+    expect(spy).toHaveBeenCalledWith("demo", "E1S01", "episode_1.json", {
+      signal: expect.any(AbortSignal),
+    });
+  });
+
+  it("草稿脏时弹窗提示预览仍按已保存内容渲染", async () => {
+    vi.spyOn(API, "previewScriptItemPrompts").mockResolvedValue(preview());
+    renderDetail(makeSegment());
+    fireEvent.change(screen.getByDisplayValue("雨夜街道"), { target: { value: "改过的画面" } });
+
+    const [imageButton] = screen.getAllByRole("button", { name: "查看提示词" });
+    fireEvent.click(imageButton);
+
+    const dialog = screen.getByRole("dialog", { name: "分镜图最终提示词" });
+    expect(await within(dialog).findByText(/Scene: 雨夜街道/)).toBeInTheDocument();
+    expect(within(dialog).getByText(/有未保存的修改/)).toBeInTheDocument();
   });
 });
