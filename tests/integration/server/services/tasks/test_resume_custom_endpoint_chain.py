@@ -33,6 +33,8 @@ from lib.script.reference_video.execution_checkpoint import (
     StoryboardSubmissionCheckpoint,
 )
 from server.services.tasks import generation_context
+from server.services.tasks.generation_tasks import execute_generation_task
+from server.services.tasks.resume_executor import execute_resume_video_task
 from tests.factories import custom_endpoint_definition
 from tests.fakes import bind_safe_session_factory
 from tests.http_capture import capture_http
@@ -59,8 +61,8 @@ async def chain_project(session_factory, tmp_path: Path, monkeypatch) -> Path:
 
     环境阻碍逐项处理，业务链路不打桩：
     - resume 链路上两个全局 session 工厂（``resolve_generation_context`` 函数内
-      导入的 ``lib.db.async_session_factory``、worker 侧晚导入的
-      ``lib.db.safe_session_factory``）都指到测试库；``safe_session_factory``
+      导入的 ``lib.db.async_session_factory``、worker 自开 session 用的
+      ``safe_session_factory``）都指到测试库；``safe_session_factory``
       单例内部经 ``lib.db.engine.async_session_factory`` 开 session，一并指过去。
     - 准入文件锁落 ``app_data_dir()``，隔离到 tmp。
     - ``get_project_manager`` 在链路各消费模块（resolver / generation_context /
@@ -77,6 +79,8 @@ async def chain_project(session_factory, tmp_path: Path, monkeypatch) -> Path:
     for target in (
         "lib.project.project_manager.get_project_manager",
         "lib.config.resolver.get_project_manager",
+        "lib.generation.generation_worker.get_project_manager",
+        "lib.generation.video_resume.get_project_manager",
         "server.services.tasks.generation_context.get_project_manager",
         "server.services.tasks.resume_executor.get_project_manager",
         "server.services.tasks.generation_tasks.get_project_manager",
@@ -259,9 +263,13 @@ async def _load_task_row(session_factory, task_id: str) -> Task:
 
 async def _run_orphan_recovery(session_factory) -> None:
     """真 worker + 真 queue 驱动一轮启动期孤儿扫描，并等后台 dispatcher 跑完。"""
-    worker = GenerationWorker(queue=GenerationQueue(session_factory=session_factory))
-    await worker._handle_orphan_tasks_on_start()
-    dispatcher = worker._orphan_dispatcher_task
+    worker = GenerationWorker(
+        queue=GenerationQueue(session_factory=session_factory),
+        executor=execute_generation_task,
+        resume_executor=execute_resume_video_task,
+    )
+    await worker._recovery.handle_orphans()
+    dispatcher = worker._recovery.orphan_dispatcher_task
     assert dispatcher is not None
     await asyncio.wait_for(dispatcher, timeout=10)
 

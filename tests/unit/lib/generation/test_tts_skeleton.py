@@ -6,7 +6,7 @@ from __future__ import annotations
 import asyncio
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import ClassVar
+from typing import Any, ClassVar
 
 import pytest
 from sqlalchemy import select
@@ -22,6 +22,12 @@ from lib.generation.media_generator import MediaGenerator
 from lib.project.data_validator import DataValidator
 from lib.project.resource_paths import RESOURCE_TYPES, resource_extension, resource_relative_path
 from lib.script.script_models import GeneratedAssets
+from tests.fakes import refuse_resume_execution
+
+
+async def _refuse_generation_execution(task: dict[str, Any], *, claimed_provider_id: str) -> dict[str, Any]:
+    """常规执行器的防误调替身。"""
+    raise AssertionError(f"unexpected generation execution: {task.get('task_id')}")
 
 
 class TestResourcePaths:
@@ -414,6 +420,8 @@ class TestWorkerAudioLane:
                 _limits={"dashscope": {"image": 0, "video": 0, "audio": 1}},
                 _defaults={"image": 5, "video": 3, "audio": 10},
             ),
+            executor=_refuse_generation_execution,
+            resume_executor=refuse_resume_execution,
         )
         dummy = asyncio.get_running_loop().create_future()
         dummy.set_result(None)
@@ -447,6 +455,8 @@ class TestWorkerAudioLane:
                 _defaults={"image": 5, "video": 3, "audio": 10},
             ),
             provider_projection=_fixed_projection,
+            executor=_refuse_generation_execution,
+            resume_executor=refuse_resume_execution,
         )
 
         async def _fake_process(task):
@@ -499,8 +509,10 @@ class TestOrphanAudioRestartLost:
         w = GenerationWorker(
             queue=q,
             capacity=CapacityTable(_limits={}, _defaults={"image": 5, "video": 3, "audio": 10}),
+            executor=_refuse_generation_execution,
+            resume_executor=refuse_resume_execution,
         )
-        await w._handle_orphan_tasks_on_start()
+        await w._recovery.handle_orphans()
         assert q.failed == [("A1", "[restart_lost_audio]")]
 
 

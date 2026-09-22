@@ -36,12 +36,12 @@ async def test_execute_generation_task_rejects_unknown_type():
 
 
 @pytest.mark.asyncio
-async def test_execute_generation_task_passes_claimed_provider_to_reference_proxy(monkeypatch):
+async def test_execute_generation_task_passes_claimed_provider_to_reference_executor(monkeypatch):
     from server.services.tasks import generation_tasks
 
     captured: dict[str, object] = {}
 
-    async def _fake_reference_proxy(
+    async def _fake_reference_executor(
         project_name,
         resource_id,
         payload,
@@ -64,11 +64,7 @@ async def test_execute_generation_task_passes_claimed_provider_to_reference_prox
         )
         return {"ok": True}
 
-    # 替身落在惰性代理的下游协作者上，代理本身的参数透传照跑。
-    monkeypatch.setattr(
-        "server.services.tasks.reference_video_tasks.execute_reference_video_task",
-        _fake_reference_proxy,
-    )
+    monkeypatch.setitem(_TASK_EXECUTORS, "reference_video", _fake_reference_executor)
 
     result = await generation_tasks.execute_generation_task(
         {

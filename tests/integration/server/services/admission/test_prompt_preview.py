@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from server.services.admission import prompt_preview
-from server.services.tasks import generation_tasks
+from server.services.tasks import formal_image_commit, generation_tasks
 from tests.integration.server.services.tasks.generation_tasks_support import (
     FakeGenerator,
     _FakePM,
@@ -90,7 +90,7 @@ def _patch_execution(monkeypatch, pm: _FakePM, generator: FakeGenerator, *, regi
     monkeypatch.setattr(generation_tasks, "extract_video_thumbnail", async_return(None))
     monkeypatch.setattr(generation_tasks, "emit_project_change_batch", lambda *a, **kw: None)
     if not register_artifacts:
-        monkeypatch.setattr(generation_tasks, "register_current_resource_artifact", lambda *_a, **_kw: True)
+        monkeypatch.setattr(formal_image_commit, "register_current_resource_artifact", lambda *_a, **_kw: True)
     monkeypatch.setattr(prompt_preview, "get_project_manager", lambda: pm)
 
 

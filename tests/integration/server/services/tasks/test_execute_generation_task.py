@@ -6,7 +6,7 @@ import pytest
 
 from lib.artifacts.artifact_manifest import ArtifactKey, ProjectArtifactManifestAdapter
 from lib.script.storyboard_sequence import StoryboardImageBindingRequired
-from server.services.tasks import generation_tasks
+from server.services.tasks import formal_image_commit, generation_tasks
 from tests.integration.server.services.tasks.generation_tasks_support import (
     FakeGenerator,
     _FakePM,
@@ -27,8 +27,10 @@ class TestGenerationTasks:
         fake_generator = FakeGenerator(project_path)
         emitted_batches = []
 
+        resolve_ctx = fake_resolve_ctx(fake_generator)
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
-        monkeypatch.setattr(generation_tasks, "resolve_generation_context", fake_resolve_ctx(fake_generator))
+        monkeypatch.setattr(generation_tasks, "resolve_generation_context", resolve_ctx)
+        monkeypatch.setattr(formal_image_commit, "resolve_generation_context", resolve_ctx)
         monkeypatch.setattr(
             generation_tasks,
             "emit_project_change_batch",
@@ -258,11 +260,9 @@ class TestGenerationTasks:
         seen: list[dict] = []
 
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
-        monkeypatch.setattr(
-            generation_tasks,
-            "resolve_generation_context",
-            fake_resolve_ctx(fake_generator, seen_lane_requests=seen),
-        )
+        resolve_ctx = fake_resolve_ctx(fake_generator, seen_lane_requests=seen)
+        monkeypatch.setattr(generation_tasks, "resolve_generation_context", resolve_ctx)
+        monkeypatch.setattr(formal_image_commit, "resolve_generation_context", resolve_ctx)
         monkeypatch.setattr(generation_tasks, "extract_video_thumbnail", async_return(None))
         monkeypatch.setattr(generation_tasks, "emit_project_change_batch", lambda *a, **kw: None)
 

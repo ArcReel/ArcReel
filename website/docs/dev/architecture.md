@@ -176,7 +176,7 @@ flowchart TD
 - 路由层可以直接调用核心库，不强制经过应用服务。应用服务只在两种情况下需要：同一用例被多个入口共用；需要跨多个领域包协调事务或补偿。
 - 与 Web 框架绑定的胶水归服务端。例如文案表与按语言成文在 `lib/i18n/`，从请求的 `Accept-Language` 解析语言、向路由注入 translator 的依赖在 `server/i18n.py`。
 
-这条分界由依赖检查强制（import-linter，契约写在 `pyproject.toml`）：「核心库不依赖服务端」与「核心库不依赖 HTTP 框架」（fastapi / starlette）。前者登记了两条存量豁免，都是生成 Worker 直接调用服务端的任务执行器与续跑执行器，只减不增；后者没有豁免。
+这条分界由依赖检查强制（import-linter，契约写在 `pyproject.toml`）：「核心库不依赖服务端」与「核心库不依赖 HTTP 框架」（fastapi / starlette）。两条契约都没有豁免。核心库需要服务端的能力时由应用装配处注入，例如生成 Worker 的任务执行器与续跑执行器由 `server/app.py` 构造 Worker 时传入。
 
 ## 7. 供应商抽象 {#provider-abstraction}
 

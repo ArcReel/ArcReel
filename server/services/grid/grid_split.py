@@ -85,7 +85,8 @@ async def apply_grid_split(
     from PIL import Image
 
     from lib.script.grid.splitter import split_grid_image
-    from server.services.tasks.generation_tasks import emit_generation_success_batch, get_aspect_ratio
+    from server.services.tasks.formal_image_commit import get_aspect_ratio
+    from server.services.tasks.generation_tasks import emit_generation_success_batch
 
     pm = get_project_manager()
     project_path = await asyncio.to_thread(pm.get_project_path, project_name)

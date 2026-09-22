@@ -266,7 +266,10 @@ describe("EndpointsSection", () => {
       }),
     );
     renderSection("section=endpoints&endpoint=ce-7");
-    expect(await screen.findByText("不支持递归下降语法")).toBeInTheDocument();
+    // 诊断卡要等 400ms 校验防抖再发请求，默认 1s 等待在并行负载下不够。
+    expect(
+      await screen.findByText("不支持递归下降语法", undefined, { timeout: 4000 }),
+    ).toBeInTheDocument();
     await waitFor(() =>
       expect(screen.getByRole("button", { name: "保存更改" })).toBeDisabled(),
     );

@@ -598,7 +598,6 @@ class TestCustomEndpointMediaType:
 
     async def test_an_image_comfyui_endpoint_only_answers_image_queries(self, db_session: AsyncSession):
         definition = comfyui_endpoint_definition(media_type="image")
-        del definition["bindings"]["fps"]
         await self._attach(db_session, definition, "image", "comfy-img")
 
         repo = CustomProviderRepository(db_session)

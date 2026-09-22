@@ -32,8 +32,8 @@ from lib.custom_provider.comfyui.request_builder import workflow_sha256
 from lib.custom_provider.endpoint_definition import validate_definition
 from lib.custom_provider.endpoint_resolution import endpoint_spec_from_row
 from lib.custom_provider.factory import create_custom_backend
-from lib.generation.generation_worker import _encode_task_failure_message
 from lib.generation.task_failure import render_failure
+from lib.generation.task_failure_encoding import encode_task_failure_message
 from tests.factories import comfyui_endpoint_definition, make_translator
 from tests.fakes import bounded_poll_clock, captured_provider_job_ids
 from tests.http_capture import capture_http, only_request, request_json
@@ -586,15 +586,31 @@ class TestFailures:
     def test_every_failure_code_renders_in_every_locale(self, code: str, params: dict[str, Any], locale: str):
         """落库只存机器码，读侧按 Accept-Language 渲染；三语缺一就有用户看到裸码。
 
-        编码这一步同时钉住 worker 认得这个异常：``_encode_task_failure_message`` 认不出的异常
+        编码这一步同时钉住 worker 认得这个异常：``encode_task_failure_message`` 认不出的异常
         会降级成一段裸文本，读侧就再也翻译不了。
+
+        渲染结果里不留 ``{``：``lib.i18n`` 在格式化抛错时退回未填值的模板，占位符对不上的模板
+        会带着一串 ``{name}`` 直接显示给用户。
         """
-        message = _encode_task_failure_message(ComfyuiError(code, **params))
+        message = encode_task_failure_message(ComfyuiError(code, **params))
 
         rendered = render_failure(message, make_translator(locale))
 
         assert rendered
         assert code not in rendered
+        assert "{" not in rendered
+
+    @pytest.mark.parametrize("locale", ["zh", "en", "vi"])
+    def test_the_mismatch_text_lists_the_allowed_extensions(self, locale: str):
+        """扩展名清单在读侧按落库的 ``media_type`` 现算，落库参数只有文件名与媒体类型。"""
+        message = _encode_task_failure_message(
+            ComfyuiError("comfyui_output_type_mismatch", filename="a.png", media_type="video")
+        )
+
+        rendered = render_failure(message, make_translator(locale))
+
+        assert rendered
+        assert ".mov / .mp4 / .webm" in rendered
 
 
 class TestMultipleArtifacts:

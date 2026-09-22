@@ -45,6 +45,7 @@ from server.tool_runtime import (
     generate_script_plan,
     plan_episodes,
 )
+from tests.fakes import refuse_resume_execution
 
 
 async def _start_text_worker(
@@ -60,6 +61,7 @@ async def _start_text_worker(
         provider_projection=text_provider,
         executor=executor,
         lanes=("text",),
+        resume_executor=refuse_resume_execution,
     )
     worker.poll_interval = 0.01
     worker.heartbeat_interval = 0.01

@@ -44,6 +44,7 @@ from lib.project.asset_derivatives import (
     split_derivative_artifact_id,
 )
 from lib.project.asset_types import ASSET_SPECS, resolve_asset_key
+from lib.project.project_manager import get_project_manager
 from lib.project.resource_paths import CHARACTER_DERIVATIVE_RESOURCE_TYPE, resource_relative_path
 from lib.script.script_models import get_generated_assets
 from lib.script.storyboard_sequence import find_storyboard_item, get_storyboard_items
@@ -51,15 +52,14 @@ from server.services.tasks.derivative_sheet_tasks import (
     derivative_sheet_commit_callback,
     finalize_derivative_sheet_task,
 )
-from server.services.tasks.generation_context import ImageLaneRequest, resolve_generation_context
-from server.services.tasks.generation_tasks import (
-    _asset_sheet_formal_image_callback,
-    _finalize_asset_sheet_task,
-    _finalize_storyboard_image_task,
-    _storyboard_formal_image_callback,
+from server.services.tasks.formal_image_commit import (
+    asset_sheet_formal_image_callback,
+    finalize_asset_sheet_task,
+    finalize_storyboard_image_task,
     get_aspect_ratio,
-    get_project_manager,
+    storyboard_formal_image_callback,
 )
+from server.services.tasks.generation_context import ImageLaneRequest, resolve_generation_context
 
 # 版本记录里标记「指令式编辑」的 source 值；前端据此展示编辑标记（与 manual_upload 同机制）
 IMAGE_EDIT_VERSION_SOURCE = "image_edit"
@@ -433,7 +433,7 @@ async def execute_image_edit_task(
                 project_manager=get_project_manager(),
             )
         elif resource_type == "storyboard":
-            commit_formal_output = _storyboard_formal_image_callback(
+            commit_formal_output = storyboard_formal_image_callback(
                 project_name=project_name,
                 script_file=str(script_file),
                 resource_id=resource_key,
@@ -446,7 +446,7 @@ async def execute_image_edit_task(
                 project_manager=get_project_manager(),
             )
         else:
-            commit_formal_output = _asset_sheet_formal_image_callback(
+            commit_formal_output = asset_sheet_formal_image_callback(
                 asset_type=resource_type,
                 project_name=project_name,
                 resource_id=resource_key,
@@ -502,7 +502,7 @@ async def execute_image_edit_task(
             project_manager=get_project_manager(),
         )
     elif resource_type == "storyboard":
-        created_at = await _finalize_storyboard_image_task(
+        created_at = await finalize_storyboard_image_task(
             project_name=project_name,
             script_file=str(script_file),
             resource_id=resource_key,
@@ -514,7 +514,7 @@ async def execute_image_edit_task(
             project_manager=get_project_manager(),
         )
     else:
-        created_at = await _finalize_asset_sheet_task(
+        created_at = await finalize_asset_sheet_task(
             asset_type=resource_type,
             project_name=project_name,
             resource_id=resource_key,

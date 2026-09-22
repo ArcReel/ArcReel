@@ -829,14 +829,21 @@ def hook_claim_recheck(monkeypatch, *, before=None, after_first_pass=None) -> No
     monkeypatch.setattr(generation_tasks, "assert_current_artifact_input_claims_usable", _recheck)
 
 
-def bind_safe_session_factory(monkeypatch, factory) -> None:
-    """把全局 ``lib.db.safe_session_factory`` 指向给定的 session 工厂。
+async def refuse_resume_execution(task: dict[str, Any], *, job_id: str) -> dict[str, Any]:
+    """生成 worker 的续跑执行器替身：用例不该走到续跑，走到即判失败。"""
+    raise AssertionError(f"unexpected resume execution: {task.get('task_id')}")
 
-    worker 侧的 ``_requeue_single_task`` 与 ``CapacityTable.from_db`` 在函数内晚导入这个全局
-    名字、绕开注入的协作者自己开 session，测试只能从这一处换；工厂由调用方给，可以是真库的
+
+def bind_safe_session_factory(monkeypatch, factory) -> None:
+    """把生成 worker 自开 session 用的 ``safe_session_factory`` 指向给定的 session 工厂。
+
+    worker 的 ``_requeue_single_task`` 与 ``CapacityTable.from_db`` 经模块级导入的这个名字绕开注入的
+    队列自己开 session，派发时读全局轮询超时的 ``lib.config.service.read_video_poll_timeout_seconds``
+    则在函数内晚导入 ``lib.db`` 上的全局名字，两处一起换。工厂由调用方给，可以是真库的
     ``async_sessionmaker``，也可以是只出一个假 session 的上下文管理器。
     """
     monkeypatch.setattr("lib.db.safe_session_factory", factory)
+    monkeypatch.setattr("lib.generation.generation_worker.safe_session_factory", factory)
 
 
 class HangingProcess:

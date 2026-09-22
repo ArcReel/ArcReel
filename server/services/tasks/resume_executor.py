@@ -1,4 +1,4 @@
-"""Resume executor：worker `_process_resume_task` 直接调用的入口。
+"""Resume executor：`VideoResumeRunner.run` 直接调用的入口。
 
 不走 `execute_video_task` / `execute_reference_video_task` 流水线——provider 端
 job 已经在跑，本地分镜图 / 参考图是否存在不该影响接续轮询。仅复用 service
@@ -94,7 +94,7 @@ async def execute_resume_video_task(
     *,
     job_id: str,
 ) -> dict[str, Any]:
-    """重启自愈入口：worker `_process_resume_task` 直接调。
+    """重启自愈入口：`VideoResumeRunner.run` 直接调。
 
     1. 解析项目 + 构造 MediaGenerator（受 task["provider_id"] 锁定 payload.video_provider）
     2. 调 `generator.resume_video_async(job_id=..., ...)`——内部走 backend.resume_video

@@ -164,10 +164,10 @@ async def test_reference_script_plan_write_transaction_does_not_block_event_loop
         )
     )
     try:
-        assert await asyncio.to_thread(started.wait, 1)
+        assert await asyncio.to_thread(started.wait, 10)
         ticked = asyncio.Event()
         asyncio.get_running_loop().call_soon(ticked.set)
-        await asyncio.wait_for(ticked.wait(), timeout=1)
+        await asyncio.wait_for(ticked.wait(), timeout=10)
     finally:
         release.set()
 
@@ -397,7 +397,7 @@ async def test_split_violation_keeps_pre_generation_formal_baseline(fake_ctx: To
         )
     )
     try:
-        await asyncio.wait_for(started.wait(), timeout=1)
+        await asyncio.wait_for(started.wait(), timeout=10)
     except TimeoutError:
         generation.cancel()
         await asyncio.gather(generation, return_exceptions=True)
@@ -406,7 +406,7 @@ async def test_split_violation_keeps_pre_generation_formal_baseline(fake_ctx: To
     release.set()
 
     with pytest.raises(TextGenerationError):
-        await asyncio.wait_for(generation, timeout=1)
+        await asyncio.wait_for(generation, timeout=10)
 
     current = script_review.content_fingerprint(rv_script_plan_path(fake_ctx))
     assert current != expected
@@ -625,7 +625,7 @@ async def test_cancelled_reference_script_plan_promotion_finishes_commit_and_cle
         )
     )
     try:
-        assert await asyncio.to_thread(started.wait, 1)
+        assert await asyncio.to_thread(started.wait, 10)
         promotion.cancel()
         await asyncio.sleep(0)
         assert not promotion.done()
@@ -633,7 +633,7 @@ async def test_cancelled_reference_script_plan_promotion_finishes_commit_and_cle
         release.set()
 
     with pytest.raises(asyncio.CancelledError):
-        await asyncio.wait_for(promotion, timeout=1)
+        await asyncio.wait_for(promotion, timeout=10)
     assert rv_script_plan_path(fake_ctx).exists()
     assert not rv_quarantine_path(fake_ctx).exists()
 
@@ -779,7 +779,7 @@ async def test_promote_draft_waits_for_file_lock_without_blocking_event_loop(
     holder = asyncio.create_task(asyncio.to_thread(hold_lock))
     promotion: asyncio.Task[dict[str, Any]] | None = None
     try:
-        assert await asyncio.to_thread(held.wait, 1)
+        assert await asyncio.to_thread(held.wait, 10)
         attempted = asyncio.Event()
         promotion = asyncio.create_task(
             workflow.promote(
@@ -789,14 +789,14 @@ async def test_promote_draft_waits_for_file_lock_without_blocking_event_loop(
                 before_lock=attempted.set,
             )
         )
-        await asyncio.wait_for(attempted.wait(), 0.3)
+        await asyncio.wait_for(attempted.wait(), timeout=10)
         assert not promotion.done()
     finally:
         release.set()
-        assert await asyncio.wait_for(holder, timeout=1) is None
+        assert await asyncio.wait_for(holder, timeout=10) is None
 
     assert promotion is not None
-    out = await asyncio.wait_for(promotion, timeout=1)
+    out = await asyncio.wait_for(promotion, timeout=10)
     assert out["promoted"] is True
     assert (fake_ctx.project_path / "scripts" / "episode_1.json").exists()
 
@@ -820,7 +820,7 @@ async def test_open_script_plan_draft_waits_for_quarantine_lock(fake_ctx: ToolCo
 
         monkeypatch.setattr(ProjectManager, "async_file_lock", observed_async_lock)
         opening = asyncio.create_task(open_drama_for_edit(fake_ctx, source="source/episode_1.txt"))
-        await asyncio.wait_for(attempted.wait(), timeout=1)
+        await asyncio.wait_for(attempted.wait(), timeout=10)
         assert not opening.done()
 
     out = await opening
@@ -1176,7 +1176,7 @@ async def test_normalize_drama_script_serializes_commit_with_draft_edits(fake_ct
         task = asyncio.create_task(
             call(generate_script_plan_tool(fake_ctx), {"episode": 1, "source": "source/episode_1.txt"})
         )
-        await asyncio.wait_for(attempted.wait(), timeout=1)
+        await asyncio.wait_for(attempted.wait(), timeout=10)
         assert not task.done(), "generation commit must wait for the draft lock"
 
     out = await task

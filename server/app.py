@@ -80,6 +80,8 @@ from server.routers import (
 )
 from server.routers import auth as auth_router
 from server.services.project.project_events import ProjectEventService
+from server.services.tasks.generation_tasks import execute_generation_task
+from server.services.tasks.resume_executor import execute_resume_video_task
 
 
 def assert_no_provider_secrets_in_environ() -> None:
@@ -683,7 +685,7 @@ app.mount("/mcp", remote_mcp_host)
 
 
 def create_generation_worker() -> GenerationWorker:
-    return GenerationWorker()
+    return GenerationWorker(executor=execute_generation_task, resume_executor=execute_resume_video_task)
 
 
 @app.get("/health")

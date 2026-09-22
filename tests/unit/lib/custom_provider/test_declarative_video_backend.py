@@ -25,7 +25,7 @@ from lib.custom_provider.declarative_backend import (
 )
 from lib.custom_provider.endpoint_definition import validate_definition
 from lib.db.repositories.usage_repo import MAX_BILLED_DURATION_SECONDS
-from lib.generation.generation_worker import _encode_task_failure_message
+from lib.generation.task_failure_encoding import encode_task_failure_message
 from tests.factories import custom_endpoint_definition
 from tests.fakes import bounded_poll_clock
 from tests.http_capture import capture_http, request_json
@@ -614,7 +614,7 @@ class TestDeclarativeVideoBackend:
                 ).generate(_request(tmp_path))
 
         assert excinfo.value.provider_reason == "PromptRejected: prompt violates the policy"
-        stored = _encode_task_failure_message(excinfo.value)
+        stored = encode_task_failure_message(excinfo.value)
         assert json.loads(stored.split("] ", 1)[1]) == {
             "provider_reason": "PromptRejected: prompt violates the policy",
             "status": 400,

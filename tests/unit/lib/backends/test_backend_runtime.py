@@ -30,6 +30,7 @@ from lib.backends.backend_runtime import (
     poll_with_retry,
     provider_reason_summary,
     recording_poll,
+    request_with_scoped_credentials,
     should_retry_download,
     should_retry_poll,
     should_retry_signed_download,
@@ -46,7 +47,7 @@ from lib.backends.video_backend_contract import (
     VideoGenerationRequest,
 )
 from tests.fakes import bounded_poll_clock, captured_provider_job_ids
-from tests.http_capture import capture_http
+from tests.http_capture import capture_http, only_request, request_json
 
 
 class _FakeClock:
@@ -1083,6 +1084,55 @@ class TestRedirectMethodRewrite:
     )
     def test_rewrite_rule(self, status_code: int, method: str, expected: bool):
         assert _rewrites_to_get(status_code, method) is expected
+
+
+class TestScopedCredentialRedirect:
+    """``request_with_scoped_credentials`` 逐跳跟随时随行数据的作用域。"""
+
+    @pytest.mark.parametrize("status", [307, 308])
+    async def test_a_cross_origin_hop_forwards_neither_credentials_nor_the_body(self, status: int):
+        """307 / 308 保留方法，但请求体与凭证都不带出凭证作用域。"""
+        with capture_http() as router:
+            router.post("https://relay.test/submit").mock(
+                return_value=httpx.Response(status, headers={"Location": "https://other.test/submit"})
+            )
+            target = router.post("https://other.test/submit").mock(return_value=httpx.Response(200, json={"ok": True}))
+            async with httpx.AsyncClient() as client:
+                response = await request_with_scoped_credentials(
+                    client,
+                    "POST",
+                    "https://relay.test/submit",
+                    headers={"X-API-Key": "secret"},
+                    json={"prompt": "paper boat"},
+                )
+
+        assert response.status_code == 200
+        request = only_request(target)
+        assert request.method == "POST"
+        assert request.content == b""
+        assert "x-api-key" not in request.headers
+
+    @pytest.mark.parametrize("status", [307, 308])
+    async def test_a_same_origin_hop_keeps_the_method_body_and_credentials(self, status: int):
+        with capture_http() as router:
+            router.post("https://relay.test/submit").mock(
+                return_value=httpx.Response(status, headers={"Location": "/submit/"})
+            )
+            target = router.post("https://relay.test/submit/").mock(return_value=httpx.Response(200, json={"ok": True}))
+            async with httpx.AsyncClient() as client:
+                response = await request_with_scoped_credentials(
+                    client,
+                    "POST",
+                    "https://relay.test/submit",
+                    headers={"X-API-Key": "secret"},
+                    json={"prompt": "paper boat"},
+                )
+
+        assert response.status_code == 200
+        request = only_request(target)
+        assert request.method == "POST"
+        assert request_json(request) == {"prompt": "paper boat"}
+        assert request.headers["x-api-key"] == "secret"
 
 
 class TestWithArtifactRetry:

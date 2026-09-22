@@ -79,7 +79,7 @@ MESSAGES = {
     "task_fail_comfyui_execution_error": "ComfyUI failed during execution: {detail} (failing node: {node})",
     "task_fail_comfyui_interrupted": "The run on ComfyUI was interrupted; please retry",
     "task_fail_comfyui_output_missing": "ComfyUI finished but output node {nodes} produced no file; check its node bindings and the workflow's output chain",
-    "task_fail_comfyui_output_type_mismatch": "ComfyUI produced {filename}, which is not a {media_type} file; point the output node bindings at the node that exports the finished media",
+    "task_fail_comfyui_output_type_mismatch": "ComfyUI produced {filename}, which is not a file type this endpoint should output (expected {expected}); point the output node bindings at the node that exports the final artifact",
     "task_fail_artifact_download_failed": "Video generation succeeded but artifact download failed; retry the download: {detail}",
     "task_fail_cascade_blocked_dependency": "Blocked by failed dependency task {dependency_task_id}: {reason}",
     "prompt_must_be_string_or_scene_object": "prompt must be a string or an object containing scene/composition",

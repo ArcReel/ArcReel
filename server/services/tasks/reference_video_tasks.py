@@ -40,6 +40,7 @@ from lib.generation.generation_queue import (
 )
 from lib.infra.path_safety import safe_join
 from lib.infra.thumbnail import extract_video_thumbnail
+from lib.project.project_manager import get_project_manager
 from lib.script.reference_video.artifact_selection import CurrentReferenceAssets
 from lib.script.reference_video.execution_checkpoint import (
     NarrationExecutionFacts,
@@ -81,7 +82,6 @@ from server.services.currency.video_artifact_currency import (
     freeze_video_speech_facts,
 )
 from server.services.tasks.generation_context import AudioLaneRequest, VideoLaneRequest, resolve_generation_context
-from server.services.tasks.generation_tasks import get_project_manager
 from server.services.tasks.narration_delivery_tasks import (
     ResolvedTtsSettingsResolver,
     materialized_reference_video_visual_basis_digest,

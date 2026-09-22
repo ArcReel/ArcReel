@@ -244,7 +244,6 @@ class TestCapacityTable:
         from tests.factories import comfyui_endpoint_definition
 
         image_definition = comfyui_endpoint_definition(media_type="image")
-        del image_definition["bindings"]["fps"]
         self._stub_from_db_sources(
             monkeypatch,
             {},
@@ -419,7 +418,7 @@ class TestCapacityTable:
                 default_concurrency={"image": 2},
             ),
         }
-        monkeypatch.setattr("lib.config.registry.PROVIDER_REGISTRY", registry)
+        monkeypatch.setattr("lib.generation.generation_worker.PROVIDER_REGISTRY", registry)
 
     def test_from_env_uses_registry_declared_default(self, monkeypatch):
         self._registry_with_declared_defaults(monkeypatch)
