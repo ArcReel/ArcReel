@@ -42,7 +42,7 @@ protected: false
 主题：{{ project_overview.theme or "" }}
 </overview>
 
-{{ partial("shared/style_block") }}
+{{ partial("shared/text_style") }}
 
 <brief>
 {{ brief or "（未提供，按资产信息与常识自行设计）" }}

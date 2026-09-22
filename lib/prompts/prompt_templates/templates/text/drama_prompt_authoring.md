@@ -35,10 +35,10 @@ protected: false
 
 {{ partial("shared/overview_block") }}
 
-{{ partial("shared/style_block") }}
+{{ partial("shared/text_style") }}
 
 {% if assets %}
-{{ partial("shared/asset_appearance_blocks") }}
+{{ partial("shared/lists/asset_appearance_blocks") }}
 
 {{ partial("shared/asset_appearance_note") }}
 

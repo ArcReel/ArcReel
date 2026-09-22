@@ -37,7 +37,7 @@ protected: false
 
 {{ partial("shared/overview_block") }}
 
-{{ partial("shared/style_block") }}
+{{ partial("shared/text_style") }}
 
 <brief>
 {{ brief or "（未提供，按商品信息与常识自行设计）" }}
@@ -51,7 +51,7 @@ protected: false
 商品入画时外观须与商品信息一致：{{ partial("shared/product_fidelity") }}。
 
 {% endif %}
-{{ partial("shared/asset_name_blocks") }}
+{{ partial("shared/lists/asset_name_blocks") }}
 
 未标注的分镜已有视觉层，只作前后文参照：待编写分镜的画面与动作要与前后分镜衔接自然、风格一致。
 

@@ -51,7 +51,7 @@ protected: false
 画面比例：{{ aspect_ratio }}
 </style>
 
-{{ partial("shared/asset_appearance_blocks") }}
+{{ partial("shared/lists/asset_appearance_blocks") }}
 
 <script_plan_units>
 {{ units_content }}
