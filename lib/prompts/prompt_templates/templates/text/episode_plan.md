@@ -3,6 +3,10 @@ id: text/episode_plan
 category: text
 title: 分集规划
 description: 把源文切分为若干集，每集给出标题、集尾钩子与结尾锚点，剧情演绎另给故事节点与下集预告语。
+stage: episode_plan
+invoked_by:
+  kind: agent_tool
+  name: plan_episodes
 applies_to:
   content_mode: [drama, narration]
   source_kind: [novel, screenplay]

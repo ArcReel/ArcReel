@@ -3,6 +3,10 @@ id: reference_video/unit
 category: video
 title: 参考生视频
 description: 参考生视频单元的完整提示词，由参考素材声明、单元正文、风格与负向约束三段组成。
+stage: reference_video
+invoked_by:
+  kind: generation_task
+  name: reference_video
 applies_to: {}
 slots:
   declarations: 第一段：主体绑定（<X>@图片N）、同一角色的形态声明与声音声明（@音频N）；无参考素材时为空

@@ -3,6 +3,10 @@ id: style/live_spartan
 category: style
 title: 斯巴达史诗
 description: "真人画风，角斗士 · 浓重明暗。"
+stage: style
+invoked_by:
+  kind: user_action
+  name: style_selection
 applies_to: {}
 slots: {}
 protected: false

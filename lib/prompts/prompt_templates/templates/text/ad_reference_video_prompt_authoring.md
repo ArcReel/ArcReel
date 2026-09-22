@@ -3,6 +3,10 @@ id: text/ad_reference_video_prompt_authoring
 category: text
 title: 广告 / 短片 · 参考生视频单元编写
 description: 为广告参考生视频脚本里待编写的单元写出引用语法正文。
+stage: prompt_authoring
+invoked_by:
+  kind: agent_tool
+  name: generate_episode_script
 applies_to:
   content_mode:
   - ad

@@ -3,6 +3,10 @@ id: style/anim_kr_webtoon
 category: style
 title: 韩漫风格
 description: "动画画风，半写实 · 浪漫光影。"
+stage: style
+invoked_by:
+  kind: user_action
+  name: style_selection
 applies_to: {}
 slots: {}
 protected: false

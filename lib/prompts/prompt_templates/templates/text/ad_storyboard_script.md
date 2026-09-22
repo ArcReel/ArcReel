@@ -3,6 +3,10 @@ id: text/ad_storyboard_script
 category: text
 title: 广告 / 短片 · 分镜脚本
 description: 按 brief 与商品信息一次产出广告片的平铺分镜脚本。
+stage: script_plan
+invoked_by:
+  kind: agent_tool
+  name: generate_episode_script
 applies_to:
   content_mode:
   - ad

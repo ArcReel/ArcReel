@@ -3,6 +3,10 @@ id: text/agent_language_rule
 category: text
 title: Agent 语言规范
 description: 追加在内置创作 Agent 系统提示里的语言规范段，语言随用户的界面语言。
+stage: agent_session
+invoked_by:
+  kind: user_action
+  name: agent_session
 applies_to: {}
 slots:
   lang: 界面语言的语言名（中文 / English / Tiếng Việt）

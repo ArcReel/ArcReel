@@ -3,6 +3,10 @@ id: storyboard/grid
 category: storyboard
 title: 宫格联合图
 description: 把一组分镜按首尾帧链画进一张宫格联合图的提示词，生成后按画格切回各分镜。
+stage: grid
+invoked_by:
+  kind: generation_task
+  name: grid
 applies_to: {}
 slots:
   reference_images: 参考图类型声明，按随请求发出的参考图序位编号为「图N」；无参考图为空

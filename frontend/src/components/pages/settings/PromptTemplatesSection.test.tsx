@@ -11,6 +11,8 @@ function meta(overrides: Partial<PromptTemplateMeta>): PromptTemplateMeta {
     category: "asset",
     title: "资产图",
     description: "角色、场景与道具资产图。",
+    stage: "asset_sheet",
+    invoked_by: { kind: "generation_task", name: "asset" },
     applies_to: {},
     slots: {},
     protected: false,
@@ -36,8 +38,8 @@ const SHEET_DETAIL: PromptTemplateDetail = {
   template: ASSET_SHEET,
   source: '{{ variant("asset/sheet/title", asset_type) }}\n\n{{ description }}',
   partials: [
-    { name: "asset/sheet/title/character", source: "角色设定图，三视图" },
-    { name: "asset/sheet/title/scene", source: "" },
+    { name: "asset/sheet/title/character", source: "角色设定图，三视图", protected: false, referenced_by: ["asset/sheet"] },
+    { name: "asset/sheet/title/scene", source: "", protected: false, referenced_by: ["asset/sheet"] },
   ],
 };
 

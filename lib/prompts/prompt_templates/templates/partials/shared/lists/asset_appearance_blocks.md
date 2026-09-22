@@ -1,3 +1,6 @@
+---
+protected: true
+---
 <characters>
 {% for entry in assets.characters %}
 {% if entry.appearance %}

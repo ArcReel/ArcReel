@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
 from lib.infra.api_errors import NotFoundError
-from lib.prompts.prompt_templates import PromptTemplates, TemplateMeta
+from lib.prompts.prompt_templates import PartialEntry, PromptTemplates, TemplateMeta
 from lib.prompts.prompt_templates.builtin import builtin_templates
 
 router = APIRouter(prefix="/prompt-templates")
@@ -29,15 +29,10 @@ class PromptTemplateListResponse(BaseModel):
     templates: list[TemplateMeta]
 
 
-class PromptTemplatePartial(BaseModel):
-    name: str
-    source: str
-
-
 class PromptTemplateDetailResponse(BaseModel):
     template: TemplateMeta
     source: str
-    partials: list[PromptTemplatePartial]
+    partials: list[PartialEntry]
     """按首次引用顺序；变体族展开为 ``applies_to`` 声明的全部轴值。"""
     output_schema: dict[str, Any] | None = Field(default=None, exclude_if=lambda value: value is None)
 
@@ -56,7 +51,7 @@ async def get_prompt_template(template_id: str, templates: Templates) -> PromptT
     return PromptTemplateDetailResponse(
         template=metadata,
         source=source,
-        partials=[PromptTemplatePartial(name=name, source=text) for name, text in partials.items()],
+        partials=partials,
         output_schema=_output_json_schema(metadata.output_schema),
     )
 

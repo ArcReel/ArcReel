@@ -3,6 +3,10 @@ id: style/anim_itojunji
 category: style
 title: 伊藤润二
 description: "动画画风，惊悚诡异 · 线条锐利。"
+stage: style
+invoked_by:
+  kind: user_action
+  name: style_selection
 applies_to: {}
 slots: {}
 protected: false
