@@ -230,3 +230,36 @@ def test_list_excludes_agent_session_template_while_detail_still_serves_it(tmp_p
     assert [item["id"] for item in listed] == ["text/style_analysis"]
     assert detail.status_code == 200
     assert detail.json()["source"] == "用中文回复"
+
+
+def test_unauthenticated_partial_detail_rejected(monkeypatch, templates):
+    monkeypatch.setenv("AUTH_ENABLED", "true")
+    with TestClient(make_app(templates), raise_server_exceptions=False) as client:
+        assert client.get("/api/v1/prompt-templates/partials/shared/avoid").status_code == 401
+
+
+def test_partial_detail_returns_source_lock_and_referencing_templates(templates):
+    app = make_app(templates)
+    override_auth(app)
+    with TestClient(app) as client:
+        response = client.get("/api/v1/prompt-templates/partials/shared/avoid")
+        missing = client.get("/api/v1/prompt-templates/partials/shared/missing")
+    assert response.status_code == 200
+    assert response.json() == {
+        "name": "shared/avoid",
+        "source": "Avoid: 水印",
+        "protected": True,
+        "referenced_by": ["asset/sheet"],
+    }
+    assert missing.status_code == 404
+
+
+def test_builtin_shared_partial_detail_lists_every_referencing_template_and_list_omits_partials():
+    app = make_app()
+    override_auth(app)
+    with TestClient(app) as client:
+        listed = client.get("/api/v1/prompt-templates").json()["templates"]
+        detail = client.get("/api/v1/prompt-templates/partials/shared/media_style").json()
+    assert not any(item["id"].startswith(("shared/", "partials/")) for item in listed)
+    assert detail["protected"] is True
+    assert detail["referenced_by"] == ["asset/sheet", "reference_video/unit", "storyboard/grid", "storyboard/image"]

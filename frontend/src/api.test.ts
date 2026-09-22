@@ -440,6 +440,7 @@ describe("API", () => {
       await API.getSystemVersion();
       await API.listPromptTemplates();
       await API.getPromptTemplate("asset/sheet 1");
+      await API.getPromptPartial("shared/media style");
       await API.updateSystemConfig({ default_image_backend: "vertex" });
       await API.listFiles("demo");
       await API.deleteDraft("demo", 1, "script_plan");
@@ -552,6 +553,9 @@ describe("API", () => {
       expect(requestSpy).toHaveBeenCalledWith("/system/version");
       expect(requestSpy).toHaveBeenCalledWith("/prompt-templates", { signal: undefined });
       expect(requestSpy).toHaveBeenCalledWith("/prompt-templates/asset/sheet%201", { signal: undefined });
+      expect(requestSpy).toHaveBeenCalledWith("/prompt-templates/partials/shared/media%20style", {
+        signal: undefined,
+      });
       expect(requestSpy).toHaveBeenCalledWith("/system/config", {
         method: "PATCH",
         body: JSON.stringify({ default_image_backend: "vertex" }),

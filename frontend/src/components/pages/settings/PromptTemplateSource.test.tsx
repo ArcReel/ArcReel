@@ -21,6 +21,7 @@ describe("PromptTemplateSource", () => {
   it("expands nested partials and switches only the chosen reference from the first declared axis value", async () => {
     const user = userEvent.setup();
     render(<PromptTemplateSource
+      onOpenPartial={() => {}}
       template={template}
       text={'{{ variant("asset/sheet/title", asset_type) }}\n{{ variant("asset/sheet/title", asset_type) }}'}
       partials={[
@@ -60,6 +61,7 @@ describe("PromptTemplateSource", () => {
   it("shows intentional blank variants and leaves filtered expressions as source", async () => {
     const user = userEvent.setup();
     render(<PromptTemplateSource
+      onOpenPartial={() => {}}
       template={template}
       text={'{{ variant("asset/sheet/title", asset_type) }}\n{{ partial("shared/style") | indent(2) }}'}
       partials={[
@@ -80,6 +82,7 @@ describe("PromptTemplateSource", () => {
 
   it("marks nested optional ranges and keeps else branches and filters verbatim", () => {
     render(<PromptTemplateSource
+      onOpenPartial={() => {}}
       template={template}
       partials={[]}
       text={'前文{% if instructions %}可选内容{% if assets %}{{ assets | join(", ") }}{% else %}没有资产{% endif %}{% endif %}后文'}
@@ -98,6 +101,7 @@ describe("PromptTemplateSource", () => {
 
   it("renders only declared slots as chips and keeps loop variables verbatim", () => {
     render(<PromptTemplateSource
+      onOpenPartial={() => {}}
       template={template}
       partials={[]}
       text={'{{ description }}{% for name in assets %}「{{ name }}」{% endfor %}'}

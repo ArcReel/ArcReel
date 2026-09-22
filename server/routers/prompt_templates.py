@@ -1,4 +1,4 @@
-"""提示词模版只读 API：系统设置页按类别列出内置模版，并展示单个模版的源文与元数据。
+"""提示词模版只读 API：系统设置页按类别列出内置模版，展示单个模版的源文与元数据，以及单个片段的正文与引用方。
 
 路由前缀: /api/v1/prompt-templates
 """
@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
 from lib.infra.api_errors import NotFoundError
-from lib.prompts.prompt_templates import PartialEntry, PromptTemplates, TemplateMeta, UserActionTrigger
+from lib.prompts.prompt_templates import PartialEntry, PromptTemplates, TemplateError, TemplateMeta, UserActionTrigger
 from lib.prompts.prompt_templates.builtin import builtin_templates
 
 router = APIRouter(prefix="/prompt-templates")
@@ -45,6 +45,15 @@ async def list_prompt_templates(templates: Templates) -> PromptTemplateListRespo
     return PromptTemplateListResponse(
         templates=[item for item in templates.list_templates() if item.invoked_by != _AGENT_SESSION_TRIGGER]
     )
+
+
+# 须注册在模版详情之前：模版详情的 ``{template_id:path}`` 会吞下任意子路径。
+@router.get("/partials/{name:path}")
+async def get_prompt_partial(name: str, templates: Templates) -> PartialEntry:
+    try:
+        return templates.read_partial(name)
+    except TemplateError:
+        raise NotFoundError("prompt_partial_not_found", id=name) from None
 
 
 @router.get("/{template_id:path}")
