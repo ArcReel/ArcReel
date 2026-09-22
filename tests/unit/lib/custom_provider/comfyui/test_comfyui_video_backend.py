@@ -603,7 +603,7 @@ class TestFailures:
     @pytest.mark.parametrize("locale", ["zh", "en", "vi"])
     def test_the_mismatch_text_lists_the_allowed_extensions(self, locale: str):
         """扩展名清单在读侧按落库的 ``media_type`` 现算，落库参数只有文件名与媒体类型。"""
-        message = _encode_task_failure_message(
+        message = encode_task_failure_message(
             ComfyuiError("comfyui_output_type_mismatch", filename="a.png", media_type="video")
         )
 
