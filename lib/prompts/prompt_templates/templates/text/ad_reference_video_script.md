@@ -2,7 +2,7 @@
 id: text/ad_reference_video_script
 category: text
 title: 广告 / 短片 · 参考生视频单元
-description: 按 brief 与资产候选一次产出含引用语法正文的自包含 video unit，不经脚本规划与提示词编写两段。有商品时借用与分镜路线同一份带货八段框架与审定配比表安排内容节奏，段落名只用于规划、不写入 JSON 或正文；无商品时只给开场、发展、高潮、收束的通用骨架。动作描写复用共享写作指导，包含任务类型触发词规避口径。unit 时长取结构区间内整数、不按供应商档位量化，ID、参考图与状态字段由系统派生，故明确列出不得输出的字段。
+description: 按 brief 与资产候选一次产出广告片的参考生视频单元，每个单元含引用语法正文。
 applies_to:
   content_mode:
   - ad

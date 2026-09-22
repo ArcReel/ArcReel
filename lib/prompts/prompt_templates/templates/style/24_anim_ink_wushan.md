@@ -2,7 +2,7 @@
 id: style/anim_ink_wushan
 category: style
 title: 硬核水墨
-description: "动画画风，雾山五行 · 枯笔。正文不以「画风：」起头，免得与注入处的英文 Style 标签叠成「Style: 画风：…」。"
+description: "动画画风，雾山五行 · 枯笔。"
 applies_to: {}
 slots: {}
 protected: false

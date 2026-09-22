@@ -2,7 +2,7 @@
 id: style/anim_zzz
 category: style
 title: 次世代三渲二
-description: "动画画风，绝区零 · 法线调整。正文不以「画风：」起头，免得与注入处的英文 Style 标签叠成「Style: 画风：…」。"
+description: "动画画风，绝区零 · 法线调整。"
 applies_to: {}
 slots: {}
 protected: false

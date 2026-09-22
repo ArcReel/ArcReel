@@ -2,7 +2,7 @@
 id: text/ad_storyboard_script
 category: text
 title: 广告 / 短片 · 分镜脚本
-description: 按 brief 与商品信息一次产出广告片平铺分镜（shots[]），不经脚本规划。有商品时按带货八段框架与经维护者审定的时长配比表组织，配比表数字照表搬运、不计算不改写；目标总时长不在四档内时附按比例适配说明，hook 与 cta 作为绝对时长段不随档位伸缩。无商品时同一环节分流为通用短片，不设显式子模式开关。单分镜时长取值与口播语速由代码按视频模型能力和语言算好注入，提示词不写死数字。
+description: 按 brief 与商品信息一次产出广告片的平铺分镜脚本。
 applies_to:
   content_mode:
   - ad

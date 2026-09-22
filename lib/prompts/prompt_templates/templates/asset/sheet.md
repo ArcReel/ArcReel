@@ -2,7 +2,7 @@
 id: asset/sheet
 category: asset
 title: 资产图
-description: 角色、角色衍生、场景、道具与商品资产图。
+description: 角色、角色衍生、场景、道具与商品资产图的完整提示词。
 applies_to:
   asset_type:
   - character

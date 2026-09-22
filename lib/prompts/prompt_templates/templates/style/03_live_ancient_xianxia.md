@@ -2,7 +2,7 @@
 id: style/live_ancient_xianxia
 category: style
 title: 古装仙侠
-description: "真人画风，临江仙 · 美白滤镜。正文不以「画风：」起头，免得与注入处的英文 Style 标签叠成「Style: 画风：…」。"
+description: "真人画风，临江仙 · 美白滤镜。"
 applies_to: {}
 slots: {}
 protected: false

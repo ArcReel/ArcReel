@@ -2,7 +2,7 @@
 id: text/reference_video_script_plan
 category: text
 title: 参考生视频 · 单元拆分
-description: 把源文拆分为扁平的视频单元表（时长 + 原文锚 + 引用语法正文），对全部创作类型共用一份。本阶段只定结构与内容契约，景别 / 构图 / 运镜留给提示词编写。「参考图↔时长」联动只在型号两套档位不同时写入，且两套都写全、不假定包含关系；默认偏好只落在其中一套档位时点明适用范围。references 上限与联动约束都点明台词记号的说话人不计入，与机械派生参考图的口径一致。设了单集目标时长时按目标打包，不再无条件贴近单次上限。
+description: 把源文拆分为参考生视频单元表，每个单元含时长、原文锚与引用语法正文。
 applies_to:
   content_mode: [drama, narration]
   generation_mode: [reference_video]

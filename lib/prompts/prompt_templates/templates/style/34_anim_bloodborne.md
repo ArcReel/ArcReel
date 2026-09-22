@@ -2,7 +2,7 @@
 id: style/anim_bloodborne
 category: style
 title: 血源克苏鲁
-description: "动画画风，哥特 · 阴冷雾气。正文不以「画风：」起头，免得与注入处的英文 Style 标签叠成「Style: 画风：…」。"
+description: "动画画风，哥特 · 阴冷雾气。"
 applies_to: {}
 slots: {}
 protected: false
