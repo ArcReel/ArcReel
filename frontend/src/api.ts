@@ -29,6 +29,7 @@ import type {
   GetSystemVersionResponse,
   PromptTemplateDetail,
   PromptTemplateListResponse,
+  PromptTemplatePartial,
   ModelCandidatesResponse,
   OnboardingStatus,
   SystemConfigPatch,
@@ -340,6 +341,15 @@ class API {
   ): Promise<PromptTemplateDetail> {
     const path = templateId.split("/").map(encodeURIComponent).join("/");
     return this.request(`/prompt-templates/${path}`, { signal: options.signal });
+  }
+
+  /** 片段名同样按 `/` 分层，编码方式与模版 id 一致。 */
+  static async getPromptPartial(
+    name: string,
+    options: { signal?: AbortSignal } = {}
+  ): Promise<PromptTemplatePartial> {
+    const path = name.split("/").map(encodeURIComponent).join("/");
+    return this.request(`/prompt-templates/partials/${path}`, { signal: options.signal });
   }
 
   // ==================== 首次使用引导 ====================

@@ -153,6 +153,8 @@ class PromptTemplates:
             raise TemplateError(f"{path}: 缺少 YAML frontmatter")
         header, body = raw[4:].split("\n---\n", 1)
         metadata = TemplateMeta.model_validate(yaml.safe_load(header))
+        if metadata.id.startswith("partials/"):
+            raise TemplateError(f"{path}: 模版 id 使用了保留前缀 partials/: {metadata.id}")
         if metadata.id in self._registry:
             raise TemplateError(f"{path}: 重复模版 id {metadata.id}")
         partials: dict[str, str] = {}
@@ -217,6 +219,12 @@ class PromptTemplates:
         """模版正文与它引用的片段清单，按首次引用顺序；变体族展开为全部轴值。"""
         _, body, _ = self._get(template_id)
         return body, [self._partial_entry(name) for name in self._sources[template_id]]
+
+    def read_partial(self, name: str) -> PartialEntry:
+        """按片段名取单个清单条目；只认得被至少一份模版引用的片段。"""
+        if name not in self._partial_sources:
+            raise TemplateError(f"未知片段: {name}")
+        return self._partial_entry(name)
 
     def _partial_entry(self, name: str) -> PartialEntry:
         source, protected = self._partial_sources[name]

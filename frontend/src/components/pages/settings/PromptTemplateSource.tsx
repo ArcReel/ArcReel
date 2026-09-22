@@ -1,11 +1,14 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { PromptTemplateMeta, PromptTemplatePartial } from "@/types";
+import { LockBadge } from "./promptTemplateShared";
 
 type SourceProps = {
   text: string;
   template: PromptTemplateMeta;
   partials: PromptTemplatePartial[];
+  /** 点展开处的片段名进入片段详情。 */
+  onOpenPartial: (name: string) => void;
 };
 
 const MARKER_PATTERN = /(\{#[\s\S]*?#\}|\{\{[\s\S]*?\}\}|\{%[\s\S]*?%\})/;
@@ -60,7 +63,7 @@ function SourceContent({ text, ...props }: SourceProps) {
   return <SourceNodes nodes={sourceNodes(text)} {...props} />;
 }
 
-function SourceNodes({ nodes, template, partials }: Omit<SourceProps, "text"> & { nodes: SourceNode[] }) {
+function SourceNodes({ nodes, ...props }: Omit<SourceProps, "text"> & { nodes: SourceNode[] }) {
   const { t } = useTranslation("dashboard");
   return nodes.map((part, index) => {
     if (typeof part !== "string") {
@@ -72,9 +75,9 @@ function SourceNodes({ nodes, template, partials }: Omit<SourceProps, "text"> & 
           <span role="group" aria-label={label}>
             <span className="mb-1 block font-sans text-[11px] text-text-3">{label}</span>
             <mark className="bg-bg-grad-a/70 text-text-4">{part.opening}</mark>
-            <SourceNodes nodes={part.children} template={template} partials={partials} />
+            <SourceNodes nodes={part.children} {...props} />
           </span>
-          <SourceNodes nodes={part.alternate} template={template} partials={partials} />
+          <SourceNodes nodes={part.alternate} {...props} />
           <mark className="bg-bg-grad-a/70 text-text-4">{part.closing}</mark>
         </span>
       );
@@ -87,15 +90,14 @@ function SourceNodes({ nodes, template, partials }: Omit<SourceProps, "text"> & 
           marker={part}
           name={reference.name}
           axis={reference.kind === "variant" ? reference.axis : undefined}
-          template={template}
-          partials={partials}
+          {...props}
         />
       );
     }
     if (part.startsWith("{{")) {
       const slot = part.slice(2, -2).trim();
       const description = SLOT_PATTERN.test(slot)
-        ? (template.slots[slot] ?? template.slots[slot.split(".")[0]])
+        ? (props.template.slots[slot] ?? props.template.slots[slot.split(".")[0]])
         : undefined;
       if (description !== undefined) {
         return (
@@ -123,8 +125,7 @@ function PartialReference({
   marker,
   name,
   axis,
-  template,
-  partials,
+  ...props
 }: Omit<SourceProps, "text"> & {
   marker: string;
   name: string;
@@ -132,6 +133,7 @@ function PartialReference({
 }) {
   const { t } = useTranslation("dashboard");
   const [expanded, setExpanded] = useState(false);
+  const { template, partials, onOpenPartial } = props;
   const [value, setValue] = useState(axis ? template.applies_to[axis]?.[0] : undefined);
   const partialName = axis ? `${name}/${value}` : name;
   const partial = partials.find((item) => item.name === partialName);
@@ -151,7 +153,20 @@ function PartialReference({
       {expanded && (
         <span className="my-2 block rounded-[6px] border-l-2 border-warm-ring bg-warm-tint/30 py-2 pl-3 pr-2">
           <span className="mb-1 flex flex-wrap items-center gap-2 whitespace-normal text-[11px] text-warm-bright">
-            <span>{partialName}</span>
+            <button
+              type="button"
+              title={t("prompt_templates_open_partial")}
+              onClick={() => onOpenPartial(partialName)}
+              className="rounded-[3px] underline decoration-warm-ring underline-offset-2 hover:decoration-warm-bright focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            >
+              {partialName}
+            </button>
+            {partial.protected && <LockBadge />}
+            {partialName.startsWith("shared/") && (
+              <span className="text-text-3">
+                {t("prompt_templates_referenced_count", { count: partial.referenced_by.length })}
+              </span>
+            )}
             {axis && (
               <label className="inline-flex items-center gap-2">
                 {t(`prompt_templates_axis_${axis}`, { defaultValue: axis })}
@@ -168,12 +183,7 @@ function PartialReference({
             )}
           </span>
           {partial.source.trim() ? (
-            <SourceContent
-              key={partialName}
-              text={partial.source}
-              template={template}
-              partials={partials}
-            />
+            <SourceContent key={partialName} text={partial.source} {...props} />
           ) : (
             <span className="italic text-text-4">{t("prompt_templates_partial_blank")}</span>
           )}

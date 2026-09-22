@@ -91,6 +91,20 @@ def test_partial_catalog_carries_protected_flag_and_referencing_templates(tmp_pa
     ]
 
 
+def test_read_partial_returns_single_catalog_entry_by_name(tmp_path):
+    write_template(tmp_path, '{{ partial("shared/overview") }}{{ name }}')
+    write_partial(tmp_path, "shared/overview", "---\nprotected: true\n---\n概述：")
+    templates = PromptTemplates(tmp_path)
+    assert templates.read_partial("shared/overview").model_dump() == {
+        "name": "shared/overview",
+        "source": "概述：",
+        "protected": True,
+        "referenced_by": ["text/example"],
+    }
+    with pytest.raises(TemplateError, match="shared/missing"):
+        templates.read_partial("shared/missing")
+
+
 def test_partial_frontmatter_accepts_only_boolean_protected(tmp_path):
     write_template(tmp_path, '{{ partial("shared/overview") }}{{ name }}')
     write_partial(tmp_path, "shared/overview", "---\nprotected: yes please\n---\n概述")
@@ -105,6 +119,12 @@ def test_duplicate_id_rejected_at_load(tmp_path):
     path = write_template(tmp_path, "{{ name }}")
     (tmp_path / "duplicate.md").write_text(path.read_text(), encoding="utf-8")
     with pytest.raises(TemplateError, match="重复"):
+        PromptTemplates(tmp_path)
+
+
+def test_partial_route_prefix_is_reserved_for_template_ids(tmp_path):
+    write_template(tmp_path, "{{ name }}", id="partials/example")
+    with pytest.raises(TemplateError, match="保留前缀 partials/"):
         PromptTemplates(tmp_path)
 
 

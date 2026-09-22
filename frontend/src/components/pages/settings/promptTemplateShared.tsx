@@ -1,4 +1,4 @@
-import { AlertTriangle, Loader2, RefreshCcw } from "lucide-react";
+import { AlertTriangle, Loader2, Lock, RefreshCcw } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { CARD_STYLE, GHOST_BTN_CLS } from "@/components/ui/darkroom-tokens";
 
@@ -50,4 +50,18 @@ export function ErrorCard({
 
 export function categoryLabel(t: (key: string, options: { defaultValue: string }) => string, category: string) {
   return t(`prompt_templates_category_${category}`, { defaultValue: category });
+}
+
+/** 锁定标记：模版或片段声明 `protected`，不提供编辑入口。 */
+export function LockBadge() {
+  const { t } = useTranslation("dashboard");
+  return (
+    <span
+      title={t("prompt_templates_locked_hint")}
+      className="inline-flex shrink-0 items-center gap-1 rounded-full border border-hairline px-1.5 py-px font-sans text-[10.5px] leading-[1.5] text-text-3"
+    >
+      <Lock aria-hidden className="h-3 w-3" />
+      {t("prompt_templates_locked")}
+    </span>
+  );
 }

@@ -7,15 +7,17 @@ import { CARD_STYLE, GHOST_BTN_CLS } from "@/components/ui/darkroom-tokens";
 import type { PromptTemplateDetail } from "@/types";
 import { errMsg } from "@/utils/async";
 import { flattenOutputSchema } from "./promptTemplateSchema";
-import { categoryLabel, ErrorCard, LoadingCard, type Load } from "./promptTemplateShared";
+import { categoryLabel, ErrorCard, LoadingCard, LockBadge, type Load } from "./promptTemplateShared";
 import { PromptTemplateSource } from "./PromptTemplateSource";
 
 export function PromptTemplateDetailView({
   templateId,
   onBack,
+  onOpenPartial,
 }: {
   templateId: string;
   onBack: () => void;
+  onOpenPartial: (name: string) => void;
 }) {
   const { t } = useTranslation(["dashboard", "common"]);
   const [state, setState] = useState<Load<PromptTemplateDetail>>({ status: "loading" });
@@ -54,12 +56,18 @@ export function PromptTemplateDetailView({
           onRetry={retry}
         />
       )}
-      {state.status === "ready" && <DetailBody detail={state.data} />}
+      {state.status === "ready" && <DetailBody detail={state.data} onOpenPartial={onOpenPartial} />}
     </section>
   );
 }
 
-function DetailBody({ detail }: { detail: PromptTemplateDetail }) {
+function DetailBody({
+  detail,
+  onOpenPartial,
+}: {
+  detail: PromptTemplateDetail;
+  onOpenPartial: (name: string) => void;
+}) {
   const { t } = useTranslation("dashboard");
   const { template, source, partials, output_schema: outputSchema } = detail;
   const axes = Object.entries(template.applies_to);
@@ -75,7 +83,10 @@ function DetailBody({ detail }: { detail: PromptTemplateDetail }) {
         <div className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-accent-2">
           {categoryLabel(t, template.category)} · {template.id}
         </div>
-        <h2 className="font-editorial mt-1 text-[24px] leading-tight text-text">{template.title}</h2>
+        <div className="mt-1 flex flex-wrap items-center gap-2.5">
+          <h2 className="font-editorial text-[24px] leading-tight text-text">{template.title}</h2>
+          {template.protected && <LockBadge />}
+        </div>
         <p className="mt-1.5 max-w-[62ch] text-[12.5px] leading-[1.6] text-text-3">
           {template.description}
         </p>
@@ -128,7 +139,12 @@ function DetailBody({ detail }: { detail: PromptTemplateDetail }) {
         title={t("prompt_templates_source")}
         description={t("prompt_templates_source_desc")}
       >
-        <PromptTemplateSource text={source} template={template} partials={partials} />
+        <PromptTemplateSource
+          text={source}
+          template={template}
+          partials={partials}
+          onOpenPartial={onOpenPartial}
+        />
       </SectionShell>
 
       {outputSchema && (
