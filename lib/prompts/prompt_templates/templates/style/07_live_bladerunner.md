@@ -2,7 +2,7 @@
 id: style/live_bladerunner
 category: style
 title: 银翼杀手
-description: "真人画风，极简野蛮 · 赛博粒子。正文不以「画风：」起头，免得与注入处的英文 Style 标签叠成「Style: 画风：…」。"
+description: "真人画风，极简野蛮 · 赛博粒子。"
 applies_to: {}
 slots: {}
 protected: false

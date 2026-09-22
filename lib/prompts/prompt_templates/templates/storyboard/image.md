@@ -2,7 +2,7 @@
 id: storyboard/image
 category: storyboard
 title: 分镜图
-description: 分镜图的完整提示词。风格与资产图共用同一口径，参考图声明紧随风格且位于场景之前，编号与商品保真声明由实际参考图列表派生。风格、参考图与 Avoid 块均独占一行引用，保证预览转为纯文本后不叠加；结构化 YAML 段连续，纯文本正文用空行分隔。
+description: 分镜图的完整提示词，由风格、参考图声明与分镜画面组成。
 applies_to: {}
 slots:
   style: 项目画风

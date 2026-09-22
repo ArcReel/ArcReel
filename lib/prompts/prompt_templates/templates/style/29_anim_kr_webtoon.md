@@ -2,7 +2,7 @@
 id: style/anim_kr_webtoon
 category: style
 title: 韩漫风格
-description: "动画画风，半写实 · 浪漫光影。正文不以「画风：」起头，免得与注入处的英文 Style 标签叠成「Style: 画风：…」。"
+description: "动画画风，半写实 · 浪漫光影。"
 applies_to: {}
 slots: {}
 protected: false

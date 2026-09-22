@@ -2,7 +2,7 @@
 id: style/live_lynch
 category: style
 title: 大卫林奇
-description: "真人画风，平淡日常 · 超现实。正文不以「画风：」起头，免得与注入处的英文 Style 标签叠成「Style: 画风：…」。"
+description: "真人画风，平淡日常 · 超现实。"
 applies_to: {}
 slots: {}
 protected: false

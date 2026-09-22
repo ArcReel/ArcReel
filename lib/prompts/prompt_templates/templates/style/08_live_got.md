@@ -2,7 +2,7 @@
 id: style/live_got
 category: style
 title: 权力的游戏
-description: "真人画风，冷色史诗 · 权谋。正文不以「画风：」起头，免得与注入处的英文 Style 标签叠成「Style: 画风：…」。"
+description: "真人画风，冷色史诗 · 权谋。"
 applies_to: {}
 slots: {}
 protected: false
