@@ -530,6 +530,8 @@ jq -n \
         # after the next push, faking it. The contradiction check is a commit anchor: walkthrough_head
         # parsed from the body when present (the anchor that follows incremental reviews, PITFALL 9),
         # else the REST commit_id of the latest CR review (null = no reviews, no evidence either way).
+        # A present walkthrough_head is authoritative: a review anchored on the head does not
+        # override a walkthrough anchored elsewhere.
         # No apostrophes in these comments: the whole jq program is one single-quoted bash string.
         | ([$main.reviews[] | select(.author.login == "coderabbitai")] | sort_by(.submittedAt)
            | last | if . == null then null else ($review_commit_by_id[.id] // null) end)
@@ -542,9 +544,7 @@ jq -n \
           reviewed_current_head:
             ((.updated_at > $last_push) and ($rate_limited | not)
              and (if $walkthrough_head != null
-                  then (($walkthrough_head | codex_commit_is_current_head)
-                        or ($latest_review_commit != null
-                            and ($latest_review_commit | codex_commit_is_current_head)))
+                  then ($walkthrough_head | codex_commit_is_current_head)
                   elif $latest_review_commit == null then true
                   else ($latest_review_commit | codex_commit_is_current_head) end)),
           walkthrough_head: $walkthrough_head,

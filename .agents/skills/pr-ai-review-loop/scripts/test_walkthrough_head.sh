@@ -101,24 +101,26 @@ done
 # ---- cr_walkthrough_rest: the rule the loop actually reads ----
 # The PR #2614 shape: one review object pinned to the first reviewed HEAD, walkthrough
 # rewritten (updated_at > last push) with an anchor on the current HEAD.
-# name | head | reviews json | expected reviewed_current_head
+# name | head | reviews json | commit the R1 review is anchored on | expected reviewed_current_head
 LAST_PUSH="2026-09-21T18:00:00Z"
 WT_UPDATED_AT="2026-09-21T18:10:00Z"
-ONE_OLD_REVIEW='[{"id":"R1","submittedAt":"2026-09-21T16:41:10Z","author":{"login":"coderabbitai"}}]'
+ONE_REVIEW='[{"id":"R1","submittedAt":"2026-09-21T16:41:10Z","author":{"login":"coderabbitai"}}]'
+OTHER_HEAD="abcdef0123456789abcdef0123456789abcdef01"
 RULE_CASES=(
-  "incremental review on current head|$HEAD_2614|$ONE_OLD_REVIEW|true"
-  "walkthrough anchored on an older head|abcdef0123456789abcdef0123456789abcdef01|$ONE_OLD_REVIEW|false"
-  "no review object, stale walkthrough|abcdef0123456789abcdef0123456789abcdef01|[]|false"
-  "no review object, current walkthrough|$HEAD_2614|[]|true"
+  "incremental review on current head|$HEAD_2614|$ONE_REVIEW|$FIRST_REVIEW_2614|true"
+  "walkthrough anchored on an older head|$OTHER_HEAD|$ONE_REVIEW|$FIRST_REVIEW_2614|false"
+  "review on current head, walkthrough anchored elsewhere|$OTHER_HEAD|$ONE_REVIEW|$OTHER_HEAD|false"
+  "no review object, stale walkthrough|$OTHER_HEAD|[]|$FIRST_REVIEW_2614|false"
+  "no review object, current walkthrough|$HEAD_2614|[]|$FIRST_REVIEW_2614|true"
 )
 
 for tc in "${RULE_CASES[@]}"; do
-  IFS='|' read -r name head reviews expected <<<"$tc"
+  IFS='|' read -r name head reviews review_commit expected <<<"$tc"
   got=$(jq -r \
     --rawfile body "$INCREMENTAL" \
     --arg head "$head" \
     --argjson reviews "$reviews" \
-    --arg first_review_commit "$FIRST_REVIEW_2614" \
+    --arg first_review_commit "$review_commit" \
     --arg last_push "$LAST_PUSH" \
     --arg updated_at "$WT_UPDATED_AT" \
     -n "
