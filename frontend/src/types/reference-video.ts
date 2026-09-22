@@ -6,7 +6,7 @@
  * execution time and never persisted or transported.
  */
 
-import type { TransitionType } from "./script";
+import type { RenderedPromptPreview, TransitionType } from "./script";
 import type {
   AdmissionProblem,
   VideoRequestCostQuote,
@@ -257,4 +257,10 @@ export interface ScriptReviewQuarantine {
   /** null 仅在草稿文件已损坏、无法解析信封形状时出现——`violations` 会带一条说明。 */
   content: Record<string, unknown> | null;
   violations: ScriptReviewViolation[];
+}
+
+
+/** 当前草稿按模型能力投影后的最终文本与实发图片，图片顺序对应提示词中的图号。 */
+export interface ReferenceUnitPromptPreview extends RenderedPromptPreview {
+  references: { type: AssetKind; name: string; path: string }[];
 }

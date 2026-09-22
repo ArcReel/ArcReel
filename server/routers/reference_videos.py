@@ -62,6 +62,7 @@ from server.i18n import Translator
 from server.routers._reorder import full_permutation_error
 from server.routers._script_edits import execute_current_episode_edit, require_script_edit_result
 from server.services.admission.cost_estimation import quote_video_request
+from server.services.admission.reference_prompt_preview import render_reference_prompt_preview
 from server.services.admission.video_batch_admission import (
     admit_reference_video_batch,
     artifact_state_tickets,
@@ -535,6 +536,40 @@ async def precheck_unit_duration(
     if request_cost is not None:
         response["request_cost"] = request_cost
     return response
+
+
+class UnitPromptPreviewRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    prompt: str
+
+
+@router.post("/episodes/{episode}/units/{unit_id}/prompt-preview")
+async def preview_unit_prompt(
+    project_name: str,
+    episode: int,
+    unit_id: str,
+    req: UnitPromptPreviewRequest,
+    _t: Translator,
+) -> dict[str, Any]:
+    """按草稿正文投影并渲染，不保存、不入队。"""
+    project, script, _sf = _load_episode_script(project_name, episode, _t)
+    unit = {**_find_unit(script, unit_id, _t), "text": req.prompt}
+    project_path = get_project_manager().get_project_path(project_name)
+    projection = await project_reference_unit_request(
+        project=project,
+        script=script,
+        unit=unit,
+        project_path=project_path,
+    )
+    return await asyncio.to_thread(
+        render_reference_prompt_preview,
+        project=project,
+        unit=unit,
+        project_path=project_path,
+        projection=projection,
+        translate=_t,
+    )
 
 
 @router.post("/episodes/{episode}/script-preview")

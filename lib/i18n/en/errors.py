@@ -24,6 +24,7 @@ MESSAGES = {
     "script_item_remove_last_blocked": "This is the only shot in the episode and cannot be removed",
     "storyboard_script_required": "This script is not a storyboard-to-video script; add or remove reference video units on the reference video canvas",
     "narration_segment_text_required": "Enter the narration text before adding a narration shot",
+    "reference_prompt_preview_missing": "This unit has no body text yet",
     "prompt_preview_missing": "This shot has no prompt written yet",
     "prompt_preview_invalid": "The prompt cannot be rendered: check its format",
     "prompt_preview_pending": "This shot's prompt is pending: let the Agent write it, or fill it in the editor",
