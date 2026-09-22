@@ -619,6 +619,23 @@ class TestFailures:
         rendered = render_failure(encode_task_failure_message(caught.value), make_translator("zh"))
         assert ".m4v / .mov / .mp4" in rendered
 
+    async def test_still_image_iso_bmff_bytes_under_an_mp4_name_are_refused(self, tmp_path: Path):
+        """``ftyp`` 只说这是 ISO BMFF 家族：HEIC / AVIF 同用这一层，放行它们会留下一份放不出的成片。"""
+        with capture_http() as router, bounded_poll_clock(), captured_provider_job_ids():
+            router.post(f"{BASE_URL}/prompt").mock(return_value=httpx.Response(200, json={"prompt_id": "p-1"}))
+            router.get(f"{BASE_URL}/history/p-1").mock(
+                return_value=httpx.Response(200, json=_history({"9": _video_output()}))
+            )
+            router.get(f"{BASE_URL}/view").mock(
+                return_value=httpx.Response(200, content=b"\x00\x00\x00\x18ftypheic\x00\x00\x00\x00heic-bytes")
+            )
+
+            with pytest.raises(ComfyuiError) as caught:
+                await _backend().generate(_request(tmp_path))
+
+        assert caught.value.code == "comfyui_output_container_mismatch"
+        assert not (tmp_path / "out.mp4").exists()
+
     @pytest.mark.parametrize(
         ("code", "params"),
         [

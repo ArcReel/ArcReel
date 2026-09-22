@@ -14,6 +14,7 @@ import httpx
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from lib.billing.ledger import Ledger
@@ -22,6 +23,7 @@ from lib.config.service import ConfigService
 from lib.custom_provider import make_endpoint_key, make_provider_id
 from lib.custom_provider.endpoint_test import TrialRunManager
 from lib.db import get_async_session
+from lib.db.models.api_call import ApiCall
 from lib.db.repositories.custom_endpoint_repo import CustomEndpointRepository
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 from server.auth import CurrentUserInfo, get_current_user
@@ -1268,7 +1270,7 @@ class TestComfyuiEndpoints:
         assert resp.json()["submit"]["url"] == "https://comfy.test/prompt"
 
     def test_an_image_endpoint_runs_a_trial_run_and_serves_the_image(
-        self, client: TestClient, trial_runs: TrialRunManager
+        self, client: TestClient, trial_runs: TrialRunManager, db_engine
     ):
         """图像端点跑的是同一条测试连接：四段状态点齐备，产物按图的 MIME 下发。"""
         with capture_http() as router, bounded_poll_clock():
@@ -1295,6 +1297,10 @@ class TestComfyuiEndpoints:
         artifact = client.get(f"/api/v1/custom-endpoints/trial-runs/{run_id}/artifact")
         assert artifact.content == PNG_BYTES
         assert artifact.headers["content-type"] == "image/png"
+        # 账本这一行记的是实际发出的那笔调用：图像请求形状里没有时长与音轨这两维。
+        assert client.portal is not None
+        row = client.portal.call(_only_api_call, async_sessionmaker(db_engine, expire_on_commit=False))
+        assert (row.call_type, row.duration_seconds, row.generate_audio) == ("image", None, False)
 
     def test_an_image_model_row_with_a_reference_image_passes_the_capability_gate(
         self, client: TestClient, trial_runs: TrialRunManager, stored_comfyui_image_model_row: dict[str, Any]
@@ -1405,6 +1411,14 @@ async def stored_provider(db_engine) -> dict[str, Any]:
         )
         await session.commit()
         return {"id": provider.id, "provider_id": make_provider_id(provider.id)}
+
+
+async def _only_api_call(session_factory: async_sessionmaker) -> ApiCall:
+    """这次 run 记下的那唯一一行账本记录。"""
+    async with session_factory() as session:
+        rows = (await session.execute(select(ApiCall))).scalars().all()
+    assert len(rows) == 1
+    return rows[0]
 
 
 def _drain(client: TestClient, trial_runs: TrialRunManager, run_id: str) -> None:

@@ -446,11 +446,12 @@ class TrialRunManager:
                 provider=target.provider,
                 prompt=parameters.prompt,
                 resolution=parameters.resolution,
-                # 时长与成片音轨是视频这一维的事，图像这一笔不记：记一个 5 秒会让用量页上出现一个
-                # 不存在的时长。
+                # 时长与成片音轨是视频这一维的事，图像这一笔按「没有」记：记一个 5 秒会让用量页上
+                # 出现一个不存在的时长，而图像请求的形状里根本没有音轨这一维（``ImageGenerationRequest``
+                # 不带它），照抄表单上那个视频开关只会让这一行说自己出了声。
                 duration_seconds=parameters.duration_seconds if is_video else None,
                 aspect_ratio=parameters.aspect_ratio,
-                generate_audio=parameters.generate_audio,
+                generate_audio=parameters.generate_audio if is_video else False,
                 purpose=CallPurpose.ENDPOINT_TRIAL,
             ) as call:
                 run.api_call_id = call.call_id

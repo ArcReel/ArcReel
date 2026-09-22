@@ -11,15 +11,36 @@
 
 from __future__ import annotations
 
-#: 判定容器要读的文件头字节数：够读到 ``RIFF....WEBP`` 的第二段魔数。
+from collections.abc import Mapping
+
+#: 判定容器要读的文件头字节数：够读到 ``RIFF....WEBP`` 的第二段魔数，也够读到 ``ftyp`` 的 major brand。
 CONTAINER_HEAD_BYTES = 12
+
+#: ISO BMFF 里属于静态图、不是成片的 major brand。
+#:
+#: 认的是这一边而不是「视频 brand 白名单」：视频侧的 brand 是开放集（``isom`` / ``iso2`` /
+#: ``mp41`` / ``mp42`` / ``avc1`` / ``qt`` / ``M4V`` / ``dash`` …，各家导出器还在加），白名单
+#: 会把合法成片判成认不出——那比漏认一张 HEIC 更糟。brand 与 MIME 的对应沿用
+#: ``data_uri._image_mime_from_bytes`` 已有的那一份。
+_ISO_BMFF_IMAGE_BRANDS: Mapping[bytes, str] = {
+    b"heic": "image/heic",
+    b"heix": "image/heic",
+    b"hevc": "image/heic",
+    b"hevx": "image/heic",
+    b"mif1": "image/heif",
+    b"msf1": "image/heif",
+    b"avif": "image/avif",
+    b"avis": "image/avif",
+}
 
 
 def sniff_container(head: bytes) -> str | None:
     """这段文件头对应的容器 MIME；认不出给 ``None``。
 
-    ISO BMFF（``ftyp`` box 落在偏移 4–8 字节）一律给 ``video/mp4``：``.mov`` 与 ``.m4v`` 的 brand
-    各家写法不一，而它们在播放侧与 ``.mp4`` 同路，细分 brand 只会把合法成片判成认不出。
+    ``ftyp``（落在偏移 4–8 字节）只说「这是 ISO BMFF 家族」，HEIC / AVIF 这类静态图同用这一层，
+    故要按 major brand 把它们摘出来——否则一张 HEIC 装进 ``.mp4`` 的名字会被当成成片放行。其余
+    brand 一律给 ``video/mp4``：``.mov`` 与 ``.m4v`` 的 brand 各家写法不一，而它们在播放侧与
+    ``.mp4`` 同路，细分到白名单只会把合法成片判成认不出。
     """
     if head.startswith(b"\x89PNG\r\n\x1a\n"):
         return "image/png"
@@ -28,7 +49,7 @@ def sniff_container(head: bytes) -> str | None:
     if len(head) >= 12 and head[:4] == b"RIFF" and head[8:12] == b"WEBP":
         return "image/webp"
     if len(head) >= 8 and head[4:8] == b"ftyp":
-        return "video/mp4"
+        return _ISO_BMFF_IMAGE_BRANDS.get(head[8:12], "video/mp4")
     if head.startswith(b"\x1a\x45\xdf\xa3"):
         return "video/webm"
     return None
