@@ -25,4 +25,29 @@ describe("NarrationDeliveryChoice", () => {
     await userEvent.click(tts);
     expect(onChange).not.toHaveBeenCalled();
   });
+
+  it("已选中 TTS 的选择在能力变成端点固定时长后纠正回后期配音", () => {
+    const onChange = vi.fn();
+    const { rerender } = render(<NarrationDeliveryChoice value="use_tts" onChange={onChange} />);
+    expect(onChange).not.toHaveBeenCalled();
+
+    rerender(<NarrationDeliveryChoice value="use_tts" onChange={onChange} ttsDurationEndpointFixed />);
+
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(onChange).toHaveBeenCalledWith("post_production");
+  });
+
+  it("纠正后不再重复回调", () => {
+    const onChange = vi.fn();
+    const { rerender } = render(
+      <NarrationDeliveryChoice value="use_tts" onChange={onChange} ttsDurationEndpointFixed />,
+    );
+    expect(onChange).toHaveBeenCalledTimes(1);
+
+    rerender(
+      <NarrationDeliveryChoice value="post_production" onChange={onChange} ttsDurationEndpointFixed />,
+    );
+
+    expect(onChange).toHaveBeenCalledTimes(1);
+  });
 });

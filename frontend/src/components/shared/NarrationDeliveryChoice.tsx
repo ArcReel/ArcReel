@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import type { ReferenceRequestOptions } from "@/types";
 
@@ -25,6 +26,13 @@ export function NarrationDeliveryChoice({
 }: Props) {
   const { t } = useTranslation("dashboard");
   const notice = ttsDurationEndpointFixed ? t("narration_delivery_tts_duration_endpoint_fixed") : null;
+  // 已选中 use_tts 的用户换到这种模型时，只禁用按钮会留下一个选中却不可改的死态：调用方仍
+  // 按 use_tts 提交、生成按钮照常可点，请求每次都被后端拒。交付方式是请求局部状态，因此把
+  // 选择纠正回后期配音，让提交值、报价显示与界面呈现同时收敛到唯一真相。
+  const blockedSelection = ttsDurationEndpointFixed && value === "use_tts";
+  useEffect(() => {
+    if (blockedSelection) onChange("post_production");
+  }, [blockedSelection, onChange]);
   return (
     <div
       role="group"
