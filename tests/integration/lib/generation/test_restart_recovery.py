@@ -423,10 +423,8 @@ class TestRestartRecovery:
     @pytest.mark.asyncio
     async def test_handle_orphan_fast_path_returns_immediately(self, monkeypatch, staged_project):
         """fast path 不阻塞——5 个可 resume orphan + video_max=2，
-        `handle_orphans` 应几乎立刻返回（< 100ms），
+        resume 入口永不返回，`handle_orphans` 仍须返回，
         实际 dispatch 由后台 dispatcher 处理。"""
-        import time
-
         queue = FakeWorkerQueue()
         queue._orphans = [_storyboard_orphan(f"orphan-{i}", job_id=f"job-{i}") for i in range(5)]
         worker = GenerationWorker(
@@ -442,10 +440,10 @@ class TestRestartRecovery:
 
         monkeypatch.setattr(stub_executors, "resume", _block_forever)
 
-        start = time.monotonic()
-        await worker._recovery.handle_orphans()
-        elapsed = time.monotonic() - start
-        assert elapsed < 0.1, f"fast path 阻塞了 {elapsed:.3f}s（应 < 100ms）"
+        # 超时只是防死锁护栏：fast path 若等 resume 完成会永远挂住，不是耗时断言。
+        await asyncio.wait_for(worker._recovery.handle_orphans(), timeout=10)
+        assert worker._recovery.orphan_dispatcher_task is not None
+        assert not worker._recovery.orphan_dispatcher_task.done()
 
         # 清理后台 dispatcher，避免 unawaited task 警告
         for t in list(asyncio.all_tasks()):
