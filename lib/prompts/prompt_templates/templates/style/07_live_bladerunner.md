@@ -3,6 +3,10 @@ id: style/live_bladerunner
 category: style
 title: 银翼杀手
 description: "真人画风，极简野蛮 · 赛博粒子。"
+stage: style
+invoked_by:
+  kind: user_action
+  name: style_selection
 applies_to: {}
 slots: {}
 protected: false

@@ -3,6 +3,10 @@ id: style/anim_bloodborne
 category: style
 title: 血源克苏鲁
 description: "动画画风，哥特 · 阴冷雾气。"
+stage: style
+invoked_by:
+  kind: user_action
+  name: style_selection
 applies_to: {}
 slots: {}
 protected: false

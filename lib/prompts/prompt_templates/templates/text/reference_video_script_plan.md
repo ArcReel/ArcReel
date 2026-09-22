@@ -3,6 +3,10 @@ id: text/reference_video_script_plan
 category: text
 title: 参考生视频 · 单元拆分
 description: 把源文拆分为参考生视频单元表，每个单元含时长、原文锚与引用语法正文。
+stage: script_plan
+invoked_by:
+  kind: agent_tool
+  name: generate_script_plan
 applies_to:
   content_mode: [drama, narration]
   generation_mode: [reference_video]

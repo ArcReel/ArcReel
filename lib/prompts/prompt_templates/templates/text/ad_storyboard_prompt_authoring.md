@@ -3,6 +3,10 @@ id: text/ad_storyboard_prompt_authoring
 category: text
 title: 广告 / 短片 · 分镜提示词编写
 description: 为广告分镜脚本里待编写的分镜补全画面与视频提示词（image_prompt / video_prompt）。
+stage: prompt_authoring
+invoked_by:
+  kind: agent_tool
+  name: generate_episode_script
 applies_to:
   content_mode:
   - ad

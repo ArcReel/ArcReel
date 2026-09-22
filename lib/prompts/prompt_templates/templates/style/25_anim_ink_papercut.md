@@ -3,6 +3,10 @@ id: style/anim_ink_papercut
 category: style
 title: 水墨剪纸
 description: "动画画风，雾山五行 · 重彩。"
+stage: style
+invoked_by:
+  kind: user_action
+  name: style_selection
 applies_to: {}
 slots: {}
 protected: false

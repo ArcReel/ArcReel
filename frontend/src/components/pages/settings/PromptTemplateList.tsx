@@ -3,7 +3,7 @@ import { ChevronRight } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { API } from "@/api";
 import { CARD_STYLE } from "@/components/ui/darkroom-tokens";
-import type { PromptTemplateMeta } from "@/types";
+import type { PromptTemplateMeta, PromptTemplateTrigger } from "@/types";
 import { errMsg } from "@/utils/async";
 import { categoryLabel, ErrorCard, LoadingCard, type Load } from "./promptTemplateShared";
 
@@ -33,6 +33,30 @@ const AXIS_VALUE_LABEL_KEYS: Record<FilterAxis, Record<string, string>> = {
     screenplay: "source_kind_screenplay",
   },
 };
+
+/**
+ * 触发方的具体名沿用 Agent 会话面板的工具名与任务队列的任务类型文案；
+ * 用户操作与资产图任务没有现成的对应文案，单独映射。未收录的取值原样显示。
+ */
+const TRIGGER_NAME_KEYS: Record<PromptTemplateTrigger["kind"], (name: string) => string> = {
+  agent_tool: (name) => `tool_name_${name}`,
+  user_action: (name) =>
+    name === "agent_session" ? "usage_purpose_assistant_session" : `prompt_templates_trigger_${name}`,
+  generation_task: (name) => (name === "asset" ? "prompt_templates_category_asset" : `task_type_${name}`),
+};
+
+type Translate = (key: string, options: { defaultValue: string }) => string;
+
+function stageLabel(t: Translate, stage: string): string {
+  return t(`prompt_templates_stage_${stage}`, { defaultValue: stage });
+}
+
+/** 「种类 · 名字」，如「Agent 工具 · 生成脚本」。 */
+function triggerLabel(t: Translate, trigger: PromptTemplateTrigger): string {
+  const kind = t(`prompt_templates_trigger_kind_${trigger.kind}`, { defaultValue: trigger.kind });
+  const name = t(TRIGGER_NAME_KEYS[trigger.kind](trigger.name), { defaultValue: trigger.name });
+  return `${kind} · ${name}`;
+}
 
 function groupByCategory(templates: PromptTemplateMeta[]): [string, PromptTemplateMeta[]][] {
   const byCategory = new Map<string, PromptTemplateMeta[]>();
@@ -265,8 +289,13 @@ function CategoryGroup({
                   title={template.id}
                   className="group flex w-full items-center gap-2 px-3.5 py-2 text-left transition-colors hover:bg-bg-grad-a/55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
                 >
-                  <span className="min-w-0 flex-1 truncate text-[12.5px] text-text-2 group-hover:text-text">
-                    {template.title}
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-[12.5px] text-text-2 group-hover:text-text">
+                      {template.title}
+                    </span>
+                    <span className="mt-1 block truncate text-[10.5px] text-text-4">
+                      {stageLabel(t, template.stage)} · {triggerLabel(t, template.invoked_by)}
+                    </span>
                   </span>
                   <ChevronRight
                     aria-hidden
@@ -293,6 +322,20 @@ function CategoryGroup({
                   <span className="block text-[13px] font-medium text-text">{template.title}</span>
                   <span className="mt-0.5 block text-[12px] leading-[1.55] text-text-3">
                     {template.description}
+                  </span>
+                  <span className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[11px] leading-none">
+                    <span
+                      title={template.stage}
+                      className="rounded-full bg-accent-dim px-2 py-1 text-accent-2"
+                    >
+                      {stageLabel(t, template.stage)}
+                    </span>
+                    <span
+                      title={`${template.invoked_by.kind}:${template.invoked_by.name}`}
+                      className="rounded-full border border-hairline px-2 py-1 text-text-3"
+                    >
+                      {triggerLabel(t, template.invoked_by)}
+                    </span>
                   </span>
                 </span>
                 <span className="hidden shrink-0 font-mono text-[10.5px] text-text-4 sm:block">

@@ -1,3 +1,6 @@
+---
+protected: true
+---
 <characters>
 {% for name in character_names %}
 - {{ name }}

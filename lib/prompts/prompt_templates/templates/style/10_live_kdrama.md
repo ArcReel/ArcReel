@@ -3,6 +3,10 @@ id: style/live_kdrama
 category: style
 title: 韩剧偶像
 description: "真人画风，柔光美颜 · 浪漫偶像。"
+stage: style
+invoked_by:
+  kind: user_action
+  name: style_selection
 applies_to: {}
 slots: {}
 protected: false

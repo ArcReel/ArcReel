@@ -3,6 +3,10 @@ id: style/live_cinema
 category: style
 title: 院线电影
 description: "真人画风，达芬奇调色 · 电影色调。"
+stage: style
+invoked_by:
+  kind: user_action
+  name: style_selection
 applies_to: {}
 slots: {}
 protected: false

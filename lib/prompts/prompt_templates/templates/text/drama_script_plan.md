@@ -3,6 +3,10 @@ id: text/drama_script_plan
 category: text
 title: 剧情演绎脚本规划
 description: 把本集源文拆为剧情演绎的结构化分镜内容：分镜边界、出场资产、画面描述、逐字口播与原文锚。
+stage: script_plan
+invoked_by:
+  kind: agent_tool
+  name: generate_script_plan
 applies_to:
   content_mode:
   - drama

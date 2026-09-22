@@ -3,6 +3,10 @@ id: style/live_got
 category: style
 title: 权力的游戏
 description: "真人画风，冷色史诗 · 权谋。"
+stage: style
+invoked_by:
+  kind: user_action
+  name: style_selection
 applies_to: {}
 slots: {}
 protected: false

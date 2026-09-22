@@ -3,6 +3,10 @@ id: style/live_ancient_xianxia
 category: style
 title: 古装仙侠
 description: "真人画风，临江仙 · 美白滤镜。"
+stage: style
+invoked_by:
+  kind: user_action
+  name: style_selection
 applies_to: {}
 slots: {}
 protected: false

@@ -3,6 +3,10 @@ id: style/live_kurosawa
 category: style
 title: 黑泽明
 description: "真人画风，黑白高对比 · 人性史诗。"
+stage: style
+invoked_by:
+  kind: user_action
+  name: style_selection
 applies_to: {}
 slots: {}
 protected: false

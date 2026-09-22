@@ -1,3 +1,6 @@
+---
+protected: true
+---
 <style>
 风格：{{ style }}
 描述：{{ style_description }}

@@ -3,6 +3,10 @@ id: text/reference_video_prompt_authoring
 category: text
 title: 参考生视频 · 提示词编写
 description: 把已确认的参考生视频单元正文扩写出景别、构图、运镜与画面细节。
+stage: prompt_authoring
+invoked_by:
+  kind: agent_tool
+  name: generate_episode_script
 applies_to:
   content_mode: [drama, narration]
   generation_mode: [reference_video]

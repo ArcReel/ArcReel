@@ -3,6 +3,10 @@ id: style/anim_zzz
 category: style
 title: 次世代三渲二
 description: "动画画风，绝区零 · 法线调整。"
+stage: style
+invoked_by:
+  kind: user_action
+  name: style_selection
 applies_to: {}
 slots: {}
 protected: false

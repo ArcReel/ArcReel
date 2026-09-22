@@ -37,6 +37,8 @@ def templates(tmp_path: Path) -> PromptTemplates:
         applies_to={"asset_type": ["character", "scene"]},
         slots={"asset_type": "资产类型", "description": "外观描述"},
         protected=False,
+        stage="asset_sheet",
+        invoked_by={"kind": "generation_task", "name": "asset"},
     )
     write_template(
         tmp_path,
@@ -49,11 +51,13 @@ def templates(tmp_path: Path) -> PromptTemplates:
         applies_to={},
         slots={"scene": "画面描述"},
         protected=True,
+        stage="storyboard_image",
+        invoked_by={"kind": "generation_task", "name": "storyboard"},
         output_schema="lib.script.script_models:ImagePrompt",
     )
     write_partial(tmp_path, "asset/sheet/title/character", "角色设定图")
     write_partial(tmp_path, "asset/sheet/title/scene", "")
-    write_partial(tmp_path, "shared/avoid", "Avoid: 水印")
+    write_partial(tmp_path, "shared/avoid", "---\nprotected: true\n---\nAvoid: 水印")
     return PromptTemplates(tmp_path)
 
 
@@ -86,6 +90,8 @@ def test_list_returns_metadata_of_every_template_in_registry_order(templates):
                 "category": "asset",
                 "title": "资产图",
                 "description": "资产设定图",
+                "stage": "asset_sheet",
+                "invoked_by": {"kind": "generation_task", "name": "asset"},
                 "applies_to": {"asset_type": ["character", "scene"]},
                 "slots": {"asset_type": "资产类型", "description": "外观描述"},
                 "protected": False,
@@ -96,6 +102,8 @@ def test_list_returns_metadata_of_every_template_in_registry_order(templates):
                 "category": "storyboard",
                 "title": "分镜图",
                 "description": "分镜画面",
+                "stage": "storyboard_image",
+                "invoked_by": {"kind": "generation_task", "name": "storyboard"},
                 "applies_to": {},
                 "slots": {"scene": "画面描述"},
                 "protected": True,
@@ -105,7 +113,7 @@ def test_list_returns_metadata_of_every_template_in_registry_order(templates):
     }
 
 
-def test_detail_returns_source_slots_and_partials_with_every_axis_value(templates):
+def test_detail_returns_source_slots_and_partial_catalog_with_every_axis_value(templates):
     app = make_app(templates)
     override_auth(app)
     with TestClient(app) as client:
@@ -117,9 +125,14 @@ def test_detail_returns_source_slots_and_partials_with_every_axis_value(template
         '{{ variant("asset/sheet/title", asset_type) }}\n\n{{ description }}\n\n{{ partial("shared/avoid") }}'
     )
     assert body["partials"] == [
-        {"name": "asset/sheet/title/character", "source": "角色设定图"},
-        {"name": "asset/sheet/title/scene", "source": ""},
-        {"name": "shared/avoid", "source": "Avoid: 水印"},
+        {
+            "name": "asset/sheet/title/character",
+            "source": "角色设定图",
+            "protected": False,
+            "referenced_by": ["asset/sheet"],
+        },
+        {"name": "asset/sheet/title/scene", "source": "", "protected": False, "referenced_by": ["asset/sheet"]},
+        {"name": "shared/avoid", "source": "Avoid: 水印", "protected": True, "referenced_by": ["asset/sheet"]},
     ]
     assert "output_schema" not in body
 

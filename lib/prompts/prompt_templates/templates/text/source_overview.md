@@ -3,6 +3,10 @@ id: text/source_overview
 category: text
 title: 源文总览
 description: 从项目源文提炼项目概述（故事梗概、题材、主题、世界观与源语言），供之后所有生成环节的提示词使用。
+stage: source_overview
+invoked_by:
+  kind: user_action
+  name: source_overview
 applies_to:
   source_kind:
   - novel

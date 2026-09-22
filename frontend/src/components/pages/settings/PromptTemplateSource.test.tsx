@@ -9,6 +9,8 @@ const template: PromptTemplateMeta = {
   category: "asset",
   title: "资产图",
   description: "资产图模版",
+  stage: "asset_sheet",
+  invoked_by: { kind: "generation_task", name: "asset" },
   applies_to: { asset_type: ["scene", "character"] },
   slots: { description: "外观描述", instructions: "附加指令", assets: "资产清单" },
   protected: false,
@@ -22,10 +24,10 @@ describe("PromptTemplateSource", () => {
       template={template}
       text={'{{ variant("asset/sheet/title", asset_type) }}\n{{ variant("asset/sheet/title", asset_type) }}'}
       partials={[
-        { name: "asset/sheet/title/character", source: "角色三视图正文" },
-        { name: "asset/sheet/title/scene", source: '场景全景正文 {{ partial("shared/style", instructions=instructions) }}' },
-        { name: "shared/style", source: '画风说明 {{ partial("shared/detail") }}' },
-        { name: "shared/detail", source: "深层片段正文" },
+        { name: "asset/sheet/title/character", source: "角色三视图正文", protected: false, referenced_by: ["asset/sheet"] },
+        { name: "asset/sheet/title/scene", source: '场景全景正文 {{ partial("shared/style", instructions=instructions) }}', protected: false, referenced_by: ["asset/sheet"] },
+        { name: "shared/style", source: '画风说明 {{ partial("shared/detail") }}', protected: false, referenced_by: ["asset/sheet"] },
+        { name: "shared/detail", source: "深层片段正文", protected: false, referenced_by: ["asset/sheet"] },
       ]}
     />);
     const references = screen.getAllByRole("button", { name: '{{ variant("asset/sheet/title", asset_type) }}' });
@@ -61,9 +63,9 @@ describe("PromptTemplateSource", () => {
       template={template}
       text={'{{ variant("asset/sheet/title", asset_type) }}\n{{ partial("shared/style") | indent(2) }}'}
       partials={[
-        { name: "asset/sheet/title/scene", source: "" },
-        { name: "asset/sheet/title/character", source: "角色正文" },
-        { name: "shared/style", source: "画风正文" },
+        { name: "asset/sheet/title/scene", source: "", protected: false, referenced_by: ["asset/sheet"] },
+        { name: "asset/sheet/title/character", source: "角色正文", protected: false, referenced_by: ["asset/sheet"] },
+        { name: "shared/style", source: "画风正文", protected: false, referenced_by: ["asset/sheet"] },
       ]}
     />);
 

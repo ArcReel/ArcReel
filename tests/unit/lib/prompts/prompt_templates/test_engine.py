@@ -19,6 +19,8 @@ def write_template(directory: Path, body: str, **metadata: object) -> Path:
                 "applies_to": {},
                 "slots": {"name": "名称"},
                 "protected": False,
+                "stage": "script_plan",
+                "invoked_by": {"kind": "agent_tool", "name": "generate_script_plan"},
                 **metadata,
             },
             allow_unicode=True,
@@ -37,7 +39,66 @@ def test_render_list_and_read_source(tmp_path):
     metadata = templates.list_templates()[0]
     assert metadata.id == "text/example"
     assert metadata.output_schema == "lib.script.script_models:Script"
-    assert templates.read_source("text/example") == ("你好，{{ name }}。", {})
+    assert metadata.stage == "script_plan"
+    assert metadata.invoked_by.model_dump() == {"kind": "agent_tool", "name": "generate_script_plan"}
+    assert templates.read_source("text/example") == ("你好，{{ name }}。", [])
+
+
+@pytest.mark.parametrize(
+    ("override", "message"),
+    [
+        ({"stage": None}, "stage"),
+        ({"stage": "unknown_stage"}, "stage"),
+        ({"invoked_by": None}, "invoked_by"),
+        ({"invoked_by": {"kind": "cron", "name": "nightly"}}, "invoked_by"),
+        ({"invoked_by": {"kind": "agent_tool", "name": "unknown_tool"}}, "invoked_by"),
+        ({"invoked_by": {"kind": "generation_task", "name": "generate_script_plan"}}, "invoked_by"),
+    ],
+)
+def test_stage_and_invoked_by_are_required_from_closed_sets(tmp_path, override, message):
+    path = write_template(tmp_path, "{{ name }}", **override)
+    if None in override.values():
+        header, body = path.read_text(encoding="utf-8")[4:].split("\n---\n", 1)
+        data = {key: value for key, value in yaml.safe_load(header).items() if value is not None}
+        path.write_text("---\n" + yaml.safe_dump(data, allow_unicode=True) + "---\n" + body, encoding="utf-8")
+    with pytest.raises(TemplateError, match=message):
+        PromptTemplates(tmp_path)
+
+
+def test_partial_catalog_carries_protected_flag_and_referencing_templates(tmp_path):
+    write_template(tmp_path, '{{ partial("shared/overview") }}{{ partial("text/example/tail") }}{{ name }}')
+    other = tmp_path / "other.md"
+    other.write_text(
+        (tmp_path / "entry.md")
+        .read_text(encoding="utf-8")
+        .replace("text/example", "text/other")
+        .replace('{{ partial("text/other/tail") }}', ""),
+        encoding="utf-8",
+    )
+    write_partial(tmp_path, "shared/overview", "---\nprotected: true\n---\n概述：")
+    write_partial(tmp_path, "text/example/tail", "尾句")
+    templates = PromptTemplates(tmp_path)
+    assert templates.render("text/example", name="林清") == "概述：尾句林清"
+    _, partials = templates.read_source("text/example")
+    assert [partial.model_dump() for partial in partials] == [
+        {
+            "name": "shared/overview",
+            "source": "概述：",
+            "protected": True,
+            "referenced_by": ["text/example", "text/other"],
+        },
+        {"name": "text/example/tail", "source": "尾句", "protected": False, "referenced_by": ["text/example"]},
+    ]
+
+
+def test_partial_frontmatter_accepts_only_boolean_protected(tmp_path):
+    write_template(tmp_path, '{{ partial("shared/overview") }}{{ name }}')
+    write_partial(tmp_path, "shared/overview", "---\nprotected: yes please\n---\n概述")
+    with pytest.raises(TemplateError, match="protected"):
+        PromptTemplates(tmp_path)
+    write_partial(tmp_path, "shared/overview", "---\nlocked: true\n---\n概述")
+    with pytest.raises(TemplateError, match="locked"):
+        PromptTemplates(tmp_path)
 
 
 def test_duplicate_id_rejected_at_load(tmp_path):
@@ -102,7 +163,7 @@ def test_variant_partials_are_complete_and_readable(tmp_path):
     assert templates.render("text/example", source_kind="screenplay", name="林清") == "林清"
     source, partials = templates.read_source("text/example")
     assert source == body
-    assert set(partials.values()) == {'{{ partial("shared/label") }}\n', "小说\n", ""}
+    assert {partial.source for partial in partials} == {'{{ partial("shared/label") }}\n', "小说\n", ""}
     with pytest.raises(TemplateError, match="source_kind"):
         templates.render("text/example", source_kind="unknown", name="林清")
 

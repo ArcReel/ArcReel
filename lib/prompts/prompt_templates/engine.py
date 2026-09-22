@@ -14,7 +14,7 @@
 
 import re
 from pathlib import Path
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 from uuid import uuid4
 
 import yaml
@@ -33,6 +33,59 @@ class TemplateError(ValueError):
 TemplateAxis = Literal["content_mode", "generation_mode", "source_kind", "asset_type", "ad_duration_tier"]
 
 
+#: 模版所属的制作步骤；设置页按取值显示步骤名，未列出的取值在加载期 fail loud。
+TemplateStage = Literal[
+    "source_overview",
+    "episode_plan",
+    "script_plan",
+    "prompt_authoring",
+    "asset_sheet",
+    "storyboard_image",
+    "grid",
+    "storyboard_video",
+    "reference_video",
+    "style_analysis",
+    "style",
+    "agent_session",
+]
+
+
+class _Trigger(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
+
+
+class AgentToolTrigger(_Trigger):
+    """Agent 调用 MCP 工具时渲染；``name`` 是工具名。"""
+
+    kind: Literal["agent_tool"]
+    name: Literal[
+        "plan_episodes",
+        "generate_script_plan",
+        "generate_episode_script",
+    ]
+
+
+class UserActionTrigger(_Trigger):
+    """用户在界面上的一次操作直接触发渲染；``name`` 是操作名，``agent_session`` 指发起或恢复 Agent 会话。"""
+
+    kind: Literal["user_action"]
+    name: Literal["source_overview", "style_analysis", "style_selection", "agent_session"]
+
+
+class GenerationTaskTrigger(_Trigger):
+    """生成任务执行时渲染；``name`` 是任务类型，``asset`` 合指角色、场景、道具、商品与角色衍生五种资产图任务。"""
+
+    kind: Literal["generation_task"]
+    name: Literal["asset", "storyboard", "video", "reference_video", "grid"]
+
+
+#: 模版的触发方，三类各带一个具体名，取值封闭。
+TemplateTrigger = Annotated[
+    AgentToolTrigger | UserActionTrigger | GenerationTaskTrigger,
+    Field(discriminator="kind"),
+]
+
+
 class TemplateMeta(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
 
@@ -40,11 +93,30 @@ class TemplateMeta(BaseModel):
     category: str
     title: str
     description: str
+    stage: TemplateStage
+    invoked_by: TemplateTrigger
     applies_to: dict[TemplateAxis, list[str]]
     slots: dict[str, str]
     protected: bool
     output_schema: str | None = None
     idempotent: bool = Field(default=False, exclude=True)
+
+
+class _PartialHeader(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
+
+    protected: bool = False
+
+
+class PartialEntry(BaseModel):
+    """片段清单条目：去掉 frontmatter 的正文、锁定标记与引用它的模版 id（按注册顺序）。"""
+
+    model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
+
+    name: str
+    source: str
+    protected: bool
+    referenced_by: list[str]
 
 
 class PromptTemplates:
@@ -62,7 +134,8 @@ class PromptTemplates:
         self._newline_marker = f"\x00{uuid4().hex}\x00"
         self._partials_dir = (directory / "partials").resolve()
         self._partials: dict[str, Template] = {}
-        self._sources: dict[str, dict[str, str]] = {}
+        self._partial_sources: dict[str, tuple[str, bool]] = {}
+        self._sources: dict[str, list[str]] = {}
         self._registry: dict[str, tuple[TemplateMeta, str, Template]] = {}
         if not directory.is_dir():
             raise TemplateError(f"模版目录不存在: {directory}")
@@ -84,7 +157,7 @@ class PromptTemplates:
             raise TemplateError(f"{path}: 重复模版 id {metadata.id}")
         partials: dict[str, str] = {}
         referenced = self._collect(metadata, body, partials, set(), ())
-        self._sources[metadata.id] = partials
+        self._sources[metadata.id] = list(partials)
         if undeclared := referenced - metadata.slots.keys():
             raise TemplateError(f"{metadata.id}: 未声明槽位 {sorted(undeclared)}")
         if unused := metadata.slots.keys() - referenced:
@@ -140,9 +213,15 @@ class PromptTemplates:
     def list_templates(self) -> list[TemplateMeta]:
         return [metadata.model_copy(deep=True) for metadata, _, _ in self._registry.values()]
 
-    def read_source(self, template_id: str) -> tuple[str, dict[str, str]]:
+    def read_source(self, template_id: str) -> tuple[str, list[PartialEntry]]:
+        """模版正文与它引用的片段清单，按首次引用顺序；变体族展开为全部轴值。"""
         _, body, _ = self._get(template_id)
-        return body, dict(self._sources[template_id])
+        return body, [self._partial_entry(name) for name in self._sources[template_id]]
+
+    def _partial_entry(self, name: str) -> PartialEntry:
+        source, protected = self._partial_sources[name]
+        referenced_by = [template_id for template_id, names in self._sources.items() if name in names]
+        return PartialEntry(name=name, source=source, protected=protected, referenced_by=referenced_by)
 
     def _protect_newlines(self, value: Any) -> Any:
         """槽位值里的换行换成占位符，塌缩与块级判定只看模版自身的换行，渲染末尾再还原。"""
@@ -163,6 +242,20 @@ class PromptTemplates:
         if not path.is_file():
             raise TemplateError(f"缺少片段: {name}")
         return path
+
+    def _read_partial(self, name: str) -> str:
+        """读取片段正文；文件以 frontmatter 开头时只取其中的 ``protected``。"""
+        if name not in self._partial_sources:
+            raw = self._partial_path(name).read_text(encoding="utf-8")
+            protected = False
+            if raw.startswith("---\n") and "\n---\n" in raw[4:]:
+                header, raw = raw[4:].split("\n---\n", 1)
+                try:
+                    protected = _PartialHeader.model_validate(yaml.safe_load(header) or {}).protected
+                except ValidationError as exc:
+                    raise TemplateError(f"片段 {name}: frontmatter 无效: {exc}") from exc
+            self._partial_sources[name] = raw, protected
+        return self._partial_sources[name][0]
 
     def _collect(
         self,
@@ -202,8 +295,7 @@ class PromptTemplates:
             for partial_name in names:
                 if partial_name in stack:
                     raise TemplateError(f"{metadata.id}: 片段循环引用: {partial_name}")
-                path = self._partial_path(partial_name)
-                text = path.read_text(encoding="utf-8")
+                text = self._read_partial(partial_name)
                 partials[partial_name] = text
                 variables |= self._collect(
                     metadata,

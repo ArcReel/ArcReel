@@ -3,6 +3,10 @@ id: text/ad_reference_video_script
 category: text
 title: 广告 / 短片 · 参考生视频单元
 description: 按 brief 与资产候选一次产出广告片的参考生视频单元，每个单元含引用语法正文。
+stage: script_plan
+invoked_by:
+  kind: agent_tool
+  name: generate_episode_script
 applies_to:
   content_mode:
   - ad

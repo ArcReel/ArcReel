@@ -3,6 +3,10 @@ id: text/narration_script_plan
 category: text
 title: 旁白解说 · 片段切分
 description: 按朗读节奏把源文逐字切分为旁白解说分镜，并登记出场资产与时长。
+stage: script_plan
+invoked_by:
+  kind: agent_tool
+  name: generate_script_plan
 applies_to:
   content_mode:
   - narration

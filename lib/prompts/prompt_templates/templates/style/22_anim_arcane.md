@@ -3,6 +3,10 @@ id: style/anim_arcane
 category: style
 title: 油画三渲二
 description: 动画画风，双城之战 · Arcane。
+stage: style
+invoked_by:
+  kind: user_action
+  name: style_selection
 applies_to: {}
 slots: {}
 protected: false

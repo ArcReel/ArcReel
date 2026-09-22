@@ -3,6 +3,10 @@ id: style/live_shaw
 category: style
 title: 邵氏武侠
 description: "真人画风，港式武侠 · 电影感。"
+stage: style
+invoked_by:
+  kind: user_action
+  name: style_selection
 applies_to: {}
 slots: {}
 protected: false

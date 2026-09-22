@@ -21,7 +21,7 @@ def test_builtin_directory_has_valid_slots_variants_and_template_syntax():
         body, partials = templates.read_source(entry.id)
         assert body.strip()
         # 行距写在引用处，片段只写措辞本身。
-        assert not [name for name, source in partials.items() if source.startswith("\n")]
+        assert not [partial.name for partial in partials if partial.source.startswith("\n")]
     # 判重只给存在纯文本回贴形态的模版开启，其余模版多处引用同一数据片段时不能被吞掉。
     assert {entry.id for entry in metadata if entry.idempotent} == {"storyboard/image", "storyboard/video"}
     asset = next(entry for entry in metadata if entry.id == "asset/sheet")
@@ -57,6 +57,33 @@ def test_builtin_applies_to_values_are_real_project_values():
         for axis, values in entry.applies_to.items():
             if axis in known:
                 assert set(values) <= known[axis], (entry.id, axis, values)
+
+
+def test_builtin_templates_declare_stage_and_trigger_and_lock_structural_partials():
+    templates = PromptTemplates(BUILTIN_DIRECTORY)
+    metadata = templates.list_templates()
+    styles = [entry for entry in metadata if entry.category == "style"]
+    assert len(styles) == 36
+    for entry in styles:
+        assert entry.stage == "style"
+        assert entry.invoked_by.model_dump() == {"kind": "user_action", "name": "style_selection"}
+    catalog = {partial.name: partial for entry in metadata for partial in templates.read_source(entry.id)[1]}
+    assert {name for name, partial in catalog.items() if partial.protected} == {
+        "shared/overview_block",
+        "shared/media_style",
+        "shared/text_style",
+        "shared/lists/asset_name_blocks",
+        "shared/lists/asset_appearance_blocks",
+        "shared/additional_instructions",
+        "shared/writing_syntax",
+    }
+    # 引用方含经由资产图变体间接引用的模版，按注册顺序排列。
+    assert catalog["shared/media_style"].referenced_by == [
+        "asset/sheet",
+        "reference_video/unit",
+        "storyboard/grid",
+        "storyboard/image",
+    ]
 
 
 def _partial_calls(source: str) -> set[str]:

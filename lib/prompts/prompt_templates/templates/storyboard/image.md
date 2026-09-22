@@ -3,6 +3,10 @@ id: storyboard/image
 category: storyboard
 title: 分镜图
 description: 分镜图的完整提示词，由风格、参考图声明与分镜画面组成。
+stage: storyboard_image
+invoked_by:
+  kind: generation_task
+  name: storyboard
 applies_to: {}
 slots:
   style: 项目画风

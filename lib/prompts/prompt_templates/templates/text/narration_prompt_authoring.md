@@ -3,6 +3,10 @@ id: text/narration_prompt_authoring
 category: text
 title: 旁白解说 · 提示词编写
 description: 为旁白解说已定稿的分镜补全画面与视频提示词（image_prompt / video_prompt）。
+stage: prompt_authoring
+invoked_by:
+  kind: agent_tool
+  name: generate_episode_script
 applies_to:
   content_mode:
   - narration
