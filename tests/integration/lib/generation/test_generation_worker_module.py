@@ -977,21 +977,30 @@ class TestGenerationWorker:
         )
         worker._slots.register("test", "image", "shutdown-run", running)
 
+        # 探针占用：关停对全部在跑执行体挂完成回调时置位，标志 stop 已进入「等在跑任务」
+        awaiting_inflight = asyncio.Event()
+
+        class _InflightProbe(asyncio.Future):
+            def add_done_callback(self, fn, *, context=None):
+                awaiting_inflight.set()
+                super().add_done_callback(fn, context=context)
+
+        probe = _InflightProbe()
+        worker._slots.register("probe", "video", "stop-probe", probe)
+
         await worker.start()
         await started.wait()
         assert await _task_status(worker_db, "shutdown-run") == "running"
-        stop_started = asyncio.Event()
 
-        async def _stop_worker() -> None:
-            stop_started.set()
-            await worker.stop()
+        stopping = asyncio.create_task(worker.stop())
+        probe_hit = asyncio.create_task(awaiting_inflight.wait())
+        await asyncio.wait({stopping, probe_hit}, return_when=asyncio.FIRST_COMPLETED)
 
-        stopping = asyncio.create_task(_stop_worker())
-        await stop_started.wait()
-
+        assert probe_hit.done(), "stop 必须等在跑任务跑完"
         assert not stopping.done(), "stop 必须等在跑任务跑完"
         assert not running.done(), "stop 不得打断在跑任务"
 
+        probe.set_result(None)
         release.set()
         await asyncio.wait_for(running, timeout=2.0)
         await asyncio.wait_for(stopping, timeout=2.0)

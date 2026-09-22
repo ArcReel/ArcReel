@@ -24,10 +24,10 @@ status: accepted
 
 ## Consequences
 
-- 状态机为 `queued → running → succeeded | failed`，外加 `queued → cancelled`（用户取消，`cancelled_by='user'`；依赖它的排队中下游一并取消，`cancelled_by='cascade'`）。活动态只有 `queued` 与 `running`，去重部分索引的 WHERE 同为这两值。升级迁移把库里残留的 `cancelling` 行收敛为 `cancelled`。
+- 状态机为 `queued → running → succeeded | failed`，外加 `queued → cancelled`（用户取消，`cancelled_by='user'`；依赖它的排队中下游一并取消，`cancelled_by='cascade'`）。活动态只有 `queued` 与 `running`，去重部分索引的 WHERE 同为这两值。升级迁移把库里残留的 `cancelling` 行收敛为 `cancelled`，其排队中的下游按 `cascade` 一并取消。
 - 取消入口的行为：
   - 单任务取消与取消预览：任务执行中时，以 409 拒绝，返回三语错误文案。
-  - 项目级全部取消：只取 `queued`，执行中的计入 `skipped_running_count`。
+  - 项目级全部取消：只取 `queued`，执行中的任务不受影响、也不计数；`skipped_running_count` 只统计请求期间刚被 worker 认领、没能取消的排队任务。
   - 批次取消（创作 Agent 工具与远端 MCP）：取消仍在排队的成员，执行中的成员照常跑完，归入 `skipped_running`。
   - 前端：只给排队中的任务显示取消按钮。
 - 级联取消只涉及排队中的下游：下游在上游跑完前不会被认领，所以取消一个排队中的任务时，它的下游也必然在排队。
