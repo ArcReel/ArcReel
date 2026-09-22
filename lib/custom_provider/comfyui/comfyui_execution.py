@@ -21,8 +21,8 @@ import httpx
 
 from lib.backends.artifact_download_guard import ARTIFACT_MAX_BYTES_BY_MEDIA_TYPE
 from lib.backends.backend_runtime import poll_with_retry, should_retry_poll
+from lib.backends.container_sniff import CONTAINER_HEAD_BYTES
 from lib.custom_provider.comfyui.artifacts import (
-    ARTIFACT_HEAD_BYTES,
     container_matches,
     filename_of,
     history_digest,
@@ -277,7 +277,7 @@ class ComfyuiExecution:
 def _read_head(path: Path) -> bytes:
     """落盘产物的前几个字节；判容器只要这一段。"""
     with open(path, "rb") as handle:
-        return handle.read(ARTIFACT_HEAD_BYTES)
+        return handle.read(CONTAINER_HEAD_BYTES)
 
 
 def _supports_job_cancel(version: str | None) -> bool:

@@ -1296,6 +1296,100 @@ class TestComfyuiEndpoints:
         assert artifact.content == PNG_BYTES
         assert artifact.headers["content-type"] == "image/png"
 
+    def test_an_image_model_row_with_a_reference_image_passes_the_capability_gate(
+        self, client: TestClient, trial_runs: TrialRunManager, stored_comfyui_image_model_row: dict[str, Any]
+    ):
+        """模型行这条入口跑的是图像那道能力闸：带参考图的图生图端点不能被视频闸判成不支持参考图。"""
+        with capture_http() as router, bounded_poll_clock():
+            _mock_successful_comfyui_image_run(router)
+            router.post("https://comfy.test/upload/image").mock(
+                return_value=httpx.Response(200, json={"name": "ref.png", "subfolder": "arcreel"})
+            )
+            created = client.post(
+                "/api/v1/custom-endpoints/trial-runs",
+                data={
+                    "payload": json.dumps(
+                        {
+                            "model_ref": {
+                                "provider_id": stored_comfyui_image_model_row["provider_id"],
+                                "model_id": stored_comfyui_image_model_row["model_id"],
+                            },
+                            "parameters": PARAMETERS,
+                        }
+                    )
+                },
+                files={"reference_images": ("ref.png", PNG_BYTES, "image/png")},
+            )
+            assert created.status_code == 201, created.text
+            run_id = created.json()["id"]
+            _drain(client, trial_runs, run_id)
+
+        fetched = client.get(f"/api/v1/custom-endpoints/trial-runs/{run_id}").json()
+        assert fetched["status"] == "succeeded", fetched["error"]
+        assert fetched["media_type"] == "image"
+
+    def test_an_image_model_row_without_its_required_reference_image_is_rejected_in_words(
+        self, client: TestClient, trial_runs: TrialRunManager, stored_comfyui_image_model_row: dict[str, Any]
+    ):
+        """图生图端点收不到参考图时按图像那道闸拒绝，文案是本地化后的能力拒因、不是一串失败码。"""
+        with capture_http() as router, bounded_poll_clock():
+            _mock_successful_comfyui_image_run(router)
+            created = _post(
+                client,
+                "trial-runs",
+                {
+                    "model_ref": {
+                        "provider_id": stored_comfyui_image_model_row["provider_id"],
+                        "model_id": stored_comfyui_image_model_row["model_id"],
+                    },
+                    "parameters": PARAMETERS,
+                },
+            )
+            assert created.status_code == 201, created.text
+            run_id = created.json()["id"]
+            _drain(client, trial_runs, run_id)
+
+        fetched = client.get(f"/api/v1/custom-endpoints/trial-runs/{run_id}").json()
+        assert fetched["status"] == "failed"
+        assert fetched["error_code"] == "image_capability_missing_t2i"
+        assert "不支持文生图" in fetched["error"]
+        # 闸在提交之前：一个字节都没发给 ComfyUI。
+        assert router.calls.call_count == 0
+
+
+@pytest.fixture
+async def stored_comfyui_image_model_row(db_engine) -> dict[str, Any]:
+    """一条挂着 ComfyUI 图生图端点的图像模型行，供图像 ``model_ref`` 用例引用。"""
+    definition = _comfyui_image_definition()
+    definition["workflow"]["20"] = {"class_type": "LoadImage", "inputs": {"image": "draft.png"}}
+    definition["bindings"]["reference_images"] = [{"node": "20", "input": "image", "class_type": "LoadImage"}]
+    session_factory = async_sessionmaker(db_engine, expire_on_commit=False)
+    async with session_factory() as session:
+        endpoint = await CustomEndpointRepository(session).create(
+            definition=definition,
+            kind="comfyui",
+            schema_version="1.0.0",
+            media_type="image",
+            display_name="示例图像 workflow",
+        )
+        provider = await CustomProviderRepository(session).create_provider(
+            display_name="本地 ComfyUI",
+            discovery_format="openai",
+            base_url="https://comfy.test",
+            api_key="sk-secret-key-1234",
+            models=[
+                {
+                    "model_id": "flux-workflow",
+                    "display_name": "flux-workflow",
+                    "endpoint": make_endpoint_key(endpoint.id),
+                    "is_enabled": True,
+                    "is_default": True,
+                }
+            ],
+        )
+        await session.commit()
+        return {"provider_id": make_provider_id(provider.id), "model_id": "flux-workflow"}
+
 
 @pytest.fixture
 async def stored_provider(db_engine) -> dict[str, Any]:

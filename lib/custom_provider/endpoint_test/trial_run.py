@@ -31,9 +31,15 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
-from lib.backends.image_backends.base import ImageGenerationRequest, ReferenceImage
+from lib.backends.container_sniff import CONTAINER_HEAD_BYTES, sniff_container
+from lib.backends.image_backends.base import (
+    ImageCapability,
+    ImageCapabilityError,
+    ImageGenerationRequest,
+    ReferenceImage,
+)
 from lib.backends.providers import CALL_TYPE_IMAGE, CALL_TYPE_VIDEO, CallPurpose
-from lib.backends.video_backend_contract import ProviderResponseStage, VideoGenerationRequest
+from lib.backends.video_backend_contract import ProviderResponseStage, VideoCapabilityError, VideoGenerationRequest
 from lib.backends.video_frame_slots import resolve_first_frame_aspect_ratio
 from lib.billing.ledger import Ledger
 from lib.config.resolver import ConfigResolver
@@ -474,9 +480,11 @@ class TrialRunManager:
         except asyncio.CancelledError:
             raise
         except Exception as exc:
-            # 两种运行时的失败载体同形（稳定 code + 可序列化 params），编码成失败码后读侧按
-            # 同一条路径本地化；其余异常没有稳定码可编，原样留字符串。
-            structured = isinstance(exc, DeclarativeRuntimeError | ComfyuiError)
+            # 两种运行时与两道能力闸的失败载体同形（稳定 code + 可序列化 params），编码成失败码后
+            # 读侧按同一条路径本地化；其余异常没有稳定码可编，原样留字符串。
+            structured = isinstance(
+                exc, DeclarativeRuntimeError | ComfyuiError | VideoCapabilityError | ImageCapabilityError
+            )
             run.error = encode_failure(exc.code, **exc.params) if structured else str(exc)
             self._finish(run, target, capture, TrialRunStatus.FAILED)
 
@@ -622,6 +630,11 @@ async def _gate_trial_request(
     parameters: EndpointTestParameters,
     assets: Mapping[str, Path | list[Path] | None],
 ) -> None:
+    """提交前跑生产那道能力闸。两个通道各有自己的一道，按 ``media_type`` 分派。"""
+    if target.media_type != "video":
+        _gate_trial_image_request(backend, target, assets)
+        return
+
     from lib.backends.video_frame_slots import gate_video_request, plan_frame_slots
     from lib.speech.audio_utils import probe_reference_audio_total_seconds
 
@@ -650,6 +663,29 @@ async def _gate_trial_request(
         reference_audio_files=audio_files,
         reference_audio_total_seconds=total_seconds,
     )
+
+
+def _gate_trial_image_request(
+    backend: Any,
+    target: TrialRunTarget,
+    assets: Mapping[str, Path | list[Path] | None],
+) -> None:
+    """图像这一笔的能力闸：判据与 ``MediaGenerator`` 出图前那道同一条。
+
+    图像通道没有 ``gate_video_request`` 的对应物：文生图 / 图生图之外没有别的可选输入路径，判的
+    就是「这次带不带参考图」对不对得上 backend 声明的能力。图像 backend 没有 ``video_capabilities``，
+    而视频那道闸在 caps 为 ``None`` 时把带输入的请求一律按不支持拒掉——图像请求走那道闸，每一次
+    带参考图的测试连接都会被判成 ``video_reference_images_unsupported``。
+    """
+    reference_images = assets.get("reference_images")
+    has_references = bool(reference_images) if isinstance(reference_images, list) else False
+    needed = ImageCapability.IMAGE_TO_IMAGE if has_references else ImageCapability.TEXT_TO_IMAGE
+    if needed not in backend.capabilities:
+        raise ImageCapabilityError(
+            "image_capability_missing_i2i" if has_references else "image_capability_missing_t2i",
+            provider=target.provider,
+            model=target.model,
+        )
 
 
 def declarative_target(
@@ -725,20 +761,10 @@ def artifact_media_type(path: Path) -> str:
     """
     try:
         with open(path, "rb") as handle:
-            head = handle.read(12)
+            head = handle.read(CONTAINER_HEAD_BYTES)
     except OSError:
         return "application/octet-stream"
-    if head[4:8] == b"ftyp":
-        return "video/mp4"
-    if head.startswith(b"\x89PNG\r\n\x1a\n"):
-        return "image/png"
-    if head.startswith(b"\xff\xd8\xff"):
-        return "image/jpeg"
-    if head[:4] == b"RIFF" and head[8:12] == b"WEBP":
-        return "image/webp"
-    if head.startswith(b"\x1a\x45\xdf\xa3"):
-        return "video/webm"
-    return "application/octet-stream"
+    return sniff_container(head) or "application/octet-stream"
 
 
 def provider_from_base_url(base_url: str) -> str:

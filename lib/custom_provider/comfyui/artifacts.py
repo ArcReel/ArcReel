@@ -18,6 +18,8 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
+from lib.backends.container_sniff import sniff_container
+
 from .bindings import targets_of
 from .failures import EXECUTION_ERROR, INTERRUPTED, ComfyuiError
 
@@ -36,8 +38,12 @@ ARTIFACT_SUFFIXES_BY_MEDIA_TYPE: Mapping[str, frozenset[str]] = {
     "video": frozenset({".mp4", ".mov", ".m4v"}),
 }
 
-#: 判定容器要读的文件头字节数：够读到 ``RIFF....WEBP`` 的第二段魔数。
-ARTIFACT_HEAD_BYTES = 12
+#: ``media_type`` → 该媒体类型的产物允许的容器 MIME，与上表的扩展名一一对上：视频那三个扩展名
+#: 同属 ISO BMFF（一律嗅成 ``video/mp4``），故视频只有一项。
+ARTIFACT_CONTAINERS_BY_MEDIA_TYPE: Mapping[str, frozenset[str]] = {
+    "image": frozenset({"image/png", "image/jpeg", "image/webp"}),
+    "video": frozenset({"video/mp4"}),
+}
 
 #: history 条目里可能挂产物的三个键。只读这三个，且只读 ``output`` 绑定的那个节点。
 _ARTIFACT_KEYS = ("images", "gifs", "audio")
@@ -114,17 +120,11 @@ def container_matches(head: bytes, media_type: str) -> bool:
     扩展名白名单只管 history 里那个字符串，而一个保存节点完全可以把 webm 的字节写进 ``.mp4``
     的名字。落盘的字节最终按扩展名声明 MIME 并下发，故容器要按文件头再核一遍。
 
-    视频认 ISO BMFF 的 ``ftyp`` box（偏移 4–8 字节），三个允许的扩展名同属这一族，具体 brand
-    不再细分——``.mov`` 与 ``.m4v`` 的 brand 各家写法不一，而它们在播放侧与 ``.mp4`` 同路。
-    图像认 PNG / JPEG / WEBP 三种魔数，与白名单的四个扩展名一一对上。
+    魔数本身不在这里认（:func:`lib.backends.container_sniff.sniff_container`），本函数只说
+    「认出来的这个容器算不算这一类该产的」——视频那三个扩展名同属 ISO BMFF，``video/webm``
+    因此不在视频的允许集里。
     """
-    if media_type == "video":
-        return len(head) >= 8 and head[4:8] == b"ftyp"
-    if media_type == "image":
-        return head.startswith((b"\x89PNG\r\n\x1a\n", b"\xff\xd8\xff")) or (
-            len(head) >= 12 and head[:4] == b"RIFF" and head[8:12] == b"WEBP"
-        )
-    return False
+    return sniff_container(head) in ARTIFACT_CONTAINERS_BY_MEDIA_TYPE.get(media_type, frozenset())
 
 
 def terminal_failure(entry: Mapping[str, Any]) -> ComfyuiError | None:
