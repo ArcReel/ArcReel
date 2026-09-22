@@ -11,19 +11,21 @@ from typing import Any
 import httpx
 
 from lib.backends.ark_shared import create_ark_client
-from lib.backends.providers import PROVIDER_ARK
-from lib.backends.video_backends.base import (
+from lib.backends.backend_runtime import (
     ProviderJobIdPersistenceMixin,
+    download_video,
+    poll_with_retry,
+    reference_audio_to_data_uri,
+    should_retry_download,
+)
+from lib.backends.providers import PROVIDER_ARK
+from lib.backends.video_backend_contract import (
     ReferenceAudioMode,
     ResumeExpiredError,
     VideoCapabilities,
     VideoCapabilityError,
     VideoGenerationRequest,
     VideoGenerationResult,
-    download_video,
-    poll_with_retry,
-    reference_audio_to_data_uri,
-    should_retry_download,
 )
 from lib.infra.logging_utils import format_kwargs_for_log
 from lib.infra.retry import with_retry_async

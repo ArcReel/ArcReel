@@ -4,8 +4,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from lib.backends.video_backend_contract import VideoGenerationRequest
 from lib.backends.video_backends.ark import ArkVideoBackend
-from lib.backends.video_backends.base import VideoGenerationRequest
 
 
 def _make_backend():

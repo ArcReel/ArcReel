@@ -1196,6 +1196,7 @@ export function ShotDetail({
                 setNarrationDeliverySelection({ delivery: value, narrationText });
               }}
               disabled={generatingVideo || dirty || saving}
+              ttsDurationEndpointFixed={durationEndpointFixed}
               compact
             />
           </div>

@@ -23,7 +23,7 @@ from urllib.parse import parse_qsl
 
 from jsonschema import Draft202012Validator
 
-from lib.backends.video_backends.base import ProviderJobStatus, ReferenceAudioMode, audio_capability_pair_is_coherent
+from lib.backends.video_backend_contract import ProviderJobStatus, ReferenceAudioMode, audio_capability_pair_is_coherent
 from lib.custom_provider.auth_section import (
     check_auth_section,
     duplicate_header_issues,

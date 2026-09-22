@@ -35,6 +35,9 @@ OUTPUT_MISSING = "comfyui_output_missing"
 #: 产物在，但扩展名不是这个端点 ``media_type`` 该有的那一类。
 OUTPUT_TYPE_MISMATCH = "comfyui_output_type_mismatch"
 
+#: 产物的扩展名对得上，但落盘字节的文件头不是这个 ``media_type`` 的容器。
+OUTPUT_CONTAINER_MISMATCH = "comfyui_output_container_mismatch"
+
 #: 参考图或首尾帧要删的读图节点，其级联触到了产物节点（构造期，见 ``request_builder``）。
 IMAGE_DROP_UNSUPPORTED = "comfyui_image_drop_unsupported"
 

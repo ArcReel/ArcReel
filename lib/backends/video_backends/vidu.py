@@ -12,18 +12,20 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from lib.backends.providers import PROVIDER_VIDU
-from lib.backends.video_backends.base import (
-    VideoAudioMode,
-    VideoCapabilities,
-    VideoCapabilityError,
-    VideoGenerationRequest,
-    VideoGenerationResult,
+from lib.backends.backend_runtime import (
     download_video,
     poll_with_retry,
     recording_poll,
     should_retry_submit,
     submit_post,
+)
+from lib.backends.providers import PROVIDER_VIDU
+from lib.backends.video_backend_contract import (
+    VideoAudioMode,
+    VideoCapabilities,
+    VideoCapabilityError,
+    VideoGenerationRequest,
+    VideoGenerationResult,
 )
 from lib.backends.vidu_shared import (
     VIDU_RETRYABLE_ERRORS,

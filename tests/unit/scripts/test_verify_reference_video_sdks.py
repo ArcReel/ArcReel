@@ -5,7 +5,7 @@ from typing import ClassVar
 import pytest
 
 import scripts.verify_reference_video_sdks as mod
-from lib.backends.video_backends.base import (
+from lib.backends.video_backend_contract import (
     VideoCapabilities,
     VideoGenerationRequest,
     VideoGenerationResult,

@@ -74,7 +74,6 @@ export default {
   'task_type_reference_video': 'Video',
   'task_status_queued': 'đang xếp hàng',
   'task_status_running': 'đang chạy',
-  'task_status_cancelling': 'đang hủy',
   'task_status_succeeded': 'đã xong',
   'task_status_failed': 'đã thất bại',
   'task_status_cancelled': 'đã hủy',
@@ -159,4 +158,5 @@ export default {
   'problem_reference_asset_unregistered': 'Đơn vị này tham chiếu đến tài nguyên chưa được đăng ký.',
   'problem_reference_asset_missing': 'Tài nguyên được tham chiếu chưa có ảnh tài nguyên.',
   'problem_tts_not_configured': 'Chưa cấu hình mô hình giọng đọc tổng hợp.',
+  'problem_tts_duration_endpoint_fixed': 'Thời lượng thành phẩm của model này do endpoint quyết định, không thể yêu cầu video đủ dài cho lời dẫn.',
 } satisfies Record<keyof typeof enWorkflow, string>;

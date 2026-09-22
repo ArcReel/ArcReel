@@ -6,7 +6,7 @@ from __future__ import annotations
 import asyncio
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import ClassVar
+from typing import Any, ClassVar
 
 import pytest
 from sqlalchemy import select
@@ -22,6 +22,12 @@ from lib.generation.media_generator import MediaGenerator
 from lib.project.data_validator import DataValidator
 from lib.project.resource_paths import RESOURCE_TYPES, resource_extension, resource_relative_path
 from lib.script.script_models import GeneratedAssets
+from tests.fakes import refuse_resume_execution
+
+
+async def _refuse_generation_execution(task: dict[str, Any], *, claimed_provider_id: str) -> dict[str, Any]:
+    """常规执行器的防误调替身。"""
+    raise AssertionError(f"unexpected generation execution: {task.get('task_id')}")
 
 
 class TestResourcePaths:
@@ -414,6 +420,8 @@ class TestWorkerAudioLane:
                 _limits={"dashscope": {"image": 0, "video": 0, "audio": 1}},
                 _defaults={"image": 5, "video": 3, "audio": 10},
             ),
+            executor=_refuse_generation_execution,
+            resume_executor=refuse_resume_execution,
         )
         dummy = asyncio.get_running_loop().create_future()
         dummy.set_result(None)
@@ -447,6 +455,8 @@ class TestWorkerAudioLane:
                 _defaults={"image": 5, "video": 3, "audio": 10},
             ),
             provider_projection=_fixed_projection,
+            executor=_refuse_generation_execution,
+            resume_executor=refuse_resume_execution,
         )
 
         async def _fake_process(task):
@@ -457,7 +467,7 @@ class TestWorkerAudioLane:
         claimed = await w._claim_tasks()
         assert claimed is True
         assert w._slots.occupied("dashscope", "audio") == 1
-        assert w._slots.find_by_task("T1") is not None
+        assert w._slots.active_task_ids() == {"T1"}
         await asyncio.gather(*w._slots.all_active_tasks(), return_exceptions=True)
 
 
@@ -479,7 +489,6 @@ class TestOrphanAudioRestartLost:
         class _Q:
             def __init__(self):
                 self.failed = []
-                self.cancelled = []
 
             async def list_orphan_tasks_on_start(self):
                 return [
@@ -496,17 +505,15 @@ class TestOrphanAudioRestartLost:
                 self.failed.append((task_id, error))
                 return 1
 
-            async def mark_task_cancelled(self, task_id, cancelled_by="user"):
-                self.cancelled.append(task_id)
-
         q = _Q()
         w = GenerationWorker(
             queue=q,
             capacity=CapacityTable(_limits={}, _defaults={"image": 5, "video": 3, "audio": 10}),
+            executor=_refuse_generation_execution,
+            resume_executor=refuse_resume_execution,
         )
-        await w._handle_orphan_tasks_on_start()
+        await w._recovery.handle_orphans()
         assert q.failed == [("A1", "[restart_lost_audio]")]
-        assert q.cancelled == []
 
 
 class TestDeriveExecutionModelForEnqueueAudio:

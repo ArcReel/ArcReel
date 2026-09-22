@@ -22,7 +22,7 @@ from lib.artifacts.artifact_manifest import (
     ArtifactManifestError,
     ProjectArtifactManifestAdapter,
 )
-from lib.artifacts.version_manager import VersionManager
+from lib.artifacts.version_manager import UnmanagedSnapshotPathError, VersionManager
 from lib.artifacts.video_artifact_facts import VideoArtifactCurrencyFacts
 from lib.artifacts.video_visual_provenance import (
     build_reference_video_visual_basis,
@@ -37,6 +37,7 @@ from lib.infra.path_safety import try_safe_join
 from lib.infra.schema_guards import is_finite_number
 from lib.project.project_manager import ProjectManager, get_project_manager
 from lib.project.resource_paths import resource_relative_path
+from lib.script.reference_video.duration_slots import DEFAULT_PLANNED_DURATION_SECONDS
 from lib.script.reference_video.prompt_render import render_video_unit_prompt, resolve_reference_audio_paths
 from lib.script.reference_video.request_projection import (
     USE_TTS,
@@ -179,11 +180,11 @@ def _selected_current_video_record(
         return None
     if not visual_basis_digest or current_record.get("visual_basis_digest") != visual_basis_digest:
         return None
-    snapshot_rel = current_record.get("file")
-    if not isinstance(snapshot_rel, str):
+    try:
+        snapshot_file = VersionManager.resolve_snapshot_path(project_path, resource_type, current_record.get("file"))
+    except UnmanagedSnapshotPathError:
         return None
-    snapshot_file = try_safe_join(project_path, snapshot_rel, require_file=True)
-    if snapshot_file is None:
+    if not snapshot_file.is_file():
         return None
     try:
         if not filecmp.cmp(formal_file, snapshot_file, shallow=False):
@@ -466,7 +467,8 @@ async def prepare_current_storyboard_narrated_video_duration(
         configured = project.get("default_duration")
         planned = configured if isinstance(configured, int) and not isinstance(configured, bool) else None
     if planned is None or planned <= 0:
-        planned = candidate.supported_durations[0]
+        # 时长由端点固定的模型行没有档位可借（合法空集），退到共享的规划篇幅默认值。
+        planned = next(iter(candidate.supported_durations), DEFAULT_PLANNED_DURATION_SECONDS)
     preparation = admit_script_unit(resolve_script_kind(script), item).preparation
     active = tts_in_progress
     if active is None:
@@ -537,6 +539,7 @@ async def prepare_current_storyboard_narrated_video_duration(
         planned_duration_seconds=planned,
         supported_durations=candidate.supported_durations,
         confirmed_request_duration_seconds=confirmed_request_duration_seconds,
+        duration_endpoint_fixed=candidate.duration_endpoint_fixed,
         current_visual_duration_seconds=current_visual_duration,
         current_reusable_visual_duration_seconds=current_reusable_visual_duration,
     )

@@ -8,7 +8,7 @@ from lib.backends.providers import (
     PROVIDER_NEWAPI,
     PROVIDER_OPENAI,
 )
-from lib.backends.video_backends.base import (
+from lib.backends.video_backend_contract import (
     ReferenceAudioMode,
     VideoBackend,
     VideoGenerationRequest,

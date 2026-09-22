@@ -32,22 +32,24 @@ import httpx
 
 from lib.backends.agnes_shared import agnes_base_url, agnes_headers, agnes_host, resolve_agnes_api_key
 from lib.backends.aspect_size import VIDEO_TIER_SHORT_EDGE, aspect_size, resolution_to_short_edge
-from lib.backends.providers import PROVIDER_AGNES
-from lib.backends.video_backends.base import (
+from lib.backends.backend_runtime import (
     ProviderJobIdPersistenceMixin,
+    download_resumable_video,
+    poll_with_retry,
+    recording_poll,
+    should_retry_poll,
+    should_retry_submit,
+    submit_post,
+)
+from lib.backends.http_status_errors import raise_for_status_redacted
+from lib.backends.providers import PROVIDER_AGNES
+from lib.backends.video_backend_contract import (
     ResumeExpiredError,
     VideoAudioMode,
     VideoCapabilities,
     VideoCapabilityError,
     VideoGenerationRequest,
     VideoGenerationResult,
-    download_resumable_video,
-    poll_with_retry,
-    raise_for_status_redacted,
-    recording_poll,
-    should_retry_poll,
-    should_retry_submit,
-    submit_post,
 )
 from lib.db.repositories.usage_repo import MAX_BILLED_DURATION_SECONDS
 from lib.infra.logging_utils import format_kwargs_for_log

@@ -684,7 +684,7 @@ def build_remote_mcp_server(
 
     @server.tool(name="cancel_generation_batch", structured_output=False)
     async def remote_cancel_generation_batch(project: str, batch_id: str) -> CallToolResult:  # pyright: ignore[reportUnusedFunction]
-        """Cancel every non-terminal member through the normal queue cancellation path."""
+        """Cancel the batch members that are still queued; members already running are not cancellable and finish normally (listed in ``skipped_running``)."""
         try:
             scope = _project_scope(project, projects)
             request = GenerationBatchToolRequest(batch_id=batch_id)

@@ -85,7 +85,6 @@ class TestBuildTaskTerminalChange:
         [
             {"task_id": "t1", "status": "queued"},
             {"task_id": "t1", "status": "running"},
-            {"task_id": "t1", "status": "cancelling"},
             {"task_id": "", "status": "succeeded"},
         ],
     )

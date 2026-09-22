@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
+from lib.backends.artifact_download_guard import AUDIO_ARTIFACT_MAX_BYTES, read_body_capped
 from lib.backends.audio_backends.base import (
     AudioCapability,
     AudioSynthesisRequest,
@@ -135,9 +136,10 @@ class OpenAIAudioBackend:
             kwargs["response_format"],
             len(request.text),
         )
-        response = await self._client.audio.speech.create(**kwargs)
-        if not response.content:
+        async with self._client.audio.speech.with_streaming_response.create(**kwargs) as response:
+            content = await read_body_capped(response.http_response, max_bytes=AUDIO_ARTIFACT_MAX_BYTES)
+        if not content:
             # 宽松 shim 可能 200 + 空体；不落 0 字节文件、不计成功。该次合成已在供应商侧
             # 发生，重试等于再次计费，故直接抛错交由任务层失败（重生成廉价）。
             raise RuntimeError("OpenAI 兼容语音合成返回空响应体")
-        return response.content
+        return content

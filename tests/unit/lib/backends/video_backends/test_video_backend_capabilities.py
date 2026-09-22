@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from lib.backends.video_backends.base import (
+from lib.backends.video_backend_contract import (
     ReferenceAudioMode,
     VideoAudioMode,
     VideoCapabilities,
@@ -124,7 +124,7 @@ class TestVideoCapabilitiesForModel:
 
     def test_minimax_h3_declares_multimodal_limits(self):
         from lib.backends.backend_assembly.specs import builtin_video_capabilities_for_model
-        from lib.backends.video_backends.base import ReferenceAudioMode
+        from lib.backends.video_backend_contract import ReferenceAudioMode
 
         caps = builtin_video_capabilities_for_model("minimax", "MiniMax-H3")
         assert caps.max_reference_images == 9
@@ -268,7 +268,7 @@ class TestVideoAudioTrack:
         """
         from typing import get_args
 
-        from lib.backends.video_backends.base import VideoRoute
+        from lib.backends.video_backend_contract import VideoRoute
         from lib.config.resolver import VideoGenerationType
 
         assert get_args(VideoRoute) == get_args(VideoGenerationType)

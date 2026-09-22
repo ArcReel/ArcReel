@@ -9,7 +9,6 @@
 export type TaskStatus =
   | "queued"
   | "running"
-  | "cancelling"
   | "succeeded"
   | "failed"
   | "cancelled";
@@ -49,7 +48,6 @@ export interface TaskItem {
 export interface TaskStats {
   queued: number;
   running: number;
-  cancelling: number;
   succeeded: number;
   failed: number;
   cancelled: number;

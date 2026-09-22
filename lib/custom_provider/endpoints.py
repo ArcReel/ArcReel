@@ -27,8 +27,8 @@ from lib.backends.image_backends.minimax import MiniMaxImageBackend
 from lib.backends.image_backends.openai import OpenAIImageBackend
 from lib.backends.text_backends.gemini import GeminiTextBackend
 from lib.backends.text_backends.openai import OpenAITextBackend
+from lib.backends.video_backend_contract import ReferenceAudioMode, VideoCapabilities
 from lib.backends.video_backends.ark import ArkVideoBackend
-from lib.backends.video_backends.base import ReferenceAudioMode, VideoCapabilities
 from lib.backends.video_backends.dashscope import DashScopeVideoBackend, classify_wan_model
 from lib.backends.video_backends.kling import KlingVideoBackend
 from lib.backends.video_backends.openai import OpenAIVideoBackend
@@ -57,9 +57,9 @@ from lib.custom_provider.comfyui.capabilities import (
     native_short_edge,
     size_is_fixed,
 )
+from lib.custom_provider.comfyui.comfyui_backend import ComfyuiVideoBackend, binding_video_capabilities
+from lib.custom_provider.comfyui.comfyui_image_backend import ComfyuiImageBackend, binding_image_capabilities
 from lib.custom_provider.comfyui.failures import ComfyuiError
-from lib.custom_provider.comfyui_backend import ComfyuiVideoBackend, binding_video_capabilities
-from lib.custom_provider.comfyui_image_backend import ComfyuiImageBackend, binding_image_capabilities
 from lib.custom_provider.declarative_backend import DeclarativeVideoBackend, request_urls
 from lib.custom_provider.endpoint_definition.kinds import COMFYUI_KIND
 

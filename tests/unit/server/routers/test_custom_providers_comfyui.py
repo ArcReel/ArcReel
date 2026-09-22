@@ -6,7 +6,6 @@
 
 from __future__ import annotations
 
-import asyncio
 from collections.abc import Generator
 from typing import Any
 
@@ -14,8 +13,9 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
+from lib.db.models.custom_provider import CustomProvider
 from lib.db.repositories.custom_endpoint_repo import CustomEndpointRepository
-from lib.infra.httpx_shared import shutdown_http_client, startup_http_client
+from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 from tests.factories import comfyui_endpoint_definition, custom_endpoint_definition
 from tests.http_capture import capture_http, only_request
 
@@ -25,13 +25,8 @@ _SYSTEM_STATS = f"{_COMFY_URL}/system_stats"
 
 @pytest.fixture
 def comfyui_client(custom_providers_app) -> Generator[TestClient, None, None]:
-    """连通性检查走共享 httpx 客户端；它由 server.app 的 lifespan 建立，这里自行起停。"""
-    asyncio.run(startup_http_client())
-    try:
-        with TestClient(custom_providers_app) as c:
-            yield c
-    finally:
-        asyncio.run(shutdown_http_client())
+    with TestClient(custom_providers_app) as c:
+        yield c
 
 
 async def _store_endpoint(session_factory, definition: dict[str, Any]) -> str:
@@ -46,6 +41,13 @@ async def _store_endpoint(session_factory, definition: dict[str, Any]) -> str:
         )
         await session.commit()
         return f"ce-{row.id}"
+
+
+async def _stored_provider(session_factory, provider_id: int) -> CustomProvider:
+    async with session_factory() as session:
+        provider = await CustomProviderRepository(session).get_provider(provider_id)
+        assert provider is not None
+        return provider
 
 
 def _create_provider(client: TestClient, **overrides: Any) -> dict[str, Any]:
@@ -74,13 +76,13 @@ def _model(endpoint: str, **overrides: Any) -> dict[str, Any]:
 
 
 class TestComfyuiProviderCreation:
-    def test_an_empty_api_key_is_accepted(self, comfyui_client: TestClient):
+    async def test_an_empty_api_key_is_accepted(self, comfyui_client: TestClient, custom_providers_app_session_factory):
         """ComfyUI 本体零鉴权，凭据模板在端点定义里：供应商行的 api_key 留空须能保存。"""
         provider = _create_provider(comfyui_client)
         assert provider["discovery_format"] == "comfyui"
-        stored = comfyui_client.get(f"/api/v1/custom-providers/{provider['id']}/credentials").json()
-        assert stored["api_key"] == ""
-        assert stored["base_url"] == _COMFY_URL
+        stored = await _stored_provider(custom_providers_app_session_factory, provider["id"])
+        assert stored.api_key == ""
+        assert stored.base_url == _COMFY_URL
 
     def test_an_unknown_protocol_is_refused_at_the_request_boundary(self, comfyui_client: TestClient):
         """协议名录是封闭的：新增取值只能由 DiscoveryFormatLiteral 放行。"""
@@ -116,7 +118,6 @@ class TestComfyuiProviderCreation:
     ):
         """一份 workflow 产图还是产视频由定义自己说了算，端点键推不出来。"""
         definition = comfyui_endpoint_definition(media_type="image")
-        del definition["bindings"]["fps"]
         key = await _store_endpoint(custom_providers_app_session_factory, definition)
         catalog = comfyui_client.get("/api/v1/custom-providers/endpoints").json()["endpoints"]
         entry = next(e for e in catalog if e["key"] == key)
@@ -211,6 +212,44 @@ class TestComfyuiConnectivityCheck:
             body = comfyui_client.post(f"/api/v1/custom-providers/{provider['id']}/test").json()
         assert body["success"] is True
         assert "authorization" not in only_request(route).headers
+
+
+class TestComfyuiProbeDestination:
+    """探针与产物下载共用同一道出站目的地校验。"""
+
+    @pytest.mark.parametrize(
+        "base_url",
+        [
+            "http://169.254.169.254",
+            "http://[fd00:ec2::254]",
+            "http://100.100.100.200",
+            "http://192.0.0.192",
+        ],
+    )
+    def test_a_metadata_destination_is_refused_before_the_request_leaves(
+        self, comfyui_client: TestClient, base_url: str
+    ):
+        with capture_http() as router:
+            route = router.get(f"{base_url}/system_stats").mock(return_value=_stats_response())
+            body = comfyui_client.post(
+                "/api/v1/custom-providers/test",
+                json={"discovery_format": "comfyui", "base_url": base_url, "api_key": ""},
+            ).json()
+        assert route.call_count == 0
+        assert body["success"] is False
+        assert "disallowed address" in body["message"]
+
+    @pytest.mark.parametrize("base_url", ["http://127.0.0.1:8188", "http://192.168.24.7:8188"])
+    def test_loopback_and_private_addresses_stay_reachable(self, comfyui_client: TestClient, base_url: str):
+        """自建 ComfyUI 合法地跑在环回与私网上，这道校验不许把它们一并拦掉。"""
+        with capture_http() as router:
+            route = router.get(f"{base_url}/system_stats").mock(return_value=_stats_response())
+            body = comfyui_client.post(
+                "/api/v1/custom-providers/test",
+                json={"discovery_format": "comfyui", "base_url": base_url, "api_key": ""},
+            ).json()
+        assert route.call_count == 1
+        assert body["success"] is True
 
 
 # ---------------------------------------------------------------------------
@@ -489,7 +528,6 @@ class TestComfyuiSupportedDurations:
         from server.routers.custom_providers import ModelInput
 
         definition = comfyui_endpoint_definition(media_type="image")
-        definition["bindings"].pop("fps")
         model = ModelInput(model_id="m", display_name="m", endpoint="ce-7")
 
         assert model.to_db_dict(_comfyui_spec(definition))["supported_durations"] is None

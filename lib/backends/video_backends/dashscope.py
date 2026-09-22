@@ -24,6 +24,15 @@ from typing import Literal
 
 import httpx
 
+from lib.backends.backend_runtime import (
+    ProviderJobIdPersistenceMixin,
+    download_resumable_video,
+    poll_with_retry,
+    recording_poll,
+    should_retry_poll,
+    should_retry_submit,
+    submit_post,
+)
 from lib.backends.dashscope_shared import (
     dashscope_failure_reason,
     dashscope_headers,
@@ -38,9 +47,9 @@ from lib.backends.dashscope_shared import (
     safe_body_for_log,
 )
 from lib.backends.data_uri import file_to_data_uri
+from lib.backends.http_status_errors import raise_for_status_redacted
 from lib.backends.providers import PROVIDER_DASHSCOPE
-from lib.backends.video_backends.base import (
-    ProviderJobIdPersistenceMixin,
+from lib.backends.video_backend_contract import (
     ReferenceAudioMode,
     ResumeExpiredError,
     VideoAudioMode,
@@ -48,13 +57,6 @@ from lib.backends.video_backends.base import (
     VideoCapabilityError,
     VideoGenerationRequest,
     VideoGenerationResult,
-    download_resumable_video,
-    poll_with_retry,
-    raise_for_status_redacted,
-    recording_poll,
-    should_retry_poll,
-    should_retry_submit,
-    submit_post,
 )
 from lib.infra.logging_utils import format_kwargs_for_log
 from lib.infra.retry import (

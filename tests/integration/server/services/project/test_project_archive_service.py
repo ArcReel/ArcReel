@@ -1248,6 +1248,93 @@ class TestProjectArchiveService:
         assert exc_info.value.detail.render() == "导入包校验失败"
         assert any("project.json" in error for error in exc_info.value.render_errors())
 
+    @pytest.mark.parametrize(
+        "snapshot",
+        [
+            "../outside/E1S01_v1.png",
+            "/tmp/E1S01_v1.png",
+            "versions\\storyboards\\E1S01_v1.png",
+            "versions/characters/E1S01_v1.png",
+            "versions/storyboards/E1S01_v1.txt",
+            "versions/storyboards/E1S01\x00_v1.png",
+        ],
+    )
+    def test_import_rejects_unmanaged_version_snapshot_paths(self, tmp_path, snapshot):
+        self._assert_import_rejects_storyboard_version_record(tmp_path, {"version": 1, "file": snapshot})
+
+    @pytest.mark.parametrize("record", ["versions/storyboards/E1S01_v1.png", None, 1])
+    def test_import_rejects_non_object_version_records(self, tmp_path, record):
+        self._assert_import_rejects_storyboard_version_record(tmp_path, record)
+
+    @pytest.mark.parametrize(
+        ("storyboards", "location"),
+        [
+            ([], "storyboards"),
+            ({"E1S01": "versions/storyboards/E1S01_v1.png"}, "storyboards/E1S01"),
+            ({"E1S01": {"current_version": 1, "versions": {"1": {"version": 1}}}}, "storyboards/E1S01"),
+        ],
+    )
+    def test_import_rejects_malformed_version_history_containers(self, tmp_path, storyboards, location):
+        self._assert_import_rejects_versions_payload(tmp_path, {"storyboards": storyboards}, location)
+
+    @classmethod
+    def _assert_import_rejects_storyboard_version_record(cls, tmp_path, record):
+        cls._assert_import_rejects_versions_payload(
+            tmp_path, {"storyboards": {"E1S01": {"current_version": 1, "versions": [record]}}}, "storyboards/E1S01"
+        )
+
+    @staticmethod
+    def _assert_import_rejects_versions_payload(tmp_path, payload, location):
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = _create_project(pm)
+        service = ProjectArchiveService(pm)
+        _write_json(project_dir / "versions" / "versions.json", payload)
+        archive_path = tmp_path / "unmanaged-snapshot.zip"
+        _make_manual_zip(project_dir, archive_path)
+        shutil.rmtree(project_dir)
+
+        with pytest.raises(ProjectArchiveValidationError) as exc_info:
+            service.import_project_archive(archive_path, uploaded_filename="unmanaged-snapshot.zip")
+
+        assert exc_info.value.detail.render() == "导入包校验失败"
+        assert any(error.startswith(f"{location}:") for error in exc_info.value.render_errors())
+        assert list(pm.projects_root.iterdir()) == []
+
+    def test_import_drops_version_buckets_of_unknown_resource_types(self, tmp_path, caplog):
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = _create_project(pm)
+        service = ProjectArchiveService(pm)
+        storyboards = {
+            "E1S01": {"current_version": 1, "versions": [{"version": 1, "file": "versions/storyboards/E1S01_v1.png"}]}
+        }
+        _write_json(
+            project_dir / "versions" / "versions.json",
+            {
+                "storyboards": storyboards,
+                "clues": {
+                    "Key": {
+                        "current_version": 1,
+                        "versions": [{"version": 1, "file": "versions/clues/Key_v1_20260101T000000.png"}],
+                    }
+                },
+            },
+        )
+        archive_path = tmp_path / "legacy-bucket.zip"
+        _make_manual_zip(project_dir, archive_path)
+        shutil.rmtree(project_dir)
+
+        with caplog.at_level("INFO", logger=project_archive_module.logger.name):
+            result = service.import_project_archive(archive_path, uploaded_filename="legacy-bucket.zip")
+
+        installed = json.loads(
+            (pm.get_project_path(result.project_name) / "versions" / "versions.json").read_text(encoding="utf-8")
+        )
+        assert "clues" not in installed
+        assert installed["storyboards"] == storyboards
+        dropped = [record for record in caplog.records if "clues" in record.getMessage()]
+        assert len(dropped) == 1
+        assert "versions/clues" not in dropped[0].getMessage()
+
     def test_import_rejects_missing_script_reference_for_malformed_entry(self, tmp_path):
         """集号无法解析的畸形条目不是合法账本条目：剧本缺失仍阻断导入。"""
         pm = ProjectManager(tmp_path / "projects")

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from lib.backends.video_backends.base import ProviderJobStatus
+from lib.backends.video_backend_contract import ProviderJobStatus
 from lib.custom_provider.endpoint_definition import JsonPathEvaluationError, extract_value, map_status
 from lib.i18n import _
 

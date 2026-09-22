@@ -2,7 +2,11 @@
 id: text/narration_prompt_authoring
 category: text
 title: 旁白解说 · 提示词编写
-description: 为已定稿旁白分镜补全视觉层，按 segment_id 对齐。动作指导保留触发词避讳，不复述异步计费后果。
+description: 为旁白解说已定稿的分镜补全画面与视频提示词（image_prompt / video_prompt）。
+stage: prompt_authoring
+invoked_by:
+  kind: agent_tool
+  name: generate_episode_script
 applies_to:
   content_mode:
   - narration
@@ -37,9 +41,9 @@ protected: false
 
 {{ partial("shared/overview_block") }}
 
-{{ partial("shared/style_block") }}
+{{ partial("shared/text_style") }}
 
-{{ partial("shared/asset_appearance_blocks") }}
+{{ partial("shared/lists/asset_appearance_blocks") }}
 
 {{ partial("shared/asset_appearance_note") }}
 

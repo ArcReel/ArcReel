@@ -43,7 +43,7 @@ pnpm build        # 双 locale 构建，失效链接或锚点会导致构建失�
 pnpm typecheck
 pnpm lint         # ESLint
 pnpm format       # prettier 写入；format:check 仅校验不修改
-pnpm check        # typecheck + lint + format:check，与 CI 的三项静态检查等价
+pnpm check        # sync-contributing + typecheck + lint + format:check + check-consistency；不含 build 与 scripts/*.test.mjs
 
 # 站内搜索仅在构建产物上可用，dev server 中不可用
 pnpm build && pnpm serve
@@ -249,7 +249,7 @@ cd frontend && pnpm knip
 **Lint & Format（文档站 ESLint + prettier）：**
 
 ```bash
-cd website && pnpm check          # typecheck + lint + format:check
+cd website && pnpm check          # sync-contributing + typecheck + lint + format:check + check-consistency
 cd website && pnpm lint:fix       # ESLint 自动修复可修复的问题
 cd website && pnpm format         # prettier 写入
 ```
@@ -257,7 +257,7 @@ cd website && pnpm format         # prettier 写入
 - 配置：`website/eslint.config.mjs` + `website/.prettierrc.json`（`website/` 是独立包根，工具链与 `frontend/` 各自独立，因为两者的 TypeScript 大版本不同）
 - ESLint 规则集与 frontend 相同：`typescript-eslint/recommendedTypeChecked` + `react/recommended` + `react-hooks/recommended` + `jsx-a11y/recommended`
 - prettier printWidth 120（与后端 ruff 的 line-length 对齐）；`docs/` 与 `i18n/` 不参与格式化，排除依据见 `website/.prettierignore` 顶部注释
-- CI 中强制检查：`website-checks` job 的 `Typecheck` / `Lint` / `Format check` 三个 step，均排在 `Build` 之前
+- CI 中强制检查：`website-checks` job 的 `Typecheck` / `Lint` / `Format check` / `Sync CONTRIBUTING copy` / `Consistency check` 五个 step，均排在 `Build` 之前；该 job 另在安装依赖前跑 translation-lock 与 `website/scripts/*.test.mjs` 两组 `node --test`
 
 ### 依赖管理
 
@@ -356,15 +356,6 @@ AFK 团队流程的短期运行分支例外使用 `afk/<batch-id>/stage-<K>` 与
 ### 短分支寿命
 
 从创建到合并 ≤ 3 天。超期应拆分或先 rebase 主线同步，避免将长期分支直接提交 review。
-
-目录归组搬迁合入 `main` 后，此前切出的分支自己新增的代码可能仍引用旧模块路径（搬迁不留兼容层）。同步主线（merge 或 rebase）后运行同一个搬迁脚本改写，再用残留检查模式自检：
-
-```bash
-uv run python scripts/regroup/migrate.py          # 移动新增的镜像测试，改写导入、打桩路径、配置与文档里的旧路径；可重复运行
-uv run python scripts/regroup/migrate.py --check  # 仍有待搬文件或旧路径引用时非零退出
-```
-
-脚本遇到映射表（`scripts/regroup/module_map.toml`）之外的核心库顶层或应用服务层散文件会报错退出：先把它放进所属的领域包，再重跑。
 
 ### Squash merge
 

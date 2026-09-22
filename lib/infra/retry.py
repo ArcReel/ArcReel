@@ -58,7 +58,7 @@ DEFAULT_MAX_ATTEMPTS = 3
 DEFAULT_BACKOFF_SECONDS: tuple[int, ...] = (2, 4, 8)
 
 # 下载阶段没有独立的重试配置：产物取件与轮询同属「供应商任务已建成后的幂等取件」，共用
-# lib.backends.video_backends.base.with_artifact_retry 的失败预算与退避。
+# lib.backends.backend_runtime.with_artifact_retry 的失败预算与退避。
 
 
 class AsyncClock(Protocol):

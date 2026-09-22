@@ -147,11 +147,7 @@
   ],
   "output_candidates": [
     { "class_type": "SaveVideo" },
-    { "class_type": "VHS_VideoCombine", "requires_true": "save_output" },
-    { "class_type": "SaveImage" },
-    { "class_type": "SaveImageAdvanced" },
-    { "class_type": "SaveAnimatedWEBP" },
-    { "class_type": "SaveWEBM" }
+    { "class_type": "VHS_VideoCombine", "requires_true": "save_output" }
   ],
   "excluded_output_class_types": ["PreviewImage", "PreviewAudio", "SaveImageWebsocket"],
   "class_type_tiers": {

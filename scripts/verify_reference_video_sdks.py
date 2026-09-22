@@ -14,6 +14,7 @@ from datetime import date, datetime
 from enum import StrEnum
 from pathlib import Path
 
+from lib.backends.video_backend_contract import VideoCapabilities
 from lib.backends.video_backends import (
     PROVIDER_ARK,
     PROVIDER_GEMINI,
@@ -23,7 +24,6 @@ from lib.backends.video_backends import (
     VideoGenerationRequest,
     create_backend,
 )
-from lib.backends.video_backends.base import VideoCapabilities
 from scripts.fixtures.reference_video.generate_fixtures import generate_color_refs
 
 

@@ -10,7 +10,7 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from lib.backends.image_backends.base import ImageCapability
-from lib.backends.video_backends.base import ReferenceAudioMode, VideoAudioMode
+from lib.backends.video_backend_contract import ReferenceAudioMode, VideoAudioMode
 from lib.custom_provider import is_custom_endpoint, make_endpoint_key
 from lib.custom_provider.backends import CustomVideoBackend
 from lib.custom_provider.comfyui.failures import ComfyuiError
@@ -304,7 +304,6 @@ class TestKindDispatch:
 
     def test_an_image_comfyui_spec_derives_its_image_capabilities(self):
         definition = comfyui_endpoint_definition(media_type="image")
-        definition["bindings"].pop("fps")
         row = SimpleNamespace(id=7, definition=definition)
 
         spec = endpoint_spec_from_row(cast("CustomEndpoint", row))
@@ -339,7 +338,6 @@ class TestKindDispatch:
         from lib.custom_provider.backends import CustomImageBackend
 
         definition = comfyui_endpoint_definition(media_type="image")
-        del definition["bindings"]["fps"]
         row = SimpleNamespace(id=7, definition=definition)
         provider = SimpleNamespace(provider_id="custom-1", base_url="https://comfy.test", api_key="")
 
@@ -356,7 +354,6 @@ class TestKindDispatch:
         落结构化失败、读侧按语言渲染——落一段裸文本的话，非中文用户在任务列表里看到的是一句中文。
         """
         definition = comfyui_endpoint_definition(media_type="image")
-        del definition["bindings"]["fps"]
         # 绕过 schema 直接改库才会出现的形状，故不过 validate_definition。
         definition["media_type"] = "audio"
         row = SimpleNamespace(id=7, definition=definition)

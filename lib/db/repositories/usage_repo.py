@@ -146,7 +146,7 @@ def _interrupted_target(task_id: str | None, task_statuses: dict[str, str]) -> t
     - ``task_id`` 查不到任务行：任务已被清理，调用同样无人接续，与上一条同处理。
     - 任务已终态：按任务的结局翻（cancelled → cancelled，succeeded / failed → failed）。
       成功任务也翻 failed —— 调用没走完结算就是没记成账，把它记成 success 会凭空补一笔费用。
-    - 任务未终态（queued / running / cancelling）：还活着，它自己的结算路径会收尾。
+    - 任务未终态（queued / running）：还活着，它自己的结算路径会收尾。
     """
     if not task_id:
         return CallStatus.FAILED, CallErrorCode.INTERRUPTED
@@ -177,7 +177,7 @@ class UsageRepository(BaseRepository):
         resolution: str | None = None,
         duration_seconds: int | None = None,
         aspect_ratio: str | None = None,
-        generate_audio: bool = True,
+        generate_audio: bool | None = None,
         provider: str = PROVIDER_GEMINI,
         user_id: str = DEFAULT_USER_ID,
         segment_id: str | None = None,

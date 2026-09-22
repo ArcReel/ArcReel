@@ -23,6 +23,7 @@ from lib.artifacts.artifact_manifest import ArtifactManifestError, ProjectArtifa
 from lib.artifacts.formal_write import formal_write_transaction
 from lib.infra.api_errors import BadRequestError, NotFoundError
 from lib.infra.json_io import atomic_write_bytes, atomic_write_json
+from lib.infra.path_safety import PathTraversalError, safe_join
 from lib.infra.schema_guards import is_bool
 from lib.project.asset_types import resolve_asset_key
 from lib.project.resource_paths import RESOURCE_TYPES as _RESOURCE_TYPES
@@ -39,6 +40,13 @@ _LOCKS_BY_VERSIONS_FILE: dict[str, threading.RLock] = {}
 _PREVIOUS_CURRENT_VERSION = "_previous_current_version"
 MANUAL_UPLOAD_VERSION_SOURCE = "manual_upload"
 logger = logging.getLogger(__name__)
+
+
+class UnmanagedSnapshotPathError(BadRequestError):
+    """A version record points outside its typed history bucket; the operation is refused."""
+
+    def __init__(self, resource_type: str) -> None:
+        super().__init__("version_snapshot_path_unmanaged", resource_type=resource_type)
 
 
 @dataclass(frozen=True, slots=True)
@@ -155,7 +163,12 @@ class VersionManager:
     def is_managed_snapshot_path(cls, resource_type: str, relative_path: object) -> bool:
         """Whether a record points to a canonical file in its typed history bucket."""
 
-        if resource_type not in cls.RESOURCE_TYPES or not isinstance(relative_path, str) or "\\" in relative_path:
+        if (
+            resource_type not in cls.RESOURCE_TYPES
+            or not isinstance(relative_path, str)
+            or "\\" in relative_path
+            or "\x00" in relative_path
+        ):
             return False
         path = PurePosixPath(relative_path)
         bucket = PurePosixPath(version_snapshot_dir(resource_type)).parts
@@ -167,6 +180,29 @@ class VersionManager:
             and all(part not in {"", ".", ".."} for part in path.parts[len(bucket) :])
             and path.suffix == cls.EXTENSIONS[resource_type]
         )
+
+    @classmethod
+    def resolve_snapshot_path(cls, project_path: Path, resource_type: str, relative_path: object) -> Path:
+        """Return the recorded snapshot path under ``project_path`` once it is known to be managed.
+
+        The record must name a canonical file in its typed history bucket and must
+        still resolve inside the project after symlinks are followed.  Anything
+        else raises :class:`UnmanagedSnapshotPathError` before the filesystem is
+        touched; the caller refuses the operation and leaves its data unchanged.
+        The returned path is the recorded one, not its symlink target, so unlink
+        and rename act on the snapshot entry itself.
+        """
+
+        if isinstance(relative_path, str) and cls.is_managed_snapshot_path(resource_type, relative_path):
+            try:
+                safe_join(project_path, relative_path)
+            except PathTraversalError as exc:
+                raise UnmanagedSnapshotPathError(resource_type) from exc
+            return Path(project_path) / relative_path
+        raise UnmanagedSnapshotPathError(resource_type)
+
+    def _resolve_snapshot(self, resource_type: str, record: Mapping[str, Any]) -> Path:
+        return self.resolve_snapshot_path(self.project_path, resource_type, record.get("file"))
 
     def _load_versions(self) -> dict:
         """加载版本元数据"""
@@ -929,6 +965,7 @@ class VersionManager:
             )
             if restore_version > 0 and previous is None:
                 raise ValueError(f"restore version does not exist: {restore_version}")
+            previous_file = self._resolve_snapshot(resource_type, previous) if previous is not None else None
             versions_snapshot = self.versions_file.read_bytes()
             current_backup: Path | None = None
             current_existed = current_file.is_file()
@@ -938,11 +975,10 @@ class VersionManager:
                 current_file.parent.mkdir(parents=True, exist_ok=True)
                 if current_existed:
                     current_backup = _create_rollback_backup(current_file)
-                if previous is None:
+                if previous is None or previous_file is None:
                     current_file.unlink(missing_ok=True)
                     resource_data["current_version"] = 0
                 else:
-                    previous_file = self.project_path / previous["file"]
                     if not previous_file.is_file():
                         raise FileNotFoundError(f"版本文件不存在: {previous_file}")
                     fd, replacement_name = tempfile.mkstemp(
@@ -1058,6 +1094,7 @@ class VersionManager:
             if existing_new_key is not None and existing_new_key != key:
                 raise AssetRenameHistoryCollisionError(new_id)
             versions = [v for v in record.get("versions", []) if isinstance(v, dict) and isinstance(v.get("file"), str)]
+            sources = [self._resolve_snapshot(resource_type, version) for version in versions]
             if dry_run:
                 return len(versions)
 
@@ -1068,12 +1105,11 @@ class VersionManager:
             bucket_dir = self.project_path / version_snapshot_dir(resource_type)
             new_dir = bucket_dir / new_parent if new_parent else bucket_dir
             prefix = f"{old_stem}_v"
-            for version in versions:
-                basename = normalize_asset_name(PurePosixPath(version["file"].replace("\\", "/")).name)
+            for version, src in zip(versions, sources, strict=True):
+                basename = normalize_asset_name(PurePosixPath(version["file"]).name)
                 if not basename.startswith(prefix):
                     continue
                 new_basename = f"{new_stem}_v{basename[len(prefix) :]}"
-                src = self.project_path / version["file"]
                 dst = new_dir / new_basename
                 if src.exists():
                     dst.parent.mkdir(parents=True, exist_ok=True)
@@ -1169,7 +1205,7 @@ class VersionManager:
             if key is None or not isinstance(record, dict):
                 return 0
             snapshots = [
-                self.project_path / version["file"]
+                self._resolve_snapshot(resource_type, version)
                 for version in record.get("versions", [])
                 if isinstance(version, dict) and isinstance(version.get("file"), str)
             ]
@@ -1222,7 +1258,7 @@ class VersionManager:
             if not target_version:
                 raise NotFoundError("version_not_found", version=version)
 
-            target_file = self.project_path / target_version["file"]
+            target_file = self._resolve_snapshot(resource_type, target_version)
             if not target_file.exists():
                 raise FileNotFoundError(f"版本文件不存在: {target_file}")
 

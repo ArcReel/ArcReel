@@ -163,6 +163,8 @@ MESSAGES = {
     ),
     "arch_non_standard_entry_excluded": "Non-standard top-level directory/file '{entry}' was excluded from the export",
     "arch_invalid_project_json": "Cannot parse {file}: {path}",
+    "arch_version_history_malformed": "{location}: the version history is not in the expected format",
+    "arch_version_snapshot_path_unmanaged": "{location}: a version record's snapshot path is outside the version directory of its resource type",
     "arch_script_file_repaired": "{location}: automatically repaired to {path}",
     "arch_missing_script_file_pending": "{location}: script not generated yet: {path}",
     "arch_missing_script_file": "{location}: referenced file does not exist: {path}",

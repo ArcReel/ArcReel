@@ -12,7 +12,13 @@ from pathlib import Path
 
 import httpx
 
-from lib.backends.http_status_errors import provider_rejected_error
+from lib.backends.backend_runtime import (
+    is_provider_rejection,
+    poll_with_retry,
+    provider_reason_summary,
+    redact_provider_text,
+)
+from lib.backends.http_status_errors import provider_rejected_error, redacted_status_error
 from lib.backends.image_backends.base import (
     ImageCapability,
     ImageCapabilityError,
@@ -21,13 +27,6 @@ from lib.backends.image_backends.base import (
     download_image_to_path,
 )
 from lib.backends.providers import PROVIDER_VIDU
-from lib.backends.video_backends.base import (
-    is_provider_rejection,
-    poll_with_retry,
-    provider_reason_summary,
-    redact_provider_text,
-    redacted_status_error,
-)
 from lib.backends.vidu_shared import (
     VIDU_RETRYABLE_ERRORS,
     assert_vidu_body_size,

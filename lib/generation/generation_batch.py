@@ -27,7 +27,7 @@ from lib.generation.generation_result import (
 )
 from lib.generation.task_terminal_events import TERMINAL_TASK_STATUSES
 
-GenerationBatchMemberStatus = Literal["queued", "running", "cancelling", "succeeded", "failed", "cancelled", "blocked"]
+GenerationBatchMemberStatus = Literal["queued", "running", "succeeded", "failed", "cancelled", "blocked"]
 
 
 class GenerationBatchRequestedItem(BaseModel):
@@ -93,7 +93,6 @@ class GenerationBatchCounts(BaseModel):
 
     queued: int = 0
     running: int = 0
-    cancelling: int = 0
     succeeded: int = 0
     failed: int = 0
     cancelled: int = 0
@@ -120,7 +119,8 @@ class GenerationBatchCancelResult(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     cancelled: list[str] = Field(default_factory=list)
-    cancelling: list[str] = Field(default_factory=list)
+    #: 已开始执行、不可取消的成员：照常跑完，结果照常成为产物。
+    skipped_running: list[str] = Field(default_factory=list)
     skipped_terminal: list[str] = Field(default_factory=list)
 
 

@@ -19,10 +19,8 @@ from .inputs import (
 )
 from .kinds import (
     SUPPORTED_KINDS,
-    TRIAL_RUN_IMAGE_UNSUPPORTED,
     KindTestSupport,
     support_for_kind,
-    trial_run_refusal,
 )
 from .modes import TESTABLE_KINDS, EndpointTestMode, supports_test_mode
 from .preview import PreviewedRequest, RequestPreview, preview_request
@@ -35,6 +33,7 @@ from .trial_run import (
     TrialRunManager,
     TrialRunStatus,
     TrialRunTarget,
+    artifact_media_type,
     declarative_target,
     model_ref_target,
     provider_from_base_url,
@@ -49,7 +48,6 @@ __all__ = [
     "STAGES",
     "SUPPORTED_KINDS",
     "TESTABLE_KINDS",
-    "TRIAL_RUN_IMAGE_UNSUPPORTED",
     "TRIAL_RUN_STAGES",
     "TRIAL_RUN_TTL_SECONDS",
     "ComfyuiConversions",
@@ -69,6 +67,7 @@ __all__ = [
     "TrialRunManager",
     "TrialRunStatus",
     "TrialRunTarget",
+    "artifact_media_type",
     "check_response",
     "comfyui_target",
     "declarative_target",
@@ -82,5 +81,4 @@ __all__ = [
     "support_for_kind",
     "supports_test_mode",
     "trial_run_manager",
-    "trial_run_refusal",
 ]

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import functools
 import json
 import logging
@@ -15,6 +14,7 @@ from pathlib import Path
 from typing import cast
 
 from lib.infra.path_safety import safe_resolve
+from lib.infra.subprocess_deadline import SubprocessDeadlineExceeded, run_with_deadline
 
 logger = logging.getLogger(__name__)
 
@@ -112,26 +112,18 @@ async def _run_ffprobe(extra_args: list[str]) -> bytes:
     （对内网地址同样生效），不加白名单会把这个探测调用变成 SSRF 跳板。
     超时同样按 ValueError 处理，避免损坏文件让 ffprobe 挂起占用请求。
     """
-    proc = await asyncio.create_subprocess_exec(
-        "ffprobe",
-        "-v",
-        "error",
-        "-protocol_whitelist",
-        "file",
-        *extra_args,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.DEVNULL,
-    )
     try:
-        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=_FFPROBE_TIMEOUT_SECONDS)
-    except TimeoutError:
-        proc.kill()
-        await proc.wait()
+        result = await run_with_deadline(
+            ["ffprobe", "-v", "error", "-protocol_whitelist", "file", *extra_args],
+            deadline_seconds=_FFPROBE_TIMEOUT_SECONDS,
+            capture_stdout=True,
+        )
+    except SubprocessDeadlineExceeded:
         raise ValueError("音频文件无法解析") from None
 
-    if proc.returncode != 0:
+    if result.returncode != 0:
         raise ValueError("音频文件无法解析")
-    return stdout
+    return result.stdout
 
 
 async def probe_audio_duration_seconds(

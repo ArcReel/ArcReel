@@ -6,7 +6,7 @@ image 的 ``api_model_name`` 解耦、video 的子路径/resume/download）以�
 
 JWT 加密原语在 ``lib.backends.kling_shared`` 共享（``KlingJWTManager`` / ``kling_bearer_headers`` /
 ``resolve_kling_*`` / ``KLING_BASE_URL``），本基类只把它们装配成后端脚手架；submit/poll helpers
-复用 ``lib.backends.video_backends.base``（``submit_post`` / ``poll_with_retry`` 及重试谓词）。
+复用 ``lib.backends.backend_runtime``（``submit_post`` / ``poll_with_retry`` 及重试谓词）。
 """
 
 from __future__ import annotations
@@ -17,6 +17,14 @@ from typing import ClassVar
 
 import httpx
 
+from lib.backends.backend_runtime import (
+    VIDEO_POLL_INTERVAL_SECONDS,
+    poll_with_retry,
+    should_retry_poll,
+    should_retry_submit,
+    submit_post,
+)
+from lib.backends.http_status_errors import raise_for_status_redacted
 from lib.backends.kling_shared import (
     KLING_BASE_URL,
     KlingJWTManager,
@@ -29,15 +37,7 @@ from lib.backends.kling_shared import (
     resolve_kling_jwt_credentials,
 )
 from lib.backends.providers import PROVIDER_KLING
-from lib.backends.video_backends.base import (
-    VIDEO_POLL_INTERVAL_SECONDS,
-    VideoGenerationRequest,
-    poll_with_retry,
-    raise_for_status_redacted,
-    should_retry_poll,
-    should_retry_submit,
-    submit_post,
-)
+from lib.backends.video_backend_contract import VideoGenerationRequest
 from lib.config.url_utils import normalize_base_url
 from lib.infra.retry import (
     DEFAULT_BACKOFF_SECONDS,

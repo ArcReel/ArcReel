@@ -2,13 +2,11 @@
 id: reference_video/unit
 category: video
 title: 参考生视频
-description: >-
-  参考生视频单元的完整提示词，按供应商三段论排布：参考来源声明、单元正文、风格与负向约束。
-  前两段是请求契约，图片与音频编号由代码按实际随请求发出的参考素材生成。
-  第三段不写画质、稳定类措辞，质量词对当前模型近于噪声，只会分走正文的注意力。
-  两个及以上不同角色同框时才追加分身或双胞胎排除项；同一角色的本体与衍生同现是一个人，
-  追加会与第一段的形态声明对立。
-  商品高保真声明放在最后并排出优先级，说明 Avoid 行的文字与 Logo 排除项不针对商品参考图自带的标识。
+description: 参考生视频单元的完整提示词，由参考素材声明、单元正文、风格与负向约束三段组成。
+stage: reference_video
+invoked_by:
+  kind: generation_task
+  name: reference_video
 applies_to: {}
 slots:
   declarations: 第一段：主体绑定（<X>@图片N）、同一角色的形态声明与声音声明（@音频N）；无参考素材时为空
@@ -23,7 +21,7 @@ protected: false
 
 {{ body }}
 
-{{ partial("shared/style") }}
+{{ partial("shared/media_style") }}
 {{ partial("reference_video/unit/avoid") }}
 {% if products %}
 

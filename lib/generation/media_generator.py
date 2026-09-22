@@ -29,7 +29,7 @@ from PIL import Image
 if TYPE_CHECKING:
     from lib.backends.audio_backends.base import AudioBackend
     from lib.backends.image_backends.base import ImageBackend
-    from lib.backends.video_backends.base import VideoGenerationResult
+    from lib.backends.video_backend_contract import VideoGenerationResult
     from lib.config.resolver import ConfigResolver
     from lib.references.reference_compression import CompressedRef, PayloadLimits, ReferenceSpec
 
@@ -365,10 +365,9 @@ class MediaGenerator:
     ) -> PaidVersionCommit:
         """Run the shared normal/resume disk transaction without blocking the event loop.
 
-        User cancellation first marks the queue row as cancelling and then cancels
-        this coroutine. The sync transaction cannot be interrupted safely, so wait
-        for its thread before continuing to the queue's terminal row gate; that gate
-        compensates a selected result when cancellation already won.
+        The sync transaction cannot be interrupted safely: if a process-level
+        shutdown cancels this coroutine, wait for its thread before propagating so
+        the committed selection is never left half-written.
         """
 
         return await run_noninterruptible_sync(
@@ -1090,7 +1089,7 @@ class MediaGenerator:
                 ),
             ) as call,
         ):
-            from lib.backends.video_backends.base import VideoGenerationRequest
+            from lib.backends.video_backend_contract import VideoGenerationRequest
 
             video_backend = self._video_backend
             # FRAME（start/end 帧，永不缩尺寸）+ ARRAY（参考数组，完整梯子）按已知序位组织成
@@ -1258,7 +1257,7 @@ class MediaGenerator:
         if before_formal_commit is not None and staged_output_path is None:
             raise ValueError("before_formal_commit requires formal video output")
 
-        from lib.backends.video_backends.base import ResumeExpiredError, VideoGenerationRequest
+        from lib.backends.video_backend_contract import ResumeExpiredError, VideoGenerationRequest
 
         request = VideoGenerationRequest(
             prompt=prompt,

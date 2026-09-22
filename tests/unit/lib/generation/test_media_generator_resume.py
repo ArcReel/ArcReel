@@ -17,7 +17,7 @@ from typing import Any
 
 import pytest
 
-from lib.backends.video_backends.base import ResumeExpiredError
+from lib.backends.video_backend_contract import ResumeExpiredError
 from lib.generation.media_generator import MediaGenerator
 from tests.fakes import FakeConfigResolver, select_formal_video
 

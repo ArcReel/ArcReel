@@ -93,18 +93,16 @@ describe("isActiveStatus", () => {
   });
 
   it("counts every other status as inactive", () => {
-    const inactive: TaskStatus[] = ["cancelling", "succeeded", "failed", "cancelled"];
+    const inactive: TaskStatus[] = ["succeeded", "failed", "cancelled"];
     for (const status of inactive) expect(isActiveStatus(status)).toBe(false);
   });
 });
 
 describe("isOccupyingStatus", () => {
-  it("counts queued/running/cancelling as occupying", () => {
-    // 占用谓词与后端 ACTIVE_TASK_STATUSES 对齐：cancelling 期间 worker 仍可能写资源，
-    // 且后端 dedupe 索引会把重复提交去重到既有任务上
+  it("counts queued/running as occupying", () => {
+    // 占用谓词与后端 ACTIVE_TASK_STATUSES 对齐：后端 dedupe 索引会把重复提交去重到既有任务上
     expect(isOccupyingStatus("queued")).toBe(true);
     expect(isOccupyingStatus("running")).toBe(true);
-    expect(isOccupyingStatus("cancelling")).toBe(true);
   });
 
   it("counts terminal statuses as not occupying", () => {
@@ -884,13 +882,6 @@ describe("selectActiveResourceIds", () => {
     ];
     expect([...selectActiveResourceIds(tasks, "video", "p1")]).toEqual(["u1"]);
   });
-
-  it("keeps a cancelling task in the occupancy set", () => {
-    // 取消窗口期资源仍被占用：按钮须保持禁用，否则重提交会撞后端 dedupe 索引
-    // 返回既有任务、造成「提交成功却没有新任务」的谎报
-    const tasks = [task({ task_id: "a", resource_id: "u1", status: "cancelling" })];
-    expect(selectActiveResourceIds(tasks, "reference_video", "proj").has("u1")).toBe(true);
-  });
 });
 
 describe("isResourceBusy", () => {
@@ -959,21 +950,6 @@ describe("isScriptFileBusy", () => {
   });
 });
 
-describe("selectHasActiveTaskForScriptFile with cancelling", () => {
-  it("counts a cancelling grid task as occupying the scriptFile", () => {
-    const tasks = [
-      task({
-        task_id: "grid-1",
-        task_type: "grid",
-        resource_id: "grid-abc",
-        script_file: "episode_1.json",
-        status: "cancelling",
-      }),
-    ];
-    expect(selectHasActiveTaskForScriptFile(tasks, "grid", "episode_1.json", "proj")).toBe(true);
-  });
-});
-
 describe("refreshTasks（多入口共享刷新的在途合并）", () => {
   beforeEach(() => {
     useTasksStore.setState(useTasksStore.getInitialState(), true);
@@ -991,7 +967,6 @@ describe("refreshTasks（多入口共享刷新的在途合并）", () => {
       stats: {
         queued: 0,
         running: 0,
-        cancelling: 0,
         succeeded: 0,
         failed: 0,
         cancelled: 0,
@@ -1121,7 +1096,6 @@ describe("refreshTasks（多入口共享刷新的在途合并）", () => {
       stats: {
         queued: 0,
         running: 0,
-        cancelling: 0,
         succeeded: 0,
         failed: 0,
         cancelled: 0,
@@ -1157,7 +1131,6 @@ describe("refreshTasks（多入口共享刷新的在途合并）", () => {
       stats: {
         queued: 0,
         running: 0,
-        cancelling: 0,
         succeeded: 0,
         failed: 0,
         cancelled: 0,
@@ -1205,7 +1178,7 @@ describe("selectNeedsFastPolling", () => {
 
   it("有任务未落终态时留在高频档", () => {
     expect(
-      selectNeedsFastPolling({ ...idle, stats: { ...defaultTaskStats, cancelling: 1 } }),
+      selectNeedsFastPolling({ ...idle, stats: { ...defaultTaskStats, running: 1 } }),
     ).toBe(true);
   });
 

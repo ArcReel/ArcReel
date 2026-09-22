@@ -2,7 +2,11 @@
 id: text/style_analysis
 category: text
 title: 风格参考图分析
-description: 从用户上传的风格参考图提炼画风描述，结果写入项目 style_description。只描述光线、色彩、媒介、质感与氛围，不描述画面主体，免得参考图里的人和物随风格描述混进之后每一张图。以英文逗号分隔的描述词输出，直接可作图像生成提示词的风格部分。
+description: 从用户上传的风格参考图提炼画风描述，写入项目的风格描述。
+stage: style_analysis
+invoked_by:
+  kind: user_action
+  name: style_analysis
 applies_to: {}
 slots: {}
 protected: false

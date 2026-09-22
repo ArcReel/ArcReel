@@ -778,7 +778,7 @@ def test_v7_activation_replaces_an_interrupted_backup_on_retry(tmp_path: Path) -
     assert any(backup.read_bytes() == project_before for backup in project_dir.glob("project.json.bak.v7-*"))
 
 
-def test_task_registration_receipt_restores_only_its_own_current_claim(tmp_path: Path) -> None:
+def test_task_registration_replaces_the_current_claim_and_reports_whether_it_changed(tmp_path: Path) -> None:
     project_dir, _project_data, _script_plan, script = _project(tmp_path)
     migrate_project_dir(project_dir)
     key = ArtifactKey.episode_storyboard(1, "E1S01")
@@ -788,28 +788,22 @@ def test_task_registration_receipt_restores_only_its_own_current_claim(tmp_path:
 
     script["segments"][0]["image_prompt"] = "阿离撑伞站在雨中"
     _write_json(project_dir / "scripts" / "episode_1.json", script)
-    receipt = register_task_current_resource_artifact(
-        project_dir,
-        resource_type="storyboards",
-        resource_id="E1S01",
-        script_file="episode_1.json",
-    )
+
+    def _register() -> bool:
+        return register_task_current_resource_artifact(
+            project_dir,
+            resource_type="storyboards",
+            resource_id="E1S01",
+            script_file="episode_1.json",
+        )
+
+    assert _register() is True
     registered = adapter.get_entry(key)
     assert registered is not None
     assert registered != previous
 
-    receipt.compensate_cancelled()
-    receipt.compensate_cancelled()
-    assert adapter.get_entry(key) == previous
-
-    adapter.put_entry(key, registered)
-    later = ArtifactManifestEntry(
-        artifact_path=registered.artifact_path,
-        basis_digest="sha256-v1:" + "f" * 64,
-    )
-    adapter.put_entry(key, later)
-    receipt.compensate_cancelled()
-    assert adapter.get_entry(key) == later
+    assert _register() is False
+    assert adapter.get_entry(key) == registered
 
 
 def test_v7_activation_does_not_backfill_sheet_with_dangling_declared_reference(tmp_path: Path) -> None:

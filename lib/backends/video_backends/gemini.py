@@ -10,18 +10,16 @@ from typing import Any
 
 from PIL import Image
 
+from lib.backends.backend_runtime import ProviderJobIdPersistenceMixin, poll_with_retry, with_artifact_retry
 from lib.backends.gemini_shared import VERTEX_SCOPES, RateLimiter, get_shared_rate_limiter, resolve_gemini_api_key
 from lib.backends.providers import PROVIDER_GEMINI
-from lib.backends.video_backends.base import (
-    ProviderJobIdPersistenceMixin,
+from lib.backends.video_backend_contract import (
     ResumeExpiredError,
     VideoAudioMode,
     VideoCapabilities,
     VideoCapabilityError,
     VideoGenerationRequest,
     VideoGenerationResult,
-    poll_with_retry,
-    with_artifact_retry,
 )
 from lib.config.registry import model_info_for
 from lib.config.system_config import resolve_vertex_credentials_path

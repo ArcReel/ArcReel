@@ -21,6 +21,7 @@ from lib.config.url_utils import InvalidAnthropicBaseUrlError, validate_anthropi
 from lib.db import get_async_session
 from lib.db.base import dt_to_iso
 from lib.db.repositories.agent_credential_repo import AgentCredentialRepository
+from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 from lib.infra.api_errors import UnprocessableError
 from server.i18n import Translator
 
@@ -106,7 +107,9 @@ class CreateCredentialRequest(BaseModel):
     preset_id: str
     display_name: str | None = None
     base_url: str | None = None
-    api_key: str
+    # 与 from_custom_provider_id 二选一：给出供应商 id 时密钥由服务端从该供应商复制
+    api_key: str | None = None
+    from_custom_provider_id: int | None = None
     model: str | None = None
     haiku_model: str | None = None
     sonnet_model: str | None = None
@@ -156,6 +159,28 @@ def _normalized_base_url(raw: str, _t: Translator) -> str:
         raise HTTPException(status_code=422, detail=_t("agent_base_url_invalid")) from exc
 
 
+async def _resolve_key_source(
+    body: CreateCredentialRequest, _t: Translator, session: AsyncSession
+) -> tuple[str, str | None]:
+    """确定新凭证的 (api_key, 待归一的 base_url)。
+
+    给出 from_custom_provider_id 时密钥取自该供应商，请求未带 base_url 则沿用供应商的地址；
+    否则密钥取自请求体。两种来源不可同时给出。
+    """
+    if body.from_custom_provider_id is None:
+        if not body.api_key:
+            raise HTTPException(status_code=422, detail=_t("agent_api_key_required"))
+        return body.api_key, body.base_url
+    if body.api_key is not None:
+        raise HTTPException(status_code=422, detail=_t("agent_api_key_source_conflict"))
+    provider = await CustomProviderRepository(session).get_provider(body.from_custom_provider_id)
+    if provider is None:
+        raise HTTPException(status_code=404, detail=_t("provider_not_found"))
+    if not provider.api_key:
+        raise HTTPException(status_code=422, detail=_t("agent_import_provider_no_key"))
+    return provider.api_key, body.base_url or provider.base_url
+
+
 # ── Credential endpoints ───────────────────────────────────────────
 
 
@@ -175,17 +200,18 @@ async def create_credential(
     _t: Translator,
     session: AsyncSession = Depends(get_async_session),
 ) -> CredentialResponse:
+    api_key, requested_base_url = await _resolve_key_source(body, _t, session)
     if body.preset_id != CUSTOM_SENTINEL_ID:
         preset = get_preset(body.preset_id)
         if preset is None:
             raise HTTPException(status_code=422, detail=_t("agent_preset_unknown", preset_id=body.preset_id))
-        base_url = _normalized_base_url(body.base_url, _t) if body.base_url else preset.messages_url
+        base_url = _normalized_base_url(requested_base_url, _t) if requested_base_url else preset.messages_url
         display_name = body.display_name or preset.display_name
         model = body.model or preset.default_model
     else:
-        if not body.base_url:
+        if not requested_base_url:
             raise HTTPException(status_code=422, detail=_t("agent_base_url_required_custom"))
-        base_url = _normalized_base_url(body.base_url, _t)
+        base_url = _normalized_base_url(requested_base_url, _t)
         display_name = body.display_name or "Custom"
         model = body.model
 
@@ -194,7 +220,7 @@ async def create_credential(
         preset_id=body.preset_id,
         display_name=display_name,
         base_url=base_url,
-        api_key=body.api_key,
+        api_key=api_key,
         model=model,
         haiku_model=body.haiku_model,
         sonnet_model=body.sonnet_model,

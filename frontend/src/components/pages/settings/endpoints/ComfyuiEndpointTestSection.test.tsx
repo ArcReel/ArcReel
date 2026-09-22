@@ -74,6 +74,7 @@ const FINISHED: TrialRunInfo = {
   status: "succeeded",
   provider: "comfy.test",
   model: "Wan 2.2 i2v",
+  media_type: "video",
   created_at: 1,
   finished_at: 2,
   api_call_id: null,
@@ -282,15 +283,25 @@ describe("ComfyuiEndpointTestSection", () => {
     expect(within(failure).queryByText(/配置供应商/)).not.toBeInTheDocument();
   });
 
-  it("offers an image endpoint the preview card only", () => {
+  it("offers an image endpoint both cards, without the video-only parameters", () => {
     renderSection({ definition: definition({ media_type: "image" }) });
 
     expect(screen.getByRole("button", { name: "渲染 /prompt 请求体" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "真实提交一次" })).not.toBeInTheDocument();
-    expect(screen.queryByText("测试连接")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "真实提交一次" })).toBeInTheDocument();
     // 时长对图像端点无意义，分辨率档也换成图像那一组。
     expect(screen.queryByLabelText("时长（秒）")).not.toBeInTheDocument();
     expect(within(screen.getByLabelText("分辨率")).getByRole("option", { name: "1K" })).toBeInTheDocument();
+  });
+
+  it("shows an image endpoint's artifact as a still, not a player", async () => {
+    vi.spyOn(API, "createTrialRun").mockResolvedValue({ ...FINISHED, media_type: "image", duration_seconds: null });
+    vi.spyOn(API, "getTrialRunArtifact").mockResolvedValue(new Blob(["png"]));
+    renderSection({ definition: definition({ media_type: "image" }) });
+
+    await userEvent.click(screen.getByRole("button", { name: "真实提交一次" }));
+
+    expect(await screen.findByRole("img", { name: "测试连接产物" })).toHaveAttribute("src", "blob:trial-artifact");
+    expect(screen.queryByText(/成片/)).not.toBeInTheDocument();
   });
 
   it("holds both cards shut while the node bindings would be refused", () => {

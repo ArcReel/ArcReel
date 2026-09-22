@@ -368,7 +368,7 @@ class TestRetryScope:
     async def test_download_failure_does_not_retrigger_generation(self, tmp_path: Path, poll_clock):
         # 下载阶段瞬态失败只在下载层重试，绝不回退到重跑非幂等的生成 POST（防重复建图 + 重复计费）。
         # 退避 sleep 打桩跳过，避免下载层重试真的等退避的秒级时间。
-        from lib.backends.video_backends.base import VIDEO_POLL_MAX_CONSECUTIVE_FAILURES
+        from lib.backends.backend_runtime import VIDEO_POLL_MAX_CONSECUTIVE_FAILURES
 
         download = AsyncMock(side_effect=httpx.ConnectError("conn reset"))
         with _generation_route(_img_response(), download) as route:

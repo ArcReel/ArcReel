@@ -6,8 +6,8 @@ import httpx
 import pytest
 from openai import APITimeoutError, BadRequestError, RateLimitError
 
-from lib.backends.http_status_errors import ArtifactDownloadError
-from lib.backends.video_backends.base import AmbiguousSubmitError, VideoCapabilityError
+from lib.backends.http_status_errors import AmbiguousSubmitError, ArtifactDownloadError
+from lib.backends.video_backend_contract import VideoCapabilityError
 from lib.billing.call_failure import CallErrorCode, classify_call_failure
 
 _REQUEST = httpx.Request("POST", "https://provider.example/v1/videos")

@@ -40,7 +40,7 @@ from lib.infra.logging_config import attach_file_handler, migrate_legacy_log_dir
 from lib.infra.path_safety import try_safe_join
 from lib.project.project_migrations import cleanup_stale_backups, run_project_migrations
 from lib.script.source_loader.migration import migrate_project_source_encoding
-from server.auth import ensure_auth_password, get_current_user
+from server.auth import ensure_auth_password, get_current_user, warn_if_auth_disabled
 from server.cors_config import resolve_cors_policy
 from server.dependencies import require_project_migration_ok
 from server.error_handlers import register_error_handlers
@@ -80,6 +80,8 @@ from server.routers import (
 )
 from server.routers import auth as auth_router
 from server.services.project.project_events import ProjectEventService
+from server.services.tasks.generation_tasks import execute_generation_task
+from server.services.tasks.resume_executor import execute_resume_video_task
 
 
 def assert_no_provider_secrets_in_environ() -> None:
@@ -362,6 +364,7 @@ async def lifespan(app: FastAPI):
     attach_file_handler()
 
     ensure_auth_password()
+    warn_if_auth_disabled()
 
     # Run Alembic migrations (auto-creates tables on first start)
     await init_db()
@@ -453,11 +456,6 @@ async def lifespan(app: FastAPI):
     logger.info("启动 GenerationWorker...")
     worker = create_generation_worker()
     app.state.generation_worker = worker
-    # 注入 in-process cancel 回调必须在 worker.start() 之前，
-    # 否则有窗口期 callback 为 None、cancel running 信号丢失（违反 ADR 0006 秒级响应）。
-    from lib.generation.generation_queue import get_generation_queue
-
-    get_generation_queue().set_worker_cancel_callback(worker.request_cancel)
     await worker.start()
     logger.info("GenerationWorker 已启动")
 
@@ -479,18 +477,8 @@ async def lifespan(app: FastAPI):
     worker = getattr(app.state, "generation_worker", None)
     if worker:
         logger.info("正在停止 GenerationWorker...")
-        from lib.generation.generation_queue import get_generation_queue
-
-        # 先 stop（内部 drain inflight + 退出主循环）：期间 cancel API 仍可发起，
-        # callback 仍可用，避免重新部署窗口期 cancel 信号被丢弃。
-        # 依赖 worker.stop() 内部已 await _wait_inflight_completion——若后续重构
-        # stop 拆掉 drain 步骤，需同时回访这里的顺序假设。
-        # try/finally 保证 callback 清理必达：worker.stop 抛错时 _worker_cancel_callback
-        # 仍能清空，避免污染后续生命周期/测试。
-        try:
-            await worker.stop()
-        finally:
-            get_generation_queue().set_worker_cancel_callback(None)
+        # 关停不取消在跑任务：worker.stop() 等在跑任务跑完再退出主循环。
+        await worker.stop()
         logger.info("GenerationWorker 已停止")
     # 测试连接的 run 不可续跑：随事件循环消亡会把账本 pending 行永远留下，关停前按取消路径结算。
     from lib.custom_provider.endpoint_test import shutdown_trial_runs
@@ -697,7 +685,7 @@ app.mount("/mcp", remote_mcp_host)
 
 
 def create_generation_worker() -> GenerationWorker:
-    return GenerationWorker()
+    return GenerationWorker(executor=execute_generation_task, resume_executor=execute_resume_video_task)
 
 
 @app.get("/health")

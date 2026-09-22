@@ -2,7 +2,11 @@
 id: style/anim_felt
 category: style
 title: 羊毛毡
-description: "动画画风，定格 · 真实光影。正文不以「画风：」起头，免得与注入处的英文 Style 标签叠成「Style: 画风：…」。"
+description: "动画画风，定格 · 真实光影。"
+stage: style
+invoked_by:
+  kind: user_action
+  name: style_selection
 applies_to: {}
 slots: {}
 protected: false

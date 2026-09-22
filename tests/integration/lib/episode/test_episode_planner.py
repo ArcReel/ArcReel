@@ -6,18 +6,15 @@
 
 from __future__ import annotations
 
-import asyncio
 import hashlib
 import json
 import re
-import threading
 import unicodedata
 from pathlib import Path
 
 import pytest
 
 import lib.script.script_review as script_review
-from lib.artifacts.formal_write import FormalWriteReceipt
 from lib.backends.providers import CallPurpose
 from lib.backends.text_backends.base import StructuredOutputExhaustedError, TextGenerationResult
 from lib.episode.episode_ledger import SOURCE_FINGERPRINTS_KEY
@@ -32,7 +29,6 @@ from lib.episode.episode_planner import (
 )
 from lib.episode.episode_reset import EpisodeResetResult, reset_episode_planning
 from lib.infra.text_metrics import count_reading_units
-from lib.project.project_manager import ProjectManager
 
 # 源文：三段剧情，句子互不重复，锚点可唯一定位
 SOURCE = (
@@ -229,108 +225,6 @@ class TestPlan:
 
         assert planner.project_name == "demo"
         assert captured["purpose"] is CallPurpose.EPISODE_PLANNING
-
-    async def test_cancel_during_started_plan_commit_restores_ledger_and_derived_files(self, tmp_path: Path):
-        project_dir = _write_project(tmp_path)
-        before_project = (project_dir / "project.json").read_bytes()
-        started = threading.Event()
-        release = threading.Event()
-
-        class BlockingProjectManager(ProjectManager):
-            def update_project(self, *args, **kwargs):
-                result = super().update_project(*args, **kwargs)
-                started.set()
-                release.wait()
-                return result
-
-        planner = EpisodePlanner(
-            project_dir,
-            generator=_FakeTextGenerator(
-                [_plan_response([{"title": "古玉藏诀", "hook": "悬念", "end_anchor": ANCHOR_EP1}])]
-            ),
-        )
-        planner.pm = BlockingProjectManager(project_dir.parent)
-        planning = asyncio.create_task(planner.plan())
-        try:
-            assert await asyncio.to_thread(started.wait, 1)
-            planning.cancel()
-            await asyncio.sleep(0)
-            assert not planning.done()
-        finally:
-            release.set()
-
-        with pytest.raises(asyncio.CancelledError):
-            await planning
-        assert (project_dir / "project.json").read_bytes() == before_project
-        assert not (project_dir / "source" / "episode_1.txt").exists()
-
-    async def test_plan_returns_receipt_that_restores_ledger_and_derived_files(self, tmp_path: Path):
-        project_dir = _write_project(tmp_path)
-        before_project = (project_dir / "project.json").read_bytes()
-        receipts: list[FormalWriteReceipt] = []
-        planner = EpisodePlanner(
-            project_dir,
-            generator=_FakeTextGenerator(
-                [_plan_response([{"title": "古玉藏诀", "hook": "悬念", "end_anchor": ANCHOR_EP1}])]
-            ),
-        )
-
-        await planner.plan(cancellation_receipts=receipts)
-
-        assert len(receipts) == 1
-        assert receipts[0].compensate_cancelled() is True
-        assert (project_dir / "project.json").read_bytes() == before_project
-        assert not (project_dir / "source" / "episode_1.txt").exists()
-
-    async def test_plan_receipt_removes_recreated_derived_files_for_existing_ledger_entries(self, tmp_path: Path):
-        first_end = _end_of(ANCHOR_EP1)
-        project_dir = _write_project(
-            tmp_path,
-            episodes=[
-                {
-                    "episode": 1,
-                    "title": "古玉藏诀",
-                    "hook": "悬念",
-                    "ledger_status": "planned",
-                    "source_range": {"source_file": "source/novel.txt", "start": 0, "end": first_end},
-                }
-            ],
-            planning_cursor={"source_file": "source/novel.txt", "offset": first_end},
-        )
-        before_project = (project_dir / "project.json").read_bytes()
-        receipts: list[FormalWriteReceipt] = []
-        planner = EpisodePlanner(
-            project_dir,
-            generator=_FakeTextGenerator(
-                [_plan_response([{"title": "城门遇袭", "hook": "悬念", "end_anchor": ANCHOR_EP2}])]
-            ),
-        )
-
-        await planner.plan(cancellation_receipts=receipts)
-
-        assert (project_dir / "source" / "episode_1.txt").exists()
-        assert receipts[0].compensate_cancelled() is True
-        assert (project_dir / "project.json").read_bytes() == before_project
-        assert not (project_dir / "source" / "episode_1.txt").exists()
-        assert not (project_dir / "source" / "episode_2.txt").exists()
-
-    async def test_plan_receipt_does_not_overwrite_a_later_ledger_write(self, tmp_path: Path):
-        project_dir = _write_project(tmp_path)
-        receipts: list[FormalWriteReceipt] = []
-        planner = EpisodePlanner(
-            project_dir,
-            generator=_FakeTextGenerator(
-                [_plan_response([{"title": "古玉藏诀", "hook": "悬念", "end_anchor": ANCHOR_EP1}])]
-            ),
-        )
-        await planner.plan(cancellation_receipts=receipts)
-        later = _load_project(project_dir)
-        later["title"] = "后续写入"
-        (project_dir / "project.json").write_text(json.dumps(later, ensure_ascii=False), encoding="utf-8")
-
-        assert receipts[0].compensate_cancelled() is False
-        assert _load_project(project_dir)["title"] == "后续写入"
-        assert (project_dir / "source" / "episode_1.txt").exists()
 
     async def test_plan_writes_ledger_derives_files_and_advances_cursor(self, tmp_path: Path):
         project_dir = _write_project(tmp_path)

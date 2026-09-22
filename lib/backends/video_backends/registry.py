@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-from lib.backends.video_backends.base import VideoBackend, VideoCapabilities
+from lib.backends.video_backend_contract import VideoBackend, VideoCapabilities
 
 _BACKEND_FACTORIES: dict[str, Callable[..., VideoBackend]] = {}
 

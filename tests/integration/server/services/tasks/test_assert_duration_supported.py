@@ -2,7 +2,7 @@
 
 import pytest
 
-from lib.backends.video_backends.base import VideoCapabilityError
+from lib.backends.video_backend_contract import VideoCapabilityError
 from server.services.tasks.generation_tasks import assert_duration_supported
 
 

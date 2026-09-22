@@ -16,6 +16,7 @@ import httpx
 
 from lib.backends.agnes_shared import agnes_base_url, agnes_headers, resolve_agnes_api_key
 from lib.backends.aspect_size import IMAGE_TIER_SHORT_EDGE, aspect_size, resolution_to_short_edge
+from lib.backends.backend_runtime import should_retry_submit, submit_post, with_artifact_retry
 from lib.backends.image_backends.base import (
     ImageCapability,
     ImageCapabilityError,
@@ -25,7 +26,6 @@ from lib.backends.image_backends.base import (
     image_to_base64_data_uri,
 )
 from lib.backends.providers import PROVIDER_AGNES
-from lib.backends.video_backends.base import should_retry_submit, submit_post, with_artifact_retry
 from lib.infra.logging_utils import format_kwargs_for_log
 from lib.infra.retry import with_retry_async
 

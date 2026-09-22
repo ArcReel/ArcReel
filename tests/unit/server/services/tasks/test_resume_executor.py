@@ -19,7 +19,7 @@ import pytest
 from lib.artifacts.artifact_manifest import ArtifactBasis, compose_video_artifact_basis
 from lib.artifacts.version_manager import PaidVersionCommit
 from lib.artifacts.video_artifact_facts import VideoArtifactCurrencyFacts
-from lib.backends.video_backends.base import ResumeExpiredError
+from lib.backends.video_backend_contract import ResumeExpiredError
 from lib.script.reference_video.execution_checkpoint import (
     NarrationExecutionFacts,
     StagedProviderMedia,
@@ -787,7 +787,7 @@ async def test_reference_resume_endpoint_guard_is_exact(
     checkpoint_endpoint: str | None,
     current_endpoint: str | None,
 ):
-    from lib.backends.video_backends.base import ResumeEndpointChangedError
+    from lib.backends.video_backend_contract import ResumeEndpointChangedError
     from server.services.tasks import resume_executor
     from server.services.tasks.resume_executor import execute_resume_video_task
 
@@ -870,7 +870,7 @@ async def test_resume_fails_when_endpoint_changed(monkeypatch, fake_pm, video_ta
     换 endpoint 等于换协议：拿新协议 backend 轮旧协议下创建的 job 会误读响应，把仍在跑
     仍在计费的远端 job 标成失败（docs/adr/0054）。
     """
-    from lib.backends.video_backends.base import ResumeEndpointChangedError
+    from lib.backends.video_backend_contract import ResumeEndpointChangedError
     from server.services.tasks.resume_executor import execute_resume_video_task
 
     fake_gen = _FakeGenerator()
@@ -903,7 +903,7 @@ async def test_resume_proceeds_when_endpoint_unchanged(monkeypatch, fake_pm, vid
 @pytest.mark.asyncio
 async def test_resume_rejects_builtin_checkpoint_when_current_backend_is_custom(monkeypatch, fake_pm, video_task):
     """A null checkpoint guard means builtin submit and cannot be replayed through a custom protocol."""
-    from lib.backends.video_backends.base import ResumeEndpointChangedError
+    from lib.backends.video_backend_contract import ResumeEndpointChangedError
     from server.services.tasks.resume_executor import execute_resume_video_task
 
     fake_gen = _FakeGenerator()
@@ -1025,7 +1025,7 @@ async def test_resume_ignores_non_domain_value_in_base_url_column(monkeypatch, f
 @pytest.mark.asyncio
 async def test_resume_fails_when_custom_endpoint_changed_even_with_base_url(monkeypatch, fake_pm, video_task):
     """协议标识不一致仍显式失败——域名回放不为换协议的续跑开口子。"""
-    from lib.backends.video_backends.base import ResumeEndpointChangedError
+    from lib.backends.video_backend_contract import ResumeEndpointChangedError
     from server.services.tasks.resume_executor import execute_resume_video_task
 
     fake_gen = _FakeGenerator()
@@ -1053,7 +1053,7 @@ async def test_resume_does_not_replay_domain_across_provider_kind_switch(monkeyp
     落库域名属于提交时那套凭据，拿它配另一类供应商的凭据轮询只会把可归因的 404 换成认证或
     连接错误；比对闸对内置/自定义跨类切换逐字判不等，回放分支根本到不了。
     """
-    from lib.backends.video_backends.base import ResumeEndpointChangedError
+    from lib.backends.video_backend_contract import ResumeEndpointChangedError
     from server.services.tasks.resume_executor import execute_resume_video_task
 
     fake_gen = _FakeGenerator()
@@ -1080,7 +1080,7 @@ async def test_resume_fails_when_builtin_task_switched_to_custom_provider(monkey
 
     宁可显式失败，也不拿新协议 backend 轮旧的供应商任务。
     """
-    from lib.backends.video_backends.base import ResumeEndpointChangedError
+    from lib.backends.video_backend_contract import ResumeEndpointChangedError
     from server.services.tasks.resume_executor import execute_resume_video_task
 
     fake_gen = _FakeGenerator()

@@ -74,7 +74,6 @@ export default {
   'task_type_reference_video': '视频',
   'task_status_queued': '排队中',
   'task_status_running': '生成中',
-  'task_status_cancelling': '取消中',
   'task_status_succeeded': '已完成',
   'task_status_failed': '已失败',
   'task_status_cancelled': '已取消',
@@ -159,4 +158,5 @@ export default {
   'problem_reference_asset_unregistered': '这个单元引用了未登记的资产名。',
   'problem_reference_asset_missing': '引用的资产还没有资产图。',
   'problem_tts_not_configured': '还没有配置语音合成模型。',
+  'problem_tts_duration_endpoint_fixed': '该模型的成片时长由端点固定，申请不到装得下旁白的时长。',
 } satisfies Record<keyof typeof enWorkflow, string>;

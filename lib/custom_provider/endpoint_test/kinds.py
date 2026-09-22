@@ -22,9 +22,6 @@ from .inputs import EndpointTestAssets, EndpointTestCredentials, EndpointTestPar
 from .preview import RequestPreview, preview_request
 from .trial_run import TrialRunTarget, declarative_target
 
-#: 测试连接只构造视频请求，图像端点跑不了；预览请求与媒体类型无关，两种端点都给得出。
-TRIAL_RUN_IMAGE_UNSUPPORTED = "endpoint_test_trial_run_image_unsupported"
-
 
 class PreviewFn(Protocol):
     """渲染一次预览请求。"""
@@ -98,14 +95,3 @@ def support_for_kind(kind: str) -> KindTestSupport:
             走到这里的 kind 必然有实现。
     """
     return _SUPPORT_BY_KIND[kind]
-
-
-def trial_run_refusal(definition: Mapping[str, Any]) -> str | None:
-    """这份定义能不能跑测试连接；不能时返回一条 i18n key。
-
-    与「这种 kind 支不支持测试连接」分开：这一条判的是定义自身（ComfyUI 端点的媒体类型写在定义
-    里，同一种 kind 的视频端点跑得了、图像端点跑不了），模式矩阵按 kind 答不了它。
-    """
-    if str(definition.get("kind")) == COMFYUI_KIND and str(definition.get("media_type")) != "video":
-        return TRIAL_RUN_IMAGE_UNSUPPORTED
-    return None

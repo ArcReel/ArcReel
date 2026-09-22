@@ -9,13 +9,13 @@ import httpx
 import pytest
 import respx
 
-from lib.backends.video_backends.ark import ArkVideoBackend
-from lib.backends.video_backends.base import (
+from lib.backends.video_backend_contract import (
     ReferenceAudioMode,
     VideoCapabilityError,
     VideoGenerationRequest,
     VideoGenerationResult,
 )
+from lib.backends.video_backends.ark import ArkVideoBackend
 from lib.backends.video_frame_slots import FIRST_FRAME_ADAPTIVE_RATIO, resolve_first_frame_aspect_ratio
 from tests.fakes import blocking_file_read_gate, bounded_poll_clock, captured_ark_clients
 

@@ -94,7 +94,7 @@ interface TasksState {
 }
 
 export const defaultTaskStats: TaskStats = {
-  queued: 0, running: 0, cancelling: 0, succeeded: 0, failed: 0, cancelled: 0, total: 0,
+  queued: 0, running: 0, succeeded: 0, failed: 0, cancelled: 0, total: 0,
 };
 
 // ---------------------------------------------------------------------------
@@ -377,9 +377,9 @@ export const useTasksStore = create<TasksState>((set, get) => {
 // 派生 selector —— 任务队列两条不变量的单一真相源
 //
 // 消费点（画布 loading 派生、视频单元状态等）必须遵守以下两条契约：
-//   1.「什么算活跃」——占用与显示是两个谓词：占用判定（isOccupyingStatus）计入
-//      cancelling，与后端 dedupe 索引的 ACTIVE_TASK_STATUSES 对齐；显示判定
-//      （isActiveStatus）不计 cancelling——取消中的任务不显示为进行中。
+//   1.「什么算活跃」——占用与显示是两个谓词：占用判定（isOccupyingStatus）与后端
+//      dedupe 索引的 ACTIVE_TASK_STATUSES 对齐；显示判定（isActiveStatus）决定是否
+//      显示为进行中。两者当前都只含 queued / running。
 //   2.「最新行胜出」——同一 resource 可能有多条任务行：失败后重试是新的 task_id，
 //      tasks 由服务端列表整体写入、顺序不保证，故判定时须取 updated_at 最新的一行，
 //      重试的新行不被旧失败行遮挡（selectLatestTaskByResource）。
@@ -388,7 +388,7 @@ export const useTasksStore = create<TasksState>((set, get) => {
 // Set/Map 内容，保证内容不变时引用稳定，避免每次渲染返回新集合触发重渲染。
 // ---------------------------------------------------------------------------
 
-/** 显示谓词：排队或运行中的任务显示为进行中；cancelling 是收尾中间态，不显示为进行中。 */
+/** 显示谓词：排队或运行中的任务显示为进行中。 */
 export function isActiveStatus(status: TaskStatus): boolean {
   return status === "queued" || status === "running";
 }
@@ -438,7 +438,7 @@ export function selectNeedsFastPolling(s: {
   const scope = s.refreshScope;
   return (
     !s.connected ||
-    s.stats.queued + s.stats.running + s.stats.cancelling > 0 ||
+    s.stats.queued + s.stats.running > 0 ||
     s.tasks.some((t) => isOccupyingStatus(t.status)) ||
     (scope !== null &&
       (hasOptimisticInScope(s.optimisticActive, scope.projectName) ||
@@ -448,12 +448,11 @@ export function selectNeedsFastPolling(s: {
 
 /**
  * 占用谓词：该状态的任务仍占用其 resource（按钮禁用、占用集判定）。与后端 dedupe
- * 索引的 ACTIVE_TASK_STATUSES 对齐——cancelling 期间 worker 仍可能在写资源文件，
- * 且后端会把同资源的重复提交去重到既有任务上；若前端此时判定空闲，会出现「按钮
- * 可点、提交后没有新任务」的谎报。
+ * 索引的 ACTIVE_TASK_STATUSES 对齐——后端会把同资源的重复提交去重到既有任务上；
+ * 若前端此时判定空闲，会出现「按钮可点、提交后没有新任务」的谎报。
  */
 export function isOccupyingStatus(status: TaskStatus): boolean {
-  return status === "queued" || status === "running" || status === "cancelling";
+  return status === "queued" || status === "running";
 }
 
 /**

@@ -25,7 +25,7 @@ from lib.generation.task_terminal_events import TERMINAL_TASK_STATUSES
 
 logger = logging.getLogger(__name__)
 
-ACTIVE_TASK_STATUSES = ("queued", "running", "cancelling")
+ACTIVE_TASK_STATUSES = ("queued", "running")
 
 # 落库 error_message 的长度上限。裸切片会把结构化原因切在 JSON 中途，使 render_failure
 # 无法解析、用户看到机器码碎片而非本地化文案，因此两条落库路径都经 bound_reason 收窄。
@@ -124,6 +124,14 @@ def _task_to_dict(row: Task) -> dict[str, Any]:
         "updated_at": dt_to_iso(row.updated_at),
         "user_id": row.user_id,
     }
+
+
+class TaskNotCancellableError(Exception):
+    """任务已开始执行，不可取消：取消只对 queued 开放，执行中的任务照常跑完。"""
+
+    def __init__(self, task_id: str) -> None:
+        super().__init__(f"任务 '{task_id}' 正在执行，不可取消")
+        self.task_id = task_id
 
 
 class TaskRepository(BaseRepository):
@@ -552,8 +560,7 @@ class TaskRepository(BaseRepository):
     async def mark_succeeded(self, task_id: str, result: dict[str, Any] | None = None) -> int:
         """SQL `WHERE status='running'` 守卫；返回受影响行数。
 
-        rows=0 表示外部已把 DB 翻成 cancelling/cancelled/failed 等非 running 终/中间态，
-        worker finally 应据此走 0-rows-cancelled 协议（ADR 0006）。
+        rows=0 表示任务已不在 running（已由别的路径落终态），该写入不生效，调用方只记录。
         """
         now = utc_now()
 
@@ -588,8 +595,8 @@ class TaskRepository(BaseRepository):
     async def mark_failed(self, task_id: str, error_message: str) -> int:
         """SQL `WHERE status='running'` 守卫；返回受影响行数。
 
-        rows=0 表示外部已把 DB 翻成 cancelling/cancelled/succeeded 等非 running 状态，
-        worker finally 走 0-rows-cancelled 协议。级联失败（依赖 task）走独立路径。
+        rows=0 表示任务已不在 running（已由别的路径落终态），该写入不生效，调用方只记录。
+        级联失败（依赖 task）走独立路径。
         """
         affected = await self._mark_failed_running(task_id=task_id, error_message=error_message)
         if affected == 0:
@@ -745,16 +752,17 @@ class TaskRepository(BaseRepository):
         return cascaded
 
     async def get_cancel_preview(self, task_id: str) -> dict[str, Any]:
-        """预览取消某个任务的影响范围。
+        """预览取消某个排队中任务的影响范围：列出会被一并取消的排队中下游。
 
-        现在 queued / running / cancelling 都允许取消（ADR 0006），preview 只列「队列中的下游」
-        以避免吓人：running / cancelling 下游运行期数量不稳定，由 cancel 操作实际触发后再
-        通过 SSE 反映。终态 task 调用方应在前端避免触发。
+        取消只对 ``queued`` 开放；执行中的任务抛 ``TaskNotCancellableError``。终态任务照常
+        返回摘要，由调用方决定是否继续。
         """
         result = await self.session.execute(self._scope_query(select(Task).where(Task.task_id == task_id), Task))
         task = result.scalar_one_or_none()
         if not task:
             raise ValueError(f"任务 '{task_id}' 不存在")
+        if task.status == "running":
+            raise TaskNotCancellableError(task_id)
 
         task_summary = {
             "task_id": task.task_id,
@@ -784,18 +792,13 @@ class TaskRepository(BaseRepository):
         return dependents
 
     async def cancel_task(self, task_id: str) -> dict[str, Any]:
-        """按状态分发取消（ADR 0006）：
+        """取消一个排队中的任务，并级联取消依赖它的排队中下游。
 
-        - ``queued`` → ``mark_cancelled('user')`` 直接终态，``_mark_cancelled`` 内部
-          ``cascade=True`` 自动级联（含 grandchildren）；
-        - ``running`` → ``mark_cancelling()`` 中间态，等待 worker finally 兜底；
-          下游级联由该 task 的 ``finalize_cancelled`` 兜底触发，避免在 running 还未
-          实际终止时就把下游 queued 永久 cancelled。
-        - ``cancelling`` → 幂等（视为已取消，不重复发信号）；
-        - 终态（succeeded/failed/cancelled）→ skipped_terminal。
+        - ``queued`` → ``cancelled('user')``，下游 ``cancelled('cascade')``（含 grandchildren）；
+        - ``running`` → 抛 ``TaskNotCancellableError``，任务照常跑完；
+        - 终态（succeeded/failed/cancelled）→ ``skipped_terminal``。
 
-        Repository 只更新 DB，不持有 worker callback。``cancelling`` 列表交由
-        上层（GenerationQueue）拿到后同步分发 in-process cancel 信号。
+        读到 queued 后 UPDATE 前被 worker 认领的竞态同样按 running 拒绝。
         """
         result = await self.session.execute(self._scope_query(select(Task).where(Task.task_id == task_id), Task))
         task = result.scalar_one_or_none()
@@ -803,109 +806,42 @@ class TaskRepository(BaseRepository):
             raise ValueError(f"任务 '{task_id}' 不存在")
 
         cancelled: list[dict[str, Any]] = []
-        cancelling: list[str] = []
         skipped_terminal: list[dict[str, Any]] = []
+        if task.status in TERMINAL_TASK_STATUSES:
+            skipped_terminal.append(_task_to_dict(task))
+            return {"cancelled": cancelled, "skipped_terminal": skipped_terminal}
 
-        # 顶层 dispatch：若 task 是 queued，_dispatch_cancel → _mark_cancelled(cascade=True)
-        # 会自动递归级联下游（含 grandchildren）；若 task 是 running，仅落 cancelling，
-        # 下游 cascade 等 finalize_cancelled 时再触发——这样避免「running 父尚未终止，
-        # 下游 queued 已永久 cancelled」的语义错误。
-        await self._dispatch_cancel(
-            task, cancelled_by="user", cancelled=cancelled, cancelling=cancelling, skipped_terminal=skipped_terminal
-        )
+        if await self._mark_cancelled(task.task_id, cancelled_by="user", cancelled=cancelled) is None:
+            await self.session.rollback()
+            await self.session.refresh(task)
+            if task.status in TERMINAL_TASK_STATUSES:
+                return {"cancelled": [], "skipped_terminal": [_task_to_dict(task)]}
+            raise TaskNotCancellableError(task_id)
 
         await self.session.commit()
-        return {
-            "cancelled": cancelled,
-            "cancelling": cancelling,
-            "skipped_terminal": skipped_terminal,
-        }
-
-    async def _dispatch_cancel(
-        self,
-        task: Task,
-        *,
-        cancelled_by: str,
-        cancelled: list[dict[str, Any]],
-        cancelling: list[str],
-        skipped_terminal: list[dict[str, Any]],
-    ) -> None:
-        """根据 task.status 分发到对应的 DB 状态转移。
-
-        cancelled_by 在 queued 和 running 两条路径都用同一个值，统一归因。
-        running 路径写入 cancelling 中间态时即记录 cancelled_by，worker finally
-        通过 COALESCE 保留这个值。
-
-        queued 路径调 ``_mark_cancelled(cascade=True, ...)``——同一组 list 引用向下传，
-        `_mark_cancelled` 内部递归触发后 grandchildren 自动累计到顶层响应体。
-        """
-        status = task.status
-        if status == "queued":
-            # `_mark_cancelled` 内部会在 cascade 前把自身 task_data append 到 cancelled
-            # 列表（语义：先记录自己再级联下游），caller 拿返回值仅作 None 判定。
-            await self._mark_cancelled(
-                task.task_id,
-                cancelled_by=cancelled_by,
-                cancelled=cancelled,
-                cancelling=cancelling,
-                skipped_terminal=skipped_terminal,
-                cascade=True,
-            )
-        elif status == "running":
-            affected = await self._mark_cancelling(task.task_id, cancelled_by=cancelled_by)
-            if affected > 0:
-                cancelling.append(task.task_id)
-            else:
-                # 竞态：UPDATE 失败说明 status 已变；刷新分发到对应桶
-                await self.session.refresh(task)
-                if task.status == "cancelling":
-                    cancelling.append(task.task_id)
-                elif task.status in ("succeeded", "failed", "cancelled"):
-                    # worker 已抢先落终态，让 API 响应体里有迹可循（避免前端 spinner 转死）
-                    skipped_terminal.append(_task_to_dict(task))
-                # 其他状态（queued —— 理论上不会出现）忽略
-        elif status == "cancelling":
-            # 幂等：已发起取消，不重复加 cancelling 信号
-            pass
-        else:
-            # succeeded / failed / cancelled —— 终态
-            skipped_terminal.append(_task_to_dict(task))
+        return {"cancelled": cancelled, "skipped_terminal": skipped_terminal}
 
     async def _mark_cancelled(
         self,
         task_id: str,
         *,
         cancelled_by: str,
-        cancelled: list[dict[str, Any]] | None = None,
-        cancelling: list[str] | None = None,
-        skipped_terminal: list[dict[str, Any]] | None = None,
-        cascade: bool = True,
+        cancelled: list[dict[str, Any]],
+        from_statuses: tuple[str, ...] = ("queued",),
     ) -> dict[str, Any] | None:
-        """将 queued / cancelling / running 任务标记为 cancelled（终态）。
+        """把 ``from_statuses`` 内的任务落 cancelled 终态，再级联取消排队中的下游。
 
-        WHERE 守卫 ``status IN ('queued','cancelling','running')`` 承担三条路径：
-        1. cancel API 直接取消 queued；
-        2. worker finally 兜底从 cancelling 落地；
-        3. 进程级 cancel（SIGTERM / wait_for 超时 / asyncio.Task.cancel 直接打到 running）
-           ——这条以前漏掉，会把任务永久卡在 running，每次重启都被 orphan handler 当成
-           需要 resume 的任务重新拉起来。
-        终态（succeeded/failed/cancelled）仍然由 IN 子句排除，保持幂等。
-
-        cancelled_by 用 COALESCE 写入：上游 _mark_cancelling 已写过的（cascade 等）保留，
-        没写过的（直接 running→cancelled 兜底）用 caller 提供的值兜底，避免级联归因丢失。
-
-        cascade=True（默认）：UPDATE 成功后内部触发 _cascade_cancel_dependents 向下递归，
-        让 cancel_task 顶层响应体能收集到 grandchildren；递归通过 ``cancelled`` / ``cancelling``
-        / ``skipped_terminal`` 三个 list 引用一起向下传。caller 不传 list 时用空 list 兜底
-        （finalize_cancelled 等不需要响应体的 caller 走这条路径）。
+        用户取消只从 ``queued`` 转移；进程级打断经 ``finalize_interrupted`` 额外放行
+        ``running``。下游依赖上游完成才会被认领，上游未完成时下游必然仍在排队，级联只需
+        处理 ``queued``。UPDATE 影响 0 行时返回 None。
         """
         now = utc_now()
         stmt = (
             update(Task)
-            .where(Task.task_id == task_id, Task.status.in_(("queued", "cancelling", "running")))
+            .where(Task.task_id == task_id, Task.status.in_(from_statuses))
             .values(
                 status="cancelled",
-                cancelled_by=func.coalesce(Task.cancelled_by, cancelled_by),
+                cancelled_by=cancelled_by,
                 finished_at=now,
                 updated_at=now,
             )
@@ -925,60 +861,16 @@ class TaskRepository(BaseRepository):
             task_type=cancelled_task.task_type,
         )
 
-        # 先把自身入 cancelled 列表，再级联——保证 cancel_task 响应体里父先于子。
-        # caller 不传 list（finalize_cancelled）时跳过。
-        if cancelled is not None:
-            cancelled.append(task_data)
-
-        if cascade:
-            await self._cascade_cancel_dependents(
-                task_id,
-                cancelled if cancelled is not None else [],
-                cancelling if cancelling is not None else [],
-                skipped_terminal if skipped_terminal is not None else [],
-            )
+        # 先把自身入列再级联，响应体里父先于子。
+        cancelled.append(task_data)
+        dependents = await self.session.execute(
+            select(Task.task_id)
+            .where(Task.dependency_task_id == task_id, Task.status == "queued")
+            .order_by(Task.queued_at.asc())
+        )
+        for dep_task_id in dependents.scalars().all():
+            await self._mark_cancelled(dep_task_id, cancelled_by="cascade", cancelled=cancelled)
         return task_data
-
-    async def _mark_cancelling(self, task_id: str, *, cancelled_by: str = "user") -> int:
-        """将 running task 标 cancelling（中间态，ADR 0006）；返回受影响行数。
-
-        cancelled_by 在这里就写入，worker finally 通过 COALESCE 兜底而非覆盖，
-        让级联归因 ('cascade') 一路穿透到最终 cancelled 终态。
-        """
-        now = utc_now()
-        stmt = (
-            update(Task)
-            .where(Task.task_id == task_id, Task.status == "running")
-            .values(status="cancelling", cancelled_by=cancelled_by, updated_at=now)
-        )
-        result = await self.session.execute(stmt)
-        return rowcount(result)
-
-    async def _cascade_cancel_dependents(
-        self,
-        task_id: str,
-        cancelled: list[dict[str, Any]],
-        cancelling: list[str],
-        skipped_terminal: list[dict[str, Any]],
-    ) -> None:
-        """级联取消下游 dependents（仅遍历直接下游 + 派发）。
-
-        递归由 ``_mark_cancelled`` 内部驱动：``_dispatch_cancel`` 调
-        ``_mark_cancelled(cascade=True, ...)`` 让其在 rows>0 后自动调本函数处理
-        grandchildren——即使下游 task 是 running（落 cancelling、不在本帧级联），
-        其 worker finally 走 ``finalize_cancelled`` 时仍会触发对它自己下游的级联。
-        """
-        result = await self.session.execute(
-            select(Task).where(Task.dependency_task_id == task_id).order_by(Task.queued_at.asc())
-        )
-        for dep_task in result.scalars().all():
-            await self._dispatch_cancel(
-                dep_task,
-                cancelled_by="cascade",
-                cancelled=cancelled,
-                cancelling=cancelling,
-                skipped_terminal=skipped_terminal,
-            )
 
     async def persist_provider_job_id(
         self,
@@ -1049,38 +941,27 @@ class TaskRepository(BaseRepository):
         await self.session.commit()
 
     async def list_orphan_tasks_on_start(self) -> list[dict[str, Any]]:
-        """返回 running + cancelling 状态任务用于重启自愈（ADR 0007）。"""
+        """返回 running 状态任务用于重启自愈（ADR 0007）。"""
         result = await self.session.execute(
-            select(Task).where(Task.status.in_(("running", "cancelling"))).order_by(Task.updated_at.asc())
+            select(Task).where(Task.status == "running").order_by(Task.updated_at.asc())
         )
         return [_task_to_dict(t) for t in result.scalars().all()]
 
-    async def finalize_cancelled(self, task_id: str, *, cancelled_by: str = "user") -> dict[str, Any]:
-        """Worker finally 0-rows-cancelled 协议入口：把 queued/cancelling/running task 落 cancelled。
+    async def finalize_interrupted(self, task_id: str) -> int:
+        """进程级打断的兜底：把被打断的 queued / running 任务落 cancelled，返回受影响行数。
 
-        SQL 守卫 ``status IN ('queued','cancelling','running')`` 接住三条路径：
-        - cancel API 取消的 queued 任务；
-        - mark_succeeded/mark_failed 返回 0 rows（外部已抢先翻 cancelling）后兜底；
-        - SIGTERM / 进程外 cancel 直接打到 running，没有走过 cancel API 的也能落地。
-
-        ``cascade=True``：本 task 终态落地后，``_mark_cancelled`` 内部触发下游级联——
-        覆盖「父 running 还在 cancelling，下游 queued 暂未级联，等父 worker finally
-        落 cancelled 时再统一级联下游」这条主路径。
-
-        返回 ``{"rows": int, "cancelling": list[str]}``：cancelling 是级联出来的 running
-        下游 task_id 列表——Repository 只返回意图，由上层 GenerationQueue 同步分发
-        in-process cancel 信号（Repository 不持 Worker callback）；这样级联打到的
-        running 子任务能立刻收到 cancel 而不必等它跑完。
+        执行协程被进程级原因（事件循环拆除、关停超时等）打断时由 worker 调用，让任务不停在
+        ``running``、不在每次重启时被重启自愈重新拉起。这不是用户取消：用户取消只对 queued
+        开放，见 ``cancel_task``。本 task 落终态后级联取消排队中的下游。
         """
-        cancelling: list[str] = []
         data = await self._mark_cancelled(
             task_id,
-            cancelled_by=cancelled_by,
-            cancelling=cancelling,
-            cascade=True,
+            cancelled_by="user",
+            cancelled=[],
+            from_statuses=("queued", "running"),
         )
         await self.session.commit()
-        return {"rows": 1 if data is not None else 0, "cancelling": cancelling}
+        return 1 if data is not None else 0
 
     async def get_cancel_all_preview(self, project_name: str) -> int:
         """返回项目中当前 queued 状态的任务数量。"""
@@ -1236,7 +1117,6 @@ class TaskRepository(BaseRepository):
         stats = {
             "queued": 0,
             "running": 0,
-            "cancelling": 0,
             "succeeded": 0,
             "failed": 0,
             "cancelled": 0,

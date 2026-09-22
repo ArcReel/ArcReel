@@ -20,18 +20,11 @@ from urllib.parse import quote
 
 import httpx
 
-from lib.backends.video_backends.base import (
-    IMAGE_MIME_TYPES,
+from lib.backends.artifact_download_guard import VIDEO_ARTIFACT_MAX_BYTES, artifact_http_client
+from lib.backends.backend_runtime import (
     ProviderJobIdPersistenceMixin,
-    ProviderJobStatus,
-    ProviderResponseStage,
-    ResumeExpiredError,
-    VideoCapabilities,
-    VideoGenerationRequest,
-    VideoGenerationResult,
     notify_provider_response,
     poll_with_retry,
-    redacted_status_error,
     request_with_scoped_credentials,
     should_retry_poll,
     should_retry_submit,
@@ -39,6 +32,16 @@ from lib.backends.video_backends.base import (
     submit_post,
     url_origin,
     with_artifact_retry,
+)
+from lib.backends.http_status_errors import redacted_status_error
+from lib.backends.video_backend_contract import (
+    IMAGE_MIME_TYPES,
+    ProviderJobStatus,
+    ProviderResponseStage,
+    ResumeExpiredError,
+    VideoCapabilities,
+    VideoGenerationRequest,
+    VideoGenerationResult,
 )
 from lib.custom_provider.endpoint_definition import (
     AssetData,
@@ -53,7 +56,7 @@ from lib.custom_provider.endpoint_definition import (
 )
 from lib.db.repositories.usage_repo import MAX_BILLED_DURATION_SECONDS
 from lib.infra.logging_utils import format_kwargs_for_log
-from lib.infra.retry import retry_async
+from lib.infra.retry import NonRetryableError, retry_async
 from lib.infra.validation_messages import ValidationMessage
 
 _HTTP_TIMEOUT_SECONDS = 60
@@ -280,7 +283,7 @@ class DeclarativeVideoBackend(ProviderJobIdPersistenceMixin):
 
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
         context = self._request_context(request, require_declared_inputs=True)
-        async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT_SECONDS, follow_redirects=True) as client:
+        async with artifact_http_client(timeout=_HTTP_TIMEOUT_SECONDS, follow_redirects=True) as client:
             job_id = await self._submit(client, context, request)
             # 落提交域名供续跑回放：用户在途改了供应商 base_url 时，按新域名轮旧 job 会查无，
             # 把一笔已付费的任务误判成过期丢掉。
@@ -289,7 +292,7 @@ class DeclarativeVideoBackend(ProviderJobIdPersistenceMixin):
 
     async def resume_video(self, job_id: str, request: VideoGenerationRequest) -> VideoGenerationResult:
         context = self._request_context(request)
-        async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT_SECONDS, follow_redirects=True) as client:
+        async with artifact_http_client(timeout=_HTTP_TIMEOUT_SECONDS, follow_redirects=True) as client:
             return await self._poll_download(client, job_id, request, context=context, is_resume=True)
 
     def _request_context(
@@ -550,7 +553,7 @@ class DeclarativeVideoBackend(ProviderJobIdPersistenceMixin):
                     retry_if=should_retry_poll,
                     max_wait=request.poll_timeout_seconds,
                 )
-            except (ResumeExpiredError, DeclarativeRuntimeError):
+            except (ResumeExpiredError, DeclarativeRuntimeError, NonRetryableError):
                 raise
             except Exception as exc:
                 raise DeclarativeRuntimeError("artifact_download_failed", detail=str(exc)) from exc
@@ -643,6 +646,7 @@ class DeclarativeVideoBackend(ProviderJobIdPersistenceMixin):
                 client,
                 rendered.url if rendered is not None else url,
                 output_path,
+                max_bytes=VIDEO_ARTIFACT_MAX_BYTES,
                 headers=rendered.headers if rendered is not None else None,
                 credential_origin=credential_origin if rendered is not None else None,
                 auth_query=rendered.auth_query if rendered is not None else None,
@@ -654,5 +658,8 @@ class DeclarativeVideoBackend(ProviderJobIdPersistenceMixin):
                 label=f"{self._provider} artifact download",
                 max_wait=max_wait,
             )
+        except NonRetryableError:
+            # 目的地不合规、超出体积上限：重新取件结果不会变，不落可重试下载
+            raise
         except Exception as exc:
             raise DeclarativeRuntimeError("artifact_download_failed", detail=str(exc)) from exc

@@ -1,0 +1,113 @@
+<!-- This is an auto-generated comment: summarize by coderabbit.ai -->
+<!-- review_stack_entry_start -->
+
+<a href="https://app.coderabbit.ai/change-stack/ArcReel/ArcReel/pull/2620"><img src="https://storage.googleapis.com/coderabbit_public_assets/review-stack-in-coderabbit-ui-dark.svg?v=2" alt="Review in Change Stack →" width="220" height="32"></a>
+
+Navigate logical layers of code changes, visualize relationships, and explore their blast radius.
+
+<!-- review_stack_entry_end -->
+<!-- walkthrough_start -->
+
+<details>
+<summary>📝 Walkthrough</summary>
+
+## Walkthrough
+
+Generation Worker 现在通过应用注入生成与续跑执行器。重启恢复、视频续跑和失败编码被拆到独立模块。正式图片提交流程迁移到 `formal_image_commit`，相关服务端调用与测试同步更新。
+
+### Changes
+
+**生成 Worker 与恢复流程**
+
+|Layer / File(s)|Summary|
+|---|---|
+|**Worker 装配与生命周期** <br> `lib/generation/generation_worker.py`, `server/app.py`, `tests/integration/lib/generation/*`, `tests/unit/lib/generation/*`|`GenerationWorker` 要求显式传入 `executor` 与 `resume_executor`。Worker 将启动孤儿处理、调用结算和派发等待委托给 `_recovery`。|
+|**重启恢复与视频续跑** <br> `lib/generation/restart_recovery.py`, `lib/generation/video_resume.py`, `tests/integration/lib/generation/test_restart_recovery.py`, `tests/integration/lib/generation/test_video_resume.py`|新增孤儿扫描、provider 分桶、容量限制、续跑执行、staging 清理和调用结算逻辑。测试覆盖失败、取消、容量为零、并发限制和本进程任务保护。|
+|**任务失败编码** <br> `lib/generation/task_failure_encoding.py`, `tests/integration/lib/generation/test_task_failure_capability.py`, `tests/unit/lib/custom_provider/*`|新增 `encode_task_failure_message`。结构化编码失败时记录 warning，并按异常类型回退到固定编码或异常文本。|
+|**正式图片提交管线** <br> `server/services/tasks/formal_image_commit.py`, `server/services/tasks/generation_tasks.py`, `server/services/tasks/image_edit_tasks.py`, `server/services/tasks/derivative_sheet_tasks.py`|新增公开的正式图片提交、最终化、资产表、分镜和网格接口。任务入口删除重复实现，并改用共享接口。|
+|**依赖边界与验证** <br> `pyproject.toml`, `website/docs/dev/architecture.md`, `tests/integration/test_imports.py`, `scripts/audit_tests.py`, `tests/*`|核心库不依赖服务端的契约移除两条豁免。应用装配、导入检查、测试替身和 monkeypatch 目标同步更新。|
+
+<!-- change_assessment_start -->
+**Priority:** ➖ Normal
+
+**Estimated code review effort:** 4 (Complex) | ~60 minutes
+
+<!-- change_assessment_commit:"e77c32c942b32a0efdea00525568eadf6aee5fc9" -->
+**Change:** Refactor
+<!-- change_assessment_end -->
+
+</details>
+
+<!-- walkthrough_end -->
+<!-- final_review_risk_start -->
+**Merge Risk:** _🔵 Low_ · up to `e77c3`
+<!-- final_review_risk_coverage:{"sourceCommitId":"e77c32c942b32a0efdea00525568eadf6aee5fc9","coveredCommitId":"e77c32c942b32a0efdea00525568eadf6aee5fc9","kind":"reviewed"} -->
+
+Concurrent image commits can return an incorrect creation timestamp. This is bounded but should be fixed by looking up the timestamp for the committed version.
+<!-- final_review_risk_end -->
+<!-- pre_merge_checks_walkthrough_start -->
+
+<details>
+<summary>🚥 Pre-merge checks | ✅ 3 | ❌ 2</summary>
+
+### ❌ Failed checks (2 warnings)
+
+|      Check name     | Status     | Explanation                                                                                                                                                                                               | Resolution                                                                                                                      |
+| :-----------------: | :--------- | :-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | :------------------------------------------------------------------------------------------------------------------------------ |
+| Linked Issues check | ⚠️ Warning | `#2609` 的核心结构要求基本已实现：`pyproject.toml` 已清空核心库到服务端的豁免，`server/app.py` 注入两个执行器，`RestartRecovery` 与 `VideoResumeRunner` 已独立，相关模块已登记。#2611 的正式图像提交已移至独立模块，并改用公开接口；失败补偿和不可中断边界仍有实现与测试。#2619 指定的旧方法名、旧注释和空打桩已按摘要清… | 恢复或迁移被删除的 Worker 测试，并保留原有断言；仅修改执行器注入、导入路径和打桩路径。为 `#2611` 在 PR 描述中逐项列出取消回执相关结构，说明每项删除或保留的理由，并明确提交失败补偿和不可中断边界未变。完成后重新运行受影响的测试和质量闸门。 |
+|  Docstring Coverage | ⚠️ Warning | Docstring coverage is 42.06% which is insufficient. The required threshold is 80.00%. Docstring coverage is scoped to functions touched by this diff. Analyzed 340 functions across 43 files. (3 skipped… | Write docstrings for the functions missing them to satisfy the coverage threshold.                                              |
+
+<details>
+<summary>✅ Passed checks (3 passed)</summary>
+
+|         Check name         | Status   | Explanation                                                                                                                  |
+| :------------------------: | :------- | :--------------------------------------------------------------------------------------------------------------------------- |
+|         Title check        | ✅ Passed | 标题准确概括了主要变更：将执行器改为由装配处注入、拆分 GenerationWorker，并将正式图像提交移到独立模块。标题清晰且符合 Conventional Commit 格式。                                  |
+|      Description check     | ✅ Passed | 描述完整覆盖关联 issue、变更内容、验证命令与结果、风险和遗留事项。内容与 PR 目标及变更摘要一致，未发现必需章节缺失。                                                              |
+| Out of Scope Changes check | ✅ Passed | 未发现与三个议题无关的变更。`grid_split.py`、`upload_finalize.py`、任务模块和参考视频模块的导入调整直接支持正式图像提交迁移和循环依赖清理。测试替身、导入模块清单、审计脚本、文档和架构契约调整直接支持对应验收条件。 |
+
+</details>
+
+<details>
+<summary>Full details: Linked Issues check</summary>
+
+**Explanation**
+
+`#2609` 的核心结构要求基本已实现：`pyproject.toml` 已清空核心库到服务端的豁免，`server/app.py` 注入两个执行器，`RestartRecovery` 与 `VideoResumeRunner` 已独立，相关模块已登记。#2611 的正式图像提交已移至独立模块，并改用公开接口；失败补偿和不可中断边界仍有实现与测试。#2619 指定的旧方法名、旧注释和空打桩已按摘要清理。可是，变更摘要明确记载删除了多组 Worker 的孤儿处理和续跑测试。#2609 要求保留既有测试断言，只允许修改构造方式、导入路径和打桩路径。摘要没有证明这些断言已逐项无变化地迁移。另有，#2611 要求 PR 描述逐项说明取消回执相关结构的删除或保留理由。当前 PR 摘要只说明保留失败补偿和不可中断边界，没有提供该评估。
+
+</details>
+
+<details>
+<summary>Full details: Docstring Coverage</summary>
+
+**Explanation**
+
+Docstring coverage is 42.06% which is insufficient. The required threshold is 80.00%. Docstring coverage is scoped to functions touched by this diff. Analyzed 340 functions across 43 files. (3 skipped: 3 unsupported.)
+
+</details>
+
+</details>
+
+<!-- pre_merge_checks_walkthrough_end -->
+
+- [ ] <!-- {"checkboxId":"585bb3f6-faf5-4dbf-96d2-74e382adf19a"} --> Fix all pre-merge checks with AI
+<!-- tips_start -->
+
+---
+
+Thanks for using [CodeRabbit](https://coderabbit.ai?utm_source=oss&utm_medium=github&utm_campaign=ArcReel/ArcReel&utm_content=2620)! It's free for OSS, and your support helps us grow. If you like it, consider giving us a shout-out.
+
+<details>
+<summary>❤️ Share</summary>
+
+- [X](https://twitter.com/intent/tweet?text=I%20just%20used%20%40coderabbitai%20for%20my%20code%20review%2C%20and%20it%27s%20fantastic%21%20It%27s%20free%20for%20OSS%20and%20offers%20a%20free%20trial%20for%20the%20proprietary%20code.%20Check%20it%20out%3A&url=https%3A//coderabbit.ai)
+- [Mastodon](https://mastodon.social/share?text=I%20just%20used%20%40coderabbitai%20for%20my%20code%20review%2C%20and%20it%27s%20fantastic%21%20It%27s%20free%20for%20OSS%20and%20offers%20a%20free%20trial%20for%20the%20proprietary%20code.%20Check%20it%20out%3A%20https%3A%2F%2Fcoderabbit.ai)
+- [Reddit](https://www.reddit.com/submit?title=Great%20tool%20for%20code%20review%20-%20CodeRabbit&text=I%20just%20used%20CodeRabbit%20for%20my%20code%20review%2C%20and%20it%27s%20fantastic%21%20It%27s%20free%20for%20OSS%20and%20offers%20a%20free%20trial%20for%20proprietary%20code.%20Check%20it%20out%3A%20https%3A//coderabbit.ai)
+- [LinkedIn](https://www.linkedin.com/sharing/share-offsite/?url=https%3A%2F%2Fcoderabbit.ai&mini=true&title=Great%20tool%20for%20code%20review%20-%20CodeRabbit&summary=I%20just%20used%20CodeRabbit%20for%20my%20code%20review%2C%20and%20it%27s%20fantastic%21%20It%27s%20free%20for%20OSS%20and%20offers%20a%20free%20trial%20for%20proprietary%20code)
+
+</details>
+
+
+<sub>Comment `@coderabbitai help` to get the list of available commands.</sub>
+
+<!-- tips_end -->

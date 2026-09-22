@@ -612,6 +612,103 @@ def test_narrated_video_confirmation_uses_the_selected_visual_tier_when_availabl
     assert replacement.problems[0].parameters()["current_visual_duration"] == 4
 
 
+def test_narrated_video_refuses_tts_delivery_on_endpoint_fixed_durations() -> None:
+    """分镜路线与参考生视频路线同口径：时长由端点固定时 TTS 旁白交付不支持，不再喊「档位未声明」。"""
+
+    narration = prepare_narration_delivery(
+        delivery=USE_TTS,
+        preparation=_narrator_preparation(),
+        artifact_path="audio/segment_E1U1.wav",
+        settings=_settings(),
+        evidence=NarrationAudioEvidence(
+            comparison=_comparison(ArtifactStatus.CURRENT),
+            present=True,
+            duration_seconds=6.2,
+        ),
+    )
+
+    result = prepare_narrated_video_duration(
+        narration=narration,
+        planned_duration_seconds=8,
+        supported_durations=(),
+        confirmed_request_duration_seconds=None,
+        duration_endpoint_fixed=True,
+    )
+
+    assert result.allowed is False
+    assert result.request_duration_seconds is None
+    assert [problem.code for problem in result.problems] == ["tts_duration_endpoint_fixed"]
+    assert result.problems[0].action == "choose_post_production"
+
+
+def test_endpoint_fixed_tts_refusal_outranks_narration_readiness_problems() -> None:
+    """读侧取首条阻断项：旁白还没生成也先说「改选后期配音」，配好 TTS 在这种模型上仍然用不了。"""
+
+    narration = prepare_narration_delivery(
+        delivery=USE_TTS,
+        preparation=_narrator_preparation(),
+        artifact_path="audio/segment_E1U1.wav",
+        settings=_settings(),
+        evidence=None,
+    )
+    assert [problem.code for problem in narration.problems] == ["tts_missing"]
+
+    result = prepare_narrated_video_duration(
+        narration=narration,
+        planned_duration_seconds=8,
+        supported_durations=(),
+        confirmed_request_duration_seconds=None,
+        duration_endpoint_fixed=True,
+    )
+
+    assert [problem.code for problem in result.problems] == ["tts_duration_endpoint_fixed", "tts_missing"]
+    assert result.problems[0].action == "choose_post_production"
+
+
+def test_narrated_video_passes_post_production_through_endpoint_fixed_durations() -> None:
+    narration = prepare_narration_delivery(
+        delivery=POST_PRODUCTION,
+        preparation=_narrator_preparation(),
+        artifact_path="audio/segment_E1U1.wav",
+        settings=None,
+        evidence=None,
+    )
+
+    result = prepare_narrated_video_duration(
+        narration=narration,
+        planned_duration_seconds=8,
+        supported_durations=(),
+        confirmed_request_duration_seconds=None,
+        duration_endpoint_fixed=True,
+    )
+
+    assert result.allowed is True
+    assert result.request_duration_seconds == 8
+    assert result.adjustment == "unconstrained"
+    assert result.problems == ()
+
+
+def test_narrated_video_still_blocks_an_unflagged_empty_tier_set() -> None:
+    narration = prepare_narration_delivery(
+        delivery=POST_PRODUCTION,
+        preparation=_narrator_preparation(),
+        artifact_path="audio/segment_E1U1.wav",
+        settings=None,
+        evidence=None,
+    )
+
+    result = prepare_narrated_video_duration(
+        narration=narration,
+        planned_duration_seconds=8,
+        supported_durations=(),
+        confirmed_request_duration_seconds=None,
+    )
+
+    assert result.allowed is False
+    assert result.request_duration_seconds is None
+    assert [problem.code for problem in result.problems] == ["video_supported_durations_missing"]
+
+
 def test_narrated_video_above_maximum_requires_replanning_without_truncation() -> None:
     narration = prepare_narration_delivery(
         delivery=USE_TTS,

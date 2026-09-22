@@ -415,7 +415,6 @@ class TestComfyuiEndpoint:
 
     def test_a_bound_definition_is_stored_and_mirrors_its_own_media_type(self, endpoints_client: TestClient):
         definition = comfyui_endpoint_definition(media_type="image")
-        del definition["bindings"]["fps"]
 
         body = _create(endpoints_client, definition)
 

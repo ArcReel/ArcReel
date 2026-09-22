@@ -291,7 +291,7 @@ def build_workflow_plan(
             continue
         step = by_id[step_id]
         step.tasks.append(observation)
-        if observation.status in {"queued", "running", "cancelling"}:
+        if observation.status in {"queued", "running"}:
             step.state = WorkflowStepState.ACTIVE
 
     video_step = by_id["video"]
@@ -300,7 +300,7 @@ def build_workflow_plan(
     if admission is not None and admission.get("decision") != "admitted" and not video_step.tasks:
         video_step.state = WorkflowStepState.BLOCKED
 
-    active_tasks = [task for task in task_observations if task.status in {"queued", "running", "cancelling"}]
+    active_tasks = [task for task in task_observations if task.status in {"queued", "running"}]
     if status.blockers:
         next_action = status.next_action
     elif structure_problems:

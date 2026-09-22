@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from lib.backends.video_backends.base import VideoCapabilityError, VideoGenerationRequest
+from lib.backends.video_backend_contract import VideoCapabilityError, VideoGenerationRequest
 from lib.backends.video_backends.gemini import GeminiVideoBackend
 from lib.config.registry import ModelInfo
 

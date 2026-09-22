@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
-from lib.backends.video_backends.base import VideoCapabilities
+from lib.backends.video_backend_contract import VideoCapabilities
 from lib.custom_provider import CUSTOM_ENDPOINT_KEY_PREFIX
 from lib.custom_provider.endpoint_definition import DefinitionIssue, validate_definition
 

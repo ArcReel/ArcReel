@@ -2,7 +2,11 @@
 id: style/live_kurosawa
 category: style
 title: 黑泽明
-description: "真人画风，黑白高对比 · 人性史诗。正文不以「画风：」起头，免得与注入处的英文 Style 标签叠成「Style: 画风：…」。"
+description: "真人画风，黑白高对比 · 人性史诗。"
+stage: style
+invoked_by:
+  kind: user_action
+  name: style_selection
 applies_to: {}
 slots: {}
 protected: false

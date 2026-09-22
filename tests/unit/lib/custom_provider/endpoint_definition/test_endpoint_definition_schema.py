@@ -6,7 +6,7 @@ from dataclasses import fields
 
 from jsonschema import Draft202012Validator
 
-from lib.backends.video_backends.base import VideoCapabilities
+from lib.backends.video_backend_contract import VideoCapabilities
 from lib.custom_provider.endpoint_definition import CURRENT_SCHEMA_VERSION, load_schema
 
 

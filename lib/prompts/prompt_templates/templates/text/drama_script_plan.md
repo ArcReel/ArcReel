@@ -2,15 +2,11 @@
 id: text/drama_script_plan
 category: text
 title: 剧情演绎脚本规划
-description: >-
-  把本集源文拆为结构化分镜内容：分镜边界、出场资产、视觉改编描述、逐字口播 utterances 与原文锚 source_text，
-  定稿后由提示词编写只补视觉层。小说是改编：画外音按语境判断产出，场景切换由模型判断；
-  成品剧本是提取：台词与画外音逐字照搬，沿用作者的场次，不做再创作。
-  字段、枚举与必填项由 response_schema 强制，正文只讲怎么写好每个字段的内容。
-  输出语言主句两种源文共用，只把例外从句按源文类型分开：资产引用与说话人须逐字等于登记名，
-  翻译会与已登记资产失配；剧本额外逐字保留台词正文。
-  时长拆成三条：档位按画面选、口播下界防止选到念不完台词的短档、单集目标决定拆多少个分镜；
-  口播下界是单向的，只防过短，不因台词删减内容。群演不进出场角色只在候选清单处讲一次。
+description: 把本集源文拆为剧情演绎的结构化分镜内容：分镜边界、出场资产、画面描述、逐字口播与原文锚。
+stage: script_plan
+invoked_by:
+  kind: agent_tool
+  name: generate_script_plan
 applies_to:
   content_mode:
   - drama
@@ -62,7 +58,7 @@ protected: false
 {{ style }}
 </style>
 
-{{ partial("shared/asset_name_blocks") }}
+{{ partial("shared/lists/asset_name_blocks") }}
 
 ## 源文
 

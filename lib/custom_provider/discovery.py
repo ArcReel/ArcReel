@@ -8,13 +8,16 @@ import logging
 from google import genai
 from openai import OpenAI
 
+from lib.backends.artifact_download_guard import artifact_http_client
 from lib.backends.http_status_errors import raise_for_status_redacted
 from lib.config.anthropic_probe import anthropic_auth_headers
 from lib.config.url_utils import anthropic_endpoint_url, validate_anthropic_base_url
 from lib.custom_provider.endpoints import endpoint_to_media_type, infer_endpoint
-from lib.infra.httpx_shared import get_http_client
 
 logger = logging.getLogger(__name__)
+
+#: Anthropic 协议模型列表请求的 I/O 超时。
+_DISCOVERY_TIMEOUT_SECONDS = 15.0
 
 
 class UnsupportedDiscoveryFormatError(ValueError):
@@ -87,19 +90,24 @@ async def _discover_anthropic(base_url: str | None, api_key: str) -> list[dict]:
     base_url 与 Agent 调用地址同一个值，不剥子路径：网关把 Claude 协议挂在
     /anthropic 等子路径下时，模型列表也在同一子路径下。
 
+    出站目的地经 ``artifact_http_client`` 校验，与产物下载同一道闸：链路本地与云元数据地址
+    一律拒绝，环回与私网放行（自建网关合法地跑在其中）。这道校验的主机名解析在 client 的
+    I/O 超时预算之外，解析不通时一次请求最多再等 ``DNS_RESOLVE_TIMEOUT_SECONDS``。
+
     返回 dict 与 OpenAI/Google 路径同形态，但 endpoint 字段为空字符串
     （anthropic 不参与 ENDPOINT_REGISTRY 派发，前端只读 model_id）。
 
     Raises:
         InvalidAnthropicBaseUrlError: base_url 含 query / fragment / userinfo 或不是绝对 http(s) 地址。
+        ArtifactDestinationRejectedError: 目标协议或解析出的地址不在允许范围内。
     """
     normalized = validate_anthropic_base_url(base_url or "https://api.anthropic.com")
     url = anthropic_endpoint_url(normalized, "/v1/models")
-    client = get_http_client()
-    resp = await client.get(url, headers=anthropic_auth_headers(api_key), timeout=15.0)
-    if resp.status_code == 401:
-        # 部分网关（火山方舟）只认 Authorization: Bearer，对 x-api-key 一律 401
-        resp = await client.get(url, headers=anthropic_auth_headers(api_key, bearer=True), timeout=15.0)
+    async with artifact_http_client(timeout=_DISCOVERY_TIMEOUT_SECONDS) as client:
+        resp = await client.get(url, headers=anthropic_auth_headers(api_key))
+        if resp.status_code == 401:
+            # 部分网关（火山方舟）只认 Authorization: Bearer，对 x-api-key 一律 401
+            resp = await client.get(url, headers=anthropic_auth_headers(api_key, bearer=True))
     raise_for_status_redacted(resp)
     data = resp.json()
     entries = sorted(

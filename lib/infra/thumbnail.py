@@ -1,10 +1,18 @@
 """视频帧提取（首帧缩略图 / 尾帧）"""
 
-import asyncio
 import functools
 import logging
 import shutil
+from dataclasses import dataclass
 from pathlib import Path
+from uuid import uuid4
+
+from lib.infra.subprocess_deadline import (
+    DEFAULT_TERMINATE_GRACE_SECONDS,
+    Spawner,
+    SubprocessDeadlineExceeded,
+    run_with_deadline,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +29,23 @@ def _ffprobe_available() -> bool:
     return shutil.which("ffprobe") is not None
 
 
+@dataclass(frozen=True)
+class FrameExtractionDeadlines:
+    """ffmpeg / ffprobe 子进程按操作分档的 deadline（秒）。"""
+
+    probe: float = 30.0
+    """读取容器元数据（``nb_frames``）。"""
+    extract: float = 120.0
+    """抽取单帧（首帧缩略图 / 按帧号定位）。"""
+    count_frames: float = 300.0
+    """``-count_frames`` 全量解码计帧。"""
+    grace: float = DEFAULT_TERMINATE_GRACE_SECONDS
+    """terminate 后等待退出的宽限期，超出即 kill。"""
+
+
+DEFAULT_DEADLINES = FrameExtractionDeadlines()
+
+
 def reset_for_tests() -> None:
     """test helper — 清缓存让 monkeypatch shutil.which 立刻生效。"""
     _ffmpeg_available.cache_clear()
@@ -30,6 +55,9 @@ def reset_for_tests() -> None:
 async def extract_video_thumbnail(
     video_path: Path,
     thumbnail_path: Path,
+    *,
+    deadlines: FrameExtractionDeadlines = DEFAULT_DEADLINES,
+    spawn: Spawner | None = None,
 ) -> Path | None:
     """
     使用 ffmpeg 提取视频第一帧作为 JPEG 缩略图。
@@ -46,7 +74,7 @@ async def extract_video_thumbnail(
         字段」的现有分支；前端 ``<video poster>`` 在 poster 为空时浏览器会
         原生从视频流取首帧渲染，无需 server-side placeholder。
     """
-    if not video_path.exists():  # noqa: ASYNC240 -- 输入视频存在性检查，本地元数据；抽帧本身走 create_subprocess_exec
+    if not video_path.exists():  # noqa: ASYNC240 -- 输入视频存在性检查，本地元数据；抽帧本身走 run_with_deadline 子进程
         return None
 
     if not _ffmpeg_available():
@@ -56,31 +84,25 @@ async def extract_video_thumbnail(
     thumbnail_path.parent.mkdir(parents=True, exist_ok=True)
 
     try:
-        proc = await asyncio.create_subprocess_exec(
-            "ffmpeg",
-            "-i",
-            str(video_path),
-            "-vframes",
-            "1",
-            "-q:v",
-            "2",
-            "-y",
-            str(thumbnail_path),
-            stdout=asyncio.subprocess.DEVNULL,
-            stderr=asyncio.subprocess.DEVNULL,
+        written = await _run_ffmpeg_to_output(
+            ["ffmpeg", "-nostdin", "-y", "-i", str(video_path), "-vframes", "1", "-q:v", "2"],
+            thumbnail_path,
+            deadlines=deadlines,
+            spawn=spawn,
         )
-        await proc.wait()
-
-        if proc.returncode != 0 or not thumbnail_path.exists():  # noqa: ASYNC240 -- 抽帧产物存在性检查，本地元数据
-            return None
-
-        return thumbnail_path
+        return thumbnail_path if written else None
     except Exception:
         logger.warning("提取视频缩略图失败: %s", video_path, exc_info=True)
         return None
 
 
-async def _probe_frame_count(video_path: Path, *, count_frames: bool) -> int | None:
+async def _probe_frame_count(
+    video_path: Path,
+    *,
+    count_frames: bool,
+    deadlines: FrameExtractionDeadlines,
+    spawn: Spawner | None,
+) -> int | None:
     """
     用 ffprobe 读取视频帧数。
 
@@ -102,62 +124,92 @@ async def _probe_frame_count(video_path: Path, *, count_frames: bool) -> int | N
     ]
 
     try:
-        probe = await asyncio.create_subprocess_exec(
-            *args,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.DEVNULL,
+        result = await run_with_deadline(
+            args,
+            deadline_seconds=deadlines.count_frames if count_frames else deadlines.probe,
+            grace=deadlines.grace,
+            capture_stdout=True,
+            spawn=spawn,
         )
-        stdout, _ = await probe.communicate()
+    except SubprocessDeadlineExceeded:
+        logger.warning("ffprobe 读取帧数超时: %s", video_path)
+        return None
     except (FileNotFoundError, OSError):
         return None
 
-    if probe.returncode != 0:
+    if result.returncode != 0:
         return None
 
     try:
-        return int(stdout.decode().strip())
+        return int(result.stdout.decode().strip())
     except (ValueError, AttributeError):
         return None
+
+
+async def _run_ffmpeg_to_output(
+    args: list[str],
+    output_path: Path,
+    *,
+    deadlines: FrameExtractionDeadlines,
+    spawn: Spawner | None,
+) -> bool:
+    """ffmpeg 先写同目录的独立临时文件（每次调用唯一），成功且非空才原子替换 ``output_path``；失败或超时不动已有产物。
+
+    ``args`` 为不含输出路径的 ffmpeg 参数。
+    """
+    temp_path = output_path.with_name(f".{output_path.stem}.{uuid4().hex}.tmp{output_path.suffix}")
+
+    result = await run_with_deadline(
+        [*args, str(temp_path)],
+        deadline_seconds=deadlines.extract,
+        grace=deadlines.grace,
+        cleanup_paths=[temp_path],
+        spawn=spawn,
+    )
+
+    try:
+        if result.returncode != 0 or not temp_path.exists() or temp_path.stat().st_size < 1:
+            return False
+        temp_path.replace(output_path)
+        return True
+    finally:
+        temp_path.unlink(missing_ok=True)
 
 
 async def _extract_frame_at_index(
     video_path: Path,
     output_path: Path,
     frame_index: int,
+    *,
+    deadlines: FrameExtractionDeadlines,
+    spawn: Spawner | None,
 ) -> bool:
-    temp_path = output_path.with_name(f".{output_path.stem}.tmp{output_path.suffix}")
-    if temp_path.exists():
-        temp_path.unlink()
-
-    proc = await asyncio.create_subprocess_exec(
-        "ffmpeg",
-        "-y",
-        "-i",
-        str(video_path),
-        "-vf",
-        f"select='eq(n\\,{frame_index})'",
-        "-fps_mode",
-        "vfr",
-        "-frames:v",
-        "1",
-        str(temp_path),
-        stdout=asyncio.subprocess.DEVNULL,
-        stderr=asyncio.subprocess.DEVNULL,
+    return await _run_ffmpeg_to_output(
+        [
+            "ffmpeg",
+            "-nostdin",
+            "-y",
+            "-i",
+            str(video_path),
+            "-vf",
+            f"select='eq(n\\,{frame_index})'",
+            "-fps_mode",
+            "vfr",
+            "-frames:v",
+            "1",
+        ],
+        output_path,
+        deadlines=deadlines,
+        spawn=spawn,
     )
-    await proc.wait()
-
-    if proc.returncode != 0 or not temp_path.exists() or temp_path.stat().st_size < 1:
-        if temp_path.exists():
-            temp_path.unlink()
-        return False
-
-    temp_path.replace(output_path)
-    return True
 
 
 async def extract_video_last_frame(
     video_path: Path,
     output_path: Path,
+    *,
+    deadlines: FrameExtractionDeadlines = DEFAULT_DEADLINES,
+    spawn: Spawner | None = None,
 ) -> Path | None:
     """
     提取视频最后一帧作为 PNG 图片。
@@ -175,7 +227,7 @@ async def extract_video_last_frame(
     Returns:
         输出路径（成功）或 None（失败 / ffmpeg 或 ffprobe 不可用）
     """
-    if not video_path.exists():  # noqa: ASYNC240 -- 输入视频存在性检查，本地元数据；抽帧本身走 create_subprocess_exec
+    if not video_path.exists():  # noqa: ASYNC240 -- 输入视频存在性检查，本地元数据；抽帧本身走 run_with_deadline 子进程
         return None
 
     if not _ffmpeg_available() or not _ffprobe_available():
@@ -185,19 +237,23 @@ async def extract_video_last_frame(
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     # 1. 先走快路径（容器元数据），失败再回退到全量解码
-    total_frames = await _probe_frame_count(video_path, count_frames=False)
+    total_frames = await _probe_frame_count(video_path, count_frames=False, deadlines=deadlines, spawn=spawn)
     try:
         if (
             total_frames is not None
             and total_frames > 0
-            and await _extract_frame_at_index(video_path, output_path, total_frames - 1)
+            and await _extract_frame_at_index(
+                video_path, output_path, total_frames - 1, deadlines=deadlines, spawn=spawn
+            )
         ):
             return output_path
 
-        total_frames = await _probe_frame_count(video_path, count_frames=True)
+        total_frames = await _probe_frame_count(video_path, count_frames=True, deadlines=deadlines, spawn=spawn)
         if total_frames is None or total_frames < 1:
             return None
-        if not await _extract_frame_at_index(video_path, output_path, total_frames - 1):
+        if not await _extract_frame_at_index(
+            video_path, output_path, total_frames - 1, deadlines=deadlines, spawn=spawn
+        ):
             return None
 
         return output_path

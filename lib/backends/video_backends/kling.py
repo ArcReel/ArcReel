@@ -26,22 +26,20 @@ from pathlib import Path
 
 import httpx
 
+from lib.backends.backend_runtime import ProviderJobIdPersistenceMixin, download_resumable_video, recording_poll
 from lib.backends.kling_backend_base import KlingBackendBase
 from lib.backends.kling_shared import (
     extract_kling_video_url,
     image_to_base64,
 )
 from lib.backends.providers import PROVIDER_KLING
-from lib.backends.video_backends.base import (
-    ProviderJobIdPersistenceMixin,
+from lib.backends.video_backend_contract import (
     VideoAudioMode,
     VideoCapabilities,
     VideoCapabilityError,
     VideoGenerationRequest,
     VideoGenerationResult,
     VideoRoute,
-    download_resumable_video,
-    recording_poll,
 )
 
 logger = logging.getLogger(__name__)

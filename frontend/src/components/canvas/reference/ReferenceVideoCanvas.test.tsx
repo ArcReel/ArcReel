@@ -1244,7 +1244,7 @@ describe("ReferenceVideoCanvas", () => {
     });
 
     // 弹窗停留时长由用户决定，可以很长：其间别处完成的单元若按冻结清单原样重发，队列
-    // 去重（只看 queued/running/cancelling）拦不住，会重跑一次生成、重复计费并覆盖成片。
+    // 去重（只看 queued/running）拦不住，会重跑一次生成、重复计费并覆盖成片。
     it("确认停留期间已完成的单元不再重发", async () => {
       const [u1, u2] = [mkUnit("E1U1"), mkUnit("E1U2")];
       vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [u1, u2] });

@@ -52,7 +52,10 @@
 #       "id":                    <int>,                 # REST issue comment id — stable across rewrites
 #       "created_at", "updated_at",
 #       "reviewed_current_head": <bool>,                # updated_at > last_push_at AND not rate-limited AND the
-#                                                       # latest CR review's commit (if any) matches the head
+#                                                       # walkthrough's own commit anchor (or, failing that, the
+#                                                       # latest CR review's commit) matches the head
+#       "walkthrough_head":      "<sha>" | null,        # commit anchor parsed from the walkthrough body — the only
+#                                                       # anchor CR advances on incremental reviews (see PITFALL 9)
 #       "latest_review_commit":  "<sha>" | null,        # commit anchor of the latest CR review (contradiction check)
 #       "is_ok":                 <bool>,                # CR explicit pass marker
 #       "is_paused":             <bool>,                # CR paused for this PR
@@ -113,11 +116,12 @@
 # FLAG SEMANTICS (single source of truth — reviewers.md references these fields by name)
 #   is_new                 new this round: created_at/submittedAt > max(last_push_at, last round's marked_at)
 #                          (PITFALL 2 and 8), OR id absent from the seen ledger (straggler catch, PITFALL 6)
-#   reviewed_current_head  walkthrough.updated_at > last_push_at AND is_rate_limited == false AND the latest CR
-#                          review's commit anchor (when present) matches the head. CR rewrites its first comment
-#                          each review — but a rate-limit banner rewrite also advances updated_at without
-#                          reviewing anything, and a slow review of an older HEAD rewrites it after the next
-#                          push, so neither must read as "reviewed". On gemini review rows:
+#   reviewed_current_head  walkthrough.updated_at > last_push_at AND is_rate_limited == false AND a commit anchor
+#                          matches the head: walkthrough_head when the body carries one, else the latest CR
+#                          review's commit (null = no evidence either way, timestamp rule alone). CR rewrites its
+#                          first comment each review — but a rate-limit banner rewrite also advances updated_at
+#                          without reviewing anything, and a slow review of an older HEAD rewrites it after the
+#                          next push, so neither must read as "reviewed". On gemini review rows:
 #                          the REST review's commit_id vs headRefOid (submittedAt > last_push_at only as fallback
 #                          when the mapping is unavailable) — a straggler or slow review of an older HEAD
 #                          surfaces as is_new but must not read as current-HEAD (see PITFALL 6)
@@ -211,6 +215,15 @@
 #    Head-freshness (reviewed_current_head, reactions) stays push-based, and a review or
 #    comment row with reviewed_current_head == true stays listed (is_new false) after the
 #    mark retires it, so the current-HEAD status is still recoverable from the index.
+#
+# 9. CodeRabbit submits a review object (with a commit anchor) on the first pass only. Every
+#    later push gets an incremental review that rewrites the walkthrough comment in place and
+#    submits no new review, so the latest review's commit stays pinned to the first reviewed
+#    HEAD and can never equal a later head. The walkthrough body is the anchor that moves:
+#    its `change_assessment_commit` marker, its "📥 Commits" range line ("between <a> and
+#    <b>", b = reviewed head), and its `final_review_risk_coverage` coveredCommitId all name
+#    the reviewed head. walkthrough_head reads those (in that order) and takes precedence
+#    over the review anchor; the review anchor is only the fallback when the body has none.
 
 set -euo pipefail
 
@@ -497,6 +510,15 @@ jq -n \
   def has_outside_diff_body:
     (. // "") | test("Outside diff range comments \\([1-9][0-9]*\\)"; "i");
 
+  def cr_walkthrough_head:
+    # The reviewed-head anchor CR writes into the walkthrough body (PITFALL 9), in preference
+    # order: the change_assessment_commit marker, the end sha of the "📥 Commits" range line,
+    # the final_review_risk_coverage coveredCommitId. null when the body carries none.
+    (. // "") as $b
+    | (([$b | capture("<!--\\s*change_assessment_commit:\\s*\"(?<sha>[0-9a-fA-F]{7,40})\"")] | .[0].sha // null)
+       // ([$b | capture("between [0-9a-fA-F]{7,40} and (?<sha>[0-9a-fA-F]{7,40})")] | .[0].sha // null)
+       // ([$b | capture("\"coveredCommitId\":\\s*\"(?<sha>[0-9a-fA-F]{7,40})\"")] | .[0].sha // null));
+
   def cr_walkthrough_rest:
     [$sub_a[] | select(.user.login == "coderabbitai[bot]")]
     | sort_by(.created_at)
@@ -504,22 +526,28 @@ jq -n \
     | if . == null then null else
         (.body // "") as $wb
         | ($wb | cr_rate_limited_body) as $rate_limited
-        # The walkthrough itself carries no commit anchor, so its freshness is timestamp-based —
-        # but a slow review of an older HEAD rewrites it after the next push, faking freshness.
-        # The REST commit_id of the latest CR review is the contradiction check: when it disagrees
-        # with the current HEAD, the timestamp claim is a straggler rewrite (null = no reviews,
-        # no evidence either way).
+        # Freshness is timestamp-based, but a slow review of an older HEAD rewrites the walkthrough
+        # after the next push, faking it. The contradiction check is a commit anchor: walkthrough_head
+        # parsed from the body when present (the anchor that follows incremental reviews, PITFALL 9),
+        # else the REST commit_id of the latest CR review (null = no reviews, no evidence either way).
+        # A present walkthrough_head is authoritative: a review anchored on the head does not
+        # override a walkthrough anchored elsewhere.
+        # No apostrophes in these comments: the whole jq program is one single-quoted bash string.
         | ([$main.reviews[] | select(.author.login == "coderabbitai")] | sort_by(.submittedAt)
            | last | if . == null then null else ($review_commit_by_id[.id] // null) end)
           as $latest_review_commit
+        | ($wb | cr_walkthrough_head) as $walkthrough_head
         | {
           id,
           created_at,
           updated_at,
           reviewed_current_head:
             ((.updated_at > $last_push) and ($rate_limited | not)
-             and (if $latest_review_commit == null then true
+             and (if $walkthrough_head != null
+                  then ($walkthrough_head | codex_commit_is_current_head)
+                  elif $latest_review_commit == null then true
                   else ($latest_review_commit | codex_commit_is_current_head) end)),
+          walkthrough_head: $walkthrough_head,
           latest_review_commit: $latest_review_commit,
           is_rate_limited: $rate_limited,
           is_ok:          ($wb | test("No actionable comments were generated in the recent review")),
