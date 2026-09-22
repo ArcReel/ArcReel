@@ -91,7 +91,8 @@ async def _discover_anthropic(base_url: str | None, api_key: str) -> list[dict]:
     /anthropic 等子路径下时，模型列表也在同一子路径下。
 
     出站目的地经 ``artifact_http_client`` 校验，与产物下载同一道闸：链路本地与云元数据地址
-    一律拒绝，环回与私网放行（自建网关合法地跑在其中）。
+    一律拒绝，环回与私网放行（自建网关合法地跑在其中）。这道校验的主机名解析在 client 的
+    I/O 超时预算之外，解析不通时一次请求最多再等 ``DNS_RESOLVE_TIMEOUT_SECONDS``。
 
     返回 dict 与 OpenAI/Google 路径同形态，但 endpoint 字段为空字符串
     （anthropic 不参与 ENDPOINT_REGISTRY 派发，前端只读 model_id）。
