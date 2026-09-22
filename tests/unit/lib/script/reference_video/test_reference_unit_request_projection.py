@@ -479,6 +479,36 @@ async def test_projection_refuses_tts_delivery_on_endpoint_fixed_durations() -> 
 
 
 @pytest.mark.asyncio
+async def test_endpoint_fixed_tts_refusal_outranks_narration_readiness_blockers() -> None:
+    """读侧取首条阻断项：TTS 还没配好也先说「改选后期配音」，配好了在这种模型上仍然用不了。"""
+
+    projector = await _endpoint_fixed_projector()
+    unit = {"unit_id": "E1U1", "text": "海面。\n{旁白内容。}", "duration_seconds": 10}
+    delivery = prepare_narration_delivery(
+        delivery=USE_TTS,
+        preparation=admit_script_unit("video_units", unit).preparation,
+        artifact_path="audio/segment_E1U1.wav",
+        settings=None,
+        evidence=None,
+    )
+    assert [problem.code for problem in delivery.problems] == ["tts_not_configured"]
+
+    result = await projector.project_current(
+        project={},
+        script={"episode": 1, "video_units": [unit]},
+        unit=unit,
+        resolved_assets=[],
+        options=ReferenceRequestOptions(narration_delivery=USE_TTS, narration_preparation=delivery),
+    )
+
+    assert [problem.code for problem in result.blocking_problems] == [
+        "tts_duration_endpoint_fixed",
+        "tts_not_configured",
+    ]
+    assert result.problem_payloads()[0]["action"] == "choose_post_production"
+
+
+@pytest.mark.asyncio
 async def test_projection_sanitizes_unexpected_capability_failures() -> None:
     class _BrokenCapabilities:
         async def resolve_candidate(self, project: dict, generation_type: str) -> ProviderProjectionCandidate:

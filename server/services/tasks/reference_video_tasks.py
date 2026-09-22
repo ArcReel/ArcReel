@@ -673,6 +673,9 @@ async def execute_reference_video_task(
                 speech=artifact_speech.basis,
                 duration=artifact_duration_basis,
             )
+            # 付费档位并入档位集，与分镜路线同口径：时长由端点固定时档位集是空的，而产物时效事实
+            # 要求档位集非空且含付费档，这里的唯一档位就是那次原样透传的秒数。
+            artifact_duration_tiers = tuple(sorted({effective_duration, *candidate.supported_durations}))
 
             def _build_checkpoint() -> ReferenceSubmissionCheckpoint:
                 artifact_currency = VideoArtifactCurrencyFacts(
@@ -683,7 +686,7 @@ async def execute_reference_video_task(
                     duration_basis=artifact_duration_basis,
                     video_basis=artifact_video_basis,
                     voice_style_speakers=artifact_speech.voice_style_speakers,
-                    duration_tiers=candidate.supported_durations,
+                    duration_tiers=artifact_duration_tiers,
                     reference_image_limit=candidate.max_reference_images,
                     parent_version=generator.versions.get_current_version("reference_videos", resource_id),
                 )

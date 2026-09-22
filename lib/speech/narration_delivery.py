@@ -536,13 +536,16 @@ def prepare_narrated_video_duration(
     # 前两类是模型能力事实，与本单元 TTS 产物的新鲜度无关，故不受「已有旁白问题就不再判时长」
     # 的约束；后两类描述的是这次取档与用户已知时长的关系，旁白侧已经挡住时无须再追加。
     if projected.problem == "tts_duration_endpoint_fixed":
-        problems.append(
+        # 排在旁白侧问题之前：读侧（问题信封、工作流计划、界面）都取首条阻断项作为指引，而
+        # 「配好 TTS / 等它生成完」在这种模型上做完也仍然不能用 use_tts，唯一出路是改选后期配音。
+        problems.insert(
+            0,
             _problem(
                 "tts_duration_endpoint_fixed",
                 reason="video_duration_fixed_by_endpoint",
                 action="choose_post_production",
                 path=("narration_delivery",),
-            )
+            ),
         )
     elif projected.problem == "supported_durations_missing":
         problems.append(

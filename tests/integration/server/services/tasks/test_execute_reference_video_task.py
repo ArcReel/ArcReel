@@ -185,10 +185,14 @@ async def test_execute_reference_video_task_success(tmp_path: Path, monkeypatch:
 async def test_execute_reference_video_task_passes_planned_duration_when_endpoint_fixed(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
-    """时长由端点固定的模型在执行期同样放行：不按档位声明缺失拒绝，规划秒数原样透传。"""
+    """时长由端点固定的模型在执行期同样放行：不按档位声明缺失拒绝，规划秒数原样透传。
+
+    带 ``task_id`` 走正式提交路径，产物时效事实的档位集因此也一并受检。
+    """
 
     proj_dir = write_project(tmp_path)
 
+    from lib.script.reference_video.execution_checkpoint import ReferenceSubmissionCheckpoint
     from server.services.tasks import reference_video_tasks as rvt
 
     fake_pm = MagicMock()
@@ -200,7 +204,8 @@ async def test_execute_reference_video_task_passes_planned_duration_when_endpoin
     _wire_locked_script(fake_pm)
     monkeypatch.setattr(rvt, "get_project_manager", lambda: fake_pm)
 
-    async def _fake_generate_video_async(**_kwargs):
+    async def _fake_generate_video_async(**kwargs):
+        await kwargs["before_submit"]()
         out = proj_dir / "reference_videos" / "E1U1.mp4"
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_bytes(b"\x00\x00\x00 ftypmp42")
@@ -223,16 +228,27 @@ async def test_execute_reference_video_task_passes_planned_duration_when_endpoin
         return True
 
     monkeypatch.setattr(rvt, "extract_video_thumbnail", _fake_extract)
+    persisted: dict[str, Any] = {}
+    fake_queue = MagicMock()
+    fake_queue.persist_execution_checkpoint = AsyncMock(
+        side_effect=lambda task_id, raw, provider_id: persisted.update(raw=raw)
+    )
+    monkeypatch.setattr(rvt, "get_generation_queue", lambda: fake_queue)
 
     result = await rvt.execute_reference_video_task(
         "demo",
         "E1U1",
         {"script_file": "scripts/episode_1.json"},
         user_id="u1",
+        task_id="task-endpoint-fixed",
     )
 
     assert result["resource_id"] == "E1U1"
     assert fake_generator.generate_video_async.await_args.kwargs["duration_seconds"] == 3
+    # 产物时效事实要求档位集非空且含付费档；端点固定时长下唯一档位就是那次透传的秒数。
+    checkpoint = ReferenceSubmissionCheckpoint.from_json(persisted["raw"])
+    assert checkpoint.duration_seconds == 3
+    assert checkpoint.artifact_duration_tiers == (3,)
 
 
 @pytest.mark.asyncio

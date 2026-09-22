@@ -830,13 +830,16 @@ class ReferenceUnitRequestProjector:
             duration_input = projected.duration_input
             request_duration = projected.slot
             if projected.problem == "tts_duration_endpoint_fixed":
-                problems.append(
+                # 排在旁白交付带过来的问题之前：读侧取首条阻断项作为指引，而「配好 TTS / 等它
+                # 生成完」在这种模型上做完也仍然不能用 use_tts，唯一出路是改选后期配音。
+                problems.insert(
+                    0,
                     _problem(
                         "tts_duration_endpoint_fixed",
                         blocking=True,
                         provider=candidate.provider_id,
                         model=candidate.model_id,
-                    )
+                    ),
                 )
             elif projected.problem == "supported_durations_missing":
                 problems.append(
