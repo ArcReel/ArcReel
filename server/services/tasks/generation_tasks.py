@@ -2586,7 +2586,7 @@ async def execute_generation_task(task: dict[str, Any], *, claimed_provider_id: 
 
     with project_change_source("worker"):
         # 能力类异常（Image/VideoCapabilityError、ReferencePayloadFloorError）原样上抛：
-        # worker 的 _encode_task_failure_message 按 code + params 落库，渲染留到读侧
+        # worker 的 encode_task_failure_message 按 code + params 落库，渲染留到读侧
         # Translator，同一失败任务按 Accept-Language 显示 zh/en/vi。
         if task_type in ("video", "reference_video"):
             result = await executor(

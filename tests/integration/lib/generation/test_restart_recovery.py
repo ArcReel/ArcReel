@@ -387,7 +387,7 @@ class TestRestartRecovery:
         assert "[resume_unsupported_provider]" in queue.failed[0][1]
 
     @pytest.mark.asyncio
-    async def test_handle_orphan_resumable_dispatches_process_resume_task(self, monkeypatch, staged_project):
+    async def test_handle_orphan_resumable_dispatches_resume_runner(self, monkeypatch, staged_project):
         """video resumable provider + 有 job_id → 后台 dispatcher 派发 VideoResumeRunner.run。
 
         Semaphore-based dispatcher 在 sub-task 内填 inflight、finally pop；本测验证
