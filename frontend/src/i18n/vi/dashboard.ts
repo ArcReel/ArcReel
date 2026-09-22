@@ -48,6 +48,8 @@ export default {
   'episodes_in_production': 'tập đang sản xuất',
   'episodes_completed': 'tập đã hoàn thành',
   'progress': 'Tiến độ',
+  'switch_to_light': 'Chuyển sang chế độ sáng',
+  'switch_to_dark': 'Chuyển sang chế độ tối',
   'style_not_set': 'Chưa đặt phong cách',
   'style_custom': 'Phong cách tùy chỉnh',
   'project_style_section_title': 'Phong cách dự án',

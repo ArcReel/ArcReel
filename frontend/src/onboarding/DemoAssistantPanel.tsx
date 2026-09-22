@@ -46,7 +46,7 @@ export function DemoAssistantPanel() {
     <div
       data-onboarding={ONBOARDING_ANCHORS.workbenchAgent}
       className="relative isolate flex h-full flex-col"
-      style={{ background: "oklch(0.19 0.011 250 / 0.5)" }}
+      style={{ background: "var(--color-surface-muted)" }}
     >
       {/* 头部：与真实面板同款标识，不带会话切换/新建——演示里没有会话可管理 */}
       <div
@@ -58,7 +58,7 @@ export function DemoAssistantPanel() {
           style={{
             background:
               "linear-gradient(135deg, var(--color-accent), oklch(0.60 0.10 280))",
-            color: "oklch(0.12 0 0)",
+            color: "var(--color-accent-contrast)",
           }}
         >
           <Bot className="h-3.5 w-3.5" />
@@ -84,7 +84,7 @@ export function DemoAssistantPanel() {
           className="flex items-end gap-2 rounded-lg px-3 py-2"
           style={{
             border: "1px solid var(--color-hairline)",
-            background: "oklch(0.20 0.012 265 / 0.7)",
+            background: "var(--color-surface-3)",
           }}
         >
           <textarea
@@ -100,7 +100,7 @@ export function DemoAssistantPanel() {
             disabled
             className="shrink-0 rounded-md p-1.5 disabled:cursor-not-allowed disabled:opacity-30"
             style={{
-              color: "oklch(0.14 0 0)",
+              color: "var(--color-accent-contrast)",
               background:
                 "linear-gradient(180deg, var(--color-accent-2), var(--color-accent))",
             }}

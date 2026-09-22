@@ -14,10 +14,7 @@ body {
  * 导致 body 上同名规则被覆盖、整页变成默认透明背景，视觉上"颜色失踪"。
  * 这里直接在 .app-shell 上落地最终背景，避免歧义。 */
 .app-shell {
-    background:
-        radial-gradient(1000px 500px at 8% -10%, oklch(0.32 0.05 295 / 0.28), transparent 55%),
-        radial-gradient(900px 500px at 98% 110%, oklch(0.26 0.04 260 / 0.25), transparent 55%),
-        linear-gradient(180deg, var(--color-bg-grad-a), var(--color-bg-grad-b));
+    background: var(--color-bg);
     background-attachment: fixed;
 }
 
@@ -35,21 +32,21 @@ body {
 
 .app-sidebar {
     border-right: 1px solid var(--color-hairline);
-    background: linear-gradient(180deg, oklch(0.195 0.011 265 / 0.6), oklch(0.175 0.010 265 / 0.5));
+    background: var(--color-surface-muted);
     backdrop-filter: blur(10px);
     -webkit-backdrop-filter: blur(10px);
 }
 
 .app-panel {
     border: 1px solid var(--color-hairline-soft);
-    background: linear-gradient(180deg, oklch(0.22 0.012 265 / 0.72), oklch(0.18 0.010 265 / 0.62));
+    background: linear-gradient(180deg, var(--color-surface-3), var(--color-surface-2));
     backdrop-filter: blur(8px);
     -webkit-backdrop-filter: blur(8px);
 }
 
 .app-panel-strong {
     border: 1px solid var(--color-hairline-strong);
-    background: linear-gradient(180deg, oklch(0.22 0.012 265 / 0.92), oklch(0.16 0.010 265 / 0.84));
+    background: linear-gradient(180deg, var(--color-surface-3), var(--color-surface-2));
     box-shadow: 0 20px 40px oklch(0 0 0 / 0.45);
 }
 

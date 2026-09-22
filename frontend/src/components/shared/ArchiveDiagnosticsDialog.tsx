@@ -105,7 +105,7 @@ export function ArchiveDiagnosticsDialog({
                   aria-hidden
                   className="grid h-6 w-6 place-items-center rounded-md"
                   style={{
-                    background: "oklch(0.16 0.010 265 / 0.6)",
+                    background: "var(--color-surface-muted)",
                     border: `1px solid ${tone.ring}`,
                     color: tone.color,
                   }}
@@ -131,7 +131,7 @@ export function ArchiveDiagnosticsDialog({
                     key={`${section.key}-${item.code}-${item.location ?? index}`}
                     className="rounded-lg px-3 py-2"
                     style={{
-                      background: "oklch(0.16 0.010 265 / 0.5)",
+                      background: "var(--color-surface-muted)",
                       border: "1px solid var(--color-hairline-soft)",
                       color: "var(--color-text-2)",
                     }}

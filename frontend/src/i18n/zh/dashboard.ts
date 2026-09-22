@@ -48,6 +48,8 @@ export default {
   'episodes_in_production': '集制作中',
   'episodes_completed': '集已完成',
   'progress': '进度',
+  'switch_to_light': '切换到浅色模式',
+  'switch_to_dark': '切换到深色模式',
   'style_not_set': '未设置风格',
   'style_custom': '自定义风格',
   'project_style_section_title': '项目风格',

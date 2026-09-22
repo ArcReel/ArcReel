@@ -76,7 +76,7 @@ function ReferenceAudioSection({
 
 const FIELD_STYLE: React.CSSProperties = {
   background:
-    "linear-gradient(180deg, oklch(0.20 0.011 265 / 0.6), oklch(0.18 0.010 265 / 0.45))",
+    "var(--color-surface-muted)",
   border: "1px solid var(--color-hairline)",
   color: "var(--color-text)",
   boxShadow: "inset 0 1px 2px oklch(0 0 0 / 0.2)",
@@ -339,7 +339,7 @@ export function CharacterCard({
       }}
       style={{
         background:
-          "linear-gradient(180deg, oklch(0.22 0.012 265 / 0.55), oklch(0.19 0.010 265 / 0.40))",
+          "var(--color-surface-muted)",
         border: "1px solid var(--color-hairline-soft)",
         boxShadow:
           "inset 0 1px 0 oklch(1 0 0 / 0.04), 0 12px 30px -12px oklch(0 0 0 / 0.4)",
@@ -539,7 +539,7 @@ export function CharacterCard({
               type="button"
               onClick={() => fileInputRef.current?.click()}
               className="focus-ring mt-1.5 flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-[var(--color-hairline)] px-3 py-4 text-sm text-[var(--color-text-4)] transition-colors hover:border-[var(--color-accent-soft)] hover:text-[var(--color-text-2)]"
-              style={{ background: "oklch(0.18 0.010 265 / 0.35)" }}
+              style={{ background: "var(--color-surface-2)" }}
             >
               <Upload className="h-4 w-4" />
               {t("upload_reference")}
@@ -693,7 +693,7 @@ export function CharacterCard({
                 type="button"
                 onClick={() => audioInputRef.current?.click()}
                 className="focus-ring flex flex-1 items-center justify-center gap-2 rounded-lg border border-dashed border-[var(--color-hairline)] px-3 py-2.5 text-[13px] text-[var(--color-text-4)] transition-colors hover:border-[var(--color-accent-soft)] hover:text-[var(--color-text-2)]"
-                style={{ background: "oklch(0.18 0.010 265 / 0.35)" }}
+                style={{ background: "var(--color-surface-2)" }}
               >
                 <Upload className="h-3.5 w-3.5" />
                 {t("upload_reference_audio")}
@@ -733,7 +733,7 @@ export function CharacterCard({
           disabled={saving}
           className="focus-ring mt-3 inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[12px] font-medium transition-transform disabled:cursor-not-allowed disabled:opacity-50"
           style={{
-            color: "oklch(0.14 0 0)",
+            color: "var(--color-accent-contrast)",
             background:
               "linear-gradient(135deg, var(--color-accent-2), var(--color-accent))",
             boxShadow:

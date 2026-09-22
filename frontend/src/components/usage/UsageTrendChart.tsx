@@ -102,7 +102,7 @@ export function UsageTrendChart({
           left={tooltip.tooltipLeft}
           top={tooltip.tooltipTop}
           className="pointer-events-none z-10 w-[184px] -translate-x-1/2 rounded-[8px] border border-hairline px-2.5 py-2 text-[11px] shadow-xl"
-          style={{ background: "oklch(0.18 0.011 265 / 0.96)" }}
+          style={{ background: "var(--color-surface-2)" }}
         >
           <div className="font-mono text-[10px] text-text-4">{tooltip.tooltipData.label}</div>
           <ul className="mt-1 space-y-px">

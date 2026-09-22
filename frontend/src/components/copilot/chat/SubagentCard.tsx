@@ -112,7 +112,7 @@ export function SubagentCard({ block }: SubagentCardProps) {
   return (
     <div
       className="my-1.5 min-w-0 overflow-hidden rounded-lg"
-      style={{ border: "1px solid var(--color-hairline-soft)", background: "oklch(0.21 0.012 265 / 0.5)" }}
+      style={{ border: "1px solid var(--color-hairline-soft)", background: "var(--color-surface-3)" }}
     >
       {expandable ? (
         <button

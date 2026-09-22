@@ -32,8 +32,7 @@ interface WelcomeCanvasProps {
   onAnalyze?: () => Promise<void>;
 }
 
-const CARD_BG =
-  "linear-gradient(180deg, oklch(0.22 0.012 265 / 0.55), oklch(0.19 0.010 265 / 0.40))";
+const CARD_BG = "var(--color-surface-muted)";
 const CARD_SHADOW =
   "inset 0 1px 0 oklch(1 0 0 / 0.04), 0 8px 24px -10px oklch(0 0 0 / 0.5)";
 
@@ -185,7 +184,7 @@ export function WelcomeCanvas({
           style={{
             background:
               "linear-gradient(135deg, oklch(0.85 0.08 295), oklch(0.70 0.12 280))",
-            color: "oklch(0.14 0 0)",
+            color: "var(--color-accent-contrast)",
             boxShadow:
               "0 10px 32px -10px var(--color-accent-glow), inset 0 1px 0 oklch(1 0 0 / 0.4)",
           }}
@@ -250,7 +249,7 @@ export function WelcomeCanvas({
               style={{
                 background: isDragging
                   ? "var(--color-accent-dim)"
-                  : "oklch(0.20 0.011 265 / 0.6)",
+                  : "var(--color-surface-3)",
                 border: isDragging
                   ? "1px solid var(--color-accent-soft)"
                   : "1px solid var(--color-hairline-soft)",
@@ -320,8 +319,7 @@ export function WelcomeCanvas({
                   className="flex items-start gap-3 rounded-xl px-3.5 py-2.5"
                   style={{
                     border: "1px solid var(--color-hairline-soft)",
-                    background:
-                      "linear-gradient(180deg, oklch(0.21 0.011 265 / 0.5), oklch(0.18 0.010 265 / 0.35))",
+                    background: "var(--color-surface-muted)",
                     boxShadow: "inset 0 1px 0 oklch(1 0 0 / 0.03)",
                   }}
                 >
@@ -396,7 +394,7 @@ export function WelcomeCanvas({
                   key={f}
                   className="flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-[12.5px]"
                   style={{
-                    background: "oklch(0.18 0.010 265 / 0.45)",
+                    background: "var(--color-surface-2)",
                     border: "1px solid var(--color-hairline-soft)",
                     color: "var(--color-text-2)",
                   }}
@@ -463,7 +461,7 @@ export function WelcomeCanvas({
             style={{
               background:
                 "linear-gradient(180deg, oklch(0.85 0.08 295), oklch(0.70 0.12 280))",
-              color: "oklch(0.14 0 0)",
+              color: "var(--color-accent-contrast)",
               boxShadow:
                 "0 12px 32px -10px var(--color-accent-glow), inset 0 1px 0 oklch(1 0 0 / 0.4)",
             }}
@@ -548,7 +546,7 @@ export function WelcomeCanvas({
           </p>
           <div
             className="relative mx-auto mt-5 h-1 w-56 overflow-hidden rounded-full"
-            style={{ background: "oklch(0.16 0.010 265 / 0.7)" }}
+            style={{ background: "var(--color-surface-muted)" }}
           >
             <div
               className="absolute inset-y-0 w-1/3 rounded-full animate-progress-pulse"
@@ -595,7 +593,7 @@ export function WelcomeCanvas({
           className="rounded-xl px-4 py-2.5 text-center text-[12px]"
           style={{
             border: "1px solid oklch(0.45 0.18 25 / 0.4)",
-            background: "oklch(0.30 0.10 25 / 0.18)",
+            background: "var(--color-danger-soft)",
             color: "oklch(0.85 0.10 25)",
           }}
           role="alert"

@@ -42,7 +42,7 @@ export function GenerateButton({
         isDisabled ? "cursor-not-allowed opacity-60" : ""
       } ${className ?? ""}`}
       style={{
-        color: "oklch(0.14 0 0)",
+        color: "var(--color-accent-contrast)",
         background: loading ? LOADING_BG : ACTIVE_BG,
         boxShadow: ACTIVE_SHADOW,
       }}

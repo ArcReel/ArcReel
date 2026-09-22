@@ -97,7 +97,7 @@ export function EpisodeCard({
           : "none",
       }}
       onMouseEnter={(e) => {
-        if (!active) e.currentTarget.style.background = "oklch(0.24 0.012 265 / 0.4)";
+        if (!active) e.currentTarget.style.background = "var(--color-surface-muted)";
       }}
       onMouseLeave={(e) => {
         if (!active) e.currentTarget.style.background = "transparent";
@@ -108,8 +108,8 @@ export function EpisodeCard({
         style={{
           background: active
             ? "linear-gradient(135deg, var(--color-accent) 0%, oklch(0.45 0.12 285) 100%)"
-            : "linear-gradient(180deg, oklch(0.28 0.013 265), oklch(0.24 0.012 265))",
-          color: active ? "oklch(0.14 0 0)" : "var(--color-text-3)",
+            : "linear-gradient(180deg, var(--color-surface-3), var(--color-surface-2))",
+          color: active ? "var(--color-accent-contrast)" : "var(--color-text-3)",
           boxShadow: active
             ? "inset 0 1px 0 oklch(1 0 0 / 0.25), 0 0 0 1px oklch(1 0 0 / 0.12), 0 2px 6px -2px var(--color-accent-glow)"
             : "inset 0 1px 0 oklch(1 0 0 / 0.04), inset 0 0 0 1px var(--color-hairline-soft)",
@@ -180,7 +180,7 @@ export function EpisodeCard({
         {showProgress && (
           <div
             className="mt-[5px] h-[2px] overflow-hidden rounded-[1px]"
-            style={{ background: "oklch(0.22 0.010 265)" }}
+            style={{ background: "var(--color-surface-3)" }}
           >
             <div
               className="h-full"

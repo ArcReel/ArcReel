@@ -1203,7 +1203,7 @@ export function CustomProviderForm({
             style={
               testResult.success
                 ? {
-                    background: "oklch(0.30 0.10 155 / 0.15)",
+                    background: "var(--color-good-soft)",
                     color: "var(--color-good)",
                     border: "1px solid oklch(0.45 0.10 155 / 0.30)",
                   }
@@ -1231,8 +1231,7 @@ export function CustomProviderForm({
       <div
         className="sticky bottom-0 z-10 border-t border-hairline px-6 py-3 backdrop-blur"
         style={{
-          background:
-            "linear-gradient(180deg, oklch(0.20 0.011 265 / 0.65), oklch(0.15 0.010 265 / 0.85))",
+          background: "var(--color-surface-muted)",
         }}
       >
         <div className="flex items-center gap-3">

@@ -247,7 +247,7 @@ export function SegmentRefsEditModal({
           <div
             className="flex w-44 items-center gap-2 rounded-md px-2.5 py-1.5 sm:w-52"
             style={{
-              background: "oklch(0.16 0.010 265 / 0.6)",
+              background: "var(--color-surface-muted)",
               border: "1px solid var(--color-hairline)",
             }}
           >
@@ -329,7 +329,7 @@ export function SegmentRefsEditModal({
           className="flex items-center gap-2 px-5 py-3"
           style={{
             borderTop: "1px solid var(--color-hairline-soft)",
-            background: "oklch(0.17 0.010 250 / 0.5)",
+            background: "var(--color-surface-muted)",
           }}
         >
           <span
@@ -511,13 +511,13 @@ function Row({ row, selected, onToggle, projectName, staleHint }: RowProps) {
     : selected
       ? {
           background:
-            "linear-gradient(135deg, var(--color-accent-dim) 0%, oklch(0.20 0.011 265 / 0.5) 60%)",
+            "linear-gradient(135deg, var(--color-accent-dim) 0%, var(--color-surface-muted) 60%)",
           border: "1px solid var(--color-accent-soft)",
           boxShadow:
             "inset 0 1px 0 oklch(1 0 0 / 0.04), 0 4px 14px -6px var(--color-accent-glow)",
         }
       : {
-          background: "oklch(0.20 0.011 265 / 0.4)",
+          background: "var(--color-surface-muted)",
           border: "1px solid var(--color-hairline)",
         };
 
@@ -535,7 +535,7 @@ function Row({ row, selected, onToggle, projectName, staleHint }: RowProps) {
           e.currentTarget.style.borderColor = "var(--color-accent)";
         } else {
           e.currentTarget.style.borderColor = "var(--color-hairline-strong)";
-          e.currentTarget.style.background = "oklch(0.22 0.011 265 / 0.7)";
+          e.currentTarget.style.background = "var(--color-surface-muted)";
         }
       }}
       onMouseLeave={(e) => {
@@ -547,7 +547,7 @@ function Row({ row, selected, onToggle, projectName, staleHint }: RowProps) {
           e.currentTarget.style.borderColor = "var(--color-accent-soft)";
         } else {
           e.currentTarget.style.borderColor = "var(--color-hairline)";
-          e.currentTarget.style.background = "oklch(0.20 0.011 265 / 0.4)";
+          e.currentTarget.style.background = "var(--color-surface-muted)";
         }
       }}
     >
@@ -606,7 +606,7 @@ function Row({ row, selected, onToggle, projectName, staleHint }: RowProps) {
         style={
           selected
             ? {
-                color: "oklch(0.14 0 0)",
+                color: "var(--color-accent-contrast)",
                 background:
                   "linear-gradient(135deg, var(--color-accent-2), var(--color-accent))",
                 border: "1px solid var(--color-accent-soft)",

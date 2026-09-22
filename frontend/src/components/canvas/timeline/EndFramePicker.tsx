@@ -225,7 +225,7 @@ export function EndFramePicker({
         className="flex items-center gap-2 px-5 py-3"
         style={{
           borderTop: "1px solid var(--color-hairline-soft)",
-          background: "oklch(0.17 0.010 250 / 0.5)",
+          background: "var(--color-surface-2)",
         }}
       >
         <span className="flex-1 truncate text-[11px]" style={{ color: "var(--color-text-4)" }}>
@@ -284,7 +284,7 @@ function PickerCell({ projectName, image, aspectRatio, selected, onToggle }: Pic
       </AspectFrame>
       <div
         className="truncate px-1.5 py-1 text-[10.5px] font-medium"
-        style={{ color: "var(--color-text-2)", background: "oklch(0.16 0.010 265 / 0.85)" }}
+        style={{ color: "var(--color-text-2)", background: "var(--color-surface-muted)" }}
       >
         {image.label}
       </div>
@@ -293,7 +293,7 @@ function PickerCell({ projectName, image, aspectRatio, selected, onToggle }: Pic
           aria-hidden
           className="absolute right-1.5 top-1.5 grid h-5 w-5 place-items-center rounded-full"
           style={{
-            color: "oklch(0.14 0 0)",
+            color: "var(--color-accent-contrast)",
             background: "linear-gradient(135deg, var(--color-accent-2), var(--color-accent))",
             boxShadow:
               "inset 0 1px 0 oklch(1 0 0 / 0.35), 0 0 0 1px var(--color-accent-soft)",
