@@ -177,7 +177,7 @@ class UsageRepository(BaseRepository):
         resolution: str | None = None,
         duration_seconds: int | None = None,
         aspect_ratio: str | None = None,
-        generate_audio: bool = True,
+        generate_audio: bool | None = None,
         provider: str = PROVIDER_GEMINI,
         user_id: str = DEFAULT_USER_ID,
         segment_id: str | None = None,

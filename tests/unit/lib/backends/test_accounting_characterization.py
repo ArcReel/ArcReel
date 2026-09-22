@@ -137,7 +137,7 @@ def _expected_row(**overrides: Any) -> dict[str, Any]:
         "resolution": None,
         "duration_seconds": None,
         "aspect_ratio": None,
-        "generate_audio": True,
+        "generate_audio": None,
         "status": "success",
         "error_message": None,
         "error_code": None,
@@ -619,6 +619,7 @@ def _expected_video_row(tmp_path: Path, **overrides: Any) -> dict[str, Any]:
         "resolution": "720p",
         "duration_seconds": 8,
         "aspect_ratio": "9:16",
+        "generate_audio": True,
         "segment_id": "E1S01",
         "output_path": _output_path(tmp_path, "videos/scene_E1S01.mp4"),
     }
@@ -982,6 +983,7 @@ def _expected_resume_row(**overrides: Any) -> dict[str, Any]:
         "resolution": "720p",
         "duration_seconds": 8,
         "aspect_ratio": "9:16",
+        "generate_audio": True,
         "segment_id": "E1S01",
         "output_path": None,
     }
@@ -1088,6 +1090,7 @@ class TestResumeChannel:
                 resolution="720p",
                 duration_seconds=8,
                 aspect_ratio="9:16",
+                generate_audio=True,
                 segment_id="E1S01",
             ),
         )
