@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from lib.db.models.custom_provider import CustomProvider, CustomProviderModel
@@ -354,3 +355,77 @@ async def test_custom_video_max_refs_negative_caps_raises(db_session: AsyncSessi
         await resolver._resolve_video_capabilities_from_project(svc, db_session, project)
     assert excinfo.value.code == "video_capability_reference_unavailable"
     assert "invalid backend max_reference_images" in str(excinfo.value.__cause__)
+
+
+async def _seed_image_provider(db_session: AsyncSession, *, endpoint: str, model_id: str) -> str:
+    from lib.custom_provider import make_provider_id
+
+    provider = CustomProvider(
+        display_name="ImageProv",
+        discovery_format="openai",
+        base_url="https://api.example.com",
+        api_key="k",
+    )
+    db_session.add(provider)
+    await db_session.flush()
+    db_session.add(
+        CustomProviderModel(
+            provider_id=provider.id,
+            model_id=model_id,
+            display_name=model_id,
+            endpoint=endpoint,
+            is_default=True,
+            is_enabled=True,
+        )
+    )
+    await db_session.flush()
+    return make_provider_id(provider.id)
+
+
+@pytest.mark.asyncio
+async def test_image_bucket_gate_rejects_model_lacking_the_bucket(db_session: AsyncSession):
+    """i2i 桶配了只声明 t2i 的自定义模型 → 解析期即报错，不静默换模型也不等到执行期。"""
+    from lib.config.resolver import ConfigResolver, ImageBucketCapabilityError
+
+    provider_id_str = await _seed_image_provider(db_session, endpoint="openai-images-generations", model_id="t2i-m")
+    project = {"image_provider_i2i": f"{provider_id_str}/t2i-m"}
+
+    factory = async_sessionmaker(bind=db_session.get_bind(), class_=AsyncSession, expire_on_commit=False)  # type: ignore[call-overload]
+    resolver = ConfigResolver(factory, _bound_session=db_session)
+
+    with pytest.raises(ImageBucketCapabilityError) as excinfo:
+        await resolver.resolve_image_backend(project, None, generation_type="i2i")
+    assert excinfo.value.code == "image_capability_missing_i2i"
+    assert excinfo.value.params == {"provider": provider_id_str, "model": "t2i-m"}
+
+
+@pytest.mark.asyncio
+async def test_image_bucket_gate_passes_model_declaring_the_bucket(db_session: AsyncSession):
+    from lib.config.resolver import ConfigResolver
+
+    provider_id_str = await _seed_image_provider(db_session, endpoint="openai-images-edits", model_id="i2i-m")
+    project = {"image_provider_i2i": f"{provider_id_str}/i2i-m"}
+
+    factory = async_sessionmaker(bind=db_session.get_bind(), class_=AsyncSession, expire_on_commit=False)  # type: ignore[call-overload]
+    resolver = ConfigResolver(factory, _bound_session=db_session)
+
+    resolved = await resolver.resolve_image_backend(project, None, generation_type="i2i")
+    assert (resolved.provider_id, resolved.model_id) == (provider_id_str, "i2i-m")
+
+
+@pytest.mark.asyncio
+async def test_image_bucket_gate_leaves_disabled_reference_to_the_default_fallback(db_session: AsyncSession):
+    """引用的模型已禁用 → 不在解析闸报错，留给按桶过滤的默认回退处理。"""
+    from lib.config.resolver import ConfigResolver
+
+    provider_id_str = await _seed_image_provider(db_session, endpoint="openai-images-generations", model_id="t2i-m")
+    model = (await db_session.execute(select(CustomProviderModel))).scalar_one()
+    model.is_enabled = False
+    await db_session.flush()
+    project = {"image_provider_i2i": f"{provider_id_str}/t2i-m"}
+
+    factory = async_sessionmaker(bind=db_session.get_bind(), class_=AsyncSession, expire_on_commit=False)  # type: ignore[call-overload]
+    resolver = ConfigResolver(factory, _bound_session=db_session)
+
+    resolved = await resolver.resolve_image_backend(project, None, generation_type="i2i")
+    assert (resolved.provider_id, resolved.model_id) == (provider_id_str, "t2i-m")

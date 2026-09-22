@@ -827,7 +827,9 @@ class TestGetOrCreateAudioBackend:
         sentinel = object()
         calls = []
 
-        async def _fake_assemble(*, provider_id, media_type, model_id, resolver, rate_limiter=None):
+        async def _fake_assemble(
+            *, provider_id, media_type, model_id, resolver, rate_limiter=None, generation_type=None
+        ):
             calls.append((provider_id, media_type, model_id))
             return sentinel
 
@@ -845,7 +847,9 @@ class TestGetOrCreateAudioBackend:
         created = []
         sentinel = object()
 
-        async def _fake_assemble(*, provider_id, media_type, model_id, resolver, rate_limiter=None):
+        async def _fake_assemble(
+            *, provider_id, media_type, model_id, resolver, rate_limiter=None, generation_type=None
+        ):
             created.append((provider_id, media_type, model_id))
             return sentinel
 
@@ -863,7 +867,9 @@ class TestGetOrCreateAudioBackend:
         assert created == [("dashscope", "audio", "qwen3-tts-flash")], "第二次调用须命中缓存，不再重建 backend"
 
     async def test_payload_model_overrides_default(self, monkeypatch):
-        async def _fake_assemble(*, provider_id, media_type, model_id, resolver, rate_limiter=None):
+        async def _fake_assemble(
+            *, provider_id, media_type, model_id, resolver, rate_limiter=None, generation_type=None
+        ):
             return SimpleNamespace(provider_id=provider_id, media_type=media_type, model_id=model_id)
 
         monkeypatch.setattr(generation_context, "assemble_backend", _fake_assemble)

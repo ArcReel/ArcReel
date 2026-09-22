@@ -376,7 +376,7 @@ class TestModelManagement:
         result = await repo.list_enabled_models_by_media_type("text")
         assert result == []
 
-    async def test_get_default_model(self, db_session: AsyncSession):
+    async def test_list_default_models(self, db_session: AsyncSession):
         repo = CustomProviderRepository(db_session)
         p = await repo.create_provider(
             display_name="TestProvider",
@@ -409,15 +409,39 @@ class TestModelManagement:
         )
         await db_session.flush()
 
-        default_text = await repo.get_default_model(p.id, "text")
-        assert default_text is not None
-        assert default_text.model_id == "m2"
+        assert [m.model_id for m in await repo.list_default_models(p.id, "text")] == ["m2"]
+        assert [m.model_id for m in await repo.list_default_models(p.id, "image")] == ["m3"]
 
-        default_image = await repo.get_default_model(p.id, "image")
-        assert default_image is not None
-        assert default_image.model_id == "m3"
+    async def test_list_default_models_returns_every_image_bucket_default(self, db_session: AsyncSession):
+        """image 的默认按任务类型桶分槽：t2i 与 i2i 各一个默认时两行都要取出，按桶挑行由上层做。"""
+        repo = CustomProviderRepository(db_session)
+        p = await repo.create_provider(
+            display_name="TestProvider",
+            discovery_format="openai",
+            base_url="https://example.com",
+            api_key="key",
+            models=[
+                {
+                    "model_id": "t2i-m",
+                    "display_name": "T2I",
+                    "endpoint": "openai-images-generations",
+                    "is_default": True,
+                    "is_enabled": True,
+                },
+                {
+                    "model_id": "i2i-m",
+                    "display_name": "I2I",
+                    "endpoint": "openai-images-edits",
+                    "is_default": True,
+                    "is_enabled": True,
+                },
+            ],
+        )
+        await db_session.flush()
 
-    async def test_get_default_model_returns_none_when_no_default(self, db_session: AsyncSession):
+        assert [m.model_id for m in await repo.list_default_models(p.id, "image")] == ["t2i-m", "i2i-m"]
+
+    async def test_list_default_models_empty_when_no_default(self, db_session: AsyncSession):
         repo = CustomProviderRepository(db_session)
         p = await repo.create_provider(
             display_name="TestProvider",
@@ -436,9 +460,9 @@ class TestModelManagement:
         )
         await db_session.flush()
 
-        assert await repo.get_default_model(p.id, "text") is None
+        assert await repo.list_default_models(p.id, "text") == []
 
-    async def test_get_default_model_ignores_disabled(self, db_session: AsyncSession):
+    async def test_list_default_models_ignores_disabled(self, db_session: AsyncSession):
         repo = CustomProviderRepository(db_session)
         p = await repo.create_provider(
             display_name="TestProvider",
@@ -457,11 +481,11 @@ class TestModelManagement:
         )
         await db_session.flush()
 
-        assert await repo.get_default_model(p.id, "text") is None
+        assert await repo.list_default_models(p.id, "text") == []
 
-    async def test_get_default_model_nonexistent_provider(self, db_session: AsyncSession):
+    async def test_list_default_models_nonexistent_provider(self, db_session: AsyncSession):
         repo = CustomProviderRepository(db_session)
-        assert await repo.get_default_model(999, "text") is None
+        assert await repo.list_default_models(999, "text") == []
 
 
 class TestResolvePrice:

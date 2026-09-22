@@ -194,6 +194,48 @@ class TestDefaultBackends:
             with pytest.raises(ValueError, match="未找到可用的 image 供应商"):
                 await resolver._resolve_default_image_backend(fake_svc, session)
 
+    @pytest.mark.parametrize(("generation_type", "expected_model"), [("t2i", "t2i-m"), ("i2i", "i2i-m")])
+    async def test_image_backend_auto_resolve_picks_the_custom_default_of_the_bucket(
+        self, db_factory, generation_type, expected_model
+    ):
+        """无 ready 内置供应商时的自定义兜底按桶挑默认：t2i 与 i2i 各设一个默认时不能取错桶。"""
+        from lib.custom_provider import make_provider_id
+        from lib.db.models.custom_provider import CustomProvider, CustomProviderModel
+
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(settings={}, ready_providers=[])
+        async with db_factory() as session:
+            provider = CustomProvider(
+                display_name="Prov", discovery_format="openai", base_url="https://api.example.com", api_key="k"
+            )
+            session.add(provider)
+            await session.flush()
+            session.add_all(
+                [
+                    # openai-images-generations 只声明 t2i，openai-images-edits 只声明 i2i
+                    CustomProviderModel(
+                        provider_id=provider.id,
+                        model_id="t2i-m",
+                        display_name="T2I",
+                        endpoint="openai-images-generations",
+                        is_default=True,
+                        is_enabled=True,
+                    ),
+                    CustomProviderModel(
+                        provider_id=provider.id,
+                        model_id="i2i-m",
+                        display_name="I2I",
+                        endpoint="openai-images-edits",
+                        is_default=True,
+                        is_enabled=True,
+                    ),
+                ]
+            )
+            await session.flush()
+
+            result = await resolver._resolve_default_image_backend(fake_svc, session, generation_type)
+        assert result == (make_provider_id(provider.id), expected_model)
+
     async def test_default_image_backend_t2i_bucket_overrides_default_layer(self):
         """全局桶 default_image_backend_t2i 覆盖全局默认层 default_image_backend。"""
         resolver = ConfigResolver.__new__(ConfigResolver)

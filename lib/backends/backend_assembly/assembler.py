@@ -40,8 +40,13 @@ async def assemble_backend(
     model_id: str | None,
     resolver: ConfigResolver,
     rate_limiter: Any | None = None,
+    generation_type: str | None = None,
 ) -> Any:
-    """统一构造入口。按 provider_id 是否自定义分流；未登记的内置 provider × media fail-loud。"""
+    """统一构造入口。按 provider_id 是否自定义分流；未登记的内置 provider × media fail-loud。
+
+    ``generation_type`` 是调用点所属的任务类型桶，只在自定义侧消费（默认模型按桶分槽，见
+    ``lib.custom_provider.loader.load_custom_backend``）；内置侧的 model 由 registry 定，不分桶。
+    """
     if is_custom_provider(provider_id):
         from lib.custom_provider.loader import load_custom_backend
 
@@ -49,7 +54,11 @@ async def assemble_backend(
         # session_factory，调用方在 resolver.session() 内构造时复用同一连接，避免另开 factory。
         async with resolver._open_session() as (session, _):
             return await load_custom_backend(
-                session=session, provider_id=provider_id, model_id=model_id, media_type=media_type
+                session=session,
+                provider_id=provider_id,
+                model_id=model_id,
+                media_type=media_type,
+                generation_type=generation_type,
             )
     spec = get_provider_spec(provider_id, media_type)  # 未登记 → ValueError（fail-loud）
     config = await _load_builtin_config(resolver, provider_id, rate_limiter)

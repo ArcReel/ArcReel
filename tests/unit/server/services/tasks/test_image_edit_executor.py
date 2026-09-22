@@ -893,7 +893,7 @@ class TestImageSizeResolutionEquivalence:
         (tmp_path / "projects" / "demo").mkdir(parents=True)
         monkeypatch.setattr(generation_context, "get_project_manager", lambda: pm)
 
-        async def _assemble(*, provider_id, media_type, model_id, resolver, rate_limiter=None):
+        async def _assemble(*, provider_id, media_type, model_id, resolver, rate_limiter=None, generation_type=None):
             return _EchoBackend(name=provider_id, model=model_id or "default-model")
 
         monkeypatch.setattr(generation_context, "assemble_backend", _assemble)

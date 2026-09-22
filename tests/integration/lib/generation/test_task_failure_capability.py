@@ -19,7 +19,7 @@ import pytest
 from lib.backends.http_status_errors import ArtifactDownloadError, ProviderRejectedError
 from lib.backends.image_backends.base import ImageCapabilityError
 from lib.backends.video_backend_contract import VideoCapabilityError
-from lib.config.resolver import VideoBucketCapabilityError, VideoGenerationType
+from lib.config.resolver import ImageBucketCapabilityError, VideoBucketCapabilityError, VideoGenerationType
 from lib.custom_provider.comfyui.failures import ComfyuiError
 from lib.db.repositories.task_repo import _encode_bounded_cascade_failure
 from lib.generation import task_failure
@@ -546,6 +546,18 @@ def test_encode_video_bucket_capability_error_renders_per_locale(code: str, gene
     assert stored.startswith(f"[{code}]")
     for locale in ("zh", "en", "vi"):
         expected = MESSAGES[locale][code].format(provider="minimax", model="MiniMax-Hailuo-2.3")
+        assert render_failure(stored, _translator(locale)) == expected
+
+
+@pytest.mark.parametrize("generation_type", ["t2i", "i2i"])
+def test_encode_image_bucket_capability_error_renders_per_locale(generation_type: str):
+    """图片解析闸异常（ImageBucketCapabilityError）与执行层 ImageCapabilityError 共用 code，同走结构化编码。"""
+    exc = ImageBucketCapabilityError(generation_type=generation_type, provider_id="custom-3", model_id="relay-img")
+    stored = encode_task_failure_message(exc)
+    code = f"image_capability_missing_{generation_type}"
+    assert stored.startswith(f"[{code}]")
+    for locale in ("zh", "en", "vi"):
+        expected = MESSAGES[locale][code].format(provider="custom-3", model="relay-img")
         assert render_failure(stored, _translator(locale)) == expected
 
 

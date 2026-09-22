@@ -40,11 +40,14 @@ logger = logging.getLogger(__name__)
 
 rate_limiter = get_shared_rate_limiter()
 
-_CacheKey = tuple[str, str, str | None]
+_CacheKey = tuple[str, str, str | None, str | None]
 
 
 class _BackendCache:
-    """Backend 实例缓存：按 (media_type, provider_name, model) 复用实例，避免每次任务重建 API 客户端。
+    """Backend 实例缓存：按 (media_type, provider_name, model, 任务类型桶) 复用实例，避免每次任务重建 API 客户端。
+
+    桶进 key 是因为它参与构造：自定义供应商的默认模型按桶分槽，同一 (media_type, provider,
+    model=None) 在 t2i 与 i2i 上装载出的是两个不同模型的 backend。
 
     缓存查询/构造/写回/失效在此单点实现，两条并发纪律藏在实现内、不扩大接口：
 
@@ -95,6 +98,7 @@ async def _get_or_create_backend(
     provider_settings: dict,
     resolver: ConfigResolver,
     default_model: str | None,
+    generation_type: str | None = None,
 ) -> Any:
     """组 key + 提供 factory closure，缓存纪律统一委托 :class:`_BackendCache`。"""
     effective_model = provider_settings.get("model") or default_model or None
@@ -106,9 +110,10 @@ async def _get_or_create_backend(
             model_id=effective_model,
             resolver=resolver,
             rate_limiter=rate_limiter,
+            generation_type=generation_type,
         )
 
-    return await _backend_cache.get_or_create((media_type, provider_name, effective_model), _factory)
+    return await _backend_cache.get_or_create((media_type, provider_name, effective_model, generation_type), _factory)
 
 
 async def _get_or_create_video_backend(
@@ -133,9 +138,16 @@ async def _get_or_create_image_backend(
     resolver: ConfigResolver,
     *,
     default_image_model: str | None = None,
+    generation_type: Literal["t2i", "i2i"] | None = None,
 ):
-    """获取或创建 ImageBackend 实例（带缓存）。"""
-    return await _get_or_create_backend("image", provider_name, provider_settings, resolver, default_image_model)
+    """获取或创建 ImageBackend 实例（带缓存）。
+
+    generation_type 是本次调用所属的任务类型桶：自定义供应商的默认模型按桶分槽，桶随构造一路
+    传到 ``load_custom_backend``，也进缓存 key（t2i 与 i2i 不互相命中）。
+    """
+    return await _get_or_create_backend(
+        "image", provider_name, provider_settings, resolver, default_image_model, generation_type
+    )
 
 
 async def _get_or_create_audio_backend(
@@ -350,6 +362,7 @@ async def resolve_generation_context(
                 {},
                 r,
                 default_image_model=resolved.model_id or None,
+                generation_type=image.generation_type,
             )
             image_result = ImageLaneResult(
                 provider_model=resolved,

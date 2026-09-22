@@ -176,6 +176,9 @@ class _LayeredBackendKeys:
     project_default_key: str | None = None
     global_bucket_key: str | None = None
     global_default_key: str | None = None
+    # 这份键位所属的任务类型桶，供自动推断层按桶过滤自定义默认模型。视频与文本 / 音频留空：
+    # 前者的自定义默认在保存期就是同一 media_type 至多一个，后两者无桶。
+    generation_type: str | None = None
 
 
 # 图片桶（t2i / i2i）键位。桶为可选覆盖，空桶回退默认层：项目默认层用 project.json 的
@@ -189,6 +192,7 @@ _IMAGE_LAYERED_KEYS: dict[str, _LayeredBackendKeys] = {
         project_default_key="default_image_backend",
         global_bucket_key=f"default_image_backend_{generation_type}",
         global_default_key="default_image_backend",
+        generation_type=generation_type,
     )
     for generation_type in ("t2i", "i2i")
 }
@@ -762,6 +766,25 @@ class VideoBucketCapabilityError(ValueError):
         super().__init__(message)
 
 
+class ImageBucketCapabilityError(ValueError):
+    """图片解析闸报错：解析出的模型缺所属任务类型桶（t2i / i2i）要求的能力。
+
+    ``code`` 与执行层 ``lib.backends.image_backends.base.ImageCapabilityError`` 同一批
+    （``image_capability_missing_<桶>``）：同一件事在解析期与执行期报出，读侧渲染与失败编码不分叉。
+    ``params`` 是其渲染参数；``str(exc)`` 是英文技术消息，供 log / 非用户可见路径直接使用。
+    """
+
+    def __init__(self, *, generation_type: str, provider_id: str, model_id: str):
+        self.code = f"image_capability_missing_{generation_type}"
+        self.generation_type = generation_type
+        self.provider_id = provider_id
+        self.model_id = model_id
+        self.params: dict[str, str] = {"provider": provider_id, "model": model_id}
+        super().__init__(
+            f"image model {provider_id}/{model_id} lacks the capability required by the {generation_type} bucket"
+        )
+
+
 def _video_bucket_capability_missing(
     generation_type: VideoGenerationType, provider_id: str, model_id: str
 ) -> VideoBucketCapabilityError:
@@ -889,6 +912,10 @@ class ConfigResolver:
         > 全局桶（``default_image_backend_<generation_type>``）> 全局默认（``default_image_backend``）> 自动推断。
         桶是可选覆盖，无值（含显式清空）回退默认层（``docs/adr/0054``）。
         ``generation_type`` 决定走 t2i 还是 i2i 槽（见 ``docs/adr/0001``）。不做任何 provider 归一化。
+
+        Raises:
+            ImageBucketCapabilityError: （ValueError 子类）解析出的自定义模型缺该桶所需能力
+                （``_ensure_image_bucket_capability``），不静默换模型。
         """
         async with self._open_session() as (session, svc):
             return await self._resolve_image_provider_model(svc, session, project, payload, generation_type)
@@ -1260,7 +1287,7 @@ class ConfigResolver:
             raw = settings.get(keys.global_default_key, "")
             if "/" in raw:
                 return ConfigService._parse_backend(raw, keys.parse_fallback)
-        return await self._auto_resolve_backend(svc, session, keys.media_type)
+        return await self._auto_resolve_backend(svc, session, keys.media_type, keys.generation_type)
 
     async def _resolve_image_provider_model(
         self,
@@ -1278,17 +1305,62 @@ class ConfigResolver:
         供应商（见
         ``_trusted_payload_provider``），否则不予信任、回退骨架（``_resolve_layered_backend``，
         键位见 ``_IMAGE_LAYERED_KEYS``）。
+
+        两层解析出的身份都过能力闸（``_ensure_image_bucket_capability``）：图片侧的桶只在执行时
+        才确定（``docs/adr/0001``），payload 层没有已物化的桶键可豁免。
         """
+        selected: ProviderModel | None = None
         if payload:
             provider_id = _trusted_payload_provider(payload.get("image_provider"))
             if provider_id is not None:
                 model = _payload_model_or_default(payload.get("image_model"), provider_id, "image")
                 if model is not None:
-                    return ProviderModel(provider_id, model)
-        provider_id, model_id = await self._resolve_layered_backend(
-            svc, session, project, _IMAGE_LAYERED_KEYS[generation_type]
-        )
-        return ProviderModel(provider_id, model_id)
+                    selected = ProviderModel(provider_id, model)
+        if selected is None:
+            provider_id, model_id = await self._resolve_layered_backend(
+                svc, session, project, _IMAGE_LAYERED_KEYS[generation_type]
+            )
+            selected = ProviderModel(provider_id, model_id)
+        await self._ensure_image_bucket_capability(session, selected, generation_type)
+        return selected
+
+    async def _ensure_image_bucket_capability(
+        self,
+        session: AsyncSession,
+        selected: ProviderModel,
+        generation_type: Literal["t2i", "i2i"],
+    ) -> None:
+        """能力闸：解析出的自定义模型不具备该桶所需能力时直接报错，不静默换模型。
+
+        判定与桶候选下拉（``lib.backends.generation_type_buckets``）共用一份口径，经
+        ``lib.custom_provider.default_models.lacks_bucket``。与
+        ``_ensure_video_bucket_capability`` 两处不同：
+
+        - 只判自定义供应商。内置图片模型的桶能力由执行层 ``MediaGenerator`` 按 registry 能力位
+          把关（``image_capability_missing_*``，与本闸同一批 code）。
+        - 引用失效（模型被删 / 禁用 / endpoint 改成别的媒体类型）不在此报错：图片侧按设计回退到
+          该桶的默认模型（``lib.custom_provider.loader``），回退本身也按桶过滤。
+        """
+        if not is_custom_provider(selected.provider_id):
+            return
+
+        # 延迟导入：分层契约（pyproject.toml [tool.importlinter]）以 lib.config 为下层，
+        # 该符号所在的装配层反过来依赖 lib.config，模块级导入会成环。
+        from lib.custom_provider.default_models import lacks_bucket
+
+        try:
+            db_pid = parse_provider_id(selected.provider_id)
+        except ValueError:
+            return
+        model = await CustomProviderRepository(session).get_model_by_ids(db_pid, selected.model_id)
+        if model is None or not model.is_enabled:
+            return
+        if await lacks_bucket(session, model, generation_type):
+            raise ImageBucketCapabilityError(
+                generation_type=generation_type,
+                provider_id=selected.provider_id,
+                model_id=selected.model_id,
+            )
 
     async def _resolve_video_provider_model(
         self,
@@ -1457,9 +1529,14 @@ class ConfigResolver:
             selected.provider_id,
             selected.model_id,
         )
-        default_model = await repo.get_default_model(db_pid, "video")
-        if default_model is None:
-            raise ValueError(f"custom model not found: {selected.provider_id}/{selected.model_id}")
+        from lib.custom_provider.default_models import resolve_default_model
+
+        try:
+            default_model = await resolve_default_model(
+                session, provider_id=selected.provider_id, db_id=db_pid, media_type="video"
+            )
+        except ValueError as exc:
+            raise ValueError(f"custom model not found: {selected.provider_id}/{selected.model_id}") from exc
         return ProviderModel(selected.provider_id, default_model.model_id)
 
     async def _resolve_default_audio_backend(self, svc: ConfigService, session: AsyncSession) -> tuple[str, str]:
@@ -1839,8 +1916,14 @@ class ConfigResolver:
         svc: ConfigService,
         session: AsyncSession,
         media_type: str,
+        generation_type: str | None = None,
     ) -> tuple[str, str]:
-        """遍历 PROVIDER_REGISTRY（按注册顺序），找到第一个 ready 且支持该 media_type 的供应商。"""
+        """遍历 PROVIDER_REGISTRY（按注册顺序），找到第一个 ready 且支持该 media_type 的供应商。
+
+        自定义兜底与默认回退共用同一份按桶过滤（``lib.custom_provider.default_models``）：带桶时
+        只有具备该桶的默认模型算候选，否则 t2i 与 i2i 会静默拿到同一行。跨供应商的多个候选取第
+        一个（各供应商各设默认是常态，与「同一供应商同桶两个默认」不同）。
+        """
         statuses = await svc.get_all_providers_status()
         ready = {s.name for s in statuses if s.status == "ready"}
 
@@ -1851,13 +1934,17 @@ class ConfigResolver:
                 if model_info.media_type == media_type and model_info.default:
                     return provider_id, model_id
 
+        # 延迟导入：分层契约（pyproject.toml [tool.importlinter]）以 lib.config 为下层，
+        # 这些符号所在的装配层反过来依赖 lib.config，模块级导入会成环。
         from lib.custom_provider import make_provider_id
+        from lib.custom_provider.default_models import filter_by_bucket
         from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 
         repo = CustomProviderRepository(session)
         custom_models = await repo.list_enabled_models_by_media_type(media_type)
-        for model in custom_models:
-            if model.is_default:
-                return make_provider_id(model.provider_id), model.model_id
+        defaults = [model for model in custom_models if model.is_default]
+        candidates = await filter_by_bucket(session, defaults, generation_type)
+        if candidates:
+            return make_provider_id(candidates[0].provider_id), candidates[0].model_id
 
         raise ValueError(f"未找到可用的 {media_type} 供应商。请在「全局设置 → 供应商」页面配置至少一个供应商。")
