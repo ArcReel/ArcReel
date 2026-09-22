@@ -155,6 +155,7 @@ MESSAGES = {
     "character_task_submitted": "Character asset sheet generation task for '{name}' submitted",
     "derivative_task_submitted": "Derivative asset sheet generation task for '{name}' submitted",
     "derivative_owner_sheet_missing": "Character '{name}' has no asset sheet yet; generate the base sheet before its derivatives",
+    "asset_prompt_preview_missing": "The asset is missing or has no description",
     "derivative_description_required": "Derivative '{name}' has no appearance change described yet, so its asset sheet cannot be generated",
     "voice_sample_voice_required": "Please select a voice first",
     "voice_sample_text_too_long": "Sample text cannot exceed {max_length} characters",

@@ -53,6 +53,22 @@ describe("API", () => {
     vi.unstubAllGlobals();
   });
 
+  it.each([
+    [undefined, "/api/v1/projects/demo%20project/characters/Hero%20One/prompt-preview"],
+    ["Silver Cape", "/api/v1/projects/demo%20project/characters/Hero%20One/derivatives/Silver%20Cape/prompt-preview"],
+  ])("posts the asset draft to the encoded preview path (%s)", async (derivativeName, expectedUrl) => {
+    const body = { text: "最终文本", unavailable: null, is_text_form: true, warnings: [] };
+    const fetchMock = vi.fn().mockResolvedValue(mockResponse({ jsonData: body }));
+    vi.stubGlobal("fetch", fetchMock);
+    const signal = new AbortController().signal;
+    const result = await API.previewAssetPrompt("demo project", "character", "Hero One", "草稿", { signal, derivativeName });
+
+    expect(result).toEqual(body);
+    expect(fetchMock).toHaveBeenCalledWith(expectedUrl, expect.objectContaining({
+      method: "POST", body: JSON.stringify({ description: "草稿" }), signal,
+    }));
+  });
+
   describe("request", () => {
     it("returns parsed JSON and applies default JSON header", async () => {
       const fetchMock = vi.fn().mockResolvedValue(

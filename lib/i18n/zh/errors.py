@@ -147,6 +147,7 @@ MESSAGES = {
     "character_task_submitted": "角色「{name}」资产图生成任务已提交",
     "derivative_task_submitted": "衍生「{name}」资产图生成任务已提交",
     "derivative_owner_sheet_missing": "角色「{name}」还没有资产图，请先生成本体资产图再生成衍生",
+    "asset_prompt_preview_missing": "资产不存在或尚未填写描述",
     "derivative_description_required": "衍生「{name}」还没有填写外观变化，无法生成资产图",
     "voice_sample_voice_required": "请先选择音色",
     "voice_sample_text_too_long": "试听文案不能超过 {max_length} 个字符",

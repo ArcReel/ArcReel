@@ -82,6 +82,7 @@ import type {
   ReferenceRequestOptions,
   ScriptPreview,
   ItemPromptPreview,
+  RenderedPromptPreview,
   ScriptReviewState,
   DramaNormalizedScript,
   NarrationScriptPlanDraft,
@@ -964,6 +965,23 @@ class API {
         method: "PATCH",
         body: JSON.stringify({ script_file: scriptFile, updates }),
       }
+    );
+  }
+
+  /** 预览当前资产描述草稿，不保存；衍生按本体与衍生名共同定位。 */
+  static async previewAssetPrompt(
+    projectName: string,
+    assetType: ProjectAssetType,
+    name: string,
+    description: string,
+    options?: { signal?: AbortSignal; derivativeName?: string },
+  ): Promise<RenderedPromptPreview> {
+    const derivativePath = options?.derivativeName === undefined
+      ? ""
+      : `/derivatives/${encodeURIComponent(options.derivativeName)}`;
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/${ASSET_TYPE_PATH[assetType]}/${encodeURIComponent(name)}${derivativePath}/prompt-preview`,
+      { method: "POST", body: JSON.stringify({ description }), signal: options?.signal },
     );
   }
 
