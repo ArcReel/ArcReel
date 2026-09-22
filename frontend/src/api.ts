@@ -81,6 +81,7 @@ import type {
   ReferenceBatchGenerateRequest,
   ReferenceRequestOptions,
   ScriptPreview,
+  ReferenceUnitPromptPreview,
   ItemPromptPreview,
   RenderedPromptPreview,
   ScriptReviewState,
@@ -3012,6 +3013,19 @@ class API {
   ): Promise<ScriptPreview> {
     return this.request(
       `/projects/${encodeURIComponent(projectName)}/reference-videos/episodes/${episode}/script-preview`,
+      { method: "POST", body: JSON.stringify({ prompt }), signal: options?.signal },
+    );
+  }
+
+  static async previewReferenceUnitPrompt(
+    projectName: string,
+    episode: number,
+    unitId: string,
+    prompt: string,
+    options?: { signal?: AbortSignal },
+  ): Promise<ReferenceUnitPromptPreview> {
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/reference-videos/episodes/${episode}/units/${encodeURIComponent(unitId)}/prompt-preview`,
       { method: "POST", body: JSON.stringify({ prompt }), signal: options?.signal },
     );
   }
