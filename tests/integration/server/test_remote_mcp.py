@@ -38,6 +38,7 @@ from server.media_tools.storyboards import generate_storyboards_tool
 from server.media_tools.videos import generate_videos_tool
 from server.remote_mcp import ArcApiKeyVerifier, RemoteMCPHost, build_remote_mcp_server
 from server.tool_runtime import Services
+from tests.fakes import refuse_resume_execution
 from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import call
 
 
@@ -1009,6 +1010,7 @@ async def test_text_task_is_shared_by_remote_and_embedded_hosts_and_running_memb
         provider_projection=text_provider,
         executor=blocking_text,
         lanes=("text",),
+        resume_executor=refuse_resume_execution,
     )
     worker.poll_interval = 0.01
     worker.heartbeat_interval = 0.01

@@ -6,6 +6,8 @@ import pytest
 import lib.db
 import server.app as app_module
 from server.routers import assistant as assistant_router
+from server.services.tasks.generation_tasks import execute_generation_task
+from server.services.tasks.resume_executor import execute_resume_video_task
 
 
 async def _noop_async(*args, **kwargs):
@@ -25,11 +27,18 @@ class _FakeWorker:
 
 
 class TestAppModule:
-    def test_create_generation_worker(self, monkeypatch):
+    def test_create_generation_worker_injects_server_executors(self, monkeypatch):
         worker = _FakeWorker()
-        monkeypatch.setattr(app_module, "GenerationWorker", lambda: worker)
+        received: dict[str, object] = {}
+
+        def _build(**kwargs):
+            received.update(kwargs)
+            return worker
+
+        monkeypatch.setattr(app_module, "GenerationWorker", _build)
         created = app_module.create_generation_worker()
         assert created is worker
+        assert received == {"executor": execute_generation_task, "resume_executor": execute_resume_video_task}
 
     @pytest.mark.asyncio
     async def test_lifespan_starts_and_stops_worker(self, monkeypatch):

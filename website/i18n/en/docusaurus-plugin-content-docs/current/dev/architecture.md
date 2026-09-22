@@ -171,7 +171,7 @@ The backend consists of two packages, the core library `lib/` and the server `se
 - Routes may call the core library directly; they are not required to go through an application service. An application service is needed only in two cases: the same use case is shared by multiple entry points, or a transaction or compensation must be coordinated across several domain packages.
 - Glue bound to the web framework belongs to the server. For example, the message tables and per-locale rendering live in `lib/i18n/`, while the dependency that resolves the locale from the request's `Accept-Language` header and injects a translator into routes lives in `server/i18n.py`.
 
-This boundary is enforced by dependency checks (import-linter, with contracts in `pyproject.toml`): "the core library does not depend on the server" and "the core library does not depend on the HTTP framework" (fastapi / starlette). The former registers two existing exemptions, both in the generation Worker, which calls the server's task executors and resume executor directly; that list may only shrink. The latter has no exemptions.
+This boundary is enforced by dependency checks (import-linter, with contracts in `pyproject.toml`): "the core library does not depend on the server" and "the core library does not depend on the HTTP framework" (fastapi / starlette). Neither contract has exemptions. When the core library needs a server capability, the application assembly point injects it: for example, `server/app.py` passes the generation Worker its task executor and resume executor when constructing it.
 
 ## 7. Provider Abstraction {#provider-abstraction}
 

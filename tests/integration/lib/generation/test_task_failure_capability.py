@@ -23,7 +23,6 @@ from lib.config.resolver import VideoBucketCapabilityError, VideoGenerationType
 from lib.custom_provider.comfyui.failures import ComfyuiError
 from lib.db.repositories.task_repo import _encode_bounded_cascade_failure
 from lib.generation import task_failure
-from lib.generation.generation_worker import _encode_task_failure_message
 from lib.generation.task_failure import (
     CAPABILITY_FAILURE_CODES,
     FAILURE_CODE_KEYS,
@@ -34,6 +33,7 @@ from lib.generation.task_failure import (
     encode_failure,
     render_failure,
 )
+from lib.generation.task_failure_encoding import encode_task_failure_message
 from lib.i18n import MESSAGES
 from lib.i18n import _ as i18n_translate
 from lib.infra.api_errors import ConflictError
@@ -380,7 +380,7 @@ def _translator(locale: str):
 
 def test_stored_reason_renders_per_locale():
     """同一条落库 error_message 在三语下渲染成三种文案。"""
-    stored = _encode_task_failure_message(
+    stored = encode_task_failure_message(
         VideoCapabilityError("video_duration_not_supported", duration=7, supported="5, 10")
     )
     assert stored == '[video_duration_not_supported] {"duration": 7, "supported": "5, 10"}'
@@ -393,7 +393,7 @@ def test_stored_reason_renders_per_locale():
 
 
 def test_artifact_download_failure_is_eligible_for_retry_download():
-    stored = _encode_task_failure_message(ArtifactDownloadError(detail="cdn unavailable"))
+    stored = encode_task_failure_message(ArtifactDownloadError(detail="cdn unavailable"))
 
     assert stored == '[artifact_download_failed] {"detail": "cdn unavailable"}'
     for locale in ("zh", "en", "vi"):
@@ -407,7 +407,7 @@ def test_an_endpoint_whose_media_runtime_is_missing_fails_in_the_reader_s_langua
 
     那一笔必须落成结构化失败：落一段裸文本的话，非中文用户在任务列表里看到的是一句中文。
     """
-    stored = _encode_task_failure_message(
+    stored = encode_task_failure_message(
         ComfyuiError("provider_unsupported_media", provider_id="custom-1", media_type="audio")
     )
 
@@ -426,7 +426,7 @@ def test_encode_covers_every_capability_exception_type():
         ReferencePayloadFloorError(),
     ]
     for exc in cases:
-        stored = _encode_task_failure_message(exc)
+        stored = encode_task_failure_message(exc)
         assert stored.startswith(f"[{exc.code}]")
         assert render_failure(stored, _translator("en")) != stored
 
@@ -468,7 +468,7 @@ def test_projection_failure_codes_are_machine_encodable_in_all_locales(code: str
 def test_projection_failure_preserves_canonical_code_and_params_for_localized_tasks(
     problem: ProjectionProblem, expected_params: dict[str, object]
 ):
-    stored = _encode_task_failure_message(ReferenceProjectionBlockedError(problem))
+    stored = encode_task_failure_message(ReferenceProjectionBlockedError(problem))
     assert json.loads(stored.split("] ", 1)[1]) == json.loads(json.dumps(expected_params, ensure_ascii=False))
     for locale in ("zh", "en", "vi"):
         expected = MESSAGES[locale][problem.code].format(**expected_params)
@@ -500,7 +500,7 @@ def test_changed_tts_tier_worker_rejection_preserves_confirmation_coordinates() 
         confirmed_request_duration_seconds=8,
     )
 
-    stored = _encode_task_failure_message(NarratedVideoDurationBlockedError(preparation))
+    stored = encode_task_failure_message(NarratedVideoDurationBlockedError(preparation))
 
     assert stored.startswith("[reference_duration_confirmation_required]")
     assert json.loads(stored.split("] ", 1)[1]) == {
@@ -513,9 +513,7 @@ def test_changed_tts_tier_worker_rejection_preserves_confirmation_coordinates() 
 
 
 def test_active_narrated_video_worker_rejection_is_localizable() -> None:
-    stored = _encode_task_failure_message(
-        ConflictError("tts_conflicts_with_active_narrated_video", resource_id="E1U01")
-    )
+    stored = encode_task_failure_message(ConflictError("tts_conflicts_with_active_narrated_video", resource_id="E1U01"))
 
     assert stored == '[tts_conflicts_with_active_narrated_video] {"resource_id": "E1U01"}'
     for locale in ("zh", "en", "vi"):
@@ -544,7 +542,7 @@ def test_encode_video_bucket_capability_error_renders_per_locale(code: str, gene
         model_id="MiniMax-Hailuo-2.3",
         message=f"lacks {generation_type}",
     )
-    stored = _encode_task_failure_message(exc)
+    stored = encode_task_failure_message(exc)
     assert stored.startswith(f"[{code}]")
     for locale in ("zh", "en", "vi"):
         expected = MESSAGES[locale][code].format(provider="minimax", model="MiniMax-Hailuo-2.3")
@@ -571,7 +569,7 @@ def test_encode_stringifies_non_json_params():
 
     ``video_duration_invalid`` 回显的是调用方拒绝的原始值，类型不可控。
     """
-    stored = _encode_task_failure_message(VideoCapabilityError("video_duration_invalid", duration=Path("weird")))
+    stored = encode_task_failure_message(VideoCapabilityError("video_duration_invalid", duration=Path("weird")))
     assert json.loads(stored.split("] ", 1)[1]) == {"duration": "weird"}
 
 
@@ -603,13 +601,13 @@ def test_bound_reason_preserves_scalar_param_types():
 def test_unregistered_capability_code_degrades_to_passthrough_text():
     """code 未登记时退回非结构化文本，读侧原样透传——失败原因不丢，任务不卡 running。"""
     exc = VideoCapabilityError("video_totally_new_code", model="x")
-    stored = _encode_task_failure_message(exc)
+    stored = encode_task_failure_message(exc)
     assert stored == "video_totally_new_code"
     assert render_failure(stored, _translator("zh")) == stored
 
 
 def test_non_capability_exception_still_passes_through():
-    stored = _encode_task_failure_message(RuntimeError("provider socket closed"))
+    stored = encode_task_failure_message(RuntimeError("provider socket closed"))
     assert stored == "provider socket closed"
     assert render_failure(stored, _translator("en")) == stored
 
@@ -624,7 +622,7 @@ def test_provider_rejection_stores_status_and_reason_as_separate_params():
         provider_reason="InvalidParameter: prompt violates the content policy",
     )
 
-    stored = _encode_task_failure_message(exc)
+    stored = encode_task_failure_message(exc)
 
     assert json.loads(stored.split("] ", 1)[1]) == {
         "provider_reason": "InvalidParameter: prompt violates the content policy",
@@ -647,7 +645,7 @@ def test_provider_rejection_without_a_reason_still_stores_the_status():
         response=httpx.Response(401, request=request),
     )
 
-    stored = _encode_task_failure_message(exc)
+    stored = encode_task_failure_message(exc)
 
     assert json.loads(stored.split("] ", 1)[1]) == {"status": 401}
     assert "SECRETKEY" not in stored
@@ -679,7 +677,7 @@ def _encode_cascade(dependency_task_id: str, reason: str) -> str:
 
 def test_cascade_reason_renders_upstream_reason_per_locale():
     """被上游连坐的任务不能退化成裸 [code]：级联包裹与其内层原因都按读侧语言渲染。"""
-    upstream = _encode_task_failure_message(
+    upstream = encode_task_failure_message(
         VideoCapabilityError("video_duration_not_supported", duration=7, supported="5, 10")
     )
     stored = _encode_cascade("5a38f38e", upstream)
@@ -700,7 +698,7 @@ def test_deep_cascade_chain_keeps_root_cause_renderable():
     落库预算，裁剪只能从尾部切字符，把内层切在 JSON 中途——外层仍可解析，读侧却把残缺内层
     当普通文本原样嵌进本地化文案。编码前折叠掉中间层后，串长与链深无关。
     """
-    upstream = _encode_task_failure_message(
+    upstream = encode_task_failure_message(
         VideoCapabilityError("video_duration_not_supported", duration=7, supported="5, 10")
     )
     inner = MESSAGES["zh"]["video_duration_not_supported"].format(duration=7, supported="5, 10")
@@ -723,7 +721,7 @@ def test_deep_cascade_chain_keeps_root_cause_renderable():
 
 def test_collapse_cascade_reason_leaves_non_cascade_reason_untouched():
     """非级联原因（含 provider 原始文本）不该被折叠动到。"""
-    upstream = _encode_task_failure_message(VideoCapabilityError("video_duration_invalid", duration="x"))
+    upstream = encode_task_failure_message(VideoCapabilityError("video_duration_invalid", duration="x"))
     assert collapse_cascade_reason(upstream) == upstream
     assert collapse_cascade_reason("provider rejected") == "provider rejected"
 
@@ -758,7 +756,7 @@ def test_bound_reason_shrinks_oversized_non_string_params():
     能把它写成一个大数组；JSON 原生类型不经 ``default=str``，没有字符串参数可收窄时旧路径
     会退到裸切片，把信封切在 JSON 中途，读侧解析失败后原样吐出整串机器码。
     """
-    stored = _encode_task_failure_message(VideoCapabilityError("video_duration_invalid", duration=list(range(2000))))
+    stored = encode_task_failure_message(VideoCapabilityError("video_duration_invalid", duration=list(range(2000))))
     assert len(stored) > 2000
 
     bounded = bound_reason(stored, 2000)

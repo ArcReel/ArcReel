@@ -419,7 +419,7 @@ class TestCapacityTable:
                 default_concurrency={"image": 2},
             ),
         }
-        monkeypatch.setattr("lib.config.registry.PROVIDER_REGISTRY", registry)
+        monkeypatch.setattr("lib.generation.generation_worker.PROVIDER_REGISTRY", registry)
 
     def test_from_env_uses_registry_declared_default(self, monkeypatch):
         self._registry_with_declared_defaults(monkeypatch)
