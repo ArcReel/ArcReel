@@ -18,6 +18,8 @@ import re
 from collections.abc import Callable
 from typing import Any, TypeGuard
 
+from lib.custom_provider.comfyui.artifacts import expected_suffixes_text
+
 # Backend capability rejections (``ImageCapabilityError`` / ``VideoCapabilityError`` /
 # ``ReferencePayloadFloorError``). Their ``.code`` is already an ``errors`` catalog key,
 # so the mapping below is identity — no prefix indirection. Enumerated rather than
@@ -313,6 +315,11 @@ def render_failure(error_message: str | None, translate: Callable[..., str]) -> 
     Cascade nesting is self-limiting: each layer re-encodes the previous envelope into JSON,
     so escaping makes the string grow super-linearly and the write side caps it well before
     the depth could threaten the recursion limit.
+
+    ``comfyui_output_type_mismatch`` takes its ``expected`` extension list from the stored
+    ``media_type`` here rather than from the row: the list is a projection of a static
+    whitelist, so every stored row — including those written before the text listed it —
+    renders with the whitelist this build actually enforces.
     """
     if not error_message:
         return error_message
@@ -328,6 +335,9 @@ def render_failure(error_message: str | None, translate: Callable[..., str]) -> 
         detail = params.get("detail")
         if _is_validation_message(detail):
             params = {**params, "detail": translate(detail["key"], **detail["params"])}
+    if code == "comfyui_output_type_mismatch":
+        media_type = params.get("media_type")
+        params = {**params, "expected": expected_suffixes_text(media_type if isinstance(media_type, str) else "")}
     return translate(FAILURE_CODE_KEYS[code], **params)
 
 

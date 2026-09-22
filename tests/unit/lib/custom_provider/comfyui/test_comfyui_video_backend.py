@@ -567,11 +567,7 @@ class TestFailures:
                 await _backend().generate(_request(tmp_path))
 
         assert caught.value.code == "comfyui_output_type_mismatch"
-        assert caught.value.params == {
-            "filename": "final_00001.png",
-            "media_type": "video",
-            "expected": ".mov / .mp4 / .webm",
-        }
+        assert caught.value.params == {"filename": "final_00001.png", "media_type": "video"}
 
     @pytest.mark.parametrize(
         ("code", "params"),
@@ -582,10 +578,7 @@ class TestFailures:
             ("comfyui_execution_error", {"node": "KSampler", "detail": "OutOfMemoryError"}),
             ("comfyui_interrupted", {}),
             ("comfyui_output_missing", {"nodes": "9"}),
-            (
-                "comfyui_output_type_mismatch",
-                {"filename": "a.png", "media_type": "video", "expected": ".mov / .mp4 / .webm"},
-            ),
+            ("comfyui_output_type_mismatch", {"filename": "a.png", "media_type": "video"}),
             ("comfyui_image_drop_unsupported", {"node": "10"}),
         ],
     )
@@ -595,6 +588,9 @@ class TestFailures:
 
         编码这一步同时钉住 worker 认得这个异常：``_encode_task_failure_message`` 认不出的异常
         会降级成一段裸文本，读侧就再也翻译不了。
+
+        渲染结果里不留 ``{``：``lib.i18n`` 在格式化抛错时退回未填值的模板，占位符对不上的模板
+        会带着一串 ``{name}`` 直接显示给用户。
         """
         message = _encode_task_failure_message(ComfyuiError(code, **params))
 
@@ -602,6 +598,19 @@ class TestFailures:
 
         assert rendered
         assert code not in rendered
+        assert "{" not in rendered
+
+    @pytest.mark.parametrize("locale", ["zh", "en", "vi"])
+    def test_the_mismatch_text_lists_the_allowed_extensions(self, locale: str):
+        """扩展名清单在读侧按落库的 ``media_type`` 现算，落库参数只有文件名与媒体类型。"""
+        message = _encode_task_failure_message(
+            ComfyuiError("comfyui_output_type_mismatch", filename="a.png", media_type="video")
+        )
+
+        rendered = render_failure(message, make_translator(locale))
+
+        assert rendered
+        assert ".mov / .mp4 / .webm" in rendered
 
 
 class TestMultipleArtifacts:

@@ -22,7 +22,6 @@ import httpx
 from lib.backends.artifact_download_guard import ARTIFACT_MAX_BYTES_BY_MEDIA_TYPE
 from lib.backends.backend_runtime import poll_with_retry, should_retry_poll
 from lib.custom_provider.comfyui.artifacts import (
-    ARTIFACT_SUFFIXES_BY_MEDIA_TYPE,
     filename_of,
     history_digest,
     output_artifacts,
@@ -171,12 +170,7 @@ class ComfyuiExecution:
             raise ComfyuiError(OUTPUT_MISSING, nodes=" / ".join(self._output_nodes))
         artifact = pick_artifact(artifacts, self._media_type)
         if artifact is None:
-            raise ComfyuiError(
-                OUTPUT_TYPE_MISMATCH,
-                filename=filename_of(artifacts[0]),
-                media_type=self._media_type,
-                expected=" / ".join(sorted(ARTIFACT_SUFFIXES_BY_MEDIA_TYPE.get(self._media_type, ()))),
-            )
+            raise ComfyuiError(OUTPUT_TYPE_MISMATCH, filename=filename_of(artifacts[0]), media_type=self._media_type)
         if len(artifacts) > 1:
             logger.warning("ComfyUI 产物共 %d 个，取: %s", len(artifacts), filename_of(artifact))
         return PickedArtifact(artifact=artifact, count=len(artifacts))

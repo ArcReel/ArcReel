@@ -83,6 +83,15 @@ def pick_artifact(artifacts: Sequence[Mapping[str, Any]], media_type: str) -> Ma
     return next((item for item in artifacts if Path(filename_of(item)).suffix.lower() in allowed), None)
 
 
+def expected_suffixes_text(media_type: str) -> str:
+    """``media_type`` 允许的扩展名，拼成失败文案里那一段清单；未登记的媒体类型给空串。
+
+    读侧渲染 ``comfyui_output_type_mismatch`` 时按落库的 ``media_type`` 现算，白名单因此不进
+    落库参数：清单是一张静态表的投影，不是这次失败的事实，存一份只会让历史记录与表各说各话。
+    """
+    return " / ".join(sorted(ARTIFACT_SUFFIXES_BY_MEDIA_TYPE.get(media_type, frozenset())))
+
+
 def filename_of(artifact: Mapping[str, Any]) -> str:
     """一个产物条目的文件名；缺失时空串（扩展名判定与失败文案都容得下它）。"""
     return str(artifact.get("filename") or "")
