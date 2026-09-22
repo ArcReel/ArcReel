@@ -23,10 +23,18 @@ from dataclasses import dataclass
 from random import Random
 from typing import Any
 
-from lib.aspect_size import DEFAULT_SHORT_EDGE, IMAGE_TIER_SHORT_EDGE, VIDEO_TIER_SHORT_EDGE, aspect_size
-from lib.aspect_size import resolution_to_short_edge as short_edge_of_resolution
-from lib.prompt_utils import append_avoid_text, split_avoid_lines
+from lib.backends.aspect_size import DEFAULT_SHORT_EDGE, IMAGE_TIER_SHORT_EDGE, VIDEO_TIER_SHORT_EDGE, aspect_size
+from lib.backends.aspect_size import resolution_to_short_edge as short_edge_of_resolution
+from lib.prompts.prompt_utils import append_avoid_text, split_avoid_lines
 
+from .bindings import align_frames, step_of
+from .bindings import bound_fps as _bound_fps
+from .bindings import int_literal_of as _int_literal
+from .bindings import literal_of as _literal
+from .bindings import positive_number as _positive_number
+from .bindings import targets_of as _targets
+from .capabilities import keeps_its_own_frame_count, size_is_fixed
+from .failures import IMAGE_DROP_UNSUPPORTED, ComfyuiError
 from .inference_rules import InferenceRules, MergeNode, load_inference_rules
 from .workflow import is_link, node_inputs
 
@@ -35,25 +43,8 @@ logger = logging.getLogger(__name__)
 #: 随机种子的取值区间上界（不含）：ComfyUI 各采样器的 seed 输入按 32 位无符号整数收。
 SEED_UPPER_BOUND = 2**32
 
-#: 参考图或首尾帧要删的读图节点，其级联触到了产物节点——这份 workflow 的成片链路本身依赖那张
-#: 图，少一张就出不了片，只能让这次生成失败而不是提交一份必然报错的 workflow。
-IMAGE_DROP_UNSUPPORTED = "comfyui_image_drop_unsupported"
-
 #: 种子条目缺省策略，与 schema 的 ``default`` 同值。
 _DEFAULT_SEED_POLICY = "random"
-
-
-class ComfyuiRequestError(RuntimeError):
-    """构造实发 workflow 失败，携带可持久化、可本地化的稳定失败码。
-
-    形状与声明式运行时的同类异常一致（``code`` + ``params``），失败原因的编码与渲染两侧因此
-    不必为 ComfyUI 另写一条路径。
-    """
-
-    def __init__(self, code: str, **params: Any) -> None:
-        self.code = code
-        self.params: dict[str, Any] = params
-        super().__init__(code)
 
 
 @dataclass(frozen=True)
@@ -118,10 +109,13 @@ def build_workflow(
     dropped = _apply_media(workflow, bindings, media or MediaInputs(), load_inference_rules(media_type))
 
     body, avoid_text = split_avoid_lines(prompt)
-    _write_all(workflow, bindings.get("prompt"), body)
+    _write_all(workflow, _targets(bindings.get("prompt")), body)
     _write_negative_prompt(workflow, bindings.get("negative_prompt"), avoid_text)
     width, height = _write_size(workflow, bindings, aspect_ratio=aspect_ratio, resolution=resolution, media=media_type)
-    frames = _write_frames(workflow, bindings, duration_seconds=duration_seconds)
+    # 图自己写着片长、而这份片长凑不出一档原生时长时不动帧数：端点对外说的正是「时长不由
+    # ArcReel 驱动」（档位为空、界面只读），请求里那个秒数是规划层借的，不是用户选的。
+    driven = None if keeps_its_own_frame_count(definition) else duration_seconds
+    frames = _write_frames(workflow, bindings, duration_seconds=driven)
     actual_seed = _write_seed(workflow, bindings, requested=seed, rng=rng or Random())
 
     return BuiltWorkflow(
@@ -170,36 +164,15 @@ def _write_one(workflow: dict[str, Any], target: Mapping[str, Any], value: objec
     _mutable_inputs(workflow[node_id])[name] = value
 
 
-def _write_all(workflow: dict[str, Any], targets: object, value: object) -> None:
-    for target in _targets(targets):
+def _write_all(workflow: dict[str, Any], targets: Sequence[Mapping[str, Any]], value: object) -> None:
+    """把同一个值写进一个语义键的全部目标。
+
+    收 已规范化 的条目序列，不在内部再规范一次：调用方手里本就有 :func:`_targets` 的结果，函数
+    再收一次原始值就会出现「传进来的到底是哪一种」的歧义——传规范化过的结果进来反而被判成形状
+    不对而整批丢掉。
+    """
+    for target in targets:
         _write_one(workflow, target, value)
-
-
-def _targets(targets: object) -> list[Mapping[str, Any]]:
-    """把一个语义键的目标列表收窄成可遍历的条目。三态里空列表与键缺失在此同形。"""
-    if not isinstance(targets, list):
-        return []
-    return [target for target in targets if isinstance(target, Mapping)]
-
-
-def _literal(workflow: Mapping[str, Any], target: Mapping[str, Any]) -> object:
-    """读一个目标当前的字面值；节点或字段不在则 ``None``。"""
-    node = workflow.get(str(target["node"]))
-    name = target.get("input")
-    if node is None or not isinstance(name, str):
-        return None
-    return node_inputs(node).get(name)
-
-
-def _int_literal(workflow: Mapping[str, Any], target: Mapping[str, Any]) -> int | None:
-    raw = _literal(workflow, target)
-    return raw if isinstance(raw, int) and not isinstance(raw, bool) else None
-
-
-def _step(target: Mapping[str, Any]) -> int:
-    """条目声明的步长；未声明按 1 看待——没有步长信息时不替 workflow 作者假设一个。"""
-    raw = target.get("step")
-    return raw if isinstance(raw, int) and raw >= 1 else 1
 
 
 # ---------------------------------------------------------------- 负向提示词
@@ -229,19 +202,24 @@ def _write_size(
 ) -> tuple[int | None, int | None]:
     """按项目比例与分辨率档派生宽高，逐条目按步长向下对齐后写入。
 
-    ``round_to`` 取宽高两侧全部步长的最小公倍数：:func:`~lib.aspect_size.aspect_size` 产出的宽高
+    ``round_to`` 取宽高两侧全部步长的最小公倍数：:func:`~lib.backends.aspect_size.aspect_size` 产出的宽高
     都是它的整数倍，于是每个条目各自的步长天然被整除，比例零偏差。写入前仍按条目步长再向下对齐
     一次——对齐是 workflow 那个输入自己的约束，它成立与否不该取决于 ``round_to`` 恰好怎么取。
 
     分辨率未选时短边取 workflow 字面宽高的较小者：这份 workflow 的原生尺寸就是作者调好的那一档，
     比例仍按项目走。字面值读不出整数时退到跨后端统一的兜底短边。
+
+    尺寸这一维驱不驱动得了走 :func:`~lib.custom_provider.comfyui.capabilities.size_is_fixed` 这一份
+    判据——界面据它禁用分辨率选择器，填值据它决定写不写，两处不各写一份。只绑一侧时它判为固定：
+    派生出的宽高只写得进绑了的那一侧，另一侧仍是 workflow 的字面值，产出的比例既不是原生的也不是
+    用户要的。
     """
+    if size_is_fixed(bindings):
+        return None, None
     width_targets = _targets(bindings.get("width"))
     height_targets = _targets(bindings.get("height"))
-    if not width_targets and not height_targets:
-        return None, None
 
-    round_to = math.lcm(*[_step(target) for target in (*width_targets, *height_targets)])
+    round_to = math.lcm(*[step_of(target) for target in (*width_targets, *height_targets)])
     tier_map = IMAGE_TIER_SHORT_EDGE if media == "image" else VIDEO_TIER_SHORT_EDGE
     if resolution and resolution.strip():
         short_edge = short_edge_of_resolution(resolution, tier_map=tier_map)
@@ -274,7 +252,7 @@ def _write_stepped(workflow: dict[str, Any], targets: Sequence[Mapping[str, Any]
     """把一个派生尺寸按各条目的步长向下对齐后写入，回传最后写出的值。"""
     written: int | None = None
     for target in targets:
-        written = _align_down(value, _step(target))
+        written = _align_down(value, step_of(target))
         _write_one(workflow, target, written)
     return written
 
@@ -298,6 +276,9 @@ def _write_frames(
     帧率改帧数，比让 workflow 保持它自己的字面值更容易出片长不符。
 
     步长对帧数的含义是 ``frames ≡ 1 (mod step)``（4n+1 / 8n+1 这类），向下对齐、下限 ``1 + step``。
+
+    ``duration_seconds`` 为 ``None`` 即「这一维不由本次请求驱动」，调用方在端点给不出档位时传的
+    就是它：那种情形下 workflow 的字面帧数原样留着。
     """
     targets = _targets(bindings.get("frames"))
     if not targets or duration_seconds is None:
@@ -310,36 +291,10 @@ def _write_frames(
         if fps is None:
             logger.info("帧数未写：既无 fps 只读绑定，条目也未手填帧率")
             continue
-        step = _step(target)
-        written = _align_frames(round(duration_seconds * fps) + 1, step)
+        step = step_of(target)
+        written = align_frames(round(duration_seconds * fps) + 1, step)
         _write_one(workflow, target, written)
     return written
-
-
-def _bound_fps(workflow: Mapping[str, Any], bindings: Mapping[str, Any]) -> float | None:
-    """从 ``fps`` 只读绑定读出这份 workflow 实际使用的帧率。"""
-    for target in _targets(bindings.get("fps")):
-        fps = _positive_number(_literal(workflow, target))
-        if fps is not None:
-            return fps
-    return None
-
-
-def _positive_number(raw: object) -> float | None:
-    return float(raw) if isinstance(raw, int | float) and not isinstance(raw, bool) and raw > 0 else None
-
-
-def _align_frames(frames: int, step: int) -> int:
-    """向下对齐到 ``frames ≡ 1 (mod step)``，下限 ``1 + step``。
-
-    下限只留日志不报错：时长短到连一个步长都凑不出时，提交最小合法帧数仍能出片，把这次生成拒了
-    反而不如让用户看见一段比预期短的成片。
-    """
-    aligned = frames - (frames - 1) % step
-    if aligned < 1 + step:
-        logger.info("帧数 %d 低于步长 %d 的最小合法值，按 %d 提交", frames, step, 1 + step)
-        return 1 + step
-    return aligned
 
 
 # ---------------------------------------------------------------- 种子
@@ -420,7 +375,7 @@ def _apply_reference_images(
     if any(not _adjustable(target, rules) for target in spare):
         logger.info("参考图格子 %d 个、本次 %d 张，但有格子的 consumer 改不动图，改图跳过", len(targets), len(values))
         if values:
-            _write_all(workflow, list(spare), values[-1])
+            _write_all(workflow, spare, values[-1])
         return []
     return [str(target["node"]) for target in spare]
 
@@ -458,7 +413,7 @@ def _drop_nodes(
         if node_id not in workflow:
             continue
         if node_id in output_nodes:
-            raise ComfyuiRequestError(IMAGE_DROP_UNSUPPORTED, node=node_id)
+            raise ComfyuiError(IMAGE_DROP_UNSUPPORTED, node=node_id)
         orphan_candidates.update(_link_sources(workflow[node_id]))
         del workflow[node_id]
         deleted.append(node_id)

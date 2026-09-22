@@ -4,23 +4,23 @@ Editing forks the **image**, not the prompt: the current image is the sole refer
 the user's instruction is the sole prompt, ``image_prompt`` is never rewritten. This is
 the tool-facing entry point for that flow — the fail-fast i2i check and resource
 resolution reuse the same helpers the HTTP endpoint (``server/routers/generate.py``)
-uses, so the two entry points can't diverge (see ``server/services/image_edit_tasks.py``).
+uses, so the two entry points can't diverge (see ``server/services/tasks/image_edit_tasks.py``).
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-from lib.artifact_activation import (
+from lib.artifacts.artifact_activation import (
     ArtifactCurrencyResolver,
     active_artifact_currency_resolver,
     resolve_artifact_episode,
 )
-from lib.artifact_manifest import ArtifactManifestError
+from lib.artifacts.artifact_manifest import ArtifactManifestError
 from lib.config.resolver import ConfigResolver
 from lib.db import async_session_factory
-from lib.generation_queue_client import TaskSpec, batch_enqueue_and_wait
-from lib.generation_result import (
+from lib.generation.generation_queue_client import TaskSpec, batch_enqueue_and_wait
+from lib.generation.generation_result import (
     GenerationAction,
     GenerationCandidate,
     GenerationProblem,
@@ -40,7 +40,7 @@ from server.media_tools.context import (
     validate_script_filename,
 )
 from server.media_tools.definition import tool
-from server.services.image_edit_tasks import EDITABLE_RESOURCE_TYPES, resolve_usable_image_edit_source
+from server.services.tasks.image_edit_tasks import EDITABLE_RESOURCE_TYPES, resolve_usable_image_edit_source
 from server.tool_runtime import ToolOutcome, submit_media_generation
 
 # 编辑始终是显式选择：一次编辑必须携带自己的指令，没有可由 Manifest 推导的
@@ -239,7 +239,7 @@ async def handle_edit_images(ctx: ToolContext, args: dict[str, Any]) -> ToolOutc
                 seen.add(resource_id)
                 builder.block(
                     resource_id,
-                    # 复用 lib.task_failure 已登记的 i2i 缺能力码（同一失败在
+                    # 复用 lib.generation.task_failure 已登记的 i2i 缺能力码（同一失败在
                     # HTTP 端点的执行期路径下就是这个码），不新造未登记码。
                     problem=GenerationProblem(
                         code="image_capability_missing_i2i",

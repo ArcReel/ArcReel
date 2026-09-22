@@ -9,7 +9,6 @@ import re
 import unicodedata
 from collections import Counter
 from collections.abc import Callable, Mapping, Sequence
-from contextlib import ExitStack
 from dataclasses import asdict, dataclass, replace
 from dataclasses import field as dataclass_field
 from pathlib import Path
@@ -17,22 +16,37 @@ from typing import Any, NamedTuple, cast
 
 from pydantic import BaseModel, ValidationError
 
-from lib import script_review
-from lib.artifact_manifest import (
+from lib.artifacts.artifact_manifest import (
     ArtifactBasis,
-    ArtifactEntryRekeyReceipt,
-    ArtifactKey,
-    ProjectArtifactManifestAdapter,
 )
-from lib.artifact_provenance import ScriptPlanPromptVariant, build_script_plan_request
-from lib.artifact_registration import ArtifactRegistrationReceipt
-from lib.asset_types import BUCKET_KEY, asset_name_comparison_key
-from lib.async_thread import run_noninterruptible_sync, run_sync_transaction
+from lib.artifacts.artifact_provenance import ScriptPlanPromptVariant, build_script_plan_request
+from lib.artifacts.formal_write import formal_write_transaction
+from lib.backends.providers import CallPurpose
+from lib.backends.text_backends.base import DEFAULT_MAX_OUTPUT_TOKENS, TextTaskType
+from lib.backends.text_backends.base import TextGenerationRequest as BackendTextGenerationRequest
+from lib.backends.text_generator import TextGenerator
 from lib.config.resolver import ConfigResolver
-from lib.content_digest import prefixed_sha256_file
 from lib.custom_provider.duration_presets import DEFAULT_FALLBACK
 from lib.db import async_session_factory
-from lib.draft_quarantine import (
+from lib.episode.episode_paths import (
+    SCRIPT_PLAN_FILENAMES,
+    episode_drafts_dir,
+    episode_script_filename,
+    episode_source_relpath,
+)
+from lib.i18n import _ as translate
+from lib.infra.async_thread import run_sync_transaction
+from lib.infra.content_digest import prefixed_sha256_file
+from lib.infra.path_safety import PathTraversalError, safe_join
+from lib.infra.schema_guards import is_int, is_str
+from lib.infra.text_utils import strip_json_code_fences
+from lib.project.asset_types import BUCKET_KEY, asset_name_comparison_key
+from lib.project.project_manager import ProjectManager, is_reference_video_project
+from lib.prompts.prompt_builders_reference import build_reference_units_split_prompt
+from lib.prompts.prompt_builders_script import build_narration_split_prompt, build_normalize_prompt
+from lib.references.reference_catalog import ReferenceCatalog, build_reference_catalog
+from lib.script import script_review
+from lib.script.draft_quarantine import (
     PROMOTE_TOOL_NAME,
     QUARANTINE_KIND_DRAMA_SCRIPT_PLAN,
     QUARANTINE_KIND_NARRATION_SCRIPT_PLAN,
@@ -44,27 +58,13 @@ from lib.draft_quarantine import (
     quarantine_path,
     read_quarantine,
 )
-from lib.draft_violation import DraftViolation, collect_violations
-from lib.episode_paths import (
-    SCRIPT_PLAN_FILENAMES,
-    episode_drafts_dir,
-    episode_script_filename,
-    episode_source_relpath,
-)
-from lib.formal_write import FormalWriteReceipt, formal_write_transaction, project_metadata_lock
-from lib.i18n import _ as translate
-from lib.path_safety import PathTraversalError, safe_join
-from lib.project_manager import ProjectManager, is_reference_video_project
-from lib.prompt_builders_reference import build_reference_units_split_prompt
-from lib.prompt_builders_script import build_narration_split_prompt, build_normalize_prompt
-from lib.providers import CallPurpose
-from lib.reference_catalog import ReferenceCatalog, build_reference_catalog
-from lib.reference_video.draft_validation import (
+from lib.script.draft_violation import DraftViolation, collect_violations
+from lib.script.reference_video.draft_validation import (
     validate_dialogue_load,
     validate_source_text_anchor,
     validate_unit_text,
 )
-from lib.reference_video.script_preview import (
+from lib.script.reference_video.script_preview import (
     WARN_REFERENCE_AUDIO_OVERFLOW,
     WARN_SILENT_EPISODE,
     WARN_SILENT_MODEL,
@@ -74,23 +74,18 @@ from lib.reference_video.script_preview import (
     derive_voice_bindings,
     unit_lacks_scene_reference,
 )
-from lib.reference_video.text_parser import extract_mentions
-from lib.reference_video.voice_settings import VoiceRenderSettings
-from lib.schema_guards import is_int, is_str
-from lib.script_generator import PromptAuthoringTargetError, ScriptGenerator
-from lib.script_models import (
+from lib.script.reference_video.text_parser import extract_mentions
+from lib.script.reference_video.voice_settings import VoiceRenderSettings
+from lib.script.script_generator import PromptAuthoringTargetError, ScriptGenerator
+from lib.script.script_models import (
     NarrationScriptPlanDraft,
     build_drama_normalized_script_model,
     build_reference_units_script_plan_model,
 )
-from lib.speech_composition import admit_script_unit
-from lib.speech_rate import project_speech_rate_override
-from lib.storyboard_mentions import render_storyboard_mention_warnings, storyboard_mention_warnings
-from lib.text_backends.base import DEFAULT_MAX_OUTPUT_TOKENS, TextTaskType
-from lib.text_backends.base import TextGenerationRequest as BackendTextGenerationRequest
-from lib.text_generator import TextGenerator
-from lib.text_utils import strip_json_code_fences
-from server.services.video_caps import (
+from lib.script.storyboard_mentions import render_storyboard_mention_warnings, storyboard_mention_warnings
+from lib.speech.speech_composition import admit_script_unit
+from lib.speech.speech_rate import project_speech_rate_override
+from server.services.tasks.video_caps import (
     constrained_caps_durations,
     reference_unit_duration_tiers,
     resolve_video_caps,
@@ -142,123 +137,6 @@ class TextGenerationResult:
     #: locale-neutral 的 ``{"key", "params"}`` 提示条目（如画面描述里没绑定参考图的 ``@[名称]``），
     #: 与任务 ``result.warnings`` 同一形态，读侧按语言渲染。
     warnings: list[dict[str, Any]] = dataclass_field(default_factory=list)
-
-
-class CompensableTextGenerationResult(TextGenerationResult):
-    """Text result carrying runtime-only cancellation compensation."""
-
-    __slots__ = ("_cancel_compensation", "payload")
-
-    def __init__(
-        self,
-        message: str,
-        cancel_compensation: Callable[[], None],
-        *,
-        payload: dict[str, Any] | None = None,
-        warnings: list[dict[str, Any]] | None = None,
-    ) -> None:
-        super().__init__(message, list(warnings or []))
-        object.__setattr__(self, "_cancel_compensation", cancel_compensation)
-        object.__setattr__(self, "payload", payload)
-
-    def compensate_cancelled(self) -> None:
-        self._cancel_compensation()
-
-
-@dataclass(frozen=True, slots=True)
-class _ScriptPlanCancellationReceipt:
-    project_path: Path
-    lock_paths: tuple[Path, ...]
-    files: FormalWriteReceipt
-    manifest: ArtifactRegistrationReceipt
-
-    def compensate_cancelled(self) -> None:
-        self._compensate(self.lock_paths)
-
-    def compensate_cancelled_while_draft_locked(self) -> None:
-        self._compensate(self.lock_paths[1:])
-
-    def _compensate(self, lock_paths: tuple[Path, ...]) -> None:
-        pm = ProjectManager(str(self.project_path.parent))
-        with ExitStack() as locks:
-            for path in lock_paths:
-                locks.enter_context(pm.file_lock(path))
-            with project_metadata_lock(self.project_path):
-                adapter = self.manifest.adapter
-                key = self.manifest.key
-                if adapter is None or key is None:
-                    raise RuntimeError("script_plan cancellation receipt has no Manifest target")
-                if self.manifest.changed and adapter.get_entry(key) != self.manifest.registered:
-                    return
-                if not self.files.compensate_cancelled():
-                    return
-                self.manifest.compensate_cancelled()
-
-
-@dataclass(frozen=True, slots=True)
-class _EpisodeScriptCancellationReceipt:
-    project_path: Path
-    episode: int
-    files: FormalWriteReceipt
-    manifest: ArtifactEntryRekeyReceipt
-
-    def compensate_cancelled(self) -> None:
-        script_path = self.project_path / "scripts" / f"episode_{self.episode}.json"
-        pm = ProjectManager(str(self.project_path.parent))
-        with pm.file_lock(script_path), project_metadata_lock(self.project_path):
-            if not self.manifest.matches_current() or not self.files.matches_current():
-                return
-            if not self.files.compensate_cancelled():
-                return
-            self.manifest.compensate()
-
-
-async def _run_compensable_script_plan_commit(
-    commit: Callable[..., None],
-    /,
-    *args: Any,
-) -> _ScriptPlanCancellationReceipt:
-    receipts: list[_ScriptPlanCancellationReceipt] = []
-    try:
-        await run_sync_transaction(commit, *args, receipts)
-    except asyncio.CancelledError:
-        if receipts:
-            await run_noninterruptible_sync(receipts[0].compensate_cancelled_while_draft_locked)
-        raise
-    if len(receipts) != 1:
-        raise RuntimeError("script_plan commit did not return cancellation state")
-    return receipts[0]
-
-
-async def _run_compensable_quarantine(
-    project_path: Path,
-    episode: int,
-    kind: str,
-    content: dict[str, Any],
-    violations: list[DraftViolation],
-    source: str | None,
-    base_fingerprint: str | None,
-) -> str:
-    receipts: list[FormalWriteReceipt] = []
-    try:
-        report = await run_sync_transaction(
-            _quarantine_invalid_script_plan_generation,
-            project_path,
-            episode,
-            kind,
-            content,
-            violations,
-            source,
-            base_fingerprint,
-            receipts,
-        )
-    except asyncio.CancelledError:
-        if receipts:
-            await run_noninterruptible_sync(receipts[0].compensate_cancelled)
-        raise
-    if len(receipts) != 1:
-        raise RuntimeError("quarantine write did not return cancellation state")
-    return report
 
 
 class TextGenerationError(Exception):
@@ -327,50 +205,26 @@ def _commit_generated_reference_script_plan(
     expected_fingerprint: str | None,
     basis: ArtifactBasis,
     before_commit: Callable[[], None] | None = None,
-    cancellation_receipts: list[_ScriptPlanCancellationReceipt] | None = None,
 ) -> None:
     if before_commit is not None:
         before_commit()
     draft_path = quarantine_path(project_path, episode, QUARANTINE_KIND_SCRIPT_PLAN)
     prompt_authoring_path = quarantine_path(project_path, episode, QUARANTINE_KIND_PROMPT_AUTHORING)
     formal_path = script_review.official_reference_script_plan_path(project_path, episode)
-    adapter = ProjectArtifactManifestAdapter(project_path)
-    key = ArtifactKey.episode_script_plan(episode)
     pm = ProjectManager(str(project_path.parent))
-    file_receipts: list[FormalWriteReceipt] = []
-    with pm.file_lock(prompt_authoring_path), script_review.script_plan_write_lock(project_path, episode):
-        previous = adapter.get_entry(key)
-        with formal_write_transaction(
-            formal_path,
-            prompt_authoring_path,
-            draft_path,
-            cancellation_receipts=file_receipts,
-        ):
-            script_review.write_script_plan_locked(
-                project_path,
-                episode,
-                content,
-                expected_fingerprint=expected_fingerprint,
-                basis=basis,
-            )
-            clear_quarantine(project_path, episode, QUARANTINE_KIND_SCRIPT_PLAN)
-        registered = adapter.get_entry(key)
-    if cancellation_receipts is None:
-        return
-    cancellation_receipts.append(
-        _ScriptPlanCancellationReceipt(
-            project_path=project_path,
-            lock_paths=(draft_path, prompt_authoring_path, formal_path),
-            files=file_receipts[0],
-            manifest=ArtifactRegistrationReceipt(
-                adapter=adapter,
-                key=key,
-                registered=registered,
-                previous=previous,
-                changed=registered != previous,
-            ),
+    with (
+        pm.file_lock(prompt_authoring_path),
+        script_review.script_plan_write_lock(project_path, episode),
+        formal_write_transaction(formal_path, prompt_authoring_path, draft_path),
+    ):
+        script_review.write_script_plan_locked(
+            project_path,
+            episode,
+            content,
+            expected_fingerprint=expected_fingerprint,
+            basis=basis,
         )
-    )
+        clear_quarantine(project_path, episode, QUARANTINE_KIND_SCRIPT_PLAN)
 
 
 def _commit_single_script_plan(
@@ -381,45 +235,21 @@ def _commit_single_script_plan(
     content: dict[str, Any],
     expected_fingerprint: Any,
     basis: ArtifactBasis | None,
-    cancellation_receipts: list[_ScriptPlanCancellationReceipt] | None = None,
 ) -> None:
     draft_path = quarantine_path(project_path, episode, kind)
-    adapter = ProjectArtifactManifestAdapter(project_path)
-    key = ArtifactKey.episode_script_plan(episode)
-    file_receipts: list[FormalWriteReceipt] = []
-    with script_review.formal_script_plan_lock(project_path, episode, script_plan_path):
-        previous = adapter.get_entry(key)
-        with formal_write_transaction(
+    with (
+        script_review.formal_script_plan_lock(project_path, episode, script_plan_path),
+        formal_write_transaction(script_plan_path, draft_path),
+    ):
+        script_review.write_formal_script_plan_locked(
+            project_path,
+            episode,
             script_plan_path,
-            draft_path,
-            cancellation_receipts=file_receipts,
-        ):
-            script_review.write_formal_script_plan_locked(
-                project_path,
-                episode,
-                script_plan_path,
-                content,
-                expected_fingerprint=expected_fingerprint,
-                basis=basis,
-            )
-            clear_quarantine(project_path, episode, kind)
-        registered = adapter.get_entry(key)
-    if cancellation_receipts is None:
-        return
-    cancellation_receipts.append(
-        _ScriptPlanCancellationReceipt(
-            project_path=project_path,
-            lock_paths=(draft_path, script_plan_path),
-            files=file_receipts[0],
-            manifest=ArtifactRegistrationReceipt(
-                adapter=adapter,
-                key=key,
-                registered=registered,
-                previous=previous,
-                changed=registered != previous,
-            ),
+            content,
+            expected_fingerprint=expected_fingerprint,
+            basis=basis,
         )
-    )
+        clear_quarantine(project_path, episode, kind)
 
 
 def _quarantine_invalid_script_plan_generation(
@@ -430,12 +260,8 @@ def _quarantine_invalid_script_plan_generation(
     violations: list[DraftViolation],
     source: str | None,
     base_fingerprint: str | None,
-    cancellation_receipts: list[FormalWriteReceipt] | None = None,
 ) -> str:
-    with formal_write_transaction(
-        quarantine_path(project_path, episode, kind),
-        cancellation_receipts=cancellation_receipts,
-    ):
+    with formal_write_transaction(quarantine_path(project_path, episode, kind)):
         return quarantine_and_report(
             project_path,
             episode,
@@ -639,35 +465,28 @@ async def generate_episode_script(
             project_path,
             config_resolver=config_resolver,
         )
-        file_receipts: list[FormalWriteReceipt] = []
-        manifest_receipts: list[ArtifactEntryRekeyReceipt] = []
+        # 正式剧本已存在时只编写条目；ad 项目尚无正式剧本才整份生成。
+        formal_existed = await asyncio.to_thread(
+            (
+                project_path
+                / "scripts"
+                / script_review.formal_script_filename(project_path, generator.project_json, episode)
+            ).exists
+        )
         rewritten: list[str] = []
-        try:
-            result_path = await generator.generate(
-                episode=episode,
-                instructions=instructions,
-                entry_ids=request.entry_ids,
-                rewritten_entry_ids=rewritten,
-                cancellation_file_receipts=file_receipts,
-                cancellation_manifest_receipts=manifest_receipts,
-            )
-        except asyncio.CancelledError:
-            if len(file_receipts) == len(manifest_receipts) == 1:
-                receipt = _EpisodeScriptCancellationReceipt(
-                    project_path,
-                    episode,
-                    file_receipts[0],
-                    manifest_receipts[0],
-                )
-                await run_noninterruptible_sync(receipt.compensate_cancelled)
-            raise
+        result_path = await generator.generate(
+            episode=episode,
+            instructions=instructions,
+            entry_ids=request.entry_ids,
+            rewritten_entry_ids=rewritten,
+        )
     except PromptAuthoringTargetError as exc:
         # 点名的条目不在正式剧本内是调用方的错：报「拒绝生成」而不是让它冒成 internal_error，
         # 后者会引导 Agent 原样重试同一份必然失败的参数。
         raise TextGenerationError(f"❌ 编写范围无效: {exc}") from exc
     except FileNotFoundError as exc:
         raise TextGenerationError(f"❌ 文件错误: {exc}") from exc
-    if not rewritten and not file_receipts:
+    if not rewritten and formal_existed:
         redo = "要整份重做请先移除正式脚本" if generator.content_mode == "ad" else "要整集重做请重跑脚本规划并重新确认"
         return TextGenerationResult(
             f"✅ 第 {episode} 集没有待编写的条目，未调用文本模型，正式脚本未改动: {result_path}\n"
@@ -677,12 +496,7 @@ async def generate_episode_script(
     summary = f"✅ 剧本生成完成: {result_path}\n   本次编写条目: {rewritten_note}"
     warnings = await asyncio.to_thread(_rewritten_mention_warnings, projects, project_name, result_path, rewritten)
     summary += _unbound_mentions_note(warnings)
-    if not file_receipts and not manifest_receipts:
-        return TextGenerationResult(summary, warnings)
-    if len(file_receipts) != 1 or len(manifest_receipts) != 1:
-        raise RuntimeError("episode script commit did not return cancellation state")
-    receipt = _EpisodeScriptCancellationReceipt(project_path, episode, file_receipts[0], manifest_receipts[0])
-    return CompensableTextGenerationResult(summary, receipt.compensate_cancelled, warnings=warnings)
+    return TextGenerationResult(summary, warnings)
 
 
 def _rewritten_mention_warnings(
@@ -720,7 +534,7 @@ async def confirm_script_review(
     projects: ProjectManager,
     config_resolver: ConfigResolver,
 ) -> TextGenerationResult:
-    from server.services.script_review import ScriptReviewError, ScriptReviewService
+    from server.services.project.script_review import ScriptReviewError, ScriptReviewService
 
     try:
         state = await ScriptReviewService(projects, config_resolver=config_resolver).confirm(
@@ -878,7 +692,7 @@ async def generate_drama_script_plan(
         async with ProjectManager(str(project_path.parent)).async_file_lock(draft_path):
             _assert_draft_revision(draft_path, draft_baseline)
             try:
-                cancellation_receipt = await _run_compensable_script_plan_commit(
+                await run_sync_transaction(
                     _commit_single_script_plan,
                     project_path,
                     episode,
@@ -901,10 +715,7 @@ async def generate_drama_script_plan(
                     )
                 ) from exc
 
-        return CompensableTextGenerationResult(
-            _drama_script_plan_result_text(script_plan_path, raw_scenes, action="生成"),
-            cancellation_receipt.compensate_cancelled,
-        )
+        return TextGenerationResult(_drama_script_plan_result_text(script_plan_path, raw_scenes, action="生成"))
     except TextGenerationError:
         raise
     except Exception as exc:
@@ -1287,7 +1098,7 @@ def _narration_segment_label(segment: dict[str, Any], index: int) -> str:
 def _normalize_for_coverage(text: str) -> str:
     """Unicode NFC 归一后把连续空白折叠为单个空格，只消除编码与空白差异，不删除空白本身。
 
-    NFC 与 ``lib.episode_ledger.normalize_source_text`` 定义的源文坐标系一致，也与参考生视频
+    NFC 与 ``lib.episode.episode_ledger.normalize_source_text`` 定义的源文坐标系一致，也与参考生视频
     ``_normalize_for_anchor`` 同口径：带组合附加符的语种（如 vi）源文可能以 NFD 落盘、模型
     回写 NFC，不归一会把纯编码形式差异判成删字改字，而覆盖违约会落成草稿、堵住内容确认
     确认与 prompt_authoring 生成。
@@ -1544,7 +1355,8 @@ async def generate_reference_script_plan(
         if violations:
             async with ProjectManager(str(project_path.parent)).async_file_lock(draft_path):
                 _assert_draft_revision(draft_path, draft_baseline)
-                report = await _run_compensable_quarantine(
+                report = await run_sync_transaction(
+                    _quarantine_invalid_script_plan_generation,
                     project_path,
                     episode,
                     QUARANTINE_KIND_SCRIPT_PLAN,
@@ -1568,7 +1380,7 @@ async def generate_reference_script_plan(
         async with ProjectManager(str(project_path.parent)).async_file_lock(draft_path):
             _assert_draft_revision(draft_path, draft_baseline)
             try:
-                cancellation_receipt = await _run_compensable_script_plan_commit(
+                await run_sync_transaction(
                     _commit_generated_reference_script_plan,
                     project_path,
                     episode,
@@ -1589,14 +1401,13 @@ async def generate_reference_script_plan(
                         exc.actual,
                     )
                 ) from exc
-        return CompensableTextGenerationResult(
+        return TextGenerationResult(
             _reference_result_text(
                 script_review.official_reference_script_plan_path(project_path, episode),
                 raw_units,
                 soft_violations,
                 action="拆分",
-            ),
-            cancellation_receipt.compensate_cancelled,
+            )
         )
     except TextGenerationError:
         raise
@@ -1696,7 +1507,8 @@ async def generate_narration_script_plan(
         if violations:
             async with ProjectManager(str(project_path.parent)).async_file_lock(draft_path):
                 _assert_draft_revision(draft_path, draft_baseline)
-                report = await _run_compensable_quarantine(
+                report = await run_sync_transaction(
+                    _quarantine_invalid_script_plan_generation,
                     project_path,
                     episode,
                     QUARANTINE_KIND_NARRATION_SCRIPT_PLAN,
@@ -1710,7 +1522,7 @@ async def generate_narration_script_plan(
         async with ProjectManager(str(project_path.parent)).async_file_lock(draft_path):
             _assert_draft_revision(draft_path, draft_baseline)
             try:
-                cancellation_receipt = await _run_compensable_script_plan_commit(
+                await run_sync_transaction(
                     _commit_single_script_plan,
                     project_path,
                     episode,
@@ -1733,10 +1545,7 @@ async def generate_narration_script_plan(
                     )
                 ) from exc
 
-        return CompensableTextGenerationResult(
-            _narration_script_plan_result_text(script_plan_path, raw_segments, action="拆分"),
-            cancellation_receipt.compensate_cancelled,
-        )
+        return TextGenerationResult(_narration_script_plan_result_text(script_plan_path, raw_segments, action="拆分"))
     except TextGenerationError:
         raise
     except Exception as exc:

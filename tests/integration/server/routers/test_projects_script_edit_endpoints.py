@@ -6,8 +6,8 @@ from copy import deepcopy
 
 import pytest
 
-from lib.project_manager import ProjectManager
-from lib.script_batch_edit import ScriptBatchEditor
+from lib.project.project_manager import ProjectManager
+from lib.script.script_batch_edit import ScriptBatchEditor
 from server.routers import projects
 from tests.integration.server.routers.projects_router_support import (
     _FakePM,
@@ -713,8 +713,8 @@ class TestProjectsRouter:
         409 的 detail 要同时带项目名与迁移失败原因——阻断回执得让人知道该修哪个项目的什么。
         """
 
-        import lib.project_migration_guard as guard
-        from lib.project_migration_failure import record_migration_failure
+        import lib.project.project_migration_guard as guard
+        from lib.project.project_migration_failure import record_migration_failure
 
         fake_pm = _FakePM(tmp_path)
         record_migration_failure(fake_pm.base / project_name, ValueError("坏数据"), schema_version=7)
@@ -849,7 +849,7 @@ class TestScriptItemInsertAndRemove:
 
     @staticmethod
     def _client(tmp_path, monkeypatch, content_mode: str, *, editor_factory=None):
-        import lib.project_migration_guard as guard
+        import lib.project.project_migration_guard as guard
 
         pm = ProjectManager(str(tmp_path))
         pm.create_project("demo", content_mode=content_mode)

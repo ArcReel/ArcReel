@@ -22,8 +22,8 @@ from typing import Any, cast
 
 import httpx
 
-from lib.api_errors import BadGatewayError, ServiceUnavailableError, UnprocessableError
-from lib.httpx_shared import get_http_client
+from lib.infra.api_errors import BadGatewayError, ServiceUnavailableError, UnprocessableError
+from lib.infra.httpx_shared import get_http_client
 from lib.social_publish.models import (
     ConnectedAccount,
     PlatformOutcome,
@@ -144,7 +144,12 @@ class UploadPostClient:
         )
 
     async def fetch_progress(self, *, request_id: str) -> PublishProgress:
-        """查一次投递的聚合进度。"""
+        """查一次投递的聚合进度。
+
+        定时投递也按 ``request_id`` 查：上游文档建议定时任务用回执里的 ``job_id``，那是因为
+        不自带 ``request_id`` 时回执只有 ``job_id`` 可用。本客户端恒定自带，实测两个 id
+        查到的是同一份载荷（含 ``scheduler_status``），因此不为定时单开一条查询路径。
+        """
         response = await self._request(
             "GET",
             "/uploadposts/status",

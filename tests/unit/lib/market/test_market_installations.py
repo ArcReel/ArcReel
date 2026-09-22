@@ -36,7 +36,7 @@ def _source(*, is_enabled: bool = True, entries: list[dict[str, Any]] | None = N
     definition = custom_endpoint_definition()
     if entries is None:
         entries = [{"type": "endpoint", "slug": "example", "path": "endpoints/example/definition.json"}]
-        entries[0].update(project_meta(definition["meta"]))
+        entries[0].update(project_meta(definition))
     return MarketSource(
         id=1,
         is_enabled=is_enabled,

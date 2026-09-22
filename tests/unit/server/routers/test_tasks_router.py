@@ -130,7 +130,7 @@ class TestTaskErrorLocalization:
         return TestClient(app)
 
     def test_list_tasks_renders_known_code_per_locale(self, monkeypatch):
-        from lib.task_failure import encode_failure
+        from lib.generation.task_failure import encode_failure
 
         encoded = encode_failure("provider_unsupported_media", provider_id="grok", media_type="image")
         items = [{"task_id": "t1", "status": "failed", "error_message": encoded}]
@@ -148,7 +148,7 @@ class TestTaskErrorLocalization:
         assert vi["error_message"] != en["error_message"]
 
     def test_list_tasks_defaults_to_zh_without_header(self, monkeypatch):
-        from lib.task_failure import encode_failure
+        from lib.generation.task_failure import encode_failure
 
         items = [{"task_id": "t1", "error_message": encode_failure("restart_lost_image")}]
         client = self._client(monkeypatch, _RenderQueue(items=items))
@@ -169,7 +169,7 @@ class TestTaskErrorLocalization:
         assert by_id["ok"] is None
 
     def test_get_task_renders_error_message(self, monkeypatch):
-        from lib.task_failure import encode_failure
+        from lib.generation.task_failure import encode_failure
 
         task = {
             "task_id": "t9",
@@ -183,7 +183,7 @@ class TestTaskErrorLocalization:
         )
 
     def test_project_tasks_renders_error_message(self, monkeypatch):
-        from lib.task_failure import encode_failure
+        from lib.generation.task_failure import encode_failure
 
         items = [{"task_id": "p1", "error_message": encode_failure("restart_lost_audio")}]
         client = self._client(monkeypatch, _RenderQueue(items=items))

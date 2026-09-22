@@ -100,7 +100,7 @@ class SdkTranscriptAdapter:
             )
             return []
         try:
-            from lib.agent_session_store import make_project_key
+            from lib.agent.agent_session_store import make_project_key
 
             key: dict[str, Any] = {
                 "project_key": make_project_key(project_cwd),

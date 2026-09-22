@@ -12,13 +12,17 @@ from typing import Annotated, Literal
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
 
-from lib.api_errors import ApiError
 from lib.config.service import ConfigService
-from lib.project_manager import get_project_manager
+from lib.infra.api_errors import ApiError
+from lib.project.project_manager import get_project_manager
 from lib.social_publish import VIDEO_PLATFORMS
 from server.dependencies import get_config_service, require_project_migration_ok
-from server.services.presentation_read_model import PresentationUnavailableError
-from server.services.social_publish import SocialPublishService, UploadPostCredentials, load_credentials
+from server.services.presentation.presentation_read_model import PresentationUnavailableError
+from server.services.presentation.social_publish import (
+    SocialPublishService,
+    UploadPostCredentials,
+    load_credentials,
+)
 
 router = APIRouter()
 

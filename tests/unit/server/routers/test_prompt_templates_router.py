@@ -5,8 +5,8 @@ import yaml
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from lib.prompt_templates import PromptTemplates
-from lib.script_models import ImagePrompt
+from lib.prompts.prompt_templates import PromptTemplates
+from lib.script.script_models import ImagePrompt
 from server.error_handlers import register_error_handlers
 from server.routers import prompt_templates as prompt_templates_router
 from tests.auth_deps import AUTH_DEPENDENCIES, override_auth
@@ -49,7 +49,7 @@ def templates(tmp_path: Path) -> PromptTemplates:
         applies_to={},
         slots={"scene": "画面描述"},
         protected=True,
-        output_schema="lib.script_models:ImagePrompt",
+        output_schema="lib.script.script_models:ImagePrompt",
     )
     write_partial(tmp_path, "asset/sheet/title/character", "角色设定图")
     write_partial(tmp_path, "asset/sheet/title/scene", "")
@@ -99,7 +99,7 @@ def test_list_returns_metadata_of_every_template_in_registry_order(templates):
                 "applies_to": {},
                 "slots": {"scene": "画面描述"},
                 "protected": True,
-                "output_schema": "lib.script_models:ImagePrompt",
+                "output_schema": "lib.script.script_models:ImagePrompt",
             },
         ]
     }

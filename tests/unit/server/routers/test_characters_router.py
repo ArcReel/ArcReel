@@ -4,9 +4,9 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from PIL import Image
 
-from lib.artifact_activation import register_current_resource_artifact
-from lib.artifact_manifest import ArtifactKey, ProjectArtifactManifestAdapter
-from lib.project_manager import ProjectManager
+from lib.artifacts.artifact_activation import register_current_resource_artifact
+from lib.artifacts.artifact_manifest import ArtifactKey, ProjectArtifactManifestAdapter
+from lib.project.project_manager import ProjectManager
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import characters

@@ -163,6 +163,8 @@ MESSAGES = {
     ),
     "arch_non_standard_entry_excluded": "Thư mục/tệp cấp cao không chuẩn '{entry}' không được đưa vào bản xuất",
     "arch_invalid_project_json": "Không phân tích được {file}: {path}",
+    "arch_version_history_malformed": "{location}: cấu trúc lịch sử phiên bản không đúng định dạng mong đợi",
+    "arch_version_snapshot_path_unmanaged": "{location}: đường dẫn ảnh chụp của bản ghi phiên bản nằm ngoài thư mục phiên bản của loại tài nguyên",
     "arch_script_file_repaired": "{location}: đã tự động sửa thành {path}",
     "arch_missing_script_file_pending": "{location}: kịch bản chưa được sinh: {path}",
     "arch_missing_script_file": "{location}: tệp được tham chiếu không tồn tại: {path}",
@@ -266,6 +268,7 @@ MESSAGES = {
     "val_ce_auth_query_conflict": (
         "URL đã mang tham số query {param} trùng với auth.query: chỉ mục auth mới được ghi query xác thực"
     ),
+    "val_ce_auth_query_reserved": "Mục {param} trong auth.query trùng tên với tham số mà bước tải sản phẩm đã mang theo; thông tin xác thực sẽ bị ghi đè khi tải, hãy đổi tên khác",
     "val_ce_task_id_out_of_scope": "task_id chỉ dùng được trong mục poll và result",
     "val_ce_result_id_out_of_scope": "result_id chỉ dùng được trong mục result",
     "val_ce_result_id_without_extract": "Đã tham chiếu result_id nhưng poll.extract không khai báo result_id",
@@ -371,6 +374,10 @@ MESSAGES = {
     "val_ce_comfyui_consumer_not_fed": (
         "Luồng từ node ảnh tham chiếu {node} không hề đến đầu vào {input} của node {consumer}: ghi sai node tiêu "
         "thụ, khi số ảnh giảm đi hệ thống sẽ sửa một đầu vào không liên quan"
+    ),
+    "val_ce_comfyui_fps_conflict": (
+        "Tốc độ khung hình có nhiều nguồn mâu thuẫn ({values}): việc quy đổi thời lượng thành số khung hình chỉ "
+        "dùng được một tốc độ, hãy chỉ giữ lại một nguồn"
     ),
     "val_ce_comfyui_ui_format_workflow": (
         "Đây là workflow định dạng UI của ComfyUI và không thể gửi đi; hãy xuất bằng Export (API) trong ComfyUI"

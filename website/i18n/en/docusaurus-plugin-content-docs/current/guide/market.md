@@ -1,7 +1,7 @@
 ---
 id: market
 title: Market
-sidebar_position: 4
+sidebar_position: 5
 update_docs: fact-check
 ---
 

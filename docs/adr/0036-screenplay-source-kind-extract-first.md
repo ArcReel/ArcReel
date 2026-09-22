@@ -15,7 +15,7 @@ screenplay 下逐字提取的台词与画外音落在 `DramaScene.utterances`（
 - **一把专用大解析器**：要把 10 万字塞进单次调用、把全部工作前置到上传时，与「按集惰性消费」架构对着干，且对千奇百怪的格式写死结构假设易脆；「提取优先铺在现有阶段」让每阶段在自己的切片上用 LLM 语义识别，缺哪补哪自动成立。
 ## Consequences
 
-- 数据校验器（`lib/data_validator.py`）：新增 `source_kind` 顶层字段的枚举校验（仅 `novel`/`screenplay`，拦截 `screen_play` 等非法值）；speaker 无机械校验可放松——该约束只是 prompt 指令（见下条）。
-- prompt builders（`lib/prompt_builders_script.py`）：plan_episodes / normalize / drama 三处加 screenplay 分支（创作→提取）；drama 分支放松「speaker 必须出现在 characters_in_scene」指令以容纳泛指 speaker。
+- 数据校验器（`lib/project/data_validator.py`）：新增 `source_kind` 顶层字段的枚举校验（仅 `novel`/`screenplay`，拦截 `screen_play` 等非法值）；speaker 无机械校验可放松——该约束只是 prompt 指令（见下条）。
+- prompt builders（`lib/prompts/prompt_builders_script.py`）：plan_episodes / normalize / drama 三处加 screenplay 分支（创作→提取）；drama 分支放松「speaker 必须出现在 characters_in_scene」指令以容纳泛指 speaker。
 - 创建向导 + 前端：暴露 source_kind 选择（参考产品「上传剧本 / AI 生剧本」），创建即定；前端 `ProjectData` 类型同步新增 `source_kind`。
 - 「画外音/台词配音」（drama-TTS）为独立后续议题，不在本决策范围。

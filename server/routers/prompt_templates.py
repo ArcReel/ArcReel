@@ -11,9 +11,9 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
-from lib.api_errors import NotFoundError
-from lib.prompt_templates import PromptTemplates, TemplateMeta
-from lib.prompt_templates.builtin import builtin_templates
+from lib.infra.api_errors import NotFoundError
+from lib.prompts.prompt_templates import PromptTemplates, TemplateMeta
+from lib.prompts.prompt_templates.builtin import builtin_templates
 
 router = APIRouter(prefix="/prompt-templates")
 

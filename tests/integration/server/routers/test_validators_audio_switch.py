@@ -13,8 +13,8 @@ import pytest
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from lib.api_errors import BadRequestError
 from lib.config.service import ConfigService
+from lib.infra.api_errors import BadRequestError
 from server.routers._validators import require_audio_switch_supported
 
 _ALWAYS_AUDIBLE = "dashscope/wan2.7-i2v"
@@ -87,7 +87,7 @@ class TestResolutionFailurePassesThrough:
                     raise audio_exc
                 return False
 
-        monkeypatch.setattr("server.services.video_caps.ConfigResolver", _FakeResolver)
+        monkeypatch.setattr("server.services.tasks.video_caps.ConfigResolver", _FakeResolver)
 
     async def test_backend_resolution_db_failure(self, monkeypatch):
         self._install_resolver(monkeypatch, backend_exc=SQLAlchemyError("db down"))

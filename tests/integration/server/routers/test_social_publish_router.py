@@ -8,12 +8,12 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from lib.api_errors import ServiceUnavailableError, UnprocessableError
+from lib.infra.api_errors import ServiceUnavailableError, UnprocessableError
 from lib.social_publish import PlatformOutcome, PublishProgress, PublishSubmission
 from server.error_handlers import register_error_handlers
 from server.routers import social_publish
-from server.services.presentation_read_model import PresentationUnavailableError
-from server.services.social_publish import UploadPostCredentials
+from server.services.presentation.presentation_read_model import PresentationUnavailableError
+from server.services.presentation.social_publish import UploadPostCredentials
 
 _CREDENTIALS = UploadPostCredentials(api_key="secret-key", profile="studio", base_url="https://upload.example/api")
 

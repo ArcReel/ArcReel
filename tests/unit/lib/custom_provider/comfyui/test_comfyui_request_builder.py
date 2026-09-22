@@ -7,15 +7,14 @@ from typing import Any
 
 import pytest
 
+from lib.custom_provider.comfyui.failures import IMAGE_DROP_UNSUPPORTED, ComfyuiError
 from lib.custom_provider.comfyui.request_builder import (
-    IMAGE_DROP_UNSUPPORTED,
     SEED_UPPER_BOUND,
-    ComfyuiRequestError,
     MediaInputs,
     build_workflow,
     workflow_sha256,
 )
-from lib.task_failure import FAILURE_CODE_KEYS, encode_failure, render_failure
+from lib.generation.task_failure import FAILURE_CODE_KEYS, encode_failure, render_failure
 from tests.factories import comfyui_endpoint_definition, make_translator
 
 
@@ -133,6 +132,18 @@ class TestSize:
         assert _inputs(built, "5")["width"] == 832
         assert _inputs(built, "5")["height"] == 480
 
+    @pytest.mark.parametrize("dropped", ["width", "height"])
+    def test_binding_only_one_side_leaves_both_literals_alone(self, dropped: str):
+        """写得动一侧、另一侧固定时派生出的比例两头不靠，故整维当作固定、一个字节都不改。"""
+        definition = comfyui_endpoint_definition()
+        del definition["bindings"][dropped]
+
+        built = _build(definition, aspect_ratio="9:16", resolution="1080p")
+
+        assert (built.width, built.height) == (None, None)
+        assert _inputs(built, "5")["width"] == 832
+        assert _inputs(built, "5")["height"] == 480
+
     def test_a_non_integer_literal_falls_back_to_the_shared_default_short_edge(self):
         definition = comfyui_endpoint_definition()
         definition["workflow"]["5"]["inputs"]["width"] = "832"
@@ -144,7 +155,6 @@ class TestSize:
 
     def test_an_image_endpoint_reads_the_image_tier_table(self):
         definition = comfyui_endpoint_definition(media_type="image")
-        del definition["bindings"]["fps"]
 
         built = _build(definition, aspect_ratio="1:1", resolution="1K")
 
@@ -206,6 +216,24 @@ class TestFrames:
         built = _build(self._with_frames(8, fps=16), duration_seconds=0.1)
 
         assert built.frames == 9
+
+    def test_a_workflow_that_keeps_its_own_length_is_not_rewritten(self):
+        """81 帧 @ 24fps 凑不出整档，端点因此对外说时长不由 ArcReel 驱动；填值层要给同一个答案。"""
+        definition = self._with_frames(1, fps=24)
+        definition["workflow"]["9"]["inputs"]["length"] = 81
+
+        built = _build(definition, duration_seconds=4)
+
+        assert built.frames is None
+        assert _inputs(built, "9")["length"] == 81
+
+    def test_a_length_that_does_map_to_a_tier_is_still_driven(self):
+        definition = self._with_frames(4, fps=16)
+        definition["workflow"]["9"]["inputs"]["length"] = 81
+
+        built = _build(definition, duration_seconds=3)
+
+        assert built.frames == 49
 
     def test_an_unbound_frames_key_writes_nothing(self):
         definition = comfyui_endpoint_definition()
@@ -399,7 +427,7 @@ class TestImageDrop:
         definition = _reference_definition()
         definition["workflow"]["30"]["class_type"] = "SomeCustomVideoNode"
 
-        with pytest.raises(ComfyuiRequestError) as caught:
+        with pytest.raises(ComfyuiError) as caught:
             _build(definition, media=MediaInputs(reference_images=()))
 
         assert caught.value.code == IMAGE_DROP_UNSUPPORTED

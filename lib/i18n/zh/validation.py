@@ -1,7 +1,7 @@
 """校验与归档诊断消息（中文）。
 
-由 ``lib.data_validator`` / ``server.services.project_archive`` / ``lib.script_skeleton``
-以 ``lib.validation_messages.ValidationMessage`` 的形式产出、在各消费边界渲染。
+由 ``lib.project.data_validator`` / ``server.services.project.project_archive`` / ``lib.script.script_skeleton``
+以 ``lib.infra.validation_messages.ValidationMessage`` 的形式产出、在各消费边界渲染。
 """
 
 MESSAGES = {
@@ -139,6 +139,8 @@ MESSAGES = {
     "arch_source_encoding_unconverted": "源文件编码无法识别，未转换为 UTF-8：source/{name}（分集规划无法读取该文件）",
     "arch_non_standard_entry_excluded": "非标准顶层目录/文件 '{entry}' 未包含在导出中",
     "arch_invalid_project_json": "无法解析 {file}: {path}",
+    "arch_version_history_malformed": "{location}: 版本历史的结构不符合预期格式",
+    "arch_version_snapshot_path_unmanaged": "{location}: 版本记录的快照路径不在该资源类型的版本目录内",
     "arch_script_file_repaired": "{location}: 自动修复为 {path}",
     "arch_missing_script_file_pending": "{location}: 脚本尚未生成: {path}",
     "arch_missing_script_file": "{location}: 引用的文件不存在: {path}",
@@ -209,6 +211,7 @@ MESSAGES = {
     "val_ce_auth_header_conflict": "{header} 与 auth.headers 同名（不区分大小写）：凭证 header 只能由 auth 节写入",
     "val_ce_header_name_duplicate": "{header} 与同表里的 {first} 只差大小写：HTTP 头名不区分大小写，两条会一起发出去",
     "val_ce_auth_query_conflict": "URL 自带的 query 参数 {param} 与 auth.query 同名：凭证 query 只能由 auth 节写入",
+    "val_ce_auth_query_reserved": "auth.query 的 {param} 与取产物那一跳自带的参数同名：下载时凭证会被它顶掉，请换一个参数名",
     "val_ce_task_id_out_of_scope": "task_id 只在 poll 与 result 节可用",
     "val_ce_result_id_out_of_scope": "result_id 只在 result 节可用",
     "val_ce_result_id_without_extract": "引用了 result_id，但 poll.extract 没有声明 result_id",
@@ -267,6 +270,9 @@ MESSAGES = {
     "val_ce_comfyui_consumer_not_fed": (
         "参考图节点 {node} 的图流并没有接到节点 {consumer} 的 {input} 入口：记错了消费者，"
         "张数变少时会按一个不相干的入口去改图"
+    ),
+    "val_ce_comfyui_fps_conflict": (
+        "帧率有多个互相矛盾的来源（{values}）：时长换算成帧数只能按一个帧率，请只保留一处帧率来源"
     ),
     "val_ce_comfyui_ui_format_workflow": "这是 ComfyUI 的 UI 格式 workflow，提交不了：请在 ComfyUI 里改用「Export (API)」导出",
     # ---- ComfyUI 端点 · 节点绑定推断的信号说明与提示 ----

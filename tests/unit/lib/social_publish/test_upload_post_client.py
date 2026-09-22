@@ -8,7 +8,7 @@ from pathlib import Path
 import httpx
 import pytest
 
-from lib.api_errors import BadGatewayError, ServiceUnavailableError, UnprocessableError
+from lib.infra.api_errors import BadGatewayError, ServiceUnavailableError, UnprocessableError
 from lib.social_publish import UploadPostClient
 from tests.http_capture import capture_http, only_request
 

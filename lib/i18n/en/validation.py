@@ -163,6 +163,8 @@ MESSAGES = {
     ),
     "arch_non_standard_entry_excluded": "Non-standard top-level directory/file '{entry}' was excluded from the export",
     "arch_invalid_project_json": "Cannot parse {file}: {path}",
+    "arch_version_history_malformed": "{location}: the version history is not in the expected format",
+    "arch_version_snapshot_path_unmanaged": "{location}: a version record's snapshot path is outside the version directory of its resource type",
     "arch_script_file_repaired": "{location}: automatically repaired to {path}",
     "arch_missing_script_file_pending": "{location}: script not generated yet: {path}",
     "arch_missing_script_file": "{location}: referenced file does not exist: {path}",
@@ -263,6 +265,7 @@ MESSAGES = {
         "The URL already carries the query parameter {param} declared in auth.query: "
         "only the auth section may write credential query parameters"
     ),
+    "val_ce_auth_query_reserved": "auth.query entry {param} collides with a parameter the artifact download already carries; the credential is overwritten at download time, so pick another name",
     "val_ce_task_id_out_of_scope": "task_id is only available in the poll and result sections",
     "val_ce_result_id_out_of_scope": "result_id is only available in the result section",
     "val_ce_result_id_without_extract": "result_id is referenced but poll.extract does not declare result_id",
@@ -363,6 +366,10 @@ MESSAGES = {
     "val_ce_comfyui_consumer_not_fed": (
         "The flow from reference image node {node} never reaches input {input} of node {consumer}: with the wrong "
         "consumer recorded, a request with fewer images would rewire an unrelated input"
+    ),
+    "val_ce_comfyui_fps_conflict": (
+        "The frame rate has several conflicting sources ({values}): converting a duration into a frame count needs "
+        "exactly one frame rate, so keep only one of them"
     ),
     "val_ce_comfyui_ui_format_workflow": (
         "This is a ComfyUI UI-format workflow and cannot be submitted; export it with Export (API) in ComfyUI instead"

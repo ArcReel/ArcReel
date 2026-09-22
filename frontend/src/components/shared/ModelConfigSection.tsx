@@ -8,8 +8,10 @@ import {
 import {
   catalogDurations,
   lookupCatalogVideoAudio,
+  lookupEndpointConstraints,
   lookupResolutions,
   lookupVideoAudioControl,
+  resolutionPlaceholder,
 } from "@/utils/provider-models";
 import { isContinuousIntegerRange } from "@/utils/duration_format";
 import { ResolutionPicker } from "./ResolutionPicker";
@@ -163,6 +165,7 @@ export function ModelConfigSection({
   const generateAudioName = useId();
 
   const endpointToMediaType = useEndpointCatalogStore((s) => s.endpointToMediaType);
+  const endpointConstraints = useEndpointCatalogStore((s) => s.endpointConstraints);
   const fetchEndpointCatalog = useEndpointCatalogStore((s) => s.fetch);
   useEffect(() => {
     if (customProviders.length > 0) void fetchEndpointCatalog();
@@ -295,6 +298,12 @@ export function ModelConfigSection({
   const audioConflict =
     audioControl === "always_on" && (videoGenerateAudio ?? globalVideoGenerateAudio) === false;
 
+  // 该端点给不出任何时长档位时，档位空集是如实声明而非配置缺陷（docs/adr/0082）。判据取
+  // durationTierEmpty 而非 durationFixed：frames 绑了却读不到帧率来源的那一支档位同样是空集，
+  // 用户在项目页看到的结果一样是「这一维不由 ArcReel 驱动」。
+  const videoDurationNotDriven =
+    lookupEndpointConstraints(executingVideo, customProviders, endpointConstraints)?.durationTierEmpty ?? false;
+
   const videoResolutionOptions = lookupResolutions(
     providers,
     executingVideo,
@@ -345,19 +354,28 @@ export function ModelConfigSection({
   ) => {
     const res = lookupResolutions(providers, backend, customProviders, endpointToMediaType);
     if (res.options.length === 0) return null;
+    // 尺寸被 workflow 固定时选择器只展示不接受选择：比例与分辨率对该模型行无效，照收再丢弃
+    // 只会让用户以为自己选的档位生效了。
+    const constraints = lookupEndpointConstraints(backend, customProviders, endpointConstraints);
+    const sizeFixed = constraints?.sizeFixed ?? false;
     return (
-      <div className="mt-3 flex items-center gap-2">
-        <span className="font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-4">
-          {t("resolution_label")}
-        </span>
-        <ResolutionPicker
-          mode={res.isCustom ? "combobox" : "select"}
-          options={res.options}
-          value={resolution}
-          onChange={onResolutionChange}
-          placeholder={t("resolution_default_placeholder")}
-          aria-label={t("resolution_label")}
-        />
+      <div className="mt-3 flex flex-col gap-1">
+        <div className="flex items-center gap-2">
+          <span className="font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-4">
+            {t("resolution_label")}
+          </span>
+          <ResolutionPicker
+            mode={res.isCustom ? "combobox" : "select"}
+            options={res.options}
+            value={resolution}
+            onChange={onResolutionChange}
+            placeholder={resolutionPlaceholder(constraints, t)}
+            aria-label={t("resolution_label")}
+            disabled={sizeFixed}
+          />
+        </div>
+        {/* 禁用原因必须有一行可见说明：title 对键盘与触屏不可达。 */}
+        {sizeFixed && <p className="text-[11px] text-text-4">{t("resolution_fixed_hint")}</p>}
       </div>
     );
   };
@@ -396,6 +414,17 @@ export function ModelConfigSection({
 
           {renderResolutionField(executingVideo, value.videoResolution, (v) =>
             onChange({ ...value, videoResolution: v }),
+          )}
+
+          {/* 档位空集且该模型的时长本就不由 ArcReel 驱动：控件无从渲染，但要说清为什么没有，
+              否则用户只会看见时长这一节凭空消失。 */}
+          {showDuration && supportedDurations?.length === 0 && videoDurationNotDriven && (
+            <>
+              <div className="mb-2 mt-3 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-4">
+                {t("duration_label")}
+              </div>
+              <p className="text-[11px] text-text-4">{t("duration_not_driven_notice")}</p>
+            </>
           )}
 
           {showDuration && supportedDurations && supportedDurations.length > 0 && (

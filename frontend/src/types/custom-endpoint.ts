@@ -125,19 +125,151 @@ export interface EndpointDefinition {
 }
 
 /**
+ * 节点绑定的语义键名录。视频端点用全部十一个，图像端点没有首尾帧与时间轴那四个。
+ * 与服务端 `lib/custom_provider/comfyui/bindings.py` 同名同序。
+ */
+export const COMFYUI_VIDEO_BINDING_KEYS = [
+  "prompt",
+  "negative_prompt",
+  "start_image",
+  "end_image",
+  "reference_images",
+  "width",
+  "height",
+  "frames",
+  "fps",
+  "seed",
+  "output",
+] as const;
+
+export type ComfyuiBindingKey = (typeof COMFYUI_VIDEO_BINDING_KEYS)[number];
+
+export const COMFYUI_IMAGE_BINDING_KEYS: readonly ComfyuiBindingKey[] = [
+  "prompt",
+  "negative_prompt",
+  "reference_images",
+  "width",
+  "height",
+  "seed",
+  "output",
+];
+
+/** 两种媒体类型都必须绑定的语义键：没有提示词无从下笔，没有产物取不到成片。 */
+export const COMFYUI_REQUIRED_BINDING_KEYS: readonly ComfyuiBindingKey[] = ["prompt", "output"];
+
+/** 一份 ComfyUI workflow 产出图像还是视频。 */
+export type ComfyuiMediaType = "image" | "video";
+
+/** 一条节点绑定指向的读图节点接到谁的哪个入口；张数少于格子数时据此改图。 */
+export interface ComfyuiConsumerTarget {
+  node: string;
+  input: string;
+  class_type: string;
+  title?: string;
+}
+
+/**
+ * 一条节点绑定的落点。各语义键的可选键由服务端 schema 约束：`output` 没有 `input`，
+ * `fps` 的 `direction` 恒为 `read`，`width` / `height` / `frames` 带 `step`，
+ * `frames` 可带手填 `fps`，`seed` 带 `policy`，`reference_images` 带 `consumer`。
+ */
+export interface ComfyuiBindingTarget {
+  node: string;
+  input?: string;
+  class_type: string;
+  title?: string;
+  direction?: "write" | "read";
+  step?: number;
+  fps?: number;
+  policy?: "random" | "keep";
+  consumer?: ComfyuiConsumerTarget;
+}
+
+/**
+ * 语义键 → 目标列表。三态：非空列表是已绑定，空列表是显式不支持，键缺失是从未推断。
+ */
+export type ComfyuiBindings = Partial<Record<ComfyuiBindingKey, ComfyuiBindingTarget[]>>;
+
+/**
  * 一份 ComfyUI 端点定义：API 格式 workflow 连同它的节点绑定。
  *
- * 能力只从 `bindings` 推导，定义不含 `capabilities` 节。`workflow` 与 `bindings` 此处保持松类型：
- * 前端只在导入确认里读 `meta` 与 `kind`，节点绑定的编辑器另有其形。
+ * 能力只从 `bindings` 推导，定义不含 `capabilities` 节。`workflow` 保持松类型：ArcReel 不改写
+ * 它的结构，提交时原样发出，前端只读每个节点的 `class_type`、`inputs` 与 `_meta.title`。
  */
 export interface ComfyuiEndpointDefinition {
   kind: "comfyui";
   schema_version: string;
   meta: EndpointMeta;
-  media_type: "image" | "video";
+  media_type: ComfyuiMediaType;
   auth?: EndpointAuth;
   workflow: Record<string, unknown>;
-  bindings: Record<string, unknown[]>;
+  bindings: ComfyuiBindings;
+}
+
+/** workflow 里的一个节点。`inputs` 的值或是字面值，或是 `[节点 id, 输出序号]` 形态的连线。 */
+export interface ComfyuiWorkflowNode {
+  class_type: string;
+  inputs?: Record<string, unknown>;
+  _meta?: { title?: string };
+}
+
+// ---------------------------------------------------------------------------
+// 节点绑定推断（POST /custom-endpoints/comfyui/infer）
+// ---------------------------------------------------------------------------
+
+/**
+ * 一个语义键的推断状态。`needs_confirmation` 是重导入专属：既有条目有丢失的，该键重跑了
+ * 推断，保存前必须由用户确认。
+ */
+export type ComfyuiBindingState =
+  | "auto_selected"
+  | "ambiguous"
+  | "not_found"
+  | "unsupported"
+  | "needs_confirmation";
+
+/** 候选是怎么来的：本轮推断、原样沿用已保存的条目、或按类型加标题重匹配到新节点 id。 */
+export type ComfyuiMatchOrigin = "inferred" | "kept" | "rematched";
+
+/** 一条命中的信号与它贡献的分量；`message` 已按请求语言渲染好。 */
+export interface ComfyuiBindingSignal {
+  signal: string;
+  weight: number;
+  message: string;
+}
+
+/** 一条提示。不拦保存，但有它用户才知道某个形态会怎么表现。 */
+export interface ComfyuiInferenceNote {
+  code: string;
+  message: string;
+}
+
+export interface ComfyuiBindingCandidate {
+  /** 可直接写进 `bindings` 的条目，`step` / `policy` / `direction` / `consumer` 都已填好。 */
+  target: ComfyuiBindingTarget;
+  score: number;
+  signals: ComfyuiBindingSignal[];
+  selected: boolean;
+  origin: ComfyuiMatchOrigin;
+  /** 产物候选的上游链长度，用来解释「为什么是这一个」；其余语义键为 null。 */
+  depth: number | null;
+}
+
+export interface ComfyuiKeyInference {
+  state: ComfyuiBindingState;
+  candidates: ComfyuiBindingCandidate[];
+  notes: ComfyuiInferenceNote[];
+}
+
+export interface ComfyuiInferResponse {
+  media_type: ComfyuiMediaType;
+  /** 照这份结果直接落盘能不能过校验；真闸门仍是保存时的校验器。 */
+  savable: boolean;
+  bindings: Partial<Record<ComfyuiBindingKey, ComfyuiKeyInference>>;
+  notes: ComfyuiInferenceNote[];
+  import_shape: EndpointImportShape;
+  /** 原始 API workflow 的包装结果；载荷本就是定义时为 null。 */
+  wrapped_definition: ComfyuiEndpointDefinition | null;
 }
 
 /** 导入、校验与保存这条路上流过的定义：两种 kind 都可能。 */
@@ -251,10 +383,34 @@ export interface PreviewedRequest {
   body: unknown;
 }
 
+/**
+ * 「这份请求是怎么算出来的」。ComfyUI 端点的尺寸、帧数、种子与改图都是算出来的，光看一份几十个
+ * 节点的 workflow JSON 答不出「我选的 720p 到底变成了多少像素」。
+ *
+ * `width` / `height` / `frames` / `seed` 为 null 表示这一维没有驱动这份 workflow（未绑定，或尺寸
+ * 只绑了一侧因而判为固定），workflow 里的字面值原样保留。
+ */
+export interface ComfyuiRequestConversions {
+  /** 实发 workflow 的指纹，与成片版本元数据里记的是同一个值。 */
+  workflow_sha256: string;
+  aspect_ratio: string;
+  resolution: string | null;
+  duration_seconds: number | null;
+  width: number | null;
+  height: number | null;
+  frames: number | null;
+  seed: number | null;
+  negative_prompt: string;
+  /** 这次按参考图张数改图删掉的节点。 */
+  dropped_nodes: string[];
+}
+
 export interface EndpointPreviewResponse {
   submit: PreviewedRequest;
   poll: PreviewedRequest;
   result: PreviewedRequest | null;
+  /** 声明式端点的请求全部来自模板直填，没有可说明的换算，为 null。 */
+  conversions: ComfyuiRequestConversions | null;
 }
 
 export type EndpointTestStage = "submit" | "poll" | "result";
@@ -287,15 +443,28 @@ export interface EndpointStageReport {
 
 export type TrialRunStatus = "queued" | "running" | "succeeded" | "failed";
 
+/** 测试连接的四段：提交、轮询、取得结果、取回产物。 */
+export const TRIAL_RUN_STAGES = ["submit", "poll", "result", "artifact"] as const;
+
+export type TrialRunStage = (typeof TRIAL_RUN_STAGES)[number];
+
+/** 到达过的段是 done；没到达的段终态上是 skipped、运行中是 pending。不标「失败落在哪一段」。 */
+export type TrialRunStageState = "done" | "pending" | "skipped";
+
 export interface TrialRunInfo {
   id: string;
   status: TrialRunStatus;
   provider: string;
   model: string;
+  /** 这一笔产的是视频还是图像；产物按哪种形态展示读它。 */
+  media_type: ComfyuiMediaType;
   /** epoch 秒。 */
   created_at: number;
   finished_at: number | null;
   api_call_id: number | null;
+  /** 供应商给这一笔的 id（ComfyUI 即 `prompt_id`）；提交之前或认不出时为 null。 */
+  provider_job_id: string | null;
+  stages: Partial<Record<TrialRunStage, TrialRunStageState>>;
   request: PreviewedRequest | null;
   submit_response: unknown;
   poll_responses: unknown[];
@@ -304,6 +473,10 @@ export interface TrialRunInfo {
   video_url: string | null;
   duration_seconds: number | null;
   error: string | null;
+  /** `error` 背后那个稳定失败码；裸异常文本没有码，为 null。 */
+  error_code: string | null;
+  /** 这条失败码该让用户去做什么，取值同项目页生成失败那一套 `GenerationAction`。 */
+  error_action: string | null;
   has_artifact: boolean;
 }
 

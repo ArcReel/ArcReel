@@ -14,27 +14,30 @@ import httpx
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
+from lib.billing.ledger import Ledger
 from lib.config.resolver import ConfigResolver
 from lib.config.service import ConfigService
 from lib.custom_provider import make_endpoint_key, make_provider_id
 from lib.custom_provider.endpoint_test import TrialRunManager
 from lib.db import get_async_session
+from lib.db.models.api_call import ApiCall
 from lib.db.repositories.custom_endpoint_repo import CustomEndpointRepository
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository
-from lib.ledger import Ledger
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import custom_endpoints
 from server.routers.endpoint_tests import get_config_resolver, get_trial_run_manager
 from tests.auth_deps import AUTH_DEPENDENCIES
-from tests.factories import custom_endpoint_definition
-from tests.fakes import bounded_poll_clock
+from tests.factories import comfyui_endpoint_definition, custom_endpoint_definition
+from tests.fakes import MP4_BYTES, PNG_BYTES, bounded_poll_clock
 from tests.http_capture import capture_http
 
 PARAMETERS = {"model": "video-x", "prompt": "纸船顺流而下", "duration_seconds": 5}
 INLINE_CREDENTIALS = {"base_url": "https://relay.test", "api_key": "sk-secret-key-1234"}
+COMFYUI_CREDENTIALS = {"base_url": "https://comfy.test", "api_key": ""}
 
 
 @pytest.fixture
@@ -83,6 +86,86 @@ def _mock_successful_run(router) -> None:
         )
     )
     router.get("https://relay.test/files/job-42.mp4").mock(return_value=httpx.Response(200, content=b"video"))
+
+
+def _mock_successful_comfyui_run(router) -> None:
+    """一台跑得通的假 ComfyUI：提交给 prompt_id，第二次查 history 出终态，产物经 /view 取回。
+
+    ``/queue`` 一并给出：history 还空着的那一轮要据这张表判任务是不是丢了，队列里有这一笔才
+    说明它还在排。
+    """
+    router.post("https://comfy.test/prompt").mock(return_value=httpx.Response(200, json={"prompt_id": "p-1"}))
+    router.get("https://comfy.test/queue").mock(
+        return_value=httpx.Response(200, json={"queue_running": [[0, "p-1", {}, [], {}]], "queue_pending": []})
+    )
+    router.get("https://comfy.test/history/p-1").mock(
+        side_effect=[
+            httpx.Response(200, json={}),
+            httpx.Response(
+                200,
+                json={
+                    "p-1": {
+                        "status": {"completed": True, "status_str": "success"},
+                        "outputs": {"9": {"gifs": [{"filename": "final.mp4", "subfolder": "", "type": "output"}]}},
+                    }
+                },
+            ),
+        ]
+    )
+    router.get("https://comfy.test/view").mock(return_value=httpx.Response(200, content=MP4_BYTES))
+
+
+def _mock_successful_comfyui_image_run(router) -> None:
+    """同上，但产物是一张图：产物挂在 ``images`` 键上，取回的字节带 PNG 文件头。"""
+    router.post("https://comfy.test/prompt").mock(return_value=httpx.Response(200, json={"prompt_id": "p-1"}))
+    router.get("https://comfy.test/queue").mock(
+        return_value=httpx.Response(200, json={"queue_running": [[0, "p-1", {}, [], {}]], "queue_pending": []})
+    )
+    router.get("https://comfy.test/history/p-1").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "p-1": {
+                    "status": {"completed": True, "status_str": "success"},
+                    "outputs": {
+                        "9": {"images": [{"filename": "ArcReel_00001_.png", "subfolder": "", "type": "output"}]}
+                    },
+                }
+            },
+        )
+    )
+    router.get("https://comfy.test/view").mock(return_value=httpx.Response(200, content=PNG_BYTES))
+
+
+def _comfyui_image_definition() -> dict[str, Any]:
+    """一份图像 ComfyUI 端点定义：图像端点没有帧率与负向入口这两个语义键。"""
+    definition = comfyui_endpoint_definition(media_type="image")
+    definition["bindings"] = {
+        key: value for key, value in definition["bindings"].items() if key not in ("fps", "negative_prompt")
+    }
+    return definition
+
+
+def _mock_comfyui_run_stuck_in_polling(router) -> asyncio.Event:
+    """一台提交得了、却永远查不出终态的假 ComfyUI；返回的事件在第一次查 history 时置位。
+
+    等这次握手等到的正是「远端已经有一笔在跑、本地也已进了轮询」，即取消要叫停的那个局面，
+    不必去猜事件循环要让步多少次。
+    """
+    polling = asyncio.Event()
+    gate = asyncio.Event()  # 永不置位：这次 run 只可能被 cancel 停下
+
+    async def _never_settles(_request: httpx.Request) -> httpx.Response:
+        polling.set()
+        await gate.wait()
+        raise AssertionError("闸口只由取消解除，不该走到这里")
+
+    router.post("https://comfy.test/prompt").mock(return_value=httpx.Response(200, json={"prompt_id": "p-1"}))
+    router.get("https://comfy.test/history/p-1").mock(side_effect=_never_settles)
+    router.get("https://comfy.test/system_stats").mock(
+        return_value=httpx.Response(200, json={"system": {"comfyui_version": "0.26.1"}})
+    )
+    return polling
 
 
 def _post(client: TestClient, path: str, payload: dict[str, Any]):
@@ -474,7 +557,7 @@ class TestTrialRuns:
             _drain(client, trial_runs, run_id)
 
         fetched = client.get(f"/api/v1/custom-endpoints/trial-runs/{run_id}").json()
-        assert fetched["status"] == "succeeded", fetched["error"]
+        assert fetched["status"] == "succeeded"
         assert fetched["request"]["url"] == "https://relay.test/v1/video/generations"
         assert fetched["extractions"]["submit"]["task_id"] == "job-42"
 
@@ -911,6 +994,409 @@ async def stored_disabled_model_row(db_engine) -> dict[str, Any]:
         return {"provider_id": make_provider_id(provider.id), "model_id": "video-x"}
 
 
+class TestComfyuiEndpoints:
+    """ComfyUI 端点在三个入口上的分派：预览有、测试连接有、验证响应结构化不支持。"""
+
+    def test_checking_a_response_is_refused_as_unsupported(self, client: TestClient):
+        resp = _post(
+            client,
+            "check-response",
+            {"definition": comfyui_endpoint_definition(), "stage": "poll", "response_body": {}},
+        )
+
+        assert resp.status_code == 400
+        assert "comfyui" in resp.json()["detail"]
+
+    def test_previewing_returns_the_prompt_body_and_the_conversions(self, client: TestClient):
+        resp = _post(
+            client,
+            "preview-request",
+            {
+                "definition": comfyui_endpoint_definition(),
+                "parameters": {**PARAMETERS, "resolution": "720p"},
+                "credentials": COMFYUI_CREDENTIALS,
+            },
+        )
+
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["submit"]["url"] == "https://comfy.test/prompt"
+        assert body["submit"]["body"]["prompt"]["6"]["inputs"]["text"] == "纸船顺流而下"
+        assert body["conversions"]["width"] == 720
+        assert body["result"] is None
+
+    def test_previewing_a_declarative_endpoint_has_nothing_to_convert(self, client: TestClient):
+        resp = _post(
+            client,
+            "preview-request",
+            {
+                "definition": custom_endpoint_definition(),
+                "parameters": PARAMETERS,
+                "credentials": INLINE_CREDENTIALS,
+            },
+        )
+
+        assert resp.json()["conversions"] is None
+
+    def test_an_empty_api_key_is_enough_to_preview(self, client: TestClient):
+        """ComfyUI 原生无鉴权：``auth`` 节缺席的定义不该被拦在「请先填 API Key」上。"""
+        resp = _post(
+            client,
+            "preview-request",
+            {
+                "definition": comfyui_endpoint_definition(),
+                "parameters": PARAMETERS,
+                "credentials": COMFYUI_CREDENTIALS,
+            },
+        )
+
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["submit"]["headers"] == {}
+
+    def test_a_workflow_that_cannot_be_edited_down_is_refused_with_its_failure_text(self, client: TestClient):
+        """改图的级联触到产物节点：这不是定义有错，而是这份定义配上这组素材渲染不出请求。"""
+        # 三个格子，后两个汇成一路直接接产物节点：只上传一张时那一路整条被删，级联撞上产物节点。
+        definition = comfyui_endpoint_definition()
+        workflow = definition["workflow"]
+        workflow["20"] = {"class_type": "LoadImage", "inputs": {"image": "a.png"}}
+        workflow["21"] = {"class_type": "LoadImage", "inputs": {"image": "b.png"}}
+        workflow["23"] = {"class_type": "LoadImage", "inputs": {"image": "c.png"}}
+        workflow["22"] = {"class_type": "ImageBatch", "inputs": {"image1": ["21", 0], "image2": ["23", 0]}}
+        workflow["30"] = {
+            "class_type": "WanVaceToVideo",
+            "inputs": {"positive": ["6", 0], "reference_image": ["20", 0]},
+        }
+        workflow["3"]["inputs"]["latent_image"] = ["30", 0]
+        workflow["9"]["inputs"]["images"] = ["22", 0]
+        definition["bindings"]["reference_images"] = [
+            {
+                "node": "20",
+                "input": "image",
+                "class_type": "LoadImage",
+                "consumer": {"node": "30", "input": "reference_image", "class_type": "WanVaceToVideo"},
+            },
+            {
+                "node": "21",
+                "input": "image",
+                "class_type": "LoadImage",
+                "consumer": {"node": "22", "input": "image1", "class_type": "ImageBatch"},
+            },
+            {
+                "node": "23",
+                "input": "image",
+                "class_type": "LoadImage",
+                "consumer": {"node": "22", "input": "image2", "class_type": "ImageBatch"},
+            },
+        ]
+
+        resp = client.post(
+            "/api/v1/custom-endpoints/preview-request",
+            data={
+                "payload": json.dumps(
+                    {"definition": definition, "parameters": PARAMETERS, "credentials": COMFYUI_CREDENTIALS}
+                )
+            },
+            files={"reference_images": ("ref.png", b"x" * 16, "image/png")},
+        )
+
+        assert resp.status_code == 400
+        # 用失败码本身的三语文案说明，不另写一套措辞。
+        assert "无法改图" in resp.json()["detail"]
+
+    def test_a_trial_run_reports_the_prompt_id_stages_and_artifact(
+        self, client: TestClient, trial_runs: TrialRunManager
+    ):
+        with capture_http() as router, bounded_poll_clock():
+            _mock_successful_comfyui_run(router)
+            created = _post(
+                client,
+                "trial-runs",
+                {
+                    "definition": comfyui_endpoint_definition(),
+                    "parameters": PARAMETERS,
+                    "credentials": COMFYUI_CREDENTIALS,
+                },
+            )
+            assert created.status_code == 201, created.text
+            run_id = created.json()["id"]
+            _drain(client, trial_runs, run_id)
+
+        fetched = client.get(f"/api/v1/custom-endpoints/trial-runs/{run_id}").json()
+        assert fetched["status"] == "succeeded", fetched["error"]
+        assert fetched["error_code"] is None
+        assert fetched["error_action"] is None
+        assert fetched["provider_job_id"] == "p-1"
+        assert fetched["stages"] == {"submit": "done", "poll": "done", "result": "done", "artifact": "done"}
+        # 实发 workflow 的种子与素材引用名要到提交那一刻才定下来，结果体不摆一份预览充数。
+        assert fetched["request"] is None
+        # 产物提取是固定代码，没有可配的取值路径可报。
+        assert fetched["extractions"] == {}
+        artifact = client.get(f"/api/v1/custom-endpoints/trial-runs/{run_id}/artifact")
+        assert artifact.content == MP4_BYTES
+        assert artifact.headers["content-type"] == "video/mp4"
+
+    def test_the_queue_shows_a_readable_name_for_a_trial_run(self, client: TestClient, trial_runs: TrialRunManager):
+        """用户在自己手动跑的 ComfyUI 队列里要认得出哪一笔是刚点的「测试连接」。"""
+        with capture_http() as router, bounded_poll_clock():
+            _mock_successful_comfyui_run(router)
+            created = _post(
+                client,
+                "trial-runs",
+                {
+                    "definition": comfyui_endpoint_definition(),
+                    "parameters": PARAMETERS,
+                    "credentials": COMFYUI_CREDENTIALS,
+                },
+            )
+            run_id = created.json()["id"]
+            _drain(client, trial_runs, run_id)
+            submitted = json.loads(
+                next(call.request for call in router.calls if call.request.url.path == "/prompt").content
+            )
+
+        assert submitted["client_id"].startswith("arcreel-endpoint-test-")
+
+    def test_a_refused_workflow_comes_back_as_a_localised_failure_code(
+        self, client: TestClient, trial_runs: TrialRunManager
+    ):
+        with capture_http() as router, bounded_poll_clock():
+            router.post("https://comfy.test/prompt").mock(
+                return_value=httpx.Response(
+                    400,
+                    json={"node_errors": {"3": {"class_type": "KSampler", "errors": [{"message": "value too large"}]}}},
+                )
+            )
+            created = _post(
+                client,
+                "trial-runs",
+                {
+                    "definition": comfyui_endpoint_definition(),
+                    "parameters": PARAMETERS,
+                    "credentials": COMFYUI_CREDENTIALS,
+                },
+            )
+            run_id = created.json()["id"]
+            _drain(client, trial_runs, run_id)
+
+        fetched = client.get(f"/api/v1/custom-endpoints/trial-runs/{run_id}").json()
+        assert fetched["status"] == "failed"
+        assert "KSampler: value too large" in fetched["error"]
+        # 文案随 Accept-Language 变，码不变：读侧按码分流「这是哪一类失败、该去做什么」。
+        assert fetched["error_code"] == "comfyui_node_errors"
+        # 动作取自项目页生成失败那一份对照表，不是这里另写的一句：ComfyUI 的八条码里有三条指向重试。
+        assert fetched["error_action"] == "configure_provider"
+        assert fetched["provider_job_id"] is None
+        assert fetched["stages"]["submit"] == "done"
+
+    def test_a_lost_job_points_at_retrying_rather_than_at_the_provider_settings(
+        self, client: TestClient, trial_runs: TrialRunManager
+    ):
+        """一时的失败与配置错误在卡上要说不同的话，动作由失败码本身决定。"""
+        with capture_http() as router, bounded_poll_clock():
+            router.post("https://comfy.test/prompt").mock(return_value=httpx.Response(200, json={"prompt_id": "p-1"}))
+            # 队列与历史里都没有这一笔：ComfyUI 多半重启过，重试就能好。
+            router.get("https://comfy.test/queue").mock(
+                return_value=httpx.Response(200, json={"queue_running": [], "queue_pending": []})
+            )
+            router.get("https://comfy.test/history/p-1").mock(return_value=httpx.Response(200, json={}))
+            created = _post(
+                client,
+                "trial-runs",
+                {
+                    "definition": comfyui_endpoint_definition(),
+                    "parameters": PARAMETERS,
+                    "credentials": COMFYUI_CREDENTIALS,
+                },
+            )
+            run_id = created.json()["id"]
+            _drain(client, trial_runs, run_id)
+
+        fetched = client.get(f"/api/v1/custom-endpoints/trial-runs/{run_id}").json()
+        assert fetched["status"] == "failed"
+        assert fetched["error_code"] == "comfyui_job_lost"
+        assert fetched["error_action"] == "retry"
+
+    def test_a_trial_run_needs_the_service_address(self, client: TestClient, trial_runs: TrialRunManager):
+        """ComfyUI 的路由全在服务地址根下，定义里一个绝对地址都不写。"""
+        resp = _post(
+            client,
+            "trial-runs",
+            {
+                "definition": comfyui_endpoint_definition(),
+                "parameters": PARAMETERS,
+                "credentials": {"base_url": "", "api_key": ""},
+            },
+        )
+
+        assert resp.status_code == 400
+
+    def test_giving_up_stops_the_remote_job(self, client: TestClient, trial_runs: TrialRunManager):
+        """远端还在跑就还占着用户的显卡，而这一笔的产物已经没人要了。"""
+        assert client.portal is not None
+        with capture_http() as router:
+            polling = _mock_comfyui_run_stuck_in_polling(router)
+            job_cancel = router.post("https://comfy.test/api/jobs/p-1/cancel").mock(
+                return_value=httpx.Response(200, json={})
+            )
+            created = _post(
+                client,
+                "trial-runs",
+                {
+                    "definition": comfyui_endpoint_definition(),
+                    "parameters": PARAMETERS,
+                    "credentials": COMFYUI_CREDENTIALS,
+                },
+            )
+            run_id = created.json()["id"]
+            client.portal.call(polling.wait)
+
+            assert client.post(f"/api/v1/custom-endpoints/trial-runs/{run_id}/cancel").status_code == 204
+
+        assert job_cancel.called
+
+    def test_an_image_endpoint_can_still_be_previewed(self, client: TestClient):
+        """预览请求与媒体类型无关：跑不了测试连接的端点，照样要看得见它会发出什么。"""
+        resp = _post(
+            client,
+            "preview-request",
+            {
+                "definition": _comfyui_image_definition(),
+                "parameters": PARAMETERS,
+                "credentials": COMFYUI_CREDENTIALS,
+            },
+        )
+
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["submit"]["url"] == "https://comfy.test/prompt"
+
+    def test_an_image_endpoint_runs_a_trial_run_and_serves_the_image(
+        self, client: TestClient, trial_runs: TrialRunManager, db_engine
+    ):
+        """图像端点跑的是同一条测试连接：四段状态点齐备，产物按图的 MIME 下发。"""
+        with capture_http() as router, bounded_poll_clock():
+            _mock_successful_comfyui_image_run(router)
+            created = _post(
+                client,
+                "trial-runs",
+                {
+                    "definition": _comfyui_image_definition(),
+                    "parameters": PARAMETERS,
+                    "credentials": COMFYUI_CREDENTIALS,
+                },
+            )
+            assert created.status_code == 201, created.text
+            run_id = created.json()["id"]
+            _drain(client, trial_runs, run_id)
+
+        fetched = client.get(f"/api/v1/custom-endpoints/trial-runs/{run_id}").json()
+        assert fetched["status"] == "succeeded", fetched["error"]
+        assert fetched["media_type"] == "image"
+        assert fetched["stages"] == {"submit": "done", "poll": "done", "result": "done", "artifact": "done"}
+        # 图像这一维没有时长：记一个秒数会让用量页上出现一个不存在的时长。
+        assert fetched["duration_seconds"] is None
+        artifact = client.get(f"/api/v1/custom-endpoints/trial-runs/{run_id}/artifact")
+        assert artifact.content == PNG_BYTES
+        assert artifact.headers["content-type"] == "image/png"
+        # 账本这一行记的是实际发出的那笔调用：图像请求形状里没有时长与音轨这两维。
+        assert client.portal is not None
+        row = client.portal.call(_only_api_call, async_sessionmaker(db_engine, expire_on_commit=False))
+        assert (row.call_type, row.duration_seconds, row.generate_audio) == ("image", None, False)
+
+    def test_an_image_model_row_with_a_reference_image_passes_the_capability_gate(
+        self, client: TestClient, trial_runs: TrialRunManager, stored_comfyui_image_model_row: dict[str, Any]
+    ):
+        """模型行这条入口跑的是图像那道能力闸：带参考图的图生图端点不能被视频闸判成不支持参考图。"""
+        with capture_http() as router, bounded_poll_clock():
+            _mock_successful_comfyui_image_run(router)
+            router.post("https://comfy.test/upload/image").mock(
+                return_value=httpx.Response(200, json={"name": "ref.png", "subfolder": "arcreel"})
+            )
+            created = client.post(
+                "/api/v1/custom-endpoints/trial-runs",
+                data={
+                    "payload": json.dumps(
+                        {
+                            "model_ref": {
+                                "provider_id": stored_comfyui_image_model_row["provider_id"],
+                                "model_id": stored_comfyui_image_model_row["model_id"],
+                            },
+                            "parameters": PARAMETERS,
+                        }
+                    )
+                },
+                files={"reference_images": ("ref.png", PNG_BYTES, "image/png")},
+            )
+            assert created.status_code == 201, created.text
+            run_id = created.json()["id"]
+            _drain(client, trial_runs, run_id)
+
+        fetched = client.get(f"/api/v1/custom-endpoints/trial-runs/{run_id}").json()
+        assert fetched["status"] == "succeeded", fetched["error"]
+        assert fetched["media_type"] == "image"
+
+    def test_an_image_model_row_without_its_required_reference_image_is_rejected_in_words(
+        self, client: TestClient, trial_runs: TrialRunManager, stored_comfyui_image_model_row: dict[str, Any]
+    ):
+        """图生图端点收不到参考图时按图像那道闸拒绝，文案是本地化后的能力拒因、不是一串失败码。"""
+        with capture_http() as router, bounded_poll_clock():
+            _mock_successful_comfyui_image_run(router)
+            created = _post(
+                client,
+                "trial-runs",
+                {
+                    "model_ref": {
+                        "provider_id": stored_comfyui_image_model_row["provider_id"],
+                        "model_id": stored_comfyui_image_model_row["model_id"],
+                    },
+                    "parameters": PARAMETERS,
+                },
+            )
+            assert created.status_code == 201, created.text
+            run_id = created.json()["id"]
+            _drain(client, trial_runs, run_id)
+
+        fetched = client.get(f"/api/v1/custom-endpoints/trial-runs/{run_id}").json()
+        assert fetched["status"] == "failed"
+        assert fetched["error_code"] == "image_capability_missing_t2i"
+        assert "不支持文生图" in fetched["error"]
+        # 闸在提交之前：一个字节都没发给 ComfyUI。
+        assert router.calls.call_count == 0
+
+
+@pytest.fixture
+async def stored_comfyui_image_model_row(db_engine) -> dict[str, Any]:
+    """一条挂着 ComfyUI 图生图端点的图像模型行，供图像 ``model_ref`` 用例引用。"""
+    definition = _comfyui_image_definition()
+    definition["workflow"]["20"] = {"class_type": "LoadImage", "inputs": {"image": "draft.png"}}
+    definition["bindings"]["reference_images"] = [{"node": "20", "input": "image", "class_type": "LoadImage"}]
+    session_factory = async_sessionmaker(db_engine, expire_on_commit=False)
+    async with session_factory() as session:
+        endpoint = await CustomEndpointRepository(session).create(
+            definition=definition,
+            kind="comfyui",
+            schema_version="1.0.0",
+            media_type="image",
+            display_name="示例图像 workflow",
+        )
+        provider = await CustomProviderRepository(session).create_provider(
+            display_name="本地 ComfyUI",
+            discovery_format="openai",
+            base_url="https://comfy.test",
+            api_key="sk-secret-key-1234",
+            models=[
+                {
+                    "model_id": "flux-workflow",
+                    "display_name": "flux-workflow",
+                    "endpoint": make_endpoint_key(endpoint.id),
+                    "is_enabled": True,
+                    "is_default": True,
+                }
+            ],
+        )
+        await session.commit()
+        return {"provider_id": make_provider_id(provider.id), "model_id": "flux-workflow"}
+
+
 @pytest.fixture
 async def stored_provider(db_engine) -> dict[str, Any]:
     """一条自定义供应商行，供「凭证读库」用例引用。"""
@@ -925,6 +1411,14 @@ async def stored_provider(db_engine) -> dict[str, Any]:
         )
         await session.commit()
         return {"id": provider.id, "provider_id": make_provider_id(provider.id)}
+
+
+async def _only_api_call(session_factory: async_sessionmaker) -> ApiCall:
+    """这次 run 记下的那唯一一行账本记录。"""
+    async with session_factory() as session:
+        rows = (await session.execute(select(ApiCall))).scalars().all()
+    assert len(rows) == 1
+    return rows[0]
 
 
 def _drain(client: TestClient, trial_runs: TrialRunManager, run_id: str) -> None:

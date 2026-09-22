@@ -33,11 +33,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 # 判定，解析器产出的是 starlette.datastructures.UploadFile，用子类判定会全部落空。
 from starlette.datastructures import FormData, UploadFile
 
-from lib.api_errors import BadRequestError, ConflictError, NotFoundError, UnprocessableError
-from lib.backend_assembly.specs import builtin_declarative_video_diagnostics
+from lib.backends.backend_assembly.specs import builtin_declarative_video_diagnostics
 from lib.config.registry import PROVIDER_REGISTRY, ProviderMeta, model_info_for
 from lib.config.resolver import ConfigResolver
 from lib.custom_provider import is_custom_provider, parse_provider_id
+from lib.custom_provider.comfyui.failures import ComfyuiError
 from lib.custom_provider.endpoint_definition import AssetData, DefinitionDiagnostics, validate_definition
 from lib.custom_provider.endpoint_resolution import resolve_endpoint_spec
 from lib.custom_provider.endpoint_test import (
@@ -47,26 +47,28 @@ from lib.custom_provider.endpoint_test import (
     EndpointTestDefinitionError,
     EndpointTestMode,
     EndpointTestParameters,
+    KindTestSupport,
     TrialRun,
     TrialRunBusyError,
     TrialRunManager,
     TrialRunTarget,
+    artifact_media_type,
     check_response,
-    declarative_target,
     model_ref_target,
     parse_response_body,
-    preview_request,
     stage_report_payload,
+    support_for_kind,
     supports_test_mode,
     trial_run_manager,
 )
-from lib.custom_provider.endpoints import declarative_requires_api_key, declarative_requires_base_url
 from lib.db import async_session_factory, get_async_session
 from lib.db.models.custom_provider import CustomProvider
 from lib.db.repositories.custom_endpoint_repo import CustomEndpointRepository
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository
-from lib.i18n import Translator
-from lib.task_failure import render_failure
+from lib.generation.generation_result import problem_from_task_failure
+from lib.generation.task_failure import encode_failure, parse_failure, render_failure
+from lib.infra.api_errors import BadRequestError, ConflictError, NotFoundError, UnprocessableError
+from server.i18n import Translator
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +77,10 @@ MAX_ASSET_BYTES = 15 * 1024 * 1024
 
 #: 单次请求的素材文件总数上限：覆盖最重的合法组合（H3 的 9 参考图 + 首尾帧 + 3 段音频）仍有余量。
 MAX_ASSET_FILES = 16
+
+#: 能跑测试连接的端点媒体类型。模型行这条入口据此拒掉文本 / 音频档的行——那些行被派发到
+#: 视频或图像端点上只会付费打给另一个模型。
+_TESTABLE_MEDIA_TYPES = frozenset({"video", "image"})
 
 router = APIRouter(tags=["Custom Endpoints"])
 
@@ -158,9 +164,16 @@ class PreviewedRequestResponse(BaseModel):
 
 
 class PreviewResponse(BaseModel):
+    """渲染后的各节请求，外加「这份请求是怎么算出来的」。
+
+    ``conversions`` 的形状由定义的 ``kind`` 决定：声明式端点的请求全部来自模板直填、没有可说明
+    的换算，为 null；ComfyUI 端点给出尺寸 / 帧数 / 种子的换算与这次改图删掉的节点。
+    """
+
     submit: PreviewedRequestResponse
     poll: PreviewedRequestResponse
     result: PreviewedRequestResponse | None = None
+    conversions: dict[str, Any] | None = None
 
 
 class TrialRunResponse(BaseModel):
@@ -168,9 +181,13 @@ class TrialRunResponse(BaseModel):
     status: str
     provider: str
     model: str
+    #: 这一笔产的是视频还是图像；读侧据此决定产物按播放器还是按图展示。
+    media_type: str = "video"
     created_at: float
     finished_at: float | None = None
     api_call_id: int | None = None
+    provider_job_id: str | None = None
+    stages: dict[str, str] = {}
     request: dict[str, Any] | None = None
     submit_response: Any = None
     poll_responses: list[Any] = []
@@ -179,6 +196,10 @@ class TrialRunResponse(BaseModel):
     video_url: str | None = None
     duration_seconds: int | None = None
     error: str | None = None
+    #: ``error`` 背后那个稳定失败码。读侧据它分流：失败码有对照表与排查方向可给，裸异常文本没有。
+    error_code: str | None = None
+    #: 这条失败码该让用户去做什么（``GenerationAction``），与生成失败在项目页给出的是同一份判定。
+    error_action: str | None = None
     has_artifact: bool = False
 
 
@@ -256,6 +277,11 @@ def _accepted_definition(definition: object, _t: Translator, *, mode: EndpointTe
     if not supports_test_mode(kind, mode):
         raise BadRequestError("endpoint_test_mode_unsupported_for_kind", kind=kind)
     return definition
+
+
+def _support(definition: Mapping[str, Any]) -> KindTestSupport:
+    """这份定义所属 kind 的端点测试实现。定义已过 :func:`_accepted_definition` 的模式闸。"""
+    return support_for_kind(str(definition["kind"]))
 
 
 def _invalid(diagnostics: DefinitionDiagnostics, _t: Translator) -> UnprocessableError:
@@ -337,23 +363,29 @@ async def preview_endpoint_request(
     _t: Translator,
     session: AsyncSession = Depends(get_async_session),
 ) -> PreviewResponse:
-    """渲染将要发出的请求，不外发。凭证打码、素材换成体积摘要、``task_id`` 保持占位符。"""
+    """渲染将要发出的请求，不外发。凭证打码、素材换成体积摘要、提交后才有的 id 保持占位符。"""
     body, assets = await _parse_body(request, PreviewRequestInput)
     definition = _accepted_definition(body.definition, _t, mode=EndpointTestMode.PREVIEW_REQUEST)
+    support = _support(definition)
+    require_base_url, require_api_key = support.credential_needs(definition)
     credentials = await _resolve_credentials(
-        body.credentials,
-        session,
-        require_base_url=declarative_requires_base_url(definition),
-        require_api_key=declarative_requires_api_key(definition),
+        body.credentials, session, require_base_url=require_base_url, require_api_key=require_api_key
     )
     try:
-        preview = preview_request(definition, body.parameters.to_parameters(), credentials=credentials, assets=assets)
+        preview = support.preview(definition, body.parameters.to_parameters(), credentials=credentials, assets=assets)
     except EndpointTestDefinitionError as exc:
         raise _invalid(exc.diagnostics, _t) from exc
+    except ComfyuiError as exc:
+        # 构造期的 ComfyUI 失败（如参考图少于格子数、改图的级联触到产物节点）不是定义有错，而是
+        # 这份定义配上这组参数渲染不出请求。用失败码本身的三语文案说明，不另写一套措辞。
+        raise BadRequestError(
+            "endpoint_test_preview_failed", detail=render_failure(encode_failure(exc.code, **exc.params), _t)
+        ) from exc
     return PreviewResponse(
         submit=_previewed(preview.submit),
         poll=_previewed(preview.poll),
         result=_previewed(preview.result) if preview.result else None,
+        conversions=dict(preview.conversions) if preview.conversions is not None else None,
     )
 
 
@@ -401,13 +433,12 @@ async def start_trial_run(
         parameters = replace(parameters, model=body.model_ref.model_id)
     elif body.definition is not None:
         definition = _accepted_definition(body.definition, _t, mode=EndpointTestMode.TRIAL_RUN)
+        support = _support(definition)
+        require_base_url, require_api_key = support.credential_needs(definition)
         credentials = await _required_credentials(
-            body.credentials,
-            session,
-            require_base_url=declarative_requires_base_url(definition),
-            require_api_key=declarative_requires_api_key(definition),
+            body.credentials, session, require_base_url=require_base_url, require_api_key=require_api_key
         )
-        target = declarative_target(definition, credentials, parameters)
+        target = support.trial_target(definition, credentials, parameters)
     else:
         raise BadRequestError("endpoint_test_definition_or_model_ref_required")
 
@@ -449,7 +480,7 @@ async def cancel_trial_run(
     run_id: str,
     manager: TrialRunManager = Depends(get_trial_run_manager),
 ) -> Response:
-    """停本地轮询。不通知供应商，记账按失败结算——远端任务照跑，钱可能已经花了。"""
+    """停本地轮询，记账按失败结算。远端由 backend 的取消路径自己叫停，停不下来时照跑、钱照花。"""
     if not await manager.cancel(run_id):
         raise NotFoundError("trial_run_not_found")
     return Response(status_code=204)
@@ -460,11 +491,16 @@ async def get_trial_run_artifact(
     run_id: str,
     manager: TrialRunManager = Depends(get_trial_run_manager),
 ) -> FileResponse:
-    """播放该测试连接生成的产物。"""
+    """播放该测试连接生成的产物。
+
+    MIME 按落盘字节的文件头给，不按文件名：产物名是本层起的（视频 ``artifact.mp4``、图像
+    ``artifact.png``），而 ComfyUI 那一侧导出的容器可以是同族里的另一个，按名字声明会让浏览器
+    按一个错误的类型解。
+    """
     path = manager.artifact_path(run_id)
     if path is None:
         raise NotFoundError("trial_run_artifact_not_found")
-    return FileResponse(path, media_type="video/mp4")
+    return FileResponse(path, media_type=artifact_media_type(path))
 
 
 # ---------------------------------------------------------------------------
@@ -477,8 +513,18 @@ def _previewed(section: Any) -> PreviewedRequestResponse:
 
 
 def _run_response(run: TrialRun, translate: Translator) -> TrialRunResponse:
+    """结果体本地化：失败原因渲染成当前语言，失败码与它的后续动作另给一份原文。
+
+    码与动作一并给出，而不是让读侧从文案里认：文案随语言变，而「这是哪一类失败、该去做什么」
+    按码分流。动作取自 :func:`problem_from_task_failure`——同一条失败码在项目页与这里该给出
+    同一个后续动作，两处各写一份必然分叉（ComfyUI 的八条码里就有三条指向重试而非配置供应商）。
+    编不出码的裸异常文本两者皆无。
+    """
     payload = run.to_payload()
+    parsed = parse_failure(run.error)
     payload["error"] = render_failure(run.error, translate)
+    payload["error_code"] = parsed[0] if parsed else None
+    payload["error_action"] = problem_from_task_failure(run.error).action.value if parsed else None
     return TrialRunResponse(**payload)
 
 
@@ -534,15 +580,18 @@ async def _model_ref_target(
         endpoint_spec = await resolve_endpoint_spec(model.endpoint, CustomEndpointRepository(session).get)
     except ValueError:
         endpoint_spec = None
-    if not model.is_enabled or endpoint_spec is None or endpoint_spec.media_type != "video":
+    if not model.is_enabled or endpoint_spec is None or endpoint_spec.media_type not in _TESTABLE_MEDIA_TYPES:
         raise BadRequestError("endpoint_test_model_unavailable")
     # 凭证配置错误在请求线程上就能判，按翻译过的 400 拒掉：缺 base_url 时装配层只会抛一句
     # 不可翻译的中文，且落在脱离请求的后台任务里、原样进结果体的 error 字段；缺 api_key 时
     # 请求会带着空鉴权头发出去，付费打一个注定被拒的调用。
     if endpoint_spec.definition is not None:
-        if declarative_requires_base_url(endpoint_spec.definition) and not provider.base_url:
+        require_base_url, require_api_key = _support(endpoint_spec.definition).credential_needs(
+            endpoint_spec.definition
+        )
+        if require_base_url and not provider.base_url:
             raise BadRequestError("endpoint_test_provider_base_url_required")
-        if declarative_requires_api_key(endpoint_spec.definition) and not provider.api_key:
+        if require_api_key and not provider.api_key:
             raise BadRequestError("missing_credentials")
     definition = None
     if endpoint_spec.definition is not None:
@@ -550,7 +599,13 @@ async def _model_ref_target(
         # 逐阶段提取与提交前渲染闸按同一条路给出，不因定义随版发布而缺一段诊断。
         definition = _accepted_definition(dict(endpoint_spec.definition), _t, mode=EndpointTestMode.TRIAL_RUN)
     credentials = EndpointTestCredentials(base_url=provider.base_url, api_key=provider.api_key)
-    target = model_ref_target(model_ref.provider_id, model_ref.model_id, resolver=resolver, definition=definition)
+    target = model_ref_target(
+        model_ref.provider_id,
+        model_ref.model_id,
+        resolver=resolver,
+        definition=definition,
+        media_type=endpoint_spec.media_type,
+    )
     return target, credentials, definition
 
 
@@ -565,12 +620,15 @@ def _preview_payload(
 
     顺带充当提交前的渲染闸：模板在真发之前就渲一次，占位符缺值这类错误当场回 422，而不是等
     后台任务跑起来才失败——那时用户已经在等一个注定失败的 run。没有定义可渲（Python 实现的
-    端点）时留空。
+    端点）、或这种 kind 不给这一段（ComfyUI，见 ``KindTestSupport``）时留空。
     """
     if definition is None or credentials is None:
         return None
+    support = _support(definition)
+    if not support.trial_run_request_preview:
+        return None
     try:
-        preview = preview_request(
+        preview = support.preview(
             definition, parameters, credentials=credentials, assets=assets, placeholder_missing_assets=False
         )
     except EndpointTestDefinitionError as exc:

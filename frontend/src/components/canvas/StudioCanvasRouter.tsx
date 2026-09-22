@@ -729,13 +729,15 @@ export function StudioCanvasRouter() {
           // 服务端已按项目生成模式（是否走参考图路径）与已保存分辨率收窄。
           const durationOptions = capabilities.supportedDurations ?? undefined;
           // reference_video 的参考图约束是按 unit 而非按集生效（同集内不带 references 的
-          // unit 不受此约束，见 lib.reference_video.request_projection 的
+          // unit 不受此约束，见 lib.script.reference_video.request_projection 的
           // ReferenceUnitRequestProjector 按可用参考图定 r2v / i2v 的判据）：服务端多备一份
           // 不叠加参考图收窄的档位，供画布按每个 unit 自己的引用状态选用。
           const durationOptionsNoReference =
             capabilities.supportedDurationsWithoutReference ?? undefined;
           const durationWarningReason = (seconds: number) =>
             durationOutOfRangeReason(seconds, capabilities);
+          // 档位空集的两种成因说给用户听的不是同一句：型号没登记时长 vs 这份 workflow 自己定片长。
+          const durationEndpointFixed = capabilities.durationEndpointFixed;
           const hasDraft =
             episode?.script_status === "segmented" || episode?.script_status === "generated";
           const isAd = currentProjectData?.content_mode === "ad";
@@ -793,6 +795,7 @@ export function StudioCanvasRouter() {
                     // unit 时长档位随所选模型能力变化（已按本集参考图路径收窄）
                     durationOptions={durationOptions}
                     durationOptionsNoReference={durationOptionsNoReference}
+                    durationEndpointFixed={durationEndpointFixed}
                   />
                 ) : gridStoryboardEnabled(currentProjectData) ? (
                   <GridImageToVideoCanvas
@@ -835,6 +838,7 @@ export function StudioCanvasRouter() {
                     projectData={currentProjectData}
                     durationOptions={durationOptions}
                     durationWarningReason={durationWarningReason}
+                    durationEndpointFixed={durationEndpointFixed}
                     onUpdatePrompt={awaitedUpdatePrompt}
                     onMoveShot={isAd ? handleMoveShot : undefined}
                     onInsertShot={handleInsertShot}

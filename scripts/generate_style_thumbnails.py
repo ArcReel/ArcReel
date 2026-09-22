@@ -15,11 +15,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
+from lib.backends.image_backends.base import ImageGenerationRequest
+from lib.backends.image_backends.grok import GrokImageBackend
 from lib.db import async_session_factory
 from lib.db.repositories.credential_repository import CredentialRepository
-from lib.image_backends.base import ImageGenerationRequest
-from lib.image_backends.grok import GrokImageBackend
-from lib.style_templates import list_template_ids, resolve_template_prompt
+from lib.prompts.style_templates import list_template_ids, resolve_template_prompt
 
 OUT_DIR = ROOT / "frontend" / "public" / "style-thumbnails"
 

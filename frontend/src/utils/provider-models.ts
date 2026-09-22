@@ -1,4 +1,5 @@
 import { API } from "@/api";
+import type { EndpointConstraints } from "@/stores/endpoint-catalog-store";
 import type {
   CustomProviderInfo,
   MediaType,
@@ -217,4 +218,42 @@ export function lookupResolutions(
   const provider = providers.find((p) => p.id === providerId);
   const model = provider?.models?.[modelId];
   return { options: model?.resolutions ?? [], isCustom: false };
+}
+
+/** `provider/model` 挂接的那个端点对尺寸与时长的约束；内置供应商与查不到的模型为 undefined。
+ *
+ *  内置供应商没有「维度被端点固定」这一形态：尺寸与时长都是请求参数，端点目录里也没有它们的
+ *  约束项。故只对自定义供应商的模型行查表。
+ */
+export function lookupEndpointConstraints(
+  backend: string,
+  customProviders: CustomProviderInfo[] | undefined,
+  endpointConstraints: Record<string, EndpointConstraints>,
+): EndpointConstraints | undefined {
+  const slashIdx = backend.indexOf("/");
+  if (slashIdx === -1) return undefined;
+  const providerId = backend.slice(0, slashIdx);
+  if (!providerId.startsWith(CUSTOM_PREFIX) || !customProviders) return undefined;
+  const dbId = parseInt(providerId.slice(CUSTOM_PREFIX.length), 10);
+  const model = customProviders
+    .find((p) => p.id === dbId)
+    ?.models?.find((m) => m.model_id === backend.slice(slashIdx + 1));
+  return model ? endpointConstraints[model.endpoint] : undefined;
+}
+
+/** 分辨率选择器的空值占位：说清「不选会得到什么」。
+ *
+ *  三种说法。端点报得出原生尺寸（ComfyUI 端点的宽高绑定读得到字面值）就报它；尺寸由该端点
+ *  固定、却连字面值都读不出来（宽高两侧都没绑定是最常见的一种）时说「由 workflow 决定」——
+ *  此时选择器本就禁用，通用的「默认（不传）」会让人以为这里还有一个「不传」的选项可挑；其余
+ *  端点不选即不下发该参数，那句「默认（不传）」说的正是实情。
+ */
+export function resolutionPlaceholder(
+  constraints: EndpointConstraints | undefined,
+  t: (key: string, params?: Record<string, unknown>) => string,
+): string {
+  const native = constraints?.nativeResolution;
+  if (native) return t("resolution_native_placeholder", { value: native });
+  if (constraints?.sizeFixed) return t("resolution_endpoint_fixed_placeholder");
+  return t("resolution_default_placeholder");
 }

@@ -10,6 +10,8 @@ status: accepted
 
 **静态媒体维持匿名可读，是有意决策**。ArcReel 是单管理员自托管应用，威胁模型不含未授权读取媒体的攻击者；媒体加认证意味着约五十处 `<img>` / `<video>` src 都要携带凭证，内嵌 Agent 与 MCP 客户端取图要额外带 Bearer，复制链接与新标签页打开会失效，换来的只是「猜不到路径就看不到」。若未来需要分享或外部嵌入，应显式签发分享凭证，不在此决策范围内。
 
+「静态媒体」的范围是精确的，匿名可读不等于项目目录匿名可读。公开的项目文件端点（`/files/{project}/{path}`）同时要求目录与扩展名落在白名单内：目录限于生成与上传流程写入媒体的 `storyboards/ end_frames/ videos/ reference_videos/ thumbnails/ characters/ scenes/ props/ products/ grids/ audio/`（含其子目录）、`versions/` 下这些目录各自的快照桶，以及项目根的 `style_reference.*`；扩展名限于图片（`.png .jpg .jpeg .webp`）、视频（`.mp4`）与音频（`.wav .mp3`），扩展名不区分大小写，目录名与文件名区分大小写。全局资产端点（`/global-assets/{type}/{filename}`）受同一扩展名白名单约束。`project.json`、剧本、源文件、草稿、字幕与呈现 JSON、`versions.json`、`output/` 成片以及媒体目录内的非媒体文件都不在范围内，与文件不存在同形返回 404；它们只经受保护 API 读取。两个端点的响应一律带 `X-Content-Type-Options: nosniff`。白名单集中定义在 `server/routers/files.py`。
+
 **导出下载维持下载 token**，它是自带认证端点如今唯一的凭证形态。ADR `docs/adr/0059` 末尾留作另议的「统一三处」在此收口。
 
 ## 明确不采用

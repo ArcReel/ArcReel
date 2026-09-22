@@ -51,6 +51,11 @@ export interface ModelCapabilities {
   /** 全集中被联动约束剔除的时长（键为秒数字符串）→ 成因；未知为空表。 */
   excludedDurations: Record<string, DurationExclusionReason>;
   /**
+   * 档位为空是因为这一维由端点固定（ComfyUI 的 workflow 自己定片长），不是型号声明缺失。
+   * 两者的时长控件都不可用，但说给用户听的不是同一句话。未知时为 false：不谎报。
+   */
+  durationEndpointFixed: boolean;
+  /**
    * 能力实际查自哪个 `provider/model`；未知为 null。
    *
    * 传入的后端可能是裸 provider（服务端补全默认视频模型）或留空跟随全局默认，此时该值取服务端
@@ -182,6 +187,7 @@ export function useModelCapabilities({
     supportedDurations: constraints ? constraints.allowed : null,
     supportedDurationsWithoutReference: constraints ? constraints.allowed_without_reference_images : null,
     excludedDurations: constraints?.excluded ?? EMPTY_EXCLUSIONS,
+    durationEndpointFixed: caps?.duration_endpoint_fixed ?? false,
     resolvedVideoBackend: caps ? `${caps.provider_id}/${caps.model}` : null,
     firstFrame: caps ? caps.first_frame : null,
     lastFrame: caps ? caps.last_frame : null,

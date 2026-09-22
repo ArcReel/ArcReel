@@ -3,6 +3,7 @@
 from lib.custom_provider.comfyui.inference import BindingSignal, BindingState, InferenceNote, infer_bindings
 
 POSITIVE = {"node": "6", "input": "text", "class_type": "CLIPTextEncode", "title": "正向"}
+NEGATIVE = {"node": "7", "input": "text", "class_type": "CLIPTextEncode", "title": "负向"}
 OUTPUT = {"node": "58", "class_type": "SaveVideo", "title": "Save Video"}
 
 
@@ -34,10 +35,22 @@ def renumbered(old: str, new: str) -> dict:
     """把一个节点换个 id，并把指向它的连线一并改过去——重新导出 workflow 就是这种变化。"""
     graph = workflow()
     graph[new] = graph.pop(old)
+    return rewired(graph, {old: new})
+
+
+def swapped(first: str, second: str) -> dict:
+    """两个节点互换编号，指向它们的连线一并改过去。"""
+    graph = workflow()
+    graph[first], graph[second] = graph[second], graph[first]
+    return rewired(graph, {first: second, second: first})
+
+
+def rewired(graph: dict, moves: dict[str, str]) -> dict:
+    """把图里指向旧 id 的连线改到新 id。"""
     for node in graph.values():
         for name, raw in node["inputs"].items():
-            if isinstance(raw, list) and raw[0] == old:
-                node["inputs"][name] = [new, raw[1]]
+            if isinstance(raw, list) and raw[0] in moves:
+                node["inputs"][name] = [moves[raw[0]], raw[1]]
     return graph
 
 
@@ -209,3 +222,47 @@ def test_a_carried_over_entry_picks_up_a_consumer_it_never_had():
     target = rematch(reference_workflow(), {"reference_images": [entry]}).keys["reference_images"].selected_targets[0]
 
     assert target["consumer"] == {"node": "22", "input": "image1", "class_type": "ImageStitch", "title": "Image Stitch"}
+
+
+def test_two_nodes_of_one_class_that_swapped_numbers_are_not_carried_over_by_id():
+    """正负两个 ``CLIPTextEncode`` 互换编号：标题对不上就不按 id 沿用，两条提示词各自迁到标题对得上的节点。"""
+    result = rematch(swapped("6", "7"), {"prompt": [POSITIVE], "negative_prompt": [NEGATIVE]})
+
+    assert origins(result, "prompt") == ["rematched"]
+    assert result.keys["prompt"].selected_targets[0]["node"] == "7"
+    assert result.keys["negative_prompt"].selected_targets[0]["node"] == "6"
+
+
+def test_a_swapped_node_whose_title_is_nowhere_in_the_new_graph_needs_confirmation():
+    """标题对不上又按标题定位不到：条目算丢，整键重跑推断并等用户确认，不静默沿用。"""
+    graph = swapped("6", "7")
+    del graph["6"]["_meta"]
+    del graph["7"]["_meta"]
+
+    result = rematch(graph, {"prompt": [POSITIVE]})
+
+    assert result.keys["prompt"].state is BindingState.NEEDS_CONFIRMATION
+    assert InferenceNote.BINDING_LOST.value in {note.code.value for note in result.keys["prompt"].notes}
+    assert result.keys["prompt"].selected_targets == ()
+
+
+def test_an_entry_and_a_node_that_both_have_no_title_are_still_carried_over():
+    """导出物里 ``_meta`` 可能整节缺失：两边都没有标题时核对不出任何东西，照旧沿用。"""
+    graph = workflow()
+    del graph["6"]["_meta"]
+    untitled = {**POSITIVE, "title": ""}
+
+    result = rematch(graph, {"prompt": [untitled]})
+
+    assert result.keys["prompt"].state is BindingState.AUTO_SELECTED
+    assert origins(result, "prompt") == ["kept"]
+
+
+def test_an_entry_that_never_recorded_a_title_is_still_carried_over():
+    """``title`` 在定义 schema 上是可选字段：手写的定义没记它，不等于当时那个节点没有标题。"""
+    entry = {"node": "6", "input": "text", "class_type": "CLIPTextEncode"}
+
+    result = rematch(workflow(), {"prompt": [entry]})
+
+    assert result.keys["prompt"].state is BindingState.AUTO_SELECTED
+    assert origins(result, "prompt") == ["kept"]

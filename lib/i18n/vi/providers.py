@@ -54,7 +54,7 @@ MESSAGES: dict[str, str] = {
     "model_name_kling_kling-v3-omni-image": "Kling V3-Omni (Ảnh)",
     "model_name_kling_kling-image-o1": "Kling Ảnh O1",
     "model_name_kling_kling-video-o1": "Kling Video O1",
-    # Agent preset notes (lib/agent_provider_catalog.py)
+    # Agent preset notes (lib/agent/agent_provider_catalog.py)
     "preset_notes_deepseek": "Endpoint Anthropic-compat chính thức của DeepSeek; cần API key sk-.",
     "preset_notes_xiaomi_mimo": "Xiaomi MiMo chỉ chấp nhận tên model đã biết; không có danh sách model công khai.",
     "preset_notes_ark_coding_plan": "Gói Volcengine Ark Coding Plan; không có endpoint danh sách model — hãy chọn model gợi ý đã bật trong bảng điều khiển Ark.",

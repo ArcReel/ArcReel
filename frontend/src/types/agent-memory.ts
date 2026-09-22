@@ -1,4 +1,4 @@
-// Agent 记忆目录的读模型（后端 lib/agent_memory_store.py 的 overview 响应）。
+// Agent 记忆目录的读模型（后端 lib/agent/agent_memory_store.py 的 overview 响应）。
 // 用户记忆与项目记忆的形状完全一致，差别只在请求路径，故共用一套类型。
 
 /** frontmatter 里合法的记忆类型；取值之外的一律由后端判为无 frontmatter。 */

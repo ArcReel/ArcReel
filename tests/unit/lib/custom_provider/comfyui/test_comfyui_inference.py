@@ -381,11 +381,22 @@ def test_the_seed_entry_defaults_to_a_fresh_value_every_submission():
     assert infer_sample("wan21_t2v").keys["seed"].selected_targets[0]["policy"] == "random"
 
 
-def test_a_video_saver_outranks_an_image_saver_in_the_same_graph():
+@pytest.mark.parametrize("class_type", ["SaveImage", "SaveImageAdvanced", "SaveAnimatedWEBP", "SaveWEBM"])
+def test_a_saver_that_cannot_export_a_video_container_is_never_offered(class_type: str):
+    """产物候选只列导出 ISO BMFF 的保存节点：推到一个产不出成片容器的节点上，等到取件才判不符。"""
     workflow = sample_workflow("wan21_t2v")
-    workflow["59"] = {"class_type": "SaveImage", "inputs": {"filename_prefix": "still", "images": ["8", 0]}}
+    workflow["59"] = {"class_type": class_type, "inputs": {"filename_prefix": "still", "images": ["8", 0]}}
     result = infer_sample("wan21_t2v", workflow=workflow)
     assert landings(result, "output") == [("58", None)]
+    assert ("59", None) not in offered(result, "output")
+
+
+def test_an_animated_webp_saver_is_never_offered_as_an_image_output():
+    """动图不是分镜图：当成图入库只会得到一张首帧。"""
+    workflow = sample_workflow("sdxl_batch_t2i")
+    workflow["59"] = {"class_type": "SaveAnimatedWEBP", "inputs": {"filename_prefix": "anim", "images": ["8", 0]}}
+    result = infer_sample("sdxl_batch_t2i", workflow=workflow)
+    assert ("59", None) not in offered(result, "output")
 
 
 def test_a_preview_node_never_becomes_the_output():
@@ -459,8 +470,9 @@ def test_a_field_two_keys_want_equally_is_left_to_neither():
 
 def test_a_saved_binding_keeps_its_field_and_inference_yields_it_instead():
     """用户确认过的落点不由推断让出：已保存绑定的权重高于任何推断信号，标记也压不过它。"""
-    workflow = marked(sample_workflow("wan21_t2v"), "7", "ARCREEL:prompt")
-    saved = {"negative_prompt": [{"node": "7", "input": "text", "class_type": "CLIPTextEncode", "title": "负向"}]}
+    marker = "ARCREEL:prompt"
+    workflow = marked(sample_workflow("wan21_t2v"), "7", marker)
+    saved = {"negative_prompt": [{"node": "7", "input": "text", "class_type": "CLIPTextEncode", "title": marker}]}
 
     result = infer_sample("wan21_t2v", workflow=workflow, bindings=saved)
 

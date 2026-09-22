@@ -12,7 +12,7 @@ from sqlalchemy import DateTime, String, pool
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from alembic import context
-from lib.agent_session_store.models import register_models as register_agent_session_models
+from lib.agent.agent_session_store.models import register_models as register_agent_session_models
 from lib.db.base import Base
 from lib.db.engine import get_database_url
 from lib.db.models import register_models as register_db_models

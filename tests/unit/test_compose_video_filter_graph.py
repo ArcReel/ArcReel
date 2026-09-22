@@ -27,7 +27,7 @@ SCRIPT_PATH = (
     REPO_ROOT / "agent_runtime_profile" / ".claude" / "skills" / "compose-video" / "scripts" / "compose_video.py"
 )
 
-# compose_video.py 顶部会 `from lib.project_manager import ProjectManager`，
+# compose_video.py 顶部会 `from lib.project.project_manager import ProjectManager`，
 # 需保证 REPO_ROOT 在 sys.path（pytest 默认会注入，这里二次防御）
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))

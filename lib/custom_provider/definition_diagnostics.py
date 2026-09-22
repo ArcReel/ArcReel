@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
 
-from lib.validation_messages import ValidationMessage
+from lib.infra.validation_messages import ValidationMessage
 
 #: 诊断消息键的统一前缀：``code`` 与消息键一一对应，新增码必须同步三种语言的消息。
 MESSAGE_KEY_PREFIX = "val_ce_"
@@ -52,6 +52,7 @@ class DefinitionErrorCode(StrEnum):
     AUTH_HEADER_CONFLICT = "auth_header_conflict"
     HEADER_NAME_DUPLICATE = "header_name_duplicate"
     AUTH_QUERY_CONFLICT = "auth_query_conflict"
+    AUTH_QUERY_RESERVED = "auth_query_reserved"
     TASK_ID_OUT_OF_SCOPE = "task_id_out_of_scope"
     RESULT_ID_OUT_OF_SCOPE = "result_id_out_of_scope"
     RESULT_ID_WITHOUT_EXTRACT = "result_id_without_extract"
@@ -107,6 +108,7 @@ class DefinitionErrorCode(StrEnum):
     COMFYUI_TARGET_COLLISION = "comfyui_target_collision"
     COMFYUI_CLASS_TYPE_MISMATCH = "comfyui_class_type_mismatch"
     COMFYUI_CONSUMER_NOT_FED = "comfyui_consumer_not_fed"
+    COMFYUI_FPS_CONFLICT = "comfyui_fps_conflict"
 
     # ---- ComfyUI 导入分流 ----
     COMFYUI_UI_FORMAT_WORKFLOW = "comfyui_ui_format_workflow"

@@ -6,7 +6,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 from collections.abc import Generator
 from dataclasses import replace
@@ -227,6 +226,11 @@ class TestEndpointCatalog:
                 "request_path_template",
                 "image_capabilities",
                 "end_image_capable",
+                "size_fixed",
+                "duration_fixed",
+                "duration_frame_rate_missing",
+                "duration_tier_empty",
+                "native_resolution",
             }
             assert entry["request_method"] == "POST"
             assert entry["request_path_template"].startswith("/")
@@ -535,6 +539,20 @@ class TestDiscoverModels:
         assert len(resp.json()["models"]) == 1
         assert resp.json()["models"][0]["model_id"] == "gpt-4"
 
+    def test_discover_refuses_a_metadata_destination_with_a_redacted_reason(self, custom_providers_client: TestClient):
+        """出站目的地被拒按 502 回显，正文是截断脱敏后的失败串，与上游故障同一条出口。"""
+        with capture_http() as router:
+            route = router.get("http://169.254.169.254/v1/models").respond(json={"data": []})
+            resp = custom_providers_client.post(
+                "/api/v1/custom-providers/discover",
+                json={"discovery_format": "anthropic", "base_url": "http://169.254.169.254", "api_key": "sk-secret"},
+            )
+        assert route.call_count == 0
+        assert resp.status_code == 502
+        detail = resp.json()["detail"]
+        assert "disallowed address" in detail
+        assert "sk-secret" not in detail
+
     def test_discover_google(self, custom_providers_client: TestClient):
         """google discovery_format 透传到 discover_models。"""
         fake_models = [
@@ -567,21 +585,16 @@ class TestDiscoverModels:
     def test_discover_rejects_credential_bearing_base_url(self, custom_providers_client: TestClient):
         """带查询串 / 权限段凭证的 anthropic base_url 在发起请求前就被拒，回给前端的文案不含凭证。"""
         base_url = "https://ant-user:sk-leaked-userinfo@relay.example.com/anthropic?api_key=sk-leaked-query"
-        discovery_client = httpx.AsyncClient()
-        try:
-            with capture_http() as http:
-                route = http.get(host="relay.example.com").respond(status_code=401, text="unauthorized")
-                with patch("lib.custom_provider.discovery.get_http_client", return_value=discovery_client):
-                    resp = custom_providers_client.post(
-                        "/api/v1/custom-providers/discover",
-                        json={
-                            "discovery_format": "anthropic",
-                            "base_url": base_url,
-                            "api_key": "sk-ant",
-                        },
-                    )
-        finally:
-            asyncio.run(discovery_client.aclose())
+        with capture_http() as http:
+            route = http.get(host="relay.example.com").respond(status_code=401, text="unauthorized")
+            resp = custom_providers_client.post(
+                "/api/v1/custom-providers/discover",
+                json={
+                    "discovery_format": "anthropic",
+                    "base_url": base_url,
+                    "api_key": "sk-ant",
+                },
+            )
 
         assert route.call_count == 0
         assert resp.status_code == 422
@@ -1222,7 +1235,7 @@ class TestValidateBackendValueCustomPrefix:
     """回归: validate_backend_value 应接受 custom-* 前缀。"""
 
     def test_custom_prefix_accepted(self):
-        from lib.api_errors import BadRequestError
+        from lib.infra.api_errors import BadRequestError
         from server.routers._validators import validate_backend_value
 
         # custom- 前缀不在 PROVIDER_REGISTRY 中，仍须放行（逐模型能力由供应商 API 把关）
@@ -1231,7 +1244,7 @@ class TestValidateBackendValueCustomPrefix:
         assert validate_backend_value("custom-3/gpt-4o", "default_text_backend") is None
 
     def test_unknown_provider_rejected(self):
-        from lib.api_errors import BadRequestError
+        from lib.infra.api_errors import BadRequestError
         from server.routers._validators import validate_backend_value
 
         with pytest.raises(BadRequestError) as exc_info:
@@ -1656,6 +1669,57 @@ def test_check_unique_defaults_refuses_two_image_defaults_that_declare_no_capabi
     assert excinfo.value.status_code == 422
 
 
+def _comfyui_image_spec(key: str, *, reference_slots: int) -> EndpointSpec:
+    """一条 ComfyUI 图像端点的 spec：参考图格子决定它落在 t2i 还是 i2i 那一格。"""
+    from lib.custom_provider.endpoints import comfyui_endpoint_spec
+    from tests.factories import comfyui_endpoint_definition
+
+    definition = comfyui_endpoint_definition(media_type="image")
+    if reference_slots:
+        definition["workflow"]["20"] = {"class_type": "LoadImage", "inputs": {"image": "draft.png"}}
+        definition["bindings"]["reference_images"] = [
+            {"node": "20", "input": "image", "class_type": "LoadImage"}
+        ] * reference_slots
+    return comfyui_endpoint_spec(key, definition)
+
+
+def test_check_unique_defaults_separates_two_comfyui_image_endpoints_by_capability():
+    """一份文生图 workflow 与一份图生图 workflow 各设默认：能力集不相交，互不冲突。"""
+    from server.routers.custom_providers import ModelInput, _check_unique_defaults
+
+    models = [
+        ModelInput(model_id="t2i", display_name="t2i", endpoint="ce-7", is_default=True),
+        ModelInput(model_id="i2i", display_name="i2i", endpoint="ce-8", is_default=True),
+    ]
+    specs = {
+        "ce-7": _comfyui_image_spec("ce-7", reference_slots=0),
+        "ce-8": _comfyui_image_spec("ce-8", reference_slots=1),
+    }
+
+    _check_unique_defaults(models, specs, lambda key, **params: key)
+
+
+def test_check_unique_defaults_rejects_two_comfyui_text_to_image_defaults():
+    """两份都只会文生图：同一格里两个默认，取默认模型时会一次查出两行。"""
+    from fastapi import HTTPException
+
+    from server.routers.custom_providers import ModelInput, _check_unique_defaults
+
+    models = [
+        ModelInput(model_id="m1", display_name="m1", endpoint="ce-7", is_default=True),
+        ModelInput(model_id="m2", display_name="m2", endpoint="ce-8", is_default=True),
+    ]
+    specs = {
+        "ce-7": _comfyui_image_spec("ce-7", reference_slots=0),
+        "ce-8": _comfyui_image_spec("ce-8", reference_slots=0),
+    }
+
+    with pytest.raises(HTTPException) as excinfo:
+        _check_unique_defaults(models, specs, lambda key, **params: f"{key}:{params}")
+
+    assert excinfo.value.status_code == 422
+
+
 def test_check_unique_defaults_allows_one_image_default_without_capabilities():
     """一条这样的默认没有分不开的对象，照常放行。"""
     from server.routers.custom_providers import ModelInput, _check_unique_defaults
@@ -1869,10 +1933,9 @@ class TestDiscoverAnthropic:
         assert mock_discover.call_args.kwargs["api_key"] == "sk-stored"
 
 
-class TestGetProviderCredentials:
-    def test_returns_plaintext(self, custom_providers_client: TestClient):
-        """正常路径返回明文 base_url + api_key。"""
-        # 先创建 provider
+class TestProviderSecretReadback:
+    def test_stored_api_key_has_no_readback_route(self, custom_providers_client: TestClient):
+        """供应商密钥只以掩码形式出现在响应中，不提供按 id 读回明文的路由。"""
         create_resp = custom_providers_client.post(
             "/api/v1/custom-providers",
             json={
@@ -1887,14 +1950,9 @@ class TestGetProviderCredentials:
         provider_id = create_resp.json()["id"]
 
         resp = custom_providers_client.get(f"/api/v1/custom-providers/{provider_id}/credentials")
-        assert resp.status_code == 200
-        body = resp.json()
-        assert body["base_url"] == "https://oneapi.example.com"
-        assert body["api_key"] == "sk-secret"
-
-    def test_returns_404_for_unknown_provider(self, custom_providers_client: TestClient):
-        resp = custom_providers_client.get("/api/v1/custom-providers/99999/credentials")
-        assert resp.status_code == 404
+        assert resp.status_code in (404, 405)
+        detail = custom_providers_client.get(f"/api/v1/custom-providers/{provider_id}")
+        assert "sk-secret" not in detail.text
 
 
 class TestSupportedDurationsAutoFill:

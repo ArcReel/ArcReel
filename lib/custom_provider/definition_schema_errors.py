@@ -13,7 +13,7 @@ from collections.abc import Iterator, Mapping, Sequence
 
 from jsonschema.exceptions import ValidationError
 
-from lib.validation_messages import MessageRef, ValidationMessage
+from lib.infra.validation_messages import MessageRef, ValidationMessage
 
 from .definition_diagnostics import ROOT_PATH, DefinitionErrorCode, DefinitionIssue, join_path
 

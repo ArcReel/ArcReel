@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from lib.api_errors import BadRequestError
 from lib.config.registry import PROVIDER_REGISTRY, default_model_for_provider
 from lib.config.resolver import ConfigResolver, VideoBucketCapabilityError, VideoGenerationType
+from lib.infra.api_errors import BadRequestError
 
 
 def split_video_backend_query(video_backend: str) -> tuple[str, str]:
@@ -52,11 +52,11 @@ async def require_audio_switch_supported(project: dict, generation_type: VideoGe
     显式拒绝并说明修复路径，比让请求带着不可能实现的意图执行下去更可用。
 
     设置界面已按同一判据禁用开关，此处覆盖存量配置里已存「关闭」的项目。判据取自
-    :func:`server.services.video_caps.resolve_audio_switch_conflict`，与 Agent 入队路径同源；
+    :func:`server.services.tasks.video_caps.resolve_audio_switch_conflict`，与 Agent 入队路径同源；
     解析失败一律放行（与 :func:`require_video_bucket_capability` 同口径），不把配置解析问题
     升级为提交期拒绝。
     """
-    from server.services.video_caps import resolve_audio_switch_conflict
+    from server.services.tasks.video_caps import resolve_audio_switch_conflict
 
     conflict = await resolve_audio_switch_conflict(project, generation_type)
     if conflict is None:

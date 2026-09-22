@@ -15,7 +15,7 @@ description: >-
 
 - 所有资产 `description` 用**叙事式段落**，而不是关键词列表。
 - 用户只需在 project.json 中维护 `description`；最终交给图像 backend 的完整 prompt
-  （含布局 / 防崩短语 / 反向提示词）由 `lib/prompt_builders.py` 在 server 端拼好，
+  （含布局 / 防崩短语 / 反向提示词）由 `lib/prompts/prompt_builders.py` 在 server 端拼好，
   WebUI 与 Skill 走同一份真相源。
 - Pending 判定：Artifact Manifest 中该资产图状态为 `missing`；`stale` 产物复用，不计入待生成。
 
@@ -105,7 +105,7 @@ description: >-
 ## 工作流程
 
 1. **加载项目元数据** — 从 Artifact Manifest 找出资产图状态为 `missing` 的资产
-2. **入队生成任务** — description 直接作为 prompt 提交；server 端 `lib.prompt_builders` 注入布局 / 防崩 / 反向
+2. **入队生成任务** — description 直接作为 prompt 提交；server 端 `lib.prompts.prompt_builders` 注入布局 / 防崩 / 反向
 3. **审核检查点** — 展示每张资产图，用户可批准、要求重新生成，或要求编辑
 4. **更新 project.json** — 更新 `character_sheet` / `scene_sheet` / `prop_sheet` / `product_sheet` 路径
 

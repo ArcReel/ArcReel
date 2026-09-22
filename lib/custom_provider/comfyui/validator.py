@@ -11,7 +11,6 @@
 from __future__ import annotations
 
 import json
-import re
 from collections.abc import Iterator, Mapping
 from functools import cache
 from pathlib import Path
@@ -19,6 +18,7 @@ from typing import Any
 
 from jsonschema import Draft202012Validator
 
+from lib.custom_provider.auth_section import API_KEY_VARIABLE, PLACEHOLDER, check_auth_section
 from lib.custom_provider.definition_diagnostics import (
     DefinitionDiagnostics,
     DefinitionErrorCode,
@@ -27,7 +27,8 @@ from lib.custom_provider.definition_diagnostics import (
 )
 from lib.custom_provider.definition_schema_errors import most_specific, translate_schema_error
 
-from .bindings import BINDING_KEYS_BY_MEDIA_TYPE, REQUIRED_BINDING_KEYS
+from .bindings import BINDING_KEYS_BY_MEDIA_TYPE, REQUIRED_BINDING_KEYS, positive_number, targets_of
+from .capabilities import fps_literals
 from .graph import ancestors, link_of
 from .workflow import is_link, node_inputs
 
@@ -41,11 +42,6 @@ CURRENT_SCHEMA_VERSION = "1.0.0"
 REMOVED_FIELD_REASONS: Mapping[str, str] = {
     "capabilities": "val_ce_removed_reason_comfyui_capabilities",
 }
-
-#: ``auth`` 里唯一可用的变量。
-_API_KEY_VARIABLE = "api_key"
-
-_PLACEHOLDER = re.compile(r"\{\{\s*([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)\s*\}\}")
 
 
 @cache
@@ -70,7 +66,32 @@ def validate_comfyui_definition(document: Mapping[str, Any]) -> DefinitionDiagno
     structural = structural_diagnostics(document)
     if structural.errors:
         return structural
-    return DefinitionDiagnostics(errors=tuple(_semantic_issues(document)))
+    auth = check_auth_section(document.get("auth") or {}, variable_issues=_auth_variable_issues)
+    return DefinitionDiagnostics(
+        errors=(*_semantic_issues(document), *auth.errors, *_reserved_auth_query_issues(document)),
+        warnings=auth.warnings,
+    )
+
+
+#: 取产物那一跳（``GET /view``）自己要带的查询参数。凭证 query 与它们同名时，拼请求的那一步
+#: 由产物参数覆盖凭证，提交与轮询都过得去、下载却少了凭证，代理多半回 401。
+_VIEW_RESERVED_QUERY = frozenset({"filename", "subfolder", "type"})
+
+
+def _reserved_auth_query_issues(document: Mapping[str, Any]) -> Iterator[DefinitionIssue]:
+    """``auth.query`` 里占用了产物下载路由自带参数名的条目。
+
+    两者占不了同一个键：ComfyUI 认这三个参数才给得出文件，换掉它们等于换掉要下载的东西。
+    保存期拒掉，好过让用户在一次已经出完片的执行上撞 401。
+    """
+    query: Mapping[str, Any] = (document.get("auth") or {}).get("query") or {}
+    for name in query:
+        if str(name) in _VIEW_RESERVED_QUERY:
+            yield DefinitionIssue(
+                join_path(join_path("auth", "query"), str(name)),
+                DefinitionErrorCode.AUTH_QUERY_RESERVED,
+                {"param": str(name)},
+            )
 
 
 def structural_diagnostics(document: object) -> DefinitionDiagnostics:
@@ -96,7 +117,8 @@ def _semantic_issues(document: Mapping[str, Any]) -> Iterator[DefinitionIssue]:
     yield from _media_type_issues(bindings, media_type)
     yield from _target_issues(bindings, workflow, media_type)
     yield from _collision_issues(bindings, media_type)
-    yield from _auth_issues(document)
+    yield from _fps_issues(bindings, workflow, media_type)
+    yield from _api_key_outside_auth_issues(document)
 
 
 def _required_binding_issues(bindings: Mapping[str, Any]) -> Iterator[DefinitionIssue]:
@@ -260,6 +282,34 @@ def _collision_issues(bindings: Mapping[str, Any], media_type: str) -> Iterator[
             owners[landing] = key
 
 
+def _fps_issues(bindings: Mapping[str, Any], workflow: Mapping[str, Any], media_type: str) -> Iterator[DefinitionIssue]:
+    """帧率只能有一个真相源：多个 ``fps`` 只读绑定读出的字面值必须一致。
+
+    ``frames`` 的换算（``round(时长 × 帧率) + 1``）把一个帧率套到全部帧数目标上。两条只读绑定
+    读出不同字面值时，这份定义自己就说不清这份 workflow 跑在哪个帧率上，构造层取第一个、另一条
+    分支的帧数于是按错的帧率算出来，成片比用户选的长或短而无人报错；同一个数值由 ``fps`` 绑定与
+    ``frames`` 条目上手填的常量各说一遍时同理。读不出字面值的绑定不参与判定——那是节点或字段已
+    不在图里，由目标校验单独报。
+
+    图像端点没有这两个语义键（``BINDING_KEYS_BY_MEDIA_TYPE``），不进此判。
+    """
+    if "fps" not in BINDING_KEYS_BY_MEDIA_TYPE[media_type]:
+        return
+    literals = fps_literals(workflow, bindings)
+    manual = [value for target in targets_of(bindings.get("frames")) if (value := positive_number(target.get("fps")))]
+    distinct = sorted({*literals, *manual})
+    if len(distinct) > 1:
+        yield DefinitionIssue(
+            join_path("bindings", "fps"),
+            DefinitionErrorCode.COMFYUI_FPS_CONFLICT,
+            {"values": " / ".join(_format_fps(value) for value in distinct)},
+        )
+
+
+def _format_fps(value: float) -> str:
+    return str(int(value)) if value.is_integer() else str(value)
+
+
 def _write_landing(target: Mapping[str, Any]) -> tuple[str, str] | None:
     """这个目标会往哪个字段写值。只读目标与节点级的产物目标都没有落点。"""
     if target.get("direction") == "read":
@@ -268,31 +318,23 @@ def _write_landing(target: Mapping[str, Any]) -> tuple[str, str] | None:
     return (str(target["node"]), name) if isinstance(name, str) else None
 
 
-def _auth_issues(document: Mapping[str, Any]) -> Iterator[DefinitionIssue]:
-    """凭证只从 ``auth`` 节写入，且该节只认 ``api_key`` 一个变量。
+def _auth_variable_issues(path: str, name: str) -> list[DefinitionIssue]:
+    """ComfyUI 的 ``auth`` 节只认 ``api_key``：别的变量都无处取值。
+
+    声明式定义的 auth 节可以引用 ``base_url`` 这类基础变量，ComfyUI 客户端没有那套模板上下文
+    ——凭证之外的模板求值在这一侧根本不存在。
+    """
+    return [DefinitionIssue(path, DefinitionErrorCode.UNDECLARED_VARIABLE, {"name": name})]
+
+
+def _api_key_outside_auth_issues(document: Mapping[str, Any]) -> Iterator[DefinitionIssue]:
+    """凭证只从 ``auth`` 节写入。
 
     workflow 是原样内嵌的底稿、提交时不作模板渲染，里面写 ``{{api_key}}`` 既不会生效，又会把
     真实凭证随导出文件分发出去。
     """
-    auth: Mapping[str, Any] = document.get("auth") or {}
-    references_api_key = False
-    for path, template in _auth_templates(auth):
-        for name in _PLACEHOLDER.findall(template):
-            if name == _API_KEY_VARIABLE:
-                references_api_key = True
-            else:
-                yield DefinitionIssue(path, DefinitionErrorCode.UNDECLARED_VARIABLE, {"name": name})
-    if auth and not references_api_key:
-        yield DefinitionIssue("auth", DefinitionErrorCode.AUTH_WITHOUT_API_KEY)
     for path in _api_key_outside_auth(document):
         yield DefinitionIssue(path, DefinitionErrorCode.API_KEY_OUTSIDE_AUTH)
-
-
-def _auth_templates(auth: Mapping[str, Any]) -> Iterator[tuple[str, str]]:
-    for group in ("headers", "query"):
-        values: Mapping[str, Any] = auth.get(group) or {}
-        for name, template in values.items():
-            yield join_path(join_path("auth", group), name), str(template)
 
 
 def _api_key_outside_auth(document: Mapping[str, Any]) -> Iterator[str]:
@@ -304,7 +346,7 @@ def _api_key_outside_auth(document: Mapping[str, Any]) -> Iterator[str]:
 
 def _api_key_references(path: str, value: object) -> Iterator[str]:
     if isinstance(value, str):
-        if _API_KEY_VARIABLE in _PLACEHOLDER.findall(value):
+        if API_KEY_VARIABLE in PLACEHOLDER.findall(value):
             yield path
     elif isinstance(value, Mapping):
         for key, child in value.items():

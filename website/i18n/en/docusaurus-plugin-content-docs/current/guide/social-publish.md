@@ -62,5 +62,12 @@ Upload-Post caps monthly publishes per plan. Upgrade the plan or wait for the qu
 **A platform stays on "processing"**
 Transcoding and review times differ per platform and are noticeably longer for long videos. Closing the dialog does not stop the background delivery, but it does clear the local progress panel — reopening gives you a fresh submission form.
 
+:::warning Publishing again before the previous delivery finishes posts it twice
+Closing the dialog only stops you watching the progress; the delivery keeps running on the server.
+Reopening and publishing again is a **brand-new delivery** — the upstream does not recognise it as the
+same one, so the same video appears twice on the target platforms, and social platforms cannot roll
+that back. Wait for the previous delivery to reach a terminal state before publishing again.
+:::
+
 **"The selected media is unavailable"**
 The version file the player selected was cleaned up or renamed. Regenerate it, or switch to a version that still exists, and publish again.

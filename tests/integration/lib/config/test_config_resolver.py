@@ -194,6 +194,48 @@ class TestDefaultBackends:
             with pytest.raises(ValueError, match="未找到可用的 image 供应商"):
                 await resolver._resolve_default_image_backend(fake_svc, session)
 
+    @pytest.mark.parametrize(("generation_type", "expected_model"), [("t2i", "t2i-m"), ("i2i", "i2i-m")])
+    async def test_image_backend_auto_resolve_picks_the_custom_default_of_the_bucket(
+        self, db_factory, generation_type, expected_model
+    ):
+        """无 ready 内置供应商时的自定义兜底按桶挑默认：t2i 与 i2i 各设一个默认时不能取错桶。"""
+        from lib.custom_provider import make_provider_id
+        from lib.db.models.custom_provider import CustomProvider, CustomProviderModel
+
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(settings={}, ready_providers=[])
+        async with db_factory() as session:
+            provider = CustomProvider(
+                display_name="Prov", discovery_format="openai", base_url="https://api.example.com", api_key="k"
+            )
+            session.add(provider)
+            await session.flush()
+            session.add_all(
+                [
+                    # openai-images-generations 只声明 t2i，openai-images-edits 只声明 i2i
+                    CustomProviderModel(
+                        provider_id=provider.id,
+                        model_id="t2i-m",
+                        display_name="T2I",
+                        endpoint="openai-images-generations",
+                        is_default=True,
+                        is_enabled=True,
+                    ),
+                    CustomProviderModel(
+                        provider_id=provider.id,
+                        model_id="i2i-m",
+                        display_name="I2I",
+                        endpoint="openai-images-edits",
+                        is_default=True,
+                        is_enabled=True,
+                    ),
+                ]
+            )
+            await session.flush()
+
+            result = await resolver._resolve_default_image_backend(fake_svc, session, generation_type)
+        assert result == (make_provider_id(provider.id), expected_model)
+
     async def test_default_image_backend_t2i_bucket_overrides_default_layer(self):
         """全局桶 default_image_backend_t2i 覆盖全局默认层 default_image_backend。"""
         resolver = ConfigResolver.__new__(ConfigResolver)
@@ -711,6 +753,192 @@ class TestVideoCapabilities:
         assert caps["max_duration"] == 10
         # newapi-video endpoint 不接受参考图，max=0（来源：EndpointSpec.video_max_reference_images）
         assert caps["max_reference_images"] == 0
+
+    async def test_a_comfyui_row_with_an_empty_tier_resolves_instead_of_failing_loud(self, db_factory):
+        """时长可以整维不由 ArcReel 驱动（``docs/adr/0082``）：空集在该协议上是合法态。
+
+        ADR 0018 的「空集即 fail loud」守的是「型号声明缺失」，而这里是「这一维在该端点上不存在」
+        ——``frames`` 未绑定的 workflow 出它自己那一档，界面据此禁用时长控件。
+        """
+        from lib.db.models.custom_endpoint import CustomEndpoint
+        from lib.db.models.custom_provider import CustomProvider, CustomProviderModel
+        from tests.factories import comfyui_endpoint_definition
+
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(settings={})
+        async with db_factory() as session:
+            definition = comfyui_endpoint_definition()
+            definition["bindings"]["start_image"] = [{"node": "11", "input": "image", "class_type": "LoadImage"}]
+            endpoint = CustomEndpoint(
+                definition=definition,
+                kind="comfyui",
+                schema_version="1.0.0",
+                media_type="video",
+                display_name="示例 ComfyUI 端点",
+            )
+            session.add(endpoint)
+            provider = CustomProvider(
+                display_name="Comfy", discovery_format="comfyui", base_url="http://comfy.test:8188", api_key=""
+            )
+            session.add(provider)
+            await session.flush()
+            session.add(
+                CustomProviderModel(
+                    provider_id=provider.id,
+                    model_id="my-wan-workflow",
+                    display_name="My Workflow",
+                    endpoint=f"ce-{endpoint.id}",
+                    supported_durations="[]",
+                )
+            )
+            await session.flush()
+
+            with patch("lib.config.resolver.get_project_manager") as mock_pm:
+                mock_pm.return_value.load_project.return_value = {
+                    "video_backend": f"custom-{provider.id}/my-wan-workflow",
+                }
+                caps = await resolver._resolve_video_capabilities(fake_svc, session, "demo")
+
+        assert caps["supported_durations"] == []
+        assert caps["max_duration"] == 0
+        assert caps["duration_constraints"]["allowed"] == []
+        # 这一位把「这一维由端点固定」与「档位声明缺失」分开，剧本规划据它借篇幅依据而不是报错。
+        assert caps["duration_endpoint_fixed"] is True
+        # 能力位照常由绑定推导，与时长这一维互不牵连。
+        assert caps["first_frame"] is True
+        assert caps["text_to_video"] is False
+
+    async def test_a_stale_tier_on_the_row_is_dropped_when_the_endpoint_lost_its_frames_binding(self, db_factory):
+        """端点说这一维给不出档位时，行上存着的那份一律作废：真相源是端点，不是行。
+
+        两边分叉时沿用行上的 ``[5]``，能力接口与剧本规划就会宣称 5 秒，而端点目录已经把时长
+        控件禁掉——同一个问题两处答案不一样。
+        """
+        from lib.db.models.custom_endpoint import CustomEndpoint
+        from lib.db.models.custom_provider import CustomProvider, CustomProviderModel
+        from tests.factories import comfyui_endpoint_definition
+
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(settings={})
+        async with db_factory() as session:
+            definition = comfyui_endpoint_definition()
+            definition["bindings"]["start_image"] = [{"node": "11", "input": "image", "class_type": "LoadImage"}]
+            assert "frames" not in definition["bindings"]
+            endpoint = CustomEndpoint(
+                definition=definition,
+                kind="comfyui",
+                schema_version="1.0.0",
+                media_type="video",
+                display_name="示例 ComfyUI 端点",
+            )
+            session.add(endpoint)
+            provider = CustomProvider(
+                display_name="Comfy", discovery_format="comfyui", base_url="http://comfy.test:8188", api_key=""
+            )
+            session.add(provider)
+            await session.flush()
+            session.add(
+                CustomProviderModel(
+                    provider_id=provider.id,
+                    model_id="my-wan-workflow",
+                    display_name="My Workflow",
+                    endpoint=f"ce-{endpoint.id}",
+                    # 行上存着的那份档位，与端点此刻的答案分叉。
+                    supported_durations="[5]",
+                )
+            )
+            await session.flush()
+
+            with patch("lib.config.resolver.get_project_manager") as mock_pm:
+                mock_pm.return_value.load_project.return_value = {
+                    "video_backend": f"custom-{provider.id}/my-wan-workflow",
+                }
+                caps = await resolver._resolve_video_capabilities(fake_svc, session, "demo")
+
+        assert caps["supported_durations"] == []
+        assert caps["max_duration"] == 0
+        assert caps["duration_endpoint_fixed"] is True
+
+    async def test_an_empty_tier_on_the_row_gives_way_once_the_endpoint_can_drive_duration(self, db_factory):
+        """同一条规则的另一侧：行上是空集而端点给得出档位时，按端点的来。
+
+        沿用行上那份空集会让时长控件禁着、剧本规划借固定篇幅，而请求构造正在往图里写帧数。
+        """
+        from lib.db.models.custom_endpoint import CustomEndpoint
+        from lib.db.models.custom_provider import CustomProvider, CustomProviderModel
+        from tests.factories import comfyui_endpoint_definition
+
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(settings={})
+        async with db_factory() as session:
+            definition = comfyui_endpoint_definition()
+            definition["workflow"]["5"]["inputs"]["length"] = 81
+            definition["bindings"]["frames"] = [{"node": "5", "input": "length", "class_type": "EmptyLatentImage"}]
+            definition["bindings"]["start_image"] = [{"node": "11", "input": "image", "class_type": "LoadImage"}]
+            endpoint = CustomEndpoint(
+                definition=definition,
+                kind="comfyui",
+                schema_version="1.0.0",
+                media_type="video",
+                display_name="示例 ComfyUI 端点",
+            )
+            session.add(endpoint)
+            provider = CustomProvider(
+                display_name="Comfy", discovery_format="comfyui", base_url="http://comfy.test:8188", api_key=""
+            )
+            session.add(provider)
+            await session.flush()
+            session.add(
+                CustomProviderModel(
+                    provider_id=provider.id,
+                    model_id="my-wan-workflow",
+                    display_name="My Workflow",
+                    endpoint=f"ce-{endpoint.id}",
+                    # 行上是空集，而端点此刻推得出一档原生时长。
+                    supported_durations="[]",
+                )
+            )
+            await session.flush()
+
+            with patch("lib.config.resolver.get_project_manager") as mock_pm:
+                mock_pm.return_value.load_project.return_value = {
+                    "video_backend": f"custom-{provider.id}/my-wan-workflow",
+                }
+                caps = await resolver._resolve_video_capabilities(fake_svc, session, "demo")
+
+        assert caps["supported_durations"] == [5]
+        assert caps["max_duration"] == 5
+        assert caps["duration_endpoint_fixed"] is False
+
+    async def test_a_non_comfyui_row_with_an_empty_tier_still_fails_loud(self, db_factory):
+        """ADR 0018 对其余协议不变：档位声明缺失仍要把用户引到配置页去修。"""
+        from lib.db.models.custom_provider import CustomProvider, CustomProviderModel
+
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(settings={})
+        async with db_factory() as session:
+            provider = CustomProvider(
+                display_name="Custom X", discovery_format="openai", base_url="https://example.com", api_key="xxx"
+            )
+            session.add(provider)
+            await session.flush()
+            session.add(
+                CustomProviderModel(
+                    provider_id=provider.id,
+                    model_id="my-video-model",
+                    display_name="My Video",
+                    endpoint="newapi-video",
+                    supported_durations="[]",
+                )
+            )
+            await session.flush()
+
+            with patch("lib.config.resolver.get_project_manager") as mock_pm:
+                mock_pm.return_value.load_project.return_value = {
+                    "video_backend": f"custom-{provider.id}/my-video-model",
+                }
+                with pytest.raises(ValueError, match="supported_durations is empty"):
+                    await resolver._resolve_video_capabilities(fake_svc, session, "demo")
 
     async def test_custom_video_openai_endpoint_resolves_max_one(self, db_factory):
         """custom-<id>/<model> 经 openai-video endpoint 解析出 max_reference_images=1（不再静默落 9）。"""
@@ -1327,7 +1555,7 @@ class TestResolveVideoBackendBuckets:
     """generation_type 给定时的视频四级解析（项目桶 > 项目默认 > 全局桶 > 全局默认 > 自动推断）与能力闸。
 
     能力闸样本取 backend 声明的真实能力位：vidu/viduq3-pro 仅 i2v、dashscope/happyhorse-1.0-r2v
-    仅 r2v、ark 全系两桶齐备（见 lib/generation_type_buckets.py 的判定口径）。
+    仅 r2v、ark 全系两桶齐备（见 lib/backends/generation_type_buckets.py 的判定口径）。
     """
 
     async def test_project_bucket_wins_over_project_default(self):
@@ -1600,7 +1828,7 @@ class TestTextBackendTierResolution:
     async def test_five_level_priority_all_combinations(self, p_tier, p_def, g_tier, g_def):
         from unittest.mock import MagicMock
 
-        from lib.text_backends.base import TextTaskType
+        from lib.backends.text_backends.base import TextTaskType
 
         settings = {}
         if g_tier:
@@ -1634,7 +1862,7 @@ class TestTextBackendTierResolution:
     async def test_no_project_name_skips_project_levels(self):
         from unittest.mock import MagicMock
 
-        from lib.text_backends.base import TextTaskType
+        from lib.backends.text_backends.base import TextTaskType
 
         resolver = ConfigResolver.__new__(ConfigResolver)
         fake_svc = _FakeConfigService(settings={"text_backend_complex": "g-tier/m", "default_text_backend": "g-def/m"})
@@ -1645,7 +1873,7 @@ class TestTextBackendTierResolution:
         """OVERVIEW / STYLE_ANALYSIS 归简单档，读 text_backend_simple 而非复杂档键。"""
         from unittest.mock import MagicMock
 
-        from lib.text_backends.base import TextTaskType
+        from lib.backends.text_backends.base import TextTaskType
 
         resolver = ConfigResolver.__new__(ConfigResolver)
         fake_svc = _FakeConfigService(settings={"text_backend_simple": "simple/m", "text_backend_complex": "complex/m"})
@@ -1656,7 +1884,7 @@ class TestTextBackendTierResolution:
     async def test_script_task_reads_complex_key(self):
         from unittest.mock import MagicMock
 
-        from lib.text_backends.base import TextTaskType
+        from lib.backends.text_backends.base import TextTaskType
 
         resolver = ConfigResolver.__new__(ConfigResolver)
         fake_svc = _FakeConfigService(settings={"text_backend_simple": "simple/m", "text_backend_complex": "complex/m"})
@@ -1667,7 +1895,7 @@ class TestTextBackendTierResolution:
         """无 "/" 的脏值视为未设置，落到下一级。"""
         from unittest.mock import MagicMock
 
-        from lib.text_backends.base import TextTaskType
+        from lib.backends.text_backends.base import TextTaskType
 
         resolver = ConfigResolver.__new__(ConfigResolver)
         fake_svc = _FakeConfigService(settings={"text_backend_complex": "no-slash", "default_text_backend": "g-def/m"})
@@ -1679,7 +1907,7 @@ class TestTextBackendTierResolution:
         不静默回退到全局默认的另一供应商。与图片 / 视频的项目层同构。"""
         from unittest.mock import MagicMock
 
-        from lib.text_backends.base import TextTaskType
+        from lib.backends.text_backends.base import TextTaskType
 
         resolver = ConfigResolver.__new__(ConfigResolver)
         fake_svc = _FakeConfigService(settings={"default_text_backend": "g-def/m"})
@@ -1695,7 +1923,7 @@ class TestStyleAnalysisVisionGuard:
     async def test_rejects_registry_model_without_vision(self):
         from unittest.mock import MagicMock
 
-        from lib.text_backends.base import TextTaskType
+        from lib.backends.text_backends.base import TextTaskType
 
         resolver = ConfigResolver.__new__(ConfigResolver)
         # gemini-3.1-flash-lite-preview 在 registry 中未声明 vision
@@ -1706,7 +1934,7 @@ class TestStyleAnalysisVisionGuard:
     async def test_accepts_registry_model_with_vision(self):
         from unittest.mock import MagicMock
 
-        from lib.text_backends.base import TextTaskType
+        from lib.backends.text_backends.base import TextTaskType
 
         resolver = ConfigResolver.__new__(ConfigResolver)
         fake_svc = _FakeConfigService(settings={"text_backend_simple": "gemini-aistudio/gemini-3-flash-preview"})
@@ -1717,7 +1945,7 @@ class TestStyleAnalysisVisionGuard:
         """registry 之外（自定义供应商等）无逐模型能力事实，放行不猜测。"""
         from unittest.mock import MagicMock
 
-        from lib.text_backends.base import TextTaskType
+        from lib.backends.text_backends.base import TextTaskType
 
         resolver = ConfigResolver.__new__(ConfigResolver)
         fake_svc = _FakeConfigService(settings={"text_backend_simple": "custom-abc/some-model"})
@@ -1728,7 +1956,7 @@ class TestStyleAnalysisVisionGuard:
         """vision 校验只针对需要图像输入的任务，SCRIPT 不受限。"""
         from unittest.mock import MagicMock
 
-        from lib.text_backends.base import TextTaskType
+        from lib.backends.text_backends.base import TextTaskType
 
         resolver = ConfigResolver.__new__(ConfigResolver)
         fake_svc = _FakeConfigService(

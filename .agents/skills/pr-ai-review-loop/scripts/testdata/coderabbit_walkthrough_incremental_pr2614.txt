@@ -1,0 +1,175 @@
+<!-- This is an auto-generated comment: summarize by coderabbit.ai -->
+<!-- review_stack_entry_start -->
+
+<a href="https://app.coderabbit.ai/change-stack/ArcReel/ArcReel/pull/2614#gh-light-mode-only"><img src="https://storage.googleapis.com/coderabbit_public_assets/review-stack-in-coderabbit-ui.svg" alt="Review Change Stack" width="202" height="32"></a><a href="https://app.coderabbit.ai/change-stack/ArcReel/ArcReel/pull/2614#gh-dark-mode-only"><img src="https://storage.googleapis.com/coderabbit_public_assets/review-stack-in-coderabbit-ui-dark.svg" alt="Review Change Stack" width="202" height="32"></a>
+
+**Understand this PR’s impact**
+
+Explore downstream dependencies and potential security impact with Blast Radius.
+
+[View blast radius →](<https://app.coderabbit.ai/change-stack/ArcReel/ArcReel/pull/2614?view=blast-radius>)
+
+<!-- review_stack_entry_end -->
+<!-- recent_review_start -->
+
+No actionable comments were generated in the recent review. 🎉
+
+<details>
+<summary>ℹ️ Recent review info</summary>
+
+<details>
+<summary>⚙️ Run configuration</summary>
+
+**Configuration used**: Organization UI
+
+**Review profile**: CHILL
+
+**Plan**: Advanced
+
+**Run ID**: `2759a154-11df-4aae-97c3-b17915f95042`
+
+</details>
+
+<details>
+<summary>📥 Commits</summary>
+
+Reviewing files that changed from the base of the PR and between 9f40d9b3120003dda2e4ca01efc78c5821981ec1 and 1836151d17c1da600b4897ebb44e3680f627d1d6.
+
+</details>
+
+<details>
+<summary>📒 Files selected for processing (1)</summary>
+
+* `docs/adr/0006-cancel-only-queued-tasks.md`
+
+</details>
+
+<details>
+<summary>🚧 Files skipped from review as they are similar to previous changes (1)</summary>
+
+* docs/adr/0006-cancel-only-queued-tasks.md
+
+</details>
+
+**Included review availability:** Your plan provides up to 8 included reviews per hour; 4 remain after this review.
+
+</details>
+
+---
+
+
+
+<!-- recent_review_end -->
+<!-- walkthrough_start -->
+
+<details>
+<summary>📝 Walkthrough</summary>
+
+## Walkthrough
+
+本次变更移除 `cancelling` 状态、进程内取消机制和取消回执链路。运行中的任务拒绝取消并继续完成。迁移、前端、接口、worker、产物写入和文档同步更新。视频契约与共享运行支持完成模块拆分。
+
+### Changes
+
+**任务取消状态与持久化**
+
+|Layer / File(s)|Summary|
+|---|---|
+|**状态迁移与取消规则** <br> `alembic/versions/*`, `lib/db/models/task.py`, `lib/db/repositories/task_repo.py`|遗留 `cancelling` 任务升级为 `cancelled`。活动状态收窄为 `queued` 和 `running`。运行中的任务抛出 `TaskNotCancellableError`，排队任务及排队下游直接取消。|
+|**队列与 worker 流程** <br> `lib/generation/generation_queue.py`, `lib/generation/generation_worker.py`, `server/app.py`|移除 worker 取消回调、任务查找和 `cancelling` 分支。进程级打断改用 `mark_task_interrupted`。终态写入为 0 行时不再改判为取消。|
+|**接口与前端取消体验** <br> `server/routers/tasks.py`, `frontend/src/components/usage/*`, `frontend/src/types/task.ts`, `frontend/src/api.ts`|取消运行中任务返回 409。批次结果使用 `skipped_running`。前端只为 queued 任务显示取消入口，并展示服务端返回的拒绝原因。|
+|**取消回执与产物提交** <br> `lib/artifacts/*`, `server/services/tasks/*`, `server/text_generation.py`, `server/tool_runtime.py`|删除取消回执、可补偿结果和取消后的产物回滚链路。提交失败补偿仍保留。成功事件发送失败不再回滚已提交产物。|
+|**视频后端模块拆分** <br> `lib/backends/video_backend_contract.py`, `lib/backends/backend_runtime.py`, `lib/backends/http_status_errors.py`, `lib/backends/*`|新增轻量视频契约模块。共享运行支持迁移到 `backend_runtime`。`AmbiguousSubmitError` 迁移到 HTTP 错误模块。各后端更新导入路径。|
+|**文档与测试同步** <br> `docs/adr/*`, `website/docs/*`, `tests/*`|ADR、网站文档、迁移测试、取消测试、worker 测试和契约测试同步到新状态机与模块结构。|
+
+<!-- change_assessment_start -->
+**Priority:** ➖ Normal
+
+
+
+
+
+**Estimated code review effort:** 5 (Critical) | ~120 minutes
+
+<!-- change_assessment_commit:"1836151d17c1da600b4897ebb44e3680f627d1d6" -->
+**Severity of issue fixed:** Medium
+<!-- change_assessment_end -->
+
+### Sequence Diagram(s)
+
+```mermaid
+sequenceDiagram
+  participant Client
+  participant TaskRouter
+  participant TaskRepository
+  participant GenerationWorker
+  Client->>TaskRouter: 请求取消任务
+  TaskRouter->>TaskRepository: cancel_task(task_id)
+  alt 任务为 queued
+    TaskRepository-->>TaskRouter: cancelled 及排队下游
+    TaskRouter-->>Client: 取消成功
+  else 任务为 running
+    TaskRepository-->>TaskRouter: TaskNotCancellableError
+    TaskRouter-->>Client: 409 task_running_not_cancellable
+    GenerationWorker->>TaskRepository: 继续写入 succeeded 或 failed
+  end
+```
+
+</details>
+
+<!-- walkthrough_end -->
+<!-- pre_merge_checks_walkthrough_start -->
+
+<details>
+<summary>🚥 Pre-merge checks | ✅ 4 | ❌ 1</summary>
+
+### ❌ Failed checks (1 warning)
+
+|     Check name     | Status     | Explanation                                                                                                                                                                                               | Resolution                                                                         |
+| :----------------: | :--------- | :-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | :--------------------------------------------------------------------------------- |
+| Docstring Coverage | ⚠️ Warning | Docstring coverage is 56.30% which is insufficient. The required threshold is 80.00%. Docstring coverage is scoped to functions touched by this diff. Analyzed 119 functions across 52 files. (1 skipped… | Write docstrings for the functions missing them to satisfy the coverage threshold. |
+
+<details>
+<summary>✅ Passed checks (4 passed)</summary>
+
+|         Check name         | Status   | Explanation                                                                                                                                                                                               |
+| :------------------------: | :------- | :-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+|     Linked Issues check    | ✅ Passed | 满足 `#2608` 和 `#2610` 的编码要求。#2608 已将取消限制为 `queued`；`running` 任务通过三语 409 被拒绝，状态保持不变并继续完成。后端、Agent、远端 MCP、前端、迁移、三语文案、ADR、文档和测试已同步。`cancelling` 状态、进程内取消信号、0-rows 取消协议和取消回执链路已移除。停机等待与进程级打断路径有测试覆盖。#2610 已将标准库契约… |
+| Out of Scope Changes check | ✅ Passed | 未发现与 `#2608` 或 `#2610` 无关的变更。任务状态迁移、取消语义、产物保留、停机测试、前端、文案、ADR 和文档直接支持 `#2608`。视频契约拆分、共享运行支持、导入迁移、ComfyUI 子包归位、任务 ID 注入及相关测试直接支持 `#2610`。                                                                           |
+|         Title check        | ✅ Passed | 标题使用 Conventional Commit 格式，并准确概括了两个主要变更：取消仅对排队任务开放，以及拆分视频通道基础模块。标题具体、相关且便于检索。                                                                                                                            |
+|      Description check     | ✅ Passed | 描述包含关联 issue、变更、验证、风险与遗留事项，说明了行为变化、迁移影响、兼容性处理和已执行的检查。内容与本次变更一致。                                                                                                                                           |
+
+</details>
+
+<details>
+<summary>Full details: Docstring Coverage</summary>
+
+**Explanation**
+
+Docstring coverage is 56.30% which is insufficient. The required threshold is 80.00%. Docstring coverage is scoped to functions touched by this diff. Analyzed 119 functions across 52 files. (1 skipped: 1 unsupported.)
+
+</details>
+
+</details>
+
+<!-- pre_merge_checks_walkthrough_end -->
+<!-- tips_start -->
+
+---
+
+Thanks for using [CodeRabbit](https://coderabbit.ai?utm_source=oss&utm_medium=github&utm_campaign=ArcReel/ArcReel&utm_content=2614)! It's free for OSS, and your support helps us grow. If you like it, consider giving us a shout-out.
+
+<details>
+<summary>❤️ Share</summary>
+
+- [X](https://twitter.com/intent/tweet?text=I%20just%20used%20%40coderabbitai%20for%20my%20code%20review%2C%20and%20it%27s%20fantastic%21%20It%27s%20free%20for%20OSS%20and%20offers%20a%20free%20trial%20for%20the%20proprietary%20code.%20Check%20it%20out%3A&url=https%3A//coderabbit.ai)
+- [Mastodon](https://mastodon.social/share?text=I%20just%20used%20%40coderabbitai%20for%20my%20code%20review%2C%20and%20it%27s%20fantastic%21%20It%27s%20free%20for%20OSS%20and%20offers%20a%20free%20trial%20for%20the%20proprietary%20code.%20Check%20it%20out%3A%20https%3A%2F%2Fcoderabbit.ai)
+- [Reddit](https://www.reddit.com/submit?title=Great%20tool%20for%20code%20review%20-%20CodeRabbit&text=I%20just%20used%20CodeRabbit%20for%20my%20code%20review%2C%20and%20it%27s%20fantastic%21%20It%27s%20free%20for%20OSS%20and%20offers%20a%20free%20trial%20for%20proprietary%20code.%20Check%20it%20out%3A%20https%3A//coderabbit.ai)
+- [LinkedIn](https://www.linkedin.com/sharing/share-offsite/?url=https%3A%2F%2Fcoderabbit.ai&mini=true&title=Great%20tool%20for%20code%20review%20-%20CodeRabbit&summary=I%20just%20used%20CodeRabbit%20for%20my%20code%20review%2C%20and%20it%27s%20fantastic%21%20It%27s%20free%20for%20OSS%20and%20offers%20a%20free%20trial%20for%20proprietary%20code)
+
+</details>
+
+
+<sub>Comment `@coderabbitai help` to get the list of available commands.</sub>
+
+<!-- tips_end -->

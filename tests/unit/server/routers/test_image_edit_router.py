@@ -7,10 +7,10 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from PIL import Image
 
-from lib.artifact_activation import activate_artifact_target_state
+from lib.artifacts.artifact_activation import activate_artifact_target_state
 from lib.config.resolver import ConfigResolver, ProviderModel
 from lib.i18n import _ as i18n_message
-from lib.project_migrations.runner import migrate_project_dir
+from lib.project.project_migrations.runner import migrate_project_dir
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import generate
@@ -208,7 +208,7 @@ class TestEditImageEnqueue:
 
 class TestEditImageValidation:
     def test_active_asset_without_a_manifest_claim_is_not_enqueued(self, tmp_path, monkeypatch):
-        from lib.artifact_manifest import ArtifactComparison, ArtifactKey, ArtifactStatus
+        from lib.artifacts.artifact_manifest import ArtifactComparison, ArtifactKey, ArtifactStatus
 
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)

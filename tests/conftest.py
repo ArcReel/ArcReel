@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
 import atexit
+import ipaddress
 import os
 import shutil
+import socket
 import sys
 import tempfile
 import uuid as _uuid
@@ -55,7 +58,7 @@ if not os.environ.get("DATABASE_URL", "").strip() or os.environ.get(_OWNED_DB_MA
     # 与收集期中断都只 import conftest、不跑 fixture。
     atexit.register(_remove_owned_test_db_dir)
 
-import lib.generation_queue as generation_queue_module
+import lib.generation.generation_queue as generation_queue_module
 from lib.db.base import Base
 from server.agent_runtime.session_manager import SessionManager
 from server.agent_runtime.session_store import SessionMetaStore
@@ -98,7 +101,7 @@ def reset_app_data_dir_cache():
     """``app_data_dir()`` uses ``functools.cache`` for production; reset it between
     tests so per-test monkeypatching of ARCREEL_DATA_DIR / AI_ANIME_PROJECTS takes
     effect immediately."""
-    from lib.app_data_dir import reset_for_tests
+    from lib.infra.app_data_dir import reset_for_tests
 
     reset_for_tests()
     yield
@@ -119,6 +122,35 @@ def stub_sandbox_check(monkeypatch, request):
     if request.path.name == "test_startup_assertions.py":
         return
     monkeypatch.setattr("server.app.check_sandbox_available", lambda: True)
+
+
+#: 测试内主机名统一解析到的地址（TEST-NET-3，公网段、不可路由）。
+_OFFLINE_DNS_ADDRESS = "203.0.113.10"
+
+
+@pytest.fixture(autouse=True)
+def offline_dns(monkeypatch):
+    """事件循环的 ``getaddrinfo`` 对主机名一律回 ``_OFFLINE_DNS_ADDRESS``，不发真实 DNS 查询。
+
+    产物下载入口在每次请求前解析目标主机；出站流量由 respx 在 transport 层拦截，解析这一步
+    却会落到本机解析器上。IP 字面量与 ``localhost``（本地数据库、测试服务器）仍走真实解析。
+    """
+    real_getaddrinfo = asyncio.base_events.BaseEventLoop.getaddrinfo
+
+    async def getaddrinfo(self, host, port, *args, **kwargs):
+        if host is None or host == "localhost" or _is_ip_literal(host):
+            return await real_getaddrinfo(self, host, port, *args, **kwargs)
+        return [(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", (_OFFLINE_DNS_ADDRESS, port or 0))]
+
+    monkeypatch.setattr(asyncio.base_events.BaseEventLoop, "getaddrinfo", getaddrinfo)
+
+
+def _is_ip_literal(host: str | bytes) -> bool:
+    try:
+        ipaddress.ip_address(host.decode() if isinstance(host, bytes) else host)
+    except ValueError:
+        return False
+    return True
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -216,7 +248,7 @@ def _register_models() -> None:
     不这么做时建表范围取决于被测模块的 import 链，同一 fixture 在不同文件下建出的
     schema 不同。
     """
-    from lib.agent_session_store.models import register_models as register_agent_session_models
+    from lib.agent.agent_session_store.models import register_models as register_agent_session_models
     from lib.db.models import register_models as register_db_models
 
     register_agent_session_models()

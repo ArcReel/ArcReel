@@ -65,6 +65,16 @@ def is_auth_enabled() -> bool:
     return os.environ.get("AUTH_ENABLED", "true").strip().lower() not in _AUTH_DISABLED_VALUES
 
 
+def warn_if_auth_disabled() -> None:
+    """认证关闭时输出一条 WARNING，提示全部管理接口无需认证。"""
+    if is_auth_enabled():
+        return
+    logger.warning(
+        "AUTH_ENABLED=false：全部管理接口无需认证即可访问。"
+        "该模式仅适用于受独立网络边界保护的本机环境，远程部署请保持认证开启"
+    )
+
+
 def _anonymous_user() -> "CurrentUserInfo":
     """关闭认证时返回的固定匿名用户。"""
     from lib.db.base import DEFAULT_USER_ID
@@ -126,7 +136,9 @@ def create_token(username: str, *, expiry_seconds: int = TOKEN_EXPIRY_SECONDS) -
 
 
 def verify_token(token: str) -> dict | None:
-    """验证 JWT token
+    """验证会话 JWT token
+
+    带 ``purpose`` 声明的 token（如下载 token）只供对应端点自行校验，不作为会话凭据。
 
     Args:
         token: JWT token 字符串
@@ -135,9 +147,12 @@ def verify_token(token: str) -> dict | None:
         成功返回 payload dict，失败返回 None
     """
     try:
-        return jwt.decode(token, get_token_secret(), algorithms=["HS256"])
+        payload = jwt.decode(token, get_token_secret(), algorithms=["HS256"])
     except (jwt.InvalidTokenError, jwt.ExpiredSignatureError):
         return None
+    if "purpose" in payload:
+        return None
+    return payload
 
 
 DOWNLOAD_TOKEN_EXPIRY_SECONDS = 300  # 5 分钟

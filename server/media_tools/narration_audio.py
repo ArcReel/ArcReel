@@ -10,17 +10,17 @@ from __future__ import annotations
 
 from typing import Any
 
-from lib.artifact_activation import (
+from lib.artifacts.artifact_activation import (
     ArtifactCurrencyResolver,
     active_artifact_currency_resolver,
     resolve_artifact_episode,
 )
-from lib.artifact_manifest import ArtifactKey
-from lib.generation_queue_client import (
+from lib.artifacts.artifact_manifest import ArtifactKey
+from lib.generation.generation_queue_client import (
     TaskSpec,
     batch_enqueue_and_wait,
 )
-from lib.generation_result import (
+from lib.generation.generation_result import (
     GenerationAction,
     GenerationCandidate,
     GenerationProblem,
@@ -30,12 +30,12 @@ from lib.generation_result import (
     record_batch_outcomes,
     select_generation_targets,
 )
-from lib.narration_delivery import canonical_narration_text
-from lib.resource_paths import resource_relative_path
-from lib.script_editor import resolve_items
-from lib.script_models import get_generated_assets, resolve_content_mode
-from lib.script_skeleton import ensure_route_skeleton
-from lib.speech_composition import SpeechAdmission, SpeechMode, admit_script_unit
+from lib.project.resource_paths import resource_relative_path
+from lib.script.script_editor import resolve_items
+from lib.script.script_models import get_generated_assets, resolve_content_mode
+from lib.script.script_skeleton import ensure_route_skeleton
+from lib.speech.narration_delivery import canonical_narration_text
+from lib.speech.speech_composition import SpeechAdmission, SpeechMode, admit_script_unit
 from server.media_tools.context import (
     ToolContext,
     generation_batch_submission_outcome,

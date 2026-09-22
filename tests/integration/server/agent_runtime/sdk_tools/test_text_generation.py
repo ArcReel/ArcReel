@@ -5,13 +5,13 @@ from __future__ import annotations
 import json
 import threading
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 import pytest
 
-from lib import script_review
-from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
-from lib.providers import CallPurpose
+from lib.backends.providers import CallPurpose
+from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
+from lib.script import script_review
 from server.agent_runtime.sdk_tools.text_generation import (
     generate_episode_script_tool,
     generate_script_plan_tool,
@@ -154,6 +154,8 @@ async def test_generate_episode_script_dry_run(fake_ctx: ToolContext, monkeypatc
     (project_path / "project.json").write_text(json.dumps({"content_mode": "narration"}), encoding="utf-8")
 
     class _FakeGenerator:
+        project_json: ClassVar[dict[str, Any]] = {}
+
         def __init__(self, _path, **_kwargs):
             pass
 
@@ -187,6 +189,7 @@ async def test_generate_episode_script_writes_to_default_project_scripts(fake_ct
     captured: dict[str, dict[str, Any]] = {"calls": {}}
 
     class _FakeGenerator:
+        project_json: ClassVar[dict[str, Any]] = {}
         content_mode = "narration"
 
         @classmethod
@@ -217,6 +220,7 @@ async def test_generate_episode_script_ad_skips_script_plan(fake_ctx: ToolContex
     )
 
     class _FakeGenerator:
+        project_json: ClassVar[dict[str, Any]] = {}
         content_mode = "ad"
 
         @classmethod
@@ -243,6 +247,7 @@ async def test_generate_episode_script_entry_ids_reach_the_generator(fake_ctx: T
     captured: dict[str, Any] = {}
 
     class _FakeGenerator:
+        project_json: ClassVar[dict[str, Any]] = {}
         content_mode = "ad"
 
         @classmethod
@@ -279,6 +284,8 @@ async def test_generate_episode_script_without_pending_entries_says_how_to_rewri
     )
 
     class _FakeGenerator:
+        project_json: ClassVar[dict[str, Any]] = {}
+
         @classmethod
         async def create(cls, _path, **_kwargs):
             generator = cls()
@@ -300,7 +307,7 @@ async def test_generate_episode_script_without_pending_entries_says_how_to_rewri
 
 async def test_generate_episode_script_reports_unbound_scene_mentions(fake_ctx: ToolContext, monkeypatch) -> None:
     """写出的剧本里，被重写条目的画面描述若有对不上参考图的 @[名称]，回执带 warnings。"""
-    from lib.storyboard_mentions import WARN_STORYBOARD_MENTION_UNBOUND
+    from lib.script.storyboard_mentions import WARN_STORYBOARD_MENTION_UNBOUND
     from server import text_generation as mod
 
     project_path = fake_ctx.project_path
@@ -319,6 +326,8 @@ async def test_generate_episode_script_reports_unbound_scene_mentions(fake_ctx: 
     }
 
     class _FakeGenerator:
+        project_json: ClassVar[dict[str, Any]] = {}
+
         @classmethod
         async def create(cls, _path, **_kwargs):
             return cls()
@@ -343,7 +352,7 @@ async def test_generate_episode_script_unknown_entry_id_is_refused_not_internal(
     fake_ctx: ToolContext, monkeypatch
 ) -> None:
     """点名了正式脚本里没有的条目：报「拒绝生成」，不冒成 internal_error 引导 Agent 原样重试。"""
-    from lib.script_generator import PromptAuthoringTargetError
+    from lib.script.script_generator import PromptAuthoringTargetError
     from server import text_generation as mod
 
     project_path = fake_ctx.project_path
@@ -352,6 +361,8 @@ async def test_generate_episode_script_unknown_entry_id_is_refused_not_internal(
     )
 
     class _FakeGenerator:
+        project_json: ClassVar[dict[str, Any]] = {}
+
         @classmethod
         async def create(cls, _path, **_kwargs):
             return cls()
@@ -420,7 +431,7 @@ def test_parse_normalized_content_uses_dynamic_duration_schema() -> None:
     """_parse_normalized_content 复用按 supported_durations 构造的动态 schema：合法 duration 经模型
     校验并补全默认字段；超出枚举的 duration 触发 fail-loud（抛 ValueError），而非被静态模型(ge=1,le=60)
     静默放行、也不降级保留未校验内容写盘。"""
-    from lib.script_models import build_drama_normalized_script_model
+    from lib.script.script_models import build_drama_normalized_script_model
 
     model = build_drama_normalized_script_model([4, 6, 8])
     base_scene = {
@@ -527,7 +538,7 @@ async def test_normalize_drama_script_dry_run(fake_ctx: ToolContext) -> None:
 
 
 async def test_normalize_drama_script_projects_durable_inputs_once(fake_ctx: ToolContext, monkeypatch) -> None:
-    from lib import artifact_provenance
+    from lib.artifacts import artifact_provenance
 
     source_dir = fake_ctx.project_path / "source"
     source_dir.mkdir(parents=True)
@@ -652,6 +663,8 @@ async def test_normalize_drama_script_passes_project_name_to_backend(fake_ctx: T
     captured: dict[str, Any] = {}
 
     class _FakeGenerator:
+        project_json: ClassVar[dict[str, Any]] = {}
+
         async def generate(self, _request, project_name=None):
             captured["generate_project_name"] = project_name
 
@@ -707,8 +720,8 @@ async def test_normalize_drama_script_passes_project_name_to_backend(fake_ctx: T
 async def test_normalize_drama_script_registers_the_frozen_explicit_source_basis(
     fake_ctx: ToolContext, monkeypatch
 ) -> None:
-    from lib.artifact_manifest import ArtifactKey, ProjectArtifactManifestAdapter
-    from lib.artifact_provenance import build_script_plan_basis
+    from lib.artifacts.artifact_manifest import ArtifactKey, ProjectArtifactManifestAdapter
+    from lib.artifacts.artifact_provenance import build_script_plan_basis
     from server import text_generation as mod
 
     project = {
@@ -780,8 +793,8 @@ async def test_normalize_drama_script_registers_the_frozen_explicit_source_basis
 async def test_normalize_drama_script_preserves_legacy_request_basis_when_manifest_activates(
     fake_ctx: ToolContext, monkeypatch
 ) -> None:
-    from lib.artifact_manifest import ArtifactKey, ProjectArtifactManifestAdapter
-    from lib.artifact_provenance import build_script_plan_basis
+    from lib.artifacts.artifact_manifest import ArtifactKey, ProjectArtifactManifestAdapter
+    from lib.artifacts.artifact_provenance import build_script_plan_basis
     from server import text_generation as mod
 
     project = {
@@ -864,6 +877,8 @@ async def test_normalize_drama_script_marks_mixed_machine_candidate_before_revie
     (source_dir / "episode_1.txt").write_text("从前有座山", encoding="utf-8")
 
     class _FakeGenerator:
+        project_json: ClassVar[dict[str, Any]] = {}
+
         async def generate(self, _request, project_name=None):
             class _Result:
                 text = json.dumps(
@@ -997,6 +1012,7 @@ async def test_generate_episode_script_forwards_instructions(fake_ctx: ToolConte
     captured: dict[str, Any] = {}
 
     class _FakeGenerator:
+        project_json: ClassVar[dict[str, Any]] = {}
         content_mode = "narration"
 
         def __init__(self, _path, **_kwargs):

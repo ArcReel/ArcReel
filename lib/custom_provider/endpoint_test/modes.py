@@ -13,7 +13,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from enum import StrEnum
 
-from lib.custom_provider.endpoint_definition import DECLARATIVE_KIND
+from lib.custom_provider.endpoint_definition import COMFYUI_KIND, DECLARATIVE_KIND
 
 
 class EndpointTestMode(StrEnum):
@@ -27,7 +27,15 @@ class EndpointTestMode(StrEnum):
 #: ``kind`` → 该 kind 支持的模式。名录外的 kind 一种模式都不支持。
 _MODES_BY_KIND: Mapping[str, frozenset[EndpointTestMode]] = {
     DECLARATIVE_KIND: frozenset(EndpointTestMode),
+    # ComfyUI 端点没有「验证响应」：产物提取读的是 ``output`` 绑定那个节点的固定三个键，没有
+    # 一处用户可配的取值路径，验的只会是一段固定代码（``docs/adr/0081``）。
+    COMFYUI_KIND: frozenset({EndpointTestMode.PREVIEW_REQUEST, EndpointTestMode.TRIAL_RUN}),
 }
+
+
+#: 端点测试认得的全部 kind。与 :data:`.kinds.SUPPORTED_KINDS` 必须一致——一种 kind 出现在支持
+#: 矩阵里却没有实现，会让入口放行、执行到一半才发现没东西可跑。
+TESTABLE_KINDS = frozenset(_MODES_BY_KIND)
 
 
 def supports_test_mode(kind: str, mode: EndpointTestMode) -> bool:

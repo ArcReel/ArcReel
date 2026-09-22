@@ -29,7 +29,7 @@ const DRAFT = meta({
   category: "lab",
   title: "实验草稿",
   description: "未知类别按原值分组。",
-  output_schema: "lib.script_models:ImagePrompt",
+  output_schema: "lib.script.script_models:ImagePrompt",
 });
 
 const SHEET_DETAIL: PromptTemplateDetail = {

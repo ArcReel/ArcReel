@@ -457,4 +457,4 @@ def kling_token(ak, sk):
 
 ---
 
-**对齐架构**：ArcReel `PROVIDER_REGISTRY` 预置供应商 + `lib/{text,image,video}_backends/`
+**对齐架构**：ArcReel `PROVIDER_REGISTRY` 预置供应商 + `lib/backends/{text,image,video}_backends/`

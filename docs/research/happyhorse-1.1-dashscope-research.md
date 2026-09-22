@@ -124,10 +124,10 @@ GET  https://token-plan.cn-beijing.maas.aliyuncs.com/api/v1/tasks/{task_id}
   - `supported_durations = list(range(3, 16))`(官方 3–15s 整数,须显式登记)
   - `resolutions = ["480p", "720p", "1080p"]`
   - `pricing = _dashscope_video_pricing(..., {"480p": 0.45, "720p": 0.9, "1080p": 1.2})`(刊例价,480P 为控制台核实价;促销价不入 registry)
-  - 建议将 `default=True` 从 `happyhorse-1.0-i2v` 移到 `happyhorse-1.1-i2v`(1080P 更便宜且官方总览以 1.1 为推荐系列),同步改 `lib/video_backends/dashscope.py::DEFAULT_MODEL`
+  - 建议将 `default=True` 从 `happyhorse-1.0-i2v` 移到 `happyhorse-1.1-i2v`(1080P 更便宜且官方总览以 1.1 为推荐系列),同步改 `lib/backends/video_backends/dashscope.py::DEFAULT_MODEL`
 - 保留 1.0 三条(仍在售、无弃用公告);`happyhorse-1.0-video-edit` 与 ArcReel 现有流水线无对应能力形态,暂不登记
 
-### `lib/video_backends/dashscope.py::_MODEL_PROFILES`
+### `lib/backends/video_backends/dashscope.py::_MODEL_PROFILES`
 
 - `"happyhorse-1.1-t2v": VideoCapabilities(first_frame=False)`
 - `"happyhorse-1.1-i2v": VideoCapabilities(first_frame=True)`

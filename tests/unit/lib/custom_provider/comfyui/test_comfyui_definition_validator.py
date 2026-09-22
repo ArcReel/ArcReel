@@ -231,6 +231,44 @@ class TestReferenceImageConsumer:
         assert not validate_definition(definition).valid
 
 
+class TestSingleFrameRateSourceOfTruth:
+    def test_two_read_only_fps_bindings_with_different_literals_are_refused(self):
+        """一个帧率要套到全部帧数目标上；两个字面值时这份定义说不清 workflow 跑在哪个帧率上。"""
+        definition = comfyui_endpoint_definition()
+        definition["workflow"]["21"] = {"class_type": "CreateVideo", "inputs": {"fps": 24}}
+        definition["bindings"]["fps"].append(
+            {"node": "21", "input": "fps", "class_type": "CreateVideo", "direction": "read"}
+        )
+
+        assert ("bindings.fps", "comfyui_fps_conflict") in _codes(validate_definition(definition))
+
+    def test_a_manually_typed_fps_that_contradicts_the_binding_is_refused_too(self):
+        definition = comfyui_endpoint_definition()
+        definition["workflow"]["5"]["inputs"]["length"] = 81
+        definition["bindings"]["frames"] = [
+            {"node": "5", "input": "length", "class_type": "EmptyLatentImage", "fps": 30}
+        ]
+
+        assert ("bindings.fps", "comfyui_fps_conflict") in _codes(validate_definition(definition))
+
+    def test_several_sources_agreeing_on_one_value_pass(self):
+        definition = comfyui_endpoint_definition()
+        definition["workflow"]["21"] = {"class_type": "CreateVideo", "inputs": {"fps": 16}}
+        definition["bindings"]["fps"].append(
+            {"node": "21", "input": "fps", "class_type": "CreateVideo", "direction": "read"}
+        )
+        definition["workflow"]["5"]["inputs"]["length"] = 81
+        definition["bindings"]["frames"] = [
+            {"node": "5", "input": "length", "class_type": "EmptyLatentImage", "fps": 16}
+        ]
+
+        assert validate_definition(definition).errors == ()
+
+    def test_an_image_endpoint_is_out_of_scope(self):
+        """图像端点没有帧数与帧率这两个语义键，不进此判。"""
+        assert validate_definition(_image_endpoint()).errors == ()
+
+
 class TestAuthScope:
     def test_the_api_key_placeholder_is_refused_outside_auth(self):
         """workflow 是原样内嵌的底稿，里面写占位符既不生效，又会随导出文件把凭证分发出去。"""
@@ -248,6 +286,49 @@ class TestAuthScope:
         definition = comfyui_endpoint_definition(auth={"query": {"token": "{{ api_key }}", "url": "{{ base_url }}"}})
 
         assert ("auth.query.url", "undeclared_variable") in _codes(validate_definition(definition))
+
+    def test_a_malformed_placeholder_next_to_a_good_one_is_reported(self):
+        """混写过得了「引用了 api_key」那一关：坏模板会被原样发给反向代理，认不出是哪一处写错。"""
+        definition = comfyui_endpoint_definition(
+            auth={"headers": {"Authorization": "{{api_key}}-{{ api_key | upper }}"}}
+        )
+
+        diagnostics = validate_definition(definition)
+
+        assert ("auth.headers.Authorization", "malformed_placeholder") in _codes(diagnostics)
+
+    @pytest.mark.parametrize("name", ["filename", "subfolder", "type"])
+    def test_a_credential_cannot_take_a_name_the_artifact_download_already_needs(self, name: str):
+        """取产物那一跳自己要带这三个参数，凭证与它们占不了同一个键。
+
+        撞名时提交与轮询都过得去，只有下载那一跳少了凭证——反向代理回 401，一次已经出完片的
+        执行白跑。保存期拒掉，用户还改得动。
+        """
+        definition = comfyui_endpoint_definition(auth={"query": {name: "{{ api_key }}"}})
+
+        assert (f"auth.query.{name}", "auth_query_reserved") in _codes(validate_definition(definition))
+
+    def test_a_credential_query_under_any_other_name_is_fine(self):
+        assert validate_definition(comfyui_endpoint_definition(auth={"query": {"token": "{{ api_key }}"}})).valid
+
+    def test_a_literal_credential_is_warned_about_without_blocking_the_save(self):
+        """字面凭证会随导出与「复制为我的」原样外流，但它本身是合法配置，只提示。"""
+        definition = comfyui_endpoint_definition(
+            auth={"headers": {"Authorization": "Bearer {{ api_key }}", "X-Team": "sk-9f2c41ab77de05631b8a"}}
+        )
+
+        diagnostics = validate_definition(definition)
+
+        assert diagnostics.valid
+        assert ("auth.headers.X-Team", "auth_literal_credential") in _warning_codes(diagnostics)
+
+    def test_header_names_differing_only_in_case_are_refused(self):
+        """HTTP 头名不区分大小写，两条会一起发出去，服务端收到哪一条全看实现。"""
+        definition = comfyui_endpoint_definition(
+            auth={"headers": {"Authorization": "Bearer {{ api_key }}", "authorization": "{{ api_key }}"}}
+        )
+
+        assert ("auth.headers.authorization", "header_name_duplicate") in _codes(validate_definition(definition))
 
 
 class TestDiagnosticPayload:
@@ -304,3 +385,7 @@ def _image_endpoint(**bindings: object) -> dict[str, object]:
 
 def _codes(diagnostics: DefinitionDiagnostics) -> list[tuple[str, str]]:
     return [(issue.path, issue.code.value) for issue in diagnostics.errors]
+
+
+def _warning_codes(diagnostics: DefinitionDiagnostics) -> list[tuple[str, str]]:
+    return [(issue.path, issue.code.value) for issue in diagnostics.warnings]

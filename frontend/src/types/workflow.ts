@@ -1,6 +1,6 @@
 /**
- * 工作流计划的前端投影。字段与后端 `lib/workflow_plan.py` / `lib/workflow_state.py` /
- * `lib/generation_result.py` 一一对应，REST 与 MCP 共用同一序列化，顶层无 envelope。
+ * 工作流计划的前端投影。字段与后端 `lib/workflow/workflow_plan.py` / `lib/workflow/workflow_state.py` /
+ * `lib/generation/generation_result.py` 一一对应，REST 与 MCP 共用同一序列化，顶层无 envelope。
  *
  * 三条轴在类型层就分开，界面不得把它们折成一个状态：
  * - 步骤进度 `WorkflowStepState` —— 编排走到哪一步
@@ -24,7 +24,7 @@ export type ArtifactStatus = "current" | "stale" | "missing" | "blocked";
 export type NarrationDelivery = "post_production" | "use_tts";
 
 /**
- * 后端给出的下一步动作标识的闭集，与 `lib/workflow_state.py` 的 `WorkflowActionType`
+ * 后端给出的下一步动作标识的闭集，与 `lib/workflow/workflow_state.py` 的 `WorkflowActionType`
  * 一一对应，后端契约测试守住两侧同步。列成运行时数组而不只是类型，是为了让译文覆盖
  * 检查能逐个遍历：新增动作没配文案时测试直接红，而不是静默落到兜底陈述。
  */

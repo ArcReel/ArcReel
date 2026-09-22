@@ -140,10 +140,9 @@ describe("UnitPreviewPanel", () => {
       expect(versionMachineBusy()).toBe(true);
     });
 
-    it("取消中置 busy——占用比 running 状态活得更久", () => {
-      // cancelling 期间不展示为生成中（status 不是 running），但 worker 仍可能在写
-      // 成片文件，占用判定仍成立；仅看 status 会漏禁用
-      render(<UnitPreviewPanel unit={mkUnit()} projectName="proj" busy cancelling />);
+    it("占用命中而 status 仍是旧失败行时置 busy", () => {
+      // 重试的乐观窗口内旧失败行仍在，status 不是 running；仅看 status 会漏禁用
+      render(<UnitPreviewPanel unit={mkUnit()} projectName="proj" status="failed" busy />);
       expect(versionMachineBusy()).toBe(true);
     });
 

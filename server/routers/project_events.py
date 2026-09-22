@@ -11,8 +11,8 @@ from collections.abc import AsyncIterator
 from fastapi import APIRouter, Depends, Request
 from fastapi.sse import EventSourceResponse, ServerSentEvent
 
-from lib.api_errors import BadRequestError, NotFoundError
-from server.services.project_events import ProjectEventService
+from lib.infra.api_errors import BadRequestError, NotFoundError
+from server.services.project.project_events import ProjectEventService
 
 logger = logging.getLogger(__name__)
 
