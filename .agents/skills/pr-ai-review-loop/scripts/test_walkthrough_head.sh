@@ -7,16 +7,14 @@
 #
 # CodeRabbit submits a review object only on the first pass; every later push is an
 # incremental review that rewrites the walkthrough comment in place and submits no new
-# review. Anchoring reviewed_current_head on the latest review's commit therefore reads
-# false forever after the second push (observed on PR #2614: one review anchored on the
-# first HEAD, three later pushes only ever rewrote the walkthrough). The walkthrough body
-# carries the anchor that moves, and this test pins both the parser and the rule to the
-# exact bytes CodeRabbit ships. Defs are extracted verbatim from poll.sh so the shipped
-# functions are exercised, not a copy. Fixtures (real bodies, captured via
+# review, so the latest review's commit stays pinned to the first reviewed HEAD while the
+# walkthrough body carries the anchor that moves. This test pins both the parser and the
+# rule to the exact bytes CodeRabbit ships. Defs are extracted verbatim from poll.sh so
+# the shipped functions are exercised, not a copy. Fixtures (real bodies, captured via
 # `gh api repos/<owner>/<repo>/issues/<pr>/comments`):
-#   - coderabbit_walkthrough_incremental_pr2614.txt: the walkthrough after the third
+#   - coderabbit_walkthrough_incremental_pr2614.txt: a walkthrough rewritten by an
 #     incremental review; carries both the "📥 Commits" range line and the
-#     change_assessment_commit marker, both naming HEAD 1836151d. The PR's only review
+#     change_assessment_commit marker, both naming HEAD 1836151d, while the only review
 #     object stays anchored on 6dfd561b.
 #   - coderabbit_walkthrough_full_pr2620.txt: a first (full) review's walkthrough; no range
 #     line at all, only the change_assessment_commit and final_review_risk_coverage markers
@@ -99,8 +97,8 @@ for tc in "${ANCHOR_CASES[@]}"; do
 done
 
 # ---- cr_walkthrough_rest: the rule the loop actually reads ----
-# The PR #2614 shape: one review object pinned to the first reviewed HEAD, walkthrough
-# rewritten (updated_at > last push) with an anchor on the current HEAD.
+# The incremental-review shape: one review object pinned to the first reviewed HEAD,
+# walkthrough rewritten (updated_at > last push) with an anchor on the current HEAD.
 # name | head | reviews json | commit the R1 review is anchored on | expected reviewed_current_head
 LAST_PUSH="2026-09-21T18:00:00Z"
 WT_UPDATED_AT="2026-09-21T18:10:00Z"
