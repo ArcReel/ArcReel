@@ -43,7 +43,7 @@ pnpm build        # 双 locale 构建，失效链接或锚点会导致构建失�
 pnpm typecheck
 pnpm lint         # ESLint
 pnpm format       # prettier 写入；format:check 仅校验不修改
-pnpm check        # typecheck + lint + format:check，与 CI 的三项静态检查等价
+pnpm check        # 文档站完整本地闸门：sync-contributing + typecheck + lint + format:check + check-consistency
 
 # 站内搜索仅在构建产物上可用，dev server 中不可用
 pnpm build && pnpm serve
@@ -249,7 +249,7 @@ cd frontend && pnpm knip
 **Lint & Format（文档站 ESLint + prettier）：**
 
 ```bash
-cd website && pnpm check          # typecheck + lint + format:check
+cd website && pnpm check          # 文档站完整本地闸门
 cd website && pnpm lint:fix       # ESLint 自动修复可修复的问题
 cd website && pnpm format         # prettier 写入
 ```
