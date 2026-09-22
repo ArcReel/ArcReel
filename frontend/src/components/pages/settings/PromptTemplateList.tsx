@@ -40,8 +40,7 @@ const AXIS_VALUE_LABEL_KEYS: Record<FilterAxis, Record<string, string>> = {
  */
 const TRIGGER_NAME_KEYS: Record<PromptTemplateTrigger["kind"], (name: string) => string> = {
   agent_tool: (name) => `tool_name_${name}`,
-  user_action: (name) =>
-    name === "agent_session" ? "usage_purpose_assistant_session" : `prompt_templates_trigger_${name}`,
+  user_action: (name) => `prompt_templates_trigger_${name}`,
   generation_task: (name) => (name === "asset" ? "prompt_templates_category_asset" : `task_type_${name}`),
 };
 
