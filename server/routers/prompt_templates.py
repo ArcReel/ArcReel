@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
 from lib.infra.api_errors import NotFoundError
-from lib.prompts.prompt_templates import PartialEntry, PromptTemplates, TemplateMeta
+from lib.prompts.prompt_templates import PartialEntry, PromptTemplates, TemplateMeta, UserActionTrigger
 from lib.prompts.prompt_templates.builtin import builtin_templates
 
 router = APIRouter(prefix="/prompt-templates")
@@ -21,6 +21,8 @@ router = APIRouter(prefix="/prompt-templates")
 def get_prompt_templates() -> PromptTemplates:
     return builtin_templates
 
+
+_AGENT_SESSION_TRIGGER = UserActionTrigger(kind="user_action", name="agent_session")
 
 Templates = Annotated[PromptTemplates, Depends(get_prompt_templates)]
 
@@ -39,7 +41,10 @@ class PromptTemplateDetailResponse(BaseModel):
 
 @router.get("")
 async def list_prompt_templates(templates: Templates) -> PromptTemplateListResponse:
-    return PromptTemplateListResponse(templates=templates.list_templates())
+    """Agent 语言规范随 Agent 会话拼进系统提示，展示在 Agent 分栏，不进本列表；详情接口仍可读取。"""
+    return PromptTemplateListResponse(
+        templates=[item for item in templates.list_templates() if item.invoked_by != _AGENT_SESSION_TRIGGER]
+    )
 
 
 @router.get("/{template_id:path}")
