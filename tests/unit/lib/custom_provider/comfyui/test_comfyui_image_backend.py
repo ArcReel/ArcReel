@@ -22,6 +22,7 @@ from lib.custom_provider.endpoint_definition import validate_definition
 from lib.custom_provider.endpoint_resolution import endpoint_spec_from_row
 from lib.custom_provider.factory import create_custom_backend
 from tests.factories import comfyui_endpoint_definition
+from tests.fakes import PNG_BYTES
 from tests.http_capture import capture_http, only_request, request_json
 
 BASE_URL = "https://comfy.test"
@@ -165,13 +166,13 @@ class TestGenerate:
             history = router.get(f"{BASE_URL}/history/p-1").mock(
                 return_value=httpx.Response(200, json={"p-1": _history({"9": _image_output()})})
             )
-            view = router.get(f"{BASE_URL}/view").mock(return_value=httpx.Response(200, content=b"png-bytes"))
+            view = router.get(f"{BASE_URL}/view").mock(return_value=httpx.Response(200, content=PNG_BYTES))
 
             result = await _backend(definition).generate(
                 _request(tmp_path, reference_images=[ReferenceImage(path=str(reference))])
             )
 
-        assert result.image_path.read_bytes() == b"png-bytes"
+        assert result.image_path.read_bytes() == PNG_BYTES
         assert (result.provider, result.model) == ("custom-1", "flux-workflow")
         assert history.call_count == 1
         # 引用值取响应里的 subfolder / name，不是请求里的——服务端会为重名改名。
@@ -201,7 +202,7 @@ class TestGenerate:
             router.get(f"{BASE_URL}/history/p-1").mock(
                 return_value=httpx.Response(200, json=_history({"9": _image_output()}))
             )
-            router.get(f"{BASE_URL}/view").mock(return_value=httpx.Response(200, content=b"png"))
+            router.get(f"{BASE_URL}/view").mock(return_value=httpx.Response(200, content=PNG_BYTES))
 
             await _backend(definition).generate(_request(tmp_path, reference_images=references))
 
@@ -214,7 +215,7 @@ class TestGenerate:
             router.get(f"{BASE_URL}/history/p-1").mock(
                 return_value=httpx.Response(200, json=_history({"9": _image_output()}))
             )
-            router.get(f"{BASE_URL}/view").mock(return_value=httpx.Response(200, content=b"png"))
+            router.get(f"{BASE_URL}/view").mock(return_value=httpx.Response(200, content=PNG_BYTES))
 
             await _backend().generate(_request(tmp_path))
 
@@ -227,7 +228,7 @@ class TestGenerate:
             router.get(f"{BASE_URL}/history/p-1").mock(
                 return_value=httpx.Response(200, json=_history({"9": _image_output()}))
             )
-            router.get(f"{BASE_URL}/view").mock(return_value=httpx.Response(200, content=b"png"))
+            router.get(f"{BASE_URL}/view").mock(return_value=httpx.Response(200, content=PNG_BYTES))
 
             await _backend().generate(_request(tmp_path, aspect_ratio="1:1", image_size="1k"))
 
@@ -251,7 +252,7 @@ class TestGenerate:
             history = router.get(f"{BASE_URL}/history/p-1").mock(
                 return_value=httpx.Response(200, json=_history({"9": _image_output()}))
             )
-            view = router.get(f"{BASE_URL}/view").mock(return_value=httpx.Response(200, content=b"png"))
+            view = router.get(f"{BASE_URL}/view").mock(return_value=httpx.Response(200, content=PNG_BYTES))
 
             await _backend(definition, api_key="k-1").generate(
                 _request(tmp_path, reference_images=[ReferenceImage(path=str(reference))])
@@ -262,7 +263,7 @@ class TestGenerate:
 
 
 class TestArtifactWhitelist:
-    """产物是不是这个端点该产的那一类，只有扩展名说得准。"""
+    """产物是不是这个端点该产的那一类：先看扩展名，落盘后再按文件头核一遍容器。"""
 
     @pytest.mark.parametrize("filename", ["out.png", "out.jpg", "out.jpeg", "out.webp", "OUT.PNG"])
     async def test_a_whitelisted_suffix_is_stored(self, tmp_path: Path, filename: str):
@@ -271,11 +272,11 @@ class TestArtifactWhitelist:
             router.get(f"{BASE_URL}/history/p-1").mock(
                 return_value=httpx.Response(200, json=_history({"9": _image_output(filename)}))
             )
-            router.get(f"{BASE_URL}/view").mock(return_value=httpx.Response(200, content=b"png"))
+            router.get(f"{BASE_URL}/view").mock(return_value=httpx.Response(200, content=PNG_BYTES))
 
             result = await _backend().generate(_request(tmp_path))
 
-        assert result.image_path.read_bytes() == b"png"
+        assert result.image_path.read_bytes() == PNG_BYTES
 
     @pytest.mark.parametrize("filename", ["out.gif", "out.apng", "out.mp4"])
     async def test_an_animated_or_video_artifact_is_a_type_mismatch(self, tmp_path: Path, filename: str):
@@ -293,6 +294,37 @@ class TestArtifactWhitelist:
         assert caught.value.code == "comfyui_output_type_mismatch"
         assert caught.value.params == {"filename": filename, "media_type": "image"}
         assert view.call_count == 0
+
+    async def test_bytes_that_are_not_an_image_container_are_refused(self, tmp_path: Path):
+        """文件头对不上 PNG / JPEG / WEBP 时删掉落盘的文件并判容器不符，不留一份打不开的图。"""
+        with capture_http() as router:
+            router.post(f"{BASE_URL}/prompt").mock(return_value=httpx.Response(200, json={"prompt_id": "p-1"}))
+            router.get(f"{BASE_URL}/history/p-1").mock(
+                return_value=httpx.Response(200, json=_history({"9": _image_output("out.png")}))
+            )
+            router.get(f"{BASE_URL}/view").mock(return_value=httpx.Response(200, content=b"GIF89a-not-a-png"))
+
+            with pytest.raises(ComfyuiError) as caught:
+                await _backend().generate(_request(tmp_path))
+
+        assert caught.value.code == "comfyui_output_container_mismatch"
+        assert caught.value.params == {"filename": "out.png", "media_type": "image"}
+        assert not (tmp_path / "out.png").exists()
+
+    @pytest.mark.parametrize(
+        "content", [b"\xff\xd8\xff\xe0-jpeg", b"RIFF\x10\x00\x00\x00WEBPVP8 "], ids=["jpeg", "webp"]
+    )
+    async def test_the_other_whitelisted_containers_pass_the_head_check(self, tmp_path: Path, content: bytes):
+        with capture_http() as router:
+            router.post(f"{BASE_URL}/prompt").mock(return_value=httpx.Response(200, json={"prompt_id": "p-1"}))
+            router.get(f"{BASE_URL}/history/p-1").mock(
+                return_value=httpx.Response(200, json=_history({"9": _image_output("out.jpg")}))
+            )
+            router.get(f"{BASE_URL}/view").mock(return_value=httpx.Response(200, content=content))
+
+            result = await _backend().generate(_request(tmp_path))
+
+        assert result.image_path.read_bytes() == content
 
     async def test_nothing_produced_by_the_output_node_is_its_own_code(self, tmp_path: Path):
         with capture_http() as router:
@@ -327,7 +359,7 @@ class TestMultipleArtifacts:
         with capture_http() as router:
             router.post(f"{BASE_URL}/prompt").mock(return_value=httpx.Response(200, json={"prompt_id": "p-1"}))
             router.get(f"{BASE_URL}/history/p-1").mock(return_value=httpx.Response(200, json=_history(outputs)))
-            view = router.get(f"{BASE_URL}/view").mock(return_value=httpx.Response(200, content=b"png"))
+            view = router.get(f"{BASE_URL}/view").mock(return_value=httpx.Response(200, content=PNG_BYTES))
 
             with caplog.at_level("WARNING"):
                 await _backend().generate(_request(tmp_path))
@@ -349,7 +381,7 @@ class TestMultipleArtifacts:
         with capture_http() as router:
             router.post(f"{BASE_URL}/prompt").mock(return_value=httpx.Response(200, json={"prompt_id": "p-1"}))
             router.get(f"{BASE_URL}/history/p-1").mock(return_value=httpx.Response(200, json=_history(outputs)))
-            view = router.get(f"{BASE_URL}/view").mock(return_value=httpx.Response(200, content=b"png"))
+            view = router.get(f"{BASE_URL}/view").mock(return_value=httpx.Response(200, content=PNG_BYTES))
 
             await _backend().generate(_request(tmp_path))
 

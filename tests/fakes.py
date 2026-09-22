@@ -25,6 +25,11 @@ if TYPE_CHECKING:
 
 _NO_SDK_MESSAGES: tuple[dict[str, Any], ...] = ()
 
+#: 带真实文件头的产物替身字节。取件路径按文件头判容器（见
+#: ``lib.custom_provider.comfyui.artifacts.container_matches``），裸占位字节会被判容器不符。
+MP4_BYTES = b"\x00\x00\x00\x18ftypisom\x00\x00\x02\x00mp4-bytes"
+PNG_BYTES = b"\x89PNG\r\n\x1a\npng-bytes"
+
 
 async def empty_sdk_response_stream() -> AsyncIterator[dict[str, Any]]:
     """不产出任何消息即结束的 SDK 响应流。

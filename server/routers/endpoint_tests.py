@@ -52,6 +52,7 @@ from lib.custom_provider.endpoint_test import (
     TrialRunBusyError,
     TrialRunManager,
     TrialRunTarget,
+    artifact_media_type,
     check_response,
     model_ref_target,
     parse_response_body,
@@ -59,7 +60,6 @@ from lib.custom_provider.endpoint_test import (
     support_for_kind,
     supports_test_mode,
     trial_run_manager,
-    trial_run_refusal,
 )
 from lib.db import async_session_factory, get_async_session
 from lib.db.models.custom_provider import CustomProvider
@@ -77,6 +77,10 @@ MAX_ASSET_BYTES = 15 * 1024 * 1024
 
 #: 单次请求的素材文件总数上限：覆盖最重的合法组合（H3 的 9 参考图 + 首尾帧 + 3 段音频）仍有余量。
 MAX_ASSET_FILES = 16
+
+#: 能跑测试连接的端点媒体类型。模型行这条入口据此拒掉文本 / 音频档的行——那些行被派发到
+#: 视频或图像端点上只会付费打给另一个模型。
+_TESTABLE_MEDIA_TYPES = frozenset({"video", "image"})
 
 router = APIRouter(tags=["Custom Endpoints"])
 
@@ -177,6 +181,8 @@ class TrialRunResponse(BaseModel):
     status: str
     provider: str
     model: str
+    #: 这一笔产的是视频还是图像；读侧据此决定产物按播放器还是按图展示。
+    media_type: str = "video"
     created_at: float
     finished_at: float | None = None
     api_call_id: int | None = None
@@ -427,7 +433,6 @@ async def start_trial_run(
         parameters = replace(parameters, model=body.model_ref.model_id)
     elif body.definition is not None:
         definition = _accepted_definition(body.definition, _t, mode=EndpointTestMode.TRIAL_RUN)
-        _refuse_unsupported_trial_run(definition)
         support = _support(definition)
         require_base_url, require_api_key = support.credential_needs(definition)
         credentials = await _required_credentials(
@@ -486,11 +491,16 @@ async def get_trial_run_artifact(
     run_id: str,
     manager: TrialRunManager = Depends(get_trial_run_manager),
 ) -> FileResponse:
-    """播放该测试连接生成的产物。"""
+    """播放该测试连接生成的产物。
+
+    MIME 按落盘字节的文件头给，不按文件名：产物名是本层起的（视频 ``artifact.mp4``、图像
+    ``artifact.png``），而 ComfyUI 那一侧导出的容器可以是同族里的另一个，按名字声明会让浏览器
+    按一个错误的类型解。
+    """
     path = manager.artifact_path(run_id)
     if path is None:
         raise NotFoundError("trial_run_artifact_not_found")
-    return FileResponse(path, media_type="video/mp4")
+    return FileResponse(path, media_type=artifact_media_type(path))
 
 
 # ---------------------------------------------------------------------------
@@ -570,13 +580,12 @@ async def _model_ref_target(
         endpoint_spec = await resolve_endpoint_spec(model.endpoint, CustomEndpointRepository(session).get)
     except ValueError:
         endpoint_spec = None
-    if not model.is_enabled or endpoint_spec is None or endpoint_spec.media_type != "video":
+    if not model.is_enabled or endpoint_spec is None or endpoint_spec.media_type not in _TESTABLE_MEDIA_TYPES:
         raise BadRequestError("endpoint_test_model_unavailable")
     # 凭证配置错误在请求线程上就能判，按翻译过的 400 拒掉：缺 base_url 时装配层只会抛一句
     # 不可翻译的中文，且落在脱离请求的后台任务里、原样进结果体的 error 字段；缺 api_key 时
     # 请求会带着空鉴权头发出去，付费打一个注定被拒的调用。
     if endpoint_spec.definition is not None:
-        _refuse_unsupported_trial_run(endpoint_spec.definition)
         require_base_url, require_api_key = _support(endpoint_spec.definition).credential_needs(
             endpoint_spec.definition
         )
@@ -590,15 +599,14 @@ async def _model_ref_target(
         # 逐阶段提取与提交前渲染闸按同一条路给出，不因定义随版发布而缺一段诊断。
         definition = _accepted_definition(dict(endpoint_spec.definition), _t, mode=EndpointTestMode.TRIAL_RUN)
     credentials = EndpointTestCredentials(base_url=provider.base_url, api_key=provider.api_key)
-    target = model_ref_target(model_ref.provider_id, model_ref.model_id, resolver=resolver, definition=definition)
+    target = model_ref_target(
+        model_ref.provider_id,
+        model_ref.model_id,
+        resolver=resolver,
+        definition=definition,
+        media_type=endpoint_spec.media_type,
+    )
     return target, credentials, definition
-
-
-def _refuse_unsupported_trial_run(definition: Mapping[str, Any]) -> None:
-    """这份定义本身跑不了测试连接时按 400 拒掉（如 ComfyUI 图像端点）。"""
-    refusal = trial_run_refusal(definition)
-    if refusal is not None:
-        raise BadRequestError(refusal)
 
 
 def _preview_payload(

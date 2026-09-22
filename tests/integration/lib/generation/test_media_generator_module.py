@@ -17,7 +17,7 @@ from lib.generation.media_generator import (
     task_video_staging_path,
 )
 from tests.factories import comfyui_endpoint_definition, custom_endpoint_definition
-from tests.fakes import FakeConfigResolver, bounded_poll_clock, select_formal_video
+from tests.fakes import MP4_BYTES, PNG_BYTES, FakeConfigResolver, bounded_poll_clock, select_formal_video
 from tests.http_capture import capture_http
 
 
@@ -287,7 +287,7 @@ class TestMediaGenerator:
                 return_value=httpx.Response(200, json={"prompt_id": "p-1"})
             )
             router.get("https://comfy.test/history/p-1").mock(return_value=httpx.Response(200, json=history))
-            router.get("https://comfy.test/view").mock(return_value=httpx.Response(200, content=b"video"))
+            router.get("https://comfy.test/view").mock(return_value=httpx.Response(200, content=MP4_BYTES))
 
             output, _version, _ref, _uri = await gen.generate_video_async(
                 prompt="一只猫走过屋顶",
@@ -297,7 +297,7 @@ class TestMediaGenerator:
             )
 
         sent = json.loads(submit.calls.last.request.content)["prompt"]
-        assert output.read_bytes() == b"video"
+        assert output.read_bytes() == MP4_BYTES
         assert gen.versions.add_calls[-1]["workflow_sha256"] == workflow_sha256(sent)
         assert gen.versions.add_calls[-1]["seed"] == sent["3"]["inputs"]["seed"]
 
@@ -335,7 +335,7 @@ class TestMediaGenerator:
         with capture_http() as router, bounded_poll_clock():
             router.post("https://comfy.test/prompt").mock(return_value=httpx.Response(200, json={"prompt_id": "p-1"}))
             router.get("https://comfy.test/history/p-1").mock(return_value=httpx.Response(200, json=history))
-            router.get("https://comfy.test/view").mock(return_value=httpx.Response(200, content=b"video"))
+            router.get("https://comfy.test/view").mock(return_value=httpx.Response(200, content=MP4_BYTES))
 
             await gen.generate_video_async(
                 prompt="一只猫走过屋顶",
@@ -391,7 +391,7 @@ class TestMediaGenerator:
                 return_value=httpx.Response(200, json={"prompt_id": "p-1"})
             )
             router.get("https://comfy.test/history/p-1").mock(return_value=httpx.Response(200, json=history))
-            router.get("https://comfy.test/view").mock(return_value=httpx.Response(200, content=b"png"))
+            router.get("https://comfy.test/view").mock(return_value=httpx.Response(200, content=PNG_BYTES))
 
             output, version = await gen.generate_image_async(
                 prompt="把这张图改成夜景",
@@ -400,7 +400,7 @@ class TestMediaGenerator:
                 reference_images=[reference],
             )
 
-        assert output.read_bytes() == b"png"
+        assert output.read_bytes() == PNG_BYTES
         assert version == 1
         assert upload.call_count == 1
         assert gen.versions.add_calls[-1]["resource_id"] == "E1S01"

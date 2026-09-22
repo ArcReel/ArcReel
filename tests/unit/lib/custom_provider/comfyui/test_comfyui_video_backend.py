@@ -35,7 +35,7 @@ from lib.custom_provider.factory import create_custom_backend
 from lib.generation.task_failure import render_failure
 from lib.generation.task_failure_encoding import encode_task_failure_message
 from tests.factories import comfyui_endpoint_definition, make_translator
-from tests.fakes import bounded_poll_clock, captured_provider_job_ids
+from tests.fakes import MP4_BYTES, bounded_poll_clock, captured_provider_job_ids
 from tests.http_capture import capture_http, only_request, request_json
 
 BASE_URL = "https://comfy.test"
@@ -189,13 +189,13 @@ class TestGenerate:
             )
             # 空态那一轮顺手确认这次执行还在队列上，否则一台重启过的 ComfyUI 只会让轮询空转到超时。
             queue = router.get(f"{BASE_URL}/queue").mock(return_value=httpx.Response(200, json=_queue(pending=["p-1"])))
-            view = router.get(f"{BASE_URL}/view").mock(return_value=httpx.Response(200, content=b"mp4-bytes"))
+            view = router.get(f"{BASE_URL}/view").mock(return_value=httpx.Response(200, content=MP4_BYTES))
 
             result = await _backend(definition).generate(
                 _request(tmp_path, start_image=start, reference_images=[reference])
             )
 
-        assert result.video_path.read_bytes() == b"mp4-bytes"
+        assert result.video_path.read_bytes() == MP4_BYTES
         assert result.task_id == "p-1"
         assert upload.call_count == 2
         assert history.call_count == 2
@@ -223,7 +223,7 @@ class TestGenerate:
             router.get(f"{BASE_URL}/history/p-1").mock(
                 return_value=httpx.Response(200, json=_history({"9": _video_output()}))
             )
-            router.get(f"{BASE_URL}/view").mock(return_value=httpx.Response(200, content=b"mp4"))
+            router.get(f"{BASE_URL}/view").mock(return_value=httpx.Response(200, content=MP4_BYTES))
 
             result = await _backend().generate(_request(tmp_path))
 
@@ -238,7 +238,7 @@ class TestGenerate:
             router.get(f"{BASE_URL}/history/p-1").mock(
                 return_value=httpx.Response(200, json=_history({"9": _video_output()}))
             )
-            router.get(f"{BASE_URL}/view").mock(return_value=httpx.Response(200, content=b"mp4"))
+            router.get(f"{BASE_URL}/view").mock(return_value=httpx.Response(200, content=MP4_BYTES))
 
             result = await _backend().generate(_request(tmp_path, duration_seconds=5))
 
@@ -263,7 +263,7 @@ class TestGenerate:
             router.get(f"{BASE_URL}/history/p-1").mock(
                 return_value=httpx.Response(200, json=_history({"9": _video_output()}))
             )
-            router.get(f"{BASE_URL}/view").mock(return_value=httpx.Response(200, content=b"mp4"))
+            router.get(f"{BASE_URL}/view").mock(return_value=httpx.Response(200, content=MP4_BYTES))
 
             await _backend(definition).generate(_request(tmp_path, reference_images=references))
 
@@ -277,11 +277,11 @@ class TestGenerate:
             router.get(f"{BASE_URL}/history/p-1").mock(
                 return_value=httpx.Response(200, json=_history({"9": _video_output()}))
             )
-            router.get(f"{BASE_URL}/view").mock(return_value=httpx.Response(200, content=b"mp4"))
+            router.get(f"{BASE_URL}/view").mock(return_value=httpx.Response(200, content=MP4_BYTES))
 
             result = await _backend().generate(_request(tmp_path))
 
-        assert result.video_path.read_bytes() == b"mp4"
+        assert result.video_path.read_bytes() == MP4_BYTES
 
     async def test_credentials_render_once_and_ride_every_route(self, tmp_path: Path):
         definition = _with_image_bindings()
@@ -298,7 +298,7 @@ class TestGenerate:
             history = router.get(f"{BASE_URL}/history/p-1").mock(
                 return_value=httpx.Response(200, json=_history({"9": _video_output()}))
             )
-            view = router.get(f"{BASE_URL}/view").mock(return_value=httpx.Response(200, content=b"mp4"))
+            view = router.get(f"{BASE_URL}/view").mock(return_value=httpx.Response(200, content=MP4_BYTES))
 
             await _backend(definition, api_key="k-1").generate(_request(tmp_path, start_image=start))
 
@@ -314,7 +314,7 @@ class TestGenerate:
             history = router.get(f"{BASE_URL}/history/p-1").mock(
                 return_value=httpx.Response(200, json=_history({"9": _video_output()}))
             )
-            view = router.get(f"{BASE_URL}/view").mock(return_value=httpx.Response(200, content=b"mp4"))
+            view = router.get(f"{BASE_URL}/view").mock(return_value=httpx.Response(200, content=MP4_BYTES))
 
             await _backend(definition, api_key="k-1").generate(_request(tmp_path))
 
@@ -360,12 +360,12 @@ class TestGenerate:
                 else httpx.Response(200, json=_history({"9": _video_output()}))
             )
             router.get(f"{BASE_URL}/view").mock(
-                return_value=redirect if route == "view" else httpx.Response(200, content=b"mp4")
+                return_value=redirect if route == "view" else httpx.Response(200, content=MP4_BYTES)
             )
             moved_get.mock(
                 return_value=httpx.Response(200, json=_history({"9": _video_output()}))
                 if route == "history"
-                else httpx.Response(200, content=b"mp4")
+                else httpx.Response(200, content=MP4_BYTES)
             )
 
             await _backend(definition, api_key="secret").generate(_request(tmp_path, start_image=start))
@@ -384,7 +384,7 @@ class TestGenerate:
                 return_value=httpx.Response(200, json=_history({"9": _video_output()}))
             )
             view = router.get(f"{BASE_URL}/view").mock(return_value=httpx.Response(302, headers={"location": metadata}))
-            target = router.get(metadata).mock(return_value=httpx.Response(200, content=b"mp4"))
+            target = router.get(metadata).mock(return_value=httpx.Response(200, content=MP4_BYTES))
 
             with pytest.raises(ArtifactDestinationRejectedError):
                 await _backend().generate(_request(tmp_path))
@@ -420,7 +420,7 @@ class TestGenerate:
             router.get(f"{BASE_URL}/view").mock(
                 return_value=httpx.Response(302, headers={"location": f"{BASE_URL}/files/final.mp4"})
             )
-            moved = router.get(f"{BASE_URL}/files/final.mp4").mock(return_value=httpx.Response(200, content=b"mp4"))
+            moved = router.get(f"{BASE_URL}/files/final.mp4").mock(return_value=httpx.Response(200, content=MP4_BYTES))
 
             await _backend(definition, api_key="k-1").generate(_request(tmp_path))
 
@@ -435,7 +435,7 @@ class TestGenerate:
             router.get(f"{BASE_URL}/history/p-1").mock(
                 return_value=httpx.Response(200, json=_history({"9": _video_output()}))
             )
-            router.get(f"{BASE_URL}/view").mock(return_value=httpx.Response(200, content=b"mp4"))
+            router.get(f"{BASE_URL}/view").mock(return_value=httpx.Response(200, content=MP4_BYTES))
 
             await _backend(definition, api_key="").generate(_request(tmp_path))
 
@@ -569,6 +569,73 @@ class TestFailures:
         assert caught.value.code == "comfyui_output_type_mismatch"
         assert caught.value.params == {"filename": "final_00001.png", "media_type": "video"}
 
+    @pytest.mark.parametrize("filename", ["final_00001.mov", "final_00001.m4v", "FINAL.MP4"])
+    async def test_the_iso_bmff_family_is_accepted(self, tmp_path: Path, filename: str):
+        """三个允许的扩展名同属 ISO BMFF，与参考视频上传收的那三个同一份口径。"""
+        with capture_http() as router, bounded_poll_clock(), captured_provider_job_ids():
+            router.post(f"{BASE_URL}/prompt").mock(return_value=httpx.Response(200, json={"prompt_id": "p-1"}))
+            router.get(f"{BASE_URL}/history/p-1").mock(
+                return_value=httpx.Response(200, json=_history({"9": _video_output(filename)}))
+            )
+            router.get(f"{BASE_URL}/view").mock(return_value=httpx.Response(200, content=MP4_BYTES))
+
+            result = await _backend().generate(_request(tmp_path))
+
+        assert result.video_path.read_bytes() == MP4_BYTES
+
+    async def test_a_webm_artifact_is_refused_with_the_allowed_suffixes_in_the_copy(self, tmp_path: Path):
+        """``.webm`` 的字节装进规范 ``.mp4`` 路径后扩展名与下发 MIME 都在说谎，故按类型不符拒收。"""
+        with capture_http() as router, bounded_poll_clock(), captured_provider_job_ids():
+            router.post(f"{BASE_URL}/prompt").mock(return_value=httpx.Response(200, json={"prompt_id": "p-1"}))
+            router.get(f"{BASE_URL}/history/p-1").mock(
+                return_value=httpx.Response(200, json=_history({"9": _video_output("final_00001.webm")}))
+            )
+            view = router.get(f"{BASE_URL}/view")
+
+            with pytest.raises(ComfyuiError) as caught:
+                await _backend().generate(_request(tmp_path))
+
+        assert caught.value.code == "comfyui_output_type_mismatch"
+        assert view.call_count == 0
+        rendered = render_failure(encode_task_failure_message(caught.value), make_translator("zh"))
+        assert ".m4v / .mov / .mp4" in rendered
+        assert "h264-mp4" in rendered
+
+    async def test_webm_bytes_under_an_mp4_name_are_refused_and_nothing_is_left_on_disk(self, tmp_path: Path):
+        """扩展名只是 history 里的一个字符串：保存节点可以把别的容器写进 ``.mp4`` 的名字。"""
+        with capture_http() as router, bounded_poll_clock(), captured_provider_job_ids():
+            router.post(f"{BASE_URL}/prompt").mock(return_value=httpx.Response(200, json={"prompt_id": "p-1"}))
+            router.get(f"{BASE_URL}/history/p-1").mock(
+                return_value=httpx.Response(200, json=_history({"9": _video_output()}))
+            )
+            router.get(f"{BASE_URL}/view").mock(return_value=httpx.Response(200, content=b"\x1a\x45\xdf\xa3webm"))
+
+            with pytest.raises(ComfyuiError) as caught:
+                await _backend().generate(_request(tmp_path))
+
+        assert caught.value.code == "comfyui_output_container_mismatch"
+        assert caught.value.params == {"filename": "final_00001.mp4", "media_type": "video"}
+        assert not (tmp_path / "out.mp4").exists()
+        rendered = render_failure(encode_task_failure_message(caught.value), make_translator("zh"))
+        assert ".m4v / .mov / .mp4" in rendered
+
+    async def test_still_image_iso_bmff_bytes_under_an_mp4_name_are_refused(self, tmp_path: Path):
+        """``ftyp`` 只说这是 ISO BMFF 家族：HEIC / AVIF 同用这一层，放行它们会留下一份放不出的成片。"""
+        with capture_http() as router, bounded_poll_clock(), captured_provider_job_ids():
+            router.post(f"{BASE_URL}/prompt").mock(return_value=httpx.Response(200, json={"prompt_id": "p-1"}))
+            router.get(f"{BASE_URL}/history/p-1").mock(
+                return_value=httpx.Response(200, json=_history({"9": _video_output()}))
+            )
+            router.get(f"{BASE_URL}/view").mock(
+                return_value=httpx.Response(200, content=b"\x00\x00\x00\x18ftypheic\x00\x00\x00\x00heic-bytes")
+            )
+
+            with pytest.raises(ComfyuiError) as caught:
+                await _backend().generate(_request(tmp_path))
+
+        assert caught.value.code == "comfyui_output_container_mismatch"
+        assert not (tmp_path / "out.mp4").exists()
+
     @pytest.mark.parametrize(
         ("code", "params"),
         [
@@ -579,6 +646,7 @@ class TestFailures:
             ("comfyui_interrupted", {}),
             ("comfyui_output_missing", {"nodes": "9"}),
             ("comfyui_output_type_mismatch", {"filename": "a.png", "media_type": "video"}),
+            ("comfyui_output_container_mismatch", {"filename": "a.mp4", "media_type": "video"}),
             ("comfyui_image_drop_unsupported", {"node": "10"}),
         ],
     )
@@ -610,7 +678,7 @@ class TestFailures:
         rendered = render_failure(message, make_translator(locale))
 
         assert rendered
-        assert ".mov / .mp4 / .webm" in rendered
+        assert ".m4v / .mov / .mp4" in rendered
 
 
 class TestMultipleArtifacts:
@@ -627,7 +695,7 @@ class TestMultipleArtifacts:
         with capture_http() as router, bounded_poll_clock(), captured_provider_job_ids():
             router.post(f"{BASE_URL}/prompt").mock(return_value=httpx.Response(200, json={"prompt_id": "p-1"}))
             router.get(f"{BASE_URL}/history/p-1").mock(return_value=httpx.Response(200, json=_history(outputs)))
-            view = router.get(f"{BASE_URL}/view").mock(return_value=httpx.Response(200, content=b"mp4"))
+            view = router.get(f"{BASE_URL}/view").mock(return_value=httpx.Response(200, content=MP4_BYTES))
 
             with caplog.at_level("WARNING"):
                 result = await _backend().generate(_request(tmp_path))
@@ -655,7 +723,7 @@ class TestMultipleArtifacts:
         with capture_http() as router, bounded_poll_clock(), captured_provider_job_ids():
             router.post(f"{BASE_URL}/prompt").mock(return_value=httpx.Response(200, json={"prompt_id": "p-1"}))
             router.get(f"{BASE_URL}/history/p-1").mock(return_value=httpx.Response(200, json=_history(outputs)))
-            view = router.get(f"{BASE_URL}/view").mock(return_value=httpx.Response(200, content=b"mp4"))
+            view = router.get(f"{BASE_URL}/view").mock(return_value=httpx.Response(200, content=MP4_BYTES))
 
             result = await _backend().generate(_request(tmp_path))
 
@@ -670,7 +738,7 @@ class TestMultipleArtifacts:
             router.get(f"{BASE_URL}/history/p-1").mock(
                 return_value=httpx.Response(200, json=_history({"9": _video_output()}))
             )
-            router.get(f"{BASE_URL}/view").mock(return_value=httpx.Response(200, content=b"mp4"))
+            router.get(f"{BASE_URL}/view").mock(return_value=httpx.Response(200, content=MP4_BYTES))
 
             result = await _backend().generate(_request(tmp_path))
 
@@ -698,7 +766,7 @@ class TestDiagnostics:
         with capture_http() as router, bounded_poll_clock(), captured_provider_job_ids():
             router.post(f"{BASE_URL}/prompt").mock(return_value=httpx.Response(200, json={"prompt_id": "p-1"}))
             router.get(f"{BASE_URL}/history/p-1").mock(return_value=httpx.Response(200, json=_history(outputs)))
-            router.get(f"{BASE_URL}/view").mock(return_value=httpx.Response(200, content=b"mp4"))
+            router.get(f"{BASE_URL}/view").mock(return_value=httpx.Response(200, content=MP4_BYTES))
 
             await _backend().generate(_request(tmp_path, on_provider_response=_record))
 
@@ -760,11 +828,11 @@ class TestTerminalStates:
             router.get(f"{BASE_URL}/history/p-1").mock(
                 return_value=httpx.Response(200, json=_entry(_messages(*events), {"9": _video_output()}))
             )
-            router.get(f"{BASE_URL}/view").mock(return_value=httpx.Response(200, content=b"mp4"))
+            router.get(f"{BASE_URL}/view").mock(return_value=httpx.Response(200, content=MP4_BYTES))
 
             result = await _backend().generate(_request(tmp_path))
 
-        assert result.video_path.read_bytes() == b"mp4"
+        assert result.video_path.read_bytes() == MP4_BYTES
 
     async def test_a_null_status_without_outputs_falls_back_to_execution_error(self, tmp_path: Path):
         """无从判起的那一格按执行失败兜底：说成「产物节点没出东西」会把环境问题栽给绑定。"""
@@ -785,11 +853,11 @@ class TestTerminalStates:
             router.get(f"{BASE_URL}/history/p-1").mock(
                 return_value=httpx.Response(200, json=_entry(None, {"9": _video_output()}))
             )
-            router.get(f"{BASE_URL}/view").mock(return_value=httpx.Response(200, content=b"mp4"))
+            router.get(f"{BASE_URL}/view").mock(return_value=httpx.Response(200, content=MP4_BYTES))
 
             result = await _backend().generate(_request(tmp_path))
 
-        assert result.video_path.read_bytes() == b"mp4"
+        assert result.video_path.read_bytes() == MP4_BYTES
 
     async def test_a_finished_run_without_artifacts_stays_output_missing(self, tmp_path: Path):
         """末尾事件说跑成功了、绑定的节点却没出文件——这一格才是绑定的问题。"""
@@ -833,11 +901,11 @@ class TestJobLost:
                 ]
             )
             router.get(f"{BASE_URL}/queue").mock(return_value=httpx.Response(200, json=_queue(**{lane: ["p-1"]})))
-            router.get(f"{BASE_URL}/view").mock(return_value=httpx.Response(200, content=b"mp4"))
+            router.get(f"{BASE_URL}/view").mock(return_value=httpx.Response(200, content=MP4_BYTES))
 
             result = await _backend().generate(_request(tmp_path))
 
-        assert result.video_path.read_bytes() == b"mp4"
+        assert result.video_path.read_bytes() == MP4_BYTES
 
     async def test_a_run_that_finished_between_the_two_requests_is_not_lost(self, tmp_path: Path):
         """队列与 history 是两次独立请求：执行恰好在两次之间走完时它两边都不在。"""
@@ -850,11 +918,11 @@ class TestJobLost:
                 ]
             )
             router.get(f"{BASE_URL}/queue").mock(return_value=httpx.Response(200, json=_queue()))
-            router.get(f"{BASE_URL}/view").mock(return_value=httpx.Response(200, content=b"mp4"))
+            router.get(f"{BASE_URL}/view").mock(return_value=httpx.Response(200, content=MP4_BYTES))
 
             result = await _backend().generate(_request(tmp_path))
 
-        assert result.video_path.read_bytes() == b"mp4"
+        assert result.video_path.read_bytes() == MP4_BYTES
 
     async def test_a_broken_queue_route_never_fails_a_healthy_run(self, tmp_path: Path):
         """只挡掉 ``/queue`` 的反向代理：任务本身的地址好着，别拿辅助判据把出片中的执行判死。"""
@@ -870,11 +938,11 @@ class TestJobLost:
             router.post(f"{BASE_URL}/prompt").mock(return_value=httpx.Response(200, json={"prompt_id": "p-1"}))
             router.get(f"{BASE_URL}/history/p-1").mock(side_effect=_history_route)
             router.get(f"{BASE_URL}/queue").mock(return_value=httpx.Response(503, text="bad gateway"))
-            router.get(f"{BASE_URL}/view").mock(return_value=httpx.Response(200, content=b"mp4"))
+            router.get(f"{BASE_URL}/view").mock(return_value=httpx.Response(200, content=MP4_BYTES))
 
             result = await _backend().generate(_request(tmp_path))
 
-        assert result.video_path.read_bytes() == b"mp4"
+        assert result.video_path.read_bytes() == MP4_BYTES
 
     async def test_an_unreadable_queue_never_declares_a_loss(self, tmp_path: Path):
         """代理重启期回一页 HTML：读不出这张表不等于队列是空的。"""
@@ -887,11 +955,11 @@ class TestJobLost:
                 ]
             )
             router.get(f"{BASE_URL}/queue").mock(return_value=httpx.Response(200, html="<html>502</html>"))
-            router.get(f"{BASE_URL}/view").mock(return_value=httpx.Response(200, content=b"mp4"))
+            router.get(f"{BASE_URL}/view").mock(return_value=httpx.Response(200, content=MP4_BYTES))
 
             result = await _backend().generate(_request(tmp_path))
 
-        assert result.video_path.read_bytes() == b"mp4"
+        assert result.video_path.read_bytes() == MP4_BYTES
 
     async def test_a_json_body_without_the_two_lists_is_unreadable_too(self, tmp_path: Path):
         """代理重启期回 ``{"error": "restarting"}``：解得出 JSON 不代表读得到队列。"""
@@ -905,11 +973,11 @@ class TestJobLost:
                 ]
             )
             router.get(f"{BASE_URL}/queue").mock(return_value=httpx.Response(200, json={"error": "restarting"}))
-            router.get(f"{BASE_URL}/view").mock(return_value=httpx.Response(200, content=b"mp4"))
+            router.get(f"{BASE_URL}/view").mock(return_value=httpx.Response(200, content=MP4_BYTES))
 
             result = await _backend().generate(_request(tmp_path))
 
-        assert result.video_path.read_bytes() == b"mp4"
+        assert result.video_path.read_bytes() == MP4_BYTES
 
 
 class TestResume:
@@ -922,11 +990,11 @@ class TestResume:
             router.get(f"{BASE_URL}/history/p-1").mock(
                 return_value=httpx.Response(200, json=_history({"9": _video_output()}))
             )
-            router.get(f"{BASE_URL}/view").mock(return_value=httpx.Response(200, content=b"mp4"))
+            router.get(f"{BASE_URL}/view").mock(return_value=httpx.Response(200, content=MP4_BYTES))
 
             result = await _backend(_with_image_bindings()).resume_video("p-1", _request(tmp_path))
 
-        assert result.video_path.read_bytes() == b"mp4"
+        assert result.video_path.read_bytes() == MP4_BYTES
         assert result.task_id == "p-1"
         assert upload.call_count == 0
         assert submit.call_count == 0
@@ -945,11 +1013,11 @@ class TestResume:
             router.get(f"{submitted}/history/p-1").mock(
                 return_value=httpx.Response(200, json=_history({"9": _video_output()}))
             )
-            view = router.get(f"{submitted}/view").mock(return_value=httpx.Response(200, content=b"mp4"))
+            view = router.get(f"{submitted}/view").mock(return_value=httpx.Response(200, content=MP4_BYTES))
 
             result = await _backend().resume_video("p-1", _request(tmp_path, submitted_base_url=submitted))
 
-        assert result.video_path.read_bytes() == b"mp4"
+        assert result.video_path.read_bytes() == MP4_BYTES
         assert current.call_count == 0
         assert view.call_count == 1
 
@@ -959,7 +1027,7 @@ class TestResume:
             router.get(f"{BASE_URL}/history/p-1").mock(
                 return_value=httpx.Response(200, json=_history({"9": _video_output()}))
             )
-            router.get(f"{BASE_URL}/view").mock(return_value=httpx.Response(200, content=b"mp4"))
+            router.get(f"{BASE_URL}/view").mock(return_value=httpx.Response(200, content=MP4_BYTES))
 
             result = await _backend().resume_video("p-1", _request(tmp_path))
 
