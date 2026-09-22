@@ -597,7 +597,7 @@ class TestFailures:
 
         assert caught.value.code == "comfyui_output_type_mismatch"
         assert view.call_count == 0
-        rendered = render_failure(_encode_task_failure_message(caught.value), make_translator("zh"))
+        rendered = render_failure(encode_task_failure_message(caught.value), make_translator("zh"))
         assert ".m4v / .mov / .mp4" in rendered
         assert "h264-mp4" in rendered
 
@@ -616,7 +616,7 @@ class TestFailures:
         assert caught.value.code == "comfyui_output_container_mismatch"
         assert caught.value.params == {"filename": "final_00001.mp4", "media_type": "video"}
         assert not (tmp_path / "out.mp4").exists()
-        rendered = render_failure(_encode_task_failure_message(caught.value), make_translator("zh"))
+        rendered = render_failure(encode_task_failure_message(caught.value), make_translator("zh"))
         assert ".m4v / .mov / .mp4" in rendered
 
     @pytest.mark.parametrize(
