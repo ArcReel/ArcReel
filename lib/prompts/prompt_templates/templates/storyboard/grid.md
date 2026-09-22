@@ -46,6 +46,6 @@ Reference_Images: {{ reference_images }}
   {{ opening.description }}
 {{ partial("storyboard/grid/lists/cells") }}
 
-{{ partial("shared/style") }}
+{{ partial("shared/media_style") }}
 
 {{ partial("storyboard/grid/avoid") }}

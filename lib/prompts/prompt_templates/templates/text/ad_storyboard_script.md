@@ -54,13 +54,13 @@ protected: false
 
 {{ partial("shared/overview_block") }}
 
-{{ partial("shared/style_block") }}
+{{ partial("shared/text_style") }}
 
 <brief>
 {{ brief or "（未提供，按商品信息与常识自行设计）" }}
 </brief>
 
-{{ partial("shared/asset_name_blocks") }}
+{{ partial("shared/lists/asset_name_blocks") }}
 
 {% if products %}
 <products>

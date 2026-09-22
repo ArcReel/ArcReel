@@ -41,7 +41,7 @@ protected: false
 
 {{ partial("shared/overview_block") }}
 
-{{ partial("shared/asset_name_blocks") }}
+{{ partial("shared/lists/asset_name_blocks") }}
 
 ## 小说原文
 

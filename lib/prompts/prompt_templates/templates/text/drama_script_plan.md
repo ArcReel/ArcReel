@@ -54,7 +54,7 @@ protected: false
 {{ style }}
 </style>
 
-{{ partial("shared/asset_name_blocks") }}
+{{ partial("shared/lists/asset_name_blocks") }}
 
 ## 源文
 

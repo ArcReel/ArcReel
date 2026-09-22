@@ -1,4 +1,10 @@
-"""内置目录扫描通过加载接口执行语法、槽位、变体族完整性与判重开启范围约束。"""
+"""内置目录扫描通过加载接口执行语法、槽位、变体族完整性、判重开启范围与共享片段门槛约束。"""
+
+from collections import defaultdict
+from collections.abc import Iterable
+from pathlib import Path
+
+from jinja2 import Environment, nodes
 
 from lib.agent.profile_manifest import VALID_CONTENT_MODES
 from lib.project.project_manager import VALID_GENERATION_MODES, VALID_SOURCE_KINDS
@@ -51,3 +57,43 @@ def test_builtin_applies_to_values_are_real_project_values():
         for axis, values in entry.applies_to.items():
             if axis in known:
                 assert set(values) <= known[axis], (entry.id, axis, values)
+
+
+def _partial_calls(source: str) -> set[str]:
+    return {
+        call.args[0].value
+        for call in Environment().parse(source).find_all(nodes.Call)
+        if isinstance(call.node, nodes.Name) and call.node.name == "partial"
+    }
+
+
+def _single_parent_shared_partials(partials_directory: Path, template_sources: Iterable[tuple[str, str]]) -> list[str]:
+    referrers: dict[str, set[tuple[str, str]]] = defaultdict(set)
+    for template_id, body in template_sources:
+        for name in _partial_calls(body):
+            referrers[name].add(("template", template_id))
+    for path in partials_directory.rglob("*.md"):
+        parent = path.relative_to(partials_directory).with_suffix("").as_posix()
+        for name in _partial_calls(path.read_text(encoding="utf-8")):
+            referrers[name].add(("partial", parent))
+    return sorted(
+        name
+        for name, sources in referrers.items()
+        if name.startswith("shared/") and len(sources) == 1 and next(iter(sources))[0] == "partial"
+    )
+
+
+def test_builtin_shared_partials_are_not_referenced_by_a_single_partial():
+    """只被一个片段引用的措辞内联回该片段；变体族成员按轴值拆分，不计入。"""
+    templates = PromptTemplates(BUILTIN_DIRECTORY)
+    template_sources = ((entry.id, templates.read_source(entry.id)[0]) for entry in templates.list_templates())
+    assert _single_parent_shared_partials(BUILTIN_DIRECTORY / "partials", template_sources) == []
+
+
+def test_shared_partial_scan_includes_files_unreachable_from_templates(tmp_path: Path):
+    parent = tmp_path / "shared" / "orphan_parent.md"
+    parent.parent.mkdir()
+    parent.write_text('{{ partial("shared/orphan_child") }}', encoding="utf-8")
+    (parent.parent / "orphan_child.md").write_text("孤立措辞", encoding="utf-8")
+
+    assert _single_parent_shared_partials(tmp_path, []) == ["shared/orphan_child"]

@@ -13,7 +13,7 @@ slots:
 protected: false
 idempotent: true
 ---
-{{ partial("shared/style") }}
+{{ partial("shared/media_style") }}
 {% if reference_images %}
 {{ partial("storyboard/image/references") }}
 {% endif %}
