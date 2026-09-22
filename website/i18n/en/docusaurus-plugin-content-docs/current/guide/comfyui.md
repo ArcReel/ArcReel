@@ -132,7 +132,7 @@ Prompts are sent verbatim. ArcReel neither translates nor rewrites them, so **pi
 The endpoint detail page offers two test cards that share the same parameters, credentials, and assets — change any of them in between and the two cards no longer describe the same thing:
 
 - **Request Preview** renders the workflow, authentication, and conversions that would be sent to `/prompt`, without contacting ComfyUI. Credentials are masked, and asset fields show a placeholder description rather than the reference name a real upload would return.
-- **Connection Test** is offered for **video endpoints only** (image endpoints have the preview card alone). It really uploads assets, submits the workflow, polls execution, and downloads the artifact, so it **occupies the ComfyUI queue and GPU**. Use the preview first to check nodes, dimensions, frame count, seed, and which nodes this request removes.
+- **Connection Test** is offered for both video and image endpoints. It really uploads assets, submits the workflow, polls execution, and downloads the artifact, so it **occupies the ComfyUI queue and GPU**. Use the preview first to check nodes, dimensions, frame count, seed, and which nodes this request removes.
 
 Test runs appear in the ComfyUI queue as `endpoint-test-…`, with a random suffix so repeated tests of the same endpoint do not overwrite each other's uploads. When a run is canceled or times out, ArcReel makes a best-effort attempt to stop it remotely: newer ComfyUI versions support cancellation by job ID; on older ones ArcReel inspects the queue, drops the item if it is still pending, and interrupts execution only after confirming this job is the one currently running — `/interrupt` ignores ids, and guessing wrong would stop someone else's work. A network failure can prevent the remote stop, so check the ComfyUI queue after cancelling.
 
@@ -144,6 +144,7 @@ Test runs appear in the ComfyUI queue as `endpoint-test-…`, with a random suff
 - After submitting a video task, ArcReel stores its ComfyUI `prompt_id`. Following an ArcReel restart, it resumes polling that task without uploading assets or submitting the workflow again.
 - Image tasks cannot resume after a restart: there is nowhere to persist the `prompt_id`, so a restart mid-generation marks the task lost rather than making your GPU render the same image twice.
 - When a run emits several files, both channels take the first artifact whose extension matches the endpoint's media type; video tasks additionally attach a warning to the result, while image tasks only log it.
+- **Artifact container whitelist**: video endpoints accept `.mp4` / `.mov` / `.m4v`, image endpoints accept `.png` / `.jpg` / `.jpeg` / `.webp`. Finished videos are stored byte-for-byte at a fixed `.mp4` resource path, so only the ISO BMFF family fits; a `.webm` from a node such as `SaveWEBM` is refused as an artifact type mismatch — switch the save node to mp4 (`SaveVideo` → `h264-mp4`). After the download, ArcReel also verifies the real container from the file header: a file named `.mp4` whose contents are another container is refused too, rather than leaving behind a video that will not open.
 
 ## 8. Common Failures {#troubleshooting}
 
@@ -155,10 +156,11 @@ Test runs appear in the ComfyUI queue as `endpoint-test-…`, with a random suff
 | `comfyui_execution_error` | A node failed during execution. Use the reported node to inspect models, nodes, and inputs in ComfyUI |
 | `comfyui_interrupted` | A person or another client interrupted the run. Confirm the queue state and retry |
 | `comfyui_output_missing` | The bound output node emitted no file. Check that node and its upstream output chain |
-| `comfyui_output_type_mismatch` | The artifact extension does not match the endpoint media type. Rebind the node that exports the final media |
+| `comfyui_output_type_mismatch` | The artifact extension is not in this endpoint's container whitelist. Rebind the node that exports the final media, or switch the save node to a supported format |
+| `comfyui_output_container_mismatch` | The extension matches, but the file contents are not a container this endpoint should output. Switch the save node to a supported format |
 | `comfyui_image_drop_unsupported` | Removing a branch for a missing asset would affect the output. Supply the asset or use another workflow |
 
-`comfyui_upload_failed`, `comfyui_job_lost`, and `comfyui_interrupted` are transient environment problems, and both the failure card and the project page point at retrying. The remaining five point at the endpoint configuration: change a binding in the endpoint detail, or fix the workflow in ComfyUI and re-import it.
+`comfyui_upload_failed`, `comfyui_job_lost`, and `comfyui_interrupted` are transient environment problems, and both the failure card and the project page point at retrying. The remaining six point at the endpoint configuration: change a binding in the endpoint detail, or fix the workflow in ComfyUI and re-import it.
 
 If a task reports multiple outputs but keeps only one, that is the current channel selection rule; it does not mean ComfyUI generated fewer files. Confirm the output node in the preview, then inspect the complete output in ComfyUI history.
 

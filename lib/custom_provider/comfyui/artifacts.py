@@ -4,6 +4,9 @@ ComfyUI 的 history 条目不说「这次成功了」——它把每个节点的
 要读末尾事件，成片要读 ``output`` 绑定指的那个节点，而「产出的是图还是片」只有文件扩展名说得
 准（``VHS_VideoCombine`` 也能导 webp 动图，节点类型不足以分辨）。
 
+扩展名只是 history 里的一个字符串，说不了落盘字节的容器，故本模块另给一条文件头判据
+（:func:`container_matches`），由执行层在落盘后核一遍。
+
 判定与挑选都是纯函数，落在子包里：它们只认 history 的形状与绑定表，与 backend 层的请求 / 结果
 类型无关。扩展名白名单按 ``media_type`` 收在一张表上，而不是各通道一份——两份表意味着「这个端点
 该产什么」有两种理解，一边放行的扩展名另一边会判类型不符。
@@ -23,10 +26,18 @@ from .failures import EXECUTION_ERROR, INTERRUPTED, ComfyuiError
 #: 图像这一侧刻意不含 ``.gif`` / ``.apng``：两者是动图，一份图像端点产出它们意味着产物绑定指
 #: 错了节点（多半指在了视频合成节点上），当成分镜图入库会得到一张只有首帧的图。视频这一侧同理
 #: 不含它们——动图不是成片容器。
+#:
+#: 视频这三个扩展名同属 ISO BMFF 容器家族，与参考视频上传收的那三个（见
+#: ``server.services.currency.upload_finalize.UPLOAD_VIDEO_EXTENSIONS``）是同一份口径：成片落
+#: 在 ``lib.project.resource_paths`` 的规范 ``.mp4`` 路径上，字节原样搬运，故只收能装进这个名字
+#: 的容器。``.webm`` 不在其中——它的字节装进 ``.mp4`` 的名字后，扩展名与下发 MIME 都在说谎。
 ARTIFACT_SUFFIXES_BY_MEDIA_TYPE: Mapping[str, frozenset[str]] = {
     "image": frozenset({".png", ".jpg", ".jpeg", ".webp"}),
-    "video": frozenset({".mp4", ".webm", ".mov"}),
+    "video": frozenset({".mp4", ".mov", ".m4v"}),
 }
+
+#: 判定容器要读的文件头字节数：够读到 ``RIFF....WEBP`` 的第二段魔数。
+ARTIFACT_HEAD_BYTES = 12
 
 #: history 条目里可能挂产物的三个键。只读这三个，且只读 ``output`` 绑定的那个节点。
 _ARTIFACT_KEYS = ("images", "gifs", "audio")
@@ -95,6 +106,25 @@ def expected_suffixes_text(media_type: str) -> str:
 def filename_of(artifact: Mapping[str, Any]) -> str:
     """一个产物条目的文件名；缺失时空串（扩展名判定与失败文案都容得下它）。"""
     return str(artifact.get("filename") or "")
+
+
+def container_matches(head: bytes, media_type: str) -> bool:
+    """这段文件头是不是 ``media_type`` 该有的容器；没有登记的 ``media_type`` 一律不是。
+
+    扩展名白名单只管 history 里那个字符串，而一个保存节点完全可以把 webm 的字节写进 ``.mp4``
+    的名字。落盘的字节最终按扩展名声明 MIME 并下发，故容器要按文件头再核一遍。
+
+    视频认 ISO BMFF 的 ``ftyp`` box（偏移 4–8 字节），三个允许的扩展名同属这一族，具体 brand
+    不再细分——``.mov`` 与 ``.m4v`` 的 brand 各家写法不一，而它们在播放侧与 ``.mp4`` 同路。
+    图像认 PNG / JPEG / WEBP 三种魔数，与白名单的四个扩展名一一对上。
+    """
+    if media_type == "video":
+        return len(head) >= 8 and head[4:8] == b"ftyp"
+    if media_type == "image":
+        return head.startswith((b"\x89PNG\r\n\x1a\n", b"\xff\xd8\xff")) or (
+            len(head) >= 12 and head[:4] == b"RIFF" and head[8:12] == b"WEBP"
+        )
+    return False
 
 
 def terminal_failure(entry: Mapping[str, Any]) -> ComfyuiError | None:

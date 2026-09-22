@@ -456,6 +456,8 @@ export interface TrialRunInfo {
   status: TrialRunStatus;
   provider: string;
   model: string;
+  /** 这一笔产的是视频还是图像；产物按哪种形态展示读它。 */
+  media_type: ComfyuiMediaType;
   /** epoch 秒。 */
   created_at: number;
   finished_at: number | null;

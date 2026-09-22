@@ -1,6 +1,9 @@
 """测试连接：真实提交一次生成并轮询到终态，会产生费用。
 
-跑的是生产那一条路——同一个 backend 类、同一个 ``poll_with_retry``（全局
+视频与图像两类端点共用这一条路径：差别只在构造哪种生成请求、记哪种 ``call_type``、产物落成哪个
+文件名，而「提交、轮询、取件、记账、写盘、取消」这六件事与产的是图还是片无关。
+
+跑的是生产那一条路——同一个 backend 类、同一个 ``poll_with_retry``（视频侧全局
 ``video_poll_timeout_seconds``、连续失败预算、退避与 ``Retry-After``）、同一个下载路径。只有承载
 不同：进程内 asyncio 任务，不走 tasks/worker 队列，产物不进项目也不进资产库。这样「测试连接通过」
 才等价于「这个模型行真的能用」，而不是等价于「另一条只在测试里存在的路径能用」。
@@ -28,7 +31,8 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
-from lib.backends.providers import CallPurpose
+from lib.backends.image_backends.base import ImageGenerationRequest, ReferenceImage
+from lib.backends.providers import CALL_TYPE_IMAGE, CALL_TYPE_VIDEO, CallPurpose
 from lib.backends.video_backend_contract import ProviderResponseStage, VideoGenerationRequest
 from lib.backends.video_frame_slots import resolve_first_frame_aspect_ratio
 from lib.billing.ledger import Ledger
@@ -56,7 +60,10 @@ MAX_POLL_RESPONSES = 20
 TRIAL_RUN_STAGES = ("submit", "poll", "result", "artifact")
 
 _RESULT_FILE = "result.json"
-_ARTIFACT_FILE = "artifact.mp4"
+
+#: ``media_type`` → 产物落盘的文件名。扩展名不是装饰：读接口按落盘字节声明 MIME 之外，两类产物
+#: 在同一个结果目录里也要分得开。
+_ARTIFACT_FILE_BY_MEDIA_TYPE: Mapping[str, str] = {"video": "artifact.mp4", "image": "artifact.png"}
 
 #: ``start`` 生成的 run_id 形状（``uuid4().hex``）。
 _RUN_ID_PATTERN = re.compile(r"[0-9a-f]{32}")
@@ -87,6 +94,9 @@ class TrialRunTarget:
     model: str
     build_backend: Callable[[], Awaitable[Any]]
     definition: Mapping[str, Any] | None = None
+    #: 这个端点产的是视频还是图像：决定构造哪种生成请求、记哪种 call_type、产物落成哪个文件名。
+    #: 声明式端点恒为视频（协议本身就是视频的），ComfyUI 端点由定义自己声明。
+    media_type: str = "video"
     #: 提交前跑不跑生产那道能力闸。付费通道一律跑（声明的违约在付费前拒绝）；ComfyUI 端点费用
     #: 固定 0，且能力由节点绑定推导而内联定义这条入口拿不到推导结果，跑闸只会把「绑定漏了首帧」
     #: 说成一条能力拒绝——而用户点测试连接正是为了看 ComfyUI 自己怎么说。
@@ -125,6 +135,8 @@ class TrialRun:
     provider: str
     model: str
     created_at: float
+    #: 这一笔产的是视频还是图像。读侧据此决定产物按播放器还是按图展示。
+    media_type: str = "video"
     finished_at: float | None = None
     api_call_id: int | None = None
     #: 供应商给这笔调用的 id（ComfyUI 的 ``prompt_id``、声明式端点的 ``task_id``）。
@@ -147,6 +159,7 @@ class TrialRun:
             "status": self.status.value,
             "provider": self.provider,
             "model": self.model,
+            "media_type": self.media_type,
             "created_at": self.created_at,
             "finished_at": self.finished_at,
             "api_call_id": self.api_call_id,
@@ -190,6 +203,7 @@ class TrialRun:
             status=TrialRunStatus(payload["status"]),
             provider=str(payload.get("provider", "")),
             model=str(payload.get("model", "")),
+            media_type=str(payload.get("media_type") or "video"),
             created_at=_as_float(payload.get("created_at")) or 0.0,
             finished_at=_as_float(payload.get("finished_at")),
             api_call_id=_as_int(payload.get("api_call_id")),
@@ -301,6 +315,7 @@ class TrialRunManager:
             status=TrialRunStatus.QUEUED,
             provider=target.provider,
             model=target.model,
+            media_type=target.media_type,
             created_at=time.time(),
             request=request_preview,
         )
@@ -350,12 +365,16 @@ class TrialRunManager:
         return self.get(run_id)
 
     def artifact_path(self, run_id: str) -> Path | None:
+        """这次 run 落盘的产物；两类各有自己的文件名，读接口不必先读一遍结果体才知道找哪个。"""
         if _RUN_ID_PATTERN.fullmatch(run_id) is None:
             return None
         if self._expired(run_id):
             return None
-        path = self.root / run_id / _ARTIFACT_FILE
-        return path if path.is_file() else None
+        for name in _ARTIFACT_FILE_BY_MEDIA_TYPE.values():
+            path = self.root / run_id / name
+            if path.is_file():
+                return path
+        return None
 
     async def cancel(self, run_id: str) -> bool:
         """停本地轮询并按取消结算。
@@ -406,6 +425,7 @@ class TrialRunManager:
             # 测试连接跑的是生产那条路，闸也一致。免闸的目标见 ``TrialRunTarget.gate_capabilities``。
             if target.gate_capabilities:
                 await _gate_trial_request(backend, target, parameters, assets)
+            is_video = target.media_type == "video"
             # 声明 first_frame_ratio_adaptive_only 的端点在带首帧的请求上只接受 adaptive；
             # 下发值与记账值分离，账本记的仍是用户填的比例意图（与生产同一分工）。
             request_aspect_ratio = resolve_first_frame_aspect_ratio(
@@ -415,33 +435,41 @@ class TrialRunManager:
             )
             async with self._ledger.record(
                 project_name="",
-                call_type="video",
+                call_type=CALL_TYPE_VIDEO if is_video else CALL_TYPE_IMAGE,
                 model=target.model,
                 provider=target.provider,
                 prompt=parameters.prompt,
                 resolution=parameters.resolution,
-                duration_seconds=parameters.duration_seconds,
+                # 时长与成片音轨是视频这一维的事，图像这一笔不记：记一个 5 秒会让用量页上出现一个
+                # 不存在的时长。
+                duration_seconds=parameters.duration_seconds if is_video else None,
                 aspect_ratio=parameters.aspect_ratio,
                 generate_audio=parameters.generate_audio,
                 purpose=CallPurpose.ENDPOINT_TRIAL,
             ) as call:
                 run.api_call_id = call.call_id
-                result = await backend.generate(
-                    self._request(
+                on_response = self._response_writer(run, capture, call.call_id)
+                request = (
+                    self._video_request(
                         run,
                         parameters,
                         assets,
-                        capture,
-                        call.call_id,
                         poll_timeout,
                         aspect_ratio=request_aspect_ratio,
+                        on_provider_response=on_response,
+                    )
+                    if is_video
+                    else self._image_request(
+                        run, parameters, assets, aspect_ratio=request_aspect_ratio, on_provider_response=on_response
                     )
                 )
+                result = await backend.generate(request)
                 call.success(result)
                 run.provider_job_id = getattr(result, "task_id", None)
-                run.video_url = getattr(result, "video_uri", None)
+                # 产物在供应商那儿的地址：两类结果各叫一个名字，落进同一格。
+                run.video_url = getattr(result, "video_uri", None) or getattr(result, "image_uri", None)
                 run.duration_seconds = getattr(result, "duration_seconds", None)
-                run.has_artifact = self._artifact_file(run.id).is_file()
+                run.has_artifact = self._artifact_file(run.id, target.media_type).is_file()
             self._finish(run, target, capture, TrialRunStatus.SUCCEEDED)
         except asyncio.CancelledError:
             raise
@@ -452,17 +480,11 @@ class TrialRunManager:
             run.error = encode_failure(exc.code, **exc.params) if structured else str(exc)
             self._finish(run, target, capture, TrialRunStatus.FAILED)
 
-    def _request(
-        self,
-        run: TrialRun,
-        parameters: EndpointTestParameters,
-        assets: Mapping[str, Path | list[Path] | None],
-        capture: _ResponseCapture,
-        call_id: int,
-        poll_timeout: int,
-        *,
-        aspect_ratio: str,
-    ) -> VideoGenerationRequest:
+    def _response_writer(
+        self, run: TrialRun, capture: _ResponseCapture, call_id: int
+    ) -> Callable[[ProviderResponseStage, object], Awaitable[None]]:
+        """供应商响应的诊断回调：并进结果体并写进账本的诊断列。两种请求形状共用这一个。"""
+
         async def on_provider_response(stage: ProviderResponseStage, body: object) -> None:
             capture.add(stage, body)
             # 边收边并进结果体：四段状态点读的是这三个字段，只在终态并一次的话，运行中的 GET
@@ -478,11 +500,23 @@ class TrialRunManager:
             write.add_done_callback(writes.discard)
             await asyncio.shield(write)
 
+        return on_provider_response
+
+    def _video_request(
+        self,
+        run: TrialRun,
+        parameters: EndpointTestParameters,
+        assets: Mapping[str, Path | list[Path] | None],
+        poll_timeout: int,
+        *,
+        aspect_ratio: str,
+        on_provider_response: Callable[[ProviderResponseStage, object], Awaitable[None]],
+    ) -> VideoGenerationRequest:
         reference_images = assets.get("reference_images")
         reference_audio = assets.get("reference_audio_files")
         return VideoGenerationRequest(
             prompt=parameters.prompt,
-            output_path=self._artifact_file(run.id),
+            output_path=self._artifact_file(run.id, "video"),
             aspect_ratio=aspect_ratio,
             duration_seconds=parameters.duration_seconds,
             resolution=parameters.resolution,
@@ -492,6 +526,34 @@ class TrialRunManager:
             reference_audio_files=list(reference_audio) if isinstance(reference_audio, list) else None,
             generate_audio=parameters.generate_audio,
             poll_timeout_seconds=poll_timeout,
+            on_provider_response=on_provider_response,
+        )
+
+    def _image_request(
+        self,
+        run: TrialRun,
+        parameters: EndpointTestParameters,
+        assets: Mapping[str, Path | list[Path] | None],
+        *,
+        aspect_ratio: str,
+        on_provider_response: Callable[[ProviderResponseStage, object], Awaitable[None]],
+    ) -> ImageGenerationRequest:
+        """图像端点这一笔的请求。
+
+        首尾帧与参考音频落不进这个形状：图像端点没有这几个语义键（见 ``comfyui.bindings``），
+        界面也不为它渲这几个格子。轮询上限同样不在请求里——图像通道用自己的定值
+        （``comfyui_image_backend.IMAGE_POLL_TIMEOUT_SECONDS``），不读视频那个设置项。
+        """
+        reference_images = assets.get("reference_images")
+        return ImageGenerationRequest(
+            prompt=parameters.prompt,
+            output_path=self._artifact_file(run.id, "image"),
+            reference_images=[
+                ReferenceImage(path=str(path))
+                for path in (reference_images if isinstance(reference_images, list) else [])
+            ],
+            aspect_ratio=aspect_ratio,
+            image_size=parameters.resolution,
             on_provider_response=on_provider_response,
         )
 
@@ -550,8 +612,8 @@ class TrialRunManager:
     def _result_file(self, run_id: str) -> Path:
         return self.root / run_id / _RESULT_FILE
 
-    def _artifact_file(self, run_id: str) -> Path:
-        return self.root / run_id / _ARTIFACT_FILE
+    def _artifact_file(self, run_id: str, media_type: str) -> Path:
+        return self.root / run_id / _ARTIFACT_FILE_BY_MEDIA_TYPE[media_type]
 
 
 async def _gate_trial_request(
@@ -628,19 +690,55 @@ def model_ref_target(
     *,
     resolver: ConfigResolver,
     definition: Mapping[str, Any] | None = None,
+    media_type: str = "video",
 ) -> TrialRunTarget:
     """模型行的目标：经生产那道构造缝装配 backend，内置与自定义供应商同一入口。
 
     ``definition`` 在模型行解析出声明式定义（自定义调用端点或内置声明式端点）时由调用方带上，
     用来在结果体里给出渲染后的请求与逐阶段提取；Python 实现的端点两段留空。
+
+    ``media_type`` 决定装配走哪一侧的注册表：模型行自己说它是图像行还是视频行，装配层照它取。
     """
 
     async def build() -> Any:
         from lib.backends.backend_assembly import assemble_backend
 
-        return await assemble_backend(provider_id=provider_id, media_type="video", model_id=model_id, resolver=resolver)
+        return await assemble_backend(
+            provider_id=provider_id, media_type=media_type, model_id=model_id, resolver=resolver
+        )
 
-    return TrialRunTarget(provider=provider_id, model=model_id, build_backend=build, definition=definition)
+    return TrialRunTarget(
+        provider=provider_id,
+        model=model_id,
+        build_backend=build,
+        definition=definition,
+        media_type=media_type,
+    )
+
+
+def artifact_media_type(path: Path) -> str:
+    """一份落盘产物的 MIME，按文件头判。
+
+    不按扩展名：产物名是本层按 ``media_type`` 起的，而真实容器由供应商那一侧的导出设置决定，
+    同族里换一个（mp4 / mov）名字不会跟着变。认不出的字节给通用二进制类型，让读侧自己去认——
+    声明一个错的 MIME 会让浏览器按那个类型去解，比不声明更难排查。
+    """
+    try:
+        with open(path, "rb") as handle:
+            head = handle.read(12)
+    except OSError:
+        return "application/octet-stream"
+    if head[4:8] == b"ftyp":
+        return "video/mp4"
+    if head.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if head.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if head[:4] == b"RIFF" and head[8:12] == b"WEBP":
+        return "image/webp"
+    if head.startswith(b"\x1a\x45\xdf\xa3"):
+        return "video/webm"
+    return "application/octet-stream"
 
 
 def provider_from_base_url(base_url: str) -> str:

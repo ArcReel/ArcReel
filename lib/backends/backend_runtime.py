@@ -908,12 +908,23 @@ async def notify_provider_response(request: VideoGenerationRequest, stage: Provi
     的口径与拒因摘要、失败日志同为 ``redact_provider_text``：通用遮蔽器只认得出常见的凭证
     参数名，厂商私有的查询参数要靠查询串整体剥离兜住。
     """
-    if request.on_provider_response is None:
+    await notify_provider_response_to(request.on_provider_response, stage, body, label=request.task_id)
+
+
+async def notify_provider_response_to(
+    sink: Callable[[ProviderResponseStage, object], Awaitable[None]] | None,
+    stage: ProviderResponseStage,
+    body: object,
+    *,
+    label: str | None = None,
+) -> None:
+    """同上，但只收回调本身：图像请求没有 ``task_id``，只能把标识交给调用方给。"""
+    if sink is None:
         return
     try:
-        await request.on_provider_response(stage, sanitize_diagnostic_payload(body, redact_text=redact_provider_text))
+        await sink(stage, sanitize_diagnostic_payload(body, redact_text=redact_provider_text))
     except Exception:
-        logger.warning("供应商响应留痕写入失败 task_id=%s", request.task_id, exc_info=True)
+        logger.warning("供应商响应留痕写入失败 task_id=%s", label, exc_info=True)
 
 
 def recording_poll[T](

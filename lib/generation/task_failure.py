@@ -129,6 +129,7 @@ FAILURE_CODE_KEYS: dict[str, str] = {
     "comfyui_interrupted": "task_fail_comfyui_interrupted",
     "comfyui_output_missing": "task_fail_comfyui_output_missing",
     "comfyui_output_type_mismatch": "task_fail_comfyui_output_type_mismatch",
+    "comfyui_output_container_mismatch": "task_fail_comfyui_output_container_mismatch",
     "artifact_download_failed": "task_fail_artifact_download_failed",
     "restart_lost_checkpoint_no_job_id": "task_fail_restart_lost_checkpoint_no_job_id",
     "execution_identity_unrecoverable": "task_fail_execution_identity_unrecoverable",
@@ -304,6 +305,10 @@ def bound_reason(reason: str, limit: int) -> str:
     return encoded
 
 
+#: 文案里带一段「该端点应产出的扩展名」的两条失败码；清单在渲染时按落库的 media_type 现算。
+_COMFYUI_ARTIFACT_MISMATCH_CODES = frozenset({"comfyui_output_type_mismatch", "comfyui_output_container_mismatch"})
+
+
 def render_failure(error_message: str | None, translate: Callable[..., str]) -> str | None:
     """Render a stored failure reason for display via the request Translator.
 
@@ -316,8 +321,8 @@ def render_failure(error_message: str | None, translate: Callable[..., str]) -> 
     so escaping makes the string grow super-linearly and the write side caps it well before
     the depth could threaten the recursion limit.
 
-    ``comfyui_output_type_mismatch`` takes its ``expected`` extension list from the stored
-    ``media_type`` here rather than from the row: the list is a projection of a static
+    The two ComfyUI artifact-mismatch codes take their ``expected`` extension list from the
+    stored ``media_type`` here rather than from the row: the list is a projection of a static
     whitelist, so every stored row — including those written before the text listed it —
     renders with the whitelist this build actually enforces.
     """
@@ -335,7 +340,7 @@ def render_failure(error_message: str | None, translate: Callable[..., str]) -> 
         detail = params.get("detail")
         if _is_validation_message(detail):
             params = {**params, "detail": translate(detail["key"], **detail["params"])}
-    if code == "comfyui_output_type_mismatch":
+    if code in _COMFYUI_ARTIFACT_MISMATCH_CODES:
         media_type = params.get("media_type")
         params = {**params, "expected": expected_suffixes_text(media_type if isinstance(media_type, str) else "")}
     return translate(FAILURE_CODE_KEYS[code], **params)

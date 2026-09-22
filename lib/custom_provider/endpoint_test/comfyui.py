@@ -24,6 +24,7 @@ from urllib.parse import urlencode
 from lib.custom_provider.auth_section import declares_credentials, render_auth
 from lib.custom_provider.comfyui.comfyui_backend import ComfyuiVideoBackend
 from lib.custom_provider.comfyui.comfyui_client import client_id_for, normalize_comfyui_base_url
+from lib.custom_provider.comfyui.comfyui_image_backend import ComfyuiImageBackend
 from lib.custom_provider.comfyui.request_builder import BuiltWorkflow, MediaInputs, build_workflow
 
 from .inputs import EndpointTestAssets, EndpointTestCredentials, EndpointTestParameters
@@ -169,7 +170,10 @@ def comfyui_target(
     *,
     provider: str | None = None,
 ) -> TrialRunTarget:
-    """内联 ComfyUI 定义的目标：直接构造视频 backend，跑的是生产那一条路。
+    """内联 ComfyUI 定义的目标：按定义声明的媒体类型构造 backend，跑的是生产那一条路。
+
+    两类端点走同一条路：图像端点的 backend 与视频端点的除请求 / 结果类型外完全同构（提交、轮询、
+    取件、叫停都在共用的执行层上），故这里只按 ``media_type`` 换一个类，不为图像另开一条测试路径。
 
     不跑能力闸（见 :attr:`TrialRunTarget.gate_capabilities`）：ComfyUI 端点费用固定 0，能力又只
     从节点绑定推导，而内联定义这条入口拿不到推导结果。
@@ -178,14 +182,16 @@ def comfyui_target(
     把一份预览摆进结果体会让用户以为提交的就是它。请求形状去预览请求那张卡看。
     """
     label = provider or provider_from_base_url(credentials.base_url)
+    media_type = str(definition.get("media_type") or "video")
     # 这一笔在 ComfyUI 队列界面上的名字（``client_id`` 是 ``arcreel-<job_label>``，上传的素材
     # 也按它命名）。测试连接不走 worker，没有 task_id，backend 的回落值是一串随机 hex——用户
     # 在自己手动跑的队列里认不出哪一笔是刚点的「测试连接」。后缀保留一段随机串：同一个端点可以
     # 被连着测好几次，重名会让上传的素材互相覆盖。
     job_label = f"{_TRIAL_RUN_LABEL_PREFIX}{token_hex(4)}"
 
-    async def build() -> ComfyuiVideoBackend:
-        return ComfyuiVideoBackend(
+    async def build() -> ComfyuiVideoBackend | ComfyuiImageBackend:
+        backend_class = ComfyuiImageBackend if media_type == "image" else ComfyuiVideoBackend
+        return backend_class(
             provider_id=label,
             model=parameters.model,
             base_url=credentials.base_url,
@@ -199,6 +205,7 @@ def comfyui_target(
         model=parameters.model,
         build_backend=build,
         definition=definition,
+        media_type=media_type,
         gate_capabilities=False,
     )
 

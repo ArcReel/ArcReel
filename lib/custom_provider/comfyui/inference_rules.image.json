@@ -79,8 +79,7 @@
   "conditioning_pass_through": ["FluxGuidance", "ReferenceLatent"],
   "output_candidates": [
     { "class_type": "SaveImage" },
-    { "class_type": "SaveImageAdvanced" },
-    { "class_type": "SaveAnimatedWEBP" }
+    { "class_type": "SaveImageAdvanced" }
   ],
   "excluded_output_class_types": ["PreviewImage", "SaveImageWebsocket"],
   "class_type_tiers": {

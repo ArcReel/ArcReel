@@ -36,6 +36,7 @@ const RUNNING: TrialRunInfo = {
   status: "running",
   provider: "example.test",
   model: "video-1",
+  media_type: "video",
   created_at: 1,
   finished_at: null,
   api_call_id: null,

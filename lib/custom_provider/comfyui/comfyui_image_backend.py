@@ -26,11 +26,13 @@ from uuid import uuid4
 import httpx
 
 from lib.backends.artifact_download_guard import artifact_http_client
+from lib.backends.backend_runtime import notify_provider_response_to
 from lib.backends.image_backends.base import (
     ImageCapability,
     ImageGenerationRequest,
     ImageGenerationResult,
 )
+from lib.backends.video_backend_contract import ProviderResponseStage
 from lib.custom_provider.comfyui.bindings import targets_of
 from lib.custom_provider.comfyui.capabilities import takes_reference_images
 from lib.custom_provider.comfyui.comfyui_client import ComfyuiClient, client_id_for, upload_filename
@@ -121,12 +123,22 @@ class ComfyuiImageBackend:
                 media=media,
                 seed=request.seed,
             )
-            prompt_id = await self._client.submit_prompt(http, built.workflow, client_id=client_id_for(job_label))
+
+            async def record(stage: ProviderResponseStage, body: object) -> None:
+                await notify_provider_response_to(request.on_provider_response, stage, body)
+
+            prompt_id = await self._client.submit_prompt(
+                http,
+                built.workflow,
+                client_id=client_id_for(job_label),
+                record=record,
+            )
             picked = await self._execution.fetch_artifact(
                 http,
                 prompt_id,
                 output_path=request.output_path,
                 poll_timeout_seconds=IMAGE_POLL_TIMEOUT_SECONDS,
+                record=record,
             )
             return ImageGenerationResult(
                 image_path=request.output_path,

@@ -22,6 +22,8 @@ import httpx
 from lib.backends.artifact_download_guard import ARTIFACT_MAX_BYTES_BY_MEDIA_TYPE
 from lib.backends.backend_runtime import poll_with_retry, should_retry_poll
 from lib.custom_provider.comfyui.artifacts import (
+    ARTIFACT_HEAD_BYTES,
+    container_matches,
     filename_of,
     history_digest,
     output_artifacts,
@@ -30,7 +32,13 @@ from lib.custom_provider.comfyui.artifacts import (
     terminal_failure,
 )
 from lib.custom_provider.comfyui.comfyui_client import ComfyuiClient, RecordResponse
-from lib.custom_provider.comfyui.failures import JOB_LOST, OUTPUT_MISSING, OUTPUT_TYPE_MISMATCH, ComfyuiError
+from lib.custom_provider.comfyui.failures import (
+    JOB_LOST,
+    OUTPUT_CONTAINER_MISMATCH,
+    OUTPUT_MISSING,
+    OUTPUT_TYPE_MISMATCH,
+    ComfyuiError,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -107,6 +115,7 @@ class ComfyuiExecution:
                 max_wait=poll_timeout_seconds,
                 max_bytes=ARTIFACT_MAX_BYTES_BY_MEDIA_TYPE[self._media_type],
             )
+            await self._verify_container(output_path, picked)
             return picked
         except (asyncio.CancelledError, TimeoutError):
             await self.stop_remote(prompt_id)
@@ -174,6 +183,19 @@ class ComfyuiExecution:
         if len(artifacts) > 1:
             logger.warning("ComfyUI 产物共 %d 个，取: %s", len(artifacts), filename_of(artifact))
         return PickedArtifact(artifact=artifact, count=len(artifacts))
+
+    async def _verify_container(self, output_path: Path, picked: PickedArtifact) -> None:
+        """核实落盘字节的容器，对不上即删掉文件并判容器不符。
+
+        扩展名白名单只管 history 里那个字符串：一个保存节点可以把 webm 的字节写进 ``.mp4`` 的
+        名字，而入库路径按扩展名定资源路径、下发时按扩展名声明 MIME。删掉文件而不是留在产物路径
+        上——这一笔按失败结算，路径上留一份打不开的文件会被后续的产物判定当成这一版已存在。
+        """
+        head = await asyncio.to_thread(_read_head, output_path)
+        if container_matches(head, self._media_type):
+            return
+        await asyncio.to_thread(output_path.unlink, True)
+        raise ComfyuiError(OUTPUT_CONTAINER_MISMATCH, filename=picked.filename, media_type=self._media_type)
 
     async def _history_or_lost(
         self, http: httpx.AsyncClient, prompt_id: str, *, lost_error: Callable[[str], BaseException] | None
@@ -250,6 +272,12 @@ class ComfyuiExecution:
             # 版本读不到不是失败：老版本与部分代理本就不回这一字段，走低版本那条路一样能停下来。
             logger.info("ComfyUI 版本读取失败，按低版本路径叫停", exc_info=True)
             return None
+
+
+def _read_head(path: Path) -> bytes:
+    """落盘产物的前几个字节；判容器只要这一段。"""
+    with open(path, "rb") as handle:
+        return handle.read(ARTIFACT_HEAD_BYTES)
 
 
 def _supports_job_cancel(version: str | None) -> bool:
