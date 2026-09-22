@@ -25,7 +25,7 @@ import { LABEL_CLS, MONO_INPUT_CLS } from "./endpoint-form-primitives";
 import { RequestPreview, TestCard } from "./endpoint-test-primitives";
 import { useTrialRun } from "./use-trial-run";
 
-/** 两种媒体类型各自的分辨率档，与服务端 `lib/aspect_size.py` 的短边表同名同序。 */
+/** 两种媒体类型各自的分辨率档，与服务端 `lib/backends/aspect_size.py` 的短边表同名同序。 */
 const RESOLUTION_TIERS: Record<ComfyuiMediaType, readonly string[]> = {
   video: ["480p", "720p", "1080p", "4K"],
   image: ["512px", "1K", "2K", "4K"],
@@ -348,9 +348,8 @@ export function ComfyuiEndpointTestSection({ definition, providers, blocked }: C
         )}
       </TestCard>
 
-      {isVideo && (
-        <TestCard title={t("ce_test_trial")} badge={t("ce_cf_test_trial_gpu")} desc={t("ce_cf_test_trial_desc")}>
-          <div className="flex flex-wrap items-center gap-2">
+      <TestCard title={t("ce_test_trial")} badge={t("ce_cf_test_trial_gpu")} desc={t("ce_cf_test_trial_desc")}>
+        <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
               onClick={() => void handleStartTrial()}
@@ -370,24 +369,23 @@ export function ComfyuiEndpointTestSection({ definition, providers, blocked }: C
                 {t("common:cancel")}
               </button>
             )}
-            <span className="text-[11.5px] text-text-4">{t("ce_cf_test_trial_note")}</span>
-          </div>
-          {trial.error && (
-            <p role="alert" className="mt-2 text-[12px] text-warm-bright">
-              {trial.error}
+          <span className="text-[11.5px] text-text-4">{t("ce_cf_test_trial_note")}</span>
+        </div>
+        {trial.error && (
+          <p role="alert" className="mt-2 text-[12px] text-warm-bright">
+            {trial.error}
+          </p>
+        )}
+        <div className="mt-3">
+          {trial.run ? (
+            <TrialRunReport run={trial.run} artifactUrl={trial.artifactUrl} stalled={trial.pollStopped} />
+          ) : (
+            <p className="rounded-[8px] border border-hairline px-3 py-6 text-center text-[12px] text-text-3">
+              {trial.cancelled ? t("ce_trial_cancelled") : t("ce_cf_test_trial_empty")}
             </p>
           )}
-          <div className="mt-3">
-            {trial.run ? (
-              <TrialRunReport run={trial.run} artifactUrl={trial.artifactUrl} stalled={trial.pollStopped} />
-            ) : (
-              <p className="rounded-[8px] border border-hairline px-3 py-6 text-center text-[12px] text-text-3">
-                {trial.cancelled ? t("ce_trial_cancelled") : t("ce_cf_test_trial_empty")}
-              </p>
-            )}
-          </div>
-        </TestCard>
-      )}
+        </div>
+      </TestCard>
     </div>
   );
 }
@@ -539,16 +537,23 @@ function TrialRunReport({
         )}
       </div>
       {stalled && <p className="text-[11.5px] text-warm-bright/90">{t("ce_cf_test_poll_stopped")}</p>}
-      {artifactUrl && (
-        // eslint-disable-next-line jsx-a11y/media-has-caption -- 测试连接产物没有可用的字幕源
-        <video
-          controls
-          preload="metadata"
-          src={artifactUrl}
-          aria-label={t("ce_trial_artifact")}
-          className="w-full rounded-[8px] border border-good/35 bg-black"
-        />
-      )}
+      {artifactUrl &&
+        (run.media_type === "image" ? (
+          <img
+            src={artifactUrl}
+            alt={t("ce_trial_artifact")}
+            className="w-full rounded-[8px] border border-good/35 bg-black object-contain"
+          />
+        ) : (
+          // eslint-disable-next-line jsx-a11y/media-has-caption -- 测试连接产物没有可用的字幕源
+          <video
+            controls
+            preload="metadata"
+            src={artifactUrl}
+            aria-label={t("ce_trial_artifact")}
+            className="w-full rounded-[8px] border border-good/35 bg-black"
+          />
+        ))}
       {run.error !== null && (
         <div role="alert" className="rounded-[8px] border border-danger/40 bg-danger/10 p-3 text-[12px]">
           {run.error_code !== null && (

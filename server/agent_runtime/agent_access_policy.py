@@ -18,15 +18,15 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, ClassVar
 
-from lib.agent_memory_paths import ARCREEL_DIRNAME, is_valid_memory_user_id, user_memory_dir
-from lib.draft_quarantine import OPEN_DRAFT_TOOL_NAME, PROMOTE_TOOL_NAME
-from lib.episode_paths import (
+from lib.agent.agent_memory_paths import ARCREEL_DIRNAME, is_valid_memory_user_id, user_memory_dir
+from lib.episode.episode_paths import (
     AGENT_PROTECTED_SCRIPT_PLAN_FILENAMES,
     DRAMA_SCRIPT_PLAN_QUARANTINE_FILENAME,
     NARRATION_SCRIPT_PLAN_QUARANTINE_FILENAME,
     REFERENCE_VIDEO_PROMPT_AUTHORING_QUARANTINE_FILENAME,
     REFERENCE_VIDEO_SCRIPT_PLAN_QUARANTINE_FILENAME,
 )
+from lib.script.draft_quarantine import OPEN_DRAFT_TOOL_NAME, PROMOTE_TOOL_NAME
 
 logger = logging.getLogger(__name__)
 

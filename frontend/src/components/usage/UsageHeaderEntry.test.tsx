@@ -79,7 +79,6 @@ describe("UsageHeaderEntry", () => {
         stats: {
           queued: 1,
           running: 2,
-          cancelling: 0,
           succeeded: 0,
           failed: 0,
           cancelled: 0,

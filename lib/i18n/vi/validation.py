@@ -163,6 +163,8 @@ MESSAGES = {
     ),
     "arch_non_standard_entry_excluded": "Thư mục/tệp cấp cao không chuẩn '{entry}' không được đưa vào bản xuất",
     "arch_invalid_project_json": "Không phân tích được {file}: {path}",
+    "arch_version_history_malformed": "{location}: cấu trúc lịch sử phiên bản không đúng định dạng mong đợi",
+    "arch_version_snapshot_path_unmanaged": "{location}: đường dẫn ảnh chụp của bản ghi phiên bản nằm ngoài thư mục phiên bản của loại tài nguyên",
     "arch_script_file_repaired": "{location}: đã tự động sửa thành {path}",
     "arch_missing_script_file_pending": "{location}: kịch bản chưa được sinh: {path}",
     "arch_missing_script_file": "{location}: tệp được tham chiếu không tồn tại: {path}",

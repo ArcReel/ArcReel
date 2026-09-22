@@ -155,6 +155,7 @@ The default deployment examples currently include these core variables:
 | `AUTH_USERNAME` | `admin` | Change the administrator username if needed |
 | `AUTH_PASSWORD` | Empty | Explicitly set a strong password for production deployments |
 | `AUTH_TOKEN_SECRET` | Empty | Set a fixed, long-lived random value for production deployments |
+| `AUTH_ENABLED` | `true` | Never disable for remote deployments; `false` leaves every management endpoint unauthenticated |
 | `LOG_LEVEL` | `INFO` | Temporarily change to `DEBUG` while troubleshooting, then restore it |
 | `POSTGRES_PASSWORD` | None | Required and must be set only for production deployments |
 | `TZ` | `Asia/Shanghai` | Can be overridden in the Compose environment |
@@ -166,6 +167,7 @@ The default deployment examples currently include these core variables:
 Notes:
 
 - Changing `AUTH_TOKEN_SECRET` invalidates existing login tokens.
+- `AUTH_ENABLED=false` is only for a local machine protected by its own network boundary. Compose publishes port `1241` on all host interfaces by default, so never disable authentication for remote deployments. While authentication is off, startup logs a WARNING.
 - `.env` may contain secrets. Do not commit it to version control.
 - Vertex credential files should be readable only by the user who runs ArcReel.
 - Third-party model API keys are normally managed on the ArcReel Settings page. Do not include them in public documentation.
@@ -547,7 +549,7 @@ If the container has just started, check whether database migrations are still r
 ### Tasks Remain Queued {#tasks-stuck-in-queue}
 
 - Review the image, video, and audio concurrency settings;
-- Check for abnormal tasks that have remained running or canceling for an extended period;
+- Check for abnormal tasks that have remained running for an extended period;
 - Check the provider's RPM quota;
 - Check whether a preceding task is still incomplete.
 

@@ -17,7 +17,10 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import AfterValidator, BaseModel, Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from lib.api_errors import BadRequestError
+from lib.backends.artifact_download_guard import artifact_http_client
+from lib.backends.http_status_errors import raise_for_status_redacted
+from lib.backends.image_backends.base import ImageCapability
+from lib.backends.video_backend_contract import ReferenceAudioMode, audio_capability_pair_is_coherent
 from lib.config.repository import mask_secret
 from lib.custom_provider import is_custom_endpoint, make_provider_id
 from lib.custom_provider.capabilities import (
@@ -44,11 +47,8 @@ from lib.db import get_async_session
 from lib.db.base import dt_to_iso
 from lib.db.repositories.custom_endpoint_repo import CustomEndpointRepository
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository
-from lib.http_status_errors import raise_for_status_redacted
-from lib.httpx_shared import get_http_client
-from lib.i18n import Translator
-from lib.image_backends.base import ImageCapability
-from lib.video_backends.base import ReferenceAudioMode, audio_capability_pair_is_coherent
+from lib.infra.api_errors import BadRequestError
+from server.i18n import Translator
 
 
 def _validate_endpoint(value: str) -> str:
@@ -309,11 +309,6 @@ class DiscoverResponse(BaseModel):
 class DiscoverAnthropicRequest(BaseModel):
     base_url: str | None = None
     api_key: str | None = None
-
-
-class CredentialsResponse(BaseModel):
-    base_url: str
-    api_key: str
 
 
 class EndpointDescriptor(BaseModel):
@@ -744,7 +739,7 @@ def _check_unique_defaults(models: list[ModelInput], specs: dict[str, EndpointSp
 
 async def _invalidate_caches(request: Request) -> None:
     """清空 backend 实例缓存 + 刷新 worker 限流配置。"""
-    from server.services.generation_context import invalidate_backend_cache
+    from server.services.tasks.generation_context import invalidate_backend_cache
 
     invalidate_backend_cache()
     worker = getattr(request.app.state, "generation_worker", None)
@@ -872,27 +867,6 @@ async def get_provider(
         models,
         await _global_bucket_refs_for_provider(session, provider_id),
         await _read_endpoint_specs(session, models),
-    )
-
-
-@router.get("/{provider_id}/credentials", response_model=CredentialsResponse)
-async def get_provider_credentials(
-    provider_id: int,
-    _t: Translator,
-    session: AsyncSession = Depends(get_async_session),
-):
-    """返回明文 base_url + api_key，供 Agent 配置导入复用。
-
-    仅 CurrentUser 鉴权,与现有 PATCH 接口对齐;日志不打印 body。
-    多用户场景需重新评估细粒度授权。
-    """
-    repo = CustomProviderRepository(session)
-    provider = await repo.get_provider(provider_id)
-    if provider is None:
-        raise HTTPException(status_code=404, detail=_t("provider_not_found"))
-    return CredentialsResponse(
-        base_url=provider.base_url or "",
-        api_key=provider.api_key or "",
     )
 
 
@@ -1153,7 +1127,7 @@ def _credential_discovery_base(cred: Any) -> str | None:
     ``discovery_url`` 取（DeepSeek 的列表不在 messages 根之下）；自定义或已覆盖的凭证按存储值。
     与前端凭证表单「预填值不算覆盖」同一规则。
     """
-    from lib.agent_provider_catalog import get_preset
+    from lib.agent.agent_provider_catalog import get_preset
 
     preset = get_preset(cred.preset_id) if cred.preset_id else None
     if preset is not None and cred.base_url == preset.messages_url:
@@ -1310,13 +1284,14 @@ async def _check_comfyui(
     """通过 ``GET {base_url}/system_stats`` 验证 ComfyUI 可达，并回显 ``comfyui_version``。
 
     ``model_count`` 不填：ComfyUI 没有可枚举的模型列表，填 0 会被读成「一个模型都没有」。
+
+    出站目的地经 ``artifact_http_client`` 校验，与该协议的提交 / 轮询 / 产物下载同一道闸：
+    链路本地与云元数据地址一律拒绝，环回与私网放行（自建 ComfyUI 合法地跑在其中）。被拒按
+    ``_run_connectivity_check`` 的失败出口回显，与上游不可达同一形态。
     """
     url = base_url.strip().rstrip("/") + _COMFYUI_SYSTEM_STATS_PATH
-    resp = await get_http_client().get(
-        url,
-        headers=_comfyui_probe_headers(api_key),
-        timeout=_CONNECTIVITY_CHECK_TIMEOUT,
-    )
+    async with artifact_http_client(timeout=_CONNECTIVITY_CHECK_TIMEOUT) as client:
+        resp = await client.get(url, headers=_comfyui_probe_headers(api_key))
     raise_for_status_redacted(resp)
     payload = resp.json()
     system = payload.get("system") if isinstance(payload, dict) else None

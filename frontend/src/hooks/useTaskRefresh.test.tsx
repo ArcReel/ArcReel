@@ -45,7 +45,6 @@ describe("useTaskRefresh", () => {
     const stats = {
       queued: 1,
       running: 0,
-      cancelling: 0,
       succeeded: 0,
       failed: 0,
       cancelled: 0,
@@ -172,7 +171,6 @@ describe("useTaskRefresh", () => {
     expect(useTasksStore.getState().stats).toEqual({
       queued: 0,
       running: 0,
-      cancelling: 0,
       succeeded: 0,
       failed: 0,
       cancelled: 0,
@@ -193,7 +191,6 @@ describe("useTaskRefresh", () => {
         stats: {
           queued: 0,
           running: 0,
-          cancelling: 0,
           succeeded: 0,
           failed: 0,
           cancelled: 0,

@@ -19,6 +19,7 @@ services:
     image: arcreel/arcreel:latest
     ports:
       - "1241:1241"
+    # 端口发布到宿主机所有网卡：远程部署不得在 .env 中设置 AUTH_ENABLED=false。
     env_file: .env
     environment:
       DATABASE_URL: postgresql+asyncpg://arcreel:${POSTGRES_PASSWORD}@postgres:5432/arcreel

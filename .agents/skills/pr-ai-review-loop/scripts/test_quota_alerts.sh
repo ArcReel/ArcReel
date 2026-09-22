@@ -51,16 +51,24 @@ if [[ -z "$QUOTA_DEF" ]]; then
   echo "could not extract quota_alerts def from $POLL_SH" >&2
   exit 4
 fi
-# cr_walkthrough_rest closes on its `end;` line — the same terminator rule as above.
+# cr_walkthrough_rest closes on its `end;` line — the same terminator rule as above. It calls
+# cr_walkthrough_head (the body's commit anchor), so that def is pulled verbatim as well.
+WT_HEAD_DEF=$(awk '/^[[:space:]]*def cr_walkthrough_head:/{flag=1} flag{print; if (/;[[:space:]]*$/ && !/^[[:space:]]*def /) exit}' "$POLL_SH")
+if [[ -z "$WT_HEAD_DEF" ]]; then
+  echo "could not extract cr_walkthrough_head def from $POLL_SH" >&2
+  exit 4
+fi
 WT_DEF=$(awk '/^[[:space:]]*def cr_walkthrough_rest:/{flag=1} flag{print; if (/;[[:space:]]*$/ && !/^[[:space:]]*def /) exit}' "$POLL_SH")
 if [[ -z "$WT_DEF" ]]; then
   echo "could not extract cr_walkthrough_rest def from $POLL_SH" >&2
   exit 4
 fi
 
-# The walkthrough fixture is stamped updated_at > LAST_PUSH on purpose: without the
-# rate-limit suppression every case would read reviewed_current_head=true, so the
-# expected false on the banner fixtures can only come from the suppression itself.
+# The walkthrough fixture is stamped updated_at > LAST_PUSH on purpose, and the commit
+# anchor check is stubbed to "matches" (every fixture carries a "📥 Commits" range line, so
+# walkthrough_head is non-null): without the rate-limit suppression every case would read
+# reviewed_current_head=true, so the expected false on the banner fixtures can only come
+# from the suppression itself. The anchor rule has its own test (test_walkthrough_head.sh).
 LAST_PUSH="2026-07-13T00:30:00Z"
 WT_UPDATED_AT="2026-07-13T01:00:00Z"
 
@@ -113,8 +121,9 @@ for tc in "${CASES[@]}"; do
       updated_at: \$updated_at, body: \$body}] as \$sub_a
     | {reviews: [], headRefOid: \"test-head\"} as \$main
     | {} as \$review_commit_by_id
-    | def codex_commit_is_current_head: false;
+    | def codex_commit_is_current_head: true;
       $RL_DEF
+      $WT_HEAD_DEF
       $WT_DEF
       (cr_walkthrough_rest | \"\\(.is_rate_limited):\\(.reviewed_current_head)\")
     ")

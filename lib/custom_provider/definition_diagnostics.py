@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
 
-from lib.validation_messages import ValidationMessage
+from lib.infra.validation_messages import ValidationMessage
 
 #: 诊断消息键的统一前缀：``code`` 与消息键一一对应，新增码必须同步三种语言的消息。
 MESSAGE_KEY_PREFIX = "val_ce_"

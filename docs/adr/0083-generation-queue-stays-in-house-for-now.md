@@ -4,7 +4,7 @@ status: accepted
 
 # 生成任务队列现阶段保持自研，不引入第三方任务队列库
 
-生成任务的持久化、认领、并发与重启自愈由 ArcReel 自己实现（`lib/generation_queue.py`、`lib/generation_worker.py`、`lib/db/repositories/task_repo.py`），没有建立在 Celery、dramatiq、arq、taskiq、procrastinate、APScheduler 之类的任务队列库之上。我们评估过换库，决定现阶段不换，理由有两条，缺一条结论都会不同。
+生成任务的持久化、认领、并发与重启自愈由 ArcReel 自己实现（`lib/generation/generation_queue.py`、`lib/generation/generation_worker.py`、`lib/db/repositories/task_repo.py`），没有建立在 Celery、dramatiq、arq、taskiq、procrastinate、APScheduler 之类的任务队列库之上。我们评估过换库，决定现阶段不换，理由有两条，缺一条结论都会不同。
 
 第一，受支持的部署形态里找不到成熟的候选。ArcReel 要能以「默认 SQLite、不依赖任何额外服务、Windows 原生可跑」的单机形态运行，队列状态与业务状态同在一个 `DATABASE_URL` 指向的库里（ADR 0020），SQLite 与 PostgreSQL 两种方言都要支持。各候选的阻断条件不同，但都落在同一处——要么得在应用之外再起一个消息服务，要么不能把任务状态持久化进与业务状态同一个、两种方言皆可的库：
 
@@ -19,6 +19,6 @@ status: accepted
 
 ## Consequences
 
-- 这是「现阶段」的结论而非永久排除。出现下面任一变化时应重新评估：决定支持多进程或多实例部署（进程内的任务句柄不再够用，见 ADR 0006）；队列只需要运行在 PostgreSQL 上（届时 procrastinate 这类 PostgreSQL 原生的队列库进入候选）；出现了同时支持 SQLite 与 PostgreSQL、可进程内运行且已发布稳定版的队列库。
+- 这是「现阶段」的结论而非永久排除。出现下面任一变化时应重新评估：决定支持多进程或多实例部署（重启自愈对孤儿任务的判定以单进程为前提，见 ADR 0007）；队列只需要运行在 PostgreSQL 上（届时 procrastinate 这类 PostgreSQL 原生的队列库进入候选）；出现了同时支持 SQLite 与 PostgreSQL、可进程内运行且已发布稳定版的队列库。
 - 重新评估时要比较的是那几百行通用底层的维护成本，而不是整个队列模块的体量；领域逻辑无论如何留在 ArcReel。
 - 供应商的 RPM 限制不属于队列，由各调用通道自行节流。

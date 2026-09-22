@@ -12,7 +12,7 @@ from unittest.mock import MagicMock, patch
 import httpx
 import pytest
 
-from tests.http_capture import capture_http
+from tests.http_capture import capture_http, only_request
 
 
 @contextmanager
@@ -399,30 +399,25 @@ class TestUnknownFormat:
 
 
 class TestDiscoverModelsAnthropic:
-    @patch("lib.custom_provider.discovery.get_http_client")
-    async def test_basic_discovery(self, mock_get_client):
+    async def test_basic_discovery(self):
         """Anthropic 协议返回的模型按 id 排序，返回项与 OpenAI/Google 路径同形态且 endpoint 为空。"""
-        from unittest.mock import AsyncMock
-
-        mock_response = MagicMock()
-        mock_response.json.return_value = {
-            "data": [
-                {"id": "claude-opus-4-7", "display_name": "Opus 4.7"},
-                {"id": "claude-haiku-4-5", "display_name": "Haiku 4.5"},
-            ]
-        }
-        mock_response.raise_for_status = MagicMock()
-        mock_client = MagicMock()
-        mock_client.get = AsyncMock(return_value=mock_response)
-        mock_get_client.return_value = mock_client
-
         from lib.custom_provider.discovery import discover_models
 
-        result = await discover_models(
-            discovery_format="anthropic",
-            base_url="https://example.com/anthropic/v1/messages",  # 整条端点，验证归一
-            api_key="sk-ant-test",
-        )
+        with capture_http() as http:
+            # 归一到调用根后在 path 上追加 /v1/models，子路径保留
+            route = http.get("https://example.com/anthropic/v1/models").respond(
+                json={
+                    "data": [
+                        {"id": "claude-opus-4-7", "display_name": "Opus 4.7"},
+                        {"id": "claude-haiku-4-5", "display_name": "Haiku 4.5"},
+                    ]
+                }
+            )
+            result = await discover_models(
+                discovery_format="anthropic",
+                base_url="https://example.com/anthropic/v1/messages",  # 整条端点，验证归一
+                api_key="sk-ant-test",
+            )
 
         assert result == [
             {
@@ -440,52 +435,30 @@ class TestDiscoverModelsAnthropic:
                 "is_enabled": True,
             },
         ]
-        # 归一到调用根后在 path 上追加 /v1/models，子路径保留
-        called_url = mock_client.get.call_args.args[0]
-        assert called_url == "https://example.com/anthropic/v1/models"
-        # headers 携带 anthropic 鉴权
-        headers = mock_client.get.call_args.kwargs["headers"]
-        assert headers["x-api-key"] == "sk-ant-test"
-        assert headers["anthropic-version"] == "2023-06-01"
-        # 发现请求带 15 秒超时，不沿用共享客户端的默认超时
-        assert mock_client.get.call_args.kwargs["timeout"] == 15.0
+        request = only_request(route)
+        assert request.headers["x-api-key"] == "sk-ant-test"
+        assert request.headers["anthropic-version"] == "2023-06-01"
 
-    @patch("lib.custom_provider.discovery.get_http_client")
-    async def test_default_base_url_when_none(self, mock_get_client):
+    async def test_default_base_url_when_none(self):
         """base_url 缺省时使用官方 https://api.anthropic.com。"""
-        from unittest.mock import AsyncMock
-
-        mock_response = MagicMock()
-        mock_response.json.return_value = {"data": []}
-        mock_response.raise_for_status = MagicMock()
-        mock_client = MagicMock()
-        mock_client.get = AsyncMock(return_value=mock_response)
-        mock_get_client.return_value = mock_client
-
         from lib.custom_provider.discovery import discover_models
 
-        await discover_models(discovery_format="anthropic", base_url=None, api_key="key")
+        with capture_http() as http:
+            route = http.get("https://api.anthropic.com/v1/models").respond(json={"data": []})
+            await discover_models(discovery_format="anthropic", base_url=None, api_key="key")
 
-        called_url = mock_client.get.call_args.args[0]
-        assert called_url == "https://api.anthropic.com/v1/models"
+        assert route.call_count == 1
 
-    @patch("lib.custom_provider.discovery.get_http_client")
-    async def test_skips_entries_without_id(self, mock_get_client):
+    async def test_skips_entries_without_id(self):
         """data 中 id 缺失的条目被跳过；缺 display_name 的条目以 id 作显示名。"""
-        from unittest.mock import AsyncMock
-
-        mock_response = MagicMock()
-        mock_response.json.return_value = {
-            "data": [{"id": "claude-x"}, {"display_name": "no id"}],
-        }
-        mock_response.raise_for_status = MagicMock()
-        mock_client = MagicMock()
-        mock_client.get = AsyncMock(return_value=mock_response)
-        mock_get_client.return_value = mock_client
-
         from lib.custom_provider.discovery import discover_models
 
-        result = await discover_models(discovery_format="anthropic", base_url=None, api_key="k")
+        with capture_http() as http:
+            http.get("https://api.anthropic.com/v1/models").respond(
+                json={"data": [{"id": "claude-x"}, {"display_name": "no id"}]}
+            )
+            result = await discover_models(discovery_format="anthropic", base_url=None, api_key="k")
+
         assert [m["model_id"] for m in result] == ["claude-x"]
         assert result[0]["display_name"] == "claude-x"
 
@@ -510,14 +483,12 @@ class TestDiscoverModelsAnthropic:
     async def test_status_error_message_drops_request_url(self):
         """4xx 抛的是脱敏后的 HTTPStatusError：消息只留 status 与请求 URL，不带响应体。"""
         base_url = "https://relay.example.com/anthropic"
+        from lib.custom_provider.discovery import discover_models
+
         with capture_http() as http:
             http.get(host="relay.example.com").respond(status_code=401, text="unauthorized sk-body-secret")
-            async with httpx.AsyncClient() as client:
-                with patch("lib.custom_provider.discovery.get_http_client", return_value=client):
-                    from lib.custom_provider.discovery import discover_models
-
-                    with pytest.raises(httpx.HTTPStatusError) as exc_info:
-                        await discover_models(discovery_format="anthropic", base_url=base_url, api_key="sk-ant")
+            with pytest.raises(httpx.HTTPStatusError) as exc_info:
+                await discover_models(discovery_format="anthropic", base_url=base_url, api_key="sk-ant")
 
         assert str(exc_info.value) == "401 response for https://relay.example.com/anthropic/v1/models"
         assert "sk-body-secret" not in str(exc_info.value)

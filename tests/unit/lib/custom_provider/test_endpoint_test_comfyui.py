@@ -5,7 +5,7 @@ from __future__ import annotations
 from random import Random
 from typing import Any
 
-from lib.custom_provider.comfyui_backend import ComfyuiVideoBackend
+from lib.custom_provider.comfyui.comfyui_backend import ComfyuiVideoBackend
 from lib.custom_provider.endpoint_definition import AssetData, validate_definition
 from lib.custom_provider.endpoint_test import (
     ComfyuiConversions,

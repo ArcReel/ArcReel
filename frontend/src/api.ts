@@ -29,6 +29,7 @@ import type {
   GetSystemVersionResponse,
   PromptTemplateDetail,
   PromptTemplateListResponse,
+  PromptTemplatePartial,
   ModelCandidatesResponse,
   OnboardingStatus,
   SystemConfigPatch,
@@ -66,7 +67,6 @@ import type {
   EndpointTestStage,
   TrialRunInfo,
   TrialRunModelRef,
-  CustomProviderCredentials,
   AnthropicDiscoverRequest,
   AnthropicDiscoverResponse,
   CostEstimateResponse,
@@ -173,7 +173,7 @@ const ASSET_TYPE_PATH: Record<ProjectAssetType, string> = {
   product: "products",
 };
 
-/** 角色衍生资产图在版本与图片编辑端点上的资源类型名（与后端 `lib/resource_paths` 一致）。 */
+/** 角色衍生资产图在版本与图片编辑端点上的资源类型名（与后端 `lib/project/resource_paths` 一致）。 */
 export const CHARACTER_DERIVATIVE_RESOURCE_TYPE = "character_derivatives";
 
 /** 衍生的复合资源 id：本体名与衍生名各占一段，与后端的落盘、队列与版本口径一致。 */
@@ -341,6 +341,15 @@ class API {
   ): Promise<PromptTemplateDetail> {
     const path = templateId.split("/").map(encodeURIComponent).join("/");
     return this.request(`/prompt-templates/${path}`, { signal: options.signal });
+  }
+
+  /** 片段名同样按 `/` 分层，编码方式与模版 id 一致。 */
+  static async getPromptPartial(
+    name: string,
+    options: { signal?: AbortSignal } = {}
+  ): Promise<PromptTemplatePartial> {
+    const path = name.split("/").map(encodeURIComponent).join("/");
+    return this.request(`/prompt-templates/partials/${path}`, { signal: options.signal });
   }
 
   // ==================== 首次使用引导 ====================
@@ -1855,7 +1864,6 @@ class API {
     taskId: string
   ): Promise<{
     cancelled: TaskItem[];
-    cancelling: string[];
     skipped_terminal: TaskItem[];
   }> {
     return this.request(`/tasks/${encodeURIComponent(taskId)}/cancel`, {
@@ -2421,10 +2429,6 @@ class API {
 
   static async checkCustomConnectivityById(id: number): Promise<{ success: boolean; message: string }> {
     return this.request(`/custom-providers/${id}/test`, { method: "POST" });
-  }
-
-  static async getCustomProviderCredentials(id: number): Promise<CustomProviderCredentials> {
-    return this.request(`/custom-providers/${id}/credentials`);
   }
 
   static async discoverAnthropicModels(

@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.repository import ProviderConfigRepository, SystemSettingRepository
-from lib.system_config import resolve_vertex_credentials_path
+from lib.config.system_config import resolve_vertex_credentials_path
 
 logger = logging.getLogger(__name__)
 

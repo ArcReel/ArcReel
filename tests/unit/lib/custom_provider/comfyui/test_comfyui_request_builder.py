@@ -14,7 +14,7 @@ from lib.custom_provider.comfyui.request_builder import (
     build_workflow,
     workflow_sha256,
 )
-from lib.task_failure import FAILURE_CODE_KEYS, encode_failure, render_failure
+from lib.generation.task_failure import FAILURE_CODE_KEYS, encode_failure, render_failure
 from tests.factories import comfyui_endpoint_definition, make_translator
 
 
@@ -155,7 +155,6 @@ class TestSize:
 
     def test_an_image_endpoint_reads_the_image_tier_table(self):
         definition = comfyui_endpoint_definition(media_type="image")
-        del definition["bindings"]["fps"]
 
         built = _build(definition, aspect_ratio="1:1", resolution="1K")
 

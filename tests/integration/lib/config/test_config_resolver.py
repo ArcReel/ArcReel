@@ -194,6 +194,48 @@ class TestDefaultBackends:
             with pytest.raises(ValueError, match="未找到可用的 image 供应商"):
                 await resolver._resolve_default_image_backend(fake_svc, session)
 
+    @pytest.mark.parametrize(("generation_type", "expected_model"), [("t2i", "t2i-m"), ("i2i", "i2i-m")])
+    async def test_image_backend_auto_resolve_picks_the_custom_default_of_the_bucket(
+        self, db_factory, generation_type, expected_model
+    ):
+        """无 ready 内置供应商时的自定义兜底按桶挑默认：t2i 与 i2i 各设一个默认时不能取错桶。"""
+        from lib.custom_provider import make_provider_id
+        from lib.db.models.custom_provider import CustomProvider, CustomProviderModel
+
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(settings={}, ready_providers=[])
+        async with db_factory() as session:
+            provider = CustomProvider(
+                display_name="Prov", discovery_format="openai", base_url="https://api.example.com", api_key="k"
+            )
+            session.add(provider)
+            await session.flush()
+            session.add_all(
+                [
+                    # openai-images-generations 只声明 t2i，openai-images-edits 只声明 i2i
+                    CustomProviderModel(
+                        provider_id=provider.id,
+                        model_id="t2i-m",
+                        display_name="T2I",
+                        endpoint="openai-images-generations",
+                        is_default=True,
+                        is_enabled=True,
+                    ),
+                    CustomProviderModel(
+                        provider_id=provider.id,
+                        model_id="i2i-m",
+                        display_name="I2I",
+                        endpoint="openai-images-edits",
+                        is_default=True,
+                        is_enabled=True,
+                    ),
+                ]
+            )
+            await session.flush()
+
+            result = await resolver._resolve_default_image_backend(fake_svc, session, generation_type)
+        assert result == (make_provider_id(provider.id), expected_model)
+
     async def test_default_image_backend_t2i_bucket_overrides_default_layer(self):
         """全局桶 default_image_backend_t2i 覆盖全局默认层 default_image_backend。"""
         resolver = ConfigResolver.__new__(ConfigResolver)
@@ -1513,7 +1555,7 @@ class TestResolveVideoBackendBuckets:
     """generation_type 给定时的视频四级解析（项目桶 > 项目默认 > 全局桶 > 全局默认 > 自动推断）与能力闸。
 
     能力闸样本取 backend 声明的真实能力位：vidu/viduq3-pro 仅 i2v、dashscope/happyhorse-1.0-r2v
-    仅 r2v、ark 全系两桶齐备（见 lib/generation_type_buckets.py 的判定口径）。
+    仅 r2v、ark 全系两桶齐备（见 lib/backends/generation_type_buckets.py 的判定口径）。
     """
 
     async def test_project_bucket_wins_over_project_default(self):
@@ -1786,7 +1828,7 @@ class TestTextBackendTierResolution:
     async def test_five_level_priority_all_combinations(self, p_tier, p_def, g_tier, g_def):
         from unittest.mock import MagicMock
 
-        from lib.text_backends.base import TextTaskType
+        from lib.backends.text_backends.base import TextTaskType
 
         settings = {}
         if g_tier:
@@ -1820,7 +1862,7 @@ class TestTextBackendTierResolution:
     async def test_no_project_name_skips_project_levels(self):
         from unittest.mock import MagicMock
 
-        from lib.text_backends.base import TextTaskType
+        from lib.backends.text_backends.base import TextTaskType
 
         resolver = ConfigResolver.__new__(ConfigResolver)
         fake_svc = _FakeConfigService(settings={"text_backend_complex": "g-tier/m", "default_text_backend": "g-def/m"})
@@ -1831,7 +1873,7 @@ class TestTextBackendTierResolution:
         """OVERVIEW / STYLE_ANALYSIS 归简单档，读 text_backend_simple 而非复杂档键。"""
         from unittest.mock import MagicMock
 
-        from lib.text_backends.base import TextTaskType
+        from lib.backends.text_backends.base import TextTaskType
 
         resolver = ConfigResolver.__new__(ConfigResolver)
         fake_svc = _FakeConfigService(settings={"text_backend_simple": "simple/m", "text_backend_complex": "complex/m"})
@@ -1842,7 +1884,7 @@ class TestTextBackendTierResolution:
     async def test_script_task_reads_complex_key(self):
         from unittest.mock import MagicMock
 
-        from lib.text_backends.base import TextTaskType
+        from lib.backends.text_backends.base import TextTaskType
 
         resolver = ConfigResolver.__new__(ConfigResolver)
         fake_svc = _FakeConfigService(settings={"text_backend_simple": "simple/m", "text_backend_complex": "complex/m"})
@@ -1853,7 +1895,7 @@ class TestTextBackendTierResolution:
         """无 "/" 的脏值视为未设置，落到下一级。"""
         from unittest.mock import MagicMock
 
-        from lib.text_backends.base import TextTaskType
+        from lib.backends.text_backends.base import TextTaskType
 
         resolver = ConfigResolver.__new__(ConfigResolver)
         fake_svc = _FakeConfigService(settings={"text_backend_complex": "no-slash", "default_text_backend": "g-def/m"})
@@ -1865,7 +1907,7 @@ class TestTextBackendTierResolution:
         不静默回退到全局默认的另一供应商。与图片 / 视频的项目层同构。"""
         from unittest.mock import MagicMock
 
-        from lib.text_backends.base import TextTaskType
+        from lib.backends.text_backends.base import TextTaskType
 
         resolver = ConfigResolver.__new__(ConfigResolver)
         fake_svc = _FakeConfigService(settings={"default_text_backend": "g-def/m"})
@@ -1881,7 +1923,7 @@ class TestStyleAnalysisVisionGuard:
     async def test_rejects_registry_model_without_vision(self):
         from unittest.mock import MagicMock
 
-        from lib.text_backends.base import TextTaskType
+        from lib.backends.text_backends.base import TextTaskType
 
         resolver = ConfigResolver.__new__(ConfigResolver)
         # gemini-3.1-flash-lite-preview 在 registry 中未声明 vision
@@ -1892,7 +1934,7 @@ class TestStyleAnalysisVisionGuard:
     async def test_accepts_registry_model_with_vision(self):
         from unittest.mock import MagicMock
 
-        from lib.text_backends.base import TextTaskType
+        from lib.backends.text_backends.base import TextTaskType
 
         resolver = ConfigResolver.__new__(ConfigResolver)
         fake_svc = _FakeConfigService(settings={"text_backend_simple": "gemini-aistudio/gemini-3-flash-preview"})
@@ -1903,7 +1945,7 @@ class TestStyleAnalysisVisionGuard:
         """registry 之外（自定义供应商等）无逐模型能力事实，放行不猜测。"""
         from unittest.mock import MagicMock
 
-        from lib.text_backends.base import TextTaskType
+        from lib.backends.text_backends.base import TextTaskType
 
         resolver = ConfigResolver.__new__(ConfigResolver)
         fake_svc = _FakeConfigService(settings={"text_backend_simple": "custom-abc/some-model"})
@@ -1914,7 +1956,7 @@ class TestStyleAnalysisVisionGuard:
         """vision 校验只针对需要图像输入的任务，SCRIPT 不受限。"""
         from unittest.mock import MagicMock
 
-        from lib.text_backends.base import TextTaskType
+        from lib.backends.text_backends.base import TextTaskType
 
         resolver = ConfigResolver.__new__(ConfigResolver)
         fake_svc = _FakeConfigService(

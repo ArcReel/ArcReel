@@ -10,17 +10,17 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
-from lib.draft_quarantine import (
+from lib.generation.generation_result import (
+    GenerationBatchResult,
+)
+from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
+from lib.script.draft_quarantine import (
     QUARANTINE_KIND_DRAMA_SCRIPT_PLAN,
     QUARANTINE_KIND_NARRATION_SCRIPT_PLAN,
     QUARANTINE_KIND_PROMPT_AUTHORING,
     QUARANTINE_KIND_SCRIPT_PLAN,
     quarantine_path,
 )
-from lib.generation_result import (
-    GenerationBatchResult,
-)
-from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from server.agent_runtime.sdk_tools._media_adapter import _response, sdk_media_tool
 from server.agent_runtime.sdk_tools.text_generation import (
     generate_script_plan_tool,
@@ -40,7 +40,7 @@ from tests.fakes import FakeConfigResolver
 async def fake_scene_batch(*, project_name, specs, on_success=None, on_failure=None, **_batch_kwargs):
     """Stand in for the queue: every scene spec lands its canonical mp4."""
 
-    from lib.generation_queue_client import BatchTaskResult
+    from lib.generation.generation_queue_client import BatchTaskResult
 
     return [
         BatchTaskResult(
@@ -152,7 +152,7 @@ class FakePM:
             (scripts_dir / Path(filename).name).write_text(
                 json.dumps(self.script_payload, ensure_ascii=False), encoding="utf-8"
             )
-        from lib.artifact_activation import activate_artifact_target_state
+        from lib.artifacts.artifact_activation import activate_artifact_target_state
 
         # 用例故意构造的畸形项目/剧本激活不了；此处吞掉异常让清单留空，
         # 被测工具随后按「产物不可用」逐条拒收，这正是这些用例要断言的路径。
@@ -180,7 +180,7 @@ class FakePM:
         （付费媒体的版本记录、缺 image_prompt 的历史分镜）。
         """
 
-        from lib.artifact_manifest import (
+        from lib.artifacts.artifact_manifest import (
             ArtifactKey,
             ArtifactManifest,
             ArtifactManifestEntry,
@@ -278,7 +278,7 @@ def fake_reference_projection(
     """Agent 工具测试用的 in-process request projection adapter。"""
 
     async def _project(*, project, script, unit, options=None, **_kwargs):
-        from lib.reference_video.request_projection import (
+        from lib.script.reference_video.request_projection import (
             ProviderProjectionCandidate,
             ReferenceUnitRequestProjector,
             ResolvedReferenceAsset,
@@ -458,7 +458,7 @@ def rv_unit(text: str, *, duration: int = 8, source_text: str = _RV_NOVEL) -> di
 
 def derived_reference_names(fake_ctx: ToolContext, text: str) -> list[str]:
     """正文 → 参考图名称：读侧的唯一派生入口，落盘不带 references。"""
-    from lib.reference_video.text_parser import derive_references_from_text
+    from lib.script.reference_video.text_parser import derive_references_from_text
 
     project = json.loads((fake_ctx.project_path / "project.json").read_text(encoding="utf-8"))
     references, _missing = derive_references_from_text(text, project)

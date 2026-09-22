@@ -98,7 +98,7 @@ ArcReel should preserve the following properties.
 7. **Controlled outbound access:** Provider-controlled and operator-configured destinations must not silently provide access to loopback, cloud metadata, private networks, or other sensitive services unless the operator has explicitly enabled and accepted that behavior.
 8. **Bounded untrusted processing:** Archives, uploads, provider responses, model output, and media parsing must have explicit limits for bytes, entries, memory, disk, CPU, concurrency, and execution time.
 9. **Secret minimization:** Secrets must not be returned unmasked, written to public project files, inherited by unnecessary subprocesses, exposed to the agent, or included in routine logs.
-10. **Bearer-token impact:** A stolen login JWT is treated as complete administrator compromise. A download JWT is accepted by the general JWT authentication path as an administrator bearer credential during its five-minute validity, but it inherits the issuer's subject: one minted through an API key retains the `apikey:` prefix and is denied by API-key management routes. That restriction does not materially reduce the compromise. A stolen API key is treated as a high-impact compromise of most business and configuration APIs, excluding API-key management.
+10. **Bearer-token impact:** A stolen login JWT is treated as complete administrator compromise. A download JWT carries a `purpose` claim and is rejected by the general session authentication path; it grants only the export of its bound project during its five-minute validity. A stolen API key is treated as a high-impact compromise of most business and configuration APIs, excluding API-key management.
 11. **Authentication-disabled isolation:** `AUTH_ENABLED=false` is safe only when network reachability is independently constrained to a trusted local environment.
 
 ## 6. Threat actors and capabilities
@@ -109,7 +109,7 @@ An unauthenticated caller can reach public endpoints, submit login attempts, ins
 
 ### 6.2 Attacker with a stolen JWT or API key
 
-A stolen login JWT normally provides complete administrator access, including API-key management. A stolen `arc-` API key authorizes most project, provider, generation, task, agent, and system APIs, but the API-key management router explicitly requires a subject that does not begin with `apikey:`. The same API key can enumerate custom providers and retrieve each stored custom-provider `api_key` verbatim from `GET /api/v1/custom-providers/{provider_id}/credentials`, creating a credential-escalation path. API keys otherwise have no scopes or RBAC boundaries that materially reduce their impact.
+A stolen login JWT normally provides complete administrator access, including API-key management. A stolen `arc-` API key authorizes most project, provider, generation, task, agent, and system APIs, but the API-key management router explicitly requires a subject that does not begin with `apikey:`. Provider and Agent credential responses return only masked secrets; the same API key can still change provider and Agent credential configuration, including the base URLs that stored credentials are sent to. API keys otherwise have no scopes or RBAC boundaries that materially reduce their impact.
 
 ### 6.3 Malicious content author or project supplier
 
@@ -149,7 +149,7 @@ A compromised Python package, Node package, container image, SDK, ffmpeg build, 
 | FastAPI → database | Secrets, hashes, configuration, task and usage state | ORM parameterization, API masking, DB permissions | Credential and state disclosure, persistence tampering |
 | FastAPI → project filesystem | Names, paths, archives, generated files, agent writes | Name normalization, `safe_join`, project locks, atomic writes, schema validation | Traversal, cross-project access, overwrite, persistent malicious content |
 | FastAPI → external providers | Credentials, prompts, media, base URLs, job IDs | Authentication, provider registry, configured endpoints, path-specific HTTP timeouts | SSRF, secret forwarding, malformed responses, unexpected cost |
-| Provider → ArcReel download/parser pipeline | URLs, response headers, media bytes | Path-specific HTTP timeouts, artifact-path handling, downstream format checks; Vertex Gemini URI downloads currently lack an explicit deadline | SSRF, memory/disk exhaustion, parser compromise |
+| Provider → ArcReel download/parser pipeline | URLs, response headers, media bytes | Shared artifact download entry (`lib/backends/artifact_download_guard.py`): per-request and per-redirect scheme and destination checks, per-media-type total byte limits, capped error-body reads, `.part` staging with atomic rename for streamed video and image downloads; path-specific HTTP timeouts, downstream format checks; Vertex Gemini URI downloads currently lack an explicit deadline | SSRF, memory/disk exhaustion, parser compromise |
 | Application → SDK built-in file tools | LLM-selected `Read`, `Write`, `Edit`, `Glob`, and `Grep` paths | Main-process `PreToolUse` hooks backed by `AgentAccessPolicy` | Sensitive-file access, cross-project access, protected-file modification |
 | Application → sandboxed Bash | Commands, paths, environment, and network destinations | Kernel sandbox profile, `AgentAccessPolicy`, command policy, environment scrubbing | Sensitive-file access, cross-project access, command execution, network abuse |
 | Application → in-process MCP tools | LLM-selected structured arguments | Closure-bound project context, strict validation, protected workflows | Sandbox bypass through main-process capability |
@@ -180,7 +180,7 @@ A compromised Python package, Node package, container image, SDK, ffmpeg build, 
 - Fail-closed handling for a blank `AUTH_ENABLED` value.
 - Generated administrative passwords when none is configured.
 - Seven-day HS256 JWTs.
-- Five-minute project-bound download tokens. Export routes enforce their purpose and project binding, but general JWT authentication currently accepts them as administrator bearer credentials during their validity. Their subjects are copied from the caller, so tokens minted through API keys retain the `apikey:` prefix and remain excluded from API-key management.
+- Five-minute project-bound download tokens. Export routes enforce their purpose and project binding, and general session authentication rejects any JWT carrying a `purpose` claim, so they are not accepted as bearer credentials on other routes. Their subjects are copied from the caller, so tokens minted through API keys retain the `apikey:` prefix and remain excluded from API-key management.
 - Random `arc-` API keys stored as SHA-256 hashes.
 - API-key expiration checks and bounded cache behavior.
 
@@ -195,20 +195,20 @@ There is no account-level RBAC, scoped API key, MFA, JWT revocation list, centra
 
 The absence of a `CurrentUser` parameter in a route function does not establish that the route is unauthenticated. The built-in `providers.router` is currently protected by the centralized registration dependency.
 
-Public routes include authentication bootstrap/login, project/global file delivery, `/health`, and `/agent-installation-guide.md`. Self-authenticating routes are limited to the project export routes that verify a short-lived download token; event streams are ordinary protected routes consumed by the frontend through `fetch` with an `Authorization` header (ADR 0071).
+Public routes include authentication bootstrap/login, project/global media delivery, `/health`, and `/agent-installation-guide.md`. Project and global file delivery serves only media: a request must resolve inside the root, fall under an allowlisted media directory (or the project-root style reference image), and carry an image, video, or audio extension; anything else returns the same 404 as a missing file (ADR 0071). Self-authenticating routes are limited to the project export routes that verify a short-lived download token; event streams are ordinary protected routes consumed by the frontend through `fetch` with an `Authorization` header (ADR 0071).
 
 ### 9.2 Secret handling
 
-- API responses generally mask stored secrets. The custom-provider credentials endpoint is a material exception: it returns the stored `api_key` in plaintext to any caller accepted by the generic authentication dependency, including an `arc-` API key.
+- API responses mask stored secrets. No route returns a stored provider or Agent `api_key` in plaintext. Creating an Agent credential from a custom provider (`from_custom_provider_id` on `POST /api/v1/agent/credentials`) copies that provider's key server-side; the key never passes through the client. The new credential uses the base URL given in the request, or the provider's base URL when none is given.
 - The server fails fast when provider secrets are present in the parent process environment, reducing automatic inheritance by sandboxed child processes.
 - Agent policy denies sensitive-file reads and scrubs provider and secret-like environment variables from sandboxed
   Bash execution. The dedicated short-lived `ARCREEL_API_TOKEN` is intentionally retained so the embedded Agent can
-  call ArcReel's HTTP API. That retention cancels most of the scrubbing's value: the token authenticates the
-  custom-provider credentials endpoint described above, so an Agent holding it can read back the same provider
-  `api_key` values in plaintext over HTTP.
+  call ArcReel's HTTP API. The token carries administrator authority over provider and Agent credential
+  configuration, so the scrubbing hides secret values from the sandboxed process but does not bound what an Agent
+  holding the token can do with the stored credentials through the API.
 - Vertex credential files are written with restrictive permissions where supported.
 
-Built-in provider, custom-provider, and Agent credentials are nevertheless stored in plaintext database columns. API masking does not protect a copied database, backup, snapshot, or compromised database account, and it does not protect custom-provider credentials from the authenticated plaintext-read endpoint described above.
+Built-in provider, custom-provider, and Agent credentials are nevertheless stored in plaintext database columns. API masking does not protect a copied database, backup, snapshot, or compromised database account.
 
 ### 9.3 Path and project controls
 
@@ -218,7 +218,7 @@ Built-in provider, custom-provider, and Agent credentials are nevertheless store
 - Project schemas and imported data are validated and migrated.
 - Media and source upload routes enforce supported extensions. Project imports and Vertex credential uploads validate content without requiring a matching original filename extension. Dedicated storyboard, shot-video, end-frame, and character reference-audio flows also enforce byte limits; general asset-image upload flows currently read the complete request without an explicit byte ceiling.
 
-Path containment prevents escape from a root. It does not authorize anonymous access to every file inside that root.
+Path containment prevents escape from a root. It does not authorize anonymous access to every file inside that root; the public file routes add a directory and extension allowlist on top of containment, evaluated against the resolved path.
 
 ### 9.4 Project archive controls
 
@@ -253,7 +253,7 @@ SDK built-in `Read`, `Write`, `Edit`, `Glob`, and `Grep` tools execute in the ma
 The embedded Agent receives a 15-minute administrator session JWT, outbound access to any domain, and — through
 `allowLocalBinding` — reachability of the host's loopback interface. Prompt injection in fetched provider
 documentation can therefore exfiltrate that token to an arbitrary host, exercise any authenticated ArcReel API
-during its lifetime (including the plaintext credentials read of section 9.2), and reach loopback services that are
+during its lifetime (including provider and Agent credential configuration, see section 9.2), and reach loopback services that are
 not ArcReel at all: a database, another application's development server, or any private service bound to
 `127.0.0.1` on the same machine. Filesystem confinement remains in force and covers none of these paths.
 
@@ -289,11 +289,11 @@ The MCP SDK's DNS-rebinding protection is disabled (`TransportSecuritySettings(e
 ### 10.1 Authentication and bearer tokens
 
 - Automated login attempts may be sent without built-in rate limiting.
-- A stolen login JWT normally provides full administrative access; a stolen API key provides broad access except to API-key management. A login username beginning with `apikey:` collides with the current subject-prefix check and is also denied by API-key management routes. A stolen API key can read custom-provider API keys in plaintext and use them independently of ArcReel.
-- A leaked download token can be replayed and used as a broad administrator bearer credential during its five-minute validity; if minted through an API key, its inherited `apikey:` subject remains excluded from API-key management.
+- A stolen login JWT normally provides full administrative access; a stolen API key provides broad access except to API-key management. A login username beginning with `apikey:` collides with the current subject-prefix check and is also denied by API-key management routes. A stolen API key cannot read stored provider API keys back in plaintext, but it can reconfigure providers and Agent credentials that use them.
+- A leaked download token can be replayed against the export routes of its bound project during its five-minute validity; other protected routes reject it.
 - Seven-day JWT lifetime increases the useful period of a stolen token.
 - Event-stream routes accept only the `Authorization` header; a session JWT or API key in a query parameter is rejected with 401 (ADR 0071). The frontend consumes them through `fetch` rather than `EventSource`.
-- `AUTH_ENABLED=false` causes authentication dependencies to return an anonymous administrator identity.
+- `AUTH_ENABLED=false` causes authentication dependencies to return an anonymous administrator identity. The state is surfaced but not blocked: startup logs a WARNING. No second confirmation is required and port binding is unchanged.
 
 ### 10.2 Public and self-authenticating routes
 
@@ -307,6 +307,8 @@ Browser-native `<img>`, `<video>`, and download navigation create pressure to by
 - Cache behavior.
 - Query-string logging.
 
+The project and global file routes currently restrict responses to allowlisted image, video, and audio extensions, so active formats such as HTML, SVG, XML, and JavaScript are not served, and every file response carries `X-Content-Type-Options: nosniff`. The allowlists live in `server/routers/files.py`; widening them is a change to this boundary.
+
 ### 10.3 Provider configuration and outbound requests
 
 Authenticated administrators can configure supported provider URLs and custom endpoints. Providers can return media URLs and untrusted responses. Reviews must distinguish:
@@ -317,6 +319,15 @@ Authenticated administrators can configure supported provider URLs and custom en
 - Malicious or compromised provider responses.
 
 Outbound requests must be assessed for private-address reachability, cloud metadata access, scheme handling, redirects, response limits, timeouts, and credential forwarding.
+
+Current state for provider-returned artifact URLs: built-in video, image, and audio backends and the declarative and ComfyUI custom-provider runtimes download artifacts through `lib/backends/artifact_download_guard.py`.
+
+- Every request, including each redirect hop, is checked before it is sent. Only `http` and `https` are accepted. Hostnames are resolved with the event loop's asynchronous `getaddrinfo` under a 10-second deadline, and destinations in `169.254.0.0/16`, `fe80::/10`, `fd00:ec2::254`, `100.100.100.200`, or `192.0.0.192` (including IPv4-mapped IPv6 forms) are refused; the last two are single cloud metadata addresses, and the rest of their ranges stays allowed. When local resolution fails or times out, the request is left to the transport.
+- Loopback and RFC 1918 private addresses are intentionally allowed because self-hosted providers such as ComfyUI or Ollama legitimately run there. The check resolves once before connecting and does not pin the connected address.
+- Response bodies are limited per media type (video 2 GiB, image and audio 256 MiB). An oversized declared `Content-Length` is refused early, the actual byte count is authoritative, and aborted video and image downloads leave no `.part` file. Audio artifacts are read into memory under the audio limit and then written directly, without `.part` staging. Error-response bodies are read up to 64 KiB.
+- The declarative and ComfyUI runtimes share one guarded client for submit, poll, and download, so the destination check also applies to administrator-configured base URLs on those paths. The custom-provider base-URL probes that speak HTTP directly — the ComfyUI connectivity check and Anthropic-protocol model discovery — use the same guarded client, so an administrator-configured base URL is checked before the probe leaves. A refused destination is reported through the normal probe failure path, as a truncated and redacted message.
+- SDK-mediated downloads and probes against configured base URLs (OpenAI-compatible video content, Gemini file downloads, and the OpenAI- and Google-SDK connectivity and discovery probes) are not routed through this entry, because those calls are issued by the vendor SDKs rather than by an ArcReel client. OpenAI-compatible speech synthesis reads success bodies through the audio limit, but its error bodies are read by the SDK without this cap.
+- Requests carrying rendered `auth` credentials follow redirects hop by hop through `request_with_scoped_credentials` rather than through the client's automatic redirect handling, which strips only `Authorization` across origins. Leaving the origin of the originally requested URL drops the credential headers, the credential query parameters, and the request body, so a `Location` pointing at another host cannot replay the submitted payload; 307 and 308 keep the method but send no body across origins. Same-origin hops keep the credentials and re-attach credentials carried in the query string; their method and body follow the usual rewrite rules, so 301 and 302 on a POST and 303 on anything but HEAD continue as a bodiless GET, and only 307 and 308 keep both.
 
 ### 10.4 Imports, uploads, and project data
 

@@ -1,4 +1,4 @@
-"""提示词模版只读 API：系统设置页按类别列出内置模版，并展示单个模版的源文与元数据。
+"""提示词模版只读 API：系统设置页按类别列出内置模版，展示单个模版的源文与元数据，以及单个片段的正文与引用方。
 
 路由前缀: /api/v1/prompt-templates
 """
@@ -11,9 +11,9 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
-from lib.api_errors import NotFoundError
-from lib.prompt_templates import PromptTemplates, TemplateMeta
-from lib.prompt_templates.builtin import builtin_templates
+from lib.infra.api_errors import NotFoundError
+from lib.prompts.prompt_templates import PartialEntry, PromptTemplates, TemplateError, TemplateMeta, UserActionTrigger
+from lib.prompts.prompt_templates.builtin import builtin_templates
 
 router = APIRouter(prefix="/prompt-templates")
 
@@ -22,6 +22,8 @@ def get_prompt_templates() -> PromptTemplates:
     return builtin_templates
 
 
+_AGENT_SESSION_TRIGGER = UserActionTrigger(kind="user_action", name="agent_session")
+
 Templates = Annotated[PromptTemplates, Depends(get_prompt_templates)]
 
 
@@ -29,22 +31,29 @@ class PromptTemplateListResponse(BaseModel):
     templates: list[TemplateMeta]
 
 
-class PromptTemplatePartial(BaseModel):
-    name: str
-    source: str
-
-
 class PromptTemplateDetailResponse(BaseModel):
     template: TemplateMeta
     source: str
-    partials: list[PromptTemplatePartial]
+    partials: list[PartialEntry]
     """按首次引用顺序；变体族展开为 ``applies_to`` 声明的全部轴值。"""
     output_schema: dict[str, Any] | None = Field(default=None, exclude_if=lambda value: value is None)
 
 
 @router.get("")
 async def list_prompt_templates(templates: Templates) -> PromptTemplateListResponse:
-    return PromptTemplateListResponse(templates=templates.list_templates())
+    """Agent 语言规范随 Agent 会话拼进系统提示，展示在 Agent 分栏，不进本列表；详情接口仍可读取。"""
+    return PromptTemplateListResponse(
+        templates=[item for item in templates.list_templates() if item.invoked_by != _AGENT_SESSION_TRIGGER]
+    )
+
+
+# 须注册在模版详情之前：模版详情的 ``{template_id:path}`` 会吞下任意子路径。
+@router.get("/partials/{name:path}")
+async def get_prompt_partial(name: str, templates: Templates) -> PartialEntry:
+    try:
+        return templates.read_partial(name)
+    except TemplateError:
+        raise NotFoundError("prompt_partial_not_found", id=name) from None
 
 
 @router.get("/{template_id:path}")
@@ -56,7 +65,7 @@ async def get_prompt_template(template_id: str, templates: Templates) -> PromptT
     return PromptTemplateDetailResponse(
         template=metadata,
         source=source,
-        partials=[PromptTemplatePartial(name=name, source=text) for name, text in partials.items()],
+        partials=partials,
         output_schema=_output_json_schema(metadata.output_schema),
     )
 

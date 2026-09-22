@@ -155,6 +155,7 @@ ID 参数时，前者传入，后者必须**省略该参数**，不得把 `[]` �
 | `tts_generating` | `wait_for_task` | 已有旁白任务在跑，**不要再提交一次**，等待后重查 |
 | `tts_conflicts_with_active_narrated_video` | `wait_for_task` | 该视频单元有带旁白的视频任务在跑，等待后重查 |
 | `tts_not_applicable` | `fix_input` | 该视频单元没有叙述旁白，改选 `post_production` |
+| `tts_duration_endpoint_fixed` | `fix_input` | 该模型的成片时长由端点固定，申请不到装得下旁白的时长，改选 `post_production`；换供应商配置也拿不回时长控制权 |
 | `tts_state_unavailable` | `repair_artifact_state` | 产物状态读不出来，报告缺口，不当作缺失去重生 |
 | `tts_not_configured` | `configure_provider` | 见下 |
 

@@ -6,7 +6,7 @@ status: accepted
 
 `SCRIPT_SHAPES` 以 content_mode 单轴为键，只覆盖三种骨架且仅 4 个消费方采用；其余约 19 个文件手写 `== "narration"/"drama"` 字面量分支，数处退化为「非 narration 即 scenes」二值兜底，骨架知识另在 data_validator 四路 if-elif 与 script_editor 判别链各存一份。实际后果已经发生：`project_events` 快照的二值兜底使 ad（`shots`）与 reference_video（`video_units`）两类剧本的条目恒为空，分镜级项目事件对这两类项目从不发出。reference_video 骨架不在表内，意味着每个消费方都需各自特判 video_units，遗漏即静默丢失条目——这是结构性成因，不是个别疏忽。
 
-决定：骨架知识收归零依赖叶子模块 `lib/script_skeleton.py`，全体消费方经它分派。
+决定：骨架知识收归零依赖叶子模块 `lib/script/script_skeleton.py`，全体消费方经它分派。
 
 - **表以骨架种类（skeleton kind）为键**，四值 `segments / scenes / shots / video_units`（域概念见 `CONTEXT.md`「骨架」条）。键本身就是条目数组键，表行退化为 `Skeleton(id_field, chars_field)`；`chars_field` 可为 `None`——video_units 无逐条角色名单（角色以 `references` 中 `type == "character"` 的条目形态存在），表如实声明缺位，消费方拿到 `None` 必须显式决策（自行派生或声明不适用），不提供假字段名使 `get()` 返回空值。
 - **content_mode 与 generation_mode 两轴不写入注册表**。轴交互收口进两个解析函数：**规范解析** `(content_mode, generation_mode) → kind`，服务只有项目配置在手的消费方，generation_mode 恒来自项目路线字段（`docs/adr/0055`）；**取证解析** `script dict → kind`（现 `script_editor.resolve_kind` 迁入），服务手持剧本数据的消费方，保留其数据形状优先的容忍阶梯——它回答的是「这份剧本现在长什么样」，与项目声明无关，故骨架与项目路线不符的存量剧本照样可编辑、可归档导出。输入契约：输入为可能缺字段的 script dict 时走取证解析，规范解析只接受项目级已过校验的模式对。两类需求真实且互斥——每集产物计分必须按声明分派、不能让残留的另一族数组改变项目路线，与编辑侧「数据优先」相反，两者不可相互取代。
@@ -27,4 +27,4 @@ status: accepted
 - 落地实现时，`project_events` 快照 bug 的修复随本收口的实现一并交付（不单独出临时修复 PR），ad 与 reference_video 项目届时恢复分镜级事件推送；video_units 条目快照的 `characters` 从 `references` 过滤 character 类型派生。
 - `script_shape()` 兜底删除是行为变更，现有 4 个注册表消费方的传值须逐个核对。
 - 约 45 处 content_mode 字面量分派须三分类处置：骨架-结构类（迁移查表/解析器）、内容-行为类（script_plan 路径、prompt 选择——content_mode 轴的正当业务分派，保留）、轴交互业务规则（如参考路线跳过分镜估价，保留）；分类清单、PR 切分与散落分派测试的删留归 PRD 阶段。
-- 本 ADR status=accepted：设计已落地为 `lib/script_skeleton.py`（`SKELETONS` 窄表 + 规范解析 `resolve_declared_kind` + 取证解析 `resolve_script_kind` + 路线闸门 `ensure_route_skeleton`），实现落盘后的新名已写入 `CONTEXT.md`「骨架」条。后续 PR 若想引入复合键、把行为写入注册表、或恢复静默兜底，须先 deprecate 本 ADR。
+- 本 ADR status=accepted：设计已落地为 `lib/script/script_skeleton.py`（`SKELETONS` 窄表 + 规范解析 `resolve_declared_kind` + 取证解析 `resolve_script_kind` + 路线闸门 `ensure_route_skeleton`），实现落盘后的新名已写入 `CONTEXT.md`「骨架」条。后续 PR 若想引入复合键、把行为写入注册表、或恢复静默兜底，须先 deprecate 本 ADR。

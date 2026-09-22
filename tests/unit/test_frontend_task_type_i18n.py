@@ -4,7 +4,7 @@
 (``lib/db/models/task.py``) populated either by fixed literal call sites
 (``server/routers/generate.py``, ``server/routers/grids.py``,
 ``server/routers/reference_videos.py``, ``server/agent_runtime/sdk_tools/enqueue_*.py``)
-or dynamically from :data:`ASSET_SPECS` keys (``lib/asset_types.py``) via
+or dynamically from :data:`ASSET_SPECS` keys (``lib/project/asset_types.py``) via
 ``server/agent_runtime/sdk_tools/enqueue_assets.py``. Frontend task displays,
 including the usage cancellation preview, look up ``task_type_<type>`` in the
 ``dashboard`` i18n namespace; if a backend task_type ships without a matching
@@ -25,7 +25,7 @@ from pathlib import Path
 
 import pytest
 
-from lib.asset_types import ASSET_SPECS
+from lib.project.asset_types import ASSET_SPECS
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DASHBOARD_TS = "frontend/src/i18n/{locale}/dashboard.ts"
@@ -61,7 +61,7 @@ def test_every_task_type_has_frontend_display_name(locale: str) -> None:
     missing = expected - keys
     assert not missing, (
         f"frontend/src/i18n/{locale}/dashboard.ts 缺少 task_type 显示名翻译: {sorted(missing)}。"
-        f" 固定字面量见本文件 FIXED_TASK_TYPES，动态部分单一真相源在 lib/asset_types.ASSET_SPECS。"
+        f" 固定字面量见本文件 FIXED_TASK_TYPES，动态部分单一真相源在 lib/project/asset_types.ASSET_SPECS。"
     )
 
 

@@ -4,7 +4,7 @@
 ``params``）与读侧的渲染路径也是同一条，分成两个类型只会让 worker 的异常联合与 ``call_failure``
 的分类各多一格，而没有任何一处按类型分叉。
 
-``code`` 必须已登记进 ``lib.task_failure`` 的 ``FAILURE_CODE_KEYS`` 与 ``lib.generation_result``
+``code`` 必须已登记进 ``lib.generation.task_failure`` 的 ``FAILURE_CODE_KEYS`` 与 ``lib.generation.generation_result``
 的 ``_TASK_FAILURE_ACTIONS``，否则 worker 编码失败原因时会降级成裸文本。
 """
 
@@ -34,6 +34,9 @@ OUTPUT_MISSING = "comfyui_output_missing"
 
 #: 产物在，但扩展名不是这个端点 ``media_type`` 该有的那一类。
 OUTPUT_TYPE_MISMATCH = "comfyui_output_type_mismatch"
+
+#: 产物的扩展名对得上，但落盘字节的文件头不是这个 ``media_type`` 的容器。
+OUTPUT_CONTAINER_MISMATCH = "comfyui_output_container_mismatch"
 
 #: 参考图或首尾帧要删的读图节点，其级联触到了产物节点（构造期，见 ``request_builder``）。
 IMAGE_DROP_UNSUPPORTED = "comfyui_image_drop_unsupported"

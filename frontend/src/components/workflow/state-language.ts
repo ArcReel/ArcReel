@@ -100,7 +100,7 @@ export const STEP_RAILS: Record<WorkflowStepState, StepRail> = {
 
 /** 任务这一轴的色调：进行中用强调色，终态失败用告警色，其余中性。 */
 export function taskTone(status: string): ToneTokens {
-  if (status === "queued" || status === "running" || status === "cancelling") return CURRENT_TONE;
+  if (status === "queued" || status === "running") return CURRENT_TONE;
   if (status === "failed" || status === "interrupted") return SEVERITY_TONES.blocking;
   if (status === "succeeded") return CURRENT_TONE;
   return NEUTRAL_TONE;

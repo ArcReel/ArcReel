@@ -151,7 +151,7 @@ function unitDurationTiers(
 
 /**
  * 该 unit 一个已登记场景资产都没引用——画面地点由模型自由决定，室内外交替的相邻 unit 会
- * 各自发挥、对不上。镜像后端 `lib/reference_video/script_preview.py::unit_lacks_scene_reference`。
+ * 各自发挥、对不上。镜像后端 `lib/script/reference_video/script_preview.py::unit_lacks_scene_reference`。
  *
  * 与档位收窄同样按当前正文实时判、不取服务端快照：本面板可就地改正文，补上 `@[场景]` 必须
  * 当场撤下提示，等保存后才由服务端回话会让提示与眼前的正文对不上。

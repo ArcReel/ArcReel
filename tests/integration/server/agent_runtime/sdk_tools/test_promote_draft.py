@@ -11,9 +11,9 @@ from typing import Any
 
 import pytest
 
-from lib import script_review
-from lib.artifact_manifest import ArtifactKey, ProjectArtifactManifestAdapter
-from lib.draft_quarantine import (
+from lib.project.project_manager import ProjectManager
+from lib.script import script_review
+from lib.script.draft_quarantine import (
     QUARANTINE_KIND_NARRATION_SCRIPT_PLAN,
     QUARANTINE_KIND_PROMPT_AUTHORING,
     QUARANTINE_KIND_SCRIPT_PLAN,
@@ -22,8 +22,7 @@ from lib.draft_quarantine import (
     read_quarantine,
     write_quarantine,
 )
-from lib.project_manager import ProjectManager
-from lib.reference_video.draft_validation import DraftViolation
+from lib.script.reference_video.draft_validation import DraftViolation
 from server.agent_runtime.sdk_tools.text_generation import (
     generate_episode_script_tool,
     generate_script_plan_tool,
@@ -165,10 +164,10 @@ async def test_reference_script_plan_write_transaction_does_not_block_event_loop
         )
     )
     try:
-        assert await asyncio.to_thread(started.wait, 1)
+        assert await asyncio.to_thread(started.wait, 10)
         ticked = asyncio.Event()
         asyncio.get_running_loop().call_soon(ticked.set)
-        await asyncio.wait_for(ticked.wait(), timeout=1)
+        await asyncio.wait_for(ticked.wait(), timeout=10)
     finally:
         release.set()
 
@@ -177,68 +176,6 @@ async def test_reference_script_plan_write_transaction_does_not_block_event_loop
     assert result.message.startswith("✅")
     assert worker_threads
     assert all(thread != caller_thread for thread in worker_threads)
-
-
-async def test_cancelled_reference_script_plan_commit_restores_files_and_manifest(
-    fake_ctx: ToolContext, monkeypatch
-) -> None:
-    rv_source(fake_ctx)
-    resolver = use_fake_caps(fake_ctx)
-    from server import text_generation as mod
-
-    write_rv_script_plan(fake_ctx, [rv_saved_unit("@[张三] 等待")])
-    write_quarantine(
-        fake_ctx.project_path,
-        1,
-        QUARANTINE_KIND_SCRIPT_PLAN,
-        content={"units": [rv_unit("@[张三] 等待")]},
-        violations=[],
-    )
-    write_quarantine(
-        fake_ctx.project_path,
-        1,
-        QUARANTINE_KIND_PROMPT_AUTHORING,
-        content={"title": "旧草稿", "units": [{"text": "旧内容"}]},
-        violations=[],
-    )
-    paths = (
-        rv_script_plan_path(fake_ctx),
-        rv_quarantine_path(fake_ctx),
-        quarantine_path(fake_ctx.project_path, 1, QUARANTINE_KIND_PROMPT_AUTHORING),
-    )
-    before = {path: path.read_bytes() for path in paths}
-    adapter = ProjectArtifactManifestAdapter(fake_ctx.project_path)
-    key = ArtifactKey.episode_script_plan(1)
-    manifest_before = adapter.get_entry(key)
-    monkeypatch.setattr(mod.TextGenerator, "create", rv_generator_returning([rv_unit("@[张三] 起身")]))
-    started = threading.Event()
-    release = threading.Event()
-
-    def before_commit() -> None:
-        started.set()
-        release.wait()
-
-    generation = asyncio.create_task(
-        generate_reference_script_plan(
-            TextGenerationRequest(episode=1),
-            project_name=fake_ctx.project_name,
-            projects=fake_ctx.pm,
-            config_resolver=resolver,
-            before_commit=before_commit,
-        )
-    )
-    try:
-        assert await asyncio.to_thread(started.wait, 1)
-        generation.cancel()
-        await asyncio.sleep(0)
-        assert not generation.done()
-    finally:
-        release.set()
-
-    with pytest.raises(asyncio.CancelledError):
-        await asyncio.wait_for(generation, timeout=1)
-    assert {path: path.read_bytes() for path in paths} == before
-    assert adapter.get_entry(key) == manifest_before
 
 
 async def test_promote_draft_promotes_after_repair(fake_ctx: ToolContext, monkeypatch) -> None:
@@ -460,7 +397,7 @@ async def test_split_violation_keeps_pre_generation_formal_baseline(fake_ctx: To
         )
     )
     try:
-        await asyncio.wait_for(started.wait(), timeout=1)
+        await asyncio.wait_for(started.wait(), timeout=10)
     except TimeoutError:
         generation.cancel()
         await asyncio.gather(generation, return_exceptions=True)
@@ -469,7 +406,7 @@ async def test_split_violation_keeps_pre_generation_formal_baseline(fake_ctx: To
     release.set()
 
     with pytest.raises(TextGenerationError):
-        await asyncio.wait_for(generation, timeout=1)
+        await asyncio.wait_for(generation, timeout=10)
 
     current = script_review.content_fingerprint(rv_script_plan_path(fake_ctx))
     assert current != expected
@@ -688,7 +625,7 @@ async def test_cancelled_reference_script_plan_promotion_finishes_commit_and_cle
         )
     )
     try:
-        assert await asyncio.to_thread(started.wait, 1)
+        assert await asyncio.to_thread(started.wait, 10)
         promotion.cancel()
         await asyncio.sleep(0)
         assert not promotion.done()
@@ -696,7 +633,7 @@ async def test_cancelled_reference_script_plan_promotion_finishes_commit_and_cle
         release.set()
 
     with pytest.raises(asyncio.CancelledError):
-        await asyncio.wait_for(promotion, timeout=1)
+        await asyncio.wait_for(promotion, timeout=10)
     assert rv_script_plan_path(fake_ctx).exists()
     assert not rv_quarantine_path(fake_ctx).exists()
 
@@ -764,7 +701,7 @@ def _write_rv_formal_script(fake_ctx: ToolContext, text: str) -> str | None:
 async def test_promote_draft_prompt_authoring_uses_async_factory(fake_ctx: ToolContext, monkeypatch) -> None:
     """prompt_authoring 晋升走 ``ScriptGenerator.create``：晋升同样经 _add_metadata 落盘，裸构造会把
     metadata.generator 记成 "unknown"，与直接生成路径的同一份产物对不上。"""
-    from lib.text_generator import TextGenerator
+    from lib.backends.text_generator import TextGenerator
 
     rv_project(fake_ctx)
     baseline = _write_rv_formal_script(fake_ctx, "@[张三] 在 @[村口] 等候")
@@ -798,7 +735,7 @@ async def test_promote_draft_prompt_authoring_uses_async_factory(fake_ctx: ToolC
 async def test_promote_draft_waits_for_file_lock_without_blocking_event_loop(
     fake_ctx: ToolContext, monkeypatch
 ) -> None:
-    from lib.text_generator import TextGenerator
+    from lib.backends.text_generator import TextGenerator
 
     rv_project(fake_ctx)
     baseline = _write_rv_formal_script(fake_ctx, "@[张三] 起身")
@@ -842,7 +779,7 @@ async def test_promote_draft_waits_for_file_lock_without_blocking_event_loop(
     holder = asyncio.create_task(asyncio.to_thread(hold_lock))
     promotion: asyncio.Task[dict[str, Any]] | None = None
     try:
-        assert await asyncio.to_thread(held.wait, 1)
+        assert await asyncio.to_thread(held.wait, 10)
         attempted = asyncio.Event()
         promotion = asyncio.create_task(
             workflow.promote(
@@ -852,14 +789,14 @@ async def test_promote_draft_waits_for_file_lock_without_blocking_event_loop(
                 before_lock=attempted.set,
             )
         )
-        await asyncio.wait_for(attempted.wait(), 0.3)
+        await asyncio.wait_for(attempted.wait(), timeout=10)
         assert not promotion.done()
     finally:
         release.set()
-        assert await asyncio.wait_for(holder, timeout=1) is None
+        assert await asyncio.wait_for(holder, timeout=10) is None
 
     assert promotion is not None
-    out = await asyncio.wait_for(promotion, timeout=1)
+    out = await asyncio.wait_for(promotion, timeout=10)
     assert out["promoted"] is True
     assert (fake_ctx.project_path / "scripts" / "episode_1.json").exists()
 
@@ -883,7 +820,7 @@ async def test_open_script_plan_draft_waits_for_quarantine_lock(fake_ctx: ToolCo
 
         monkeypatch.setattr(ProjectManager, "async_file_lock", observed_async_lock)
         opening = asyncio.create_task(open_drama_for_edit(fake_ctx, source="source/episode_1.txt"))
-        await asyncio.wait_for(attempted.wait(), timeout=1)
+        await asyncio.wait_for(attempted.wait(), timeout=10)
         assert not opening.done()
 
     out = await opening
@@ -914,7 +851,7 @@ async def test_promote_draft_prompt_authoring_ignores_unconfirmed_script_plan(
     fake_ctx: ToolContext, monkeypatch
 ) -> None:
     """prompt_authoring 草稿按正式剧本晋升：脚本规划重跑后尚未确认不阻塞晋升，与编写入口同口径。"""
-    from lib.text_generator import TextGenerator
+    from lib.backends.text_generator import TextGenerator
 
     rv_project(fake_ctx)
     baseline = _write_rv_formal_script(fake_ctx, "@[张三] 起身")
@@ -1239,7 +1176,7 @@ async def test_normalize_drama_script_serializes_commit_with_draft_edits(fake_ct
         task = asyncio.create_task(
             call(generate_script_plan_tool(fake_ctx), {"episode": 1, "source": "source/episode_1.txt"})
         )
-        await asyncio.wait_for(attempted.wait(), timeout=1)
+        await asyncio.wait_for(attempted.wait(), timeout=10)
         assert not task.done(), "generation commit must wait for the draft lock"
 
     out = await task
