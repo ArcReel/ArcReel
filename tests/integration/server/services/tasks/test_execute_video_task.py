@@ -351,6 +351,65 @@ class TestGenerationTasks:
         assert len(fake_generator.video_calls) == 1
         assert len(seen_lane_requests) == 2
 
+    async def test_execute_video_task_blocks_use_tts_when_duration_is_endpoint_fixed(self, monkeypatch, tmp_path):
+        """执行期能力已变成「时长由端点固定」时，use_tts 请求按 tts_duration_endpoint_fixed 拒绝。"""
+        project_path = prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        seed_current_storyboard(fake_pm)
+        fake_generator = FakeGenerator()
+        seen_endpoint_fixed: list[bool] = []
+
+        async def fake_prepare_current_narrated_video_duration(**kwargs):
+            seen_endpoint_fixed.append(kwargs["duration_endpoint_fixed"])
+            narration = NarrationDeliveryPreparation(
+                delivery=USE_TTS,
+                unit_id="E1S01",
+                speech_mode=None,
+                tts_status=NarrationTtsStatus.CURRENT,
+                artifact_path="audio/segment_E1S01.wav",
+                basis_digest="current-basis",
+                actual_duration_seconds=6.2,
+                problems=(),
+            )
+            return prepare_narrated_video_duration(
+                narration=narration,
+                planned_duration_seconds=kwargs["planned_duration_seconds"],
+                supported_durations=kwargs["supported_durations"],
+                confirmed_request_duration_seconds=kwargs["confirmed_request_duration_seconds"],
+                duration_endpoint_fixed=kwargs["duration_endpoint_fixed"],
+            )
+
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+        monkeypatch.setattr(
+            generation_tasks,
+            "resolve_generation_context",
+            fake_resolve_ctx(fake_generator, supported_durations=(), duration_endpoint_fixed=True),
+        )
+        monkeypatch.setattr(
+            generation_tasks,
+            "prepare_current_narrated_video_duration",
+            fake_prepare_current_narrated_video_duration,
+        )
+        monkeypatch.setattr(generation_tasks, "tts_task_in_progress", AsyncMock(return_value=False))
+        monkeypatch.setattr(generation_tasks, "extract_video_thumbnail", async_return(None))
+        monkeypatch.setattr(generation_tasks, "emit_project_change_batch", lambda *a, **kw: None)
+
+        with pytest.raises(NarratedVideoDurationBlockedError) as exc:
+            await generation_tasks.execute_video_task(
+                "demo",
+                "E1S01",
+                {
+                    "script_file": "episode_1.json",
+                    "prompt": {"action": "跑", "camera_motion": "Static", "dialogue": []},
+                    "narration_delivery_options": {"narration_delivery": USE_TTS},
+                },
+            )
+
+        assert seen_endpoint_fixed == [True]
+        codes = [payload["code"] for payload in exc.value.preparation.problem_payloads()]
+        assert codes == ["tts_duration_endpoint_fixed"]
+        assert fake_generator.video_calls == []
+
     async def test_execute_video_task_reuses_selected_visual_in_the_latest_tts_tier_without_side_effects(
         self,
         monkeypatch,

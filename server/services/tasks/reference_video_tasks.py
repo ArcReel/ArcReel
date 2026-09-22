@@ -396,17 +396,24 @@ async def execute_reference_video_task(
                 voice_consistency=video.voice_consistency,
                 generation_type=generation_type,
             )
-            return ProviderProjectionCandidate(
-                generation_type=generation_type,
-                provider_id=video.provider_model.provider_id,
-                model_id=video.backend_model,
-                supported_durations=strict_reference_durations(
+            # 时长由端点固定时档位集是合法空集（``docs/adr/0082``）：没有档位可校验也没有档位
+            # 可收窄，与预检、报价同口径跳过 strict 校验，由公共投影原样透传规划秒数。不带该
+            # 标志的空集仍是档位声明缺失，交给 strict_reference_durations fail loud。
+            durations: tuple[int, ...] = ()
+            if not video.duration_endpoint_fixed:
+                durations = strict_reference_durations(
                     provider_id=video.provider_model.provider_id,
                     model_id=video.backend_model,
                     durations=video.supported_durations,
                     resolution=video.resolution_or_fallback,
                     generation_type=generation_type,
-                ),
+                )
+            return ProviderProjectionCandidate(
+                generation_type=generation_type,
+                provider_id=video.provider_model.provider_id,
+                model_id=video.backend_model,
+                supported_durations=durations,
+                duration_endpoint_fixed=video.duration_endpoint_fixed,
                 max_reference_images=video.max_reference_images,
                 resolution=video.resolution_or_fallback,
                 generate_audio=video.generate_audio,

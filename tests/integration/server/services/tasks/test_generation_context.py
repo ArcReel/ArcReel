@@ -264,6 +264,9 @@ class TestVideoLane:
         assert ctx.video.max_reference_images is None
         assert ctx.video.generate_audio is False
         assert ctx.video.backend_model == "mystery-model"
+        # 读不到能力时的空档位仍是「档位声明缺失」，下游据此 fail loud；不得被读成端点固定时长
+        # 而放行一个无约束申请。
+        assert ctx.video.duration_endpoint_fixed is False
 
     async def test_requested_generate_audio_follows_project_override(
         self, patched_session_factory, project_env, fake_assemble
