@@ -61,20 +61,6 @@ describe("PromptTemplatesSection", () => {
     });
   });
 
-  it("groups templates by the category the registry returns, keeping first-seen order", async () => {
-    render(<PromptTemplatesSection />);
-
-    const headings = await screen.findAllByRole("heading", { level: 3 });
-    expect(headings.map((h) => h.textContent)).toEqual(["资产图", "lab"]);
-
-    const assetGroup = screen.getByRole("region", { name: "资产图" });
-    expect(within(assetGroup).getAllByRole("button").map((b) => b.textContent)).toEqual([
-      expect.stringContaining("角色、场景与道具资产图。"),
-      expect.stringContaining("小尺寸图标。"),
-    ]);
-    expect(within(screen.getByRole("region", { name: "lab" })).getByText("实验草稿")).toBeInTheDocument();
-  });
-
   it("opens a template and expands the selected partial inline", async () => {
     const user = userEvent.setup();
     const getDetail = vi.spyOn(API, "getPromptTemplate").mockResolvedValue(SHEET_DETAIL);

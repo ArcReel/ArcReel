@@ -90,6 +90,8 @@ export default {
   'prompt_templates_count_one': '{{count}} mẫu',
   'prompt_templates_count_other': '{{count}} mẫu',
   'prompt_templates_back': 'Quay lại danh sách mẫu',
+  'prompt_templates_filter_all': 'Tất cả',
+  'prompt_templates_filter_empty': 'Không có mẫu nào khớp với bộ lọc hiện tại. Hãy thử giá trị khác.',
   'prompt_templates_category_text': 'Tạo văn bản',
   'prompt_templates_category_asset': 'Ảnh tài sản',
   'prompt_templates_category_storyboard': 'Ảnh phân cảnh',
