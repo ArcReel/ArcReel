@@ -6,7 +6,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 from collections.abc import Generator
 from dataclasses import replace
@@ -540,6 +539,20 @@ class TestDiscoverModels:
         assert len(resp.json()["models"]) == 1
         assert resp.json()["models"][0]["model_id"] == "gpt-4"
 
+    def test_discover_refuses_a_metadata_destination_with_a_redacted_reason(self, custom_providers_client: TestClient):
+        """出站目的地被拒按 502 回显，正文是截断脱敏后的失败串，与上游故障同一条出口。"""
+        with capture_http() as router:
+            route = router.get("http://169.254.169.254/v1/models").respond(json={"data": []})
+            resp = custom_providers_client.post(
+                "/api/v1/custom-providers/discover",
+                json={"discovery_format": "anthropic", "base_url": "http://169.254.169.254", "api_key": "sk-secret"},
+            )
+        assert route.call_count == 0
+        assert resp.status_code == 502
+        detail = resp.json()["detail"]
+        assert "disallowed address" in detail
+        assert "sk-secret" not in detail
+
     def test_discover_google(self, custom_providers_client: TestClient):
         """google discovery_format 透传到 discover_models。"""
         fake_models = [
@@ -572,21 +585,16 @@ class TestDiscoverModels:
     def test_discover_rejects_credential_bearing_base_url(self, custom_providers_client: TestClient):
         """带查询串 / 权限段凭证的 anthropic base_url 在发起请求前就被拒，回给前端的文案不含凭证。"""
         base_url = "https://ant-user:sk-leaked-userinfo@relay.example.com/anthropic?api_key=sk-leaked-query"
-        discovery_client = httpx.AsyncClient()
-        try:
-            with capture_http() as http:
-                route = http.get(host="relay.example.com").respond(status_code=401, text="unauthorized")
-                with patch("lib.custom_provider.discovery.get_http_client", return_value=discovery_client):
-                    resp = custom_providers_client.post(
-                        "/api/v1/custom-providers/discover",
-                        json={
-                            "discovery_format": "anthropic",
-                            "base_url": base_url,
-                            "api_key": "sk-ant",
-                        },
-                    )
-        finally:
-            asyncio.run(discovery_client.aclose())
+        with capture_http() as http:
+            route = http.get(host="relay.example.com").respond(status_code=401, text="unauthorized")
+            resp = custom_providers_client.post(
+                "/api/v1/custom-providers/discover",
+                json={
+                    "discovery_format": "anthropic",
+                    "base_url": base_url,
+                    "api_key": "sk-ant",
+                },
+            )
 
         assert route.call_count == 0
         assert resp.status_code == 422

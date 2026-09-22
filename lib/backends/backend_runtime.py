@@ -489,6 +489,8 @@ def _rewrites_to_get(status_code: int, method: str) -> bool:
 
     303 对除 HEAD 外的一切方法改写；301 / 302 只改写 POST——PUT 等方法在这两档上保留方法
     与请求体，改写它们会让端点收到一个语义完全不同的请求。307 / 308 一律原样重发。
+
+    只判方法改写；跨源续跳的请求体由 :func:`request_with_scoped_credentials` 另行卸掉。
     """
     if status_code == 303:
         return method != "HEAD"
@@ -667,7 +669,7 @@ class _Hop:
 
 @dataclass(frozen=True)
 class _Body:
-    """一次请求的请求体。跟随重定向改写成 GET 时整个丢掉，三个字段不会各丢一半。"""
+    """一次请求的请求体。跟随重定向改写成 GET 或跨源续跳时整个丢掉，三个字段不会各丢一半。"""
 
     json: object | None = None
     files: Mapping[str, Any] | None = None
@@ -693,8 +695,11 @@ async def request_with_scoped_credentials(
     凭证的作用域取 ``url`` 自己的源，而不是某个外部基准：调用方指定的地址就是凭证的去处，
     需要防的是服务端用 ``Location`` 把它引到别处。
 
-    ``files`` / ``data`` 走 multipart 的请求体，与 ``json`` 三选一；续跳时原样重发，故 ``files``
-    的内容要是字节而不是文件句柄——句柄读到结尾后第二跳会发出一个空体。
+    跨源续跳除卸掉凭证外也不转发请求体：307 / 308 保留方法，但请求体同样只在凭证作用域内。
+    同源续跳按 :func:`_rewrites_to_get` 的规则处置，307 / 308 原样重发。
+
+    ``files`` / ``data`` 走 multipart 的请求体，与 ``json`` 三选一；同源续跳时原样重发，故
+    ``files`` 的内容要是字节而不是文件句柄——句柄读到结尾后第二跳会发出一个空体。
     """
     credential_origin = url_origin(url)
     # 首跳的 auth.query 已经拼在 url 上，params 不重复带；只在同源续跳时补回。
@@ -719,6 +724,8 @@ async def request_with_scoped_credentials(
             current_method = "GET"
             body = _Body()
         hop = hop.redirected_to(location, credential_origin)
+        if url_origin(hop.url) != credential_origin:
+            body = _Body()
     raise RuntimeError(f"request exceeded {_MAX_REDIRECTS} redirects: {_without_query(url)}")
 
 
