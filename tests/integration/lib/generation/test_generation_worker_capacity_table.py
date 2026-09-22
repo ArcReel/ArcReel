@@ -244,7 +244,6 @@ class TestCapacityTable:
         from tests.factories import comfyui_endpoint_definition
 
         image_definition = comfyui_endpoint_definition(media_type="image")
-        del image_definition["bindings"]["fps"]
         self._stub_from_db_sources(
             monkeypatch,
             {},

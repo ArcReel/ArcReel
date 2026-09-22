@@ -155,7 +155,6 @@ class TestSize:
 
     def test_an_image_endpoint_reads_the_image_tier_table(self):
         definition = comfyui_endpoint_definition(media_type="image")
-        del definition["bindings"]["fps"]
 
         built = _build(definition, aspect_ratio="1:1", resolution="1K")
 

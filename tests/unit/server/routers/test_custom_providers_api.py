@@ -1667,7 +1667,6 @@ def _comfyui_image_spec(key: str, *, reference_slots: int) -> EndpointSpec:
     from tests.factories import comfyui_endpoint_definition
 
     definition = comfyui_endpoint_definition(media_type="image")
-    del definition["bindings"]["fps"]
     if reference_slots:
         definition["workflow"]["20"] = {"class_type": "LoadImage", "inputs": {"image": "draft.png"}}
         definition["bindings"]["reference_images"] = [

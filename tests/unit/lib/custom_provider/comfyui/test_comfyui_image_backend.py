@@ -291,7 +291,11 @@ class TestArtifactWhitelist:
                 await _backend().generate(_request(tmp_path))
 
         assert caught.value.code == "comfyui_output_type_mismatch"
-        assert caught.value.params == {"filename": filename, "media_type": "image"}
+        assert caught.value.params == {
+            "filename": filename,
+            "media_type": "image",
+            "expected": ".jpeg / .jpg / .png / .webp",
+        }
         assert view.call_count == 0
 
     async def test_nothing_produced_by_the_output_node_is_its_own_code(self, tmp_path: Path):

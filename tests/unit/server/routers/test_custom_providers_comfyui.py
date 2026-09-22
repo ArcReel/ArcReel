@@ -125,7 +125,6 @@ class TestComfyuiProviderCreation:
     ):
         """一份 workflow 产图还是产视频由定义自己说了算，端点键推不出来。"""
         definition = comfyui_endpoint_definition(media_type="image")
-        del definition["bindings"]["fps"]
         key = await _store_endpoint(custom_providers_app_session_factory, definition)
         catalog = comfyui_client.get("/api/v1/custom-providers/endpoints").json()["endpoints"]
         entry = next(e for e in catalog if e["key"] == key)
@@ -498,7 +497,6 @@ class TestComfyuiSupportedDurations:
         from server.routers.custom_providers import ModelInput
 
         definition = comfyui_endpoint_definition(media_type="image")
-        definition["bindings"].pop("fps")
         model = ModelInput(model_id="m", display_name="m", endpoint="ce-7")
 
         assert model.to_db_dict(_comfyui_spec(definition))["supported_durations"] is None

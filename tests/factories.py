@@ -245,6 +245,7 @@ def comfyui_endpoint_definition(**overrides: Any) -> dict[str, Any]:
     """最小可用的 ComfyUI 端点定义：绑定齐备、校验零错误。
 
     ``overrides`` 覆盖顶层键；改 ``bindings`` 或 ``media_type`` 即可造出各类反例。
+    ``media_type="image"`` 且未自带 ``bindings`` 时不含 ``fps`` 绑定：图像端点没有帧率这一维。
     """
     definition: dict[str, Any] = {
         "kind": "comfyui",
@@ -263,4 +264,6 @@ def comfyui_endpoint_definition(**overrides: Any) -> dict[str, Any]:
         },
     }
     definition.update(overrides)
+    if definition["media_type"] == "image" and "bindings" not in overrides:
+        del definition["bindings"]["fps"]
     return definition

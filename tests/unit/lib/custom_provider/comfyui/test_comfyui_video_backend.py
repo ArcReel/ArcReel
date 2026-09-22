@@ -567,7 +567,11 @@ class TestFailures:
                 await _backend().generate(_request(tmp_path))
 
         assert caught.value.code == "comfyui_output_type_mismatch"
-        assert caught.value.params == {"filename": "final_00001.png", "media_type": "video"}
+        assert caught.value.params == {
+            "filename": "final_00001.png",
+            "media_type": "video",
+            "expected": ".mov / .mp4 / .webm",
+        }
 
     @pytest.mark.parametrize(
         ("code", "params"),
@@ -578,7 +582,10 @@ class TestFailures:
             ("comfyui_execution_error", {"node": "KSampler", "detail": "OutOfMemoryError"}),
             ("comfyui_interrupted", {}),
             ("comfyui_output_missing", {"nodes": "9"}),
-            ("comfyui_output_type_mismatch", {"filename": "a.png", "media_type": "video"}),
+            (
+                "comfyui_output_type_mismatch",
+                {"filename": "a.png", "media_type": "video", "expected": ".mov / .mp4 / .webm"},
+            ),
             ("comfyui_image_drop_unsupported", {"node": "10"}),
         ],
     )

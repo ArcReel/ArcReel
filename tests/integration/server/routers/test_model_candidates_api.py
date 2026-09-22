@@ -404,9 +404,7 @@ class TestBucketJudgement:
         from tests.factories import comfyui_endpoint_definition
 
         t2i = comfyui_endpoint_definition(media_type="image")
-        t2i["bindings"].pop("fps")
         i2i = comfyui_endpoint_definition(media_type="image")
-        i2i["bindings"].pop("fps")
         i2i["bindings"]["reference_images"] = [{"node": "11", "input": "image", "class_type": "LoadImage"}]
 
         def buckets(definition: dict) -> frozenset[str]:
