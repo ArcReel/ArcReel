@@ -169,10 +169,24 @@ class TestImageToImage:
         assert isinstance(images, list)
         assert len(images) == 2
         assert all(item.startswith("data:image/png;base64,") for item in images)
-        # 参考图必须落 extra_body；顶层 "image" 会被上游拒（403）。
+        # 参考图落 extra_body；顶层 "image" 会被上游以 403 拒绝。
         assert "image" not in body
         # I2I 仍显式下发 size
         assert "size" in body
+
+    async def test_i2i_submit_log_counts_refs_without_base64(self, tmp_path: Path, caplog):
+        refs = [_make_ref(tmp_path, f"r{i}.png") for i in range(2)]
+        with _generate_route(_img_response(), AsyncMock()), caplog.at_level("INFO"):
+            from lib.backends.image_backends.agnes import AgnesImageBackend
+
+            b = AgnesImageBackend(api_key="sk")
+            await b.generate(
+                ImageGenerationRequest(prompt="hero", output_path=tmp_path / "o.png", reference_images=refs)
+            )
+
+        assert "base64" not in caplog.text
+        # 参考图张数进日志便于诊断
+        assert "<2 ref>" in caplog.text
 
     async def test_missing_ref_raises_unreadable(self, tmp_path: Path):
         from lib.backends.image_backends.agnes import AgnesImageBackend
