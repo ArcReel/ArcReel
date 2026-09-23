@@ -163,7 +163,7 @@ pytest `asyncio_mode = "auto"`，异步用例无需手动标记。
 
 worktree 里没有 `.venv` 与 `node_modules`，Agent 沙箱可能禁止绑定本地端口。按下面方式运行，闸门结果与主仓一致：
 
-- **Python 共用主仓 `.venv`**：`UV_PROJECT_ENVIRONMENT=<主仓根>/.venv uv run --no-sync <命令>`。`--no-sync` 让 `uv run` 直接使用该环境；缺了它，`uv run` 会按当前 worktree 的 `pyproject.toml` 往该目录同步一份完整依赖，`.claude/settings.json` 的保存后格式化 hook 里的 `uv run ruff` 同样会触发这次同步。
+- **Python 共用主仓 `.venv`**：`UV_PROJECT_ENVIRONMENT=<主仓根>/.venv uv run --no-sync <命令>`。`--no-sync` 让 `uv run` 直接使用该环境；缺了它，`uv run` 会按当前 worktree 的 `pyproject.toml` 往该目录同步一份完整依赖，`.claude/settings.json` 的保存后格式化 hook 里的 `uv run ruff` 同样会触发这次同步。worktree 改动了 `pyproject.toml` 或 `uv.lock` 时，主仓 `.venv` 不反映新依赖：省略 `UV_PROJECT_ENVIRONMENT` 与 `--no-sync`，让 `uv run` 在 worktree 里建立并同步自己的 `.venv`，basedpyright 也就不需要 `--venvpath`。
 - **basedpyright 指向主仓**：`pyproject.toml` 的 `venvPath` 让它在当前目录找 `.venv`，worktree 里以退出码 3 报 `venv .venv subdirectory not found`；加 `--venvpath <主仓根>` 即可，无需符号链接。
 - **需要本地端口的用例在允许绑定端口的环境运行**：`tests/integration/agent_runtime_profile/test_custom_endpoint_adapter_skill.py` 启动本地 HTTP 服务，沙箱禁止绑定 `127.0.0.1` 时以 `PermissionError` 失败。后端完整测试直接在允许本地端口的环境运行一次，省去沙箱内先跑一遍再复跑。
 - **并发跑前端闸门时限制 worker**：多个 Agent 同时运行 `pnpm check` 会让 vitest 默认 worker 数把机器压到用例超时；用 `pnpm check --maxWorkers=2`，参数落到脚本末尾的 `vitest run`。
