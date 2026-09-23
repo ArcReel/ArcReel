@@ -532,6 +532,12 @@ export default {
   'task_type_scene': 'Scene',
   'task_type_prop': 'Prop',
   'task_type_product': 'Merchandise',
+  'task_type_character_derivative': 'Character derivative',
+  'task_type_text_episode_plan': 'Episode planning',
+  'task_type_text_episode_script': 'Final script',
+  'task_type_text_drama_script_plan': 'Script plan',
+  'task_type_text_narration_script_plan': 'Script plan',
+  'task_type_text_reference_script_plan': 'Script plan',
 
   // Agent
   'new_session': 'New Session',

@@ -525,6 +525,12 @@ export default {
   'task_type_scene': 'Cảnh',
   'task_type_prop': 'Đạo cụ',
   'task_type_product': 'Hàng hóa',
+  'task_type_character_derivative': 'Nhân vật phái sinh',
+  'task_type_text_episode_plan': 'Lập kế hoạch tập',
+  'task_type_text_episode_script': 'Kịch bản chính thức',
+  'task_type_text_drama_script_plan': 'Kế hoạch kịch bản',
+  'task_type_text_narration_script_plan': 'Kế hoạch kịch bản',
+  'task_type_text_reference_script_plan': 'Kế hoạch kịch bản',
 
   // Agent
   'new_session': 'Phiên mới',

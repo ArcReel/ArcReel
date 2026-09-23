@@ -531,6 +531,12 @@ export default {
   'task_type_scene': '场景',
   'task_type_prop': '道具',
   'task_type_product': '商品',
+  'task_type_character_derivative': '角色衍生',
+  'task_type_text_episode_plan': '分集规划',
+  'task_type_text_episode_script': '正式脚本',
+  'task_type_text_drama_script_plan': '脚本规划',
+  'task_type_text_narration_script_plan': '脚本规划',
+  'task_type_text_reference_script_plan': '脚本规划',
 
   // Agent
   'new_session': '新会话',
