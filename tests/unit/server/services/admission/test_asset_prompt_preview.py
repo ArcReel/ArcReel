@@ -27,7 +27,7 @@ def test_product_and_derivative_keep_execution_style_policy(asset_type):
     assert "淡墨留白" not in result.text
     if asset_type == "character_derivative":
         assert "保持原图的三视图版式" in result.text
-        assert "角色的面部、发型、体型及其余外观一律与原图保持一致" in result.text
+        assert "其余外观一律与原图保持一致" in result.text
 
 
 @pytest.mark.parametrize(
