@@ -71,6 +71,19 @@
   </tr>
 </table>
 
+## 界面一览
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/assets/screenshots/video-units.webp" alt="视频单元"></td>
+    <td width="50%"><img src="docs/assets/screenshots/props.webp" alt="道具库"></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/assets/screenshots/scenes.webp" alt="场景库"></td>
+    <td width="50%"><img src="docs/assets/screenshots/ad-mode.webp" alt="广告/带货模式"></td>
+  </tr>
+</table>
+
 ## 案例
 
 <div align="center">
@@ -90,19 +103,6 @@
 </div>
 
 > 《入职地府后投诉鬼都是我老客户》第 3 集
-
-## 界面一览
-
-<table>
-  <tr>
-    <td width="50%"><img src="docs/assets/screenshots/video-units.webp" alt="视频单元"></td>
-    <td width="50%"><img src="docs/assets/screenshots/props.webp" alt="道具库"></td>
-  </tr>
-  <tr>
-    <td width="50%"><img src="docs/assets/screenshots/scenes.webp" alt="场景库"></td>
-    <td width="50%"><img src="docs/assets/screenshots/ad-mode.webp" alt="广告/带货模式"></td>
-  </tr>
-</table>
 
 ## ArcReel 是什么
 

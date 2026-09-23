@@ -71,6 +71,19 @@
   </tr>
 </table>
 
+## Screenshots
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/assets/screenshots/video-units.webp" alt="Video units"></td>
+    <td width="50%"><img src="docs/assets/screenshots/props.webp" alt="Props library"></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/assets/screenshots/scenes.webp" alt="Scenes library"></td>
+    <td width="50%"><img src="docs/assets/screenshots/ad-mode.webp" alt="Ad / product mode"></td>
+  </tr>
+</table>
+
 ## Showcase
 
 <div align="center">
@@ -90,19 +103,6 @@
 </div>
 
 > 《入职地府后投诉鬼都是我老客户》Episode 3
-
-## Screenshots
-
-<table>
-  <tr>
-    <td width="50%"><img src="docs/assets/screenshots/video-units.webp" alt="Video units"></td>
-    <td width="50%"><img src="docs/assets/screenshots/props.webp" alt="Props library"></td>
-  </tr>
-  <tr>
-    <td width="50%"><img src="docs/assets/screenshots/scenes.webp" alt="Scenes library"></td>
-    <td width="50%"><img src="docs/assets/screenshots/ad-mode.webp" alt="Ad / product mode"></td>
-  </tr>
-</table>
 
 ## What ArcReel is
 
