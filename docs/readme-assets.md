@@ -16,7 +16,12 @@
 ```text
 docs/assets/
 ├── screenshots/
-│   └── hero.webp
+│   ├── hero.webp
+│   ├── video-units.webp
+│   ├── props.webp
+│   ├── scenes.webp
+│   └── ad-mode.webp
+├── sponsors/
 ├── demo-workflow.webp
 ├── showcase-novel-cover.jpg
 ├── showcase-narration-cover.jpg
