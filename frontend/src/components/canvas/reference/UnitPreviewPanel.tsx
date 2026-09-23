@@ -84,7 +84,7 @@ export function UnitPreviewPanel({
   onRestored,
 }: UnitPreviewPanelProps) {
   const { t } = useTranslation("dashboard");
-  const clip = unit?.generated_assets.video_clip ?? null;
+  const clip = unit?.generated_assets?.video_clip ?? null;
   // 上传/还原后路径不变，靠 fingerprint cache-bust 让 <video> 重新拉取
   const clipFp = useProjectsStore((s) => (clip ? s.getAssetFingerprint(clip) : null));
 
@@ -99,7 +99,7 @@ export function UnitPreviewPanel({
   const effectiveStatus = status ?? resolveUnitStatus(unit);
   const videoUrl = clip && projectName ? API.getFileUrl(projectName, clip, clipFp) : null;
   const hasNarrationText = Boolean(narrationText?.trim());
-  const narrationAudio = unit.generated_assets.narration_audio ?? null;
+  const narrationAudio = unit.generated_assets?.narration_audio ?? null;
 
   // 状态先于 video_clip 落库的窗口里，effectiveStatus==="ready" 但 videoUrl
   // 还为 null —— 这种情况下走 inFlight 占位避免空白面板。

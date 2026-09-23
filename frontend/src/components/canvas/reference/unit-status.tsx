@@ -46,7 +46,7 @@ export function resolveUnitStatus(
   unit: ReferenceVideoUnit,
   statusMap?: Record<string, UnitStatus>,
 ): UnitStatus {
-  return statusMap?.[unit.unit_id] ?? (unit.generated_assets.video_clip ? "ready" : "pending");
+  return statusMap?.[unit.unit_id] ?? (unit.generated_assets?.video_clip ? "ready" : "pending");
 }
 
 export interface UnitStatusInput {

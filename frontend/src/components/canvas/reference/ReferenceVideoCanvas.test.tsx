@@ -7,7 +7,7 @@ import { useActiveResourceIds, useLatestTasksByResource, useTasksStore } from "@
 import { useAppStore } from "@/stores/app-store";
 import { useCostStore } from "@/stores/cost-store";
 import { API } from "@/api";
-import type { ReferenceDurationPrecheck, ReferenceVideoUnit } from "@/types";
+import type { ReferenceDurationPrecheck, ReferenceVideoUnit, UnitGeneratedAssets } from "@/types";
 import type { ProjectData } from "@/types";
 
 // useActiveResourceIds / useLatestTasksByResource 默认包裹真实实现，仅在个别用例里
@@ -29,7 +29,7 @@ vi.mock("@/stores/tasks-store", async () => {
   };
 });
 
-function mkUnit(id: string, text = "x"): ReferenceVideoUnit {
+function mkUnit(id: string, text = "x"): ReferenceVideoUnit & { generated_assets: UnitGeneratedAssets } {
   return {
     unit_id: id,
     text,
@@ -124,6 +124,16 @@ describe("ReferenceVideoCanvas", () => {
 
   it("loads units on mount and renders the list", async () => {
     vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [mkUnit("E1U1"), mkUnit("E1U2")] });
+    render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
+    await waitFor(() => expect(screen.getByTestId("unit-row-E1U1")).toBeInTheDocument());
+    expect(screen.getByTestId("unit-row-E1U2")).toBeInTheDocument();
+  });
+
+  it("renders units that carry no generated_assets section at all", async () => {
+    // 后端只在生成时写入这一节：尚未生成过任何产物的单元没有它，读侧一律按可能缺席处理。
+    const bare: ReferenceVideoUnit = mkUnit("E1U1");
+    delete bare.generated_assets;
+    vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [bare, mkUnit("E1U2")] });
     render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
     await waitFor(() => expect(screen.getByTestId("unit-row-E1U1")).toBeInTheDocument());
     expect(screen.getByTestId("unit-row-E1U2")).toBeInTheDocument();
