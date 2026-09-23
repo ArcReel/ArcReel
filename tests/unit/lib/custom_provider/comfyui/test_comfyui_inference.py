@@ -29,6 +29,7 @@ SAMPLES = {
     "two_stage_sdxl_svd": "video",
     "kijai_wanvideo_flf2v": "video",
     "wan_vace_flf2v": "video",
+    "minimax_h3_ref2v": "video",
     "flux_kontext_edit": "image",
     "qwen_image_edit_2509": "image",
     "sdxl_batch_t2i": "image",
@@ -298,6 +299,18 @@ def test_reference_images_record_the_entry_they_feed_in_list_order():
     targets = [c.target for c in result.keys["reference_images"].candidates if c.selected]
     assert [t["node"] for t in targets] == ["142", "147"]
     assert [t["consumer"]["input"] for t in targets] == ["image1", "image2"]
+
+
+def test_autogrow_reference_slots_record_the_entry_they_feed():
+    """海螺 H3 的参考图是可增生的 ``ref_images.ref_image_N``，逐槽记下它接到哪个口。
+
+    ``consumer`` 只由推断得出、不随绑定保存下来，故这条断言守的是「重导入一份已用过的 workflow
+    时仍推得出它」：推不出来，张数少于槽位时就只能重复填充最后一张。
+    """
+    result = infer_sample("minimax_h3_ref2v")
+    targets = [c.target for c in result.keys["reference_images"].candidates if c.selected]
+    assert [t["node"] for t in targets] == [str(node) for node in range(401, 410)]
+    assert [t["consumer"]["input"] for t in targets] == [f"ref_images.ref_image_{slot}" for slot in range(9)]
 
 
 def test_an_entry_that_cannot_be_rewired_warns_about_repeated_filling():
