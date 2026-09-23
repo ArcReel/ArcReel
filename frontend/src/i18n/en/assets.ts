@@ -1,4 +1,6 @@
 export default {
+  prompt_preview_title: "Asset image prompt · {{name}}",
+  prompt_preview_draft: "Rendered from the current description draft. Changes are not saved.",
   "type.character": "Character",
   "type.scene": "Scene",
   "type.prop": "Prop",

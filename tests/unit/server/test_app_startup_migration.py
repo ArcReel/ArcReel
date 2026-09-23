@@ -10,7 +10,7 @@ import pytest
 
 import lib.db
 import server.app as app_module
-from lib.project_migrations.runner import CURRENT_SCHEMA_VERSION
+from lib.project.project_migrations.runner import CURRENT_SCHEMA_VERSION
 from server.routers import assistant as assistant_router
 
 
@@ -24,9 +24,6 @@ class _FakeWorker:
 
     async def stop(self):
         pass
-
-    def request_cancel(self, _task_id: str) -> bool:
-        return False
 
 
 def _seed_stale_project(projects_root: Path) -> tuple[Path, Path]:

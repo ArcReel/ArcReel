@@ -2,14 +2,13 @@
  * Task queue type definitions.
  *
  * Maps to backend models in:
- * - lib/generation_queue.py (GenerationQueue task schema, get_task_stats)
+ * - lib/generation/generation_queue.py (GenerationQueue task schema, get_task_stats)
  * - webui/server/routers/tasks.py (API responses)
  */
 
 export type TaskStatus =
   | "queued"
   | "running"
-  | "cancelling"
   | "succeeded"
   | "failed"
   | "cancelled";
@@ -49,7 +48,6 @@ export interface TaskItem {
 export interface TaskStats {
   queued: number;
   running: number;
-  cancelling: number;
   succeeded: number;
   failed: number;
   cancelled: number;

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { ShotDetail } from "./ShotDetail";
 import type { DramaScene, Utterance } from "@/types";
@@ -149,5 +149,68 @@ describe("ShotDetail 剧情演绎", () => {
 
     expect(container.querySelector('audio[src*="audio/segment_E1S01.wav"]')).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /重新生成旁白配音|Regenerate narration audio/ })).toBeDisabled();
+  });
+
+  it("对应原文只读展示：可编辑模式下也没有编辑控件", () => {
+    render(detailElement(makeScene({ source_text: "三年后，阿离推门而入。" }), { onUpdatePrompt: vi.fn() }));
+
+    const region = screen.getByRole("region", { name: "对应原文" });
+    expect(within(region).getByText("三年后，阿离推门而入。")).toBeInTheDocument();
+    expect(within(region).queryByRole("textbox")).not.toBeInTheDocument();
+  });
+
+  it("对应原文按逐字原样展示，不裁掉首尾空白", () => {
+    render(detailElement(makeScene({ source_text: "  阿离推门而入。\n" })));
+
+    const region = screen.getByRole("region", { name: "对应原文" });
+    expect(within(region).getByText("阿离推门而入。")).toHaveTextContent("  阿离推门而入。\n", {
+      normalizeWhitespace: false,
+    });
+  });
+
+  it.each([undefined, "  \n"])("没有对应原文时显示空态（%j）", (sourceText) => {
+    render(detailElement(makeScene({ source_text: sourceText })));
+
+    const region = screen.getByRole("region", { name: "对应原文" });
+    expect(within(region).getByText("（无对应原文）")).toBeInTheDocument();
+  });
+  describe("新增 / 移除分镜", () => {
+    it("新增分镜直接在当前分镜之后插入空分镜，不弹框", async () => {
+      const onInsertShot = vi.fn().mockResolvedValue(true);
+      renderDetail({ onUpdatePrompt: vi.fn(), onInsertShot, onRemoveShot: vi.fn() });
+
+      fireEvent.click(screen.getByRole("button", { name: "新增分镜" }));
+
+      await waitFor(() => expect(onInsertShot).toHaveBeenCalledWith("E1S01"));
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    });
+
+    it("移除分镜先弹 danger 确认框说明产物去向，确认后才移除", async () => {
+      const onRemoveShot = vi.fn().mockResolvedValue(true);
+      renderDetail({ onUpdatePrompt: vi.fn(), onInsertShot: vi.fn(), onRemoveShot });
+
+      fireEvent.click(screen.getByRole("button", { name: "移除分镜" }));
+      const dialog = screen.getByRole("dialog");
+      expect(within(dialog).getByText("移除分镜 E1S01？")).toBeInTheDocument();
+      expect(within(dialog).getByText(/产物随分镜一并移除/)).toBeInTheDocument();
+      expect(onRemoveShot).not.toHaveBeenCalled();
+
+      fireEvent.click(within(dialog).getByRole("button", { name: "移除分镜" }));
+
+      await waitFor(() => expect(onRemoveShot).toHaveBeenCalledWith("E1S01"));
+      await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    });
+
+    it("有未保存草稿时增删入口禁用；未传回调时不渲染入口", () => {
+      const { unmount } = renderDetail({ onUpdatePrompt: vi.fn(), onInsertShot: vi.fn(), onRemoveShot: vi.fn() });
+      fireEvent.change(screen.getByDisplayValue("三年后。"), { target: { value: "五年后。" } });
+      expect(screen.getByRole("button", { name: "新增分镜" })).toBeDisabled();
+      expect(screen.getByRole("button", { name: "移除分镜" })).toBeDisabled();
+      unmount();
+
+      renderDetail({ onUpdatePrompt: vi.fn() });
+      expect(screen.queryByRole("button", { name: "新增分镜" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "移除分镜" })).not.toBeInTheDocument();
+    });
   });
 });

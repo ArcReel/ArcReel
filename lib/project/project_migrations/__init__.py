@@ -1,0 +1,21 @@
+"""Project 文件级 schema 迁移框架。
+
+约定：project.json 顶层 schema_version。缺失视为 v0。当前版本以 ``lib.project.project_schema.CURRENT_PROJECT_SCHEMA_VERSION`` 为准。
+迁移器是纯函数，幂等，签名 ``def migrate(project_dir: Path) -> None``。
+"""
+
+from lib.project.project_migrations.runner import (
+    CURRENT_SCHEMA_VERSION,
+    MIGRATORS,
+    cleanup_stale_backups,
+    migrate_project_with_verdict,
+    run_project_migrations,
+)
+
+__all__ = [
+    "CURRENT_SCHEMA_VERSION",
+    "MIGRATORS",
+    "cleanup_stale_backups",
+    "migrate_project_with_verdict",
+    "run_project_migrations",
+]

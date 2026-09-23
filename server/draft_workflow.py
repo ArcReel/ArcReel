@@ -12,11 +12,15 @@ from typing import Annotated, Any, Literal, NamedTuple, Protocol, cast
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from lib import script_review
-from lib.artifact_manifest import ArtifactBasis
-from lib.async_thread import run_sync_transaction
+from lib.artifacts.artifact_manifest import ArtifactBasis
 from lib.config.resolver import ConfigResolver
-from lib.draft_quarantine import (
+from lib.episode.episode_paths import SCRIPT_PLAN_FILENAMES, episode_drafts_dir, episode_script_filename
+from lib.infra.async_thread import run_sync_transaction
+from lib.infra.json_io import atomic_write_json, load_json_or_none
+from lib.project.project_manager import ProjectManager, ScriptWriteConflict
+from lib.references.reference_catalog import build_reference_catalog
+from lib.script import script_review
+from lib.script.draft_quarantine import (
     DOC_TYPE_TO_QUARANTINE_KIND,
     PROMOTE_TOOL_NAME,
     QUARANTINE_KIND_DRAMA_SCRIPT_PLAN,
@@ -35,18 +39,14 @@ from lib.draft_quarantine import (
     read_quarantine,
     write_quarantine,
 )
-from lib.draft_violation import DraftViolation
-from lib.episode_paths import SCRIPT_PLAN_FILENAMES, episode_drafts_dir, episode_script_filename
-from lib.json_io import atomic_write_json, load_json_or_none
-from lib.project_manager import ProjectManager, ScriptWriteConflict
-from lib.reference_catalog import build_reference_catalog
-from lib.script_generator import ScriptGenerator
-from lib.script_models import (
+from lib.script.draft_violation import DraftViolation
+from lib.script.script_generator import ScriptGenerator
+from lib.script.script_models import (
     NarrationScriptPlanDraft,
     build_drama_normalized_script_model,
     build_reference_units_script_plan_model,
 )
-from lib.speech_composition import admit_script_unit
+from lib.speech.speech_composition import admit_script_unit
 from server.text_generation import (
     SOFT_VIOLATION_NOTE_QUARANTINED,
     ReferenceSplitCaps,
@@ -161,7 +161,7 @@ async def revalidate_reference_script_plan_draft(
     源文，重判要对着现值判。
 
     不依赖 ``DraftContext``（``project_path`` / ``project`` 由调用方传入而非从 ctx 派生）：
-    内容确认的读时重算（``server/services/script_review.py``）没有 Agent 工具的 ctx，
+    内容确认的读时重算（``server/services/project/script_review.py``）没有 Agent 工具的 ctx，
     只有 ``ProjectManager``；两处共用本函数而不各自加载 project，调用方各自加载一次即可。
 
     ``meta.source`` 缺失（草稿被改坏、无从重判）时抛 ``ValueError``。
@@ -275,6 +275,19 @@ def _commit_reference_script_plan(
     clear_quarantine(project_path, episode, QUARANTINE_KIND_SCRIPT_PLAN)
 
 
+#: 草稿 meta 标记：这份脚本规划草稿是从正式脚本规划取回的编辑副本，不是重跑脚本规划留下的待修复产出。
+#: 已确认的脚本规划只读，编辑副本的修改与晋升按它拒绝；重跑的产出不带它，修复与晋升照常放行。
+_FORMAL_EDIT_META_KEY = "formal_edit"
+
+
+def _script_plan_confirmed_detail(episode: int) -> str:
+    return (
+        f"❌ 第 {episode} 集的脚本规划已确认，确认后只读，不能再改。"
+        "内容修改请在正式脚本上进行（patch_episode_script，或请用户在时间线上修改）；"
+        "要整集重做，请重跑 generate_script_plan，新的脚本规划会让该集回到待确认。"
+    )
+
+
 def _open_script_plan_draft(
     project_path: Path,
     episode: int,
@@ -300,6 +313,7 @@ def _open_script_plan_draft(
             meta={
                 "source": source or None,
                 "base_fingerprint": script_review.content_fingerprint_of_data(data),
+                _FORMAL_EDIT_META_KEY: True,
             },
         )
 
@@ -387,7 +401,7 @@ async def _promote_reference_script_plan(
         raise DraftWorkflowError("draft_invalid", report + _soft_violation_section(revalidation))
 
     units = _build_reference_units_from_flat(flat_units, project, episode=episode, max_refs=split_caps.max_refs)
-    # 写盘经单一出口（lib.script_review.write_script_plan_locked）：锁、基线比对、prompt_authoring 草稿清理
+    # 写盘经单一出口（lib.script.script_review.write_script_plan_locked）：锁、基线比对、prompt_authoring 草稿清理
     # 只存在那一处。基线指纹取自取回 / 草稿产出时记进 meta 的 base_fingerprint——正式文件在草稿
     # 产出后被其他写入方（Web 端保存、另一次拆分）改过时晋升中止、返回冲突报告让 Agent 合并，
     # 不静默覆盖对方的修改。缺少 base_fingerprint 的草稿按无基线晋升。
@@ -1076,6 +1090,19 @@ class DraftWorkflow:
             )
         return kind
 
+    def _reject_confirmed_script_plan_edit(self, episode: int, kind: str, draft: QuarantinedDraft | None) -> None:
+        """已确认的脚本规划只读：拒绝为它取回编辑副本，以及修改、晋升已有的编辑副本。
+
+        ``draft`` 为 None 表示正要取回新的编辑副本；重跑脚本规划留下的草稿不带编辑标记，不受限制。
+        """
+        if kind == QUARANTINE_KIND_PROMPT_AUTHORING:
+            return
+        if draft is not None and draft.meta.get(_FORMAL_EDIT_META_KEY) is not True:
+            return
+        project = self.ctx.pm.load_project_readonly(self.ctx.project_name)
+        if script_review.formal_script_plan_confirmed(self.ctx.project_path, project, episode):
+            raise DraftWorkflowError("script_plan_confirmed", _script_plan_confirmed_detail(episode))
+
     def _read_if_present(
         self,
         episode: int,
@@ -1157,6 +1184,7 @@ class DraftWorkflow:
                 existing = await asyncio.to_thread(self._read_if_present, episode, resolved)
                 if existing is not None:
                     return existing
+                await asyncio.to_thread(self._reject_confirmed_script_plan_edit, episode, resolved, None)
                 if resolved == QUARANTINE_KIND_PROMPT_AUTHORING:
                     await run_sync_transaction(
                         self._open_reference_prompt_authoring,
@@ -1193,6 +1221,7 @@ class DraftWorkflow:
                 "revision_conflict",
                 f"draft revision changed: expected {base_revision}, actual {actual_revision}",
             )
+        self._reject_confirmed_script_plan_edit(episode, resolved, draft)
         meta = draft.meta
         if updates_source:
             if resolved == QUARANTINE_KIND_PROMPT_AUTHORING:
@@ -1282,6 +1311,7 @@ class DraftWorkflow:
                     "revision_conflict",
                     f"draft revision changed: expected {base_revision}, actual {actual_revision}",
                 )
+            await asyncio.to_thread(self._reject_confirmed_script_plan_edit, episode, resolved, draft)
             try:
                 if resolved in _SINGLE_SCRIPT_PLAN_PROMOTERS:
                     message = await _SINGLE_SCRIPT_PLAN_PROMOTERS[resolved](self.ctx, episode, draft)
@@ -1293,11 +1323,7 @@ class DraftWorkflow:
                         before_commit=before_commit,
                     )
                 else:
-                    project = await asyncio.to_thread(self.ctx.pm.load_project_readonly, self.ctx.project_name)
-                    if script_review.gate_blocks_prompt_authoring(self.ctx.project_path, project, episode):
-                        raise DraftWorkflowError(
-                            "review_required", "script_plan content must be confirmed before promoting prompt_authoring"
-                        )
+                    # 提示词编写只读正式剧本：脚本规划重跑后尚未确认不阻塞晋升，与编写入口同口径。
                     generator = await ScriptGenerator.create(
                         self.ctx.project_path,
                         config_resolver=self.ctx.config_resolver,

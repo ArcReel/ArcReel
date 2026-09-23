@@ -6,9 +6,12 @@
   - POST /projects/{project_name}/tasks/cancel-all
 """
 
+import httpx
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from lib.generation.generation_queue import GenerationQueue
 from lib.i18n import MESSAGES
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
@@ -39,9 +42,7 @@ class _FakeQueue:
         self._cancel_task_error = cancel_task_error
         self._cancel_all_preview_count = cancel_all_preview_count
         self._cancel_all_result = cancel_all_result or {"cancelled_count": 0, "skipped_running_count": 0}
-        # ADR 0006: 单点 cancel 现返回 {cancelled, cancelling, skipped_terminal}
         self._cancel_task_result.setdefault("cancelled", [])
-        self._cancel_task_result.setdefault("cancelling", [])
         self._cancel_task_result.setdefault("skipped_terminal", [])
 
     async def get_cancel_preview(self, task_id: str):
@@ -98,22 +99,6 @@ class TestCancelPreview:
         assert body["task"]["task_id"] == "t1"
         assert body["cascaded"] == []
 
-    def test_running_task_preview_returns_status(self, monkeypatch):
-        """ADR 0006 放宽：preview 不再因 running 而拒绝，返回 task.status 让前端判断。"""
-        preview = {
-            "task": {"task_id": "t2", "task_type": "video", "resource_id": "scene-2", "status": "running"},
-            "cascaded": [],
-        }
-        fake = _FakeQueue(cancel_preview_result=preview)
-        monkeypatch.setattr(tasks_router, "get_task_queue", lambda: fake)
-
-        app = _make_app()
-        with TestClient(app) as client:
-            resp = client.get("/api/v1/tasks/t2/cancel-preview")
-
-        assert resp.status_code == 200
-        assert resp.json()["task"]["status"] == "running"
-
     def test_returns_400_for_nonexistent_task(self, monkeypatch):
         fake = _FakeQueue(cancel_preview_error="任务 'missing' 不存在")
         monkeypatch.setattr(tasks_router, "get_task_queue", lambda: fake)
@@ -135,7 +120,6 @@ class TestCancelTask:
     def test_cancels_queued_task(self, monkeypatch):
         result = {
             "cancelled": [{"task_id": "t1", "status": "cancelled"}],
-            "cancelling": [],
             "skipped_terminal": [],
         }
         fake = _FakeQueue(cancel_task_result=result)
@@ -149,26 +133,7 @@ class TestCancelTask:
         body = resp.json()
         assert len(body["cancelled"]) == 1
         assert body["cancelled"][0]["task_id"] == "t1"
-        assert body["cancelling"] == []
         assert body["skipped_terminal"] == []
-
-    def test_cancels_running_task_returns_cancelling(self, monkeypatch):
-        result = {
-            "cancelled": [],
-            "cancelling": ["running-task"],
-            "skipped_terminal": [],
-        }
-        fake = _FakeQueue(cancel_task_result=result)
-        monkeypatch.setattr(tasks_router, "get_task_queue", lambda: fake)
-
-        app = _make_app()
-        with TestClient(app) as client:
-            resp = client.post("/api/v1/tasks/running-task/cancel")
-
-        assert resp.status_code == 200
-        body = resp.json()
-        assert body["cancelling"] == ["running-task"]
-        assert body["cancelled"] == []
 
     def test_returns_400_for_nonexistent_task(self, monkeypatch):
         fake = _FakeQueue(cancel_task_error="任务 'ghost' 不存在")
@@ -184,7 +149,6 @@ class TestCancelTask:
     def test_cancels_terminal_task_returns_skipped_terminal(self, monkeypatch):
         result = {
             "cancelled": [],
-            "cancelling": [],
             "skipped_terminal": [{"task_id": "done-task", "status": "succeeded"}],
         }
         fake = _FakeQueue(cancel_task_result=result)
@@ -203,7 +167,6 @@ class TestCancelTask:
         stored = '[video_duration_not_supported] {"duration": 7, "supported": "5, 10"}'
         result = {
             "cancelled": [],
-            "cancelling": [],
             "skipped_terminal": [{"task_id": "failed-task", "status": "failed", "error_message": stored}],
         }
         fake = _FakeQueue(cancel_task_result=result)
@@ -216,6 +179,69 @@ class TestCancelTask:
         assert resp.status_code == 200
         expected = MESSAGES["en"]["video_duration_not_supported"].format(duration=7, supported="5, 10")
         assert resp.json()["skipped_terminal"][0]["error_message"] == expected
+
+
+# ---------------------------------------------------------------------------
+# Tests: running task is not cancellable (real queue)
+# ---------------------------------------------------------------------------
+
+
+class TestRunningTaskNotCancellable:
+    @pytest.fixture
+    async def running_task(self, db_factory, monkeypatch) -> tuple[GenerationQueue, str]:
+        queue = GenerationQueue(session_factory=db_factory)
+        enqueued = await queue.enqueue_task(
+            project_name="demo",
+            task_type="video",
+            media_type="video",
+            resource_id="E1S01",
+            payload={},
+            script_file="episode_01.json",
+        )
+        claimed = await queue.claim_next_task(media_type="video")
+        assert claimed is not None
+        assert claimed["task_id"] == enqueued["task_id"]
+        monkeypatch.setattr(tasks_router, "get_task_queue", lambda: queue)
+        return queue, enqueued["task_id"]
+
+    @pytest.mark.parametrize("locale", ["zh", "en", "vi"])
+    @pytest.mark.parametrize(
+        ("method", "path"),
+        [("POST", "/api/v1/tasks/{id}/cancel"), ("GET", "/api/v1/tasks/{id}/cancel-preview")],
+    )
+    async def test_running_task_returns_409_in_request_locale_and_keeps_running(
+        self, running_task, locale, method, path
+    ):
+        queue, task_id = running_task
+        transport = httpx.ASGITransport(app=_make_app())
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.request(method, path.format(id=task_id), headers={"Accept-Language": locale})
+
+        assert resp.status_code == 409
+        assert resp.json()["detail"] == MESSAGES[locale]["task_running_not_cancellable"].format(id=task_id)
+        row = await queue.get_task(task_id)
+        assert row is not None
+        assert row["status"] == "running"
+
+    async def test_queued_dependent_of_running_task_is_left_queued(self, running_task):
+        queue, task_id = running_task
+        child = await queue.enqueue_task(
+            project_name="demo",
+            task_type="video",
+            media_type="video",
+            resource_id="E1S02",
+            payload={},
+            script_file="episode_01.json",
+            dependency_task_id=task_id,
+        )
+        transport = httpx.ASGITransport(app=_make_app())
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.post(f"/api/v1/tasks/{task_id}/cancel")
+
+        assert resp.status_code == 409
+        child_row = await queue.get_task(child["task_id"])
+        assert child_row is not None
+        assert child_row["status"] == "queued"
 
 
 # ---------------------------------------------------------------------------

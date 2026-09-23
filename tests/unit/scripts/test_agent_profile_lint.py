@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from lib.profile_frontmatter import parse_profile_metadata
+from lib.agent.profile_frontmatter import parse_profile_metadata
 from scripts.lint_agent_runtime_profile import lint_profile
 
 

@@ -123,7 +123,7 @@ Four audit criteria rely on review and dedicated audits, not gates: weakened dup
 
 - Waiting, retry, and timeout logic is always driven through a clock seam or event handshake—no real `time.sleep` wall-clock waits.
 - Flaky failures are ordinary defects: fix them in place (clock seam / event handshake), or delete them under the meaningless-test criteria if a fix is impractical or not worthwhile. No automatic retries (pytest-rerunfailures, CI job-level retry)—automatic retry hides failures that should stay visible.
-- Probabilistic stress tests (real concurrency + real time) must be explicitly registered in this section. The sole registered exemption: the atomic-write stress test in `tests/integration/lib/test_project_manager_concurrent_save.py`.
+- Probabilistic stress tests (real concurrency + real time) must be explicitly registered in this section. The sole registered exemption: the atomic-write stress test in `tests/integration/lib/project/test_project_manager_concurrent_save.py`.
 
 ### Coverage {#coverage}
 
@@ -144,6 +144,16 @@ Coverage is a signal, not a gate: CI never fails on a coverage number, and Codec
 - **Layout and size**: test files sit next to their source files, without `__tests__/` directories; "one file, one subject", the split-naming ban, and the 3000-line circuit breaker match the backend, with semantic topic suffixes allowed (such as `ShotDetail.drama.test.tsx`).
 - **Testability rework**: no production behavior changes; structural extraction at the pure-function or hook level is allowed.
 - **Configuration and lint**: `testTimeout` stays at the vitest default of 5s, with individual slow tests overriding it explicitly with an explanation; eslint enables the vitest, testing-library, and jest-dom plugins (`expect-expect` catches zero-assertion tests); bare `toHaveBeenCalled` has no ban—assertion strength is a review concern.
+
+### Running the gates in worktrees and sandboxes {#gates-in-worktrees-and-sandboxes}
+
+A worktree has no `.venv` or `node_modules`, and an agent sandbox may forbid binding local ports. Run the gates as follows and the results match the main checkout:
+
+- **Share the main checkout's `.venv` for Python**: `UV_PROJECT_ENVIRONMENT=<main-repo-root>/.venv uv run --no-sync <command>`. `--no-sync` makes `uv run` use that environment as is; without it, `uv run` syncs a full copy of the dependencies into that directory according to the worktree's `pyproject.toml`, and the `uv run ruff` in the post-save formatting hook of `.claude/settings.json` triggers the same sync. When the worktree changes `pyproject.toml` or `uv.lock`, the main checkout's `.venv` does not reflect the new dependencies: drop `UV_PROJECT_ENVIRONMENT` and `--no-sync` so that `uv run` creates and syncs the worktree's own `.venv`, and basedpyright then needs no `--venvpath`.
+- **Point basedpyright at the main checkout**: `venvPath` in `pyproject.toml` makes it look for `.venv` in the current directory, so in a worktree it exits with code 3 and `venv .venv subdirectory not found`; pass `--venvpath <main-repo-root>` and no symlink is needed.
+- **Run port-binding tests where local ports are allowed**: `tests/integration/agent_runtime_profile/test_custom_endpoint_adapter_skill.py` starts a local HTTP server and fails with `PermissionError` when the sandbox forbids binding `127.0.0.1`. Run the full backend suite once in an environment that allows local ports instead of running it in the sandbox first and again afterwards.
+- **Limit workers when running the frontend gate concurrently**: several agents running `pnpm check` at once let vitest's default worker count push the machine into test timeouts; use `pnpm check --maxWorkers=2`, which lands on the trailing `vitest run` of the script.
+- **Install frontend and docs-site dependencies per worktree**: run `pnpm install --frozen-lockfile` in the worktree's `frontend/` and `website/` separately.
 
 ## Code Quality {#code-quality}
 
@@ -212,6 +222,7 @@ Published pages also declare their documentation-refresh coverage tier via the `
 | `website/docs/guide/getting-started.md` | The complete path from deployment to the first generated video | Production-grade reverse proxy and backup strategies |
 | `website/docs/guide/workflows.md` | Content modes, video generation modes, review checkpoints, and selection guidance | Provider credentials and operations commands |
 | `website/docs/guide/providers.md` | Provider types, capability coverage, selection principles, and configuration hierarchy | Price promises likely to become outdated |
+| `website/docs/guide/market.md` | Managing market sources, confirming, updating, and uninstalling market entries | Contribution workflow and steps for hosting a market source (the official market source repository docs are authoritative) |
 | `website/docs/guide/jianying-export.md` | Locating the Jianying draft directory, exporting, and further editing steps | The video generation process itself |
 | `website/docs/guide/faq.md` | Frequently asked questions and short answers | Long tutorials |
 | `website/docs/ops/deployment.md` | Deployment, upgrades, backup, recovery, monitoring, and security | Product marketing copy |

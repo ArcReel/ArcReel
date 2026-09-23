@@ -265,6 +265,7 @@ export function UsageRecordsSection() {
           request={cancellation.request}
           cancelling={cancellation.cancelling}
           failed={cancellation.failed}
+          failureDetail={cancellation.failureDetail}
           onConfirm={cancellation.confirm}
           onDismiss={cancellation.dismiss}
         />

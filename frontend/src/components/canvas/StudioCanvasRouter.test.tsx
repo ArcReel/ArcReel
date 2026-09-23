@@ -42,6 +42,8 @@ vi.mock("./timeline/TimelineCanvas", () => ({
     durationOptions,
     onUpdatePrompt,
     onMoveShot,
+    onInsertShot,
+    onRemoveShot,
     onGenerateStoryboard,
     onGenerateVideo,
     onGenerateNarration,
@@ -58,6 +60,8 @@ vi.mock("./timeline/TimelineCanvas", () => ({
       direction: "earlier" | "later",
       scriptFile?: string,
     ) => Promise<boolean> | void;
+    onInsertShot?: (afterId: string, novelText: string | undefined, scriptFile?: string) => Promise<boolean>;
+    onRemoveShot?: (itemId: string, scriptFile?: string) => Promise<boolean>;
     onGenerateStoryboard?: (segmentId: string) => void;
     onGenerateVideo?: (segmentId: string) => void;
     onGenerateNarration?: (segmentId: string) => void;
@@ -94,6 +98,22 @@ vi.mock("./timeline/TimelineCanvas", () => ({
         }}
       >
         move-shot-later
+      </button>
+      <button
+        onClick={(e) => {
+          const el = e.currentTarget;
+          void onInsertShot?.("SEG-1", undefined, scriptFile).then((ok) => el.setAttribute("data-result", String(ok)));
+        }}
+      >
+        insert-shot
+      </button>
+      <button
+        onClick={(e) => {
+          const el = e.currentTarget;
+          void onRemoveShot?.("SEG-1", scriptFile).then((ok) => el.setAttribute("data-result", String(ok)));
+        }}
+      >
+        remove-shot
       </button>
       <button onClick={() => onGenerateStoryboard?.("SEG-1")}>generate-storyboard</button>
       <button onClick={() => onGenerateVideo?.("SEG-1")}>generate-video</button>
@@ -1164,6 +1184,30 @@ describe("StudioCanvasRouter", () => {
       expect(screen.getByText("move-shot-later")).toHaveAttribute("data-move-result", "false");
     });
   });
+
+  it.each([
+    ["insert-shot", "insertScriptItemAfter"],
+    ["remove-shot", "removeScriptItem"],
+  ] as const)(
+    "%s reports success once the edit is committed even if the local refresh then fails",
+    async (button, apiMethod) => {
+      const script = makeAdScript() as AdEpisodeScript;
+      useProjectsStore.setState({
+        currentProjectName: "demo",
+        currentProjectData: makeProjectData({ content_mode: "ad" }),
+        currentScripts: { "episode_1.json": script },
+      });
+      vi.spyOn(API, "getProject").mockRejectedValue(new Error("network down"));
+      const editSpy = vi.spyOn(API, apiMethod).mockResolvedValue({ success: true } as never);
+
+      renderAt("/episodes/1");
+
+      fireEvent.click(screen.getByText(button));
+      await waitFor(() => expect(screen.getByText(button)).toHaveAttribute("data-result", "true"));
+      expect(editSpy).toHaveBeenCalledTimes(1);
+      expect(useAppStore.getState().toast?.tone).toBe("warning");
+    },
+  );
 
   it("routes ad + reference_video projects to the unified unit canvas without preprocessing", async () => {
     useProjectsStore.setState({

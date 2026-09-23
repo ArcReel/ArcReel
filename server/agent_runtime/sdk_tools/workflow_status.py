@@ -7,7 +7,7 @@ from typing import Any
 
 from claude_agent_sdk import tool
 
-from lib.script_review import complete_stale_script_plan_rebuild
+from lib.script.script_review import complete_stale_script_plan_rebuild
 from server.media_tools.context import ToolContext, tool_outcome_response, tool_services
 from server.tool_runtime import (
     CompleteScriptPlanRebuildRequest,

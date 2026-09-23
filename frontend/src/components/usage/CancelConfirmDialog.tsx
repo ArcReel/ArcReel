@@ -7,6 +7,8 @@ interface CancelConfirmDialogProps {
   request: CancelRequest;
   cancelling: boolean;
   failed: boolean;
+  /** 服务端拒绝取消的已本地化原因；为空时显示通用失败文案。 */
+  failureDetail?: string | null;
   onConfirm: () => Promise<void>;
   onDismiss: () => void;
 }
@@ -19,6 +21,7 @@ export function CancelConfirmDialog({
   request,
   cancelling,
   failed,
+  failureDetail,
   onConfirm,
   onDismiss,
 }: CancelConfirmDialogProps) {
@@ -51,7 +54,7 @@ export function CancelConfirmDialog({
       )}
       {failed && (
         <p role="alert" className="mt-1.5 text-[11px] text-danger-2">
-          {t("cancel_failed")}
+          {failureDetail ?? t("cancel_failed")}
         </p>
       )}
       <div className="mt-2.5 flex gap-2">

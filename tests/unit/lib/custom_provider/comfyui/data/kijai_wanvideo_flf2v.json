@@ -1,0 +1,174 @@
+{
+  "11": {
+    "class_type": "WanVideoModelLoader",
+    "inputs": {
+      "model": "Wan2_1-I2V-14B-720P_fp8.safetensors",
+      "base_precision": "bf16",
+      "quantization": "fp8_e4m3fn"
+    }
+  },
+  "16": {
+    "class_type": "LoadWanVideoT5TextEncoder",
+    "inputs": {
+      "model_name": "umt5-xxl-enc-bf16.safetensors",
+      "precision": "bf16"
+    }
+  },
+  "18": {
+    "class_type": "WanVideoTextEncode",
+    "inputs": {
+      "positive_prompt": "a woman turns and smiles",
+      "negative_prompt": "色调艳丽，过曝，静态，细节模糊不清",
+      "force_offload": true,
+      "t5": [
+        "16",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "WanVideo TextEncode"
+    }
+  },
+  "20": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "first.png",
+      "upload": "image"
+    },
+    "_meta": {
+      "title": "Load Image: Start image"
+    }
+  },
+  "21": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "last.png",
+      "upload": "image"
+    },
+    "_meta": {
+      "title": "Load Image: End image"
+    }
+  },
+  "22": {
+    "class_type": "ImageResizeKJv2",
+    "inputs": {
+      "width": 720,
+      "height": 1280,
+      "upscale_method": "lanczos",
+      "keep_proportion": "crop",
+      "divisible_by": 16,
+      "image": [
+        "20",
+        0
+      ]
+    }
+  },
+  "23": {
+    "class_type": "ImageResizeKJv2",
+    "inputs": {
+      "width": 720,
+      "height": 1280,
+      "upscale_method": "lanczos",
+      "keep_proportion": "crop",
+      "divisible_by": 16,
+      "image": [
+        "21",
+        0
+      ]
+    }
+  },
+  "24": {
+    "class_type": "WanVideoImageToVideoEncode",
+    "inputs": {
+      "width": 720,
+      "height": 1280,
+      "num_frames": 81,
+      "noise_aug_strength": 0.0,
+      "start_latent_strength": 1.0,
+      "end_latent_strength": 1.0,
+      "vae": [
+        "38",
+        0
+      ],
+      "start_image": [
+        "22",
+        0
+      ],
+      "end_image": [
+        "23",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "WanVideo ImageToVideo Encode"
+    }
+  },
+  "38": {
+    "class_type": "WanVideoVAELoader",
+    "inputs": {
+      "model_name": "Wan2_1_VAE_bf16.safetensors",
+      "precision": "bf16"
+    }
+  },
+  "27": {
+    "class_type": "WanVideoSampler",
+    "inputs": {
+      "steps": 30,
+      "cfg": 6.0,
+      "shift": 5.0,
+      "seed": 611104282,
+      "force_offload": true,
+      "scheduler": "unipc",
+      "model": [
+        "11",
+        0
+      ],
+      "text_embeds": [
+        "18",
+        0
+      ],
+      "image_embeds": [
+        "24",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "WanVideo Sampler"
+    }
+  },
+  "28": {
+    "class_type": "WanVideoDecode",
+    "inputs": {
+      "enable_vae_tiling": false,
+      "vae": [
+        "38",
+        0
+      ],
+      "samples": [
+        "27",
+        0
+      ]
+    }
+  },
+  "30": {
+    "class_type": "VHS_VideoCombine",
+    "inputs": {
+      "frame_rate": 16,
+      "loop_count": 0,
+      "filename_prefix": "WanVideo2_1_FLF2V",
+      "format": "video/h264-mp4",
+      "pix_fmt": "yuv420p",
+      "crf": 19,
+      "save_metadata": true,
+      "pingpong": false,
+      "save_output": false,
+      "images": [
+        "28",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "Video Combine 🎥🅥🅗🅢"
+    }
+  }
+}

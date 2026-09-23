@@ -18,23 +18,11 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from lib.artifact_activation import ArtifactCurrencyResolver, active_artifact_currency_resolver
-from lib.asset_inventory import (
-    AssetInventoryError,
-    AssetInventoryInvalidRequest,
-    AssetInventoryRevisionConflict,
-    AssetInventorySourceBlocked,
-)
-from lib.asset_inventory import (
-    complete_asset_inventory as complete_asset_inventory_service,
-)
-from lib.asset_types import ASSET_SPECS
-from lib.async_thread import run_sync_transaction as _run_sync_transaction
-from lib.character_voice import VALID_CHARACTER_VOICE_BINDINGS
+from lib.agent.profile_manifest import ContentMode
+from lib.artifacts.artifact_activation import ArtifactCurrencyResolver, active_artifact_currency_resolver
 from lib.config.resolver import ConfigResolver
-from lib.content_digest import prefixed, prefixed_canonical_json_digest
 from lib.db import async_session_factory
-from lib.episode_paths import (
+from lib.episode.episode_paths import (
     DRAMA_SCRIPT_PLAN_QUARANTINE_FILENAME,
     NARRATION_SCRIPT_PLAN_QUARANTINE_FILENAME,
     REFERENCE_VIDEO_PROMPT_AUTHORING_QUARANTINE_FILENAME,
@@ -44,37 +32,35 @@ from lib.episode_paths import (
     SCRIPT_PLAN_FILENAMES,
     SCRIPT_PLAN_LEGACY_FILENAMES,
 )
-from lib.episode_planner import EpisodePlanner, EpisodePlanningError, LedgerStats, PlanResult
-from lib.episode_reset import (
+from lib.episode.episode_planner import EpisodePlanner, EpisodePlanningError, LedgerStats, PlanResult
+from lib.episode.episode_reset import (
     EpisodeResetError,
     ResetConfirmationRequired,
 )
-from lib.episode_reset import (
+from lib.episode.episode_reset import (
     reset_episode_planning as reset_episode_planning_service,
 )
-from lib.episode_target_duration import (
+from lib.episode.episode_target_duration import (
     EPISODE_TARGET_DURATION_FIELD,
     MAX_EPISODE_TARGET_DURATION,
     MIN_EPISODE_TARGET_DURATION,
     is_valid_episode_target_duration,
 )
-from lib.episode_target_volume import EPISODE_TARGET_UNITS_FIELD
-from lib.formal_write import FormalWriteReceipt, project_metadata_lock
-from lib.generation_batch import (
+from lib.episode.episode_target_volume import EPISODE_TARGET_UNITS_FIELD
+from lib.generation.generation_batch import (
     GenerationBatchReadModel,
     GenerationBatchRequestedItem,
     GenerationBatchRequestSnapshot,
     build_generation_batch_admission,
 )
-from lib.generation_queue import (
+from lib.generation.generation_queue import (
     ActiveTaskRequestConflict,
-    CompensableGenerationResult,
     GenerationBatchNotFound,
     GenerationQueue,
     cleanup_fresh_generation_batch,
     get_generation_queue,
 )
-from lib.generation_queue_client import (
+from lib.generation.generation_queue_client import (
     BatchTaskResult,
     TaskSpec,
     WorkerOfflineError,
@@ -82,7 +68,7 @@ from lib.generation_queue_client import (
     submit_generation_batch,
     wait_for_task,
 )
-from lib.generation_result import (
+from lib.generation.generation_result import (
     GenerationAction,
     GenerationBatchResult,
     GenerationProblem,
@@ -93,19 +79,31 @@ from lib.generation_result import (
     migration_problem,
     problem_from_task_failure,
 )
-from lib.path_safety import safe_join
-from lib.profile_manifest import ContentMode
-from lib.project_manager import ProjectManager, ScriptWriteConflict, SourceKind, is_reference_video_project
-from lib.project_migration_failure import (
+from lib.infra.async_thread import run_sync_transaction as _run_sync_transaction
+from lib.infra.content_digest import prefixed, prefixed_canonical_json_digest
+from lib.infra.path_safety import safe_join
+from lib.infra.schema_guards import is_int, is_str
+from lib.project.asset_inventory import (
+    AssetInventoryError,
+    AssetInventoryInvalidRequest,
+    AssetInventoryRevisionConflict,
+    AssetInventorySourceBlocked,
+)
+from lib.project.asset_inventory import (
+    complete_asset_inventory as complete_asset_inventory_service,
+)
+from lib.project.asset_types import ASSET_SPECS
+from lib.project.project_manager import ProjectManager, SourceKind, is_reference_video_project
+from lib.project.project_migration_failure import (
     MIGRATION_FAILURE_CODE,
     MigrationFailureRecord,
     ProjectMigrationError,
     load_migration_failure,
 )
-from lib.project_migration_guard import project_migration_failure
-from lib.project_migrations import migrate_project_with_verdict
-from lib.schema_guards import is_int, is_str
-from lib.script_batch_edit import (
+from lib.project.project_migration_guard import project_migration_failure
+from lib.project.project_migrations import migrate_project_with_verdict
+from lib.project.source_revision import SourceScope
+from lib.script.script_batch_edit import (
     ScriptBatchEditCommand,
     ScriptBatchEditLocation,
     ScriptBatchEditor,
@@ -113,7 +111,7 @@ from lib.script_batch_edit import (
     ScriptBatchEditResult,
     script_revision,
 )
-from lib.script_editor import (
+from lib.script.script_editor import (
     ScriptEditError,
     insert_segment,
     patch_field,
@@ -121,10 +119,12 @@ from lib.script_editor import (
     resolve_items,
     split_segment,
 )
-from lib.script_generator import ScriptPlanConversionReceipt
-from lib.script_plan_entries import SCOPE_STALE, ScriptPlanEntryError
-from lib.script_review import ScriptPlanRebuildCompletionError, complete_stale_script_plan_rebuild, script_plan_kind
-from lib.source_loader import (
+from lib.script.script_review import (
+    ScriptPlanRebuildCompletionError,
+    complete_stale_script_plan_rebuild,
+    script_plan_kind,
+)
+from lib.script.source_loader import (
     ConflictError,
     CorruptFileError,
     FileSizeExceededError,
@@ -133,9 +133,9 @@ from lib.source_loader import (
     SourceLoader,
     UnsupportedFormatError,
 )
-from lib.source_revision import SourceScope
-from lib.workflow_plan import WorkflowPlan, WorkflowPlanRequest
-from lib.workflow_state import WorkflowRequestError
+from lib.speech.character_voice import VALID_CHARACTER_VOICE_BINDINGS
+from lib.workflow.workflow_plan import WorkflowPlan, WorkflowPlanRequest
+from lib.workflow.workflow_state import WorkflowRequestError
 from server.draft_workflow import (
     DiscardDraftRequest,
     DraftContext,
@@ -145,19 +145,18 @@ from server.draft_workflow import (
     PatchDraftRequest,
     PromoteDraftRequest,
 )
-from server.services.prompt_preview import ItemPromptPreview, ScriptItemNotFound, preview_item_prompts
-from server.services.script_plan_conversion import convert_script_plan as run_script_plan_conversion
-from server.services.video_caps import annotate_reference_unit_tiers
-from server.services.workflow_planner import WorkflowPlanner
+from server.services.admission.prompt_preview import ItemPromptPreview, ScriptItemNotFound, preview_item_prompts
+from server.services.project.workflow_planner import WorkflowPlanner
+from server.services.tasks.video_caps import annotate_reference_unit_tiers
 from server.text_generation import (
-    CompensableTextGenerationResult,
+    ScriptOverwriteRequiredError,
     TextGenerationError,
     TextGenerationRequest,
     TextGenerationResult,
-    episode_generation_preflight,
     generate_drama_script_plan,
     generate_narration_script_plan,
     generate_reference_script_plan,
+    prompt_authoring_preflight,
 )
 from server.text_generation import (
     confirm_script_review as confirm_script_review_handler,
@@ -396,6 +395,10 @@ async def _run_text_generation(
 ) -> ToolOutcome[TextGenerationResult]:
     try:
         return ToolOutcome(value=await call)
+    except ScriptOverwriteRequiredError as exc:
+        return ToolOutcome(
+            problem=ToolProblem("script_overwrite_required", str(exc), params={"script_overwrite": exc.overwrite})
+        )
     except TextGenerationError as exc:
         return ToolOutcome(problem=ToolProblem("generation_refused", str(exc)))
     except Exception as exc:
@@ -550,10 +553,9 @@ async def generate_episode_script(
         )
     try:
         await asyncio.to_thread(
-            episode_generation_preflight,
+            prompt_authoring_preflight,
             services.projects.get_project_path(scope.project_name),
             request.value.episode,
-            enforce_review_gate=True,
         )
     except TextGenerationError as exc:
         return ToolOutcome(problem=ToolProblem("generation_refused", str(exc)))
@@ -568,48 +570,6 @@ async def generate_episode_script(
         caller=_caller,
         services=services,
     )
-
-
-class ScriptPlanConversionRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    episode: int = Field(ge=1, description="剧集编号")
-    entry_ids: tuple[str, ...] = Field(default=(), description="要「采用新内容」的失效条目 id")
-
-    @field_validator("entry_ids")
-    @classmethod
-    def _non_empty_ids(cls, value: tuple[str, ...]) -> tuple[str, ...]:
-        if any(not entry_id.strip() for entry_id in value):
-            raise ValueError("entry_ids must be non-empty strings")
-        return value
-
-
-async def convert_script_plan(
-    request: ToolRequest[ScriptPlanConversionRequest],
-    scope: ProjectScope,
-    _caller: CallerContext,
-    services: Services,
-) -> ToolOutcome[ScriptPlanConversionReceipt]:
-    """按脚本规划机械转为正式剧本；内容确认门禁与 ``generate_episode_script`` 同一道预检。"""
-    try:
-        receipt = await run_script_plan_conversion(
-            scope.project_name,
-            request.value.episode,
-            entry_ids=request.value.entry_ids,
-            projects=services.projects,
-            config_resolver=services.capabilities,
-        )
-    except TextGenerationError as exc:
-        return ToolOutcome(problem=ToolProblem("generation_refused", str(exc)))
-    except ScriptWriteConflict as exc:
-        return ToolOutcome(problem=ToolProblem("script_write_conflict", str(exc)))
-    except FileNotFoundError as exc:
-        return ToolOutcome(problem=ToolProblem("file_not_found", str(exc)))
-    except (ScriptPlanEntryError, TypeError, ValueError) as exc:
-        return ToolOutcome(problem=ToolProblem("invalid_request", str(exc)))
-    except Exception as exc:
-        return ToolOutcome(problem=ToolProblem("internal_error", f"convert_script_plan 失败: {exc}"))
-    return ToolOutcome(value=receipt)
 
 
 async def generate_script_plan(
@@ -648,8 +608,15 @@ async def generate_script_plan(
     )
 
 
+@dataclass(frozen=True, slots=True)
+class ConfirmScriptReviewRequest:
+    episode: int
+    #: 用户已同意覆盖的正式脚本版本（覆盖清单的 ``revision``）；该集尚无正式脚本时不必给。
+    overwrite_revision: str | None = None
+
+
 async def confirm_script_review(
-    request: ToolRequest[int],
+    request: ToolRequest[ConfirmScriptReviewRequest],
     scope: ProjectScope,
     _caller: CallerContext,
     services: Services,
@@ -657,7 +624,8 @@ async def confirm_script_review(
     return await _run_text_generation(
         "confirm_script_review",
         confirm_script_review_handler(
-            request.value,
+            request.value.episode,
+            overwrite_revision=request.value.overwrite_revision,
             project_name=scope.project_name,
             projects=services.projects,
             config_resolver=services.capabilities,
@@ -1835,19 +1803,12 @@ async def _execute_plan_episodes(
     services: Services,
     *,
     planner_cls: type[EpisodePlanner] = EpisodePlanner,
-    cancellation_receipts: list[FormalWriteReceipt] | None = None,
 ) -> ToolOutcome[Any]:
     if problem := await migration_gate(scope, services):
         return ToolOutcome(problem=problem)
     try:
         planner = await planner_cls.create(services.projects.get_project_path(scope.project_name))
-        if cancellation_receipts is None:
-            result = await planner.plan(instructions=request.value.instructions)
-        else:
-            result = await planner.plan(
-                instructions=request.value.instructions,
-                cancellation_receipts=cancellation_receipts,
-            )
+        result = await planner.plan(instructions=request.value.instructions)
     except (EpisodePlanningError, FileNotFoundError) as exc:
         return ToolOutcome(problem=ToolProblem("episode_planning_failed", f"❌ 分集规划失败：{exc}"))
     except Exception as exc:
@@ -1869,26 +1830,7 @@ async def _execute_plan_episodes(
         total_planned=result.total_planned,
         ledger_stats=_ledger_stats_payload(result.ledger_stats),
     )
-    if cancellation_receipts is None:
-        return ToolOutcome(value=value)
-    if not cancellation_receipts:
-        return ToolOutcome(value=value)
-    if len(cancellation_receipts) != 1:
-        raise RuntimeError("episode planning commit did not return cancellation state")
-    receipt = cancellation_receipts[0]
-    project_path = services.projects.get_project_path(scope.project_name)
-
-    def _compensate_cancelled() -> None:
-        with project_metadata_lock(project_path):
-            receipt.compensate_cancelled()
-
-    return ToolOutcome(
-        value=CompensableTextGenerationResult(
-            value.message,
-            _compensate_cancelled,
-            payload=value.model_dump(mode="json"),
-        )
-    )
+    return ToolOutcome(value=value)
 
 
 async def plan_episodes(
@@ -1938,13 +1880,11 @@ async def execute_queued_text_task(
         )
     task_type = task["task_type"]
     if task_type == _TEXT_EPISODE_PLAN:
-        cancellation_receipts: list[FormalWriteReceipt] = []
         outcome = await _execute_plan_episodes(
             ToolRequest(PlanEpisodesRequest(instructions=payload.get("instructions"))),
             scope,
             services,
             planner_cls=planner_cls,
-            cancellation_receipts=cancellation_receipts if planner_cls is EpisodePlanner else None,
         )
     else:
         request = TextGenerationRequest(
@@ -1952,7 +1892,6 @@ async def execute_queued_text_task(
             source=payload.get("source"),
             instructions=payload.get("instructions"),
             dry_run=bool(payload.get("dry_run")),
-            scope=payload.get("scope") or SCOPE_STALE,
             entry_ids=tuple(payload.get("entry_ids") or ()),
         )
         handlers = {
@@ -1969,11 +1908,6 @@ async def execute_queued_text_task(
     if outcome.problem is not None:
         raise RuntimeError(encode_generation_problem(_queued_generation_problem(outcome.problem)))
     value = outcome.value
-    if isinstance(value, CompensableTextGenerationResult):
-        return CompensableGenerationResult(
-            value.payload or _text_result_payload(value),
-            cancel_compensation=value.compensate_cancelled,
-        )
     if isinstance(value, TextGenerationResult):
         return _text_result_payload(value)
     if isinstance(value, BaseModel):

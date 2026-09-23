@@ -1,23 +1,32 @@
 import dataclasses
 import json
+import os
 import shutil
+import sys
 from io import BytesIO
 from pathlib import Path
+from typing import ClassVar
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from PIL import Image
 
-import lib.project_manager as project_manager_module
-from lib.artifact_activation import ArtifactCurrencyResolver
-from lib.artifact_manifest import MANIFEST_FILENAME, ArtifactKey, ArtifactStatus, ProjectArtifactManifestAdapter
+import lib.project.project_manager as project_manager_module
+from lib.artifacts.artifact_activation import ArtifactCurrencyResolver
+from lib.artifacts.artifact_manifest import (
+    MANIFEST_FILENAME,
+    ArtifactKey,
+    ArtifactStatus,
+    ProjectArtifactManifestAdapter,
+)
+from lib.backends.providers import CallPurpose
 from lib.i18n.en import assets as en_assets
 from lib.i18n.vi import assets as vi_assets
 from lib.i18n.zh import assets as zh_assets
 from lib.i18n.zh import errors as zh_errors
-from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
-from lib.providers import CallPurpose
+from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
+from lib.prompts.prompt_templates.builtin import builtin_templates
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import files
@@ -25,6 +34,8 @@ from tests.factories import wav_bytes
 
 
 class _FakeTextBackend:
+    requests: ClassVar[list] = []
+
     @property
     def name(self):
         return "fake"
@@ -38,8 +49,9 @@ class _FakeTextBackend:
         return set()
 
     async def generate(self, request):
-        from lib.text_backends.base import TextGenerationResult
+        from lib.backends.text_backends.base import TextGenerationResult
 
+        _FakeTextBackend.requests.append(request)
         return TextGenerationResult(text="cinematic, high contrast", provider="fake", model="fake-model")
 
 
@@ -63,7 +75,7 @@ def _client(monkeypatch, tmp_path):
     pm.add_product("demo", "保温杯", "不锈钢保温杯")
 
     monkeypatch.setattr(files, "get_project_manager", lambda: pm)
-    monkeypatch.setattr("lib.text_generator.create_text_backend_for_task", _fake_create_backend)
+    monkeypatch.setattr("lib.backends.text_generator.create_text_backend_for_task", _fake_create_backend)
 
     app = FastAPI()
     register_error_handlers(app)
@@ -91,8 +103,7 @@ class TestFilesRouter:
             assert any(item["name"] == "chapter.txt" for item in listed.json()["files"]["source"])
 
             served = client.get("/api/v1/files/demo/source/chapter.txt")
-            assert served.status_code == 200
-            assert served.text == "hello"
+            assert served.status_code == 404
 
             get_source = client.get("/api/v1/projects/demo/source/chapter.txt")
             assert get_source.status_code == 200
@@ -717,7 +728,7 @@ class TestFilesRouter:
             assert any(item["name"] == "保温杯.jpg" for item in listed.json()["files"]["products"])
 
     def test_style_image_endpoints(self, tmp_path, monkeypatch):
-        from lib.text_generator import TextGenerator
+        from lib.backends.text_generator import TextGenerator
 
         client, pm = _client(monkeypatch, tmp_path)
         captured: dict[str, object] = {}
@@ -728,6 +739,7 @@ class TestFilesRouter:
             return await original_create(task_type, project_name, purpose=purpose)
 
         monkeypatch.setattr(TextGenerator, "create", capture_create)
+        monkeypatch.setattr(_FakeTextBackend, "requests", [])
 
         # 预置 style_template_id + 展开后的 style prompt，验证上传后被强制清掉（互斥）
         project = pm.load_project("demo")
@@ -743,6 +755,9 @@ class TestFilesRouter:
             assert upload_style.status_code == 200
             assert upload_style.json()["style_description"] == "cinematic, high contrast"
             assert captured["purpose"] is CallPurpose.STYLE_ANALYSIS
+            (request,) = _FakeTextBackend.requests
+            assert request.prompt == builtin_templates.render("text/style_analysis")
+            assert "Do NOT describe the subject matter" in request.prompt
             after = pm.load_project("demo")
             assert after.get("style_image", "").startswith("style_reference")
             assert "style_template_id" not in after
@@ -1048,6 +1063,28 @@ class TestFilesRouter:
             unknown_draft = client.delete("/api/v1/projects/demo/drafts/9/script_plan")
             assert unknown_draft.status_code == 404
 
+    def test_plain_script_plan_save_is_rejected_once_confirmed(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        client, pm = _client(monkeypatch, tmp_path)
+        project_dir = pm.get_project_path("demo")
+        plan_path = project_dir / "drafts" / "episode_1" / "script_plan_segments.json"
+        plan_path.parent.mkdir(parents=True)
+        plan_path.write_text('{"episode": 1, "segments": []}', encoding="utf-8")
+        # 该集已产出正式剧本、无确认记录：按存量口径视为脚本规划已确认。
+        (project_dir / "scripts").mkdir(exist_ok=True)
+        (project_dir / "scripts" / "episode_1.json").write_text('{"episode": 1, "segments": []}', encoding="utf-8")
+        before = plan_path.read_bytes()
+
+        with client:
+            refused = client.put(
+                "/api/v1/projects/demo/drafts/1/script_plan",
+                content='{"episode": 1, "segments": [{"segment_id": "E1S01"}]}',
+                headers={"content-type": "text/plain"},
+            )
+
+        assert refused.status_code == 409, refused.text
+        assert refused.json()["diagnostic"] == {"code": "script_plan_confirmed"}
+        assert plan_path.read_bytes() == before
+
     def test_plain_script_plan_save_registers_active_manifest_and_rolls_back_on_registration_failure(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -1115,11 +1152,12 @@ class TestFilesRouter:
 
         with monkeypatch.context() as registration_patch:
             registration_patch.setattr(
-                "lib.artifact_activation.register_current_artifact_if_provable",
+                "lib.artifacts.artifact_activation.register_current_artifact_if_provable",
                 _fail_registration,
             )
             with pytest.raises(RuntimeError, match="manifest unavailable"):
                 files._write_plain_draft(
+                    "demo",
                     project_dir,
                     1,
                     draft_path,
@@ -1160,6 +1198,7 @@ class TestFilesRouter:
             resp = client.get("/api/v1/files/demo/versions/storyboards/E1S01_v1.png")
             assert resp.status_code == 200
             assert "immutable" in resp.headers.get("cache-control", "")
+            assert resp.headers["x-content-type-options"] == "nosniff"
 
     def test_no_cache_control_without_version(self, tmp_path, monkeypatch):
         """无 ?v= 参数且非 versions 路径时不应有 immutable 头"""
@@ -1410,6 +1449,136 @@ class TestFilesRouter:
             assert r.status_code == 403
 
 
+class TestPublicFileRouteServesMediaOnly:
+    """公开文件路由只放行媒体目录内的媒体扩展名文件，其余与文件不存在同形返回 404。"""
+
+    @pytest.mark.parametrize(
+        "rel_path",
+        [
+            "storyboards/scene_E1S01.png",
+            "end_frames/scene_E1S01.png",
+            "videos/scene_E1S01.mp4",
+            "reference_videos/E1U1.mp4",
+            "reference_videos/thumbnails/E1U1.jpg",
+            "thumbnails/scene_E1S01.jpg",
+            "characters/Alice.png",
+            "characters/refs/Alice.webp",
+            "characters/refs_audio/Alice.mp3",
+            "characters/derivatives/Alice/young.png",
+            "scenes/酒馆.jpeg",
+            "props/玉佩.png",
+            "products/refs/cup_1.jpg",
+            "grids/grid_1.png",
+            "audio/segment_E1S01.wav",
+            "versions/storyboards/scene_E1S01_v1_20260101T000000.png",
+            "versions/audio/segment_E1S01_v2_20260101T000000.wav",
+            "style_reference.png",
+        ],
+    )
+    def test_media_file_is_served_with_nosniff(self, tmp_path, monkeypatch, rel_path):
+        client, pm = _client(monkeypatch, tmp_path)
+        target = pm.get_project_path("demo") / rel_path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(b"media-bytes")
+
+        with client:
+            resp = client.get(f"/api/v1/files/demo/{rel_path}")
+        assert resp.status_code == 200
+        assert resp.content == b"media-bytes"
+        assert resp.headers["x-content-type-options"] == "nosniff"
+
+    @pytest.mark.parametrize(
+        "rel_path",
+        [
+            "project.json",
+            "scripts/episode_1.json",
+            "source/chapter.txt",
+            "drafts/episode_1/step1_segments.md",
+            "subtitles/episode_1/segments.json",
+            "output/final.mp4",
+            "versions/versions.json",
+            "grids/grid_1.json",
+            "storyboards/page.html",
+            "storyboards/page.htm",
+            "characters/icon.svg",
+            "videos/meta.xml",
+            "audio/notes.txt",
+            "thumbnails/app.js",
+            "versions/scripts/episode_1.png",
+            "versions/scene_E1S01.png",
+            "style_reference.svg",
+            "style_reference.mp4",
+            "STYLE_REFERENCE.png",
+            "Storyboards/scene_E1S01.png",
+            "videos/scene_E1S01.webm",
+            "cover.png",
+            ".claude/settings.json",
+        ],
+    )
+    def test_non_media_file_returns_404(self, tmp_path, monkeypatch, rel_path):
+        client, pm = _client(monkeypatch, tmp_path)
+        target = pm.get_project_path("demo") / rel_path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(b"content")
+
+        with client:
+            resp = client.get(f"/api/v1/files/demo/{rel_path}")
+        assert resp.status_code == 404
+        assert b"content" not in resp.content
+
+    def test_non_media_file_and_missing_file_share_not_found_response(self, tmp_path, monkeypatch):
+        client, _ = _client(monkeypatch, tmp_path)
+        not_found = zh_errors.MESSAGES["file_not_found"]
+
+        with client:
+            existing = client.get("/api/v1/files/demo/project.json")
+            missing = client.get("/api/v1/files/demo/missing.json")
+        assert existing.status_code == missing.status_code == 404
+        assert existing.json() == {"detail": not_found.format(path="project.json")}
+        assert missing.json() == {"detail": not_found.format(path="missing.json")}
+
+    def test_media_named_symlink_to_non_media_file_returns_404(self, tmp_path, monkeypatch):
+        if sys.platform == "win32":
+            pytest.skip("symlinks require admin on Windows")
+        client, pm = _client(monkeypatch, tmp_path)
+        project_dir = pm.get_project_path("demo")
+        link = project_dir / "storyboards" / "scene_E1S01.png"
+        link.parent.mkdir(parents=True, exist_ok=True)
+        os.symlink(project_dir / "project.json", link)
+
+        with client:
+            resp = client.get("/api/v1/files/demo/storyboards/scene_E1S01.png")
+        assert resp.status_code == 404
+
+    def test_extension_check_is_case_insensitive(self, tmp_path, monkeypatch):
+        client, pm = _client(monkeypatch, tmp_path)
+        target = pm.get_project_path("demo") / "storyboards" / "scene_E1S01.PNG"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(b"img")
+
+        with client:
+            resp = client.get("/api/v1/files/demo/storyboards/scene_E1S01.PNG")
+        assert resp.status_code == 200
+
+    def test_global_asset_media_is_served_with_nosniff(self, tmp_path, monkeypatch):
+        client, pm = _client(monkeypatch, tmp_path)
+        (pm.get_global_assets_root() / "character" / "abc.webp").write_bytes(b"img")
+
+        with client:
+            resp = client.get("/api/v1/global-assets/character/abc.webp")
+        assert resp.status_code == 200
+        assert resp.headers["x-content-type-options"] == "nosniff"
+
+    @pytest.mark.parametrize("filename", ["abc.svg", "abc.html", "abc.json", "abc.txt"])
+    def test_global_asset_non_media_returns_404(self, tmp_path, monkeypatch, filename):
+        client, pm = _client(monkeypatch, tmp_path)
+        (pm.get_global_assets_root() / "character" / filename).write_bytes(b"content")
+
+        with client:
+            resp = client.get(f"/api/v1/global-assets/character/{filename}")
+        assert resp.status_code == 404
+
+
 # ==================== Source 多格式上传 ====================
 
 import io
@@ -1513,7 +1682,7 @@ class TestSourceMultiFormatUpload:
 
     def test_upload_source_rejects_oversized_upload_by_content_length(self, tmp_path, monkeypatch):
         client, _ = _client(monkeypatch, tmp_path)
-        from lib.source_loader import SourceLoader
+        from lib.script.source_loader import SourceLoader
 
         # We don't actually send 50MB+ of data — instead post a small body with a fake
         # content-length header. Starlette validates content-length vs actual body length
@@ -1631,8 +1800,8 @@ class TestFilesUnexpectedErrorsMapTo500:
 
     def test_upload_style_image_vision_unsupported_maps_to_localized_400(self, tmp_path, monkeypatch):
         """简单档模型不支持 vision 时，400 detail 走 i18n 翻译，不透出裸中文技术消息。"""
+        from lib.backends.text_backends.base import TextTaskType
         from lib.config.resolver import VisionCapabilityError
-        from lib.text_backends.base import TextTaskType
 
         async def _raise_vision_error(*args, **kwargs):
             raise VisionCapabilityError(
@@ -1642,7 +1811,7 @@ class TestFilesUnexpectedErrorsMapTo500:
             )
 
         client, _ = _client(monkeypatch, tmp_path)
-        monkeypatch.setattr("lib.text_generator.create_text_backend_for_task", _raise_vision_error)
+        monkeypatch.setattr("lib.backends.text_generator.create_text_backend_for_task", _raise_vision_error)
         with client:
             resp = client.post(
                 "/api/v1/projects/demo/style-image",
@@ -1663,7 +1832,7 @@ class TestFilesUnexpectedErrorsMapTo500:
             raise ValueError(f"凭证文件 {sentinel} 中未找到 project_id")
 
         client, _ = _client(monkeypatch, tmp_path)
-        monkeypatch.setattr("lib.text_generator.create_text_backend_for_task", _raise_backend_error)
+        monkeypatch.setattr("lib.backends.text_generator.create_text_backend_for_task", _raise_backend_error)
         with client:
             resp = client.post(
                 "/api/v1/projects/demo/style-image",

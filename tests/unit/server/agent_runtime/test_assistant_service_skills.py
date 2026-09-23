@@ -30,7 +30,7 @@ class TestListAvailableSkills:
         with patch.object(AssistantService, "__init__", lambda self, *a, **kw: None):
             service = AssistantService.__new__(AssistantService)
             service.project_root = tmp_path
-            from lib.project_manager import ProjectManager
+            from lib.project.project_manager import ProjectManager
 
             service.pm = ProjectManager(tmp_path / "projects")
 
@@ -45,7 +45,7 @@ class TestListAvailableSkills:
         with patch.object(AssistantService, "__init__", lambda self, *a, **kw: None):
             service = AssistantService.__new__(AssistantService)
             service.project_root = tmp_path
-            from lib.project_manager import ProjectManager
+            from lib.project.project_manager import ProjectManager
 
             service.pm = ProjectManager(tmp_path / "projects")
 
@@ -74,7 +74,7 @@ class TestListAvailableSkills:
         with patch.object(AssistantService, "__init__", lambda self, *a, **kw: None):
             service = AssistantService.__new__(AssistantService)
             service.project_root = tmp_path
-            from lib.project_manager import ProjectManager
+            from lib.project.project_manager import ProjectManager
 
             service.pm = ProjectManager(tmp_path / "projects")
 
@@ -101,7 +101,7 @@ class TestListAvailableSkills:
         monkeypatch.setenv("ARCREEL_PROFILE_DIR", str(profile_root))
         with patch.object(AssistantService, "__init__", lambda self, *a, **kw: None):
             service = AssistantService.__new__(AssistantService)
-            from lib.project_manager import ProjectManager
+            from lib.project.project_manager import ProjectManager
 
             service.pm = ProjectManager(tmp_path / "projects")
 
@@ -126,7 +126,7 @@ class TestListAvailableSkills:
         monkeypatch.setenv("ARCREEL_PROFILE_DIR", str(profile_root))
         with patch.object(AssistantService, "__init__", lambda self, *a, **kw: None):
             service = AssistantService.__new__(AssistantService)
-            from lib.project_manager import ProjectManager
+            from lib.project.project_manager import ProjectManager
 
             service.pm = ProjectManager(tmp_path / "projects")
 
@@ -153,7 +153,7 @@ class TestListAvailableSkills:
         monkeypatch.setenv("ARCREEL_PROFILE_DIR", str(profile_root))
         with patch.object(AssistantService, "__init__", lambda self, *a, **kw: None):
             service = AssistantService.__new__(AssistantService)
-            from lib.project_manager import ProjectManager
+            from lib.project.project_manager import ProjectManager
 
             service.pm = ProjectManager(tmp_path / "projects")
 
@@ -187,7 +187,7 @@ class TestListAvailableSkills:
         with patch.object(AssistantService, "__init__", lambda self, *a, **kw: None):
             service = AssistantService.__new__(AssistantService)
             service.project_root = tmp_path
-            from lib.project_manager import ProjectManager
+            from lib.project.project_manager import ProjectManager
 
             service.pm = ProjectManager(tmp_path / "projects")
 
@@ -216,7 +216,7 @@ user-invocable: true
         monkeypatch.setenv("ARCREEL_PROFILE_DIR", str(profile_root))
         with patch.object(AssistantService, "__init__", lambda self, *a, **kw: None):
             service = AssistantService.__new__(AssistantService)
-            from lib.project_manager import ProjectManager
+            from lib.project.project_manager import ProjectManager
 
             service.pm = ProjectManager(tmp_path / "projects")
 
@@ -252,7 +252,7 @@ user-invocable: true
         monkeypatch.setenv("ARCREEL_PROFILE_DIR", str(profile_root))
         with patch.object(AssistantService, "__init__", lambda self, *a, **kw: None):
             service = AssistantService.__new__(AssistantService)
-            from lib.project_manager import ProjectManager
+            from lib.project.project_manager import ProjectManager
 
             service.pm = ProjectManager(tmp_path / "projects")
 

@@ -163,6 +163,8 @@ MESSAGES = {
     ),
     "arch_non_standard_entry_excluded": "Thư mục/tệp cấp cao không chuẩn '{entry}' không được đưa vào bản xuất",
     "arch_invalid_project_json": "Không phân tích được {file}: {path}",
+    "arch_version_history_malformed": "{location}: cấu trúc lịch sử phiên bản không đúng định dạng mong đợi",
+    "arch_version_snapshot_path_unmanaged": "{location}: đường dẫn ảnh chụp của bản ghi phiên bản nằm ngoài thư mục phiên bản của loại tài nguyên",
     "arch_script_file_repaired": "{location}: đã tự động sửa thành {path}",
     "arch_missing_script_file_pending": "{location}: kịch bản chưa được sinh: {path}",
     "arch_missing_script_file": "{location}: tệp được tham chiếu không tồn tại: {path}",
@@ -238,7 +240,10 @@ MESSAGES = {
     "val_ce_removed_reason_mime_types": (
         "định dạng tư liệu không có danh sách cho phép; nhà cung cấp sẽ từ chối định dạng không nhận"
     ),
-    "val_ce_removed_reason_media_type": "giai đoạn này chỉ có một loại phương tiện là video",
+    "val_ce_removed_reason_media_type": "điểm cuối khai báo luôn là video nên không thể khai báo loại phương tiện",
+    "val_ce_removed_reason_comfyui_capabilities": (
+        "điểm cuối ComfyUI suy ra năng lực từ các liên kết node nên định nghĩa không lưu khai báo năng lực"
+    ),
     "val_ce_malformed_placeholder": (
         "{fragment} không phải là chỗ giữ hợp lệ: chỉ hỗ trợ biến trần "
         "(như prompt hoặc inputs.first_frame) — không có bộ lọc, chỉ số hay biểu thức, "
@@ -263,6 +268,7 @@ MESSAGES = {
     "val_ce_auth_query_conflict": (
         "URL đã mang tham số query {param} trùng với auth.query: chỉ mục auth mới được ghi query xác thực"
     ),
+    "val_ce_auth_query_reserved": "Mục {param} trong auth.query trùng tên với tham số mà bước tải sản phẩm đã mang theo; thông tin xác thực sẽ bị ghi đè khi tải, hãy đổi tên khác",
     "val_ce_task_id_out_of_scope": "task_id chỉ dùng được trong mục poll và result",
     "val_ce_result_id_out_of_scope": "result_id chỉ dùng được trong mục result",
     "val_ce_result_id_without_extract": "Đã tham chiếu result_id nhưng poll.extract không khai báo result_id",
@@ -340,9 +346,116 @@ MESSAGES = {
     "val_ce_enum_map_value_missing": "enum_maps.{name} không có ánh xạ cho '{value}'",
     "val_ce_template_text_variable_null": "Biến {name} rỗng nên không thể chèn vào văn bản",
     "val_ce_each_value_not_list": "$each.in trỏ tới {name}, có giá trị khi chạy không phải danh sách",
+    # ---- Điểm cuối ComfyUI: liên kết node và phân loại khi nhập ----
+    "val_ce_comfyui_binding_required": (
+        "{binding_key} phải được liên kết với một node trước khi lưu: "
+        "câu lệnh quyết định vẽ gì, đầu ra quyết định lấy tệp nào"
+    ),
+    "val_ce_comfyui_binding_key_not_allowed": (
+        "Điểm cuối {media_type} không có ngữ nghĩa {binding_key}; các khóa khả dụng: {allowed}"
+    ),
+    "val_ce_comfyui_node_not_found": (
+        "Workflow không có node {node}: id node thay đổi mỗi khi workflow được chỉnh sửa, "
+        "hãy nhập lại và xác nhận các liên kết node"
+    ),
+    "val_ce_comfyui_input_not_found": "Node {node} không có đầu vào tên {input}",
+    "val_ce_comfyui_input_is_link": (
+        "Đầu vào {input} của node {node} được nối từ node phía trên nên giá trị điền vào sẽ bị ghi đè khi chạy; "
+        "hãy liên kết tới một trường giá trị trực tiếp"
+    ),
+    "val_ce_comfyui_target_collision": (
+        "Đầu vào {input} của node {node} đã là nơi ghi của {owner}, nên {binding_key} không thể ghi vào cùng "
+        "một trường: giá trị được điền sau sẽ ghi đè giá trị điền trước"
+    ),
+    "val_ce_comfyui_class_type_mismatch": (
+        "Mục này ghi node {node} là {class_type}, nhưng trong workflow nó hiện là {actual}: việc khớp lại nhận "
+        "dạng node theo kiểu, sai lệch sẽ chuyển liên kết sang node khác. Hãy nhập lại và xác nhận các liên kết"
+    ),
+    "val_ce_comfyui_consumer_not_fed": (
+        "Luồng từ node ảnh tham chiếu {node} không hề đến đầu vào {input} của node {consumer}: ghi sai node tiêu "
+        "thụ, khi số ảnh giảm đi hệ thống sẽ sửa một đầu vào không liên quan"
+    ),
+    "val_ce_comfyui_fps_conflict": (
+        "Tốc độ khung hình có nhiều nguồn mâu thuẫn ({values}): việc quy đổi thời lượng thành số khung hình chỉ "
+        "dùng được một tốc độ, hãy chỉ giữ lại một nguồn"
+    ),
+    "val_ce_comfyui_ui_format_workflow": (
+        "Đây là workflow định dạng UI của ComfyUI và không thể gửi đi; hãy xuất bằng Export (API) trong ComfyUI"
+    ),
+    # ---- Điểm cuối ComfyUI: tín hiệu suy luận liên kết node và gợi ý ----
+    "val_ce_infer_manual_binding": "Liên kết node đã lưu; giữ nguyên đích mà người dùng đã xác nhận",
+    "val_ce_infer_title_marker": "Tiêu đề node mang dấu ARCREEL:",
+    "val_ce_infer_external_node_family": "Node tham số của {family}, khai báo tham số {parameter}",
+    "val_ce_infer_sampler_port_trace": "Truy ngược từ cổng điều kiện {port} của node {node}",
+    "val_ce_infer_alias_with_class_type": "{class_type} thường mang ngữ nghĩa này",
+    "val_ce_infer_alias_only": "Tên đầu vào {input} là cách gọi phổ biến của ngữ nghĩa này",
+    "val_ce_infer_link_trace": "Đầu ra của nó nối vào đầu vào {input} của node {consumer}",
+    "val_ce_infer_class_type_tier": "{class_type} đáng tin hơn trong các ứng viên cùng loại",
+    "val_ce_infer_output_chain": "Nó nằm trên chuỗi tạo ra sản phẩm cuối",
+    "val_ce_infer_title_polarity": "Tiêu đề node “{title}” chỉ tới cực này",
+    "val_ce_infer_note_reference_consumer_unknown": (
+        "Ảnh tham chiếu nối vào đầu vào {input} của node {node} ({class_type}); đầu vào này không sửa được "
+        "khi số ảnh giảm, nên ảnh cuối sẽ được lặp lại để lấp đầy"
+    ),
+    "val_ce_infer_note_batch_size_above_one": (
+        "Đầu vào {input} của node {node} ({class_type}) là {value}, mỗi lần gửi sẽ ra nhiều ảnh; "
+        "ArcReel không thay đổi giá trị này"
+    ),
+    "val_ce_infer_note_manual_only_node": (
+        "Node {node} là {class_type}; không suy luận được {binding_keys} mà nó mang, hãy liên kết thủ công"
+    ),
+    "val_ce_infer_note_computed_source": (
+        "Ứng viên {binding_key} rơi vào đầu vào {input} của node {node}, nhưng giá trị do node tính toán "
+        "phía trên sinh ra và không ghi được; hãy chỉ định thủ công"
+    ),
+    "val_ce_infer_note_rematched": "Các mục {binding_key} đã được khớp lại sang node {nodes}",
+    "val_ce_infer_note_binding_lost": (
+        "Các mục {binding_key} không còn đích trong workflow mới (trước đây là node {nodes}); "
+        "đã chạy lại suy luận, hãy xác nhận"
+    ),
+    "val_ce_infer_note_target_taken": (
+        "Ứng viên của {binding_key} rơi vào đầu vào {input} của node {node}, mà {others} cũng ghi vào trường "
+        "đó; một trường chỉ mang được một ngữ nghĩa, nên nó đã bị loại khỏi danh sách ứng viên của {binding_key}"
+    ),
     "val_ce_poll_without_task_id": "Yêu cầu hỏi trạng thái không tham chiếu task_id; hãy xác nhận đây là chủ ý",
     "val_ce_jsonpath_wildcard_order": (
         "{path_expression} dùng ký tự đại diện: với đối tượng chỉ lấy thành viên đầu tiên, "
         "và thứ tự khóa có thể khác nhau giữa bản xem trước và phía máy chủ"
     ),
+    # ---- kiểm tra nguồn chợ ----
+    "val_market_index_unreadable": "Không đọc được tệp chỉ mục: {detail}",
+    "val_market_unsupported_schema_version": "Phiên bản định dạng chỉ mục {version} mới hơn phiên bản được hỗ trợ {supported}",
+    "val_market_missing_field": "Thiếu trường bắt buộc: {field}",
+    "val_market_invalid_type": "Sai kiểu; cần {expected}",
+    "val_market_invalid_value": "Giá trị vi phạm ràng buộc {keyword}: {constraint}",
+    "val_market_slug_invalid": (
+        'Slug "{value}" không hợp lệ: chỉ dùng chữ thường, chữ số và dấu gạch nối, '
+        "bắt đầu bằng chữ hoặc số, tối đa 64 ký tự"
+    ),
+    "val_market_slug_duplicate": 'Slug "{slug}" bị trùng trong nguồn chợ này',
+    "val_market_slug_directory_mismatch": 'Slug "{slug}" không khớp với tên thư mục định nghĩa "{directory}"',
+    "val_market_path_not_relative": (
+        '"{value}" phải là đường dẫn tương đối trong nguồn chợ: '
+        "không bắt đầu bằng / hoặc giao thức, không chứa .., không trỏ ra ngoài nguồn"
+    ),
+    "val_market_file_missing": "Tệp được tham chiếu không tồn tại: {value}",
+    "val_market_symlink_not_allowed": (
+        '"{value}" là liên kết tượng trưng: máy khách tải qua GitHub raw chỉ nhận được văn bản đường dẫn đích, '
+        "hãy dùng tệp hoặc thư mục thực"
+    ),
+    "val_market_icon_format_invalid": "Biểu tượng phải là PNG, WebP hoặc SVG đọc được, với phần mở rộng khớp nội dung",
+    "val_market_icon_too_large": "Biểu tượng có {size} byte, vượt giới hạn {limit} byte",
+    "val_market_icon_not_square": "Biểu tượng phải là hình vuông; hiện là {width}×{height}",
+    "val_market_icon_ambiguous": "Mỗi thư mục mục chỉ được có một tệp biểu tượng; tìm thấy: {icons}",
+    "val_market_definition_unreadable": "Không đọc được định nghĩa: {detail}",
+    "val_market_definition_invalid": "Định nghĩa không qua kiểm tra ({code}): {detail}",
+    "val_market_projection_mismatch": (
+        'Trường chỉ mục {field} là "{index_value}", khác với "{definition_value}" trong meta của định nghĩa'
+    ),
+    "val_market_min_app_version_invalid": 'min_app_version "{value}" không phải semver (x.y.z)',
+    "val_market_detail_meta_not_object": "Định nghĩa không có đối tượng meta",
+    "val_market_cli_check_passed": "Kiểm tra nguồn chợ đạt: {directory}",
+    "val_market_cli_check_failed": "Kiểm tra nguồn chợ không đạt: {count} vấn đề",
+    "val_market_cli_generate_written": "Đã ghi {path} ({count} mục)",
+    "val_market_cli_generate_failed": "Không tạo được chỉ mục: {count} vấn đề",
 }

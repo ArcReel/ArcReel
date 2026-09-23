@@ -159,3 +159,17 @@ class TestLoginRouteKillSwitch:
         body = response.json()
         assert body["token_type"] == "bearer"
         assert body["access_token"]
+
+
+class TestWarnIfAuthDisabled:
+    def test_disabled_logs_warning(self, caplog):
+        with patch.dict(os.environ, {"AUTH_ENABLED": "false"}), caplog.at_level("WARNING", logger="server.auth"):
+            auth_module.warn_if_auth_disabled()
+        records = [r for r in caplog.records if r.name == "server.auth" and "AUTH_ENABLED" in r.getMessage()]
+        assert len(records) == 1
+        assert records[0].levelname == "WARNING"
+
+    def test_enabled_logs_nothing(self, caplog):
+        with patch.dict(os.environ, {"AUTH_ENABLED": "true"}), caplog.at_level("DEBUG", logger="server.auth"):
+            auth_module.warn_if_auth_disabled()
+        assert not [r for r in caplog.records if "AUTH_ENABLED" in r.getMessage()]

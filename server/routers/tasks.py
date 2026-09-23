@@ -9,10 +9,11 @@ from typing import Any, cast
 
 from fastapi import APIRouter, Query, Request
 
-from lib.api_errors import BadRequestError, NotFoundError
-from lib.generation_queue import get_generation_queue
-from lib.i18n import Translator
-from lib.task_failure import parse_failure, render_failure
+from lib.db.repositories.task_repo import TaskNotCancellableError
+from lib.generation.generation_queue import get_generation_queue
+from lib.generation.task_failure import parse_failure, render_failure
+from lib.infra.api_errors import BadRequestError, ConflictError, NotFoundError
+from server.i18n import Translator
 
 router = APIRouter()
 
@@ -53,7 +54,7 @@ def _localize_task(task: dict[str, Any], translate: Callable[..., str]) -> dict[
 
     Known structured codes become localized text while their machine ``error_code`` and
     ``error_params`` remain available to API consumers; raw exception text and legacy
-    rows pass through unchanged (see ``lib.task_failure.render_failure``). Generation
+    rows pass through unchanged (see ``lib.generation.task_failure.render_failure``). Generation
     warnings stored as ``result.warnings`` (``{key, params}`` entries written by the
     reference-video pipeline) are rendered in place into a list of strings, mirroring
     how ``error_message`` is rendered. Internal execution checkpoints are stripped at
@@ -146,6 +147,8 @@ async def cancel_preview(task_id: str):
     queue = get_task_queue()
     try:
         preview = await queue.get_cancel_preview(task_id)
+    except TaskNotCancellableError as e:
+        raise ConflictError("task_running_not_cancellable", id=task_id) from e
     except ValueError as e:
         raise BadRequestError("task_not_found", id=task_id) from e
     return preview
@@ -156,6 +159,8 @@ async def cancel_task(task_id: str, _t: Translator):
     queue = get_task_queue()
     try:
         result = await queue.cancel_task(task_id)
+    except TaskNotCancellableError as e:
+        raise ConflictError("task_running_not_cancellable", id=task_id) from e
     except ValueError as e:
         raise BadRequestError("task_not_found", id=task_id) from e
     # 终态任务（含已失败的）原样回给调用方，其 error_message 与列表/详情/SSE 同源，

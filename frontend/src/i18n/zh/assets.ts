@@ -1,6 +1,8 @@
 import type enAssets from '../en/assets';
 
 export default {
+  prompt_preview_title: "资产图提示词 · {{name}}",
+  prompt_preview_draft: "按当前描述草稿渲染，不会保存修改。",
   "type.character": "角色",
   "type.scene": "场景",
   "type.prop": "道具",

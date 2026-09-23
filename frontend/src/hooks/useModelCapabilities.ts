@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { API } from "@/api";
+import { API, ApiRequestError } from "@/api";
 import { isDemoProject } from "@/onboarding/demo-project";
 import { useCapabilitiesStore } from "@/stores/capabilities-store";
 import type { DurationExclusionReason, VideoCapabilities, VoiceConsistencyTier } from "@/types";
@@ -51,6 +51,11 @@ export interface ModelCapabilities {
   /** 全集中被联动约束剔除的时长（键为秒数字符串）→ 成因；未知为空表。 */
   excludedDurations: Record<string, DurationExclusionReason>;
   /**
+   * 档位为空是因为这一维由端点固定（ComfyUI 的 workflow 自己定片长），不是型号声明缺失。
+   * 两者的时长控件都不可用，但说给用户听的不是同一句话。未知时为 false：不谎报。
+   */
+  durationEndpointFixed: boolean;
+  /**
    * 能力实际查自哪个 `provider/model`；未知为 null。
    *
    * 传入的后端可能是裸 provider（服务端补全默认视频模型）或留空跟随全局默认，此时该值取服务端
@@ -62,6 +67,11 @@ export interface ModelCapabilities {
   lastFrame: boolean | null;
   /** 声音一致性三级标识；尚未查到或查询失败时为 null（未知）。 */
   voiceConsistency: VoiceConsistencyTier | null;
+  /**
+   * 服务端明确答复视频模型未配置或无法解析（端点 422）。网络等其他失败不算，仍为 false：
+   * 那只是能力未知，不能据此门控。
+   */
+  videoModelUnresolved: boolean;
   /** 当前上下文的查询在途（含约束上下文变化后的重取）。 */
   loading: boolean;
 }
@@ -111,6 +121,7 @@ export function useModelCapabilities({
     key: string;
     contextKey: string;
     caps: VideoCapabilities | null;
+    unresolved: boolean;
   } | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
@@ -151,12 +162,13 @@ export function useModelCapabilities({
       .then((next) => {
         // 网络 await 之后的写 state 断点：abort 可能发生在响应已 resolve 之后。
         if (signal.aborted) return;
-        setResult({ key, contextKey, caps: next });
+        setResult({ key, contextKey, caps: next, unresolved: false });
       })
-      .catch(() => {
+      .catch((err: unknown) => {
         if (signal.aborted) return;
         // 解析失败按「能力未知」处理：门控由消费方决定如何降级，不在此处编造能力值。
-        setResult({ key, contextKey, caps: null });
+        const unresolved = err instanceof ApiRequestError && err.status === 422;
+        setResult({ key, contextKey, caps: null, unresolved });
       });
     return () => {
       controller.abort();
@@ -175,10 +187,12 @@ export function useModelCapabilities({
     supportedDurations: constraints ? constraints.allowed : null,
     supportedDurationsWithoutReference: constraints ? constraints.allowed_without_reference_images : null,
     excludedDurations: constraints?.excluded ?? EMPTY_EXCLUSIONS,
+    durationEndpointFixed: caps?.duration_endpoint_fixed ?? false,
     resolvedVideoBackend: caps ? `${caps.provider_id}/${caps.model}` : null,
     firstFrame: caps ? caps.first_frame : null,
     lastFrame: caps ? caps.last_frame : null,
     voiceConsistency: caps ? caps.voice_consistency : null,
+    videoModelUnresolved: settled && result.unresolved,
     loading: key !== null && !fresh,
   };
 }

@@ -97,6 +97,21 @@ describe("toggleDefaultReducer", () => {
     expect(result.find((r) => r.key === "c")?.is_default).toBe(true);
   });
 
+  it("treats two image endpoints that declare no capabilities as colliding", () => {
+    // ComfyUI 端点的能力集是空的（能力推导未落地）：两个这样的默认分不开彼此，服务端会拒。
+    // 两边判据不一致，界面就会放行一份存不下的配置。
+    const rows = [
+      { key: "a", endpoint: "ce-1", is_default: true },
+      { key: "b", endpoint: "ce-2", is_default: false },
+    ];
+    const media: Record<string, MediaType> = { "ce-1": "image", "ce-2": "image" };
+
+    const result = toggleDefaultReducer(rows, "b", media, { "ce-1": [], "ce-2": [] });
+
+    expect(result.find((r) => r.key === "a")?.is_default).toBe(false);
+    expect(result.find((r) => r.key === "b")?.is_default).toBe(true);
+  });
+
   it("toggling already-default row turns it off", () => {
     const rows = [{ key: "a", endpoint: "openai-chat", is_default: true }];
     expect(toggleDefaultReducer(rows, "a", ENDPOINT_TO_MEDIA)[0].is_default).toBe(false);

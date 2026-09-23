@@ -109,6 +109,11 @@ const CHAT_ENDPOINT: EndpointDescriptor = {
   request_path_template: "/v1/chat/completions",
   image_capabilities: null,
   end_image_capable: false,
+  size_fixed: false,
+  duration_fixed: false,
+  duration_frame_rate_missing: false,
+  duration_tier_empty: false,
+  native_resolution: null,
 };
 
 function customProvider(id: number, displayName: string): CustomProviderInfo {

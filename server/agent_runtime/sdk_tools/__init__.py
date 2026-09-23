@@ -51,7 +51,6 @@ from server.agent_runtime.sdk_tools.patch_script import (
 from server.agent_runtime.sdk_tools.prompt_preview import get_prompt_preview_tool
 from server.agent_runtime.sdk_tools.rename_asset import rename_asset_tool
 from server.agent_runtime.sdk_tools.retry_project_migration import retry_project_migration_tool
-from server.agent_runtime.sdk_tools.script_plan_conversion import convert_script_plan_tool
 from server.agent_runtime.sdk_tools.text_generation import (
     confirm_script_review_tool,
     discard_draft_tool,
@@ -107,7 +106,6 @@ ARCREEL_MCP_TOOL_IDS: tuple[str, ...] = (
     "generate_episode_script",
     "generate_script_plan",
     "confirm_script_review",
-    "convert_script_plan",
     "open_draft",
     "patch_draft",
     "promote_draft",
@@ -153,7 +151,6 @@ MIGRATION_BLOCKED_TOOL_IDS: frozenset[str] = frozenset(
         "generate_episode_script",
         "generate_script_plan",
         "confirm_script_review",
-        "convert_script_plan",
         "open_draft",
         "patch_draft",
         "promote_draft",
@@ -220,7 +217,6 @@ def build_arcreel_mcp_server(*, project_name: str, projects_root: Path, user_id:
         generate_episode_script_tool(ctx),
         generate_script_plan_tool(ctx),
         confirm_script_review_tool(ctx),
-        convert_script_plan_tool(ctx),
         open_draft_tool(ctx),
         patch_draft_tool(ctx),
         promote_draft_tool(ctx),

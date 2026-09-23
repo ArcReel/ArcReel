@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { API } from "@/api";
-import type { ScriptReviewState } from "@/types";
+import { API, ApiRequestError } from "@/api";
+import type { ScriptOverwrite, ScriptReviewState } from "@/types";
 import { useAppStore } from "@/stores/app-store";
 
 /** 面板可编辑的草稿：`ScriptReviewState.content` 的某个变体。 */
@@ -9,6 +9,27 @@ type ScriptReviewContent = NonNullable<ScriptReviewState["content"]>;
 
 function scriptReviewErrorMessage(err: unknown): string {
   return err instanceof Error ? err.message : "";
+}
+
+/** 确认被拒是因为该集已有正式脚本、未认可覆盖时，取出服务端列出的覆盖后果。 */
+function overwriteFromError(err: unknown): ScriptOverwrite | null {
+  if (!(err instanceof ApiRequestError) || err.status !== 409) return null;
+  const diagnostic = err.diagnostic;
+  if (diagnostic == null || typeof diagnostic !== "object") return null;
+  const overwrite = (diagnostic as { script_overwrite?: unknown }).script_overwrite;
+  return overwrite != null && typeof overwrite === "object" ? (overwrite as ScriptOverwrite) : null;
+}
+
+/** 保存被拒是因为脚本规划已确认、只读。 */
+function isScriptPlanConfirmedError(err: unknown): boolean {
+  if (!(err instanceof ApiRequestError) || err.status !== 409) return false;
+  const diagnostic = err.diagnostic;
+  return diagnostic != null && typeof diagnostic === "object" && (diagnostic as { code?: unknown }).code === "script_plan_confirmed";
+}
+
+/** 已确认、无待修复草稿的脚本规划只读，本地未保存的编辑无处可存，外部刷新时直接采用服务端内容。 */
+function isReadOnly(state: ScriptReviewState): boolean {
+  return state.status === "confirmed" && state.quarantine == null;
 }
 
 /** 内容是否有未保存编辑：以序列化比对，draft 由 server content 克隆而来，键序稳定。 */
@@ -48,7 +69,12 @@ interface ScriptReviewDraftHandle<TDraft extends ScriptReviewContent> {
   busy: boolean;
   retry: () => void;
   save: () => Promise<void>;
-  confirm: () => Promise<void>;
+  /**
+   * 确认并整份转为正式脚本。该集已有正式脚本时须传认可覆盖的 `overwriteRevision`；缺失或已过期而被
+   * 服务端拒绝时，把服务端列出的当前覆盖后果写回 `state.script_overwrite`，面板据此改呈 danger 确认。
+   * 失败已就地处置（toast）、不重抛；返回是否成功，供调用方决定是否收起确认框。
+   */
+  confirm: (options?: { overwriteRevision?: string }) => Promise<boolean>;
 }
 
 /**
@@ -135,9 +161,9 @@ export function useScriptReviewDraft<TDraft extends ScriptReviewContent>({
         if (signal.aborted) return;
         setLoadError(null);
         setState(next);
-        // 外部刷新（挂载 / Agent 改 script_plan 触发的 revision）：用户无未保存编辑时采用服务端内容，
-        // 有编辑则仅更新服务端态、保留用户草稿。dirtyRef 读取在 effect 内安全（非 render 期）。
-        if (!dirtyRef.current) {
+        // 外部刷新（挂载 / Agent 改 script_plan 触发的 revision）：用户无未保存编辑、或内容已确认只读时采用
+        // 服务端内容，否则仅更新服务端态、保留用户草稿。dirtyRef 读取在 effect 内安全（非 render 期）。
+        if (!dirtyRef.current || isReadOnly(next)) {
           setDraft(clone(selectContent(next)));
           setBaseFingerprint(next.fingerprint);
         }
@@ -168,22 +194,30 @@ export function useScriptReviewDraft<TDraft extends ScriptReviewContent>({
       adopt(await API.saveScriptReviewContent(projectName, episode, draft, baseFingerprint));
       pushToast(t("dashboard:review_saved"), "success");
     } catch (err) {
+      // 编辑期间该集已被确认：重新拉取，面板随之转为只读。
+      if (isScriptPlanConfirmedError(err)) setReloadNonce((n) => n + 1);
       pushToast(scriptReviewErrorMessage(err) || t("dashboard:save_failed", { message: "" }), "error");
     } finally {
       setSaving(false);
     }
   }, [draft, baseFingerprint, projectName, episode, adopt, pushToast, t]);
 
-  const confirm = useCallback(async () => {
+  const confirm = useCallback(async (options: { overwriteRevision?: string } = {}): Promise<boolean> => {
     setConfirming(true);
     try {
       if (dirty && draft) {
         adopt(await API.saveScriptReviewContent(projectName, episode, draft, baseFingerprint));
       }
-      adopt(await API.confirmScriptReview(projectName, episode));
+      adopt(await API.confirmScriptReview(projectName, episode, options));
       onConfirmed();
+      return true;
     } catch (err) {
+      const overwrite = overwriteFromError(err);
+      if (overwrite) {
+        setState((prev) => (prev ? { ...prev, script_overwrite: overwrite } : prev));
+      }
       pushToast(scriptReviewErrorMessage(err) || t("dashboard:review_confirm_failed"), "error");
+      return false;
     } finally {
       setConfirming(false);
     }

@@ -1,7 +1,8 @@
 """自定义供应商 backend 的 DB 装载。
 
 查 provider、校验请求的 model（存在 / 启用 / endpoint 推算 media_type 相符），失效则回退该
-media_type 的默认启用 model，最后委托现成 create_custom_backend（ENDPOINT_REGISTRY 不改）。
+media_type × 任务类型桶上唯一的默认启用 model，最后委托现成 create_custom_backend
+（ENDPOINT_REGISTRY 不改）。
 装载落在 lib 让媒体路径与文本工厂共用一份自定义解析，且 lib 不反向依赖 server。
 """
 
@@ -19,6 +20,7 @@ from lib.custom_provider.backends import (
     CustomTextBackend,
     CustomVideoBackend,
 )
+from lib.custom_provider.default_models import resolve_default_model
 from lib.custom_provider.endpoint_resolution import resolve_endpoint_spec
 from lib.custom_provider.factory import create_custom_backend
 from lib.db.models.custom_provider import CustomProviderModel
@@ -36,14 +38,19 @@ async def load_custom_backend(
     provider_id: str,
     model_id: str | None,
     media_type: str,
+    generation_type: str | None = None,
 ) -> CustomTextBackend | CustomImageBackend | CustomVideoBackend | CustomAudioBackend:
     """装载并构造自定义供应商 backend。
 
     media_type 用于校验请求 model 的 endpoint 是否相符、以及回退默认时分组；实际派发以 model.endpoint
     为准。请求 model 不存在 / 已禁用 / 媒体类型不符 → 视为失效并回退该 media_type 的默认启用 model。
 
+    ``generation_type`` 是调用点所属的任务类型桶，只作用于回退：默认模型按桶分槽（image 的 t2i
+    与 i2i 各有一个默认），带桶才挑得出唯一那一行，见 ``lib.custom_provider.default_models``。
+    调用点不承诺桶时传 None、不过滤。
+
     Raises:
-        ValueError: provider 不存在，或该 media_type 无默认启用 model。
+        ValueError: provider 不存在，或该 media_type × 桶上的默认启用 model 不唯一（零个或多个）。
     """
     repo = CustomProviderRepository(session)
     from lib.db.repositories.custom_endpoint_repo import CustomEndpointRepository
@@ -80,9 +87,13 @@ async def load_custom_backend(
             model_id = None
 
     if model is None:
-        default_model = await repo.get_default_model(db_id, media_type)
-        if default_model is None:
-            raise ValueError(f"自定义供应商 {provider_id} 没有默认 {media_type} 模型")
+        default_model = await resolve_default_model(
+            session,
+            provider_id=provider_id,
+            db_id=db_id,
+            media_type=media_type,
+            generation_type=generation_type,
+        )
         model = default_model
         model_id = default_model.model_id
 

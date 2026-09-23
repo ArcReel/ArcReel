@@ -14,20 +14,20 @@ from pydantic import BaseModel
 from lib.config.resolver import ConfigResolver
 from lib.db import async_session_factory
 from lib.db.base import DEFAULT_USER_ID
-from lib.generation_batch import GenerationBatchReadModel
-from lib.generation_queue import GenerationQueue, get_generation_queue
-from lib.generation_result import GenerationBatchResult, migration_problem, render_generation_result
-from lib.narration_delivery import TtsSettingsResolver
-from lib.project_manager import ProjectManager
-from lib.project_migration_failure import MigrationFailureRecord
-from lib.project_migration_guard import project_migration_failure
-from lib.schema_guards import is_str
-from server.services import workflow_planner
-from server.services.video_caps import (
+from lib.generation.generation_batch import GenerationBatchReadModel
+from lib.generation.generation_queue import GenerationQueue, get_generation_queue
+from lib.generation.generation_result import GenerationBatchResult, migration_problem, render_generation_result
+from lib.infra.schema_guards import is_str
+from lib.project.project_manager import ProjectManager
+from lib.project.project_migration_failure import MigrationFailureRecord
+from lib.project.project_migration_guard import project_migration_failure
+from lib.speech.narration_delivery import TtsSettingsResolver
+from server.services.project import workflow_planner
+from server.services.tasks.video_caps import (
     constrained_caps_durations,
     resolve_video_caps,
 )
-from server.services.video_caps import (
+from server.services.tasks.video_caps import (
     reference_unit_duration_tiers as reference_unit_duration_tiers,
 )
 from server.tool_runtime import CallerContext, ProjectScope, Services, ToolOutcome, ToolProblem

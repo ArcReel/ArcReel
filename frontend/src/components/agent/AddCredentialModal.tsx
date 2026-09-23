@@ -77,10 +77,11 @@ export function AddCredentialModal({
         initial?.haiku_model || initial?.sonnet_model || initial?.opus_model || initial?.subagent_model,
       ),
   );
-  // 从自定义供应商导入：列出已配置 api_key 的 providers，选中后填充 baseUrl + apiKey 草稿
+  // 从自定义供应商导入：列出已配置 api_key 的 providers，选中后预填 baseUrl，
+  // 提交时只带供应商 id，密钥由服务端从该供应商复制，前端不经手明文。
   const [providers, setProviders] = useState<CustomProviderInfo[]>([]);
   const [importPickerOpen, setImportPickerOpen] = useState(false);
-  const [importing, setImporting] = useState(false);
+  const [importSource, setImportSource] = useState<CustomProviderInfo | null>(null);
   const importTriggerRef = useRef<HTMLButtonElement>(null);
 
   // 草稿态连接测试：保存前先验 base_url + api_key 是否能真实跑通
@@ -88,7 +89,7 @@ export function AddCredentialModal({
   const [testResult, setTestResult] = useState<TestConnectionResponse | null>(null);
 
   // 异步竞态隔离：modal 重开（或父组件切到另一条凭证）后，旧 session 里
-  // discover/test/import 的 await 仍可能返回并写 state。每次 reset effect 里
+  // discover/test 的 await 仍可能返回并写 state。每次 reset effect 里
   // bump 一次，async 路径在 await 后比对 session id，不一致则丢弃结果。
   const sessionRef = useRef(0);
 
@@ -130,7 +131,7 @@ export function AddCredentialModal({
     setImportPickerOpen(false);
     setDiscovering(false);
     setTesting(false);
-    setImporting(false);
+    setImportSource(null);
     setAdvancedOpen(
       mode === "edit" &&
         Boolean(
@@ -171,6 +172,7 @@ export function AddCredentialModal({
   };
 
   const handlePresetClick = (id: string) => {
+    setImportSource(null);
     form.setPreset(id);
     invalidateDiscoveredModels();
     invalidateDraftTest();
@@ -226,37 +228,27 @@ export function AddCredentialModal({
     }
   };
 
-  const handleImportProvider = async (provider: CustomProviderInfo) => {
-    // 同 session 防重入：popover 内 provider option 没有 disabled，用户可以
-    // 连击或在 inflight 期间点别的 provider；sessionRef 只挡跨 session race，
-    // 挡不住同一 session 内的并发，最后返回的请求会覆盖表单。
-    if (importing) return;
-    const session = sessionRef.current;
-    setImporting(true);
-    // 立即关闭 popover，避免 inflight 期间用户继续看到可点选项
+  const handleImportProvider = (provider: CustomProviderInfo) => {
     setImportPickerOpen(false);
-    try {
-      const cred = await API.getCustomProviderCredentials(provider.id);
-      if (session !== sessionRef.current) return;
-      // 切到 __custom__：避免预设的 messages_url 覆盖刚导入的 base_url
-      form.setPreset(customSentinelId);
-      form.setApiKey(cred.api_key);
-      form.setBaseUrl(cred.base_url);
-      if (!form.displayName.trim()) {
-        form.setDisplayName(provider.display_name);
-      }
-      invalidateDiscoveredModels();
-      invalidateDraftTest();
-      useAppStore
-        .getState()
-        .pushToast(t("import_provider_success", { name: provider.display_name }), "success");
-    } catch (err) {
-      if (session === sessionRef.current) {
-        useAppStore.getState().pushToast(errMsg(err), "error");
-      }
-    } finally {
-      if (session === sessionRef.current) setImporting(false);
+    // 切到 __custom__：避免预设的 messages_url 覆盖导入的 base_url
+    form.setPreset(customSentinelId);
+    form.setApiKey("");
+    form.setBaseUrl(provider.base_url);
+    if (!form.displayName.trim()) {
+      form.setDisplayName(provider.display_name);
     }
+    setImportSource(provider);
+    invalidateDiscoveredModels();
+    invalidateDraftTest();
+    useAppStore
+      .getState()
+      .pushToast(t("import_provider_success", { name: provider.display_name }), "success");
+  };
+
+  const handleManualKeyEntry = () => {
+    setImportSource(null);
+    invalidateDiscoveredModels();
+    invalidateDraftTest();
   };
 
   const handleTest = async () => {
@@ -296,7 +288,20 @@ export function AddCredentialModal({
     setSubmitting(true);
     setSubmitError(null);
     try {
-      await onSubmit(form.buildRequest());
+      const req = form.buildRequest();
+      // 预填地址未改动时不带 base_url，由服务端取供应商提交时的地址；用户改过才作为覆盖提交
+      const baseUrlOverride =
+        importSource && form.baseUrl.trim() !== importSource.base_url ? req.base_url : undefined;
+      await onSubmit(
+        importSource
+          ? {
+              ...req,
+              api_key: undefined,
+              base_url: baseUrlOverride,
+              from_custom_provider_id: importSource.id,
+            }
+          : req,
+      );
       onClose();
     } catch (err) {
       setSubmitError(errMsg(err));
@@ -307,7 +312,7 @@ export function AddCredentialModal({
 
   const submitDisabled =
     submitting ||
-    (mode === "create" && !form.apiKey.trim()) ||
+    (mode === "create" && !form.apiKey.trim() && !importSource) ||
     !form.baseUrl.trim() ||
     baseUrlRejected ||
     (mode === "edit" && !form.isDirty(initial));
@@ -343,15 +348,10 @@ export function AddCredentialModal({
                   ref={importTriggerRef}
                   type="button"
                   onClick={() => setImportPickerOpen((v) => !v)}
-                  disabled={importing}
                   data-testid="import-from-provider"
                   className="inline-flex items-center gap-1.5 rounded-[6px] border border-hairline px-2 py-1 font-mono text-[10px] uppercase tracking-[0.14em] text-text-2 transition hover:border-accent/40 hover:text-accent disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  {importing ? (
-                    <Loader2 className="h-3 w-3 motion-safe:animate-spin" aria-hidden />
-                  ) : (
-                    <Download className="h-3 w-3" aria-hidden />
-                  )}
+                  <Download className="h-3 w-3" aria-hidden />
                   {t("import_from_provider")}
                 </button>
                 <Popover
@@ -367,7 +367,7 @@ export function AddCredentialModal({
                     <button
                       key={p.id}
                       type="button"
-                      onClick={() => void handleImportProvider(p)}
+                      onClick={() => handleImportProvider(p)}
                       data-testid="import-provider-option"
                       className="block w-full truncate px-3 py-2 text-left text-[12px] text-text-2 hover:bg-bg-grad-a/50"
                     >
@@ -465,7 +465,16 @@ export function AddCredentialModal({
             label={t("anthropic_api_key")}
             htmlFor="cred-key"
             trailing={
-              selected?.api_key_url ? (
+              importSource ? (
+                <button
+                  type="button"
+                  onClick={handleManualKeyEntry}
+                  data-testid="api-key-manual-entry"
+                  className="text-[11px] text-accent hover:underline"
+                >
+                  {t("api_key_manual_entry")}
+                </button>
+              ) : selected?.api_key_url ? (
                 <a
                   href={selected.api_key_url}
                   target="_blank"
@@ -487,11 +496,24 @@ export function AddCredentialModal({
                 invalidateDiscoveredModels();
                 invalidateDraftTest();
               }}
+              disabled={importSource !== null}
               autoComplete="off"
               spellCheck={false}
-              placeholder={mode === "edit" ? t("api_key_unchanged_hint") : undefined}
+              placeholder={
+                importSource
+                  ? t("api_key_from_provider_hint", { name: importSource.display_name })
+                  : mode === "edit"
+                    ? t("api_key_unchanged_hint")
+                    : undefined
+              }
+              aria-describedby={importSource ? "cred-key-import-note" : undefined}
               className={INPUT_CLS}
             />
+            {importSource && (
+              <div id="cred-key-import-note" className="mt-1 text-[11px] leading-[1.55] text-text-4">
+                {t("api_key_from_provider_note")}
+              </div>
+            )}
           </Field>
 
           <Field
@@ -501,7 +523,7 @@ export function AddCredentialModal({
               <button
                 type="button"
                 onClick={() => void handleDiscover()}
-                disabled={discovering}
+                disabled={discovering || importSource !== null}
                 className="inline-flex items-center gap-1 font-mono text-[10px] uppercase tracking-[0.14em] text-text-3 transition-colors hover:text-accent-2 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {discovering ? (
@@ -611,7 +633,12 @@ export function AddCredentialModal({
             type="button"
             onClick={() => void handleTest()}
             disabled={
-              testing || submitting || !form.apiKey.trim() || !form.baseUrl.trim() || baseUrlRejected
+              testing ||
+              submitting ||
+              importSource !== null ||
+              !form.apiKey.trim() ||
+              !form.baseUrl.trim() ||
+              baseUrlRejected
             }
             className={GHOST_BTN_CLS}
             data-testid="test-connection"

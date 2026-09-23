@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CharacterDerivativesButton } from "./CharacterDerivativesButton";
 import { API } from "@/api";
+import userEvent from "@testing-library/user-event";
 import { useAppStore } from "@/stores/app-store";
 import { useTasksStore } from "@/stores/tasks-store";
 import { makeTask } from "@/test/factories";
@@ -36,6 +37,25 @@ describe("CharacterDerivativesButton", () => {
 
   afterEach(() => {
     useTasksStore.setState({ tasks: [], optimisticActive: new Set() });
+  });
+
+  it("previews and refreshes a derivative draft inside its popover", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(API, "getCharacterDerivativeSheets").mockResolvedValue({ success: true, derivatives: {} });
+    const preview = vi.spyOn(API, "previewAssetPrompt").mockResolvedValue({
+      text: "保留三视图，换银袍", unavailable: null, is_text_form: true, warnings: [],
+    });
+    renderButton();
+    openPanel();
+    fireEvent.change(screen.getByLabelText("「战斗装」的外观变化"), { target: { value: "换银袍" } });
+    await user.click(screen.getByTitle("资产图提示词 · 阿岚/战斗装"));
+    expect(await screen.findByText("保留三视图，换银袍")).toBeInTheDocument();
+    expect(preview).toHaveBeenCalledWith("demo", "character", "阿岚", "换银袍", {
+      signal: expect.any(AbortSignal), derivativeName: "战斗装",
+    });
+    preview.mockResolvedValue({ text: "重新渲染银袍", unavailable: null, is_text_form: true, warnings: [] });
+    await user.click(screen.getByRole("button", { name: "重新渲染" }));
+    expect(await screen.findByText("重新渲染银袍")).toBeInTheDocument();
   });
 
   it("lists each derivative with its copyable reference tag", () => {

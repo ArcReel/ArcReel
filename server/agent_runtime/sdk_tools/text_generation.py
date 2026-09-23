@@ -8,8 +8,7 @@ from typing import Any
 
 from claude_agent_sdk import tool
 
-from lib.draft_quarantine import OPEN_DRAFT_TOOL_NAME, PROMOTE_TOOL_NAME
-from lib.script_plan_entries import SCOPE_STALE
+from lib.script.draft_quarantine import OPEN_DRAFT_TOOL_NAME, PROMOTE_TOOL_NAME
 from server.draft_workflow import DiscardDraftRequest, DraftLocator, PatchDraftRequest, PromoteDraftRequest
 from server.media_tools.context import (
     MAX_INSTRUCTIONS_LEN,
@@ -17,8 +16,10 @@ from server.media_tools.context import (
     tool_outcome_response,
     tool_services,
 )
+from server.text_generation import SCOPE_REMOVED_MESSAGE
 from server.text_generation import TextGenerationRequest as ToolTextGenerationRequest
 from server.tool_runtime import (
+    ConfirmScriptReviewRequest,
     ToolOutcome,
     ToolProblem,
     ToolRequest,
@@ -213,22 +214,18 @@ def promote_draft_tool(ctx: ToolContext):
 def generate_episode_script_tool(ctx: ToolContext):
     @tool(
         "generate_episode_script",
-        "调用项目配置的文本模型生成 JSON 剧本。已有剧本时默认只重写脚本规划内容已变化的条目，"
-        "其余条目的提示词、备注、尾帧与已生成产物原样保留。dry_run=true 时仅返回 prompt。",
+        "提示词编写：为正式脚本中待编写的分镜 / 视频单元补出视觉层，输入是正式脚本自身的内容，不读脚本规划。"
+        "默认只编写全部待编写条目；entry_ids 显式重写指定条目的视觉层。内容字段、备注、尾帧与已生成产物原样保留。"
+        "ad 项目尚无正式脚本时整份生成。dry_run=true 时仅返回 prompt。",
         {
             "type": "object",
             "properties": {
                 "episode": {"type": "integer", "minimum": 1, "description": "剧集编号"},
                 "instructions": _INSTRUCTIONS_SCHEMA,
-                "scope": {
-                    "type": "string",
-                    "enum": ["stale", "all"],
-                    "description": "重写范围：stale（默认）只重写内容失配与新增的条目；all 整集重写",
-                },
                 "entry_ids": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": "只重写这些条目（分镜 / 单元 id）；给出时即为本次范围，与 scope=all 互斥",
+                    "description": "显式重写这些条目（分镜 / 单元 id）的视觉层，不论是否待编写；省略时编写全部待编写条目",
                 },
                 "dry_run": {"type": "boolean", "description": "仅显示 prompt，不调用模型"},
             },
@@ -236,17 +233,20 @@ def generate_episode_script_tool(ctx: ToolContext):
         },
     )
     async def _handler(args: dict[str, Any]) -> dict[str, Any]:
+        if "scope" in args:
+            return tool_outcome_response(
+                "text_generation", ToolOutcome(problem=ToolProblem("invalid_request", SCOPE_REMOVED_MESSAGE))
+            )
         try:
             request = ToolTextGenerationRequest(
                 episode=int(args["episode"]),
                 instructions=args.get("instructions"),
-                scope=args.get("scope") or SCOPE_STALE,
                 entry_ids=tuple(args.get("entry_ids") or ()),
                 dry_run=bool(args.get("dry_run")),
             )
         except (TypeError, ValueError) as exc:
-            # 参数自相矛盾（如 scope=all 同时点名 entry_ids）是调用方的错，报 invalid_request
-            # 而不是让它冒成 internal_error——后者会引导 Agent 原样重试。
+            # 参数非法是调用方的错，报 invalid_request 而不是让它冒成 internal_error——后者会引导
+            # Agent 原样重试。
             return tool_outcome_response(
                 "text_generation", ToolOutcome(problem=ToolProblem("invalid_request", str(exc)))
             )
@@ -298,16 +298,31 @@ def generate_script_plan_tool(
 def confirm_script_review_tool(ctx: ToolContext):
     @tool(
         "confirm_script_review",
-        "确认本集 script_plan 结构化中间态，放行 prompt_authoring 视觉生成。仅在用户已明确认可进入视觉生成时调用。",
+        "确认本集 script_plan：整份转为正式脚本（全部分镜待编写），放行 prompt_authoring 视觉生成。"
+        "仅在用户已明确认可进入视觉生成时调用。该集已有正式脚本时确认会整份覆盖它，未认可时返回"
+        " script_overwrite_required 与将被移除的分镜清单（params.script_overwrite）；须向用户说明并取得同意后，"
+        "再以清单中的 revision 作为 overwrite_revision 重新确认。",
         {
             "type": "object",
-            "properties": {"episode": {"type": "integer", "description": "剧集编号"}},
+            "properties": {
+                "episode": {"type": "integer", "description": "剧集编号"},
+                "overwrite_revision": {
+                    "type": "string",
+                    "description": "用户已同意覆盖的正式脚本版本，取自 script_overwrite.revision；尚无正式脚本时不必给",
+                },
+            },
             "required": ["episode"],
         },
     )
     async def _handler(args: dict[str, Any]) -> dict[str, Any]:
+        revision = args.get("overwrite_revision")
         outcome = await run_confirm_script_review(
-            ToolRequest(int(args["episode"])),
+            ToolRequest(
+                ConfirmScriptReviewRequest(
+                    episode=int(args["episode"]),
+                    overwrite_revision=revision if isinstance(revision, str) else None,
+                )
+            ),
             ctx.scope,
             ctx.caller,
             tool_services(ctx),

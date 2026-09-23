@@ -188,7 +188,7 @@ wheels = [
 
 [[package]]
 name = "arcreel"
-version = "0.30.0"
+version = "0.31.0"
 source = { editable = "." }
 dependencies = [
     { name = "aiosqlite" },
@@ -405,14 +405,14 @@ wheels = [
 
 [[package]]
 name = "basedpyright"
-version = "1.39.10"
+version = "1.40.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "nodejs-wheel-binaries" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/68/43/ad2999f3b09eb2b1e59931d88fac0f7bcc9c17fc18c903268779bd10cc97/basedpyright-1.39.10.tar.gz", hash = "sha256:c8eaf5302f3265e275c7df4fba194d7afa7c1cb53fbfd448e90098360aca2c2e", size = 24740347, upload-time = "2026-08-13T17:09:02.51Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/b7/86/d305ea4b2d460a5ff906a759323685199177814d9aa729fd38786619d00a/basedpyright-1.40.0.tar.gz", hash = "sha256:baeccd5831b3aeef6e87a3b70f1f1dd7a50175621c74f01f7fdff2c5cb2aeaf6", size = 24738241, upload-time = "2026-09-07T13:49:17.72Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/be/2a/a224054d75a58786c482f63b8ff2a09fc3362268bd1ebd0a61fb3f982153/basedpyright-1.39.10-py3-none-any.whl", hash = "sha256:cbd75d83c0be841329bcfef2d2f1182f152a6d975b8eb199e75cf5b8e9a3de78", size = 13482322, upload-time = "2026-08-13T17:08:59.074Z" },
+    { url = "https://files.pythonhosted.org/packages/2f/ca/59391b4ebb6fb76ba6b35fcbe630d806b1fc50c0ec701e3638a13c6889b3/basedpyright-1.40.0-py3-none-any.whl", hash = "sha256:2c90524a1f745e18d8921a2c98e047e7b2e4c60bb79385ead355574efd623941", size = 13482368, upload-time = "2026-09-07T13:49:14.661Z" },
 ]
 
 [[package]]
@@ -1758,14 +1758,14 @@ wheels = [
 
 [[package]]
 name = "mammoth"
-version = "1.12.1"
+version = "1.12.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "cobble" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/46/92/aca6c4208b3a8e56a788b224e6c9b7bb70fc68e6641124fcf784008338e1/mammoth-1.12.1.tar.gz", hash = "sha256:40521e02568583b671d9976b0fbeed50be734b40f73ca8e1939ab7146bf69bbe", size = 53797, upload-time = "2026-08-09T14:11:20.096Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/d3/bc/0c1108719bc7ad10064ac11fe0c4b663accc1fe7c8a1f6b8c5be6771cb8c/mammoth-1.12.2.tar.gz", hash = "sha256:32c9153105e54c7a9b560e7a35d1923bc27cc1ac292d2b46a929258746cc91bc", size = 53871, upload-time = "2026-09-12T09:15:21.005Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/be/b4/e7907b278386ffec0cf631db93836e02de9a6386add4653a52d7ac6b43ae/mammoth-1.12.1-py2.py3-none-any.whl", hash = "sha256:2af047e3e796faa25740112310ddf11f8de2a24c96dc57de3c87dfd7cb6543b3", size = 55091, upload-time = "2026-08-09T14:11:18.854Z" },
+    { url = "https://files.pythonhosted.org/packages/55/37/a705d2a75337ec2b4e1bf581eac0e469f26d504964ea67870b0f1cfef4a1/mammoth-1.12.2-py2.py3-none-any.whl", hash = "sha256:8a579a28c8361a751e085634e65c9c6489d0319120d1e0448ef9fd09ed29b0fa", size = 55162, upload-time = "2026-09-12T09:15:19.74Z" },
 ]
 
 [[package]]
@@ -2282,11 +2282,11 @@ wheels = [
 
 [[package]]
 name = "portalocker"
-version = "4.3.0"
+version = "4.3.2"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/0d/8e/27672cd2dde9d2345ead0352146a401be4ec0af132be86ca7a2db24afb09/portalocker-4.3.0.tar.gz", hash = "sha256:69bf8e46769d66eb0a23219b9550253d2c3b5f03400202a2333784c1e6395e32", size = 263582, upload-time = "2026-08-25T18:05:20.267Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/ea/7a/6371904c17aba3c455eda47001db923d77ba02a858919424d52f56f1e618/portalocker-4.3.2.tar.gz", hash = "sha256:8de4a1330f55b3c9a1d50ab1b70a765f2f136d6399ae206411117ed98c3b8e2b", size = 302990, upload-time = "2026-09-14T01:01:22.79Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/6a/76/57be9bb352b3f91c80671a7b7ce2cd51f99ad324c89df82a098df9b9e609/portalocker-4.3.0-py3-none-any.whl", hash = "sha256:aa91709ccfc322b8225171392d64a2f9fc833f15f5ab741cfba6d3fba285ce31", size = 129554, upload-time = "2026-08-25T18:05:18.64Z" },
+    { url = "https://files.pythonhosted.org/packages/b8/b6/3ed645ea033d5eb16e42481fc2b4719bd3a4e36b818006f34e14cf938dce/portalocker-4.3.2-py3-none-any.whl", hash = "sha256:42f0362e7343af78b25eb095c0cde300e746a0ab6647a835cc30764918490c93", size = 128984, upload-time = "2026-09-14T01:01:21.376Z" },
 ]
 
 [[package]]
@@ -3392,7 +3392,7 @@ name = "uiautomation"
 version = "2.0.29"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "comtypes", marker = "sys_platform == 'win32'" },
+    { name = "comtypes" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/bc/23/8238b5cb73e54c3618ce4d443c1830a2749264a0d61a9b61637096b8dc7a/uiautomation-2.0.29.tar.gz", hash = "sha256:3c169112043ce21065aead1d79c3baebdafc9cf03bd24ded02b2db11d423d88d", size = 203970, upload-time = "2025-08-05T05:14:41.194Z" }
 wheels = [

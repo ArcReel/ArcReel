@@ -11,8 +11,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from lib.api_errors import BadRequestError
-from lib.artifact_manifest import (
+from lib.artifacts.artifact_manifest import (
     HASH_ALGORITHM,
     MANIFEST_FILENAME,
     MANIFEST_SCHEMA_VERSION,
@@ -25,11 +24,12 @@ from lib.artifact_manifest import (
     ProjectArtifactManifestAdapter,
     compose_video_artifact_basis,
 )
-from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
-from lib.speech_artifact_provenance import build_video_duration_basis
-from lib.version_manager import VersionManager
-from lib.video_artifact_facts import VideoArtifactCurrencyFacts
-from lib.visual_artifact_provenance import build_asset_sheet_visual_basis, build_storyboard_image_visual_basis
+from lib.artifacts.version_manager import VersionManager
+from lib.artifacts.video_artifact_facts import VideoArtifactCurrencyFacts
+from lib.artifacts.visual_artifact_provenance import build_asset_sheet_visual_basis, build_storyboard_image_visual_basis
+from lib.infra.api_errors import BadRequestError
+from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
+from lib.speech.speech_artifact_provenance import build_video_duration_basis
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import versions
@@ -282,7 +282,7 @@ def _typed_video_versions(project_path: Path, resource_type: str, resource_id: s
 
 
 def _typed_audio_project(tmp_path: Path) -> tuple[object, Path, VersionManager]:
-    from lib.project_manager import ProjectManager
+    from lib.project.project_manager import ProjectManager
 
     pm = ProjectManager(tmp_path)
     pm.create_project("demo")
@@ -348,8 +348,8 @@ def _client(monkeypatch, tmp_path):
 
 class TestVersionsRouter:
     def test_storyboard_restore_registers_its_frozen_basis_instead_of_live_inputs(self, tmp_path, monkeypatch):
-        from lib.artifact_activation import ArtifactCurrencyResolver
-        from lib.project_manager import ProjectManager
+        from lib.artifacts.artifact_activation import ArtifactCurrencyResolver
+        from lib.project.project_manager import ProjectManager
 
         pm = ProjectManager(tmp_path)
         pm.create_project("demo")
@@ -423,7 +423,7 @@ class TestVersionsRouter:
         )
 
     def test_unverifiable_image_restore_removes_the_previous_claim(self, tmp_path, monkeypatch):
-        from lib.project_manager import ProjectManager
+        from lib.project.project_manager import ProjectManager
 
         project_path = tmp_path / "demo"
         (project_path / "characters").mkdir(parents=True)
@@ -464,7 +464,7 @@ class TestVersionsRouter:
         assert ProjectArtifactManifestAdapter(project_path).get_entry(key) is None
 
     def test_deleted_asset_restore_does_not_create_an_orphan_claim(self, tmp_path, monkeypatch):
-        from lib.project_manager import ProjectManager
+        from lib.project.project_manager import ProjectManager
 
         project_path = tmp_path / "demo"
         (project_path / "characters").mkdir(parents=True)
@@ -517,7 +517,7 @@ class TestVersionsRouter:
         tmp_path,
         monkeypatch,
     ):
-        from lib.project_manager import ProjectManager
+        from lib.project.project_manager import ProjectManager
 
         project_path = tmp_path / "demo"
         (project_path / "characters").mkdir(parents=True)
@@ -563,7 +563,7 @@ class TestVersionsRouter:
         assert (project_path / "project.json").read_bytes() == project_before
 
     def test_storyboard_restore_duplicate_identity_rolls_back_every_formal_file(self, tmp_path, monkeypatch):
-        from lib.project_manager import ProjectManager
+        from lib.project.project_manager import ProjectManager
 
         project_path = tmp_path / "demo"
         scripts_dir = project_path / "scripts"
@@ -632,7 +632,7 @@ class TestVersionsRouter:
         assert not (project_path / MANIFEST_FILENAME).exists()
 
     def test_storyboard_restore_rollback_holds_script_lock_against_concurrent_edit(self, tmp_path, monkeypatch):
-        from lib.project_manager import ProjectManager
+        from lib.project.project_manager import ProjectManager
 
         pm = ProjectManager(tmp_path)
         pm.create_project("demo")
@@ -917,8 +917,8 @@ class TestVersionsRouter:
     def test_grid_restore_resets_split_state_without_touching_scripts(self, tmp_path, monkeypatch):
         """grids 还原放行：只换回联合图并复位宫格记录的切分态；不同步任何剧本、
         frame_chain 原样保留，分镜图不被触碰。"""
-        from lib.grid.models import GridGeneration
-        from lib.grid_manager import GridManager
+        from lib.script.grid.grid_manager import GridManager
+        from lib.script.grid.models import GridGeneration
 
         grid = GridGeneration.create(
             episode=1,
@@ -1056,8 +1056,8 @@ class TestVersionsRouter:
 
         还原同样会换掉联合图并复位宫格记录，闸门漏在这里就成了改写残留 grid 的绕行路径。
         """
-        from lib.grid.models import GridGeneration
-        from lib.grid_manager import GridManager
+        from lib.script.grid.grid_manager import GridManager
+        from lib.script.grid.models import GridGeneration
 
         grid = GridGeneration.create(
             episode=1,
@@ -1106,8 +1106,8 @@ class TestVersionsRouter:
         """生成在途时还原不把记录复位成 completed：记录一旦谎报空闲，
         切分/上传的在途闸门就会放行，用户可对着即将被 worker 覆写的联合图落格。
         切分态仍无条件作废——联合图内容确已换成历史版本。"""
-        from lib.grid.models import GridGeneration
-        from lib.grid_manager import GridManager
+        from lib.script.grid.grid_manager import GridManager
+        from lib.script.grid.models import GridGeneration
 
         grid = GridGeneration.create(
             episode=1,
@@ -1146,7 +1146,7 @@ class TestVersionsRouter:
 
     def test_reference_video_restore_returns_thumbnail_fingerprint(self, tmp_path, monkeypatch):
         """reference_videos 还原放行：清缩略图并以 fingerprint=0 通知前端失效。"""
-        from lib.project_manager import ProjectManager
+        from lib.project.project_manager import ProjectManager
 
         real_pm = ProjectManager(tmp_path)
         real_pm.create_project("demo")
@@ -1204,7 +1204,7 @@ class TestVersionsRouter:
 
     def test_ad_reference_video_restore_preserves_inert_legacy_source_signature(self, tmp_path, monkeypatch):
         """还原只更新成片元数据；遗留来源签名既不读取版本档案，也不清理或覆盖。"""
-        from lib.project_manager import ProjectManager
+        from lib.project.project_manager import ProjectManager
 
         real_pm = ProjectManager(tmp_path)
         real_pm.create_project("demo")
@@ -1251,7 +1251,7 @@ class TestVersionsRouter:
 
     def test_video_restore_clears_stale_uri_and_thumbnail_metadata(self, tmp_path, monkeypatch):
         """videos 还原同步剧本元数据：还原的是历史本地文件，过期 provider URI 与已删缩略图须清空。"""
-        from lib.project_manager import ProjectManager
+        from lib.project.project_manager import ProjectManager
 
         real_pm = ProjectManager(tmp_path)
         real_pm.create_project("demo")
@@ -1359,7 +1359,7 @@ class TestVersionsRouter:
         return TestClient(app)
 
     def test_storyboard_restore_syncs_scripts_with_error_tolerance(self, tmp_path, monkeypatch):
-        from lib.project_manager import ProjectManager
+        from lib.project.project_manager import ProjectManager
 
         pm = ProjectManager(tmp_path)
         scripts_dir = self._restore_sync_project(
@@ -1391,7 +1391,7 @@ class TestVersionsRouter:
     def test_storyboard_restore_refuses_while_a_sibling_script_is_dirty(self, tmp_path, monkeypatch):
         """跨集同步会跳过脏 sibling，但产物清单认领要按全部剧集绑定取证：
         脏 sibling 让认领无法解析，整个还原按 400 拒绝而不是静默放行。"""
-        from lib.project_manager import ProjectManager
+        from lib.project.project_manager import ProjectManager
 
         pm = ProjectManager(tmp_path)
         scripts_dir = self._restore_sync_project(
@@ -1449,7 +1449,7 @@ class TestVersionsRouter:
             assert resp.status_code == 500
 
     def test_orphaned_storyboard_version_restore_succeeds_without_a_script_binding(self, tmp_path, monkeypatch):
-        from lib.project_manager import ProjectManager
+        from lib.project.project_manager import ProjectManager
 
         pm = ProjectManager(tmp_path)
         pm.create_project("demo")
@@ -1479,7 +1479,7 @@ class TestVersionsRouter:
         assert ProjectArtifactManifestAdapter(project_path).get_entry(key) is None
 
     def test_storyboard_restore_does_not_swallow_script_write_oserror(self, tmp_path, monkeypatch):
-        from lib.project_manager import ProjectManager
+        from lib.project.project_manager import ProjectManager
 
         class _WriteFailPM(ProjectManager):
             fail_writes = False
@@ -1532,7 +1532,7 @@ class TestVersionsRouter:
         """跨集同步 sibling 集遇到 transient IO 错误(OSError)不应让主集 restore 5xx——
         restore 主集已成功,housekeeping 性质的 sibling 同步应降级跳过 + warning。
         """
-        from lib.project_manager import ProjectManager
+        from lib.project.project_manager import ProjectManager
 
         class _TransientIOFailPM(ProjectManager):
             """只在 sibling 集读取边界注入 transient IO failure。"""

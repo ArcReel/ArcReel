@@ -9,8 +9,9 @@ from typing import NoReturn
 
 from fastapi import HTTPException
 
-from lib.i18n import Translator
-from server.services.script_review import ScriptReviewError
+from lib.infra.api_errors import ConflictError, UnprocessableError
+from server.i18n import Translator
+from server.services.project.script_review import ScriptReviewError
 
 # gate 领域错误码 → HTTP 状态。invalid_content / episode_not_found 带参数另行注入。
 _ERROR_STATUS: dict[str, int] = {
@@ -23,6 +24,9 @@ _ERROR_STATUS: dict[str, int] = {
     "speech_admission": 409,
 }
 # 仅无参错误码走本映射；invalid_content / episode_not_found 需注参，在 raise_review_error 单独处理。
+# 只读拒绝（script_plan_confirmed）与确认转换的错误码（overwrite_required / conversion_refused / conversion_conflict /
+# video_model_unresolved / foreign_formal_script）
+# 带诊断或专用状态，同样在 raise_review_error 单独处理。
 _ERROR_I18N: dict[str, str] = {
     "not_applicable": "script_review_not_applicable",
     "no_script_plan": "script_review_no_script_plan",
@@ -33,6 +37,18 @@ _ERROR_I18N: dict[str, str] = {
 
 def raise_review_error(exc: ScriptReviewError, episode: int, _t: Translator) -> NoReturn:
     """把 ``ScriptReviewError`` 抛成对应的 ``HTTPException``；未登记的错误码落 400。"""
+    if exc.code == "overwrite_required":
+        raise ConflictError("script_review_overwrite_required").with_diagnostic({"script_overwrite": exc.overwrite})
+    if exc.code == "conversion_refused":
+        raise UnprocessableError("script_review_conversion_refused").with_diagnostic(exc.message)
+    if exc.code == "video_model_unresolved":
+        raise UnprocessableError("script_review_video_model_unresolved")
+    if exc.code == "foreign_formal_script":
+        raise ConflictError("script_review_foreign_formal_script", episode=episode, filename=exc.script_filename or "")
+    if exc.code == "script_plan_confirmed":
+        raise ConflictError("script_review_script_plan_confirmed").with_diagnostic({"code": exc.code})
+    if exc.code == "conversion_conflict":
+        raise ConflictError("script_conversion_conflict")
     status = _ERROR_STATUS.get(exc.code, 400)
     if exc.code == "speech_admission" and exc.admission is not None:
         detail = exc.admission.to_dict()

@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
 import atexit
+import ipaddress
 import os
 import shutil
+import socket
 import sys
 import tempfile
 import uuid as _uuid
@@ -55,12 +58,10 @@ if not os.environ.get("DATABASE_URL", "").strip() or os.environ.get(_OWNED_DB_MA
     # 与收集期中断都只 import conftest、不跑 fixture。
     atexit.register(_remove_owned_test_db_dir)
 
-import lib.generation_queue as generation_queue_module
+import lib.generation.generation_queue as generation_queue_module
 from lib.db.base import Base
 from server.agent_runtime.session_manager import SessionManager
 from server.agent_runtime.session_store import SessionMetaStore
-
-REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 def _discard_pooled_connections_in_forked_child() -> None:
@@ -100,7 +101,7 @@ def reset_app_data_dir_cache():
     """``app_data_dir()`` uses ``functools.cache`` for production; reset it between
     tests so per-test monkeypatching of ARCREEL_DATA_DIR / AI_ANIME_PROJECTS takes
     effect immediately."""
-    from lib.app_data_dir import reset_for_tests
+    from lib.infra.app_data_dir import reset_for_tests
 
     reset_for_tests()
     yield
@@ -123,6 +124,35 @@ def stub_sandbox_check(monkeypatch, request):
     monkeypatch.setattr("server.app.check_sandbox_available", lambda: True)
 
 
+#: 测试内主机名统一解析到的地址（TEST-NET-3，公网段、不可路由）。
+_OFFLINE_DNS_ADDRESS = "203.0.113.10"
+
+
+@pytest.fixture(autouse=True)
+def offline_dns(monkeypatch):
+    """事件循环的 ``getaddrinfo`` 对主机名一律回 ``_OFFLINE_DNS_ADDRESS``，不发真实 DNS 查询。
+
+    产物下载入口在每次请求前解析目标主机；出站流量由 respx 在 transport 层拦截，解析这一步
+    却会落到本机解析器上。IP 字面量与 ``localhost``（本地数据库、测试服务器）仍走真实解析。
+    """
+    real_getaddrinfo = asyncio.base_events.BaseEventLoop.getaddrinfo
+
+    async def getaddrinfo(self, host, port, *args, **kwargs):
+        if host is None or host == "localhost" or _is_ip_literal(host):
+            return await real_getaddrinfo(self, host, port, *args, **kwargs)
+        return [(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", (_OFFLINE_DNS_ADDRESS, port or 0))]
+
+    monkeypatch.setattr(asyncio.base_events.BaseEventLoop, "getaddrinfo", getaddrinfo)
+
+
+def _is_ip_literal(host: str | bytes) -> bool:
+    try:
+        ipaddress.ip_address(host.decode() if isinstance(host, bytes) else host)
+    except ValueError:
+        return False
+    return True
+
+
 @pytest.fixture(scope="session", autouse=True)
 def profile_env(tmp_path_factory):
     """Provide one minimal runtime profile per pytest worker.
@@ -131,12 +161,6 @@ def profile_env(tmp_path_factory):
     """
     profile_dir = tmp_path_factory.mktemp("agent-runtime-profile")
     (profile_dir / "CLAUDE.md").write_text("", encoding="utf-8")
-    # ``.claude/references/`` 下的规则正文由 prompt builder 在运行时读入，桩 profile 须原样带上，
-    # 否则任何构建 prompt 的测试都会撞 FileNotFoundError。
-    references = profile_dir / ".claude" / "references"
-    references.mkdir(parents=True, exist_ok=True)
-    for rule_file in (REPO_ROOT / "agent_runtime_profile" / ".claude" / "references").glob("*.md"):
-        (references / rule_file.name).write_text(rule_file.read_text(encoding="utf-8"), encoding="utf-8")
 
     previous = os.environ.get("ARCREEL_PROFILE_DIR")
     os.environ["ARCREEL_PROFILE_DIR"] = str(profile_dir)
@@ -224,7 +248,7 @@ def _register_models() -> None:
     不这么做时建表范围取决于被测模块的 import 链，同一 fixture 在不同文件下建出的
     schema 不同。
     """
-    from lib.agent_session_store.models import register_models as register_agent_session_models
+    from lib.agent.agent_session_store.models import register_models as register_agent_session_models
     from lib.db.models import register_models as register_db_models
 
     register_agent_session_models()
@@ -319,6 +343,41 @@ async def file_db_factory(tmp_path: Path) -> AsyncIterator[async_sessionmaker[As
 async def db_factory(db_engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:
     """``db_engine`` 上的 session factory。"""
     return async_sessionmaker(db_engine, expire_on_commit=False)
+
+
+@pytest.fixture
+async def custom_providers_app_session_factory(db_engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:
+    """``custom_providers_app`` 绑定的 session factory；用例也直接用它预置端点与模型行。"""
+    return async_sessionmaker(db_engine, expire_on_commit=False)
+
+
+@pytest.fixture
+def custom_providers_app(custom_providers_app_session_factory):
+    """只挂自定义供应商路由、绑内存库、以管理员身份免鉴权的 FastAPI 应用。
+
+    三个测试文件（协议无关的 CRUD、能力覆盖、ComfyUI 协议）按行为域分文件，共用的是同一个
+    被测应用。import 放在函数体内：根 conftest 由整个测试会话加载，不该为三个文件把 server
+    包拉进每一次收集。
+    """
+    from fastapi import FastAPI
+
+    from lib.db import get_async_session
+    from server.auth import CurrentUserInfo, get_current_user
+    from server.error_handlers import register_error_handlers
+    from server.routers import custom_providers
+    from tests.auth_deps import AUTH_DEPENDENCIES
+
+    app = FastAPI()
+
+    async def _override_session():
+        async with custom_providers_app_session_factory() as db_session:
+            yield db_session
+
+    app.dependency_overrides[get_async_session] = _override_session
+    app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="test", sub="test", role="admin")
+    app.include_router(custom_providers.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
+    register_error_handlers(app)
+    return app
 
 
 @pytest.fixture

@@ -1,11 +1,31 @@
-import { describe, it, expect, vi, afterEach } from "vitest";
+import { describe, it, expect, vi, afterEach, type MockInstance } from "vitest";
 import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
 import { ScriptReviewGate } from "./ScriptReviewGate";
-import { API } from "@/api";
+import { API, ApiRequestError } from "@/api";
 import { useAppStore } from "@/stores/app-store";
-import { useProjectsStore } from "@/stores/projects-store";
 import { useAssistantStore } from "@/stores/assistant-store";
-import type { ScriptReviewState } from "@/types";
+import type { ScriptReviewState, VideoCapabilities } from "@/types";
+
+const VIDEO_CAPS = {
+  provider_id: "gemini",
+  model: "veo-3",
+  supported_durations: [4, 8],
+  max_duration: 8,
+} as VideoCapabilities;
+
+// 等能力请求的回调落地后再断言「无提示」：只等到 spy 被调用时回调尚未执行，「无提示」恒成立。
+async function settleCapabilityRequests(spy: MockInstance<typeof API.getVideoCapabilities>) {
+  await act(async () => {
+    await Promise.allSettled(spy.mock.results.map((r) => r.value));
+  });
+}
+
+// 已确认的集照常已有正式脚本（确认即转出）。
+const CONFIRMED: Partial<ScriptReviewState> = {
+  status: "confirmed",
+  confirmed_at: "2026-06-26T00:00:00Z",
+  script_overwrite: { revision: "sha256-v1:formal", entries: [], storyboard_count: 0, video_count: 0 },
+};
 
 function dramaState(overrides: Partial<ScriptReviewState> = {}): ScriptReviewState {
   return {
@@ -18,7 +38,7 @@ function dramaState(overrides: Partial<ScriptReviewState> = {}): ScriptReviewSta
     supported_durations: null,
     duration_tiers: null,
     episode_target_duration: null,
-    script_entry_currency: null,
+    script_overwrite: null,
     content: {
       title: "第一集",
       scenes: [
@@ -53,7 +73,7 @@ function narrationState(overrides: Partial<ScriptReviewState> = {}): ScriptRevie
     supported_durations: null,
     duration_tiers: null,
     episode_target_duration: null,
-    script_entry_currency: null,
+    script_overwrite: null,
     content: {
       segments: [
         {
@@ -89,17 +109,270 @@ describe("ScriptReviewGate", () => {
     vi.spyOn(API, "getScriptReview").mockResolvedValue(dramaState());
     const confirm = vi
       .spyOn(API, "confirmScriptReview")
-      .mockResolvedValue(dramaState({ status: "confirmed", confirmed_at: "2026-06-26T00:00:00Z" }));
+      .mockResolvedValue(dramaState(CONFIRMED));
 
     render(<ScriptReviewGate projectName="p" episode={1} contentMode="drama" />);
     await waitFor(() => expect(screen.getByText("确认并继续")).toBeInTheDocument());
 
     fireEvent.click(screen.getByText("确认并继续"));
 
-    await waitFor(() => expect(confirm).toHaveBeenCalledWith("p", 1));
+    await waitFor(() => expect(confirm).toHaveBeenCalledWith("p", 1, {}));
     await waitFor(() =>
-      expect(screen.getByText("视觉生成已放行。再次编辑将重新等待确认。")).toBeInTheDocument(),
+      expect(screen.getByText("内容已确认，此处只读。请在时间线上修改；要整集重做，请重跑脚本规划后再确认。")).toBeInTheDocument(),
     );
+    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+  });
+
+  it("renders confirmed drama content without edit controls and offers the timeline", async () => {
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(
+      dramaState(CONFIRMED),
+    );
+    const openTimeline = vi.fn();
+
+    render(<ScriptReviewGate projectName="p" episode={1} contentMode="drama" onOpenTimeline={openTimeline} />);
+
+    expect(await screen.findByText("你终于回来了。")).toBeInTheDocument();
+    expect(screen.getByText("三年后，阿离立于屋檐下：你终于回来了。")).toBeInTheDocument();
+    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "删除发声" })).not.toBeInTheDocument();
+    expect(screen.getByText("内容已确认，此处只读。请在时间线上修改；要整集重做，请重跑脚本规划后再确认。")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "去时间线修改" }));
+    expect(openTimeline).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders confirmed narration text read-only", async () => {
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(
+      narrationState(CONFIRMED),
+    );
+
+    render(<ScriptReviewGate projectName="p" episode={1} contentMode="narration" />);
+
+    expect(await screen.findByText("裴与出征后的第二年。")).toBeInTheDocument();
+    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "去时间线修改" })).not.toBeInTheDocument();
+  });
+
+  it("turns read-only when a save is refused because the episode was confirmed meanwhile", async () => {
+    vi.spyOn(API, "getScriptReview")
+      .mockResolvedValueOnce(dramaState())
+      .mockResolvedValue(dramaState(CONFIRMED));
+    vi.spyOn(API, "saveScriptReviewContent").mockRejectedValue(
+      new ApiRequestError("脚本规划已确认，不能再修改", { code: "script_plan_confirmed" }, 409),
+    );
+
+    render(<ScriptReviewGate projectName="p" episode={1} contentMode="drama" />);
+    fireEvent.change(await screen.findByDisplayValue("你终于回来了。"), { target: { value: "我的本地编辑" } });
+    fireEvent.click(await screen.findByText("修复后保存"));
+
+    await waitFor(() => expect(screen.queryByRole("textbox")).not.toBeInTheDocument());
+    expect(screen.getByText("你终于回来了。")).toBeInTheDocument();
+    expect(screen.queryByText("修复后保存")).not.toBeInTheDocument();
+  });
+
+  it("becomes editable again once a re-run script plan is pending review", async () => {
+    vi.spyOn(API, "getScriptReview")
+      .mockResolvedValueOnce(dramaState(CONFIRMED))
+      .mockResolvedValueOnce(dramaState({ fingerprint: "fp2" }));
+
+    render(<ScriptReviewGate projectName="p" episode={1} contentMode="drama" />);
+    await screen.findByText("你终于回来了。");
+    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+
+    act(() => {
+      useAppStore.getState().invalidateEntities(["draft:episode_1_script_plan"]);
+    });
+
+    expect(await screen.findByDisplayValue("你终于回来了。")).toBeInTheDocument();
+  });
+
+  it("lets a confirmed episode without a formal script confirm again to build it", async () => {
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(dramaState({ ...CONFIRMED, script_overwrite: null }));
+    const confirm = vi.spyOn(API, "confirmScriptReview").mockResolvedValue(dramaState(CONFIRMED));
+
+    render(<ScriptReviewGate projectName="p" episode={1} contentMode="drama" />);
+
+    const button = await screen.findByRole("button", { name: "重新确认并生成正式脚本" });
+    expect(button).toBeEnabled();
+    expect(screen.getByText("内容已确认，但本集还没有正式脚本。重新确认即按脚本规划转出正式脚本。")).toBeInTheDocument();
+    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+
+    fireEvent.click(button);
+
+    await waitFor(() => expect(confirm).toHaveBeenCalledWith("p", 1, {}));
+    expect(await screen.findByRole("button", { name: "已确认" })).toBeDisabled();
+  });
+
+  it("keeps the ordinary confirm button when the episode has no formal script", async () => {
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(dramaState());
+
+    render(<ScriptReviewGate projectName="p" episode={1} contentMode="drama" />);
+
+    const button = await screen.findByRole("button", { name: "确认并继续" });
+    expect(button).not.toHaveAttribute("data-tone");
+    expect(screen.queryByText("确认并覆盖正式脚本")).not.toBeInTheDocument();
+  });
+
+  it("renders a danger confirm that lists the consequences before overwriting a formal script", async () => {
+    const overwrite = {
+      revision: "sha256-v1:listed",
+      entries: [
+        { id: "E1S01", has_storyboard: true, has_video: true },
+        { id: "E1S09", has_storyboard: false, has_video: false },
+      ],
+      storyboard_count: 1,
+      video_count: 1,
+    };
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(dramaState({ script_overwrite: overwrite }));
+    const confirm = vi
+      .spyOn(API, "confirmScriptReview")
+      .mockResolvedValue(dramaState(CONFIRMED));
+
+    render(<ScriptReviewGate projectName="p" episode={1} contentMode="drama" />);
+
+    const button = await screen.findByRole("button", { name: "确认并覆盖正式脚本" });
+    expect(button).toHaveAttribute("data-tone", "danger");
+    expect(screen.getByText("本集已有正式脚本，确认会按脚本规划整份重建它。")).toBeInTheDocument();
+
+    fireEvent.click(button);
+
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog).toHaveTextContent("现有 2 条分镜将被移除");
+    expect(dialog).toHaveTextContent("1 张分镜图、1 段视频随分镜移除");
+    expect(dialog).toHaveTextContent("E1S01");
+    expect(dialog).toHaveTextContent("E1S09");
+    expect(confirm).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "覆盖并确认" }));
+
+    await waitFor(() => expect(confirm).toHaveBeenCalledWith("p", 1, { overwriteRevision: "sha256-v1:listed" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  });
+
+  it("switches to the danger confirm when the server reports an existing formal script", async () => {
+    const overwrite = {
+      revision: "sha256-v1:listed",
+      entries: [{ id: "E1S01", has_storyboard: false, has_video: false }],
+      storyboard_count: 0,
+      video_count: 0,
+    };
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(dramaState());
+    vi.spyOn(API, "confirmScriptReview").mockRejectedValue(
+      new ApiRequestError("本集已有正式脚本", { script_overwrite: overwrite }, 409),
+    );
+
+    render(<ScriptReviewGate projectName="p" episode={1} contentMode="drama" />);
+    fireEvent.click(await screen.findByRole("button", { name: "确认并继续" }));
+
+    const button = await screen.findByRole("button", { name: "确认并覆盖正式脚本" });
+    expect(button).toHaveAttribute("data-tone", "danger");
+  });
+
+  it("keeps the overwrite dialog open with the refreshed list when the formal script changed meanwhile", async () => {
+    const listed = {
+      revision: "sha256-v1:listed",
+      entries: [{ id: "E1S01", has_storyboard: false, has_video: false }],
+      storyboard_count: 0,
+      video_count: 0,
+    };
+    const refreshed = {
+      revision: "sha256-v1:refreshed",
+      entries: [
+        { id: "E1S01", has_storyboard: false, has_video: false },
+        { id: "E1S07", has_storyboard: true, has_video: false },
+      ],
+      storyboard_count: 1,
+      video_count: 0,
+    };
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(dramaState({ script_overwrite: listed }));
+    const confirm = vi
+      .spyOn(API, "confirmScriptReview")
+      .mockRejectedValueOnce(new ApiRequestError("正式脚本已变化", { script_overwrite: refreshed }, 409))
+      .mockResolvedValueOnce(dramaState(CONFIRMED));
+
+    render(<ScriptReviewGate projectName="p" episode={1} contentMode="drama" />);
+    fireEvent.click(await screen.findByRole("button", { name: "确认并覆盖正式脚本" }));
+    fireEvent.click(await screen.findByRole("button", { name: "覆盖并确认" }));
+
+    await waitFor(() => expect(screen.getByRole("dialog")).toHaveTextContent("E1S07"));
+    expect(screen.getByRole("dialog")).toHaveTextContent("1 张分镜图、0 段视频随分镜移除");
+
+    fireEvent.click(screen.getByRole("button", { name: "覆盖并确认" }));
+    await waitFor(() => expect(confirm).toHaveBeenLastCalledWith("p", 1, { overwriteRevision: "sha256-v1:refreshed" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  });
+
+  it("warns and disables confirm when the server reports the video model cannot be resolved", async () => {
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(dramaState());
+    vi.spyOn(API, "getVideoCapabilities").mockRejectedValue(new ApiRequestError("无法解析", undefined, 422));
+
+    render(<ScriptReviewGate projectName="p" episode={1} contentMode="drama" />);
+
+    const notice = await screen.findByRole("alert");
+    expect(notice).toHaveTextContent("尚未配置可用的视频模型");
+    expect(screen.getByRole("link", { name: "前往项目设置" })).toHaveAttribute("href", "/app/projects/p/settings");
+    const button = screen.getByRole("button", { name: "确认并继续" });
+    expect(button).toBeDisabled();
+    expect(button).toHaveAttribute("title", expect.stringContaining("尚未配置可用的视频模型"));
+  });
+
+  it("disables the overwrite confirm too when the video model cannot be resolved", async () => {
+    const overwrite = { revision: "sha256-v1:listed", entries: [], storyboard_count: 0, video_count: 0 };
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(dramaState({ script_overwrite: overwrite }));
+    vi.spyOn(API, "getVideoCapabilities").mockRejectedValue(new ApiRequestError("无法解析", undefined, 422));
+
+    render(<ScriptReviewGate projectName="p" episode={1} contentMode="drama" />);
+
+    await screen.findByRole("alert");
+    expect(screen.getByRole("button", { name: "确认并覆盖正式脚本" })).toBeDisabled();
+  });
+
+  it("disables the in-dialog confirm when the video model turns out unresolvable after the dialog opened", async () => {
+    const overwrite = { revision: "sha256-v1:listed", entries: [], storyboard_count: 0, video_count: 0 };
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(dramaState({ script_overwrite: overwrite }));
+    let rejectCapabilities: (reason: unknown) => void = () => {};
+    vi.spyOn(API, "getVideoCapabilities").mockReturnValue(
+      new Promise<VideoCapabilities>((_resolve, reject) => {
+        rejectCapabilities = reject;
+      }),
+    );
+
+    render(<ScriptReviewGate projectName="p" episode={1} contentMode="drama" />);
+    fireEvent.click(await screen.findByRole("button", { name: "确认并覆盖正式脚本" }));
+    expect(await screen.findByRole("button", { name: "覆盖并确认" })).toBeEnabled();
+
+    await act(async () => {
+      rejectCapabilities(new ApiRequestError("无法解析", undefined, 422));
+    });
+
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "覆盖并确认" })).toBeDisabled();
+  });
+
+  it("shows no video model warning once capabilities resolve", async () => {
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(dramaState());
+    const capabilities = vi.spyOn(API, "getVideoCapabilities").mockResolvedValue(VIDEO_CAPS);
+
+    render(<ScriptReviewGate projectName="p" episode={1} contentMode="drama" />);
+
+    const button = await screen.findByRole("button", { name: "确认并继续" });
+    await waitFor(() => expect(capabilities).toHaveBeenCalled());
+    await settleCapabilityRequests(capabilities);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(button).toBeEnabled();
+  });
+
+  it("keeps confirm available when the capability request itself fails", async () => {
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(dramaState());
+    const capabilities = vi.spyOn(API, "getVideoCapabilities").mockRejectedValue(new TypeError("Failed to fetch"));
+
+    render(<ScriptReviewGate projectName="p" episode={1} contentMode="drama" />);
+
+    const button = await screen.findByRole("button", { name: "确认并继续" });
+    await waitFor(() => expect(capabilities).toHaveBeenCalled());
+    await settleCapabilityRequests(capabilities);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(button).toBeEnabled();
   });
 
   it("edits content, surfaces save, and persists the edited intermediate", async () => {
@@ -335,174 +608,5 @@ describe("ScriptReviewGate", () => {
     await waitFor(() => expect(screen.getByDisplayValue("你终于回来了。")).toBeInTheDocument());
     expect(screen.queryByText("无法加载脚本规划结果")).not.toBeInTheDocument();
     expect(get).toHaveBeenCalledTimes(2);
-  });
-});
-
-describe("ScriptReviewGate 转为正式脚本", () => {
-  afterEach(() => vi.restoreAllMocks());
-
-  function confirmedState() {
-    return dramaState({ status: "confirmed", confirmed_at: "2026-06-26T00:00:00Z" });
-  }
-
-  it("未确认时没有转换入口", async () => {
-    vi.spyOn(API, "getScriptReview").mockResolvedValue(dramaState());
-    render(<ScriptReviewGate projectName="p" episode={1} contentMode="drama" />);
-    await waitFor(() => expect(screen.getByText("确认并继续")).toBeInTheDocument());
-    expect(screen.queryByText("转为正式脚本")).not.toBeInTheDocument();
-  });
-
-  it("首次转换：对话框说明本集尚无正式脚本，「直接转换」调用转换端点并提示回执", async () => {
-    vi.spyOn(API, "getScriptReview").mockResolvedValue(confirmedState());
-    vi.spyOn(API, "previewScriptPlanConversion").mockResolvedValue({
-      episode: 1,
-      has_script: false,
-      added: ["E1S01", "E1S02"],
-      stale: [],
-      removed: [],
-      order_changed: false,
-      title_changed: false,
-    });
-    const convert = vi.spyOn(API, "convertScriptPlan").mockResolvedValue({
-      episode: 1,
-      script_filename: "episode_1.json",
-      added: ["E1S01", "E1S02"],
-      refreshed: [],
-      removed: [],
-    });
-    vi.spyOn(useProjectsStore.getState(), "refreshProject").mockResolvedValue("success");
-
-    render(<ScriptReviewGate projectName="p" episode={1} contentMode="drama" />);
-    fireEvent.click(await screen.findByText("转为正式脚本"));
-
-    expect(await screen.findByText("本集尚无正式脚本，将按脚本规划新建 2 条分镜。")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "直接转换" }));
-
-    await waitFor(() => expect(convert).toHaveBeenCalledWith("p", 1));
-    await waitFor(() =>
-      expect(useAppStore.getState().toast?.text).toBe("已转为正式脚本：新增 2 条、采用新内容 0 条、移出 0 条"),
-    );
-  });
-
-  it("转换成功但项目刷新失败：单独提示刷新页面，不把转换说成失败", async () => {
-    vi.spyOn(API, "getScriptReview").mockResolvedValue(confirmedState());
-    vi.spyOn(API, "previewScriptPlanConversion").mockResolvedValue({
-      episode: 1,
-      has_script: false,
-      added: ["E1S01"],
-      stale: [],
-      removed: [],
-      order_changed: false,
-      title_changed: false,
-    });
-    vi.spyOn(API, "convertScriptPlan").mockResolvedValue({
-      episode: 1,
-      script_filename: "episode_1.json",
-      added: ["E1S01"],
-      refreshed: [],
-      removed: [],
-    });
-    const refreshProject = vi.spyOn(useProjectsStore.getState(), "refreshProject").mockResolvedValue("failed");
-
-    render(<ScriptReviewGate projectName="p" episode={1} contentMode="drama" />);
-    fireEvent.click(await screen.findByText("转为正式脚本"));
-    fireEvent.click(await screen.findByRole("button", { name: "直接转换" }));
-
-    await waitFor(() => expect(refreshProject).toHaveBeenCalledWith("p"));
-    await waitFor(() =>
-      expect(useAppStore.getState().toast).toMatchObject({
-        text: "已转为正式脚本，但页面数据刷新失败，请刷新页面查看最新结果。",
-        tone: "warning",
-      }),
-    );
-  });
-
-  it("已有正式脚本：对话框列出新增 / 失效 / 移出条目数", async () => {
-    vi.spyOn(API, "getScriptReview").mockResolvedValue(confirmedState());
-    vi.spyOn(API, "previewScriptPlanConversion").mockResolvedValue({
-      episode: 1,
-      has_script: true,
-      added: ["E1S03"],
-      stale: ["E1S01", "E1S02"],
-      removed: ["E1S09"],
-      order_changed: false,
-      title_changed: false,
-    });
-
-    render(<ScriptReviewGate projectName="p" episode={1} contentMode="drama" />);
-    fireEvent.click(await screen.findByText("转为正式脚本"));
-
-    expect(await screen.findByText(/新增 1 条、失效 2 条、移出 1 条/)).toBeInTheDocument();
-  });
-
-  it("只调顺序或改标题：三组为空但不算已同步，「直接转换」可用并说明只更新结构", async () => {
-    vi.spyOn(API, "getScriptReview").mockResolvedValue(confirmedState());
-    vi.spyOn(API, "previewScriptPlanConversion").mockResolvedValue({
-      episode: 1,
-      has_script: true,
-      added: [],
-      stale: [],
-      removed: [],
-      order_changed: true,
-      title_changed: false,
-    });
-    const convert = vi.spyOn(API, "convertScriptPlan").mockResolvedValue({
-      episode: 1,
-      script_filename: "episode_1.json",
-      added: [],
-      refreshed: [],
-      removed: [],
-    });
-
-    render(<ScriptReviewGate projectName="p" episode={1} contentMode="drama" />);
-    fireEvent.click(await screen.findByText("转为正式脚本"));
-
-    expect(await screen.findByText(/只调整了条目顺序或标题/)).toBeInTheDocument();
-    const button = screen.getByRole("button", { name: "直接转换" });
-    await waitFor(() => expect(button).toBeEnabled());
-    fireEvent.click(button);
-    await waitFor(() => expect(convert).toHaveBeenCalledWith("p", 1));
-  });
-
-  it("逐条一致且顺序标题都没变：「直接转换」禁用", async () => {
-    vi.spyOn(API, "getScriptReview").mockResolvedValue(confirmedState());
-    vi.spyOn(API, "previewScriptPlanConversion").mockResolvedValue({
-      episode: 1,
-      has_script: true,
-      added: [],
-      stale: [],
-      removed: [],
-      order_changed: false,
-      title_changed: false,
-    });
-
-    render(<ScriptReviewGate projectName="p" episode={1} contentMode="drama" />);
-    fireEvent.click(await screen.findByText("转为正式脚本"));
-
-    expect(await screen.findByText("正式脚本与脚本规划逐条一致，无需转换。")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "直接转换" })).toBeDisabled();
-  });
-
-  it("「让 Agent 生成」预填生成脚本请求并打开助手面板，不调用转换端点", async () => {
-    vi.spyOn(API, "getScriptReview").mockResolvedValue(confirmedState());
-    vi.spyOn(API, "previewScriptPlanConversion").mockResolvedValue({
-      episode: 1,
-      has_script: false,
-      added: ["E1S01"],
-      stale: [],
-      removed: [],
-      order_changed: false,
-      title_changed: false,
-    });
-    const convert = vi.spyOn(API, "convertScriptPlan");
-    useAppStore.getState().setAssistantPanelOpen(false);
-
-    render(<ScriptReviewGate projectName="p" episode={1} contentMode="drama" />);
-    fireEvent.click(await screen.findByText("转为正式脚本"));
-    fireEvent.click(await screen.findByRole("button", { name: "让 Agent 生成" }));
-
-    expect(useAssistantStore.getState().input).toBe("为第 1 集生成脚本");
-    expect(useAppStore.getState().assistantPanelOpen).toBe(true);
-    expect(convert).not.toHaveBeenCalled();
   });
 });

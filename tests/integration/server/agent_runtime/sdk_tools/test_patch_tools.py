@@ -12,10 +12,10 @@ from typing import Any
 
 import pytest
 
-from lib.artifact_manifest import ArtifactKey, ArtifactManifestEntry, ProjectArtifactManifestAdapter
-from lib.project_manager import ProjectManager
-from lib.reference_video.request_projection import unit_reference_declarations
-from lib.script_batch_edit import script_revision
+from lib.artifacts.artifact_manifest import ArtifactKey, ArtifactManifestEntry, ProjectArtifactManifestAdapter
+from lib.project.project_manager import ProjectManager
+from lib.script.reference_video.request_projection import unit_reference_declarations
+from lib.script.script_batch_edit import script_revision
 from server.agent_runtime.sdk_tools.content_read import get_episode_script_tool
 from server.agent_runtime.sdk_tools.patch_episode_meta import patch_episode_meta_tool
 from server.agent_runtime.sdk_tools.patch_project import patch_project_tool
@@ -72,6 +72,9 @@ def _drama_script() -> dict[str, Any]:
         "novel": {"title": "小说", "chapter": "第一章"},
         "scenes": [_scene("E1S01"), _scene("E1S02")],
     }
+
+
+_UNAUTHORED = {"image_prompt": None, "video_prompt": None}
 
 
 def _unit(unit_id: str) -> dict[str, Any]:
@@ -356,7 +359,7 @@ class TestPatchEpisodeScript:
 
     async def test_unbound_scene_mentions_are_reported_as_warnings(self, ctx: ToolContext) -> None:
         """画面描述里的 @[名称] 对不上该分镜引用字段或未登记时，提交成功但带 warnings。"""
-        from lib.storyboard_mentions import WARN_STORYBOARD_MENTION_UNBOUND
+        from lib.script.storyboard_mentions import WARN_STORYBOARD_MENTION_UNBOUND
 
         out = await _patch(
             ctx,
@@ -697,13 +700,126 @@ class TestPatchEpisodeScript:
         assert out.get("is_error") is not True
         assert _load(ad_ctx)["shots"][1]["voiceover_text"] == "新口播"
 
+    @pytest.mark.parametrize(
+        ("fixture", "items_key", "item_id", "fields"),
+        [
+            ("ctx", "segments", "E1S01", {"novel_text": "改后的旁白"}),
+            (
+                "drama_ctx",
+                "scenes",
+                "E1S01",
+                {"utterances": [{"kind": "dialogue", "speaker": "角色A", "text": "走吧。"}], "source_text": "原文锚"},
+            ),
+            ("ref_ctx", "video_units", "E1U1", {"text": "新正文", "source_text": "原文锚"}),
+        ],
+    )
+    async def test_content_fields_are_patchable(
+        self,
+        request: pytest.FixtureRequest,
+        fixture: str,
+        items_key: str,
+        item_id: str,
+        fields: dict[str, Any],
+    ) -> None:
+        """编写完成后的内容修改在正式脚本上做：旁白正文、台词、单元正文与对应原文都可改。"""
+        tool_ctx: ToolContext = request.getfixturevalue(fixture)
+
+        out = await _patch(tool_ctx, [{"op": "update", "id": item_id, "fields": fields}])
+
+        assert out.get("is_error") is not True
+        saved = _load(tool_ctx)[items_key][0]
+        assert {key: saved[key] for key in fields} == fields
+
+    async def test_source_text_must_be_a_verbatim_source_substring(self, drama_ctx: ToolContext) -> None:
+        source = drama_ctx.pm.get_project_path("demo") / "source" / "episode_1.txt"
+        source.parent.mkdir(parents=True, exist_ok=True)
+        source.write_text("夜里，风吹过旷野。\n他停下脚步。", encoding="utf-8")
+        before = _load(drama_ctx)
+
+        rejected = await _patch(
+            drama_ctx, [{"op": "update", "id": "E1S02", "fields": {"source_text": "他缓缓停下脚步。"}}]
+        )
+
+        assert rejected.get("is_error") is True
+        problem = rejected["script_edit"]["problems"][0]
+        assert problem["code"] == "source_text_not_verbatim"
+        assert (problem["operation_index"], problem["unit_id"]) == (0, "E1S02")
+        assert problem["locations"][0]["path"] == ["scenes", 1, "source_text"]
+        assert _load(drama_ctx) == before
+
+        accepted = await _patch(
+            drama_ctx, [{"op": "update", "id": "E1S02", "fields": {"source_text": "风吹过旷野。 他停下脚步。"}}]
+        )
+
+        assert accepted.get("is_error") is not True
+        assert _load(drama_ctx)["scenes"][1]["source_text"] == "风吹过旷野。 他停下脚步。"
+
 
 class TestPatchEpisodeScriptStructuralOperations:
+    @pytest.mark.parametrize(
+        ("fixture", "items_key"), [("ctx", "segments"), ("drama_ctx", "scenes"), ("ad_ctx", "shots")]
+    )
+    async def test_removing_the_last_item_is_rejected_atomically(
+        self, request: pytest.FixtureRequest, fixture: str, items_key: str
+    ) -> None:
+        tool_ctx: ToolContext = request.getfixturevalue(fixture)
+        before = _load(tool_ctx)
+
+        out = await _patch(tool_ctx, [{"op": "remove", "id": "E1S01"}, {"op": "remove", "id": "E1S02"}])
+
+        assert out.get("is_error") is True
+        assert "script_collection_empty" in _text(out)
+        assert _load(tool_ctx) == before
+
+    async def test_removing_one_of_several_items_still_commits(self, ad_ctx: ToolContext) -> None:
+        out = await _patch(ad_ctx, [{"op": "remove", "id": "E1S01"}])
+
+        assert out.get("is_error") is not True, out
+        assert [shot["shot_id"] for shot in _load(ad_ctx)["shots"]] == ["E1S02"]
+
     async def test_insert_adds_at_position(self, ctx: ToolContext) -> None:
         out = await _patch(ctx, [{"op": "insert", "after_id": "E1S01", "item": _segment("IGN")}])
         assert out.get("is_error") is not True
         ids = [s["segment_id"] for s in _load(ctx)["segments"]]
         assert ids == ["E1S01", "E1S01_1", "E1S02"]
+
+    @pytest.mark.parametrize(("prompts", "expected"), [(_UNAUTHORED, True), ({}, False)])
+    async def test_insert_marks_new_entry_pending_authoring_unless_prompts_are_supplied(
+        self, ctx: ToolContext, prompts: dict[str, Any], expected: bool
+    ) -> None:
+        out = await _patch(ctx, [{"op": "insert", "after_id": "E1S01", "item": _segment("IGN") | prompts}])
+
+        assert out.get("is_error") is not True
+        segments = {s["segment_id"]: s for s in _load(ctx)["segments"]}
+        assert segments["E1S01_1"].get("pending_authoring", False) is expected
+        assert "pending_authoring" not in segments["E1S01"]
+
+    async def test_split_marks_parts_without_prompts_pending_authoring(self, ctx: ToolContext) -> None:
+        parts = [_segment("a") | _UNAUTHORED, _segment("b") | _UNAUTHORED, _segment("c")]
+        out = await _patch(ctx, [{"op": "split", "id": "E1S01", "parts": parts}])
+
+        assert out.get("is_error") is not True
+        segments = _load(ctx)["segments"]
+        assert segments[0]["segment_id"] == "E1S01"
+        assert [segment.get("pending_authoring", False) for segment in segments[:3]] == [True, True, False]
+
+    async def test_writing_unit_text_clears_pending_authoring(self, ref_ctx: ToolContext) -> None:
+        with ref_ctx.pm.locked_script("demo", "episode_1.json", validate=False) as script:
+            for unit in script["video_units"]:
+                unit["pending_authoring"] = True
+
+        out = await _patch(
+            ref_ctx,
+            [
+                {"op": "update", "id": "E1U1", "fields": {"text": "推门进屋\n抬头望向窗外"}},
+                {"op": "update", "id": "E1U2", "fields": {"duration_seconds": 8}},
+            ],
+        )
+
+        assert out.get("is_error") is not True, out
+        units = {u["unit_id"]: u for u in _load(ref_ctx)["video_units"]}
+        assert "pending_authoring" not in units["E1U1"]
+        assert units["E1U2"]["pending_authoring"] is True
 
     async def test_insert_mixed_speech_is_structured_and_atomic(self, ctx: ToolContext) -> None:
         before = _load(ctx)

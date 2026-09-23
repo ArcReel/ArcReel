@@ -419,39 +419,94 @@ describe("AddCredentialModal", () => {
       );
     });
 
-    it("populates base_url + api_key from selected provider", async () => {
+    const renderAndImport = async (onSubmit = vi.fn().mockResolvedValue(undefined)) => {
       vi.spyOn(API, "listCustomProviders").mockResolvedValue({
         providers: [sampleProvider],
       });
-      vi.spyOn(API, "getCustomProviderCredentials").mockResolvedValue({
-        api_key: "sk-real-key",
-        base_url: "https://api.deepseek.com/anthropic",
-      });
-
       render(
         <AddCredentialModal
           open
           presets={presets}
           customSentinelId="__custom__"
-          onSubmit={vi.fn()}
+          onSubmit={onSubmit}
           onClose={vi.fn()}
         />,
       );
-
       fireEvent.click(await screen.findByTestId("import-from-provider"));
       fireEvent.click(await screen.findByTestId("import-provider-option"));
+      return onSubmit;
+    };
+
+    const apiKeyInput = () =>
+      screen.getByLabelText(/anthropic[_ ]?api[_ ]?key|Anthropic API 密钥/i) as HTMLInputElement;
+
+    it("prefills base_url and leaves the key to the server", async () => {
+      await renderAndImport();
 
       const baseUrlInput = (await screen.findByLabelText(
         /base[_ ]url|代理地址/i,
       )) as HTMLInputElement;
       await waitFor(() => {
-        expect(baseUrlInput.value).toBe("https://api.deepseek.com/anthropic");
+        expect(baseUrlInput.value).toBe("https://api.deepseek.com");
       });
+      expect(apiKeyInput().value).toBe("");
+      expect(apiKeyInput()).toBeDisabled();
+      expect(apiKeyInput().placeholder).toMatch(/DeepSeek \(Custom\)/);
+    });
 
-      const apiKeyInput = screen.getByLabelText(
-        /anthropic[_ ]?api[_ ]?key|Anthropic API 密钥/i,
-      ) as HTMLInputElement;
-      expect(apiKeyInput.value).toBe("sk-real-key");
+    it("submits the provider id instead of an api_key", async () => {
+      const onSubmit = await renderAndImport();
+
+      const submit = screen.getByRole("button", { name: /^(add|添加)$/i });
+      await waitFor(() => expect(submit).toBeEnabled());
+      fireEvent.click(submit);
+
+      await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+      const payload = onSubmit.mock.calls[0][0];
+      expect(payload.from_custom_provider_id).toBe(42);
+      expect(payload.preset_id).toBe("__custom__");
+      // 预填地址未改动时交给服务端取供应商的当前地址
+      expect(payload.base_url).toBeUndefined();
+      expect(payload.api_key).toBeUndefined();
+    });
+
+    it("submits an edited base_url as an override", async () => {
+      const onSubmit = await renderAndImport();
+
+      const baseUrlInput = (await screen.findByLabelText(
+        /base[_ ]url|代理地址/i,
+      )) as HTMLInputElement;
+      fireEvent.change(baseUrlInput, { target: { value: "https://api.deepseek.com/anthropic" } });
+      const submit = screen.getByRole("button", { name: /^(add|添加)$/i });
+      await waitFor(() => expect(submit).toBeEnabled());
+      fireEvent.click(submit);
+
+      await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+      const payload = onSubmit.mock.calls[0][0];
+      expect(payload.from_custom_provider_id).toBe(42);
+      expect(payload.base_url).toBe("https://api.deepseek.com/anthropic");
+    });
+
+    it("switching back to manual entry submits the typed key without the provider id", async () => {
+      const onSubmit = await renderAndImport();
+
+      fireEvent.click(await screen.findByTestId("api-key-manual-entry"));
+      expect(apiKeyInput()).toBeEnabled();
+      fireEvent.change(apiKeyInput(), { target: { value: "sk-typed" } });
+      fireEvent.click(screen.getByRole("button", { name: /^(add|添加)$/i }));
+
+      await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+      const payload = onSubmit.mock.calls[0][0];
+      expect(payload.api_key).toBe("sk-typed");
+      expect(payload.from_custom_provider_id).toBeUndefined();
+    });
+
+    it("choosing a preset leaves import mode", async () => {
+      await renderAndImport();
+      await waitFor(() => expect(apiKeyInput()).toBeDisabled());
+
+      fireEvent.click(screen.getByRole("button", { name: /DeepSeek/i }));
+      expect(apiKeyInput()).toBeEnabled();
     });
 
     it("does not show import button in edit mode", async () => {

@@ -125,13 +125,33 @@ describe("isRenderableDefinition", () => {
 });
 
 describe("definitionFileName", () => {
-  it("derives an ASCII-safe file name from the endpoint name", () => {
+  function named(name: string) {
     const definition = newEndpointDefinition("Ada");
-    definition.meta.name = "Example Video API";
-    expect(definitionFileName(definition)).toBe("Example-Video-API.json");
+    definition.meta.name = name;
+    return definition;
+  }
+
+  it("derives a lowercase hyphenated slug from the endpoint name", () => {
+    expect(definitionFileName(named("Example Video API"))).toBe("example-video-api.json");
+    expect(definitionFileName(named("  Kling_2.1 -- Pro! "))).toBe("kling-2-1-pro.json");
   });
 
-  it("falls back to a generic name when the endpoint is unnamed", () => {
+  it("strips accents and drops other non-ASCII characters", () => {
+    expect(definitionFileName(named("Vidéo Nhanh"))).toBe("video-nhanh.json");
+    expect(definitionFileName(named("可灵 Kling 视频"))).toBe("kling.json");
+  });
+
+  it("falls back to a generic name when nothing ASCII remains", () => {
+    expect(definitionFileName(named("可灵视频"))).toBe("endpoint.json");
     expect(definitionFileName(newEndpointDefinition("Ada"))).toBe("endpoint.json");
+  });
+
+  it("caps the slug at 64 characters without a trailing hyphen", () => {
+    const fileName = definitionFileName(named(`${"a".repeat(63)} b`));
+    expect(fileName).toBe(`${"a".repeat(63)}.json`);
+  });
+
+  it("uses the market installation slug when the endpoint has one", () => {
+    expect(definitionFileName(named("Demo (tuned)"), "kling-master")).toBe("kling-master.json");
   });
 });

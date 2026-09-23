@@ -24,11 +24,6 @@ describe("taskElapsed", () => {
     expect(taskElapsed(task, NOW)).toEqual({ kind: "running", ms: 60_000 });
   });
 
-  it("取消中任务与执行中同口径", () => {
-    const task = timing({ status: "cancelling", started_at: "2026-01-01T00:09:30" });
-    expect(taskElapsed(task, NOW)).toEqual({ kind: "running", ms: 30_000 });
-  });
-
   it("终态任务给 started_at → finished_at 的总耗时，与 now 无关", () => {
     const task = timing({
       status: "succeeded",

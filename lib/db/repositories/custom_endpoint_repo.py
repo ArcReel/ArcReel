@@ -8,6 +8,7 @@ from sqlalchemy import delete, select
 
 from lib.db.models.custom_endpoint import CustomEndpoint
 from lib.db.models.custom_provider import CustomProvider, CustomProviderModel
+from lib.db.models.market_installation import MarketInstallation
 from lib.db.repositories.base import BaseRepository
 
 
@@ -18,6 +19,18 @@ class EndpointReference(NamedTuple):
     provider_display_name: str
     model_id: str
     model_display_name: str
+
+
+class EndpointAttachment(NamedTuple):
+    """一条引用该调用端点的模型行，连同它所属供应商声明的模型发现协议。
+
+    与 :class:`EndpointReference` 分开：那一条是给用户看的引用清单，这一条是判「端点 × 供应商
+    协议」配对用的事实，多带一个协议字段就得改动 409 响应的公开形状。
+    """
+
+    provider_display_name: str
+    model_id: str
+    discovery_format: str
 
 
 class CustomEndpointRepository(BaseRepository):
@@ -81,10 +94,37 @@ class CustomEndpointRepository(BaseRepository):
         return endpoint
 
     async def delete(self, endpoint_id: int) -> None:
+        """连同安装记录一起删除。
+
+        显式删除安装记录而非依赖 FK CASCADE：级联只在开启 foreign_keys pragma 的连接上生效，
+        残留记录会让同一市场条目再也装不上。
+        """
+        await self.session.execute(
+            delete(MarketInstallation).where(MarketInstallation.custom_endpoint_id == endpoint_id)
+        )
         await self.session.execute(delete(CustomEndpoint).where(CustomEndpoint.id == endpoint_id))
         await self.session.flush()
 
     # ── 引用完整性 ────────────────────────────────────────────────
+
+    async def list_attachments(self, endpoint_key: str) -> list[EndpointAttachment]:
+        """按 ``endpoint`` 键字面量列出引用它的模型行及其供应商协议。
+
+        整份替换定义时用来判断新的容器类型还挂不挂得住：配对规则本身在
+        ``lib.custom_provider.discovery_formats``，本层只取事实。
+        """
+        stmt = (
+            select(
+                CustomProvider.display_name,
+                CustomProviderModel.model_id,
+                CustomProvider.discovery_format,
+            )
+            .join(CustomProvider, CustomProvider.id == CustomProviderModel.provider_id)
+            .where(CustomProviderModel.endpoint == endpoint_key)
+            .order_by(CustomProviderModel.provider_id, CustomProviderModel.id)
+        )
+        result = await self.session.execute(stmt)
+        return [EndpointAttachment(*row) for row in result.all()]
 
     async def list_references(self, endpoint_key: str) -> list[EndpointReference]:
         """按 ``endpoint`` 键字面量列出引用它的模型行，供 409 响应说明「谁还在用」。

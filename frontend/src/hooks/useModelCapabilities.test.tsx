@@ -1,6 +1,6 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { API } from "@/api";
+import { API, ApiRequestError } from "@/api";
 import { durationOutOfRangeReason, useModelCapabilities } from "@/hooks/useModelCapabilities";
 import { DEMO_PROJECT_NAME } from "@/onboarding/demo-project";
 import { useCapabilitiesStore } from "@/stores/capabilities-store";
@@ -220,6 +220,29 @@ describe("useModelCapabilities 无项目上下文", () => {
     expect(result.current.supportedDurations).toBeNull();
     expect(result.current.loading).toBe(false);
     expect(modelSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe("useModelCapabilities 视频模型可解析性", () => {
+  it("服务端答复无法解析（422）时标记未解析", async () => {
+    vi.spyOn(API, "getVideoCapabilities").mockRejectedValue(new ApiRequestError("无法解析", undefined, 422));
+    const { result } = renderHook(() => useModelCapabilities({ projectName: PROJECT }));
+    await waitFor(() => expect(result.current.videoModelUnresolved).toBe(true));
+    expect(result.current.resolvedVideoBackend).toBeNull();
+  });
+
+  it("能力已解析时不标记", async () => {
+    vi.spyOn(API, "getVideoCapabilities").mockResolvedValue(caps());
+    const { result } = renderHook(() => useModelCapabilities({ projectName: PROJECT }));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.videoModelUnresolved).toBe(false);
+  });
+
+  it("网络等其他失败只算能力未知，不标记未解析", async () => {
+    vi.spyOn(API, "getVideoCapabilities").mockRejectedValue(new TypeError("Failed to fetch"));
+    const { result } = renderHook(() => useModelCapabilities({ projectName: PROJECT }));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.videoModelUnresolved).toBe(false);
   });
 });
 

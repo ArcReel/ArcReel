@@ -1,6 +1,14 @@
-import type { CapabilityOverrides, EndpointKey, ImageCap, MediaType, VideoCapabilityFlags } from "@/types";
+import type {
+  CapabilityOverrides,
+  DiscoveryFormat,
+  EndpointDescriptor,
+  EndpointKey,
+  ImageCap,
+  MediaType,
+  VideoCapabilityFlags,
+} from "@/types";
 
-export type DiscoveryFormat = "openai" | "google";
+export type { DiscoveryFormat };
 export type ModelLike = { key: string; endpoint: EndpointKey; is_default: boolean };
 
 /** 价格行标签 —— mediaType 由调用方从 endpoint-catalog-store 读出注入。 */
@@ -16,10 +24,22 @@ export function priceLabel(
   return { input: t("price_per_m_input"), output: t("price_per_m_output") };
 }
 
-/** /models URL 预览。 */
+/** 模型发现协议是否为 ComfyUI。判据只此一处，界面各处不各写一遍字面量比较。 */
+export function isComfyuiProtocol(format: DiscoveryFormat): boolean {
+  return format === "comfyui";
+}
+
+/** 一个调用端点是否为 ComfyUI 端点。与 isComfyuiProtocol 同理：字面量只在这里出现一次。 */
+export function isComfyuiEndpoint(endpoint: Pick<EndpointDescriptor, "kind">): boolean {
+  return endpoint.kind === "comfyui";
+}
+
+/** 连通性检查将打到的 URL 预览。 */
 export function urlPreviewFor(format: DiscoveryFormat, rawBaseUrl: string): string | null {
   const trimmed = rawBaseUrl.trim().replace(/\/+$/, "");
   if (!trimmed) return null;
+  // ComfyUI 没有 /models，探针打的是 /system_stats；预览跟着探针走才有指认价值。
+  if (isComfyuiProtocol(format)) return `${trimmed}/system_stats`;
   if (format === "openai") {
     const base = trimmed.match(/\/v\d+$/) ? trimmed : `${trimmed}/v1`;
     return `${base}/models`;
@@ -64,9 +84,18 @@ export function toggleDefaultReducer<T extends ModelLike>(
     if (!isEnabling) return r;
     if (endpointToMediaType[r.endpoint] !== "image") return r;
     const rowCaps = endpointToImageCaps[r.endpoint] ?? [];
-    const overlap = rowCaps.some((c) => targetCaps.includes(c));
-    return overlap ? { ...r, is_default: false } : r;
+    return imageDefaultsCollide(targetCaps, rowCaps) ? { ...r, is_default: false } : r;
   });
+}
+
+/** 两个 image 默认分不分得开。与后端 `_check_unique_defaults` 同一条判据。
+ *
+ *  能力集为空即「这个端点没声明它能做什么」——ComfyUI 端点在能力推导落地前都是空集。它与任何一个
+ *  image 默认都分不开，因此算冲突：放两个进去，取默认模型时会一次查出两行。两边判据若不一致，界面
+ *  会放行一份保存时才被拒的配置。 */
+function imageDefaultsCollide(a: ImageCap[], b: ImageCap[]): boolean {
+  if (a.length === 0 || b.length === 0) return true;
+  return a.some((c) => b.includes(c));
 }
 
 /** 一行模型占用的「默认槽位」集合：非 image → media_type 自身；image → 各 capability
@@ -80,6 +109,8 @@ function defaultSlotsFor(
   const media = endpointToMediaType[endpoint];
   if (media === undefined) return [];
   if (media !== "image") return [media];
+  // 能力集为空的 image 端点在这里不占槽：只有 ComfyUI 端点会是空集，而该协议没有模型发现，
+  // 这条合并路径走不到它。互斥判据在 toggleDefaultReducer 与服务端两处。
   return (endpointToImageCaps[endpoint] ?? []).map((c) => `image:${c}`);
 }
 

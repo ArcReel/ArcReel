@@ -9,7 +9,6 @@ import {
   ChevronDown,
   Check,
   Loader2,
-  RefreshCw,
   Undo2,
 } from "lucide-react";
 import type { DurationOutOfRangeReason } from "@/hooks/useModelCapabilities";
@@ -27,6 +26,7 @@ import { ImagePromptEditor } from "./ImagePromptEditor";
 import { VideoPromptEditor } from "./VideoPromptEditor";
 import { DialogueListEditor } from "./DialogueListEditor";
 import { UtteranceListEditor } from "./UtteranceListEditor";
+import { SourceTextReadonly } from "@/components/shared/SourceTextReadonly";
 import { ResponsiveDetailGrid } from "./ResponsiveDetailGrid";
 import { MediaCard } from "./MediaCard";
 import { EndFrameRow } from "./EndFrameRow";
@@ -34,9 +34,10 @@ import { NarrationAudioCard } from "./NarrationAudioCard";
 import { NarrationDeliveryChoice } from "@/components/shared/NarrationDeliveryChoice";
 import { ReferenceDurationConfirmDialog } from "../reference/ReferenceDurationConfirmDialog";
 import { NotesDrawer } from "./NotesDrawer";
-import { PromptPreviewPanel } from "./PromptPreviewPanel";
+import { PromptPreviewButton } from "@/components/shared/PromptPreviewButton";
 import { ReferencesSection } from "./ReferencesSection";
 import { StatusBadge, statusFromAssets } from "./StatusBadge";
+import { ShotStructureActions } from "./ShotStructureActions";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { Popover } from "@/components/ui/Popover";
 import { API, NarratedVideoDurationError } from "@/api";
@@ -59,7 +60,7 @@ type DetailContentMode = "narration" | "drama" | "ad";
 
 /** 提示词形态切换与预览按分镜图 / 视频两侧分别作用。 */
 type PromptSide = "image" | "video";
-/** `null` = 待生成：机械转换落盘的条目还没有这一侧提示词。 */
+/** `null` = 待编写：机械转换落盘的条目还没有这一侧提示词。 */
 type ImagePromptValue = ImagePrompt | string | null;
 type VideoPromptValue = VideoPrompt | string | null;
 
@@ -86,6 +87,12 @@ interface ShotDetailProps {
   onMoveShot?: (shotId: string, direction: "earlier" | "later") => void | Promise<void>;
   /** 分镜重排请求在途，移动按钮禁用 */
   movePending?: boolean;
+  /** 在当前分镜之后新增分镜（旁白带正文），resolve 为是否成功；缺省时不渲染入口。 */
+  onInsertShot?: (afterId: string, novelText?: string) => Promise<boolean>;
+  /** 移除当前分镜，resolve 为是否成功；缺省时不渲染入口。 */
+  onRemoveShot?: (itemId: string) => Promise<boolean>;
+  /** 分镜新增 / 移除请求在途，切镜与增删入口禁用 */
+  structurePending?: boolean;
   onGenerateStoryboard?: (segmentId: string) => void;
   onGenerateVideo?: (
     segmentId: string,
@@ -98,12 +105,10 @@ interface ShotDetailProps {
   generatingVideo?: boolean;
   generatingNarration?: boolean;
   durationOptions?: number[];
+  /** 档位为空是因为这一维由端点固定（workflow 自己定片长），不是型号没登记时长。 */
+  durationEndpointFixed?: boolean;
   /** 已保存时长越界的成因判定；缺省时退回不区分成因的通用警告文案。 */
   durationWarningReason?: (seconds: number) => DurationOutOfRangeReason | null;
-  /** 该条目的内容已落后于脚本规划：提示词可能与新内容不符。 */
-  promptsStale?: boolean;
-  /** 按脚本规划采用新内容（提示词保留）；缺省时不渲染入口。 */
-  onAdoptPlanContent?: () => void | Promise<void>;
 }
 
 function getNarrationText(seg: Segment, mode: DetailContentMode): string {
@@ -127,6 +132,8 @@ interface DraftState {
   section?: string;
   /** 仅剧情演绎：分镜级有序发声序列草稿（台词 + 画外音） */
   utterances?: Utterance[];
+  /** 仅旁白/解说：旁白正文草稿 */
+  novel_text?: string;
 }
 
 // 字段集合稳定（ImagePrompt/VideoPrompt/string），JSON.stringify 即可作等值签名：
@@ -148,31 +155,40 @@ const canonicalUtterance = (u: Utterance): Utterance =>
 
 const utterancesSig = (list: Utterance[]): string => stableSig(list.map(canonicalUtterance));
 
+/** 草稿各字段的上游已保存值，连同决定草稿形状的内容类型。 */
+interface UpstreamContent {
+  ip: ImagePromptValue;
+  vp: VideoPromptValue;
+  isAd: boolean;
+  voiceover: string;
+  section: string;
+  isDrama: boolean;
+  utterances: Utterance[];
+  isNarration: boolean;
+  novelText: string;
+}
+
+type DraftShape = Pick<UpstreamContent, "isAd" | "isDrama" | "isNarration">;
+
 /** 由上游值构造干净草稿（useState 初始化 / 上游静默跟随 / 取消编辑三处共用）。 */
-function baselineDraft(
-  ip: ImagePromptValue,
-  vp: VideoPromptValue,
-  isAd: boolean,
-  voiceover: string,
-  section: string,
-  isDrama: boolean,
-  utterances: Utterance[],
-): DraftState {
+function baselineDraft(upstream: UpstreamContent): DraftState {
   return {
-    image_prompt: ip,
-    video_prompt: vp,
-    ...(isAd ? { voiceover_text: voiceover, section } : {}),
-    ...(isDrama ? { utterances } : {}),
+    image_prompt: upstream.ip,
+    video_prompt: upstream.vp,
+    ...(upstream.isAd ? { voiceover_text: upstream.voiceover, section: upstream.section } : {}),
+    ...(upstream.isDrama ? { utterances: upstream.utterances } : {}),
+    ...(upstream.isNarration ? { novel_text: upstream.novelText } : {}),
   };
 }
 
 /** 草稿等值签名：与上游基线签名同键形状（漂移会让"干净草稿静默跟随上游"失效）。 */
-function draftSig(d: DraftState, isAd: boolean, isDrama: boolean): string {
+function draftSig(d: DraftState, shape: DraftShape): string {
   return stableSig({
     ip: d.image_prompt,
     vp: d.video_prompt,
-    ...(isAd ? { voiceover_text: d.voiceover_text ?? "", section: d.section ?? "" } : {}),
-    ...(isDrama ? { utterances: (d.utterances ?? EMPTY_UTTERANCES).map(canonicalUtterance) } : {}),
+    ...(shape.isAd ? { voiceover_text: d.voiceover_text ?? "", section: d.section ?? "" } : {}),
+    ...(shape.isDrama ? { utterances: (d.utterances ?? EMPTY_UTTERANCES).map(canonicalUtterance) } : {}),
+    ...(shape.isNarration ? { novel_text: d.novel_text ?? "" } : {}),
   });
 }
 
@@ -183,6 +199,7 @@ interface DurationPillProps {
   /** 本集剧本文件名；宫格任务按它做 scriptFile 粒度的占用判定。 */
   scriptFile?: string;
   durationOptions: number[];
+  durationEndpointFixed?: boolean;
   durationWarningReason?: ShotDetailProps["durationWarningReason"];
   onUpdatePrompt?: ShotDetailProps["onUpdatePrompt"];
   /** 该分镜有分镜图 / 视频任务在跑；置真时禁止改时长（在跑的任务已捕获旧值，改了两边就不一致）。 */
@@ -195,6 +212,7 @@ function DurationPill({
   projectName,
   scriptFile,
   durationOptions,
+  durationEndpointFixed = false,
   durationWarningReason,
   onUpdatePrompt,
   busy = false,
@@ -313,7 +331,7 @@ function DurationPill({
           busy
             ? t("duration_locked_generating")
             : noOptions
-              ? t("duration_no_options")
+              ? t(durationEndpointFixed ? "duration_not_driven_notice" : "duration_no_options")
               : undefined
         }
         className={`${baseClass} transition-colors disabled:cursor-not-allowed disabled:opacity-60`}
@@ -448,6 +466,9 @@ export function ShotDetail({
   onUpdatePrompt,
   onMoveShot,
   movePending,
+  onInsertShot,
+  onRemoveShot,
+  structurePending,
   onGenerateStoryboard,
   onGenerateVideo,
   onGenerateNarration,
@@ -457,9 +478,8 @@ export function ShotDetail({
   generatingVideo,
   generatingNarration,
   durationOptions = [],
+  durationEndpointFixed,
   durationWarningReason,
-  promptsStale = false,
-  onAdoptPlanContent,
 }: ShotDetailProps) {
   const { t } = useTranslation("dashboard");
   const status = statusFromAssets(segment.generated_assets?.status);
@@ -477,13 +497,27 @@ export function ShotDetail({
   const dramaScene = isDrama ? (segment as DramaScene) : null;
   // drama 分镜级发声序列；缺省字段按无发声处理。
   const upstreamUtterances = dramaScene?.utterances ?? EMPTY_UTTERANCES;
+  const isNarration = contentMode === "narration";
+  const upstreamNovelText = isNarration ? (segment as NarrationSegment).novel_text ?? "" : "";
+  const upstreamContent = useMemo<UpstreamContent>(
+    () => ({
+      ip,
+      vp,
+      isAd,
+      voiceover: upstreamVoiceover,
+      section: upstreamSection,
+      isDrama,
+      utterances: upstreamUtterances,
+      isNarration,
+      novelText: upstreamNovelText,
+    }),
+    [ip, vp, isAd, upstreamVoiceover, upstreamSection, isDrama, upstreamUtterances, isNarration, upstreamNovelText],
+  );
 
   // 草稿：本地编辑直到用户点击 Save。父级 ShotSplitView 通过 key={segmentId}
   // 在切分镜时硬重置整个组件，所以这里只需处理"上游同字段静默更新"的情况。
   // 备注不进入草稿，由 NotesDrawer 收起时直接落库。
-  const [draft, setDraft] = useState<DraftState>(() =>
-    baselineDraft(ip, vp, isAd, upstreamVoiceover, upstreamSection, isDrama, upstreamUtterances),
-  );
+  const [draft, setDraft] = useState<DraftState>(() => baselineDraft(upstreamContent));
   const [saving, setSaving] = useState(false);
   const [uploadingKind, setUploadingKind] = useState<"storyboard" | "video" | null>(null);
   const [endFrameSubmitting, setEndFrameSubmitting] = useState(false);
@@ -557,15 +591,7 @@ export function ShotDetail({
     }
   };
 
-  const upstreamSig = useMemo(
-    () =>
-      draftSig(
-        baselineDraft(ip, vp, isAd, upstreamVoiceover, upstreamSection, isDrama, upstreamUtterances),
-        isAd,
-        isDrama,
-      ),
-    [isAd, ip, vp, upstreamVoiceover, upstreamSection, isDrama, upstreamUtterances],
-  );
+  const upstreamSig = useMemo(() => draftSig(baselineDraft(upstreamContent), upstreamContent), [upstreamContent]);
   // 上游发声序列签名单独记忆化：dirtyPatch 随每次 keystroke 重算，
   // 但上游极少变，避免逐键重复序列化整个 upstreamUtterances。
   const upstreamUtterancesSig = useMemo(() => utterancesSig(upstreamUtterances), [upstreamUtterances]);
@@ -574,8 +600,8 @@ export function ShotDetail({
   // 免去 useEffect 的额外渲染周期与依赖项管理。draft 直接读当前渲染值，无需 ref 镜像。
   const [syncedUpstreamSig, setSyncedUpstreamSig] = useState(upstreamSig);
   if (syncedUpstreamSig !== upstreamSig) {
-    if (draftSig(draft, isAd, isDrama) === syncedUpstreamSig) {
-      setDraft(baselineDraft(ip, vp, isAd, upstreamVoiceover, upstreamSection, isDrama, upstreamUtterances));
+    if (draftSig(draft, upstreamContent) === syncedUpstreamSig) {
+      setDraft(baselineDraft(upstreamContent));
     }
     setSyncedUpstreamSig(upstreamSig);
   }
@@ -583,7 +609,7 @@ export function ShotDetail({
   // 引用相等优先：未编辑过的字段直接跳过 stringify。
   const dirtyPatch = useMemo<Record<string, unknown>>(() => {
     const patch: Record<string, unknown> = {};
-    // 待生成（上游 null）的一侧，空文本不算改动：既没有内容可保存，PATCH 也不接受清空提示词。
+    // 尚无提示词（上游 null）的一侧，空文本不算改动：既没有内容可保存，PATCH 也不接受清空提示词。
     if (
       draft.image_prompt !== ip &&
       stableSig(draft.image_prompt) !== stableSig(ip) &&
@@ -607,8 +633,21 @@ export function ShotDetail({
       if (draftUtterances !== upstreamUtterances && utterancesSig(draftUtterances) !== upstreamUtterancesSig)
         patch.utterances = draftUtterances;
     }
+    if (isNarration && (draft.novel_text ?? "") !== upstreamNovelText) patch.novel_text = draft.novel_text ?? "";
     return patch;
-  }, [draft, ip, vp, isAd, upstreamVoiceover, upstreamSection, isDrama, upstreamUtterances, upstreamUtterancesSig]);
+  }, [
+    draft,
+    ip,
+    vp,
+    isAd,
+    upstreamVoiceover,
+    upstreamSection,
+    isDrama,
+    upstreamUtterances,
+    upstreamUtterancesSig,
+    isNarration,
+    upstreamNovelText,
+  ]);
 
   const dirty = Object.keys(dirtyPatch).length > 0;
 
@@ -742,6 +781,21 @@ export function ShotDetail({
     );
   };
 
+  // 预览读已保存的剧本：与执行期同一渲染出口，草稿脏时由口径说明提示差异。
+  const renderPromptPreview = (side: PromptSide) => {
+    if (!scriptFile) return null;
+    const previewSide = side === "image" ? "storyboard_image" : "video";
+    return (
+      <PromptPreviewButton
+        title={t(side === "image" ? "prompt_preview_title_storyboard_image" : "prompt_preview_title_video")}
+        load={async (signal) =>
+          (await API.previewScriptItemPrompts(projectName, segmentId, scriptFile, { signal }))[previewSide]
+        }
+        notice={dirty ? t("prompt_preview_saved_only_dirty") : t("prompt_preview_saved_only")}
+      />
+    );
+  };
+
   const handleNotesCommit = (value: string) => {
     if (value === note) return;
     void onUpdatePrompt?.(segmentId, "note", value);
@@ -760,7 +814,7 @@ export function ShotDetail({
 
   const handleCancel = () => {
     if (saving) return;
-    setDraft(baselineDraft(ip, vp, isAd, upstreamVoiceover, upstreamSection, isDrama, upstreamUtterances));
+    setDraft(baselineDraft(upstreamContent));
   };
 
   const sbEstimate = segCost?.estimate?.image;
@@ -936,7 +990,36 @@ export function ShotDetail({
         </div>
       )}
 
-      {(hasNarrationText || contentMode === "narration") && (
+      {isNarration && (
+        <div>
+          <div className="mb-2 flex items-center gap-1.5">
+            <label
+              htmlFor={`shot-narration-text-${segmentId}`}
+              className="text-[10.5px] font-bold uppercase"
+              style={sectionHeaderStyle}
+            >
+              {t("detail_section_narration_text")}
+            </label>
+            <span className="flex-1" />
+            <span className="num text-[10px]" style={{ color: "var(--color-text-4)" }}>
+              {t("detail_field_chars_count", { count: (draft.novel_text ?? "").length })}
+            </span>
+          </div>
+          <textarea
+            id={`shot-narration-text-${segmentId}`}
+            className="prompt-ta display-serif"
+            value={draft.novel_text ?? ""}
+            onChange={(e) => setDraft((d) => ({ ...d, novel_text: e.target.value }))}
+            readOnly={refsReadOnly}
+            placeholder={t("detail_narration_text_placeholder")}
+            style={{ minHeight: 120, lineHeight: 1.65 }}
+          />
+        </div>
+      )}
+
+      {isDrama && <SourceTextReadonly text={dramaScene?.source_text} />}
+
+      {isAd && hasNarrationText && (
         <div>
           <div
             className="mb-2 text-[10.5px] font-bold uppercase"
@@ -961,34 +1044,13 @@ export function ShotDetail({
               className="display-serif m-0 text-[13px]"
               style={{ lineHeight: 1.65, color: "var(--color-text)" }}
             >
-              {hasNarrationText ? narrationText.trim() : t("no_original_text")}
+              {narrationText.trim()}
             </p>
           </div>
         </div>
       )}
     </div>
   );
-
-  const [adopting, setAdopting] = useState(false);
-  const handleAdoptPlanContent = async () => {
-    if (!onAdoptPlanContent || adopting) return;
-    setAdopting(true);
-    try {
-      await onAdoptPlanContent();
-    } finally {
-      setAdopting(false);
-    }
-  };
-
-  const renderPendingBadge = (pending: boolean) =>
-    pending ? (
-      <span
-        className="rounded px-1.5 py-px text-[10px] font-semibold"
-        style={{ color: "var(--color-warm)", border: "1px solid var(--color-hairline-soft)" }}
-      >
-        {t("detail_prompt_pending")}
-      </span>
-    ) : null;
 
   const midColumn = (
     <div className="flex h-full min-h-0 flex-col gap-3 overflow-y-auto px-5 pb-7 pt-3.5">
@@ -1003,33 +1065,17 @@ export function ShotDetail({
         {t("detail_section_prompts")}
       </div>
 
-      {promptsStale && (
+      {segment.pending_authoring === true && (
         <div
           role="status"
-          className="flex items-center gap-2 rounded-lg px-3 py-2 text-[11.5px]"
+          className="rounded-lg px-3 py-2 text-[11.5px]"
           style={{
             color: "var(--color-text-2)",
             background: "var(--color-warm-tint-faint)",
             border: "1px solid var(--color-hairline-soft)",
           }}
         >
-          <span className="min-w-0 flex-1">{t("detail_prompts_stale_hint")}</span>
-          {onAdoptPlanContent && (
-            <button
-              type="button"
-              onClick={() => void handleAdoptPlanContent()}
-              disabled={adopting || dirty || refsReadOnly}
-              className="focus-ring inline-flex shrink-0 items-center gap-1 rounded px-2 py-1 text-[11px] font-medium disabled:cursor-not-allowed disabled:opacity-50"
-              style={{ color: "var(--color-accent-2)", border: "1px solid var(--color-accent-soft)" }}
-            >
-              {adopting ? (
-                <Loader2 className="h-3 w-3 motion-safe:animate-spin" />
-              ) : (
-                <RefreshCw className="h-3 w-3" />
-              )}
-              {t("detail_adopt_plan_content")}
-            </button>
-          )}
+          {t("detail_pending_authoring_hint")}
         </div>
       )}
 
@@ -1045,7 +1091,6 @@ export function ShotDetail({
           >
             {t("detail_image_prompt_title")}
           </span>
-          {renderPendingBadge(ip === null)}
           <span className="flex-1" />
           {imgDraft && (
             <span
@@ -1055,6 +1100,7 @@ export function ShotDetail({
               {t("detail_field_chars_count", { count: imgDraft.scene.length })}
             </span>
           )}
+          {renderPromptPreview("image")}
           {renderFormToggle("image", isStructIp)}
         </div>
         {imgDraft ? (
@@ -1069,15 +1115,6 @@ export function ShotDetail({
             readOnly={refsReadOnly}
             placeholder={t("detail_image_prompt_placeholder")}
             style={{ minHeight: 124 }}
-          />
-        )}
-        {scriptFile && (
-          <PromptPreviewPanel
-            projectName={projectName}
-            scriptFile={scriptFile}
-            segmentId={segmentId}
-            side="storyboard_image"
-            dirty={dirty}
           />
         )}
         {renderFormSwitchError("image")}
@@ -1095,7 +1132,6 @@ export function ShotDetail({
           >
             {t("detail_video_prompt_title")}
           </span>
-          {renderPendingBadge(vp === null)}
           <span className="flex-1" />
           {vidDraft && (
             <span
@@ -1105,6 +1141,7 @@ export function ShotDetail({
               {t("detail_field_chars_count", { count: vidDraft.action.length })}
             </span>
           )}
+          {renderPromptPreview("video")}
           {renderFormToggle("video", isStructVp)}
         </div>
         {vidDraft ? (
@@ -1119,15 +1156,6 @@ export function ShotDetail({
             readOnly={refsReadOnly}
             placeholder={t("detail_video_prompt_placeholder")}
             style={{ minHeight: 88 }}
-          />
-        )}
-        {scriptFile && (
-          <PromptPreviewPanel
-            projectName={projectName}
-            scriptFile={scriptFile}
-            segmentId={segmentId}
-            side="video"
-            dirty={dirty}
           />
         )}
         {renderFormSwitchError("video")}
@@ -1167,6 +1195,7 @@ export function ShotDetail({
                 setNarrationDeliverySelection({ delivery: value, narrationText });
               }}
               disabled={generatingVideo || dirty || saving}
+              ttsDurationEndpointFixed={durationEndpointFixed}
               compact
             />
           </div>
@@ -1262,9 +1291,15 @@ export function ShotDetail({
 
   // 重排在途也要锁定切镜：ShotSplitView 在移动完成回调里按当前 selectedIndex 偏移，
   // 在途切换分镜会让偏移作用到新选中项，选中态跳到错误分镜。
-  const navDisabled = dirty || saving || !!movePending;
-  // 禁用原因提示与禁用条件同源：重排在途与未保存修改分别给出对应说明
-  const navDisabledHint = movePending ? t("shot_move_pending") : dirty || saving ? dirtyHint : undefined;
+  const navDisabled = dirty || saving || !!movePending || !!structurePending;
+  // 禁用原因提示与禁用条件同源：重排在途、增删在途与未保存修改分别给出对应说明
+  const navDisabledHint = movePending
+    ? t("shot_move_pending")
+    : structurePending
+      ? t("shot_structure_pending")
+      : dirty || saving
+        ? dirtyHint
+        : undefined;
 
   return (
     <div
@@ -1297,6 +1332,7 @@ export function ShotDetail({
           projectName={projectName}
           scriptFile={scriptFile}
           durationOptions={durationOptions}
+          durationEndpointFixed={durationEndpointFixed}
           durationWarningReason={durationWarningReason}
           onUpdatePrompt={onUpdatePrompt}
           busy={!!generatingStoryboard || !!generatingVideo}
@@ -1338,6 +1374,21 @@ export function ShotDetail({
               </button>
             </>
           )}
+          <ShotStructureActions
+            segmentId={segmentId}
+            contentMode={contentMode}
+            disabled={navDisabled}
+            disabledHint={navDisabledHint}
+            removeBlockedHint={
+              generatingStoryboard || generatingVideo || generatingNarration
+                ? t("shot_remove_blocked_generating")
+                : totalCount <= 1
+                  ? t("shot_remove_blocked_last")
+                  : undefined
+            }
+            onInsert={onInsertShot}
+            onRemove={onRemoveShot}
+          />
           <button
             type="button"
             onClick={onPrev}

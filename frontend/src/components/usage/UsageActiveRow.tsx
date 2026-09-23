@@ -8,7 +8,7 @@ import type { UsageRecordView } from "./usage-record-view";
 
 interface UsageActiveRowProps {
   view: UsageRecordView;
-  /** 有任务代表的行才可取消；无任务的 pending 调用为 null。 */
+  /** 有任务代表的行才可能可取消；无任务的 pending 调用为 null。 */
   task: TaskItem | null;
   /** 供应商 id → 显示名，查不到回退 id。 */
   providerLabel: (provider: string | null) => string;
@@ -19,7 +19,6 @@ interface UsageActiveRowProps {
 const TASK_STATUS_KEYS: Record<TaskItem["status"], string> = {
   running: "generating_status",
   queued: "queued_status",
-  cancelling: "cancelling_status",
   succeeded: "completed_status",
   failed: "failed_status",
   cancelled: "cancelled_status",
@@ -40,7 +39,8 @@ function ProgressPulse() {
 
 /**
  * 进行中区的一行。左栏同时容纳两种来源：任务 store 里项目内进行中的任务，以及没有
- * 任务代表的 pending 调用（剧本生成、助手会话一类）。后者不可取消。
+ * 任务代表的 pending 调用（剧本生成、助手会话一类）。只有排队中的任务可取消：
+ * 已开始执行的任务照常跑完，pending 调用没有任务可取消。
  */
 export function UsageActiveRow({
   view,
@@ -54,7 +54,8 @@ export function UsageActiveRow({
 
   const media = MEDIA_META[view.mediaType];
   const MediaIcon = media.Icon;
-  const running = task?.status === "running" || task?.status === "cancelling";
+  const running = task?.status === "running";
+  const cancellable = task?.status === "queued";
   const purpose = purposeKey(view.purpose);
   const target = view.segmentId
     ? t("usage_target_segment", { id: view.segmentId })
@@ -86,20 +87,14 @@ export function UsageActiveRow({
             <span className="num shrink-0 text-[11px] text-text-3">
               {elapsedSince(view.startedAt, now, t)}
             </span>
-            {task && onCancel && (
+            {task && cancellable && onCancel && (
               <button
                 type="button"
                 disabled={cancelling}
                 onClick={() => onCancel(task.task_id)}
                 className="focus-ring shrink-0 rounded p-0.5 text-text-4 transition-colors hover:text-danger-2 disabled:opacity-60"
                 aria-label={t(cancelling ? "cancelling_status" : "cancel_this_task")}
-                title={
-                  cancelling
-                    ? t("cancelling_status")
-                    : task.status === "running"
-                      ? t("cancel_running_warning")
-                      : t("cancel_task")
-                }
+                title={cancelling ? t("cancelling_status") : t("cancel_task")}
               >
                 {cancelling ? (
                   <Loader2 aria-hidden="true" className="h-3 w-3 animate-spin" />

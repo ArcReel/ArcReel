@@ -12,18 +12,18 @@ from typing import Any
 
 from sqlalchemy import ColumnElement, and_, func, or_, select, update
 
-from lib.call_failure import CallErrorCode
-from lib.cost_calculator import cost_calculator
+from lib.backends.providers import PROVIDER_GEMINI, CallPurpose, CallStatus, CallType
+from lib.billing.call_failure import CallErrorCode
+from lib.billing.cost_calculator import cost_calculator
+from lib.billing.pricing.strategies import PricingParams
+from lib.billing.usage_summary import UsageFilterOptions, UsageSummaryRow
 from lib.custom_provider import is_custom_provider, parse_provider_id
 from lib.db.base import DEFAULT_USER_ID, utc_now
 from lib.db.models.api_call import ApiCall
 from lib.db.models.task import Task
 from lib.db.repositories.base import BaseRepository, rowcount
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository
-from lib.pricing.strategies import PricingParams
-from lib.providers import PROVIDER_GEMINI, CallPurpose, CallStatus, CallType
-from lib.task_terminal_events import TERMINAL_TASK_STATUSES
-from lib.usage_summary import UsageFilterOptions, UsageSummaryRow
+from lib.generation.task_terminal_events import TERMINAL_TASK_STATUSES
 
 # 计费时长合理上限（24 小时），语义单点定义：repo 写入层是全部 backend 落账的最后防线，
 # 超出上限的计费时长视同未提供、回落请求时长，防超大数值写入 DB Integer 列溢出；
@@ -146,7 +146,7 @@ def _interrupted_target(task_id: str | None, task_statuses: dict[str, str]) -> t
     - ``task_id`` 查不到任务行：任务已被清理，调用同样无人接续，与上一条同处理。
     - 任务已终态：按任务的结局翻（cancelled → cancelled，succeeded / failed → failed）。
       成功任务也翻 failed —— 调用没走完结算就是没记成账，把它记成 success 会凭空补一笔费用。
-    - 任务未终态（queued / running / cancelling）：还活着，它自己的结算路径会收尾。
+    - 任务未终态（queued / running）：还活着，它自己的结算路径会收尾。
     """
     if not task_id:
         return CallStatus.FAILED, CallErrorCode.INTERRUPTED
@@ -177,7 +177,7 @@ class UsageRepository(BaseRepository):
         resolution: str | None = None,
         duration_seconds: int | None = None,
         aspect_ratio: str | None = None,
-        generate_audio: bool = True,
+        generate_audio: bool | None = None,
         provider: str = PROVIDER_GEMINI,
         user_id: str = DEFAULT_USER_ID,
         segment_id: str | None = None,
@@ -666,7 +666,7 @@ class UsageRepository(BaseRepository):
         return _record_detail_to_dict(row[0], row[1]) if row is not None else None
 
     # --- 汇总读接口（GET /usage/summary）------------------------------------------------
-    # 只取行，不在 SQL 里聚合：切天与桶填充交给 lib/usage_summary.py，回避 SQLite 与
+    # 只取行，不在 SQL 里聚合：切天与桶填充交给 lib/billing/usage_summary.py，回避 SQLite 与
     # PostgreSQL 的日期函数差异，也让时区与异常判定的边界能脱离数据库单独驱动。
 
     async def _provider_display_names(self, provider_ids: set[str]) -> dict[str, str]:

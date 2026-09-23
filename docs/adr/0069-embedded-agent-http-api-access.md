@@ -21,9 +21,10 @@ token 为空。专用 token 名称保留给 sandbox 内 skill 脚本读取，其
 ArcReel API 必须经 loopback。
 
 此选择在两个方向上扩大信任边界。其一，供应商文档中的 prompt injection 或被接管的 Agent 可在 token
-有效期内把它外传到任意域名，也可调用该管理员会话 JWT 能访问的全部 ArcReel API——其中包括明文返回
-`api_key` 的自定义供应商凭证端点，因此 Bash 子进程的 secret-like 环境变量剥离对拿到 token 的 Agent
-不再构成实际屏障。JWT 无状态，签发后无法提前吊销：唯一的作废手段是轮换 `AUTH_TOKEN_SECRET`，代价
+有效期内把它外传到任意域名，也可调用该管理员会话 JWT 能访问的全部 ArcReel API——包括供应商与
+Agent 凭证的配置接口（响应中的密钥均为掩码），因此 Bash 子进程的 secret-like 环境变量剥离只对进程
+环境隐藏密钥值，不限制拿到 token 的 Agent 经 API 使用已存凭证。
+JWT 无状态，签发后无法提前吊销：唯一的作废手段是轮换 `AUTH_TOKEN_SECRET`，代价
 是同时踢掉全部网页会话。15 分钟时效只缩短窗口，不降低权限；它同时是单次会话内 API 调用的可用
 窗口——token 不续期，认证开启时会话超过 15 分钟后 skill 脚本的 API 调用将以 401 失败，需重开
 会话获取新 token。其二，`allowLocalBinding` 暴露的是整台

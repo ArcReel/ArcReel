@@ -1,8 +1,8 @@
 """SDK MCP tools for episode planning (plan / reset).
 
 主 agent 单次调用、只收账本摘要；窗口读取、文本模型调用、机械校验重试与
-同锁提交全部在 :class:`lib.episode_planner.EpisodePlanner` 内完成。重置走
-:mod:`lib.episode_reset`，不经文本模型。用户需要调整已规划内容时走「重置 +
+同锁提交全部在 :class:`lib.episode.episode_planner.EpisodePlanner` 内完成。重置走
+:mod:`lib.episode.episode_reset`，不经文本模型。用户需要调整已规划内容时走「重置 +
 重新规划」：先调用 reset_episode_planning 退回到最早受影响的集，再带
 instructions 分批重新调用 plan_episodes。
 """
@@ -13,8 +13,8 @@ from typing import Any
 
 from claude_agent_sdk import tool
 
-from lib.episode_planner import EpisodePlanner
-from lib.episode_reset import reset_episode_planning
+from lib.episode.episode_planner import EpisodePlanner
+from lib.episode.episode_reset import reset_episode_planning
 from server.media_tools.context import (
     ToolContext,
     tool_outcome_response,

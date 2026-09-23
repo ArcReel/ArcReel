@@ -317,6 +317,7 @@ export function GridImageToVideoCanvas({
               projectName={projectName}
               episode={episode}
               contentMode={editorContentMode}
+              onOpenTimeline={hasScript ? () => setActiveTab("units") : undefined}
             />
           </div>
         ) : activeTab === "grid_preview" && editorContentMode ? (

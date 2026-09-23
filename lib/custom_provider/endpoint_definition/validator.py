@@ -1,9 +1,13 @@
-"""声明式定义的共享校验器：保存、validate 接口、端点测试与 import 期唯一的判定实现。
+"""端点定义的共享校验器：保存、validate 接口、端点测试与 import 期唯一的判定实现。
 
-两层闸门合起来才算通过：``schema.json`` 管结构（字段集、类型、枚举），本模块管语义——占位符
-只能引用声明过的变量、凭证只从 ``auth`` 节写入、能力声明与实际引用的素材两向一致、每条取值
-路径落在 JSONPath 受限子集内。两层的产出统一成 :class:`DefinitionIssue`，消费方拿到的永远是
-同一套码。
+入口 :func:`validate_definition` 先过容器层（是对象、有 ``kind``、``kind`` 有校验实现），再按
+``kind`` 分派——名录外的 kind 在容器层就被结构化拒绝，不会走进某一种 kind 的规则里报出一串与
+真正问题无关的次生错误。
+
+声明式 kind 的两层闸门合起来才算通过：``schema.json`` 管结构（字段集、类型、枚举），本模块管
+语义——占位符只能引用声明过的变量、凭证只从 ``auth`` 节写入、能力声明与实际引用的素材两向一致、
+每条取值路径落在 JSONPath 受限子集内。两层的产出统一成 :class:`DefinitionIssue`，消费方拿到的
+永远是同一套码。
 
 纯逻辑：不碰数据库、不发请求、不读环境，输入是一份已解析的 JSON 值。
 """
@@ -11,27 +15,43 @@
 from __future__ import annotations
 
 import json
-import re
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping
 from functools import cache
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qsl
 
 from jsonschema import Draft202012Validator
-from jsonschema.exceptions import ValidationError
 
-from lib.validation_messages import MessageRef, ValidationMessage
-from lib.video_backends.base import ProviderJobStatus, ReferenceAudioMode, audio_capability_pair_is_coherent
+from lib.backends.video_backend_contract import ProviderJobStatus, ReferenceAudioMode, audio_capability_pair_is_coherent
+from lib.custom_provider.auth_section import (
+    check_auth_section,
+    duplicate_header_issues,
+    malformed_placeholders,
+    placeholder_names,
+)
+from lib.custom_provider.comfyui.validator import (
+    CURRENT_SCHEMA_VERSION as COMFYUI_SCHEMA_VERSION,
+)
+from lib.custom_provider.comfyui.validator import (
+    validate_comfyui_definition,
+)
+from lib.custom_provider.definition_diagnostics import (
+    DefinitionDiagnostics,
+    DefinitionErrorCode,
+    DefinitionIssue,
+    join_path,
+)
+from lib.custom_provider.definition_schema_errors import most_specific, translate_schema_error
 
-from .errors import ROOT_PATH, DefinitionDiagnostics, DefinitionErrorCode, DefinitionIssue, join_path
 from .jsonpath_subset import JsonPathSubsetError, parse_json_path
+from .kinds import COMFYUI_KIND, DECLARATIVE_KIND
 from .template_engine import enum_map_key
 
 SCHEMA_PATH = Path(__file__).parent / "schema.json"
 
 #: 定义格式自身的版本；写入时不改写文件里的 ``schema_version``，校验器也不做定义迁移。
-CURRENT_SCHEMA_VERSION = "1.0.0"
+CURRENT_SCHEMA_VERSION = "1.1.0"
 
 #: 请求模板里随时可用的保留变量。``width`` / ``height`` 由比例与分辨率派生，不接受参数。
 BASE_VARIABLES = frozenset(
@@ -124,35 +144,6 @@ REMOVED_FIELD_REASONS: Mapping[str, str] = {
     "media_type": "val_ce_removed_reason_media_type",
 }
 
-_PLACEHOLDER = re.compile(r"\{\{\s*([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)\s*\}\}")
-
-#: 模板里每一处 ``{{``。不落在 ``_PLACEHOLDER`` 起点上的即写法不合法：格式只认裸变量，
-#: 过滤器、下标、表达式与未闭合的开括号都不是占位符，渲染时会原样发给供应商。
-_PLACEHOLDER_OPEN = re.compile(r"\{\{")
-
-_ENUM_KEYWORDS = frozenset({"enum", "const"})
-
-#: ``schema.json`` 里给 ``$each`` 打的标记：它的 ``oneOf`` 是互斥形态而非分支联合。
-_EACH_SHAPE_MARKER = "each_shape"
-
-#: 同一深度上多条分支报错时的取舍：缺字段 / 多字段最能说明问题，笼统的类型错最没用。
-_KEYWORD_SPECIFICITY: Mapping[str, int] = {
-    "type": 0,
-    "anyOf": 1,
-    "oneOf": 1,
-    "not": 1,
-    "required": 3,
-    "additionalProperties": 3,
-}
-
-_VALUE_SHAPE_KEYWORDS = frozenset(
-    {"pattern", "format", "minLength", "maxLength", "minimum", "maximum", "minItems", "minProperties", "propertyNames"}
-)
-
-_MINIMUM_KEYWORDS = frozenset({"minLength", "minimum", "minItems", "minProperties"})
-_MAXIMUM_KEYWORDS = frozenset({"maxLength", "maximum"})
-_FORMAT_KEYWORDS = frozenset({"pattern", "format", "propertyNames"})
-
 
 @cache
 def load_schema() -> dict[str, Any]:
@@ -168,17 +159,72 @@ def _schema_validator() -> Draft202012Validator:
 
 
 def validate_definition(document: object) -> DefinitionDiagnostics:
-    """校验一份定义 JSON。
+    """校验一份定义 JSON：先过容器层，再按 ``kind`` 分派到该 kind 的校验实现。
+
+    容器层只认 ``kind``，其余字段一概不看：不同 kind 的定义不同构，用某一种 kind 的 schema 去
+    判另一种只会报出一串与真正问题无关的次生错误。
+    """
+    container = tuple(_container_issues(document))
+    if container or not isinstance(document, dict):
+        return DefinitionDiagnostics(errors=container)
+    return _KIND_VALIDATORS[str(document["kind"])](document)
+
+
+def _validate_declarative(document: Mapping[str, Any]) -> DefinitionDiagnostics:
+    """声明式定义的两层闸门。
 
     结构层有错时不再跑语义层：占位符与能力检查都以字段形状成立为前提，在残缺结构上继续跑只会
     产出误导性的次生错误。
     """
     structural = tuple(_structural_issues(document))
-    if structural or not isinstance(document, dict):
+    if structural:
         return DefinitionDiagnostics(errors=structural)
     checker = _SemanticChecker(document)
     checker.run()
     return DefinitionDiagnostics(errors=tuple(checker.errors), warnings=tuple(checker.warnings))
+
+
+#: ``kind`` → 该 kind 的校验实现。键集即校验层认得的全部 kind，容器层的枚举由它派生，两者不会分叉。
+_KIND_VALIDATORS: Mapping[str, Callable[[Mapping[str, Any]], DefinitionDiagnostics]] = {
+    DECLARATIVE_KIND: _validate_declarative,
+    COMFYUI_KIND: validate_comfyui_definition,
+}
+
+#: ``kind`` → 该 kind 的定义格式当前版本。两种 kind 各有一条版本线，拿一条去比另一条只会在完全
+#: 合规的定义上报出假的版本落差。
+_CURRENT_SCHEMA_VERSION_BY_KIND: Mapping[str, str] = {
+    DECLARATIVE_KIND: CURRENT_SCHEMA_VERSION,
+    COMFYUI_KIND: COMFYUI_SCHEMA_VERSION,
+}
+
+
+def current_schema_version(document: object) -> str:
+    """一份定义所属版本线的当前版本。
+
+    ``kind`` 认不出时退回声明式那条线：版本档位只是给导入确认看的提示，真正的闸门是校验器——
+    它对名录外的 kind 已经直接拒绝，此处再编一个版本号出来没有意义。
+    """
+    kind = document.get("kind") if isinstance(document, Mapping) else None
+    return _CURRENT_SCHEMA_VERSION_BY_KIND.get(str(kind), CURRENT_SCHEMA_VERSION)
+
+
+# ---------------------------------------------------------------- 容器层
+
+
+@cache
+def _container_validator() -> Draft202012Validator:
+    schema = {
+        "type": "object",
+        "required": ["kind"],
+        "properties": {"kind": {"enum": sorted(_KIND_VALIDATORS)}},
+    }
+    Draft202012Validator.check_schema(schema)
+    return Draft202012Validator(schema)
+
+
+def _container_issues(document: Any) -> Iterator[DefinitionIssue]:
+    for error in _container_validator().iter_errors(document):
+        yield from translate_schema_error(error, removed_fields={})
 
 
 # ---------------------------------------------------------------- 结构层
@@ -186,114 +232,7 @@ def validate_definition(document: object) -> DefinitionDiagnostics:
 
 def _structural_issues(document: Any) -> Iterator[DefinitionIssue]:
     for error in _schema_validator().iter_errors(document):
-        yield from _translate_schema_error(_most_specific(error))
-
-
-def _most_specific(error: ValidationError) -> ValidationError:
-    """``anyOf`` / ``oneOf`` 的报错落在组合关键字上，逐层下钻到真正不匹配的那条子规则。
-
-    组合里每条分支都会报错，取「定位最深、说法最具体」的那条：结构模板的分支union里，
-    「``body`` 不是字符串」这种最外层的类型错对写定义的人毫无用处，真正要看的是深处那句
-    「``$each`` 缺 item」。互斥形态的组合（``$each`` 的 item 与 key/value）停在组合关键字
-    上：下钻只会挑中某条分支缺哪个字段，而真正的问题是两种写法混用。
-    """
-    while error.context and not _is_mutually_exclusive_shape(error):
-        error = max(error.context, key=_specificity)
-    return error
-
-
-def _is_mutually_exclusive_shape(error: ValidationError) -> bool:
-    schema = error.schema if isinstance(error.schema, dict) else {}
-    return str(error.validator) == "oneOf" and schema.get("$comment") == _EACH_SHAPE_MARKER
-
-
-def _specificity(error: ValidationError) -> tuple[int, int]:
-    return len(error.absolute_path), _KEYWORD_SPECIFICITY.get(str(error.validator), 2)
-
-
-def _translate_schema_error(error: ValidationError) -> Iterator[DefinitionIssue]:
-    path = _format_path(error.absolute_path)
-    keyword = str(error.validator)
-    if _is_mutually_exclusive_shape(error):
-        yield DefinitionIssue(path, DefinitionErrorCode.EACH_SHAPE_INVALID)
-        return
-    if keyword == "required":
-        yield from _missing_field_issues(error, path)
-        return
-    if keyword == "additionalProperties":
-        yield from _extra_field_issues(error, path)
-        return
-    if keyword == "type":
-        yield DefinitionIssue(
-            path, DefinitionErrorCode.INVALID_TYPE, {"expected": _format_allowed(error.validator_value)}
-        )
-        return
-    if keyword in _ENUM_KEYWORDS:
-        yield DefinitionIssue(
-            path, DefinitionErrorCode.INVALID_ENUM_VALUE, {"allowed": _format_allowed(error.validator_value)}
-        )
-        return
-    if keyword in _VALUE_SHAPE_KEYWORDS:
-        yield DefinitionIssue(
-            path,
-            DefinitionErrorCode.INVALID_VALUE,
-            {"detail": _schema_detail(error)},
-        )
-        return
-    yield DefinitionIssue(
-        path,
-        DefinitionErrorCode.SCHEMA_VIOLATION,
-        {"detail": _schema_detail(error)},
-    )
-
-
-def _schema_detail(error: ValidationError) -> ValidationMessage:
-    """把 jsonschema 的英文散文收成少量 locale-neutral 约束模板。"""
-    keyword = str(error.validator)
-    if keyword in _MINIMUM_KEYWORDS:
-        return ValidationMessage("val_ce_schema_minimum_constraint", {"limit": error.validator_value})
-    if keyword in _MAXIMUM_KEYWORDS:
-        return ValidationMessage("val_ce_schema_maximum_constraint", {"limit": error.validator_value})
-    if keyword in _FORMAT_KEYWORDS:
-        return ValidationMessage("val_ce_schema_format_constraint", {"constraint": error.validator_value})
-    if keyword == "not":
-        return ValidationMessage("val_ce_schema_forbidden_constraint")
-    return ValidationMessage("val_ce_schema_generic_constraint", {"keyword": keyword})
-
-
-def _missing_field_issues(error: ValidationError, path: str) -> Iterator[DefinitionIssue]:
-    instance = error.instance if isinstance(error.instance, dict) else {}
-    required = error.validator_value if isinstance(error.validator_value, list) else []
-    for name in required:
-        if name not in instance:
-            yield DefinitionIssue(path, DefinitionErrorCode.MISSING_FIELD, {"field": str(name)})
-
-
-def _extra_field_issues(error: ValidationError, path: str) -> Iterator[DefinitionIssue]:
-    schema = error.schema if isinstance(error.schema, dict) else {}
-    allowed = set(schema.get("properties", {}))
-    instance = error.instance if isinstance(error.instance, dict) else {}
-    for name in sorted(set(instance) - allowed):
-        reason_key = REMOVED_FIELD_REASONS.get(name)
-        if reason_key is None:
-            yield DefinitionIssue(path, DefinitionErrorCode.UNKNOWN_FIELD, {"field": name})
-        else:
-            yield DefinitionIssue(
-                path, DefinitionErrorCode.REMOVED_FIELD, {"field": name, "reason": MessageRef(reason_key)}
-            )
-
-
-def _format_allowed(value: object) -> str:
-    if isinstance(value, list):
-        return " / ".join("null" if item is None else str(item) for item in value)
-    return "null" if value is None else str(value)
-
-
-def _format_path(parts: Sequence[str | int]) -> str:
-    path = ROOT_PATH
-    for part in parts:
-        path = join_path(path, part)
-    return path
+        yield from translate_schema_error(most_specific(error), removed_fields=REMOVED_FIELD_REASONS)
 
 
 # ---------------------------------------------------------------- 语义层
@@ -346,20 +285,19 @@ class _SemanticChecker:
     # ---- auth ----
 
     def _check_auth_section(self) -> None:
-        headers: Mapping[str, Any] = self._auth.get("headers") or {}
-        query: Mapping[str, Any] = self._auth.get("query") or {}
-        scope = _Scope(section="auth")
-        for group, values in (("headers", headers), ("query", query)):
-            for name, template in values.items():
-                path = join_path(join_path("auth", group), name)
-                self._scan_template(template, path, scope)
-                if _looks_like_literal_credential(str(template)):
-                    self._warn(path, DefinitionErrorCode.AUTH_LITERAL_CREDENTIAL)
-        self._check_header_names(join_path("auth", "headers"), headers)
-        if not headers and not query:
-            return
-        if not any("api_key" in _placeholder_names(str(value)) for value in (*headers.values(), *query.values())):
-            self._error("auth", DefinitionErrorCode.AUTH_WITHOUT_API_KEY)
+        """auth 节的检查与 ComfyUI 定义同一份实现，只有变量作用域是本 kind 自己的。"""
+        issues = check_auth_section(self._auth, variable_issues=self._auth_variable_issues)
+        self.errors.extend(issues.errors)
+        self.warnings.extend(issues.warnings)
+
+    def _auth_variable_issues(self, path: str, name: str) -> list[DefinitionIssue]:
+        """auth 节里 ``api_key`` 以外的变量：走与其余节同一条作用域判定。
+
+        声明式定义的 auth 节允许引用 ``base_url`` 这类基础变量（凭证按供应商地址分发的形态），
+        故这里不是「除 api_key 一律拒绝」，而是把整条作用域规则套在 auth 这个 section 上。
+        """
+        issue = self._variable_issue(name, path, _Scope(section="auth"))
+        return [] if issue is None else [issue]
 
     # ---- 请求节 ----
 
@@ -375,16 +313,11 @@ class _SemanticChecker:
             self._scan_node(request["body"], join_path(section, "body"), scope)
         self._check_auth_collisions(section, request, url)
         self._check_extract(section, request.get("extract") or {})
-        if section == "poll" and "task_id" not in _placeholder_names(json.dumps(request, ensure_ascii=False)):
+        if section == "poll" and "task_id" not in placeholder_names(json.dumps(request, ensure_ascii=False)):
             self._warn("poll", DefinitionErrorCode.POLL_WITHOUT_TASK_ID)
 
     def _check_header_names(self, path: str, headers: Mapping[str, Any]) -> None:
-        """同一张头表里不得有大小写不同的同名键：HTTP 头名不区分大小写，两条会一起发出去。"""
-        seen: dict[str, str] = {}
-        for name in headers:
-            first = seen.setdefault(name.lower(), name)
-            if first != name:
-                self._error(join_path(path, name), DefinitionErrorCode.HEADER_NAME_DUPLICATE, header=name, first=first)
+        self.errors.extend(duplicate_header_issues(path, headers))
 
     def _check_auth_collisions(self, section: str, request: Mapping[str, Any], url: object) -> None:
         auth_headers = {name.lower() for name in (self._auth.get("headers") or {})}
@@ -476,49 +409,53 @@ class _SemanticChecker:
     def _scan_template(self, template: object, path: str, scope: _Scope) -> None:
         if not isinstance(template, str):
             return
-        for fragment in _malformed_placeholders(template):
+        for fragment in malformed_placeholders(template):
             self._error(path, DefinitionErrorCode.MALFORMED_PLACEHOLDER, fragment=fragment)
-        for name in _placeholder_names(template):
+        for name in placeholder_names(template):
             self._check_variable(name, path, scope)
 
     def _check_variable(self, name: str, path: str, scope: _Scope) -> None:
-        if name == "api_key":
-            if scope.section != "auth":
-                self._error(path, DefinitionErrorCode.API_KEY_OUTSIDE_AUTH)
-            return
-        if name == "task_id":
-            if scope.section not in {"poll", "result"}:
-                self._error(path, DefinitionErrorCode.TASK_ID_OUT_OF_SCOPE)
-            return
-        if name == "result_id":
-            self._check_result_id(path, scope)
-            return
-        if name in scope.locals or name in BASE_VARIABLES:
-            return
-        if name.startswith("inputs."):
-            self._check_input_reference(name.removeprefix("inputs."), path, scope)
-            return
-        self._error(path, DefinitionErrorCode.UNDECLARED_VARIABLE, name=name)
+        issue = self._variable_issue(name, path, scope)
+        if issue is not None:
+            self.errors.append(issue)
 
-    def _check_result_id(self, path: str, scope: _Scope) -> None:
+    def _variable_issue(self, name: str, path: str, scope: _Scope) -> DefinitionIssue | None:
+        """一处占位符引用是否越界，越界即给出那一条诊断。
+
+        产出诊断而非就地记账：auth 节的检查由两种 kind 共用的实现驱动，它要拿到诊断本身才能
+        按严重度归列。
+        """
+        if name == "api_key":
+            return None if scope.section == "auth" else DefinitionIssue(path, DefinitionErrorCode.API_KEY_OUTSIDE_AUTH)
+        if name == "task_id":
+            if scope.section in {"poll", "result"}:
+                return None
+            return DefinitionIssue(path, DefinitionErrorCode.TASK_ID_OUT_OF_SCOPE)
+        if name == "result_id":
+            return self._result_id_issue(path, scope)
+        if name in scope.locals or name in BASE_VARIABLES:
+            return None
+        if name.startswith("inputs."):
+            return self._input_reference_issue(name.removeprefix("inputs."), path, scope)
+        return DefinitionIssue(path, DefinitionErrorCode.UNDECLARED_VARIABLE, {"name": name})
+
+    def _result_id_issue(self, path: str, scope: _Scope) -> DefinitionIssue | None:
         if scope.section != "result":
-            self._error(path, DefinitionErrorCode.RESULT_ID_OUT_OF_SCOPE)
-            return
+            return DefinitionIssue(path, DefinitionErrorCode.RESULT_ID_OUT_OF_SCOPE)
         poll_extract = (self._document.get("poll") or {}).get("extract") or {}
         if "result_id" not in poll_extract:
-            self._error(path, DefinitionErrorCode.RESULT_ID_WITHOUT_EXTRACT)
+            return DefinitionIssue(path, DefinitionErrorCode.RESULT_ID_WITHOUT_EXTRACT)
+        return None
 
-    def _check_input_reference(self, name: str, path: str, scope: _Scope) -> None:
+    def _input_reference_issue(self, name: str, path: str, scope: _Scope) -> DefinitionIssue | None:
         if name not in self._inputs:
-            self._error(path, DefinitionErrorCode.UNDECLARED_VARIABLE, name=f"inputs.{name}")
-            return
+            return DefinitionIssue(path, DefinitionErrorCode.UNDECLARED_VARIABLE, {"name": f"inputs.{name}"})
         if scope.section != "submit":
-            self._error(path, DefinitionErrorCode.INPUT_OUT_OF_SCOPE, name=name)
-            return
+            return DefinitionIssue(path, DefinitionErrorCode.INPUT_OUT_OF_SCOPE, {"name": name})
         if name in self._list_inputs:
-            self._error(path, DefinitionErrorCode.LIST_INPUT_REQUIRES_EACH, name=name)
-            return
+            return DefinitionIssue(path, DefinitionErrorCode.LIST_INPUT_REQUIRES_EACH, {"name": name})
         self._referenced_inputs.add(name)
+        return None
 
     # ---- 字典与能力 ----
 
@@ -645,37 +582,6 @@ def _capability_is_on(capability: str, value: object) -> bool:
     if capability == "reference_audio_mode":
         return value is not None and value != "none"
     return value is True
-
-
-def _placeholder_names(text: str) -> list[str]:
-    return _PLACEHOLDER.findall(text)
-
-
-#: 凭证长相：20+ 位含数字的 token 串（API key / JWT / base64 的公共形态）。版本号、固定
-#: 字段这类短静态值不命中；误报的代价只是一条不拦保存的 warning。
-_CREDENTIAL_TOKEN = re.compile(r"[A-Za-z0-9+/_=-]{20,}")
-
-
-def _looks_like_literal_credential(template: str) -> bool:
-    """auth 值剔除占位符后，剩余字面部分是否形似直接写入的凭证。
-
-    凭证以 api_key 占位符形态出现是导出剥凭证的前提；字面凭证会随导出与「复制为我的」
-    原样外流，只能靠形态识别提示。
-    """
-    literal = _PLACEHOLDER.sub(" ", template)
-    return any(any(ch.isdigit() for ch in token) for token in _CREDENTIAL_TOKEN.findall(literal))
-
-
-def _malformed_placeholders(text: str) -> list[str]:
-    """所有不构成合法占位符的 ``{{`` 片段，取到最近的 ``}}``（没有就到串尾）。"""
-    valid_starts = {match.start() for match in _PLACEHOLDER.finditer(text)}
-    fragments: list[str] = []
-    for match in _PLACEHOLDER_OPEN.finditer(text):
-        if match.start() in valid_starts:
-            continue
-        closing = text.find("}}", match.start())
-        fragments.append(text[match.start() : closing + 2] if closing != -1 else text[match.start() :])
-    return fragments
 
 
 def _url_query_names(url: object) -> set[str]:

@@ -131,7 +131,7 @@ export function UsagePopover({ projectName, anchorRef, panelId }: UsagePopoverPr
   const closeDetail = useUsageHeaderStore((s) => s.closeDetail);
   const refresh = useUsageHeaderStore((s) => s.refresh);
 
-  // 取消中的任务要留在列表里（× 换成 spinner），故按占用谓词取，不用显示谓词。
+  // 进行中区按占用谓词取：与后端去重口径一致的排队中 / 执行中任务。
   const activeTasks = useTasksStore(
     useShallow((s) =>
       s.tasks.filter(
@@ -316,9 +316,7 @@ export function UsagePopover({ projectName, anchorRef, panelId }: UsagePopoverPr
                         providerLabel={providerLabel}
                         onCancel={voidPromise(cancellation.requestSingle)}
                         cancelling={
-                          task !== null &&
-                          (task.status === "cancelling" ||
-                            cancellation.cancellingTaskIds.has(task.task_id))
+                          task !== null && cancellation.cancellingTaskIds.has(task.task_id)
                         }
                       />
                     ))
@@ -369,6 +367,7 @@ export function UsagePopover({ projectName, anchorRef, panelId }: UsagePopoverPr
             request={cancellation.request}
             cancelling={cancellation.cancelling}
             failed={cancellation.failed}
+            failureDetail={cancellation.failureDetail}
             onConfirm={cancellation.confirm}
             onDismiss={cancellation.dismiss}
           />

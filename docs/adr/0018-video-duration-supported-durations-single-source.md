@@ -11,3 +11,4 @@ backend 内的桶映射（把 6 静默改成 8）和 `or [4,6,8]` 隐性 fallbac
 - schema 层不引入连续区间类型，改用 list 全展开 + 前端检测连续性的折中。
 - 自定义供应商缺省时由 model_id 启发式预设表预填（未命中回退保守默认），Alembic 回填迁移内联复制预设快照而非 import 模块，以保历史迁移确定性。
 - 一处受限例外：Vidu 因 API 按 endpoint 列出差异很大的合法时长集，保留 `_coerce_duration` 端点级就近校正 + warning，与 model 级单一真相源是不同维度。
+- fail loud 守的是「型号声明缺失」，不是「时长这一维在该端点上不存在」。ComfyUI 端点的 `frames` 未绑定或读不到帧率来源时，时长整维不由 ArcReel 驱动（见 `docs/adr/0082`），空集是合法状态：它带独立标志与声明缺失区分，全部消费点按该标志放行，本决定的 fail loud 立场不因此放宽。
