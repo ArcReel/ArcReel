@@ -145,6 +145,16 @@ Coverage is a signal, not a gate: CI never fails on a coverage number, and Codec
 - **Testability rework**: no production behavior changes; structural extraction at the pure-function or hook level is allowed.
 - **Configuration and lint**: `testTimeout` stays at the vitest default of 5s, with individual slow tests overriding it explicitly with an explanation; eslint enables the vitest, testing-library, and jest-dom plugins (`expect-expect` catches zero-assertion tests); bare `toHaveBeenCalled` has no ban—assertion strength is a review concern.
 
+### Running the gates in worktrees and sandboxes {#gates-in-worktrees-and-sandboxes}
+
+A worktree has no `.venv` or `node_modules`, and an agent sandbox may forbid binding local ports. Run the gates as follows and the results match the main checkout:
+
+- **Share the main checkout's `.venv` for Python**: `UV_PROJECT_ENVIRONMENT=<main-repo-root>/.venv uv run --no-sync <command>`. `--no-sync` makes `uv run` use that environment as is; without it, `uv run` syncs a full copy of the dependencies into that directory according to the worktree's `pyproject.toml`, and the `uv run ruff` in the post-save formatting hook of `.claude/settings.json` triggers the same sync. When the worktree changes `pyproject.toml` or `uv.lock`, the main checkout's `.venv` does not reflect the new dependencies: drop `UV_PROJECT_ENVIRONMENT` and `--no-sync` so that `uv run` creates and syncs the worktree's own `.venv`, and basedpyright then needs no `--venvpath`.
+- **Point basedpyright at the main checkout**: `venvPath` in `pyproject.toml` makes it look for `.venv` in the current directory, so in a worktree it exits with code 3 and `venv .venv subdirectory not found`; pass `--venvpath <main-repo-root>` and no symlink is needed.
+- **Run port-binding tests where local ports are allowed**: `tests/integration/agent_runtime_profile/test_custom_endpoint_adapter_skill.py` starts a local HTTP server and fails with `PermissionError` when the sandbox forbids binding `127.0.0.1`. Run the full backend suite once in an environment that allows local ports instead of running it in the sandbox first and again afterwards.
+- **Limit workers when running the frontend gate concurrently**: several agents running `pnpm check` at once let vitest's default worker count push the machine into test timeouts; use `pnpm check --maxWorkers=2`, which lands on the trailing `vitest run` of the script.
+- **Install frontend and docs-site dependencies per worktree**: run `pnpm install --frozen-lockfile` in the worktree's `frontend/` and `website/` separately.
+
 ## Code Quality {#code-quality}
 
 **Lint & Format (ruff):**

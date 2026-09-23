@@ -159,6 +159,16 @@ pytest `asyncio_mode = "auto"`，异步用例无需手动标记。
 - **可测性改造**：不得改变生产行为；允许抽纯函数、抽 hook 级的结构性抽取。
 - **配置与 lint**：`testTimeout` 用 vitest 默认 5s，个别慢用例显式覆写并说明；eslint 启用 vitest、testing-library、jest-dom 插件（`expect-expect` 检出零断言用例）；裸 `toHaveBeenCalled` 不设禁令，断言强度归 review。
 
+### 在 worktree 与沙箱里运行闸门
+
+worktree 里没有 `.venv` 与 `node_modules`，Agent 沙箱可能禁止绑定本地端口。按下面方式运行，闸门结果与主仓一致：
+
+- **Python 共用主仓 `.venv`**：`UV_PROJECT_ENVIRONMENT=<主仓根>/.venv uv run --no-sync <命令>`。`--no-sync` 让 `uv run` 直接使用该环境；缺了它，`uv run` 会按当前 worktree 的 `pyproject.toml` 往该目录同步一份完整依赖，`.claude/settings.json` 的保存后格式化 hook 里的 `uv run ruff` 同样会触发这次同步。worktree 改动了 `pyproject.toml` 或 `uv.lock` 时，主仓 `.venv` 不反映新依赖：省略 `UV_PROJECT_ENVIRONMENT` 与 `--no-sync`，让 `uv run` 在 worktree 里建立并同步自己的 `.venv`，basedpyright 也就不需要 `--venvpath`。
+- **basedpyright 指向主仓**：`pyproject.toml` 的 `venvPath` 让它在当前目录找 `.venv`，worktree 里以退出码 3 报 `venv .venv subdirectory not found`；加 `--venvpath <主仓根>` 即可，无需符号链接。
+- **需要本地端口的用例在允许绑定端口的环境运行**：`tests/integration/agent_runtime_profile/test_custom_endpoint_adapter_skill.py` 启动本地 HTTP 服务，沙箱禁止绑定 `127.0.0.1` 时以 `PermissionError` 失败。后端完整测试直接在允许本地端口的环境运行一次，省去沙箱内先跑一遍再复跑。
+- **并发跑前端闸门时限制 worker**：多个 Agent 同时运行 `pnpm check` 会让 vitest 默认 worker 数把机器压到用例超时；用 `pnpm check --maxWorkers=2`，参数落到脚本末尾的 `vitest run`。
+- **前端与文档站各自安装依赖**：在 worktree 的 `frontend/` 与 `website/` 分别执行 `pnpm install --frozen-lockfile`。
+
 ## 代码质量
 
 工具报出的问题一律改代码，不加 baseline 或计数阈值。抑制注释只用于工具已确认的误报，且必须行内带理由：ruff 写 `# noqa: X -- 理由`，basedpyright 写 `# pyright: ignore[X]  # 理由`（典型场景是第三方 untyped 库；装饰器注册块内重复的同一条误报例外——无论块内是一条还是数十条，理由统一写在块开头一条注释里，不在每行重复，见下方「类型检查」节的 `reportUnusedFunction`），zizmor 写 `# zizmor: ignore[X] 理由`（放在被报告的 YAML 键所在行），actionlint 见下方「Workflow 语法与安全」，deptry 见下方「依赖卫生」，knip 写导出上方的 `/** @public 理由 */`，ESLint 见下方「ESLint disable 使用规范」。策略阈值类 finding（如 Dependabot 冷却期天数）按工具要求调整配置，不用豁免绕过。
