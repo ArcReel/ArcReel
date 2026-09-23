@@ -9,6 +9,8 @@ custom_edit_url: https://github.com/ArcReel/ArcReel/blob/main/CONTRIBUTING.md
 
 Contributions of code, bug reports, and feature proposals are welcome!
 
+Contributions whose main purpose is to promote a commercial service (for example, adding an integration for one particular service, or adding service recommendations and links to the docs) do not go through pull requests, and such pull requests will be closed. For collaboration, contact support@arc-reel.com.
+
 ## Local Development Environment {#local-development}
 
 ```bash
