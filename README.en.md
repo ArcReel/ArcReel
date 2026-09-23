@@ -183,6 +183,16 @@ Read [CONTRIBUTING.md](CONTRIBUTING.md) before starting. After cloning the repos
 uv run pre-commit install
 ```
 
+## Star History
+
+<a href="https://www.star-history.com/?repos=arcreel%2Farcreel&type=date&legend=top-left">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=arcreel/arcreel&type=date&theme=dark&legend=top-left" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=arcreel/arcreel&type=date&legend=top-left" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=arcreel/arcreel&type=date&legend=top-left" />
+ </picture>
+</a>
+
 ## License and commercial use
 
 ArcReel is licensed under the [GNU Affero General Public License v3.0](LICENSE). Additional terms are available in [NOTICE](NOTICE).
