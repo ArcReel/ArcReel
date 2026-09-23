@@ -41,7 +41,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/assets/hero-screenshot.png" alt="ArcReel 工作台" width="900">
+  <img src="docs/assets/screenshots/hero.webp" alt="ArcReel 工作台" width="900">
 </p>
 
 ## 赞助商
@@ -68,6 +68,29 @@
       Fluxion AI 面向个人开发者、技术团队与企业，通过统一 API 接入并管理全球主流 AI 模型；通过多线路动态调度提升可用性，模型表现、响应时间与费用透明可查。根据不同模型与线路，API 调用成本较官方或基准价格可降低 40%—98%。<br>
       <a href="https://fluxionai.space/register?source=github&campaign=arcreel&promo=ARCREEL">立即访问并注册</a>，即可获得 $3 API 额度。
     </td>
+  </tr>
+</table>
+
+## 案例
+
+### 入职地府后投诉鬼都是我老客户
+
+https://github.com/user-attachments/assets/39055cbb-7c22-4a75-843b-be10fed2299b
+
+<p align="center">
+  <img src="docs/assets/screenshots/episodes.webp" alt="第 1–15 集" width="900">
+</p>
+
+## 界面一览
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/assets/screenshots/video-units.webp" alt="视频单元"></td>
+    <td width="50%"><img src="docs/assets/screenshots/props.webp" alt="道具库"></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/assets/screenshots/scenes.webp" alt="场景库"></td>
+    <td width="50%"><img src="docs/assets/screenshots/ad-mode.webp" alt="广告/带货模式"></td>
   </tr>
 </table>
 

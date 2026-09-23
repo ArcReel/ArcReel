@@ -4,9 +4,11 @@
 
 当前 README 已使用：
 
-- `docs/assets/hero-screenshot.png`
+- `docs/assets/screenshots/hero.webp`（Hero 截图）
+- `docs/assets/screenshots/episodes.webp`（案例分集封面拼图）
+- `docs/assets/screenshots/{video-units,props,scenes,ad-mode}.webp`（界面一览）
 - `docs/assets/feishu-qr.png`
-- `docs/assets/sponsors/metaso.png`
+- `docs/assets/sponsors/`
 
 产品型开源项目的首页转化主要依赖真实成果展示。ArcReel 尤其需要同时展示“工作台”和“最终成片”，不能只展示设置页或功能清单。
 
@@ -14,7 +16,9 @@
 
 ```text
 docs/assets/
-├── hero-screenshot.png
+├── screenshots/
+│   ├── hero.webp
+│   └── episodes.webp
 ├── demo-workflow.webp
 ├── showcase-novel-cover.jpg
 ├── showcase-narration-cover.jpg

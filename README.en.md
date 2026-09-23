@@ -41,7 +41,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/assets/hero-screenshot.png" alt="ArcReel Workspace" width="900">
+  <img src="docs/assets/screenshots/hero.webp" alt="ArcReel Workspace" width="900">
 </p>
 
 ## Sponsors
@@ -68,6 +68,29 @@
       Fluxion AI is built for individual developers, technical teams, and enterprises, providing access to and management of the world's leading AI models through a unified API. Dynamic multi-route scheduling improves availability, with model performance, response times, and costs transparent and easy to review. Depending on the model and route, API costs can be 40%–98% lower than official or benchmark prices.<br>
       <a href="https://fluxionai.space/register?source=github&campaign=arcreel&promo=ARCREEL">Visit and sign up now</a> to receive $3 in API credits.
     </td>
+  </tr>
+</table>
+
+## Showcase
+
+### 入职地府后投诉鬼都是我老客户
+
+https://github.com/user-attachments/assets/39055cbb-7c22-4a75-843b-be10fed2299b
+
+<p align="center">
+  <img src="docs/assets/screenshots/episodes.webp" alt="Episodes 1–15" width="900">
+</p>
+
+## Screenshots
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/assets/screenshots/video-units.webp" alt="Video units"></td>
+    <td width="50%"><img src="docs/assets/screenshots/props.webp" alt="Props library"></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/assets/screenshots/scenes.webp" alt="Scenes library"></td>
+    <td width="50%"><img src="docs/assets/screenshots/ad-mode.webp" alt="Ad / product mode"></td>
   </tr>
 </table>
 
