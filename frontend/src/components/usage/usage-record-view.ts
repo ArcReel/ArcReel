@@ -61,7 +61,7 @@ export function usageRecordToView(record: UsageRecord): UsageRecordView {
 
 /**
  * 任务的后端资源类型。记账侧一律用复数桶名，`image_edit` 的单数 `resource_type` 亦在
- * 执行时转成同一套桶名（`server/services/image_edit_tasks.py` 的
+ * 执行时转成同一套桶名（`server/services/tasks/image_edit_tasks.py` 的
  * `edit_version_resource_type`），故两条来源共用这一张表。
  */
 const RESOURCE_TYPE_BY_KIND: Record<string, string> = {
@@ -79,7 +79,7 @@ const RESOURCE_TYPE_BY_KIND: Record<string, string> = {
 };
 
 /**
- * 可作 `segment_id` 的资源类型，与后端 `lib/media_generator.py` 的
+ * 可作 `segment_id` 的资源类型，与后端 `lib/generation/media_generator.py` 的
  * `segment_id_for` 白名单同口径；audio 无白名单，无条件透传。
  */
 const SEGMENT_RESOURCE_TYPES: Record<TaskMediaType, ReadonlySet<string> | null> = {

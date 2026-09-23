@@ -28,6 +28,10 @@ interface ShotSplitViewProps {
   ) => void | Promise<void>;
   /** 广告/短片分镜顺序调整，resolve 为是否移动成功 */
   onMoveShot?: (shotId: string, direction: "earlier" | "later") => Promise<boolean>;
+  /** 在分镜之后新增分镜（旁白带正文），resolve 为是否成功 */
+  onInsertShot?: (afterId: string, novelText?: string) => Promise<boolean>;
+  /** 移除分镜，resolve 为是否成功 */
+  onRemoveShot?: (itemId: string) => Promise<boolean>;
   onGenerateStoryboard?: (segmentId: string) => void;
   onGenerateVideo?: (
     segmentId: string,
@@ -40,12 +44,10 @@ interface ShotSplitViewProps {
   generatingVideo?: (segmentId: string) => boolean;
   generatingNarration?: (segmentId: string) => boolean;
   durationOptions?: number[];
+  /** 档位为空是因为这一维由端点固定（workflow 自己定片长），不是型号没登记时长。 */
+  durationEndpointFixed?: boolean;
   /** 已保存时长越界的成因判定；缺省时 ShotDetail 退回不区分成因的通用警告文案。 */
   durationWarningReason?: (seconds: number) => DurationOutOfRangeReason | null;
-  /** 内容已落后于脚本规划的条目 id；命中的条目在详情里提示「采用新内容」。 */
-  staleEntryIds?: ReadonlySet<string>;
-  /** 让某条失效条目按脚本规划采用新内容（提示词保留）。 */
-  onAdoptPlanContent?: (segmentId: string) => void | Promise<void>;
 }
 
 
@@ -61,6 +63,8 @@ export function ShotSplitView({
   isGridMode,
   onUpdatePrompt,
   onMoveShot,
+  onInsertShot,
+  onRemoveShot,
   onGenerateStoryboard,
   onGenerateVideo,
   onGenerateNarration,
@@ -70,15 +74,15 @@ export function ShotSplitView({
   generatingVideo,
   generatingNarration,
   durationOptions,
+  durationEndpointFixed,
   durationWarningReason,
-  staleEntryIds,
-  onAdoptPlanContent,
 }: ShotSplitViewProps) {
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [collapsed, setCollapsed] = useState(
     () => typeof window !== "undefined" && window.innerWidth < 1100,
   );
   const [movePending, setMovePending] = useState(false);
+  const [structurePending, setStructurePending] = useState(false);
   const listScrollRef = useRef<HTMLDivElement>(null);
 
   // 分镜重排：请求在途时丢弃后续点击（快速连点会基于过期顺序计算出相同排列），
@@ -98,6 +102,30 @@ export function ShotSplitView({
           setMovePending(false);
         }
       }
+    : undefined;
+
+  // 新增 / 移除分镜：请求在途锁定切镜与增删入口。新增成功后选中紧随其后的新分镜；
+  // 移除成功后索引不动，落到原来的下一条（末条时由越界保护夹紧到新的末条）。
+  const runStructureChange = async (change: () => Promise<boolean>, onSuccess: () => void) => {
+    if (structurePending) return false;
+    setStructurePending(true);
+    try {
+      const changed = await change();
+      if (changed) onSuccess();
+      return changed;
+    } finally {
+      setStructurePending(false);
+    }
+  };
+  const handleInsertShot = onInsertShot
+    ? (afterId: string, novelText?: string) =>
+        runStructureChange(
+          () => onInsertShot(afterId, novelText),
+          () => setSelectedIndex((i) => i + 1),
+        )
+    : undefined;
+  const handleRemoveShot = onRemoveShot
+    ? (itemId: string) => runStructureChange(() => onRemoveShot(itemId), () => {})
     : undefined;
 
   // 切镜时索引超界保护
@@ -166,6 +194,9 @@ export function ShotSplitView({
         onUpdatePrompt={onUpdatePrompt}
         onMoveShot={handleMoveShot}
         movePending={movePending}
+        onInsertShot={handleInsertShot}
+        onRemoveShot={handleRemoveShot}
+        structurePending={structurePending}
         onGenerateStoryboard={onGenerateStoryboard}
         onGenerateVideo={onGenerateVideo}
         onGenerateNarration={onGenerateNarration}
@@ -175,9 +206,8 @@ export function ShotSplitView({
         generatingVideo={generatingVideo?.(segmentId)}
         generatingNarration={generatingNarration?.(segmentId)}
         durationOptions={durationOptions}
+        durationEndpointFixed={durationEndpointFixed}
         durationWarningReason={durationWarningReason}
-        promptsStale={staleEntryIds?.has(segmentId) ?? false}
-        onAdoptPlanContent={onAdoptPlanContent ? () => onAdoptPlanContent(segmentId) : undefined}
       />
     </div>
   );

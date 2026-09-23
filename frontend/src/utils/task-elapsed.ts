@@ -26,8 +26,6 @@ export interface TaskElapsed {
   ms: number;
 }
 
-const RUNNING_STATUSES: ReadonlySet<TaskStatus> = new Set(["running", "cancelling"]);
-
 function timestampMs(value: string | null): number | null {
   if (!value) return null;
   const ms = parseIsoTimestamp(value).getTime();
@@ -56,7 +54,7 @@ export function totalTaskElapsed(task: TaskTiming): TaskElapsed | null {
  */
 export function taskElapsed(task: TaskTiming, now: number): TaskElapsed | null {
   if (isTerminalStatus(task.status)) return totalTaskElapsed(task);
-  if (RUNNING_STATUSES.has(task.status)) {
+  if (task.status === "running") {
     const started = timestampMs(task.started_at);
     if (started === null) return null;
     return { kind: "running", ms: Math.max(0, now - started) };

@@ -2,7 +2,7 @@
 
 WebUI 提交入口拒绝的配置（成片恒有声的模型 + 关闭音频），从 Agent 入队同样要被拒——放行会让
 编排层按无声路径裁掉全部音色约束，用户拿到失去音色约束的有声成片。分镜图生视频复用
-``server.services.video_caps``，参考生视频由公共 request projection 承载相同判据。
+``server.services.tasks.video_caps``，参考生视频由公共 request projection 承载相同判据。
 """
 
 from __future__ import annotations
@@ -17,16 +17,16 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from lib.config.resolver import ConfigResolver
 from lib.config.service import ConfigService
-from lib.generation_queue_client import TaskSpec
-from lib.generation_result import GenerationAction, GenerationSelectionMode
-from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
-from lib.reference_video.request_projection import ReferenceRequestOptions
-from lib.reference_video.text_parser import extract_mentions
+from lib.generation.generation_queue_client import TaskSpec
+from lib.generation.generation_result import GenerationAction, GenerationSelectionMode
+from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
+from lib.script.reference_video.request_projection import ReferenceRequestOptions
+from lib.script.reference_video.text_parser import extract_mentions
 from server.media_tools import videos as mod
 from server.media_tools.context import ToolContext
-from server.services import video_batch_admission as admission_mod
-from server.services.video_batch_admission import admit_reference_video_batch
-from server.services.video_caps import assert_audio_switch_supported
+from server.services.admission import video_batch_admission as admission_mod
+from server.services.admission.video_batch_admission import admit_reference_video_batch
+from server.services.tasks.video_caps import assert_audio_switch_supported
 from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import videos_tool_for_scope
 
 _ALWAYS_AUDIBLE = "dashscope/wan2.7-i2v"
@@ -196,13 +196,13 @@ class TestReferenceRouteGate:
 def _claim_existing_video(project_dir: Path, resource_id: str) -> None:
     """落一段已产出的视频并在清单里登记它：清单是「这条已经做过」的唯一凭据。"""
 
-    from lib.artifact_manifest import (
+    from lib.artifacts.artifact_manifest import (
         ArtifactKey,
         ArtifactManifest,
         ArtifactManifestEntry,
         ProjectArtifactManifestAdapter,
     )
-    from lib.resource_paths import resource_relative_path
+    from lib.project.resource_paths import resource_relative_path
 
     artifact_path = resource_relative_path("videos", resource_id)
     absolute = project_dir / artifact_path
@@ -234,7 +234,7 @@ class _EpisodePM:
         if with_storyboard:
             assets["storyboard_image"] = "storyboards/scene_E1S01.png"
         if with_video:
-            from lib.resource_paths import resource_relative_path
+            from lib.project.resource_paths import resource_relative_path
 
             assets["video_clip"] = resource_relative_path("videos", "E1S01")
         if assets:
@@ -254,7 +254,7 @@ class _EpisodePM:
     def _mirror(self) -> None:
         """把基线项目落盘并激活产物清单，等价于生产的迁移补录。"""
 
-        from lib.artifact_activation import activate_artifact_target_state
+        from lib.artifacts.artifact_activation import activate_artifact_target_state
 
         self._project_dir.mkdir(parents=True, exist_ok=True)
         (self._project_dir / "project.json").write_text(
@@ -406,7 +406,7 @@ class TestStoryboardGateEntersAdmission:
     async def test_the_audio_conflict_joins_the_other_problems_of_the_same_unit(self, tmp_path, monkeypatch):
         """音频冲突与投影侧的缺口写进同一张票：用户一次看全，不必改一条撞一条。"""
 
-        from lib.batch_admission import BatchAdmission, refused_ticket
+        from lib.generation.batch_admission import BatchAdmission, refused_ticket
 
         async def _reject(_project, _generation_type):
             raise ValueError("成片恒有声，无法关闭音频")

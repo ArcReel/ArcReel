@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from pathlib import Path
 
 import httpx
@@ -10,20 +11,20 @@ from fastapi.middleware.cors import CORSMiddleware
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 
-from lib.api_errors import ConflictError
-from lib.artifact_activation import register_current_artifact_if_provable
-from lib.artifact_manifest import ArtifactKey
-from lib.draft_quarantine import QUARANTINE_KIND_DRAMA_SCRIPT_PLAN, read_quarantine
-from lib.generation_batch import GenerationBatchRequestSnapshot
-from lib.generation_queue import GenerationQueue
-from lib.generation_queue_client import submit_generation_batch
-from lib.generation_result import GenerationSelectionMode
-from lib.generation_worker import CapacityTable, GenerationWorker
-from lib.project_manager import ProjectManager
-from lib.project_migration_failure import MIGRATION_FAILURE_CODE, record_migration_failure
-from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
-from lib.workflow_plan import WorkflowPlanRequest, build_workflow_plan
-from lib.workflow_state import WorkflowStatus
+from lib.artifacts.artifact_activation import register_current_artifact_if_provable
+from lib.artifacts.artifact_manifest import ArtifactKey
+from lib.generation.generation_batch import GenerationBatchRequestSnapshot
+from lib.generation.generation_queue import GenerationQueue
+from lib.generation.generation_queue_client import submit_generation_batch
+from lib.generation.generation_result import GenerationSelectionMode
+from lib.generation.generation_worker import CapacityTable, GenerationWorker
+from lib.infra.api_errors import ConflictError
+from lib.project.project_manager import ProjectManager
+from lib.project.project_migration_failure import MIGRATION_FAILURE_CODE, record_migration_failure
+from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
+from lib.script.draft_quarantine import QUARANTINE_KIND_DRAMA_SCRIPT_PLAN, read_quarantine
+from lib.workflow.workflow_plan import WorkflowPlanRequest, build_workflow_plan
+from lib.workflow.workflow_state import WorkflowStatus
 from server.agent_runtime.sdk_tools import ARCREEL_MCP_TOOL_IDS
 from server.agent_runtime.sdk_tools.text_generation import generate_episode_script_tool
 from server.auth import create_download_token, create_token
@@ -37,6 +38,7 @@ from server.media_tools.storyboards import generate_storyboards_tool
 from server.media_tools.videos import generate_videos_tool
 from server.remote_mcp import ArcApiKeyVerifier, RemoteMCPHost, build_remote_mcp_server
 from server.tool_runtime import Services
+from tests.fakes import refuse_resume_execution
 from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import call
 
 
@@ -355,11 +357,11 @@ async def test_remote_mcp_returns_typed_workflow_plan_and_rejects_bad_project(
         "generate_episode_script",
         "generate_script_plan",
         "confirm_script_review",
-        "convert_script_plan",
         "patch_episode_script",
     }
     batches = {"get_generation_batch", "cancel_generation_batch"}
     retired = {
+        "convert_script_plan",
         "normalize_drama_script",
         "split_narration_segments",
         "split_reference_video_units",
@@ -800,7 +802,9 @@ async def test_remote_mcp_entry_tools_share_one_projects_root(remote_server) -> 
     assert uploaded.structuredContent["source"]["path"] == "source/novel.txt"
 
 
-async def test_remote_mcp_draft_supports_multiple_patches_and_discard(remote_server) -> None:
+async def test_remote_mcp_draft_supports_multiple_patches_and_discard(remote_server, remote_projects) -> None:
+    # 尚无正式剧本：脚本规划未确认，可取回编辑副本。
+    (remote_projects.get_project_path("demo") / "scripts" / "episode_1.json").unlink()
     app = _mounted(remote_server)
     async with (
         remote_server.session_manager.run(),
@@ -896,11 +900,24 @@ async def test_remote_mcp_text_generation_and_script_patch_return_structured_con
             },
             progress_callback=record_progress,
         )
-        confirmed = await session.call_tool("confirm_script_review", {"project": "demo", "episode": 1})
+        refused = await session.call_tool("confirm_script_review", {"project": "demo", "episode": 1})
+        refused_problem = refused.structuredContent["problem"]
+        confirmed = await session.call_tool(
+            "confirm_script_review",
+            {
+                "project": "demo",
+                "episode": 1,
+                "overwrite_revision": refused_problem["params"]["script_overwrite"]["revision"],
+            },
+        )
         script = await session.call_tool(
             "generate_episode_script",
             {"project": "ad-demo", "episode": 1, "dry_run": True},
             progress_callback=record_progress,
+        )
+        scoped = await session.call_tool(
+            "generate_episode_script",
+            {"project": "ad-demo", "episode": 1, "dry_run": True, "scope": "all"},
         )
         patched = await session.call_tool(
             "patch_episode_script",
@@ -917,6 +934,9 @@ async def test_remote_mcp_text_generation_and_script_patch_return_structured_con
     assert "prompt immediately without a generation_batch; do not poll" in tools["generate_script_plan"].description
     assert set(script_plan.structuredContent) == {"text_generation"}
     assert script_plan.structuredContent["text_generation"]["message"]
+    assert refused.isError
+    assert refused_problem["code"] == "script_overwrite_required"
+    assert refused_problem["params"]["script_overwrite"]["entries"] == []
     assert not confirmed.isError
     assert confirmed.structuredContent["text_generation"]["message"]
     assert not script.isError
@@ -924,12 +944,16 @@ async def test_remote_mcp_text_generation_and_script_patch_return_structured_con
     assert "prompt immediately without a generation_batch; do not poll" in tools["generate_episode_script"].description
     assert set(script.structuredContent) == {"text_generation"}
     assert "DRY RUN" in script.structuredContent["text_generation"]["message"]
+    assert "scope" not in tools["generate_episode_script"].inputSchema["properties"]
+    assert scoped.isError
+    assert scoped.structuredContent["problem"]["code"] == "invalid_request"
+    assert "entry_ids" in scoped.structuredContent["problem"]["detail"]
     assert progress_messages == ["Generating script_plan", "Generating episode script"]
     assert patched.isError
     assert patched.structuredContent["script_patch"]["problems"][0]["code"] == "revision_conflict"
 
 
-async def test_text_task_is_shared_by_remote_and_embedded_hosts_and_cancelled_best_effort(
+async def test_text_task_is_shared_by_remote_and_embedded_hosts_and_running_member_is_not_cancellable(
     tmp_path: Path, file_db_factory
 ) -> None:
     class RecordingQueue(GenerationQueue):
@@ -964,17 +988,17 @@ async def test_text_task_is_shared_by_remote_and_embedded_hosts_and_cancelled_be
         token_verifier=ArcApiKeyVerifier(verify_api_key),
     )
     started = asyncio.Event()
-    cancelled = asyncio.Event()
+    interrupted = asyncio.Event()
     release = asyncio.Event()
 
-    async def noninterruptible_text(_task, *, claimed_provider_id=None):
+    async def blocking_text(_task, *, claimed_provider_id=None):
         del claimed_provider_id
         started.set()
         try:
             await release.wait()
         except asyncio.CancelledError:
-            cancelled.set()
-            await release.wait()
+            interrupted.set()
+            raise
         return {"message": "done"}
 
     async def text_provider(_task):
@@ -984,12 +1008,12 @@ async def test_text_task_is_shared_by_remote_and_embedded_hosts_and_cancelled_be
         queue=queue,
         capacity=CapacityTable(_limits={}, _defaults={"text": 1}),
         provider_projection=text_provider,
-        executor=noninterruptible_text,
+        executor=blocking_text,
         lanes=("text",),
+        resume_executor=refuse_resume_execution,
     )
     worker.poll_interval = 0.01
     worker.heartbeat_interval = 0.01
-    queue.set_worker_cancel_callback(worker.request_cancel)
     await worker.start()
 
     app = _mounted(server)
@@ -1026,26 +1050,32 @@ async def test_text_task_is_shared_by_remote_and_embedded_hosts_and_cancelled_be
             cancel_result = await session.call_tool(
                 "cancel_generation_batch", {"project": "demo", "batch_id": remote_batch["batch_id"]}
             )
-            await cancelled.wait()
+            task_id = remote_batch["members"][0]["task_id"]
+            still_running = await queue.get_task(task_id)
             release.set()
             embedded_result = await embedded
             terminal = await session.call_tool(
                 "get_generation_batch", {"project": "demo", "batch_id": remote_batch["batch_id"]}
             )
 
-        assert cancel_result.structuredContent["generation_batch_cancellation"]["cancelling"] == [
-            remote_batch["members"][0]["task_id"]
-        ]
-        assert embedded_result["problem"]["code"] == "generation_task_cancelled"
+        assert not cancel_result.isError
+        assert cancel_result.structuredContent["generation_batch_cancellation"] == {
+            "cancelled": [],
+            "skipped_running": [task_id],
+            "skipped_terminal": [],
+        }
+        assert still_running is not None
+        assert still_running["status"] == "running"
+        assert not interrupted.is_set()
+        assert json.loads(embedded_result["content"][0]["text"])["text_generation"]["message"] == "done"
         assert terminal.structuredContent["generation_batch"]["done"] is True
-        assert terminal.structuredContent["generation_batch"]["members"][0]["status"] == "cancelled"
+        assert terminal.structuredContent["generation_batch"]["members"][0]["status"] == "succeeded"
         second = await queue.get_generation_batch(project_name="demo", batch_id=queue.batch_ids[1])
-        assert second.members[0].task_id == remote_batch["members"][0]["task_id"]
+        assert second.members[0].task_id == task_id
         assert second.members[0].deduped is True
     finally:
         release.set()
         await worker.stop()
-        queue.set_worker_cancel_callback(None)
 
 
 @pytest.mark.parametrize("tool", ["generate_script_plan", "generate_episode_script"])
@@ -1068,6 +1098,8 @@ async def test_remote_mcp_generation_rejects_non_positive_episode(remote_server,
 
 
 async def test_remote_mcp_draft_preserves_explicit_null_updates(remote_server, remote_projects) -> None:
+    # 尚无正式剧本：脚本规划未确认，可取回编辑副本。
+    (remote_projects.get_project_path("demo") / "scripts" / "episode_1.json").unlink()
     app = _mounted(remote_server)
     async with (
         remote_server.session_manager.run(),

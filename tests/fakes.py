@@ -19,11 +19,16 @@ from unittest.mock import AsyncMock, patch
 from instructor.core import InstructorRetryException
 
 if TYPE_CHECKING:
-    from lib.media_generator import MediaGenerator
-    from lib.version_manager import PaidVersionCommit
+    from lib.artifacts.version_manager import PaidVersionCommit
+    from lib.generation.media_generator import MediaGenerator
 
 
 _NO_SDK_MESSAGES: tuple[dict[str, Any], ...] = ()
+
+#: 带真实文件头的产物替身字节。取件路径按文件头判容器（见
+#: ``lib.custom_provider.comfyui.artifacts.container_matches``），裸占位字节会被判容器不符。
+MP4_BYTES = b"\x00\x00\x00\x18ftypisom\x00\x00\x02\x00mp4-bytes"
+PNG_BYTES = b"\x89PNG\r\n\x1a\npng-bytes"
 
 
 async def empty_sdk_response_stream() -> AsyncIterator[dict[str, Any]]:
@@ -59,7 +64,7 @@ class FakeProjectAssetMutationMixin:
         *,
         on_commit: Callable[[Path], None] | None = None,
     ) -> dict[str, Any]:
-        from lib.asset_types import ASSET_SPECS, resolve_asset_key
+        from lib.project.asset_types import ASSET_SPECS, resolve_asset_key
 
         spec = ASSET_SPECS[asset_type]
         result: dict[str, Any] = {}
@@ -89,8 +94,8 @@ class FakeProjectAssetMutationMixin:
         new_name: str,
     ) -> dict[str, Any]:
         """衍生改名的项目侧结果；剧本引用的级联改写由 ProjectManager 的用例覆盖。"""
-        from lib.asset_rename import AssetRenameConflictError, AssetRenameNotFoundError
-        from lib.asset_types import (
+        from lib.project.asset_rename import AssetRenameConflictError, AssetRenameNotFoundError
+        from lib.project.asset_types import (
             DERIVATIVES_FIELD,
             normalize_asset_name,
             rekey_equivalent_entries,
@@ -115,7 +120,7 @@ class FakeProjectAssetMutationMixin:
         return self.update_asset_entry(asset_type, project_name, entry_name, _mutate)
 
     def delete_asset(self, project_name: str, table: str, name: str) -> dict[str, Any]:
-        from lib.asset_types import resolve_asset_key
+        from lib.project.asset_types import resolve_asset_key
 
         if self.expected_delete_asset_table is not None:
             assert table == self.expected_delete_asset_table
@@ -299,7 +304,7 @@ async def build_managed_with_actor(
     return managed, actor, client
 
 
-from lib.image_backends.base import ImageCapability, ImageGenerationRequest, ImageGenerationResult
+from lib.backends.image_backends.base import ImageCapability, ImageGenerationRequest, ImageGenerationResult
 
 
 class FakeImageBackend:
@@ -361,7 +366,7 @@ class FakeReferenceCapabilityProjection:
         self.text_to_video = text_to_video
 
     async def resolve_candidate(self, project: dict, generation_type):
-        from lib.reference_video.request_projection import ProviderProjectionCandidate
+        from lib.script.reference_video.request_projection import ProviderProjectionCandidate
 
         del project
         return ProviderProjectionCandidate(
@@ -390,7 +395,7 @@ def fake_reference_request_projector(
 ):
     """构造使用真实资产水合与投影规则、仅替换 provider 能力查询的 async 测试入口。"""
 
-    from lib.reference_video.request_projection import (
+    from lib.script.reference_video.request_projection import (
         FilesystemReferenceAssets,
         ReferenceRequestOptions,
         ReferenceUnitRequestProjection,
@@ -611,7 +616,7 @@ def instructor_api_call_exhausted(cause: Exception) -> InstructorRetryException:
 def bounded_poll_clock(step: float = 30.0):
     """轮询与重试等待的唯一替身入口：sleep 不真等，每读一次表推进 step 秒。
 
-    ``retry_async`` 的退避与 ``poll_with_retry`` 的轮询间隔都经 ``lib.retry`` 的
+    ``retry_async`` 的退避与 ``poll_with_retry`` 的轮询间隔都经 ``lib.infra.retry`` 的
     ``SystemClock`` 落到这两个符号上，压缩等待无需触碰 ``_compute_wait`` 等私有符号。
 
     终态判定失灵时（把已就绪的任务当成"仍在跑"），真实时钟下 sleep 被 mock 掉的轮询会以近乎
@@ -620,8 +625,8 @@ def bounded_poll_clock(step: float = 30.0):
     """
     clock = itertools.count(0.0, step)
     with (
-        patch("lib.retry.asyncio.sleep", new_callable=AsyncMock),
-        patch("lib.retry.time.monotonic", side_effect=lambda: next(clock)),
+        patch("lib.infra.retry.asyncio.sleep", new_callable=AsyncMock),
+        patch("lib.infra.retry.time.monotonic", side_effect=lambda: next(clock)),
     ):
         yield
 
@@ -654,7 +659,7 @@ def captured_provider_job_ids() -> Generator[list[dict[str, Any]]]:
             }
         )
 
-    with patch("lib.video_backends.base.persist_provider_job_id", _record):
+    with patch("lib.backends.backend_runtime.persist_provider_job_id", _record):
         yield records
 
 
@@ -683,7 +688,7 @@ def captured_openai_clients(client: Any = None) -> Generator[list[dict[str, Any]
     """AsyncOpenAI 构造的记录器：收下建客户端的参数，回给定（或空）客户端替身。
 
     OpenAI 兼容族（openai / agnes 文本、openai 图像与视频、openai TTS、dashscope 与 minimax
-    视频）都经 ``lib.openai_shared`` 取这个 SDK 入口，构造参数就是该边界上的契约：鉴权、
+    视频）都经 ``lib.backends.openai_shared`` 取这个 SDK 入口，构造参数就是该边界上的契约：鉴权、
     base_url 归一化、超时。断言落在记录的构造参数上，而不是替身的调用对象。
     """
     from unittest.mock import AsyncMock
@@ -695,7 +700,7 @@ def captured_openai_clients(client: Any = None) -> Generator[list[dict[str, Any]
         created.append(kwargs)
         return instance
 
-    with patch("lib.openai_shared.AsyncOpenAI", _create):
+    with patch("lib.backends.openai_shared.AsyncOpenAI", _create):
         yield created
 
 
@@ -703,15 +708,15 @@ def captured_openai_clients(client: Any = None) -> Generator[list[dict[str, Any]
 def captured_backend_construction() -> Generator[list[dict[str, Any]]]:
     """四个后端 registry 的构造记录器：工厂换成只记参数的哑后端，不建 SDK 客户端。
 
-    装配层（``ProviderSpec.build_backend``、``lib.text_backends.factory``）的产出就是
+    装配层（``ProviderSpec.build_backend``、``lib.backends.text_backends.factory``）的产出就是
     「往哪个 media registry、用什么后端名、什么构造参数建后端」，真实后端要凭证要网络。
     按名逐个换工厂（保留键集合，``get_registered_backends`` 的读者不受影响），记录列表让
     断言落在构造参数本身；未注册名照旧由 ``create_backend`` fail-loud。
     """
-    from lib.audio_backends import registry as audio_registry
-    from lib.image_backends import registry as image_registry
-    from lib.text_backends import registry as text_registry
-    from lib.video_backends import registry as video_registry
+    from lib.backends.audio_backends import registry as audio_registry
+    from lib.backends.image_backends import registry as image_registry
+    from lib.backends.text_backends import registry as text_registry
+    from lib.backends.video_backends import registry as video_registry
 
     records: list[dict[str, Any]] = []
     factories: dict[str, dict[str, Any]] = {
@@ -811,7 +816,7 @@ def hook_claim_recheck(monkeypatch, *, before=None, after_first_pass=None) -> No
     ``after_first_pass`` 只在首次复核通过后执行一次，用于验证进供应商调用前的第二道 checkpoint。
     """
 
-    from server.services import generation_tasks
+    from server.services.tasks import generation_tasks
 
     real_recheck = generation_tasks.assert_current_artifact_input_claims_usable
     fired = False
@@ -827,3 +832,56 @@ def hook_claim_recheck(monkeypatch, *, before=None, after_first_pass=None) -> No
         return result
 
     monkeypatch.setattr(generation_tasks, "assert_current_artifact_input_claims_usable", _recheck)
+
+
+async def refuse_resume_execution(task: dict[str, Any], *, job_id: str) -> dict[str, Any]:
+    """生成 worker 的续跑执行器替身：用例不该走到续跑，走到即判失败。"""
+    raise AssertionError(f"unexpected resume execution: {task.get('task_id')}")
+
+
+def bind_safe_session_factory(monkeypatch, factory) -> None:
+    """把生成 worker 自开 session 用的 ``safe_session_factory`` 指向给定的 session 工厂。
+
+    worker 的 ``_requeue_single_task`` 与 ``CapacityTable.from_db`` 经模块级导入的这个名字绕开注入的
+    队列自己开 session，派发时读全局轮询超时的 ``lib.config.service.read_video_poll_timeout_seconds``
+    则在函数内晚导入 ``lib.db`` 上的全局名字，两处一起换。工厂由调用方给，可以是真库的
+    ``async_sessionmaker``，也可以是只出一个假 session 的上下文管理器。
+    """
+    monkeypatch.setattr("lib.db.safe_session_factory", factory)
+    monkeypatch.setattr("lib.generation.generation_worker.safe_session_factory", factory)
+
+
+class HangingProcess:
+    """永不自行退出的子进程替身（asyncio Process 形状）；可配置是否响应 terminate。"""
+
+    def __init__(self, *, honors_terminate: bool) -> None:
+        self._honors_terminate = honors_terminate
+        self._exited = asyncio.Event()
+        self.waiting = asyncio.Event()
+        self.terminate_requested = asyncio.Event()
+        self.returncode: int | None = None
+        self.signals: list[str] = []
+
+    def terminate(self) -> None:
+        self.signals.append("terminate")
+        self.terminate_requested.set()
+        if self._honors_terminate:
+            self._exit(-15)
+
+    def kill(self) -> None:
+        self.signals.append("kill")
+        self._exit(-9)
+
+    def _exit(self, code: int) -> None:
+        self.returncode = code
+        self._exited.set()
+
+    async def wait(self) -> int:
+        self.waiting.set()
+        await self._exited.wait()
+        assert self.returncode is not None
+        return self.returncode
+
+    async def communicate(self) -> tuple[bytes, None]:
+        await self.wait()
+        return b"", None

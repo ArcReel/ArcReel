@@ -48,6 +48,11 @@ function renderList(shots: AdShot[]) {
 }
 
 describe("ShotList 广告/短片", () => {
+  it("pending_authoring 为真的分镜标「待编写」", () => {
+    renderList([makeShot({ pending_authoring: true }), makeShot({ shot_id: "E1S02" })]);
+    expect(screen.getAllByText("待编写")).toHaveLength(1);
+  });
+
   it("列表预览展示口播文案与 section 标签", () => {
     renderList([makeShot()]);
     expect(screen.getByText("还在等杯子干？")).toBeInTheDocument();

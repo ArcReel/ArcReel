@@ -54,7 +54,7 @@ export interface UnitStatusInput {
   hasClip: boolean;
   /** 该单元的最新任务行；「最新行胜出」由 selectLatestTaskByResource 保证。 */
   queueRow: TaskItem | undefined;
-  /** 占用集命中——真实任务行占用或入队动作层的乐观标记，含 cancelling。 */
+  /** 占用集命中——真实任务行占用或入队动作层的乐观标记。 */
   busy: boolean;
   /** 该单元正在上传成片。 */
   uploading?: boolean;
@@ -70,13 +70,10 @@ export interface UnitStatusInput {
  * 视频单元的展示状态：两个参考生视频画布共用的单一推导口径。
  *
  * 判定按优先级依次落位——上传中 → 队列行活跃 → 队列行失败 → 乐观占用窗口。
- * 展示语义用 isActiveStatus（cancelling 不显示为生成中），与占用语义
- * （isOccupyingStatus，用于禁用控件）是两个谓词，不要合并：取消中的单元不显示为
- * 「生成中」，但按钮仍须禁用，故 `busy` 独立于本函数的返回值另行接线。
+ * 展示语义用 isActiveStatus；控件禁用看占用集 `busy`，独立于本函数的返回值另行接线。
  *
- * 乐观分支要求 `!queueRow`：有任务行时状态一律由该行决定，否则 cancelling 会被
- * 乐观占用重新显示成生成中。重试与重新生成这两条路径上任务行始终在，乐观窗口内的
- * 禁用因此不能只看本函数返回值——见 `busy` 的说明。
+ * 乐观分支要求 `!queueRow`：有任务行时状态一律由该行决定。重试与重新生成这两条路径上
+ * 任务行始终在，乐观窗口内的禁用因此不能只看本函数返回值——见 `busy` 的说明。
  */
 export function deriveUnitStatus({
   hasClip,

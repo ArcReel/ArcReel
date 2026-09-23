@@ -8,6 +8,8 @@ from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
 from lib.db import get_async_session
+from lib.db.repositories.agent_credential_repo import AgentCredentialRepository
+from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 from server.auth import CurrentUserInfo, get_current_user
 from server.routers import agent_config
 from tests.auth_deps import AUTH_DEPENDENCIES
@@ -200,6 +202,103 @@ async def test_test_connection_rejects_unsupported_base_url(agent_config_client)
     )
     assert resp.status_code == 422
     assert "sk-x" not in resp.text
+
+
+async def _seed_custom_provider(db_factory, *, base_url: str, api_key: str) -> int:
+    async with db_factory() as session:
+        provider = await CustomProviderRepository(session).create_provider(
+            display_name="Relay",
+            discovery_format="anthropic",
+            base_url=base_url,
+            api_key=api_key,
+        )
+        await session.commit()
+        return provider.id
+
+
+async def _stored_credential(db_factory, cred_id: int):
+    async with db_factory() as session:
+        cred = await AgentCredentialRepository(session).get(cred_id)
+        assert cred is not None
+        return cred
+
+
+@pytest.mark.asyncio
+async def test_create_from_custom_provider_copies_its_key_and_base_url(agent_config_client, db_factory) -> None:
+    """从自定义供应商导入：服务端复制该供应商的 base_url 与 api_key，响应只含掩码。"""
+    provider_id = await _seed_custom_provider(
+        db_factory, base_url="https://relay.example.com/anthropic", api_key="sk-provider-secret"
+    )
+    resp = await agent_config_client.post(
+        "/api/v1/agent/credentials",
+        json={"preset_id": "__custom__", "from_custom_provider_id": provider_id},
+    )
+    assert resp.status_code == 201
+    body = resp.json()
+    assert body["base_url"] == "https://relay.example.com/anthropic"
+    assert "sk-provider-secret" not in resp.text
+    stored = await _stored_credential(db_factory, body["id"])
+    assert stored.api_key == "sk-provider-secret"
+    assert stored.base_url == "https://relay.example.com/anthropic"
+
+
+@pytest.mark.asyncio
+async def test_create_from_custom_provider_prefers_request_base_url(agent_config_client, db_factory) -> None:
+    """请求显式给出 base_url 时以请求为准，密钥仍取自供应商。"""
+    provider_id = await _seed_custom_provider(db_factory, base_url="https://relay.example.com", api_key="sk-p")
+    resp = await agent_config_client.post(
+        "/api/v1/agent/credentials",
+        json={
+            "preset_id": "__custom__",
+            "from_custom_provider_id": provider_id,
+            "base_url": "https://relay.example.com/anthropic/v1/messages",
+        },
+    )
+    assert resp.status_code == 201
+    stored = await _stored_credential(db_factory, resp.json()["id"])
+    assert stored.base_url == "https://relay.example.com/anthropic"
+    assert stored.api_key == "sk-p"
+
+
+@pytest.mark.asyncio
+async def test_create_from_custom_provider_rejects_explicit_api_key(agent_config_client, db_factory) -> None:
+    provider_id = await _seed_custom_provider(db_factory, base_url="https://relay.example.com", api_key="sk-p")
+    resp = await agent_config_client.post(
+        "/api/v1/agent/credentials",
+        json={"preset_id": "__custom__", "from_custom_provider_id": provider_id, "api_key": "sk-other"},
+    )
+    assert resp.status_code == 422
+    listing = (await agent_config_client.get("/api/v1/agent/credentials")).json()
+    assert listing == {"credentials": []}
+
+
+@pytest.mark.asyncio
+async def test_create_without_api_key_or_provider_rejected(agent_config_client) -> None:
+    resp = await agent_config_client.post(
+        "/api/v1/agent/credentials",
+        json={"preset_id": "__custom__", "base_url": "https://relay.example.com"},
+    )
+    assert resp.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_create_from_unknown_custom_provider_returns_404(agent_config_client) -> None:
+    resp = await agent_config_client.post(
+        "/api/v1/agent/credentials",
+        json={"preset_id": "__custom__", "from_custom_provider_id": 99999},
+    )
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_create_from_custom_provider_without_key_rejected(agent_config_client, db_factory) -> None:
+    """未配置密钥的供应商不能作为 Agent 凭据来源。"""
+    provider_id = await _seed_custom_provider(db_factory, base_url="https://relay.example.com", api_key="")
+    resp = await agent_config_client.post(
+        "/api/v1/agent/credentials",
+        json={"preset_id": "__custom__", "from_custom_provider_id": provider_id},
+    )
+    assert resp.status_code == 422
 
 
 @pytest.mark.asyncio

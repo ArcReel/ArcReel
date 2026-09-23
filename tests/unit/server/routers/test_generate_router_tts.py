@@ -6,10 +6,10 @@ from typing import Any
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from lib.artifact_manifest import ArtifactComparison, ArtifactKey, ArtifactStatus
+from lib.artifacts.artifact_manifest import ArtifactComparison, ArtifactKey, ArtifactStatus
 from lib.config.resolver import ConfigResolver, ProviderModel
 from lib.i18n import _ as i18n_message
-from lib.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
+from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import generate
@@ -33,7 +33,7 @@ class _FakePM:
         # 生产项目一律处于当前 schema，剧本一律在 episodes 账本里绑定。
         self.project: dict[str, Any] = {
             "schema_version": CURRENT_PROJECT_SCHEMA_VERSION,
-            "episodes": [{"episode": 1, "script_file": "episode_1.json"}],
+            "episodes": [{"episode": 1, "script_file": "scripts/episode_1.json"}],
             "content_mode": "narration",
         }
         self.script = {

@@ -20,12 +20,10 @@ export interface UnitPreviewPanelProps {
   errorMessage?: string | null;
   /**
    * 占用集（含入队后真实任务行落库前的乐观标记）命中与否，独立于 status：
-   * status 的乐观分支只在无任务行时生效（保持 cancelling 不显示为生成中），
-   * 重试与重新生成这两条路径上旧任务行始终在，仅看 status 会在乐观窗口内漏禁用。
+   * status 的乐观分支只在无任务行时生效，重试与重新生成这两条路径上旧任务行始终在，
+   * 仅看 status 会在乐观窗口内漏禁用。
    */
   busy?: boolean;
-  /** 最新任务行是否处于取消中——占用集会计入 cancelling，但不应展示为「生成中」。 */
-  cancelling?: boolean;
   /** Estimated cost for this unit (optional; rendered next to the CTA). */
   estimatedCost?: CostBreakdown;
   /** Actual already-spent cost; rendered in the metadata block. */
@@ -70,7 +68,6 @@ export function UnitPreviewPanel({
   status,
   errorMessage,
   busy = false,
-  cancelling = false,
   estimatedCost,
   actualCost,
   onGenerate,
@@ -108,10 +105,9 @@ export function UnitPreviewPanel({
   // 还为 null —— 这种情况下走 inFlight 占位避免空白面板。
   const ready = effectiveStatus === "ready" && Boolean(videoUrl);
   const failed = effectiveStatus === "failed";
-  // busy 一并计入，使重试/重新生成在乐观窗口内也占位；但 cancelling 时排除在外——
-  // 取消中不是「生成中」，展示层沿用取消前的状态，仅按钮仍需保持禁用（见下方 disabled）。
+  // busy 一并计入，使重试/重新生成在乐观窗口内也占位。
   const inFlight =
-    (busy && !cancelling) ||
+    busy ||
     effectiveStatus === "running" ||
     (effectiveStatus === "ready" && !videoUrl);
 
@@ -129,8 +125,8 @@ export function UnitPreviewPanel({
           {t("reference_preview_label")}
         </span>
         <span className="flex-1" />
-        {/* 上传是同一 unit 上的兄弟控件，与主 CTA 同步接线禁用：cancelling 期间
-            inFlight 为假但占用仍在，上传会与在跑的生成回写同一个成片文件 */}
+        {/* 上传是同一 unit 上的兄弟控件，与主 CTA 同步接线禁用：占用期间上传会与
+            在跑的生成回写同一个成片文件 */}
         {onUploadVideo && (
           <UploadIconButton
             accept={UPLOAD_VIDEO_ACCEPT}

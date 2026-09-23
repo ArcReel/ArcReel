@@ -11,6 +11,8 @@ import {
   KeyRound,
   Languages,
   Plug,
+  ScrollText,
+  Store,
   Waypoints,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -20,9 +22,11 @@ import { AgentConfigTab } from "./AgentConfigTab";
 import { ApiKeysTab } from "./ApiKeysTab";
 import { AboutSection } from "./settings/AboutSection";
 import { MediaModelSection } from "./settings/MediaModelSection";
+import { PromptTemplatesSection } from "./settings/PromptTemplatesSection";
 import { ProviderSection } from "./ProviderSection";
 import { UsageRecordsSection } from "../usage/UsageRecordsSection";
 import { EndpointsSection } from "./settings/endpoints/EndpointsSection";
+import { MarketSection } from "./settings/market/MarketSection";
 import {
   SUPPORTED_LANGUAGES,
   LANGUAGE_DISPLAY_LABELS,
@@ -40,9 +44,11 @@ type SettingsSection =
   | "agent"
   | "providers"
   | "endpoints"
+  | "market"
   | "media"
   | "usage"
   | "api-keys"
+  | "prompt-templates"
   | "about";
 
 /** 引导第 5/6 步指向的侧栏入口——只有这两项挂锚点，其余小节不在当前引导覆盖范围内。 */
@@ -73,6 +79,7 @@ const SECTION_GROUPS: SectionGroup[] = [
       { id: "providers", labelKey: "dashboard:providers", Icon: Plug },
       { id: "agent", labelKey: "dashboard:agents", Icon: Bot },
       { id: "endpoints", labelKey: "dashboard:ce_section_title", Icon: Waypoints },
+      { id: "market", labelKey: "dashboard:market_section_title", Icon: Store },
       { id: "media", labelKey: "dashboard:models", Icon: Film },
     ],
   },
@@ -85,7 +92,10 @@ const SECTION_GROUPS: SectionGroup[] = [
   },
   {
     kicker: "System",
-    items: [{ id: "about", labelKey: "dashboard:about", Icon: Info }],
+    items: [
+      { id: "prompt-templates", labelKey: "dashboard:prompt_templates", Icon: ScrollText },
+      { id: "about", labelKey: "dashboard:about", Icon: Info },
+    ],
   },
 ];
 
@@ -102,9 +112,11 @@ export function SystemConfigPage() {
     const section = new URLSearchParams(search).get("section");
     if (section === "agent") return "agent";
     if (section === "endpoints") return "endpoints";
+    if (section === "market") return "market";
     if (section === "media") return "media";
     if (section === "usage") return "usage";
     if (section === "api-keys") return "api-keys";
+    if (section === "prompt-templates") return "prompt-templates";
     if (section === "about") return "about";
     return "providers";
   }, [search]);
@@ -282,10 +294,12 @@ export function SystemConfigPage() {
             <ProviderSection />
           ) : activeSection === "endpoints" ? (
             <EndpointsSection />
+          ) : activeSection === "market" ? (
+            <MarketSection />
           ) : (
             <div className="mx-auto max-w-4xl px-8 py-8">
-              {/* Quick alert for config issues */}
-              {configIssues.length > 0 && (
+              {/* Quick alert for config issues (hidden on the read-only prompt-templates section) */}
+              {configIssues.length > 0 && activeSection !== "prompt-templates" && (
                 <div
                   className="mb-7 rounded-[10px] border p-4"
                   style={{
@@ -326,6 +340,7 @@ export function SystemConfigPage() {
                   <ApiKeysTab />
                 </div>
               )}
+              {activeSection === "prompt-templates" && <PromptTemplatesSection />}
               {activeSection === "about" && <AboutSection />}
             </div>
           )}

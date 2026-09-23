@@ -14,7 +14,7 @@ import {
 /**
  * @mention / speech tokenizer for the reference-video unit body editor.
  *
- * Regex mirrors lib/reference_video/text_parser.py via reference-mentions.MENTION_RE.
+ * Regex mirrors lib/script/reference_video/text_parser.py via reference-mentions.MENTION_RE.
  *
  * Output tokens are non-overlapping and concatenate back to the original text.
  *
@@ -131,7 +131,7 @@ export function useUnitPromptHighlight(text: string, lookup: MentionLookup): Tok
  *
  * `sourceLine` is the 0-based raw line index (`splitScriptLines` order — one entry per
  * physical line), the same coordinate system as the backend's `DraftViolation.line`
- * (`lib/reference_video/draft_validation.py`, `text.splitlines()` 坐标系).
+ * (`lib/script/reference_video/draft_validation.py`, `text.splitlines()` 坐标系).
  */
 export type ScriptLine =
   | { kind: "dialogue"; sourceLine: number; speaker: string; speakerKind: MentionKind; text: string }

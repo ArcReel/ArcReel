@@ -16,7 +16,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import StrEnum
 
-from .errors import DefinitionErrorCode
+from lib.custom_provider.definition_diagnostics import DefinitionErrorCode
 
 #: 与引号种类无关的转义字符；``'`` 与 ``"`` 只能在同种引号的串里转义，逐串另加。
 _ESCAPES = frozenset({"n", "t", "r", "b", "f", "/", "\\"})

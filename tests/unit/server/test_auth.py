@@ -98,6 +98,24 @@ class TestCreateAndVerifyToken:
             result = auth_module.verify_token(expired_token)
             assert result is None
 
+    @pytest.mark.parametrize("purpose", ["download", "other"])
+    def test_verify_token_rejects_purpose_bound_token(self, purpose):
+        """带 purpose 声明的 token（任意取值）不被会话校验接受"""
+        import jwt
+
+        secret = "test-secret-key-that-is-at-least-32-bytes"
+        with patch.dict(os.environ, {"AUTH_TOKEN_SECRET": secret}):
+            payload = {"sub": "admin", "purpose": purpose, "iat": time.time(), "exp": time.time() + 300}
+            token = jwt.encode(payload, secret, algorithm="HS256")
+            assert auth_module.verify_token(token) is None
+
+    def test_verify_token_accepts_session_token(self):
+        """不带 purpose 的会话 token（登录与内嵌 Agent 均经 create_token 签发）照常通过"""
+        with patch.dict(os.environ, {"AUTH_TOKEN_SECRET": "test-secret-key-that-is-at-least-32-bytes"}):
+            payload = auth_module.verify_token(auth_module.create_token("embedded-agent", expiry_seconds=60))
+            assert payload is not None
+            assert payload["sub"] == "embedded-agent"
+
 
 class TestCheckCredentials:
     def setup_method(self):

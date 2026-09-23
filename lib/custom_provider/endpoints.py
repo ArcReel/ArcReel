@@ -17,7 +17,22 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 from urllib.parse import urlsplit
 
-from lib.audio_backends.openai import OpenAIAudioBackend
+from lib.backends.aspect_size import IMAGE_TIER_SHORT_EDGE, VIDEO_TIER_SHORT_EDGE, short_edge_to_resolution
+from lib.backends.audio_backends.openai import OpenAIAudioBackend
+from lib.backends.image_backends.base import ImageCapability
+from lib.backends.image_backends.dashscope import DashScopeImageBackend
+from lib.backends.image_backends.gemini import GeminiImageBackend
+from lib.backends.image_backends.kling import KlingImageBackend
+from lib.backends.image_backends.minimax import MiniMaxImageBackend
+from lib.backends.image_backends.openai import OpenAIImageBackend
+from lib.backends.text_backends.gemini import GeminiTextBackend
+from lib.backends.text_backends.openai import OpenAITextBackend
+from lib.backends.video_backend_contract import ReferenceAudioMode, VideoCapabilities
+from lib.backends.video_backends.ark import ArkVideoBackend
+from lib.backends.video_backends.dashscope import DashScopeVideoBackend, classify_wan_model
+from lib.backends.video_backends.kling import KlingVideoBackend
+from lib.backends.video_backends.openai import OpenAIVideoBackend
+from lib.backends.video_backends.vidu import ViduVideoBackend
 from lib.config.url_utils import ensure_google_base_url, ensure_openai_base_url
 from lib.custom_provider import is_custom_endpoint
 from lib.custom_provider.backends import (
@@ -35,21 +50,18 @@ from lib.custom_provider.builtin_definitions import (
     declarative_video_capabilities,
     load_builtin_definitions,
 )
+from lib.custom_provider.comfyui.capabilities import (
+    default_supported_durations,
+    duration_is_fixed,
+    frame_rate_is_missing,
+    native_short_edge,
+    size_is_fixed,
+)
+from lib.custom_provider.comfyui.comfyui_backend import ComfyuiVideoBackend, binding_video_capabilities
+from lib.custom_provider.comfyui.comfyui_image_backend import ComfyuiImageBackend, binding_image_capabilities
+from lib.custom_provider.comfyui.failures import ComfyuiError
 from lib.custom_provider.declarative_backend import DeclarativeVideoBackend, request_urls
-from lib.image_backends.base import ImageCapability
-from lib.image_backends.dashscope import DashScopeImageBackend
-from lib.image_backends.gemini import GeminiImageBackend
-from lib.image_backends.kling import KlingImageBackend
-from lib.image_backends.minimax import MiniMaxImageBackend
-from lib.image_backends.openai import OpenAIImageBackend
-from lib.text_backends.gemini import GeminiTextBackend
-from lib.text_backends.openai import OpenAITextBackend
-from lib.video_backends.ark import ArkVideoBackend
-from lib.video_backends.base import ReferenceAudioMode, VideoCapabilities
-from lib.video_backends.dashscope import DashScopeVideoBackend, classify_wan_model
-from lib.video_backends.kling import KlingVideoBackend
-from lib.video_backends.openai import OpenAIVideoBackend
-from lib.video_backends.vidu import ViduVideoBackend
+from lib.custom_provider.endpoint_definition.kinds import COMFYUI_KIND
 
 if TYPE_CHECKING:
     from lib.db.models.custom_provider import CustomProvider
@@ -106,8 +118,93 @@ class EndpointSpec:
 
     @property
     def kind(self) -> str:
-        """实现形态：``declarative``（声明式定义）或 ``python``（backend 代码）。"""
-        return "declarative" if self.definition is not None else "python"
+        """实现形态：有定义时取定义的 ``kind``，Python backend 实现的端点为 ``python``。
+
+        ``python`` 不是定义容器的 kind——它没有定义可读，是「没有定义」这件事本身的名字。
+        """
+        return "python" if self.definition is None else str(self.definition["kind"])
+
+    @property
+    def duration_tier_optional(self) -> bool:
+        """该端点的 ``supported_durations`` 允不允许是空集。
+
+        ComfyUI 端点的时长可以整维不由 ArcReel 驱动（``docs/adr/0082``）：``frames`` 未绑定或读不到
+        帧率来源时，这份 workflow 出它自己那一档，档位空集是如实的声明而非缺失。其余端点照 ADR 0018
+        办——空集即配置缺陷，解析期 fail loud 把用户引回配置页。
+
+        判据挂在 spec 上而不是留给各消费方比 ``kind``：能力解析在 ``lib.config`` 层，那一层按分层
+        契约够不到 ``kind`` 常量所在的模块，取一个已解析好的 spec 上的属性则无需 import。
+        """
+        return self.kind == COMFYUI_KIND
+
+    @property
+    def size_fixed(self) -> bool:
+        """尺寸这一维是不是由端点固定、比例与分辨率选择对它无效。
+
+        只有 ComfyUI 端点会为真：宽高两侧不都有节点绑定时 ArcReel 驱动不动尺寸，界面据此禁用
+        分辨率选择器并明示，而不是照收用户的选择再在填值期丢掉。其余端点的尺寸一律由请求参数
+        决定，没有「固定」这一形态。
+        """
+        return self.definition is not None and self.kind == COMFYUI_KIND and size_is_fixed(self.definition["bindings"])
+
+    @property
+    def duration_fixed(self) -> bool:
+        """时长这一维是不是由端点固定：ComfyUI 端点上 ``frames`` 未绑定即为真。
+
+        与 :attr:`duration_tier_optional` 是两件事：后者说的是「档位允不允许是空集」，本属性说的
+        是「用户能不能编辑档位」。绑了 ``frames`` 却读不到帧率来源时档位同样是空集，但那是一份
+        可修的定义（补一个 ``fps`` 绑定或手填帧率），不是这份 workflow 的时长天生固定。
+        """
+        return (
+            self.definition is not None and self.kind == COMFYUI_KIND and duration_is_fixed(self.definition["bindings"])
+        )
+
+    @property
+    def duration_frame_rate_missing(self) -> bool:
+        """档位为空的成因是不是「读不到帧率来源」：``frames`` 绑了却既无 ``fps`` 绑定也没手填帧率。
+
+        与 :attr:`duration_fixed` 一样只挑文案，不参与只读 / 禁用判据（那一律取
+        :attr:`duration_tier_empty`）。两位都为假而档位仍为空，说的是第三支：帧数已绑定、帧率也
+        读得到，只是换算不出一档能原样写回的整秒时长——那一支既不是「天生固定」也补不出帧率来。
+        """
+        return self.definition is not None and self.kind == COMFYUI_KIND and frame_rate_is_missing(self.definition)
+
+    @property
+    def endpoint_durations(self) -> list[int] | None:
+        """端点自己那一份时长档位；档位不由端点说了算时为 ``None``。
+
+        只有 ComfyUI 视频端点给得出——它由绑定表推导，对每个挂在这个端点上的模型行都是同一份。
+        其余端点的档位声明在模型行 / 注册表上，本属性不越俎代庖。
+
+        空列表与 ``None`` 是两件事：空列表说「这个端点确实答了，答案是这一维它驱动不了」，
+        ``None`` 说「这个问题不该问端点」。
+        """
+        if self.definition is None or self.kind != COMFYUI_KIND or self.media_type != "video":
+            return None
+        return default_supported_durations(self.definition)
+
+    @property
+    def duration_tier_empty(self) -> bool:
+        """时长这一维根本给不出档位：ComfyUI 端点上原生时长推不出来即为真。
+
+        三支都落在这里——``frames`` 未绑定（读不到字面帧数）、绑了 ``frames`` 却没有帧率来源
+        （既无 ``fps`` 只读绑定、也无条目手填 fps），以及帧率读得到但换算不出整秒档位。界面的
+        只读与禁用判据是本属性而不是 :attr:`duration_fixed`：用户编不动的是「档位为空」这件事，
+        说给用户听的是哪一句则由 :attr:`duration_fixed` 与 :attr:`duration_frame_rate_missing`
+        挑——「时长天生固定」、「没提供帧率」，两位都为假时是「帧数与帧率都在、换算不出整秒档位」。
+        """
+        return self.endpoint_durations == []
+
+    @property
+    def native_resolution(self) -> str | None:
+        """这份 workflow 不选分辨率档位时实际会出的那一档；非 ComfyUI 端点或读不出字面尺寸时 None。"""
+        if self.definition is None or self.kind != COMFYUI_KIND:
+            return None
+        short_edge = native_short_edge(self.definition)
+        if short_edge is None:
+            return None
+        tier_map = IMAGE_TIER_SHORT_EDGE if self.media_type == "image" else VIDEO_TIER_SHORT_EDGE
+        return short_edge_to_resolution(short_edge, tier_map=tier_map)
 
     @property
     def display_name(self) -> str | None:
@@ -535,6 +632,92 @@ def declarative_endpoint_spec(
     return spec
 
 
+def _build_comfyui_runtime(
+    definition: Mapping[str, Any],
+) -> Callable[[CustomProvider, str], CustomImageBackend | CustomVideoBackend]:
+    """ComfyUI 端点的 backend 构造闭包，按定义声明的 ``media_type`` 分叉。
+
+    两种 kind 的同一件事：一份 workflow 产图还是产视频只有定义自己知道（键前缀推不出来），而两条
+    通道各有自己的 backend 协议与包装类。媒体类型不是这两种时抛带失败码的 ``ComfyuiError``——
+    schema 只放行这两个值，走到这里意味着手工改过库；worker 据此把任务落成结构化失败，文案留到
+    读侧按语言渲染，落一段裸文本的话非中文用户在任务列表里看到的是一句中文。借
+    ``provider_unsupported_media`` 而不另立新码：它说的正是「这个供应商给不出这一类生成」，读侧的
+    ``CONFIGURE_PROVIDER`` 指向也对。
+
+    不抛 ``ValueError``：那是本层「端点不认识」的既有含义，沿途多处 ``except ValueError`` 会把它
+    降级成「端点已不在」，而实情是端点合法、只是媒体类型不是本层认得的那两个。
+
+    图像那一路的包装保持纯转发（``CustomImageBackend`` 本就只覆写 name / model）：能力注入是视频
+    专属的形态（系统判定 ⊕ 用户覆盖），而 ComfyUI 协议的 ``capability_overrides`` 整节关闭
+    （``docs/adr/0081``），图像能力只从绑定表推导，没有可叠加的第二个来源。
+    """
+
+    def build(provider: CustomProvider, model_id: str) -> CustomImageBackend | CustomVideoBackend:
+        media_type = str(definition.get("media_type"))
+        if media_type not in ("image", "video"):
+            raise ComfyuiError("provider_unsupported_media", provider_id=provider.provider_id, media_type=media_type)
+        if not provider.base_url:
+            raise ValueError("ComfyUI 调用端点需要 base_url")
+        if media_type == "image":
+            image_delegate = ComfyuiImageBackend(
+                provider_id=provider.provider_id,
+                model=model_id,
+                base_url=provider.base_url,
+                api_key=provider.api_key,
+                definition=definition,
+            )
+            return CustomImageBackend(provider_id=provider.provider_id, delegate=image_delegate, model=model_id)
+        video_delegate = ComfyuiVideoBackend(
+            provider_id=provider.provider_id,
+            model=model_id,
+            base_url=provider.base_url,
+            api_key=provider.api_key,
+            definition=definition,
+        )
+        return CustomVideoBackend(provider_id=provider.provider_id, delegate=video_delegate, model=model_id)
+
+    return build
+
+
+def comfyui_endpoint_spec(key: str, definition: Mapping[str, Any]) -> EndpointSpec:
+    """把一份 ComfyUI 定义派生成 EndpointSpec。纯函数：不读库、不发请求。
+
+    媒体类型读定义自身声明的 ``media_type``——一份 workflow 产图还是产视频只有它自己知道。能力
+    全部从节点绑定推导（``docs/adr/0082``），不看模型名也不读定义里的能力声明（定义里没有那一
+    节）：能力对每个 model 是同一份，因为 workflow 只有一份，模型行换名字不改它能做什么。
+
+    实现落在本模块而非 ``comfyui`` 子包：子包受「不依赖声明式运行时」的 import 契约约束，而
+    ``EndpointSpec`` 与它的不变式都在这里，子包够到本模块即间接够到声明式 backend。推导本身在
+    子包的 ``comfyui.capabilities`` 里——它只依赖绑定表与 workflow，与 ``EndpointSpec`` 无关；
+    两种媒体类型的装箱各借对应 backend 模块那一份，backend 自己的能力声明也用它。
+    """
+    media_type = str(definition["media_type"])
+    is_video = media_type == "video"
+    # 生成前的能力闸门读的是 backend 那一份、不是这里投影出来的 caps，两处各写一份就会在闸门上
+    # 打架，故两种媒体类型的能力都借 backend 模块的装箱函数算。
+    caps = binding_video_capabilities(definition) if is_video else None
+    spec = EndpointSpec(
+        key=key,
+        media_type=media_type,
+        family=CUSTOM_ENDPOINT_FAMILY,
+        # 显示名取 meta.name，与声明式端点同处理（见 EndpointSpec.display_name）。
+        display_name_key="",
+        source="custom",
+        # 提交形态固定：一份 workflow 整体 POST 给 /prompt，没有随模型变化的路径段，也没有
+        # 可配的方法——两者都不是定义里的可取值，故写在投影处而非读自定义。
+        request_method="POST",
+        request_path_template="/prompt",
+        build_backend=_build_comfyui_runtime(definition),
+        image_capabilities=None if is_video else binding_image_capabilities(definition),
+        video_caps_for_model=(lambda _model_id: caps) if caps is not None else None,
+        # 两个运输位与声明式端点同处理：从 caps 反推，而不是各写一份判据。
+        end_image_capable=caps.last_frame if caps is not None else False,
+        definition=definition,
+    )
+    validate_video_caps_declaration(spec)
+    return spec
+
+
 def merge_builtin_definitions(registry: dict[str, EndpointSpec], directory: Path | None = None) -> None:
     """把随版声明式定义并入注册表。键与 Python 内置同一命名空间，重复即拒。
 
@@ -584,20 +767,20 @@ def endpoint_to_media_type(endpoint: str) -> str:
 
 
 def static_media_type(endpoint: str) -> str:
-    """不读库判定端点媒体类型：自定义端点的键前缀已蕴含 video，其余走内置查表。
+    """不读库判定内置端点的媒体类型；``ce-`` 键在此拒绝。
 
-    模型行的 endpoint 列既可能是内置键，也可能是 ``ce-`` 键，凡是按端点分媒体类型的地方
-    都要走这里；只查内置注册表会让带自定义端点的供应商整个判失败。
+    自定义端点的媒体类型由它那份定义决定（按 ``kind`` 各有取法），键前缀不蕴含媒体类型。模型行
+    的 endpoint 列两种键都可能是，按端点分媒体类型的地方一律先
+    ``endpoint_resolution.resolve_endpoint_spec`` 取 spec、再读 ``EndpointSpec.media_type``。
 
     Raises:
-        ValueError: 既非自定义端点键，内置注册表里也没有该键。
+        ValueError: 传入 ``ce-`` 键（须读定义），或内置注册表里没有该键。
     """
     # 延迟导入：builtin_definitions 消费本模块的注册表，模块级导入会成环。
     from lib.custom_provider import is_custom_endpoint
-    from lib.custom_provider.builtin_definitions import DECLARATIVE_MEDIA_TYPE
 
     if is_custom_endpoint(endpoint):
-        return DECLARATIVE_MEDIA_TYPE
+        raise ValueError(f"custom endpoint media type comes from its definition: {endpoint!r}")
     return endpoint_to_media_type(endpoint)
 
 
@@ -622,6 +805,12 @@ def endpoint_spec_to_dict(spec: EndpointSpec) -> dict:
     data.pop("definition", None)
     data["kind"] = spec.kind
     data["display_name"] = spec.display_name
+    # 参数约束的投影：界面据此禁用分辨率 / 时长控件并写出空值占位，判据与执行层同源。
+    data["size_fixed"] = spec.size_fixed
+    data["duration_fixed"] = spec.duration_fixed
+    data["duration_frame_rate_missing"] = spec.duration_frame_rate_missing
+    data["duration_tier_empty"] = spec.duration_tier_empty
+    data["native_resolution"] = spec.native_resolution
     if spec.image_capabilities is not None:
         data["image_capabilities"] = sorted(c.value for c in spec.image_capabilities)
     else:
@@ -692,7 +881,7 @@ def infer_endpoint(model_id: str, discovery_format: str) -> str:
     is_image = bool(_IMAGE_PATTERN.search(model_id))
     # 走百炼原生端点的万相/happyhorse 家族 id（视频与图像变体都命中），下面路由与 is_video 排除
     # 各用一次。家族归属、分隔符归一化、标识符边界、image-to-video 续接语法、videoedit 模态排除
-    # 全部只在 classify_wan_model（lib.video_backends.dashscope）里判定一次，本函数与
+    # 全部只在 classify_wan_model（lib.backends.video_backends.dashscope）里判定一次，本函数与
     # DashScopeVideoBackend._profile_for_model、duration_presets.infer_supported_durations 三处
     # 只消费其结论，不再各自对 model_id 做正则匹配——避免三处宽度各自漂移，出现"路由到本后端却拿
     # 不到对应能力档"一类互斥组合。

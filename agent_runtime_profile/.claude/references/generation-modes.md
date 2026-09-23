@@ -12,9 +12,9 @@ ArcReel 把"做什么内容"和"怎么生成视频"拆成两条独立维度。`c
 | `storyboard` | `drama` | `scenes[]` | normalize-drama-script | `script_plan_normalized_script.json` | DramaNormalizedScript（script_plan）→ DramaVisualScript（prompt_authoring）→ DramaEpisodeScript（合并） | 每个分镜一张分镜图作起始帧（`grid_storyboard=true` 时为宫格图切块） |
 | `reference_video` | `narration` / `drama` | `video_units[]` | split-reference-video-units | `script_plan_reference_units.json` | ReferenceVideoScript | 角色 / 场景 / 道具 sheet 图直接作为 `reference_images` |
 
-> drama 走两段式（见 ADR 0041）：script_plan（normalize-drama-script）产出**结构化内容** `script_plan_normalized_script.json`（分镜边界 / 出场资产 / 逐字口播 utterances / 原文锚 source_text / 视觉改编描述）；prompt_authoring（create-episode-script）LLM 只出视觉层 `DramaVisualScript`（scene_id + image_prompt + video_prompt），后端按 scene_id 合并回 script_plan 内容得 `DramaEpisodeScript`、透传非视觉字段。
+> drama 走两段式（见 ADR 0041）：script_plan（normalize-drama-script）产出**结构化内容** `script_plan_normalized_script.json`（分镜边界 / 出场资产 / 逐字口播 utterances / 原文锚 source_text / 视觉改编描述）；prompt_authoring（create-episode-script）LLM 只出视觉层 `DramaVisualScript`（scene_id + image_prompt + video_prompt），后端按 scene_id 写回正式脚本 `DramaEpisodeScript`。内容确认时脚本规划整集转为正式脚本，之后内容修改在正式脚本上经 `patch_episode_script` 进行。
 >
-> script_plan 中间文件统一位于 `drafts/episode_{N}/`。状态检测与剧本生成**只认当前项目 generation_mode 对应的那一个文件**：目录中出现其他模式的 `script_plan_*` 文件属历史残留，既不作为脚本规划已完成的依据，也不能当作剧本生成的代替输入。drama 旧项目残留的 `script_plan_normalized_script.md`（结构化前自由文本稿）不算有效 script_plan，须重跑 normalize 产出 `.json`。
+> script_plan 中间文件统一位于 `drafts/episode_{N}/`。状态检测与内容确认**只认当前项目 generation_mode 对应的那一个文件**：目录中出现其他模式的 `script_plan_*` 文件属历史残留，既不作为脚本规划已完成的依据，也不能当作内容确认的代替输入。drama 旧项目残留的 `script_plan_normalized_script.md`（结构化前自由文本稿）不算有效 script_plan，须重跑 normalize 产出 `.json`。
 
 ## 步骤适用性由计划表达
 
@@ -32,7 +32,7 @@ ArcReel 把"做什么内容"和"怎么生成视频"拆成两条独立维度。`c
   只是参考生视频没有按段批量 TTS 的入口（无 `segments[]`）。
 - 视频入队按项目 `generation_mode` 定生成模式，剧本骨架只作校验；失配（如 storyboard 项目里残留
   `video_units[]` 旧剧本）直接拒绝入队，正解是按项目当前生成模式重跑脚本规划与剧本生成，而非指望旧剧本被执行。
-- 脚本规划中间文件被修改 / 重拆后必须重新生成剧本 JSON——剧本不会自动跟随中间文件更新。
+- 正式脚本不跟随脚本规划变化：内容修改在正式脚本上经 `patch_episode_script` 进行；只有整集重做才重跑脚本规划，重跑后须重新确认，确认会整份覆盖现有正式脚本（先经覆盖确认）。
 
 ## 视频规格
 

@@ -22,11 +22,11 @@ from collections.abc import AsyncGenerator
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from lib.backend_assembly.specs import (
+from lib.backends.backend_assembly.specs import (
     builtin_effective_generate_audio_for_model,
     builtin_video_capabilities_for_model,
 )
-from lib.character_voice import CharacterVoiceBinding, character_voice_binding
+from lib.backends.text_backends.base import TEXT_TASK_TIERS, VISION_REQUIRED_TASKS, TextTaskTier, TextTaskType
 from lib.config.registry import (
     PROVIDER_REGISTRY,
     default_model_for_provider,
@@ -44,9 +44,9 @@ from lib.config.service import (
 from lib.custom_provider import is_custom_provider, parse_provider_id
 from lib.db.repositories.credential_repository import CredentialRepository
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository
-from lib.episode_target_duration import project_episode_target_duration
-from lib.project_manager import get_project_manager
-from lib.text_backends.base import TEXT_TASK_TIERS, VISION_REQUIRED_TASKS, TextTaskTier, TextTaskType
+from lib.episode.episode_target_duration import project_episode_target_duration
+from lib.project.project_manager import get_project_manager
+from lib.speech.character_voice import CharacterVoiceBinding, character_voice_binding
 
 logger = logging.getLogger(__name__)
 
@@ -176,6 +176,9 @@ class _LayeredBackendKeys:
     project_default_key: str | None = None
     global_bucket_key: str | None = None
     global_default_key: str | None = None
+    # 这份键位所属的任务类型桶，供自动推断层按桶过滤自定义默认模型。视频与文本 / 音频留空：
+    # 前者的自定义默认在保存期就是同一 media_type 至多一个，后两者无桶。
+    generation_type: str | None = None
 
 
 # 图片桶（t2i / i2i）键位。桶为可选覆盖，空桶回退默认层：项目默认层用 project.json 的
@@ -189,6 +192,7 @@ _IMAGE_LAYERED_KEYS: dict[str, _LayeredBackendKeys] = {
         project_default_key="default_image_backend",
         global_bucket_key=f"default_image_backend_{generation_type}",
         global_default_key="default_image_backend",
+        generation_type=generation_type,
     )
     for generation_type in ("t2i", "i2i")
 }
@@ -234,9 +238,9 @@ VideoGenerationType = Literal["i2v", "r2v"]
 
 #: 视频任务类型 → 任务类型桶。执行路径与桶的映射固定在代码里（docs/adr/0054）：图生视频 /
 #: 宫格生视频（task_type ``video``）→ i2v；参考生视频按视频单元是否携带参考图分流
-#: （``lib.reference_video.units``），本表登记其代表桶 r2v，仅供剧本 / unit 读不到时回退。
-#: 表外任务类型无视频桶，调用方按「不定桶」处理。定义在本模块（而非 lib.generation_type_buckets）
-#: 是分层约束：队列 / worker 的入队与认领路径处于 lib.video_backends 的依赖闭包内，不得经
+#: （``lib.script.reference_video.units``），本表登记其代表桶 r2v，仅供剧本 / unit 读不到时回退。
+#: 表外任务类型无视频桶，调用方按「不定桶」处理。定义在本模块（而非 lib.backends.generation_type_buckets）
+#: 是分层约束：队列 / worker 的入队与认领路径处于 lib.backends.video_backends 的依赖闭包内，不得经
 #: 桶判定模块间接引入 lib.custom_provider。
 VIDEO_BUCKET_BY_TASK_TYPE: dict[str, VideoGenerationType] = {
     "video": "i2v",
@@ -246,7 +250,7 @@ VIDEO_BUCKET_BY_TASK_TYPE: dict[str, VideoGenerationType] = {
 #: 生成模式 → 任务类型桶。与 ``VIDEO_BUCKET_BY_TASK_TYPE`` 描述同一套映射的两个入口：执行路径按
 #: 已成形任务的 task_type 定桶，读侧（能力查询 / 时长约束收窄等）在任务成形前只有项目的
 #: generation_mode，按它定同一个桶，两侧因此回答同一个「当前配置真正会执行的模型」。
-#: 参考生视频项目中无参考图分镜的降级（→ i2v）不经本表，见 ``lib.reference_video.units``。
+#: 参考生视频项目中无参考图分镜的降级（→ i2v）不经本表，见 ``lib.script.reference_video.units``。
 VIDEO_BUCKET_BY_GENERATION_MODE: dict[str, VideoGenerationType] = {
     "storyboard": "i2v",
     "reference_video": "r2v",
@@ -334,10 +338,10 @@ def video_capability_satisfied(
 ) -> bool:
     """一组视频能力声明是否满足某个桶——桶归属判定的唯一口径。
 
-    解析闸（``_ensure_video_bucket_capability``）与桶候选下拉（``lib.generation_type_buckets``）共用本
+    解析闸（``_ensure_video_bucket_capability``）与桶候选下拉（``lib.backends.generation_type_buckets``）共用本
     函数，不各写一份布尔式：下拉挡掉的组合解析层必然也挡，反之亦然。``has_image`` 区分
     i2v 桶内的纯文生与带首帧请求。取标量参数而非
-    ``VideoCapabilities``，一是不在 lib.config 层导入 lib.video_backends.base（分层契约），二是让
+    ``VideoCapabilities``，一是不在 lib.config 层导入 lib.backends.video_backend_contract（分层契约），二是让
     内置（backend 声明）与自定义供应商（endpoint ⊕ 模型级覆盖的合成）两条来源都能直接喂进来。
     """
     if generation_type == "i2v":
@@ -353,7 +357,7 @@ def builtin_video_audio_track(provider_id: str, model_id: str, *, generation_typ
     （可灵 v3-omni 走多图主体子路径时请求体不含 ``sound``，成片必然无声）。展示层、入队预检与
     声音一致性派生共读本函数，不各自解读一份声明。
 
-    返回值是 ``lib.video_backends.base.VideoAudioMode`` 的字面量。此处不导入该枚举：分层契约以
+    返回值是 ``lib.backends.video_backend_contract.VideoAudioMode`` 的字面量。此处不导入该枚举：分层契约以
     lib.config 为最底层，与 ``derive_voice_consistency`` 按字面量比较 ``ReferenceAudioMode`` 同一
     做法（``StrEnum`` 与字面量可直接 ``==``）。
 
@@ -448,7 +452,7 @@ def derive_voice_consistency(
     ``character_voice_binding=None`` 调同一函数，前端不复制第二份公式。
 
     ``reference_audio_mode`` 按字面量比较（``ReferenceAudioMode`` 是 ``StrEnum``，两者可
-    直接 ``==``），不在 lib.config 层导入 lib.video_backends（分层契约，config 是最底层）。
+    直接 ``==``），不在 lib.config 层导入 lib.backends.video_backends（分层契约，config 是最底层）。
 
     native 蕴含有音轨：generation_mode 非参考生视频、或项目选的是提示词软约束
     （``character_voice_binding == "prompt"``，默认档）时一律降格 soft，不降到 none。降格是全链路
@@ -575,7 +579,7 @@ def _resolution_for_constraints(
       合法。此时按兜底档位求值会凭空收窄：未配置分辨率的 Veo 项目剧本节奏会被锁死 8 秒，而
       供应商本来就接受 4/6 秒。故未配置时返回 ``None``（不施加分辨率约束）。
     - 参考生视频路径是唯一需要非空档位的调用方，执行期取 ``resolution_or_fallback``（见
-      ``server/services/reference_video_tasks.py``），故这里同样补 ``get_provider_fallback``，
+      ``server/services/tasks/reference_video_tasks.py``），故这里同样补 ``get_provider_fallback``，
       让约束与实际下发的档位描述同一件事。
 
     ``get_provider_fallback`` 本身是费用估算与参考生视频路径的内部口径，不是「用户没配分辨率时
@@ -655,6 +659,15 @@ def duration_constraints_report(
     }
 
 
+#: 时长这一维由端点固定的模型行，在剧本规划里借用的档位。
+#:
+#: 这不是「这个模型支持几秒」——那一维不由 ArcReel 驱动，成片多长以 workflow 为准。它只是剧本
+#: 规划需要的「一个分镜大概多长」的篇幅依据：没有它，分镜拆不出来，整条规划链就断在
+#: :func:`resolve_raw_supported_durations` 返回 None 上。取值与 ``duration_presets`` 的无信息兜底
+#: 同为 ``[4, 8]``，但不从那里 import——``lib.config`` 按分层契约够不到 ``lib.custom_provider``。
+ENDPOINT_FIXED_PLANNING_DURATIONS: list[int] = [4, 8]
+
+
 def resolve_raw_supported_durations(project: dict, caps: dict | None = None) -> list[int] | None:
     """收窄前的时长全集：caps → registry 两级解析。
 
@@ -663,6 +676,12 @@ def resolve_raw_supported_durations(project: dict, caps: dict | None = None) -> 
     先解析 caps 再调本函数，不带 caps 调用对这类项目恒为 None。本函数本身保持同步，供仍在
     同步路径上的调用方（归档导入）复用同一份 registry 解析。
 
+    档位是空集且 caps 报了 ``duration_endpoint_fixed`` 时不走 registry、也不返回 None，而是给出
+    :data:`ENDPOINT_FIXED_PLANNING_DURATIONS`：那种模型行的时长不由 ArcReel 驱动（ComfyUI 的
+    workflow 自己决定出多长），但剧本规划仍要有个篇幅依据，否则整条规划链会以「型号配置不全」
+    的名义断掉——而那份配置其实是完整的。界面侧不受影响：能力查询回的 ``supported_durations``
+    与 ``duration_constraints.allowed`` 仍是空集，时长控件照常禁用。
+
     registry 级的项目自报身份按 generation_mode 定桶取（``project_video_backend_ids``），不直取
     项目默认层——降级掉的只是 DB，桶键就在同一个 project.json 里。
 
@@ -670,6 +689,8 @@ def resolve_raw_supported_durations(project: dict, caps: dict | None = None) -> 
     """
     if caps and caps.get("supported_durations"):
         return list(caps["supported_durations"])
+    if caps and caps.get("duration_endpoint_fixed"):
+        return list(ENDPOINT_FIXED_PLANNING_DURATIONS)
     ids = project_video_backend_ids(project)
     if ids is not None:
         provider_meta = PROVIDER_REGISTRY.get(ids[0])
@@ -725,7 +746,7 @@ class VideoBucketCapabilityError(ValueError):
     """视频解析闸报错：解析出的模型缺所属任务类型桶要求的能力，或配置引用已不可用。
 
     ``code`` 是 errors 目录 key、``params`` 是其渲染参数：router 可直接
-    ``_t(exc.code, **exc.params)`` 本地化，worker 落库经 ``lib.task_failure.encode_failure``
+    ``_t(exc.code, **exc.params)`` 本地化，worker 落库经 ``lib.generation.task_failure.encode_failure``
     结构化编码。``str(exc)`` 是英文技术消息，供 log / 非用户可见路径直接使用。"""
 
     def __init__(
@@ -743,6 +764,25 @@ class VideoBucketCapabilityError(ValueError):
         self.model_id = model_id
         self.params: dict[str, str] = {"provider": provider_id, "model": model_id}
         super().__init__(message)
+
+
+class ImageBucketCapabilityError(ValueError):
+    """图片解析闸报错：解析出的模型缺所属任务类型桶（t2i / i2i）要求的能力。
+
+    ``code`` 与执行层 ``lib.backends.image_backends.base.ImageCapabilityError`` 同一批
+    （``image_capability_missing_<桶>``）：同一件事在解析期与执行期报出，读侧渲染与失败编码不分叉。
+    ``params`` 是其渲染参数；``str(exc)`` 是英文技术消息，供 log / 非用户可见路径直接使用。
+    """
+
+    def __init__(self, *, generation_type: str, provider_id: str, model_id: str):
+        self.code = f"image_capability_missing_{generation_type}"
+        self.generation_type = generation_type
+        self.provider_id = provider_id
+        self.model_id = model_id
+        self.params: dict[str, str] = {"provider": provider_id, "model": model_id}
+        super().__init__(
+            f"image model {provider_id}/{model_id} lacks the capability required by the {generation_type} bucket"
+        )
 
 
 def _video_bucket_capability_missing(
@@ -791,7 +831,7 @@ class ConfigResolver:
 
     # ── 唯一的默认值定义点 ──
     # 与 Seedance / Grok 默认开启、storyboard 用户期望一致。
-    # server/routers/system_config.py 与 lib/media_generator.py 均通过引用此常量读取。
+    # server/routers/system_config.py 与 lib/generation/media_generator.py 均通过引用此常量读取。
     _DEFAULT_VIDEO_GENERATE_AUDIO = True
 
     def __init__(
@@ -872,6 +912,10 @@ class ConfigResolver:
         > 全局桶（``default_image_backend_<generation_type>``）> 全局默认（``default_image_backend``）> 自动推断。
         桶是可选覆盖，无值（含显式清空）回退默认层（``docs/adr/0054``）。
         ``generation_type`` 决定走 t2i 还是 i2i 槽（见 ``docs/adr/0001``）。不做任何 provider 归一化。
+
+        Raises:
+            ImageBucketCapabilityError: （ValueError 子类）解析出的自定义模型缺该桶所需能力
+                （``_ensure_image_bucket_capability``），不静默换模型。
         """
         async with self._open_session() as (session, svc):
             return await self._resolve_image_provider_model(svc, session, project, payload, generation_type)
@@ -1011,8 +1055,8 @@ class ConfigResolver:
             {
               "provider_id": str,
               "model": str,
-              "supported_durations": list[int],    # 来自 model (单一真相源)
-              "max_duration": int,                 # max(supported_durations) 派生
+              "supported_durations": list[int],    # 来自 model (单一真相源)；ComfyUI 端点上可为空集
+              "max_duration": int,                 # max(supported_durations) 派生；空集时为 0
               "max_reference_images": int,         # backend 声明；custom: 合成后的生效值
               "first_frame": bool,                 # 生效值（系统判定 ⊕ 用户覆盖），与执行层同源
               "last_frame": bool,                  # 同上
@@ -1030,7 +1074,8 @@ class ConfigResolver:
             }
 
         Raises:
-            ValueError: 当 video_backend 解析失败 / model 找不到 / supported_durations 为空。
+            ValueError: 当 video_backend 解析失败 / model 找不到 / supported_durations 为空
+                （ComfyUI 端点除外：该协议上空集是「时长不由 ArcReel 驱动」的合法态）。
             VideoBucketCapabilityError: （ValueError 子类）解析出的模型缺该桶所需能力，或配置
                 引用已不可用。
         """
@@ -1111,7 +1156,7 @@ class ConfigResolver:
         """费用预估用的有效 ``generate_audio``：读能力接口，解析不出时降级，绝不抛错。
 
         能力解析会对注册表里已下线的 model id 抛错，而价目查询对同一 id 仍会回落到该 provider
-        的默认模型出价（见 ``lib/pricing/lookup.py``）——此时估算仍要出数。降级口径分两层：
+        的默认模型出价（见 ``lib/billing/pricing/lookup.py``）——此时估算仍要出数。降级口径分两层：
         恒含音出账的 provider 按 provider 级规则取 True；其余 provider 没有默认执行档的信息，
         只能回到请求值（backend 也正是照请求值下发并结算），若一律取 False，这些历史 model
         会被按静音档低估。
@@ -1242,7 +1287,7 @@ class ConfigResolver:
             raw = settings.get(keys.global_default_key, "")
             if "/" in raw:
                 return ConfigService._parse_backend(raw, keys.parse_fallback)
-        return await self._auto_resolve_backend(svc, session, keys.media_type)
+        return await self._auto_resolve_backend(svc, session, keys.media_type, keys.generation_type)
 
     async def _resolve_image_provider_model(
         self,
@@ -1260,17 +1305,62 @@ class ConfigResolver:
         供应商（见
         ``_trusted_payload_provider``），否则不予信任、回退骨架（``_resolve_layered_backend``，
         键位见 ``_IMAGE_LAYERED_KEYS``）。
+
+        两层解析出的身份都过能力闸（``_ensure_image_bucket_capability``）：图片侧的桶只在执行时
+        才确定（``docs/adr/0001``），payload 层没有已物化的桶键可豁免。
         """
+        selected: ProviderModel | None = None
         if payload:
             provider_id = _trusted_payload_provider(payload.get("image_provider"))
             if provider_id is not None:
                 model = _payload_model_or_default(payload.get("image_model"), provider_id, "image")
                 if model is not None:
-                    return ProviderModel(provider_id, model)
-        provider_id, model_id = await self._resolve_layered_backend(
-            svc, session, project, _IMAGE_LAYERED_KEYS[generation_type]
-        )
-        return ProviderModel(provider_id, model_id)
+                    selected = ProviderModel(provider_id, model)
+        if selected is None:
+            provider_id, model_id = await self._resolve_layered_backend(
+                svc, session, project, _IMAGE_LAYERED_KEYS[generation_type]
+            )
+            selected = ProviderModel(provider_id, model_id)
+        await self._ensure_image_bucket_capability(session, selected, generation_type)
+        return selected
+
+    async def _ensure_image_bucket_capability(
+        self,
+        session: AsyncSession,
+        selected: ProviderModel,
+        generation_type: Literal["t2i", "i2i"],
+    ) -> None:
+        """能力闸：解析出的自定义模型不具备该桶所需能力时直接报错，不静默换模型。
+
+        判定与桶候选下拉（``lib.backends.generation_type_buckets``）共用一份口径，经
+        ``lib.custom_provider.default_models.lacks_bucket``。与
+        ``_ensure_video_bucket_capability`` 两处不同：
+
+        - 只判自定义供应商。内置图片模型的桶能力由执行层 ``MediaGenerator`` 按 registry 能力位
+          把关（``image_capability_missing_*``，与本闸同一批 code）。
+        - 引用失效（模型被删 / 禁用 / endpoint 改成别的媒体类型）不在此报错：图片侧按设计回退到
+          该桶的默认模型（``lib.custom_provider.loader``），回退本身也按桶过滤。
+        """
+        if not is_custom_provider(selected.provider_id):
+            return
+
+        # 延迟导入：分层契约（pyproject.toml [tool.importlinter]）以 lib.config 为下层，
+        # 该符号所在的装配层反过来依赖 lib.config，模块级导入会成环。
+        from lib.custom_provider.default_models import lacks_bucket
+
+        try:
+            db_pid = parse_provider_id(selected.provider_id)
+        except ValueError:
+            return
+        model = await CustomProviderRepository(session).get_model_by_ids(db_pid, selected.model_id)
+        if model is None or not model.is_enabled:
+            return
+        if await lacks_bucket(session, model, generation_type):
+            raise ImageBucketCapabilityError(
+                generation_type=generation_type,
+                provider_id=selected.provider_id,
+                model_id=selected.model_id,
+            )
 
     async def _resolve_video_provider_model(
         self,
@@ -1357,7 +1447,7 @@ class ConfigResolver:
     ) -> None:
         """能力闸：校验解析出的模型具备该桶所需能力，不满足直接报错、不静默换模型。
 
-        判定经 ``video_capability_satisfied`` 与桶候选下拉（``lib.generation_type_buckets``）共用一份
+        判定经 ``video_capability_satisfied`` 与桶候选下拉（``lib.backends.generation_type_buckets``）共用一份
         口径：内置模型两维都取 backend ``VideoCapabilities``（与请求构造同源，也是这两维唯一的
         声明处；registry ``ModelInfo`` 不声明视频能力位）。身份先过
         ``_ensure_video_identity_resolvable``，悬空引用（模型被删 /
@@ -1439,9 +1529,14 @@ class ConfigResolver:
             selected.provider_id,
             selected.model_id,
         )
-        default_model = await repo.get_default_model(db_pid, "video")
-        if default_model is None:
-            raise ValueError(f"custom model not found: {selected.provider_id}/{selected.model_id}")
+        from lib.custom_provider.default_models import resolve_default_model
+
+        try:
+            default_model = await resolve_default_model(
+                session, provider_id=selected.provider_id, db_id=db_pid, media_type="video"
+            )
+        except ValueError as exc:
+            raise ValueError(f"custom model not found: {selected.provider_id}/{selected.model_id}") from exc
         return ProviderModel(selected.provider_id, default_model.model_id)
 
     async def _resolve_default_audio_backend(self, svc: ConfigService, session: AsyncSession) -> tuple[str, str]:
@@ -1588,7 +1683,16 @@ class ConfigResolver:
             # 挡在入队之外。与上一行 default_tier_generates_audio 同口径：无信号时假定有声、
             # 开关保持可控，不凭空判定为真无声模型。
             has_audio = True
-            raw_durations = model.supported_durations
+            # ComfyUI 端点的时长可以整维不由 ArcReel 驱动（``docs/adr/0082``）：``frames`` 未绑定
+            # 或读不到帧率来源时，该模型行的档位就是空集，提交时不下发时长、让 workflow 出它自己
+            # 那一档。这是该协议的合法状态，不适用下面那条「空集即 fail loud」——ADR 0018 守的是
+            # 「型号声明缺失」，而这里是「这一维在该端点上不存在」。其余协议照旧 fail loud。
+            durations_optional = endpoint_spec.duration_tier_optional
+            # 档位的真相源是端点，不是模型行：端点说这一维给不出档位时，行上存着的那份一律作废。
+            # 写入侧（``ModelInput.to_db_dict``）只在保存那一刻取端点的判断，而端点定义此后可以
+            # 独立改动，两边因此会分叉；分叉时以端点为准，能力接口、剧本规划与端点目录才是同一个
+            # 答案。
+            raw_durations = None if endpoint_spec.duration_tier_empty else model.supported_durations
             supported_durations: list[int] = []
             if raw_durations:
                 try:
@@ -1599,8 +1703,14 @@ class ConfigResolver:
                     ) from exc
                 if isinstance(parsed, list):
                     supported_durations = [int(d) for d in parsed]
+            if not supported_durations and endpoint_spec.endpoint_durations:
+                # 同一条规则的另一侧：行上是空集而端点给得出档位时，按端点的来。空集只在端点也
+                # 驱动不了这一维时才成立——留着它，时长控件会禁着、剧本规划会借固定篇幅，而请求
+                # 构造已经在往图里写帧数。
+                supported_durations = list(endpoint_spec.endpoint_durations)
         else:
             source = "registry"
+            durations_optional = False
             provider_meta = PROVIDER_REGISTRY.get(provider_id)
             if provider_meta is None:
                 raise ValueError(f"provider not in PROVIDER_REGISTRY: {provider_id}")
@@ -1610,7 +1720,7 @@ class ConfigResolver:
             supported_durations = list(model_info.supported_durations or [])
             # 视频能力位与参考图上限只在 backend 声明：backend 是执行期真正构造请求的一方，
             # 也是能力闸（`_ensure_video_bucket_capability`）与桶候选下拉
-            # （`lib.generation_type_buckets`）的口径，展示层与执行层因此严格同源。
+            # （`lib.backends.generation_type_buckets`）的口径，展示层与执行层因此严格同源。
             try:
                 builtin_caps = builtin_video_capabilities_for_model(provider_id, model_id)
             except ValueError as exc:
@@ -1632,10 +1742,12 @@ class ConfigResolver:
                     f"cannot resolve video pricing capabilities for {provider_id}/{model_id}: {exc}"
                 ) from exc
 
-        if not supported_durations:
+        if not supported_durations and not durations_optional:
             raise ValueError(f"supported_durations is empty for {provider_id}/{model_id}; cannot derive capabilities")
 
-        max_duration = max(supported_durations)
+        # 空集时 ``max_duration`` 为 0，与 ``supported_durations == []`` 同义：这一维不由 ArcReel
+        # 驱动，消费方不该从它派生任何可选档位，界面据此禁用时长控件。
+        max_duration = max(supported_durations, default=0)
 
         # requested_generate_audio 是**用户的无声意图**（全局设置 ← project.json 覆盖），与执行层
         # MediaGenerator 读的 video_generate_audio 同源；下面的 generate_audio 是**计价口径**（叠加了
@@ -1654,7 +1766,7 @@ class ConfigResolver:
         content_mode: str | None = None
         # 单集目标时长不是模型能力，随能力查询一起回传只因它与 default_duration 同为「决定时长时
         # 要看的项目偏好」：脚本规划子智能体一次 get_video_capabilities 就能拿齐决策所需的全部输入，
-        # 不必为一个偏好字段另开一个工具往返。解析走 lib.episode_target_duration 的读时守卫。
+        # 不必为一个偏好字段另开一个工具往返。解析走 lib.episode.episode_target_duration 的读时守卫。
         episode_target_duration = project_episode_target_duration(project)
         if project is not None:
             raw_default = project.get("default_duration")
@@ -1706,6 +1818,9 @@ class ConfigResolver:
             "max_reference_audio_count": max_reference_audio_count,
             "reference_audio_per_image": reference_audio_per_image,
             "source": source,
+            # 档位是空集且该端点允许空集 = 这一维由端点固定（CONTEXT.md「维度由端点固定」）。
+            # 消费方据此区分「这一维在该端点上不存在」与「档位声明缺失」——后者已在上面 fail loud。
+            "duration_endpoint_fixed": not supported_durations and durations_optional,
             "default_duration": default_duration,
             "episode_target_duration": episode_target_duration,
             "content_mode": content_mode,
@@ -1801,8 +1916,14 @@ class ConfigResolver:
         svc: ConfigService,
         session: AsyncSession,
         media_type: str,
+        generation_type: str | None = None,
     ) -> tuple[str, str]:
-        """遍历 PROVIDER_REGISTRY（按注册顺序），找到第一个 ready 且支持该 media_type 的供应商。"""
+        """遍历 PROVIDER_REGISTRY（按注册顺序），找到第一个 ready 且支持该 media_type 的供应商。
+
+        自定义兜底与默认回退共用同一份按桶过滤（``lib.custom_provider.default_models``）：带桶时
+        只有具备该桶的默认模型算候选，否则 t2i 与 i2i 会静默拿到同一行。跨供应商的多个候选取第
+        一个（各供应商各设默认是常态，与「同一供应商同桶两个默认」不同）。
+        """
         statuses = await svc.get_all_providers_status()
         ready = {s.name for s in statuses if s.status == "ready"}
 
@@ -1813,13 +1934,17 @@ class ConfigResolver:
                 if model_info.media_type == media_type and model_info.default:
                     return provider_id, model_id
 
+        # 延迟导入：分层契约（pyproject.toml [tool.importlinter]）以 lib.config 为下层，
+        # 这些符号所在的装配层反过来依赖 lib.config，模块级导入会成环。
         from lib.custom_provider import make_provider_id
+        from lib.custom_provider.default_models import filter_by_bucket
         from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 
         repo = CustomProviderRepository(session)
         custom_models = await repo.list_enabled_models_by_media_type(media_type)
-        for model in custom_models:
-            if model.is_default:
-                return make_provider_id(model.provider_id), model.model_id
+        defaults = [model for model in custom_models if model.is_default]
+        candidates = await filter_by_bucket(session, defaults, generation_type)
+        if candidates:
+            return make_provider_id(candidates[0].provider_id), candidates[0].model_id
 
         raise ValueError(f"未找到可用的 {media_type} 供应商。请在「全局设置 → 供应商」页面配置至少一个供应商。")

@@ -5,7 +5,9 @@ from __future__ import annotations
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from lib.db.repositories.custom_endpoint_repo import CustomEndpointRepository
 from lib.db.repositories.custom_provider_repo import CustomProviderPrice, CustomProviderRepository
+from tests.factories import comfyui_endpoint_definition, custom_endpoint_definition
 
 
 class TestProviderCRUD:
@@ -374,7 +376,7 @@ class TestModelManagement:
         result = await repo.list_enabled_models_by_media_type("text")
         assert result == []
 
-    async def test_get_default_model(self, db_session: AsyncSession):
+    async def test_list_default_models(self, db_session: AsyncSession):
         repo = CustomProviderRepository(db_session)
         p = await repo.create_provider(
             display_name="TestProvider",
@@ -407,15 +409,39 @@ class TestModelManagement:
         )
         await db_session.flush()
 
-        default_text = await repo.get_default_model(p.id, "text")
-        assert default_text is not None
-        assert default_text.model_id == "m2"
+        assert [m.model_id for m in await repo.list_default_models(p.id, "text")] == ["m2"]
+        assert [m.model_id for m in await repo.list_default_models(p.id, "image")] == ["m3"]
 
-        default_image = await repo.get_default_model(p.id, "image")
-        assert default_image is not None
-        assert default_image.model_id == "m3"
+    async def test_list_default_models_returns_every_image_bucket_default(self, db_session: AsyncSession):
+        """image 的默认按任务类型桶分槽：t2i 与 i2i 各一个默认时两行都要取出，按桶挑行由上层做。"""
+        repo = CustomProviderRepository(db_session)
+        p = await repo.create_provider(
+            display_name="TestProvider",
+            discovery_format="openai",
+            base_url="https://example.com",
+            api_key="key",
+            models=[
+                {
+                    "model_id": "t2i-m",
+                    "display_name": "T2I",
+                    "endpoint": "openai-images-generations",
+                    "is_default": True,
+                    "is_enabled": True,
+                },
+                {
+                    "model_id": "i2i-m",
+                    "display_name": "I2I",
+                    "endpoint": "openai-images-edits",
+                    "is_default": True,
+                    "is_enabled": True,
+                },
+            ],
+        )
+        await db_session.flush()
 
-    async def test_get_default_model_returns_none_when_no_default(self, db_session: AsyncSession):
+        assert [m.model_id for m in await repo.list_default_models(p.id, "image")] == ["t2i-m", "i2i-m"]
+
+    async def test_list_default_models_empty_when_no_default(self, db_session: AsyncSession):
         repo = CustomProviderRepository(db_session)
         p = await repo.create_provider(
             display_name="TestProvider",
@@ -434,9 +460,9 @@ class TestModelManagement:
         )
         await db_session.flush()
 
-        assert await repo.get_default_model(p.id, "text") is None
+        assert await repo.list_default_models(p.id, "text") == []
 
-    async def test_get_default_model_ignores_disabled(self, db_session: AsyncSession):
+    async def test_list_default_models_ignores_disabled(self, db_session: AsyncSession):
         repo = CustomProviderRepository(db_session)
         p = await repo.create_provider(
             display_name="TestProvider",
@@ -455,11 +481,11 @@ class TestModelManagement:
         )
         await db_session.flush()
 
-        assert await repo.get_default_model(p.id, "text") is None
+        assert await repo.list_default_models(p.id, "text") == []
 
-    async def test_get_default_model_nonexistent_provider(self, db_session: AsyncSession):
+    async def test_list_default_models_nonexistent_provider(self, db_session: AsyncSession):
         repo = CustomProviderRepository(db_session)
-        assert await repo.get_default_model(999, "text") is None
+        assert await repo.list_default_models(999, "text") == []
 
 
 class TestResolvePrice:
@@ -570,3 +596,41 @@ async def test_list_enabled_models_by_media_type_uses_endpoint(db_session):
     assert {m.model_id for m in text_models} == {"gpt-4o"}
     video_models = await repo.list_enabled_models_by_media_type("video")
     assert {m.model_id for m in video_models} == {"kling-2"}
+
+
+class TestCustomEndpointMediaType:
+    """自定义端点的媒体类型读它自己那一行，不按 ``ce-`` 前缀一律记作视频。"""
+
+    async def _attach(self, db_session: AsyncSession, definition: dict, media_type: str, model_id: str) -> None:
+        endpoints = CustomEndpointRepository(db_session)
+        row = await endpoints.create(
+            definition=definition,
+            kind=definition["kind"],
+            schema_version=definition["schema_version"],
+            media_type=media_type,
+            display_name=definition["meta"]["name"],
+        )
+        await db_session.flush()
+        await CustomProviderRepository(db_session).create_provider(
+            display_name=f"P-{model_id}",
+            discovery_format="comfyui" if definition["kind"] == "comfyui" else "openai",
+            base_url="https://x",
+            api_key="k",
+            models=[{"model_id": model_id, "display_name": model_id, "endpoint": f"ce-{row.id}", "is_enabled": True}],
+        )
+        await db_session.flush()
+
+    async def test_an_image_comfyui_endpoint_only_answers_image_queries(self, db_session: AsyncSession):
+        definition = comfyui_endpoint_definition(media_type="image")
+        await self._attach(db_session, definition, "image", "comfy-img")
+
+        repo = CustomProviderRepository(db_session)
+        assert {m.model_id for m in await repo.list_enabled_models_by_media_type("image")} == {"comfy-img"}
+        assert await repo.list_enabled_models_by_media_type("video") == []
+
+    async def test_a_declarative_endpoint_still_answers_video_queries(self, db_session: AsyncSession):
+        await self._attach(db_session, custom_endpoint_definition(), "video", "decl-vid")
+
+        repo = CustomProviderRepository(db_session)
+        assert {m.model_id for m in await repo.list_enabled_models_by_media_type("video")} == {"decl-vid"}
+        assert await repo.list_enabled_models_by_media_type("image") == []

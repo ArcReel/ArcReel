@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { API } from "@/api";
 import { ReferenceVideoCard } from "./ReferenceVideoCard";
 import { useProjectsStore } from "@/stores/projects-store";
 import type { ProjectData } from "@/types";
@@ -83,6 +84,20 @@ describe("ReferenceVideoCard", () => {
     expect(ta.value).toBe("line1\nline2");
   });
 
+  it("shows the unit source text read-only beside the editor", () => {
+    render(<ControlledCard unit={mkUnit({ source_text: "张三推开了门。" })} />);
+
+    const region = screen.getByRole("region", { name: "对应原文" });
+    expect(within(region).getByText("张三推开了门。")).toBeInTheDocument();
+    expect(within(region).queryByRole("textbox")).not.toBeInTheDocument();
+  });
+
+  it("shows an empty source text state for manually added units", () => {
+    render(<ControlledCard unit={mkUnit()} />);
+
+    expect(within(screen.getByRole("region", { name: "对应原文" })).getByText("（无对应原文）")).toBeInTheDocument();
+  });
+
   it("highlights inline speech marks in the editor overlay", () => {
     // 高亮层与预览（ScriptHighlight）同口径：记号原文逐字保留，只加底色与说话人 title。
     const unit = mkUnit({ text: "门开了。@[张三]：{我来了}", duration_seconds: 3 });
@@ -93,6 +108,19 @@ describe("ReferenceVideoCard", () => {
     render(<ControlledCard unit={mkUnit({ text: "夜色渐深。{很久以前……}" })} />);
     const voiceover = document.querySelector('[title="画外音"]');
     expect(voiceover?.textContent).toBe("{很久以前……}");
+  });
+
+  it("shows the pending-authoring hint until authoring clears the flag", () => {
+    const { rerender } = render(<ControlledCard unit={mkUnit({ text: "", pending_authoring: true })} />);
+    expect(screen.getByText(/^待编写/)).toBeInTheDocument();
+
+    rerender(<ControlledCard unit={mkUnit({ text: "", pending_authoring: false })} />);
+    expect(screen.queryByText(/^待编写/)).not.toBeInTheDocument();
+  });
+
+  it("does not show the pending-authoring hint for units without the flag, even with an empty body", () => {
+    render(<ControlledCard unit={mkUnit({ text: "" })} />);
+    expect(screen.queryByText(/^待编写/)).not.toBeInTheDocument();
   });
 
   it("fires onChange with the new prompt text on every edit", async () => {
@@ -309,5 +337,50 @@ describe("ReferenceVideoCard combobox ARIA", () => {
     renderCard(mkUnit()); // default: "hi"，无 mention
     const ta = screen.getByRole("combobox");
     expect(ta).not.toHaveAttribute("aria-describedby");
+  });
+});
+
+describe("ReferenceVideoCard final prompt preview", () => {
+  it("renders the unsaved body with the numbered request images, notice and warnings", async () => {
+    const user = userEvent.setup();
+    const preview = vi.spyOn(API, "previewReferenceUnitPrompt").mockResolvedValue({
+      text: "<酒馆>@图片1。\n草稿正文\n电影质感",
+      unavailable: null,
+      is_text_form: true,
+      references: [{ type: "scene", name: "酒馆", path: "scenes/酒馆.png" }],
+      warnings: ["参考图已裁剪"],
+    });
+    render(<ControlledCard unit={mkUnit({ text: "已保存正文" })} />);
+    fireEvent.change(screen.getByRole("combobox"), { target: { value: "未保存草稿" } });
+    expect(preview).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "查看提示词" }));
+    const dialog = await screen.findByRole("dialog", { name: "参考生视频提示词" });
+    expect(within(dialog).getByText("按当前模型能力计算，执行时以实际为准")).toBeInTheDocument();
+    expect(await within(dialog).findByText(/草稿正文/)).toBeInTheDocument();
+    expect(within(dialog).getByRole("img", { name: "酒馆" })).toHaveAttribute("src", API.getFileUrl("proj", "scenes/酒馆.png"));
+    expect(within(dialog).getByText("图片1 · 酒馆")).toBeInTheDocument();
+    expect(within(dialog).getByText("参考图已裁剪")).toBeInTheDocument();
+    expect(preview).toHaveBeenCalledWith("proj", 1, "E1U1", "未保存草稿", { signal: expect.any(AbortSignal) });
+  });
+
+  it("copies the final prompt and re-renders it on refresh", async () => {
+    const user = userEvent.setup();
+    const preview = vi.spyOn(API, "previewReferenceUnitPrompt").mockResolvedValue({
+      text: "首次渲染的文本",
+      unavailable: null,
+      is_text_form: true,
+      references: [{ type: "scene", name: "酒馆", path: "scenes/酒馆.png" }],
+      warnings: [],
+    });
+    render(<ControlledCard unit={mkUnit({ text: "已保存正文" })} />);
+    await user.click(screen.getByRole("button", { name: "查看提示词" }));
+    const dialog = await screen.findByRole("dialog", { name: "参考生视频提示词" });
+    expect(await within(dialog).findByText("首次渲染的文本")).toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: "复制最终提示词" }));
+    expect(await within(dialog).findByRole("button", { name: /已复制/ })).toBeInTheDocument();
+    preview.mockResolvedValueOnce({ text: "重新渲染的文本", unavailable: null, is_text_form: true, references: [], warnings: [] });
+    await user.click(within(dialog).getByRole("button", { name: "重新渲染" }));
+    expect(await within(dialog).findByText("重新渲染的文本")).toBeInTheDocument();
+    expect(within(dialog).getByText("本次请求不携带参考图")).toBeInTheDocument();
   });
 });

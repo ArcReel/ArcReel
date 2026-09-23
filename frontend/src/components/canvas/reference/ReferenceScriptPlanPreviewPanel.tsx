@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { AlertTriangle, CheckCircle2, ChevronDown, Clock, Lock, OctagonAlert, Pencil, RotateCcw, Save } from "lucide-react";
+import { AlertTriangle, ArrowRight, CheckCircle2, ChevronDown, Clock, Lock, OctagonAlert, Pencil, RotateCcw, Save } from "lucide-react";
 import type {
   ReferenceScriptPlanDraft,
   ReferenceScriptPlanFlatUnit,
@@ -10,10 +10,14 @@ import type {
 import { useAppStore } from "@/stores/app-store";
 import { useAssistantStore } from "@/stores/assistant-store";
 import { useProjectsStore } from "@/stores/projects-store";
+import { useModelCapabilities } from "@/hooks/useModelCapabilities";
 import { useScriptReviewDraft } from "@/hooks/useScriptReviewDraft";
 import { voidPromise } from "@/utils/async";
 import { sumItemDuration } from "@/utils/script-shape";
 import { EpisodeDurationSummary } from "@/components/shared/EpisodeDurationSummary";
+import { ScriptOverwriteConfirmDialog } from "@/components/shared/ScriptOverwriteConfirmDialog";
+import { VideoModelUnresolvedNotice } from "@/components/shared/VideoModelUnresolvedNotice";
+import { PrimaryButton } from "@/components/ui/PrimaryButton";
 import { AutoTextarea } from "@/components/ui/AutoTextarea";
 import { ACCENT_BTN_CLS, ACCENT_BUTTON_STYLE, CARD_STYLE, GHOST_BTN_CLS, GHOST_BTN_LG_CLS } from "@/components/ui/darkroom-tokens";
 import { ScriptHighlight } from "@/components/shared/ScriptHighlight";
@@ -25,6 +29,8 @@ interface ReferenceScriptPlanPreviewPanelProps {
   episode: number;
   /** Asset name → kind, for mention coloring — same lookup the editor/parse preview share. */
   lookup: MentionLookup;
+  /** 切到本集视频单元时间线；确认后的只读态据此给出去时间线修改的入口，未提供时不渲染入口。 */
+  onOpenTimeline?: () => void;
 }
 
 /** 原文锚失配类违约：呈现为「原文」小节的红标，不进逐行锚定或聚合区。 */
@@ -145,7 +151,7 @@ function unitDurationTiers(
 
 /**
  * 该 unit 一个已登记场景资产都没引用——画面地点由模型自由决定，室内外交替的相邻 unit 会
- * 各自发挥、对不上。镜像后端 `lib/reference_video/script_preview.py::unit_lacks_scene_reference`。
+ * 各自发挥、对不上。镜像后端 `lib/script/reference_video/script_preview.py::unit_lacks_scene_reference`。
  *
  * 与档位收窄同样按当前正文实时判、不取服务端快照：本面板可就地改正文，补上 `@[场景]` 必须
  * 当场撤下提示，等保存后才由服务端回话会让提示与眼前的正文对不上。
@@ -340,13 +346,20 @@ function selectUnitsContent(state: ScriptReviewState): ReferenceScriptPlanDraft 
  * 草稿态把违约行内锚定到出问题的行，干净态仅需确认放行 prompt_authoring。
  *
  * unit 正文与时长的编辑复用既有的 `saveScriptReviewContent` 端点，故只在已晋升（无待处置
- * 草稿）内容上开放；草稿的修复走 Agent 文件工具 + 晋升工具的既有闭环，本面板只读呈现。
+ * 草稿）内容上开放；草稿的修复走 Agent 文件工具 + 晋升工具的既有闭环，本面板只读呈现。确认之后
+ * 脚本规划只读，同样不开放编辑，指引到时间线修改。
  */
-export function ReferenceScriptPlanPreviewPanel({ projectName, episode, lookup }: ReferenceScriptPlanPreviewPanelProps) {
+export function ReferenceScriptPlanPreviewPanel({
+  projectName,
+  episode,
+  lookup,
+  onOpenTimeline,
+}: ReferenceScriptPlanPreviewPanelProps) {
   const { t } = useTranslation("dashboard");
   const pushToast = useAppStore((s) => s.pushToast);
 
   const [editingUnitKey, setEditingUnitKey] = useState<string | null>(null);
+  const [overwriteOpen, setOverwriteOpen] = useState(false);
 
   const handleConfirmed = useCallback(() => {
     // 保存 / 确认两次 await 期间用户可能已切走项目（本组件所在的 tab 可能因此被卸载）：只在项目
@@ -379,6 +392,10 @@ export function ReferenceScriptPlanPreviewPanel({ projectName, episode, lookup }
     selectContent: selectUnitsContent,
     onConfirmed: handleConfirmed,
   });
+
+  // 确认转出按视频模型能力定时长档位：服务端明确答复模型无法解析时提前拦下；能力请求本身失败
+  // 不算，交确认端点兜底。能力按项目生成模式定轴，不带集号；演示项目由 hook 自行跳过。
+  const { videoModelUnresolved } = useModelCapabilities({ projectName });
 
   const updateUnitText = useCallback(
     (unitIndex: number, text: string) => {
@@ -459,7 +476,15 @@ export function ReferenceScriptPlanPreviewPanel({ projectName, episode, lookup }
   }
 
   const quarantined = quarantine != null;
-  const confirmed = status === "confirmed" && !dirty && !quarantined;
+  // 已确认的脚本规划只读：保存端点按同一判据拒绝，内容修改改在时间线上做。
+  const confirmed = status === "confirmed" && !quarantined;
+  const readOnly = quarantined || confirmed;
+  // 该集已有正式脚本：确认会整份覆盖它，确认按钮改呈 danger，点击先列出后果再确认。
+  const overwrite = confirmed ? null : (state?.script_overwrite ?? null);
+  // 已确认但该集没有正式脚本（迁移转换失败或文件被删）：确认仍可用，重新确认即转出正式脚本。
+  const scriptMissing = confirmed && state?.script_overwrite == null;
+  const confirmLocked = quarantined || (confirmed && !scriptMissing);
+  const videoModelBlocked = videoModelUnresolved && !confirmLocked;
   const displayUnits: DisplayUnit[] = quarantined
     ? quarantinedDisplayUnits(quarantine.content, episode)
     : draft
@@ -480,6 +505,16 @@ export function ReferenceScriptPlanPreviewPanel({ projectName, episode, lookup }
       );
   const allViolations = quarantine?.violations ?? [];
   const hasDraftViolations = allViolations.length > 0;
+  // 覆盖确认的拦截条件，触发按钮与框内确认按钮共用一位：能力请求可能在框打开之后才答复
+  // 模型无法解析，此时框内还留着一颗能提交、但服务端必拒的确认按钮。
+  const overwriteBlocked = videoModelBlocked || outOfTierUnitKeys.size > 0;
+  const confirmBlockedHint = quarantined
+    ? t(hasDraftViolations ? "reference_script_plan_confirm_blocked_hint" : "reference_script_plan_editable_hint")
+    : videoModelBlocked
+      ? t("dashboard:review_video_model_unresolved_hint")
+      : outOfTierUnitKeys.size > 0
+        ? t("reference_script_plan_duration_out_of_tier_hint")
+        : undefined;
   const unitKeys = new Set(displayUnits.map((u) => u.key));
   const unassignedViolations = allViolations.filter((v) => !unitKeys.has(unitKeyFromLabel(v.label) ?? ""));
   const violatingUnitKeys = [...new Set(allViolations.map((v) => unitKeyFromLabel(v.label)).filter((k): k is string => k != null))];
@@ -537,8 +572,12 @@ export function ReferenceScriptPlanPreviewPanel({ projectName, episode, lookup }
                 </>
               ) : quarantined ? (
                 t("reference_script_plan_editable_hint")
+              ) : scriptMissing ? (
+                t("dashboard:review_script_missing_hint")
               ) : confirmed ? (
                 t("dashboard:review_confirmed_hint")
+              ) : overwrite ? (
+                t("dashboard:review_overwrite_hint")
               ) : (
                 t("dashboard:review_pending_hint")
               )}
@@ -552,35 +591,65 @@ export function ReferenceScriptPlanPreviewPanel({ projectName, episode, lookup }
               {t("reference_script_plan_request_fix")}
             </button>
           )}
-          {!quarantined && dirty && (
+          {confirmed && onOpenTimeline && (
+            <button type="button" onClick={onOpenTimeline} className={GHOST_BTN_CLS}>
+              <ArrowRight className="h-3.5 w-3.5" />
+              {t("dashboard:review_open_timeline")}
+            </button>
+          )}
+          {!readOnly && dirty && (
             <button type="button" onClick={voidPromise(handleSave)} disabled={busy} className={GHOST_BTN_CLS}>
               <Save className="h-3.5 w-3.5" />
               {saving ? t("common:saving") : t("common:save")}
             </button>
           )}
-          <button
-            type="button"
-            onClick={voidPromise(handleConfirm)}
-            disabled={busy || confirmed || quarantined || outOfTierUnitKeys.size > 0}
-            className={ACCENT_BTN_CLS}
-            style={ACCENT_BUTTON_STYLE}
-            title={
-              quarantined
-                ? t(hasDraftViolations ? "reference_script_plan_confirm_blocked_hint" : "reference_script_plan_editable_hint")
-                : outOfTierUnitKeys.size > 0
-                  ? t("reference_script_plan_duration_out_of_tier_hint")
-                  : undefined
-            }
-          >
-            {quarantined || confirmed ? <Lock className="h-3.5 w-3.5" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
-            {confirming
-              ? t("dashboard:review_confirming")
-              : confirmed
-                ? t("dashboard:review_confirmed_badge")
-                : t("reference_script_plan_confirm_continue")}
-          </button>
+          {overwrite ? (
+            <PrimaryButton
+              tone="danger"
+              onClick={() => setOverwriteOpen(true)}
+              disabled={busy || quarantined || overwriteBlocked}
+              title={confirmBlockedHint}
+              leadingIcon={quarantined ? <Lock className="h-3.5 w-3.5" /> : <AlertTriangle className="h-3.5 w-3.5" />}
+            >
+              {confirming ? t("dashboard:review_confirming") : t("dashboard:review_overwrite_action")}
+            </PrimaryButton>
+          ) : (
+            <button
+              type="button"
+              onClick={voidPromise(() => handleConfirm())}
+              disabled={busy || confirmLocked || outOfTierUnitKeys.size > 0 || videoModelBlocked}
+              className={ACCENT_BTN_CLS}
+              style={ACCENT_BUTTON_STYLE}
+              title={confirmBlockedHint}
+            >
+              {confirmLocked ? <Lock className="h-3.5 w-3.5" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
+              {confirming
+                ? t("dashboard:review_confirming")
+                : scriptMissing
+                  ? t("dashboard:review_rematerialize_action")
+                  : confirmed
+                    ? t("dashboard:review_confirmed_badge")
+                    : t("reference_script_plan_confirm_continue")}
+            </button>
+          )}
         </div>
       </header>
+
+      {videoModelBlocked && <VideoModelUnresolvedNotice projectName={projectName} />}
+
+      {overwrite && (
+        <ScriptOverwriteConfirmDialog
+          open={overwriteOpen}
+          overwrite={overwrite}
+          loading={confirming}
+          confirmDisabled={overwriteBlocked}
+          onConfirm={async () => {
+            // 失败（如确认期间该集被并发写入）时框保持打开，呈现刷新后的覆盖清单。
+            if (await handleConfirm({ overwriteRevision: overwrite.revision })) setOverwriteOpen(false);
+          }}
+          onCancel={() => setOverwriteOpen(false)}
+        />
+      )}
 
       {/* 本集合计与项目目标的对比；未设目标时不渲染，超出只提示不阻断确认 */}
       {!quarantined && (
@@ -600,12 +669,12 @@ export function ReferenceScriptPlanPreviewPanel({ projectName, episode, lookup }
             projectHasScene={projectHasScene}
             quarantined={quarantined}
             onScrollRef={setCardRef}
-            editing={!quarantined && editingUnitKey === unit.key}
+            editing={!readOnly && editingUnitKey === unit.key}
             onToggleEdit={() => setEditingUnitKey((prev) => (prev === unit.key ? null : unit.key))}
-            onTextChange={quarantined ? null : (text) => updateUnitText(i, text)}
+            onTextChange={readOnly ? null : (text) => updateUnitText(i, text)}
             supportedDurations={unitDurationTiers(unit, lookup, state?.duration_tiers ?? null) ?? (state?.supported_durations ?? null)}
             outOfTier={outOfTierUnitKeys.has(unit.key)}
-            onDurationChange={quarantined ? null : (seconds) => updateDuration(i, seconds)}
+            onDurationChange={readOnly ? null : (seconds) => updateDuration(i, seconds)}
             busy={busy}
           />
         ))}

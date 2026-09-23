@@ -3,7 +3,7 @@ import type { AssetKind } from "@/types/reference-video";
 
 /**
  * Mention regex shared across frontend tokenizers. Mirrors backend
- * `lib/reference_video/text_parser.py` mention scanner — keep in sync.
+ * `lib/script/reference_video/text_parser.py` mention scanner — keep in sync.
  *
  * 前后端字面不同但语义等价：
  * - JS `\w` 永远是 ASCII-only，`(?<!\w)` 直接表达"左侧不是 ASCII 词字符"。
@@ -29,7 +29,7 @@ const BOM_RE = /\uFEFF/gu;
 
 /**
  * 引用语法文本的入口归一：去掉全部 U+FEFF，并把编码形式收敛到 Unicode NFC。镜像后端
- * `lib/reference_video/text_parser.py::_normalize_source`——两条派生路径同口径。
+ * `lib/script/reference_video/text_parser.py::_normalize_source`——两条派生路径同口径。
  *
  * 两者同一性质：屏幕上看不见的字节差异，却让按字节走的判定分叉，故合并在一个入口处理。
  * BOM 不止出现在文档开头，粘贴拼接会把它带到任意行首，而分叉是按行发生的；NFC 则是资产名
@@ -57,14 +57,14 @@ function hasSpokenText(text: string): boolean {
 }
 
 /**
- * 引用名里分隔本体与衍生的字符。镜像后端 `lib/reference_catalog.py::DERIVATIVE_SEPARATOR`——
+ * 引用名里分隔本体与衍生的字符。镜像后端 `lib/references/reference_catalog.py::DERIVATIVE_SEPARATOR`——
  * 它在资产名与衍生名里都非法，故 `本体名/衍生名` 的切分无歧义。
  */
 const DERIVATIVE_SEPARATOR = "/";
 
 /**
  * 把一个引用名拆成 `[本体名, 衍生名]`；不是衍生形态时衍生名为空串。镜像后端
- * `lib/reference_catalog.py::split_derivative_reference`。
+ * `lib/references/reference_catalog.py::split_derivative_reference`。
  */
 export function splitDerivativeReference(name: string): [string, string] {
   const at = name.indexOf(DERIVATIVE_SEPARATOR);
@@ -103,7 +103,7 @@ export function isSpeechMark(part: SpeechPart): part is SpeechMark {
 
 /**
  * 把一行拆成「画面描述片段」与「发声记号」的有序序列。镜像后端
- * `lib/reference_video/text_parser.py::split_speech_line`——两条派生路径同口径，
+ * `lib/script/reference_video/text_parser.py::split_speech_line`——两条派生路径同口径，
  * 改一侧必须同步改另一侧。
  *
  * 记号可出现在行内任意位置：`{台词}` 是画外音；紧接在 `@[角色]` 之后（中间允许空白或一个
@@ -246,7 +246,7 @@ export function extractMentions(text: string): string[] {
 
 /**
  * 台词记号的说话人，按出现顺序去重。镜像后端
- * `lib/reference_video/draft_validation.py::dialogue_speakers`——「谁在这个单元里发声」只由
+ * `lib/script/reference_video/draft_validation.py::dialogue_speakers`——「谁在这个单元里发声」只由
  * 说话人位决定，与 `extractMentions`（画面参考图）互补：一个角色可以只发声不出镜，也可以
  * 只出镜不发声，音色相关的判定一律走本函数。
  *
@@ -276,7 +276,7 @@ const PYTHON_STRIP_RE = /^[\u0009-\u000d\u001c-\u0020\u0085\u00a0\u1680\u2000-\u
 
 /**
  * 把资产名归一到项目名称空间的比对坐标系（strip + Unicode NFC）。镜像后端
- * `lib.asset_types.asset_name_comparison_key`——两侧必须同一坐标系，否则「后端判已登记、
+ * `lib.project.asset_types.asset_name_comparison_key`——两侧必须同一坐标系，否则「后端判已登记、
  * 前端判未登记」（反之亦然），组合字符名（如越南语）在这两侧各自输入法/来源下
  * 尤其容易产出不同编码形式。
  */
@@ -286,7 +286,7 @@ export function normalizeAssetName(name: string): string {
 
 /**
  * 为编辑器高亮构造项目引用名到类型的唯一映射。镜像后端
- * `lib/reference_catalog.py::build_reference_catalog` 的名字集合：资产名，加上角色的
+ * `lib/references/reference_catalog.py::build_reference_catalog` 的名字集合：资产名，加上角色的
  * `本体名/衍生名`（衍生共享本体的类型，见 `docs/adr/0072`）。
  *
  * 无原型字典保证 `__proto__` 等合法资产名可作为普通 key。损坏项目若有同名资产，
@@ -319,7 +319,7 @@ export interface CharacterForm {
 
 /**
  * 项目里全部可被引用的角色形态，本体在前、其衍生紧随其后。镜像后端
- * `lib/reference_catalog.py::ReferenceCatalog` 对角色类的展开（见 `docs/adr/0072`）：
+ * `lib/references/reference_catalog.py::ReferenceCatalog` 对角色类的展开（见 `docs/adr/0072`）：
  * 引用弹窗的候选、头像堆的取图与编辑器高亮都从这一处取名字，不各自遍历 `derivatives`。
  */
 export function characterReferenceForms(

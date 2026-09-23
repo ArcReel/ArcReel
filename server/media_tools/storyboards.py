@@ -8,16 +8,16 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from lib.artifact_activation import (
+from lib.artifacts.artifact_activation import (
     active_artifact_currency_resolver,
     resolve_artifact_episode,
 )
-from lib.artifact_manifest import ArtifactKey
-from lib.generation_queue_client import (
+from lib.artifacts.artifact_manifest import ArtifactKey
+from lib.generation.generation_queue_client import (
     TaskSpec,
     batch_enqueue_and_wait,
 )
-from lib.generation_result import (
+from lib.generation.generation_result import (
     GenerationAction,
     GenerationCandidate,
     GenerationProblem,
@@ -27,13 +27,13 @@ from lib.generation_result import (
     record_batch_outcomes,
     select_generation_targets,
 )
-from lib.prompt_builders import render_storyboard_image_prompt
-from lib.reference_admission import admit_storyboard_item
-from lib.reference_catalog import build_reference_catalog
-from lib.resource_paths import resource_relative_path
-from lib.script_models import get_generated_assets, resolve_content_mode
-from lib.script_skeleton import ensure_route_skeleton
-from lib.storyboard_sequence import (
+from lib.project.resource_paths import resource_relative_path
+from lib.prompts.prompt_builders import render_storyboard_image_prompt
+from lib.references.reference_admission import admit_storyboard_item
+from lib.references.reference_catalog import build_reference_catalog
+from lib.script.script_models import get_generated_assets, resolve_content_mode
+from lib.script.script_skeleton import ensure_route_skeleton
+from lib.script.storyboard_sequence import (
     build_storyboard_dependency_plan,
     get_storyboard_items,
 )
@@ -46,7 +46,7 @@ from server.media_tools.context import (
     validate_script_filename,
 )
 from server.media_tools.definition import tool
-from server.services.reference_admission import reference_admission_problems
+from server.services.admission.reference_admission import reference_admission_problems
 from server.tool_runtime import ToolOutcome, submit_media_generation
 
 _OPERATION = "generate_storyboards"
@@ -150,7 +150,7 @@ async def handle_generate_storyboards(ctx: ToolContext, args: dict[str, Any]) ->
 
         style = project_data.get("style", "")
         style_description = project_data.get("style_description", "")
-        # 引用准入与 Web 提交入口同源（``lib.reference_admission``）：未登记的引用与没有
+        # 引用准入与 Web 提交入口同源（``lib.references.reference_admission``）：未登记的引用与没有
         # 资产图的角色 / 场景 / 道具此前被静默丢弃，agent 会拿到一张少了主体的付费分镜图。
         catalog = build_reference_catalog(project_data)
         targets = []

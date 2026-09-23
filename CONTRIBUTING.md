@@ -43,7 +43,7 @@ pnpm build        # 双 locale 构建，失效链接或锚点会导致构建失�
 pnpm typecheck
 pnpm lint         # ESLint
 pnpm format       # prettier 写入；format:check 仅校验不修改
-pnpm check        # typecheck + lint + format:check，与 CI 的三项静态检查等价
+pnpm check        # sync-contributing + typecheck + lint + format:check + check-consistency；不含 build 与 scripts/*.test.mjs
 
 # 站内搜索仅在构建产物上可用，dev server 中不可用
 pnpm build && pnpm serve
@@ -101,7 +101,7 @@ pytest `asyncio_mode = "auto"`，异步用例无需手动标记。
 - **优先级**：真实对象（内存 SQLite、`tmp_path`）＞ `tests/fakes.py` 手写替身（收录边界见其模块 docstring）＞ 带 `spec`/`autospec` 的 Mock ＞ 裸 `MagicMock`/`AsyncMock`。Mock 只替换仓库边界（第三方 SDK、网络传输、子进程、文件系统、时钟）；仓库内的依赖对象用真实实例；替身只出现在无法用真实对象触发的分支（异常、超时、外部失败）。
 - **禁止 patch 生产代码私有符号**（闸门，无豁免）：`patch("lib.x._y")`、`monkeypatch.setattr(mod, "_y")`、`patch.object(Cls, "_y")` 三种形式一律禁止。需要控制内部行为时走 seam。
 - **seam 即显式参数注入**：构造参数或关键字参数，带生产默认值，不改变生产行为，如 `retry_async(operation, *, clock=..., jitter=...)`；不引入模块级可替换全局。适用范围：轮询时钟/间隔/退避、能力解析器、HTTP 探测客户端、文件系统与子进程。
-- **进程级缓存的重置钩子取公开名**：生产模块用 `functools.cache` 之类的进程级缓存时，为测试暴露的重置入口写成公开的 `reset_*_for_tests()`（如 `lib.app_data_dir.reset_for_tests`），不写下划线私有名——测试 import 私有符号既撞上上一条禁令，也会被 basedpyright 的 `reportUnusedFunction` 判成死代码。钩子只清缓存、不改生产行为。它是过渡形态，新代码优先按上一条做参数注入。
+- **进程级缓存的重置钩子取公开名**：生产模块用 `functools.cache` 之类的进程级缓存时，为测试暴露的重置入口写成公开的 `reset_*_for_tests()`（如 `lib.infra.app_data_dir.reset_for_tests`），不写下划线私有名——测试 import 私有符号既撞上上一条禁令，也会被 basedpyright 的 `reportUnusedFunction` 判成死代码。钩子只清缓存、不改生产行为。它是过渡形态，新代码优先按上一条做参数注入。
 - **出站 HTTP 断言用 respx**：保留真实 httpx 客户端，在 transport 层拦截（`AsyncOpenAI` 流量同样被捕获），断言真实序列化后的请求。
 - **patch 收编**（闸门）：同一 patch 目标字符串出现在 ≥3 个测试文件时收编为共享 fixture / helper，各文件不再各自定义；FastAPI 路由依赖优先 `app.dependency_overrides` 而非 patch。
 
@@ -129,7 +129,7 @@ pytest `asyncio_mode = "auto"`，异步用例无需手动标记。
 
 - 等待、重试、超时逻辑一律经时钟 seam 或事件握手驱动，不使用 `time.sleep` 之类的真实时间等待。
 - 偶发失败（flaky）视同普通缺陷：就地修复（时钟 seam / 事件握手），无法修复或不值得修复的按无意义测试判据删除。不引入自动重试（pytest-rerunfailures、CI job 级 retry）——自动重试会掩盖本应暴露的失败。
-- 概率性 stress 用例（真实并发 + 真实时间）须在本节显式登记。当前唯一登记的豁免：`tests/integration/lib/test_project_manager_concurrent_save.py` 的原子写压力用例。
+- 概率性 stress 用例（真实并发 + 真实时间）须在本节显式登记。当前唯一登记的豁免：`tests/integration/lib/project/test_project_manager_concurrent_save.py` 的原子写压力用例。
 
 ### 覆盖率
 
@@ -159,6 +159,16 @@ pytest `asyncio_mode = "auto"`，异步用例无需手动标记。
 - **可测性改造**：不得改变生产行为；允许抽纯函数、抽 hook 级的结构性抽取。
 - **配置与 lint**：`testTimeout` 用 vitest 默认 5s，个别慢用例显式覆写并说明；eslint 启用 vitest、testing-library、jest-dom 插件（`expect-expect` 检出零断言用例）；裸 `toHaveBeenCalled` 不设禁令，断言强度归 review。
 
+### 在 worktree 与沙箱里运行闸门
+
+worktree 里没有 `.venv` 与 `node_modules`，Agent 沙箱可能禁止绑定本地端口。按下面方式运行，闸门结果与主仓一致：
+
+- **Python 共用主仓 `.venv`**：`UV_PROJECT_ENVIRONMENT=<主仓根>/.venv uv run --no-sync <命令>`。`--no-sync` 让 `uv run` 直接使用该环境；缺了它，`uv run` 会按当前 worktree 的 `pyproject.toml` 往该目录同步一份完整依赖，`.claude/settings.json` 的保存后格式化 hook 里的 `uv run ruff` 同样会触发这次同步。worktree 改动了 `pyproject.toml` 或 `uv.lock` 时，主仓 `.venv` 不反映新依赖：省略 `UV_PROJECT_ENVIRONMENT` 与 `--no-sync`，让 `uv run` 在 worktree 里建立并同步自己的 `.venv`，basedpyright 也就不需要 `--venvpath`。
+- **basedpyright 指向主仓**：`pyproject.toml` 的 `venvPath` 让它在当前目录找 `.venv`，worktree 里以退出码 3 报 `venv .venv subdirectory not found`；加 `--venvpath <主仓根>` 即可，无需符号链接。
+- **需要本地端口的用例在允许绑定端口的环境运行**：`tests/integration/agent_runtime_profile/test_custom_endpoint_adapter_skill.py` 启动本地 HTTP 服务，沙箱禁止绑定 `127.0.0.1` 时以 `PermissionError` 失败。后端完整测试直接在允许本地端口的环境运行一次，省去沙箱内先跑一遍再复跑。
+- **并发跑前端闸门时限制 worker**：多个 Agent 同时运行 `pnpm check` 会让 vitest 默认 worker 数把机器压到用例超时；用 `pnpm check --maxWorkers=2`，参数落到脚本末尾的 `vitest run`。
+- **前端与文档站各自安装依赖**：在 worktree 的 `frontend/` 与 `website/` 分别执行 `pnpm install --frozen-lockfile`。
+
 ## 代码质量
 
 工具报出的问题一律改代码，不加 baseline 或计数阈值。抑制注释只用于工具已确认的误报，且必须行内带理由：ruff 写 `# noqa: X -- 理由`，basedpyright 写 `# pyright: ignore[X]  # 理由`（典型场景是第三方 untyped 库；装饰器注册块内重复的同一条误报例外——无论块内是一条还是数十条，理由统一写在块开头一条注释里，不在每行重复，见下方「类型检查」节的 `reportUnusedFunction`），zizmor 写 `# zizmor: ignore[X] 理由`（放在被报告的 YAML 键所在行），actionlint 见下方「Workflow 语法与安全」，deptry 见下方「依赖卫生」，knip 写导出上方的 `/** @public 理由 */`，ESLint 见下方「ESLint disable 使用规范」。策略阈值类 finding（如 Dependabot 冷却期天数）按工具要求调整配置，不用豁免绕过。
@@ -185,7 +195,7 @@ uv run basedpyright --warnings
 - `reportUnreachable` 不用忽略注释绕过：穷尽分支后的防御性兜底改 `assert_never(x)`，真正的死分支删除；回调里产出、外层消费的结果用单元素列表当信箱，别写 `x: T | None = None` + `nonlocal`（basedpyright 不跟踪回调里的赋值，会把外层的空值判定当成恒真）
 - `reportUnusedFunction` 把函数作用域内的任何符号一律判为私有，装饰器就地注册的处理器（`@app.exception_handler`、`@router.*`、`@server.tool`、`@event.listens_for`）因此被误报：逐个挂 `# pyright: ignore[reportUnusedFunction]`，并在注册块开头写一条注释说明理由。模块级的 `_` 前缀函数若被别的模块 import，改公开名而不是加豁免；模块级 pytest fixture 同理取公开名（由 pytest 按名收集、无人 import，本规则一律判它未被访问）
 - tests/ 内 `reportOptional*`、`reportArgumentType`、`reportAttributeAccessIssue` 等设为 `none`（不做闸门）：测试的断言式访问与 mock 返回值 narrow 噪声大。scripts/ 与 alembic/ 的 `reportMissingImports` 同理，两处都用 `sys.path` 注入或运行期注入符号，静态不可解析
-- 标注表达期望、判定负责实际：从磁盘 JSON 重建的数据类，其构造期形状校验走 `lib/schema_guards.py`（谓词以 `object` 收参），不要写成对自身标注的同义反复；只校验外层容器类型的访问器把元素标注写成 `Any`，别写成 `dict[str, Any]`
+- 标注表达期望、判定负责实际：从磁盘 JSON 重建的数据类，其构造期形状校验走 `lib/infra/schema_guards.py`（谓词以 `object` 收参），不要写成对自身标注的同义反复；只校验外层容器类型的访问器把元素标注写成 `Any`，别写成 `dict[str, Any]`
 
 **Import 分层契约（import-linter）：**
 
@@ -193,7 +203,7 @@ uv run basedpyright --warnings
 uv run lint-imports
 ```
 
-- 校验 `lib.config < lib.*_backends < lib.custom_provider` 分层契约，是 CI backend-static 的必过步骤
+- 校验 `lib.config < lib.backends.*_backends < lib.custom_provider < lib.market` 分层契约，是 CI backend-static 的必过步骤
 - 新增 ignore 条目前先确认该依赖边无法直接消除（约定见 `pyproject.toml`）
 
 **依赖卫生（deptry）：**
@@ -249,7 +259,7 @@ cd frontend && pnpm knip
 **Lint & Format（文档站 ESLint + prettier）：**
 
 ```bash
-cd website && pnpm check          # typecheck + lint + format:check
+cd website && pnpm check          # sync-contributing + typecheck + lint + format:check + check-consistency
 cd website && pnpm lint:fix       # ESLint 自动修复可修复的问题
 cd website && pnpm format         # prettier 写入
 ```
@@ -257,7 +267,7 @@ cd website && pnpm format         # prettier 写入
 - 配置：`website/eslint.config.mjs` + `website/.prettierrc.json`（`website/` 是独立包根，工具链与 `frontend/` 各自独立，因为两者的 TypeScript 大版本不同）
 - ESLint 规则集与 frontend 相同：`typescript-eslint/recommendedTypeChecked` + `react/recommended` + `react-hooks/recommended` + `jsx-a11y/recommended`
 - prettier printWidth 120（与后端 ruff 的 line-length 对齐）；`docs/` 与 `i18n/` 不参与格式化，排除依据见 `website/.prettierignore` 顶部注释
-- CI 中强制检查：`website-checks` job 的 `Typecheck` / `Lint` / `Format check` 三个 step，均排在 `Build` 之前
+- CI 中强制检查：`website-checks` job 的 `Typecheck` / `Lint` / `Format check` / `Sync CONTRIBUTING copy` / `Consistency check` 五个 step，均排在 `Build` 之前；该 job 另在安装依赖前跑 translation-lock 与 `website/scripts/*.test.mjs` 两组 `node --test`
 
 ### 依赖管理
 
@@ -312,6 +322,8 @@ cd website && pnpm format         # prettier 写入
 | `website/docs/guide/getting-started.md` | 从部署到第一条成片的完整操作路径 | 生产级反向代理和备份策略 |
 | `website/docs/guide/workflows.md` | 创作类型、生成模式、内容确认节点、选择建议 | 供应商密钥和运维命令 |
 | `website/docs/guide/providers.md` | 供应商类型、覆盖能力、选择原则、配置层级 | 容易过期的价格承诺 |
+| `website/docs/guide/comfyui.md` | ComfyUI workflow 的导入、节点绑定、尺寸/时长/种子换算语义、测试与运行限制 | ComfyUI 自身的部署方式与自定义节点安装教程 |
+| `website/docs/guide/market.md` | 市场源管理、市场条目的安装确认、更新与卸载 | 投稿流程与开设市场源的步骤（以官方市场源仓库文档为准） |
 | `website/docs/guide/jianying-export.md` | 剪映草稿目录定位、导出与二次编辑操作步骤 | 视频生成本身的流程说明 |
 | `website/docs/guide/faq.md` | 高频问题和短答案 | 长篇教程 |
 | `website/docs/ops/deployment.md` | 部署、升级、备份、恢复、监控和安全 | 产品营销文案 |

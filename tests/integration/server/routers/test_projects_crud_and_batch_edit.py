@@ -4,9 +4,9 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from lib.i18n.zh import errors as zh_errors
-from lib.project_change_hints import get_project_change_source
-from lib.project_manager import ProjectManager
-from lib.script_batch_edit import (
+from lib.project.project_change_hints import get_project_change_source
+from lib.project.project_manager import ProjectManager
+from lib.script.script_batch_edit import (
     ScriptBatchEditResult,
 )
 from server.auth import CurrentUserInfo, get_current_user

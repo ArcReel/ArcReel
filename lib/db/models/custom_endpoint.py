@@ -26,10 +26,10 @@ class CustomEndpoint(TimestampMixin, Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     definition: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
-    # 容器类型，取自 definition.kind（当前只有 declarative；Python 插件是独立议题的预留槽位）
+    # 容器类型，取自 definition.kind（declarative / comfyui；Python 插件是独立议题的预留槽位）
     kind: Mapped[str] = mapped_column(String(32), nullable=False)
     # 定义遵循的格式版本，原样保留文件里的值、不改写，也不做迁移
     schema_version: Mapped[str] = mapped_column(String(32), nullable=False)
-    # 运行时按格式判定，首期恒 "video"；格式本身不含该字段
+    # 按容器类型取：声明式恒 "video"（格式本身不含该字段），ComfyUI 读定义里的 media_type
     media_type: Mapped[str] = mapped_column(String(16), nullable=False)
     display_name: Mapped[str] = mapped_column(String(128), nullable=False)  # ← definition.meta.name

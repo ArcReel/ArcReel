@@ -1,0 +1,189 @@
+{
+  "37": {
+    "class_type": "UNETLoader",
+    "inputs": {
+      "unet_name": "flux1-dev-kontext_fp8_scaled.safetensors",
+      "weight_dtype": "default"
+    }
+  },
+  "38": {
+    "class_type": "DualCLIPLoader",
+    "inputs": {
+      "clip_name1": "clip_l.safetensors",
+      "clip_name2": "t5xxl_fp8_e4m3fn_scaled.safetensors",
+      "type": "flux"
+    }
+  },
+  "39": {
+    "class_type": "VAELoader",
+    "inputs": {
+      "vae_name": "ae.safetensors"
+    }
+  },
+  "142": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "portrait.png",
+      "upload": "image"
+    },
+    "_meta": {
+      "title": "Load Image"
+    }
+  },
+  "147": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "jacket.png",
+      "upload": "image"
+    },
+    "_meta": {
+      "title": "Load Image"
+    }
+  },
+  "146": {
+    "class_type": "ImageStitch",
+    "inputs": {
+      "direction": "right",
+      "match_image_size": true,
+      "spacing_width": 0,
+      "spacing_color": "white",
+      "image1": [
+        "142",
+        0
+      ],
+      "image2": [
+        "147",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "Image Stitch"
+    }
+  },
+  "42": {
+    "class_type": "FluxKontextImageScale",
+    "inputs": {
+      "image": [
+        "146",
+        0
+      ]
+    }
+  },
+  "124": {
+    "class_type": "VAEEncode",
+    "inputs": {
+      "pixels": [
+        "42",
+        0
+      ],
+      "vae": [
+        "39",
+        0
+      ]
+    }
+  },
+  "6": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "text": "put the jacket on the person",
+      "clip": [
+        "38",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "CLIP Text Encode (Positive Prompt)"
+    }
+  },
+  "177": {
+    "class_type": "ReferenceLatent",
+    "inputs": {
+      "conditioning": [
+        "6",
+        0
+      ],
+      "latent": [
+        "124",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "Set Reference Latent"
+    }
+  },
+  "35": {
+    "class_type": "FluxGuidance",
+    "inputs": {
+      "guidance": 2.5,
+      "conditioning": [
+        "177",
+        0
+      ]
+    }
+  },
+  "135": {
+    "class_type": "ConditioningZeroOut",
+    "inputs": {
+      "conditioning": [
+        "6",
+        0
+      ]
+    }
+  },
+  "31": {
+    "class_type": "KSampler",
+    "inputs": {
+      "seed": 1039443358159991,
+      "steps": 20,
+      "cfg": 1,
+      "sampler_name": "euler",
+      "scheduler": "simple",
+      "denoise": 1,
+      "model": [
+        "37",
+        0
+      ],
+      "positive": [
+        "35",
+        0
+      ],
+      "negative": [
+        "135",
+        0
+      ],
+      "latent_image": [
+        "124",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "KSampler"
+    }
+  },
+  "8": {
+    "class_type": "VAEDecode",
+    "inputs": {
+      "samples": [
+        "31",
+        0
+      ],
+      "vae": [
+        "39",
+        0
+      ]
+    }
+  },
+  "136": {
+    "class_type": "SaveImage",
+    "inputs": {
+      "filename_prefix": "flux.1_kontext_dev",
+      "images": [
+        "8",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "Save Image"
+    }
+  }
+}

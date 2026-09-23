@@ -1,6 +1,6 @@
 import { useCallback, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { AlertTriangle, CheckCircle2, Clock, FileOutput, Lock, RotateCcw, Save, Wrench } from "lucide-react";
+import { AlertTriangle, ArrowRight, CheckCircle2, Clock, Lock, RotateCcw, Save, Wrench } from "lucide-react";
 import type {
   DramaNormalizedScript,
   DramaSceneContent,
@@ -12,9 +12,13 @@ import type {
 } from "@/types";
 import { useAppStore } from "@/stores/app-store";
 import { useAssistantStore } from "@/stores/assistant-store";
+import { useModelCapabilities } from "@/hooks/useModelCapabilities";
 import { useScriptReviewDraft } from "@/hooks/useScriptReviewDraft";
 import { voidPromise } from "@/utils/async";
 import { EpisodeDurationSummary } from "@/components/shared/EpisodeDurationSummary";
+import { ScriptOverwriteConfirmDialog } from "@/components/shared/ScriptOverwriteConfirmDialog";
+import { VideoModelUnresolvedNotice } from "@/components/shared/VideoModelUnresolvedNotice";
+import { PrimaryButton } from "@/components/ui/PrimaryButton";
 import { AutoTextarea } from "@/components/ui/AutoTextarea";
 import {
   ACCENT_BUTTON_STYLE,
@@ -25,12 +29,13 @@ import {
 } from "@/components/ui/darkroom-tokens";
 import { sumItemDuration } from "@/utils/script-shape";
 import { UtteranceListEditor } from "./UtteranceListEditor";
-import { ScriptPlanConversionDialog } from "./ScriptPlanConversionDialog";
 
 interface ScriptReviewGateProps {
   projectName: string;
   episode: number;
   contentMode: "narration" | "drama";
+  /** 切到本集时间线；确认后的只读态据此给出去时间线修改的入口，未提供时不渲染入口。 */
+  onOpenTimeline?: () => void;
 }
 
 const SECTION_LABEL_STYLE: React.CSSProperties = {
@@ -87,13 +92,37 @@ function SceneHeader({
   );
 }
 
+/** 只读正文：保留换行，空值不渲染。 */
+function ReadOnlyText({ text, className = "" }: { text: string; className?: string }) {
+  if (!text) return null;
+  return <p className={`whitespace-pre-wrap text-[12.5px] leading-relaxed ${className}`}>{text}</p>;
+}
+
+function ReadOnlyUtterances({ utterances }: { utterances: Utterance[] }) {
+  const { t } = useTranslation("dashboard");
+  return (
+    <ul className="flex flex-col gap-1.5">
+      {utterances.map((u, i) => (
+        <li key={String(i)} className="flex items-start gap-2 text-[12.5px] leading-relaxed">
+          <span className="mt-0.5 shrink-0 rounded border border-hairline bg-bg-grad-a/55 px-1.5 py-px text-[10.5px] text-text-3">
+            {u.kind === "dialogue" ? u.speaker : t("utterance_kind_voiceover")}
+          </span>
+          <span className={u.kind === "voiceover" ? "italic text-text-2" : "text-text"}>{u.text}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 function DramaSceneCard({
   scene,
   disabled,
+  readOnly,
   onChange,
 }: {
   scene: DramaSceneContent;
   disabled: boolean;
+  readOnly: boolean;
   onChange: (patch: Partial<DramaSceneContent>) => void;
 }) {
   const { t } = useTranslation("dashboard");
@@ -107,23 +136,31 @@ function DramaSceneCard({
       <label className="mb-1 block text-[10.5px]" style={SECTION_LABEL_STYLE}>
         {t("review_utterances_label")}
       </label>
-      <UtteranceListEditor
-        utterances={scene.utterances}
-        disabled={disabled}
-        onChange={(utterances: Utterance[]) => onChange({ utterances })}
-      />
+      {readOnly ? (
+        <ReadOnlyUtterances utterances={scene.utterances} />
+      ) : (
+        <UtteranceListEditor
+          utterances={scene.utterances}
+          disabled={disabled}
+          onChange={(utterances: Utterance[]) => onChange({ utterances })}
+        />
+      )}
 
       <label className="mb-1 mt-3 block text-[10.5px]" style={SECTION_LABEL_STYLE}>
         {t("review_source_text_label")}
       </label>
-      <AutoTextarea
-        value={scene.source_text}
-        disabled={disabled}
-        onChange={(source_text) => onChange({ source_text })}
-        placeholder={t("review_source_text_placeholder")}
-        aria-label={t("review_source_text_label")}
-        className="text-text-3"
-      />
+      {readOnly ? (
+        <ReadOnlyText text={scene.source_text} className="text-text-3" />
+      ) : (
+        <AutoTextarea
+          value={scene.source_text}
+          disabled={disabled}
+          onChange={(source_text) => onChange({ source_text })}
+          placeholder={t("review_source_text_placeholder")}
+          aria-label={t("review_source_text_label")}
+          className="text-text-3"
+        />
+      )}
     </article>
   );
 }
@@ -131,10 +168,12 @@ function DramaSceneCard({
 function NarrationSegmentCard({
   segment,
   disabled,
+  readOnly,
   onChange,
 }: {
   segment: NarrationScriptPlanSegment;
   disabled: boolean;
+  readOnly: boolean;
   onChange: (patch: Partial<NarrationScriptPlanSegment>) => void;
 }) {
   const { t } = useTranslation("dashboard");
@@ -152,13 +191,17 @@ function NarrationSegmentCard({
       <label className="mb-1 block text-[10.5px]" style={SECTION_LABEL_STYLE}>
         {t("review_novel_text_label")}
       </label>
-      <AutoTextarea
-        value={segment.novel_text}
-        onChange={(novel_text) => onChange({ novel_text })}
-        placeholder={t("review_novel_text_placeholder")}
-        aria-label={t("review_novel_text_label")}
-        disabled={disabled}
-      />
+      {readOnly ? (
+        <ReadOnlyText text={segment.novel_text} className="text-text" />
+      ) : (
+        <AutoTextarea
+          value={segment.novel_text}
+          onChange={(novel_text) => onChange({ novel_text })}
+          placeholder={t("review_novel_text_placeholder")}
+          aria-label={t("review_novel_text_label")}
+          disabled={disabled}
+        />
+      )}
     </article>
   );
 }
@@ -225,12 +268,12 @@ function QuarantinePanel(props: { quarantine: ScriptReviewQuarantine; onRequestF
  * （novel_text）共用本面板；reference_video 变体的专属面板见 `ReferenceScriptPlanPreviewPanel`。
  *
  * 待修复草稿在场时整面板转只读（见 `QuarantinePanel`）：正式内容此刻仍是上一版，编辑与确认
- * 都无意义——确认端点本就按同一判据拒绝。
+ * 都无意义——确认端点本就按同一判据拒绝。确认之后脚本规划只读，卡片不渲染编辑控件，指引到时间线修改。
  */
-export function ScriptReviewGate({ projectName, episode, contentMode }: ScriptReviewGateProps) {
+export function ScriptReviewGate({ projectName, episode, contentMode, onOpenTimeline }: ScriptReviewGateProps) {
   const { t } = useTranslation("dashboard");
   const pushToast = useAppStore((s) => s.pushToast);
-  const [convertOpen, setConvertOpen] = useState(false);
+  const [overwriteOpen, setOverwriteOpen] = useState(false);
 
   const handleConfirmed = useCallback(() => {
     pushToast(t("dashboard:review_confirmed"), "success");
@@ -255,6 +298,10 @@ export function ScriptReviewGate({ projectName, episode, contentMode }: ScriptRe
     selectContent: selectReviewContent,
     onConfirmed: handleConfirmed,
   });
+
+  // 确认转出按视频模型能力定时长档位：服务端明确答复模型无法解析时提前拦下；能力请求本身失败
+  // 不算，交确认端点兜底。能力按项目生成模式定轴，不带集号；演示项目由 hook 自行跳过。
+  const { videoModelUnresolved } = useModelCapabilities({ projectName });
 
   const updateDramaScene = (index: number, patch: Partial<DramaSceneContent>) => {
     setDraft((prev) => {
@@ -322,7 +369,19 @@ export function ScriptReviewGate({ projectName, episode, contentMode }: ScriptRe
   // 待修复草稿在场：正式内容此刻仍是上一版，可编辑态会让用户改一份不会被消费的内容，且确认
   // 端点本就按同一判据拒绝。故整面板转只读，编辑与确认一并锁住。
   const quarantined = quarantine != null;
-  const confirmed = status === "confirmed" && !dirty && !quarantined;
+  // 已确认的脚本规划只读：保存端点按同一判据拒绝，内容修改改在时间线上做。
+  const confirmed = status === "confirmed" && !quarantined;
+  // 该集已有正式脚本：确认会整份覆盖它，确认按钮改呈 danger，点击先列出后果再确认。
+  const overwrite = confirmed ? null : (state?.script_overwrite ?? null);
+  // 已确认但该集没有正式脚本（迁移转换失败或文件被删）：确认仍可用，重新确认即转出正式脚本。
+  const scriptMissing = confirmed && state?.script_overwrite == null;
+  const confirmLocked = quarantined || (confirmed && !scriptMissing);
+  const videoModelBlocked = videoModelUnresolved && !confirmLocked;
+  const confirmBlockedHint = quarantined
+    ? t("dashboard:review_confirm_blocked_quarantined")
+    : videoModelBlocked
+      ? t("dashboard:review_video_model_unresolved_hint")
+      : undefined;
 
   return (
     <div className="flex flex-col gap-3">
@@ -350,50 +409,79 @@ export function ScriptReviewGate({ projectName, episode, contentMode }: ScriptRe
             <span className="text-[11px] text-text-4">
               {quarantined
                 ? t("dashboard:review_quarantined_hint")
-                : confirmed
-                  ? t("dashboard:review_confirmed_hint")
-                  : t("dashboard:review_pending_hint")}
+                : scriptMissing
+                  ? t("dashboard:review_script_missing_hint")
+                  : confirmed
+                    ? t("dashboard:review_confirmed_hint")
+                    : overwrite
+                    ? t("dashboard:review_overwrite_hint")
+                    : t("dashboard:review_pending_hint")}
             </span>
           </div>
         </div>
 
         <div className="flex items-center gap-2">
-          {dirty && !quarantined && (
+          {confirmed && onOpenTimeline && (
+            <button type="button" onClick={onOpenTimeline} className={GHOST_BTN_CLS}>
+              <ArrowRight className="h-3.5 w-3.5" />
+              {t("dashboard:review_open_timeline")}
+            </button>
+          )}
+          {dirty && !quarantined && !confirmed && (
             <button type="button" onClick={voidPromise(handleSave)} disabled={busy} className={GHOST_BTN_CLS}>
               <Save className="h-3.5 w-3.5" />
               {saving ? t("common:saving") : t("dashboard:review_save_action")}
             </button>
           )}
-          {confirmed && (
-            <button type="button" onClick={() => setConvertOpen(true)} disabled={busy} className={GHOST_BTN_CLS}>
-              <FileOutput className="h-3.5 w-3.5" />
-              {t("dashboard:review_convert_action")}
+          {overwrite ? (
+            <PrimaryButton
+              tone="danger"
+              onClick={() => setOverwriteOpen(true)}
+              disabled={busy || quarantined || videoModelBlocked}
+              title={confirmBlockedHint}
+              leadingIcon={quarantined ? <Lock className="h-3.5 w-3.5" /> : <AlertTriangle className="h-3.5 w-3.5" />}
+            >
+              {confirming ? t("dashboard:review_confirming") : t("dashboard:review_overwrite_action")}
+            </PrimaryButton>
+          ) : (
+            <button
+              type="button"
+              onClick={voidPromise(() => handleConfirm())}
+              disabled={busy || confirmLocked || videoModelBlocked}
+              title={confirmBlockedHint}
+              className={ACCENT_BTN_CLS}
+              style={ACCENT_BUTTON_STYLE}
+            >
+              {confirmLocked ? <Lock className="h-3.5 w-3.5" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
+              {confirming
+                ? t("dashboard:review_confirming")
+                : scriptMissing
+                  ? t("dashboard:review_rematerialize_action")
+                  : confirmed
+                    ? t("dashboard:review_confirmed_badge")
+                    : t("dashboard:review_confirm_action")}
             </button>
           )}
-          <button
-            type="button"
-            onClick={voidPromise(handleConfirm)}
-            disabled={busy || confirmed || quarantined}
-            title={quarantined ? t("dashboard:review_confirm_blocked_quarantined") : undefined}
-            className={ACCENT_BTN_CLS}
-            style={ACCENT_BUTTON_STYLE}
-          >
-            {quarantined || confirmed ? <Lock className="h-3.5 w-3.5" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
-            {confirming
-              ? t("dashboard:review_confirming")
-              : confirmed
-                ? t("dashboard:review_confirmed_badge")
-                : t("dashboard:review_confirm_action")}
-          </button>
         </div>
       </header>
 
-      <ScriptPlanConversionDialog
-        open={convertOpen}
-        projectName={projectName}
-        episode={episode}
-        onClose={() => setConvertOpen(false)}
-      />
+      {videoModelBlocked && <VideoModelUnresolvedNotice projectName={projectName} />}
+
+      {overwrite && (
+        <ScriptOverwriteConfirmDialog
+          open={overwriteOpen}
+          overwrite={overwrite}
+          loading={confirming}
+          // 框在能力请求返回之前就可能被打开，之后答复模型无法解析：框内的确认按钮与触发它的
+          // 那颗按钮同一判据，否则这里还能提交一次注定被服务端拒绝的确认。
+          confirmDisabled={videoModelBlocked}
+          onConfirm={async () => {
+            // 失败（如确认期间该集被并发写入）时框保持打开，呈现刷新后的覆盖清单。
+            if (await handleConfirm({ overwriteRevision: overwrite.revision })) setOverwriteOpen(false);
+          }}
+          onCancel={() => setOverwriteOpen(false)}
+        />
+      )}
 
       {/* 本集合计与项目目标的对比；未设目标时不渲染，超出只提示不阻断确认 */}
       {!quarantined && (
@@ -416,6 +504,7 @@ export function ScriptReviewGate({ projectName, episode, contentMode }: ScriptRe
                   key={scene.scene_id || i}
                   scene={scene}
                   disabled={busy}
+                  readOnly={confirmed}
                   onChange={(patch) => updateDramaScene(i, patch)}
                 />
               ))
@@ -426,6 +515,7 @@ export function ScriptReviewGate({ projectName, episode, contentMode }: ScriptRe
                   key={segment.segment_id || i}
                   segment={segment}
                   disabled={busy}
+                  readOnly={confirmed}
                   onChange={(patch) => updateNarrationSegment(i, patch)}
                 />
               ))

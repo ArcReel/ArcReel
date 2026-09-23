@@ -129,6 +129,72 @@ describe("ReferenceVideoCanvas", () => {
     expect(screen.getByTestId("unit-row-E1U2")).toBeInTheDocument();
   });
 
+  it("removes the selected unit only after the danger confirmation", async () => {
+    vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [mkUnit("E1U1"), mkUnit("E1U2")] });
+    const deleteSpy = vi.spyOn(API, "deleteReferenceVideoUnit").mockResolvedValue(undefined);
+    render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
+    await screen.findByTestId("unit-row-E1U1");
+
+    fireEvent.click(await screen.findByRole("button", { name: /^(Remove unit|移除单元)$/ }));
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByText(/E1U1/)).toBeInTheDocument();
+    expect(deleteSpy).not.toHaveBeenCalled();
+
+    fireEvent.click(within(dialog).getByRole("button", { name: /^(Remove unit|移除单元)$/ }));
+
+    await waitFor(() => expect(deleteSpy).toHaveBeenCalledWith("proj", 1, "E1U1"));
+    await waitFor(() => expect(screen.queryByTestId("unit-row-E1U1")).not.toBeInTheDocument());
+    expect(screen.getByTestId("unit-row-E1U2")).toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("does not remove a unit that became busy after the confirmation opened", async () => {
+    vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [mkUnit("E1U1"), mkUnit("E1U2")] });
+    const deleteSpy = vi.spyOn(API, "deleteReferenceVideoUnit").mockResolvedValue(undefined);
+    render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
+    fireEvent.click(await screen.findByRole("button", { name: /^(Remove unit|移除单元)$/ }));
+
+    act(() => {
+      useTasksStore.setState({ tasks: [runningTask("E1U1")] as never });
+    });
+    const confirm = within(screen.getByRole("dialog")).getByRole("button", { name: /^(Remove unit|移除单元)$/ });
+    await waitFor(() => expect(confirm).toBeDisabled());
+    fireEvent.click(confirm);
+
+    expect(deleteSpy).not.toHaveBeenCalled();
+  });
+
+  it("blocks removing a unit while its narration audio is being generated", async () => {
+    vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [mkUnit("E1U1"), mkUnit("E1U2")] });
+    useTasksStore.setState({ tasks: [{ ...runningTask("E1U1"), task_type: "tts" }] as never });
+    render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
+
+    await screen.findByTestId("unit-row-E1U1");
+    expect(screen.getByRole("button", { name: /^(Remove unit|移除单元)$/ })).toBeDisabled();
+  });
+
+  it("drops the removed unit's unsaved draft so it neither blocks unload nor resurfaces on a reused id", async () => {
+    vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [mkUnit("E1U1", "server text")] });
+    vi.spyOn(API, "deleteReferenceVideoUnit").mockResolvedValue(undefined);
+    vi.spyOn(API, "addReferenceVideoUnit").mockResolvedValue({ unit: mkUnit("E1U1", "fresh unit") });
+    render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
+    const textarea = (await screen.findByRole("combobox")) as HTMLTextAreaElement;
+    fireEvent.change(textarea, { target: { value: "unsaved edit" } });
+
+    fireEvent.click(screen.getByRole("button", { name: /^(Remove unit|移除单元)$/ }));
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: /^(Remove unit|移除单元)$/ }));
+    await waitFor(() => expect(screen.queryByTestId("unit-row-E1U1")).not.toBeInTheDocument());
+
+    await waitFor(() => {
+      const unload = new Event("beforeunload", { cancelable: true });
+      window.dispatchEvent(unload);
+      expect(unload.defaultPrevented).toBe(false);
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /New Unit|新建 Unit/ }));
+    await waitFor(() => expect((screen.getByRole("combobox") as HTMLTextAreaElement).value).toContain("fresh unit"));
+  });
+
   it("keeps request controls outside the tablist semantics", async () => {
     vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [mkUnit("E1U1")] });
     render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
@@ -534,7 +600,7 @@ describe("ReferenceVideoCanvas", () => {
       supported_durations: null,
       duration_tiers: null,
       episode_target_duration: null,
-      script_entry_currency: null,
+      script_overwrite: null,
       content: { units: [{ unit_id: "E1U1", text: "shot text", duration_seconds: 5, source_text: "" }] },
     });
     render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
@@ -561,7 +627,7 @@ describe("ReferenceVideoCanvas", () => {
       supported_durations: null,
       duration_tiers: null,
       episode_target_duration: null,
-      script_entry_currency: null,
+      script_overwrite: null,
       content: { units: [{ unit_id: "E1U1", text: "shot text", duration_seconds: 5, source_text: "" }] },
     });
     render(<ReferenceVideoCanvas projectName="proj" episode={1} hasScript={false} />);
@@ -583,7 +649,7 @@ describe("ReferenceVideoCanvas", () => {
       supported_durations: null,
       duration_tiers: null,
       episode_target_duration: null,
-      script_entry_currency: null,
+      script_overwrite: null,
       content: { units: [] },
     });
     const { rerender } = render(<ReferenceVideoCanvas projectName="proj" episode={1} hasScript={false} />);
@@ -1178,7 +1244,7 @@ describe("ReferenceVideoCanvas", () => {
     });
 
     // 弹窗停留时长由用户决定，可以很长：其间别处完成的单元若按冻结清单原样重发，队列
-    // 去重（只看 queued/running/cancelling）拦不住，会重跑一次生成、重复计费并覆盖成片。
+    // 去重（只看 queued/running）拦不住，会重跑一次生成、重复计费并覆盖成片。
     it("确认停留期间已完成的单元不再重发", async () => {
       const [u1, u2] = [mkUnit("E1U1"), mkUnit("E1U2")];
       vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [u1, u2] });

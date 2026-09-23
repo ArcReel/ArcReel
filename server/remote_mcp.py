@@ -21,17 +21,18 @@ from mcp.server.fastmcp.tools import Tool as FastMCPTool
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.types import CallToolResult, TextContent
 from pydantic import AnyHttpUrl, Field
+from pydantic.json_schema import SkipJsonSchema
 from starlette.types import Receive, Scope, Send
 
 from lib.config.resolver import ConfigResolver
 from lib.db import async_session_factory
 from lib.db.base import DEFAULT_USER_ID
-from lib.generation_batch import GenerationBatchReadModel
-from lib.project_manager import ProjectManager, get_project_manager
-from lib.script_batch_edit import ScriptBatchEditResult
-from lib.source_loader import SourceLoader
-from lib.source_revision import SourceScope
-from lib.workflow_plan import NarrationDelivery, WorkflowPlanRequest
+from lib.generation.generation_batch import GenerationBatchReadModel
+from lib.project.project_manager import ProjectManager, get_project_manager
+from lib.project.source_revision import SourceScope
+from lib.script.script_batch_edit import ScriptBatchEditResult
+from lib.script.source_loader import SourceLoader
+from lib.workflow.workflow_plan import NarrationDelivery, WorkflowPlanRequest
 from server.auth import API_KEY_PREFIX, _verify_api_key
 from server.draft_workflow import (
     DiscardDraftRequest,
@@ -49,12 +50,13 @@ from server.media_tools.image_edits import edit_images_tool
 from server.media_tools.narration_audio import generate_narration_audio_tool
 from server.media_tools.storyboards import generate_storyboards_tool
 from server.media_tools.videos import generate_videos_tool
-from server.services import workflow_planner
-from server.text_generation import TextGenerationRequest
+from server.services.project import workflow_planner
+from server.text_generation import SCOPE_REMOVED_MESSAGE, TextGenerationRequest
 from server.tool_runtime import (
     CallerContext,
     CompleteAssetInventoryRequest,
     CompleteScriptPlanRebuildRequest,
+    ConfirmScriptReviewRequest,
     CreateProjectToolRequest,
     GenerationBatchToolRequest,
     PatchEpisodeMetaRequest,
@@ -66,7 +68,6 @@ from server.tool_runtime import (
     PromptPreviewRequest,
     RenameAssetRequest,
     ResetEpisodePlanningRequest,
-    ScriptPlanConversionRequest,
     Services,
     ToolOutcome,
     ToolProblem,
@@ -76,7 +77,6 @@ from server.tool_runtime import (
     complete_asset_inventory,
     complete_script_plan_rebuild,
     confirm_script_review,
-    convert_script_plan,
     create_project,
     discard_draft,
     generate_episode_script,
@@ -522,22 +522,26 @@ def build_remote_mcp_server(
         episode: PositiveEpisode,
         context: Context,
         instructions: str | None = None,
-        scope: Literal["stale", "all"] = "stale",
         entry_ids: list[str] | None = None,
         dry_run: bool = False,
+        # scope 不在工具 schema 中：传入即拒绝并给出迁移说明，FastMCP 对未声明的参数会静默忽略。
+        scope: SkipJsonSchema[object] = None,
     ) -> CallToolResult:
-        """Generate an episode script, or return its prompt when dry_run is true.
+        """Author prompts for an episode script, or return the prompt when dry_run is true.
 
-        Existing scripts are rewritten incrementally: only entries whose script_plan content
-        changed (``scope="stale"``, the default) or the entries named by ``entry_ids`` are
-        re-authored; every other entry keeps its prompts, note, end frame and generated assets.
+        By default only the entries marked pending authoring in the formal script are authored;
+        ``entry_ids`` explicitly re-authors the named entries. Content fields, note, end frame and
+        generated assets are kept. An ad project without a formal script generates the whole script.
         """
+        if scope is not None:
+            return _to_mcp_result(
+                "text_generation", ToolOutcome(problem=ToolProblem("invalid_request", SCOPE_REMOVED_MESSAGE))
+            )
         try:
             project_scope = _project_scope(project, projects)
             request = TextGenerationRequest(
                 episode=episode,
                 instructions=instructions,
-                scope=scope,
                 entry_ids=tuple(entry_ids or ()),
                 dry_run=dry_run,
             )
@@ -552,31 +556,6 @@ def build_remote_mcp_server(
                 context,
                 "Generating episode script",
             ),
-        )
-
-    @server.tool(name="convert_script_plan", structured_output=False)
-    async def remote_convert_script_plan(  # pyright: ignore[reportUnusedFunction]
-        project: str,
-        episode: PositiveEpisode,
-        entry_ids: list[str] | None = None,
-    ) -> CallToolResult:
-        """Project the confirmed script plan into the formal script without calling the text model.
-
-        New entries land with pending (null) prompts; existing stale entries keep their content,
-        prompts and fingerprint unless named in ``entry_ids`` (adopt the new plan content, keep prompts).
-        """
-        try:
-            scope = _project_scope(project, projects)
-            request = ScriptPlanConversionRequest(episode=episode, entry_ids=tuple(entry_ids or ()))
-        except (FileNotFoundError, ValueError) as exc:
-            return _to_mcp_result(
-                "script_plan_conversion", ToolOutcome(problem=ToolProblem("invalid_request", str(exc)))
-            )
-        if problem := await migration_gate(scope, services):
-            return _to_mcp_result("script_plan_conversion", ToolOutcome(problem=problem))
-        return _to_mcp_result(
-            "script_plan_conversion",
-            await convert_script_plan(ToolRequest(request), scope, _authenticated_caller(), services),
         )
 
     @server.tool(
@@ -619,8 +598,15 @@ def build_remote_mcp_server(
         )
 
     @server.tool(name="confirm_script_review", structured_output=False)
-    async def remote_confirm_script_review(project: str, episode: int) -> CallToolResult:  # pyright: ignore[reportUnusedFunction]
-        """Confirm one episode's script_plan review before visual generation."""
+    async def remote_confirm_script_review(  # pyright: ignore[reportUnusedFunction]
+        project: str, episode: int, overwrite_revision: str | None = None
+    ) -> CallToolResult:
+        """Confirm one episode's script_plan review: convert it into the formal script before visual generation.
+
+        When the episode already has a formal script, confirming overwrites it; without a matching
+        ``overwrite_revision`` the call returns ``script_overwrite_required`` listing the shots it would remove.
+        Ask the user before retrying with ``overwrite_revision`` set to ``script_overwrite.revision``.
+        """
         try:
             scope = _project_scope(project, projects)
         except (FileNotFoundError, ValueError) as exc:
@@ -629,7 +615,12 @@ def build_remote_mcp_server(
             return _to_mcp_result("text_generation", ToolOutcome(problem=problem))
         return _to_mcp_result(
             "text_generation",
-            await confirm_script_review(ToolRequest(episode), scope, _authenticated_caller(), services),
+            await confirm_script_review(
+                ToolRequest(ConfirmScriptReviewRequest(episode=episode, overwrite_revision=overwrite_revision)),
+                scope,
+                _authenticated_caller(),
+                services,
+            ),
         )
 
     @server.tool(name="patch_episode_script", structured_output=False)
@@ -693,7 +684,7 @@ def build_remote_mcp_server(
 
     @server.tool(name="cancel_generation_batch", structured_output=False)
     async def remote_cancel_generation_batch(project: str, batch_id: str) -> CallToolResult:  # pyright: ignore[reportUnusedFunction]
-        """Cancel every non-terminal member through the normal queue cancellation path."""
+        """Cancel the batch members that are still queued; members already running are not cancellable and finish normally (listed in ``skipped_running``)."""
         try:
             scope = _project_scope(project, projects)
             request = GenerationBatchToolRequest(batch_id=batch_id)

@@ -72,7 +72,7 @@
 
 TTS 真实语音时长 ≠ 旁白脚本 `NarrationSegment.duration_seconds`（该预设时长同时驱动视频片段长度与字幕时间轴）。**业界标准解法：反转契约——音频驱动时间轴，`duration_seconds` 降级为生成提示。**
 
-- ArcReel 既有 `server/services/jianying_draft_service.py` **本就按真实素材时长排版**（视频与字幕 `trange` 都用 `actual_duration_us = material.duration`），"最长真实素材赢"已是现有设计。
+- ArcReel 既有 `server/services/presentation/jianying_draft_service.py` **本就按真实素材时长排版**（视频与字幕 `trange` 都用 `actual_duration_us = material.duration`），"最长真实素材赢"已是现有设计。
 - 音频比视频长 → **拉伸视频**（`setpts`/`tpad` 冻帧，无质量损失），**绝不加速旁白**。
 - 字幕**从真实音频生成**：优先供应商字符级时间戳（ElevenLabs `with-timestamps`，中文可用、零额外基建）；兜底 WhisperX 强制对齐（中文仅社区模型 `jonatasgrosman/wav2vec2-large-xlsr-53-chinese-zh-cn`，精度偏弱）。
 - ⚠️ **别指望"等时 TTS"**（target_duration 参数）：商用中文云 API 无一暴露，仅研究级（Amazon ICASSP'22、VideoDubber AAAI'23 明说中文更难因 token 数≠语音时长）。自托管 IndexTTS2 论文有时长控制但当前版本未启用。
@@ -93,7 +93,7 @@ TTS 真实语音时长 ≠ 旁白脚本 `NarrationSegment.duration_seconds`（�
 
 - **媒体类型**：新增第 4 个 `media_type` = `audio`（capability = `text_to_speech`），与 image/video/text 平级。
 - **调度**：走 GenerationQueue/Worker（audio lane），像 image/video；**backend 同步**（仿 `text_backends`，秒回，无 submit-poll-resume）。`enqueue_tts(segment_ids?)`。
-- **后端**：新增 `lib/audio_backends/`；DashScope 同步原生适配器 + 自定义 OpenAI 兼容 audio 通路。
+- **后端**：新增 `lib/backends/audio_backends/`；DashScope 同步原生适配器 + 自定义 OpenAI 兼容 audio 通路。
 - **音色**：可配置字符串 id（全局默认 + `project.json` `settings.narration_voice` 覆盖，不内置目录，可选语速）。
 - **版本化**：是（resource_paths/VersionManager，目录 `audio/`，文件 `segment_{id}.mp3`）。
 - **数据模型**：`GeneratedAssets.narration_audio: str | None`（project.json，无 DB 表）；文本源 = `NarrationSegment.novel_text` 原样。

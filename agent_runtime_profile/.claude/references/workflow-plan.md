@@ -84,7 +84,7 @@ ID 参数时，前者传入，后者必须**省略该参数**，不得把 `[]` �
 | `prepare_script_plan` | dispatch `next_action.args.preprocessor` 指名的子智能体 |
 | `confirm_script_plan` | `mcp__arcreel__confirm_script_review` |
 | `generate_script` | dispatch `create-episode-script` 子智能体（ad 直接调 `mcp__arcreel__generate_episode_script`） |
-| `author_prompts` | 正式剧本已按脚本规划机械转换、`requested_ids` 列出提示词待生成的条目：调 `mcp__arcreel__generate_episode_script` 并把 `requested_ids` 作为 `entry_ids` 传入，只补这些条目的提示词（见 generate-script skill） |
+| `author_prompts` | 正式剧本里有待编写条目，`requested_ids` 列出这些条目：调 `mcp__arcreel__generate_episode_script`，不传 `entry_ids`，即编写全部待编写条目（见 generate-script skill） |
 | `generate_asset_sheets` | dispatch `generate-assets` 子智能体，逐类型调用 `mcp__arcreel__generate_assets` 并传 `names` |
 | `generate_storyboards` | dispatch `generate-assets` 子智能体，调用 `mcp__arcreel__generate_storyboards` 并传 `segment_ids` |
 | `generate_grid` | dispatch `generate-assets` 子智能体，调用 `mcp__arcreel__generate_grid` 并传 `scene_ids` |
@@ -155,6 +155,7 @@ ID 参数时，前者传入，后者必须**省略该参数**，不得把 `[]` �
 | `tts_generating` | `wait_for_task` | 已有旁白任务在跑，**不要再提交一次**，等待后重查 |
 | `tts_conflicts_with_active_narrated_video` | `wait_for_task` | 该视频单元有带旁白的视频任务在跑，等待后重查 |
 | `tts_not_applicable` | `fix_input` | 该视频单元没有叙述旁白，改选 `post_production` |
+| `tts_duration_endpoint_fixed` | `fix_input` | 该模型的成片时长由端点固定，申请不到装得下旁白的时长，改选 `post_production`；换供应商配置也拿不回时长控制权 |
 | `tts_state_unavailable` | `repair_artifact_state` | 产物状态读不出来，报告缺口，不当作缺失去重生 |
 | `tts_not_configured` | `configure_provider` | 见下 |
 

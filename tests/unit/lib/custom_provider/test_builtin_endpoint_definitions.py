@@ -14,6 +14,7 @@ from typing import Any
 
 import pytest
 
+from lib.backends.video_backend_contract import ReferenceAudioMode, VideoAudioMode
 from lib.custom_provider import CUSTOM_ENDPOINT_KEY_PREFIX
 from lib.custom_provider.builtin_definitions import (
     BUILTIN_DEFINITION_AUTHOR,
@@ -32,7 +33,6 @@ from lib.custom_provider.endpoints import (
     endpoint_spec_to_dict,
     merge_builtin_definitions,
 )
-from lib.video_backends.base import ReferenceAudioMode, VideoAudioMode
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 EXAMPLE_TEMPLATES_DIR = REPO_ROOT / "frontend" / "src" / "data" / "example-templates"
@@ -155,6 +155,14 @@ def test_migrated_builtin_endpoints_are_declarative(key: str):
     assert descriptor["kind"] == "declarative"
     assert descriptor["display_name"]
     assert descriptor["display_name_key"] == ""
+
+
+def test_spec_kind_is_read_from_the_definition():
+    """``kind`` 读定义本体，不由「有没有定义」推断——第二种 kind 的端点同样持有一份定义。"""
+    template = _example_template()
+    template["kind"] = "comfyui"
+
+    assert declarative_endpoint_spec("demo-video", template).kind == "comfyui"
 
 
 def test_unmigrated_endpoints_stay_python_in_the_catalog():

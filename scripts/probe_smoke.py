@@ -19,7 +19,7 @@ import asyncio
 import dataclasses
 
 from lib.config.anthropic_probe import run_test
-from lib.httpx_shared import shutdown_http_client, startup_http_client
+from lib.infra.httpx_shared import shutdown_http_client, startup_http_client
 
 
 async def case(label: str, **kw):

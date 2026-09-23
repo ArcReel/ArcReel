@@ -19,6 +19,11 @@ const CHAT_ENDPOINT: EndpointDescriptor = {
   request_path_template: "/v1/chat/completions",
   image_capabilities: null,
   end_image_capable: false,
+  size_fixed: false,
+  duration_fixed: false,
+  duration_frame_rate_missing: false,
+  duration_tier_empty: false,
+  native_resolution: null,
 };
 
 function renderForm(onSaved = vi.fn()) {
@@ -150,6 +155,6 @@ describe("CustomProviderForm", () => {
     );
     // 保存失败不能通知宿主：宿主会收起表单并当作已落库，用户的输入随之丢失
     expect(onSaved).not.toHaveBeenCalled();
-    expect(screen.getByRole("button", { name: "保存" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "保存" })).toBeInTheDocument();
   });
 });

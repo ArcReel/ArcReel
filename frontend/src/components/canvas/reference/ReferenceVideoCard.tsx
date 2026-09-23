@@ -5,6 +5,9 @@ import { ASSET_COLORS, assetColor } from "./asset-colors";
 import { useUnitPromptHighlight, type Token } from "@/hooks/useUnitPromptHighlight";
 import { buildMentionLookup, characterReferenceForms, MENTION_RE } from "@/utils/reference-mentions";
 import { useProjectsStore } from "@/stores/projects-store";
+import { API } from "@/api";
+import { PromptPreviewButton } from "@/components/shared/PromptPreviewButton";
+import { SourceTextReadonly } from "@/components/shared/SourceTextReadonly";
 import {
   SHEET_FIELD,
   type AssetKind,
@@ -102,7 +105,7 @@ export interface ReferenceVideoCardProps {
 export function ReferenceVideoCard({
   unit,
   projectName,
-  episode: _episode,
+  episode,
   value,
   onChange,
 }: ReferenceVideoCardProps) {
@@ -293,10 +296,50 @@ export function ReferenceVideoCard({
         <span className="font-mono text-gray-400" translate="no">
           {unit.unit_id}
         </span>
-        <span className="tabular-nums text-gray-500">
-          {t("reference_editor_unit_meta", { duration: unit.duration_seconds })}
-        </span>
+        <div className="flex items-center gap-2">
+          <PromptPreviewButton
+            title={t("reference_prompt_preview_title")}
+            notice={t("reference_prompt_preview_notice")}
+            load={(signal) => API.previewReferenceUnitPrompt(projectName, episode, unit.unit_id, currentText, { signal })}
+            renderExtra={(result) => result.text ? (
+              <section aria-label={t("reference_prompt_preview_images")} className="mt-2">
+                <h3 className="mb-2 text-xs text-gray-400">{t("reference_prompt_preview_images")}</h3>
+                {result.references.length ? (
+                  <ol className="space-y-2">
+                    {result.references.map((reference, index) => (
+                      <li key={`${reference.path}-${index}`} className="flex items-center gap-3 text-xs text-gray-300">
+                        <img
+                          src={API.getFileUrl(projectName, reference.path)}
+                          alt={reference.name}
+                          className="h-12 w-16 rounded object-contain"
+                        />
+                        <span>{t("reference_prompt_preview_image", { index: index + 1, name: reference.name })}</span>
+                      </li>
+                    ))}
+                  </ol>
+                ) : <p className="text-xs text-gray-500">{t("reference_prompt_preview_no_images")}</p>}
+              </section>
+            ) : null}
+          />
+          <span className="tabular-nums text-gray-500">
+            {t("reference_editor_unit_meta", { duration: unit.duration_seconds })}
+          </span>
+        </div>
       </div>
+
+      {unit.pending_authoring === true && (
+        <div
+          role="status"
+          className="mb-2 flex-shrink-0 rounded-lg px-3 py-2 text-[11.5px]"
+          style={{
+            color: "var(--color-text-2)",
+            background: "var(--color-warm-tint-faint)",
+            border: "1px solid var(--color-hairline-soft)",
+          }}
+        >
+          {t("reference_editor_pending_authoring_hint")}
+        </div>
+      )}
 
       <div className="relative min-h-0 flex-1 rounded-md border border-gray-800 bg-gray-950/60">
         <pre
@@ -349,6 +392,8 @@ export function ReferenceVideoCard({
           />
         )}
       </div>
+
+      <SourceTextReadonly text={unit.source_text} className="mt-3 flex-shrink-0" />
 
       {unknownMentions.length > 0 && (
         <div

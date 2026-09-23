@@ -137,10 +137,42 @@ class TestStructuralIssues:
             definition["meta"]["version"] = "0.1.0\n"
         assert validate_definition(definition).errors
 
+    def test_min_app_version_is_an_accepted_meta_field(self):
+        definition = custom_endpoint_definition()
+        definition["meta"]["min_app_version"] = "0.31.0"
+        assert validate_definition(definition).valid
+
+    def test_prior_format_version_without_min_app_version_stays_valid(self):
+        definition = custom_endpoint_definition(schema_version="1.0.0")
+        assert validate_definition(definition).valid
+
+    @pytest.mark.parametrize("value", ["0.31", "v0.31.0", "0.31.0-rc1", "9" * 5000 + ".0.0", 31])
+    def test_min_app_version_must_be_semver(self, value: object):
+        definition = custom_endpoint_definition()
+        definition["meta"]["min_app_version"] = value
+        assert {issue.path for issue in validate_definition(definition).errors} == {"meta.min_app_version"}
+
     def test_unknown_kind_is_rejected(self):
         definition = custom_endpoint_definition()
         definition["kind"] = "python"
         assert _first(validate_definition(definition), DefinitionErrorCode.INVALID_ENUM_VALUE)[0] == "kind"
+
+    def test_unknown_kind_is_rejected_by_the_container_layer_alone(self):
+        """名录外的 kind 只回一条 kind 的诊断：拿声明式的规则去判另一种 kind 只会报次生错误。"""
+        definition = custom_endpoint_definition()
+        definition["kind"] = "unregistered"
+        del definition["submit"]
+        errors = validate_definition(definition).errors
+        assert [(issue.path, issue.code) for issue in errors] == [("kind", DefinitionErrorCode.INVALID_ENUM_VALUE)]
+
+    def test_missing_kind_is_rejected_at_the_root(self):
+        definition = custom_endpoint_definition()
+        del definition["kind"]
+        assert _first(validate_definition(definition), DefinitionErrorCode.MISSING_FIELD) == ("$", "missing_field")
+
+    @pytest.mark.parametrize("document", [[], "declarative", None, 1])
+    def test_a_definition_that_is_not_an_object_is_rejected(self, document: object):
+        assert _first(validate_definition(document), DefinitionErrorCode.INVALID_TYPE)[0] == "$"
 
     def test_stray_top_level_field_is_unknown(self):
         definition = custom_endpoint_definition()

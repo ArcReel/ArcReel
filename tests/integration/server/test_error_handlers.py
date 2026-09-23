@@ -6,10 +6,10 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from lib.api_errors import ApiError, BadRequestError, NotFoundError, UnprocessableError
-from lib.generation_queue import ActiveTaskRequestConflict
-from lib.generation_queue_client import TaskSpecValidationError
-from lib.script_editor import ScriptEditError
+from lib.generation.generation_queue import ActiveTaskRequestConflict
+from lib.generation.generation_queue_client import TaskSpecValidationError
+from lib.infra.api_errors import ApiError, BadRequestError, NotFoundError, UnprocessableError
+from lib.script.script_editor import ScriptEditError
 from server.error_handlers import register_error_handlers
 
 # 运行时基于系统 tmp 目录构造，不提交机器特定的绝对路径。
@@ -123,7 +123,7 @@ class TestLibExceptionHandlers:
         assert resp.status_code == 409
         assert resp.json()["detail"] == (
             "Unit 'E1S01' already has a video task using different narration delivery options; "
-            "wait for it to finish or cancel it before retrying."
+            "wait for it to finish before retrying (a task that is still queued can be cancelled first)."
         )
 
     def test_task_spec_validation_error_400(self):

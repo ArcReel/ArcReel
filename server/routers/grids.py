@@ -13,38 +13,39 @@ from pathlib import Path
 from fastapi import APIRouter, File, HTTPException, UploadFile
 from pydantic import BaseModel
 
-from lib.api_errors import BadRequestError, ConflictError, NotFoundError
-from lib.artifact_activation import (
+from lib.artifacts.artifact_activation import (
     register_current_resource_artifact,
     resolve_artifact_episode,
     resolve_current_resource_artifact_basis,
 )
-from lib.artifact_version_provenance import IMAGE_ARTIFACT_BASIS_FIELD
-from lib.async_thread import run_noninterruptible_sync
-from lib.generation_queue import get_generation_queue
-from lib.grid.layout import grid_aspect_ratio_for, max_cell_count, plan_grid_chunks, video_aspect_ratio_of
-from lib.grid.models import GridGeneration, build_grid_task_payload
-from lib.grid.prompt_builder import build_grid_prompt, pending_grid_prompt_ids
-from lib.grid_manager import GridManager
-from lib.i18n import Translator
-from lib.image_utils import MAX_UPLOAD_PIXELS, ImagePixelLimitError, normalize_storyboard_upload
-from lib.json_io import domain_error_on_value_error
-from lib.project_change_hints import project_change_source
-from lib.project_manager import get_project_manager
-from lib.storyboard_sequence import get_storyboard_items, group_scenes_by_segment_break
-from lib.version_manager import VersionManager
+from lib.artifacts.artifact_version_provenance import IMAGE_ARTIFACT_BASIS_FIELD
+from lib.artifacts.version_manager import VersionManager
+from lib.generation.generation_queue import get_generation_queue
+from lib.infra.api_errors import BadRequestError, ConflictError, NotFoundError
+from lib.infra.async_thread import run_noninterruptible_sync
+from lib.infra.image_utils import MAX_UPLOAD_PIXELS, ImagePixelLimitError, normalize_storyboard_upload
+from lib.infra.json_io import domain_error_on_value_error
+from lib.project.project_change_hints import project_change_source
+from lib.project.project_manager import get_project_manager
+from lib.prompts.prompt_style import normalize_style_value
+from lib.script.grid.grid_access import ensure_grid_writable
+from lib.script.grid.grid_manager import GridManager
+from lib.script.grid.grid_resolution import resolve_large_grid_allowed
+from lib.script.grid.layout import grid_aspect_ratio_for, max_cell_count, plan_grid_chunks, video_aspect_ratio_of
+from lib.script.grid.models import GridGeneration, build_grid_task_payload
+from lib.script.grid.prompt_builder import build_grid_prompt, pending_grid_prompt_ids
+from lib.script.storyboard_sequence import get_storyboard_items, group_scenes_by_segment_break
 from server.auth import CurrentUser
-from server.services.grid_access import ensure_grid_writable
-from server.services.grid_resolution import resolve_large_grid_allowed
-from server.services.grid_split import GridImageNotReadyError, apply_grid_split
-from server.services.reference_admission import require_admitted_storyboard_references
-from server.services.upload_finalize import (
+from server.i18n import Translator
+from server.services.admission.reference_admission import require_admitted_storyboard_references
+from server.services.currency.upload_finalize import (
     UPLOAD_VERSION_SOURCE,
     UploadTooLargeError,
     UploadValidationError,
     stage_uploaded_bytes,
     validate_upload,
 )
+from server.services.grid.grid_split import GridImageNotReadyError, apply_grid_split
 
 router = APIRouter(prefix="/projects/{project_name}", tags=["grids"])
 
@@ -64,7 +65,7 @@ class GenerateGridResponse(BaseModel):
     # 逐宫格给出它自己的任务行：调用方的乐观占用标记要各等各的，拿整批清单会让每一张
     # 宫格都等到全批落库为止；未产出宫格的分组不进映射，调用方据此不给它们打标。
     task_ids_by_grid: dict[str, str]
-    # 批量语义：全部入队都命中既有任务（本次一个新任务都没建）才为 True
+    # 批量语义：全部入队都命中既有任务（一个新任务都没建）才为 True
     deduped: bool
     message: str
 
@@ -116,9 +117,8 @@ async def generate_grid(
 
     items, id_field, _, _, _ = get_storyboard_items(script)
     aspect_ratio = video_aspect_ratio_of(project)
-    # style 同样允许显式 null，须显式判空而非依赖 dict.get 的默认值
-    raw_style = project.get("style")
-    style = raw_style if raw_style is not None else ""
+    style = normalize_style_value(project.get("style"))
+    style_description = normalize_style_value(project.get("style_description"))
 
     # 4×4 / 5×5 只在图像分辨率档为 4K 时放行；判定与费用估算、前端预览同源
     allow_large_grid = await resolve_large_grid_allowed(project)
@@ -182,6 +182,7 @@ async def generate_grid(
                 rows=chunk_layout.rows,
                 cols=chunk_layout.cols,
                 style=style,
+                style_description=style_description,
                 aspect_ratio=aspect_ratio,
                 grid_aspect_ratio=chunk_layout.grid_aspect_ratio,
             )
@@ -499,7 +500,7 @@ async def upload_grid_image(
         finally:
             await asyncio.to_thread(staged_file.unlink, missing_ok=True)
 
-        from server.services.generation_tasks import emit_generation_success_batch
+        from server.services.tasks.generation_tasks import emit_generation_success_batch
 
         fingerprints = await asyncio.to_thread(
             emit_generation_success_batch,

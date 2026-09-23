@@ -13,11 +13,10 @@ import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
-# 添加 lib 目录到 Python 路径
-lib_path = Path(__file__).parent.parent / "lib"
-sys.path.insert(0, str(lib_path))
+# 添加仓库根目录到 Python 路径
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from project_manager import ProjectManager
+from lib.project.project_manager import ProjectManager
 
 
 def migrate_project(pm: ProjectManager, project_name: str, dry_run: bool = False) -> bool:

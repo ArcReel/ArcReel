@@ -17,13 +17,15 @@ interface ConfirmDialogProps {
   cancelLabel?: string;
   tone?: ConfirmTone;
   loading?: boolean;
+  /** 确认前置条件未满足（如必填输入为空）时禁用确认按钮。 */
+  confirmDisabled?: boolean;
   onConfirm: () => void | Promise<void>;
   onCancel: () => void;
 }
 
 // 通用确认弹窗（站内 yes/no 类破坏性确认的入口）。
 // tone="danger" 时顶部 hairline 走 warm、确认按钮走 warm tone；并显示左上角告警 icon。
-// 视觉与其他 v3 玻璃 modal 统一（issue #487）。
+// 视觉与其他 v3 玻璃 modal 统一。
 export function ConfirmDialog({
   open,
   title,
@@ -33,6 +35,7 @@ export function ConfirmDialog({
   cancelLabel,
   tone = "default",
   loading = false,
+  confirmDisabled = false,
   onConfirm,
   onCancel,
 }: ConfirmDialogProps) {
@@ -103,7 +106,7 @@ export function ConfirmDialog({
             size="sm"
             tone={isDanger ? "warm" : "accent"}
             onClick={() => void onConfirm()}
-            disabled={loading}
+            disabled={loading || confirmDisabled}
             leadingIcon={
               loading ? (
                 <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin" />

@@ -6,8 +6,8 @@ from collections.abc import Awaitable, Callable
 from dataclasses import asdict, dataclass, is_dataclass
 from typing import Any
 
-from lib.generation_batch import GenerationBatchReadModel
-from lib.generation_result import GenerationBatchResult
+from lib.generation.generation_batch import GenerationBatchReadModel
+from lib.generation.generation_result import GenerationBatchResult
 from server.tool_runtime import ToolOutcome
 
 

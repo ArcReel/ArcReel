@@ -1,0 +1,212 @@
+{
+  "6": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "text": "镜头缓缓推近",
+      "clip": [
+        "38",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "CLIP Text Encode (Positive Prompt)"
+    }
+  },
+  "7": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "text": "色调艳丽，过曝",
+      "clip": [
+        "38",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "CLIP Text Encode (Negative Prompt)"
+    }
+  },
+  "38": {
+    "class_type": "CLIPLoader",
+    "inputs": {
+      "clip_name": "umt5_xxl_fp8_e4m3fn_scaled.safetensors",
+      "type": "wan"
+    }
+  },
+  "39": {
+    "class_type": "VAELoader",
+    "inputs": {
+      "vae_name": "wan_2.1_vae.safetensors"
+    }
+  },
+  "55": {
+    "class_type": "UNETLoader",
+    "inputs": {
+      "unet_name": "wan2.2_t2v_high_noise_14B.safetensors",
+      "weight_dtype": "default"
+    }
+  },
+  "56": {
+    "class_type": "UNETLoader",
+    "inputs": {
+      "unet_name": "wan2.2_t2v_low_noise_14B.safetensors",
+      "weight_dtype": "default"
+    }
+  },
+  "160": {
+    "class_type": "PrimitiveInt",
+    "inputs": {
+      "value": 5
+    },
+    "_meta": {
+      "title": "Duration (seconds)"
+    }
+  },
+  "161": {
+    "class_type": "PrimitiveFloat",
+    "inputs": {
+      "value": 16.0
+    },
+    "_meta": {
+      "title": "Float (FPS)"
+    }
+  },
+  "163": {
+    "class_type": "ComfyMathExpression",
+    "inputs": {
+      "expression": "floor(a * b) + 1",
+      "a": [
+        "160",
+        0
+      ],
+      "b": [
+        "161",
+        0
+      ]
+    }
+  },
+  "40": {
+    "class_type": "EmptyHunyuanLatentVideo",
+    "inputs": {
+      "width": 640,
+      "height": 640,
+      "length": [
+        "163",
+        0
+      ],
+      "batch_size": 1
+    },
+    "_meta": {
+      "title": "Empty HunyuanVideo 1.0 Latent"
+    }
+  },
+  "70": {
+    "class_type": "KSamplerAdvanced",
+    "inputs": {
+      "add_noise": "enable",
+      "noise_seed": 923510416338945,
+      "steps": 20,
+      "cfg": 3.5,
+      "sampler_name": "euler",
+      "scheduler": "simple",
+      "start_at_step": 0,
+      "end_at_step": 10,
+      "return_with_leftover_noise": "enable",
+      "model": [
+        "55",
+        0
+      ],
+      "positive": [
+        "6",
+        0
+      ],
+      "negative": [
+        "7",
+        0
+      ],
+      "latent_image": [
+        "40",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "KSampler (Advanced)"
+    }
+  },
+  "71": {
+    "class_type": "KSamplerAdvanced",
+    "inputs": {
+      "add_noise": "disable",
+      "noise_seed": 0,
+      "steps": 20,
+      "cfg": 3.5,
+      "sampler_name": "euler",
+      "scheduler": "simple",
+      "start_at_step": 10,
+      "end_at_step": 10000,
+      "return_with_leftover_noise": "disable",
+      "model": [
+        "56",
+        0
+      ],
+      "positive": [
+        "6",
+        0
+      ],
+      "negative": [
+        "7",
+        0
+      ],
+      "latent_image": [
+        "70",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "KSampler (Advanced)"
+    }
+  },
+  "8": {
+    "class_type": "VAEDecode",
+    "inputs": {
+      "samples": [
+        "71",
+        0
+      ],
+      "vae": [
+        "39",
+        0
+      ]
+    }
+  },
+  "57": {
+    "class_type": "CreateVideo",
+    "inputs": {
+      "fps": [
+        "161",
+        0
+      ],
+      "images": [
+        "8",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "Create Video"
+    }
+  },
+  "58": {
+    "class_type": "SaveVideo",
+    "inputs": {
+      "filename_prefix": "video/ComfyUI",
+      "format": "auto",
+      "codec": "auto",
+      "video": [
+        "57",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "Save Video"
+    }
+  }
+}

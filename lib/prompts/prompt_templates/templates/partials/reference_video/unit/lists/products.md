@@ -1,0 +1,1 @@
+{% for name in products %}「{{ name }}」{% endfor %}

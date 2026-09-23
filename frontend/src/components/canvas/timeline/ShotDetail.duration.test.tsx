@@ -307,4 +307,23 @@ describe("ShotDetail 时长编辑的占用态门控", () => {
     expect(screen.queryByRole("radio")).not.toBeInTheDocument();
     expect(onUpdatePrompt).not.toHaveBeenCalled();
   });
+
+  it("空档位的两种成因各说各的话", () => {
+    renderDetail({ durationOptions: [] });
+
+    expect(screen.getByRole("button", { name: /4 秒/ })).toHaveAttribute(
+      "title",
+      "当前模型未配置可用时长，无法修改",
+    );
+  });
+
+  it("时长由端点固定时不说成「未配置」", () => {
+    // 这份 workflow 的配置是完整的，只是片长不由 ArcReel 驱动。
+    renderDetail({ durationOptions: [], durationEndpointFixed: true });
+
+    expect(screen.getByRole("button", { name: /4 秒/ })).toHaveAttribute(
+      "title",
+      "该模型的时长不由 ArcReel 决定：每段成片多长由 workflow 自己说了算。",
+    );
+  });
 });

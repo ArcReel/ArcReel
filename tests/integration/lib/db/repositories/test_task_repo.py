@@ -3,13 +3,14 @@
 import asyncio
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import event, select, update
 
 from lib.db.models.api_call import ApiCall
-from lib.db.repositories.task_repo import TaskRepository
+from lib.db.models.task import Task
+from lib.db.repositories.task_repo import TaskNotCancellableError, TaskRepository
 from lib.db.repositories.usage_repo import SettlementInput, UsageRepository
+from lib.generation.task_failure import encode_failure, render_failure
 from lib.i18n import _ as translate_message
-from lib.task_failure import encode_failure, render_failure
 
 
 async def stored_calls(session) -> list[ApiCall]:
@@ -278,7 +279,7 @@ class TestTaskRepository:
         assert found[0]["status"] == "queued"
 
     async def test_get_active_tasks_for_resources_covers_every_active_status(self, db_session):
-        """queued / running / cancelling 三个活动态都算冲突，终态不算。
+        """queued / running 两个活动态都算冲突，终态不算。
 
         探测的状态维度直接取自 ``ACTIVE_TASK_STATUSES``，与 ``idx_tasks_dedupe_active``
         同口径；少一个状态就会让该状态下的 unit 被判为"空闲"而放行重复入队。
@@ -302,10 +303,9 @@ class TestTaskRepository:
         await repo.claim_next("video")
         await repo.mark_succeeded(done["task_id"], {"file": "unit0.mp4"})
 
-        cancelling = await _enqueue("E1U3")
-        await repo.claim_next("video")
-        await repo.cancel_task(cancelling["task_id"])
-        assert (await repo.get(cancelling["task_id"]))["status"] == "cancelling"
+        cancelled = await _enqueue("E1U3")
+        await repo.cancel_task(cancelled["task_id"])
+        assert (await repo.get(cancelled["task_id"]))["status"] == "cancelled"
 
         running = await _enqueue("E1U2")
         await repo.claim_next("video")
@@ -323,7 +323,6 @@ class TestTaskRepository:
         assert {t["resource_id"]: t["status"] for t in found} == {
             "E1U1": "queued",
             "E1U2": "running",
-            "E1U3": "cancelling",
         }
 
     async def test_get_active_tasks_for_resources_empty_ids_short_circuits(self, db_session):
@@ -551,7 +550,6 @@ class TestTaskRepository:
         assert len(result["cancelled"]) == 1
         assert result["cancelled"][0]["task_id"] == task["task_id"]
         assert result["cancelled"][0]["cancelled_by"] == "user"
-        assert result["cancelling"] == []
         assert result["skipped_terminal"] == []
 
         cancelled = await repo.get(task["task_id"])
@@ -605,9 +603,8 @@ class TestTaskRepository:
         assert dep_task["status"] == "cancelled"
         assert dep_task["cancelled_by"] == "cascade"
 
-    async def test_cancel_running_task_marks_cancelling(self, db_session):
-        """ADR 0006: 取消 running task 转入 cancelling 中间态；
-        Repository 不再 raise，由上层 GenerationQueue 分发 worker 信号。"""
+    async def test_cancel_running_task_is_rejected(self, db_session):
+        """取消只对 queued 开放：执行中的任务被拒绝，状态不变。"""
         repo = TaskRepository(db_session)
 
         task = await repo.enqueue(
@@ -620,13 +617,14 @@ class TestTaskRepository:
         )
         await repo.claim_next("image")
 
-        result = await repo.cancel_task(task["task_id"])
-        assert result["cancelled"] == []
-        assert result["cancelling"] == [task["task_id"]]
-        assert result["skipped_terminal"] == []
+        with pytest.raises(TaskNotCancellableError):
+            await repo.cancel_task(task["task_id"])
+        with pytest.raises(TaskNotCancellableError):
+            await repo.get_cancel_preview(task["task_id"])
 
         refreshed = await repo.get(task["task_id"])
-        assert refreshed["status"] == "cancelling"
+        assert refreshed["status"] == "running"
+        assert refreshed["cancelled_by"] is None
 
     async def test_cancel_preview(self, db_session):
         repo = TaskRepository(db_session)
@@ -701,9 +699,8 @@ class TestTaskRepository:
         assert stats["queued"] == 0
 
 
-class TestCancelCascadeAcrossCancelling:
-    """cancel 级联跨过 cancelling 节点，A(running)→B(queued)→C(queued)
-    在 A 落 cancelled 时通过 finalize_cancelled 自动级联到 B/C。"""
+class TestCancelCascade:
+    """A→B→C 依赖链：取消只作用于排队中的节点，级联只涉及排队中的下游。"""
 
     async def _chain_3(self, repo: TaskRepository) -> tuple[str, str, str]:
         a = await repo.enqueue(
@@ -734,116 +731,192 @@ class TestCancelCascadeAcrossCancelling:
         )
         return a["task_id"], b["task_id"], c["task_id"]
 
-    async def test_cancel_running_task_returns_only_cancelling(self, db_session):
-        """A running → cancel_task 响应体 cancelled=[]、cancelling=[A]、下游变动靠后续 SSE/finalize。"""
+    async def test_cancel_running_head_is_rejected_and_chain_stays_queued(self, db_session):
         repo = TaskRepository(db_session)
         a, b, c = await self._chain_3(repo)
         await repo.claim_next("image")  # A 拉成 running
 
-        result = await repo.cancel_task(a)
-        assert result["cancelled"] == []
-        assert result["cancelling"] == [a]
-        assert result["skipped_terminal"] == []
+        with pytest.raises(TaskNotCancellableError):
+            await repo.cancel_task(a)
 
-        # B/C 当前仍 queued，因为父 A 还没落 cancelled
+        assert (await repo.get(a))["status"] == "running"
         assert (await repo.get(b))["status"] == "queued"
         assert (await repo.get(c))["status"] == "queued"
 
-    async def test_cancel_link_running_to_queued(self, db_session):
-        """A(running)→B(queued)→C(queued)：finalize_cancelled(A) → A/B/C 全 cancelled，
-        B/C 的 cancelled_by="cascade"。"""
+    async def test_cancel_queued_head_cascades_to_grandchildren(self, db_session):
+        """取消排队中的 A → A/B/C 全 cancelled；下游与发起方在 cancelled_by 上可区分。"""
         repo = TaskRepository(db_session)
         a, b, c = await self._chain_3(repo)
-        await repo.claim_next("image")
-        await repo.cancel_task(a)  # A → cancelling
 
-        await repo.finalize_cancelled(a)
+        result = await repo.cancel_task(a)
 
+        assert [t["task_id"] for t in result["cancelled"]] == [a, b, c]
         for tid, expected in [(a, "user"), (b, "cascade"), (c, "cascade")]:
             t = await repo.get(tid)
             assert t["status"] == "cancelled", f"{tid} expected cancelled, got {t['status']}"
             assert t["cancelled_by"] == expected
 
-    async def test_finalize_cancelled_returns_cascading_cancelling_ids(self, db_session):
-        """finalize_cancelled 应返回级联出来的 running 子任务 task_id 列表，
-        让上层 GenerationQueue 同步分发 in-process cancel 信号给 worker。
-        """
+    async def test_interrupted_running_head_cascades_to_queued_dependents(self, db_session):
+        """进程级打断把 running 的 A 落 cancelled，排队中的下游随之级联取消。"""
         repo = TaskRepository(db_session)
         a, b, c = await self._chain_3(repo)
         await repo.claim_next("image")
-        # 直接把 B set 成 running 绕开依赖守卫
-        from sqlalchemy import update
 
-        from lib.db.models.task import Task
+        assert await repo.finalize_interrupted(a) == 1
 
-        await db_session.execute(update(Task).where(Task.task_id == b).values(status="running"))
-        await db_session.commit()
-
-        # finalize_cancelled(a) 级联：A → cancelled、B(running) → cancelling、C(queued, dep on B) 留 queued
-        result = await repo.finalize_cancelled(a)
-
-        assert result["rows"] == 1
-        # B 是 running 下游，cascade 把它转 cancelling 应进入 cancelling 列表
-        assert b in result["cancelling"], "running 下游 task_id 必须返回，让上层分发 cancel"
-        # C 是 queued（依赖 B 还没结束），不进 cancelling 列表
-        assert c not in result["cancelling"]
-
-    async def test_cancel_link_running_running_queued(self, db_session):
-        """A(running)→B(running)→C(queued)：finalize(A) → A cancelled、B cancelling、C queued；
-        finalize(B) → B cancelled、C cancelled。"""
-        repo = TaskRepository(db_session)
-        a, b, c = await self._chain_3(repo)
-        # A、B 都拉到 running（B 实际还卡 dep，但模拟单元；用 mark 跳过 claim 守卫）
-        await repo.claim_next("image")
-        # 直接把 B set 成 running 绕开依赖守卫
-        from sqlalchemy import update
-
-        from lib.db.models.task import Task
-
-        await db_session.execute(update(Task).where(Task.task_id == b).values(status="running"))
-        await db_session.commit()
-
-        await repo.cancel_task(a)
-        await repo.cancel_task(b)
-        await repo.finalize_cancelled(a)
-
-        assert (await repo.get(a))["status"] == "cancelled"
-        assert (await repo.get(b))["status"] == "cancelling"
-        assert (await repo.get(c))["status"] == "queued"
-
-        await repo.finalize_cancelled(b)
-        assert (await repo.get(b))["status"] == "cancelled"
-        assert (await repo.get(c))["status"] == "cancelled"
-        assert (await repo.get(c))["cancelled_by"] == "cascade"
-
-    async def test_cancel_cascade_task_rows_carry_cancelled_by(self, db_session):
-        """级联取消的下游任务与发起方在 cancelled_by 字段上须能区分。
-
-        本测试断言：finalize_cancelled(A) 落库后，B/C 的 cancelled_by="cascade"；
-        A 自己的 cancelled_by="user"。
-        """
-        repo = TaskRepository(db_session)
-        a, b, c = await self._chain_3(repo)
-        await repo.claim_next("image")
-        await repo.cancel_task(a)
-        await repo.finalize_cancelled(a)
-
-        assert (await repo.get(a))["cancelled_by"] == "user"
-        assert (await repo.get(b))["cancelled_by"] == "cascade"
-        assert (await repo.get(c))["cancelled_by"] == "cascade"
+        for tid, expected in [(a, "user"), (b, "cascade"), (c, "cascade")]:
+            t = await repo.get(tid)
+            assert t["status"] == "cancelled"
+            assert t["cancelled_by"] == expected
 
     async def test_cancel_records_each_terminal_event_at_most_once(self, db_session):
         """每个 task 的终态推送（project_events SSE 依赖的 terminal_events）不重复记账。"""
         repo = TaskRepository(db_session)
         a, b, c = await self._chain_3(repo)
-        await repo.claim_next("image")
         await repo.cancel_task(a)
-        await repo.finalize_cancelled(a)
+        await repo.finalize_interrupted(a)
 
         cancelled_events = [e for e in repo.terminal_events if e["status"] == "cancelled"]
         by_task: dict[str, int] = {}
         for e in cancelled_events:
             tid = e["task_id"]
             by_task[tid] = by_task.get(tid, 0) + 1
-        for tid in (a, b, c):
-            assert by_task.get(tid, 0) <= 1, f"{tid} 有重复终态推送: {by_task.get(tid)}"
+        assert by_task == {a: 1, b: 1, c: 1}
+
+
+class ResourceScopedTaskRepository(TaskRepository):
+    """只看得到 resource_id 为 ``visible`` 的任务，用来验证取消与下载重试路径的目标行查询经过 ``_scope_query``。"""
+
+    def _scope_query(self, stmt, model):
+        return stmt.where(Task.resource_id == "visible")
+
+
+class TestRetryDownloadRespectsScope:
+    async def _seed_download_failed(self, db_session, resource_id: str) -> tuple[str, int]:
+        """落一个满足全部重试资格的下载失败任务，返回任务 id 与其 failed 调用行 id。"""
+        repo = TaskRepository(db_session)
+        usage = UsageRepository(db_session)
+        task = await repo.enqueue(
+            project_name="demo",
+            task_type="video",
+            media_type="video",
+            resource_id=resource_id,
+            payload={},
+            provider_id="custom-1",
+        )
+        call_id = await usage.start_call(project_name="demo", call_type="video", model="m", task_id=task["task_id"])
+        await usage.finish_call(
+            call_id,
+            status="failed",
+            settlement=SettlementInput(cost_amount=0),
+            error_message="download failed",
+        )
+        await repo.claim_next("video")
+        await repo.persist_provider_job_id(task["task_id"], f"job-{resource_id}", endpoint="ce-1")
+        await repo.mark_failed(task["task_id"], encode_failure("artifact_download_failed", detail="403"))
+        return task["task_id"], call_id
+
+    async def test_out_of_scope_task_is_rejected_like_missing_one(self, db_session):
+        hidden, call_id = await self._seed_download_failed(db_session, "hidden")
+        scoped = ResourceScopedTaskRepository(db_session)
+
+        with pytest.raises(ValueError, match="task is not eligible for artifact download retry: no-such-task"):
+            await scoped.retry_artifact_download("no-such-task")
+        with pytest.raises(ValueError, match=f"task is not eligible for artifact download retry: {hidden}"):
+            await scoped.retry_artifact_download(hidden)
+
+        assert (await TaskRepository(db_session).get(hidden))["status"] == "failed"
+        call = (
+            await db_session.execute(select(ApiCall.status, ApiCall.error_message).where(ApiCall.id == call_id))
+        ).one()
+        assert tuple(call) == ("failed", "download failed")
+
+    async def test_in_scope_task_is_retried(self, db_session):
+        visible, call_id = await self._seed_download_failed(db_session, "visible")
+
+        retried = await ResourceScopedTaskRepository(db_session).retry_artifact_download(visible)
+
+        assert (retried["status"], retried["error_message"]) == ("running", None)
+        calls = await stored_calls(db_session)
+        assert [(row.id, row.status, row.error_message) for row in calls] == [(call_id, "pending", None)]
+
+
+class TestCancelRespectsScope:
+    async def _enqueue(self, repo: TaskRepository, resource_id: str) -> str:
+        task = await repo.enqueue(
+            project_name="demo",
+            task_type="storyboard",
+            media_type="image",
+            resource_id=resource_id,
+            payload={},
+            script_file="ep1.json",
+        )
+        return task["task_id"]
+
+    @pytest.mark.parametrize("method", ["cancel_task", "get_cancel_preview"])
+    async def test_out_of_scope_task_is_reported_as_missing(self, db_session, method):
+        hidden = await self._enqueue(TaskRepository(db_session), "hidden")
+        scoped = ResourceScopedTaskRepository(db_session)
+
+        with pytest.raises(ValueError, match="任务 'no-such-task' 不存在"):
+            await getattr(scoped, method)("no-such-task")
+        with pytest.raises(ValueError, match=f"任务 '{hidden}' 不存在"):
+            await getattr(scoped, method)(hidden)
+
+        assert (await TaskRepository(db_session).get(hidden))["status"] == "queued"
+        assert scoped.terminal_events == []
+
+    async def test_cancel_all_queued_only_cancels_in_scope_tasks(self, db_session):
+        seeder = TaskRepository(db_session)
+        visible = await self._enqueue(seeder, "visible")
+        hidden = await self._enqueue(seeder, "hidden")
+        scoped = ResourceScopedTaskRepository(db_session)
+
+        result = await scoped.cancel_all_queued("demo")
+
+        assert result == {"cancelled_count": 1, "skipped_running_count": 0}
+        assert (await seeder.get(visible))["status"] == "cancelled"
+        assert (await seeder.get(hidden))["status"] == "queued"
+        assert [e["task_id"] for e in scoped.terminal_events] == [visible]
+
+    async def test_cancel_all_queued_without_in_scope_tasks_changes_nothing(self, db_session):
+        seeder = TaskRepository(db_session)
+        hidden = await self._enqueue(seeder, "hidden")
+        scoped = ResourceScopedTaskRepository(db_session)
+
+        result = await scoped.cancel_all_queued("demo")
+
+        assert result == {"cancelled_count": 0, "skipped_running_count": 0}
+        assert (await seeder.get(hidden))["status"] == "queued"
+        assert scoped.terminal_events == []
+
+    async def test_cancel_all_preview_counts_only_in_scope_queued_tasks(self, db_session):
+        seeder = TaskRepository(db_session)
+        await self._enqueue(seeder, "visible")
+        await self._enqueue(seeder, "hidden")
+
+        assert await seeder.get_cancel_all_preview("demo") == 2
+        assert await ResourceScopedTaskRepository(db_session).get_cancel_all_preview("demo") == 1
+
+    async def test_cancel_all_queued_counts_task_claimed_before_update_as_skipped(self, db_session):
+        repo = TaskRepository(db_session)
+        claimed = await self._enqueue(repo, "E1S01")
+        remaining = await self._enqueue(repo, "E1S02")
+        fired: list[bool] = []
+
+        # 目标行查出之后、UPDATE 之前，worker 领走其中一个任务
+        def claim_before_update(orm_execute_state):
+            if orm_execute_state.is_update and not fired:
+                fired.append(True)
+                orm_execute_state.session.execute(update(Task).where(Task.task_id == claimed).values(status="running"))
+
+        event.listen(db_session.sync_session, "do_orm_execute", claim_before_update)
+        try:
+            result = await repo.cancel_all_queued("demo")
+        finally:
+            event.remove(db_session.sync_session, "do_orm_execute", claim_before_update)
+
+        assert fired == [True]
+        assert result == {"cancelled_count": 1, "skipped_running_count": 1}
+        assert (await repo.get(claimed))["status"] == "running"
+        assert (await repo.get(remaining))["status"] == "cancelled"

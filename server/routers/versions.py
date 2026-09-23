@@ -14,38 +14,38 @@ from fastapi import APIRouter
 
 logger = logging.getLogger(__name__)
 
-from lib.api_errors import BadRequestError, ConflictError
-from lib.artifact_activation import (
+from lib.artifacts.artifact_activation import (
     forget_current_resource_artifact,
     forget_unbound_grid_artifacts,
     forget_unbound_storyboard_artifacts,
     register_current_resource_artifact,
 )
-from lib.artifact_version_provenance import parse_image_version_basis
-from lib.asset_derivatives import DerivativeSheetTarget, derivative_artifact_id, split_derivative_artifact_id
-from lib.async_thread import run_noninterruptible_sync
-from lib.formal_write import project_metadata_lock
-from lib.generation_admission import generation_admission_lock
-from lib.path_safety import PathTraversalError, safe_join
-from lib.project_change_hints import project_change_source
-from lib.project_manager import get_project_manager
-from lib.resource_paths import CHARACTER_DERIVATIVE_RESOURCE_TYPE, resource_relative_path
-from lib.version_manager import VersionManager
-from server.services.artifact_version_restore import (
+from lib.artifacts.artifact_version_provenance import parse_image_version_basis
+from lib.artifacts.formal_write import project_metadata_lock
+from lib.artifacts.version_manager import VersionManager
+from lib.generation.generation_admission import generation_admission_lock
+from lib.infra.api_errors import BadRequestError, ConflictError
+from lib.infra.async_thread import run_noninterruptible_sync
+from lib.infra.path_safety import PathTraversalError, safe_join
+from lib.project.asset_derivatives import DerivativeSheetTarget, derivative_artifact_id, split_derivative_artifact_id
+from lib.project.project_change_hints import project_change_source
+from lib.project.project_manager import get_project_manager
+from lib.project.resource_paths import CHARACTER_DERIVATIVE_RESOURCE_TYPE, resource_relative_path
+from lib.script.grid.grid_access import ensure_grid_writable
+from server.services.currency.artifact_version_restore import (
     TypedMediaRestoreTarget,
     get_typed_media_restore_target,
     is_typed_media_restore_resource,
     is_typed_media_version_restorable,
     restore_typed_media_version,
 )
-from server.services.derivative_sheet_tasks import point_derivative_at_sheet
-from server.services.grid_access import ensure_grid_writable
-from server.services.narration_delivery_tasks import active_narrated_video_resource_ids, active_tts_resource_ids
-from server.services.presentation_read_model import is_presentation_version_available
+from server.services.presentation.presentation_read_model import is_presentation_version_available
+from server.services.tasks.derivative_sheet_tasks import point_derivative_at_sheet
+from server.services.tasks.narration_delivery_tasks import active_narrated_video_resource_ids, active_tts_resource_ids
 
 router = APIRouter()
 
-# 经此路由可还原的资源类型（API 面策略）。路径形状委托 lib.resource_paths，本路由
+# 经此路由可还原的资源类型（API 面策略）。路径形状委托 lib.project.resource_paths，本路由
 # 仅放行有还原后元数据同步分支的这几类。grids 的还原只换回联合图文件并复位宫格记录的
 # 切分态，不触发切分、不碰任何分镜图——落格由宫格切分端点显式执行。
 _RESTORABLE_RESOURCE_TYPES = frozenset(
@@ -102,7 +102,7 @@ def _sync_grid_record(
     还原本身不设在途闸门（与分镜图还原同口径），复位口径见
     ``GridGeneration.mark_composite_replaced``：生成在途时保留在途态，否则记录会谎报空闲。
     """
-    from lib.grid_manager import GridManager
+    from lib.script.grid.grid_manager import GridManager
 
     manager = GridManager(project_path)
     manager.update_formal(

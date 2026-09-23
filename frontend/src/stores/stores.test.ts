@@ -148,7 +148,7 @@ describe("stores", () => {
     expect(useTasksStore.getState().tasks).toHaveLength(2);
     expect(useTasksStore.getState().tasks[0].task_id).toBe("task-2");
 
-    tasks.setStats({ queued: 1, running: 1, cancelling: 0, succeeded: 0, failed: 0, cancelled: 0, total: 2 });
+    tasks.setStats({ queued: 1, running: 1, succeeded: 0, failed: 0, cancelled: 0, total: 2 });
     expect(useTasksStore.getState().stats.total).toBe(2);
 
     tasks.setConnected(true);

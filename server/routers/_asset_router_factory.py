@@ -1,6 +1,6 @@
 """项目级资产 CRUD 路由的统一工厂（character / scene / prop / product）。
 
-按 lib.asset_types.ASSET_SPECS 驱动，各类资产共用同一份路由模板。每类资产仅用 5 行
+按 lib.project.asset_types.ASSET_SPECS 驱动，各类资产共用同一份路由模板。每类资产仅用 5 行
 启用：
 
     router = build_asset_router(asset_type="character", pm_getter=lambda: get_project_manager())
@@ -24,25 +24,26 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict
 
-from lib.api_errors import NotFoundError, UnprocessableError
-from lib.asset_rename import (
+from lib.infra.api_errors import NotFoundError, UnprocessableError
+from lib.project.asset_rename import (
     AssetRenameConflictError,
     AssetRenameFileCollisionError,
     AssetRenameHistoryCollisionError,
     AssetRenameNotFoundError,
 )
-from lib.asset_types import (
+from lib.project.asset_types import (
     ASSET_SPECS,
     DERIVATIVES_FIELD,
     ProjectAssetNameConflictError,
     localize_asset_type,
     validate_asset_name,
 )
-from lib.i18n import Translator
-from lib.project_change_hints import project_change_source
-from lib.project_manager import ProjectManager
+from lib.project.project_change_hints import project_change_source
+from lib.project.project_manager import ProjectManager
+from server.i18n import Translator
 from server.routers._asset_derivative_status import register_derivative_status_routes
 from server.routers._asset_derivatives import register_derivative_routes
+from server.routers._asset_prompt_preview import register_asset_prompt_preview_routes
 
 logger = logging.getLogger(__name__)
 
@@ -142,6 +143,7 @@ def build_asset_router(
     update_list_fields: tuple[str, ...] = spec.extra_list_fields
 
     router = APIRouter()
+    register_asset_prompt_preview_routes(router, spec=spec, pm_getter=pm_getter)
 
     # 以下四个处理器由 @router.* 就地注册，模块内无其它引用；basedpyright 把函数作用域内的符号
     # 一律判为私有，逐个标注的 reportUnusedFunction 均为工具误报。

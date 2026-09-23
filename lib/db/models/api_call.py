@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from datetime import datetime
 
-import sqlalchemy as sa
 from sqlalchemy import JSON, Boolean, DateTime, Float, Index, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -22,7 +21,8 @@ class ApiCall(TimestampMixin, UserOwnedMixin, Base):
     resolution: Mapped[str | None] = mapped_column(String)
     duration_seconds: Mapped[int | None] = mapped_column(Integer)
     aspect_ratio: Mapped[str | None] = mapped_column(String)
-    generate_audio: Mapped[bool | None] = mapped_column(Boolean, server_default=sa.true())
+    # 只对视频调用有意义；调用方未声明即 NULL，不给非视频行填默认值。
+    generate_audio: Mapped[bool | None] = mapped_column(Boolean)
     status: Mapped[str] = mapped_column(String, nullable=False, server_default="pending")
     error_message: Mapped[str | None] = mapped_column(Text)
     # 失败原因的机器稳定形式（错误码 + 参数），供前端按当前语言渲染；error_message 保留原文。
@@ -35,7 +35,7 @@ class ApiCall(TimestampMixin, UserOwnedMixin, Base):
     purpose: Mapped[str | None] = mapped_column(String, nullable=True)
     session_id: Mapped[str | None] = mapped_column(String, nullable=True)
     # 这次调用发出去的输入：参考图 [{path, label, role}]、首帧 / 尾帧、音色、未单列成列的请求参数；
-    # 路径为项目内相对路径（见 lib/media_generator.py 的输入归一）。
+    # 路径为项目内相对路径（见 lib/generation/media_generator.py 的输入归一）。
     inputs: Mapped[object | None] = mapped_column(JSON, nullable=True)
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

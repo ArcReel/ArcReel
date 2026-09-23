@@ -10,8 +10,8 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from lib.project_migrations.runner import migrate_project_dir
-from lib.project_migrations.v7_to_v8_artifact_manifest import migrate_v7_to_v8
+from lib.project.project_migrations.runner import migrate_project_dir
+from lib.project.project_migrations.v7_to_v8_artifact_manifest import migrate_v7_to_v8
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from tests.auth_deps import AUTH_DEPENDENCIES
@@ -64,7 +64,7 @@ def ad_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
     migrate_v7_to_v8(project_dir)
     migrate_project_dir(project_dir)
 
-    from lib.project_manager import ProjectManager
+    from lib.project.project_manager import ProjectManager
     from server.routers import reference_videos as router_mod
 
     monkeypatch.setattr(router_mod, "get_project_manager", lambda: ProjectManager(projects_root))
@@ -103,8 +103,8 @@ def test_list_and_legacy_derive_removal(ad_client: TestClient) -> None:
 
 
 def test_ad_units_support_crud_and_product_mentions(ad_client: TestClient) -> None:
-    from lib.project_manager import ProjectManager
-    from lib.reference_video.request_projection import unit_reference_declarations
+    from lib.project.project_manager import ProjectManager
+    from lib.script.reference_video.request_projection import unit_reference_declarations
 
     added = ad_client.post(
         "/api/v1/projects/ad-demo/reference-videos/episodes/1/units",

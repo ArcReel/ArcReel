@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { Loader2, Play } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { API, ApiRequestError } from "@/api";
+import { API } from "@/api";
 import { errMsg } from "@/utils/async";
 import {
   ACCENT_BTN_SM_CLS,
@@ -18,53 +18,10 @@ import type {
   EndpointTestCredentials,
   EndpointTestAssets,
   EndpointTestStage,
-  PreviewedRequest,
-  TrialRunInfo,
 } from "@/types";
 import { FormSection, HINT_CLS, LABEL_CLS, MONO_INPUT_CLS } from "./endpoint-form-primitives";
-
-const TRIAL_POLL_INTERVAL_MS = 2000;
-const TRIAL_POLL_MAX_CONSECUTIVE_FAILURES = 5;
-
-function TestCard({
-  title,
-  badge,
-  desc,
-  children,
-}: {
-  title: string;
-  badge?: string;
-  desc: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="rounded-[8px] border border-hairline-soft bg-bg-grad-a/30 p-3.5">
-      <div className="flex items-center gap-2">
-        <span className="text-[13px] font-medium text-text">{title}</span>
-        {badge && <span className="text-[11px] text-warm-bright/90">{badge}</span>}
-      </div>
-      <p className="mb-2.5 mt-0.5 text-[12px] leading-[1.55] text-text-3">{desc}</p>
-      {children}
-    </div>
-  );
-}
-
-function RequestPreview({ label, request }: { label: string; request: PreviewedRequest }) {
-  return (
-    <div>
-      <span className={LABEL_CLS}>{label}</span>
-      <pre className="overflow-x-auto rounded-[8px] border border-hairline-soft bg-bg-grad-a/40 p-3 font-mono text-[11.5px] leading-[1.6] text-text-2">
-        {`${request.method} ${request.url}\n`}
-        {Object.entries(request.headers)
-          .map(([k, v]) => `${k}: ${v}`)
-          .join("\n")}
-        {request.body === null || request.body === undefined
-          ? ""
-          : `\n\n${JSON.stringify(request.body, null, 2)}`}
-      </pre>
-    </div>
-  );
-}
+import { RequestPreview, TestCard } from "./endpoint-test-primitives";
+import { useTrialRun } from "./use-trial-run";
 
 function StageReportTable({ report }: { report: EndpointStageReport }) {
   const { t } = useTranslation("dashboard");
@@ -127,15 +84,18 @@ export function EndpointTestSection({ definition, providers }: EndpointTestSecti
   const [providerId, setProviderId] = useState(() => (providers[0] ? String(providers[0].id) : ""));
   const [baseUrl, setBaseUrl] = useState(definition.meta.hints?.base_url ?? "");
   const [apiKey, setApiKey] = useState("");
-  const [starting, setStarting] = useState(false);
-  const [run, setRun] = useState<TrialRunInfo | null>(null);
-  const [runError, setRunError] = useState<string | null>(null);
-  const [artifact, setArtifact] = useState<{ runId: string; url: string } | null>(null);
-  const [cancelled, setCancelled] = useState(false);
-  // 轮询放弃态：连续失败达上限后只停读回，不动 run——服务端名额仍被占用，
-  // runId 与取消入口必须保留，否则重新创建会撞 trial_run_already_running。
-  const [pollStopped, setPollStopped] = useState(false);
   const [assetFiles, setAssetFiles] = useState<EndpointTestAssets>({});
+  const trial = useTrialRun();
+  const {
+    run,
+    finished: runFinished,
+    starting,
+    error: runError,
+    cancelled,
+    pollStopped,
+    artifactUrl,
+    start: startTrial,
+  } = trial;
 
   const assetInputs = useMemo(() => {
     const sources = new Map<EndpointInputSource, boolean>();
@@ -159,72 +119,6 @@ export function EndpointTestSection({ definition, providers }: EndpointTestSecti
     if (credSource === "provider") return { provider_id: `custom-${providerId}` };
     return { base_url: baseUrl, api_key: apiKey };
   }, [credSource, providerId, baseUrl, apiKey]);
-
-  const runId = run?.id ?? null;
-  const runFinished = run !== null && (run.status === "succeeded" || run.status === "failed");
-  const artifactRunId = run?.has_artifact ? run.id : null;
-  const artifactUrl = artifact?.runId === artifactRunId ? artifact.url : null;
-
-  useEffect(() => {
-    if (!artifactRunId) return;
-    const controller = new AbortController();
-    let objectUrl: string | null = null;
-    void API.getTrialRunArtifact(artifactRunId, { signal: controller.signal })
-      .then((blob) => {
-        if (controller.signal.aborted) return;
-        objectUrl = URL.createObjectURL(blob);
-        setArtifact({ runId: artifactRunId, url: objectUrl });
-      })
-      .catch((e) => {
-        if (!controller.signal.aborted) setRunError(errMsg(e));
-      });
-    return () => {
-      controller.abort();
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
-    };
-  }, [artifactRunId]);
-
-  // 试跑是进程内异步 run：创建后轮询读回，终态即停。递归 setTimeout 保证上一次
-  // 读回落地后才排下一次，响应慢于间隔时不会堆积并发请求。
-  useEffect(() => {
-    if (!runId || runFinished || pollStopped) return;
-    const controller = new AbortController();
-    let timer: ReturnType<typeof setTimeout>;
-    // 连续失败达到上限即停：run 被删或凭证过期时 401/404 不会自愈，无限重试只会刷请求。
-    // 单次失败不弃轮询，瞬时网络抖动在下一轮成功后计数归零。
-    let consecutiveFailures = 0;
-    const poll = () => {
-      void API.getTrialRun(runId, { signal: controller.signal })
-        .then((next) => {
-          if (controller.signal.aborted) return;
-          consecutiveFailures = 0;
-          setRunError(null);
-          setRun(next);
-          timer = setTimeout(poll, TRIAL_POLL_INTERVAL_MS);
-        })
-        .catch((e) => {
-          if (controller.signal.aborted) return;
-          setRunError(errMsg(e));
-          // 明确的 404 表示 run 已不在服务端（TTL 过期或重启丢失），名额已释放，
-          // 就地清空本地状态；只有瞬时网络/服务错误才走重试与放弃计数。
-          if (e instanceof ApiRequestError && e.status === 404) {
-            setRun(null);
-            return;
-          }
-          consecutiveFailures += 1;
-          if (consecutiveFailures < TRIAL_POLL_MAX_CONSECUTIVE_FAILURES) {
-            timer = setTimeout(poll, TRIAL_POLL_INTERVAL_MS);
-          } else {
-            setPollStopped(true);
-          }
-        });
-    };
-    timer = setTimeout(poll, TRIAL_POLL_INTERVAL_MS);
-    return () => {
-      controller.abort();
-      clearTimeout(timer);
-    };
-  }, [runId, runFinished, pollStopped]);
 
   const handleCheck = useCallback(async () => {
     setCheckError(null);
@@ -267,48 +161,10 @@ export function EndpointTestSection({ definition, providers }: EndpointTestSecti
     }
   }, [definition, model, prompt, credSource, baseUrl, apiKey, credentials, activeAssetFiles]);
 
-  const handleStartTrial = useCallback(async () => {
-    setRunError(null);
-    setCancelled(false);
-    setPollStopped(false);
-    setStarting(true);
-    try {
-      setRun(
-        await API.createTrialRun(
-          {
-            definition,
-            parameters: { model, prompt },
-            credentials: credentials(),
-          },
-          activeAssetFiles,
-        ),
-      );
-    } catch (e) {
-      setRun(null);
-      setRunError(errMsg(e));
-    } finally {
-      setStarting(false);
-    }
-  }, [definition, model, prompt, credentials, activeAssetFiles]);
-
-  // 取消会让服务端连同结果一起丢弃这次 run，回读只会拿到 404；就地清空本地状态，
-  // 让「开始测试」重新可用。远端任务不受影响，已经发生的费用照算。
-  const handleCancelTrial = useCallback(async () => {
-    if (!runId) return;
-    try {
-      await API.cancelTrialRun(runId);
-    } catch (e) {
-      // 404 即 run 已不在服务端，无可取消——照常清理本地状态解除锁定。
-      if (!(e instanceof ApiRequestError && e.status === 404)) {
-        setRunError(errMsg(e));
-        return;
-      }
-    }
-    setRun(null);
-    setRunError(null);
-    setPollStopped(false);
-    setCancelled(true);
-  }, [runId]);
+  const handleStartTrial = useCallback(
+    () => startTrial({ definition, parameters: { model, prompt }, credentials: credentials() }, activeAssetFiles),
+    [startTrial, definition, model, prompt, credentials, activeAssetFiles],
+  );
 
   return (
     <FormSection id="test" step={8} title={t("ce_section_test")} desc={t("ce_section_test_desc")}>
@@ -515,7 +371,7 @@ export function EndpointTestSection({ definition, providers }: EndpointTestSecti
                   {t("ce_trial_start")}
                 </button>
                 {run !== null && !runFinished && (
-                  <button type="button" onClick={() => void handleCancelTrial()} className={GHOST_BTN_CLS}>
+                  <button type="button" onClick={() => void trial.cancel()} className={GHOST_BTN_CLS}>
                     {t("common:cancel")}
                   </button>
                 )}

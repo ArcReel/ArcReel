@@ -2,6 +2,8 @@ MESSAGES = {
     "project_migration_failed": "Project '{name}' has not finished its data upgrade, so generation is unavailable. Reason: {reason}. Repair it in the agent conversation, then retry the upgrade",
     "project_not_found": "Project '{name}' does not exist or is not initialized",
     "resource_not_found": "The requested resource does not exist",
+    "prompt_template_not_found": "Prompt template '{id}' does not exist",
+    "prompt_partial_not_found": "Prompt partial '{id}' does not exist",
     "overview_ai_response_invalid": "The AI response could not be parsed into a project overview. Please retry or switch to a different model/provider",
     "overview_generation_failed": "Overview generation failed. Please retry later or switch to a different model/provider",
     "video_capabilities_unresolved": "Cannot resolve video model capabilities for project '{name}'; please check the provider configuration",
@@ -19,13 +21,15 @@ MESSAGES = {
     "project_exists": "Project '{name}' already exists",
     "script_not_found": "Script '{name}' does not exist",
     "script_item_not_found": "Shot '{id}' does not exist in this script",
+    "script_item_remove_last_blocked": "This is the only shot in the episode and cannot be removed",
+    "storyboard_script_required": "This script is not a storyboard-to-video script; add or remove reference video units on the reference video canvas",
+    "narration_segment_text_required": "Enter the narration text before adding a narration shot",
+    "reference_prompt_preview_missing": "This unit has no body text yet",
     "prompt_preview_missing": "This shot has no prompt written yet",
     "prompt_preview_invalid": "The prompt cannot be rendered: check its format",
     "prompt_preview_pending": "This shot's prompt is pending: let the Agent write it, or fill it in the editor",
     "script_prompt_pending": "The prompt of shot '{segment_id}' is pending; let the Agent write it or fill it in before generating",
-    "script_conversion_refused": "This episode cannot be converted to a formal script yet: confirm its content and resolve pending drafts first",
     "script_conversion_conflict": "The formal script was changed by another writer during conversion; nothing was overwritten. Refresh and retry",
-    "script_conversion_invalid_entries": "Only stale shots can adopt new content; check the selected shots",
     "scene_not_found": "Scene '{id}' does not exist",
     "segment_not_found": "Segment '{id}' does not exist",
     "script_missing": "Script does not exist",
@@ -48,6 +52,7 @@ MESSAGES = {
     "invalid_encoding": "File encoding error, please use UTF-8 encoded text file",
     "unauthorized": "Invalid username or password",
     "task_not_found": "Task '{id}' does not exist",
+    "task_running_not_cancellable": "Task '{id}' has already started and cannot be cancelled; it will run to completion and its result will be kept",
     "task_retry_download_unavailable": "Task '{id}' is not eligible for download retry",
     # Task failure reasons (GenerationWorker stores a code + params; tasks API renders per locale on read)
     "task_fail_provider_unsupported_media": "Provider {provider_id} does not support {media_type} generation",
@@ -69,6 +74,15 @@ MESSAGES = {
     ),
     "task_fail_declarative_template_render_failed": "Endpoint request rendering failed: {detail}",
     "task_fail_declarative_response_extract_failed": "Endpoint response extraction failed: {detail}",
+    "task_fail_comfyui_image_drop_unsupported": "This workflow's output depends on the image read by node {node}, so it cannot be rewired for fewer images; supply the missing images or use another workflow",
+    "task_fail_comfyui_upload_failed": "Uploading the asset to ComfyUI failed: {detail}",
+    "task_fail_comfyui_node_errors": "ComfyUI refused this workflow; {nodes} node(s) reported errors, first: {summary}",
+    "task_fail_comfyui_job_lost": "ComfyUI no longer knows about this run ({prompt_id}); it is in neither the queue nor the history, so ComfyUI most likely restarted — please retry",
+    "task_fail_comfyui_execution_error": "ComfyUI failed during execution: {detail} (failing node: {node})",
+    "task_fail_comfyui_interrupted": "The run on ComfyUI was interrupted; please retry",
+    "task_fail_comfyui_output_missing": "ComfyUI finished but output node {nodes} produced no file; check its node bindings and the workflow's output chain",
+    "task_fail_comfyui_output_type_mismatch": "ComfyUI produced {filename}, which is not a file type this endpoint should output (expected {expected}); point the output node bindings at the node that exports the final artifact, or switch that save node to a supported format (for SaveVideo, pick h264-mp4)",
+    "task_fail_comfyui_output_container_mismatch": "The contents of {filename} produced by ComfyUI are not a container this endpoint should output (expected {expected}); switch the save node to a supported format (for SaveVideo, pick h264-mp4)",
     "task_fail_artifact_download_failed": "Video generation succeeded but artifact download failed; retry the download: {detail}",
     "task_fail_cascade_blocked_dependency": "Blocked by failed dependency task {dependency_task_id}: {reason}",
     "prompt_must_be_string_or_scene_object": "prompt must be a string or an object containing scene/composition",
@@ -120,6 +134,10 @@ MESSAGES = {
     "tts_novel_text_missing": "Shot '{segment_id}' has no novel text to narrate",
     "tts_narration_text_missing": "This unit has no narrator text to synthesize",
     "tts_not_applicable": "TTS applies only to narrator-owned voiceover units; choose post-production delivery",
+    "tts_duration_endpoint_fixed": (
+        "This workflow's output duration is fixed by the endpoint, so ArcReel cannot request a clip long enough "
+        "for the narration; choose post-production delivery"
+    ),
     "tts_not_configured": "Configure a text-to-speech provider before using TTS delivery",
     "tts_missing": "Generate narration audio for this unit before using TTS delivery",
     "tts_generating": "Narration audio is still generating; wait for it to finish before using TTS delivery",
@@ -138,6 +156,7 @@ MESSAGES = {
     "character_task_submitted": "Character asset sheet generation task for '{name}' submitted",
     "derivative_task_submitted": "Derivative asset sheet generation task for '{name}' submitted",
     "derivative_owner_sheet_missing": "Character '{name}' has no asset sheet yet; generate the base sheet before its derivatives",
+    "asset_prompt_preview_missing": "The asset is missing or has no description",
     "derivative_description_required": "Derivative '{name}' has no appearance change described yet, so its asset sheet cannot be generated",
     "voice_sample_voice_required": "Please select a voice first",
     "voice_sample_text_too_long": "Sample text cannot exceed {max_length} characters",
@@ -180,6 +199,15 @@ MESSAGES = {
         "Refresh to see the latest content, merge your changes, then save again"
     ),
     "script_review_invalid_content": "Content confirmation draft structure validation failed; please check and retry",
+    "script_review_script_plan_confirmed": "The script plan is confirmed and can no longer be edited; make changes on the timeline, or re-run the script plan to redo the whole episode",
+    "script_review_overwrite_required": "This episode already has a formal script. Confirming overwrites it: every existing shot is removed and its storyboard images and videos are no longer shown. Acknowledge the overwrite and retry",
+    "script_review_conversion_refused": "The script plan cannot be converted to a formal script yet, so it was not confirmed; check shot durations, dialogue and the script plan status, then retry",
+    "script_review_video_model_unresolved": "No usable video model is configured, so shot duration tiers cannot be determined and the confirmation was not completed; configure a video provider in Settings → Providers, or pick a video model in the project settings, then retry",
+    "script_review_foreign_formal_script": (
+        "The script file bound to episode {episode} is gone and the canonical path scripts/{filename} holds another "
+        "episode's script, so the confirmation was not completed — writing there would rebuild that other episode; "
+        "point this episode's script_file back at its own script, then retry"
+    ),
     "script_review_quarantine_unreadable": (
         "The draft needing fixes is corrupted or malformed and can't be read; ask the agent to re-split this episode"
     ),
@@ -225,6 +253,29 @@ MESSAGES = {
     "custom_endpoint_not_found": "Endpoint does not exist",
     "custom_endpoint_definition_invalid": "The endpoint definition failed validation. Fix the reported issues and try again",
     "custom_endpoint_referenced_by_models": "This endpoint is used by {count} model(s). Remove those references before deleting it",
+    # ---- Market ----
+    "market_source_not_found": "Market source does not exist",
+    "market_source_official_undeletable": "The official market source cannot be deleted, but it can be disabled",
+    "market_source_duplicate": "This market source has already been added",
+    "market_source_address_empty": "Enter a market source address",
+    "market_source_address_insecure_scheme": "Market source addresses must use https://",
+    "market_source_address_unsupported": "Unrecognized market source address: use owner/repo, owner/repo@ref, a GitHub repository URL, or an https link ending in arcreel-market.json",
+    "market_source_fetch_failed": "Could not add the market source: {status} ({reason})",
+    "market_source_status_never_fetched": "Not refreshed yet",
+    "market_source_status_ok": "OK",
+    "market_source_status_unreachable": "Unreachable",
+    "market_source_status_invalid_index": "Invalid index",
+    "market_source_status_unsupported_schema": "Index format is newer than this app supports",
+    "market_source_display_name_required": "Display name cannot be empty",
+    "market_source_order_length_mismatch": "The order list does not match the number of market sources",
+    "market_source_order_duplicate_ids": "The order list contains duplicate market sources",
+    "market_source_order_ids_mismatch": "The order list does not match the existing market sources",
+    "market_github_proxy_prefix_invalid": "The GitHub raw proxy prefix must be an address starting with https:// without a username, password, query string or fragment",
+    "market_source_disabled": "This market source is disabled; enable it to fetch its entries",
+    "market_entry_not_found": "Market entry not found",
+    "market_entry_icon_not_found": "This market entry has no icon",
+    "market_entry_fetch_failed": "Could not fetch the entry file from the market source ({reason})",
+    "market_entry_asset_invalid": "The entry file provided by the market source is unusable ({reason})",
     # ---- Endpoint tests ----
     "endpoint_test_payload_required": "Missing payload field: when uploading assets, put the request JSON in the payload form field",
     "endpoint_test_payload_invalid": "Could not parse the request. Check the JSON format and field types",
@@ -235,7 +286,9 @@ MESSAGES = {
     "endpoint_test_definition_and_model_ref_exclusive": "Provide either an endpoint definition or a model to test, not both",
     "endpoint_test_too_many_assets": "Too many asset files; the limit is {limit}",
     "endpoint_test_credentials_ambiguous": "Provide one credential source only: select a provider, or fill in the base URL and API key inline",
-    "endpoint_test_model_unavailable": "This model is disabled or not a video model, so it cannot run a test connection",
+    "endpoint_test_mode_unsupported_for_kind": "This kind of endpoint ({kind}) does not support that endpoint test",
+    "endpoint_test_preview_failed": "Could not render a request from this definition and these parameters: {detail}",
+    "endpoint_test_model_unavailable": "This model is disabled, or its endpoint does not support a test connection",
     "endpoint_test_provider_base_url_required": "This model's endpoint needs an API address; set a base_url on the provider first",
     "model_not_found": "Model not found",
     "trial_run_already_running": "A trial run is already in progress. Wait for it to finish or cancel it first",
@@ -256,6 +309,30 @@ MESSAGES = {
     "endpoint_media_type_mismatch": "Endpoint media_type mismatch: {detail}",
     "backend_creation_failed": "Backend creation failed: {err_msg}",
     "connectivity_check_unsupported_format": "Connectivity checks are not supported for {discovery_format}",
+    "connectivity_check_comfyui_ok": "ComfyUI is reachable, version {version}",
+    "connectivity_check_comfyui_ok_unknown_version": "ComfyUI is reachable; it did not report a version",
+    "discovery_not_applicable_comfyui": (
+        "The ComfyUI protocol has no model list to discover: what can be called is decided by the workflow "
+        "itself. Import a ComfyUI endpoint and attach it to a model row instead"
+    ),
+    "custom_endpoint_kind_conflicts_with_attachment": (
+        "The replacement definition changes the endpoint kind, which no longer fits the current attachment: the provider protocol of model {model_id} (provider {provider}) cannot take it. Change the model row's attachment first, then replace the definition"
+    ),
+    "custom_endpoint_media_type_conflicts_with_attachment": (
+        "This definition produces {media_type}, which differs from the endpoint's current media type, while model "
+        "{model_id} (provider {provider}) is still attached: an endpoint decides which lane its models belong to. "
+        "Detach the models first, then replace the definition"
+    ),
+    "comfyui_endpoint_requires_comfyui_provider": (
+        "ComfyUI endpoint {endpoint} on model {model_id} can only be used on a ComfyUI protocol provider"
+    ),
+    "comfyui_provider_requires_comfyui_endpoint": (
+        "A ComfyUI protocol provider only accepts ComfyUI endpoints; {endpoint} on model {model_id} is not one"
+    ),
+    "capability_overrides_not_supported_for_comfyui": (
+        "Model {model_id} uses a ComfyUI endpoint, whose capabilities are derived from node bindings alone; "
+        "capability overrides are not supported"
+    ),
     "capability_overrides_video_only": (
         "Endpoint {endpoint} of model {model_id} is not a video endpoint; capability overrides are not supported"
     ),
@@ -324,6 +401,7 @@ MESSAGES = {
     "ref_missing_asset": "Reference to {type} '{name}' is not in the project asset library, please generate it first",
     "ref_duration_exceeded": "The script runs {total}s, beyond {model}'s longest duration option; generated at {duration}s, so the clip is shorter than the script",
     "ref_duration_rounded_up": "The script runs {total}s, which is not one of {model}'s duration options; generated at {duration}s, so the clip is longer than the script",
+    "comfyui_multiple_outputs": "ComfyUI produced {count} files this run; kept {filename}",
     "ref_too_many_images": "Reference image count {count} exceeds {model} limit of {max_count}, kept the first {max_count}",
     "ref_payload_too_large": "Reference image payload exceeded provider limits, retried with extra compression",
     "ref_payload_floor_exceeded": "Reference images are too large or too many; even compressed to the lowest quality they still exceed the provider's request size limit. Please reduce the number of reference images or their resolution and try again",
@@ -428,12 +506,15 @@ MESSAGES = {
     "video_reference_audio_unreadable": "Model {model} has reference audio that is missing or unreadable; generation aborted: {names}; check the reference audio paths",
     "video_reference_audio_format_unsupported": "Reference audio {name} has an unsupported format (only {supported}); use a different audio file",
     "video_prompt_too_long": "{provider}/{model} accepts prompts of at most {limit} characters but received {count}; the provider would silently truncate the excess, so generation was aborted. Shorten the prompt",
-    "video_request_conflicts_with_active_task": "Unit '{resource_id}' already has a video task using different narration delivery options; wait for it to finish or cancel it before retrying.",
-    "tts_conflicts_with_active_narrated_video": "Unit '{resource_id}' has an active video task using the current TTS; wait for it to finish or cancel it before regenerating narration.",
-    "audio_restore_conflicts_with_active_task": "Unit '{resource_id}' has narration being generated or consumed by a video task; wait for it to finish or cancel it before switching audio versions.",
+    "video_request_conflicts_with_active_task": "Unit '{resource_id}' already has a video task using different narration delivery options; wait for it to finish before retrying (a task that is still queued can be cancelled first).",
+    "tts_conflicts_with_active_narrated_video": "Unit '{resource_id}' has an active video task using the current TTS; wait for it to finish before regenerating narration (a task that is still queued can be cancelled first).",
+    "audio_restore_conflicts_with_active_task": "Unit '{resource_id}' has narration being generated or consumed by a video task; wait for it to finish before switching audio versions (a task that is still queued can be cancelled first).",
     # Agent credentials
     "agent_preset_unknown": "Unknown preset provider: {preset_id}",
     "agent_base_url_required_custom": "base_url is required for custom configuration",
+    "agent_api_key_required": "Provide an api_key or choose a custom provider to import from",
+    "agent_api_key_source_conflict": "api_key cannot be provided when importing from a custom provider",
+    "agent_import_provider_no_key": "The selected custom provider has no api_key configured",
     "agent_base_url_invalid": "Agent credential URLs cannot carry query strings, fragments or userinfo; use a plain https://host/path address",
     "agent_no_fields_to_update": "No fields to update",
     "agent_credential_not_found": "Credential not found",
@@ -446,6 +527,7 @@ MESSAGES = {
     "grid_generation_in_progress": "Multi-grid storyboard '{grid_id}' is being generated; wait for it to finish first",
     "version_not_found": "Version {version} does not exist",
     "version_resource_not_found": "Resource '{resource_type}/{resource_id}' does not exist",
+    "version_snapshot_path_unmanaged": "A '{resource_type}' version record points to an unmanaged snapshot path; the operation was refused",
     "session_busy": "The session is busy; wait for the current reply to finish before sending",
     "session_capacity_exceeded": "Concurrent session limit reached, please try again later",
     "session_question_unavailable": "The session is not running or has no pending question",
@@ -466,4 +548,11 @@ MESSAGES = {
     "memory_invalid_filename": "Invalid memory file name '{filename}': only top-level .md files are allowed",
     "memory_file_not_found": "Memory file '{filename}' does not exist",
     "memory_file_too_large": "Memory file '{filename}' exceeds the size limit (max {limit_kib} KiB)",
+    "market_entry_definition_mismatch": "The index and definition do not match; installation is blocked",
+    "market_entry_definition_changed": "The entry definition changed after you reviewed it; reopen the confirmation to review it again",
+    "market_entry_changed_during_fetch": "The market source was refreshed while the definition was being read; try again",
+    "market_entry_requires_newer_app": "This entry requires app version ≥ {version}",
+    "market_entry_already_installed": "This entry is already installed; select its endpoint to update",
+    "market_endpoint_already_installed": "This endpoint has another installation record and cannot be overwritten",
+    "market_overwrite_target_not_duplicate": "Only an endpoint with the same author and name as this entry can be overwritten",
 }

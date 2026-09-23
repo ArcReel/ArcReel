@@ -1,0 +1,220 @@
+{
+  "6": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "text": "a paper plane flies over the city",
+      "clip": [
+        "38",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "CLIP Text Encode (Positive Prompt)"
+    }
+  },
+  "7": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "text": "色调艳丽，过曝",
+      "clip": [
+        "38",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "CLIP Text Encode (Negative Prompt)"
+    }
+  },
+  "38": {
+    "class_type": "CLIPLoader",
+    "inputs": {
+      "clip_name": "umt5_xxl_fp8_e4m3fn_scaled.safetensors",
+      "type": "wan"
+    }
+  },
+  "39": {
+    "class_type": "VAELoader",
+    "inputs": {
+      "vae_name": "wan_2.1_vae.safetensors"
+    }
+  },
+  "37": {
+    "class_type": "UNETLoader",
+    "inputs": {
+      "unet_name": "wan2.1_vace_14B_fp16.safetensors",
+      "weight_dtype": "default"
+    }
+  },
+  "80": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "first.png",
+      "upload": "image"
+    },
+    "_meta": {
+      "title": "First Frame"
+    }
+  },
+  "81": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "last.png",
+      "upload": "image"
+    },
+    "_meta": {
+      "title": "Last Frame"
+    }
+  },
+  "82": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "style.png",
+      "upload": "image"
+    },
+    "_meta": {
+      "title": "Reference"
+    }
+  },
+  "83": {
+    "class_type": "ImageBatch",
+    "inputs": {
+      "image1": [
+        "80",
+        0
+      ],
+      "image2": [
+        "81",
+        0
+      ]
+    }
+  },
+  "84": {
+    "class_type": "WanVaceToVideo",
+    "inputs": {
+      "width": 832,
+      "height": 480,
+      "length": 81,
+      "batch_size": 1,
+      "strength": 1.0,
+      "positive": [
+        "6",
+        0
+      ],
+      "negative": [
+        "7",
+        0
+      ],
+      "vae": [
+        "39",
+        0
+      ],
+      "control_video": [
+        "83",
+        0
+      ],
+      "control_masks": [
+        "85",
+        0
+      ],
+      "reference_image": [
+        "82",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "WanVaceToVideo"
+    }
+  },
+  "85": {
+    "class_type": "SolidMask",
+    "inputs": {
+      "value": 1.0,
+      "width": 832,
+      "height": 480
+    }
+  },
+  "3": {
+    "class_type": "KSampler",
+    "inputs": {
+      "seed": 12345,
+      "steps": 20,
+      "cfg": 5,
+      "sampler_name": "uni_pc",
+      "scheduler": "simple",
+      "denoise": 1,
+      "model": [
+        "37",
+        0
+      ],
+      "positive": [
+        "84",
+        0
+      ],
+      "negative": [
+        "84",
+        1
+      ],
+      "latent_image": [
+        "84",
+        2
+      ]
+    },
+    "_meta": {
+      "title": "KSampler"
+    }
+  },
+  "86": {
+    "class_type": "TrimVideoLatent",
+    "inputs": {
+      "trim_amount": [
+        "84",
+        3
+      ],
+      "samples": [
+        "3",
+        0
+      ]
+    }
+  },
+  "8": {
+    "class_type": "VAEDecode",
+    "inputs": {
+      "samples": [
+        "86",
+        0
+      ],
+      "vae": [
+        "39",
+        0
+      ]
+    }
+  },
+  "57": {
+    "class_type": "CreateVideo",
+    "inputs": {
+      "fps": 16,
+      "images": [
+        "8",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "Create Video"
+    }
+  },
+  "58": {
+    "class_type": "SaveVideo",
+    "inputs": {
+      "filename_prefix": "video/wan2.1_vace",
+      "format": "auto",
+      "codec": "h264",
+      "video": [
+        "57",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "Save Video"
+    }
+  }
+}

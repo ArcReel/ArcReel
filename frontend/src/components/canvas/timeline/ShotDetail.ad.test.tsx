@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { NarratedVideoDurationError } from "@/api";
 import { ShotDetail } from "./ShotDetail";
@@ -346,5 +346,53 @@ describe("ShotDetail 广告/短片", () => {
       />,
     );
     expect(screen.queryByRole("button", { name: "前移分镜" })).not.toBeInTheDocument();
+  });
+  it("新增 / 移除分镜：移除取消不调用，分镜生成在跑时禁止移除", async () => {
+    const onInsertShot = vi.fn().mockResolvedValue(true);
+    const onRemoveShot = vi.fn().mockResolvedValue(true);
+    const { unmount } = renderDetail({ onUpdatePrompt: vi.fn(), onInsertShot, onRemoveShot });
+
+    fireEvent.click(screen.getByRole("button", { name: "新增分镜" }));
+    await waitFor(() => expect(onInsertShot).toHaveBeenCalledWith("E1S01"));
+
+    fireEvent.click(screen.getByRole("button", { name: "移除分镜" }));
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "取消" }));
+    expect(onRemoveShot).not.toHaveBeenCalled();
+    unmount();
+
+    renderDetail({ onUpdatePrompt: vi.fn(), onInsertShot, onRemoveShot, generatingVideo: true });
+    expect(screen.getByRole("button", { name: "移除分镜" })).toBeDisabled();
+  });
+
+  it("移除确认框打开后分镜开始生成：确认按钮随之禁用，不调用移除", () => {
+    const onRemoveShot = vi.fn().mockResolvedValue(true);
+    const shot = makeShot();
+    const detail = (generatingVideo: boolean) => (
+      <ShotDetail
+        segment={shot}
+        segmentId={shot.shot_id}
+        contentMode="ad"
+        aspectRatio="9:16"
+        projectName="demo"
+        scriptFile="episode_1.json"
+        selectedIndex={0}
+        totalCount={3}
+        onPrev={() => {}}
+        onNext={() => {}}
+        durationOptions={[4, 6, 8]}
+        onUpdatePrompt={vi.fn()}
+        onRemoveShot={onRemoveShot}
+        generatingVideo={generatingVideo}
+      />
+    );
+    const { rerender } = render(detail(false));
+    fireEvent.click(screen.getByRole("button", { name: "移除分镜" }));
+
+    rerender(detail(true));
+    const confirm = within(screen.getByRole("dialog")).getByRole("button", { name: "移除分镜" });
+    expect(confirm).toBeDisabled();
+    fireEvent.click(confirm);
+
+    expect(onRemoveShot).not.toHaveBeenCalled();
   });
 });

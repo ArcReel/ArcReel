@@ -11,8 +11,13 @@ import { WorkflowStepRow } from "./WorkflowStepRow";
 import { STEP_RAILS } from "./state-language";
 import { blockerViews, nextStepForAction, problemViews } from "./problem-views";
 
-/** TTS 没配好时后端给出的问题码；它挡住的只是 use_tts 这一条路径。 */
-const TTS_NOT_CONFIGURED = "tts_not_configured";
+/**
+ * 挡住 use_tts 这一条路径、但不挡后期配音的问题码。
+ *
+ * `tts_not_configured` 是「没有可用的语音合成供应商」，`tts_duration_endpoint_fixed` 是
+ * 「该模型的成片时长由端点固定、申请不到装得下旁白的时长」；两者都不是工作流缺口。
+ */
+const TTS_DELIVERY_BLOCKING_CODES = ["tts_not_configured", "tts_duration_endpoint_fixed"];
 
 /**
  * 任务指纹变化到发起重新求解之间的合并窗口（毫秒）。
@@ -107,7 +112,7 @@ export function WorkflowPanel({ projectName, episode, onViewUnit, onRegenerate }
     const problem = [
       ...shown.problems,
       ...shown.steps.flatMap((step) => step.problems),
-    ].find((item) => item.code === TTS_NOT_CONFIGURED);
+    ].find((item) => TTS_DELIVERY_BLOCKING_CODES.includes(item.code));
     return problem ? (problemViews(t, [problem], "tts")[0] ?? null) : null;
   }, [shown, t]);
 

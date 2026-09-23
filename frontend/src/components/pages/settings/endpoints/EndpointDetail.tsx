@@ -1,9 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Copy, Download, Loader2, Plus, Trash2 } from "lucide-react";
+import { Copy, Download, ExternalLink, Loader2, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { API, ApiRequestError } from "@/api";
+import { API } from "@/api";
 import { errMsg, voidCall } from "@/utils/async";
-import { downloadBlob } from "@/utils/download";
 import { useAppStore } from "@/stores/app-store";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import {
@@ -18,23 +17,41 @@ import type {
   CustomProviderInfo,
   EndpointDefinition,
   EndpointDescriptor,
+  EndpointInstallation,
   EndpointReference,
   EndpointValidateResponse,
 } from "@/types";
-import { definitionFileName, isRenderableDefinition, type EndpointFormSection } from "./endpoint-definition-draft";
+import { MarketInstallBadges } from "../market/MarketInstallBadges";
+import { MARKET_CONTRIBUTING_URL } from "../market/market-links";
+import { isRenderableDefinition, type EndpointFormSection } from "./endpoint-definition-draft";
 import { EndpointDiagnostics } from "./EndpointDiagnostics";
+import { EndpointReferenceList, endpointReferences } from "./EndpointReferenceList";
 import { EndpointForm } from "./EndpointForm";
 import { EndpointTestSection } from "./EndpointTestSection";
+import { exportEndpointDefinition } from "./export-endpoint-definition";
+import type { AnyEndpointDefinition, ComfyuiEndpointDefinition } from "@/types";
 import { VariableInsertionProvider } from "./endpoint-form-primitives";
+import { ComfyuiEndpointDetail } from "./ComfyuiEndpointDetail";
+import type { ComfyuiImportDraft } from "./comfyui-import";
 
 const VALIDATE_DEBOUNCE_MS = 400;
 
-/** 选中项：新建草稿、我的端点、内置声明式、内置 Python 四态。 */
+/**
+ * 选中项：新建草稿、我的声明式端点、我的 ComfyUI 端点、刚导入还没保存的 ComfyUI 草稿、
+ * 内置声明式、内置 Python 六态。
+ */
 export type EndpointSelection =
   | { mode: "new"; definition: EndpointDefinition }
-  | { mode: "custom"; record: CustomEndpointInfo }
+  | { mode: "custom"; record: CustomEndpointInfo; definition: EndpointDefinition }
+  | { mode: "comfyui"; record: CustomEndpointInfo; definition: ComfyuiEndpointDefinition }
+  | { mode: "comfyui-draft"; draft: ComfyuiImportDraft }
   | { mode: "builtin"; descriptor: EndpointDescriptor }
   | { mode: "python"; descriptor: EndpointDescriptor };
+
+/** 我的端点：两种 kind 共用同一条保存记录，键、安装记录与删除入口都取自它。 */
+function savedRecordOf(selection: EndpointSelection): CustomEndpointInfo | null {
+  return selection.mode === "custom" || selection.mode === "comfyui" ? selection.record : null;
+}
 
 interface EndpointDetailProps {
   selection: EndpointSelection;
@@ -46,29 +63,34 @@ interface EndpointDetailProps {
   onCopied: (record: CustomEndpointInfo) => void;
   onCreateProvider: (definition: EndpointDefinition, endpointKey: string) => void;
   onNavigateToModel: (reference: EndpointReference) => void;
+  /** 打开安装确认弹窗的更新态；只在市场轴可更新时提供入口。 */
+  onUpdateFromMarket: (
+    installation: EndpointInstallation,
+    currentDefinition: EndpointDefinition,
+    hasUnsavedChanges: boolean,
+  ) => void;
+  /** 更新弹窗所需的条目详情正在加载。 */
+  marketUpdatePending: boolean;
+  /** 为当前这个 ComfyUI 端点重新导入一份 workflow：新 workflow 接到传出去的这份定义上，回来走重匹配。 */
+  onReimportComfyui: (current: ComfyuiEndpointDefinition) => void;
 }
 
-function endpointReferences(error: unknown): EndpointReference[] | null {
-  if (!(error instanceof ApiRequestError) || error.status !== 409) return null;
-  const references =
-    typeof error.diagnostic === "object" && error.diagnostic !== null
-      ? (error.diagnostic as { references?: unknown }).references
-      : undefined;
-  if (!Array.isArray(references)) return null;
-  return references.filter(
-    (reference): reference is EndpointReference =>
-      typeof reference === "object" &&
-      reference !== null &&
-      typeof (reference as EndpointReference).provider_id === "number" &&
-      typeof (reference as EndpointReference).provider_display_name === "string" &&
-      typeof (reference as EndpointReference).model_id === "string" &&
-      typeof (reference as EndpointReference).model_display_name === "string",
-  );
+/** 安装记录的来源描述：来源被删除时只剩规范键原文，禁用或删除都注明。 */
+function MarketOrigin({ installation }: { installation: EndpointInstallation }) {
+  const { t } = useTranslation("dashboard");
+  const source = installation.source_display_name ?? installation.source_key;
+  const key =
+    installation.source_enabled === null
+      ? "ce_from_market_source_deleted"
+      : installation.source_enabled
+        ? "ce_from_market"
+        : "ce_from_market_source_disabled";
+  return <span className="min-w-0 break-all">{t(key, { source })}</span>;
 }
 
 function KindBadge({ selection }: { selection: EndpointSelection }) {
   const { t } = useTranslation("dashboard");
-  const custom = selection.mode === "new" || selection.mode === "custom";
+  const custom = selection.mode === "new" || savedRecordOf(selection) !== null;
   const label =
     selection.mode === "python"
       ? t("ce_group_builtin_python")
@@ -95,21 +117,24 @@ export function EndpointDetail({
   onCopied,
   onCreateProvider,
   onNavigateToModel,
+  onUpdateFromMarket,
+  marketUpdatePending,
+  onReimportComfyui,
 }: EndpointDetailProps) {
   const { t } = useTranslation(["dashboard", "common"]);
   const pushToast = useAppStore((s) => s.pushToast);
 
   const editable = selection.mode === "new" || selection.mode === "custom";
-  const persistedId = selection.mode === "custom" ? selection.record.id : null;
+  // 市场更新弹窗按点击时的草稿判断是否提示覆盖，条目详情加载期间不再接受编辑。
+  const readOnly = !editable || marketUpdatePending;
+  const savedRecord = savedRecordOf(selection);
+  const persistedId = savedRecord?.id ?? null;
+  const installation = savedRecord?.installation ?? null;
 
   // 选中项由父级以 key 区分挂载，草稿因此可以直接由初始 selection 派生；
   // 只有内置声明式端点的定义需要另行拉取。
   const [draft, setDraft] = useState<EndpointDefinition | null>(() =>
-    selection.mode === "new"
-      ? selection.definition
-      : selection.mode === "custom"
-        ? selection.record.definition
-        : null,
+    selection.mode === "new" || selection.mode === "custom" ? selection.definition : null,
   );
   const [editorMode, setEditorMode] = useState<"form" | "json">("form");
   // JSON 片段编辑器自持文本状态：换端点或从 JSON 视图返回时递增，强制它按新定义重挂载。
@@ -170,7 +195,7 @@ export function EndpointDetail({
 
   const dirty =
     selection.mode === "new" ||
-    (selection.mode === "custom" && draftJson !== JSON.stringify(selection.record.definition));
+    (selection.mode === "custom" && draftJson !== JSON.stringify(selection.definition));
 
   const hasErrors = (validation?.errors.length ?? 0) > 0;
 
@@ -222,11 +247,13 @@ export function EndpointDetail({
     }
   }, [persistedId, onDeleted, pushToast, t]);
 
+  // 导出的是「当前看到的这份定义」：端点定义不含凭证，导出即备份与分享的那一步。
+  // ComfyUI 端点的导出在它自己的详情里，导的是带着当前节点绑定的那份草稿。
+  const exportable: AnyEndpointDefinition | null = draft;
+
   const handleExport = useCallback(() => {
-    if (!draft) return;
-    const blob = new Blob([JSON.stringify(draft, null, 2)], { type: "application/json" });
-    downloadBlob(blob, definitionFileName(draft));
-  }, [draft]);
+    if (exportable) exportEndpointDefinition(exportable, installation?.slug);
+  }, [exportable, installation]);
 
   const handleCopyAsMine = useCallback(async () => {
     if (!draft) return;
@@ -260,27 +287,105 @@ export function EndpointDetail({
   const title =
     selection.mode === "new"
       ? t("ce_new_endpoint")
-      : selection.mode === "custom"
-        ? selection.record.display_name || t("ce_unnamed")
-        : (selection.descriptor.display_name ?? t(selection.descriptor.display_name_key));
+      : savedRecord
+        ? savedRecord.display_name || t("ce_unnamed")
+        : selection.mode === "builtin" || selection.mode === "python"
+          ? (selection.descriptor.display_name ?? t(selection.descriptor.display_name_key))
+          : t("ce_unnamed");
 
-  const endpointKey = selection.mode === "custom" ? selection.record.key : selection.mode === "new" ? null : selection.descriptor.key;
+  const endpointKey = savedRecord
+    ? savedRecord.key
+    : selection.mode === "builtin" || selection.mode === "python"
+      ? selection.descriptor.key
+      : null;
+
+  // Python 内置端点没有可展示的定义：它由代码实现，只列接口信息。
+  const definitionless = selection.mode === "python";
+
+  const exportButton = exportable !== null && (
+    <button type="button" onClick={handleExport} className={GHOST_BTN_CLS}>
+      <Download className="h-3.5 w-3.5" aria-hidden />
+      {t("ce_export")}
+    </button>
+  );
+
+  const deleteButton = persistedId !== null && (
+    <button
+      type="button"
+      onClick={() => {
+        setDeleteReferences(null);
+        setConfirmDelete(true);
+      }}
+      className={GHOST_BTN_CLS}
+    >
+      <Trash2 className="h-3.5 w-3.5" aria-hidden />
+      {t("common:delete")}
+    </button>
+  );
+
+  const confirmDeleteDialog = (
+    <ConfirmDialog
+      open={confirmDelete}
+      title={t("ce_delete_title")}
+      description={
+        deleteReferences ? (
+          <EndpointReferenceList references={deleteReferences} onNavigateToModel={onNavigateToModel} />
+        ) : (
+          t("ce_delete_desc", { name: title })
+        )
+      }
+      confirmLabel={t("common:delete")}
+      tone="danger"
+      loading={deleting}
+      onConfirm={() => void handleDelete()}
+      onCancel={() => {
+        setConfirmDelete(false);
+        setDeleteReferences(null);
+      }}
+    />
+  );
+
+  // ComfyUI 端点的定义是 workflow 加节点绑定，没有声明式表单的 submit / poll 两节，
+  // 详情与绑定编辑器另有其形；删除入口仍由本组件提供，两种 kind 共用同一条生命周期。
+  if (selection.mode === "comfyui" || selection.mode === "comfyui-draft") {
+    const draftRecord = selection.mode === "comfyui" ? selection.record : selection.draft.record;
+    // 端点测试的凭证来源只列 comfyui 协议的供应商：别的协议的地址与密钥打不到一台 ComfyUI 上。
+    const comfyuiProviders = providers.filter((provider) => provider.discovery_format === "comfyui");
+    return (
+      <>
+        <ComfyuiEndpointDetail
+          record={draftRecord}
+          definition={selection.mode === "comfyui" ? selection.definition : selection.draft.definition}
+          sourceFileName={selection.mode === "comfyui" ? null : selection.draft.fileName}
+          initialInference={selection.mode === "comfyui" ? null : selection.draft.inference}
+          referenceCount={referenceCount}
+          providers={comfyuiProviders}
+          onSaved={onSaved}
+          onReimport={onReimportComfyui}
+          deleteButton={deleteButton}
+        />
+        {confirmDeleteDialog}
+      </>
+    );
+  }
 
   return (
     <div className="px-6 py-6">
       {/* 头部 */}
       <div className="mb-5 flex flex-wrap items-start gap-3">
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2.5">
+          <div className="flex flex-wrap items-center gap-2.5">
             <h2 className="font-editorial text-[20px] text-text">{title}</h2>
             <KindBadge selection={selection} />
+            {installation && <MarketInstallBadges state={installation.state} modified={installation.modified} />}
           </div>
-          <div className="mt-1 flex items-center gap-2.5 text-[12px] text-text-3">
+          <div className="mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-[12px] text-text-3">
             {draft && (
-              <span>
+              <span className="whitespace-nowrap">
                 {draft.meta.author} · v{draft.meta.version}
               </span>
             )}
+            {installation && <MarketOrigin installation={installation} />}
             {referenceCount > 0 && <span>{t("ce_reference_count", { n: referenceCount })}</span>}
           </div>
         </div>
@@ -297,29 +402,34 @@ export function EndpointDetail({
           </button>
         )}
 
+        {installation?.state === "update_available" && (
+          <button
+            type="button"
+            onClick={() => draft && onUpdateFromMarket(installation, draft, dirty || jsonIssue !== null)}
+            disabled={marketUpdatePending || !draft}
+            className={GHOST_BTN_CLS}
+          >
+            {marketUpdatePending ? (
+              <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin" aria-hidden />
+            ) : (
+              <RefreshCw className="h-3.5 w-3.5" aria-hidden />
+            )}
+            {t("market_update")}
+          </button>
+        )}
+
         {editable ? (
           <>
-            <button type="button" onClick={handleExport} disabled={!draft} className={GHOST_BTN_CLS}>
-              <Download className="h-3.5 w-3.5" aria-hidden />
-              {t("ce_export")}
-            </button>
-            {persistedId !== null && (
-              <button
-                type="button"
-                onClick={() => {
-                  setDeleteReferences(null);
-                  setConfirmDelete(true);
-                }}
-                className={GHOST_BTN_CLS}
-              >
-                <Trash2 className="h-3.5 w-3.5" aria-hidden />
-                {t("common:delete")}
-              </button>
-            )}
+            {exportButton}
+            <a href={MARKET_CONTRIBUTING_URL} target="_blank" rel="noreferrer" className={GHOST_BTN_CLS}>
+              {t("ce_contribute_to_market")}
+              <ExternalLink className="h-3 w-3" aria-hidden />
+            </a>
+            {deleteButton}
             <button
               type="button"
               onClick={() => void handleSave()}
-              disabled={saving || hasErrors || jsonIssue !== null || !dirty}
+              disabled={saving || marketUpdatePending || hasErrors || jsonIssue !== null || !dirty}
               title={hasErrors ? t("ce_save_blocked") : undefined}
               className={ACCENT_BTN_SM_CLS}
               style={ACCENT_BUTTON_STYLE}
@@ -328,18 +438,21 @@ export function EndpointDetail({
               {t("ce_save")}
             </button>
           </>
+        ) : selection.mode === "builtin" ? (
+          <button
+            type="button"
+            onClick={() => void handleCopyAsMine()}
+            disabled={saving || !draft}
+            className={GHOST_BTN_CLS}
+          >
+            <Copy className="h-3.5 w-3.5" aria-hidden />
+            {t("ce_copy_as_mine")}
+          </button>
         ) : (
-          selection.mode === "builtin" && (
-            <button
-              type="button"
-              onClick={() => void handleCopyAsMine()}
-              disabled={saving || !draft}
-              className={GHOST_BTN_CLS}
-            >
-              <Copy className="h-3.5 w-3.5" aria-hidden />
-              {t("ce_copy_as_mine")}
-            </button>
-          )
+          <>
+            {exportButton}
+            {deleteButton}
+          </>
         )}
       </div>
 
@@ -362,7 +475,7 @@ export function EndpointDetail({
         </p>
       )}
 
-      {selection.mode !== "python" && !draft && !loadError && (
+      {!definitionless && !draft && !loadError && (
         <div className="flex items-center gap-2 py-8 text-text-3">
           <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin text-accent-2" aria-hidden />
           <span className="font-mono text-[11px] uppercase tracking-[0.14em]">
@@ -371,7 +484,7 @@ export function EndpointDetail({
         </div>
       )}
 
-      {draft && selection.mode !== "python" && (
+      {draft && !definitionless && (
         <>
           {editable && validation && (
             <EndpointDiagnostics
@@ -405,7 +518,7 @@ export function EndpointDetail({
             <div>
               <textarea
                 value={jsonText}
-                readOnly={!editable}
+                readOnly={readOnly}
                 spellCheck={false}
                 aria-label={t("ce_view_json")}
                 aria-invalid={jsonIssue !== null || undefined}
@@ -436,47 +549,14 @@ export function EndpointDetail({
             </div>
           ) : (
             <VariableInsertionProvider key={formEpoch}>
-              <EndpointForm definition={draft} onChange={setDraft} readOnly={!editable} />
+              <EndpointForm definition={draft} onChange={setDraft} readOnly={readOnly} />
               <EndpointTestSection definition={draft} providers={providers} />
             </VariableInsertionProvider>
           )}
         </>
       )}
 
-      <ConfirmDialog
-        open={confirmDelete}
-        title={t("ce_delete_title")}
-        description={
-          deleteReferences ? (
-            <div>
-              <p>{t("ce_delete_blocked")}</p>
-              <ul className="mt-2 space-y-1">
-                {deleteReferences.map((reference) => (
-                  <li key={`${reference.provider_id}:${reference.model_id}`}>
-                    <button
-                      type="button"
-                      onClick={() => onNavigateToModel(reference)}
-                      className="text-left text-accent-2 underline decoration-accent/40 underline-offset-2 hover:text-accent"
-                    >
-                      {reference.provider_display_name} · {reference.model_display_name} — {t("ce_go_to_model")}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ) : (
-            t("ce_delete_desc", { name: title })
-          )
-        }
-        confirmLabel={t("common:delete")}
-        tone="danger"
-        loading={deleting}
-        onConfirm={() => void handleDelete()}
-        onCancel={() => {
-          setConfirmDelete(false);
-          setDeleteReferences(null);
-        }}
-      />
+      {confirmDeleteDialog}
     </div>
   );
 }

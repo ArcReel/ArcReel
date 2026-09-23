@@ -48,7 +48,7 @@
     "should_trigger": false
   },
   {
-    "query": "帮我修一下 lib/script_generator.py 里的 _parse_response 方法，JSON 解析有 bug",
+    "query": "帮我修一下 lib/script/script_generator.py 里的 _parse_response 方法，JSON 解析有 bug",
     "should_trigger": false
   },
   {

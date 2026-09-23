@@ -7,10 +7,10 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from PIL import Image
 
-from lib.artifact_activation import activate_artifact_target_state
+from lib.artifacts.artifact_activation import activate_artifact_target_state
 from lib.config.resolver import ConfigResolver, ProviderModel
 from lib.i18n import _ as i18n_message
-from lib.project_migrations.runner import migrate_project_dir
+from lib.project.project_migrations.runner import migrate_project_dir
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import generate
@@ -36,7 +36,7 @@ def _project_dict() -> dict:
         "style": "anime",
         "style_description": "anime style",
         "aspect_ratio": "9:16",
-        "episodes": [{"episode": 1, "script_file": "episode_1.json"}],
+        "episodes": [{"episode": 1, "script_file": "scripts/episode_1.json"}],
         "characters": {"Alice": {"description": "少女", "character_sheet": "characters/Alice.png"}},
         "scenes": {"祠堂": {"description": "祠堂", "scene_sheet": "scenes/祠堂.png"}},
         "props": {"玉佩": {"description": "玉佩", "prop_sheet": "props/玉佩.png"}},
@@ -208,7 +208,7 @@ class TestEditImageEnqueue:
 
 class TestEditImageValidation:
     def test_active_asset_without_a_manifest_claim_is_not_enqueued(self, tmp_path, monkeypatch):
-        from lib.artifact_manifest import ArtifactComparison, ArtifactKey, ArtifactStatus
+        from lib.artifacts.artifact_manifest import ArtifactComparison, ArtifactKey, ArtifactStatus
 
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)

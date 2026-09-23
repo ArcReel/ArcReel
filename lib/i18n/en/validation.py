@@ -163,6 +163,8 @@ MESSAGES = {
     ),
     "arch_non_standard_entry_excluded": "Non-standard top-level directory/file '{entry}' was excluded from the export",
     "arch_invalid_project_json": "Cannot parse {file}: {path}",
+    "arch_version_history_malformed": "{location}: the version history is not in the expected format",
+    "arch_version_snapshot_path_unmanaged": "{location}: a version record's snapshot path is outside the version directory of its resource type",
     "arch_script_file_repaired": "{location}: automatically repaired to {path}",
     "arch_missing_script_file_pending": "{location}: script not generated yet: {path}",
     "arch_missing_script_file": "{location}: referenced file does not exist: {path}",
@@ -234,7 +236,10 @@ MESSAGES = {
     "val_ce_removed_reason_extract_source": "extraction always starts at the response body; HTTP status is not a path",
     "val_ce_removed_reason_extract_usage_keys": "usage now lives under poll.extract.usage",
     "val_ce_removed_reason_mime_types": "asset formats are not allow-listed; the provider rejects what it cannot take",
-    "val_ce_removed_reason_media_type": "video is the only media type in this release",
+    "val_ce_removed_reason_media_type": "a declarative endpoint is always video, so the media type cannot be declared",
+    "val_ce_removed_reason_comfyui_capabilities": (
+        "a ComfyUI endpoint derives its capabilities from the node bindings, so the definition holds no declaration"
+    ),
     "val_ce_malformed_placeholder": (
         "{fragment} is not a valid placeholder: only bare variables are supported "
         "(such as prompt or inputs.first_frame) — no filters, indexes or expressions, "
@@ -260,6 +265,7 @@ MESSAGES = {
         "The URL already carries the query parameter {param} declared in auth.query: "
         "only the auth section may write credential query parameters"
     ),
+    "val_ce_auth_query_reserved": "auth.query entry {param} collides with a parameter the artifact download already carries; the credential is overwritten at download time, so pick another name",
     "val_ce_task_id_out_of_scope": "task_id is only available in the poll and result sections",
     "val_ce_result_id_out_of_scope": "result_id is only available in the result section",
     "val_ce_result_id_without_extract": "result_id is referenced but poll.extract does not declare result_id",
@@ -332,9 +338,116 @@ MESSAGES = {
     "val_ce_enum_map_value_missing": "enum_maps.{name} has no entry for '{value}'",
     "val_ce_template_text_variable_null": "Variable {name} is null and cannot be embedded in text",
     "val_ce_each_value_not_list": "$each.in points at {name}, whose runtime value is not a list",
+    # ---- ComfyUI endpoint: node bindings and import routing ----
+    "val_ce_comfyui_binding_required": (
+        "{binding_key} must be bound to a node before this endpoint can be saved: "
+        "the prompt decides what is drawn, the output decides which file is taken"
+    ),
+    "val_ce_comfyui_binding_key_not_allowed": (
+        "A {media_type} endpoint has no {binding_key} binding; available keys: {allowed}"
+    ),
+    "val_ce_comfyui_node_not_found": (
+        "The workflow has no node {node}: node ids change whenever the workflow is edited, "
+        "so re-import it and confirm the node bindings"
+    ),
+    "val_ce_comfyui_input_not_found": "Node {node} has no input named {input}",
+    "val_ce_comfyui_input_is_link": (
+        "Input {input} of node {node} is wired from an upstream node and would be overwritten at run time; "
+        "bind a literal field instead"
+    ),
+    "val_ce_comfyui_target_collision": (
+        "Input {input} of node {node} is already where {owner} is written, so {binding_key} cannot write the "
+        "same field: whichever is filled last overwrites the other"
+    ),
+    "val_ce_comfyui_class_type_mismatch": (
+        "The entry records node {node} as a {class_type}, but the workflow now has it as {actual}: rematching "
+        "identifies nodes by type, so a mismatch moves the binding elsewhere. Re-import and confirm the bindings"
+    ),
+    "val_ce_comfyui_consumer_not_fed": (
+        "The flow from reference image node {node} never reaches input {input} of node {consumer}: with the wrong "
+        "consumer recorded, a request with fewer images would rewire an unrelated input"
+    ),
+    "val_ce_comfyui_fps_conflict": (
+        "The frame rate has several conflicting sources ({values}): converting a duration into a frame count needs "
+        "exactly one frame rate, so keep only one of them"
+    ),
+    "val_ce_comfyui_ui_format_workflow": (
+        "This is a ComfyUI UI-format workflow and cannot be submitted; export it with Export (API) in ComfyUI instead"
+    ),
+    # ---- ComfyUI endpoint: node binding inference signals and hints ----
+    "val_ce_infer_manual_binding": "A saved node binding; the target the user already confirmed is kept",
+    "val_ce_infer_title_marker": "The node title carries an ARCREEL: marker",
+    "val_ce_infer_external_node_family": "A {family} parameter node declaring the parameter {parameter}",
+    "val_ce_infer_sampler_port_trace": "Traced back from the {port} conditioning port of node {node}",
+    "val_ce_infer_alias_with_class_type": "{class_type} commonly carries this semantic",
+    "val_ce_infer_alias_only": "The input name {input} is a common name for this semantic",
+    "val_ce_infer_link_trace": "Its output feeds input {input} of node {consumer}",
+    "val_ce_infer_class_type_tier": "{class_type} is the more reliable carrier among the candidates",
+    "val_ce_infer_output_chain": "It sits on the chain that produces the final output",
+    "val_ce_infer_title_polarity": "The node title \u201c{title}\u201d points at this polarity",
+    "val_ce_infer_note_reference_consumer_unknown": (
+        "Reference images feed input {input} of node {node} ({class_type}); that input cannot be rewired when "
+        "fewer images are supplied, so the last image is repeated to fill the remaining slots"
+    ),
+    "val_ce_infer_note_batch_size_above_one": (
+        "Input {input} of node {node} ({class_type}) is {value}, so one submission yields several images; "
+        "ArcReel does not change this value"
+    ),
+    "val_ce_infer_note_manual_only_node": (
+        "Node {node} is a {class_type}; the {binding_keys} it carries cannot be inferred, so bind them by hand"
+    ),
+    "val_ce_infer_note_computed_source": (
+        "The {binding_key} candidate lands on input {input} of node {node}, but its value is computed upstream "
+        "and cannot be written; specify it by hand"
+    ),
+    "val_ce_infer_note_rematched": "The {binding_key} entries were rematched to node {nodes}",
+    "val_ce_infer_note_binding_lost": (
+        "The {binding_key} entries have no target in the new workflow (previously node {nodes}); "
+        "inference was re-run, please confirm"
+    ),
+    "val_ce_infer_note_target_taken": (
+        "The {binding_key} candidate lands on input {input} of node {node}, which {others} also writes to; "
+        "one field can carry only one binding, so it was dropped from the {binding_key} candidates"
+    ),
     "val_ce_poll_without_task_id": "The polling request never references task_id; confirm that this is intended",
     "val_ce_jsonpath_wildcard_order": (
         "{path_expression} uses a wildcard: an object wildcard takes the first member only, "
         "and key order may differ between the preview and the backend"
     ),
+    # ---- market source checks ----
+    "val_market_index_unreadable": "Cannot read the index file: {detail}",
+    "val_market_unsupported_schema_version": "Index schema_version {version} is newer than the supported {supported}",
+    "val_market_missing_field": "Missing required field: {field}",
+    "val_market_invalid_type": "Wrong type; expected {expected}",
+    "val_market_invalid_value": "Value violates constraint {keyword}: {constraint}",
+    "val_market_slug_invalid": (
+        'Invalid slug "{value}": use lowercase letters, digits and hyphens, '
+        "start with a letter or digit, at most 64 characters"
+    ),
+    "val_market_slug_duplicate": 'Slug "{slug}" is used more than once in this market source',
+    "val_market_slug_directory_mismatch": 'Slug "{slug}" does not match the definition directory "{directory}"',
+    "val_market_path_not_relative": (
+        '"{value}" must be a relative path inside the market source: '
+        "no leading / or scheme, no .., and it must not point outside the source"
+    ),
+    "val_market_file_missing": "Referenced file does not exist: {value}",
+    "val_market_symlink_not_allowed": (
+        '"{value}" is a symbolic link: clients fetching via GitHub raw receive the link target path text, '
+        "so use a regular file or directory instead"
+    ),
+    "val_market_icon_format_invalid": "The icon must be a readable PNG, WebP or SVG whose extension matches its content",
+    "val_market_icon_too_large": "The icon is {size} bytes, over the {limit}-byte limit",
+    "val_market_icon_not_square": "The icon must be square; it is {width}×{height}",
+    "val_market_icon_ambiguous": "An entry directory may contain only one icon file; found: {icons}",
+    "val_market_definition_unreadable": "Cannot read the definition: {detail}",
+    "val_market_definition_invalid": "The definition failed validation ({code}): {detail}",
+    "val_market_projection_mismatch": (
+        'Index field {field} is "{index_value}", which differs from "{definition_value}" in the definition meta'
+    ),
+    "val_market_min_app_version_invalid": 'min_app_version "{value}" is not semver (x.y.z)',
+    "val_market_detail_meta_not_object": "The definition has no meta object",
+    "val_market_cli_check_passed": "Market source check passed: {directory}",
+    "val_market_cli_check_failed": "Market source check failed with {count} issue(s)",
+    "val_market_cli_generate_written": "Wrote {path} ({count} entries)",
+    "val_market_cli_generate_failed": "Cannot generate the index: {count} issue(s)",
 }

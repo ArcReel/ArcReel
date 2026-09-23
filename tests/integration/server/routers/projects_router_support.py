@@ -13,8 +13,8 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from pydantic import BaseModel
 
-from lib.project_manager import EmptySourceError
-from lib.script_batch_edit import (
+from lib.project.project_manager import EmptySourceError
+from lib.script.script_batch_edit import (
     InsertAfterOperation,
     MoveAfterOperation,
     RemoveOperation,
@@ -23,9 +23,9 @@ from lib.script_batch_edit import (
     ScriptBatchEditResult,
     script_revision,
 )
-from lib.script_editor import ScriptEditError, patch_field, resolve_items
-from lib.speech_composition import admit_script_unit
-from lib.workflow_state import ArtifactCount, EpisodesSummary, EpisodeSummary, ProjectSummary
+from lib.script.script_editor import ScriptEditError, patch_field, resolve_items
+from lib.speech.speech_composition import admit_script_unit
+from lib.workflow.workflow_state import ArtifactCount, EpisodesSummary, EpisodeSummary, ProjectSummary
 
 
 class _OverviewProbe(BaseModel):
@@ -172,7 +172,7 @@ class _FakePM:
         }
         if content_mode == "ad":
             # 镜像真实 ProjectManager 的 ad 形状：常量直接取自生产代码，避免第二份真相
-            from lib.project_manager import ProjectManager
+            from lib.project.project_manager import ProjectManager
 
             payload["target_duration"] = (
                 target_duration if target_duration is not None else ProjectManager.AD_DEFAULT_TARGET_DURATION

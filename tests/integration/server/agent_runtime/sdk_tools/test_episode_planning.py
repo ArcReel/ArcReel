@@ -7,7 +7,7 @@ from typing import Any
 
 import pytest
 
-from lib.episode_target_volume import EpisodeTargetVolume
+from lib.episode.episode_target_volume import EpisodeTargetVolume
 from server.media_tools.context import ToolContext
 from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
     call,
@@ -42,7 +42,7 @@ def _fake_planner_cls(result: Any, captured: dict[str, Any] | None = None):
 
 
 async def test_plan_episodes_happy(fake_ctx: ToolContext, monkeypatch) -> None:
-    from lib.episode_planner import EpisodePlanSummary, PlanResult
+    from lib.episode.episode_planner import EpisodePlanSummary, PlanResult
     from server.agent_runtime.sdk_tools import episode_planning as mod
 
     captured: dict[str, Any] = {}
@@ -72,7 +72,7 @@ async def test_plan_episodes_happy(fake_ctx: ToolContext, monkeypatch) -> None:
 
 async def test_plan_episodes_forwards_instructions(fake_ctx: ToolContext, monkeypatch) -> None:
     """用户分集偏好经 instructions 透传给 EpisodePlanner.plan（strip 后非空）。"""
-    from lib.episode_planner import EpisodePlanSummary, PlanResult
+    from lib.episode.episode_planner import EpisodePlanSummary, PlanResult
     from server.agent_runtime.sdk_tools import episode_planning as mod
 
     captured: dict[str, Any] = {}
@@ -91,7 +91,7 @@ async def test_plan_episodes_forwards_instructions(fake_ctx: ToolContext, monkey
 
 async def test_plan_episodes_blank_instructions_treated_as_none(fake_ctx: ToolContext, monkeypatch) -> None:
     """纯空白 instructions 视同未传：透传 None，与不传逐字一致。"""
-    from lib.episode_planner import PlanResult
+    from lib.episode.episode_planner import PlanResult
     from server.agent_runtime.sdk_tools import episode_planning as mod
 
     captured: dict[str, Any] = {}
@@ -106,7 +106,7 @@ async def test_plan_episodes_blank_instructions_treated_as_none(fake_ctx: ToolCo
 
 async def test_plan_episodes_rejects_non_string_instructions(fake_ctx: ToolContext, monkeypatch) -> None:
     """instructions 传非字符串（如数组）按参数错误上报，不静默吞掉。"""
-    from lib.episode_planner import PlanResult
+    from lib.episode.episode_planner import PlanResult
     from server.agent_runtime.sdk_tools import episode_planning as mod
 
     monkeypatch.setattr(mod, "EpisodePlanner", _fake_planner_cls(PlanResult(episodes=[], cursor=None)))
@@ -118,7 +118,7 @@ async def test_plan_episodes_rejects_non_string_instructions(fake_ctx: ToolConte
 
 async def test_plan_episodes_rejects_overlong_instructions(fake_ctx: ToolContext, monkeypatch) -> None:
     """instructions 超长按参数错误提前拒绝，不注入 prompt。"""
-    from lib.episode_planner import PlanResult
+    from lib.episode.episode_planner import PlanResult
     from server.agent_runtime.sdk_tools import episode_planning as mod
 
     monkeypatch.setattr(mod, "EpisodePlanner", _fake_planner_cls(PlanResult(episodes=[], cursor=None)))
@@ -130,7 +130,7 @@ async def test_plan_episodes_rejects_overlong_instructions(fake_ctx: ToolContext
 
 async def test_plan_episodes_accepts_boundary_length_instructions(fake_ctx: ToolContext, monkeypatch) -> None:
     """instructions 恰好等于上限长度应被接受（覆盖 > 比较的差一边界）。"""
-    from lib.episode_planner import EpisodePlanSummary, PlanResult
+    from lib.episode.episode_planner import EpisodePlanSummary, PlanResult
     from server.agent_runtime.sdk_tools import episode_planning as mod
 
     captured: dict[str, Any] = {}
@@ -164,7 +164,7 @@ async def test_plan_episodes_planner_value_error_not_mislabeled_as_param_error(
 
 
 async def test_plan_episodes_source_exhausted(fake_ctx: ToolContext, monkeypatch) -> None:
-    from lib.episode_planner import PlanResult
+    from lib.episode.episode_planner import PlanResult
     from server.agent_runtime.sdk_tools import episode_planning as mod
 
     result = PlanResult(episodes=[], cursor=None, source_exhausted=True)
@@ -177,7 +177,7 @@ async def test_plan_episodes_source_exhausted(fake_ctx: ToolContext, monkeypatch
 
 async def test_plan_episodes_source_exhausted_includes_ledger_stats(fake_ctx: ToolContext, monkeypatch) -> None:
     """再次调用无新内容（早退路径）：附全局核对材料供主 Agent 核对结构性偏好。"""
-    from lib.episode_planner import LedgerStats, PlanResult
+    from lib.episode.episode_planner import LedgerStats, PlanResult
     from server.agent_runtime.sdk_tools import episode_planning as mod
 
     volume = EpisodeTargetVolume(units=800, unit_noun="字", source="units")
@@ -205,7 +205,7 @@ async def test_plan_episodes_ledger_stats_marks_target_volume_derived_from_durat
     fake_ctx: ToolContext, monkeypatch
 ) -> None:
     """折算而来的目标体量在核对材料里标明来源：主 Agent 不能把估算值当成用户给的硬指标。"""
-    from lib.episode_planner import LedgerStats, PlanResult
+    from lib.episode.episode_planner import LedgerStats, PlanResult
     from server.agent_runtime.sdk_tools import episode_planning as mod
 
     volume = EpisodeTargetVolume(units=450, unit_noun="字", source="duration", seconds=90, units_per_second=5.0)
@@ -225,7 +225,7 @@ async def test_plan_episodes_ledger_stats_marks_target_volume_derived_from_durat
 
 async def test_plan_episodes_normal_batch_reports_total_planned_line_only(fake_ctx: ToolContext, monkeypatch) -> None:
     """常规（非耗尽）批次没有 ledger_stats：只附「累计已规划 N 集」一行，不带全局核对材料。"""
-    from lib.episode_planner import EpisodePlanSummary, PlanResult
+    from lib.episode.episode_planner import EpisodePlanSummary, PlanResult
     from server.agent_runtime.sdk_tools import episode_planning as mod
 
     result = PlanResult(
@@ -248,7 +248,7 @@ async def test_plan_episodes_normal_batch_reports_total_planned_line_only(fake_c
 
 
 async def test_plan_episodes_error_envelope(fake_ctx: ToolContext, monkeypatch) -> None:
-    from lib.episode_planner import EpisodePlanningError
+    from lib.episode.episode_planner import EpisodePlanningError
     from server.agent_runtime.sdk_tools import episode_planning as mod
 
     monkeypatch.setattr(mod, "EpisodePlanner", _fake_planner_cls(EpisodePlanningError("校验耗尽")))
@@ -275,7 +275,7 @@ def _fake_reset(result: Any, captured: dict[str, Any] | None = None):
 
 
 async def test_reset_episode_planning_happy(fake_ctx: ToolContext, monkeypatch) -> None:
-    from lib.episode_reset import EpisodeResetResult
+    from lib.episode.episode_reset import EpisodeResetResult
     from server.agent_runtime.sdk_tools import episode_planning as mod
 
     captured: dict[str, Any] = {}
@@ -298,7 +298,7 @@ async def test_reset_episode_planning_happy(fake_ctx: ToolContext, monkeypatch) 
 
 
 async def test_reset_episode_planning_confirmation_required(fake_ctx: ToolContext, monkeypatch) -> None:
-    from lib.episode_reset import ResetConfirmationRequired
+    from lib.episode.episode_reset import ResetConfirmationRequired
     from server.agent_runtime.sdk_tools import episode_planning as mod
 
     monkeypatch.setattr(
@@ -315,7 +315,7 @@ async def test_reset_episode_planning_confirmation_required(fake_ctx: ToolContex
 
 
 async def test_reset_episode_planning_forwards_confirm(fake_ctx: ToolContext, monkeypatch) -> None:
-    from lib.episode_reset import EpisodeResetResult
+    from lib.episode.episode_reset import EpisodeResetResult
     from server.agent_runtime.sdk_tools import episode_planning as mod
 
     captured: dict[str, Any] = {}
@@ -330,7 +330,7 @@ async def test_reset_episode_planning_forwards_confirm(fake_ctx: ToolContext, mo
 
 async def test_reset_episode_planning_partial_reset_error(fake_ctx: ToolContext, monkeypatch) -> None:
     """部分重置前置校验未通过（如源文指纹不一致）按可读错误返回，不走通用异常兜底。"""
-    from lib.episode_reset import EpisodeResetError
+    from lib.episode.episode_reset import EpisodeResetError
     from server.agent_runtime.sdk_tools import episode_planning as mod
 
     monkeypatch.setattr(
@@ -344,7 +344,7 @@ async def test_reset_episode_planning_partial_reset_error(fake_ctx: ToolContext,
 
 async def test_reset_episode_planning_partial_reset_success_message(fake_ctx: ToolContext, monkeypatch) -> None:
     """部分重置成功时的摘要区分于全量重置：报清空范围与新起点，而非「账本已空」。"""
-    from lib.episode_reset import EpisodeResetResult
+    from lib.episode.episode_reset import EpisodeResetResult
     from server.agent_runtime.sdk_tools import episode_planning as mod
 
     result = EpisodeResetResult(

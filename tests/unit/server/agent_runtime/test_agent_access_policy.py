@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from lib.agent_memory_paths import project_memory_dir, user_memory_dir
+from lib.agent.agent_memory_paths import project_memory_dir, user_memory_dir
 from server.agent_runtime.agent_access_policy import AgentAccessPolicy
 
 #: 逐调用传入的当前用户 id（生产取自 SessionManager 的 CurrentUser 上下文）。
@@ -167,9 +167,9 @@ def test_write_formal_script_plan_denied(policy: AgentAccessPolicy, tool: str, r
 
 
 def test_protected_script_plan_filenames_match_shared_constant() -> None:
-    """写禁清单只认 lib.episode_paths 那一份常量：判定表与文件名真相源分开声明时，
+    """写禁清单只认 lib.episode.episode_paths 那一份常量：判定表与文件名真相源分开声明时，
     改名或新增变体会只落到其中一处，留出「文件已换名、写禁还拦旧名」的静默旁路。"""
-    from lib.episode_paths import AGENT_PROTECTED_SCRIPT_PLAN_FILENAMES
+    from lib.episode.episode_paths import AGENT_PROTECTED_SCRIPT_PLAN_FILENAMES
 
     assert (
         frozenset(

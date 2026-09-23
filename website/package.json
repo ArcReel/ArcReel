@@ -15,7 +15,7 @@
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "check": "pnpm typecheck && pnpm lint && pnpm format:check",
+    "check": "pnpm sync-contributing && pnpm typecheck && pnpm lint && pnpm format:check && pnpm check-consistency",
     "write-translations": "docusaurus write-translations"
   },
   "browserslist": {
@@ -54,5 +54,11 @@
     "prettier": "^3.9.6",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.67.0"
+  },
+  "pnpm": {
+    "overrides": {
+      "qs": "^6.16.0",
+      "serialize-javascript": "^7.0.5"
+    }
   }
 }

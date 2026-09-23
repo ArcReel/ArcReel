@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { API } from "@/api";
 import { DEMO_PROJECT_NAME } from "@/onboarding/demo-project";
@@ -6,7 +6,7 @@ import { useCostStore } from "@/stores/cost-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useTasksStore } from "@/stores/tasks-store";
 import { TimelineCanvas } from "./TimelineCanvas";
-import type { NarrationEpisodeScript, ProjectData, ScriptReviewState } from "@/types";
+import type { NarrationEpisodeScript, ProjectData } from "@/types";
 
 vi.mock("./ScriptReviewGate", async () => {
   const { scriptReviewGateMock } = await import("@/__mocks__/ScriptReviewGate");
@@ -16,18 +16,24 @@ vi.mock("./ShotSplitView", () => ({
   ShotSplitView: ({
     onUpdatePrompt,
     onGenerateNarration,
-    staleEntryIds,
+    onInsertShot,
+    onRemoveShot,
   }: {
     onUpdatePrompt?: unknown;
     onGenerateNarration?: unknown;
-    staleEntryIds?: ReadonlySet<string>;
+    onInsertShot?: (afterId: string, novelText?: string) => Promise<boolean>;
+    onRemoveShot?: (itemId: string) => Promise<boolean>;
   }) => (
     <div
       data-testid="shot-split-view"
       data-can-update-prompt={onUpdatePrompt ? "yes" : "no"}
       data-can-generate-narration={onGenerateNarration ? "yes" : "no"}
-      data-stale-ids={[...(staleEntryIds ?? [])].join(",")}
-    />
+      data-can-insert-shot={onInsertShot ? "yes" : "no"}
+      data-can-remove-shot={onRemoveShot ? "yes" : "no"}
+    >
+      <button type="button" onClick={() => void onInsertShot?.("SEG-1", "风停了。")}>insert</button>
+      <button type="button" onClick={() => void onRemoveShot?.("SEG-1")}>remove</button>
+    </div>
   ),
 }));
 vi.mock("./EpisodeHeader", async () => {
@@ -69,27 +75,10 @@ function makeScript(): NarrationEpisodeScript {
   };
 }
 
-function makeReviewState(stale: string[]): ScriptReviewState {
-  return {
-    episode: 1,
-    content_mode: "narration",
-    status: "confirmed",
-    fingerprint: "fp1",
-    confirmed_at: "2026-06-26T00:00:00Z",
-    quarantine: null,
-    supported_durations: null,
-    duration_tiers: null,
-    episode_target_duration: null,
-    content: null,
-    script_entry_currency: { stale, added: [], removed: [], order_changed: false },
-  };
-}
-
 describe("TimelineCanvas", () => {
   beforeEach(() => {
     useCostStore.setState(useCostStore.getInitialState(), true);
     useTasksStore.setState(useTasksStore.getInitialState(), true);
-    vi.spyOn(API, "getScriptReview").mockResolvedValue(makeReviewState([]));
     vi.spyOn(API, "getCostEstimate").mockResolvedValue({
       project_name: "demo",
       models: { image: { provider: "p", model: "m" }, video: { provider: "p", model: "m" } },
@@ -140,10 +129,9 @@ describe("TimelineCanvas", () => {
     expect(screen.queryByTestId("shot-split-view")).not.toBeInTheDocument();
   });
 
-  it("passes the stale entry ids from the review state down to the shot view", async () => {
-    vi.spyOn(API, "getScriptReview").mockResolvedValue(makeReviewState(["SEG-1"]));
-    useProjectsStore.setState({ currentProjectName: "demo" });
-
+  it("forwards shot insert and remove with the active episode script file", () => {
+    const onInsertShot = vi.fn().mockResolvedValue(true);
+    const onRemoveShot = vi.fn().mockResolvedValue(true);
     render(
       <TimelineCanvas
         projectName="demo"
@@ -152,12 +140,16 @@ describe("TimelineCanvas", () => {
         episodeScript={makeScript()}
         scriptFile="scripts/episode_1.json"
         projectData={makeProjectData()}
-        onUpdatePrompt={vi.fn()}
+        onInsertShot={onInsertShot}
+        onRemoveShot={onRemoveShot}
       />,
     );
 
-    await waitFor(() => expect(screen.getByTestId("shot-split-view")).toHaveAttribute("data-stale-ids", "SEG-1"));
-    expect(API.getScriptReview).toHaveBeenCalledWith("demo", 1, expect.anything());
+    fireEvent.click(screen.getByRole("button", { name: "insert" }));
+    fireEvent.click(screen.getByRole("button", { name: "remove" }));
+
+    expect(onInsertShot).toHaveBeenCalledWith("SEG-1", "风停了。", "scripts/episode_1.json");
+    expect(onRemoveShot).toHaveBeenCalledWith("SEG-1", "scripts/episode_1.json");
   });
 
   it("shows the select-episode hint when there is no project data and no draft", () => {
@@ -190,6 +182,8 @@ describe("TimelineCanvas", () => {
           projectData={makeProjectData()}
           onUpdatePrompt={vi.fn()}
           onMoveShot={vi.fn()}
+          onInsertShot={vi.fn()}
+          onRemoveShot={vi.fn()}
           onGenerateNarration={vi.fn()}
           onGenerateEpisodeNarration={vi.fn()}
           onSaveTitle={vi.fn()}
@@ -205,6 +199,8 @@ describe("TimelineCanvas", () => {
 
       const shotView = screen.getByTestId("shot-split-view");
       expect(shotView).toHaveAttribute("data-can-update-prompt", "no");
+      expect(shotView).toHaveAttribute("data-can-insert-shot", "no");
+      expect(shotView).toHaveAttribute("data-can-remove-shot", "no");
       expect(shotView).toHaveAttribute("data-can-generate-narration", "no");
       expect(screen.getByTestId("episode-header")).toHaveAttribute("data-can-edit-title", "no");
       expect(screen.queryByRole("button", { name: "生成全集旁白配音" })).not.toBeInTheDocument();
@@ -217,6 +213,8 @@ describe("TimelineCanvas", () => {
 
       const shotView = screen.getByTestId("shot-split-view");
       expect(shotView).toHaveAttribute("data-can-update-prompt", "yes");
+      expect(shotView).toHaveAttribute("data-can-insert-shot", "yes");
+      expect(shotView).toHaveAttribute("data-can-remove-shot", "yes");
       expect(shotView).toHaveAttribute("data-can-generate-narration", "yes");
       expect(screen.getByTestId("episode-header")).toHaveAttribute("data-can-edit-title", "yes");
       expect(screen.getByRole("button", { name: "生成全集旁白配音" })).toBeInTheDocument();

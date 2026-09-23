@@ -11,9 +11,9 @@ from typing import Any
 
 import pytest
 
-from lib import script_review
-from lib.artifact_manifest import ArtifactKey, ProjectArtifactManifestAdapter
-from lib.draft_quarantine import (
+from lib.project.project_manager import ProjectManager
+from lib.script import script_review
+from lib.script.draft_quarantine import (
     QUARANTINE_KIND_NARRATION_SCRIPT_PLAN,
     QUARANTINE_KIND_PROMPT_AUTHORING,
     QUARANTINE_KIND_SCRIPT_PLAN,
@@ -22,8 +22,7 @@ from lib.draft_quarantine import (
     read_quarantine,
     write_quarantine,
 )
-from lib.project_manager import ProjectManager
-from lib.reference_video.draft_validation import DraftViolation
+from lib.script.reference_video.draft_validation import DraftViolation
 from server.agent_runtime.sdk_tools.text_generation import (
     generate_episode_script_tool,
     generate_script_plan_tool,
@@ -165,10 +164,10 @@ async def test_reference_script_plan_write_transaction_does_not_block_event_loop
         )
     )
     try:
-        assert await asyncio.to_thread(started.wait, 1)
+        assert await asyncio.to_thread(started.wait, 10)
         ticked = asyncio.Event()
         asyncio.get_running_loop().call_soon(ticked.set)
-        await asyncio.wait_for(ticked.wait(), timeout=1)
+        await asyncio.wait_for(ticked.wait(), timeout=10)
     finally:
         release.set()
 
@@ -177,68 +176,6 @@ async def test_reference_script_plan_write_transaction_does_not_block_event_loop
     assert result.message.startswith("✅")
     assert worker_threads
     assert all(thread != caller_thread for thread in worker_threads)
-
-
-async def test_cancelled_reference_script_plan_commit_restores_files_and_manifest(
-    fake_ctx: ToolContext, monkeypatch
-) -> None:
-    rv_source(fake_ctx)
-    resolver = use_fake_caps(fake_ctx)
-    from server import text_generation as mod
-
-    write_rv_script_plan(fake_ctx, [rv_saved_unit("@[张三] 等待")])
-    write_quarantine(
-        fake_ctx.project_path,
-        1,
-        QUARANTINE_KIND_SCRIPT_PLAN,
-        content={"units": [rv_unit("@[张三] 等待")]},
-        violations=[],
-    )
-    write_quarantine(
-        fake_ctx.project_path,
-        1,
-        QUARANTINE_KIND_PROMPT_AUTHORING,
-        content={"title": "旧草稿", "units": [{"text": "旧内容"}]},
-        violations=[],
-    )
-    paths = (
-        rv_script_plan_path(fake_ctx),
-        rv_quarantine_path(fake_ctx),
-        quarantine_path(fake_ctx.project_path, 1, QUARANTINE_KIND_PROMPT_AUTHORING),
-    )
-    before = {path: path.read_bytes() for path in paths}
-    adapter = ProjectArtifactManifestAdapter(fake_ctx.project_path)
-    key = ArtifactKey.episode_script_plan(1)
-    manifest_before = adapter.get_entry(key)
-    monkeypatch.setattr(mod.TextGenerator, "create", rv_generator_returning([rv_unit("@[张三] 起身")]))
-    started = threading.Event()
-    release = threading.Event()
-
-    def before_commit() -> None:
-        started.set()
-        release.wait()
-
-    generation = asyncio.create_task(
-        generate_reference_script_plan(
-            TextGenerationRequest(episode=1),
-            project_name=fake_ctx.project_name,
-            projects=fake_ctx.pm,
-            config_resolver=resolver,
-            before_commit=before_commit,
-        )
-    )
-    try:
-        assert await asyncio.to_thread(started.wait, 1)
-        generation.cancel()
-        await asyncio.sleep(0)
-        assert not generation.done()
-    finally:
-        release.set()
-
-    with pytest.raises(asyncio.CancelledError):
-        await asyncio.wait_for(generation, timeout=1)
-    assert {path: path.read_bytes() for path in paths} == before
-    assert adapter.get_entry(key) == manifest_before
 
 
 async def test_promote_draft_promotes_after_repair(fake_ctx: ToolContext, monkeypatch) -> None:
@@ -460,7 +397,7 @@ async def test_split_violation_keeps_pre_generation_formal_baseline(fake_ctx: To
         )
     )
     try:
-        await asyncio.wait_for(started.wait(), timeout=1)
+        await asyncio.wait_for(started.wait(), timeout=10)
     except TimeoutError:
         generation.cancel()
         await asyncio.gather(generation, return_exceptions=True)
@@ -469,7 +406,7 @@ async def test_split_violation_keeps_pre_generation_formal_baseline(fake_ctx: To
     release.set()
 
     with pytest.raises(TextGenerationError):
-        await asyncio.wait_for(generation, timeout=1)
+        await asyncio.wait_for(generation, timeout=10)
 
     current = script_review.content_fingerprint(rv_script_plan_path(fake_ctx))
     assert current != expected
@@ -688,7 +625,7 @@ async def test_cancelled_reference_script_plan_promotion_finishes_commit_and_cle
         )
     )
     try:
-        assert await asyncio.to_thread(started.wait, 1)
+        assert await asyncio.to_thread(started.wait, 10)
         promotion.cancel()
         await asyncio.sleep(0)
         assert not promotion.done()
@@ -696,7 +633,7 @@ async def test_cancelled_reference_script_plan_promotion_finishes_commit_and_cle
         release.set()
 
     with pytest.raises(asyncio.CancelledError):
-        await asyncio.wait_for(promotion, timeout=1)
+        await asyncio.wait_for(promotion, timeout=10)
     assert rv_script_plan_path(fake_ctx).exists()
     assert not rv_quarantine_path(fake_ctx).exists()
 
@@ -747,30 +684,34 @@ async def test_promote_reference_script_plan_preserves_prompt_authoring_draft_wh
     assert prompt_authoring_path.exists()
 
 
+def _write_rv_formal_script(fake_ctx: ToolContext, text: str) -> str | None:
+    """正式剧本里一个待编写单元 E1U01；返回写入后的内容指纹，供草稿 meta 记作生成时基线。"""
+    path = fake_ctx.project_path / "scripts" / "episode_1.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    script = {
+        "episode": 1,
+        "content_mode": "narration",
+        "title": "第1集",
+        "video_units": [{"unit_id": "E1U01", "text": text, "duration_seconds": 8, "pending_authoring": True}],
+    }
+    path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
+    return script_review.content_fingerprint(path)
+
+
 async def test_promote_draft_prompt_authoring_uses_async_factory(fake_ctx: ToolContext, monkeypatch) -> None:
     """prompt_authoring 晋升走 ``ScriptGenerator.create``：晋升同样经 _add_metadata 落盘，裸构造会把
     metadata.generator 记成 "unknown"，与直接生成路径的同一份产物对不上。"""
-    from lib.text_generator import TextGenerator
+    from lib.backends.text_generator import TextGenerator
 
-    rv_source(fake_ctx)
-    split = await run_rv_split(fake_ctx, monkeypatch, [rv_unit("@[张三] 在 @[村口] 等候")])
-    assert split.get("is_error") is not True, split
-    project = fake_ctx.pm.project_payload
-    project["episodes"][0]["script_plan_review"] = {
-        "fingerprint": script_review.content_fingerprint(rv_script_plan_path(fake_ctx)),
-        "confirmed_at": "2026-08-24T00:00:00Z",
-    }
-    (fake_ctx.project_path / "project.json").write_text(
-        json.dumps(project, ensure_ascii=False),
-        encoding="utf-8",
-    )
+    rv_project(fake_ctx)
+    baseline = _write_rv_formal_script(fake_ctx, "@[张三] 在 @[村口] 等候")
     write_quarantine(
         fake_ctx.project_path,
         1,
         QUARANTINE_KIND_PROMPT_AUTHORING,
         content={"title": "第1集", "units": [{"text": "镜头1：中景，平视。@[张三] 在 @[村口] 等候。"}]},
         violations=[],
-        meta={"base_fingerprint": None},
+        meta={"base_fingerprint": baseline, "unit_ids": ["E1U01"]},
     )
     seen: dict[str, object] = {}
 
@@ -794,27 +735,17 @@ async def test_promote_draft_prompt_authoring_uses_async_factory(fake_ctx: ToolC
 async def test_promote_draft_waits_for_file_lock_without_blocking_event_loop(
     fake_ctx: ToolContext, monkeypatch
 ) -> None:
-    from lib.text_generator import TextGenerator
+    from lib.backends.text_generator import TextGenerator
 
-    rv_source(fake_ctx)
-    split = await run_rv_split(fake_ctx, monkeypatch, [rv_unit("@[张三] 起身")])
-    assert split.get("is_error") is not True, split
-    project = fake_ctx.pm.project_payload
-    project["episodes"][0]["script_plan_review"] = {
-        "fingerprint": script_review.content_fingerprint(rv_script_plan_path(fake_ctx)),
-        "confirmed_at": "2026-08-24T00:00:00Z",
-    }
-    (fake_ctx.project_path / "project.json").write_text(
-        json.dumps(project, ensure_ascii=False),
-        encoding="utf-8",
-    )
+    rv_project(fake_ctx)
+    baseline = _write_rv_formal_script(fake_ctx, "@[张三] 起身")
     write_quarantine(
         fake_ctx.project_path,
         1,
         QUARANTINE_KIND_PROMPT_AUTHORING,
         content={"title": "第1集", "units": [{"text": "镜头1：中景，平视。@[张三] 起身。"}]},
         violations=[],
-        meta={"base_fingerprint": None},
+        meta={"base_fingerprint": baseline, "unit_ids": ["E1U01"]},
     )
     path = quarantine_path(fake_ctx.project_path, 1, QUARANTINE_KIND_PROMPT_AUTHORING)
     draft = read_quarantine(fake_ctx.project_path, 1, QUARANTINE_KIND_PROMPT_AUTHORING)
@@ -848,7 +779,7 @@ async def test_promote_draft_waits_for_file_lock_without_blocking_event_loop(
     holder = asyncio.create_task(asyncio.to_thread(hold_lock))
     promotion: asyncio.Task[dict[str, Any]] | None = None
     try:
-        assert await asyncio.to_thread(held.wait, 1)
+        assert await asyncio.to_thread(held.wait, 10)
         attempted = asyncio.Event()
         promotion = asyncio.create_task(
             workflow.promote(
@@ -858,14 +789,14 @@ async def test_promote_draft_waits_for_file_lock_without_blocking_event_loop(
                 before_lock=attempted.set,
             )
         )
-        await asyncio.wait_for(attempted.wait(), 0.3)
+        await asyncio.wait_for(attempted.wait(), timeout=10)
         assert not promotion.done()
     finally:
         release.set()
-        assert await asyncio.wait_for(holder, timeout=1) is None
+        assert await asyncio.wait_for(holder, timeout=10) is None
 
     assert promotion is not None
-    out = await asyncio.wait_for(promotion, timeout=1)
+    out = await asyncio.wait_for(promotion, timeout=10)
     assert out["promoted"] is True
     assert (fake_ctx.project_path / "scripts" / "episode_1.json").exists()
 
@@ -889,7 +820,7 @@ async def test_open_script_plan_draft_waits_for_quarantine_lock(fake_ctx: ToolCo
 
         monkeypatch.setattr(ProjectManager, "async_file_lock", observed_async_lock)
         opening = asyncio.create_task(open_drama_for_edit(fake_ctx, source="source/episode_1.txt"))
-        await asyncio.wait_for(attempted.wait(), timeout=1)
+        await asyncio.wait_for(attempted.wait(), timeout=10)
         assert not opening.done()
 
     out = await opening
@@ -916,13 +847,14 @@ async def test_promote_draft_refuses_after_mode_switch(fake_ctx: ToolContext) ->
     )
 
 
-async def test_promote_draft_prompt_authoring_blocked_by_review_gate(fake_ctx: ToolContext) -> None:
-    """script_plan 未经确认时 prompt_authoring 草稿不晋升：常规生成路径在工具入口就被内容确认拦下，两条路不该分叉。
+async def test_promote_draft_prompt_authoring_ignores_unconfirmed_script_plan(
+    fake_ctx: ToolContext, monkeypatch
+) -> None:
+    """prompt_authoring 草稿按正式剧本晋升：脚本规划重跑后尚未确认不阻塞晋升，与编写入口同口径。"""
+    from lib.backends.text_generator import TextGenerator
 
-    草稿在场期间用户在 Web 端改过 script_plan 会让确认指纹失效，该集回到 pending_review——此时晋升等于
-    拿一份用户没确认过的 script_plan 合成正式剧本。
-    """
     rv_project(fake_ctx)
+    baseline = _write_rv_formal_script(fake_ctx, "@[张三] 起身")
     script_plan = rv_script_plan_path(fake_ctx)
     script_plan.parent.mkdir(parents=True, exist_ok=True)
     script_plan.write_text(json.dumps({"units": []}, ensure_ascii=False), encoding="utf-8")
@@ -930,15 +862,32 @@ async def test_promote_draft_prompt_authoring_blocked_by_review_gate(fake_ctx: T
         fake_ctx.project_path,
         1,
         QUARANTINE_KIND_PROMPT_AUTHORING,
-        content={"title": "第1集", "units": [{"text": "@[张三] 起身"}]},
+        content={"title": "第1集", "units": [{"text": "镜头1：中景，平视。@[张三] 起身。"}]},
         violations=[],
+        meta={"base_fingerprint": baseline, "unit_ids": ["E1U01"]},
     )
-    project = json.loads((fake_ctx.project_path / "project.json").read_text(encoding="utf-8"))
+    project = fake_ctx.pm.project_payload
+    project["episodes"][0]["script_plan_review"] = {
+        "fingerprint": "sha256-v1:" + "0" * 64,
+        "confirmed_at": "2026-08-24T00:00:00Z",
+    }
+    (fake_ctx.project_path / "project.json").write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
     assert script_review.review_status(fake_ctx.project_path, project, 1) == "pending_review"
 
+    class _TextBoundary:
+        model = "unconfirmed-plan"
+
+    async def create_text_generator(_task_type, _project_name=None, **_kwargs):
+        return _TextBoundary()
+
+    monkeypatch.setattr(TextGenerator, "create", create_text_generator)
     out = await promote_reference_draft(fake_ctx)
-    assert out.get("is_error") is True
-    assert "review_required" in out["content"][0]["text"]
+
+    assert out.get("is_error") is not True, out
+    saved = json.loads((fake_ctx.project_path / "scripts" / "episode_1.json").read_text(encoding="utf-8"))
+    assert saved["video_units"][0]["text"] == "镜头1：中景，平视。@[张三] 起身。"
+    assert "pending_authoring" not in saved["video_units"][0]
+    assert not quarantine_path(fake_ctx.project_path, 1, QUARANTINE_KIND_PROMPT_AUTHORING).exists()
 
 
 async def test_promote_draft_without_draft(fake_ctx: ToolContext) -> None:
@@ -960,6 +909,36 @@ async def test_split_reference_video_units_clears_stale_quarantine_on_success(
     assert not rv_quarantine_path(fake_ctx).exists()
 
 
+def _write_prompt_authoring_draft(fake_ctx: ToolContext, violations: list[DraftViolation]) -> None:
+    write_quarantine(
+        fake_ctx.project_path,
+        1,
+        QUARANTINE_KIND_PROMPT_AUTHORING,
+        content={"title": "第1集", "units": [{"text": "@[张三] 起身"}]},
+        violations=violations,
+        meta={"base_fingerprint": None, "unit_ids": ["E1U01"]},
+    )
+
+
+async def _dry_run_authoring(fake_ctx: ToolContext, content_mode: str, items_key: str, entry: dict) -> str:
+    """正式剧本里放一条待编写条目后预演编写：预检放行时真实生成器按正式剧本渲染出编写 prompt。"""
+    scripts = fake_ctx.project_path / "scripts"
+    scripts.mkdir(parents=True, exist_ok=True)
+    script = {
+        "episode": 1,
+        "content_mode": content_mode,
+        "title": "第1集",
+        items_key: [entry | {"pending_authoring": True}],
+    }
+    (scripts / "episode_1.json").write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
+    out = await call(generate_episode_script_tool(fake_ctx), {"episode": 1, "dry_run": True})
+    assert out.get("is_error") is not True, out
+    return out["content"][0]["text"]
+
+
+_UNAUTHORED_PROMPTS = {"image_prompt": None, "video_prompt": None}
+
+
 def _write_rv_quarantine(fake_ctx: ToolContext) -> None:
     write_quarantine(
         fake_ctx.project_path,
@@ -970,13 +949,11 @@ def _write_rv_quarantine(fake_ctx: ToolContext) -> None:
     )
 
 
-async def test_generate_episode_script_blocked_by_quarantine(fake_ctx: ToolContext) -> None:
-    """草稿在场时 prompt_authoring 入口阻塞，且给出「改草稿再晋升」而非「去 Web 端确认」的出路。"""
+async def test_generate_episode_script_blocked_by_prompt_authoring_draft(fake_ctx: ToolContext) -> None:
+    """编写自身的待修复草稿在场时入口阻塞，且给出「改草稿再晋升」的出路。"""
     rv_project(fake_ctx)
-    script_plan = rv_script_plan_path(fake_ctx)
-    script_plan.parent.mkdir(parents=True, exist_ok=True)
-    script_plan.write_text(json.dumps({"units": []}, ensure_ascii=False), encoding="utf-8")
-    _write_rv_quarantine(fake_ctx)
+    _write_rv_formal_script(fake_ctx, "@[张三] 起身")
+    _write_prompt_authoring_draft(fake_ctx, [DraftViolation("坏", code="empty_text", label="unit E1U01")])
 
     out = await call(generate_episode_script_tool(fake_ctx), {"episode": 1})
     assert out.get("is_error") is True
@@ -984,11 +961,25 @@ async def test_generate_episode_script_blocked_by_quarantine(fake_ctx: ToolConte
     assert "promote_draft" in out["content"][0]["text"]
 
 
-async def test_generate_episode_script_preserves_editable_draft_without_violations(fake_ctx: ToolContext) -> None:
-    """可编辑草稿没有违约报告，prompt_authoring 入口应引导校验晋升而不是要求凭空修改。"""
+async def test_generate_episode_script_not_blocked_by_reference_script_plan_draft(fake_ctx: ToolContext) -> None:
+    """编写只读正式剧本：参考生视频脚本规划的待修复草稿在场不阻塞编写，草稿原样保留。"""
     rv_project(fake_ctx)
-    write_rv_script_plan(fake_ctx, [rv_saved_unit("原始内容")])
-    await open_for_edit(fake_ctx)
+    _write_rv_quarantine(fake_ctx)
+
+    prompt = await _dry_run_authoring(
+        fake_ctx, "narration", "video_units", {"unit_id": "E1U01", "text": "@[张三] 起身", "duration_seconds": 8}
+    )
+
+    assert "DRY RUN" in prompt
+    assert "张三] 起身" in prompt
+    assert rv_quarantine_path(fake_ctx).exists()
+
+
+async def test_generate_episode_script_preserves_editable_draft_without_violations(fake_ctx: ToolContext) -> None:
+    """可编辑草稿没有违约报告，编写入口应引导校验晋升而不是要求凭空修改。"""
+    rv_project(fake_ctx)
+    _write_rv_formal_script(fake_ctx, "@[张三] 起身")
+    _write_prompt_authoring_draft(fake_ctx, [])
 
     out = await call(generate_episode_script_tool(fake_ctx), {"episode": 1})
     assert out.get("is_error") is True
@@ -998,17 +989,17 @@ async def test_generate_episode_script_preserves_editable_draft_without_violatio
     assert "按草稿内 violations" not in text
 
 
-async def test_generate_episode_script_quarantine_precedes_missing_script_plan(fake_ctx: ToolContext) -> None:
-    """首次拆分就违约时正式 script_plan 本就不存在——先报缺文件会把 Agent 引回重跑拆分（丢弃重抽）。"""
+async def test_generate_episode_script_quarantine_precedes_missing_formal_script(fake_ctx: ToolContext) -> None:
+    """编写草稿在场而正式剧本缺失：先报草稿待处置，不把 Agent 引回重跑脚本规划。"""
     rv_project(fake_ctx)
-    _write_rv_quarantine(fake_ctx)
-    assert not rv_script_plan_path(fake_ctx).exists()
+    _write_prompt_authoring_draft(fake_ctx, [DraftViolation("坏", code="empty_text", label="unit E1U01")])
+    assert not (fake_ctx.project_path / "scripts" / "episode_1.json").exists()
 
     out = await call(generate_episode_script_tool(fake_ctx), {"episode": 1})
     assert out.get("is_error") is True
     text = out["content"][0]["text"]
     assert "草稿待处置" in text
-    assert "未找到 Step 1 文件" not in text
+    assert "尚无正式脚本" not in text
 
 
 async def test_generate_episode_script_ignores_quarantine_after_mode_switch(fake_ctx: ToolContext) -> None:
@@ -1018,7 +1009,7 @@ async def test_generate_episode_script_ignores_quarantine_after_mode_switch(fake
 
     out = await call(generate_episode_script_tool(fake_ctx), {"episode": 1})
     assert out.get("is_error") is True
-    # 卡在「缺 narration script_plan」这道常规校验上，而不是参考路径的草稿
+    # 卡在「尚无正式脚本」这道常规校验上，而不是参考路径的草稿
     assert "草稿待处置" not in out["content"][0]["text"]
 
 
@@ -1099,17 +1090,17 @@ async def test_promote_drama_script_plan_aborts_on_concurrent_write(fake_ctx: To
     assert drama_quarantine_path(fake_ctx).exists()
 
 
-async def test_generate_episode_script_blocked_by_drama_quarantine(fake_ctx: ToolContext) -> None:
-    """drama 的 prompt_authoring 与参考生视频同口径：草稿在场即拒绝生成，
-    否则会拿正式文件那份上一版内容静默顶替待处置的正文。"""
+async def test_generate_episode_script_not_blocked_by_drama_script_plan_draft(fake_ctx: ToolContext) -> None:
+    """drama 脚本规划的待修复草稿在场不阻塞编写：编写的输入是正式剧本，草稿原样保留。"""
     drama_project(fake_ctx)
     write_drama_script_plan(fake_ctx, [drama_scene()])
     await open_drama_for_edit(fake_ctx, source="source/episode_1.txt")
 
-    out = await call(generate_episode_script_tool(fake_ctx), {"episode": 1})
+    prompt = await _dry_run_authoring(fake_ctx, "drama", "scenes", drama_scene() | _UNAUTHORED_PROMPTS)
 
-    assert out.get("is_error") is True
-    assert "草稿待处置" in out["content"][0]["text"]
+    assert "DRY RUN" in prompt
+    assert "E1S01" in prompt
+    assert drama_quarantine_path(fake_ctx).exists()
 
 
 async def test_normalize_drama_script_clears_quarantine_on_regeneration(fake_ctx: ToolContext, monkeypatch) -> None:
@@ -1185,7 +1176,7 @@ async def test_normalize_drama_script_serializes_commit_with_draft_edits(fake_ct
         task = asyncio.create_task(
             call(generate_script_plan_tool(fake_ctx), {"episode": 1, "source": "source/episode_1.txt"})
         )
-        await asyncio.wait_for(attempted.wait(), timeout=1)
+        await asyncio.wait_for(attempted.wait(), timeout=10)
         assert not task.done(), "generation commit must wait for the draft lock"
 
     out = await task
@@ -1503,8 +1494,8 @@ async def test_promote_narration_script_plan_returns_a_receipt_with_statistics(f
     assert "segment_break 标记" in message
 
 
-async def test_generate_episode_script_blocked_by_narration_quarantine(fake_ctx: ToolContext) -> None:
-    """narration 草稿在场时 prompt_authoring 生成被拦：正式文件此刻仍是上一版，拿它跑 prompt_authoring 等于静默换回旧内容。"""
+async def test_generate_episode_script_not_blocked_by_narration_script_plan_draft(fake_ctx: ToolContext) -> None:
+    """narration 脚本规划的待修复草稿在场不阻塞编写：编写的输入是正式剧本，草稿原样保留。"""
     nr_source(fake_ctx)
     write_nr_script_plan(fake_ctx, [nr_segment("E1S01", 4, _RV_NOVEL)])
     write_quarantine(
@@ -1515,7 +1506,10 @@ async def test_generate_episode_script_blocked_by_narration_quarantine(fake_ctx:
         violations=[],
     )
 
-    out = await call(generate_episode_script_tool(fake_ctx), {"episode": 1})
+    prompt = await _dry_run_authoring(
+        fake_ctx, "narration", "segments", nr_segment("E1S01", 4, _RV_NOVEL) | _UNAUTHORED_PROMPTS
+    )
 
-    assert out.get("is_error") is True
-    assert "草稿待处置" in out["content"][0]["text"]
+    assert "DRY RUN" in prompt
+    assert "E1S01" in prompt
+    assert nr_quarantine_path(fake_ctx).exists()

@@ -6,11 +6,6 @@ import { ShotSplitView } from "./ShotSplitView";
 import { EpisodeHeader } from "./EpisodeHeader";
 import { useCostStore } from "@/stores/cost-store";
 import { useActiveResourceIds } from "@/stores/tasks-store";
-import { useAppStore } from "@/stores/app-store";
-import { useProjectsStore } from "@/stores/projects-store";
-import { useScriptEntryCurrency } from "@/hooks/useScriptEntryCurrency";
-import { API } from "@/api";
-import { errMsg } from "@/utils/async";
 import { getScriptItemId, sumItemDuration } from "@/utils/script-shape";
 import { ONBOARDING_ANCHORS } from "@/onboarding/anchors";
 import { useDemoWorkbench } from "@/onboarding/use-demo-workbench";
@@ -45,6 +40,10 @@ interface TimelineCanvasProps {
   ) => void | Promise<void>;
   /** 广告/短片分镜顺序调整（向前/向后移动一位），resolve 为是否移动成功 */
   onMoveShot?: (shotId: string, direction: "earlier" | "later", scriptFile?: string) => Promise<boolean>;
+  /** 在分镜之后新增分镜（旁白带正文），resolve 为是否成功 */
+  onInsertShot?: (afterId: string, novelText: string | undefined, scriptFile?: string) => Promise<boolean>;
+  /** 移除分镜，resolve 为是否成功 */
+  onRemoveShot?: (itemId: string, scriptFile?: string) => Promise<boolean>;
   onGenerateStoryboard?: (segmentId: string, scriptFile?: string) => void;
   onGenerateVideo?: (
     segmentId: string,
@@ -54,6 +53,8 @@ interface TimelineCanvasProps {
   onGenerateNarration?: (segmentId: string, scriptFile?: string) => void;
   onGenerateEpisodeNarration?: (scriptFile?: string) => void;
   durationOptions?: number[];
+  /** 档位为空是因为这一维由端点固定（workflow 自己定片长），不是型号没登记时长。 */
+  durationEndpointFixed?: boolean;
   /** 已保存时长越界的成因判定；缺省时 ShotDetail 退回不区分成因的通用警告文案。 */
   durationWarningReason?: (seconds: number) => DurationOutOfRangeReason | null;
   onRestoreStoryboard?: () => Promise<void> | void;
@@ -69,6 +70,8 @@ interface TimelineCanvasProps {
 const DEMO_READ_ONLY_PROPS = {
   onUpdatePrompt: undefined,
   onMoveShot: undefined,
+  onInsertShot: undefined,
+  onRemoveShot: undefined,
   onGenerateNarration: undefined,
   onGenerateEpisodeNarration: undefined,
   onSaveTitle: undefined,
@@ -87,9 +90,12 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
     scriptFile,
     projectData,
     durationOptions,
+    durationEndpointFixed,
     durationWarningReason,
     onUpdatePrompt,
     onMoveShot,
+    onInsertShot,
+    onRemoveShot,
     onGenerateStoryboard,
     onGenerateVideo,
     onGenerateNarration,
@@ -183,30 +189,6 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
     [ttsBusyIds, currentSegmentIds],
   );
 
-  // 正式剧本条目相对脚本规划的时效：广告/短片没有脚本规划，只读态（无写入口）也不比对。
-  const { staleIds: staleEntryIds, reload: reloadEntryCurrency } = useScriptEntryCurrency({
-    projectName,
-    episode,
-    enabled: Boolean(episodeScript) && editorContentMode !== "ad" && Boolean(onUpdatePrompt),
-    scriptRevision: episodeScript,
-  });
-  const handleAdoptPlanContent = useCallback(
-    async (segmentId: string) => {
-      try {
-        await API.convertScriptPlan(projectName, episode, [segmentId]);
-        useAppStore.getState().pushToast(t("detail_adopt_plan_content_done", { id: segmentId }), "success");
-      } catch (err) {
-        useAppStore.getState().pushToast(t("detail_adopt_plan_content_failed", { message: errMsg(err) }), "error");
-        return;
-      }
-      // 剧本已改写：重取项目数据拿新内容，再按新剧本重新比对时效。刷新失败或被取消时 store 里
-      // 仍是旧剧本，此时不能重取时效——服务端会报该条目已是当前，失效提示消失而内容还是旧的。
-      const refreshed = await useProjectsStore.getState().refreshProject(projectName);
-      if (refreshed === "success") await reloadEntryCurrency();
-    },
-    [projectName, episode, t, reloadEntryCurrency],
-  );
-
   if (!projectData || (!episodeScript && !hasDraft)) {
     return (
       <div
@@ -238,6 +220,12 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
     : undefined;
   const handleMoveShot = onMoveShot
     ? (shotId: string, direction: "earlier" | "later") => onMoveShot(shotId, direction, scriptFile)
+    : undefined;
+  const handleInsertShot = onInsertShot
+    ? (afterId: string, novelText?: string) => onInsertShot(afterId, novelText, scriptFile)
+    : undefined;
+  const handleRemoveShot = onRemoveShot
+    ? (itemId: string) => onRemoveShot(itemId, scriptFile)
     : undefined;
   // 生成回调保持可选透传：未提供时编辑器隐藏对应生成入口，
   // 而非渲染一个点了没反应的按钮。
@@ -367,6 +355,7 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
               projectName={projectName}
               episode={episode}
               contentMode={editorContentMode}
+              onOpenTimeline={hasScript ? () => setActiveTab("timeline") : undefined}
             />
           </div>
         ) : episodeScript && segments.length > 0 ? (
@@ -381,6 +370,8 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
                 isGridMode={false}
                 onUpdatePrompt={handleUpdatePrompt}
                 onMoveShot={handleMoveShot}
+                onInsertShot={handleInsertShot}
+                onRemoveShot={handleRemoveShot}
                 onGenerateStoryboard={handleGenSb}
                 onGenerateVideo={handleGenVid}
                 onGenerateNarration={handleGenNarration}
@@ -390,9 +381,8 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
                 generatingVideo={generatingVideo}
                 generatingNarration={generatingNarration}
                 durationOptions={durationOptions}
+                durationEndpointFixed={durationEndpointFixed}
                 durationWarningReason={durationWarningReason}
-                staleEntryIds={staleEntryIds}
-                onAdoptPlanContent={onUpdatePrompt ? handleAdoptPlanContent : undefined}
               />
             </div>
           </div>
