@@ -1,9 +1,9 @@
 <h1 align="center">
   <br>
   <picture>
-    <source media="(prefers-color-scheme: light)" srcset="frontend/public/android-chrome-maskable-512x512.png">
-    <source media="(prefers-color-scheme: dark)" srcset="frontend/public/android-chrome-512x512.png">
-    <img src="frontend/public/android-chrome-maskable-512x512.png" alt="ArcReel Logo" width="128">
+    <source media="(prefers-color-scheme: light)" srcset="docs/assets/logo-animated-light.svg">
+    <source media="(prefers-color-scheme: dark)" srcset="frontend/public/logo-animated.svg">
+    <img src="docs/assets/logo-animated-light.svg" alt="ArcReel Logo" width="128">
   </picture>
   <br>
   ArcReel
