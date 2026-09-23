@@ -2060,6 +2060,21 @@ class TestNoReferenceBucketDurations:
             == i2v_only["duration_constraints"]["allowed"]
         )
 
+    async def test_unsaved_resolution_uses_the_provider_fallback_like_execution(self, db_factory):
+        """项目没存分辨率时按供应商兜底档位求值：参考生视频的请求投影对 i2v 桶同样下发兜底档位。
+
+        Veo 兜底为 1080p，该档位只接受 8 秒；按「不传分辨率」求值会放出执行期必被拒的 4 / 6 秒。
+        """
+        caps = await _video_caps(
+            db_factory,
+            {
+                "generation_mode": "reference_video",
+                "video_provider_r2v": self.VEO,
+                "video_provider_i2v": self.VEO,
+            },
+        )
+        assert caps["duration_constraints"]["allowed_without_reference_images"] == [8]
+
     async def test_project_without_a_usable_i2v_bucket_reports_unknown(self, db_factory):
         """项目没配可用的 i2v 桶（S2V-01 只吃参考图，无首帧能力）时该字段为 None，其余能力照常返回。
 
