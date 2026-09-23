@@ -1646,11 +1646,18 @@ class ConfigResolver:
         声音一致性随这一个字段一起丢掉。返回 None 让消费方按「未知」降级：这类项目里本就没有
         可执行的无参考图单元，真去入队时预检与执行仍会硬报错。
 
-        分辨率按项目为该 i2v 模型保存的档位求值，不沿用调用方给 r2v 模型的显式 ``resolution``：
-        两个桶是不同的模型，档位表不能串。i2v 桶请求不带参考图，收窄按 ``uses_reference_images=False``。
+        分辨率按项目为该 i2v 模型保存的档位求值，未保存时补供应商兜底——参考生视频的请求投影对
+        两个桶都下发 ``resolution_or_fallback``，求值档位与之同源；不沿用调用方给 r2v 模型的显式
+        ``resolution``：两个桶是不同的模型，档位表不能串。i2v 桶请求不带参考图，收窄按
+        ``uses_reference_images=False``。
         """
         try:
             selected = await self._resolve_video_provider_model(svc, session, project, None, "i2v")
+            saved = (
+                _resolution_from_project(project, selected.provider_id, selected.model_id)
+                if project is not None
+                else None
+            )
             caps = await self._resolve_video_caps_for_model(
                 svc,
                 session,
@@ -1658,6 +1665,7 @@ class ConfigResolver:
                 selected.model_id,
                 project,
                 generation_type="i2v",
+                resolution=_constraint_resolution(saved, selected.provider_id, reference_path=True),
                 uses_reference_images=False,
             )
         except ValueError:
