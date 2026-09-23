@@ -5,7 +5,6 @@
 当前 README 已使用：
 
 - `docs/assets/screenshots/hero.webp`（Hero 截图）
-- `docs/assets/screenshots/episodes.webp`（案例分集封面拼图）
 - `docs/assets/screenshots/{video-units,props,scenes,ad-mode}.webp`（界面一览）
 - `docs/assets/feishu-qr.png`
 - `docs/assets/sponsors/`
@@ -17,8 +16,7 @@
 ```text
 docs/assets/
 ├── screenshots/
-│   ├── hero.webp
-│   └── episodes.webp
+│   └── hero.webp
 ├── demo-workflow.webp
 ├── showcase-novel-cover.jpg
 ├── showcase-narration-cover.jpg

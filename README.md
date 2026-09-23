@@ -73,13 +73,23 @@
 
 ## 案例
 
-### 入职地府后投诉鬼都是我老客户
+<div align="center">
+  <video src="https://github.com/user-attachments/assets/fcc4ceb2-64dd-44a0-a32c-e0c00b2f9796" width="100%" controls></video>
+</div>
 
-https://github.com/user-attachments/assets/39055cbb-7c22-4a75-843b-be10fed2299b
+> 《入职地府后投诉鬼都是我老客户》第 1 集
 
-<p align="center">
-  <img src="docs/assets/screenshots/episodes.webp" alt="第 1–15 集" width="900">
-</p>
+<div align="center">
+  <video src="https://github.com/user-attachments/assets/d6bfe589-a5c0-4961-8bfe-b7b59be3bb8a" width="100%" controls></video>
+</div>
+
+> 《入职地府后投诉鬼都是我老客户》第 2 集
+
+<div align="center">
+  <video src="https://github.com/user-attachments/assets/1e580769-80f7-4d14-b46d-68569b6e7e4c" width="100%" controls></video>
+</div>
+
+> 《入职地府后投诉鬼都是我老客户》第 3 集
 
 ## 界面一览
 
