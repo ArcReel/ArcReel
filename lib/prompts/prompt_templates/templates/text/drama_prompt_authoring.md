@@ -2,7 +2,11 @@
 id: text/drama_prompt_authoring
 category: text
 title: 剧情演绎 · 提示词编写
-description: 为 script_plan 已定稿的每个分镜补全视觉层（image_prompt / video_prompt），按 scene_id 逐条对齐。ID 对齐只在 episode_constraints 声明；角色定位与只读内容说明已覆盖任务和口播约束，避免重复；camera_motion 的选择由 schema 与画面内容决定。动作指导保留触发词避讳，不复述异步计费后果。
+description: 为剧情演绎已定稿的分镜补全画面与视频提示词（image_prompt / video_prompt）。
+stage: prompt_authoring
+invoked_by:
+  kind: agent_tool
+  name: generate_episode_script
 applies_to:
   content_mode:
   - drama
@@ -35,10 +39,10 @@ protected: false
 
 {{ partial("shared/overview_block") }}
 
-{{ partial("shared/style_block") }}
+{{ partial("shared/text_style") }}
 
 {% if assets %}
-{{ partial("shared/asset_appearance_blocks") }}
+{{ partial("shared/lists/asset_appearance_blocks") }}
 
 {{ partial("shared/asset_appearance_note") }}
 

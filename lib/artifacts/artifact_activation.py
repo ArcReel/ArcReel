@@ -46,7 +46,6 @@ from lib.artifacts.artifact_manifest import (
     MANIFEST_FILENAME,
     ArtifactBasis,
     ArtifactBasisDescriptor,
-    ArtifactEntryRekeyReceipt,
     ArtifactKey,
     ArtifactKind,
     ArtifactManifestAdapter,
@@ -63,7 +62,6 @@ from lib.artifacts.artifact_planner import (
     plan_artifact_target_state,
 )
 from lib.artifacts.artifact_registration import (
-    ArtifactRegistrationReceipt,
     artifact_key_for_resource,
     forget_current_resource_artifact,
     forget_unbound_grid_artifacts,
@@ -377,7 +375,6 @@ def prepare_episode_script_manifest_commit(
     replaced_resource_ids: Sequence[str] = (),
     basis: ArtifactBasis | ArtifactBasisDescriptor | None = None,
     adapter: ArtifactManifestAdapter | None = None,
-    cancellation_receipts: list[ArtifactEntryRekeyReceipt] | None = None,
 ) -> Callable[[], None] | None:
     """Preflight one script replacement and return its atomic claim commit.
 
@@ -442,7 +439,6 @@ def prepare_episode_script_manifest_commit(
             replacements,
             expected_entries=expected,
             adapter=storage,
-            cancellation_receipts=cancellation_receipts,
         )
 
     return commit
@@ -533,7 +529,6 @@ __all__ = [
     "ArtifactComparer",
     "ArtifactCurrencyResolver",
     "ArtifactInputClaim",
-    "ArtifactRegistrationReceipt",
     "ArtifactTargetStatePlan",
     "EpisodeScriptInput",
     "RegisteredArtifactResolver",

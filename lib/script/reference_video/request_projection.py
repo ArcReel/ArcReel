@@ -33,7 +33,12 @@ from lib.references.reference_admission import (
     admit_references,
 )
 from lib.references.reference_catalog import build_reference_catalog
-from lib.script.reference_video.duration_slots import DurationSlot, resolve_duration_slot
+from lib.script.reference_video.duration_slots import (
+    DEFAULT_PLANNED_DURATION_SECONDS,
+    DurationSlot,
+    project_request_duration,
+    request_duration_input,
+)
 from lib.script.reference_video.text_parser import derive_references_from_text
 from lib.script.script_models import ReferenceResource
 from lib.speech.narration_delivery import (
@@ -139,6 +144,9 @@ class ProviderProjectionCandidate:
     requested_generate_audio: bool
     has_audio_track: bool
     audio_switch_controllable: bool
+    #: 时长这一维由端点固定（``docs/adr/0082``）。为真时 ``supported_durations`` 是合法空集：
+    #: 成片多长由端点自己决定，请求体里带的秒数被端点忽略。
+    duration_endpoint_fixed: bool = False
     voice_consistency: str = "soft"
     max_reference_audio_count: int = 0
     reference_audio_per_image: bool = False
@@ -555,13 +563,19 @@ class ConfigReferenceCapabilityProjection:
             ) from exc
         resolution = resolution or get_provider_fallback(provider_id)
 
-        durations = strict_reference_durations(
-            provider_id=provider_id,
-            model_id=model_id,
-            durations=raw_durations,
-            resolution=resolution,
-            generation_type=generation_type,
-        )
+        # 时长这一维由端点固定时档位集是合法空集（``docs/adr/0082``）：没有档位可校验也没有
+        # 档位可收窄，成片多长以端点为准。不带这个标志的空集仍是档位声明缺失，交给
+        # ``strict_reference_durations`` fail loud（``docs/adr/0018``）。
+        duration_endpoint_fixed = bool(caps.get("duration_endpoint_fixed"))
+        durations: tuple[int, ...] = ()
+        if not duration_endpoint_fixed:
+            durations = strict_reference_durations(
+                provider_id=provider_id,
+                model_id=model_id,
+                durations=raw_durations,
+                resolution=resolution,
+                generation_type=generation_type,
+            )
 
         has_audio_track, audio_switch_controllable = reference_audio_model_facts(
             provider_id,
@@ -575,6 +589,7 @@ class ConfigReferenceCapabilityProjection:
             provider_id=provider_id,
             model_id=model_id,
             supported_durations=durations,
+            duration_endpoint_fixed=duration_endpoint_fixed,
             max_reference_images=int(max_references) if max_references is not None else None,
             resolution=resolution,
             generate_audio=bool(caps.get("generate_audio")),
@@ -609,6 +624,7 @@ _PROBLEM_PRESENTATION: dict[str, tuple[str, tuple[tuple[str | int, ...], ...]]] 
         (("generation_settings", "generate_audio"),),
     ),
     "reference_duration_confirmation_required": ("confirm_duration", (("duration_seconds",),)),
+    "tts_duration_endpoint_fixed": ("choose_post_production", (("narration_delivery",),)),
     "needs_replan": ("replan_unit", (("duration_seconds",),)),
     "reference_supported_durations_missing": ("configure_video_model", (("duration_seconds",),)),
     "reference_supported_durations_invalid": ("configure_video_model", (("duration_seconds",),)),
@@ -629,10 +645,10 @@ def _asset_key(asset: ResolvedReferenceAsset) -> tuple[str, str]:
 
 
 def _planned_duration(unit: dict) -> int:
-    raw = unit.get("duration_seconds", 8)
+    raw = unit.get("duration_seconds", DEFAULT_PLANNED_DURATION_SECONDS)
     if isinstance(raw, bool):
         raise ValueError("duration_seconds must be a positive integer")
-    value = int(raw or 8)
+    value = int(raw or DEFAULT_PLANNED_DURATION_SECONDS)
     if value <= 0:
         raise ValueError("duration_seconds must be a positive integer")
     return value
@@ -795,12 +811,37 @@ class ReferenceUnitRequestProjector:
         )
         if narration_floor is not None and (not math.isfinite(narration_floor) or narration_floor <= 0):
             raise ValueError("narration_duration_floor must be positive")
-        duration_input: int | float = max(planned_duration, narration_floor or 0)
+        duration_input: int | float = request_duration_input(planned_duration, narration_floor)
         request_duration: DurationSlot | None = None
         cost: ProjectionCostFacts | None = None
 
         if candidate is not None:
-            if not candidate.supported_durations:
+            # 取档判定与分镜路线同一份实现；这里只把它的结论映射成参考生视频的 problem code。
+            projected = project_request_duration(
+                planned_duration_seconds=planned_duration,
+                supported_durations=candidate.supported_durations,
+                narration_duration_floor=narration_floor,
+                duration_endpoint_fixed=candidate.duration_endpoint_fixed,
+                uses_tts=options.narration_delivery == USE_TTS,
+                current_visual_duration_seconds=options.current_visual_duration_seconds,
+                confirmed_request_duration_seconds=options.confirmed_request_duration_seconds,
+                confirmation_waived=options.legacy_duration_confirmed,
+            )
+            duration_input = projected.duration_input
+            request_duration = projected.slot
+            if projected.problem == "tts_duration_endpoint_fixed":
+                # 排在旁白交付带过来的问题之前：读侧取首条阻断项作为指引，而「配好 TTS / 等它
+                # 生成完」在这种模型上做完也仍然不能用 use_tts，唯一出路是改选后期配音。
+                problems.insert(
+                    0,
+                    _problem(
+                        "tts_duration_endpoint_fixed",
+                        blocking=True,
+                        provider=candidate.provider_id,
+                        model=candidate.model_id,
+                    ),
+                )
+            elif projected.problem == "supported_durations_missing":
                 problems.append(
                     _problem(
                         "reference_supported_durations_missing",
@@ -809,39 +850,33 @@ class ReferenceUnitRequestProjector:
                         model=candidate.model_id,
                     )
                 )
-            else:
-                slot = resolve_duration_slot(duration_input, candidate.supported_durations)
-                request_duration = slot
-                if slot.adjustment == "down":
-                    problems.append(
-                        _problem(
-                            "needs_replan",
-                            blocking=True,
-                            duration_input=duration_input,
-                            maximum_duration=slot.seconds,
-                        )
+            elif projected.problem == "needs_replan" and projected.slot is not None:
+                problems.append(
+                    _problem(
+                        "needs_replan",
+                        blocking=True,
+                        duration_input=projected.duration_input,
+                        maximum_duration=projected.slot.seconds,
                     )
-                elif (
-                    slot.seconds != (options.current_visual_duration_seconds or planned_duration)
-                    and not options.legacy_duration_confirmed
-                    and options.confirmed_request_duration_seconds != slot.seconds
-                ):
-                    problems.append(
-                        _problem(
-                            "reference_duration_confirmation_required",
-                            blocking=True,
-                            script_duration=planned_duration,
-                            duration_input=duration_input,
-                            request_duration=slot.seconds,
-                            adjustment=slot.adjustment,
-                            current_visual_duration=options.current_visual_duration_seconds,
-                        )
+                )
+            elif projected.problem == "confirmation_required" and projected.slot is not None:
+                problems.append(
+                    _problem(
+                        "reference_duration_confirmation_required",
+                        blocking=True,
+                        script_duration=planned_duration,
+                        duration_input=projected.duration_input,
+                        request_duration=projected.slot.seconds,
+                        adjustment=projected.slot.adjustment,
+                        current_visual_duration=options.current_visual_duration_seconds,
                     )
+                )
+            if projected.slot is not None:
                 cost = ProjectionCostFacts(
                     provider_id=candidate.provider_id,
                     model_id=candidate.model_id,
                     resolution=candidate.resolution,
-                    duration_seconds=slot.seconds,
+                    duration_seconds=projected.slot.seconds,
                     generate_audio=candidate.generate_audio,
                 )
 

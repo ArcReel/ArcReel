@@ -271,6 +271,32 @@ describe("WorkflowPanel 旁白交付", () => {
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
+  it("成片时长由端点固定时同样引导后期配音", async () => {
+    await renderExpanded(
+      makePlan({
+        steps: [
+          makeStep({
+            id: "narration_delivery",
+            state: "blocked",
+            problems: [
+              {
+                code: "tts_duration_endpoint_fixed",
+                detail: "video duration fixed by endpoint",
+                action: "fix_input",
+                params: { path: ["narration_delivery"] },
+              },
+            ],
+          }),
+        ],
+      }),
+    );
+
+    expect(screen.getByRole("radio", { name: "使用已配置的语音合成" })).toBeDisabled();
+    expect(screen.getByRole("radio", { name: "后期配音" })).toBeEnabled();
+    expect(screen.getByText(/选后期配音即可继续/)).toBeInTheDocument();
+    expect(screen.getAllByText(/成片时长由端点固定/).length).toBeGreaterThan(0);
+  });
+
   it("TTS 未配置这条问题落在视频步骤上时同样引导后期配音", async () => {
     // 这条问题由视频整批准入判定求解得出（选了 TTS 才跑那一轮），后端把它挂在计划的问题
     // 清单与视频步骤上，而不是旁白交付步骤。只翻交付步骤的 problems 会漏掉它。

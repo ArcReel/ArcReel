@@ -3,6 +3,7 @@ from datetime import datetime
 from typing import Any
 
 from lib.generation.generation_worker import CapacityTable, GenerationWorker
+from tests.fakes import refuse_resume_execution
 
 
 class _WakeQueue:
@@ -55,6 +56,7 @@ async def test_wake_claims_task_without_waiting_for_poll_interval() -> None:
         executor=execute,
         lanes=("text",),
         settle_interrupted_calls=no_settle,
+        resume_executor=refuse_resume_execution,
     )
     worker.poll_interval = 60
     await worker.start()

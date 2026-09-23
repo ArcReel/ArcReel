@@ -182,31 +182,6 @@ class ArtifactManifestAdapter(Protocol):
 
 
 @dataclass(frozen=True, slots=True)
-class ArtifactEntryRekeyReceipt:
-    """Committed claim rekey that can restore its exact prior key state."""
-
-    adapter: ArtifactManifestAdapter
-    before: Mapping[ArtifactKey, ArtifactManifestEntry | None]
-    after: Mapping[ArtifactKey, ArtifactManifestEntry | None]
-    changed: bool
-
-    def matches_current(self) -> bool:
-        return _entries_match(self.adapter, self.after)
-
-    def compensate(self) -> bool:
-        if not self.changed:
-            return False
-        if self.adapter.replace_entries_if_matches_atomically(
-            expected=self.after,
-            replacements=self.before,
-        ):
-            return True
-        if _entries_match(self.adapter, self.before):
-            return False
-        raise ArtifactManifestError("artifact claim rekey changed concurrently and could not be restored")
-
-
-@dataclass(frozen=True, slots=True)
 class ArtifactEntryRekeyPlan:
     """Preflighted, whole-Manifest claim rekey used by identity transactions."""
 
@@ -215,15 +190,10 @@ class ArtifactEntryRekeyPlan:
     after: Mapping[ArtifactKey, ArtifactManifestEntry | None]
     changed: bool
 
-    def commit(self) -> ArtifactEntryRekeyReceipt:
-        receipt = ArtifactEntryRekeyReceipt(
-            adapter=self.adapter,
-            before=self.before,
-            after=self.after,
-            changed=self.changed,
-        )
+    def commit(self) -> bool:
+        """Commit the rekey; returns whether the Manifest changed."""
         if not self.changed:
-            return receipt
+            return False
         try:
             changed = self.adapter.replace_entries_if_matches_atomically(
                 expected=self.before,
@@ -243,7 +213,7 @@ class ArtifactEntryRekeyPlan:
             raise
         if not changed:
             raise ArtifactManifestError("artifact claims changed after the rekey preflight")
-        return receipt
+        return True
 
 
 class ArtifactManifest:
@@ -378,13 +348,12 @@ class ArtifactManifest:
         before = {key: entry for key in unique if (entry := self._adapter.get_entry(key)) is not None}
         if not before:
             return False
-        receipt = ArtifactEntryRekeyPlan(
+        return ArtifactEntryRekeyPlan(
             adapter=self._adapter,
             before=before,
             after=dict.fromkeys(before),
             changed=True,
         ).commit()
-        return receipt.changed
 
     def plan_entry_rekey(
         self,

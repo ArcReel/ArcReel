@@ -2172,3 +2172,138 @@ def test_generate_batch_reports_a_falsy_video_units_container(
     assert enqueued == []
     codes = {item["unit_id"]: [problem["code"] for problem in item["problems"]] for item in body["units"]}
     assert codes["video_units"] == ["generation_unit_request_invalid"]
+
+
+def test_prompt_preview_renders_draft_with_projected_references_without_saving(
+    reference_videos_client: TestClient, monkeypatch: pytest.MonkeyPatch
+):
+    from server.routers import reference_videos as router_mod
+
+    monkeypatch.setattr(
+        router_mod,
+        "project_reference_unit_request",
+        fake_reference_request_projector(durations=(3, 6, 9), max_reference_images=1),
+    )
+    uid = _seed_unit(reference_videos_client)
+    url = f"/api/v1/projects/demo/reference-videos/episodes/1/units/{uid}"
+    draft = "@[酒馆] 门口，@[张三] 推开门。"
+    response = reference_videos_client.post(f"{url}/prompt-preview", json={"prompt": draft})
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["unavailable"] is None
+    assert "<酒馆>@图片1" in body["text"]
+    assert "@图片2" not in body["text"]
+    assert "<酒馆> 门口，<张三> 推开门。" in body["text"]
+    assert body["references"] == [{"type": "scene", "name": "酒馆", "path": "scenes/酒馆.png"}]
+    assert any("上限 1" in warning for warning in body["warnings"])
+    saved = reference_videos_client.get("/api/v1/projects/demo/reference-videos/episodes/1/units").json()
+    assert saved["units"][0]["text"] == "镜头1：@张三 推门"
+
+    reference_videos_client.patch(url, json={"prompt": draft})
+    precheck = reference_videos_client.get(f"{url}/duration-precheck").json()
+    assert precheck["hydrated_capability"] == "r2v"
+    assert precheck["problems"][0]["code"] == "reference_images_clamped"
+    assert precheck["problems"][0]["message"] in body["warnings"]
+
+
+def test_prompt_preview_fails_closed_when_capabilities_cannot_resolve(
+    reference_videos_client: TestClient, monkeypatch: pytest.MonkeyPatch
+):
+    from server.routers import reference_videos as router_mod
+    from tests.fakes import FakeReferenceCapabilityProjection
+
+    class UnavailableCapabilities(FakeReferenceCapabilityProjection):
+        async def resolve_candidate(self, project: dict, generation_type):
+            raise RuntimeError("provider configuration unavailable")
+
+    monkeypatch.setattr(
+        router_mod,
+        "project_reference_unit_request",
+        fake_reference_request_projector(capabilities=UnavailableCapabilities(durations=(3,))),
+    )
+    uid = _seed_unit(reference_videos_client)
+    response = reference_videos_client.post(
+        f"/api/v1/projects/demo/reference-videos/episodes/1/units/{uid}/prompt-preview",
+        json={"prompt": "@[张三] 推门"},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["text"] is None
+    assert body["references"] == []
+    assert body["unavailable"]
+    assert body["unavailable"] != "reference_capability_unavailable"
+    assert body["warnings"] == []
+
+
+@pytest.mark.parametrize("prompt", ["", "   "])
+def test_prompt_preview_empty_draft_does_not_fall_back_to_saved_text(reference_videos_client: TestClient, prompt: str):
+    uid = _seed_unit(reference_videos_client)
+    response = reference_videos_client.post(
+        f"/api/v1/projects/demo/reference-videos/episodes/1/units/{uid}/prompt-preview", json={"prompt": prompt}
+    )
+    assert response.status_code == 200
+    assert response.json()["text"] is None
+    assert response.json()["unavailable"] == "该单元还没有填写正文"
+
+
+@pytest.mark.parametrize("suffix", ["/episodes/2/units/E1U1", "/episodes/1/units/missing"])
+def test_prompt_preview_unknown_target_is_404(reference_videos_client: TestClient, suffix: str):
+    response = reference_videos_client.post(
+        f"/api/v1/projects/demo/reference-videos{suffix}/prompt-preview", json={"prompt": "正文"}
+    )
+    assert response.status_code == 404
+
+
+def test_prompt_preview_requires_authentication(reference_videos_client: TestClient):
+    cast(FastAPI, reference_videos_client.app).dependency_overrides.pop(get_current_user)
+    response = reference_videos_client.post(
+        "/api/v1/projects/demo/reference-videos/episodes/1/units/E1U1/prompt-preview", json={"prompt": "正文"}
+    )
+    assert response.status_code == 401
+
+
+@pytest.mark.parametrize("audio_exists", [False, True])
+def test_prompt_preview_binds_only_available_audio_from_projected_voice_capabilities(
+    reference_videos_client: TestClient, monkeypatch: pytest.MonkeyPatch, audio_exists: bool
+):
+    from server.routers import reference_videos as router_mod
+    from tests.fakes import FakeReferenceCapabilityProjection
+
+    class NativeCapabilities(FakeReferenceCapabilityProjection):
+        async def resolve_candidate(self, project: dict, generation_type):
+            return replace(
+                await super().resolve_candidate(project, generation_type),
+                voice_consistency="native",
+                max_reference_audio_count=1,
+                reference_audio_per_image=True,
+            )
+
+    monkeypatch.setattr(
+        router_mod,
+        "project_reference_unit_request",
+        fake_reference_request_projector(capabilities=NativeCapabilities(durations=(3,))),
+    )
+    pm = router_mod.get_project_manager()
+    project = pm.load_project("demo")
+    project["characters"]["张三"]["reference_audio"] = "characters/refs_audio/张三.mp3"
+    project["characters"]["张三"]["voice_style"] = "低沉"
+    project["style_description"] = "暖色电影质感"
+    pm.save_project("demo", project)
+    if audio_exists:
+        audio = pm.get_project_path("demo") / "characters/refs_audio/张三.mp3"
+        audio.parent.mkdir()
+        audio.write_bytes(b"audio")
+    uid = _seed_unit(reference_videos_client)
+    response = reference_videos_client.post(
+        f"/api/v1/projects/demo/reference-videos/episodes/1/units/{uid}/prompt-preview",
+        json={"prompt": "@[张三] 推门。\n@[张三]：{进来吧}"},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert "<张三>@图片1" in body["text"]
+    assert "<张三>说 {进来吧}" in body["text"]
+    assert "声音特征：低沉" in body["text"]
+    assert "暖色电影质感" in body["text"]
+    assert ("@音频1" in body["text"]) is audio_exists
+    assert any("音频当前不可用" in warning for warning in body["warnings"]) is not audio_exists

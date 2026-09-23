@@ -40,11 +40,14 @@ logger = logging.getLogger(__name__)
 
 rate_limiter = get_shared_rate_limiter()
 
-_CacheKey = tuple[str, str, str | None]
+_CacheKey = tuple[str, str, str | None, str | None]
 
 
 class _BackendCache:
-    """Backend 实例缓存：按 (media_type, provider_name, model) 复用实例，避免每次任务重建 API 客户端。
+    """Backend 实例缓存：按 (media_type, provider_name, model, 任务类型桶) 复用实例，避免每次任务重建 API 客户端。
+
+    桶进 key 是因为它参与构造：自定义供应商的默认模型按桶分槽，同一 (media_type, provider,
+    model=None) 在 t2i 与 i2i 上装载出的是两个不同模型的 backend。
 
     缓存查询/构造/写回/失效在此单点实现，两条并发纪律藏在实现内、不扩大接口：
 
@@ -95,6 +98,7 @@ async def _get_or_create_backend(
     provider_settings: dict,
     resolver: ConfigResolver,
     default_model: str | None,
+    generation_type: str | None = None,
 ) -> Any:
     """组 key + 提供 factory closure，缓存纪律统一委托 :class:`_BackendCache`。"""
     effective_model = provider_settings.get("model") or default_model or None
@@ -106,9 +110,10 @@ async def _get_or_create_backend(
             model_id=effective_model,
             resolver=resolver,
             rate_limiter=rate_limiter,
+            generation_type=generation_type,
         )
 
-    return await _backend_cache.get_or_create((media_type, provider_name, effective_model), _factory)
+    return await _backend_cache.get_or_create((media_type, provider_name, effective_model, generation_type), _factory)
 
 
 async def _get_or_create_video_backend(
@@ -133,9 +138,16 @@ async def _get_or_create_image_backend(
     resolver: ConfigResolver,
     *,
     default_image_model: str | None = None,
+    generation_type: Literal["t2i", "i2i"] | None = None,
 ):
-    """获取或创建 ImageBackend 实例（带缓存）。"""
-    return await _get_or_create_backend("image", provider_name, provider_settings, resolver, default_image_model)
+    """获取或创建 ImageBackend 实例（带缓存）。
+
+    generation_type 是本次调用所属的任务类型桶：自定义供应商的默认模型按桶分槽，桶随构造一路
+    传到 ``load_custom_backend``，也进缓存 key（t2i 与 i2i 不互相命中）。
+    """
+    return await _get_or_create_backend(
+        "image", provider_name, provider_settings, resolver, default_image_model, generation_type
+    )
 
 
 async def _get_or_create_audio_backend(
@@ -213,6 +225,10 @@ class VideoLaneResult:
     max_duration: int | None
     max_reference_images: int | None
     text_to_video: bool = True
+    # 时长这一维由端点固定（见 docs/adr/0082）：``supported_durations`` 是合法空集，成片多长
+    # 由端点自己决定。能力解析失败时留在 False——此时的空档位是「读不到能力」，仍按结构化
+    # blocker 处理，不能被误读成端点固定而放行一个无约束申请。
+    duration_endpoint_fixed: bool = False
     # 费用与实际 provider 出账口径的有声档位，直接来自 video capabilities。
     # 它与下方的 requested_generate_audio（用户开关意图）不等价。
     generate_audio: bool = False
@@ -350,6 +366,7 @@ async def resolve_generation_context(
                 {},
                 r,
                 default_image_model=resolved.model_id or None,
+                generation_type=image.generation_type,
             )
             image_result = ImageLaneResult(
                 provider_model=resolved,
@@ -373,6 +390,7 @@ async def resolve_generation_context(
             max_duration: int | None = None
             max_reference_images: int | None = None
             text_to_video = True
+            duration_endpoint_fixed = False
             generate_audio = False
             voice_consistency: VoiceConsistency = "soft"
             max_reference_audio_count = 0
@@ -390,6 +408,7 @@ async def resolve_generation_context(
                 max_duration = caps.get("max_duration")
                 max_reference_images = caps.get("max_reference_images")
                 text_to_video = bool(caps.get("text_to_video", True))
+                duration_endpoint_fixed = bool(caps.get("duration_endpoint_fixed"))
                 generate_audio = bool(caps.get("generate_audio"))
                 voice_consistency = caps.get("voice_consistency") or "soft"
                 max_reference_audio_count = int(caps.get("max_reference_audio_count") or 0)
@@ -411,6 +430,7 @@ async def resolve_generation_context(
                 max_duration=max_duration,
                 max_reference_images=max_reference_images,
                 text_to_video=text_to_video,
+                duration_endpoint_fixed=duration_endpoint_fixed,
                 generate_audio=generate_audio,
                 voice_consistency=voice_consistency,
                 requested_generate_audio=requested_generate_audio,

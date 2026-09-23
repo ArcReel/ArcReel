@@ -5,7 +5,7 @@
 export type VoiceConsistencyTier = "native" | "soft" | "none";
 
 /**
- * 成片音轨形态，与 `lib/backends/video_backends/base.py::VideoAudioMode` 一一对应：
+ * 成片音轨形态，与 `lib/backends/video_backend_contract.py::VideoAudioMode` 一一对应：
  * `controllable` = 请求带音轨开关，用户的开/关意图能抵达供应商；`always_on` = 恒有声、无开关；
  * `always_off` = 该路径不产音轨、也无开关。三态由服务端从 backend 声明派生，前端不合成。
  */

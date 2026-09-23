@@ -341,7 +341,6 @@ class TestProjectionRule:
         读法与端点投影、镜像列共用一份实现：对不上会让一个图像端点在市场里显示成视频。
         """
         definition = comfyui_endpoint_definition(media_type="image")
-        del definition["bindings"]["fps"]
         definition["meta"] = {"name": "演示出图", "author": "ArcReel", "version": "1.0.0"}
         source.add("demo", definition, media_type="image")
 
@@ -349,7 +348,6 @@ class TestProjectionRule:
 
     def test_a_comfyui_image_definition_listed_as_video_is_reported(self, source: _Source):
         definition = comfyui_endpoint_definition(media_type="image")
-        del definition["bindings"]["fps"]
         definition["meta"] = {"name": "演示出图", "author": "ArcReel", "version": "1.0.0"}
         source.add("demo", definition)
 

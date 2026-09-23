@@ -17,7 +17,7 @@ import pytest
 
 from lib.backends.audio_backends.base import VoiceOption
 from lib.backends.backend_assembly.specs import builtin_video_capabilities_for_model
-from lib.backends.video_backends.base import VideoCapabilities
+from lib.backends.video_backend_contract import VideoCapabilities
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.resolver import ConfigResolver, ProviderModel, VoiceConsistency, get_provider_fallback
 from lib.custom_provider import make_provider_id
@@ -100,7 +100,7 @@ def fake_assemble(monkeypatch):
     """替换 backend 构造缝：默认按请求原样回声身份，记录每次构造。"""
     calls: list[tuple[str, str, str | None]] = []
 
-    async def _assemble(*, provider_id, media_type, model_id, resolver, rate_limiter=None):
+    async def _assemble(*, provider_id, media_type, model_id, resolver, rate_limiter=None, generation_type=None):
         calls.append((provider_id, media_type, model_id))
         return _FakeBackend(name=provider_id, model=model_id or "default-model")
 
@@ -251,7 +251,7 @@ class TestVideoLane:
     async def test_capability_query_failure_degrades_to_empty(self, patched_session_factory, project_env, monkeypatch):
         """fake backend 报告 registry 之外的 model：能力查询失败降级空值，整次调用照常成功。"""
 
-        async def _assemble(*, provider_id, media_type, model_id, resolver, rate_limiter=None):
+        async def _assemble(*, provider_id, media_type, model_id, resolver, rate_limiter=None, generation_type=None):
             return _FakeBackend(name=provider_id, model="mystery-model")
 
         monkeypatch.setattr(generation_context, "assemble_backend", _assemble)
@@ -264,6 +264,9 @@ class TestVideoLane:
         assert ctx.video.max_reference_images is None
         assert ctx.video.generate_audio is False
         assert ctx.video.backend_model == "mystery-model"
+        # 读不到能力时的空档位仍是「档位声明缺失」，下游据此 fail loud；不得被读成端点固定时长
+        # 而放行一个无约束申请。
+        assert ctx.video.duration_endpoint_fixed is False
 
     async def test_requested_generate_audio_follows_project_override(
         self, patched_session_factory, project_env, fake_assemble
@@ -283,7 +286,7 @@ class TestVideoLane:
     ):
         """能力查询失败不得连带丢失用户的无声意图：它不来自能力接口，独立解析。"""
 
-        async def _assemble(*, provider_id, media_type, model_id, resolver, rate_limiter=None):
+        async def _assemble(*, provider_id, media_type, model_id, resolver, rate_limiter=None, generation_type=None):
             return _FakeBackend(name=provider_id, model="mystery-model")
 
         monkeypatch.setattr(generation_context, "assemble_backend", _assemble)
@@ -316,7 +319,7 @@ class TestActualIdentityQueries:
         """自定义供应商目标 model 被禁用回退：resolution 与能力按 backend 实际 model 查询。"""
         provider_id = await _seed_custom_video_provider(patched_session_factory)
 
-        async def _assemble(*, provider_id, media_type, model_id, resolver, rate_limiter=None):
+        async def _assemble(*, provider_id, media_type, model_id, resolver, rate_limiter=None, generation_type=None):
             # 模拟 load_custom_backend 的回退：请求 m-dead，实际构造出默认启用的 m-live
             return _FakeBackend(name=provider_id, model="m-live")
 
@@ -361,7 +364,7 @@ class TestAudioLane:
         断言字段存在不够，须证明 resolve_generation_context 确实转发了 backend 的音色目录。
         """
 
-        async def _assemble(*, provider_id, media_type, model_id, resolver, rate_limiter=None):
+        async def _assemble(*, provider_id, media_type, model_id, resolver, rate_limiter=None, generation_type=None):
             return _FakeBackend(
                 name=provider_id, model=model_id or "default-model", voices=[VoiceOption(id="Cherry", label="Cherry")]
             )
@@ -378,7 +381,7 @@ class TestAtomicFailure:
     ):
         """image 成功后 video 构造失败：整次调用原样上抛，无部分结果。"""
 
-        async def _assemble(*, provider_id, media_type, model_id, resolver, rate_limiter=None):
+        async def _assemble(*, provider_id, media_type, model_id, resolver, rate_limiter=None, generation_type=None):
             if media_type == "video":
                 raise ValueError("video backend 构造失败")
             return _FakeBackend(name=provider_id, model=model_id or "default-model")
@@ -410,13 +413,38 @@ class TestBackendCache:
         await resolve_generation_context("demo", None, project=project, image=ImageLaneRequest())
         assert len(fake_assemble) == 2, "失效后须重建 backend"
 
+    async def test_image_buckets_do_not_share_a_cache_entry(self, monkeypatch):
+        """同 (media_type, provider, model) 的 t2i 与 i2i 各自构造：桶参与构造，须各占一条缓存。
+
+        自定义供应商回退默认模型时 model_id 为空，两个桶装载出的是两个不同模型的 backend；共用
+        一条缓存会让先跑的那个桶把另一个桶的 backend 挤掉。
+        """
+        seen: list[str | None] = []
+
+        async def _assemble(*, provider_id, media_type, model_id, resolver, rate_limiter=None, generation_type=None):
+            seen.append(generation_type)
+            return _FakeBackend(name=provider_id, model=f"{generation_type}-model")
+
+        monkeypatch.setattr(generation_context, "assemble_backend", _assemble)
+        resolver = cast(ConfigResolver, None)
+
+        t2i = await generation_context._get_or_create_image_backend("custom-1", {}, resolver, generation_type="t2i")
+        i2i = await generation_context._get_or_create_image_backend("custom-1", {}, resolver, generation_type="i2i")
+        t2i_again = await generation_context._get_or_create_image_backend(
+            "custom-1", {}, resolver, generation_type="t2i"
+        )
+
+        assert seen == ["t2i", "i2i"], "换桶须重新构造，同桶重复请求须命中缓存"
+        assert (t2i.model, i2i.model) == ("t2i-model", "i2i-model")
+        assert t2i_again is t2i
+
     async def test_invalidate_during_construction_discards_instance(self, monkeypatch):
         """构造中途（assemble_backend await 挂起期间）触发 invalidate：完成的实例不写回缓存。"""
         entered = asyncio.Event()
         release = asyncio.Event()
         built: list[_FakeBackend] = []
 
-        async def _assemble(*, provider_id, media_type, model_id, resolver, rate_limiter=None):
+        async def _assemble(*, provider_id, media_type, model_id, resolver, rate_limiter=None, generation_type=None):
             backend = _FakeBackend(name=provider_id, model=model_id or "default-model")
             built.append(backend)
             if len(built) == 1:
@@ -445,7 +473,7 @@ class TestBackendCache:
         release = asyncio.Event()
         construct_count = 0
 
-        async def _assemble(*, provider_id, media_type, model_id, resolver, rate_limiter=None):
+        async def _assemble(*, provider_id, media_type, model_id, resolver, rate_limiter=None, generation_type=None):
             nonlocal construct_count
             construct_count += 1
             entered.set()
@@ -480,7 +508,7 @@ class TestBackendCache:
         release = asyncio.Event()
         built: list[_FakeBackend] = []
 
-        async def _assemble(*, provider_id, media_type, model_id, resolver, rate_limiter=None):
+        async def _assemble(*, provider_id, media_type, model_id, resolver, rate_limiter=None, generation_type=None):
             backend = _FakeBackend(name=provider_id, model=model_id or "default-model")
             built.append(backend)
             if len(built) == 1:

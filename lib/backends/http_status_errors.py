@@ -1,7 +1,7 @@
-"""供应商 HTTP 失败的共享异常：脱敏后的状态错误与产物取件失败。
+"""供应商 HTTP 失败的共享异常：脱敏后的状态错误、产物取件失败与提交歧义态。
 
 独立于 backend 层：``lib.backends.vidu_shared`` 等 backend 之下的共享模块也要抛脱敏后的状态错误，
-放在 ``lib.backends.video_backends.base`` 会把它们拖成 backend 层的下游；``lib.billing.call_failure``
+放在某个通道包里会把它们拖成 backend 层的下游；``lib.billing.call_failure``
 （记账层的失败分类）同理——它按异常类型认出「下载失败」，而记账层在 backend 层之下。
 """
 
@@ -41,6 +41,26 @@ class ArtifactDownloadError(RuntimeError):
     def __init__(self, *, detail: str) -> None:
         self.params = {"detail": detail}
         super().__init__(detail)
+
+
+class AmbiguousSubmitError(RuntimeError):
+    """create/submit（非幂等的「创建 + 计费」）阶段的歧义态失败。
+
+    请求可能已抵达服务端并已落库 + 已计费，但响应在途丢失（ReadTimeout、写超时、
+    连接中途断开、RemoteProtocolError 等）。此时自动重试会重复建任务 + 重复计费，故
+    不重试、直接终态失败；error_message 带 ``[create_ambiguous]`` 前缀提示运维到供应商侧
+    确认任务状态后再手动重试（与 ``[restart_lost]`` / ``[resume_unsupported]``
+    「宁可手动重试、不可重复计费」先例一致，agent-facing 豁免 i18n）。
+    """
+
+    def __init__(self, *, provider: str, message: str = "") -> None:
+        self.provider = provider
+        super().__init__(
+            message
+            or f"[create_ambiguous] {provider} 创建请求可能已送达服务端但响应在途丢失"
+            "（读超时/连接中途断开），为避免重复建任务与重复计费不自动重试；"
+            "请到供应商侧确认任务状态后再手动重试"
+        )
 
 
 def redacted_status_error(exc: httpx.HTTPStatusError, *, provider_reason: str | None = None) -> httpx.HTTPStatusError:

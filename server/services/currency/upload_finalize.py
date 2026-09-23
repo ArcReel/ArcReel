@@ -20,7 +20,8 @@ from lib.artifacts.formal_write import formal_write_transaction
 from lib.artifacts.version_manager import MANUAL_UPLOAD_VERSION_SOURCE, VersionManager
 from lib.infra.async_thread import run_noninterruptible_sync
 from lib.infra.thumbnail import extract_video_thumbnail
-from server.services.tasks.generation_tasks import _storyboard_formal_image_callback, get_project_manager
+from lib.project.project_manager import get_project_manager
+from server.services.tasks.formal_image_commit import storyboard_formal_image_callback
 
 # 版本记录里标记「用户手动上传」的 source 值；前端按此显示翻译文案
 UPLOAD_VERSION_SOURCE = MANUAL_UPLOAD_VERSION_SOURCE
@@ -174,7 +175,7 @@ async def commit_manual_storyboard_upload(
     if original_filename:
         metadata["original_filename"] = original_filename
     outcomes = []
-    commit = _storyboard_formal_image_callback(
+    commit = storyboard_formal_image_callback(
         project_name=project_name,
         script_file=script_file,
         resource_id=shot_id,

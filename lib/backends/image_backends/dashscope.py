@@ -13,6 +13,7 @@ from pathlib import Path
 import httpx
 
 from lib.backends.aspect_size import IMAGE_TIER_SHORT_EDGE, aspect_size, resolution_to_short_edge
+from lib.backends.backend_runtime import should_retry_submit, submit_post
 from lib.backends.dashscope_shared import (
     dashscope_headers,
     dashscope_native_base_url,
@@ -29,7 +30,6 @@ from lib.backends.image_backends.base import (
     download_image_to_path,
 )
 from lib.backends.providers import PROVIDER_DASHSCOPE
-from lib.backends.video_backends.base import should_retry_submit, submit_post
 from lib.infra.logging_utils import format_kwargs_for_log
 from lib.infra.retry import with_retry_async
 

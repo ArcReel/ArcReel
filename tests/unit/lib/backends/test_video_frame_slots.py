@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from lib.backends.video_backends.base import ReferenceAudioMode, VideoCapabilities, VideoCapabilityError
+from lib.backends.video_backend_contract import ReferenceAudioMode, VideoCapabilities, VideoCapabilityError
 from lib.backends.video_frame_slots import (
     FIRST_FRAME_ADAPTIVE_RATIO,
     gate_video_request,

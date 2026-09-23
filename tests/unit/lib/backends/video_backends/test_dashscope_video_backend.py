@@ -10,9 +10,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import pytest
 
+from lib.backends.http_status_errors import ArtifactDownloadError
 from lib.backends.providers import PROVIDER_DASHSCOPE
-from lib.backends.video_backends.base import (
-    ArtifactDownloadError,
+from lib.backends.video_backend_contract import (
     ReferenceAudioMode,
     ResumeExpiredError,
     VideoCapabilityError,

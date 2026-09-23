@@ -23,7 +23,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from lib.backends.http_status_errors import ArtifactDownloadError
 from lib.backends.providers import CallPurpose, CallStatus
-from lib.backends.video_backends.base import ResumeExpiredError
+from lib.backends.video_backend_contract import ResumeExpiredError
 from lib.billing.ledger import Ledger, _settlement_from_result
 from lib.db.base import utc_now
 from lib.db.models.api_call import ApiCall
@@ -252,6 +252,24 @@ class TestRecordBracket:
         assert row.session_id == "s1"
         assert row.inputs == inputs
         assert row.prompt == "p" * 900  # 提示词全文入库，不截 500 字
+
+    async def test_generate_audio_stays_null_unless_the_caller_declares_it(
+        self, db_factory: async_sessionmaker
+    ) -> None:
+        """``generate_audio`` 只对视频有意义：调用方不声明就留空，不给非视频行填一个默认值。"""
+        ledger = Ledger(session_factory=db_factory)
+        async with ledger.record(project_name="demo", call_type="image", model="m", provider="gemini-aistudio") as call:
+            call.success(_ImgResult())
+        async with ledger.record(
+            project_name="demo", call_type="video", model="m", provider="gemini-aistudio", generate_audio=False
+        ) as call:
+            call.success(_VideoResult(duration_seconds=6, generate_audio=False))
+
+        async with db_factory() as session:
+            rows = (await session.execute(select(ApiCall).order_by(ApiCall.id))).scalars().all()
+        assert [row.call_type for row in rows] == ["image", "video"]
+        assert rows[0].generate_audio is None
+        assert rows[1].generate_audio is False
 
     @pytest.mark.parametrize(
         ("exc", "expected_code", "expected_params"),

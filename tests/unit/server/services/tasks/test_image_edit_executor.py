@@ -26,7 +26,7 @@ from lib.project.project_manager import ProjectManager
 from lib.project.project_migration_failure import ProjectMigrationError
 from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from lib.project.resource_paths import resource_relative_path
-from server.services.tasks import generation_context, generation_tasks, image_edit_tasks
+from server.services.tasks import formal_image_commit, generation_context, generation_tasks, image_edit_tasks
 from server.services.tasks.generation_context import (
     GenerationContext,
     ImageLaneRequest,
@@ -372,7 +372,7 @@ class TestExecuteImageEditTask:
 
         _patch_common(monkeypatch, pm, _Generator())
         monkeypatch.setattr(
-            generation_tasks,
+            formal_image_commit,
             "register_task_current_resource_artifact",
             lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("manifest commit failed")),
         )
@@ -893,7 +893,7 @@ class TestImageSizeResolutionEquivalence:
         (tmp_path / "projects" / "demo").mkdir(parents=True)
         monkeypatch.setattr(generation_context, "get_project_manager", lambda: pm)
 
-        async def _assemble(*, provider_id, media_type, model_id, resolver, rate_limiter=None):
+        async def _assemble(*, provider_id, media_type, model_id, resolver, rate_limiter=None, generation_type=None):
             return _EchoBackend(name=provider_id, model=model_id or "default-model")
 
         monkeypatch.setattr(generation_context, "assemble_backend", _assemble)

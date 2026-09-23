@@ -140,6 +140,8 @@ _TASK_FAILURE_ACTIONS: dict[str, GenerationAction] = {
     "tts_stale": GenerationAction.REGENERATE_TTS,
     "tts_generating": GenerationAction.WAIT_FOR_TASK,
     "tts_not_applicable": GenerationAction.FIX_INPUT,
+    # 时长这一维不由 ArcReel 驱动，换供应商配置也拿不回控制权：能改的只有这次请求的交付方式。
+    "tts_duration_endpoint_fixed": GenerationAction.FIX_INPUT,
     "tts_not_configured": GenerationAction.CONFIGURE_PROVIDER,
     "tts_state_unavailable": GenerationAction.REPAIR_ARTIFACT_STATE,
     "tts_duration_unavailable": GenerationAction.REGENERATE_TTS,
@@ -173,11 +175,13 @@ _TASK_FAILURE_ACTIONS: dict[str, GenerationAction] = {
     "comfyui_job_lost": GenerationAction.RETRY,
     # 被人或另一个客户端打断：这一次没跑完，本身不说明这份 workflow 有问题。
     "comfyui_interrupted": GenerationAction.RETRY,
-    # 以下四条都指向这份 workflow 或这台机器的环境：缺模型、参数越界、节点抛错、产物节点接错。
+    # 以下五条都指向这份 workflow 或这台机器的环境：缺模型、参数越界、节点抛错、产物节点接错、
+    # 保存节点导出的容器不对。
     "comfyui_node_errors": GenerationAction.CONFIGURE_PROVIDER,
     "comfyui_execution_error": GenerationAction.CONFIGURE_PROVIDER,
     "comfyui_output_missing": GenerationAction.CONFIGURE_PROVIDER,
     "comfyui_output_type_mismatch": GenerationAction.CONFIGURE_PROVIDER,
+    "comfyui_output_container_mismatch": GenerationAction.CONFIGURE_PROVIDER,
     # 供应商已出片、只是没取回来：重发同一请求会再建一个付费任务，正确的一步是接续取件。
     "artifact_download_failed": GenerationAction.RETRY_ARTIFACT_DOWNLOAD,
     "execution_identity_unrecoverable": GenerationAction.RETRY,

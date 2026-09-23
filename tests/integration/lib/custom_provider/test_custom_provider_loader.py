@@ -76,6 +76,67 @@ class TestLoadCustomBackend:
             await load_custom_backend(session=db_session, provider_id=pid, model_id=None, media_type="video")
 
 
+class TestBucketAwareDefaultFallback:
+    """默认回退按任务类型桶挑行：image 的 t2i 与 i2i 各有一个默认，挑不出唯一那一行即 fail loud。"""
+
+    @staticmethod
+    async def _seed_two_image_buckets(db_session) -> str:
+        return await _seed(
+            db_session,
+            models=[
+                # openai-images-generations 只声明 t2i，openai-images-edits 只声明 i2i
+                {"model_id": "t2i-m", "endpoint": "openai-images-generations", "is_enabled": True, "is_default": True},
+                {"model_id": "i2i-m", "endpoint": "openai-images-edits", "is_enabled": True, "is_default": True},
+            ],
+        )
+
+    @pytest.mark.parametrize(("generation_type", "expected"), [("t2i", "t2i-m"), ("i2i", "i2i-m")])
+    @patch("lib.custom_provider.endpoints.OpenAIImageBackend", new=MagicMock())
+    async def test_falls_back_to_the_default_of_the_requested_bucket(self, generation_type, expected, db_session):
+        pid = await self._seed_two_image_buckets(db_session)
+        result = await load_custom_backend(
+            session=db_session,
+            provider_id=pid,
+            model_id=None,
+            media_type="image",
+            generation_type=generation_type,
+        )
+        assert result.model == expected
+
+    async def test_bucket_without_default_fails_loud(self, db_session):
+        pid = await _seed(
+            db_session,
+            models=[
+                {"model_id": "t2i-m", "endpoint": "openai-images-generations", "is_enabled": True, "is_default": True}
+            ],
+        )
+        with pytest.raises(ValueError, match="没有默认 i2i image 模型"):
+            await load_custom_backend(
+                session=db_session, provider_id=pid, model_id=None, media_type="image", generation_type="i2i"
+            )
+
+    async def test_two_defaults_in_the_same_bucket_fail_loud(self, db_session):
+        # 两行都声明 t2i + i2i：按桶过滤后 t2i 上仍有两个默认，挑哪一行都是静默换模型
+        pid = await _seed(
+            db_session,
+            models=[
+                {"model_id": "m-a", "endpoint": "openai-images", "is_enabled": True, "is_default": True},
+                {"model_id": "m-b", "endpoint": "gemini-image", "is_enabled": True, "is_default": True},
+            ],
+        )
+        with pytest.raises(ValueError, match="有多个默认 t2i image 模型：m-a, m-b"):
+            await load_custom_backend(
+                session=db_session, provider_id=pid, model_id=None, media_type="image", generation_type="t2i"
+            )
+
+    @patch("lib.custom_provider.endpoints.OpenAIImageBackend", new=MagicMock())
+    async def test_double_default_without_bucket_still_resolves_the_named_model(self, db_session):
+        # 不带桶的调用点（文本 / 音频工厂等）不过滤：显式 model 命中时双默认不参与解析
+        pid = await self._seed_two_image_buckets(db_session)
+        result = await load_custom_backend(session=db_session, provider_id=pid, model_id="i2i-m", media_type="image")
+        assert result.model == "i2i-m"
+
+
 class TestVideoCapabilityOverridesReachExecution:
     """DB 的 capability_overrides 必须在装载出的 backend 上生效——执行层门控读的就是这里。"""
 

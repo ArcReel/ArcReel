@@ -12,6 +12,8 @@ from lib.generation.generation_queue_client import wait_for_task
 from lib.generation.generation_worker import CapacityTable, GenerationWorker
 from lib.project.project_change_hints import register_project_change_batch_listener
 from server.media_tools.context import ToolContext
+from server.services.tasks.generation_tasks import execute_generation_task
+from server.services.tasks.resume_executor import execute_resume_video_task
 from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import FakePM, fake_caps_resolver
 
 
@@ -59,6 +61,8 @@ async def fake_ctx(
         capacity=CapacityTable(_limits={}, _defaults={"text": 1}),
         provider_projection=text_provider,
         lanes=("text",),
+        executor=execute_generation_task,
+        resume_executor=execute_resume_video_task,
     )
     worker.poll_interval = 60
     worker.heartbeat_interval = 60
@@ -82,11 +86,9 @@ async def fake_ctx(
         owner_id=worker.owner_id,
         ttl_seconds=worker.lease_ttl,
     )
-    queue.set_worker_cancel_callback(worker.request_cancel)
     await worker.start()
     try:
         yield ctx
     finally:
         await worker.stop()
-        queue.set_worker_cancel_callback(None)
         unregister()

@@ -6,6 +6,7 @@ from typing import Any
 from lib.generation.generation_queue import GenerationQueue
 from lib.generation.generation_queue_client import wait_for_task
 from lib.generation.generation_worker import CapacityTable, GenerationWorker
+from tests.fakes import refuse_resume_execution
 
 
 async def test_text_lane_is_serial_and_does_not_block_media(file_db_factory) -> None:
@@ -58,6 +59,7 @@ async def test_text_lane_is_serial_and_does_not_block_media(file_db_factory) -> 
         provider_projection=provider,
         executor=execute,
         lanes=("image", "text"),
+        resume_executor=refuse_resume_execution,
     )
     worker.poll_interval = 0.01
     worker.heartbeat_interval = 0.01

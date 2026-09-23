@@ -13,16 +13,15 @@ import httpx
 import pytest
 import respx
 
+from lib.backends.http_status_errors import AmbiguousSubmitError, ArtifactDownloadError
 from lib.backends.providers import PROVIDER_AGNES
-from lib.backends.video_backends.agnes import AgnesVideoBackend
-from lib.backends.video_backends.base import (
-    AmbiguousSubmitError,
-    ArtifactDownloadError,
+from lib.backends.video_backend_contract import (
     ProviderResponseStage,
     ResumeExpiredError,
     VideoCapabilityError,
     VideoGenerationRequest,
 )
+from lib.backends.video_backends.agnes import AgnesVideoBackend
 from tests.fakes import bounded_poll_clock, captured_provider_job_ids
 from tests.http_capture import capture_http, only_request, request_json
 

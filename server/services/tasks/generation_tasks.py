@@ -11,20 +11,16 @@ import math
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any
 
 from lib.artifacts.artifact_activation import (
     ArtifactCurrencyResolver,
     ArtifactInputClaim,
-    ArtifactRegistrationReceipt,
     active_artifact_currency_resolver,
     artifact_input_is_usable,
     assert_current_artifact_input_claims_usable,
     bind_artifact_input_claims_to_content_digests,
     bind_artifact_input_claims_to_frozen_visuals,
-    register_current_resource_artifact,
-    register_task_current_resource_artifact,
-    resolve_current_resource_artifact_basis,
     resolve_usable_episode_script_input,
     resolve_usable_storyboard_video_inputs,
 )
@@ -32,21 +28,12 @@ from lib.artifacts.artifact_manifest import (
     ArtifactBasis,
     ArtifactBasisDescriptor,
     ArtifactKey,
-    ArtifactManifestEntry,
-    ProjectArtifactManifestAdapter,
     compose_video_artifact_basis,
-)
-from lib.artifacts.artifact_version_provenance import IMAGE_ARTIFACT_BASIS_FIELD
-from lib.artifacts.image_artifact_currency import (
-    OptimisticMappingMemberPatch,
-    OptimisticMappingPatch,
-    SelectedImageArtifactReceipt,
-    reject_failed_image_selection,
 )
 from lib.artifacts.image_reference_snapshot import FrozenImageReferences, freeze_image_references
 from lib.artifacts.version_manager import PaidVersionCommit
 from lib.artifacts.video_artifact_facts import VideoArtifactCurrencyFacts
-from lib.artifacts.video_visual_provenance import build_storyboard_video_visual_basis, resolve_video_aspect_ratio
+from lib.artifacts.video_visual_provenance import build_storyboard_video_visual_basis
 from lib.artifacts.visual_artifact_provenance import (
     GridStoryboardVisual,
     VisualReference,
@@ -56,13 +43,12 @@ from lib.artifacts.visual_artifact_provenance import (
     build_storyboard_video_artifact_visual_basis,
     project_basis_style_description,
 )
-from lib.backends.video_backends.base import VideoCapabilityError
+from lib.backends.video_backend_contract import VideoCapabilityError
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.resolver import constrain_durations, video_bucket_for_generation_mode
 from lib.config.service import DEFAULT_VIDEO_POLL_TIMEOUT_SECONDS
 from lib.db.base import DEFAULT_USER_ID
 from lib.generation.generation_queue import (
-    CompensableGenerationResult,
     DispatchProviderChanged,
     get_generation_queue,
     without_video_execution_identity,
@@ -75,7 +61,6 @@ from lib.infra.thumbnail import extract_video_thumbnail
 from lib.project.asset_derivatives import DERIVATIVE_ASSET_TYPE, DERIVATIVE_TASK_TYPE
 from lib.project.asset_types import (
     ASSET_SPECS,
-    AssetSpec,
     normalize_asset_bucket,
     normalize_asset_name,
     resolve_asset_key,
@@ -101,6 +86,7 @@ from lib.prompts.prompt_style import normalize_style_value
 from lib.prompts.prompt_utils import render_storyboard_video_prompt
 from lib.prompts.reference_image_numbering import PREVIOUS_STORYBOARD_ROLE, ReferenceImageSlot, clamp_reference_images
 from lib.references.reference_catalog import build_reference_catalog
+from lib.script.reference_video.duration_slots import DEFAULT_PLANNED_DURATION_SECONDS
 from lib.script.reference_video.execution_checkpoint import (
     NarrationExecutionFacts,
     ProviderMediaInput,
@@ -143,13 +129,27 @@ from server.services.currency.video_artifact_currency import (
     complete_video_artifact_commit,
     freeze_video_speech_facts,
 )
+from server.services.tasks.derivative_sheet_tasks import execute_character_derivative_task
+from server.services.tasks.formal_image_commit import (
+    FormalImageCommitOutcome,
+    FormalImagePlan,
+    StagedImageCommit,
+    finalize_storyboard_image_task,
+    get_aspect_ratio,
+    grid_formal_image_callback,
+    register_formal_task_artifact,
+    run_asset_sheet_image_task,
+    run_formal_image_task,
+    run_formal_task_finalizer,
+    storyboard_formal_image_callback,
+)
 from server.services.tasks.generation_context import (
     AudioLaneRequest,
-    GenerationContext,
     ImageLaneRequest,
     VideoLaneRequest,
     resolve_generation_context,
 )
+from server.services.tasks.image_edit_tasks import execute_image_edit_task
 from server.services.tasks.narration_delivery_tasks import (
     CurrentTtsSettingsResolver,
     ResolvedTtsSettingsResolver,
@@ -158,233 +158,9 @@ from server.services.tasks.narration_delivery_tasks import (
     reuse_current_video_for_tier,
     tts_task_in_progress,
 )
+from server.services.tasks.reference_video_tasks import execute_reference_video_task
 
 logger = logging.getLogger(__name__)
-
-
-class _CancellationReceipt(Protocol):
-    def compensate_cancelled(self) -> None:
-        pass
-
-
-@dataclass(frozen=True, slots=True)
-class _CompositeCancellationReceipt:
-    receipts: tuple[_CancellationReceipt, ...]
-
-    def compensate_cancelled(self) -> None:
-        failures: list[Exception] = []
-        for receipt in self.receipts:
-            try:
-                receipt.compensate_cancelled()
-            except Exception as exc:
-                failures.append(exc)
-        if failures:
-            for failure in failures[1:]:
-                failures[0].add_note(f"additional cancellation compensation failed: {failure}")
-            raise failures[0]
-
-
-def register_formal_task_artifact(
-    project_path: Path,
-    *,
-    resource_type: str,
-    resource_id: str,
-    script_file: str | None,
-    task_id: str | None,
-    artifact_path: str | None = None,
-    basis: ArtifactBasis | ArtifactBasisDescriptor | None = None,
-) -> ArtifactRegistrationReceipt | None:
-    """Use the task-aware registration seam only when a terminal gate exists."""
-
-    if task_id is None:
-        register_current_resource_artifact(
-            project_path,
-            resource_type=resource_type,
-            resource_id=resource_id,
-            script_file=script_file,
-            artifact_path=artifact_path,
-            basis=basis,
-        )
-        return None
-    return register_task_current_resource_artifact(
-        project_path,
-        resource_type=resource_type,
-        resource_id=resource_id,
-        script_file=script_file,
-        artifact_path=artifact_path,
-        basis=basis,
-    )
-
-
-async def run_formal_task_finalizer[T](
-    finalize: Callable[[], T],
-    *,
-    task_id: str | None,
-    compensate_failure: Callable[[], None] | None = None,
-) -> T:
-    """Finish a task's formal-write transaction so cancellation can compensate it."""
-
-    def _finalize_with_compensation() -> T:
-        try:
-            return finalize()
-        except BaseException as failure:
-            if compensate_failure is not None:
-                try:
-                    compensate_failure()
-                except BaseException as compensation_failure:
-                    failure.add_note(f"formal image selection compensation also failed: {compensation_failure}")
-            raise
-
-    # A synchronous formal-write thread cannot be stopped after cancellation.
-    # Always await its durable outcome before the caller leaves this boundary.
-    return await run_noninterruptible_sync(_finalize_with_compensation)
-
-
-def compensable_formal_task_result(
-    result: dict[str, Any],
-    receipt: _CancellationReceipt | None,
-) -> dict[str, Any]:
-    if receipt is None:
-        return result
-    return CompensableGenerationResult(result, cancel_compensation=receipt.compensate_cancelled)
-
-
-def get_aspect_ratio(project: dict, resource_type: str) -> str:
-    if resource_type in ("characters", "scenes", "props", "products", CHARACTER_DERIVATIVE_RESOURCE_TYPE):
-        # 资产图生成必须显式指定宽高比；四类资产与角色衍生当前均固定为 16:9。
-        return "16:9"
-    return resolve_video_aspect_ratio(project, resource_type)
-
-
-@dataclass(frozen=True, slots=True)
-class _FormalImageCommitOutcome:
-    """Durable result produced inside the shared image activation seam."""
-
-    version: int
-    created_at: str
-    receipt: _CancellationReceipt | None
-
-
-# 正式图提交三件套的公共签名：活化回调 / 元数据补偿器 / 元数据提交器。
-type _StagedImageCommit = Callable[[Path, Path, Mapping[str, Any]], int]
-type _MetadataCompensator = Callable[[Callable[[], None]], None]
-type _MetadataCommitter = Callable[[Callable[[], None]], _MetadataCompensator | None]
-
-
-def _created_at_for_version(versions: Any, resource_type: str, resource_id: str, version: int) -> str:
-    records = versions.get_versions(resource_type, resource_id).get("versions", [])
-    for record in records:
-        if record.get("version") == version:
-            created_at = record.get("created_at")
-            if isinstance(created_at, str) and created_at:
-                return created_at
-    raise RuntimeError("formal image version metadata is missing its creation timestamp")
-
-
-def _commit_staged_formal_image(
-    *,
-    versions: Any,
-    project_path: Path,
-    resource_type: str,
-    resource_id: str,
-    script_file: str | None,
-    artifact_path: str,
-    prompt: str,
-    staged_file: Path,
-    current_file: Path,
-    version_metadata: Mapping[str, Any],
-    task_id: str | None,
-    basis: ArtifactBasis | ArtifactBasisDescriptor | None,
-    commit_metadata: _MetadataCommitter,
-) -> _FormalImageCommitOutcome:
-    """Commit metadata → selected bytes/version → Manifest through one nested transaction.
-
-    Every formal image entry point supplies only its metadata mutation.  Version
-    activation and registration stay centralized so no caller can publish a
-    canonical file before all dependent state is ready to commit.
-    """
-
-    manifest_box: list[ArtifactRegistrationReceipt | None] = []
-    version_box: list[int] = []
-    created_at_box: list[str] = []
-    registered_version_box: list[int] = []
-    resolved_basis_box: list[ArtifactBasis | ArtifactBasisDescriptor | None] = []
-
-    def _register() -> None:
-        registered_version = versions.get_current_version(resource_type, resource_id)
-        if type(registered_version) is not int or registered_version < 1:
-            raise RuntimeError("formal image staged activation has no selected version")
-        registered_version_box.append(registered_version)
-        created_at_box.append(_created_at_for_version(versions, resource_type, resource_id, registered_version))
-        manifest_box.append(
-            register_formal_task_artifact(
-                project_path,
-                resource_type=resource_type,
-                resource_id=resource_id,
-                script_file=script_file,
-                task_id=task_id,
-                artifact_path=artifact_path,
-                basis=resolved_basis_box[0],
-            )
-        )
-
-    def _activate() -> None:
-        resolved_basis = basis
-        if resolved_basis is None:
-            resolved_basis = resolve_current_resource_artifact_basis(
-                project_path,
-                resource_type=resource_type,
-                resource_id=resource_id,
-                script_file=script_file,
-            )
-        resolved_basis_box.append(resolved_basis)
-        committed_metadata = dict(version_metadata)
-        if IMAGE_ARTIFACT_BASIS_FIELD in committed_metadata:
-            raise ValueError(f"{IMAGE_ARTIFACT_BASIS_FIELD} is reserved for formal image activation")
-        if isinstance(resolved_basis, ArtifactBasis):
-            committed_metadata[IMAGE_ARTIFACT_BASIS_FIELD] = resolved_basis.to_evidence_dict()
-        version_box.append(
-            versions.commit_staged_version(
-                resource_type=resource_type,
-                resource_id=resource_id,
-                prompt=prompt,
-                staged_file=staged_file,
-                current_file=current_file,
-                on_commit=_register,
-                **committed_metadata,
-            )
-        )
-
-    compensate_metadata = commit_metadata(_activate)
-    if (
-        len(version_box) != 1
-        or len(registered_version_box) != 1
-        or version_box != registered_version_box
-        or len(created_at_box) != 1
-        or len(manifest_box) != 1
-        or len(resolved_basis_box) != 1
-    ):
-        raise RuntimeError("formal image metadata commit skipped staged activation")
-    version = version_box[0]
-    manifest = manifest_box[0]
-    receipt: _CancellationReceipt | None = None
-    if task_id is not None:
-        if manifest is None or compensate_metadata is None:
-            raise RuntimeError("task-aware formal image commit did not return compensation state")
-        receipt = SelectedImageArtifactReceipt(
-            versions=versions,
-            resource_type=resource_type,
-            resource_id=resource_id,
-            version=version,
-            current_file=current_file,
-            manifest=manifest,
-            compensate_metadata=compensate_metadata,
-        )
-    return _FormalImageCommitOutcome(
-        version=version,
-        created_at=created_at_box[0],
-        receipt=receipt,
-    )
 
 
 def _normalize_storyboard_prompt(
@@ -802,622 +578,6 @@ def collect_storyboard_references(
     )
 
 
-def _staged_formal_image_callback(
-    *,
-    versions: Any,
-    project_path: Path,
-    resource_type: str,
-    resource_id: str,
-    script_file: str | None,
-    artifact_path: str,
-    prompt: str,
-    task_id: str | None,
-    basis: ArtifactBasis | ArtifactBasisDescriptor | None,
-    outcome_box: list[_FormalImageCommitOutcome],
-    commit_metadata: _MetadataCommitter,
-) -> _StagedImageCommit:
-    """Wrap one metadata committer into the staged activation callback of an image task."""
-
-    def _commit(staged_file: Path, current_file: Path, version_metadata: Mapping[str, Any]) -> int:
-        outcome = _commit_staged_formal_image(
-            versions=versions,
-            project_path=project_path,
-            resource_type=resource_type,
-            resource_id=resource_id,
-            script_file=script_file,
-            artifact_path=artifact_path,
-            prompt=prompt,
-            staged_file=staged_file,
-            current_file=current_file,
-            version_metadata=version_metadata,
-            task_id=task_id,
-            basis=basis,
-            commit_metadata=commit_metadata,
-        )
-        outcome_box.append(outcome)
-        return outcome.version
-
-    return _commit
-
-
-def _asset_sheet_metadata_mutator(
-    *,
-    spec: AssetSpec,
-    resource_id: str,
-    sheet_path: str,
-    mutation_box: list[OptimisticMappingPatch],
-) -> Callable[[dict[str, Any]], None]:
-    """Point one asset entry at its new sheet and record the patch for compensation."""
-
-    def _mutate(project: dict[str, Any]) -> None:
-        bucket = project.get(spec.bucket_key)
-        key = resolve_asset_key(bucket, resource_id)
-        if not isinstance(bucket, dict) or key is None:
-            raise KeyError(f"{spec.label_zh} '{resource_id}' 不存在")
-        entry = bucket[key]
-        if not isinstance(entry, dict):
-            raise ValueError(f"{spec.label_zh} '{resource_id}' metadata must be an object")
-        before = copy.deepcopy(entry)
-        entry[spec.sheet_field] = sheet_path
-        mutation_box.append(OptimisticMappingPatch.capture(before, entry))
-
-    return _mutate
-
-
-def _asset_sheet_metadata_compensator(
-    *,
-    pm: ProjectManager,
-    project_name: str,
-    spec: AssetSpec,
-    resource_id: str,
-    mutation: OptimisticMappingPatch,
-) -> _MetadataCompensator:
-    """Roll the asset entry back to the pre-write patch inside the rejecting transaction."""
-
-    def _compensate_metadata(reject: Callable[[], None]) -> None:
-        def _restore(project: dict[str, Any]) -> None:
-            bucket = project.get(spec.bucket_key)
-            key = resolve_asset_key(bucket, resource_id)
-            if isinstance(bucket, dict) and key is not None and isinstance(bucket[key], dict):
-                mutation.restore(bucket[key])
-
-        def _reject(_project_file: Path) -> None:
-            reject()
-
-        pm.update_project(project_name, _restore, on_commit=_reject)
-
-    return _compensate_metadata
-
-
-def _write_storyboard_image_metadata(
-    *,
-    pm: ProjectManager,
-    project_name: str,
-    script_file: str,
-    resource_id: str,
-    artifact_path: str,
-    mutation_box: list[OptimisticMappingMemberPatch],
-    on_commit: Callable[[Path], None],
-) -> None:
-    """Point one storyboard item at its new image and record the patch for compensation."""
-
-    with pm.locked_script(project_name, script_file, validate=False, on_commit=on_commit) as script:
-        items, id_field, _char_field, _scene_field, _prop_field = get_storyboard_items(script)
-        resolved = find_storyboard_item(items, id_field, resource_id)
-        if resolved is None:
-            raise KeyError(f"场景 '{resource_id}' 不存在")
-        item, _index = resolved
-        before = copy.deepcopy(item)
-        pm._set_scene_asset_in_script(script, resource_id, "storyboard_image", artifact_path)
-        selected_assets = item.get("generated_assets")
-        if not isinstance(selected_assets, Mapping):
-            raise RuntimeError("storyboard metadata commit did not produce generated_assets")
-        mutation_box.append(OptimisticMappingMemberPatch.capture(before, "generated_assets", selected_assets))
-
-
-def _storyboard_metadata_compensator(
-    *,
-    pm: ProjectManager,
-    project_name: str,
-    script_file: str,
-    resource_id: str,
-    mutation: OptimisticMappingMemberPatch,
-) -> _MetadataCompensator:
-    """Roll the storyboard item back; a vanished script or item still has to reject the version."""
-
-    def _compensate_metadata(reject: Callable[[], None]) -> None:
-        def _reject(_script_path: Path) -> None:
-            reject()
-
-        try:
-            with pm.locked_script(
-                project_name,
-                script_file,
-                validate=False,
-                on_commit=_reject,
-            ) as script:
-                items, id_field, _char_field, _scene_field, _prop_field = get_storyboard_items(script)
-                resolved = find_storyboard_item(items, id_field, resource_id)
-                if resolved is not None:
-                    mutation.restore(resolved[0])
-        except (FileNotFoundError, KeyError):
-            reject()
-
-    return _compensate_metadata
-
-
-def _asset_sheet_formal_image_callback(
-    *,
-    asset_type: str,
-    project_name: str,
-    resource_id: str,
-    sheet_path: str,
-    prompt: str,
-    versions: Any,
-    task_id: str | None,
-    basis: ArtifactBasis | ArtifactBasisDescriptor | None,
-    outcome_box: list[_FormalImageCommitOutcome],
-    project_manager: ProjectManager | None = None,
-) -> _StagedImageCommit:
-    """Build the shared staged activation callback for every asset-sheet task."""
-
-    spec = ASSET_SPECS[asset_type]
-    pm = project_manager or get_project_manager()
-    project_path = pm.get_project_path(project_name)
-
-    def _commit_metadata(activate: Callable[[], None]) -> _MetadataCompensator | None:
-        mutation_box: list[OptimisticMappingPatch] = []
-
-        def _activate(_project_file: Path) -> None:
-            activate()
-
-        pm.update_project(
-            project_name,
-            _asset_sheet_metadata_mutator(
-                spec=spec,
-                resource_id=resource_id,
-                sheet_path=sheet_path,
-                mutation_box=mutation_box,
-            ),
-            on_commit=_activate,
-        )
-        if task_id is None:
-            return None
-        return _asset_sheet_metadata_compensator(
-            pm=pm,
-            project_name=project_name,
-            spec=spec,
-            resource_id=resource_id,
-            mutation=mutation_box[0],
-        )
-
-    return _staged_formal_image_callback(
-        versions=versions,
-        project_path=project_path,
-        resource_type=spec.bucket_key,
-        resource_id=resource_id,
-        script_file=None,
-        artifact_path=sheet_path,
-        prompt=prompt,
-        task_id=task_id,
-        basis=basis,
-        outcome_box=outcome_box,
-        commit_metadata=_commit_metadata,
-    )
-
-
-async def _finalize_formal_image_task(
-    *,
-    project_path: Path,
-    resource_type: str,
-    resource_id: str,
-    script_file: str | None,
-    artifact_path: str,
-    generator: Any,
-    version: int,
-    task_id: str | None,
-    basis: ArtifactBasis | ArtifactBasisDescriptor | None,
-    commit_current: Callable[[Callable[[Path], None]], None],
-    commit_tracked: Callable[[Callable[[Path], None]], _MetadataCompensator],
-    missing_receipt_error: str,
-) -> tuple[str, _CancellationReceipt | None]:
-    """Commit one image's metadata plus selection and span the task terminal-cancellation window."""
-
-    def _finalize() -> tuple[str, _CancellationReceipt | None]:
-        created_at = generator.versions.get_versions(resource_type, resource_id)["versions"][-1]["created_at"]
-        if task_id is None:
-
-            def _register_current(_committed_file: Path) -> None:
-                register_formal_task_artifact(
-                    project_path,
-                    resource_type=resource_type,
-                    resource_id=resource_id,
-                    script_file=script_file,
-                    task_id=None,
-                    artifact_path=artifact_path,
-                    basis=basis,
-                )
-
-            commit_current(_register_current)
-            return created_at, None
-
-        manifest_box: list[ArtifactRegistrationReceipt] = []
-
-        def _register(_committed_file: Path) -> None:
-            receipt = register_formal_task_artifact(
-                project_path,
-                resource_type=resource_type,
-                resource_id=resource_id,
-                script_file=script_file,
-                task_id=task_id,
-                artifact_path=artifact_path,
-                basis=basis,
-            )
-            if receipt is None:
-                raise RuntimeError(missing_receipt_error)
-            manifest_box.append(receipt)
-
-        compensate_metadata = commit_tracked(_register)
-        receipt = SelectedImageArtifactReceipt(
-            versions=generator.versions,
-            resource_type=resource_type,
-            resource_id=resource_id,
-            version=version,
-            current_file=project_path / artifact_path,
-            manifest=manifest_box[0],
-            compensate_metadata=compensate_metadata,
-        )
-        return created_at, receipt
-
-    def _compensate_failed_selection() -> None:
-        reject_failed_image_selection(
-            versions=generator.versions,
-            resource_type=resource_type,
-            resource_id=resource_id,
-            version=version,
-            current_file=project_path / artifact_path,
-        )
-
-    return await run_formal_task_finalizer(
-        _finalize,
-        task_id=task_id,
-        compensate_failure=_compensate_failed_selection,
-    )
-
-
-async def _finalize_asset_sheet_task(
-    *,
-    asset_type: str,
-    project_name: str,
-    resource_id: str,
-    sheet_path: str,
-    generator: Any,
-    version: int,
-    task_id: str | None,
-    basis: ArtifactBasis | ArtifactBasisDescriptor | None = None,
-    project_manager: ProjectManager | None = None,
-) -> tuple[str, _CancellationReceipt | None]:
-    """Commit one asset sheet and span the task terminal-cancellation window."""
-
-    spec = ASSET_SPECS[asset_type]
-    pm = project_manager or get_project_manager()
-
-    def _commit_current(register: Callable[[Path], None]) -> None:
-        pm._update_asset_sheet(
-            asset_type,
-            project_name,
-            resource_id,
-            sheet_path,
-            on_commit=register,
-        )
-
-    def _commit_tracked(register: Callable[[Path], None]) -> _MetadataCompensator:
-        mutation_box: list[OptimisticMappingPatch] = []
-        pm.update_project(
-            project_name,
-            _asset_sheet_metadata_mutator(
-                spec=spec,
-                resource_id=resource_id,
-                sheet_path=sheet_path,
-                mutation_box=mutation_box,
-            ),
-            on_commit=register,
-        )
-        return _asset_sheet_metadata_compensator(
-            pm=pm,
-            project_name=project_name,
-            spec=spec,
-            resource_id=resource_id,
-            mutation=mutation_box[0],
-        )
-
-    return await _finalize_formal_image_task(
-        project_path=pm.get_project_path(project_name),
-        resource_type=spec.bucket_key,
-        resource_id=resource_id,
-        script_file=None,
-        artifact_path=sheet_path,
-        generator=generator,
-        version=version,
-        task_id=task_id,
-        basis=basis,
-        commit_current=_commit_current,
-        commit_tracked=_commit_tracked,
-        missing_receipt_error="task-aware asset registration did not return a receipt",
-    )
-
-
-def _storyboard_formal_image_callback(
-    *,
-    project_name: str,
-    script_file: str,
-    resource_id: str,
-    artifact_path: str,
-    prompt: str,
-    versions: Any,
-    task_id: str | None,
-    basis: ArtifactBasis | ArtifactBasisDescriptor | None,
-    outcome_box: list[_FormalImageCommitOutcome],
-    project_manager: ProjectManager | None = None,
-) -> _StagedImageCommit:
-    """Build a staged storyboard activation using the shared formal image seam."""
-
-    pm = project_manager or get_project_manager()
-    project_path = pm.get_project_path(project_name)
-
-    def _commit_metadata(activate: Callable[[], None]) -> _MetadataCompensator | None:
-        mutation_box: list[OptimisticMappingMemberPatch] = []
-
-        def _activate(_script_path: Path) -> None:
-            activate()
-
-        _write_storyboard_image_metadata(
-            pm=pm,
-            project_name=project_name,
-            script_file=script_file,
-            resource_id=resource_id,
-            artifact_path=artifact_path,
-            mutation_box=mutation_box,
-            on_commit=_activate,
-        )
-        if task_id is None:
-            return None
-        return _storyboard_metadata_compensator(
-            pm=pm,
-            project_name=project_name,
-            script_file=script_file,
-            resource_id=resource_id,
-            mutation=mutation_box[0],
-        )
-
-    return _staged_formal_image_callback(
-        versions=versions,
-        project_path=project_path,
-        resource_type="storyboards",
-        resource_id=resource_id,
-        script_file=script_file,
-        artifact_path=artifact_path,
-        prompt=prompt,
-        task_id=task_id,
-        basis=basis,
-        outcome_box=outcome_box,
-        commit_metadata=_commit_metadata,
-    )
-
-
-async def _finalize_storyboard_image_task(
-    *,
-    project_name: str,
-    script_file: str,
-    resource_id: str,
-    artifact_path: str,
-    generator: Any,
-    version: int,
-    task_id: str | None,
-    basis: ArtifactBasis | ArtifactBasisDescriptor | None = None,
-    project_manager: ProjectManager | None = None,
-) -> tuple[str, _CancellationReceipt | None]:
-    """Commit storyboard metadata and image selection through one shared seam."""
-
-    pm = project_manager or get_project_manager()
-
-    def _commit_current(register: Callable[[Path], None]) -> None:
-        pm.update_scene_asset(
-            project_name=project_name,
-            script_filename=script_file,
-            scene_id=resource_id,
-            asset_type="storyboard_image",
-            asset_path=artifact_path,
-            on_commit=register,
-        )
-
-    def _commit_tracked(register: Callable[[Path], None]) -> _MetadataCompensator:
-        mutation_box: list[OptimisticMappingMemberPatch] = []
-        _write_storyboard_image_metadata(
-            pm=pm,
-            project_name=project_name,
-            script_file=script_file,
-            resource_id=resource_id,
-            artifact_path=artifact_path,
-            mutation_box=mutation_box,
-            on_commit=register,
-        )
-        return _storyboard_metadata_compensator(
-            pm=pm,
-            project_name=project_name,
-            script_file=script_file,
-            resource_id=resource_id,
-            mutation=mutation_box[0],
-        )
-
-    return await _finalize_formal_image_task(
-        project_path=pm.get_project_path(project_name),
-        resource_type="storyboards",
-        resource_id=resource_id,
-        script_file=script_file,
-        artifact_path=artifact_path,
-        generator=generator,
-        version=version,
-        task_id=task_id,
-        basis=basis,
-        commit_current=_commit_current,
-        commit_tracked=_commit_tracked,
-        missing_receipt_error="task-aware storyboard registration did not return a receipt",
-    )
-
-
-@dataclass(frozen=True, slots=True)
-class _FormalImagePlan:
-    """Per-task differences of the shared formal image submit/activate pipeline."""
-
-    resource_type: str
-    resource_id: str
-    artifact_path: str
-    prompt: str
-    aspect_ratio: str
-    build_commit_callback: Callable[[Any, list[_FormalImageCommitOutcome]], _StagedImageCommit]
-    finalize: Callable[[Any, int], Awaitable[tuple[str, _CancellationReceipt | None]]]
-    pre_submit: Callable[[], Awaitable[None]] | None = None
-    before_submit: Callable[[], Awaitable[None]] | None = None
-    #: 写进任务 ``result.warnings`` 的非阻断提示（如参考图超限裁剪）；为空时结果不带该键。
-    warnings: tuple[dict[str, Any], ...] = ()
-
-
-async def _run_formal_image_task(
-    *,
-    project_name: str,
-    payload: dict[str, Any],
-    project: dict[str, Any],
-    user_id: str,
-    task_id: str | None,
-    frozen_references: FrozenImageReferences,
-    plan: _FormalImagePlan,
-    context: GenerationContext | None = None,
-) -> dict[str, Any]:
-    """Submit one formal image, then take either the staged activation or the finalizer path.
-
-    ``context`` 供已经解析过 image lane 的调用方复用同一次解析——提示词里的参考图编号按
-    backend 的上限裁剪过，重解析可能落到别的 backend、让编号与实发张数错位。不传则在提交
-    前按参考图有无定 t2i / i2i 槽自行解析。
-    """
-
-    reference_images = frozen_references.reference_images
-    formal_outcomes: list[_FormalImageCommitOutcome] = []
-
-    async def _submit() -> tuple[Any, tuple[Path, int]]:
-        ctx = context or await resolve_generation_context(
-            project_name,
-            payload,
-            project=project,
-            user_id=user_id,
-            image=ImageLaneRequest(generation_type="i2i" if reference_images else "t2i"),
-        )
-        if plan.pre_submit is not None:
-            await plan.pre_submit()
-        generator = ctx.generator
-        # before_submit 只在声明了 checkpoint 的任务上出现，不声明就不落进 kwargs
-        optional: dict[str, Any] = {}
-        if plan.before_submit is not None:
-            optional["before_submit"] = plan.before_submit
-        generated = await generator.generate_image_async(
-            prompt=plan.prompt,
-            resource_type=plan.resource_type,
-            resource_id=plan.resource_id,
-            reference_images=reference_images,
-            aspect_ratio=plan.aspect_ratio,
-            image_size=ctx.image.resolution,
-            formal_output=True,
-            task_id=task_id,
-            commit_formal_output=plan.build_commit_callback(generator, formal_outcomes),
-            **optional,
-        )
-        return generator, generated
-
-    try:
-        generator, (_generated_path, version) = await _submit()
-    finally:
-        await run_noninterruptible_sync(frozen_references.cleanup)
-
-    if formal_outcomes:
-        outcome = formal_outcomes[0]
-        version, created_at, receipt = outcome.version, outcome.created_at, outcome.receipt
-    else:
-        created_at, receipt = await plan.finalize(generator, version)
-
-    result: dict[str, Any] = {
-        "version": version,
-        "file_path": plan.artifact_path,
-        "created_at": created_at,
-        "resource_type": plan.resource_type,
-        "resource_id": plan.resource_id,
-    }
-    if plan.warnings:
-        result["warnings"] = list(plan.warnings)
-    return compensable_formal_task_result(result, receipt)
-
-
-async def _run_asset_sheet_image_task(
-    *,
-    asset_type: str,
-    project_name: str,
-    resource_id: str,
-    payload: dict[str, Any],
-    user_id: str,
-    task_id: str | None,
-    project: dict[str, Any],
-    full_prompt: str,
-    frozen_references: FrozenImageReferences,
-    basis: ArtifactBasis | ArtifactBasisDescriptor | None,
-) -> dict[str, Any]:
-    """Run the submit/activate pipeline shared by every asset-sheet image task."""
-
-    bucket_key = ASSET_SPECS[asset_type].bucket_key
-    sheet_path = f"{bucket_key}/{resource_id}.png"
-
-    def _build_commit(generator: Any, outcome_box: list[_FormalImageCommitOutcome]) -> _StagedImageCommit:
-        return _asset_sheet_formal_image_callback(
-            asset_type=asset_type,
-            project_name=project_name,
-            resource_id=resource_id,
-            sheet_path=sheet_path,
-            prompt=full_prompt,
-            versions=generator.versions,
-            task_id=task_id,
-            basis=basis,
-            outcome_box=outcome_box,
-        )
-
-    async def _finalize(generator: Any, version: int) -> tuple[str, _CancellationReceipt | None]:
-        return await _finalize_asset_sheet_task(
-            asset_type=asset_type,
-            project_name=project_name,
-            resource_id=resource_id,
-            sheet_path=sheet_path,
-            generator=generator,
-            version=version,
-            task_id=task_id,
-            basis=basis,
-        )
-
-    return await _run_formal_image_task(
-        project_name=project_name,
-        payload=payload,
-        project=project,
-        user_id=user_id,
-        task_id=task_id,
-        frozen_references=frozen_references,
-        plan=_FormalImagePlan(
-            resource_type=bucket_key,
-            resource_id=resource_id,
-            artifact_path=sheet_path,
-            prompt=full_prompt,
-            aspect_ratio=get_aspect_ratio(project, bucket_key),
-            build_commit_callback=_build_commit,
-            finalize=_finalize,
-        ),
-    )
-
-
 def _episode_from_script(script: dict[str, Any] | None) -> int | None:
     if not isinstance(script, dict):
         return None
@@ -1781,8 +941,8 @@ async def execute_storyboard_task(
     async def _assert_claims_usable() -> None:
         await asyncio.to_thread(assert_current_artifact_input_claims_usable, project_path, formal_claims)
 
-    def _build_commit(generator: Any, outcome_box: list[_FormalImageCommitOutcome]) -> _StagedImageCommit:
-        return _storyboard_formal_image_callback(
+    def _build_commit(generator: Any, outcome_box: list[FormalImageCommitOutcome]) -> StagedImageCommit:
+        return storyboard_formal_image_callback(
             project_name=project_name,
             script_file=str(script_file),
             resource_id=resource_id,
@@ -1792,10 +952,11 @@ async def execute_storyboard_task(
             task_id=task_id,
             basis=storyboard_basis,
             outcome_box=outcome_box,
+            project_manager=get_project_manager(),
         )
 
-    async def _finalize(generator: Any, version: int) -> tuple[str, _CancellationReceipt | None]:
-        return await _finalize_storyboard_image_task(
+    async def _finalize(generator: Any, version: int) -> str:
+        return await finalize_storyboard_image_task(
             project_name=project_name,
             script_file=str(script_file),
             resource_id=resource_id,
@@ -1804,9 +965,10 @@ async def execute_storyboard_task(
             version=version,
             task_id=task_id,
             basis=storyboard_basis,
+            project_manager=get_project_manager(),
         )
 
-    return await _run_formal_image_task(
+    return await run_formal_image_task(
         project_name=project_name,
         payload=payload,
         project=project,
@@ -1814,7 +976,7 @@ async def execute_storyboard_task(
         task_id=task_id,
         frozen_references=frozen_references,
         context=context,
-        plan=_FormalImagePlan(
+        plan=FormalImagePlan(
             resource_type="storyboards",
             resource_id=resource_id,
             artifact_path=artifact_path,
@@ -1946,10 +1108,6 @@ async def execute_tts_task(
     tts_selection_errors: list[BaseException] = []
     tts_settings_bridge = EventLoopBridge.capture()
     selected_current = True
-    missing_narration_audio = object()
-    prior_narration_audio: object = missing_narration_audio
-    prior_manifest_entry: ArtifactManifestEntry | None = None
-    prior_manifest_captured = False
 
     class _TtsSelectionResolutionFailed(RuntimeError):
         pass
@@ -1967,7 +1125,7 @@ async def execute_tts_task(
         duration_seconds = float(measured_duration)
 
     def _commit_staged(staged_path: Path, output_path: Path) -> int | PaidVersionCommit:
-        nonlocal prior_narration_audio, selected_current
+        nonlocal selected_current
         if script_file is None or preparation is None or episode is None or basis is None:
             selected_current = False
             return generator.versions.commit_staged_paid_version(
@@ -2030,13 +1188,6 @@ async def execute_tts_task(
             )
 
         def _activate(_script_path: Path) -> None:
-            nonlocal prior_manifest_captured, prior_manifest_entry
-            if should_select:
-                manifest_adapter = ProjectArtifactManifestAdapter(project_path)
-                prior_manifest_entry = manifest_adapter.get_entry(
-                    ArtifactKey.episode_audio(committed_episode, resource_id)
-                )
-                prior_manifest_captured = True
             committed_outcome.append(
                 generator.versions.commit_staged_paid_version(
                     resource_type="audio",
@@ -2104,11 +1255,6 @@ async def execute_tts_task(
                 if should_select:
                     assert item is not None
                     assets = item.get("generated_assets")
-                    prior_narration_audio = (
-                        copy.deepcopy(assets["narration_audio"])
-                        if isinstance(assets, dict) and "narration_audio" in assets
-                        else missing_narration_audio
-                    )
                     if not isinstance(assets, dict):
                         assets = ProjectManager.create_generated_assets(
                             str(current_script.get("content_mode") or "narration")
@@ -2138,7 +1284,7 @@ async def execute_tts_task(
             formal_input_claims,
         )
 
-    output_path, version = await generator.generate_audio_async(
+    _output_path, version = await generator.generate_audio_async(
         text=text,
         resource_id=resource_id,
         voice=voice,
@@ -2172,7 +1318,7 @@ async def execute_tts_task(
         logger.warning("读取 TTS 版本入库时间失败 resource_id=%s", resource_id, exc_info=True)
         created_at = None
 
-    result = {
+    return {
         "version": version,
         "file_path": (
             audio_rel if selected_current else version_record.get("file") if isinstance(version_record, dict) else None
@@ -2184,88 +1330,6 @@ async def execute_tts_task(
         "tts_basis_digest": basis.digest if basis is not None else None,
         "selected_current": selected_current,
     }
-    if task_id is None or not selected_current:
-        return result
-
-    def _compensate_cancelled_tts() -> None:
-        def _reject_with_manifest_restore() -> None:
-            def _restore_manifest() -> None:
-                if not prior_manifest_captured or episode is None or basis is None:
-                    return
-                adapter = ProjectArtifactManifestAdapter(project_path)
-                key = ArtifactKey.episode_audio(episode, resource_id)
-                expected = ArtifactManifestEntry(artifact_path=audio_rel, basis_digest=basis.digest)
-                if adapter.get_entry(key) != expected:
-                    raise RuntimeError("current TTS basis changed before cancellation compensation")
-                if prior_manifest_entry is None:
-                    adapter.delete_entry(key)
-                else:
-                    adapter.put_entry(key, prior_manifest_entry)
-
-            restored = generator.versions.reject_current_version(
-                "audio",
-                resource_id,
-                rejected_version=version,
-                current_file=output_path,
-                on_reject=_restore_manifest,
-            )
-            if not restored:
-                raise RuntimeError("current TTS version changed before cancellation compensation")
-
-        if script_file is None or preparation is None or episode is None or basis is None:
-            _reject_with_manifest_restore()
-            return
-
-        pm = get_project_manager()
-        cancelled_episode = episode
-
-        def _same_script(_project: dict) -> str:
-            current_binding = resolve_episode_script_binding(_project, cancelled_episode, str(script_file))
-            if current_binding is None:
-                raise EpisodeScriptReboundError(
-                    f"episode {cancelled_episode} script binding changed before TTS cancellation"
-                )
-            return current_binding
-
-        try:
-            with pm.locked_episode_script(
-                project_name,
-                _same_script,
-                validate=False,
-                on_commit=lambda _script_path: _reject_with_manifest_restore(),
-            ) as current_script:
-                items, id_field, _kind = _resolve_tts_task_items(
-                    current_script,
-                    reference_video_route=reference_video_route,
-                )
-                item = next(
-                    (
-                        candidate
-                        for candidate in items
-                        if isinstance(candidate, dict) and str(candidate.get(id_field)) == str(resource_id)
-                    ),
-                    None,
-                )
-                if item is not None:
-                    assets = item.get("generated_assets")
-                    if not isinstance(assets, dict):
-                        assets = ProjectManager.create_generated_assets(
-                            str(current_script.get("content_mode") or "narration")
-                        )
-                        item["generated_assets"] = assets
-                    if assets.get("narration_audio") != audio_rel:
-                        raise RuntimeError("narration audio changed before cancellation compensation")
-                    if prior_narration_audio is missing_narration_audio:
-                        assets.pop("narration_audio", None)
-                    else:
-                        assets["narration_audio"] = copy.deepcopy(prior_narration_audio)
-                    pm.update_scene_status(item)
-        except EpisodeScriptReboundError:
-            # The old script is no longer the episode's current edit target, but
-            # cancellation must still revoke this task's formal media selection.
-            _reject_with_manifest_restore()
-
-    return CompensableGenerationResult(result, cancel_compensation=_compensate_cancelled_tts)
 
 
 # character_name 经 validate_asset_name 校验合法字符，但不限长度；task_id 固定是 uuid4().hex
@@ -2550,9 +1614,11 @@ async def execute_video_task(
                 supported_durations,
                 resolution=resolution,
             )
-            if not candidates:
+            if not candidates and not ctx.video.duration_endpoint_fixed:
                 raise ValueError("TTS video request requires a current integer planned duration")
-            current_planned_duration = candidates[0]
+            # 时长由端点固定的模型行没有档位可借（合法空集），退到共享的规划篇幅默认值：这次
+            # 请求随后由公共投影判为 tts_duration_endpoint_fixed，而不是死在缺少规划秒数上。
+            current_planned_duration = next(iter(candidates), DEFAULT_PLANNED_DURATION_SECONDS)
         constrained_durations = constrain_durations(
             registry_provider_id,
             model_name,
@@ -2568,6 +1634,7 @@ async def execute_video_task(
             planned_duration_seconds=current_planned_duration,
             supported_durations=constrained_durations,
             confirmed_request_duration_seconds=delivery_options.confirmed_request_duration_seconds,
+            duration_endpoint_fixed=ctx.video.duration_endpoint_fixed,
             resolver=ResolvedTtsSettingsResolver.from_audio_lane(ctx.audio),
             tts_in_progress=await tts_task_in_progress(
                 project_name=project_name,
@@ -2594,6 +1661,7 @@ async def execute_video_task(
             planned_duration_seconds=current_planned_duration,
             supported_durations=constrained_durations,
             confirmed_request_duration_seconds=delivery_options.confirmed_request_duration_seconds,
+            duration_endpoint_fixed=ctx.video.duration_endpoint_fixed,
             current_visual_duration_seconds=current_visual_duration,
         )
         if not delivery_projection.allowed:
@@ -2963,7 +2031,7 @@ async def execute_character_task(
         return _project, _full_prompt, _frozen, _basis
 
     project, full_prompt, frozen_references, basis = await asyncio.to_thread(_prepare_char)
-    return await _run_asset_sheet_image_task(
+    return await run_asset_sheet_image_task(
         asset_type="character",
         project_name=project_name,
         resource_id=resource_id,
@@ -2974,6 +2042,7 @@ async def execute_character_task(
         full_prompt=full_prompt,
         frozen_references=frozen_references,
         basis=basis,
+        project_manager=get_project_manager(),
     )
 
 
@@ -3064,7 +2133,7 @@ async def execute_design_task(
         return project, full_prompt, frozen, basis
 
     project, full_prompt, frozen_references, basis = await asyncio.to_thread(_prepare)
-    return await _run_asset_sheet_image_task(
+    return await run_asset_sheet_image_task(
         asset_type=kind,
         project_name=project_name,
         resource_id=resource_id,
@@ -3075,6 +2144,7 @@ async def execute_design_task(
         full_prompt=full_prompt,
         frozen_references=frozen_references,
         basis=basis,
+        project_manager=get_project_manager(),
     )
 
 
@@ -3185,80 +2255,6 @@ def _collect_grid_reference_images(
     return [reference["image"] for reference in references] or None, metadata
 
 
-def _grid_metadata_compensator(
-    *,
-    grid_manager: Any,
-    resource_id: str,
-    mutation: OptimisticMappingPatch,
-) -> _MetadataCompensator:
-    """Roll the grid record back to the pre-write patch inside the rejecting transaction."""
-
-    def _compensate_metadata(reject: Callable[[], None]) -> None:
-        def _restore(current: Any) -> None:
-            current_data = current.to_dict()
-            mutation.restore(current_data)
-            restored = type(current).from_dict(current_data)
-            current.__dict__.update(restored.__dict__)
-
-        restored = grid_manager.update(resource_id, _restore, on_commit=reject)
-        if restored is None:
-            reject()
-
-    return _compensate_metadata
-
-
-def _grid_formal_image_callback(
-    *,
-    project_path: Path,
-    grid_manager: Any,
-    grid: Any,
-    initial_grid: Mapping[str, Any],
-    resource_id: str,
-    prompt: str,
-    versions: Any,
-    task_id: str | None,
-    basis: ArtifactBasis | ArtifactBasisDescriptor,
-    outcome_box: list[_FormalImageCommitOutcome],
-) -> _StagedImageCommit:
-    """Build a staged grid-composite activation through the shared image seam."""
-
-    artifact_path = f"grids/{resource_id}.png"
-
-    def _commit_metadata(activate: Callable[[], None]) -> _MetadataCompensator | None:
-        def _complete(current_grid: Any) -> None:
-            current_grid.grid_image_path = artifact_path
-            current_grid.status = "completed"
-            current_grid.split_at = None
-
-        committed_grid = grid_manager.update_formal(resource_id, _complete, on_commit=activate)
-        if committed_grid is None:
-            raise ValueError(f"grid not found: {resource_id}")
-        grid.grid_image_path = committed_grid.grid_image_path
-        grid.status = committed_grid.status
-        grid.split_at = committed_grid.split_at
-        if task_id is None:
-            return None
-        return _grid_metadata_compensator(
-            grid_manager=grid_manager,
-            resource_id=resource_id,
-            mutation=OptimisticMappingPatch.capture(initial_grid, committed_grid.to_dict()),
-        )
-
-    return _staged_formal_image_callback(
-        versions=versions,
-        project_path=project_path,
-        resource_type="grids",
-        resource_id=resource_id,
-        script_file=None,
-        artifact_path=artifact_path,
-        prompt=prompt,
-        task_id=task_id,
-        basis=basis,
-        outcome_box=outcome_box,
-        commit_metadata=_commit_metadata,
-    )
-
-
 async def execute_grid_task(
     project_name: str,
     resource_id: str,
@@ -3297,7 +2293,6 @@ async def execute_grid_task(
     artifact_episode = script_input.episode
     if artifact_episode != grid.episode:
         raise ValueError(f"grid episode {grid.episode} does not match bound script episode {artifact_episode}")
-    initial_grid = copy.deepcopy(grid.to_dict())
 
     version: int | None = None
     generator: Any = None
@@ -3412,7 +2407,7 @@ async def execute_grid_task(
         # 保底档与档位门控（``large_grid_allowed``）取同一常量，避免门控按 2K 判定、
         # 渲染却按别的档位下发
         image_size = ctx.image.resolution or GRID_FALLBACK_RESOLUTION
-        formal_outcomes: list[_FormalImageCommitOutcome] = []
+        formal_outcomes: list[FormalImageCommitOutcome] = []
 
         await asyncio.to_thread(assert_current_artifact_input_claims_usable, project_path, formal_claims)
 
@@ -3429,11 +2424,10 @@ async def execute_grid_task(
             before_submit=_before_submit,
             formal_output=True,
             task_id=task_id,
-            commit_formal_output=_grid_formal_image_callback(
+            commit_formal_output=grid_formal_image_callback(
                 project_path=project_path,
                 grid_manager=grid_manager,
                 grid=grid,
-                initial_grid=initial_grid,
                 resource_id=resource_id,
                 prompt=str(prompt_text),
                 versions=generator.versions,
@@ -3445,9 +2439,8 @@ async def execute_grid_task(
 
         # e) Mark joint image ready；联合图内容已更新，旧的落格结果不再对应当前图，
         # split_at 清空表示「待显式切分」。
-        def _commit_grid() -> _CancellationReceipt | None:
+        def _commit_grid() -> None:
             assert grid is not None
-            manifest_box: list[ArtifactRegistrationReceipt | None] = []
 
             def _complete(current_grid) -> None:
                 current_grid.grid_image_path = f"grids/{resource_id}.png"
@@ -3455,16 +2448,14 @@ async def execute_grid_task(
                 current_grid.split_at = None
 
             def _register() -> None:
-                manifest_box.append(
-                    register_formal_task_artifact(
-                        project_path,
-                        resource_type="grids",
-                        resource_id=resource_id,
-                        script_file=None,
-                        task_id=task_id,
-                        artifact_path=f"grids/{resource_id}.png",
-                        basis=grid_basis,
-                    )
+                register_formal_task_artifact(
+                    project_path,
+                    resource_type="grids",
+                    resource_id=resource_id,
+                    script_file=None,
+                    task_id=task_id,
+                    artifact_path=f"grids/{resource_id}.png",
+                    basis=grid_basis,
                 )
 
             committed_grid = grid_manager.update_formal(resource_id, _complete, on_commit=_register)
@@ -3473,33 +2464,11 @@ async def execute_grid_task(
             grid.grid_image_path = committed_grid.grid_image_path
             grid.status = committed_grid.status
             grid.split_at = committed_grid.split_at
-            manifest = manifest_box[0]
-            if task_id is None:
-                return manifest
-            if manifest is None:
-                raise RuntimeError("task-aware grid registration did not return a receipt")
-            if version is None:
-                raise RuntimeError("grid generation did not return a selected version")
-            _compensate_metadata = _grid_metadata_compensator(
-                grid_manager=grid_manager,
-                resource_id=resource_id,
-                mutation=OptimisticMappingPatch.capture(initial_grid, grid.to_dict()),
-            )
-            return SelectedImageArtifactReceipt(
-                versions=generator.versions,
-                resource_type="grids",
-                resource_id=resource_id,
-                version=version,
-                current_file=project_path / "grids" / f"{resource_id}.png",
-                manifest=manifest,
-                compensate_metadata=_compensate_metadata,
-            )
 
         if formal_outcomes:
-            outcome = formal_outcomes[0]
-            version, receipt = outcome.version, outcome.receipt
+            version = formal_outcomes[0].version
         else:
-            receipt = await run_formal_task_finalizer(_commit_grid, task_id=task_id)
+            await run_formal_task_finalizer(_commit_grid)
 
     except Exception as failure:
         if version is not None and generator is not None:
@@ -3542,11 +2511,6 @@ async def execute_grid_task(
                     project_name,
                     grid,
                     only_scene_ids=frozenset(str(scene_id) for scene_id in report_scene_ids),
-                    task_aware=task_id is not None,
-                )
-            if task_id is not None:
-                receipt = _CompositeCancellationReceipt(
-                    tuple(candidate for candidate in (split, receipt) if candidate is not None)
                 )
             cut = set(split.updated_scene_ids)
             for scene_id in report_scene_ids:
@@ -3583,61 +2547,7 @@ async def execute_grid_task(
     }
     if (clamp_warning := reference_clamp.warning()) is not None:
         grid_result["warnings"] = [clamp_warning]
-    return compensable_formal_task_result(grid_result, receipt)
-
-
-async def _execute_reference_video_task_proxy(
-    project_name: str,
-    resource_id: str,
-    payload: dict[str, Any],
-    *,
-    script_file: str | None = None,
-    user_id: str,
-    task_id: str | None = None,
-    claimed_provider_id: str | None = None,
-    poll_timeout_seconds: int = DEFAULT_VIDEO_POLL_TIMEOUT_SECONDS,
-) -> dict[str, Any]:
-    """Lazy proxy to avoid circular import: reference_video_tasks imports from this module."""
-    from server.services.tasks.reference_video_tasks import execute_reference_video_task
-
-    return await execute_reference_video_task(
-        project_name,
-        resource_id,
-        payload,
-        script_file=script_file,
-        user_id=user_id,
-        task_id=task_id,
-        claimed_provider_id=claimed_provider_id,
-        poll_timeout_seconds=poll_timeout_seconds,
-    )
-
-
-async def _execute_character_derivative_task_proxy(
-    project_name: str,
-    resource_id: str,
-    payload: dict[str, Any],
-    *,
-    user_id: str,
-    task_id: str | None = None,
-) -> dict[str, Any]:
-    """Lazy proxy to avoid circular import: derivative_sheet_tasks imports from this module."""
-    from server.services.tasks.derivative_sheet_tasks import execute_character_derivative_task
-
-    return await execute_character_derivative_task(project_name, resource_id, payload, user_id=user_id, task_id=task_id)
-
-
-async def _execute_image_edit_task_proxy(
-    project_name: str,
-    resource_id: str,
-    payload: dict[str, Any],
-    *,
-    user_id: str,
-    task_id: str | None = None,
-) -> dict[str, Any]:
-    """Lazy proxy to avoid circular import: image_edit_tasks imports from this module."""
-    from server.services.tasks.image_edit_tasks import execute_image_edit_task
-
-    return await execute_image_edit_task(project_name, resource_id, payload, user_id=user_id, task_id=task_id)
+    return grid_result
 
 
 _TASK_EXECUTORS = {
@@ -3650,9 +2560,9 @@ _TASK_EXECUTORS = {
     "prop": execute_prop_task,
     "product": execute_product_task,
     "grid": execute_grid_task,
-    "reference_video": _execute_reference_video_task_proxy,
-    "image_edit": _execute_image_edit_task_proxy,
-    DERIVATIVE_TASK_TYPE: _execute_character_derivative_task_proxy,
+    "reference_video": execute_reference_video_task,
+    "image_edit": execute_image_edit_task,
+    DERIVATIVE_TASK_TYPE: execute_character_derivative_task,
 }
 
 
@@ -3681,20 +2591,9 @@ async def execute_generation_task(task: dict[str, Any], *, claimed_provider_id: 
 
     with project_change_source("worker"):
         # 能力类异常（Image/VideoCapabilityError、ReferencePayloadFloorError）原样上抛：
-        # worker 的 _encode_task_failure_message 按 code + params 落库，渲染留到读侧
+        # worker 的 encode_task_failure_message 按 code + params 落库，渲染留到读侧
         # Translator，同一失败任务按 Accept-Language 显示 zh/en/vi。
-        if task_type == "reference_video":
-            result = await _execute_reference_video_task_proxy(
-                project_name,
-                resource_id,
-                payload,
-                script_file=task.get("script_file"),
-                user_id=user_id,
-                task_id=queue_task_id,
-                claimed_provider_id=claimed_provider_id,
-                poll_timeout_seconds=video_poll_timeout_seconds,
-            )
-        elif task_type == "video":
+        if task_type in ("video", "reference_video"):
             result = await executor(
                 project_name,
                 resource_id,
@@ -3707,15 +2606,11 @@ async def execute_generation_task(task: dict[str, Any], *, claimed_provider_id: 
             )
         else:
             result = await executor(project_name, resource_id, payload, user_id=user_id, task_id=queue_task_id)
-        try:
-            emit_generation_success_batch(
-                task_type=task_type,
-                project_name=project_name,
-                resource_id=resource_id,
-                payload=payload,
-            )
-        except BaseException:
-            if isinstance(result, CompensableGenerationResult):
-                await run_noninterruptible_sync(result.compensate_cancelled)
-            raise
+        # 成功事件发出失败时不回滚产物：已写入的产物保持有效，异常照常上抛。
+        emit_generation_success_batch(
+            task_type=task_type,
+            project_name=project_name,
+            resource_id=resource_id,
+            payload=payload,
+        )
         return result

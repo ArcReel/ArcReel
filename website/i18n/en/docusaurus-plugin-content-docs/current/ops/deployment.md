@@ -549,7 +549,7 @@ If the container has just started, check whether database migrations are still r
 ### Tasks Remain Queued {#tasks-stuck-in-queue}
 
 - Review the image, video, and audio concurrency settings;
-- Check for abnormal tasks that have remained running or canceling for an extended period;
+- Check for abnormal tasks that have remained running for an extended period;
 - Check the provider's RPM quota;
 - Check whether a preceding task is still incomplete.
 

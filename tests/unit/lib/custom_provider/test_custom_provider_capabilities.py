@@ -6,7 +6,7 @@ import logging
 
 import pytest
 
-from lib.backends.video_backends.base import ReferenceAudioMode, VideoAudioMode, VideoCapabilities
+from lib.backends.video_backend_contract import ReferenceAudioMode, VideoAudioMode, VideoCapabilities
 from lib.custom_provider.capabilities import (
     CAPABILITY_OVERRIDE_FIELDS,
     capability_type_name,

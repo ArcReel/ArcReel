@@ -154,7 +154,7 @@ class Ledger:
         resolution: str | None = None,
         duration_seconds: int | None = None,
         aspect_ratio: str | None = None,
-        generate_audio: bool = True,
+        generate_audio: bool | None = None,
         user_id: str = DEFAULT_USER_ID,
         segment_id: str | None = None,
         service_tier: str = "default",

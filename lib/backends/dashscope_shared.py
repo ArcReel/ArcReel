@@ -26,9 +26,9 @@ logger = logging.getLogger(__name__)
 # host 段（scheme://host），不含 /api/v1 或 /compatible-mode/v1 后缀；两 base 由此派生。
 DASHSCOPE_BASE_URL = "https://dashscope.aliyuncs.com"
 
-# 重试判定不再用「瞬态错误类型元组 + 字符串兜底」：HTTPStatusError 的 str() 携带 URL/task_id，
-# 其中的 "503"/"timeout" 子串会让 4xx 业务错误被误判为可重试。各 DashScope 后端改用
-# lib.backends.video_backends.base 的状态码谓词——创建/提交（非幂等 POST）走 should_retry_submit（4xx
+# 重试判定按响应状态码而非异常字符串：HTTPStatusError 的 str() 携带 URL/task_id，其中的
+# "503"/"timeout" 子串可能让 4xx 业务错误被误判为可重试。各 DashScope 后端使用
+# lib.backends.backend_runtime 的状态码谓词——创建/提交（非幂等 POST）走 should_retry_submit（4xx
 # fail-fast、5xx/429 重试、歧义传输错误经 submit_post 转 AmbiguousSubmitError 不重试），轮询
 # （幂等 GET）走 should_retry_poll（404 视为未就绪重试），下载已签发结果 URL 走 should_retry_download
 # （4xx 含 404 一律 fail-fast）。HTTPStatusError 一律按 response.status_code 显式闸门判定，状态码

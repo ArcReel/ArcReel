@@ -38,8 +38,8 @@ ArcReel 已在 `lib/backends/video_backends/` 建立成熟的视频生成抽象�
 
 | 关键元素 | 位置 | 说明 |
 |---|---|---|
-| `VideoBackend` Protocol | `lib/backends/video_backends/base.py` | 鸭子类型契约，要求 `name` / `model` / `capabilities` / `generate()` |
-| `VideoCapability` 枚举 | `lib/backends/video_backends/base.py` | 能力位图：`TEXT_TO_VIDEO` / `IMAGE_TO_VIDEO` / `GENERATE_AUDIO` / `NEGATIVE_PROMPT` / `VIDEO_EXTEND` / `SEED_CONTROL` / `FLEX_TIER` |
+| `VideoBackend` Protocol | `lib/backends/video_backend_contract.py` | 鸭子类型契约，要求 `name` / `model` / `capabilities` / `generate()` |
+| `VideoCapability` 枚举 | `lib/backends/video_backend_contract.py` | 能力位图：`TEXT_TO_VIDEO` / `IMAGE_TO_VIDEO` / `GENERATE_AUDIO` / `NEGATIVE_PROMPT` / `VIDEO_EXTEND` / `SEED_CONTROL` / `FLEX_TIER` |
 | `VideoGenerationRequest` / `VideoGenerationResult` | 同上 | 统一请求/响应数据类 |
 | `register_backend(name, factory)` | `lib/backends/video_backends/registry.py` | 注册机制 |
 | 已有 backend 实现 | `gemini.py` / `ark.py` / `grok.py` / `openai.py` / `newapi.py` / `vidu.py` | 6 家供应商 |

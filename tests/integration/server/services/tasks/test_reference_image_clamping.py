@@ -206,7 +206,7 @@ class TestLimitComesFromTheResolvedBackend:
         generation_context.invalidate_backend_cache()
         generation_context._backend_cache._locks.clear()
 
-        async def _assemble(*, provider_id, media_type, model_id, resolver, rate_limiter=None):
+        async def _assemble(*, provider_id, media_type, model_id, resolver, rate_limiter=None, generation_type=None):
             assert (provider_id, media_type) == ("vidu", "image")
             return ViduImageBackend(api_key="k", model=model_id, base_url="https://api.vidu.com/ent/v2")
 

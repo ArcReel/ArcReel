@@ -878,7 +878,7 @@ class TestBuiltinBackendsDeclareCapabilityFunction:
 
     def test_every_builtin_video_provider_resolvable(self):
         from lib.backends.backend_assembly.specs import builtin_video_capabilities_for_model
-        from lib.backends.video_backends.base import VideoCapabilities
+        from lib.backends.video_backend_contract import VideoCapabilities
         from lib.config.registry import PROVIDER_REGISTRY
 
         for provider_id, meta in PROVIDER_REGISTRY.items():

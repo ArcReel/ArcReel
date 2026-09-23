@@ -233,7 +233,7 @@ class TestDashScopeAudioBackend:
         # 200 但空体视为瞬态：重试到共用的下载失败预算耗尽后失败，不写 0 字节 wav，
         # 合成 POST 不被重跑。
         from lib.backends.audio_backends.dashscope import DashScopeAudioBackend
-        from lib.backends.video_backends.base import VIDEO_POLL_MAX_CONSECUTIVE_FAILURES
+        from lib.backends.backend_runtime import VIDEO_POLL_MAX_CONSECUTIVE_FAILURES
 
         with _dashscope_audio_routes(download=httpx.Response(200, content=b"")) as routes:
             b = DashScopeAudioBackend(api_key="sk")

@@ -17,7 +17,7 @@ from lib.generation.media_generator import (
     task_video_staging_path,
 )
 from tests.factories import comfyui_endpoint_definition, custom_endpoint_definition
-from tests.fakes import FakeConfigResolver, bounded_poll_clock, select_formal_video
+from tests.fakes import MP4_BYTES, PNG_BYTES, FakeConfigResolver, bounded_poll_clock, select_formal_video
 from tests.http_capture import capture_http
 
 
@@ -262,8 +262,8 @@ class TestMediaGenerator:
     async def test_comfyui_video_records_the_actual_seed_and_workflow_fingerprint(self, tmp_path):
         """两者都只有生成过一次才知道：元数据在提交前定稿，装不下它们，故落盘前再并一次。"""
         from lib.custom_provider.backends import CustomVideoBackend
+        from lib.custom_provider.comfyui.comfyui_backend import ComfyuiVideoBackend
         from lib.custom_provider.comfyui.request_builder import workflow_sha256
-        from lib.custom_provider.comfyui_backend import ComfyuiVideoBackend
 
         gen = _build_generator(tmp_path)
         gen._video_provider_id = "custom-1"
@@ -287,7 +287,7 @@ class TestMediaGenerator:
                 return_value=httpx.Response(200, json={"prompt_id": "p-1"})
             )
             router.get("https://comfy.test/history/p-1").mock(return_value=httpx.Response(200, json=history))
-            router.get("https://comfy.test/view").mock(return_value=httpx.Response(200, content=b"video"))
+            router.get("https://comfy.test/view").mock(return_value=httpx.Response(200, content=MP4_BYTES))
 
             output, _version, _ref, _uri = await gen.generate_video_async(
                 prompt="一只猫走过屋顶",
@@ -297,15 +297,15 @@ class TestMediaGenerator:
             )
 
         sent = json.loads(submit.calls.last.request.content)["prompt"]
-        assert output.read_bytes() == b"video"
+        assert output.read_bytes() == MP4_BYTES
         assert gen.versions.add_calls[-1]["workflow_sha256"] == workflow_sha256(sent)
         assert gen.versions.add_calls[-1]["seed"] == sent["3"]["inputs"]["seed"]
 
     async def test_comfyui_execution_warnings_reach_the_caller(self, tmp_path):
         """backend 执行期的提示要一路走到任务 result.warnings，日志只有运维看得到。"""
-        from lib.backends.video_backends.base import VideoCapabilities
+        from lib.backends.video_backend_contract import VideoCapabilities
         from lib.custom_provider.backends import CustomVideoBackend
-        from lib.custom_provider.comfyui_backend import ComfyuiVideoBackend
+        from lib.custom_provider.comfyui.comfyui_backend import ComfyuiVideoBackend
 
         gen = _build_generator(tmp_path)
         gen._video_provider_id = "custom-1"
@@ -335,7 +335,7 @@ class TestMediaGenerator:
         with capture_http() as router, bounded_poll_clock():
             router.post("https://comfy.test/prompt").mock(return_value=httpx.Response(200, json={"prompt_id": "p-1"}))
             router.get("https://comfy.test/history/p-1").mock(return_value=httpx.Response(200, json=history))
-            router.get("https://comfy.test/view").mock(return_value=httpx.Response(200, content=b"video"))
+            router.get("https://comfy.test/view").mock(return_value=httpx.Response(200, content=MP4_BYTES))
 
             await gen.generate_video_async(
                 prompt="一只猫走过屋顶",
@@ -354,7 +354,7 @@ class TestMediaGenerator:
         那条路上，backend 单测看不到它们。
         """
         from lib.custom_provider.backends import CustomImageBackend
-        from lib.custom_provider.comfyui_image_backend import ComfyuiImageBackend
+        from lib.custom_provider.comfyui.comfyui_image_backend import ComfyuiImageBackend
 
         definition = comfyui_endpoint_definition(media_type="image")
         definition["workflow"]["20"] = {"class_type": "LoadImage", "inputs": {"image": "draft.png"}}
@@ -391,7 +391,7 @@ class TestMediaGenerator:
                 return_value=httpx.Response(200, json={"prompt_id": "p-1"})
             )
             router.get("https://comfy.test/history/p-1").mock(return_value=httpx.Response(200, json=history))
-            router.get("https://comfy.test/view").mock(return_value=httpx.Response(200, content=b"png"))
+            router.get("https://comfy.test/view").mock(return_value=httpx.Response(200, content=PNG_BYTES))
 
             output, version = await gen.generate_image_async(
                 prompt="把这张图改成夜景",
@@ -400,7 +400,7 @@ class TestMediaGenerator:
                 reference_images=[reference],
             )
 
-        assert output.read_bytes() == b"png"
+        assert output.read_bytes() == PNG_BYTES
         assert version == 1
         assert upload.call_count == 1
         assert gen.versions.add_calls[-1]["resource_id"] == "E1S01"
@@ -603,7 +603,7 @@ class TestMediaGenerator:
         ref = _solid_png(tmp_path, "ref-checkpoint.png", 16, 16)
 
         class _RetryBackend(_FakeVideoBackend):
-            from lib.backends.video_backends.base import VideoCapabilities
+            from lib.backends.video_backend_contract import VideoCapabilities
 
             video_capabilities = VideoCapabilities(max_reference_images=9)
 
@@ -645,7 +645,7 @@ class TestMediaGenerator:
         ref = _solid_png(tmp_path, "ref-after-submit.png", 16, 16)
 
         class _Poll413Backend(_FakeVideoBackend):
-            from lib.backends.video_backends.base import VideoCapabilities
+            from lib.backends.video_backend_contract import VideoCapabilities
 
             video_capabilities = VideoCapabilities(max_reference_images=9)
 
@@ -1198,7 +1198,7 @@ class TestMediaGenerator:
     @pytest.mark.asyncio
     async def test_end_image_rejected_when_backend_lacks_last_frame(self, tmp_path):
         """后端 last_frame=False 时硬失败：不下发供应商调用、不开记账，也不降级为参考图。"""
-        from lib.backends.video_backends.base import VideoCapabilities, VideoCapabilityError
+        from lib.backends.video_backend_contract import VideoCapabilities, VideoCapabilityError
 
         gen = _build_generator(tmp_path)
         gen._video_backend = _FakeVideoBackend(video_capabilities=VideoCapabilities(last_frame=False))
@@ -1222,7 +1222,7 @@ class TestMediaGenerator:
     async def test_end_image_forwarded_when_backend_reports_tier_aware_last_frame(self, tmp_path):
         """后端实现 video_capabilities_for_tier 时按实际 service_tier 收窄决定是否转发
         end_image：pro 档放行——无请求上下文的 video_capabilities 恒 False 也不应误判丢帧。"""
-        from lib.backends.video_backends.base import VideoCapabilities
+        from lib.backends.video_backend_contract import VideoCapabilities
 
         class _TierAwareVideoBackend(_FakeVideoBackend):
             def __init__(self):
@@ -1251,7 +1251,7 @@ class TestMediaGenerator:
     @pytest.mark.asyncio
     async def test_end_image_rejected_when_tier_aware_backend_reports_std_tier(self, tmp_path):
         """同一后端，std 档时仍按能力收窄硬失败——覆盖 pro/std 两条分支。"""
-        from lib.backends.video_backends.base import VideoCapabilities, VideoCapabilityError
+        from lib.backends.video_backend_contract import VideoCapabilities, VideoCapabilityError
 
         class _TierAwareVideoBackend(_FakeVideoBackend):
             def __init__(self):
@@ -1285,7 +1285,7 @@ class TestMediaGenerator:
     async def test_empty_string_end_image_normalized_to_no_end_frame(self, tmp_path):
         """遗留/直接调用者以 end_image="" 表示无尾帧：即便后端不支持 last_frame 也应正常放行，
         不误判为携带尾帧而硬失败（与 kling _build_payload 的真值判断兼容语义对齐）。"""
-        from lib.backends.video_backends.base import VideoCapabilities
+        from lib.backends.video_backend_contract import VideoCapabilities
 
         gen = _build_generator(tmp_path)
         gen._video_backend = _FakeVideoBackend(video_capabilities=VideoCapabilities(last_frame=False))
@@ -1515,7 +1515,7 @@ class TestReferenceCompressionSeam:
     async def test_video_frame_not_resized_array_laddered(self, tmp_path):
         gen = _build_generator(tmp_path)
 
-        from lib.backends.video_backends.base import VideoCapabilities
+        from lib.backends.video_backend_contract import VideoCapabilities
 
         class _CapturingVideoBackend:
             name = "fake-video"
@@ -1564,7 +1564,7 @@ class TestReferenceCompressionSeam:
         """
         gen = _build_generator(tmp_path)
 
-        from lib.backends.video_backends.base import ReferenceAudioMode, VideoCapabilities
+        from lib.backends.video_backend_contract import ReferenceAudioMode, VideoCapabilities
 
         class _AudioCapturingVideoBackend:
             name = "fake-video"
@@ -1610,7 +1610,7 @@ class TestReferenceCompressionSeam:
         if shutil.which("ffprobe") is None:
             pytest.skip("ffprobe not available")
 
-        from lib.backends.video_backends.base import ReferenceAudioMode, VideoCapabilities, VideoCapabilityError
+        from lib.backends.video_backend_contract import ReferenceAudioMode, VideoCapabilities, VideoCapabilityError
         from tests.factories import wav_bytes
 
         gen = _build_generator(tmp_path)
@@ -1656,7 +1656,7 @@ class TestReferenceCompressionSeam:
 
     async def test_total_duration_exceeded_check_skipped_when_probe_fails(self, tmp_path, monkeypatch):
         """caps 声明了总时长上限，但探测失败（ffprobe 不可用等）返回 None 时，按既有降级口径放行而非阻断。"""
-        from lib.backends.video_backends.base import ReferenceAudioMode, VideoCapabilities
+        from lib.backends.video_backend_contract import ReferenceAudioMode, VideoCapabilities
 
         gen = _build_generator(tmp_path)
 
@@ -1698,7 +1698,7 @@ class TestReferenceCompressionSeam:
 
     async def test_total_duration_not_probed_when_backend_declares_no_limit(self, tmp_path, monkeypatch):
         """未声明总时长约束的后端不该为每个请求多付一轮 ffprobe——探测按能力声明惰性触发。"""
-        from lib.backends.video_backends.base import ReferenceAudioMode, VideoCapabilities
+        from lib.backends.video_backend_contract import ReferenceAudioMode, VideoCapabilities
 
         gen = _build_generator(tmp_path)
 
@@ -1742,7 +1742,7 @@ class TestReferenceCompressionSeam:
 
     async def test_prompt_over_limit_raises_before_backend_call(self, tmp_path):
         """超长 prompt 在调 backend.generate（即付费请求）之前被拦截，不留记账行。"""
-        from lib.backends.video_backends.base import VideoCapabilities, VideoCapabilityError
+        from lib.backends.video_backend_contract import VideoCapabilities, VideoCapabilityError
 
         gen = _build_generator(tmp_path)
 
@@ -1770,7 +1770,7 @@ class TestReferenceCompressionSeam:
 
     async def test_prompt_gating_applies_without_optional_paths(self, tmp_path):
         """prompt 长度对每个请求都适用：纯文生/首帧路径（无尾帧、参考图、参考音频）同样查能力。"""
-        from lib.backends.video_backends.base import VideoCapabilities
+        from lib.backends.video_backend_contract import VideoCapabilities
 
         gen = _build_generator(tmp_path)
 
@@ -1800,7 +1800,7 @@ class TestFirstFrameRatioAdaptiveOnly:
     """
 
     async def test_first_frame_task_forced_to_adaptive(self, tmp_path):
-        from lib.backends.video_backends.base import VideoCapabilities
+        from lib.backends.video_backend_contract import VideoCapabilities
 
         gen = _build_generator(tmp_path)
         backend = _FakeVideoBackend(video_capabilities=VideoCapabilities(first_frame_ratio_adaptive_only=True))
@@ -1820,7 +1820,7 @@ class TestFirstFrameRatioAdaptiveOnly:
 
     async def test_no_first_frame_task_keeps_user_ratio(self, tmp_path):
         """未带首帧（纯文生 / 仅参考图）不受该约束影响，原样透传用户比例。"""
-        from lib.backends.video_backends.base import VideoCapabilities
+        from lib.backends.video_backend_contract import VideoCapabilities
 
         gen = _build_generator(tmp_path)
         backend = _FakeVideoBackend(video_capabilities=VideoCapabilities(first_frame_ratio_adaptive_only=True))
@@ -1855,7 +1855,7 @@ class TestFirstFrameRatioAdaptiveOnly:
 
     async def test_ledger_records_user_intent_not_adaptive_override(self, tmp_path):
         """记账沿用用户原始比例意图，与下发给 backend 的实际值分离。"""
-        from lib.backends.video_backends.base import VideoCapabilities
+        from lib.backends.video_backend_contract import VideoCapabilities
 
         gen = _build_generator(tmp_path)
         backend = _FakeVideoBackend(video_capabilities=VideoCapabilities(first_frame_ratio_adaptive_only=True))

@@ -7,8 +7,9 @@ from pathlib import Path
 
 import pytest
 
+from lib.backends.backend_runtime import reference_audio_to_data_uri
 from lib.backends.data_uri import file_to_data_uri, image_to_data_uri
-from lib.backends.video_backends.base import VideoCapabilityError, reference_audio_to_data_uri
+from lib.backends.video_backend_contract import VideoCapabilityError
 
 _IMAGE_MIME_TYPES = {".png": "image/png", ".jpg": "image/jpeg", ".webp": "image/webp"}
 _AUDIO_MIME_TYPES = {".wav": "audio/wav", ".mp3": "audio/mp3"}

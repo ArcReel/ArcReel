@@ -7,7 +7,7 @@ import { CheckpointNote } from "./CheckpointNote";
 import { UnitTag } from "./UnitTag";
 import { taskTone } from "./state-language";
 
-const ACTIVE_STATUSES = new Set(["queued", "running", "cancelling"]);
+const ACTIVE_STATUSES = new Set(["queued", "running"]);
 
 interface Props {
   tasks: WorkflowTaskObservation[];

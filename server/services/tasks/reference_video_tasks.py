@@ -40,6 +40,7 @@ from lib.generation.generation_queue import (
 )
 from lib.infra.path_safety import safe_join
 from lib.infra.thumbnail import extract_video_thumbnail
+from lib.project.project_manager import get_project_manager
 from lib.script.reference_video.artifact_selection import CurrentReferenceAssets
 from lib.script.reference_video.execution_checkpoint import (
     NarrationExecutionFacts,
@@ -81,7 +82,6 @@ from server.services.currency.video_artifact_currency import (
     freeze_video_speech_facts,
 )
 from server.services.tasks.generation_context import AudioLaneRequest, VideoLaneRequest, resolve_generation_context
-from server.services.tasks.generation_tasks import get_project_manager
 from server.services.tasks.narration_delivery_tasks import (
     ResolvedTtsSettingsResolver,
     materialized_reference_video_visual_basis_digest,
@@ -396,17 +396,24 @@ async def execute_reference_video_task(
                 voice_consistency=video.voice_consistency,
                 generation_type=generation_type,
             )
-            return ProviderProjectionCandidate(
-                generation_type=generation_type,
-                provider_id=video.provider_model.provider_id,
-                model_id=video.backend_model,
-                supported_durations=strict_reference_durations(
+            # 时长由端点固定时档位集是合法空集（``docs/adr/0082``）：没有档位可校验也没有档位
+            # 可收窄，与预检、报价同口径跳过 strict 校验，由公共投影原样透传规划秒数。不带该
+            # 标志的空集仍是档位声明缺失，交给 strict_reference_durations fail loud。
+            durations: tuple[int, ...] = ()
+            if not video.duration_endpoint_fixed:
+                durations = strict_reference_durations(
                     provider_id=video.provider_model.provider_id,
                     model_id=video.backend_model,
                     durations=video.supported_durations,
                     resolution=video.resolution_or_fallback,
                     generation_type=generation_type,
-                ),
+                )
+            return ProviderProjectionCandidate(
+                generation_type=generation_type,
+                provider_id=video.provider_model.provider_id,
+                model_id=video.backend_model,
+                supported_durations=durations,
+                duration_endpoint_fixed=video.duration_endpoint_fixed,
                 max_reference_images=video.max_reference_images,
                 resolution=video.resolution_or_fallback,
                 generate_audio=video.generate_audio,
@@ -666,6 +673,9 @@ async def execute_reference_video_task(
                 speech=artifact_speech.basis,
                 duration=artifact_duration_basis,
             )
+            # 付费档位并入档位集，与分镜路线同口径：时长由端点固定时档位集是空的，而产物时效事实
+            # 要求档位集非空且含付费档，这里的唯一档位就是那次原样透传的秒数。
+            artifact_duration_tiers = tuple(sorted({effective_duration, *candidate.supported_durations}))
 
             def _build_checkpoint() -> ReferenceSubmissionCheckpoint:
                 artifact_currency = VideoArtifactCurrencyFacts(
@@ -676,7 +686,7 @@ async def execute_reference_video_task(
                     duration_basis=artifact_duration_basis,
                     video_basis=artifact_video_basis,
                     voice_style_speakers=artifact_speech.voice_style_speakers,
-                    duration_tiers=candidate.supported_durations,
+                    duration_tiers=artifact_duration_tiers,
                     reference_image_limit=candidate.max_reference_images,
                     parent_version=generator.versions.get_current_version("reference_videos", resource_id),
                 )

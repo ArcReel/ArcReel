@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
-from lib.backends.video_backends.base import ReferenceAudioMode, VideoCapabilities, VideoCapabilityError
+from lib.backends.video_backend_contract import ReferenceAudioMode, VideoCapabilities, VideoCapabilityError
 
 if TYPE_CHECKING:
     from PIL import Image

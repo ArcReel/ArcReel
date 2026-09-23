@@ -46,7 +46,7 @@
       "items": { "type": "string", "minLength": 1 }
     },
     "output_candidates": {
-      "description": "产物节点候选，按数组顺序从高到低排优先级。",
+      "description": "产物节点候选，按数组顺序从高到低排优先级。只列导出该媒体类型允许容器的保存节点（见 comfyui.artifacts.ARTIFACT_SUFFIXES_BY_MEDIA_TYPE）：列进一个产不出这类容器的节点，导入时会把产物绑定自动指到它，生成到取件那一步才判类型不符。",
       "type": "array",
       "minItems": 1,
       "items": { "$ref": "#/$defs/outputCandidate" }

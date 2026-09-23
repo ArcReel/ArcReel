@@ -7,7 +7,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from lib.backends.video_backends.base import VideoGenerationRequest
+from lib.backends.video_backend_contract import VideoGenerationRequest
 from lib.backends.video_backends.openai import _SORA_LEGAL_SIZES, OpenAIVideoBackend
 
 

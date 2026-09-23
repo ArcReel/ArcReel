@@ -1,3 +1,6 @@
+---
+protected: true
+---
 <overview>
 {{ project_overview.synopsis or "" }}
 

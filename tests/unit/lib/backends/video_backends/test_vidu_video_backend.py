@@ -8,10 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from lib.backends.providers import PROVIDER_VIDU
-from lib.backends.video_backends.base import (
-    VideoCapabilityError,
-    VideoGenerationRequest,
-)
+from lib.backends.video_backend_contract import VideoCapabilityError, VideoGenerationRequest
 from lib.backends.video_backends.vidu import (
     _DURATION_RULES,
     _ENDPOINT_MODELS,
@@ -435,7 +432,7 @@ class TestCreateTaskAmbiguity:
 
         import httpx
 
-        from lib.backends.video_backends.base import AmbiguousSubmitError
+        from lib.backends.http_status_errors import AmbiguousSubmitError
 
         client = AsyncMock()
         client.post = AsyncMock(side_effect=httpx.ReadTimeout("read timed out"))

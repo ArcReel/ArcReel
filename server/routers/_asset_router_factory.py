@@ -43,6 +43,7 @@ from lib.project.project_manager import ProjectManager
 from server.i18n import Translator
 from server.routers._asset_derivative_status import register_derivative_status_routes
 from server.routers._asset_derivatives import register_derivative_routes
+from server.routers._asset_prompt_preview import register_asset_prompt_preview_routes
 
 logger = logging.getLogger(__name__)
 
@@ -142,6 +143,7 @@ def build_asset_router(
     update_list_fields: tuple[str, ...] = spec.extra_list_fields
 
     router = APIRouter()
+    register_asset_prompt_preview_routes(router, spec=spec, pm_getter=pm_getter)
 
     # 以下四个处理器由 @router.* 就地注册，模块内无其它引用；basedpyright 把函数作用域内的符号
     # 一律判为私有，逐个标注的 reportUnusedFunction 均为工具误报。

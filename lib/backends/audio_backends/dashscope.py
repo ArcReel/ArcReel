@@ -26,6 +26,12 @@ from lib.backends.audio_backends.base import (
     AudioSynthesisResult,
     VoiceOption,
 )
+from lib.backends.backend_runtime import (
+    should_retry_signed_download,
+    should_retry_submit,
+    submit_post,
+    with_artifact_retry,
+)
 from lib.backends.dashscope_shared import (
     dashscope_headers,
     dashscope_native_base_url,
@@ -34,12 +40,6 @@ from lib.backends.dashscope_shared import (
     safe_body_for_log,
 )
 from lib.backends.providers import PROVIDER_DASHSCOPE
-from lib.backends.video_backends.base import (
-    should_retry_signed_download,
-    should_retry_submit,
-    submit_post,
-    with_artifact_retry,
-)
 from lib.infra.async_thread import run_sync_transaction
 from lib.infra.logging_utils import format_kwargs_for_log
 from lib.infra.retry import with_retry_async

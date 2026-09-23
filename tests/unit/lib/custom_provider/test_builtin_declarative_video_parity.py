@@ -6,7 +6,7 @@ import httpx
 import pytest
 
 from lib.backends.backend_assembly.specs import builtin_video_capabilities_for_model
-from lib.backends.video_backends.base import ResumeExpiredError, VideoCapabilityError, VideoGenerationRequest
+from lib.backends.video_backend_contract import ResumeExpiredError, VideoCapabilityError, VideoGenerationRequest
 from lib.backends.video_frame_slots import gate_video_request
 from lib.custom_provider.declarative_backend import DeclarativeVideoBackend
 from lib.custom_provider.endpoints import ENDPOINT_REGISTRY, infer_endpoint

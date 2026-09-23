@@ -61,8 +61,8 @@ async def run_noninterruptible_sync[**P, T](
     """Finish one synchronous transaction even if its awaiting task is cancelled.
 
     A thread cannot be stopped safely after it starts mutating files.  Cancellation
-    is therefore deferred until the caller's normal terminal-state gate can observe
-    the completed result and compensate it when necessary.
+    is therefore deferred until the thread has finished and its durable outcome is
+    known.
     """
 
     return await run_noninterruptible_async(asyncio.to_thread(func, *args, **kwargs))

@@ -20,7 +20,6 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from lib.agent.profile_manifest import ContentMode
 from lib.artifacts.artifact_activation import ArtifactCurrencyResolver, active_artifact_currency_resolver
-from lib.artifacts.formal_write import FormalWriteReceipt, project_metadata_lock
 from lib.config.resolver import ConfigResolver
 from lib.db import async_session_factory
 from lib.episode.episode_paths import (
@@ -56,7 +55,6 @@ from lib.generation.generation_batch import (
 )
 from lib.generation.generation_queue import (
     ActiveTaskRequestConflict,
-    CompensableGenerationResult,
     GenerationBatchNotFound,
     GenerationQueue,
     cleanup_fresh_generation_batch,
@@ -151,7 +149,6 @@ from server.services.admission.prompt_preview import ItemPromptPreview, ScriptIt
 from server.services.project.workflow_planner import WorkflowPlanner
 from server.services.tasks.video_caps import annotate_reference_unit_tiers
 from server.text_generation import (
-    CompensableTextGenerationResult,
     ScriptOverwriteRequiredError,
     TextGenerationError,
     TextGenerationRequest,
@@ -1806,19 +1803,12 @@ async def _execute_plan_episodes(
     services: Services,
     *,
     planner_cls: type[EpisodePlanner] = EpisodePlanner,
-    cancellation_receipts: list[FormalWriteReceipt] | None = None,
 ) -> ToolOutcome[Any]:
     if problem := await migration_gate(scope, services):
         return ToolOutcome(problem=problem)
     try:
         planner = await planner_cls.create(services.projects.get_project_path(scope.project_name))
-        if cancellation_receipts is None:
-            result = await planner.plan(instructions=request.value.instructions)
-        else:
-            result = await planner.plan(
-                instructions=request.value.instructions,
-                cancellation_receipts=cancellation_receipts,
-            )
+        result = await planner.plan(instructions=request.value.instructions)
     except (EpisodePlanningError, FileNotFoundError) as exc:
         return ToolOutcome(problem=ToolProblem("episode_planning_failed", f"❌ 分集规划失败：{exc}"))
     except Exception as exc:
@@ -1840,26 +1830,7 @@ async def _execute_plan_episodes(
         total_planned=result.total_planned,
         ledger_stats=_ledger_stats_payload(result.ledger_stats),
     )
-    if cancellation_receipts is None:
-        return ToolOutcome(value=value)
-    if not cancellation_receipts:
-        return ToolOutcome(value=value)
-    if len(cancellation_receipts) != 1:
-        raise RuntimeError("episode planning commit did not return cancellation state")
-    receipt = cancellation_receipts[0]
-    project_path = services.projects.get_project_path(scope.project_name)
-
-    def _compensate_cancelled() -> None:
-        with project_metadata_lock(project_path):
-            receipt.compensate_cancelled()
-
-    return ToolOutcome(
-        value=CompensableTextGenerationResult(
-            value.message,
-            _compensate_cancelled,
-            payload=value.model_dump(mode="json"),
-        )
-    )
+    return ToolOutcome(value=value)
 
 
 async def plan_episodes(
@@ -1909,13 +1880,11 @@ async def execute_queued_text_task(
         )
     task_type = task["task_type"]
     if task_type == _TEXT_EPISODE_PLAN:
-        cancellation_receipts: list[FormalWriteReceipt] = []
         outcome = await _execute_plan_episodes(
             ToolRequest(PlanEpisodesRequest(instructions=payload.get("instructions"))),
             scope,
             services,
             planner_cls=planner_cls,
-            cancellation_receipts=cancellation_receipts if planner_cls is EpisodePlanner else None,
         )
     else:
         request = TextGenerationRequest(
@@ -1939,11 +1908,6 @@ async def execute_queued_text_task(
     if outcome.problem is not None:
         raise RuntimeError(encode_generation_problem(_queued_generation_problem(outcome.problem)))
     value = outcome.value
-    if isinstance(value, CompensableTextGenerationResult):
-        return CompensableGenerationResult(
-            value.payload or _text_result_payload(value),
-            cancel_compensation=value.compensate_cancelled,
-        )
     if isinstance(value, TextGenerationResult):
         return _text_result_payload(value)
     if isinstance(value, BaseModel):

@@ -12,7 +12,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from lib.backends.video_backends.base import ProviderJobStatus
+from lib.backends.video_backend_contract import ProviderJobStatus
 from lib.custom_provider.declarative_backend import (
     DeclarativeRuntimeError,
     ProviderState,

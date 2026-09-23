@@ -17,13 +17,9 @@ import jwt
 import pytest
 import respx
 
+from lib.backends.http_status_errors import ArtifactDownloadError
 from lib.backends.providers import PROVIDER_KLING
-from lib.backends.video_backends.base import (
-    ArtifactDownloadError,
-    VideoAudioMode,
-    VideoCapabilityError,
-    VideoGenerationRequest,
-)
+from lib.backends.video_backend_contract import VideoAudioMode, VideoCapabilityError, VideoGenerationRequest
 from lib.backends.video_backends.kling import KlingVideoBackend
 from lib.backends.video_backends.registry import effective_generate_audio_for_model
 from tests.fakes import bounded_poll_clock, captured_provider_job_ids

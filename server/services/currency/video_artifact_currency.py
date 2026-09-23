@@ -22,7 +22,6 @@ from lib.artifacts.version_manager import PaidVersionCommit, VersionManager
 from lib.artifacts.video_artifact_commit import commit_paid_video_artifact
 from lib.artifacts.video_artifact_facts import VIDEO_ARTIFACT_RESTORE_BLOCKER_FIELD, VideoArtifactCurrencyFacts
 from lib.generation.generation_admission import generation_admission_lock, generation_admission_lock_sync
-from lib.generation.generation_queue import CompensableGenerationResult
 from lib.infra.async_thread import EventLoopBridge, run_noninterruptible_async
 from lib.infra.json_io import atomic_write_bytes
 from lib.project.asset_types import asset_name_comparison_key
@@ -443,33 +442,25 @@ async def finalize_selected_video_result(
     *,
     committer: VideoArtifactCommitter,
     finalize: Callable[[], Awaitable[dict[str, Any]]],
-) -> CompensableGenerationResult:
-    """Finalize a selected video and span the task terminal-update window.
+) -> dict[str, Any]:
+    """Finalize a selected video after its selection has been committed.
 
     Selection precedes script/thumbnails finalization because paid media must be
     committed through the version lock first.  Any failure in that remaining
-    work compensates the selection synchronously before it is re-raised.  A
-    successful result carries the same idempotent compensation into
-    ``GenerationQueue.mark_task_succeeded`` so an already-cancelled row cannot
-    leave the media selected.
+    work compensates the selection synchronously before it is re-raised.
     """
 
     outcome = committer.outcome
     if outcome is None or not outcome.selected:
         raise RuntimeError("selected video finalization requires a selected artifact commit")
     try:
-        result = await finalize()
+        return await finalize()
     except BaseException as failure:
         try:
             _require_video_selection_compensation(committer)
         except BaseException as compensation_failure:
             failure.add_note(f"video selection compensation also failed: {compensation_failure}")
         raise
-
-    def _compensate_cancelled() -> None:
-        _require_video_selection_compensation(committer)
-
-    return CompensableGenerationResult(result, cancel_compensation=_compensate_cancelled)
 
 
 def _require_video_selection_compensation(committer: VideoArtifactCommitter) -> None:

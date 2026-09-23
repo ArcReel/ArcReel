@@ -1,1 +1,1 @@
-{{ partial("shared/style") }}
+{{ partial("shared/media_style") }}

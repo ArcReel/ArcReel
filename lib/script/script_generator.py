@@ -25,12 +25,11 @@ from lib.artifacts.artifact_activation import (
     assert_current_artifact_input_claims_usable,
     resolve_usable_artifact_input_claim,
 )
-from lib.artifacts.artifact_manifest import ArtifactBasisDescriptor, ArtifactEntryRekeyReceipt, ArtifactKey
+from lib.artifacts.artifact_manifest import ArtifactBasisDescriptor, ArtifactKey
 from lib.artifacts.artifact_provenance import (
     build_ad_episode_script_basis,
     project_ad_episode_script_inputs,
 )
-from lib.artifacts.formal_write import FormalWriteReceipt
 from lib.backends.backend_assembly.specs import builtin_video_capabilities_for_model
 from lib.backends.providers import CallPurpose
 from lib.backends.text_backends.base import DEFAULT_MAX_OUTPUT_TOKENS, TextGenerationRequest, TextTaskType
@@ -331,8 +330,6 @@ class ScriptGenerator:
         entry_ids: Iterable[str] | None = None,
         rewritten_entry_ids: list[str] | None = None,
         before_quarantine_commit: Callable[[], None] | None = None,
-        cancellation_file_receipts: list[FormalWriteReceipt] | None = None,
-        cancellation_manifest_receipts: list[ArtifactEntryRekeyReceipt] | None = None,
     ) -> Path:
         """
         为正式剧本补写视觉层（提示词编写）；ad 项目尚无正式剧本时整份生成。
@@ -395,8 +392,6 @@ class ScriptGenerator:
                 schema,
                 episode,
                 output_filename,
-                cancellation_file_receipts=cancellation_file_receipts,
-                cancellation_manifest_receipts=cancellation_manifest_receipts,
             )
 
         if rewritten_entry_ids is not None:
@@ -414,8 +409,6 @@ class ScriptGenerator:
                     targets,
                     formal_baseline=formal_baseline,
                     instructions=instructions,
-                    cancellation_file_receipts=cancellation_file_receipts,
-                    cancellation_manifest_receipts=cancellation_manifest_receipts,
                 )
             return await self._author_reference_units(
                 episode,
@@ -424,8 +417,6 @@ class ScriptGenerator:
                 formal_baseline=formal_baseline,
                 instructions=instructions,
                 before_quarantine_commit=before_quarantine_commit,
-                cancellation_file_receipts=cancellation_file_receipts,
-                cancellation_manifest_receipts=cancellation_manifest_receipts,
             )
 
         if targets.kind == "scenes":
@@ -455,8 +446,6 @@ class ScriptGenerator:
             filename,
             validate=True,
             expected_fingerprint=formal_baseline,
-            cancellation_file_receipts=cancellation_file_receipts,
-            cancellation_manifest_receipts=cancellation_manifest_receipts,
         )
         self._quality_probe(script_data, episode)
         logger.info("剧本已保存至 %s", saved_path)
@@ -738,9 +727,6 @@ class ScriptGenerator:
         schema: type,
         episode: int,
         output_filename: str | None,
-        *,
-        cancellation_file_receipts: list[FormalWriteReceipt] | None = None,
-        cancellation_manifest_receipts: list[ArtifactEntryRekeyReceipt] | None = None,
     ) -> Path:
         """ad 整份生成的尾段：调用 TextBackend → 解析校验 → 补元数据 → 经写盘统一入口保存。"""
         assert self.generator is not None  # generate() 入口已检查
@@ -774,8 +760,6 @@ class ScriptGenerator:
             validate=True,
             artifact_basis=self._artifact_basis,
             expected_fingerprint=formal_baseline,
-            cancellation_file_receipts=cancellation_file_receipts,
-            cancellation_manifest_receipts=cancellation_manifest_receipts,
         )
         self._quality_probe(script_data, episode)
         logger.info("剧本已保存至 %s", output_path)
@@ -1389,8 +1373,6 @@ class ScriptGenerator:
         formal_baseline: str | None,
         instructions: str | None,
         before_quarantine_commit: Callable[[], None] | None,
-        cancellation_file_receipts: list[FormalWriteReceipt] | None,
-        cancellation_manifest_receipts: list[ArtifactEntryRekeyReceipt] | None,
     ) -> Path:
         """参考生视频的提示词编写：只改写待编写单元的正文，其余单元逐字不动。
 
@@ -1446,8 +1428,6 @@ class ScriptGenerator:
                 script_data,
                 filename,
                 formal_baseline,
-                cancellation_file_receipts,
-                cancellation_manifest_receipts,
             )
         except ScriptWriteConflict as exc:
             raise await quarantine(
@@ -1528,8 +1508,6 @@ class ScriptGenerator:
         *,
         formal_baseline: str | None,
         instructions: str | None,
-        cancellation_file_receipts: list[FormalWriteReceipt] | None,
-        cancellation_manifest_receipts: list[ArtifactEntryRekeyReceipt] | None,
     ) -> Path:
         """广告/短片参考生视频的提示词编写：按 brief、商品信息与前后单元写出待编写单元的正文。
 
@@ -1579,8 +1557,6 @@ class ScriptGenerator:
             filename,
             validate=True,
             expected_fingerprint=formal_baseline,
-            cancellation_file_receipts=cancellation_file_receipts,
-            cancellation_manifest_receipts=cancellation_manifest_receipts,
         )
         self._quality_probe(script_data, episode)
         logger.info("剧本已保存至 %s", output_path)
@@ -1694,8 +1670,6 @@ class ScriptGenerator:
         script_data: dict[str, Any],
         filename: str,
         formal_baseline: str | None,
-        cancellation_file_receipts: list[FormalWriteReceipt] | None,
-        cancellation_manifest_receipts: list[ArtifactEntryRekeyReceipt] | None,
     ) -> Path:
         draft_path = quarantine_path(self.project_path, episode, QUARANTINE_KIND_PROMPT_AUTHORING)
         pm = ProjectManager(str(self.project_path.parent))
@@ -1713,8 +1687,6 @@ class ScriptGenerator:
                 filename,
                 validate=True,
                 expected_fingerprint=formal_baseline,
-                cancellation_file_receipts=cancellation_file_receipts,
-                cancellation_manifest_receipts=cancellation_manifest_receipts,
             )
 
     def _promote_reference_prompt_authoring_draft_sync(
