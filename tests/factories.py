@@ -267,3 +267,26 @@ def comfyui_endpoint_definition(**overrides: Any) -> dict[str, Any]:
     if definition["media_type"] == "image" and "bindings" not in overrides:
         del definition["bindings"]["fps"]
     return definition
+
+
+def make_video_request_facts(**overrides: Any):
+    """分镜路线、Veo 3.1、未设分辨率的视频请求事实；消费方测试按需覆盖字段，不手搭能力 dict。"""
+    from lib.generation.video_request_facts import VideoRequestFacts
+
+    fields: dict[str, Any] = {
+        "route": "storyboard",
+        "generation_type": "i2v",
+        "provider_id": "gemini-aistudio",
+        "model_id": "veo-3.1-generate-preview",
+        "resolution": None,
+        "supported_durations": (4, 6, 8),
+        "allowed_durations": (4, 6, 8),
+        "excluded_durations": (),
+        "duration_endpoint_fixed": False,
+        "requested_generate_audio": True,
+        "generate_audio": True,
+        "has_audio_track": True,
+        "audio_switch_controllable": False,
+    }
+    fields.update(overrides)
+    return VideoRequestFacts(**fields)

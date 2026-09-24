@@ -20,9 +20,13 @@ from lib.artifacts.video_visual_provenance import build_storyboard_video_visual_
 from lib.artifacts.visual_artifact_provenance import build_storyboard_video_artifact_visual_basis
 from lib.config.resolver import ConfigResolver, ProviderModel
 from lib.db import async_session_factory
+from lib.generation.video_request_facts import (
+    CONFIGURED_VIDEO_IDENTITY,
+    evaluate_video_request_facts,
+    require_video_request_facts,
+)
 from lib.i18n import _ as i18n_message
 from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
-from lib.script.reference_video.request_projection import ConfigReferenceCapabilityProjection
 from lib.speech.narration_delivery import TtsSynthesisSettings, build_narration_audio_basis
 from lib.speech.speech_artifact_provenance import build_video_duration_basis
 from lib.speech.speech_composition import admit_script_unit
@@ -205,20 +209,27 @@ async def _noop_bucket_precheck(project, generation_type):
 
 
 async def _current_config_visual_basis_digest(project: dict, project_path: Path, *, prompt: object, seed: int) -> str:
-    """按当前配置解析出的请求坐标，计算旁白项目 E1S01（无尾帧）分镜视频的视觉依据摘要。"""
+    """按当前配置的视频请求事实，计算旁白项目 E1S01（无尾帧）分镜视频的视觉依据摘要。"""
 
-    resolver = ConfigResolver(async_session_factory)
-    candidate = await ConfigReferenceCapabilityProjection(resolver).resolve_candidate(project, "i2v")
+    facts = require_video_request_facts(
+        await evaluate_video_request_facts(
+            project,
+            route="storyboard",
+            generation_type="i2v",
+            identity=CONFIGURED_VIDEO_IDENTITY,
+            resolver=ConfigResolver(async_session_factory),
+        )
+    )
     return build_storyboard_video_visual_basis(
         prompt=prompt,
         storyboard_image=project_path / "storyboards" / "scene_E1S01.png",
         end_frame_image=None,
         aspect_ratio=resolve_video_aspect_ratio(project),
-        provider_id=candidate.provider_id,
-        model_id=candidate.model_id,
-        resolution=await resolver.resolve_resolution(project, candidate.provider_id, candidate.model_id),
+        provider_id=facts.provider_id,
+        model_id=facts.model_id,
+        resolution=facts.resolution,
         seed=seed,
-        requested_generate_audio=candidate.requested_generate_audio,
+        requested_generate_audio=facts.requested_generate_audio,
         content_mode="narration",
         utterances=None,
         has_utterances=False,
@@ -568,6 +579,50 @@ class TestGenerateRouter:
         assert {query["user_id"] for query in fake_queue.active_queries} == {"tenant-user"}
         assert fake_queue.calls[0]["user_id"] == "tenant-user"
         assert "duration_seconds" not in fake_queue.calls[0]["payload"]
+
+    def test_video_use_tts_on_veo_without_resolution_asks_for_the_tier_execution_requests(self, tmp_path, monkeypatch):
+        """未设分辨率的 Veo 3.1 按 [4,6,8] 取档，5.5 秒旁白确认 6 秒。"""
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_pm.project["video_provider_i2v"] = "gemini-aistudio/veo-3.1-generate-preview"
+        fake_pm.script["segments"][0]["generated_assets"]["narration_audio"] = "audio/segment_E1S01.wav"
+        audio = project_path / "audio" / "segment_E1S01.wav"
+        audio.parent.mkdir()
+        audio.write_bytes(wav_bytes(5.5))
+        fake_queue = _FakeQueue()
+        client = _client(monkeypatch, fake_pm, fake_queue)
+        settings = TtsSynthesisSettings("openai", "tts-1", "alloy", None)
+        preparation = admit_script_unit("segments", fake_pm.script["segments"][0]).preparation
+        ArtifactManifest(ProjectArtifactManifestAdapter(project_path)).register(
+            ArtifactKey.episode_audio(1, "E1S01"),
+            artifact_path="audio/segment_E1S01.wav",
+            basis=build_narration_audio_basis(preparation, settings),
+        )
+
+        async def _resolve_tts(_self, _project):
+            return settings
+
+        monkeypatch.setattr(CurrentTtsSettingsResolver, "resolve_tts_synthesis_settings", _resolve_tts)
+        request = {
+            "script_file": "episode_1.json",
+            "prompt": {"action": "风吹草动", "camera_motion": "Static"},
+            "narration_delivery": "use_tts",
+        }
+
+        with client:
+            unconfirmed = client.post("/api/v1/projects/demo/generate/video/E1S01", json=request)
+            confirmed = client.post(
+                "/api/v1/projects/demo/generate/video/E1S01",
+                json={**request, "confirmed_request_duration_seconds": 6},
+            )
+
+        assert unconfirmed.status_code == 400
+        problem = unconfirmed.json()["detail"]["problems"][0]
+        assert problem["code"] == "reference_duration_confirmation_required"
+        assert problem["params"]["request_duration"] == 6
+        assert confirmed.status_code == 200, confirmed.text
+        assert confirmed.json()["narration_delivery"]["request_duration"] == 6
+        assert len(fake_queue.calls) == 1
 
     def test_video_use_tts_precheck_matches_the_current_video_by_the_saved_prompt(self, tmp_path, monkeypatch):
         """预检的视觉依据取盘上 video_prompt：请求 prompt 与盘上不同，仍认出按盘上提示词生成的当前成片档位。"""

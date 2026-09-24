@@ -124,6 +124,9 @@ MESSAGES = {
         "running, and a retry only queues what is still missing"
     ),
     "video_supported_durations_missing": "The selected video model does not declare supported duration tiers",
+    "video_supported_durations_invalid": "{provider}/{model} has invalid duration tier metadata, so it cannot be quoted or generated",
+    "video_supported_durations_incompatible": "{provider}/{model} has no compatible duration tier for the current resolution",
+    "video_capability_unavailable": "Could not resolve {capability} video capabilities; check the provider and model configuration",
     "video_prompt_must_be_string_or_action_object": "prompt must be a string or an object containing action/camera_motion",
     "video_prompt_action_empty": "prompt.action cannot be empty",
     "video_prompt_dialogue_array": "prompt.dialogue must be an array",

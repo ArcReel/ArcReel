@@ -17,15 +17,20 @@ from lib.artifacts.artifact_manifest import (
 from lib.artifacts.video_visual_provenance import build_storyboard_video_visual_basis
 from lib.backends.video_backend_contract import VideoCapabilities, VideoCapabilityError
 from lib.backends.video_frame_slots import gate_video_request
+from lib.generation.generation_queue import DispatchProviderChanged
+from lib.generation.video_request_facts import VideoRequestFactsError, VideoRequestFactsFailure
 from lib.speech.narration_delivery import (
     USE_TTS,
     NarratedVideoDurationBlockedError,
     NarrationDeliveryPreparation,
     NarrationTtsStatus,
     TtsSynthesisSettings,
+    build_narration_audio_basis,
     prepare_narrated_video_duration,
 )
+from lib.speech.speech_composition import admit_script_unit
 from server.services.tasks import generation_tasks
+from tests.factories import make_video_request_facts, wav_bytes
 from tests.integration.server.services.tasks.generation_tasks_support import (
     FakeGenerator,
     _FakePM,
@@ -350,6 +355,102 @@ class TestGenerationTasks:
         assert exc.value.preparation.request_duration_seconds == 12
         assert len(fake_generator.video_calls) == 1
         assert len(seen_lane_requests) == 2
+
+    async def test_execute_video_task_use_tts_plans_and_projects_from_request_facts(self, monkeypatch, tmp_path):
+        """单元无时长时按事实收窄后的首档规划，投影档位取事实而非 lane 的未收窄全集。"""
+        project_path = prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        seed_current_storyboard(fake_pm)
+        item = fake_pm.script["segments"][0]
+        item.pop("duration_seconds", None)
+        item["novel_text"] = "旁白。"
+        item["video_prompt"] = {}
+        item["generated_assets"]["narration_audio"] = "audio/segment_E1S01.wav"
+        audio = project_path / "audio" / "segment_E1S01.wav"
+        audio.parent.mkdir()
+        audio.write_bytes(wav_bytes(7.5))
+        preparation = admit_script_unit("segments", item).preparation
+        ArtifactManifest(ProjectArtifactManifestAdapter(project_path)).register(
+            ArtifactKey.episode_audio(1, "E1S01"),
+            artifact_path="audio/segment_E1S01.wav",
+            basis=build_narration_audio_basis(
+                preparation, TtsSynthesisSettings("dashscope", "actual-tts", "Cherry", 1.1)
+            ),
+        )
+        fake_generator = FakeGenerator()
+
+        facts = make_video_request_facts(
+            resolution="1080p", allowed_durations=(8,), excluded_durations=((4, "resolution"), (6, "resolution"))
+        )
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+        monkeypatch.setattr(
+            generation_tasks,
+            "resolve_generation_context",
+            fake_resolve_ctx(
+                fake_generator, video_resolution="720p", supported_durations=(4, 6), video_request_facts=facts
+            ),
+        )
+        monkeypatch.setattr(generation_tasks, "tts_task_in_progress", AsyncMock(return_value=False))
+        monkeypatch.setattr(generation_tasks, "extract_video_thumbnail", async_return(None))
+        monkeypatch.setattr(generation_tasks, "emit_project_change_batch", lambda *a, **kw: None)
+
+        await generation_tasks.execute_video_task(
+            "demo",
+            "E1S01",
+            {
+                "script_file": "episode_1.json",
+                "prompt": {"action": "跑", "camera_motion": "Static", "dialogue": []},
+                "narration_delivery_options": {"narration_delivery": USE_TTS},
+            },
+        )
+
+        assert fake_generator.video_calls[0]["duration_seconds"] == 8
+        assert fake_generator.video_calls[0]["resolution"] == "1080p"
+
+    async def test_execute_video_task_use_tts_blocks_on_unresolvable_request_facts(self, monkeypatch, tmp_path):
+        """排队期间配置变化让档位收成空集：提交供应商前以原问题码阻断，不回退到未收窄的全集。"""
+        project_path = prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        seed_current_storyboard(fake_pm)
+        fake_generator = FakeGenerator()
+        failure = VideoRequestFactsFailure(
+            "video_supported_durations_incompatible",
+            (("provider", "ark"), ("model", "seedance"), ("resolution", "1080p"), ("capability", "i2v")),
+        )
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+        monkeypatch.setattr(
+            generation_tasks,
+            "resolve_generation_context",
+            fake_resolve_ctx(fake_generator, video_request_facts=failure),
+        )
+        monkeypatch.setattr(generation_tasks, "tts_task_in_progress", AsyncMock(return_value=False))
+
+        with pytest.raises(DispatchProviderChanged):
+            await generation_tasks.execute_video_task(
+                "demo",
+                "E1S01",
+                {
+                    "script_file": "episode_1.json",
+                    "prompt": {"action": "跑", "camera_motion": "Static"},
+                    "narration_delivery_options": {"narration_delivery": USE_TTS},
+                },
+                claimed_provider_id="other",
+            )
+
+        with pytest.raises(VideoRequestFactsError) as exc:
+            await generation_tasks.execute_video_task(
+                "demo",
+                "E1S01",
+                {
+                    "script_file": "episode_1.json",
+                    "prompt": {"action": "跑", "camera_motion": "Static", "dialogue": []},
+                    "narration_delivery_options": {"narration_delivery": USE_TTS},
+                },
+            )
+
+        assert exc.value.code == "video_supported_durations_incompatible"
+        assert exc.value.params["resolution"] == "1080p"
+        assert fake_generator.video_calls == []
 
     async def test_execute_video_task_blocks_use_tts_when_duration_is_endpoint_fixed(self, monkeypatch, tmp_path):
         """执行期能力已变成「时长由端点固定」时，use_tts 请求按 tts_duration_endpoint_fixed 拒绝。

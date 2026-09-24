@@ -33,6 +33,13 @@ from lib.config.resolver import ConfigResolver, VideoGenerationType
 from lib.db import async_session_factory
 from lib.db.base import DEFAULT_USER_ID
 from lib.generation.generation_queue import GenerationQueue, get_generation_queue
+from lib.generation.video_request_facts import (
+    CONFIGURED_VIDEO_IDENTITY,
+    VideoRequestFacts,
+    VideoRequestFactsFailure,
+    evaluate_video_request_facts,
+    require_video_request_facts,
+)
 from lib.infra.path_safety import try_safe_join
 from lib.infra.schema_guards import is_finite_number
 from lib.project.project_manager import ProjectManager, get_project_manager
@@ -438,6 +445,18 @@ async def tts_task_in_progress(
     return resource_id in active
 
 
+def storyboard_planning_duration(facts: VideoRequestFacts, *, declared: object, project: dict[str, Any]) -> int:
+    """分镜单元的规划秒数，预检与执行共用：单元时长 > 项目偏好时长 > 收窄后的首档。
+
+    时长由端点固定的模型行没有档位可借（合法空集），退到共享的规划篇幅默认值。
+    """
+
+    for candidate in (declared, project.get("default_duration")):
+        if isinstance(candidate, int) and not isinstance(candidate, bool) and candidate > 0:
+            return candidate
+    return next(iter(facts.allowed_durations), DEFAULT_PLANNED_DURATION_SECONDS)
+
+
 async def prepare_current_storyboard_narrated_video_duration(
     *,
     project_name: str,
@@ -456,19 +475,24 @@ async def prepare_current_storyboard_narrated_video_duration(
     queue: GenerationQueue | None = None,
     config_resolver: ConfigResolver | None = None,
     tts_settings_resolver: TtsSettingsResolver | None = None,
+    video_request_facts: VideoRequestFacts | VideoRequestFactsFailure | None = None,
 ) -> NarratedVideoDurationPreparation:
-    """Materialize current TTS and video-tier facts for one storyboard unit."""
+    """Materialize current TTS and video-tier facts for one storyboard unit.
 
-    resolver = config_resolver or ConfigResolver(async_session_factory)
-    candidate = await ConfigReferenceCapabilityProjection(resolver).resolve_candidate(project, generation_type)
-    request_resolution = await resolver.resolve_resolution(project, candidate.provider_id, candidate.model_id)
-    planned = planned_duration_seconds
-    if planned is None:
-        configured = project.get("default_duration")
-        planned = configured if isinstance(configured, int) and not isinstance(configured, bool) else None
-    if planned is None or planned <= 0:
-        # 时长由端点固定的模型行没有档位可借（合法空集），退到共享的规划篇幅默认值。
-        planned = next(iter(candidate.supported_durations), DEFAULT_PLANNED_DURATION_SECONDS)
+    档位、请求分辨率、端点固定与音轨取自分镜路线的读侧视频请求事实，与执行侧只差身份来源；
+    解析不出时抛 :class:`VideoRequestFactsError`。``video_request_facts`` 给定时直接使用。
+    """
+
+    if video_request_facts is None:
+        video_request_facts = await evaluate_video_request_facts(
+            project,
+            route="storyboard",
+            generation_type=generation_type,
+            identity=CONFIGURED_VIDEO_IDENTITY,
+            resolver=config_resolver or ConfigResolver(async_session_factory),
+        )
+    facts = require_video_request_facts(video_request_facts)
+    planned = storyboard_planning_duration(facts, declared=planned_duration_seconds, project=project)
     preparation = admit_script_unit(resolve_script_kind(script), item).preparation
     active = tts_in_progress
     if active is None:
@@ -501,13 +525,13 @@ async def prepare_current_storyboard_narrated_video_duration(
         resource_id=preparation.unit_id,
         item=item,
         prompt=visual_prompt,
-        provider_id=candidate.provider_id,
-        model_id=candidate.model_id,
-        resolution=request_resolution,
+        provider_id=facts.provider_id,
+        model_id=facts.model_id,
+        resolution=facts.resolution,
         seed=seed,
-        requested_generate_audio=candidate.requested_generate_audio,
+        requested_generate_audio=facts.requested_generate_audio,
         content_mode=resolve_content_mode(script, project),
-        is_silent=not candidate.has_audio_track or not candidate.requested_generate_audio,
+        is_silent=not facts.has_audio_track or not facts.requested_generate_audio,
     )
     current_visual_duration = (
         await current_selected_video_tier(
@@ -537,9 +561,9 @@ async def prepare_current_storyboard_narrated_video_duration(
     result = prepare_narrated_video_duration(
         narration=narration,
         planned_duration_seconds=planned,
-        supported_durations=candidate.supported_durations,
+        supported_durations=facts.allowed_durations,
         confirmed_request_duration_seconds=confirmed_request_duration_seconds,
-        duration_endpoint_fixed=candidate.duration_endpoint_fixed,
+        duration_endpoint_fixed=facts.duration_endpoint_fixed,
         current_visual_duration_seconds=current_visual_duration,
         current_reusable_visual_duration_seconds=current_reusable_visual_duration,
     )
@@ -548,11 +572,11 @@ async def prepare_current_storyboard_narrated_video_duration(
     return replace(
         result,
         cost=VideoRequestCostFacts(
-            provider_id=candidate.provider_id,
-            model_id=candidate.model_id,
-            resolution=candidate.resolution,
+            provider_id=facts.provider_id,
+            model_id=facts.model_id,
+            resolution=facts.resolution,
             duration_seconds=result.request_duration_seconds,
-            generate_audio=candidate.generate_audio,
+            generate_audio=facts.generate_audio,
         ),
     )
 
