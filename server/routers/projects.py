@@ -1104,7 +1104,13 @@ async def delete_project(name: str, _t: Translator):
     try:
 
         def _sync():
-            get_project_manager().delete_project_directory(name)
+            manager = get_project_manager()
+            # 项目名先过一遍校验：非法标识落 400，不穿到兜底的 500 去报「服务器内部错误」。
+            try:
+                manager.get_project_path(name)
+            except ValueError as exc:
+                raise BadRequestError("invalid_project_name", name=name) from exc
+            manager.delete_project_directory(name)
             return {"success": True, "message": _t("project_deleted", name=name)}
 
         return await asyncio.to_thread(_sync)

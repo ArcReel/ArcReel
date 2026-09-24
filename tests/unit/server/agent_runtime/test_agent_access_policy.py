@@ -25,6 +25,7 @@ def _make_policy(tmp_path: Path, **overrides: object) -> AgentAccessPolicy:
         "projects_root": project_root / "projects",
         "agent_profile_root": (tmp_path / "agent_runtime_profile").resolve(),
         "log_dir": project_root / "logs",
+        "trial_runs_dir": project_root / "trial_runs",
     }
     kwargs.update(overrides)
     return AgentAccessPolicy(**kwargs)
@@ -58,6 +59,7 @@ def test_pure_construction_with_fake_roots() -> None:
         projects_root=fake / "repo" / "projects",
         agent_profile_root=fake / "profile",
         log_dir=fake / "logs",
+        trial_runs_dir=fake / "repo" / "trial_runs",
         sandbox_enabled=False,
         claude_projects_dir=fake / "claude" / "projects",
     )
@@ -454,6 +456,34 @@ def test_logs_dir_is_sensitive_prefix(tmp_path: Path) -> None:
     assert policy.is_sensitive_path((logs_dir / "arcreel.log.2026-05-20").resolve())
     # 整目录本身也是敏感（Glob/listdir 拒）
     assert policy.is_sensitive_path(logs_dir.resolve())
+
+
+def test_trial_runs_dir_is_sensitive_prefix(tmp_path: Path) -> None:
+    """trial_runs_dir 必须落在 sensitive prefixes 里，Agent 不能 Read/Grep 测试连接产物。
+
+    背景：产物存的是端点测试发出的真实请求预览与 provider 原始响应（可能带凭证），
+    而该目录在 PROJECT_ROOT 下——_check_read_access 的 "仓库根内参考资料放行" 分支
+    会把整个 repo 当成参考资料放给任意项目的 Agent；规则 0 的 sensitive-path 拒绝
+    必须在前面截住。
+    """
+    root = tmp_path / "repo"
+    root.mkdir()
+    trial_dir = root / "trial_runs"
+    (trial_dir / "017c7b84").mkdir(parents=True)
+    result = trial_dir / "017c7b84" / "result.json"
+    result.write_text("{}", encoding="utf-8")
+
+    policy = _make_policy(tmp_path, trial_runs_dir=trial_dir.resolve())
+
+    # 产物文件与整目录本身都被认定为敏感
+    assert policy.is_sensitive_path(result.resolve())
+    assert policy.is_sensitive_path(trial_dir.resolve())
+    # 裁决走规则 0 拒，而不是落到「仓库根内参考资料放行」
+    allowed, reason = policy.check_path_access(str(result), "Read", _cwd(policy), user_id=_USER_ID)
+    assert not allowed
+    assert reason
+    # sandbox denyRead 投影里也要有（只列真实存在的路径）
+    assert str(trial_dir.resolve()) in policy._build_sensitive_abs_paths()
 
 
 # ============================================================

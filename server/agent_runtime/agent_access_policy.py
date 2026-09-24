@@ -90,6 +90,11 @@ class AgentAccessPolicy:
     # 项目 session 里的 Agent 通过 Read/Grep 读到全局日志。无论落在 repo 内还是
     # 外（如 /var/log/arcreel）都必须 deny。
     log_dir: Path
+    # 测试连接产物目录（已 resolve，PROJECT_ROOT/trial_runs）：存的是端点测试发出的
+    # 真实请求预览与 provider 原始响应，可能带凭证。默认 read 规则会把 project_root
+    # 当成参考资料根放行，不显式 deny 会让任意项目 session 里的 Agent 通过 Read/Grep
+    # 读到；无论落在 repo 内还是外都必须 deny。
+    trial_runs_dir: Path
     # False 表示内核沙箱不支持当前平台（目前仅 Windows）——Bash 走代码白名单回退。
     sandbox_enabled: bool = True
     # SandboxSettings.enableWeakerNestedSandbox 标志。
@@ -183,7 +188,7 @@ class AgentAccessPolicy:
           ``server.routers.providers.upload_vertex_credential`` 写入位置一致）
         - ``agent_runtime_profile/.claude/settings.json`` 在
           ``agent_profile_root`` 下
-        - ``log_dir`` 整目录为敏感前缀
+        - ``log_dir`` / ``trial_runs_dir`` 整目录为敏感前缀
         """
         repo = self.project_root
         data = self.projects_root
@@ -195,7 +200,7 @@ class AgentAccessPolicy:
             data / ".system_config.json.bak",
             profile / ".claude" / "settings.json",
         )
-        prefixes: tuple[Path, ...] = (data.parent / "vertex_keys", self.log_dir)
+        prefixes: tuple[Path, ...] = (data.parent / "vertex_keys", self.log_dir, self.trial_runs_dir)
         # ``.arcreel.db-wal`` / ``.arcreel.db-shm`` 与主 db 同目录
         globs: tuple[tuple[Path, str], ...] = (
             (repo, ".env.*"),
@@ -398,7 +403,7 @@ class AgentAccessPolicy:
 
         SDK CLI 会跳过不存在的 deny 路径（"Skipping non-existent deny path"），
         所以这里枚举当前真实存在的固定清单 + glob 命中项 + prefix 目录
-        （vertex_keys / 日志整目录交给 sandbox profile 递归 deny）。
+        （vertex_keys / 日志与测试连接产物整目录交给 sandbox profile 递归 deny）。
 
         每次会话启动重新枚举，避免后建敏感文件（.env / .env.local）绕过
         sandbox profile — sandbox profile 在 SDK 客户端启动时一次性生效，

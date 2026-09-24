@@ -38,6 +38,7 @@ from lib.infra.app_data_dir import app_data_dir
 from lib.infra.httpx_shared import shutdown_http_client, startup_http_client
 from lib.infra.logging_config import attach_file_handler, migrate_legacy_log_dir, setup_logging
 from lib.infra.path_safety import try_safe_join
+from lib.infra.trial_runs_dir import migrate_legacy_trial_runs_dir
 from lib.project.project_migrations import cleanup_stale_backups, run_project_migrations
 from lib.script.source_loader.migration import migrate_project_source_encoding
 from server.auth import ensure_auth_password, get_current_user, warn_if_auth_disabled
@@ -362,6 +363,12 @@ async def lifespan(app: FastAPI):
     # 撞到 "新旧都存在" 分支放弃迁移。
     await asyncio.to_thread(migrate_legacy_log_dir)
     attach_file_handler()
+
+    # 一次性清掉旧位置（app_data_dir()/trial_runs）的测试连接产物目录。必须排在下面
+    # 任何遍历 projects_root 的步骤之前（源文件编码迁移、project schema 迁移、session
+    # 转录导入、agent profile 物化），否则 profile sync 会先往那个目录里再物化一份
+    # .claude。
+    await asyncio.to_thread(migrate_legacy_trial_runs_dir)
 
     ensure_auth_password()
     warn_if_auth_disabled()

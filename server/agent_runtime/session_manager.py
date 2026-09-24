@@ -20,6 +20,7 @@ from lib.i18n import DEFAULT_LOCALE
 from lib.infra.logging_config import resolve_log_dir
 from lib.infra.logging_utils import redact_diagnostic_text
 from lib.infra.path_safety import PathTraversalError, safe_join
+from lib.infra.trial_runs_dir import resolve_trial_runs_dir
 from server.agent_runtime.agent_access_policy import AgentAccessPolicy
 from server.agent_runtime.entry_pipeline import SessionEntryPipeline
 from server.agent_runtime.event_log import (
@@ -376,15 +377,16 @@ class SessionManager:
             self._agent_profile_root = Path(profile_override).expanduser().resolve(strict=False)
         else:
             self._agent_profile_root = (self._project_root_resolved / "agent_runtime_profile").resolve(strict=False)
-        # 访问规则真相源：env 解析（profile / 日志目录）在此完成，policy 只消费
-        # resolve 后的进程级根路径（零 I/O 纯构造）。用 resolve_log_dir() 拿日志
-        # 真实路径，覆盖 ``ARCREEL_LOG_DIR`` 自定义场景——无论落在 repo 内还是外
-        # 都必须 deny。
+        # 访问规则真相源：env 解析（profile / 日志与测试连接产物目录）在此完成，
+        # policy 只消费 resolve 后的进程级根路径（零 I/O 纯构造）。用
+        # resolve_log_dir() / resolve_trial_runs_dir() 拿真实路径，覆盖
+        # ``ARCREEL_LOG_DIR`` 自定义场景——无论落在 repo 内还是外都必须 deny。
         self.access_policy = AgentAccessPolicy(
             project_root=self._project_root_resolved,
             projects_root=self.projects_root,
             agent_profile_root=self._agent_profile_root,
             log_dir=resolve_log_dir().resolve(),
+            trial_runs_dir=resolve_trial_runs_dir().resolve(),
             sandbox_enabled=sandbox_enabled,
             in_docker=in_docker,
         )

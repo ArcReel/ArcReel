@@ -36,6 +36,9 @@ vertex_keys/*
 # Runtime log directory (PROJECT_ROOT/logs from lib/infra/logging_config.py)
 logs/
 
+# Runtime endpoint-test directory (PROJECT_ROOT/trial_runs from lib/infra/trial_runs_dir.py)
+trial_runs/
+
 # Keep project structure but ignore generated content
 !projects/.gitkeep
 

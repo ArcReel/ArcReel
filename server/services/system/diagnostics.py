@@ -12,6 +12,7 @@ from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 from lib.infra.app_data_dir import app_data_dir
 from lib.infra.logging_config import resolve_log_dir
 from lib.infra.logging_utils import _redact_value
+from lib.infra.trial_runs_dir import resolve_trial_runs_dir
 
 _UNAVAILABLE = "<unavailable: {exc}>"
 
@@ -57,6 +58,10 @@ def _data_dir() -> str:
 
 def _log_dir() -> str:
     return str(resolve_log_dir())
+
+
+def _trial_runs_dir() -> str:
+    return str(resolve_trial_runs_dir())
 
 
 _SENSITIVE_QUERY_KEYS = frozenset({"password", "passwd", "pwd", "token", "secret", "api_key", "apikey"})
@@ -112,6 +117,7 @@ def collect_diagnostics(*, app_version: Callable[[], object] | None = None) -> s
         ("OS", _os_info),
         ("Data directory", _data_dir),
         ("Log directory", _log_dir),
+        ("Trial run directory", _trial_runs_dir),
         ("Database URL", _db_url),
         ("Log level", _log_level),
         ("Sandbox", _sandbox_status),

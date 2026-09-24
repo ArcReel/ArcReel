@@ -35,6 +35,7 @@ def _make_policy(tmp_path: Path, *, sandbox_enabled: bool = True) -> AgentAccess
         projects_root=(tmp_path / "projects").resolve(),
         agent_profile_root=(tmp_path / "profile").resolve(),
         log_dir=(tmp_path / "logs").resolve(),
+        trial_runs_dir=(tmp_path / "trial_runs").resolve(),
         sandbox_enabled=sandbox_enabled,
         in_docker=False,
     )

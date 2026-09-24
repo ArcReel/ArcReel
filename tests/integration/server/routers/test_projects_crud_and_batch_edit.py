@@ -86,6 +86,15 @@ class TestProjectsRouter:
             delete_ok = client.delete("/api/v1/projects/remove-me")
             assert delete_ok.status_code == 200
 
+    def test_delete_rejects_invalid_project_name(self, tmp_path, monkeypatch):
+        client = build_projects_client(monkeypatch, _FakePM(tmp_path))
+
+        with client:
+            response = client.delete("/api/v1/projects/illegal-name")
+
+        assert response.status_code == 400
+        assert response.json()["detail"] == zh_errors.MESSAGES["invalid_project_name"].format(name="illegal-name")
+
     def test_create_persists_source_kind_and_defaults_novel(self, tmp_path, monkeypatch):
         client = build_projects_client(monkeypatch, _FakePM(tmp_path))
         with client:
