@@ -120,13 +120,17 @@ describe("buildTaskFailureTarget", () => {
     });
   });
 
-  it("returns null for image_edit on a product (no route defined)", () => {
+  it("routes product tasks and product image edits to the products page", () => {
+    const expected = { type: "product", id: "Bag", route: "/products", highlight_style: "flash" };
+    expect(buildTaskFailureTarget(makeTask({ task_type: "product", resource_id: "Bag" }), null)).toEqual(
+      expected,
+    );
     expect(
       buildTaskFailureTarget(
         makeTask({ task_type: "image_edit", resource_type: "product", resource_id: "Bag" }),
         null,
       ),
-    ).toBeNull();
+    ).toEqual(expected);
   });
 
   it("keeps the segment target for a task rejected upstream", () => {

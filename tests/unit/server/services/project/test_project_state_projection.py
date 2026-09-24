@@ -1,4 +1,6 @@
 import copy
+import re
+from pathlib import Path
 
 import pytest
 
@@ -12,6 +14,8 @@ from lib.script.script_skeleton import (
 from server.services.project.project_state_projection import ProjectState, build_snapshot, diff_snapshots
 
 _DERIVATIVE_SPECS = [spec for spec in ASSET_SPECS.values() if spec.supports_derivatives]
+
+_FRONTEND_SRC = Path(__file__).resolve().parents[5] / "frontend" / "src"
 
 # 各骨架种类在数据形状上的取证写法：content_mode 与条目数组键共同决定 resolve_script_kind 的判别。
 _KIND_CONTENT_MODES = {
@@ -86,6 +90,18 @@ def test_asset_lifecycle_follows_the_asset_type_registry(spec):
 
     [deleted] = _diff(edited, empty)
     assert (deleted["action"], deleted["focus"], deleted["important"]) == ("deleted", None, False)
+
+
+@pytest.mark.parametrize("spec", list(ASSET_SPECS.values()), ids=list(ASSET_SPECS))
+def test_frontend_routes_and_names_every_asset_pane(spec):
+    """前端定位窗格联合含每个资产表名（路由表按该联合穷尽），分组文案含每个资产类型。"""
+    types_source = (_FRONTEND_SRC / "types" / "workspace.ts").read_text(encoding="utf-8")
+    pane_union = re.search(r"export type ProjectChangePane =([^;]+);", types_source)
+    assert pane_union is not None
+    events_source = (_FRONTEND_SRC / "i18n" / "en" / "events.ts").read_text(encoding="utf-8")
+
+    assert f'"{spec.bucket_key}"' in pane_union.group(1)
+    assert f'"entity.{spec.asset_type}"' in events_source
 
 
 @pytest.mark.parametrize("spec", _DERIVATIVE_SPECS, ids=[spec.asset_type for spec in _DERIVATIVE_SPECS])
