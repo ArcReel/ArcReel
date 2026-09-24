@@ -338,12 +338,11 @@ class TestStoryboardGateEntersAdmission:
             pm=_EpisodePM(project_dir, with_storyboard=True),
         )
 
-    async def test_audio_switch_conflict_is_reported_as_a_blocked_admission(self, tmp_path, monkeypatch):
-        async def _facts(*_args, **_kwargs):
-            return make_video_request_facts(requested_generate_audio=False)
-
+    async def test_audio_switch_conflict_is_reported_as_a_blocked_admission(
+        self, tmp_path, monkeypatch, set_admission_video_request_facts
+    ):
         enqueue = AsyncMock(return_value=([], []))
-        monkeypatch.setattr(admission_mod, "evaluate_video_request_facts", _facts)
+        set_admission_video_request_facts(make_video_request_facts(requested_generate_audio=False))
         monkeypatch.setattr(mod, "batch_enqueue_and_wait", enqueue)
 
         tool_obj = _episode_scope(self._ctx(tmp_path))
@@ -404,13 +403,12 @@ class TestStoryboardGateEntersAdmission:
         }
         assert codes["E1S01#1"] == ["generation_unit_request_invalid"]
 
-    async def test_the_audio_conflict_joins_the_other_problems_of_the_same_unit(self, tmp_path, monkeypatch):
+    async def test_the_audio_conflict_joins_the_other_problems_of_the_same_unit(
+        self, tmp_path, monkeypatch, set_admission_video_request_facts
+    ):
         """音频冲突与投影侧的缺口写进同一张票：用户一次看全，不必改一条撞一条。"""
 
         from lib.generation.batch_admission import BatchAdmission, refused_ticket
-
-        async def _facts(*_args, **_kwargs):
-            return make_video_request_facts(requested_generate_audio=False)
 
         async def _admit(**kwargs: Any) -> BatchAdmission:
             return BatchAdmission(
@@ -428,7 +426,7 @@ class TestStoryboardGateEntersAdmission:
             )
 
         enqueue = AsyncMock(return_value=([], []))
-        monkeypatch.setattr(admission_mod, "evaluate_video_request_facts", _facts)
+        set_admission_video_request_facts(make_video_request_facts(requested_generate_audio=False))
         monkeypatch.setattr(admission_mod, "admit_storyboard_video_batch", _admit)
         monkeypatch.setattr(mod, "batch_enqueue_and_wait", enqueue)
 

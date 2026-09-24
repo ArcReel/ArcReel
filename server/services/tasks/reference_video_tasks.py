@@ -10,8 +10,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy.exc import SQLAlchemyError
-
 from lib.artifacts.artifact_activation import (
     assert_current_artifact_input_claims_usable,
     resolve_usable_episode_script_input,
@@ -161,17 +159,13 @@ async def resolve_new_unit_request_facts(
     """
 
     generation_type = reference_video_bucket(with_references=with_references)
-    try:
-        return await evaluate_video_request_facts(
-            project,
-            route="reference_video",
-            generation_type=generation_type,
-            identity=CONFIGURED_VIDEO_IDENTITY,
-            resolver=resolver or ConfigResolver(async_session_factory),
-        )
-    except SQLAlchemyError as exc:
-        logger.info("视频请求事实读不出，新建 unit 使用兼容默认时长：%s", exc)
-        return VideoRequestFactsFailure("reference_capability_unavailable", (("capability", generation_type),))
+    return await evaluate_video_request_facts(
+        project,
+        route="reference_video",
+        generation_type=generation_type,
+        identity=CONFIGURED_VIDEO_IDENTITY,
+        resolver=resolver or ConfigResolver(async_session_factory),
+    )
 
 
 def default_unit_duration(request_facts: VideoRequestFactsResult, project: dict) -> int:
@@ -325,6 +319,7 @@ async def execute_reference_video_task(
         else False
     )
     options = await prepare_current_reference_video_request_options(
+        request_facts_lookup=_lane_request_facts,
         project=project,
         script=script,
         script_file=str(script_file),

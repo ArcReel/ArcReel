@@ -311,7 +311,6 @@ async def generate_video(
     # 上面的生成模式检查已挡掉参考生视频，此处对能到达的项目恒为 i2v。解析闸预检让能力缺失 /
     # 悬空引用在提交入口即返回修复指引，而非任务面板里的异步失败。
     _video_bucket = video_bucket_for_generation_mode(project.get("generation_mode"))
-    await require_video_bucket_capability(project, _video_bucket)
     video_request_facts = None
     if req.narration_delivery == USE_TTS:
         from lib.db import async_session_factory
@@ -328,6 +327,7 @@ async def generate_video(
         ):
             raise BadRequestError(conflict.code, **conflict.parameters())
     else:
+        await require_video_bucket_capability(project, _video_bucket)
         await require_audio_switch_supported(project, _video_bucket)
 
     delivery_projection: NarratedVideoDurationPreparation | None = None

@@ -14,6 +14,7 @@ from lib.artifacts.video_artifact_facts import VideoArtifactCurrencyFacts
 from lib.speech.speech_artifact_provenance import build_video_duration_basis
 from server.services.tasks import narration_delivery_tasks
 from tests.factories import make_video_request_facts
+from tests.fakes import fake_reference_request_facts
 
 
 def _typed_video_metadata(
@@ -337,6 +338,7 @@ async def test_reference_tts_materialization_resolves_episode_from_script_filena
     options = ReferenceRequestOptions(narration_delivery=USE_TTS)
 
     result = await narration_delivery_tasks.prepare_current_reference_video_request_options(
+        request_facts_lookup=fake_reference_request_facts(),
         project={"episodes": [{"episode": 7, "script_file": "scripts/episode_7.json"}]},
         script={"video_units": []},
         script_file="scripts/episode_7.json",

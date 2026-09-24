@@ -202,9 +202,8 @@ source_modules = [
 ]
 forbidden_modules = ["lib.script.reference_video"]
 
-# 视频请求事实是两条视频路线共用的求值入口（docs/adr/0086），自身不得写下对参考生视频子包的依赖。它经
-# lib.config.resolver → lib.project.project_manager 的项目加载链间接够到该子包，那条存量边与路线无关，
-# 纳入上一条契约就要加 baseline 掩盖，故单列一条、只查直接 import。
+# 视频请求事实是两条视频路线共用的求值入口（docs/adr/0086），不得直接 import 参考生视频子包。
+# 本契约只检查直接依赖，不检查经 lib.config.resolver → lib.project.project_manager 的间接项目加载链。
 [[tool.importlinter.contracts]]
 name = "视频请求事实不依赖参考生视频子包"
 type = "forbidden"

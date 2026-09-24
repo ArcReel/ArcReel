@@ -2,7 +2,7 @@
 
 求值维度是「项目 × 路线 × 任务类型桶 × 身份来源」。读侧（报价、预检、界面、Agent）以当前配置
 解析出的执行模型为身份，执行侧以 lane 实际构造的 backend 身份为准（``docs/adr/0049`` ③）；除身份
-来源外两侧求值完全相同，消费方只读结果，不再各自组装分辨率、档位或音轨。
+来源外两侧求值完全相同，消费方直接读取求值结果中的分辨率、档位与音轨。
 
 - 分辨率未设置即不下发：请求分辨率就是时长联动约束所用的分辨率，没有兜底档位。
 - 收窄严格：约束收成空集是失败，不回退到未收窄的全集。
@@ -17,6 +17,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Literal
+
+from sqlalchemy.exc import SQLAlchemyError
 
 from lib.config.resolver import (
     ConfigResolver,
@@ -194,7 +196,7 @@ async def evaluate_video_request_facts(
             selected = await resolver.resolve_video_backend(project, None, generation_type=generation_type)
         except VideoBucketCapabilityError as exc:
             return VideoRequestFactsFailure(exc.code, tuple(exc.params.items()))
-        except ValueError:
+        except (ValueError, SQLAlchemyError):
             return VideoRequestFactsFailure(codes["unavailable"], (("capability", generation_type),))
         provider_id, model_id = selected.provider_id, selected.model_id
 
@@ -204,13 +206,17 @@ async def evaluate_video_request_facts(
         )
     except VideoSupportedDurationsError as exc:
         return VideoRequestFactsFailure(codes[exc.kind], (("provider", exc.provider_id), ("model", exc.model_id)))
-    except ValueError:
+    except (ValueError, SQLAlchemyError):
         return VideoRequestFactsFailure(
             codes["unavailable"],
             (("capability", generation_type), ("provider", provider_id), ("model", model_id)),
         )
-    # 能力合成会把自定义供应商的失效身份收敛到默认模型；事实描述的是被合成能力的那个模型。
-    provider_id, model_id = str(caps["provider_id"]), str(caps["model"])
+    capability_identity = str(caps["provider_id"]), str(caps["model"])
+    if capability_identity != (provider_id, model_id):
+        return VideoRequestFactsFailure(
+            codes["unavailable"],
+            (("capability", generation_type), ("provider", provider_id), ("model", model_id)),
+        )
     identity_params = (("provider", provider_id), ("model", model_id))
 
     raw_durations = caps.get("supported_durations") or []
@@ -223,7 +229,7 @@ async def evaluate_video_request_facts(
 
     try:
         resolution = await resolver.resolve_resolution(project, provider_id, model_id)
-    except ValueError:
+    except (ValueError, SQLAlchemyError):
         return VideoRequestFactsFailure(codes["unavailable"], (("capability", generation_type), *identity_params))
 
     # 参考图约束随桶生效：单元按可用参考图定桶，落 r2v 即带参考图、落 i2v 即不带。

@@ -11,9 +11,10 @@ import socket
 import sys
 import tempfile
 import uuid as _uuid
-from collections.abc import AsyncGenerator, AsyncIterator
+from collections.abc import AsyncGenerator, AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -60,8 +61,22 @@ if not os.environ.get("DATABASE_URL", "").strip() or os.environ.get(_OWNED_DB_MA
 
 import lib.generation.generation_queue as generation_queue_module
 from lib.db.base import Base
+from lib.generation.video_request_facts import VideoRequestFacts, VideoRequestFactsFailure
 from server.agent_runtime.session_manager import SessionManager
 from server.agent_runtime.session_store import SessionMetaStore
+
+
+@pytest.fixture
+def set_admission_video_request_facts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> Callable[[VideoRequestFacts | VideoRequestFactsFailure], None]:
+    """让批量准入消费测试显式提供的视频请求事实。"""
+    from server.services.admission import video_batch_admission
+
+    def configure(facts: VideoRequestFacts | VideoRequestFactsFailure) -> None:
+        monkeypatch.setattr(video_batch_admission, "evaluate_video_request_facts", AsyncMock(return_value=facts))
+
+    return configure
 
 
 def _discard_pooled_connections_in_forked_child() -> None:

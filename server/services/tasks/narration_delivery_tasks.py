@@ -49,6 +49,7 @@ from lib.script.reference_video.prompt_render import render_video_unit_prompt, r
 from lib.script.reference_video.request_projection import (
     USE_TTS,
     FilesystemReferenceAssets,
+    ReferenceRequestFactsLookup,
     ReferenceRequestOptions,
     ResolvedReferenceAsset,
     clamp_reference_assets,
@@ -585,6 +586,7 @@ async def prepare_current_reference_video_request_options(
     project_path: Path,
     options: ReferenceRequestOptions,
     project_name: str,
+    request_facts_lookup: ReferenceRequestFactsLookup,
     user_id: str = DEFAULT_USER_ID,
     tts_settings_resolver: TtsSettingsResolver | None = None,
     tts_in_progress: bool = False,
@@ -622,6 +624,7 @@ async def prepare_current_reference_video_request_options(
             project=project,
             project_path=project_path,
             unit=unit,
+            request_facts_lookup=request_facts_lookup,
         )
         visual_tier = await current_selected_video_tier(
             project_path=project_path,
@@ -789,8 +792,9 @@ async def _reference_visual_basis_digest(
     project: dict[str, Any],
     project_path: Path,
     unit: dict[str, Any],
+    request_facts_lookup: ReferenceRequestFactsLookup,
 ) -> str | None:
-    """Resolve the current configured request basis; failures disable fast reuse."""
+    """Use the projection's request facts for visual currency; failures disable fast reuse."""
 
     try:
         availability = FilesystemReferenceAssets(project_path)
@@ -798,15 +802,7 @@ async def _reference_visual_basis_digest(
             asset for asset in resolve_reference_assets(project, project_path, unit) if availability.is_available(asset)
         )
         generation_type: VideoGenerationType = "r2v" if available else "i2v"
-        request_facts = require_video_request_facts(
-            await evaluate_video_request_facts(
-                project,
-                route="reference_video",
-                generation_type=generation_type,
-                identity=CONFIGURED_VIDEO_IDENTITY,
-                resolver=ConfigResolver(async_session_factory),
-            )
-        )
+        request_facts = require_video_request_facts(await request_facts_lookup(generation_type))
         request_assets = clamp_reference_assets(available, request_facts.max_reference_images)
         return await asyncio.to_thread(
             reference_video_visual_basis_digest,

@@ -817,6 +817,7 @@ class CostEstimationService:
                         resolved_assets = resolve_reference_assets(project, self._project_path, unit)
                     if self._project_path is not None:
                         options = await prepare_current_reference_video_request_options(
+                            request_facts_lookup=request_facts_lookup,
                             project=project,
                             script=script,
                             script_file=script_file,
