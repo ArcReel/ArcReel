@@ -578,7 +578,7 @@ _Avoid_: 助手、创作助手、Copilot。
 _Avoid_: 仅称为 skills 安装、与 ArcReel Agent 配置混为一谈。
 
 **Agent 工具集（Agent toolset）**：
-ArcReel 同时向 ArcReel Agent 与外部 Agent 提供的创作工具集合。同一工具在两处的名字、描述、结果形状与迁移阻断一致，差别只有两处：项目如何确定（ArcReel Agent 由会话决定；外部 Agent 每次显式指定，因此多一个项目参数）；长任务是否等待结果（ArcReel Agent 等到终态直接拿到生成结果；外部 Agent 先拿到批次句柄，轮询到终态时拿到同一形状的生成结果）。
+ArcReel 向 ArcReel Agent 与外部 Agent 提供的同一套创作工具。两类 Agent 调用同一个工具，得到同样的能力与结果，也受同样的迁移失败判定约束；差别只在两处：操作某个项目时，ArcReel Agent 的项目由所在会话决定，外部 Agent 每次指明项目；提交生成任务时，ArcReel Agent 等到任务结束才拿到结果，外部 Agent 先拿到提交回执、之后自行查询结果。
 _Avoid_: 工具目录、MCP 工具列表、工具注册表、sdk tools。
 
 **子智能体（subagent）**：
