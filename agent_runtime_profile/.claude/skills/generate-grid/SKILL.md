@@ -31,7 +31,7 @@ description: 生成宫格分镜图。当用户说"生成宫格"、"宫格生图"
 
 - 不传 `scene_ids` 时只补缺：分镜图已齐备的分组复用，联合图已就绪而未切分的宫格不重生成，正在生成的宫格沿用在途任务，都不会重复计费。
 - 传 `scene_ids` 是重做请求：包含这些分镜的宫格会重新生成并计费，只在用户明确要求重做时使用。
-- 准入是整批的：任一分镜受阻（引用缺口、提示词待生成、与在途宫格部分重叠等），整批不建任务；本身健康的分镜带 `generation_batch_admission_withheld`，修复全部缺口后重试即可一次提交。
+- 准入是整批的：任一分镜受阻（引用缺口、提示词待生成、与在途宫格部分重叠等），整批不建任务；本身健康的分镜带 `generation_batch_admission_withheld`，已在生成中的宫格照常跑完、其分镜带 `generation_active_task_conflict`（`wait_for_task`），修复全部缺口后重试即可一次提交。
 
 结果按 `requested / succeeded / failed / blocked` 逐**分镜** ID 返回：同组分镜共享一张宫格，这张宫格的入队与任务结果投影到它覆盖的每个分镜。成功分镜的 `artifact_path` 是它所在宫格的联合图 `grids/<grid_id>.png`，未切分的宫格同时列在 `grid_ids_awaiting_split`。结构详见 `.claude/references/generation-results.md`。
 

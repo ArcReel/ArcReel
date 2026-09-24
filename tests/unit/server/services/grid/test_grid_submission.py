@@ -218,6 +218,16 @@ async def test_a_record_left_generating_without_an_active_task_does_not_block(pr
     assert [c.action for c in plan.chunks] == [GridChunkAction.GENERATE, GridChunkAction.GENERATE]
 
 
+async def test_an_abandoned_record_of_the_same_chunk_is_replaced_not_left_beside(project_path: Path) -> None:
+    orphan = _record(project_path, GROUP_1, status="pending")
+
+    plan = await _plan(project_path, script=_script(groups=1), orphaned=frozenset({orphan.id}))
+    tasks = commit_grid_submission(plan, project_path)
+
+    assert [(t.grid.id != orphan.id, t.reused) for t in tasks] == [(True, False)]
+    assert [g.id for g in GridManager(project_path).list_all()] == [tasks[0].grid.id]
+
+
 async def test_a_blocked_group_withholds_the_healthy_one(project_path: Path) -> None:
     script = _script()
     script["segments"][5]["image_prompt"] = None

@@ -3,7 +3,7 @@
 import json
 import logging
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -171,6 +171,7 @@ class GridManager:
         scene_ids: set[str],
         *,
         regenerated: set[str] | None = None,
+        abandoned: Collection[str] = (),
     ) -> int:
         """Delete finished grid records superseded by a regenerate within the group ``scene_ids``.
 
@@ -178,7 +179,9 @@ class GridManager:
         ``scene_ids`` are a subset of the group, it overlaps ``regenerated`` (the grid
         being generated now; defaults to the whole group), and it is not still in
         flight (pending/generating). In-flight records are kept so the generation
-        worker can still find its resource. Records of other chunks in the same group
+        worker can still find its resource; ids in ``abandoned`` are records the
+        caller has proven to have no active task left (cancelled, lost on restart,
+        enqueue failed) and are cleaned up like finished ones. Records of other chunks in the same group
         that the regenerate does not touch are kept; a record spanning the regenerated
         chunk and an untouched one is obsolete under the current chunk plan and goes.
 
@@ -193,7 +196,7 @@ class GridManager:
             if (
                 old.script_file == script_file
                 and old.episode == episode
-                and old.status not in ("pending", "generating")
+                and (old.status not in ("pending", "generating") or old.id in abandoned)
                 and old.scene_ids
                 and set(old.scene_ids) <= scene_ids
                 and not touched.isdisjoint(old.scene_ids)

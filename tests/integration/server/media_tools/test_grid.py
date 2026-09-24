@@ -908,6 +908,36 @@ async def test_generate_grid_withholds_healthy_groups_when_one_group_is_blocked(
     assert withheld.params["blocked_unit_ids"] == ["E1S05", "E1S06", "E1S07", "E1S08"]
 
 
+async def test_generate_grid_refused_batch_still_reports_the_group_already_generating(
+    fake_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """整批受阻时，已在生成中的那组照常跑完：逐分镜给「等在途任务」的结论，不从结果里消失。"""
+    scene_ids = _enable_grid(fake_ctx, groups=2)
+    fake_ctx.pm.script_payload["segments"][6]["scenes"] = ["未登记的场景"]
+    in_flight = _saved_grid(fake_ctx, scene_ids[:4], status="generating")
+    await _queue_grid_task(fake_ctx, in_flight)
+
+    async def unreachable_waiter(**_kwargs: Any):
+        raise AssertionError("整批受阻时不该走到入队")
+
+    monkeypatch.setattr("server.media_tools.grid.resolve_large_grid_allowed", _no_large_grid)
+    out = await call(
+        generate_grid_tool(fake_ctx, batch_waiter=unreachable_waiter),
+        {"script": "episode_1.json", "scene_ids": scene_ids},
+    )
+
+    result = read_generation_result(out)
+    assert sorted(result.blocked) == scene_ids
+    items = {item.unit_id: item for item in result.items}
+    running = items["E1S01"]
+    assert running.problem is not None
+    assert (running.problem.code, running.problem.action) == ("generation_active_task_conflict", "wait_for_task")
+    assert running.problem.params == {"grid_ids": [in_flight.id]}
+    assert running.artifact_path == f"grids/{in_flight.id}.png"
+    assert items["E1S05"].problem is not None
+    assert items["E1S05"].problem.code == "reference_asset_unregistered"
+
+
 async def test_generate_grid_missing_only_waits_on_an_unsplit_composite(
     fake_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
 ) -> None:

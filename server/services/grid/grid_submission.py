@@ -153,6 +153,8 @@ class GridSubmissionPlan:
     """经过引用与提示词准入判定的全部分镜（待新生成的各张宫格覆盖的分镜）。"""
     storyboard_paths: Mapping[str, str]
     """剧本里各分镜已登记的分镜图路径；报告失败时据此带上旧图。"""
+    abandoned_grid_ids: frozenset[str]
+    """停在 pending / generating 却已没有活动任务的宫格记录；提交时按已结束的记录清理。"""
 
     @property
     def refused(self) -> bool:
@@ -220,6 +222,7 @@ async def plan_grid_submission(
         allow_large_grid=allow_large_grid,
         records=records,
         in_flight=[g for g in records if g.id in active],
+        abandoned=frozenset(grid_id for grid_id in marked if grid_id not in active),
     ).plan(scene_ids)
 
 
@@ -262,6 +265,7 @@ def commit_grid_submission(plan: GridSubmissionPlan, project_path: Path) -> tupl
                 plan.episode,
                 group_scene_ids[chunk.group_index],
                 regenerated=set(chunk.scene_ids),
+                abandoned=plan.abandoned_grid_ids,
             )
             # provider/model 由 execute_grid_task 在 image lane 解析之后回填
             grid = GridGeneration.create(
@@ -318,6 +322,7 @@ class _Planner:
         allow_large_grid: bool,
         records: list[GridGeneration],
         in_flight: list[GridGeneration],
+        abandoned: frozenset[str],
     ) -> None:
         self._project = project
         self._script_file = script_file
@@ -335,6 +340,7 @@ class _Planner:
         self._resolver: ArtifactCurrencyResolver = active_artifact_currency_resolver(project_path, project)
         self._catalog = build_reference_catalog(project)
         self._in_flight = in_flight
+        self._abandoned = abandoned
         # list_all 按 created_at 升序，后写覆盖前写：同一组分镜只留最新一条
         self._latest = {tuple(g.scene_ids): g for g in records}
         self._chunks: list[GridChunkPlan] = []
@@ -374,6 +380,7 @@ class _Planner:
             withheld=tuple(withheld),
             admission_items=tuple(self._admission_items),
             storyboard_paths=self._storyboard_paths,
+            abandoned_grid_ids=self._abandoned,
         )
 
     def _plan_explicit(self, groups: list[list[dict[str, Any]]], scene_ids: Sequence[str]) -> None:

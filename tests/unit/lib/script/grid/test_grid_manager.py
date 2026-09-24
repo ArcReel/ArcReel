@@ -251,6 +251,16 @@ class TestCleanupSuperseded:
         assert gm.get(pending.id) is not None
         assert gm.get(generating.id) is not None
 
+    def test_deletes_abandoned_inflight_records(self, tmp_path):
+        """调用方证明已没有活动任务的 pending/generating 记录按已结束的记录清理，其余在途记录保留。"""
+        gm = GridManager(tmp_path)
+        abandoned = self._save(gm, status="generating", scene_ids=["S1", "S2"])
+        running = self._save(gm, status="pending", scene_ids=["S1", "S2"])
+        deleted = gm.cleanup_superseded("ep1.json", 1, {"S1", "S2"}, abandoned={abandoned.id})
+        assert deleted == 1
+        assert gm.get(abandoned.id) is None
+        assert gm.get(running.id) is not None
+
     def test_skips_records_with_non_subset_scene_ids(self, tmp_path):
         """scene_ids 不是当前组子集的记录属于其它组/代，不得误删。"""
         gm = GridManager(tmp_path)

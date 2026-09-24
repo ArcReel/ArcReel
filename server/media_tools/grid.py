@@ -26,8 +26,10 @@ from lib.generation.generation_queue_client import (
     batch_enqueue_and_wait,
 )
 from lib.generation.generation_result import (
+    GenerationAction,
     GenerationCandidate,
     GenerationProblem,
+    GenerationProblemCode,
     GenerationResultBuilder,
     GenerationTargetState,
     GenerationTaskState,
@@ -259,11 +261,11 @@ async def _submit(
                 artifact_path=blocked.artifact_path,
                 artifact_status=blocked.artifact_status,
             )
-        log.extend(
-            f"宫格 {chunk.grid.id}（{'、'.join(chunk.report_ids)}）已在生成中，不受本次受阻影响"
-            for chunk in plan.chunks
-            if chunk.action is GridChunkAction.IN_FLIGHT and chunk.grid is not None
-        )
+        for chunk in plan.chunks:
+            if chunk.action is not GridChunkAction.IN_FLIGHT or chunk.grid is None:
+                continue
+            _report_in_flight_in_refused_batch(builder, chunk.grid, chunk.report_ids, episode, resolver)
+            log.append(f"宫格 {chunk.grid.id}（{'、'.join(chunk.report_ids)}）已在生成中，不受本次受阻影响")
         log.append("本次请求整批受阻，未创建任何宫格任务；修复全部缺口后重试即可一次性提交。")
         return generation_result_outcome(builder.build(), log)
 
@@ -370,6 +372,28 @@ async def _submit(
     )
 
 
+def _report_in_flight_in_refused_batch(
+    builder: GenerationResultBuilder,
+    grid: GridGeneration,
+    report_ids: Sequence[str],
+    episode: int,
+    resolver: ArtifactCurrencyResolver,
+) -> None:
+    """整批受阻时，已在生成中的宫格照常跑完：逐分镜给「等在途任务」的结论，不让它们从结果里消失。"""
+
+    key = grid_artifact_key(episode, grid.id)
+    path = grid_artifact_path(grid.id)
+    status, _blocker = observe_artifact_status(resolver=resolver, key=key, artifact_path=path)
+    problem = GenerationProblem(
+        code=GenerationProblemCode.ACTIVE_TASK_CONFLICT,
+        detail=f"宫格 {grid.id} 已在生成中，本次整批受阻未提交它，它照常跑完；完成后请用户审阅联合图",
+        action=GenerationAction.WAIT_FOR_TASK,
+        params={"grid_ids": [grid.id]},
+    )
+    for scene_id in report_ids:
+        builder.block(scene_id, problem=problem, artifact_key=key, artifact_path=path, artifact_status=status)
+
+
 def generate_grid_tool(ctx: ToolContext, *, batch_waiter: GridBatchWaiter = batch_enqueue_and_wait):
     @tool(
         _OPERATION,
@@ -384,7 +408,8 @@ def generate_grid_tool(ctx: ToolContext, *, batch_waiter: GridBatchWaiter = batc
         "已失效但可用的旧图照常复用，联合图已就绪而未切分的宫格不重生成。"
         "同一组分镜的宫格正在生成时沿用在途任务，不重复计费。"
         "准入是整批的：任一分镜受阻（引用缺口、提示词待生成、与在途宫格部分重叠等）即整批不建任务，"
-        "本身健康的分镜带 generation_batch_admission_withheld。"
+        "本身健康的分镜带 generation_batch_admission_withheld；已在生成中的宫格照常跑完，其分镜带 "
+        "generation_active_task_conflict（action=wait_for_task）。"
         "结果按 requested / succeeded / failed / blocked 逐分镜 ID 返回。",
         {
             "type": "object",
