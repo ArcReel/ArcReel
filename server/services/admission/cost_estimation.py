@@ -17,13 +17,16 @@ from lib.billing.pricing.strategies import PricingParams
 from lib.config.resolver import (
     ConfigResolver,
     VideoGenerationType,
-    get_provider_fallback,
     video_bucket_for_generation_mode,
 )
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 from lib.db.repositories.usage_repo import PROJECT_LEVEL_SEGMENT_KEY, UsageRepository
 from lib.generation.generation_queue import GenerationQueue
-from lib.generation.video_request_facts import VideoRequestFacts
+from lib.generation.video_request_facts import (
+    CONFIGURED_VIDEO_IDENTITY,
+    VideoRequestFacts,
+    evaluate_video_request_facts,
+)
 from lib.project.project_manager import grid_storyboard_enabled, is_reference_video_project
 from lib.script.grid.grid_resolution import resolve_image_resolution
 from lib.script.grid.layout import GRID_FALLBACK_RESOLUTION, large_grid_allowed, plan_grid_chunks
@@ -302,6 +305,17 @@ class CostEstimationService:
                 if isinstance(evaluated, VideoRequestFacts):
                     reference_facts[generation_type] = evaluated
         async with self._resolver.session() as r:
+            storyboard_facts = (
+                await evaluate_video_request_facts(
+                    project_data,
+                    route="storyboard",
+                    generation_type="i2v",
+                    identity=CONFIGURED_VIDEO_IDENTITY,
+                    resolver=r,
+                )
+                if not is_reference_video
+                else None
+            )
             try:
                 resolved_image = await r.resolve_image_backend(project_data, None, generation_type="t2i")
                 image_provider, image_model = resolved_image.provider_id, resolved_image.model_id
@@ -325,6 +339,8 @@ class CostEstimationService:
             video_identity: dict[VideoGenerationType, tuple[str, str, str | None, bool]] = {}
             for generation_type in _VIDEO_BUCKETS:
                 bucket_facts = reference_facts.get(generation_type)
+                if generation_type == "i2v" and isinstance(storyboard_facts, VideoRequestFacts):
+                    bucket_facts = storyboard_facts
                 if bucket_facts is not None:
                     bucket_provider = bucket_facts.provider_id
                     bucket_model = bucket_facts.model_id
@@ -352,7 +368,7 @@ class CostEstimationService:
                 video_identity[generation_type] = (
                     bucket_provider,
                     bucket_model,
-                    bucket_resolution or get_provider_fallback(bucket_provider),
+                    bucket_resolution,
                     bucket_audio,
                 )
 
@@ -567,20 +583,17 @@ class CostEstimationService:
                     _add_cost(est_image, image_unit_cost[0], image_unit_cost[1])
 
                 try:
-                    vid_amount, vid_currency = cost_calculator.calculate_cost(
-                        episode_video.provider,
-                        PricingParams(
-                            call_type="video",
-                            model=episode_video.model,
+                    video_quote = quote_video_request_from_price(
+                        VideoRequestCostFacts(
+                            provider_id=episode_video.provider,
+                            model_id=episode_video.model or "",
                             resolution=episode_video.resolution,
                             duration_seconds=duration,
                             generate_audio=episode_video.generate_audio,
                         ),
-                        custom_price_input=episode_video.price.price_input,
-                        custom_price_output=episode_video.price.price_output,
-                        custom_currency=episode_video.price.currency,
+                        episode_video.price,
                     )
-                    _add_cost(est_video, vid_amount, vid_currency)
+                    _add_cost(est_video, video_quote.amount, video_quote.currency)
                 except Exception:
                     logger.debug("无法计算 video 预估 for %s", seg_id, exc_info=True)
 

@@ -1,4 +1,4 @@
-"""测试 ConfigResolver.resolve_resolution 与模块级 get_provider_fallback。
+"""测试 ConfigResolver.resolve_resolution。
 
 resolve_resolution 走公开接口（不断言私有函数），按
 project.model_settings → legacy video_model_settings → 自定义供应商默认 → None 解析；
@@ -15,7 +15,6 @@ from lib.config.resolver import (
     constrain_durations,
     constrain_durations_for_project,
     duration_constraints_report,
-    get_provider_fallback,
 )
 from lib.custom_provider import make_provider_id
 from lib.db.models.custom_provider import CustomProvider, CustomProviderModel
@@ -176,31 +175,6 @@ async def test_falls_through_to_custom_when_project_empty_string(resolver: Confi
     provider_id = await _add_custom_video_model(db_session, "m", "1K")
     project = {"model_settings": {f"{provider_id}/m": {"resolution": ""}}}
     assert await resolver.resolve_resolution(project, provider_id, "m") == "1K"
-
-
-# --- get_provider_fallback（纯查表，不触 DB） ---
-
-
-@pytest.mark.parametrize(
-    ("provider_id", "expected"),
-    [
-        ("gemini", "1080p"),
-        ("gemini-aistudio", "1080p"),  # 短前缀归一化
-        ("ark", "720p"),
-        ("grok", "720p"),
-        ("openai", "720p"),
-        ("minimax", "768p"),
-        ("minimax-hailuo", "768p"),
-        ("unknown-provider", "1080p"),  # 未知 → default
-        (None, "1080p"),  # None → default
-    ],
-)
-def test_get_provider_fallback(provider_id: str | None, expected: str):
-    assert get_provider_fallback(provider_id) == expected
-
-
-def test_get_provider_fallback_custom_default():
-    assert get_provider_fallback("unknown", default="720p") == "720p"
 
 
 # ---------------------------------------------------------------------------
