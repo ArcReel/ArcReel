@@ -252,10 +252,6 @@ class ConnectivityCheckRequest(BaseModel):
     api_key: str
 
 
-class ReplaceModelsRequest(BaseModel):
-    models: list[ModelInput]
-
-
 class ModelResponse(BaseModel):
     id: int
     model_id: str
@@ -511,6 +507,26 @@ def _provider_to_response(
         video_max_workers=provider.video_max_workers,
         audio_max_workers=provider.audio_max_workers,
     )
+
+
+async def _clear_global_provider_refs(
+    session: AsyncSession, provider_id: int, model_ids: set[str] | None = None
+) -> None:
+    """清空全局 settings 中指向该 provider 的悬空引用，只动 _BACKEND_SETTING_KEYS；不提交事务。
+
+    ``model_ids`` 为 None 时清理指向该 provider 任一模型的键（删除供应商），否则只清指向其中
+    模型的键（保存时删掉的模型）。
+    """
+    if model_ids is not None and not model_ids:
+        return
+    from lib.config.service import ConfigService
+
+    svc = ConfigService(session)
+    prefix = f"{make_provider_id(provider_id)}/"
+    for key in _BACKEND_SETTING_KEYS:
+        val = await svc.get_setting(key, "")
+        if val.startswith(prefix) and (model_ids is None or val[len(prefix) :] in model_ids):
+            await svc.set_setting(key, "")
 
 
 def _cleanup_project_refs(prefix: str, setting_keys: tuple[str, ...]) -> None:
@@ -915,7 +931,7 @@ async def full_update_provider(
     _t: Translator,
     session: AsyncSession = Depends(get_async_session),
 ):
-    """原子更新供应商元数据 + 模型列表（单一事务）。"""
+    """原子更新供应商元数据 + 模型列表（单一事务），并清理全局默认中指向被删模型的引用。"""
     _check_duplicate_model_ids(body.models, _t)
     specs = await _resolve_model_endpoint_specs(session, body.models, _t)
     _check_unique_defaults(body.models, specs, _t)
@@ -941,8 +957,10 @@ async def full_update_provider(
     provider = await repo.update_provider(provider_id, **kwargs)
     if provider is None:
         raise HTTPException(status_code=404, detail=_t("provider_not_found"))
+    old_model_ids = {m.model_id for m in await repo.list_models(provider_id)}
     model_dicts = [m.to_db_dict(specs[m.endpoint]) for m in body.models]
     await repo.replace_models(provider_id, model_dicts)
+    await _clear_global_provider_refs(session, provider_id, old_model_ids - {m.model_id for m in body.models})
     await session.commit()
     await _invalidate_caches(request)
     await session.refresh(provider)
@@ -969,69 +987,11 @@ async def delete_provider(
         raise HTTPException(status_code=404, detail=_t("provider_not_found"))
     prefix = f"{make_provider_id(provider_id)}/"
     await repo.delete_provider(provider_id)
-    # 清理引用该 provider 的全局默认 backend 配置
-    from lib.config.service import ConfigService
-
-    svc = ConfigService(session)
-    for key in _BACKEND_SETTING_KEYS:
-        val = await svc.get_setting(key, "")
-        if val and val.startswith(prefix):
-            await svc.set_setting(key, "")
+    await _clear_global_provider_refs(session, provider_id)
     await session.commit()
     await _invalidate_caches(request)
     # 清理引用该 provider 的项目级配置（同步文件 I/O，放到线程池避免阻塞事件循环）
     await asyncio.to_thread(_cleanup_project_refs, prefix, _PROJECT_BACKEND_KEYS)
-
-
-# ---------------------------------------------------------------------------
-# Model management
-# ---------------------------------------------------------------------------
-
-
-@router.put("/{provider_id}/models")
-async def replace_models(
-    provider_id: int,
-    body: ReplaceModelsRequest,
-    request: Request,
-    _t: Translator,
-    session: AsyncSession = Depends(get_async_session),
-):
-    """替换供应商的整个模型列表。"""
-    _check_duplicate_model_ids(body.models, _t)
-    specs = await _resolve_model_endpoint_specs(session, body.models, _t)
-    _check_unique_defaults(body.models, specs, _t)
-    repo = CustomProviderRepository(session)
-    provider = await repo.get_provider(provider_id)
-    if provider is None:
-        raise HTTPException(status_code=404, detail=_t("provider_not_found"))
-    _check_protocol_constraints(body.models, provider.discovery_format, specs, _t)
-    _check_model_capability_overrides(body.models, _t, specs)
-    # 记录旧模型 ID，用于清理悬空引用
-    old_model_ids = {m.model_id for m in await repo.list_models(provider_id)}
-    new_model_ids = {m.model_id for m in body.models}
-    deleted_model_ids = old_model_ids - new_model_ids
-
-    model_dicts = [m.to_db_dict(specs[m.endpoint]) for m in body.models]
-    new_models = await repo.replace_models(provider_id, model_dicts)
-
-    # 清理引用已删除模型的全局配置
-    if deleted_model_ids:
-        from lib.config.service import ConfigService
-
-        svc = ConfigService(session)
-        prefix = f"{make_provider_id(provider_id)}/"
-        for key in _BACKEND_SETTING_KEYS:
-            val = await svc.get_setting(key, "")
-            if val and val.startswith(prefix):
-                _, model_part = val.split("/", 1)
-                if model_part in deleted_model_ids:
-                    await svc.set_setting(key, "")
-
-    await session.commit()
-    await _invalidate_caches(request)
-    refs = await _global_bucket_refs_for_provider(session, provider_id)
-    endpoint_specs = await _read_endpoint_specs(session, new_models)
-    return [_model_to_response(m, refs.get(m.model_id), endpoint_specs.get(m.endpoint)) for m in new_models]
 
 
 # ---------------------------------------------------------------------------

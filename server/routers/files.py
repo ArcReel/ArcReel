@@ -994,7 +994,7 @@ def _write_plain_draft(
     # 草稿文件的迁移读改写与 Web 端保存相互串行化。
     pm = get_project_manager()
     with pm.file_lock(draft_path):
-        project = pm.load_project_readonly(project_name)
+        project = pm.load_project(project_name)
         if script_review.formal_script_plan_confirmed(project_dir, project, episode):
             raise_review_error(ScriptReviewError("script_plan_confirmed"), episode, _t)
         is_new = not draft_path.exists()

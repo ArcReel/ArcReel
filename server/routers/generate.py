@@ -289,12 +289,9 @@ async def generate_video(
         if resolved is None:
             raise NotFoundError("segment_not_found", id=segment_id)
         require_admitted_storyboard_references(project, [resolved[0]])
-        script_kind = resolve_script_kind(script)
-        admission = admit_script_unit(script_kind, resolved[0])
-        if admission.allowed and script_kind in {"segments", "shots"}:
-            # narration / ad 的 worker 会把请求 prompt 里的 dialogue 原样下发；准入必须检查
-            # 实际入队的 prompt 与盘上旁白字段，而不能只检查可能已过时的 script prompt。
-            admission = admit_script_unit(script_kind, {**resolved[0], "video_prompt": req.prompt})
+        # worker 执行时按剧本当前的 video_prompt 生成，入队 payload 里的请求 prompt 不参与执行；
+        # 发声准入与下面 use_tts 预检的视觉依据因此都以盘上单元为准。
+        admission = admit_script_unit(resolve_script_kind(script), resolved[0])
         if not admission.allowed:
             raise HTTPException(status_code=409, detail=admission.to_dict())
         # 同分镜图端点：按正式脚本的 video_prompt 判待生成，请求体里的 prompt 不能代替它。
@@ -346,7 +343,7 @@ async def generate_video(
                 script=script,
                 script_file=req.script_file,
                 item=item,
-                visual_prompt=req.prompt,
+                visual_prompt=item.get("video_prompt"),
                 seed=req.seed,
                 generation_type=_video_bucket,
                 # use_tts 不把请求中的 duration 持久化进队列；预检必须和 worker 一样基于

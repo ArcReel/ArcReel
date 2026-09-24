@@ -470,7 +470,7 @@ async def test_prompt_authoring_draft_is_not_affected_by_a_confirmed_script_plan
             "video_units": [{"unit_id": "E1U01", "text": "@[张三] 起身", "duration_seconds": 4}],
         },
     )
-    project = fake_ctx.pm.load_project_readonly(fake_ctx.project_name)
+    project = fake_ctx.pm.load_project(fake_ctx.project_name)
     assert script_review.formal_script_plan_confirmed(fake_ctx.project_path, project, 1)
     args = {"episode": 1, "doc_type": "reference_prompt_authoring"}
 

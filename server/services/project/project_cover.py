@@ -4,9 +4,10 @@
 在项目大厅列出项目时，按偏好顺序挑一个可用作封面的相对资源路径：
 
     1. 已生成视频的首帧 `video_thumbnail`
-       —— 分镜图生视频写在 `segments[*].generated_assets.video_thumbnail`，
-          参考生视频写在 `video_units[*].generated_assets.video_thumbnail`，
-          均由 `lib/infra/thumbnail.extract_video_thumbnail` 在生成完成后抽出并落盘。
+       —— 写在剧本条目的 `generated_assets.video_thumbnail`：分镜图生视频按创作类型落在
+          `segments`（narration）/ `scenes`（drama）/ `shots`（ad），参考生视频落在
+          `video_units`；条目数组键取自骨架注册表 `SKELETONS`。均由
+          `lib/infra/thumbnail.extract_video_thumbnail` 在生成完成后抽出并落盘。
        最能代表"项目当前产出进度"的资产，优先级最高。
 
     2. 已生成的分镜图 `storyboard_image`
@@ -32,6 +33,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from lib.script.script_models import get_generated_assets
+from lib.script.script_skeleton import SKELETONS
 
 if TYPE_CHECKING:
     from lib.project.project_manager import ProjectManager
@@ -78,23 +80,27 @@ def resolve_project_cover(
             logger.debug("加载剧本失败 project=%s script=%s err=%s", project_name, script_file, e)
             continue
 
-    def _iter_items(script: dict):
-        # 合并分镜图生视频的 segments 与参考生视频的 video_units；两种键共存或其中一方为空壳时，
-        # 任一结构都不能遮蔽另一结构的真实资产。`if thumb` / `if sb` 的 falsy 过滤忽略空壳 item。
-        return [*(script.get("segments") or []), *(script.get("video_units") or [])]
+    def _iter_items(script: dict) -> list[dict]:
+        # 按 SKELETONS 登记的全部骨架（segments / scenes / shots / video_units）合并条目，不经
+        # 取证解析只挑一种：多种键共存或其中一方为空壳时，任一结构都不能遮蔽另一结构的真实资产。
+        # 非 list 数组与非 dict 条目按缺失跳过；资产路径只认非空字符串，空壳 item 与脏值一并忽略。
+        items: list[dict] = []
+        for kind in SKELETONS:
+            raw = script.get(kind)
+            if isinstance(raw, list):
+                items.extend(item for item in raw if isinstance(item, dict))
+        return items
 
     for script in scripts:
         for item in _iter_items(script):
-            ga = get_generated_assets(item or {})
-            thumb = ga.get("video_thumbnail")
-            if thumb:
+            thumb = get_generated_assets(item).get("video_thumbnail")
+            if isinstance(thumb, str) and thumb:
                 return _url(thumb)
 
     for script in scripts:
         for item in _iter_items(script):
-            ga = get_generated_assets(item or {})
-            sb = ga.get("storyboard_image")
-            if sb:
+            sb = get_generated_assets(item).get("storyboard_image")
+            if isinstance(sb, str) and sb:
                 return _url(sb)
 
     # 项目级资产：scene > character（见模块 docstring 的抉择）

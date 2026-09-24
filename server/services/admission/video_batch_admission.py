@@ -996,10 +996,10 @@ async def admit_storyboard_video_request(
 ) -> BatchAdmission:
     """Admit one Storyboard-mode request from the specs it would actually enqueue.
 
-    The visual prompt each spec already carries is what the admission compares
-    against the paid artifact, so the triples are built from the specs rather than
-    from the raw script items — a preview that skipped them would judge reuse on a
-    different basis than the submission it predicts.
+    目标集取自即将入队的 spec，被拒的单元不在其中。spec 携带的 prompt 由该单元当前的
+    ``video_prompt`` 经 ``render_storyboard_video_prompt`` 渲染而来；worker 执行时重读同一
+    单元当前的 ``video_prompt``，经同一出口计算视觉依据，而该出口对已渲染文本幂等，所以这里
+    判断已付费成片能否复用，与执行时用的是同一依据。
 
     音频开关冲突属于请求自身已知的配置缺口，在这里与投影侧的缺口折进同一批逐目标结论：
     留到提交前才检查，用户会先被问一遍跨档确认、同意之后才收到一句通用报错。

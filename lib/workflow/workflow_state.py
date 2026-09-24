@@ -869,7 +869,7 @@ class WorkflowStateService:
         return VersionManager(project_path).manual_upload_matcher(resource_type, verify_content=verify_content)
 
     def get_status(self, project_name: str, episode: int | None = None) -> WorkflowStatus:
-        project = self.pm.load_project_readonly(project_name)
+        project = self.pm.load_project(project_name)
         project_path = self.pm.get_project_path(project_name)
         failure = load_migration_verdict(project_path)
         if failure is not None:
@@ -902,7 +902,7 @@ class WorkflowStateService:
         与在场，不读产物内容（在场检查只探一个字节）。列表页取后者，其余取前者。
         """
 
-        project = self.pm.load_project_readonly(project_name)
+        project = self.pm.load_project(project_name)
         project_path = self.pm.get_project_path(project_name)
         failure = load_migration_verdict(project_path)
         if failure is not None:

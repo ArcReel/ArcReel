@@ -55,6 +55,7 @@ async def test_edit_images_happy(fake_ctx: ToolContext, monkeypatch) -> None:
     use_fake_caps(fake_ctx)
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
     tool_obj = edit_images_tool(fake_ctx)
+    fake_ctx.pm.mirror_to_disk()
     out = await call(
         tool_obj,
         {"resource_type": "character", "edits": [{"id": "张三", "instruction": "把头发改成红色"}]},
@@ -86,6 +87,7 @@ async def test_edit_images_failure_preserves_the_untouched_source_path(fake_ctx:
     use_fake_caps(fake_ctx)
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
     tool_obj = edit_images_tool(fake_ctx)
+    fake_ctx.pm.mirror_to_disk()
     out = await call(
         tool_obj,
         {"resource_type": "character", "edits": [{"id": "张三", "instruction": "把头发改成红色"}]},
@@ -101,6 +103,7 @@ async def test_edit_images_i2i_unavailable(fake_ctx: ToolContext) -> None:
     """i2i 不可用时直接报错，不创建任何任务（复用服务端 fail-fast 判断点）。"""
     use_fake_caps(fake_ctx, image_backend_error=ValueError("未找到可用的 image 供应商"))
     tool_obj = edit_images_tool(fake_ctx)
+    fake_ctx.pm.mirror_to_disk()
     out = await call(
         tool_obj,
         {"resource_type": "character", "edits": [{"id": "张三", "instruction": "把头发改成红色"}]},
@@ -274,6 +277,7 @@ async def test_edit_images_skips_missing_current_image(fake_ctx: ToolContext) ->
 
     use_fake_caps(fake_ctx)
     tool_obj = edit_images_tool(fake_ctx)
+    fake_ctx.pm.mirror_to_disk()
     # 李四 没有 character_sheet
     out = await call(tool_obj, {"resource_type": "character", "edits": [{"id": "李四", "instruction": "换发色"}]})
     assert out.get("is_error") is True
@@ -315,6 +319,7 @@ async def test_edit_images_build_specs_warnings(fake_ctx: ToolContext, monkeypat
     use_fake_caps(fake_ctx)
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
     tool_obj = edit_images_tool(fake_ctx)
+    fake_ctx.pm.mirror_to_disk()
     out = await call(
         tool_obj,
         {
@@ -399,6 +404,7 @@ async def test_edit_images_reports_failures(fake_ctx: ToolContext, monkeypatch) 
     use_fake_caps(fake_ctx)
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
     tool_obj = edit_images_tool(fake_ctx)
+    fake_ctx.pm.mirror_to_disk()
     out = await call(tool_obj, {"resource_type": "character", "edits": [{"id": "张三", "instruction": "改发型"}]})
     assert out.get("is_error") is True
     text = out["content"][0]["text"]

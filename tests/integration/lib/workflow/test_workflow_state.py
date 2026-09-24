@@ -777,7 +777,7 @@ def test_completed_first_episode_does_not_hide_later_incomplete_episode(
     )
     _register_produced_artifacts(project_path)
 
-    original_load_project = pm.load_project_readonly
+    original_load_project = pm.load_project
     load_calls = 0
 
     def _counted_load_project(project_name: str) -> dict:
@@ -785,7 +785,7 @@ def test_completed_first_episode_does_not_hide_later_incomplete_episode(
         load_calls += 1
         return original_load_project(project_name)
 
-    monkeypatch.setattr(pm, "load_project_readonly", _counted_load_project)
+    monkeypatch.setattr(pm, "load_project", _counted_load_project)
     source_reads = _count_source_reads(monkeypatch, project_path)
     status = WorkflowStateService(pm).get_status("demo")
 

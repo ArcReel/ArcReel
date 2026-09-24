@@ -408,7 +408,7 @@ class FakeConfigResolver:
     """能力解析器 seam 的手写替身：按桶回答视频能力，不触碰配置库。
 
     生产侧凡接 ``config_resolver`` 关键字的入口（``ToolContext``、``MediaGenerator``、
-    ``resolve_video_caps`` / ``fetch_video_caps`` 及 ``text_generation`` 的几个取值器）都可注入本类，替代对这些取值器
+    ``resolve_video_caps`` 及 ``text_generation`` 的几个取值器如 ``fetch_video_caps``）都可注入本类，替代对这些取值器
     本身的整体替换——被替换掉的取值器里有软回退、联动约束收窄与声音档派生，那些才是用例要
     保护的行为。
 

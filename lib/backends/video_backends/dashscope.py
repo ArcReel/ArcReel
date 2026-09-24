@@ -24,11 +24,13 @@ from typing import Literal
 
 import httpx
 
+from lib.backends.artifact_download_guard import artifact_http_client
 from lib.backends.backend_runtime import (
     ProviderJobIdPersistenceMixin,
     download_resumable_video,
     poll_with_retry,
     recording_poll,
+    resume_expiry_gate,
     should_retry_poll,
     should_retry_submit,
     submit_post,
@@ -495,7 +497,7 @@ class DashScopeVideoBackend(ProviderJobIdPersistenceMixin):
             self._model,
             format_kwargs_for_log(safe_body_for_log(payload)),
         )
-        async with httpx.AsyncClient(timeout=self._http_timeout) as client:
+        async with artifact_http_client(timeout=self._http_timeout) as client:
             task_id = await self._create_task(client, payload, request)
             logger.info("DashScope 视频任务已创建: task_id=%s model=%s", task_id, self._model)
             # 一并写回实际提交域名（wan3.0 走独立 maas 域名，且两者都随用户配置可变）：
@@ -507,7 +509,7 @@ class DashScopeVideoBackend(ProviderJobIdPersistenceMixin):
 
     async def resume_video(self, job_id: str, request: VideoGenerationRequest) -> VideoGenerationResult:
         """接续已 submit 的 DashScope task：仅 poll + 下载（ADR 0007）。"""
-        async with httpx.AsyncClient(timeout=self._http_timeout) as client:
+        async with artifact_http_client(timeout=self._http_timeout) as client:
             return await self._poll_and_build(client, job_id, request, is_resume=True)
 
     # ── request building ────────────────────────────────────────────────
@@ -747,22 +749,16 @@ class DashScopeVideoBackend(ProviderJobIdPersistenceMixin):
         # 后按当下配置解析出的新域名去轮旧任务会 404，被下方的 404 分支误判成过期。
         base_url = request.submitted_base_url or self._request_base_url
 
-        # 留痕包在闸门里侧：闸门把 404 换成 ResumeExpiredError，包在外侧就再也看不到那个响应。
-        recorded_poll = recording_poll(lambda: self._poll_once(client, task_id, base_url), request)
-
-        # resume 路径下 GET 返回 404（task 完全不存在）直接转 ResumeExpiredError，
-        # 不走 poll_with_retry 重试。task_id 24h 过期表现为 200 + task_status=UNKNOWN，
-        # 由下方 is_dashscope_expired 兜底（终态返回后判定）。
-        async def _gated_poll() -> dict:
-            try:
-                return await recorded_poll()
-            except httpx.HTTPStatusError as exc:
-                if is_resume and exc.response.status_code == 404:
-                    raise ResumeExpiredError(job_id=task_id, provider=PROVIDER_DASHSCOPE) from exc
-                raise
+        # 续跑时 task 完全不存在表现为 GET 404，由闸门转 ResumeExpiredError；task_id 24h 过期表现为
+        # 200 + task_status=UNKNOWN，由下方 is_dashscope_expired 兜底（终态返回后判定）。
+        gated_poll = resume_expiry_gate(
+            recording_poll(lambda: self._poll_once(client, task_id, base_url), request),
+            resume_job_id=task_id if is_resume else None,
+            provider=PROVIDER_DASHSCOPE,
+        )
 
         final = await poll_with_retry(
-            poll_fn=_gated_poll,
+            poll_fn=gated_poll,
             is_done=is_dashscope_terminal,
             is_failed=dashscope_failure_reason,
             max_wait=request.poll_timeout_seconds,

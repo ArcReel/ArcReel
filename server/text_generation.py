@@ -284,12 +284,24 @@ def _instructions(value: Any) -> str | None:
     return value.strip() or None
 
 
+# 本模块的能力查询函数（``fetch_video_caps`` / ``_fetch_caps_with_fallback`` /
+# ``_fetch_reference_caps_with_fallback``）未注入解析器时一律省略 ``config_resolver`` 关键字，不传
+# ``None``：它们调用的 ``resolve_video_caps`` 等取值器会被整体替换为不接受该关键字的替身，调用形状须与
+# 不带该关键字的签名兼容。
+
+
 async def fetch_video_caps(
     project: dict[str, Any],
     *,
     generation_mode: str | None = None,
     config_resolver: ConfigResolver | None = None,
 ) -> tuple[int | None, list[int]]:
+    """解析 ``(default_duration, supported_durations)``。
+
+    ``supported_durations`` 已按项目分辨率与 ``generation_mode`` 经时长联动约束收窄：型号声明的
+    全集不含「分辨率↔时长」「参考图↔时长」两条约束，未收窄的集合交给 LLM 会产出执行期必然被拒
+    的时长。``default_duration`` 是用户配置的原样值，成员性与空集合的处置由调用方按各自口径判定。
+    """
     if config_resolver is None:
         caps = await resolve_video_caps(project)
     else:
@@ -509,7 +521,7 @@ def _rewritten_mention_warnings(
     if not rewritten:
         return []
     try:
-        project = projects.load_project_readonly(project_name)
+        project = projects.load_project(project_name)
         script = projects.load_script_readonly(project_name, result_path.name)
     except (OSError, ValueError):
         # 剧本已落盘，回执不能因为读回失败（文件缺失、I/O 故障、JSON 不合法）而失败。
@@ -614,7 +626,7 @@ async def generate_drama_script_plan(
     episode = request.episode
     instructions = _instructions(request.instructions)
     project_path = projects.get_project_path(project_name)
-    project = await asyncio.to_thread(projects.load_project_readonly, project_name)
+    project = await asyncio.to_thread(projects.load_project, project_name)
     try:
         novel_text, prompt_inputs, script_plan_basis = await asyncio.to_thread(
             _load_script_plan_source_with_basis,
@@ -1267,7 +1279,7 @@ async def generate_reference_script_plan(
     episode = request.episode
     instructions = _instructions(request.instructions)
     project_path = projects.get_project_path(project_name)
-    project = await asyncio.to_thread(projects.load_project_readonly, project_name)
+    project = await asyncio.to_thread(projects.load_project, project_name)
 
     try:
         novel_text, prompt_inputs, script_plan_basis = await asyncio.to_thread(
@@ -1425,7 +1437,7 @@ async def generate_narration_script_plan(
     episode = request.episode
     instructions = _instructions(request.instructions)
     project_path = projects.get_project_path(project_name)
-    project = await asyncio.to_thread(projects.load_project_readonly, project_name)
+    project = await asyncio.to_thread(projects.load_project, project_name)
 
     try:
         novel_text, prompt_inputs, script_plan_basis = await asyncio.to_thread(

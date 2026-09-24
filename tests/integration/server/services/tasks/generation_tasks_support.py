@@ -260,10 +260,6 @@ class FakeGenerator:
         self.versions = self
         self.current_versions = {}
 
-    def generate_image(self, **kwargs):
-        self.image_calls.append(kwargs)
-        return Path("/tmp/image.png"), 1
-
     async def generate_image_async(self, **kwargs):
         self.image_calls.append(kwargs)
         self._materialize_image(kwargs["resource_type"], kwargs["resource_id"])
@@ -292,10 +288,6 @@ class FakeGenerator:
         target = self.project_path / resource_relative_path(resource_type, resource_id)
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(b"png")
-
-    def generate_video(self, **kwargs):
-        self.video_calls.append(kwargs)
-        return Path("/tmp/video.mp4"), 2, "ref", "uri"
 
     async def generate_video_async(self, **kwargs):
         self.video_calls.append(kwargs)

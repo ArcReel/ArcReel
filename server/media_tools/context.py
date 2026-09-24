@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import logging
 from dataclasses import asdict, is_dataclass
 from pathlib import Path
 from typing import Any
@@ -23,16 +22,7 @@ from lib.project.project_migration_failure import MigrationFailureRecord
 from lib.project.project_migration_guard import project_migration_failure
 from lib.speech.narration_delivery import TtsSettingsResolver
 from server.services.project import workflow_planner
-from server.services.tasks.video_caps import (
-    constrained_caps_durations,
-    resolve_video_caps,
-)
-from server.services.tasks.video_caps import (
-    reference_unit_duration_tiers as reference_unit_duration_tiers,
-)
 from server.tool_runtime import CallerContext, ProjectScope, Services, ToolOutcome, ToolProblem
-
-logger = logging.getLogger(__name__)
 
 
 class ToolContext:
@@ -181,53 +171,6 @@ def generation_batch_submission_outcome(result: GenerationBatchReadModel) -> Too
 # instructions 超长会失控 token 用量并稀释模型对原文的处理，超限按参数错误提前拒绝。
 # 上限对附加指令文本足够宽松，仅挡病态输入。
 MAX_INSTRUCTIONS_LEN = 4000
-
-
-def _param_error(msg: str) -> dict[str, Any]:
-    return {"content": [{"type": "text", "text": f"❌ 参数错误：{msg}"}], "is_error": True}
-
-
-def read_instructions_arg(args: dict[str, Any]) -> tuple[str | None, dict[str, Any] | None]:
-    """取可选 ``instructions`` 入参（分集生成工具共享）：空白 strip 后视同未传。
-
-    返回 ``(instructions, error)``：入参非法（非字符串 / 超长）时 ``error`` 是现成的
-    参数错误响应，调用方直接 return。
-    """
-    raw = args.get("instructions")
-    if raw is None:
-        return None, None
-    if not isinstance(raw, str):
-        logger.debug("instructions 入参类型非法: %s", type(raw).__name__)
-        return None, _param_error("instructions 必须是文本")
-    if len(raw) > MAX_INSTRUCTIONS_LEN:
-        return None, _param_error(f"instructions 过长（{len(raw)} 字符，上限 {MAX_INSTRUCTIONS_LEN}），请精简后重试")
-    text = raw.strip()
-    return (text or None), None
-
-
-async def fetch_video_caps(
-    project: dict[str, Any],
-    *,
-    generation_mode: str | None = None,
-    config_resolver: ConfigResolver | None = None,
-) -> tuple[int | None, list[int]]:
-    """Resolve ``(default_duration, supported_durations)`` for an MCP tool call.
-
-    ``supported_durations`` 已按项目分辨率与 ``generation_mode`` 经时长联动约束收窄：型号声明的
-    全集不含「分辨率↔时长」「参考图↔时长」两条约束，未收窄的集合交给 LLM 会产出执行期必然被拒
-    的时长。``default_duration`` 是用户配置的原样值，成员性由调用方按各自口径判定。
-    Callers decide whether an empty result is a hard error (video generation) or
-    a soft fallback (script normalization).
-    """
-    if config_resolver is None:
-        caps = await resolve_video_caps(project)
-    else:
-        caps = await resolve_video_caps(project, config_resolver=config_resolver)
-    durations = [int(d) for d in caps.get("supported_durations") or []]
-    durations = constrained_caps_durations(project, caps, durations, generation_mode=generation_mode)
-    default = caps.get("default_duration")
-    default_int = int(default) if isinstance(default, int | float) else None
-    return default_int, durations
 
 
 def validate_script_filename(value: str) -> str:

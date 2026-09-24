@@ -43,10 +43,8 @@ import type {
   UsageRecordPage,
   UsageSummary,
   CustomProviderInfo,
-  CustomProviderModelInfo,
   CustomProviderCreateRequest,
   CustomProviderFullUpdateRequest,
-  CustomProviderModelInput,
   DiscoverModelsResponse,
   EndpointDescriptor,
   ComfyuiInferResponse,
@@ -990,7 +988,7 @@ class API {
    * 条目最终提示词预览：分镜图与视频各一份，逐字等于执行期发给模型的文本。
    *
    * 只读——不向供应商发请求、不产生费用。读的是**已保存**的剧本内容，草稿未保存时
-   * 预览仍是上一次保存的结果。不可用原因由后端按请求语言渲染，前端不再二次翻译。
+   * 预览仍是上一次保存的结果。不可用原因由后端按请求语言渲染，前端不二次翻译。
    */
   static async previewScriptItemPrompts(
     projectName: string,
@@ -2430,10 +2428,6 @@ class API {
     return this.request(`/custom-providers/${id}`, { method: "DELETE" });
   }
 
-  static async replaceCustomProviderModels(id: number, models: CustomProviderModelInput[]): Promise<CustomProviderModelInfo[]> {
-    return this.request(`/custom-providers/${id}/models`, { method: "PUT", body: JSON.stringify({ models }) });
-  }
-
   static async discoverModels(data: { discovery_format: string; base_url: string; api_key: string }): Promise<DiscoverModelsResponse> {
     return this.request("/custom-providers/discover", { method: "POST", body: JSON.stringify(data) });
   }
@@ -3003,7 +2997,7 @@ class API {
    * 视频单元正文的读时派生预览：utterances + 降级可见性提示。
    *
    * 只读、不落盘——正文是唯一真相。提示文本由后端按请求语言渲染（含依赖项目当前
-   * 视频模型能力的声音相关几条），前端不再二次翻译。
+   * 视频模型能力的声音相关几条），前端不二次翻译。
    */
   static async previewReferenceScript(
     projectName: string,

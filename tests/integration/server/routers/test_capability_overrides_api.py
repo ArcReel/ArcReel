@@ -320,7 +320,7 @@ class TestSaveDropsUnlistedOverrides:
     async def test_legacy_key_stripped_while_editing_last_frame(
         self, capability_client: TestClient, custom_providers_app_session_factory
     ):
-        """AC：含遗留键的行改动 last_frame 后保存不再 422，落库覆盖字典只剩白名单内的键。"""
+        """含遗留键的行改动 last_frame 后保存成功（不报 422），落库覆盖字典只剩白名单内的键。"""
         pid = await _seed_provider_with_raw_models(
             custom_providers_app_session_factory,
             [
@@ -336,8 +336,10 @@ class TestSaveDropsUnlistedOverrides:
         )
 
         resp = capability_client.put(
-            f"/api/v1/custom-providers/{pid}/models",
+            f"/api/v1/custom-providers/{pid}",
             json={
+                "display_name": "Relay",
+                "base_url": "https://relay.test/v1",
                 "models": [
                     _video_model(
                         endpoint=LAST_FRAME_ENDPOINT,
@@ -345,11 +347,11 @@ class TestSaveDropsUnlistedOverrides:
                         # 表单把 GET 回显的遗留键原样带回，同时把 last_frame 切成「强制开」
                         capability_overrides={"first_frame": False, "last_frame": True},
                     )
-                ]
+                ],
             },
         )
         assert resp.status_code == 200, resp.text
-        assert resp.json()[0]["capability_overrides"] == {"last_frame": True}
+        assert resp.json()["models"][0]["capability_overrides"] == {"last_frame": True}
 
         models = capability_client.get(f"/api/v1/custom-providers/{pid}").json()["models"]
         assert models[0]["capability_overrides"] == {"last_frame": True}
@@ -357,8 +359,7 @@ class TestSaveDropsUnlistedOverrides:
     async def test_legacy_key_stripped_on_full_update(
         self, capability_client: TestClient, custom_providers_app_session_factory
     ):
-        """同上，覆盖 PUT /{provider_id}（原子更新 provider 元数据 + 模型列表）这条写入路径：
-        只改 display_name 时，历史脏值既不该挡住保存，也不该被原样写回去。"""
+        """同上，只改 display_name、不动覆盖时：历史脏值既不该挡住保存，也不该被原样写回去。"""
         pid = await _seed_provider_with_raw_models(
             custom_providers_app_session_factory,
             [
@@ -497,15 +498,17 @@ class TestSaveValidatesOpenOverrides:
         )
 
         resp = capability_client.put(
-            f"/api/v1/custom-providers/{pid}/models",
+            f"/api/v1/custom-providers/{pid}",
             json={
+                "display_name": "Relay",
+                "base_url": "https://relay.test/v1",
                 "models": [
                     _video_model(
                         endpoint=LAST_FRAME_ENDPOINT,
                         model_id=LAST_FRAME_MODEL,
                         capability_overrides={"last_frame": "yes"},
                     )
-                ]
+                ],
             },
         )
         assert resp.status_code == 422
@@ -514,64 +517,8 @@ class TestSaveValidatesOpenOverrides:
         assert models[0]["capability_overrides"] == {"last_frame": True}
 
 
-class TestReplaceModelsOverrideSemantics:
+class TestFullUpdateOverrideSemantics:
     """保存模型列表是整体替换：覆盖必须随列表回传，否则被清空。"""
-
-    def test_overrides_survive_when_resubmitted(self, capability_client: TestClient):
-        pid = _create_provider(
-            capability_client,
-            [
-                _video_model(
-                    capability_overrides={"last_frame": True},
-                    endpoint=LAST_FRAME_ENDPOINT,
-                    model_id=LAST_FRAME_MODEL,
-                )
-            ],
-        )
-
-        resp = capability_client.put(
-            f"/api/v1/custom-providers/{pid}/models",
-            json={
-                "models": [
-                    _video_model(
-                        capability_overrides={"last_frame": True},
-                        endpoint=LAST_FRAME_ENDPOINT,
-                        model_id=LAST_FRAME_MODEL,
-                    )
-                ]
-            },
-        )
-        assert resp.status_code == 200
-        assert resp.json()[0]["capability_overrides"] == {"last_frame": True}
-
-    def test_overrides_dropped_when_omitted(self, capability_client: TestClient):
-        """整体替换语义的直接后果，前端保存模型列表时必须回传覆盖字段。"""
-        pid = _create_provider(
-            capability_client,
-            [
-                _video_model(
-                    capability_overrides={"last_frame": True},
-                    endpoint=LAST_FRAME_ENDPOINT,
-                    model_id=LAST_FRAME_MODEL,
-                )
-            ],
-        )
-
-        resp = capability_client.put(
-            f"/api/v1/custom-providers/{pid}/models",
-            json={"models": [_video_model(endpoint=LAST_FRAME_ENDPOINT, model_id=LAST_FRAME_MODEL)]},
-        )
-        assert resp.status_code == 200
-        assert resp.json()[0]["capability_overrides"] is None
-
-    def test_invalid_override_rejected_on_replace(self, capability_client: TestClient):
-        pid = _create_provider(capability_client, [_video_model()])
-
-        resp = capability_client.put(
-            f"/api/v1/custom-providers/{pid}/models",
-            json={"models": [_video_model(capability_overrides={"last_frame": "yes"})]},
-        )
-        assert resp.status_code == 422
 
     def test_invalid_override_rejected_on_full_update(self, capability_client: TestClient):
         pid = _create_provider(capability_client, [_video_model()])
@@ -670,8 +617,10 @@ class TestReplaceModelsOverrideSemantics:
         )
 
         resp = capability_client.put(
-            f"/api/v1/custom-providers/{pid}/models",
+            f"/api/v1/custom-providers/{pid}",
             json={
+                "display_name": "Relay",
+                "base_url": "https://relay.test/v1",
                 "models": [
                     _video_model(
                         model_id=LAST_FRAME_MODEL,
@@ -679,7 +628,7 @@ class TestReplaceModelsOverrideSemantics:
                         endpoint=VIDEO_ENDPOINT,
                         capability_overrides={"last_frame": True},
                     )
-                ]
+                ],
             },
         )
         assert resp.status_code == 422
