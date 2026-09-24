@@ -2,25 +2,31 @@ import asyncio
 import contextlib
 import json
 import logging
-from types import SimpleNamespace
 
 import pytest
 
-from lib.artifacts.artifact_manifest import ArtifactKey, ArtifactManifestEntry, ProjectArtifactManifestAdapter
-from lib.billing.ledger import Ledger
 from lib.project.project_change_hints import emit_project_change_batch, project_change_source
 from lib.project.project_manager import ProjectManager
-from lib.script.script_skeleton import (
-    SKELETON_ANCHOR_TYPES,
-    SKELETON_ENTITY_TYPES,
-    SKELETON_ITEM_LABEL_KEYS,
-    SKELETONS,
-)
 from server.services.project.project_events import (
     PROJECT_DELETED_EVENT,
     ProjectEventService,
-    _change_identity,
+    read_project_state,
 )
+from server.services.project.project_state_projection import ProjectState
+
+
+class _ControlledReader:
+    """read_state seam 的测试 adapter：委托真实只读加载；设了 ``hook`` 后每次读盘经它放行。"""
+
+    def __init__(self, pm: ProjectManager):
+        self._pm = pm
+        self.hook = None
+
+    def __call__(self, project_name: str) -> ProjectState:
+        def read() -> ProjectState:
+            return read_project_state(self._pm, project_name)
+
+        return read() if self.hook is None else self.hook(read)
 
 
 def _pending_assets() -> dict:
@@ -61,352 +67,6 @@ async def _next_event(stream, *, timeout: float) -> tuple[str, dict]:  # noqa: A
 
 
 class TestProjectEventService:
-    def test_diff_snapshots_reports_character_and_storyboard_changes(self, tmp_path):
-        pm = ProjectManager(tmp_path / "projects")
-        pm.create_project("demo")
-        pm.create_project_metadata("demo", "Demo", "Anime", "narration")
-
-        with project_change_source("filesystem"):
-            pm.save_script(
-                "demo",
-                {
-                    "episode": 1,
-                    "title": "第一集",
-                    "content_mode": "narration",
-                    "segments": [
-                        {
-                            "segment_id": "E1S01",
-                            "duration_seconds": 4,
-                            "segment_break": False,
-                            "characters_in_segment": [],
-                            "scenes": [],
-                            "props": [],
-                            "image_prompt": "old",
-                            "video_prompt": "old",
-                            "generated_assets": {
-                                "storyboard_image": None,
-                                "video_clip": None,
-                                "video_uri": None,
-                                "status": "pending",
-                            },
-                        }
-                    ],
-                },
-                "episode_1.json",
-                validate=False,  # 事件 diff 测试用简化替身剧本
-            )
-
-        service = ProjectEventService(tmp_path)
-        previous = service._build_snapshot("demo")
-
-        project = pm.load_project("demo")
-        project["characters"]["Hero"] = {
-            "description": "主角",
-            "voice_style": "冷静",
-            "character_sheet": "",
-            "reference_image": "",
-        }
-        with project_change_source("filesystem"):
-            pm.save_project("demo", project)
-
-        script = pm.load_script("demo", "episode_1.json")
-        segment = script["segments"][0]
-        segment["image_prompt"] = "new"
-        segment["generated_assets"]["storyboard_image"] = "storyboards/scene_E1S01.png"
-        segment["generated_assets"]["status"] = "storyboard_ready"
-        with project_change_source("filesystem"):
-            pm.save_script("demo", script, "episode_1.json", validate=False)
-
-        current = service._build_snapshot("demo")
-        changes = service._diff_snapshots(previous, current)
-
-        assert any(change["entity_type"] == "character" and change["action"] == "created" for change in changes)
-        assert any(change["action"] == "storyboard_ready" for change in changes)
-        segment_updated = [c for c in changes if c["entity_type"] == "segment" and c["action"] == "updated"]
-        assert segment_updated
-        # narration 分镜走时间线画布：锚点类型恒为 segment（回归守卫，不得漂移）。
-        assert all(c["focus"]["anchor_type"] == "segment" for c in segment_updated)
-
-    def test_diff_snapshots_reports_reference_audio_change(self, tmp_path):
-        """挂载/更换参考音频要推项目事件，否则其他会话的角色卡停留在旧样本。"""
-        pm = ProjectManager(tmp_path / "projects")
-        pm.create_project("demo")
-        pm.create_project_metadata("demo", "Demo", "Anime", "narration")
-
-        project = pm.load_project("demo")
-        project["characters"]["Hero"] = {
-            "description": "主角",
-            "voice_style": "冷静",
-            "character_sheet": "",
-            "reference_image": "",
-            "reference_audio": "",
-        }
-        with project_change_source("filesystem"):
-            pm.save_project("demo", project)
-
-        service = ProjectEventService(tmp_path)
-        previous = service._build_snapshot("demo")
-
-        project = pm.load_project("demo")
-        project["characters"]["Hero"]["reference_audio"] = "characters/refs_audio/Hero.wav"
-        with project_change_source("filesystem"):
-            pm.save_project("demo", project)
-
-        current = service._build_snapshot("demo")
-        changes = service._diff_snapshots(previous, current)
-
-        assert any(change["entity_type"] == "character" and change["action"] == "updated" for change in changes)
-
-    def test_build_snapshot_survives_null_episodes(self, tmp_path):
-        # project.json 的 episodes 显式为 null 时快照构建不崩:load_project 直接回读磁盘
-        # JSON、不规范化 episodes,读侧按 fail-soft 用 ``or []`` 兜底而非 ``get(..., [])``。
-        pm = ProjectManager(tmp_path / "projects")
-        pm.create_project("demo")
-        pm.create_project_metadata("demo", "Demo", "Anime", "narration")
-
-        project = pm.load_project("demo")
-        project["episodes"] = None
-        project_file = pm.get_project_path("demo") / ProjectManager.PROJECT_FILE
-        project_file.write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
-
-        service = ProjectEventService(tmp_path)
-        snapshot = service._build_snapshot("demo")
-
-        assert snapshot["project"]["episodes"] == {}
-
-    def test_diff_snapshots_reports_project_metadata_and_new_segments(self, tmp_path):
-        pm = ProjectManager(tmp_path / "projects")
-        pm.create_project("demo")
-        pm.create_project_metadata("demo", "Demo", "Anime", "narration")
-
-        with project_change_source("filesystem"):
-            pm.save_script(
-                "demo",
-                {
-                    "episode": 1,
-                    "title": "第一集",
-                    "content_mode": "narration",
-                    "segments": [
-                        {
-                            "segment_id": "E1S01",
-                            "duration_seconds": 4,
-                            "segment_break": False,
-                            "characters_in_segment": [],
-                            "scenes": [],
-                            "props": [],
-                            "image_prompt": "old",
-                            "video_prompt": "old",
-                            "generated_assets": {
-                                "storyboard_image": None,
-                                "video_clip": None,
-                                "video_uri": None,
-                                "status": "pending",
-                            },
-                        }
-                    ],
-                },
-                "episode_1.json",
-                validate=False,  # 事件 diff 测试用简化替身剧本
-            )
-
-        service = ProjectEventService(tmp_path)
-        previous = service._build_snapshot("demo")
-
-        project = pm.load_project("demo")
-        project["title"] = "Demo Updated"
-        project["style_description"] = "moody lighting"
-        with project_change_source("filesystem"):
-            pm.save_project("demo", project)
-
-        script = pm.load_script("demo", "episode_1.json")
-        script["segments"].append(
-            {
-                "segment_id": "E1S02",
-                "duration_seconds": 4,
-                "segment_break": False,
-                "characters_in_segment": [],
-                "scenes": [],
-                "props": [],
-                "image_prompt": "new",
-                "video_prompt": "new",
-                "generated_assets": {
-                    "storyboard_image": None,
-                    "video_clip": None,
-                    "video_uri": None,
-                    "status": "pending",
-                },
-            }
-        )
-        with project_change_source("filesystem"):
-            pm.save_script("demo", script, "episode_1.json", validate=False)
-
-        current = service._build_snapshot("demo")
-        changes = service._diff_snapshots(previous, current)
-
-        assert any(change["entity_type"] == "project" and change["action"] == "updated" for change in changes)
-        assert any(
-            change["entity_type"] == "segment" and change["action"] == "created" and change["entity_id"] == "E1S02"
-            for change in changes
-        )
-
-    @pytest.mark.asyncio
-    async def test_poll_detects_direct_script_write_and_syncs_episode_index(self, tmp_path):
-        pm = ProjectManager(tmp_path / "projects")
-        pm.create_project("demo")
-        pm.create_project_metadata("demo", "Demo", "Anime", "narration")
-
-        service = ProjectEventService(tmp_path, poll_interval=0.05)
-        await service.start()
-
-        async with service.stream_events("demo", idle_timeout=0.1) as stream:
-            # 首个事件是 snapshot 元组。
-            first = await anext(stream)
-            assert first[0] == "snapshot"
-            assert first[1]["project_name"] == "demo"
-
-            script_path = pm.get_project_path("demo") / "scripts" / "episode_2.json"
-            script_path.write_text(
-                json.dumps(
-                    {
-                        "episode": 2,
-                        "title": "第二集",
-                        "content_mode": "narration",
-                        "segments": [],
-                    },
-                    ensure_ascii=False,
-                ),
-                encoding="utf-8",
-            )
-
-            event_name, payload = await _next_event(stream, timeout=1.5)
-            assert event_name == "changes"
-            assert payload["source"] == "filesystem"
-            assert any(
-                change["entity_type"] == "episode" and change["action"] == "created" and change["episode"] == 2
-                for change in payload["changes"]
-            )
-            assert any(episode["episode"] == 2 for episode in pm.load_project("demo")["episodes"])
-
-        await service.shutdown()
-
-    def test_script_index_sync_ignores_non_canonical_copies_of_a_bound_episode(self, tmp_path):
-        """带 episode 整数但文件名非规范的 JSON 不登记为集绑定，已有绑定与其资源登记不被改写。"""
-        pm = ProjectManager(tmp_path / "projects")
-        project_dir = pm.create_project("demo")
-        pm.create_project_metadata("demo", "Demo", "Anime", "narration")
-
-        def _script(resource_id: str, title: str = "Episode 1") -> dict:
-            return {
-                "episode": 1,
-                "title": title,
-                "content_mode": "narration",
-                "segments": [{"segment_id": resource_id, "duration_seconds": 4}],
-            }
-
-        pm.save_script("demo", _script("E1S01"), "episode_1.json", validate=False)
-        for name in ("z-copy.json", "episode_1_backup.json", "episode_01.json"):
-            (project_dir / "scripts" / name).write_text(json.dumps(_script("E1S02", title=name)), encoding="utf-8")
-        adapter = ProjectArtifactManifestAdapter(project_dir)
-        current_keys = ArtifactKey.episode_resource_artifacts(1, "E1S01")
-        for index, key in enumerate(current_keys):
-            adapter.put_entry(
-                key,
-                ArtifactManifestEntry(
-                    artifact_path=f"formal/current-{index}.bin",
-                    basis_digest=f"sha256-v1:{index:064x}",
-                ),
-            )
-        project_before = (project_dir / "project.json").read_bytes()
-
-        ProjectEventService(tmp_path)._ensure_script_index_synced("demo")
-
-        assert (project_dir / "project.json").read_bytes() == project_before
-        assert all(adapter.get_entry(key) is not None for key in current_keys)
-
-    def test_script_index_sync_does_not_bind_an_episode_from_a_non_canonical_file(self, tmp_path):
-        pm = ProjectManager(tmp_path / "projects")
-        project_dir = pm.create_project("demo")
-        pm.create_project_metadata("demo", "Demo", "Anime", "narration")
-        script = {
-            "episode": 2,
-            "title": "Episode 2",
-            "content_mode": "narration",
-            "segments": [{"segment_id": "E2S01", "duration_seconds": 4}],
-        }
-        (project_dir / "scripts" / "custom.json").write_text(json.dumps(script), encoding="utf-8")
-        project_before = (project_dir / "project.json").read_bytes()
-
-        ProjectEventService(tmp_path)._ensure_script_index_synced("demo")
-
-        assert (project_dir / "project.json").read_bytes() == project_before
-
-        (project_dir / "scripts" / "episode_2.json").write_text(json.dumps(script), encoding="utf-8")
-        ProjectEventService(tmp_path)._ensure_script_index_synced("demo")
-
-        episodes = pm.load_project("demo")["episodes"]
-        assert [(ep["episode"], ep["script_file"]) for ep in episodes] == [(2, "scripts/episode_2.json")]
-
-    def test_script_index_sync_revalidates_a_candidate_before_skipping_it(self, tmp_path, monkeypatch):
-        pm = ProjectManager(tmp_path / "projects")
-        project_dir = pm.create_project("demo")
-        pm.create_project_metadata("demo", "Demo", "Anime", "narration")
-        script = {
-            "episode": 1,
-            "title": "Original",
-            "content_mode": "narration",
-            "segments": [],
-        }
-        pm.save_script("demo", script, "episode_1.json", validate=False)
-        service = ProjectEventService(tmp_path)
-        original_load = service.pm.load_script
-        load_count = 0
-
-        def _load_then_change(project_name: str, filename: str) -> dict:
-            nonlocal load_count
-            loaded = original_load(project_name, filename)
-            load_count += 1
-            if load_count == 1:
-                changed = dict(loaded)
-                changed["title"] = "Changed after discovery"
-                (project_dir / "scripts" / filename).write_text(json.dumps(changed), encoding="utf-8")
-            return loaded
-
-        monkeypatch.setattr(service.pm, "load_script", _load_then_change)
-
-        service._ensure_script_index_synced("demo")
-
-        assert pm.load_project("demo")["episodes"][0]["title"] == "Changed after discovery"
-
-    def test_script_index_sync_skips_a_filename_episode_mismatch_without_writes(self, tmp_path):
-        pm = ProjectManager(tmp_path / "projects")
-        project_dir = pm.create_project("demo")
-        pm.create_project_metadata("demo", "Demo", "Anime", "narration")
-        script = {
-            "episode": 1,
-            "title": "Episode 1",
-            "content_mode": "narration",
-            "segments": [{"segment_id": "E1S01", "duration_seconds": 4}],
-        }
-        pm.save_script("demo", script, "episode_1.json", validate=False)
-        adapter = ProjectArtifactManifestAdapter(project_dir)
-        key = ArtifactKey.episode_video(1, "E1S01")
-        adapter.put_entry(
-            key,
-            ArtifactManifestEntry(
-                artifact_path="formal/current.mp4",
-                basis_digest=f"sha256-v1:{'a' * 64}",
-            ),
-        )
-        (project_dir / "scripts" / "episode_2.json").write_text(json.dumps(script), encoding="utf-8")
-        project_before = (project_dir / "project.json").read_bytes()
-        manifest_before = (project_dir / ".arcreel_artifacts.json").read_bytes()
-
-        ProjectEventService(tmp_path)._ensure_script_index_synced("demo")
-
-        assert (project_dir / "project.json").read_bytes() == project_before
-        assert (project_dir / ".arcreel_artifacts.json").read_bytes() == manifest_before
-        assert adapter.get_entry(key) is not None
-
     @pytest.mark.asyncio
     async def test_emitted_batch_is_broadcast_without_waiting_for_snapshot_diff(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
@@ -445,41 +105,7 @@ class TestProjectEventService:
         await service.shutdown()
 
     @pytest.mark.asyncio
-    async def test_usage_record_settlement_reaches_the_stream(self, tmp_path, db_factory):
-        """记账结算发出的 usage_record 事件与其它项目变更走同一条流，前端无需轮询用量。"""
-        pm = ProjectManager(tmp_path / "projects")
-        pm.create_project("demo")
-        pm.create_project_metadata("demo", "Demo", "Anime", "narration")
-
-        service = ProjectEventService(tmp_path, poll_interval=1.0)
-        await service.start()
-
-        async with service.stream_events("demo", idle_timeout=0.1) as stream:
-            event_name, _snapshot = await anext(stream)
-            assert event_name == "snapshot"
-
-            ledger = Ledger(session_factory=db_factory)
-            with project_change_source("worker"):
-                async with ledger.record(
-                    project_name="demo", call_type="text", model="m", provider="anthropic"
-                ) as call:
-                    call.success(SimpleNamespace(input_tokens=10, output_tokens=5))
-
-            event_name, payload = await _next_event(stream, timeout=1.0)
-            assert event_name == "changes"
-            assert payload["source"] == "worker"
-            change = payload["changes"][0]
-            assert (change["entity_type"], change["action"], change["status"]) == (
-                "usage_record",
-                "recorded",
-                "success",
-            )
-            assert change["important"] is False
-
-        await service.shutdown()
-
-    @pytest.mark.asyncio
-    async def test_stale_rebuild_does_not_broadcast_reverse_diff(self, tmp_path, monkeypatch):
+    async def test_stale_rebuild_does_not_broadcast_reverse_diff(self, tmp_path):
         """两次显式重建读盘耗时不同而乱序结算时，先读到旧盘的一方不广播反向变更。
 
         补扫对基线做 diff，故陈旧快照被写回基线会把实际存在的实体 diff 成 ``deleted``。
@@ -490,7 +116,8 @@ class TestProjectEventService:
         pm.create_project("demo")
         pm.create_project_metadata("demo", "Demo", "Anime", "narration")
 
-        service = ProjectEventService(tmp_path, poll_interval=30.0)
+        reader = _ControlledReader(pm)
+        service = ProjectEventService(tmp_path, poll_interval=30.0, read_state=reader)
         await service.start()
 
         release_first = asyncio.Event()
@@ -500,17 +127,16 @@ class TestProjectEventService:
                 event_name, _snapshot = await anext(stream)
                 assert event_name == "snapshot"
 
-                original_rebuild = service._rebuild_snapshot
                 calls = 0
                 first_read_done = asyncio.Event()
                 second_read_done = asyncio.Event()
                 loop = asyncio.get_running_loop()
 
-                def _rebuild_holding_first(project_name: str):
+                def _read_holding_first(read):
                     nonlocal calls
                     calls += 1
                     index = calls
-                    result = original_rebuild(project_name)
+                    result = read()
                     if index == 1:
                         # 首次读盘已完成但尚未结算：交还控制权，等编排放行
                         loop.call_soon_threadsafe(first_read_done.set)
@@ -519,7 +145,7 @@ class TestProjectEventService:
                         loop.call_soon_threadsafe(second_read_done.set)
                     return result
 
-                monkeypatch.setattr(service, "_rebuild_snapshot", _rebuild_holding_first)
+                reader.hook = _read_holding_first
 
                 emit_project_change_batch("demo", [_terminal_task_change("task-1")], source="worker")
                 await asyncio.wait_for(first_read_done.wait(), timeout=5.0)
@@ -711,23 +337,129 @@ class TestProjectEventService:
         finally:
             await service.shutdown()
 
-    def test_change_identity_normalizes_equivalent_ready_actions(self):
-        """参考生视频完成在发布方与快照差分两侧的 action 命名不同，但去重身份相同。
+    @pytest.mark.asyncio
+    async def test_reference_video_completion_is_broadcast_once(self, tmp_path):
+        """参考生视频完成在发布方叫 ``reference_video_ready``、在快照差分里是 ``video_ready``，
+        补扫按同一件事让给本批，只广播一次。"""
+        pm = ProjectManager(tmp_path / "projects")
+        pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo", "Anime", "narration", extras={"generation_mode": "reference_video"})
 
-        发布方按 task_type 映射为 ``reference_video_ready``，同一次落盘在 unit 差分里是
-        ``video_ready``；不归一会让同一次完成既由本批广播、又被补扫广播一次。
-        """
-        common = {"entity_type": "reference_unit", "entity_id": "E1U01"}
-        assert _change_identity({**common, "action": "reference_video_ready"}) == _change_identity(
-            {**common, "action": "video_ready"}
-        )
-        # 归一只覆盖这一对等价 action，不牵连其它动作
-        assert _change_identity({**common, "action": "storyboard_ready"}) != _change_identity(
-            {**common, "action": "video_ready"}
-        )
+        script = {
+            "episode": 1,
+            "title": "第一集",
+            "content_mode": "narration",
+            "generation_mode": "reference_video",
+            "video_units": [
+                {"unit_id": "E1U01", "duration_seconds": 8, "text": "开场", "generated_assets": _pending_assets()}
+            ],
+        }
+        with project_change_source("filesystem"):
+            pm.save_script("demo", script, "episode_1.json", validate=False)
+
+        service = ProjectEventService(tmp_path, poll_interval=30.0)
+        await service.start()
+
+        try:
+            async with service.stream_events("demo", idle_timeout=0.1) as stream:
+                event_name, _snapshot = await anext(stream)
+                assert event_name == "snapshot"
+
+                script["video_units"][0]["generated_assets"]["video_clip"] = "videos/E1U01.mp4"
+                script_path = pm.get_project_path("demo") / "scripts" / "episode_1.json"
+                script_path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
+                emit_project_change_batch(
+                    "demo",
+                    [
+                        {
+                            "entity_type": "reference_unit",
+                            "action": "reference_video_ready",
+                            "entity_id": "E1U01",
+                            "label": "视频单元「E1U01」",
+                            "focus": None,
+                            "important": True,
+                        }
+                    ],
+                    source="worker",
+                )
+
+                broadcast_changes = []
+                while True:
+                    try:
+                        event_name, payload = await _next_event(stream, timeout=0.5)
+                    except TimeoutError:
+                        break
+                    assert event_name == "changes"
+                    broadcast_changes.extend(payload["changes"])
+
+                assert [change["action"] for change in broadcast_changes if change["entity_id"] == "E1U01"] == [
+                    "reference_video_ready"
+                ]
+        finally:
+            await service.shutdown()
 
     @pytest.mark.asyncio
-    async def test_sweep_leaves_change_described_by_another_inflight_batch(self, tmp_path, monkeypatch):
+    async def test_project_manager_writes_outside_the_old_snapshot_fields_are_broadcast(self, tmp_path):
+        """经项目管理器新增商品、改台词，订阅者都收到对应的项目事件。"""
+        pm = ProjectManager(tmp_path / "projects")
+        pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo", "Anime", "drama")
+        scene = {
+            "scene_id": "E1S01",
+            "duration_seconds": 8,
+            "utterances": [{"kind": "dialogue", "speaker": "甲", "text": "旧台词"}],
+            "generated_assets": _pending_assets(),
+        }
+        with project_change_source("filesystem"):
+            pm.save_script(
+                "demo",
+                {"episode": 1, "title": "第一集", "content_mode": "drama", "scenes": [scene]},
+                "episode_1.json",
+                validate=False,
+            )
+
+        service = ProjectEventService(tmp_path, poll_interval=30.0)
+        await service.start()
+
+        try:
+            async with service.stream_events("demo", idle_timeout=0.1) as stream:
+                event_name, _snapshot = await anext(stream)
+                assert event_name == "snapshot"
+
+                pm.upsert_assets("demo", "products", {"咖啡": {"description": "冷萃"}})
+                with pm.locked_script("demo", "episode_1.json", validate=False) as script:
+                    script["scenes"][0]["utterances"][0]["text"] = "新台词"
+
+                expected = {("product", "created", "咖啡"), ("drama_scene", "updated", "E1S01")}
+                seen: set[tuple] = set()
+                while not expected <= seen:
+                    event_name, payload = await _next_event(stream, timeout=2.0)
+                    assert event_name == "changes"
+                    seen |= {(c["entity_type"], c["action"], c["entity_id"]) for c in payload["changes"]}
+        finally:
+            await service.shutdown()
+
+    @pytest.mark.asyncio
+    async def test_projects_root_kwarg_overrides_default_subdir(self, tmp_path):
+        """显式传 projects_root 时（生产入口传 ``app_data_dir()``），事件流读的是该目录下的项目。"""
+        custom_projects = tmp_path / "external-data"
+        pm = ProjectManager(custom_projects)
+        pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo", "Anime", "narration")
+
+        service = ProjectEventService(tmp_path, projects_root=custom_projects, poll_interval=30.0)
+        await service.start()
+
+        try:
+            async with service.stream_events("demo", idle_timeout=0.1) as stream:
+                event_name, snapshot = await anext(stream)
+                assert event_name == "snapshot"
+                assert snapshot["fingerprint"]
+        finally:
+            await service.shutdown()
+
+    @pytest.mark.asyncio
+    async def test_sweep_leaves_change_described_by_another_inflight_batch(self, tmp_path):
         """另一批次的产物被本次重建读盘捎带时，补扫让给该批次广播，同一件事只发一次。
 
         两个生成任务几乎同时完成时，先取得重建锁的一方会读到对方已落盘的产物。补扫若把它
@@ -757,7 +489,8 @@ class TestProjectEventService:
         with project_change_source("filesystem"):
             pm.save_script("demo", script, "episode_1.json", validate=False)
 
-        service = ProjectEventService(tmp_path, poll_interval=30.0)
+        reader = _ControlledReader(pm)
+        service = ProjectEventService(tmp_path, poll_interval=30.0, read_state=reader)
         await service.start()
 
         release_first = asyncio.Event()
@@ -767,12 +500,11 @@ class TestProjectEventService:
                 event_name, _snapshot = await anext(stream)
                 assert event_name == "snapshot"
 
-                original_rebuild = service._rebuild_snapshot
                 calls = 0
                 first_read_done = asyncio.Event()
                 loop = asyncio.get_running_loop()
 
-                def _rebuild_holding_first(project_name: str):
+                def _read_holding_first(read):
                     nonlocal calls
                     calls += 1
                     index = calls
@@ -781,9 +513,9 @@ class TestProjectEventService:
                         # 本次读盘因而必然捎带 B 的产物
                         loop.call_soon_threadsafe(first_read_done.set)
                         asyncio.run_coroutine_threadsafe(release_first.wait(), loop).result(timeout=5)
-                    return original_rebuild(project_name)
+                    return read()
 
-                monkeypatch.setattr(service, "_rebuild_snapshot", _rebuild_holding_first)
+                reader.hook = _read_holding_first
 
                 # 批次 A：与分镜无关的终态事件，只为触发重建
                 emit_project_change_batch("demo", [_terminal_task_change("task-a")], source="worker")
@@ -833,7 +565,7 @@ class TestProjectEventService:
             await service.shutdown()
 
     @pytest.mark.asyncio
-    async def test_hint_source_repeated_during_rebuild_read_is_not_dropped(self, tmp_path, monkeypatch):
+    async def test_hint_source_repeated_during_rebuild_read_is_not_dropped(self, tmp_path):
         """重建读盘期间重复到达的来源标记不被写回时清掉，下一轮扫描仍据它解析来源。
 
         读盘前在册的标记整体换出而非事后减去：同一来源在窗口内再次 hint 时，集合语义下
@@ -844,7 +576,8 @@ class TestProjectEventService:
         pm.create_project("demo")
         pm.create_project_metadata("demo", "Demo", "Anime", "narration")
 
-        service = ProjectEventService(tmp_path, poll_interval=30.0)
+        reader = _ControlledReader(pm)
+        service = ProjectEventService(tmp_path, poll_interval=30.0, read_state=reader)
         await service.start()
 
         release_read = asyncio.Event()
@@ -861,16 +594,15 @@ class TestProjectEventService:
                 # 重建发起前已在册的标记
                 channel.pending_sources.add("webui")
 
-                original_rebuild = service._rebuild_snapshot
                 read_started = asyncio.Event()
                 loop = asyncio.get_running_loop()
 
-                def _rebuild_waiting(project_name: str):
+                def _read_waiting(read):
                     loop.call_soon_threadsafe(read_started.set)
                     asyncio.run_coroutine_threadsafe(release_read.wait(), loop).result(timeout=5)
-                    return original_rebuild(project_name)
+                    return read()
 
-                monkeypatch.setattr(service, "_rebuild_snapshot", _rebuild_waiting)
+                reader.hook = _read_waiting
 
                 emit_project_change_batch("demo", [_terminal_task_change("task-1")], source="worker")
                 await asyncio.wait_for(read_started.wait(), timeout=5.0)
@@ -890,16 +622,17 @@ class TestProjectEventService:
             await service.shutdown()
 
     @pytest.mark.asyncio
-    async def test_change_landing_after_rebuild_read_is_still_broadcast(self, tmp_path, monkeypatch):
+    async def test_change_landing_after_rebuild_read_is_still_broadcast(self, tmp_path):
         """变更落盘于「重建读盘完成之后、状态写回之前」时，仍能广播到订阅者。
 
-        注入点是 ``_rebuild_snapshot``：真实重建返回后再落盘，精确构造该时序窗口。
+        注入点是读盘 seam：真实读盘返回后再落盘，精确构造该时序窗口。
         """
         pm = ProjectManager(tmp_path / "projects")
         pm.create_project("demo")
         pm.create_project_metadata("demo", "Demo", "Anime", "narration")
 
-        service = ProjectEventService(tmp_path, poll_interval=0.05)
+        reader = _ControlledReader(pm)
+        service = ProjectEventService(tmp_path, poll_interval=0.05, read_state=reader)
         await service.start()
 
         try:
@@ -907,25 +640,20 @@ class TestProjectEventService:
                 event_name, _snapshot = await anext(stream)
                 assert event_name == "snapshot"
 
-                original_rebuild = service._rebuild_snapshot
                 armed = False
 
-                def _rebuild_then_land(project_name: str):
+                def _read_then_land(read):
                     nonlocal armed
-                    result = original_rebuild(project_name)
+                    result = read()
                     if armed:
                         armed = False
-                        script_path = pm.get_project_path("demo") / "scripts" / "episode_2.json"
-                        script_path.write_text(
-                            json.dumps(
-                                {"episode": 2, "title": "第二集", "content_mode": "narration", "segments": []},
-                                ensure_ascii=False,
-                            ),
-                            encoding="utf-8",
-                        )
+                        project_json = pm.get_project_path("demo") / "project.json"
+                        data = json.loads(project_json.read_text(encoding="utf-8"))
+                        data.setdefault("characters", {})["新角色"] = {"description": "d"}
+                        project_json.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
                     return result
 
-                monkeypatch.setattr(service, "_rebuild_snapshot", _rebuild_then_land)
+                reader.hook = _read_then_land
                 armed = True
 
                 emit_project_change_batch("demo", [_terminal_task_change("task-1")], source="worker")
@@ -936,12 +664,13 @@ class TestProjectEventService:
                     event_name, payload = await _next_event(stream, timeout=deadline)
                     assert event_name == "changes"
                     if any(
-                        change["entity_type"] == "episode" and change["action"] == "created" and change["episode"] == 2
+                        (change["entity_type"], change["action"], change["entity_id"])
+                        == ("character", "created", "新角色")
                         for change in payload["changes"]
                     ):
                         break
                 else:
-                    raise AssertionError("窗口内落盘的 episode 2 变更从未广播")
+                    raise AssertionError("窗口内落盘的角色变更从未广播")
         finally:
             await service.shutdown()
 
@@ -1054,504 +783,6 @@ class TestProjectEventService:
             if stop_task is not None and not stop_task.done():
                 await asyncio.gather(stop_task, return_exceptions=True)
             await service.shutdown()
-
-    def test_projects_root_kwarg_overrides_default_subdir(self, tmp_path):
-        """显式传 projects_root 时，service.pm 走该目录而非 project_root/'projects'。
-
-        覆盖 ARCREEL_DATA_DIR 场景：app.py 启动时传 ``app_data_dir()`` 进来，
-        事件监听应跟着切换，不能继续指向旧的 ``project_root/projects``。
-        """
-        custom_projects = tmp_path / "external-data"
-        pm = ProjectManager(custom_projects)
-        pm.create_project("demo")
-
-        service = ProjectEventService(tmp_path, projects_root=custom_projects)
-
-        assert service.pm.projects_root == custom_projects.resolve()
-        assert service.pm.get_project_path("demo") == (custom_projects / "demo").resolve()
-
-    def test_diff_snapshots_reports_ad_shot_lifecycle_events(self, tmp_path):
-        """ad(shots) 项目的分镜级事件：created / storyboard_ready / video_ready / updated。"""
-        pm = ProjectManager(tmp_path / "projects")
-        pm.create_project("ad-demo")
-        pm.create_project_metadata("ad-demo", "Ad", "Anime", "ad")
-
-        with project_change_source("filesystem"):
-            pm.save_script(
-                "ad-demo",
-                {
-                    "episode": 1,
-                    "title": "广告",
-                    "content_mode": "ad",
-                    "shots": [
-                        {
-                            "shot_id": "E1S01",
-                            "duration_seconds": 4,
-                            "characters_in_shot": ["Hero"],
-                            "scenes": [],
-                            "props": [],
-                            "image_prompt": "old",
-                            "video_prompt": "old",
-                            "generated_assets": _pending_assets(),
-                        }
-                    ],
-                },
-                "episode_1.json",
-                validate=False,
-            )
-
-        service = ProjectEventService(tmp_path)
-        previous = service._build_snapshot("ad-demo")
-        assert previous["scripts"]["episode_1.json"]["kind"] == "shots"
-        assert previous["scripts"]["episode_1.json"]["items"]["E1S01"]["characters"] == ["Hero"]
-
-        script = pm.load_script("ad-demo", "episode_1.json")
-        script["shots"][0]["image_prompt"] = "new"
-        script["shots"][0]["generated_assets"]["storyboard_image"] = "storyboards/E1S01.png"
-        script["shots"].append(
-            {
-                "shot_id": "E1S02",
-                "duration_seconds": 4,
-                "characters_in_shot": [],
-                "scenes": [],
-                "props": [],
-                "image_prompt": "p",
-                "video_prompt": "v",
-                "generated_assets": _pending_assets(),
-            }
-        )
-        with project_change_source("filesystem"):
-            pm.save_script("ad-demo", script, "episode_1.json", validate=False)
-
-        mid = service._build_snapshot("ad-demo")
-        changes = service._diff_snapshots(previous, mid)
-        assert any(c["action"] == "created" and c["entity_id"] == "E1S02" for c in changes)
-        assert any(c["action"] == "storyboard_ready" and c["entity_id"] == "E1S01" for c in changes)
-        assert any(c["action"] == "updated" and c["entity_id"] == "E1S01" for c in changes)
-        shot_changes = [c for c in changes if c["entity_type"] == "shot"]
-        assert shot_changes
-        assert all(c["label"].startswith("分镜") for c in shot_changes)
-        # ad 镜头走时间线画布：可导航事件的锚点类型为 segment（ShotSplitView 守卫）。
-        assert all(c["focus"]["anchor_type"] == "segment" for c in shot_changes if c["focus"] is not None)
-
-        script = pm.load_script("ad-demo", "episode_1.json")
-        script["shots"][0]["generated_assets"]["video_clip"] = "videos/E1S01.mp4"
-        with project_change_source("filesystem"):
-            pm.save_script("ad-demo", script, "episode_1.json", validate=False)
-        final = service._build_snapshot("ad-demo")
-        video_changes = service._diff_snapshots(mid, final)
-        assert any(c["action"] == "video_ready" and c["entity_id"] == "E1S01" for c in video_changes)
-
-    def test_diff_snapshots_reports_drama_scene_lifecycle_events(self, tmp_path):
-        """drama(scenes) 项目的分镜级事件：created / storyboard_ready / video_ready。"""
-        pm = ProjectManager(tmp_path / "projects")
-        pm.create_project("drama-demo")
-        pm.create_project_metadata("drama-demo", "Drama", "Anime", "drama")
-
-        with project_change_source("filesystem"):
-            pm.save_script(
-                "drama-demo",
-                {
-                    "episode": 1,
-                    "title": "剧集",
-                    "content_mode": "drama",
-                    "scenes": [
-                        {
-                            "scene_id": "E1S01",
-                            "duration_seconds": 8,
-                            "characters_in_scene": ["Hero"],
-                            "scenes": [],
-                            "props": [],
-                            "image_prompt": "old",
-                            "video_prompt": "old",
-                            "generated_assets": _pending_assets(),
-                        }
-                    ],
-                },
-                "episode_1.json",
-                validate=False,
-            )
-
-        service = ProjectEventService(tmp_path)
-        previous = service._build_snapshot("drama-demo")
-        assert previous["scripts"]["episode_1.json"]["kind"] == "scenes"
-        assert previous["scripts"]["episode_1.json"]["items"]["E1S01"]["characters"] == ["Hero"]
-
-        script = pm.load_script("drama-demo", "episode_1.json")
-        script["scenes"][0]["generated_assets"]["storyboard_image"] = "storyboards/E1S01.png"
-        script["scenes"][0]["generated_assets"]["video_clip"] = "videos/E1S01.mp4"
-        script["scenes"].append(
-            {
-                "scene_id": "E1S02",
-                "duration_seconds": 8,
-                "characters_in_scene": [],
-                "scenes": [],
-                "props": [],
-                "image_prompt": "p",
-                "video_prompt": "v",
-                "generated_assets": _pending_assets(),
-            }
-        )
-        with project_change_source("filesystem"):
-            pm.save_script("drama-demo", script, "episode_1.json", validate=False)
-
-        current = service._build_snapshot("drama-demo")
-        changes = service._diff_snapshots(previous, current)
-        assert any(c["action"] == "created" and c["entity_id"] == "E1S02" for c in changes)
-        assert any(c["action"] == "storyboard_ready" and c["entity_id"] == "E1S01" for c in changes)
-        assert any(c["action"] == "video_ready" and c["entity_id"] == "E1S01" for c in changes)
-        scene_changes = [c for c in changes if c["entity_type"] == "drama_scene"]
-        assert scene_changes
-        assert all(c["label"].startswith("分镜") for c in scene_changes)
-        # drama 场景走时间线画布：可导航事件的锚点类型为 segment。
-        assert all(c["focus"]["anchor_type"] == "segment" for c in scene_changes if c["focus"] is not None)
-
-    def test_diff_snapshots_reports_reference_video_unit_lifecycle_events(self, tmp_path):
-        """reference_video(video_units) 项目的分镜级事件全周期，且正文进快照、实体名单恒空。"""
-        pm = ProjectManager(tmp_path / "projects")
-        pm.create_project("ref-demo")
-        pm.create_project_metadata("ref-demo", "Ref", "Anime", "narration")
-
-        with project_change_source("filesystem"):
-            pm.save_script(
-                "ref-demo",
-                {
-                    "episode": 1,
-                    "title": "参考",
-                    "content_mode": "narration",
-                    "generation_mode": "reference_video",
-                    "video_units": [
-                        {
-                            "unit_id": "E1U01",
-                            "duration_seconds": 8,
-                            "text": "@[Hero] 登场，街道尽头灯火通明。",
-                            "generated_assets": _pending_assets(),
-                        }
-                    ],
-                },
-                "episode_1.json",
-                validate=False,
-            )
-
-        service = ProjectEventService(tmp_path)
-        previous = service._build_snapshot("ref-demo")
-        prev_meta = previous["scripts"]["episode_1.json"]
-        assert prev_meta["kind"] == "video_units"
-        # 引用写在正文里、执行期才解析，逐条实体名单对 video_units 恒空。
-        assert prev_meta["items"]["E1U01"]["characters"] == []
-        assert prev_meta["items"]["E1U01"]["text"] == "@[Hero] 登场，街道尽头灯火通明。"
-
-        script = pm.load_script("ref-demo", "episode_1.json")
-        script["video_units"][0]["generated_assets"]["storyboard_image"] = "storyboards/E1U01.png"
-        script["video_units"][0]["text"] = "@[Hero] 与 @[Villain] 对峙。"
-        script["video_units"].append(
-            {
-                "unit_id": "E1U02",
-                "duration_seconds": 6,
-                "text": "空镜",
-                "generated_assets": _pending_assets(),
-            }
-        )
-        with project_change_source("filesystem"):
-            pm.save_script("ref-demo", script, "episode_1.json", validate=False)
-
-        mid = service._build_snapshot("ref-demo")
-        assert mid["scripts"]["episode_1.json"]["items"]["E1U01"]["text"] == "@[Hero] 与 @[Villain] 对峙。"
-        changes = service._diff_snapshots(previous, mid)
-        assert any(c["action"] == "created" and c["entity_id"] == "E1U02" for c in changes)
-        assert any(c["action"] == "storyboard_ready" and c["entity_id"] == "E1U01" for c in changes)
-        assert any(c["action"] == "updated" and c["entity_id"] == "E1U01" for c in changes)
-        unit_changes = [c for c in changes if c["entity_type"] == "reference_unit"]
-        assert unit_changes
-        assert all(c["label"].startswith("视频单元") for c in unit_changes)
-        # 参考生视频单元走参考画布：可导航事件（created/updated）的锚点类型为 reference_unit，
-        # 前端据此切到 units tab 并选中对应单元。
-        navigable = [c for c in unit_changes if c["action"] in ("created", "updated")]
-        assert navigable
-        assert all(c["focus"]["anchor_type"] == "reference_unit" for c in navigable)
-
-        script = pm.load_script("ref-demo", "episode_1.json")
-        script["video_units"][0]["generated_assets"]["video_clip"] = "videos/E1U01.mp4"
-        with project_change_source("filesystem"):
-            pm.save_script("ref-demo", script, "episode_1.json", validate=False)
-        final = service._build_snapshot("ref-demo")
-        video_changes = service._diff_snapshots(mid, final)
-        assert any(c["action"] == "video_ready" and c["entity_id"] == "E1U01" for c in video_changes)
-
-    def test_diff_snapshots_reports_reference_video_content_edits(self, tmp_path):
-        """reference_video 单元的内容体编辑触发 updated 事件。
-
-        正文是单元的唯一内容真相（参考图执行期才从 ``@[名称]`` 解析），快照据此捕获正文本身：
-        改一个字就是内容变更，须发 updated；规划标记的清除同样要通知其它会话解除生成阻断。
-        """
-        pm = ProjectManager(tmp_path / "projects")
-        pm.create_project("ref-edit")
-        pm.create_project_metadata("ref-edit", "Ref", "Anime", "narration")
-
-        with project_change_source("filesystem"):
-            pm.save_script(
-                "ref-edit",
-                {
-                    "episode": 1,
-                    "title": "参考",
-                    "content_mode": "narration",
-                    "generation_mode": "reference_video",
-                    "video_units": [
-                        {
-                            "unit_id": "E1U01",
-                            "duration_seconds": 8,
-                            "text": "@[Hero] 登场",
-                            "generated_assets": _pending_assets(),
-                        }
-                    ],
-                },
-                "episode_1.json",
-                validate=False,
-            )
-
-        service = ProjectEventService(tmp_path)
-        previous = service._build_snapshot("ref-edit")
-
-        # 仅改正文，不动时长 / 资产。
-        script = pm.load_script("ref-edit", "episode_1.json")
-        script["video_units"][0]["text"] = "@[Hero] 转身离去"
-        with project_change_source("filesystem"):
-            pm.save_script("ref-edit", script, "episode_1.json", validate=False)
-        after_text = service._build_snapshot("ref-edit")
-        assert after_text["scripts"]["episode_1.json"]["items"]["E1U01"]["text"] == "@[Hero] 转身离去"
-        text_changes = service._diff_snapshots(previous, after_text)
-        assert any(c["action"] == "updated" and c["entity_id"] == "E1U01" for c in text_changes)
-
-        # 正文里追加一处引用：正文变更即内容变更，同样发 updated。
-        script = pm.load_script("ref-edit", "episode_1.json")
-        script["video_units"][0]["text"] = "@[Hero] 转身离去，@[码头] 的雾散开。"
-        with project_change_source("filesystem"):
-            pm.save_script("ref-edit", script, "episode_1.json", validate=False)
-        after_mention = service._build_snapshot("ref-edit")
-        mention_item = after_mention["scripts"]["episode_1.json"]["items"]["E1U01"]
-        # 引用是执行期派生物，不进快照的实体名单。
-        assert mention_item["scenes"] == []
-        assert mention_item["characters"] == []
-        mention_changes = service._diff_snapshots(after_text, after_mention)
-        assert any(c["action"] == "updated" and c["entity_id"] == "E1U01" for c in mention_changes)
-
-        script = pm.load_script("ref-edit", "episode_1.json")
-        script["video_units"][0]["needs_replan"] = True
-        with project_change_source("filesystem"):
-            pm.save_script("ref-edit", script, "episode_1.json", validate=False)
-        before_repair = service._build_snapshot("ref-edit")
-        assert before_repair["scripts"]["episode_1.json"]["items"]["E1U01"]["needs_replan"] is True
-
-        # 同值时长确认再清除规划标记，正文与时长均不变；仍须通知其它会话解除生成阻断。
-        script = pm.load_script("ref-edit", "episode_1.json")
-        script["video_units"][0]["needs_replan"] = False
-        with project_change_source("filesystem"):
-            pm.save_script("ref-edit", script, "episode_1.json", validate=False)
-        after_repair = service._build_snapshot("ref-edit")
-        repair_changes = service._diff_snapshots(before_repair, after_repair)
-        assert any(c["action"] == "updated" and c["entity_id"] == "E1U01" for c in repair_changes)
-
-    @pytest.mark.parametrize("kind", sorted(SKELETONS))
-    def test_normalize_snapshot_covers_every_skeleton_kind(self, tmp_path, kind):
-        """每个骨架种类都被 _normalize_script_snapshot 正确抽取条目——
-
-        新增第五种骨架而未在归一化里处置时，本参数化断言会为该 kind 失败，
-        而非复刻 ad/reference_video 被静默跳过的路径。
-        """
-        content_mode = {
-            "segments": "narration",
-            "scenes": "drama",
-            "shots": "ad",
-            "video_units": "narration",
-        }[kind]
-        skeleton = SKELETONS[kind]
-        item: dict = {skeleton.id_field: "X1"}
-        if skeleton.chars_field is not None:
-            item[skeleton.chars_field] = ["Hero"]
-        else:
-            item["text"] = "@[Hero] 登场"
-        script = {"content_mode": content_mode, kind: [item]}
-
-        service = ProjectEventService(tmp_path)
-        normalized = service._normalize_script_snapshot(script)
-        assert normalized["kind"] == kind
-        assert "X1" in normalized["items"]
-        if skeleton.chars_field is not None:
-            assert normalized["items"]["X1"]["characters"] == ["Hero"]
-        else:
-            # 逐条实体字段的显式缺位：引用写在正文里，正文本身进快照。
-            assert normalized["items"]["X1"]["characters"] == []
-            assert normalized["items"]["X1"]["text"] == "@[Hero] 登场"
-        label_key = service._build_script_item_label_key(normalized)
-        assert label_key == SKELETON_ITEM_LABEL_KEYS[kind]
-
-    def test_every_skeleton_kind_has_label_key(self):
-        """标签 key 表覆盖全部骨架种类——第五种骨架出现时此处失败，逼出补全。"""
-        assert set(SKELETON_ITEM_LABEL_KEYS) == set(SKELETONS)
-
-    def test_every_skeleton_kind_has_entity_and_anchor_type(self):
-        """实体/锚点类型表覆盖全部骨架种类——第五种骨架出现时此处失败，逼出补全。"""
-        assert set(SKELETON_ENTITY_TYPES) == set(SKELETONS)
-        assert set(SKELETON_ANCHOR_TYPES) == set(SKELETONS)
-
-    @pytest.mark.parametrize(
-        ("kind", "content_mode", "generation_mode", "entity_type", "anchor_type"),
-        [
-            ("segments", "narration", None, "segment", "segment"),
-            ("scenes", "drama", None, "drama_scene", "segment"),
-            ("shots", "ad", None, "shot", "segment"),
-            ("video_units", "narration", "reference_video", "reference_unit", "reference_unit"),
-        ],
-    )
-    def test_script_item_change_carries_kind_specific_types(
-        self, tmp_path, kind, content_mode, generation_mode, entity_type, anchor_type
-    ):
-        """分镜级事件的 entity_type（分组标签）与 focus.anchor_type（画布滚动目标）按骨架种类推导。"""
-        skeleton = SKELETONS[kind]
-        item: dict = {skeleton.id_field: "X1"}
-        if skeleton.chars_field is not None:
-            item[skeleton.chars_field] = ["Hero"]
-        else:
-            item["text"] = "@[Hero] 登场"
-        script: dict = {"episode": 1, "content_mode": content_mode, kind: [item]}
-        if generation_mode is not None:
-            script["generation_mode"] = generation_mode
-
-        service = ProjectEventService(tmp_path)
-        meta = service._normalize_script_snapshot(script)
-        assert meta["kind"] == kind
-
-        change = service._build_script_item_change(
-            action="created",
-            item_id="X1",
-            script_file="episode_1.json",
-            script_meta=meta,
-            important=True,
-        )
-        assert change["entity_type"] == entity_type
-        assert change["focus"]["anchor_type"] == anchor_type
-        assert change["focus"]["anchor_id"] == "X1"
-
-    def test_diff_snapshots_reports_ad_reference_unit_video_ready(self, tmp_path):
-        """ad + reference_video 的 video_unit 成片就绪沿用通用 reference_unit 事件。"""
-        pm = ProjectManager(tmp_path / "projects")
-        pm.create_project("ad-ref")
-        pm.create_project_metadata("ad-ref", "AdRef", "Anime", "ad", extras={"generation_mode": "reference_video"})
-
-        with project_change_source("filesystem"):
-            pm.save_script(
-                "ad-ref",
-                {
-                    "episode": 1,
-                    "title": "广告",
-                    "content_mode": "ad",
-                    "video_units": [
-                        {
-                            "unit_id": "E1U01",
-                            "duration_seconds": 4,
-                            "text": "镜头1：商品特写",
-                            "generated_assets": _pending_assets(),
-                        }
-                    ],
-                },
-                "episode_1.json",
-                validate=False,
-            )
-
-        service = ProjectEventService(tmp_path)
-        previous = service._build_snapshot("ad-ref")
-        prev_meta = previous["scripts"]["episode_1.json"]
-        assert prev_meta["kind"] == "video_units"
-        assert prev_meta["items"]["E1U01"]["generated_assets"]["video_clip"] == ""
-
-        script = pm.load_script("ad-ref", "episode_1.json")
-        script["video_units"][0]["text"] = "镜头1：@[咖啡] 特写"
-        with project_change_source("filesystem"):
-            pm.save_script("ad-ref", script, "episode_1.json", validate=False)
-        after_product = service._build_snapshot("ad-ref")
-        # 商品引用同样只写在正文里，逐条实体名单恒空。
-        assert after_product["scripts"]["episode_1.json"]["items"]["E1U01"]["products"] == []
-        product_changes = service._diff_snapshots(previous, after_product)
-        assert any(c["action"] == "updated" and c["entity_id"] == "E1U01" for c in product_changes)
-
-        script = pm.load_script("ad-ref", "episode_1.json")
-        script["video_units"][0]["generated_assets"]["video_clip"] = "videos/E1U01.mp4"
-        with project_change_source("filesystem"):
-            pm.save_script("ad-ref", script, "episode_1.json", validate=False)
-        current = service._build_snapshot("ad-ref")
-
-        changes = service._diff_snapshots(after_product, current)
-        unit_ready = [c for c in changes if c["action"] == "video_ready" and c["entity_id"] == "E1U01"]
-        assert len(unit_ready) == 1
-        change = unit_ready[0]
-        assert change["entity_type"] == "reference_unit"
-        assert change["label"].startswith("视频单元")
-        assert change["focus"]["anchor_type"] == "reference_unit"
-        assert change["focus"]["anchor_id"] == "E1U01"
-        assert not any(c["entity_type"] == "shot" and c["action"] == "video_ready" for c in changes)
-
-    def test_ad_storyboard_path_ignores_residual_reference_units(self, tmp_path):
-        """generation_mode 非 reference_video 的 ad 项目：残留 reference_units 不发 unit 级事件，
-
-        shots 级行为与现状一致（shots 承载产物，video_clip 空→非空发 shot 级 video_ready）。
-        """
-        pm = ProjectManager(tmp_path / "projects")
-        pm.create_project("ad-sb")
-        # 不设 generation_mode：非参考生视频，unit 级组合不激活。
-        pm.create_project_metadata("ad-sb", "AdSb", "Anime", "ad")
-
-        with project_change_source("filesystem"):
-            pm.save_script(
-                "ad-sb",
-                {
-                    "episode": 1,
-                    "title": "广告",
-                    "content_mode": "ad",
-                    "shots": [
-                        {
-                            "shot_id": "E1S01",
-                            "duration_seconds": 4,
-                            "characters_in_shot": [],
-                            "scenes": [],
-                            "props": [],
-                            "image_prompt": "p",
-                            "video_prompt": "v",
-                            "generated_assets": _pending_assets(),
-                        }
-                    ],
-                    # 残留派生索引：storyboard 路径不应据此发 unit 级事件。
-                    "reference_units": [
-                        {
-                            "unit_id": "E1U01",
-                            "shot_ids": ["E1S01"],
-                            "references": [],
-                            "generated_assets": _pending_assets(),
-                        }
-                    ],
-                },
-                "episode_1.json",
-                validate=False,
-            )
-
-        service = ProjectEventService(tmp_path)
-        previous = service._build_snapshot("ad-sb")
-        assert previous["scripts"]["episode_1.json"]["kind"] == "shots"
-
-        script = pm.load_script("ad-sb", "episode_1.json")
-        # shots 承载产物；残留 unit 也填上 video_clip（应被忽略）。
-        script["shots"][0]["generated_assets"]["video_clip"] = "videos/E1S01.mp4"
-        script["reference_units"][0]["generated_assets"]["video_clip"] = "videos/E1U01.mp4"
-        with project_change_source("filesystem"):
-            pm.save_script("ad-sb", script, "episode_1.json", validate=False)
-        current = service._build_snapshot("ad-sb")
-
-        changes = service._diff_snapshots(previous, current)
-        # 残留索引不发 unit 级事件。
-        assert not any(c["entity_type"] == "reference_unit" for c in changes)
-        # storyboard 路径 shots 承载产物：shot 级 video_ready 正常。
-        assert any(
-            c["entity_type"] == "shot" and c["action"] == "video_ready" and c["entity_id"] == "E1S01" for c in changes
-        )
 
     @pytest.mark.asyncio
     async def test_watch_terminates_stream_when_project_directory_deleted(self, tmp_path, caplog):

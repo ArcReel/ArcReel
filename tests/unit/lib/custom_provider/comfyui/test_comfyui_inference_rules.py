@@ -59,6 +59,23 @@ def test_every_adjustable_input_comes_from_one_of_the_two_tables(media_type):
 
 
 @pytest.mark.parametrize("media_type", sorted(RULES_PATHS))
+def test_minimax_h3_slots_are_adjustable_up_to_the_models_own_ceiling(media_type):
+    """海螺 H3 的首尾帧与参考图槽位登记齐全，且不多登记一个。
+
+    这些入口都是节点上的可选口，没登记就会被构造层当成必需输入——首尾帧少带时删读图节点会一路
+    级联到产物节点，参考图少带时则退回重复填最后一张。参考图九格是该节点自带的活数上限（``ref_images``
+    最多 9 路），第 10 格不存在，登记了就是替一份读不懂的图打包票。
+    """
+    rules = load_inference_rules(media_type)
+
+    assert rules.adjustable_input("MiniMaxH3ImageToVideo", "first_frame")
+    assert rules.adjustable_input("MiniMaxH3ImageToVideo", "last_frame")
+    for slot in range(9):
+        assert rules.adjustable_input("MiniMaxH3ReferenceToVideo", f"ref_images.ref_image_{slot}")
+    assert not rules.adjustable_input("MiniMaxH3ReferenceToVideo", "ref_images.ref_image_9")
+
+
+@pytest.mark.parametrize("media_type", sorted(RULES_PATHS))
 def test_every_semantic_key_the_rules_mention_is_on_that_media_types_roster(media_type):
     """规则表提到的键名都得在名录里：写错一个 schema 照样过，那一节规则却谁都读不到。"""
     assert semantic_key_names(read(media_type)) <= set(BINDING_KEYS_BY_MEDIA_TYPE[media_type])

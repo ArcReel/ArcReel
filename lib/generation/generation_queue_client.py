@@ -28,6 +28,7 @@ from lib.generation.generation_queue import (
     read_queue_poll_interval,
 )
 from lib.project.asset_derivatives import DERIVATIVE_TASK_TYPE
+from lib.project.asset_types import ASSET_SPECS
 from lib.project.resource_paths import CHARACTER_DERIVATIVE_RESOURCE_TYPE, resource_id_segments
 from lib.prompts.prompt_utils import (
     is_structured_image_prompt,
@@ -324,6 +325,8 @@ _IMAGE_STRUCTURED_TASK_TYPES = frozenset({"storyboard"})
 # 旁白合成任务：文本默认由执行层从剧本 novel_text 读取，prompt 允许缺省；
 # 显式传入时必须是非空字符串（作为待合成文本覆盖）。
 _TTS_TASK_TYPES = frozenset({"tts"})
+# 资产图任务：描述由执行层从项目里存储的条目读取，入队不收 prompt、载荷不存快照。
+_ASSET_SHEET_TASK_TYPES = frozenset(ASSET_SPECS)
 
 
 def _validate_prompt(task_type: str, prompt: str | dict[str, Any] | None) -> None:
@@ -351,6 +354,11 @@ def _validate_prompt(task_type: str, prompt: str | dict[str, Any] | None) -> Non
             raise TaskSpecValidationError("prompt_must_be_string_or_object")
         return
 
+    if task_type in _ASSET_SHEET_TASK_TYPES:
+        if prompt is not None:
+            raise ValueError(f"{task_type} tasks read the stored description and take no prompt")
+        return
+
     if task_type in _TTS_TASK_TYPES:
         if prompt is None:
             return
@@ -371,7 +379,7 @@ def _validate_prompt(task_type: str, prompt: str | dict[str, Any] | None) -> Non
             raise TaskSpecValidationError("prompt_scene_empty") from exc
         return
 
-    # Asset (character/scene/prop) and string-form storyboard prompts: non-empty string.
+    # String-form storyboard and image-edit prompts: non-empty string.
     if isinstance(prompt, str):
         if not prompt.strip():
             raise TaskSpecValidationError("prompt_text_empty")
@@ -487,7 +495,7 @@ class TaskSpec:
         payload: dict[str, Any] = dict(extra_payload) if extra_payload else {}
         # reference_video 的 prompt 是可变剧本内容：这里只用当前文本做结构守卫，任务仅保存
         # unit 定位与请求选项，worker 开始时按 script_file + resource_id 重读最新 shots。
-        if task_type != "reference_video":
+        if task_type != "reference_video" and task_type not in _ASSET_SHEET_TASK_TYPES:
             payload["prompt"] = prompt
         if script_file is not None:
             payload["script_file"] = script_file

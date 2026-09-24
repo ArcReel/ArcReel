@@ -1690,12 +1690,12 @@ class API {
    * 生成角色资产图
    * @param projectName - 项目名称
    * @param charName - 角色名称
-   * @param prompt - 角色描述 prompt
+   *
+   * 请求体没有 prompt：描述只取项目里存储的条目。
    */
   static async generateCharacter(
     projectName: string,
-    charName: string,
-    prompt: string
+    charName: string
   ): Promise<{
     success: boolean;
     task_id: string;
@@ -1706,7 +1706,6 @@ class API {
       `/projects/${encodeURIComponent(projectName)}/generate/character/${encodeURIComponent(charName)}`,
       {
         method: "POST",
-        body: JSON.stringify({ prompt }),
       }
     );
   }
@@ -1715,12 +1714,12 @@ class API {
    * 生成场景资产图
    * @param projectName - 项目名称
    * @param sceneName - 场景名称
-   * @param prompt - 场景描述 prompt
+   *
+   * 请求体没有 prompt：描述只取项目里存储的条目。
    */
   static async generateProjectScene(
     projectName: string,
-    sceneName: string,
-    prompt: string
+    sceneName: string
   ): Promise<{
     success: boolean;
     task_id: string;
@@ -1731,7 +1730,6 @@ class API {
       `/projects/${encodeURIComponent(projectName)}/generate/scene/${encodeURIComponent(sceneName)}`,
       {
         method: "POST",
-        body: JSON.stringify({ prompt }),
       }
     );
   }
@@ -1740,12 +1738,12 @@ class API {
    * 生成道具资产图
    * @param projectName - 项目名称
    * @param propName - 道具名称
-   * @param prompt - 道具描述 prompt
+   *
+   * 请求体没有 prompt：描述只取项目里存储的条目。
    */
   static async generateProjectProp(
     projectName: string,
-    propName: string,
-    prompt: string
+    propName: string
   ): Promise<{
     success: boolean;
     task_id: string;
@@ -1756,7 +1754,6 @@ class API {
       `/projects/${encodeURIComponent(projectName)}/generate/prop/${encodeURIComponent(propName)}`,
       {
         method: "POST",
-        body: JSON.stringify({ prompt }),
       }
     );
   }
@@ -1765,12 +1762,12 @@ class API {
    * 生成商品资产图（product sheet）
    * @param projectName - 项目名称
    * @param productName - 商品名称
-   * @param prompt - 商品描述 prompt
+   *
+   * 请求体没有 prompt：描述只取项目里存储的条目。
    */
   static async generateProjectProduct(
     projectName: string,
-    productName: string,
-    prompt: string
+    productName: string
   ): Promise<{
     success: boolean;
     task_id: string;
@@ -1781,7 +1778,6 @@ class API {
       `/projects/${encodeURIComponent(projectName)}/generate/product/${encodeURIComponent(productName)}`,
       {
         method: "POST",
-        body: JSON.stringify({ prompt }),
       }
     );
   }

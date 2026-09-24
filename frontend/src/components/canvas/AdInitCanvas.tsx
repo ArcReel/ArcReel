@@ -74,7 +74,7 @@ export function AdInitCanvas({ projectName, onDone }: AdInitCanvasProps) {
         await API.updateProject(projectName, { brief: brief.trim() });
       }
       if (generateSheet && hasProduct) {
-        await enqueueProduct(projectName, name, desc);
+        await enqueueProduct(projectName, name);
       }
       useAppStore.getState().pushToast(t("dashboard:ad_init_success_toast"), "success");
       await onDone();

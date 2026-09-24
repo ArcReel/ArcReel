@@ -164,28 +164,28 @@ describe("单资源入队动作的乐观标记 kind / taskType", () => {
     },
     {
       label: "character",
-      run: () => enqueueCharacter("demo", "Hero", "p"),
+      run: () => enqueueCharacter("demo", "Hero"),
       method: "generateCharacter" as const,
       kind: "character" as const,
       resourceId: "Hero",
     },
     {
       label: "scene",
-      run: () => enqueueScene("demo", "Temple", "p"),
+      run: () => enqueueScene("demo", "Temple"),
       method: "generateProjectScene" as const,
       kind: "scene" as const,
       resourceId: "Temple",
     },
     {
       label: "prop",
-      run: () => enqueueProp("demo", "Sword", "p"),
+      run: () => enqueueProp("demo", "Sword"),
       method: "generateProjectProp" as const,
       kind: "prop" as const,
       resourceId: "Sword",
     },
     {
       label: "product",
-      run: () => enqueueProduct("demo", "Phone", "p"),
+      run: () => enqueueProduct("demo", "Phone"),
       method: "generateProjectProduct" as const,
       kind: "product" as const,
       resourceId: "Phone",
@@ -202,7 +202,7 @@ describe("单资源入队动作的乐观标记 kind / taskType", () => {
 
   it.each([
     { label: "video", run: () => enqueueVideo("demo", "seg-1", "p", "episode_1.json", 4), method: "generateVideo" as const },
-    { label: "character", run: () => enqueueCharacter("demo", "Hero", "p"), method: "generateCharacter" as const },
+    { label: "character", run: () => enqueueCharacter("demo", "Hero"), method: "generateCharacter" as const },
   ])("$label：请求失败时回滚，不留下占用", async ({ run, method }) => {
     vi.spyOn(API, method).mockRejectedValue(new Error("boom"));
 

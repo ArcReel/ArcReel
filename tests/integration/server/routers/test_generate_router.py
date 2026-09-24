@@ -154,9 +154,15 @@ class _FakePM:
         (self.project_path / "scripts" / "episode_1.json").write_text(json.dumps(self.script), encoding="utf-8")
 
     def register_storyboards(self) -> None:
-        """把已落盘的分镜图登记进产物清单——未登记的产物不被生产准入。"""
+        """把已落盘的资产图与分镜图依次登记进产物清单——未登记的产物不被生产准入。
+
+        资产图先于分镜图：分镜图的依据引用资产图，引用的资产图未登记时分镜图不成立。
+        """
 
         self.sync_disk()
+        for asset_type, bucket in (("character", "characters"), ("scene", "scenes"), ("prop", "props")):
+            for name in self.project.get(bucket) or {}:
+                register_current_artifact_if_provable(self.project_path, ArtifactKey.asset_sheet(asset_type, name))
         for container in ("segments", "shots", "scenes", "units"):
             for item in self.script.get(container) or []:
                 unit_id = item.get("segment_id") or item.get("shot_id") or item.get("scene_id") or item.get("unit_id")
@@ -1281,7 +1287,6 @@ class TestGenerateRouter:
         with client:
             character = client.post(
                 "/api/v1/projects/demo/generate/character/Alice",
-                json={"prompt": "女主，冷静"},
             )
             assert character.status_code == 200
             body = character.json()
@@ -1292,6 +1297,33 @@ class TestGenerateRouter:
             assert call["task_type"] == "character"
             assert call["media_type"] == "image"
             assert call["resource_id"] == "Alice"
+            # 描述只取存储的条目，入队不带 prompt 快照。
+            assert call["payload"] == {}
+
+    @pytest.mark.parametrize(
+        ("path", "bucket", "name"),
+        [
+            ("character/Alice", "characters", "Alice"),
+            ("scene/祠堂", "scenes", "祠堂"),
+            ("prop/玉佩", "props", "玉佩"),
+            ("product/保温杯", "products", "保温杯"),
+        ],
+    )
+    def test_asset_without_a_stored_description_is_refused_before_enqueue(
+        self, tmp_path, monkeypatch, path, bucket, name
+    ):
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_pm.project[bucket][name]["description"] = "  "
+        fake_queue = _FakeQueue()
+        client = _client(monkeypatch, fake_pm, fake_queue)
+
+        with client:
+            resp = client.post(f"/api/v1/projects/demo/generate/{path}", headers={"Accept-Language": "zh"})
+
+        assert resp.status_code == 400, resp.text
+        assert resp.json()["detail"] == f"资产「{name}」还没有填写描述，无法生成资产图"
+        assert fake_queue.calls == []
 
     def test_character_enqueue_resolves_nfd_registered_key(self, tmp_path, monkeypatch):
         """路径参数与桶 key 形态可以不同：登记闸口落 NFC 后，仍须能按 NFD 原文发起生成，
@@ -1310,7 +1342,6 @@ class TestGenerateRouter:
         with client:
             resp = client.post(
                 f"/api/v1/projects/demo/generate/character/{name_nfc}",
-                json={"prompt": "女主，冷静"},
             )
             assert resp.status_code == 200, resp.text
             assert fake_queue.calls[0]["resource_id"] == name_nfd
@@ -1324,7 +1355,6 @@ class TestGenerateRouter:
         with client:
             scene = client.post(
                 "/api/v1/projects/demo/generate/scene/祠堂",
-                json={"prompt": "阴森古朴"},
             )
             assert scene.status_code == 200
             body = scene.json()
@@ -1345,7 +1375,6 @@ class TestGenerateRouter:
         with client:
             prop = client.post(
                 "/api/v1/projects/demo/generate/prop/玉佩",
-                json={"prompt": "古朴玉佩"},
             )
             assert prop.status_code == 200
             body = prop.json()
@@ -1366,7 +1395,6 @@ class TestGenerateRouter:
         with client:
             product = client.post(
                 "/api/v1/projects/demo/generate/product/保温杯",
-                json={"prompt": "不锈钢保温杯"},
             )
             assert product.status_code == 200
             body = product.json()
@@ -1386,7 +1414,6 @@ class TestGenerateRouter:
         with client:
             resp = client.post(
                 "/api/v1/projects/demo/generate/product/不存在",
-                json={"prompt": "x"},
             )
             assert resp.status_code == 404
             assert fake_queue.calls == []
@@ -1447,7 +1474,6 @@ class TestGenerateRouter:
             fake_pm.project["characters"] = {}
             missing_char = client.post(
                 "/api/v1/projects/demo/generate/character/Alice",
-                json={"prompt": "x"},
             )
             assert missing_char.status_code == 404
 
@@ -1455,7 +1481,6 @@ class TestGenerateRouter:
             fake_pm.project["scenes"] = {}
             missing_scene = client.post(
                 "/api/v1/projects/demo/generate/scene/祠堂",
-                json={"prompt": "x"},
             )
             assert missing_scene.status_code == 404
 
@@ -1463,7 +1488,6 @@ class TestGenerateRouter:
             fake_pm.project["props"] = {}
             missing_prop = client.post(
                 "/api/v1/projects/demo/generate/prop/玉佩",
-                json={"prompt": "x"},
             )
             assert missing_prop.status_code == 404
 
@@ -1533,7 +1557,6 @@ class TestUnexpectedErrorMapsTo500:
         with client:
             resp = client.post(
                 "/api/v1/projects/demo/generate/character/Alice",
-                json={"prompt": "x"},
             )
             assert resp.status_code == 500
             assert "LEAK_character" not in resp.text
@@ -1543,7 +1566,6 @@ class TestUnexpectedErrorMapsTo500:
         with client:
             resp = client.post(
                 "/api/v1/projects/demo/generate/scene/祠堂",
-                json={"prompt": "x"},
             )
             assert resp.status_code == 500
             assert "LEAK_scene" not in resp.text
@@ -1553,7 +1575,6 @@ class TestUnexpectedErrorMapsTo500:
         with client:
             resp = client.post(
                 "/api/v1/projects/demo/generate/prop/玉佩",
-                json={"prompt": "x"},
             )
             assert resp.status_code == 500
             assert "LEAK_prop" not in resp.text
@@ -1563,7 +1584,6 @@ class TestUnexpectedErrorMapsTo500:
         with client:
             resp = client.post(
                 "/api/v1/projects/demo/generate/product/保温杯",
-                json={"prompt": "x"},
             )
             assert resp.status_code == 500
             assert "LEAK_product" not in resp.text
@@ -1930,7 +1950,6 @@ class TestDedupedPassthrough:
         with client:
             resp = client.post(
                 "/api/v1/projects/demo/generate/character/Alice",
-                json={"prompt": "hero"},
             )
             assert resp.status_code == 200, resp.text
             assert resp.json()["deduped"] is True

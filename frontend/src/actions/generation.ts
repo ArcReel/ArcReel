@@ -187,11 +187,10 @@ export async function enqueueEpisodeNarration(
 export async function enqueueCharacter(
   projectName: string,
   name: string,
-  prompt: string,
 ): Promise<EnqueueResult> {
   const res = await submit(
     [markResource(projectName, "character", name, "character")],
-    () => API.generateCharacter(projectName, name, prompt),
+    () => API.generateCharacter(projectName, name),
     oneTaskId,
   );
   notifyEnqueued(res.deduped, i18n.t("dashboard:character_task_submitted_toast", { name }));
@@ -237,11 +236,10 @@ export async function enqueueCharacterVoiceSample(
 export async function enqueueScene(
   projectName: string,
   name: string,
-  prompt: string,
 ): Promise<EnqueueResult> {
   const res = await submit(
     [markResource(projectName, "scene", name, "scene")],
-    () => API.generateProjectScene(projectName, name, prompt),
+    () => API.generateProjectScene(projectName, name),
     oneTaskId,
   );
   notifyEnqueued(res.deduped, i18n.t("dashboard:scene_task_submitted_toast", { name }));
@@ -251,11 +249,10 @@ export async function enqueueScene(
 export async function enqueueProp(
   projectName: string,
   name: string,
-  prompt: string,
 ): Promise<EnqueueResult> {
   const res = await submit(
     [markResource(projectName, "prop", name, "prop")],
-    () => API.generateProjectProp(projectName, name, prompt),
+    () => API.generateProjectProp(projectName, name),
     oneTaskId,
   );
   notifyEnqueued(res.deduped, i18n.t("dashboard:prop_task_submitted_toast", { name }));
@@ -265,11 +262,10 @@ export async function enqueueProp(
 export async function enqueueProduct(
   projectName: string,
   name: string,
-  prompt: string,
 ): Promise<EnqueueResult> {
   const res = await submit(
     [markResource(projectName, "product", name, "product")],
-    () => API.generateProjectProduct(projectName, name, prompt),
+    () => API.generateProjectProduct(projectName, name),
     oneTaskId,
   );
   notifyEnqueued(res.deduped, i18n.t("dashboard:product_task_submitted_toast", { name }));

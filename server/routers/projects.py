@@ -45,6 +45,7 @@ from lib.episode.episode_target_duration import (
     MIN_EPISODE_TARGET_DURATION,
     is_valid_episode_target_duration,
 )
+from lib.i18n import render_generation_input_error
 from lib.infra.api_errors import ApiError, BadRequestError, NotFoundError, UnprocessableError
 from lib.infra.json_io import domain_error_on_value_error
 from lib.project.asset_fingerprints import compute_asset_fingerprints
@@ -1201,7 +1202,9 @@ async def preview_script_item_prompts(
     def _side(rendered):
         return {
             "text": rendered.text,
-            "unavailable": _t(rendered.unavailable) if rendered.unavailable else None,
+            "unavailable": render_generation_input_error(rendered.unavailable, rendered.unavailable_params, _t)
+            if rendered.unavailable
+            else None,
             "is_text_form": rendered.is_text_form,
             # 渲染时产生的提示（如参考图超限裁剪）与任务结果的 warnings 同源，同样按请求语言渲染成成品文案
             "warnings": [_t(warning["key"], **warning["params"]) for warning in rendered.warnings],

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Generator, Mapping, Sequence
+from collections.abc import Callable, Generator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -30,25 +30,26 @@ from lib.artifacts.artifact_provenance import (
     decode_script_plan_source,
 )
 from lib.artifacts.artifact_version_provenance import parse_typed_audio_settings, parse_typed_media_version_target
+from lib.artifacts.generation_input import (
+    ImageGenerationInput,
+    InputRefused,
+    ObservedFile,
+    asset_sheet_input,
+    derivative_sheet_input,
+    storyboard_image_input,
+)
 from lib.artifacts.media_artifact_currency import build_current_audio_artifact_basis, build_current_video_artifact_basis
 from lib.artifacts.version_manager import VersionManager
 from lib.artifacts.visual_artifact_provenance import (
     GridStoryboardVisual,
     VisualReference,
-    build_asset_sheet_visual_basis,
     build_grid_composite_visual_basis,
     build_grid_member_storyboard_visual_basis,
-    build_storyboard_image_visual_basis,
     project_basis_style_description,
     visual_file_digest,
 )
 from lib.episode.episode_paths import episode_source_relpath
-from lib.project.asset_derivatives import (
-    DERIVATIVE_SOURCE_KIND,
-    DERIVATIVE_SOURCE_ROLE,
-    build_derivative_sheet_basis,
-    derivative_artifact_key,
-)
+from lib.project.asset_derivatives import derivative_artifact_key
 from lib.project.asset_types import ASSET_SPECS, DERIVATIVES_FIELD, AssetSpec, asset_name_comparison_key
 from lib.project.project_migration_failure import ProjectMigrationError
 from lib.project.project_migration_report import MigrationSkippedArtifact
@@ -143,6 +144,48 @@ class _PersistedPresentationProof:
     current_presentation_basis: ArtifactBasis | None
 
 
+class _PlannerInputObservation:
+    """规划器私有的生成输入观测。
+
+    观测按待提交的改名映射找到当前落盘位置、按规范路径作答，并为读到的每个依赖文件登记内容
+    摘要，供激活的稳定性闸门复核。登记条目在激活模式下查本轮已规划的条目——清单此时尚未
+    写入，本轮规划的结果就是即将提交的清单；提交后模式查磁盘上的清单，一次规划只读一份快照。
+    """
+
+    def __init__(self, planner: TargetStatePlanner) -> None:
+        self._planner = planner
+        self._committed: Mapping[ArtifactKey, ArtifactManifestEntry] | None = None
+
+    def observe(self, artifact_path: str) -> ObservedFile | None:
+        planner = self._planner
+        observation = planner.adapter.inspect_artifact(planner._pending_source(artifact_path))
+        if observation.blocker is not None or not observation.present:
+            return None
+        path = planner.project_dir.joinpath(*Path(observation.artifact_path).parts)
+        return ObservedFile(
+            artifact_path=planner._canonical_target(artifact_path, observation.artifact_path),
+            path=path,
+            content_digest=planner._track_dependency_digest(path),
+        )
+
+    def registered(self, key: ArtifactKey) -> ArtifactManifestEntry | None:
+        planner = self._planner
+        if planner._activation_mode:
+            return planner.entries.get(key)
+        if key in planner.pending_entries:
+            return planner.pending_entries[key]
+        if self._committed is None:
+            self._committed = planner.adapter.snapshot_entries()
+        return self._committed.get(key)
+
+
+def _refusal_reason(refused: InputRefused) -> str:
+    return "generation input refused: " + ", ".join(
+        f"{gap.code}({gap.asset_type}: {gap.name})" if gap.asset_type else f"{gap.code}({gap.name})"
+        for gap in refused.reasons
+    )
+
+
 class TargetStatePlanner:
     def __init__(
         self,
@@ -152,11 +195,13 @@ class TargetStatePlanner:
         project_bytes: bytes | None = None,
         allow_stale_formal_targets: bool = False,
         pending_renames: Mapping[str, str] | None = None,
+        pending_entries: Mapping[ArtifactKey, ArtifactManifestEntry | None] | None = None,
     ) -> None:
         self.project_dir = project_dir.resolve(strict=True)
         self.adapter = ProjectArtifactManifestAdapter(self.project_dir)
         self.project_path = self.project_dir / "project.json"
         self.pending_renames = dict(pending_renames or {})
+        self.pending_entries = dict(pending_entries or {})
         if episode_scope is not None and (type(episode_scope) is not int or episode_scope < 1):
             raise ValueError("episode scope must be a positive integer or null")
         self.episode_scope = episode_scope
@@ -370,12 +415,15 @@ class TargetStatePlanner:
         )
 
     def _plan_assets(self) -> None:
+        """规划资产图与衍生资产图：每个本体先于它的衍生，激活模式下衍生能看到本轮已规划的本体。"""
+
         if "assets" in self._planned:
             return
         style = self.project.get("style", "")
         style_description = self.project.get("style_description", "")
         if not isinstance(style, str) or not isinstance(style_description, str):
             raise ValueError("project visual style fields must be strings")
+        observation = _PlannerInputObservation(self)
         for asset_type, spec in ASSET_SPECS.items():
             bucket = self.project.get(spec.bucket_key, {})
             if not isinstance(bucket, Mapping):
@@ -388,110 +436,76 @@ class TargetStatePlanner:
                 if not name or name in normalized_names:
                     raise ValueError("project asset identities must be unique after normalization")
                 normalized_names.add(name)
-                if spec.supports_derivatives:
-                    self._plan_asset_derivatives(spec, name, raw_entry)
                 artifact_path = raw_entry.get(spec.sheet_field)
-                if not isinstance(artifact_path, str) or not artifact_path:
-                    continue
-                description = raw_entry.get("description")
-                if not isinstance(description, str) or not description.strip():
-                    continue
-                references = self._asset_sheet_references(asset_type, name, raw_entry)
-                if references is None:
-                    continue
-                try:
-                    basis = build_asset_sheet_visual_basis(
-                        asset_type=asset_type,
-                        asset_id=name,
-                        description=description,
-                        style=style,
-                        style_description=style_description,
-                        aspect_ratio="16:9",
-                        references=references,
+                if isinstance(artifact_path, str) and artifact_path:
+                    self._plan_generated_image(
+                        ArtifactKey.asset_sheet(asset_type, name),
+                        artifact_path,
+                        lambda asset_type=asset_type, name=name: asset_sheet_input(
+                            self.project, asset_type=asset_type, name=name, observation=observation
+                        ),
+                        label="asset sheet",
                     )
-                except (OSError, TypeError, ValueError):
-                    continue
-                self._add_if_present(ArtifactKey.asset_sheet(asset_type, name), artifact_path, basis)
+                if spec.supports_derivatives:
+                    self._plan_asset_derivatives(spec, name, raw_entry, observation)
         self._planned.add("assets")
 
-    def _plan_asset_derivatives(self, spec: AssetSpec, owner_name: str, entry: Mapping[str, Any]) -> None:
+    def _plan_asset_derivatives(
+        self,
+        spec: AssetSpec,
+        owner_name: str,
+        entry: Mapping[str, Any],
+        observation: _PlannerInputObservation,
+    ) -> None:
         """规划一个本体条目下全部衍生资产图的规范依据。
 
         衍生图是对本体资产图的一次编辑，规范依据因此由「本体资产图的内容 + 变化描述」
         决定，不含项目画风。本体资产图重生成后其内容指纹改变，该本体下每一张衍生图的
         登记依据随之与规范状态不符，即判过期。
         """
-        owner_sheet = entry.get(spec.sheet_field)
-        if not isinstance(owner_sheet, str) or not owner_sheet:
-            return
-        source_path = self._safe_present_path(owner_sheet)
-        if source_path is None:
-            return
         table = entry.get(DERIVATIVES_FIELD)
         if not isinstance(table, Mapping):
             return
-        source = self._visual_reference(
-            path=source_path,
-            role=DERIVATIVE_SOURCE_ROLE,
-            logical_type=spec.asset_type,
-            logical_id=owner_name,
-            kind=DERIVATIVE_SOURCE_KIND,
-        )
         for raw_name, raw_derivative in table.items():
             if not isinstance(raw_name, str) or not isinstance(raw_derivative, Mapping):
                 continue
             derivative_name = asset_name_comparison_key(raw_name)
             artifact_path = raw_derivative.get(spec.sheet_field)
-            description = raw_derivative.get("description")
             if not derivative_name or not isinstance(artifact_path, str) or not artifact_path:
                 continue
-            if not isinstance(description, str) or not description.strip():
-                continue
-            try:
-                basis = build_derivative_sheet_basis(
-                    owner_name=owner_name,
-                    derivative_name=derivative_name,
-                    description=description.strip(),
-                    aspect_ratio="16:9",
-                    source=source,
-                )
-            except (OSError, TypeError, ValueError):
-                continue
-            self._add_if_present(derivative_artifact_key(owner_name, derivative_name), artifact_path, basis)
-
-    def _asset_sheet_references(
-        self,
-        asset_type: str,
-        asset_id: str,
-        entry: Mapping[str, Any],
-    ) -> tuple[VisualReference, ...] | None:
-        raw_paths: list[tuple[str, str]] = []
-        if asset_type == "character":
-            value = entry.get("reference_image")
-            if value not in (None, "") and not isinstance(value, str):
-                return None
-            if isinstance(value, str) and value:
-                raw_paths.append((value, "original"))
-        elif asset_type == "product":
-            values = entry.get("reference_images", [])
-            if not isinstance(values, list) or any(not isinstance(value, str) for value in values):
-                return None
-            raw_paths.extend((value, "original") for value in values if value)
-        references: list[VisualReference] = []
-        for relative_path, kind in raw_paths:
-            path = self._safe_present_path(relative_path)
-            if path is None:
-                return None
-            references.append(
-                self._visual_reference(
-                    path=path,
-                    role="source",
-                    logical_type=asset_type,
-                    logical_id=asset_id,
-                    kind=kind,
-                )
+            self._plan_generated_image(
+                derivative_artifact_key(owner_name, derivative_name),
+                artifact_path,
+                lambda derivative_name=derivative_name: derivative_sheet_input(
+                    self.project, owner=owner_name, derivative=derivative_name, observation=observation
+                ),
+                label="derivative sheet",
             )
-        return tuple(references)
+
+    def _plan_generated_image(
+        self,
+        key: ArtifactKey,
+        artifact_path: str,
+        generation_input: Callable[[], ImageGenerationInput[Any] | InputRefused],
+        *,
+        label: str,
+    ) -> None:
+        """按生成输入投影期望依据；生成输入不成立或结构损坏时不登记、进迁移报告。"""
+
+        try:
+            assembled = generation_input()
+            if isinstance(assembled, InputRefused):
+                self._skip(key, artifact_path, _refusal_reason(assembled))
+                if self.allow_stale_formal_targets:
+                    observed = self.adapter.inspect_artifact(self._pending_source(artifact_path))
+                    if observed.blocker is None and observed.present:
+                        self._record_formal_path(key, self._canonical_target(artifact_path, observed.artifact_path))
+                return
+            basis = assembled.expected_basis()
+        except (OSError, TypeError, ValueError) as exc:
+            self._skip(key, artifact_path, f"invalid {label} generation input: {exc}")
+            return
+        self._add_if_present(key, artifact_path, basis)
 
     def _plan_structured_content(self) -> None:
         if "structured-content" in self._planned:
@@ -570,13 +584,13 @@ class TargetStatePlanner:
             return
         style = self.project.get("style", "")
         style_description = self.project.get("style_description", "")
-        aspect_ratio = self.project.get("aspect_ratio") or "9:16"
-        if not isinstance(style, str) or not isinstance(style_description, str) or not isinstance(aspect_ratio, str):
-            raise ValueError("project storyboard style, style description, and aspect ratio must be strings")
+        if not isinstance(style, str) or not isinstance(style_description, str):
+            raise ValueError("project storyboard style and style description must be strings")
+        observation = _PlannerInputObservation(self)
         for episode in self.episodes:
-            storyboard_items, id_field, char_field, scene_field, prop_field = get_storyboard_items(episode.script)
+            storyboard_items, id_field, *_ = get_storyboard_items(episode.script)
             grid_members = self._grid_members_by_resource(episode.episode)
-            for index, item in enumerate(storyboard_items):
+            for item in storyboard_items:
                 resource_id = str(item[id_field])
                 assets = item.get("generated_assets")
                 if not isinstance(assets, Mapping) or item.get("needs_replan") is True:
@@ -590,136 +604,19 @@ class TargetStatePlanner:
                         key, basis = grid_target
                         self._add_if_present(key, artifact_path, basis)
                     continue
-                # 提示词待生成的单张分镜图没有可登记的视觉依据：显式跳过并进迁移报告，不靠构造器抛错兜底。
-                if item.get("image_prompt") is None:
-                    self._skip(
-                        ArtifactKey.episode_storyboard(episode.episode, resource_id),
-                        artifact_path,
-                        "storyboard image_prompt is pending",
-                    )
-                    continue
-                references = self._storyboard_references(
-                    item,
-                    char_field=char_field,
-                    scene_field=scene_field,
-                    prop_field=prop_field,
-                )
-                if references is None:
-                    continue
-                if index and not item.get("segment_break"):
-                    previous_item = storyboard_items[index - 1]
-                    previous_id = str(previous_item.get(id_field) or "")
-                    previous_assets = previous_item.get("generated_assets")
-                    previous_rel = (
-                        previous_assets.get("storyboard_image") if isinstance(previous_assets, Mapping) else None
-                    )
-                    if previous_rel not in (None, "") and not isinstance(previous_rel, str):
-                        continue
-                    if isinstance(previous_rel, str) and previous_rel:
-                        previous_path = self._safe_present_path(previous_rel)
-                        if previous_path is None:
-                            continue
-                        references.append(
-                            self._visual_reference(
-                                path=previous_path,
-                                role="previous_storyboard",
-                                logical_type="storyboard",
-                                logical_id=previous_id,
-                            )
-                        )
-                try:
-                    basis = build_storyboard_image_visual_basis(
+                self._plan_generated_image(
+                    ArtifactKey.episode_storyboard(episode.episode, resource_id),
+                    artifact_path,
+                    lambda episode=episode, resource_id=resource_id: storyboard_image_input(
+                        self.project,
+                        episode.script,
+                        episode=episode.episode,
                         resource_id=resource_id,
-                        image_prompt=item.get("image_prompt"),
-                        style=style,
-                        style_description=style_description,
-                        aspect_ratio=aspect_ratio,
-                        references=references,
-                    )
-                except (OSError, TypeError, ValueError):
-                    continue
-                self._add_if_present(ArtifactKey.episode_storyboard(episode.episode, resource_id), artifact_path, basis)
-        self._planned.add("storyboards")
-
-    def _storyboard_references(
-        self,
-        item: Mapping[str, Any],
-        *,
-        char_field: str | None,
-        scene_field: str,
-        prop_field: str,
-    ) -> list[VisualReference] | None:
-        references: list[VisualReference] = []
-        seen_paths: set[str] = set()
-        valid = True
-
-        def append_asset(asset_type: str, name: object, *, include_originals: bool = False) -> None:
-            nonlocal valid
-            if not isinstance(name, str):
-                valid = False
-                return
-            spec = ASSET_SPECS[asset_type]
-            bucket = self.project.get(spec.bucket_key)
-            if not isinstance(bucket, Mapping):
-                valid = False
-                return
-            entry = next(
-                (
-                    candidate
-                    for raw_name, candidate in bucket.items()
-                    if isinstance(raw_name, str)
-                    and asset_name_comparison_key(raw_name) == asset_name_comparison_key(name)
-                    and isinstance(candidate, Mapping)
-                ),
-                None,
-            )
-            if not isinstance(entry, Mapping):
-                valid = False
-                return
-            paths: list[tuple[object, str]] = [(entry.get(spec.sheet_field), "sheet")]
-            if include_originals:
-                originals = entry.get("reference_images", [])
-                if not isinstance(originals, list):
-                    valid = False
-                    return
-                paths.extend((value, "original") for value in originals)
-            for raw_path, variant in paths:
-                if raw_path in (None, ""):
-                    continue
-                if not isinstance(raw_path, str):
-                    valid = False
-                    return
-                if raw_path in seen_paths:
-                    continue
-                path = self._safe_present_path(raw_path)
-                if path is None:
-                    valid = False
-                    return
-                seen_paths.add(raw_path)
-                references.append(
-                    self._visual_reference(
-                        path=path,
-                        role="asset_sheet" if variant == "sheet" else "source",
-                        logical_type=asset_type,
-                        logical_id=name,
-                        kind=variant,
-                    )
+                        observation=observation,
+                    ),
+                    label="storyboard",
                 )
-
-        products = item.get("products_in_shot", [])
-        if isinstance(products, Sequence) and not isinstance(products, (str, bytes)):
-            for name in products:
-                append_asset("product", name, include_originals=True)
-        else:
-            valid = False
-        for asset_type, field in (("character", char_field), ("scene", scene_field), ("prop", prop_field)):
-            values = item.get(field, []) if field is not None else []
-            if isinstance(values, Sequence) and not isinstance(values, (str, bytes)):
-                for name in values:
-                    append_asset(asset_type, name)
-            else:
-                valid = False
-        return references if valid else None
+        self._planned.add("storyboards")
 
     def _plan_grids(self) -> None:
         if "grids" in self._planned:

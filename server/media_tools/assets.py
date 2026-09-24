@@ -225,7 +225,6 @@ async def handle_generate_assets(ctx: ToolContext, args: dict[str, Any]) -> Tool
                 media_type="image",
                 resource_id=asset_name_of(state.unit_id),
                 unit_id=state.unit_id,
-                prompt=_description_of(project, spec.asset_type, state.unit_id),
                 source=ctx.caller.source,
             )
             for spec, state in targets

@@ -2,11 +2,11 @@
 
 回答「这个条目现在生成，送进图像 / 视频模型的提示词逐字是什么」。渲染函数与执行路径同一个
 出口（``lib.prompts.prompt_builders.render_storyboard_image_prompt`` /
-``lib.prompts.prompt_utils.render_storyboard_video_prompt``），本模块只负责把执行期读的那些输入
-——项目风格、参考图列表（商品 / 资产 sheet / 上一分镜图，按图像后端的参考图上限裁剪后
-决定「图N」编号）、创作类型、声音绑定——按同一口径备齐。裁剪发生时分镜图侧带上与执行期
-任务结果同形的 warning，用户在生成前就能看到有参考图不会随请求发出。执行期额外传入的
-``extra_reference_images`` 不在预览之列。
+``lib.prompts.prompt_utils.render_storyboard_video_prompt``）。分镜图侧与执行器取同一份生成输入
+（``lib.artifacts.generation_input``）：生成会被拒时该侧不可用并带缺口码，否则按与执行器相同的
+图像后端参考图上限裁剪后渲染，「图N」编号与实发一致；裁剪发生时带上与执行期任务结果同形的
+warning，用户在生成前就能看到有参考图不会随请求发出。视频侧按执行期同一口径备齐创作类型与
+声音绑定。
 
 只读：不向供应商发请求、不产生费用、不写产物清单。参考生视频路径的 unit 正文本身即提示词
 主体，其预览走 ``lib.script.reference_video.script_preview``，不经本模块。
@@ -16,21 +16,24 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from lib.artifacts.artifact_activation import active_artifact_currency_resolver
 from lib.artifacts.artifact_input_claims import resolve_usable_episode_script_input
+from lib.artifacts.generation_input import (
+    InputRefused,
+    StoryboardImageInput,
+    project_input_observation,
+    storyboard_image_input,
+)
 from lib.project.project_manager import ProjectManager, get_project_manager
-from lib.prompts.prompt_builders import render_storyboard_image_prompt
 from lib.prompts.prompt_utils import render_storyboard_video_prompt
-from lib.prompts.reference_image_numbering import ReferenceImageClamp, clamp_reference_images
 from lib.script.script_models import resolve_content_mode
 from lib.script.storyboard_sequence import find_storyboard_item, get_storyboard_items
+from server.services.admission.reference_admission import input_refusal_error
 from server.services.admission.video_batch_admission import resolve_voice_context
 from server.services.tasks.generation_context import ImageLaneRequest, resolve_generation_context
-from server.services.tasks.generation_tasks import collect_storyboard_references
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +59,8 @@ class RenderedPrompt:
 
     text: str | None = None
     unavailable: str | None = None
+    #: 不可用原因的文案参数：生成输入被拒时带全部缺口（与执行期错误详情同形）。
+    unavailable_params: dict[str, object] = field(default_factory=dict)
     is_text_form: bool = False
     warnings: tuple[dict[str, Any], ...] = ()
 
@@ -87,19 +92,18 @@ def _render(prompt: object, render: Any) -> RenderedPrompt:
         return RenderedPrompt(unavailable=UNAVAILABLE_INVALID, is_text_form=is_text_form)
 
 
-async def _reference_clamp(
+async def reference_image_limit(
     project_name: str,
     project: dict[str, Any],
     project_path: Path,
-    references: list[Any],
-) -> ReferenceImageClamp | None:
-    """按 image lane 的 backend 参考图上限判定预览该保留几张，与执行期同一裁剪。
+) -> tuple[int, str]:
+    """image lane 的 backend 参考图上限与模型名，与执行期同一裁剪口径；``0`` 表示不裁剪。
 
     解析 image lane 会构造 backend（需凭证）。预览是只读视图，凭证缺失 / 供应商未配置时
-    不该连提示词都看不到：解析失败返回 ``None``、按不裁剪处理并记一条 info——这种项目本来
-    也跑不了生成，预览与执行的逐字一致仍然成立。预览按项目当前配置解析、没有任务 payload：
-    若入队的 payload 钉了别的供应商且其上限不同，编号会与那次执行不一致，这是预览不知
-    payload 的既有限制。
+    不该连提示词都看不到：解析失败按不裁剪处理并记一条 info——这种项目本来也跑不了生成，
+    预览与执行的逐字一致仍然成立。预览按项目当前配置解析、没有任务 payload：若入队的
+    payload 钉了别的供应商且其上限不同，编号会与那次执行不一致，这是预览不知 payload 的
+    既有限制。
     """
     try:
         ctx = await resolve_generation_context(
@@ -111,8 +115,8 @@ async def _reference_clamp(
         )
     except Exception as exc:
         logger.info("预览无法解析 image lane，参考图不按后端上限裁剪：%s", exc)
-        return None
-    return clamp_reference_images(references, ctx.image.max_reference_images, model=ctx.image.backend_model)
+        return 0, ""
+    return ctx.image.max_reference_images, ctx.image.backend_model
 
 
 async def preview_item_prompts(
@@ -142,63 +146,67 @@ async def preview_item_prompts(
     # 声音绑定按项目当前的视频能力档解析（非 drama 或无声一律 None），与执行期同一判据。
     voice_characters = await resolve_voice_context(project, content_mode)
 
-    def _collect() -> list[Any]:
-        # 与执行期读同一份参考图装配（含上一分镜图的可用性判定），「图N」编号才能逐字一致；
-        # 装配以 ValueError 拒绝（条目缺失、剧本未登记或内容已变更）时按提示词不可渲染处理，
-        # 产物清单本身的故障（ArtifactManifestError）沿用 fail loud。
+    def _assemble() -> StoryboardImageInput | InputRefused:
+        # 与执行期读同一份生成输入（含上一分镜图的可用性判定），「图N」编号才能逐字一致；
+        # 剧本未登记或内容已变更时以 ValueError 拒绝，按提示词不可渲染处理，产物清单本身的
+        # 故障（ArtifactManifestError）沿用 fail loud。
         script_input = resolve_usable_episode_script_input(
             project_path=project_path,
             project=project,
             script=script,
             script_filename=script_file,
         )
-        return collect_storyboard_references(
+        return storyboard_image_input(
             project,
-            project_path,
             script,
-            item_id,
-            artifact_episode=script_input.episode,
-            currency_resolver=active_artifact_currency_resolver(project_path, project),
-            formal_claims=[script_input.claim],
-        ).visual_references
+            episode=script_input.episode,
+            resource_id=item_id,
+            observation=project_input_observation(project_path),
+        )
 
-    references: list[Any] = []
-    reference_failure: Exception | None = None
-    image_warnings: tuple[dict[str, Any], ...] = ()
-    # 待生成 / 为空的提示词不渲染，也就不必装配参考图——装配要读产物清单，其自身故障
-    # （ArtifactManifestError）沿用 fail loud，不该由一个本就渲染不出的条目引来。
-    if _unavailable_before_rendering(item.get("image_prompt")) is None:
+    image: RenderedPrompt | None = None
+    generation_input: StoryboardImageInput | None = None
+    image_prompt = item.get("image_prompt")
+    is_text_form = isinstance(image_prompt, str)
+    # 空提示词不可渲染；待生成提示词交给生成输入，与引用缺口一次报全。
+    if image_prompt is not None and (reason := _unavailable_before_rendering(image_prompt)) is not None:
+        image = RenderedPrompt(unavailable=reason, is_text_form=is_text_form)
+    else:
         try:
-            references = await asyncio.to_thread(_collect)
-        except (ValueError, TypeError, KeyError) as exc:
-            # 装配被拒不是本函数的失败：留到渲染时再抛，由 _render 折成 UNAVAILABLE_INVALID。
-            reference_failure = exc
-        if references:
-            clamp = await _reference_clamp(project_name, project, project_path, references)
-            if clamp is not None:
-                references = references[: clamp.kept]
-                if (warning := clamp.warning()) is not None:
-                    image_warnings = (warning,)
-
-    def _storyboard_references() -> list[Any]:
-        if reference_failure is not None:
-            raise reference_failure
-        return references
+            assembled = await asyncio.to_thread(_assemble)
+        except (ValueError, TypeError, KeyError):
+            image = RenderedPrompt(unavailable=UNAVAILABLE_INVALID, is_text_form=is_text_form)
+        else:
+            if isinstance(assembled, InputRefused):
+                refusal = input_refusal_error(assembled)
+                image = RenderedPrompt(
+                    unavailable=refusal.key,
+                    unavailable_params=dict(refusal.params),
+                    is_text_form=is_text_form,
+                )
+            else:
+                generation_input = assembled
+    limit = (
+        await reference_image_limit(project_name, project, project_path)
+        if generation_input is not None and generation_input.references
+        else (0, "")
+    )
 
     def _render_both() -> ItemPromptPreview:
-        style = project.get("style", "")
-        style_description = project.get("style_description", "")
-        image = _render(
-            item.get("image_prompt"),
-            lambda prompt: render_storyboard_image_prompt(
-                prompt,
-                style=style if isinstance(style, str) else "",
-                style_description=style_description if isinstance(style_description, str) else "",
-                references=_storyboard_references(),
-            ),
-        )
-        if image.text is not None and image_warnings:
-            image = replace(image, warnings=image_warnings)
+        storyboard_image = image
+        if storyboard_image is None:
+            assert generation_input is not None
+            max_reference_images, model = limit
+            try:
+                rendered = generation_input.render(max_reference_images=max_reference_images, model=model)
+            except (ValueError, TypeError, KeyError):
+                storyboard_image = RenderedPrompt(unavailable=UNAVAILABLE_INVALID, is_text_form=is_text_form)
+            else:
+                storyboard_image = RenderedPrompt(
+                    text=rendered.prompt,
+                    is_text_form=is_text_form,
+                    warnings=rendered.warnings,
+                )
         video = _render(
             item.get("video_prompt"),
             lambda prompt: render_storyboard_video_prompt(
@@ -211,7 +219,7 @@ async def preview_item_prompts(
         return ItemPromptPreview(
             item_id=item_id,
             content_mode=content_mode,
-            storyboard_image=image,
+            storyboard_image=storyboard_image,
             video=video,
         )
 

@@ -996,6 +996,7 @@ export default {
   'character_task_failed': 'Tạo nhân vật "{{id}}" thất bại: {{reason}}',
   'scene_task_failed': 'Tạo cảnh "{{id}}" thất bại: {{reason}}',
   'prop_task_failed': 'Tạo đạo cụ "{{id}}" thất bại: {{reason}}',
+  'product_task_failed': 'Tạo sản phẩm "{{id}}" thất bại: {{reason}}',
   'grid_task_failed': 'Tạo phân cảnh đa lưới thất bại: {{reason}}',
   'image_edit_task_failed': 'Chỉnh sửa "{{id}}" thất bại: {{reason}}',
   'task_failed_provider_reason_suffix': ' (Lý do từ nhà cung cấp: {{reason}})',

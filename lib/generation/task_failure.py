@@ -19,6 +19,7 @@ from collections.abc import Callable
 from typing import Any, TypeGuard
 
 from lib.custom_provider.comfyui.artifacts import expected_suffixes_text
+from lib.i18n import render_generation_input_error
 
 # Backend capability rejections (``ImageCapabilityError`` / ``VideoCapabilityError`` /
 # ``ReferencePayloadFloorError``). Their ``.code`` is already an ``errors`` catalog key,
@@ -80,6 +81,20 @@ REFERENCE_PROJECTION_FAILURE_CODES: frozenset[str] = frozenset(
     }
 )
 
+# 生成输入被拒（``lib.artifacts.generation_input.InputRefused``）时，执行器经服务端翻译函数抛出的
+# 首个缺口码；同一缺口在参考生视频投影里也可能出现，两份登记表重叠处按集合合并。
+GENERATION_INPUT_FAILURE_CODES: frozenset[str] = frozenset(
+    {
+        "asset_description_required",
+        "asset_original_missing",
+        "derivative_description_required",
+        "derivative_owner_sheet_missing",
+        "reference_asset_missing",
+        "reference_asset_unregistered",
+        "script_prompt_pending",
+    }
+)
+
 NARRATION_DELIVERY_FAILURE_CODES: frozenset[str] = frozenset(
     {
         "needs_replan",
@@ -104,6 +119,7 @@ NARRATION_DELIVERY_FAILURE_CODES: frozenset[str] = frozenset(
 FAILURE_CODE_KEYS: dict[str, str] = {
     **{code: code for code in CAPABILITY_FAILURE_CODES},
     **{code: code for code in REFERENCE_PROJECTION_FAILURE_CODES},
+    **{code: code for code in GENERATION_INPUT_FAILURE_CODES},
     **{code: code for code in NARRATION_DELIVERY_FAILURE_CODES},
     "provider_unsupported_media": "task_fail_provider_unsupported_media",
     # 上游确定性 4xx 拒绝。params 里的 provider_reason 是脱敏截断后的上游原文，刻意不进
@@ -279,9 +295,31 @@ def bound_reason(reason: str, limit: int) -> str:
             "params": {key: _as_shrinkable(value) for key, value in detail["params"].items()},
         }
 
+    gaps = parsed.get("gaps")
+    kept_gaps: dict[str, dict[str, Any]] = {}
+    if (
+        code in GENERATION_INPUT_FAILURE_CODES
+        and isinstance(gaps, list)
+        and all(
+            isinstance(gap, dict)
+            and isinstance(gap.get("code"), str)
+            and gap["code"] in GENERATION_INPUT_FAILURE_CODES
+            and isinstance(gap.get("name"), str)
+            and gap.get("asset_type") in (None, "character", "scene", "prop", "product")
+            for gap in gaps
+        )
+    ):
+        # 超限时每种原因保留一个缺口及省略数量；机器码和分组结构不参与字符串裁剪。
+        for gap in gaps:
+            kept_gaps.setdefault(gap["code"], {key: gap.get(key) for key in ("code", "asset_type", "name")})
+        params["gaps"] = list(kept_gaps.values())
+        omitted = parsed.get("gaps_omitted", 0)
+        params["gaps_omitted"] = (omitted if isinstance(omitted, int) else 0) + len(gaps) - len(kept_gaps)
+
     shrinkable: list[tuple[dict[str, Any], str]] = [
         (params, key) for key, value in params.items() if isinstance(value, str)
     ]
+    shrinkable.extend((gap, "name") for gap in kept_gaps.values())
     nested_detail = params.get("detail")
     if _is_validation_message(nested_detail):
         nested_params = nested_detail["params"]
@@ -345,7 +383,7 @@ def render_failure(error_message: str | None, translate: Callable[..., str]) -> 
     if code in _COMFYUI_ARTIFACT_MISMATCH_CODES:
         media_type = params.get("media_type")
         params = {**params, "expected": expected_suffixes_text(media_type if isinstance(media_type, str) else "")}
-    return translate(FAILURE_CODE_KEYS[code], **params)
+    return render_generation_input_error(FAILURE_CODE_KEYS[code], params, translate)
 
 
 def parse_failure(error_message: str | None) -> tuple[str, dict[str, Any]] | None:

@@ -791,16 +791,18 @@ async def apply_to_project(
     if plans:
 
         def _register_imported_sheet_claims(_project_file: Path) -> None:
-            keys = {ArtifactKey.asset_sheet(plan["asset"].type, plan["desired_name"]) for plan in plans}
-            keys |= {
+            owner_keys = {ArtifactKey.asset_sheet(plan["asset"].type, plan["desired_name"]) for plan in plans}
+            derivative_keys = {
                 derivative_artifact_key(plan["desired_name"], derivative_name)
                 for plan in plans
                 for derivative_name in plan["derivative_sheet_names"]
             }
-            register_artifact_entries_atomically(
-                project_dir,
-                {key: resolve_current_artifact_target(project_dir, key) for key in keys},
-            )
+            owner_entries = {key: resolve_current_artifact_target(project_dir, key) for key in owner_keys}
+            derivative_entries = {
+                key: resolve_current_artifact_target(project_dir, key, pending_entries=owner_entries)
+                for key in derivative_keys
+            }
+            register_artifact_entries_atomically(project_dir, owner_entries | derivative_entries)
 
         try:
             await asyncio.to_thread(

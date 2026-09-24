@@ -440,15 +440,11 @@ export function StudioCanvasRouter() {
   const handleGenerateCharacter = useCallback(async (name: string) => {
     if (!currentProjectName) return;
     try {
-      await enqueueCharacter(
-        currentProjectName,
-        name,
-        currentProjectData?.characters?.[name]?.description ?? "",
-      );
+      await enqueueCharacter(currentProjectName, name);
     } catch (err) {
       useAppStore.getState().pushToast(tRef.current("submit_failed", { message: errMsg(err) }), "error");
     }
-  }, [currentProjectName, currentProjectData]);
+  }, [currentProjectName]);
 
   const handleAddCharacterSubmit = useCallback(async (
     name: string,
@@ -490,11 +486,11 @@ export function StudioCanvasRouter() {
   const handleGenerateScene = useCallback(async (name: string) => {
     if (!currentProjectName) return;
     try {
-      await enqueueScene(currentProjectName, name, currentProjectData?.scenes?.[name]?.description ?? "");
+      await enqueueScene(currentProjectName, name);
     } catch (err) {
       useAppStore.getState().pushToast(tRef.current("submit_failed", { message: errMsg(err) }), "error");
     }
-  }, [currentProjectName, currentProjectData]);
+  }, [currentProjectName]);
 
   const handleAddSceneSubmit = useCallback(async (name: string, description: string) => {
     if (!currentProjectName) return;
@@ -522,11 +518,11 @@ export function StudioCanvasRouter() {
   const handleGenerateProp = useCallback(async (name: string) => {
     if (!currentProjectName) return;
     try {
-      await enqueueProp(currentProjectName, name, currentProjectData?.props?.[name]?.description ?? "");
+      await enqueueProp(currentProjectName, name);
     } catch (err) {
       useAppStore.getState().pushToast(tRef.current("submit_failed", { message: errMsg(err) }), "error");
     }
-  }, [currentProjectName, currentProjectData]);
+  }, [currentProjectName]);
 
   const handleAddPropSubmit = useCallback(async (name: string, description: string) => {
     if (!currentProjectName) return;
@@ -554,15 +550,11 @@ export function StudioCanvasRouter() {
   const handleGenerateProduct = useCallback(async (name: string) => {
     if (!currentProjectName) return;
     try {
-      await enqueueProduct(
-        currentProjectName,
-        name,
-        currentProjectData?.products?.[name]?.description ?? "",
-      );
+      await enqueueProduct(currentProjectName, name);
     } catch (err) {
       useAppStore.getState().pushToast(tRef.current("submit_failed", { message: errMsg(err) }), "error");
     }
-  }, [currentProjectName, currentProjectData]);
+  }, [currentProjectName]);
 
   const handleAddProductSubmit = useCallback(async (name: string, description: string, brand: string) => {
     if (!currentProjectName) return;
