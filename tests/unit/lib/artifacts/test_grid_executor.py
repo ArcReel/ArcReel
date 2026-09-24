@@ -336,6 +336,8 @@ class TestExecuteGridTask:
         assert result["resource_type"] == "grids"
         assert result["resource_id"] == grid.id
         assert result["version"] == 1
+        # created_at 取选中版本的创建时间
+        assert result["created_at"] == "2026-01-01T00:00:00Z"
         assert "grids/" in result["file_path"]
         # 没有参考图被裁剪就没有 warning：结果不带该键
         assert "warnings" not in result

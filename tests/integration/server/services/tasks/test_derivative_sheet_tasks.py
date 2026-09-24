@@ -180,7 +180,6 @@ class TestDerivativeImageEdit:
         generator = build_generator(project_path, _backend())
         _wire(monkeypatch, pm, generator)
         monkeypatch.setattr(image_edit_tasks, "get_project_manager", lambda: pm)
-        monkeypatch.setattr(image_edit_tasks, "resolve_generation_context", fake_resolve_ctx(generator))
 
         generated = solid_png_bytes(RESULT_IMAGE_RGB)
         with capture_http() as router:
