@@ -1048,6 +1048,58 @@ async def test_generate_grid_missing_only_waits_on_an_unsplit_composite(
     assert out["grid_ids_awaiting_split"] == [unsplit.id]
 
 
+async def test_generate_grid_judges_a_composite_finished_during_the_batch_against_the_settled_state(
+    fake_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """未切分宫格在出图前就被观测过：本批新出的联合图仍按出图后的目标态判定为 current。"""
+    from lib.artifacts.artifact_manifest import ArtifactComparison, ArtifactStatus
+    from lib.script.grid.grid_manager import GridManager
+
+    scene_ids = _enable_grid(fake_ctx, groups=2)
+    unsplit = _saved_grid(fake_ctx, scene_ids[:4], status="completed")
+    gm = GridManager(fake_ctx.project_path)
+
+    class _SnapshotResolver:
+        """与真实 resolver 同样按首次比较时的宫格记录规划目标态，此后不再重读。"""
+
+        def __init__(self) -> None:
+            self._completed: set[str] | None = None
+
+        def compare(self, key, *, artifact_path):
+            if self._completed is None:
+                self._completed = {g.id for g in gm.list_all() if g.status == "completed"}
+            planned = any(artifact_path == f"grids/{grid_id}.png" for grid_id in self._completed)
+            return ArtifactComparison(
+                status=ArtifactStatus.CURRENT if planned else ArtifactStatus.STALE, artifact_path=artifact_path
+            )
+
+    async def fake_enqueue(*, resource_id: str, **_kwargs: Any) -> dict[str, Any]:
+        return {"task_id": resource_id}
+
+    async def worker_finishes(task_id: str, **_kwargs: Any) -> dict[str, Any]:
+        grid = gm.get(task_id)
+        assert grid is not None
+        grid.status = "completed"
+        grid.grid_image_path = f"grids/{grid.id}.png"
+        gm.save(grid)
+        return {"status": "succeeded"}
+
+    monkeypatch.setattr("server.media_tools.grid.resolve_large_grid_allowed", _no_large_grid)
+    monkeypatch.setattr("server.media_tools.grid.active_artifact_currency_resolver", lambda *_args: _SnapshotResolver())
+    out = await call(
+        generate_grid_tool(fake_ctx, batch_waiter=_fake_grid_waiter(fake_enqueue, worker_finishes)),
+        {"script": "episode_1.json"},
+    )
+
+    result = read_generation_result(out)
+    items = {item.unit_id: item for item in result.items}
+    assert [(s.unit_id, s.artifact_path) for s in result.skipped] == [
+        (scene_id, f"grids/{unsplit.id}.png") for scene_id in scene_ids[:4]
+    ]
+    assert result.succeeded == scene_ids[4:]
+    assert {items[scene_id].artifact_status for scene_id in scene_ids[4:]} == {ArtifactStatus.CURRENT}
+
+
 async def test_generate_grid_refused_batch_still_lists_the_unsplit_composite(
     fake_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
 ) -> None:

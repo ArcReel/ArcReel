@@ -325,6 +325,9 @@ async def _submit(
     if submitted.successes is None or submitted.failures is None:
         return generation_batch_submission_outcome(submitted.batch)
 
+    # resolver 首次比较时按当时的宫格记录规划目标态、此后不再重读；上面观测未切分宫格时已用过它，
+    # 本批出图结果须换一个按出图后记录规划的 resolver 判定
+    resolver = active_artifact_currency_resolver(ctx.project_path, plan.project)
     ready: list[str] = []
     for result in [*submitted.successes, *submitted.failures]:
         grid_id = grid_id_by_result[result.resource_id]
