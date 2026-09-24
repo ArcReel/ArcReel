@@ -11,6 +11,7 @@ from lib.db.repositories.usage_repo import SettlementInput, UsageRepository
 from lib.script.reference_video.request_projection import USE_TTS, ReferenceRequestOptions
 from lib.speech.narration_delivery import VideoRequestCostFacts
 from server.services.admission.cost_estimation import CostEstimationService, quote_video_request
+from tests.factories import make_video_request_facts
 from tests.fakes import fake_reference_request_facts
 
 
@@ -220,11 +221,10 @@ class TestCostEstimationService:
     async def test_shared_video_quote_exposes_exact_amount_currency_and_request_coordinates(self, db_factory):
         quote = await quote_video_request(
             VideoRequestCostFacts(
-                provider_id="openai",
-                model_id="sora-2",
-                resolution="720p",
+                request_facts=make_video_request_facts(
+                    provider_id="openai", model_id="sora-2", resolution="720p", generate_audio=True
+                ),
                 duration_seconds=8,
-                generate_audio=True,
             ),
             db_factory,
         )

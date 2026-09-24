@@ -13,7 +13,10 @@ from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, replace
 from enum import StrEnum
 from pathlib import Path
-from typing import Literal, Protocol, assert_never
+from typing import TYPE_CHECKING, Literal, Protocol, assert_never
+
+if TYPE_CHECKING:
+    from lib.generation.video_request_facts import VideoRequestFacts
 
 from lib.artifacts.artifact_manifest import (
     ArtifactBasis,
@@ -210,11 +213,24 @@ class NarrationDeliveryPreparation:
 class VideoRequestCostFacts:
     """Canonical provider request coordinates consumed by the shared quote seam."""
 
-    provider_id: str
-    model_id: str
-    resolution: str | None
+    request_facts: VideoRequestFacts
     duration_seconds: int
-    generate_audio: bool
+
+    @property
+    def provider_id(self) -> str:
+        return self.request_facts.provider_id
+
+    @property
+    def model_id(self) -> str:
+        return self.request_facts.model_id
+
+    @property
+    def resolution(self) -> str | None:
+        return self.request_facts.resolution
+
+    @property
+    def generate_audio(self) -> bool:
+        return self.request_facts.generate_audio
 
 
 def video_request_cost_unavailable_problem(facts: VideoRequestCostFacts) -> NarrationDeliveryProblem:

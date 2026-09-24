@@ -12,8 +12,10 @@ from lib.artifacts.artifact_manifest import ArtifactStatus
 from lib.db.models.user import User
 from lib.speech.narration_delivery import TtsSynthesisSettings
 from server.media_tools.context import ToolContext
+from server.services.admission import video_batch_admission
 from server.services.tasks.narration_delivery_tasks import ResolvedTtsSettingsResolver, active_tts_resource_ids
 from server.tool_runtime import CallerContext
+from tests.factories import make_video_request_facts
 from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
     call,
     read_generation_result,
@@ -21,6 +23,12 @@ from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
     use_reference_route,
     videos_tool_for_scope,
 )
+
+
+@pytest.fixture(autouse=True)
+def storyboard_request_facts(monkeypatch: pytest.MonkeyPatch) -> None:
+    facts = make_video_request_facts(provider_id="fake", model_id="fake-video", audio_switch_controllable=True)
+    monkeypatch.setattr(video_batch_admission, "evaluate_video_request_facts", AsyncMock(return_value=facts))
 
 
 def _episode_scope(ctx: ToolContext):

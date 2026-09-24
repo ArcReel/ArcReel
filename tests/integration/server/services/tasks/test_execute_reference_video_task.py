@@ -124,7 +124,7 @@ def _wire_context(
             backend_model=backend_model,
             resolution=resolution,
             request_facts=request_facts,
-            requested_generate_audio=requested_generate_audio,
+            requested_generate_audio_fallback=requested_generate_audio,
         )
 
     async def _fake_resolve(*_args, **kwargs):

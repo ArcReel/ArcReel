@@ -24,6 +24,7 @@ from lib.generation.video_request_facts import (
     CONFIGURED_VIDEO_IDENTITY,
     VideoRequestFacts,
     VideoRequestFactsFailure,
+    audio_switch_conflict,
     evaluate_video_request_facts,
 )
 from lib.infra.path_safety import PathTraversalError, safe_join
@@ -584,7 +585,7 @@ class ReferenceUnitRequestProjector:
                         model=facts.model_id,
                     )
                 )
-            if not facts.requested_generate_audio and facts.has_audio_track and not facts.audio_switch_controllable:
+            if audio_switch_conflict(facts) is not None:
                 problems.append(
                     _problem(
                         "video_audio_switch_not_supported",
@@ -667,11 +668,8 @@ class ReferenceUnitRequestProjector:
                 )
             if projected.slot is not None:
                 cost = ProjectionCostFacts(
-                    provider_id=facts.provider_id,
-                    model_id=facts.model_id,
-                    resolution=facts.resolution,
+                    request_facts=facts,
                     duration_seconds=projected.slot.seconds,
-                    generate_audio=facts.generate_audio,
                 )
 
         return ReferenceUnitRequestProjection(

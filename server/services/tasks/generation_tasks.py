@@ -58,7 +58,12 @@ from lib.generation.generation_queue import (
     get_generation_queue,
     without_video_execution_identity,
 )
-from lib.generation.video_request_facts import VideoRequestFacts, require_video_request_facts
+from lib.generation.video_request_facts import (
+    VideoRequestFacts,
+    VideoRequestFactsError,
+    audio_switch_conflict,
+    require_video_request_facts,
+)
 from lib.infra.api_errors import ConflictError
 from lib.infra.async_thread import EventLoopBridge, run_noninterruptible_sync
 from lib.infra.path_safety import safe_join, try_safe_join
@@ -1106,6 +1111,11 @@ async def execute_video_task(
         request_facts = require_video_request_facts(ctx.video.request_facts)
     elif isinstance(ctx.video.request_facts, VideoRequestFacts):
         request_facts = ctx.video.request_facts
+    if request_facts is not None and (conflict := audio_switch_conflict(request_facts)) is not None:
+        raise VideoRequestFactsError(conflict)
+    requested_generate_audio = (
+        request_facts.requested_generate_audio if request_facts is not None else ctx.video.requested_generate_audio
+    )
     model_name = ctx.video.backend_model
     supported_durations: list[int] = list(request_facts.supported_durations if request_facts else ())
     resolution = request_facts.resolution if request_facts else ctx.video.resolution
@@ -1135,7 +1145,7 @@ async def execute_video_task(
             model_id=model_name,
             resolution=resolution,
             seed=seed,
-            requested_generate_audio=ctx.video.requested_generate_audio,
+            requested_generate_audio=requested_generate_audio,
             content_mode=content_mode,
             utterances=item.get("utterances") if content_mode == "drama" else None,
             has_utterances=content_mode == "drama" and "utterances" in item,
@@ -1394,7 +1404,7 @@ async def execute_video_task(
                     duration_seconds=duration_seconds,
                     aspect_ratio=aspect_ratio,
                     resolution=resolution,
-                    generate_audio=ctx.video.requested_generate_audio,
+                    generate_audio=requested_generate_audio,
                     service_tier=service_tier,
                     seed=seed,
                     visual_basis_digest=visual_basis_digest,
@@ -1449,7 +1459,7 @@ async def execute_video_task(
             seed=seed,
             service_tier=service_tier,
             visual_basis_digest=visual_basis_digest,
-            generate_audio=ctx.video.requested_generate_audio,
+            generate_audio=requested_generate_audio,
             poll_timeout_seconds=poll_timeout_seconds,
             warnings=warnings,
         )

@@ -233,14 +233,20 @@ class VideoLaneResult:
     backend_model: str
     resolution: str | None
     request_facts: VideoRequestFacts | VideoRequestFactsFailure | None = None
-    # 本集的无声开关（用户意图口径：全局设置 ← project.json 覆盖），与 MediaGenerator 结算时读的
-    # video_generate_audio 同源，**不是** 视频请求事实里叠加了恒含音出账与默认执行档判定的计价
-    # 参数 ``generate_audio``。它不依赖能力求值，独立解析：能力解析不出时不会连带把它冲回默认值
-    # ——冲回会静默重新允许参考音频上传，违背用户已关闭的意图。
-    requested_generate_audio: bool = True
+    # 未声明路线或事实求值失败时保留用户音频意图；成功事实直接给出该值。
+    requested_generate_audio_fallback: bool = True
     # 自定义供应商解析出的 endpoint（ENDPOINT_REGISTRY 键）；内置供应商无该维度，为 None。
     # 续跑据此与提交时持久化的 endpoint 比对，见 server.services.tasks.resume_executor。
     endpoint: str | None = None
+
+    @property
+    def requested_generate_audio(self) -> bool:
+        facts = self.request_facts
+        return (
+            facts.requested_generate_audio
+            if isinstance(facts, VideoRequestFacts)
+            else self.requested_generate_audio_fallback
+        )
 
     @property
     def is_silent(self) -> bool:
@@ -395,7 +401,11 @@ async def resolve_generation_context(
                 backend_model=actual_model,
                 resolution=await r.resolve_resolution(project, resolved.provider_id, actual_model),
                 request_facts=request_facts,
-                requested_generate_audio=await r.video_generate_audio_for_project(project),
+                requested_generate_audio_fallback=(
+                    await r.video_generate_audio_for_project(project)
+                    if not isinstance(request_facts, VideoRequestFacts)
+                    else True
+                ),
                 # 显式按类型分流而非 getattr 探测：endpoint 为 None 恰好是「跳过续跑比对」
                 # 这条最宽松分支，属性一旦改名，探测式取值会静默失效且无任何信号。
                 endpoint=video_backend.endpoint if isinstance(video_backend, CustomVideoBackend) else None,

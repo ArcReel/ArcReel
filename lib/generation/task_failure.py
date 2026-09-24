@@ -118,6 +118,7 @@ NARRATION_DELIVERY_FAILURE_CODES: frozenset[str] = frozenset(
 # ``VideoRequestFactsError`` 阻断并按原码落库，与预检同码。参考路线一族与桶能力闸的码已在上面登记。
 VIDEO_REQUEST_FACTS_FAILURE_CODES: frozenset[str] = frozenset(
     {
+        "video_audio_switch_not_supported",
         "video_capability_unavailable",
         "video_supported_durations_incompatible",
         "video_supported_durations_invalid",

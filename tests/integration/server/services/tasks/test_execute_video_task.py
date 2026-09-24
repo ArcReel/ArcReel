@@ -45,6 +45,37 @@ from tests.integration.server.services.tasks.generation_tasks_support import (
 
 
 class TestGenerationTasks:
+    async def test_execute_video_task_rechecks_audio_switch_from_request_facts(self, monkeypatch, tmp_path):
+        project_path = prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        seed_current_storyboard(fake_pm)
+        fake_generator = FakeGenerator()
+        facts = make_video_request_facts(
+            provider_id="dashscope",
+            model_id="wan2.7-i2v",
+            requested_generate_audio=False,
+            generate_audio=False,
+            has_audio_track=True,
+            audio_switch_controllable=False,
+        )
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+        monkeypatch.setattr(
+            generation_tasks,
+            "resolve_generation_context",
+            fake_resolve_ctx(fake_generator, video_request_facts=facts),
+        )
+
+        with pytest.raises(ValueError, match="video_audio_switch_not_supported") as exc:
+            await generation_tasks.execute_video_task(
+                "demo",
+                "E1S01",
+                {"script_file": "episode_1.json", "prompt": {"action": "跑", "camera_motion": "Static"}},
+            )
+
+        assert exc.value.code == "video_audio_switch_not_supported"
+        assert exc.value.params == {"provider": "dashscope", "model": "wan2.7-i2v"}
+        assert fake_generator.video_calls == []
+
     async def test_execute_video_task_generates_thumbnail(self, monkeypatch, tmp_path):
         """视频生成后应自动提取首帧缩略图"""
         project_path = prepare_files(tmp_path)

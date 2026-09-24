@@ -28,6 +28,7 @@ from lib.workflow.workflow_state import (
 )
 from server.services.admission import video_batch_admission
 from server.services.project import workflow_planner
+from tests.factories import make_video_request_facts
 
 
 def _status(*, state: str = "VIDEO", action: str = "generate_videos") -> WorkflowStatus:
@@ -634,8 +635,8 @@ async def test_planner_reports_the_audio_switch_conflict_before_any_task_exists(
     async def _no_active_tasks(**_kwargs: Any) -> list[dict[str, Any]]:
         return []
 
-    async def _reject(_project: dict[str, Any], _capability: Any) -> None:
-        raise ValueError("成片恒有声")
+    async def _facts(*_args: Any, **_kwargs: Any):
+        return make_video_request_facts(requested_generate_audio=False)
 
     spec = TaskSpec.from_request(
         task_type="video",
@@ -651,7 +652,7 @@ async def test_planner_reports_the_audio_switch_conflict_before_any_task_exists(
     monkeypatch.setattr(workflow_planner, "get_active_tasks_for_resources", _no_active_tasks)
     monkeypatch.setattr(workflow_planner, "build_storyboard_video_specs", _specs)
     monkeypatch.setattr(video_batch_admission, "get_active_tasks_for_resources", _no_active_tasks)
-    monkeypatch.setattr(video_batch_admission, "assert_audio_switch_supported", _reject)
+    monkeypatch.setattr(video_batch_admission, "evaluate_video_request_facts", _facts)
 
     plan = await workflow_planner.WorkflowPlanner(pm).get_plan(
         "demo", WorkflowPlanRequest(narration_delivery=POST_PRODUCTION)

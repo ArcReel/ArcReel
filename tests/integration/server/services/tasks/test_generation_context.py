@@ -292,7 +292,7 @@ class TestVideoLane:
     async def test_requested_generate_audio_survives_capability_failure(
         self, patched_session_factory, project_env, monkeypatch
     ):
-        """能力查询失败不得连带丢失用户的无声意图：它不来自能力接口，独立解析。"""
+        """能力查询失败不得连带丢失用户的无声意图：失败时独立解析用户开关。"""
 
         async def _assemble(*, provider_id, media_type, model_id, resolver, rate_limiter=None, generation_type=None):
             return _FakeBackend(name=provider_id, model="mystery-model")
@@ -303,8 +303,9 @@ class TestVideoLane:
             "demo",
             None,
             project={"video_backend": f"ark/{video_model}", "video_generate_audio": False},
-            video=VideoLaneRequest(),
+            video=VideoLaneRequest(route="storyboard"),
         )
+        assert isinstance(ctx.video.request_facts, VideoRequestFactsFailure)
         assert ctx.video.requested_generate_audio is False
 
     async def test_payload_overrides_project(self, patched_session_factory, project_env, fake_assemble):
@@ -701,8 +702,9 @@ class TestValueObjectAssembly:
             backend_name="ark",
             backend_model="m",
             resolution=None,
-            request_facts=make_video_request_facts(voice_consistency=voice_consistency),
-            requested_generate_audio=requested_generate_audio,
+            request_facts=make_video_request_facts(
+                voice_consistency=voice_consistency, requested_generate_audio=requested_generate_audio
+            ),
         )
         assert lane.is_silent is expected
 
@@ -717,7 +719,7 @@ class TestValueObjectAssembly:
             backend_model="m",
             resolution=None,
             request_facts=VideoRequestFactsFailure("video_capability_unavailable"),
-            requested_generate_audio=requested_generate_audio,
+            requested_generate_audio_fallback=requested_generate_audio,
         )
         assert lane.is_silent is expected
 

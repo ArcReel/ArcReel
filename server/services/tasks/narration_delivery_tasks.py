@@ -570,11 +570,8 @@ async def prepare_current_storyboard_narrated_video_duration(
     return replace(
         result,
         cost=VideoRequestCostFacts(
-            provider_id=facts.provider_id,
-            model_id=facts.model_id,
-            resolution=facts.resolution,
+            request_facts=facts,
             duration_seconds=result.request_duration_seconds,
-            generate_audio=facts.generate_audio,
         ),
     )
 

@@ -36,7 +36,7 @@ from server.routers import generate
 from server.services.admission.cost_estimation import VideoRequestQuote
 from server.services.tasks.narration_delivery_tasks import CurrentTtsSettingsResolver
 from tests.auth_deps import AUTH_DEPENDENCIES
-from tests.factories import wav_bytes
+from tests.factories import make_video_request_facts, wav_bytes
 from tests.speech_contract_cases import SPEECH_CONTRACT_CASES, SpeechContractCase
 
 
@@ -364,7 +364,9 @@ class TestGenerateRouter:
             adjustment="exact",
             problems=(),
             current_visual_duration_seconds=8,
-            cost=VideoRequestCostFacts("openai", "sora-2", "720p", 8, True),
+            cost=VideoRequestCostFacts(
+                make_video_request_facts(provider_id="openai", model_id="sora-2", resolution="720p"), 8
+            ),
         )
         quote = AsyncMock(return_value=VideoRequestQuote(0.8, "USD", "openai", "sora-2", 8))
         monkeypatch.setattr(generate, "quote_video_request", quote)
@@ -727,7 +729,9 @@ class TestGenerateRouter:
                     supported_durations=(4, 8),
                     confirmed_request_duration_seconds=kwargs["confirmed_request_duration_seconds"],
                 ),
-                cost=VideoRequestCostFacts("openai", "sora-2", "720p", 8, True),
+                cost=VideoRequestCostFacts(
+                    make_video_request_facts(provider_id="openai", model_id="sora-2", resolution="720p"), 8
+                ),
             )
 
         async def _quote(*_args, **_kwargs):
@@ -811,7 +815,9 @@ class TestGenerateRouter:
                     supported_durations=(4, 8),
                     confirmed_request_duration_seconds=kwargs["confirmed_request_duration_seconds"],
                 ),
-                cost=VideoRequestCostFacts("openai", "sora-2", "720p", 8, True),
+                cost=VideoRequestCostFacts(
+                    make_video_request_facts(provider_id="openai", model_id="sora-2", resolution="720p"), 8
+                ),
             )
 
         monkeypatch.setattr(generate, "prepare_current_storyboard_narrated_video_duration", _fresh)
@@ -1032,25 +1038,26 @@ class TestGenerateRouter:
         )
         assert fake_queue.calls == []
 
-    def test_video_enqueue_rejected_when_audio_switch_unsupported(self, tmp_path, monkeypatch):
+    @pytest.mark.parametrize("delivery", ["post_production", "use_tts"])
+    def test_video_enqueue_rejected_when_audio_switch_unsupported(self, tmp_path, monkeypatch, delivery):
         """恒有声模型遇到「关闭音频」的配置 → 提交入口 400，不入队（无声裁剪不得带着不可能实现的意图执行）。"""
-        from lib.infra.api_errors import BadRequestError
-
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
+        fake_pm.project.update({"video_provider_i2v": "dashscope/wan2.7-i2v", "video_generate_audio": False})
         fake_queue = _FakeQueue()
         client = _client(monkeypatch, fake_pm, fake_queue)
+        if delivery == "post_production":
+            from lib.infra.api_errors import BadRequestError
 
-        async def _reject(project, generation_type):
-            assert generation_type == "i2v"
-            raise BadRequestError("video_audio_switch_not_supported", provider="dashscope", model="wan2.7-i2v")
+            async def _reject(_project, _generation_type):
+                raise BadRequestError("video_audio_switch_not_supported", provider="dashscope", model="wan2.7-i2v")
 
-        monkeypatch.setattr(generate, "require_audio_switch_supported", _reject)
+            monkeypatch.setattr(generate, "require_audio_switch_supported", _reject)
 
         with client:
             res = client.post(
                 "/api/v1/projects/demo/generate/video/E1S01",
-                json={"script_file": "episode_1.json", "prompt": "x"},
+                json={"script_file": "episode_1.json", "prompt": "x", "narration_delivery": delivery},
             )
         assert res.status_code == 400
         assert res.json()["detail"] == i18n_message(

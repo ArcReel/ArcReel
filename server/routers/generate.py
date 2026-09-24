@@ -26,7 +26,13 @@ from lib.artifacts.artifact_manifest import ArtifactKey
 from lib.config.resolver import ConfigResolver, video_bucket_for_generation_mode
 from lib.generation.generation_queue import get_generation_queue
 from lib.generation.generation_queue_client import TaskSpec
-from lib.generation.video_request_facts import VideoRequestFactsError
+from lib.generation.video_request_facts import (
+    CONFIGURED_VIDEO_IDENTITY,
+    VideoRequestFacts,
+    VideoRequestFactsError,
+    audio_switch_conflict,
+    evaluate_video_request_facts,
+)
 from lib.infra.api_errors import BadRequestError, ConflictError, NotFoundError
 from lib.infra.json_io import domain_error_on_value_error
 from lib.infra.path_safety import safe_exists, safe_join
@@ -306,7 +312,23 @@ async def generate_video(
     # 悬空引用在提交入口即返回修复指引，而非任务面板里的异步失败。
     _video_bucket = video_bucket_for_generation_mode(project.get("generation_mode"))
     await require_video_bucket_capability(project, _video_bucket)
-    await require_audio_switch_supported(project, _video_bucket)
+    video_request_facts = None
+    if req.narration_delivery == USE_TTS:
+        from lib.db import async_session_factory
+
+        video_request_facts = await evaluate_video_request_facts(
+            project,
+            route="storyboard",
+            generation_type=_video_bucket,
+            identity=CONFIGURED_VIDEO_IDENTITY,
+            resolver=ConfigResolver(async_session_factory),
+        )
+        if isinstance(video_request_facts, VideoRequestFacts) and (
+            conflict := audio_switch_conflict(video_request_facts)
+        ):
+            raise BadRequestError(conflict.code, **conflict.parameters())
+    else:
+        await require_audio_switch_supported(project, _video_bucket)
 
     delivery_projection: NarratedVideoDurationPreparation | None = None
     delivery_payload: dict[str, object] | None = None
@@ -343,6 +365,7 @@ async def generate_video(
                 ),
                 user_id=user.id,
                 queue=queue,
+                video_request_facts=video_request_facts,
             )
         except VideoRequestFactsError as exc:
             raise BadRequestError(exc.code, **exc.params) from exc

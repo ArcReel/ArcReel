@@ -296,14 +296,34 @@ async def test_read_and_execution_sides_agree_when_identities_match(resolver, pr
     assert executed == read
 
 
-async def test_audio_facts_split_the_user_switch_from_the_billed_track(resolver):
-    facts = await _read(resolver, {"video_provider_i2v": VEO, "video_generate_audio": False})
+@pytest.mark.parametrize(
+    ("pair", "generation_type", "requested", "expected", "voice_consistency"),
+    [
+        (VEO, "i2v", False, (False, True, True, False), "soft"),
+        ("dashscope/wan2.7-i2v", "i2v", False, (False, False, True, False), "soft"),
+        ("kling/kling-v3-omni", "i2v", False, (False, False, True, True), "soft"),
+        ("kling/kling-v3-omni", "r2v", False, (False, False, False, False), "none"),
+        ("kling/kling-v3-omni", "r2v", True, (True, False, False, False), "none"),
+    ],
+)
+async def test_audio_facts_follow_the_request_bucket(
+    resolver, pair, generation_type, requested, expected, voice_consistency
+):
+    facts = await _read(
+        resolver,
+        {f"video_provider_{generation_type}": pair, "video_generate_audio": requested},
+        route="reference_video",
+        generation_type=generation_type,
+    )
 
     assert isinstance(facts, VideoRequestFacts)
-    assert facts.requested_generate_audio is False
-    # AI Studio 的 Veo 无视请求值恒按含音档出账。
-    assert facts.generate_audio is True
-    assert facts.has_audio_track is True
+    assert (
+        facts.requested_generate_audio,
+        facts.generate_audio,
+        facts.has_audio_track,
+        facts.audio_switch_controllable,
+    ) == expected
+    assert facts.voice_consistency == voice_consistency
 
 
 async def test_request_shaping_capabilities_come_from_the_same_evaluation(resolver):
