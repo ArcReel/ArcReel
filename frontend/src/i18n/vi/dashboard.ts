@@ -1251,6 +1251,7 @@ export default {
   'endpoint_openai_images_display': 'Ảnh OpenAI',
   'endpoint_openai_images_generations_display': 'Ảnh OpenAI (chỉ T2I)',
   'endpoint_openai_images_edits_display': 'Ảnh OpenAI (chỉ I2I)',
+  'endpoint_openrouter_images_display': 'Ảnh OpenRouter',
   'endpoint_gemini_image_display': 'Ảnh Google Gemini',
   'endpoint_openai_video_display': 'OpenAI Video (Sora)',
   'endpoint_ark_seedance_display': 'Volcengine Ark (Seedance)',

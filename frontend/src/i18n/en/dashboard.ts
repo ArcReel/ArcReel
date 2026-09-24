@@ -1269,6 +1269,7 @@ export default {
   'endpoint_openai_images_display': 'OpenAI Images API',
   'endpoint_openai_images_generations_display': 'OpenAI Images (T2I only)',
   'endpoint_openai_images_edits_display': 'OpenAI Images (I2I only)',
+  'endpoint_openrouter_images_display': 'OpenRouter Images API',
   'endpoint_gemini_image_display': 'Google Gemini Image',
   'endpoint_openai_video_display': 'OpenAI Video (Sora)',
   'endpoint_ark_seedance_display': 'Volcengine Ark (Seedance)',
