@@ -397,8 +397,8 @@ _TEXT_LAYERED_KEYS: dict[TextTaskTier, _LayeredBackendKeys] = {
 }
 
 
-# 当 resolve_resolution 返回 None 时下游的保底分辨率。Grok 即便 registry 声明 1080p
-# 也可能被 xai_sdk 拒收，故按 provider 区分。
+# 费用估算的桶级计价在 resolve_resolution 返回 None 时取的档位，只用于报价，不下发给供应商、
+# 也不参与时长联动约束。按 provider 区分。
 PROVIDER_FALLBACK_RESOLUTION: dict[str, str] = {
     "gemini": "1080p",
     "ark": "720p",
@@ -567,42 +567,17 @@ def constrain_durations(
     return allowed
 
 
-def _resolution_for_constraints(
-    project: dict, provider_id: str | None, model_id: str | None, *, generation_mode: str | None
-) -> str | None:
-    """约束求值用的生效分辨率：项目已保存的档位，参考生视频下补供应商兜底。
+def _resolution_for_constraints(project: dict, provider_id: str | None, model_id: str | None) -> str | None:
+    """约束求值用的分辨率：项目为该模型已保存的档位，未设置即 None（不施加分辨率约束）。
 
-    联动约束必须按**执行期真正下发给供应商的那个档位**求值，而两条视频路径下发的值不同源：
-
-    - 普通图生视频路径下发 ``resolve_resolution()`` 的原始结果，``None`` 即「不传 resolution
-      参数」（见 ``docs/adr/0019``），供应商按自己的默认档位处理——Veo 省略时是 720p，4/6/8 全
-      合法。此时按兜底档位求值会凭空收窄：未配置分辨率的 Veo 项目剧本节奏会被锁死 8 秒，而
-      供应商本来就接受 4/6 秒。故未配置时返回 ``None``（不施加分辨率约束）。
-    - 参考生视频路径是唯一需要非空档位的调用方，执行期取 ``resolution_or_fallback``（见
-      ``server/services/tasks/reference_video_tasks.py``），故这里同样补 ``get_provider_fallback``，
-      让约束与实际下发的档位描述同一件事。
-
-    ``get_provider_fallback`` 本身是费用估算与参考生视频路径的内部口径，不是「用户没配分辨率时
-    的生效值」，不可当作后者施加到普通路径上。自定义供应商的 DB 默认档位不在此解析：该类
-    供应商不声明联动约束，解析出来也不改变结果，不值得为此把纯函数变成 async。
-
-    返回值只用于约束求值，不得作为 SDK 的 resolution 参数下传。
+    联动约束按执行期真正下发给供应商的档位求值；两条视频路线在未设分辨率时都不下发该参数
+    （``docs/adr/0019``、``docs/adr/0086``），供应商按自己的默认档位处理，故约束同样不施加。
+    自定义供应商的 DB 默认档位不在此解析：该类供应商不声明联动约束，解析出来也不改变结果，
+    不值得为此把纯函数变成 async。
     """
     if not provider_id or not model_id:
         return None
-    saved = _resolution_from_project(project, provider_id, model_id)
-    return _constraint_resolution(saved, provider_id, reference_path=generation_mode == "reference_video")
-
-
-def _constraint_resolution(saved: str | None, provider_id: str | None, *, reference_path: bool) -> str | None:
-    """``_resolution_for_constraints`` 的纯函数内核：已保存档位优先，参考生视频路径下补供应商兜底。
-
-    拆出来是给已知「用户填的档位」的调用方（能力查询带表单里未保存的分辨率）复用同一条兜底
-    规则，不必先把表单值伪装成 project dict。
-    """
-    if saved or not reference_path or not provider_id:
-        return saved or None
-    return get_provider_fallback(provider_id)
+    return _resolution_from_project(project, provider_id, model_id)
 
 
 #: 时长被联动约束剔除的成因：``resolution`` = 当前分辨率下不可用，``reference`` = 参考图路径下不可用。
@@ -723,7 +698,7 @@ def constrain_durations_for_project(
         provider_id,
         model_id,
         durations,
-        resolution=_resolution_for_constraints(project, provider_id, model_id, generation_mode=generation_mode),
+        resolution=_resolution_for_constraints(project, provider_id, model_id),
         uses_reference_images=(
             generation_mode == "reference_video" if uses_reference_images is None else uses_reference_images
         ),
@@ -1662,18 +1637,12 @@ class ConfigResolver:
         声音一致性随这一个字段一起丢掉。返回 None 让消费方按「未知」降级：这类项目里本就没有
         可执行的无参考图单元，真去入队时预检与执行仍会硬报错。
 
-        分辨率按项目为该 i2v 模型保存的档位求值，未保存时补供应商兜底——参考生视频的请求投影对
-        两个桶都下发 ``resolution_or_fallback``，求值档位与之同源；不沿用调用方给 r2v 模型的显式
-        ``resolution``：两个桶是不同的模型，档位表不能串。i2v 桶请求不带参考图，收窄按
-        ``uses_reference_images=False``。
+        分辨率按项目为该 i2v 模型保存的档位求值，未保存即不施加分辨率约束，与请求不下发该参数
+        同口径；不沿用调用方给 r2v 模型的显式 ``resolution``：两个桶是不同的模型，档位表不能串。
+        i2v 桶请求不带参考图，收窄按 ``uses_reference_images=False``。
         """
         try:
             selected = await self._resolve_video_provider_model(svc, session, project, None, "i2v")
-            saved = (
-                _resolution_from_project(project, selected.provider_id, selected.model_id)
-                if project is not None
-                else None
-            )
             caps = await self._resolve_video_caps_for_model(
                 svc,
                 session,
@@ -1681,7 +1650,6 @@ class ConfigResolver:
                 selected.model_id,
                 project,
                 generation_type="i2v",
-                resolution=_constraint_resolution(saved, selected.provider_id, reference_path=True),
                 uses_reference_images=False,
             )
         except ValueError:
@@ -1864,8 +1832,8 @@ class ConfigResolver:
         generation_mode = caps_generation_mode(project)
 
         # 时长联动约束按调用方给的上下文求值，缺省按项目：参考图路径默认「生成模式即参考生视频」，
-        # 分辨率默认项目已保存档位（空串是调用方显式的「未选档位」，不回退到已保存值）。参考图
-        # 路径执行期必带档位，未选时同 ``_resolution_for_constraints`` 补供应商兜底。
+        # 分辨率默认项目已保存档位（空串是调用方显式的「未选档位」，不回退到已保存值），未设置即
+        # 不施加分辨率约束，与请求不下发该参数同口径。
         reference_path = (
             generation_mode == "reference_video" if uses_reference_images is None else uses_reference_images
         )
@@ -1877,7 +1845,7 @@ class ConfigResolver:
             provider_id,
             model_id,
             supported_durations,
-            resolution=_constraint_resolution(saved_resolution, provider_id, reference_path=reference_path),
+            resolution=saved_resolution,
             uses_reference_images=reference_path,
         )
 

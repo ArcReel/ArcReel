@@ -23,16 +23,17 @@ from lib.config.resolver import (
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 from lib.db.repositories.usage_repo import PROJECT_LEVEL_SEGMENT_KEY, UsageRepository
 from lib.generation.generation_queue import GenerationQueue
+from lib.generation.video_request_facts import VideoRequestFacts
 from lib.project.project_manager import grid_storyboard_enabled, is_reference_video_project
 from lib.script.grid.grid_resolution import resolve_image_resolution
 from lib.script.grid.layout import GRID_FALLBACK_RESOLUTION, large_grid_allowed, plan_grid_chunks
 from lib.script.reference_video.request_projection import (
-    ConfigReferenceCapabilityProjection,
     FilesystemReferenceAssets,
-    ProviderProjectionCandidate,
+    ReferenceRequestFactsLookup,
     ReferenceRequestOptions,
     ReferenceUnitRequestProjector,
     ResolvedReferenceAsset,
+    configured_reference_request_facts,
     resolve_reference_assets,
     unit_reference_declarations,
 )
@@ -287,19 +288,19 @@ class CostEstimationService:
         # T2I 缺失不应回落 I2I —— 那会拿错误能力的价目算费用）。
         # image/video 的项目覆盖优先级由 ConfigResolver 统一解析，与执行路径共用同一套
         # payload>project>全局默认 链路，此处 payload 传 None（预估无历史任务 payload 可排空）。
-        projection_capabilities = ConfigReferenceCapabilityProjection(self._resolver)
-        reference_candidates: dict[VideoGenerationType, ProviderProjectionCandidate] = {}
+        request_facts_lookup = configured_reference_request_facts(project_data, self._resolver)
+        reference_facts: dict[VideoGenerationType, VideoRequestFacts] = {}
         if is_reference_video:
             for generation_type in _VIDEO_BUCKETS:
+                # 真正使用该 bucket 的 unit 会由 projector 返回结构化 blocker；未使用 bucket
+                # 的配置问题不应拖垮整份费用页。
                 try:
-                    reference_candidates[generation_type] = await projection_capabilities.resolve_candidate(
-                        project_data,
-                        generation_type,
-                    )
+                    evaluated = await request_facts_lookup(generation_type)
                 except Exception:
-                    # 真正使用该 bucket 的 unit 会由 projector 返回结构化 blocker；未使用 bucket
-                    # 的配置问题不应拖垮整份费用页。
-                    logger.debug("reference_video %s bucket 投影预解析失败", generation_type, exc_info=True)
+                    logger.debug("reference_video %s bucket 视频请求事实求值失败", generation_type, exc_info=True)
+                    continue
+                if isinstance(evaluated, VideoRequestFacts):
+                    reference_facts[generation_type] = evaluated
         async with self._resolver.session() as r:
             try:
                 resolved_image = await r.resolve_image_backend(project_data, None, generation_type="t2i")
@@ -323,12 +324,12 @@ class CostEstimationService:
             # generate_audio 随各自的模型身份求值。
             video_identity: dict[VideoGenerationType, tuple[str, str, str | None, bool]] = {}
             for generation_type in _VIDEO_BUCKETS:
-                candidate = reference_candidates.get(generation_type)
-                if candidate is not None:
-                    bucket_provider = candidate.provider_id
-                    bucket_model = candidate.model_id
-                    bucket_resolution = candidate.resolution
-                    bucket_audio = candidate.generate_audio
+                bucket_facts = reference_facts.get(generation_type)
+                if bucket_facts is not None:
+                    bucket_provider = bucket_facts.provider_id
+                    bucket_model = bucket_facts.model_id
+                    bucket_resolution = bucket_facts.resolution
+                    bucket_audio = bucket_facts.generate_audio
                 else:
                     try:
                         resolved_video = await r.resolve_video_backend(
@@ -487,7 +488,7 @@ class CostEstimationService:
                     script=script,
                     script_file=script_file,
                     units=video_units,
-                    projection_capabilities=projection_capabilities,
+                    request_facts_lookup=request_facts_lookup,
                     video_prices=video_prices,
                     actual_by_segment=actual_by_segment,
                     claimed_actual=claimed_actual,
@@ -711,7 +712,7 @@ class CostEstimationService:
         script: dict[str, Any],
         script_file: str,
         units: list[Any],
-        projection_capabilities: ConfigReferenceCapabilityProjection,
+        request_facts_lookup: ReferenceRequestFactsLookup,
         video_prices: dict[tuple[str, str], Any],
         actual_by_segment: ActualBySegment,
         claimed_actual: set[tuple[str, str]],
@@ -751,7 +752,7 @@ class CostEstimationService:
             availability = _AssumeResolvedAssetsAvailable()
         else:
             availability = FilesystemReferenceAssets(self._project_path)
-        projector = ReferenceUnitRequestProjector(projection_capabilities, availability)
+        projector = ReferenceUnitRequestProjector(request_facts_lookup, availability)
 
         for unit in units:
             if not isinstance(unit, dict):

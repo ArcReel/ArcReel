@@ -323,17 +323,23 @@ def test_constrain_durations_for_project_unset_resolution_not_constrained():
     ) == [6, 10]
 
 
-def test_constrain_durations_for_project_unset_resolution_reference_mode_uses_fallback():
-    """参考生视频是唯一按供应商兜底档位求值的路径——它执行期确实下发非空档位。
+def test_constrain_durations_for_project_unset_resolution_reference_mode_applies_only_reference_constraint():
+    """参考生视频未设分辨率时与普通路径同口径：请求不携带分辨率，只剩参考图约束。
 
-    ``reference_video_tasks`` 取 ``resolution_or_fallback``，故未配置分辨率时约束也得按那个
-    档位算，否则 script_plan 会按全集上限拆 unit、prompt_authoring 的枚举再判非法。Veo 兜底 1080p → 只剩 8 秒
-    （参考图约束在该模式下同样生效，二者指向同一结果）。
+    Veo 3.1 带参考图只接受 8 秒；不带参考图的单元不施加任何约束，保留 [4, 6, 8]。
     """
     assert constrain_durations_for_project(
         {}, [4, 6, 8], provider_id=_VEO[0], model_id=_VEO[1], generation_mode="reference_video"
     ) == [8]
-    # minimax 兜底 768p，该档位无声明 → 分辨率维度不收窄
+    assert constrain_durations_for_project(
+        {},
+        [4, 6, 8],
+        provider_id=_VEO[0],
+        model_id=_VEO[1],
+        generation_mode="reference_video",
+        uses_reference_images=False,
+    ) == [4, 6, 8]
+    # MiniMax 海螺 1080P 只有 6 秒：未设分辨率不施加该约束。
     assert constrain_durations_for_project(
         {}, [6, 10], provider_id=_HAILUO[0], model_id=_HAILUO[1], generation_mode="reference_video"
     ) == [6, 10]

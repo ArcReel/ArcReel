@@ -58,7 +58,7 @@ from lib.generation.generation_queue import (
     get_generation_queue,
     without_video_execution_identity,
 )
-from lib.generation.video_request_facts import require_video_request_facts
+from lib.generation.video_request_facts import VideoRequestFacts, require_video_request_facts
 from lib.infra.api_errors import ConflictError
 from lib.infra.async_thread import EventLoopBridge, run_noninterruptible_sync
 from lib.infra.path_safety import safe_join, try_safe_join
@@ -1099,15 +1099,15 @@ async def execute_video_task(
             claimed_provider_id=claimed_provider_id,
             actual_provider_id=registry_provider_id,
         )
+    if ctx.video.request_facts is None:
+        raise RuntimeError("storyboard video lane is missing its request facts")
     request_facts = None
     if delivery_options.narration_delivery == USE_TTS:
-        if ctx.video.request_facts is None:
-            raise RuntimeError("storyboard video lane is missing its request facts")
         request_facts = require_video_request_facts(ctx.video.request_facts)
+    elif isinstance(ctx.video.request_facts, VideoRequestFacts):
+        request_facts = ctx.video.request_facts
     model_name = ctx.video.backend_model
-    supported_durations: list[int] = list(
-        request_facts.supported_durations if request_facts else ctx.video.supported_durations
-    )
+    supported_durations: list[int] = list(request_facts.supported_durations if request_facts else ())
     resolution = request_facts.resolution if request_facts else ctx.video.resolution
 
     artifact_episode = script_input.episode

@@ -24,6 +24,7 @@ from lib.config.resolver import (
     VideoBucketCapabilityError,
     VideoGenerationType,
     VideoSupportedDurationsError,
+    VoiceConsistency,
     builtin_video_audio_track,
     constrain_durations,
 )
@@ -81,6 +82,11 @@ class VideoRequestFacts:
     音轨四项：``requested_generate_audio`` 是用户的音频开关，``generate_audio`` 是计价口径的
     有无音轨，``has_audio_track`` 是成片有无音轨，``audio_switch_controllable`` 是开关是否可控。
     计价所需的事实是执行模型、``resolution``、请求秒数与 ``generate_audio``。
+
+    请求形态能力取自同一次能力合成，请求组装与投影直接读取：``max_reference_images`` 是每请求
+    参考图上限（None = 不裁剪），``text_to_video`` / ``first_frame`` 是无图请求的能力位，
+    ``voice_consistency`` 是声音一致性档位，``max_reference_audio_count`` 与
+    ``reference_audio_per_image`` 描述参考音频的段数上限与是否逐段挂在参考图上。
     """
 
     route: VideoRoute
@@ -96,6 +102,12 @@ class VideoRequestFacts:
     generate_audio: bool
     has_audio_track: bool
     audio_switch_controllable: bool
+    max_reference_images: int | None
+    text_to_video: bool
+    first_frame: bool
+    voice_consistency: VoiceConsistency
+    max_reference_audio_count: int
+    reference_audio_per_image: bool
 
 
 @dataclass(frozen=True)
@@ -230,12 +242,14 @@ async def evaluate_video_request_facts(
         (d, "reference" if d not in reference_allowed else "resolution") for d in supported if d not in allowed
     )
 
+    voice_consistency: VoiceConsistency = caps.get("voice_consistency") or "soft"
     has_audio_track, audio_switch_controllable = video_audio_model_facts(
         provider_id,
         model_id,
-        voice_consistency=str(caps.get("voice_consistency") or "soft"),
+        voice_consistency=voice_consistency,
         generation_type=generation_type,
     )
+    max_reference_images = caps.get("max_reference_images")
     return VideoRequestFacts(
         route=route,
         generation_type=generation_type,
@@ -250,4 +264,10 @@ async def evaluate_video_request_facts(
         generate_audio=bool(caps.get("generate_audio")),
         has_audio_track=has_audio_track,
         audio_switch_controllable=audio_switch_controllable,
+        max_reference_images=int(max_reference_images) if max_reference_images is not None else None,
+        text_to_video=bool(caps.get("text_to_video", True)),
+        first_frame=bool(caps.get("first_frame")),
+        voice_consistency=voice_consistency,
+        max_reference_audio_count=int(caps.get("max_reference_audio_count") or 0),
+        reference_audio_per_image=bool(caps.get("reference_audio_per_image")),
     )

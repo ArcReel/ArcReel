@@ -48,9 +48,7 @@ from lib.script.reference_video.duration_slots import DEFAULT_PLANNED_DURATION_S
 from lib.script.reference_video.prompt_render import render_video_unit_prompt, resolve_reference_audio_paths
 from lib.script.reference_video.request_projection import (
     USE_TTS,
-    ConfigReferenceCapabilityProjection,
     FilesystemReferenceAssets,
-    ProviderProjectionCandidate,
     ReferenceRequestOptions,
     ResolvedReferenceAsset,
     clamp_reference_assets,
@@ -699,7 +697,7 @@ def reference_video_visual_basis_digest(
     project_path: Path,
     unit: dict[str, Any],
     request_assets: Sequence[ResolvedReferenceAsset],
-    candidate: ProviderProjectionCandidate,
+    request_facts: VideoRequestFacts,
 ) -> str:
     """Hash the exact projected reference request and every prompt-affecting input."""
 
@@ -708,16 +706,16 @@ def reference_video_visual_basis_digest(
         unit,
         project,
         VoiceRenderSettings(
-            voice_consistency=candidate.voice_consistency,
-            requested_generate_audio=candidate.requested_generate_audio,
-            max_reference_audio=candidate.max_reference_audio_count,
-            model_id=candidate.model_id,
+            voice_consistency=request_facts.voice_consistency,
+            requested_generate_audio=request_facts.requested_generate_audio,
+            max_reference_audio=request_facts.max_reference_audio_count,
+            model_id=request_facts.model_id,
             audio_ready=audio_paths,
-            requires_reference_image=candidate.reference_audio_per_image,
+            requires_reference_image=request_facts.reference_audio_per_image,
         ),
         request_references=[asset.reference for asset in request_assets],
     )
-    if candidate.reference_audio_per_image:
+    if request_facts.reference_audio_per_image:
         audio_wiring = [
             (speaker, target)
             for speaker, target in zip(
@@ -740,7 +738,7 @@ def reference_video_visual_basis_digest(
         reference_audio_files=[audio_paths[speaker] for speaker in audio_speakers],
         reference_audio_speakers=audio_speakers,
         reference_audio_targets=audio_targets,
-        candidate=candidate,
+        request_facts=request_facts,
     )
 
 
@@ -753,7 +751,7 @@ def materialized_reference_video_visual_basis_digest(
     reference_audio_files: Sequence[Path],
     reference_audio_speakers: Sequence[str],
     reference_audio_targets: Sequence[int] | None,
-    candidate: ProviderProjectionCandidate,
+    request_facts: VideoRequestFacts,
 ) -> str:
     """Hash a fully rendered request against the exact media bytes that will be submitted."""
 
@@ -773,18 +771,18 @@ def materialized_reference_video_visual_basis_digest(
         reference_audio_speakers=reference_audio_speakers,
         reference_audio_targets=reference_audio_targets,
         request_context={
-            "capability": candidate.generation_type,
-            "provider_id": candidate.provider_id,
-            "model_id": candidate.model_id,
-            "resolution": candidate.resolution,
-            "max_reference_images": candidate.max_reference_images,
-            "generate_audio": candidate.generate_audio,
-            "requested_generate_audio": candidate.requested_generate_audio,
-            "has_audio_track": candidate.has_audio_track,
-            "audio_switch_controllable": candidate.audio_switch_controllable,
-            "voice_consistency": candidate.voice_consistency,
-            "max_reference_audio_count": candidate.max_reference_audio_count,
-            "reference_audio_per_image": candidate.reference_audio_per_image,
+            "capability": request_facts.generation_type,
+            "provider_id": request_facts.provider_id,
+            "model_id": request_facts.model_id,
+            "resolution": request_facts.resolution,
+            "max_reference_images": request_facts.max_reference_images,
+            "generate_audio": request_facts.generate_audio,
+            "requested_generate_audio": request_facts.requested_generate_audio,
+            "has_audio_track": request_facts.has_audio_track,
+            "audio_switch_controllable": request_facts.audio_switch_controllable,
+            "voice_consistency": request_facts.voice_consistency,
+            "max_reference_audio_count": request_facts.max_reference_audio_count,
+            "reference_audio_per_image": request_facts.reference_audio_per_image,
         },
     ).digest
 
@@ -803,17 +801,23 @@ async def _reference_visual_basis_digest(
             asset for asset in resolve_reference_assets(project, project_path, unit) if availability.is_available(asset)
         )
         generation_type: VideoGenerationType = "r2v" if available else "i2v"
-        candidate = await ConfigReferenceCapabilityProjection(ConfigResolver(async_session_factory)).resolve_candidate(
-            project, generation_type
+        request_facts = require_video_request_facts(
+            await evaluate_video_request_facts(
+                project,
+                route="reference_video",
+                generation_type=generation_type,
+                identity=CONFIGURED_VIDEO_IDENTITY,
+                resolver=ConfigResolver(async_session_factory),
+            )
         )
-        request_assets = clamp_reference_assets(available, candidate.max_reference_images)
+        request_assets = clamp_reference_assets(available, request_facts.max_reference_images)
         return await asyncio.to_thread(
             reference_video_visual_basis_digest,
             project=project,
             project_path=project_path,
             unit=unit,
             request_assets=request_assets,
-            candidate=candidate,
+            request_facts=request_facts,
         )
     except Exception:
         return None

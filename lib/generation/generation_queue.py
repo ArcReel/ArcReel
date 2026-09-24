@@ -236,7 +236,7 @@ async def resolve_video_execution_for_queued_task(
         if task_type == "reference_video"
         else None
     )
-    if projection is not None and projection.provider_candidate is not None:
+    if projection is not None and projection.request_facts is not None:
         from lib.config.resolver import ProviderModel
 
         return ProviderModel(

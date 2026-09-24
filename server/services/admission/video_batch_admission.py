@@ -462,7 +462,7 @@ async def admit_reference_video_batch(
     extra_tickets: Sequence[UnitAdmissionTicket] = (),
     user_id: str = DEFAULT_USER_ID,
     queue: GenerationQueue | None = None,
-    config_resolver: object | None = None,
+    config_resolver: ConfigResolver | None = None,
     tts_settings_resolver: TtsSettingsResolver | None = None,
 ) -> BatchAdmission:
     """Evaluate every reference unit of one request against the current state.

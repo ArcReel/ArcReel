@@ -287,6 +287,12 @@ def make_video_request_facts(**overrides: Any):
         "generate_audio": True,
         "has_audio_track": True,
         "audio_switch_controllable": False,
+        "max_reference_images": 3,
+        "text_to_video": True,
+        "first_frame": True,
+        "voice_consistency": "soft",
+        "max_reference_audio_count": 0,
+        "reference_audio_per_image": False,
     }
     fields.update(overrides)
     return VideoRequestFacts(**fields)

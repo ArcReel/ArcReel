@@ -22,6 +22,7 @@ from lib.project.project_migrations.runner import migrate_project_dir
 from lib.project.project_migrations.v7_to_v8_artifact_manifest import migrate_v7_to_v8
 from server.auth import CurrentUserInfo, get_current_user
 from tests.auth_deps import AUTH_DEPENDENCIES
+from tests.factories import make_video_request_facts
 from tests.fakes import fake_reference_request_projector
 
 _TINY_PNG = (
@@ -167,11 +168,15 @@ async def test_end_to_end_generate_unit_to_executor(
             backend_name="ark",
             backend_model="doubao-seedance-2-0-260128",
             resolution=None,
-            resolution_or_fallback="1080p",
-            supported_durations=(4,),
-            max_duration=4,
-            max_reference_images=None,
-            generate_audio=True,
+            request_facts=make_video_request_facts(
+                route="reference_video",
+                generation_type="r2v",
+                provider_id="ark",
+                model_id="doubao-seedance-2-0-260128",
+                supported_durations=(4,),
+                allowed_durations=(4,),
+                max_reference_images=None,
+            ),
         ),
     )
 

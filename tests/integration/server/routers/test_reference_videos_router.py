@@ -16,7 +16,8 @@ from lib.project.project_migrations.v7_to_v8_artifact_manifest import migrate_v7
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from tests.auth_deps import AUTH_DEPENDENCIES
-from tests.fakes import fake_reference_request_projector
+from tests.factories import make_video_request_facts
+from tests.fakes import fake_reference_request_facts, fake_reference_request_projector
 from tests.speech_contract_cases import SPEECH_CONTRACT_CASES, SpeechContractCase
 
 
@@ -174,11 +175,12 @@ def test_add_unit_derives_references_from_text_before_selecting_duration_bucket(
 ):
     """默认时长按正文派生出的参考图定桶：正文提到已登记资产即走 r2v 档。"""
     from server.routers import reference_videos as router_mod
-    from server.services.tasks.reference_video_tasks import ProjectDurationContext
 
-    ctx = ProjectDurationContext(supported_durations=(6, 9), resolution=None, provider_id="", model_name=None)
-    resolve_context = AsyncMock(return_value=ctx)
-    monkeypatch.setattr(router_mod, "resolve_project_duration_context", resolve_context)
+    facts = make_video_request_facts(
+        route="reference_video", generation_type="r2v", supported_durations=(6, 9), allowed_durations=(6, 9)
+    )
+    resolve_context = AsyncMock(return_value=facts)
+    monkeypatch.setattr(router_mod, "resolve_new_unit_request_facts", resolve_context)
 
     response = reference_videos_client.post(
         "/api/v1/projects/demo/reference-videos/episodes/1/units",
@@ -187,7 +189,7 @@ def test_add_unit_derives_references_from_text_before_selecting_duration_bucket(
 
     assert response.status_code == 201, response.text
     assert response.json()["unit"]["duration_seconds"] == 6
-    assert resolve_context.await_args.kwargs["generation_type"] == "r2v"
+    assert resolve_context.await_args.kwargs["with_references"] is True
 
 
 @pytest.mark.parametrize("duration_seconds", [0, -1])
@@ -779,18 +781,20 @@ def _projection_with_durations(durations: list[int]):
 
 def _patch_supported_durations(monkeypatch: pytest.MonkeyPatch, durations: list[int]) -> None:
     from server.routers import reference_videos as router_mod
-    from server.services.tasks.reference_video_tasks import ProjectDurationContext
 
     monkeypatch.setattr(router_mod, "project_reference_unit_request", _projection_with_durations(durations))
     monkeypatch.setattr(
         router_mod,
-        "resolve_project_duration_context",
+        "resolve_new_unit_request_facts",
         AsyncMock(
-            return_value=ProjectDurationContext(
-                supported_durations=tuple(durations),
-                resolution="1080p",
+            return_value=make_video_request_facts(
+                route="reference_video",
+                generation_type="r2v",
                 provider_id="fake",
-                model_name="fake-model",
+                model_id="fake-model",
+                resolution="1080p",
+                supported_durations=tuple(durations),
+                allowed_durations=tuple(durations),
             )
         ),
     )
@@ -2211,16 +2215,14 @@ def test_prompt_preview_fails_closed_when_capabilities_cannot_resolve(
     reference_videos_client: TestClient, monkeypatch: pytest.MonkeyPatch
 ):
     from server.routers import reference_videos as router_mod
-    from tests.fakes import FakeReferenceCapabilityProjection
 
-    class UnavailableCapabilities(FakeReferenceCapabilityProjection):
-        async def resolve_candidate(self, project: dict, generation_type):
-            raise RuntimeError("provider configuration unavailable")
+    async def _unavailable_request_facts(generation_type):
+        raise RuntimeError("provider configuration unavailable")
 
     monkeypatch.setattr(
         router_mod,
         "project_reference_unit_request",
-        fake_reference_request_projector(capabilities=UnavailableCapabilities(durations=(3,))),
+        fake_reference_request_projector(request_facts=_unavailable_request_facts),
     )
     uid = _seed_unit(reference_videos_client)
     response = reference_videos_client.post(
@@ -2268,21 +2270,18 @@ def test_prompt_preview_binds_only_available_audio_from_projected_voice_capabili
     reference_videos_client: TestClient, monkeypatch: pytest.MonkeyPatch, audio_exists: bool
 ):
     from server.routers import reference_videos as router_mod
-    from tests.fakes import FakeReferenceCapabilityProjection
-
-    class NativeCapabilities(FakeReferenceCapabilityProjection):
-        async def resolve_candidate(self, project: dict, generation_type):
-            return replace(
-                await super().resolve_candidate(project, generation_type),
-                voice_consistency="native",
-                max_reference_audio_count=1,
-                reference_audio_per_image=True,
-            )
 
     monkeypatch.setattr(
         router_mod,
         "project_reference_unit_request",
-        fake_reference_request_projector(capabilities=NativeCapabilities(durations=(3,))),
+        fake_reference_request_projector(
+            request_facts=fake_reference_request_facts(
+                durations=(3,),
+                voice_consistency="native",
+                max_reference_audio_count=1,
+                reference_audio_per_image=True,
+            )
+        ),
     )
     pm = router_mod.get_project_manager()
     project = pm.load_project("demo")

@@ -97,18 +97,14 @@ def fake_resolve_ctx(
                     duration_endpoint_fixed=duration_endpoint_fixed,
                     requested_generate_audio=requested_generate_audio,
                     has_audio_track=voice_consistency != "none",
+                    max_reference_images=None,
+                    voice_consistency=voice_consistency,
                 )
             video_lane = VideoLaneResult(
                 provider_model=ProviderModel(provider, model),
                 backend_name=provider,
                 backend_model=backend_model,
                 resolution=video_resolution,
-                resolution_or_fallback=video_resolution or "720p",
-                supported_durations=tuple(supported_durations),
-                duration_endpoint_fixed=duration_endpoint_fixed,
-                max_duration=None,
-                max_reference_images=None,
-                voice_consistency=voice_consistency,
                 requested_generate_audio=requested_generate_audio,
                 request_facts=request_facts,
             )
