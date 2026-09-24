@@ -385,4 +385,4 @@ class TestRepoStateMachineGuards:
         assert await repo.finalize_interrupted(t["task_id"]) == 1
         final = await repo.get(t["task_id"])
         assert final["status"] == "cancelled"
-        assert final["cancelled_by"] == "user"
+        assert final["cancelled_by"] == "interrupted"

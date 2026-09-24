@@ -764,7 +764,7 @@ class TestCancelCascade:
 
         assert await repo.finalize_interrupted(a) == 1
 
-        for tid, expected in [(a, "user"), (b, "cascade"), (c, "cascade")]:
+        for tid, expected in [(a, "interrupted"), (b, "cascade"), (c, "cascade")]:
             t = await repo.get(tid)
             assert t["status"] == "cancelled"
             assert t["cancelled_by"] == expected
