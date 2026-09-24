@@ -48,15 +48,11 @@ from lib.project.project_manager import get_project_manager
 from lib.project.resource_paths import CHARACTER_DERIVATIVE_RESOURCE_TYPE, resource_relative_path
 from lib.script.script_models import get_generated_assets
 from lib.script.storyboard_sequence import find_storyboard_item, get_storyboard_items
-from server.services.tasks.derivative_sheet_tasks import (
-    derivative_sheet_commit_callback,
-    finalize_derivative_sheet_task,
-)
+from server.services.tasks.derivative_sheet_tasks import derivative_sheet_commit_callback
 from server.services.tasks.formal_image_commit import (
     asset_sheet_formal_image_callback,
-    finalize_asset_sheet_task,
-    finalize_storyboard_image_task,
     get_aspect_ratio,
+    require_formal_outcome,
     storyboard_formal_image_callback,
 )
 from server.services.tasks.generation_context import ImageLaneRequest, resolve_generation_context
@@ -472,7 +468,7 @@ async def execute_image_edit_task(
 
         # 参考图仅当前图一张、prompt 仅编辑指令（不拼原 image_prompt / 不追加生成路径的
         # 自动参考图收集）；provider 与 frozen basis 共享 task-owned 源图字节。
-        _, version = await generator.generate_image_async(
+        await generator.generate_image_async(
             prompt=instruction,
             resource_type=version_resource_type,
             resource_id=resource_key,
@@ -488,48 +484,11 @@ async def execute_image_edit_task(
     finally:
         await run_noninterruptible_sync(frozen_references.cleanup)
 
-    if formal_outcomes:
-        outcome = formal_outcomes[0]
-        version, created_at = outcome.version, outcome.created_at
-    elif resource_type == DERIVATIVE_TASK_TYPE:
-        created_at = await finalize_derivative_sheet_task(
-            project_name=project_name,
-            target=_derivative_target(resource_key),
-            generator=generator,
-            version=version,
-            task_id=task_id,
-            basis=edit_basis,
-            project_manager=get_project_manager(),
-        )
-    elif resource_type == "storyboard":
-        created_at = await finalize_storyboard_image_task(
-            project_name=project_name,
-            script_file=str(script_file),
-            resource_id=resource_key,
-            artifact_path=canonical_rel,
-            generator=generator,
-            version=version,
-            task_id=task_id,
-            basis=edit_basis,
-            project_manager=get_project_manager(),
-        )
-    else:
-        created_at = await finalize_asset_sheet_task(
-            asset_type=resource_type,
-            project_name=project_name,
-            resource_id=resource_key,
-            sheet_path=canonical_rel,
-            generator=generator,
-            version=version,
-            task_id=task_id,
-            basis=edit_basis,
-            project_manager=get_project_manager(),
-        )
-
+    outcome = require_formal_outcome(formal_outcomes)
     return {
-        "version": version,
+        "version": outcome.version,
         "file_path": canonical_rel,
-        "created_at": created_at,
+        "created_at": outcome.created_at,
         "resource_type": version_resource_type,
         "resource_id": resource_key,
     }

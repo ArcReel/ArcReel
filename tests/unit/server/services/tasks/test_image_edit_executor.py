@@ -3,6 +3,7 @@
 
 import json
 import tempfile
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -71,14 +72,25 @@ class _FakeGenerator:
             canonical = self.project_path / resource_relative_path(kwargs["resource_type"], kwargs["resource_id"])
             canonical.parent.mkdir(parents=True, exist_ok=True)
             canonical.write_bytes(b"edited")
-        return Path(tempfile.gettempdir()) / "image.png", 2
+        # 与 MediaGenerator 一样经 formal_output 的活化回调提交版本，返回回调给出的版本号
+        current = Path(tempfile.gettempdir()) / "image.png"
+        version = kwargs["commit_formal_output"](current, current, {"source": kwargs["source"]})
+        return current, version
+
+    def commit_staged_version(self, resource_type, resource_id, prompt, *, on_commit=None, **_kwargs):
+        if on_commit is not None:
+            on_commit()
+        return 2
+
+    def get_current_version(self, resource_type, resource_id):
+        return 2
 
     def ensure_current_tracked(self, resource_type, resource_id, current_file, prompt, **metadata):
         self.tracked.append({"resource_type": resource_type, "resource_id": resource_id, "prompt": prompt})
         return
 
     def get_versions(self, resource_type, resource_id):
-        return {"versions": [{"created_at": "2026-01-01T00:00:00Z"}]}
+        return {"versions": [{"version": 2, "created_at": "2026-01-01T00:00:00Z"}]}
 
 
 class _FakePM:
@@ -117,8 +129,8 @@ class _FakePM:
                 {"segment_id": "E1S02", "generated_assets": {}},
             ],
         }
-        self.sheet_updates = []
-        self.scene_asset_updates = []
+        self.project_commits = 0
+        self.script_commits = []
 
     def sync_disk(self):
         """把内存态项目与剧本落盘——产物清单按磁盘上的真实项目做比对。"""
@@ -145,16 +157,25 @@ class _FakePM:
         self.sync_disk()
         return self.script
 
-    def update_scene_asset(self, **kwargs):
-        on_commit = kwargs.pop("on_commit", None)
-        self.scene_asset_updates.append(kwargs)
-        if on_commit is not None:
-            on_commit(self.project_path / "scripts" / kwargs["script_filename"])
-
-    def _update_asset_sheet(self, asset_type, project_name, name, sheet_path, *, on_commit=None):
-        self.sheet_updates.append((asset_type, name, sheet_path))
+    def update_project(self, project_name, mutate_fn, *, on_commit=None):
+        mutate_fn(self.project)
+        self.project_commits += 1
+        self.sync_disk()
         if on_commit is not None:
             on_commit(self.project_path / "project.json")
+
+    @contextmanager
+    def locked_script(self, project_name, script_filename, *, validate=True, on_commit=None):
+        yield self.script
+        self.script_commits.append(script_filename)
+        self.sync_disk()
+        if on_commit is not None:
+            on_commit(self.project_path / "scripts" / script_filename)
+
+    def _set_scene_asset_in_script(self, script, scene_id, asset_type, asset_path):
+        item = next(segment for segment in script["segments"] if segment["segment_id"] == scene_id)
+        item.setdefault("generated_assets", {})[asset_type] = asset_path
+        return item
 
 
 def _prepare_files(tmp_path: Path) -> Path:
@@ -792,7 +813,8 @@ class TestExecuteImageEditTask:
         # 旧图先以中性元数据补登（不带编辑指令），保证编辑前版本可回滚
         assert fake_generator.tracked == [{"resource_type": "characters", "resource_id": "Alice", "prompt": ""}]
         # 按资源类型写回 canonical 路径；原 image_prompt 字段不被改动
-        assert fake_pm.sheet_updates == [("character", "Alice", "characters/Alice.png")]
+        assert fake_pm.project_commits == 1
+        assert fake_pm.project["characters"]["Alice"]["character_sheet"] == "characters/Alice.png"
         assert fake_pm.project["characters"]["Alice"]["image_prompt"] == "原始角色 prompt"
 
         assert result["resource_type"] == "characters"
@@ -819,15 +841,8 @@ class TestExecuteImageEditTask:
         assert fake_generator.reference_bytes == [b"png"]
         assert not Path(call["reference_images"][0]).exists()  # noqa: ASYNC240 -- 测试内本地小文件读写/断言，不在生产事件循环上
         assert call["resource_type"] == "storyboards"
-        assert fake_pm.scene_asset_updates == [
-            {
-                "project_name": "demo",
-                "script_filename": "episode_1.json",
-                "scene_id": "E1S01",
-                "asset_type": "storyboard_image",
-                "asset_path": "storyboards/scene_E1S01.png",
-            }
-        ]
+        assert fake_pm.script_commits == ["episode_1.json"]
+        assert fake_pm.script["segments"][0]["generated_assets"]["storyboard_image"] == "storyboards/scene_E1S01.png"
         assert result["file_path"] == "storyboards/scene_E1S01.png"
 
     async def test_no_current_image_raises(self, tmp_path, monkeypatch):
@@ -839,7 +854,7 @@ class TestExecuteImageEditTask:
         with pytest.raises(ValueError, match="no current image"):
             await execute_image_edit_task("demo", "祠堂", {"resource_type": "scene", "prompt": "x"})
         assert fake_generator.image_calls == []
-        assert fake_pm.sheet_updates == []
+        assert fake_pm.project_commits == 0
 
     async def test_backend_failure_skips_writeback(self, tmp_path, monkeypatch):
         """失败零损失：backend 抛错时不写回资源字段（current 图指针由 MediaGenerator 保证不触碰）。
@@ -852,8 +867,8 @@ class TestExecuteImageEditTask:
 
         with pytest.raises(RuntimeError, match="backend boom"):
             await execute_image_edit_task("demo", "Alice", {"resource_type": "character", "prompt": "x"})
-        assert fake_pm.sheet_updates == []
-        assert fake_pm.scene_asset_updates == []
+        assert fake_pm.project_commits == 0
+        assert fake_pm.script_commits == []
 
     async def test_invalid_payload_rejected(self, tmp_path, monkeypatch):
         project_path = _prepare_files(tmp_path)

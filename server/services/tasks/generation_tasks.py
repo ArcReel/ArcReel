@@ -134,13 +134,11 @@ from server.services.tasks.formal_image_commit import (
     FormalImageCommitOutcome,
     FormalImagePlan,
     StagedImageCommit,
-    finalize_storyboard_image_task,
     get_aspect_ratio,
     grid_formal_image_callback,
-    register_formal_task_artifact,
+    require_formal_outcome,
     run_asset_sheet_image_task,
     run_formal_image_task,
-    run_formal_task_finalizer,
     storyboard_formal_image_callback,
 )
 from server.services.tasks.generation_context import (
@@ -955,19 +953,6 @@ async def execute_storyboard_task(
             project_manager=get_project_manager(),
         )
 
-    async def _finalize(generator: Any, version: int) -> str:
-        return await finalize_storyboard_image_task(
-            project_name=project_name,
-            script_file=str(script_file),
-            resource_id=resource_id,
-            artifact_path=artifact_path,
-            generator=generator,
-            version=version,
-            task_id=task_id,
-            basis=storyboard_basis,
-            project_manager=get_project_manager(),
-        )
-
     return await run_formal_image_task(
         project_name=project_name,
         payload=payload,
@@ -983,7 +968,6 @@ async def execute_storyboard_task(
             prompt=prompt_text,
             aspect_ratio=get_aspect_ratio(project, "storyboards"),
             build_commit_callback=_build_commit,
-            finalize=_finalize,
             pre_submit=_assert_claims_usable,
             before_submit=_assert_claims_usable,
             warnings=warnings,
@@ -1881,7 +1865,7 @@ async def execute_video_task(
         )
 
         async def _finalize() -> dict[str, Any]:
-            return await _finalize_video_task(
+            return await finalize_video_task(
                 project_name=project_name,
                 script_file=script_file,
                 project_path=project_path,
@@ -1909,7 +1893,7 @@ async def execute_video_task(
             await asyncio.to_thread(cleanup_staged_provider_media, project_path, task_id)
 
 
-async def _finalize_video_task(
+async def finalize_video_task(
     *,
     project_name: str,
     script_file: str,
@@ -2294,8 +2278,6 @@ async def execute_grid_task(
     if artifact_episode != grid.episode:
         raise ValueError(f"grid episode {grid.episode} does not match bound script episode {artifact_episode}")
 
-    version: int | None = None
-    generator: Any = None
     frozen_references: FrozenImageReferences | None = None
     try:
         # b) Set status to generating
@@ -2414,7 +2396,7 @@ async def execute_grid_task(
         async def _before_submit() -> None:
             await asyncio.to_thread(assert_current_artifact_input_claims_usable, project_path, formal_claims)
 
-        _image_path, version = await generator.generate_image_async(
+        await generator.generate_image_async(
             prompt=prompt_text,
             resource_type="grids",
             resource_id=resource_id,
@@ -2437,57 +2419,12 @@ async def execute_grid_task(
             ),
         )
 
-        # e) Mark joint image ready；联合图内容已更新，旧的落格结果不再对应当前图，
-        # split_at 清空表示「待显式切分」。
-        def _commit_grid() -> None:
-            assert grid is not None
+        version = require_formal_outcome(formal_outcomes).version
 
-            def _complete(current_grid) -> None:
-                current_grid.grid_image_path = f"grids/{resource_id}.png"
-                current_grid.status = "completed"
-                current_grid.split_at = None
-
-            def _register() -> None:
-                register_formal_task_artifact(
-                    project_path,
-                    resource_type="grids",
-                    resource_id=resource_id,
-                    script_file=None,
-                    task_id=task_id,
-                    artifact_path=f"grids/{resource_id}.png",
-                    basis=grid_basis,
-                )
-
-            committed_grid = grid_manager.update_formal(resource_id, _complete, on_commit=_register)
-            if committed_grid is None:
-                raise ValueError(f"grid not found: {resource_id}")
-            grid.grid_image_path = committed_grid.grid_image_path
-            grid.status = committed_grid.status
-            grid.split_at = committed_grid.split_at
-
-        if formal_outcomes:
-            version = formal_outcomes[0].version
-        else:
-            await run_formal_task_finalizer(_commit_grid)
-
-    except Exception as failure:
-        if version is not None and generator is not None:
-            try:
-                rejected = await asyncio.to_thread(
-                    generator.versions.reject_current_version,
-                    "grids",
-                    resource_id,
-                    rejected_version=version,
-                    current_file=project_path / "grids" / f"{resource_id}.png",
-                )
-                if not rejected:
-                    failure.add_note("generated grid version changed before formal-write compensation")
-            except Exception as compensation_failure:
-                failure.add_note(f"generated grid compensation also failed: {compensation_failure}")
-        # The formal-write transaction restored the durable grid record, but
-        # ``grid`` still carries the rejected completion fields in memory.
-        # Reload before recording failure so the metadata pointer continues to
-        # describe whichever version compensation left selected.
+    except Exception:
+        # The formal-write transaction restores the durable grid record on failure.
+        # Reload it before recording failure so the in-memory ``grid`` never carries
+        # completion fields that did not become durable.
         grid = grid_manager.get(resource_id) or grid
         grid.status = "failed"
         import traceback

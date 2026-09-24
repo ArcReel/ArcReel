@@ -273,8 +273,16 @@ class FakeGenerator:
                 for reference in kwargs.get("reference_images") or []
             ]
         )
-        self.current_versions[(kwargs["resource_type"], kwargs["resource_id"])] = 1
-        return Path("/tmp/image.png"), 1
+        # 与 MediaGenerator 一样经 formal_output 的活化回调提交版本，返回回调给出的版本号
+        current = Path("/tmp/image.png")
+        version = kwargs["commit_formal_output"](current, current, {})
+        return current, version
+
+    def commit_staged_version(self, resource_type, resource_id, prompt, *, on_commit=None, **_kwargs):
+        self.current_versions[(resource_type, resource_id)] = 1
+        if on_commit is not None:
+            on_commit()
+        return 1
 
     def _materialize_image(self, resource_type: str, resource_id: str) -> None:
         if self.project_path is None:
