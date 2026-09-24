@@ -478,6 +478,41 @@ async def test_projection_refuses_tts_delivery_on_endpoint_fixed_durations() -> 
     assert result.problem_payloads()[0]["action"] == "choose_post_production"
 
 
+@pytest.mark.parametrize("fixed_bucket", ["i2v", "r2v"])
+async def test_tts_endpoint_fixed_follows_the_unit_bucket(fixed_bucket: str) -> None:
+    facts_by_bucket: dict[str, VideoRequestFacts] = {}
+    for bucket in ("i2v", "r2v"):
+        facts = _bucket_facts(bucket)
+        facts_by_bucket[bucket] = replace(
+            facts,
+            supported_durations=() if bucket == fixed_bucket else facts.supported_durations,
+            allowed_durations=() if bucket == fixed_bucket else facts.allowed_durations,
+            duration_endpoint_fixed=bucket == fixed_bucket,
+        )
+
+    async def request_facts(bucket: str) -> VideoRequestFactsResult:
+        return facts_by_bucket[bucket]
+
+    projector = ReferenceUnitRequestProjector(request_facts, _FakeAssets(set()))
+    for with_reference in (False, True):
+        unit = {
+            "unit_id": "E1U1",
+            "text": "@[王] 推门。" if with_reference else "空镜：海面翻涌。",
+            "duration_seconds": 8,
+        }
+        assets = [_asset("character", "王", "characters/王.png")] if with_reference else []
+        result = await projector.project_current(
+            project={"characters": {"王": {}}},
+            script={"video_units": [unit]},
+            unit=unit,
+            resolved_assets=assets,
+            options=ReferenceRequestOptions(narration_delivery=USE_TTS, current_tts_duration_seconds=6),
+        )
+        assert ("tts_duration_endpoint_fixed" in [problem.code for problem in result.problems]) is (
+            ("r2v" if with_reference else "i2v") == fixed_bucket
+        )
+
+
 @pytest.mark.asyncio
 async def test_endpoint_fixed_tts_refusal_outranks_narration_readiness_blockers() -> None:
     """读侧取首条阻断项：TTS 还没配好也先说「改选后期配音」，配好了在这种模型上仍然用不了。"""

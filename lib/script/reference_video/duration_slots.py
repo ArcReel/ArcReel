@@ -29,12 +29,6 @@ DOWN: Adjustment = "down"
 UNCONSTRAINED: Adjustment = "unconstrained"
 """时长这一维不由 ArcReel 取档：申请值就是规划值，端点自己决定成片多长。"""
 
-DEFAULT_PLANNED_DURATION_SECONDS = 8
-"""单元未写 ``duration_seconds``、项目也没有偏好时长时的规划篇幅。
-
-不是任何模型的档位声明，只是取档前必须有个基准；档位集非空时它照常参与取档。
-"""
-
 
 @dataclass(frozen=True)
 class DurationSlot:

@@ -39,6 +39,7 @@ from lib.backends.providers import CallPurpose, CallType, require_provider_pair
 from lib.billing.ledger import Ledger
 from lib.config.service import DEFAULT_VIDEO_POLL_TIMEOUT_SECONDS
 from lib.db.base import DEFAULT_USER_ID
+from lib.generation.video_request_facts import DEFAULT_PLANNED_DURATION_SECONDS
 from lib.infra.async_thread import run_noninterruptible_sync
 from lib.infra.path_safety import PathTraversalError, safe_join
 from lib.project.resource_paths import resource_relative_path
@@ -840,9 +841,9 @@ class MediaGenerator:
         # 让版本元数据与 provider 请求里的 duration_seconds 类型一致（都是 int），
         # 避免 versions.json 落字符串而 ApiCall 落 int 的类型漂移。
         try:
-            duration_int = int(float(duration_seconds)) if duration_seconds else 8
+            duration_int = int(float(duration_seconds)) if duration_seconds else DEFAULT_PLANNED_DURATION_SECONDS
         except (ValueError, TypeError):
-            duration_int = 8
+            duration_int = DEFAULT_PLANNED_DURATION_SECONDS
 
         # 1. 若已存在，确保旧文件被记录。这里的 prompt / duration / provider 选项都属于即将
         # 发起的新请求，不能写到来源不明的 legacy current 上；否则新产物被拒绝回滚后，旧视频
@@ -1115,9 +1116,9 @@ class MediaGenerator:
         # 提前到 VideoGenerationRequest / add_version 之前，让版本元数据
         # 与 provider 请求里的 duration_seconds 类型一致（都是 int，避免 versions.json 落字符串）。
         try:
-            duration_int = int(float(duration_seconds)) if duration_seconds else 8
+            duration_int = int(float(duration_seconds)) if duration_seconds else DEFAULT_PLANNED_DURATION_SECONDS
         except (ValueError, TypeError):
-            duration_int = 8
+            duration_int = DEFAULT_PLANNED_DURATION_SECONDS
 
         if self._video_backend is None:
             raise RuntimeError("video_backend not configured")

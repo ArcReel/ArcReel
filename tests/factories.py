@@ -269,6 +269,44 @@ def comfyui_endpoint_definition(**overrides: Any) -> dict[str, Any]:
     return definition
 
 
+async def seed_endpoint_fixed_video_model(db_factory, *, reference_images: bool = False) -> str:
+    """在测试库里建一个时长由端点固定的 ComfyUI 视频模型（``supported_durations`` 为空集），返回 ``provider/model``。
+
+    端点绑定首帧输入，``reference_images=True`` 时再绑定参考图输入，使该模型同时满足 i2v 与 r2v 桶的能力闸。
+    """
+    from lib.custom_provider import make_provider_id
+    from lib.db.models.custom_endpoint import CustomEndpoint
+    from lib.db.models.custom_provider import CustomProvider, CustomProviderModel
+
+    image_binding = [{"node": "11", "input": "image", "class_type": "LoadImage"}]
+    definition = comfyui_endpoint_definition()
+    definition["bindings"]["start_image"] = image_binding
+    if reference_images:
+        definition["bindings"]["reference_images"] = image_binding
+    async with db_factory() as session:
+        endpoint = CustomEndpoint(
+            definition=definition, kind="comfyui", schema_version="1.0.0", media_type="video", display_name="ComfyUI"
+        )
+        provider = CustomProvider(
+            display_name="Comfy", discovery_format="comfyui", base_url="http://comfy.test:8188", api_key=""
+        )
+        session.add_all([endpoint, provider])
+        await session.flush()
+        session.add(
+            CustomProviderModel(
+                provider_id=provider.id,
+                model_id="wan-workflow",
+                display_name="Workflow",
+                endpoint=f"ce-{endpoint.id}",
+                supported_durations="[]",
+                is_default=True,
+                is_enabled=True,
+            )
+        )
+        await session.commit()
+    return f"{make_provider_id(provider.id)}/wan-workflow"
+
+
 def make_video_request_facts(**overrides: Any):
     """分镜路线、Veo 3.1、未设分辨率的视频请求事实；消费方测试按需覆盖字段，不手搭能力 dict。"""
     from lib.generation.video_request_facts import VideoRequestFacts

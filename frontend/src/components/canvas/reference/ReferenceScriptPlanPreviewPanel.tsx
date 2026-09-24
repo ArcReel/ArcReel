@@ -28,6 +28,10 @@ import { noImageReasonKey } from "./no-image-problem";
 interface ReferenceScriptPlanPreviewPanelProps {
   projectName: string;
   episode: number;
+  durationEndpointFixed?: boolean;
+  durationEndpointFixedNoReference?: boolean;
+  videoModelUnresolved?: boolean;
+  capabilitiesLoading?: boolean;
   /** Asset name → kind, for mention coloring — same lookup the editor/parse preview share. */
   lookup: MentionLookup;
   /** 切到本集视频单元时间线；确认后的只读态据此给出去时间线修改的入口，未提供时不渲染入口。 */
@@ -199,6 +203,7 @@ function UnitCard({
   onToggleEdit,
   onTextChange,
   supportedDurations,
+  durationEndpointFixed,
   durationProblemCode,
   outOfTier,
   onDurationChange,
@@ -215,6 +220,7 @@ function UnitCard({
   onToggleEdit: () => void;
   onTextChange: ((text: string) => void) | null;
   supportedDurations: number[] | null;
+  durationEndpointFixed: boolean;
   durationProblemCode?: string;
   /** unit 当前存盘时长已不在收窄后的档位表内——展示照旧，但阻断确认（父组件按此禁用确认按钮）。 */
   outOfTier: boolean;
@@ -232,7 +238,7 @@ function UnitCard({
   );
   // 档位表解析不到、或内容不可编辑（草稿）时退回只读秒数：能选的档位必须是保存后
   // 后端收编不会再改的那一档，拿不到权威档位表就不提供会被静默改掉的选择。
-  const durationOptions = onDurationChange && supportedDurations?.length ? supportedDurations : null;
+  const durationOptions = !durationEndpointFixed && onDurationChange && supportedDurations?.length ? supportedDurations : null;
 
   return (
     <article
@@ -266,7 +272,10 @@ function UnitCard({
             ))}
           </select>
         ) : (
-          <span className="text-[11px] text-text-4">{t("reference_script_plan_duration_option", { seconds: unit.duration_seconds })}</span>
+          <span className="text-[11px] text-text-4" title={durationEndpointFixed ? t("duration_not_driven_notice") : undefined}>
+            {t("reference_script_plan_duration_option", { seconds: unit.duration_seconds })}
+            {durationEndpointFixed && ` · ${t("duration_not_driven_notice")}`}
+          </span>
         )}
         {outOfTier && (
           <span className="rounded bg-red-500/15 px-1 py-px text-[10px] text-red-300">
@@ -361,10 +370,16 @@ function selectUnitsContent(state: ScriptReviewState): ReferenceScriptPlanDraft 
 export function ReferenceScriptPlanPreviewPanel({
   projectName,
   episode,
+  durationEndpointFixed = false,
+  durationEndpointFixedNoReference = false,
+  videoModelUnresolved,
+  capabilitiesLoading = false,
   lookup,
   onOpenTimeline,
 }: ReferenceScriptPlanPreviewPanelProps) {
   const { t } = useTranslation("dashboard");
+  const standaloneCapabilities = useModelCapabilities({ projectName, enabled: videoModelUnresolved === undefined });
+  const modelUnresolved = videoModelUnresolved ?? standaloneCapabilities.videoModelUnresolved;
   const pushToast = useAppStore((s) => s.pushToast);
 
   const [editingUnitKey, setEditingUnitKey] = useState<string | null>(null);
@@ -401,10 +416,6 @@ export function ReferenceScriptPlanPreviewPanel({
     selectContent: selectUnitsContent,
     onConfirmed: handleConfirmed,
   });
-
-  // 确认转出按视频模型能力定时长档位：服务端明确答复模型无法解析时提前拦下；能力请求本身失败
-  // 不算，交确认端点兜底。能力按项目生成模式定轴，不带集号；演示项目由 hook 自行跳过。
-  const { videoModelUnresolved } = useModelCapabilities({ projectName });
 
   const updateUnitText = useCallback(
     (unitIndex: number, text: string) => {
@@ -493,7 +504,7 @@ export function ReferenceScriptPlanPreviewPanel({
   // 已确认但该集没有正式脚本（迁移转换失败或文件被删）：确认仍可用，重新确认即转出正式脚本。
   const scriptMissing = confirmed && state?.script_overwrite == null;
   const confirmLocked = quarantined || (confirmed && !scriptMissing);
-  const videoModelBlocked = videoModelUnresolved && !confirmLocked;
+  const videoModelBlocked = modelUnresolved && !confirmLocked;
   const displayUnits: DisplayUnit[] = quarantined
     ? quarantinedDisplayUnits(quarantine.content, episode)
     : draft
@@ -507,8 +518,9 @@ export function ReferenceScriptPlanPreviewPanel({
     : new Set(
         displayUnits
           .filter((u) => {
+            const fixed = unitHasReference(u, lookup) ? durationEndpointFixed : durationEndpointFixedNoReference;
             const tiers = unitDurationTiers(u, lookup, state?.duration_tiers ?? null);
-            return tiers != null && !tiers.includes(u.duration_seconds);
+            return !capabilitiesLoading && !fixed && tiers != null && !tiers.includes(u.duration_seconds);
           })
           .map((u) => u.key),
       );
@@ -692,7 +704,8 @@ export function ReferenceScriptPlanPreviewPanel({
             editing={!readOnly && editingUnitKey === unit.key}
             onToggleEdit={() => setEditingUnitKey((prev) => (prev === unit.key ? null : unit.key))}
             onTextChange={readOnly ? null : (text) => updateUnitText(i, text)}
-            supportedDurations={unitDurationTiers(unit, lookup, state?.duration_tiers ?? null)}
+            supportedDurations={capabilitiesLoading ? null : unitDurationTiers(unit, lookup, state?.duration_tiers ?? null)}
+            durationEndpointFixed={unitHasReference(unit, lookup) ? durationEndpointFixed : durationEndpointFixedNoReference}
             durationProblemCode={unknownUnitKeys.has(unit.key) ? noImageProblem?.code : undefined}
             outOfTier={outOfTierUnitKeys.has(unit.key)}
             onDurationChange={readOnly ? null : (seconds) => updateDuration(i, seconds)}

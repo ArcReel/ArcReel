@@ -5,12 +5,14 @@ from __future__ import annotations
 import json
 from typing import Any
 
+import pytest
+
 from lib.generation.video_request_facts import VideoRequestFactsFailure
 from server.agent_runtime.sdk_tools.text_generation import (
     generate_script_plan_tool,
 )
 from server.media_tools.context import ToolContext
-from tests.factories import make_video_request_facts
+from tests.factories import make_video_request_facts, seed_endpoint_fixed_video_model
 from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
     _RV_NOVEL,
     call,
@@ -210,6 +212,32 @@ async def test_reference_split_planning_accepts_five_seconds_from_i2v_facts(db_f
     assert caps.reference_durations == [8]
     assert 5 in caps.text_durations
     assert 5 in caps.durations
+    assert caps.text_problem is None
+
+
+@pytest.mark.parametrize("fixed_buckets", [("r2v",), ("i2v",), ("r2v", "i2v")])
+async def test_reference_split_planning_borrows_planning_tiers_for_endpoint_fixed_buckets(
+    db_factory, fixed_buckets: tuple[str, ...]
+) -> None:
+    """端点固定的桶没有档位可借，拆分仍按共享的规划档位出篇幅；另一桶照常按自己的事实收窄。"""
+    from lib.config.resolver import ENDPOINT_FIXED_PLANNING_DURATIONS, ConfigResolver
+    from server.text_generation import _fetch_reference_caps_with_fallback
+
+    fixed_model = await seed_endpoint_fixed_video_model(db_factory, reference_images=True)
+    veo = "gemini-aistudio/veo-3.1-generate-preview"
+    project = {
+        "generation_mode": "reference_video",
+        "video_provider_r2v": fixed_model if "r2v" in fixed_buckets else veo,
+        "video_provider_i2v": fixed_model if "i2v" in fixed_buckets else veo,
+        "model_settings": {veo: {"resolution": "720p"}},
+    }
+
+    caps = await _fetch_reference_caps_with_fallback(project, 1, config_resolver=ConfigResolver(db_factory))
+
+    assert caps.reference_durations == (ENDPOINT_FIXED_PLANNING_DURATIONS if "r2v" in fixed_buckets else [8])
+    assert caps.text_durations == (ENDPOINT_FIXED_PLANNING_DURATIONS if "i2v" in fixed_buckets else [4, 6, 8])
+    assert caps.durations == sorted(set(caps.reference_durations) | set(caps.text_durations))
+    assert caps.max_duration == max(caps.durations)
     assert caps.text_problem is None
 
 

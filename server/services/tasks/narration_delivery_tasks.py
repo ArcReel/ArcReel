@@ -35,6 +35,7 @@ from lib.db.base import DEFAULT_USER_ID
 from lib.generation.generation_queue import GenerationQueue, get_generation_queue
 from lib.generation.video_request_facts import (
     CONFIGURED_VIDEO_IDENTITY,
+    DEFAULT_PLANNED_DURATION_SECONDS,
     VideoRequestFacts,
     VideoRequestFactsFailure,
     evaluate_video_request_facts,
@@ -44,7 +45,6 @@ from lib.infra.path_safety import try_safe_join
 from lib.infra.schema_guards import is_finite_number
 from lib.project.project_manager import ProjectManager, get_project_manager
 from lib.project.resource_paths import resource_relative_path
-from lib.script.reference_video.duration_slots import DEFAULT_PLANNED_DURATION_SECONDS
 from lib.script.reference_video.prompt_render import render_video_unit_prompt, resolve_reference_audio_paths
 from lib.script.reference_video.request_projection import (
     USE_TTS,

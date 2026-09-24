@@ -58,6 +58,7 @@ export interface ModelCapabilities {
    * 两者的时长控件都不可用，但说给用户听的不是同一句话。未知时为 false：不谎报。
    */
   durationEndpointFixed: boolean;
+  durationEndpointFixedWithoutReference: boolean;
   /**
    * 能力实际查自哪个 `provider/model`；未知为 null。
    *
@@ -196,6 +197,7 @@ export function useModelCapabilities({
     excludedDurationsWithoutReference: constraints?.excluded_without_reference_images ?? EMPTY_EXCLUSIONS,
     excludedDurations: constraints?.excluded ?? EMPTY_EXCLUSIONS,
     durationEndpointFixed: caps?.duration_endpoint_fixed ?? false,
+    durationEndpointFixedWithoutReference: constraints?.without_reference_duration_endpoint_fixed ?? false,
     resolvedVideoBackend: caps ? `${caps.provider_id}/${caps.model}` : null,
     firstFrame: caps ? caps.first_frame : null,
     lastFrame: caps ? caps.last_frame : null,

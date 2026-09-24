@@ -1455,7 +1455,7 @@ describe("dimensions a ComfyUI workflow fixes", () => {
   it("says why the duration control is absent when the workflow fixes its duration", async () => {
     renderWithConstraints({ duration_fixed: true, duration_tier_empty: true }, []);
 
-    expect(await screen.findByText(/时长不由 ArcReel 决定/)).toBeInTheDocument();
+    expect(await screen.findByText(/时长由端点固定/)).toBeInTheDocument();
     expect(screen.queryByRole("radiogroup", { name: "默认时长" })).not.toBeInTheDocument();
   });
 
@@ -1463,7 +1463,7 @@ describe("dimensions a ComfyUI workflow fixes", () => {
     // frames 绑了却没有帧率来源：项目页看到的结果与时长固定那一支一样，也要有一行说明。
     renderWithConstraints({ duration_fixed: false, duration_tier_empty: true }, []);
 
-    expect(await screen.findByText(/时长不由 ArcReel 决定/)).toBeInTheDocument();
+    expect(await screen.findByText(/时长由端点固定/)).toBeInTheDocument();
     expect(screen.queryByRole("radiogroup", { name: "默认时长" })).not.toBeInTheDocument();
   });
 
@@ -1471,6 +1471,6 @@ describe("dimensions a ComfyUI workflow fixes", () => {
     renderWithConstraints({}, [5]);
 
     expect(await screen.findByRole("radiogroup", { name: "默认时长" })).toBeInTheDocument();
-    expect(screen.queryByText(/时长不由 ArcReel 决定/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/时长由端点固定/)).not.toBeInTheDocument();
   });
 });

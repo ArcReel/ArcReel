@@ -790,6 +790,9 @@ export function StudioCanvasRouter() {
                     durationOptionsNoReference={durationOptionsNoReference}
                     durationNoReferenceProblem={capabilities.withoutReferenceProblem}
                     durationEndpointFixed={durationEndpointFixed}
+                    durationEndpointFixedNoReference={capabilities.durationEndpointFixedWithoutReference}
+                    videoModelUnresolved={capabilities.videoModelUnresolved}
+                    capabilitiesLoading={capabilities.loading}
                   />
                 ) : gridStoryboardEnabled(currentProjectData) ? (
                   <GridImageToVideoCanvas
@@ -805,6 +808,10 @@ export function StudioCanvasRouter() {
                     projectData={currentProjectData}
                     durationOptions={durationOptions}
                     durationWarningReason={durationWarningReason}
+                    durationEndpointFixed={durationEndpointFixed}
+                    videoModelUnresolved={capabilities.videoModelUnresolved}
+                    lastFrame={capabilities.lastFrame}
+                    capabilitiesLoading={capabilities.loading}
                     onUpdatePrompt={awaitedUpdatePrompt}
                     onGenerateStoryboard={voidPromise(handleGenerateStoryboard)}
                     onGenerateVideo={handleGenerateVideo}
@@ -833,6 +840,9 @@ export function StudioCanvasRouter() {
                     durationOptions={durationOptions}
                     durationWarningReason={durationWarningReason}
                     durationEndpointFixed={durationEndpointFixed}
+                    videoModelUnresolved={capabilities.videoModelUnresolved}
+                    lastFrame={capabilities.lastFrame}
+                    capabilitiesLoading={capabilities.loading}
                     onUpdatePrompt={awaitedUpdatePrompt}
                     onMoveShot={isAd ? handleMoveShot : undefined}
                     onInsertShot={handleInsertShot}

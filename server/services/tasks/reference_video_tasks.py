@@ -33,6 +33,7 @@ from lib.generation.generation_queue import (
 )
 from lib.generation.video_request_facts import (
     CONFIGURED_VIDEO_IDENTITY,
+    DEFAULT_PLANNED_DURATION_SECONDS,
     VideoRequestFacts,
     VideoRequestFactsFailure,
     evaluate_video_request_facts,
@@ -142,11 +143,6 @@ def _reference_limit_warning(*, provider: str, model: str | None, count: int, ma
     }
 
 
-#: unit 时长缺值时的兼容兜底秒数，也作为能力暂不可解析时的新建 unit 默认值。
-#: 可执行请求另由 request projection 对当前非空档位集 fail loud，不使用该兜底报价或生成。
-FALLBACK_UNIT_DURATION = 8
-
-
 async def resolve_new_unit_request_facts(
     project: dict,
     *,
@@ -173,11 +169,11 @@ def default_unit_duration(request_facts: VideoRequestFactsResult, project: dict)
 
     档位取视频请求事实收窄后的 ``allowed_durations``，使新建单元拿到的秒数落在它真正被生成时
     能申请到的档位内。项目偏好不是当前档位成员时（换模型后配置漂移）不采信，退到最短档；事实
-    解析不出或时长由端点固定（没有档位可取）时退到 ``FALLBACK_UNIT_DURATION``，与执行层读不到
+    解析不出或时长由端点固定（没有档位可取）时退到共享规划基准，与执行层读不到
     unit 时长时的兜底值同源。
     """
     if isinstance(request_facts, VideoRequestFactsFailure) or not request_facts.allowed_durations:
-        return FALLBACK_UNIT_DURATION
+        return DEFAULT_PLANNED_DURATION_SECONDS
     durations = request_facts.allowed_durations
     preferred = project.get("default_duration")
     if isinstance(preferred, int) and not isinstance(preferred, bool) and preferred in durations:

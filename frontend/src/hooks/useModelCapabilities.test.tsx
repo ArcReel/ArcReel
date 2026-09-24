@@ -47,6 +47,20 @@ afterEach(() => {
 });
 
 describe("useModelCapabilities 时长维度", () => {
+  it.each([
+    { fixed: true, withoutFixed: false },
+    { fixed: false, withoutFixed: true },
+  ])("reads independent endpoint-fixed flags for both buckets", async ({ fixed, withoutFixed }) => {
+    vi.spyOn(API, "getVideoCapabilities").mockResolvedValue(caps({
+      duration_endpoint_fixed: fixed,
+      duration_constraints: constraints({ without_reference_duration_endpoint_fixed: withoutFixed }),
+    }));
+    const { result } = renderHook(() => useModelCapabilities({ projectName: PROJECT }));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.durationEndpointFixed).toBe(fixed);
+    expect(result.current.durationEndpointFixedWithoutReference).toBe(withoutFixed);
+  });
+
   it("全集与收窄结果都取服务端值，全集按升序整理", async () => {
     vi.spyOn(API, "getVideoCapabilities").mockResolvedValue(
       caps({

@@ -1181,11 +1181,13 @@ async def execute_video_task(
     if duration_seconds is None:
         duration_seconds = project.get("default_duration")
     if not duration_seconds:
-        duration_seconds = (
-            request_facts.allowed_durations[0]
-            if request_facts.allowed_durations
-            else _get_model_default_duration(registry_provider_id, model_name)
-        )
+        if request_facts.allowed_durations:
+            duration_seconds = request_facts.allowed_durations[0]
+        elif request_facts.duration_endpoint_fixed:
+            # 端点固定没有档位可借：与 use_tts 路径取同一个规划基准，两条路径的申请秒数一致。
+            duration_seconds = storyboard_planning_duration(request_facts, declared=None, project=project)
+        else:
+            duration_seconds = _get_model_default_duration(registry_provider_id, model_name)
 
     delivery_projection = None
     if delivery_options.narration_delivery == USE_TTS:

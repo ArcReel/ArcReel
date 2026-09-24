@@ -23,7 +23,7 @@
 - **单分镜/视频单元时长**：由视频模型能力和项目 `default_duration` 配置决定
   - 分镜图生视频（含 `grid_storyboard=true`）：取值必须在所选视频模型的 `supported_durations` 内，项目 `default_duration` 非 null 时作默认偏好
   - 参考生视频：视频单元时长必须取该视频单元**引用状态对应**的生效档位（`reference_unit_durations.with_references` / `.without_references`）
-  - 两者的真值均由子智能体运行时通过 `mcp__arcreel__get_video_capabilities` 工具自查；`supported_durations` 是主桶型号声明的全集，`reference_unit_durations.with_references` 是带图生效档位，`.without_references` 是 i2v 桶视频请求事实给出的无图生效档位。后者为 `null` 时查看同对象的 `problem`（问题码、参数、修复指引），先修复图生视频模型配置，不借用主桶档位
+  - 两者的真值均由子智能体运行时通过 `mcp__arcreel__get_video_capabilities` 工具自查；`supported_durations` 是主桶型号声明的全集，`reference_unit_durations.with_references` 是带图生效档位，`.without_references` 是 i2v 桶视频请求事实给出的无图生效档位。各桶的 `*_endpoint_fixed` 与 `*_endpoint_fixed_reason` 说明时长由端点固定，此时空档位合法，规划秒数只作内部基准。后者为 `null` 时查看同对象的 `problem`（问题码、参数、修复指引），先修复图生视频模型配置，不借用主桶档位
 - **单集目标时长**：项目 `episode_target_duration` 非 null 时，脚本规划据它决定本集拆多少个分镜 / 视频单元，真值同经 `mcp__arcreel__get_video_capabilities` 自查；未显式设 `episode_target_units` 时，分集规划另按它折算每集塞多少原文，该折算值只由 `plan_episodes` 返回的核对材料给出（含来源标注），`get_video_capabilities` 不做这项折算。两处均为软目标，内容不足宁少拆、内容确实需要可超出，超出只提示不阻断
 - **图片分辨率**：1K
 - **视频分辨率**：1080p

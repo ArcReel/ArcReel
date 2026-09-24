@@ -607,6 +607,14 @@ def duration_constraints_report(
 #: 同为 ``[4, 8]``，但不从那里 import——``lib.config`` 按分层契约够不到 ``lib.custom_provider``。
 ENDPOINT_FIXED_PLANNING_DURATIONS: list[int] = [4, 8]
 
+#: 端点固定标志的成因值：能力载荷里 ``*_endpoint_fixed_reason`` 的唯一取值，标志为假时成因为 None。
+DURATION_ENDPOINT_FIXED_REASON = "endpoint"
+
+
+def duration_endpoint_fixed_reason(fixed: bool) -> str | None:
+    """端点固定标志对应的成因：标志为真给 :data:`DURATION_ENDPOINT_FIXED_REASON`，否则 None。"""
+    return DURATION_ENDPOINT_FIXED_REASON if fixed else None
+
 
 def resolve_raw_supported_durations(project: dict, caps: dict | None = None) -> list[int] | None:
     """收窄前的时长全集：caps → registry 两级解析。
@@ -1718,6 +1726,7 @@ class ConfigResolver:
         # 空集时 ``max_duration`` 为 0，与 ``supported_durations == []`` 同义：这一维不由 ArcReel
         # 驱动，消费方不该从它派生任何可选档位，界面据此禁用时长控件。
         max_duration = max(supported_durations, default=0)
+        duration_endpoint_fixed = not supported_durations and durations_optional
 
         # requested_generate_audio 是**用户的无声意图**（全局设置 ← project.json 覆盖），与执行层
         # MediaGenerator 读的 video_generate_audio 同源；下面的 generate_audio 是**计价口径**（叠加了
@@ -1790,7 +1799,8 @@ class ConfigResolver:
             "source": source,
             # 档位是空集且该端点允许空集 = 这一维由端点固定（CONTEXT.md「维度由端点固定」）。
             # 消费方据此区分「这一维在该端点上不存在」与「档位声明缺失」——后者已在上面 fail loud。
-            "duration_endpoint_fixed": not supported_durations and durations_optional,
+            "duration_endpoint_fixed": duration_endpoint_fixed,
+            "duration_endpoint_fixed_reason": duration_endpoint_fixed_reason(duration_endpoint_fixed),
             "default_duration": default_duration,
             "episode_target_duration": episode_target_duration,
             "content_mode": content_mode,
