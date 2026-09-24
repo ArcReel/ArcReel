@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from lib.i18n.zh import errors as zh_errors
 from server.routers import projects
+from tests.factories import seed_endpoint_fixed_video_model
 from tests.integration.server.routers.projects_router_support import (
     _FakePM,
     build_projects_client,
@@ -83,6 +84,36 @@ class TestRealResolverResponse:
 
     #: registry 里声明了「1080p 只剩 8 秒」「参考图路径只剩 8 秒」的型号。
     VEO = "gemini-aistudio/veo-3.1-generate-preview"
+
+    @pytest.mark.parametrize("fixed_bucket", ["i2v", "r2v"])
+    async def test_reference_endpoint_fixed_is_reported_per_bucket(
+        self, tmp_path, db_engine, monkeypatch, fixed_bucket
+    ):
+        factory = async_sessionmaker(db_engine, expire_on_commit=False)
+        fixed_model = await seed_endpoint_fixed_video_model(factory, reference_images=True)
+        pm = _FakePM(tmp_path)
+        pm.project_data["ready"].update(
+            {
+                "generation_mode": "reference_video",
+                "video_provider_r2v": fixed_model if fixed_bucket == "r2v" else self.VEO,
+                "video_provider_i2v": fixed_model if fixed_bucket == "i2v" else self.VEO,
+            }
+        )
+        monkeypatch.setattr(projects, "async_session_factory", factory)
+        monkeypatch.setattr("lib.config.resolver.get_project_manager", lambda: pm)
+        client = build_projects_client(monkeypatch, pm)
+        with client:
+            response = client.get("/api/v1/projects/ready/video-capabilities")
+        assert response.status_code == 200, response.text
+        body = response.json()
+        constraints = body["duration_constraints"]
+        assert body["duration_endpoint_fixed"] is (fixed_bucket == "r2v")
+        assert body["duration_endpoint_fixed_reason"] == ("endpoint" if fixed_bucket == "r2v" else None)
+        assert constraints["without_reference_duration_endpoint_fixed"] is (fixed_bucket == "i2v")
+        assert constraints["without_reference_duration_endpoint_fixed_reason"] == (
+            "endpoint" if fixed_bucket == "i2v" else None
+        )
+        assert constraints["allowed_without_reference_images"] == ([] if fixed_bucket == "i2v" else [4, 6, 8])
 
     @pytest.fixture
     def client(self, tmp_path, db_engine, monkeypatch) -> TestClient:

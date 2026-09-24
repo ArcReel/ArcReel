@@ -289,6 +289,8 @@ export interface DurationConstraints {
   allowed_without_reference_images: number[] | null;
   excluded_without_reference_images?: Record<string, DurationExclusionReason> | null;
   without_reference_problem?: VideoCapabilityProblem | null;
+  without_reference_duration_endpoint_fixed?: boolean;
+  without_reference_duration_endpoint_fixed_reason?: "endpoint" | null;
   /** 全集中被剔除的时长（键为秒数字符串）→ 成因。 */
   excluded: Record<string, DurationExclusionReason>;
 }
@@ -323,4 +325,5 @@ export interface VideoCapabilities {
   duration_constraints: DurationConstraints;
   /** 时长这一维由端点固定（ComfyUI workflow 自己定片长）：档位为空集不是「声明缺失」。 */
   duration_endpoint_fixed?: boolean;
+  duration_endpoint_fixed_reason?: "endpoint" | null;
 }

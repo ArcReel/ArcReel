@@ -323,7 +323,7 @@ describe("ShotDetail 时长编辑的占用态门控", () => {
 
     expect(screen.getByRole("button", { name: /4 秒/ })).toHaveAttribute(
       "title",
-      "该模型的时长不由 ArcReel 决定：每段成片多长由 workflow 自己说了算。",
+      "时长由端点固定：每段成片多长由 workflow 决定。",
     );
   });
 });

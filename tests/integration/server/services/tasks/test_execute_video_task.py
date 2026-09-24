@@ -18,7 +18,11 @@ from lib.artifacts.video_visual_provenance import build_storyboard_video_visual_
 from lib.backends.video_backend_contract import VideoCapabilities, VideoCapabilityError
 from lib.backends.video_frame_slots import gate_video_request
 from lib.generation.generation_queue import DispatchProviderChanged
-from lib.generation.video_request_facts import VideoRequestFactsError, VideoRequestFactsFailure
+from lib.generation.video_request_facts import (
+    DEFAULT_PLANNED_DURATION_SECONDS,
+    VideoRequestFactsError,
+    VideoRequestFactsFailure,
+)
 from lib.speech.narration_delivery import (
     USE_TTS,
     NarratedVideoDurationBlockedError,
@@ -1729,6 +1733,33 @@ class TestGenerationTasks:
         )
         assert result["resource_type"] == "videos"
         assert fake_generator.video_calls[0]["duration_seconds"] == 6
+
+    async def test_execute_video_task_default_duration_on_endpoint_fixed_matches_tts_planning_basis(
+        self, monkeypatch, tmp_path
+    ):
+        """时长由端点固定、单元与项目都没写时长时，非 TTS 请求申请的秒数与 use_tts 路径同取共享规划基准。"""
+        project_path = prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        seed_current_storyboard(fake_pm)
+        fake_generator = FakeGenerator()
+
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+        monkeypatch.setattr(
+            generation_tasks,
+            "resolve_generation_context",
+            fake_resolve_ctx(fake_generator, supported_durations=(), duration_endpoint_fixed=True),
+        )
+        monkeypatch.setattr(generation_tasks, "extract_video_thumbnail", async_return(None))
+        monkeypatch.setattr(generation_tasks, "emit_project_change_batch", lambda *a, **kw: None)
+        fake_pm.project.pop("default_duration", None)
+
+        await generation_tasks.execute_video_task(
+            "demo",
+            "E1S01",
+            {"script_file": "episode_1.json", "prompt": {"action": "跑", "camera_motion": "Static", "dialogue": []}},
+        )
+
+        assert fake_generator.video_calls[0]["duration_seconds"] == DEFAULT_PLANNED_DURATION_SECONDS
 
     async def test_execute_video_task_default_duration_respects_resolution_constraint(self, monkeypatch, tmp_path):
         """Auto（无显式 duration）在受约束分辨率下取约束内的时长，而非 supported_durations 首项。

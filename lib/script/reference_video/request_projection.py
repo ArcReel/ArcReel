@@ -22,6 +22,7 @@ from lib.config.resolver import (
 )
 from lib.generation.video_request_facts import (
     CONFIGURED_VIDEO_IDENTITY,
+    DEFAULT_PLANNED_DURATION_SECONDS,
     VideoRequestFacts,
     VideoRequestFactsFailure,
     audio_switch_conflict,
@@ -38,7 +39,6 @@ from lib.references.reference_admission import (
 )
 from lib.references.reference_catalog import build_reference_catalog
 from lib.script.reference_video.duration_slots import (
-    DEFAULT_PLANNED_DURATION_SECONDS,
     DurationSlot,
     project_request_duration,
     request_duration_input,

@@ -16,6 +16,7 @@ from lib.config.resolver import (
     ConfigResolver,
     VideoGenerationType,
     constrain_durations_for_project,
+    duration_endpoint_fixed_reason,
 )
 from lib.db import async_session_factory
 from lib.generation.video_request_facts import (
@@ -72,8 +73,12 @@ async def reference_unit_duration_tiers(
     Reference-video units without references execute through the i2v bucket.
     Its request facts retain the failure reason when that bucket is unavailable.
     """
-    with_references = constrained_caps_durations(
-        project, caps, durations, generation_mode="reference_video", uses_reference_images=True
+    with_references = (
+        []
+        if caps.get("duration_endpoint_fixed")
+        else constrained_caps_durations(
+            project, caps, durations, generation_mode="reference_video", uses_reference_images=True
+        )
     )
     without_references = await evaluate_video_request_facts(
         project,
@@ -87,6 +92,11 @@ async def reference_unit_duration_tiers(
 
 def video_facts_problem(failure: VideoRequestFactsFailure) -> dict:
     return {"code": failure.code, "params": failure.parameters(), "action": failure.action}
+
+
+def facts_duration_endpoint_fixed(result: VideoRequestFacts | VideoRequestFactsFailure) -> bool:
+    """该桶的时长是否由端点固定；求值失败时为 False（未知不谎报）。"""
+    return isinstance(result, VideoRequestFacts) and result.duration_endpoint_fixed
 
 
 async def annotate_reference_no_image_caps(
@@ -112,6 +122,9 @@ async def annotate_reference_no_image_caps(
     constraints["without_reference_problem"] = (
         None if isinstance(result, VideoRequestFacts) else video_facts_problem(result)
     )
+    fixed = facts_duration_endpoint_fixed(result)
+    constraints["without_reference_duration_endpoint_fixed"] = fixed
+    constraints["without_reference_duration_endpoint_fixed_reason"] = duration_endpoint_fixed_reason(fixed)
     return result
 
 
@@ -130,7 +143,7 @@ async def annotate_reference_unit_tiers(
     if payload.get("generation_mode") != "reference_video" or payload.get("content_mode") == "ad":
         return
     durations = [int(d) for d in payload.get("supported_durations") or []]
-    if not durations:
+    if not durations and not payload.get("duration_endpoint_fixed"):
         return
     with_refs, without_ref_facts = await reference_unit_duration_tiers(
         project,
@@ -138,11 +151,17 @@ async def annotate_reference_unit_tiers(
         durations,
         config_resolver=config_resolver,
     )
+    with_refs_fixed = bool(payload.get("duration_endpoint_fixed"))
+    without_refs_fixed = facts_duration_endpoint_fixed(without_ref_facts)
     payload["reference_unit_durations"] = {
         "with_references": with_refs,
+        "with_references_endpoint_fixed": with_refs_fixed,
+        "with_references_endpoint_fixed_reason": duration_endpoint_fixed_reason(with_refs_fixed),
         "without_references": (
             list(without_ref_facts.allowed_durations) if isinstance(without_ref_facts, VideoRequestFacts) else None
         ),
+        "without_references_endpoint_fixed": without_refs_fixed,
+        "without_references_endpoint_fixed_reason": duration_endpoint_fixed_reason(without_refs_fixed),
         "excluded": (
             dict(without_ref_facts.excluded_durations) if isinstance(without_ref_facts, VideoRequestFacts) else None
         ),

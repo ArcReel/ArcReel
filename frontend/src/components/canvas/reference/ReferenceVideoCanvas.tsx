@@ -79,9 +79,11 @@ export interface ReferenceVideoCanvasProps {
   durationOptions?: number[];
   /** 档位为空是因为这一维由端点固定（workflow 自己定片长），不是型号没登记时长。 */
   durationEndpointFixed?: boolean;
+  durationEndpointFixedNoReference?: boolean;
+  videoModelUnresolved?: boolean;
+  capabilitiesLoading?: boolean;
   /**
-   * 同一模型能力下、不叠加参考图约束的档位（仍按分辨率收窄）。供正文里没有可解析引用的
-   * unit 使用——参考图约束按 unit 生效，不能因同集内其它 unit 带图就收窄这类 unit 的可选档位。
+   * i2v 桶按自身模型与分辨率收窄后的档位，供正文里没有可解析引用的 unit 使用。
    */
   durationOptionsNoReference?: number[];
   durationNoReferenceProblem?: VideoCapabilityProblem | null;
@@ -173,6 +175,9 @@ export function ReferenceVideoCanvas({
   freeDuration = false,
   durationOptions,
   durationEndpointFixed = false,
+  durationEndpointFixedNoReference = false,
+  videoModelUnresolved,
+  capabilitiesLoading,
   durationOptionsNoReference,
   durationNoReferenceProblem,
   requestOptions,
@@ -276,6 +281,7 @@ export function ReferenceVideoCanvas({
     [selected, mentionLookup],
   );
   const effectiveDurationOptions = selectedHasReference ? durationOptions : durationOptionsNoReference;
+  const selectedDurationEndpointFixed = selectedHasReference ? durationEndpointFixed : durationEndpointFixedNoReference;
 
   // selectedUnitId is a global singleton; validate against current episode's units.
   useEffect(() => {
@@ -580,6 +586,11 @@ export function ReferenceVideoCanvas({
   const batchTargets = useMemo(
     () => units.filter((u) => statusMap[u.unit_id] !== "ready"),
     [units, statusMap],
+  );
+  const batchDurationEndpointFixed = batchTargets.some((unit) =>
+    extractMentions(unit.text).some((name) => Boolean(mentionLookup[name]))
+      ? durationEndpointFixed
+      : durationEndpointFixedNoReference,
   );
 
   /**
@@ -982,13 +993,14 @@ export function ReferenceVideoCanvas({
             <NarrationDeliveryChoice
               value={narrationDelivery}
               onChange={setNarrationDelivery}
-              ttsDurationEndpointFixed={durationEndpointFixed}
+              ttsDurationEndpointFixed={selectedDurationEndpointFixed}
               compact
             />
             <button
               type="button"
               onClick={() => void handleBatchGenerate()}
-              disabled={batchTargets.length === 0}
+              disabled={batchTargets.length === 0 || (batchDurationEndpointFixed && narrationDelivery === "use_tts")}
+              title={batchDurationEndpointFixed && narrationDelivery === "use_tts" ? t("narration_delivery_tts_duration_endpoint_fixed") : undefined}
               className="focus-ring inline-flex items-center gap-1.5 rounded-md border border-[var(--color-hairline)] bg-[oklch(0.22_0.011_265_/_0.5)] px-2.5 py-1 text-[11.5px] text-[var(--color-text-2)] transition-colors hover:bg-[oklch(0.26_0.013_265_/_0.7)] hover:text-[var(--color-text)] disabled:cursor-not-allowed disabled:opacity-60"
             >
               <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
@@ -1023,6 +1035,10 @@ export function ReferenceVideoCanvas({
               projectName={projectName}
               episode={episode}
               lookup={mentionLookup}
+              durationEndpointFixed={durationEndpointFixed}
+              durationEndpointFixedNoReference={durationEndpointFixedNoReference}
+              videoModelUnresolved={videoModelUnresolved}
+              capabilitiesLoading={capabilitiesLoading}
               onOpenTimeline={() => setTab("units")}
             />
           </div>
@@ -1067,7 +1083,7 @@ export function ReferenceVideoCanvas({
                     </span>
                     <span className="inline-flex items-center gap-1 rounded border border-[var(--color-hairline-soft)] bg-[oklch(0.22_0.011_265_/_0.6)] px-2 py-0.5 text-[11.5px] text-[var(--color-text-2)]">
                       <Clock className="h-3 w-3" aria-hidden="true" />
-                      {freeDuration ? (
+                      {freeDuration && !selectedDurationEndpointFixed ? (
                         <input
                           type="number"
                           min={1}
@@ -1094,7 +1110,7 @@ export function ReferenceVideoCanvas({
                         >
                           {t("reference_no_image_unknown_label")}
                         </span>
-                      ) : effectiveDurationOptions && effectiveDurationOptions.length > 0 ? (
+                      ) : !selectedDurationEndpointFixed && effectiveDurationOptions && effectiveDurationOptions.length > 0 ? (
                         <select
                           aria-label={t("duration_selector_aria")}
                           value={selected.duration_seconds}
@@ -1122,7 +1138,7 @@ export function ReferenceVideoCanvas({
                       ) : (
                         <span
                           className="font-mono tabular-nums"
-                          title={t(durationEndpointFixed ? "duration_not_driven_notice" : "duration_no_options")}
+                          title={t(selectedDurationEndpointFixed ? "duration_not_driven_notice" : "duration_no_options")}
                         >
                           {selected.duration_seconds}s
                         </span>

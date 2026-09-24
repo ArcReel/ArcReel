@@ -5,9 +5,8 @@ from __future__ import annotations
 import pytest
 
 from lib.config.resolver import ConfigResolver
-from lib.generation.video_request_facts import VideoRequestFactsFailure
+from lib.generation.video_request_facts import DEFAULT_PLANNED_DURATION_SECONDS, VideoRequestFactsFailure
 from server.services.tasks.reference_video_tasks import (
-    FALLBACK_UNIT_DURATION,
     default_unit_duration,
     resolve_new_unit_request_facts,
 )
@@ -55,4 +54,4 @@ def test_default_unit_duration_takes_min_of_unordered_custom_tiers():
 )
 def test_default_unit_duration_falls_back_when_no_tier_can_be_taken(facts):
     """事实解析不出或时长由端点固定时无从校验偏好是否可申请，直接退到兜底值。"""
-    assert default_unit_duration(facts, {"default_duration": 12}) == FALLBACK_UNIT_DURATION
+    assert default_unit_duration(facts, {"default_duration": 12}) == DEFAULT_PLANNED_DURATION_SECONDS

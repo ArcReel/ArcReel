@@ -25,7 +25,7 @@ from lib.backends.providers import CallPurpose
 from lib.backends.text_backends.base import DEFAULT_MAX_OUTPUT_TOKENS, TextTaskType
 from lib.backends.text_backends.base import TextGenerationRequest as BackendTextGenerationRequest
 from lib.backends.text_generator import TextGenerator
-from lib.config.resolver import ConfigResolver
+from lib.config.resolver import ENDPOINT_FIXED_PLANNING_DURATIONS, ConfigResolver
 from lib.custom_provider.duration_presets import DEFAULT_FALLBACK
 from lib.db import async_session_factory
 from lib.episode.episode_paths import (
@@ -819,7 +819,18 @@ async def _fetch_reference_caps_with_fallback(
         durations,
         config_resolver=config_resolver,
     )
-    without_refs = list(without_ref_facts.allowed_durations) if isinstance(without_ref_facts, VideoRequestFacts) else []
+    # 时长由端点固定的桶没有档位可借（合法空集），但拆分仍要有篇幅依据：这里借与分镜路线同一份
+    # 规划档位。借用只发生在规划内部——界面与 Agent 载荷拿到的仍是空集加端点固定标志。
+    if caps.get("duration_endpoint_fixed"):
+        with_refs = list(ENDPOINT_FIXED_PLANNING_DURATIONS)
+    if isinstance(without_ref_facts, VideoRequestFacts):
+        without_refs = (
+            list(ENDPOINT_FIXED_PLANNING_DURATIONS)
+            if without_ref_facts.duration_endpoint_fixed
+            else list(without_ref_facts.allowed_durations)
+        )
+    else:
+        without_refs = []
     unit_durations = sorted(set(with_refs) | set(without_refs))
     max_duration = max(unit_durations)
     raw_refs = caps.get("max_reference_images")

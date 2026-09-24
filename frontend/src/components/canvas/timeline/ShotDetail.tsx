@@ -107,6 +107,8 @@ interface ShotDetailProps {
   durationOptions?: number[];
   /** 档位为空是因为这一维由端点固定（workflow 自己定片长），不是型号没登记时长。 */
   durationEndpointFixed?: boolean;
+  lastFrame?: boolean | null;
+  capabilitiesLoading?: boolean;
   /** 已保存时长越界的成因判定；缺省时退回不区分成因的通用警告文案。 */
   durationWarningReason?: (seconds: number) => DurationOutOfRangeReason | null;
 }
@@ -479,6 +481,8 @@ export function ShotDetail({
   generatingNarration,
   durationOptions = [],
   durationEndpointFixed,
+  lastFrame,
+  capabilitiesLoading,
   durationWarningReason,
 }: ShotDetailProps) {
   const { t } = useTranslation("dashboard");
@@ -1203,6 +1207,8 @@ export function ShotDetail({
         {scriptFile && onGenerateVideo && (
           <EndFrameRow
             projectName={projectName}
+            lastFrame={lastFrame}
+            capabilitiesLoading={capabilitiesLoading}
             segmentId={segmentId}
             scriptFile={scriptFile}
             contentMode={contentMode}

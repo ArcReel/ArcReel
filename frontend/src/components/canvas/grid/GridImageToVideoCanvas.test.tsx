@@ -24,14 +24,17 @@ vi.mock("./GridPreviewView", () => ({
 vi.mock("../timeline/ShotSplitView", () => ({
   ShotSplitView: ({
     onGenerateVideo,
+    durationEndpointFixed,
   }: {
     onGenerateVideo?: (
       segmentId: string,
       requestOptions?: ReferenceGenerationRequestOptions,
     ) => void;
+    durationEndpointFixed?: boolean;
   }) => (
     <button
       type="button"
+      data-duration-endpoint-fixed={durationEndpointFixed ? "yes" : "no"}
       onClick={() =>
         onGenerateVideo?.("SEG-1", {
           narration_delivery: "use_tts",
@@ -111,5 +114,18 @@ describe("GridImageToVideoCanvas", () => {
       narration_delivery: "use_tts",
       confirmed_request_duration_seconds: 8,
     });
+  });
+
+  it("forwards endpoint-fixed duration to grid shot controls", () => {
+    render(
+      <GridImageToVideoCanvas
+        projectName="demo" episode={1} hasDraft episodeScript={makeScript()}
+        scriptFile="scripts/episode_1.json" projectData={makeProjectData()}
+        durationEndpointFixed
+      />,
+    );
+    expect(screen.getByRole("button", { name: "generate-video-with-tts" })).toHaveAttribute(
+      "data-duration-endpoint-fixed", "yes",
+    );
   });
 });

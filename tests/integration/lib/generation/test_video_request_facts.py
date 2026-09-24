@@ -12,7 +12,6 @@ from sqlalchemy import update
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.resolver import ConfigResolver
 from lib.custom_provider import make_provider_id
-from lib.db.models.custom_endpoint import CustomEndpoint
 from lib.db.models.custom_provider import CustomProvider, CustomProviderModel
 from lib.generation.video_request_facts import (
     CONFIGURED_VIDEO_IDENTITY,
@@ -21,7 +20,7 @@ from lib.generation.video_request_facts import (
     VideoRequestFactsFailure,
     evaluate_video_request_facts,
 )
-from tests.factories import comfyui_endpoint_definition
+from tests.factories import seed_endpoint_fixed_video_model
 
 VEO_PROVIDER, VEO_MODEL = "gemini-aistudio", "veo-3.1-generate-preview"
 VEO = f"{VEO_PROVIDER}/{VEO_MODEL}"
@@ -55,38 +54,6 @@ async def _seed_custom_video_models(db_factory, *rows: dict) -> str:
             )
         await session.commit()
         return make_provider_id(provider.id)
-
-
-async def _seed_comfyui_video_model(db_factory) -> str:
-    async with db_factory() as session:
-        definition = comfyui_endpoint_definition()
-        definition["bindings"]["start_image"] = [{"node": "11", "input": "image", "class_type": "LoadImage"}]
-        endpoint = CustomEndpoint(
-            definition=definition,
-            kind="comfyui",
-            schema_version="1.0.0",
-            media_type="video",
-            display_name="ComfyUI",
-        )
-        session.add(endpoint)
-        provider = CustomProvider(
-            display_name="Comfy", discovery_format="comfyui", base_url="http://comfy.test:8188", api_key=""
-        )
-        session.add(provider)
-        await session.flush()
-        session.add(
-            CustomProviderModel(
-                provider_id=provider.id,
-                model_id="wan-workflow",
-                display_name="Workflow",
-                endpoint=f"ce-{endpoint.id}",
-                supported_durations="[]",
-                is_default=True,
-                is_enabled=True,
-            )
-        )
-        await session.commit()
-        return f"{make_provider_id(provider.id)}/wan-workflow"
 
 
 async def _read(resolver, project: dict, *, route="storyboard", generation_type="i2v"):
@@ -182,7 +149,7 @@ async def test_facts_name_the_configured_execution_model(resolver):
 
 
 async def test_endpoint_fixed_duration_is_a_legal_empty_tier_set(resolver, db_factory):
-    pair = await _seed_comfyui_video_model(db_factory)
+    pair = await seed_endpoint_fixed_video_model(db_factory)
 
     facts = await _read(resolver, {"video_provider_i2v": pair})
 

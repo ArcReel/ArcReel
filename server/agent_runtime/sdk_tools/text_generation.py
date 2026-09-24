@@ -61,7 +61,7 @@ def get_video_capabilities_tool(ctx: ToolContext):
     @tool(
         "get_video_capabilities",
         "查视频模型能力（model 粒度）+ 用户项目偏好。返回 JSON；"
-        "参考生视频项目另含 reference_unit_durations（带图档位与 i2v 桶事实给出的无图档位；无图不可解析时附 problem）。"
+        "参考生视频项目另含 reference_unit_durations（带图与无图的档位、各桶 endpoint_fixed 标志及成因；无图不可解析时附 problem）。"
         "能力按项目生成模式定轴，全项目同一口径，无需指定剧集。",
         {"type": "object", "properties": {}},
     )

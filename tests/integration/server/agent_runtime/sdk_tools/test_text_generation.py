@@ -20,7 +20,7 @@ from server.agent_runtime.sdk_tools.text_generation import (
 )
 from server.media_tools.context import ToolContext
 from server.text_generation import TextGenerationRequest, _parse_normalized_content
-from tests.factories import make_video_request_facts
+from tests.factories import make_video_request_facts, seed_endpoint_fixed_video_model
 from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
     call,
     fake_caps_resolver,
@@ -70,7 +70,11 @@ async def test_get_video_capabilities_annotates_reference_unit_tiers(
     payload = json.loads(out["content"][0]["text"])["video_capabilities"]
     assert payload["reference_unit_durations"] == {
         "with_references": [8],
+        "with_references_endpoint_fixed": False,
+        "with_references_endpoint_fixed_reason": None,
         "without_references": None,
+        "without_references_endpoint_fixed": False,
+        "without_references_endpoint_fixed_reason": None,
         "excluded": None,
         "problem": {
             "code": "reference_capability_unavailable",
@@ -105,11 +109,43 @@ async def test_get_video_capabilities_has_one_successful_no_image_channel(
 
     assert payload["reference_unit_durations"] == {
         "with_references": [8],
+        "with_references_endpoint_fixed": False,
+        "with_references_endpoint_fixed_reason": None,
         "without_references": [5, 10],
+        "without_references_endpoint_fixed": False,
+        "without_references_endpoint_fixed_reason": None,
         "excluded": {},
         "problem": None,
     }
     assert "allowed_without_reference_images" not in payload["duration_constraints"]
+
+
+@pytest.mark.parametrize("fixed_bucket", ["i2v", "r2v"])
+async def test_get_video_capabilities_reports_endpoint_fixed_per_bucket(
+    fake_ctx: ToolContext, db_factory, fixed_bucket: str
+) -> None:
+    from lib.config.resolver import ConfigResolver
+
+    fixed_model = await seed_endpoint_fixed_video_model(db_factory, reference_images=True)
+    veo = "gemini-aistudio/veo-3.1-generate-preview"
+    fake_ctx.pm.project_payload.update(
+        {
+            "generation_mode": "reference_video",
+            "video_provider_r2v": fixed_model if fixed_bucket == "r2v" else veo,
+            "video_provider_i2v": fixed_model if fixed_bucket == "i2v" else veo,
+        }
+    )
+    fake_ctx.config_resolver = ConfigResolver(db_factory)
+    out = await call(get_video_capabilities_tool(fake_ctx), {})
+    assert out.get("is_error") is not True, out
+    payload = json.loads(out["content"][0]["text"])["video_capabilities"]
+    tiers = payload["reference_unit_durations"]
+    assert tiers["with_references_endpoint_fixed"] is (fixed_bucket == "r2v")
+    assert tiers["without_references_endpoint_fixed"] is (fixed_bucket == "i2v")
+    assert tiers["with_references_endpoint_fixed_reason"] == ("endpoint" if fixed_bucket == "r2v" else None)
+    assert tiers["without_references_endpoint_fixed_reason"] == ("endpoint" if fixed_bucket == "i2v" else None)
+    assert tiers["with_references"] == ([] if fixed_bucket == "r2v" else [8])
+    assert tiers["without_references"] == ([] if fixed_bucket == "i2v" else [4, 6, 8])
 
 
 @pytest.mark.parametrize(

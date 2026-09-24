@@ -21,6 +21,7 @@ from typing import Literal
 from sqlalchemy.exc import SQLAlchemyError
 
 from lib.config.resolver import (
+    ENDPOINT_FIXED_PLANNING_DURATIONS,
     ConfigResolver,
     DurationExclusionReason,
     VideoBucketCapabilityError,
@@ -36,6 +37,12 @@ VideoRoute = Literal["storyboard", "reference_video"]
 
 #: 求值失败的修复指引：都指向视频模型配置。
 CONFIGURE_VIDEO_MODEL_ACTION = "configure_video_model"
+
+#: 单元未写时长、项目也无偏好时长时的规划基准：取剧本规划借用档位里最长的一档。
+#:
+#: 不代表任何模型的可选档位。它与 :data:`ENDPOINT_FIXED_PLANNING_DURATIONS` 同源，端点固定的
+#: 单元在分镜与参考两条路线、TTS 与非 TTS 两条路径上因此按同一个篇幅规划。
+DEFAULT_PLANNED_DURATION_SECONDS = max(ENDPOINT_FIXED_PLANNING_DURATIONS)
 
 _FailureKind = Literal["missing", "invalid", "incompatible", "unavailable"]
 

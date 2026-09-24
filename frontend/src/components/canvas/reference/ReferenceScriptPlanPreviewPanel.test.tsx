@@ -134,6 +134,32 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
     expect(screen.queryByRole("combobox", { name: "E1U01 时长" })).not.toBeInTheDocument();
   });
 
+  it.each([
+    { fixedBucket: "i2v", text: "夜色中行走。", withFixed: false, withoutFixed: true },
+    { fixedBucket: "r2v", text: "@[阿离] 夜色中行走。", withFixed: true, withoutFixed: false },
+  ])("keeps the $fixedBucket duration fixed in content confirmation", async ({ text, withFixed, withoutFixed }) => {
+    const state = pendingState({ duration_tiers: { with_references: [4, 8], without_references: [4, 8] } });
+    (state.content as ReferenceScriptPlanDraft).units[0].text = text;
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(state);
+    render(
+      <ReferenceScriptPlanPreviewPanel
+        projectName="p" episode={1} lookup={LOOKUP}
+        durationEndpointFixed={withFixed} durationEndpointFixedNoReference={withoutFixed}
+      />,
+    );
+    expect(await screen.findByText("E1U01")).toBeInTheDocument();
+    expect(screen.queryByRole("combobox", { name: "E1U01 时长" })).not.toBeInTheDocument();
+    expect(screen.getByText(/时长由端点固定/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /确认拆分，继续生成/ })).toBeEnabled();
+  });
+
+  it("keeps duration read-only until the canvas capabilities settle", async () => {
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(pendingState());
+    render(<ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={LOOKUP} capabilitiesLoading />);
+    expect(await screen.findByText("E1U01")).toBeInTheDocument();
+    expect(screen.queryByRole("combobox", { name: "E1U01 时长" })).not.toBeInTheDocument();
+  });
+
   it("localizes structured speech violations with their unit and field locations", async () => {
     const state = quarantinedState();
     state.quarantine!.violations = [{

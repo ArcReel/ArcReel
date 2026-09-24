@@ -552,6 +552,32 @@ describe("ReferenceVideoCanvas", () => {
     expect(Array.from(select.options).map((o) => o.value)).toEqual(["3", "8"]);
   });
 
+  it.each([
+    { fixedBucket: "i2v", withReference: false, fixed: true },
+    { fixedBucket: "i2v", withReference: true, fixed: false },
+    { fixedBucket: "r2v", withReference: false, fixed: false },
+    { fixedBucket: "r2v", withReference: true, fixed: true },
+  ])("uses the $fixedBucket endpoint flag for a unit withReference=$withReference", async ({ fixedBucket, withReference, fixed }) => {
+    useProjectsStore.setState({
+      currentProjectName: "proj",
+      currentProjectData: { ...STUB_PROJECT, characters: { 王: { description: "" } } },
+    });
+    vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({
+      units: [mkUnit("E1U1", withReference ? "@[王] 推门。" : "推门。")],
+    });
+    render(
+      <ReferenceVideoCanvas
+        projectName="proj" episode={1} durationOptions={[4, 8]} durationOptionsNoReference={[4, 8]}
+        durationEndpointFixed={fixedBucket === "r2v"}
+        durationEndpointFixedNoReference={fixedBucket === "i2v"}
+      />,
+    );
+    await screen.findByTestId("unit-row-E1U1");
+    expect(screen.queryByRole("combobox", { name: /Duration|时长/ }) === null).toBe(fixed);
+    expect(screen.getByRole("button", { name: /Use current TTS|使用当前 TTS/ }).matches(":disabled")).toBe(fixed);
+    expect(Boolean(screen.queryByTitle(/workflow/i))).toBe(fixed);
+  });
+
   it("remounts the card so textarea shows the new unit's prompt when selection changes", async () => {
     vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({
       units: [mkUnit("E1U1", "hello from A"), mkUnit("E1U2", "hello from B")],
