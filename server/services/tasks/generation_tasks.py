@@ -2252,9 +2252,10 @@ async def execute_grid_task(
     """Execute a grid joint-image generation task.
 
     resource_id is the grid_id. Steps:
-    1. Load GridGeneration, set status to generating
+    1. Load GridGeneration (an already completed record ends the task without generating),
+       set status to generating
     2. Generate the joint image via MediaGenerator (versioned as resource_type "grids")
-    3. Mark completed and split the requested cells before the task settles
+    3. Mark completed; splitting into storyboard cells is a separate, explicit step
     """
     from lib.script.grid.grid_manager import GridManager
     from lib.script.grid.layout import GRID_FALLBACK_RESOLUTION, grid_aspect_ratio_for
@@ -2267,6 +2268,11 @@ async def execute_grid_task(
     grid = grid_manager.get(resource_id)
     if grid is None:
         raise ValueError(f"grid not found: {resource_id}")
+    if grid.status == "completed":
+        # 新建与重生成的记录都从 pending 起步，失败重试从 failed 起步：记录已是 completed，只能是
+        # 沿用在途宫格时恰好赶上上一任务完成而重复入队的任务，不再出图、不再计费。
+        logger.info("宫格已完成，跳过重复入队的生成任务: grid_id=%s task_id=%s", resource_id, task_id)
+        return {"file_path": f"grids/{resource_id}.png", "resource_type": "grids", "resource_id": resource_id}
     project = await asyncio.to_thread(get_project_manager().load_project, project_name)
     script = await asyncio.to_thread(get_project_manager().load_script, project_name, grid.script_file)
     script_input = await asyncio.to_thread(

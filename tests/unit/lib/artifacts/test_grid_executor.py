@@ -353,6 +353,37 @@ class TestExecuteGridTask:
         # 联合图内容更新后落格状态复位，等待显式切分
         assert updated_grid_data["split_at"] is None
 
+    async def test_a_task_enqueued_after_the_grid_completed_does_not_generate_again(
+        self, project_with_script, grid_json
+    ):
+        """沿用在途宫格时恰好赶上上一任务完成而重复入队：记录已是 completed，不再出图。"""
+        from server.services.tasks.generation_tasks import execute_grid_task
+
+        grid = grid_json
+        grid.status = "completed"
+        grid.grid_image_path = f"grids/{grid.id}.png"
+        record = project_with_script / "grids" / f"{grid.id}.json"
+        record.write_text(json.dumps(grid.to_dict(), ensure_ascii=False), encoding="utf-8")
+        before = record.read_bytes()
+
+        with (
+            patch("server.services.tasks.generation_tasks.get_project_manager") as mock_pm_fn,
+            patch(
+                "server.services.tasks.generation_tasks.resolve_generation_context",
+                side_effect=AssertionError("不该再次解析供应商出图"),
+            ),
+        ):
+            mock_pm_fn.return_value.get_project_path.return_value = project_with_script
+            result = await execute_grid_task(
+                "test-project",
+                grid.id,
+                {"prompt": "test grid prompt", "script_file": "episode_1.json"},
+                user_id="test-user",
+            )
+
+        assert result == {"file_path": f"grids/{grid.id}.png", "resource_type": "grids", "resource_id": grid.id}
+        assert record.read_bytes() == before
+
     async def test_reference_images_are_clamped_to_the_backend_limit_before_numbering(
         self,
         project_with_script,

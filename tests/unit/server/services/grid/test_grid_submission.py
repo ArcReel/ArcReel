@@ -117,6 +117,7 @@ def _record(
     status: str,
     split: bool = False,
     registered: bool = True,
+    created_at: str | None = None,
 ) -> GridGeneration:
     grid = GridGeneration.create(
         episode=1,
@@ -130,6 +131,8 @@ def _record(
         video_aspect_ratio="9:16",
     )
     grid.status = status
+    if created_at is not None:
+        grid.created_at = created_at
     if status == "completed":
         grid.grid_image_path = f"grids/{grid.id}.png"
         Image.new("RGB", (8, 8)).save(project_path / "grids" / f"{grid.id}.png")
@@ -143,6 +146,8 @@ def _record(
 
 GROUP_1 = ["E1S01", "E1S02", "E1S03", "E1S04"]
 GROUP_2 = ["E1S05", "E1S06", "E1S07", "E1S08"]
+# 早于提交宽限期：没有活动任务的在途记录据此判为已无人处理
+LONG_AGO = "2026-01-01T00:00:00+00:00"
 
 
 async def test_missing_only_generates_every_group_without_storyboards(project_path: Path) -> None:
@@ -210,7 +215,7 @@ async def test_partial_overlap_with_an_in_flight_grid_refuses_the_whole_batch(pr
 
 async def test_a_record_left_generating_without_an_active_task_does_not_block(project_path: Path) -> None:
     """任务被取消或重启丢失后记录停在 generating：它不再在途，分组变了也照常出图。"""
-    orphan = _record(project_path, ["E1S03", "E1S04", "E1S05"], status="generating")
+    orphan = _record(project_path, ["E1S03", "E1S04", "E1S05"], status="generating", created_at=LONG_AGO)
 
     plan = await _plan(project_path, orphaned=frozenset({orphan.id}))
 
@@ -219,13 +224,24 @@ async def test_a_record_left_generating_without_an_active_task_does_not_block(pr
 
 
 async def test_an_abandoned_record_of_the_same_chunk_is_replaced_not_left_beside(project_path: Path) -> None:
-    orphan = _record(project_path, GROUP_1, status="pending")
+    orphan = _record(project_path, GROUP_1, status="pending", created_at=LONG_AGO)
 
     plan = await _plan(project_path, script=_script(groups=1), orphaned=frozenset({orphan.id}))
     tasks = commit_grid_submission(plan, project_path)
 
     assert [(t.grid.id != orphan.id, t.reused) for t in tasks] == [(True, False)]
     assert [g.id for g in GridManager(project_path).list_all()] == [tasks[0].grid.id]
+
+
+async def test_a_record_just_written_by_another_submission_is_reused_not_deleted(project_path: Path) -> None:
+    """另一请求刚建好记录、还没入队：队列里暂时查不到任务，也按在途沿用，不当孤儿删除。"""
+    fresh = _record(project_path, GROUP_1, status="pending")
+
+    plan = await _plan(project_path, script=_script(groups=1), orphaned=frozenset({fresh.id}))
+    tasks = commit_grid_submission(plan, project_path)
+
+    assert [(t.grid.id, t.reused) for t in tasks] == [(fresh.id, True)]
+    assert [g.id for g in GridManager(project_path).list_all()] == [fresh.id]
 
 
 async def test_a_blocked_group_withholds_the_healthy_one(project_path: Path) -> None:

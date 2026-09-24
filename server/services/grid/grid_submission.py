@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
 from typing import Any
@@ -53,6 +54,9 @@ from lib.script.storyboard_sequence import get_storyboard_items, group_scenes_by
 from server.services.admission.reference_admission import reference_admission_problems
 
 GRID_IN_FLIGHT_STATUSES = ("pending", "generating")
+
+_SUBMISSION_GRACE = timedelta(minutes=5)
+"""刚写入的 pending / generating 记录可能正处在另一请求「建记录 → 入队」之间，队列里暂时查不到任务。"""
 
 ActiveGridTaskProbe = Callable[[list[str]], Awaitable[Collection[str]]]
 """给定宫格 ID，返回队列里仍有活动任务（queued / running）的那些。"""
@@ -196,8 +200,9 @@ async def plan_grid_submission(
     - 缺失即生成：只为仍缺分镜图的分组出图，组内已可用的分镜记为跳过；联合图已就绪而未切分的
       宫格跳过、等待切分落格；已失效但可用的旧分镜图照常复用。
     - 与在途宫格覆盖同一组分镜时沿用在途记录；只部分重叠时受阻，两张宫格日后会争抢同一批格子。
-      在途指记录停在 pending / generating 且 ``active_grid_tasks`` 报告它仍有活动任务：任务被取消、
-      重启丢失或入队失败时执行器没有运行，记录停在原状态，不算在途。
+      在途指记录停在 pending / generating，且 ``active_grid_tasks`` 报告它仍有活动任务或记录刚写入
+      （见 ``_SUBMISSION_GRACE``）。任务被取消、重启丢失或入队失败时执行器没有运行，记录停在原状态；
+      过了宽限期仍没有活动任务的记录不算在途，提交时按已结束的记录清理。
 
     Raises:
         BadRequestError: 见 :func:`ensure_grid_submittable`。
@@ -211,8 +216,10 @@ async def plan_grid_submission(
     records = [
         g for g in (gm.list_all() if gm is not None else []) if g.script_file == script_file and g.episode == episode
     ]
-    marked = [g.id for g in records if g.status in GRID_IN_FLIGHT_STATUSES]
-    active = set(await active_grid_tasks(marked)) if marked else set()
+    marked = [g for g in records if g.status in GRID_IN_FLIGHT_STATUSES]
+    active = set(await active_grid_tasks([g.id for g in marked])) if marked else set()
+    now = datetime.now(UTC)
+    in_flight = [g for g in marked if g.id in active or _written_within_grace(g, now)]
     return _Planner(
         project=project,
         project_path=project_path,
@@ -221,9 +228,19 @@ async def plan_grid_submission(
         episode=episode,
         allow_large_grid=allow_large_grid,
         records=records,
-        in_flight=[g for g in records if g.id in active],
-        abandoned=frozenset(grid_id for grid_id in marked if grid_id not in active),
+        in_flight=in_flight,
+        abandoned=frozenset(g.id for g in marked) - {g.id for g in in_flight},
     ).plan(scene_ids)
+
+
+def _written_within_grace(grid: GridGeneration, now: datetime) -> bool:
+    try:
+        created = datetime.fromisoformat(grid.created_at)
+    except (TypeError, ValueError):
+        return False
+    if created.tzinfo is None:
+        created = created.replace(tzinfo=UTC)
+    return now - created < _SUBMISSION_GRACE
 
 
 def commit_grid_submission(plan: GridSubmissionPlan, project_path: Path) -> tuple[GridSubmissionTask, ...]:
