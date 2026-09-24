@@ -1189,16 +1189,19 @@ async def test_split_grids_splits_each_ready_grid_and_explains_the_rest(
     assert results["grid_000000000000"]["status"] == "not_found"
 
 
+@pytest.mark.parametrize("content", ['{{"id": "{grid_id}"}}', '{{"id": "{grid_id}", '], ids=["缺字段", "JSON 截断"])
 async def test_split_grids_reports_an_unreadable_record_without_abandoning_the_rest(
-    fake_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
+    fake_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch, content: str
 ) -> None:
-    """一条记录缺字段读不出来，只记这一张失败，排在它后面的宫格照常切分。"""
+    """一条记录读不出来，只记这一张失败（不当成不存在），排在它后面的宫格照常切分。"""
     from server.media_tools.grid import split_grids_tool
     from server.services.grid.grid_split import GridSplitResult
 
     scene_ids = _enable_grid(fake_ctx, groups=2)
     damaged = _saved_grid(fake_ctx, scene_ids[:4], status="completed")
-    (fake_ctx.project_path / "grids" / f"{damaged.id}.json").write_text(f'{{"id": "{damaged.id}"}}', encoding="utf-8")
+    (fake_ctx.project_path / "grids" / f"{damaged.id}.json").write_text(
+        content.format(grid_id=damaged.id), encoding="utf-8"
+    )
     ready = _saved_grid(fake_ctx, scene_ids[4:], status="completed")
 
     async def fake_split(project_name: str, grid: Any) -> GridSplitResult:

@@ -11,6 +11,7 @@ user reviewed the composite and agreed to split it.
 from __future__ import annotations
 
 import functools
+import json
 import logging
 from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
 from typing import Any
@@ -479,12 +480,13 @@ async def handle_split_grids(ctx: ToolContext, args: dict[str, Any]) -> ToolOutc
 async def _split_one(ctx: ToolContext, gm: GridManager, grid_id: str) -> dict[str, Any]:
     try:
         grid = gm.get(grid_id)
-    except ValueError:
-        grid = None
-    except Exception:
-        # 记录缺字段等读不出来：只记这一张失败，同批其余宫格照常切分
-        logger.exception("宫格记录读取失败: grid_id=%s", grid_id)
-        return {"grid_id": grid_id, "status": "failed", "detail": "宫格记录无法读取，分镜图未改动"}
+    except Exception as exc:
+        # 非法 ID 视同不存在；JSON 损坏、缺字段等记录读不出来时只记这一张失败，同批其余宫格照常切分
+        if isinstance(exc, ValueError) and not isinstance(exc, json.JSONDecodeError):
+            grid = None
+        else:
+            logger.exception("宫格记录读取失败: grid_id=%s", grid_id)
+            return {"grid_id": grid_id, "status": "failed", "detail": "宫格记录无法读取，分镜图未改动"}
     if grid is None:
         return {"grid_id": grid_id, "status": "not_found", "detail": "宫格不存在"}
     if grid.status in GRID_IN_FLIGHT_STATUSES:
