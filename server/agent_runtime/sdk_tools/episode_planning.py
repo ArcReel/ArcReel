@@ -39,7 +39,8 @@ def plan_episodes_tool(ctx: ToolContext):
         "plan_episodes",
         "分集规划：从账本 planning_cursor 起读一个源文窗口，调用项目配置的文本模型一次规划出"
         "窗口内所有剧情弧完整的集（标题/钩子/原文范围；drama 另含分集大纲），在同一把项目锁内"
-        "写账本、派生 source/episode_N.txt 并清理残留派生文件。返回账本摘要（每集标题+钩子+体量）。"
+        "写账本、派生 source/episode_N.txt 并清理残留派生文件。返回账本摘要（每集标题、钩子、体量，"
+        "以及本集原文的首句与尾句，超长句截断），首尾句供用户核对分集边界。"
         "窗口字数与每批集数上限为内部默认，project.json 顶层 planning_window_chars / "
         "planning_max_episodes 可覆盖；每集目标体量取 episode_target_units，未设时按 "
         "episode_target_duration 经口播语速折算（折算值在返回的核对材料里标明来源）。"

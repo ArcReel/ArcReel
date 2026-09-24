@@ -49,10 +49,22 @@ async def test_plan_episodes_happy(fake_ctx: ToolContext, monkeypatch) -> None:
     result = PlanResult(
         episodes=[
             EpisodePlanSummary(
-                episode=1, title="古玉藏诀", hook="剑诀来历成谜", reading_units=812, ledger_status="planned"
+                episode=1,
+                title="古玉藏诀",
+                hook="剑诀来历成谜",
+                reading_units=812,
+                ledger_status="planned",
+                first_sentence="第一章 山村少年。",
+                last_sentence="玉中藏着剑诀。",
             ),
             EpisodePlanSummary(
-                episode=2, title="城门遇袭", hook="少女是谁", reading_units=903, ledger_status="planned"
+                episode=2,
+                title="城门遇袭",
+                hook="少女是谁",
+                reading_units=903,
+                ledger_status="planned",
+                first_sentence="第二章 下山。",
+                last_sentence="城门口他撞见了被追杀的少女。",
             ),
         ],
         cursor={"source_file": "source/novel.txt", "offset": 1715},
@@ -66,6 +78,8 @@ async def test_plan_episodes_happy(fake_ctx: ToolContext, monkeypatch) -> None:
     assert "剑诀来历成谜" in text
     assert "812" in text
     assert "城门遇袭" in text
+    assert "首句：第一章 山村少年。" in text
+    assert "尾句：城门口他撞见了被追杀的少女。" in text
     assert captured["project_path"] == fake_ctx.project_path
     assert captured["plan_instructions"] is None  # 不传时透传 None
 
@@ -78,7 +92,15 @@ async def test_plan_episodes_forwards_instructions(fake_ctx: ToolContext, monkey
     captured: dict[str, Any] = {}
     result = PlanResult(
         episodes=[
-            EpisodePlanSummary(episode=1, title="第一章", hook="悬念", reading_units=800, ledger_status="planned")
+            EpisodePlanSummary(
+                episode=1,
+                title="第一章",
+                hook="悬念",
+                reading_units=800,
+                ledger_status="planned",
+                first_sentence="首句。",
+                last_sentence="尾句。",
+            )
         ],
         cursor=None,
     )
@@ -136,7 +158,15 @@ async def test_plan_episodes_accepts_boundary_length_instructions(fake_ctx: Tool
     captured: dict[str, Any] = {}
     result = PlanResult(
         episodes=[
-            EpisodePlanSummary(episode=1, title="第一章", hook="悬念", reading_units=800, ledger_status="planned")
+            EpisodePlanSummary(
+                episode=1,
+                title="第一章",
+                hook="悬念",
+                reading_units=800,
+                ledger_status="planned",
+                first_sentence="首句。",
+                last_sentence="尾句。",
+            )
         ],
         cursor=None,
     )
@@ -230,7 +260,15 @@ async def test_plan_episodes_normal_batch_reports_total_planned_line_only(fake_c
 
     result = PlanResult(
         episodes=[
-            EpisodePlanSummary(episode=5, title="第五集", hook="悬念", reading_units=800, ledger_status="planned")
+            EpisodePlanSummary(
+                episode=5,
+                title="第五集",
+                hook="悬念",
+                reading_units=800,
+                ledger_status="planned",
+                first_sentence="首句。",
+                last_sentence="尾句。",
+            )
         ],
         cursor={"source_file": "source/novel.txt", "offset": 4000},
         source_exhausted=False,
