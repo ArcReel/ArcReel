@@ -1617,6 +1617,7 @@ export default {
   'more_actions': 'Thao tác khác',
   'delete_project': 'Xóa dự án',
   'confirm_delete_project': 'Bạn có chắc muốn xóa dự án "{{title}}"? Thao tác không thể hoàn tác.',
+  'delete_project_failed': 'Xóa dự án "{{title}}" thất bại: {{message}}',
   'deleting_project': 'Đang xóa...',
 
   // SystemConfigPage - language

@@ -1641,6 +1641,7 @@ export default {
   'more_actions': 'More Actions',
   'delete_project': 'Delete Project',
   'confirm_delete_project': 'Are you sure you want to delete project "{{title}}"? This action cannot be undone.',
+  'delete_project_failed': 'Failed to delete project "{{title}}": {{message}}',
   'deleting_project': 'Deleting...',
 
   // SystemConfigPage - language

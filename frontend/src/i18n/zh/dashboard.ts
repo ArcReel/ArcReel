@@ -1640,6 +1640,7 @@ export default {
   'more_actions': '更多操作',
   'delete_project': '删除项目',
   'confirm_delete_project': '确定要删除项目「{{title}}」吗？此操作不可撤销。',
+  'delete_project_failed': '删除项目「{{title}}」失败：{{message}}',
   'deleting_project': '删除中...',
 
   // SystemConfigPage - language
