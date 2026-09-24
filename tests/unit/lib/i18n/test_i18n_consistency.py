@@ -194,17 +194,18 @@ def test_events_module_keys_match():
 
 def test_every_event_label_key_is_translated():
     """事件载荷可能携带的 label_key 全部有翻译，且没有无人使用的残留 key。"""
+    from lib.project.asset_types import ASSET_SPECS
     from lib.script.script_skeleton import SKELETON_ITEM_LABEL_KEYS
     from server.services.tasks.generation_tasks import _SKELETON_TASK_LABEL_KEYS, _TASK_CHANGE_SPECS
 
     emitted = {spec[2] for spec in _TASK_CHANGE_SPECS.values()}
     emitted |= set(_SKELETON_TASK_LABEL_KEYS.values())
     emitted |= set(SKELETON_ITEM_LABEL_KEYS.values())
+    # 快照差分按资产类型表派生的资产与衍生 key。
+    emitted |= {f"named_entity_{asset_type}" for asset_type in ASSET_SPECS}
+    emitted |= {f"named_entity_{t}_derivative" for t, spec in ASSET_SPECS.items() if spec.supports_derivatives}
     # 快照差分与路由直接发布的固定 key（无表可枚举，在此登记）。
     emitted |= {
-        "named_entity_character",
-        "named_entity_scene",
-        "named_entity_prop",
         "character_reference_audio",
         "project_settings",
         "overview",

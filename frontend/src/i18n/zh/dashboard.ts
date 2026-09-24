@@ -1013,6 +1013,7 @@ export default {
   'character_task_failed': '角色 "{{id}}" 生成失败：{{reason}}',
   'scene_task_failed': '场景 "{{id}}" 生成失败：{{reason}}',
   'prop_task_failed': '道具 "{{id}}" 生成失败：{{reason}}',
+  'product_task_failed': '商品 "{{id}}" 生成失败：{{reason}}',
   'grid_task_failed': '多宫格分镜生成失败：{{reason}}',
   'image_edit_task_failed': '"{{id}}" 编辑失败：{{reason}}',
   'task_failed_provider_reason_suffix': '（供应商拒因：{{reason}}）',

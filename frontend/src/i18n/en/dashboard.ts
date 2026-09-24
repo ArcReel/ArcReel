@@ -1014,6 +1014,7 @@ export default {
   'character_task_failed': 'Character "{{id}}" generation failed: {{reason}}',
   'scene_task_failed': 'Scene "{{id}}" generation failed: {{reason}}',
   'prop_task_failed': 'Prop "{{id}}" generation failed: {{reason}}',
+  'product_task_failed': 'Product "{{id}}" generation failed: {{reason}}',
   'grid_task_failed': 'Multi-grid storyboard generation failed: {{reason}}',
   'image_edit_task_failed': 'Edit for "{{id}}" failed: {{reason}}',
   'task_failed_provider_reason_suffix': ' (Provider reason: {{reason}})',

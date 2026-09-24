@@ -708,7 +708,7 @@ def compute_affected_fingerprints(project_name: str, task_type: str, resource_id
 # lib.project.asset_types.ASSET_SPECS 派生。
 # storyboard / video / reference_video 不在此表——三者按剧本骨架种类（segments/scenes/shots/
 # video_units）动态派生 entity_type 与条目名词，见 _SKELETON_DRIVEN_TASK_ACTIONS，避免恒发
-# ``segment``/「分镜」而与分镜级事件（project_events.py）名词不一致。
+# ``segment``/「分镜」而与分镜级事件（project_state_projection.py）名词不一致。
 _TASK_CHANGE_SPECS: dict[str, tuple] = {
     "grid": ("grid", "grid_ready", "grid", True),
     "grid_split": ("grid", "grid_split_done", "grid_split", True),
