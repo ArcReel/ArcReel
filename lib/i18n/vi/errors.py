@@ -124,6 +124,9 @@ MESSAGES = {
         "bình thường, thử lại chỉ xếp hàng phần còn thiếu"
     ),
     "video_supported_durations_missing": "Mô hình video đã chọn chưa khai báo các mức thời lượng được hỗ trợ",
+    "video_supported_durations_invalid": "Dữ liệu mức thời lượng của {provider}/{model} không hợp lệ, nên không thể báo giá hoặc tạo video",
+    "video_supported_durations_incompatible": "{provider}/{model} không có mức thời lượng tương thích với độ phân giải hiện tại",
+    "video_capability_unavailable": "Không thể phân giải khả năng video {capability}; hãy kiểm tra cấu hình nhà cung cấp và mô hình",
     "video_prompt_must_be_string_or_action_object": "prompt phải là chuỗi hoặc đối tượng chứa action/camera_motion",
     "video_prompt_action_empty": "prompt.action không được để trống",
     "video_prompt_dialogue_array": "prompt.dialogue phải là mảng",

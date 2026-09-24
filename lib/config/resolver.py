@@ -769,6 +769,22 @@ class VideoBucketCapabilityError(ValueError):
         super().__init__(message)
 
 
+class VideoSupportedDurationsError(ValueError):
+    """能力合成时模型行的时长档位声明缺失（``missing``）或无效（``invalid``）。
+
+    ``provider_id`` / ``model_id`` 是收敛后的有效身份。消费方按 ``kind`` 映射到各自路线的问题码，
+    不解析 ``str(exc)``；消息文本保持原样，供 log 与仍按 ``ValueError`` 捕获的调用方使用。
+    """
+
+    kind: Literal["missing", "invalid"]
+
+    def __init__(self, kind: Literal["missing", "invalid"], *, provider_id: str, model_id: str, message: str):
+        self.kind = kind
+        self.provider_id = provider_id
+        self.model_id = model_id
+        super().__init__(message)
+
+
 class ImageBucketCapabilityError(ValueError):
     """图片解析闸报错：解析出的模型缺所属任务类型桶（t2i / i2i）要求的能力。
 
@@ -1756,12 +1772,16 @@ class ConfigResolver:
             if raw_durations:
                 try:
                     parsed = json.loads(raw_durations)
+                    if not isinstance(parsed, list) or any(type(d) is not int or d <= 0 for d in parsed):
+                        raise ValueError("supported_durations must be a list of positive integers")
+                    supported_durations = parsed
                 except (TypeError, ValueError) as exc:
-                    raise ValueError(
-                        f"invalid supported_durations JSON on custom model {provider_id}/{model_id}"
+                    raise VideoSupportedDurationsError(
+                        "invalid",
+                        provider_id=provider_id,
+                        model_id=model_id,
+                        message=f"invalid supported_durations JSON on custom model {provider_id}/{model_id}",
                     ) from exc
-                if isinstance(parsed, list):
-                    supported_durations = [int(d) for d in parsed]
             if not supported_durations and endpoint_spec.endpoint_durations:
                 # 同一条规则的另一侧：行上是空集而端点给得出档位时，按端点的来。空集只在端点也
                 # 驱动不了这一维时才成立——留着它，时长控件会禁着、剧本规划会借固定篇幅，而请求
@@ -1802,7 +1822,12 @@ class ConfigResolver:
                 ) from exc
 
         if not supported_durations and not durations_optional:
-            raise ValueError(f"supported_durations is empty for {provider_id}/{model_id}; cannot derive capabilities")
+            raise VideoSupportedDurationsError(
+                "missing",
+                provider_id=provider_id,
+                model_id=model_id,
+                message=f"supported_durations is empty for {provider_id}/{model_id}; cannot derive capabilities",
+            )
 
         # 空集时 ``max_duration`` 为 0，与 ``supported_durations == []`` 同义：这一维不由 ArcReel
         # 驱动，消费方不该从它派生任何可选档位，界面据此禁用时长控件。

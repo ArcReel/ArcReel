@@ -114,6 +114,17 @@ NARRATION_DELIVERY_FAILURE_CODES: frozenset[str] = frozenset(
     }
 )
 
+# 视频请求事实（``lib.generation.video_request_facts``）求值失败时分镜路线一族的问题码：执行器经
+# ``VideoRequestFactsError`` 阻断并按原码落库，与预检同码。参考路线一族与桶能力闸的码已在上面登记。
+VIDEO_REQUEST_FACTS_FAILURE_CODES: frozenset[str] = frozenset(
+    {
+        "video_capability_unavailable",
+        "video_supported_durations_incompatible",
+        "video_supported_durations_invalid",
+        "video_supported_durations_missing",
+    }
+)
+
 # Stable failure code -> i18n errors key. The code is agent-facing and persisted
 # in the DB; the key resolves to zh/en/vi templates rendered at read time.
 FAILURE_CODE_KEYS: dict[str, str] = {
@@ -121,6 +132,7 @@ FAILURE_CODE_KEYS: dict[str, str] = {
     **{code: code for code in REFERENCE_PROJECTION_FAILURE_CODES},
     **{code: code for code in GENERATION_INPUT_FAILURE_CODES},
     **{code: code for code in NARRATION_DELIVERY_FAILURE_CODES},
+    **{code: code for code in VIDEO_REQUEST_FACTS_FAILURE_CODES},
     "provider_unsupported_media": "task_fail_provider_unsupported_media",
     # 上游确定性 4xx 拒绝。params 里的 provider_reason 是脱敏截断后的上游原文，刻意不进
     # 译文模板：它不该被翻译，读侧按独立字段原样展示。

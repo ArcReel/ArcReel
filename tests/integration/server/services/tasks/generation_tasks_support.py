@@ -19,6 +19,7 @@ from server.services.tasks.generation_context import (
     ImageLaneResult,
     VideoLaneResult,
 )
+from tests.factories import make_video_request_facts
 from tests.fakes import persist_fake_script
 
 
@@ -44,10 +45,13 @@ def fake_resolve_ctx(
     duration_endpoint_fixed=False,
     voice_consistency="soft",
     requested_generate_audio=True,
+    video_request_facts=None,
     seen_lane_requests=None,
 ):
     """lane 感知的假 resolve_generation_context：按调用方声明的 lane 拼装 frozen dataclass 产物。
 
+    video lane 声明了路线时附带视频请求事实：``video_request_facts`` 给定时原样使用（可为失败对象），
+    否则按本替身的身份、分辨率与档位参数构造一份未收窄的事实。
     ``seen_lane_requests`` 传入 list 时记录每次调用声明的 lane 请求，供断言任务只声明
     自己用到的 lane。
     """
@@ -80,6 +84,20 @@ def fake_resolve_ctx(
         if video is not None:
             provider, model = video_provider
             backend_model = video_backend_model or model
+            request_facts = video_request_facts
+            if request_facts is None and video.route is not None:
+                request_facts = make_video_request_facts(
+                    route=video.route,
+                    generation_type=video.generation_type or "i2v",
+                    provider_id=provider,
+                    model_id=backend_model,
+                    resolution=video_resolution,
+                    supported_durations=tuple(supported_durations),
+                    allowed_durations=tuple(supported_durations),
+                    duration_endpoint_fixed=duration_endpoint_fixed,
+                    requested_generate_audio=requested_generate_audio,
+                    has_audio_track=voice_consistency != "none",
+                )
             video_lane = VideoLaneResult(
                 provider_model=ProviderModel(provider, model),
                 backend_name=provider,
@@ -92,6 +110,7 @@ def fake_resolve_ctx(
                 max_reference_images=None,
                 voice_consistency=voice_consistency,
                 requested_generate_audio=requested_generate_audio,
+                request_facts=request_facts,
             )
         audio_lane = None
         if audio is not None:

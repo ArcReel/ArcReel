@@ -26,6 +26,7 @@ from lib.artifacts.artifact_manifest import ArtifactKey
 from lib.config.resolver import ConfigResolver, video_bucket_for_generation_mode
 from lib.generation.generation_queue import get_generation_queue
 from lib.generation.generation_queue_client import TaskSpec
+from lib.generation.video_request_facts import VideoRequestFactsError
 from lib.infra.api_errors import BadRequestError, ConflictError, NotFoundError
 from lib.infra.json_io import domain_error_on_value_error
 from lib.infra.path_safety import safe_exists, safe_join
@@ -33,7 +34,6 @@ from lib.project.asset_derivatives import DERIVATIVE_TASK_TYPE, DerivativeSheetS
 from lib.project.asset_types import ASSET_SPECS, resolve_asset_key, validate_asset_name
 from lib.project.project_change_hints import build_change_label, emit_project_change_batch, project_change_source
 from lib.project.project_manager import get_project_manager, is_reference_video_project
-from lib.script.reference_video.request_projection import ProjectionResolutionError
 from lib.script.script_editor import resolve_items
 from lib.script.script_models import get_generated_assets
 from lib.script.script_skeleton import resolve_script_kind
@@ -344,7 +344,7 @@ async def generate_video(
                 user_id=user.id,
                 queue=queue,
             )
-        except ProjectionResolutionError as exc:
+        except VideoRequestFactsError as exc:
             raise BadRequestError(exc.code, **exc.params) from exc
         delivery_payload = await _localized_narrated_video_payload(delivery_projection, _t)
         if not delivery_payload["allowed"]:

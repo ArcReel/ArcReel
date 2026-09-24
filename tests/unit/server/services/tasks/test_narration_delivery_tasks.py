@@ -13,6 +13,7 @@ from lib.artifacts.artifact_manifest import (
 from lib.artifacts.video_artifact_facts import VideoArtifactCurrencyFacts
 from lib.speech.speech_artifact_provenance import build_video_duration_basis
 from server.services.tasks import narration_delivery_tasks
+from tests.factories import make_video_request_facts
 
 
 def _typed_video_metadata(
@@ -282,27 +283,6 @@ async def test_active_narrated_video_observation_filters_post_production_tasks()
     assert active == frozenset({"E1S01"})
 
 
-class _EndpointFixedDurationResolver:
-    """时长这一维由端点固定的配置解析替身：档位集是合法空集。"""
-
-    async def video_capabilities_for_project(self, project: dict, *, generation_type: str) -> dict:
-        del project, generation_type
-        return {
-            "provider_id": "custom-1",
-            "model": "comfyui-wan",
-            "supported_durations": [],
-            "duration_endpoint_fixed": True,
-            "max_reference_images": 0,
-            "generate_audio": False,
-            "requested_generate_audio": False,
-            "voice_consistency": "none",
-        }
-
-    async def resolve_resolution(self, project: dict, provider_id: str, model_id: str) -> str:
-        del project, provider_id, model_id
-        return "720p"
-
-
 class _UnconfiguredTtsResolver:
     async def resolve_tts_synthesis_settings(self, project: dict) -> object:
         del project
@@ -327,8 +307,14 @@ async def test_storyboard_tts_on_endpoint_fixed_durations_is_refused_without_a_t
         planned_duration_seconds=None,
         confirmed_request_duration_seconds=None,
         tts_in_progress=False,
-        config_resolver=_EndpointFixedDurationResolver(),
         tts_settings_resolver=_UnconfiguredTtsResolver(),
+        video_request_facts=make_video_request_facts(
+            provider_id="custom-1",
+            model_id="comfyui-wan",
+            supported_durations=(),
+            allowed_durations=(),
+            duration_endpoint_fixed=True,
+        ),
     )
 
     assert result.allowed is False

@@ -27,10 +27,23 @@ from typing import TYPE_CHECKING, Any, Literal
 from lib.backends.audio_backends.base import VoiceOption
 from lib.backends.backend_assembly import assemble_backend
 from lib.backends.gemini_shared import get_shared_rate_limiter
-from lib.config.resolver import ConfigResolver, VideoGenerationType, VoiceConsistency, get_provider_fallback
+from lib.config.resolver import (
+    ConfigResolver,
+    VideoGenerationType,
+    VoiceConsistency,
+    get_provider_fallback,
+    video_bucket_for_generation_mode,
+)
 from lib.custom_provider.backends import CustomVideoBackend
 from lib.db.base import DEFAULT_USER_ID
 from lib.generation.media_generator import MediaGenerator
+from lib.generation.video_request_facts import (
+    ExecutionVideoIdentity,
+    VideoRequestFacts,
+    VideoRequestFactsFailure,
+    VideoRoute,
+    evaluate_video_request_facts,
+)
 from lib.project.project_manager import get_project_manager
 
 if TYPE_CHECKING:
@@ -176,9 +189,13 @@ class VideoLaneRequest:
     参考生视频按视频单元解析后的实际参考图分流——有参考图 → r2v，无参考图的视频单元降级
     → i2v（由 executor 判定后声明，见 ``lib.script.reference_video.units``）。None = 不定桶，
     走旧三级解析且不过能力闸——供 resume 等按 payload 排空、不承诺能力的路径使用。
+
+    ``route`` 声明时 lane 附带该路线的执行侧视频请求事实（``docs/adr/0086``）；不定桶时按项目
+    生成模式定桶求值。
     """
 
     generation_type: VideoGenerationType | None = None
+    route: VideoRoute | None = None
 
 
 @dataclass(frozen=True)
@@ -249,6 +266,9 @@ class VideoLaneResult:
     # 天然对齐，调用方须显式算出「谁的声音配哪张图」再随请求下发。能力查询失败降级为 False——
     # 与其余能力字段同口径，不明时不额外收紧。
     reference_audio_per_image: bool = False
+    # 执行侧视频请求事实：以实际构造的 backend 身份求值，解析不出时是带类型的失败、不降级。
+    # 仅在 lane 请求声明了路线时求值，否则为 None。
+    request_facts: VideoRequestFacts | VideoRequestFactsFailure | None = None
     # 自定义供应商解析出的 endpoint（ENDPOINT_REGISTRY 键）；内置供应商无该维度，为 None。
     # 续跑据此与提交时持久化的 endpoint 比对，见 server.services.tasks.resume_executor。
     endpoint: str | None = None
@@ -420,6 +440,16 @@ async def resolve_generation_context(
                     actual_model,
                     exc,
                 )
+            request_facts: VideoRequestFacts | VideoRequestFactsFailure | None = None
+            if video.route is not None:
+                request_facts = await evaluate_video_request_facts(
+                    project,
+                    route=video.route,
+                    generation_type=video.generation_type
+                    or video_bucket_for_generation_mode(project.get("generation_mode")),
+                    identity=ExecutionVideoIdentity(resolved.provider_id, actual_model),
+                    resolver=r,
+                )
             video_result = VideoLaneResult(
                 provider_model=resolved,
                 backend_name=video_backend.name,
@@ -436,6 +466,7 @@ async def resolve_generation_context(
                 requested_generate_audio=requested_generate_audio,
                 max_reference_audio_count=max_reference_audio_count,
                 reference_audio_per_image=reference_audio_per_image,
+                request_facts=request_facts,
                 # 显式按类型分流而非 getattr 探测：endpoint 为 None 恰好是「跳过续跑比对」
                 # 这条最宽松分支，属性一旦改名，探测式取值会静默失效且无任何信号。
                 endpoint=video_backend.endpoint if isinstance(video_backend, CustomVideoBackend) else None,

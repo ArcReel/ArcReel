@@ -23,6 +23,12 @@ from lib.config.resolver import ConfigResolver, ProviderModel, VoiceConsistency,
 from lib.custom_provider import make_provider_id
 from lib.db.models.custom_provider import CustomProvider, CustomProviderModel
 from lib.generation.media_generator import MediaGenerator
+from lib.generation.video_request_facts import (
+    CONFIGURED_VIDEO_IDENTITY,
+    VideoRequestFacts,
+    VideoRequestFactsFailure,
+    evaluate_video_request_facts,
+)
 from lib.project.project_manager import ProjectManager
 from server.services.tasks import generation_context
 from server.services.tasks.generation_context import (
@@ -337,6 +343,70 @@ class TestActualIdentityQueries:
         assert ctx.video.supported_durations == (4, 6, 8)
         assert ctx.video.max_duration == 8
         assert ctx.video.max_reference_images == 0
+
+
+class TestVideoRequestFacts:
+    """lane 声明路线时附带执行侧视频请求事实：身份取实际构造的 backend，session 与 lane 共用。"""
+
+    async def test_lane_facts_equal_the_read_side_facts_for_the_same_configuration(
+        self, patched_session_factory, project_env, fake_assemble
+    ):
+        project = {"video_provider_i2v": "gemini-aistudio/veo-3.1-generate-preview"}
+        ctx = await resolve_generation_context(
+            "demo", None, project=project, video=VideoLaneRequest(generation_type="i2v", route="storyboard")
+        )
+        read = await evaluate_video_request_facts(
+            project,
+            route="storyboard",
+            generation_type="i2v",
+            identity=CONFIGURED_VIDEO_IDENTITY,
+            resolver=ConfigResolver(patched_session_factory),
+        )
+
+        assert isinstance(read, VideoRequestFacts)
+        assert read.allowed_durations == (4, 6, 8)
+        assert ctx.video.request_facts == read
+
+    async def test_lane_facts_follow_the_backend_that_was_actually_built(
+        self, patched_session_factory, project_env, monkeypatch
+    ):
+        provider_id = await _seed_custom_video_provider(patched_session_factory)
+
+        async def _assemble(*, provider_id, media_type, model_id, resolver, rate_limiter=None, generation_type=None):
+            return _FakeBackend(name=provider_id, model="m-live")
+
+        monkeypatch.setattr(generation_context, "assemble_backend", _assemble)
+        ctx = await resolve_generation_context(
+            "demo",
+            None,
+            project={"video_backend": f"{provider_id}/m-dead"},
+            video=VideoLaneRequest(route="storyboard"),
+        )
+
+        facts = ctx.video.request_facts
+        assert isinstance(facts, VideoRequestFacts)
+        assert (facts.provider_id, facts.model_id, facts.generation_type) == (provider_id, "m-live", "i2v")
+        assert facts.resolution == "540p"
+        assert facts.allowed_durations == (4, 6, 8)
+
+    async def test_unresolvable_facts_are_carried_as_a_failure_not_raised(
+        self, patched_session_factory, project_env, monkeypatch
+    ):
+        async def _assemble(*, provider_id, media_type, model_id, resolver, rate_limiter=None, generation_type=None):
+            return _FakeBackend(name=provider_id, model="mystery-model")
+
+        monkeypatch.setattr(generation_context, "assemble_backend", _assemble)
+        ctx = await resolve_generation_context(
+            "demo",
+            None,
+            project={"video_backend": f"ark/{_registry_video_model('ark')}"},
+            video=VideoLaneRequest(generation_type="i2v", route="storyboard"),
+        )
+
+        assert ctx.video.request_facts == VideoRequestFactsFailure(
+            "video_capability_unavailable",
+            (("capability", "i2v"), ("provider", "ark"), ("model", "mystery-model")),
+        )
 
 
 class TestAudioLane:

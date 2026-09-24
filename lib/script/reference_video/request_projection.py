@@ -18,11 +18,11 @@ from sqlalchemy.exc import SQLAlchemyError
 from lib.config.resolver import (
     VideoBucketCapabilityError,
     VideoGenerationType,
-    builtin_video_audio_track,
     constrain_durations,
     get_provider_fallback,
     video_capability_satisfied,
 )
+from lib.generation.video_request_facts import video_audio_model_facts as reference_audio_model_facts
 from lib.infra.path_safety import PathTraversalError, safe_join
 from lib.infra.schema_guards import is_int
 from lib.project.asset_types import AssetSpec, asset_name_comparison_key
@@ -320,26 +320,6 @@ class ProjectionResolutionError(ValueError):
         self.code = code
         self.params = params
         super().__init__(code)
-
-
-def reference_audio_model_facts(
-    provider_id: str,
-    model_id: str,
-    *,
-    voice_consistency: str,
-    generation_type: VideoGenerationType,
-) -> tuple[bool, bool]:
-    """返回 ``(has_audio_track, audio_switch_controllable)`` 的模型级事实。
-
-    ``generation_type`` 定的是执行路径：音轨形态按子路径分叉，参考生视频的镜头必须按 r2v 取值，否则
-    可灵 v3-omni 这类「图生可控、参考生无开关」的型号会被当成开关可控（用户的音频配置在多图
-    主体子路径上根本发不出去）。自定义供应商与未登记模型没有逐模型声明，按无信号不收紧。
-    """
-
-    audio_track = builtin_video_audio_track(provider_id, model_id, generation_type=generation_type)
-    if audio_track is None:
-        return voice_consistency != "none", True
-    return audio_track != "always_off", audio_track == "controllable"
 
 
 def strict_reference_durations(

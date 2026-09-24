@@ -877,8 +877,9 @@ class ScriptGenerator:
         """从 caps → registry 两级解析，再按联动约束收窄；都拿不到抛 ValueError。
 
         收窄发生在交给 prompt / 动态 schema 之前：``supported_durations`` 是型号的时长全集，
-        不含「分辨率↔时长」「参考图↔时长」两条联动约束。不收窄的话 Veo 项目（兜底分辨率即
-        1080p）的剧本会产出 4/6 秒分镜，到视频入队时才被 backend 拒，用户已无统一纠正入口。
+        不含「分辨率↔时长」「参考图↔时长」两条联动约束。不收窄的话设了 1080p 的 Veo 项目的剧本
+        会产出 4/6 秒分镜，到视频入队时才被 backend 拒，用户已无统一纠正入口；未设分辨率时请求不
+        携带该参数，分辨率约束不生效。
 
         ``uses_reference_images`` 由调用方按本集 script_plan 的实际引用情况传入；缺省退回按生成模式
         判定（见 ``constrain_durations_for_project``）。
@@ -914,8 +915,8 @@ class ScriptGenerator:
     ) -> list[int] | None:
         """时长落在该 unit 生效档位之外时返回该档位集，落在内则返回 None。
 
-        生效档位逐 unit 算：分辨率与参考图两条联动约束都只对实际带图的 unit 生效，整集一刀切
-        会收掉无引用 unit 本可申请的档位。档位不可解析时按无约束处理，交执行期 backend 兜底。
+        生效档位逐 unit 算：参考图约束只对实际带图的 unit 生效，整集一刀切会收掉无引用 unit
+        本可申请的档位。档位不可解析时按无约束处理，交执行期 backend 兜底。
         """
         tiers = self._resolve_supported_durations(caps, gen_mode=gen_mode, uses_reference_images=has_references)
         if not tiers:
