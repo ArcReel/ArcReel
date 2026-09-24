@@ -37,7 +37,7 @@ from lib.script.draft_quarantine import (
 from lib.script.script_generator import ScriptGenerator, VideoDurationsUnresolvedError
 from lib.script.script_models import DramaNormalizedScript, NarrationScriptPlanDraft, ReferenceScriptPlanDraft
 from lib.speech.speech_composition import SpeechAdmission, SpeechAdmissionError, admit_script_unit
-from server.media_tools.context import reference_unit_duration_tiers, resolve_video_caps
+from server.services.tasks.video_caps import reference_unit_duration_tiers, resolve_video_caps
 
 logger = logging.getLogger(__name__)
 
@@ -496,7 +496,7 @@ class ScriptReviewService:
 
     def _reject_confirmed_script_plan(self, project_name: str, project_path: Path, episode: int) -> None:
         """已确认的脚本规划只读：持脚本规划锁时按最新确认记录判定，已确认即拒绝保存。"""
-        project = self.pm.load_project_readonly(project_name)
+        project = self.pm.load_project(project_name)
         if script_review.formal_script_plan_confirmed(project_path, project, episode):
             raise ScriptReviewError("script_plan_confirmed")
 

@@ -114,7 +114,7 @@ async def test_reference_unit_duration_tiers_does_not_assume_containment(monkeyp
     """
     from lib.config import resolver as resolver_mod
     from lib.config.registry import ModelInfo
-    from server.media_tools import context as _context
+    from server.services.tasks.video_caps import reference_unit_duration_tiers
 
     contradictory = ModelInfo(
         display_name="contradictory",
@@ -127,7 +127,7 @@ async def test_reference_unit_duration_tiers_does_not_assume_containment(monkeyp
     monkeypatch.setattr(resolver_mod, "model_info_for", lambda *_args: contradictory)
 
     project = {"model_settings": {"p/m": {"resolution": "1080p"}}}
-    with_refs, without_refs = await _context.reference_unit_duration_tiers(
+    with_refs, without_refs = await reference_unit_duration_tiers(
         project,
         {"provider_id": "p", "model": "m"},
         [4, 6, 8],
@@ -142,7 +142,7 @@ async def test_reference_unit_duration_tiers_does_not_assume_containment(monkeyp
 async def test_reference_unit_duration_tiers_without_refs_follow_i2v_bucket() -> None:
     """不带图档位按 i2v 桶模型求值：无引用 unit 执行期降级到 i2v 桶执行，创作侧放行的秒数
     须与该桶模型的声明一致，否则会放行 r2v 独有档位、漏掉 i2v 独有档位。"""
-    from server.media_tools import context as _context
+    from server.services.tasks.video_caps import reference_unit_duration_tiers
 
     resolver = fake_caps_resolver(
         by_generation_type={
@@ -154,7 +154,7 @@ async def test_reference_unit_duration_tiers_without_refs_follow_i2v_bucket() ->
         },
     )
 
-    with_refs, without_refs = await _context.reference_unit_duration_tiers(
+    with_refs, without_refs = await reference_unit_duration_tiers(
         {}, {"provider_id": "minimax", "model": "S2V-01"}, [6, 10], config_resolver=resolver
     )
 

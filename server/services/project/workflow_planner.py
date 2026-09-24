@@ -147,7 +147,7 @@ class WorkflowPlanner:
             return None
 
         def _read() -> _ScriptFacts:
-            project = self._pm.load_project_readonly(project_name)
+            project = self._pm.load_project(project_name)
             script = self._pm.load_script_readonly(project_name, target.script)
             kind = ensure_route_skeleton(
                 script,

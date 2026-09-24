@@ -88,6 +88,7 @@ async def test_generate_assets_happy(fake_ctx: ToolContext, monkeypatch) -> None
 
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
     tool_obj = generate_assets_tool(fake_ctx)
+    fake_ctx.pm.mirror_to_disk()
     out = await call(tool_obj, {"type": "character"})
     # 李四 没有 description，作为 blocked 逐 ID 报告；缺口存在时整体判为 error，
     # 调用方不需要读文本就知道哪几个 ID 还没做成。
@@ -130,6 +131,7 @@ async def test_generate_assets_legacy_project_reverifies_sheet_file_on_disk(fake
         return succ, []
 
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
+    fake_ctx.pm.mirror_to_disk()
     out = await call(generate_assets_tool(fake_ctx), {"type": "character"})
 
     result = read_generation_result(out)

@@ -156,7 +156,7 @@ class ProviderJobIdPersistenceMixin:
 
         同时按维度分列写回该笔提交所用的端点信息：协议标识取 ``request.execution_endpoint``（由
         自定义供应商的包装层在转发前注入，内置供应商无此维度、恒 None），实际请求域名取参数
-        ``endpoint``（由提交域名随用户配置变化的 backend 传入，只有 dashscope 协议这一条线）。
+        ``endpoint``（由提交域名随用户配置变化的 backend 传入，续跑据此回放原域名轮询）。
         两类供应商共用同一套写法，域名一律落 ``submitted_base_url``。持久化失败抛出（DB 瞬态错误
         已在 ``persist_provider_job_id`` 内重试 3 次），由 worker finally 兜底 mark_failed ——
         保持现有 fail-fast 语义（ADR 0007）。
@@ -950,6 +950,36 @@ def recording_poll[T](
         return body
 
     return once
+
+
+def resume_expiry_gate[T](
+    poll_fn: Callable[[], Awaitable[T]],
+    *,
+    resume_job_id: str | None,
+    provider: str,
+) -> Callable[[], Awaitable[T]]:
+    """续跑轮询的过期闸门：按 job id 查询得到 HTTP 404 即转 ``ResumeExpiredError``。
+
+    :func:`should_retry_poll` 把轮询 404 当作「刚提交、查询端未就绪」重试；续跑的任务早已提交，
+    404 说明它在供应商侧已不存在，重试只会耗尽失败预算、以普通失败收场。``resume_job_id`` 为
+    None（新提交路径）时原样返回 ``poll_fn``，404 仍交重试谓词处理。
+
+    留痕要包在闸门里侧，即把 :func:`recording_poll` 的产物作为 ``poll_fn`` 传入：闸门把 404
+    换成 ResumeExpiredError，包在外侧就看不到那个响应。
+    """
+    if resume_job_id is None:
+        return poll_fn
+    from lib.backends.video_backend_contract import ResumeExpiredError
+
+    async def gated() -> T:
+        try:
+            return await poll_fn()
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 404:
+                raise ResumeExpiredError(job_id=resume_job_id, provider=provider) from exc
+            raise
+
+    return gated
 
 
 def _response_body_or_text(response: httpx.Response) -> object:

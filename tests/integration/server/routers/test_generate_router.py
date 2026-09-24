@@ -1,3 +1,4 @@
+import asyncio
 import json
 from pathlib import Path
 from unittest.mock import AsyncMock
@@ -7,15 +8,28 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from lib.artifacts.artifact_activation import ArtifactKey, register_current_artifact_if_provable
-from lib.artifacts.artifact_manifest import ArtifactManifest, ProjectArtifactManifestAdapter
+from lib.artifacts.artifact_manifest import (
+    ArtifactBasis,
+    ArtifactManifest,
+    ProjectArtifactManifestAdapter,
+    compose_video_artifact_basis,
+)
+from lib.artifacts.version_manager import VersionManager
+from lib.artifacts.video_artifact_facts import VideoArtifactCurrencyFacts
+from lib.artifacts.video_visual_provenance import build_storyboard_video_visual_basis, resolve_video_aspect_ratio
+from lib.artifacts.visual_artifact_provenance import build_storyboard_video_artifact_visual_basis
 from lib.config.resolver import ConfigResolver, ProviderModel
+from lib.db import async_session_factory
 from lib.i18n import _ as i18n_message
 from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
+from lib.script.reference_video.request_projection import ConfigReferenceCapabilityProjection
 from lib.speech.narration_delivery import TtsSynthesisSettings, build_narration_audio_basis
+from lib.speech.speech_artifact_provenance import build_video_duration_basis
 from lib.speech.speech_composition import admit_script_unit
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import generate
+from server.services.admission.cost_estimation import VideoRequestQuote
 from server.services.tasks.narration_delivery_tasks import CurrentTtsSettingsResolver
 from tests.auth_deps import AUTH_DEPENDENCIES
 from tests.factories import wav_bytes
@@ -182,6 +196,77 @@ def _prepare_files(tmp_path: Path) -> Path:
 
 async def _noop_bucket_precheck(project, generation_type):
     return None
+
+
+async def _current_config_visual_basis_digest(project: dict, project_path: Path, *, prompt: object, seed: int) -> str:
+    """按当前配置解析出的请求坐标，计算旁白项目 E1S01（无尾帧）分镜视频的视觉依据摘要。"""
+
+    resolver = ConfigResolver(async_session_factory)
+    candidate = await ConfigReferenceCapabilityProjection(resolver).resolve_candidate(project, "i2v")
+    return build_storyboard_video_visual_basis(
+        prompt=prompt,
+        storyboard_image=project_path / "storyboards" / "scene_E1S01.png",
+        end_frame_image=None,
+        aspect_ratio=resolve_video_aspect_ratio(project),
+        provider_id=candidate.provider_id,
+        model_id=candidate.model_id,
+        resolution=await resolver.resolve_resolution(project, candidate.provider_id, candidate.model_id),
+        seed=seed,
+        requested_generate_audio=candidate.requested_generate_audio,
+        content_mode="narration",
+        utterances=None,
+        has_utterances=False,
+        voice_characters=None,
+    ).digest
+
+
+def _register_current_storyboard_video(
+    project_path: Path,
+    *,
+    visual_prompt: object,
+    visual_basis_digest: str,
+    duration_seconds: int,
+) -> None:
+    """登记 E1S01 的一版当前成片：正式文件、版本快照、产物清单与执行敏感的视觉依据摘要齐备。"""
+
+    formal = project_path / "videos" / "scene_E1S01.mp4"
+    formal.parent.mkdir(parents=True, exist_ok=True)
+    formal.write_bytes(b"paid-current-video")
+    visual = build_storyboard_video_artifact_visual_basis(
+        resource_id="E1S01",
+        visual_prompt=visual_prompt,
+        storyboard_image=project_path / "storyboards" / "scene_E1S01.png",
+        end_frame_image=None,
+        aspect_ratio="9:16",
+    )
+    speech = ArtifactBasis.build("artifact-speech/video", kind_version=1, inputs={"mode": "silent"})
+    duration = build_video_duration_basis(duration_seconds)
+    currency = VideoArtifactCurrencyFacts(
+        episode=1,
+        request_duration_seconds=duration_seconds,
+        visual_basis=visual,
+        speech_basis=speech,
+        duration_basis=duration,
+        video_basis=compose_video_artifact_basis(visual=visual, speech=speech, duration=duration),
+        voice_style_speakers=(),
+        duration_tiers=(duration_seconds,),
+        reference_image_limit=None,
+        parent_version=0,
+    )
+    ArtifactManifest(ProjectArtifactManifestAdapter(project_path)).register_descriptor(
+        ArtifactKey.episode_video(1, "E1S01"),
+        artifact_path="videos/scene_E1S01.mp4",
+        basis=currency.video_descriptor,
+    )
+    VersionManager(project_path).add_version(
+        "videos",
+        "E1S01",
+        "prompt",
+        source_file=formal,
+        duration_seconds=duration_seconds,
+        artifact_video_currency=currency.to_dict(),
+        visual_basis_digest=visual_basis_digest,
+    )
 
 
 def _client(monkeypatch, fake_pm, fake_queue, *, register_storyboards=True, user_id="default"):
@@ -478,6 +563,66 @@ class TestGenerateRouter:
         assert fake_queue.calls[0]["user_id"] == "tenant-user"
         assert "duration_seconds" not in fake_queue.calls[0]["payload"]
 
+    def test_video_use_tts_precheck_matches_the_current_video_by_the_saved_prompt(self, tmp_path, monkeypatch):
+        """预检的视觉依据取盘上 video_prompt：请求 prompt 与盘上不同，仍认出按盘上提示词生成的当前成片档位。"""
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_pm.project["video_provider_i2v"] = "openai/sora-2"
+        segment = fake_pm.script["segments"][0]
+        saved_prompt = {"action": "风吹草动", "camera_motion": "Static"}
+        segment["video_prompt"] = saved_prompt
+        segment["generated_assets"]["narration_audio"] = "audio/segment_E1S01.wav"
+        audio = project_path / "audio" / "segment_E1S01.wav"
+        audio.parent.mkdir()
+        audio.write_bytes(wav_bytes(3.5))
+        fake_queue = _FakeQueue()
+        client = _client(monkeypatch, fake_pm, fake_queue)
+        settings = TtsSynthesisSettings("openai", "tts-1", "alloy", None)
+        preparation = admit_script_unit("segments", segment).preparation
+        ArtifactManifest(ProjectArtifactManifestAdapter(project_path)).register(
+            ArtifactKey.episode_audio(1, "E1S01"),
+            artifact_path="audio/segment_E1S01.wav",
+            basis=build_narration_audio_basis(preparation, settings),
+        )
+
+        async def _resolve_tts(_self, _project):
+            return settings
+
+        monkeypatch.setattr(CurrentTtsSettingsResolver, "resolve_tts_synthesis_settings", _resolve_tts)
+        monkeypatch.setattr(
+            generate,
+            "quote_video_request",
+            AsyncMock(return_value=VideoRequestQuote(0.4, "USD", "openai", "sora-2", 4)),
+        )
+        _register_current_storyboard_video(
+            project_path,
+            visual_prompt=saved_prompt,
+            visual_basis_digest=asyncio.run(
+                _current_config_visual_basis_digest(fake_pm.project, project_path, prompt=saved_prompt, seed=739)
+            ),
+            duration_seconds=4,
+        )
+        request = {
+            "script_file": "episode_1.json",
+            "seed": 739,
+            "narration_delivery": "use_tts",
+        }
+
+        with client:
+            same = client.post(
+                "/api/v1/projects/demo/generate/video/E1S01",
+                json={**request, "prompt": saved_prompt},
+            )
+            differing = client.post(
+                "/api/v1/projects/demo/generate/video/E1S01",
+                json={**request, "prompt": {"action": "请求快照里的旧动作", "camera_motion": "Pan Left"}},
+            )
+
+        assert same.status_code == 200, same.text
+        assert same.json()["narration_delivery"]["current_visual_duration"] == 4
+        assert differing.status_code == 200, differing.text
+        assert differing.json()["narration_delivery"]["current_visual_duration"] == 4
+
     def test_video_use_tts_confirms_only_the_current_higher_tier(self, tmp_path, monkeypatch):
         from dataclasses import replace
 
@@ -726,9 +871,10 @@ class TestGenerateRouter:
             ("ad", "shots", "shot_id", "voiceover_text"),
         ],
     )
-    def test_narrator_video_request_rejects_mixed_queued_prompt(
+    def test_narrator_video_request_admits_the_saved_unit_not_the_request_prompt(
         self, tmp_path, monkeypatch, content_mode, root, id_field, narrator_field
     ):
+        """worker 按盘上 video_prompt 执行：盘上单元只有旁白时，请求 prompt 里的角色台词不拦截入队。"""
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
         fake_pm.project["content_mode"] = content_mode
@@ -743,7 +889,7 @@ class TestGenerateRouter:
                         "scene": "旷野",
                         "composition": {"shot_type": "medium", "lighting": "natural", "ambiance": "calm"},
                     },
-                    "video_prompt": {},
+                    "video_prompt": {"action": "风吹草动", "camera_motion": "Static"},
                     "generated_assets": {"storyboard_image": "storyboards/scene_E1S01.png"},
                 }
             ],
@@ -756,13 +902,16 @@ class TestGenerateRouter:
                 "/api/v1/projects/demo/generate/video/E1S01",
                 json={
                     "script_file": "episode_1.json",
-                    "prompt": {"dialogue": [{"speaker": "阿离", "line": "快走。"}]},
+                    "prompt": {
+                        "action": "阿离回头",
+                        "camera_motion": "Static",
+                        "dialogue": [{"speaker": "阿离", "line": "快走。"}],
+                    },
                 },
             )
 
-        assert response.status_code == 409
-        assert response.json()["detail"]["problems"][0]["code"] == "mixed_speech"
-        assert fake_queue.calls == []
+        assert response.status_code == 200, response.text
+        assert len(fake_queue.calls) == 1
 
     @pytest.mark.parametrize(
         "case",
@@ -1520,7 +1669,7 @@ class TestReferenceAdmissionAtGenerationEntries:
 
     @pytest.mark.parametrize("endpoint", ["storyboard", "video"], ids=["分镜图", "图生视频"])
     def test_deleted_asset_leaves_a_blocking_reference(self, tmp_path, monkeypatch, endpoint: str):
-        """删除资产后残留的引用与从未登记的名字同一出路，不再被静默丢弃。"""
+        """删除资产后残留的引用与从未登记的名字同一出路，不被静默丢弃。"""
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
         del fake_pm.project["scenes"]["祠堂"]
@@ -1635,7 +1784,7 @@ class TestAdStoryboardRegeneration:
 
 
 class TestNoServerPathLeak:
-    """404/400/500 响应形状回归：detail 不得含服务器绝对路径片段。
+    """404/400/500 响应形状：detail 不得含服务器绝对路径片段。
 
     lib 层 FileNotFoundError 的消息携带绝对路径（如 load_script 的
     「剧本文件不存在: /abs/path」），app 级 handler 必须脱敏为通用 404 文案。

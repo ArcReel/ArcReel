@@ -7,13 +7,20 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
+import httpx
 import pytest
 from openai import InternalServerError
 from openai.types.video_create_error import VideoCreateError
 
 from lib.backends.providers import PROVIDER_OPENAI
 from lib.backends.video_backend_contract import VideoGenerationRequest
-from tests.fakes import blocking_file_read_gate, bounded_poll_clock, captured_openai_clients
+from tests.fakes import (
+    blocking_file_read_gate,
+    bounded_poll_clock,
+    captured_openai_clients,
+    captured_provider_job_ids,
+)
+from tests.http_capture import capture_http, only_request
 
 
 def _make_mock_video(status="completed", seconds="8", video_id="vid_123"):
@@ -738,3 +745,76 @@ class TestFailureMessage:
 
         # 逐字断言：错误文本原样落 task.error_message，内部类型的 repr 不该出现在里面
         assert str(ei.value) == f"Sora 视频生成失败: {expected}"
+
+
+_RELAY_A = "https://relay-a.example.com/v1"
+_RELAY_B = "https://relay-b.example.com/v1"
+
+
+def _video_json(video_id: str, status: str) -> dict:
+    return {
+        "id": video_id,
+        "object": "video",
+        "model": "sora-2",
+        "status": status,
+        "progress": 100 if status == "completed" else 0,
+        "seconds": "8",
+        "size": "720x1280",
+        "created_at": 1,
+    }
+
+
+class TestSubmittedBaseUrlReplay:
+    """挂在自定义供应商下的 OpenAI 视频协议：提交时落下实际请求域名，续跑按该域名轮询与取件。
+
+    真实 SDK client，respx 在 transport 层拦截。
+    """
+
+    async def test_generate_persists_request_base_url(self, tmp_path: Path):
+        from lib.backends.video_backends.openai import OpenAIVideoBackend
+
+        with capture_http() as router, bounded_poll_clock(), captured_provider_job_ids() as persisted:
+            router.post(f"{_RELAY_A}/videos").mock(
+                return_value=httpx.Response(200, json=_video_json("vid-a", "queued"))
+            )
+            router.get(f"{_RELAY_A}/videos/vid-a").mock(
+                return_value=httpx.Response(200, json=_video_json("vid-a", "completed"))
+            )
+            router.get(f"{_RELAY_A}/videos/vid-a/content").mock(return_value=httpx.Response(200, content=b"mp4"))
+
+            await OpenAIVideoBackend(api_key="k", base_url=f"{_RELAY_A}/").generate(
+                VideoGenerationRequest(
+                    prompt="p", output_path=tmp_path / "out.mp4", duration_seconds=8, task_id="db-task-a"
+                )
+            )
+
+        assert [(r["job_id"], r["base_url"]) for r in persisted] == [("vid-a", _RELAY_A)]
+
+    async def test_resume_polls_and_downloads_from_submitted_base_url(self, tmp_path: Path):
+        # 提交时域名为 A，续跑前配置已改成 B：任务与成片只在 A 上可取，凭据沿用当下这套
+        from lib.backends.video_backends.openai import OpenAIVideoBackend
+
+        with capture_http() as router, bounded_poll_clock():
+            poll = router.get(f"{_RELAY_A}/videos/vid-a").mock(
+                return_value=httpx.Response(200, json=_video_json("vid-a", "completed"))
+            )
+            content = router.get(f"{_RELAY_A}/videos/vid-a/content").mock(
+                return_value=httpx.Response(200, content=b"resumed")
+            )
+            current = router.get(url__regex=r"^https://relay-b\.example\.com/").mock(
+                return_value=httpx.Response(404, json={"error": {"message": "not found"}})
+            )
+
+            result = await OpenAIVideoBackend(api_key="k", base_url=_RELAY_B).resume_video(
+                "vid-a",
+                VideoGenerationRequest(
+                    prompt="p", output_path=tmp_path / "out.mp4", duration_seconds=8, submitted_base_url=_RELAY_A
+                ),
+            )
+
+            assert only_request(poll).headers["Authorization"] == "Bearer k"
+            assert only_request(content).headers["Authorization"] == "Bearer k"
+            assert current.call_count == 0
+
+        assert result.task_id == "vid-a"
+        assert (tmp_path / "out.mp4").read_bytes() == b"resumed"

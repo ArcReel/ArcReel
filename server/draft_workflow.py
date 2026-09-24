@@ -363,7 +363,7 @@ async def _promote_reference_script_plan(
     只返回一个「已晋升」的布尔。
     """
     project_path = ctx.project_path
-    project = await asyncio.to_thread(ctx.pm.load_project_readonly, ctx.project_name)
+    project = await asyncio.to_thread(ctx.pm.load_project, ctx.project_name)
     try:
         revalidation = await revalidate_reference_script_plan_draft(
             project_path,
@@ -642,7 +642,7 @@ async def _promote_drama_script_plan(
     返回晋升回执文本：与产出回执同一出口（``_drama_script_plan_result_text``）。
     """
     project_path = ctx.project_path
-    project = await asyncio.to_thread(ctx.pm.load_project_readonly, ctx.project_name)
+    project = await asyncio.to_thread(ctx.pm.load_project, ctx.project_name)
     try:
         revalidation = await revalidate_drama_script_plan_draft(
             project_path,
@@ -848,7 +848,7 @@ async def _promote_narration_script_plan(
     返回晋升回执文本：与拆分回执同一出口（``_narration_script_plan_result_text``）。
     """
     project_path = ctx.project_path
-    project = await asyncio.to_thread(ctx.pm.load_project_readonly, ctx.project_name)
+    project = await asyncio.to_thread(ctx.pm.load_project, ctx.project_name)
     try:
         revalidation = await revalidate_narration_script_plan_draft(
             project_path,
@@ -1079,7 +1079,7 @@ class DraftWorkflow:
             raise DraftWorkflowError("invalid_request", f"unsupported doc_type: {doc_type}")
         if allow_stale_discard:
             return kind
-        project = await asyncio.to_thread(self.ctx.pm.load_project_readonly, self.ctx.project_name)
+        project = await asyncio.to_thread(self.ctx.pm.load_project, self.ctx.project_name)
         active_script_plan = script_review.script_plan_quarantine_kind(project)
         compatible = kind == active_script_plan or (
             kind == QUARANTINE_KIND_PROMPT_AUTHORING and _uses_reference_video_units(project)
@@ -1099,7 +1099,7 @@ class DraftWorkflow:
             return
         if draft is not None and draft.meta.get(_FORMAL_EDIT_META_KEY) is not True:
             return
-        project = self.ctx.pm.load_project_readonly(self.ctx.project_name)
+        project = self.ctx.pm.load_project(self.ctx.project_name)
         if script_review.formal_script_plan_confirmed(self.ctx.project_path, project, episode):
             raise DraftWorkflowError("script_plan_confirmed", _script_plan_confirmed_detail(episode))
 
@@ -1140,7 +1140,7 @@ class DraftWorkflow:
     def _formal_path(self, episode: int, kind: str) -> Path:
         if kind == QUARANTINE_KIND_PROMPT_AUTHORING:
             return self.ctx.project_path / "scripts" / episode_script_filename(episode)
-        project = self.ctx.pm.load_project_readonly(self.ctx.project_name)
+        project = self.ctx.pm.load_project(self.ctx.project_name)
         path = script_review.script_plan_path(self.ctx.project_path, project, episode)
         if path is None:
             raise ValueError("project has no formal script_plan document")

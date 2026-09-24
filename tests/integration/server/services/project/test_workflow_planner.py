@@ -72,7 +72,7 @@ class _ProjectManager:
         self.project_path = project_path
         self.script = script
 
-    def load_project_readonly(self, project_name: str) -> dict[str, Any]:
+    def load_project(self, project_name: str) -> dict[str, Any]:
         assert project_name == "demo"
         return {
             "content_mode": "narration",
@@ -373,7 +373,7 @@ async def test_asset_sheet_plan_waits_for_active_asset_task(tmp_path: Path, monk
     pm = _ProjectManager(_project_dir(tmp_path), _script())
     monkeypatch.setattr(
         pm,
-        "load_project_readonly",
+        "load_project",
         lambda _project: {
             "content_mode": "narration",
             "generation_mode": "storyboard",
@@ -420,7 +420,7 @@ async def test_product_task_replanning_returns_its_durable_handle_without_crossi
     planner_pm = _ProjectManager(project_path, _script())
     monkeypatch.setattr(
         planner_pm,
-        "load_project_readonly",
+        "load_project",
         lambda _project: {
             "content_mode": "narration",
             "generation_mode": "storyboard",

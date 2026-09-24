@@ -49,15 +49,11 @@ class _Projects:
     def __init__(self, project: dict):
         self.project = project
         self.load_script_threads: list[int] = []
-        self.readonly_loads = 0
+        self.project_loads = 0
 
     def load_project(self, name: str) -> dict:
         assert name == "demo"
-        return self.project
-
-    def load_project_readonly(self, name: str) -> dict:
-        assert name == "demo"
-        self.readonly_loads += 1
+        self.project_loads += 1
         return self.project
 
     def load_script(self, name: str, script: str) -> dict:
@@ -163,7 +159,7 @@ async def test_video_capabilities_returns_typed_domain_outcome() -> None:
 
     assert outcome.problem is None
     assert outcome.value == {"provider_id": "fake", "model": "video-1", "supported_durations": [4, 6]}
-    assert projects.readonly_loads == 1
+    assert projects.project_loads == 1
 
 
 async def test_generation_batch_remains_readable_when_project_migration_is_blocked(
@@ -460,18 +456,18 @@ async def test_content_readers_return_body_and_revision_from_the_same_snapshot(t
     caller = CallerContext(user_id="u1", source="mcp")
     caller_thread = threading.get_ident()
     reader_threads: list[int] = []
-    original_load_project_readonly = projects.load_project_readonly
+    original_load_project = projects.load_project
     original_load_script_readonly = projects.load_script_readonly
 
-    def tracked_load_project_readonly(project_name: str) -> dict:
+    def tracked_load_project(project_name: str) -> dict:
         reader_threads.append(threading.get_ident())
-        return original_load_project_readonly(project_name)
+        return original_load_project(project_name)
 
     def tracked_load_script_readonly(project_name: str, filename: str) -> dict:
         reader_threads.append(threading.get_ident())
         return original_load_script_readonly(project_name, filename)
 
-    monkeypatch.setattr(projects, "load_project_readonly", tracked_load_project_readonly)
+    monkeypatch.setattr(projects, "load_project", tracked_load_project)
     monkeypatch.setattr(projects, "load_script_readonly", tracked_load_script_readonly)
 
     project = await get_project_content(ToolRequest(None), scope, caller, services)

@@ -56,11 +56,6 @@ logger = logging.getLogger(__name__)
 # get_video_capabilities
 # ---------------------------------------------------------------------------
 
-# 本模块的能力查询函数（``_fetch_caps_with_fallback`` / ``_fetch_reference_caps_with_fallback``
-# 及 ``server.media_tools.context`` 的 ``resolve_video_caps`` /
-# ``fetch_video_caps``）未注入解析器时一律省略 ``config_resolver`` 关键字，不传 ``None``：
-# 这些符号会被整体替换为不接受该关键字的替身，调用形状须与不带该关键字的签名兼容。
-
 
 def get_video_capabilities_tool(ctx: ToolContext):
     @tool(

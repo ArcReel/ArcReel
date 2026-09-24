@@ -125,8 +125,8 @@ async def test_generate_script_plan_rejects_inapplicable_content_modes(
     assert out.get("is_error") is True
     assert json.loads(out["content"][0]["text"])["problem"]["code"] == "generation_refused"
     assert resolver.generation_type_calls == []
-    assert fake_ctx.pm.readonly_load_threads
-    assert all(thread != caller_thread for thread in fake_ctx.pm.readonly_load_threads)
+    assert fake_ctx.pm.project_load_threads
+    assert all(thread != caller_thread for thread in fake_ctx.pm.project_load_threads)
 
 
 @pytest.mark.parametrize("factory", [generate_episode_script_tool, generate_script_plan_tool])
@@ -206,7 +206,7 @@ async def test_generate_episode_script_writes_to_default_project_scripts(fake_ct
 
     out = await call(tool_obj, {"episode": 1})
     assert out.get("is_error") is not True
-    # handler 不再传 output_path —— ScriptGenerator 自己决定写到哪里
+    # handler 不传 output_path —— ScriptGenerator 自己决定写到哪里
     assert "output_path" not in captured["calls"]
 
 
@@ -492,7 +492,7 @@ async def test_fetch_video_caps_narrows_durations_by_constraints() -> None:
     Veo 项目保存 1080p 时只接受 8 秒；不收窄的话 drama / narration 拆分会产出 4/6 秒镜头，
     视频入队时才被 backend 拒。
     """
-    from server.media_tools import context as ctx_mod
+    from server import text_generation as mod
 
     resolver = fake_caps_resolver(
         provider_id="gemini-aistudio",
@@ -502,23 +502,23 @@ async def test_fetch_video_caps_narrows_durations_by_constraints() -> None:
     )
 
     project_1080p = {"model_settings": {"gemini-aistudio/veo-3.1-generate-preview": {"resolution": "1080p"}}}
-    default, durations = await ctx_mod.fetch_video_caps(project_1080p, config_resolver=resolver)
+    default, durations = await mod.fetch_video_caps(project_1080p, config_resolver=resolver)
     assert durations == [8]
     # default_duration 原样返回（用户配置值），成员性由调用方按各自口径判定
     assert default == 4
 
     # 未配置分辨率：普通路径省略 resolution 参数，供应商按自己的默认档位（Veo 720p）接受 4/6/8，
     # 故不施加分辨率约束——按 provider 兜底档位收窄会凭空把剧本节奏锁死 8 秒。
-    _default, durations = await ctx_mod.fetch_video_caps({}, config_resolver=resolver)
+    _default, durations = await mod.fetch_video_caps({}, config_resolver=resolver)
     assert durations == [4, 6, 8]
 
     # 项目显式选了无声明的分辨率时不收窄。
     project = {"model_settings": {"gemini-aistudio/veo-3.1-generate-preview": {"resolution": "720p"}}}
-    _default, durations = await ctx_mod.fetch_video_caps(project, config_resolver=resolver)
+    _default, durations = await mod.fetch_video_caps(project, config_resolver=resolver)
     assert durations == [4, 6, 8]
 
     # 参考图路径：即便分辨率无声明也收窄
-    _default, durations = await ctx_mod.fetch_video_caps(
+    _default, durations = await mod.fetch_video_caps(
         project, generation_mode="reference_video", config_resolver=resolver
     )
     assert durations == [8]

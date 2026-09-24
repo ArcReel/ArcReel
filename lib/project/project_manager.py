@@ -1058,10 +1058,10 @@ class ProjectManager:
         临界区原子恢复旧字节。hook 必须把自身写入设计为「成功后不再抛错」，否则它已经落下的
         外部状态无法由本方法推断如何撤销。
         """
-        # 候选解析只用于确定脚本锁身份，不得触发 load_project 的持久化迁移；命令若随后因
-        # revision / schema 等预检被拒，project.json 必须保持逐字不变。成功提交时，迁移会在
-        # 下方项目锁内与脚本、索引一起落盘并受同一份旧字节快照补偿。
-        candidate = resolve_script_file(self.load_project_readonly(project_name))
+        # 候选解析只用于确定脚本锁身份，锁外只读不写；命令若随后因 revision / schema 等预检
+        # 被拒，project.json 必须保持逐字不变。成功提交时，迁移会在下方项目锁内与脚本、索引
+        # 一起落盘并受同一份旧字节快照补偿。
+        candidate = resolve_script_file(self.load_project(project_name))
         norm = self.normalize_script_filename(candidate)
         with self._script_lock(project_name, norm), self._project_lock(project_name):
             project = self._read_project_raw_unlocked(project_name)
@@ -1286,7 +1286,7 @@ class ProjectManager:
             return script
         with self._script_lock(project_name, norm):
             # 锁内重读一次再回写：读-改-写须在同一把剧本锁内完成，否则并发写者在无锁读与回写
-            # 之间落盘的内容会被迁移结果覆盖（同 load_project 的迁移回写）。不走
+            # 之间落盘的内容会被迁移结果覆盖。不走
             # _write_script_unlocked：迁移只是格式收编，不应刷新 metadata.updated_at、
             # 不触发 project.json 同步与变更提示。
             script, migrated = self._read_script_unlocked(project_name, norm)
@@ -1857,7 +1857,7 @@ class ProjectManager:
 
     def load_project(self, project_name: str) -> dict:
         """
-        加载项目元数据
+        加载项目元数据：不取锁、不迁移、不写盘，返回 project.json 的内存快照
 
         Args:
             project_name: 项目名称
@@ -1870,14 +1870,6 @@ class ProjectManager:
         if not project_file.exists():
             raise FileNotFoundError(f"项目元数据文件不存在: {project_file}")
 
-        with open(project_file, encoding="utf-8") as f:
-            return json.load(f)
-
-    def load_project_readonly(self, project_name: str) -> dict:
-        """Load an in-memory project snapshot without locking it."""
-        project_file = self._get_project_file_path(project_name)
-        if not project_file.exists():
-            raise FileNotFoundError(f"项目元数据文件不存在: {project_file}")
         with open(project_file, encoding="utf-8") as f:
             return json.load(f)
 
@@ -2352,7 +2344,7 @@ class ProjectManager:
         `extras` 用于写入可选的模型/后端等字段（如 video_backend / image_provider_t2i /
         image_provider_i2i / text_backend_{script,overview,style}）。调用方负责剔除空值，
         本方法只按字面写入 extras 中已有的键——退役的单字段 image_backend 不在写入范围
-        （解析链不再读取、写边界已拒绝），调用方不应再传入。
+        （解析链不读取、写边界已拒绝），调用方不应再传入。
 
         `target_duration` / `brief` 仅 content_mode=ad 可用；ad 项目不持有
         `default_duration` 与 `episode_target_duration`，且 episodes 恒为第 1 集单条。
@@ -2427,7 +2419,7 @@ class ProjectManager:
         if style_template_id is not None:
             project["style_template_id"] = style_template_id
         if extras:
-            # 数据层守卫：退役的单字段 image_backend 不得写入（解析链不再读取，写回只会
+            # 数据层守卫：退役的单字段 image_backend 不得写入（解析链不读取，写回只会
             # 重新制造被静默忽略的 legacy 形态）。路由层已返回 400，这里再兜一道防非路由调用方。
             if "image_backend" in extras:
                 raise ValueError("image_backend 已废弃，请改用 image_provider_t2i / image_provider_i2i")
@@ -2491,7 +2483,7 @@ class ProjectManager:
         [已废弃] 同步项目状态
 
         此方法已废弃。status、progress、item_count 等统计字段
-        现在由项目摘要读时计算，不再存储在 JSON 文件中。
+        由项目摘要读时计算，不存储在 JSON 文件中。
 
         保留此方法仅为向后兼容，实际不执行任何写入操作。
 

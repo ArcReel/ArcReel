@@ -1,7 +1,8 @@
 """KlingVideoBackend 测试（respx 在 transport 层拦截，不打真实 HTTP）。
 
 覆盖：JWT / Bearer 双模式鉴权注入、子路径选择（text2video / image2video）、请求体构建、
-脱敏日志视图、submit→轮询→下载端到端、provider_job_id 持久化、失败终态、resume 不重提交。
+脱敏日志视图、submit→轮询→下载端到端、provider_job_id 与提交域名持久化、失败终态、resume 不重提交、
+续跑 404 判过期、续跑回放提交域名、建任务与轮询的出站目的地闸。
 """
 
 from __future__ import annotations
@@ -17,9 +18,15 @@ import jwt
 import pytest
 import respx
 
+from lib.backends.artifact_download_guard import ArtifactDestinationRejectedError
 from lib.backends.http_status_errors import ArtifactDownloadError
 from lib.backends.providers import PROVIDER_KLING
-from lib.backends.video_backend_contract import VideoAudioMode, VideoCapabilityError, VideoGenerationRequest
+from lib.backends.video_backend_contract import (
+    ResumeExpiredError,
+    VideoAudioMode,
+    VideoCapabilityError,
+    VideoGenerationRequest,
+)
 from lib.backends.video_backends.kling import KlingVideoBackend
 from lib.backends.video_backends.registry import effective_generate_audio_for_model
 from tests.fakes import bounded_poll_clock, captured_provider_job_ids
@@ -655,6 +662,108 @@ class TestResume:
             assert only_request(routes.poll).url.path == "/v1/videos/multi-image2video/task-m"
 
         assert result.task_id == "task-m"
+
+    async def test_resume_404_raises_resume_expired_without_retry(self, tmp_path):
+        # 续跑时供应商侧已查无此任务：404 是确定性结果，一次即判过期，不按「刚提交未就绪」重试
+        with _kling_api() as routes, bounded_poll_clock():
+            routes.poll.mock(return_value=_resp({"code": 1203, "message": "task not found"}, status_code=404))
+
+            with pytest.raises(ResumeExpiredError) as caught:
+                await _jwt_backend().resume_video("image2video:task-gone:0", _request(tmp_path))
+
+            assert routes.poll.call_count == 1
+            assert routes.download.call_count == 0
+
+        assert caught.value.job_id == "image2video:task-gone:0"
+        assert caught.value.provider == PROVIDER_KLING
+
+    async def test_generate_poll_404_is_retried_as_not_ready(self, tmp_path):
+        # 新提交路径下轮询 404 仍视为任务尚未在查询端就绪，继续轮询到终态
+        with _kling_api() as routes, bounded_poll_clock():
+            routes.submit.mock(return_value=_resp(_submit("task-new")))
+            routes.poll.mock(
+                side_effect=[
+                    _resp({"code": 1203, "message": "task not found"}, status_code=404),
+                    _resp(_query("succeed", url=_DOWNLOAD_URL)),
+                ]
+            )
+            routes.download.mock(return_value=httpx.Response(200, content=b"mp4-bytes"))
+
+            result = await _jwt_backend().generate(_request(tmp_path))
+
+            assert routes.poll.call_count == 2
+
+        assert result.video_path.read_bytes() == b"mp4-bytes"
+
+
+_RELAY_A = "https://relay-a.example.com/v1"
+_RELAY_B = "https://relay-b.example.com/v1"
+
+
+class TestSubmittedBaseUrlReplay:
+    """挂在自定义供应商下的可灵协议：提交时落下实际请求域名，续跑按该域名轮询。"""
+
+    async def test_submit_persists_request_base_url(self, tmp_path):
+        with capture_http() as router, captured_provider_job_ids() as persisted:
+            router.post(f"{_RELAY_A}/videos/text2video").mock(return_value=_resp(_submit("task-r")))
+            router.get(f"{_RELAY_A}/videos/text2video/task-r").mock(
+                return_value=_resp(_query("succeed", url=_DOWNLOAD_URL))
+            )
+            router.get(_DOWNLOAD_URL).mock(return_value=httpx.Response(200, content=b""))
+
+            backend = KlingVideoBackend(auth_mode="bearer", api_key="static-key", base_url=_RELAY_A)
+            await backend.generate(_request(tmp_path, task_id="local-r"))
+
+        assert [(r["job_id"], r["base_url"]) for r in persisted] == [("text2video:task-r:0", _RELAY_A)]
+
+    async def test_resume_polls_submitted_base_url_after_config_change(self, tmp_path):
+        # 提交时域名为 A，续跑前配置已改成 B：任务只在 A 上可查
+        with capture_http() as router, bounded_poll_clock():
+            submitted = router.get(f"{_RELAY_A}/videos/image2video/task-r").mock(
+                return_value=_resp(_query("succeed", url=_DOWNLOAD_URL))
+            )
+            current = router.get(url__regex=r"^https://relay-b\.example\.com/").mock(
+                return_value=_resp({"code": 1203, "message": "task not found"}, status_code=404)
+            )
+            router.get(_DOWNLOAD_URL).mock(return_value=httpx.Response(200, content=b"resumed"))
+
+            backend = KlingVideoBackend(auth_mode="bearer", api_key="static-key", base_url=_RELAY_B)
+            result = await backend.resume_video("image2video:task-r:0", _request(tmp_path, submitted_base_url=_RELAY_A))
+
+            assert only_request(submitted).headers["Authorization"] == "Bearer static-key"
+            assert current.call_count == 0
+
+        assert result.task_id == "task-r"
+        assert result.video_path.read_bytes() == b"resumed"
+
+
+class TestOutboundDestinationGuard:
+    """建任务与轮询走产物下载同一道出站目的地闸：目标落在链路本地 / 云元数据地址时请求不发出。"""
+
+    _LINK_LOCAL_BASE_URL = "http://169.254.169.254/v1"
+
+    async def test_submit_to_link_local_base_url_is_not_sent(self, tmp_path):
+        with capture_http() as router:
+            submit = router.post(url__regex=r"^http://169\.254\.169\.254/").mock(return_value=_resp(_submit()))
+
+            backend = KlingVideoBackend(auth_mode="bearer", api_key="static-key", base_url=self._LINK_LOCAL_BASE_URL)
+            with pytest.raises(ArtifactDestinationRejectedError):
+                await backend.generate(_request(tmp_path))
+
+        assert submit.call_count == 0
+
+    async def test_resume_poll_to_link_local_base_url_is_not_sent(self, tmp_path):
+        with capture_http() as router, bounded_poll_clock():
+            poll = router.get(url__regex=r"^http://169\.254\.169\.254/").mock(
+                return_value=_resp(_query("succeed", url=_DOWNLOAD_URL))
+            )
+            router.get(_DOWNLOAD_URL).mock(return_value=httpx.Response(200, content=b""))
+
+            backend = KlingVideoBackend(auth_mode="bearer", api_key="static-key", base_url=self._LINK_LOCAL_BASE_URL)
+            with pytest.raises(ArtifactDestinationRejectedError):
+                await backend.resume_video("text2video:task-1:0", _request(tmp_path))
+
+        assert poll.call_count == 0
 
 
 class TestAudioGatingResult:

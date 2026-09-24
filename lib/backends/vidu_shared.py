@@ -2,8 +2,8 @@
 
 供 image_backends / video_backends / cost_calculator / providers router 复用。包含：
 - VIDU_BASE_URL — Vidu 开放平台 API 基础 URL
-- resolve_vidu_api_key — API Key 解析（缺失即 raise，不再走 env fallback）
-- create_vidu_client — httpx.AsyncClient 工厂
+- resolve_vidu_api_key — API Key 解析（缺失即 raise，不走 env fallback）
+- create_vidu_client — 经出站目的地校验的 httpx.AsyncClient 工厂
 - image_to_data_uri — 本地图片 → base64 data URI（API 限制 body ≤20MB）
 - fetch_vidu_task / is_vidu_done / vidu_failure_reason / extract_vidu_url — 任务轮询工具
 - VIDU_RETRYABLE_ERRORS — Vidu HTTPX 瞬态错误集合（仅 NetworkError / TimeoutException）
@@ -21,6 +21,7 @@ from pathlib import Path
 
 import httpx
 
+from lib.backends.artifact_download_guard import artifact_http_client
 from lib.backends.data_uri import image_to_data_uri as _image_to_data_uri
 from lib.backends.http_status_errors import raise_for_status_redacted
 from lib.infra.retry import BASE_RETRYABLE_ERRORS
@@ -60,9 +61,9 @@ def create_vidu_client(
     base_url: str | None = None,
     timeout: float = 60.0,
 ) -> httpx.AsyncClient:
-    """创建带 Authorization 头的 httpx.AsyncClient。"""
+    """创建带 Authorization 头、经出站目的地校验的 ``httpx.AsyncClient``。"""
     token = resolve_vidu_api_key(api_key)
-    return httpx.AsyncClient(
+    return artifact_http_client(
         base_url=base_url or VIDU_BASE_URL,
         headers={
             "Authorization": f"Token {token}",

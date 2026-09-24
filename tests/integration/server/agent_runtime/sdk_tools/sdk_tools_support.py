@@ -115,7 +115,7 @@ class FakePM:
             "style": "anime",
             "style_description": "soft pastel",
         }
-        self.readonly_load_threads: list[int] = []
+        self.project_load_threads: list[int] = []
         self.script_payload: dict[str, Any] = {
             "content_mode": "narration",
             "episode": 1,
@@ -134,8 +134,11 @@ class FakePM:
     def get_project_path(self, _name: str) -> Path:
         return self._project_dir
 
-    def _mirror(self, script_filename: str | None = None) -> None:
+    def mirror_to_disk(self, script_filename: str | None = None) -> None:
         """把内存态落盘并重建产物清单：清单是读取已生成产物的唯一口径。
+
+        ``load_script`` 每次读取都会先调用本方法；``load_project`` 与生产一样只读不写，只经它
+        读项目、随后又从盘上读产物的工具，由用例在调用前显式调用本方法。
 
         清单按当下的项目与剧本重新激活（生产的补录路径），随后补回那些夹具不重建来源凭据的
         产物声明。用例故意构造的畸形条目激活不了，留空清单即可——工具侧本来就该按「产物不
@@ -236,15 +239,11 @@ class FakePM:
             )
 
     def load_project(self, _name: str) -> dict[str, Any]:
-        self._mirror()
-        return self.project_payload
-
-    def load_project_readonly(self, _name: str) -> dict[str, Any]:
-        self.readonly_load_threads.append(threading.get_ident())
+        self.project_load_threads.append(threading.get_ident())
         return self.project_payload
 
     def load_script(self, _name: str, filename: str) -> dict[str, Any]:
-        self._mirror(filename)
+        self.mirror_to_disk(filename)
         return self.script_payload
 
     def load_script_readonly(self, _name: str, _filename: str) -> dict[str, Any]:

@@ -31,12 +31,14 @@ from urllib.parse import urlsplit
 import httpx
 
 from lib.backends.agnes_shared import agnes_base_url, agnes_headers, agnes_host, resolve_agnes_api_key
+from lib.backends.artifact_download_guard import artifact_http_client
 from lib.backends.aspect_size import VIDEO_TIER_SHORT_EDGE, aspect_size, resolution_to_short_edge
 from lib.backends.backend_runtime import (
     ProviderJobIdPersistenceMixin,
     download_resumable_video,
     poll_with_retry,
     recording_poll,
+    resume_expiry_gate,
     should_retry_poll,
     should_retry_submit,
     submit_post,
@@ -44,7 +46,6 @@ from lib.backends.backend_runtime import (
 from lib.backends.http_status_errors import raise_for_status_redacted
 from lib.backends.providers import PROVIDER_AGNES
 from lib.backends.video_backend_contract import (
-    ResumeExpiredError,
     VideoAudioMode,
     VideoCapabilities,
     VideoCapabilityError,
@@ -297,7 +298,7 @@ class AgnesVideoBackend(ProviderJobIdPersistenceMixin):
             self._model,
             format_kwargs_for_log(_safe_body_for_log(payload)),
         )
-        async with httpx.AsyncClient(timeout=self._http_timeout) as client:
+        async with artifact_http_client(timeout=self._http_timeout) as client:
             task_id = await self._create_task(client, payload, request)
             logger.info("Agnes 视频任务已创建: task_id=%s model=%s", task_id, self._model)
             await self._persist_provider_job_id(request, task_id, provider=PROVIDER_AGNES)
@@ -305,7 +306,7 @@ class AgnesVideoBackend(ProviderJobIdPersistenceMixin):
 
     async def resume_video(self, job_id: str, request: VideoGenerationRequest) -> VideoGenerationResult:
         """接续已 submit 的 Agnes task：仅轮询 + 下载，不重新提交（ADR 0007）。"""
-        async with httpx.AsyncClient(timeout=self._http_timeout) as client:
+        async with artifact_http_client(timeout=self._http_timeout) as client:
             return await self._poll_and_build(client, job_id, request, is_resume=True)
 
     # ── request building ────────────────────────────────────────────────
@@ -498,22 +499,14 @@ class AgnesVideoBackend(ProviderJobIdPersistenceMixin):
         *,
         is_resume: bool,
     ) -> VideoGenerationResult:
-        # resume 路径下 404 直接转 ResumeExpiredError：should_retry_poll 把轮询 404 当「短暂未就绪」
-        # 重试，对已过期的 resume 任务会一直重到超时、永不落终态，故在此一击转终态异常。非 resume 的
-        # 4xx 原样抛出，交 should_retry_poll 按 status_code 分流。
-        # 留痕包在闸门里侧：闸门把 404 换成 ResumeExpiredError，包在外侧就再也看不到那个响应。
-        recorded_poll = recording_poll(lambda: self._poll_once(client, task_id), request)
-
-        async def _gated_poll() -> dict:
-            try:
-                return await recorded_poll()
-            except httpx.HTTPStatusError as exc:
-                if is_resume and exc.response.status_code == 404:
-                    raise ResumeExpiredError(job_id=task_id, provider=PROVIDER_AGNES) from exc
-                raise
+        gated_poll = resume_expiry_gate(
+            recording_poll(lambda: self._poll_once(client, task_id), request),
+            resume_job_id=task_id if is_resume else None,
+            provider=PROVIDER_AGNES,
+        )
 
         final = await poll_with_retry(
-            poll_fn=_gated_poll,
+            poll_fn=gated_poll,
             is_done=lambda state: state.get("status") in ("completed", "failed"),
             is_failed=_failure_reason,
             max_wait=request.poll_timeout_seconds,

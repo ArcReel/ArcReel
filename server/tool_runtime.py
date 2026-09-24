@@ -305,7 +305,7 @@ async def get_generation_batch(
     try:
         resolver: ArtifactCurrencyResolver | None = None
         try:
-            project = await asyncio.to_thread(services.projects.load_project_readonly, scope.project_name)
+            project = await asyncio.to_thread(services.projects.load_project, scope.project_name)
             resolver = active_artifact_currency_resolver(
                 services.projects.get_project_path(scope.project_name),
                 project,
@@ -579,7 +579,7 @@ async def generate_script_plan(
     services: Services,
 ) -> ToolOutcome[Any]:
     try:
-        project = await asyncio.to_thread(services.projects.load_project_readonly, scope.project_name)
+        project = await asyncio.to_thread(services.projects.load_project, scope.project_name)
         content_mode = project.get("content_mode", "narration")
         if content_mode == "ad":
             raise TextGenerationError("广告/短片项目无 script_plan，请直接调用 generate_episode_script")
@@ -830,7 +830,7 @@ def _file_problem(name: str, exc: BaseException) -> ToolProblem:
 
 
 def _get_project_content_sync(project_name: str, projects: ProjectManager) -> ProjectContent:
-    project = projects.load_project_readonly(project_name)
+    project = projects.load_project(project_name)
     return ProjectContent(revision=prefixed_canonical_json_digest(project), project=project)
 
 
@@ -956,7 +956,7 @@ async def get_source_text(
 def _get_script_plan_content_sync(
     project_name: str, episode: int, projects: ProjectManager
 ) -> ScriptPlanContent | None:
-    project = projects.load_project_readonly(project_name)
+    project = projects.load_project(project_name)
     kind = script_plan_kind(project)
     if kind is None:
         return None
@@ -1147,7 +1147,7 @@ async def list_projects(
         result = []
         for name in sorted(services.projects.list_projects()):
             try:
-                project = services.projects.load_project_readonly(name)
+                project = services.projects.load_project(name)
             except (FileNotFoundError, ValueError):
                 continue
             result.append(
@@ -1294,7 +1294,7 @@ async def get_video_capabilities(
     services: Services,
 ) -> ToolOutcome[dict[str, Any]]:
     try:
-        project = await asyncio.to_thread(services.projects.load_project_readonly, scope.project_name)
+        project = await asyncio.to_thread(services.projects.load_project, scope.project_name)
         payload = await services.capabilities.video_capabilities_for_project(project)
         await annotate_reference_unit_tiers(payload, project, config_resolver=services.capabilities)
     except FileNotFoundError as exc:

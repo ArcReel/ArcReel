@@ -390,7 +390,7 @@ async def apply_grid_split(
 
                 def _prepare_versions(current_script: dict[str, Any]) -> Callable[[Path], None]:
                     _prepare_manifest_state(
-                        pm.load_project_readonly(project_name),
+                        pm.load_project(project_name),
                         current_script,
                     )
                     return _activate_versions
