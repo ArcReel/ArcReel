@@ -87,6 +87,20 @@ def _(key: str, locale: str = DEFAULT_LOCALE, **kwargs: Any) -> str:
         return msg
 
 
+#: 生成输入缺口里「语义未就绪」一类：文案只点名目标自身，参数名各不相同。
+_GENERATION_INPUT_SUBJECT_PARAMS: dict[str, str] = {
+    "script_prompt_pending": "segment_id",
+    "asset_description_required": "name",
+    "derivative_description_required": "name",
+    "derivative_owner_sheet_missing": "name",
+}
+
+#: 生成输入缺口里按 ``missing_text`` 列出全部缺失项的一类。
+_GENERATION_INPUT_LIST_CODES = frozenset(
+    {"reference_asset_unregistered", "reference_asset_missing", "asset_original_missing"}
+)
+
+
 def render_generation_input_error(key: str, params: Mapping[str, Any], translate: Callable[..., str]) -> str:
     """Render mixed generation-input gaps by cause while preserving the first machine code."""
     gaps = params.get("gaps")
@@ -99,19 +113,15 @@ def render_generation_input_error(key: str, params: Mapping[str, Any], translate
         code, name, asset_type = gap.get("code"), gap.get("name"), gap.get("asset_type")
         if (
             not isinstance(code, str)
-            or code
-            not in {
-                "script_prompt_pending",
-                "reference_asset_unregistered",
-                "reference_asset_missing",
-                "asset_original_missing",
-            }
+            or (code not in _GENERATION_INPUT_SUBJECT_PARAMS and code not in _GENERATION_INPUT_LIST_CODES)
             or not isinstance(name, str)
         ):
             return translate(key, **params)
         text = (
             name
-            if code in {"script_prompt_pending", "reference_asset_unregistered"} or not isinstance(asset_type, str)
+            if code in _GENERATION_INPUT_SUBJECT_PARAMS
+            or code == "reference_asset_unregistered"
+            or not isinstance(asset_type, str)
             else f"{asset_type}: {name}"
         )
         grouped.setdefault(code, []).append(text)
@@ -119,8 +129,8 @@ def render_generation_input_error(key: str, params: Mapping[str, Any], translate
         return translate(key, **params)
     details = []
     for code, names in grouped.items():
-        if code == "script_prompt_pending":
-            details.append(translate(code, segment_id=names[0]))
+        if (subject := _GENERATION_INPUT_SUBJECT_PARAMS.get(code)) is not None:
+            details.append(translate(code, **{subject: names[0]}))
         else:
             details.append(translate(code, missing_text=", ".join(names)))
     return translate("generation_input_multiple_gaps", details="; ".join(details))

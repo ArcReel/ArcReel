@@ -9,7 +9,14 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
-from lib.artifacts.generation_input import PROMPT_PENDING_CODE, InputGap, InputRefused
+from lib.artifacts.generation_input import (
+    ASSET_DESCRIPTION_REQUIRED_CODE,
+    DERIVATIVE_DESCRIPTION_REQUIRED_CODE,
+    DERIVATIVE_OWNER_SHEET_MISSING_CODE,
+    PROMPT_PENDING_CODE,
+    InputGap,
+    InputRefused,
+)
 from lib.generation.generation_result import GenerationAction, GenerationProblem
 from lib.infra.api_errors import BadRequestError
 from lib.references.reference_admission import (
@@ -21,7 +28,12 @@ from lib.references.reference_admission import (
 from lib.references.reference_catalog import build_reference_catalog
 
 #: 语义缺口的对象在各自文案里的参数名。
-_SUBJECT_PARAMS: dict[str, str] = {PROMPT_PENDING_CODE: "segment_id"}
+_SUBJECT_PARAMS: dict[str, str] = {
+    PROMPT_PENDING_CODE: "segment_id",
+    ASSET_DESCRIPTION_REQUIRED_CODE: "name",
+    DERIVATIVE_DESCRIPTION_REQUIRED_CODE: "name",
+    DERIVATIVE_OWNER_SHEET_MISSING_CODE: "name",
+}
 
 
 def _gap_text(gap: InputGap) -> str:

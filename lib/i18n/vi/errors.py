@@ -159,6 +159,7 @@ MESSAGES = {
     "derivative_task_submitted": "Đã gửi tác vụ tạo hình tài sản phái sinh cho '{name}'",
     "derivative_owner_sheet_missing": "Nhân vật '{name}' chưa có hình tài sản; hãy tạo hình gốc trước khi tạo phái sinh",
     "asset_prompt_preview_missing": "Tài sản không tồn tại hoặc chưa có mô tả",
+    "asset_description_required": "Tài sản '{name}' chưa có mô tả nên chưa thể tạo hình tài sản",
     "derivative_description_required": "Phái sinh '{name}' chưa mô tả thay đổi ngoại hình nên chưa thể tạo hình tài sản",
     "voice_sample_voice_required": "Vui lòng chọn giọng đọc trước",
     "voice_sample_text_too_long": "Văn bản mẫu không được vượt quá {max_length} ký tự",

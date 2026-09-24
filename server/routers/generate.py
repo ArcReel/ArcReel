@@ -159,22 +159,6 @@ async def _localized_narrated_video_payload(
     return payload
 
 
-class GenerateCharacterRequest(BaseModel):
-    prompt: str
-
-
-class GenerateSceneRequest(BaseModel):
-    prompt: str
-
-
-class GeneratePropRequest(BaseModel):
-    prompt: str
-
-
-class GenerateProductRequest(BaseModel):
-    prompt: str
-
-
 class EditImageRequest(BaseModel):
     resource_type: str
     resource_id: str
@@ -804,11 +788,13 @@ async def _enqueue_asset_generation(
     asset_type: str,
     project_name: str,
     resource_name: str,
-    prompt: str,
     user_id: str,
     _t: Translator,
 ) -> dict:
-    """项目级资产（character / scene / prop / product）资产图生成共用入队逻辑。"""
+    """项目级资产（character / scene / prop / product）资产图生成共用入队逻辑。
+
+    请求体没有 prompt：描述只取项目里存储的条目，执行时按当次的项目状态重读。
+    """
     spec = ASSET_SPECS[asset_type]
     keys = _ASSET_GENERATE_I18N[asset_type]
 
@@ -819,6 +805,10 @@ async def _enqueue_asset_generation(
         resolved = resolve_asset_key(project.get(spec.bucket_key), resource_name)
         if resolved is None:
             raise NotFoundError(keys["not_found"], name=resource_name)
+        entry = project[spec.bucket_key][resolved]
+        description = entry.get("description") if isinstance(entry, dict) else None
+        if not isinstance(description, str) or not description.strip():
+            raise BadRequestError("asset_description_required", name=resolved)
         return resolved
 
     resource_key = await asyncio.to_thread(_sync)
@@ -827,7 +817,6 @@ async def _enqueue_asset_generation(
         task_type=asset_type,
         media_type="image",
         resource_id=resource_key,
-        prompt=prompt,
     )
 
     queue = get_generation_queue()
@@ -853,7 +842,6 @@ async def _enqueue_asset_generation(
 async def generate_character(
     project_name: str,
     char_name: str,
-    req: GenerateCharacterRequest,
     user: CurrentUser,
     _t: Translator,
 ):
@@ -862,7 +850,6 @@ async def generate_character(
         asset_type="character",
         project_name=project_name,
         resource_name=char_name,
-        prompt=req.prompt,
         user_id=user.id,
         _t=_t,
     )
@@ -922,7 +909,6 @@ async def generate_character_derivative(
 async def generate_scene(
     project_name: str,
     scene_name: str,
-    req: GenerateSceneRequest,
     user: CurrentUser,
     _t: Translator,
 ):
@@ -931,7 +917,6 @@ async def generate_scene(
         asset_type="scene",
         project_name=project_name,
         resource_name=scene_name,
-        prompt=req.prompt,
         user_id=user.id,
         _t=_t,
     )
@@ -941,7 +926,6 @@ async def generate_scene(
 async def generate_prop(
     project_name: str,
     prop_name: str,
-    req: GeneratePropRequest,
     user: CurrentUser,
     _t: Translator,
 ):
@@ -950,7 +934,6 @@ async def generate_prop(
         asset_type="prop",
         project_name=project_name,
         resource_name=prop_name,
-        prompt=req.prompt,
         user_id=user.id,
         _t=_t,
     )
@@ -960,7 +943,6 @@ async def generate_prop(
 async def generate_product(
     project_name: str,
     product_name: str,
-    req: GenerateProductRequest,
     user: CurrentUser,
     _t: Translator,
 ):
@@ -969,7 +951,6 @@ async def generate_product(
         asset_type="product",
         project_name=project_name,
         resource_name=product_name,
-        prompt=req.prompt,
         user_id=user.id,
         _t=_t,
     )

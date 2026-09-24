@@ -467,10 +467,10 @@ describe("API", () => {
       await API.generateVideo("demo", "seg-1", "vid", "episode_1.json");
       await API.generateNarrationAudio("demo", "seg-1", "episode_1.json");
       await API.generateEpisodeNarrationAudio("demo", "episode_1.json");
-      await API.generateCharacter("demo", "Hero", "prompt");
-      await API.generateProjectScene("demo", "Temple", "prompt");
-      await API.generateProjectProp("demo", "Sword", "prompt");
-      await API.generateProjectProduct("demo", "Phone", "prompt");
+      await API.generateCharacter("demo", "Hero");
+      await API.generateProjectScene("demo", "Temple");
+      await API.generateProjectProp("demo", "Sword");
+      await API.generateProjectProduct("demo", "Phone");
 
       expect(requestSpy).toHaveBeenCalledWith("/projects");
       expect(requestSpy).toHaveBeenCalledWith("/projects", {
@@ -532,7 +532,6 @@ describe("API", () => {
       });
       expect(requestSpy).toHaveBeenCalledWith("/projects/demo/generate/product/Phone", {
         method: "POST",
-        body: JSON.stringify({ prompt: "prompt" }),
       });
       expect(requestSpy).toHaveBeenCalledWith(
         "/projects/demo/scripts/episode%201.json",

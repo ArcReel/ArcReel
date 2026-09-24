@@ -20,7 +20,15 @@ from lib.artifacts.artifact_activation import (
     resolve_current_artifact_basis,
 )
 from lib.artifacts.artifact_manifest import ArtifactBasis, ArtifactInputClaim, ArtifactKey
-from lib.artifacts.generation_input import StoryboardImageInput, project_input_observation, storyboard_image_input
+from lib.artifacts.generation_input import (
+    AssetSheetInput,
+    DerivativeSheetInput,
+    StoryboardImageInput,
+    asset_sheet_input,
+    derivative_sheet_input,
+    project_input_observation,
+    storyboard_image_input,
+)
 from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 
 TARGET_KEY = ArtifactKey.episode_storyboard(1, "E1S02")
@@ -32,6 +40,9 @@ _IMAGES = (
     "products/保温杯.png",
     "products/refs/保温杯_1.jpg",
     "storyboards/scene_E1S01.png",
+    "characters/refs/张三.png",
+    "props/玉佩.png",
+    "products/refs/保温杯_2.jpg",
 )
 
 
@@ -79,6 +90,7 @@ def _project_dir(tmp_path: Path, *, target_generated: bool = False) -> Path:
             "characters": {
                 "张三": {
                     "description": "主角",
+                    "reference_image": "characters/refs/张三.png",
                     "character_sheet": "characters/张三.png",
                     "derivatives": {
                         "劲装": {"description": "换上劲装", "character_sheet": "characters/derivatives/张三/劲装.png"}
@@ -86,12 +98,12 @@ def _project_dir(tmp_path: Path, *, target_generated: bool = False) -> Path:
                 }
             },
             "scenes": {"祠堂": {"description": "古旧祠堂", "scene_sheet": "scenes/祠堂.png"}},
-            "props": {},
+            "props": {"玉佩": {"description": "青玉佩", "prop_sheet": "props/玉佩.png"}},
             "products": {
                 "保温杯": {
                     "description": "不锈钢保温杯",
                     "product_sheet": "products/保温杯.png",
-                    "reference_images": ["products/refs/保温杯_1.jpg"],
+                    "reference_images": ["products/refs/保温杯_1.jpg", "products/refs/保温杯_2.jpg"],
                 }
             },
         },
@@ -143,6 +155,7 @@ def _registration_basis(project_dir: Path) -> ArtifactBasis:
     generation_input = _executor_input(project_dir)
     assert [(ref.visual.role, ref.visual.logical_id) for ref in generation_input.references] == [
         ("asset_sheet", "保温杯"),
+        ("source", "保温杯"),
         ("source", "保温杯"),
         ("asset_sheet", "张三/劲装"),
         ("asset_sheet", "祠堂"),
@@ -226,3 +239,71 @@ def test_activation_reports_a_storyboard_with_invalid_generation_input(tmp_path:
     [skipped] = [item for item in plan.skipped if item.resource_id == "E1S02"]
     assert skipped.artifact_path == "storyboards/scene_E1S02.png"
     assert next(iter(invalid_fields)) in skipped.reason
+
+
+_SHEET_TARGETS = [
+    pytest.param(ArtifactKey.asset_sheet("character", "张三"), 1, id="character-with-original"),
+    pytest.param(ArtifactKey.asset_sheet("scene", "祠堂"), 0, id="scene"),
+    pytest.param(ArtifactKey.asset_sheet("prop", "玉佩"), 0, id="prop"),
+    pytest.param(ArtifactKey.asset_sheet("product", "保温杯"), 2, id="product-with-originals"),
+    pytest.param(ArtifactKey.asset_sheet("character", "张三/劲装"), 1, id="derivative"),
+]
+
+
+def _sheet_registration_basis(project_dir: Path, key: ArtifactKey, reference_count: int) -> ArtifactBasis:
+    asset_type, name = key.components
+    assert isinstance(asset_type, str)
+    assert isinstance(name, str)
+    project = _read_json(project_dir / "project.json")
+    observation = project_input_observation(project_dir)
+    if "/" in name:
+        owner, derivative = name.split("/")
+        generation_input = derivative_sheet_input(project, owner=owner, derivative=derivative, observation=observation)
+        assert isinstance(generation_input, DerivativeSheetInput), generation_input
+    else:
+        generation_input = asset_sheet_input(project, asset_type=asset_type, name=name, observation=observation)
+        assert isinstance(generation_input, AssetSheetInput), generation_input
+    assert len(generation_input.references) == reference_count
+    with generation_input.freeze(max_reference_images=1, model="m", bind_claims=_unbound) as frozen:
+        return frozen.basis
+
+
+@pytest.mark.parametrize(("key", "reference_count"), _SHEET_TARGETS)
+def test_sheet_registration_basis_equals_the_planner_expected_basis(tmp_path: Path, key, reference_count) -> None:
+    """提交后模式：资产图四类与衍生资产图，执行器登记依据等于规划器期望依据。"""
+
+    project_dir = _project_dir(tmp_path)
+    activate_artifact_target_state(project_dir, bump_schema=False)
+
+    expected = resolve_current_artifact_basis(project_dir, key)
+
+    assert expected is not None
+    assert _sheet_registration_basis(project_dir, key, reference_count) == expected
+
+
+@pytest.mark.parametrize(("key", "reference_count"), _SHEET_TARGETS)
+def test_activation_registers_sheets_and_derivatives_planned_after_their_owner(
+    tmp_path: Path, key, reference_count
+) -> None:
+    """激活模式：衍生经本轮已规划的本体资产图判定可用，与执行器同一依据。"""
+
+    project_dir = _project_dir(tmp_path)
+
+    plan = plan_artifact_target_state(project_dir)
+    activate_artifact_target_state(project_dir, bump_schema=False, plan=plan)
+
+    assert plan.entries[key].basis_digest == _sheet_registration_basis(project_dir, key, reference_count).digest
+
+
+def test_activation_skips_a_derivative_whose_owner_sheet_cannot_be_registered(tmp_path: Path) -> None:
+    project_dir = _project_dir(tmp_path)
+    (project_dir / "characters" / "refs" / "张三.png").unlink()
+
+    plan = plan_artifact_target_state(project_dir)
+
+    owner, derivative = ArtifactKey.asset_sheet("character", "张三"), ArtifactKey.asset_sheet("character", "张三/劲装")
+    assert owner not in plan.entries
+    assert derivative not in plan.entries
+    reasons = {item.resource_id: item.reason for item in plan.skipped if item.kind == "asset-sheet"}
+    assert "asset_original_missing" in reasons["张三"]
+    assert "derivative_owner_sheet_missing" in reasons["张三/劲装"]

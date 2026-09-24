@@ -1398,6 +1398,39 @@ class TestDerivativesThroughTheLibrary:
                 is ArtifactStatus.CURRENT
             )
 
+    def test_derivative_claim_failure_rolls_back_owner_and_project(self, assets_env, monkeypatch):
+        client = assets_env["client"]
+        pm = assets_env["pm"]
+        self._seed_character_with_derivatives(pm, "source", "王", {"战斗装": ("黑甲", b"battle-sheet")})
+        created = client.post(
+            "/api/v1/assets/from-project",
+            json={"project_name": "source", "resource_type": "character", "resource_id": "王"},
+        ).json()["asset"]
+        pm.create_project("target")
+        pm.create_project_metadata("target", "Target")
+        target_dir = pm.get_project_path("target")
+        owner_key = ArtifactKey.asset_sheet("character", "王")
+        derivative_key = derivative_artifact_key("王", "战斗装")
+
+        def _fail_claim_commit(_project_dir, entries):
+            assert set(entries) == {owner_key, derivative_key}
+            assert all(entry is not None for entry in entries.values())
+            raise RuntimeError("injected claim failure")
+
+        monkeypatch.setattr(assets, "register_artifact_entries_atomically", _fail_claim_commit)
+        with pytest.raises(RuntimeError, match="injected claim failure"):
+            client.post(
+                "/api/v1/assets/apply-to-project",
+                json={"asset_ids": [created["id"]], "target_project": "target", "conflict_policy": "skip"},
+            )
+
+        assert "王" not in pm.load_project("target")["characters"]
+        assert not (target_dir / "characters/王.png").exists()
+        assert not (target_dir / derivative_sheet_relative_path("王", "战斗装")).exists()
+        adapter = ProjectArtifactManifestAdapter(target_dir)
+        assert adapter.get_entry(owner_key) is None
+        assert adapter.get_entry(derivative_key) is None
+
     def test_rename_policy_puts_the_derivative_sheets_under_the_renamed_owner(self, assets_env):
         """冲突策略 rename 只改角色名；衍生名不变，图跟着搬到新本体名下的目录。"""
         client = assets_env["client"]

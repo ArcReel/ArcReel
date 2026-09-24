@@ -5,6 +5,7 @@ import asyncio
 import pytest
 
 from lib.artifacts.artifact_manifest import ArtifactKey, ProjectArtifactManifestAdapter
+from lib.infra.api_errors import BadRequestError
 from lib.script.storyboard_sequence import StoryboardImageBindingRequired
 from server.services.tasks import formal_image_commit, generation_tasks
 from tests.integration.server.services.tasks.generation_tasks_support import (
@@ -94,7 +95,7 @@ class TestGenerationTasks:
         character_result = await generation_tasks.execute_character_task(
             "demo",
             "Alice",
-            {"prompt": "角色描述"},
+            {},
         )
         assert character_result["resource_type"] == "characters"
         assert fake_pm.project["characters"]["Alice"]["character_sheet"] == "characters/Alice.png"
@@ -102,14 +103,14 @@ class TestGenerationTasks:
         scene_result = await generation_tasks.execute_scene_task(
             "demo",
             "祠堂",
-            {"prompt": "场景描述"},
+            {},
         )
         assert scene_result["resource_type"] == "scenes"
 
         prop_result = await generation_tasks.execute_prop_task(
             "demo",
             "玉佩",
-            {"prompt": "道具描述"},
+            {},
         )
         assert prop_result["resource_type"] == "props"
 
@@ -230,14 +231,17 @@ class TestGenerationTasks:
         with pytest.raises(StoryboardImageBindingRequired, match=r"storyboard binding missing"):
             await generation_tasks.execute_video_task("demo", "E1S01", {"script_file": "episode_1.json", "prompt": "x"})
 
-        with pytest.raises(ValueError, match=r"prompt is required for character task"):
-            await generation_tasks.execute_character_task("demo", "Alice", {"prompt": ""})
-
-        with pytest.raises(ValueError, match=r"prompt is required for scene task"):
-            await generation_tasks.execute_scene_task("demo", "祠堂", {"prompt": ""})
-
-        with pytest.raises(ValueError, match=r"prompt is required for prop task"):
-            await generation_tasks.execute_prop_task("demo", "玉佩", {"prompt": ""})
+        for bucket, name in (("characters", "Alice"), ("scenes", "祠堂"), ("props", "玉佩")):
+            fake_pm.project[bucket][name]["description"] = "  "
+        for execute, name in (
+            (generation_tasks.execute_character_task, "Alice"),
+            (generation_tasks.execute_scene_task, "祠堂"),
+            (generation_tasks.execute_prop_task, "玉佩"),
+        ):
+            with pytest.raises(BadRequestError) as excinfo:
+                await execute("demo", name, {})
+            assert excinfo.value.key == "asset_description_required"
+            assert excinfo.value.params["name"] == name
 
     async def test_tasks_declare_only_needed_lanes(self, monkeypatch, tmp_path):
         """任务只声明自己用到的 lane：图片类任务不声明 video/audio（只配置图片供应商的项目
@@ -261,8 +265,8 @@ class TestGenerationTasks:
         await generation_tasks.execute_storyboard_task(
             "demo", "E1S02", {"script_file": "episode_1.json", "prompt": "画面"}
         )
-        await generation_tasks.execute_character_task("demo", "Alice", {"prompt": "角色描述"})
-        await generation_tasks.execute_scene_task("demo", "祠堂", {"prompt": "场景描述"})
+        await generation_tasks.execute_character_task("demo", "Alice", {})
+        await generation_tasks.execute_scene_task("demo", "祠堂", {})
         for req in seen:
             assert req["image"] is not None
             assert req["video"] is None

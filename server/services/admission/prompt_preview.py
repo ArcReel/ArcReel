@@ -92,7 +92,7 @@ def _render(prompt: object, render: Any) -> RenderedPrompt:
         return RenderedPrompt(unavailable=UNAVAILABLE_INVALID, is_text_form=is_text_form)
 
 
-async def _reference_limit(
+async def reference_image_limit(
     project_name: str,
     project: dict[str, Any],
     project_path: Path,
@@ -187,7 +187,7 @@ async def preview_item_prompts(
             else:
                 generation_input = assembled
     limit = (
-        await _reference_limit(project_name, project, project_path)
+        await reference_image_limit(project_name, project, project_path)
         if generation_input is not None and generation_input.references
         else (0, "")
     )

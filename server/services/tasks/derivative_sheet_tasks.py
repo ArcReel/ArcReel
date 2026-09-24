@@ -16,40 +16,45 @@ i2i，与 ``image_edit`` 同属入队即知任务类型的例外。
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from lib.artifacts.artifact_activation import (
     ArtifactInputClaim,
     active_artifact_currency_resolver,
-    artifact_input_is_usable,
-    assert_artifact_input_claims_usable,
+    assert_current_artifact_input_claims_usable,
+    bind_artifact_input_claims_to_content_digests,
 )
-from lib.artifacts.artifact_manifest import ArtifactBasis, ArtifactBasisDescriptor, ArtifactKey
-from lib.artifacts.image_reference_snapshot import freeze_image_references
+from lib.artifacts.artifact_manifest import ArtifactBasis, ArtifactBasisDescriptor
+from lib.artifacts.generation_input import (
+    DerivativeSheetInput,
+    FrozenGenerationInput,
+    InputRefused,
+    derivative_sheet_input,
+    project_input_observation,
+)
 from lib.db.base import DEFAULT_USER_ID
-from lib.infra.api_errors import BadRequestError
 from lib.project.asset_derivatives import (
     DERIVATIVE_ASSET_TYPE,
     DerivativeSheetTarget,
-    build_derivative_sheet_basis,
-    derivative_source_reference,
-    resolve_derivative_sheet_source,
+    resolve_derivative_target,
     split_derivative_artifact_id,
 )
 from lib.project.asset_types import ASSET_SPECS, DERIVATIVES_FIELD, resolve_asset_key
 from lib.project.project_manager import ProjectManager, get_project_manager
 from lib.project.resource_paths import CHARACTER_DERIVATIVE_RESOURCE_TYPE
 from lib.prompts.prompt_builders import build_character_derivative_prompt
+from server.services.admission.reference_admission import input_refusal_error
 from server.services.tasks.formal_image_commit import (
     FormalImageCommitOutcome,
     FormalImagePlan,
     StagedImageCommit,
-    get_aspect_ratio,
     run_formal_image_task,
     staged_formal_image_callback,
 )
+from server.services.tasks.generation_context import ImageLaneRequest, resolve_generation_context
 
 _SPEC = ASSET_SPECS[DERIVATIVE_ASSET_TYPE]
 
@@ -166,40 +171,36 @@ def derivative_sheet_commit_callback(
     )
 
 
-def _prepare(project_name: str, owner_name: str, derivative_name: str):
-    """Resolve the source sheet, freeze it, and build the canonical basis in one read."""
+@dataclass(frozen=True, slots=True)
+class _DerivativeSheetInputs:
+    """衍生资产图任务在解析 image lane 之前就能备齐的输入：项目快照、落盘坐标与成立的生成输入。"""
 
+    project: dict[str, Any]
+    project_path: Path
+    target: DerivativeSheetTarget
+    generation_input: DerivativeSheetInput
+
+
+def _load(project_name: str, owner_name: str, derivative_name: str) -> _DerivativeSheetInputs:
     pm = get_project_manager()
     project = pm.load_project(project_name)
     project_path = pm.get_project_path(project_name)
-    source = resolve_derivative_sheet_source(project, owner_name, derivative_name)
-
-    claims: list[ArtifactInputClaim] = []
-    if not artifact_input_is_usable(
-        resolver=active_artifact_currency_resolver(project_path, project),
-        key=ArtifactKey.asset_sheet(DERIVATIVE_ASSET_TYPE, source.owner_key),
-        artifact_path=source.owner_sheet_path,
-        claims=claims,
-    ):
-        raise BadRequestError("derivative_owner_sheet_missing", name=source.owner_key)
-
-    owner_sheet_file = project_path / source.owner_sheet_path
-    frozen = freeze_image_references(
-        [owner_sheet_file],
-        [derivative_source_reference(source.owner_key, owner_sheet_file)],
+    target = resolve_derivative_target(project, owner_name, derivative_name)
+    generation_input = derivative_sheet_input(
+        project,
+        owner=target.owner_key,
+        derivative=target.derivative_key,
+        observation=project_input_observation(project_path),
     )
-    try:
-        basis = build_derivative_sheet_basis(
-            owner_name=source.owner_key,
-            derivative_name=source.derivative_key,
-            description=source.description,
-            aspect_ratio=get_aspect_ratio(project, CHARACTER_DERIVATIVE_RESOURCE_TYPE),
-            source=frozen.visual_references[0],
-        )
-    except BaseException:
-        frozen.cleanup()
-        raise
-    return project, project_path, source, frozen, basis, tuple(claims)
+    # 缺变化描述或本体资产图不可用时在解析供应商通道与付费之前失败，一次报出全部缺口。
+    if isinstance(generation_input, InputRefused):
+        raise input_refusal_error(generation_input)
+    return _DerivativeSheetInputs(
+        project=project,
+        project_path=project_path,
+        target=target,
+        generation_input=generation_input,
+    )
 
 
 async def execute_character_derivative_task(
@@ -212,48 +213,79 @@ async def execute_character_derivative_task(
 ) -> dict[str, Any]:
     """执行一次衍生资产图生成：本体图 → i2i → 新版本覆盖 current → 写回衍生条目。
 
-    ``resource_id`` 是 ``本体名/衍生名``。本体没有资产图、或本体图当前不是可用正式产物时
-    拒绝执行，不提交任何付费请求。
+    ``resource_id`` 是 ``本体名/衍生名``。缺变化描述、本体没有资产图或本体图不可用时拒绝执行，
+    不提交任何付费请求。
     """
     owner_name, derivative_name = split_derivative_artifact_id(resource_id)
-    project, project_path, source, frozen, basis, formal_claims = await asyncio.to_thread(
-        _prepare, project_name, owner_name, derivative_name
+    inputs = await asyncio.to_thread(_load, project_name, owner_name, derivative_name)
+    project, project_path, target = inputs.project, inputs.project_path, inputs.target
+    context = await resolve_generation_context(
+        project_name,
+        payload,
+        project=project,
+        project_path=project_path,
+        user_id=user_id,
+        image=ImageLaneRequest(generation_type="i2i"),
     )
-    instruction = build_derivative_sheet_instruction(source.description)
-    pm = get_project_manager()
+    currency_resolver = active_artifact_currency_resolver(project_path, project)
 
-    def _build_commit(generator: Any, outcome_box: list[FormalImageCommitOutcome]) -> StagedImageCommit:
-        return derivative_sheet_commit_callback(
-            project_name=project_name,
-            target=source.target,
-            prompt=instruction,
-            versions=generator.versions,
-            task_id=task_id,
-            basis=basis,
-            outcome_box=outcome_box,
-            project_manager=pm,
+    def _bind_claims(
+        claims: Sequence[ArtifactInputClaim], content_digests: Mapping[str, str]
+    ) -> tuple[ArtifactInputClaim, ...]:
+        return bind_artifact_input_claims_to_content_digests(
+            resolver=currency_resolver,
+            claims=claims,
+            content_digests=content_digests,
         )
 
-    async def _before_submit() -> None:
-        await asyncio.to_thread(assert_artifact_input_claims_usable, project_path, project, formal_claims)
+    def _freeze() -> FrozenGenerationInput:
+        return inputs.generation_input.freeze(
+            max_reference_images=context.image.max_reference_images,
+            model=context.image.backend_model,
+            bind_claims=_bind_claims,
+        )
 
-    return await run_formal_image_task(
-        project_name=project_name,
-        payload=payload,
-        project=project,
-        user_id=user_id,
-        task_id=task_id,
-        frozen_references=frozen,
-        plan=FormalImagePlan(
-            resource_type=CHARACTER_DERIVATIVE_RESOURCE_TYPE,
-            resource_id=source.target.artifact_id,
-            artifact_path=source.target.sheet_path,
-            prompt=instruction,
-            aspect_ratio=get_aspect_ratio(project, CHARACTER_DERIVATIVE_RESOURCE_TYPE),
-            build_commit_callback=_build_commit,
-            before_submit=_before_submit,
-        ),
-    )
+    pm = get_project_manager()
+    with await asyncio.to_thread(_freeze) as frozen:
+
+        def _build_commit(generator: Any, outcome_box: list[FormalImageCommitOutcome]) -> StagedImageCommit:
+            return derivative_sheet_commit_callback(
+                project_name=project_name,
+                target=target,
+                prompt=frozen.prompt,
+                versions=generator.versions,
+                task_id=task_id,
+                basis=frozen.basis,
+                outcome_box=outcome_box,
+                project_manager=pm,
+            )
+
+        async def _assert_claims_usable() -> None:
+            await asyncio.to_thread(assert_current_artifact_input_claims_usable, project_path, frozen.claims)
+
+        async def _pre_submit(_generator: Any) -> None:
+            await _assert_claims_usable()
+
+        return await run_formal_image_task(
+            project_name=project_name,
+            payload=payload,
+            project=project,
+            user_id=user_id,
+            task_id=task_id,
+            frozen_references=frozen.references,
+            context=context,
+            plan=FormalImagePlan(
+                resource_type=CHARACTER_DERIVATIVE_RESOURCE_TYPE,
+                resource_id=target.artifact_id,
+                artifact_path=target.sheet_path,
+                prompt=frozen.prompt,
+                aspect_ratio=inputs.generation_input.canvas_ratio,
+                build_commit_callback=_build_commit,
+                pre_submit=_pre_submit,
+                before_submit=_assert_claims_usable,
+                warnings=frozen.warnings,
+            ),
+        )
 
 
 __all__ = [
