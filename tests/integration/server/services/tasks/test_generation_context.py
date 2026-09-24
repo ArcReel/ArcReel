@@ -14,18 +14,21 @@ from pathlib import Path
 from typing import cast
 
 import pytest
+from sqlalchemy import update
 
 from lib.backends.audio_backends.base import VoiceOption
 from lib.backends.backend_assembly.specs import builtin_video_capabilities_for_model
 from lib.backends.video_backend_contract import VideoCapabilities
 from lib.config.registry import PROVIDER_REGISTRY
-from lib.config.resolver import ConfigResolver, ProviderModel, VoiceConsistency
+from lib.config.resolver import ConfigResolver, ProviderModel, VideoBucketCapabilityError, VoiceConsistency
 from lib.custom_provider import make_provider_id
+from lib.db.models.config import SystemSetting
 from lib.db.models.custom_provider import CustomProvider, CustomProviderModel
 from lib.generation.media_generator import MediaGenerator
 from lib.generation.video_request_facts import (
     CONFIGURED_VIDEO_IDENTITY,
     VideoRequestFacts,
+    VideoRequestFactsError,
     VideoRequestFactsFailure,
     evaluate_video_request_facts,
 )
@@ -325,7 +328,7 @@ class TestActualIdentityQueries:
     async def test_custom_model_fallback_queries_by_actual_model(
         self, patched_session_factory, project_env, monkeypatch
     ):
-        """自定义供应商目标 model 被禁用回退：resolution 与能力按 backend 实际 model 查询。"""
+        """未声明路线的不定桶 lane 按默认启用模型解析分辨率。"""
         provider_id = await _seed_custom_video_provider(patched_session_factory)
 
         async def _assemble(*, provider_id, media_type, model_id, resolver, rate_limiter=None, generation_type=None):
@@ -337,23 +340,74 @@ class TestActualIdentityQueries:
             "demo",
             None,
             project={"video_backend": f"{provider_id}/m-dead"},
-            video=VideoLaneRequest(route="storyboard"),
+            video=VideoLaneRequest(),
         )
 
-        # 身份解析链本身已收敛到运行时有效 model，不再把 m-dead 留给构造层二次修正。
+        # 不定桶身份解析按默认启用 model 收敛，构造层直接使用该身份。
         assert ctx.video.provider_model == ProviderModel(provider_id, "m-live")
         assert ctx.video.backend_model == "m-live"
         # resolution 命中 m-live（实际身份）的 DB 默认，而非按解析意图 m-dead 落空
         assert ctx.video.resolution == "540p"
-        # 能力同样按 m-live 查询
-        facts = ctx.video.request_facts
-        assert isinstance(facts, VideoRequestFacts)
-        assert facts.supported_durations == (4, 6, 8)
-        assert facts.max_reference_images == 0
+        assert ctx.video.request_facts is None
 
 
 class TestVideoRequestFacts:
     """lane 声明路线时附带执行侧视频请求事实：身份取实际构造的 backend，session 与 lane 共用。"""
+
+    @pytest.mark.parametrize(("route", "bucket"), [("storyboard", "i2v"), ("reference_video", "r2v")])
+    @pytest.mark.parametrize("explicit_bucket", [False, True])
+    async def test_disabled_configured_model_fails_on_both_sides(
+        self, patched_session_factory, project_env, route, bucket, explicit_bucket
+    ):
+        provider_id = await _seed_custom_video_provider(patched_session_factory)
+        project = {
+            "video_backend": f"{provider_id}/m-dead",
+            "generation_mode": "reference_video" if route == "reference_video" else "storyboard",
+        }
+        read = await evaluate_video_request_facts(
+            project,
+            route=route,
+            generation_type=bucket,
+            identity=CONFIGURED_VIDEO_IDENTITY,
+            resolver=ConfigResolver(patched_session_factory),
+        )
+
+        with pytest.raises(VideoBucketCapabilityError) as caught:
+            await resolve_generation_context(
+                "demo",
+                None,
+                project=project,
+                video=VideoLaneRequest(route=route, generation_type=bucket if explicit_bucket else None),
+            )
+
+        assert read == VideoRequestFactsFailure(caught.value.code, tuple(caught.value.params.items()))
+        assert read.code == "video_capability_reference_unavailable"
+
+    @pytest.mark.parametrize("route", ["storyboard", "reference_video"])
+    async def test_unreadable_audio_settings_preserve_the_facts_failure(
+        self, patched_session_factory, project_env, monkeypatch, db_engine, route
+    ):
+        async def _assemble(*, provider_id, media_type, model_id, resolver, rate_limiter=None, generation_type=None):
+            async with db_engine.begin() as connection:
+                await connection.run_sync(SystemSetting.__table__.drop)
+            return _FakeBackend(name=provider_id, model=model_id)
+
+        monkeypatch.setattr(generation_context, "assemble_backend", _assemble)
+        model_id = _registry_video_model("ark")
+
+        with pytest.raises(VideoRequestFactsError) as caught:
+            await resolve_generation_context(
+                "demo",
+                None,
+                project={"video_provider_i2v": f"ark/{model_id}"},
+                video=VideoLaneRequest(route=route, generation_type="i2v"),
+            )
+
+        prefix = "video" if route == "storyboard" else "reference"
+        assert caught.value.failure == VideoRequestFactsFailure(
+            f"{prefix}_capability_unavailable",
+            (("capability", "i2v"), ("provider", "ark"), ("model", model_id)),
+        )
 
     @pytest.mark.parametrize(
         ("route", "generation_type", "project", "allowed"),
@@ -413,6 +467,14 @@ class TestVideoRequestFacts:
         self, patched_session_factory, project_env, monkeypatch
     ):
         provider_id = await _seed_custom_video_provider(patched_session_factory)
+
+        async with patched_session_factory() as session:
+            await session.execute(
+                update(CustomProviderModel)
+                .where(CustomProviderModel.model_id == "m-dead")
+                .values(is_enabled=True, supported_durations="[5]")
+            )
+            await session.commit()
 
         async def _assemble(*, provider_id, media_type, model_id, resolver, rate_limiter=None, generation_type=None):
             return _FakeBackend(name=provider_id, model="m-live")

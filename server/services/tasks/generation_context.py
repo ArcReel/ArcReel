@@ -23,6 +23,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
+from sqlalchemy.exc import SQLAlchemyError
+
 from lib.backends.audio_backends.base import VoiceOption
 from lib.backends.backend_assembly import assemble_backend
 from lib.backends.gemini_shared import get_shared_rate_limiter
@@ -37,6 +39,7 @@ from lib.generation.media_generator import MediaGenerator
 from lib.generation.video_request_facts import (
     ExecutionVideoIdentity,
     VideoRequestFacts,
+    VideoRequestFactsError,
     VideoRequestFactsFailure,
     VideoRoute,
     evaluate_video_request_facts,
@@ -183,11 +186,11 @@ class VideoLaneRequest:
 
     ``generation_type`` 决定 i2v / r2v 任务类型桶（``docs/adr/0054``）：图生视频 / 宫格 → i2v；
     参考生视频按视频单元解析后的实际参考图分流——有参考图 → r2v，无参考图的视频单元降级
-    → i2v（由 executor 判定后声明，见 ``lib.script.reference_video.units``）。None = 不定桶，
-    走旧三级解析且不过能力闸——供 resume 等按 payload 排空、不承诺能力的路径使用。
+    → i2v（由 executor 判定后声明，见 ``lib.script.reference_video.units``）。两字段均为 None 时
+    不定桶，走三级解析且不过能力闸，供按 payload 排空、不承诺能力的路径使用。
 
     ``route`` 声明时 lane 附带该路线的执行侧视频请求事实（``docs/adr/0086``），能力只经它读取；
-    不定桶时按项目生成模式定桶求值。不声明路线的 lane（续跑按检查点排空）不求值能力。
+    未显式定桶时按项目生成模式定桶解析身份与求值。不声明路线的 lane（续跑按检查点排空）不求值能力。
     """
 
     generation_type: VideoGenerationType | None = None
@@ -332,7 +335,8 @@ async def resolve_generation_context(
 
     lane 传即声明、None 跳过，任务只为用到的 lane 付出配置要求与构造成本。任一声明 lane
     的解析或构造失败即原样上抛、整次调用失败——无部分结果、无跨 provider 兜底；视频请求事实
-    求值失败不抛出，以失败对象交给执行器按阶段处理。``project`` 是调用方已加载的项目快照；``project_path`` 可由已经
+    求值失败以失败对象交给执行器按阶段处理；失败后的独立配置读取若也发生数据库错误，则抛出携带
+    原失败的 VideoRequestFactsError。``project`` 是调用方已加载的项目快照；``project_path`` 可由已经
     持有项目路径的事务传入，避免同步事务解析当前配置时嵌套占用默认线程池。本函数不读项目。
 
     video lane 的定桶随 ``VideoLaneRequest.generation_type``：None 时按项目生成模式解析（见
@@ -375,7 +379,10 @@ async def resolve_generation_context(
             )
 
         if video is not None:
-            resolved = await r.resolve_video_backend(project, payload, generation_type=video.generation_type)
+            generation_type = video.generation_type
+            if generation_type is None and video.route is not None:
+                generation_type = video_bucket_for_generation_mode(project.get("generation_mode"))
+            resolved = await r.resolve_video_backend(project, payload, generation_type=generation_type)
             video_backend = await _get_or_create_video_backend(
                 resolved.provider_id,
                 {},
@@ -385,27 +392,34 @@ async def resolve_generation_context(
             actual_model = video_backend.model
             request_facts: VideoRequestFacts | VideoRequestFactsFailure | None = None
             if video.route is not None:
+                assert generation_type is not None
                 # 带上该任务落的桶：音轨形态等逐路径能力位按执行子路径分叉，参考生视频内降级到
                 # i2v 的镜头按 i2v 桶求值。
                 request_facts = await evaluate_video_request_facts(
                     project,
                     route=video.route,
-                    generation_type=video.generation_type
-                    or video_bucket_for_generation_mode(project.get("generation_mode")),
+                    generation_type=generation_type,
                     identity=ExecutionVideoIdentity(resolved.provider_id, actual_model),
                     resolver=r,
                 )
+            requested_generate_audio_fallback = True
+            if isinstance(request_facts, VideoRequestFacts):
+                resolution = request_facts.resolution
+            else:
+                try:
+                    resolution = await r.resolve_resolution(project, resolved.provider_id, actual_model)
+                    requested_generate_audio_fallback = await r.video_generate_audio_for_project(project)
+                except SQLAlchemyError as exc:
+                    if isinstance(request_facts, VideoRequestFactsFailure):
+                        raise VideoRequestFactsError(request_facts) from exc
+                    raise
             video_result = VideoLaneResult(
                 provider_model=resolved,
                 backend_name=video_backend.name,
                 backend_model=actual_model,
-                resolution=await r.resolve_resolution(project, resolved.provider_id, actual_model),
+                resolution=resolution,
                 request_facts=request_facts,
-                requested_generate_audio_fallback=(
-                    await r.video_generate_audio_for_project(project)
-                    if not isinstance(request_facts, VideoRequestFacts)
-                    else True
-                ),
+                requested_generate_audio_fallback=requested_generate_audio_fallback,
                 # 显式按类型分流而非 getattr 探测：endpoint 为 None 恰好是「跳过续跑比对」
                 # 这条最宽松分支，属性一旦改名，探测式取值会静默失效且无任何信号。
                 endpoint=video_backend.endpoint if isinstance(video_backend, CustomVideoBackend) else None,

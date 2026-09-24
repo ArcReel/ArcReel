@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import dataclasses
 import json
+from contextlib import asynccontextmanager
 
 import pytest
+from sqlalchemy import update
 
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.resolver import ConfigResolver
@@ -200,6 +202,30 @@ async def test_no_configured_video_model_fails_as_capability_unavailable(resolve
     assert facts.action == "configure_video_model"
 
 
+@pytest.mark.parametrize("route", ["storyboard", "reference_video"])
+@pytest.mark.parametrize("execution", [False, True], ids=["configured", "execution"])
+async def test_database_query_failure_returns_unavailable_facts(resolver, db_factory, db_engine, route, execution):
+    provider_id = await _seed_custom_video_models(
+        db_factory, {"model_id": "m", "supported_durations": "[5]", "is_default": True}
+    )
+    async with db_engine.begin() as connection:
+        await connection.run_sync(CustomProviderModel.__table__.drop)
+
+    result = await evaluate_video_request_facts(
+        {"video_provider_i2v": f"{provider_id}/m"},
+        route=route,
+        generation_type="i2v",
+        identity=ExecutionVideoIdentity(provider_id, "m") if execution else CONFIGURED_VIDEO_IDENTITY,
+        resolver=resolver,
+    )
+
+    params = (("capability", "i2v"),)
+    if execution:
+        params += (("provider", provider_id), ("model", "m"))
+    prefix = "video" if route == "storyboard" else "reference"
+    assert result == VideoRequestFactsFailure(f"{prefix}_capability_unavailable", params)
+
+
 @pytest.mark.parametrize(
     ("route", "supported_durations", "code"),
     [
@@ -239,8 +265,78 @@ async def test_constraints_narrowing_to_nothing_fail_instead_of_falling_back(res
     )
 
 
+@pytest.mark.parametrize("route", ["storyboard", "reference_video"])
+async def test_unavailable_execution_identity_fails_instead_of_using_the_default_model(resolver, db_factory, route):
+    provider_id = await _seed_custom_video_models(
+        db_factory,
+        {"model_id": "m-dead", "is_enabled": False, "supported_durations": "[5]"},
+        {"model_id": "m-live", "is_default": True, "supported_durations": "[8]"},
+    )
+
+    result = await evaluate_video_request_facts(
+        {},
+        route=route,
+        generation_type="i2v",
+        identity=ExecutionVideoIdentity(provider_id, "m-dead"),
+        resolver=resolver,
+    )
+
+    prefix = "video" if route == "storyboard" else "reference"
+    assert result == VideoRequestFactsFailure(
+        f"{prefix}_capability_unavailable",
+        (("capability", "i2v"), ("provider", provider_id), ("model", "m-dead")),
+    )
+
+
+@pytest.mark.parametrize(("route", "generation_type"), [("storyboard", "i2v"), ("reference_video", "r2v")])
+async def test_configured_identity_change_after_bucket_validation_fails(db_factory, route, generation_type):
+    provider_id = await _seed_custom_video_models(
+        db_factory,
+        {
+            "model_id": "m-selected",
+            "supported_durations": "[5]",
+            "capability_overrides": {"first_frame": True, "max_reference_images": 4},
+        },
+        {
+            "model_id": "m-default",
+            "is_default": True,
+            "supported_durations": "[8]",
+            "capability_overrides": {"first_frame": False, "max_reference_images": 0},
+        },
+    )
+    disabled = []
+
+    @asynccontextmanager
+    async def changing_sessions():
+        async with db_factory() as session:
+            yield session
+        # 在身份与桶校验完成的 session 关闭后提交配置变更，下一次能力读取会看到它。
+        if not disabled:
+            disabled.append(True)
+            async with db_factory() as session:
+                await session.execute(
+                    update(CustomProviderModel)
+                    .where(CustomProviderModel.model_id == "m-selected")
+                    .values(is_enabled=False)
+                )
+                await session.commit()
+
+    result = await _read(
+        ConfigResolver(changing_sessions),
+        {f"video_provider_{generation_type}": f"{provider_id}/m-selected"},
+        route=route,
+        generation_type=generation_type,
+    )
+
+    prefix = "video" if route == "storyboard" else "reference"
+    assert result == VideoRequestFactsFailure(
+        f"{prefix}_capability_unavailable",
+        (("capability", generation_type), ("provider", provider_id), ("model", "m-selected")),
+    )
+
+
 async def test_execution_identity_follows_the_backend_when_it_diverges_from_configuration(resolver, db_factory):
-    """自定义供应商目标模型已停用：读侧如实报悬空，执行侧按 backend 实际回退到的模型求值。"""
+    """配置身份已禁用时读侧报悬空；调用方给定的有效执行身份独立求值。"""
     provider_id = await _seed_custom_video_models(
         db_factory,
         {"model_id": "m-dead", "is_enabled": False, "supported_durations": json.dumps([5])},
@@ -327,7 +423,7 @@ async def test_audio_facts_follow_the_request_bucket(
 
 
 async def test_request_shaping_capabilities_come_from_the_same_evaluation(resolver):
-    """参考图上限、无图能力位与参考音频形态随同一次求值给出，请求组装不再另查能力。"""
+    """参考图上限、无图能力位与参考音频形态随同一次求值给出，请求组装直接消费求值结果。"""
     from lib.backends.backend_assembly.specs import builtin_video_capabilities_for_model
 
     facts = await _read(resolver, {"video_provider_r2v": VEO}, route="reference_video", generation_type="r2v")

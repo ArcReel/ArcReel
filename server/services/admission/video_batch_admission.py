@@ -65,6 +65,7 @@ from lib.script.reference_video.request_projection import (
     ProjectionProblem,
     ReferenceRequestOptions,
     ReferenceUnitRequestProjection,
+    configured_reference_request_facts,
     project_reference_unit_request,
 )
 from lib.script.script_models import get_generated_assets
@@ -483,6 +484,9 @@ async def admit_reference_video_batch(
     rather than being reported next to a batch that went ahead without them.
     """
 
+    request_facts_lookup = configured_reference_request_facts(
+        project, config_resolver or ConfigResolver(async_session_factory)
+    )
     unit_ids = [str(unit.get("unit_id") or "") for unit in units if str(unit.get("unit_id") or "")]
     conflicts = await _active_conflicts(
         project_name=project_name,
@@ -555,6 +559,7 @@ async def admit_reference_video_batch(
         unit_options = request_options_for_unit(request_options, unit_id, confirmed_request_durations)
         try:
             current_options = await prepare_current_reference_video_request_options(
+                request_facts_lookup=request_facts_lookup,
                 project=project,
                 script=script,
                 script_file=script_file,
@@ -567,6 +572,7 @@ async def admit_reference_video_batch(
                 tts_in_progress=unit_id in active_tts,
             )
             projection = await project_reference_unit_request(
+                request_facts_lookup=request_facts_lookup,
                 project=project,
                 script=script,
                 unit=unit,

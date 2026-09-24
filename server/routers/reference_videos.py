@@ -16,6 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field, PositiveInt
 
 from lib.artifacts.artifact_activation import resolve_artifact_episode
 from lib.artifacts.version_manager import VersionManager
+from lib.config.resolver import ConfigResolver
 from lib.db import async_session_factory
 from lib.generation.batch_admission import BatchAdmission, BatchAdmissionDecision, refused_ticket
 from lib.generation.generation_queue import get_generation_queue
@@ -41,6 +42,7 @@ from lib.script.reference_video import derive_references_from_text
 from lib.script.reference_video.request_projection import (
     ReferenceRequestOptions,
     ReferenceUnitRequestProjection,
+    configured_reference_request_facts,
     project_reference_unit_request,
 )
 from lib.script.reference_video.script_preview import build_script_preview
@@ -482,7 +484,9 @@ async def precheck_unit_duration(
     )
 
     project_path = get_project_manager().get_project_path(project_name)
+    request_facts_lookup = configured_reference_request_facts(project, ConfigResolver(async_session_factory))
     current_options = await prepare_current_reference_video_request_options(
+        request_facts_lookup=request_facts_lookup,
         project=project,
         script=script,
         script_file=script_file,
@@ -494,6 +498,7 @@ async def precheck_unit_duration(
         tts_in_progress=tts_in_progress,
     )
     projection = await project_reference_unit_request(
+        request_facts_lookup=request_facts_lookup,
         project=project,
         script=script,
         unit=unit,
@@ -628,7 +633,9 @@ async def generate_unit(
         else False
     )
     project_path = get_project_manager().get_project_path(project_name)
+    request_facts_lookup = configured_reference_request_facts(project, ConfigResolver(async_session_factory))
     current_options = await prepare_current_reference_video_request_options(
+        request_facts_lookup=request_facts_lookup,
         project=project,
         script=script,
         script_file=script_file,
@@ -640,6 +647,7 @@ async def generate_unit(
         tts_in_progress=tts_in_progress,
     )
     projection = await project_reference_unit_request(
+        request_facts_lookup=request_facts_lookup,
         project=project,
         script=script,
         unit=unit,

@@ -21,7 +21,6 @@ from lib.script.script_skeleton import SkeletonRouteMismatchError
 from server.media_tools import videos as enqueue_videos_mod
 from server.media_tools.context import ToolContext
 from server.media_tools.videos import generate_videos_tool
-from server.services.admission import video_batch_admission as admission_mod
 from tests.factories import make_video_request_facts
 from tests.fakes import fake_reference_request_facts
 from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
@@ -40,9 +39,9 @@ from tests.speech_contract_cases import SPEECH_CONTRACT_CASES, SpeechContractCas
 
 
 @pytest.fixture(autouse=True)
-def storyboard_request_facts(monkeypatch: pytest.MonkeyPatch) -> None:
+def storyboard_request_facts(set_admission_video_request_facts) -> None:
     facts = make_video_request_facts(provider_id="fake", model_id="fake-video", audio_switch_controllable=True)
-    monkeypatch.setattr(admission_mod, "evaluate_video_request_facts", AsyncMock(return_value=facts))
+    set_admission_video_request_facts(facts)
 
 
 def _episode_scope(ctx: ToolContext):
@@ -2555,7 +2554,7 @@ def ad_reference_ctx(fake_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch) -> 
     fake_ctx.config_resolver = fake_caps_resolver(supported_durations=(5,), default_duration=5)
     request_facts = fake_reference_request_facts(durations=(5,), model_id="fake-video", max_reference_images=3)
     monkeypatch.setattr(
-        "lib.script.reference_video.request_projection.configured_reference_request_facts",
+        "server.services.admission.video_batch_admission.configured_reference_request_facts",
         lambda project, resolver: request_facts,
     )
 

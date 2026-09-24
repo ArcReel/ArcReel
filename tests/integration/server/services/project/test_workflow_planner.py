@@ -625,7 +625,7 @@ async def test_planner_refuses_a_unit_whose_video_input_is_unusable(
 
 
 async def test_planner_reports_the_audio_switch_conflict_before_any_task_exists(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, set_admission_video_request_facts
 ) -> None:
     """音频闸门与入队入口同一道：计划预告的准入结论包含它，用户不必提交后才撞见。"""
 
@@ -634,9 +634,6 @@ async def test_planner_reports_the_audio_switch_conflict_before_any_task_exists(
 
     async def _no_active_tasks(**_kwargs: Any) -> list[dict[str, Any]]:
         return []
-
-    async def _facts(*_args: Any, **_kwargs: Any):
-        return make_video_request_facts(requested_generate_audio=False)
 
     spec = TaskSpec.from_request(
         task_type="video",
@@ -652,7 +649,7 @@ async def test_planner_reports_the_audio_switch_conflict_before_any_task_exists(
     monkeypatch.setattr(workflow_planner, "get_active_tasks_for_resources", _no_active_tasks)
     monkeypatch.setattr(workflow_planner, "build_storyboard_video_specs", _specs)
     monkeypatch.setattr(video_batch_admission, "get_active_tasks_for_resources", _no_active_tasks)
-    monkeypatch.setattr(video_batch_admission, "evaluate_video_request_facts", _facts)
+    set_admission_video_request_facts(make_video_request_facts(requested_generate_audio=False))
 
     plan = await workflow_planner.WorkflowPlanner(pm).get_plan(
         "demo", WorkflowPlanRequest(narration_delivery=POST_PRODUCTION)

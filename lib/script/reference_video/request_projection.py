@@ -699,6 +699,7 @@ async def project_reference_unit_request(
     project_path: Path,
     options: ReferenceRequestOptions | None = None,
     resolver: ConfigResolver | None = None,
+    request_facts_lookup: ReferenceRequestFactsLookup | None = None,
     tts_settings_resolver: TtsSettingsResolver | None = None,
     tts_in_progress: bool = False,
     current_options_materialized: bool = False,
@@ -722,7 +723,7 @@ async def project_reference_unit_request(
             tts_in_progress=tts_in_progress,
         )
     projector = ReferenceUnitRequestProjector(
-        configured_reference_request_facts(project, resolver),
+        request_facts_lookup or configured_reference_request_facts(project, resolver),
         FilesystemReferenceAssets(project_path),
     )
     return await projector.project_current(
