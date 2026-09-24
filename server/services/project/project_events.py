@@ -6,35 +6,28 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import hashlib
 import logging
 import uuid
 from collections import Counter
-from collections.abc import AsyncGenerator, AsyncIterator
+from collections.abc import AsyncGenerator, AsyncIterator, Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from lib import PROJECT_ROOT
-from lib.episode.episode_paths import episode_script_filename
-from lib.infra.content_digest import canonical_json_bytes
 from lib.project.project_change_hints import (
     ProjectChangeBatch,
     ProjectChangeSource,
-    build_change_label,
-    project_change_source,
     register_project_change_batch_listener,
     register_project_change_listener,
 )
 from lib.project.project_manager import ProjectManager
-from lib.script.script_models import get_generated_assets
-from lib.script.script_skeleton import (
-    SKELETON_ANCHOR_TYPES,
-    SKELETON_ENTITY_TYPES,
-    SKELETON_ITEM_LABEL_KEYS,
-    SKELETONS,
-    resolve_kind_items,
+from server.services.project.project_state_projection import (
+    ProjectSnapshot,
+    ProjectState,
+    build_snapshot,
+    diff_snapshots,
 )
 from server.sse_channel import IDLE, DropSubscriber, SseChannel
 
@@ -45,13 +38,26 @@ PROJECT_EVENTS_POLL_SECONDS = 0.5
 # 项目目录被删除后向订阅者广播的终止事件名——流在其后正常结束（见 stream_events._iter）。
 PROJECT_DELETED_EVENT = "project_deleted"
 
+#: 读取一个项目当前状态的读盘入口；在线程池中调用。项目目录不存在时抛 ``FileNotFoundError``。
+ProjectStateReader = Callable[[str], ProjectState]
+
 
 def _utc_now_iso() -> str:
     return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def _fingerprint(value: Any) -> str:
-    return hashlib.sha1(canonical_json_bytes(value)).hexdigest()
+def read_project_state(pm: ProjectManager, project_name: str) -> ProjectState:
+    """只读加载项目状态：不回写剧本迁移、不同步集索引，无法解析的剧本跳过。"""
+    scripts_dir = pm.get_project_path(project_name) / "scripts"
+    project = pm.load_project_readonly(project_name)
+    scripts: dict[str, dict[str, Any]] = {}
+    if scripts_dir.exists():
+        for script_path in sorted(scripts_dir.glob("*.json")):
+            try:
+                scripts[script_path.name] = pm.load_script_readonly(project_name, script_path.name)
+            except Exception:
+                logger.warning("跳过无法解析的剧本快照 project=%s file=%s", project_name, script_path.name)
+    return ProjectState(project=project, scripts=scripts)
 
 
 # 同一件事在发布方与快照差分两侧的 action 命名差异：参考生视频任务完成时，发布方按 task_type
@@ -88,8 +94,7 @@ class _ProjectChannel:
     inflight_batch_identities: Counter[tuple[Any, Any, Any]] = field(default_factory=Counter)
     pending_sources: set[ProjectChangeSource] = field(default_factory=set)
     task: asyncio.Task | None = None
-    snapshot: dict[str, Any] | None = None
-    fingerprint: str = ""
+    snapshot: ProjectSnapshot | None = None
 
 
 class ProjectEventService:
@@ -99,7 +104,9 @@ class ProjectEventService:
         *,
         projects_root: Path | None = None,
         poll_interval: float = PROJECT_EVENTS_POLL_SECONDS,
+        read_state: ProjectStateReader | None = None,
     ):
+        """``read_state`` 缺省为 :func:`read_project_state`（经本服务的 ``pm`` 只读加载）。"""
         self.project_root = Path(project_root or PROJECT_ROOT)
         # 显式传入 ``projects_root`` 时优先使用（生产入口走 ``app_data_dir()``），
         # 否则保留旧契约（仓库根下的 ``projects/``）兼容测试 fixture。
@@ -107,6 +114,7 @@ class ProjectEventService:
             Path(projects_root).resolve(strict=False) if projects_root is not None else self.project_root / "projects"
         )
         self.pm = ProjectManager(projects_dir)
+        self._read_state: ProjectStateReader = read_state or (lambda name: read_project_state(self.pm, name))
         self.poll_interval = max(0.1, float(poll_interval))
         self._channels: dict[str, _ProjectChannel] = {}
         self._listener_unregister = None
@@ -353,7 +361,7 @@ class ProjectEventService:
                 covered_sources = channel.pending_sources
                 channel.pending_sources = set()
                 try:
-                    snapshot, fingerprint = await asyncio.to_thread(self._rebuild_snapshot, project_name)
+                    snapshot = await asyncio.to_thread(self._rebuild_snapshot, project_name)
                 except FileNotFoundError:
                     channel.pending_sources |= covered_sources
                     await self._handle_scan_file_not_found(
@@ -368,12 +376,11 @@ class ProjectEventService:
                 # 以下在事件循环线程中执行，线程安全
                 previous = channel.snapshot
                 channel.snapshot = snapshot
-                channel.fingerprint = fingerprint
 
                 self._broadcast_changes(
                     project_name,
                     channel,
-                    fingerprint=fingerprint,
+                    fingerprint=snapshot.fingerprint,
                     source=source,
                     changes=[dict(change) for change in changes],
                 )
@@ -386,7 +393,7 @@ class ProjectEventService:
                     self._broadcast_changes(
                         project_name,
                         channel,
-                        fingerprint=fingerprint,
+                        fingerprint=snapshot.fingerprint,
                         source=self._resolve_batch_source(covered_sources),
                         changes=swept,
                     )
@@ -415,8 +422,8 @@ class ProjectEventService:
 
     def _sweep_uncovered_changes(
         self,
-        previous: dict[str, Any] | None,
-        snapshot: dict[str, Any],
+        previous: ProjectSnapshot | None,
+        snapshot: ProjectSnapshot,
         covered: Counter[tuple[Any, Any, Any]],
     ) -> list[dict[str, Any]]:
         """新快照相对基线多出、而任何在途显式批次都未描述的变更。
@@ -431,15 +438,11 @@ class ProjectEventService:
         """
         if previous is None:
             return []
-        return [
-            change for change in self._diff_snapshots(previous, snapshot) if _change_identity(change) not in covered
-        ]
+        return [change for change in diff_snapshots(previous, snapshot) if _change_identity(change) not in covered]
 
-    def _rebuild_snapshot(self, project_name: str) -> tuple[dict[str, Any], str]:
-        """同步方法（在线程池中执行）：重建快照并返回 (snapshot, fingerprint)。"""
-        self._ensure_script_index_synced(project_name)
-        snapshot = self._build_snapshot(project_name)
-        return snapshot, _fingerprint(snapshot)
+    def _rebuild_snapshot(self, project_name: str) -> ProjectSnapshot:
+        """同步方法（在线程池中执行）：只读加载项目状态并归一成快照。"""
+        return build_snapshot(self._read_state(project_name))
 
     def _project_directory_gone(self, project_name: str) -> bool:
         """判定项目目录当前是否确已不存在（``get_project_path`` 语义）。
@@ -494,9 +497,9 @@ class ProjectEventService:
                 try:
                     async with channel.rebuild_lock:
                         # 仅文件 I/O 在线程中执行
-                        snapshot, fingerprint = await asyncio.to_thread(self._rebuild_snapshot, project_name)
+                        snapshot = await asyncio.to_thread(self._rebuild_snapshot, project_name)
                         # 状态更新和广播在事件循环线程中执行（线程安全）
-                        self._apply_scan_result(project_name, channel, snapshot, fingerprint)
+                        self._apply_scan_result(project_name, channel, snapshot)
                 except asyncio.CancelledError:
                     raise
                 except FileNotFoundError:
@@ -522,32 +525,24 @@ class ProjectEventService:
         self,
         project_name: str,
         channel: _ProjectChannel,
-        snapshot: dict[str, Any],
-        fingerprint: str,
+        snapshot: ProjectSnapshot,
     ) -> None:
         """在事件循环线程中更新 channel 状态并广播变更。"""
-        if channel.snapshot is None:
-            channel.snapshot = snapshot
-            channel.fingerprint = fingerprint
-            channel.pending_sources.clear()
-            return
-
-        if fingerprint == channel.fingerprint:
-            channel.pending_sources.clear()
-            return
-
+        previous = channel.snapshot
+        channel.snapshot = snapshot
         source = self._resolve_batch_source(channel.pending_sources)
         channel.pending_sources.clear()
-        changes = self._diff_snapshots(channel.snapshot, snapshot)
-        channel.snapshot = snapshot
-        channel.fingerprint = fingerprint
+        if previous is None or previous.fingerprint == snapshot.fingerprint:
+            return
+
+        changes = diff_snapshots(previous, snapshot)
         if not changes:
             return
 
         self._broadcast_changes(
             project_name,
             channel,
-            fingerprint=fingerprint,
+            fingerprint=snapshot.fingerprint,
             source=source,
             changes=changes,
         )
@@ -559,7 +554,7 @@ class ProjectEventService:
     ) -> dict[str, Any]:
         return {
             "project_name": project_name,
-            "fingerprint": channel.fingerprint,
+            "fingerprint": channel.snapshot.fingerprint if channel.snapshot is not None else "",
             "generated_at": _utc_now_iso(),
         }
 
@@ -572,592 +567,3 @@ class ProjectEventService:
         if "webui" in pending_sources:
             return "webui"
         return "filesystem"
-
-    def _ensure_script_index_synced(self, project_name: str) -> None:
-        project_path = self.pm.get_project_path(project_name)
-        scripts_dir = project_path / "scripts"
-        if not scripts_dir.exists():
-            return
-
-        project = self.pm.load_project(project_name)
-        current_episodes: dict[int, dict[str, str]] = {}
-        for ep in project.get("episodes") or []:
-            if not isinstance(ep, dict):
-                continue
-            episode_num = ep.get("episode")
-            if not isinstance(episode_num, int):
-                continue
-            current_episodes[episode_num] = {
-                "title": str(ep.get("title") or ""),
-                "script_file": str(ep.get("script_file") or ""),
-            }
-
-        def _load_candidate(script_path: Path) -> tuple[int, str] | None:
-            try:
-                script = self.pm.load_script(project_name, script_path.name)
-            except Exception:
-                logger.warning("跳过无法读取的剧本文件 project=%s file=%s", project_name, script_path.name)
-                return None
-
-            episode = script.get("episode")
-            if not isinstance(episode, int):
-                return None
-            title = str(script.get("title") or "")
-            try:
-                self.pm.require_filename_episode_consistency(script, script_path.name)
-            except ValueError as exc:
-                logger.warning(
-                    "剧集集号不一致，跳过同步 project=%s file=%s reason=%s",
-                    project_name,
-                    script_path.name,
-                    exc,
-                )
-                return None
-            return episode, title
-
-        # 只有文件名正是该集规范名（episode_N.json）的剧本登记为集绑定；其他 JSON（副本、自定义名）
-        # 不读也不登记，已有绑定不被它们改写。
-        candidates: dict[int, Path] = {}
-        for script_path in sorted(scripts_dir.glob("episode_*.json")):
-            filename_episode = ProjectManager.filename_episode(script_path.name)
-            if filename_episode is None or script_path.name != episode_script_filename(filename_episode):
-                continue
-            candidate = _load_candidate(script_path)
-            if candidate is None:
-                continue
-            candidates[candidate[0]] = script_path
-
-        for episode, script_path in sorted(candidates.items()):
-            boundary_candidate = _load_candidate(script_path)
-            if boundary_candidate is None:
-                continue
-            boundary_episode, title = boundary_candidate
-            if boundary_episode != episode:
-                continue
-            expected_script_file = f"scripts/{script_path.name}"
-            existing = current_episodes.get(episode)
-            if existing and existing["title"] == title and existing["script_file"] == expected_script_file:
-                continue
-
-            try:
-                with project_change_source("filesystem"):
-                    self.pm.sync_episode_from_script(project_name, script_path.name)
-            except ValueError as exc:
-                # 文件可能在候选快照后被外部改写；同步边界再次校验并 fail-safe 跳过，
-                # 避免污染 project.json 或让 SSE 扫描循环持续抖动 metadata.updated_at。
-                logger.warning(
-                    "剧集集号不一致，跳过同步 project=%s file=%s reason=%s",
-                    project_name,
-                    script_path.name,
-                    exc,
-                )
-                continue
-            current_episodes[episode] = {
-                "title": title,
-                "script_file": expected_script_file,
-            }
-
-    def _build_snapshot(self, project_name: str) -> dict[str, Any]:
-        project = self.pm.load_project(project_name)
-        scripts_dir = self.pm.get_project_path(project_name) / "scripts"
-        project_meta = {
-            "title": str(project.get("title") or ""),
-            "style": str(project.get("style") or ""),
-            "style_image": str(project.get("style_image") or ""),
-            "style_description": str(project.get("style_description") or ""),
-        }
-
-        characters = {
-            name: {
-                "description": str(data.get("description") or ""),
-                "voice_style": str(data.get("voice_style") or ""),
-                "character_sheet": str(data.get("character_sheet") or ""),
-                "reference_image": str(data.get("reference_image") or ""),
-                "reference_audio": str(data.get("reference_audio") or ""),
-                "voice_updated_at": str(data.get("voice_updated_at") or ""),
-                "voice_notice_dismissed_at": str(data.get("voice_notice_dismissed_at") or ""),
-            }
-            for name, data in sorted(project.get("characters", {}).items())
-            if isinstance(data, dict)
-        }
-
-        scenes = {
-            name: {
-                "description": str(data.get("description") or ""),
-                "scene_sheet": str(data.get("scene_sheet") or ""),
-            }
-            for name, data in sorted(project.get("scenes", {}).items())
-            if isinstance(data, dict)
-        }
-
-        props = {
-            name: {
-                "description": str(data.get("description") or ""),
-                "prop_sheet": str(data.get("prop_sheet") or ""),
-            }
-            for name, data in sorted(project.get("props", {}).items())
-            if isinstance(data, dict)
-        }
-
-        overview = project.get("overview")
-        if isinstance(overview, dict):
-            normalized_overview = {
-                key: overview.get(key)
-                for key in ("synopsis", "genre", "theme", "world_setting", "generated_at")
-                if key in overview
-            }
-        else:
-            normalized_overview = {}
-
-        episodes = {
-            str(ep["episode"]): {
-                "episode": int(ep["episode"]),
-                "title": str(ep.get("title") or ""),
-                "script_file": str(ep.get("script_file") or ""),
-            }
-            for ep in sorted(
-                [
-                    ep
-                    for ep in project.get("episodes") or []
-                    if isinstance(ep, dict) and isinstance(ep.get("episode"), int)
-                ],
-                key=lambda value: value["episode"],
-            )
-        }
-
-        scripts: dict[str, Any] = {}
-        if scripts_dir.exists():
-            for script_path in sorted(scripts_dir.glob("*.json")):
-                try:
-                    script = self.pm.load_script(project_name, script_path.name)
-                except Exception:
-                    logger.warning("跳过无法解析的剧本快照 project=%s file=%s", project_name, script_path.name)
-                    continue
-                scripts[script_path.name] = self._normalize_script_snapshot(script)
-
-        return {
-            "project": {
-                "meta": project_meta,
-                "characters": characters,
-                "scenes": scenes,
-                "props": props,
-                "overview": normalized_overview,
-                "episodes": episodes,
-            },
-            "scripts": scripts,
-        }
-
-    def _normalize_script_snapshot(self, script: dict[str, Any]) -> dict[str, Any]:
-        # 取证解析：由剧本数据形状判别骨架种类（narration/drama 走 reference 时 content_mode 仍是
-        # narration/drama，按 content_mode 二值兜底会把 ad 的 shots 与 reference 的 video_units
-        # 全部漏读，差分恒空、分镜级事件从不发出）。键即条目数组键。
-        content_mode = str(script.get("content_mode") or "narration")
-        raw_items, id_field, kind = resolve_kind_items(script)
-        chars_field = SKELETONS[kind].chars_field
-        if kind not in script:
-            raw_items = []
-        elif not isinstance(raw_items, list):
-            logger.warning(
-                "剧本条目字段非列表，按空快照处理 kind=%s type=%s",
-                kind,
-                type(raw_items).__name__,
-            )
-            raw_items = []
-
-        items: dict[str, Any] = {}
-        for item in raw_items:
-            if not isinstance(item, dict):
-                continue
-            item_id = str(item.get(id_field) or "")
-            if not item_id:
-                continue
-            assets = get_generated_assets(item)
-            characters, scenes, props, products = self._item_entities(item, chars_field)
-            items[item_id] = {
-                "duration_seconds": item.get("duration_seconds"),
-                "needs_replan": bool(item.get("needs_replan")),
-                "segment_break": bool(item.get("segment_break")),
-                "characters": characters,
-                "scenes": scenes,
-                "props": props,
-                "products": products,
-                "text": str(item.get("text") or "") if chars_field is None else "",
-                "image_prompt": item.get("image_prompt"),
-                "video_prompt": item.get("video_prompt"),
-                "generated_assets": {
-                    "storyboard_image": str(assets.get("storyboard_image") or ""),
-                    "video_clip": str(assets.get("video_clip") or ""),
-                    "video_uri": str(assets.get("video_uri") or ""),
-                    "status": str(assets.get("status") or ""),
-                },
-            }
-
-        return {
-            "episode": script.get("episode"),
-            "title": str(script.get("title") or ""),
-            "content_mode": content_mode,
-            "kind": kind,
-            "items": items,
-        }
-
-    @staticmethod
-    def _item_entities(
-        item: dict[str, Any], chars_field: str | None
-    ) -> tuple[list[str], list[str], list[str], list[str]]:
-        """条目出场的 (角色, 场景, 道具, 商品) 名单（各自排序、去重）。
-
-        ``chars_field`` 非 ``None`` 时角色读逐条字段、场景/道具读顶层 ``scenes`` / ``props``；为
-        ``None``（video_units 无逐条实体字段的显式缺位，见 ``SKELETONS``）时一律为空——参考生视频
-        的资产引用写在正文的 ``@[名称]`` 里，正文本身已进快照，实体名单再派生一遍只是同一处
-        改动的第二种说法。
-        """
-        if chars_field is not None:
-            chars_raw = item.get(chars_field)
-            scenes_raw = item.get("scenes")
-            props_raw = item.get("props")
-            products_raw = item.get("products_in_shot")
-            characters = sorted({str(name) for name in chars_raw}) if isinstance(chars_raw, list) else []
-            scenes = sorted({str(name) for name in scenes_raw}) if isinstance(scenes_raw, list) else []
-            props = sorted({str(name) for name in props_raw}) if isinstance(props_raw, list) else []
-            products = sorted({str(name) for name in products_raw}) if isinstance(products_raw, list) else []
-            return characters, scenes, props, products
-        return [], [], [], []
-
-    def _diff_snapshots(
-        self,
-        previous: dict[str, Any],
-        current: dict[str, Any],
-    ) -> list[dict[str, Any]]:
-        changes: list[dict[str, Any]] = []
-        changes.extend(
-            self._diff_named_entities(
-                entity_type="character",
-                previous_items=previous["project"]["characters"],
-                current_items=current["project"]["characters"],
-                pane="characters",
-            )
-        )
-        changes.extend(
-            self._diff_named_entities(
-                entity_type="scene",
-                previous_items=previous["project"]["scenes"],
-                current_items=current["project"]["scenes"],
-                pane="scenes",
-            )
-        )
-        changes.extend(
-            self._diff_named_entities(
-                entity_type="prop",
-                previous_items=previous["project"]["props"],
-                current_items=current["project"]["props"],
-                pane="props",
-            )
-        )
-        if previous["project"]["meta"] != current["project"]["meta"]:
-            changes.append(
-                {
-                    "entity_type": "project",
-                    "action": "updated",
-                    "entity_id": "project",
-                    **build_change_label("project_settings"),
-                    "focus": None,
-                    "important": False,
-                }
-            )
-        if previous["project"]["overview"] != current["project"]["overview"]:
-            changes.append(
-                {
-                    "entity_type": "overview",
-                    "action": "updated",
-                    "entity_id": "overview",
-                    **build_change_label("overview"),
-                    "focus": None,
-                    "important": False,
-                }
-            )
-        changes.extend(
-            self._diff_episodes(
-                previous["project"]["episodes"],
-                current["project"]["episodes"],
-            )
-        )
-        changes.extend(
-            self._diff_script_items(
-                previous["scripts"],
-                current["scripts"],
-            )
-        )
-        return changes
-
-    def _diff_named_entities(
-        self,
-        *,
-        entity_type: str,
-        previous_items: dict[str, Any],
-        current_items: dict[str, Any],
-        pane: str,
-    ) -> list[dict[str, Any]]:
-        changes: list[dict[str, Any]] = []
-        previous_keys = set(previous_items)
-        current_keys = set(current_items)
-        changes.extend(
-            self._build_entity_change(
-                entity_type=entity_type,
-                action="created",
-                entity_id=name,
-                label_key=f"named_entity_{entity_type}",
-                label_params={"id": name},
-                focus={
-                    "pane": pane,
-                    "anchor_type": entity_type,
-                    "anchor_id": name,
-                },
-                important=True,
-            )
-            for name in sorted(current_keys - previous_keys)
-        )
-        changes.extend(
-            self._build_entity_change(
-                entity_type=entity_type,
-                action="deleted",
-                entity_id=name,
-                label_key=f"named_entity_{entity_type}",
-                label_params={"id": name},
-                focus=None,
-                important=False,
-            )
-            for name in sorted(previous_keys - current_keys)
-        )
-        for name in sorted(previous_keys & current_keys):
-            if previous_items[name] == current_items[name]:
-                continue
-            changes.append(
-                self._build_entity_change(
-                    entity_type=entity_type,
-                    action="updated",
-                    entity_id=name,
-                    label_key=f"named_entity_{entity_type}",
-                    label_params={"id": name},
-                    focus={
-                        "pane": pane,
-                        "anchor_type": entity_type,
-                        "anchor_id": name,
-                    },
-                    important=True,
-                )
-            )
-        return changes
-
-    def _diff_episodes(
-        self,
-        previous_items: dict[str, Any],
-        current_items: dict[str, Any],
-    ) -> list[dict[str, Any]]:
-        changes: list[dict[str, Any]] = []
-        previous_keys = set(previous_items)
-        current_keys = set(current_items)
-        for episode_key in sorted(current_keys - previous_keys, key=int):
-            episode = current_items[episode_key]
-            changes.append(
-                self._build_entity_change(
-                    entity_type="episode",
-                    action="created",
-                    entity_id=episode_key,
-                    label_key="episode",
-                    label_params={"episode": episode["episode"]},
-                    script_file=episode.get("script_file"),
-                    episode=episode["episode"],
-                    focus=None,
-                    important=True,
-                )
-            )
-        for episode_key in sorted(previous_keys & current_keys, key=int):
-            if previous_items[episode_key] == current_items[episode_key]:
-                continue
-            episode = current_items[episode_key]
-            changes.append(
-                self._build_entity_change(
-                    entity_type="episode",
-                    action="updated",
-                    entity_id=episode_key,
-                    label_key="episode",
-                    label_params={"episode": episode["episode"]},
-                    script_file=episode.get("script_file"),
-                    episode=episode["episode"],
-                    focus=None,
-                    important=True,
-                )
-            )
-        return changes
-
-    def _diff_script_items(
-        self,
-        previous_scripts: dict[str, Any],
-        current_scripts: dict[str, Any],
-    ) -> list[dict[str, Any]]:
-        changes: list[dict[str, Any]] = []
-        for script_file in sorted(set(previous_scripts) & set(current_scripts)):
-            previous_meta = previous_scripts[script_file]
-            current_meta = current_scripts[script_file]
-            previous_items = previous_meta.get("items", {})
-            current_items = current_meta.get("items", {})
-            changes.extend(
-                self._build_script_item_change(
-                    action="created",
-                    item_id=item_id,
-                    script_file=script_file,
-                    script_meta=current_meta,
-                    important=True,
-                )
-                for item_id in sorted(set(current_items) - set(previous_items))
-            )
-            changes.extend(
-                self._build_script_item_change(
-                    action="deleted",
-                    item_id=item_id,
-                    script_file=script_file,
-                    script_meta=previous_meta,
-                    important=False,
-                )
-                for item_id in sorted(set(previous_items) - set(current_items))
-            )
-            entity_type = self._script_item_entity_type(current_meta)
-            for item_id in sorted(set(previous_items) & set(current_items)):
-                previous_item = previous_items[item_id]
-                current_item = current_items[item_id]
-                focus = self._build_script_item_focus(item_id, current_meta)
-                label_key = self._build_script_item_label_key(current_meta)
-                if self._became_truthy(
-                    get_generated_assets(previous_item).get("storyboard_image"),
-                    get_generated_assets(current_item).get("storyboard_image"),
-                ):
-                    changes.append(
-                        self._build_entity_change(
-                            entity_type=entity_type,
-                            action="storyboard_ready",
-                            entity_id=item_id,
-                            label_key=label_key,
-                            label_params={"id": item_id},
-                            script_file=script_file,
-                            episode=current_meta.get("episode"),
-                            focus=focus,
-                            important=True,
-                        )
-                    )
-                if self._became_truthy(
-                    get_generated_assets(previous_item).get("video_clip"),
-                    get_generated_assets(current_item).get("video_clip"),
-                ):
-                    changes.append(
-                        self._build_entity_change(
-                            entity_type=entity_type,
-                            action="video_ready",
-                            entity_id=item_id,
-                            label_key=label_key,
-                            label_params={"id": item_id},
-                            script_file=script_file,
-                            episode=current_meta.get("episode"),
-                            focus=focus,
-                            important=True,
-                        )
-                    )
-
-                previous_body = {key: value for key, value in previous_item.items() if key != "generated_assets"}
-                current_body = {key: value for key, value in current_item.items() if key != "generated_assets"}
-                if previous_body != current_body:
-                    changes.append(
-                        self._build_entity_change(
-                            entity_type=entity_type,
-                            action="updated",
-                            entity_id=item_id,
-                            label_key=label_key,
-                            label_params={"id": item_id},
-                            script_file=script_file,
-                            episode=current_meta.get("episode"),
-                            focus=focus,
-                            important=True,
-                        )
-                    )
-        return changes
-
-    @staticmethod
-    def _script_kind(script_meta: dict[str, Any]) -> str:
-        # 单一读取点，让名词/实体类型/锚点类型三者按同一 kind 归一，回退口径不会分叉。
-        return str(script_meta.get("kind") or "segments")
-
-    @staticmethod
-    def _script_item_entity_type(script_meta: dict[str, Any]) -> str:
-        return SKELETON_ENTITY_TYPES.get(ProjectEventService._script_kind(script_meta), "segment")
-
-    @staticmethod
-    def _script_item_anchor_type(script_meta: dict[str, Any]) -> str:
-        return SKELETON_ANCHOR_TYPES.get(ProjectEventService._script_kind(script_meta), "segment")
-
-    @staticmethod
-    def _build_script_item_focus(
-        item_id: str,
-        script_meta: dict[str, Any],
-    ) -> dict[str, Any]:
-        return {
-            "pane": "episode",
-            "episode": script_meta.get("episode"),
-            "anchor_type": ProjectEventService._script_item_anchor_type(script_meta),
-            "anchor_id": item_id,
-        }
-
-    @staticmethod
-    def _build_script_item_label_key(script_meta: dict[str, Any]) -> str:
-        return SKELETON_ITEM_LABEL_KEYS.get(ProjectEventService._script_kind(script_meta), "skeleton_segments")
-
-    def _build_script_item_change(
-        self,
-        *,
-        action: str,
-        item_id: str,
-        script_file: str,
-        script_meta: dict[str, Any],
-        important: bool,
-    ) -> dict[str, Any]:
-        focus = self._build_script_item_focus(item_id, script_meta) if action != "deleted" else None
-        return self._build_entity_change(
-            entity_type=self._script_item_entity_type(script_meta),
-            action=action,
-            entity_id=item_id,
-            label_key=self._build_script_item_label_key(script_meta),
-            label_params={"id": item_id},
-            script_file=script_file,
-            episode=script_meta.get("episode"),
-            focus=focus,
-            important=important,
-        )
-
-    @staticmethod
-    def _became_truthy(previous: Any, current: Any) -> bool:
-        return bool(current) and not bool(previous)
-
-    @staticmethod
-    def _build_entity_change(
-        *,
-        entity_type: str,
-        action: str,
-        entity_id: str,
-        label_key: str,
-        label_params: dict[str, Any] | None = None,
-        focus: dict[str, Any] | None,
-        important: bool,
-        script_file: str | None = None,
-        episode: int | None = None,
-    ) -> dict[str, Any]:
-        payload = {
-            "entity_type": entity_type,
-            "action": action,
-            "entity_id": entity_id,
-            **build_change_label(label_key, **(label_params or {})),
-            "focus": focus,
-            "important": important,
-        }
-        if script_file:
-            payload["script_file"] = script_file
-        if isinstance(episode, int):
-            payload["episode"] = episode
-        return payload

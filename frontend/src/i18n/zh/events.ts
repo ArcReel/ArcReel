@@ -17,6 +17,8 @@ export default {
   "label.named_entity_character": "角色「{{id}}」",
   "label.named_entity_scene": "场景「{{id}}」",
   "label.named_entity_prop": "道具「{{id}}」",
+  "label.named_entity_product": "商品「{{id}}」",
+  "label.named_entity_character_derivative": "角色衍生「{{id}}」",
   "label.character_reference_audio": "角色「{{id}}」参考音频",
   "label.project_settings": "项目设置",
   "label.overview": "项目概览",

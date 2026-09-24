@@ -17,6 +17,8 @@ export default {
   "label.named_entity_character": 'Nhân vật "{{id}}"',
   "label.named_entity_scene": 'Cảnh "{{id}}"',
   "label.named_entity_prop": 'Đạo cụ "{{id}}"',
+  "label.named_entity_product": 'Sản phẩm "{{id}}"',
+  "label.named_entity_character_derivative": 'Biến thể nhân vật "{{id}}"',
   "label.character_reference_audio": 'Âm thanh tham chiếu của nhân vật "{{id}}"',
   "label.project_settings": "Cài đặt dự án",
   "label.overview": "Tổng quan dự án",

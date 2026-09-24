@@ -19,6 +19,8 @@ export default {
   "label.named_entity_character": 'Character "{{id}}"',
   "label.named_entity_scene": 'Scene "{{id}}"',
   "label.named_entity_prop": 'Prop "{{id}}"',
+  "label.named_entity_product": 'Product "{{id}}"',
+  "label.named_entity_character_derivative": 'Character derivative "{{id}}"',
   "label.character_reference_audio": 'Reference audio for character "{{id}}"',
   "label.project_settings": "Project settings",
   "label.overview": "Project overview",

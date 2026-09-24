@@ -21,6 +21,8 @@ MESSAGES = {
     "event_label_named_entity_character": "角色「{id}」",
     "event_label_named_entity_scene": "场景「{id}」",
     "event_label_named_entity_prop": "道具「{id}」",
+    "event_label_named_entity_product": "商品「{id}」",
+    "event_label_named_entity_character_derivative": "角色衍生「{id}」",
     "event_label_character_reference_audio": "角色「{id}」参考音频",
     "event_label_project_settings": "项目设置",
     "event_label_overview": "项目概览",
