@@ -62,11 +62,10 @@ async def render_asset_prompt(
     ``asset_key`` / ``derivative_key`` 是资产表与衍生表里的落盘真名。
     """
 
-    draft = _with_draft_description(
-        project, asset_type=asset_type, asset_key=asset_key, derivative_key=derivative_key, description=description
-    )
-
     def _assemble() -> AssetSheetInput | DerivativeSheetInput | InputRefused:
+        draft = _with_draft_description(
+            project, asset_type=asset_type, asset_key=asset_key, derivative_key=derivative_key, description=description
+        )
         observation = project_input_observation(project_path)
         if derivative_key is None:
             return asset_sheet_input(draft, asset_type=asset_type, name=asset_key, observation=observation)

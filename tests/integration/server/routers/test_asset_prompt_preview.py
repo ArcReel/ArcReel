@@ -1,5 +1,7 @@
 """项目资产预览按草稿渲染，与执行取同一份生成输入，保持项目与认证边界。"""
 
+import json
+
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -110,6 +112,20 @@ def test_draft_description_fills_a_stored_blank(preview_client):
     manager.save_project("demo", project)
 
     assert "草稿庭院" in _preview(client, "scenes/庭院", "草稿庭院")["text"]
+
+
+@pytest.mark.parametrize("entry", [None, "invalid"])
+def test_malformed_asset_entry_makes_preview_unavailable(preview_client, entry):
+    client, manager, _app = preview_client
+    project = manager.load_project("demo")
+    project["scenes"]["庭院"] = entry
+    project_file = manager.get_project_path("demo") / "project.json"
+    project_file.write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
+
+    result = _preview(client, "scenes/庭院", "草稿庭院")
+
+    assert result["text"] is None
+    assert result["unavailable"] == "提示词无法渲染，请检查其格式"
 
 
 @pytest.mark.parametrize(
