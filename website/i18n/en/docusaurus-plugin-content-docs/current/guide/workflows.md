@@ -217,7 +217,12 @@ Uses a single storyboard image as the video input.
 
 ### 4.2 Multi-grid Storyboards Within Storyboard Mode {#grid-storyboard-route}
 
-Multi-grid storyboards are not a separate generation mode but an image-generation method within Storyboard mode. It generates multiple shots from the same passage together on one or more multi-grid storyboards, then automatically splits each grid into an individual storyboard image for each shot and generates each video separately. The video model still receives the individual storyboard image after splitting.
+Multi-grid storyboards are not a separate generation mode but an image-generation method within Storyboard mode. It generates multiple shots from the same passage together on one or more multi-grid storyboards; after review, each grid is split into an individual storyboard image for each shot, and each video is then generated separately. The video model still receives the individual storyboard image after splitting.
+
+Image generation takes two steps:
+
+1. **Generate**: produces only the multi-grid storyboard itself and leaves each shot's existing storyboard image unchanged. Review it in "Multi-grid Storyboard Preview"; if you are not satisfied, regenerate it or upload your own composite image to replace it.
+2. **Split into cells**: once you are satisfied, click "Split into cells" in "Multi-grid Storyboard Preview", or agree in the conversation to let the Agent split it. Splitting overwrites every storyboard image the multi-grid storyboard covers; the previous storyboard images stay in the version history and can be rolled back.
 
 Multi-grid storyboards automatically use square 2×2 / 3×3 grids based on the number of shots. Each cell uses the same aspect ratio as the project video; when there are more shots, they are divided across multiple multi-grid storyboards according to the grid capacity. Denser 4×4 / 5×5 grids are available only when the image model's resolution tier is configured as 4K—the more cells a multi-grid storyboard contains, the lower the resolution of each cell, and dense grids at lower resolution tiers will degrade downstream video quality.
 
