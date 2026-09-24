@@ -1,6 +1,5 @@
 """Tests for formal_image_commit."""
 
-import asyncio
 import json
 import threading
 
@@ -26,22 +25,6 @@ from tests.integration.server.services.tasks.generation_tasks_support import (
 
 
 class TestGenerationTasks:
-    async def test_formal_finalizer_defers_cancellation(self):
-        started = threading.Event()
-        release = threading.Event()
-
-        def _finalize() -> str:
-            started.set()
-            assert release.wait(timeout=5)
-            return "committed"
-
-        task = asyncio.create_task(formal_image_commit.run_formal_task_finalizer(_finalize))
-        assert await asyncio.to_thread(started.wait, 5)
-        task.cancel()
-        release.set()
-
-        assert await task == "committed"
-
     async def test_storyboard_registers_manifest_only_after_finalization_succeeds(self, tmp_path, monkeypatch):
         project_path = prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)

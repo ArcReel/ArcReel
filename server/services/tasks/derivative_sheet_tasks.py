@@ -46,7 +46,6 @@ from server.services.tasks.formal_image_commit import (
     FormalImageCommitOutcome,
     FormalImagePlan,
     StagedImageCommit,
-    finalize_formal_image_task,
     get_aspect_ratio,
     run_formal_image_task,
     staged_formal_image_callback,
@@ -167,37 +166,6 @@ def derivative_sheet_commit_callback(
     )
 
 
-async def finalize_derivative_sheet_task(
-    *,
-    project_name: str,
-    target: DerivativeSheetTarget,
-    generator: Any,
-    version: int,
-    task_id: str | None,
-    basis: ArtifactBasis | ArtifactBasisDescriptor | None,
-    project_manager: ProjectManager | None = None,
-) -> str:
-    """未走活化回调时的收尾：提交衍生条目指针与版本选择。"""
-    pm = project_manager or get_project_manager()
-
-    def _commit(register: Callable[[Path], None]) -> None:
-        _write_back(pm=pm, project_name=project_name, target=target, activate=register)
-
-    return await finalize_formal_image_task(
-        project_path=pm.get_project_path(project_name),
-        resource_type=CHARACTER_DERIVATIVE_RESOURCE_TYPE,
-        resource_id=target.artifact_id,
-        script_file=None,
-        artifact_path=target.sheet_path,
-        generator=generator,
-        version=version,
-        task_id=task_id,
-        basis=basis,
-        commit_current=_commit,
-        commit_tracked=_commit,
-    )
-
-
 def _prepare(project_name: str, owner_name: str, derivative_name: str):
     """Resolve the source sheet, freeze it, and build the canonical basis in one read."""
 
@@ -266,17 +234,6 @@ async def execute_character_derivative_task(
             project_manager=pm,
         )
 
-    async def _finalize(generator: Any, version: int) -> str:
-        return await finalize_derivative_sheet_task(
-            project_name=project_name,
-            target=source.target,
-            generator=generator,
-            version=version,
-            task_id=task_id,
-            basis=basis,
-            project_manager=pm,
-        )
-
     async def _before_submit() -> None:
         await asyncio.to_thread(assert_artifact_input_claims_usable, project_path, project, formal_claims)
 
@@ -294,7 +251,6 @@ async def execute_character_derivative_task(
             prompt=instruction,
             aspect_ratio=get_aspect_ratio(project, CHARACTER_DERIVATIVE_RESOURCE_TYPE),
             build_commit_callback=_build_commit,
-            finalize=_finalize,
             before_submit=_before_submit,
         ),
     )
@@ -304,6 +260,5 @@ __all__ = [
     "build_derivative_sheet_instruction",
     "derivative_sheet_commit_callback",
     "execute_character_derivative_task",
-    "finalize_derivative_sheet_task",
     "point_derivative_at_sheet",
 ]

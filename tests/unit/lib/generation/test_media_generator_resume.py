@@ -282,7 +282,7 @@ async def test_resume_calls_add_version_after_download(tmp_path):
 @pytest.mark.asyncio
 async def test_resume_after_pre_version_crash_creates_v1(tmp_path):
     """submit→poll 中崩 → versions.json 空 → resume 下载新视频后 add_version 登记 v1，
-    避免下游 _finalize_video_task 在 versions[-1] 上 IndexError。"""
+    避免下游 finalize_video_task 在 versions[-1] 上 IndexError。"""
     gen = _build_generator(tmp_path, initial_version=0)
 
     _, version, _, _ = await gen.resume_video_async(
