@@ -149,6 +149,9 @@ _TASK_FAILURE_ACTIONS: dict[str, GenerationAction] = {
     "reference_duration_confirmation_required": GenerationAction.CONFIRM_REQUEST_DURATION,
     "reference_asset_missing": GenerationAction.GENERATE_DEPENDENCY,
     "reference_asset_unregistered": GenerationAction.GENERATE_DEPENDENCY,
+    # 原图要重新上传或清掉字段，不是生成一个依赖产物。
+    "asset_original_missing": GenerationAction.FIX_INPUT,
+    "script_prompt_pending": GenerationAction.FIX_INPUT,
     "reference_capability_unavailable": GenerationAction.CONFIGURE_PROVIDER,
     "reference_capability_changed": GenerationAction.CONFIGURE_PROVIDER,
     "reference_supported_durations_missing": GenerationAction.CONFIGURE_PROVIDER,

@@ -97,6 +97,8 @@ MESSAGES = {
     "video_audio_switch_not_supported": "{provider}/{model} always produces audio and cannot be muted; turn the audio switch back on in settings and try again",
     "reference_asset_missing": "Reference assets are missing or unavailable: {missing_text}",
     "reference_asset_unregistered": "References name assets that are not registered: {missing_text}; register them or correct the names in the reference",
+    "asset_original_missing": "Declared original images cannot be read: {missing_text}; upload them again or clear the original image field",
+    "generation_input_multiple_gaps": "Generation inputs have multiple gaps: {details}",
     "reference_capability_changed": "The declared capability is {declared}, but hydrated assets require {hydrated}; repair the assets and try again",
     "reference_images_clamped": "The {count} reference images exceed the {max_count} image limit for {provider}/{model}; the request will use the first {max_count}",
     "reference_capability_unavailable": "Could not resolve {capability} video capabilities; check the provider and model configuration",

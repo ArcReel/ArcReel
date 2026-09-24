@@ -21,6 +21,7 @@ from lib.artifacts.artifact_currency import (
     resolve_artifact_episode,
 )
 from lib.artifacts.artifact_manifest import (
+    ArtifactInputClaim,
     ArtifactKey,
     ArtifactManifestEntry,
     ArtifactManifestError,
@@ -33,16 +34,6 @@ from lib.artifacts.visual_artifact_provenance import (
     VisualReference,
 )
 from lib.script.storyboard_sequence import StoryboardImageUnavailable, resolve_storyboard_video_inputs
-
-
-@dataclass(frozen=True, slots=True)
-class ArtifactInputClaim:
-    """One Manifest-backed formal artifact selected as a provider input."""
-
-    key: ArtifactKey
-    artifact_path: str
-    basis_digest: str | None = None
-    content_digest: str | None = None
 
 
 def _assert_input_claim_content_unchanged(

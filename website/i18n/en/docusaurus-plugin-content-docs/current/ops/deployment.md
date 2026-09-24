@@ -279,6 +279,8 @@ Project migration is safe to retry. If a previous startup was interrupted while 
 
 For drama projects whose `project.json` has no aspect ratio field (projects created by very early versions, or imported ones), storyboard freshness is judged against the drama default ratio of 16:9, matching what generation actually uses. Storyboards in such projects that were previously recorded against 9:16 show as out of date after the upgrade; regenerate them as needed.
 
+If a storyboard references a character, scene, prop, or product that has no registrable asset sheet at upgrade time (the asset was deleted or renamed, its sheet was never generated, the sheet file is missing, or the asset description is empty so the sheet itself is not registered), that storyboard is not registered: it shows as missing after the upgrade and is listed in the migration report. Complete the asset sheet and regenerate the storyboard.
+
 One class of migration first copies the whole project next to its directory, rewrites the copy, and then swaps the directories. What that means for disk space and recovery:
 
 - Free space is checked before the migration starts. If it cannot hold the copy, that project fails with a "disk space is insufficient" error and its directory is left untouched; free up space and restart to continue.

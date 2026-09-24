@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from lib.infra.api_errors import BadRequestError
 from server.services.admission import prompt_preview
 from server.services.tasks import formal_image_commit, generation_tasks
 from tests.integration.server.services.tasks.generation_tasks_support import (
@@ -331,6 +332,23 @@ class TestPreviewIsReadOnly:
 
 
 class TestPreviewUnavailableSides:
+    async def test_pending_image_prompt_reports_reference_gaps_together(self, tmp_path, monkeypatch):
+        project_path = prepare_files(tmp_path)
+        pm = _pm_for("narration", project_path)
+        _item_of(pm)["image_prompt"] = None
+        _item_of(pm)["characters_in_segment"] = ["Alice", "未登记角色"]
+        _patch_execution(monkeypatch, pm, FakeGenerator())
+
+        preview = await prompt_preview.preview_item_prompts("demo", "episode_1.json", ITEM_ID)
+
+        assert preview.storyboard_image.unavailable == "script_prompt_pending"
+        gaps = preview.storyboard_image.unavailable_params["gaps"]
+        assert isinstance(gaps, list)
+        assert [gap["code"] for gap in gaps] == [
+            "script_prompt_pending",
+            "reference_asset_unregistered",
+        ]
+
     async def test_pending_prompt_reports_that_side_only(self, tmp_path, monkeypatch):
         """机械转换写下的 ``None`` 与根本没有该字段的存量条目都是待生成：另一侧照常渲染。"""
         project_path = prepare_files(tmp_path)
@@ -368,6 +386,31 @@ class TestPreviewUnavailableSides:
 
         assert preview.storyboard_image.text is None
         assert preview.storyboard_image.unavailable == prompt_preview.UNAVAILABLE_INVALID
+
+    async def test_refused_generation_input_reports_its_gaps_and_matches_execution(self, tmp_path, monkeypatch):
+        """生成会被拒时预览显示不可用与缺口码，与执行期同一份拒绝；视频侧照常渲染。"""
+        project_path = prepare_files(tmp_path)
+        pm = _pm_for("narration", project_path)
+        (project_path / "props" / "玉佩.png").unlink()
+        _item_of(pm)["characters_in_segment"] = ["Alice", "Bob"]
+        generator = FakeGenerator()
+        _patch_execution(monkeypatch, pm, generator)
+
+        preview = await prompt_preview.preview_item_prompts("demo", "episode_1.json", ITEM_ID)
+        with pytest.raises(BadRequestError) as refused:
+            await generation_tasks.execute_storyboard_task(
+                "demo", ITEM_ID, {"script_file": "episode_1.json", "prompt": STRUCTURED_IMAGE_PROMPT}
+            )
+
+        assert preview.storyboard_image.text is None
+        assert preview.storyboard_image.unavailable == "reference_asset_unregistered"
+        assert preview.storyboard_image.unavailable_params == refused.value.params
+        assert preview.storyboard_image.unavailable_params["gaps"] == [
+            {"code": "reference_asset_unregistered", "asset_type": "character", "name": "Bob"},
+            {"code": "reference_asset_missing", "asset_type": "prop", "name": "玉佩"},
+        ]
+        assert preview.video.text
+        assert generator.image_calls == []
 
     async def test_unknown_item_id_is_reported(self, tmp_path, monkeypatch):
         project_path = prepare_files(tmp_path)

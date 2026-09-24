@@ -136,7 +136,7 @@ class _FakePM:
                     "description": "不锈钢保温杯",
                     "product_sheet": "",
                     "brand": "",
-                    "reference_images": ["products/refs/保温杯_1.jpg", "products/refs/missing.jpg"],
+                    "reference_images": ["products/refs/保温杯_1.jpg"],
                     "selling_points": [],
                 }
             },

@@ -30,7 +30,6 @@ from lib.artifacts.artifact_currency import (
     resolve_current_artifact_target,
 )
 from lib.artifacts.artifact_input_claims import (
-    ArtifactInputClaim,
     EpisodeScriptInput,
     artifact_input_is_usable,
     assert_artifact_input_claims_usable,
@@ -46,6 +45,7 @@ from lib.artifacts.artifact_manifest import (
     MANIFEST_FILENAME,
     ArtifactBasis,
     ArtifactBasisDescriptor,
+    ArtifactInputClaim,
     ArtifactKey,
     ArtifactKind,
     ArtifactManifestAdapter,

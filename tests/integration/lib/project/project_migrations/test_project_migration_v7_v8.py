@@ -479,14 +479,14 @@ def test_runtime_resolver_plans_storyboards_only_once_per_snapshot(tmp_path: Pat
     from lib.artifacts import artifact_planner
 
     calls = 0
-    original = artifact_planner.build_storyboard_image_visual_basis
+    original = artifact_planner.storyboard_image_input
 
     def _counted(*args, **kwargs):
         nonlocal calls
         calls += 1
         return original(*args, **kwargs)
 
-    monkeypatch.setattr(artifact_planner, "build_storyboard_image_visual_basis", _counted)
+    monkeypatch.setattr(artifact_planner, "storyboard_image_input", _counted)
     resolver = ArtifactCurrencyResolver(project_dir)
     key = ArtifactKey.episode_storyboard(1, "E1S01")
 

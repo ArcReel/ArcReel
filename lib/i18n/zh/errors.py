@@ -95,6 +95,8 @@ MESSAGES = {
     "video_audio_switch_not_supported": "{provider}/{model} 的成片恒有声，无法关闭音频；请在设置中把音频开关改回开启后重试",
     "reference_asset_missing": "参考素材缺失或文件不可用：{missing_text}",
     "reference_asset_unregistered": "引用了未登记的资产名：{missing_text}；请先登记这些资产，或修正引用中的名称",
+    "asset_original_missing": "声明的原图读不到：{missing_text}；请重新上传原图，或清除原图字段",
+    "generation_input_multiple_gaps": "生成输入有多处缺口：{details}",
     "reference_capability_changed": "声明任务类型为 {declared}，实际素材水合后为 {hydrated}；请修复素材后重试",
     "reference_images_clamped": "参考图数量 {count} 超出 {provider}/{model} 上限 {max_count}，请求将使用前 {max_count} 张",
     "reference_capability_unavailable": "无法解析 {capability} 视频能力，请检查供应商与模型配置",
