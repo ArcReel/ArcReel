@@ -97,12 +97,17 @@ def render_generation_input_error(key: str, params: Mapping[str, Any], translate
         if not isinstance(gap, dict):
             return translate(key, **params)
         code, name, asset_type = gap.get("code"), gap.get("name"), gap.get("asset_type")
-        if code not in {
-            "script_prompt_pending",
-            "reference_asset_unregistered",
-            "reference_asset_missing",
-            "asset_original_missing",
-        } or not isinstance(name, str):
+        if (
+            not isinstance(code, str)
+            or code
+            not in {
+                "script_prompt_pending",
+                "reference_asset_unregistered",
+                "reference_asset_missing",
+                "asset_original_missing",
+            }
+            or not isinstance(name, str)
+        ):
             return translate(key, **params)
         text = (
             name

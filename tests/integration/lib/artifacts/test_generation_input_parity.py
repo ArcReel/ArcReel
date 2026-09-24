@@ -11,6 +11,7 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
+import pytest
 from PIL import Image
 
 from lib.artifacts.artifact_activation import (
@@ -203,3 +204,25 @@ def test_activation_reports_pending_prompt_and_reference_gap_together(tmp_path: 
     [skipped] = [item for item in plan.skipped if item.resource_id == "E1S02"]
     assert "script_prompt_pending" in skipped.reason
     assert "reference_asset_unregistered" in skipped.reason
+
+
+@pytest.mark.parametrize(
+    "invalid_fields",
+    [
+        pytest.param({"products_in_shot": "保温杯"}, id="malformed-reference-field"),
+        pytest.param({"image_prompt": 42}, id="malformed-image-prompt"),
+    ],
+)
+def test_activation_reports_a_storyboard_with_invalid_generation_input(tmp_path: Path, invalid_fields) -> None:
+    project_dir = _project_dir(tmp_path, target_generated=True)
+    script_path = project_dir / "scripts" / "episode_1.json"
+    script = _read_json(script_path)
+    script["shots"][1].update(invalid_fields)
+    _write_json(script_path, script)
+
+    plan = plan_artifact_target_state(project_dir)
+
+    assert TARGET_KEY not in plan.entries
+    [skipped] = [item for item in plan.skipped if item.resource_id == "E1S02"]
+    assert skipped.artifact_path == "storyboards/scene_E1S02.png"
+    assert next(iter(invalid_fields)) in skipped.reason
