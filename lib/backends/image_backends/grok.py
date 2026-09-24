@@ -22,6 +22,10 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_MODEL = "grok-imagine-image"
 
+# 多图编辑单请求最多 5 张源图（grok-imagine-image / grok-imagine-image-pro 同一上限）。
+# 参考：https://docs.x.ai/docs/guides/image-generation
+_MAX_REFERENCE_IMAGES = 5
+
 _SUPPORTED_ASPECT_RATIOS = {
     "1:1",
     "16:9",
@@ -77,8 +81,7 @@ class GrokImageBackend:
 
     @property
     def max_reference_images(self) -> int:
-        # Grok 不按数量裁剪参考图，全量随请求发出。
-        return 0
+        return _MAX_REFERENCE_IMAGES
 
     @with_retry_async(retry_if=grok_should_retry)
     async def generate(self, request: ImageGenerationRequest) -> ImageGenerationResult:
@@ -93,9 +96,13 @@ class GrokImageBackend:
 
         # I2I：将所有参考图转为 base64 data URI 列表
         if request.reference_images:
+            refs = request.reference_images
+            if len(refs) > _MAX_REFERENCE_IMAGES:
+                logger.warning("Grok 参考图数量 %d 超过上限 %d，截断", len(refs), _MAX_REFERENCE_IMAGES)
+                refs = refs[:_MAX_REFERENCE_IMAGES]
             # exists() 只读本地文件元数据，不阻塞；读整张图做 base64 编码才是阻塞 I/O，
             # 逐张卸载到线程后并发等待，避免堵住事件循环
-            existing_paths = [ref_path for ref in request.reference_images if (ref_path := Path(ref.path)).exists()]
+            existing_paths = [ref_path for ref in refs if (ref_path := Path(ref.path)).exists()]
             data_uris = list(
                 await asyncio.gather(
                     *[asyncio.to_thread(image_to_base64_data_uri, ref_path) for ref_path in existing_paths]
