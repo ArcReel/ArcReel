@@ -639,14 +639,12 @@ class TargetStatePlanner:
                         resource_id=resource_id,
                         observation=observation,
                     )
-                except (OSError, TypeError, ValueError):
-                    continue
-                if isinstance(generation_input, InputRefused):
-                    self._skip(key, artifact_path, _refusal_reason(generation_input))
-                    continue
-                try:
+                    if isinstance(generation_input, InputRefused):
+                        self._skip(key, artifact_path, _refusal_reason(generation_input))
+                        continue
                     basis = generation_input.expected_basis()
-                except (OSError, TypeError, ValueError):
+                except (OSError, TypeError, ValueError) as exc:
+                    self._skip(key, artifact_path, f"invalid storyboard generation input: {exc}")
                     continue
                 self._add_if_present(key, artifact_path, basis)
         self._planned.add("storyboards")

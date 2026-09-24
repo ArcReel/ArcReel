@@ -292,9 +292,31 @@ def bound_reason(reason: str, limit: int) -> str:
             "params": {key: _as_shrinkable(value) for key, value in detail["params"].items()},
         }
 
+    gaps = parsed.get("gaps")
+    kept_gaps: dict[str, dict[str, Any]] = {}
+    if (
+        code in GENERATION_INPUT_FAILURE_CODES
+        and isinstance(gaps, list)
+        and all(
+            isinstance(gap, dict)
+            and isinstance(gap.get("code"), str)
+            and gap["code"] in GENERATION_INPUT_FAILURE_CODES
+            and isinstance(gap.get("name"), str)
+            and gap.get("asset_type") in (None, "character", "scene", "prop", "product")
+            for gap in gaps
+        )
+    ):
+        # 超限时每种原因保留一个缺口及省略数量；机器码和分组结构不参与字符串裁剪。
+        for gap in gaps:
+            kept_gaps.setdefault(gap["code"], {key: gap.get(key) for key in ("code", "asset_type", "name")})
+        params["gaps"] = list(kept_gaps.values())
+        omitted = parsed.get("gaps_omitted", 0)
+        params["gaps_omitted"] = (omitted if isinstance(omitted, int) else 0) + len(gaps) - len(kept_gaps)
+
     shrinkable: list[tuple[dict[str, Any], str]] = [
         (params, key) for key, value in params.items() if isinstance(value, str)
     ]
+    shrinkable.extend((gap, "name") for gap in kept_gaps.values())
     nested_detail = params.get("detail")
     if _is_validation_message(nested_detail):
         nested_params = nested_detail["params"]
