@@ -10,6 +10,7 @@ user reviewed the composite and agreed to split it.
 
 from __future__ import annotations
 
+import functools
 import logging
 from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
 from typing import Any
@@ -70,6 +71,7 @@ from server.services.grid.grid_submission import (
     ensure_grid_submittable,
     grid_artifact_key,
     grid_artifact_path,
+    grid_submission_section,
     plan_grid_submission,
     queue_active_grid_tasks,
 )
@@ -207,24 +209,26 @@ async def handle_generate_grid(
             script=script,
             script_filename=script_filename,
         )
-        plan = await plan_grid_submission(
-            project=project,
-            project_path=ctx.project_path,
-            script=script,
-            script_file=script_filename,
-            episode=episode,
-            scene_ids=scene_ids,
-            active_grid_tasks=queue_active_grid_tasks(
-                tool_services(ctx).queue,
-                project_name=ctx.project_name,
+        async with grid_submission_section(ctx.project_name) as section:
+            plan = await plan_grid_submission(
+                project=project,
+                project_path=ctx.project_path,
+                script=script,
                 script_file=script_filename,
-                user_id=ctx.caller.user_id,
-            ),
-            large_grid_gate=resolve_large_grid_allowed,
-        )
-        if list_only:
-            return ToolOutcome(value=_render_plan(plan))
-        return await _submit(ctx, plan, batch_waiter=batch_waiter)
+                episode=episode,
+                scene_ids=scene_ids,
+                section=section,
+                active_grid_tasks=queue_active_grid_tasks(
+                    tool_services(ctx).queue,
+                    project_name=ctx.project_name,
+                    script_file=script_filename,
+                    user_id=ctx.caller.user_id,
+                ),
+                large_grid_gate=resolve_large_grid_allowed,
+            )
+            if list_only:
+                return ToolOutcome(value=_render_plan(plan))
+            return await _submit(ctx, plan, batch_waiter=batch_waiter)
     except Exception as exc:
         return tool_error(_OPERATION, exc)
 
@@ -311,7 +315,8 @@ async def _submit(
         pending_ids=[scene_id for ids in report_ids_by_grid.values() for scene_id in ids],
         specs=specs,
         states=states,
-        embedded_waiter=batch_waiter,
+        # 入队完成即离开提交临界区：等联合图生成期间，同一项目的其他提交照常进行
+        embedded_waiter=functools.partial(batch_waiter, on_enqueued=plan.section.end),
     )
     if submitted.successes is None or submitted.failures is None:
         return generation_batch_submission_outcome(submitted.batch)

@@ -12,13 +12,17 @@
 
 准入是整批的：任一分镜受阻（点名不存在、产物状态不可读、与在途宫格部分重叠、引用缺口、提示词待生成），
 整个请求不建任何任务，本身健康的分镜带 ``generation_batch_admission_withheld``。
+
+同一项目的宫格提交从规划到入队在 :func:`grid_submission_section` 里串行执行，规划看到的
+宫格记录与队列任务因此总是一致的：不会有另一请求写了记录、还没入队。
 """
 
 from __future__ import annotations
 
+import asyncio
+import weakref
 from collections.abc import Awaitable, Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
 from typing import Any
@@ -55,10 +59,6 @@ from server.services.admission.reference_admission import reference_admission_pr
 
 GRID_IN_FLIGHT_STATUSES = ("pending", "generating")
 
-_SUBMISSION_GRACE = timedelta(minutes=5)
-"""刚写入的 pending / generating 记录可能正处在另一请求「写记录 → 入队」之间（新建或重生成置 pending），
-队列里暂时查不到任务。"""
-
 ActiveGridTaskProbe = Callable[[list[str]], Awaitable[Collection[str]]]
 """给定宫格 ID，返回队列里仍有活动任务（queued / running）的那些。"""
 
@@ -79,6 +79,51 @@ def queue_active_grid_tasks(
         return [str(task["resource_id"]) for task in tasks]
 
     return probe
+
+
+class GridSubmissionSection:
+    """同一项目宫格提交的临界区：从读记录规划，到写记录、入队，同一时刻只有一个请求在里面。
+
+    宫格记录写在项目目录、任务写在队列，两者无法原子地一起落地；把写记录与入队都关进临界区，
+    区内规划就能把「停在 pending / generating 却没有活动任务」的记录确认为已无人处理。
+    入队完成即可 :meth:`end`，等待任务跑完不占着临界区。服务端单进程运行，进程内的锁即可串行化。
+    """
+
+    def __init__(self, lock: asyncio.Lock) -> None:
+        self._lock = lock
+        self._held = False
+
+    @property
+    def held(self) -> bool:
+        return self._held
+
+    async def __aenter__(self) -> GridSubmissionSection:
+        await self._lock.acquire()
+        self._held = True
+        return self
+
+    async def __aexit__(self, *_exc: object) -> None:
+        self.end()
+
+    def end(self) -> None:
+        """提前离开临界区；重复调用无副作用。"""
+
+        if self._held:
+            self._held = False
+            self._lock.release()
+
+
+# asyncio.Lock 只能在一个事件循环里争用，锁表按事件循环分开
+_SECTION_LOCKS: weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, dict[str, asyncio.Lock]] = (
+    weakref.WeakKeyDictionary()
+)
+
+
+def grid_submission_section(project_name: str) -> GridSubmissionSection:
+    """同一项目的宫格提交共用一个临界区；须在事件循环内调用。"""
+
+    locks = _SECTION_LOCKS.setdefault(asyncio.get_running_loop(), {})
+    return GridSubmissionSection(locks.setdefault(project_name, asyncio.Lock()))
 
 
 def ensure_grid_submittable(project: dict[str, Any], script: dict[str, Any]) -> None:
@@ -160,6 +205,8 @@ class GridSubmissionPlan:
     """剧本里各分镜已登记的分镜图路径；报告失败时据此带上旧图。"""
     abandoned_grid_ids: frozenset[str]
     """停在 pending / generating 却已没有活动任务的宫格记录；提交时按已结束的记录清理。"""
+    section: GridSubmissionSection
+    """规划所在的临界区；落地时它必须仍未结束，否则 ``abandoned_grid_ids`` 已不可信。"""
 
     @property
     def refused(self) -> bool:
@@ -192,6 +239,7 @@ async def plan_grid_submission(
     script_file: str,
     episode: int,
     scene_ids: Sequence[str] | None,
+    section: GridSubmissionSection,
     active_grid_tasks: ActiveGridTaskProbe,
     large_grid_gate: Callable[[dict[str, Any]], Awaitable[bool]] = resolve_large_grid_allowed,
 ) -> GridSubmissionPlan:
@@ -201,14 +249,18 @@ async def plan_grid_submission(
     - 缺失即生成：只为仍缺分镜图的分组出图，组内已可用的分镜记为跳过；联合图已就绪而未切分的
       宫格跳过、等待切分落格；已失效但可用的旧分镜图照常复用。
     - 与在途宫格覆盖同一组分镜时沿用在途记录；只部分重叠时受阻，两张宫格日后会争抢同一批格子。
-      在途指记录停在 pending / generating，且 ``active_grid_tasks`` 报告它仍有活动任务或记录刚落盘
-      （见 ``_SUBMISSION_GRACE``）。任务被取消、重启丢失或入队失败时执行器没有运行，记录停在原状态；
-      过了宽限期仍没有活动任务的记录不算在途，提交时按已结束的记录清理。
+      在途指记录停在 pending / generating，且 ``active_grid_tasks`` 报告它仍有活动任务。任务被取消、
+      重启丢失或入队失败时执行器没有运行，记录停在原状态；这样的记录不算在途，提交时按已结束的记录清理。
+
+    须在 ``section`` 内调用，并在同一临界区内落地与入队。
 
     Raises:
         BadRequestError: 见 :func:`ensure_grid_submittable`。
+        ValueError: ``section`` 未持有。
     """
 
+    if not section.held:
+        raise ValueError("grid submission must be planned inside its submission section")
     ensure_grid_submittable(project, script)
     # 4×4 / 5×5 只在图像分辨率档为 4K 时放行；判定与费用估算、前端预览同源
     allow_large_grid = await large_grid_gate(project)
@@ -219,8 +271,7 @@ async def plan_grid_submission(
     ]
     marked = [g for g in records if g.status in GRID_IN_FLIGHT_STATUSES]
     active = set(await active_grid_tasks([g.id for g in marked])) if marked else set()
-    now = datetime.now(UTC)
-    in_flight = [g for g in marked if g.id in active or _written_within_grace(gm, g.id, now)]
+    in_flight = [g for g in marked if g.id in active]
     return _Planner(
         project=project,
         project_path=project_path,
@@ -231,12 +282,8 @@ async def plan_grid_submission(
         records=records,
         in_flight=in_flight,
         abandoned=frozenset(g.id for g in marked) - {g.id for g in in_flight},
+        section=section,
     ).plan(scene_ids)
-
-
-def _written_within_grace(gm: GridManager | None, grid_id: str, now: datetime) -> bool:
-    written = gm.written_at(grid_id) if gm is not None else None
-    return written is not None and now - written < _SUBMISSION_GRACE
 
 
 def commit_grid_submission(plan: GridSubmissionPlan, project_path: Path) -> tuple[GridSubmissionTask, ...]:
@@ -244,10 +291,16 @@ def commit_grid_submission(plan: GridSubmissionPlan, project_path: Path) -> tupl
 
     清理限定在本组内、只删与本次重画那张有交集的旧记录：超上限分组里整张都无需重画的那张，
     旧记录必须留下；横跨重画那张与其余分块的旧记录（如 4K 档关闭后改切小宫格）已不合当前分块，一并删除。
+    返回的任务须在规划所在的临界区结束前入队。
+
+    Raises:
+        ValueError: 规划整批受阻，或规划所在的临界区已结束。
     """
 
     if plan.refused:
         raise ValueError("a refused grid submission plan cannot be committed")
+    if not plan.section.held:
+        raise ValueError("a grid submission plan must be committed inside the section it was planned in")
     project = plan.project
     aspect_ratio = video_aspect_ratio_of(dict(project))
     style = normalize_style_value(project.get("style"))
@@ -336,6 +389,7 @@ class _Planner:
         records: list[GridGeneration],
         in_flight: list[GridGeneration],
         abandoned: frozenset[str],
+        section: GridSubmissionSection,
     ) -> None:
         self._project = project
         self._script_file = script_file
@@ -354,6 +408,7 @@ class _Planner:
         self._catalog = build_reference_catalog(project)
         self._in_flight = in_flight
         self._abandoned = abandoned
+        self._section = section
         # list_all 按 created_at 升序，后写覆盖前写：同一组分镜只留最新一条
         self._latest = {tuple(g.scene_ids): g for g in records}
         self._chunks: list[GridChunkPlan] = []
@@ -394,6 +449,7 @@ class _Planner:
             admission_items=tuple(self._admission_items),
             storyboard_paths=self._storyboard_paths,
             abandoned_grid_ids=self._abandoned,
+            section=self._section,
         )
 
     def _plan_explicit(self, groups: list[list[dict[str, Any]]], scene_ids: Sequence[str]) -> None:
@@ -589,11 +645,13 @@ __all__ = [
     "GridChunkAction",
     "GridChunkPlan",
     "GridSubmissionPlan",
+    "GridSubmissionSection",
     "GridSubmissionTask",
     "commit_grid_submission",
     "ensure_grid_submittable",
     "grid_artifact_key",
     "grid_artifact_path",
+    "grid_submission_section",
     "plan_grid_submission",
     "queue_active_grid_tasks",
 ]

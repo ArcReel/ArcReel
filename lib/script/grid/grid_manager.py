@@ -5,7 +5,6 @@ import logging
 import re
 from collections.abc import Callable, Collection
 from contextlib import contextmanager
-from datetime import UTC, datetime
 from pathlib import Path
 
 import portalocker
@@ -44,13 +43,6 @@ class GridManager:
         """grids/ 下的联合图路径。调用方一律经此取路径，不自行拼接，
         否则 ID 白名单与越界校验会被绕过。"""
         return self._path(grid_id, ".png")
-
-    def written_at(self, grid_id: str) -> datetime | None:
-        """记录最近一次落盘的时间；每次状态流转（建记录、重生成置 pending、开始生成）都会重写记录。"""
-        try:
-            return datetime.fromtimestamp(self._path(grid_id).stat().st_mtime, tz=UTC)
-        except OSError:
-            return None
 
     def save(self, grid: GridGeneration) -> None:
         """Write grid as JSON to {grid_id}.json."""

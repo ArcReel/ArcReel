@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
-import os
-from datetime import UTC, datetime
+from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
 
@@ -19,7 +19,9 @@ from lib.script.grid.grid_manager import GridManager
 from lib.script.grid.models import GridGeneration
 from server.services.grid.grid_submission import (
     GridChunkAction,
+    GridSubmissionSection,
     commit_grid_submission,
+    grid_submission_section,
     plan_grid_submission,
 )
 
@@ -73,6 +75,13 @@ def project_path(tmp_path: Path) -> Path:
     return path
 
 
+@pytest.fixture
+async def section(project_path: Path) -> AsyncIterator[GridSubmissionSection]:
+    """规划与落地同在一个临界区内。"""
+    async with grid_submission_section(str(project_path)) as held:
+        yield held
+
+
 async def _no_large_grid(_project: dict[str, Any]) -> bool:
     return False
 
@@ -86,6 +95,7 @@ def _write_project(project_path: Path, project: dict[str, Any], script: dict[str
 
 async def _plan(
     project_path: Path,
+    section: GridSubmissionSection,
     *,
     script: dict[str, Any] | None = None,
     project: dict[str, Any] | None = None,
@@ -107,6 +117,7 @@ async def _plan(
         script_file="episode_1.json",
         episode=1,
         scene_ids=scene_ids,
+        section=section,
         active_grid_tasks=active_grid_tasks,
         large_grid_gate=_no_large_grid,
     )
@@ -119,7 +130,6 @@ def _record(
     status: str,
     split: bool = False,
     registered: bool = True,
-    written_long_ago: bool = False,
 ) -> GridGeneration:
     grid = GridGeneration.create(
         episode=1,
@@ -138,9 +148,6 @@ def _record(
         Image.new("RGB", (8, 8)).save(project_path / "grids" / f"{grid.id}.png")
         grid.split_at = "2026-01-01T00:00:00+00:00" if split else None
     GridManager(project_path).save(grid)
-    if written_long_ago:
-        # 早于提交宽限期落盘：没有活动任务的在途记录据此判为已无人处理
-        os.utime(project_path / "grids" / f"{grid.id}.json", (LONG_AGO, LONG_AGO))
     if status == "completed" and registered:
         _write_project(project_path, _project(), _script())
         assert register_current_resource_artifact(project_path, resource_type="grids", resource_id=grid.id)
@@ -149,11 +156,12 @@ def _record(
 
 GROUP_1 = ["E1S01", "E1S02", "E1S03", "E1S04"]
 GROUP_2 = ["E1S05", "E1S06", "E1S07", "E1S08"]
-LONG_AGO = datetime(2026, 1, 1, tzinfo=UTC).timestamp()
 
 
-async def test_missing_only_generates_every_group_without_storyboards(project_path: Path) -> None:
-    plan = await _plan(project_path)
+async def test_missing_only_generates_every_group_without_storyboards(
+    project_path: Path, section: GridSubmissionSection
+) -> None:
+    plan = await _plan(project_path, section)
 
     assert plan.selection is GenerationSelectionMode.MISSING_ONLY
     assert not plan.refused
@@ -173,7 +181,7 @@ async def test_missing_only_generates_every_group_without_storyboards(project_pa
 
 
 async def test_regenerating_one_chunk_removes_a_record_spanning_it_but_keeps_the_untouched_chunk(
-    project_path: Path,
+    project_path: Path, section: GridSubmissionSection
 ) -> None:
     """16 格分组按非 4K 档切成 9 + 7：点名重画第一张时，横跨两张的旧 4×4 记录已不合当前分块，
     第二张自己的旧记录不受影响。"""
@@ -181,7 +189,7 @@ async def test_regenerating_one_chunk_removes_a_record_spanning_it_but_keeps_the
     spanning = _record(project_path, ids, status="completed", split=True, registered=False)
     untouched = _record(project_path, ids[9:], status="completed", split=True, registered=False)
 
-    plan = await _plan(project_path, script=_script(groups=1, per_group=16), scene_ids=["E1S01"])
+    plan = await _plan(project_path, section, script=_script(groups=1, per_group=16), scene_ids=["E1S01"])
     commit_grid_submission(plan, project_path)
 
     remaining = {g.id for g in GridManager(project_path).list_all()}
@@ -189,10 +197,12 @@ async def test_regenerating_one_chunk_removes_a_record_spanning_it_but_keeps_the
     assert untouched.id in remaining
 
 
-async def test_identical_in_flight_grid_is_reused_instead_of_created_again(project_path: Path) -> None:
+async def test_identical_in_flight_grid_is_reused_instead_of_created_again(
+    project_path: Path, section: GridSubmissionSection
+) -> None:
     in_flight = _record(project_path, GROUP_1, status="pending")
 
-    plan = await _plan(project_path, scene_ids=GROUP_1)
+    plan = await _plan(project_path, section, scene_ids=GROUP_1)
     tasks = commit_grid_submission(plan, project_path)
 
     assert [c.action for c in plan.chunks] == [GridChunkAction.IN_FLIGHT]
@@ -200,10 +210,12 @@ async def test_identical_in_flight_grid_is_reused_instead_of_created_again(proje
     assert [g.id for g in GridManager(project_path).list_all()] == [in_flight.id]
 
 
-async def test_partial_overlap_with_an_in_flight_grid_refuses_the_whole_batch(project_path: Path) -> None:
+async def test_partial_overlap_with_an_in_flight_grid_refuses_the_whole_batch(
+    project_path: Path, section: GridSubmissionSection
+) -> None:
     other = _record(project_path, ["E1S03", "E1S04", "E1S05"], status="generating")
 
-    plan = await _plan(project_path)
+    plan = await _plan(project_path, section)
 
     assert plan.refused
     assert [b.scene_id for b in plan.blocked] == GROUP_1 + GROUP_2
@@ -215,54 +227,35 @@ async def test_partial_overlap_with_an_in_flight_grid_refuses_the_whole_batch(pr
     assert [g.id for g in GridManager(project_path).list_all()] == [other.id]
 
 
-async def test_a_record_left_generating_without_an_active_task_does_not_block(project_path: Path) -> None:
+async def test_a_record_left_generating_without_an_active_task_does_not_block(
+    project_path: Path, section: GridSubmissionSection
+) -> None:
     """任务被取消或重启丢失后记录停在 generating：它不再在途，分组变了也照常出图。"""
-    orphan = _record(project_path, ["E1S03", "E1S04", "E1S05"], status="generating", written_long_ago=True)
+    orphan = _record(project_path, ["E1S03", "E1S04", "E1S05"], status="generating")
 
-    plan = await _plan(project_path, orphaned=frozenset({orphan.id}))
+    plan = await _plan(project_path, section, orphaned=frozenset({orphan.id}))
 
     assert not plan.refused
     assert [c.action for c in plan.chunks] == [GridChunkAction.GENERATE, GridChunkAction.GENERATE]
 
 
-async def test_an_abandoned_record_of_the_same_chunk_is_replaced_not_left_beside(project_path: Path) -> None:
-    orphan = _record(project_path, GROUP_1, status="pending", written_long_ago=True)
+async def test_an_abandoned_record_of_the_same_chunk_is_replaced_not_left_beside(
+    project_path: Path, section: GridSubmissionSection
+) -> None:
+    orphan = _record(project_path, GROUP_1, status="pending")
 
-    plan = await _plan(project_path, script=_script(groups=1), orphaned=frozenset({orphan.id}))
+    plan = await _plan(project_path, section, script=_script(groups=1), orphaned=frozenset({orphan.id}))
     tasks = commit_grid_submission(plan, project_path)
 
     assert [(t.grid.id != orphan.id, t.reused) for t in tasks] == [(True, False)]
     assert [g.id for g in GridManager(project_path).list_all()] == [tasks[0].grid.id]
 
 
-async def test_a_record_just_written_by_another_submission_is_reused_not_deleted(project_path: Path) -> None:
-    """另一请求刚建好记录、还没入队：队列里暂时查不到任务，也按在途沿用，不当孤儿删除。"""
-    fresh = _record(project_path, GROUP_1, status="pending")
-
-    plan = await _plan(project_path, script=_script(groups=1), orphaned=frozenset({fresh.id}))
-    tasks = commit_grid_submission(plan, project_path)
-
-    assert [(t.grid.id, t.reused) for t in tasks] == [(fresh.id, True)]
-    assert [g.id for g in GridManager(project_path).list_all()] == [fresh.id]
-
-
-async def test_an_old_record_just_set_back_to_pending_for_regeneration_is_not_deleted(project_path: Path) -> None:
-    """重生成把早已建好的记录重新置为 pending、尚未入队：宽限期按最近一次落盘算，不按建记录的时间。"""
-    old = _record(project_path, GROUP_1, status="failed", written_long_ago=True)
-    old.status = "pending"
-    GridManager(project_path).save(old)
-
-    plan = await _plan(project_path, script=_script(groups=1), orphaned=frozenset({old.id}))
-
-    assert [(c.action, c.grid.id if c.grid else None) for c in plan.chunks] == [(GridChunkAction.IN_FLIGHT, old.id)]
-    assert plan.abandoned_grid_ids == frozenset()
-
-
-async def test_a_blocked_group_withholds_the_healthy_one(project_path: Path) -> None:
+async def test_a_blocked_group_withholds_the_healthy_one(project_path: Path, section: GridSubmissionSection) -> None:
     script = _script()
     script["segments"][5]["image_prompt"] = None
 
-    plan = await _plan(project_path, script=script)
+    plan = await _plan(project_path, section, script=script)
 
     assert plan.refused
     assert [b.scene_id for b in plan.blocked] == GROUP_2
@@ -274,29 +267,33 @@ async def test_a_blocked_group_withholds_the_healthy_one(project_path: Path) -> 
     assert [item["segment_id"] for item in plan.admission_items] == GROUP_1 + GROUP_2
 
 
-async def test_an_in_flight_group_is_not_reported_as_withheld(project_path: Path) -> None:
+async def test_an_in_flight_group_is_not_reported_as_withheld(
+    project_path: Path, section: GridSubmissionSection
+) -> None:
     _record(project_path, GROUP_1, status="generating")
     script = _script()
     script["segments"][5]["image_prompt"] = None
 
-    plan = await _plan(project_path, script=script)
+    plan = await _plan(project_path, section, script=script)
 
     assert plan.refused
     assert [c.action for c in plan.chunks] == [GridChunkAction.IN_FLIGHT, GridChunkAction.BLOCKED]
     assert plan.withheld == ()
 
 
-async def test_unknown_explicit_scene_refuses_the_batch(project_path: Path) -> None:
-    plan = await _plan(project_path, scene_ids=["E1S01", "E9S99"])
+async def test_unknown_explicit_scene_refuses_the_batch(project_path: Path, section: GridSubmissionSection) -> None:
+    plan = await _plan(project_path, section, scene_ids=["E1S01", "E9S99"])
 
     assert [(b.scene_id, b.problem.code) for b in plan.blocked] == [("E9S99", GenerationProblemCode.UNIT_NOT_FOUND)]
     assert [b.scene_id for b in plan.withheld] == ["E1S01"]
 
 
-async def test_missing_only_waits_on_an_unsplit_composite_instead_of_paying_again(project_path: Path) -> None:
+async def test_missing_only_waits_on_an_unsplit_composite_instead_of_paying_again(
+    project_path: Path, section: GridSubmissionSection
+) -> None:
     unsplit = _record(project_path, GROUP_1, status="completed")
 
-    plan = await _plan(project_path)
+    plan = await _plan(project_path, section)
     tasks = commit_grid_submission(plan, project_path)
 
     assert [(c.action, c.grid.id if c.grid else None) for c in plan.chunks] == [
@@ -307,20 +304,24 @@ async def test_missing_only_waits_on_an_unsplit_composite_instead_of_paying_agai
     assert GridManager(project_path).get(unsplit.id) is not None
 
 
-async def test_missing_only_regenerates_a_composite_the_split_would_refuse(project_path: Path) -> None:
+async def test_missing_only_regenerates_a_composite_the_split_would_refuse(
+    project_path: Path, section: GridSubmissionSection
+) -> None:
     """盘上有图但产物清单没有登记：切分不认这张联合图，缺失即生成照常重新出图。"""
     _record(project_path, GROUP_1, status="completed", registered=False)
 
-    plan = await _plan(project_path, script=_script(groups=1))
+    plan = await _plan(project_path, section, script=_script(groups=1))
 
     assert [c.action for c in plan.chunks] == [GridChunkAction.GENERATE]
     assert plan.unsplit == ()
 
 
-async def test_explicit_request_regenerates_and_supersedes_an_unsplit_composite(project_path: Path) -> None:
+async def test_explicit_request_regenerates_and_supersedes_an_unsplit_composite(
+    project_path: Path, section: GridSubmissionSection
+) -> None:
     unsplit = _record(project_path, GROUP_1, status="completed")
 
-    plan = await _plan(project_path, scene_ids=["E1S02"])
+    plan = await _plan(project_path, section, scene_ids=["E1S02"])
     tasks = commit_grid_submission(plan, project_path)
 
     assert plan.selection is GenerationSelectionMode.EXPLICIT
@@ -329,22 +330,66 @@ async def test_explicit_request_regenerates_and_supersedes_an_unsplit_composite(
     assert GridManager(project_path).get(unsplit.id) is None
 
 
-async def test_a_split_composite_does_not_stop_missing_storyboards_from_regenerating(project_path: Path) -> None:
+async def test_a_split_composite_does_not_stop_missing_storyboards_from_regenerating(
+    project_path: Path, section: GridSubmissionSection
+) -> None:
     """已切分过的联合图不是「未切分」：分镜图仍缺时照常重新出图。"""
     _record(project_path, GROUP_1, status="completed", split=True)
 
-    plan = await _plan(project_path, script=_script(groups=1))
+    plan = await _plan(project_path, section, script=_script(groups=1))
 
     assert [c.action for c in plan.chunks] == [GridChunkAction.GENERATE]
 
 
-async def test_ad_projects_are_refused_before_planning(project_path: Path) -> None:
+async def test_ad_projects_are_refused_before_planning(project_path: Path, section: GridSubmissionSection) -> None:
     with pytest.raises(BadRequestError) as excinfo:
-        await _plan(project_path, project=_project(content_mode="ad"))
+        await _plan(project_path, section, project=_project(content_mode="ad"))
     assert excinfo.value.key == "ad_grid_not_supported"
 
 
-async def test_a_script_of_the_other_route_is_refused(project_path: Path) -> None:
+async def test_a_script_of_the_other_route_is_refused(project_path: Path, section: GridSubmissionSection) -> None:
     with pytest.raises(BadRequestError) as excinfo:
-        await _plan(project_path, script={"episode": 1, "content_mode": "narration", "video_units": []})
+        await _plan(project_path, section, script={"episode": 1, "content_mode": "narration", "video_units": []})
     assert excinfo.value.key == "grid_script_route_mismatch"
+
+
+async def test_a_plan_cannot_be_committed_once_its_section_has_ended(
+    project_path: Path, section: GridSubmissionSection
+) -> None:
+    """临界区结束后，另一提交可能已改动记录与队列，规划里的在途与弃置判断不再可信。"""
+    plan = await _plan(project_path, section)
+    section.end()
+
+    with pytest.raises(ValueError, match="inside the section"):
+        commit_grid_submission(plan, project_path)
+    assert GridManager(project_path).list_all() == []
+
+
+async def test_planning_outside_a_held_section_is_refused(project_path: Path) -> None:
+    with pytest.raises(ValueError, match="inside its submission section"):
+        await _plan(project_path, grid_submission_section(str(project_path)))
+
+
+async def test_submissions_of_one_project_take_turns(tmp_path: Path) -> None:
+    project = str(tmp_path / "turns")
+    entered: list[str] = []
+
+    async def submit(name: str, release: asyncio.Event) -> None:
+        async with grid_submission_section(project):
+            entered.append(name)
+            await release.wait()
+
+    first_release, second_release = asyncio.Event(), asyncio.Event()
+    first = asyncio.create_task(submit("first", first_release))
+    second = asyncio.create_task(submit("second", second_release))
+    await asyncio.sleep(0)
+    assert entered == ["first"]
+
+    # 另一个项目不受这个临界区影响
+    async with grid_submission_section(str(tmp_path / "other")):
+        pass
+
+    first_release.set()
+    second_release.set()
+    await asyncio.gather(first, second)
+    assert entered == ["first", "second"]

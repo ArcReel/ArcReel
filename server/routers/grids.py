@@ -52,6 +52,7 @@ from server.services.grid.grid_submission import (
     GridSubmissionPlan,
     commit_grid_submission,
     ensure_grid_submittable,
+    grid_submission_section,
     plan_grid_submission,
     queue_active_grid_tasks,
 )
@@ -130,40 +131,41 @@ async def generate_grid(
     project_path = get_project_manager().get_project_path(project_name)
     queue = get_generation_queue()
 
-    plan = await plan_grid_submission(
-        project=project,
-        project_path=project_path,
-        script=script,
-        script_file=req.script_file,
-        episode=episode,
-        # 空列表与省略同义：缺失即生成
-        scene_ids=req.scene_ids or None,
-        active_grid_tasks=queue_active_grid_tasks(
-            queue, project_name=project_name, script_file=req.script_file, user_id=user.id
-        ),
-        large_grid_gate=resolve_large_grid_allowed,
-    )
-    _raise_for_refused_submission(project, plan)
-
     grid_ids: list[str] = []
     task_ids: list[str] = []
     task_ids_by_grid: dict[str, str] = {}
     deduped_flags: list[bool] = []
-    for submission in commit_grid_submission(plan, project_path):
-        task = await queue.enqueue_task(
-            project_name=project_name,
-            task_type="grid",
-            media_type="image",
-            resource_id=submission.grid.id,
-            payload=submission.payload,
+    async with grid_submission_section(project_name) as section:
+        plan = await plan_grid_submission(
+            project=project,
+            project_path=project_path,
+            script=script,
             script_file=req.script_file,
-            source="webui",
-            user_id=user.id,
+            episode=episode,
+            # 空列表与省略同义：缺失即生成
+            scene_ids=req.scene_ids or None,
+            section=section,
+            active_grid_tasks=queue_active_grid_tasks(
+                queue, project_name=project_name, script_file=req.script_file, user_id=user.id
+            ),
+            large_grid_gate=resolve_large_grid_allowed,
         )
-        grid_ids.append(submission.grid.id)
-        task_ids.append(task["task_id"])
-        task_ids_by_grid[submission.grid.id] = task["task_id"]
-        deduped_flags.append(bool(task.get("deduped", False)))
+        _raise_for_refused_submission(project, plan)
+        for submission in commit_grid_submission(plan, project_path):
+            task = await queue.enqueue_task(
+                project_name=project_name,
+                task_type="grid",
+                media_type="image",
+                resource_id=submission.grid.id,
+                payload=submission.payload,
+                script_file=req.script_file,
+                source="webui",
+                user_id=user.id,
+            )
+            grid_ids.append(submission.grid.id)
+            task_ids.append(task["task_id"])
+            task_ids_by_grid[submission.grid.id] = task["task_id"]
+            deduped_flags.append(bool(task.get("deduped", False)))
 
     unsplit_grid_ids = [chunk.grid.id for chunk in plan.unsplit if chunk.grid is not None]
     return GenerateGridResponse(
@@ -298,57 +300,61 @@ def _ensure_grid_idle(grid: GridGeneration) -> None:
 
 @router.post("/grids/{grid_id}/regenerate")
 async def regenerate_grid(project_name: str, grid_id: str, user: CurrentUser):
-    """重置宫格图状态并重新入队联合图生成任务（不隐含落格，切分另行显式触发）。"""
+    """重置宫格图状态并重新入队联合图生成任务（不隐含落格，切分另行显式触发）。
+
+    读记录、置 pending 与入队同在提交临界区内：另一提交既不会在其间清理掉这条记录，
+    也不会看到它停在 pending 却还没有任务。
+    """
     project = _load_project_for_grid_write(project_name)
     project_path = get_project_manager().get_project_path(project_name)
     gm = GridManager(project_path)
-    grid = _load_grid_or_404(project_path, grid_id)
-    script = _load_admitted_grid_script(project_name, project, grid.script_file, grid.episode)
-    ensure_grid_submittable(project, script)
-    items, id_field, _, _, _ = get_storyboard_items(script)
-    # 重生成是又一次付费出图：准入与首次生成同一份判定，按记录冻结的分镜集合求值。
-    # 剧本在两次生成之间被改过时，缺口以当前剧本为准——worker 也是按当前剧本重建请求的。
-    scene_ids = set(grid.scene_ids)
-    members = [item for item in items if str(item.get(id_field, "")) in scene_ids]
-    require_admitted_storyboard_references(project, members)
-    _require_grid_prompts_written(members, id_field)
-
-    # 重生成沿用记录上冻结的 rows/cols 与比例。Worker 在执行时从同一份当前剧本、
-    # 风格和冻结布局重建 provider prompt 与 provenance basis，队列里的 prompt 仅作
-    # 兼容字段，不能成为脱离当前 basis 的第二真相源。存量记录没有冻结比例时回落
-    # 到项目当前比例并就地补齐；想按新比例重排的用户须重跑生成规划。
-    aspect_ratio = grid.video_aspect_ratio or video_aspect_ratio_of(project)
-    grid_aspect_ratio = grid_aspect_ratio_for(grid.rows, grid.cols, aspect_ratio)
-
-    grid.status = "pending"
-    grid.error_message = None
-    # 清空旧 metadata，由 execute_grid_task 按 needs_i2i 重新回填
-    grid.provider = ""
-    grid.model = ""
-    # 存量记录的冻结值在此补齐；已有冻结值时是恒等写入
-    grid.video_aspect_ratio = aspect_ratio
-    gm.save(grid)
-
     queue = get_generation_queue()
-    task = await queue.enqueue_task(
-        project_name=project_name,
-        task_type="grid",
-        media_type="image",
-        resource_id=grid.id,
-        payload=build_grid_task_payload(
-            prompt=grid.prompt,
+    async with grid_submission_section(project_name):
+        grid = _load_grid_or_404(project_path, grid_id)
+        script = _load_admitted_grid_script(project_name, project, grid.script_file, grid.episode)
+        ensure_grid_submittable(project, script)
+        items, id_field, _, _, _ = get_storyboard_items(script)
+        # 重生成是又一次付费出图：准入与首次生成同一份判定，按记录冻结的分镜集合求值。
+        # 剧本在两次生成之间被改过时，缺口以当前剧本为准——worker 也是按当前剧本重建请求的。
+        scene_ids = set(grid.scene_ids)
+        members = [item for item in items if str(item.get(id_field, "")) in scene_ids]
+        require_admitted_storyboard_references(project, members)
+        _require_grid_prompts_written(members, id_field)
+
+        # 重生成沿用记录上冻结的 rows/cols 与比例。Worker 在执行时从同一份当前剧本、
+        # 风格和冻结布局重建 provider prompt 与 provenance basis，队列里的 prompt 仅作
+        # 兼容字段，不能成为脱离当前 basis 的第二真相源。存量记录没有冻结比例时回落
+        # 到项目当前比例并就地补齐；想按新比例重排的用户须重跑生成规划。
+        aspect_ratio = grid.video_aspect_ratio or video_aspect_ratio_of(project)
+        grid_aspect_ratio = grid_aspect_ratio_for(grid.rows, grid.cols, aspect_ratio)
+
+        grid.status = "pending"
+        grid.error_message = None
+        # 清空旧 metadata，由 execute_grid_task 按 needs_i2i 重新回填
+        grid.provider = ""
+        grid.model = ""
+        # 存量记录的冻结值在此补齐；已有冻结值时是恒等写入
+        grid.video_aspect_ratio = aspect_ratio
+        gm.save(grid)
+        task = await queue.enqueue_task(
+            project_name=project_name,
+            task_type="grid",
+            media_type="image",
+            resource_id=grid.id,
+            payload=build_grid_task_payload(
+                prompt=grid.prompt,
+                script_file=grid.script_file,
+                scene_ids=grid.scene_ids,
+                grid_size=grid.grid_size,
+                rows=grid.rows,
+                cols=grid.cols,
+                grid_aspect_ratio=grid_aspect_ratio,
+                video_aspect_ratio=aspect_ratio,
+            ),
             script_file=grid.script_file,
-            scene_ids=grid.scene_ids,
-            grid_size=grid.grid_size,
-            rows=grid.rows,
-            cols=grid.cols,
-            grid_aspect_ratio=grid_aspect_ratio,
-            video_aspect_ratio=aspect_ratio,
-        ),
-        script_file=grid.script_file,
-        source="webui",
-        user_id=user.id,
-    )
+            source="webui",
+            user_id=user.id,
+        )
 
     return {"success": True, "task_id": task["task_id"], "deduped": task.get("deduped", False)}
 

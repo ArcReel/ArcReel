@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 from unittest.mock import AsyncMock
 
@@ -19,13 +20,15 @@ from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
 
 
 def _fake_grid_waiter(enqueue, wait=None):
-    async def _waiter(*, project_name, specs, **_kwargs):
+    """与 ``batch_enqueue_and_wait`` 同序：先逐个入队，入队阶段结束调用 ``on_enqueued``，再逐个等待。"""
+
+    async def _waiter(*, project_name, specs, on_enqueued=None, **_kwargs):
         successes: list[BatchTaskResult] = []
         failures: list[BatchTaskResult] = []
+        queued: list[tuple[Any, dict[str, Any]]] = []
         for spec in specs:
-            queued = None
             try:
-                queued = await enqueue(
+                task = await enqueue(
                     project_name=project_name,
                     task_type=spec.task_type,
                     media_type=spec.media_type,
@@ -34,12 +37,22 @@ def _fake_grid_waiter(enqueue, wait=None):
                     script_file=spec.script_file,
                     source=spec.source,
                 )
-                task = await wait(queued["task_id"])
+            except Exception as exc:
+                failures.append(
+                    BatchTaskResult(resource_id=spec.resource_id, task_id="", status="failed", error=str(exc))
+                )
+                continue
+            queued.append((spec, task))
+        if on_enqueued is not None:
+            on_enqueued()
+        for spec, queued_task in queued:
+            try:
+                task = await wait(queued_task["task_id"])
             except Exception as exc:
                 failures.append(
                     BatchTaskResult(
                         resource_id=spec.resource_id,
-                        task_id=queued["task_id"] if queued is not None else "",
+                        task_id=queued_task["task_id"],
                         status="interrupted" if is_interrupted_wait_error(exc) else "failed",
                         error=str(exc),
                     )
@@ -47,7 +60,7 @@ def _fake_grid_waiter(enqueue, wait=None):
                 continue
             result = BatchTaskResult(
                 resource_id=spec.resource_id,
-                task_id=queued["task_id"],
+                task_id=queued_task["task_id"],
                 status=str(task.get("status")),
                 result=task.get("result") or {},
                 error=task.get("error_message"),
@@ -880,6 +893,76 @@ async def test_generate_grid_reuses_an_identical_in_flight_grid(
     assert "沿用已在生成中的任务（未重复提交）" in out["content"][0]["text"]
     assert enqueued == [in_flight.id]
     assert [g.id for g in GridManager(fake_ctx.project_path).list_all()] == [in_flight.id]
+
+
+def _queue_backed_enqueue(fake_ctx: ToolContext, enqueued: list[str]):
+    """入队落到测试队列（worker 不认领 image lane，任务一直 queued），规划时能探测到在途任务。"""
+
+    async def enqueue(**kwargs: Any) -> dict[str, Any]:
+        enqueued.append(kwargs["resource_id"])
+        return await fake_ctx.queue.enqueue_task(**kwargs, user_id=fake_ctx.caller.user_id)
+
+    return enqueue
+
+
+async def test_concurrent_submissions_share_one_grid_instead_of_paying_twice(
+    fake_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """两次提交同时替换同一条已无人处理的记录：后者等前者入队后再规划，沿用它的宫格。"""
+    from lib.script.grid.grid_manager import GridManager
+
+    scene_ids = _enable_grid(fake_ctx)
+    abandoned = _saved_grid(fake_ctx, scene_ids, status="pending")
+    enqueued: list[str] = []
+
+    async def fake_wait(_task_id: str, **_kwargs: Any) -> dict[str, Any]:
+        return {"status": "succeeded"}
+
+    monkeypatch.setattr("server.media_tools.grid.resolve_large_grid_allowed", _no_large_grid)
+    tool_obj = generate_grid_tool(
+        fake_ctx, batch_waiter=_fake_grid_waiter(_queue_backed_enqueue(fake_ctx, enqueued), fake_wait)
+    )
+    first, second = await asyncio.gather(
+        call(tool_obj, {"script": "episode_1.json"}),
+        call(tool_obj, {"script": "episode_1.json"}),
+    )
+
+    (grid,) = GridManager(fake_ctx.project_path).list_all()
+    assert grid.id != abandoned.id
+    assert enqueued == [grid.id, grid.id]
+    assert read_generation_result(first).succeeded == scene_ids
+    assert read_generation_result(second).succeeded == scene_ids
+    assert "沿用已在生成中的任务（未重复提交）" in second["content"][0]["text"]
+
+
+async def test_a_submission_does_not_hold_back_others_while_its_grid_generates(
+    fake_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """入队完成即离开提交临界区：前一张联合图还在生成，同一项目的下一次提交照常规划、沿用它。"""
+    scene_ids = _enable_grid(fake_ctx)
+    enqueued: list[str] = []
+    first_enqueued = asyncio.Event()
+    second_done = asyncio.Event()
+
+    async def fake_wait(_task_id: str, **_kwargs: Any) -> dict[str, Any]:
+        if not first_enqueued.is_set():
+            first_enqueued.set()
+            await asyncio.wait_for(second_done.wait(), timeout=5)
+        return {"status": "succeeded"}
+
+    monkeypatch.setattr("server.media_tools.grid.resolve_large_grid_allowed", _no_large_grid)
+    tool_obj = generate_grid_tool(
+        fake_ctx, batch_waiter=_fake_grid_waiter(_queue_backed_enqueue(fake_ctx, enqueued), fake_wait)
+    )
+    first = asyncio.create_task(call(tool_obj, {"script": "episode_1.json"}))
+    await asyncio.wait_for(first_enqueued.wait(), timeout=5)
+    second = await asyncio.wait_for(call(tool_obj, {"script": "episode_1.json"}), timeout=5)
+    second_done.set()
+
+    assert read_generation_result(second).succeeded == scene_ids
+    assert "沿用已在生成中的任务（未重复提交）" in second["content"][0]["text"]
+    assert read_generation_result(await first).succeeded == scene_ids
+    assert len(set(enqueued)) == 1
 
 
 async def test_generate_grid_withholds_healthy_groups_when_one_group_is_blocked(

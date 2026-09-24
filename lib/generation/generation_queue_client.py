@@ -754,6 +754,7 @@ async def batch_enqueue_and_wait(
     batch_id: str | None = None,
     queue: GenerationQueue | None = None,
     user_id: str = DEFAULT_USER_ID,
+    on_enqueued: Callable[[], None] | None = None,
 ) -> tuple[list[BatchTaskResult], list[BatchTaskResult]]:
     """Async: enqueue sequentially, then gather-wait all tasks.
 
@@ -763,6 +764,9 @@ async def batch_enqueue_and_wait(
     ``stop_on_failure`` ends the sequential enqueue at the first spec that
     cannot be queued. Whatever it already created keeps running; the targets
     that never reached the queue come back among the failures as interrupted.
+
+    ``on_enqueued`` runs after the enqueue phase and before any waiting; an empty
+    ``specs`` returns without calling it.
 
     Returns ``(successes, failures)`` — two lists of ``BatchTaskResult``.
     """
@@ -777,6 +781,8 @@ async def batch_enqueue_and_wait(
         batch_id=batch_id,
         queue=queue,
     )
+    if on_enqueued is not None:
+        on_enqueued()
     task_ids = {item.unit_id or item.resource_id: item.task_id for item in enqueued}
 
     # Phase 2 — Parallel wait via asyncio.gather (single event loop), only for
