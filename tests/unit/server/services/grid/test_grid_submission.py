@@ -18,6 +18,7 @@ from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from lib.script.grid.grid_manager import GridManager
 from lib.script.grid.models import GridGeneration
 from server.services.grid.grid_submission import (
+    ActiveGridTaskProbe,
     GridChunkAction,
     GridSubmissionSection,
     commit_grid_submission,
@@ -101,13 +102,14 @@ async def _plan(
     project: dict[str, Any] | None = None,
     scene_ids: list[str] | None = None,
     orphaned: frozenset[str] = frozenset(),
+    active_grid_tasks: ActiveGridTaskProbe | None = None,
 ):
     """``orphaned`` 列出停在 pending / generating 却已没有活动任务的宫格；其余记录的任务都在队列里。"""
     project = project or _project()
     script = script or _script()
     _write_project(project_path, project, script)
 
-    async def active_grid_tasks(grid_ids: list[str]) -> list[str]:
+    async def all_but_orphaned(grid_ids: list[str]) -> list[str]:
         return [grid_id for grid_id in grid_ids if grid_id not in orphaned]
 
     return await plan_grid_submission(
@@ -118,9 +120,21 @@ async def _plan(
         episode=1,
         scene_ids=scene_ids,
         section=section,
-        active_grid_tasks=active_grid_tasks,
+        active_grid_tasks=active_grid_tasks or all_but_orphaned,
         large_grid_gate=_no_large_grid,
     )
+
+
+def _complete(project_path: Path, grid: GridGeneration, *, split: bool = False, registered: bool = True) -> None:
+    """按执行器出图成功的样子落盘：联合图写入、记录置 completed，并登记为当前产物。"""
+    grid.status = "completed"
+    grid.grid_image_path = f"grids/{grid.id}.png"
+    Image.new("RGB", (8, 8)).save(project_path / "grids" / f"{grid.id}.png")
+    grid.split_at = "2026-01-01T00:00:00+00:00" if split else None
+    GridManager(project_path).save(grid)
+    if registered:
+        _write_project(project_path, _project(), _script())
+        assert register_current_resource_artifact(project_path, resource_type="grids", resource_id=grid.id)
 
 
 def _record(
@@ -142,15 +156,11 @@ def _record(
         model="",
         video_aspect_ratio="9:16",
     )
-    grid.status = status
     if status == "completed":
-        grid.grid_image_path = f"grids/{grid.id}.png"
-        Image.new("RGB", (8, 8)).save(project_path / "grids" / f"{grid.id}.png")
-        grid.split_at = "2026-01-01T00:00:00+00:00" if split else None
-    GridManager(project_path).save(grid)
-    if status == "completed" and registered:
-        _write_project(project_path, _project(), _script())
-        assert register_current_resource_artifact(project_path, resource_type="grids", resource_id=grid.id)
+        _complete(project_path, grid, split=split, registered=registered)
+    else:
+        grid.status = status
+        GridManager(project_path).save(grid)
     return grid
 
 
@@ -237,6 +247,27 @@ async def test_a_record_left_generating_without_an_active_task_does_not_block(
 
     assert not plan.refused
     assert [c.action for c in plan.chunks] == [GridChunkAction.GENERATE, GridChunkAction.GENERATE]
+
+
+async def test_a_grid_finishing_while_its_task_is_probed_is_kept_not_paid_for_again(
+    project_path: Path, section: GridSubmissionSection
+) -> None:
+    """记录读出时还在生成，探测队列时任务已跑完：联合图刚出好，等待切分，不当孤儿删掉重画。"""
+    generating = _record(project_path, GROUP_1, status="generating")
+
+    async def worker_finishes_first(_grid_ids: list[str]) -> list[str]:
+        _complete(project_path, generating)
+        return []
+
+    plan = await _plan(project_path, section, active_grid_tasks=worker_finishes_first)
+    tasks = commit_grid_submission(plan, project_path)
+
+    assert [(c.action, c.grid.id if c.grid else None) for c in plan.chunks] == [
+        (GridChunkAction.UNSPLIT, generating.id),
+        (GridChunkAction.GENERATE, None),
+    ]
+    assert [t.payload["scene_ids"] for t in tasks] == [GROUP_2]
+    assert GridManager(project_path).get(generating.id) is not None
 
 
 async def test_an_abandoned_record_of_the_same_chunk_is_replaced_not_left_beside(
