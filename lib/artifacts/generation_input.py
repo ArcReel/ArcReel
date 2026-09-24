@@ -585,6 +585,7 @@ class _Assembly:
         if entry is None:
             self.gap(InputGap(UNREGISTERED_REFERENCE_CODE, asset_type, name))
             return
+        name = entry.name
         sheet = _declared_path(entry.asset, entry.spec.sheet_field)
         available = (
             self._available(ArtifactKey.asset_sheet(asset_type, entry.name), sheet) if sheet is not None else None
@@ -606,6 +607,7 @@ class _Assembly:
         if entry is None:
             self.gap(InputGap(UNREGISTERED_REFERENCE_CODE, "product", name))
             return
+        name = entry.name
         sheet = _declared_path(entry.asset, entry.spec.sheet_field)
         if sheet is not None:
             available = self._available(ArtifactKey.asset_sheet("product", entry.name), sheet)

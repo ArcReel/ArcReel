@@ -179,6 +179,16 @@ def test_legacy_asset_name_with_surrounding_whitespace_resolves_in_storyboard(tm
 
 
 class TestAssemblyOrder:
+    @pytest.mark.parametrize("field", ["characters_in_shot", "scenes", "props", "products_in_shot"])
+    def test_reference_whitespace_does_not_change_asset_identity_or_basis(self, tmp_path, field):
+        fixture = _Fixture(tmp_path)
+        basis = _admitted(fixture).expected_basis()
+        grid = _grid(fixture, [TARGET])
+        fixture.target()[field] = [f"  {name}  " for name in fixture.target()[field]]
+
+        assert _admitted(fixture).expected_basis() == basis
+        assert _grid(fixture, [TARGET]) == grid
+
     def test_products_then_sheets_by_field_then_previous_storyboard(self, tmp_path):
         fixture = _Fixture(tmp_path)
         fixture.target()["products_in_shot"] = ["保温杯", "杯刷", "杯垫"]
