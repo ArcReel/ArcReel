@@ -56,7 +56,8 @@ from server.services.admission.reference_admission import reference_admission_pr
 GRID_IN_FLIGHT_STATUSES = ("pending", "generating")
 
 _SUBMISSION_GRACE = timedelta(minutes=5)
-"""刚写入的 pending / generating 记录可能正处在另一请求「建记录 → 入队」之间，队列里暂时查不到任务。"""
+"""刚写入的 pending / generating 记录可能正处在另一请求「写记录 → 入队」之间（新建或重生成置 pending），
+队列里暂时查不到任务。"""
 
 ActiveGridTaskProbe = Callable[[list[str]], Awaitable[Collection[str]]]
 """给定宫格 ID，返回队列里仍有活动任务（queued / running）的那些。"""
@@ -200,7 +201,7 @@ async def plan_grid_submission(
     - 缺失即生成：只为仍缺分镜图的分组出图，组内已可用的分镜记为跳过；联合图已就绪而未切分的
       宫格跳过、等待切分落格；已失效但可用的旧分镜图照常复用。
     - 与在途宫格覆盖同一组分镜时沿用在途记录；只部分重叠时受阻，两张宫格日后会争抢同一批格子。
-      在途指记录停在 pending / generating，且 ``active_grid_tasks`` 报告它仍有活动任务或记录刚写入
+      在途指记录停在 pending / generating，且 ``active_grid_tasks`` 报告它仍有活动任务或记录刚落盘
       （见 ``_SUBMISSION_GRACE``）。任务被取消、重启丢失或入队失败时执行器没有运行，记录停在原状态；
       过了宽限期仍没有活动任务的记录不算在途，提交时按已结束的记录清理。
 
@@ -219,7 +220,7 @@ async def plan_grid_submission(
     marked = [g for g in records if g.status in GRID_IN_FLIGHT_STATUSES]
     active = set(await active_grid_tasks([g.id for g in marked])) if marked else set()
     now = datetime.now(UTC)
-    in_flight = [g for g in marked if g.id in active or _written_within_grace(g, now)]
+    in_flight = [g for g in marked if g.id in active or _written_within_grace(gm, g.id, now)]
     return _Planner(
         project=project,
         project_path=project_path,
@@ -233,14 +234,9 @@ async def plan_grid_submission(
     ).plan(scene_ids)
 
 
-def _written_within_grace(grid: GridGeneration, now: datetime) -> bool:
-    try:
-        created = datetime.fromisoformat(grid.created_at)
-    except (TypeError, ValueError):
-        return False
-    if created.tzinfo is None:
-        created = created.replace(tzinfo=UTC)
-    return now - created < _SUBMISSION_GRACE
+def _written_within_grace(gm: GridManager | None, grid_id: str, now: datetime) -> bool:
+    written = gm.written_at(grid_id) if gm is not None else None
+    return written is not None and now - written < _SUBMISSION_GRACE
 
 
 def commit_grid_submission(plan: GridSubmissionPlan, project_path: Path) -> tuple[GridSubmissionTask, ...]:

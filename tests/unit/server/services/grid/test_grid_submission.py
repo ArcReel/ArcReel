@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import os
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -117,7 +119,7 @@ def _record(
     status: str,
     split: bool = False,
     registered: bool = True,
-    created_at: str | None = None,
+    written_long_ago: bool = False,
 ) -> GridGeneration:
     grid = GridGeneration.create(
         episode=1,
@@ -131,13 +133,14 @@ def _record(
         video_aspect_ratio="9:16",
     )
     grid.status = status
-    if created_at is not None:
-        grid.created_at = created_at
     if status == "completed":
         grid.grid_image_path = f"grids/{grid.id}.png"
         Image.new("RGB", (8, 8)).save(project_path / "grids" / f"{grid.id}.png")
         grid.split_at = "2026-01-01T00:00:00+00:00" if split else None
     GridManager(project_path).save(grid)
+    if written_long_ago:
+        # 早于提交宽限期落盘：没有活动任务的在途记录据此判为已无人处理
+        os.utime(project_path / "grids" / f"{grid.id}.json", (LONG_AGO, LONG_AGO))
     if status == "completed" and registered:
         _write_project(project_path, _project(), _script())
         assert register_current_resource_artifact(project_path, resource_type="grids", resource_id=grid.id)
@@ -146,8 +149,7 @@ def _record(
 
 GROUP_1 = ["E1S01", "E1S02", "E1S03", "E1S04"]
 GROUP_2 = ["E1S05", "E1S06", "E1S07", "E1S08"]
-# 早于提交宽限期：没有活动任务的在途记录据此判为已无人处理
-LONG_AGO = "2026-01-01T00:00:00+00:00"
+LONG_AGO = datetime(2026, 1, 1, tzinfo=UTC).timestamp()
 
 
 async def test_missing_only_generates_every_group_without_storyboards(project_path: Path) -> None:
@@ -215,7 +217,7 @@ async def test_partial_overlap_with_an_in_flight_grid_refuses_the_whole_batch(pr
 
 async def test_a_record_left_generating_without_an_active_task_does_not_block(project_path: Path) -> None:
     """任务被取消或重启丢失后记录停在 generating：它不再在途，分组变了也照常出图。"""
-    orphan = _record(project_path, ["E1S03", "E1S04", "E1S05"], status="generating", created_at=LONG_AGO)
+    orphan = _record(project_path, ["E1S03", "E1S04", "E1S05"], status="generating", written_long_ago=True)
 
     plan = await _plan(project_path, orphaned=frozenset({orphan.id}))
 
@@ -224,7 +226,7 @@ async def test_a_record_left_generating_without_an_active_task_does_not_block(pr
 
 
 async def test_an_abandoned_record_of_the_same_chunk_is_replaced_not_left_beside(project_path: Path) -> None:
-    orphan = _record(project_path, GROUP_1, status="pending", created_at=LONG_AGO)
+    orphan = _record(project_path, GROUP_1, status="pending", written_long_ago=True)
 
     plan = await _plan(project_path, script=_script(groups=1), orphaned=frozenset({orphan.id}))
     tasks = commit_grid_submission(plan, project_path)
@@ -242,6 +244,18 @@ async def test_a_record_just_written_by_another_submission_is_reused_not_deleted
 
     assert [(t.grid.id, t.reused) for t in tasks] == [(fresh.id, True)]
     assert [g.id for g in GridManager(project_path).list_all()] == [fresh.id]
+
+
+async def test_an_old_record_just_set_back_to_pending_for_regeneration_is_not_deleted(project_path: Path) -> None:
+    """重生成把早已建好的记录重新置为 pending、尚未入队：宽限期按最近一次落盘算，不按建记录的时间。"""
+    old = _record(project_path, GROUP_1, status="failed", written_long_ago=True)
+    old.status = "pending"
+    GridManager(project_path).save(old)
+
+    plan = await _plan(project_path, script=_script(groups=1), orphaned=frozenset({old.id}))
+
+    assert [(c.action, c.grid.id if c.grid else None) for c in plan.chunks] == [(GridChunkAction.IN_FLIGHT, old.id)]
+    assert plan.abandoned_grid_ids == frozenset()
 
 
 async def test_a_blocked_group_withholds_the_healthy_one(project_path: Path) -> None:
