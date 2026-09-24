@@ -48,29 +48,20 @@ class TestGenerationTasks:
             {
                 "script_file": "episode_1.json",
                 "prompt": "direct prompt",
-                "extra_reference_images": ["characters/Alice.png"],
             },
         )
         assert storyboard_result["resource_type"] == "storyboards"
         storyboard_refs = fake_generator.image_calls[0]["reference_images"]
         # 参考图只按数组序位传输、不带任何标签；身份由 prompt 内的 Reference_Images 声明行按「图N」指认。
-        # provider 收到的是任务私有快照，extra 仍保持裸 Path。
-        assert [sorted(ref) if isinstance(ref, dict) else None for ref in storyboard_refs] == [
-            ["image"],
-            ["image"],
-            ["image"],
-            None,
-            ["image"],
-        ]
-        assert all(
-            not (ref["image"] if isinstance(ref, dict) else ref).is_relative_to(project_path) for ref in storyboard_refs
-        )
-        assert fake_generator.image_reference_bytes[0] == [b"png"] * 5
+        # provider 收到的是任务私有快照。
+        assert [sorted(ref) for ref in storyboard_refs] == [["image"]] * 4
+        assert all(not ref["image"].is_relative_to(project_path) for ref in storyboard_refs)
+        assert fake_generator.image_reference_bytes[0] == [b"png"] * 4
         assert fake_generator.image_calls[0]["prompt"] == (
             "Style: Anime\n"
             "Visual style: cinematic\n"
-            "Reference_Images: 图1为角色参考图；图2为场景参考图；图3为道具参考图；图4为补充参考图；"
-            "图5为上一分镜图，只参考构图与色调。\n"
+            "Reference_Images: 图1为角色参考图；图2为场景参考图；图3为道具参考图；"
+            "图4为上一分镜图，只参考构图与色调。\n"
             "Scene: 在雨夜街道\n"
             "Composition:\n  shot_type: Medium Shot\n  lighting: 暖光\n  ambiance: 薄雾\n"
             "Avoid: 水印、多余文字、Logo"

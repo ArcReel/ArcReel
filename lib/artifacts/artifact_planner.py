@@ -32,6 +32,7 @@ from lib.artifacts.artifact_provenance import (
 from lib.artifacts.artifact_version_provenance import parse_typed_audio_settings, parse_typed_media_version_target
 from lib.artifacts.media_artifact_currency import build_current_audio_artifact_basis, build_current_video_artifact_basis
 from lib.artifacts.version_manager import VersionManager
+from lib.artifacts.video_visual_provenance import resolve_video_aspect_ratio
 from lib.artifacts.visual_artifact_provenance import (
     GridStoryboardVisual,
     VisualReference,
@@ -570,9 +571,9 @@ class TargetStatePlanner:
             return
         style = self.project.get("style", "")
         style_description = self.project.get("style_description", "")
-        aspect_ratio = self.project.get("aspect_ratio") or "9:16"
-        if not isinstance(style, str) or not isinstance(style_description, str) or not isinstance(aspect_ratio, str):
-            raise ValueError("project storyboard style, style description, and aspect ratio must be strings")
+        aspect_ratio = resolve_video_aspect_ratio(self.project, "storyboards")
+        if not isinstance(style, str) or not isinstance(style_description, str):
+            raise ValueError("project storyboard style and style description must be strings")
         for episode in self.episodes:
             storyboard_items, id_field, char_field, scene_field, prop_field = get_storyboard_items(episode.script)
             grid_members = self._grid_members_by_resource(episode.episode)

@@ -306,7 +306,6 @@ def _collect_reference_images(
     char_field: str | None,
     scene_field: str,
     prop_field: str,
-    extra_reference_images: list[str] | None = None,
     previous_storyboard_path: Path | None = None,
     previous_storyboard_id: str | None = None,
     visual_references: list[VisualReference] | None = None,
@@ -326,15 +325,6 @@ def _collect_reference_images(
         formal_claims=formal_claims,
     )
     reference_images: list[object] = list(sheet_refs)
-
-    for extra in extra_reference_images or []:
-        extra_path = Path(extra)
-        if not extra_path.is_absolute():
-            extra_path = project_path / extra_path
-        if extra_path.exists():
-            reference_images.append(extra_path)
-            if visual_references is not None:
-                visual_references.append(VisualReference(path=extra_path, role="extra_reference"))
 
     if previous_storyboard_path and previous_storyboard_path.exists():
         if not previous_storyboard_id:
@@ -518,10 +508,9 @@ def collect_storyboard_references(
     artifact_episode: int,
     currency_resolver: ArtifactCurrencyResolver,
     formal_claims: list[ArtifactInputClaim] | None = None,
-    extra_reference_images: Sequence[str] | None = None,
 ) -> StoryboardReferenceSet:
-    """按执行期口径装配一个分镜条目的参考图：商品参考排首、随后角色/场景/道具 sheet、
-    补充参考图，上一分镜图收尾。预览与执行共用此函数，提示词里的编号才能逐字一致。
+    """按执行期口径装配一个分镜条目的参考图：商品参考排首、随后角色/场景/道具 sheet，
+    上一分镜图收尾。预览与执行共用此函数，提示词里的编号才能逐字一致。
 
     装配不看图像后端的参考图数量上限：解析出 backend 之后由调用方经
     :meth:`StoryboardReferenceSet.clamped` 裁剪，再渲染提示词。
@@ -547,7 +536,6 @@ def collect_storyboard_references(
             char_field=char_field,
             scene_field=scene_field,
             prop_field=prop_field,
-            extra_reference_images=list(extra_reference_images or []),
             previous_storyboard_path=previous_path,
             previous_storyboard_id=previous_id,
             visual_references=visual_references,
@@ -875,7 +863,6 @@ async def execute_storyboard_task(
             artifact_episode=_script_input.episode,
             currency_resolver=_currency_resolver,
             formal_claims=_formal_claims,
-            extra_reference_images=payload.get("extra_reference_images") or [],
         )
         return _StoryboardImageInputs(
             project=_project,
