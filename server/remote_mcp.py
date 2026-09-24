@@ -45,7 +45,7 @@ from server.draft_workflow import (
 from server.media_tools.assets import generate_assets_tool, list_pending_assets_tool
 from server.media_tools.context import ToolContext
 from server.media_tools.definition import ToolDefinition, json_value, media_outcome_payload
-from server.media_tools.grid import generate_grid_tool
+from server.media_tools.grid import generate_grid_tool, split_grids_tool
 from server.media_tools.image_edits import edit_images_tool
 from server.media_tools.narration_audio import generate_narration_audio_tool
 from server.media_tools.storyboards import generate_storyboards_tool
@@ -342,6 +342,7 @@ def build_remote_mcp_server(
         generate_storyboards_tool,
         edit_images_tool,
         generate_grid_tool,
+        split_grids_tool,
         generate_videos_tool,
         generate_narration_audio_tool,
     ):

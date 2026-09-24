@@ -2706,6 +2706,8 @@ class API {
     task_ids: string[];
     /** grid_id → task_id；只含本次真正入队的宫格。 */
     task_ids_by_grid: Record<string, string>;
+    /** 不传 sceneIds（缺失即生成）时，联合图已就绪、尚未切分落格而跳过的宫格。 */
+    unsplit_grid_ids: string[];
     deduped: boolean;
     message: string;
   }> {

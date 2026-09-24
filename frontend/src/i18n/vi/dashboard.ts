@@ -1901,6 +1901,7 @@ export default {
   'tool_name_generate_storyboards': 'Tạo storyboard',
   'tool_name_edit_images': 'Chỉnh sửa ảnh',
   'tool_name_generate_grid': 'Tạo ảnh phân cảnh đa lưới',
+  'tool_name_split_grids': 'Tách phân cảnh đa lưới vào khung hình',
   'tool_name_generate_videos': 'Tạo video',
   'tool_name_generate_narration_audio': 'Tạo âm thanh thuyết minh',
   'tool_name_generate_episode_script': 'Tạo kịch bản',

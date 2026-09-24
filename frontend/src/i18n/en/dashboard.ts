@@ -1747,6 +1747,7 @@ export default {
   'tool_name_generate_storyboards': 'Generate storyboards',
   'tool_name_edit_images': 'Edit images',
   'tool_name_generate_grid': 'Generate multi-grid storyboard',
+  'tool_name_split_grids': 'Split multi-grid storyboard into cells',
   'tool_name_generate_videos': 'Generate videos',
   'tool_name_generate_narration_audio': 'Generate narration audio',
   'tool_name_generate_episode_script': 'Generate script',

@@ -306,6 +306,7 @@ describe("enqueueGrid", () => {
       grid_ids: ["g1"],
       task_ids: ["t1"],
       task_ids_by_grid: { g1: "t1" },
+      unsplit_grid_ids: [],
       deduped: false,
       message: "已入队 1 个多宫格分镜",
     });
@@ -326,6 +327,7 @@ describe("enqueueGrid", () => {
       grid_ids: ["g1", "g2"],
       task_ids: ["t1", "t2"],
       task_ids_by_grid: { g1: "t1", g2: "t2" },
+      unsplit_grid_ids: [],
       deduped: false,
       message: "已入队 2 个多宫格分镜",
     });
@@ -353,6 +355,7 @@ describe("enqueueGrid", () => {
       grid_ids: [],
       task_ids: [],
       task_ids_by_grid: {},
+      unsplit_grid_ids: [],
       deduped: false,
       message: "无匹配分组",
     });

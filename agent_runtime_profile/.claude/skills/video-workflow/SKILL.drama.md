@@ -235,9 +235,17 @@ dispatch `generate-assets` 子智能体：
 - `next_action.type == "generate_storyboards"` → dispatch `generate-assets`，调
   `mcp__arcreel__generate_storyboards({"script": target.script_filename, "segment_ids": requested_ids})`
 - `next_action.type == "generate_grid"` → dispatch `generate-assets`，调
-  `mcp__arcreel__generate_grid({"script": target.script_filename, "scene_ids": requested_ids})`
+  `mcp__arcreel__generate_grid({"script": target.script_filename})`——**不传 `scene_ids`**：
+  缺失即生成选中的正是 `requested_ids` 所在的分组，同时跳过联合图已就绪而未切分的宫格、沿用在途宫格；
+  点名 `scene_ids` 会把它们当作重做请求再付一次费
 
-两条路径都把 `next_action.args` 与 `requested_ids` 原样传给子智能体，由子智能体按上面映射调用工具。
+`generate_storyboards` 把 `next_action.args` 与 `requested_ids` 原样传给子智能体；`generate_grid` 只传剧本文件名。
+
+> **宫格是两段式**：`generate_grid` 只产出联合图，分镜图要经切分落格才会写入，所以在切分之前计划会继续
+> 给出 `generate_grid`。结果里的 `grid_ids_awaiting_split`（或摘要里「联合图已就绪、未切分」的宫格）
+> 列出未切分的宫格：请用户去宫格面板审阅联合图（可重新生成、上传替换或回滚），**用户明确同意切分后**，
+> 再调 `mcp__arcreel__split_grids({"grid_ids": [...]})`。不要在生成完成后自行切分；切分会覆写宫格
+> 覆盖的全部分镜图，旧图留在版本历史里可回滚。
 
 > **切换 `grid_storyboard` 后的重做**：本动作的常规触发条件是「缺分镜图」，而用户在设置页切换该开关不会让已有分镜图失效，剧本里也不记录分镜图由哪种装配方式产出——单看缺图会把整集判成已完成。用户在已有分镜图的项目上切换开关后要求按新方式出图时，与其确认要重做的分镜范围，再显式带 ID 重生：切到宫格用 `mcp__arcreel__generate_grid({"script": target.script_filename, "scene_ids": [...]})`，切回单图用 `mcp__arcreel__generate_storyboards({"script": target.script_filename, "segment_ids": [...]})`（`script` 必填；ID 列表省略时只补缺图，达不到重做效果）。已生成的视频同样不会自动失效，重出分镜图后需按新图重跑 `generate_videos` 对应分镜。
 

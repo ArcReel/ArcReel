@@ -2439,50 +2439,12 @@ async def execute_grid_task(
         if frozen_references is not None:
             await run_noninterruptible_sync(frozen_references.cleanup)
 
-    unit_results: dict[str, dict[str, Any]] = {}
-    report_scene_ids = payload.get("report_scene_ids")
-    if isinstance(report_scene_ids, list) and report_scene_ids:
-        from server.services.grid.grid_split import apply_grid_split
-
-        try:
-            with project_change_source("worker"):
-                split = await apply_grid_split(
-                    project_name,
-                    grid,
-                    only_scene_ids=frozenset(str(scene_id) for scene_id in report_scene_ids),
-                )
-            cut = set(split.updated_scene_ids)
-            for scene_id in report_scene_ids:
-                if scene_id in cut:
-                    unit_results[scene_id] = {"file_path": resource_relative_path("storyboards", scene_id)}
-                else:
-                    unit_results[scene_id] = {
-                        "problem": {
-                            "code": "generation_post_processing_failed",
-                            "detail": f"联合图已生成，但分镜 {scene_id} 未落格（已不在剧本中）",
-                            "action": "fix_input",
-                            "params": {"grid_id": grid.id},
-                        }
-                    }
-        except Exception:
-            logger.exception("联合图切分落格失败: grid_id=%s", grid.id)
-            for scene_id in report_scene_ids:
-                unit_results[scene_id] = {
-                    "problem": {
-                        "code": "generation_post_processing_failed",
-                        "detail": "联合图已生成，但切分落格失败（不要重新生成）",
-                        "action": "none",
-                        "params": {"grid_id": grid.id},
-                    }
-                }
-
     grid_result: dict[str, Any] = {
         "version": outcome.version,
         "file_path": f"grids/{resource_id}.png",
         "created_at": outcome.created_at,
         "resource_type": "grids",
         "resource_id": resource_id,
-        "unit_results": unit_results,
     }
     if (clamp_warning := reference_clamp.warning()) is not None:
         grid_result["warnings"] = [clamp_warning]
