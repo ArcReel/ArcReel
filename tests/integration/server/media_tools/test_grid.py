@@ -1048,6 +1048,26 @@ async def test_generate_grid_missing_only_waits_on_an_unsplit_composite(
     assert out["grid_ids_awaiting_split"] == [unsplit.id]
 
 
+async def test_generate_grid_refused_batch_still_lists_the_unsplit_composite(
+    fake_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """另一组受阻时，未切分的联合图照样列进 grid_ids_awaiting_split，审阅切分不必等受阻组修好。"""
+    scene_ids = _enable_grid(fake_ctx, groups=2)
+    fake_ctx.pm.script_payload["segments"][6]["scenes"] = ["未登记的场景"]
+    unsplit = _saved_grid(fake_ctx, scene_ids[:4], status="completed")
+
+    async def unreachable_waiter(**_kwargs: Any):
+        raise AssertionError("整批受阻时不该走到入队")
+
+    monkeypatch.setattr("server.media_tools.grid.resolve_large_grid_allowed", _no_large_grid)
+    out = await call(generate_grid_tool(fake_ctx, batch_waiter=unreachable_waiter), {"script": "episode_1.json"})
+
+    result = read_generation_result(out)
+    assert sorted(result.blocked) == scene_ids[4:]
+    assert [s.unit_id for s in result.skipped] == scene_ids[:4]
+    assert out["grid_ids_awaiting_split"] == [unsplit.id]
+
+
 async def test_generate_grid_list_only_shows_each_grid_record_and_action(
     fake_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
 ) -> None:

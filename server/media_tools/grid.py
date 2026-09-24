@@ -245,10 +245,12 @@ async def _submit(
     log: list[str] = []
     for state in plan.skipped:
         builder.skip(state)
+    unsplit_ids: list[str] = []
     for chunk in plan.unsplit:
         grid = chunk.grid
         if grid is None:
             continue
+        unsplit_ids.append(grid.id)
         key = grid_artifact_key(episode, grid.id)
         path = grid_artifact_path(grid.id)
         status, _blocker = observe_artifact_status(resolver=resolver, key=key, artifact_path=path)
@@ -271,7 +273,9 @@ async def _submit(
             _report_in_flight_in_refused_batch(builder, chunk.grid, chunk.report_ids, episode, resolver)
             log.append(f"宫格 {chunk.grid.id}（{'、'.join(chunk.report_ids)}）已在生成中，不受本次受阻影响")
         log.append("本次请求整批受阻，未创建任何宫格任务；修复全部缺口后重试即可一次性提交。")
-        return generation_result_outcome(builder.build(), log)
+        if unsplit_ids:
+            log.append(_SPLIT_CONSENT_HINT + "：" + "、".join(unsplit_ids))
+        return generation_result_outcome(builder.build(), log, grid_ids_awaiting_split=unsplit_ids)
 
     submissions = commit_grid_submission(plan, ctx.project_path)
     specs: list[TaskSpec] = []
@@ -366,7 +370,7 @@ async def _submit(
         ready.append(grid_id)
         reused_note = "沿用已在生成中的任务（未重复提交），" if grid_id in reused_grid_ids else ""
         log.append(f"宫格 {grid_id}（{'、'.join(report_ids)}）{reused_note}联合图已就绪、未切分")
-    awaiting_split = [*ready, *(c.grid.id for c in plan.unsplit if c.grid is not None)]
+    awaiting_split = [*ready, *unsplit_ids]
     if awaiting_split:
         log.append(_SPLIT_CONSENT_HINT + "：" + "、".join(awaiting_split))
     return generation_result_outcome(
