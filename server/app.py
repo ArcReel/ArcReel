@@ -42,7 +42,7 @@ from lib.project.project_migrations import cleanup_stale_backups, run_project_mi
 from lib.script.source_loader.migration import migrate_project_source_encoding
 from server.auth import ensure_auth_password, get_current_user, warn_if_auth_disabled
 from server.cors_config import resolve_cors_policy
-from server.dependencies import require_project_migration_ok
+from server.dependencies import require_project_migration_ok, require_valid_project_name
 from server.error_handlers import register_error_handlers
 from server.remote_mcp import remote_mcp_host
 from server.routers import (
@@ -494,6 +494,7 @@ app = FastAPI(
     description="AI 视频生成工作空间的 Web 管理界面",
     version="1.0.0",
     lifespan=lifespan,
+    dependencies=[Depends(require_valid_project_name)],
 )
 
 # CORS 配置（env 驱动，解析见 server/cors_config.py；远程 MCP 挂载共用同一份白名单）。

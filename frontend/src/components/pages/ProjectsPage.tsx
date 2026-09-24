@@ -890,7 +890,7 @@ export function ProjectsPage() {
       useAppStore
         .getState()
         .pushToast(
-          `${t("dashboard:delete_failed")}[${projectDisplayName}] ${errMsg(err)}`,
+          t("dashboard:delete_project_failed", { title: projectDisplayName, message: errMsg(err) }),
           "warning",
         );
     } finally {
