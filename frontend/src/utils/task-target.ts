@@ -36,6 +36,7 @@ const FAILURE_TEXT_KEYS: Partial<
   character: { key: "character_task_failed", idParam: "id" },
   scene: { key: "scene_task_failed", idParam: "id" },
   prop: { key: "prop_task_failed", idParam: "id" },
+  product: { key: "product_task_failed", idParam: "id" },
   grid: { key: "grid_task_failed", idParam: "id" },
   reference_video: { key: "reference_generation_task_failed", idParam: "unitId" },
   image_edit: { key: "image_edit_task_failed", idParam: "id" },

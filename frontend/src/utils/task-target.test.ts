@@ -157,6 +157,9 @@ describe("describeTaskFailure", () => {
       "storyboard_task_failed|E1S01|boom",
     );
     expect(describeTaskFailure(t, makeTask({ task_type: "grid", resource_id: "g1" }))).toBe("grid_task_failed|g1|boom");
+    expect(describeTaskFailure(t, makeTask({ task_type: "product", resource_id: "Bag" }))).toBe(
+      "product_task_failed|Bag|boom",
+    );
   });
 
   it("uses the reference key with unitId for reference_video", () => {
