@@ -5,8 +5,7 @@
 ``lib.prompts.prompt_utils.render_storyboard_video_prompt``），本模块只负责把执行期读的那些输入
 ——项目风格、参考图列表（商品 / 资产 sheet / 上一分镜图，按图像后端的参考图上限裁剪后
 决定「图N」编号）、创作类型、声音绑定——按同一口径备齐。裁剪发生时分镜图侧带上与执行期
-任务结果同形的 warning，用户在生成前就能看到有参考图不会随请求发出。执行期额外传入的
-``extra_reference_images`` 不在预览之列。
+任务结果同形的 warning，用户在生成前就能看到有参考图不会随请求发出。
 
 只读：不向供应商发请求、不产生费用、不写产物清单。参考生视频路径的 unit 正文本身即提示词
 主体，其预览走 ``lib.script.reference_video.script_preview``，不经本模块。
