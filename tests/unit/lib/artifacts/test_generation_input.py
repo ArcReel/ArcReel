@@ -168,6 +168,16 @@ def _identity_binder(
     )
 
 
+def test_legacy_asset_name_with_surrounding_whitespace_resolves_in_storyboard(tmp_path: Path) -> None:
+    fixture = _Fixture(tmp_path)
+    fixture.project["characters"][" 张三 "] = fixture.project["characters"].pop("张三")
+
+    result = fixture.assemble()
+
+    assert isinstance(result, StoryboardImageInput), result
+    assert "characters/derivatives/张三/劲装.png" in [ref.artifact_path for ref in result.references]
+
+
 class TestAssemblyOrder:
     def test_products_then_sheets_by_field_then_previous_storyboard(self, tmp_path):
         fixture = _Fixture(tmp_path)

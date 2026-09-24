@@ -61,7 +61,7 @@ describe("AdInitCanvas", () => {
       "保温杯",
     );
     expect(API.updateProject).toHaveBeenCalledWith("ad-demo", { brief: "突出保温 12 小时" });
-    expect(API.generateProjectProduct).toHaveBeenCalledWith("ad-demo", "保温杯", "不锈钢保温杯");
+    expect(API.generateProjectProduct).toHaveBeenCalledWith("ad-demo", "保温杯");
   });
 
   it("supports brief-only flow without products", async () => {

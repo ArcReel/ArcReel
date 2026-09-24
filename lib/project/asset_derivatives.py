@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from pathlib import Path, PurePosixPath
+from pathlib import PurePosixPath
 from typing import Any
 
 from lib.artifacts.artifact_manifest import ArtifactBasis, ArtifactKey
@@ -23,7 +23,6 @@ from lib.project.asset_types import (
     ASSET_SPECS,
     DERIVATIVES_FIELD,
     AssetSpec,
-    normalize_asset_name,
     resolve_asset_key,
     validate_asset_name,
 )
@@ -255,17 +254,6 @@ def resolve_derivative_sheet_source(
         target=target,
         description=description.strip(),
         owner_sheet_path=owner_sheet,
-    )
-
-
-def derivative_source_reference(owner_name: str, owner_sheet_file: Path) -> VisualReference:
-    """把本体资产图包成衍生生成的唯一图像输入证据。"""
-    return VisualReference(
-        path=owner_sheet_file,
-        role=DERIVATIVE_SOURCE_ROLE,
-        logical_type=DERIVATIVE_ASSET_TYPE,
-        logical_id=normalize_asset_name(owner_name),
-        kind=DERIVATIVE_SOURCE_KIND,
     )
 
 

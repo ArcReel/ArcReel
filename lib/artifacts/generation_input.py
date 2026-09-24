@@ -5,9 +5,10 @@
 
 - 入口函数返回成立的生成输入，或 :class:`InputRefused`——拒绝是值，规划器与预览在它上面
   分支，执行器在服务端经唯一的翻译函数转成错误码。
-- 期望依据只经 :meth:`StoryboardImageInput.expected_basis` 取得，登记依据只经
-  :meth:`StoryboardImageInput.freeze` 取得，两者走同一个私有构造器 :func:`_visual_basis`，
-  一致由构造保证（``docs/adr/0062``）。
+- 入口函数按生成环节分：分镜图 :func:`storyboard_image_input`、资产图 :func:`asset_sheet_input`、
+  衍生资产图 :func:`derivative_sheet_input`，成立的生成输入同形，各带类型化的 semantics。
+- 期望依据只经 ``expected_basis()`` 取得，登记依据只经 ``freeze()`` 取得，两者走同一个私有
+  构造器 :func:`_visual_basis`，一致由构造保证（``docs/adr/0062``）。
 - 参考图集按装配序完整记录、不裁剪；供应商上限只影响实发与「图N」编号，不影响依据。
 
 本模块只经 :class:`InputObservation` 这一个 seam 读项目现状：不 import 服务端，也不调用
@@ -32,8 +33,26 @@ from lib.artifacts.artifact_manifest import (
 )
 from lib.artifacts.image_reference_snapshot import FrozenImageReferences, freeze_image_references
 from lib.artifacts.video_visual_provenance import resolve_video_aspect_ratio
-from lib.artifacts.visual_artifact_provenance import VisualReference, build_storyboard_image_visual_basis
-from lib.prompts.prompt_builders import render_storyboard_image_prompt
+from lib.artifacts.visual_artifact_provenance import (
+    VisualReference,
+    build_asset_sheet_visual_basis,
+    build_storyboard_image_visual_basis,
+)
+from lib.project.asset_derivatives import (
+    DERIVATIVE_ASSET_TYPE,
+    DERIVATIVE_SOURCE_KIND,
+    DERIVATIVE_SOURCE_ROLE,
+    build_derivative_sheet_basis,
+)
+from lib.project.asset_types import ASSET_SPECS, DERIVATIVES_FIELD, AssetSpec, asset_name_comparison_key
+from lib.prompts.prompt_builders import (
+    build_character_derivative_prompt,
+    build_character_prompt,
+    build_product_prompt,
+    build_prop_prompt,
+    build_scene_prompt,
+    render_storyboard_image_prompt,
+)
 from lib.prompts.reference_image_numbering import PREVIOUS_STORYBOARD_ROLE, clamp_reference_images
 from lib.references.reference_admission import SHEET_MISSING_CODE, UNREGISTERED_REFERENCE_CODE
 from lib.references.reference_catalog import ReferenceCatalog, build_reference_catalog
@@ -45,6 +64,18 @@ ORIGINAL_MISSING_CODE = "asset_original_missing"
 
 #: 分镜的图片提示词待生成：语义未就绪，沿用生成入口的同一码。
 PROMPT_PENDING_CODE = "script_prompt_pending"
+
+#: 资产还没有描述：资产图的语义未就绪。
+ASSET_DESCRIPTION_REQUIRED_CODE = "asset_description_required"
+
+#: 衍生还没有外观变化描述：衍生资产图的语义未就绪，沿用衍生生成入口的同一码。
+DERIVATIVE_DESCRIPTION_REQUIRED_CODE = "derivative_description_required"
+
+#: 衍生的本体资产图不可用（未声明、文件不在或清单未登记），沿用衍生生成入口的同一码。
+DERIVATIVE_OWNER_SHEET_MISSING_CODE = "derivative_owner_sheet_missing"
+
+#: 资产图与衍生资产图的画布比例，执行器与规划器共用。
+ASSET_SHEET_CANVAS_RATIO = "16:9"
 
 
 @dataclass(frozen=True, slots=True)
@@ -160,6 +191,29 @@ class StoryboardImageSemantics:
 
 
 @dataclass(frozen=True, slots=True)
+class AssetSheetSemantics:
+    """资产图的语义输入：描述只取项目里存储的条目。``name`` 在比对坐标系中。"""
+
+    asset_type: str
+    name: str
+    description: str
+    style: str
+    style_description: str
+
+
+@dataclass(frozen=True, slots=True)
+class DerivativeSheetSemantics:
+    """衍生资产图的语义输入：只有相对本体的外观变化描述，画风由本体资产图承载。"""
+
+    owner: str
+    derivative: str
+    description: str
+
+
+type GenerationSemantics = StoryboardImageSemantics | AssetSheetSemantics | DerivativeSheetSemantics
+
+
+@dataclass(frozen=True, slots=True)
 class RenderedInput:
     """按供应商上限裁剪后渲染的提示词。``warnings`` 与任务结果的 ``{key, params}`` 同形。"""
 
@@ -209,11 +263,11 @@ class FrozenGenerationInput:
         self.references.cleanup()
 
 
-@dataclass(frozen=True, slots=True)
-class StoryboardImageInput:
-    """一张普通分镜图成立的生成输入。"""
+@dataclass(frozen=True)
+class ImageGenerationInput[S: GenerationSemantics]:
+    """成立的生成输入：语义、画布比例与按装配序排列的完整参考图集。"""
 
-    semantics: StoryboardImageSemantics
+    semantics: S
     canvas_ratio: str
     #: 完整装配序，不裁剪。
     references: tuple[AssembledReference, ...]
@@ -243,6 +297,18 @@ class StoryboardImageInput:
             model=model,
             bind_claims=bind_claims,
         )
+
+
+class StoryboardImageInput(ImageGenerationInput[StoryboardImageSemantics]):
+    """一张普通分镜图成立的生成输入。"""
+
+
+class AssetSheetInput(ImageGenerationInput[AssetSheetSemantics]):
+    """一张资产图（角色、场景、道具、商品）成立的生成输入。"""
+
+
+class DerivativeSheetInput(ImageGenerationInput[DerivativeSheetSemantics]):
+    """一张衍生资产图成立的生成输入：唯一参考图是本体资产图。"""
 
 
 def storyboard_image_input(
@@ -278,16 +344,17 @@ def storyboard_image_input(
         raise ValueError("storyboard style and style description must be strings")
     canvas_ratio = resolve_video_aspect_ratio(project, "storyboards")
 
-    assembly = _Assembly(observation, build_reference_catalog(project))
+    catalog = build_reference_catalog(project)
+    assembly = _Assembly(observation)
     image_prompt = item.get("image_prompt")
     if image_prompt is None:
         assembly.gap(InputGap(PROMPT_PENDING_CODE, name=resource_id))
 
     for name in _reference_names(item, "products_in_shot"):
-        assembly.add_product(name)
+        assembly.add_product(catalog, name)
     for asset_type, field in (("character", char_field), ("scene", scene_field), ("prop", prop_field)):
         for name in _reference_names(item, field):
-            assembly.add_sheet(asset_type, name)
+            assembly.add_sheet(catalog, asset_type, name)
 
     if index > 0 and not item.get("segment_break"):
         assembly.add_previous_storyboard(items[index - 1], id_field=id_field, episode=episode)
@@ -332,7 +399,8 @@ def grid_references(
     """
 
     items, id_field, char_field, scene_field, prop_field = get_storyboard_items(script)
-    assembly = _Assembly(observation, build_reference_catalog(project))
+    catalog = build_reference_catalog(project)
+    assembly = _Assembly(observation)
     for member_id in member_ids:
         resolved = find_storyboard_item(items, id_field, member_id)
         if resolved is None:
@@ -340,11 +408,135 @@ def grid_references(
         item, _index = resolved
         for asset_type, field in (("character", char_field), ("scene", scene_field), ("prop", prop_field)):
             for name in _reference_names(item, field):
-                assembly.add_sheet(asset_type, name)
+                assembly.add_sheet(catalog, asset_type, name)
 
     if assembly.gaps:
         return InputRefused(reasons=tuple(assembly.gaps))
     return GridReferences(references=tuple(assembly.references))
+
+
+def asset_sheet_input(
+    project: Mapping[str, Any],
+    *,
+    asset_type: str,
+    name: str,
+    observation: InputObservation,
+) -> AssetSheetInput | InputRefused:
+    """按项目现状为一张资产图备齐生成输入。
+
+    描述只取项目里存储的条目。参考图是作者上传的原图：角色 0 到 1 张，商品全部，场景和道具
+    没有；原图不是登记产物，没有 claim。
+
+    拒绝：描述为空；声明了原图但读不到。
+
+    资产不存在或字段结构损坏抛 ``ValueError``。
+    """
+
+    spec = ASSET_SPECS[asset_type]
+    asset_name, asset = _asset_entry(project.get(spec.bucket_key), name, label=asset_type)
+    style = project.get("style", "")
+    style_description = project.get("style_description", "")
+    if not isinstance(style, str) or not isinstance(style_description, str):
+        raise ValueError("asset sheet style and style description must be strings")
+
+    assembly = _Assembly(observation)
+    description = _stored_description(asset)
+    if not description:
+        assembly.gap(InputGap(ASSET_DESCRIPTION_REQUIRED_CODE, asset_type, asset_name))
+    for original in _asset_originals(asset, spec):
+        assembly.add_original(asset_type, asset_name, original)
+
+    if assembly.gaps:
+        return InputRefused(reasons=tuple(assembly.gaps))
+    return AssetSheetInput(
+        semantics=AssetSheetSemantics(
+            asset_type=asset_type,
+            name=asset_name,
+            description=description,
+            style=style,
+            style_description=style_description,
+        ),
+        canvas_ratio=ASSET_SHEET_CANVAS_RATIO,
+        references=tuple(assembly.references),
+    )
+
+
+def derivative_sheet_input(
+    project: Mapping[str, Any],
+    *,
+    owner: str,
+    derivative: str,
+    observation: InputObservation,
+) -> DerivativeSheetInput | InputRefused:
+    """按项目现状为一张衍生资产图备齐生成输入。
+
+    本体资产图是唯一参考图（见 ``docs/adr/0072``），可用性与分镜图引用的资产图同一判定。
+
+    拒绝：衍生缺外观变化描述；本体资产图未声明或不可用。
+
+    本体或衍生不存在、字段结构损坏抛 ``ValueError``。
+    """
+
+    spec = ASSET_SPECS[DERIVATIVE_ASSET_TYPE]
+    owner_name, owner_asset = _asset_entry(project.get(spec.bucket_key), owner, label=DERIVATIVE_ASSET_TYPE)
+    derivative_name, derivative_asset = _asset_entry(
+        owner_asset.get(DERIVATIVES_FIELD), derivative, label=f"derivative of {owner_name}"
+    )
+
+    assembly = _Assembly(observation)
+    description = _stored_description(derivative_asset)
+    if not description:
+        assembly.gap(InputGap(DERIVATIVE_DESCRIPTION_REQUIRED_CODE, DERIVATIVE_ASSET_TYPE, derivative_name))
+    assembly.add_owner_sheet(spec, owner_name, owner_asset)
+
+    if assembly.gaps:
+        return InputRefused(reasons=tuple(assembly.gaps))
+    return DerivativeSheetInput(
+        semantics=DerivativeSheetSemantics(owner=owner_name, derivative=derivative_name, description=description),
+        canvas_ratio=ASSET_SHEET_CANVAS_RATIO,
+        references=tuple(assembly.references),
+    )
+
+
+def _asset_entry(bucket: object, name: str, *, label: str) -> tuple[str, Mapping[str, Any]]:
+    """按资产身份（去两端空白、NFC）在资产表里取条目，返回身份名与条目。
+
+    与目标态规划器登记资产图的身份同一坐标：存量里两端带空白的键也按去空白后的名字寻址。
+    同一身份的多个键后写入的胜出。不存在或条目不是对象抛 ``ValueError``。
+    """
+
+    identity = asset_name_comparison_key(name)
+    found: object = None
+    if isinstance(bucket, Mapping):
+        for key, entry in bucket.items():
+            if isinstance(key, str) and asset_name_comparison_key(key) == identity:
+                found = entry
+    if not identity or not isinstance(found, Mapping):
+        raise ValueError(f"{label} not found: {name}")
+    return identity, found
+
+
+def _stored_description(asset: Mapping[str, Any]) -> str:
+    """条目里存储的描述，去两端空白；未填写返回空串，类型不对抛 ``ValueError``。"""
+
+    description = asset.get("description")
+    if description is None:
+        return ""
+    if not isinstance(description, str):
+        raise ValueError("asset description must be a string")
+    return description.strip()
+
+
+def _asset_originals(asset: Mapping[str, Any], spec: AssetSpec) -> list[str]:
+    """资产登记的原图路径，按字段声明序；列表字段按 schema 取列表，其余取单值。"""
+
+    paths: list[str] = []
+    for field in spec.original_image_fields:
+        if field in spec.extra_list_fields:
+            paths.extend(_declared_originals(asset, field))
+        elif (path := _declared_path(asset, field)) is not None:
+            paths.append(path)
+    return paths
 
 
 def _reference_names(item: Mapping[str, Any], field: str | None) -> list[str]:
@@ -361,9 +553,8 @@ def _reference_names(item: Mapping[str, Any], field: str | None) -> list[str]:
 class _Assembly:
     """一次装配的累加器：参考图按路径去重，缺口按内容去重，两者都保序。"""
 
-    def __init__(self, observation: InputObservation, catalog: ReferenceCatalog) -> None:
+    def __init__(self, observation: InputObservation) -> None:
         self._observation = observation
-        self._catalog = catalog
         self.references: list[AssembledReference] = []
         self.gaps: list[InputGap] = []
         self._seen_paths: set[str] = set()
@@ -389,8 +580,8 @@ class _Assembly:
             return None
         return observed, ArtifactInputClaim(key=key, artifact_path=observed.artifact_path)
 
-    def add_sheet(self, asset_type: str, name: str) -> None:
-        entry = self._catalog.lookup(asset_type, name)
+    def add_sheet(self, catalog: ReferenceCatalog, asset_type: str, name: str) -> None:
+        entry = catalog.lookup(asset_type, name)
         if entry is None:
             self.gap(InputGap(UNREGISTERED_REFERENCE_CODE, asset_type, name))
             return
@@ -410,8 +601,8 @@ class _Assembly:
             )
         )
 
-    def add_product(self, name: str) -> None:
-        entry = self._catalog.lookup("product", name)
+    def add_product(self, catalog: ReferenceCatalog, name: str) -> None:
+        entry = catalog.lookup("product", name)
         if entry is None:
             self.gap(InputGap(UNREGISTERED_REFERENCE_CODE, "product", name))
             return
@@ -432,16 +623,44 @@ class _Assembly:
                     )
                 )
         for original in _declared_originals(entry.asset, "reference_images"):
-            observed = self._observation.observe(original)
-            if observed is None:
-                self.gap(InputGap(ORIGINAL_MISSING_CODE, "product", name))
-                continue
-            self._append(
-                AssembledReference(
-                    visual=_visual(observed, role="source", logical_type="product", logical_id=name, kind="original"),
-                    artifact_path=observed.artifact_path,
-                )
+            self.add_original("product", name, original)
+
+    def add_original(self, asset_type: str, name: str, original: str) -> None:
+        """资产图的一张原图：声明了却读不到即缺口。"""
+
+        observed = self._observation.observe(original)
+        if observed is None:
+            self.gap(InputGap(ORIGINAL_MISSING_CODE, asset_type, name))
+            return
+        self._append(
+            AssembledReference(
+                visual=_visual(observed, role="source", logical_type=asset_type, logical_id=name, kind="original"),
+                artifact_path=observed.artifact_path,
             )
+        )
+
+    def add_owner_sheet(self, spec: AssetSpec, owner: str, asset: Mapping[str, Any]) -> None:
+        """衍生资产图的来源：本体资产图未声明或不可用即缺口。"""
+
+        sheet = _declared_path(asset, spec.sheet_field)
+        available = self._available(ArtifactKey.asset_sheet(spec.asset_type, owner), sheet) if sheet else None
+        if available is None:
+            self.gap(InputGap(DERIVATIVE_OWNER_SHEET_MISSING_CODE, spec.asset_type, owner))
+            return
+        observed, claim = available
+        self._append(
+            AssembledReference(
+                visual=_visual(
+                    observed,
+                    role=DERIVATIVE_SOURCE_ROLE,
+                    logical_type=spec.asset_type,
+                    logical_id=owner,
+                    kind=DERIVATIVE_SOURCE_KIND,
+                ),
+                artifact_path=observed.artifact_path,
+                claim=claim,
+            )
+        )
 
     def add_previous_storyboard(self, previous_item: object, *, id_field: str, episode: int) -> None:
         """上一分镜图是系统推导的可选输入：不可用只是略去，不产生缺口。"""
@@ -513,33 +732,70 @@ def _visual(
 
 
 def _visual_basis(
-    semantics: StoryboardImageSemantics,
+    semantics: GenerationSemantics,
     canvas_ratio: str,
     references: Sequence[VisualReference],
 ) -> ArtifactBasis:
     """期望依据与登记依据共用的构造器，按语义类型分派到对应的视觉依据构造器。"""
 
-    return build_storyboard_image_visual_basis(
-        resource_id=semantics.resource_id,
-        image_prompt=semantics.image_prompt,
-        style=semantics.style,
-        style_description=semantics.style_description,
-        aspect_ratio=canvas_ratio,
-        references=references,
-    )
+    match semantics:
+        case StoryboardImageSemantics():
+            return build_storyboard_image_visual_basis(
+                resource_id=semantics.resource_id,
+                image_prompt=semantics.image_prompt,
+                style=semantics.style,
+                style_description=semantics.style_description,
+                aspect_ratio=canvas_ratio,
+                references=references,
+            )
+        case AssetSheetSemantics():
+            return build_asset_sheet_visual_basis(
+                asset_type=semantics.asset_type,
+                asset_id=semantics.name,
+                description=semantics.description,
+                style=semantics.style,
+                style_description=semantics.style_description,
+                aspect_ratio=canvas_ratio,
+                references=references,
+            )
+        case DerivativeSheetSemantics():
+            [source] = references
+            return build_derivative_sheet_basis(
+                owner_name=semantics.owner,
+                derivative_name=semantics.derivative,
+                description=semantics.description,
+                aspect_ratio=canvas_ratio,
+                source=source,
+            )
 
 
-def _render_prompt(semantics: StoryboardImageSemantics, sent: Sequence[VisualReference]) -> str:
-    return render_storyboard_image_prompt(
-        semantics.image_prompt,
-        style=semantics.style,
-        style_description=semantics.style_description,
-        references=sent,
-    )
+#: 资产图提示词按资产类型的渲染出口。
+_ASSET_SHEET_PROMPT_BUILDERS: dict[str, Callable[[str, str, str, str], str]] = {
+    "character": build_character_prompt,
+    "scene": build_scene_prompt,
+    "prop": build_prop_prompt,
+    "product": build_product_prompt,
+}
+
+
+def _render_prompt(semantics: GenerationSemantics, sent: Sequence[VisualReference]) -> str:
+    match semantics:
+        case StoryboardImageSemantics():
+            return render_storyboard_image_prompt(
+                semantics.image_prompt,
+                style=semantics.style,
+                style_description=semantics.style_description,
+                references=sent,
+            )
+        case AssetSheetSemantics():
+            builder = _ASSET_SHEET_PROMPT_BUILDERS[semantics.asset_type]
+            return builder(semantics.name, semantics.description, semantics.style, semantics.style_description)
+        case DerivativeSheetSemantics():
+            return build_character_derivative_prompt(semantics.description)
 
 
 def _render_clamped(
-    semantics: StoryboardImageSemantics,
+    semantics: GenerationSemantics,
     visuals: Sequence[VisualReference],
     *,
     max_reference_images: int,
@@ -555,7 +811,7 @@ def _render_clamped(
 
 
 def _freeze(
-    semantics: StoryboardImageSemantics,
+    semantics: GenerationSemantics,
     canvas_ratio: str,
     references: Sequence[AssembledReference],
     *,
@@ -596,12 +852,22 @@ def _freeze(
 
 
 __all__ = [
+    "ASSET_DESCRIPTION_REQUIRED_CODE",
+    "ASSET_SHEET_CANVAS_RATIO",
+    "DERIVATIVE_DESCRIPTION_REQUIRED_CODE",
+    "DERIVATIVE_OWNER_SHEET_MISSING_CODE",
     "ORIGINAL_MISSING_CODE",
     "PROMPT_PENDING_CODE",
     "AssembledReference",
+    "AssetSheetInput",
+    "AssetSheetSemantics",
     "ClaimBinder",
+    "DerivativeSheetInput",
+    "DerivativeSheetSemantics",
     "FrozenGenerationInput",
+    "GenerationSemantics",
     "GridReferences",
+    "ImageGenerationInput",
     "InputGap",
     "InputObservation",
     "InputRefused",
@@ -610,6 +876,8 @@ __all__ = [
     "RenderedInput",
     "StoryboardImageInput",
     "StoryboardImageSemantics",
+    "asset_sheet_input",
+    "derivative_sheet_input",
     "grid_references",
     "project_input_observation",
     "storyboard_image_input",

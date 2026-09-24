@@ -2,10 +2,13 @@
 
 import asyncio
 from collections.abc import Callable
+from pathlib import Path
+from typing import Any
 
 from fastapi import APIRouter
 from pydantic import BaseModel
 
+from lib.i18n import render_generation_input_error
 from lib.infra.api_errors import NotFoundError
 from lib.project.asset_derivatives import resolve_derivative_target
 from lib.project.asset_types import AssetSpec, resolve_asset_key
@@ -32,32 +35,44 @@ def register_asset_prompt_preview_routes(
         translate: Translator,
         derivative_name: str | None = None,
     ):
-        def render() -> RenderedPrompt:
-            project = pm_getter().load_project(project_name)
-            bucket = project.get(spec.bucket_key)
-            name = resolve_asset_key(bucket, entry_name)
-            if name is None:
-                return RenderedPrompt(unavailable=UNAVAILABLE_MISSING, is_text_form=True)
-            asset_type = spec.asset_type
-            if derivative_name is not None:
-                try:
-                    resolve_derivative_target(project, entry_name, derivative_name)
-                except (KeyError, NotFoundError):
-                    return RenderedPrompt(unavailable=UNAVAILABLE_MISSING, is_text_form=True)
-                asset_type = "character_derivative"
-            return render_asset_prompt(
-                asset_type, name, req.description, project.get("style", ""), project.get("style_description", "")
-            )
+        def load() -> tuple[dict[str, Any], Path, str, str | None] | None:
+            pm = pm_getter()
+            project = pm.load_project(project_name)
+            asset_key = resolve_asset_key(project.get(spec.bucket_key), entry_name)
+            if asset_key is None:
+                return None
+            if derivative_name is None:
+                return project, pm.get_project_path(project_name), asset_key, None
+            try:
+                target = resolve_derivative_target(project, entry_name, derivative_name)
+            except (KeyError, NotFoundError):
+                return None
+            return project, pm.get_project_path(project_name), target.owner_key, target.derivative_key
 
         try:
-            result = await asyncio.to_thread(render)
+            loaded = await asyncio.to_thread(load)
         except FileNotFoundError as exc:
             raise NotFoundError("project_not_found", name=project_name) from exc
+        if loaded is None:
+            result = RenderedPrompt(unavailable=UNAVAILABLE_MISSING, is_text_form=True)
+        else:
+            project, project_path, asset_key, derivative_key = loaded
+            result = await render_asset_prompt(
+                project_name,
+                project,
+                project_path,
+                asset_type=spec.asset_type,
+                asset_key=asset_key,
+                derivative_key=derivative_key,
+                description=req.description,
+            )
         return {
             "text": result.text,
             "unavailable": (
-                translate(
-                    "asset_prompt_preview_missing" if result.unavailable == UNAVAILABLE_MISSING else result.unavailable
+                (
+                    translate("asset_prompt_preview_missing")
+                    if result.unavailable == UNAVAILABLE_MISSING
+                    else render_generation_input_error(result.unavailable, result.unavailable_params, translate)
                 )
                 if result.unavailable
                 else None

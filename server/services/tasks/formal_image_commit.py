@@ -19,6 +19,7 @@ from lib.artifacts.artifact_activation import (
 )
 from lib.artifacts.artifact_manifest import ArtifactBasis, ArtifactBasisDescriptor
 from lib.artifacts.artifact_version_provenance import IMAGE_ARTIFACT_BASIS_FIELD
+from lib.artifacts.generation_input import ASSET_SHEET_CANVAS_RATIO, FrozenGenerationInput
 from lib.artifacts.image_reference_snapshot import FrozenImageReferences
 from lib.artifacts.video_visual_provenance import resolve_video_aspect_ratio
 from lib.infra.async_thread import run_noninterruptible_sync
@@ -63,8 +64,8 @@ def register_formal_task_artifact(
 
 def get_aspect_ratio(project: dict, resource_type: str) -> str:
     if resource_type in ("characters", "scenes", "props", "products", CHARACTER_DERIVATIVE_RESOURCE_TYPE):
-        # 资产图生成必须显式指定宽高比；四类资产与角色衍生当前均固定为 16:9。
-        return "16:9"
+        # 资产图生成必须显式指定宽高比；四类资产与角色衍生与目标态规划器共用同一画布常量。
+        return ASSET_SHEET_CANVAS_RATIO
     return resolve_video_aspect_ratio(project, resource_type)
 
 
@@ -440,12 +441,15 @@ async def run_asset_sheet_image_task(
     user_id: str,
     task_id: str | None,
     project: dict[str, Any],
-    full_prompt: str,
-    frozen_references: FrozenImageReferences,
-    basis: ArtifactBasis | ArtifactBasisDescriptor | None,
+    frozen: FrozenGenerationInput,
+    context: GenerationContext,
     project_manager: ProjectManager,
 ) -> dict[str, Any]:
-    """Run the submit/activate pipeline shared by every asset-sheet image task."""
+    """Run the submit/activate pipeline shared by every asset-sheet image task.
+
+    ``frozen`` 是资产图冻结后的生成输入：提示词、实发参考图、登记依据与裁剪提示同出一处；
+    ``context`` 是按同一份参考图解析出的 image lane，实发张数按它的上限裁剪过。
+    """
 
     bucket_key = ASSET_SPECS[asset_type].bucket_key
     sheet_path = f"{bucket_key}/{resource_id}.png"
@@ -456,10 +460,10 @@ async def run_asset_sheet_image_task(
             project_name=project_name,
             resource_id=resource_id,
             sheet_path=sheet_path,
-            prompt=full_prompt,
+            prompt=frozen.prompt,
             versions=generator.versions,
             task_id=task_id,
-            basis=basis,
+            basis=frozen.basis,
             project_manager=project_manager,
             outcome_box=outcome_box,
         )
@@ -470,14 +474,16 @@ async def run_asset_sheet_image_task(
         project=project,
         user_id=user_id,
         task_id=task_id,
-        frozen_references=frozen_references,
+        frozen_references=frozen.references,
+        context=context,
         plan=FormalImagePlan(
             resource_type=bucket_key,
             resource_id=resource_id,
             artifact_path=sheet_path,
-            prompt=full_prompt,
+            prompt=frozen.prompt,
             aspect_ratio=get_aspect_ratio(project, bucket_key),
             build_commit_callback=_build_commit,
+            warnings=frozen.warnings,
         ),
     )
 

@@ -152,6 +152,9 @@ _TASK_FAILURE_ACTIONS: dict[str, GenerationAction] = {
     # 原图要重新上传或清掉字段，不是生成一个依赖产物。
     "asset_original_missing": GenerationAction.FIX_INPUT,
     "script_prompt_pending": GenerationAction.FIX_INPUT,
+    "asset_description_required": GenerationAction.FIX_INPUT,
+    "derivative_description_required": GenerationAction.FIX_INPUT,
+    "derivative_owner_sheet_missing": GenerationAction.GENERATE_DEPENDENCY,
     "reference_capability_unavailable": GenerationAction.CONFIGURE_PROVIDER,
     "reference_capability_changed": GenerationAction.CONFIGURE_PROVIDER,
     "reference_supported_durations_missing": GenerationAction.CONFIGURE_PROVIDER,

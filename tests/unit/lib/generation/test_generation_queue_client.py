@@ -162,14 +162,16 @@ class TestTaskSpecFromRequest:
         spec = TaskSpec.from_request(task_type="storyboard", media_type="image", resource_id="S01", prompt=prompt)
         assert spec.payload == {"prompt": prompt}
 
-    def test_asset_empty_prompt_rejected(self):
-        with pytest.raises(TaskSpecValidationError) as exc:
-            TaskSpec.from_request(task_type="character", media_type="image", resource_id="张三", prompt="")
-        assert exc.value.code == "prompt_text_empty"
+    @pytest.mark.parametrize("task_type", ["character", "scene", "prop", "product"])
+    def test_asset_sheet_spec_carries_no_prompt(self, task_type):
+        # 资产图描述由执行层从存储的条目读取，入队不存快照。
+        spec = TaskSpec.from_request(task_type=task_type, media_type="image", resource_id="张三")
+        assert spec.payload == {}
 
-    def test_asset_string_prompt_builds_spec(self):
-        spec = TaskSpec.from_request(task_type="character", media_type="image", resource_id="张三", prompt="一位老者")
-        assert spec.payload == {"prompt": "一位老者"}
+    @pytest.mark.parametrize("prompt", ["一位老者", ""])
+    def test_asset_sheet_prompt_is_refused(self, prompt):
+        with pytest.raises(ValueError, match="take no prompt"):
+            TaskSpec.from_request(task_type="character", media_type="image", resource_id="张三", prompt=prompt)
 
     def test_reference_video_validates_prompt_without_snapshotting_it(self):
         # 当前 shots 只在入队守卫点校验；worker 从 script_file + resource_id 重读最新内容。

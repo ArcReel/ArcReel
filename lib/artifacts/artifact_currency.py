@@ -258,7 +258,14 @@ def resolve_current_artifact_basis(project_dir: Path, key: ArtifactKey) -> Artif
     return TargetStatePlanner(project_dir, episode_scope=episode_scope_for_key(key)).resolve_basis(key)
 
 
-def resolve_current_artifact_target(project_dir: Path, key: ArtifactKey) -> ArtifactManifestEntry | None:
+def resolve_current_artifact_target(
+    project_dir: Path,
+    key: ArtifactKey,
+    *,
+    pending_entries: Mapping[ArtifactKey, ArtifactManifestEntry | None] | None = None,
+) -> ArtifactManifestEntry | None:
     """Resolve one formal post-commit target without repairing any other key."""
 
-    return TargetStatePlanner(project_dir, episode_scope=episode_scope_for_key(key)).resolve_key(key)
+    return TargetStatePlanner(
+        project_dir, episode_scope=episode_scope_for_key(key), pending_entries=pending_entries
+    ).resolve_key(key)

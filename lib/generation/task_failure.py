@@ -85,7 +85,10 @@ REFERENCE_PROJECTION_FAILURE_CODES: frozenset[str] = frozenset(
 # 首个缺口码；同一缺口在参考生视频投影里也可能出现，两份登记表重叠处按集合合并。
 GENERATION_INPUT_FAILURE_CODES: frozenset[str] = frozenset(
     {
+        "asset_description_required",
         "asset_original_missing",
+        "derivative_description_required",
+        "derivative_owner_sheet_missing",
         "reference_asset_missing",
         "reference_asset_unregistered",
         "script_prompt_pending",

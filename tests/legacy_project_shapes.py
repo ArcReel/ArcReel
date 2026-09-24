@@ -148,6 +148,45 @@ def write_legacy_storyboard_project(
     return project_dir
 
 
+def write_legacy_unregistrable_asset_sheet_project(root: Path) -> Path:
+    """旧资产图有缺原图、空描述和依赖不可登记本体的衍生。"""
+
+    project_dir = write_legacy_storyboard_project(root, "legacy-asset-sheet-unregistrable-input")
+    project_path = project_dir / "project.json"
+    project = json.loads(project_path.read_text(encoding="utf-8"))
+    project["characters"] = {
+        "张三": {
+            "description": "主角",
+            "reference_image": "characters/refs/张三.png",
+            "character_sheet": "characters/张三.png",
+            "derivatives": {
+                "劲装": {"description": "换上劲装", "character_sheet": "characters/derivatives/张三/劲装.png"}
+            },
+        },
+        "李四": {
+            "description": "配角",
+            "character_sheet": "characters/李四.png",
+            "derivatives": {
+                "便装": {"description": "换上便装", "character_sheet": "characters/derivatives/李四/便装.png"}
+            },
+        },
+    }
+    project["scenes"] = {"祠堂": {"description": "", "scene_sheet": "scenes/祠堂.png"}}
+    for relative in (
+        "characters/张三.png",
+        "characters/derivatives/张三/劲装.png",
+        "characters/李四.png",
+        "characters/derivatives/李四/便装.png",
+        "scenes/祠堂.png",
+    ):
+        (project_dir / relative).parent.mkdir(parents=True, exist_ok=True)
+        (project_dir / relative).write_bytes(f"sheet-{relative}".encode())
+    revision = compute_source_revision(project_dir, project, SourceScope(kind="all")).revision
+    project["workflow"] = {"asset_inventory": {"scope": {"kind": "all", "files": []}, "source_revision": revision}}
+    _write_json(project_path, project)
+    return project_dir
+
+
 def write_legacy_reference_video_project(
     root: Path,
     name: str = "legacy-reference",

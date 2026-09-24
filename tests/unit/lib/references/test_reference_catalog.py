@@ -67,6 +67,14 @@ def test_resolve_ignores_leading_and_trailing_whitespace_in_query():
     assert build_reference_catalog(_project(character={"Hero": {}})).resolve(" Hero ") is not None
 
 
+def test_registered_name_with_surrounding_whitespace_uses_the_same_lookup_identity():
+    catalog = build_reference_catalog(_project(character={" Hero ": {DERIVATIVES_FIELD: {" Outfit ": {}}}}))
+
+    assert catalog.lookup("character", "Hero") is not None
+    assert catalog.resolve("Hero/Outfit") is not None
+    assert catalog.reference_names("character") == frozenset({"Hero", "Hero/Outfit"})
+
+
 @pytest.mark.parametrize("registered", [_NAME_NFC, _NAME_NFD], ids=["登记NFC", "登记NFD"])
 @pytest.mark.parametrize("queried", [_NAME_NFC, _NAME_NFD], ids=["查询NFC", "查询NFD"])
 def test_resolve_matches_across_encoding_forms(registered: str, queried: str):

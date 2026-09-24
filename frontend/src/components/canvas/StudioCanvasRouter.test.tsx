@@ -676,11 +676,7 @@ describe("StudioCanvasRouter", () => {
 
     fireEvent.click(screen.getByText("generate-character"));
     await waitFor(() => {
-      expect(API.generateCharacter).toHaveBeenCalledWith(
-        "demo",
-        "Hero",
-        "hero description",
-      );
+      expect(API.generateCharacter).toHaveBeenCalledWith("demo", "Hero");
       expect(useAppStore.getState().toast?.text).toContain("生成任务已提交");
       expect(useAppStore.getState().toast?.tone).toBe("success");
       // 入队成功后应立即乐观占用该角色，避免 SSE 轮询落地前的空窗被误判为空闲
@@ -749,7 +745,7 @@ describe("StudioCanvasRouter", () => {
 
     fireEvent.click(screen.getByText("generate-scene"));
     await waitFor(() => {
-      expect(API.generateProjectScene).toHaveBeenCalledWith("demo", "Temple", "ancient temple");
+      expect(API.generateProjectScene).toHaveBeenCalledWith("demo", "Temple");
       expect(useAppStore.getState().toast?.text).toContain("提交失败");
     });
   });
@@ -781,7 +777,7 @@ describe("StudioCanvasRouter", () => {
 
     fireEvent.click(screen.getByText("generate-prop"));
     await waitFor(() => {
-      expect(API.generateProjectProp).toHaveBeenCalledWith("demo", "Sword", "rusty sword");
+      expect(API.generateProjectProp).toHaveBeenCalledWith("demo", "Sword");
       expect(useAppStore.getState().toast?.text).toContain("提交失败");
     });
   });
@@ -802,7 +798,7 @@ describe("StudioCanvasRouter", () => {
     renderAt("/scenes");
     fireEvent.click(screen.getByText("generate-scene"));
     await waitFor(() => {
-      expect(API.generateProjectScene).toHaveBeenCalledWith("demo", "Temple", "ancient temple");
+      expect(API.generateProjectScene).toHaveBeenCalledWith("demo", "Temple");
       const { tasks, optimisticActive } = useTasksStore.getState();
       expect(selectActiveResourceIds(tasks, "scene", "demo", optimisticActive).has("Temple")).toBe(true);
     });
@@ -824,7 +820,7 @@ describe("StudioCanvasRouter", () => {
     renderAt("/props");
     fireEvent.click(screen.getByText("generate-prop"));
     await waitFor(() => {
-      expect(API.generateProjectProp).toHaveBeenCalledWith("demo", "Sword", "rusty sword");
+      expect(API.generateProjectProp).toHaveBeenCalledWith("demo", "Sword");
       const { tasks, optimisticActive } = useTasksStore.getState();
       expect(selectActiveResourceIds(tasks, "prop", "demo", optimisticActive).has("Sword")).toBe(true);
     });
@@ -863,7 +859,7 @@ describe("StudioCanvasRouter", () => {
 
     fireEvent.click(screen.getByText("generate-product"));
     await waitFor(() => {
-      expect(generateSpy).toHaveBeenCalledWith("demo", "Phone", "sleek phone");
+      expect(generateSpy).toHaveBeenCalledWith("demo", "Phone");
       expect(useAppStore.getState().toast?.text).toContain("资产图生成任务已提交");
       expect(useAppStore.getState().toast?.tone).toBe("success");
       const { tasks, optimisticActive } = useTasksStore.getState();
@@ -1442,7 +1438,7 @@ describe("StudioCanvasRouter", () => {
 
     fireEvent.click(screen.getByText("generate-character"));
     await waitFor(() => {
-      expect(API.generateCharacter).toHaveBeenCalledWith("demo", "Hero", "hero description");
+      expect(API.generateCharacter).toHaveBeenCalledWith("demo", "Hero");
       expect(useAppStore.getState().toast?.text).toContain("提交失败");
       expect(useAppStore.getState().toast?.tone).toBe("error");
     });

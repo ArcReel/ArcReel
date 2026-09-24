@@ -457,7 +457,7 @@ class TestGenerationTasks:
 
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
         monkeypatch.setattr(
-            formal_image_commit,
+            generation_tasks,
             "resolve_generation_context",
             fake_resolve_ctx(_IncompleteVersions()),
         )
@@ -467,7 +467,7 @@ class TestGenerationTasks:
             await generation_tasks.execute_character_task(
                 "demo",
                 "Alice",
-                {"prompt": "hero"},
+                {},
             )
 
     async def test_storyboard_registers_generation_frozen_basis_when_script_changes_in_flight(
@@ -550,7 +550,7 @@ class TestGenerationTasks:
 
         fake_generator.generate_image_async = _generate
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
-        monkeypatch.setattr(formal_image_commit, "resolve_generation_context", fake_resolve_ctx(fake_generator))
+        monkeypatch.setattr(generation_tasks, "resolve_generation_context", fake_resolve_ctx(fake_generator))
 
         def _register(*_args, **kwargs):
             captured.append(kwargs["basis"])
@@ -561,7 +561,7 @@ class TestGenerationTasks:
         await generation_tasks.execute_character_task(
             "demo",
             "Alice",
-            {"prompt": "queued definition"},
+            {},
             task_id="character-task",
         )
 
@@ -577,7 +577,7 @@ class TestGenerationTasks:
         expected = build_asset_sheet_visual_basis(
             asset_type="character",
             asset_id="Alice",
-            description="queued definition",
+            description="hero",
             style="Anime",
             style_description="cinematic",
             aspect_ratio="16:9",
@@ -625,13 +625,13 @@ class TestGenerationTasks:
                 return current, version
 
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: pm)
-        monkeypatch.setattr(formal_image_commit, "resolve_generation_context", fake_resolve_ctx(_Generator()))
+        monkeypatch.setattr(generation_tasks, "resolve_generation_context", fake_resolve_ctx(_Generator()))
         monkeypatch.setattr(formal_image_commit, "register_current_resource_artifact", lambda *_args, **_kwargs: True)
 
         result = await generation_tasks.execute_character_task(
             "demo",
             "Alice",
-            {"prompt": "queued definition"},
+            {},
         )
 
         record = next(
@@ -678,7 +678,7 @@ class TestGenerationTasks:
                 return current, version
 
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: pm)
-        monkeypatch.setattr(formal_image_commit, "resolve_generation_context", fake_resolve_ctx(_Generator()))
+        monkeypatch.setattr(generation_tasks, "resolve_generation_context", fake_resolve_ctx(_Generator()))
         monkeypatch.setattr(
             formal_image_commit,
             "register_task_current_resource_artifact",
@@ -689,7 +689,7 @@ class TestGenerationTasks:
             await generation_tasks.execute_character_task(
                 "demo",
                 "Alice",
-                {"prompt": "queued definition"},
+                {},
                 task_id="character-task",
             )
 
