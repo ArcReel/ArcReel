@@ -79,8 +79,11 @@ _MISSING_RANGE_LISTED_LIMIT = 10
 # 摘要里每集首句 / 尾句的最大字符数（含省略号）：超长时首句留开头、尾句留结尾
 _EDGE_SENTENCE_MAX_CHARS = 60
 
-# 一句 = 一行内到句末标点（连同其后的收尾引号 / 括号）为止；英文句点在收尾符号后是空白或行尾时算句末
-_SENTENCE_RE = re.compile(r"[^\n]+?(?:[。！？!?…]+[」』”’\"'）)]*|\.[」』”’\"'）)]*(?=\s|$)|$)", re.MULTILINE)
+# 一句 = 一行内到句末标点（连同其后的收尾引号 / 括号）为止；英文句点在收尾符号后是空白或行尾时算句末，
+# 但全大写缩写（场景标题的 INT. / EXT.）后的句点不算，场景标题整行成句
+_SENTENCE_RE = re.compile(
+    r"[^\n]+?(?:[。！？!?…]+[」』”’\"'）)]*|(?<![A-Z]{2})\.[」』”’\"'）)]*(?=\s|$)|$)", re.MULTILINE
+)
 
 
 class EpisodePlanningError(RuntimeError):

@@ -315,6 +315,19 @@ class TestPlan:
         assert result.episodes[0].first_sentence == '"Hello."'
         assert result.episodes[0].last_sentence == "The end."
 
+    async def test_plan_summary_keeps_english_scene_heading_as_one_sentence(self, tmp_path: Path):
+        """全大写缩写（INT. / EXT.）后的句点不断句：场景标题整行作为首句。"""
+        source = "INT. KITCHEN - NIGHT\nJohn enters. He sits down.\nEXT. PARK - DAY\n"
+        project_dir = _write_project(
+            tmp_path, source_text=source, extra={"source_kind": "screenplay", "source_language": "en"}
+        )
+        fake = _FakeTextGenerator([_plan_response([{"title": "One", "hook": "Park", "end_anchor": "EXT. PARK - DAY"}])])
+
+        result = await EpisodePlanner(project_dir, generator=fake).plan()
+
+        assert result.episodes[0].first_sentence == "INT. KITCHEN - NIGHT"
+        assert result.episodes[0].last_sentence == "EXT. PARK - DAY"
+
     async def test_plan_rejects_old_flow_episodes_without_source_range(self, tmp_path: Path):
         """旧拆分流程留下的集（无位置记录）拦住规划：指名集号并指路全量重置，不调模型。"""
         project_dir = _write_project(

@@ -25,14 +25,14 @@ from tests.integration.server.services.tasks.generation_tasks_support import (
 
 
 class TestGenerationTasks:
-    async def test_storyboard_registers_manifest_only_after_finalization_succeeds(self, tmp_path, monkeypatch):
+    async def test_storyboard_skips_manifest_registration_when_version_lookup_fails(self, tmp_path, monkeypatch):
         project_path = prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
         registered: list[tuple[tuple[object, ...], dict[str, object]]] = []
 
         class _BrokenVersionLookup(FakeGenerator):
             def get_versions(self, resource_type, resource_id):
-                raise RuntimeError("injected finalization failure")
+                raise RuntimeError("injected version lookup failure")
 
         fake_generator = _BrokenVersionLookup()
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
@@ -43,7 +43,7 @@ class TestGenerationTasks:
             lambda *args, **kwargs: registered.append((args, kwargs)),
         )
 
-        with pytest.raises(RuntimeError, match="injected finalization failure"):
+        with pytest.raises(RuntimeError, match="injected version lookup failure"):
             await generation_tasks.execute_storyboard_task(
                 "demo",
                 "E1S01",
