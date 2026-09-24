@@ -2268,12 +2268,20 @@ async def execute_grid_task(
     grid = grid_manager.get(resource_id)
     if grid is None:
         raise ValueError(f"grid not found: {resource_id}")
+    project = await asyncio.to_thread(get_project_manager().load_project, project_name)
     if grid.status == "completed":
         # 新建与重生成的记录都从 pending 起步，失败重试从 failed 起步：记录已是 completed，只能是
         # 沿用在途宫格时恰好赶上上一任务完成而重复入队的任务，不再出图、不再计费。
+        # 结果只在联合图登记在案且可用时报成功，与切分落格同一口径。
+        grid_path = f"grids/{resource_id}.png"
+        resolver = await asyncio.to_thread(active_artifact_currency_resolver, project_path, project)
+        comparison = await asyncio.to_thread(
+            resolver.compare, ArtifactKey.episode_grid(grid.episode, resource_id), artifact_path=grid_path
+        )
+        if not comparison.usable:
+            raise ValueError(f"grid {resource_id} is completed but its composite is not usable")
         logger.info("宫格已完成，跳过重复入队的生成任务: grid_id=%s task_id=%s", resource_id, task_id)
-        return {"file_path": f"grids/{resource_id}.png", "resource_type": "grids", "resource_id": resource_id}
-    project = await asyncio.to_thread(get_project_manager().load_project, project_name)
+        return {"file_path": grid_path, "resource_type": "grids", "resource_id": resource_id}
     script = await asyncio.to_thread(get_project_manager().load_script, project_name, grid.script_file)
     script_input = await asyncio.to_thread(
         resolve_usable_episode_script_input,
