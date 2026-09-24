@@ -25,6 +25,7 @@ from lib.artifacts.artifact_activation import (
 )
 from lib.artifacts.artifact_manifest import (
     ArtifactBasisDescriptor,
+    ArtifactKey,
     compose_video_artifact_basis,
 )
 from lib.artifacts.generation_input import (
