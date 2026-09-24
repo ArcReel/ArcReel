@@ -922,7 +922,7 @@ async def test_concurrent_submissions_share_one_grid_instead_of_paying_twice(
     tool_obj = generate_grid_tool(
         fake_ctx, batch_waiter=_fake_grid_waiter(_queue_backed_enqueue(fake_ctx, enqueued), fake_wait)
     )
-    first, second = await asyncio.gather(
+    outs = await asyncio.gather(
         call(tool_obj, {"script": "episode_1.json"}),
         call(tool_obj, {"script": "episode_1.json"}),
     )
@@ -930,9 +930,9 @@ async def test_concurrent_submissions_share_one_grid_instead_of_paying_twice(
     (grid,) = GridManager(fake_ctx.project_path).list_all()
     assert grid.id != abandoned.id
     assert enqueued == [grid.id, grid.id]
-    assert read_generation_result(first).succeeded == scene_ids
-    assert read_generation_result(second).succeeded == scene_ids
-    assert "沿用已在生成中的任务（未重复提交）" in second["content"][0]["text"]
+    assert [read_generation_result(out).succeeded for out in outs] == [scene_ids, scene_ids]
+    # 谁先进临界区由调度决定：恰有一次提交沿用另一次的宫格
+    assert sum("沿用已在生成中的任务（未重复提交）" in out["content"][0]["text"] for out in outs) == 1
 
 
 async def test_a_submission_does_not_hold_back_others_while_its_grid_generates(

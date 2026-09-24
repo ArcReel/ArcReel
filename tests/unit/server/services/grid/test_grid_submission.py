@@ -405,14 +405,17 @@ async def test_submissions_of_one_project_take_turns(tmp_path: Path) -> None:
     project = str(tmp_path / "turns")
     entered: list[str] = []
 
-    async def submit(name: str, release: asyncio.Event) -> None:
+    async def submit(name: str, inside: asyncio.Event, release: asyncio.Event) -> None:
         async with grid_submission_section(project):
             entered.append(name)
+            inside.set()
             await release.wait()
 
-    first_release, second_release = asyncio.Event(), asyncio.Event()
-    first = asyncio.create_task(submit("first", first_release))
-    second = asyncio.create_task(submit("second", second_release))
+    first_inside, first_release = asyncio.Event(), asyncio.Event()
+    second_inside, second_release = asyncio.Event(), asyncio.Event()
+    first = asyncio.create_task(submit("first", first_inside, first_release))
+    await first_inside.wait()
+    second = asyncio.create_task(submit("second", second_inside, second_release))
     await asyncio.sleep(0)
     assert entered == ["first"]
 
@@ -421,6 +424,7 @@ async def test_submissions_of_one_project_take_turns(tmp_path: Path) -> None:
         pass
 
     first_release.set()
+    await second_inside.wait()
+    assert entered == ["first", "second"]
     second_release.set()
     await asyncio.gather(first, second)
-    assert entered == ["first", "second"]
