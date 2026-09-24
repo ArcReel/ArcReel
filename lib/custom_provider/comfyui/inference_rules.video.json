@@ -115,9 +115,13 @@
     "start_image": [
       { "input": "start_image" },
       { "input": "init_image" },
-      { "input": "image", "class_types": ["LTXVImgToVideo"] }
+      { "input": "image", "class_types": ["LTXVImgToVideo"] },
+      { "input": "first_frame", "class_types": ["MiniMaxH3ImageToVideo"] }
     ],
-    "end_image": [{ "input": "end_image" }],
+    "end_image": [
+      { "input": "end_image" },
+      { "input": "last_frame", "class_types": ["MiniMaxH3ImageToVideo"] }
+    ],
     "reference_images": [
       { "input": "reference_image" },
       { "input": "image1" },

@@ -30,6 +30,7 @@ SAMPLES = {
     "kijai_wanvideo_flf2v": "video",
     "wan_vace_flf2v": "video",
     "minimax_h3_ref2v": "video",
+    "minimax_h3_i2v": "video",
     "flux_kontext_edit": "image",
     "qwen_image_edit_2509": "image",
     "sdxl_batch_t2i": "image",
@@ -311,6 +312,20 @@ def test_autogrow_reference_slots_record_the_entry_they_feed():
     targets = [c.target for c in result.keys["reference_images"].candidates if c.selected]
     assert [t["node"] for t in targets] == [str(node) for node in range(401, 410)]
     assert [t["consumer"]["input"] for t in targets] == [f"ref_images.ref_image_{slot}" for slot in range(9)]
+
+
+def test_minimax_h3_first_and_last_frames_are_told_apart_by_their_named_ports():
+    """海螺 H3 图生视频的首尾帧入口叫 ``first_frame`` / ``last_frame``，读图节点不带标题标记也认得出。
+
+    首尾帧条目不记 ``consumer``，接到哪个口只体现在连线追溯信号上；这两张图也不会被当成参考图。
+    """
+    result = infer_sample("minimax_h3_i2v")
+    for key, node, port in (("start_image", "401", "first_frame"), ("end_image", "402", "last_frame")):
+        selected = [c for c in result.keys[key].candidates if c.selected]
+        assert [(c.node, c.input) for c in selected] == [(node, "image")], key
+        traced = [dict(hit.params) for c in selected for hit in c.signals if hit.signal is BindingSignal.LINK_TRACE]
+        assert traced == [{"consumer": "136", "input": port}], key
+    assert offered(result, "reference_images") == []
 
 
 def test_an_entry_that_cannot_be_rewired_warns_about_repeated_filling():
