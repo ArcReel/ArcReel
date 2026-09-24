@@ -184,7 +184,7 @@ async def test_reference_projection_contract_stays_aligned_across_public_consume
             )
 
         agent_outcome = await videos.generate_videos_tool(
-            ToolContext(project_name="demo", projects_root=tmp_path, pm=pm)
+            ToolContext(project_name="demo", data_root=tmp_path, pm=pm)
         ).invoke(
             {
                 "script": "ep1.json",

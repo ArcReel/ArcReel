@@ -131,7 +131,7 @@ def ctx(tmp_path: Path) -> ToolContext:
     pm.create_project_metadata("demo", "Demo", "Anime", "narration")
     _register_default_character(pm)
     pm.save_script("demo", _script(), "episode_1.json")
-    return ToolContext(project_name="demo", projects_root=tmp_path, pm=pm)
+    return ToolContext(project_name="demo", data_root=tmp_path, pm=pm)
 
 
 @pytest.fixture
@@ -141,7 +141,7 @@ def drama_ctx(tmp_path: Path) -> ToolContext:
     pm.create_project_metadata("demo", "Demo", "Anime", "drama")
     _register_default_character(pm)
     pm.save_script("demo", _drama_script(), "episode_1.json")
-    return ToolContext(project_name="demo", projects_root=tmp_path, pm=pm)
+    return ToolContext(project_name="demo", data_root=tmp_path, pm=pm)
 
 
 @pytest.fixture
@@ -152,7 +152,7 @@ def ref_ctx(tmp_path: Path) -> ToolContext:
     _register_default_character(pm)
     pm.update_project("demo", lambda project: project.update({"generation_mode": "reference_video"}))
     pm.save_script("demo", _reference_script(), "episode_1.json")
-    return ToolContext(project_name="demo", projects_root=tmp_path, pm=pm)
+    return ToolContext(project_name="demo", data_root=tmp_path, pm=pm)
 
 
 @pytest.fixture
@@ -162,7 +162,7 @@ def ad_ctx(tmp_path: Path) -> ToolContext:
     pm.create_project_metadata("demo", "Demo", "Anime", "ad")
     _register_default_character(pm)
     pm.save_script("demo", _ad_script(), "episode_1.json")
-    return ToolContext(project_name="demo", projects_root=tmp_path, pm=pm)
+    return ToolContext(project_name="demo", data_root=tmp_path, pm=pm)
 
 
 def _derived_references(tool_ctx: ToolContext, index: int) -> list[tuple[str, str]]:
@@ -322,7 +322,7 @@ class TestPatchEpisodeScript:
         script = script_factory()
         script["content_mode"] = content_mode
         pm.save_script("demo", script, "episode_1.json")
-        tool_ctx = ToolContext(project_name="demo", projects_root=tmp_path, pm=pm)
+        tool_ctx = ToolContext(project_name="demo", data_root=tmp_path, pm=pm)
         before = _load(tool_ctx)
 
         out = await _call(
@@ -1778,7 +1778,7 @@ class TestPatchProjectEpisodeTargetDurationSetting:
         pm = ProjectManager(str(tmp_path))
         pm.create_project("ad-demo", content_mode="ad")
         pm.create_project_metadata("ad-demo", "Ad Demo", "Realistic", "ad", target_duration=60)
-        return ToolContext(project_name="ad-demo", projects_root=tmp_path, pm=pm)
+        return ToolContext(project_name="ad-demo", data_root=tmp_path, pm=pm)
 
     async def test_set_episode_target_duration(self, ctx: ToolContext) -> None:
         out = await _call(patch_project_tool(ctx), {"settings": {"episode_target_duration": 120}})
@@ -1816,7 +1816,7 @@ class TestPatchProjectBriefSetting:
         pm = ProjectManager(str(tmp_path))
         pm.create_project("ad-demo", content_mode="ad")
         pm.create_project_metadata("ad-demo", "Ad Demo", "Realistic", "ad", target_duration=60)
-        return ToolContext(project_name="ad-demo", projects_root=tmp_path, pm=pm)
+        return ToolContext(project_name="ad-demo", data_root=tmp_path, pm=pm)
 
     async def test_set_brief_on_ad_project(self, ad_ctx: ToolContext) -> None:
         out = await _call(patch_project_tool(ad_ctx), {"settings": {"brief": "突出 3 秒速干卖点"}})

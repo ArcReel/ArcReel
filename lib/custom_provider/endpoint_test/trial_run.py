@@ -8,7 +8,7 @@
 不同：进程内 asyncio 任务，不走 tasks/worker 队列，产物不进项目也不进资产库。这样「测试连接通过」
 才等价于「这个模型行真的能用」，而不是等价于「另一条只在测试里存在的路径能用」。
 
-状态只在内存里活到终态，终态一到写盘（``app_data_dir()/trial_runs/{id}/``）并从内存移除，读接口
+状态只在内存里活到终态，终态一到写盘（``DataRootLayout.trial_runs_dir/{id}/``）并从内存移除，读接口
 一律读盘；24 小时后整目录清掉。取消停的是本地轮询，记账按失败结算——远端叫不叫得停由 backend 自己在
 它的取消路径上决定，与结算无关：钱可能已经花了，账本不能因为用户点了取消就假装没发生。
 """
@@ -48,7 +48,7 @@ from lib.custom_provider.declarative_backend import DeclarativeRuntimeError, Dec
 from lib.db.base import DEFAULT_USER_ID
 from lib.db.repositories.usage_repo import bound_provider_response
 from lib.generation.task_failure import encode_failure
-from lib.infra.app_data_dir import app_data_dir
+from lib.infra.data_root_layout import DataRootLayout
 
 from .check import STAGES, check_response, stage_report_payload
 from .inputs import EndpointTestCredentials, EndpointTestParameters
@@ -265,7 +265,7 @@ class TrialRunManager:
 
     @property
     def root(self) -> Path:
-        root = self._root or (app_data_dir() / "trial_runs")
+        root = self._root or DataRootLayout.current().trial_runs_dir
         root.mkdir(parents=True, exist_ok=True)
         return root
 

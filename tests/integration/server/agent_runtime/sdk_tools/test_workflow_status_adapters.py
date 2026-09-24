@@ -44,7 +44,7 @@ async def test_complete_script_plan_rebuild_mcp_forwards_explicit_baseline(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     pm = _project(tmp_path)
-    ctx = ToolContext(project_name="demo", projects_root=tmp_path / "projects", pm=pm)
+    ctx = ToolContext(project_name="demo", data_root=tmp_path / "projects", pm=pm)
     calls: list[tuple[object, ...]] = []
 
     def _complete(*args: object) -> str:
@@ -67,7 +67,7 @@ async def test_complete_script_plan_rebuild_mcp_forwards_explicit_baseline(
 
 async def test_complete_script_plan_rebuild_mcp_requires_explicit_baseline(tmp_path: Path) -> None:
     pm = _project(tmp_path)
-    ctx = ToolContext(project_name="demo", projects_root=tmp_path / "projects", pm=pm)
+    ctx = ToolContext(project_name="demo", data_root=tmp_path / "projects", pm=pm)
 
     result = await complete_script_plan_rebuild_tool(ctx).handler({"episode": 1})
 

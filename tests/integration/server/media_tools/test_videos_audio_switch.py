@@ -284,7 +284,7 @@ class TestStoryboardGateSkipsEmptyBatches:
         (project_dir / "storyboards" / "scene_E1S01.png").write_bytes(b"")
         ctx = ToolContext(
             project_name="demo",
-            projects_root=tmp_path,
+            data_root=tmp_path,
             pm=_EpisodePM(project_dir, with_storyboard=with_storyboard, with_video=with_video),
         )
         if with_video:
@@ -334,7 +334,7 @@ class TestStoryboardGateEntersAdmission:
         (project_dir / "storyboards" / "scene_E1S01.png").write_bytes(b"")
         return ToolContext(
             project_name="demo",
-            projects_root=tmp_path,
+            data_root=tmp_path,
             pm=_EpisodePM(project_dir, with_storyboard=True),
         )
 

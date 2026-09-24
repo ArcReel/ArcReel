@@ -40,7 +40,7 @@ async def test_pending_asset_tools_include_an_unclaimed_schema8_sheet(tmp_path: 
     pm.add_project_scene("demo", "客厅", "宽敞的客厅")
     pm.update_scene_sheet("demo", "客厅", "scenes/客厅.png")
     (project_dir / "scenes" / "客厅.png").write_bytes(b"png")
-    ctx = ToolContext(project_name="demo", projects_root=projects_root, pm=pm)
+    ctx = ToolContext(project_name="demo", data_root=projects_root, pm=pm)
 
     listed = await call(list_pending_assets_tool(ctx), {"type": "scene"})
 

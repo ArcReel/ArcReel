@@ -34,7 +34,8 @@ from lib.agent.agent_session_store.store import DbSessionStore
 from lib.config.env_keys import PROVIDER_SECRET_KEYS
 from lib.db import async_session_factory, close_db, init_db
 from lib.generation.generation_worker import GenerationWorker
-from lib.infra.app_data_dir import app_data_dir
+from lib.infra.data_root_layout import DataRootLayout
+from lib.infra.data_root_layout_migration import default_sdk_config_dir, migrate_data_root_layout
 from lib.infra.httpx_shared import shutdown_http_client, startup_http_client
 from lib.infra.logging_config import attach_file_handler, migrate_legacy_log_dir, setup_logging
 from lib.infra.path_safety import try_safe_join
@@ -292,14 +293,14 @@ def _log_profile_sync_outcome(stats: dict, *, log: logging.Logger = logger) -> N
 
 
 async def _migrate_source_encoding_on_startup(
-    projects_root: Path,
+    projects_dir: Path,
     *,
     migrate_source_encoding: Callable[[Path], Any] | None = None,
 ) -> dict[str, dict]:
     """对每个项目执行幂等编码迁移。失败被捕获并写日志，不阻塞启动。"""
     summary: dict[str, dict] = {}
     migrate = migrate_source_encoding or migrate_project_source_encoding
-    if not projects_root.exists():  # noqa: ASYNC240 -- 启动期一次性存在性检查，本地元数据
+    if not projects_dir.exists():  # noqa: ASYNC240 -- 启动期一次性存在性检查，本地元数据
         return summary
 
     def _run_one(project_dir: Path) -> dict:
@@ -335,7 +336,7 @@ async def _migrate_source_encoding_on_startup(
                 pass
             return {"error": str(exc)}
 
-    for project_dir in projects_root.iterdir():  # noqa: ASYNC240 -- 启动期一次列举项目根目录，单次 readdir；每个项目的迁移已 to_thread 卸载
+    for project_dir in projects_dir.iterdir():  # noqa: ASYNC240 -- 启动期一次列举项目目录，单次 readdir；每个项目的迁移已 to_thread 卸载
         if not project_dir.is_dir() or project_dir.name.startswith("."):
             continue
         summary[project_dir.name] = await asyncio.to_thread(_run_one, project_dir)
@@ -369,11 +370,18 @@ async def lifespan(app: FastAPI):
     # Run Alembic migrations (auto-creates tables on first start)
     await init_db()
 
-    projects_root = app_data_dir()
+    # 数据根布局迁移：排在挂文件日志 handler（迁移过程写进日志）与 Alembic（步骤会改写库）之后、
+    # 所有遍历项目的步骤之前——那些步骤按当前布局找项目，不能跑在半迁移的数据根上。失败即中止启动。
+    layout = DataRootLayout.current()
+    await migrate_data_root_layout(
+        layout.root,
+        session_factory=async_session_factory,
+        sdk_config_dir=default_sdk_config_dir(),
+    )
 
     # 源文件编码迁移（幂等；失败不阻塞启动）。先于 schema 迁移跑：源文一律先归到 UTF-8，
     # 之后所有按 UTF-8 读源文的链路（分集规划、派生文件对账）才有统一的输入。
-    source_migration_summary = await _migrate_source_encoding_on_startup(projects_root)
+    source_migration_summary = await _migrate_source_encoding_on_startup(layout.projects_dir)
     migrated_total = sum(len(s.get("migrated") or []) for s in source_migration_summary.values())
     failed_total = sum(len(s.get("failed") or []) for s in source_migration_summary.values())
     if migrated_total or failed_total:
@@ -387,7 +395,7 @@ async def lifespan(app: FastAPI):
     # Run any pending project.json schema migrations (file-based).
     # Both calls are synchronous filesystem walks — offload to a worker thread
     # so they don't block the event loop during uvicorn startup.
-    migration_summary = await asyncio.to_thread(run_project_migrations, projects_root)
+    migration_summary = await asyncio.to_thread(run_project_migrations, layout.projects_dir)
     if migration_summary.migrated or migration_summary.failed:
         logger.info(
             "Project migrations: migrated=%s skipped=%d failed=%s",
@@ -395,18 +403,14 @@ async def lifespan(app: FastAPI):
             len(migration_summary.skipped),
             migration_summary.failed,
         )
-    await asyncio.to_thread(cleanup_stale_backups, projects_root, 7)
+    await asyncio.to_thread(cleanup_stale_backups, layout.projects_dir, 7)
 
     # Migrate any pre-existing local SDK jsonl transcripts into the DbSessionStore.
     # Runs once (marker-gated); failures are non-fatal and logged.
     if session_store_enabled():
         try:
             store = DbSessionStore(async_session_factory)
-            await migrate_local_transcripts_to_store(
-                store,
-                projects_root=projects_root,
-                data_dir=projects_root,  # same place .arcreel.db lives, so docker volume catches it
-            )
+            await migrate_local_transcripts_to_store(store, data_root=layout.root)
         except Exception:
             logger.exception("session-store transcript migration failed (non-fatal)")
 
@@ -414,9 +418,8 @@ async def lifespan(app: FastAPI):
     try:
         from lib.config.migration import migrate_json_to_db
 
-        json_path = app_data_dir() / ".system_config.json"
         async with async_session_factory() as session:
-            await migrate_json_to_db(session, json_path)
+            await migrate_json_to_db(session, layout.root)
     except Exception as exc:
         logger.warning("JSON→DB config migration failed (non-fatal): %s", exc)
 
@@ -460,7 +463,7 @@ async def lifespan(app: FastAPI):
     logger.info("GenerationWorker 已启动")
 
     logger.info("启动 ProjectEventService...")
-    project_event_service = ProjectEventService(PROJECT_ROOT, projects_root=app_data_dir())
+    project_event_service = ProjectEventService(PROJECT_ROOT, data_root=layout.root)
     app.state.project_event_service = project_event_service
     await project_event_service.start()
     logger.info("ProjectEventService 已启动")

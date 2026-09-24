@@ -205,13 +205,13 @@ def run_capture(cmd: list[str]) -> subprocess.CompletedProcess[str]:
 def _require_project_cwd() -> tuple[ProjectManager, str, Path]:
     """cwd 必须含 project.json，否则拒绝执行。
 
-    替代 ProjectManager.from_cwd()：cwd 漂离项目目录时显式报错，
+    cwd 漂离项目目录时显式报错，
     而不是悄悄拼出错误的项目名继续执行。
     """
     cwd = Path.cwd().resolve()
     if not (cwd / "project.json").is_file():
         raise RuntimeError(f"必须在项目目录内运行（当前 cwd={cwd} 不含 project.json）")
-    pm = ProjectManager(str(cwd.parent))
+    pm = ProjectManager.for_project_dir(cwd)
     return pm, cwd.name, cwd
 
 

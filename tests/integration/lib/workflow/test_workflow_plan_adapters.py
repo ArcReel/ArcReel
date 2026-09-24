@@ -94,7 +94,7 @@ async def test_rest_and_mcp_serialize_the_same_workflow_plan(tmp_path: Path, mon
         "confirmed_request_durations": {"E1S01": 5},
     }
 
-    ctx = ToolContext(project_name="demo", projects_root=tmp_path / "projects", pm=pm)
+    ctx = ToolContext(project_name="demo", data_root=tmp_path / "projects", pm=pm)
     sdk_tool = get_workflow_plan_tool(ctx)
     assert sdk_tool.name == "get_workflow_plan"
     assert isinstance(sdk_tool.input_schema, dict)
@@ -126,7 +126,7 @@ async def test_workflow_plan_mcp_rejects_invalid_transient_choice_before_service
         calls.append((args, kwargs))
 
     monkeypatch.setattr(workflow_planner, "get_workflow_planner", _planner)
-    ctx = ToolContext(project_name="demo", projects_root=tmp_path / "projects", pm=pm)
+    ctx = ToolContext(project_name="demo", data_root=tmp_path / "projects", pm=pm)
 
     result = await get_workflow_plan_tool(ctx).handler({"narration_delivery": "persist_this_choice"})
 
@@ -167,7 +167,7 @@ async def test_workflow_plan_adapters_blame_the_request_only_for_request_errors(
     planner = _FailingPlanner(WorkflowRequestError("ad workflow only has episode 1"))
     monkeypatch.setattr(workflow_planner, "get_workflow_planner", lambda _pm=None: planner)
 
-    ctx = ToolContext(project_name="demo", projects_root=tmp_path / "projects", pm=pm)
+    ctx = ToolContext(project_name="demo", data_root=tmp_path / "projects", pm=pm)
     mcp_result = await get_workflow_plan_tool(ctx).handler({"episode": 2})
 
     assert mcp_result["is_error"] is True
@@ -186,7 +186,7 @@ async def test_workflow_plan_adapters_report_corrupt_script_as_server_failure(
     planner = _FailingPlanner(ValueError("segments must be an array of objects"))
     monkeypatch.setattr(workflow_planner, "get_workflow_planner", lambda _pm=None: planner)
 
-    ctx = ToolContext(project_name="demo", projects_root=tmp_path / "projects", pm=pm)
+    ctx = ToolContext(project_name="demo", data_root=tmp_path / "projects", pm=pm)
     mcp_result = await get_workflow_plan_tool(ctx).handler({"episode": 1})
 
     assert mcp_result["is_error"] is True

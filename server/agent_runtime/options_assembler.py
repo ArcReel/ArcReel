@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any
 
 from lib.agent.agent_memory_index import INDEX_FILENAME, truncate_memory_index
-from lib.agent.agent_memory_paths import is_valid_memory_user_id, project_memory_dir, user_memory_dir
+from lib.agent.agent_memory_paths import is_valid_memory_user_id, project_memory_dir
 from lib.agent.agent_session_store import (
     is_known_session_store_mode,
     session_store_flush_mode,
@@ -29,6 +29,7 @@ from lib.agent.agent_session_store.store import DbSessionStore
 from lib.db.base import DEFAULT_USER_ID
 from lib.db.engine import async_session_factory as default_async_session_factory
 from lib.i18n import DEFAULT_LOCALE, LOCALE_LANGUAGE_MAP
+from lib.infra.data_root_layout import DataRootLayout
 from lib.prompts.prompt_templates.builtin import builtin_templates
 from server.agent_runtime.agent_access_policy import AgentAccessPolicy
 from server.agent_runtime.sdk_tools import build_arcreel_mcp_server
@@ -74,7 +75,7 @@ async def load_provider_env_overrides() -> dict[str, str]:
 class OptionsAssembler:
     """把开会话时现场收集的依赖装配成 ClaudeAgentOptions。
 
-    构造参数分两类：静态依赖（``projects_root`` / ``allowed_tools`` /
+    构造参数分两类：静态依赖（``data_root`` / ``allowed_tools`` /
     ``setting_sources``）在实例化时锁定；随运行时变化的依赖用 provider 回调每次 build
     时现取——``access_policy_provider``（``configure_sandbox_runtime`` 会整体换新）与
     ``max_turns_provider``（``refresh_config`` 会改写）。``resolve_project_cwd`` 由
@@ -89,7 +90,7 @@ class OptionsAssembler:
     def __init__(
         self,
         *,
-        projects_root: Path,
+        data_root: Path,
         allowed_tools: Sequence[str],
         setting_sources: Sequence[str],
         access_policy_provider: Callable[[], AgentAccessPolicy],
@@ -99,7 +100,8 @@ class OptionsAssembler:
         session_factory_provider: Callable[[], Any] | None = None,
         user_id_provider: Callable[[], str] | None = None,
     ) -> None:
-        self.projects_root = Path(projects_root)
+        self.data_root = Path(data_root)
+        self.layout = DataRootLayout(self.data_root)
         self._allowed_tools = list(allowed_tools)
         self._setting_sources = list(setting_sources)
         self._access_policy_provider = access_policy_provider
@@ -158,7 +160,7 @@ class OptionsAssembler:
             logger.error("user_id 不是单个路径段，用户记忆段省略: %r", user_id)
             return ""
 
-        memory_dir = user_memory_dir(self.projects_root, user_id)
+        memory_dir = self.layout.user_memory_dir(user_id)
         index = truncate_memory_index(await self._read_user_memory_index(memory_dir))
 
         lines = [
@@ -333,7 +335,7 @@ class OptionsAssembler:
 
         arcreel_server = build_arcreel_mcp_server(
             project_name=project_name,
-            projects_root=self.projects_root,
+            data_root=self.data_root,
             user_id=self._user_id_provider(),
         )
 

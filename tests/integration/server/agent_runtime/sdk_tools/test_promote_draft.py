@@ -611,7 +611,7 @@ async def test_cancelled_reference_script_plan_promotion_finishes_commit_and_cle
     workflow = DraftWorkflow(
         DraftContext(
             project_name=fake_ctx.project_name,
-            projects_root=fake_ctx.projects_root,
+            data_root=fake_ctx.data_root,
             pm=fake_ctx.pm,
             config_resolver=fake_ctx.config_resolver,
         )
@@ -754,7 +754,7 @@ async def test_promote_draft_waits_for_file_lock_without_blocking_event_loop(
     workflow = DraftWorkflow(
         DraftContext(
             project_name=fake_ctx.project_name,
-            projects_root=fake_ctx.projects_root,
+            data_root=fake_ctx.data_root,
             pm=fake_ctx.pm,
             config_resolver=fake_ctx.config_resolver,
         )

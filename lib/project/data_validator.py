@@ -179,20 +179,19 @@ class DataValidator:
         "grids",
     }
 
-    def __init__(self, projects_root: str | Path | None = None):
+    def __init__(self, projects_dir: str | Path | None = None):
         """
         初始化验证器
 
         Args:
-            projects_root: 项目根目录；默认走 ``app_data_dir()``
-                （兼顾 ``ARCREEL_DATA_DIR`` / ``AI_ANIME_PROJECTS`` env）。
+            projects_dir: 项目目录；默认取当前数据根布局的项目目录。
         """
-        if projects_root is None:
-            from lib.infra.app_data_dir import app_data_dir
+        if projects_dir is None:
+            from lib.infra.data_root_layout import DataRootLayout
 
-            self.projects_root = app_data_dir()
+            self.projects_dir = DataRootLayout.current().projects_dir
         else:
-            self.projects_root = Path(projects_root)
+            self.projects_dir = Path(projects_dir)
 
     @staticmethod
     def _is_hidden_path(path: Path) -> bool:
@@ -740,7 +739,7 @@ class DataValidator:
 
     def validate_project(self, project_name: str) -> ValidationResult:
         """验证 project.json"""
-        return self.validate_project_dir(self.projects_root / project_name)
+        return self.validate_project_dir(self.projects_dir / project_name)
 
     def validate_project_dir(self, project_dir: Path) -> ValidationResult:
         """验证指定目录中的 project.json。"""
@@ -1424,7 +1423,7 @@ class DataValidator:
 
     def validate_episode(self, project_name: str, episode_file: str) -> ValidationResult:
         """验证 episode JSON"""
-        return self.validate_episode_file(self.projects_root / project_name, episode_file)
+        return self.validate_episode_file(self.projects_dir / project_name, episode_file)
 
     def validate_episode_payload(
         self,
@@ -1621,20 +1620,20 @@ class DataValidator:
 
 def validate_project(
     project_name: str,
-    projects_root: str | None = None,
+    projects_dir: str | None = None,
 ) -> ValidationResult:
     """验证 project.json"""
-    validator = DataValidator(projects_root)
+    validator = DataValidator(projects_dir)
     return validator.validate_project(project_name)
 
 
 def validate_episode(
     project_name: str,
     episode_file: str,
-    projects_root: str | None = None,
+    projects_dir: str | None = None,
 ) -> ValidationResult:
     """验证 episode JSON"""
-    validator = DataValidator(projects_root)
+    validator = DataValidator(projects_dir)
     return validator.validate_episode(project_name, episode_file)
 
 

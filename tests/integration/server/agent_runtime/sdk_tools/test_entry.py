@@ -10,7 +10,7 @@ from server.media_tools.context import ToolContext
 
 async def test_embedded_entry_tools_use_the_session_projects_root(tmp_path: Path) -> None:
     projects = ProjectManager(tmp_path / "projects")
-    ctx = ToolContext("demo", projects.projects_root, pm=projects)
+    ctx = ToolContext("demo", projects.data_root, pm=projects)
 
     created = await create_project_tool(ctx).handler(
         {
@@ -36,7 +36,7 @@ async def test_upload_source_closes_temporary_file_before_loading(tmp_path: Path
     from server import tool_runtime
 
     projects = ProjectManager(tmp_path / "projects")
-    ctx = ToolContext("demo", projects.projects_root, pm=projects)
+    ctx = ToolContext("demo", projects.data_root, pm=projects)
     await create_project_tool(ctx).handler(
         {
             "name": "demo",
@@ -72,7 +72,7 @@ async def test_upload_source_cleans_temporary_file_when_write_fails(tmp_path: Pa
     from server import tool_runtime
 
     projects = ProjectManager(tmp_path / "projects")
-    ctx = ToolContext("demo", projects.projects_root, pm=projects)
+    ctx = ToolContext("demo", projects.data_root, pm=projects)
     await create_project_tool(ctx).handler(
         {
             "name": "demo",

@@ -14,6 +14,7 @@ from pathlib import Path
 
 from lib.episode.episode_ledger import parse_positive_episode_num
 from lib.episode.episode_paths import episode_drafts_dir
+from lib.infra.data_root_layout import DataRootLayout
 from lib.infra.path_safety import try_safe_join
 from lib.project.project_migration_failure import (
     MigrationFailureRecord,
@@ -199,7 +200,7 @@ def migrate_project_dir(project_dir: Path) -> bool:
 def _append_error_log(project_dir: Path, tb: str) -> None:
     """Keep the full traceback out of the user-facing verdict but on disk for support."""
 
-    error_log = project_dir.parent / "_migration_errors.log"
+    error_log = DataRootLayout.for_project_dir(project_dir).project_migration_error_log_path
     try:
         error_log.parent.mkdir(parents=True, exist_ok=True)
         with error_log.open("a", encoding="utf-8") as handle:
@@ -244,16 +245,16 @@ def migrate_project_with_verdict(project_dir: Path) -> MigrationFailureRecord | 
     return None
 
 
-def run_project_migrations(projects_root: Path) -> MigrationSummary:
-    """扫 projects_root 下每个项目目录，升级到 CURRENT_SCHEMA_VERSION。"""
+def run_project_migrations(projects_dir: Path) -> MigrationSummary:
+    """扫项目目录下每个项目，升级到 CURRENT_SCHEMA_VERSION。"""
     summary = MigrationSummary()
-    if not projects_root.exists():
+    if not projects_dir.exists():
         return summary
 
     # 认领在遍历之前：被改回的项目在本轮就继续迁移，不必等下次启动。
-    reclaim_interrupted_swaps(projects_root)
+    reclaim_interrupted_swaps(projects_dir)
 
-    for child in sorted(projects_root.iterdir()):
+    for child in sorted(projects_dir.iterdir()):
         if not child.is_dir():
             continue
         # 跳过下划线前缀与隐藏目录
@@ -284,13 +285,13 @@ def run_project_migrations(projects_root: Path) -> MigrationSummary:
     return summary
 
 
-def cleanup_stale_backups(projects_root: Path, max_age_days: int = 7) -> None:
+def cleanup_stale_backups(projects_dir: Path, max_age_days: int = 7) -> None:
     """删除超过 max_age_days、且可归属到迁移输入的版本化备份与目录交换中间目录。"""
-    if not projects_root.exists():
+    if not projects_dir.exists():
         return
     cutoff = time.time() - max_age_days * 86400
-    cleanup_completed_swap_dirs(projects_root, cutoff)
-    for project_dir in projects_root.iterdir():
+    cleanup_completed_swap_dirs(projects_dir, cutoff)
+    for project_dir in projects_dir.iterdir():
         if not project_dir.is_dir():
             continue
         # 每一步的输入备份留到那一步的版本提升坐实为止：项目仍停在 v<N> 时，``*.bak.v<N>-*``

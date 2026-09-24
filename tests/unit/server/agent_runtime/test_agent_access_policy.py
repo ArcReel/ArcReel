@@ -10,7 +10,8 @@ from pathlib import Path
 
 import pytest
 
-from lib.agent.agent_memory_paths import project_memory_dir, user_memory_dir
+from lib.agent.agent_memory_paths import project_memory_dir
+from lib.infra.data_root_layout import DataRootLayout
 from server.agent_runtime.agent_access_policy import AgentAccessPolicy
 
 #: 逐调用传入的当前用户 id（生产取自 SessionManager 的 CurrentUser 上下文）。
@@ -22,7 +23,7 @@ def _make_policy(tmp_path: Path, **overrides: object) -> AgentAccessPolicy:
     project_root = (tmp_path / "repo").resolve()
     kwargs: dict[str, object] = {
         "project_root": project_root,
-        "projects_root": project_root / "projects",
+        "data_root": project_root / "projects",
         "agent_profile_root": (tmp_path / "agent_runtime_profile").resolve(),
         "log_dir": project_root / "logs",
     }
@@ -42,7 +43,7 @@ def policy(tmp_path: Path) -> AgentAccessPolicy:
 
 
 def _cwd(policy: AgentAccessPolicy) -> Path:
-    return policy.projects_root / "selfproj"
+    return policy.data_root / "selfproj"
 
 
 # ============================================================
@@ -55,7 +56,7 @@ def test_pure_construction_with_fake_roots() -> None:
     fake = Path("/nonexistent/fake-root")
     policy = AgentAccessPolicy(
         project_root=fake / "repo",
-        projects_root=fake / "repo" / "projects",
+        data_root=fake / "repo" / "projects",
         agent_profile_root=fake / "profile",
         log_dir=fake / "logs",
         sandbox_enabled=False,
@@ -92,7 +93,7 @@ def test_read_cwd_internal_passes(policy: AgentAccessPolicy) -> None:
 def test_read_other_project_denied(policy: AgentAccessPolicy) -> None:
     cwd = _cwd(policy)
     allowed, reason = policy.check_path_access(
-        str(policy.projects_root / "other" / "x.json"), "Read", cwd, user_id=_USER_ID
+        str(policy.data_root / "other" / "x.json"), "Read", cwd, user_id=_USER_ID
     )
     assert not allowed
     assert "跨项目" in reason or "项目" in reason
@@ -296,7 +297,7 @@ def test_write_protected_with_symlinked_project_cwd_denied(
     # 真实项目目录在 tmp 根的另一处,通过 symlink 暴露
     real_root = tmp_path / "real_data"
     (real_root / "projects" / "selfproj").mkdir(parents=True)
-    link_cwd = policy.projects_root / "selfproj_link"
+    link_cwd = policy.data_root / "selfproj_link"
     link_cwd.symlink_to(real_root / "projects" / "selfproj")
 
     # caller 把 symlinked cwd 传入,check_path_access 内 logical.resolve() 会展开 symlink,
@@ -396,7 +397,7 @@ def test_agent_profile_settings_denied(policy: AgentAccessPolicy, tool: str) -> 
 def test_arcreel_db_in_sensitive_list(policy: AgentAccessPolicy) -> None:
     """入队链路使用 in-process MCP tool，sandbox 内 Agent 无需直读 db。"""
     cwd = _cwd(policy)
-    db = policy.projects_root / ".arcreel.db"
+    db = policy.data_root / ".arcreel.db"
     db.parent.mkdir(parents=True, exist_ok=True)
     db.write_bytes(b"sqlite-fake")
     allowed, reason = policy.check_path_access(str(db), "Read", cwd, user_id=_USER_ID)
@@ -464,14 +465,14 @@ def test_logs_dir_is_sensitive_prefix(tmp_path: Path) -> None:
 def test_build_sandbox_settings_disabled_returns_only_enabled_false(tmp_path: Path) -> None:
     """sandbox_enabled=False（Windows 回退）时只返回 {"enabled": False}。"""
     policy = _make_policy(tmp_path, sandbox_enabled=False)
-    cwd = policy.projects_root / "demo"
+    cwd = policy.data_root / "demo"
     assert policy.build_sandbox_settings(cwd, user_id=_USER_ID) == {"enabled": False}
 
 
 def test_build_sandbox_settings_enabled_returns_full_config(tmp_path: Path) -> None:
     """sandbox_enabled=True 时出站与 loopback 均显式放行，文件围栏保持完整。"""
     policy = _make_policy(tmp_path, sandbox_enabled=True)
-    cwd = policy.projects_root / "demo"
+    cwd = policy.data_root / "demo"
     settings = policy.build_sandbox_settings(cwd, user_id=_USER_ID)
     assert settings["enabled"] is True
     assert settings["autoAllowBashIfSandboxed"] is True
@@ -485,7 +486,7 @@ def test_build_sandbox_settings_enabled_returns_full_config(tmp_path: Path) -> N
 
 def test_build_sandbox_settings_in_docker_enables_weaker_nested(tmp_path: Path) -> None:
     """in_docker 透传到 enableWeakerNestedSandbox；非 Docker 默认 False。"""
-    cwd = _make_policy(tmp_path).projects_root / "demo"
+    cwd = _make_policy(tmp_path).data_root / "demo"
     assert _make_policy(tmp_path).build_sandbox_settings(cwd, user_id=_USER_ID)["enableWeakerNestedSandbox"] is False
     assert (
         _make_policy(tmp_path, in_docker=True).build_sandbox_settings(cwd, user_id=_USER_ID)[
@@ -522,7 +523,7 @@ def test_build_sandbox_settings_deny_write_includes_resolved_paths(policy: Agent
     路径时失配。与 _check_write_access 的 bases 同口径。"""
     real_root = tmp_path / "real_data"
     (real_root / "projects" / "selfproj").mkdir(parents=True)
-    link_cwd = policy.projects_root / "selfproj_link"
+    link_cwd = policy.data_root / "selfproj_link"
     link_cwd.symlink_to(real_root / "projects" / "selfproj")
 
     settings = policy.build_sandbox_settings(link_cwd, user_id=_USER_ID)
@@ -589,7 +590,7 @@ def test_build_sensitive_abs_paths_follows_constructed_roots(tmp_path: Path) -> 
 
     policy = _make_policy(
         tmp_path,
-        projects_root=external_data.resolve(),
+        data_root=external_data.resolve(),
         agent_profile_root=external_profile.resolve(),
     )
     paths = policy._build_sensitive_abs_paths()
@@ -774,10 +775,10 @@ def test_protected_write_rules_project_new_rule_in_both_layers(
 
 @pytest.mark.parametrize("tool", ["Read", "Glob", "Grep", "Write", "Edit"])
 def test_user_memory_dir_allowed_for_all_path_tools(policy: AgentAccessPolicy, tool: str) -> None:
-    """用户记忆目录在 cwd 外、且落在 projects_root 下——五个工具都要显式放行，
+    """用户记忆目录在 cwd 外、且落在数据根下——五个工具都要显式放行，
     否则读被跨项目隔离拒、写被 cwd 外拒。"""
     cwd = _cwd(policy)
-    target = user_memory_dir(policy.projects_root, _USER_ID) / "MEMORY.md"
+    target = DataRootLayout(policy.data_root).user_memory_dir(_USER_ID) / "MEMORY.md"
     allowed, reason = policy.check_path_access(str(target), tool, cwd, user_id=_USER_ID)
     assert allowed, f"{tool} 访问用户记忆应放行：{reason}"
 
@@ -786,7 +787,7 @@ def test_user_memory_dir_allowed_for_all_path_tools(policy: AgentAccessPolicy, t
 def test_user_memory_subdirectory_allowed(policy: AgentAccessPolicy, tool: str) -> None:
     """放行按子树而非单文件：记忆索引之外的笔记文件同样可读写。"""
     cwd = _cwd(policy)
-    target = user_memory_dir(policy.projects_root, _USER_ID) / "notes" / "style.md"
+    target = DataRootLayout(policy.data_root).user_memory_dir(_USER_ID) / "notes" / "style.md"
     allowed, _ = policy.check_path_access(str(target), tool, cwd, user_id=_USER_ID)
     assert allowed
 
@@ -795,7 +796,7 @@ def test_user_memory_subdirectory_allowed(policy: AgentAccessPolicy, tool: str) 
 def test_other_users_memory_dir_denied(policy: AgentAccessPolicy, tool: str) -> None:
     """放行只覆盖当前 user_id 的子树；别人的记忆目录仍拒。"""
     cwd = _cwd(policy)
-    target = user_memory_dir(policy.projects_root, "someone-else") / "MEMORY.md"
+    target = DataRootLayout(policy.data_root).user_memory_dir("someone-else") / "MEMORY.md"
     allowed, reason = policy.check_path_access(str(target), tool, cwd, user_id=_USER_ID)
     assert not allowed, f"{tool} 访问他人记忆应被拒"
     assert reason
@@ -805,16 +806,16 @@ def test_other_users_memory_dir_denied(policy: AgentAccessPolicy, tool: str) -> 
 def test_users_namespace_root_outside_memory_denied(policy: AgentAccessPolicy, tool: str) -> None:
     """放行的是 ``<user_id>/memory/``，同用户目录下的其它子树不在放行内。"""
     cwd = _cwd(policy)
-    target = policy.projects_root / ".arcreel" / "users" / _USER_ID / "secrets" / "x.md"
+    target = policy.data_root / ".arcreel" / "users" / _USER_ID / "secrets" / "x.md"
     allowed, _ = policy.check_path_access(str(target), tool, cwd, user_id=_USER_ID)
     assert not allowed
 
 
 @pytest.mark.parametrize("tool", ["Read", "Write"])
-def test_projects_root_other_paths_still_denied_with_memory_allowance(policy: AgentAccessPolicy, tool: str) -> None:
-    """记忆放行不外溢到 projects_root 下的其它路径：别的项目目录仍拒。"""
+def test_data_root_other_paths_still_denied_with_memory_allowance(policy: AgentAccessPolicy, tool: str) -> None:
+    """记忆放行不外溢到数据根下的其它路径：别的项目目录仍拒。"""
     cwd = _cwd(policy)
-    allowed, _ = policy.check_path_access(str(policy.projects_root / "other" / "x.json"), tool, cwd, user_id=_USER_ID)
+    allowed, _ = policy.check_path_access(str(policy.data_root / "other" / "x.json"), tool, cwd, user_id=_USER_ID)
     assert not allowed
 
 
@@ -832,7 +833,7 @@ def test_memory_dirs_still_reject_code_extensions(policy: AgentAccessPolicy) -> 
     cwd = _cwd(policy)
     for target in (
         project_memory_dir(cwd) / "hack.sh",
-        user_memory_dir(policy.projects_root, _USER_ID) / "hack.sh",
+        DataRootLayout(policy.data_root).user_memory_dir(_USER_ID) / "hack.sh",
     ):
         allowed, reason = policy.check_path_access(str(target), "Write", cwd, user_id=_USER_ID)
         assert not allowed, f"{target} 应被代码扩展名规则拒"
@@ -843,7 +844,7 @@ def test_memory_dirs_still_reject_code_extensions(policy: AgentAccessPolicy) -> 
 def test_invalid_user_id_denies_memory_instead_of_widening(policy: AgentAccessPolicy, bad_user_id: str) -> None:
     """user_id 不是单个路径段时 fail-closed：不放行任何记忆路径，也不逃出数据根。"""
     cwd = _cwd(policy)
-    escaped = policy.projects_root / ".arcreel" / "users" / "victim" / "memory" / "MEMORY.md"
+    escaped = policy.data_root / ".arcreel" / "users" / "victim" / "memory" / "MEMORY.md"
     allowed, _ = policy.check_path_access(str(escaped), "Write", cwd, user_id=bad_user_id)
     assert not allowed
 
@@ -852,7 +853,7 @@ def test_build_sandbox_settings_allows_write_to_user_memory(policy: AgentAccessP
     """内核沙箱层：用户记忆目录在 cwd 外，Bash/Write 要落盘须显式 allowWrite。"""
     cwd = _cwd(policy)
     settings = policy.build_sandbox_settings(cwd, user_id=_USER_ID)
-    assert settings["filesystem"]["allowWrite"] == [str(user_memory_dir(policy.projects_root, _USER_ID))]
+    assert settings["filesystem"]["allowWrite"] == [str(DataRootLayout(policy.data_root).user_memory_dir(_USER_ID))]
     # 其余沙箱规则不变
     assert str(cwd / "project.json") in settings["filesystem"]["denyWrite"]
     assert settings["network"] == {"allowedDomains": ["*"], "allowLocalBinding": True}
@@ -862,19 +863,19 @@ def test_build_sandbox_settings_denies_read_of_the_whole_memory_root(policy: Age
     """内核沙箱层：Bash 不经读 hook，数据根 ``.arcreel/`` 整棵须在 denyRead 里，
     否则 ``cat`` 得到别的用户的记忆。"""
     settings = policy.build_sandbox_settings(_cwd(policy), user_id=_USER_ID)
-    assert str(policy.projects_root / ".arcreel") in settings["filesystem"]["denyRead"]
+    assert str(policy.data_root / ".arcreel") in settings["filesystem"]["denyRead"]
 
 
 def test_memory_deny_read_holds_for_invalid_user_id(policy: AgentAccessPolicy) -> None:
     """读拒不依赖 user_id：非法 user_id 只让写放行整键消失，读禁照旧。"""
     settings = policy.build_sandbox_settings(_cwd(policy), user_id="../escape")
-    assert str(policy.projects_root / ".arcreel") in settings["filesystem"]["denyRead"]
+    assert str(policy.data_root / ".arcreel") in settings["filesystem"]["denyRead"]
 
 
 def test_build_sandbox_settings_materializes_the_deny_root(policy: AgentAccessPolicy) -> None:
     """CLI 跳过不存在的 deny 路径，而围栏只在会话启动时编译一次：目录得先建出来，
     否则会话中途才出现的别人的记忆目录整场都没有内核层保护。"""
-    deny_root = policy.projects_root / ".arcreel"
+    deny_root = policy.data_root / ".arcreel"
     assert not deny_root.exists()
     policy.build_sandbox_settings(_cwd(policy), user_id=_USER_ID)
     assert deny_root.is_dir()

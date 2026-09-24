@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, ClassVar
 
-from lib.agent.agent_memory_paths import ARCREEL_DIRNAME, is_valid_memory_user_id, user_memory_dir
+from lib.agent.agent_memory_paths import is_valid_memory_user_id
 from lib.episode.episode_paths import (
     AGENT_PROTECTED_SCRIPT_PLAN_FILENAMES,
     DRAMA_SCRIPT_PLAN_QUARANTINE_FILENAME,
@@ -26,6 +26,7 @@ from lib.episode.episode_paths import (
     REFERENCE_VIDEO_PROMPT_AUTHORING_QUARANTINE_FILENAME,
     REFERENCE_VIDEO_SCRIPT_PLAN_QUARANTINE_FILENAME,
 )
+from lib.infra.data_root_layout import DataRootLayout
 from lib.script.draft_quarantine import OPEN_DRAFT_TOOL_NAME, PROMOTE_TOOL_NAME
 
 logger = logging.getLogger(__name__)
@@ -79,13 +80,13 @@ class AgentAccessPolicy:
     # 源仓库根（已 resolve）：``.env`` / ``.env.*`` 相对此根（dotenv 从仓库根
     # 加载），也是「仓库内参考资料放行」的围栏基准。
     project_root: Path
-    # 数据根（已 resolve，生产为 app_data_dir()）：``.arcreel.db*`` /
-    # ``.system_config.json*`` 所在地，也是跨项目读隔离的基准。
-    projects_root: Path
+    # 数据根（已 resolve，生产为 app_data_dir()）：其下各条目（数据库、旧配置、凭证、
+    # 用户记忆、项目目录）的位置由数据根布局给出，项目目录是跨项目读隔离的基准。
+    data_root: Path
     # Agent profile 根（已 resolve，受调用方 env 解析控制）：
     # ``.claude/settings.json`` 所在地。
     agent_profile_root: Path
-    # 日志目录（已 resolve）：服务器日志含 HTTP 请求路径、provider 探测、异常栈，
+    # 日志目录（已 resolve，生产取数据根布局给出的位置）：服务器日志含 HTTP 请求路径、provider 探测、异常栈，
     # 默认 read 规则会把 project_root 当成参考资料根放行，不显式 deny 会让任意
     # 项目 session 里的 Agent 通过 Read/Grep 读到全局日志。无论落在 repo 内还是
     # 外（如 /var/log/arcreel）都必须 deny。
@@ -167,6 +168,10 @@ class AgentAccessPolicy:
     }
 
     @functools.cached_property
+    def _layout(self) -> DataRootLayout:
+        return DataRootLayout(self.data_root)
+
+    @functools.cached_property
     def _sensitive_table(
         self,
     ) -> tuple[tuple[Path, ...], tuple[Path, ...], tuple[tuple[Path, str], ...]]:
@@ -177,29 +182,30 @@ class AgentAccessPolicy:
         覆盖后的真实位置（env 解析由调用方完成，本类只消费 resolve 后的根）：
 
         - ``.env`` / ``.env.*`` 总是相对源仓库根
-        - ``.arcreel.db`` / ``.system_config.json`` / ``.arcreel.db-*`` 在
-          ``projects_root``（生产为 ``app_data_dir()``）下
-        - ``vertex_keys/`` 在 ``projects_root.parent`` 下（与
+        - 默认 SQLite 文件（连同 ``-wal`` / ``-shm``）、旧版系统配置文件（连同 ``.bak``）与
+          Vertex 凭证目录取数据根布局给出的位置（凭证目录与
           ``server.routers.providers.upload_vertex_credential`` 写入位置一致）
         - ``agent_runtime_profile/.claude/settings.json`` 在
           ``agent_profile_root`` 下
         - ``log_dir`` 整目录为敏感前缀
         """
         repo = self.project_root
-        data = self.projects_root
+        layout = self._layout
+        db = layout.sqlite_db_path
+        system_config = layout.system_config_json_path
         profile = self.agent_profile_root
         files: tuple[Path, ...] = (
             repo / ".env",
-            data / ".arcreel.db",
-            data / ".system_config.json",
-            data / ".system_config.json.bak",
+            db,
+            system_config,
+            system_config.with_name(f"{system_config.name}.bak"),
             profile / ".claude" / "settings.json",
         )
-        prefixes: tuple[Path, ...] = (data.parent / "vertex_keys", self.log_dir)
-        # ``.arcreel.db-wal`` / ``.arcreel.db-shm`` 与主 db 同目录
+        prefixes: tuple[Path, ...] = (layout.vertex_keys_dir, self.log_dir)
+        # 主 db 的 ``-wal`` / ``-shm`` 与之同目录
         globs: tuple[tuple[Path, str], ...] = (
             (repo, ".env.*"),
-            (data, ".arcreel.db-*"),
+            (db.parent, f"{db.name}-*"),
         )
         return files, prefixes, globs
 
@@ -336,7 +342,7 @@ class AgentAccessPolicy:
         Bash 就能读到它。建目录失败（只读挂载、权限）时退回只登记路径：CLI 跳过它，
         hook 层仍拦住内置读工具。
         """
-        deny_root = self.projects_root / ARCREEL_DIRNAME
+        deny_root = self._layout.internal_dir
         try:
             deny_root.mkdir(parents=True, exist_ok=True)
         except OSError:
@@ -357,7 +363,7 @@ class AgentAccessPolicy:
         if not is_valid_memory_user_id(user_id):
             logger.warning("user_id 不是合法路径段,记忆目录放行被跳过: %r", user_id)
             return None
-        return user_memory_dir(self.projects_root, user_id)
+        return self._layout.user_memory_dir(user_id)
 
     def _is_user_memory_path(self, resolved: Path, *, user_id: str) -> bool:
         """已 resolve 的路径是否落在当前用户的记忆目录（含目录本身）之内。
@@ -595,16 +601,16 @@ class AgentAccessPolicy:
         """Read/Glob/Grep 的跨项目隔离 + host 文件系统封锁。
 
         用户记忆目录放行；cwd 内放行（项目记忆在其中）；SDK tool-results / /tmp/claude-*/tasks 例外放行；
-        projects_root 下其他项目子目录拒、根直放文件放行；仓库根内参考资料
+        项目目录下其他项目子目录拒、根直放文件放行；仓库根内参考资料
         （lib/docs 等）放行；其余（host 文件系统：~/.ssh、/etc 等）默认拒。
         """
-        # 用户记忆放行须在 projects_root 分支之前：它落在 projects_root 下的
+        # 用户记忆放行须在项目目录分支之前：它落在项目目录下的
         # ``.arcreel/`` 里，走到跨项目读隔离会被当成"别的项目"拒掉。
         if self._is_user_memory_path(resolved, user_id=user_id):
             return True, None
         # 自己的记忆之外，数据根内部目录整棵拒：它装的是其他用户的记忆与 ArcReel 内部状态，
         # 而跨项目读隔离只拦"存在的目录"，``.arcreel/`` 尚未建时会从根直放文件分支漏出去。
-        if resolved.is_relative_to(self.projects_root / ARCREEL_DIRNAME):
+        if resolved.is_relative_to(self._layout.internal_dir):
             return False, (f"访问被拒绝：不允许读取其他用户的记忆或数据根内部目录 ({resolved})")
         if resolved.is_relative_to(project_cwd):
             return True, None
@@ -617,12 +623,12 @@ class AgentAccessPolicy:
         # SDK 后台任务输出例外（前缀计算见 _sdk_tmp_prefixes，实例内缓存一次）。
         if str(resolved).startswith(self._sdk_tmp_prefixes) and "tasks" in resolved.parts:
             return True, None
-        # projects_root 下：当前项目以外的子目录拒，根直放文件放行
-        projects_root = self.projects_root
-        if resolved.is_relative_to(projects_root):
-            rel_to_projects = resolved.relative_to(projects_root)
+        # 项目目录下：当前项目以外的子目录拒，根直放文件放行
+        projects_dir = self._layout.projects_dir
+        if resolved.is_relative_to(projects_dir):
+            rel_to_projects = resolved.relative_to(projects_dir)
             if rel_to_projects.parts:
-                first_entry = projects_root / rel_to_projects.parts[0]
+                first_entry = projects_dir / rel_to_projects.parts[0]
                 if first_entry.is_dir() and first_entry.name != project_cwd.name:
                     return False, (f"访问被拒绝：不允许跨项目读取 ({resolved} 不在当前项目 {project_cwd} 内)")
             return True, None

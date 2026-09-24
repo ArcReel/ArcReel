@@ -26,16 +26,16 @@ from server.tool_runtime import CallerContext, ProjectScope, Services, ToolOutco
 
 
 class ToolContext:
-    """Bind a tool handler to one caller's project and projects root.
+    """Bind a tool handler to one caller's project and data root.
 
     Project-scoped tools are closure-bound to ``project_name``. Project entry
-    tools may address another project, but only through this ``projects_root``.
+    tools may address another project, but only within this ``data_root``.
     """
 
     def __init__(
         self,
         project_name: str,
-        projects_root: Path,
+        data_root: Path,
         pm: ProjectManager | None = None,
         *,
         config_resolver: ConfigResolver | None = None,
@@ -44,10 +44,9 @@ class ToolContext:
         tts_settings_resolver: TtsSettingsResolver | None = None,
     ):
         self.project_name = project_name
-        self.projects_root = projects_root
-        # Avoid ``ProjectManager.from_cwd()`` — the server main process cwd is
-        # the repo root, not ``projects/<name>/``. Tests may inject a fake pm.
-        self.pm: ProjectManager = pm if pm is not None else ProjectManager(str(projects_root))
+        self.data_root = data_root
+        # Tests may inject a fake pm.
+        self.pm: ProjectManager = pm if pm is not None else ProjectManager(data_root)
         self.config_resolver = config_resolver
         self.caller = caller or CallerContext(user_id=DEFAULT_USER_ID, source="embedded")
         self.queue = queue or get_generation_queue()
@@ -59,7 +58,7 @@ class ToolContext:
 
     @property
     def scope(self) -> ProjectScope:
-        return ProjectScope(project_name=self.project_name, projects_root=self.projects_root)
+        return ProjectScope(project_name=self.project_name, data_root=self.data_root)
 
 
 def tool_services(ctx: ToolContext) -> Services:

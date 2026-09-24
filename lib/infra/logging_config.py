@@ -9,7 +9,7 @@ from logging.handlers import TimedRotatingFileHandler
 from pathlib import Path
 
 from lib.infra.app_data_dir import app_data_dir
-from lib.infra.env_init import PROJECT_ROOT
+from lib.infra.data_root_layout import DataRootLayout
 
 _HANDLER_ATTR = "_arcreel_logging"
 _FILE_HANDLER_ATTR = "_arcreel_file_logging"
@@ -21,21 +21,8 @@ def _file_logging_disabled() -> bool:
 
 
 def resolve_log_dir() -> Path:
-    """日志目录解析：ARCREEL_LOG_DIR > PROJECT_ROOT/logs。
-
-    相对路径基于 PROJECT_ROOT。
-
-    日志目录刻意不放在 app_data_dir() 里：app_data_dir() 同时承担 projects_root
-    的身份，project 枚举走的是 `.`/`_` 前缀负向过滤，任何无前缀的兄弟目录都会被
-    当作项目暴露给前端。logs 走独立的 PROJECT_ROOT/logs，从源头消除这条歧义。
-    """
-    raw = os.environ.get("ARCREEL_LOG_DIR", "").strip()
-    if raw:
-        path = Path(raw)
-        if not path.is_absolute():
-            path = PROJECT_ROOT / path
-        return path
-    return PROJECT_ROOT / "logs"
+    """日志目录，位置由数据根布局给出（``DataRootLayout.log_dir``）。"""
+    return DataRootLayout.current().log_dir
 
 
 def legacy_log_dir() -> Path:

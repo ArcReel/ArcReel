@@ -14,12 +14,12 @@ import argparse
 import sys
 from pathlib import Path
 
-# Put repo root on sys.path so `from lib.infra.app_data_dir import app_data_dir` resolves
+# Put repo root on sys.path so `from lib.infra.data_root_layout import DataRootLayout` resolves
 # when this script is invoked directly (python scripts/migrate_claude_symlinks.py).
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_REPO_ROOT))
 
-from lib.infra.app_data_dir import app_data_dir
+from lib.infra.data_root_layout import DataRootLayout
 
 SYMLINKS = {
     ".claude": "../../agent_runtime_profile/.claude",
@@ -33,7 +33,7 @@ def main():
     args = parser.parse_args()
 
     project_root = _REPO_ROOT
-    projects_dir = app_data_dir()
+    projects_dir = DataRootLayout.current().projects_dir
     profile_dir = project_root / "agent_runtime_profile"
 
     if not profile_dir.exists():

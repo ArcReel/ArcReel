@@ -5,6 +5,7 @@ import pytest
 
 import lib.db
 import server.app as app_module
+from lib.project.project_manager import ProjectManager
 from server.routers import assistant as assistant_router
 from server.services.tasks.generation_tasks import execute_generation_task
 from server.services.tasks.resume_executor import execute_resume_video_task
@@ -26,6 +27,13 @@ class _FakeWorker:
         self.stopped = True
 
 
+@pytest.fixture
+def isolated_data_root(tmp_path, monkeypatch):
+    data_root = tmp_path / "data"
+    monkeypatch.setenv("ARCREEL_DATA_DIR", str(data_root))
+    monkeypatch.setattr("lib.project.project_manager.get_project_manager", lambda: ProjectManager(data_root))
+
+
 class TestAppModule:
     def test_create_generation_worker_injects_server_executors(self, monkeypatch):
         worker = _FakeWorker()
@@ -41,7 +49,7 @@ class TestAppModule:
         assert received == {"executor": execute_generation_task, "resume_executor": execute_resume_video_task}
 
     @pytest.mark.asyncio
-    async def test_lifespan_starts_and_stops_worker(self, monkeypatch):
+    async def test_lifespan_starts_and_stops_worker(self, monkeypatch, isolated_data_root):
         worker = _FakeWorker()
         monkeypatch.setattr(app_module, "create_generation_worker", lambda: worker)
         monkeypatch.setattr(app_module, "ensure_auth_password", lambda: "test")
@@ -61,7 +69,9 @@ class TestAppModule:
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(("auth_enabled", "expect_warning"), [("false", True), ("true", False)])
-    async def test_lifespan_warns_when_auth_disabled(self, monkeypatch, caplog, auth_enabled, expect_warning):
+    async def test_lifespan_warns_when_auth_disabled(
+        self, monkeypatch, caplog, auth_enabled, expect_warning, isolated_data_root
+    ):
         monkeypatch.setenv("AUTH_ENABLED", auth_enabled)
         monkeypatch.setattr(app_module, "create_generation_worker", lambda: _FakeWorker())
         monkeypatch.setattr(app_module, "ensure_auth_password", lambda: "test")

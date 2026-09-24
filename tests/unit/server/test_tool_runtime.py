@@ -418,7 +418,7 @@ async def test_patch_episode_meta_returns_typed_domain_outcome(tmp_path: Path, m
 
     outcome = await patch_episode_meta(
         ToolRequest(PatchEpisodeMetaRequest(script="episode_1.json", field="title", value=" 新标题 ")),
-        ProjectScope("demo", projects.projects_root),
+        ProjectScope("demo", projects.data_root),
         CallerContext(user_id="u1", source="mcp"),
         services,
     )

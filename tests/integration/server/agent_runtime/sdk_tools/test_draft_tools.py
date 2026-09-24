@@ -214,7 +214,7 @@ async def test_open_draft_rejects_missing_source_without_side_effect(
     workflow = DraftWorkflow(
         DraftContext(
             project_name=fake_ctx.project_name,
-            projects_root=fake_ctx.projects_root,
+            data_root=fake_ctx.data_root,
             pm=fake_ctx.pm,
             config_resolver=fake_ctx.config_resolver,
         )
@@ -253,7 +253,7 @@ async def test_script_plan_write_cannot_race_a_prompt_authoring_draft_patch(fake
     workflow = DraftWorkflow(
         DraftContext(
             project_name=fake_ctx.project_name,
-            projects_root=fake_ctx.projects_root,
+            data_root=fake_ctx.data_root,
             pm=fake_ctx.pm,
             config_resolver=fake_ctx.config_resolver,
         )

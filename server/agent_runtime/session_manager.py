@@ -17,7 +17,7 @@ from uuid import uuid4
 from lib.agent.agent_memory_paths import project_memory_dir
 from lib.db.base import DEFAULT_USER_ID
 from lib.i18n import DEFAULT_LOCALE
-from lib.infra.logging_config import resolve_log_dir
+from lib.infra.data_root_layout import DataRootLayout
 from lib.infra.logging_utils import redact_diagnostic_text
 from lib.infra.path_safety import PathTraversalError, safe_join
 from server.agent_runtime.agent_access_policy import AgentAccessPolicy
@@ -338,7 +338,7 @@ class SessionManager:
         self,
         project_root: Path,
         meta_store: SessionMetaStore,
-        projects_root: Path | None = None,
+        data_root: Path | None = None,
         in_docker: bool = False,
         sandbox_enabled: bool = True,
         event_log_store: EventLogStore | None = None,
@@ -349,15 +349,16 @@ class SessionManager:
         self._sdk_id_timeout = sdk_id_timeout
         self.project_root = Path(project_root)
         # Tests construct SessionManager directly without going through
-        # AssistantService, so we fall back to the legacy ``project_root/projects``
-        # convention. Production passes the configured app_data_dir() explicitly.
+        # AssistantService, so we fall back to the default data root
+        # ``project_root/projects``. Production passes the configured app_data_dir() explicitly.
         # 两路都 resolve，避免符号链接场景下 _resolve_project_cwd 的 relative_to
         # 校验失败（project_cwd 已经 resolve 过）。strict=False 容忍目录不存在。
-        self.projects_root = (
-            Path(projects_root).resolve(strict=False)
-            if projects_root is not None
+        self.data_root = (
+            Path(data_root).resolve(strict=False)
+            if data_root is not None
             else (self.project_root / "projects").resolve()
         )
+        self.layout = DataRootLayout(self.data_root)
         self.meta_store = meta_store
         self.sessions: dict[str, ManagedSession] = {}
         # 轮次终结时仍未被认领的回显登记累计数，见 _drain_pending_user_echoes。
@@ -377,14 +378,13 @@ class SessionManager:
         else:
             self._agent_profile_root = (self._project_root_resolved / "agent_runtime_profile").resolve(strict=False)
         # 访问规则真相源：env 解析（profile / 日志目录）在此完成，policy 只消费
-        # resolve 后的进程级根路径（零 I/O 纯构造）。用 resolve_log_dir() 拿日志
-        # 真实路径，覆盖 ``ARCREEL_LOG_DIR`` 自定义场景——无论落在 repo 内还是外
-        # 都必须 deny。
+        # resolve 后的进程级根路径（零 I/O 纯构造）。日志目录取数据根布局给出的真实
+        # 路径，覆盖 ``ARCREEL_LOG_DIR`` 自定义场景——无论落在 repo 内还是外都必须 deny。
         self.access_policy = AgentAccessPolicy(
             project_root=self._project_root_resolved,
-            projects_root=self.projects_root,
+            data_root=self.data_root,
             agent_profile_root=self._agent_profile_root,
-            log_dir=resolve_log_dir().resolve(),
+            log_dir=self.layout.log_dir.resolve(),
             sandbox_enabled=sandbox_enabled,
             in_docker=in_docker,
         )
@@ -397,7 +397,7 @@ class SessionManager:
         # 同源，避免 store 与用量落到不同 per-user 命名空间。_resolve_project_cwd
         # （项目名校验/作用域）留在会话管理侧，作为依赖注入。
         self._options_assembler = OptionsAssembler(
-            projects_root=self.projects_root,
+            data_root=self.data_root,
             allowed_tools=self.DEFAULT_ALLOWED_TOOLS,
             setting_sources=self.DEFAULT_SETTING_SOURCES,
             access_policy_provider=lambda: self.access_policy,
@@ -473,7 +473,7 @@ class SessionManager:
     def _resolve_project_cwd(self, project_name: str) -> Path:
         """Resolve and validate per-session project working directory."""
         try:
-            project_cwd = safe_join(self.projects_root, project_name)
+            project_cwd = safe_join(self.layout.projects_dir, project_name)
         except PathTraversalError as exc:
             raise ValueError("invalid project name") from exc
         if not project_cwd.exists() or not project_cwd.is_dir():
