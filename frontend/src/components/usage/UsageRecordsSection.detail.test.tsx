@@ -73,6 +73,25 @@ describe("UsageRecordsSection detail", () => {
     ).toHaveAttribute("aria-expanded", "false");
   });
 
+  it("resolves a project-relative image output as a thumbnail", async () => {
+    vi.spyOn(API, "getUsageRecord").mockResolvedValue(
+      makeUsageRecordDetail({
+        id: 42,
+        project_name: "demo",
+        media_type: "image",
+        output_path: "storyboards/scene_E1S10.png",
+      }),
+    );
+
+    renderUsageRecordsSection("section=usage&record=42");
+    const dialog = within(await screen.findByRole("dialog"));
+
+    expect(dialog.getByRole("img", { name: "storyboards/scene_E1S10.png" })).toHaveAttribute(
+      "src",
+      "/api/v1/files/demo/storyboards/scene_E1S10.png",
+    );
+  });
+
   it("renders the production input field names for media calls", async () => {
     vi.spyOn(API, "getUsageRecord").mockResolvedValue(
       makeUsageRecordDetail({

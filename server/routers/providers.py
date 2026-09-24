@@ -301,7 +301,7 @@ def _cred_to_response(cred: ProviderCredential) -> CredentialResponse:
         provider=cred.provider,
         name=cred.name,
         api_key_masked=mask_secret(cred.api_key) if cred.api_key else None,
-        credentials_filename=Path(cred.credentials_path).name if cred.credentials_path else None,
+        credentials_filename=Path(credentials_file).name if (credentials_file := cred.credentials_file()) else None,
         base_url=cred.base_url,
         access_key_masked=mask_secret(cred.access_key) if cred.access_key else None,
         secret_key_masked=mask_secret(cred.secret_key) if cred.secret_key else None,
@@ -652,7 +652,7 @@ async def delete_credential(
     _validate_provider(provider_id, _t)
     repo = CredentialRepository(session)
     cred = await _get_credential_or_404(repo, provider_id, cred_id, _t)
-    cred_path = cred.credentials_path  # 在 delete 前保存，避免 ORM 对象过期后无法访问
+    cred_path = cred.credentials_file()  # 在 delete 前保存，避免 ORM 对象过期后无法访问
     await repo.delete(cred_id)
     await session.commit()
     await _invalidate_caches(request)
