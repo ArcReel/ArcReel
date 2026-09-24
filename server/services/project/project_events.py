@@ -49,7 +49,7 @@ def _utc_now_iso() -> str:
 def read_project_state(pm: ProjectManager, project_name: str) -> ProjectState:
     """只读加载项目状态：不回写剧本迁移、不同步集索引，无法解析的剧本跳过。"""
     scripts_dir = pm.get_project_path(project_name) / "scripts"
-    project = pm.load_project_readonly(project_name)
+    project = pm.load_project(project_name)
     scripts: dict[str, dict[str, Any]] = {}
     if scripts_dir.exists():
         for script_path in sorted(scripts_dir.glob("*.json")):
