@@ -52,6 +52,7 @@ from lib.generation.generation_result import (
 from lib.generation.video_request_facts import (
     CONFIGURED_VIDEO_IDENTITY,
     VideoRequestFacts,
+    VideoRequestFactsError,
     VideoRequestFactsFailure,
     evaluate_video_request_facts,
 )
@@ -358,6 +359,12 @@ def _action_for(raw: object) -> GenerationAction:
     return _PROBLEM_ACTIONS.get(str(raw), GenerationAction.FIX_INPUT)
 
 
+def _facts_failure_problem(failure: VideoRequestFactsFailure, unit_id: str) -> GenerationProblem:
+    """视频请求事实失败折成该目标的阻断问题：问题码、参数与修复指引与投影侧同一出口。"""
+
+    return _generation_problem(ProjectionProblem.from_request_facts_failure(failure), unit_id=unit_id)
+
+
 def _generation_problem(problem: ProjectionProblem | NarrationDeliveryProblem, *, unit_id: str) -> GenerationProblem:
     payload = problem.to_payload(unit_id=unit_id)
     params = payload.get("params")
@@ -582,6 +589,11 @@ async def admit_reference_video_batch(
                 current_options_materialized=True,
                 resolver=config_resolver,
             )
+        except VideoRequestFactsError as exc:
+            tickets.append(
+                UnitAdmissionTicket(unit_id=unit_id, problems=(_facts_failure_problem(exc.failure, unit_id),))
+            )
+            continue
         except ValueError as exc:
             # 投影读的是剧本上的值（如 duration_seconds）：脏值在这里抛出去会让整个请求塌成
             # 一句通用错误，其余 unit 的结论无从得知。按逐 unit 的可入队性问题如实报告。
@@ -712,6 +724,14 @@ async def admit_storyboard_video_batch(
     )
     generation_type = video_bucket_for_generation_mode(project.get("generation_mode"))
     catalog = build_reference_catalog(project)
+    if items and video_request_facts is None:
+        video_request_facts = await evaluate_video_request_facts(
+            project,
+            route="storyboard",
+            generation_type=generation_type,
+            identity=CONFIGURED_VIDEO_IDENTITY,
+            resolver=config_resolver or ConfigResolver(async_session_factory),
+        )
 
     tickets: list[UnitAdmissionTicket] = list(extra_tickets)
     for resource_id, item, visual_prompt in items:
@@ -721,6 +741,15 @@ async def admit_storyboard_video_batch(
             )
             continue
         reference_problems = reference_admission_problems(admit_storyboard_item(catalog, item), unit_id=resource_id)
+        if isinstance(video_request_facts, VideoRequestFactsFailure):
+            # 事实失败与引用缺口同属这一目标的已知问题，一次报全：用户改完模型配置不该再撞见引用缺口。
+            tickets.append(
+                UnitAdmissionTicket(
+                    unit_id=resource_id,
+                    problems=(_facts_failure_problem(video_request_facts, resource_id), *reference_problems),
+                )
+            )
+            continue
         if reference_problems:
             tickets.append(UnitAdmissionTicket(unit_id=resource_id, problems=reference_problems))
             continue

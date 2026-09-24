@@ -241,7 +241,6 @@ async def evaluate_video_request_facts(
             list(supported),
             resolution=resolution,
             uses_reference_images=uses_reference_images,
-            fallback_on_empty=False,
         )
     )
     if supported and not allowed:
@@ -251,7 +250,7 @@ async def evaluate_video_request_facts(
         )
     # 两条约束都排除同一秒数时报参考图：改分辨率救不回它。
     reference_allowed = (
-        constrain_durations(provider_id, model_id, list(supported), uses_reference_images=True, fallback_on_empty=False)
+        constrain_durations(provider_id, model_id, list(supported), uses_reference_images=True)
         if uses_reference_images
         else list(supported)
     )

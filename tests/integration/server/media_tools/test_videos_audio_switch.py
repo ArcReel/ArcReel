@@ -535,8 +535,11 @@ class TestStoryboardGateEntersAdmission:
         }
         assert codes["SC1"] == ["generation_unit_request_invalid"]
 
-    async def test_a_non_scalar_alias_does_not_break_addressing(self, tmp_path, monkeypatch):
+    async def test_a_non_scalar_alias_does_not_break_addressing(
+        self, tmp_path, monkeypatch, set_admission_video_request_facts
+    ):
         """脏剧本把 scene_id 写成数组：按名字寻址前先判类型，该条目仍能按规范 ID 点名。"""
+        set_admission_video_request_facts(make_video_request_facts())
 
         async def _allow(_project, _generation_type, **_kwargs):
             return None
@@ -613,8 +616,11 @@ class TestStoryboardGateEntersAdmission:
         }
         assert codes["E1S01"] == ["generation_unit_request_invalid"]
 
-    async def test_generate_all_keeps_an_id_less_item_in_the_verdict(self, tmp_path, monkeypatch):
+    async def test_generate_all_keeps_an_id_less_item_in_the_verdict(
+        self, tmp_path, monkeypatch, set_admission_video_request_facts
+    ):
         """缺 ID 的条目进不了目标集合，但它属于这次请求：健康的兄弟条目不会独自入队计费。"""
+        set_admission_video_request_facts(make_video_request_facts())
 
         async def _allow(_project, _generation_type, **_kwargs):
             return None

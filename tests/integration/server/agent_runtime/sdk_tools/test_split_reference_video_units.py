@@ -118,45 +118,42 @@ async def test_fetch_reference_caps_with_fallback_narrows_slots_by_resolution(se
     assert caps.max_duration == 8
 
 
-async def test_reference_unit_duration_tiers_does_not_assume_containment(monkeypatch, set_video_request_facts) -> None:
-    """两套档位之间无包含关系可假定：两条约束自相矛盾时带图那套反而更宽。
+async def test_reference_unit_duration_tiers_reports_empty_intersection(monkeypatch, set_video_request_facts) -> None:
+    """带图与分辨率约束交集为空时，读侧报告空集。型号数据替换成自相矛盾的声明，收窄仍走真实规则。"""
+    import dataclasses
 
-    ``constrain_durations`` 在交集为空时回退到未收窄候选，故型号同时声明「带图仅 8s」与
-    「1080p 仅 6s」时，带图集回退成全集、不带图集收成 [6]。调用方须显式取并集当枚举。
-    两桶都配置同一模型，联动矛盾在单模型内就能成立。
-    """
-    set_video_request_facts(
-        make_video_request_facts(
-            route="reference_video", generation_type="i2v", supported_durations=(4, 6, 8), allowed_durations=(6,)
-        )
-    )
-    from lib.config import resolver as resolver_mod
-    from lib.config.registry import ModelInfo
+    from lib.config.registry import PROVIDER_REGISTRY
     from lib.generation.video_request_facts import VideoRequestFacts
     from server.services.tasks.video_caps import reference_unit_duration_tiers
 
-    contradictory = ModelInfo(
-        display_name="contradictory",
-        media_type="video",
-        capabilities=[],
-        supported_durations=[4, 6, 8],
-        duration_resolution_constraints={"1080p": [6]},
-        reference_image_durations=[8],
+    provider_id, model_id = "gemini-aistudio", "veo-3.1-generate-preview"
+    set_video_request_facts(
+        make_video_request_facts(
+            route="reference_video",
+            generation_type="i2v",
+            provider_id=provider_id,
+            model_id=model_id,
+            supported_durations=(4, 6, 8),
+            allowed_durations=(6,),
+        )
     )
-    monkeypatch.setattr(resolver_mod, "model_info_for", lambda *_args: contradictory)
+    models = PROVIDER_REGISTRY[provider_id].models
+    monkeypatch.setitem(
+        models,
+        model_id,
+        dataclasses.replace(
+            models[model_id], duration_resolution_constraints={"1080p": [6]}, reference_image_durations=[8]
+        ),
+    )
 
-    project = {"model_settings": {"p/m": {"resolution": "1080p"}}}
+    project = {"model_settings": {f"{provider_id}/{model_id}": {"resolution": "1080p"}}}
     with_refs, without_refs = await reference_unit_duration_tiers(
-        project,
-        {"provider_id": "p", "model": "m"},
-        [4, 6, 8],
-        config_resolver=fake_caps_resolver(provider_id="p", model="m", supported_durations=[4, 6, 8]),
+        project, {"provider_id": provider_id, "model": model_id}, [4, 6, 8]
     )
 
-    assert with_refs == [4, 6, 8]
+    assert with_refs == []
     assert isinstance(without_refs, VideoRequestFacts)
     assert list(without_refs.allowed_durations) == [6]
-    assert not set(with_refs) <= set(without_refs.allowed_durations)
 
 
 async def test_reference_unit_duration_tiers_without_refs_follow_i2v_bucket(set_video_request_facts) -> None:

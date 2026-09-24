@@ -224,8 +224,8 @@ def test_build_reference_units_split_prompt_writes_reference_duration_linkage():
 def test_build_reference_units_split_prompt_states_both_tiers_without_containment():
     """带图档位反而更宽时，被收窄的是无引用 unit——prompt 必须照样写全，不能只讲带图那套。
 
-    `constrain_durations` 在交集为空时回退到未收窄候选，故两套档位之间不假定包含关系
-    （与 `server.services.tasks.video_caps.reference_unit_duration_tiers` 同一判据）。只讲带图会让无引用 unit
+    两桶档位之间不假定包含关系（与 `server.services.tasks.video_caps.reference_unit_duration_tiers`
+    同一判据）。只讲带图会让无引用 unit
     照并集取到自己申请不到的档位。
     """
     prompt = _split_prompt(

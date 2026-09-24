@@ -637,6 +637,7 @@ async def test_projection_folds_request_facts_failure_into_a_blocking_problem(
     assert result.cost is None
     assert [(problem.code, problem.blocking) for problem in result.problems] == [(failure.code, True)]
     assert result.problems[0].parameters() == expected_params
+    assert result.problems[0].to_payload(unit_id="E1U1")["action"] == "configure_video_model"
 
 
 @pytest.mark.asyncio

@@ -512,13 +512,11 @@ def constrain_durations(
     *,
     resolution: str | None = None,
     uses_reference_images: bool = False,
-    fallback_on_empty: bool = True,
 ) -> list[int]:
     """按型号声明的「分辨率↔时长」「参考图↔时长」约束收窄候选。
 
     两条约束各自独立触发、可同时生效，取交集。无声明、型号不在注册表（自定义供应商不表达
-    这类约束）时返回原候选。交集为空时缺省也回退原候选；严格执行边界可传
-    ``fallback_on_empty=False`` 取空集后 fail loud，但约束求交集仍只在此处。
+    这类约束）时返回原候选。交集为空时返回空集，由消费方按阶段处理。
     """
     if not durations:
         return durations
@@ -531,17 +529,6 @@ def constrain_durations(
     by_resolution = model_info.duration_resolution_constraints.get(resolution.strip().lower()) if resolution else None
     if by_resolution:
         allowed = [d for d in allowed if d in by_resolution]
-    if not allowed and fallback_on_empty:
-        logger.warning(
-            "duration constraints for %s/%s have no overlap with candidate durations "
-            "(resolution=%r, uses_reference_images=%r), falling back to unconstrained candidates %r",
-            provider_id,
-            model_id,
-            resolution,
-            uses_reference_images,
-            durations,
-        )
-        return list(durations)
     return allowed
 
 

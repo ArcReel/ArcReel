@@ -221,20 +221,15 @@ def test_constrain_durations_falls_back():
     assert constrain_durations(*_VEO, [4, 6, 8], resolution="720p") == [4, 6, 8]
     # 型号未登记（中转站 / 自定义供应商包装）
     assert constrain_durations("gemini-aistudio", "veo-3.1-via-relay", [4, 6, 8], resolution="4k") == [4, 6, 8]
-    # 交集为空（声明自相矛盾，不该发生）：保留原候选而非清空。两维各自成立
-    assert constrain_durations(*_VEO, [4, 6], resolution="4k") == [4, 6]
-    assert constrain_durations(*_VEO, [4, 6], uses_reference_images=True) == [4, 6]
+    # 交集为空时保持空集，由事实消费方处理。
+    assert constrain_durations(*_VEO, [4, 6], resolution="4k") == []
+    assert constrain_durations(*_VEO, [4, 6], uses_reference_images=True) == []
     # resolution 缺失且不走参考图：两维都不触发
     assert constrain_durations(*_VEO, [4, 6, 8]) == [4, 6, 8]
     # 身份缺失（能力不可解析）
     assert constrain_durations(None, None, [4, 6, 8], resolution="4k") == [4, 6, 8]
     # 空候选原样返回
     assert constrain_durations(*_VEO, [], resolution="4k") == []
-
-
-def test_constrain_durations_strict_empty_intersection():
-    """严格执行边界取空交集，交由调用方 fail loud；约束公式仍与宽松读侧共用。"""
-    assert constrain_durations(*_VEO, [4, 6], resolution="4k", fallback_on_empty=False) == []
 
 
 def test_duration_constraints_report_classifies_exclusions():
@@ -261,17 +256,17 @@ def test_duration_constraints_report_reference_wins_over_resolution():
 
 
 def test_duration_constraints_report_without_constraints_excludes_nothing():
-    """无声明 / 未登记型号 / 交集为空回退全集时，excluded 为空且 allowed 即全集。"""
+    """无声明和未登记型号不剔除时长；交集为空时完整报告被剔除的档位。"""
     report = duration_constraints_report(*_VEO, [4, 6, 8], resolution="720p", uses_reference_images=False)
     assert report["allowed"] == [4, 6, 8]
     assert report["excluded"] == {}
     report = duration_constraints_report("custom-3", "relay", [5, 10], resolution="4k", uses_reference_images=True)
     assert report["allowed"] == [5, 10]
     assert report["excluded"] == {}
-    # 交集为空回退全集：没有被剔除的时长
+    # 交集为空时读侧仍能看到空集及成因。
     report = duration_constraints_report(*_VEO, [4, 6], resolution="4k", uses_reference_images=False)
-    assert report["allowed"] == [4, 6]
-    assert report["excluded"] == {}
+    assert report["allowed"] == []
+    assert report["excluded"] == {4: "resolution", 6: "resolution"}
 
 
 def test_constrain_durations_for_project_uses_project_resolution():

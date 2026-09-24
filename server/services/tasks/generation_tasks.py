@@ -50,7 +50,7 @@ from lib.artifacts.visual_artifact_provenance import (
 )
 from lib.backends.video_backend_contract import VideoCapabilityError
 from lib.config.registry import PROVIDER_REGISTRY
-from lib.config.resolver import constrain_durations, video_bucket_for_generation_mode
+from lib.config.resolver import video_bucket_for_generation_mode
 from lib.config.service import DEFAULT_VIDEO_POLL_TIMEOUT_SECONDS
 from lib.db.base import DEFAULT_USER_ID
 from lib.generation.generation_queue import (
@@ -59,7 +59,6 @@ from lib.generation.generation_queue import (
     without_video_execution_identity,
 )
 from lib.generation.video_request_facts import (
-    VideoRequestFacts,
     VideoRequestFactsError,
     audio_switch_conflict,
     require_video_request_facts,
@@ -176,8 +175,8 @@ def assert_duration_supported(duration: int | float | str, supported_durations: 
     """执行层能力守卫：duration 必须落在已解析 model 的 supported_durations 内。
 
     这是 `duration ↔ supported_durations` 唯一的权威校验家——provider 在执行时才解析
-    （见 ADR-0001），故能力校验只能坐在 provider 解析之后。``supported_durations`` 为空时
-    放行（能力不可解析，不更坏：不拒绝一个校验层判断不了的 duration）。
+    （见 ADR-0001），故能力校验只能坐在 provider 解析之后。``supported_durations`` 为空只在
+    时长由端点固定时出现（``docs/adr/0082``），此时放行：能力解析不出已在取事实时阻断。
 
     duration 可能来自外部配置（payload / project.json），故安全解析字符串 / 浮点：
     可解析为整数秒（如 ``"6"`` / ``6.0``）的归一化后比较；非整数秒（如 ``4.5``）一律
@@ -1106,19 +1105,13 @@ async def execute_video_task(
         )
     if ctx.video.request_facts is None:
         raise RuntimeError("storyboard video lane is missing its request facts")
-    request_facts = None
-    if delivery_options.narration_delivery == USE_TTS:
-        request_facts = require_video_request_facts(ctx.video.request_facts)
-    elif isinstance(ctx.video.request_facts, VideoRequestFacts):
-        request_facts = ctx.video.request_facts
-    if request_facts is not None and (conflict := audio_switch_conflict(request_facts)) is not None:
+    request_facts = require_video_request_facts(ctx.video.request_facts)
+    if (conflict := audio_switch_conflict(request_facts)) is not None:
         raise VideoRequestFactsError(conflict)
-    requested_generate_audio = (
-        request_facts.requested_generate_audio if request_facts is not None else ctx.video.requested_generate_audio
-    )
+    requested_generate_audio = request_facts.requested_generate_audio
     model_name = ctx.video.backend_model
-    supported_durations: list[int] = list(request_facts.supported_durations if request_facts else ())
-    resolution = request_facts.resolution if request_facts else ctx.video.resolution
+    supported_durations = list(request_facts.allowed_durations)
+    resolution = request_facts.resolution
 
     artifact_episode = script_input.episode
     formal_input_claims: list[ArtifactInputClaim] = [script_input.claim]
@@ -1176,9 +1169,8 @@ async def execute_video_task(
     # provider / model / 能力 / 分辨率均取自单次解析的 video lane：能力按 backend 实际身份
     # （registry provider_id + backend.model）查询，与实际要调用的 model 对齐——历史任务 payload
     # 携带 provider 覆盖、或自定义供应商目标 model 被禁用回退时，二者一致避免 duration 守卫误判
-    # （用「项目默认 model 的能力」误判「实际调用的 model」）。能力不可解析时 supported_durations
-    # 留空，守卫遇空列表放行（不更坏，见 ADR-0002）。解析/构造失败已在 resolve_generation_context
-    # 内原样上抛整次任务失败，不再有硬编码 provider/model 静默兜底。
+    # （用「项目默认 model 的能力」误判「实际调用的 model」）。解析/构造失败已在
+    # resolve_generation_context 内原样上抛整次任务失败。
     # duration 解析收口于执行层：payload > project.default_duration > caps 默认。
     # 用 ``is not None`` 而非 ``or`` 取 payload 值，避免显式 falsy 值被当作未设置。
     duration_seconds = (
@@ -1189,13 +1181,10 @@ async def execute_video_task(
     if duration_seconds is None:
         duration_seconds = project.get("default_duration")
     if not duration_seconds:
-        # 取首项前先按当前分辨率的联动约束收窄：否则 Veo + 1080p/4k 的默认（Auto）设置会取到
-        # 4 秒，被 backend 的「该分辨率必须 8 秒」拒绝——UI 已按同一份声明门控，此处不收窄
-        # 就等于默认配置必然失败。显式指定的时长不经此收窄，其合法性由 assert_duration_supported
-        # 与 backend 的执行期校验把关。
-        candidates = constrain_durations(registry_provider_id, model_name, supported_durations, resolution=resolution)
         duration_seconds = (
-            candidates[0] if candidates else _get_model_default_duration(registry_provider_id, model_name)
+            request_facts.allowed_durations[0]
+            if request_facts.allowed_durations
+            else _get_model_default_duration(registry_provider_id, model_name)
         )
 
     delivery_projection = None
@@ -1302,12 +1291,7 @@ async def execute_video_task(
             sorted(
                 {
                     duration_seconds,
-                    *constrain_durations(
-                        registry_provider_id,
-                        model_name,
-                        supported_durations,
-                        resolution=resolution,
-                    ),
+                    *request_facts.allowed_durations,
                 }
             )
         )
