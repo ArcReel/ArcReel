@@ -927,5 +927,5 @@ class TestValidatorAcceptsWrittenSnapshot:
         _upload(c, _img_bytes("PNG"))
         # end_frames 已登记为允许的项目根目录条目，不被判为未知目录
         assert "end_frames" in DataValidator.ALLOWED_ROOT_ENTRIES
-        result = DataValidator(projects_root=str(pm.projects_root)).validate_project_tree("demo")
+        result = DataValidator(projects_dir=str(pm.projects_dir)).validate_project_tree("demo")
         assert not [e for e in result.errors if "end_frames" in e]

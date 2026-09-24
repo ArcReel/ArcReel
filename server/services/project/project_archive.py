@@ -231,7 +231,7 @@ class ProjectArchiveService:
 
     def __init__(self, project_manager: ProjectManager):
         self.project_manager = project_manager
-        self.validator = DataValidator(projects_root=str(project_manager.projects_root))
+        self.validator = DataValidator(projects_dir=str(project_manager.projects_dir))
 
     def get_export_diagnostics(
         self,
@@ -1761,8 +1761,8 @@ class ProjectArchiveService:
         return None
 
     def _resolve_json_path(self, path: Path) -> Path | None:
-        """归档读写只允许落在 projects_root 或系统临时目录内；越界返回 None。"""
-        for base in (self.project_manager.projects_root, tempfile.gettempdir()):
+        """归档读写只允许落在项目目录或系统临时目录内；越界返回 None。"""
+        for base in (self.project_manager.projects_dir, tempfile.gettempdir()):
             resolved = try_safe_join(base, path)
             if resolved is not None:
                 return resolved
@@ -1988,7 +1988,7 @@ class ProjectArchiveService:
         project_title: str,
         conflict_policy: str,
     ) -> tuple[str, str]:
-        target_dir = self.project_manager.projects_root / preferred_name
+        target_dir = self.project_manager.projects_dir / preferred_name
         if conflict_policy == "prompt":
             if target_dir.exists():
                 raise ProjectArchiveValidationError(
@@ -2020,7 +2020,7 @@ class ProjectArchiveService:
         *,
         overwrite: bool,
     ) -> None:
-        target_dir = self.project_manager.projects_root / project_name
+        target_dir = self.project_manager.projects_dir / project_name
         backup_dir: Path | None = None
 
         try:

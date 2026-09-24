@@ -434,7 +434,7 @@ class TestPromptPreviewTool:
     def _scope(self, project_path: Path):
         from server.tool_runtime import ProjectScope
 
-        return ProjectScope(project_name="demo", projects_root=project_path.parent)
+        return ProjectScope(project_name="demo", data_root=project_path.parent)
 
     async def _call(self, pm: _FakePM, project_path: Path, **kwargs):
         from server.tool_runtime import CallerContext, PromptPreviewRequest, ToolRequest, get_prompt_preview

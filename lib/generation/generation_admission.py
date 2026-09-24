@@ -9,15 +9,15 @@ from pathlib import Path
 
 import portalocker
 
-from lib.infra.app_data_dir import app_data_dir
 from lib.infra.content_digest import canonical_json_digest
+from lib.infra.data_root_layout import DataRootLayout
 
 _POLL_SECONDS = 0.05
 
 
 def _lock_path(*, project_name: str, resource_id: str) -> Path:
     digest = canonical_json_digest([project_name, resource_id])
-    root = app_data_dir() / ".generation-admission-locks"
+    root = DataRootLayout.current().generation_admission_locks_dir
     root.mkdir(parents=True, exist_ok=True)
     return root / f"{digest}.lock"
 

@@ -384,7 +384,7 @@ async def test_remote_mcp_returns_typed_workflow_plan_and_rejects_bad_project(
         "project" in listed[name].inputSchema["required"]
         for name in migrated | readers | drafts | text_and_script | batches
     )
-    media_ctx = ToolContext("demo", remote_projects.projects_root, pm=remote_projects)
+    media_ctx = ToolContext("demo", remote_projects.data_root, pm=remote_projects)
     definitions = {
         definition.name: definition
         for definition in (
@@ -539,7 +539,7 @@ async def test_remote_grid_list_only_returns_preview_without_a_batch(
 async def test_media_errors_are_typed_in_embedded_and_remote_hosts(
     remote_server, remote_projects: ProjectManager
 ) -> None:
-    definition = generate_assets_tool(ToolContext("demo", remote_projects.projects_root, pm=remote_projects))
+    definition = generate_assets_tool(ToolContext("demo", remote_projects.data_root, pm=remote_projects))
     embedded = await definition.invoke({"names": ["张三"]})
 
     assert embedded.problem is not None
@@ -1038,7 +1038,7 @@ async def test_text_task_is_shared_by_remote_and_embedded_hosts_and_running_memb
             await started.wait()
             embedded_ctx = ToolContext(
                 project_name="demo",
-                projects_root=projects.projects_root,
+                data_root=projects.data_root,
                 pm=projects,
                 queue=queue,
             )

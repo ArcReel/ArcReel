@@ -211,7 +211,7 @@ def _commit_generated_reference_script_plan(
     draft_path = quarantine_path(project_path, episode, QUARANTINE_KIND_SCRIPT_PLAN)
     prompt_authoring_path = quarantine_path(project_path, episode, QUARANTINE_KIND_PROMPT_AUTHORING)
     formal_path = script_review.official_reference_script_plan_path(project_path, episode)
-    pm = ProjectManager(str(project_path.parent))
+    pm = ProjectManager.for_project_dir(project_path)
     with (
         pm.file_lock(prompt_authoring_path),
         script_review.script_plan_write_lock(project_path, episode),
@@ -672,7 +672,7 @@ async def generate_drama_script_plan(
 
         draft_path = quarantine_path(project_path, episode, QUARANTINE_KIND_DRAMA_SCRIPT_PLAN)
         script_plan_path = episode_drafts_dir(project_path, episode) / SCRIPT_PLAN_FILENAMES["drama"]
-        async with ProjectManager(str(project_path.parent)).async_file_lock(draft_path):
+        async with ProjectManager.for_project_dir(project_path).async_file_lock(draft_path):
             draft_baseline, formal_baseline = await asyncio.to_thread(
                 _generation_baselines,
                 draft_path,
@@ -701,7 +701,7 @@ async def generate_drama_script_plan(
             else:
                 scene["needs_replan"] = True
 
-        async with ProjectManager(str(project_path.parent)).async_file_lock(draft_path):
+        async with ProjectManager.for_project_dir(project_path).async_file_lock(draft_path):
             _assert_draft_revision(draft_path, draft_baseline)
             try:
                 await run_sync_transaction(
@@ -1331,7 +1331,7 @@ async def generate_reference_script_plan(
 
         draft_path = quarantine_path(project_path, episode, QUARANTINE_KIND_SCRIPT_PLAN)
         formal_script_plan_path = script_review.official_reference_script_plan_path(project_path, episode)
-        async with ProjectManager(str(project_path.parent)).async_file_lock(draft_path):
+        async with ProjectManager.for_project_dir(project_path).async_file_lock(draft_path):
             draft_baseline, formal_baseline = await asyncio.to_thread(
                 _generation_baselines,
                 draft_path,
@@ -1365,7 +1365,7 @@ async def generate_reference_script_plan(
         unit_texts = [flat_unit["text"] for flat_unit in flat_units]
         soft_violations = _reference_soft_violation_lines(unit_texts, project, episode=episode, voice=split_caps.voice)
         if violations:
-            async with ProjectManager(str(project_path.parent)).async_file_lock(draft_path):
+            async with ProjectManager.for_project_dir(project_path).async_file_lock(draft_path):
                 _assert_draft_revision(draft_path, draft_baseline)
                 report = await run_sync_transaction(
                     _quarantine_invalid_script_plan_generation,
@@ -1389,7 +1389,7 @@ async def generate_reference_script_plan(
             episode=episode,
             max_refs=split_caps.max_refs,
         )
-        async with ProjectManager(str(project_path.parent)).async_file_lock(draft_path):
+        async with ProjectManager.for_project_dir(project_path).async_file_lock(draft_path):
             _assert_draft_revision(draft_path, draft_baseline)
             try:
                 await run_sync_transaction(
@@ -1481,7 +1481,7 @@ async def generate_narration_script_plan(
 
         draft_path = quarantine_path(project_path, episode, QUARANTINE_KIND_NARRATION_SCRIPT_PLAN)
         script_plan_path = _narration_script_plan_path(project_path, episode)
-        async with ProjectManager(str(project_path.parent)).async_file_lock(draft_path):
+        async with ProjectManager.for_project_dir(project_path).async_file_lock(draft_path):
             draft_baseline, formal_baseline = await asyncio.to_thread(
                 _generation_baselines,
                 draft_path,
@@ -1517,7 +1517,7 @@ async def generate_narration_script_plan(
             source_scope=_coverage_source_scope(request.source, episode=episode),
         )
         if violations:
-            async with ProjectManager(str(project_path.parent)).async_file_lock(draft_path):
+            async with ProjectManager.for_project_dir(project_path).async_file_lock(draft_path):
                 _assert_draft_revision(draft_path, draft_baseline)
                 report = await run_sync_transaction(
                     _quarantine_invalid_script_plan_generation,
@@ -1531,7 +1531,7 @@ async def generate_narration_script_plan(
                 )
             raise TextGenerationError(report)
 
-        async with ProjectManager(str(project_path.parent)).async_file_lock(draft_path):
+        async with ProjectManager.for_project_dir(project_path).async_file_lock(draft_path):
             _assert_draft_revision(draft_path, draft_baseline)
             try:
                 await run_sync_transaction(

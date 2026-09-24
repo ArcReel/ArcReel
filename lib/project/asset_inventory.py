@@ -84,7 +84,7 @@ def complete_asset_inventory(
         # conflict cannot leave stale definitions behind without a matching completion fact.
         from lib.project.data_validator import DataValidator
 
-        before_errors = set(DataValidator(str(pm.projects_root)).validate_project_payload(project).errors)
+        before_errors = set(DataValidator(str(pm.projects_dir)).validate_project_payload(project).errors)
         for bucket_name, bucket_entries in prepared.items():
             bucket = project.setdefault(bucket_name, {})
             if not isinstance(bucket, dict):
@@ -93,7 +93,7 @@ def complete_asset_inventory(
                 if resolve_asset_key(bucket, name) is not None:
                     continue
                 bucket[name] = entry
-        after_errors = set(DataValidator(str(pm.projects_root)).validate_project_payload(project).errors)
+        after_errors = set(DataValidator(str(pm.projects_dir)).validate_project_payload(project).errors)
         new_errors = after_errors - before_errors
         if new_errors:
             raise AssetInventoryInvalidRequest("invalid asset entries: " + "; ".join(sorted(new_errors)))

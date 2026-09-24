@@ -401,7 +401,7 @@ class EpisodePlanner:
         self.project_name = self.project_path.name
         self.generator = generator
         self.max_attempts = max_attempts
-        self.pm = ProjectManager(str(self.project_path.parent))
+        self.pm = ProjectManager.for_project_dir(self.project_path)
 
     @classmethod
     async def create(cls, project_path: str | Path) -> EpisodePlanner:

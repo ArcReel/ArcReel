@@ -12,7 +12,7 @@ from server.agent_runtime.sdk_tools import build_arcreel_mcp_server
 
 
 def test_build_arcreel_mcp_server_contains_all_tools(tmp_path: Path) -> None:
-    srv = build_arcreel_mcp_server(project_name="demo", projects_root=tmp_path)
+    srv = build_arcreel_mcp_server(project_name="demo", data_root=tmp_path)
     assert srv["name"] == "arcreel"
     # SDK exposes the registered tools on srv["instance"]; we just sanity-check
     # the type returned matches the spec contract.

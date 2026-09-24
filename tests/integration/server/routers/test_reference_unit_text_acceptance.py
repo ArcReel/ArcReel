@@ -222,7 +222,7 @@ def acceptance(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> _Acceptance:
         client=TestClient(app),
         pm=pm,
         project_dir=project_dir,
-        tool_ctx=ToolContext(project_name="demo", projects_root=projects_root, pm=pm),
+        tool_ctx=ToolContext(project_name="demo", data_root=projects_root, pm=pm),
     )
 
 

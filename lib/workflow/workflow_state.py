@@ -790,7 +790,7 @@ class WorkflowStateService:
                     )
                 )
                 return {"state": "blocked", "path": path}, [], kind, script
-        validation = DataValidator(str(self.pm.projects_root)).validate_episode_payload(
+        validation = DataValidator(str(self.pm.projects_dir)).validate_episode_payload(
             project_path,
             project,
             script,
@@ -1235,7 +1235,7 @@ class WorkflowStateService:
                     reason=str(exc),
                 )
             )
-        asset_validation = DataValidator(str(self.pm.projects_root)).validate_asset_definitions(project)
+        asset_validation = DataValidator(str(self.pm.projects_dir)).validate_asset_definitions(project)
         if not asset_validation.valid:
             blockers.append(
                 WorkflowBlocker(

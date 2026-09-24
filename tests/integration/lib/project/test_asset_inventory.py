@@ -162,7 +162,7 @@ async def test_complete_inventory_mcp_returns_machine_readable_result_and_confli
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     pm, project_path = _make_project(tmp_path)
-    ctx = ToolContext(project_name="demo", projects_root=tmp_path / "projects", pm=pm)
+    ctx = ToolContext(project_name="demo", data_root=tmp_path / "projects", pm=pm)
     tool = complete_asset_inventory_tool(ctx)
     offloads: list[tuple[object, tuple[object, ...]]] = []
 
@@ -194,7 +194,7 @@ async def test_complete_inventory_mcp_returns_machine_readable_result_and_confli
 
 async def test_complete_inventory_mcp_distinguishes_invalid_request_from_broken_workflow(tmp_path: Path) -> None:
     pm, project_path = _make_project(tmp_path)
-    ctx = ToolContext(project_name="demo", projects_root=tmp_path / "projects", pm=pm)
+    ctx = ToolContext(project_name="demo", data_root=tmp_path / "projects", pm=pm)
     tool = complete_asset_inventory_tool(ctx)
 
     invalid = await tool.handler({"scope": {"kind": "all", "files": []}, "expected_source_revision": "not-a-revision"})

@@ -9,6 +9,7 @@
 
 import argparse
 import json
+import os
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
@@ -174,7 +175,7 @@ def main():
     parser.add_argument("project", nargs="?", help="项目名称，或使用 --all 迁移所有项目")
     parser.add_argument("--all", action="store_true", help="迁移所有项目")
     parser.add_argument("--dry-run", action="store_true", help="预览模式，不实际执行")
-    parser.add_argument("--projects-root", default=None, help="项目根目录")
+    parser.add_argument("--projects-root", "--data-root", dest="data_root", default=None, help="数据根")
 
     args = parser.parse_args()
 
@@ -184,10 +185,10 @@ def main():
         sys.exit(1)
 
     # 初始化 ProjectManager
-    pm = ProjectManager(projects_root=args.projects_root)
+    pm = ProjectManager(args.data_root or os.environ.get("AI_ANIME_PROJECTS", "projects"))
 
     print("🚀 开始迁移...")
-    print(f"   项目根目录: {pm.projects_root}")
+    print(f"   项目目录: {pm.projects_dir}")
 
     if args.dry_run:
         print("   📋 预览模式已启用")

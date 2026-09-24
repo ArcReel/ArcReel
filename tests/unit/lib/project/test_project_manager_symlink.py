@@ -690,15 +690,15 @@ class TestRepairAllSymlinks:
 
     def test_repair_all_skips_hidden_dirs(self, env):
         pm, _, _ = env
-        (pm.projects_root / ".hidden").mkdir()
+        (pm.projects_dir / ".hidden").mkdir()
         stats = pm.sync_all_agent_profiles()
-        assert not (pm.projects_root / ".hidden" / ".claude").exists()
+        assert not (pm.projects_dir / ".hidden" / ".claude").exists()
         assert stats["aborted"] is False
 
     def test_repair_all_continues_on_single_project_failure(self, env, monkeypatch: pytest.MonkeyPatch):
         """单项目异常 → 其他项目继续；failed_projects 计数。"""
         pm, _, _ = env
-        (pm.projects_root / "proj2").mkdir()
+        (pm.projects_dir / "proj2").mkdir()
 
         original = pm.sync_agent_profile
 
@@ -712,7 +712,7 @@ class TestRepairAllSymlinks:
         stats = pm.sync_all_agent_profiles()
 
         assert stats["failed_projects"] == 1
-        assert (pm.projects_root / "proj2" / ".claude").is_dir()
+        assert (pm.projects_dir / "proj2" / ".claude").is_dir()
         assert stats["aborted"] is False
 
     def test_repair_all_aborts_on_profile_missing(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):

@@ -957,7 +957,7 @@ async def test_normalize_drama_script_rejects_an_empty_explicit_source(fake_ctx:
 async def test_normalize_drama_script_rejects_a_default_source_symlink_escape(fake_ctx: ToolContext) -> None:
     source_dir = fake_ctx.project_path / "source"
     source_dir.mkdir(parents=True)
-    outside = fake_ctx.projects_root / "outside.txt"
+    outside = fake_ctx.data_root / "outside.txt"
     outside.write_text("项目外内容", encoding="utf-8")
     (source_dir / "episode_1.txt").symlink_to(outside)
 

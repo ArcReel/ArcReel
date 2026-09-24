@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 from lib.infra import app_data_dir as app_data_dir_mod
-from lib.infra import logging_config
+from lib.infra import data_root_layout, logging_config
 
 
 @pytest.fixture(autouse=True)
@@ -126,7 +126,7 @@ def isolated_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterat
     project_root.mkdir()
     monkeypatch.setenv("ARCREEL_DATA_DIR", str(data_root))
     monkeypatch.delenv("ARCREEL_LOG_DIR", raising=False)
-    monkeypatch.setattr(logging_config, "PROJECT_ROOT", project_root)
+    monkeypatch.setattr(data_root_layout, "PROJECT_ROOT", project_root)
     app_data_dir_mod.reset_for_tests()
     yield tmp_path
     app_data_dir_mod.reset_for_tests()
@@ -148,7 +148,7 @@ def test_resolve_log_dir_relative_path_resolves_against_project_root(
     """相对路径 ARCREEL_LOG_DIR 必须基于 PROJECT_ROOT 解析。"""
     project_root = tmp_path / "repo"
     project_root.mkdir()
-    monkeypatch.setattr(logging_config, "PROJECT_ROOT", project_root)
+    monkeypatch.setattr(data_root_layout, "PROJECT_ROOT", project_root)
     monkeypatch.setenv("ARCREEL_LOG_DIR", "var/log/arcreel")
 
     assert logging_config.resolve_log_dir() == project_root / "var" / "log" / "arcreel"
@@ -268,7 +268,7 @@ def test_migrate_noop_when_paths_equal(tmp_path: Path, monkeypatch: pytest.Monke
     """ARCREEL_DATA_DIR == PROJECT_ROOT 时旧新路径解析到同一处，不要把目录自己 rename 到自己。"""
     monkeypatch.setenv("ARCREEL_DATA_DIR", str(tmp_path))
     monkeypatch.delenv("ARCREEL_LOG_DIR", raising=False)
-    monkeypatch.setattr(logging_config, "PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(data_root_layout, "PROJECT_ROOT", tmp_path)
     app_data_dir_mod.reset_for_tests()
     try:
         logs = tmp_path / "logs"

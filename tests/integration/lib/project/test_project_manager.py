@@ -999,27 +999,16 @@ class TestProjectManager:
         assert backend.last_request.prompt == build_overview_prompt(source_content, source_kind="novel")
 
 
-class TestFromCwd:
-    """Tests for ProjectManager.from_cwd() classmethod."""
+class TestForProjectDir:
+    """ProjectManager.for_project_dir() 由项目目录经数据根布局求出其所在数据根。"""
 
-    def test_from_cwd_infers_project(self, tmp_path, monkeypatch):
-        projects_root = tmp_path / "projects"
-        project_dir = projects_root / "my-proj"
-        project_dir.mkdir(parents=True)
-        (project_dir / "project.json").write_text("{}", encoding="utf-8")
+    def test_for_project_dir_addresses_the_project_by_name(self, tmp_path):
+        data_root = tmp_path / "projects"
+        project_dir = ProjectManager(data_root).create_project("my-proj")
 
-        monkeypatch.chdir(project_dir)
-        pm, name = ProjectManager.from_cwd()
-        assert name == "my-proj"
-        assert pm.projects_root == projects_root
-
-    def test_from_cwd_raises_when_no_project_json(self, tmp_path, monkeypatch):
-        project_dir = tmp_path / "projects" / "empty"
-        project_dir.mkdir(parents=True)
-
-        monkeypatch.chdir(project_dir)
-        with pytest.raises(FileNotFoundError, match="不是有效的项目目录"):
-            ProjectManager.from_cwd()
+        pm = ProjectManager.for_project_dir(project_dir)
+        assert pm.data_root == data_root
+        assert pm.get_project_path("my-proj") == project_dir
 
 
 class TestPathTraversalProtection:

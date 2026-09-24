@@ -10,9 +10,10 @@ import pytest
 from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
 
-from lib.agent.agent_memory_paths import project_memory_dir, user_memory_dir
+from lib.agent.agent_memory_paths import project_memory_dir
 from lib.agent.agent_memory_store import INDEX_FILENAME, MAX_FILE_BYTES
 from lib.i18n.zh import errors as zh_errors
+from lib.infra.data_root_layout import DataRootLayout
 from lib.project.project_manager import ProjectManager
 from lib.project.project_migration_failure import record_migration_failure
 from server.dependencies import require_project_migration_ok
@@ -55,7 +56,7 @@ def base(request):
 
 def memory_dir(base: str, projects_root):
     if base == USER_BASE:
-        return user_memory_dir(projects_root, "default")
+        return DataRootLayout(projects_root).user_memory_dir("default")
     return project_memory_dir(projects_root / "demo")
 
 
@@ -201,7 +202,7 @@ class TestProjectScoping:
         client.put(f"{PROJECT_BASE}/files/tone.md", content=b"body")
 
         assert (project_memory_dir(projects_root / "demo") / "tone.md").read_bytes() == b"body"
-        assert not user_memory_dir(projects_root, "default").exists()
+        assert not DataRootLayout(projects_root).user_memory_dir("default").exists()
 
     def test_user_memory_is_not_visible_from_the_project_route(self, client):
         client.put(f"{USER_BASE}/files/tone.md", content=b"body")

@@ -13,7 +13,7 @@ from tests.factories import make_test_video
 
 def _setup_project(pm: ProjectManager):
     """创建测试项目 + 剧本 + 视频"""
-    project_dir = pm.projects_root / "demo"
+    project_dir = pm.projects_dir / "demo"
     project_dir.mkdir(parents=True)
 
     videos_dir = project_dir / "videos"
@@ -134,7 +134,7 @@ class TestJianyingDraftExport:
     def test_no_videos_returns_422(self, tmp_path, monkeypatch):
         """无已完成视频返回 422"""
         pm = ProjectManager(tmp_path / "projects")
-        project_dir = pm.projects_root / "empty"
+        project_dir = pm.projects_dir / "empty"
         project_dir.mkdir(parents=True)
 
         (project_dir / "project.json").write_text(

@@ -32,7 +32,7 @@ def _build_fake_ctx(tmp_path: Path, session_factory, monkeypatch: pytest.MonkeyP
     queue = GenerationQueue(session_factory=session_factory)
     return ToolContext(
         project_name="demo",
-        projects_root=tmp_path,
+        data_root=tmp_path,
         pm=FakePM("demo", project_dir),
         queue=queue,
         config_resolver=fake_caps_resolver(),

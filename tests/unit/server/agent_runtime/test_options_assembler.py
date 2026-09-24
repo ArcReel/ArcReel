@@ -14,8 +14,9 @@ from unittest.mock import patch
 
 import pytest
 
-from lib.agent.agent_memory_paths import project_memory_dir, user_memory_dir
+from lib.agent.agent_memory_paths import project_memory_dir
 from lib.db.base import DEFAULT_USER_ID
+from lib.infra.data_root_layout import DataRootLayout
 from server.agent_runtime.agent_access_policy import AgentAccessPolicy
 from server.agent_runtime.options_assembler import (
     CLI_STDOUT_MAX_BUFFER_BYTES,
@@ -32,7 +33,7 @@ _SETTING_SOURCES = ["project"]
 def _make_policy(tmp_path: Path, *, sandbox_enabled: bool = True) -> AgentAccessPolicy:
     return AgentAccessPolicy(
         project_root=(tmp_path / "repo").resolve(),
-        projects_root=(tmp_path / "projects").resolve(),
+        data_root=(tmp_path / "projects").resolve(),
         agent_profile_root=(tmp_path / "profile").resolve(),
         log_dir=(tmp_path / "logs").resolve(),
         sandbox_enabled=sandbox_enabled,
@@ -53,7 +54,7 @@ def _make_assembler(
     (projects_root / "demo").mkdir(exist_ok=True)
     resolved_policy = policy or _make_policy(tmp_path)
     return OptionsAssembler(
-        projects_root=projects_root,
+        data_root=projects_root,
         allowed_tools=_ALLOWED_TOOLS,
         setting_sources=_SETTING_SOURCES,
         access_policy_provider=lambda: resolved_policy,
@@ -284,7 +285,7 @@ async def test_build_settings_redirects_auto_memory_to_project_memory_dir(tmp_pa
 async def test_append_prompt_carries_user_memory_dir_and_index(tmp_path: Path) -> None:
     """用户记忆段给出目录绝对路径、两级分流规则与索引全文。"""
     assembler = _make_assembler(tmp_path)
-    memory_dir = user_memory_dir((tmp_path / "projects").resolve(), DEFAULT_USER_ID)
+    memory_dir = DataRootLayout((tmp_path / "projects").resolve()).user_memory_dir(DEFAULT_USER_ID)
     memory_dir.mkdir(parents=True)
     (memory_dir / "MEMORY.md").write_text("- [配音偏好](voice.md) — 固定用女声\n", encoding="utf-8")
 
@@ -302,7 +303,7 @@ async def test_append_prompt_carries_user_memory_dir_and_index(tmp_path: Path) -
 async def test_append_prompt_omits_index_when_user_memory_absent(tmp_path: Path) -> None:
     """目录不存在：段落照给（Agent 要知道该往哪写），索引要点省略，且不建目录。"""
     assembler = _make_assembler(tmp_path)
-    memory_dir = user_memory_dir((tmp_path / "projects").resolve(), DEFAULT_USER_ID)
+    memory_dir = DataRootLayout((tmp_path / "projects").resolve()).user_memory_dir(DEFAULT_USER_ID)
 
     prompt = await assembler._build_append_prompt("demo")
 
@@ -315,7 +316,7 @@ async def test_append_prompt_omits_index_when_user_memory_absent(tmp_path: Path)
 async def test_append_prompt_omits_index_when_user_memory_index_blank(tmp_path: Path) -> None:
     """索引存在但只有空白：省略索引要点，不注入一段空索引。"""
     assembler = _make_assembler(tmp_path)
-    memory_dir = user_memory_dir((tmp_path / "projects").resolve(), DEFAULT_USER_ID)
+    memory_dir = DataRootLayout((tmp_path / "projects").resolve()).user_memory_dir(DEFAULT_USER_ID)
     memory_dir.mkdir(parents=True)
     (memory_dir / "MEMORY.md").write_text("\n   \n", encoding="utf-8")
 
@@ -329,7 +330,7 @@ async def test_append_prompt_omits_index_when_user_memory_index_blank(tmp_path: 
 async def test_append_prompt_truncates_user_memory_index_over_line_limit(tmp_path: Path) -> None:
     """索引超 200 行：只注入前 200 行并附超限提示。"""
     assembler = _make_assembler(tmp_path)
-    memory_dir = user_memory_dir((tmp_path / "projects").resolve(), DEFAULT_USER_ID)
+    memory_dir = DataRootLayout((tmp_path / "projects").resolve()).user_memory_dir(DEFAULT_USER_ID)
     memory_dir.mkdir(parents=True)
     (memory_dir / "MEMORY.md").write_text("\n".join(f"- 第 {i} 条" for i in range(300)), encoding="utf-8")
 
@@ -344,7 +345,7 @@ async def test_append_prompt_truncates_user_memory_index_over_line_limit(tmp_pat
 async def test_append_prompt_truncates_user_memory_index_over_byte_limit(tmp_path: Path) -> None:
     """索引行数不超但字节超 25 000：按最后一个换行截断并附超限提示。"""
     assembler = _make_assembler(tmp_path)
-    memory_dir = user_memory_dir((tmp_path / "projects").resolve(), DEFAULT_USER_ID)
+    memory_dir = DataRootLayout((tmp_path / "projects").resolve()).user_memory_dir(DEFAULT_USER_ID)
     memory_dir.mkdir(parents=True)
     # 10 行 × 每行 3 000 余字节（中文 3 字节/字）≈ 30 KB，行数远在 200 以内
     index = "\n".join(f"- 第 {i} 条：" + "记" * 1000 for i in range(10))
@@ -362,7 +363,7 @@ async def test_append_prompt_truncates_user_memory_index_over_byte_limit(tmp_pat
 async def test_append_prompt_omits_index_when_user_memory_index_not_utf8(tmp_path: Path) -> None:
     """索引不是 UTF-8（用户用别的编码存回）：省略索引要点，会话照常装配。"""
     assembler = _make_assembler(tmp_path)
-    memory_dir = user_memory_dir((tmp_path / "projects").resolve(), DEFAULT_USER_ID)
+    memory_dir = DataRootLayout((tmp_path / "projects").resolve()).user_memory_dir(DEFAULT_USER_ID)
     memory_dir.mkdir(parents=True)
     (memory_dir / "MEMORY.md").write_bytes("- [配音偏好](voice.md) — 固定用女声\n".encode("gbk"))
 

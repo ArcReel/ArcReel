@@ -9,8 +9,7 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
-from lib.infra.app_data_dir import app_data_dir
-from lib.infra.logging_config import resolve_log_dir
+from lib.infra.data_root_layout import DataRootLayout
 from lib.infra.logging_utils import _redact_value
 
 _UNAVAILABLE = "<unavailable: {exc}>"
@@ -52,18 +51,20 @@ def _os_info() -> str:
 
 
 def _data_dir() -> str:
-    return str(app_data_dir())
+    return str(DataRootLayout.current().root)
 
 
 def _log_dir() -> str:
-    return str(resolve_log_dir())
+    return str(DataRootLayout.current().log_dir)
 
 
 _SENSITIVE_QUERY_KEYS = frozenset({"password", "passwd", "pwd", "token", "secret", "api_key", "apikey"})
 
 
 def _db_url() -> str:
-    raw = os.environ.get("DATABASE_URL", "sqlite+aiosqlite:///./projects/.arcreel.db")
+    from lib.db.engine import get_database_url
+
+    raw = get_database_url()
     try:
         parsed = urlparse(raw)
         netloc = parsed.netloc

@@ -174,7 +174,7 @@ def _project_scope(project: str, projects: ProjectManager) -> ProjectScope:
     projects.get_project_path(project_name)
     if not projects.project_exists(project_name):
         raise FileNotFoundError(f"项目 '{project_name}' 缺少 project.json")
-    return ProjectScope(project_name=project_name, projects_root=projects.projects_root)
+    return ProjectScope(project_name=project_name, data_root=projects.data_root)
 
 
 def _media_outcome_to_mcp(definition: ToolDefinition, outcome: ToolOutcome[Any]) -> CallToolResult:
@@ -295,7 +295,7 @@ def build_remote_mcp_server(
 ) -> FastMCP:
     """Build one restart-safe MCP server instance for the host lifespan."""
     if services is not None:
-        if projects is not None and projects.projects_root.resolve() != services.projects.projects_root.resolve():
+        if projects is not None and projects.data_root.resolve() != services.projects.data_root.resolve():
             raise ValueError("projects 与 services.projects 必须属于同一项目根")
         projects = services.projects
     else:
@@ -306,7 +306,7 @@ def build_remote_mcp_server(
         scope = _project_scope(project, projects)
         return ToolContext(
             project_name=scope.project_name,
-            projects_root=scope.projects_root,
+            data_root=scope.data_root,
             pm=projects,
             config_resolver=services.capabilities,
             caller=_authenticated_caller(),
@@ -331,7 +331,7 @@ def build_remote_mcp_server(
 
     schema_context = ToolContext(
         project_name="schema",
-        projects_root=projects.projects_root,
+        data_root=projects.data_root,
         pm=projects,
         config_resolver=services.capabilities,
         caller=CallerContext(user_id=DEFAULT_USER_ID, source="mcp"),

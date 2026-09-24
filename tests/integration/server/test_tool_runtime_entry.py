@@ -64,7 +64,7 @@ async def test_entry_handlers_create_list_and_upload_a_readable_source(tmp_path:
         services,
     )
     projects = await list_projects(ToolRequest(None), caller, services)
-    scope = ProjectScope(project_name="demo", projects_root=services.projects.projects_root)
+    scope = ProjectScope(project_name="demo", data_root=services.projects.data_root)
     uploaded = await upload_source(
         ToolRequest(UploadSourceRequest(filename="novel.txt", content="第一章\n你好")),
         scope,
@@ -197,7 +197,7 @@ async def test_entry_handlers_return_typed_problems(tmp_path: Path) -> None:
 
     missing = await upload_source(
         ToolRequest(UploadSourceRequest(filename="novel.txt", content="hello")),
-        ProjectScope(project_name="missing", projects_root=services.projects.projects_root),
+        ProjectScope(project_name="missing", data_root=services.projects.data_root),
         caller,
         services,
     )
@@ -224,7 +224,7 @@ async def test_upload_source_rejects_unsafe_or_non_text_filenames(
 
     outcome = await upload_source(
         ToolRequest(UploadSourceRequest(filename=filename, content="hello")),
-        ProjectScope(project_name="demo", projects_root=services.projects.projects_root),
+        ProjectScope(project_name="demo", data_root=services.projects.data_root),
         caller,
         services,
     )
@@ -245,7 +245,7 @@ async def test_upload_source_rejects_symlinked_source_directory(tmp_path: Path) 
 
     outcome = await upload_source(
         ToolRequest(UploadSourceRequest(filename="novel.txt", content="hello")),
-        ProjectScope(project_name="demo", projects_root=services.projects.projects_root),
+        ProjectScope(project_name="demo", data_root=services.projects.data_root),
         CallerContext(user_id="test", source="mcp"),
         services,
     )
@@ -262,7 +262,7 @@ async def test_upload_source_respects_migration_failure_gate(tmp_path: Path) -> 
 
     outcome = await upload_source(
         ToolRequest(UploadSourceRequest(filename="novel.txt", content="hello")),
-        ProjectScope(project_name="demo", projects_root=services.projects.projects_root),
+        ProjectScope(project_name="demo", data_root=services.projects.data_root),
         CallerContext(user_id="test", source="mcp"),
         services,
     )
@@ -299,7 +299,7 @@ async def test_upload_source_settles_write_before_propagating_cancellation(tmp_p
     task = asyncio.create_task(
         upload_source(
             ToolRequest(UploadSourceRequest(filename="novel.txt", content="hello")),
-            ProjectScope(project_name="demo", projects_root=projects.projects_root),
+            ProjectScope(project_name="demo", data_root=projects.data_root),
             CallerContext(user_id="test", source="mcp"),
             services,
         )
@@ -322,7 +322,7 @@ async def test_reset_episode_planning_settles_write_before_propagating_cancellat
     services = _services(tmp_path)
     services.projects.create_project("demo")
     services.projects.create_project_metadata("demo", "Demo")
-    scope = ProjectScope(project_name="demo", projects_root=services.projects.projects_root)
+    scope = ProjectScope(project_name="demo", data_root=services.projects.data_root)
     caller = CallerContext(user_id="test", source="mcp")
     started = threading.Event()
     release = threading.Event()
@@ -360,7 +360,7 @@ async def test_rename_asset_settles_write_before_propagating_cancellation(tmp_pa
     services = _services(tmp_path)
     services.projects.create_project("demo")
     services.projects.create_project_metadata("demo", "Demo")
-    scope = ProjectScope(project_name="demo", projects_root=services.projects.projects_root)
+    scope = ProjectScope(project_name="demo", data_root=services.projects.data_root)
     started = threading.Event()
     release = threading.Event()
     finished = threading.Event()
@@ -397,7 +397,7 @@ async def test_retry_migration_settles_write_before_propagating_cancellation(tmp
     services = _services(tmp_path)
     services.projects.create_project("demo")
     services.projects.create_project_metadata("demo", "Demo")
-    scope = ProjectScope(project_name="demo", projects_root=services.projects.projects_root)
+    scope = ProjectScope(project_name="demo", data_root=services.projects.data_root)
     started = threading.Event()
     release = threading.Event()
     finished = threading.Event()

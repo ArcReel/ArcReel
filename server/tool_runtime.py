@@ -174,7 +174,7 @@ class ToolRequest[RequestT]:
 @dataclass(frozen=True, slots=True)
 class ProjectScope:
     project_name: str
-    projects_root: Path
+    data_root: Path
 
 
 @dataclass(frozen=True, slots=True)
@@ -471,7 +471,7 @@ async def _submit_text_task(
             task_type=task_type,
             media_type="text",
             resource_id=unit_id,
-            payload={**payload, "projects_root": str(scope.projects_root)},
+            payload={**payload, "projects_root": str(scope.data_root)},
             source=caller.source,
             user_id=caller.user_id,
             batch_id=batch_id,
@@ -1029,7 +1029,7 @@ def _draft_workflow(scope: ProjectScope, services: Services) -> DraftWorkflow:
     return DraftWorkflow(
         DraftContext(
             project_name=scope.project_name,
-            projects_root=scope.projects_root,
+            data_root=scope.data_root,
             pm=services.projects,
             config_resolver=services.capabilities,
         )
@@ -1873,10 +1873,10 @@ async def execute_queued_text_task(
 ) -> dict[str, Any]:
     """Execute one durable text task through the same host-independent handlers."""
     payload = task.get("payload") or {}
-    scope = ProjectScope(project_name=str(task["project_name"]), projects_root=Path(payload["projects_root"]))
+    scope = ProjectScope(project_name=str(task["project_name"]), data_root=Path(payload["projects_root"]))
     services = _TEXT_TASK_SERVICES.pop(str(task["task_id"]), None)
     if services is None:
-        projects = ProjectManager(str(payload["projects_root"]))
+        projects = ProjectManager(scope.data_root)
         services = Services(
             projects=projects,
             workflow_planner=WorkflowPlanner(projects),

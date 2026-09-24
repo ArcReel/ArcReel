@@ -119,7 +119,7 @@ class SystemConfigPaths:
     vertex_credentials_path: Path
 
 
-def resolve_vertex_credentials_path(project_root: Path | None = None) -> Path | None:
+def resolve_vertex_credentials_path(data_root: Path | None = None) -> Path | None:
     """
     Resolve the Vertex credentials JSON file to use.
 
@@ -127,17 +127,15 @@ def resolve_vertex_credentials_path(project_root: Path | None = None) -> Path | 
     back to the first ``*.json`` file in ``<credentials_dir>/`` for legacy
     layouts.
 
-    ``credentials_dir`` defaults to ``app_data_dir().parent / "vertex_keys"``,
+    ``credentials_dir`` is the Vertex credentials directory given by the data
+    root layout (the configured data root unless ``data_root`` is passed),
     matching where :func:`server.routers.providers.upload_vertex_credential`
-    writes uploads. Pass ``project_root`` to override (legacy migration path:
-    ``project_root / "vertex_keys"``).
+    writes uploads.
     """
-    if project_root is None:
-        from lib.infra.app_data_dir import app_data_dir
+    from lib.infra.data_root_layout import DataRootLayout
 
-        credentials_dir = app_data_dir().parent / "vertex_keys"
-    else:
-        credentials_dir = Path(project_root) / "vertex_keys"
+    layout = DataRootLayout.current() if data_root is None else DataRootLayout(Path(data_root))
+    credentials_dir = layout.vertex_keys_dir
     preferred = credentials_dir / "vertex_credentials.json"
     if preferred.exists():
         return preferred
@@ -156,10 +154,13 @@ class SystemConfigManager:
     """
 
     def __init__(self, project_root: Path):
+        from lib.infra.data_root_layout import DataRootLayout
+
         self.project_root = Path(project_root)
+        layout = DataRootLayout(self.project_root / "projects")
         self.paths = SystemConfigPaths(
-            config_path=(self.project_root / "projects" / ".system_config.json"),
-            vertex_credentials_path=(self.project_root / "vertex_keys" / "vertex_credentials.json"),
+            config_path=layout.system_config_json_path,
+            vertex_credentials_path=layout.vertex_keys_dir / "vertex_credentials.json",
         )
         self._lock = threading.Lock()
 

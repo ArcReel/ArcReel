@@ -176,7 +176,7 @@ async def test_retry_tool_returns_details_then_unblocks_once_repaired(tmp_path: 
     _break_episode_script(project_dir)
     assert migrate_project_with_verdict(project_dir) is not None
 
-    ctx = ToolContext(project_name="demo", projects_root=projects_root, pm=ProjectManager(str(projects_root)))
+    ctx = ToolContext(project_name="demo", data_root=projects_root, pm=ProjectManager(str(projects_root)))
     handler = retry_project_migration_tool(ctx).handler
 
     blocked = await handler({})
@@ -259,7 +259,7 @@ async def test_retry_success_uses_caller_scoped_queue_and_capabilities(tmp_path:
 
     outcome = await retry_project_migration(
         ToolRequest(None),
-        ProjectScope(project_name="demo", projects_root=projects_root),
+        ProjectScope(project_name="demo", data_root=projects_root),
         CallerContext(user_id="tenant-user", source="mcp"),
         services,
     )
@@ -314,7 +314,7 @@ async def test_readonly_diagnostic_tools_report_the_migration_problem_instead_of
     failure = migrate_project_with_verdict(project_dir)
     assert failure is not None
 
-    ctx = ToolContext(project_name="demo", projects_root=projects_root, pm=ProjectManager(str(projects_root)))
+    ctx = ToolContext(project_name="demo", data_root=projects_root, pm=ProjectManager(str(projects_root)))
     handler = tool_factory(ctx).handler
 
     blocked = await handler(args)
@@ -349,7 +349,7 @@ async def test_mcp_generation_tools_report_the_same_problem_without_running(tmp_
 
     pm = ProjectManager(str(projects_root))
     monkeypatch.setattr(guard, "get_project_manager", lambda: pm)
-    ctx = sdk_tools.ToolContext(project_name="demo", projects_root=projects_root, pm=pm)
+    ctx = sdk_tools.ToolContext(project_name="demo", data_root=projects_root, pm=pm)
     ran = False
 
     @tool("generate_storyboards", "stub", {"type": "object", "properties": {}})
@@ -397,7 +397,7 @@ async def test_script_edit_mcp_tools_refuse_at_registration_on_a_migration_block
 
     pm = ProjectManager(str(projects_root))
     monkeypatch.setattr(guard, "get_project_manager", lambda: pm)
-    ctx = sdk_tools.ToolContext(project_name="demo", projects_root=projects_root, pm=pm)
+    ctx = sdk_tools.ToolContext(project_name="demo", data_root=projects_root, pm=pm)
 
     sdk_tool = tool_factory(ctx)
     assert sdk_tool.name in sdk_tools.MIGRATION_BLOCKED_TOOL_IDS
@@ -429,7 +429,7 @@ async def test_mcp_guard_reads_the_session_projects_root_not_the_global_one(tmp_
     assert migrate_project_with_verdict(global_dir) is not None
 
     monkeypatch.setattr(guard, "get_project_manager", lambda: ProjectManager(str(global_root)))
-    ctx = sdk_tools.ToolContext(project_name="demo", projects_root=session_root, pm=ProjectManager(str(session_root)))
+    ctx = sdk_tools.ToolContext(project_name="demo", data_root=session_root, pm=ProjectManager(str(session_root)))
     ran = False
 
     @tool("generate_storyboards", "stub", {"type": "object", "properties": {}})

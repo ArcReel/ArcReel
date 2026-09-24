@@ -105,7 +105,7 @@ async def test_all_text_long_calls_submit_single_member_batches(
         capabilities=ConfigResolver(async_session_factory),
         queue=queue,
     )
-    scope = ProjectScope(project_name=project_name, projects_root=projects.projects_root)
+    scope = ProjectScope(project_name=project_name, data_root=projects.data_root)
     caller = CallerContext(user_id=DEFAULT_USER_ID, source="mcp")
     if handler == "script":
         outcome = await generate_episode_script(ToolRequest(TextGenerationRequest(episode=1)), scope, caller, services)
@@ -142,7 +142,7 @@ async def test_text_mcp_rejects_lost_worker_lease_without_persisting_queue_state
 
     outcome = await generate_script_plan(
         ToolRequest(TextGenerationRequest(episode=1)),
-        ProjectScope(project_name="drama", projects_root=projects.projects_root),
+        ProjectScope(project_name="drama", data_root=projects.data_root),
         CallerContext(user_id=DEFAULT_USER_ID, source="mcp"),
         services,
     )
@@ -171,7 +171,7 @@ async def test_text_mcp_migration_rejection_cleans_only_the_fresh_batch(
         queue=queue,
     )
     request = ToolRequest(TextGenerationRequest(episode=1))
-    scope = ProjectScope(project_name="drama", projects_root=projects.projects_root)
+    scope = ProjectScope(project_name="drama", data_root=projects.data_root)
     caller = CallerContext(user_id=DEFAULT_USER_ID, source="mcp")
     submitted = await generate_script_plan(request, scope, caller, services)
     assert submitted.value is not None
@@ -239,7 +239,7 @@ async def test_text_submission_cancellation_only_cleans_a_fresh_batch(
         resource_id="episode-1" if cancel_state == "membership" else "old",
         # payload 取请求对象自己的投影：本用例的 membership 变体要让新提交与这条在跑任务
         # 判成同一件事，两边的事实必须逐字段相同，写死字面量会随请求字段增删而失效。
-        payload=TextGenerationRequest(episode=1).to_payload() | {"projects_root": str(projects.projects_root)},
+        payload=TextGenerationRequest(episode=1).to_payload() | {"projects_root": str(projects.data_root)},
         batch_id=historical_batch_id,
         batch_unit_id="episode-1" if cancel_state == "membership" else "old",
     )
@@ -253,7 +253,7 @@ async def test_text_submission_cancellation_only_cleans_a_fresh_batch(
     submission = asyncio.create_task(
         generate_script_plan(
             ToolRequest(TextGenerationRequest(episode=1)),
-            ProjectScope(project_name="drama", projects_root=projects.projects_root),
+            ProjectScope(project_name="drama", data_root=projects.data_root),
             CallerContext(user_id=DEFAULT_USER_ID, source=source),
             services,
         )
@@ -294,7 +294,7 @@ async def test_queued_plan_ignores_internal_payload_and_preserves_typed_failure(
         "task_id": "task-plan",
         "project_name": "planning",
         "task_type": "text_episode_plan",
-        "payload": {"instructions": "按章节", "projects_root": str(projects.projects_root)},
+        "payload": {"instructions": "按章节", "projects_root": str(projects.data_root)},
     }
 
     class Planner:
@@ -392,7 +392,7 @@ async def test_cancel_during_started_episode_script_commit_leaves_member_running
     try:
         submitted = await generate_episode_script(
             ToolRequest(TextGenerationRequest(episode=1)),
-            ProjectScope(project_name="script", projects_root=projects.projects_root),
+            ProjectScope(project_name="script", data_root=projects.data_root),
             CallerContext(user_id=DEFAULT_USER_ID, source="mcp"),
             services,
         )
@@ -452,7 +452,7 @@ async def test_cancel_during_started_episode_plan_commit_leaves_member_running_t
 
     async def create_planner(_cls, path):
         planner = EpisodePlanner(path, generator=Generator())
-        planner.pm = BlockingProjectManager(projects.projects_root)
+        planner.pm = BlockingProjectManager(projects.data_root)
         return planner
 
     monkeypatch.setattr(EpisodePlanner, "create", classmethod(create_planner))
@@ -472,7 +472,7 @@ async def test_cancel_during_started_episode_plan_commit_leaves_member_running_t
     try:
         submitted = await plan_episodes(
             ToolRequest(PlanEpisodesRequest()),
-            ProjectScope(project_name="planning", projects_root=projects.projects_root),
+            ProjectScope(project_name="planning", data_root=projects.data_root),
             CallerContext(user_id=DEFAULT_USER_ID, source="mcp"),
             services,
         )
@@ -569,7 +569,7 @@ async def test_cancel_during_invalid_script_plan_quarantine_leaves_member_runnin
     try:
         submitted = await generate_script_plan(
             ToolRequest(TextGenerationRequest(episode=1)),
-            ProjectScope(project_name=project_name, projects_root=projects.projects_root),
+            ProjectScope(project_name=project_name, data_root=projects.data_root),
             CallerContext(user_id=DEFAULT_USER_ID, source="mcp"),
             services,
         )

@@ -38,7 +38,7 @@ async def test_sdk_batch_tools_are_project_bound_and_use_the_durable_queue(db_fa
     projects = ProjectManager(tmp_path / "projects")
     projects.create_project("demo")
     projects.create_project_metadata("demo")
-    ctx = ToolContext("demo", projects.projects_root, projects, queue=queue)
+    ctx = ToolContext("demo", projects.data_root, projects, queue=queue)
 
     get_tool = get_generation_batch_tool(ctx)
     assert get_tool.name == "get_generation_batch"
@@ -106,7 +106,7 @@ async def test_sdk_cancel_tool_leaves_running_member_to_finish(db_factory, tmp_p
     projects = ProjectManager(tmp_path / "projects")
     projects.create_project("demo")
     projects.create_project_metadata("demo")
-    ctx = ToolContext("demo", projects.projects_root, projects, queue=queue)
+    ctx = ToolContext("demo", projects.data_root, projects, queue=queue)
 
     cancelled = await cancel_generation_batch_tool(ctx).handler({"batch_id": batch_id})
 

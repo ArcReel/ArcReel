@@ -440,14 +440,14 @@ class TestProjectEventService:
             await service.shutdown()
 
     @pytest.mark.asyncio
-    async def test_projects_root_kwarg_overrides_default_subdir(self, tmp_path):
-        """显式传 projects_root 时（生产入口传 ``app_data_dir()``），事件流读的是该目录下的项目。"""
+    async def test_data_root_kwarg_overrides_default_subdir(self, tmp_path):
+        """显式传 data_root 时（生产入口传配置的数据根），事件流读的是该数据根下的项目。"""
         custom_projects = tmp_path / "external-data"
         pm = ProjectManager(custom_projects)
         pm.create_project("demo")
         pm.create_project_metadata("demo", "Demo", "Anime", "narration")
 
-        service = ProjectEventService(tmp_path, projects_root=custom_projects, poll_interval=30.0)
+        service = ProjectEventService(tmp_path, data_root=custom_projects, poll_interval=30.0)
         await service.start()
 
         try:

@@ -14,6 +14,7 @@ import pytest
 
 from lib.agent.agent_session_store import make_project_key
 from lib.agent.agent_session_store.store import DbSessionStore
+from lib.infra.data_root_layout import DataRootLayout
 from lib.project.project_manager import ProjectManager
 from server.agent_runtime.event_log import EventLogService, EventLogStore
 from server.agent_runtime.sdk_transcript_adapter import SdkTranscriptAdapter
@@ -118,7 +119,8 @@ async def rewriting(session_factory, tmp_path):
     project_cwd.mkdir(parents=True)
 
     service = AssistantService(project_root=tmp_path)
-    service.projects_root = projects_root
+    service.layout = DataRootLayout(projects_root)
+    service.data_root = projects_root
     service.pm = ProjectManager(projects_root)
 
     store = DbSessionStore(session_factory)
@@ -387,7 +389,7 @@ class TestRewriteRejections:
 
     async def test_session_from_another_project_is_not_found(self, rewriting):
         service, _, session_id, _ = rewriting
-        (service.projects_root / "other").mkdir()
+        (service.layout.projects_dir / "other").mkdir()
 
         with pytest.raises(FileNotFoundError):
             await service.rewrite_message(

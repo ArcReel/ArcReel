@@ -11,7 +11,13 @@
 
 import argparse
 import json
+import sys
 from pathlib import Path
+
+# 添加仓库根目录到 Python 路径
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from lib.infra.data_root_layout import DataRootLayout
 
 
 def migrate_project(project_dir: Path, dry_run: bool = False) -> dict:
@@ -106,13 +112,14 @@ def migrate_project(project_dir: Path, dry_run: bool = False) -> dict:
 def main():
     parser = argparse.ArgumentParser(description="清理项目中的冗余字段")
     parser.add_argument("--dry-run", action="store_true", help="仅预览不修改")
-    parser.add_argument("--projects-root", default="projects", help="项目根目录")
+    parser.add_argument("--projects-root", "--data-root", dest="data_root", default="projects", help="数据根")
     args = parser.parse_args()
 
-    projects_root = Path(args.projects_root)
+    layout = DataRootLayout(Path(args.data_root))
+    projects_dir = layout.projects_dir
 
-    if not projects_root.exists():
-        print(f"❌ 项目根目录不存在: {projects_root}")
+    if not projects_dir.exists():
+        print(f"❌ 项目目录不存在: {projects_dir}")
         return
 
     if args.dry_run:
@@ -120,7 +127,7 @@ def main():
 
     total_stats = {"projects_processed": 0, "projects_cleaned": 0, "scripts_cleaned": 0, "fields_removed": []}
 
-    for project_dir in projects_root.iterdir():
+    for project_dir in projects_dir.iterdir():
         if project_dir.is_dir() and not project_dir.name.startswith("."):
             print(f"处理项目: {project_dir.name}")
             stats = migrate_project(project_dir, args.dry_run)

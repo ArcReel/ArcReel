@@ -83,7 +83,7 @@ async def test_repeated_host_submission_reuses_the_paid_task(
         unit_id="E1S01",
     )
     kwargs = {
-        "scope": ProjectScope(project_name="demo", projects_root=tmp_path),
+        "scope": ProjectScope(project_name="demo", data_root=tmp_path),
         "caller": CallerContext(user_id="default", source=source),
         "services": services,
         "operation": "generate_storyboards",
@@ -121,7 +121,7 @@ async def test_embedded_submission_keeps_non_default_user_on_batch_and_task(sess
     )
 
     submission = await submit_media_generation(
-        scope=ProjectScope(project_name="demo", projects_root=tmp_path),
+        scope=ProjectScope(project_name="demo", data_root=tmp_path),
         caller=CallerContext(user_id="embedded-user", source="embedded"),
         services=services,
         operation="generate_storyboards",
@@ -199,7 +199,7 @@ async def test_media_submission_cancellation_only_cleans_a_fresh_batch(
 
     submission = asyncio.create_task(
         submit_media_generation(
-            scope=ProjectScope(project_name="demo", projects_root=tmp_path),
+            scope=ProjectScope(project_name="demo", data_root=tmp_path),
             caller=CallerContext(user_id="default", source=source),
             services=services,
             operation="generate_storyboards",

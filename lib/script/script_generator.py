@@ -299,7 +299,7 @@ class ScriptGenerator:
         ``entry_ids`` 为空时取全部带待编写标记的条目；非空时只取这些条目（不论是否待编写），
         其中任一 id 不在正式脚本里即抛 ``PromptAuthoringTargetError``。不读脚本规划。
         """
-        pm = ProjectManager(str(self.project_path.parent))
+        pm = ProjectManager.for_project_dir(self.project_path)
         try:
             script = pm.load_script_readonly(self.project_path.name, filename)
         except FileNotFoundError:
@@ -438,7 +438,7 @@ class ScriptGenerator:
         )
         authored = self._merge_visual_layer(targets, self._parse_visual_layer(result.text, targets), episode)
         script_data = self._authored_script(episode, targets, authored)
-        pm = ProjectManager(str(self.project_path.parent))
+        pm = ProjectManager.for_project_dir(self.project_path)
         saved_path = await run_sync_transaction(
             pm.save_script,
             self.project_path.name,
@@ -627,7 +627,7 @@ class ScriptGenerator:
         if plan_path is None:
             raise FileNotFoundError(f"第 {episode} 集不适用脚本规划")
         claim = self._script_plan_input_claim
-        pm = ProjectManager(str(self.project_path.parent))
+        pm = ProjectManager.for_project_dir(self.project_path)
 
         def _commit() -> None:
             # 持脚本规划锁复核指纹后落盘：加载之后被保存、重跑或晋升改写的脚本规划不能以旧内容物化，
@@ -751,7 +751,7 @@ class ScriptGenerator:
         # 经写盘统一入口保存：整集生成无「改前」，按严格结构校验（等价原 response_schema 的
         # Pydantic 校验），并继承 metadata 重算、加锁、filename↔episode 一致性与 project.json
         # 同步——消除「裸 json.dump 旁路」，使 _write_script_unlocked 成为剧本唯一写入点。
-        pm = ProjectManager(str(self.project_path.parent))
+        pm = ProjectManager.for_project_dir(self.project_path)
         output_path = await run_sync_transaction(
             pm.save_script,
             self.project_path.name,
@@ -1088,7 +1088,7 @@ class ScriptGenerator:
                 "请先完成 video_unit 拆分"
             )
 
-        pm = ProjectManager(str(self.project_path.parent))
+        pm = ProjectManager.for_project_dir(self.project_path)
         # 与 server.services.project.script_review / save_content 共享同一把 per-path 锁：
         # 迁移的读改写与 Web 端保存、重拆分写盘相互互斥。
         prompt_authoring_path = quarantine_path(self.project_path, episode, QUARANTINE_KIND_PROMPT_AUTHORING)
@@ -1549,7 +1549,7 @@ class ScriptGenerator:
         if problems:
             raise ValueError("提示词编写产出的单元正文不合规：" + "；".join(problems))
         script_data = self._authored_script(episode, targets, authored)
-        pm = ProjectManager(str(self.project_path.parent))
+        pm = ProjectManager.for_project_dir(self.project_path)
         output_path = await run_sync_transaction(
             pm.save_script,
             self.project_path.name,
@@ -1629,7 +1629,7 @@ class ScriptGenerator:
         formal_path = (
             self.project_path / "scripts" / formal_script_filename(self.project_path, self.project_json, episode)
         )
-        pm = ProjectManager(str(self.project_path.parent))
+        pm = ProjectManager.for_project_dir(self.project_path)
         with pm.file_lock(draft_path), pm.file_lock(formal_path):
             current = read_quarantine(self.project_path, episode, QUARANTINE_KIND_PROMPT_AUTHORING)
             actual_draft_revision = draft_revision(current) if current is not None else None
@@ -1659,7 +1659,7 @@ class ScriptGenerator:
 
     def _reference_prompt_authoring_draft_revision(self, episode: int) -> str | None:
         path = quarantine_path(self.project_path, episode, QUARANTINE_KIND_PROMPT_AUTHORING)
-        with ProjectManager(str(self.project_path.parent)).file_lock(path):
+        with ProjectManager.for_project_dir(self.project_path).file_lock(path):
             draft = read_quarantine(self.project_path, episode, QUARANTINE_KIND_PROMPT_AUTHORING)
             return draft_revision(draft) if draft is not None else None
 
@@ -1672,7 +1672,7 @@ class ScriptGenerator:
         formal_baseline: str | None,
     ) -> Path:
         draft_path = quarantine_path(self.project_path, episode, QUARANTINE_KIND_PROMPT_AUTHORING)
-        pm = ProjectManager(str(self.project_path.parent))
+        pm = ProjectManager.for_project_dir(self.project_path)
         with pm.file_lock(draft_path):
             current = read_quarantine(self.project_path, episode, QUARANTINE_KIND_PROMPT_AUTHORING)
             actual_draft_revision = draft_revision(current) if current is not None else None
@@ -1699,7 +1699,7 @@ class ScriptGenerator:
         _prompt_authoring_lock_held: bool = False,
     ) -> Path:
         draft_path = quarantine_path(self.project_path, episode, QUARANTINE_KIND_PROMPT_AUTHORING)
-        pm = ProjectManager(str(self.project_path.parent))
+        pm = ProjectManager.for_project_dir(self.project_path)
         prompt_authoring_lock = nullcontext() if _prompt_authoring_lock_held else pm.file_lock(draft_path)
         with prompt_authoring_lock:
             return self._promote_reference_prompt_authoring_draft_locked_sync(
@@ -1792,7 +1792,7 @@ class ScriptGenerator:
                 code="quarantined",
             ) from exc
 
-        pm = ProjectManager(str(self.project_path.parent))
+        pm = ProjectManager.for_project_dir(self.project_path)
         if isinstance(expected_fingerprint, _UnsetExpectedFingerprint):
             if "base_fingerprint" not in draft.meta:
                 raise DraftViolation(

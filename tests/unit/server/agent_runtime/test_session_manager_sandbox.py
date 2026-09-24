@@ -63,7 +63,7 @@ async def test_build_options_includes_sandbox_settings(
 
 def test_session_manager_wires_env_resolved_roots_into_policy(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """SessionManager 负责 env 解析（ARCREEL_LOG_DIR / ARCREEL_PROFILE_DIR /
-    projects_root 参数），把 resolve 后的根路径喂给 AgentAccessPolicy——用户把
+    data_root 参数），把 resolve 后的根路径喂给 AgentAccessPolicy——用户把
     日志/数据/profile 目录搬到任意位置（含 repo 外）时，deny 必须跟着指过去。"""
     repo = tmp_path / "repo"
     repo.mkdir()
@@ -78,12 +78,12 @@ def test_session_manager_wires_env_resolved_roots_into_policy(tmp_path: Path, mo
     monkeypatch.setenv("ARCREEL_LOG_DIR", str(external_logs))
     monkeypatch.setenv("ARCREEL_PROFILE_DIR", str(external_profile))
 
-    sm = SessionManager(repo, SessionMetaStore(), projects_root=external_data)
+    sm = SessionManager(repo, SessionMetaStore(), data_root=external_data)
     policy = sm.access_policy
 
     assert policy.log_dir == external_logs.resolve()
     assert policy.agent_profile_root == external_profile.resolve()
-    assert policy.projects_root == external_data.resolve()
+    assert policy.data_root == external_data.resolve()
     assert policy.project_root == repo.resolve()
     # 端到端：env 覆盖后的真实位置被认定为敏感
     assert policy.is_sensitive_path((external_logs / "arcreel.log").resolve())
@@ -306,7 +306,7 @@ def test_init_auto_memory_mismatch_logs_error_and_keeps_session(
 ) -> None:
     """init 上报的 auto memory 目录与预期不符：记 error，消息不被改写、会话照开。"""
     sm = _make_session_manager(tmp_path, sandbox_enabled=True)
-    proj_dir = sm.projects_root / "demo"
+    proj_dir = sm.layout.projects_dir / "demo"
     proj_dir.mkdir(parents=True, exist_ok=True)
     managed = _managed_for("demo")
     msg = _init_message(str(tmp_path / "elsewhere" / "memory"))
@@ -334,7 +334,7 @@ def test_init_auto_memory_match_logs_nothing(
 ) -> None:
     """路径一致或 CLI 未上报 memory_paths（旧版本 / auto memory 关闭）时不告警。"""
     sm = _make_session_manager(tmp_path, sandbox_enabled=True)
-    proj_dir = sm.projects_root / "demo"
+    proj_dir = sm.layout.projects_dir / "demo"
     proj_dir.mkdir(parents=True, exist_ok=True)
 
     with caplog.at_level(logging.ERROR, logger="server.agent_runtime.session_manager"):

@@ -16,5 +16,5 @@ def test_get_global_assets_root_creates_subdirs(tmp_path):
 def test_list_projects_skips_global_assets(tmp_path):
     pm = ProjectManager(tmp_path / "projects")
     pm.get_global_assets_root()  # 生成 _global_assets
-    (pm.projects_root / "my_project").mkdir()
+    (pm.projects_dir / "my_project").mkdir()
     assert pm.list_projects() == ["my_project"]

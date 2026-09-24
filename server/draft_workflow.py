@@ -74,7 +74,7 @@ logger = logging.getLogger(__name__)
 @dataclass(frozen=True, slots=True)
 class DraftContext:
     project_name: str
-    projects_root: Path
+    data_root: Path
     pm: ProjectManager
     config_resolver: ConfigResolver | None = None
 
@@ -1180,7 +1180,7 @@ class DraftWorkflow:
         path = quarantine_path(self.ctx.project_path, episode, resolved)
 
         try:
-            async with ProjectManager(str(self.ctx.projects_root)).async_file_lock(path):
+            async with ProjectManager(self.ctx.data_root).async_file_lock(path):
                 existing = await asyncio.to_thread(self._read_if_present, episode, resolved)
                 if existing is not None:
                     return existing
@@ -1266,7 +1266,7 @@ class DraftWorkflow:
     ) -> dict[str, Any]:
         resolved = await self._kind(episode, doc_type)
         path = quarantine_path(self.ctx.project_path, episode, resolved)
-        async with ProjectManager(str(self.ctx.projects_root)).async_file_lock(path):
+        async with ProjectManager(self.ctx.data_root).async_file_lock(path):
             return await run_sync_transaction(
                 self._patch_locked,
                 episode,
@@ -1298,7 +1298,7 @@ class DraftWorkflow:
         message: str
         if before_lock is not None:
             before_lock()
-        async with ProjectManager(str(self.ctx.projects_root)).async_file_lock(path):
+        async with ProjectManager(self.ctx.data_root).async_file_lock(path):
             draft, actual_revision = await asyncio.to_thread(
                 self._draft_snapshot,
                 episode,
@@ -1367,7 +1367,7 @@ class DraftWorkflow:
     ) -> dict[str, Any]:
         resolved = await self._kind(episode, doc_type, allow_stale_discard=True)
         path = quarantine_path(self.ctx.project_path, episode, resolved)
-        async with ProjectManager(str(self.ctx.projects_root)).async_file_lock(path):
+        async with ProjectManager(self.ctx.data_root).async_file_lock(path):
             draft, actual_revision = await asyncio.to_thread(
                 self._draft_snapshot,
                 episode,

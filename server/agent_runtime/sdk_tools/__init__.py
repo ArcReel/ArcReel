@@ -1,12 +1,12 @@
 """ArcReel SDK in-process MCP tools.
 
 Tools registered here run **in the server main process** (not inside the
-agent sandbox), so they can read ``projects/.arcreel.db`` and call provider
+agent sandbox), so they can read the ArcReel database and call provider
 HTTP without poking holes in ``filesystem.denyRead`` / network allowlist.
 
 Each session gets its own MCP server built via :func:`build_arcreel_mcp_server`.
 Project-scoped tools are closure-bound to ``project_name``; project entry tools
-may list, create, or upload within the same ``projects_root``.
+may list, create, or upload within the same ``data_root``.
 """
 
 from __future__ import annotations
@@ -185,11 +185,11 @@ def _refuse_while_migration_failed(sdk_tool: Any, ctx: ToolContext) -> Any:
     return replace(sdk_tool, handler=_guarded)
 
 
-def build_arcreel_mcp_server(*, project_name: str, projects_root: Path, user_id: str = DEFAULT_USER_ID) -> Any:
+def build_arcreel_mcp_server(*, project_name: str, data_root: Path, user_id: str = DEFAULT_USER_ID) -> Any:
     """Build the per-session in-process MCP server with all ArcReel tools."""
     ctx = ToolContext(
         project_name=project_name,
-        projects_root=projects_root,
+        data_root=data_root,
         caller=CallerContext(user_id=user_id, source="embedded"),
     )
     tools = [
