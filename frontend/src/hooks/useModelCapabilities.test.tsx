@@ -224,6 +224,15 @@ describe("useModelCapabilities 无项目上下文", () => {
 });
 
 describe("useModelCapabilities 视频模型可解析性", () => {
+  it("能力闸拒绝候选模型时保留修复指引", async () => {
+    vi.spyOn(API, "getModelVideoCapabilities").mockRejectedValue(
+      new ApiRequestError("请重新选择支持参考生视频的模型", undefined, 400),
+    );
+    const { result } = renderHook(() => useModelCapabilities({ videoBackend: BACKEND, usesReferenceImages: true }));
+    await waitFor(() => expect(result.current.videoModelUnresolved).toBe(true));
+    expect(result.current.videoModelError).toBe("请重新选择支持参考生视频的模型");
+    expect(result.current.resolvedVideoBackend).toBeNull();
+  });
   it("服务端答复无法解析（422）时标记未解析", async () => {
     vi.spyOn(API, "getVideoCapabilities").mockRejectedValue(new ApiRequestError("无法解析", undefined, 422));
     const { result } = renderHook(() => useModelCapabilities({ projectName: PROJECT }));

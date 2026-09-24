@@ -218,6 +218,61 @@ class TestCostEstimationService:
             actual = await usage.get_actual_costs_by_segment("test-pricing-source")
         assert estimate == actual["billed"]["video"]
 
+    async def test_reference_bucket_quotes_match_execution_facts_and_settlement(self, db_factory):
+        from lib.generation.video_request_facts import (
+            ExecutionVideoIdentity,
+            VideoRequestFacts,
+            evaluate_video_request_facts,
+        )
+
+        i2v = "gemini-aistudio/veo-3.1-generate-preview"
+        r2v = "gemini-aistudio/veo-3.1-fast-generate-preview"
+        project = {
+            "content_mode": "narration",
+            "generation_mode": "reference_video",
+            "video_provider_i2v": i2v,
+            "video_provider_r2v": r2v,
+            "model_settings": {i2v: {"resolution": "720p"}, r2v: {"resolution": "1080p"}},
+            "characters": {"A": {"name": "A"}},
+            "episodes": [{"episode": 1, "script_file": "ep1.json"}],
+        }
+        script = _make_reference_video_script(1, "narration", [("i2v", 8), ("r2v", 8)])
+        script["video_units"][1]["text"] = "@[A] 走进房间"
+        resolver = ConfigResolver(db_factory)
+        result = await CostEstimationService(resolver, db_factory).compute(
+            project, {"ep1.json": script}, project_name="bucket-resolutions"
+        )
+        segments = {segment["segment_id"]: segment for segment in result["episodes"][0]["segments"]}
+        for bucket, pair, resolution, allowed in (("i2v", i2v, "720p", (4, 6, 8)), ("r2v", r2v, "1080p", (8,))):
+            provider, model = pair.split("/")
+            executed = await evaluate_video_request_facts(
+                project,
+                route="reference_video",
+                generation_type=bucket,
+                identity=ExecutionVideoIdentity(provider, model),
+                resolver=resolver,
+            )
+            assert isinstance(executed, VideoRequestFacts)
+            assert executed.resolution == resolution
+            assert executed.allowed_durations == allowed
+            assert segments[bucket]["request_projection"]["capability"] == bucket
+            async with db_factory() as session:
+                usage = UsageRepository(session)
+                call_id = await usage.start_call(
+                    project_name="bucket-resolutions",
+                    call_type="video",
+                    provider=executed.provider_id,
+                    model=executed.model_id,
+                    resolution=executed.resolution,
+                    duration_seconds=8,
+                    generate_audio=executed.generate_audio,
+                    segment_id=bucket,
+                )
+                await usage.finish_call(call_id, status="success", settlement=SettlementInput())
+                actual = await usage.get_actual_costs_by_segment("bucket-resolutions")
+            assert segments[bucket]["estimate"]["video"], segments[bucket]["request_projection"]
+            assert segments[bucket]["estimate"]["video"] == actual[bucket]["video"]
+
     async def test_shared_video_quote_exposes_exact_amount_currency_and_request_coordinates(self, db_factory):
         quote = await quote_video_request(
             VideoRequestCostFacts(

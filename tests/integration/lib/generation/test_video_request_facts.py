@@ -392,6 +392,28 @@ async def test_read_and_execution_sides_agree_when_identities_match(resolver, pr
     assert executed == read
 
 
+async def test_reference_buckets_use_their_own_model_resolution_on_both_sides(resolver):
+    project = {
+        "generation_mode": "reference_video",
+        "video_provider_i2v": VIDU2,
+        "video_provider_r2v": VEO,
+        "model_settings": {VIDU2: {"resolution": "720p"}, VEO: {"resolution": "1080p"}},
+    }
+    for bucket, resolution, allowed in (("i2v", "720p", (4, 8)), ("r2v", "1080p", (8,))):
+        read = await _read(resolver, project, route="reference_video", generation_type=bucket)
+        assert isinstance(read, VideoRequestFacts)
+        assert read.resolution == resolution
+        assert read.allowed_durations == allowed
+        executed = await evaluate_video_request_facts(
+            project,
+            route="reference_video",
+            generation_type=bucket,
+            identity=ExecutionVideoIdentity(read.provider_id, read.model_id),
+            resolver=resolver,
+        )
+        assert executed == read
+
+
 @pytest.mark.parametrize(
     ("pair", "generation_type", "requested", "expected", "voice_consistency"),
     [
