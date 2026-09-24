@@ -298,7 +298,7 @@ export async function enqueueGrid(
   scriptFile: string,
   sceneIds?: string[],
 ): Promise<EnqueueResult> {
-  // task_ids 可能为空数组（如 scene_ids 过滤后无匹配分组）：此时后端不产生任何任务行，
+  // task_ids 可能为空数组（如缺失即生成时各组分镜图都已就绪、或联合图都在等切分落格）：此时后端不产生任何任务行，
   // settle([]) 会把标记回滚掉，不留下永远等不到真实行的残留。
   const res = await submit(
     [markScriptFile(projectName, "grid", scriptFile)],

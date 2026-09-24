@@ -87,7 +87,7 @@ ID 参数时，前者传入，后者必须**省略该参数**，不得把 `[]` �
 | `author_prompts` | 正式剧本里有待编写条目，`requested_ids` 列出这些条目：调 `mcp__arcreel__generate_episode_script`，不传 `entry_ids`，即编写全部待编写条目（见 generate-script skill） |
 | `generate_asset_sheets` | dispatch `generate-assets` 子智能体，逐类型调用 `mcp__arcreel__generate_assets` 并传 `names` |
 | `generate_storyboards` | dispatch `generate-assets` 子智能体，调用 `mcp__arcreel__generate_storyboards` 并传 `segment_ids` |
-| `generate_grid` | dispatch `generate-assets` 子智能体，调用 `mcp__arcreel__generate_grid` 并传 `scene_ids` |
+| `generate_grid` | dispatch `generate-assets` 子智能体，调用 `mcp__arcreel__generate_grid`，不传 `scene_ids`（缺失即生成）；联合图就绪后经用户审阅同意，再调 `mcp__arcreel__split_grids` |
 | `repair_video_units` | `mcp__arcreel__get_episode_script` + `mcp__arcreel__patch_episode_script` 一次改完，再点名重做 |
 | `patch_episode_script` | 计划注入：`next_action.args` 已给 `base_revision` 与逐条 `problems`，一次批量改完 |
 | `choose_narration_delivery` | 计划注入：见「旁白交付」 |

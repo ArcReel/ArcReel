@@ -25,6 +25,7 @@ from lib.artifacts.artifact_activation import (
 )
 from lib.artifacts.artifact_manifest import (
     ArtifactBasisDescriptor,
+    ArtifactKey,
     compose_video_artifact_basis,
 )
 from lib.artifacts.generation_input import (
@@ -1685,9 +1686,10 @@ async def execute_grid_task(
     """Execute a grid joint-image generation task.
 
     resource_id is the grid_id. Steps:
-    1. Load GridGeneration, set status to generating
+    1. Load GridGeneration (an already completed record ends the task without generating),
+       set status to generating
     2. Generate the joint image via MediaGenerator (versioned as resource_type "grids")
-    3. Mark completed and split the requested cells before the task settles
+    3. Mark completed; splitting into storyboard cells is a separate, explicit step
     """
     from lib.script.grid.grid_manager import GridManager
     from lib.script.grid.layout import GRID_FALLBACK_RESOLUTION, grid_aspect_ratio_for
@@ -1701,6 +1703,19 @@ async def execute_grid_task(
     if grid is None:
         raise ValueError(f"grid not found: {resource_id}")
     project = await asyncio.to_thread(get_project_manager().load_project, project_name)
+    if grid.status == "completed":
+        # 新建与重生成的记录都从 pending 起步，失败重试从 failed 起步：记录已是 completed，只能是
+        # 沿用在途宫格时恰好赶上上一任务完成而重复入队的任务，不再出图、不再计费。
+        # 结果只在联合图登记在案且可用时报成功，与切分落格同一口径。
+        grid_path = f"grids/{resource_id}.png"
+        resolver = await asyncio.to_thread(active_artifact_currency_resolver, project_path, project)
+        comparison = await asyncio.to_thread(
+            resolver.compare, ArtifactKey.episode_grid(grid.episode, resource_id), artifact_path=grid_path
+        )
+        if not comparison.usable:
+            raise ValueError(f"grid {resource_id} is completed but its composite is not usable")
+        logger.info("宫格已完成，跳过重复入队的生成任务: grid_id=%s task_id=%s", resource_id, task_id)
+        return {"file_path": grid_path, "resource_type": "grids", "resource_id": resource_id}
     script = await asyncio.to_thread(get_project_manager().load_script, project_name, grid.script_file)
     script_input = await asyncio.to_thread(
         resolve_usable_episode_script_input,
@@ -1884,50 +1899,12 @@ async def execute_grid_task(
         if frozen_references is not None:
             await run_noninterruptible_sync(frozen_references.cleanup)
 
-    unit_results: dict[str, dict[str, Any]] = {}
-    report_scene_ids = payload.get("report_scene_ids")
-    if isinstance(report_scene_ids, list) and report_scene_ids:
-        from server.services.grid.grid_split import apply_grid_split
-
-        try:
-            with project_change_source("worker"):
-                split = await apply_grid_split(
-                    project_name,
-                    grid,
-                    only_scene_ids=frozenset(str(scene_id) for scene_id in report_scene_ids),
-                )
-            cut = set(split.updated_scene_ids)
-            for scene_id in report_scene_ids:
-                if scene_id in cut:
-                    unit_results[scene_id] = {"file_path": resource_relative_path("storyboards", scene_id)}
-                else:
-                    unit_results[scene_id] = {
-                        "problem": {
-                            "code": "generation_post_processing_failed",
-                            "detail": f"联合图已生成，但分镜 {scene_id} 未落格（已不在剧本中）",
-                            "action": "fix_input",
-                            "params": {"grid_id": grid.id},
-                        }
-                    }
-        except Exception:
-            logger.exception("联合图切分落格失败: grid_id=%s", grid.id)
-            for scene_id in report_scene_ids:
-                unit_results[scene_id] = {
-                    "problem": {
-                        "code": "generation_post_processing_failed",
-                        "detail": "联合图已生成，但切分落格失败（不要重新生成）",
-                        "action": "none",
-                        "params": {"grid_id": grid.id},
-                    }
-                }
-
     grid_result: dict[str, Any] = {
         "version": outcome.version,
         "file_path": f"grids/{resource_id}.png",
         "created_at": outcome.created_at,
         "resource_type": "grids",
         "resource_id": resource_id,
-        "unit_results": unit_results,
     }
     if (clamp_warning := reference_clamp.warning()) is not None:
         grid_result["warnings"] = [clamp_warning]

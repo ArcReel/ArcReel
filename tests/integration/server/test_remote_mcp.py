@@ -31,7 +31,7 @@ from server.auth import create_download_token, create_token
 from server.cors_config import resolve_cors_policy
 from server.media_tools.assets import generate_assets_tool, list_pending_assets_tool
 from server.media_tools.context import ToolContext
-from server.media_tools.grid import generate_grid_tool
+from server.media_tools.grid import generate_grid_tool, split_grids_tool
 from server.media_tools.image_edits import edit_images_tool
 from server.media_tools.narration_audio import generate_narration_audio_tool
 from server.media_tools.storyboards import generate_storyboards_tool
@@ -393,6 +393,7 @@ async def test_remote_mcp_returns_typed_workflow_plan_and_rejects_bad_project(
             generate_storyboards_tool(media_ctx),
             edit_images_tool(media_ctx),
             generate_grid_tool(media_ctx),
+            split_grids_tool(media_ctx),
             generate_videos_tool(media_ctx),
             generate_narration_audio_tool(media_ctx),
         )
@@ -501,6 +502,8 @@ async def test_remote_grid_list_only_returns_preview_without_a_batch(
 ) -> None:
     project = remote_projects.load_project("demo")
     project["grid_storyboard"] = True
+    # 预览渲染按集定位的宫格记录：剧本须已绑定集号
+    project["episodes"] = [{"episode": 1, "script_file": "episode_1.json"}]
     remote_projects.save_project("demo", project)
 
     app = _mounted(remote_server)
@@ -526,6 +529,7 @@ async def test_remote_grid_list_only_returns_preview_without_a_batch(
     assert description is not None
     assert "generation submissions" in description
     assert "list_only=true, the preview returns immediately without a generation_batch; do not poll" in description
+    assert "read each grid_id from the artifact_path (grids/<grid_id>.png)" in description
     assert not result.isError
     assert result.structuredContent is not None
     assert set(result.structuredContent) == {"generate_grid"}

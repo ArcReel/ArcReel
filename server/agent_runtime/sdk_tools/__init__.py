@@ -32,7 +32,7 @@ from server.agent_runtime.sdk_tools.enqueue_assets import (
     generate_assets_tool,
     list_pending_assets_tool,
 )
-from server.agent_runtime.sdk_tools.enqueue_grid import generate_grid_tool
+from server.agent_runtime.sdk_tools.enqueue_grid import generate_grid_tool, split_grids_tool
 from server.agent_runtime.sdk_tools.enqueue_image_edits import edit_images_tool
 from server.agent_runtime.sdk_tools.enqueue_narration_audio import generate_narration_audio_tool
 from server.agent_runtime.sdk_tools.enqueue_storyboards import generate_storyboards_tool
@@ -101,6 +101,7 @@ ARCREEL_MCP_TOOL_IDS: tuple[str, ...] = (
     "generate_storyboards",
     "edit_images",
     "generate_grid",
+    "split_grids",
     "generate_videos",
     "generate_narration_audio",
     "generate_episode_script",
@@ -146,6 +147,7 @@ MIGRATION_BLOCKED_TOOL_IDS: frozenset[str] = frozenset(
         "generate_storyboards",
         "edit_images",
         "generate_grid",
+        "split_grids",
         "generate_videos",
         "generate_narration_audio",
         "generate_episode_script",
@@ -212,6 +214,7 @@ def build_arcreel_mcp_server(*, project_name: str, projects_root: Path, user_id:
         generate_storyboards_tool(ctx),
         edit_images_tool(ctx),
         generate_grid_tool(ctx),
+        split_grids_tool(ctx),
         generate_videos_tool(ctx),
         generate_narration_audio_tool(ctx),
         generate_episode_script_tool(ctx),

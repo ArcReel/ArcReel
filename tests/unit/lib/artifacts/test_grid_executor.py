@@ -293,6 +293,68 @@ class TestExecuteGridTask:
         # 联合图内容更新后落格状态复位，等待显式切分
         assert updated_grid_data["split_at"] is None
 
+    @staticmethod
+    def _complete(project_with_script, grid, *, registered: bool):
+        from PIL import Image
+
+        grid.status = "completed"
+        grid.grid_image_path = f"grids/{grid.id}.png"
+        Image.new("RGB", (400, 400)).save(project_with_script / "grids" / f"{grid.id}.png")
+        record = project_with_script / "grids" / f"{grid.id}.json"
+        record.write_text(json.dumps(grid.to_dict(), ensure_ascii=False), encoding="utf-8")
+        if registered:
+            _register_sheet(project_with_script, "grids", grid.id)
+        return record
+
+    async def _run_duplicate(self, project_with_script, grid):
+        from server.services.tasks.generation_tasks import execute_grid_task
+
+        with (
+            patch("server.services.tasks.generation_tasks.get_project_manager") as mock_pm_fn,
+            patch(
+                "server.services.tasks.generation_tasks.resolve_generation_context",
+                side_effect=AssertionError("不该再次解析供应商出图"),
+            ),
+        ):
+            mock_pm_fn.return_value.get_project_path.return_value = project_with_script
+            mock_pm_fn.return_value.load_project.return_value = json.loads(
+                (project_with_script / "project.json").read_text(encoding="utf-8")
+            )
+            return await execute_grid_task(
+                "test-project",
+                grid.id,
+                {"prompt": "test grid prompt", "script_file": "episode_1.json"},
+                user_id="test-user",
+            )
+
+    async def test_a_task_enqueued_after_the_grid_completed_does_not_generate_again(
+        self, project_with_script, grid_json
+    ):
+        """沿用在途宫格时恰好赶上上一任务完成而重复入队：记录已是 completed，不再出图。"""
+        record = self._complete(project_with_script, grid_json, registered=True)
+        before = record.read_bytes()
+
+        result = await self._run_duplicate(project_with_script, grid_json)
+
+        assert result == {
+            "file_path": f"grids/{grid_json.id}.png",
+            "resource_type": "grids",
+            "resource_id": grid_json.id,
+        }
+        assert record.read_bytes() == before
+
+    async def test_a_duplicate_task_on_an_unusable_composite_fails_instead_of_reporting_success(
+        self, project_with_script, grid_json
+    ):
+        """联合图没有登记在案：不报成功，也不重新出图。"""
+        record = self._complete(project_with_script, grid_json, registered=False)
+        before = record.read_bytes()
+
+        with pytest.raises(ValueError, match="not usable"):
+            await self._run_duplicate(project_with_script, grid_json)
+
+        assert record.read_bytes() == before
+
     async def test_reference_images_are_clamped_to_the_backend_limit_before_numbering(
         self,
         project_with_script,

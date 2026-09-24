@@ -1722,6 +1722,7 @@ describe("StudioCanvasRouter", () => {
       grid_ids: ["grid-1"],
       task_ids: ["t-1"],
       task_ids_by_grid: { "grid-1": "t-1" },
+      unsplit_grid_ids: [],
       deduped: false,
       message: "已提交",
     });
@@ -1754,6 +1755,7 @@ describe("StudioCanvasRouter", () => {
       grid_ids: [],
       task_ids: [],
       task_ids_by_grid: {},
+      unsplit_grid_ids: [],
       deduped: false,
       message: "已提交 0 个多宫格分镜生成任务",
     });

@@ -11,6 +11,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from lib.artifacts.artifact_activation import register_current_resource_artifact
 from lib.i18n import _ as i18n_message
 from lib.project.project_manager import ProjectManager
 from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
@@ -75,6 +76,10 @@ class _FakeQueue:
     async def enqueue_task(self, **kwargs):
         self.calls.append(kwargs)
         return {"task_id": f"task-{len(self.calls)}", "deduped": False}
+
+    async def get_active_tasks_for_resources(self, *, resource_ids, **_kwargs):
+        # 停在 pending / generating 的宫格记录，其任务都还在队列里
+        return [{"task_id": f"active-{resource_id}", "resource_id": resource_id} for resource_id in resource_ids]
 
 
 def _client(monkeypatch, **patches):
@@ -377,6 +382,11 @@ class _FakePMGenerate:
         return _narration_script()
 
     def get_project_path(self, name):
+        # 缺失即生成按产物清单取证，清单只读磁盘上的规范文件：把替身声称的状态落盘
+        (self._project_path / "scripts").mkdir(parents=True, exist_ok=True)
+        (self._project_path / "project.json").write_text(json.dumps(self.load_project(name)), encoding="utf-8")
+        script = json.dumps(self.load_script(name, "episode_1.json"))
+        (self._project_path / "scripts" / "episode_1.json").write_text(script, encoding="utf-8")
         return self._project_path
 
 
@@ -656,8 +666,8 @@ def test_generate_grid_maps_each_grid_to_the_task_it_enqueued(monkeypatch, tmp_p
     assert body["task_ids"] == list(enqueued.values())
 
 
-def test_generate_grid_without_matching_groups_maps_nothing(monkeypatch, tmp_path):
-    """scene_ids 过滤掉全部分组时一个任务都没建，映射为空。"""
+def test_generate_grid_rejects_an_unknown_scene_without_enqueueing(monkeypatch, tmp_path):
+    """点名的分镜不在剧本里：整批拒绝，一个任务都不建。"""
     fake_queue = _FakeQueue()
     client = _client(
         monkeypatch,
@@ -667,13 +677,117 @@ def test_generate_grid_without_matching_groups_maps_nothing(monkeypatch, tmp_pat
     with client:
         resp = client.post(
             "/api/v1/projects/demo/generate/grid/1",
-            json={"script_file": "episode_1.json", "scene_ids": ["E9S99"]},
+            json={"script_file": "episode_1.json", "scene_ids": ["E1S01", "E9S99"]},
         )
+
+    assert resp.status_code == 400, resp.text
+    assert resp.json()["detail"] == i18n_message("segment_not_found", id="E9S99")
+    assert fake_queue.calls == []
+
+
+def test_generate_grid_resubmitted_while_in_flight_reuses_the_pending_grid(monkeypatch, tmp_path):
+    """宫格还在生成时再点一次：沿用在途记录入队（队列按资源去重），不再新建一张付费宫格。"""
+    fake_queue = _FakeQueue()
+    client = _client(
+        monkeypatch,
+        get_project_manager=lambda: _FakePMGenerate(tmp_path),
+        get_generation_queue=lambda: fake_queue,
+    )
+    with client:
+        first = client.post("/api/v1/projects/demo/generate/grid/1", json={"script_file": "episode_1.json"})
+        second = client.post(
+            "/api/v1/projects/demo/generate/grid/1",
+            json={"script_file": "episode_1.json", "scene_ids": ["E1S01", "E1S02", "E1S03", "E1S04"]},
+        )
+
+    assert first.status_code == second.status_code == 200, second.text
+    assert second.json()["grid_ids"] == first.json()["grid_ids"]
+    assert [call["resource_id"] for call in fake_queue.calls] == first.json()["grid_ids"] * 2
+    assert [g.id for g in GridManager(tmp_path).list_all()] == first.json()["grid_ids"]
+
+
+def test_generate_grid_refuses_a_batch_overlapping_another_in_flight_grid(monkeypatch, tmp_path):
+    fake_queue = _FakeQueue()
+    other = GridGeneration.create(
+        episode=1,
+        script_file="episode_1.json",
+        scene_ids=["E1S03", "E1S04"],
+        rows=2,
+        cols=2,
+        grid_size="grid_4",
+        provider="",
+        model="",
+        video_aspect_ratio="9:16",
+    )
+    GridManager(tmp_path).save(other)
+    client = _client(
+        monkeypatch,
+        get_project_manager=lambda: _FakePMGenerate(tmp_path),
+        get_generation_queue=lambda: fake_queue,
+    )
+    with client:
+        resp = client.post("/api/v1/projects/demo/generate/grid/1", json={"script_file": "episode_1.json"})
+
+    assert resp.status_code == 409, resp.text
+    assert resp.json()["detail"] == i18n_message("grid_generation_in_progress", grid_id=other.id)
+    assert fake_queue.calls == []
+
+
+def test_generate_all_skips_a_ready_but_unsplit_composite(monkeypatch, tmp_path):
+    """「全部」只补缺：联合图已就绪、尚未切分落格的宫格等用户审阅切分，不重生成、不重复计费。"""
+    fake_queue = _FakeQueue()
+    unsplit = GridGeneration.create(
+        episode=1,
+        script_file="episode_1.json",
+        scene_ids=["E1S01", "E1S02", "E1S03", "E1S04"],
+        rows=2,
+        cols=2,
+        grid_size="grid_4",
+        provider="",
+        model="",
+        video_aspect_ratio="9:16",
+    )
+    unsplit.status = "completed"
+    unsplit.grid_image_path = f"grids/{unsplit.id}.png"
+    GridManager(tmp_path).save(unsplit)
+    (tmp_path / "grids" / f"{unsplit.id}.png").write_bytes(b"png")
+    _materialize_project(tmp_path, _FakePMGenerate(tmp_path).load_project("demo"))
+    assert register_current_resource_artifact(tmp_path, resource_type="grids", resource_id=unsplit.id)
+    client = _client(
+        monkeypatch,
+        get_project_manager=lambda: _FakePMGenerate(tmp_path),
+        get_generation_queue=lambda: fake_queue,
+    )
+    with client:
+        resp = client.post("/api/v1/projects/demo/generate/grid/1", json={"script_file": "episode_1.json"})
 
     assert resp.status_code == 200, resp.text
     body = resp.json()
     assert body["grid_ids"] == []
-    assert body["task_ids_by_grid"] == {}
+    assert body["unsplit_grid_ids"] == [unsplit.id]
+    assert body["message"] == i18n_message("grid_unsplit_awaiting_split", unsplit=1)
+    assert fake_queue.calls == []
+
+
+class _FakePMReferenceRoute(_FakePMGenerate):
+    """剧本是参考生视频的骨架：按分镜图生视频要读的数组不在剧本里。"""
+
+    def load_script(self, name, script_file):
+        return {"episode": 1, "content_mode": "narration", "video_units": []}
+
+
+def test_generate_grid_rejects_a_script_of_the_other_route(monkeypatch, tmp_path):
+    fake_queue = _FakeQueue()
+    client = _client(
+        monkeypatch,
+        get_project_manager=lambda: _FakePMReferenceRoute(tmp_path),
+        get_generation_queue=lambda: fake_queue,
+    )
+    with client:
+        resp = client.post("/api/v1/projects/demo/generate/grid/1", json={"script_file": "episode_1.json"})
+
+    assert resp.status_code == 400, resp.text
+    assert resp.json()["detail"] == i18n_message("grid_script_route_mismatch")
     assert fake_queue.calls == []
 
 

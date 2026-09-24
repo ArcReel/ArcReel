@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 from unittest.mock import AsyncMock
 
 import pytest
 
-from lib.artifacts.artifact_manifest import ArtifactStatus
+from lib.artifacts.artifact_manifest import ArtifactKey
 from lib.generation.generation_queue_client import BatchTaskResult, is_interrupted_wait_error
 from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from server.media_tools.context import ToolContext
@@ -19,13 +20,15 @@ from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
 
 
 def _fake_grid_waiter(enqueue, wait=None):
-    async def _waiter(*, project_name, specs, **_kwargs):
+    """与 ``batch_enqueue_and_wait`` 同序：先逐个入队，入队阶段结束调用 ``on_enqueued``，再逐个等待。"""
+
+    async def _waiter(*, project_name, specs, on_enqueued=None, **_kwargs):
         successes: list[BatchTaskResult] = []
         failures: list[BatchTaskResult] = []
+        queued: list[tuple[Any, dict[str, Any]]] = []
         for spec in specs:
-            queued = None
             try:
-                queued = await enqueue(
+                task = await enqueue(
                     project_name=project_name,
                     task_type=spec.task_type,
                     media_type=spec.media_type,
@@ -34,12 +37,22 @@ def _fake_grid_waiter(enqueue, wait=None):
                     script_file=spec.script_file,
                     source=spec.source,
                 )
-                task = await wait(queued["task_id"])
+            except Exception as exc:
+                failures.append(
+                    BatchTaskResult(resource_id=spec.resource_id, task_id="", status="failed", error=str(exc))
+                )
+                continue
+            queued.append((spec, task))
+        if on_enqueued is not None:
+            on_enqueued()
+        for spec, queued_task in queued:
+            try:
+                task = await wait(queued_task["task_id"])
             except Exception as exc:
                 failures.append(
                     BatchTaskResult(
                         resource_id=spec.resource_id,
-                        task_id=queued["task_id"] if queued is not None else "",
+                        task_id=queued_task["task_id"],
                         status="interrupted" if is_interrupted_wait_error(exc) else "failed",
                         error=str(exc),
                     )
@@ -47,7 +60,7 @@ def _fake_grid_waiter(enqueue, wait=None):
                 continue
             result = BatchTaskResult(
                 resource_id=spec.resource_id,
-                task_id=queued["task_id"],
+                task_id=queued_task["task_id"],
                 status=str(task.get("status")),
                 result=task.get("result") or {},
                 error=task.get("error_message"),
@@ -156,14 +169,8 @@ async def test_generate_grid_falls_back_on_null_aspect_ratio(
     async def fake_wait(_task_id: str, **_kwargs: Any) -> dict[str, Any]:
         return {"status": "succeeded"}
 
-    async def fake_split(project_name: str, grid: Any, *, only_scene_ids: Any = None) -> Any:
-        from server.services.grid.grid_split import GridSplitResult
-
-        return GridSplitResult(updated_scene_ids=list(grid.scene_ids), missing_scene_ids=[], asset_fingerprints={})
-
     monkeypatch.setattr("server.media_tools.grid.resolve_large_grid_allowed", _gate)
     batch_waiter = _fake_grid_waiter(fake_enqueue, fake_wait)
-    monkeypatch.setattr("server.media_tools.grid.apply_grid_split", fake_split)
 
     tool_obj = generate_grid_tool(fake_ctx, batch_waiter=batch_waiter)
     out = await call(tool_obj, {"script": "episode_1.json"})
@@ -171,58 +178,6 @@ async def test_generate_grid_falls_back_on_null_aspect_ratio(
 
     assert [p["video_aspect_ratio"] for p in payloads] == ["9:16"]
     assert [g.video_aspect_ratio for g in GridManager(fake_ctx.project_path).list_all()] == ["9:16"]
-
-
-async def test_generate_grid_split_failure_keeps_the_paid_image_and_fails_the_id(
-    fake_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """联合图已付费落盘、切分失败：该组每个分镜都记为 failed，不声称产物已就位。"""
-    fake_ctx.pm.project_payload["generation_mode"] = "storyboard"
-    fake_ctx.pm.project_payload["grid_storyboard"] = True
-    fake_ctx.pm.script_payload["segments"] = [
-        {"segment_id": f"E1S0{i}", "image_prompt": "p", "segment_break": False} for i in range(1, 5)
-    ]
-
-    async def _gate(_project: dict) -> bool:
-        return False
-
-    async def fake_enqueue(
-        *, project_name, task_type, media_type, resource_id, payload, script_file, source, **_kwargs
-    ):
-        return {"task_id": "t1"}
-
-    async def fake_wait(_task_id: str, **_kwargs: Any) -> dict[str, Any]:
-        return {"status": "succeeded", "provider_id": "openai", "provider_job_id": "job-1"}
-
-    async def failing_split(project_name: str, grid: Any, *, only_scene_ids: Any = None) -> Any:
-        raise RuntimeError("cannot write the split cells")
-
-    monkeypatch.setattr("server.media_tools.grid.resolve_large_grid_allowed", _gate)
-    batch_waiter = _fake_grid_waiter(fake_enqueue, fake_wait)
-    monkeypatch.setattr("server.media_tools.grid.apply_grid_split", failing_split)
-
-    out = await call(generate_grid_tool(fake_ctx, batch_waiter=batch_waiter), {"script": "episode_1.json"})
-
-    assert out.get("is_error") is True
-    result = read_generation_result(out)
-    assert result.succeeded == []
-    # 逐分镜 ID 报告：一张宫格覆盖的四个分镜各自拿到自己的失败结论。
-    assert result.failed == ["E1S01", "E1S02", "E1S03", "E1S04"]
-    item = result.items[0]
-    assert item.problem is not None
-    assert item.problem.code == "generation_post_processing_failed"
-    assert item.problem.detail == "联合图已生成，但切分落格失败（不要重新生成）"
-    assert "cannot write the split cells" not in item.problem.detail
-    assert item.problem.params["grid_id"].startswith("grid_")
-    # 恢复路径只在宫格面板内可执行，不是本工具能派发的下一步：action 不能是
-    # RETRY，否则按 action 派发的消费者会重跑 generate_grid，重新生成联合图
-    # 并重复计费。
-    assert item.problem.action == "none"
-    # 任务与供应商提交都成功（钱已花），只有产物没有被标成就位。
-    assert item.task_state.value == "succeeded"
-    assert item.provider_checkpoint is not None
-    assert item.provider_checkpoint.submitted is True
-    assert item.artifact_status is not ArtifactStatus.CURRENT
 
 
 async def test_generate_grid_explicit_failure_preserves_the_old_artifact_path(
@@ -303,60 +258,10 @@ async def test_generate_grid_wait_timeout_is_reported_as_interrupted_not_failed(
     assert item.problem.action == "wait_for_task"
 
 
-async def test_generate_grid_reports_each_scene_of_a_shared_grid(
-    fake_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """同组分镜共享一张宫格，结果仍逐分镜 ID 报告：落格的成功、没落格的单独失败。"""
-    fake_ctx.pm.project_payload["generation_mode"] = "storyboard"
-    fake_ctx.pm.project_payload["grid_storyboard"] = True
-    fake_ctx.pm.script_payload["segments"] = [
-        {"segment_id": f"E1S0{i}", "image_prompt": "p", "segment_break": False} for i in range(1, 5)
-    ]
-
-    async def _gate(_project: dict) -> bool:
-        return False
-
-    async def fake_enqueue(
-        *, project_name, task_type, media_type, resource_id, payload, script_file, source, **_kwargs
-    ):
-        return {"task_id": "t1"}
-
-    async def fake_wait(_task_id: str, **_kwargs: Any) -> dict[str, Any]:
-        return {"status": "succeeded", "provider_id": "openai", "provider_job_id": "job-1"}
-
-    async def partial_split(project_name: str, grid: Any, *, only_scene_ids: Any = None) -> Any:
-        from server.services.grid.grid_split import GridSplitResult
-
-        # 最后一格对应的分镜已不在剧本里，切分时被跳过。
-        return GridSplitResult(
-            updated_scene_ids=list(grid.scene_ids[:-1]),
-            missing_scene_ids=[grid.scene_ids[-1]],
-            asset_fingerprints={},
-        )
-
-    monkeypatch.setattr("server.media_tools.grid.resolve_large_grid_allowed", _gate)
-    batch_waiter = _fake_grid_waiter(fake_enqueue, fake_wait)
-    monkeypatch.setattr("server.media_tools.grid.apply_grid_split", partial_split)
-
-    out = await call(generate_grid_tool(fake_ctx, batch_waiter=batch_waiter), {"script": "episode_1.json"})
-
-    result = read_generation_result(out)
-    assert result.succeeded == ["E1S01", "E1S02", "E1S03"]
-    assert result.failed == ["E1S04"]
-    assert set(result.requested) == set(result.succeeded) | set(result.failed) | set(result.blocked)
-    done = next(item for item in result.items if item.unit_id == "E1S01")
-    assert done.artifact_path == "storyboards/scene_E1S01.png"
-    dropped = next(item for item in result.items if item.unit_id == "E1S04")
-    assert dropped.problem is not None
-    assert dropped.problem.code == "generation_post_processing_failed"
-    # 联合图这一次是花了钱的，所以未落格的那一格也带着成功的任务与供应商提交。
-    assert dropped.task_state.value == "succeeded"
-
-
 async def test_generate_grid_reports_the_grid_warnings_on_every_cell(
     fake_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """联合图的参考图裁剪 warning 属于整张宫格：每个据此落格的分镜都带着它，Agent 才知道哪些图没发出。"""
+    """联合图的参考图裁剪 warning 属于整张宫格：它报告的每个分镜都带着它，Agent 才知道哪些图没发出。"""
     fake_ctx.pm.project_payload["generation_mode"] = "storyboard"
     fake_ctx.pm.project_payload["grid_storyboard"] = True
     fake_ctx.pm.script_payload["segments"] = [
@@ -380,10 +285,6 @@ async def test_generate_grid_reports_the_grid_warnings_on_every_cell(
             "result": {
                 "file_path": "grids/g1.png",
                 "warnings": [clamp_warning],
-                "unit_results": {
-                    "E1S01": {"file_path": "storyboards/scene_E1S01.png"},
-                    "E1S02": {"file_path": "storyboards/scene_E1S02.png"},
-                },
             },
         }
 
@@ -396,48 +297,6 @@ async def test_generate_grid_reports_the_grid_warnings_on_every_cell(
     assert result.succeeded == ["E1S01", "E1S02"]
     assert [[w.model_dump() for w in item.warnings] for item in result.items] == [[clamp_warning], [clamp_warning]]
     # Agent 读到的文本摘要把 warning 按文案逐格写出，不直出 key
-    assert out["content"][0]["text"].count("参考图数量 9 超出 gpt-image-2 上限 8，已取前 8 张") == 2
-
-
-async def test_generate_grid_keeps_the_grid_warnings_when_splitting_fails(
-    fake_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """联合图已生成、切分落格失败时，裁剪 warning 仍随失败条目到达 Agent。"""
-    fake_ctx.pm.project_payload["generation_mode"] = "storyboard"
-    fake_ctx.pm.project_payload["grid_storyboard"] = True
-    fake_ctx.pm.script_payload["segments"] = [
-        {"segment_id": f"E1S0{i}", "image_prompt": "p", "segment_break": False} for i in range(1, 3)
-    ]
-    clamp_warning = {"key": "ref_too_many_images", "params": {"count": 9, "model": "gpt-image-2", "max_count": 8}}
-
-    async def _gate(_project: dict) -> bool:
-        return False
-
-    async def fake_enqueue(
-        *, project_name, task_type, media_type, resource_id, payload, script_file, source, **_kwargs
-    ):
-        return {"task_id": "t1"}
-
-    async def fake_wait(_task_id: str, **_kwargs: Any) -> dict[str, Any]:
-        return {
-            "status": "succeeded",
-            "provider_id": "openai",
-            "provider_job_id": "job-1",
-            "result": {"file_path": "grids/g1.png", "warnings": [clamp_warning]},
-        }
-
-    async def failing_split(project_name: str, grid: Any, *, only_scene_ids: Any = None) -> Any:
-        raise RuntimeError("cannot write the split cells")
-
-    monkeypatch.setattr("server.media_tools.grid.resolve_large_grid_allowed", _gate)
-    monkeypatch.setattr("server.media_tools.grid.apply_grid_split", failing_split)
-    batch_waiter = _fake_grid_waiter(fake_enqueue, fake_wait)
-
-    out = await call(generate_grid_tool(fake_ctx, batch_waiter=batch_waiter), {"script": "episode_1.json"})
-
-    result = read_generation_result(out)
-    assert result.failed == ["E1S01", "E1S02"]
-    assert [[w.model_dump() for w in item.warnings] for item in result.items] == [[clamp_warning], [clamp_warning]]
     assert out["content"][0]["text"].count("参考图数量 9 超出 gpt-image-2 上限 8，已取前 8 张") == 2
 
 
@@ -553,7 +412,7 @@ async def test_generate_grid_blocks_the_whole_group_when_one_scene_state_is_unre
 
     monkeypatch.setattr("server.media_tools.grid.resolve_large_grid_allowed", _gate)
     monkeypatch.setattr(
-        "server.media_tools.grid.active_artifact_currency_resolver",
+        "server.services.grid.grid_submission.active_artifact_currency_resolver",
         lambda *_args: _Resolver(),
     )
     batch_waiter = _fake_grid_waiter(fake_enqueue)
@@ -616,7 +475,7 @@ async def test_generate_grid_spares_an_already_reusable_sibling_when_one_scene_s
 
     monkeypatch.setattr("server.media_tools.grid.resolve_large_grid_allowed", _gate)
     monkeypatch.setattr(
-        "server.media_tools.grid.active_artifact_currency_resolver",
+        "server.services.grid.grid_submission.active_artifact_currency_resolver",
         lambda *_args: _Resolver(),
     )
     batch_waiter = _fake_grid_waiter(fake_enqueue)
@@ -668,14 +527,8 @@ async def test_generate_grid_cleans_superseded_records(fake_ctx: ToolContext, mo
     async def fake_wait(_task_id: str, **_kwargs: Any) -> dict[str, Any]:
         return {"status": "succeeded"}
 
-    async def fake_split(project_name: str, grid: Any, *, only_scene_ids: Any = None) -> Any:
-        from server.services.grid.grid_split import GridSplitResult
-
-        return GridSplitResult(updated_scene_ids=list(grid.scene_ids), missing_scene_ids=[], asset_fingerprints={})
-
     monkeypatch.setattr("server.media_tools.grid.resolve_large_grid_allowed", _gate)
     batch_waiter = _fake_grid_waiter(fake_enqueue, fake_wait)
-    monkeypatch.setattr("server.media_tools.grid.apply_grid_split", fake_split)
 
     # 预置两代旧记录：一代属于本组（应被清理），一代属于其它组（不得误删）
     gm = GridManager(fake_ctx.project_path)
@@ -759,14 +612,8 @@ async def test_generate_grid_cleanup_spares_a_fully_reusable_chunk_of_an_oversiz
     async def fake_wait(_task_id: str, **_kwargs: Any) -> dict[str, Any]:
         return {"status": "succeeded"}
 
-    async def fake_split(project_name: str, grid: Any, *, only_scene_ids: Any = None) -> Any:
-        from server.services.grid.grid_split import GridSplitResult
-
-        return GridSplitResult(updated_scene_ids=list(grid.scene_ids), missing_scene_ids=[], asset_fingerprints={})
-
     monkeypatch.setattr("server.media_tools.grid.resolve_large_grid_allowed", _gate)
     batch_waiter = _fake_grid_waiter(fake_enqueue, fake_wait)
-    monkeypatch.setattr("server.media_tools.grid.apply_grid_split", fake_split)
 
     gm = GridManager(fake_ctx.project_path)
     fully_reusable_chunk = GridGeneration.create(
@@ -840,24 +687,14 @@ async def test_generate_grid_splits_oversized_group_into_multiple_grids(
     async def fake_wait(_task_id: str, **_kwargs: Any) -> dict[str, Any]:
         return {"status": "succeeded"}
 
-    # 生成成功后工具会对每张宫格显式调用切分；此处替换为假实现，单独锁定入队分块行为
-    split_calls: list[str] = []
-
-    async def fake_split(project_name: str, grid: Any, *, only_scene_ids: Any = None) -> Any:
-        from server.services.grid.grid_split import GridSplitResult
-
-        split_calls.append(grid.id)
-        return GridSplitResult(updated_scene_ids=list(grid.scene_ids), missing_scene_ids=[], asset_fingerprints={})
-
     monkeypatch.setattr("server.media_tools.grid.resolve_large_grid_allowed", _gate)
     batch_waiter = _fake_grid_waiter(fake_enqueue, fake_wait)
-    monkeypatch.setattr("server.media_tools.grid.apply_grid_split", fake_split)
 
     tool_obj = generate_grid_tool(fake_ctx, batch_waiter=batch_waiter)
     out = await call(tool_obj, {"script": "episode_1.json"})
     assert out.get("is_error") is not True
-    # 每张生成成功的宫格都被显式切分
-    assert len(split_calls) == 2
+    # 生成只产出联合图：两张都等用户审阅后切分落格
+    assert len(out["grid_ids_awaiting_split"]) == 2
 
     assert [(len(p["scene_ids"]), p["grid_size"]) for p in payloads] == [(9, "grid_9"), (3, "grid_4")]
     # 场景不重不漏且保持顺序
@@ -938,3 +775,464 @@ async def test_generate_grid_blocks_the_whole_chunk_when_a_prompt_is_pending(
     assert problem is not None
     assert (problem.code, problem.action) == ("generation_unit_request_invalid", "fix_input")
     assert problem.params["pending_ids"] == ["E1S03"]
+
+
+def _enable_grid(fake_ctx: ToolContext, *, groups: int = 1, per_group: int = 4) -> list[str]:
+    """开启宫格装配并铺 ``groups`` 个分组的分镜，返回分镜 ID。"""
+    fake_ctx.pm.project_payload["generation_mode"] = "storyboard"
+    fake_ctx.pm.project_payload["grid_storyboard"] = True
+    segments = [
+        {
+            "segment_id": f"E1S{g * per_group + i + 1:02d}",
+            "image_prompt": "p",
+            "segment_break": i == 0 and g > 0,
+        }
+        for g in range(groups)
+        for i in range(per_group)
+    ]
+    fake_ctx.pm.script_payload["segments"] = segments
+    return [segment["segment_id"] for segment in segments]
+
+
+async def _no_large_grid(_project: dict) -> bool:
+    return False
+
+
+def _saved_grid(fake_ctx: ToolContext, scene_ids: list[str], *, status: str) -> Any:
+    from lib.script.grid.grid_manager import GridManager
+    from lib.script.grid.models import GridGeneration
+
+    grid = GridGeneration.create(
+        episode=1,
+        script_file="episode_1.json",
+        scene_ids=scene_ids,
+        rows=2,
+        cols=2,
+        grid_size="grid_4",
+        provider="",
+        model="",
+        video_aspect_ratio="9:16",
+    )
+    grid.status = status
+    gm = GridManager(fake_ctx.project_path)
+    if status == "completed":
+        grid.grid_image_path = f"grids/{grid.id}.png"
+        gm.image_path(grid.id).write_bytes(b"png")
+    gm.save(grid)
+    return grid
+
+
+async def _queue_grid_task(fake_ctx: ToolContext, grid: Any) -> None:
+    """让在途记录在队列里有对应的活动任务（测试 worker 不认领 image lane，任务一直 queued）。"""
+    await fake_ctx.queue.enqueue_task(
+        project_name=fake_ctx.project_name,
+        task_type="grid",
+        media_type="image",
+        resource_id=grid.id,
+        payload={"scene_ids": grid.scene_ids},
+        script_file=grid.script_file,
+        source="webui",
+        user_id=fake_ctx.caller.user_id,
+    )
+
+
+async def test_generate_grid_reports_the_ready_composite_and_leaves_the_split_to_the_user(
+    fake_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """生成只产出联合图：成功的分镜指向所在宫格的联合图，切分落格留给用户确认后的 split_grids。"""
+    from lib.script.grid.grid_manager import GridManager
+
+    scene_ids = _enable_grid(fake_ctx)
+
+    async def fake_enqueue(**_kwargs: Any) -> dict[str, Any]:
+        return {"task_id": "t1"}
+
+    async def fake_wait(_task_id: str, **_kwargs: Any) -> dict[str, Any]:
+        return {"status": "succeeded"}
+
+    monkeypatch.setattr("server.media_tools.grid.resolve_large_grid_allowed", _no_large_grid)
+    out = await call(
+        generate_grid_tool(fake_ctx, batch_waiter=_fake_grid_waiter(fake_enqueue, fake_wait)),
+        {"script": "episode_1.json"},
+    )
+
+    result = read_generation_result(out)
+    (grid,) = GridManager(fake_ctx.project_path).list_all()
+    assert result.succeeded == scene_ids
+    assert {item.artifact_path for item in result.items} == {f"grids/{grid.id}.png"}
+    assert {item.artifact_key for item in result.items} == {ArtifactKey.episode_grid(1, grid.id).encode()}
+    assert out["grid_ids_awaiting_split"] == [grid.id]
+    assert "split_grids" in out["content"][0]["text"]
+    assert grid.split_at is None
+
+
+async def test_generate_grid_reuses_an_identical_in_flight_grid(
+    fake_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from lib.script.grid.grid_manager import GridManager
+
+    scene_ids = _enable_grid(fake_ctx)
+    in_flight = _saved_grid(fake_ctx, scene_ids, status="generating")
+    await _queue_grid_task(fake_ctx, in_flight)
+    enqueued: list[str] = []
+
+    async def fake_enqueue(*, resource_id: str, **_kwargs: Any) -> dict[str, Any]:
+        enqueued.append(resource_id)
+        return {"task_id": "t1", "deduped": True}
+
+    async def fake_wait(_task_id: str, **_kwargs: Any) -> dict[str, Any]:
+        return {"status": "succeeded"}
+
+    monkeypatch.setattr("server.media_tools.grid.resolve_large_grid_allowed", _no_large_grid)
+    out = await call(
+        generate_grid_tool(fake_ctx, batch_waiter=_fake_grid_waiter(fake_enqueue, fake_wait)),
+        {"script": "episode_1.json", "scene_ids": ["E1S02"]},
+    )
+
+    assert read_generation_result(out).succeeded == ["E1S02"]
+    assert "沿用已在生成中的任务（未重复提交）" in out["content"][0]["text"]
+    assert enqueued == [in_flight.id]
+    assert [g.id for g in GridManager(fake_ctx.project_path).list_all()] == [in_flight.id]
+
+
+def _queue_backed_enqueue(fake_ctx: ToolContext, enqueued: list[str]):
+    """入队落到测试队列（worker 不认领 image lane，任务一直 queued），规划时能探测到在途任务。"""
+
+    async def enqueue(**kwargs: Any) -> dict[str, Any]:
+        enqueued.append(kwargs["resource_id"])
+        return await fake_ctx.queue.enqueue_task(**kwargs, user_id=fake_ctx.caller.user_id)
+
+    return enqueue
+
+
+async def test_concurrent_submissions_share_one_grid_instead_of_paying_twice(
+    fake_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """两次提交同时替换同一条已无人处理的记录：后者等前者入队后再规划，沿用它的宫格。"""
+    from lib.script.grid.grid_manager import GridManager
+
+    scene_ids = _enable_grid(fake_ctx)
+    abandoned = _saved_grid(fake_ctx, scene_ids, status="pending")
+    enqueued: list[str] = []
+
+    async def fake_wait(_task_id: str, **_kwargs: Any) -> dict[str, Any]:
+        return {"status": "succeeded"}
+
+    monkeypatch.setattr("server.media_tools.grid.resolve_large_grid_allowed", _no_large_grid)
+    tool_obj = generate_grid_tool(
+        fake_ctx, batch_waiter=_fake_grid_waiter(_queue_backed_enqueue(fake_ctx, enqueued), fake_wait)
+    )
+    outs = await asyncio.gather(
+        call(tool_obj, {"script": "episode_1.json"}),
+        call(tool_obj, {"script": "episode_1.json"}),
+    )
+
+    (grid,) = GridManager(fake_ctx.project_path).list_all()
+    assert grid.id != abandoned.id
+    assert enqueued == [grid.id, grid.id]
+    assert [read_generation_result(out).succeeded for out in outs] == [scene_ids, scene_ids]
+    # 谁先进临界区由调度决定：恰有一次提交沿用另一次的宫格
+    assert sum("沿用已在生成中的任务（未重复提交）" in out["content"][0]["text"] for out in outs) == 1
+
+
+async def test_a_submission_does_not_hold_back_others_while_its_grid_generates(
+    fake_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """入队完成即离开提交临界区：前一张联合图还在生成，同一项目的下一次提交照常规划、沿用它。"""
+    scene_ids = _enable_grid(fake_ctx)
+    enqueued: list[str] = []
+    first_enqueued = asyncio.Event()
+    second_done = asyncio.Event()
+
+    async def fake_wait(_task_id: str, **_kwargs: Any) -> dict[str, Any]:
+        if not first_enqueued.is_set():
+            first_enqueued.set()
+            await asyncio.wait_for(second_done.wait(), timeout=5)
+        return {"status": "succeeded"}
+
+    monkeypatch.setattr("server.media_tools.grid.resolve_large_grid_allowed", _no_large_grid)
+    tool_obj = generate_grid_tool(
+        fake_ctx, batch_waiter=_fake_grid_waiter(_queue_backed_enqueue(fake_ctx, enqueued), fake_wait)
+    )
+    first = asyncio.create_task(call(tool_obj, {"script": "episode_1.json"}))
+    await asyncio.wait_for(first_enqueued.wait(), timeout=5)
+    second = await asyncio.wait_for(call(tool_obj, {"script": "episode_1.json"}), timeout=5)
+    second_done.set()
+
+    assert read_generation_result(second).succeeded == scene_ids
+    assert "沿用已在生成中的任务（未重复提交）" in second["content"][0]["text"]
+    assert read_generation_result(await first).succeeded == scene_ids
+    assert len(set(enqueued)) == 1
+
+
+async def test_generate_grid_withholds_healthy_groups_when_one_group_is_blocked(
+    fake_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """整批准入：一组引用有缺口，另一组健康也不入队计费，逐分镜带「同批受阻」结论。"""
+    _enable_grid(fake_ctx, groups=2)
+    fake_ctx.pm.script_payload["segments"][6]["scenes"] = ["未登记的场景"]
+
+    async def unreachable_waiter(**_kwargs: Any):
+        raise AssertionError("整批受阻时不该走到入队")
+
+    monkeypatch.setattr("server.media_tools.grid.resolve_large_grid_allowed", _no_large_grid)
+    out = await call(generate_grid_tool(fake_ctx, batch_waiter=unreachable_waiter), {"script": "episode_1.json"})
+
+    result = read_generation_result(out)
+    assert out.get("is_error") is True
+    assert sorted(result.blocked) == [f"E1S0{i}" for i in range(1, 9)]
+    by_id = {item.unit_id: item.problem for item in result.items}
+    blocked = by_id["E1S05"]
+    assert blocked is not None
+    assert blocked.code == "reference_asset_unregistered"
+    withheld = by_id["E1S01"]
+    assert withheld is not None
+    assert withheld.code == "generation_batch_admission_withheld"
+    assert withheld.params["blocked_unit_ids"] == ["E1S05", "E1S06", "E1S07", "E1S08"]
+
+
+async def test_generate_grid_refused_batch_still_reports_the_group_already_generating(
+    fake_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """整批受阻时，已在生成中的那组照常跑完：逐分镜给「等在途任务」的结论，不从结果里消失。"""
+    scene_ids = _enable_grid(fake_ctx, groups=2)
+    fake_ctx.pm.script_payload["segments"][6]["scenes"] = ["未登记的场景"]
+    in_flight = _saved_grid(fake_ctx, scene_ids[:4], status="generating")
+    await _queue_grid_task(fake_ctx, in_flight)
+
+    async def unreachable_waiter(**_kwargs: Any):
+        raise AssertionError("整批受阻时不该走到入队")
+
+    monkeypatch.setattr("server.media_tools.grid.resolve_large_grid_allowed", _no_large_grid)
+    out = await call(
+        generate_grid_tool(fake_ctx, batch_waiter=unreachable_waiter),
+        {"script": "episode_1.json", "scene_ids": scene_ids},
+    )
+
+    result = read_generation_result(out)
+    assert sorted(result.blocked) == scene_ids
+    items = {item.unit_id: item for item in result.items}
+    running = items["E1S01"]
+    assert running.problem is not None
+    assert (running.problem.code, running.problem.action) == ("generation_active_task_conflict", "wait_for_task")
+    assert running.problem.params == {"grid_ids": [in_flight.id]}
+    assert running.artifact_path == f"grids/{in_flight.id}.png"
+    assert items["E1S05"].problem is not None
+    assert items["E1S05"].problem.code == "reference_asset_unregistered"
+
+
+async def test_generate_grid_missing_only_waits_on_an_unsplit_composite(
+    fake_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """缺失即生成不为未切分的联合图再付一次钱：记为跳过，并提示用户审阅后切分。"""
+    scene_ids = _enable_grid(fake_ctx)
+    unsplit = _saved_grid(fake_ctx, scene_ids, status="completed")
+    enqueued: list[str] = []
+
+    async def fake_enqueue(*, resource_id: str, **_kwargs: Any) -> dict[str, Any]:
+        enqueued.append(resource_id)
+        return {"task_id": "t1"}
+
+    monkeypatch.setattr("server.media_tools.grid.resolve_large_grid_allowed", _no_large_grid)
+    out = await call(
+        generate_grid_tool(fake_ctx, batch_waiter=_fake_grid_waiter(fake_enqueue)),
+        {"script": "episode_1.json"},
+    )
+
+    result = read_generation_result(out)
+    assert enqueued == []
+    assert result.requested == []
+    assert [(s.unit_id, s.artifact_path) for s in result.skipped] == [
+        (scene_id, f"grids/{unsplit.id}.png") for scene_id in scene_ids
+    ]
+    assert out["grid_ids_awaiting_split"] == [unsplit.id]
+
+
+async def test_generate_grid_judges_a_composite_finished_during_the_batch_against_the_settled_state(
+    fake_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """未切分宫格在出图前就被观测过：本批新出的联合图仍按出图后的目标态判定为 current。"""
+    from lib.artifacts.artifact_manifest import ArtifactComparison, ArtifactStatus
+    from lib.script.grid.grid_manager import GridManager
+
+    scene_ids = _enable_grid(fake_ctx, groups=2)
+    unsplit = _saved_grid(fake_ctx, scene_ids[:4], status="completed")
+    gm = GridManager(fake_ctx.project_path)
+
+    class _SnapshotResolver:
+        """与真实 resolver 同样按首次比较时的宫格记录规划目标态，此后不再重读。"""
+
+        def __init__(self) -> None:
+            self._completed: set[str] | None = None
+
+        def compare(self, key, *, artifact_path):
+            if self._completed is None:
+                self._completed = {g.id for g in gm.list_all() if g.status == "completed"}
+            planned = any(artifact_path == f"grids/{grid_id}.png" for grid_id in self._completed)
+            return ArtifactComparison(
+                status=ArtifactStatus.CURRENT if planned else ArtifactStatus.STALE, artifact_path=artifact_path
+            )
+
+    async def fake_enqueue(*, resource_id: str, **_kwargs: Any) -> dict[str, Any]:
+        return {"task_id": resource_id}
+
+    async def worker_finishes(task_id: str, **_kwargs: Any) -> dict[str, Any]:
+        grid = gm.get(task_id)
+        assert grid is not None
+        grid.status = "completed"
+        grid.grid_image_path = f"grids/{grid.id}.png"
+        gm.save(grid)
+        return {"status": "succeeded"}
+
+    monkeypatch.setattr("server.media_tools.grid.resolve_large_grid_allowed", _no_large_grid)
+    monkeypatch.setattr("server.media_tools.grid.active_artifact_currency_resolver", lambda *_args: _SnapshotResolver())
+    out = await call(
+        generate_grid_tool(fake_ctx, batch_waiter=_fake_grid_waiter(fake_enqueue, worker_finishes)),
+        {"script": "episode_1.json"},
+    )
+
+    result = read_generation_result(out)
+    items = {item.unit_id: item for item in result.items}
+    assert [(s.unit_id, s.artifact_path) for s in result.skipped] == [
+        (scene_id, f"grids/{unsplit.id}.png") for scene_id in scene_ids[:4]
+    ]
+    assert result.succeeded == scene_ids[4:]
+    assert {items[scene_id].artifact_status for scene_id in scene_ids[4:]} == {ArtifactStatus.CURRENT}
+
+
+async def test_generate_grid_refused_batch_still_lists_the_unsplit_composite(
+    fake_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """另一组受阻时，未切分的联合图照样列进 grid_ids_awaiting_split，审阅切分不必等受阻组修好。"""
+    scene_ids = _enable_grid(fake_ctx, groups=2)
+    fake_ctx.pm.script_payload["segments"][6]["scenes"] = ["未登记的场景"]
+    unsplit = _saved_grid(fake_ctx, scene_ids[:4], status="completed")
+
+    async def unreachable_waiter(**_kwargs: Any):
+        raise AssertionError("整批受阻时不该走到入队")
+
+    monkeypatch.setattr("server.media_tools.grid.resolve_large_grid_allowed", _no_large_grid)
+    out = await call(generate_grid_tool(fake_ctx, batch_waiter=unreachable_waiter), {"script": "episode_1.json"})
+
+    result = read_generation_result(out)
+    assert sorted(result.blocked) == scene_ids[4:]
+    assert [s.unit_id for s in result.skipped] == scene_ids[:4]
+    assert out["grid_ids_awaiting_split"] == [unsplit.id]
+
+
+async def test_generate_grid_list_only_shows_each_grid_record_and_action(
+    fake_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    scene_ids = _enable_grid(fake_ctx, groups=2)
+    unsplit = _saved_grid(fake_ctx, scene_ids[:4], status="completed")
+    in_flight = _saved_grid(fake_ctx, scene_ids[4:], status="pending")
+    await _queue_grid_task(fake_ctx, in_flight)
+
+    monkeypatch.setattr("server.media_tools.grid.resolve_large_grid_allowed", _no_large_grid)
+    out = await call(generate_grid_tool(fake_ctx), {"script": "episode_1.json", "list_only": True})
+
+    text = out["content"][0]["text"]
+    assert f"等待切分落格，本次不重生成；记录 {unsplit.id} 联合图已就绪、未切分" in text
+    assert f"正在生成，本次沿用、不重复提交；记录 {in_flight.id} 生成中" in text
+
+
+async def test_generate_grid_refuses_ad_projects(fake_ctx: ToolContext) -> None:
+    _enable_grid(fake_ctx)
+    fake_ctx.pm.project_payload["content_mode"] = "ad"
+
+    out = await call(generate_grid_tool(fake_ctx), {"script": "episode_1.json", "list_only": True})
+
+    assert out.get("is_error") is True
+    assert out["problem"]["code"] == "ad_grid_not_supported"
+
+
+async def test_generate_grid_refuses_a_script_of_the_other_route(fake_ctx: ToolContext) -> None:
+    """剧本骨架与生成模式失配是输入问题，不报成可重试的 internal_error。"""
+    _enable_grid(fake_ctx)
+    fake_ctx.pm.script_payload.pop("segments")
+    fake_ctx.pm.script_payload["video_units"] = []
+
+    out = await call(generate_grid_tool(fake_ctx), {"script": "episode_1.json", "list_only": True})
+
+    assert out.get("is_error") is True
+    assert out["problem"]["code"] == "grid_script_route_mismatch"
+
+
+async def test_split_grids_splits_each_ready_grid_and_explains_the_rest(
+    fake_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from server.media_tools.grid import split_grids_tool
+    from server.services.grid.grid_split import GridSplitResult
+
+    scene_ids = _enable_grid(fake_ctx, groups=3)
+    ready = _saved_grid(fake_ctx, scene_ids[:4], status="completed")
+    in_flight = _saved_grid(fake_ctx, scene_ids[4:8], status="generating")
+    broken = _saved_grid(fake_ctx, scene_ids[8:], status="completed")
+
+    async def fake_split(project_name: str, grid: Any) -> GridSplitResult:
+        if grid.id == broken.id:
+            raise RuntimeError("disk full")
+        return GridSplitResult(updated_scene_ids=list(grid.scene_ids), missing_scene_ids=[], asset_fingerprints={})
+
+    monkeypatch.setattr("server.media_tools.grid.apply_grid_split", fake_split)
+    out = await call(
+        split_grids_tool(fake_ctx),
+        {"grid_ids": [ready.id, broken.id, in_flight.id, "grid_000000000000"]},
+    )
+
+    assert out.get("is_error") is not True
+    results = {r["grid_id"]: r for r in out["split_grids"]["results"]}
+    assert results[ready.id]["status"] == "split"
+    assert results[ready.id]["updated_scene_ids"] == scene_ids[:4]
+    assert results[broken.id]["status"] == "failed"
+    assert results[in_flight.id]["status"] == "in_progress"
+    assert results["grid_000000000000"]["status"] == "not_found"
+
+
+@pytest.mark.parametrize("content", ['{{"id": "{grid_id}"}}', '{{"id": "{grid_id}", '], ids=["缺字段", "JSON 截断"])
+async def test_split_grids_reports_an_unreadable_record_without_abandoning_the_rest(
+    fake_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch, content: str
+) -> None:
+    """一条记录读不出来，只记这一张失败（不当成不存在），排在它后面的宫格照常切分。"""
+    from server.media_tools.grid import split_grids_tool
+    from server.services.grid.grid_split import GridSplitResult
+
+    scene_ids = _enable_grid(fake_ctx, groups=2)
+    damaged = _saved_grid(fake_ctx, scene_ids[:4], status="completed")
+    (fake_ctx.project_path / "grids" / f"{damaged.id}.json").write_text(
+        content.format(grid_id=damaged.id), encoding="utf-8"
+    )
+    ready = _saved_grid(fake_ctx, scene_ids[4:], status="completed")
+
+    async def fake_split(project_name: str, grid: Any) -> GridSplitResult:
+        return GridSplitResult(updated_scene_ids=list(grid.scene_ids), missing_scene_ids=[], asset_fingerprints={})
+
+    monkeypatch.setattr("server.media_tools.grid.apply_grid_split", fake_split)
+    out = await call(split_grids_tool(fake_ctx), {"grid_ids": [damaged.id, ready.id]})
+
+    assert out.get("is_error") is not True
+    results = {r["grid_id"]: r for r in out["split_grids"]["results"]}
+    assert results[damaged.id]["status"] == "failed"
+    assert results[ready.id]["status"] == "split"
+
+
+async def test_split_grids_reports_a_problem_when_nothing_was_split(fake_ctx: ToolContext) -> None:
+    from server.media_tools.grid import split_grids_tool
+
+    _enable_grid(fake_ctx)
+
+    out = await call(split_grids_tool(fake_ctx), {"grid_ids": ["not-a-grid-id"]})
+
+    assert out.get("is_error") is True
+    assert out["problem"]["params"]["results"] == [
+        {"grid_id": "not-a-grid-id", "status": "not_found", "detail": "宫格不存在"}
+    ]
+
+
+async def test_split_grids_refuses_projects_without_grid_storyboard(fake_ctx: ToolContext) -> None:
+    from server.media_tools.grid import split_grids_tool
+
+    out = await call(split_grids_tool(fake_ctx), {"grid_ids": ["grid_000000000000"]})
+
+    assert out.get("is_error") is True
+    assert out["problem"]["code"] == "grid_storyboard_not_enabled"

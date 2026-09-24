@@ -3,7 +3,7 @@
 import json
 import logging
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -164,27 +164,42 @@ class GridManager:
                 logger.warning("Skipping invalid grid file %s: %s", p.name, e)
         return sorted(grids, key=lambda g: g.created_at)
 
-    def cleanup_superseded(self, script_file: str, episode: int, scene_ids: set[str]) -> int:
-        """Delete finished grid records superseded by a regenerate of ``scene_ids``.
+    def cleanup_superseded(
+        self,
+        script_file: str,
+        episode: int,
+        scene_ids: set[str],
+        *,
+        regenerated: set[str] | None = None,
+        abandoned: Collection[str] = (),
+    ) -> int:
+        """Delete finished grid records superseded by a regenerate within the group ``scene_ids``.
 
         A record is superseded when it belongs to the same script and episode, its
-        ``scene_ids`` are a subset of the freshly generated group, and it is not still
-        in flight (pending/generating). In-flight records are kept so the generation
-        worker can still find its resource.
+        ``scene_ids`` are a subset of the group, it overlaps ``regenerated`` (the grid
+        being generated now; defaults to the whole group), and it is not still in
+        flight (pending/generating). In-flight records are kept so the generation
+        worker can still find its resource; ids in ``abandoned`` are records the
+        caller has proven to have no active task left (cancelled, lost on restart,
+        enqueue failed) and are cleaned up like finished ones. Records of other chunks in the same group
+        that the regenerate does not touch are kept; a record spanning the regenerated
+        chunk and an untouched one is obsolete under the current chunk plan and goes.
 
         This is the single cleanup rule shared by the HTTP route and the SDK tool so
         both regenerate paths stop accumulating stale grid generations.
 
         Returns the number of deleted records.
         """
+        touched = scene_ids if regenerated is None else regenerated
         deleted = 0
         for old in self.list_all():
             if (
                 old.script_file == script_file
                 and old.episode == episode
-                and old.status not in ("pending", "generating")
+                and (old.status not in ("pending", "generating") or old.id in abandoned)
                 and old.scene_ids
                 and set(old.scene_ids) <= scene_ids
+                and not touched.isdisjoint(old.scene_ids)
             ) and self.delete(old.id):
                 deleted += 1
         return deleted

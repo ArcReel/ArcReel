@@ -45,7 +45,7 @@ Read 只补充创作输入与商品 soft gate 信息。每次动作完成后刷�
    - `next_action.type == "generate_storyboards"` → 调
      `mcp__arcreel__generate_storyboards({"script": target.script_filename, "segment_ids": requested_ids})`
    - `next_action.type == "generate_grid"` → 调
-     `mcp__arcreel__generate_grid({"script": target.script_filename, "scene_ids": requested_ids})`
+     `mcp__arcreel__generate_grid({"script": target.script_filename})`（不传 `scene_ids`：缺失即生成，不重做联合图已就绪、未切分的宫格）
    - `next_action.type == "choose_narration_delivery"` → 本次请求含叙述旁白。**显式说明**并在
      「使用当前 TTS」与「后期配音」之间二选一，选择经 `narration_delivery` 带进下一次
      `mcp__arcreel__get_workflow_plan`（不持久化，每次查询都要重新带上）。未配置 TTS 时默认后期配音，

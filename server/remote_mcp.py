@@ -45,7 +45,7 @@ from server.draft_workflow import (
 from server.media_tools.assets import generate_assets_tool, list_pending_assets_tool
 from server.media_tools.context import ToolContext
 from server.media_tools.definition import ToolDefinition, json_value, media_outcome_payload
-from server.media_tools.grid import generate_grid_tool
+from server.media_tools.grid import generate_grid_tool, split_grids_tool
 from server.media_tools.image_edits import edit_images_tool
 from server.media_tools.narration_audio import generate_narration_audio_tool
 from server.media_tools.storyboards import generate_storyboards_tool
@@ -230,6 +230,8 @@ def _remote_media_description(definition: ToolDefinition) -> str:
         if definition.name == "generate_grid":
             description += (
                 " For list_only=true, the preview returns immediately without a generation_batch; do not poll."
+                " The durable batch carries no grid_ids_awaiting_split: read each grid_id from the artifact_path"
+                " (grids/<grid_id>.png) of the skipped items and of the terminal succeeded items."
             )
         return description
     return definition.description
@@ -342,6 +344,7 @@ def build_remote_mcp_server(
         generate_storyboards_tool,
         edit_images_tool,
         generate_grid_tool,
+        split_grids_tool,
         generate_videos_tool,
         generate_narration_audio_tool,
     ):

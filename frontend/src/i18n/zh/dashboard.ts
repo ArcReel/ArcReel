@@ -1747,6 +1747,7 @@ export default {
   'tool_name_generate_storyboards': '生成分镜图',
   'tool_name_edit_images': '编辑图片',
   'tool_name_generate_grid': '生成多宫格分镜图',
+  'tool_name_split_grids': '多宫格分镜切分落格',
   'tool_name_generate_videos': '生成视频',
   'tool_name_generate_narration_audio': '生成旁白配音',
   'tool_name_generate_episode_script': '生成脚本',

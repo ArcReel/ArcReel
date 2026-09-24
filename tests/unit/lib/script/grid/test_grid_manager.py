@@ -163,7 +163,7 @@ class TestLegacyRecordMigration:
 
 
 class TestCleanupSuperseded:
-    """重生成清理规则：同脚本同集、scene_ids 是当前组子集、非在途的旧记录被删。
+    """重生成清理规则：同脚本同集、scene_ids 是当前组子集、与本次重画的宫格有交集、非在途的旧记录被删。
 
     HTTP 路由与 SDK 工具 (generate_grid) 共用 GridManager.cleanup_superseded，
     本类锁定规则的唯一实现。
@@ -251,6 +251,16 @@ class TestCleanupSuperseded:
         assert gm.get(pending.id) is not None
         assert gm.get(generating.id) is not None
 
+    def test_deletes_abandoned_inflight_records(self, tmp_path):
+        """调用方证明已没有活动任务的 pending/generating 记录按已结束的记录清理，其余在途记录保留。"""
+        gm = GridManager(tmp_path)
+        abandoned = self._save(gm, status="generating", scene_ids=["S1", "S2"])
+        running = self._save(gm, status="pending", scene_ids=["S1", "S2"])
+        deleted = gm.cleanup_superseded("ep1.json", 1, {"S1", "S2"}, abandoned={abandoned.id})
+        assert deleted == 1
+        assert gm.get(abandoned.id) is None
+        assert gm.get(running.id) is not None
+
     def test_skips_records_with_non_subset_scene_ids(self, tmp_path):
         """scene_ids 不是当前组子集的记录属于其它组/代，不得误删。"""
         gm = GridManager(tmp_path)
@@ -260,6 +270,18 @@ class TestCleanupSuperseded:
         assert deleted == 0
         assert gm.get(overlap.id) is not None
         assert gm.get(outside.id) is not None
+
+    def test_regenerating_one_chunk_keeps_the_group_s_untouched_chunks(self, tmp_path):
+        """只重画组内一张时：与它有交集的旧记录（含横跨多张的）被删，组内其余分块自己的记录保留。"""
+        gm = GridManager(tmp_path)
+        spanning = self._save(gm, scene_ids=["S1", "S2", "S3", "S4"])
+        same_chunk = self._save(gm, scene_ids=["S1", "S2"])
+        untouched = self._save(gm, scene_ids=["S3", "S4"])
+        deleted = gm.cleanup_superseded("ep1.json", 1, {"S1", "S2", "S3", "S4"}, regenerated={"S1", "S2"})
+        assert deleted == 2
+        assert gm.get(spanning.id) is None
+        assert gm.get(same_chunk.id) is None
+        assert gm.get(untouched.id) is not None
 
     def test_skips_records_of_other_script_or_episode(self, tmp_path):
         gm = GridManager(tmp_path)
