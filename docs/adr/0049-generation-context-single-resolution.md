@@ -18,4 +18,4 @@ status: accepted
 - **测试面收口**：消费方测试改为替换 `resolve_generation_context` 单点、以 frozen dataclass 直接拼装假 context；模块自身测试用真实测试 DB + tmp_path + fake backend 走接口断言，不断言私有属性。原先跨多个测试文件拼装 resolve/backend 组合 monkeypatch 的模式作废。
 - **cost_estimation 不是消费方**：费用预估只解析不构造 backend，改为直接调用 `ConfigResolver.resolve_image_backend / resolve_video_backend` 消除其手工重演优先级的解析副本，保留解析失败降级 unknown 的展示语义。
 - **术语已落盘**：`GenerationContext` 及 image / video / audio lane 结果类型的语义由 `server/services/tasks/generation_context.py` 的模块与类文档字符串承载（术语表只收产品概念，不收内部类型）。
-- video lane 的兜底分辨率与时长这一维的空值放行由 `docs/adr/0085` 取代。
+- video lane 的兜底分辨率与时长这一维的空值放行由 `docs/adr/0086` 取代。
