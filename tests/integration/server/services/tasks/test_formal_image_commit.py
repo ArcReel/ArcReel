@@ -10,6 +10,7 @@ from lib.artifacts.artifact_manifest import (
     ArtifactKey,
     ProjectArtifactManifestAdapter,
 )
+from lib.infra.api_errors import BadRequestError
 from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from server.services.tasks import formal_image_commit, generation_tasks
 from tests.fakes import hook_claim_recheck
@@ -80,7 +81,9 @@ class TestGenerationTasks:
         assert kwargs["artifact_path"] == "storyboards/scene_E1S01.png"
         assert isinstance(kwargs["basis"], ArtifactBasis)
 
-    async def test_schema8_storyboard_excludes_unclaimed_formal_references(self, tmp_path, monkeypatch):
+    async def test_schema8_storyboard_refuses_unclaimed_asset_sheets_before_provider(self, tmp_path, monkeypatch):
+        """资产图文件在但清单未登记即不可用：生成在解析供应商之前被拒，一次报全；未登记的上一分镜图只是略去。"""
+
         project_path = prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
         fake_pm.script["segments"][0]["generated_assets"] = {"storyboard_image": "storyboards/scene_E1S01.png"}
@@ -89,15 +92,22 @@ class TestGenerationTasks:
 
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
         monkeypatch.setattr(generation_tasks, "resolve_generation_context", fake_resolve_ctx(fake_generator))
-        monkeypatch.setattr(formal_image_commit, "register_current_resource_artifact", lambda *_args, **_kwargs: True)
 
-        await generation_tasks.execute_storyboard_task(
-            "demo",
-            "E1S02",
-            {"script_file": "episode_1.json", "prompt": "direct prompt"},
-        )
+        with pytest.raises(BadRequestError) as refused:
+            await generation_tasks.execute_storyboard_task(
+                "demo",
+                "E1S02",
+                {"script_file": "episode_1.json", "prompt": "direct prompt"},
+            )
 
-        assert fake_generator.image_calls[0]["reference_images"] is None
+        assert refused.value.key == "reference_asset_missing"
+        assert refused.value.params["missing_text"] == "character: Alice, scene: 祠堂, prop: 玉佩"
+        assert refused.value.params["gaps"] == [
+            {"code": "reference_asset_missing", "asset_type": "character", "name": "Alice"},
+            {"code": "reference_asset_missing", "asset_type": "scene", "name": "祠堂"},
+            {"code": "reference_asset_missing", "asset_type": "prop", "name": "玉佩"},
+        ]
+        assert fake_generator.image_calls == []
 
     async def test_schema8_storyboard_rejects_an_unclaimed_bound_script_before_provider(self, tmp_path, monkeypatch):
         project_path = prepare_files(tmp_path)

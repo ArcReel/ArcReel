@@ -154,9 +154,15 @@ class _FakePM:
         (self.project_path / "scripts" / "episode_1.json").write_text(json.dumps(self.script), encoding="utf-8")
 
     def register_storyboards(self) -> None:
-        """把已落盘的分镜图登记进产物清单——未登记的产物不被生产准入。"""
+        """把已落盘的资产图与分镜图依次登记进产物清单——未登记的产物不被生产准入。
+
+        资产图先于分镜图：分镜图的依据引用资产图，引用的资产图未登记时分镜图不成立。
+        """
 
         self.sync_disk()
+        for asset_type, bucket in (("character", "characters"), ("scene", "scenes"), ("prop", "props")):
+            for name in self.project.get(bucket) or {}:
+                register_current_artifact_if_provable(self.project_path, ArtifactKey.asset_sheet(asset_type, name))
         for container in ("segments", "shots", "scenes", "units"):
             for item in self.script.get(container) or []:
                 unit_id = item.get("segment_id") or item.get("shot_id") or item.get("scene_id") or item.get("unit_id")

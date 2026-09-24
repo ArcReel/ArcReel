@@ -19,6 +19,7 @@ from collections.abc import Callable
 from typing import Any, TypeGuard
 
 from lib.custom_provider.comfyui.artifacts import expected_suffixes_text
+from lib.i18n import render_generation_input_error
 
 # Backend capability rejections (``ImageCapabilityError`` / ``VideoCapabilityError`` /
 # ``ReferencePayloadFloorError``). Their ``.code`` is already an ``errors`` catalog key,
@@ -80,6 +81,17 @@ REFERENCE_PROJECTION_FAILURE_CODES: frozenset[str] = frozenset(
     }
 )
 
+# 生成输入被拒（``lib.artifacts.generation_input.InputRefused``）时，执行器经服务端翻译函数抛出的
+# 首个缺口码；同一缺口在参考生视频投影里也可能出现，两份登记表重叠处按集合合并。
+GENERATION_INPUT_FAILURE_CODES: frozenset[str] = frozenset(
+    {
+        "asset_original_missing",
+        "reference_asset_missing",
+        "reference_asset_unregistered",
+        "script_prompt_pending",
+    }
+)
+
 NARRATION_DELIVERY_FAILURE_CODES: frozenset[str] = frozenset(
     {
         "needs_replan",
@@ -104,6 +116,7 @@ NARRATION_DELIVERY_FAILURE_CODES: frozenset[str] = frozenset(
 FAILURE_CODE_KEYS: dict[str, str] = {
     **{code: code for code in CAPABILITY_FAILURE_CODES},
     **{code: code for code in REFERENCE_PROJECTION_FAILURE_CODES},
+    **{code: code for code in GENERATION_INPUT_FAILURE_CODES},
     **{code: code for code in NARRATION_DELIVERY_FAILURE_CODES},
     "provider_unsupported_media": "task_fail_provider_unsupported_media",
     # 上游确定性 4xx 拒绝。params 里的 provider_reason 是脱敏截断后的上游原文，刻意不进
@@ -345,7 +358,7 @@ def render_failure(error_message: str | None, translate: Callable[..., str]) -> 
     if code in _COMFYUI_ARTIFACT_MISMATCH_CODES:
         media_type = params.get("media_type")
         params = {**params, "expected": expected_suffixes_text(media_type if isinstance(media_type, str) else "")}
-    return translate(FAILURE_CODE_KEYS[code], **params)
+    return render_generation_input_error(FAILURE_CODE_KEYS[code], params, translate)
 
 
 def parse_failure(error_message: str | None) -> tuple[str, dict[str, Any]] | None:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable, Mapping
 from typing import Any
 
 from .en import assets as en_assets
@@ -84,6 +85,40 @@ def _(key: str, locale: str = DEFAULT_LOCALE, **kwargs: Any) -> str:
         return msg.format(**kwargs)
     except Exception:
         return msg
+
+
+def render_generation_input_error(key: str, params: Mapping[str, Any], translate: Callable[..., str]) -> str:
+    """Render mixed generation-input gaps by cause while preserving the first machine code."""
+    gaps = params.get("gaps")
+    if not isinstance(gaps, list):
+        return translate(key, **params)
+    grouped: dict[str, list[str]] = {}
+    for gap in gaps:
+        if not isinstance(gap, dict):
+            return translate(key, **params)
+        code, name, asset_type = gap.get("code"), gap.get("name"), gap.get("asset_type")
+        if code not in {
+            "script_prompt_pending",
+            "reference_asset_unregistered",
+            "reference_asset_missing",
+            "asset_original_missing",
+        } or not isinstance(name, str):
+            return translate(key, **params)
+        text = (
+            name
+            if code in {"script_prompt_pending", "reference_asset_unregistered"} or not isinstance(asset_type, str)
+            else f"{asset_type}: {name}"
+        )
+        grouped.setdefault(code, []).append(text)
+    if len(grouped) < 2 or next(iter(grouped)) != key:
+        return translate(key, **params)
+    details = []
+    for code, names in grouped.items():
+        if code == "script_prompt_pending":
+            details.append(translate(code, segment_id=names[0]))
+        else:
+            details.append(translate(code, missing_text=", ".join(names)))
+    return translate("generation_input_multiple_gaps", details="; ".join(details))
 
 
 def translate_or(key: str, fallback: str, locale: str = DEFAULT_LOCALE, **kwargs: Any) -> str:

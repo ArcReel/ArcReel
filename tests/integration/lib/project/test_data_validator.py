@@ -1404,9 +1404,9 @@ class TestAdEpisodeValidation:
         assert any("products_in_shot" in e for e in result.errors)
 
     def test_shot_product_reference_accepts_nfc_nfd_mismatch_on_storyboard_path(self, tmp_path):
-        """products_in_shot 与其收集器（collect_product_references_for_names）同口径归一：
-        NFC/NFD 不一致的合法商品名必须放行，否则校验层比实际生成时的收集层更严格，
-        挡下收集层其实能解析的商品。"""
+        """products_in_shot 与分镜图生成输入（经引用目录解析）同口径归一：
+        NFC/NFD 不一致的合法商品名必须放行，否则校验层比实际生成时的装配更严格，
+        挡下装配其实能解析的商品。"""
         import unicodedata
 
         name_nfc = unicodedata.normalize("NFC", "Hiếu")
@@ -1418,9 +1418,9 @@ class TestAdEpisodeValidation:
         assert result.valid, result.errors
 
     def test_shot_reference_accepts_nfc_nfd_mismatch_on_storyboard_path(self, tmp_path):
-        """storyboard 路径的资产引用同样按 NFC 归一比对：该路径的图片收集
-        （server.services.tasks.generation_tasks._collect_sheet_references）归一后索引，校验层
-        若在此原样比对会拒掉收集层其实能解析的合法名字。"""
+        """storyboard 路径的资产引用同样按 NFC 归一比对：该路径的参考图装配
+        （lib.artifacts.generation_input，经引用目录解析）归一后索引，校验层
+        若在此原样比对会拒掉装配其实能解析的合法名字。"""
         import unicodedata
 
         name_nfc = unicodedata.normalize("NFC", "Hiếu")

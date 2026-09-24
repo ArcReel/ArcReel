@@ -1,13 +1,15 @@
-"""引用准入结论 → 服务端契约：路由的领域异常与整批的逐目标生成问题。
+"""引用准入结论与生成输入拒绝 → 服务端契约：路由的领域异常与整批的逐目标生成问题。
 
-判定本身在 :mod:`lib.references.reference_admission`；本模块只把同一份结论翻成两种回执形状，
-让单条提交与整批准入不会因为回执形状不同而各自实现一遍判定。
+入口准入的判定在 :mod:`lib.references.reference_admission`，执行期的生成输入拒绝来自
+:mod:`lib.artifacts.generation_input`；本模块只把结论翻成回执形状，让单条提交、整批准入与
+执行期拒绝不会因为回执形状不同而各自实现一遍判定。
 """
 
 from __future__ import annotations
 
 from collections.abc import Iterable
 
+from lib.artifacts.generation_input import PROMPT_PENDING_CODE, InputGap, InputRefused
 from lib.generation.generation_result import GenerationAction, GenerationProblem
 from lib.infra.api_errors import BadRequestError
 from lib.references.reference_admission import (
@@ -17,6 +19,32 @@ from lib.references.reference_admission import (
     admit_storyboard_items,
 )
 from lib.references.reference_catalog import build_reference_catalog
+
+#: 语义缺口的对象在各自文案里的参数名。
+_SUBJECT_PARAMS: dict[str, str] = {PROMPT_PENDING_CODE: "segment_id"}
+
+
+def _gap_text(gap: InputGap) -> str:
+    if gap.code == UNREGISTERED_REFERENCE_CODE or gap.asset_type is None:
+        return gap.name or ""
+    return f"{gap.asset_type}: {gap.name}"
+
+
+def input_refusal_error(refused: InputRefused) -> BadRequestError:
+    """生成输入拒绝的唯一翻译：第一个缺口码作错误码，全部缺口放进错误详情。
+
+    ``missing_text`` 按装配序列出全部引用缺口，用户一次就能补齐；``gaps`` 是同一份缺口的
+    机器形态（码、资产类型、名字），随任务失败原因落库，供 Agent 逐项处理。
+    """
+
+    first = refused.reasons[0]
+    params: dict[str, object] = {
+        "missing_text": ", ".join(_gap_text(gap) for gap in refused.reasons if gap.code not in _SUBJECT_PARAMS),
+        "gaps": [{"code": gap.code, "asset_type": gap.asset_type, "name": gap.name} for gap in refused.reasons],
+    }
+    if (subject := _SUBJECT_PARAMS.get(first.code)) is not None:
+        params[subject] = first.name or ""
+    return BadRequestError(first.code, **params)
 
 
 def require_admitted_storyboard_references(project: dict, items: Iterable[object]) -> None:

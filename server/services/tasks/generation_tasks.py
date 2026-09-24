@@ -25,10 +25,16 @@ from lib.artifacts.artifact_activation import (
     resolve_usable_storyboard_video_inputs,
 )
 from lib.artifacts.artifact_manifest import (
-    ArtifactBasis,
     ArtifactBasisDescriptor,
     ArtifactKey,
     compose_video_artifact_basis,
+)
+from lib.artifacts.generation_input import (
+    FrozenGenerationInput,
+    InputRefused,
+    StoryboardImageInput,
+    project_input_observation,
+    storyboard_image_input,
 )
 from lib.artifacts.image_reference_snapshot import FrozenImageReferences, freeze_image_references
 from lib.artifacts.version_manager import PaidVersionCommit
@@ -39,7 +45,6 @@ from lib.artifacts.visual_artifact_provenance import (
     VisualReference,
     build_asset_sheet_visual_basis,
     build_grid_composite_visual_basis,
-    build_storyboard_image_visual_basis,
     build_storyboard_video_artifact_visual_basis,
     project_basis_style_description,
 )
@@ -80,11 +85,10 @@ from lib.prompts.prompt_builders import (
     build_product_prompt,
     build_prop_prompt,
     build_scene_prompt,
-    render_storyboard_image_prompt,
 )
 from lib.prompts.prompt_style import normalize_style_value
 from lib.prompts.prompt_utils import render_storyboard_video_prompt
-from lib.prompts.reference_image_numbering import PREVIOUS_STORYBOARD_ROLE, ReferenceImageSlot, clamp_reference_images
+from lib.prompts.reference_image_numbering import clamp_reference_images
 from lib.references.reference_catalog import build_reference_catalog
 from lib.script.reference_video.duration_slots import DEFAULT_PLANNED_DURATION_SECONDS
 from lib.script.reference_video.execution_checkpoint import (
@@ -102,7 +106,6 @@ from lib.script.script_skeleton import SKELETON_ENTITY_TYPES, SKELETON_ITEM_LABE
 from lib.script.storyboard_sequence import (
     find_storyboard_item,
     get_storyboard_items,
-    resolve_previous_storyboard_path,
 )
 from lib.speech.audio_utils import (
     AUDIO_REFERENCE_MAX_BYTES,
@@ -124,6 +127,7 @@ from lib.speech.narration_delivery import (
 )
 from lib.speech.speech_artifact_provenance import build_video_duration_basis
 from lib.speech.speech_composition import SpeechAdmissionError, admit_script_unit
+from server.services.admission.reference_admission import input_refusal_error
 from server.services.currency.video_artifact_currency import (
     VideoArtifactCommitter,
     complete_video_artifact_commit,
@@ -158,19 +162,6 @@ from server.services.tasks.narration_delivery_tasks import (
 from server.services.tasks.reference_video_tasks import execute_reference_video_task
 
 logger = logging.getLogger(__name__)
-
-
-def _normalize_storyboard_prompt(
-    prompt: object,
-    style: str,
-    style_description: str = "",
-    references: Sequence[ReferenceImageSlot] = (),
-) -> str:
-    """Render one semantic storyboard prompt through the shared provider projection."""
-
-    return render_storyboard_image_prompt(
-        prompt, style=style, style_description=style_description, references=references
-    )
 
 
 def _get_model_default_duration(provider_name: str, model_name: str | None) -> int:
@@ -296,271 +287,6 @@ def _collect_sheet_references(
             break
 
     return refs, seen
-
-
-def _collect_reference_images(
-    project: dict,
-    project_path: Path,
-    target_item: dict,
-    *,
-    char_field: str | None,
-    scene_field: str,
-    prop_field: str,
-    previous_storyboard_path: Path | None = None,
-    previous_storyboard_id: str | None = None,
-    visual_references: list[VisualReference] | None = None,
-    artifact_episode: int | None = None,
-    currency_resolver: ArtifactCurrencyResolver,
-    formal_claims: list[ArtifactInputClaim] | None = None,
-) -> list[object] | None:
-    sheet_refs, _ = _collect_sheet_references(
-        project,
-        project_path,
-        [target_item],
-        char_field=char_field,
-        scene_field=scene_field,
-        prop_field=prop_field,
-        visual_references=visual_references,
-        currency_resolver=currency_resolver,
-        formal_claims=formal_claims,
-    )
-    reference_images: list[object] = list(sheet_refs)
-
-    if previous_storyboard_path and previous_storyboard_path.exists():
-        if not previous_storyboard_id:
-            raise ValueError("previous_storyboard_id is required for storyboard basis evidence")
-        if artifact_episode is None:
-            raise ValueError("artifact_episode is required for storyboard references")
-        previous_artifact_path = previous_storyboard_path.relative_to(project_path).as_posix()
-        previous_key = ArtifactKey.episode_storyboard(artifact_episode, previous_storyboard_id)
-        if not artifact_input_is_usable(
-            resolver=currency_resolver,
-            key=previous_key,
-            artifact_path=previous_artifact_path,
-            claims=formal_claims,
-        ):
-            return reference_images or None
-        reference_images.append({"image": previous_storyboard_path})
-        if visual_references is not None:
-            visual_references.append(
-                VisualReference(
-                    path=previous_storyboard_path,
-                    role=PREVIOUS_STORYBOARD_ROLE,
-                    logical_type="storyboard",
-                    logical_id=previous_storyboard_id,
-                )
-            )
-
-    return reference_images or None
-
-
-def collect_shot_product_references(
-    project: dict,
-    project_path: Path,
-    item: dict,
-    *,
-    currency_resolver: ArtifactCurrencyResolver,
-    formal_claims: list[ArtifactInputClaim] | None = None,
-) -> list[dict]:
-    """商品分镜（``products_in_shot`` 非空）的商品参考集，用于分镜图生成。
-
-    每个商品：有 product sheet 时注入集为「sheet 多角度 + 原图压阵」（sheet 在前、
-    原图收尾），无 sheet 时原图直注。返回 ``{"image": Path, "name": str,
-    "kind": "sheet"|"original"}`` 列表——name 是商品的逻辑身份（进参考图证据，供正文
-    ``@[商品名]`` 指认到对应「图N」），kind 只区分 sheet 与原图、映射成参考图证据里的
-    role（按后端上限裁剪时纯去尾，不看 kind）；调用方负责把该列表
-    排在其它参考之前（排序绝对优先），声明行随之把这些序位标为商品参考图并附完全一致
-    的保真约束。氛围分镜
-    （列表为空）返回空列表，零商品图。脏数据（products_in_shot 非列表、products
-    非 dict、商品名非字符串、引用不存在的商品）按既有装配口径跳过不抛。
-    """
-    raw_products_in_shot = item.get("products_in_shot")
-    if not isinstance(raw_products_in_shot, (list, tuple)):
-        if raw_products_in_shot:
-            logger.warning(
-                "products_in_shot 类型异常（%s），商品参考注入跳过",
-                type(raw_products_in_shot).__name__,
-            )
-        return []
-    return collect_product_references_for_names(
-        project,
-        project_path,
-        raw_products_in_shot,
-        currency_resolver=currency_resolver,
-        formal_claims=formal_claims,
-    )
-
-
-def collect_product_references_for_names(
-    project: dict,
-    project_path: Path,
-    names: Sequence[Any],
-    *,
-    currency_resolver: ArtifactCurrencyResolver,
-    formal_claims: list[ArtifactInputClaim] | None = None,
-) -> list[dict]:
-    """按商品名列表收集商品参考集（注入二元规则的装配核心，条目语义见
-    ``collect_shot_product_references``）。分镜图按分镜注入与广告/短片的参考生视频
-    按 unit 注入共用此函数，保证两条路径的「sheet 在前、原图压阵」口径一致。
-    """
-    spec = ASSET_SPECS["product"]
-    products = normalize_asset_bucket(project.get(spec.bucket_key))
-    references: list[dict] = []
-    seen: set[str] = set()
-    for name in names:
-        if not isinstance(name, str):
-            logger.warning("products_in_shot 含非字符串条目 %r，商品参考跳过", name)
-            continue
-        canonical = normalize_asset_name(name)
-        if canonical in seen:
-            continue
-        seen.add(canonical)
-        entry = products.get(canonical)
-        if not isinstance(entry, dict):
-            logger.warning("分镜引用的商品 '%s' 不在 project.json products 中，商品参考跳过", name)
-            continue
-        before = len(references)
-        sheet = entry.get(spec.sheet_field)
-        if (
-            isinstance(sheet, str)
-            and safe_exists(project_path, sheet)
-            and artifact_input_is_usable(
-                resolver=currency_resolver,
-                key=ArtifactKey.asset_sheet("product", canonical),
-                artifact_path=sheet,
-                claims=formal_claims,
-            )
-        ):
-            references.append({"image": project_path / sheet, "name": canonical, "kind": "sheet"})
-        references.extend(
-            {"image": original, "name": canonical, "kind": "original"}
-            for original in _collect_product_reference_images(project, project_path, canonical) or []
-        )
-        if len(references) == before:
-            logger.warning("商品分镜引用的商品 '%s' 无任何可用参考图（sheet 与原图均缺失），保真注入退化为纯文本", name)
-    return references
-
-
-def _product_visual_references(product_references: Sequence[Mapping[str, object]]) -> list[VisualReference]:
-    """Project provider-facing product refs into canonical generation evidence."""
-
-    evidence: list[VisualReference] = []
-    for reference in product_references:
-        path = reference.get("image")
-        name = reference.get("name")
-        kind = reference.get("kind")
-        if not isinstance(path, Path) or not isinstance(name, str) or kind not in {"sheet", "original"}:
-            raise ValueError("product reference metadata is incomplete")
-        evidence.append(
-            VisualReference(
-                path=path,
-                role="asset_sheet" if kind == "sheet" else "source",
-                logical_type="product",
-                logical_id=name,
-                kind=str(kind),
-            )
-        )
-    return evidence
-
-
-@dataclass(frozen=True)
-class StoryboardReferenceSet:
-    """一个分镜条目装配出的参考图列表及其证据。
-
-    ``provider_references`` 与 ``visual_references`` 严格等长同序：前者是发给供应商的
-    路径条目，后者是同一序位的逻辑身份，prompt 渲染层据此声明「图N」并替换正文的
-    ``@[登记名]``。完整列表是产物依据与 claim 的口径；随请求实发的子集经 :meth:`clamped`
-    按图像后端上限得出，``warnings`` 随之记下裁剪 warning（与任务 ``result.warnings`` 同形），
-    未裁剪时为空。
-    """
-
-    item: dict[str, Any]
-    provider_references: list[object]
-    visual_references: list[VisualReference]
-    warnings: tuple[dict[str, Any], ...] = ()
-
-    def clamped(self, max_reference_images: int, *, model: str) -> StoryboardReferenceSet:
-        """按图像后端的参考图上限去尾裁剪，返回实发的参考图集（未超限时返回自身）。
-
-        装配序不因裁剪改变。调用方须在渲染提示词前先经这一步，编号才只指认实际发出的图；
-        产物依据仍按裁剪前的完整列表登记——上限是供应商属性，不进 basis（ADR 0062），
-        目标态规划器也按脚本条目重建完整列表。裁剪发生时结果集带一条 warning，调用方把它
-        写进任务结果，用户与 Agent 才能看到有参考图没随请求发出。
-        """
-        clamp = clamp_reference_images(self.visual_references, max_reference_images, model=model)
-        warning = clamp.warning()
-        if warning is None:
-            return self
-        return StoryboardReferenceSet(
-            item=self.item,
-            provider_references=self.provider_references[: clamp.kept],
-            visual_references=self.visual_references[: clamp.kept],
-            warnings=(warning,),
-        )
-
-
-def collect_storyboard_references(
-    project: dict,
-    project_path: Path,
-    script: dict[str, Any],
-    resource_id: str,
-    *,
-    artifact_episode: int,
-    currency_resolver: ArtifactCurrencyResolver,
-    formal_claims: list[ArtifactInputClaim] | None = None,
-) -> StoryboardReferenceSet:
-    """按执行期口径装配一个分镜条目的参考图：商品参考排首、随后角色/场景/道具 sheet，
-    上一分镜图收尾。预览与执行共用此函数，提示词里的编号才能逐字一致。
-
-    装配不看图像后端的参考图数量上限：解析出 backend 之后由调用方经
-    :meth:`StoryboardReferenceSet.clamped` 裁剪，再渲染提示词。
-
-    条目不存在时抛 ``ValueError``。
-    """
-    items, id_field, char_field, scene_field, prop_field = get_storyboard_items(script)
-    resolved = find_storyboard_item(items, id_field, resource_id)
-    if resolved is None:
-        raise ValueError(f"scene/segment not found: {resource_id}")
-    target_item, target_index = resolved
-
-    previous_path = resolve_previous_storyboard_path(project_path, items, id_field, resource_id)
-    previous_id = (
-        str(items[target_index - 1].get(id_field) or "") if previous_path is not None and target_index > 0 else None
-    )
-    visual_references: list[VisualReference] = []
-    provider_references = (
-        _collect_reference_images(
-            project,
-            project_path,
-            target_item,
-            char_field=char_field,
-            scene_field=scene_field,
-            prop_field=prop_field,
-            previous_storyboard_path=previous_path,
-            previous_storyboard_id=previous_id,
-            visual_references=visual_references,
-            artifact_episode=artifact_episode,
-            currency_resolver=currency_resolver,
-            formal_claims=formal_claims,
-        )
-        or []
-    )
-    # 商品分镜：商品参考全量注入且排序绝对优先（先于角色/场景/道具 sheet）；氛围分镜零商品图。
-    product_references = collect_shot_product_references(
-        project,
-        project_path,
-        target_item,
-        currency_resolver=currency_resolver,
-        formal_claims=formal_claims,
-    )
-    if product_references:
-        provider_references = [*product_references, *provider_references]
-        visual_references = [*_product_visual_references(product_references), *visual_references]
-    return StoryboardReferenceSet(
-        item=target_item,
-        provider_references=provider_references,
-        visual_references=visual_references,
-    )
 
 
 def _episode_from_script(script: dict[str, Any] | None) -> int | None:
@@ -812,15 +538,13 @@ def emit_generation_success_batch(
 
 @dataclass(frozen=True, slots=True)
 class _StoryboardImageInputs:
-    """分镜图任务在解析 image lane 之前就能备齐的输入：项目快照、风格与未裁剪的参考图集。"""
+    """分镜图任务在解析 image lane 之前就能备齐的输入：项目快照、剧本 claim 与成立的生成输入。"""
 
     project: dict[str, Any]
     project_path: Path
-    style: str
-    style_description: str
     currency_resolver: ArtifactCurrencyResolver
-    claims: list[ArtifactInputClaim]
-    references: StoryboardReferenceSet
+    script_claim: ArtifactInputClaim
+    generation_input: StoryboardImageInput
 
 
 async def execute_storyboard_task(
@@ -849,29 +573,22 @@ async def execute_storyboard_task(
             script_filename=str(script_file),
         )
         _currency_resolver = active_artifact_currency_resolver(_project_path, _project)
-        # 装配沿这份列表追加每张参考图的产物 claim，故与 references 同源、不能各传一份。
-        _formal_claims: list[ArtifactInputClaim] = [_script_input.claim]
-        _style = _project.get("style", "")
-        _style_description = _project.get("style_description", "")
-        if not isinstance(_style, str) or not isinstance(_style_description, str):
-            raise ValueError("storyboard style and style description must be strings")
-        _references = collect_storyboard_references(
+        _generation_input = storyboard_image_input(
             _project,
-            _project_path,
             _script,
-            resource_id,
-            artifact_episode=_script_input.episode,
-            currency_resolver=_currency_resolver,
-            formal_claims=_formal_claims,
+            episode=_script_input.episode,
+            resource_id=resource_id,
+            observation=project_input_observation(_project_path),
         )
+        # 生成输入不成立时在解析供应商通道与付费之前失败，一次报出全部缺口。
+        if isinstance(_generation_input, InputRefused):
+            raise input_refusal_error(_generation_input)
         return _StoryboardImageInputs(
             project=_project,
             project_path=_project_path,
-            style=_style,
-            style_description=_style_description,
             currency_resolver=_currency_resolver,
-            claims=_formal_claims,
-            references=_references,
+            script_claim=_script_input.claim,
+            generation_input=_generation_input,
         )
 
     inputs = await asyncio.to_thread(_load)
@@ -884,84 +601,70 @@ async def execute_storyboard_task(
         project=project,
         project_path=project_path,
         user_id=user_id,
-        image=ImageLaneRequest(generation_type="i2i" if inputs.references.provider_references else "t2i"),
+        image=ImageLaneRequest(generation_type="i2i" if inputs.generation_input.references else "t2i"),
     )
 
-    def _stage() -> tuple[
-        str, FrozenImageReferences, ArtifactBasis, tuple[ArtifactInputClaim, ...], tuple[dict[str, Any], ...]
-    ]:
-        _assembled = inputs.references
-        _sent = _assembled.clamped(context.image.max_reference_images, model=context.image.backend_model)
-        _semantic_prompt = _assembled.item.get("image_prompt")
-        _prompt_text = _normalize_storyboard_prompt(
-            _semantic_prompt, inputs.style, inputs.style_description, references=_sent.visual_references
+    def _bind_claims(
+        claims: Sequence[ArtifactInputClaim], content_digests: Mapping[str, str]
+    ) -> tuple[ArtifactInputClaim, ...]:
+        return bind_artifact_input_claims_to_content_digests(
+            resolver=inputs.currency_resolver,
+            claims=claims,
+            content_digests=content_digests,
         )
-        # 依据与 claim 按完整装配集冻结登记，供应商只收裁剪后的前几张：与目标态规划器同口径。
-        _frozen = freeze_image_references(_assembled.provider_references or None, _assembled.visual_references)
-        try:
-            _claims = bind_artifact_input_claims_to_frozen_visuals(
-                project_path=project_path,
-                resolver=inputs.currency_resolver,
-                claims=inputs.claims,
-                source_references=_assembled.visual_references,
-                frozen_references=_frozen.visual_references,
-            )
-            _basis = build_storyboard_image_visual_basis(
-                resource_id=resource_id,
-                image_prompt=_semantic_prompt,
-                style=inputs.style,
-                style_description=inputs.style_description,
-                aspect_ratio=get_aspect_ratio(project, "storyboards"),
-                references=_frozen.visual_references,
-            )
-        except BaseException:
-            _frozen.cleanup()
-            raise
-        return _prompt_text, _frozen.sent(len(_sent.visual_references)), _basis, _claims, _sent.warnings
 
-    prompt_text, frozen_references, storyboard_basis, formal_claims, warnings = await asyncio.to_thread(_stage)
+    def _freeze() -> FrozenGenerationInput:
+        return inputs.generation_input.freeze(
+            max_reference_images=context.image.max_reference_images,
+            model=context.image.backend_model,
+            bind_claims=_bind_claims,
+        )
+
     artifact_path = f"storyboards/scene_{resource_id}.png"
+    with await asyncio.to_thread(_freeze) as frozen:
+        # 剧本 claim 排在最前，其后是参考图按冻结字节绑定的 claims。
+        formal_claims = (inputs.script_claim, *frozen.claims)
 
-    async def _assert_claims_usable() -> None:
-        await asyncio.to_thread(assert_current_artifact_input_claims_usable, project_path, formal_claims)
+        async def _assert_claims_usable() -> None:
+            await asyncio.to_thread(assert_current_artifact_input_claims_usable, project_path, formal_claims)
 
-    async def _pre_submit(_generator: Any) -> None:
-        await _assert_claims_usable()
+        async def _pre_submit(_generator: Any) -> None:
+            await _assert_claims_usable()
 
-    def _build_commit(generator: Any, outcome_box: list[FormalImageCommitOutcome]) -> StagedImageCommit:
-        return storyboard_formal_image_callback(
+        def _build_commit(generator: Any, outcome_box: list[FormalImageCommitOutcome]) -> StagedImageCommit:
+            return storyboard_formal_image_callback(
+                project_name=project_name,
+                script_file=str(script_file),
+                resource_id=resource_id,
+                artifact_path=artifact_path,
+                prompt=frozen.prompt,
+                versions=generator.versions,
+                task_id=task_id,
+                basis=frozen.basis,
+                outcome_box=outcome_box,
+                project_manager=get_project_manager(),
+            )
+
+        return await run_formal_image_task(
             project_name=project_name,
-            script_file=str(script_file),
-            resource_id=resource_id,
-            artifact_path=artifact_path,
-            prompt=prompt_text,
-            versions=generator.versions,
+            payload=payload,
+            project=project,
+            user_id=user_id,
             task_id=task_id,
-            basis=storyboard_basis,
-            outcome_box=outcome_box,
-            project_manager=get_project_manager(),
+            frozen_references=frozen.references,
+            context=context,
+            plan=FormalImagePlan(
+                resource_type="storyboards",
+                resource_id=resource_id,
+                artifact_path=artifact_path,
+                prompt=frozen.prompt,
+                aspect_ratio=inputs.generation_input.canvas_ratio,
+                build_commit_callback=_build_commit,
+                pre_submit=_pre_submit,
+                before_submit=_assert_claims_usable,
+                warnings=frozen.warnings,
+            ),
         )
-
-    return await run_formal_image_task(
-        project_name=project_name,
-        payload=payload,
-        project=project,
-        user_id=user_id,
-        task_id=task_id,
-        frozen_references=frozen_references,
-        context=context,
-        plan=FormalImagePlan(
-            resource_type="storyboards",
-            resource_id=resource_id,
-            artifact_path=artifact_path,
-            prompt=prompt_text,
-            aspect_ratio=get_aspect_ratio(project, "storyboards"),
-            build_commit_callback=_build_commit,
-            pre_submit=_pre_submit,
-            before_submit=_assert_claims_usable,
-            warnings=warnings,
-        ),
-    )
 
 
 def _resolve_tts_task_items(
