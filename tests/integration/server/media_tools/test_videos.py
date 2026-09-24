@@ -21,6 +21,8 @@ from lib.script.script_skeleton import SkeletonRouteMismatchError
 from server.media_tools import videos as enqueue_videos_mod
 from server.media_tools.context import ToolContext
 from server.media_tools.videos import generate_videos_tool
+from server.services.admission import video_batch_admission as admission_mod
+from tests.factories import make_video_request_facts
 from tests.fakes import fake_reference_request_facts
 from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
     _CLAIMED_BASIS_DIGEST,
@@ -35,6 +37,12 @@ from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
     videos_tool_for_scope,
 )
 from tests.speech_contract_cases import SPEECH_CONTRACT_CASES, SpeechContractCase
+
+
+@pytest.fixture(autouse=True)
+def storyboard_request_facts(monkeypatch: pytest.MonkeyPatch) -> None:
+    facts = make_video_request_facts(provider_id="fake", model_id="fake-video", audio_switch_controllable=True)
+    monkeypatch.setattr(admission_mod, "evaluate_video_request_facts", AsyncMock(return_value=facts))
 
 
 def _episode_scope(ctx: ToolContext):
@@ -1689,7 +1697,7 @@ async def test_generate_videos_scene_scope_use_tts_requires_exact_tier_and_queue
                 supported_durations=(4, 8, 12),
                 confirmed_request_duration_seconds=kwargs["confirmed_request_duration_seconds"],
             ),
-            cost=VideoRequestCostFacts("openai", "sora-2", "720p", 12, True),
+            cost=VideoRequestCostFacts(make_video_request_facts(provider_id="openai", model_id="sora-2"), 12),
         )
 
     enqueue = AsyncMock(side_effect=fake_scene_batch)
@@ -1775,7 +1783,7 @@ async def test_generate_videos_scene_scope_use_tts_blocks_when_exact_cost_is_una
                 supported_durations=(4, 8, 12),
                 confirmed_request_duration_seconds=kwargs["confirmed_request_duration_seconds"],
             ),
-            cost=VideoRequestCostFacts("openai", "sora-2", "720p", 12, True),
+            cost=VideoRequestCostFacts(make_video_request_facts(provider_id="openai", model_id="sora-2"), 12),
         )
 
     enqueue = AsyncMock()
@@ -2531,11 +2539,6 @@ def test_build_reference_specs_handles_a_non_string_text(tmp_path) -> None:
     assert _refused_problems(refused) == {"E1U1": ("generation_unit_request_invalid", "fix_input")}
 
 
-# ---------------------------------------------------------------------------
-# enqueue_videos — ad + reference_video（统一 video_units）
-# ---------------------------------------------------------------------------
-
-
 def _ad_reference_unit(**overrides: Any) -> dict[str, Any]:
     unit: dict[str, Any] = {
         "unit_id": "E1U1",
@@ -2843,11 +2846,6 @@ async def test_generate_videos_selected_scope_ad_reference_regenerates_named_uni
     assert [spec.resource_id for spec in enqueued] == ["E1U1"]
 
 
-# ---------------------------------------------------------------------------
-# Retired parameter rejection
-# ---------------------------------------------------------------------------
-
-
 @pytest.mark.parametrize("retired_param", sorted(enqueue_videos_mod._RETIRED_PARAMS))
 async def test_video_tools_reject_retired_params(fake_ctx: ToolContext, retired_param: str) -> None:
     """已退役的参数名传给任何一个视频工具都被拒，报错点名该参数并给出当下写法。"""
@@ -2882,11 +2880,6 @@ async def test_retired_param_rejection_does_not_preempt_the_script_filename_erro
 
     assert result["is_error"]
     assert "shot_ids" not in result["content"][0]["text"]
-
-
-# ---------------------------------------------------------------------------
-# 生成分派：六种创作类型×生成模式组合
-# ---------------------------------------------------------------------------
 
 
 _SKELETON_BY_MODE_PAIR: dict[tuple[str, str], str] = {

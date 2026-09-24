@@ -49,6 +49,12 @@ from lib.generation.generation_result import (
     observe_artifact_status,
     select_generation_targets,
 )
+from lib.generation.video_request_facts import (
+    CONFIGURED_VIDEO_IDENTITY,
+    VideoRequestFacts,
+    VideoRequestFactsFailure,
+    evaluate_video_request_facts,
+)
 from lib.prompts.prompt_utils import (
     is_structured_video_prompt,
     render_storyboard_video_prompt,
@@ -665,6 +671,7 @@ async def admit_storyboard_video_batch(
     queue: GenerationQueue | None = None,
     config_resolver: ConfigResolver | None = None,
     tts_settings_resolver: TtsSettingsResolver | None = None,
+    video_request_facts: VideoRequestFacts | VideoRequestFactsFailure | None = None,
 ) -> BatchAdmission:
     """Evaluate every storyboard unit of one request against the current state.
 
@@ -735,6 +742,7 @@ async def admit_storyboard_video_batch(
             queue=queue,
             config_resolver=config_resolver,
             tts_settings_resolver=tts_settings_resolver,
+            video_request_facts=video_request_facts,
         )
         tickets.append(await _storyboard_ticket(resource_id=resource_id, preparation=preparation))
 
@@ -834,7 +842,9 @@ async def resolve_voice_context(project: dict[str, Any], content_mode: str) -> d
     return project.get("characters") or {}
 
 
-async def audio_switch_conflict(project: dict[str, Any]) -> str | None:
+async def audio_switch_conflict(
+    project: dict[str, Any], *, request_facts: VideoRequestFacts | VideoRequestFactsFailure | None = None
+) -> str | None:
     """分镜图生视频的音频闸门（``assert_audio_switch_supported``，与 WebUI 提交入口同一判据）。
 
     成片恒有声的模型收不到关闭音频的请求，放行只会让无声判据把音色约束整批裁掉。闸门与创作类型
@@ -848,7 +858,11 @@ async def audio_switch_conflict(project: dict[str, Any]) -> str | None:
     一起在建任务之前一次报全。
     """
     try:
-        await assert_audio_switch_supported(project, video_bucket_for_generation_mode(project.get("generation_mode")))
+        await assert_audio_switch_supported(
+            project,
+            video_bucket_for_generation_mode(project.get("generation_mode")),
+            request_facts=request_facts,
+        )
     except ValueError as exc:
         return str(exc)
     return None
@@ -1012,7 +1026,18 @@ async def admit_storyboard_video_request(
         if item is None:
             raise ValueError(f"找不到待生成条目: {spec.resource_id}")
         targets.append((spec.resource_id, item, (spec.payload or {}).get("prompt")))
-    conflict_detail = await audio_switch_conflict(project) if specs else None
+    request_facts = (
+        await evaluate_video_request_facts(
+            project,
+            route="storyboard",
+            generation_type=video_bucket_for_generation_mode(project.get("generation_mode")),
+            identity=CONFIGURED_VIDEO_IDENTITY,
+            resolver=config_resolver or ConfigResolver(async_session_factory),
+        )
+        if specs
+        else None
+    )
+    conflict_detail = await audio_switch_conflict(project, request_facts=request_facts) if specs else None
     admission = await admit_storyboard_video_batch(
         project_name=project_name,
         project=project,
@@ -1029,6 +1054,7 @@ async def admit_storyboard_video_request(
         queue=queue,
         config_resolver=config_resolver,
         tts_settings_resolver=tts_settings_resolver,
+        video_request_facts=request_facts,
     )
     if conflict_detail is None:
         return admission

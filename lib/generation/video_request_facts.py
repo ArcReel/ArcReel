@@ -146,6 +146,17 @@ def require_video_request_facts(result: VideoRequestFacts | VideoRequestFactsFai
     return result
 
 
+def audio_switch_conflict(facts: VideoRequestFacts) -> VideoRequestFactsFailure | None:
+    """用户关闭音频但该桶的模型成片恒有声时，返回共同的问题码。"""
+
+    if not facts.requested_generate_audio and facts.has_audio_track and not facts.audio_switch_controllable:
+        return VideoRequestFactsFailure(
+            "video_audio_switch_not_supported",
+            (("provider", facts.provider_id), ("model", facts.model_id)),
+        )
+    return None
+
+
 def video_audio_model_facts(
     provider_id: str,
     model_id: str,
@@ -261,7 +272,7 @@ async def evaluate_video_request_facts(
         excluded_durations=excluded,
         duration_endpoint_fixed=endpoint_fixed,
         requested_generate_audio=bool(caps.get("requested_generate_audio")),
-        generate_audio=bool(caps.get("generate_audio")),
+        generate_audio=bool(caps.get("generate_audio")) and has_audio_track,
         has_audio_track=has_audio_track,
         audio_switch_controllable=audio_switch_controllable,
         max_reference_images=int(max_reference_images) if max_reference_images is not None else None,

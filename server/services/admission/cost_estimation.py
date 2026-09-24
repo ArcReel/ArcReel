@@ -583,17 +583,28 @@ class CostEstimationService:
                     _add_cost(est_image, image_unit_cost[0], image_unit_cost[1])
 
                 try:
-                    video_quote = quote_video_request_from_price(
-                        VideoRequestCostFacts(
-                            provider_id=episode_video.provider,
-                            model_id=episode_video.model or "",
-                            resolution=episode_video.resolution,
-                            duration_seconds=duration,
-                            generate_audio=episode_video.generate_audio,
-                        ),
-                        episode_video.price,
-                    )
-                    _add_cost(est_video, video_quote.amount, video_quote.currency)
+                    if isinstance(storyboard_facts, VideoRequestFacts):
+                        video_quote = quote_video_request_from_price(
+                            VideoRequestCostFacts(storyboard_facts, duration), episode_video.price
+                        )
+                        _add_cost(est_video, video_quote.amount, video_quote.currency)
+                    else:
+                        # 事实失败时沿用分镜的宽容报价，不伪造成功事实。
+                        video_amount, video_currency = cost_calculator.calculate_cost(
+                            episode_video.provider,
+                            PricingParams(
+                                call_type="video",
+                                model=episode_video.model or "",
+                                resolution=episode_video.resolution,
+                                duration_seconds=duration,
+                                generate_audio=episode_video.generate_audio,
+                            ),
+                            custom_price_input=episode_video.price.price_input,
+                            custom_price_output=episode_video.price.price_output,
+                            custom_currency=episode_video.price.currency,
+                            estimate_only=True,
+                        )
+                        _add_cost(est_video, video_amount, video_currency)
                 except Exception:
                     logger.debug("无法计算 video 预估 for %s", seg_id, exc_info=True)
 

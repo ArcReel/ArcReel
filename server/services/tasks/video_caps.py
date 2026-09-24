@@ -12,15 +12,19 @@ import logging
 
 from sqlalchemy.exc import SQLAlchemyError
 
-from lib.backends.video_backend_contract import VideoAudioMode
 from lib.config.resolver import (
     ConfigResolver,
-    VideoBucketCapabilityError,
     VideoGenerationType,
-    builtin_video_audio_track,
     constrain_durations_for_project,
 )
 from lib.db import async_session_factory
+from lib.generation.video_request_facts import (
+    CONFIGURED_VIDEO_IDENTITY,
+    VideoRequestFacts,
+    VideoRequestFactsFailure,
+    audio_switch_conflict,
+    evaluate_video_request_facts,
+)
 from lib.script.reference_video.voice_settings import VoiceRenderSettings
 
 logger = logging.getLogger(__name__)
@@ -155,39 +159,45 @@ async def resolve_audio_switch_conflict(project: dict, generation_type: VideoGen
     供应商，却会让编排层按无声路径裁掉全部音色约束——用户拿到的是失去音色约束的有声成片。
     视频生成的各个提交入口据此在入队前拒绝，WebUI 与 Agent 两条路径共用这一份判据。
 
-    判据按 ``generation_type`` 定的执行路径取（:func:`builtin_video_audio_track`）：同一 model 在不同
-    子路径上可以有不同的音轨形态，按无路径上下文的声明判会对参考生视频误判。
-
-    解析失败一律返回 ``None``（不把配置解析问题升级为提交期拒绝），自定义供应商与未登记模型
-    没有逐模型音轨声明，无信号不收紧。两次解析都读库，故同在一个 ``try`` 内并一并接住
-    ``SQLAlchemyError``——数据库故障退化成放行，与 :func:`project_video_caps` 的降级口径一致。
+    判据读指定桶的视频请求事实。解析失败仍放行，由其他能力预检处理。
     """
     # 模块级绑定在导入时就固化了 factory；这里延迟到调用时从 lib.db 取，测试才能替换它。
     from lib.db import async_session_factory
 
     resolver = ConfigResolver(async_session_factory)
     try:
-        selected = await resolver.resolve_video_backend(project, None, generation_type=generation_type)
-        audio_track = builtin_video_audio_track(
-            selected.provider_id, selected.model_id, generation_type=generation_type
+        result = await evaluate_video_request_facts(
+            project,
+            route="reference_video" if project.get("generation_mode") == "reference_video" else "storyboard",
+            generation_type=generation_type,
+            identity=CONFIGURED_VIDEO_IDENTITY,
+            resolver=resolver,
         )
-        if audio_track != VideoAudioMode.ALWAYS_ON:
+        if isinstance(result, VideoRequestFactsFailure) or audio_switch_conflict(result) is None:
             return None
-        if await resolver.video_generate_audio_for_project(project):
-            return None
-    except (VideoBucketCapabilityError, ValueError, SQLAlchemyError):
+    except (ValueError, SQLAlchemyError):
         return None
-    return selected.provider_id, selected.model_id
+    return result.provider_id, result.model_id
 
 
-async def assert_audio_switch_supported(project: dict, generation_type: VideoGenerationType) -> None:
+async def assert_audio_switch_supported(
+    project: dict,
+    generation_type: VideoGenerationType,
+    *,
+    request_facts: VideoRequestFacts | VideoRequestFactsFailure | None = None,
+) -> None:
     """Agent 视频入队前的音频开关预检，冲突时抛 ``ValueError``。
 
     与 WebUI 入口的 ``server.routers._validators.require_audio_switch_supported`` 判据同源
     （:func:`resolve_audio_switch_conflict`），差别只在出口：这里的消息面向 Agent 转述，不走
     Translator。
     """
-    conflict = await resolve_audio_switch_conflict(project, generation_type)
+    if request_facts is None:
+        conflict = await resolve_audio_switch_conflict(project, generation_type)
+    elif isinstance(request_facts, VideoRequestFacts) and audio_switch_conflict(request_facts) is not None:
+        conflict = request_facts.provider_id, request_facts.model_id
+    else:
+        conflict = None
     if conflict is None:
         return
     provider_id, model_id = conflict

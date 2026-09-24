@@ -97,6 +97,7 @@ def fake_resolve_ctx(
                     duration_endpoint_fixed=duration_endpoint_fixed,
                     requested_generate_audio=requested_generate_audio,
                     has_audio_track=voice_consistency != "none",
+                    audio_switch_controllable=True,
                     max_reference_images=None,
                     voice_consistency=voice_consistency,
                 )
@@ -105,7 +106,7 @@ def fake_resolve_ctx(
                 backend_name=provider,
                 backend_model=backend_model,
                 resolution=video_resolution,
-                requested_generate_audio=requested_generate_audio,
+                requested_generate_audio_fallback=requested_generate_audio,
                 request_facts=request_facts,
             )
         audio_lane = None

@@ -429,7 +429,7 @@ async def execute_reference_video_task(
     audio_paths = await asyncio.to_thread(resolve_reference_audio_paths, project, project_path)
     voice_settings = VoiceRenderSettings(
         voice_consistency=request_facts.voice_consistency,
-        requested_generate_audio=video.requested_generate_audio,
+        requested_generate_audio=request_facts.requested_generate_audio,
         max_reference_audio=request_facts.max_reference_audio_count,
         model_id=model_name,
         audio_ready=audio_paths,
@@ -594,7 +594,7 @@ async def execute_reference_video_task(
                     duration_seconds=effective_duration,
                     aspect_ratio=aspect_ratio,
                     resolution=resolution,
-                    generate_audio=video.requested_generate_audio,
+                    generate_audio=request_facts.requested_generate_audio,
                     service_tier="default",
                     seed=None,
                     visual_basis_digest=visual_basis_digest,
@@ -664,7 +664,7 @@ async def execute_reference_video_task(
             before_formal_commit=artifact_committer.prepare_selection if artifact_committer is not None else None,
             commit_formal_output=artifact_committer,
             visual_basis_digest=visual_basis_digest,
-            generate_audio=video.requested_generate_audio,
+            generate_audio=request_facts.requested_generate_audio,
             poll_timeout_seconds=poll_timeout_seconds,
             warnings=warnings,
         )
