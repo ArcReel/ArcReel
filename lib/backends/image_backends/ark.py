@@ -62,7 +62,7 @@ def _resolve_seedream_size(model_id: str, aspect_ratio: str) -> str:
 
 # Seedream 5.0 lite / 4.5 / 4.0 单请求最多 14 张参考图（输入参考图 + 生成图 ≤ 15）；
 # doubao-seedream-5-0-260128 与 doubao-seedream-5-0-lite-260128 是同一模型的两个 ID。
-# 参考：https://www.volcengine.com/docs/82379/1541523 、https://www.volcengine.com/docs/82379/1330310
+# 参考：https://www.volcengine.com/docs/82379/1666946 、https://www.volcengine.com/docs/82379/1330310
 _MAX_REFERENCE_IMAGES = 14
 
 
@@ -121,7 +121,10 @@ class ArkImageBackend:
             if len(refs) > _MAX_REFERENCE_IMAGES:
                 logger.warning("Ark 参考图数量 %d 超过上限 %d，截断", len(refs), _MAX_REFERENCE_IMAGES)
                 refs = refs[:_MAX_REFERENCE_IMAGES]
-            data_uris = [image_to_base64_data_uri(Path(ref.path)) for ref in refs]
+            # 读整张图做 base64 编码是阻塞 I/O，逐张卸载到线程后并发等待，避免堵住事件循环
+            data_uris = await asyncio.gather(
+                *[asyncio.to_thread(image_to_base64_data_uri, Path(ref.path)) for ref in refs]
+            )
             # 单张传字符串，多张传列表
             kwargs["image"] = data_uris[0] if len(data_uris) == 1 else data_uris
 

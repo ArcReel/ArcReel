@@ -502,6 +502,33 @@ def write_legacy_script_plan_project(
     return project_dir
 
 
+def write_legacy_drama_storyboard_project(
+    root: Path,
+    name: str = "legacy-drama-storyboard",
+    *,
+    schema_version: int = 7,
+) -> Path:
+    """剧情演绎项目，``project.json`` 没有 ``aspect_ratio`` 字段；第 1 集首条分镜已有分镜图。
+
+    脚本规划与正式脚本形态同 ``write_legacy_script_plan_project(variant="drama")``。
+    """
+
+    project_dir = write_legacy_script_plan_project(root, name, variant="drama", schema_version=schema_version)
+    project_path = project_dir / "project.json"
+    project = json.loads(project_path.read_text(encoding="utf-8"))
+    project.pop("aspect_ratio")
+    _write_json(project_path, project)
+    script_path = project_dir / "scripts" / "episode_1.json"
+    script = json.loads(script_path.read_text(encoding="utf-8"))
+    first = script["scenes"][0]
+    storyboard = f"storyboards/scene_{first['scene_id']}.png"
+    first["generated_assets"] = {"storyboard_image": storyboard, "status": "completed"}
+    _write_json(script_path, script)
+    (project_dir / storyboard).parent.mkdir(parents=True, exist_ok=True)
+    (project_dir / storyboard).write_bytes(f"storyboard-{first['scene_id']}".encode())
+    return project_dir
+
+
 def _mark_asset_inventory_current(project_dir: Path) -> None:
     """旧项目都跑过资产分析：清点标记与当前源文一致，制作状态越过资产清点门。"""
 
@@ -581,6 +608,7 @@ __all__ = [
     "ScriptPlanVariantName",
     "advance_project_schema",
     "bind_episode_script_to_filename",
+    "write_legacy_drama_storyboard_project",
     "write_legacy_reference_video_project",
     "write_legacy_script_plan_project",
     "write_legacy_storyboard_project",

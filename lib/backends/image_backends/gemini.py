@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json as json_module
 import logging
 from pathlib import Path
@@ -121,7 +122,8 @@ class GeminiImageBackend:
         if limit and len(refs) > limit:
             logger.warning("Gemini 参考图数量 %d 超过上限 %d，截断", len(refs), limit)
             refs = refs[:limit]
-        contents: list = [self._load_image_detached(ref.path) for ref in refs]
+        # 打开并解码参考图是阻塞 I/O，逐张卸载到线程后并发等待，避免堵住事件循环
+        contents: list = await asyncio.gather(*[asyncio.to_thread(self._load_image_detached, ref.path) for ref in refs])
         contents.append(request.prompt)
 
         image_config_kwargs: dict = {"aspect_ratio": request.aspect_ratio}

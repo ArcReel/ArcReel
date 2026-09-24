@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_MODEL = "grok-imagine-image"
 
 # 多图编辑单请求最多 5 张源图（grok-imagine-image / grok-imagine-image-pro 同一上限）。
-# 参考：https://docs.x.ai/docs/guides/image-generation
+# 参考：https://docs.x.ai/developers/model-capabilities/images/multi-image-editing
 _MAX_REFERENCE_IMAGES = 5
 
 _SUPPORTED_ASPECT_RATIOS = {
