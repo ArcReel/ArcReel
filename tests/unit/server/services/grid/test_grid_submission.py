@@ -414,7 +414,7 @@ async def test_submissions_of_one_project_take_turns(tmp_path: Path) -> None:
     first_inside, first_release = asyncio.Event(), asyncio.Event()
     second_inside, second_release = asyncio.Event(), asyncio.Event()
     first = asyncio.create_task(submit("first", first_inside, first_release))
-    await first_inside.wait()
+    await asyncio.wait_for(first_inside.wait(), timeout=5)
     second = asyncio.create_task(submit("second", second_inside, second_release))
     await asyncio.sleep(0)
     assert entered == ["first"]
@@ -424,7 +424,7 @@ async def test_submissions_of_one_project_take_turns(tmp_path: Path) -> None:
         pass
 
     first_release.set()
-    await second_inside.wait()
+    await asyncio.wait_for(second_inside.wait(), timeout=5)
     assert entered == ["first", "second"]
     second_release.set()
     await asyncio.gather(first, second)

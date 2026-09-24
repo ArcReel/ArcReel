@@ -481,6 +481,10 @@ async def _split_one(ctx: ToolContext, gm: GridManager, grid_id: str) -> dict[st
         grid = gm.get(grid_id)
     except ValueError:
         grid = None
+    except Exception:
+        # 记录缺字段等读不出来：只记这一张失败，同批其余宫格照常切分
+        logger.exception("宫格记录读取失败: grid_id=%s", grid_id)
+        return {"grid_id": grid_id, "status": "failed", "detail": "宫格记录无法读取，分镜图未改动"}
     if grid is None:
         return {"grid_id": grid_id, "status": "not_found", "detail": "宫格不存在"}
     if grid.status in GRID_IN_FLIGHT_STATUSES:

@@ -1189,6 +1189,30 @@ async def test_split_grids_splits_each_ready_grid_and_explains_the_rest(
     assert results["grid_000000000000"]["status"] == "not_found"
 
 
+async def test_split_grids_reports_an_unreadable_record_without_abandoning_the_rest(
+    fake_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """一条记录缺字段读不出来，只记这一张失败，排在它后面的宫格照常切分。"""
+    from server.media_tools.grid import split_grids_tool
+    from server.services.grid.grid_split import GridSplitResult
+
+    scene_ids = _enable_grid(fake_ctx, groups=2)
+    damaged = _saved_grid(fake_ctx, scene_ids[:4], status="completed")
+    (fake_ctx.project_path / "grids" / f"{damaged.id}.json").write_text(f'{{"id": "{damaged.id}"}}', encoding="utf-8")
+    ready = _saved_grid(fake_ctx, scene_ids[4:], status="completed")
+
+    async def fake_split(project_name: str, grid: Any) -> GridSplitResult:
+        return GridSplitResult(updated_scene_ids=list(grid.scene_ids), missing_scene_ids=[], asset_fingerprints={})
+
+    monkeypatch.setattr("server.media_tools.grid.apply_grid_split", fake_split)
+    out = await call(split_grids_tool(fake_ctx), {"grid_ids": [damaged.id, ready.id]})
+
+    assert out.get("is_error") is not True
+    results = {r["grid_id"]: r for r in out["split_grids"]["results"]}
+    assert results[damaged.id]["status"] == "failed"
+    assert results[ready.id]["status"] == "split"
+
+
 async def test_split_grids_reports_a_problem_when_nothing_was_split(fake_ctx: ToolContext) -> None:
     from server.media_tools.grid import split_grids_tool
 
