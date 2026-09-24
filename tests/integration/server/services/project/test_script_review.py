@@ -977,14 +977,19 @@ class TestReferenceVideoGateFlow:
     async def test_reference_duration_tiers_narrows_raw_set_by_resolution_constraint(self, tmp_path, monkeypatch):
         """gate 下拉的档位须按分辨率联动约束收窄，与 prompt_authoring 落盘前的校验同一把尺。
 
-        Veo 3.1 项目未配置分辨率时按兜底档位（1080p）算，该档位只接受 8 秒；不收窄的话
-        get_state 暴露的档位表会让用户选中 4/6 秒，save + confirm 都不拦，直到 prompt_authoring
-        ``_assert_reference_script_plan_ready`` 才硬拒——用户已确认过的内容变成付完钱才失败。
+        Veo 3.1 项目设了 1080p 时该档位只接受 8 秒；不收窄的话 get_state 暴露的档位表会让用户
+        选中 4/6 秒，save + confirm 都不拦，直到 prompt_authoring ``_assert_reference_script_plan_ready``
+        才硬拒——用户已确认过的内容变成付完钱才失败。
         """
         from server.services.project import script_review as mod
 
         _stub_video_caps(monkeypatch, [4, 6, 8])
         pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
+
+        def _set_resolution(p: dict) -> None:
+            p["model_settings"] = {"gemini-aistudio/veo-3.1-generate-preview": {"resolution": "1080p"}}
+
+        pm.update_project("demo", _set_resolution)
         svc = ScriptReviewService(pm, config_resolver=_I2vUnresolvableResolver())
 
         async def _fake_caps(_project, _episode=None, **_kwargs):

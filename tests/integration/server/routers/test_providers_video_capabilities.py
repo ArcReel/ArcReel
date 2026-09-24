@@ -162,8 +162,8 @@ class TestRealResolverResponse:
         assert constraints["allowed_without_reference_images"] == [4, 6, 8]
         assert constraints["excluded"] == {"4": "reference", "6": "reference"}
 
-    def test_reference_path_without_resolution_uses_provider_fallback(self, real_resolver_client):
-        """参考图路径未选档位时按供应商兜底档位求值——执行期确实会下发那个档位。"""
+    def test_reference_path_without_resolution_applies_no_resolution_constraint(self, real_resolver_client):
+        """参考图路径未选档位时请求不携带分辨率：只剩参考图约束，无参考图档位保留全集。"""
         with real_resolver_client as client:
             resp = client.get(
                 "/api/v1/providers/video-capabilities",
@@ -171,8 +171,9 @@ class TestRealResolverResponse:
             )
         assert resp.status_code == 200
         constraints = resp.json()["duration_constraints"]
-        assert constraints["resolution"] == "1080p"
+        assert constraints["resolution"] is None
         assert constraints["allowed"] == [8]
+        assert constraints["allowed_without_reference_images"] == [4, 6, 8]
 
     def test_no_project_preferences_are_null(self, real_resolver_client):
         """无项目上下文：项目偏好字段为 None，不借用任何项目的已保存档位。"""

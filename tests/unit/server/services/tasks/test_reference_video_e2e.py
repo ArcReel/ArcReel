@@ -24,6 +24,7 @@ from lib.artifacts.artifact_activation import activate_artifact_target_state
 from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from server.auth import CurrentUserInfo, get_current_user
 from tests.auth_deps import AUTH_DEPENDENCIES
+from tests.factories import make_video_request_facts
 from tests.fakes import fake_reference_request_projector
 
 _TINY_PNG = (
@@ -180,11 +181,15 @@ async def test_e2e_three_bucket_mentions_with_multi_line_body(three_bucket_clien
             backend_name="ark",
             backend_model="doubao-seedance-2-0-260128",
             resolution=None,
-            resolution_or_fallback="1080p",
-            supported_durations=(7,),
-            max_duration=7,
-            max_reference_images=None,
-            generate_audio=True,
+            request_facts=make_video_request_facts(
+                route="reference_video",
+                generation_type="r2v",
+                provider_id="ark",
+                model_id="doubao-seedance-2-0-260128",
+                supported_durations=(7,),
+                allowed_durations=(7,),
+                max_reference_images=None,
+            ),
         ),
     )
 
@@ -262,11 +267,15 @@ async def test_e2e_missing_reference_raises(three_bucket_client):
             backend_name="ark",
             backend_model="doubao-seedance-2-0-260128",
             resolution=None,
-            resolution_or_fallback="1080p",
-            supported_durations=(3,),
-            max_duration=3,
-            max_reference_images=None,
-            generate_audio=True,
+            request_facts=make_video_request_facts(
+                route="reference_video",
+                generation_type="r2v",
+                provider_id="ark",
+                model_id="doubao-seedance-2-0-260128",
+                supported_durations=(3,),
+                allowed_durations=(3,),
+                max_reference_images=None,
+            ),
         ),
     )
 

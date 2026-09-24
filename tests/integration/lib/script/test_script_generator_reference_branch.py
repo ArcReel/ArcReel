@@ -132,8 +132,13 @@ async def _materialize(generator: ScriptGenerator, episode: int = 1):
     )
 
 
-def _write_reference_project(tmp_path: Path, *, video_backend: str, content_mode: str = "narration") -> Path:
-    """造一个带脚本规划的参考生视频最小项目；``video_backend`` 决定 registry 侧的真实时长档位。"""
+def _write_reference_project(
+    tmp_path: Path, *, video_backend: str, content_mode: str = "narration", resolution: str | None = None
+) -> Path:
+    """造一个带脚本规划的参考生视频最小项目；``video_backend`` 决定 registry 侧的真实时长档位。
+
+    ``resolution`` 给定时存为该模型的项目分辨率，时长联动约束随之按它收窄；未设置不施加分辨率约束。
+    """
     project_dir = tmp_path / "proj"
     project_dir.mkdir()
     (project_dir / "project.json").write_text(
@@ -158,19 +163,24 @@ def _write_reference_project(tmp_path: Path, *, video_backend: str, content_mode
         .replace("__MODE__", content_mode),
         encoding="utf-8",
     )
+    if resolution is not None:
+        project_file = project_dir / "project.json"
+        project = _json.loads(project_file.read_text(encoding="utf-8"))
+        project["model_settings"] = {video_backend: {"resolution": resolution}}
+        project_file.write_text(_json.dumps(project, ensure_ascii=False), encoding="utf-8")
     _write_script_plan(project_dir, SCRIPT_PLAN_UNITS_JSON)
     return project_dir
 
 
 @pytest.fixture
 def plan_only_reference_project(tmp_path: Path) -> Path:
-    """只有脚本规划、尚无正式剧本的 vidu2.0 项目：内容确认转换的输入。"""
-    return _write_reference_project(tmp_path, video_backend="vidu/vidu2.0")
+    """只有脚本规划、尚无正式剧本的 vidu2.0 1080p 项目：内容确认转换的输入。"""
+    return _write_reference_project(tmp_path, video_backend="vidu/vidu2.0", resolution="1080p")
 
 
 @pytest.fixture
 def reference_project(plan_only_reference_project: Path) -> Path:
-    """vidu2.0：raw 档位 [4, 8]，参考生视频下被参考图与分辨率两条约束收窄到 [4]。
+    """vidu2.0 1080p：raw 档位 [4, 8]，参考生视频下被参考图与分辨率两条约束收窄到 [4]。
 
     正式剧本里有一个待编写单元（``SCRIPT_PLAN_UNIT``）。
     """

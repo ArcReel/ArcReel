@@ -304,41 +304,38 @@ async def build_managed_with_actor(
     return managed, actor, client
 
 
-class FakeReferenceCapabilityProjection:
-    """Configurable provider capability adapter for reference projection tests."""
+def fake_reference_request_facts(
+    *,
+    durations: tuple[int, ...] = (),
+    failures: Mapping[str, Any] | None = None,
+    **overrides: Any,
+):
+    """参考路线请求投影的视频请求事实查找：按桶返回构造好的结果对象。
 
-    def __init__(
-        self,
-        *,
-        durations: tuple[int, ...],
-        provider_id: str = "fake",
-        model_id: str = "fake-model",
-        max_reference_images: int | None = 9,
-        text_to_video: bool = True,
-    ) -> None:
-        self.durations = durations
-        self.provider_id = provider_id
-        self.model_id = model_id
-        self.max_reference_images = max_reference_images
-        self.text_to_video = text_to_video
+    ``failures`` 按桶给出 ``VideoRequestFactsFailure``，命中的桶原样返回失败对象；其余桶按
+    ``durations`` 与 ``overrides`` 构造成功事实（``tests.factories.make_video_request_facts``）。
+    """
 
-    async def resolve_candidate(self, project: dict, generation_type):
-        from lib.script.reference_video.request_projection import ProviderProjectionCandidate
+    from tests.factories import make_video_request_facts
 
-        del project
-        return ProviderProjectionCandidate(
-            generation_type=generation_type,
-            provider_id=self.provider_id,
-            model_id=self.model_id,
-            supported_durations=self.durations,
-            max_reference_images=self.max_reference_images,
-            resolution="1080p",
-            generate_audio=True,
-            requested_generate_audio=True,
-            has_audio_track=True,
-            audio_switch_controllable=True,
-            text_to_video=self.text_to_video,
-        )
+    async def lookup(generation_type):
+        if failures is not None and generation_type in failures:
+            return failures[generation_type]
+        fields: dict[str, Any] = {
+            "route": "reference_video",
+            "generation_type": generation_type,
+            "provider_id": "fake",
+            "model_id": "fake-model",
+            "resolution": "1080p",
+            "supported_durations": durations,
+            "allowed_durations": durations,
+            "max_reference_images": 9,
+            "audio_switch_controllable": True,
+        }
+        fields.update(overrides)
+        return make_video_request_facts(**fields)
+
+    return lookup
 
 
 def fake_reference_request_projector(
@@ -348,9 +345,13 @@ def fake_reference_request_projector(
     model_id: str = "fake-model",
     max_reference_images: int | None = 9,
     text_to_video: bool = True,
-    capabilities: FakeReferenceCapabilityProjection | None = None,
+    request_facts=None,
 ):
-    """构造使用真实资产水合与投影规则、仅替换 provider 能力查询的 async 测试入口。"""
+    """构造使用真实资产水合与投影规则、仅替换视频请求事实的 async 测试入口。
+
+    ``request_facts`` 给定时原样作为按桶查找（见 :func:`fake_reference_request_facts`），
+    否则按其余参数构造。
+    """
 
     from lib.script.reference_video.request_projection import (
         FilesystemReferenceAssets,
@@ -360,7 +361,7 @@ def fake_reference_request_projector(
         resolve_reference_assets,
     )
 
-    if capabilities is not None:
+    if request_facts is not None:
         if (
             durations is not None
             or provider_id != "fake"
@@ -368,12 +369,12 @@ def fake_reference_request_projector(
             or max_reference_images != 9
             or text_to_video is not True
         ):
-            raise ValueError("capabilities cannot be combined with candidate construction fields")
-        projection_capabilities = capabilities
+            raise ValueError("request_facts cannot be combined with facts construction fields")
+        facts_lookup = request_facts
     else:
         if durations is None:
-            raise ValueError("durations are required when capabilities are not supplied")
-        projection_capabilities = FakeReferenceCapabilityProjection(
+            raise ValueError("durations are required when request_facts are not supplied")
+        facts_lookup = fake_reference_request_facts(
             durations=durations,
             provider_id=provider_id,
             model_id=model_id,
@@ -391,7 +392,7 @@ def fake_reference_request_projector(
         **_kwargs: object,
     ) -> ReferenceUnitRequestProjection:
         return await ReferenceUnitRequestProjector(
-            projection_capabilities,
+            facts_lookup,
             FilesystemReferenceAssets(project_path),
         ).project_current(
             project=project,

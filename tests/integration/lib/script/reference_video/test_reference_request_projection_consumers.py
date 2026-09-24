@@ -17,7 +17,7 @@ from server.media_tools import videos
 from server.media_tools.context import ToolContext
 from server.routers import reference_videos
 from server.services.admission.cost_estimation import CostEstimationService, VideoRequestQuote
-from tests.fakes import FakeReferenceCapabilityProjection, fake_reference_request_projector
+from tests.fakes import fake_reference_request_facts, fake_reference_request_projector
 
 
 def _stub_batch_admission_queue(monkeypatch) -> None:
@@ -45,7 +45,7 @@ async def test_reference_projection_contract_stays_aligned_across_public_consume
 ):
     """Public request consumers agree; queue routing keeps only current visual generation type facts."""
 
-    capabilities = FakeReferenceCapabilityProjection(
+    request_facts = fake_reference_request_facts(
         durations=(4, 8, 12),
         provider_id="fake",
         model_id="fake-model",
@@ -83,7 +83,7 @@ async def test_reference_projection_contract_stays_aligned_across_public_consume
     (tmp_path / "characters/b.png").write_bytes(b"b")
     options = ReferenceRequestOptions(narration_delivery=USE_TTS)
 
-    project_current = fake_reference_request_projector(capabilities=capabilities)
+    project_current = fake_reference_request_projector(request_facts=request_facts)
 
     async def project_current_with_tts(**kwargs):
         request_options = kwargs.get("options") or ReferenceRequestOptions()
@@ -117,7 +117,8 @@ async def test_reference_projection_contract_stays_aligned_across_public_consume
 
     pm = _ProjectManager()
     monkeypatch.setattr(
-        "server.services.admission.cost_estimation.ConfigReferenceCapabilityProjection", lambda _r: capabilities
+        "server.services.admission.cost_estimation.configured_reference_request_facts",
+        lambda _project, _resolver: request_facts,
     )
     monkeypatch.setattr(reference_videos, "get_project_manager", lambda: pm)
     monkeypatch.setattr(reference_videos, "project_reference_unit_request", project_current_with_tts)

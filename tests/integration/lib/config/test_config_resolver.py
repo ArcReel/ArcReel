@@ -555,8 +555,10 @@ class TestVideoCapabilities:
             "excluded": {4: "resolution", 6: "resolution"},
         }
 
-    async def test_duration_constraints_reference_mode_uses_provider_fallback(self, db_factory):
-        """参考生视频项目未选档位：按执行期真正下发的供应商兜底档位求值，与 constrain_durations_for_project 同口径。"""
+    async def test_duration_constraints_reference_mode_without_resolution_applies_only_the_reference_constraint(
+        self, db_factory
+    ):
+        """参考生视频项目未选档位：请求不携带分辨率，约束只剩参考图一条，与 constrain_durations_for_project 同口径。"""
         resolver = ConfigResolver.__new__(ConfigResolver)
         fake_svc = _FakeConfigService(settings={})
         async with db_factory() as session:
@@ -567,7 +569,7 @@ class TestVideoCapabilities:
                 }
                 caps = await resolver._resolve_video_capabilities(fake_svc, session, "demo")
         constraints = caps["duration_constraints"]
-        assert constraints["resolution"] == "1080p"
+        assert constraints["resolution"] is None
         assert constraints["uses_reference_images"] is True
         assert constraints["allowed"] == [8]
         assert constraints["excluded"] == {4: "reference", 6: "reference"}
@@ -588,12 +590,13 @@ class TestVideoCapabilities:
         )
         assert caps["duration_constraints"]["resolution"] is None
         assert caps["duration_constraints"]["allowed"] == [4, 6, 8]
-        # 无项目（创建向导）：参考图路径同样补供应商兜底档位
+        # 无项目（创建向导）：参考图路径同样不补分辨率，只施加参考图约束
         caps = await resolver.video_capabilities_for_model(
             "gemini-aistudio", "veo-3.1-generate-preview", None, uses_reference_images=True
         )
-        assert caps["duration_constraints"]["resolution"] == "1080p"
-        assert caps["duration_constraints"]["allowed_without_reference_images"] == [8]
+        assert caps["duration_constraints"]["resolution"] is None
+        assert caps["duration_constraints"]["allowed"] == [8]
+        assert caps["duration_constraints"]["allowed_without_reference_images"] == [4, 6, 8]
 
     async def test_reads_project_default_duration_and_modes(self, db_factory):
         resolver = ConfigResolver.__new__(ConfigResolver)
@@ -2040,7 +2043,7 @@ class TestNoReferenceBucketDurations:
         assert caps["model"] == "veo-3.1-generate-preview"
         assert caps["supported_durations"] == [4, 6, 8]
         constraints = caps["duration_constraints"]
-        # r2v 路径：参考图约束 + 供应商兜底分辨率，veo 只剩 8 秒。
+        # r2v 路径：参考图约束下 veo 只剩 8 秒。
         assert constraints["allowed"] == [8]
         # 无参考图单元按 seedance 的 i2v 档位全集走，与 veo 的 8 秒无关。
         assert constraints["allowed_without_reference_images"] == list(range(4, 16))
@@ -2060,11 +2063,8 @@ class TestNoReferenceBucketDurations:
             == i2v_only["duration_constraints"]["allowed"]
         )
 
-    async def test_unsaved_resolution_uses_the_provider_fallback_like_execution(self, db_factory):
-        """项目没存分辨率时按供应商兜底档位求值：参考生视频的请求投影对 i2v 桶同样下发兜底档位。
-
-        Veo 兜底为 1080p，该档位只接受 8 秒；按「不传分辨率」求值会放出执行期必被拒的 4 / 6 秒。
-        """
+    async def test_unsaved_resolution_applies_no_resolution_constraint_like_execution(self, db_factory):
+        """项目没存分辨率时请求不携带分辨率，i2v 桶不施加分辨率约束：Veo 无参考图单元是 [4, 6, 8]。"""
         caps = await _video_caps(
             db_factory,
             {
@@ -2073,7 +2073,7 @@ class TestNoReferenceBucketDurations:
                 "video_provider_i2v": self.VEO,
             },
         )
-        assert caps["duration_constraints"]["allowed_without_reference_images"] == [8]
+        assert caps["duration_constraints"]["allowed_without_reference_images"] == [4, 6, 8]
 
     async def test_project_without_a_usable_i2v_bucket_reports_unknown(self, db_factory):
         """项目没配可用的 i2v 桶（S2V-01 只吃参考图，无首帧能力）时该字段为 None，其余能力照常返回。

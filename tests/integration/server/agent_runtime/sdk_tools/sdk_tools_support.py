@@ -30,6 +30,7 @@ from server.agent_runtime.sdk_tools.text_generation import (
 from server.media_tools.context import ToolContext
 from server.media_tools.definition import ToolDefinition
 from server.tool_runtime import ToolOutcome
+from tests.factories import make_video_request_facts
 from tests.fakes import FakeConfigResolver
 
 # ---------------------------------------------------------------------------
@@ -278,7 +279,6 @@ def fake_reference_projection(
 
     async def _project(*, project, script, unit, options=None, **_kwargs):
         from lib.script.reference_video.request_projection import (
-            ProviderProjectionCandidate,
             ReferenceUnitRequestProjector,
             ResolvedReferenceAsset,
             unit_reference_declarations,
@@ -293,21 +293,18 @@ def fake_reference_projection(
         else:
             requested_seconds = int(slot_for(None, unit).seconds)
 
-        class _Capabilities:
-            async def resolve_candidate(self, project, generation_type):
-                del project
-                return ProviderProjectionCandidate(
-                    generation_type=generation_type,
-                    provider_id="fake",
-                    model_id=f"fake-{generation_type}",
-                    supported_durations=(requested_seconds,),
-                    max_reference_images=9,
-                    resolution="1080p",
-                    generate_audio=True,
-                    requested_generate_audio=True,
-                    has_audio_track=True,
-                    audio_switch_controllable=True,
-                )
+        async def _request_facts(generation_type):
+            return make_video_request_facts(
+                route="reference_video",
+                generation_type=generation_type,
+                provider_id="fake",
+                model_id=f"fake-{generation_type}",
+                resolution="1080p",
+                supported_durations=(requested_seconds,),
+                allowed_durations=(requested_seconds,),
+                max_reference_images=9,
+                audio_switch_controllable=True,
+            )
 
         class _Available:
             def is_available(self, asset):
@@ -320,7 +317,7 @@ def fake_reference_projection(
         ]
         if options is not None and current_tts_duration_seconds is not None:
             options = replace(options, current_tts_duration_seconds=current_tts_duration_seconds)
-        return await ReferenceUnitRequestProjector(_Capabilities(), _Available()).project_current(
+        return await ReferenceUnitRequestProjector(_request_facts, _Available()).project_current(
             project=project,
             script=script,
             unit=unit,

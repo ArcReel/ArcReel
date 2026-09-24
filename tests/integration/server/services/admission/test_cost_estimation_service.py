@@ -8,14 +8,10 @@ from lib.backends.providers import PROVIDER_GEMINI
 from lib.billing.cost_calculator import cost_calculator
 from lib.config.resolver import ConfigResolver
 from lib.db.repositories.usage_repo import SettlementInput, UsageRepository
-from lib.script.reference_video.request_projection import (
-    USE_TTS,
-    ProviderProjectionCandidate,
-    ReferenceRequestOptions,
-)
+from lib.script.reference_video.request_projection import USE_TTS, ReferenceRequestOptions
 from lib.speech.narration_delivery import VideoRequestCostFacts
 from server.services.admission.cost_estimation import CostEstimationService, quote_video_request
-from server.services.tasks import reference_video_tasks
+from tests.fakes import fake_reference_request_facts
 
 
 async def _seed_call(
@@ -1153,7 +1149,10 @@ class TestCostEstimationService:
         assert result["project_totals"]["actual"]["video"]["USD"] == pytest.approx(0.8)
 
     async def test_narration_reference_video_estimate_uses_rounded_up_unit_duration(self, db_factory, monkeypatch):
-        """取档向上的 unit：预估金额按取档后的秒数（8s）计，而非剧本原始总时长（5s）。"""
+        """取档向上的 unit：预估金额按取档后的秒数（6s）计，而非剧本原始总时长（5s）。
+
+        Veo 3.1 未设分辨率时请求不携带分辨率，无参考图单元按全集 [4, 6, 8] 取档。
+        """
         priced_durations: list[int | None] = []
         original = cost_calculator.calculate_cost
 
@@ -1183,32 +1182,21 @@ class TestCostEstimationService:
         assert seg["segment_id"] == "E1U1"
         assert seg["duration_seconds"] == 5
         assert seg["estimate"]["video"]
-        assert seg["request_projection"]["request_duration"] == 8
-        assert priced_durations == [8]
+        assert seg["request_projection"]["request_duration"] == 6
+        assert priced_durations == [6]
         assert seg["estimate"]["video"] == rounded["episodes"][0]["totals"]["estimate"]["video"]
 
     async def test_reference_video_quote_accepts_server_materialized_tts_duration(self, db_factory, monkeypatch):
-        class _TtsFloorCapabilities:
-            def __init__(self, _resolver):
-                pass
-
-            async def resolve_candidate(self, _project, generation_type):
-                return ProviderProjectionCandidate(
-                    generation_type=generation_type,
-                    provider_id="kling",
-                    model_id="kling-v3",
-                    supported_durations=(4, 8, 12),
-                    max_reference_images=4,
-                    resolution="1080p",
-                    generate_audio=True,
-                    requested_generate_audio=True,
-                    has_audio_track=True,
-                    audio_switch_controllable=True,
-                )
-
+        request_facts = fake_reference_request_facts(
+            durations=(4, 8, 12),
+            provider_id="kling",
+            model_id="kling-v3",
+            max_reference_images=4,
+            resolution="1080p",
+        )
         monkeypatch.setattr(
-            "server.services.admission.cost_estimation.ConfigReferenceCapabilityProjection",
-            _TtsFloorCapabilities,
+            "server.services.admission.cost_estimation.configured_reference_request_facts",
+            lambda _project, _resolver: request_facts,
         )
         monkeypatch.setattr(
             "server.services.admission.cost_estimation.active_tts_resource_ids",
@@ -1243,27 +1231,16 @@ class TestCostEstimationService:
     async def test_reference_video_tts_quote_uses_current_visual_tier_for_zero_or_incremental_cost(
         self, db_factory, monkeypatch
     ):
-        class _SoraCapabilities:
-            def __init__(self, _resolver):
-                pass
-
-            async def resolve_candidate(self, _project, generation_type):
-                return ProviderProjectionCandidate(
-                    generation_type=generation_type,
-                    provider_id="openai",
-                    model_id="sora-2",
-                    supported_durations=(4, 8, 12),
-                    max_reference_images=4,
-                    resolution="720p",
-                    generate_audio=True,
-                    requested_generate_audio=True,
-                    has_audio_track=True,
-                    audio_switch_controllable=True,
-                )
-
+        request_facts = fake_reference_request_facts(
+            durations=(4, 8, 12),
+            provider_id="openai",
+            model_id="sora-2",
+            max_reference_images=4,
+            resolution="720p",
+        )
         monkeypatch.setattr(
-            "server.services.admission.cost_estimation.ConfigReferenceCapabilityProjection",
-            _SoraCapabilities,
+            "server.services.admission.cost_estimation.configured_reference_request_facts",
+            lambda _project, _resolver: request_facts,
         )
         service = CostEstimationService(ConfigResolver(db_factory), db_factory)
         project_data = {
@@ -1353,27 +1330,16 @@ class TestCostEstimationService:
         ]
 
     async def test_reference_video_estimate_blocks_when_duration_metadata_is_empty(self, db_factory, monkeypatch):
-        class _MissingDurationCapabilities:
-            def __init__(self, _resolver):
-                pass
-
-            async def resolve_candidate(self, _project, generation_type):
-                return ProviderProjectionCandidate(
-                    generation_type=generation_type,
-                    provider_id="kling",
-                    model_id="kling-v3",
-                    supported_durations=(),
-                    max_reference_images=4,
-                    resolution="1080p",
-                    generate_audio=True,
-                    requested_generate_audio=True,
-                    has_audio_track=True,
-                    audio_switch_controllable=True,
-                )
-
+        request_facts = fake_reference_request_facts(
+            durations=(),
+            provider_id="kling",
+            model_id="kling-v3",
+            max_reference_images=4,
+            resolution="1080p",
+        )
         monkeypatch.setattr(
-            "server.services.admission.cost_estimation.ConfigReferenceCapabilityProjection",
-            _MissingDurationCapabilities,
+            "server.services.admission.cost_estimation.configured_reference_request_facts",
+            lambda _project, _resolver: request_facts,
         )
         resolver = ConfigResolver(db_factory)
         service = CostEstimationService(resolver, db_factory)
@@ -1887,8 +1853,7 @@ class TestCostEstimationService:
         """有参考图 unit 的取档与算价读同一个模型：两者都落 r2v 桶。
 
         若取档误用 i2v 桶，5 秒的 unit 会按 kling 的 [5, 10] 停在 5 秒，再按 r2v 桶 Veo 的单价
-        算钱；而执行期按 Veo 的档位（未配分辨率走 1080p 兜底，只接受 8 秒）申请 8 秒——估算量
-        与扣费量对不上。
+        算钱；而执行期按 Veo 的档位（带参考图只接受 8 秒）申请 8 秒——估算量与扣费量对不上。
         """
         priced: list[tuple[str | None, int | None]] = []
         original = cost_calculator.calculate_cost
@@ -1899,15 +1864,6 @@ class TestCostEstimationService:
             return original(provider, params, **kwargs)
 
         monkeypatch.setattr(cost_calculator, "calculate_cost", _spy)
-
-        # 取档解析走全局 session factory（真实部署的库），测试库换成 db_factory 后照常做真实
-        # 桶解析——被观察的是它拿到哪个模型的档位，不是它怎么连库。
-        async def _caps_from_test_db(project, *, degraded_to, generation_type=None, episode=None):
-            return await ConfigResolver(db_factory).video_capabilities_for_project(
-                project, generation_type=generation_type
-            )
-
-        monkeypatch.setattr(reference_video_tasks, "project_video_caps", _caps_from_test_db)
 
         service = CostEstimationService(ConfigResolver(db_factory), db_factory)
         project_data = {
@@ -1942,13 +1898,6 @@ class TestCostEstimationService:
             return original(provider, params, **kwargs)
 
         monkeypatch.setattr(cost_calculator, "calculate_cost", _spy)
-
-        async def _caps_from_test_db(project, *, degraded_to, generation_type=None, episode=None):
-            return await ConfigResolver(db_factory).video_capabilities_for_project(
-                project, generation_type=generation_type
-            )
-
-        monkeypatch.setattr(reference_video_tasks, "project_video_caps", _caps_from_test_db)
 
         service = CostEstimationService(ConfigResolver(db_factory), db_factory)
         project_data = {

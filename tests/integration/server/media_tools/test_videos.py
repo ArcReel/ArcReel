@@ -21,6 +21,7 @@ from lib.script.script_skeleton import SkeletonRouteMismatchError
 from server.media_tools import videos as enqueue_videos_mod
 from server.media_tools.context import ToolContext
 from server.media_tools.videos import generate_videos_tool
+from tests.fakes import fake_reference_request_facts
 from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
     _CLAIMED_BASIS_DIGEST,
     activate_unbound_project,
@@ -2547,8 +2548,13 @@ def _ad_reference_unit(**overrides: Any) -> dict[str, Any]:
 
 
 @pytest.fixture
-def ad_reference_ctx(fake_ctx: ToolContext) -> ToolContext:
+def ad_reference_ctx(fake_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch) -> ToolContext:
     fake_ctx.config_resolver = fake_caps_resolver(supported_durations=(5,), default_duration=5)
+    request_facts = fake_reference_request_facts(durations=(5,), model_id="fake-video", max_reference_images=3)
+    monkeypatch.setattr(
+        "lib.script.reference_video.request_projection.configured_reference_request_facts",
+        lambda project, resolver: request_facts,
+    )
 
     pm = fake_ctx.pm
     pm.project_payload.update(

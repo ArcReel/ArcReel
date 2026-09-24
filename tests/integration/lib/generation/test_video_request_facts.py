@@ -264,17 +264,24 @@ async def test_execution_identity_follows_the_backend_when_it_diverges_from_conf
 
 
 @pytest.mark.parametrize(
-    ("project", "generation_type"),
+    ("project", "route", "generation_type"),
     [
-        pytest.param({"video_provider_i2v": VEO}, "i2v", id="veo-unset"),
-        pytest.param(_with_resolution({"video_provider_i2v": VEO}, VEO, "720p"), "i2v", id="veo-720p"),
-        pytest.param({"video_provider_i2v": VIDU2}, "i2v", id="vidu2-unset"),
-        pytest.param({"video_provider_r2v": VEO, "generation_mode": "reference_video"}, "r2v", id="veo-r2v"),
+        pytest.param({"video_provider_i2v": VEO}, "storyboard", "i2v", id="veo-unset"),
+        pytest.param(_with_resolution({"video_provider_i2v": VEO}, VEO, "720p"), "storyboard", "i2v", id="veo-720p"),
+        pytest.param({"video_provider_i2v": VIDU2}, "storyboard", "i2v", id="vidu2-unset"),
+        pytest.param(
+            {"video_provider_r2v": VEO, "generation_mode": "reference_video"}, "reference_video", "r2v", id="veo-r2v"
+        ),
+        pytest.param(
+            {"video_provider_i2v": VEO, "generation_mode": "reference_video"},
+            "reference_video",
+            "i2v",
+            id="veo-ref-i2v",
+        ),
     ],
 )
-async def test_read_and_execution_sides_agree_when_identities_match(resolver, project, generation_type):
+async def test_read_and_execution_sides_agree_when_identities_match(resolver, project, route, generation_type):
     """读侧（预检、报价）与执行侧对同一份配置给出同一组档位与请求分辨率。"""
-    route = "reference_video" if generation_type == "r2v" else "storyboard"
     read = await _read(resolver, project, route=route, generation_type=generation_type)
     assert isinstance(read, VideoRequestFacts)
 
@@ -297,3 +304,17 @@ async def test_audio_facts_split_the_user_switch_from_the_billed_track(resolver)
     # AI Studio 的 Veo 无视请求值恒按含音档出账。
     assert facts.generate_audio is True
     assert facts.has_audio_track is True
+
+
+async def test_request_shaping_capabilities_come_from_the_same_evaluation(resolver):
+    """参考图上限、无图能力位与参考音频形态随同一次求值给出，请求组装不再另查能力。"""
+    from lib.backends.backend_assembly.specs import builtin_video_capabilities_for_model
+
+    facts = await _read(resolver, {"video_provider_r2v": VEO}, route="reference_video", generation_type="r2v")
+
+    declared = builtin_video_capabilities_for_model(VEO_PROVIDER, VEO_MODEL)
+    assert isinstance(facts, VideoRequestFacts)
+    assert facts.max_reference_images == declared.max_reference_images
+    assert (facts.text_to_video, facts.first_frame) == (declared.text_to_video, declared.first_frame)
+    assert facts.max_reference_audio_count == declared.max_reference_audio_count
+    assert facts.reference_audio_per_image is declared.reference_audio_per_image

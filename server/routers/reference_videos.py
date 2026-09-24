@@ -44,7 +44,6 @@ from lib.script.reference_video.request_projection import (
     project_reference_unit_request,
 )
 from lib.script.reference_video.script_preview import build_script_preview
-from lib.script.reference_video.units import reference_video_bucket
 from lib.script.reference_video.voice_settings import VoiceRenderSettings
 from lib.script.script_editor import ScriptEditError
 from lib.speech.narration_delivery import (
@@ -85,7 +84,7 @@ from server.services.tasks.narration_delivery_tasks import (
 from server.services.tasks.reference_video_tasks import (
     apply_unit_video_assets,
     default_unit_duration,
-    resolve_project_duration_context,
+    resolve_new_unit_request_facts,
 )
 from server.services.tasks.video_caps import project_video_caps
 
@@ -310,11 +309,8 @@ async def add_unit(
     duration_seconds = req.duration_seconds
     if duration_seconds is None:
         duration_seconds = default_unit_duration(
-            await resolve_project_duration_context(
-                project, generation_type=reference_video_bucket(with_references=bool(refs))
-            ),
+            await resolve_new_unit_request_facts(project, with_references=bool(refs)),
             project,
-            with_references=bool(refs),
         )
 
     units = current.get("video_units") if isinstance(current.get("video_units"), list) else []

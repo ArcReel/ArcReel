@@ -3,26 +3,29 @@
 投影是 advisory/current-state 读模型：调用方传入当前 project、script、unit，已经解析出的
 资产候选与请求选项，得到报价、提交预检和限流路由共用的一份不可变事实。结果不携带 token、
 fingerprint 或可执行请求快照；worker 开始处理时必须重新投影当前状态。
+
+能力只经视频请求事实读取（``docs/adr/0086``）：投影按单元落入的桶取一份事实，读侧以当前配置
+为身份求值，执行侧直接交出 lane 以实际 backend 身份求得的那一份。
 """
 
 from __future__ import annotations
 
 import math
-from collections.abc import Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Protocol, cast
-
-from sqlalchemy.exc import SQLAlchemyError
+from typing import TYPE_CHECKING, Protocol, cast
 
 from lib.config.resolver import (
-    VideoBucketCapabilityError,
     VideoGenerationType,
-    constrain_durations,
-    get_provider_fallback,
     video_capability_satisfied,
 )
-from lib.generation.video_request_facts import video_audio_model_facts as reference_audio_model_facts
+from lib.generation.video_request_facts import (
+    CONFIGURED_VIDEO_IDENTITY,
+    VideoRequestFacts,
+    VideoRequestFactsFailure,
+    evaluate_video_request_facts,
+)
 from lib.infra.path_safety import PathTraversalError, safe_join
 from lib.infra.schema_guards import is_int
 from lib.project.asset_types import AssetSpec, asset_name_comparison_key
@@ -56,6 +59,9 @@ from lib.speech.narration_delivery import (
     NarrationDelivery as NarrationDelivery,
 )
 from lib.speech.speech_composition import admit_script_unit
+
+if TYPE_CHECKING:
+    from lib.config.resolver import ConfigResolver
 
 
 @dataclass(frozen=True)
@@ -130,34 +136,6 @@ class ResolvedReferenceAsset:
     kind: str = "asset"
 
 
-@dataclass(frozen=True)
-class ProviderProjectionCandidate:
-    """当前任务类型桶的供应商模型组合与请求能力事实。"""
-
-    generation_type: VideoGenerationType
-    provider_id: str
-    model_id: str
-    supported_durations: tuple[int, ...]
-    max_reference_images: int | None
-    resolution: str | None
-    generate_audio: bool
-    requested_generate_audio: bool
-    has_audio_track: bool
-    audio_switch_controllable: bool
-    #: 时长这一维由端点固定（``docs/adr/0082``）。为真时 ``supported_durations`` 是合法空集：
-    #: 成片多长由端点自己决定，请求体里带的秒数被端点忽略。
-    duration_endpoint_fixed: bool = False
-    voice_consistency: str = "soft"
-    max_reference_audio_count: int = 0
-    reference_audio_per_image: bool = False
-    first_frame: bool = True
-    text_to_video: bool = True
-
-    @property
-    def pair_key(self) -> str:
-        return f"{self.provider_id}/{self.model_id}"
-
-
 ProjectionCostFacts = VideoRequestCostFacts
 
 
@@ -224,7 +202,8 @@ class ReferenceUnitRequestProjection:
     #: 两者的对外载荷键固定为 ``declared_capability`` / ``hydrated_capability``（API 契约）。
     declared_generation_type: VideoGenerationType
     hydrated_generation_type: VideoGenerationType
-    provider_candidate: ProviderProjectionCandidate | None
+    #: 单元所落桶的视频请求事实；求值失败时为 None，失败已折成 ``problems`` 里的阻断项。
+    request_facts: VideoRequestFacts | None
     planned_duration: int
     narration_duration_floor: float | None
     current_visual_duration: int | None
@@ -236,11 +215,11 @@ class ReferenceUnitRequestProjection:
 
     @property
     def provider_id(self) -> str | None:
-        return self.provider_candidate.provider_id if self.provider_candidate is not None else None
+        return self.request_facts.provider_id if self.request_facts is not None else None
 
     @property
     def model_id(self) -> str | None:
-        return self.provider_candidate.model_id if self.provider_candidate is not None else None
+        return self.request_facts.model_id if self.request_facts is not None else None
 
     @property
     def blocking_problems(self) -> tuple[ProjectionProblem, ...]:
@@ -279,13 +258,32 @@ class ReferenceAssetAvailability(Protocol):
         raise NotImplementedError
 
 
-class ReferenceCapabilityProjection(Protocol):
-    """当前供应商模型组合能力的异步适配器。"""
+VideoRequestFactsResult = VideoRequestFacts | VideoRequestFactsFailure
 
-    async def resolve_candidate(
-        self, project: dict, generation_type: VideoGenerationType
-    ) -> ProviderProjectionCandidate:
-        raise NotImplementedError
+#: 按任务类型桶取视频请求事实。读侧用 :func:`configured_reference_request_facts`，执行侧交出
+#: lane 已求得的那一份；测试直接返回构造好的结果对象或失败对象。
+ReferenceRequestFactsLookup = Callable[[VideoGenerationType], Awaitable[VideoRequestFactsResult]]
+
+
+def configured_reference_request_facts(project: dict, resolver: ConfigResolver) -> ReferenceRequestFactsLookup:
+    """读侧：以当前配置为身份，对参考路线逐桶求值视频请求事实；同一查找内每个桶只求值一次。"""
+
+    evaluated: dict[VideoGenerationType, VideoRequestFactsResult] = {}
+
+    async def lookup(generation_type: VideoGenerationType) -> VideoRequestFactsResult:
+        result = evaluated.get(generation_type)
+        if result is None:
+            result = await evaluate_video_request_facts(
+                project,
+                route="reference_video",
+                generation_type=generation_type,
+                identity=CONFIGURED_VIDEO_IDENTITY,
+                resolver=resolver,
+            )
+            evaluated[generation_type] = result
+        return result
+
+    return lookup
 
 
 @dataclass(frozen=True)
@@ -307,80 +305,6 @@ def hydrate_reference_assets(
     available_keys = {_asset_key(asset) for asset in available}
     missing = tuple(ref for ref in declared if (ref.type, asset_name_comparison_key(ref.name)) not in available_keys)
     return ReferenceAssetHydration(available=available, missing=missing)
-
-
-class ProjectionResolutionError(ValueError):
-    """生产适配器解析失败；``code`` 可直接进入结构化 problem。
-
-    ``params`` 是 problem 的 i18n 模板参数，键名属对外契约：``capability`` 键承载的是
-    generation_type 值，不随内部标识符改名。
-    """
-
-    def __init__(self, code: str, **params: object) -> None:
-        self.code = code
-        self.params = params
-        super().__init__(code)
-
-
-def strict_reference_durations(
-    *,
-    provider_id: str,
-    model_id: str,
-    durations: Sequence[int | float | str],
-    resolution: str | None,
-    generation_type: VideoGenerationType,
-) -> tuple[int, ...]:
-    """校验并按当前请求条件收窄时长；缺失或矛盾一律 fail loud。"""
-
-    normalized_values: set[int] = set()
-    for value in durations:
-        if isinstance(value, bool):
-            raise ProjectionResolutionError(
-                "reference_supported_durations_invalid",
-                provider=provider_id,
-                model=model_id,
-            )
-        try:
-            parsed = int(value)
-        except (TypeError, ValueError, OverflowError) as exc:
-            raise ProjectionResolutionError(
-                "reference_supported_durations_invalid",
-                provider=provider_id,
-                model=model_id,
-            ) from exc
-        if isinstance(value, float) and (not math.isfinite(value) or float(parsed) != value):
-            raise ProjectionResolutionError(
-                "reference_supported_durations_invalid",
-                provider=provider_id,
-                model=model_id,
-            )
-        if parsed <= 0:
-            raise ProjectionResolutionError(
-                "reference_supported_durations_invalid",
-                provider=provider_id,
-                model=model_id,
-            )
-        normalized_values.add(parsed)
-    normalized = tuple(sorted(normalized_values))
-    if not normalized:
-        raise ProjectionResolutionError("reference_supported_durations_missing", provider=provider_id, model=model_id)
-    allowed = constrain_durations(
-        provider_id,
-        model_id,
-        list(normalized),
-        resolution=resolution,
-        uses_reference_images=generation_type == "r2v",
-        fallback_on_empty=False,
-    )
-    if not allowed:
-        raise ProjectionResolutionError(
-            "reference_supported_durations_incompatible",
-            provider=provider_id,
-            model=model_id,
-            resolution=resolution,
-            capability=generation_type,
-        )
-    return tuple(allowed)
 
 
 class FilesystemReferenceAssets:
@@ -482,108 +406,6 @@ def _original_image_paths(entry: dict, spec: AssetSpec) -> list[object]:
     return paths
 
 
-class ConfigReferenceCapabilityProjection:
-    """把 ``ConfigResolver`` 的当前配置解析成投影候选。"""
-
-    def __init__(self, resolver: object) -> None:
-        self._resolver = resolver
-        self._cache: dict[VideoGenerationType, ProviderProjectionCandidate] = {}
-        self._failures: dict[VideoGenerationType, ProjectionResolutionError] = {}
-
-    async def resolve_candidate(
-        self, project: dict, generation_type: VideoGenerationType
-    ) -> ProviderProjectionCandidate:
-        cached = self._cache.get(generation_type)
-        if cached is not None:
-            return cached
-        failure = self._failures.get(generation_type)
-        if failure is not None:
-            raise failure
-        try:
-            candidate = await self._resolve_uncached(project, generation_type)
-        except ProjectionResolutionError as exc:
-            self._failures[generation_type] = exc
-            raise
-        self._cache[generation_type] = candidate
-        return candidate
-
-    async def _resolve_uncached(
-        self, project: dict, generation_type: VideoGenerationType
-    ) -> ProviderProjectionCandidate:
-        try:
-            caps = await self._resolver.video_capabilities_for_project(project, generation_type=generation_type)  # type: ignore[attr-defined]
-        except VideoBucketCapabilityError as exc:
-            raise ProjectionResolutionError(exc.code, **exc.params) from exc
-        except (SQLAlchemyError, ValueError) as exc:
-            message = str(exc)
-            if "supported_durations" not in message:
-                raise ProjectionResolutionError("reference_capability_unavailable", capability=generation_type) from exc
-            code = (
-                "reference_supported_durations_missing"
-                if "is empty" in message
-                else "reference_supported_durations_invalid"
-            )
-            raise ProjectionResolutionError(code, provider="unknown", model="unknown") from exc
-
-        provider_id = str(caps.get("provider_id") or "")
-        model_id = str(caps.get("model") or "")
-        raw_durations = caps.get("supported_durations")
-        if not isinstance(raw_durations, list):
-            raise ProjectionResolutionError(
-                "reference_supported_durations_invalid", provider=provider_id, model=model_id
-            )
-        try:
-            resolution = await self._resolver.resolve_resolution(project, provider_id, model_id)  # type: ignore[attr-defined]
-        except (SQLAlchemyError, ValueError) as exc:
-            raise ProjectionResolutionError(
-                "reference_capability_unavailable",
-                capability=generation_type,
-                provider=provider_id,
-                model=model_id,
-            ) from exc
-        resolution = resolution or get_provider_fallback(provider_id)
-
-        # 时长这一维由端点固定时档位集是合法空集（``docs/adr/0082``）：没有档位可校验也没有
-        # 档位可收窄，成片多长以端点为准。不带这个标志的空集仍是档位声明缺失，交给
-        # ``strict_reference_durations`` fail loud（``docs/adr/0018``）。
-        duration_endpoint_fixed = bool(caps.get("duration_endpoint_fixed"))
-        durations: tuple[int, ...] = ()
-        if not duration_endpoint_fixed:
-            durations = strict_reference_durations(
-                provider_id=provider_id,
-                model_id=model_id,
-                durations=raw_durations,
-                resolution=resolution,
-                generation_type=generation_type,
-            )
-
-        has_audio_track, audio_switch_controllable = reference_audio_model_facts(
-            provider_id,
-            model_id,
-            voice_consistency=str(caps.get("voice_consistency") or "soft"),
-            generation_type=generation_type,
-        )
-        max_references = caps.get("max_reference_images")
-        return ProviderProjectionCandidate(
-            generation_type=generation_type,
-            provider_id=provider_id,
-            model_id=model_id,
-            supported_durations=durations,
-            duration_endpoint_fixed=duration_endpoint_fixed,
-            max_reference_images=int(max_references) if max_references is not None else None,
-            resolution=resolution,
-            generate_audio=bool(caps.get("generate_audio")),
-            requested_generate_audio=bool(caps.get("requested_generate_audio")),
-            has_audio_track=has_audio_track,
-            audio_switch_controllable=audio_switch_controllable,
-            voice_consistency=str(caps.get("voice_consistency") or "soft"),
-            max_reference_audio_count=int(caps.get("max_reference_audio_count") or 0),
-            reference_audio_per_image=bool(caps.get("reference_audio_per_image") or False),
-            first_frame=bool(caps.get("first_frame")),
-            text_to_video=bool(caps.get("text_to_video", True)),
-        )
-
-
 def clamp_reference_assets(
     assets: Sequence[ResolvedReferenceAsset], max_references: int | None
 ) -> tuple[ResolvedReferenceAsset, ...]:
@@ -639,10 +461,10 @@ class ReferenceUnitRequestProjector:
 
     def __init__(
         self,
-        capabilities: ReferenceCapabilityProjection,
+        request_facts: ReferenceRequestFactsLookup,
         assets: ReferenceAssetAvailability,
     ) -> None:
-        self._capabilities = capabilities
+        self._request_facts = request_facts
         self._assets = assets
 
     async def project_current(
@@ -711,38 +533,34 @@ class ReferenceUnitRequestProjector:
                 )
             )
 
-        candidate: ProviderProjectionCandidate | None = None
+        facts: VideoRequestFacts | None = None
         try:
-            candidate = await self._capabilities.resolve_candidate(project, hydrated_generation_type)
-        except ProjectionResolutionError as exc:
-            code = exc.code
-            error_params = {"capability": hydrated_generation_type, **exc.params}
-            problems.append(
-                _problem(
-                    code,
-                    blocking=True,
-                    **error_params,
-                )
-            )
+            evaluated = await self._request_facts(hydrated_generation_type)
         except Exception:
+            evaluated = VideoRequestFactsFailure(
+                "reference_capability_unavailable", (("capability", hydrated_generation_type),)
+            )
+        if isinstance(evaluated, VideoRequestFactsFailure):
             problems.append(
                 _problem(
-                    "reference_capability_unavailable",
+                    evaluated.code,
                     blocking=True,
-                    capability=hydrated_generation_type,
+                    **{"capability": hydrated_generation_type, **evaluated.parameters()},
                 )
             )
+        else:
+            facts = evaluated
 
         request_assets = available
-        if candidate is not None:
+        if facts is not None:
             if (
                 hydrated_generation_type == "i2v"
                 and not available
                 and not video_capability_satisfied(
                     generation_type=hydrated_generation_type,
-                    first_frame=candidate.first_frame,
-                    max_reference_images=candidate.max_reference_images or 0,
-                    text_to_video=candidate.text_to_video,
+                    first_frame=facts.first_frame,
+                    max_reference_images=facts.max_reference_images or 0,
+                    text_to_video=facts.text_to_video,
                     has_image=False,
                 )
             ):
@@ -750,33 +568,29 @@ class ReferenceUnitRequestProjector:
                     _problem(
                         "video_capability_missing_t2v",
                         blocking=True,
-                        provider=candidate.provider_id,
-                        model=candidate.model_id,
+                        provider=facts.provider_id,
+                        model=facts.model_id,
                     )
                 )
-            request_assets = clamp_reference_assets(available, candidate.max_reference_images)
+            request_assets = clamp_reference_assets(available, facts.max_reference_images)
             if len(request_assets) < len(available):
                 problems.append(
                     _problem(
                         "reference_images_clamped",
                         blocking=False,
                         count=len(available),
-                        max_count=candidate.max_reference_images,
-                        provider=candidate.provider_id,
-                        model=candidate.model_id,
+                        max_count=facts.max_reference_images,
+                        provider=facts.provider_id,
+                        model=facts.model_id,
                     )
                 )
-            if (
-                not candidate.requested_generate_audio
-                and candidate.has_audio_track
-                and not candidate.audio_switch_controllable
-            ):
+            if not facts.requested_generate_audio and facts.has_audio_track and not facts.audio_switch_controllable:
                 problems.append(
                     _problem(
                         "video_audio_switch_not_supported",
                         blocking=True,
-                        provider=candidate.provider_id,
-                        model=candidate.model_id,
+                        provider=facts.provider_id,
+                        model=facts.model_id,
                     )
                 )
 
@@ -795,13 +609,13 @@ class ReferenceUnitRequestProjector:
         request_duration: DurationSlot | None = None
         cost: ProjectionCostFacts | None = None
 
-        if candidate is not None:
+        if facts is not None:
             # 取档判定与分镜路线同一份实现；这里只把它的结论映射成参考生视频的 problem code。
             projected = project_request_duration(
                 planned_duration_seconds=planned_duration,
-                supported_durations=candidate.supported_durations,
+                supported_durations=facts.allowed_durations,
                 narration_duration_floor=narration_floor,
-                duration_endpoint_fixed=candidate.duration_endpoint_fixed,
+                duration_endpoint_fixed=facts.duration_endpoint_fixed,
                 uses_tts=options.narration_delivery == USE_TTS,
                 current_visual_duration_seconds=options.current_visual_duration_seconds,
                 confirmed_request_duration_seconds=options.confirmed_request_duration_seconds,
@@ -817,8 +631,8 @@ class ReferenceUnitRequestProjector:
                     _problem(
                         "tts_duration_endpoint_fixed",
                         blocking=True,
-                        provider=candidate.provider_id,
-                        model=candidate.model_id,
+                        provider=facts.provider_id,
+                        model=facts.model_id,
                     ),
                 )
             elif projected.problem == "supported_durations_missing":
@@ -826,8 +640,8 @@ class ReferenceUnitRequestProjector:
                     _problem(
                         "reference_supported_durations_missing",
                         blocking=True,
-                        provider=candidate.provider_id,
-                        model=candidate.model_id,
+                        provider=facts.provider_id,
+                        model=facts.model_id,
                     )
                 )
             elif projected.problem == "needs_replan" and projected.slot is not None:
@@ -853,11 +667,11 @@ class ReferenceUnitRequestProjector:
                 )
             if projected.slot is not None:
                 cost = ProjectionCostFacts(
-                    provider_id=candidate.provider_id,
-                    model_id=candidate.model_id,
-                    resolution=candidate.resolution,
+                    provider_id=facts.provider_id,
+                    model_id=facts.model_id,
+                    resolution=facts.resolution,
                     duration_seconds=projected.slot.seconds,
-                    generate_audio=candidate.generate_audio,
+                    generate_audio=facts.generate_audio,
                 )
 
         return ReferenceUnitRequestProjection(
@@ -867,7 +681,7 @@ class ReferenceUnitRequestProjector:
             request_assets=request_assets,
             declared_generation_type=declared_generation_type,
             hydrated_generation_type=hydrated_generation_type,
-            provider_candidate=candidate,
+            request_facts=facts,
             planned_duration=planned_duration,
             narration_duration_floor=narration_floor,
             current_visual_duration=options.current_visual_duration_seconds,
@@ -886,7 +700,7 @@ async def project_reference_unit_request(
     unit: dict,
     project_path: Path,
     options: ReferenceRequestOptions | None = None,
-    resolver: object | None = None,
+    resolver: ConfigResolver | None = None,
     tts_settings_resolver: TtsSettingsResolver | None = None,
     tts_in_progress: bool = False,
     current_options_materialized: bool = False,
@@ -910,7 +724,7 @@ async def project_reference_unit_request(
             tts_in_progress=tts_in_progress,
         )
     projector = ReferenceUnitRequestProjector(
-        ConfigReferenceCapabilityProjection(resolver),
+        configured_reference_request_facts(project, resolver),
         FilesystemReferenceAssets(project_path),
     )
     return await projector.project_current(
