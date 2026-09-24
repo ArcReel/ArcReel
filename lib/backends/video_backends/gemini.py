@@ -65,6 +65,7 @@ class GeminiVideoBackend(ProviderJobIdPersistenceMixin):
         rate_limiter: RateLimiter | None = None,
         video_model: str | None = None,
         base_url: str | None = None,
+        credentials_path: str | None = None,
     ):
         from google import genai as _genai
         from google.genai import types as _types
@@ -84,7 +85,7 @@ class GeminiVideoBackend(ProviderJobIdPersistenceMixin):
 
             from google.oauth2 import service_account
 
-            credentials_file = resolve_vertex_credentials_path()
+            credentials_file = Path(credentials_path) if credentials_path else resolve_vertex_credentials_path()
             if credentials_file is None:
                 raise ValueError("未找到 Vertex AI 凭证文件")
 

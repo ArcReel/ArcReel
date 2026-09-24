@@ -49,10 +49,19 @@ _NARRATION_REQUEST_KEY_BY_TASK_TYPE = {
 }
 
 
+#: 旧版本入队的文本任务在载荷里带着入队时的数据根；执行按当前配置解析，判同也不计它。
+_LEGACY_TEXT_PAYLOAD_KEYS = frozenset({"projects_root"})
+
+
+def text_task_request_facts(payload: dict[str, Any] | None) -> dict[str, Any]:
+    """文本任务载荷里描述「这次请求做什么」的部分，用于判断两次提交是否为同一请求。"""
+    return {key: value for key, value in (payload or {}).items() if key not in _LEGACY_TEXT_PAYLOAD_KEYS}
+
+
 def _text_request_facts(task_type: str, payload: dict[str, Any] | None) -> dict[str, Any] | None:
     if not task_type.startswith("text_"):
         return None
-    return {key: value for key, value in (payload or {}).items() if key != "projects_root"}
+    return text_task_request_facts(payload)
 
 
 class ActiveTaskRequestConflict(RuntimeError):

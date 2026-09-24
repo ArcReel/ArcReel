@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import threading
 from collections.abc import Awaitable, Callable
@@ -121,6 +122,11 @@ async def test_all_text_long_calls_submit_single_member_batches(
     assert len(batch.members) == 1
     assert batch.members[0].task_type == expected_task_type
     assert batch.poll_after_seconds is not None
+    task_id = batch.members[0].task_id
+    assert task_id is not None
+    task = await queue.get_task(task_id)
+    assert task is not None
+    assert str(projects.data_root) not in json.dumps(task["payload"], ensure_ascii=False)
 
 
 async def test_text_mcp_rejects_lost_worker_lease_without_persisting_queue_state(
@@ -286,15 +292,23 @@ async def test_text_submission_cancellation_only_cleans_a_fresh_batch(
     ]
 
 
-async def test_queued_plan_ignores_internal_payload_and_preserves_typed_failure(tmp_path: Path) -> None:
+@pytest.mark.parametrize("legacy_data_root", [False, True])
+async def test_queued_plan_resolves_data_root_from_current_config_and_preserves_typed_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, legacy_data_root: bool
+) -> None:
     projects = ProjectManager(tmp_path / "projects")
     projects.create_project("planning", content_mode="narration")
     projects.create_project_metadata("planning", "Planning", "", "narration")
+    monkeypatch.setenv("ARCREEL_DATA_DIR", str(projects.data_root))
+    payload: dict[str, Any] = {"instructions": "按章节"}
+    if legacy_data_root:
+        # 旧版本排入的任务在载荷里带着入队时的数据根；数据根此后已挪走。
+        payload["projects_root"] = str(tmp_path / "moved-away")
     task = {
         "task_id": "task-plan",
         "project_name": "planning",
         "task_type": "text_episode_plan",
-        "payload": {"instructions": "按章节", "projects_root": str(projects.data_root)},
+        "payload": payload,
     }
 
     class Planner:
@@ -339,6 +353,8 @@ async def test_cancel_during_started_episode_script_commit_leaves_member_running
     tmp_path: Path, file_db_factory, monkeypatch
 ) -> None:
     projects = ProjectManager(tmp_path / "projects")
+    # worker 按当前配置解析数据根。
+    monkeypatch.setenv("ARCREEL_DATA_DIR", str(projects.data_root))
     project_path = projects.create_project("script", content_mode="ad")
     projects.create_project_metadata("script", "Script", "", "ad")
     projects.update_project(
@@ -423,6 +439,8 @@ async def test_cancel_during_started_episode_plan_commit_leaves_member_running_t
     monkeypatch,
 ) -> None:
     projects = ProjectManager(tmp_path / "projects")
+    # worker 按当前配置解析数据根。
+    monkeypatch.setenv("ARCREEL_DATA_DIR", str(projects.data_root))
     project_path = projects.create_project("planning", content_mode="narration")
     projects.create_project_metadata("planning", "Planning", "", "narration")
     (project_path / "source" / "novel.txt").write_text(
@@ -528,6 +546,8 @@ async def test_cancel_during_invalid_script_plan_quarantine_leaves_member_runnin
     generated_text: str,
 ) -> None:
     projects = ProjectManager(tmp_path / "projects")
+    # worker 按当前配置解析数据根。
+    monkeypatch.setenv("ARCREEL_DATA_DIR", str(projects.data_root))
     project_path = projects.create_project(project_name, content_mode="narration")
     projects.create_project_metadata(project_name, project_name, "", "narration")
     projects.update_project(project_name, lambda project: project.update(generation_mode=generation_mode))

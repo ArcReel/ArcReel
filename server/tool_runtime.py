@@ -59,6 +59,7 @@ from lib.generation.generation_queue import (
     GenerationQueue,
     cleanup_fresh_generation_batch,
     get_generation_queue,
+    text_task_request_facts,
 )
 from lib.generation.generation_queue_client import (
     BatchTaskResult,
@@ -81,6 +82,7 @@ from lib.generation.generation_result import (
 )
 from lib.infra.async_thread import run_sync_transaction as _run_sync_transaction
 from lib.infra.content_digest import prefixed, prefixed_canonical_json_digest
+from lib.infra.data_root_layout import DataRootLayout
 from lib.infra.path_safety import safe_join
 from lib.infra.schema_guards import is_int, is_str
 from lib.project.asset_inventory import (
@@ -410,7 +412,9 @@ _TEXT_DRAMA_SCRIPT_PLAN = "text_drama_script_plan"
 _TEXT_NARRATION_SCRIPT_PLAN = "text_narration_script_plan"
 _TEXT_REFERENCE_SCRIPT_PLAN = "text_reference_script_plan"
 _TEXT_EPISODE_PLAN = "text_episode_plan"
-_TEXT_TASK_SERVICES: dict[str, Services] = {}
+#: 嵌入式宿主在本进程内提交、并在本进程内等待的文本任务：worker 沿用提交方的数据根与服务。
+#: 只在内存里，不进任务载荷；没有登记的任务（MCP 提交、重启后的存量任务）按当前配置解析。
+_TEXT_TASK_SERVICES: dict[str, tuple[ProjectScope, Services]] = {}
 
 
 def _queued_generation_problem(problem: ToolProblem) -> GenerationProblem:
@@ -439,20 +443,15 @@ async def _submit_text_task(
         resource_ids=[unit_id],
         user_id=caller.user_id,
     )
-    requested_facts = {key: value for key, value in payload.items() if key != "projects_root"}
-    if active:
-        existing_facts = {
-            key: value for key, value in (active[0].get("payload") or {}).items() if key != "projects_root"
-        }
-        if existing_facts != requested_facts:
-            return ToolOutcome(
-                problem=ToolProblem(
-                    "generation_active_task_conflict",
-                    "generation_active_task_conflict",
-                    action=GenerationAction.WAIT_FOR_TASK,
-                    params={"task_id": active[0]["task_id"], "status": active[0]["status"]},
-                )
+    if active and text_task_request_facts(active[0].get("payload")) != text_task_request_facts(payload):
+        return ToolOutcome(
+            problem=ToolProblem(
+                "generation_active_task_conflict",
+                "generation_active_task_conflict",
+                action=GenerationAction.WAIT_FOR_TASK,
+                params={"task_id": active[0]["task_id"], "status": active[0]["status"]},
             )
+        )
     snapshot = GenerationBatchRequestSnapshot(
         selection=GenerationSelectionMode.EXPLICIT,
         requested=[GenerationBatchRequestedItem(unit_id=unit_id)],
@@ -471,7 +470,7 @@ async def _submit_text_task(
             task_type=task_type,
             media_type="text",
             resource_id=unit_id,
-            payload={**payload, "projects_root": str(scope.data_root)},
+            payload=payload,
             source=caller.source,
             user_id=caller.user_id,
             batch_id=batch_id,
@@ -480,7 +479,7 @@ async def _submit_text_task(
         )
         registered_services = caller.source == "embedded" and not enqueue.get("deduped")
         if registered_services:
-            _TEXT_TASK_SERVICES[enqueue["task_id"]] = services
+            _TEXT_TASK_SERVICES[enqueue["task_id"]] = (scope, services)
         try:
             batch = await services.queue.get_generation_batch(
                 project_name=scope.project_name, batch_id=batch_id, user_id=caller.user_id
@@ -1873,9 +1872,11 @@ async def execute_queued_text_task(
 ) -> dict[str, Any]:
     """Execute one durable text task through the same host-independent handlers."""
     payload = task.get("payload") or {}
-    scope = ProjectScope(project_name=str(task["project_name"]), data_root=Path(payload["projects_root"]))
-    services = _TEXT_TASK_SERVICES.pop(str(task["task_id"]), None)
-    if services is None:
+    registered = _TEXT_TASK_SERVICES.pop(str(task["task_id"]), None)
+    if registered is not None:
+        scope, services = registered
+    else:
+        scope = ProjectScope(project_name=str(task["project_name"]), data_root=DataRootLayout.current().root)
         projects = ProjectManager(scope.data_root)
         services = Services(
             projects=projects,

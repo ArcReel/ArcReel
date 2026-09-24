@@ -187,7 +187,7 @@ class TestGeminiSpec:
 
     def test_vertex_image_backend_type_vertex(self):
         config = LoadedConfig(
-            credentials={"api_key": None, "base_url": None},
+            credentials={"api_key": None, "base_url": None, "credentials_path": "/legacy/vertex.json"},
             provider_meta=PROVIDER_REGISTRY.get("gemini-vertex"),
             rate_limiter=None,
         )
@@ -198,6 +198,7 @@ class TestGeminiSpec:
             "base_url": None,
             "rate_limiter": None,
             "image_model": None,
+            "credentials_path": "/legacy/vertex.json",
         }
 
     def test_aistudio_video_sets_base_url_uses_video_model(self):
@@ -224,7 +225,7 @@ class TestGeminiSpec:
 
     def test_vertex_video_backend_type_vertex(self):
         config = LoadedConfig(
-            credentials={"api_key": None, "base_url": None},
+            credentials={"api_key": None, "base_url": None, "credentials_path": "/legacy/vertex.json"},
             provider_meta=PROVIDER_REGISTRY.get("gemini-vertex"),
             rate_limiter=None,
         )
@@ -235,6 +236,7 @@ class TestGeminiSpec:
             "base_url": None,
             "rate_limiter": None,
             "video_model": "veo-3.1-generate-preview",
+            "credentials_path": "/legacy/vertex.json",
         }
 
     def test_bare_gemini_not_registered(self):
@@ -424,11 +426,15 @@ class TestTextGeminiSpec:
     def test_vertex_uses_gcs_bucket_no_api_key(self):
         spec = get_provider_spec("gemini-vertex", "text")
         assert spec.registry_backend == "gemini"
-        config = _loaded(credentials={"gcs_bucket": "my-bucket"}, provider_id="gemini-vertex")
+        config = _loaded(
+            credentials={"gcs_bucket": "my-bucket", "credentials_path": "/legacy/vertex.json"},
+            provider_id="gemini-vertex",
+        )
         assert _built(spec, config, "gemini-3-flash-preview")["kwargs"] == {
             "model": "gemini-3-flash-preview",
             "backend": "vertex",
             "gcs_bucket": "my-bucket",
+            "credentials_path": "/legacy/vertex.json",
         }
 
 

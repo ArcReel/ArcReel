@@ -144,6 +144,8 @@ curl http://localhost:1241/health
 
 ArcReel runs Alembic migrations at application startup to upgrade the database schema to the current version.
 
+At startup, ArcReel also converts historical call output paths to project-relative paths when it can identify the project root, so usage detail thumbnails can survive a data directory move. Ambiguous old paths remain unchanged and are logged. Queued legacy text tasks use the current data directory; any old directory in their payload is ignored.
+
 You must still create a backup before upgrading. Automatic migration handles schema upgrades; it does not replace a rollback-capable data backup.
 
 ## 3. Environment Variables {#environment-variables}

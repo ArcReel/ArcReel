@@ -182,6 +182,7 @@ def _build_gemini_image(config: LoadedConfig, model_id: str | None, *, backend_t
         base_url=config.credentials.get("base_url"),
         rate_limiter=config.rate_limiter,
         image_model=model_id,
+        **({"credentials_path": config.credentials.get("credentials_path")} if backend_type == "vertex" else {}),
     )
 
 
@@ -193,6 +194,7 @@ def _build_gemini_video(config: LoadedConfig, model_id: str | None, *, backend_t
         base_url=config.credentials.get("base_url"),
         rate_limiter=config.rate_limiter,
         video_model=model_id,
+        **({"credentials_path": config.credentials.get("credentials_path")} if backend_type == "vertex" else {}),
     )
 
 
@@ -314,6 +316,7 @@ def _build_text_gemini_vertex(config: LoadedConfig, model_id: str | None) -> Any
         model=model_id,
         backend="vertex",
         gcs_bucket=config.credentials.get("gcs_bucket"),
+        credentials_path=config.credentials.get("credentials_path"),
     )
 
 

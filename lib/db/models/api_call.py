@@ -28,6 +28,7 @@ class ApiCall(TimestampMixin, UserOwnedMixin, Base):
     # 失败原因的机器稳定形式（错误码 + 参数），供前端按当前语言渲染；error_message 保留原文。
     error_code: Mapped[str | None] = mapped_column(String)
     error_params: Mapped[object | None] = mapped_column(JSON, nullable=True)
+    # 产物路径：项目内相对路径，与 inputs 里的路径同口径。
     output_path: Mapped[str | None] = mapped_column(Text)
     segment_id: Mapped[str | None] = mapped_column(String(20), nullable=True, index=True)
     # 该调用服务的生成任务；无任务的调用（文本四处、助手会话、端点试跑）留空，由 purpose 说明来源。

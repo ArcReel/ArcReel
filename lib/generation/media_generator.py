@@ -159,10 +159,10 @@ def segment_id_for(call_type: CallType, resource_type: str, resource_id: str) ->
     return resource_id if resource_type in allowed else None
 
 
-def _input_path(project_path: Path, value: object) -> str | None:
-    """把一份输入素材的路径归一为项目内相对路径（POSIX 分隔符）。
+def _project_relative_path(project_path: Path, value: object) -> str | None:
+    """把调用记录里的一个文件路径（输入素材或产物）归一为项目内相对路径（POSIX 分隔符）。
 
-    落库的是「这次调用喂进去的是哪份素材」，读侧要拿它在项目里定位文件，故一律相对项目根；
+    读侧要拿它在项目里定位文件，且数据根挪位后记录仍须有效，故一律相对项目根；
     项目外的路径（临时素材、绝对路径引用）保留原样。非路径值（PIL Image 等）返回 None，
     由调用点决定是否记这一项。
     """
@@ -609,14 +609,14 @@ class MediaGenerator:
                 provider=cast(str, self._image_provider_id),
                 user_id=self._user_id,
                 segment_id=segment_id_for("image", resource_type, resource_id),
-                output_path=str(output_path),
+                output_path=_project_relative_path(self.project_path, output_path),
                 task_id=task_id,
                 purpose=CallPurpose.GENERATION_TASK,
                 inputs=_ledger_inputs(
                     reference_images=[
                         {"path": rel, "label": None, "role": "array"}
                         for ref in ref_images
-                        if (rel := _input_path(self.project_path, ref.path)) is not None
+                        if (rel := _project_relative_path(self.project_path, ref.path)) is not None
                     ]
                 ),
             ) as call:
@@ -734,7 +734,7 @@ class MediaGenerator:
                 provider=cast(str, self._audio_provider_id),
                 user_id=self._user_id,
                 segment_id=segment_id_for("audio", resource_type, resource_id),
-                output_path=str(output_path),
+                output_path=_project_relative_path(self.project_path, output_path),
                 task_id=task_id,
                 purpose=CallPurpose.GENERATION_TASK,
                 inputs=_ledger_inputs(
@@ -953,21 +953,21 @@ class MediaGenerator:
                 user_id=self._user_id,
                 segment_id=segment_id_for("video", resource_type, resource_id),
                 service_tier=version_metadata.get("service_tier", "default"),
-                output_path=str(output_path),
+                output_path=_project_relative_path(self.project_path, output_path),
                 task_id=task_id,
                 purpose=CallPurpose.GENERATION_TASK,
                 inputs=_ledger_inputs(
                     reference_images=[
                         {"path": rel, "label": None, "role": "array"}
                         for ref in (reference_images or [])
-                        if (rel := _input_path(self.project_path, ref)) is not None
+                        if (rel := _project_relative_path(self.project_path, ref)) is not None
                     ],
-                    start_image=_input_path(self.project_path, start_image),
-                    end_image=_input_path(self.project_path, end_image),
+                    start_image=_project_relative_path(self.project_path, start_image),
+                    end_image=_project_relative_path(self.project_path, end_image),
                     reference_audio=[
                         rel
                         for audio in (reference_audio_files or [])
-                        if (rel := _input_path(self.project_path, audio)) is not None
+                        if (rel := _project_relative_path(self.project_path, audio)) is not None
                     ],
                     parameters=_ledger_inputs(service_tier=version_metadata.get("service_tier")),
                 ),

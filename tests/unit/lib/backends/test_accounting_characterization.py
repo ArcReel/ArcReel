@@ -393,10 +393,6 @@ def _media_generator(
     return gen
 
 
-def _output_path(tmp_path: Path, relative: str) -> str:
-    return str((tmp_path / "projects" / "demo" / relative).resolve())
-
-
 # ---------------------------------------------------------------------------
 # 通道一：image 生成括号
 # ---------------------------------------------------------------------------
@@ -428,7 +424,7 @@ class TestImageChannel:
                 task_id="T-1",
                 resolution="2K",
                 aspect_ratio="9:16",
-                output_path=_output_path(tmp_path, "characters/婉儿.png"),
+                output_path="characters/婉儿.png",
                 cost_amount=pytest.approx(0.134),
                 usage_tokens=8,
             ),
@@ -463,7 +459,7 @@ class TestImageChannel:
                 prompt="p",
                 aspect_ratio="9:16",
                 segment_id="E1S01",
-                output_path=_output_path(tmp_path, "storyboards/scene_E1S01.png"),
+                output_path="storyboards/scene_E1S01.png",
                 cost_amount=pytest.approx(7.05),
                 input_tokens=150_000,
                 output_tokens=210_000,
@@ -556,7 +552,7 @@ class TestAudioChannel:
                 task_id="T-1",
                 segment_id="E1S01",
                 inputs={"voice": "Cherry", "parameters": {"language_type": "Chinese"}},
-                output_path=_output_path(tmp_path, "audio/segment_E1S01.wav"),
+                output_path="audio/segment_E1S01.wav",
                 cost_amount=pytest.approx(2.0),
                 currency="CNY",
                 usage_tokens=25_000,
@@ -610,7 +606,7 @@ async def _generate_video(gen: MediaGenerator) -> None:
     )
 
 
-def _expected_video_row(tmp_path: Path, **overrides: Any) -> dict[str, Any]:
+def _expected_video_row(**overrides: Any) -> dict[str, Any]:
     defaults: dict[str, Any] = {
         "purpose": "generation_task",
         "call_type": "video",
@@ -621,7 +617,7 @@ def _expected_video_row(tmp_path: Path, **overrides: Any) -> dict[str, Any]:
         "aspect_ratio": "9:16",
         "generate_audio": True,
         "segment_id": "E1S01",
-        "output_path": _output_path(tmp_path, "videos/scene_E1S01.mp4"),
+        "output_path": "videos/scene_E1S01.mp4",
     }
     defaults.update(overrides)
     return _expected_row(**defaults)
@@ -636,7 +632,7 @@ class TestVideoChannel:
         # (720p, 有声) 0.40 USD/s × 8s
         _assert_full_row(
             await acct.fetch_only_row(),
-            _expected_video_row(tmp_path, cost_amount=pytest.approx(3.2), usage_tokens=0),
+            _expected_video_row(cost_amount=pytest.approx(3.2), usage_tokens=0),
         )
 
     async def test_backend_reported_audio_flag_overrides_request(self, tmp_path: Path, acct: _AccountingDb) -> None:
@@ -647,7 +643,7 @@ class TestVideoChannel:
         # provider 回报无声覆盖请求有声：行落 False，按 (720p, 无声) 0.20 USD/s 计费
         _assert_full_row(
             await acct.fetch_only_row(),
-            _expected_video_row(tmp_path, generate_audio=False, cost_amount=pytest.approx(1.6), usage_tokens=0),
+            _expected_video_row(generate_audio=False, cost_amount=pytest.approx(1.6), usage_tokens=0),
         )
 
     async def test_billed_duration_overrides_requested_duration(self, tmp_path: Path, acct: _AccountingDb) -> None:
@@ -658,7 +654,7 @@ class TestVideoChannel:
         # 实际计费时长 6s 覆盖请求 8s，账本与自动费用同口径
         _assert_full_row(
             await acct.fetch_only_row(),
-            _expected_video_row(tmp_path, duration_seconds=6, cost_amount=pytest.approx(2.4), usage_tokens=0),
+            _expected_video_row(duration_seconds=6, cost_amount=pytest.approx(2.4), usage_tokens=0),
         )
 
     async def test_billed_duration_over_limit_falls_back_to_request(self, tmp_path: Path, acct: _AccountingDb) -> None:
@@ -669,7 +665,7 @@ class TestVideoChannel:
         # 超出 24h 上限的计费时长视同未提供，回落请求时长
         _assert_full_row(
             await acct.fetch_only_row(),
-            _expected_video_row(tmp_path, duration_seconds=8, cost_amount=pytest.approx(3.2), usage_tokens=0),
+            _expected_video_row(duration_seconds=8, cost_amount=pytest.approx(3.2), usage_tokens=0),
         )
 
     async def test_ark_per_token_billing(self, tmp_path: Path, acct: _AccountingDb) -> None:
@@ -689,7 +685,6 @@ class TestVideoChannel:
         _assert_full_row(
             await acct.fetch_only_row(),
             _expected_video_row(
-                tmp_path,
                 model="doubao-seedance-1-5-pro-251215",
                 provider="ark",
                 cost_amount=pytest.approx(16.0),
@@ -715,7 +710,6 @@ class TestVideoChannel:
         _assert_full_row(
             await acct.fetch_only_row(),
             _expected_video_row(
-                tmp_path,
                 status="failed",
                 error_message="v" * 500,
                 output_path=None,
@@ -738,7 +732,7 @@ class TestVideoChannel:
 
         _assert_full_row(
             await acct.fetch_only_row(),
-            _expected_video_row(tmp_path, status="cancelled", output_path=None),
+            _expected_video_row(status="cancelled", output_path=None),
         )
 
 
