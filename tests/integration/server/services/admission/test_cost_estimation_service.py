@@ -149,6 +149,74 @@ def _make_reference_video_script(episode: int, content_mode: str, unit_specs: li
 
 
 class TestCostEstimationService:
+    @pytest.mark.parametrize("generation_mode", ["storyboard", "reference_video"])
+    @pytest.mark.parametrize("explicit_resolution", [False, True])
+    @pytest.mark.parametrize(
+        ("provider", "model", "selected_resolution", "duration", "usage_tokens"),
+        [
+            ("gemini-aistudio", "veo-3.1-generate-preview", "1080p", 8, None),
+            ("openai", "sora-2-pro", "1080p", 8, None),
+            ("dashscope", "happyhorse-1.1-i2v", "1080p", 8, None),
+            ("grok", "grok-imagine-video", "720p", 8, None),
+            ("minimax", "MiniMax-H3", "2k", 6, None),
+            ("minimax", "MiniMax-Hailuo-2.3", "1080p", 6, None),
+            ("kling", "kling-v3", "4k", 8, None),
+            ("vidu", "viduq3-turbo", "1080p", 8, None),
+            # token 计价仅在实际 usage 等于预估 token 数时金额相等。
+            ("ark", "doubao-seedance-1-5-pro-251215", "1080p", 8, 480_000),
+        ],
+    )
+    async def test_video_estimate_uses_request_resolution_and_settlement_pricing(
+        self,
+        db_factory,
+        generation_mode,
+        explicit_resolution,
+        provider,
+        model,
+        selected_resolution,
+        duration,
+        usage_tokens,
+    ):
+        resolution = selected_resolution if explicit_resolution else None
+        project = {
+            "title": "Test",
+            "content_mode": "narration",
+            "generation_mode": generation_mode,
+            "video_provider_i2v": f"{provider}/{model}",
+            "episodes": [{"episode": 1, "title": "Ep1", "script_file": "ep1.json"}],
+        }
+        if resolution is not None:
+            project["model_settings"] = {f"{provider}/{model}": {"resolution": resolution}}
+        script = (
+            _make_script(1, ["E1S001"], [duration])
+            if generation_mode == "storyboard"
+            else _make_reference_video_script(1, "narration", [("E1U1", duration)])
+        )
+
+        result = await CostEstimationService(ConfigResolver(db_factory), db_factory).compute(
+            project, {"ep1.json": script}, project_name="test-pricing-source"
+        )
+
+        estimate = result["episodes"][0]["segments"][0]["estimate"]["video"]
+        assert estimate
+        assert all(amount > 0 for amount in estimate.values())
+
+        async with db_factory() as session:
+            usage = UsageRepository(session)
+            call_id = await usage.start_call(
+                project_name="test-pricing-source",
+                call_type="video",
+                provider=provider,
+                model=model,
+                resolution=resolution,
+                duration_seconds=duration,
+                generate_audio=True,
+                segment_id="billed",
+            )
+            await usage.finish_call(call_id, status="success", settlement=SettlementInput(usage_tokens=usage_tokens))
+            actual = await usage.get_actual_costs_by_segment("test-pricing-source")
+        assert estimate == actual["billed"]["video"]
+
     async def test_shared_video_quote_exposes_exact_amount_currency_and_request_coordinates(self, db_factory):
         quote = await quote_video_request(
             VideoRequestCostFacts(

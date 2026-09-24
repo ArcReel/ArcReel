@@ -397,28 +397,6 @@ _TEXT_LAYERED_KEYS: dict[TextTaskTier, _LayeredBackendKeys] = {
 }
 
 
-# 费用估算的桶级计价在 resolve_resolution 返回 None 时取的档位，只用于报价，不下发给供应商、
-# 也不参与时长联动约束。按 provider 区分。
-PROVIDER_FALLBACK_RESOLUTION: dict[str, str] = {
-    "gemini": "1080p",
-    "ark": "720p",
-    "grok": "720p",
-    "openai": "720p",
-    # MiniMax 海螺缺省 768P：1080P 仅 6s，默认落 768P 避免与 10s 档冲突。
-    "minimax": "768p",
-}
-
-
-def get_provider_fallback(provider_id: str | None, default: str = "1080p") -> str:
-    """纯查表：对 registry ID（如 ``gemini-aistudio``）归一化到短前缀后查 fallback。不触 DB。"""
-    if not provider_id:
-        return default
-    if provider_id in PROVIDER_FALLBACK_RESOLUTION:
-        return PROVIDER_FALLBACK_RESOLUTION[provider_id]
-    short = provider_id.split("-", 1)[0]
-    return PROVIDER_FALLBACK_RESOLUTION.get(short, default)
-
-
 #: 请求里不下发 ``generate_audio`` 开关、供应商恒按含音档出账的 video provider。
 _VIDEO_AUDIO_ALWAYS_BILLED_PROVIDERS = frozenset({"gemini-aistudio"})
 
