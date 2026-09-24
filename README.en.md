@@ -69,6 +69,16 @@
       <a href="https://fluxionai.space/register?source=github&campaign=arcreel&promo=ARCREEL">Visit and sign up now</a> to receive $3 in API credits.
     </td>
   </tr>
+  <tr>
+    <td width="200" align="center" valign="top">
+      <a href="https://ofox.ai/?utm_source=github&utm_medium=sponsorship&utm_content=arcreel"><img src="docs/assets/sponsors/ofox-ai.svg" alt="OfoxAI" width="180"></a>
+    </td>
+    <td valign="top">
+      <strong>OfoxAI: Model APIs for scripts, images, and video</strong><br>
+      Access text, image, and video models through OfoxAI. Choose capabilities for refining scripts, creating character and scene references, and generating video assets. Consult the API documentation for each model’s input requirements, supported parameters, and request format.<br>
+      <a href="https://ofox.ai/?utm_source=github&utm_medium=sponsorship&utm_content=arcreel">Explore OfoxAI models and APIs →</a>
+    </td>
+  </tr>
 </table>
 
 ## Screenshots
