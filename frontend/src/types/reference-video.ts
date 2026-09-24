@@ -64,7 +64,8 @@ export interface ReferenceVideoUnit {
   duration_seconds: number;
   transition_to_next: TransitionType;
   note: string | null;
-  generated_assets: UnitGeneratedAssets;
+  /** 尚未生成过任何产物的单元不带这一节——后端只在生成时写入，故读侧一律按可能缺席处理。 */
+  generated_assets?: UnitGeneratedAssets;
   /** Problem shell or mixed-speech marker; generation is blocked until repaired. */
   needs_replan?: boolean;
   /** Pending authoring: the unit's body has not been written by prompt authoring yet. Read-only. */

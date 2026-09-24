@@ -2,9 +2,12 @@ import { beforeEach, describe, expect, it, vi, afterEach } from "vitest";
 import { act } from "@testing-library/react";
 import { useReferenceVideoStore } from "./reference-video-store";
 import { API } from "@/api";
-import type { ReferenceVideoUnit } from "@/types";
+import type { ReferenceVideoUnit, UnitGeneratedAssets } from "@/types";
 
-function mkUnit(id: string, overrides: Partial<ReferenceVideoUnit> = {}): ReferenceVideoUnit {
+function mkUnit(
+  id: string,
+  overrides: Partial<ReferenceVideoUnit> = {},
+): ReferenceVideoUnit & { generated_assets: UnitGeneratedAssets } {
   return {
     unit_id: id,
     text: "x",
@@ -86,7 +89,7 @@ describe("reference-video-store", () => {
     });
 
     const units = useReferenceVideoStore.getState().unitsByEpisode["proj::1"];
-    expect(units?.[0].generated_assets.video_clip).toBe("v.mp4");
+    expect(units?.[0].generated_assets?.video_clip).toBe("v.mp4");
   });
 
   it("迟到的加载不撤销加载期间落定的增删改排序", async () => {

@@ -311,7 +311,7 @@ export function ReferenceVideoCanvas({
     const map: Record<string, UnitStatus> = {};
     for (const u of units) {
       map[u.unit_id] = deriveUnitStatus({
-        hasClip: Boolean(u.generated_assets.video_clip),
+        hasClip: Boolean(u.generated_assets?.video_clip),
         queueRow: tasksByUnit.get(u.unit_id),
         busy: busyUnitIds.has(u.unit_id),
         uploading: uploading.ids.has(u.unit_id),
