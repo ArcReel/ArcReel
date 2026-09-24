@@ -14,7 +14,7 @@ from pathlib import Path
 
 from lib.episode.episode_ledger import parse_positive_episode_num
 from lib.episode.episode_paths import episode_drafts_dir
-from lib.infra.data_root_layout import DataRootLayout
+from lib.infra.data_root_layout import DataRootLayout, list_project_dirs
 from lib.infra.path_safety import try_safe_join
 from lib.project.project_migration_failure import (
     MigrationFailureRecord,
@@ -254,16 +254,10 @@ def run_project_migrations(projects_dir: Path) -> MigrationSummary:
     # 认领在遍历之前：被改回的项目在本轮就继续迁移，不必等下次启动。
     reclaim_interrupted_swaps(projects_dir)
 
-    for child in sorted(projects_dir.iterdir()):
-        if not child.is_dir():
-            continue
-        # 跳过下划线前缀与隐藏目录
-        if child.name.startswith("_") or child.name.startswith("."):
-            continue
-
+    for child in list_project_dirs(projects_dir):
         version = _load_schema_version(child)
         if version < 0:
-            continue  # 非项目目录
+            continue  # project.json 损坏
         # Persisting the verdict is itself disk work: one project whose directory
         # cannot be written must not abort the pass for every project after it.
         try:
@@ -291,9 +285,7 @@ def cleanup_stale_backups(projects_dir: Path, max_age_days: int = 7) -> None:
         return
     cutoff = time.time() - max_age_days * 86400
     cleanup_completed_swap_dirs(projects_dir, cutoff)
-    for project_dir in projects_dir.iterdir():
-        if not project_dir.is_dir():
-            continue
+    for project_dir in list_project_dirs(projects_dir):
         # 每一步的输入备份留到那一步的版本提升坐实为止：项目仍停在 v<N> 时，``*.bak.v<N>-*``
         # 是那一步失败后唯一的恢复线索，只回收起点版本已低于当前 schema 的备份。
         schema_version = _load_schema_version(project_dir)

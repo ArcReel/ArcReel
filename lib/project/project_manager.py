@@ -56,7 +56,7 @@ from lib.episode.episode_target_duration import (
 )
 from lib.infra.app_data_dir import app_data_dir
 from lib.infra.content_digest import canonical_json_digest
-from lib.infra.data_root_layout import DataRootLayout
+from lib.infra.data_root_layout import PROJECT_FILENAME, PROJECT_NAME_PATTERN, DataRootLayout, list_project_dirs
 from lib.infra.json_io import atomic_write_bytes, atomic_write_json, load_json, load_json_or_none
 from lib.infra.path_safety import PathTraversalError, safe_join
 from lib.infra.schema_guards import is_int, is_shape, is_str
@@ -94,7 +94,6 @@ from lib.speech.audio_utils import discard_stale_reference_audio, resolve_audio_
 
 logger = logging.getLogger(__name__)
 
-PROJECT_NAME_PATTERN = re.compile(r"^[A-Za-z0-9-]+$")
 PROJECT_SLUG_SANITIZER = re.compile(r"[^a-zA-Z0-9]+")
 
 # 生成模式（generation_mode）：二值必填，创建即定、之后不可变（可变性由 PATCH 模型结构保证）。
@@ -320,7 +319,7 @@ class ProjectManager:
     ]
 
     # 项目元数据文件名
-    PROJECT_FILE = "project.json"
+    PROJECT_FILE = PROJECT_FILENAME
 
     @staticmethod
     def normalize_project_name(name: str) -> str:
@@ -385,8 +384,8 @@ class ProjectManager:
         self._script_writer = script_writer
 
     def list_projects(self) -> list[str]:
-        """列出所有项目"""
-        return [d.name for d in self.projects_dir.iterdir() if d.is_dir() and not d.name.startswith((".", "_"))]
+        """列出所有项目（判定见 ``list_project_dirs``）。"""
+        return [d.name for d in list_project_dirs(self.projects_dir)]
 
     def get_global_assets_root(self) -> Path:
         """返回全局资产根目录，并确保 character/scene/prop 子目录存在。"""
@@ -553,8 +552,6 @@ class ProjectManager:
             "failed_projects": 0,
             "aborted": False,
         }
-        if not self.projects_dir.exists():
-            return totals
         _STAT_KEYS_TO_AGGREGATE = (
             "created",
             "repaired",
@@ -571,12 +568,7 @@ class ProjectManager:
             "collision",
             "migrated_total",
         )
-        for project_dir in sorted(self.projects_dir.iterdir()):
-            # 与 ``list_projects`` 同规则：跳过点开头（.git 等）和下划线开头
-            # （``_global_assets`` 保留目录 — 跨项目共享 character/scene/prop 库，
-            # 不是项目，不应物化 Agent profile）
-            if not project_dir.is_dir() or project_dir.name.startswith((".", "_")):
-                continue
+        for project_dir in list_project_dirs(self.projects_dir):
             try:
                 result = self.sync_agent_profile(project_dir)
                 for key in _STAT_KEYS_TO_AGGREGATE:

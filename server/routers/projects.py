@@ -550,7 +550,7 @@ async def list_projects(summaries: WorkflowStateServiceDep):
         projects = []
         for name in manager.list_projects():
             try:
-                # 尝试加载项目元数据
+                # 列举之后被删除的项目不再列出
                 if manager.project_exists(name):
                     project = manager.load_project(name)
                     # 一次性预加载每集剧本，喂给 cover + status 两路下游，去除重复 JSON I/O。
@@ -603,17 +603,6 @@ async def list_projects(summaries: WorkflowStateServiceDep):
                             "style_image": project.get("style_image"),
                             "thumbnail": thumbnail,
                             "status": status,
-                        }
-                    )
-                else:
-                    # 没有 project.json 的项目
-                    projects.append(
-                        {
-                            "name": name,
-                            "title": "",
-                            "style": "",
-                            "thumbnail": None,
-                            "status": {},
                         }
                     )
             except Exception as e:

@@ -20,7 +20,7 @@ from claude_agent_sdk import (
 )
 
 from lib.agent.agent_session_store.store import DbSessionStore
-from lib.infra.data_root_layout import DataRootLayout
+from lib.infra.data_root_layout import DataRootLayout, list_project_dirs
 
 logger = logging.getLogger("arcreel.session_store.import")
 
@@ -49,11 +49,7 @@ async def migrate_local_transcripts_to_store(
     imported = skipped = failed = 0
 
     if projects_dir.exists():
-        for project_cwd in sorted(projects_dir.iterdir()):
-            # Skip dotfiles and underscore-prefixed dirs (e.g. _global_assets)
-            # to match ProjectManager.list_projects semantics.
-            if not project_cwd.is_dir() or project_cwd.name.startswith((".", "_")):
-                continue
+        for project_cwd in list_project_dirs(projects_dir):
             try:
                 # list_sessions stat-walks SDK transcript dirs synchronously;
                 # offload so the lifespan doesn't block the event loop.

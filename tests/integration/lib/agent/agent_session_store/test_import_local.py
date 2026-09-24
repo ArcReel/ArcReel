@@ -55,6 +55,7 @@ async def test_migrate_imports_local_jsonl(tmp_path, fake_sdk_home, session_fact
     data_root = tmp_path / "projects"
     proj = data_root / "demo"
     proj.mkdir(parents=True)
+    (proj / "project.json").write_text("{}")
     sid = "00000000-0000-0000-0000-0000000000aa"
     _write_fake_local_transcript(proj, sid, fake_sdk_home)
 
@@ -79,6 +80,7 @@ async def test_migrate_is_idempotent_via_marker(tmp_path, fake_sdk_home, session
     data_root = tmp_path / "projects"
     proj = data_root / "demo"
     proj.mkdir(parents=True)
+    (proj / "project.json").write_text("{}")
     sid = "00000000-0000-0000-0000-0000000000bb"
     _write_fake_local_transcript(proj, sid, fake_sdk_home)
     store = DbSessionStore(session_factory, user_id="u1")
@@ -103,6 +105,7 @@ async def test_migrate_skips_already_in_store_when_marker_missing(
     data_root = tmp_path / "projects"
     proj = data_root / "demo"
     proj.mkdir(parents=True)
+    (proj / "project.json").write_text("{}")
     sid = "00000000-0000-0000-0000-0000000000cc"
     _write_fake_local_transcript(proj, sid, fake_sdk_home)
     store = DbSessionStore(session_factory, user_id="u1")

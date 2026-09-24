@@ -27,7 +27,8 @@ class TestProjectsRouter:
             listed = client.get("/api/v1/projects")
             assert listed.status_code == 200
             names = [p["name"] for p in listed.json()["projects"]]
-            assert names == ["ready", "empty", "broken"]
+            # 没有 project.json 的 "empty" 不是项目，不列出
+            assert names == ["ready", "broken"]
             broken = next(p for p in listed.json()["projects"] if p["name"] == "broken")
             assert broken["status"] == {}
             assert "error" not in broken
