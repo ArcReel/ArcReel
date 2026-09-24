@@ -11,6 +11,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from lib.artifacts.artifact_activation import register_current_resource_artifact
 from lib.i18n import _ as i18n_message
 from lib.project.project_manager import ProjectManager
 from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
@@ -75,6 +76,10 @@ class _FakeQueue:
     async def enqueue_task(self, **kwargs):
         self.calls.append(kwargs)
         return {"task_id": f"task-{len(self.calls)}", "deduped": False}
+
+    async def get_active_tasks_for_resources(self, *, resource_ids, **_kwargs):
+        # 停在 pending / generating 的宫格记录，其任务都还在队列里
+        return [{"task_id": f"active-{resource_id}", "resource_id": resource_id} for resource_id in resource_ids]
 
 
 def _client(monkeypatch, **patches):
@@ -746,6 +751,8 @@ def test_generate_all_skips_a_ready_but_unsplit_composite(monkeypatch, tmp_path)
     unsplit.grid_image_path = f"grids/{unsplit.id}.png"
     GridManager(tmp_path).save(unsplit)
     (tmp_path / "grids" / f"{unsplit.id}.png").write_bytes(b"png")
+    _materialize_project(tmp_path, _FakePMGenerate(tmp_path).load_project("demo"))
+    assert register_current_resource_artifact(tmp_path, resource_type="grids", resource_id=unsplit.id)
     client = _client(
         monkeypatch,
         get_project_manager=lambda: _FakePMGenerate(tmp_path),

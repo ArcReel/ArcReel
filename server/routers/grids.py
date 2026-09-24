@@ -8,8 +8,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable, Generator
-from contextlib import contextmanager
+from collections.abc import Callable
 from pathlib import Path
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
@@ -36,7 +35,6 @@ from lib.script.grid.grid_resolution import resolve_large_grid_allowed
 from lib.script.grid.layout import grid_aspect_ratio_for, max_cell_count, video_aspect_ratio_of
 from lib.script.grid.models import GridGeneration, build_grid_task_payload
 from lib.script.grid.prompt_builder import pending_grid_prompt_ids
-from lib.script.script_skeleton import SkeletonRouteMismatchError
 from lib.script.storyboard_sequence import get_storyboard_items
 from server.auth import CurrentUser
 from server.i18n import Translator
@@ -55,6 +53,7 @@ from server.services.grid.grid_submission import (
     commit_grid_submission,
     ensure_grid_submittable,
     plan_grid_submission,
+    queue_active_grid_tasks,
 )
 
 router = APIRouter(prefix="/projects/{project_name}", tags=["grids"])
@@ -129,25 +128,27 @@ async def generate_grid(
     # （JSONDecodeError）不能被误判为非法 script_file，交由 app 级 catch-all 收口为通用 500。
     script = _load_admitted_grid_script(project_name, project, req.script_file, episode)
     project_path = get_project_manager().get_project_path(project_name)
+    queue = get_generation_queue()
 
-    with _skeleton_mismatch_as_bad_request():
-        plan = await plan_grid_submission(
-            project=project,
-            project_path=project_path,
-            script=script,
-            script_file=req.script_file,
-            episode=episode,
-            # 空列表与省略同义：缺失即生成
-            scene_ids=req.scene_ids or None,
-            large_grid_gate=resolve_large_grid_allowed,
-        )
+    plan = await plan_grid_submission(
+        project=project,
+        project_path=project_path,
+        script=script,
+        script_file=req.script_file,
+        episode=episode,
+        # 空列表与省略同义：缺失即生成
+        scene_ids=req.scene_ids or None,
+        active_grid_tasks=queue_active_grid_tasks(
+            queue, project_name=project_name, script_file=req.script_file, user_id=user.id
+        ),
+        large_grid_gate=resolve_large_grid_allowed,
+    )
     _raise_for_refused_submission(project, plan)
 
     grid_ids: list[str] = []
     task_ids: list[str] = []
     task_ids_by_grid: dict[str, str] = {}
     deduped_flags: list[bool] = []
-    queue = get_generation_queue()
     for submission in commit_grid_submission(plan, project_path):
         task = await queue.enqueue_task(
             project_name=project_name,
@@ -184,16 +185,6 @@ def _submission_message(_t: Callable[..., str], *, submitted: int, unsplit: int)
     if unsplit:
         return _t("grid_unsplit_awaiting_split", unsplit=unsplit)
     return _t("grid_nothing_to_generate")
-
-
-@contextmanager
-def _skeleton_mismatch_as_bad_request() -> Generator[None]:
-    """剧本骨架与生成模式失配是坏请求：按生成模式要读的数组不在剧本里，出不了任何宫格。"""
-
-    try:
-        yield
-    except SkeletonRouteMismatchError as exc:
-        raise BadRequestError("grid_script_route_mismatch") from exc
 
 
 def _raise_for_refused_submission(project: dict, plan: GridSubmissionPlan) -> None:
@@ -313,8 +304,7 @@ async def regenerate_grid(project_name: str, grid_id: str, user: CurrentUser):
     gm = GridManager(project_path)
     grid = _load_grid_or_404(project_path, grid_id)
     script = _load_admitted_grid_script(project_name, project, grid.script_file, grid.episode)
-    with _skeleton_mismatch_as_bad_request():
-        ensure_grid_submittable(project, script)
+    ensure_grid_submittable(project, script)
     items, id_field, _, _, _ = get_storyboard_items(script)
     # 重生成是又一次付费出图：准入与首次生成同一份判定，按记录冻结的分镜集合求值。
     # 剧本在两次生成之间被改过时，缺口以当前剧本为准——worker 也是按当前剧本重建请求的。

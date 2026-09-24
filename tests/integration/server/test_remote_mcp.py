@@ -529,6 +529,7 @@ async def test_remote_grid_list_only_returns_preview_without_a_batch(
     assert description is not None
     assert "generation submissions" in description
     assert "list_only=true, the preview returns immediately without a generation_batch; do not poll" in description
+    assert "read each grid_id from the artifact_path (grids/<grid_id>.png)" in description
     assert not result.isError
     assert result.structuredContent is not None
     assert set(result.structuredContent) == {"generate_grid"}

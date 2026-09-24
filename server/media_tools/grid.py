@@ -69,6 +69,7 @@ from server.services.grid.grid_submission import (
     grid_artifact_key,
     grid_artifact_path,
     plan_grid_submission,
+    queue_active_grid_tasks,
 )
 from server.tool_runtime import ToolOutcome, submit_media_generation
 
@@ -211,6 +212,12 @@ async def handle_generate_grid(
             script_file=script_filename,
             episode=episode,
             scene_ids=scene_ids,
+            active_grid_tasks=queue_active_grid_tasks(
+                tool_services(ctx).queue,
+                project_name=ctx.project_name,
+                script_file=script_filename,
+                user_id=ctx.caller.user_id,
+            ),
             large_grid_gate=resolve_large_grid_allowed,
         )
         if list_only:
@@ -418,7 +425,7 @@ async def handle_split_grids(ctx: ToolContext, args: dict[str, Any]) -> ToolOutc
         results = [await _split_one(ctx, gm, grid_id) for grid_id in grid_ids]
         lines = [
             f"- {r['grid_id']}：已切分落格 {len(r['updated_scene_ids'])} 格"
-            + (f"，剧本中已不存在而跳过 {r['missing_scene_ids']}" if r["missing_scene_ids"] else "")
+            + (f"，剧本中已不存在而跳过 {'、'.join(r['missing_scene_ids'])}" if r["missing_scene_ids"] else "")
             if r["status"] == "split"
             else f"- {r['grid_id']}：未切分（{r['detail']}）"
             for r in results

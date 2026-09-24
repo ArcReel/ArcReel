@@ -16,7 +16,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
@@ -25,6 +25,7 @@ from typing import Any
 from lib.artifacts.artifact_activation import ArtifactCurrencyResolver, active_artifact_currency_resolver
 from lib.artifacts.artifact_manifest import ArtifactKey, ArtifactStatus
 from lib.generation.batch_admission import batch_admission_withheld_problem
+from lib.generation.generation_queue import GenerationQueue
 from lib.generation.generation_result import (
     GenerationAction,
     GenerationCandidate,
@@ -36,6 +37,7 @@ from lib.generation.generation_result import (
     observe_artifact_status,
     select_generation_targets,
 )
+from lib.infra.api_errors import BadRequestError
 from lib.prompts.prompt_style import normalize_style_value
 from lib.references.reference_admission import admit_storyboard_items
 from lib.references.reference_catalog import build_reference_catalog
@@ -46,23 +48,47 @@ from lib.script.grid.layout import GridLayout, plan_grid_chunks, video_aspect_ra
 from lib.script.grid.models import GridGeneration, build_grid_task_payload
 from lib.script.grid.prompt_builder import build_grid_prompt, pending_grid_prompt_ids
 from lib.script.script_models import get_generated_assets, resolve_content_mode
-from lib.script.script_skeleton import ensure_route_skeleton
+from lib.script.script_skeleton import SkeletonRouteMismatchError, ensure_route_skeleton
 from lib.script.storyboard_sequence import get_storyboard_items, group_scenes_by_segment_break
 from server.services.admission.reference_admission import reference_admission_problems
 
 GRID_IN_FLIGHT_STATUSES = ("pending", "generating")
+
+ActiveGridTaskProbe = Callable[[list[str]], Awaitable[Collection[str]]]
+"""给定宫格 ID，返回队列里仍有活动任务（queued / running）的那些。"""
+
+
+def queue_active_grid_tasks(
+    queue: GenerationQueue, *, project_name: str, script_file: str, user_id: str
+) -> ActiveGridTaskProbe:
+    """按入队去重键在 ``queue`` 里探测宫格任务；与宫格入队用同一组 project / script_file / user。"""
+
+    async def probe(grid_ids: list[str]) -> list[str]:
+        tasks = await queue.get_active_tasks_for_resources(
+            project_name=project_name,
+            task_type="grid",
+            resource_ids=grid_ids,
+            script_file=script_file,
+            user_id=user_id,
+        )
+        return [str(task["resource_id"]) for task in tasks]
+
+    return probe
 
 
 def ensure_grid_submittable(project: dict[str, Any], script: dict[str, Any]) -> None:
     """宫格出图入口的闸门：项目允许改写宫格，且剧本骨架属于项目生成模式。
 
     Raises:
-        BadRequestError: 广告项目或未启用宫格（见 :func:`ensure_grid_writable`）。
-        SkeletonRouteMismatchError: 剧本骨架与生成模式失配。
+        BadRequestError: 广告项目或未启用宫格（见 :func:`ensure_grid_writable`）；剧本骨架与生成模式
+            失配（``grid_script_route_mismatch``：按生成模式要读的数组不在剧本里，出不了任何宫格）。
     """
 
     ensure_grid_writable(project)
-    ensure_route_skeleton(script, resolve_content_mode(script, project), project.get("generation_mode"))
+    try:
+        ensure_route_skeleton(script, resolve_content_mode(script, project), project.get("generation_mode"))
+    except SkeletonRouteMismatchError as exc:
+        raise BadRequestError("grid_script_route_mismatch") from exc
 
 
 class GridChunkAction(StrEnum):
@@ -159,6 +185,7 @@ async def plan_grid_submission(
     script_file: str,
     episode: int,
     scene_ids: Sequence[str] | None,
+    active_grid_tasks: ActiveGridTaskProbe,
     large_grid_gate: Callable[[dict[str, Any]], Awaitable[bool]] = resolve_large_grid_allowed,
 ) -> GridSubmissionPlan:
     """规划一次宫格提交；``scene_ids`` 为 ``None`` 表示缺失即生成。
@@ -167,14 +194,23 @@ async def plan_grid_submission(
     - 缺失即生成：只为仍缺分镜图的分组出图，组内已可用的分镜记为跳过；联合图已就绪而未切分的
       宫格跳过、等待切分落格；已失效但可用的旧分镜图照常复用。
     - 与在途宫格覆盖同一组分镜时沿用在途记录；只部分重叠时受阻，两张宫格日后会争抢同一批格子。
+      在途指记录停在 pending / generating 且 ``active_grid_tasks`` 报告它仍有活动任务：任务被取消、
+      重启丢失或入队失败时执行器没有运行，记录停在原状态，不算在途。
 
     Raises:
-        BadRequestError / SkeletonRouteMismatchError: 见 :func:`ensure_grid_submittable`。
+        BadRequestError: 见 :func:`ensure_grid_submittable`。
     """
 
     ensure_grid_submittable(project, script)
     # 4×4 / 5×5 只在图像分辨率档为 4K 时放行；判定与费用估算、前端预览同源
     allow_large_grid = await large_grid_gate(project)
+    # 规划不落任何文件：宫格目录尚不存在时即没有记录，不经 GridManager 建目录
+    gm = GridManager(project_path) if (project_path / "grids").is_dir() else None
+    records = [
+        g for g in (gm.list_all() if gm is not None else []) if g.script_file == script_file and g.episode == episode
+    ]
+    marked = [g.id for g in records if g.status in GRID_IN_FLIGHT_STATUSES]
+    active = set(await active_grid_tasks(marked)) if marked else set()
     return _Planner(
         project=project,
         project_path=project_path,
@@ -182,6 +218,8 @@ async def plan_grid_submission(
         script_file=script_file,
         episode=episode,
         allow_large_grid=allow_large_grid,
+        records=records,
+        in_flight=[g for g in records if g.id in active],
     ).plan(scene_ids)
 
 
@@ -269,6 +307,8 @@ class _Planner:
         script_file: str,
         episode: int,
         allow_large_grid: bool,
+        records: list[GridGeneration],
+        in_flight: list[GridGeneration],
     ) -> None:
         self._project = project
         self._script_file = script_file
@@ -285,14 +325,9 @@ class _Planner:
         }
         self._resolver: ArtifactCurrencyResolver = active_artifact_currency_resolver(project_path, project)
         self._catalog = build_reference_catalog(project)
-        # 规划不落任何文件：宫格目录尚不存在时即没有记录，不经 GridManager 建目录
-        gm = GridManager(project_path) if (project_path / "grids").is_dir() else None
-        all_records = gm.list_all() if gm is not None else []
-        records = [g for g in all_records if g.script_file == script_file and g.episode == episode]
-        self._in_flight = [g for g in records if g.status in GRID_IN_FLIGHT_STATUSES]
+        self._in_flight = in_flight
         # list_all 按 created_at 升序，后写覆盖前写：同一组分镜只留最新一条
         self._latest = {tuple(g.scene_ids): g for g in records}
-        self._image_exists = lambda grid_id: gm is not None and gm.image_path(grid_id).exists()
         self._chunks: list[GridChunkPlan] = []
         self._skipped: list[GenerationTargetState] = []
         self._blocked: list[BlockedScene] = []
@@ -460,8 +495,7 @@ class _Planner:
             and latest is not None
             and latest.status == "completed"
             and latest.split_at is None
-            and latest.grid_image_path
-            and self._image_exists(latest.id)
+            and self._composite_splittable(latest)
         ):
             self._append(index, chunk, layout, report_ids, GridChunkAction.UNSPLIT, latest)
             return
@@ -486,6 +520,14 @@ class _Planner:
             self._block_chunk(index, chunk, layout, report_ids, problem)
             return
         self._append(index, chunk, layout, report_ids, GridChunkAction.GENERATE)
+
+    def _composite_splittable(self, grid: GridGeneration) -> bool:
+        """联合图能否切分落格；与切分同一口径：产物清单登记在案且可用，盘上有图不算。"""
+
+        if not grid.grid_image_path:
+            return False
+        key = grid_artifact_key(self._episode, grid.id)
+        return self._resolver.compare(key, artifact_path=grid.grid_image_path).usable
 
     def _block_chunk(
         self,
@@ -513,6 +555,7 @@ class _Planner:
 
 __all__ = [
     "GRID_IN_FLIGHT_STATUSES",
+    "ActiveGridTaskProbe",
     "BlockedScene",
     "GridChunkAction",
     "GridChunkPlan",
@@ -523,4 +566,5 @@ __all__ = [
     "grid_artifact_key",
     "grid_artifact_path",
     "plan_grid_submission",
+    "queue_active_grid_tasks",
 ]

@@ -9,12 +9,12 @@ from typing import Any
 import pytest
 from PIL import Image
 
+from lib.artifacts.artifact_activation import register_current_resource_artifact
 from lib.generation.generation_result import GenerationProblemCode, GenerationSelectionMode
 from lib.infra.api_errors import BadRequestError
 from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from lib.script.grid.grid_manager import GridManager
 from lib.script.grid.models import GridGeneration
-from lib.script.script_skeleton import SkeletonRouteMismatchError
 from server.services.grid.grid_submission import (
     GridChunkAction,
     commit_grid_submission,
@@ -75,19 +75,29 @@ async def _no_large_grid(_project: dict[str, Any]) -> bool:
     return False
 
 
+def _write_project(project_path: Path, project: dict[str, Any], script: dict[str, Any]) -> None:
+    # 产物清单的取证只读磁盘上的规范文件
+    (project_path / "scripts").mkdir(exist_ok=True)
+    (project_path / "project.json").write_text(json.dumps(project), encoding="utf-8")
+    (project_path / "scripts" / "episode_1.json").write_text(json.dumps(script), encoding="utf-8")
+
+
 async def _plan(
     project_path: Path,
     *,
     script: dict[str, Any] | None = None,
     project: dict[str, Any] | None = None,
     scene_ids: list[str] | None = None,
+    orphaned: frozenset[str] = frozenset(),
 ):
+    """``orphaned`` 列出停在 pending / generating 却已没有活动任务的宫格；其余记录的任务都在队列里。"""
     project = project or _project()
     script = script or _script()
-    # 产物清单的取证只读磁盘上的规范文件
-    (project_path / "scripts").mkdir(exist_ok=True)
-    (project_path / "project.json").write_text(json.dumps(project), encoding="utf-8")
-    (project_path / "scripts" / "episode_1.json").write_text(json.dumps(script), encoding="utf-8")
+    _write_project(project_path, project, script)
+
+    async def active_grid_tasks(grid_ids: list[str]) -> list[str]:
+        return [grid_id for grid_id in grid_ids if grid_id not in orphaned]
+
     return await plan_grid_submission(
         project=project,
         project_path=project_path,
@@ -95,11 +105,19 @@ async def _plan(
         script_file="episode_1.json",
         episode=1,
         scene_ids=scene_ids,
+        active_grid_tasks=active_grid_tasks,
         large_grid_gate=_no_large_grid,
     )
 
 
-def _record(project_path: Path, scene_ids: list[str], *, status: str, split: bool = False) -> GridGeneration:
+def _record(
+    project_path: Path,
+    scene_ids: list[str],
+    *,
+    status: str,
+    split: bool = False,
+    registered: bool = True,
+) -> GridGeneration:
     grid = GridGeneration.create(
         episode=1,
         script_file="episode_1.json",
@@ -117,6 +135,9 @@ def _record(project_path: Path, scene_ids: list[str], *, status: str, split: boo
         Image.new("RGB", (8, 8)).save(project_path / "grids" / f"{grid.id}.png")
         grid.split_at = "2026-01-01T00:00:00+00:00" if split else None
     GridManager(project_path).save(grid)
+    if status == "completed" and registered:
+        _write_project(project_path, _project(), _script())
+        assert register_current_resource_artifact(project_path, resource_type="grids", resource_id=grid.id)
     return grid
 
 
@@ -170,6 +191,16 @@ async def test_partial_overlap_with_an_in_flight_grid_refuses_the_whole_batch(pr
     assert [g.id for g in GridManager(project_path).list_all()] == [other.id]
 
 
+async def test_a_record_left_generating_without_an_active_task_does_not_block(project_path: Path) -> None:
+    """任务被取消或重启丢失后记录停在 generating：它不再在途，分组变了也照常出图。"""
+    orphan = _record(project_path, ["E1S03", "E1S04", "E1S05"], status="generating")
+
+    plan = await _plan(project_path, orphaned=frozenset({orphan.id}))
+
+    assert not plan.refused
+    assert [c.action for c in plan.chunks] == [GridChunkAction.GENERATE, GridChunkAction.GENERATE]
+
+
 async def test_a_blocked_group_withholds_the_healthy_one(project_path: Path) -> None:
     script = _script()
     script["segments"][5]["image_prompt"] = None
@@ -219,6 +250,16 @@ async def test_missing_only_waits_on_an_unsplit_composite_instead_of_paying_agai
     assert GridManager(project_path).get(unsplit.id) is not None
 
 
+async def test_missing_only_regenerates_a_composite_the_split_would_refuse(project_path: Path) -> None:
+    """盘上有图但产物清单没有登记：切分不认这张联合图，缺失即生成照常重新出图。"""
+    _record(project_path, GROUP_1, status="completed", registered=False)
+
+    plan = await _plan(project_path, script=_script(groups=1))
+
+    assert [c.action for c in plan.chunks] == [GridChunkAction.GENERATE]
+    assert plan.unsplit == ()
+
+
 async def test_explicit_request_regenerates_and_supersedes_an_unsplit_composite(project_path: Path) -> None:
     unsplit = _record(project_path, GROUP_1, status="completed")
 
@@ -247,5 +288,6 @@ async def test_ad_projects_are_refused_before_planning(project_path: Path) -> No
 
 
 async def test_a_script_of_the_other_route_is_refused(project_path: Path) -> None:
-    with pytest.raises(SkeletonRouteMismatchError):
+    with pytest.raises(BadRequestError) as excinfo:
         await _plan(project_path, script={"episode": 1, "content_mode": "narration", "video_units": []})
+    assert excinfo.value.key == "grid_script_route_mismatch"

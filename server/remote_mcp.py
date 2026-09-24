@@ -230,6 +230,8 @@ def _remote_media_description(definition: ToolDefinition) -> str:
         if definition.name == "generate_grid":
             description += (
                 " For list_only=true, the preview returns immediately without a generation_batch; do not poll."
+                " The durable batch carries no grid_ids_awaiting_split: read each grid_id from the artifact_path"
+                " (grids/<grid_id>.png) of the skipped items and of the terminal succeeded items."
             )
         return description
     return definition.description

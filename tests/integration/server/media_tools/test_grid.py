@@ -809,6 +809,20 @@ def _saved_grid(fake_ctx: ToolContext, scene_ids: list[str], *, status: str) -> 
     return grid
 
 
+async def _queue_grid_task(fake_ctx: ToolContext, grid: Any) -> None:
+    """让在途记录在队列里有对应的活动任务（测试 worker 不认领 image lane，任务一直 queued）。"""
+    await fake_ctx.queue.enqueue_task(
+        project_name=fake_ctx.project_name,
+        task_type="grid",
+        media_type="image",
+        resource_id=grid.id,
+        payload={"scene_ids": grid.scene_ids},
+        script_file=grid.script_file,
+        source="webui",
+        user_id=fake_ctx.caller.user_id,
+    )
+
+
 async def test_generate_grid_reports_the_ready_composite_and_leaves_the_split_to_the_user(
     fake_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -846,6 +860,7 @@ async def test_generate_grid_reuses_an_identical_in_flight_grid(
 
     scene_ids = _enable_grid(fake_ctx)
     in_flight = _saved_grid(fake_ctx, scene_ids, status="generating")
+    await _queue_grid_task(fake_ctx, in_flight)
     enqueued: list[str] = []
 
     async def fake_enqueue(*, resource_id: str, **_kwargs: Any) -> dict[str, Any]:
@@ -926,6 +941,7 @@ async def test_generate_grid_list_only_shows_each_grid_record_and_action(
     scene_ids = _enable_grid(fake_ctx, groups=2)
     unsplit = _saved_grid(fake_ctx, scene_ids[:4], status="completed")
     in_flight = _saved_grid(fake_ctx, scene_ids[4:], status="pending")
+    await _queue_grid_task(fake_ctx, in_flight)
 
     monkeypatch.setattr("server.media_tools.grid.resolve_large_grid_allowed", _no_large_grid)
     out = await call(generate_grid_tool(fake_ctx), {"script": "episode_1.json", "list_only": True})
@@ -943,6 +959,18 @@ async def test_generate_grid_refuses_ad_projects(fake_ctx: ToolContext) -> None:
 
     assert out.get("is_error") is True
     assert out["problem"]["code"] == "ad_grid_not_supported"
+
+
+async def test_generate_grid_refuses_a_script_of_the_other_route(fake_ctx: ToolContext) -> None:
+    """剧本骨架与生成模式失配是输入问题，不报成可重试的 internal_error。"""
+    _enable_grid(fake_ctx)
+    fake_ctx.pm.script_payload.pop("segments")
+    fake_ctx.pm.script_payload["video_units"] = []
+
+    out = await call(generate_grid_tool(fake_ctx), {"script": "episode_1.json", "list_only": True})
+
+    assert out.get("is_error") is True
+    assert out["problem"]["code"] == "grid_script_route_mismatch"
 
 
 async def test_split_grids_splits_each_ready_grid_and_explains_the_rest(
