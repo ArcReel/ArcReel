@@ -576,6 +576,51 @@ describe("ProjectSettingsPage – model_settings resolution", () => {
     mockEmptyAgentMemory();
   });
 
+  it.each([false, true])("keeps bucket resolution edits consistent through save (shared model: %s)", async (sharedModel) => {
+    vi.spyOn(API, "getSystemConfig").mockResolvedValue(FAKE_CONFIG_WITH_DEFAULTS as unknown as Awaited<ReturnType<typeof API.getSystemConfig>>);
+    vi.spyOn(providerModels, "getProviderModels").mockResolvedValue([
+      ...["gemini", "ark"].map((id) => ({
+        id, display_name: id, description: "", status: "ready", media_types: ["video"],
+        capabilities: [], configured_keys: [], missing_keys: [],
+        models: { [id === "gemini" ? "veo-3" : "seedance"]: {
+          display_name: id, media_type: "video", capabilities: [], default: true,
+          supported_durations: [8], resolutions: ["720p", "1080p"],
+          audio_track: "controllable", reference_route_audio_track: "controllable", voice_consistency: "soft",
+        } },
+      })),
+    ] as Awaited<ReturnType<typeof providerModels.getProviderModels>>);
+    vi.spyOn(API, "getProject").mockResolvedValue({ project: {
+      title: "Demo", generation_mode: "reference_video",
+      video_provider_i2v: "gemini/veo-3", video_provider_r2v: sharedModel ? "gemini/veo-3" : "ark/seedance",
+      model_settings: {
+        "gemini/veo-3": { resolution: "720p" },
+        "ark/seedance": { resolution: "1080p" },
+      }, episodes: [], characters: {}, clues: {},
+    }, scripts: {} } as unknown as Awaited<ReturnType<typeof API.getProject>>);
+    const updateSpy = vi.spyOn(API, "updateProject").mockResolvedValue({
+      success: true, project: { title: "Demo" } as Awaited<ReturnType<typeof API.updateProject>>["project"],
+    });
+    renderAt("/app/projects/demo/settings");
+    const i2v = await screen.findByRole("combobox", { name: /图生视频.*分辨率|Image to video.*Resolution/ });
+    const r2v = screen.getByRole("combobox", { name: /参考生视频.*分辨率|Reference to video.*Resolution/ });
+    expect(i2v).toHaveValue("720p");
+    expect(r2v).toHaveValue(sharedModel ? "720p" : "1080p");
+    fireEvent.change(i2v, { target: { value: "1080p" } });
+    expect(i2v).toHaveValue("1080p");
+    expect(r2v).toHaveValue("1080p");
+    fireEvent.change(r2v, { target: { value: "720p" } });
+    expect(i2v).toHaveValue(sharedModel ? "720p" : "1080p");
+    expect(r2v).toHaveValue("720p");
+    fireEvent.click(screen.getByRole("button", { name: /^(保存|Save)$/i }));
+    await waitFor(() => expect(updateSpy).toHaveBeenCalledWith("demo", expect.objectContaining({
+      model_settings: {
+        "gemini/veo-3": { resolution: sharedModel ? "720p" : "1080p" },
+        "ark/seedance": { resolution: sharedModel ? "1080p" : "720p" },
+        "gemini/nano-banana": { resolution: null },
+      },
+    })));
+  });
+
   it("loads existing model_settings resolution into video/image pickers", async () => {
     vi.spyOn(API, "getSystemConfig").mockResolvedValue({
       ...FAKE_CONFIG_WITH_DEFAULTS,

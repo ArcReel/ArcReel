@@ -1,16 +1,22 @@
 """providers 路由的无项目 video-capabilities 查询。"""
 
+from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from sqlalchemy import update
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from lib.config.resolver import VideoBucketCapabilityError
+from lib.custom_provider import make_provider_id
+from lib.db.models.custom_provider import CustomProvider, CustomProviderModel
 from lib.i18n.zh import errors as zh_errors
+from lib.infra.api_errors import BadRequestError
+from lib.project.project_manager import ProjectManager
 from server.error_handlers import register_error_handlers
-from server.routers import providers
+from server.routers import projects, providers
 from tests.auth_deps import AUTH_DEPENDENCIES, override_auth
 
 #: registry 里声明了「1080p 只剩 8 秒」的型号，用来观察真实 resolver 算出的收窄结果。
@@ -27,6 +33,7 @@ def _app() -> FastAPI:
 
 def _client(monkeypatch, resolver_instance) -> TestClient:
     """错误映射用：让 resolver 抛出指定异常，断言路由把它翻成哪个状态码与文案。"""
+    resolver_instance.resolve_video_backend = AsyncMock()
     monkeypatch.setattr(providers, "ConfigResolver", lambda _factory: resolver_instance)
     return TestClient(_app())
 
@@ -40,43 +47,6 @@ def real_resolver_client(db_engine, monkeypatch) -> TestClient:
 
 class TestGetModelVideoCapabilities:
     """GET /providers/video-capabilities"""
-
-    def test_resolves_candidate_model_without_project(self, monkeypatch):
-        """创建向导里项目尚不存在：按候选模型解析，project 传 None，约束上下文原样转交。"""
-        resolver_instance = MagicMock()
-        resolver_instance.video_capabilities_for_model = AsyncMock(return_value={"model": "candidate"})
-        with _client(monkeypatch, resolver_instance) as client:
-            resp = client.get(
-                "/api/v1/providers/video-capabilities",
-                params={"video_backend": "openai/sora-2", "resolution": "1080p", "uses_reference_images": "true"},
-            )
-        assert resp.status_code == 200
-        assert resp.json() == {"model": "candidate"}
-        call = resolver_instance.video_capabilities_for_model.await_args
-        assert call.args == ("openai", "sora-2", None)
-        assert call.kwargs == {"resolution": "1080p", "uses_reference_images": True}
-
-    def test_constraint_context_defaults(self, monkeypatch):
-        """缺省不按分辨率收窄、不走参考图路径——无项目可回退，缺省即「无约束」。"""
-        resolver_instance = MagicMock()
-        resolver_instance.video_capabilities_for_model = AsyncMock(return_value={})
-        with _client(monkeypatch, resolver_instance) as client:
-            resp = client.get("/api/v1/providers/video-capabilities", params={"video_backend": "openai/sora-2"})
-        assert resp.status_code == 200
-        assert resolver_instance.video_capabilities_for_model.await_args.kwargs == {
-            "resolution": None,
-            "uses_reference_images": False,
-        }
-
-    def test_bare_provider_completes_default_model(self, monkeypatch):
-        resolver_instance = MagicMock()
-        resolver_instance.video_capabilities_for_model = AsyncMock(return_value={})
-        with _client(monkeypatch, resolver_instance) as client:
-            resp = client.get("/api/v1/providers/video-capabilities", params={"video_backend": "openai"})
-        assert resp.status_code == 200
-        provider_id, model_id, _ = resolver_instance.video_capabilities_for_model.await_args.args
-        assert provider_id == "openai"
-        assert model_id
 
     def test_video_backend_is_required(self, monkeypatch):
         with _client(monkeypatch, MagicMock()) as client:
@@ -145,6 +115,28 @@ class TestRealResolverResponse:
             "excluded": {"4": "resolution", "6": "resolution"},
         }
 
+    def test_candidate_missing_from_registry_reports_bucket_failure(self, real_resolver_client):
+        with real_resolver_client as client:
+            resp = client.get(
+                "/api/v1/providers/video-capabilities",
+                params={"video_backend": "gemini-aistudio/deleted-model"},
+            )
+        assert resp.status_code == 400
+        assert resp.json()["detail"] == zh_errors.MESSAGES["video_capability_reference_unavailable"].format(
+            provider="gemini-aistudio", model="deleted-model"
+        )
+
+    def test_candidate_without_reference_capability_reports_bucket_failure(self, real_resolver_client):
+        with real_resolver_client as client:
+            resp = client.get(
+                "/api/v1/providers/video-capabilities",
+                params={"video_backend": "kling/kling-v3", "uses_reference_images": "true"},
+            )
+        assert resp.status_code == 400
+        assert resp.json()["detail"] == zh_errors.MESSAGES["video_capability_missing_r2v"].format(
+            provider="kling", model="kling-v3"
+        )
+
     def test_reference_path_narrows_and_keeps_no_reference_tier(self, real_resolver_client):
         """参考图路径另给一份不叠加参考图收窄的档位，供无参考图的视频单元使用。
 
@@ -184,3 +176,81 @@ class TestRealResolverResponse:
         assert body["default_duration"] is None
         assert body["generation_mode"] is None
         assert body["duration_constraints"]["resolution"] is None
+
+    @pytest.mark.parametrize("candidate", ["openai/sora-2", "openai"])
+    def test_candidate_identity_and_default_constraints(self, real_resolver_client, candidate):
+        with real_resolver_client as client:
+            response = client.get("/api/v1/providers/video-capabilities", params={"video_backend": candidate})
+        assert response.status_code == 200
+        body = response.json()
+        assert body["provider_id"] == "openai"
+        assert body["model"] == "sora-2"
+        constraints = body["duration_constraints"]
+        assert constraints["resolution"] is None
+        assert constraints["uses_reference_images"] is False
+        assert constraints["allowed"] == body["supported_durations"]
+
+
+@pytest.mark.parametrize("project_route", [False, True])
+@pytest.mark.parametrize("disable_after_gate", [False, True])
+async def test_disabled_candidate_never_returns_default_model(
+    db_factory, tmp_path, monkeypatch, project_route, disable_after_gate
+):
+    async with db_factory() as session:
+        provider = CustomProvider(
+            display_name="Candidate", discovery_format="openai", base_url="https://example.test", api_key="k"
+        )
+        session.add(provider)
+        await session.flush()
+        for model_id, default in (("selected", False), ("default", True)):
+            session.add(
+                CustomProviderModel(
+                    provider_id=provider.id,
+                    model_id=model_id,
+                    display_name=model_id,
+                    endpoint="newapi-video",
+                    supported_durations="[5]",
+                    is_default=default,
+                    is_enabled=default or disable_after_gate,
+                    capability_overrides={"first_frame": True, "max_reference_images": 4},
+                )
+            )
+        await session.commit()
+        provider_id = make_provider_id(provider.id)
+
+    changed = False
+
+    @asynccontextmanager
+    async def changing_sessions():
+        nonlocal changed
+        async with db_factory() as session:
+            yield session
+        if disable_after_gate and not changed:
+            changed = True
+            async with db_factory() as session:
+                await session.execute(
+                    update(CustomProviderModel)
+                    .where(CustomProviderModel.model_id == "selected")
+                    .values(is_enabled=False)
+                )
+                await session.commit()
+
+    module = projects if project_route else providers
+    monkeypatch.setattr(module, "async_session_factory", changing_sessions)
+    params = {
+        "_t": lambda key, **kwargs: key,
+        "video_backend": f"{provider_id}/selected",
+        "resolution": None,
+        "uses_reference_images": True,
+    }
+    if project_route:
+        manager = ProjectManager(tmp_path)
+        manager.create_project("candidate")
+        monkeypatch.setattr(projects, "get_project_manager", lambda: manager)
+        request = projects.get_video_capabilities(name="candidate", **params)
+    else:
+        request = providers.get_model_video_capabilities(**params)
+    with pytest.raises(BadRequestError) as error:
+        await request
+    assert error.value.key == "video_capability_reference_unavailable"
+    assert error.value.params == {"provider": provider_id, "model": "selected"}

@@ -37,7 +37,12 @@ from starlette.background import BackgroundTask
 logger = logging.getLogger(__name__)
 
 from lib.agent.profile_manifest import ContentMode
-from lib.config.resolver import ConfigResolver, VideoBucketCapabilityError
+from lib.config.resolver import (
+    ConfigResolver,
+    VideoBucketCapabilityError,
+    caps_generation_mode,
+    video_bucket_for_generation_mode,
+)
 from lib.db import async_session_factory
 from lib.episode.episode_target_duration import (
     EPISODE_TARGET_DURATION_FIELD,
@@ -734,7 +739,7 @@ async def get_video_capabilities(
 
     `video_backend`（"provider/model"）用于设置表单里尚未保存的候选模型：不带该参数时按已
     落盘配置解析，带上则按候选模型 × 本项目的生成模式解析，使 voice_consistency 等二维派生值
-    对应用户当前选中的模型而非上一次保存的模型。裸 provider（无 "/"）按其 registry
+    对应用户当前选中的模型而非上一次保存的模型；候选身份先过所属桶能力闸。裸 provider（无 "/"）按其 registry
     默认视频 model 补全，与 project.json 存量裸 provider 覆盖同口径（见 `_parse_project_provider`）。
 
     `resolution` / `uses_reference_images` 是时长联动约束的求值上下文，决定响应里
@@ -749,13 +754,27 @@ async def get_video_capabilities(
         if video_backend:
             provider_id, model_id = split_video_backend_query(video_backend)
             project = get_project_manager().load_project(name)
-            return await resolver.video_capabilities_for_model(
+            generation_type = (
+                ("r2v" if uses_reference_images else "i2v")
+                if uses_reference_images is not None
+                else video_bucket_for_generation_mode(caps_generation_mode(project))
+            )
+            await resolver.resolve_video_backend(
+                {**project, f"video_provider_{generation_type}": f"{provider_id}/{model_id}"},
+                None,
+                generation_type=generation_type,
+            )
+            caps = await resolver.video_capabilities_for_model(
                 provider_id,
                 model_id,
                 project,
+                generation_type=generation_type,
                 resolution=resolution,
                 uses_reference_images=uses_reference_images,
             )
+            if (caps["provider_id"], caps["model"]) != (provider_id, model_id):
+                raise BadRequestError("video_capability_reference_unavailable", provider=provider_id, model=model_id)
+            return caps
         return await resolver.video_capabilities(
             name, resolution=resolution, uses_reference_images=uses_reference_images
         )

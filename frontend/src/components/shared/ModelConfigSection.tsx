@@ -48,6 +48,7 @@ export interface ModelConfigValue {
   textBackendComplex: string;
   defaultDuration: number | null;
   videoResolution: string | null;
+  videoResolutions?: Record<string, string | null>;
   imageResolution: string | null;
 }
 
@@ -181,6 +182,7 @@ export function ModelConfigSection({
   // 时长 / 分辨率 / 声音档位按模型查能力，问的必须是当前配置真正会执行的模型：细分项被覆盖时
   // 它不是默认层那个模型，拿默认层去查会把用户引到执行时并不支持的时长与分辨率上。
   const executingVideo = executingVideoModel(value, globalDefaults, usesReferenceImages);
+  const executingI2V = executingVideoModel(value, globalDefaults, false);
   const executingImage = executingImageModel(value, globalDefaults);
 
   // 穿透演算（docs/adr/0054，项目优先）：细分项留空 → 项目默认模型 → 全局同名细分 → 全局默认模型。
@@ -204,7 +206,7 @@ export function ModelConfigSection({
     onChange({
       ...next,
       defaultDuration: keepDuration ? next.defaultDuration : null,
-      videoResolution: null,
+      videoResolution: value.videoResolutions ? (value.videoResolutions[nextExecuting] ?? null) : null,
     });
   };
 
@@ -264,6 +266,13 @@ export function ModelConfigSection({
     videoBackend: executingVideo,
     videoResolution: value.videoResolution,
     usesReferenceImages,
+  });
+  const i2vCapabilities = useModelCapabilities({
+    projectName,
+    videoBackend: executingI2V,
+    videoResolution: value.videoResolutions?.[executingI2V] ?? null,
+    usesReferenceImages: false,
+    enabled: !!usesReferenceImages && !!value.videoResolutions,
   });
   const { rawDurations, supportedDurations, voiceConsistency } = capabilities;
   // 约束上下文（分辨率 / 参考图路径）变了但模型没变时，旧的收窄结果会一直挂到新结果落地：
@@ -351,6 +360,7 @@ export function ModelConfigSection({
     backend: string,
     resolution: string | null,
     onResolutionChange: (v: string | null) => void,
+    label = t("resolution_label"),
   ) => {
     const res = lookupResolutions(providers, backend, customProviders, endpointToMediaType);
     if (res.options.length === 0) return null;
@@ -362,7 +372,7 @@ export function ModelConfigSection({
       <div className="mt-3 flex flex-col gap-1">
         <div className="flex items-center gap-2">
           <span className="font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-4">
-            {t("resolution_label")}
+            {label}
           </span>
           <ResolutionPicker
             mode={res.isCustom ? "combobox" : "select"}
@@ -370,7 +380,7 @@ export function ModelConfigSection({
             value={resolution}
             onChange={onResolutionChange}
             placeholder={resolutionPlaceholder(constraints, t)}
-            aria-label={t("resolution_label")}
+            aria-label={label}
             disabled={sizeFixed}
           />
         </div>
@@ -412,9 +422,26 @@ export function ModelConfigSection({
             />
           )}
 
-          {renderResolutionField(executingVideo, value.videoResolution, (v) =>
-            onChange({ ...value, videoResolution: v }),
+          {usesReferenceImages && value.videoResolutions && renderResolutionField(
+            executingI2V,
+            value.videoResolutions[executingI2V] ?? null,
+            (v) => onChange({ ...value, videoResolutions: { ...value.videoResolutions, [executingI2V]: v } }),
+            `${bucketLabels.i2v.label} · ${t("resolution_label")}`,
           )}
+          {usesReferenceImages && i2vCapabilities.videoModelError && (
+            <InlineWarning message={i2vCapabilities.videoModelError} className="mt-2" />
+          )}
+          {renderResolutionField(
+            executingVideo,
+            value.videoResolution,
+            (v) => onChange(value.videoResolutions
+              ? { ...value, videoResolutions: { ...value.videoResolutions, [executingVideo]: v } }
+              : { ...value, videoResolution: v }),
+            usesReferenceImages && value.videoResolutions
+              ? `${bucketLabels.r2v.label} · ${t("resolution_label")}`
+              : t("resolution_label"),
+          )}
+          {capabilities.videoModelError && <InlineWarning message={capabilities.videoModelError} className="mt-2" />}
 
           {/* 档位空集且该模型的时长本就不由 ArcReel 驱动：控件无从渲染，但要说清为什么没有，
               否则用户只会看见时长这一节凭空消失。 */}

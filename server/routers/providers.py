@@ -436,21 +436,31 @@ async def get_model_video_capabilities(
 ):
     """无项目上下文的视频模型能力：创建向导里项目尚不存在，按候选模型直接解析。
 
-    与 `/projects/{name}/video-capabilities` 同一条解析链路（`ConfigResolver.video_capabilities_for_model`），
+    与 `/projects/{name}/video-capabilities` 同一条桶能力闸和模型能力解析链路，
     只是没有项目可读：`default_duration` / `generation_mode` 等项目偏好为 None，时长联动约束按
     传入的 `resolution` / `uses_reference_images` 求值（缺省不按分辨率收窄、不走参考图路径）。
     裸 provider 的补全与格式校验同项目端点。
     """
     provider_id, model_id = split_video_backend_query(video_backend)
     resolver = ConfigResolver(async_session_factory)
+    generation_type = "r2v" if uses_reference_images else "i2v"
     try:
-        return await resolver.video_capabilities_for_model(
+        await resolver.resolve_video_backend(
+            {f"video_provider_{generation_type}": f"{provider_id}/{model_id}"},
+            None,
+            generation_type=generation_type,
+        )
+        caps = await resolver.video_capabilities_for_model(
             provider_id,
             model_id,
             None,
+            generation_type=generation_type,
             resolution=resolution,
             uses_reference_images=uses_reference_images,
         )
+        if (caps["provider_id"], caps["model"]) != (provider_id, model_id):
+            raise BadRequestError("video_capability_reference_unavailable", provider=provider_id, model=model_id)
+        return caps
     except VideoBucketCapabilityError as exc:
         raise BadRequestError(exc.code, **exc.params) from exc
     except ValueError as exc:
