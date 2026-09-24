@@ -2,6 +2,8 @@
 status: accepted
 ---
 
+> 「用户记忆落 `<数据根>/.arcreel/users/…`」与「数据根下 `_` 前缀目录表示跨项目共享素材库」两处已由 `docs/adr/0088` 取代，其余内容仍有效。
+
 # Agent 记忆两级落盘：项目记忆走原生 auto memory 重定向，用户记忆自建于数据根
 
 内嵌创作 Agent 的「Agent 记忆」分项目记忆与用户记忆两级，而 Claude Code 的 auto memory 一个会话只认一个目录，两级必有一级自建。决定：**原生 auto memory 接项目记忆**，目录重定向到 `<项目目录>/.arcreel/memory/`；**用户记忆自建**，落 `<数据根>/.arcreel/users/<user_id>/memory/`，服务端在会话装配时把其 `MEMORY.md` 索引按原生同样的截断规则注入 append prompt，Agent 用 Write/Edit 写入。原生那套派生规则、后台提取与索引超限告警都按「当前工作目录」设计，项目记忆变动最频繁、最受益；用户记忆小而稳定，注入一段索引即可。
