@@ -306,6 +306,47 @@ def storyboard_image_input(
     )
 
 
+@dataclass(frozen=True, slots=True)
+class GridReferences:
+    """一张宫格成立的参考图集。宫格的合成依据由宫格执行器按冻结后的参考图构造。"""
+
+    #: 完整装配序，不裁剪。
+    references: tuple[AssembledReference, ...]
+
+
+def grid_references(
+    project: Mapping[str, Any],
+    script: dict[str, Any],
+    *,
+    member_ids: Sequence[str],
+    observation: InputObservation,
+) -> GridReferences | InputRefused:
+    """按项目现状为一张宫格备齐参考图集。
+
+    装配序：按 ``member_ids`` 的顺序，逐个成员分镜取角色、场景、道具资产图（按字段序），
+    取并集并按路径去重、保留首次出现；不含商品与上一分镜图。
+
+    拒绝：引用未登记；角色、场景、道具没有资产图或资产图不可用。
+
+    成员不存在或字段结构损坏抛 ``ValueError``。
+    """
+
+    items, id_field, char_field, scene_field, prop_field = get_storyboard_items(script)
+    assembly = _Assembly(observation, build_reference_catalog(project))
+    for member_id in member_ids:
+        resolved = find_storyboard_item(items, id_field, member_id)
+        if resolved is None:
+            raise ValueError(f"scene/segment not found: {member_id}")
+        item, _index = resolved
+        for asset_type, field in (("character", char_field), ("scene", scene_field), ("prop", prop_field)):
+            for name in _reference_names(item, field):
+                assembly.add_sheet(asset_type, name)
+
+    if assembly.gaps:
+        return InputRefused(reasons=tuple(assembly.gaps))
+    return GridReferences(references=tuple(assembly.references))
+
+
 def _reference_names(item: Mapping[str, Any], field: str | None) -> list[str]:
     if field is None:
         return []
@@ -560,6 +601,7 @@ __all__ = [
     "AssembledReference",
     "ClaimBinder",
     "FrozenGenerationInput",
+    "GridReferences",
     "InputGap",
     "InputObservation",
     "InputRefused",
@@ -568,6 +610,7 @@ __all__ = [
     "RenderedInput",
     "StoryboardImageInput",
     "StoryboardImageSemantics",
+    "grid_references",
     "project_input_observation",
     "storyboard_image_input",
 ]
