@@ -8,7 +8,7 @@ Manifest registration commit together, and a failed commit never leaves the new 
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -74,17 +74,6 @@ class FormalImageCommitOutcome:
 
     version: int
     created_at: str
-
-
-def require_formal_outcome(formal_outcomes: list[FormalImageCommitOutcome]) -> FormalImageCommitOutcome:
-    """Take the outcome the staged activation callback recorded during ``generate_image_async``.
-
-    ``formal_output=True`` always runs the callback, so an empty box is a contract violation.
-    """
-
-    if not formal_outcomes:
-        raise RuntimeError("formal image generation returned without running its staged activation callback")
-    return formal_outcomes[0]
 
 
 # 正式图提交的公共签名：活化回调 / 元数据提交器。
@@ -364,8 +353,11 @@ class FormalImagePlan:
     prompt: str
     aspect_ratio: str
     build_commit_callback: Callable[[Any, list[FormalImageCommitOutcome]], StagedImageCommit]
-    pre_submit: Callable[[], Awaitable[None]] | None = None
+    #: 解析出 generator 之后、提交供应商之前运行一次，收到任务所用的 generator。
+    pre_submit: Callable[[Any], Awaitable[None]] | None = None
     before_submit: Callable[[], Awaitable[None]] | None = None
+    #: 随新版本一起写进版本记录的额外元数据（如图片编辑的 ``source``）。
+    version_metadata: Mapping[str, Any] = field(default_factory=dict)
     #: 写进任务 ``result.warnings`` 的非阻断提示（如参考图超限裁剪）；为空时结果不带该键。
     warnings: tuple[dict[str, Any], ...] = ()
 
@@ -399,9 +391,9 @@ async def run_formal_image_task(
             user_id=user_id,
             image=ImageLaneRequest(generation_type="i2i" if reference_images else "t2i"),
         )
-        if plan.pre_submit is not None:
-            await plan.pre_submit()
         generator = ctx.generator
+        if plan.pre_submit is not None:
+            await plan.pre_submit(generator)
         # before_submit 只在声明了 checkpoint 的任务上出现，不声明就不落进 kwargs
         optional: dict[str, Any] = {}
         if plan.before_submit is not None:
@@ -417,6 +409,7 @@ async def run_formal_image_task(
             task_id=task_id,
             commit_formal_output=plan.build_commit_callback(generator, formal_outcomes),
             **optional,
+            **plan.version_metadata,
         )
 
     try:
@@ -424,7 +417,8 @@ async def run_formal_image_task(
     finally:
         await run_noninterruptible_sync(frozen_references.cleanup)
 
-    outcome = require_formal_outcome(formal_outcomes)
+    # formal_output=True 时 generate_image_async 恒经活化回调提交，回调恰好记录一条结果。
+    outcome = formal_outcomes[0]
     result: dict[str, Any] = {
         "version": outcome.version,
         "file_path": plan.artifact_path,

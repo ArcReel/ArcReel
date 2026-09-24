@@ -136,7 +136,6 @@ from server.services.tasks.formal_image_commit import (
     StagedImageCommit,
     get_aspect_ratio,
     grid_formal_image_callback,
-    require_formal_outcome,
     run_asset_sheet_image_task,
     run_formal_image_task,
     storyboard_formal_image_callback,
@@ -939,6 +938,9 @@ async def execute_storyboard_task(
     async def _assert_claims_usable() -> None:
         await asyncio.to_thread(assert_current_artifact_input_claims_usable, project_path, formal_claims)
 
+    async def _pre_submit(_generator: Any) -> None:
+        await _assert_claims_usable()
+
     def _build_commit(generator: Any, outcome_box: list[FormalImageCommitOutcome]) -> StagedImageCommit:
         return storyboard_formal_image_callback(
             project_name=project_name,
@@ -968,7 +970,7 @@ async def execute_storyboard_task(
             prompt=prompt_text,
             aspect_ratio=get_aspect_ratio(project, "storyboards"),
             build_commit_callback=_build_commit,
-            pre_submit=_assert_claims_usable,
+            pre_submit=_pre_submit,
             before_submit=_assert_claims_usable,
             warnings=warnings,
         ),
@@ -2419,7 +2421,8 @@ async def execute_grid_task(
             ),
         )
 
-        version = require_formal_outcome(formal_outcomes).version
+        # formal_output=True 时 generate_image_async 恒经活化回调提交，回调恰好记录一条结果。
+        outcome = formal_outcomes[0]
 
     except Exception:
         # The formal-write transaction restores the durable grid record on failure.
@@ -2436,7 +2439,6 @@ async def execute_grid_task(
         if frozen_references is not None:
             await run_noninterruptible_sync(frozen_references.cleanup)
 
-    created_at = grid.created_at
     unit_results: dict[str, dict[str, Any]] = {}
     report_scene_ids = payload.get("report_scene_ids")
     if isinstance(report_scene_ids, list) and report_scene_ids:
@@ -2475,9 +2477,9 @@ async def execute_grid_task(
                 }
 
     grid_result: dict[str, Any] = {
-        "version": version,
+        "version": outcome.version,
         "file_path": f"grids/{resource_id}.png",
-        "created_at": created_at,
+        "created_at": outcome.created_at,
         "resource_type": "grids",
         "resource_id": resource_id,
         "unit_results": unit_results,

@@ -34,7 +34,6 @@ from lib.artifacts.visual_artifact_provenance import (
 )
 from lib.db.base import DEFAULT_USER_ID
 from lib.infra.api_errors import NotFoundError
-from lib.infra.async_thread import run_noninterruptible_sync
 from lib.project.asset_derivatives import (
     DERIVATIVE_ASSET_TYPE,
     DERIVATIVE_TASK_TYPE,
@@ -50,12 +49,14 @@ from lib.script.script_models import get_generated_assets
 from lib.script.storyboard_sequence import find_storyboard_item, get_storyboard_items
 from server.services.tasks.derivative_sheet_tasks import derivative_sheet_commit_callback
 from server.services.tasks.formal_image_commit import (
+    FormalImageCommitOutcome,
+    FormalImagePlan,
+    StagedImageCommit,
     asset_sheet_formal_image_callback,
     get_aspect_ratio,
-    require_formal_outcome,
+    run_formal_image_task,
     storyboard_formal_image_callback,
 )
-from server.services.tasks.generation_context import ImageLaneRequest, resolve_generation_context
 
 # 版本记录里标记「指令式编辑」的 source 值；前端据此展示编辑标记（与 manual_upload 同机制）
 IMAGE_EDIT_VERSION_SOURCE = "image_edit"
@@ -292,11 +293,11 @@ async def execute_image_edit_task(
 ) -> dict[str, Any]:
     """执行图片编辑任务：读 current 图 → i2i → 新版本覆盖 current → 按资源类型写回。
 
-    编辑必然 i2i（唯一入队即知任务类型的图片任务，见 ``docs/adr/0001``），故声明
-    ``ImageLaneRequest(generation_type="i2i")`` 恒定走 i2i 槽；backend 调用失败时 current 图指针与资源写回
+    编辑必然 i2i（唯一入队即知任务类型的图片任务，见 ``docs/adr/0001``）：参考图恒为当前图一张，
+    共享流水线据此恒走 i2i 槽；backend 调用失败时 current 图指针与资源写回
     不被触碰（MediaGenerator 仅在成功后覆盖 output 并登记新版本，写回也不会发生）。
-    旧图基线登记（见下方 ``ensure_current_tracked`` 调用）先于 backend 调用发生，与
-    backend 成败无关、失败时不回滚——保证编辑前的旧图始终可回滚，不属于本次生成
+    旧图基线登记（见 ``_pre_submit`` 里的 ``ensure_current_tracked`` 调用）先于 backend 调用发生，与
+    backend 成败无关、失败时不回滚——保证编辑前的旧图始终可回滚，不属于编辑产出
     的版本变更范畴。
     """
     resource_type = str(payload.get("resource_type") or "")
@@ -381,25 +382,9 @@ async def execute_image_edit_task(
     formal_claims = selected_source.formal_claims
 
     canonical_rel = resource_relative_path(version_resource_type, resource_key)
-    formal_outcomes: list[Any] = []
-    try:
-        # 编辑必然 i2i：单次解析拿到 generator 与 image lane 产物（provider / backend / resolution）。
-        ctx = await resolve_generation_context(
-            project_name,
-            payload,
-            project=project,
-            user_id=user_id,
-            image=ImageLaneRequest(generation_type="i2i"),
-        )
-        generator = ctx.generator
 
-        await asyncio.to_thread(
-            assert_artifact_input_claims_usable,
-            project_path,
-            project,
-            formal_claims,
-        )
-
+    async def _pre_submit(generator: Any) -> None:
+        await asyncio.to_thread(assert_artifact_input_claims_usable, project_path, project, formal_claims)
         # 旧图若尚无版本记录（如旧宫格项目 current 指向非 canonical 路径），先以中性元数据补登，
         # 保证编辑前的旧图可回滚；也避免 generate_image_async 内部的 ensure_current_tracked
         # 把编辑指令 / 编辑标记误写到旧版本上。已有版本记录时此调用是 no-op。
@@ -410,26 +395,33 @@ async def execute_image_edit_task(
             current_image,
             "",
         )
+        await asyncio.to_thread(assert_artifact_input_claims_usable, project_path, project, formal_claims)
+
+    async def _before_submit() -> None:
         await asyncio.to_thread(
-            assert_artifact_input_claims_usable,
-            project_path,
-            project,
-            formal_claims,
+            _assert_selected_image_edit_source_usable,
+            project_name=project_name,
+            project_path=project_path,
+            resource_type=resource_type,
+            requested_resource_id=resource_id,
+            script_file=str(script_file) if script_file is not None else None,
+            selected=selected_source,
         )
 
+    def _build_commit(generator: Any, outcome_box: list[FormalImageCommitOutcome]) -> StagedImageCommit:
         if resource_type == DERIVATIVE_TASK_TYPE:
-            commit_formal_output = derivative_sheet_commit_callback(
+            return derivative_sheet_commit_callback(
                 project_name=project_name,
                 target=_derivative_target(resource_key),
                 prompt=instruction,
                 versions=generator.versions,
                 task_id=task_id,
                 basis=edit_basis,
-                outcome_box=formal_outcomes,
+                outcome_box=outcome_box,
                 project_manager=get_project_manager(),
             )
-        elif resource_type == "storyboard":
-            commit_formal_output = storyboard_formal_image_callback(
+        if resource_type == "storyboard":
+            return storyboard_formal_image_callback(
                 project_name=project_name,
                 script_file=str(script_file),
                 resource_id=resource_key,
@@ -438,57 +430,40 @@ async def execute_image_edit_task(
                 versions=generator.versions,
                 task_id=task_id,
                 basis=edit_basis,
-                outcome_box=formal_outcomes,
+                outcome_box=outcome_box,
                 project_manager=get_project_manager(),
             )
-        else:
-            commit_formal_output = asset_sheet_formal_image_callback(
-                asset_type=resource_type,
-                project_name=project_name,
-                resource_id=resource_key,
-                sheet_path=canonical_rel,
-                prompt=instruction,
-                versions=generator.versions,
-                task_id=task_id,
-                basis=edit_basis,
-                outcome_box=formal_outcomes,
-                project_manager=get_project_manager(),
-            )
-
-        async def _before_submit() -> None:
-            await asyncio.to_thread(
-                _assert_selected_image_edit_source_usable,
-                project_name=project_name,
-                project_path=project_path,
-                resource_type=resource_type,
-                requested_resource_id=resource_id,
-                script_file=str(script_file) if script_file is not None else None,
-                selected=selected_source,
-            )
-
-        # 参考图仅当前图一张、prompt 仅编辑指令（不拼原 image_prompt / 不追加生成路径的
-        # 自动参考图收集）；provider 与 frozen basis 共享 task-owned 源图字节。
-        await generator.generate_image_async(
+        return asset_sheet_formal_image_callback(
+            asset_type=resource_type,
+            project_name=project_name,
+            resource_id=resource_key,
+            sheet_path=canonical_rel,
             prompt=instruction,
+            versions=generator.versions,
+            task_id=task_id,
+            basis=edit_basis,
+            outcome_box=outcome_box,
+            project_manager=get_project_manager(),
+        )
+
+    # 参考图仅当前图一张（i2i）、prompt 仅编辑指令（不拼原 image_prompt / 不追加生成路径的
+    # 自动参考图收集）；provider 与 frozen basis 共享 task-owned 源图字节。
+    return await run_formal_image_task(
+        project_name=project_name,
+        payload=payload,
+        project=project,
+        user_id=user_id,
+        task_id=task_id,
+        frozen_references=frozen_references,
+        plan=FormalImagePlan(
             resource_type=version_resource_type,
             resource_id=resource_key,
-            reference_images=frozen_references.reference_images,
+            artifact_path=canonical_rel,
+            prompt=instruction,
             aspect_ratio=aspect_ratio,
-            image_size=ctx.image.resolution,
-            formal_output=True,
-            task_id=task_id,
-            commit_formal_output=commit_formal_output,
+            build_commit_callback=_build_commit,
+            pre_submit=_pre_submit,
             before_submit=_before_submit,
-            source=IMAGE_EDIT_VERSION_SOURCE,
-        )
-    finally:
-        await run_noninterruptible_sync(frozen_references.cleanup)
-
-    outcome = require_formal_outcome(formal_outcomes)
-    return {
-        "version": outcome.version,
-        "file_path": canonical_rel,
-        "created_at": outcome.created_at,
-        "resource_type": version_resource_type,
-        "resource_id": resource_key,
-    }
+            version_metadata={"source": IMAGE_EDIT_VERSION_SOURCE},
+        ),
+    )

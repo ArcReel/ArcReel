@@ -211,7 +211,7 @@ def _patch_common(monkeypatch, fake_pm, fake_generator, *, resolution=None, regi
         )
         return GenerationContext(generator=fake_generator, image_lane=lane)
 
-    monkeypatch.setattr(image_edit_tasks, "resolve_generation_context", _fake_resolve)
+    monkeypatch.setattr(formal_image_commit, "resolve_generation_context", _fake_resolve)
 
 
 class TestResolveCurrentImageRel:
@@ -306,7 +306,7 @@ class TestExecuteImageEditTask:
             )
             return GenerationContext(generator=generator, image_lane=lane)
 
-        monkeypatch.setattr(image_edit_tasks, "resolve_generation_context", _resolve)
+        monkeypatch.setattr(formal_image_commit, "resolve_generation_context", _resolve)
 
         with pytest.raises(ValueError, match="changed since it was selected"):
             await execute_image_edit_task(
@@ -349,7 +349,7 @@ class TestExecuteImageEditTask:
             )
             return GenerationContext(generator=generator, image_lane=lane)
 
-        monkeypatch.setattr(image_edit_tasks, "resolve_generation_context", _resolve)
+        monkeypatch.setattr(formal_image_commit, "resolve_generation_context", _resolve)
 
         with pytest.raises(ProjectMigrationError, match=f"did not reach v{CURRENT_PROJECT_SCHEMA_VERSION}"):
             await execute_image_edit_task(
