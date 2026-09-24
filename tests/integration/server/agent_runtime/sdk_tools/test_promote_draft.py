@@ -68,6 +68,8 @@ from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
     write_rv_script_plan,
 )
 
+pytestmark = pytest.mark.usefixtures("video_request_facts")
+
 # ---------------------------------------------------------------------------
 # 草稿与修复晋升闭环（script_plan）
 # ---------------------------------------------------------------------------

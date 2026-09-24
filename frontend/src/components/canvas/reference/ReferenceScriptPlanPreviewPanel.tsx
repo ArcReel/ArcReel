@@ -23,6 +23,7 @@ import { ACCENT_BTN_CLS, ACCENT_BUTTON_STYLE, CARD_STYLE, GHOST_BTN_CLS, GHOST_B
 import { ScriptHighlight } from "@/components/shared/ScriptHighlight";
 import { toScriptLines, type MentionLookup } from "@/hooks/useUnitPromptHighlight";
 import { extractMentions } from "@/utils/reference-mentions";
+import { noImageReasonKey } from "./no-image-problem";
 
 interface ReferenceScriptPlanPreviewPanelProps {
   projectName: string;
@@ -132,8 +133,7 @@ function partitionViolations(violations: ScriptReviewViolation[], unitKey: strin
 }
 
 /**
- * unit 当前生效的时长档位（按是否带参考图收窄）；解析不到收窄表时返回 null，由调用方退回
- * 未收窄的 `supported_durations`。
+ * unit 当前生效的时长档位（按是否带参考图取桶）；解析不到时返回 null，保持只读。
  *
  * 有无引用按当前正文实时判：参考图在执行期才由正文解析出来，编辑期新增/删除的
  * `@[名称]` 必须当场改变可选档位。
@@ -145,8 +145,11 @@ function unitDurationTiers(
 ): number[] | null {
   if (!tiers) return null;
   // 四类资产同规则（ADR 0064）：任一已登记的提及都会在执行期派生出参考图。
-  const hasReferences = extractMentions(unit.scriptText).some((name) => Boolean(lookup[name]));
-  return hasReferences ? tiers.with_references : tiers.without_references;
+  return unitHasReference(unit, lookup) ? tiers.with_references : tiers.without_references;
+}
+
+function unitHasReference(unit: DisplayUnit, lookup: MentionLookup): boolean {
+  return extractMentions(unit.scriptText).some((name) => Boolean(lookup[name]));
 }
 
 /**
@@ -196,6 +199,7 @@ function UnitCard({
   onToggleEdit,
   onTextChange,
   supportedDurations,
+  durationProblemCode,
   outOfTier,
   onDurationChange,
   busy,
@@ -211,6 +215,7 @@ function UnitCard({
   onToggleEdit: () => void;
   onTextChange: ((text: string) => void) | null;
   supportedDurations: number[] | null;
+  durationProblemCode?: string;
   /** unit 当前存盘时长已不在收窄后的档位表内——展示照旧，但阻断确认（父组件按此禁用确认按钮）。 */
   outOfTier: boolean;
   onDurationChange: ((seconds: number) => void) | null;
@@ -237,7 +242,11 @@ function UnitCard({
     >
       <div className="flex items-center gap-2">
         <span className="rounded bg-bg-grad-a/70 px-1.5 py-0.5 font-mono text-[11px] text-text-2">{unit.key}</span>
-        {durationOptions && onDurationChange ? (
+        {durationProblemCode ? (
+          <span className="text-[11px] text-amber-300" title={t("reference_no_image_unknown_hint", { code: durationProblemCode, reason: t(noImageReasonKey(durationProblemCode)) })}>
+            {t("reference_no_image_unknown_label")}
+          </span>
+        ) : durationOptions && onDurationChange ? (
           <select
             value={unit.duration_seconds}
             onChange={(e) => onDurationChange(Number(e.target.value))}
@@ -503,15 +512,21 @@ export function ReferenceScriptPlanPreviewPanel({
           })
           .map((u) => u.key),
       );
+  const noImageProblem = state?.duration_tiers?.without_references_problem;
+  const unknownUnitKeys = new Set(
+    displayUnits.filter((u) => noImageProblem && !unitHasReference(u, lookup)).map((u) => u.key),
+  );
   const allViolations = quarantine?.violations ?? [];
   const hasDraftViolations = allViolations.length > 0;
   // 覆盖确认的拦截条件，触发按钮与框内确认按钮共用一位：能力请求可能在框打开之后才答复
   // 模型无法解析，此时框内还留着一颗能提交、但服务端必拒的确认按钮。
-  const overwriteBlocked = videoModelBlocked || outOfTierUnitKeys.size > 0;
+  const overwriteBlocked = videoModelBlocked || outOfTierUnitKeys.size > 0 || unknownUnitKeys.size > 0;
   const confirmBlockedHint = quarantined
     ? t(hasDraftViolations ? "reference_script_plan_confirm_blocked_hint" : "reference_script_plan_editable_hint")
     : videoModelBlocked
       ? t("dashboard:review_video_model_unresolved_hint")
+      : unknownUnitKeys.size > 0
+        ? t("reference_no_image_unknown_hint", { code: noImageProblem?.code, reason: t(noImageReasonKey(noImageProblem?.code ?? "")) })
       : outOfTierUnitKeys.size > 0
         ? t("reference_script_plan_duration_out_of_tier_hint")
         : undefined;
@@ -617,7 +632,7 @@ export function ReferenceScriptPlanPreviewPanel({
             <button
               type="button"
               onClick={voidPromise(() => handleConfirm())}
-              disabled={busy || confirmLocked || outOfTierUnitKeys.size > 0 || videoModelBlocked}
+              disabled={busy || confirmLocked || outOfTierUnitKeys.size > 0 || unknownUnitKeys.size > 0 || videoModelBlocked}
               className={ACCENT_BTN_CLS}
               style={ACCENT_BUTTON_STYLE}
               title={confirmBlockedHint}
@@ -636,6 +651,11 @@ export function ReferenceScriptPlanPreviewPanel({
       </header>
 
       {videoModelBlocked && <VideoModelUnresolvedNotice projectName={projectName} />}
+      {unknownUnitKeys.size > 0 && (
+        <p role="alert" className="rounded-[8px] border border-amber-500/40 p-3 text-sm text-amber-200">
+          {t("reference_no_image_unknown_hint", { code: noImageProblem?.code, reason: t(noImageReasonKey(noImageProblem?.code ?? "")) })}
+        </p>
+      )}
 
       {overwrite && (
         <ScriptOverwriteConfirmDialog
@@ -672,7 +692,8 @@ export function ReferenceScriptPlanPreviewPanel({
             editing={!readOnly && editingUnitKey === unit.key}
             onToggleEdit={() => setEditingUnitKey((prev) => (prev === unit.key ? null : unit.key))}
             onTextChange={readOnly ? null : (text) => updateUnitText(i, text)}
-            supportedDurations={unitDurationTiers(unit, lookup, state?.duration_tiers ?? null) ?? (state?.supported_durations ?? null)}
+            supportedDurations={unitDurationTiers(unit, lookup, state?.duration_tiers ?? null)}
+            durationProblemCode={unknownUnitKeys.has(unit.key) ? noImageProblem?.code : undefined}
             outOfTier={outOfTierUnitKeys.has(unit.key)}
             onDurationChange={readOnly ? null : (seconds) => updateDuration(i, seconds)}
             busy={busy}

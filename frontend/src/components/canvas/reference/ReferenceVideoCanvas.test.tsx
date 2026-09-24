@@ -516,6 +516,21 @@ describe("ReferenceVideoCanvas", () => {
     expect(screen.queryByRole("combobox", { name: /Duration|时长/ })).not.toBeInTheDocument();
   });
 
+  it("shows the i2v failure and repair guidance on a no-reference unit", async () => {
+    vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [mkUnit("E1U1")] });
+    render(
+      <ReferenceVideoCanvas
+        projectName="proj"
+        episode={1}
+        durationOptions={[8]}
+        durationNoReferenceProblem={{ code: "reference_capability_unavailable", params: { capability: "i2v" }, action: "configure_video_model" }}
+      />,
+    );
+    expect(await screen.findByText("无参考图档位未知")).toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent("reference_capability_unavailable");
+    expect(screen.queryByRole("combobox", { name: /Duration|时长/ })).not.toBeInTheDocument();
+  });
+
   it("offers the reference-narrowed tier set for a unit whose body mentions an asset", async () => {
     useProjectsStore.setState({
       currentProjectName: "proj",

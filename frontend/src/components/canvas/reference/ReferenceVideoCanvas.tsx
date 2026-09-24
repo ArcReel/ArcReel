@@ -16,6 +16,7 @@ import { UnitPreviewPanel } from "./UnitPreviewPanel";
 import { ReferenceVideoCard } from "./ReferenceVideoCard";
 import { ScriptPreviewPanel } from "./ScriptPreviewPanel";
 import { deriveUnitStatus } from "./unit-status";
+import { noImageReasonKey } from "./no-image-problem";
 import { EpisodeHeader } from "./EpisodeHeader";
 import { ReferenceDurationConfirmDialog } from "./ReferenceDurationConfirmDialog";
 import { ReferenceBatchAdmissionDialog } from "./ReferenceBatchAdmissionDialog";
@@ -55,6 +56,7 @@ import type {
   ReferenceRequestOptions,
   ReferenceVideoUnit,
   UnitStatus,
+  VideoCapabilityProblem,
 } from "@/types";
 
 export interface ReferenceVideoCanvasProps {
@@ -82,6 +84,7 @@ export interface ReferenceVideoCanvasProps {
    * unit 使用——参考图约束按 unit 生效，不能因同集内其它 unit 带图就收窄这类 unit 的可选档位。
    */
   durationOptionsNoReference?: number[];
+  durationNoReferenceProblem?: VideoCapabilityProblem | null;
   /** 上游旁白工作流给出的请求事实；不在画布内探测或推断 TTS 状态。 */
   requestOptions?: ReferenceRequestOptions;
 }
@@ -171,6 +174,7 @@ export function ReferenceVideoCanvas({
   durationOptions,
   durationEndpointFixed = false,
   durationOptionsNoReference,
+  durationNoReferenceProblem,
   requestOptions,
 }: ReferenceVideoCanvasProps) {
   const { t } = useTranslation("dashboard");
@@ -1083,6 +1087,13 @@ export function ReferenceVideoCanvas({
                           }}
                           className="focus-ring w-14 bg-transparent font-mono tabular-nums text-[var(--color-text-2)] disabled:cursor-not-allowed disabled:opacity-60"
                         />
+                      ) : !selectedHasReference && durationNoReferenceProblem ? (
+                        <span
+                          className="text-amber-300"
+                          title={t("reference_no_image_unknown_hint", { code: durationNoReferenceProblem.code, reason: t(noImageReasonKey(durationNoReferenceProblem.code)) })}
+                        >
+                          {t("reference_no_image_unknown_label")}
+                        </span>
                       ) : effectiveDurationOptions && effectiveDurationOptions.length > 0 ? (
                         <select
                           aria-label={t("duration_selector_aria")}
@@ -1117,6 +1128,11 @@ export function ReferenceVideoCanvas({
                         </span>
                       )}
                     </span>
+                    {!selectedHasReference && durationNoReferenceProblem && (
+                      <span role="alert" className="text-[11px] text-amber-300">
+                        {t("reference_no_image_unknown_hint", { code: durationNoReferenceProblem.code, reason: t(noImageReasonKey(durationNoReferenceProblem.code)) })}
+                      </span>
+                    )}
                     <span className="flex-1" />
                     {selectedIndex >= 0 && (
                       <span className="font-mono text-[10.5px] tabular-nums text-[var(--color-text-4)]">

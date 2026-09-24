@@ -66,31 +66,53 @@ async def reference_unit_duration_tiers(
     durations: list[int],
     *,
     config_resolver: ConfigResolver | None = None,
-) -> tuple[list[int], list[int]]:
+) -> tuple[list[int], VideoRequestFacts | VideoRequestFactsFailure]:
     """Return effective duration tiers for units with and without reference images.
 
-    Reference-video units without references execute through the i2v generation type
-    bucket. If that bucket cannot be resolved, the main r2v bucket remains the
-    soft fallback so generation type annotations never block the creative flow.
+    Reference-video units without references execute through the i2v bucket.
+    Its request facts retain the failure reason when that bucket is unavailable.
     """
     with_references = constrained_caps_durations(
         project, caps, durations, generation_mode="reference_video", uses_reference_images=True
     )
-    i2v_caps, i2v_durations = caps, durations
-    try:
-        if config_resolver is None:
-            resolved = await resolve_video_caps(project, generation_type="i2v")
-        else:
-            resolved = await resolve_video_caps(project, generation_type="i2v", config_resolver=config_resolver)
-        resolved_durations = [int(d) for d in resolved.get("supported_durations") or []]
-        if resolved_durations:
-            i2v_caps, i2v_durations = resolved, resolved_durations
-    except (ValueError, SQLAlchemyError) as exc:
-        logger.info("i2v 桶能力不可解析，不带图档位回退按 r2v 桶求值：%s", exc)
-    without_references = constrained_caps_durations(
-        project, i2v_caps, i2v_durations, generation_mode="reference_video", uses_reference_images=False
+    without_references = await evaluate_video_request_facts(
+        project,
+        route="reference_video",
+        generation_type="i2v",
+        identity=CONFIGURED_VIDEO_IDENTITY,
+        resolver=config_resolver or ConfigResolver(async_session_factory),
     )
     return with_references, without_references
+
+
+def video_facts_problem(failure: VideoRequestFactsFailure) -> dict:
+    return {"code": failure.code, "params": failure.parameters(), "action": failure.action}
+
+
+async def annotate_reference_no_image_caps(
+    payload: dict, project: dict, *, config_resolver: ConfigResolver
+) -> VideoRequestFacts | VideoRequestFactsFailure | None:
+    """Attach i2v request facts to an r2v capability response."""
+    if project.get("generation_mode") != "reference_video":
+        return None
+    result = await evaluate_video_request_facts(
+        project,
+        route="reference_video",
+        generation_type="i2v",
+        identity=CONFIGURED_VIDEO_IDENTITY,
+        resolver=config_resolver,
+    )
+    constraints = payload["duration_constraints"]
+    constraints["allowed_without_reference_images"] = (
+        list(result.allowed_durations) if isinstance(result, VideoRequestFacts) else None
+    )
+    constraints["excluded_without_reference_images"] = (
+        dict(result.excluded_durations) if isinstance(result, VideoRequestFacts) else None
+    )
+    constraints["without_reference_problem"] = (
+        None if isinstance(result, VideoRequestFacts) else video_facts_problem(result)
+    )
+    return result
 
 
 async def annotate_reference_unit_tiers(
@@ -110,7 +132,7 @@ async def annotate_reference_unit_tiers(
     durations = [int(d) for d in payload.get("supported_durations") or []]
     if not durations:
         return
-    with_refs, without_refs = await reference_unit_duration_tiers(
+    with_refs, without_ref_facts = await reference_unit_duration_tiers(
         project,
         payload,
         durations,
@@ -118,8 +140,16 @@ async def annotate_reference_unit_tiers(
     )
     payload["reference_unit_durations"] = {
         "with_references": with_refs,
-        "without_references": without_refs,
+        "without_references": (
+            list(without_ref_facts.allowed_durations) if isinstance(without_ref_facts, VideoRequestFacts) else None
+        ),
+        "excluded": (
+            dict(without_ref_facts.excluded_durations) if isinstance(without_ref_facts, VideoRequestFacts) else None
+        ),
+        "problem": None if isinstance(without_ref_facts, VideoRequestFacts) else video_facts_problem(without_ref_facts),
     }
+    # The Agent receives one no-reference channel, including failures and exclusion reasons.
+    payload.get("duration_constraints", {}).pop("allowed_without_reference_images", None)
 
 
 async def project_video_caps(

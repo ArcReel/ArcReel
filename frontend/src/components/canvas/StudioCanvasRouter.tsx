@@ -788,6 +788,7 @@ export function StudioCanvasRouter() {
                     // unit 时长档位随所选模型能力变化（已按本集参考图路径收窄）
                     durationOptions={durationOptions}
                     durationOptionsNoReference={durationOptionsNoReference}
+                    durationNoReferenceProblem={capabilities.withoutReferenceProblem}
                     durationEndpointFixed={durationEndpointFixed}
                   />
                 ) : gridStoryboardEnabled(currentProjectData) ? (

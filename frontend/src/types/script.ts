@@ -179,9 +179,13 @@ export interface ScriptReviewState {
   supported_durations: number[] | null;
   /**
    * 按「是否带参考图」收窄后的逐 unit 生效档位，与 prompt_authoring 落盘前的校验同一把尺；无法解析型号
-   * 时为 null，呈现层退回 `supported_durations` 的未收窄全集。
+   * 时为 null；无图桶失败时 `without_references` 为 null，并附问题对象。
    */
-  duration_tiers: { with_references: number[]; without_references: number[] } | null;
+  duration_tiers: {
+    with_references: number[];
+    without_references: number[] | null;
+    without_references_problem?: { code: string; params: Record<string, unknown>; action: string } | null;
+  } | null;
   /**
    * 项目级「单集目标时长」偏好（秒），未设时 null。审核面板据它渲染「本集合计 / 目标」对比；
    * 超出目标只提示，不阻断确认与后续生成。
@@ -372,4 +376,3 @@ export interface ItemPromptPreview {
   storyboard_image: RenderedPromptPreview;
   video: RenderedPromptPreview;
 }
-

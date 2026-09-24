@@ -173,3 +173,73 @@ class TestRealResolverResponse:
         assert constraints["resolution"] is None
         assert constraints["uses_reference_images"] is uses_reference_images
         assert constraints["allowed"] == allowed
+
+    def test_reference_no_image_tiers_use_i2v_facts_for_saved_and_candidate_queries(
+        self, tmp_path, db_engine, monkeypatch
+    ):
+        """The no-image tier and exclusion reasons follow the configured i2v model in both endpoint variants."""
+        pm = _FakePM(tmp_path)
+        pm.project_data["ready"].update(
+            {
+                "generation_mode": "reference_video",
+                "video_provider_r2v": self.VEO,
+                "video_provider_i2v": "ark/doubao-seedance-2-0-260128",
+            }
+        )
+        monkeypatch.setattr(projects, "async_session_factory", async_sessionmaker(db_engine, expire_on_commit=False))
+        monkeypatch.setattr("lib.config.resolver.get_project_manager", lambda: pm)
+        client = build_projects_client(monkeypatch, pm)
+        with client:
+            saved = client.get("/api/v1/projects/ready/video-capabilities")
+            candidate = client.get("/api/v1/projects/ready/video-capabilities", params={"video_backend": self.VEO})
+        for response in (saved, candidate):
+            assert response.status_code == 200
+            constraints = response.json()["duration_constraints"]
+            assert constraints["allowed"] == [8]
+            assert 5 in constraints["allowed_without_reference_images"]
+            assert constraints["excluded_without_reference_images"] == {}
+            assert constraints["without_reference_problem"] is None
+
+    @pytest.mark.parametrize("candidate", [False, True])
+    def test_reference_no_image_failure_is_structured(self, tmp_path, db_engine, monkeypatch, candidate):
+        pm = _FakePM(tmp_path)
+        pm.project_data["ready"].update({"generation_mode": "reference_video", "video_provider_r2v": self.VEO})
+        monkeypatch.setattr(projects, "async_session_factory", async_sessionmaker(db_engine, expire_on_commit=False))
+        monkeypatch.setattr("lib.config.resolver.get_project_manager", lambda: pm)
+        client = build_projects_client(monkeypatch, pm)
+        with client:
+            response = client.get(
+                "/api/v1/projects/ready/video-capabilities", params={"video_backend": self.VEO} if candidate else {}
+            )
+        assert response.status_code == 200
+        constraints = response.json()["duration_constraints"]
+        assert constraints["allowed_without_reference_images"] is None
+        assert constraints["without_reference_problem"] == {
+            "code": "reference_capability_unavailable",
+            "params": {"capability": "i2v"},
+            "action": "configure_video_model",
+        }
+
+    @pytest.mark.parametrize("candidate", [False, True])
+    def test_reference_no_image_exclusions_follow_i2v_resolution(self, tmp_path, db_engine, monkeypatch, candidate):
+        pm = _FakePM(tmp_path)
+        pm.project_data["ready"].update(
+            {
+                "generation_mode": "reference_video",
+                "video_provider_r2v": "ark/doubao-seedance-2-0-260128",
+                "video_provider_i2v": self.VEO,
+                "model_settings": {self.VEO: {"resolution": "1080p"}},
+            }
+        )
+        monkeypatch.setattr(projects, "async_session_factory", async_sessionmaker(db_engine, expire_on_commit=False))
+        monkeypatch.setattr("lib.config.resolver.get_project_manager", lambda: pm)
+        client = build_projects_client(monkeypatch, pm)
+        with client:
+            response = client.get(
+                "/api/v1/projects/ready/video-capabilities",
+                params={"video_backend": "ark/doubao-seedance-2-0-260128"} if candidate else {},
+            )
+        assert response.status_code == 200
+        constraints = response.json()["duration_constraints"]
+        assert constraints["allowed_without_reference_images"] == [8]
+        assert constraints["excluded_without_reference_images"] == {"4": "resolution", "6": "resolution"}

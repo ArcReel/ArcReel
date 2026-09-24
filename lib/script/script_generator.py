@@ -50,6 +50,14 @@ from lib.episode.episode_paths import (
     SCRIPT_PLAN_LEGACY_FILENAMES,
     episode_drafts_dir,
 )
+from lib.generation.video_request_facts import (
+    CONFIGURED_VIDEO_IDENTITY,
+    VideoRequestFacts,
+    VideoRequestFactsError,
+    VideoRequestFactsFailure,
+    evaluate_video_request_facts,
+    require_video_request_facts,
+)
 from lib.infra.async_thread import run_sync_transaction
 from lib.infra.content_digest import sha256_file
 from lib.infra.text_utils import strip_json_code_fences
@@ -572,7 +580,13 @@ class ScriptGenerator:
         if gen_mode == "reference_video":
             caps = await self._fetch_video_capabilities()
             units = await run_sync_transaction(
-                self._load_reference_script_plan, episode, self._resolve_raw_supported_durations(caps)
+                self._load_reference_script_plan,
+                episode,
+                (
+                    self._resolve_raw_supported_durations(caps, include_no_reference=True)
+                    if isinstance(caps.get("_reference_no_image_facts") if caps else None, VideoRequestFacts)
+                    else None
+                ),
             )
             self._assert_reference_script_plan_durations(units, caps=caps, gen_mode=gen_mode)
             return "reference_video", units, None
@@ -851,12 +865,22 @@ class ScriptGenerator:
         """
         resolver = self.config_resolver or ConfigResolver(async_session_factory)
         try:
-            return await resolver.video_capabilities_for_project(self.project_json)
+            caps = await resolver.video_capabilities_for_project(self.project_json)
         except VideoBucketCapabilityError:
             raise
         except (ValueError, SQLAlchemyError) as exc:
             logger.info("video_capabilities 解析失败，将走 project.json fallback：%s", exc)
-            return None
+            caps = None
+        if caps is None or self.generation_mode != "reference_video" or self.project_json.get("content_mode") == "ad":
+            return caps
+        no_ref = await evaluate_video_request_facts(
+            self.project_json,
+            route="reference_video",
+            generation_type="i2v",
+            identity=CONFIGURED_VIDEO_IDENTITY,
+            resolver=resolver,
+        )
+        return {**(caps or {}), "_reference_no_image_facts": no_ref}
 
     def _resolve_backend_ids(self, caps: dict | None) -> tuple[str | None, str | None]:
         """当前视频模型身份：caps → project.json 自报身份；都拿不到为 (None, None)。
@@ -884,6 +908,9 @@ class ScriptGenerator:
         ``uses_reference_images`` 由调用方按本集 script_plan 的实际引用情况传入；缺省退回按生成模式
         判定（见 ``constrain_durations_for_project``）。
         """
+        if gen_mode == "reference_video" and uses_reference_images is False:
+            no_ref = caps.get("_reference_no_image_facts") if caps else None
+            return list(no_ref.allowed_durations) if isinstance(no_ref, VideoRequestFacts) else []
         raw = self._resolve_raw_supported_durations(caps)
         provider_id, model_id = self._resolve_backend_ids(caps)
         return constrain_durations_for_project(
@@ -915,15 +942,27 @@ class ScriptGenerator:
     ) -> list[int] | None:
         """时长落在该 unit 生效档位之外时返回该档位集，落在内则返回 None。
 
-        生效档位逐 unit 算：参考图约束只对实际带图的 unit 生效，整集一刀切会收掉无引用 unit
-        本可申请的档位。档位不可解析时按无约束处理，交执行期 backend 兜底。
+        生效档位逐 unit 算：带图走 r2v，无图走 i2v 请求事实；无图事实不可解析时返回空档位。
         """
+        if (
+            gen_mode == "reference_video"
+            and not has_references
+            and not isinstance(caps.get("_reference_no_image_facts") if caps else None, VideoRequestFacts)
+        ):
+            return []
         tiers = self._resolve_supported_durations(caps, gen_mode=gen_mode, uses_reference_images=has_references)
         if not tiers:
             return None
         return None if resolve_duration_slot(duration, tiers).seconds == duration else tiers
 
-    def _resolve_raw_supported_durations(self, caps: dict | None) -> list[int]:
+    @staticmethod
+    def _require_no_image_facts(caps: dict | None) -> VideoRequestFacts:
+        result = caps.get("_reference_no_image_facts") if caps else None
+        if result is None:
+            result = VideoRequestFactsFailure("reference_capability_unavailable", (("capability", "i2v"),))
+        return require_video_request_facts(result)
+
+    def _resolve_raw_supported_durations(self, caps: dict | None, *, include_no_reference: bool = False) -> list[int]:
         """收窄前的时长全集：委托共享解析器，取不到时抛 ValueError。
 
         本路径的下游是 prompt 与动态枚举 schema，缺档位就无从生成，故把解析器的 None 提升为
@@ -935,6 +974,9 @@ class ScriptGenerator:
                 f"supported_durations 无法解析：caps={bool(caps)}, "
                 f"video_backend={self.project_json.get('video_backend')!r}；请确保 model 配置完整"
             )
+        no_ref = caps.get("_reference_no_image_facts") if caps else None
+        if include_no_reference and isinstance(no_ref, VideoRequestFacts):
+            return sorted(set(durations) | set(no_ref.supported_durations))
         return durations
 
     def _resolve_max_duration(
@@ -1056,14 +1098,14 @@ class ScriptGenerator:
     def _load_reference_script_plan(
         self,
         episode: int,
-        supported_durations: list[int],
+        supported_durations: list[int] | None,
     ) -> list[dict]:
         """加载并校验 reference_video script_plan 结构化中间文件 ``script_plan_reference_units.json``。
 
         返回 unit dict 列表（unit_id / text / duration_seconds / source_text），供内容确认整份转为正式剧本。
         校验：结构合法（``ReferenceScriptPlanDraft``）、units 非空、unit_id 唯一、
-        unit ``duration_seconds`` ∈ ``supported_durations``（与拆分工具的 response_schema 同口径，
-        防手工编辑漂移出非法时长）。仅存在结构化前的旧 ``script_plan_reference_units.md`` 时给
+        有结构档位时校验 unit ``duration_seconds`` ∈ ``supported_durations``；i2v 未知时只做
+        结构收编，随后由逐单元事实校验阻断无图单元。仅存在结构化前的旧 ``script_plan_reference_units.md`` 时给
         明确的「重跑拆分」报错——不写 md→json 迁移器（旧 md 产于结构化中间态引入前，
         与 narration 同决策）。
         """
@@ -1100,7 +1142,7 @@ class ScriptGenerator:
                 raise ValueError(f"script_plan_reference_units.json 解析失败: {e}") from e
 
             # 存量草稿的 per-shot 时长一次性收编到 unit 级并回写落盘（二次加载不再触发）。
-            # 此处持有模型档位，收编结果直接取档，与下方的枚举校验对齐。
+            # i2v 事实可用时按结构档位收编；i2v 未知时不借 r2v 改写无图单元秒数。
             # 时长被收编改写时规划指纹随之漂移，物化按确认指纹复核而拒绝，不以用户未过目的秒数落盘。
             migrate_script_plan_draft_in_place(
                 self.project_path,
@@ -1140,10 +1182,11 @@ class ScriptGenerator:
                 f"script_plan_reference_units.json unit_id 改写到 episode={episode} 后重复: {rewritten_dupes}"
             )
 
-        allowed = {int(d) for d in supported_durations}
-        bad = sorted({u["duration_seconds"] for u in units if u["duration_seconds"] not in allowed})
-        if bad:
-            raise ValueError(f"script_plan_reference_units.json unit 时长非法（不在 {sorted(allowed)} 内）: {bad}")
+        if supported_durations is not None:
+            allowed = {int(d) for d in supported_durations}
+            bad = sorted({u["duration_seconds"] for u in units if u["duration_seconds"] not in allowed})
+            if bad:
+                raise ValueError(f"script_plan_reference_units.json unit 时长非法（不在 {sorted(allowed)} 内）: {bad}")
 
         return units
 
@@ -1272,6 +1315,8 @@ class ScriptGenerator:
     ) -> None:
         """转为正式剧本前判脚本规划已确认的单元时长仍在当前生效档位内；正文由之后的提示词编写改写并校验。"""
         for unit in script_plan_units:
+            if not extract_mentions(str(unit.get("text") or "")):
+                self._require_no_image_facts(caps)
             off_tiers = self._unit_duration_off_every_tier(unit["duration_seconds"], caps=caps, gen_mode=gen_mode)
             if off_tiers is not None:
                 raise ValueError(
@@ -1287,6 +1332,8 @@ class ScriptGenerator:
         单元，两处口径若分叉，就会出现「晋升放行、下次编写被拒」或反过来的死角。
         """
         for unit in units:
+            if not extract_mentions(str(unit.get("text") or "")):
+                self._require_no_image_facts(caps)
             duration = int(unit["duration_seconds"])
             # 必然失败的时长在付费调用之前拦下；放到 _add_metadata 才拦，TextBackend 的费用已经产生。
             off_tiers = self._unit_duration_off_every_tier(duration, caps=caps, gen_mode="reference_video")
@@ -1968,9 +2015,18 @@ class ScriptGenerator:
                 if not (isinstance(s, dict) and id_field in s):
                     continue
                 target_duration = reference_unit_durations[s[id_field]]
+                if not extract_mentions(str(s.get("text") or "")):
+                    try:
+                        self._require_no_image_facts(caps)
+                    except VideoRequestFactsError as exc:
+                        raise DraftViolation(
+                            f"unit {s[id_field]} 无参考图视频档位未知（{exc.code}）；请配置可用的图生视频模型",
+                            code=exc.code,
+                            label=f"unit {s[id_field]}",
+                        ) from exc
                 # 取档按这个 unit 最终落地的正文算，不是 script_plan 拆分时的状态：正文里的
                 # `@[名称]` 由 LLM 在 prompt_authoring 输出时决定，可能与 script_plan 的不同。caps 为 None
-                # 也不短路——_resolve_supported_durations 自带 caps → registry 两级回退。
+                # 也不短路——带图档位可查 registry，无图档位必须有 i2v 请求事实。
                 unit_tiers = self._unit_duration_off_tier(
                     target_duration,
                     has_references=bool(extract_mentions(str(s.get("text") or ""))),

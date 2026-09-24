@@ -28,7 +28,7 @@ from lib.script.script_generator import PromptAuthoringTargetError, ScriptGenera
 from lib.script.script_models import PENDING_AUTHORING_FIELD
 from tests.fakes import FakeConfigResolver
 
-pytestmark = pytest.mark.asyncio
+pytestmark = [pytest.mark.asyncio, pytest.mark.usefixtures("video_request_facts")]
 
 
 # ---------------------------------------------------------------------------

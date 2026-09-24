@@ -16,6 +16,7 @@ from sqlalchemy.exc import OperationalError
 
 from lib.artifacts.artifact_activation import activate_artifact_target_state
 from lib.config.resolver import ConfigResolver
+from lib.generation.video_request_facts import VideoRequestFactsError, VideoRequestFactsFailure
 from lib.project import project_manager as project_manager_module
 from lib.project.project_manager import ProjectManager, ScriptWriteConflict
 from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
@@ -29,6 +30,7 @@ from lib.script.draft_quarantine import (
 from lib.script.reference_video.draft_validation import DraftViolation
 from lib.script.reference_video.text_parser import extract_mentions
 from lib.script.script_generator import ScriptGenerator
+from tests.factories import make_video_request_facts
 
 SCRIPT_PLAN_UNIT = {"unit_id": "E1U01", "text": "@[主角] 推开 @[酒馆] 的门", "duration_seconds": 4}
 SCRIPT_PLAN_UNITS_JSON = _json.dumps({"units": [SCRIPT_PLAN_UNIT]}, ensure_ascii=False)
@@ -118,6 +120,11 @@ class _StubConfigResolver:
 
 def _stub_resolver(caps: dict | None = None) -> ConfigResolver:
     return cast(ConfigResolver, _StubConfigResolver(caps))
+
+
+@pytest.fixture(autouse=True)
+def reference_request_facts(set_video_request_facts):
+    set_video_request_facts(make_video_request_facts(route="reference_video", generation_type="i2v"))
 
 
 async def _materialize(generator: ScriptGenerator, episode: int = 1):
@@ -345,13 +352,20 @@ async def test_entry_ids_rewrite_an_authored_unit_keeping_other_fields(reference
 
 
 @pytest.mark.asyncio
-async def test_prompt_authoring_rejects_formal_duration_outside_effective_tiers(reference_project: Path):
+async def test_prompt_authoring_rejects_formal_duration_outside_effective_tiers(
+    reference_project: Path, set_video_request_facts
+):
     """raw 档位（vidu2.0 的 [4, 8]）在参考生视频下被参考图与分辨率两条约束收窄到 [4]：正式剧本里 8 秒的
     单元不再是合法值。不能静默取档改写落盘，须 fail-loud 并指向时间线。
 
     拦截须发生在 TextBackend 调用之前：带引用与不带引用两种生效档位都不接受该时长时，本次编写
     必然失败；放到输出解析阶段才拦，用户已经为它付了费。
     """
+    set_video_request_facts(
+        make_video_request_facts(
+            route="reference_video", generation_type="i2v", supported_durations=(4, 6, 8), allowed_durations=(4,)
+        )
+    )
     _write_formal_units(reference_project, [{**SCRIPT_PLAN_UNIT, "duration_seconds": 8}])
     generator = _idle_generator()
 
@@ -363,13 +377,93 @@ async def test_prompt_authoring_rejects_formal_duration_outside_effective_tiers(
 
 
 @pytest.mark.asyncio
+async def test_no_image_five_second_unit_uses_i2v_facts_through_conversion_and_authoring(
+    tmp_path: Path, set_video_request_facts
+):
+    project = _write_reference_project(tmp_path, video_backend="gemini-aistudio/veo-3.1-generate-preview")
+    _write_script_plan(
+        project,
+        _json.dumps(
+            {
+                "units": [
+                    {
+                        "unit_id": "E1U01",
+                        "text": "镜头1：空镜，街道渐亮。",
+                        "duration_seconds": 5,
+                        "source_text": "原文",
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        ),
+    )
+    caps = {
+        "provider_id": "gemini-aistudio",
+        "model": "veo-3.1-generate-preview",
+        "supported_durations": [4, 6, 8],
+    }
+    set_video_request_facts(
+        make_video_request_facts(
+            route="reference_video",
+            generation_type="i2v",
+            provider_id="ark",
+            model_id="doubao-seedance-2-0-260128",
+            supported_durations=tuple(range(4, 16)),
+            allowed_durations=tuple(range(4, 16)),
+        )
+    )
+
+    generator = ScriptGenerator(
+        project,
+        generator=_fake_prompt_authoring_generator("镜头1：远景，晨光照亮空旷街道。"),
+        config_resolver=_stub_resolver(caps),
+    )
+
+    await _materialize(generator)
+    await generator.generate(episode=1)
+
+    assert _formal_units(project)["E1U01"]["duration_seconds"] == 5
+
+
+@pytest.mark.asyncio
+async def test_no_image_conversion_rejects_unavailable_i2v_even_when_r2v_accepts_duration(
+    tmp_path: Path, set_video_request_facts
+):
+    project = _write_reference_project(tmp_path, video_backend="gemini-aistudio/veo-3.1-generate-preview")
+    _write_script_plan(
+        project,
+        _json.dumps({"units": [{"unit_id": "E1U01", "text": "镜头1：空镜，街道渐亮。", "duration_seconds": 8}]}),
+    )
+    caps = {
+        "provider_id": "gemini-aistudio",
+        "model": "veo-3.1-generate-preview",
+        "supported_durations": [4, 6, 8],
+    }
+    set_video_request_facts(VideoRequestFactsFailure("reference_capability_unavailable", (("capability", "i2v"),)))
+
+    with pytest.raises(VideoRequestFactsError) as exc:
+        await _materialize(ScriptGenerator(project, config_resolver=_stub_resolver(caps)))
+
+    assert exc.value.code == "reference_capability_unavailable"
+    assert not _script_path(project).exists()
+
+
+@pytest.mark.asyncio
 async def test_script_generator_narrows_duration_tiers_per_unit_not_episode_wide(
-    wide_tier_reference_project: Path,
+    wide_tier_reference_project: Path, set_video_request_facts
 ):
     """同集内一个 unit 带参考图（收窄到 3–16 秒）、另一个不带（仍是 1–16 秒）：后者本已合法的
     2 秒不应因前者的收窄被连带改成 3——取档须按每个 unit 自己的参考图状态重算生效档位，
     不套用 episode 级 any(...) 收窄出的粗粒度集合。
     """
+    set_video_request_facts(
+        make_video_request_facts(
+            route="reference_video",
+            generation_type="i2v",
+            supported_durations=tuple(range(1, 17)),
+            allowed_durations=tuple(range(1, 17)),
+        )
+    )
     project = wide_tier_reference_project
     _write_formal_units(
         project,
@@ -390,11 +484,19 @@ async def test_script_generator_narrows_duration_tiers_per_unit_not_episode_wide
 
 @pytest.mark.asyncio
 async def test_script_generator_takes_duration_tier_from_final_output_references(
-    wide_tier_reference_project: Path,
+    wide_tier_reference_project: Path, set_video_request_facts
 ):
     """单元现有正文带引用（带图档位最短 3 秒，2 秒不在其中），编写输出去掉了引用（回落到纯文本档位
     1–16 秒，2 秒合法）：取档须按最终落地的 references 状态重算，不能沿用改写前的正文状态。
     """
+    set_video_request_facts(
+        make_video_request_facts(
+            route="reference_video",
+            generation_type="i2v",
+            supported_durations=tuple(range(1, 17)),
+            allowed_durations=tuple(range(1, 17)),
+        )
+    )
     project = wide_tier_reference_project
     _write_formal_units(project, [{"unit_id": "E1U01", "text": "@[主角] 推门", "duration_seconds": 2}])
 
@@ -674,7 +776,7 @@ async def test_reference_script_plan_rejects_out_of_enum_duration(plan_only_refe
 
     # 固定能力来源为 project.json 自报身份查 registry（vidu2.0 → [4, 8]），隔离 DB 全局默认干扰
     gen = ScriptGenerator(plan_only_reference_project, config_resolver=_stub_resolver(None))
-    with pytest.raises(ValueError, match="时长非法"):
+    with pytest.raises(ValueError, match="不在当前生效档位"):
         await _materialize(gen)
 
 
@@ -1342,7 +1444,9 @@ async def test_promote_prompt_authoring_draft_rejects_schema_breach_with_report(
 
 
 @pytest.mark.asyncio
-async def test_prompt_authoring_duration_off_tier_after_merge_quarantines(wide_tier_reference_project: Path):
+async def test_prompt_authoring_duration_off_tier_after_merge_quarantines(
+    wide_tier_reference_project: Path, set_video_request_facts
+):
     """合并之后才判出的档位越界同样落待修复草稿——这份展开已经付过费了。
 
     prompt_authoring 可以给 unit 增删 `@` 引用，生效档位随之换一套：正式剧本里那个 2 秒的无引用 unit 在展开时
@@ -1350,6 +1454,14 @@ async def test_prompt_authoring_duration_off_tier_after_merge_quarantines(wide_t
     发生在增加引用的方向上。这一判在 `_add_metadata` 里、在保结构 diff 之后，不接住的话产物
     只存在于内存里，错误却让调用方重新生成。
     """
+    set_video_request_facts(
+        make_video_request_facts(
+            route="reference_video",
+            generation_type="i2v",
+            supported_durations=tuple(range(1, 17)),
+            allowed_durations=tuple(range(1, 17)),
+        )
+    )
     project = wide_tier_reference_project
     _write_formal_units(project, [{"unit_id": "E1U01", "text": "他推门", "duration_seconds": 2}])
     formal_before = _script_path(project).read_bytes()
