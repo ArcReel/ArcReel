@@ -1782,6 +1782,8 @@ def _format_plan(result: PlanResult) -> str:
         lines.append(
             f"- 第 {episode.episode} 集《{episode.title}》{status_note}｜体量约 {episode.reading_units}｜钩子：{episode.hook}"
         )
+        lines.append(f"  首句：{episode.first_sentence}")
+        lines.append(f"  尾句：{episode.last_sentence}")
     if result.source_exhausted:
         lines.append("源文已全部规划完毕。")
     elif result.cursor:
@@ -1791,7 +1793,7 @@ def _format_plan(result: PlanResult) -> str:
     else:
         lines.append(f"累计已规划 {result.total_planned} 集。")
     lines.append(
-        "请把以上摘要展示给用户做批级审阅；需要调整时先调用 reset_episode_planning 退回到"
+        "请把以上摘要（含每集首句与尾句原文）展示给用户做批级审阅；需要调整时先调用 reset_episode_planning 退回到"
         "最早受影响的集，再带 instructions 重新调用本工具。"
     )
     return "\n".join(lines)
@@ -1822,6 +1824,8 @@ async def _execute_plan_episodes(
                 "hook": episode.hook,
                 "reading_units": episode.reading_units,
                 "ledger_status": episode.ledger_status,
+                "first_sentence": episode.first_sentence,
+                "last_sentence": episode.last_sentence,
             }
             for episode in result.episodes
         ],

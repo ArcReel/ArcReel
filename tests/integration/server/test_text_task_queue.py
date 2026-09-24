@@ -312,6 +312,8 @@ async def test_queued_plan_ignores_internal_payload_and_preserves_typed_failure(
                         hook="悬念",
                         reading_units=800,
                         ledger_status="planned",
+                        first_sentence="第一句。",
+                        last_sentence="最后一句。",
                     )
                 ],
                 cursor=None,
@@ -319,6 +321,8 @@ async def test_queued_plan_ignores_internal_payload_and_preserves_typed_failure(
 
     result = await execute_queued_text_task(task, planner_cls=Planner)
     assert result["episodes"][0]["title"] == "第一集"
+    assert result["episodes"][0]["first_sentence"] == "第一句。"
+    assert result["episodes"][0]["last_sentence"] == "最后一句。"
 
     class FailingPlanner(Planner):
         async def plan(self, instructions=None):

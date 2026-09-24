@@ -60,12 +60,7 @@ def _expected_planning_prompt(
     """完整锁住目标体量三种来源之外的既有 planning prompt。"""
     screenplay = source_kind == "screenplay"
     if screenplay:
-        lines = [
-            "你是短视频分集规划师。下面是作者已写好的成品剧本片段，请尊重作者自带的分集、提取而非重切：",
-            "- 若剧本自带分集（任意形态——分集标记、结构表、标题体系、分隔等，不要依赖任何固定标记或正则识别），",
-            "  照用作者划定的每一集边界，title、hook 与分集大纲都取自剧本原文。",
-            "- 若剧本没有任何分集线索，再按完整剧情弧语义切分，每一集都是一个完整的故事段落，绝不按字数机械切碎。",
-        ]
+        lines = ["你是短视频分集规划师。下面是作者已写好的成品剧本片段，请尊重作者自带的分集，提取而非重切。"]
     else:
         lines = [
             "你是短视频分集规划师。请把下面的小说原文片段切分为若干集，每一集都必须是一个完整的剧情弧，",
@@ -85,8 +80,10 @@ def _expected_planning_prompt(
     ]
     if screenplay:
         lines.append(
-            "- 优先照用作者的分集：剧本已划定每集边界时，end_anchor 取作者每集结尾处的原文片段，"
-            "title / hook 也取自剧本（作者写明的集标题、集尾钩子）；剧本未分集时才按剧情弧自行切，绝不按字数硬凑集数。"
+            "- 剧本自带分集时照用作者的分集：一集 = 从本集开头到下一集开头之前的全部文字，"
+            "作者写在两个集开头之间的文字都归属前一集，end_anchor 取这段文字末尾的原文片段；"
+            "title / hook 也取自剧本（作者写明的集标题、集尾钩子）。"
+            "剧本未分集时按完整剧情弧切分，每一集都是一个完整的故事段落。"
         )
     if content_mode == "drama":
         lines.append(
@@ -266,6 +263,57 @@ class TestPlan:
         assert result.episodes[0].hook == "玉中剑诀来历成谜"
         assert result.episodes[0].reading_units > 0
         assert result.source_exhausted is False
+
+    async def test_plan_summary_carries_first_and_last_sentence_of_each_episode(self, tmp_path: Path):
+        """多集批次：每集摘要附本集原文的首句与尾句，取自账本原文范围的切片。"""
+        project_dir = _write_project(tmp_path)
+        fake = _FakeTextGenerator([_plan_response(_THREE_EPISODE_DRAFT)])
+
+        result = await EpisodePlanner(project_dir, generator=fake).plan()
+
+        assert [(s.first_sentence, s.last_sentence) for s in result.episodes] == [
+            ("第一章 山村少年。", "一日他在后山偶得一枚古玉，玉中藏着剑诀。"),
+            ("第二章 下山。", "城门口他撞见了被追杀的少女。"),
+            ("第三章 风波。", "少女身份成谜，李恒被卷入漩涡之中。"),
+        ]
+
+    async def test_plan_summary_splits_screenplay_lines_and_truncates_long_sentences(self, tmp_path: Path):
+        """按行与句末标点断句；超长首句保留开头、超长尾句保留结尾，截断处以省略号标出。"""
+        long_head = "序幕" + "风" * 100 + "。"
+        long_tail = "终" + "雨" * 100 + "落幕了。"
+        source = f"\n  {long_head}\n角色甲：「你来了？」\n角色乙：好。\n{long_tail}\n\n第二集\n角色甲：再见！\n"
+        project_dir = _write_project(tmp_path, source_text=source)
+        fake = _FakeTextGenerator(
+            [
+                _plan_response(
+                    [
+                        {"title": "甲", "hook": "甲", "end_anchor": "雨雨雨雨雨雨雨雨雨落幕了。"},
+                        {"title": "乙", "hook": "乙", "end_anchor": "角色甲：再见！"},
+                    ]
+                )
+            ]
+        )
+
+        result = await EpisodePlanner(project_dir, generator=fake).plan()
+
+        first, second = result.episodes
+        assert first.first_sentence == "序幕" + "风" * 57 + "…"
+        assert first.last_sentence == "…" + "雨" * 55 + "落幕了。"
+        assert (second.first_sentence, second.last_sentence) == ("第二集", "角色甲：再见！")
+
+    async def test_plan_summary_splits_english_sentence_before_closing_quote(self, tmp_path: Path):
+        source = '"Hello." She left. The end.'
+        project_dir = _write_project(
+            tmp_path, source_text=source, extra={"source_kind": "screenplay", "source_language": "en"}
+        )
+        fake = _FakeTextGenerator(
+            [_plan_response([{"title": "One", "hook": "End", "end_anchor": "She left. The end."}])]
+        )
+
+        result = await EpisodePlanner(project_dir, generator=fake).plan()
+
+        assert result.episodes[0].first_sentence == '"Hello."'
+        assert result.episodes[0].last_sentence == "The end."
 
     async def test_plan_rejects_old_flow_episodes_without_source_range(self, tmp_path: Path):
         """旧拆分流程留下的集（无位置记录）拦住规划：指名集号并指路全量重置，不调模型。"""
@@ -898,7 +946,7 @@ class TestPlan:
         assert eps[0]["outline"] == {"story_beats": ["山村习武", "后山得玉"], "next_episode_teaser": "下集李恒下山"}
 
     async def test_plan_prompt_branches_on_source_kind(self, tmp_path: Path):
-        """screenplay 规划 prompt 携带「尊重作者分集 / 无则按剧情弧语义切 / 不依赖固定标记」；novel 不翻面。"""
+        """screenplay 规划 prompt 以「下一集开头」定义作者分集的一集且只定义一次、不含标记识别的否定句；novel 不翻面。"""
 
         def _one_episode_generator() -> _FakeTextGenerator:
             return _FakeTextGenerator(
@@ -927,14 +975,16 @@ class TestPlan:
         await EpisodePlanner(novel_dir, generator=nov_fake).plan()
         nov_prompt = nov_fake.requests[0].prompt
 
-        # screenplay：尊重作者分集、无则按剧情弧语义切、不依赖固定标记
+        # screenplay：尊重作者分集、一集止于下一集开头之前（整段 prompt 只定义一次）、无则按剧情弧切
         assert "尊重作者" in scr_prompt
-        assert "固定标记" in scr_prompt
+        assert scr_prompt.count("下一集开头") == 1
+        assert "固定标记" not in scr_prompt
+        assert "正则" not in scr_prompt
         assert "剧情弧" in scr_prompt
         assert "剧本原文片段" in scr_prompt
         # novel：仍是「切分为若干集」的创作口径，不含 screenplay 专属指令（回归）
         assert "尊重作者" not in nov_prompt
-        assert "固定标记" not in nov_prompt
+        assert "下一集开头" not in nov_prompt
         assert "小说原文片段" in nov_prompt
 
     async def test_plan_window_setting_limits_prompt_window(self, tmp_path: Path):

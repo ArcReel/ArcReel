@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import statistics
 from collections.abc import Callable, Mapping
 from dataclasses import asdict, dataclass, field
@@ -75,6 +76,12 @@ _CONTEXT_EPISODES_LIMIT = 5
 # 会把错误信息撑成几百集的清单）
 _MISSING_RANGE_LISTED_LIMIT = 10
 
+# 摘要里每集首句 / 尾句的最大字符数（含省略号）：超长时首句留开头、尾句留结尾
+_EDGE_SENTENCE_MAX_CHARS = 60
+
+# 一句 = 一行内到句末标点（连同其后的收尾引号 / 括号）为止；英文句点在收尾符号后是空白或行尾时算句末
+_SENTENCE_RE = re.compile(r"[^\n]+?(?:[。！？!?…]+[」』”’\"'）)]*|\.[」』”’\"'）)]*(?=\s|$)|$)", re.MULTILINE)
+
 
 class EpisodePlanningError(RuntimeError):
     """分集规划失败（源文缺失、校验重试耗尽等）。"""
@@ -86,13 +93,15 @@ class PlanningConflictError(EpisodePlanningError):
 
 @dataclass
 class EpisodePlanSummary:
-    """单集摘要：标题 + 钩子 + 体量（按 source_language 计的阅读单位）。"""
+    """单集摘要：标题 + 钩子 + 体量（按 source_language 计的阅读单位）+ 本集原文首句与尾句。"""
 
     episode: int
     title: str
     hook: str
     reading_units: int
     ledger_status: str
+    first_sentence: str
+    last_sentence: str
 
 
 @dataclass
@@ -211,6 +220,21 @@ def _fold_for_match(text: str) -> str:
         else:
             out.append(ch)
     return "".join(out)
+
+
+def _edge_sentences(segment: str) -> tuple[str, str]:
+    """本集原文的首句与尾句，超长时首句截留开头、尾句截留结尾并以省略号标出截断处。"""
+    sentences = [m.group().strip() for m in _SENTENCE_RE.finditer(segment)]
+    sentences = [sentence for sentence in sentences if sentence]
+    if not sentences:
+        return "", ""
+    first, last = sentences[0], sentences[-1]
+    limit = _EDGE_SENTENCE_MAX_CHARS
+    if len(first) > limit:
+        first = first[: limit - 1] + "…"
+    if len(last) > limit:
+        last = "…" + last[-(limit - 1) :]
+    return first, last
 
 
 def _find_all_overlapping(haystack: str, needle: str) -> list[int]:
@@ -545,13 +569,17 @@ class EpisodePlanner:
                     )
                     committed["stale"].append(num)
                 episodes_list.append(entry)
+                segment = text[prev:abs_end]
+                first_sentence, last_sentence = _edge_sentences(segment)
                 summaries.append(
                     EpisodePlanSummary(
                         episode=num,
                         title=draft_ep.title,
                         hook=draft_ep.hook,
-                        reading_units=count_reading_units(text[prev:abs_end], language),
+                        reading_units=count_reading_units(segment, language),
                         ledger_status=entry["ledger_status"],
+                        first_sentence=first_sentence,
+                        last_sentence=last_sentence,
                     )
                 )
                 prev = abs_end
