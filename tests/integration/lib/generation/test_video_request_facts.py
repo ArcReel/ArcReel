@@ -102,6 +102,15 @@ async def _read(resolver, project: dict, *, route="storyboard", generation_type=
 @pytest.mark.parametrize(
     ("project", "route", "generation_type", "resolution", "allowed", "excluded"),
     [
+        pytest.param(
+            {"video_provider_r2v": VEO, "video_provider_i2v": "ark/doubao-seedance-2-0-260128"},
+            "reference_video",
+            "i2v",
+            None,
+            tuple(range(4, 16)),
+            (),
+            id="no-image-uses-wider-i2v-tiers",
+        ),
         pytest.param({"video_provider_i2v": VEO}, "storyboard", "i2v", None, (4, 6, 8), (), id="veo-unset"),
         pytest.param(
             _with_resolution({"video_provider_i2v": VEO}, VEO, "1080p"),

@@ -15,6 +15,7 @@ from lib.script.script_generator import PromptAuthoringTargets, ScriptGenerator
 from lib.script.script_review import content_fingerprint, script_plan_path
 from lib.script.script_structure_validator import ScriptStructureValidationError
 from lib.speech.speech_composition import SpeechAdmissionError
+from tests.factories import make_video_request_facts
 from tests.fakes import FakeConfigResolver
 from tests.speech_contract_cases import SPEECH_CONTRACT_CASES, SpeechContractCase
 
@@ -1324,7 +1325,8 @@ def test_resolve_supported_durations_reference_mode_without_refs_not_narrowed(tm
             "model_settings": {"gemini-aistudio/veo-3.1-generate-preview": {"resolution": "720p"}},
         },
     )
-    assert sg._resolve_supported_durations(_VEO_CAPS, gen_mode="reference_video", uses_reference_images=False) == [
+    caps = {**_VEO_CAPS, "_reference_no_image_facts": make_video_request_facts(route="reference_video")}
+    assert sg._resolve_supported_durations(caps, gen_mode="reference_video", uses_reference_images=False) == [
         4,
         6,
         8,

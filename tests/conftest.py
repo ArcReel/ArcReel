@@ -79,6 +79,30 @@ def set_admission_video_request_facts(
     return configure
 
 
+@pytest.fixture
+def set_video_request_facts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> Callable[[VideoRequestFacts | VideoRequestFactsFailure], None]:
+    """让视频能力消费方读取测试构造的事实结果，求值测试仍使用真实解析器。"""
+    from lib.script import script_generator
+    from server.services.project import script_review
+    from server.services.tasks import video_caps
+
+    def configure(facts: VideoRequestFacts | VideoRequestFactsFailure) -> None:
+        for consumer in (script_generator, script_review, video_caps):
+            monkeypatch.setattr(consumer, "evaluate_video_request_facts", AsyncMock(return_value=facts))
+
+    return configure
+
+
+@pytest.fixture
+def video_request_facts(set_video_request_facts) -> None:
+    """为无关时长分支的消费方用例提供确定的 i2v 档位。"""
+    from tests.factories import make_video_request_facts
+
+    set_video_request_facts(make_video_request_facts(route="reference_video", generation_type="i2v"))
+
+
 def _discard_pooled_connections_in_forked_child() -> None:
     """fork 出的子进程丢弃模块级 engine 池里从父进程继承的连接。
 

@@ -23,8 +23,14 @@ from pydantic import BaseModel, ValidationError
 from lib.artifacts.artifact_manifest import ArtifactKey
 from lib.artifacts.artifact_registration import register_current_artifact_if_provable
 from lib.config.resolver import ConfigResolver, resolve_raw_supported_durations
+from lib.db import async_session_factory
 from lib.episode.episode_ledger import discover_episode_files, register_orphan_episode_entries
 from lib.episode.episode_target_duration import project_episode_target_duration
+from lib.generation.video_request_facts import (
+    CONFIGURED_VIDEO_IDENTITY,
+    VideoRequestFacts,
+    evaluate_video_request_facts,
+)
 from lib.infra.json_io import load_json_or_none
 from lib.project.project_manager import ProjectManager, ScriptWriteConflict
 from lib.script import script_review
@@ -37,7 +43,7 @@ from lib.script.draft_quarantine import (
 from lib.script.script_generator import ScriptGenerator, VideoDurationsUnresolvedError
 from lib.script.script_models import DramaNormalizedScript, NarrationScriptPlanDraft, ReferenceScriptPlanDraft
 from lib.speech.speech_composition import SpeechAdmission, SpeechAdmissionError, admit_script_unit
-from server.services.tasks.video_caps import reference_unit_duration_tiers, resolve_video_caps
+from server.services.tasks.video_caps import reference_unit_duration_tiers, resolve_video_caps, video_facts_problem
 
 logger = logging.getLogger(__name__)
 
@@ -185,15 +191,14 @@ class ScriptReviewService:
             return {}
 
     async def _resolve_supported_durations(self, project_name: str, project: dict[str, Any]) -> list[int] | None:
-        """收窄前的时长档位全集；非 reference_video 变体或解析不到型号时 None。
+        """结构收编用的时长全集；参考路线取 r2v 声明与 i2v 请求事实的并集。
 
         caps 先解析、再交 ``resolve_raw_supported_durations``：registry 那一级只收录内建供应商，
         自定义供应商（``custom-`` 前缀）的档位表只有 caps（DB 驱动的能力查询）给得出。不带 caps
         调用会让这类项目恒为 None——读时迁移退回结构区间 clamp、gate 面板也拿不到可选档位，
         存量草稿的收编对其整体失效。
 
-        caps 解析失败（DB / 迁移故障）时退回不带 caps 的 registry 解析，不阻断 gate（降级见
-        ``_resolve_caps_best_effort``）：缺档位表只是回到结构区间 clamp。
+        caps 解析失败（DB / 迁移故障）时退回 registry 解析；i2v 事实失败时不按模型档位收编。
 
         调用方须在取 ``self.pm.file_lock`` **之前** await 本方法：那把锁是阻塞式文件锁，跨
         await 持有会连带把事件循环上的其它协程挡在锁外。
@@ -201,7 +206,17 @@ class ScriptReviewService:
         if script_review.script_plan_kind(project) != "reference_video":
             return None
         caps = await self._resolve_caps_best_effort(project_name, project)
-        return resolve_raw_supported_durations(project, caps)
+        raw = resolve_raw_supported_durations(project, caps)
+        result = await evaluate_video_request_facts(
+            project,
+            route="reference_video",
+            generation_type="i2v",
+            identity=CONFIGURED_VIDEO_IDENTITY,
+            resolver=self.config_resolver or ConfigResolver(async_session_factory),
+        )
+        if isinstance(result, VideoRequestFacts):
+            return sorted(set(raw or []) | set(result.supported_durations))
+        return None
 
     def _read_script_plan_migrated(
         self,
@@ -248,10 +263,8 @@ class ScriptReviewService:
         ``content`` 为解析后的结构化 script_plan（drama: {title, scenes[]}；narration: {segments[]}；
         reference_video: {units[]}）；不适用 gate 或 script_plan 缺失 / 损坏时为 None。
 
-        ``supported_durations`` 只在 reference_video 变体下非 None：unit 时长是档位枚举而非
-        自由秒数，web 侧要按它渲染选择项。取值与读时迁移同源（同一次
-        ``_resolve_supported_durations``），两处不同源的话，gate 里能选的档位会与迁移收编到的
-        档位不一致。项目未配置视频型号而解析不到时为 None，呈现层退回只读秒数。
+        ``supported_durations`` 是参考路线读时迁移的结构档位全集；i2v 未知时为 None，
+        不借用 r2v 档位改写秒数。界面可选档位由 ``get_reference_duration_tiers`` 按桶提供。
 
         档位解析先于落盘读写完成，其余同步 I/O 整段卸到线程：``file_lock`` 是阻塞式文件锁，
         不能跨 await 持有，而档位解析本身要 await 视频能力查询。
@@ -390,27 +403,10 @@ class ScriptReviewService:
         content = draft.content if revalidation.content is None else revalidation.content
         return {"content": content, "violations": violation_entries(revalidation.violations)}
 
-    async def get_reference_duration_tiers(self, project_name: str, episode: int) -> dict[str, list[int]] | None:
-        """reference_video 变体逐 unit 生效时长档位：``{with_references, without_references}``。
+    async def get_reference_duration_tiers(self, project_name: str, episode: int) -> dict | None:
+        """返回参考路线的两桶生效档位；i2v 失败保留问题码与修复动作。
 
-        与 ``get_state.supported_durations``（收窄前的结构区间全集，供 ``_read_script_plan_migrated``
-        的存量草稿 clamp）取自同一份 ``resolve_raw_supported_durations`` 结果，但用途不同源：
-        那个决定「这个秒数结构上合不合法」，这个决定「现在选它，``_assert_reference_script_plan_ready``
-        会不会接受」——分辨率 / 参考图联动约束只影响后者。clamp 保持用全集，避免收窄后把结构
-        合法但当前档位表之外的存量秒数误判非法；这里单独给下拉提供收窄后的可选项，同一把尺
-        来自 ``reference_unit_duration_tiers``（拆分工具校验用的同一份）。无法解析到型号时返回
-        None，呈现层退回未收窄的 ``supported_durations``。
-
-        非 reference_video 变体直接返回 None，不做 caps 解析——调用方（router）按此方法自身
-        的 script_plan_kind 判断决定是否调用，不拿 ``get_state.supported_durations`` 是否非 None
-        当短路条件：那是另一个方法的返回值，两者各自判 script_plan_kind，不互相依赖。
-
-        caps 与收窄用的模型身份在本方法内单独解析：``reference_unit_duration_tiers`` 要按
-        caps 里的 provider/model 求联动约束，光有档位表不够；解析失败的降级与档位表那条链
-        共用 ``_resolve_caps_best_effort``，缺 caps 时收窄回退为不收窄。
-
-        项目读取同 ``get_quarantine_info`` 卸到线程——本方法同样是 ``async`` 且由请求协程
-        直接 ``await``，同步的 ``project.json`` 读取直接跑在事件循环上会阻塞并发的其它请求。
+        非参考路线或 r2v 全集不可解析时返回 None。项目文件读取卸到线程，避免阻塞请求循环。
         """
         project = await asyncio.to_thread(self.pm.load_project, project_name)
         if script_review.script_plan_kind(project) != "reference_video":
@@ -419,13 +415,21 @@ class ScriptReviewService:
         raw = resolve_raw_supported_durations(project, caps)
         if raw is None:
             return None
-        with_refs, without_refs = await reference_unit_duration_tiers(
+        with_refs, without_ref_facts = await reference_unit_duration_tiers(
             project,
             caps,
             raw,
             config_resolver=self.config_resolver,
         )
-        return {"with_references": sorted(set(with_refs)), "without_references": sorted(set(without_refs))}
+        return {
+            "with_references": sorted(set(with_refs)),
+            "without_references": (
+                list(without_ref_facts.allowed_durations) if isinstance(without_ref_facts, VideoRequestFacts) else None
+            ),
+            "without_references_problem": (
+                None if isinstance(without_ref_facts, VideoRequestFacts) else video_facts_problem(without_ref_facts)
+            ),
+        }
 
     async def save_content(
         self, project_name: str, episode: int, content: object, base_fingerprint: str | None = None

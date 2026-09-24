@@ -65,6 +65,8 @@ from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
     write_rv_script_plan,
 )
 
+pytestmark = pytest.mark.usefixtures("video_request_facts")
+
 
 def _draft_result(out: dict) -> dict:
     return json.loads(out["content"][0]["text"])["draft"]

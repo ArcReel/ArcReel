@@ -10,6 +10,7 @@ from typing import Any, ClassVar
 import pytest
 
 from lib.backends.providers import CallPurpose
+from lib.generation.video_request_facts import VideoRequestFactsFailure
 from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from lib.script import script_review
 from server.agent_runtime.sdk_tools.text_generation import (
@@ -19,14 +20,12 @@ from server.agent_runtime.sdk_tools.text_generation import (
 )
 from server.media_tools.context import ToolContext
 from server.text_generation import TextGenerationRequest, _parse_normalized_content
+from tests.factories import make_video_request_facts
 from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
     call,
     fake_caps_resolver,
     use_fake_caps,
 )
-
-# i2v 桶不可解析：不带图档位随之回退按 r2v 桶求值（``reference_unit_duration_tiers``）。
-_NO_I2V = {"i2v": ValueError("i2v bucket unresolvable in this test")}
 
 # ---------------------------------------------------------------------------
 # text_generation
@@ -53,8 +52,11 @@ async def test_get_video_capabilities_resolves_by_project(fake_ctx: ToolContext)
     assert resolver.generation_type_calls == [None, None]
 
 
-async def test_get_video_capabilities_annotates_reference_unit_tiers(fake_ctx: ToolContext) -> None:
-    """参考路径项目另返回两套逐 unit 生效档位，供手工改 script_plan 时与生成侧对同一份数字。"""
+async def test_get_video_capabilities_annotates_reference_unit_tiers(
+    fake_ctx: ToolContext, set_video_request_facts
+) -> None:
+    """Agent 只收到一处无图档位及其失败原因。"""
+    set_video_request_facts(VideoRequestFactsFailure("reference_capability_unavailable", (("capability", "i2v"),)))
     fake_ctx.pm.project_payload["model_settings"] = {"gemini-aistudio/veo-3.1-generate-preview": {"resolution": "720p"}}
     use_fake_caps(
         fake_ctx,
@@ -62,14 +64,52 @@ async def test_get_video_capabilities_annotates_reference_unit_tiers(fake_ctx: T
         model="veo-3.1-generate-preview",
         supported_durations=[4, 6, 8],
         generation_mode="reference_video",
-        generation_type_errors=_NO_I2V,
     )
     out = await call(get_video_capabilities_tool(fake_ctx), {})
     assert out.get("is_error") is not True, out
     payload = json.loads(out["content"][0]["text"])["video_capabilities"]
-    assert payload["reference_unit_durations"] == {"with_references": [8], "without_references": [4, 6, 8]}
+    assert payload["reference_unit_durations"] == {
+        "with_references": [8],
+        "without_references": None,
+        "excluded": None,
+        "problem": {
+            "code": "reference_capability_unavailable",
+            "params": {"capability": "i2v"},
+            "action": "configure_video_model",
+        },
+    }
+    assert "allowed_without_reference_images" not in payload.get("duration_constraints", {})
     # 全集原样保留：它是型号声明，不是生效档位
     assert payload["supported_durations"] == [4, 6, 8]
+
+
+async def test_get_video_capabilities_has_one_successful_no_image_channel(
+    fake_ctx: ToolContext, set_video_request_facts
+) -> None:
+    set_video_request_facts(
+        make_video_request_facts(
+            route="reference_video", generation_type="i2v", supported_durations=(5, 10), allowed_durations=(5, 10)
+        )
+    )
+    use_fake_caps(
+        fake_ctx,
+        provider_id="gemini-aistudio",
+        model="veo-3.1-generate-preview",
+        supported_durations=[4, 6, 8],
+        generation_mode="reference_video",
+        duration_constraints={"allowed_without_reference_images": [8]},
+    )
+
+    out = await call(get_video_capabilities_tool(fake_ctx), {})
+    payload = json.loads(out["content"][0]["text"])["video_capabilities"]
+
+    assert payload["reference_unit_durations"] == {
+        "with_references": [8],
+        "without_references": [5, 10],
+        "excluded": {},
+        "problem": None,
+    }
+    assert "allowed_without_reference_images" not in payload["duration_constraints"]
 
 
 @pytest.mark.parametrize(

@@ -2020,18 +2020,13 @@ class TestProjectGenerationModeCaps:
 
 
 class TestNoReferenceBucketDurations:
-    """参考生视频的 ``allowed_without_reference_images`` 由 i2v 桶模型自己解析。
-
-    无参考图的视频单元执行时落 i2v 桶（``lib.script.reference_video.units.reference_video_bucket``），
-    与 r2v 桶可以是两个模型：同分辨率下把 r2v 模型的参考图约束摘掉，只在两桶同模型时才碰巧
-    是这些单元能选的档位。
-    """
+    """resolver 的 r2v 能力不组装 i2v 桶档位；HTTP 与 Agent 读侧从视频请求事实补全。"""
 
     VEO = "gemini-aistudio/veo-3.1-generate-preview"
     SEEDANCE = "ark/doubao-seedance-2-0-260128"
 
     async def test_i2v_bucket_model_drives_the_no_reference_tiers(self, db_factory):
-        """两桶配成不同模型时，该字段是 i2v 桶模型的收窄结果，不是 r2v 模型摘掉参考图约束的那份。"""
+        """两桶配成不同模型时，r2v 原语不猜测 i2v 档位。"""
         caps = await _video_caps(
             db_factory,
             {
@@ -2045,11 +2040,11 @@ class TestNoReferenceBucketDurations:
         constraints = caps["duration_constraints"]
         # r2v 路径：参考图约束下 veo 只剩 8 秒。
         assert constraints["allowed"] == [8]
-        # 无参考图单元按 seedance 的 i2v 档位全集走，与 veo 的 8 秒无关。
-        assert constraints["allowed_without_reference_images"] == list(range(4, 16))
+        # resolver 不组装第二个桶；读侧从 i2v 视频请求事实补全。
+        assert constraints["allowed_without_reference_images"] is None
 
     async def test_same_model_both_buckets_matches_a_standalone_i2v_query(self, db_factory):
-        """两桶同模型时，该字段与单独按 i2v 桶查一次得到的 ``allowed`` 逐项相等。"""
+        """两桶同模型时仍由请求事实补全，单独 i2v 查询照常返回当前桶档位。"""
         project = {
             "generation_mode": "reference_video",
             "video_provider_r2v": self.VEO,
@@ -2058,13 +2053,11 @@ class TestNoReferenceBucketDurations:
         }
         caps = await _video_caps(db_factory, project)
         i2v_only = await _video_caps(db_factory, project, generation_type="i2v")
-        assert (
-            caps["duration_constraints"]["allowed_without_reference_images"]
-            == i2v_only["duration_constraints"]["allowed"]
-        )
+        assert caps["duration_constraints"]["allowed_without_reference_images"] is None
+        assert i2v_only["duration_constraints"]["allowed"] == [8]
 
     async def test_unsaved_resolution_applies_no_resolution_constraint_like_execution(self, db_factory):
-        """项目没存分辨率时请求不携带分辨率，i2v 桶不施加分辨率约束：Veo 无参考图单元是 [4, 6, 8]。"""
+        """未存分辨率也不使 r2v 原语推断 i2v 桶档位。"""
         caps = await _video_caps(
             db_factory,
             {
@@ -2073,7 +2066,7 @@ class TestNoReferenceBucketDurations:
                 "video_provider_i2v": self.VEO,
             },
         )
-        assert caps["duration_constraints"]["allowed_without_reference_images"] == [4, 6, 8]
+        assert caps["duration_constraints"]["allowed_without_reference_images"] is None
 
     async def test_project_without_a_usable_i2v_bucket_reports_unknown(self, db_factory):
         """项目没配可用的 i2v 桶（S2V-01 只吃参考图，无首帧能力）时该字段为 None，其余能力照常返回。

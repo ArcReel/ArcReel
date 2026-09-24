@@ -40,7 +40,7 @@ function pendingState(overrides: Partial<ScriptReviewState> = {}): ScriptReviewS
     confirmed_at: null,
     quarantine: null,
     supported_durations: [4, 8],
-    duration_tiers: null,
+    duration_tiers: { with_references: [4, 8], without_references: [4, 8] },
     episode_target_duration: null,
     script_overwrite: null,
     content: {
@@ -108,6 +108,30 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
     expect(screen.getByText("@[长街]")).toBeInTheDocument();
     expect(screen.queryByText("参考图")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /确认拆分，继续生成/ })).toBeEnabled();
+  });
+
+  it("blocks confirmation when the no-reference i2v tier is unresolved", async () => {
+    const state = pendingState({
+      duration_tiers: {
+        with_references: [8],
+        without_references: null,
+        without_references_problem: {
+          code: "video_capability_missing_i2v",
+          params: { capability: "i2v" },
+          action: "configure_video_model",
+        },
+      },
+    });
+    state.content = { units: [{ unit_id: "E1U01", text: "夜色中行走。", duration_seconds: 8, source_text: "夜色中行走。" }] };
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(state);
+
+    render(<ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
+
+    expect(await screen.findByText("无参考图档位未知")).toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent("当前模型不支持图生视频");
+    expect(screen.getByRole("alert")).toHaveTextContent("video_capability_missing_i2v");
+    expect(screen.getByRole("button", { name: /确认拆分，继续生成/ })).toBeDisabled();
+    expect(screen.queryByRole("combobox", { name: "E1U01 时长" })).not.toBeInTheDocument();
   });
 
   it("localizes structured speech violations with their unit and field locations", async () => {
@@ -503,7 +527,7 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
   });
 
   it("falls back to a read-only duration when no tier list is available", async () => {
-    vi.spyOn(API, "getScriptReview").mockResolvedValue(pendingState({ supported_durations: null }));
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(pendingState({ supported_durations: null, duration_tiers: null }));
     render(<ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
 
     await waitFor(() => expect(screen.getByText("8 秒")).toBeInTheDocument());
@@ -511,7 +535,10 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
   });
 
   it("keeps the duration select on a stored value that is no longer a supported tier, sorted into place", async () => {
-    vi.spyOn(API, "getScriptReview").mockResolvedValue(pendingState({ supported_durations: [4, 6] }));
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(pendingState({
+      supported_durations: [4, 6],
+      duration_tiers: { with_references: [4, 6], without_references: [4, 6] },
+    }));
     render(<ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
 
     const select = await screen.findByRole<HTMLSelectElement>("combobox", { name: "E1U01 时长" });

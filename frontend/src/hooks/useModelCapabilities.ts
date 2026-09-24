@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { API, ApiRequestError } from "@/api";
 import { isDemoProject } from "@/onboarding/demo-project";
 import { useCapabilitiesStore } from "@/stores/capabilities-store";
-import type { DurationExclusionReason, VideoCapabilities, VoiceConsistencyTier } from "@/types";
+import type { DurationExclusionReason, VideoCapabilities, VideoCapabilityProblem, VoiceConsistencyTier } from "@/types";
 
 // ---------------------------------------------------------------------------
 // 视频模型能力：前端唯一的能力消费入口，单通路读服务端 video-capabilities 端点。
@@ -49,6 +49,8 @@ export interface ModelCapabilities {
    * 两个模型，故这不是「当前模型的档位去掉参考图约束」。
    */
   supportedDurationsWithoutReference: number[] | null;
+  withoutReferenceProblem: VideoCapabilityProblem | null;
+  excludedDurationsWithoutReference: Record<string, DurationExclusionReason>;
   /** 全集中被联动约束剔除的时长（键为秒数字符串）→ 成因；未知为空表。 */
   excludedDurations: Record<string, DurationExclusionReason>;
   /**
@@ -190,6 +192,8 @@ export function useModelCapabilities({
     rawDurations: caps?.supported_durations?.length ? ascending(caps.supported_durations) : null,
     supportedDurations: constraints ? constraints.allowed : null,
     supportedDurationsWithoutReference: constraints ? constraints.allowed_without_reference_images : null,
+    withoutReferenceProblem: constraints?.without_reference_problem ?? null,
+    excludedDurationsWithoutReference: constraints?.excluded_without_reference_images ?? EMPTY_EXCLUSIONS,
     excludedDurations: constraints?.excluded ?? EMPTY_EXCLUSIONS,
     durationEndpointFixed: caps?.duration_endpoint_fixed ?? false,
     resolvedVideoBackend: caps ? `${caps.provider_id}/${caps.model}` : null,

@@ -83,6 +83,7 @@ from server.services.project.project_archive import (
     ProjectArchiveValidationError,
 )
 from server.services.project.project_cover import resolve_project_cover
+from server.services.tasks.video_caps import annotate_reference_no_image_caps
 
 router = APIRouter()
 
@@ -774,10 +775,16 @@ async def get_video_capabilities(
             )
             if (caps["provider_id"], caps["model"]) != (provider_id, model_id):
                 raise BadRequestError("video_capability_reference_unavailable", provider=provider_id, model=model_id)
-            return caps
-        return await resolver.video_capabilities(
-            name, resolution=resolution, uses_reference_images=uses_reference_images
-        )
+        else:
+            caps = await resolver.video_capabilities(
+                name, resolution=resolution, uses_reference_images=uses_reference_images
+            )
+            project = None
+        if caps.get("generation_mode") == "reference_video":
+            await annotate_reference_no_image_caps(
+                caps, project or get_project_manager().load_project(name), config_resolver=resolver
+            )
+        return caps
     except FileNotFoundError as exc:
         raise NotFoundError("project_not_found", name=name) from exc
     except VideoBucketCapabilityError as exc:

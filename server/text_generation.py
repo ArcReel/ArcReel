@@ -34,6 +34,7 @@ from lib.episode.episode_paths import (
     episode_script_filename,
     episode_source_relpath,
 )
+from lib.generation.video_request_facts import VideoRequestFacts, VideoRequestFactsFailure
 from lib.i18n import _ as translate
 from lib.infra.async_thread import run_sync_transaction
 from lib.infra.content_digest import prefixed_sha256_file
@@ -759,6 +760,7 @@ class ReferenceSplitCaps(NamedTuple):
     durations: list[int]
     reference_durations: list[int]
     text_durations: list[int]
+    text_problem: VideoRequestFactsFailure | None
     max_duration: int
     max_refs: int | None
     voice: VoiceRenderSettings
@@ -811,12 +813,13 @@ async def _fetch_reference_caps_with_fallback(
     durations = [int(d) for d in caps.get("supported_durations") or []]
     if not durations:
         durations = list(DEFAULT_FALLBACK)
-    with_refs, without_refs = await reference_unit_duration_tiers(
+    with_refs, without_ref_facts = await reference_unit_duration_tiers(
         project,
         caps,
         durations,
         config_resolver=config_resolver,
     )
+    without_refs = list(without_ref_facts.allowed_durations) if isinstance(without_ref_facts, VideoRequestFacts) else []
     unit_durations = sorted(set(with_refs) | set(without_refs))
     max_duration = max(unit_durations)
     raw_refs = caps.get("max_reference_images")
@@ -830,6 +833,7 @@ async def _fetch_reference_caps_with_fallback(
         durations=unit_durations,
         reference_durations=sorted(set(with_refs)),
         text_durations=sorted(set(without_refs)),
+        text_problem=without_ref_facts if isinstance(without_ref_facts, VideoRequestFactsFailure) else None,
         max_duration=max_duration,
         max_refs=max_refs,
         voice=VoiceRenderSettings.from_caps(caps),
@@ -846,6 +850,11 @@ def _validate_unit_duration_tier(label: str, duration: int, *, has_references: b
     抛的是内容违约而非 ``ValueError``：这一类同样是 Agent 改一改草稿就能修好的，走草稿
     的修复闭环，不该退回丢弃重抽。
     """
+    if not has_references and caps.text_problem is not None:
+        raise DraftViolation(
+            f"{label} 无参考图视频档位未知（{caps.text_problem.code}）；请在设置中配置可用的图生视频模型",
+            code=caps.text_problem.code,
+        )
     tiers = caps.tiers_for(has_references=has_references)
     if duration in tiers:
         return

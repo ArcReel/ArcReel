@@ -5,10 +5,12 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from lib.generation.video_request_facts import VideoRequestFactsFailure
 from server.agent_runtime.sdk_tools.text_generation import (
     generate_script_plan_tool,
 )
 from server.media_tools.context import ToolContext
+from tests.factories import make_video_request_facts
 from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
     _RV_NOVEL,
     call,
@@ -23,15 +25,11 @@ from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
     use_fake_caps,
 )
 
-# i2v 桶不可解析：不带图档位随之回退按 r2v 桶求值（``reference_unit_duration_tiers``）。
-_NO_I2V = {"i2v": ValueError("i2v bucket unresolvable in this test")}
-
 # Veo 在 720p 下声明「带参考图仅 8 秒」，是两套逐 unit 档位分叉的现成型号。
 _VEO_CAPS = {
     "provider_id": "gemini-aistudio",
     "model": "veo-3.1-generate-preview",
     "supported_durations": (4, 6, 8),
-    "generation_type_errors": _NO_I2V,
 }
 
 
@@ -45,15 +43,22 @@ def _veo_720p(fake_ctx: ToolContext) -> None:
 # ---------------------------------------------------------------------------
 
 
-async def test_fetch_reference_caps_with_fallback_returns_declared_slots() -> None:
+async def test_fetch_reference_caps_with_fallback_returns_declared_slots(set_video_request_facts) -> None:
     """unit 时长就是发给供应商的那个值，档位原样取自模型声明（不与任何静态区间求交）。"""
+    set_video_request_facts(
+        make_video_request_facts(
+            route="reference_video",
+            generation_type="i2v",
+            supported_durations=(1, 8, 16, 18),
+            allowed_durations=(1, 8, 16, 18),
+        )
+    )
     from server import text_generation as mod
 
     resolver = fake_caps_resolver(
         supported_durations=[1, 8, 16, 18],
         default_duration=16,
         max_reference_images=None,
-        generation_type_errors=_NO_I2V,
     )
 
     caps = await mod._fetch_reference_caps_with_fallback({}, 1, config_resolver=resolver)
@@ -66,11 +71,16 @@ async def test_fetch_reference_caps_with_fallback_returns_declared_slots() -> No
     assert caps.max_refs is None
 
 
-async def test_fetch_reference_caps_with_fallback_narrows_unit_duration_cap() -> None:
+async def test_fetch_reference_caps_with_fallback_narrows_unit_duration_cap(set_video_request_facts) -> None:
     """档位随联动约束收窄：海螺在 1080p 下只接受 6 秒，全集是 [6, 10]。
 
     不收窄的话 script_plan 会按 10 秒拆出 unit，prompt_authoring 的枚举 schema 再把它判非法。
     """
+    set_video_request_facts(
+        make_video_request_facts(
+            route="reference_video", generation_type="i2v", supported_durations=(6, 10), allowed_durations=(6,)
+        )
+    )
     from server import text_generation as mod
 
     resolver = fake_caps_resolver(
@@ -78,7 +88,6 @@ async def test_fetch_reference_caps_with_fallback_narrows_unit_duration_cap() ->
         model="MiniMax-Hailuo-2.3",
         supported_durations=[6, 10],
         default_duration=None,
-        generation_type_errors=_NO_I2V,
     )
 
     project = {"model_settings": {"minimax/MiniMax-Hailuo-2.3": {"resolution": "1080p"}}}
@@ -87,8 +96,13 @@ async def test_fetch_reference_caps_with_fallback_narrows_unit_duration_cap() ->
     assert caps.max_duration == 6
 
 
-async def test_fetch_reference_caps_with_fallback_narrows_slots_by_resolution() -> None:
+async def test_fetch_reference_caps_with_fallback_narrows_slots_by_resolution(set_video_request_facts) -> None:
     """分辨率联动约束同样收窄 unit 档位：Veo 1080p 下只接受 8 秒。"""
+    set_video_request_facts(
+        make_video_request_facts(
+            route="reference_video", generation_type="i2v", supported_durations=(4, 6, 8), allowed_durations=(8,)
+        )
+    )
     from server import text_generation as mod
 
     resolver = fake_caps_resolver(
@@ -96,7 +110,6 @@ async def test_fetch_reference_caps_with_fallback_narrows_slots_by_resolution() 
         model="veo-3.1-generate-preview",
         supported_durations=[4, 6, 8],
         default_duration=None,
-        generation_type_errors=_NO_I2V,
     )
 
     project = {"model_settings": {"gemini-aistudio/veo-3.1-generate-preview": {"resolution": "1080p"}}}
@@ -105,15 +118,21 @@ async def test_fetch_reference_caps_with_fallback_narrows_slots_by_resolution() 
     assert caps.max_duration == 8
 
 
-async def test_reference_unit_duration_tiers_does_not_assume_containment(monkeypatch) -> None:
+async def test_reference_unit_duration_tiers_does_not_assume_containment(monkeypatch, set_video_request_facts) -> None:
     """两套档位之间无包含关系可假定：两条约束自相矛盾时带图那套反而更宽。
 
     ``constrain_durations`` 在交集为空时回退到未收窄候选，故型号同时声明「带图仅 8s」与
     「1080p 仅 6s」时，带图集回退成全集、不带图集收成 [6]。调用方须显式取并集当枚举。
-    i2v 桶解析按不可解析处理——退回两桶同模型口径，联动矛盾在单模型内就能成立。
+    两桶都配置同一模型，联动矛盾在单模型内就能成立。
     """
+    set_video_request_facts(
+        make_video_request_facts(
+            route="reference_video", generation_type="i2v", supported_durations=(4, 6, 8), allowed_durations=(6,)
+        )
+    )
     from lib.config import resolver as resolver_mod
     from lib.config.registry import ModelInfo
+    from lib.generation.video_request_facts import VideoRequestFacts
     from server.services.tasks.video_caps import reference_unit_duration_tiers
 
     contradictory = ModelInfo(
@@ -131,40 +150,73 @@ async def test_reference_unit_duration_tiers_does_not_assume_containment(monkeyp
         project,
         {"provider_id": "p", "model": "m"},
         [4, 6, 8],
-        config_resolver=fake_caps_resolver(generation_type_errors=_NO_I2V),
+        config_resolver=fake_caps_resolver(provider_id="p", model="m", supported_durations=[4, 6, 8]),
     )
 
     assert with_refs == [4, 6, 8]
-    assert without_refs == [6]
-    assert not set(with_refs) <= set(without_refs)
+    assert isinstance(without_refs, VideoRequestFacts)
+    assert list(without_refs.allowed_durations) == [6]
+    assert not set(with_refs) <= set(without_refs.allowed_durations)
 
 
-async def test_reference_unit_duration_tiers_without_refs_follow_i2v_bucket() -> None:
+async def test_reference_unit_duration_tiers_without_refs_follow_i2v_bucket(set_video_request_facts) -> None:
     """不带图档位按 i2v 桶模型求值：无引用 unit 执行期降级到 i2v 桶执行，创作侧放行的秒数
     须与该桶模型的声明一致，否则会放行 r2v 独有档位、漏掉 i2v 独有档位。"""
+    set_video_request_facts(
+        make_video_request_facts(
+            route="reference_video", generation_type="i2v", supported_durations=(5, 10), allowed_durations=(5, 10)
+        )
+    )
+    from lib.generation.video_request_facts import VideoRequestFacts
     from server.services.tasks.video_caps import reference_unit_duration_tiers
 
-    resolver = fake_caps_resolver(
-        by_generation_type={
-            "i2v": {
-                "provider_id": "ark",
-                "model": "doubao-seedance-1-5-pro-251215",
-                "supported_durations": [5, 10],
-            }
-        },
-    )
-
     with_refs, without_refs = await reference_unit_duration_tiers(
-        {}, {"provider_id": "minimax", "model": "S2V-01"}, [6, 10], config_resolver=resolver
+        {}, {"provider_id": "minimax", "model": "S2V-01"}, [6, 10]
     )
 
     assert with_refs == [6, 10]
-    assert without_refs == [5, 10]
-    # 不带图那套只按 i2v 桶解析一次，r2v 的档位由调用方传入、不再回查
-    assert resolver.generation_type_calls == ["i2v"]
+    assert isinstance(without_refs, VideoRequestFacts)
+    assert list(without_refs.allowed_durations) == [5, 10]
 
 
-async def test_fetch_reference_caps_with_fallback_splits_tiers_by_reference_state() -> None:
+async def test_reference_unit_duration_tiers_reports_unavailable_i2v_instead_of_r2v_fallback(db_factory) -> None:
+    from lib.config.resolver import ConfigResolver
+    from lib.generation.video_request_facts import VideoRequestFactsFailure
+    from server.services.tasks.video_caps import reference_unit_duration_tiers
+
+    project = {"generation_mode": "reference_video", "video_provider_r2v": "minimax/S2V-01"}
+    with_refs, without_refs = await reference_unit_duration_tiers(
+        project,
+        {"provider_id": "minimax", "model": "S2V-01"},
+        [6, 10],
+        config_resolver=ConfigResolver(db_factory),
+    )
+
+    assert with_refs == [6, 10]
+    assert isinstance(without_refs, VideoRequestFactsFailure)
+    assert without_refs.code == "reference_capability_unavailable"
+    assert without_refs.parameters() == {"capability": "i2v"}
+    assert without_refs.action == "configure_video_model"
+
+
+async def test_reference_split_planning_accepts_five_seconds_from_i2v_facts(db_factory) -> None:
+    from lib.config.resolver import ConfigResolver
+    from server.text_generation import _fetch_reference_caps_with_fallback
+
+    project = {
+        "generation_mode": "reference_video",
+        "video_provider_r2v": "gemini-aistudio/veo-3.1-generate-preview",
+        "video_provider_i2v": "ark/doubao-seedance-2-0-260128",
+    }
+    caps = await _fetch_reference_caps_with_fallback(project, 1, config_resolver=ConfigResolver(db_factory))
+
+    assert caps.reference_durations == [8]
+    assert 5 in caps.text_durations
+    assert 5 in caps.durations
+    assert caps.text_problem is None
+
+
+async def test_fetch_reference_caps_with_fallback_splits_tiers_by_reference_state(video_request_facts) -> None:
     """「参考图↔时长」约束逐 unit 生效：Veo 720p 下带引用只剩 8 秒，无引用仍有 4/6/8。
 
     枚举与 prompt 候选取并集——一律按带图收窄会把无引用 unit 本可申请的短档也收掉。
@@ -176,7 +228,6 @@ async def test_fetch_reference_caps_with_fallback_splits_tiers_by_reference_stat
         model="veo-3.1-generate-preview",
         supported_durations=[4, 6, 8],
         default_duration=None,
-        generation_type_errors=_NO_I2V,
     )
 
     project = {"model_settings": {"gemini-aistudio/veo-3.1-generate-preview": {"resolution": "720p"}}}
@@ -189,8 +240,9 @@ async def test_fetch_reference_caps_with_fallback_splits_tiers_by_reference_stat
     assert caps.tiers_for(has_references=False) == [4, 6, 8]
 
 
-async def test_fetch_reference_caps_with_fallback_uses_write_layer_default() -> None:
+async def test_fetch_reference_caps_with_fallback_uses_write_layer_default(set_video_request_facts) -> None:
     """rv 路径的软回退与 _fetch_caps_with_fallback 同口径，取 duration_presets.DEFAULT_FALLBACK。"""
+    set_video_request_facts(VideoRequestFactsFailure("reference_capability_unavailable", (("capability", "i2v"),)))
     from lib.custom_provider.duration_presets import DEFAULT_FALLBACK
     from server import text_generation as mod
 
@@ -202,12 +254,13 @@ async def test_fetch_reference_caps_with_fallback_uses_write_layer_default() -> 
     assert caps.max_refs is None
 
 
-async def test_fetch_reference_caps_with_fallback_preserves_silent_intent_on_failure() -> None:
+async def test_fetch_reference_caps_with_fallback_preserves_silent_intent_on_failure(set_video_request_facts) -> None:
     """能力查询失败时，`raw["requested_generate_audio"]` 仍随项目的无声意图走，不回退成 True。
 
     它不依赖能力接口独立解析（同 generation_context.py），否则声音提示层会漏发
     WARN_SILENT_EPISODE，误导用户以为本集仍会尝试组装参考音频。
     """
+    set_video_request_facts(VideoRequestFactsFailure("reference_capability_unavailable", (("capability", "i2v"),)))
     from server import text_generation as mod
 
     resolver = fake_caps_resolver(
@@ -219,12 +272,13 @@ async def test_fetch_reference_caps_with_fallback_preserves_silent_intent_on_fai
     assert resolver.generate_audio_calls == [{"video_generate_audio": False}]
 
 
-async def test_fetch_reference_caps_with_fallback_degrades_silent_on_double_failure() -> None:
+async def test_fetch_reference_caps_with_fallback_degrades_silent_on_double_failure(set_video_request_facts) -> None:
     """独立解析也失败（双重故障）时收紧到 False，不得落回 True。
 
     与其余能力字段「不明时不额外收紧」相反：这里不明时假定无声，代价只是少发一条声音
     提示；假定有声则会让 `derive_voice_bindings` 在派生阶段继续算参考音频，误导排查方向。
     """
+    set_video_request_facts(VideoRequestFactsFailure("reference_capability_unavailable", (("capability", "i2v"),)))
     from server import text_generation as mod
 
     resolver = fake_caps_resolver(
@@ -236,7 +290,7 @@ async def test_fetch_reference_caps_with_fallback_degrades_silent_on_double_fail
     assert resolver.generate_audio_calls == [{"video_generate_audio": False}]
 
 
-async def test_split_reference_video_units_dry_run(fake_ctx: ToolContext) -> None:
+async def test_split_reference_video_units_dry_run(fake_ctx: ToolContext, video_request_facts) -> None:
     rv_source(fake_ctx)
     use_fake_caps(fake_ctx)
 
@@ -253,7 +307,9 @@ async def test_split_reference_video_units_dry_run(fake_ctx: ToolContext) -> Non
     assert "紧跟它所对应的那句动作" in prompt_text
 
 
-async def test_split_reference_video_units_happy_derives_structure(fake_ctx: ToolContext, monkeypatch) -> None:
+async def test_split_reference_video_units_happy_derives_structure(
+    fake_ctx: ToolContext, monkeypatch, video_request_facts
+) -> None:
     """happy path：LLM 只写扁平正文，正文逐字落盘，只有 unit_id 由工具机械派生。"""
     from server import text_generation as mod
 
@@ -280,7 +336,9 @@ async def test_split_reference_video_units_happy_derives_structure(fake_ctx: Too
     assert captured["generate_project_name"] == "demo"
 
 
-async def test_split_reference_video_units_numbers_unit_ids_by_order(fake_ctx: ToolContext, monkeypatch) -> None:
+async def test_split_reference_video_units_numbers_unit_ids_by_order(
+    fake_ctx: ToolContext, monkeypatch, video_request_facts
+) -> None:
     """unit_id 按数组序号机械编号：LLM 不写 id，也就不存在重复 / 错集号可写。"""
     rv_source(fake_ctx)
     units = [rv_unit("@[张三] 起身"), rv_unit("@[张三] 出门")]
@@ -291,7 +349,7 @@ async def test_split_reference_video_units_numbers_unit_ids_by_order(fake_ctx: T
 
 
 async def test_split_reference_video_units_derives_dialogue_without_reference_image(
-    fake_ctx: ToolContext, monkeypatch
+    fake_ctx: ToolContext, monkeypatch, video_request_facts
 ) -> None:
     """台词记号的说话人位不进参考图（画外说话的角色附参考图会诱导入画）。"""
     rv_source(fake_ctx)
@@ -302,7 +360,9 @@ async def test_split_reference_video_units_derives_dialogue_without_reference_im
     assert derived_reference_names(fake_ctx, saved["units"][0]["text"]) == []
 
 
-async def test_split_reference_video_units_rejects_unregistered_asset(fake_ctx: ToolContext, monkeypatch) -> None:
+async def test_split_reference_video_units_rejects_unregistered_asset(
+    fake_ctx: ToolContext, monkeypatch, video_request_facts
+) -> None:
     """正文引用未登记资产名 → fail-loud，不写盘（资产名引用完整性）。"""
     rv_source(fake_ctx)
     out = await run_rv_split(fake_ctx, monkeypatch, [rv_unit("@[不存在的人] 出场")])
@@ -311,7 +371,9 @@ async def test_split_reference_video_units_rejects_unregistered_asset(fake_ctx: 
     assert not rv_script_plan_path(fake_ctx).exists()
 
 
-async def test_split_reference_video_units_rejects_unregistered_speaker(fake_ctx: ToolContext, monkeypatch) -> None:
+async def test_split_reference_video_units_rejects_unregistered_speaker(
+    fake_ctx: ToolContext, monkeypatch, video_request_facts
+) -> None:
     """说话人位未登记同样阻断：说话人决定该句台词绑哪段参考音频。"""
     rv_source(fake_ctx)
     out = await run_rv_split(fake_ctx, monkeypatch, [rv_unit("门开了\n@[无名氏]：{我来了。}")])
@@ -320,7 +382,9 @@ async def test_split_reference_video_units_rejects_unregistered_speaker(fake_ctx
     assert not rv_script_plan_path(fake_ctx).exists()
 
 
-async def test_split_reference_video_units_rejects_over_max_refs(fake_ctx: ToolContext, monkeypatch) -> None:
+async def test_split_reference_video_units_rejects_over_max_refs(
+    fake_ctx: ToolContext, monkeypatch, video_request_facts
+) -> None:
     rv_source(fake_ctx)
     out = await run_rv_split(fake_ctx, monkeypatch, [rv_unit("@[张三] 与 @[李四] 在 @[村口]")], max_reference_images=2)
     assert out.get("is_error") is True
@@ -329,7 +393,7 @@ async def test_split_reference_video_units_rejects_over_max_refs(fake_ctx: ToolC
 
 
 async def test_split_reference_video_units_rejects_duration_off_reference_tier(
-    fake_ctx: ToolContext, monkeypatch
+    fake_ctx: ToolContext, monkeypatch, video_request_facts
 ) -> None:
     """带 `@` 引用的 unit 取了只有无引用 unit 才合法的时长 → 判违约、不写正式文件。
 
@@ -348,7 +412,7 @@ async def test_split_reference_video_units_rejects_duration_off_reference_tier(
 
 
 async def test_split_reference_video_units_accepts_wide_tier_without_references(
-    fake_ctx: ToolContext, monkeypatch
+    fake_ctx: ToolContext, monkeypatch, video_request_facts
 ) -> None:
     """无 `@` 引用的 unit 不受「参考图↔时长」约束，仍可取更短的档位。"""
     rv_source(fake_ctx)
@@ -360,7 +424,9 @@ async def test_split_reference_video_units_accepts_wide_tier_without_references(
     assert derived_reference_names(fake_ctx, saved["units"][0]["text"]) == []
 
 
-async def test_split_reference_video_units_rejects_out_of_enum_duration(fake_ctx: ToolContext, monkeypatch) -> None:
+async def test_split_reference_video_units_rejects_out_of_enum_duration(
+    fake_ctx: ToolContext, monkeypatch, video_request_facts
+) -> None:
     """本地校验复用动态 schema：超出 supported_durations 的 unit 时长被拦截，不落盘。"""
     rv_source(fake_ctx)
     out = await run_rv_split(fake_ctx, monkeypatch, [rv_unit("@[张三] 起身", duration=5)])
@@ -376,7 +442,9 @@ async def test_split_reference_video_units_rejects_empty_units(fake_ctx: ToolCon
     assert not rv_script_plan_path(fake_ctx).exists()
 
 
-async def test_split_reference_video_units_rejects_non_verbatim_source_text(fake_ctx: ToolContext, monkeypatch) -> None:
+async def test_split_reference_video_units_rejects_non_verbatim_source_text(
+    fake_ctx: ToolContext, monkeypatch, video_request_facts
+) -> None:
     """source_text 非源文逐字子串 → 响亮失败（模型转述 / 杜撰原文）。"""
     rv_source(fake_ctx)
     units = [rv_unit("@[张三] 起身", source_text="张三在城里等人")]
@@ -386,7 +454,9 @@ async def test_split_reference_video_units_rejects_non_verbatim_source_text(fake
     assert not rv_script_plan_path(fake_ctx).exists()
 
 
-async def test_split_reference_video_units_accepts_source_text_substring(fake_ctx: ToolContext, monkeypatch) -> None:
+async def test_split_reference_video_units_accepts_source_text_substring(
+    fake_ctx: ToolContext, monkeypatch, video_request_facts
+) -> None:
     """锚只需是源文子串：unit 是画面单元，不必覆盖整段原文。"""
     rv_source(fake_ctx)
     units = [rv_unit("@[张三] 起身", source_text="张三在村口")]
@@ -394,7 +464,9 @@ async def test_split_reference_video_units_accepts_source_text_substring(fake_ct
     assert out.get("is_error") is not True, out
 
 
-async def test_split_reference_video_units_rejects_dialogue_overload(fake_ctx: ToolContext, monkeypatch) -> None:
+async def test_split_reference_video_units_rejects_dialogue_overload(
+    fake_ctx: ToolContext, monkeypatch, video_request_facts
+) -> None:
     """台词量按语速估算超过 unit 时长（宽容系数外）→ 阻断。"""
     rv_source(fake_ctx)
     long_line = "这是一段非常长的台词" * 6  # 60 字，zh 语速 5 字/秒 → 约 12 秒
@@ -405,7 +477,9 @@ async def test_split_reference_video_units_rejects_dialogue_overload(fake_ctx: T
     assert not rv_script_plan_path(fake_ctx).exists()
 
 
-async def test_split_reference_video_units_rejects_braces_in_description(fake_ctx: ToolContext, monkeypatch) -> None:
+async def test_split_reference_video_units_rejects_braces_in_description(
+    fake_ctx: ToolContext, monkeypatch, video_request_facts
+) -> None:
     """画面描述误用花括号保留语法 → 阻断（没被识别成发声记号的花括号须响亮失败）。"""
     rv_source(fake_ctx)
     out = await run_rv_split(fake_ctx, monkeypatch, [rv_unit("@[张三] 推门，音量 {}，转身离开")])
@@ -420,7 +494,7 @@ async def test_split_reference_video_units_no_source(fake_ctx: ToolContext) -> N
     assert out.get("is_error") is True
 
 
-async def test_split_reference_video_units_injects_instructions(fake_ctx: ToolContext) -> None:
+async def test_split_reference_video_units_injects_instructions(fake_ctx: ToolContext, video_request_facts) -> None:
     rv_source(fake_ctx)
     use_fake_caps(fake_ctx)
 
@@ -433,7 +507,7 @@ async def test_split_reference_video_units_injects_instructions(fake_ctx: ToolCo
 
 
 async def test_split_reference_video_units_surfaces_tolerated_voice_warnings(
-    fake_ctx: ToolContext, monkeypatch
+    fake_ctx: ToolContext, monkeypatch, video_request_facts
 ) -> None:
     """三类声音降级 warning 不阻断落盘，但随产物呈现——否则直到生成后才听得出声音打了折。"""
     rv_source(fake_ctx)
@@ -454,7 +528,7 @@ async def test_split_reference_video_units_surfaces_tolerated_voice_warnings(
 
 
 async def test_split_reference_video_units_names_units_without_scene_reference(
-    fake_ctx: ToolContext, monkeypatch
+    fake_ctx: ToolContext, monkeypatch, video_request_facts
 ) -> None:
     """未引用场景的 unit 逐条指名：地点由模型自由决定，室内外交替的相邻 unit 会对不上。"""
     rv_source(fake_ctx)
@@ -473,7 +547,7 @@ async def test_split_reference_video_units_names_units_without_scene_reference(
 
 
 async def test_split_reference_video_units_reports_soft_violations_alongside_the_violation_report(
-    fake_ctx: ToolContext, monkeypatch
+    fake_ctx: ToolContext, monkeypatch, video_request_facts
 ) -> None:
     """产出即违约的报告同样带软违约段：Agent 修草稿这一轮就该看到降级提示，而非等到晋升。"""
     rv_source(fake_ctx)
@@ -494,7 +568,7 @@ async def test_split_reference_video_units_reports_soft_violations_alongside_the
 
 
 async def test_split_reference_video_units_keeps_voice_warnings_on_per_image_backend(
-    fake_ctx: ToolContext, monkeypatch
+    fake_ctx: ToolContext, monkeypatch, video_request_facts
 ) -> None:
     """逐图挂载型 backend 下 warning 照常呈现：拆分阶段还没有参考图，那一位不该参与判定。
 
