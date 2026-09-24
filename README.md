@@ -69,6 +69,16 @@
       <a href="https://fluxionai.space/register?source=github&campaign=arcreel&promo=ARCREEL">立即访问并注册</a>，即可获得 $3 API 额度。
     </td>
   </tr>
+  <tr>
+    <td width="200" align="center" valign="top">
+      <a href="https://ofox.ai/?utm_source=github&utm_medium=sponsorship&utm_content=arcreel"><img src="docs/assets/sponsors/ofox-ai.svg" alt="OfoxAI" width="180"></a>
+    </td>
+    <td valign="top">
+      <strong>OfoxAI：脚本、图像与视频创作的模型 API</strong><br>
+      通过 OfoxAI 接入文本、图像和视频模型，为脚本打磨、角色与场景参考图、视频镜头素材选择合适的能力。具体模型的输入要求、支持参数及调用方式请查看 API 文档。<br>
+      <a href="https://ofox.ai/?utm_source=github&utm_medium=sponsorship&utm_content=arcreel">探索 OfoxAI 模型与 API →</a>
+    </td>
+  </tr>
 </table>
 
 ## 界面一览
