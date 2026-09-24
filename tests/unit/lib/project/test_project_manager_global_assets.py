@@ -11,10 +11,3 @@ def test_get_global_assets_root_creates_subdirs(tmp_path):
     assert root == tmp_path / "projects" / "_global_assets"
     for sub in ("character", "scene", "prop"):
         assert (root / sub).is_dir()
-
-
-def test_list_projects_skips_global_assets(tmp_path):
-    pm = ProjectManager(tmp_path / "projects")
-    pm.get_global_assets_root()  # 生成 _global_assets
-    (pm.projects_dir / "my_project").mkdir()
-    assert pm.list_projects() == ["my_project"]

@@ -4,21 +4,43 @@
 代码中其它地方不自行拼接数据根下的条目，也不从项目目录反推数据根，一律经
 :class:`DataRootLayout` 取位置（ADR 0088）。
 
-当前布局下项目目录就是数据根，系统条目靠 ``.`` / ``_`` 前缀与项目区分；日志与
-Vertex 凭证尚在数据根之外。
+当前布局下项目目录就是数据根；日志与 Vertex 凭证尚在数据根之外。
 
-零 I/O：只派生路径，不检查存在、不建目录。
+「什么是项目」只由 :func:`list_project_dirs` 回答：项目目录下名字符合项目名规则、并且
+带 ``project.json`` 的目录。数据根里的其它条目一概不是项目。
+
+除 :func:`list_project_dirs` 外零 I/O：只派生路径，不检查存在、不建目录。
 """
 
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
 from lib.agent.agent_memory_paths import MEMORY_DIRNAME, is_valid_memory_user_id
 from lib.infra.app_data_dir import app_data_dir
 from lib.infra.env_init import PROJECT_ROOT
+
+PROJECT_NAME_PATTERN = re.compile(r"^[A-Za-z0-9-]+$")
+PROJECT_FILENAME = "project.json"
+
+
+def list_project_dirs(projects_dir: Path) -> list[Path]:
+    """项目目录下的全部项目，按名字排序；项目目录不存在时为空。
+
+    项目是名字符合 :data:`PROJECT_NAME_PATTERN`、并且带 ``project.json`` 的目录。
+    """
+    try:
+        children = sorted(projects_dir.iterdir())
+    except FileNotFoundError:
+        return []
+    return [
+        child
+        for child in children
+        if PROJECT_NAME_PATTERN.fullmatch(child.name) and child.is_dir() and (child / PROJECT_FILENAME).is_file()
+    ]
 
 
 @dataclass(frozen=True)

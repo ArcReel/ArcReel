@@ -267,7 +267,7 @@ The application runs database migrations when it starts. Do not skip multiple ve
 
 ### 5.4 Project Schema Migrations {#project-schema-migrations}
 
-In addition to database migrations, application startup upgrades each project under `projects/`. When upgrading to a version that introduces artifact-state records, ArcReel fully validates the project and its formal scripts, writes the complete artifact records atomically, and updates the schema version in `project.json` only after those steps succeed.
+In addition to database migrations, application startup upgrades each project under `projects/`. Only directories whose names contain letters, digits, or hyphens and that contain a `project.json` file count as projects for migration and stale backup cleanup. When upgrading to a version that introduces artifact-state records, ArcReel fully validates the project and its formal scripts, writes the complete artifact records atomically, and updates the schema version in `project.json` only after those steps succeed.
 
 Before committing a migration, ArcReel creates adjacent backups with a `.bak.v7-<timestamp>` suffix for:
 

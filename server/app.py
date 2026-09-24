@@ -34,7 +34,7 @@ from lib.agent.agent_session_store.store import DbSessionStore
 from lib.config.env_keys import PROVIDER_SECRET_KEYS
 from lib.db import async_session_factory, close_db, init_db
 from lib.generation.generation_worker import GenerationWorker
-from lib.infra.data_root_layout import DataRootLayout
+from lib.infra.data_root_layout import DataRootLayout, list_project_dirs
 from lib.infra.data_root_layout_migration import default_sdk_config_dir, migrate_data_root_layout
 from lib.infra.httpx_shared import shutdown_http_client, startup_http_client
 from lib.infra.logging_config import attach_file_handler, migrate_legacy_log_dir, setup_logging
@@ -336,9 +336,7 @@ async def _migrate_source_encoding_on_startup(
                 pass
             return {"error": str(exc)}
 
-    for project_dir in projects_dir.iterdir():  # noqa: ASYNC240 -- 启动期一次列举项目目录，单次 readdir；每个项目的迁移已 to_thread 卸载
-        if not project_dir.is_dir() or project_dir.name.startswith("."):
-            continue
+    for project_dir in list_project_dirs(projects_dir):
         summary[project_dir.name] = await asyncio.to_thread(_run_one, project_dir)
     return summary
 
