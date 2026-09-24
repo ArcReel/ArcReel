@@ -292,10 +292,10 @@ class TestVideoLane:
         )
         assert ctx.video.requested_generate_audio is False
 
-    async def test_requested_generate_audio_survives_capability_failure(
+    async def test_capability_failure_does_not_supply_audio_fallback(
         self, patched_session_factory, project_env, monkeypatch
     ):
-        """能力查询失败不得连带丢失用户的无声意图：失败时独立解析用户开关。"""
+        """声明路线的事实失败由执行器阻断，音频开关没有独立降级值。"""
 
         async def _assemble(*, provider_id, media_type, model_id, resolver, rate_limiter=None, generation_type=None):
             return _FakeBackend(name=provider_id, model="mystery-model")
@@ -309,7 +309,8 @@ class TestVideoLane:
             video=VideoLaneRequest(route="storyboard"),
         )
         assert isinstance(ctx.video.request_facts, VideoRequestFactsFailure)
-        assert ctx.video.requested_generate_audio is False
+        with pytest.raises(VideoRequestFactsError):
+            _ = ctx.video.requested_generate_audio
 
     async def test_payload_overrides_project(self, patched_session_factory, project_env, fake_assemble):
         """payload > project：显式的请求身份（如 checkpoint 回放）决定实际解析身份。"""
@@ -395,19 +396,19 @@ class TestVideoRequestFacts:
         monkeypatch.setattr(generation_context, "assemble_backend", _assemble)
         model_id = _registry_video_model("ark")
 
-        with pytest.raises(VideoRequestFactsError) as caught:
-            await resolve_generation_context(
-                "demo",
-                None,
-                project={"video_provider_i2v": f"ark/{model_id}"},
-                video=VideoLaneRequest(route=route, generation_type="i2v"),
-            )
+        ctx = await resolve_generation_context(
+            "demo",
+            None,
+            project={"video_provider_i2v": f"ark/{model_id}"},
+            video=VideoLaneRequest(route=route, generation_type="i2v"),
+        )
 
         prefix = "video" if route == "storyboard" else "reference"
-        assert caught.value.failure == VideoRequestFactsFailure(
+        assert ctx.video.request_facts == VideoRequestFactsFailure(
             f"{prefix}_capability_unavailable",
             (("capability", "i2v"), ("provider", "ark"), ("model", model_id)),
         )
+        assert ctx.video.resolution is None
 
     @pytest.mark.parametrize(
         ("route", "generation_type", "project", "allowed"),
@@ -770,20 +771,16 @@ class TestValueObjectAssembly:
         )
         assert lane.is_silent is expected
 
-    @pytest.mark.parametrize(("requested_generate_audio", "expected"), [(True, False), (False, True)])
-    def test_video_lane_is_silent_without_request_facts_follows_the_switch(
-        self, requested_generate_audio: bool, expected: bool
-    ):
-        """事实解析不出时声音一致性按 soft：有信号才判真无声，只剩本集开关一条路径。"""
+    def test_video_lane_failure_does_not_supply_audio_fallback(self):
         lane = VideoLaneResult(
             provider_model=ProviderModel("ark", "m"),
             backend_name="ark",
             backend_model="m",
             resolution=None,
             request_facts=VideoRequestFactsFailure("video_capability_unavailable"),
-            requested_generate_audio_fallback=requested_generate_audio,
         )
-        assert lane.is_silent is expected
+        with pytest.raises(VideoRequestFactsError, match="video_capability_unavailable"):
+            _ = lane.is_silent
 
     def test_audio_lane_result_shape(self):
         lane = AudioLaneResult(

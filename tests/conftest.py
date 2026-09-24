@@ -85,11 +85,13 @@ def set_video_request_facts(
 ) -> Callable[[VideoRequestFacts | VideoRequestFactsFailure], None]:
     """让视频能力消费方读取测试构造的事实结果，求值测试仍使用真实解析器。"""
     from lib.script import script_generator
+    from lib.script.reference_video import request_projection
+    from server.services.admission import cost_estimation
     from server.services.project import script_review
     from server.services.tasks import video_caps
 
     def configure(facts: VideoRequestFacts | VideoRequestFactsFailure) -> None:
-        for consumer in (script_generator, script_review, video_caps):
+        for consumer in (script_generator, request_projection, cost_estimation, script_review, video_caps):
             monkeypatch.setattr(consumer, "evaluate_video_request_facts", AsyncMock(return_value=facts))
 
     return configure

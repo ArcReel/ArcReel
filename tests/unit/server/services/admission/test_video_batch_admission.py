@@ -9,6 +9,7 @@ import pytest
 
 from lib.generation.batch_admission import BatchAdmissionDecision
 from lib.generation.generation_result import GenerationAction, GenerationProblemCode, GenerationSelectionMode
+from lib.generation.video_request_facts import VideoRequestFactsFailure
 from lib.script.reference_video.request_projection import ReferenceRequestOptions
 from lib.speech.narration_delivery import (
     POST_PRODUCTION,
@@ -20,6 +21,7 @@ from lib.speech.narration_delivery import (
 )
 from server.services.admission import video_batch_admission as admission_mod
 from server.services.admission.video_batch_admission import admit_reference_video_batch, admit_storyboard_video_batch
+from tests.factories import make_video_request_facts
 
 
 def _script() -> dict[str, Any]:
@@ -81,11 +83,38 @@ async def test_storyboard_post_production_admits_without_consulting_tts(monkeypa
         request_options=ReferenceRequestOptions(narration_delivery=POST_PRODUCTION),
         operation="generate_videos",
         selection=GenerationSelectionMode.MISSING_ONLY,
+        video_request_facts=make_video_request_facts(),
     )
 
     assert admission.decision is BatchAdmissionDecision.ADMITTED
     assert admission.unit_ids == ("E1S01", "E1S02")
     assert probes == ["active_tasks"]
+
+
+async def test_storyboard_facts_failure_blocks_each_target_with_code_params_and_action(monkeypatch, tmp_path: Path):
+    """分镜路线只有一个桶：事实失败时每个目标都带同一问题码、参数与修复指引，不塌成一句通用错误。"""
+    _stub_state(monkeypatch)
+    failure = VideoRequestFactsFailure(
+        "video_supported_durations_incompatible",
+        (("provider", "gemini-aistudio"), ("model", "veo-3.1"), ("resolution", "1080p"), ("capability", "i2v")),
+    )
+    admission = await admit_storyboard_video_batch(
+        project_name="demo",
+        project={},
+        project_path=tmp_path,
+        script=_script(),
+        script_file="episode_1.json",
+        items=[("E1S01", {}, "bad"), ("E1S02", {}, "also bad")],
+        request_options=ReferenceRequestOptions(narration_delivery=POST_PRODUCTION),
+        operation="generate_videos",
+        selection=GenerationSelectionMode.MISSING_ONLY,
+        video_request_facts=failure,
+    )
+    assert [ticket.unit_id for ticket in admission.tickets] == ["E1S01", "E1S02"]
+    for ticket in admission.tickets:
+        assert [(problem.code, problem.action, problem.params) for problem in ticket.problems] == [
+            (failure.code, GenerationAction.CONFIGURE_PROVIDER, failure.parameters())
+        ]
 
 
 async def test_storyboard_use_tts_reports_each_units_delivery_problem(monkeypatch, tmp_path: Path):
@@ -117,6 +146,7 @@ async def test_storyboard_use_tts_reports_each_units_delivery_problem(monkeypatc
         request_options=ReferenceRequestOptions(narration_delivery=USE_TTS),
         operation="generate_videos",
         selection=GenerationSelectionMode.MISSING_ONLY,
+        video_request_facts=make_video_request_facts(),
     )
 
     assert admission.decision is BatchAdmissionDecision.BLOCKED
@@ -224,6 +254,89 @@ async def test_text_only_unit_on_image_only_model_blocks_the_whole_batch(monkeyp
         "video_capability_missing_t2v",
         "video_capability_missing_t2v",
     ]
+
+
+async def test_reference_facts_failure_keeps_action_for_each_unit(monkeypatch, tmp_path: Path, set_video_request_facts):
+    _stub_state(monkeypatch)
+    failure = VideoRequestFactsFailure(
+        "video_capability_reference_unavailable", (("provider", "ark"), ("model", "removed"))
+    )
+    set_video_request_facts(failure)
+    admission = await admit_reference_video_batch(
+        project_name="demo",
+        project={},
+        project_path=tmp_path,
+        script={"video_units": []},
+        script_file="episode_1.json",
+        units=[
+            {"unit_id": "E1U1", "text": "空镜头一", "duration_seconds": 4},
+            {"unit_id": "E1U2", "text": "空镜头二", "duration_seconds": 4},
+        ],
+        request_options=ReferenceRequestOptions(),
+        operation="generate_videos",
+        selection=GenerationSelectionMode.MISSING_ONLY,
+    )
+    assert [ticket.unit_id for ticket in admission.tickets] == ["E1U1", "E1U2"]
+    for ticket in admission.tickets:
+        assert [(p.code, p.action) for p in ticket.problems] == [(failure.code, GenerationAction.CONFIGURE_PROVIDER)]
+
+
+async def test_reference_bucket_failure_blocks_only_its_units_and_withholds_the_healthy_bucket(
+    monkeypatch, tmp_path: Path
+):
+    """i2v 桶解析不出、r2v 桶健康：无图单元带自己的问题码阻断，有图单元本身通过，整批只因前者受阻。"""
+    from tests.fakes import fake_reference_request_facts, fake_reference_request_projector
+
+    _stub_state(monkeypatch)
+    (tmp_path / "characters").mkdir()
+    (tmp_path / "characters" / "a.png").write_bytes(b"\x89PNG")
+    project = {"generation_mode": "reference_video", "characters": {"阿离": {"character_sheet": "characters/a.png"}}}
+    failure = VideoRequestFactsFailure(
+        "reference_supported_durations_incompatible",
+        (("provider", "gemini-aistudio"), ("model", "veo-3.1"), ("resolution", "4k")),
+    )
+
+    async def _options(*, options, **_kwargs):
+        return options
+
+    monkeypatch.setattr(admission_mod, "prepare_current_reference_video_request_options", _options)
+    monkeypatch.setattr(
+        admission_mod,
+        "project_reference_unit_request",
+        fake_reference_request_projector(
+            request_facts=fake_reference_request_facts(durations=(4,), failures={"i2v": failure})
+        ),
+    )
+
+    admission = await admit_reference_video_batch(
+        project_name="demo",
+        project=project,
+        project_path=tmp_path,
+        script={"video_units": []},
+        script_file="episode_1.json",
+        units=[
+            {"unit_id": "E1U1", "text": "@[阿离] 走入画面。", "duration_seconds": 4},
+            {"unit_id": "E1U2", "text": "空镜头。", "duration_seconds": 4},
+        ],
+        request_options=ReferenceRequestOptions(),
+        operation="generate_videos",
+        selection=GenerationSelectionMode.MISSING_ONLY,
+    )
+
+    assert admission.decision is BatchAdmissionDecision.BLOCKED
+    tickets = {ticket.unit_id: ticket for ticket in admission.tickets}
+    assert tickets["E1U1"].admitted
+    assert tickets["E1U1"].problems == ()
+    assert [(p.code, p.action, p.params) for p in tickets["E1U2"].problems] == [
+        (failure.code, GenerationAction.CONFIGURE_PROVIDER, {"capability": "i2v", **failure.parameters()})
+    ]
+    withheld = admission.withheld_problem_for(tickets["E1U1"])
+    assert withheld is not None
+    assert (withheld.code, withheld.params) == (
+        GenerationProblemCode.BATCH_ADMISSION_WITHHELD,
+        {"blocked_unit_ids": ["E1U2"]},
+    )
+    assert admission.withheld_problem_for(tickets["E1U2"]) is None
 
 
 async def test_extra_tickets_join_the_same_verdict(monkeypatch, tmp_path: Path):

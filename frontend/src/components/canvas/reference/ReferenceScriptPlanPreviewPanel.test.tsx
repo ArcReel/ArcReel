@@ -306,9 +306,9 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
   });
 
-  it("warns and disables confirm when the server reports the video model cannot be resolved", async () => {
+  it.each([400, 422])("warns and disables confirm when capabilities return %i", async (status) => {
     vi.spyOn(API, "getScriptReview").mockResolvedValue(pendingState());
-    vi.spyOn(API, "getVideoCapabilities").mockRejectedValue(new ApiRequestError("无法解析", undefined, 422));
+    vi.spyOn(API, "getVideoCapabilities").mockRejectedValue(new ApiRequestError("无法解析", undefined, status));
 
     render(<ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
 

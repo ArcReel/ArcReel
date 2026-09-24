@@ -23,8 +23,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
-from sqlalchemy.exc import SQLAlchemyError
-
 from lib.backends.audio_backends.base import VoiceOption
 from lib.backends.backend_assembly import assemble_backend
 from lib.backends.gemini_shared import get_shared_rate_limiter
@@ -236,7 +234,7 @@ class VideoLaneResult:
     backend_model: str
     resolution: str | None
     request_facts: VideoRequestFacts | VideoRequestFactsFailure | None = None
-    # 未声明路线或事实求值失败时保留用户音频意图；成功事实直接给出该值。
+    # 未声明路线的续跑保留用户音频意图；声明路线时只读视频请求事实。
     requested_generate_audio_fallback: bool = True
     # 自定义供应商解析出的 endpoint（ENDPOINT_REGISTRY 键）；内置供应商无该维度，为 None。
     # 续跑据此与提交时持久化的 endpoint 比对，见 server.services.tasks.resume_executor。
@@ -245,11 +243,9 @@ class VideoLaneResult:
     @property
     def requested_generate_audio(self) -> bool:
         facts = self.request_facts
-        return (
-            facts.requested_generate_audio
-            if isinstance(facts, VideoRequestFacts)
-            else self.requested_generate_audio_fallback
-        )
+        if isinstance(facts, VideoRequestFactsFailure):
+            raise VideoRequestFactsError(facts)
+        return facts.requested_generate_audio if facts is not None else self.requested_generate_audio_fallback
 
     @property
     def is_silent(self) -> bool:
@@ -262,6 +258,8 @@ class VideoLaneResult:
         参考生视频的同名判据见 ``lib.script.reference_video.voice_settings.VoiceRenderSettings.is_silent``。
         """
         facts = self.request_facts
+        if isinstance(facts, VideoRequestFactsFailure):
+            raise VideoRequestFactsError(facts)
         voice_consistency = facts.voice_consistency if isinstance(facts, VideoRequestFacts) else "soft"
         return voice_consistency == "none" or not self.requested_generate_audio
 
@@ -335,8 +333,7 @@ async def resolve_generation_context(
 
     lane 传即声明、None 跳过，任务只为用到的 lane 付出配置要求与构造成本。任一声明 lane
     的解析或构造失败即原样上抛、整次调用失败——无部分结果、无跨 provider 兜底；视频请求事实
-    求值失败以失败对象交给执行器按阶段处理；失败后的独立配置读取若也发生数据库错误，则抛出携带
-    原失败的 VideoRequestFactsError。``project`` 是调用方已加载的项目快照；``project_path`` 可由已经
+    求值失败以失败对象交给执行器按阶段处理。``project`` 是调用方已加载的项目快照；``project_path`` 可由已经
     持有项目路径的事务传入，避免同步事务解析当前配置时嵌套占用默认线程池。本函数不读项目。
 
     video lane 的定桶随 ``VideoLaneRequest.generation_type``：None 时按项目生成模式解析（见
@@ -405,14 +402,11 @@ async def resolve_generation_context(
             requested_generate_audio_fallback = True
             if isinstance(request_facts, VideoRequestFacts):
                 resolution = request_facts.resolution
+            elif isinstance(request_facts, VideoRequestFactsFailure):
+                resolution = None
             else:
-                try:
-                    resolution = await r.resolve_resolution(project, resolved.provider_id, actual_model)
-                    requested_generate_audio_fallback = await r.video_generate_audio_for_project(project)
-                except SQLAlchemyError as exc:
-                    if isinstance(request_facts, VideoRequestFactsFailure):
-                        raise VideoRequestFactsError(request_facts) from exc
-                    raise
+                resolution = await r.resolve_resolution(project, resolved.provider_id, actual_model)
+                requested_generate_audio_fallback = await r.video_generate_audio_for_project(project)
             video_result = VideoLaneResult(
                 provider_model=resolved,
                 backend_name=video_backend.name,

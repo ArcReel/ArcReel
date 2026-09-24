@@ -8,6 +8,7 @@ from lib.backends.providers import PROVIDER_GEMINI
 from lib.billing.cost_calculator import cost_calculator
 from lib.config.resolver import ConfigResolver
 from lib.db.repositories.usage_repo import SettlementInput, UsageRepository
+from lib.generation.video_request_facts import VideoRequestFactsFailure
 from lib.script.reference_video.request_projection import USE_TTS, ReferenceRequestOptions
 from lib.speech.narration_delivery import VideoRequestCostFacts
 from server.services.admission.cost_estimation import CostEstimationService, quote_video_request
@@ -150,6 +151,33 @@ def _make_reference_video_script(episode: int, content_mode: str, unit_specs: li
 
 
 class TestCostEstimationService:
+    async def test_storyboard_facts_failure_reports_each_segment_without_video_quote(
+        self, db_factory, set_video_request_facts
+    ):
+        failure = VideoRequestFactsFailure(
+            "video_supported_durations_incompatible",
+            (("provider", "gemini-aistudio"), ("model", "veo-3.1-generate-preview"), ("resolution", "1080p")),
+        )
+        set_video_request_facts(failure)
+        project = {
+            "content_mode": "narration",
+            "generation_mode": "storyboard",
+            "video_provider_i2v": "gemini-aistudio/veo-3.1-generate-preview",
+            "episodes": [{"episode": 1, "title": "Ep1", "script_file": "ep1.json"}],
+        }
+        result = await CostEstimationService(ConfigResolver(db_factory), db_factory).compute(
+            project, {"ep1.json": _make_script(1, ["E1S001", "E1S002"], [8, 8])}, project_name="failed-facts"
+        )
+        for segment in result["episodes"][0]["segments"]:
+            assert segment["estimate"]["video"] == {}
+            assert segment["request_projection"]["allowed"] is False
+            problem = segment["request_projection"]["problems"][0]
+            assert (problem["code"], problem["action"], problem["params"]) == (
+                failure.code,
+                failure.action,
+                failure.parameters(),
+            )
+
     @pytest.mark.parametrize("generation_mode", ["storyboard", "reference_video"])
     @pytest.mark.parametrize("explicit_resolution", [False, True])
     @pytest.mark.parametrize(
@@ -1132,6 +1160,7 @@ class TestCostEstimationService:
             "title": "Ad",
             "content_mode": "ad",
             "generation_mode": "storyboard",
+            "video_provider_i2v": "gemini-aistudio/veo-3.1-generate-preview",
             "target_duration": 30,
             "episodes": [{"episode": 1, "title": "", "script_file": "ep1.json"}],
         }
@@ -1819,8 +1848,8 @@ class TestCostEstimationService:
         assert result["models"]["image"]["provider"] == "unknown"
         assert result["models"]["image"]["model"] == "unknown"
 
-    async def test_cost_estimation_resolve_resolution_exception_degrades_gracefully(self, db_factory, monkeypatch):
-        """resolve_resolution 抛异常时预估整体降级而非中断，与 image/video/audio 三处 except 兜底同构。"""
+    async def test_cost_estimation_does_not_hide_unexpected_resolution_error(self, db_factory, monkeypatch):
+        """意外的程序错误应暴露，而不是作为能力不可用生成伪报价。"""
         resolver = ConfigResolver(db_factory)
         service = CostEstimationService(resolver, db_factory)
 
@@ -1835,10 +1864,8 @@ class TestCostEstimationService:
             "episodes": [],
         }
 
-        result = await service.compute(project_data, {}, project_name="test_resolution_exc")
-
-        # compute() 不因 resolve_resolution 异常而中断，其余字段照常返回
-        assert result["models"]["video"]["provider"] == "unknown"
+        with pytest.raises(RuntimeError, match="boom"):
+            await service.compute(project_data, {}, project_name="test_resolution_exc")
 
     @pytest.mark.parametrize(
         ("video_backend", "configured_generate_audio", "expected_usd"),
@@ -2143,6 +2170,7 @@ class TestCostEstimationService:
                         "model_id": "vid",
                         "display_name": "Vid",
                         "endpoint": "openai-video",
+                        "supported_durations": "[6]",
                         "price_unit": "second",
                         "price_input": 0.10,
                         "currency": "USD",

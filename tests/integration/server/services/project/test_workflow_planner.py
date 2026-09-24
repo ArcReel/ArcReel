@@ -11,6 +11,7 @@ from lib.generation.generation_batch import GenerationBatchRequestedItem, Genera
 from lib.generation.generation_queue import GenerationQueue
 from lib.generation.generation_queue_client import TaskSpec
 from lib.generation.generation_result import GenerationSelectionMode
+from lib.generation.video_request_facts import VideoRequestFactsFailure
 from lib.project.asset_inventory import complete_asset_inventory
 from lib.project.project_manager import ProjectManager
 from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
@@ -622,6 +623,50 @@ async def test_planner_refuses_a_unit_whose_video_input_is_unusable(
     assert video.admission["decision"] != "admitted"
     codes = {problem["code"] for ticket in video.admission["units"] for problem in ticket["problems"]}
     assert "generation_unit_input_unusable" in codes
+
+
+async def test_planner_folds_a_video_request_facts_failure_into_each_target(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, set_admission_video_request_facts
+) -> None:
+    """制作计划与提交入口同一道准入：事实解析不出时每个目标都带问题码、参数与修复指引。"""
+
+    pm = _ProjectManager(_project_dir(tmp_path), _script())
+    monkeypatch.setattr(workflow_planner.WorkflowStateService, "get_status", lambda *_args: _status())
+
+    async def _no_active_tasks(**_kwargs: Any) -> list[dict[str, Any]]:
+        return []
+
+    spec = TaskSpec.from_request(
+        task_type="video",
+        media_type="video",
+        resource_id="E1S01",
+        prompt="镜头提示",
+        script_file="episode_1.json",
+    )
+
+    def _specs(**_kwargs: Any):
+        return [spec], []
+
+    monkeypatch.setattr(workflow_planner, "get_active_tasks_for_resources", _no_active_tasks)
+    monkeypatch.setattr(workflow_planner, "build_storyboard_video_specs", _specs)
+    monkeypatch.setattr(video_batch_admission, "get_active_tasks_for_resources", _no_active_tasks)
+    failure = VideoRequestFactsFailure(
+        "video_supported_durations_incompatible",
+        (("provider", "gemini-aistudio"), ("model", "veo-3.1"), ("resolution", "4k"), ("capability", "i2v")),
+    )
+    set_admission_video_request_facts(failure)
+
+    plan = await workflow_planner.WorkflowPlanner(pm).get_plan(
+        "demo", WorkflowPlanRequest(narration_delivery=POST_PRODUCTION)
+    )
+
+    video = next(step for step in plan.steps if step.id == "video")
+    assert video.admission is not None
+    assert video.admission["decision"] == "blocked"
+    units = {unit["unit_id"]: unit for unit in video.admission["units"]}
+    assert [(p["code"], p["action"], p["params"]) for p in units["E1S01"]["problems"]] == [
+        (failure.code, "configure_provider", failure.parameters())
+    ]
 
 
 async def test_planner_reports_the_audio_switch_conflict_before_any_task_exists(

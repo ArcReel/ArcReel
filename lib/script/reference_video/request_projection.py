@@ -154,6 +154,25 @@ class ProjectionProblem:
     def parameters(self) -> dict[str, object]:
         return dict(self.params)
 
+    @classmethod
+    def from_request_facts_failure(
+        cls,
+        failure: VideoRequestFactsFailure,
+        *,
+        capability: VideoGenerationType | None = None,
+        locations: tuple[tuple[str | int, ...], ...] | None = None,
+    ) -> ProjectionProblem:
+        """把视频请求事实的失败折成阻断问题：问题码、参数与修复指引原样保留，只补上所落的桶。"""
+
+        params = {**({"capability": capability} if capability is not None else {}), **failure.parameters()}
+        return cls(
+            code=failure.code,
+            blocking=True,
+            params=tuple(params.items()),
+            action=failure.action,
+            locations=locations,
+        )
+
     def to_payload(self, *, unit_id: str) -> dict[str, object]:
         """返回 Web、Agent 与报价共用的问题信封。"""
 
@@ -436,6 +455,7 @@ _PROBLEM_PRESENTATION: dict[str, tuple[str, tuple[tuple[str | int, ...], ...]]] 
     "video_capability_missing_i2v": ("configure_video_model", (("text",),)),
     "video_capability_missing_r2v": ("configure_video_model", (("text",),)),
     "video_capability_missing_t2v": ("configure_video_model", (("text",),)),
+    "video_capability_reference_unavailable": ("configure_video_model", (("text",),)),
 }
 
 
@@ -543,11 +563,7 @@ class ReferenceUnitRequestProjector:
             )
         if isinstance(evaluated, VideoRequestFactsFailure):
             problems.append(
-                _problem(
-                    evaluated.code,
-                    blocking=True,
-                    **{"capability": hydrated_generation_type, **evaluated.parameters()},
-                )
+                ProjectionProblem.from_request_facts_failure(evaluated, capability=hydrated_generation_type)
             )
         else:
             facts = evaluated

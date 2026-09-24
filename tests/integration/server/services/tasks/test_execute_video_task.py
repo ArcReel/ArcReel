@@ -262,6 +262,37 @@ class TestGenerationTasks:
         # 越界 duration 在起跑时被拒，绝不应调用后端生成。
         assert fake_generator.video_calls == []
 
+    async def test_execute_video_task_rejects_duration_removed_by_current_resolution(self, monkeypatch, tmp_path):
+        project_path = prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        seed_current_storyboard(fake_pm)
+        fake_generator = FakeGenerator()
+        facts = make_video_request_facts(
+            resolution="1080p",
+            supported_durations=(4, 6, 8),
+            allowed_durations=(8,),
+            excluded_durations=((6, "resolution"),),
+        )
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+        monkeypatch.setattr(
+            generation_tasks,
+            "resolve_generation_context",
+            fake_resolve_ctx(fake_generator, video_request_facts=facts),
+        )
+
+        with pytest.raises(VideoCapabilityError) as exc:
+            await generation_tasks.execute_video_task(
+                "demo",
+                "E1S01",
+                {
+                    "script_file": "episode_1.json",
+                    "prompt": {"action": "跑", "camera_motion": "Static", "dialogue": []},
+                    "duration_seconds": 6,
+                },
+            )
+        assert exc.value.code == "video_duration_not_supported"
+        assert fake_generator.video_calls == []
+
     async def test_execute_video_task_supported_duration_passes(self, monkeypatch, tmp_path):
         """合法 duration 通过守卫，正常进入后端生成。"""
         project_path = prepare_files(tmp_path)
@@ -438,7 +469,8 @@ class TestGenerationTasks:
         assert fake_generator.video_calls[0]["duration_seconds"] == 8
         assert fake_generator.video_calls[0]["resolution"] == "1080p"
 
-    async def test_execute_video_task_use_tts_blocks_on_unresolvable_request_facts(self, monkeypatch, tmp_path):
+    @pytest.mark.parametrize("use_tts", [False, True])
+    async def test_execute_video_task_blocks_on_unresolvable_request_facts(self, monkeypatch, tmp_path, use_tts):
         """排队期间配置变化让档位收成空集：提交供应商前以原问题码阻断，不回退到未收窄的全集。"""
         project_path = prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
@@ -463,7 +495,7 @@ class TestGenerationTasks:
                 {
                     "script_file": "episode_1.json",
                     "prompt": {"action": "跑", "camera_motion": "Static"},
-                    "narration_delivery_options": {"narration_delivery": USE_TTS},
+                    "narration_delivery_options": {"narration_delivery": USE_TTS} if use_tts else {},
                 },
                 claimed_provider_id="other",
             )
@@ -475,7 +507,7 @@ class TestGenerationTasks:
                 {
                     "script_file": "episode_1.json",
                     "prompt": {"action": "跑", "camera_motion": "Static", "dialogue": []},
-                    "narration_delivery_options": {"narration_delivery": USE_TTS},
+                    "narration_delivery_options": {"narration_delivery": USE_TTS} if use_tts else {},
                 },
             )
 
@@ -1717,6 +1749,12 @@ class TestGenerationTasks:
                 video_provider=("gemini-aistudio", "veo-3.1-generate-preview"),
                 video_resolution="4k",
                 supported_durations=(4, 6, 8),
+                video_request_facts=make_video_request_facts(
+                    provider_id="gemini-aistudio",
+                    model_id="veo-3.1-generate-preview",
+                    resolution="4k",
+                    allowed_durations=(8,),
+                ),
             ),
         )
         monkeypatch.setattr(generation_tasks, "extract_video_thumbnail", async_return(None))
@@ -1729,36 +1767,6 @@ class TestGenerationTasks:
             {"script_file": "episode_1.json", "prompt": {"action": "跑", "camera_motion": "Static", "dialogue": []}},
         )
         assert fake_generator.video_calls[0]["duration_seconds"] == 8
-
-    async def test_empty_supported_durations_guard_permissive(self, monkeypatch, tmp_path):
-        """能力不可解析时 lane 交付空 supported_durations：守卫放行（不更坏），
-        resolution 仍取自 lane 已解析出的值，不因能力缺失被改写。"""
-        project_path = prepare_files(tmp_path)
-        fake_pm = _FakePM(project_path)
-        seed_current_storyboard(fake_pm)
-        fake_generator = FakeGenerator()
-
-        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
-        monkeypatch.setattr(
-            generation_tasks,
-            "resolve_generation_context",
-            fake_resolve_ctx(fake_generator, supported_durations=()),
-        )
-        monkeypatch.setattr(generation_tasks, "extract_video_thumbnail", async_return(None))
-        monkeypatch.setattr(generation_tasks, "emit_project_change_batch", lambda *a, **kw: None)
-
-        result = await generation_tasks.execute_video_task(
-            "demo",
-            "E1S01",
-            {
-                "script_file": "episode_1.json",
-                "prompt": {"action": "跑", "camera_motion": "Static", "dialogue": []},
-                "duration_seconds": 9,
-            },
-        )
-        assert result["resource_type"] == "videos"
-        assert fake_generator.video_calls[0]["duration_seconds"] == 9
-        assert fake_generator.video_calls[0]["resolution"] == "720p"
 
     async def test_video_resolve_failure_fails_task_without_fallback(self, monkeypatch, tmp_path):
         """视频解析失败即任务失败：异常原样上抛留痕，无硬编码 provider/model 兜底，后端不被调用。"""

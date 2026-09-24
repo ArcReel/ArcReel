@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from lib.billing.cost_calculator import cost_calculator
@@ -25,13 +26,16 @@ from lib.generation.generation_queue import GenerationQueue
 from lib.generation.video_request_facts import (
     CONFIGURED_VIDEO_IDENTITY,
     VideoRequestFacts,
+    VideoRequestFactsFailure,
     evaluate_video_request_facts,
 )
+from lib.infra.schema_guards import is_int
 from lib.project.project_manager import grid_storyboard_enabled, is_reference_video_project
 from lib.script.grid.grid_resolution import resolve_image_resolution
 from lib.script.grid.layout import GRID_FALLBACK_RESOLUTION, large_grid_allowed, plan_grid_chunks
 from lib.script.reference_video.request_projection import (
     FilesystemReferenceAssets,
+    ProjectionProblem,
     ReferenceRequestFactsLookup,
     ReferenceRequestOptions,
     ReferenceUnitRequestProjector,
@@ -159,7 +163,7 @@ async def quote_video_request(
         async with session_factory() as session:
             price = await CustomProviderRepository(session).resolve_price(facts.provider_id, facts.model_id)
         return quote_video_request_from_price(facts, price)
-    except Exception:
+    except (SQLAlchemyError, ValueError):
         logger.warning(
             "无法为 current video request 计算精确费用 provider=%s model=%s duration=%s",
             facts.provider_id,
@@ -297,11 +301,7 @@ class CostEstimationService:
             for generation_type in _VIDEO_BUCKETS:
                 # 真正使用该 bucket 的 unit 会由 projector 返回结构化 blocker；未使用 bucket
                 # 的配置问题不应拖垮整份费用页。
-                try:
-                    evaluated = await request_facts_lookup(generation_type)
-                except Exception:
-                    logger.debug("reference_video %s bucket 视频请求事实求值失败", generation_type, exc_info=True)
-                    continue
+                evaluated = await request_facts_lookup(generation_type)
                 if isinstance(evaluated, VideoRequestFacts):
                     reference_facts[generation_type] = evaluated
         async with self._resolver.session() as r:
@@ -319,7 +319,7 @@ class CostEstimationService:
             try:
                 resolved_image = await r.resolve_image_backend(project_data, None, generation_type="t2i")
                 image_provider, image_model = resolved_image.provider_id, resolved_image.model_id
-            except Exception:
+            except (ValueError, SQLAlchemyError):
                 image_provider, image_model = "unknown", "unknown"
 
             # T2I 槽分辨率档：与路由入队、SDK 工具共用 ``grid_resolution`` 的取档，估算的宫格
@@ -352,10 +352,10 @@ class CostEstimationService:
                             project_data, None, generation_type=generation_type
                         )
                         bucket_provider, bucket_model = resolved_video.provider_id, resolved_video.model_id
-                    except Exception:
+                    except (ValueError, SQLAlchemyError):
                         bucket_provider, bucket_model = "unknown", "unknown"
-                    # 分镜图生视频保持既有宽容报价；参考生视频逐 unit 的严格能力校验由 request projector
-                    # 完成，能力元数据异常时不会产生 unit 报价。
+                    # 事实解析不出的桶只保留模型展示坐标；分镜按分镜返回阻断问题，参考生视频逐 unit
+                    # 的阻断由 request projector 给出，两者都不产生视频报价。
                     bucket_audio = await r.video_pricing_generate_audio(bucket_provider, bucket_model, project_data)
                     try:
                         bucket_resolution = await r.resolve_resolution(
@@ -363,7 +363,7 @@ class CostEstimationService:
                             bucket_provider,
                             bucket_model or "",
                         )
-                    except Exception:
+                    except (ValueError, SQLAlchemyError):
                         bucket_resolution = None
                 video_identity[generation_type] = (
                     bucket_provider,
@@ -377,7 +377,7 @@ class CostEstimationService:
             try:
                 resolved_audio = await r.resolve_audio_backend(project_data, None)
                 audio_provider, audio_model = resolved_audio.provider_id, resolved_audio.model_id
-            except Exception:
+            except (ValueError, SQLAlchemyError):
                 audio_provider, audio_model = "unknown", "unknown"
 
         # Get actual costs + 自定义供应商价格（缺则预估恒为零，需与实际记账同源预查 DB 单价）
@@ -440,7 +440,7 @@ class CostEstimationService:
                 custom_price_output=image_price.price_output,
                 custom_currency=image_price.currency,
             )
-        except Exception:
+        except ValueError:
             logger.debug("无法计算 image 预估单价", exc_info=True)
 
         if grid_enabled:
@@ -456,7 +456,7 @@ class CostEstimationService:
                     custom_price_output=image_price.price_output,
                     custom_currency=image_price.currency,
                 )
-            except Exception:
+            except ValueError:
                 grid_image_unit_cost = image_unit_cost
 
         episodes_result = []
@@ -582,31 +582,15 @@ class CostEstimationService:
                 elif image_unit_cost:
                     _add_cost(est_image, image_unit_cost[0], image_unit_cost[1])
 
-                try:
-                    if isinstance(storyboard_facts, VideoRequestFacts):
+                # 剧本上的秒数可能被外部编辑成非整数：单条脏数据只让该分镜没有视频报价，不进计价。
+                if isinstance(storyboard_facts, VideoRequestFacts) and is_int(duration, minimum=1):
+                    try:
                         video_quote = quote_video_request_from_price(
                             VideoRequestCostFacts(storyboard_facts, duration), episode_video.price
                         )
                         _add_cost(est_video, video_quote.amount, video_quote.currency)
-                    else:
-                        # 事实失败时沿用分镜的宽容报价，不伪造成功事实。
-                        video_amount, video_currency = cost_calculator.calculate_cost(
-                            episode_video.provider,
-                            PricingParams(
-                                call_type="video",
-                                model=episode_video.model or "",
-                                resolution=episode_video.resolution,
-                                duration_seconds=duration,
-                                generate_audio=episode_video.generate_audio,
-                            ),
-                            custom_price_input=episode_video.price.price_input,
-                            custom_price_output=episode_video.price.price_output,
-                            custom_currency=episode_video.price.currency,
-                            estimate_only=True,
-                        )
-                        _add_cost(est_video, video_amount, video_currency)
-                except Exception:
-                    logger.debug("无法计算 video 预估 for %s", seg_id, exc_info=True)
+                    except ValueError:
+                        logger.debug("无法计算 video 预估 for %s", seg_id, exc_info=True)
 
                 # 旁白配音按 novel_text 字符数估价（仅旁白/解说 segment 携带原文）
                 novel_text = seg.get("novel_text")
@@ -621,7 +605,7 @@ class CostEstimationService:
                             custom_currency=audio_price.currency,
                         )
                         _add_cost(est_audio, audio_amount, audio_currency)
-                    except Exception:
+                    except ValueError:
                         logger.debug("无法计算 audio 预估 for %s", seg_id, exc_info=True)
 
                 seg_actual = _claim_actual(actual_by_segment, claimed_actual, seg_id)
@@ -635,6 +619,20 @@ class CostEstimationService:
                     {
                         "segment_id": seg_id,
                         "duration_seconds": duration,
+                        **(
+                            {
+                                "request_projection": {
+                                    "allowed": False,
+                                    "problems": [
+                                        ProjectionProblem.from_request_facts_failure(
+                                            storyboard_facts, locations=(("video_provider_i2v",),)
+                                        ).to_payload(unit_id=seg_id)
+                                    ],
+                                }
+                            }
+                            if isinstance(storyboard_facts, VideoRequestFactsFailure)
+                            else {}
+                        ),
                         "estimate": {"image": est_image, "video": est_video, "audio": est_audio},
                         "actual": {"image": act_image, "video": act_video, "audio": act_audio},
                     }
@@ -852,7 +850,7 @@ class CostEstimationService:
                     if price is not None:
                         try:
                             priced_quote = quote_video_request_from_price(cost, price)
-                        except Exception:
+                        except ValueError:
                             logger.warning(
                                 "无法为 reference unit %s 计算精确费用 provider=%s model=%s duration=%s",
                                 unit_id,
