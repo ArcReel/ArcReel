@@ -163,7 +163,7 @@ class TestLegacyRecordMigration:
 
 
 class TestCleanupSuperseded:
-    """重生成清理规则：同脚本同集、scene_ids 是当前组子集、非在途的旧记录被删。
+    """重生成清理规则：同脚本同集、scene_ids 是当前组子集、与本次重画的宫格有交集、非在途的旧记录被删。
 
     HTTP 路由与 SDK 工具 (generate_grid) 共用 GridManager.cleanup_superseded，
     本类锁定规则的唯一实现。
@@ -260,6 +260,18 @@ class TestCleanupSuperseded:
         assert deleted == 0
         assert gm.get(overlap.id) is not None
         assert gm.get(outside.id) is not None
+
+    def test_regenerating_one_chunk_keeps_the_group_s_untouched_chunks(self, tmp_path):
+        """只重画组内一张时：与它有交集的旧记录（含横跨多张的）被删，组内其余分块自己的记录保留。"""
+        gm = GridManager(tmp_path)
+        spanning = self._save(gm, scene_ids=["S1", "S2", "S3", "S4"])
+        same_chunk = self._save(gm, scene_ids=["S1", "S2"])
+        untouched = self._save(gm, scene_ids=["S3", "S4"])
+        deleted = gm.cleanup_superseded("ep1.json", 1, {"S1", "S2", "S3", "S4"}, regenerated={"S1", "S2"})
+        assert deleted == 2
+        assert gm.get(spanning.id) is None
+        assert gm.get(same_chunk.id) is None
+        assert gm.get(untouched.id) is not None
 
     def test_skips_records_of_other_script_or_episode(self, tmp_path):
         gm = GridManager(tmp_path)

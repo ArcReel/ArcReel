@@ -226,7 +226,8 @@ async def plan_grid_submission(
 def commit_grid_submission(plan: GridSubmissionPlan, project_path: Path) -> tuple[GridSubmissionTask, ...]:
     """落地一份未受阻的规划：逐张宫格清理被取代的旧记录、建记录，返回待入队的任务。
 
-    清理按宫格而非整组求值：超上限分组里整张都无需重画的那张，旧记录必须留下。
+    清理限定在本组内、只删与本次重画那张有交集的旧记录：超上限分组里整张都无需重画的那张，
+    旧记录必须留下；横跨重画那张与其余分块的旧记录（如 4K 档关闭后改切小宫格）已不合当前分块，一并删除。
     """
 
     if plan.refused:
@@ -235,6 +236,9 @@ def commit_grid_submission(plan: GridSubmissionPlan, project_path: Path) -> tupl
     aspect_ratio = video_aspect_ratio_of(dict(project))
     style = normalize_style_value(project.get("style"))
     style_description = normalize_style_value(project.get("style_description"))
+    group_scene_ids: dict[int, set[str]] = {}
+    for planned in plan.chunks:
+        group_scene_ids.setdefault(planned.group_index, set()).update(planned.scene_ids)
     gm = GridManager(project_path)
     tasks: list[GridSubmissionTask] = []
     for chunk in plan.submitting:
@@ -253,7 +257,12 @@ def commit_grid_submission(plan: GridSubmissionPlan, project_path: Path) -> tupl
             grid = chunk.grid
             reused = True
         else:
-            gm.cleanup_superseded(plan.script_file, plan.episode, set(chunk.scene_ids))
+            gm.cleanup_superseded(
+                plan.script_file,
+                plan.episode,
+                group_scene_ids[chunk.group_index],
+                regenerated=set(chunk.scene_ids),
+            )
             # provider/model 由 execute_grid_task 在 image lane 解析之后回填
             grid = GridGeneration.create(
                 episode=plan.episode,

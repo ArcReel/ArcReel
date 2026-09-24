@@ -165,6 +165,23 @@ async def test_missing_only_generates_every_group_without_storyboards(project_pa
     assert all(t.payload["prompt"] == g.prompt for t, g in zip(tasks, records, strict=True))
 
 
+async def test_regenerating_one_chunk_removes_a_record_spanning_it_but_keeps_the_untouched_chunk(
+    project_path: Path,
+) -> None:
+    """16 格分组按非 4K 档切成 9 + 7：点名重画第一张时，横跨两张的旧 4×4 记录已不合当前分块，
+    第二张自己的旧记录不受影响。"""
+    ids = [f"E1S{i:02d}" for i in range(1, 17)]
+    spanning = _record(project_path, ids, status="completed", split=True, registered=False)
+    untouched = _record(project_path, ids[9:], status="completed", split=True, registered=False)
+
+    plan = await _plan(project_path, script=_script(groups=1, per_group=16), scene_ids=["E1S01"])
+    commit_grid_submission(plan, project_path)
+
+    remaining = {g.id for g in GridManager(project_path).list_all()}
+    assert spanning.id not in remaining
+    assert untouched.id in remaining
+
+
 async def test_identical_in_flight_grid_is_reused_instead_of_created_again(project_path: Path) -> None:
     in_flight = _record(project_path, GROUP_1, status="pending")
 
