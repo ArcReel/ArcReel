@@ -50,6 +50,7 @@ from lib.episode.episode_target_duration import (
     MIN_EPISODE_TARGET_DURATION,
     is_valid_episode_target_duration,
 )
+from lib.generation.video_request_facts import ResolutionOverride, VideoRequestFactsError
 from lib.i18n import render_generation_input_error
 from lib.infra.api_errors import ApiError, BadRequestError, NotFoundError, UnprocessableError
 from lib.infra.json_io import domain_error_on_value_error
@@ -83,7 +84,11 @@ from server.services.project.project_archive import (
     ProjectArchiveValidationError,
 )
 from server.services.project.project_cover import resolve_project_cover
-from server.services.tasks.video_caps import annotate_reference_no_image_caps
+from server.services.tasks.video_caps import (
+    annotate_reference_no_image_caps,
+    capability_request_facts,
+    duration_constraints_payload,
+)
 
 router = APIRouter()
 
@@ -743,47 +748,43 @@ async def get_video_capabilities(
     对应用户当前选中的模型而非上一次保存的模型；候选身份先过所属桶能力闸。裸 provider（无 "/"）按其 registry
     默认视频 model 补全，与 project.json 存量裸 provider 覆盖同口径（见 `_parse_project_provider`）。
 
-    `resolution` / `uses_reference_images` 是时长联动约束的求值上下文，决定响应里
-    `duration_constraints` 的收窄结果与成因：缺省按项目已保存档位与生成模式求值（工作台），
-    表单里编辑中的未保存值显式带上（设置页）；`resolution` 传空串表示表单里选了「自动」，
-    不回退到已保存档位。收窄规则只在 `lib.config.resolver`，前端不复算。
+    `resolution` / `uses_reference_images` 是表单里编辑中的未保存值：`uses_reference_images` 决定
+    按哪个任务类型桶解析（缺省按项目生成模式），`resolution` 作为「覆盖分辨率」交给该桶的视频请求
+    事实求值，响应里的 `duration_constraints` 即这次求值的收窄结果与成因。缺省按项目已保存档位求值
+    （工作台）；`resolution` 传空串表示表单里选了「自动」：不回退到已保存档位，按项目未存档位解析
+    （自定义供应商仍取模型默认档）。
 
     能力按项目生成模式定轴、全项目同一口径，故无需集号：生成模式创建即定、之后不可更改。
     """
     resolver = ConfigResolver(async_session_factory)
+    resolution_override = None if resolution is None else ResolutionOverride(resolution or None)
     try:
+        project = get_project_manager().load_project(name)
+        generation_type = (
+            ("r2v" if uses_reference_images else "i2v")
+            if uses_reference_images is not None
+            else video_bucket_for_generation_mode(caps_generation_mode(project))
+        )
         if video_backend:
             provider_id, model_id = split_video_backend_query(video_backend)
-            project = get_project_manager().load_project(name)
-            generation_type = (
-                ("r2v" if uses_reference_images else "i2v")
-                if uses_reference_images is not None
-                else video_bucket_for_generation_mode(caps_generation_mode(project))
-            )
-            await resolver.resolve_video_backend(
-                {**project, f"video_provider_{generation_type}": f"{provider_id}/{model_id}"},
-                None,
-                generation_type=generation_type,
-            )
+            project = {**project, f"video_provider_{generation_type}": f"{provider_id}/{model_id}"}
+            await resolver.resolve_video_backend(project, None, generation_type=generation_type)
             caps = await resolver.video_capabilities_for_model(
-                provider_id,
-                model_id,
-                project,
-                generation_type=generation_type,
-                resolution=resolution,
-                uses_reference_images=uses_reference_images,
+                provider_id, model_id, project, generation_type=generation_type
             )
             if (caps["provider_id"], caps["model"]) != (provider_id, model_id):
                 raise BadRequestError("video_capability_reference_unavailable", provider=provider_id, model=model_id)
         else:
-            caps = await resolver.video_capabilities(
-                name, resolution=resolution, uses_reference_images=uses_reference_images
-            )
-            project = None
+            caps = await resolver.video_capabilities_for_project(project, generation_type=generation_type)
+        request_facts = await capability_request_facts(
+            project,
+            generation_type=generation_type,
+            config_resolver=resolver,
+            resolution_override=resolution_override,
+        )
+        caps["duration_constraints"] = duration_constraints_payload(request_facts)
         if caps.get("generation_mode") == "reference_video":
-            await annotate_reference_no_image_caps(
-                caps, project or get_project_manager().load_project(name), config_resolver=resolver
-            )
+            await annotate_reference_no_image_caps(caps, project, request_facts, config_resolver=resolver)
         return caps
     except FileNotFoundError as exc:
         raise NotFoundError("project_not_found", name=name) from exc
@@ -791,6 +792,9 @@ async def get_video_capabilities(
         # 任务类型桶解析闸的报错自带 errors 目录 key 与渲染参数，转成结构化 400 让用户看到修复指引，
         # 不被下面的通用 422 文案吞掉（ValueError 子类，须先于其捕获）
         raise BadRequestError(exc.code, **exc.params) from exc
+    except VideoRequestFactsError as exc:
+        # 视频请求事实的问题码即 errors 目录 key（ValueError 子类，须先于其捕获）
+        raise UnprocessableError(exc.code, **exc.params) from exc
     except ValueError as exc:
         # 异常原文只进日志：str(exc) 混英文技术细节，直接插进翻译文案会让 en/vi 界面混入未译原文
         logger.warning("项目 '%s' 视频模型能力解析失败: %s", name, exc)

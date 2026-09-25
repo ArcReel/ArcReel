@@ -16,6 +16,7 @@ from lib.db.models.custom_provider import CustomProvider, CustomProviderModel
 from lib.generation.video_request_facts import (
     CONFIGURED_VIDEO_IDENTITY,
     ExecutionVideoIdentity,
+    ResolutionOverride,
     VideoRequestFacts,
     VideoRequestFactsFailure,
     evaluate_video_request_facts,
@@ -388,6 +389,87 @@ async def test_reference_buckets_use_their_own_model_resolution_on_both_sides(re
             resolver=resolver,
         )
         assert executed == read
+
+
+@pytest.mark.parametrize(
+    ("generation_type", "override", "resolution", "allowed", "excluded"),
+    [
+        pytest.param("i2v", "720p", "720p", (4, 6, 8), (), id="unsaved-720p"),
+        pytest.param("i2v", None, None, (4, 6, 8), (), id="unsaved-auto"),
+        pytest.param("r2v", "720p", "720p", (8,), ((4, "reference"), (6, "reference")), id="unsaved-720p-r2v"),
+        pytest.param("r2v", None, None, (8,), ((4, "reference"), (6, "reference")), id="unsaved-auto-r2v"),
+    ],
+)
+async def test_resolution_override_previews_an_unsaved_resolution(
+    resolver, generation_type, override, resolution, allowed, excluded
+):
+    """覆盖分辨率取代项目已保存的档位作为请求分辨率，其余求值不变。"""
+    project = _with_resolution({f"video_provider_{generation_type}": VEO}, VEO, "1080p")
+
+    preview = await evaluate_video_request_facts(
+        project,
+        route="storyboard" if generation_type == "i2v" else "reference_video",
+        generation_type=generation_type,
+        identity=CONFIGURED_VIDEO_IDENTITY,
+        resolver=resolver,
+        resolution_override=ResolutionOverride(override),
+    )
+
+    assert isinstance(preview, VideoRequestFacts)
+    assert (preview.provider_id, preview.model_id) == (VEO_PROVIDER, VEO_MODEL)
+    assert preview.resolution == resolution
+    assert preview.allowed_durations == allowed
+    assert preview.excluded_durations == excluded
+
+
+async def test_resolution_override_leaves_read_and_execution_evaluations_on_the_saved_resolution(resolver):
+    """预览过未保存的分辨率后，不传覆盖的读侧与执行侧仍按已保存档位求值。"""
+    project = _with_resolution({"video_provider_i2v": VEO}, VEO, "1080p")
+    await evaluate_video_request_facts(
+        project,
+        route="storyboard",
+        generation_type="i2v",
+        identity=CONFIGURED_VIDEO_IDENTITY,
+        resolver=resolver,
+        resolution_override=ResolutionOverride("720p"),
+    )
+
+    read = await _read(resolver, project)
+    executed = await evaluate_video_request_facts(
+        project,
+        route="storyboard",
+        generation_type="i2v",
+        identity=ExecutionVideoIdentity(VEO_PROVIDER, VEO_MODEL),
+        resolver=resolver,
+    )
+
+    assert isinstance(read, VideoRequestFacts)
+    assert (read.resolution, read.allowed_durations) == ("1080p", (8,))
+    assert executed == read
+    assert project["model_settings"] == {VEO: {"resolution": "1080p"}}
+
+
+async def test_auto_resolution_override_falls_back_to_the_custom_model_default(resolver, db_factory):
+    """预览「自动」等于项目未存档位：自定义供应商仍取模型默认档，与保存后的求值一致。"""
+    provider_id = await _seed_custom_video_models(
+        db_factory,
+        {"model_id": "m", "is_default": True, "resolution": "540p", "supported_durations": json.dumps([4, 6])},
+    )
+    pair = f"{provider_id}/m"
+
+    preview = await evaluate_video_request_facts(
+        _with_resolution({"video_provider_i2v": pair}, pair, "1080p"),
+        route="storyboard",
+        generation_type="i2v",
+        identity=CONFIGURED_VIDEO_IDENTITY,
+        resolver=resolver,
+        resolution_override=ResolutionOverride(None),
+    )
+    saved = await _read(resolver, {"video_provider_i2v": pair})
+
+    assert isinstance(preview, VideoRequestFacts)
+    assert preview.resolution == "540p"
+    assert preview == saved
 
 
 @pytest.mark.parametrize(

@@ -857,7 +857,6 @@ class TestVideoCapabilitiesEndpoint:
         monkeypatch, custom_providers_app_session_factory, provider_id: str, model_id: str = VIDEO_MODEL
     ) -> TestClient:
 
-        from lib.config import resolver as resolver_mod
         from server.routers import projects as projects_mod
 
         class _FakePM:
@@ -865,7 +864,7 @@ class TestVideoCapabilitiesEndpoint:
                 return {"name": name, "video_backend": f"{provider_id}/{model_id}"}
 
         monkeypatch.setattr(projects_mod, "async_session_factory", custom_providers_app_session_factory)
-        monkeypatch.setattr(resolver_mod, "get_project_manager", lambda: _FakePM())
+        monkeypatch.setattr(projects_mod, "get_project_manager", lambda: _FakePM())
 
         app = FastAPI()
         app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="t", sub="t", role="admin")

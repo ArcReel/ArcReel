@@ -31,7 +31,7 @@ from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
 # ---------------------------------------------------------------------------
 
 
-async def test_get_video_capabilities_happy(fake_ctx: ToolContext) -> None:
+async def test_get_video_capabilities_happy(fake_ctx: ToolContext, video_request_facts) -> None:
     use_fake_caps(fake_ctx, provider_id="fake", supported_durations=[4, 6, 8])
     tool_obj = get_video_capabilities_tool(fake_ctx)
     assert tool_obj.name == "get_video_capabilities"
@@ -42,7 +42,7 @@ async def test_get_video_capabilities_happy(fake_ctx: ToolContext) -> None:
     assert json.loads(out["content"][0]["text"])["video_capabilities"]["provider_id"] == "fake"
 
 
-async def test_get_video_capabilities_resolves_by_project(fake_ctx: ToolContext) -> None:
+async def test_get_video_capabilities_resolves_by_project(fake_ctx: ToolContext, video_request_facts) -> None:
     """能力按项目生成模式解析：工具不收集号，多余的集号入参被忽略、不改变解析口径。"""
     resolver = use_fake_caps(fake_ctx, provider_id="fake", supported_durations=[4, 6, 8])
     tool_obj = get_video_capabilities_tool(fake_ctx)
@@ -63,6 +63,7 @@ async def test_get_video_capabilities_annotates_reference_unit_tiers(
             "i2v": VideoRequestFactsFailure("reference_capability_unavailable", (("capability", "i2v"),)),
         }
     )
+    fake_ctx.pm.project_payload["generation_mode"] = "reference_video"
     use_fake_caps(
         fake_ctx,
         provider_id="gemini-aistudio",
@@ -96,7 +97,7 @@ async def test_get_video_capabilities_annotates_reference_unit_tiers(
 async def test_get_video_capabilities_has_one_successful_no_image_channel(
     fake_ctx: ToolContext, set_video_request_facts
 ) -> None:
-    """两桶各自成功时载荷各带一套档位；能力 dict 里的旧无图档位键被弹掉，Agent 只读事实那一份。"""
+    """两桶各自成功时载荷各带一套档位；`duration_constraints` 的无图档位键被弹掉，Agent 只读 reference_unit_durations 那一份。"""
     set_video_request_facts(
         {
             "r2v": make_video_request_facts(
@@ -107,13 +108,13 @@ async def test_get_video_capabilities_has_one_successful_no_image_channel(
             ),
         }
     )
+    fake_ctx.pm.project_payload["generation_mode"] = "reference_video"
     use_fake_caps(
         fake_ctx,
         provider_id="gemini-aistudio",
         model="veo-3.1-generate-preview",
         supported_durations=[4, 6, 8],
         generation_mode="reference_video",
-        duration_constraints={"allowed_without_reference_images": [8]},
     )
 
     out = await call(get_video_capabilities_tool(fake_ctx), {})
@@ -166,7 +167,7 @@ async def test_get_video_capabilities_reports_endpoint_fixed_per_bucket(
     [("storyboard", "drama"), ("reference_video", "ad")],
 )
 async def test_get_video_capabilities_skips_tiers_off_episode_reference_path(
-    fake_ctx: ToolContext, generation_mode: str, content_mode: str
+    fake_ctx: ToolContext, video_request_facts, generation_mode: str, content_mode: str
 ) -> None:
     """非剧集参考路径不补该字段：其它路径没有逐 unit 引用状态，ad 分镜时长也不受档位枚举管辖。"""
     use_fake_caps(
@@ -182,7 +183,7 @@ async def test_get_video_capabilities_skips_tiers_off_episode_reference_path(
     assert "reference_unit_durations" not in payload
 
 
-async def test_get_video_capabilities_shares_rest_resolution_entry(fake_ctx: ToolContext) -> None:
+async def test_get_video_capabilities_shares_rest_resolution_entry(fake_ctx: ToolContext, video_request_facts) -> None:
     """Agent 工具把闭包项目交给 ``ConfigResolver.video_capabilities_for_project``。
 
     解析器不按项目名回到全局项目目录，非默认 projects_root 的会话也读取闭包里的项目。
@@ -192,6 +193,50 @@ async def test_get_video_capabilities_shares_rest_resolution_entry(fake_ctx: Too
     assert out.get("is_error") is not True, out
     assert json.loads(out["content"][0]["text"])["video_capabilities"]["model"] == "kling-v3-omni"
     assert resolver.project_payloads == [fake_ctx.pm.project_payload]
+
+
+async def test_get_video_capabilities_duration_constraints_come_from_request_facts(
+    fake_ctx: ToolContext, set_video_request_facts
+) -> None:
+    """Agent 载荷的 ``duration_constraints`` 取项目主桶的视频请求事实。"""
+    set_video_request_facts(
+        make_video_request_facts(
+            resolution="1080p", allowed_durations=(8,), excluded_durations=((4, "resolution"), (6, "resolution"))
+        )
+    )
+    use_fake_caps(
+        fake_ctx, provider_id="gemini-aistudio", model="veo-3.1-generate-preview", supported_durations=[4, 6, 8]
+    )
+    out = await call(get_video_capabilities_tool(fake_ctx), {})
+    assert out.get("is_error") is not True, out
+    payload = json.loads(out["content"][0]["text"])["video_capabilities"]
+    assert payload["duration_constraints"] == {
+        "resolution": "1080p",
+        "uses_reference_images": False,
+        "allowed": [8],
+        "allowed_without_reference_images": [8],
+        "excluded": {"4": "resolution", "6": "resolution"},
+    }
+
+
+async def test_get_video_capabilities_reports_request_facts_failure(
+    fake_ctx: ToolContext, set_video_request_facts
+) -> None:
+    set_video_request_facts(
+        VideoRequestFactsFailure(
+            "video_supported_durations_incompatible",
+            (("provider", "gemini-aistudio"), ("model", "veo-3.1-generate-preview"), ("resolution", "4k")),
+        )
+    )
+    use_fake_caps(
+        fake_ctx, provider_id="gemini-aistudio", model="veo-3.1-generate-preview", supported_durations=[4, 6, 8]
+    )
+    out = await call(get_video_capabilities_tool(fake_ctx), {})
+    assert out.get("is_error") is True
+    problem = json.loads(out["content"][0]["text"])["problem"]
+    assert problem["code"] == "capabilities_unresolved"
+    assert "video_supported_durations_incompatible（provider=gemini-aistudio" in problem["detail"]
+    assert "resolution=4k" in problem["detail"]
 
 
 async def test_get_video_capabilities_error(fake_ctx: ToolContext) -> None:

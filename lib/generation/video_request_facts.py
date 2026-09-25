@@ -89,6 +89,16 @@ VideoRequestIdentity = ConfiguredVideoIdentity | ExecutionVideoIdentity
 
 
 @dataclass(frozen=True)
+class ResolutionOverride:
+    """预览尚未保存的分辨率：取代项目已保存的档位（``None`` = 表单选了「自动」，按项目未存档位解析）。
+
+    只供设置页与创建向导预览编辑中的配置；执行侧与其他读侧不传，求值按已保存配置进行。
+    """
+
+    resolution: str | None
+
+
+@dataclass(frozen=True)
 class VideoRequestFacts:
     """一次视频请求的执行事实。
 
@@ -224,8 +234,13 @@ async def evaluate_video_request_facts(
     generation_type: VideoGenerationType,
     identity: VideoRequestIdentity,
     resolver: ConfigResolver,
+    resolution_override: ResolutionOverride | None = None,
 ) -> VideoRequestFacts | VideoRequestFactsFailure:
-    """对一次视频请求求值执行事实；解析不出时返回带类型的失败，不抛出、不回退。"""
+    """对一次视频请求求值执行事实；解析不出时返回带类型的失败，不抛出、不回退。
+
+    ``resolution_override`` 只供预览未保存的分辨率（见 :class:`ResolutionOverride`）；缺省时按
+    项目已保存配置解析请求分辨率。
+    """
 
     codes = _ROUTE_FAILURE_CODES[route]
     if isinstance(identity, ExecutionVideoIdentity):
@@ -266,10 +281,15 @@ async def evaluate_video_request_facts(
     if not supported and not endpoint_fixed:
         return VideoRequestFactsFailure(codes["missing"], identity_params)
 
-    try:
-        resolution = await resolver.resolve_resolution(project, provider_id, model_id)
-    except (ValueError, SQLAlchemyError):
-        return VideoRequestFactsFailure(codes["unavailable"], (("capability", generation_type), *identity_params))
+    if resolution_override is not None and resolution_override.resolution is not None:
+        resolution = resolution_override.resolution
+    else:
+        # 覆盖为「自动」即项目不存档位：以空 project 解析，自定义供应商仍落到模型默认档。
+        saved_settings = project if resolution_override is None else {}
+        try:
+            resolution = await resolver.resolve_resolution(saved_settings, provider_id, model_id)
+        except (ValueError, SQLAlchemyError):
+            return VideoRequestFactsFailure(codes["unavailable"], (("capability", generation_type), *identity_params))
 
     # 参考图约束随桶生效：单元按可用参考图定桶，落 r2v 即带参考图、落 i2v 即不带。
     uses_reference_images = generation_type == "r2v"
