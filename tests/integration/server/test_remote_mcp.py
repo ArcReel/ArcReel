@@ -29,12 +29,8 @@ from server.agent_runtime.sdk_tools import ARCREEL_MCP_TOOL_IDS
 from server.agent_runtime.sdk_tools.text_generation import generate_episode_script_tool
 from server.auth import create_download_token, create_token
 from server.cors_config import resolve_cors_policy
-from server.media_tools.assets import generate_assets_tool, list_pending_assets_tool
 from server.media_tools.context import ToolContext
 from server.media_tools.grid import generate_grid_tool, split_grids_tool
-from server.media_tools.image_edits import edit_images_tool
-from server.media_tools.narration_audio import generate_narration_audio_tool
-from server.media_tools.storyboards import generate_storyboards_tool
 from server.media_tools.videos import generate_videos_tool
 from server.remote_mcp import ArcApiKeyVerifier, RemoteMCPHost, build_remote_mcp_server
 from server.tool_runtime import Services
@@ -398,20 +394,12 @@ async def test_remote_mcp_returns_typed_workflow_plan_and_rejects_bad_project(
     definitions = {
         definition.name: definition
         for definition in (
-            list_pending_assets_tool(media_ctx),
-            generate_assets_tool(media_ctx),
-            generate_storyboards_tool(media_ctx),
-            edit_images_tool(media_ctx),
             generate_grid_tool(media_ctx),
             split_grids_tool(media_ctx),
             generate_videos_tool(media_ctx),
-            generate_narration_audio_tool(media_ctx),
         )
     }
     remote_batch_tools = {
-        "generate_assets",
-        "generate_storyboards",
-        "edit_images",
         "generate_grid",
         "generate_videos",
         "generate_episode_script",
@@ -476,11 +464,6 @@ async def test_remote_mcp_returns_typed_workflow_plan_and_rejects_bad_project(
     assert target_defs["all"]["required"] == ["scope"]
     assert all(definition["additionalProperties"] is False for definition in target_defs.values())
     assert "base_revision" in listed["discard_draft"].inputSchema["required"]
-    narration_description = listed["generate_narration_audio"].description
-    assert "remote MCP" in narration_description
-    assert "get_generation_batch" in narration_description
-    assert "poll_after_seconds" in narration_description
-    assert "done=true" in narration_description
     assert result.structuredContent is not None
     assert result.structuredContent["workflow_plan"]["status"]["target"]["episode"] == 1
     assert capabilities.structuredContent == {
@@ -559,34 +542,6 @@ async def test_remote_grid_list_only_returns_preview_without_a_batch(
     assert result.structuredContent is not None
     assert set(result.structuredContent) == {"generate_grid"}
     assert isinstance(result.structuredContent["generate_grid"], str)
-
-
-async def test_media_errors_are_typed_in_embedded_and_remote_hosts(
-    remote_server, remote_projects: ProjectManager
-) -> None:
-    definition = generate_assets_tool(ToolContext("demo", remote_projects.data_root, pm=remote_projects))
-    embedded = await definition.invoke({"names": ["张三"]})
-
-    assert embedded.problem is not None
-    assert embedded.problem.code == "invalid_request"
-
-    app = _mounted(remote_server)
-    async with (
-        remote_server.session_manager.run(),
-        httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=app),
-            base_url="http://localhost",
-            headers={"Authorization": "Bearer arc-valid"},
-            follow_redirects=True,
-        ) as client,
-        streamable_http_client("http://localhost/mcp", http_client=client) as (read, write, _),
-        ClientSession(read, write) as session,
-    ):
-        await session.initialize()
-        remote = await session.call_tool("generate_assets", {"project": "demo", "names": ["张三"]})
-
-    assert remote.isError
-    assert remote.structuredContent == {"problem": embedded.problem.model_dump(mode="json")}
 
 
 async def test_remote_media_runtime_validates_shared_schema_and_forwards_nested_instruction(

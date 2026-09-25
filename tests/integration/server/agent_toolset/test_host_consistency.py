@@ -13,6 +13,7 @@ import shutil
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
+from unittest.mock import AsyncMock
 
 import pytest
 from mcp import types
@@ -20,6 +21,8 @@ from mcp.server import Server
 
 from lib.config.resolver import ConfigResolver
 from lib.db import async_session_factory
+from lib.generation.generation_queue import GenerationQueue
+from lib.generation.generation_result import GenerationBatchResult
 from lib.project.project_manager import ProjectManager
 from lib.project.project_migration_failure import (
     MIGRATION_FAILURE_CODE,
@@ -36,11 +39,24 @@ from server.agent_toolset.declaration import (
     UnscopedToolDeclaration,
 )
 from server.agent_toolset.embedded import embedded_server
+from server.agent_toolset.envelope import json_value
+from server.agent_toolset.generation_batches import CANCEL_GENERATION_BATCH, GET_GENERATION_BATCH
+from server.agent_toolset.orientation import GET_PROMPT_PREVIEW, GET_VIDEO_CAPABILITIES
+from server.agent_toolset.project_entry import CREATE_PROJECT
 from server.agent_toolset.remote import LONG_TASK_NOTE, remote_tool
 from server.agent_toolset.toolset import AGENT_TOOLSET
 from server.remote_mcp import build_remote_mcp_server
 from server.services.project.workflow_planner import WorkflowPlanner
-from server.tool_runtime import CallerContext, ProjectScope, Services, ToolOutcome, ToolProblem
+from server.tool_runtime import (
+    CallerContext,
+    GenerationBatchToolRequest,
+    ProjectScope,
+    Services,
+    ToolOutcome,
+    ToolProblem,
+    ToolRequest,
+    get_generation_batch,
+)
 
 # 每条声明一份合法入参；新增声明须在此登记，否则参数化用例以 KeyError 失败。
 SAMPLE_ARGUMENTS: dict[str, dict[str, Any]] = {
@@ -63,6 +79,11 @@ SAMPLE_ARGUMENTS: dict[str, dict[str, Any]] = {
     "get_script_plan_content": {"episode": 1},
     "list_project_files": {},
     "read_project_file": {"path": "project.json"},
+    "list_pending_assets": {"type": "character"},
+    "generate_assets": {"type": "character", "names": ["张三"]},
+    "generate_storyboards": {"script": "episode_1.json"},
+    "edit_images": {"resource_type": "character", "edits": [{"id": "张三", "instruction": "把头发改成红色"}]},
+    "generate_narration_audio": {"script": "episode_1.json", "segment_ids": ["E1S01"]},
 }
 
 _DECLARATIONS = pytest.mark.parametrize("declaration", AGENT_TOOLSET, ids=lambda declaration: declaration.name)
@@ -367,7 +388,12 @@ def _twin_services(projects: ProjectManager, tmp_path: Path) -> Services:
 
 
 # 真实 handler 的结果随调用时刻变化，两次调用无法逐字比较；透传一致性由其余用例的 fake handler 覆盖。
-_TIME_DEPENDENT_RESULTS = frozenset({"create_project"})
+_TIME_DEPENDENT_RESULTS = frozenset({CREATE_PROJECT.name})
+
+# 样例入参下合法地返回 problem 的声明：测试项目缺少它们要找的对象或能力配置。其余声明在样例入参下必须成功。
+_PROBLEM_ON_SAMPLE = frozenset(
+    {GET_VIDEO_CAPABILITIES.name, GET_PROMPT_PREVIEW.name, GET_GENERATION_BATCH.name, CANCEL_GENERATION_BATCH.name}
+)
 
 
 @pytest.mark.parametrize(
@@ -387,7 +413,7 @@ async def test_embedded_content_carries_the_same_json_as_remote_structured_conte
     embedded = await _call_embedded(declaration, SAMPLE_ARGUMENTS[declaration.name], services)
     remote = await _call_remote(declaration, _remote_arguments(declaration, SAMPLE_ARGUMENTS[declaration.name]), twin)
 
-    assert remote.isError is embedded.isError
+    assert embedded.isError is remote.isError is (declaration.name in _PROBLEM_ON_SAMPLE)
     assert remote.structuredContent is not None
     assert set(remote.structuredContent) == {"problem" if remote.isError else declaration.domain_key}
     assert _embedded_json(embedded) == remote.structuredContent
@@ -428,3 +454,53 @@ async def test_remote_project_locating_failures_are_invalid_project(
     assert result.isError is True
     assert result.structuredContent is not None
     assert result.structuredContent["problem"]["code"] == "invalid_project"
+
+
+async def test_embedded_terminal_generation_result_has_the_shape_remote_polling_reads_at_the_terminal_state(
+    projects: ProjectManager, services: Services, db_factory
+) -> None:
+    """长任务是唯一允许的结果差异：内嵌拿终态结果，远程拿批次句柄；两边的终态生成结果同形。"""
+    project = projects.load_project("demo")
+    project["characters"] = {"李四": {"description": ""}}
+    projects.save_project("demo", project)
+    services = replace(services, queue=GenerationQueue(session_factory=db_factory, project_manager=projects))
+    declaration = next(declaration for declaration in AGENT_TOOLSET if declaration.name == "generate_assets")
+    arguments = {"type": "character", "names": ["李四"]}
+    waiter = AsyncMock(return_value=([], []))
+    embedded_caller = CallerContext(user_id="u1", source="embedded", batch_waiter=waiter)
+    remote_caller = CallerContext(user_id="u1", source="mcp")
+
+    session_server = embedded_server(
+        [declaration],
+        name="arcreel",
+        version="1.0.0",
+        scope=_scope(projects),
+        caller=embedded_caller,
+        services=services,
+    )["instance"]
+    embedded = await _call_server(session_server, declaration.name, arguments)
+    remote = await remote_tool(declaration, projects=projects, services=services, caller=lambda: remote_caller).run(
+        {"project": "demo", **arguments}
+    )
+    assert isinstance(remote, types.CallToolResult)
+    assert remote.structuredContent is not None
+    handle = remote.structuredContent["generation_batch"]
+    polled = await get_generation_batch(
+        ToolRequest(GenerationBatchToolRequest(batch_id=handle["batch_id"])), _scope(projects), remote_caller, services
+    )
+
+    # 内嵌：摘要在前、终态结果 JSON 在后；批次全部被阻断即结果级失败。
+    terminal = _embedded_json(embedded)
+    assert embedded.isError is True
+    assert len(_texts(embedded)) == 2
+    assert set(terminal) == {"generation_result", "batch_id"}
+    # 远程：立即拿到批次句柄，按句柄轮询到终态后读取附带的生成结果。
+    assert remote.isError is False
+    assert set(remote.structuredContent) == {"generation_batch"}
+    assert polled.value is not None
+    assert polled.value.done is True
+    assert polled.value.generation_result is not None
+    polled_result = json_value(polled.value.generation_result)
+    assert GenerationBatchResult.model_validate(terminal["generation_result"]).blocked == ["character/李四"]
+    assert terminal["generation_result"] == polled_result
+    waiter.assert_not_awaited()

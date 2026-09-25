@@ -38,11 +38,10 @@ from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from lib.script.script_batch_edit import script_revision
 from lib.workflow.workflow_plan import WorkflowPlanRequest
 from lib.workflow.workflow_state import WorkflowStateService
-from server.agent_runtime.sdk_tools.enqueue_assets import list_pending_assets_tool
 from server.agent_runtime.sdk_tools.patch_script import patch_episode_script_tool
 from server.dependencies import require_project_migration_ok
 from server.error_handlers import register_error_handlers
-from server.media_tools.context import ToolContext
+from server.media_tools.assets import ListPendingAssetsRequest, list_pending_assets
 from server.services.project.workflow_planner import WorkflowPlanner
 from server.tool_runtime import (
     CallerContext,
@@ -286,25 +285,8 @@ async def test_retry_success_uses_caller_scoped_queue_and_capabilities(tmp_path:
     }
 
 
-def _assert_list_pending_assets_unblocked(unblocked: dict, ctx: ToolContext) -> None:
-    text = unblocked["content"][0]["text"]
-    assert ctx.project_name in text
-    assert "✅" in text
-
-
-@pytest.mark.parametrize(
-    ("tool_factory", "args", "unblocked_fields", "assert_unblocked"),
-    [
-        (list_pending_assets_tool, {}, (), _assert_list_pending_assets_unblocked),
-    ],
-)
-async def test_readonly_diagnostic_tools_report_the_migration_problem_instead_of_raising(
-    tmp_path: Path, tool_factory, args, unblocked_fields, assert_unblocked
-) -> None:
-    """只读诊断工具不在 MIGRATION_BLOCKED_TOOL_IDS 里、不经注册期守卫包装，各自在 handler 内
-
-    读一次迁移裁决：命中则返回与生成类工具同构的 problem 回执，裁决清空后照常给出结果。
-    """
+async def test_pending_asset_listing_reports_the_migration_problem_until_repaired(tmp_path: Path) -> None:
+    """待生成资产清单自报迁移裁决：命中则返回与生成类工具同构的 problem，裁决清空后照常列出。"""
 
     projects_root = tmp_path / "projects"
     projects_root.mkdir()
@@ -312,27 +294,27 @@ async def test_readonly_diagnostic_tools_report_the_migration_problem_instead_of
     _break_episode_script(project_dir)
     failure = migrate_project_with_verdict(project_dir)
     assert failure is not None
+    projects = ProjectManager(str(tmp_path))
+    services = Services(projects=projects, workflow_planner=WorkflowPlanner(projects), capabilities=object())
+    scope = ProjectScope(project_name="demo", data_root=tmp_path)
+    caller = CallerContext(user_id="u1", source="mcp")
+    request = ToolRequest(ListPendingAssetsRequest())
 
-    ctx = ToolContext(project_name="demo", data_root=tmp_path, pm=ProjectManager(str(tmp_path)))
-    handler = tool_factory(ctx).handler
+    blocked = await list_pending_assets(request, scope, caller, services)
 
-    blocked = await handler(args)
-
-    assert blocked["is_error"] is True
-    assert blocked["problem"]["code"] == MIGRATION_FAILURE_CODE
-    assert blocked["problem"]["action"] == RETRY_MIGRATION_ACTION
-    assert blocked["problem"]["detail"] == failure.reason
-    assert failure.reason in blocked["content"][0]["text"]
+    assert blocked.value is None
+    assert blocked.problem is not None
+    assert blocked.problem.code == MIGRATION_FAILURE_CODE
+    assert blocked.problem.action == RETRY_MIGRATION_ACTION
+    assert blocked.problem.detail == failure.reason
 
     _repair_episode_script(project_dir)
     assert migrate_project_with_verdict(project_dir) is None
-    unblocked = await handler(args)
+    unblocked = await list_pending_assets(request, scope, caller, services)
 
-    assert unblocked.get("is_error") is not True
-    assert "problem" not in unblocked
-    for field in unblocked_fields:
-        assert unblocked[field]
-    assert_unblocked(unblocked, ctx)
+    assert unblocked.problem is None
+    assert isinstance(unblocked.value, str)
+    assert "demo" in unblocked.value
 
 
 async def test_episode_script_reader_withholds_the_revision_until_the_migration_is_repaired(tmp_path: Path) -> None:
@@ -340,13 +322,13 @@ async def test_episode_script_reader_withholds_the_revision_until_the_migration_
 
     projects_root = tmp_path / "projects"
     projects_root.mkdir()
-    project_dir, *_ = _project(projects_root)
+    project_dir, *_ = _project(tmp_path)
     _break_episode_script(project_dir)
     failure = migrate_project_with_verdict(project_dir)
     assert failure is not None
-    projects = ProjectManager(str(projects_root))
+    projects = ProjectManager(str(tmp_path))
     services = Services(projects=projects, workflow_planner=WorkflowPlanner(projects), capabilities=object())
-    scope = ProjectScope(project_name="demo", data_root=projects_root)
+    scope = ProjectScope(project_name="demo", data_root=tmp_path)
     caller = CallerContext(user_id="u1", source="mcp")
     request = ToolRequest(EpisodeScriptRequest(script="episode_1.json"))
 
@@ -374,16 +356,16 @@ async def test_prompt_preview_reports_the_full_migration_problem(tmp_path: Path)
 
     projects_root = tmp_path / "projects"
     projects_root.mkdir()
-    project_dir, *_ = _project(projects_root)
+    project_dir, *_ = _project(tmp_path)
     _break_episode_script(project_dir)
     failure = migrate_project_with_verdict(project_dir)
     assert failure is not None
-    projects = ProjectManager(str(projects_root))
+    projects = ProjectManager(str(tmp_path))
     services = Services(projects=projects, workflow_planner=WorkflowPlanner(projects), capabilities=object())
 
     blocked = await get_prompt_preview(
         ToolRequest(PromptPreviewRequest(script="episode_1.json", item_id="E1S01")),
-        ProjectScope(project_name="demo", data_root=projects_root),
+        ProjectScope(project_name="demo", data_root=tmp_path),
         CallerContext(user_id="u1", source="mcp"),
         services,
     )

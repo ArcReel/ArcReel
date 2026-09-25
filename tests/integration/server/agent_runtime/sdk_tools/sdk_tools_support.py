@@ -10,6 +10,7 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
+from lib.generation.generation_queue_client import batch_enqueue_and_wait
 from lib.generation.generation_result import (
     GenerationBatchResult,
 )
@@ -27,9 +28,11 @@ from server.agent_runtime.sdk_tools.text_generation import (
     open_draft_tool,
     promote_draft_tool,
 )
-from server.media_tools.context import ToolContext
+from server.agent_toolset.declaration import invoke_declaration
+from server.agent_toolset.toolset import AGENT_TOOLSET
+from server.media_tools.context import ToolContext, tool_services
 from server.media_tools.definition import ToolDefinition
-from server.tool_runtime import ToolOutcome
+from server.tool_runtime import BatchWaiter, ToolOutcome
 from tests.factories import make_video_request_facts
 from tests.fakes import FakeConfigResolver
 
@@ -61,6 +64,20 @@ def read_generation_result(out: dict[str, Any] | ToolOutcome[Any]) -> Generation
         assert isinstance(out.value, dict)
         return GenerationBatchResult.model_validate(out.value["generation_result"])
     return GenerationBatchResult.model_validate(out["generation_result"])
+
+
+async def run_declared_tool(
+    name: str,
+    ctx: ToolContext,
+    arguments: dict[str, Any],
+    *,
+    batch_waiter: BatchWaiter = batch_enqueue_and_wait,
+) -> ToolOutcome[Any]:
+    """经工具声明的共享入口调用，拿到 handler 的 ``ToolOutcome``；内嵌批次等待器随 caller 注入。"""
+
+    declaration = next(declaration for declaration in AGENT_TOOLSET if declaration.name == name)
+    caller = replace(ctx.caller, batch_waiter=batch_waiter)
+    return await invoke_declaration(declaration, arguments, ctx.scope, caller, tool_services(ctx))
 
 
 def videos_tool_for_scope(ctx: ToolContext, scope: str):

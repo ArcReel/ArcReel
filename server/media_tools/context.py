@@ -6,9 +6,9 @@ import asyncio
 import json
 from dataclasses import asdict, is_dataclass
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
-from pydantic import BaseModel
+from pydantic import AfterValidator, BaseModel, Field
 
 from lib.config.resolver import ConfigResolver
 from lib.db import async_session_factory
@@ -21,6 +21,7 @@ from lib.project.project_manager import ProjectManager
 from lib.project.project_migration_failure import MigrationFailureRecord
 from lib.project.project_migration_guard import project_migration_failure
 from lib.speech.narration_delivery import TtsSettingsResolver
+from server.agent_toolset.envelope import json_value
 from server.services.project import workflow_planner
 from server.tool_runtime import CallerContext, ProjectScope, Services, ToolOutcome, ToolProblem
 
@@ -67,6 +68,7 @@ def tool_services(ctx: ToolContext) -> Services:
         workflow_planner=workflow_planner.get_workflow_planner(ctx.pm),
         capabilities=ctx.config_resolver or ConfigResolver(async_session_factory),
         queue=ctx.queue,
+        tts_settings_resolver=ctx.tts_settings_resolver,
     )
 
 
@@ -167,6 +169,40 @@ def generation_batch_submission_outcome(result: GenerationBatchReadModel) -> Too
     return ToolOutcome(value=result)
 
 
+type GenerationToolValue = GenerationBatchReadModel | dict[str, Any]
+"""生成类工具的成功值：远程即返的批次句柄，或 :func:`generation_result_outcome` 给出的终态结果。"""
+
+
+def generation_structured(value: GenerationToolValue) -> dict[str, Any]:
+    """生成类工具成功值的结构化结果。
+
+    批次句柄放在 ``generation_batch`` 下；终态结果把 ``generation_result`` 与附带字段平铺在顶层，
+    其中 ``generation_result`` 与批次终态查询附带的生成结果同形。``summary`` 只作摘要文本。
+    """
+    if isinstance(value, GenerationBatchReadModel):
+        return {"generation_batch": json_value(value)}
+    payload = json_value(value)
+    payload.pop("summary", None)
+    return payload
+
+
+def generation_summary(value: GenerationToolValue) -> str | None:
+    return None if isinstance(value, GenerationBatchReadModel) else value.get("summary")
+
+
+def generation_is_error(value: GenerationToolValue) -> bool:
+    """终态结果未全部成功即为失败；等待用户确认的准入不算失败，批次句柄也不算。"""
+    if isinstance(value, GenerationBatchReadModel):
+        return False
+    result = value.get("generation_result")
+    admission = value.get("batch_admission")
+    return (
+        isinstance(result, GenerationBatchResult)
+        and not result.ok
+        and not (isinstance(admission, dict) and admission.get("decision") == "confirmation_required")
+    )
+
+
 # instructions 超长会失控 token 用量并稀释模型对原文的处理，超限按参数错误提前拒绝。
 # 上限对附加指令文本足够宽松，仅挡病态输入。
 MAX_INSTRUCTIONS_LEN = 4000
@@ -185,3 +221,10 @@ def validate_script_filename(value: str) -> str:
     if "/" in value or "\\" in value or value in (".", ".."):
         raise ValueError(f"script 必须是纯文件名，禁止路径分隔符: {value!r}")
     return value
+
+
+ScriptFilename = Annotated[str, AfterValidator(validate_script_filename)]
+"""剧本纯文件名；带路径分隔符或为空时请求校验失败。"""
+
+RequestedIds = Annotated[list[str], Field(min_length=1)]
+"""显式点名的目标 ID；空数组无效——省略参数才表示只补缺失项。"""

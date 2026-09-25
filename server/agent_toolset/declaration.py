@@ -91,7 +91,14 @@ def request_json_schema(model: type[BaseModel]) -> dict[str, Any]:
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class ToolDeclaration[RequestT: BaseModel, ResultT]:
-    """作用于某个既有项目的 Agent 工具。"""
+    """作用于某个既有项目的 Agent 工具。
+
+    结果编码的三个可选钩子都作用于 handler 的成功值，两宿主共用：
+
+    - ``summary``：人类可读的摘要文本，返回空值时不出摘要块；
+    - ``projection``：结构化结果，缺省为 ``{domain_key: 值的 JSON 投影}``；
+    - ``is_error``：值本身表示失败时（如批次全部被阻断）返回 True，缺省恒为 False。
+    """
 
     name: str
     description: str
@@ -100,7 +107,9 @@ class ToolDeclaration[RequestT: BaseModel, ResultT]:
     domain_key: str
     handler: ScopedHandler[RequestT, ResultT]
     long_task: bool = False
-    summary: Callable[[ResultT], str] | None = None
+    summary: Callable[[ResultT], str | None] | None = None
+    projection: Callable[[ResultT], dict[str, Any]] | None = None
+    is_error: Callable[[ResultT], bool] | None = None
 
     @property
     def input_schema(self) -> dict[str, Any]:
