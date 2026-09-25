@@ -16,7 +16,16 @@ from lib.generation.generation_result import GenerationResultBuilder, Generation
 from lib.project.project_manager import ProjectManager
 from lib.workflow.workflow_plan import WorkflowPlanRequest, build_workflow_plan
 from lib.workflow.workflow_state import WorkflowStatus
-from server.tool_runtime import CallerContext, ProjectScope, Services, submit_media_generation
+from server.tool_runtime import (
+    CallerContext,
+    GenerationBatchToolRequest,
+    ProjectScope,
+    Services,
+    ToolRequest,
+    cancel_generation_batch,
+    get_generation_batch,
+    submit_media_generation,
+)
 
 
 class _Planner:
@@ -234,4 +243,100 @@ async def test_media_submission_cancellation_only_cleans_a_fresh_batch(
     historical = await GenerationQueue.get_generation_batch(queue, project_name="demo", batch_id=historical_batch_id)
     assert [(member.unit_id, member.task_id) for member in historical.members] == [
         ("E1S01" if cancel_state == "membership" else "old", historical_task["task_id"])
+    ]
+
+
+def _batch_services(tmp_path: Path, queue: GenerationQueue) -> tuple[Services, ProjectScope]:
+    projects = ProjectManager(tmp_path / "projects")
+    projects.create_project("demo")
+    projects.create_project_metadata("demo")
+    services = Services(projects=projects, workflow_planner=_Planner(), capabilities=_Capabilities(), queue=queue)
+    return services, ProjectScope(project_name="demo", data_root=projects.data_root)
+
+
+async def _storyboard_batch(queue: GenerationQueue, unit_ids: list[str]) -> str:
+    return await queue.create_generation_batch(
+        project_name="demo",
+        operation="generate_storyboards",
+        requested=GenerationBatchRequestSnapshot(
+            selection=GenerationSelectionMode.EXPLICIT,
+            requested=[GenerationBatchRequestedItem(unit_id=unit_id) for unit_id in unit_ids],
+        ),
+        blocked=[],
+        source="embedded",
+    )
+
+
+async def _enqueue_storyboard(queue: GenerationQueue, batch_id: str, unit_id: str) -> dict:
+    return await queue.enqueue_task(
+        project_name="demo",
+        task_type="storyboard",
+        media_type="image",
+        resource_id=unit_id,
+        batch_id=batch_id,
+        batch_unit_id=unit_id,
+    )
+
+
+async def test_batch_query_and_cancellation_read_the_durable_queue(db_factory, tmp_path: Path) -> None:
+    queue = GenerationQueue(session_factory=db_factory)
+    batch_id = await _storyboard_batch(queue, ["E1S01"])
+    enqueued = await _enqueue_storyboard(queue, batch_id, "E1S01")
+    services, scope = _batch_services(tmp_path, queue)
+    caller = CallerContext(user_id="default", source="embedded")
+    request = ToolRequest(GenerationBatchToolRequest(batch_id=batch_id))
+
+    read = await get_generation_batch(request, scope, caller, services)
+    cancelled = await cancel_generation_batch(request, scope, caller, services)
+
+    assert read.value is not None
+    assert [member.model_dump(mode="json") for member in read.value.members] == [
+        {
+            "unit_id": "E1S01",
+            "task_id": enqueued["task_id"],
+            "task_type": "storyboard",
+            "status": "queued",
+            "deduped": False,
+            "problem": None,
+            "admission": {},
+        }
+    ]
+    assert read.value.done is False
+    assert cancelled.value is not None
+    assert cancelled.value.model_dump(mode="json") == {
+        "cancelled": [enqueued["task_id"]],
+        "skipped_running": [],
+        "skipped_terminal": [],
+    }
+
+
+async def test_batch_cancellation_leaves_a_running_member_to_finish(db_factory, tmp_path: Path) -> None:
+    queue = GenerationQueue(session_factory=db_factory)
+    batch_id = await _storyboard_batch(queue, ["E1S01", "E1S02"])
+    running = await _enqueue_storyboard(queue, batch_id, "E1S01")
+    claimed = await queue.claim_next_task(media_type="image")
+    assert claimed is not None
+    assert claimed["task_id"] == running["task_id"]
+    queued = await _enqueue_storyboard(queue, batch_id, "E1S02")
+    services, scope = _batch_services(tmp_path, queue)
+    caller = CallerContext(user_id="default", source="embedded")
+    request = ToolRequest(GenerationBatchToolRequest(batch_id=batch_id))
+
+    cancelled = await cancel_generation_batch(request, scope, caller, services)
+
+    assert cancelled.value is not None
+    assert cancelled.value.model_dump(mode="json") == {
+        "cancelled": [queued["task_id"]],
+        "skipped_running": [running["task_id"]],
+        "skipped_terminal": [],
+    }
+    running_row = await queue.get_task(running["task_id"])
+    assert running_row is not None
+    assert running_row["status"] == "running"
+    assert await queue.mark_task_succeeded(running["task_id"], {"file_path": "storyboards/E1S01.png"}) == 1
+    read = await get_generation_batch(request, scope, caller, services)
+    assert read.value is not None
+    assert [(member.unit_id, member.status) for member in read.value.members] == [
+        ("E1S01", "succeeded"),
+        ("E1S02", "cancelled"),
     ]

@@ -2,17 +2,27 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 from server.agent_toolset.content_read import CONTENT_READ_TOOLS
-from server.agent_toolset.declaration import Blocked, ToolDeclaration
+from server.agent_toolset.declaration import AgentToolDeclaration, Blocked, ToolDeclaration
+from server.agent_toolset.generation_batches import GENERATION_BATCH_TOOLS
+from server.agent_toolset.orientation import ORIENTATION_TOOLS
+from server.agent_toolset.project_entry import PROJECT_ENTRY_TOOLS
+from server.agent_toolset.repair_channel import REPAIR_CHANNEL_TOOLS
 
-AGENT_TOOLSET: tuple[ToolDeclaration[Any, Any], ...] = (*CONTENT_READ_TOOLS,)
+AGENT_TOOLSET: tuple[AgentToolDeclaration, ...] = (
+    *PROJECT_ENTRY_TOOLS,
+    *ORIENTATION_TOOLS,
+    *GENERATION_BATCH_TOOLS,
+    *CONTENT_READ_TOOLS,
+    *REPAIR_CHANNEL_TOOLS,
+)
 
 DECLARED_TOOL_IDS: tuple[str, ...] = tuple(declaration.name for declaration in AGENT_TOOLSET)
 
 DECLARED_MIGRATION_BLOCKED_TOOL_IDS: frozenset[str] = frozenset(
-    declaration.name for declaration in AGENT_TOOLSET if isinstance(declaration.migration, Blocked)
+    declaration.name
+    for declaration in AGENT_TOOLSET
+    if isinstance(declaration, ToolDeclaration) and isinstance(declaration.migration, Blocked)
 )
 
 if len(set(DECLARED_TOOL_IDS)) != len(DECLARED_TOOL_IDS):

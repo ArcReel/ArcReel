@@ -48,9 +48,11 @@ from server.tool_runtime import (
     CallerContext,
     EpisodeScriptRequest,
     ProjectScope,
+    PromptPreviewRequest,
     Services,
     ToolRequest,
     get_episode_script,
+    get_prompt_preview,
     retry_project_migration,
 )
 from tests.integration.lib.project.project_migrations.test_project_migration_v7_v8 import _project
@@ -175,8 +177,9 @@ def test_generation_entries_refuse_while_the_project_is_blocked(tmp_path: Path, 
 
 
 async def test_retry_tool_returns_details_then_unblocks_once_repaired(tmp_path: Path) -> None:
-    from server.agent_runtime.sdk_tools.retry_project_migration import retry_project_migration_tool
-    from server.media_tools.context import ToolContext
+    from server.agent_toolset.declaration import invoke_declaration
+    from server.agent_toolset.repair_channel import RETRY_PROJECT_MIGRATION
+    from server.media_tools.context import ToolContext, tool_services
 
     projects_root = tmp_path / "projects"
     projects_root.mkdir()
@@ -185,22 +188,22 @@ async def test_retry_tool_returns_details_then_unblocks_once_repaired(tmp_path: 
     assert migrate_project_with_verdict(project_dir) is not None
 
     ctx = ToolContext(project_name="demo", data_root=tmp_path, pm=ProjectManager(str(tmp_path)))
-    handler = retry_project_migration_tool(ctx).handler
 
-    blocked = await handler({})
-    assert blocked["is_error"] is True
+    blocked = await invoke_declaration(RETRY_PROJECT_MIGRATION, {}, ctx.scope, ctx.caller, tool_services(ctx))
     # 与被拦截的生成工具同一个回执形状：一份 problem，不是第二套 error/reason 信封
-    assert blocked["problem"]["code"] == MIGRATION_FAILURE_CODE
-    assert blocked["problem"]["params"]["details"][0]["episode"] == 1
-    assert blocked["problem"]["params"]["details"][0]["file"] == "scripts/episode_1.json"
-    assert json.loads(blocked["content"][0]["text"])["problem"] == blocked["problem"]
+    assert blocked.problem is not None
+    assert blocked.problem.code == MIGRATION_FAILURE_CODE
+    assert blocked.problem.params is not None
+    assert blocked.problem.params["details"][0]["episode"] == 1
+    assert blocked.problem.params["details"][0]["file"] == "scripts/episode_1.json"
 
     _repair_episode_script(project_dir)
-    unblocked = await handler({})
+    unblocked = await invoke_declaration(RETRY_PROJECT_MIGRATION, {}, ctx.scope, ctx.caller, tool_services(ctx))
 
-    assert unblocked.get("is_error") is not True
+    assert unblocked.problem is None
+    assert unblocked.value is not None
     assert load_migration_failure(project_dir) is None
-    assert json.loads(unblocked["content"][0]["text"])["migration_retry"]["workflow_plan"]["status"]["blockers"] == []
+    assert unblocked.value.workflow_plan.status.blockers == []
 
 
 async def test_retry_success_uses_caller_scoped_queue_and_capabilities(tmp_path: Path, file_db_factory) -> None:
@@ -364,6 +367,33 @@ async def test_episode_script_reader_withholds_the_revision_until_the_migration_
     assert unblocked.problem is None
     assert unblocked.value is not None
     assert unblocked.value.revision == script_revision(projects.load_script_readonly("demo", "episode_1.json"))
+
+
+async def test_prompt_preview_reports_the_full_migration_problem(tmp_path: Path) -> None:
+    """提示词预览自报迁移裁决，返回与入口阻断同形、带 action 与明细的 problem。"""
+
+    projects_root = tmp_path / "projects"
+    projects_root.mkdir()
+    project_dir, *_ = _project(projects_root)
+    _break_episode_script(project_dir)
+    failure = migrate_project_with_verdict(project_dir)
+    assert failure is not None
+    projects = ProjectManager(str(projects_root))
+    services = Services(projects=projects, workflow_planner=WorkflowPlanner(projects), capabilities=object())
+
+    blocked = await get_prompt_preview(
+        ToolRequest(PromptPreviewRequest(script="episode_1.json", item_id="E1S01")),
+        ProjectScope(project_name="demo", data_root=projects_root),
+        CallerContext(user_id="u1", source="mcp"),
+        services,
+    )
+
+    assert blocked.problem is not None
+    assert blocked.problem.code == MIGRATION_FAILURE_CODE
+    assert blocked.problem.detail == failure.reason
+    assert blocked.problem.action == RETRY_MIGRATION_ACTION
+    assert blocked.problem.params is not None
+    assert blocked.problem.params["details"][0]["file"] == "scripts/episode_1.json"
 
 
 async def test_mcp_generation_tools_report_the_same_problem_without_running(tmp_path: Path, monkeypatch) -> None:

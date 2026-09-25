@@ -16,10 +16,12 @@ from lib.script import script_review
 from server.agent_runtime.sdk_tools.text_generation import (
     generate_episode_script_tool,
     generate_script_plan_tool,
-    get_video_capabilities_tool,
 )
-from server.media_tools.context import ToolContext
+from server.agent_toolset.declaration import invoke_declaration
+from server.agent_toolset.orientation import GET_VIDEO_CAPABILITIES
+from server.media_tools.context import ToolContext, tool_services
 from server.text_generation import TextGenerationRequest, _parse_normalized_content
+from server.tool_runtime import ToolOutcome
 from tests.factories import make_video_request_facts, seed_endpoint_fixed_video_model
 from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
     call,
@@ -27,28 +29,36 @@ from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
 )
 
 # ---------------------------------------------------------------------------
-# text_generation
+# get_video_capabilities
 # ---------------------------------------------------------------------------
+
+
+async def _video_capabilities(ctx: ToolContext, arguments: dict[str, Any] | None = None) -> ToolOutcome[Any]:
+    """经声明的共享入口查询视频能力（两宿主同一入口）。"""
+    return await invoke_declaration(GET_VIDEO_CAPABILITIES, arguments or {}, ctx.scope, ctx.caller, tool_services(ctx))
+
+
+def _as_json(value: Any) -> Any:
+    """Agent 收到的 JSON 形态（如 int 键变为字符串）。"""
+    return json.loads(json.dumps(value, ensure_ascii=False))
 
 
 async def test_get_video_capabilities_happy(fake_ctx: ToolContext, video_request_facts) -> None:
     use_fake_caps(fake_ctx, provider_id="fake", supported_durations=[4, 6, 8])
-    tool_obj = get_video_capabilities_tool(fake_ctx)
-    assert tool_obj.name == "get_video_capabilities"
-    assert isinstance(tool_obj.input_schema, dict)
-    assert "project" not in tool_obj.input_schema["properties"]
-    out = await call(tool_obj, {})
-    assert out.get("is_error") is not True
-    assert json.loads(out["content"][0]["text"])["video_capabilities"]["provider_id"] == "fake"
+    out = await _video_capabilities(fake_ctx)
+    assert out.problem is None
+    assert out.value is not None
+    assert out.value["provider_id"] == "fake"
 
 
 async def test_get_video_capabilities_resolves_by_project(fake_ctx: ToolContext, video_request_facts) -> None:
-    """能力按项目生成模式解析：工具不收集号，多余的集号入参被忽略、不改变解析口径。"""
+    """能力按项目生成模式解析：工具不收集号，集号入参作为多余参数被拒、不触发解析。"""
     resolver = use_fake_caps(fake_ctx, provider_id="fake", supported_durations=[4, 6, 8])
-    tool_obj = get_video_capabilities_tool(fake_ctx)
-    assert (await call(tool_obj, {})).get("is_error") is not True
-    assert (await call(tool_obj, {"episode": 3})).get("is_error") is not True
-    assert resolver.generation_type_calls == [None, None]
+    assert (await _video_capabilities(fake_ctx)).problem is None
+    rejected = await _video_capabilities(fake_ctx, {"episode": 3})
+    assert rejected.problem is not None
+    assert rejected.problem.code == "invalid_request"
+    assert resolver.generation_type_calls == [None]
 
 
 async def test_get_video_capabilities_annotates_reference_unit_tiers(
@@ -71,9 +81,9 @@ async def test_get_video_capabilities_annotates_reference_unit_tiers(
         supported_durations=[4, 6, 8],
         generation_mode="reference_video",
     )
-    out = await call(get_video_capabilities_tool(fake_ctx), {})
-    assert out.get("is_error") is not True, out
-    payload = json.loads(out["content"][0]["text"])["video_capabilities"]
+    out = await _video_capabilities(fake_ctx)
+    assert out.problem is None, out
+    payload = _as_json(out.value)
     assert payload["reference_unit_durations"] == {
         "with_references": [8],
         "with_references_endpoint_fixed": False,
@@ -117,8 +127,8 @@ async def test_get_video_capabilities_has_one_successful_no_image_channel(
         generation_mode="reference_video",
     )
 
-    out = await call(get_video_capabilities_tool(fake_ctx), {})
-    payload = json.loads(out["content"][0]["text"])["video_capabilities"]
+    out = await _video_capabilities(fake_ctx)
+    payload = _as_json(out.value)
 
     assert payload["reference_unit_durations"] == {
         "with_references": [8],
@@ -150,9 +160,9 @@ async def test_get_video_capabilities_reports_endpoint_fixed_per_bucket(
         }
     )
     fake_ctx.config_resolver = ConfigResolver(db_factory)
-    out = await call(get_video_capabilities_tool(fake_ctx), {})
-    assert out.get("is_error") is not True, out
-    payload = json.loads(out["content"][0]["text"])["video_capabilities"]
+    out = await _video_capabilities(fake_ctx)
+    assert out.problem is None, out
+    payload = _as_json(out.value)
     tiers = payload["reference_unit_durations"]
     assert tiers["with_references_endpoint_fixed"] is (fixed_bucket == "r2v")
     assert tiers["without_references_endpoint_fixed"] is (fixed_bucket == "i2v")
@@ -178,8 +188,8 @@ async def test_get_video_capabilities_skips_tiers_off_episode_reference_path(
         generation_mode=generation_mode,
         content_mode=content_mode,
     )
-    out = await call(get_video_capabilities_tool(fake_ctx), {})
-    payload = json.loads(out["content"][0]["text"])["video_capabilities"]
+    out = await _video_capabilities(fake_ctx)
+    payload = _as_json(out.value)
     assert "reference_unit_durations" not in payload
 
 
@@ -189,9 +199,9 @@ async def test_get_video_capabilities_shares_rest_resolution_entry(fake_ctx: Too
     解析器不按项目名回到全局项目目录，非默认 projects_root 的会话也读取闭包里的项目。
     """
     resolver = use_fake_caps(fake_ctx, provider_id="kling", model="kling-v3-omni", supported_durations=[5])
-    out = await call(get_video_capabilities_tool(fake_ctx), {})
-    assert out.get("is_error") is not True, out
-    assert json.loads(out["content"][0]["text"])["video_capabilities"]["model"] == "kling-v3-omni"
+    out = await _video_capabilities(fake_ctx)
+    assert out.problem is None, out
+    assert _as_json(out.value)["model"] == "kling-v3-omni"
     assert resolver.project_payloads == [fake_ctx.pm.project_payload]
 
 
@@ -207,9 +217,9 @@ async def test_get_video_capabilities_duration_constraints_come_from_request_fac
     use_fake_caps(
         fake_ctx, provider_id="gemini-aistudio", model="veo-3.1-generate-preview", supported_durations=[4, 6, 8]
     )
-    out = await call(get_video_capabilities_tool(fake_ctx), {})
-    assert out.get("is_error") is not True, out
-    payload = json.loads(out["content"][0]["text"])["video_capabilities"]
+    out = await _video_capabilities(fake_ctx)
+    assert out.problem is None, out
+    payload = _as_json(out.value)
     assert payload["duration_constraints"] == {
         "resolution": "1080p",
         "uses_reference_images": False,
@@ -231,9 +241,10 @@ async def test_get_video_capabilities_reports_request_facts_failure(
     use_fake_caps(
         fake_ctx, provider_id="gemini-aistudio", model="veo-3.1-generate-preview", supported_durations=[4, 6, 8]
     )
-    out = await call(get_video_capabilities_tool(fake_ctx), {})
-    assert out.get("is_error") is True
-    problem = json.loads(out["content"][0]["text"])["problem"]
+    out = await _video_capabilities(fake_ctx)
+    assert out.problem is not None
+    assert out.problem is not None
+    problem = out.problem.model_dump()
     assert problem["code"] == "video_supported_durations_incompatible"
     assert problem["params"] == {"provider": "gemini-aistudio", "model": "veo-3.1-generate-preview", "resolution": "4k"}
     assert problem["action"] == "configure_video_model"
@@ -242,9 +253,8 @@ async def test_get_video_capabilities_reports_request_facts_failure(
 
 async def test_get_video_capabilities_error(fake_ctx: ToolContext) -> None:
     use_fake_caps(fake_ctx, error=FileNotFoundError("missing project.json"))
-    tool_obj = get_video_capabilities_tool(fake_ctx)
-    out = await call(tool_obj, {})
-    assert out.get("is_error") is True
+    out = await _video_capabilities(fake_ctx)
+    assert out.problem is not None
 
 
 @pytest.mark.parametrize("content_mode", ["ad", "unsupported"])
@@ -1219,10 +1229,10 @@ async def test_get_video_capabilities_annotates_each_formal_unit(
     )
     fake_ctx.pm.mirror_to_disk()
 
-    out = await call(get_video_capabilities_tool(fake_ctx), {})
+    out = await _video_capabilities(fake_ctx)
 
-    assert out.get("is_error") is not True, out
-    units = json.loads(out["content"][0]["text"])["video_capabilities"]["reference_unit_durations"]["units"]
+    assert out.problem is None, out
+    units = _as_json(out.value)["reference_unit_durations"]["units"]
     assert set(units) == {"E1U1", "E1U2"}
     assert (units["E1U1"]["declared_capability"], units["E1U1"]["hydrated_capability"]) == ("r2v", "i2v")
     assert units["E1U1"]["unavailable_references"] == [{"type": "character", "name": "张三"}]

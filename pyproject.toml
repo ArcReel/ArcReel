@@ -239,6 +239,10 @@ source_modules = [
     "server.agent_toolset.content_read",
     "server.agent_toolset.declaration",
     "server.agent_toolset.envelope",
+    "server.agent_toolset.generation_batches",
+    "server.agent_toolset.orientation",
+    "server.agent_toolset.project_entry",
+    "server.agent_toolset.repair_channel",
     "server.agent_toolset.toolset",
     "server.tool_runtime",
 ]

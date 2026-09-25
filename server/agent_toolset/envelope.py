@@ -12,7 +12,7 @@ from dataclasses import asdict, dataclass, is_dataclass
 from typing import Any
 
 from lib.project.project_migration_failure import MIGRATION_FAILURE_CODE
-from server.agent_toolset.declaration import ToolDeclaration
+from server.agent_toolset.declaration import AgentToolDeclaration
 from server.tool_runtime import ToolOutcome, ToolProblem
 
 _PROBLEM_SUMMARIES: dict[str, str] = {
@@ -48,7 +48,7 @@ def problem_summary(problem: ToolProblem) -> str | None:
     return _PROBLEM_SUMMARIES.get(problem.code)
 
 
-def encode_outcome(declaration: ToolDeclaration[Any, Any], outcome: ToolOutcome[Any]) -> ToolEnvelope:
+def encode_outcome(declaration: AgentToolDeclaration, outcome: ToolOutcome[Any]) -> ToolEnvelope:
     if outcome.problem is not None:
         structured = {"problem": outcome.problem.model_dump(mode="json")}
         summary = problem_summary(outcome.problem)

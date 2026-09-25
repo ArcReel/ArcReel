@@ -28,31 +28,22 @@ from server.agent_runtime.sdk_tools.enqueue_image_edits import edit_images_tool
 from server.agent_runtime.sdk_tools.enqueue_narration_audio import generate_narration_audio_tool
 from server.agent_runtime.sdk_tools.enqueue_storyboards import generate_storyboards_tool
 from server.agent_runtime.sdk_tools.enqueue_videos import generate_videos_tool
-from server.agent_runtime.sdk_tools.entry import create_project_tool, list_projects_tool, upload_source_tool
 from server.agent_runtime.sdk_tools.episode_planning import (
     plan_episodes_tool,
     reset_episode_planning_tool,
 )
-from server.agent_runtime.sdk_tools.generation_batches import cancel_generation_batch_tool, get_generation_batch_tool
-from server.agent_runtime.sdk_tools.patch_episode_meta import patch_episode_meta_tool
-from server.agent_runtime.sdk_tools.patch_project import patch_project_tool
 from server.agent_runtime.sdk_tools.patch_script import (
     patch_episode_script_tool,
 )
-from server.agent_runtime.sdk_tools.prompt_preview import get_prompt_preview_tool
-from server.agent_runtime.sdk_tools.rename_asset import rename_asset_tool
-from server.agent_runtime.sdk_tools.retry_project_migration import retry_project_migration_tool
 from server.agent_runtime.sdk_tools.text_generation import (
     confirm_script_review_tool,
     discard_draft_tool,
     generate_episode_script_tool,
     generate_script_plan_tool,
-    get_video_capabilities_tool,
     open_draft_tool,
     patch_draft_tool,
     promote_draft_tool,
 )
-from server.agent_runtime.sdk_tools.workflow_plan import get_workflow_plan_tool
 from server.agent_runtime.sdk_tools.workflow_status import complete_script_plan_rebuild_tool
 from server.agent_toolset.embedded import embedded_server
 from server.agent_toolset.toolset import AGENT_TOOLSET, DECLARED_MIGRATION_BLOCKED_TOOL_IDS, DECLARED_TOOL_IDS
@@ -73,15 +64,8 @@ __all__ = ["ARCREEL_MCP_TOOL_IDS", "ToolContext", "build_arcreel_mcp_server"]
 # ``tests/unit/test_frontend_mcp_tool_i18n.py`` cross-checks that every id here has a translation in
 # all locales, so adding a tool without wiring up i18n fails CI.
 _FACTORY_TOOL_IDS: tuple[str, ...] = (
-    "list_projects",
-    "create_project",
-    "upload_source",
     "complete_asset_inventory",
     "complete_script_plan_rebuild",
-    "get_workflow_plan",
-    "get_prompt_preview",
-    "get_generation_batch",
-    "cancel_generation_batch",
     "list_pending_assets",
     "generate_assets",
     "generate_storyboards",
@@ -97,24 +81,17 @@ _FACTORY_TOOL_IDS: tuple[str, ...] = (
     "patch_draft",
     "promote_draft",
     "discard_draft",
-    "get_video_capabilities",
     "plan_episodes",
     "reset_episode_planning",
     "patch_episode_script",
-    "patch_episode_meta",
-    "patch_project",
-    "rename_asset",
-    "retry_project_migration",
 )
 ARCREEL_MCP_TOOL_IDS: tuple[str, ...] = (*_FACTORY_TOOL_IDS, *DECLARED_TOOL_IDS)
 
 # Factory-registered tools wrapped at registration so they report the verdict instead of running while the
 # project's schema migration verdict is a failure. Everything that generates output or
-# writes script content is named here; the controlled project/metadata editors
-# (``patch_project``, ``patch_episode_meta``, ``rename_asset``) are not, because
-# repairing is done through them. The exception belongs to this MCP repair channel
-# alone and does not carry over to REST: a route that writes script content stays
-# behind ``require_project_migration_ok`` rather than inheriting this exemption.
+# writes script content is named here. The controlled project/metadata editors
+# (``patch_project``, ``patch_episode_meta``, ``rename_asset``) are declared tools exempt from the block,
+# with the reason written on their declarations, because repairing is done through them.
 # The script batch editors are named here even though their shared
 # ``ScriptBatchEditor.execute`` already refuses internally on the same verdict:
 # the entry declares the block, the inner check is only a fallback, and an entry
@@ -123,12 +100,9 @@ ARCREEL_MCP_TOOL_IDS: tuple[str, ...] = (*_FACTORY_TOOL_IDS, *DECLARED_TOOL_IDS)
 # Declared tools carry their own migration policy and are gated by the shared declaration entry;
 # ``MIGRATION_BLOCKED_TOOL_IDS`` is the union of both.
 #
-# The read-only tools are outside this set on purpose — they answer the verdict inside
-# their own handlers, so this frozenset stays exactly the registration-time blocks.
-# ``list_pending_assets`` reads it via ``migration_failure_for`` and returns the same
-# typed migration problem that the wrapper encodes; ``get_workflow_plan`` carries it as the plan's single problem rather
-# than refusing; ``get_video_capabilities`` reads model capability only, never the
-# project's artifacts, and stays fully available.
+# ``list_pending_assets`` is outside this set on purpose — it answers the verdict inside its own
+# handler via ``migration_failure_for`` and returns the same typed migration problem that the wrapper
+# encodes, so this frozenset stays exactly the registration-time blocks.
 _FACTORY_MIGRATION_BLOCKED_TOOL_IDS: frozenset[str] = frozenset(
     {
         "complete_asset_inventory",
@@ -184,15 +158,8 @@ def build_arcreel_mcp_server(*, project_name: str, data_root: Path, user_id: str
         caller=CallerContext(user_id=user_id, source="embedded"),
     )
     tools = [
-        list_projects_tool(ctx),
-        create_project_tool(ctx),
-        upload_source_tool(ctx),
         complete_asset_inventory_tool(ctx),
         complete_script_plan_rebuild_tool(ctx),
-        get_workflow_plan_tool(ctx),
-        get_prompt_preview_tool(ctx),
-        get_generation_batch_tool(ctx),
-        cancel_generation_batch_tool(ctx),
         list_pending_assets_tool(ctx),
         generate_assets_tool(ctx),
         generate_storyboards_tool(ctx),
@@ -208,14 +175,9 @@ def build_arcreel_mcp_server(*, project_name: str, data_root: Path, user_id: str
         patch_draft_tool(ctx),
         promote_draft_tool(ctx),
         discard_draft_tool(ctx),
-        get_video_capabilities_tool(ctx),
         plan_episodes_tool(ctx),
         reset_episode_planning_tool(ctx),
         patch_episode_script_tool(ctx),
-        patch_episode_meta_tool(ctx),
-        patch_project_tool(ctx),
-        rename_asset_tool(ctx),
-        retry_project_migration_tool(ctx),
     ]
     undeclared = create_sdk_mcp_server(
         name="arcreel",
