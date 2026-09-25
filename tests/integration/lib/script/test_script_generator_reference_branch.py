@@ -107,7 +107,7 @@ def _write_formal_units(project_dir: Path, units: list[dict[str, Any]], *, title
         "novel": {"title": project["title"], "chapter": "第1集"},
         "video_units": [{"pending_authoring": True, **unit} for unit in units],
     }
-    return ProjectManager(str(project_dir.parent)).save_script(project_dir.name, script, "episode_1.json")
+    return ProjectManager.for_project_dir(project_dir).save_script(project_dir.name, script, "episode_1.json")
 
 
 def _formal_units(project_dir: Path) -> dict[str, dict[str, Any]]:
@@ -140,8 +140,8 @@ def _write_reference_project(
 
     ``video_backend`` / ``resolution`` 只是项目自报身份；规划读到的档位来自各用例提供的视频请求事实。
     """
-    project_dir = tmp_path / "proj"
-    project_dir.mkdir()
+    project_dir = tmp_path / "projects" / "proj"
+    project_dir.mkdir(parents=True)
     (project_dir / "project.json").write_text(
         """{
           "schema_version": __SCHEMA__,
@@ -660,8 +660,8 @@ def test_resolve_max_refs_reads_the_r2v_request_facts(with_references, expected)
 
 
 def _write_minimal_reference_project(tmp_path: Path, **overrides: Any) -> Path:
-    project_dir = tmp_path / "proj"
-    project_dir.mkdir()
+    project_dir = tmp_path / "projects" / "proj"
+    project_dir.mkdir(parents=True)
     project = {
         "schema_version": CURRENT_PROJECT_SCHEMA_VERSION,
         "title": "t",
@@ -850,7 +850,7 @@ async def test_reference_script_plan_migration_waits_for_prompt_authoring_draft_
         encoding="utf-8",
     )
     prompt_authoring_path = quarantine_path(plan_only_reference_project, 1, QUARANTINE_KIND_PROMPT_AUTHORING)
-    pm = ProjectManager(plan_only_reference_project.parent)
+    pm = ProjectManager.for_project_dir(plan_only_reference_project)
     held = threading.Event()
     release = threading.Event()
 
@@ -1368,7 +1368,7 @@ async def test_promote_prompt_authoring_draft_rejects_stale_formal_baseline(refe
         meta={"base_fingerprint": baseline, "unit_ids": ["E1U01"]},
     )
 
-    pm = ProjectManager(str(reference_project.parent))
+    pm = ProjectManager.for_project_dir(reference_project)
     concurrent = pm.load_script(reference_project.name, formal.name)
     concurrent["title"] = "并发修改"
     pm.save_script(reference_project.name, concurrent, formal.name)

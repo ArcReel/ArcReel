@@ -118,7 +118,7 @@ def _write_drama_ledger_project(project_path: Path, episodes: list[dict], charac
 
 def _drama_project(tmp_path):
     """造一个最小 drama 项目，返回项目路径；时长档位由视频请求事实提供，与项目字段无关。"""
-    project_path = tmp_path / "demo"
+    project_path = tmp_path / "projects" / "demo"
     _write_drama_ledger_project(
         project_path,
         [{"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"}],
@@ -204,7 +204,7 @@ class TestScriptGenerator:
 
     async def test_build_prompt_renders_pending_formal_segments(self, tmp_path):
         """build_prompt 无需 client 即可使用（dry-run 模式）：narration 渲染正式剧本里待编写分镜的内容字段。"""
-        project_path = tmp_path / "demo"
+        project_path = tmp_path / "projects" / "demo"
         _write_project_json(
             project_path,
             {
@@ -229,7 +229,7 @@ class TestScriptGenerator:
 
     async def test_build_prompt_appends_user_instructions(self, tmp_path):
         """instructions 以中性「附加指令」分节追加到 prompt 末尾；未传时无该分节。"""
-        project_path = tmp_path / "demo"
+        project_path = tmp_path / "projects" / "demo"
         _write_project_json(
             project_path,
             {
@@ -254,7 +254,7 @@ class TestScriptGenerator:
 
     async def test_narration_prompt_authoring_build_prompt_uses_project_source_language(self, tmp_path):
         """narration prompt_authoring（视觉层）prompt 的输出语言须取项目 source_language（与 drama 同口径），非中文项目不得回落中文。"""
-        project_path = tmp_path / "demo"
+        project_path = tmp_path / "projects" / "demo"
         _write_project_json(
             project_path,
             {
@@ -279,7 +279,7 @@ class TestScriptGenerator:
 
     async def test_load_script_plan_drama_missing_raises_without_fallback(self, tmp_path):
         """drama 集缺 script_plan_normalized_script.json 时显式报错；不得降级改读 narration 的拆分表。"""
-        project_path = tmp_path / "demo"
+        project_path = tmp_path / "projects" / "demo"
         _write_project_json(
             project_path,
             {
@@ -298,7 +298,7 @@ class TestScriptGenerator:
 
     async def test_load_drama_script_plan_content_rejects_non_dict_top_level(self, tmp_path):
         """drama script_plan 顶层非对象（如 JSON 数组）→ ValueError，不静默当空剧本。"""
-        project_path = tmp_path / "demo"
+        project_path = tmp_path / "projects" / "demo"
         _write_drama_ledger_project(
             project_path,
             [{"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"}],
@@ -311,7 +311,7 @@ class TestScriptGenerator:
 
     async def test_load_drama_script_plan_content_rejects_non_list_scenes(self, tmp_path):
         """drama script_plan scenes 非列表（如对象）→ ValueError fail-fast，不被当成空剧本继续。"""
-        project_path = tmp_path / "demo"
+        project_path = tmp_path / "projects" / "demo"
         _write_drama_ledger_project(
             project_path,
             [{"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"}],
@@ -327,7 +327,7 @@ class TestScriptGenerator:
 
     async def test_load_drama_script_plan_content_rejects_empty_scenes(self, tmp_path):
         """drama script_plan scenes 为空列表 → ValueError fail-fast（空剧本不是合法 script_plan 产物，避免落盘 scenes=[]）。"""
-        project_path = tmp_path / "demo"
+        project_path = tmp_path / "projects" / "demo"
         _write_drama_ledger_project(
             project_path,
             [{"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"}],
@@ -343,7 +343,7 @@ class TestScriptGenerator:
 
     async def test_load_drama_script_plan_content_rejects_non_dict_scene_item(self, tmp_path):
         """drama script_plan scenes 列表含非对象项（数字 / 字符串）→ ValueError，不拖到 render/merge 阶段才炸。"""
-        project_path = tmp_path / "demo"
+        project_path = tmp_path / "projects" / "demo"
         _write_drama_ledger_project(
             project_path,
             [{"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"}],
@@ -359,7 +359,7 @@ class TestScriptGenerator:
 
     async def test_load_drama_script_plan_content_rejects_empty_scene_id(self, tmp_path):
         """drama script_plan 分镜的 scene_id 为空串 / 缺失 → ValueError fail-fast（拖到合并阶段才暴露）。"""
-        project_path = tmp_path / "demo"
+        project_path = tmp_path / "projects" / "demo"
         _write_drama_ledger_project(
             project_path,
             [{"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"}],
@@ -376,7 +376,7 @@ class TestScriptGenerator:
     async def test_load_drama_script_plan_content_rejects_rewritten_scene_id_collision(self, tmp_path):
         """原始 scene_id 互异但改写 episode 前缀后相撞（E1S02_1 与 E2S02_1 在 ep2 都成 E2S02_1）→ fail-loud，
         避免下游产物文件名 / 资产键撞车（与 _load_narration_script_plan 同口径）。"""
-        project_path = tmp_path / "demo"
+        project_path = tmp_path / "projects" / "demo"
         _write_drama_ledger_project(
             project_path,
             [{"episode": 2, "title": "第二集", "script_file": "scripts/episode_2.json"}],
@@ -488,7 +488,7 @@ class TestScriptGenerator:
 
     async def test_drama_prompt_authoring_build_prompt_renders_formal_scene_content(self, tmp_path):
         """drama prompt_authoring（视觉层）build_prompt 把正式剧本里待编写分镜的内容字段渲染入 prompt，仅求视觉字段。"""
-        project_path = tmp_path / "demo"
+        project_path = tmp_path / "projects" / "demo"
         _write_drama_ledger_project(
             project_path,
             [{"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"}],
@@ -508,7 +508,7 @@ class TestScriptGenerator:
 
     async def test_drama_prompt_authoring_build_prompt_omits_outline(self, tmp_path):
         """分集大纲驱动脚本规划的内容生成；prompt_authoring 视觉层 prompt 不渲染大纲段。"""
-        project_path = tmp_path / "demo"
+        project_path = tmp_path / "projects" / "demo"
         _write_drama_ledger_project(
             project_path,
             [
@@ -533,7 +533,7 @@ class TestScriptGenerator:
 
     async def test_drama_prompt_authoring_build_prompt_uses_project_source_language(self, tmp_path):
         """prompt_authoring 视觉层 prompt 的输出语言须取项目 source_language，非中文项目不得回落中文。"""
-        project_path = tmp_path / "demo"
+        project_path = tmp_path / "projects" / "demo"
         _write_drama_ledger_project(
             project_path,
             [{"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"}],
@@ -555,7 +555,7 @@ class TestScriptGenerator:
         assert "所有字符串值必须使用 中文" not in prompt
 
     async def test_parse_response_invalid_json_raises(self, tmp_path):
-        project_path = tmp_path / "demo"
+        project_path = tmp_path / "projects" / "demo"
         _write_json(project_path / "project.json", {"title": "项目"})
 
         generator = ScriptGenerator(project_path)
@@ -563,7 +563,7 @@ class TestScriptGenerator:
             generator._parse_response("not-json", 1)
 
     async def test_parse_response_validation_error_returns_raw_data(self, tmp_path):
-        project_path = tmp_path / "demo"
+        project_path = tmp_path / "projects" / "demo"
         _write_json(project_path / "project.json", {"title": "项目"})
 
         generator = ScriptGenerator(project_path)
@@ -573,7 +573,7 @@ class TestScriptGenerator:
 
     async def test_generate_writes_script_and_metadata(self, tmp_path):
         """待编写分镜补上视觉层并清除标记：内容字段逐字保留，metadata 刷新 generator、保留 created_at。"""
-        project_path = tmp_path / "demo"
+        project_path = tmp_path / "projects" / "demo"
         _write_project_json(
             project_path,
             {
@@ -612,7 +612,7 @@ class TestScriptGenerator:
     async def test_generate_reads_formal_baseline_without_blocking_event_loop(
         self, tmp_path, monkeypatch, content_mode
     ):
-        project_path = tmp_path / "demo"
+        project_path = tmp_path / "projects" / "demo"
         if content_mode == "narration":
             _write_project_json(
                 project_path,
@@ -690,7 +690,7 @@ class TestScriptGenerator:
 
     async def test_conversion_rejects_an_unregistered_formal_script_plan(self, tmp_path):
         """脚本规划未登记进产物清单：转换拒绝读取，不落正式剧本。"""
-        project_path = tmp_path / "demo"
+        project_path = tmp_path / "projects" / "demo"
         _write_project_json(
             project_path,
             {
@@ -720,7 +720,7 @@ class TestScriptGenerator:
 
     async def test_conversion_injects_hook_and_teaser_from_ledger(self, tmp_path):
         """正式剧本的集级 hook / next_episode_teaser 元数据来自分集账本（经写盘严格校验）。"""
-        project_path = tmp_path / "demo"
+        project_path = tmp_path / "projects" / "demo"
         _write_drama_ledger_project(
             project_path,
             [
@@ -747,7 +747,7 @@ class TestScriptGenerator:
 
     async def test_conversion_without_ledger_hook_leaves_fields_null(self, tmp_path):
         """旧式条目（账本无钩子/预告）：字段为 null，写盘校验仍通过。"""
-        project_path = tmp_path / "demo"
+        project_path = tmp_path / "projects" / "demo"
         _write_project_json(
             project_path,
             {
@@ -771,7 +771,7 @@ class TestScriptGenerator:
 
     async def test_generate_keeps_formal_entry_ids_and_episode(self, tmp_path):
         """正式剧本里的 segment_id 是写回的定位锚：编写第 10 集时条目 id 与集号原样保留。"""
-        project_path = tmp_path / "demo"
+        project_path = tmp_path / "projects" / "demo"
         _write_project_json(
             project_path,
             {
@@ -805,7 +805,7 @@ class TestScriptGenerator:
         """drama prompt_authoring LLM 输出 schema 是 DramaVisualScript（仅 scene_id + 视觉字段，无非视觉字段）。"""
         from lib.script.script_models import DramaVisualScript
 
-        project_path = tmp_path / "demo"
+        project_path = tmp_path / "projects" / "demo"
         _write_drama_ledger_project(
             project_path,
             [{"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"}],
@@ -832,7 +832,7 @@ class TestScriptGenerator:
 
     async def test_generate_drama_prompt_authoring_appends_user_instructions(self, tmp_path):
         """generate 路径的 instructions 同样以中性「附加指令」分节追加到发给模型的 prompt 末尾。"""
-        project_path = tmp_path / "demo"
+        project_path = tmp_path / "projects" / "demo"
         _write_drama_ledger_project(
             project_path,
             [{"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"}],
@@ -849,7 +849,7 @@ class TestScriptGenerator:
 
     async def test_generate_drama_prompt_authoring_rejects_mixed_scene_before_backend_call(self, tmp_path):
         """待编写分镜的台词混入旁白：发声准入在调用文本模型之前拒绝，正式剧本不动。"""
-        project_path = tmp_path / "demo"
+        project_path = tmp_path / "projects" / "demo"
         _write_drama_ledger_project(
             project_path,
             [{"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"}],
@@ -880,7 +880,7 @@ class TestScriptGenerator:
         """drama prompt_authoring generate 应在 TextGenerationRequest 上设置共享输出上限（DEFAULT_MAX_OUTPUT_TOKENS）。"""
         from lib.backends.text_backends.base import DEFAULT_MAX_OUTPUT_TOKENS
 
-        project_path = tmp_path / "demo"
+        project_path = tmp_path / "projects" / "demo"
         _write_drama_ledger_project(
             project_path,
             [{"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"}],
@@ -900,7 +900,7 @@ class TestScriptGenerator:
 
     async def test_generate_without_backend_raises(self, tmp_path):
         """未注入 backend 时调用 generate() 应抛 RuntimeError。"""
-        project_path = tmp_path / "demo"
+        project_path = tmp_path / "projects" / "demo"
         _write_json(project_path / "project.json", {"title": "项目"})
         _write(project_path / "drafts" / "episode_1" / "script_plan_segments.md", "content")
 
@@ -923,7 +923,7 @@ class TestScriptGenerator:
         save_script 咽喉的 _safe_subpath 能挡绝对路径与 path traversal,但子目录拼出的 realpath
         仍在 scripts/ 内,不挡;故公开 API 这层必须显式拒,让 docstring 不骗人。
         """
-        project_path = tmp_path / "demo"
+        project_path = tmp_path / "projects" / "demo"
         _write_json(project_path / "project.json", {"title": "项目"})
 
         fake = _FakeTextGenerator(json.dumps(_valid_narration_response(), ensure_ascii=False))
@@ -939,7 +939,7 @@ class TestAddMetadataRewritesEpisodePrefix:
     def _make_generator(
         tmp_path: Path, content_mode: str = "narration", generation_mode: str = "storyboard"
     ) -> ScriptGenerator:
-        project_path = tmp_path / "demo"
+        project_path = tmp_path / "projects" / "demo"
         _write_project_json(
             project_path,
             {
@@ -991,7 +991,7 @@ class TestAddMetadataRewritesEpisodePrefix:
         assert {key: value for key, value in out[case.kind][0].items() if key != "needs_replan"} == original
 
     def test_reference_video_rewrites_unit_ids(self, tmp_path: Path) -> None:
-        project_path = tmp_path / "demo"
+        project_path = tmp_path / "projects" / "demo"
         _write_project_json(
             project_path,
             {
@@ -1037,7 +1037,7 @@ class TestAddMetadataInjectsHiddenFields:
 
     @staticmethod
     def _make_generator(tmp_path: Path, content_mode: str = "drama") -> ScriptGenerator:
-        project_path = tmp_path / "demo"
+        project_path = tmp_path / "projects" / "demo"
         _write_project_json(
             project_path,
             {
@@ -1302,8 +1302,8 @@ def _bare_generator(tmp_path: Path, project_extra: dict | None = None) -> Script
     ProjectManager.update_project 无条件加锁读写该文件（不再靠内存快照短路），缺文件会
     在那一步 FileNotFoundError。
     """
-    project_dir = tmp_path / "demo"
-    project_dir.mkdir(exist_ok=True)
+    project_dir = tmp_path / "projects" / "demo"
+    project_dir.mkdir(parents=True, exist_ok=True)
     sg = ScriptGenerator.__new__(ScriptGenerator)
     sg.generator = None
     sg.project_path = project_dir
@@ -1840,7 +1840,7 @@ def _ad_shot(shot_id: str, *, duration: int = 4, section: str = "hook", voiceove
 class TestAdScriptGeneration:
     async def test_build_prompt_without_script_plan_uses_brief_and_products(self, tmp_path, video_request_facts):
         """ad 一键生成不走 script_plan 中间文件：prompt 直接来自 brief + 商品信息 + 配比表。"""
-        project_path = tmp_path / "demo"
+        project_path = tmp_path / "projects" / "demo"
         _write_ad_project(project_path)
 
         generator = ScriptGenerator(project_path)
@@ -1851,7 +1851,7 @@ class TestAdScriptGeneration:
 
     async def test_build_prompt_reference_path_uses_free_duration(self, tmp_path, video_request_facts):
         """ad + reference_video：直接输出统一引用语法 video_units，不持久化旧镜头字段。"""
-        project_path = tmp_path / "demo"
+        project_path = tmp_path / "projects" / "demo"
         _write_ad_project(project_path, generation_mode="reference_video")
 
         generator = ScriptGenerator(project_path)
@@ -1865,7 +1865,7 @@ class TestAdScriptGeneration:
 
     async def test_build_prompt_uses_project_source_language(self, tmp_path, video_request_facts):
         """ad prompt 的口播语速折算与输出语言须取项目 source_language（与 drama/narration 同口径），非中文项目不得回落中文/zh 语速。"""
-        project_path = tmp_path / "demo"
+        project_path = tmp_path / "projects" / "demo"
         _write_ad_project(project_path)
         project_json_path = project_path / "project.json"
         payload = json.loads(project_json_path.read_text(encoding="utf-8"))
@@ -1881,7 +1881,7 @@ class TestAdScriptGeneration:
 
     async def test_build_prompt_uses_project_speech_rate_override(self, tmp_path, video_request_facts):
         """project.json 顶层 speech_rate_units_per_second 须经真相源顶掉语言默认，落到 ad prompt 的口播折算。"""
-        project_path = tmp_path / "demo"
+        project_path = tmp_path / "projects" / "demo"
         _write_ad_project(project_path)
         project_json_path = project_path / "project.json"
         payload = json.loads(project_json_path.read_text(encoding="utf-8"))
@@ -1897,7 +1897,7 @@ class TestAdScriptGeneration:
     async def test_build_prompt_ends_with_optional_instructions_section(
         self, tmp_path, generation_mode, video_request_facts
     ):
-        project_path = tmp_path / "demo"
+        project_path = tmp_path / "projects" / "demo"
         _write_ad_project(project_path, generation_mode=generation_mode)
         generator = ScriptGenerator(project_path)
 
@@ -1910,7 +1910,7 @@ class TestAdScriptGeneration:
 
     async def test_build_prompt_tolerates_null_project_fields(self, tmp_path, video_request_facts):
         """project.json 手工编辑后字段显式为 null：prompt 构建按空值归一化，不抛 AttributeError。"""
-        project_path = tmp_path / "demo"
+        project_path = tmp_path / "projects" / "demo"
         _write_project_json(
             project_path,
             {
@@ -1939,7 +1939,7 @@ class TestAdScriptGeneration:
 
     async def test_generate_writes_ad_script_with_metadata(self, tmp_path, video_request_facts):
         """generate 写盘 ad 剧本：shots 骨架、content_mode=ad。"""
-        project_path = tmp_path / "demo"
+        project_path = tmp_path / "projects" / "demo"
         _write_ad_project(project_path)
 
         response = {
@@ -1964,7 +1964,7 @@ class TestAdScriptGeneration:
         """ad + storyboard：response_schema 是 AdEpisodeScript 的 duration 枚举子类。"""
         from lib.script.script_models import AdEpisodeScript
 
-        project_path = tmp_path / "demo"
+        project_path = tmp_path / "projects" / "demo"
         _write_ad_project(project_path)
         fake = _FakeTextGenerator(json.dumps({"foo": "bar"}))
         generator = ScriptGenerator(project_path, generator=fake)
@@ -1986,7 +1986,7 @@ class TestAdScriptGeneration:
         """ad + reference_video：response_schema 只含 unit 时长与统一引用语法正文。"""
         from lib.script.script_models import AdReferenceFlatScript
 
-        project_path = tmp_path / "demo"
+        project_path = tmp_path / "projects" / "demo"
         _write_ad_project(project_path, generation_mode="reference_video")
         fake = _FakeTextGenerator(json.dumps({"foo": "bar"}))
         generator = ScriptGenerator(project_path, generator=fake)
@@ -2005,7 +2005,7 @@ class TestAdScriptGeneration:
 
     async def test_generate_rewrites_wrong_episode_prefix_on_shot_ids(self, tmp_path, video_request_facts):
         """LLM 写错集号前缀时兜底改写为 E1（ad 恒单集）。"""
-        project_path = tmp_path / "demo"
+        project_path = tmp_path / "projects" / "demo"
         _write_ad_project(project_path)
         response = {
             "title": "速干杯短片",
@@ -2047,7 +2047,7 @@ class TestAdParseResponseDriftRecovery:
         }
 
     def test_parse_response_recovers_drifted_payload_without_title(self, tmp_path):
-        project_path = tmp_path / "demo"
+        project_path = tmp_path / "projects" / "demo"
         _write_ad_project(project_path)
         generator = ScriptGenerator(project_path)
 
@@ -2072,7 +2072,7 @@ class TestAdParseResponseDriftRecovery:
         assert second["video_prompt"]["camera_motion"] == "Static"
 
     def test_parse_response_keeps_model_title_when_present(self, tmp_path):
-        project_path = tmp_path / "demo"
+        project_path = tmp_path / "projects" / "demo"
         _write_ad_project(project_path)
         generator = ScriptGenerator(project_path)
 
@@ -2088,7 +2088,7 @@ class TestAdQualityProbe:
     """ad 总时长偏差探针：仅日志 WARN，不阻断、不推前端。"""
 
     def _sg(self, tmp_path, *, target_duration: int = 30) -> ScriptGenerator:
-        project_path = tmp_path / "demo"
+        project_path = tmp_path / "projects" / "demo"
         _write_ad_project(project_path)
         sg = ScriptGenerator.__new__(ScriptGenerator)
         sg.generator = None
@@ -2126,7 +2126,7 @@ class TestAdQualityProbe:
 
     async def test_save_not_blocked_by_drift(self, tmp_path, video_request_facts, caplog):
         """偏差超阈值时保存照常成功（探针仅 WARN，不抛、不拒）。"""
-        project_path = tmp_path / "demo"
+        project_path = tmp_path / "projects" / "demo"
         _write_ad_project(project_path)
         response = {"title": "短片", "shots": [_ad_shot("E1S01", duration=4)]}  # 4 秒 vs 30 秒
         fake = _FakeTextGenerator(json.dumps(response, ensure_ascii=False))
@@ -2154,7 +2154,7 @@ class TestAdReferenceSkeletonUnity:
     """ad + reference_video 生成自包含 video_units 且不携带生成模式标记。"""
 
     async def test_generate_ad_reference_script_carries_no_generation_mode(self, tmp_path):
-        project_path = tmp_path / "demo"
+        project_path = tmp_path / "projects" / "demo"
         _write_ad_project(project_path, generation_mode="reference_video")
         response = {
             "title": "速干杯短片",
@@ -2179,7 +2179,7 @@ class TestAdReferenceSkeletonUnity:
         assert "@[速干杯]" in saved["video_units"][0]["text"]
 
     async def test_generate_ad_reference_preserves_mixed_speech_and_marks_replan(self, tmp_path):
-        project_path = tmp_path / "demo"
+        project_path = tmp_path / "projects" / "demo"
         _write_ad_project(project_path, generation_mode="reference_video")
         text = "镜头1：@[小美] 举起 @[速干杯]\n@[小美]：{试试这一杯。}\n{旁白补充卖点。}"
         fake = _FakeTextGenerator(

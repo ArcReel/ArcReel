@@ -47,7 +47,7 @@ def _zh(key, **params):
 
 async def test_generated_asset_sheets_and_derivative_are_current(tmp_path, monkeypatch):
     project_path = _project(tmp_path)
-    pm = ProjectManager(tmp_path / "projects")
+    pm = ProjectManager(tmp_path)
     generator = FakeGenerator(project_path)
     _patch(monkeypatch, pm, generator)
 
@@ -70,7 +70,7 @@ async def test_generated_asset_sheets_and_derivative_are_current(tmp_path, monke
 async def test_missing_original_is_refused_before_the_provider_is_resolved(tmp_path, monkeypatch):
     project_path = _project(tmp_path)
     (project_path / "characters" / "refs" / "Alice-ref.png").unlink()
-    pm = ProjectManager(tmp_path / "projects")
+    pm = ProjectManager(tmp_path)
     generator = FakeGenerator(project_path)
     lanes: list[dict] = []
     _patch(monkeypatch, pm, generator, lanes)
@@ -89,7 +89,7 @@ async def test_missing_original_is_refused_before_the_provider_is_resolved(tmp_p
 async def test_derivative_without_a_usable_owner_sheet_is_refused_with_every_gap(tmp_path, monkeypatch):
     project_path = _project(tmp_path)
     (project_path / "characters" / "Alice.png").unlink()
-    pm = ProjectManager(tmp_path / "projects")
+    pm = ProjectManager(tmp_path)
     project = pm.load_project("demo")
     project["characters"]["Alice"]["derivatives"]["劲装"]["description"] = ""
     pm.save_project("demo", project)

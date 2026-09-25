@@ -154,7 +154,7 @@ def _setup_narrator_project(tmp_path: Path) -> tuple[ProjectManager, Path, TtsSy
         artifact_path="audio/segment_E1S01.wav",
         basis=audio_basis,
     )
-    return ProjectManager(projects_root), project_path, settings
+    return ProjectManager(tmp_path), project_path, settings
 
 
 def _add_second_narrator_video(project_path: Path) -> None:
@@ -776,7 +776,7 @@ async def test_legacy_video_materializes_after_the_provenance_backfill_migration
         return 4.0
 
     read_model = PresentationReadModelService(
-        ProjectManager(projects_root),
+        ProjectManager(tmp_path),
         settings_resolver_factory=lambda _project_name, _project_path: _SettingsResolver(settings),
         duration_probe=probe,
     )

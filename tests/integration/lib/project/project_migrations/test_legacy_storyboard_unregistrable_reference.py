@@ -59,6 +59,6 @@ def test_storyboard_with_an_unregistrable_sheet_is_reported_and_reads_missing(tm
     # 上一分镜图未登记只是略去：E1S3 按不带它的依据登记，读为最新。
     assert [_status(project_dir, unit_id) for unit_id in ("E1S1", "E1S2", "E1S3")] == ["current", "missing", "current"]
     storyboards = (
-        WorkflowStateService(ProjectManager(root)).get_project_summary(project_dir.name).episodes[0].storyboards
+        WorkflowStateService(ProjectManager(tmp_path)).get_project_summary(project_dir.name).episodes[0].storyboards
     )
     assert (storyboards.available, storyboards.stale) == (2, 0)

@@ -133,7 +133,7 @@ def _write_project(
     extra: dict | None = None,
     source_text: str = SOURCE,
 ) -> Path:
-    project_dir = tmp_path / "demo-proj"
+    project_dir = tmp_path / "projects" / "demo-proj"
     (project_dir / "source").mkdir(parents=True)
     project = {
         "schema_version": 3,

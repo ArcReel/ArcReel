@@ -177,7 +177,7 @@ async def test_resumes_after_file_was_copied_but_source_and_record_were_not_clea
     assert _is_emptied(legacy_keys_dir)
 
 
-async def test_credential_whose_file_is_missing_is_migrated_once_the_file_reappears(
+async def test_credential_whose_file_is_missing_stays_loadable_from_its_record_once_the_file_reappears(
     tmp_path: Path, deployed_data_root: Path, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     unmounted = tmp_path / "unmounted"
@@ -186,12 +186,11 @@ async def test_credential_whose_file_is_missing_is_migrated_once_the_file_reappe
     )
 
     await _migrate(deployed_data_root, session_factory, tmp_path)
-    _write_service_account(unmounted / f"vertex_cred_{cred_id}.json", "remounted")
+    recorded = unmounted / f"vertex_cred_{cred_id}.json"
+    _write_service_account(recorded, "remounted")
     await _migrate(deployed_data_root, session_factory, tmp_path)
 
-    path, project_id = await _loaded_credential(session_factory)
-    assert project_id == "remounted"
-    assert path.is_relative_to(deployed_data_root)
+    assert await _loaded_credential(session_factory) == (recorded, "remounted")
 
 
 async def test_credentials_sharing_one_file_all_stay_loadable(

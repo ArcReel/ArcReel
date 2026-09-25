@@ -1212,7 +1212,7 @@ def test_read_source_files_raises_on_non_utf8(tmp_path):
     from lib.script.source_loader.errors import SourceDecodeError
 
     pm = ProjectManager(tmp_path)
-    project_dir = tmp_path / "demo"
+    project_dir = pm.projects_dir / "demo"
     (project_dir / "source").mkdir(parents=True)
     bad = project_dir / "source" / "broken.txt"
     # 使用种子化 PRNG 生成高熵随机字节，确保触发 decode_txt 的 5% 乱码阈值

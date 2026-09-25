@@ -904,8 +904,8 @@ class TestImageSizeResolutionEquivalence:
     @pytest.fixture
     def _ctx_env(self, monkeypatch, tmp_path):
         """真 ProjectManager（demo 项目目录）+ 回声 assemble 缝，避免 backend 构造触网。"""
-        pm = ProjectManager(tmp_path / "projects")
-        (tmp_path / "projects" / "demo").mkdir(parents=True)
+        pm = ProjectManager(tmp_path)
+        (pm.projects_dir / "demo").mkdir(parents=True)
         monkeypatch.setattr(generation_context, "get_project_manager", lambda: pm)
 
         async def _assemble(*, provider_id, media_type, model_id, resolver, rate_limiter=None, generation_type=None):

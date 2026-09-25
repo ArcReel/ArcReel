@@ -26,8 +26,8 @@ def _status(project_dir: Path) -> str:
     return ArtifactCurrencyResolver(project_dir).compare(_STORYBOARD, artifact_path=_STORYBOARD_PATH).status.value
 
 
-def _storyboard_counts(root: Path, project_dir: Path) -> tuple[int, int]:
-    summary = WorkflowStateService(ProjectManager(root)).get_project_summary(project_dir.name)
+def _storyboard_counts(data_root: Path, project_dir: Path) -> tuple[int, int]:
+    summary = WorkflowStateService(ProjectManager(data_root)).get_project_summary(project_dir.name)
     storyboards = summary.episodes[0].storyboards
     return storyboards.available, storyboards.stale
 
@@ -42,7 +42,7 @@ def test_storyboard_of_a_legacy_drama_project_without_ratio_is_current_after_upg
     assert project["schema_version"] == CURRENT_PROJECT_SCHEMA_VERSION
     assert "aspect_ratio" not in project
     assert _status(project_dir) == "current"
-    assert _storyboard_counts(root, project_dir) == (1, 0)
+    assert _storyboard_counts(tmp_path, project_dir) == (1, 0)
 
 
 def test_storyboard_registered_with_a_portrait_basis_reads_stale(tmp_path: Path) -> None:
@@ -65,4 +65,4 @@ def test_storyboard_registered_with_a_portrait_basis_reads_stale(tmp_path: Path)
     )
 
     assert _status(project_dir) == "stale"
-    assert _storyboard_counts(root, project_dir) == (1, 1)
+    assert _storyboard_counts(tmp_path, project_dir) == (1, 1)

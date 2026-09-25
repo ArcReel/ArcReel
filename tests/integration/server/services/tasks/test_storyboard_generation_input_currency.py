@@ -51,7 +51,7 @@ def _patch(monkeypatch, pm, generator):
 async def test_generated_storyboard_with_derivative_product_and_previous_is_current(tmp_path, monkeypatch):
     project_path = prepare_files(tmp_path)
     _project_with_derivative_product_and_previous(project_path)
-    pm = ProjectManager(tmp_path / "projects")
+    pm = ProjectManager(tmp_path)
     generator = FakeGenerator(project_path)
     _patch(monkeypatch, pm, generator)
 
@@ -71,7 +71,7 @@ async def test_generated_storyboard_with_derivative_product_and_previous_is_curr
 async def test_clamping_only_trims_what_is_sent(tmp_path, monkeypatch):
     project_path = prepare_files(tmp_path)
     _project_with_derivative_product_and_previous(project_path)
-    pm = ProjectManager(tmp_path / "projects")
+    pm = ProjectManager(tmp_path)
     generator = FakeGenerator(project_path)
     _patch(monkeypatch, pm, generator)
     monkeypatch.setattr(
@@ -98,7 +98,7 @@ async def test_every_gap_is_reported_before_the_provider_is_resolved(tmp_path, m
     persist_active_fake_project(fixture)
     (project_path / "products" / "refs" / "保温杯_1.jpg").unlink()
     (project_path / DERIVATIVE_SHEET).unlink()
-    pm = ProjectManager(tmp_path / "projects")
+    pm = ProjectManager(tmp_path)
     lane_requests: list[dict] = []
     generator = FakeGenerator(project_path)
     _patch(monkeypatch, pm, generator)

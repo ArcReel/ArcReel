@@ -114,14 +114,13 @@ class FakeSessionManager:
 @pytest.fixture
 async def rewriting(session_factory, tmp_path):
     """一个有两轮对话、两条用户消息都已建立身份映射的原会话 + 装好替身运行时的服务。"""
-    projects_root = tmp_path / "projects"
-    project_cwd = projects_root / PROJECT_NAME
+    project_cwd = DataRootLayout(tmp_path).projects_dir / PROJECT_NAME
     project_cwd.mkdir(parents=True)
 
     service = AssistantService(project_root=tmp_path)
-    service.layout = DataRootLayout(projects_root)
-    service.data_root = projects_root
-    service.pm = ProjectManager(projects_root)
+    service.layout = DataRootLayout(tmp_path)
+    service.data_root = tmp_path
+    service.pm = ProjectManager(tmp_path)
 
     store = DbSessionStore(session_factory)
     log_store = EventLogStore(session_factory=session_factory)

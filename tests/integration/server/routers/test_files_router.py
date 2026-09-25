@@ -67,7 +67,7 @@ def _img_bytes(fmt="JPEG", color=(255, 0, 0)):
 
 
 def _client(monkeypatch, tmp_path):
-    pm = project_manager_module.ProjectManager(tmp_path / "projects")
+    pm = project_manager_module.ProjectManager(tmp_path)
     pm.create_project("demo")
     pm.create_project_metadata("demo", "Demo", "Anime", "narration")
     pm.add_character("demo", "Alice", "desc")

@@ -59,6 +59,24 @@ if not os.environ.get("DATABASE_URL", "").strip() or os.environ.get(_OWNED_DB_MA
     # 与收集期中断都只 import conftest、不跑 fixture。
     atexit.register(_remove_owned_test_db_dir)
 
+# 数据根与 Claude SDK 配置目录同理：默认值是仓库根下的 `projects/` 与用户的 `~/.claude`，
+# 布局迁移会在其上挪目录、改会话目录。收集期 import `server.app` 就会建出 Assistant 服务
+# 单例并按当时的数据根固定下来，所以须在任何 import 之前钉到本进程独占的临时目录；
+# 每个用例再由 `isolated_data_root` 换成各自的空数据根。
+_OWNED_TEST_HOME_DIR = tempfile.mkdtemp(prefix="arcreel-test-home-")
+os.environ["ARCREEL_DATA_DIR"] = str(Path(_OWNED_TEST_HOME_DIR) / "data")
+os.environ["CLAUDE_CONFIG_DIR"] = str(Path(_OWNED_TEST_HOME_DIR) / "claude-config")
+os.environ.pop("AI_ANIME_PROJECTS", None)
+
+
+def _remove_owned_test_home_dir() -> None:
+    """只在创建临时目录的进程里回收（pid 守卫的理由同 ``_remove_owned_test_db_dir``）。"""
+    if os.getpid() == _OWNED_TEST_DB_OWNER_PID:
+        shutil.rmtree(_OWNED_TEST_HOME_DIR, ignore_errors=True)
+
+
+atexit.register(_remove_owned_test_home_dir)
+
 import lib.generation.generation_queue as generation_queue_module
 from lib.db.base import Base
 from lib.generation.video_request_facts import VideoRequestFacts, VideoRequestFactsFailure
@@ -153,19 +171,26 @@ def discard_pooled_connections_after_fork() -> None:
 
 
 @pytest.fixture(autouse=True)
-def reset_app_data_dir_cache():
-    """``app_data_dir()`` uses ``functools.cache`` for production; reset it between
-    tests so per-test monkeypatching of ARCREEL_DATA_DIR / AI_ANIME_PROJECTS takes
-    effect immediately."""
-    from lib.infra.app_data_dir import reset_for_tests
+def isolated_data_root(tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch):
+    """每个用例默认使用一个空的临时数据根。
 
+    ``app_data_dir()`` 与 ``get_project_manager()`` 在进程内缓存，用例前后都清掉，
+    用例自己 setenv ``ARCREEL_DATA_DIR`` 后首次调用即按新值解析。会 import 应用模块的
+    autouse fixture 须声明依赖本 fixture，其间触发的解析才落在临时根上。
+    """
+    from lib.infra.app_data_dir import reset_for_tests
+    from lib.project.project_manager import reset_project_manager_for_tests
+
+    monkeypatch.setenv("ARCREEL_DATA_DIR", str(tmp_path_factory.mktemp("data-root")))
     reset_for_tests()
+    reset_project_manager_for_tests()
     yield
     reset_for_tests()
+    reset_project_manager_for_tests()
 
 
 @pytest.fixture(autouse=True)
-def stub_sandbox_check(monkeypatch, request):
+def stub_sandbox_check(isolated_data_root, monkeypatch, request):
     """Mock ``check_sandbox_available`` 返回 True，避免测试机不满足真实 bwrap probe。
 
     GitHub Actions Ubuntu 24.04 runner 上 ``apparmor_restrict_unprivileged_userns=1``

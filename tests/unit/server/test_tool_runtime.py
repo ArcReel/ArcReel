@@ -454,7 +454,7 @@ async def test_patch_episode_meta_returns_typed_domain_outcome(tmp_path: Path, m
 
 
 async def test_content_readers_return_body_and_revision_from_the_same_snapshot(tmp_path: Path, monkeypatch) -> None:
-    project_dir = tmp_path / "demo"
+    project_dir = tmp_path / "projects" / "demo"
     (project_dir / "scripts").mkdir(parents=True)
     script_plan_dir = project_dir / "drafts" / "episode_1"
     script_plan_dir.mkdir(parents=True)
@@ -507,7 +507,7 @@ async def test_content_readers_return_body_and_revision_from_the_same_snapshot(t
 
 
 async def test_file_readers_share_a_business_file_allowlist_and_reject_symlinks(tmp_path: Path) -> None:
-    project_dir = tmp_path / "demo"
+    project_dir = tmp_path / "projects" / "demo"
     (project_dir / "source").mkdir(parents=True)
     (project_dir / "scripts").mkdir()
     drafts = project_dir / "drafts" / "episode_1"
@@ -565,7 +565,7 @@ async def test_file_readers_share_a_business_file_allowlist_and_reject_symlinks(
 async def test_project_file_read_holds_the_checked_file_snapshot(tmp_path: Path, monkeypatch) -> None:
     if os.open not in os.supports_dir_fd:
         pytest.skip("requires openat-style directory descriptors")
-    project_dir = tmp_path / "demo"
+    project_dir = tmp_path / "projects" / "demo"
     source_dir = project_dir / "source"
     source_dir.mkdir(parents=True)
     (project_dir / "project.json").write_text("{}", encoding="utf-8")
@@ -598,7 +598,7 @@ async def test_project_file_read_holds_the_checked_file_snapshot(tmp_path: Path,
 
 
 async def test_project_file_read_rejects_oversized_regular_file(tmp_path: Path) -> None:
-    project_dir = tmp_path / "demo"
+    project_dir = tmp_path / "projects" / "demo"
     source_dir = project_dir / "source"
     source_dir.mkdir(parents=True)
     (project_dir / "project.json").write_text("{}", encoding="utf-8")
@@ -662,7 +662,7 @@ async def test_episode_script_reader_reports_invalid_request_for_non_string_name
 ) -> None:
     """工具入参是模型给的原始 JSON，形状不合规须落成 invalid_request 而非异常。"""
 
-    project_dir = tmp_path / "demo"
+    project_dir = tmp_path / "projects" / "demo"
     project_dir.mkdir(parents=True)
     (project_dir / "project.json").write_text(
         f'{{"content_mode":"drama","schema_version":{CURRENT_PROJECT_SCHEMA_VERSION}}}', encoding="utf-8"
@@ -684,7 +684,7 @@ async def test_episode_script_reader_reports_invalid_request_for_non_string_name
 
 @pytest.mark.parametrize("path", [1, ["source/novel.txt"], {"path": "source/novel.txt"}])
 async def test_business_file_readers_reject_non_string_paths(tmp_path: Path, path: object) -> None:
-    project_dir = tmp_path / "demo"
+    project_dir = tmp_path / "projects" / "demo"
     (project_dir / "source").mkdir(parents=True)
     (project_dir / "project.json").write_text(
         f'{{"content_mode":"drama","schema_version":{CURRENT_PROJECT_SCHEMA_VERSION}}}', encoding="utf-8"

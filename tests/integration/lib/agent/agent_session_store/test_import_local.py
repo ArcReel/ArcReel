@@ -53,8 +53,8 @@ def fake_sdk_home(tmp_path: Path, monkeypatch):
 async def test_migrate_imports_local_jsonl(tmp_path, fake_sdk_home, session_factory):
     from lib.agent.agent_session_store.import_local import migrate_local_transcripts_to_store
 
-    data_root = tmp_path / "projects"
-    proj = data_root / "demo"
+    data_root = tmp_path / "data"
+    proj = DataRootLayout(data_root).projects_dir / "demo"
     proj.mkdir(parents=True)
     (proj / "project.json").write_text("{}")
     sid = "00000000-0000-0000-0000-0000000000aa"
@@ -78,8 +78,8 @@ async def test_migrate_imports_local_jsonl(tmp_path, fake_sdk_home, session_fact
 async def test_migrate_is_idempotent_via_marker(tmp_path, fake_sdk_home, session_factory):
     from lib.agent.agent_session_store.import_local import migrate_local_transcripts_to_store
 
-    data_root = tmp_path / "projects"
-    proj = data_root / "demo"
+    data_root = tmp_path / "data"
+    proj = DataRootLayout(data_root).projects_dir / "demo"
     proj.mkdir(parents=True)
     (proj / "project.json").write_text("{}")
     sid = "00000000-0000-0000-0000-0000000000bb"
@@ -103,8 +103,8 @@ async def test_migrate_skips_already_in_store_when_marker_missing(
     """Marker误删后重启应通过 store.load 探测跳过已迁会话。"""
     from lib.agent.agent_session_store.import_local import migrate_local_transcripts_to_store
 
-    data_root = tmp_path / "projects"
-    proj = data_root / "demo"
+    data_root = tmp_path / "data"
+    proj = DataRootLayout(data_root).projects_dir / "demo"
     proj.mkdir(parents=True)
     (proj / "project.json").write_text("{}")
     sid = "00000000-0000-0000-0000-0000000000cc"
@@ -125,7 +125,7 @@ async def test_migrate_zero_data_user(tmp_path, fake_sdk_home, session_factory):
     """No projects + no SDK dir → marker still written, migration succeeds."""
     from lib.agent.agent_session_store.import_local import migrate_local_transcripts_to_store
 
-    data_root = tmp_path / "projects"
+    data_root = tmp_path / "data"
     data_root.mkdir()
     store = DbSessionStore(session_factory, user_id="u1")
 

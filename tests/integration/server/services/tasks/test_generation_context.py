@@ -80,7 +80,7 @@ async def patched_session_factory(db_factory, monkeypatch):
 @pytest.fixture
 def project_env(monkeypatch, tmp_path: Path):
     """tmp_path 下的真 ProjectManager + 已存在的项目目录。"""
-    pm = ProjectManager(tmp_path / "projects")
+    pm = ProjectManager(tmp_path)
     (tmp_path / "projects" / "demo").mkdir(parents=True)
     monkeypatch.setattr(generation_context, "get_project_manager", lambda: pm)
     return pm

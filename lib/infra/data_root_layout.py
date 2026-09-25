@@ -4,7 +4,7 @@
 代码中其它地方不自行拼接数据根下的条目，也不从项目目录反推数据根，一律经
 :class:`DataRootLayout` 取位置（ADR 0088）。
 
-当前布局下项目目录就是数据根。
+项目收在数据根下的 ``projects/`` 里，其余运行数据以无前缀的名字与之并列。
 
 「什么是项目」只由 :func:`is_project_dir` 回答：名字符合项目名规则、并且带 ``project.json``
 的目录。数据根里的其它条目一概不是项目。
@@ -53,12 +53,12 @@ class DataRootLayout:
     @classmethod
     def for_project_dir(cls, project_dir: Path) -> DataRootLayout:
         """由一个项目目录求其所在数据根的布局（Agent skill 脚本以项目目录为 cwd 运行）。"""
-        return cls(Path(project_dir).parent)
+        return cls(Path(project_dir).parent.parent)
 
     @property
     def projects_dir(self) -> Path:
         """项目目录：各项目以 ``<项目目录>/<项目名>/`` 存放。"""
-        return self.root
+        return self.root / "projects"
 
     @property
     def global_assets_dir(self) -> Path:
@@ -115,6 +115,20 @@ class DataRootLayout:
         return self.root / "runtime"
 
     @property
+    def top_level_entries(self) -> tuple[Path, ...]:
+        """数据根下由布局登记的全部顶层条目：项目目录与各类运行数据。"""
+        return (
+            self.projects_dir,
+            self.global_assets_dir,
+            self.users_dir,
+            self.sqlite_db_path,
+            self.log_dir,
+            self.vertex_keys_dir,
+            self.trial_runs_dir,
+            self.runtime_dir,
+        )
+
+    @property
     def legacy_sqlite_db_path(self) -> Path:
         """旧布局的默认 SQLite 主文件；解析默认数据库 URL 时改名为 :attr:`sqlite_db_path`。"""
         return self.root / ".arcreel.db"
@@ -133,6 +147,11 @@ class DataRootLayout:
     def session_import_marker_path(self) -> Path:
         """本地 SDK 会话导入完成标记。"""
         return self.runtime_dir / "session-store-import.done"
+
+    @property
+    def layout_migration_marker_path(self) -> Path:
+        """数据根布局迁移完成标记；存在时启动不再执行迁移步骤。"""
+        return self.runtime_dir / "data-root-layout-migrated.done"
 
     @property
     def project_migration_error_log_path(self) -> Path:

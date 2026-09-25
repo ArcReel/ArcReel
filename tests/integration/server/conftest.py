@@ -21,8 +21,8 @@ def _build_fake_ctx(tmp_path: Path, session_factory, monkeypatch: pytest.MonkeyP
     monkeypatch.setattr("lib.db.async_session_factory", session_factory)
     monkeypatch.setattr("server.services.admission.video_batch_admission.async_session_factory", session_factory)
     monkeypatch.setattr("server.services.tasks.video_caps.async_session_factory", session_factory)
-    project_dir = tmp_path / "demo"
-    project_dir.mkdir()
+    project_dir = tmp_path / "projects" / "demo"
+    project_dir.mkdir(parents=True)
     (project_dir / "storyboards").mkdir()
     (project_dir / "storyboards" / "scene_E1S01.png").write_bytes(b"")
     (project_dir / "audio").mkdir()

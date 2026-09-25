@@ -418,7 +418,7 @@ async def test_product_task_replanning_returns_its_durable_handle_without_crossi
     tmp_path: Path, db_factory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     project_path = _project_dir(tmp_path)
-    queue_pm = ProjectManager(project_path.parent)
+    queue_pm = ProjectManager.for_project_dir(project_path)
     planner_pm = _ProjectManager(project_path, _script())
     monkeypatch.setattr(
         planner_pm,

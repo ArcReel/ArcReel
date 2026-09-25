@@ -188,8 +188,8 @@ def _write_verified_presentation_claims(
 
 
 def _project(tmp_path: Path) -> tuple[Path, dict, dict, dict]:
-    project_dir = tmp_path / "demo"
-    project_dir.mkdir()
+    project_dir = tmp_path / "projects" / "demo"
+    project_dir.mkdir(parents=True)
     project = {
         "schema_version": 7,
         "content_mode": "narration",
@@ -1275,7 +1275,7 @@ def test_v7_activation_retry_refreshes_matching_backups_before_startup_cleanup(
         os.utime(backup, (expired, expired))
 
     migrate_v7_to_v8(project_dir)
-    cleanup_stale_backups(tmp_path, max_age_days=7)
+    cleanup_stale_backups(tmp_path / "projects", max_age_days=7)
 
     assert _read_json(project_dir / "project.json")["schema_version"] == 8
     assert all(backup.exists() for backup in backups)
@@ -1563,8 +1563,8 @@ def test_v7_activation_does_not_use_same_name_storyboard_residue_for_video_basis
 
 
 def test_schema8_workflow_keeps_a_stale_typed_video_usable(tmp_path: Path) -> None:
-    project_dir = tmp_path / "ad"
-    project_dir.mkdir()
+    project_dir = tmp_path / "projects" / "ad"
+    project_dir.mkdir(parents=True)
     project = {
         "schema_version": 7,
         "content_mode": "ad",

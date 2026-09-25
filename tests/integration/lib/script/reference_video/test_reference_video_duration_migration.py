@@ -129,7 +129,7 @@ def _write_legacy_project(tmp_path: Path) -> tuple[ProjectManager, dict]:
     (projects_root / "demo" / "scripts" / "episode_1.json").write_text(
         json.dumps(script, ensure_ascii=False), encoding="utf-8"
     )
-    return ProjectManager(projects_root), script
+    return ProjectManager(tmp_path), script
 
 
 class TestLoadScriptMigration:

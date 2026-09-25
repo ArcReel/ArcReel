@@ -47,7 +47,7 @@ async def test_generated_storyboard_is_current_against_the_target_state(
     fixture = _FakePM(project_path)
     _persist_with_ratio(fixture, content_mode=content_mode, aspect_ratio=aspect_ratio)
     register_asset_sheet_claims(fixture)
-    pm = ProjectManager(tmp_path / "projects")
+    pm = ProjectManager(tmp_path)
     generator = FakeGenerator(project_path)
     monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: pm)
     monkeypatch.setattr(generation_tasks, "resolve_generation_context", fake_resolve_ctx(generator))
