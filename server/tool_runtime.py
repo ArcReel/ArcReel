@@ -98,7 +98,6 @@ from lib.project.asset_inventory import (
 from lib.project.asset_types import ASSET_SPECS
 from lib.project.project_manager import ProjectManager, SourceKind, is_reference_video_project
 from lib.project.project_migration_failure import (
-    MIGRATION_FAILURE_CODE,
     MigrationFailureRecord,
     ProjectMigrationError,
     load_migration_failure,
@@ -225,7 +224,7 @@ class ToolOutcome[ResultT]:
 class GenerationBatchToolRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    batch_id: str = Field(min_length=1)
+    batch_id: str = Field(min_length=1, description="生成批次 id，取自生成工具返回的 generation_batch.batch_id")
 
 
 @dataclass(frozen=True, slots=True)
@@ -917,8 +916,8 @@ async def get_episode_script(
 class PromptPreviewRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    script: str = Field(min_length=1, description="剧本文件名（纯文件名）")
-    item_id: str = Field(min_length=1, description="分镜条目 id")
+    script: str = Field(min_length=1, description="剧本纯文件名（不含目录），如 episode_1.json")
+    item_id: str = Field(min_length=1, description="分镜条目 id（segment_id / scene_id / shot_id / unit_id），如 E1S01")
 
 
 async def get_prompt_preview(
@@ -937,9 +936,8 @@ async def get_prompt_preview(
     if "/" in filename or "\\" in filename or filename in {".", ".."}:
         return ToolOutcome(problem=ToolProblem("invalid_request", "script 必须是纯文件名"))
     try:
-        failure = await asyncio.to_thread(project_migration_failure, scope.project_name, services.projects)
-        if failure is not None:
-            return ToolOutcome(problem=ToolProblem(MIGRATION_FAILURE_CODE, failure.reason))
+        if problem := await migration_gate(scope, services):
+            return ToolOutcome(problem=problem)
         preview = await preview_item_prompts(
             scope.project_name, filename, request.value.item_id, projects=services.projects
         )
@@ -1143,18 +1141,24 @@ async def discard_draft(
 
 
 class CreateProjectToolRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
-    name: str
-    title: str = ""
-    content_mode: ContentMode = "narration"
-    source_kind: SourceKind = "novel"
-    generation_mode: Literal["storyboard", "reference_video"] = "storyboard"
-    grid_storyboard: bool = False
-    aspect_ratio: str = "9:16"
-    default_duration: int | None = Field(default=None, gt=0)
-    target_duration: int | None = Field(default=None, gt=0)
-    brief: str | None = None
+    name: str = Field(description="项目唯一标识，只能包含字母、数字和连字符；后续工具以它寻址项目")
+    title: str = Field(default="", description="用户可见的项目标题")
+    content_mode: ContentMode = Field(
+        default="narration", description="内容模式：narration 说书解说、drama 剧集、ad 广告/短片"
+    )
+    source_kind: SourceKind = Field(default="novel", description="源文类型：novel 小说、screenplay 剧本")
+    generation_mode: Literal["storyboard", "reference_video"] = Field(
+        default="storyboard", description="生成模式：storyboard 先出分镜图再生视频、reference_video 参考图直接生视频"
+    )
+    grid_storyboard: bool = Field(default=False, description="是否使用宫格分镜；广告/短片项目不支持")
+    aspect_ratio: str = Field(default="9:16", description="画面比例，如 9:16、16:9")
+    default_duration: int | None = Field(
+        default=None, gt=0, description="默认单镜时长（秒）；缺省不写入，由视频模型能力决定；广告/短片项目不可用"
+    )
+    target_duration: int | None = Field(default=None, gt=0, description="成片目标时长（秒）；仅广告/短片项目可用")
+    brief: str | None = Field(default=None, description="创作简报（卖点、受众等）；仅广告/短片项目可用")
 
     @model_validator(mode="after")
     def validate_mode_fields(self) -> CreateProjectToolRequest:
@@ -1169,15 +1173,18 @@ class CreateProjectToolRequest(BaseModel):
 
 
 class UploadSourceRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
-    filename: str
-    content: str
-    on_conflict: OnConflict = "fail"
+    filename: str = Field(description="带 .txt 或 .md 扩展名的纯文件名（不含目录、不以点开头）")
+    content: str = Field(description="源文件的文本内容")
+    on_conflict: OnConflict = Field(
+        default="fail",
+        description="source/ 下已有同名文件时的处理：fail 拒绝、replace 覆盖、rename 自动改名后写入",
+    )
 
 
 async def list_projects(
-    _request: ToolRequest[None],
+    _request: ToolRequest[NoArguments],
     _caller: CallerContext,
     services: Services,
 ) -> ToolOutcome[list[dict[str, Any]]]:
@@ -1249,9 +1256,6 @@ async def upload_source(
     _caller: CallerContext,
     services: Services,
 ) -> ToolOutcome[dict[str, Any]]:
-    if problem := await migration_gate(scope, services):
-        return ToolOutcome(problem=problem)
-
     def _upload() -> dict[str, Any]:
         value = request.value
         if Path(value.filename).name != value.filename or "\\" in value.filename or value.filename.startswith("."):
@@ -1326,7 +1330,7 @@ async def get_workflow_plan(
 
 
 async def get_video_capabilities(
-    _request: ToolRequest[None],
+    _request: ToolRequest[NoArguments],
     scope: ProjectScope,
     _caller: CallerContext,
     services: Services,
@@ -1666,12 +1670,32 @@ class ResetEpisodePlanningResult(ToolMessage):
 
 
 class PatchProjectRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
-    table: str | None = None
-    entries: dict[str, Any] | None = None
-    settings: dict[str, Any] | None = None
-    overview: dict[str, Any] | None = None
+    table: str | None = Field(
+        default=None,
+        description=f"（资产 upsert 分支，与 entries 同时给出）资产表，取值 {list(ASSET_TABLES)} 之一",
+        json_schema_extra={"enum": [*ASSET_TABLES, None]},
+    )
+    entries: dict[str, Any] | None = Field(
+        default=None,
+        description=(
+            "（资产 upsert 分支）{ 名称: { description, voice_style 等字段 } } 映射，至少一条；名称不存在则新增、"
+            "存在则合并改字段。角色条目可带 derivatives: { 衍生名: { description } }，登记本体之外的另一套外观，"
+            "按衍生名合并（同名改描述、新名加入、未提及的保留），description 写相对本体的变化"
+        ),
+    )
+    settings: dict[str, Any] | None = Field(
+        default=None,
+        description=f"（settings 写入分支）顶层字段映射，键须在白名单 {list(PROJECT_SETTINGS)} 内，值为 null 时清除该字段",
+    )
+    overview: dict[str, Any] | None = Field(
+        default=None,
+        description=(
+            f"（项目概述分支）概述字段映射，键须在白名单 {list(PROJECT_OVERVIEW_FIELDS)} 内；只更新传入字段，"
+            "概述不存在时创建"
+        ),
+    )
 
     @model_validator(mode="after")
     def _validate_shape(self) -> PatchProjectRequest:
@@ -1701,11 +1725,11 @@ class PatchProjectResult(ToolMessage):
 
 
 class PatchEpisodeMetaRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
-    script: str
-    field: Literal["title"]
-    value: str
+    script: str = Field(description="剧本纯文件名（不含目录），如 episode_1.json")
+    field: Literal["title"] = Field(description=f"要编辑的剧本顶层字段，白名单 {list(EPISODE_META_FIELDS)}")
+    value: str = Field(description="新值；title 须为非空字符串，首尾空白会被裁剪")
 
     @field_validator("script")
     @classmethod
@@ -1729,11 +1753,13 @@ class PatchEpisodeMetaResult(ToolMessage):
 
 
 class RenameAssetRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
-    table: str
-    old_name: str
-    new_name: str
+    table: str = Field(
+        description=f"资产表，取值 {list(ASSET_TABLES)} 之一", json_schema_extra={"enum": list(ASSET_TABLES)}
+    )
+    old_name: str = Field(description="现有资产名")
+    new_name: str = Field(description="新资产名；与同表既有资产冲突（按 NFC 归一判定）时整体拒绝")
 
     @field_validator("table")
     @classmethod
@@ -2324,7 +2350,7 @@ async def rename_asset(
 
 
 async def retry_project_migration(
-    _request: ToolRequest[None],
+    _request: ToolRequest[NoArguments],
     scope: ProjectScope,
     _caller: CallerContext,
     services: Services,

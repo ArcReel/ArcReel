@@ -1,4 +1,4 @@
-"""SDK MCP adapters for text generation and video capability queries."""
+"""SDK MCP adapters for text generation and the draft workflow."""
 
 from __future__ import annotations
 
@@ -24,7 +24,6 @@ from server.tool_runtime import (
     ToolProblem,
     ToolRequest,
     discard_draft,
-    get_video_capabilities,
     open_draft,
     patch_draft,
     promote_draft,
@@ -50,26 +49,6 @@ _INSTRUCTIONS_SCHEMA: dict[str, Any] = {
 }
 
 logger = logging.getLogger(__name__)
-
-
-# ---------------------------------------------------------------------------
-# get_video_capabilities
-# ---------------------------------------------------------------------------
-
-
-def get_video_capabilities_tool(ctx: ToolContext):
-    @tool(
-        "get_video_capabilities",
-        "查视频模型能力（model 粒度）+ 用户项目偏好。返回 JSON；"
-        "参考生视频项目另含 reference_unit_durations（带图与无图的档位、各桶 endpoint_fixed 标志及成因；无图不可解析时附 problem）。"
-        "能力按项目生成模式定轴，全项目同一口径，无需指定剧集。",
-        {"type": "object", "properties": {}},
-    )
-    async def _handler(_args: dict[str, Any]) -> dict[str, Any]:
-        outcome = await get_video_capabilities(ToolRequest(None), ctx.scope, ctx.caller, tool_services(ctx))
-        return tool_outcome_response("video_capabilities", outcome)
-
-    return _handler
 
 
 # ---------------------------------------------------------------------------
@@ -332,7 +311,6 @@ __all__ = [
     "discard_draft_tool",
     "generate_episode_script_tool",
     "generate_script_plan_tool",
-    "get_video_capabilities_tool",
     "open_draft_tool",
     "patch_draft_tool",
     "promote_draft_tool",

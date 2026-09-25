@@ -2,12 +2,14 @@
 
 每条声明在 ArcReel Agent（内嵌 SDK server）与外部 Agent（远程 MCP）两侧投影出的名字、schema、
 描述、迁移阻断与结果信封必须一致；允许的差异只有远程 schema 的 ``project`` 与长任务附注。
+无 scope 声明（列出、创建项目）两侧都不带 ``project``。
 领域行为在 handler 的 ``ToolOutcome`` 层测，这里的 fake handler 只用于观察 adapter 是否原样透传。
 """
 
 from __future__ import annotations
 
 import json
+import shutil
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -26,7 +28,13 @@ from lib.project.project_migration_failure import (
 )
 from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from server.agent_runtime.sdk_tools import ARCREEL_MCP_TOOL_IDS, MIGRATION_BLOCKED_TOOL_IDS, build_arcreel_mcp_server
-from server.agent_toolset.declaration import BLOCKED, Blocked, ToolDeclaration
+from server.agent_toolset.declaration import (
+    BLOCKED,
+    AgentToolDeclaration,
+    Blocked,
+    ToolDeclaration,
+    UnscopedToolDeclaration,
+)
 from server.agent_toolset.embedded import embedded_server
 from server.agent_toolset.remote import LONG_TASK_NOTE, remote_tool
 from server.agent_toolset.toolset import AGENT_TOOLSET
@@ -36,6 +44,18 @@ from server.tool_runtime import CallerContext, ProjectScope, Services, ToolOutco
 
 # 每条声明一份合法入参；新增声明须在此登记，否则参数化用例以 KeyError 失败。
 SAMPLE_ARGUMENTS: dict[str, dict[str, Any]] = {
+    "list_projects": {},
+    "create_project": {"name": "fresh", "title": "Fresh"},
+    "upload_source": {"filename": "novel.txt", "content": "第一章\n你好", "on_conflict": "replace"},
+    "get_workflow_plan": {"episode": 1},
+    "get_video_capabilities": {},
+    "get_prompt_preview": {"script": "episode_1.json", "item_id": "E1S01"},
+    "get_generation_batch": {"batch_id": "batch-absent"},
+    "cancel_generation_batch": {"batch_id": "batch-absent"},
+    "patch_project": {"overview": {"synopsis": "梗概"}},
+    "patch_episode_meta": {"script": "episode_1.json", "field": "title", "value": "第一集"},
+    "rename_asset": {"table": "characters", "old_name": "甲", "new_name": "乙"},
+    "retry_project_migration": {},
     "get_project_content": {},
     "list_source_files": {},
     "get_source_text": {"path": "source/episode_1.txt"},
@@ -46,6 +66,11 @@ SAMPLE_ARGUMENTS: dict[str, dict[str, Any]] = {
 }
 
 _DECLARATIONS = pytest.mark.parametrize("declaration", AGENT_TOOLSET, ids=lambda declaration: declaration.name)
+_SCOPED_DECLARATIONS = pytest.mark.parametrize(
+    "declaration",
+    [declaration for declaration in AGENT_TOOLSET if isinstance(declaration, ToolDeclaration)],
+    ids=lambda declaration: declaration.name,
+)
 
 
 @pytest.fixture
@@ -54,6 +79,7 @@ def projects(tmp_path: Path) -> ProjectManager:
     root = manager.projects_dir
     manager.create_project("demo", content_mode="drama")
     manager.create_project_metadata("demo", "Demo", "", "drama")
+    manager.upsert_assets("demo", "characters", {"甲": {"description": "主角"}})
     project_dir = root / "demo"
     (project_dir / "source").mkdir(exist_ok=True)
     (project_dir / "source" / "episode_1.txt").write_text("第一集原文", encoding="utf-8")
@@ -83,14 +109,29 @@ def _scope(projects: ProjectManager) -> ProjectScope:
     return ProjectScope(project_name="demo", data_root=projects.data_root)
 
 
-def _answering(
-    declaration: ToolDeclaration[Any, Any], outcome: ToolOutcome[Any], calls: list[object]
-) -> ToolDeclaration[Any, Any]:
+def _answering[DeclarationT: AgentToolDeclaration](
+    declaration: DeclarationT, outcome: ToolOutcome[Any], calls: list[object]
+) -> DeclarationT:
+    if isinstance(declaration, UnscopedToolDeclaration):
+
+        async def unscoped_handler(request, _caller, _services) -> ToolOutcome[Any]:
+            calls.append(request.value)
+            return outcome
+
+        return replace(declaration, handler=unscoped_handler)
+
     async def handler(request, _scope, _caller, _services) -> ToolOutcome[Any]:
         calls.append(request.value)
         return outcome
 
     return replace(declaration, handler=handler)
+
+
+def _remote_arguments(declaration: AgentToolDeclaration, arguments: dict[str, Any]) -> dict[str, Any]:
+    """外部 Agent 的等价入参：作用于项目的工具显式带上 ``project``。"""
+    if isinstance(declaration, UnscopedToolDeclaration):
+        return dict(arguments)
+    return {"project": "demo", **arguments}
 
 
 async def _call_server(server: Server, name: str, arguments: dict[str, Any]) -> types.CallToolResult:
@@ -102,7 +143,7 @@ async def _call_server(server: Server, name: str, arguments: dict[str, Any]) -> 
 
 
 async def _call_embedded(
-    declaration: ToolDeclaration[Any, Any], arguments: dict[str, Any], services: Services
+    declaration: AgentToolDeclaration, arguments: dict[str, Any], services: Services
 ) -> types.CallToolResult:
     server = embedded_server(
         [declaration],
@@ -116,7 +157,7 @@ async def _call_embedded(
 
 
 async def _call_remote(
-    declaration: ToolDeclaration[Any, Any], arguments: dict[str, Any], services: Services
+    declaration: AgentToolDeclaration, arguments: dict[str, Any], services: Services
 ) -> types.CallToolResult:
     tool = remote_tool(
         declaration,
@@ -154,7 +195,7 @@ async def _embedded_listing(projects: ProjectManager) -> dict[str, types.Tool]:
     return {tool.name: tool for tool in result.tools}
 
 
-@_DECLARATIONS
+@_SCOPED_DECLARATIONS
 async def test_both_hosts_expose_the_declared_name_schema_and_description(
     declaration: ToolDeclaration[Any, Any], projects: ProjectManager, services: Services
 ) -> None:
@@ -173,21 +214,43 @@ async def test_both_hosts_expose_the_declared_name_schema_and_description(
     assert remote.description == declaration.description + (LONG_TASK_NOTE if declaration.long_task else "")
 
 
+@pytest.mark.parametrize(
+    "declaration",
+    [declaration for declaration in AGENT_TOOLSET if isinstance(declaration, UnscopedToolDeclaration)],
+    ids=lambda declaration: declaration.name,
+)
+async def test_both_hosts_expose_an_unscoped_declaration_without_project(
+    declaration: UnscopedToolDeclaration[Any, Any], projects: ProjectManager, services: Services
+) -> None:
+    embedded = (await _embedded_listing(projects))[declaration.name]
+    remote = {tool.name: tool for tool in await build_remote_mcp_server(services=services).list_tools()}[
+        declaration.name
+    ]
+
+    assert declaration.name in ARCREEL_MCP_TOOL_IDS
+    assert "project" not in remote.inputSchema["properties"]
+    assert remote.inputSchema == embedded.inputSchema == declaration.input_schema
+    assert all(spec.get("description") for spec in embedded.inputSchema["properties"].values())
+    assert embedded.description == remote.description == declaration.description
+
+
 def test_migration_blocked_ids_follow_each_declared_policy() -> None:
-    assert {declaration.name for declaration in AGENT_TOOLSET if isinstance(declaration.migration, Blocked)} == {
-        declaration.name for declaration in AGENT_TOOLSET if declaration.name in MIGRATION_BLOCKED_TOOL_IDS
-    }
+    assert {
+        declaration.name
+        for declaration in AGENT_TOOLSET
+        if isinstance(declaration, ToolDeclaration) and isinstance(declaration.migration, Blocked)
+    } == {declaration.name for declaration in AGENT_TOOLSET if declaration.name in MIGRATION_BLOCKED_TOOL_IDS}
 
 
 @_DECLARATIONS
 async def test_problems_pass_through_both_hosts_unchanged(
-    declaration: ToolDeclaration[Any, Any], services: Services
+    declaration: AgentToolDeclaration, services: Services
 ) -> None:
     problem = ToolProblem("sentinel_problem", "原样透传", action="sentinel_action", params={"ids": ["E1S01"]})
     answering = _answering(declaration, ToolOutcome(problem=problem), [])
 
     embedded = await _call_embedded(answering, SAMPLE_ARGUMENTS[declaration.name], services)
-    remote = await _call_remote(answering, {"project": "demo", **SAMPLE_ARGUMENTS[declaration.name]}, services)
+    remote = await _call_remote(answering, _remote_arguments(answering, SAMPLE_ARGUMENTS[declaration.name]), services)
 
     expected = {
         "problem": {
@@ -205,14 +268,14 @@ async def test_problems_pass_through_both_hosts_unchanged(
 
 @_DECLARATIONS
 async def test_invalid_arguments_are_rejected_as_the_same_invalid_request_by_both_hosts(
-    declaration: ToolDeclaration[Any, Any], projects: ProjectManager, services: Services
+    declaration: AgentToolDeclaration, projects: ProjectManager, services: Services
 ) -> None:
     arguments = {**SAMPLE_ARGUMENTS[declaration.name], "unexpected": 1}
     # 经会话真实注册的 in-process server 调用：MCP 层不做 schema 预校验，坏参数由请求模型拒绝。
     session_server = build_arcreel_mcp_server(project_name="demo", data_root=projects.data_root)["instance"]
 
     embedded = await _call_server(session_server, declaration.name, arguments)
-    remote = await _call_remote(declaration, {"project": "demo", **arguments}, services)
+    remote = await _call_remote(declaration, _remote_arguments(declaration, arguments), services)
 
     assert embedded.isError is True
     assert remote.isError is True
@@ -223,7 +286,7 @@ async def test_invalid_arguments_are_rejected_as_the_same_invalid_request_by_bot
     assert remote.structuredContent["problem"]["params"]["errors"][0]["loc"] == ["unexpected"]
 
 
-@_DECLARATIONS
+@_SCOPED_DECLARATIONS
 async def test_a_blocked_declaration_refuses_a_migration_failed_project_at_both_entries(
     declaration: ToolDeclaration[Any, Any], projects: ProjectManager, services: Services
 ) -> None:
@@ -250,11 +313,15 @@ async def test_a_blocked_declaration_refuses_a_migration_failed_project_at_both_
 
 @pytest.mark.parametrize(
     "declaration",
-    [declaration for declaration in AGENT_TOOLSET if not isinstance(declaration.migration, Blocked)],
+    [
+        declaration
+        for declaration in AGENT_TOOLSET
+        if not (isinstance(declaration, ToolDeclaration) and isinstance(declaration.migration, Blocked))
+    ],
     ids=lambda declaration: declaration.name,
 )
 async def test_unblocked_declarations_reach_the_handler_on_a_migration_failed_project(
-    declaration: ToolDeclaration[Any, Any], projects: ProjectManager, services: Services
+    declaration: AgentToolDeclaration, projects: ProjectManager, services: Services
 ) -> None:
     record_migration_failure(
         projects.get_project_path("demo"), RuntimeError("清单预检失败"), schema_version=CURRENT_PROJECT_SCHEMA_VERSION
@@ -262,7 +329,7 @@ async def test_unblocked_declarations_reach_the_handler_on_a_migration_failed_pr
     answering = _answering(declaration, ToolOutcome(value={"answered": True}), [])
 
     embedded = await _call_embedded(answering, SAMPLE_ARGUMENTS[declaration.name], services)
-    remote = await _call_remote(answering, {"project": "demo", **SAMPLE_ARGUMENTS[declaration.name]}, services)
+    remote = await _call_remote(answering, _remote_arguments(answering, SAMPLE_ARGUMENTS[declaration.name]), services)
 
     assert _embedded_json(embedded) == remote.structuredContent == {declaration.domain_key: {"answered": True}}
 
@@ -289,21 +356,40 @@ async def test_episode_script_reader_reports_the_same_migration_problem_in_both_
     assert problem["params"]["schema_version"] == CURRENT_PROJECT_SCHEMA_VERSION
 
 
+def _twin_services(projects: ProjectManager, tmp_path: Path) -> Services:
+    """同一初始状态的另一份项目根，让写入类工具在两宿主各跑一次、互不影响。"""
+    root = tmp_path / "twin"
+    shutil.copytree(projects.data_root, root, symlinks=True)
+    twin = ProjectManager(root)
+    return Services(
+        projects=twin, workflow_planner=WorkflowPlanner(twin), capabilities=ConfigResolver(async_session_factory)
+    )
+
+
+# 真实 handler 的结果随调用时刻变化，两次调用无法逐字比较；透传一致性由其余用例的 fake handler 覆盖。
+_TIME_DEPENDENT_RESULTS = frozenset({"create_project"})
+
+
 @pytest.mark.parametrize(
     "declaration",
-    [declaration for declaration in AGENT_TOOLSET if not declaration.long_task],
+    [
+        declaration
+        for declaration in AGENT_TOOLSET
+        if not (isinstance(declaration, ToolDeclaration) and declaration.long_task)
+        and declaration.name not in _TIME_DEPENDENT_RESULTS
+    ],
     ids=lambda declaration: declaration.name,
 )
 async def test_embedded_content_carries_the_same_json_as_remote_structured_content(
-    declaration: ToolDeclaration[Any, Any], services: Services
+    declaration: AgentToolDeclaration, projects: ProjectManager, services: Services, tmp_path: Path
 ) -> None:
+    twin = _twin_services(projects, tmp_path)
     embedded = await _call_embedded(declaration, SAMPLE_ARGUMENTS[declaration.name], services)
-    remote = await _call_remote(declaration, {"project": "demo", **SAMPLE_ARGUMENTS[declaration.name]}, services)
+    remote = await _call_remote(declaration, _remote_arguments(declaration, SAMPLE_ARGUMENTS[declaration.name]), twin)
 
-    assert embedded.isError is False
-    assert remote.isError is False
+    assert remote.isError is embedded.isError
     assert remote.structuredContent is not None
-    assert set(remote.structuredContent) == {declaration.domain_key}
+    assert set(remote.structuredContent) == {"problem" if remote.isError else declaration.domain_key}
     assert _embedded_json(embedded) == remote.structuredContent
     assert _texts(embedded) == _texts(remote)
 
@@ -322,7 +408,7 @@ async def test_a_summary_precedes_the_structured_json_in_both_hosts(services: Se
     assert remote.structuredContent == {"project_content": {"title": "Demo"}}
 
 
-@_DECLARATIONS
+@_SCOPED_DECLARATIONS
 @pytest.mark.parametrize(
     "project",
     [pytest.param(None, id="missing"), 7, "", "   ", "../demo", "demo/..", "absent", "empty", "escape"],

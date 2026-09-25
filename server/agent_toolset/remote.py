@@ -1,6 +1,7 @@
 """外部 Agent（远程 MCP）adapter。
 
 schema 头部追加必填 ``project``，每次调用显式定位项目；任何定位失败统一返回 ``invalid_project``。
+无 scope 声明（列出、创建项目）不追加 ``project``，也不定位项目。
 长任务声明在描述末尾追加统一的批次句柄与轮询说明。结果写进 ``structuredContent``，content 与内嵌宿主
 的文本块相同。
 """
@@ -18,7 +19,13 @@ from pydantic import Field
 
 from lib.db.base import DEFAULT_USER_ID
 from lib.project.project_manager import ProjectManager
-from server.agent_toolset.declaration import ToolDeclaration, invoke_declaration
+from server.agent_toolset.declaration import (
+    AgentToolDeclaration,
+    ToolDeclaration,
+    UnscopedToolDeclaration,
+    invoke_declaration,
+    invoke_unscoped_declaration,
+)
 from server.agent_toolset.envelope import encode_outcome
 from server.tool_runtime import CallerContext, ProjectScope, Services, ToolOutcome, ToolProblem
 
@@ -52,18 +59,22 @@ def resolve_project_scope(project: object, projects: ProjectManager) -> ProjectS
     return ProjectScope(project_name=project_name, data_root=projects.data_root)
 
 
-def remote_input_schema(declaration: ToolDeclaration[Any, Any]) -> dict[str, Any]:
+def remote_input_schema(declaration: AgentToolDeclaration) -> dict[str, Any]:
     schema = deepcopy(declaration.input_schema)
+    if isinstance(declaration, UnscopedToolDeclaration):
+        return schema
     schema["properties"] = {"project": PROJECT_PROPERTY, **schema["properties"]}
     schema["required"] = ["project", *schema.get("required", [])]
     return schema
 
 
-def remote_description(declaration: ToolDeclaration[Any, Any]) -> str:
-    return declaration.description + LONG_TASK_NOTE if declaration.long_task else declaration.description
+def remote_description(declaration: AgentToolDeclaration) -> str:
+    if isinstance(declaration, ToolDeclaration) and declaration.long_task:
+        return declaration.description + LONG_TASK_NOTE
+    return declaration.description
 
 
-def remote_result(declaration: ToolDeclaration[Any, Any], outcome: ToolOutcome[Any]) -> CallToolResult:
+def remote_result(declaration: AgentToolDeclaration, outcome: ToolOutcome[Any]) -> CallToolResult:
     envelope = encode_outcome(declaration, outcome)
     return CallToolResult(
         content=[TextContent(type="text", text=text) for text in envelope.texts],
@@ -83,13 +94,17 @@ class _DeclaredRemoteTool(FastMCPTool):
 
 
 def remote_tool(
-    declaration: ToolDeclaration[Any, Any],
+    declaration: AgentToolDeclaration,
     *,
     projects: ProjectManager,
     services: Services,
     caller: Callable[[], CallerContext] = authenticated_caller,
 ) -> FastMCPTool:
     async def invoke(arguments: dict[str, Any]) -> CallToolResult:
+        if isinstance(declaration, UnscopedToolDeclaration):
+            return remote_result(
+                declaration, await invoke_unscoped_declaration(declaration, arguments, caller(), services)
+            )
         request_arguments = dict(arguments)
         try:
             scope = resolve_project_scope(request_arguments.pop("project", None), projects)
@@ -118,7 +133,7 @@ def remote_tool(
 
 
 def remote_tools(
-    declarations: Iterable[ToolDeclaration[Any, Any]],
+    declarations: Iterable[AgentToolDeclaration],
     *,
     projects: ProjectManager,
     services: Services,

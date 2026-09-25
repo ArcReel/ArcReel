@@ -2,7 +2,11 @@
 
 一条声明给出一个工具在两宿主之间共用的全部契约：名字、中文完整描述、请求模型（schema 由它派生，
 参数说明写在字段 description 上）、迁移阻断策略、长任务标记、domain key、handler 与可选摘要。
-两个 adapter 都经 :func:`invoke_declaration` 调用 handler，请求校验与迁移阻断因此只有一处实现。
+两个 adapter 都经 :func:`invoke_declaration`（无 scope 声明经 :func:`invoke_unscoped_declaration`）
+调用 handler，请求校验与迁移阻断因此只有一处实现。
+
+声明分两种：作用于某个既有项目的 :class:`ToolDeclaration`，以及不作用于既有项目的
+:class:`UnscopedToolDeclaration`（列出、创建项目）。adapter 按声明类型分派。
 """
 
 from __future__ import annotations
@@ -56,6 +60,10 @@ type ScopedHandler[RequestT, ResultT] = Callable[
     [ToolRequest[RequestT], ProjectScope, CallerContext, Services], Awaitable[ToolOutcome[ResultT]]
 ]
 
+type UnscopedHandler[RequestT, ResultT] = Callable[
+    [ToolRequest[RequestT], CallerContext, Services], Awaitable[ToolOutcome[ResultT]]
+]
+
 
 class _UntitledJsonSchema(GenerateJsonSchema):
     """省去 pydantic 按类名、字段名自动生成的 title；参数语义只由字段 description 表达。"""
@@ -99,6 +107,29 @@ class ToolDeclaration[RequestT: BaseModel, ResultT]:
         return request_json_schema(self.request_model)
 
 
+@dataclass(frozen=True, slots=True, kw_only=True)
+class UnscopedToolDeclaration[RequestT: BaseModel, ResultT]:
+    """不作用于某个既有项目的 Agent 工具。
+
+    handler 不接 ``ProjectScope``：内嵌宿主不注入会话项目，远程宿主的 schema 不追加 ``project``。
+    没有目标项目也就没有迁移裁决可查，因此不带迁移阻断策略。
+    """
+
+    name: str
+    description: str
+    request_model: type[RequestT]
+    domain_key: str
+    handler: UnscopedHandler[RequestT, ResultT]
+    summary: Callable[[ResultT], str] | None = None
+
+    @property
+    def input_schema(self) -> dict[str, Any]:
+        return request_json_schema(self.request_model)
+
+
+type AgentToolDeclaration = ToolDeclaration[Any, Any] | UnscopedToolDeclaration[Any, Any]
+
+
 def invalid_request_problem(exc: ValidationError) -> ToolProblem:
     errors = [
         {"loc": list(error["loc"]), "msg": error["msg"], "type": error["type"]}
@@ -110,6 +141,15 @@ def invalid_request_problem(exc: ValidationError) -> ToolProblem:
     return ToolProblem("invalid_request", detail, params={"errors": errors})
 
 
+def _validated_request[RequestT: BaseModel](
+    request_model: type[RequestT], arguments: Mapping[str, Any]
+) -> RequestT | ToolProblem:
+    try:
+        return request_model.model_validate(dict(arguments))
+    except ValidationError as exc:
+        return invalid_request_problem(exc)
+
+
 async def invoke_declaration(
     declaration: ToolDeclaration[Any, Any],
     arguments: Mapping[str, Any],
@@ -118,25 +158,41 @@ async def invoke_declaration(
     services: Services,
 ) -> ToolOutcome[Any]:
     """按声明校验请求、执行迁移阻断策略并调用 handler；两宿主共用这一个入口。"""
-    try:
-        request = declaration.request_model.model_validate(dict(arguments))
-    except ValidationError as exc:
-        return ToolOutcome(problem=invalid_request_problem(exc))
+    request = _validated_request(declaration.request_model, arguments)
+    if isinstance(request, ToolProblem):
+        return ToolOutcome(problem=request)
     if isinstance(declaration.migration, Blocked) and (problem := await migration_gate(scope, services)) is not None:
         return ToolOutcome(problem=problem)
     return await declaration.handler(ToolRequest(request), scope, caller, services)
 
 
+async def invoke_unscoped_declaration(
+    declaration: UnscopedToolDeclaration[Any, Any],
+    arguments: Mapping[str, Any],
+    caller: CallerContext,
+    services: Services,
+) -> ToolOutcome[Any]:
+    """按无 scope 声明校验请求并调用 handler；两宿主共用这一个入口。"""
+    request = _validated_request(declaration.request_model, arguments)
+    if isinstance(request, ToolProblem):
+        return ToolOutcome(problem=request)
+    return await declaration.handler(ToolRequest(request), caller, services)
+
+
 __all__ = [
     "BLOCKED",
     "READ_CHECK",
+    "AgentToolDeclaration",
     "Blocked",
     "Exempt",
     "MigrationPolicy",
     "ReadCheck",
     "ScopedHandler",
     "ToolDeclaration",
+    "UnscopedHandler",
+    "UnscopedToolDeclaration",
     "invalid_request_problem",
     "invoke_declaration",
+    "invoke_unscoped_declaration",
     "request_json_schema",
 ]
