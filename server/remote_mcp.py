@@ -28,7 +28,6 @@ from lib.db import async_session_factory
 from lib.db.base import DEFAULT_USER_ID
 from lib.generation.generation_batch import GenerationBatchReadModel
 from lib.project.project_manager import ProjectManager, get_project_manager
-from lib.project.source_revision import SourceScope
 from lib.script.source_loader import SourceLoader
 from server.agent_toolset.envelope import json_value
 from server.agent_toolset.remote import authenticated_caller, remote_tools, resolve_project_scope
@@ -49,17 +48,11 @@ from server.services.project import workflow_planner
 from server.text_generation import SCOPE_REMOVED_MESSAGE, TextGenerationRequest
 from server.tool_runtime import (
     CallerContext,
-    CompleteAssetInventoryRequest,
-    CompleteScriptPlanRebuildRequest,
     ConfirmScriptReviewRequest,
-    PlanEpisodesRequest,
-    ResetEpisodePlanningRequest,
     Services,
     ToolOutcome,
     ToolProblem,
     ToolRequest,
-    complete_asset_inventory,
-    complete_script_plan_rebuild,
     confirm_script_review,
     discard_draft,
     generate_episode_script,
@@ -67,9 +60,7 @@ from server.tool_runtime import (
     migration_gate,
     open_draft,
     patch_draft,
-    plan_episodes,
     promote_draft,
-    reset_episode_planning,
 )
 
 # One decoded control byte may occupy six JSON bytes (``\u00XX``); leave 1 MiB for the MCP envelope.
@@ -496,76 +487,6 @@ def build_remote_mcp_server(
                 authenticated_caller(),
                 services,
             ),
-        )
-
-    @server.tool(
-        name="plan_episodes",
-        description="Plan the next source window for one explicit project." + _REMOTE_DURABLE_BATCH_DESCRIPTION,
-        structured_output=False,
-    )
-    async def remote_plan_episodes(project: str, instructions: str | None = None) -> CallToolResult:  # pyright: ignore[reportUnusedFunction]
-        """Plan the next source window for one explicit project."""
-        try:
-            scope = resolve_project_scope(project, projects)
-            request = PlanEpisodesRequest(instructions=instructions)
-        except (FileNotFoundError, ValueError) as exc:
-            return _to_mcp_result("episode_plan", ToolOutcome(problem=ToolProblem("invalid_request", str(exc))))
-        return _to_long_task_result(
-            "episode_plan", await plan_episodes(ToolRequest(request), scope, authenticated_caller(), services)
-        )
-
-    @server.tool(name="reset_episode_planning", structured_output=False)
-    async def remote_reset_episode_planning(  # pyright: ignore[reportUnusedFunction]
-        project: str, from_episode: int, confirm_consumed: bool = False
-    ) -> CallToolResult:
-        """Reset episode planning from one episode while preserving transactional safeguards."""
-        try:
-            scope = resolve_project_scope(project, projects)
-            request = ResetEpisodePlanningRequest(from_episode=from_episode, confirm_consumed=confirm_consumed)
-        except (FileNotFoundError, ValueError) as exc:
-            return _to_mcp_result("episode_reset", ToolOutcome(problem=ToolProblem("invalid_request", str(exc))))
-        return _to_mcp_result(
-            "episode_reset",
-            await reset_episode_planning(ToolRequest(request), scope, authenticated_caller(), services),
-        )
-
-    @server.tool(name="complete_asset_inventory", structured_output=False)
-    async def remote_complete_asset_inventory(  # pyright: ignore[reportUnusedFunction]
-        project: str,
-        scope: SourceScope,
-        expected_source_revision: str,
-        entries: dict[str, Any] | None = None,
-    ) -> CallToolResult:
-        """Atomically commit an asset inventory against a source revision."""
-        try:
-            project_scope = resolve_project_scope(project, projects)
-            request = CompleteAssetInventoryRequest(
-                scope=scope,
-                expected_source_revision=expected_source_revision,
-                entries=entries,
-            )
-        except (FileNotFoundError, ValueError) as exc:
-            return _to_mcp_result("asset_inventory", ToolOutcome(problem=ToolProblem("invalid_request", str(exc))))
-        return _to_mcp_result(
-            "asset_inventory",
-            await complete_asset_inventory(ToolRequest(request), project_scope, authenticated_caller(), services),
-        )
-
-    @server.tool(name="complete_script_plan_rebuild", structured_output=False)
-    async def remote_complete_script_plan_rebuild(  # pyright: ignore[reportUnusedFunction]
-        project: str, episode: int, expected_stale_script_plan_revision: str | None
-    ) -> CallToolResult:
-        """Record completion of a stale script_plan rebuild using its expected revision."""
-        try:
-            scope = resolve_project_scope(project, projects)
-            request = CompleteScriptPlanRebuildRequest(
-                episode=episode, expected_stale_script_plan_revision=expected_stale_script_plan_revision
-            )
-        except (FileNotFoundError, ValueError) as exc:
-            return _to_mcp_result("script_plan_rebuild", ToolOutcome(problem=ToolProblem("invalid_request", str(exc))))
-        return _to_mcp_result(
-            "script_plan_rebuild",
-            await complete_script_plan_rebuild(ToolRequest(request), scope, authenticated_caller(), services),
         )
 
     return server

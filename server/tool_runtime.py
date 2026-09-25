@@ -17,6 +17,7 @@ from pathlib import Path, PurePosixPath
 from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic.json_schema import SkipJsonSchema
 
 from lib.agent.profile_manifest import ContentMode
 from lib.artifacts.artifact_activation import ArtifactCurrencyResolver, active_artifact_currency_resolver
@@ -1744,9 +1745,15 @@ class ToolMessage(BaseModel):
 
 
 class PlanEpisodesRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
-    instructions: str | None = None
+    instructions: str | SkipJsonSchema[None] = Field(
+        default=None,
+        description=(
+            "用户分集附加指令原文（可选，如「按章节对齐切分」）；原样注入规划 prompt 的「附加指令」分节，"
+            f"遵循强度由正文表达，需要强约束时在正文写明。每批调用都要重复带上，缺省 / 空白视同未传，最长 {MAX_INSTRUCTIONS_LEN} 字符"
+        ),
+    )
 
     @field_validator("instructions")
     @classmethod
@@ -1767,10 +1774,16 @@ class PlanEpisodesResult(ToolMessage):
 
 
 class ResetEpisodePlanningRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
-    from_episode: int = Field(strict=True, ge=1)
-    confirm_consumed: bool = Field(default=False, strict=True)
+    from_episode: int = Field(
+        strict=True, ge=1, description="重置起点集号；1 为全量重置，大于 1 为部分重置（保留其前的集）"
+    )
+    confirm_consumed: bool = Field(
+        default=False,
+        strict=True,
+        description="已向用户说明波及的已消费集并获确认后置 true；首次调用不传，由工具先返回受影响清单",
+    )
 
 
 class ResetEpisodePlanningResult(ToolMessage):
@@ -1895,11 +1908,19 @@ class RetryProjectMigrationResult(ToolMessage):
 
 
 class CompleteAssetInventoryRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
-    scope: SourceScope
-    expected_source_revision: str
-    entries: dict[str, Any] | None = None
+    scope: SourceScope = Field(description="本次资产分析覆盖的源文范围，原样取自制作计划 next_action.args.scope")
+    expected_source_revision: str = Field(
+        description="分析开始时的源文 revision，原样取自制作计划 next_action.args.expected_source_revision"
+    )
+    entries: dict[str, Any] | SkipJsonSchema[None] = Field(
+        default=None,
+        description=(
+            "本次新增资产：{characters/scenes/props: {名称: {description, voice_style?}}}；"
+            "角色可带 derivatives: {衍生名: {description}} 登记本体之外的另一套外观。缺省或三类全空都是合法的完成结果"
+        ),
+    )
 
 
 class CompleteAssetInventoryResult(BaseModel):
@@ -1909,10 +1930,15 @@ class CompleteAssetInventoryResult(BaseModel):
 
 
 class CompleteScriptPlanRebuildRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
-    episode: int = Field(strict=True, ge=1)
-    expected_stale_script_plan_revision: str | None
+    episode: int = Field(strict=True, ge=1, description="完成重建的集号")
+    expected_stale_script_plan_revision: str | None = Field(
+        description=(
+            "重建基线，原样取自制作计划 next_action.args.expected_stale_script_plan_revision（可能为 null，"
+            "null 也须显式传）；与项目记录不一致时拒绝"
+        )
+    )
 
 
 class CompleteScriptPlanRebuildResult(BaseModel):

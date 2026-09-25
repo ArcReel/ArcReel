@@ -40,6 +40,7 @@ from server.agent_toolset.declaration import (
 )
 from server.agent_toolset.embedded import embedded_server
 from server.agent_toolset.envelope import json_value
+from server.agent_toolset.episode_planning import PLAN_EPISODES, RESET_EPISODE_PLANNING
 from server.agent_toolset.generation_batches import CANCEL_GENERATION_BATCH, GET_GENERATION_BATCH
 from server.agent_toolset.grid_storyboards import GENERATE_GRID, SPLIT_GRIDS
 from server.agent_toolset.orientation import GET_PROMPT_PREVIEW, GET_VIDEO_CAPABILITIES
@@ -47,6 +48,7 @@ from server.agent_toolset.project_entry import CREATE_PROJECT
 from server.agent_toolset.remote import LONG_TASK_NOTE, remote_tool
 from server.agent_toolset.script_editing import PATCH_EPISODE_SCRIPT
 from server.agent_toolset.toolset import AGENT_TOOLSET
+from server.agent_toolset.workflow_completion import COMPLETE_ASSET_INVENTORY, COMPLETE_SCRIPT_PLAN_REBUILD
 from server.remote_mcp import build_remote_mcp_server
 from server.services.project.workflow_planner import WorkflowPlanner
 from server.tool_runtime import (
@@ -93,6 +95,13 @@ SAMPLE_ARGUMENTS: dict[str, dict[str, Any]] = {
     },
     "generate_grid": {"script": "episode_1.json", "list_only": True},
     "split_grids": {"grid_ids": ["grid_000000000000"]},
+    "plan_episodes": {"instructions": "按章节对齐切分"},
+    "reset_episode_planning": {"from_episode": 1},
+    "complete_asset_inventory": {
+        "scope": {"kind": "all", "files": []},
+        "expected_source_revision": "sha256-v1:" + "0" * 64,
+    },
+    "complete_script_plan_rebuild": {"episode": 1, "expected_stale_script_plan_revision": None},
 }
 
 _DECLARATIONS = pytest.mark.parametrize("declaration", AGENT_TOOLSET, ids=lambda declaration: declaration.name)
@@ -364,6 +373,33 @@ async def test_unblocked_declarations_reach_the_handler_on_a_migration_failed_pr
     assert _embedded_json(embedded) == remote.structuredContent == {declaration.domain_key: {"answered": True}}
 
 
+@pytest.mark.parametrize(
+    "declaration",
+    [PLAN_EPISODES, RESET_EPISODE_PLANNING, COMPLETE_ASSET_INVENTORY, COMPLETE_SCRIPT_PLAN_REBUILD],
+    ids=lambda declaration: declaration.name,
+)
+async def test_planning_and_completion_entries_refuse_a_migration_failed_project_before_the_handler(
+    declaration: ToolDeclaration[Any, Any], projects: ProjectManager, services: Services
+) -> None:
+    """这些入口按声明阻断，不依赖 handler 内层的迁移兜底。"""
+    record_migration_failure(
+        projects.get_project_path("demo"), RuntimeError("清单预检失败"), schema_version=CURRENT_PROJECT_SCHEMA_VERSION
+    )
+    calls: list[object] = []
+    answering = _answering(declaration, ToolOutcome(value={}), calls)
+
+    embedded = await _call_embedded(answering, SAMPLE_ARGUMENTS[declaration.name], services)
+    remote = await _call_remote(answering, {"project": "demo", **SAMPLE_ARGUMENTS[declaration.name]}, services)
+
+    assert declaration.name in MIGRATION_BLOCKED_TOOL_IDS
+    assert calls == []
+    assert _embedded_json(embedded) == remote.structuredContent
+    assert remote.structuredContent is not None
+    problem = remote.structuredContent["problem"]
+    assert problem["code"] == MIGRATION_FAILURE_CODE
+    assert problem["action"] == RETRY_MIGRATION_ACTION
+
+
 async def test_episode_script_reader_reports_the_same_migration_problem_in_both_hosts(
     projects: ProjectManager, services: Services
 ) -> None:
@@ -425,6 +461,8 @@ _PROBLEM_ON_SAMPLE = frozenset(
         CANCEL_GENERATION_BATCH.name,
         PATCH_EPISODE_SCRIPT.name,
         SPLIT_GRIDS.name,
+        COMPLETE_ASSET_INVENTORY.name,
+        COMPLETE_SCRIPT_PLAN_REBUILD.name,
     }
 )
 
