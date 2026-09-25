@@ -13,8 +13,12 @@ from __future__ import annotations
 import functools
 import json
 import logging
-from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
+from dataclasses import dataclass
 from typing import Any
+
+from pydantic import BaseModel, ConfigDict, Field
+from pydantic.json_schema import SkipJsonSchema
 
 from lib.artifacts.artifact_activation import (
     ArtifactCurrencyResolver,
@@ -22,11 +26,8 @@ from lib.artifacts.artifact_activation import (
     resolve_artifact_episode,
 )
 from lib.artifacts.artifact_manifest import ArtifactKey
-from lib.generation.generation_queue_client import (
-    BatchTaskResult,
-    TaskSpec,
-    batch_enqueue_and_wait,
-)
+from lib.config.resolver import ConfigResolver
+from lib.generation.generation_queue_client import TaskSpec
 from lib.generation.generation_result import (
     GenerationAction,
     GenerationCandidate,
@@ -49,19 +50,21 @@ from lib.infra.api_errors import ApiError
 from lib.project.project_change_hints import project_change_source
 from lib.script.grid.grid_access import ensure_grid_writable
 from lib.script.grid.grid_manager import GridManager
-from lib.script.grid.grid_resolution import resolve_large_grid_allowed
-from lib.script.grid.layout import GridLayout
+from lib.script.grid.grid_resolution import resolve_image_resolution
+from lib.script.grid.layout import GridLayout, large_grid_allowed
 from lib.script.grid.models import GridGeneration
 from server.media_tools.context import (
-    ToolContext,
+    GenerationToolValue,
+    RequestedIds,
+    ScriptFilename,
     generation_batch_submission_outcome,
+    generation_is_error,
     generation_result_outcome,
+    generation_structured,
+    generation_summary,
     tool_error,
     tool_problem,
-    tool_services,
-    validate_script_filename,
 )
-from server.media_tools.definition import tool
 from server.services.grid.grid_split import GridImageNotReadyError, apply_grid_split
 from server.services.grid.grid_submission import (
     GRID_IN_FLIGHT_STATUSES,
@@ -76,7 +79,7 @@ from server.services.grid.grid_submission import (
     plan_grid_submission,
     queue_active_grid_tasks,
 )
-from server.tool_runtime import ToolOutcome, submit_media_generation
+from server.tool_runtime import CallerContext, ProjectScope, Services, ToolOutcome, ToolRequest, submit_media_generation
 
 logger = logging.getLogger(__name__)
 
@@ -89,9 +92,6 @@ _SPLIT_CONSENT_HINT = "请用户在宫格面板审阅联合图；用户明确同
 def _gate_problem(exc: ApiError) -> ToolOutcome[Any]:
     """宫格闸门的领域异常按默认语言转述给 Agent，问题码沿用异常的 i18n key。"""
     return tool_problem(translate(exc.key, DEFAULT_LOCALE, **exc.params), code=exc.key)
-
-
-GridBatchWaiter = Callable[..., Awaitable[tuple[list[BatchTaskResult], list[BatchTaskResult]]]]
 
 
 def _scene_artifact_key(episode: int, scene_id: str) -> ArtifactKey:
@@ -186,19 +186,66 @@ def _render_plan(plan: GridSubmissionPlan) -> str:
     return "\n".join(lines)
 
 
-async def handle_generate_grid(
-    ctx: ToolContext,
-    args: dict[str, Any],
-    *,
-    batch_waiter: GridBatchWaiter = batch_enqueue_and_wait,
-) -> ToolOutcome[Any]:
-    try:
-        script_filename = validate_script_filename(args["script"])
-        scene_ids = normalize_requested_ids(args.get("scene_ids"), field="scene_ids")
-        list_only = bool(args.get("list_only"))
+class GenerateGridRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
-        project = ctx.pm.load_project(ctx.project_name)
-        script = ctx.pm.load_script(ctx.project_name, script_filename)
+    script: ScriptFilename = Field(description="剧本纯文件名（不含目录），如 episode_1.json")
+    scene_ids: RequestedIds | SkipJsonSchema[None] = Field(
+        default=None,
+        description="重生成包含这些分镜的宫格；省略则只为仍缺分镜图的分组出图",
+    )
+    list_only: bool = Field(
+        default=False,
+        description=(
+            "true 时只预览规划（各张宫格的档位、现有记录 grid_id 与状态、本次动作），不入队、不产生费用；"
+            "预览立即返回，没有批次可轮询"
+        ),
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class GridPlanPreview:
+    """``list_only`` 的规划预览：与提交会执行的规划同源，但不是生成结果。"""
+
+    plan: str
+
+
+type GridToolValue = GenerationToolValue | GridPlanPreview
+
+
+def grid_structured(value: GridToolValue) -> dict[str, Any]:
+    """预览放在工具名下；其余与生成类工具同形。"""
+    if isinstance(value, GridPlanPreview):
+        return {_OPERATION: value.plan}
+    return generation_structured(value)
+
+
+def grid_summary(value: GridToolValue) -> str | None:
+    return None if isinstance(value, GridPlanPreview) else generation_summary(value)
+
+
+def grid_is_error(value: GridToolValue) -> bool:
+    return False if isinstance(value, GridPlanPreview) else generation_is_error(value)
+
+
+async def _large_grid_allowed(capabilities: ConfigResolver, project: dict[str, Any]) -> bool:
+    """宫格档位门控：按会话能力解析器取项目 T2I 槽的图像分辨率档，与路由、费用估算同一份解析。"""
+    return large_grid_allowed(await resolve_image_resolution(capabilities, project))
+
+
+async def generate_grid(
+    request: ToolRequest[GenerateGridRequest],
+    scope: ProjectScope,
+    caller: CallerContext,
+    services: Services,
+) -> ToolOutcome[GridToolValue]:
+    try:
+        script_filename = request.value.script
+        scene_ids = normalize_requested_ids(request.value.scene_ids, field="scene_ids")
+        project_name = scope.project_name
+
+        project = services.projects.load_project(project_name)
+        script = services.projects.load_script(project_name, script_filename)
         # ``list_only`` 与生成同样先过闸门：未开宫格的项目靠预览拿到成功响应，调用方会误以为
         # 该工具适用于当前项目。
         try:
@@ -210,38 +257,39 @@ async def handle_generate_grid(
             script=script,
             script_filename=script_filename,
         )
-        async with grid_submission_section(ctx.project_name) as section:
+        async with grid_submission_section(project_name) as section:
             plan = await plan_grid_submission(
                 project=project,
-                project_path=ctx.project_path,
+                project_path=services.projects.get_project_path(project_name),
                 script=script,
                 script_file=script_filename,
                 episode=episode,
                 scene_ids=scene_ids,
                 section=section,
                 active_grid_tasks=queue_active_grid_tasks(
-                    tool_services(ctx).queue,
-                    project_name=ctx.project_name,
+                    services.queue,
+                    project_name=project_name,
                     script_file=script_filename,
-                    user_id=ctx.caller.user_id,
+                    user_id=caller.user_id,
                 ),
-                large_grid_gate=resolve_large_grid_allowed,
+                large_grid_gate=functools.partial(_large_grid_allowed, services.capabilities),
             )
-            if list_only:
-                return ToolOutcome(value=_render_plan(plan))
-            return await _submit(ctx, plan, batch_waiter=batch_waiter)
+            if request.value.list_only:
+                return ToolOutcome(value=GridPlanPreview(_render_plan(plan)))
+            return await _submit(plan, scope, caller, services)
     except Exception as exc:
         return tool_error(_OPERATION, exc)
 
 
 async def _submit(
-    ctx: ToolContext,
     plan: GridSubmissionPlan,
-    *,
-    batch_waiter: GridBatchWaiter,
-) -> ToolOutcome[Any]:
+    scope: ProjectScope,
+    caller: CallerContext,
+    services: Services,
+) -> ToolOutcome[GridToolValue]:
     episode = plan.episode
-    resolver = active_artifact_currency_resolver(ctx.project_path, plan.project)
+    project_path = services.projects.get_project_path(scope.project_name)
+    resolver = active_artifact_currency_resolver(project_path, plan.project)
     builder = GenerationResultBuilder(_OPERATION, plan.selection)
     log: list[str] = []
     for state in plan.skipped:
@@ -278,7 +326,7 @@ async def _submit(
             log.append(_SPLIT_CONSENT_HINT + "：" + "、".join(unsplit_ids))
         return generation_result_outcome(builder.build(), log, grid_ids_awaiting_split=unsplit_ids)
 
-    submissions = commit_grid_submission(plan, ctx.project_path)
+    submissions = commit_grid_submission(plan, project_path)
     specs: list[TaskSpec] = []
     states: dict[str, GenerationTargetState] = {}
     report_ids_by_grid: dict[str, tuple[str, ...]] = {}
@@ -305,30 +353,34 @@ async def _submit(
                 resource_id=grid_id,
                 payload=submission.payload,
                 script_file=plan.script_file,
-                source=ctx.caller.source,
+                source=caller.source,
                 unit_id=report_ids[0],
                 batch_unit_ids=report_ids,
             )
         )
 
     submitted = await submit_media_generation(
-        scope=ctx.scope,
-        caller=ctx.caller,
-        services=tool_services(ctx),
+        scope=scope,
+        caller=caller,
+        services=services,
         operation=_OPERATION,
         preflight=builder.build(),
         pending_ids=[scene_id for ids in report_ids_by_grid.values() for scene_id in ids],
         specs=specs,
         states=states,
         # 入队完成即离开提交临界区：等联合图生成期间，同一项目的其他提交照常进行
-        embedded_waiter=functools.partial(batch_waiter, on_enqueued=plan.section.end),
+        embedded_waiter=(
+            functools.partial(caller.batch_waiter, on_enqueued=plan.section.end)
+            if caller.batch_waiter is not None
+            else None
+        ),
     )
     if submitted.successes is None or submitted.failures is None:
         return generation_batch_submission_outcome(submitted.batch)
 
     # resolver 首次比较时按当时的宫格记录规划目标态、此后不再重读；上面观测未切分宫格时已用过它，
     # 本批出图结果须换一个按出图后记录规划的 resolver 判定
-    resolver = active_artifact_currency_resolver(ctx.project_path, plan.project)
+    resolver = active_artifact_currency_resolver(project_path, plan.project)
     ready: list[str] = []
     for result in [*submitted.successes, *submitted.failures]:
         grid_id = grid_id_by_result[result.resource_id]
@@ -407,62 +459,30 @@ def _report_in_flight_in_refused_batch(
         builder.block(scene_id, problem=problem, artifact_key=key, artifact_path=path, artifact_status=status)
 
 
-def generate_grid_tool(ctx: ToolContext, *, batch_waiter: GridBatchWaiter = batch_enqueue_and_wait):
-    @tool(
-        _OPERATION,
-        "为已开启宫格装配的 storyboard 项目（generation_mode=storyboard 且 grid_storyboard=true）"
-        "生成宫格联合图（按 segment_break 分组，超出单张格数上限的分组切为多张）。"
-        "本工具只产出联合图，不写任何分镜图：成功的分镜报告的是它所在宫格的联合图"
-        "（artifact_path 为 grids/<grid_id>.png），状态为「联合图已就绪、未切分」，"
-        "直接返回出图结果时，未切分宫格的 grid_id 同时列在 grid_ids_awaiting_split；"
-        "返回异步批次时没有该字段：已就绪未切分的宫格见批次 skipped 各项的 artifact_path，"
-        "本次新出的见批次完成后 generation_result 里成功分镜的 artifact_path。"
-        "切分落格须先请用户在宫格面板审阅联合图，用户明确同意后再调用 split_grids。"
-        "list_only=true 时只预览规划（各张宫格的档位、现有记录 grid_id 与状态、本次动作），不入队。"
-        "scene_ids 重生成包含这些分镜的宫格；不传 scene_ids 时只为仍缺分镜图的分组出图，"
-        "已失效但可用的旧图照常复用，联合图已就绪而未切分的宫格不重生成。"
-        "同一组分镜的宫格正在生成时沿用在途任务，不重复计费。"
-        "准入是整批的：任一分镜受阻（引用缺口、提示词待生成、与在途宫格部分重叠等）即整批不建任务，"
-        "本身健康的分镜带 generation_batch_admission_withheld；已在生成中的宫格照常跑完，其分镜带 "
-        "generation_active_task_conflict（action=wait_for_task）。"
-        "结果按 requested / succeeded / failed / blocked 逐分镜 ID 返回。",
-        {
-            "type": "object",
-            "properties": {
-                "script": {
-                    "type": "string",
-                    "description": "剧本文件名（如 episode_1.json），必须是纯文件名，禁止任何路径分隔符",
-                },
-                "scene_ids": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": "重生成包含这些分镜的宫格；不传则只为仍缺分镜图的分组出图",
-                },
-                "list_only": {"type": "boolean", "description": "仅预览规划，不入队"},
-            },
-            "required": ["script"],
-        },
-    )
-    async def _handler(args: dict[str, Any]) -> ToolOutcome[Any]:
-        return await handle_generate_grid(ctx, args, batch_waiter=batch_waiter)
+class SplitGridsRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
-    return _handler
+    grid_ids: RequestedIds = Field(description="要切分落格的宫格 ID（如 grid_a1b2c3d4e5f6）")
 
 
-async def handle_split_grids(ctx: ToolContext, args: dict[str, Any]) -> ToolOutcome[Any]:
+async def split_grids(
+    request: ToolRequest[SplitGridsRequest],
+    scope: ProjectScope,
+    caller: CallerContext,
+    services: Services,
+) -> ToolOutcome[dict[str, Any]]:
+    del caller
     try:
-        grid_ids = normalize_requested_ids(args.get("grid_ids"), field="grid_ids")
-        if grid_ids is None:
-            return tool_problem("grid_ids 必填：传入要切分落格的宫格 ID")
-        project = ctx.pm.load_project(ctx.project_name)
+        grid_ids = normalize_requested_ids(request.value.grid_ids, field="grid_ids") or []
+        project = services.projects.load_project(scope.project_name)
         try:
             ensure_grid_writable(project)
         except ApiError as exc:
             return _gate_problem(exc)
 
-        gm = GridManager(ctx.project_path)
+        gm = GridManager(services.projects.get_project_path(scope.project_name))
         # 逐张顺序切分：每张都在项目元数据锁内提交，并发不会更快
-        results = [await _split_one(ctx, gm, grid_id) for grid_id in grid_ids]
+        results = [await _split_one(scope.project_name, gm, grid_id) for grid_id in grid_ids]
         lines = [
             f"- {r['grid_id']}：已切分落格 {len(r['updated_scene_ids'])} 格"
             + (f"，剧本中已不存在而跳过 {'、'.join(r['missing_scene_ids'])}" if r["missing_scene_ids"] else "")
@@ -477,7 +497,7 @@ async def handle_split_grids(ctx: ToolContext, args: dict[str, Any]) -> ToolOutc
         return tool_error(_SPLIT_OPERATION, exc)
 
 
-async def _split_one(ctx: ToolContext, gm: GridManager, grid_id: str) -> dict[str, Any]:
+async def _split_one(project_name: str, gm: GridManager, grid_id: str) -> dict[str, Any]:
     try:
         grid = gm.get(grid_id)
     except Exception as exc:
@@ -493,7 +513,7 @@ async def _split_one(ctx: ToolContext, gm: GridManager, grid_id: str) -> dict[st
         return {"grid_id": grid_id, "status": "in_progress", "detail": "联合图仍在生成，等它完成并经用户审阅后再切分"}
     try:
         with project_change_source("worker"):
-            split = await apply_grid_split(ctx.project_name, grid)
+            split = await apply_grid_split(project_name, grid)
     except GridImageNotReadyError:
         return {"grid_id": grid_id, "status": "not_ready", "detail": "尚无可用的联合图，先生成或在面板上传"}
     except Exception:
@@ -508,32 +528,14 @@ async def _split_one(ctx: ToolContext, gm: GridManager, grid_id: str) -> dict[st
     }
 
 
-def split_grids_tool(ctx: ToolContext):
-    @tool(
-        _SPLIT_OPERATION,
-        "把一张或多张宫格的联合图切分落格：写成它覆盖的全部分镜的分镜图，旧分镜图留在版本历史里可回滚。"
-        "只在用户明确同意时调用：generate_grid 完成后，先请用户在宫格面板审阅联合图（可重新生成、上传替换或回滚），"
-        "用户确认要切分后，再传入这些 grid_id；不要在生成完成后自行调用。"
-        "grid_id 取自 generate_grid 结果的 grid_ids_awaiting_split、成功分镜的 artifact_path（grids/<grid_id>.png），"
-        "或 generate_grid 的 list_only 预览。"
-        "逐宫格返回结果：已切分的列出写入的分镜，仍在生成、没有联合图或不存在的宫格跳过并说明原因。",
-        {
-            "type": "object",
-            "properties": {
-                "grid_ids": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "minItems": 1,
-                    "description": "要切分落格的宫格 ID（如 grid_a1b2c3d4e5f6）",
-                },
-            },
-            "required": ["grid_ids"],
-        },
-    )
-    async def _handler(args: dict[str, Any]) -> ToolOutcome[Any]:
-        return await handle_split_grids(ctx, args)
-
-    return _handler
-
-
-__all__ = ["generate_grid_tool", "split_grids_tool"]
+__all__ = [
+    "GenerateGridRequest",
+    "GridPlanPreview",
+    "GridToolValue",
+    "SplitGridsRequest",
+    "generate_grid",
+    "grid_is_error",
+    "grid_structured",
+    "grid_summary",
+    "split_grids",
+]

@@ -44,7 +44,6 @@ from server.draft_workflow import (
 )
 from server.media_tools.context import ToolContext
 from server.media_tools.definition import ToolDefinition, media_outcome_payload
-from server.media_tools.grid import generate_grid_tool, split_grids_tool
 from server.media_tools.videos import generate_videos_tool
 from server.services.project import workflow_planner
 from server.text_generation import SCOPE_REMOVED_MESSAGE, TextGenerationRequest
@@ -75,7 +74,7 @@ from server.tool_runtime import (
 
 # One decoded control byte may occupy six JSON bytes (``\u00XX``); leave 1 MiB for the MCP envelope.
 _MAX_REQUEST_BODY_BYTES = SourceLoader.DEFAULT_MAX_BYTES * 6 + 1024 * 1024
-_REMOTE_DURABLE_BATCH_MEDIA_TOOLS = frozenset({"generate_grid", "generate_videos"})
+_REMOTE_DURABLE_BATCH_MEDIA_TOOLS = frozenset({"generate_videos"})
 _REMOTE_DURABLE_BATCH_DESCRIPTION = (
     " Remote MCP generation submissions return durable admission and durable generation_batch state immediately; "
     "follow poll_after_seconds "
@@ -172,14 +171,7 @@ def _remote_media_schema(definition: ToolDefinition) -> dict[str, Any]:
 
 def _remote_media_description(definition: ToolDefinition) -> str:
     if definition.name in _REMOTE_DURABLE_BATCH_MEDIA_TOOLS:
-        description = definition.description + _REMOTE_DURABLE_BATCH_DESCRIPTION
-        if definition.name == "generate_grid":
-            description += (
-                " For list_only=true, the preview returns immediately without a generation_batch; do not poll."
-                " The durable batch carries no grid_ids_awaiting_split: read each grid_id from the artifact_path"
-                " (grids/<grid_id>.png) of the skipped items and of the terminal succeeded items."
-            )
-        return description
+        return definition.description + _REMOTE_DURABLE_BATCH_DESCRIPTION
     return definition.description
 
 
@@ -282,7 +274,7 @@ def build_remote_mcp_server(
         queue=services.queue,
     )
     media_tools: list[FastMCPTool] = []
-    for definition_factory in (generate_grid_tool, split_grids_tool, generate_videos_tool):
+    for definition_factory in (generate_videos_tool,):
         definition = definition_factory(schema_context)
         media_tools.append(_remote_media_tool(definition, definition_factory, invoke_media))
 

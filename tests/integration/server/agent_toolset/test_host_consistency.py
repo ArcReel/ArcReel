@@ -41,6 +41,7 @@ from server.agent_toolset.declaration import (
 from server.agent_toolset.embedded import embedded_server
 from server.agent_toolset.envelope import json_value
 from server.agent_toolset.generation_batches import CANCEL_GENERATION_BATCH, GET_GENERATION_BATCH
+from server.agent_toolset.grid_storyboards import GENERATE_GRID, SPLIT_GRIDS
 from server.agent_toolset.orientation import GET_PROMPT_PREVIEW, GET_VIDEO_CAPABILITIES
 from server.agent_toolset.project_entry import CREATE_PROJECT
 from server.agent_toolset.remote import LONG_TASK_NOTE, remote_tool
@@ -90,6 +91,8 @@ SAMPLE_ARGUMENTS: dict[str, dict[str, Any]] = {
         "base_revision": "sha256-v1:" + "0" * 64,
         "operations": [{"op": "remove", "id": "E9S01"}],
     },
+    "generate_grid": {"script": "episode_1.json", "list_only": True},
+    "split_grids": {"grid_ids": ["grid_000000000000"]},
 }
 
 _DECLARATIONS = pytest.mark.parametrize("declaration", AGENT_TOOLSET, ids=lambda declaration: declaration.name)
@@ -421,6 +424,7 @@ _PROBLEM_ON_SAMPLE = frozenset(
         GET_GENERATION_BATCH.name,
         CANCEL_GENERATION_BATCH.name,
         PATCH_EPISODE_SCRIPT.name,
+        SPLIT_GRIDS.name,
     }
 )
 
@@ -533,3 +537,33 @@ async def test_embedded_terminal_generation_result_has_the_shape_remote_polling_
     assert GenerationBatchResult.model_validate(terminal["generation_result"]).blocked == ["character/李四"]
     assert terminal["generation_result"] == polled_result
     waiter.assert_not_awaited()
+
+
+async def test_grid_list_only_preview_is_the_same_json_in_both_hosts(
+    projects: ProjectManager, services: Services
+) -> None:
+    """宫格预览不是生成结果：两宿主都立即拿到同一份规划文本，放在工具名下，没有批次可轮询。"""
+    project = projects.load_project("demo")
+    project.update(
+        {
+            "generation_mode": "storyboard",
+            "grid_storyboard": True,
+            "episodes": [{"episode": 1, "script_file": "episode_1.json"}],
+        }
+    )
+    projects.save_project("demo", project)
+    scenes = [{"scene_id": f"E1S0{i}", "image_prompt": "p", "segment_break": False} for i in range(1, 5)]
+    (projects.get_project_path("demo") / "scripts" / "episode_1.json").write_text(
+        json.dumps({"episode": 1, "content_mode": "drama", "scenes": scenes}), encoding="utf-8"
+    )
+    arguments = SAMPLE_ARGUMENTS[GENERATE_GRID.name]
+
+    embedded = await _call_embedded(GENERATE_GRID, arguments, services)
+    remote = await _call_remote(GENERATE_GRID, _remote_arguments(GENERATE_GRID, arguments), services)
+
+    assert embedded.isError is remote.isError is False
+    assert remote.structuredContent is not None
+    assert set(remote.structuredContent) == {GENERATE_GRID.name}
+    assert "E1S01..E1S04" in remote.structuredContent[GENERATE_GRID.name]
+    assert _embedded_json(embedded) == remote.structuredContent
+    assert _texts(embedded) == _texts(remote)

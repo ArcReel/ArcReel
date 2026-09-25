@@ -5,6 +5,7 @@ from __future__ import annotations
 from server.agent_toolset.content_read import CONTENT_READ_TOOLS
 from server.agent_toolset.declaration import AgentToolDeclaration, Blocked, ToolDeclaration
 from server.agent_toolset.generation_batches import GENERATION_BATCH_TOOLS
+from server.agent_toolset.grid_storyboards import GRID_STORYBOARD_TOOLS
 from server.agent_toolset.media_generation import MEDIA_GENERATION_TOOLS
 from server.agent_toolset.orientation import ORIENTATION_TOOLS
 from server.agent_toolset.project_entry import PROJECT_ENTRY_TOOLS
@@ -17,6 +18,7 @@ AGENT_TOOLSET: tuple[AgentToolDeclaration, ...] = (
     *GENERATION_BATCH_TOOLS,
     *CONTENT_READ_TOOLS,
     *MEDIA_GENERATION_TOOLS,
+    *GRID_STORYBOARD_TOOLS,
     *REPAIR_CHANNEL_TOOLS,
     *SCRIPT_EDITING_TOOLS,
 )

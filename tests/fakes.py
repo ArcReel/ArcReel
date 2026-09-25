@@ -415,7 +415,7 @@ class FakeConfigResolver:
 
     ``by_generation_type`` 给按桶分叉的路径用（参考生视频的无引用 unit 走 i2v 桶）：键是
     ``VideoGenerationType`` 字面量，值是覆盖在基础能力上的字段。``error`` / ``generate_audio_error``
-    让软回退分支不必再 patch 就能触发。
+    让软回退分支不必再 patch 就能触发。``image_resolution`` 是图像分辨率档，宫格档位门控按它取档。
     """
 
     def __init__(
@@ -438,6 +438,7 @@ class FakeConfigResolver:
         image_backend: tuple[str, str] = ("fake", "fake-image"),
         image_backend_error: BaseException | None = None,
         reference_payload_limits: tuple[int, int] | None = None,
+        image_resolution: str = "1080p",
         **extra: Any,
     ) -> None:
         self._base: dict[str, Any] = {
@@ -462,6 +463,7 @@ class FakeConfigResolver:
         self._image_backend = image_backend
         self._image_backend_error = image_backend_error
         self._reference_payload_limits = reference_payload_limits
+        self._image_resolution = image_resolution
         self.generation_type_calls: list[str | None] = []
         self.project_names: list[str | None] = []
         self.project_payloads: list[dict[str, Any]] = []
@@ -493,7 +495,7 @@ class FakeConfigResolver:
 
     async def resolve_resolution(self, project: dict[str, Any], provider_id: str, model_id: str) -> str:
         del project, provider_id, model_id
-        return "1080p"
+        return self._image_resolution
 
     async def resolve_image_backend(
         self,
