@@ -2,8 +2,10 @@
 
 单元列表、内容确认面板与 Agent 能力载荷都读本模块的结果；定桶判据与执行侧
 ``ReferenceUnitRequestProjector`` 同源（:func:`hydrate_unit_references` + 产物清单感知的
-资产可用性），界面因此不会按 r2v 取档而执行落 i2v。桶级视频请求事实由调用方给出的按桶查找
-提供，同一次请求内每个桶至多求值一次，单元数不放大配置解析次数。
+资产可用性），界面因此不会按 r2v 取档而执行落 i2v。报价经 ``ReferenceUnitRequestProjector``
+走同一次水合；同档免费复用的视觉依据摘要与规划期时长闸门只需要定桶结论时读
+:func:`hydrate_reference_units`，同一份判据不在消费方各自重写。桶级视频请求事实由调用方给出的
+按桶查找提供，同一次请求内每个桶至多求值一次，单元数不放大配置解析次数。
 """
 
 from __future__ import annotations
@@ -67,6 +69,29 @@ class ReferenceUnitCapability:
         }
 
 
+def hydrate_reference_units(
+    project: dict,
+    project_path: Path,
+    units: Iterable[dict],
+    *,
+    availability: ReferenceAssetAvailability | None = None,
+) -> tuple[ReferenceUnitHydration, ...]:
+    """按执行侧同款判据逐单元水合声明引用，给出各单元此刻所落的桶与分裂问题。
+
+    ``availability`` 缺省为产物清单感知判定（文件存在且清单认领），整批只构造一次；没有单元时
+    不触碰项目资产。
+    """
+
+    pending = list(units)
+    if not pending:
+        return ()
+    assets = availability if availability is not None else CurrentReferenceAssets(project_path, project)
+    return tuple(
+        hydrate_unit_references(project, unit, resolve_reference_assets(project, project_path, unit), assets)
+        for unit in pending
+    )
+
+
 async def evaluate_reference_unit_capabilities(
     project: dict,
     project_path: Path,
@@ -82,14 +107,10 @@ async def evaluate_reference_unit_capabilities(
     """
 
     pending = list(units)
-    if not pending:
-        return ()
-    assets = availability if availability is not None else CurrentReferenceAssets(project_path, project)
     results: list[ReferenceUnitCapability] = []
-    for unit in pending:
-        hydration = hydrate_unit_references(
-            project, unit, resolve_reference_assets(project, project_path, unit), assets
-        )
+    for unit, hydration in zip(
+        pending, hydrate_reference_units(project, project_path, pending, availability=availability), strict=True
+    ):
         results.append(
             ReferenceUnitCapability(
                 unit_id=str(unit.get("unit_id") or ""),

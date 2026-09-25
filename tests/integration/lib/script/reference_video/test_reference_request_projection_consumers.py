@@ -1,7 +1,7 @@
 """Reference request projection contract across public consumers."""
 
-import json
 from dataclasses import replace
+from pathlib import Path
 from typing import Any, cast
 from unittest.mock import AsyncMock
 
@@ -10,13 +10,13 @@ from fastapi import HTTPException
 
 from lib.config.resolver import ConfigResolver
 from lib.generation.generation_queue import reference_projection_for_queued_task
-from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from lib.script.reference_video.request_projection import USE_TTS, ReferenceRequestOptions
 from server.auth import CurrentUserInfo
 from server.media_tools import videos
 from server.media_tools.context import ToolContext
 from server.routers import reference_videos
 from server.services.admission.cost_estimation import CostEstimationService, VideoRequestQuote
+from tests.factories import activate_reference_project
 from tests.fakes import fake_reference_request_facts, fake_reference_request_projector
 
 
@@ -64,23 +64,22 @@ async def test_reference_projection_contract_stays_aligned_across_public_consume
         "generation_mode": "reference_video",
         "video_units": [unit],
     }
-    project: dict[str, Any] = {
-        "title": "Narration",
-        "content_mode": "narration",
-        "generation_mode": "reference_video",
-        "characters": {
-            "甲": {"character_sheet": "characters/a.png"},
-            "乙": {"character_sheet": "characters/b.png"},
-            "丙": {"character_sheet": "characters/missing.png"},
-        },
-        "episodes": [{"episode": 1, "title": "", "script_file": "ep1.json"}],
-        # 生产项目一律处于当前 schema；产物清单按磁盘上的项目做比对。
-        "schema_version": CURRENT_PROJECT_SCHEMA_VERSION,
-    }
+    # 生产项目一律处于当前 schema，甲、乙的资产图由补录认领进产物清单；丙的图登记了路径但文件不在。
     (tmp_path / "characters").mkdir()
     (tmp_path / "characters/a.png").write_bytes(b"a")
-    (tmp_path / "project.json").write_text(json.dumps(project), encoding="utf-8")
     (tmp_path / "characters/b.png").write_bytes(b"b")
+    project: dict[str, Any] = activate_reference_project(
+        tmp_path,
+        {
+            "title": "Narration",
+            "characters": {
+                "甲": {"description": "甲", "character_sheet": "characters/a.png"},
+                "乙": {"description": "乙", "character_sheet": "characters/b.png"},
+                "丙": {"description": "丙", "character_sheet": "characters/missing.png"},
+            },
+            "episodes": [{"episode": 1, "title": "", "script_file": "scripts/episode_1.json"}],
+        },
+    )
     options = ReferenceRequestOptions(narration_delivery=USE_TTS)
 
     project_current = fake_reference_request_projector(request_facts=request_facts)
@@ -108,7 +107,7 @@ async def test_reference_projection_contract_stays_aligned_across_public_consume
             return project
 
         def load_script(self, project_name, script_file):
-            assert (project_name, script_file) == ("demo", "ep1.json")
+            assert (project_name, Path(script_file).name) == ("demo", "episode_1.json")
             return script
 
         def get_project_path(self, project_name):
@@ -156,7 +155,7 @@ async def test_reference_projection_contract_stays_aligned_across_public_consume
             )
             quote = await service.compute(
                 project,
-                {"ep1.json": script},
+                {"scripts/episode_1.json": script},
                 project_name="demo",
                 reference_request_options={"E1U1": options},
             )
@@ -187,7 +186,7 @@ async def test_reference_projection_contract_stays_aligned_across_public_consume
             ToolContext(project_name="demo", data_root=tmp_path, pm=pm)
         ).invoke(
             {
-                "script": "ep1.json",
+                "script": "episode_1.json",
                 "target": {"scope": "scene", "ids": ["E1U1"]},
                 "force": True,
                 "narration_delivery": USE_TTS,
@@ -196,7 +195,7 @@ async def test_reference_projection_contract_stays_aligned_across_public_consume
         queue_projection = await reference_projection_for_queued_task(
             project=project,
             project_name="demo",
-            payload={"script_file": "ep1.json", "reference_request_options": options.to_payload()},
+            payload={"script_file": "scripts/episode_1.json", "reference_request_options": options.to_payload()},
             resource_id="E1U1",
         )
         assert queue_projection is not None

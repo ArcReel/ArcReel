@@ -33,8 +33,8 @@ from lib.infra.schema_guards import is_int
 from lib.project.project_manager import grid_storyboard_enabled, is_reference_video_project
 from lib.script.grid.grid_resolution import resolve_image_resolution
 from lib.script.grid.layout import GRID_FALLBACK_RESOLUTION, large_grid_allowed, plan_grid_chunks
+from lib.script.reference_video.artifact_selection import CurrentReferenceAssets
 from lib.script.reference_video.request_projection import (
-    FilesystemReferenceAssets,
     ProjectionProblem,
     ReferenceRequestFactsLookup,
     ReferenceRequestOptions,
@@ -748,8 +748,9 @@ class CostEstimationService:
         ``cost-store`` 的 ``_segmentIndex.get(unit.unit_id)``），故此处不需要
         ``_split_cost_across`` 这一步。
 
-        取档先水合 unit 引用的当前可用图片（有图 → r2v，无图退化 unit → i2v），
-        再解析该桶模型的能力；声明引用与实际资产分裂时返回结构化 blocker，不换桶伪报价。
+        取档先水合 unit 引用的当前可用图片（文件存在且产物清单认领，与准入、执行同判据；
+        有图 → r2v，无图退化 unit → i2v），再解析该桶模型的能力；声明引用与实际资产分裂时返回
+        结构化 blocker，不换桶伪报价。
         请求时长基准通常是 ``unit.duration_seconds``；选择 ``use_tts`` 时还会纳入上游提供的
         实际旁白时长下限。按该基准取档后用同桶模型计费，与执行请求的秒数对齐。
 
@@ -773,7 +774,7 @@ class CostEstimationService:
         if self._project_path is None:
             availability = _AssumeResolvedAssetsAvailable()
         else:
-            availability = FilesystemReferenceAssets(self._project_path)
+            availability = CurrentReferenceAssets(self._project_path, project)
         projector = ReferenceUnitRequestProjector(request_facts_lookup, availability)
 
         for unit in units:

@@ -48,14 +48,13 @@ from lib.project.resource_paths import resource_relative_path
 from lib.script.reference_video.prompt_render import render_video_unit_prompt, resolve_reference_audio_paths
 from lib.script.reference_video.request_projection import (
     USE_TTS,
-    FilesystemReferenceAssets,
     ReferenceRequestFactsLookup,
     ReferenceRequestOptions,
     ResolvedReferenceAsset,
     clamp_reference_assets,
     materialize_current_reference_request_options,
-    resolve_reference_assets,
 )
+from lib.script.reference_video.unit_capabilities import hydrate_reference_units
 from lib.script.reference_video.voice_settings import VoiceRenderSettings
 from lib.script.script_editor import resolve_items
 from lib.script.script_models import resolve_content_mode
@@ -794,16 +793,17 @@ async def _reference_visual_basis_digest(
     unit: dict[str, Any],
     request_facts_lookup: ReferenceRequestFactsLookup,
 ) -> str | None:
-    """Use the projection's request facts for visual currency; failures disable fast reuse."""
+    """Use the projection's request facts for visual currency; request facts failures disable fast reuse.
 
+    单元按执行侧同款判据定桶（文件存在且产物清单认领的参考图才进请求），摘要因此与执行实际
+    使用的参考图一致。水合在 try 之外：项目未到当前 schema 或清单损坏与执行侧一样直接上抛，
+    不折成「关闭快速复用」。
+    """
+
+    (hydration,) = hydrate_reference_units(project, project_path, [unit])
     try:
-        availability = FilesystemReferenceAssets(project_path)
-        available = tuple(
-            asset for asset in resolve_reference_assets(project, project_path, unit) if availability.is_available(asset)
-        )
-        generation_type: VideoGenerationType = "r2v" if available else "i2v"
-        request_facts = require_video_request_facts(await request_facts_lookup(generation_type))
-        request_assets = clamp_reference_assets(available, request_facts.max_reference_images)
+        request_facts = require_video_request_facts(await request_facts_lookup(hydration.hydrated_generation_type))
+        request_assets = clamp_reference_assets(hydration.available_assets, request_facts.max_reference_images)
         return await asyncio.to_thread(
             reference_video_visual_basis_digest,
             project=project,
