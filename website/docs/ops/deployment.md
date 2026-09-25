@@ -303,7 +303,7 @@ curl -f http://localhost:1241/health
 - 默认 SQLite 数据库 `.arcreel.db`（连同 `-wal` / `-shm`）改名为 `arcreel.db`。这一步在解析数据库地址时完成，先启动应用还是先运行 Alembic 都会连到原来的库。新旧两个文件同时存在时不改名，继续使用 `arcreel.db`，启动日志记录告警。设置了 `DATABASE_URL`（含 PostgreSQL）时不动数据库。
 - 原先代码目录下的日志目录（Docker 中为 `./logs` 卷）里的文件并入数据根下的 `logs/`，新位置已有同名文件时旧文件留在原处。这一步出错只记录日志、不阻止启动。`ARCREEL_LOG_DIR` 指向的自定义日志目录不会搬动。
 
-**升级前备份整个数据根**（外部数据库另行备份）。旧版本会把 `projects/` 当成一个项目，也不认识新的数据库文件名；降级需要恢复这份备份。
+**升级前备份整个数据根**，连同数据根外的旧日志目录与旧凭据目录（Docker 中为 `./logs`、`./vertex_keys` 卷，其余部署为代码目录下的 `logs/` 与数据根上一级的 `vertex_keys/`）；外部数据库另行备份。迁移会把这两处的文件搬进数据根。旧版本会把 `projects/` 当成一个项目，也不认识新的数据库文件名；降级需要恢复这份备份。
 
 新版 Compose 只挂载一个数据卷 `./projects`，外加 `.env` 和 `claude_data/`，不再挂载 `./logs` 与 `./vertex_keys`。旧卷里的文件只有在启动时仍挂着才会并入数据根，其中 Vertex 凭据只在布局迁移那一次搬入，写下完成标记后不再处理。因此 Docker 部署从旧版本升级分两个阶段（以下以 `deploy/` 为例，生产部署换成 `deploy/production/`）：
 

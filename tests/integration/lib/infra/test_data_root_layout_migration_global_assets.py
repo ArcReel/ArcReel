@@ -10,6 +10,7 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from lib.db.repositories.asset_repo import AssetRepository
+from lib.infra.data_root_layout import DataRootLayout
 from lib.infra.data_root_layout_migration import migrate_data_root_layout
 from lib.project.project_manager import ProjectManager
 
@@ -111,6 +112,8 @@ async def test_rerunning_migration_leaves_global_assets_unchanged(
     await _migrate(projects, session_factory, tmp_path)
     paths_after_first = await _stored_paths(session_factory, asset_ids)
     stamps_after_first = await _updated_at(session_factory, asset_ids)
+    # 后续步骤失败、完成标记未写时，下次启动各步骤从头重跑。
+    DataRootLayout(projects.data_root).layout_migration_marker_path.unlink()
     await _migrate(projects, session_factory, tmp_path)
 
     assert await _stored_paths(session_factory, asset_ids) == paths_after_first

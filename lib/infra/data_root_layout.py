@@ -116,7 +116,11 @@ class DataRootLayout:
 
     @property
     def system_dirs(self) -> tuple[Path, ...]:
-        """数据根下由布局登记的、项目目录以外的顶层目录。"""
+        """数据根下由布局登记的、项目目录以外的顶层目录。
+
+        新增的系统目录须登记于此：Agent 的 Bash 沙箱在会话启动时预建这些目录并拒读，未登记且在
+        会话启动之后才出现的目录不在 ``denyRead`` 中（内置读工具仍按数据根默认拒绝）。
+        """
         return (
             self.global_assets_dir,
             self.users_dir,
@@ -130,16 +134,6 @@ class DataRootLayout:
     def top_level_entries(self) -> tuple[Path, ...]:
         """数据根下由布局登记的全部顶层条目：项目目录与各类运行数据。"""
         return (self.projects_dir, *self.system_dirs, self.sqlite_db_path)
-
-    @property
-    def legacy_sqlite_db_path(self) -> Path:
-        """旧布局的默认 SQLite 主文件；解析默认数据库 URL 时改名为 :attr:`sqlite_db_path`。"""
-        return self.root / ".arcreel.db"
-
-    @property
-    def legacy_internal_dir(self) -> Path:
-        """旧布局的数据根内部目录；其下 ``users/`` 由布局迁移搬进 :attr:`users_dir`。"""
-        return self.root / ".arcreel"
 
     @property
     def generation_admission_locks_dir(self) -> Path:

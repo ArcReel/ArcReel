@@ -27,7 +27,7 @@ def _legacy_script(episode: int, unit_ids: list[str]) -> dict:
 
 
 def test_scripts_are_read_without_write_back_and_an_unreadable_episode_is_skipped(tmp_path: Path) -> None:
-    project_dir = tmp_path / "demo"
+    project_dir = tmp_path / "projects" / "demo"
     (project_dir / "scripts").mkdir(parents=True)
     (project_dir / "scripts" / "episode_1.json").write_text(
         json.dumps(_legacy_script(1, ["E1U1", "E1U2"]), ensure_ascii=False), encoding="utf-8"
