@@ -4,7 +4,7 @@
 代码中其它地方不自行拼接数据根下的条目，也不从项目目录反推数据根，一律经
 :class:`DataRootLayout` 取位置（ADR 0088）。
 
-当前布局下项目目录就是数据根；Vertex 凭证尚在数据根之外。
+当前布局下项目目录就是数据根。
 
 「什么是项目」只由 :func:`is_project_dir` 回答：名字符合项目名规则、并且带 ``project.json``
 的目录。数据根里的其它条目一概不是项目。
@@ -97,8 +97,8 @@ class DataRootLayout:
 
     @property
     def vertex_keys_dir(self) -> Path:
-        """Vertex 凭证目录，目前位于数据根的上一级。"""
-        return self.root.parent / "vertex_keys"
+        """Vertex 凭证目录。"""
+        return self.root / "vertex_keys"
 
     def vertex_credential_path(self, credential_id: int) -> Path:
         """按凭证 id 上传的 Vertex 凭证文件。"""
