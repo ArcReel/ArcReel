@@ -18,6 +18,7 @@ from sqlalchemy import or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from lib.db.models.api_call import ApiCall
+from lib.db.models.asset import Asset, AssetDerivative
 from lib.infra.data_root_layout import DataRootLayout
 
 logger = logging.getLogger(__name__)
@@ -99,8 +100,73 @@ async def _relativize_call_output_paths(context: DataRootMigrationContext) -> No
         logger.info("数据根布局迁移：%d 条调用记录的产物路径改为项目内相对路径", rewritten)
 
 
+#: 旧布局的全局资产库目录名；资产记录里的路径以它为前缀。
+_LEGACY_GLOBAL_ASSETS_DIRNAME = "_global_assets"
+
+
+def _merge_dir_into(source: Path, target: Path) -> None:
+    """把 ``source`` 下的条目逐个 rename 进 ``target``；目标已有同名文件时保留两边并记告警。"""
+    target.mkdir(parents=True, exist_ok=True)
+    for entry in source.iterdir():
+        destination = target / entry.name
+        if not destination.exists() and not destination.is_symlink():
+            entry.rename(destination)
+        elif entry.is_dir() and not entry.is_symlink() and destination.is_dir():
+            _merge_dir_into(entry, destination)
+        else:
+            logger.warning("数据根布局迁移：%s 已存在，保留旧位置的 %s", destination, entry)
+    if not any(source.iterdir()):
+        source.rmdir()
+
+
+async def _rename_global_assets_dir(context: DataRootMigrationContext) -> None:
+    """全局资产库从旧目录名改到当前位置，资产记录里以旧目录为前缀的路径随之改写。
+
+    目标不存在时整体改名，旧目录是符号链接时改名的是链接本身；目标已存在（例如迁移前已被
+    建出空子目录）时逐条并入，旧目录是符号链接则不动。改库只处理仍带旧前缀、且旧位置已
+    没有该文件的行：留在旧目录里的文件（同名冲突、未挪动的符号链接）继续按旧路径登记。
+    已改写的行不再带旧前缀，重跑时不会被选中。
+    """
+    layout = context.layout
+    legacy_dir = layout.root / _LEGACY_GLOBAL_ASSETS_DIRNAME
+    target_dir = layout.global_assets_dir
+    if legacy_dir.is_dir() or legacy_dir.is_symlink():
+        if not target_dir.exists() and not target_dir.is_symlink():
+            legacy_dir.rename(target_dir)
+        elif legacy_dir.is_symlink():
+            logger.warning("数据根布局迁移：%s 已存在，符号链接 %s 保持原样", target_dir, legacy_dir)
+        else:
+            _merge_dir_into(legacy_dir, target_dir)
+
+    legacy_prefix = f"{_LEGACY_GLOBAL_ASSETS_DIRNAME}/"
+    current_prefix = f"{target_dir.relative_to(layout.root).as_posix()}/"
+    rewritten = 0
+    async with context.session_factory() as session:
+        for table, column in (
+            (Asset, Asset.image_path),
+            (Asset, Asset.audio_path),
+            (AssetDerivative, AssetDerivative.image_path),
+        ):
+            rows = (
+                await session.execute(select(table.id, column).where(column.startswith(legacy_prefix, autoescape=True)))
+            ).all()
+            for row_id, stored in rows:
+                legacy_file = layout.root / stored
+                if legacy_file.exists() or legacy_file.is_symlink():
+                    continue
+                await session.execute(
+                    update(table)
+                    .where(table.id == row_id)
+                    .values({column.key: current_prefix + stored.removeprefix(legacy_prefix)})
+                )
+                rewritten += 1
+        await session.commit()
+    if rewritten:
+        logger.info("数据根布局迁移：%d 处全局资产路径改到 %s", rewritten, current_prefix)
+
+
 #: 按执行顺序排列的迁移步骤。
-_STEPS: tuple[MigrationStep, ...] = (_relativize_call_output_paths,)
+_STEPS: tuple[MigrationStep, ...] = (_relativize_call_output_paths, _rename_global_assets_dir)
 
 
 def default_sdk_config_dir() -> Path:

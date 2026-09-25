@@ -2897,7 +2897,7 @@ class API {
   static getGlobalAssetUrl(path: string | null, fp?: string | null): string | null {
     if (!path) return null;
     const parts = path.split("/");
-    if (parts.length < 3 || parts[0] !== "_global_assets") return null;
+    if (parts.length < 3 || parts[0] !== "global_assets") return null;
     const type = parts[1];
     const filename = parts.slice(2).join("/");
     const qs = fp ? `?fp=${encodeURIComponent(fp)}` : "";

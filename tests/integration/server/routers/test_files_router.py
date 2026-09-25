@@ -1423,7 +1423,7 @@ class TestFilesRouter:
             assert resp.status_code in (400, 403, 404)
 
     def test_global_asset_symlink_escape_returns_403(self, tmp_path, monkeypatch):
-        """在 _global_assets/character/ 里放一个指向外部文件的 symlink,应被 resolve-relative 检查拦截为 403。"""
+        """在 global_assets/character/ 里放一个指向外部文件的 symlink,应被 resolve-relative 检查拦截为 403。"""
         import os
         import sys
 
@@ -1434,11 +1434,11 @@ class TestFilesRouter:
 
         client, pm = _client(monkeypatch, tmp_path)
 
-        # 在 tmp_path 下(但不在 _global_assets 里)创建一个外部目标文件
+        # 在 tmp_path 下(但不在 global_assets 里)创建一个外部目标文件
         outside = tmp_path / "outside.png"
         outside.write_bytes(b"secret")
 
-        # 在 _global_assets/character/ 下建立指向外部目标的 symlink
+        # 在 global_assets/character/ 下建立指向外部目标的 symlink
         global_dir = pm.get_global_assets_root() / "character"
         global_dir.mkdir(parents=True, exist_ok=True)
         link = global_dir / "evil.png"

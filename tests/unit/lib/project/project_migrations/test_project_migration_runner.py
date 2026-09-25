@@ -119,13 +119,13 @@ def test_migrate_project_dir_single_project(tmp_projects: Path):
     assert migrate_project_dir(d) is False
 
 
-def test_skip_underscore_dirs(tmp_projects: Path):
-    (tmp_projects / "_global_assets").mkdir()
-    (tmp_projects / "_global_assets" / "keep.txt").write_text("x", encoding="utf-8")
+def test_skip_non_project_dirs(tmp_projects: Path):
+    (tmp_projects / "global_assets").mkdir()
+    (tmp_projects / "global_assets" / "keep.txt").write_text("x", encoding="utf-8")
     _write_project(tmp_projects, "p1", {"schema_version": CURRENT_SCHEMA_VERSION, "name": "p1"})
     summary = run_project_migrations(tmp_projects)
-    assert "_global_assets" not in summary.skipped
-    assert "_global_assets" not in summary.migrated
+    assert "global_assets" not in summary.skipped
+    assert "global_assets" not in summary.migrated
 
 
 def test_corrupted_schema_version_skipped_not_abort(tmp_projects: Path):

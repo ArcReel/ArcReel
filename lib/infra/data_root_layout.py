@@ -65,7 +65,7 @@ class DataRootLayout:
     @property
     def global_assets_dir(self) -> Path:
         """全局资产库；资产记录里的路径以数据根为基准，前缀即本目录名。"""
-        return self.root / "_global_assets"
+        return self.root / "global_assets"
 
     @property
     def internal_dir(self) -> Path:

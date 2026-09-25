@@ -1426,7 +1426,7 @@ describe("API", () => {
 
   describe("getGlobalAssetUrl", () => {
     it("returns URL for valid path", () => {
-      const url = API.getGlobalAssetUrl("_global_assets/character/abc.png", "123");
+      const url = API.getGlobalAssetUrl("global_assets/character/abc.png", "123");
       expect(url).toContain("/global-assets/character/abc.png");
       expect(url).toContain("fp=123");
     });
