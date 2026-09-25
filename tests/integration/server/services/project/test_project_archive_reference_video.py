@@ -11,6 +11,8 @@ import shutil
 import zipfile
 from pathlib import Path
 
+import pytest
+
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.project.project_manager import ProjectManager
 from lib.project.resource_paths import resource_relative_path
@@ -190,6 +192,52 @@ class TestProjectArchiveReferenceVideo:
         assert unit["duration_seconds"] == 4
         assert "shots" not in unit
         assert unit["text"] == "镜头一"
+
+    @pytest.mark.parametrize(("legacy_seconds", "expected"), [(4, 4), (9, 10)])
+    def test_import_migration_takes_the_union_of_both_bucket_tiers(self, tmp_path, legacy_seconds, expected):
+        """参考项目的单元按可用参考图落 r2v 或 i2v：导入收编取两桶声明全集的并集，与在线内容确认同口径。
+
+        r2v 为 [6, 10]、i2v 为 [4, 6, 8]，并集 [4, 6, 8, 10]：4 秒只在 i2v 合法，只按 r2v 取档会改成
+        6；9 秒两桶都不合法，只按 i2v 取档会降到 8，原样保留则不是任一桶的成员。
+        """
+        pm = ProjectManager(tmp_path / "projects")
+        legacy_unit = {
+            "unit_id": "E1U1",
+            "shots": [{"duration": legacy_seconds, "text": "镜头一"}],
+            "references": [],
+            "transition_to_next": "cut",
+            "generated_assets": {
+                "storyboard_image": None,
+                "storyboard_last_image": None,
+                "video_clip": "reference_videos/E1U1.mp4",
+                "video_thumbnail": "reference_videos/thumbnails/E1U1.jpg",
+                "video_uri": REMOTE_VIDEO_URI,
+                "grid_id": None,
+                "grid_cell_index": None,
+                "status": "completed",
+            },
+        }
+        project_dir = _create_reference_video_project(pm, unit=legacy_unit)
+        project_file = project_dir / "project.json"
+        payload = json.loads(project_file.read_text(encoding="utf-8"))
+        payload["video_provider_r2v"] = "minimax/MiniMax-Hailuo-2.3"
+        payload["video_provider_i2v"] = "gemini-aistudio/veo-3.1-generate-preview"
+        payload.pop("schema_version", None)
+        project_file.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+        assert PROVIDER_REGISTRY["minimax"].models["MiniMax-Hailuo-2.3"].supported_durations == [6, 10]
+        assert PROVIDER_REGISTRY["gemini-aistudio"].models["veo-3.1-generate-preview"].supported_durations == [4, 6, 8]
+
+        service = ProjectArchiveService(pm)
+        archive_path = tmp_path / "legacy-two-buckets.zip"
+        _make_manual_zip(project_dir, archive_path)
+        shutil.rmtree(project_dir)
+
+        result = service.import_project_archive(archive_path, uploaded_filename="legacy-two-buckets.zip")
+
+        imported = json.loads(
+            (pm.get_project_path(result.project_name) / "scripts" / "episode_1.json").read_text(encoding="utf-8")
+        )
+        assert imported["video_units"][0]["duration_seconds"] == expected
 
     def test_import_resolves_tiers_for_legacy_provider_alias(self, tmp_path):
         """归档修复跑在 provider 归一化之前：video_backend 仍是 legacy 别名时也要解析出档位。

@@ -390,6 +390,24 @@ async def test_split_reference_video_units_rejects_duration_off_reference_tier(
     assert [v["code"] for v in read_rv_quarantine(fake_ctx)["violations"]] == ["duration_off_tier"]
 
 
+async def test_split_reference_video_units_locates_the_unit_when_its_i2v_tiers_are_unknown(
+    fake_ctx: ToolContext, monkeypatch, set_video_request_facts
+) -> None:
+    """无图 unit 的 i2v 事实解析不出时，违约带该 unit 的定位，而不是落到集级聚合区。"""
+    rv_source(fake_ctx)
+    set_video_request_facts(
+        {
+            "r2v": _reference_facts("r2v", supported_durations=(6, 10), allowed_durations=(6, 10)),
+            "i2v": VideoRequestFactsFailure("reference_capability_unavailable", (("capability", "i2v"),)),
+        }
+    )
+    out = await run_rv_split(fake_ctx, monkeypatch, [rv_unit("门开了", duration=6)])
+    assert out.get("is_error") is True
+    [violation] = read_rv_quarantine(fake_ctx)["violations"]
+    assert violation["code"] == "reference_capability_unavailable"
+    assert violation["label"]
+
+
 @pytest.mark.parametrize("sheet", ["absent", "unclaimed"])
 async def test_split_reference_video_units_buckets_a_reference_without_usable_image_as_i2v(
     fake_ctx: ToolContext, monkeypatch, set_video_request_facts, sheet: str

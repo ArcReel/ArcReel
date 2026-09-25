@@ -46,13 +46,8 @@ def render_reference_prompt_preview(
     rendered = render_video_unit_prompt(
         unit,
         project,
-        VoiceRenderSettings(
-            voice_consistency=request_facts.voice_consistency,
-            requested_generate_audio=request_facts.requested_generate_audio,
-            max_reference_audio=request_facts.max_reference_audio_count,
-            model_id=request_facts.model_id,
-            audio_ready=resolve_reference_audio_paths(project, project_path),
-            requires_reference_image=request_facts.reference_audio_per_image,
+        VoiceRenderSettings.from_request_facts(
+            request_facts, audio_ready=resolve_reference_audio_paths(project, project_path)
         ),
         request_references=[asset.reference for asset in projection.request_assets],
     )

@@ -30,7 +30,7 @@ from lib.artifacts.artifact_manifest import (
 from lib.artifacts.formal_write import project_metadata_lock
 from lib.artifacts.version_manager import VersionManager
 from lib.config.registry import model_info_for
-from lib.config.resolver import project_video_backend_ids
+from lib.config.resolver import VideoGenerationType, project_video_backend_ids
 from lib.episode.episode_ledger import parse_positive_episode_num
 from lib.infra.content_digest import digest_stream, sha256_file
 from lib.infra.json_io import load_json
@@ -213,19 +213,30 @@ class ProjectArchiveValidationError(ValueError):
         return self.diagnostics.to_import_error_payload(translate)
 
 
+def _registry_bucket_durations(
+    project: dict[str, Any], generation_type: VideoGenerationType | None = None
+) -> list[int] | None:
+    ids = project_video_backend_ids(project, generation_type=generation_type)
+    model_info = model_info_for(*ids) if ids is not None else None
+    if model_info is None or not model_info.supported_durations:
+        return None
+    return list(model_info.supported_durations)
+
+
 def _registry_supported_durations(project: dict[str, Any]) -> list[int] | None:
     """归档自报的视频模型在 registry 声明的时长全集；未声明型号或不在 registry 时为 None。
 
     只读 project.json 与 registry，不经能力合成也不收窄：导入在没有配置库会话的线程里跑，
-    取不到视频请求事实，这份全集只用于给存量 per-shot 时长收编取档。
+    取不到视频请求事实，这份全集只用于给存量 per-shot 时长收编取档。参考生视频项目的单元按
+    可用参考图落 r2v 或 i2v，取两桶声明全集的并集，任一桶查不到时为 None，与在线内容确认同口径。
     """
-    ids = project_video_backend_ids(project)
-    if ids is None:
+    if project.get("generation_mode") != "reference_video":
+        return _registry_bucket_durations(project)
+    with_references = _registry_bucket_durations(project, "r2v")
+    without_references = _registry_bucket_durations(project, "i2v")
+    if with_references is None or without_references is None:
         return None
-    model_info = model_info_for(*ids)
-    if model_info is None or not model_info.supported_durations:
-        return None
-    return list(model_info.supported_durations)
+    return sorted(set(with_references) | set(without_references))
 
 
 class ProjectArchiveService:

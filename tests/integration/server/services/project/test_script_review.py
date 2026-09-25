@@ -1875,7 +1875,7 @@ class TestPromptAuthoringEnforcement:
         project_path = pm.get_project_path("demo")
         ctx = ToolContext(
             project_name="demo",
-            projects_root=tmp_path / "projects",
+            data_root=tmp_path / "projects",
             pm=pm,
             config_resolver=cast(ConfigResolver, FakeConfigResolver()),
         )

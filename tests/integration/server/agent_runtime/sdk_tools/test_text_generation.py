@@ -234,9 +234,10 @@ async def test_get_video_capabilities_reports_request_facts_failure(
     out = await call(get_video_capabilities_tool(fake_ctx), {})
     assert out.get("is_error") is True
     problem = json.loads(out["content"][0]["text"])["problem"]
-    assert problem["code"] == "capabilities_unresolved"
+    assert problem["code"] == "video_supported_durations_incompatible"
+    assert problem["params"] == {"provider": "gemini-aistudio", "model": "veo-3.1-generate-preview", "resolution": "4k"}
+    assert problem["action"] == "configure_video_model"
     assert "video_supported_durations_incompatible（provider=gemini-aistudio" in problem["detail"]
-    assert "resolution=4k" in problem["detail"]
 
 
 async def test_get_video_capabilities_error(fake_ctx: ToolContext) -> None:
@@ -1216,6 +1217,7 @@ async def test_get_video_capabilities_annotates_each_formal_unit(
         supported_durations=[4, 6, 8],
         generation_mode="reference_video",
     )
+    fake_ctx.pm.mirror_to_disk()
 
     out = await call(get_video_capabilities_tool(fake_ctx), {})
 

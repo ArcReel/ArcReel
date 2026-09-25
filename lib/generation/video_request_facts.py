@@ -197,6 +197,20 @@ def planning_durations(facts: VideoRequestFacts) -> list[int]:
     return []
 
 
+def reference_migration_durations(
+    with_references: VideoRequestFacts | VideoRequestFactsFailure,
+    without_references: VideoRequestFacts | VideoRequestFactsFailure,
+) -> list[int] | None:
+    """参考路线草稿结构收编用的时长全集：r2v 与 i2v 两桶声明全集的并集；任一桶解析不出时为 None。
+
+    内容确认转换与 web 内容确认两个在线入口共用这一处，谁先迁移落盘都得到同一组档位成员。
+    """
+
+    if isinstance(with_references, VideoRequestFacts) and isinstance(without_references, VideoRequestFacts):
+        return sorted(set(with_references.supported_durations) | set(without_references.supported_durations))
+    return None
+
+
 def audio_switch_conflict(facts: VideoRequestFacts) -> VideoRequestFactsFailure | None:
     """用户关闭音频但该桶的模型成片恒有声时，返回共同的问题码。"""
 

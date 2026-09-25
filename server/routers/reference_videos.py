@@ -38,14 +38,15 @@ from lib.infra.path_safety import PathTraversalError, safe_join
 from lib.project.project_change_hints import project_change_source
 from lib.project.project_manager import get_project_manager, is_reference_video_project
 from lib.project.resource_paths import resource_relative_path
-from lib.script.reference_video import derive_references_from_text
 from lib.script.reference_video.request_projection import (
+    ReferenceRequestFactsLookup,
     ReferenceRequestOptions,
     ReferenceUnitRequestProjection,
     configured_reference_request_facts,
     project_reference_unit_request,
 )
 from lib.script.reference_video.script_preview import build_script_preview
+from lib.script.reference_video.unit_capabilities import hydrate_reference_units
 from lib.script.reference_video.voice_settings import VoiceRenderSettings
 from lib.script.script_editor import ScriptEditError
 from lib.speech.narration_delivery import (
@@ -86,7 +87,6 @@ from server.services.tasks.narration_delivery_tasks import (
 from server.services.tasks.reference_video_tasks import (
     apply_unit_video_assets,
     default_unit_duration,
-    resolve_new_unit_request_facts,
 )
 from server.services.tasks.video_caps import (
     project_video_caps,
@@ -293,18 +293,25 @@ def _require_unit_ready(unit: dict, *, ignore_marker: bool = False, allow_blank_
 # ============ 端点：列出 + 新建 ============
 
 
-async def _unit_capabilities(project_name: str, project: dict, units: list[dict]) -> dict[str, dict[str, object]]:
+async def _unit_capabilities(
+    project_name: str,
+    project: dict,
+    units: list[dict],
+    request_facts: ReferenceRequestFactsLookup | None = None,
+) -> dict[str, dict[str, object]]:
     """逐单元按可用参考图定桶的服务端结论，随单元一起回给画布。"""
     return await reference_unit_capabilities(
         project,
         get_project_manager().get_project_path(project_name),
         units,
-        request_facts=reference_request_facts_lookup(project),
+        request_facts=request_facts or reference_request_facts_lookup(project),
     )
 
 
-async def _unit_capability(project_name: str, project: dict, unit: dict) -> dict[str, object]:
-    return (await _unit_capabilities(project_name, project, [unit]))[str(unit.get("unit_id") or "")]
+async def _unit_capability(
+    project_name: str, project: dict, unit: dict, request_facts: ReferenceRequestFactsLookup | None = None
+) -> dict[str, object]:
+    return (await _unit_capabilities(project_name, project, [unit], request_facts))[str(unit.get("unit_id") or "")]
 
 
 @router.get("/episodes/{episode}/units")
@@ -322,17 +329,16 @@ async def add_unit(
     _t: Translator,
 ) -> dict[str, Any]:
     project, current, script_file = _load_episode_script(project_name, episode, _t)
-    # 取档要看这条 unit 执行时到底会不会带参考图，故按正文里已登记的 `@[名称]` 判定——
-    # 与执行期的解析同一个出口，未登记的提及不产生参考图、也就不施加带图档位约束。
-    refs, _missing = derive_references_from_text(req.prompt, project)
+    request_facts = reference_request_facts_lookup(project)
 
-    # 时长是 unit 级单一真相：请求未给出时按项目能力解析默认档位（异步 IO 不进项目锁临界区）
+    # 时长是 unit 级单一真相：请求未给出时取这条 unit 所落桶的默认档位（异步 IO 不进项目锁临界区）。
+    # 桶按可用参考图判定，与响应里的逐单元结论及执行期投影同一判据。
     duration_seconds = req.duration_seconds
     if duration_seconds is None:
-        duration_seconds = default_unit_duration(
-            await resolve_new_unit_request_facts(project, with_references=bool(refs)),
-            project,
+        (hydration,) = hydrate_reference_units(
+            project, get_project_manager().get_project_path(project_name), [{"text": req.prompt}]
         )
+        duration_seconds = default_unit_duration(await request_facts(hydration.hydrated_generation_type), project)
 
     units = current.get("video_units") if isinstance(current.get("video_units"), list) else []
     unit = _build_unit_dict(
@@ -355,7 +361,7 @@ async def add_unit(
     inserted = _find_unit(saved, unit["unit_id"], _t)
     return {
         "unit": inserted,
-        "unit_capability": await _unit_capability(project_name, project, inserted),
+        "unit_capability": await _unit_capability(project_name, project, inserted, request_facts),
         "edit_result": result.model_dump(mode="json"),
     }
 

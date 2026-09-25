@@ -85,7 +85,8 @@ async def reference_unit_capabilities(
 def reference_script_units(projects: ProjectManager, project_name: str, project: dict) -> list[dict]:
     """参考生视频项目全部已登记剧本的视频单元；非参考路线没有视频单元。
 
-    剧本文件缺失的分集跳过：那是分集尚未产出剧本，不是能力问题。
+    只读取、不回写存量迁移。剧本文件缺失的分集跳过：那是分集尚未产出剧本，不是能力问题；读不出
+    或解析不了的分集同样跳过并记日志，单集损坏不拖垮整份能力查询。
     """
     if project.get("generation_mode") != "reference_video":
         return []
@@ -95,8 +96,11 @@ def reference_script_units(projects: ProjectManager, project_name: str, project:
         if not script_file:
             continue
         try:
-            script = projects.load_script(project_name, script_file)
+            script = projects.load_script_readonly(project_name, script_file)
         except FileNotFoundError:
+            continue
+        except (OSError, ValueError) as exc:
+            logger.warning("能力标注跳过无法读取的剧本 %s/%s：%s", project_name, script_file, exc)
             continue
         units.extend(unit for unit in script.get("video_units") or [] if isinstance(unit, dict))
     return units
