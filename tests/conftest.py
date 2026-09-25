@@ -11,7 +11,7 @@ import socket
 import sys
 import tempfile
 import uuid as _uuid
-from collections.abc import AsyncGenerator, AsyncIterator, Callable
+from collections.abc import AsyncGenerator, AsyncIterator, Callable, Mapping
 from contextlib import asynccontextmanager
 from pathlib import Path
 from unittest.mock import AsyncMock
@@ -79,20 +79,36 @@ def set_admission_video_request_facts(
     return configure
 
 
+VideoRequestFactsResult = VideoRequestFacts | VideoRequestFactsFailure
+
+
 @pytest.fixture
 def set_video_request_facts(
     monkeypatch: pytest.MonkeyPatch,
-) -> Callable[[VideoRequestFacts | VideoRequestFactsFailure], None]:
-    """让视频能力消费方读取测试构造的事实结果，求值测试仍使用真实解析器。"""
+) -> Callable[[VideoRequestFactsResult | Mapping[str, VideoRequestFactsResult]], None]:
+    """让视频能力消费方读取测试构造的事实结果，求值测试仍使用真实解析器。
+
+    传单个结果时所有桶同一份；传按任务类型桶（``"i2v"`` / ``"r2v"``）索引的映射时按桶作答，
+    供两桶配置不同的消费方用例。
+    """
     from lib.script import script_generator
     from lib.script.reference_video import request_projection
     from server.services.admission import cost_estimation
     from server.services.project import script_review
     from server.services.tasks import video_caps
 
-    def configure(facts: VideoRequestFacts | VideoRequestFactsFailure) -> None:
+    def configure(facts: VideoRequestFactsResult | Mapping[str, VideoRequestFactsResult]) -> None:
+        if isinstance(facts, Mapping):
+            by_bucket = dict(facts)
+
+            async def evaluate(_project, *, generation_type, **_kwargs):
+                return by_bucket[generation_type]
+
+            fake = AsyncMock(side_effect=evaluate)
+        else:
+            fake = AsyncMock(return_value=facts)
         for consumer in (script_generator, request_projection, cost_estimation, script_review, video_caps):
-            monkeypatch.setattr(consumer, "evaluate_video_request_facts", AsyncMock(return_value=facts))
+            monkeypatch.setattr(consumer, "evaluate_video_request_facts", fake)
 
     return configure
 

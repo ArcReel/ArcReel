@@ -1,5 +1,7 @@
 """参考视频复用与请求投影共享事实，真实媒体和清单验证免费复用判定。"""
 
+import json
+
 from lib.artifacts.artifact_manifest import (
     ArtifactKey,
     ArtifactManifest,
@@ -11,6 +13,7 @@ from lib.artifacts.video_artifact_facts import VideoArtifactCurrencyFacts
 from lib.artifacts.visual_artifact_provenance import build_reference_video_artifact_visual_basis
 from lib.config.resolver import ConfigResolver
 from lib.generation.video_request_facts import VideoRequestFacts
+from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from lib.script.reference_video.request_projection import (
     ReferenceRequestOptions,
     configured_reference_request_facts,
@@ -30,6 +33,7 @@ from tests.factories import make_test_video, wav_bytes
 async def test_reference_reuse_and_projection_keep_the_same_resolution_snapshot(db_factory, tmp_path):
     pair = "openai/sora-2"
     project = {
+        "schema_version": CURRENT_PROJECT_SCHEMA_VERSION,
         "generation_mode": "reference_video",
         "video_provider_i2v": pair,
         "video_generate_audio": True,
@@ -43,6 +47,7 @@ async def test_reference_reuse_and_projection_keep_the_same_resolution_snapshot(
         "generated_assets": {},
     }
     script = {"episode": 1, "video_units": [unit]}
+    (tmp_path / "project.json").write_text(json.dumps(project), encoding="utf-8")
     lookup = configured_reference_request_facts(project, ConfigResolver(db_factory))
     facts = await lookup("i2v")
     assert isinstance(facts, VideoRequestFacts)

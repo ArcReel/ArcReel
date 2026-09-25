@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { API, ApiRequestError } from "@/api";
 import { isDemoProject } from "@/onboarding/demo-project";
 import { useCapabilitiesStore } from "@/stores/capabilities-store";
-import type { DurationExclusionReason, VideoCapabilities, VideoCapabilityProblem, VoiceConsistencyTier } from "@/types";
+import type { DurationExclusionReason, VideoCapabilities, VoiceConsistencyTier } from "@/types";
 
 // ---------------------------------------------------------------------------
 // 视频模型能力：前端唯一的能力消费入口，单通路读服务端 video-capabilities 端点。
@@ -14,6 +14,7 @@ import type { DurationExclusionReason, VideoCapabilities, VideoCapabilityProblem
 //   durations               → 型号声明全集 + 按上下文收窄后的候选与剔除成因，均由服务端
 //                             `duration_constraints_report` 算好；分辨率↔时长、参考图↔时长的
 //                             收窄规则只在 lib/config/resolver.py 一处。
+//   参考生视频逐单元的桶与档位不在这里：服务端按可用参考图逐单元判定，随单元列表到达。
 //
 // 有项目时走 /projects/{name}/video-capabilities（可带表单里未保存的候选模型与约束上下文），
 // 无项目（创建向导）走 /providers/video-capabilities 按候选模型解析。
@@ -43,14 +44,6 @@ export interface ModelCapabilities {
   rawDurations: number[] | null;
   /** 按当前上下文收窄后的时长候选（升序）；未知为 null。 */
   supportedDurations: number[] | null;
-  /**
-   * 无参考图的视频单元实际会执行的那个桶（i2v）自己的收窄结果；未知为 null。参考生视频的
-   * 参考图约束按视频单元是否真的携带参考图生效，画布为无参考图的单元换用它——两个桶可以是
-   * 两个模型，故这不是「当前模型的档位去掉参考图约束」。
-   */
-  supportedDurationsWithoutReference: number[] | null;
-  withoutReferenceProblem: VideoCapabilityProblem | null;
-  excludedDurationsWithoutReference: Record<string, DurationExclusionReason>;
   /** 全集中被联动约束剔除的时长（键为秒数字符串）→ 成因；未知为空表。 */
   excludedDurations: Record<string, DurationExclusionReason>;
   /**
@@ -58,7 +51,6 @@ export interface ModelCapabilities {
    * 两者的时长控件都不可用，但说给用户听的不是同一句话。未知时为 false：不谎报。
    */
   durationEndpointFixed: boolean;
-  durationEndpointFixedWithoutReference: boolean;
   /**
    * 能力实际查自哪个 `provider/model`；未知为 null。
    *
@@ -192,12 +184,8 @@ export function useModelCapabilities({
   return {
     rawDurations: caps?.supported_durations?.length ? ascending(caps.supported_durations) : null,
     supportedDurations: constraints ? constraints.allowed : null,
-    supportedDurationsWithoutReference: constraints ? constraints.allowed_without_reference_images : null,
-    withoutReferenceProblem: constraints?.without_reference_problem ?? null,
-    excludedDurationsWithoutReference: constraints?.excluded_without_reference_images ?? EMPTY_EXCLUSIONS,
     excludedDurations: constraints?.excluded ?? EMPTY_EXCLUSIONS,
     durationEndpointFixed: caps?.duration_endpoint_fixed ?? false,
-    durationEndpointFixedWithoutReference: constraints?.without_reference_duration_endpoint_fixed ?? false,
     resolvedVideoBackend: caps ? `${caps.provider_id}/${caps.model}` : null,
     firstFrame: caps ? caps.first_frame : null,
     lastFrame: caps ? caps.last_frame : null,

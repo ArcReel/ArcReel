@@ -88,7 +88,11 @@ from server.services.tasks.reference_video_tasks import (
     default_unit_duration,
     resolve_new_unit_request_facts,
 )
-from server.services.tasks.video_caps import project_video_caps
+from server.services.tasks.video_caps import (
+    project_video_caps,
+    reference_request_facts_lookup,
+    reference_unit_capabilities,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -289,10 +293,25 @@ def _require_unit_ready(unit: dict, *, ignore_marker: bool = False, allow_blank_
 # ============ 端点：列出 + 新建 ============
 
 
+async def _unit_capabilities(project_name: str, project: dict, units: list[dict]) -> dict[str, dict[str, object]]:
+    """逐单元按可用参考图定桶的服务端结论，随单元一起回给画布。"""
+    return await reference_unit_capabilities(
+        project,
+        get_project_manager().get_project_path(project_name),
+        units,
+        request_facts=reference_request_facts_lookup(project),
+    )
+
+
+async def _unit_capability(project_name: str, project: dict, unit: dict) -> dict[str, object]:
+    return (await _unit_capabilities(project_name, project, [unit]))[str(unit.get("unit_id") or "")]
+
+
 @router.get("/episodes/{episode}/units")
 async def list_units(project_name: str, episode: int, _t: Translator) -> dict[str, Any]:
-    _project, script, _sf = _load_episode_script(project_name, episode, _t)
-    return {"units": script.get("video_units") or []}
+    project, script, _sf = _load_episode_script(project_name, episode, _t)
+    units = script.get("video_units") or []
+    return {"units": units, "unit_capabilities": await _unit_capabilities(project_name, project, units)}
 
 
 @router.post("/episodes/{episode}/units", status_code=status.HTTP_201_CREATED)
@@ -334,7 +353,11 @@ async def add_unit(
     require_script_edit_result(result)
     saved = get_project_manager().load_script(project_name, result.script)
     inserted = _find_unit(saved, unit["unit_id"], _t)
-    return {"unit": inserted, "edit_result": result.model_dump(mode="json")}
+    return {
+        "unit": inserted,
+        "unit_capability": await _unit_capability(project_name, project, inserted),
+        "edit_result": result.model_dump(mode="json"),
+    }
 
 
 # ============ 端点：PATCH + DELETE ============
@@ -369,7 +392,7 @@ async def patch_unit(
     req: PatchUnitRequest,
     _t: Translator,
 ) -> dict[str, Any]:
-    _project, current, script_file = _load_episode_script(project_name, episode, _t)
+    project, current, script_file = _load_episode_script(project_name, episode, _t)
     _find_unit(current, unit_id, _t)
     fields: dict[str, Any] = {}
     if req.prompt is not None:
@@ -381,7 +404,8 @@ async def patch_unit(
     if req.note is not None:
         fields["note"] = req.note
     if not fields:
-        return {"unit": _find_unit(current, unit_id, _t)}
+        unit = _find_unit(current, unit_id, _t)
+        return {"unit": unit, "unit_capability": await _unit_capability(project_name, project, unit)}
     result = execute_current_episode_edit(
         get_project_manager(),
         project_name,
@@ -393,7 +417,11 @@ async def patch_unit(
     require_script_edit_result(result, operation_not_found=True)
     saved = get_project_manager().load_script(project_name, result.script)
     unit = _find_unit(saved, unit_id, _t)
-    return {"unit": unit, "edit_result": result.model_dump(mode="json")}
+    return {
+        "unit": unit,
+        "unit_capability": await _unit_capability(project_name, project, unit),
+        "edit_result": result.model_dump(mode="json"),
+    }
 
 
 @router.delete("/episodes/{episode}/units/{unit_id}", status_code=status.HTTP_204_NO_CONTENT)

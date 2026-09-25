@@ -16,7 +16,8 @@ import { UnitPreviewPanel } from "./UnitPreviewPanel";
 import { ReferenceVideoCard } from "./ReferenceVideoCard";
 import { ScriptPreviewPanel } from "./ScriptPreviewPanel";
 import { deriveUnitStatus } from "./unit-status";
-import { noImageReasonKey } from "./no-image-problem";
+import { tierProblemText } from "./unit-tier-problem";
+import { ReferenceSplitAlert } from "./ReferenceSplitAlert";
 import { EpisodeHeader } from "./EpisodeHeader";
 import { ReferenceDurationConfirmDialog } from "./ReferenceDurationConfirmDialog";
 import { ReferenceBatchAdmissionDialog } from "./ReferenceBatchAdmissionDialog";
@@ -47,16 +48,15 @@ import { useCostStore } from "@/stores/cost-store";
 import { errMsg } from "@/utils/async";
 import {
   buildMentionLookup,
-  extractMentions,
   lineSpeechMarks,
   splitScriptLines,
 } from "@/utils/reference-mentions";
 import type {
   ReferenceBatchAdmission,
   ReferenceRequestOptions,
+  ReferenceUnitCapabilityMap,
   ReferenceVideoUnit,
   UnitStatus,
-  VideoCapabilityProblem,
 } from "@/types";
 
 export interface ReferenceVideoCanvasProps {
@@ -72,26 +72,16 @@ export interface ReferenceVideoCanvasProps {
   /** unit 时长为自由正整数，不用供应商档位作为编排限制。 */
   freeDuration?: boolean;
   /**
-   * unit 时长下拉的档位，来自模型能力声明（已按参考图约束与分辨率收窄）。供正文里带
-   * `@[名称]` 引用的 unit 使用；能力不可解析时为 undefined——此时不渲染下拉，只读展示当前
-   * 秒数，不编造档位。
+   * 画布根部的能力请求明确答复视频模型无法解析（400/422）。逐单元的桶、档位与端点固定
+   * 标志不从这里来：它们随单元列表由服务端按可用参考图逐单元给出（`unitCapabilitiesByEpisode`）。
    */
-  durationOptions?: number[];
-  /** 档位为空是因为这一维由端点固定（workflow 自己定片长），不是型号没登记时长。 */
-  durationEndpointFixed?: boolean;
-  durationEndpointFixedNoReference?: boolean;
   videoModelUnresolved?: boolean;
-  capabilitiesLoading?: boolean;
-  /**
-   * i2v 桶按自身模型与分辨率收窄后的档位，供正文里没有可解析引用的 unit 使用。
-   */
-  durationOptionsNoReference?: number[];
-  durationNoReferenceProblem?: VideoCapabilityProblem | null;
   /** 上游旁白工作流给出的请求事实；不在画布内探测或推断 TTS 状态。 */
   requestOptions?: ReferenceRequestOptions;
 }
 
 const EMPTY_UNITS: readonly ReferenceVideoUnit[] = Object.freeze([]);
+const EMPTY_CAPABILITIES: ReferenceUnitCapabilityMap = Object.freeze({});
 
 /**
  * 画布层自记的按 unit 占用位（不产生任务行、进不了 tasks-store 占用集的那些写入路径）。
@@ -173,13 +163,7 @@ export function ReferenceVideoCanvas({
   hasScript = true,
   showPreprocess = true,
   freeDuration = false,
-  durationOptions,
-  durationEndpointFixed = false,
-  durationEndpointFixedNoReference = false,
   videoModelUnresolved,
-  capabilitiesLoading,
-  durationOptionsNoReference,
-  durationNoReferenceProblem,
   requestOptions,
 }: ReferenceVideoCanvasProps) {
   const { t } = useTranslation("dashboard");
@@ -203,6 +187,10 @@ export function ReferenceVideoCanvas({
   const units =
     useReferenceVideoStore((s) => s.unitsByEpisode[referenceVideoCacheKey(projectName, episode)]) ??
     (EMPTY_UNITS as ReferenceVideoUnit[]);
+  const unitCapabilities =
+    useReferenceVideoStore(
+      (s) => s.unitCapabilitiesByEpisode[referenceVideoCacheKey(projectName, episode)],
+    ) ?? EMPTY_CAPABILITIES;
   const selectedUnitId = useReferenceVideoStore((s) => s.selectedUnitId);
   const error = useReferenceVideoStore((s) => s.error);
   const loading = useReferenceVideoStore((s) => s.loading);
@@ -269,19 +257,18 @@ export function ReferenceVideoCanvas({
     ? (durationDrafts[selectedDurationKey] ?? String(selected?.duration_seconds ?? ""))
     : "";
 
-  // 参考图约束按 unit 而非按集生效（同 lib.script.reference_video.request_projection 的
-  // ReferenceUnitRequestProjector 按可用参考图定 r2v / i2v 的判据）：正文里解析不出已登记
-  // 引用的 unit 换用 i2v 桶模型自己的档位表，否则同集内其它 unit 带图会连带把它的可选档位
-  // 收窄到一个它本不受限的子集。该表未知（项目没配 i2v 桶）时为 undefined，控件降级为只读。
-  const selectedHasReference = useMemo(
-    () =>
-      selected
-        ? extractMentions(selected.text).some((name) => Boolean(mentionLookup[name]))
-        : false,
-    [selected, mentionLookup],
-  );
-  const effectiveDurationOptions = selectedHasReference ? durationOptions : durationOptionsNoReference;
-  const selectedDurationEndpointFixed = selectedHasReference ? durationEndpointFixed : durationEndpointFixedNoReference;
+  // 单元落哪个桶、可选哪些档位，由服务端按此刻可用的参考图逐单元判定（与执行侧
+  // ReferenceUnitRequestProjector 同一判据），随单元列表与写入响应到达；画布不按正文里
+  // 「名字已登记」自判——登记了资产却缺图的引用不算带图，执行会落 i2v，画布就按 i2v 取档。
+  // 结论尚未到达时控件降级为只读，不编造档位。
+  const selectedCapability = selected ? (unitCapabilities[selected.unit_id] ?? null) : null;
+  const effectiveDurationOptions = selectedCapability?.allowed_durations ?? undefined;
+  const selectedDurationEndpointFixed = selectedCapability?.duration_endpoint_fixed ?? false;
+  const selectedTierProblem =
+    selectedCapability?.problem != null
+      ? tierProblemText(t, selectedCapability.problem, selectedCapability.hydrated_capability)
+      : null;
+  const selectedSplit = selectedCapability != null && selectedCapability.problems.length > 0 ? selectedCapability : null;
 
   // selectedUnitId is a global singleton; validate against current episode's units.
   useEffect(() => {
@@ -587,10 +574,8 @@ export function ReferenceVideoCanvas({
     () => units.filter((u) => statusMap[u.unit_id] !== "ready"),
     [units, statusMap],
   );
-  const batchDurationEndpointFixed = batchTargets.some((unit) =>
-    extractMentions(unit.text).some((name) => Boolean(mentionLookup[name]))
-      ? durationEndpointFixed
-      : durationEndpointFixedNoReference,
+  const batchDurationEndpointFixed = batchTargets.some(
+    (unit) => unitCapabilities[unit.unit_id]?.duration_endpoint_fixed ?? false,
   );
 
   /**
@@ -1035,10 +1020,7 @@ export function ReferenceVideoCanvas({
               projectName={projectName}
               episode={episode}
               lookup={mentionLookup}
-              durationEndpointFixed={durationEndpointFixed}
-              durationEndpointFixedNoReference={durationEndpointFixedNoReference}
               videoModelUnresolved={videoModelUnresolved}
-              capabilitiesLoading={capabilitiesLoading}
               onOpenTimeline={() => setTab("units")}
             />
           </div>
@@ -1103,12 +1085,9 @@ export function ReferenceVideoCanvas({
                           }}
                           className="focus-ring w-14 bg-transparent font-mono tabular-nums text-[var(--color-text-2)] disabled:cursor-not-allowed disabled:opacity-60"
                         />
-                      ) : !selectedHasReference && durationNoReferenceProblem ? (
-                        <span
-                          className="text-amber-300"
-                          title={t("reference_no_image_unknown_hint", { code: durationNoReferenceProblem.code, reason: t(noImageReasonKey(durationNoReferenceProblem.code)) })}
-                        >
-                          {t("reference_no_image_unknown_label")}
+                      ) : selectedTierProblem ? (
+                        <span className="text-amber-300" title={selectedTierProblem.hint}>
+                          {selectedTierProblem.label}
                         </span>
                       ) : !selectedDurationEndpointFixed && effectiveDurationOptions && effectiveDurationOptions.length > 0 ? (
                         <select
@@ -1144,9 +1123,9 @@ export function ReferenceVideoCanvas({
                         </span>
                       )}
                     </span>
-                    {!selectedHasReference && durationNoReferenceProblem && (
+                    {selectedTierProblem && (
                       <span role="alert" className="text-[11px] text-amber-300">
-                        {t("reference_no_image_unknown_hint", { code: durationNoReferenceProblem.code, reason: t(noImageReasonKey(durationNoReferenceProblem.code)) })}
+                        {selectedTierProblem.hint}
                       </span>
                     )}
                     <span className="flex-1" />
@@ -1189,6 +1168,13 @@ export function ReferenceVideoCanvas({
                     <p role="alert" className="border-b border-amber-500/30 bg-amber-500/10 px-4 py-2 text-xs text-amber-300">
                       {t("reference_needs_replan")}
                     </p>
+                  )}
+
+                  {selectedSplit && (
+                    <ReferenceSplitAlert
+                      capability={selectedSplit}
+                      className="border-b border-red-500/30 bg-red-500/10 px-4 py-2 text-xs text-red-300"
+                    />
                   )}
 
                   {stackPreview && (

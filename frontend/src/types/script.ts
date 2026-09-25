@@ -5,7 +5,7 @@
  * - lib/script/script_models.py (NarrationSegment, DramaScene, ImagePrompt, VideoPrompt, etc.)
  */
 
-import type { ReferenceScriptPlanDraft, ScriptReviewQuarantine } from "./reference-video";
+import type { ReferenceScriptPlanDraft, ReferenceUnitCapabilityMap, ScriptReviewQuarantine } from "./reference-video";
 
 export const SHOT_TYPES = [
   "Extreme Close-up",
@@ -185,6 +185,8 @@ export interface ScriptReviewState {
     with_references: number[];
     without_references: number[] | null;
     without_references_problem?: { code: string; params: Record<string, unknown>; action: string } | null;
+    /** 逐 unit 的服务端定桶结论（按可用参考图），面板据此取档与判越档，不按已登记引用自判。 */
+    units: ReferenceUnitCapabilityMap;
   } | null;
   /**
    * 项目级「单集目标时长」偏好（秒），未设时 null。审核面板据它渲染「本集合计 / 目标」对比；

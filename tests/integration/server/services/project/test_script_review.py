@@ -992,7 +992,54 @@ class TestReferenceVideoGateFlow:
                 "params": {"capability": "i2v"},
                 "action": "configure_video_model",
             },
+            "units": {},
         }
+
+    async def test_reference_duration_tiers_report_each_plan_unit_bucket(
+        self, tmp_path, monkeypatch, set_video_request_facts
+    ):
+        """面板逐单元取档以服务端定桶为准：登记了角色却没有资产图的单元落 i2v，并点名不可用引用。"""
+        set_video_request_facts(
+            {
+                "i2v": make_video_request_facts(
+                    route="reference_video",
+                    generation_type="i2v",
+                    supported_durations=(5, 10),
+                    allowed_durations=(5, 10),
+                ),
+                "r2v": make_video_request_facts(
+                    route="reference_video",
+                    generation_type="r2v",
+                    supported_durations=(4, 6, 8),
+                    allowed_durations=(8,),
+                ),
+            }
+        )
+        _stub_video_caps(monkeypatch, [4, 6, 8])
+        pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
+        plan = _rv_script_plan()
+        plan["units"].append(
+            {"unit_id": "E1U02", "text": "空镜：雨停了。", "duration_seconds": 5, "source_text": "雨停了。"}
+        )
+
+        tiers = await _service(pm).get_reference_duration_tiers("demo", 1, plan["units"])
+
+        assert tiers is not None
+        units = tiers["units"]
+        assert set(units) == {"E1U01", "E1U02"}
+        assert (units["E1U01"]["declared_capability"], units["E1U01"]["hydrated_capability"]) == ("r2v", "i2v")
+        assert units["E1U01"]["unavailable_references"] == [
+            {"type": "character", "name": "阿离"},
+            {"type": "character", "name": "裴与"},
+        ]
+        assert units["E1U01"]["allowed_durations"] == [5, 10]
+        assert [problem["code"] for problem in units["E1U01"]["problems"]] == [
+            "reference_asset_missing",
+            "reference_capability_changed",
+        ]
+        assert units["E1U02"]["hydrated_capability"] == "i2v"
+        assert units["E1U02"]["allowed_durations"] == [5, 10]
+        assert units["E1U02"]["problems"] == []
 
     async def test_no_image_i2v_tier_is_available_in_review_state(self, tmp_path, db_factory, monkeypatch):
         from server.services.project import script_review as mod
@@ -1124,6 +1171,7 @@ class TestReferenceVideoGateFlow:
                 "params": {"capability": "i2v"},
                 "action": "configure_video_model",
             },
+            "units": {},
         }
 
 

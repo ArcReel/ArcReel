@@ -90,7 +90,7 @@ def reference_videos_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
 def test_list_units_empty(reference_videos_client: TestClient):
     resp = reference_videos_client.get("/api/v1/projects/demo/reference-videos/episodes/1/units")
     assert resp.status_code == 200
-    assert resp.json() == {"units": []}
+    assert resp.json() == {"units": [], "unit_capabilities": {}}
 
 
 def test_list_units_404_for_unknown_project(reference_videos_client: TestClient):
@@ -131,7 +131,8 @@ def test_add_unit_refuses_a_blank_body(reference_videos_client: TestClient):
     assert response.status_code == 409, response.text
     assert response.json()["detail"]["problems"][0]["code"] == "needs_replan"
     assert reference_videos_client.get("/api/v1/projects/demo/reference-videos/episodes/1/units").json() == {
-        "units": []
+        "units": [],
+        "unit_capabilities": {},
     }
 
 
@@ -211,7 +212,8 @@ def test_add_unit_atomically_rejects_mixed_speech(reference_videos_client: TestC
     assert response.status_code == 409
     assert response.json()["detail"]["problems"][0]["code"] == "mixed_speech"
     assert reference_videos_client.get("/api/v1/projects/demo/reference-videos/episodes/1/units").json() == {
-        "units": []
+        "units": [],
+        "unit_capabilities": {},
     }
 
 
@@ -2306,3 +2308,75 @@ def test_prompt_preview_binds_only_available_audio_from_projected_voice_capabili
     assert "暖色电影质感" in body["text"]
     assert ("@音频1" in body["text"]) is audio_exists
     assert any("音频当前不可用" in warning for warning in body["warnings"]) is not audio_exists
+
+
+def _bucket_facts() -> dict[str, Any]:
+    """两桶配置不同的视频请求事实：读侧逐单元档位必须随所落的桶变化。"""
+    return {
+        "i2v": make_video_request_facts(
+            route="reference_video", generation_type="i2v", supported_durations=(5, 10), allowed_durations=(5, 10)
+        ),
+        "r2v": make_video_request_facts(
+            route="reference_video", generation_type="r2v", supported_durations=(3, 6, 9), allowed_durations=(9,)
+        ),
+    }
+
+
+def _register_character_without_sheet(tmp_path: Path, name: str) -> None:
+    project_json = tmp_path / "projects" / "demo" / "project.json"
+    project = json.loads(project_json.read_text(encoding="utf-8"))
+    project["characters"][name] = {"description": "x"}
+    project_json.write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
+
+
+def test_list_units_reports_the_server_side_bucket_of_each_unit(
+    reference_videos_client: TestClient, tmp_path: Path, set_video_request_facts
+):
+    """画布按服务端逐单元结果取档：有可用图落 r2v，登记了却缺图的落 i2v 并点名不可用引用。"""
+    set_video_request_facts(_bucket_facts())
+    _register_character_without_sheet(tmp_path, "李四")
+    unit_ids = [
+        reference_videos_client.post(
+            "/api/v1/projects/demo/reference-videos/episodes/1/units",
+            json={"prompt": prompt, "duration_seconds": 3},
+        ).json()["unit"]["unit_id"]
+        for prompt in ("镜头1：@[张三] 推门", "镜头2：@[李四] 回头", "镜头3：空镜")
+    ]
+
+    body = reference_videos_client.get("/api/v1/projects/demo/reference-videos/episodes/1/units").json()
+
+    assert [unit["unit_id"] for unit in body["units"]] == unit_ids
+    with_image, missing_image, no_reference = (body["unit_capabilities"][unit_id] for unit_id in unit_ids)
+    assert (with_image["declared_capability"], with_image["hydrated_capability"]) == ("r2v", "r2v")
+    assert with_image["allowed_durations"] == [9]
+    assert with_image["problems"] == []
+    assert (missing_image["declared_capability"], missing_image["hydrated_capability"]) == ("r2v", "i2v")
+    assert missing_image["allowed_durations"] == [5, 10]
+    assert missing_image["unavailable_references"] == [{"type": "character", "name": "李四"}]
+    assert [problem["code"] for problem in missing_image["problems"]] == [
+        "reference_asset_missing",
+        "reference_capability_changed",
+    ]
+    assert (no_reference["declared_capability"], no_reference["hydrated_capability"]) == ("i2v", "i2v")
+    assert no_reference["allowed_durations"] == [5, 10]
+    assert no_reference["problem"] is None
+
+
+def test_unit_writes_return_the_refreshed_capability(reference_videos_client: TestClient, set_video_request_facts):
+    """新建与改正文的响应带回该单元的最新定桶结论，画布无需重拉列表即可换档位。"""
+    set_video_request_facts(_bucket_facts())
+    created = reference_videos_client.post(
+        "/api/v1/projects/demo/reference-videos/episodes/1/units",
+        json={"prompt": "镜头1：空镜", "duration_seconds": 5},
+    ).json()
+    assert created["unit_capability"]["hydrated_capability"] == "i2v"
+    assert created["unit_capability"]["allowed_durations"] == [5, 10]
+
+    patched = reference_videos_client.patch(
+        f"/api/v1/projects/demo/reference-videos/episodes/1/units/{created['unit']['unit_id']}",
+        json={"prompt": "镜头1：@[张三] 推门"},
+    ).json()
+
+    assert patched["unit"]["text"] == "镜头1：@[张三] 推门"
+    assert patched["unit_capability"]["hydrated_capability"] == "r2v"
+    assert patched["unit_capability"]["allowed_durations"] == [9]

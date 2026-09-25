@@ -6,6 +6,7 @@
  * execution time and never persisted or transported.
  */
 
+import type { DurationExclusionReason, VideoCapabilityProblem } from "./project";
 import type { RenderedPromptPreview, TransitionType } from "./script";
 import type {
   AdmissionProblem,
@@ -77,6 +78,40 @@ export interface ReferenceVideoUnit {
 export interface ReferenceRequestOptions {
   narration_delivery?: "post_production" | "use_tts";
 }
+
+/** 任务类型桶：无可用参考图落 i2v，有则落 r2v。 */
+export type ReferenceVideoBucket = "i2v" | "r2v";
+
+export interface ReferenceDeclaredResource {
+  type: string;
+  name: string;
+}
+
+/**
+ * 服务端对一个单元的定桶结论——镜像 lib/script/reference_video/unit_capabilities.py 的信封。
+ *
+ * 桶按**可用参考图**（水合后）判定，与执行侧同一判据；前端不按「名字已登记」自判。
+ * `problem` 是所落桶的视频请求事实失败；`problems` 是声明引用与可用参考图分裂的阻断问题
+ * （未登记 / 缺图 / 桶改变），`unavailable_references` 点名缺图的引用。
+ */
+export interface ReferenceUnitCapability {
+  unit_id: string;
+  declared_capability: ReferenceVideoBucket;
+  hydrated_capability: ReferenceVideoBucket;
+  declared_references: ReferenceDeclaredResource[];
+  unavailable_references: ReferenceDeclaredResource[];
+  unregistered_references: string[];
+  /** 所落桶收窄后的档位；事实失败时为 null。端点固定时为合法空集。 */
+  allowed_durations: number[] | null;
+  excluded_durations: Record<string, DurationExclusionReason> | null;
+  duration_endpoint_fixed: boolean;
+  duration_endpoint_fixed_reason: string | null;
+  problem: VideoCapabilityProblem | null;
+  problems: ReferenceProjectionProblem[];
+}
+
+/** 按 `unit_id` 索引的逐单元结论。 */
+export type ReferenceUnitCapabilityMap = Record<string, ReferenceUnitCapability>;
 
 export interface ReferenceGenerationRequestOptions extends ReferenceRequestOptions {
   /** Exact video tier accepted for this request; omitted when no cross-tier confirmation is needed. */

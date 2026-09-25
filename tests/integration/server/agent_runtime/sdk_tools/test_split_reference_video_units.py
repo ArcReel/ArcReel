@@ -12,6 +12,7 @@ from server.agent_runtime.sdk_tools.text_generation import (
     generate_script_plan_tool,
 )
 from server.media_tools.context import ToolContext
+from server.services.tasks.video_caps import reference_request_facts_lookup
 from tests.factories import make_video_request_facts, seed_endpoint_fixed_video_model
 from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
     _RV_NOVEL,
@@ -150,7 +151,10 @@ async def test_reference_unit_duration_tiers_reports_empty_intersection(monkeypa
 
     project = {"model_settings": {f"{provider_id}/{model_id}": {"resolution": "1080p"}}}
     with_refs, without_refs = await reference_unit_duration_tiers(
-        project, {"provider_id": provider_id, "model": model_id}, [4, 6, 8]
+        project,
+        {"provider_id": provider_id, "model": model_id},
+        [4, 6, 8],
+        request_facts=reference_request_facts_lookup(project),
     )
 
     assert with_refs == []
@@ -170,7 +174,7 @@ async def test_reference_unit_duration_tiers_without_refs_follow_i2v_bucket(set_
     from server.services.tasks.video_caps import reference_unit_duration_tiers
 
     with_refs, without_refs = await reference_unit_duration_tiers(
-        {}, {"provider_id": "minimax", "model": "S2V-01"}, [6, 10]
+        {}, {"provider_id": "minimax", "model": "S2V-01"}, [6, 10], request_facts=reference_request_facts_lookup({})
     )
 
     assert with_refs == [6, 10]
@@ -188,7 +192,7 @@ async def test_reference_unit_duration_tiers_reports_unavailable_i2v_instead_of_
         project,
         {"provider_id": "minimax", "model": "S2V-01"},
         [6, 10],
-        config_resolver=ConfigResolver(db_factory),
+        request_facts=reference_request_facts_lookup(project, ConfigResolver(db_factory)),
     )
 
     assert with_refs == [6, 10]

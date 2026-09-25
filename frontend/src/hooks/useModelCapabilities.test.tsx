@@ -47,18 +47,11 @@ afterEach(() => {
 });
 
 describe("useModelCapabilities 时长维度", () => {
-  it.each([
-    { fixed: true, withoutFixed: false },
-    { fixed: false, withoutFixed: true },
-  ])("reads independent endpoint-fixed flags for both buckets", async ({ fixed, withoutFixed }) => {
-    vi.spyOn(API, "getVideoCapabilities").mockResolvedValue(caps({
-      duration_endpoint_fixed: fixed,
-      duration_constraints: constraints({ without_reference_duration_endpoint_fixed: withoutFixed }),
-    }));
+  it.each([true, false])("reads the endpoint-fixed flag from the server (%s)", async (fixed) => {
+    vi.spyOn(API, "getVideoCapabilities").mockResolvedValue(caps({ duration_endpoint_fixed: fixed }));
     const { result } = renderHook(() => useModelCapabilities({ projectName: PROJECT }));
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(result.current.durationEndpointFixed).toBe(fixed);
-    expect(result.current.durationEndpointFixedWithoutReference).toBe(withoutFixed);
   });
 
   it("全集与收窄结果都取服务端值，全集按升序整理", async () => {
@@ -78,24 +71,6 @@ describe("useModelCapabilities 时长维度", () => {
     expect(result.current.rawDurations).toEqual([4, 6, 8]);
     expect(result.current.excludedDurations).toEqual({ "4": "resolution", "6": "resolution" });
     expect(result.current.resolvedVideoBackend).toBe("gemini/veo-3");
-  });
-
-  it("参考生视频画布用的无参考图档位同样来自服务端", async () => {
-    vi.spyOn(API, "getVideoCapabilities").mockResolvedValue(
-      caps({
-        duration_constraints: constraints({
-          uses_reference_images: true,
-          allowed: [8],
-          allowed_without_reference_images: [4, 6, 8],
-          excluded: { "4": "reference", "6": "reference" },
-        }),
-      }),
-    );
-    const { result } = renderHook(() =>
-      useModelCapabilities({ projectName: PROJECT, videoBackend: BACKEND }),
-    );
-    await waitFor(() => expect(result.current.supportedDurations).toEqual([8]));
-    expect(result.current.supportedDurationsWithoutReference).toEqual([4, 6, 8]);
   });
 
   it("查询未落地 / 失败时时长为未知（null），不谎报成空集合", async () => {

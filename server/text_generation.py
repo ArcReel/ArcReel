@@ -88,6 +88,7 @@ from lib.speech.speech_composition import admit_script_unit
 from lib.speech.speech_rate import project_speech_rate_override
 from server.services.tasks.video_caps import (
     constrained_caps_durations,
+    reference_request_facts_lookup,
     reference_unit_duration_tiers,
     resolve_video_caps,
 )
@@ -817,7 +818,7 @@ async def _fetch_reference_caps_with_fallback(
         project,
         caps,
         durations,
-        config_resolver=config_resolver,
+        request_facts=reference_request_facts_lookup(project, config_resolver),
     )
     # 时长由端点固定的桶没有档位可借（合法空集），但拆分仍要有篇幅依据：这里借与分镜路线同一份
     # 规划档位。借用只发生在规划内部——界面与 Agent 载荷拿到的仍是空集加端点固定标志。

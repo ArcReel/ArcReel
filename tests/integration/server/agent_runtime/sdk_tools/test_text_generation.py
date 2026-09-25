@@ -81,6 +81,7 @@ async def test_get_video_capabilities_annotates_reference_unit_tiers(
             "params": {"capability": "i2v"},
             "action": "configure_video_model",
         },
+        "units": {},
     }
     assert "allowed_without_reference_images" not in payload.get("duration_constraints", {})
     # 全集原样保留：它是型号声明，不是生效档位
@@ -116,6 +117,7 @@ async def test_get_video_capabilities_has_one_successful_no_image_channel(
         "without_references_endpoint_fixed_reason": None,
         "excluded": {},
         "problem": None,
+        "units": {},
     }
     assert "allowed_without_reference_images" not in payload["duration_constraints"]
 
@@ -1116,3 +1118,51 @@ async def test_generate_episode_script_forwards_instructions(fake_ctx: ToolConte
     out = await call(tool_obj, {"episode": 1, "instructions": "偏好特写镜头"})
     assert out.get("is_error") is not True, out
     assert captured["generate"] == "偏好特写镜头"
+
+
+async def test_get_video_capabilities_annotates_each_formal_unit(
+    fake_ctx: ToolContext, set_video_request_facts
+) -> None:
+    """Agent 的逐单元标注取服务端按可用参考图定桶的同一份结果：登记了角色却缺图的单元落 i2v。"""
+    set_video_request_facts(
+        {
+            "i2v": make_video_request_facts(
+                route="reference_video", generation_type="i2v", supported_durations=(5, 10), allowed_durations=(5, 10)
+            ),
+            "r2v": make_video_request_facts(
+                route="reference_video", generation_type="r2v", supported_durations=(4, 6, 8), allowed_durations=(8,)
+            ),
+        }
+    )
+    fake_ctx.pm.project_payload["generation_mode"] = "reference_video"
+    fake_ctx.pm.script_payload = {
+        "episode": 1,
+        "content_mode": "narration",
+        "generation_mode": "reference_video",
+        "video_units": [
+            {"unit_id": "E1U1", "text": "镜头1：@[张三] 推门", "duration_seconds": 8},
+            {"unit_id": "E1U2", "text": "镜头2：空镜", "duration_seconds": 8},
+        ],
+    }
+    use_fake_caps(
+        fake_ctx,
+        provider_id="gemini-aistudio",
+        model="veo-3.1-generate-preview",
+        supported_durations=[4, 6, 8],
+        generation_mode="reference_video",
+    )
+
+    out = await call(get_video_capabilities_tool(fake_ctx), {})
+
+    assert out.get("is_error") is not True, out
+    units = json.loads(out["content"][0]["text"])["video_capabilities"]["reference_unit_durations"]["units"]
+    assert set(units) == {"E1U1", "E1U2"}
+    assert (units["E1U1"]["declared_capability"], units["E1U1"]["hydrated_capability"]) == ("r2v", "i2v")
+    assert units["E1U1"]["unavailable_references"] == [{"type": "character", "name": "张三"}]
+    assert [problem["code"] for problem in units["E1U1"]["problems"]] == [
+        "reference_asset_missing",
+        "reference_capability_changed",
+    ]
+    assert units["E1U1"]["allowed_durations"] == [5, 10]
+    assert units["E1U2"]["hydrated_capability"] == "i2v"
+    assert units["E1U2"]["problems"] == []

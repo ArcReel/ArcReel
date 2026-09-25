@@ -334,3 +334,38 @@ def make_video_request_facts(**overrides: Any):
     }
     fields.update(overrides)
     return VideoRequestFacts(**fields)
+
+
+def activate_reference_project(project_dir: Path, project: dict[str, Any]) -> dict[str, Any]:
+    """把 v7 形态的参考生视频项目写盘并迁到当前 schema，返回迁移后的项目字典。
+
+    迁移时已登记路径、带 ``description`` 且文件在盘上的资产图由补录认领进产物清单；此后再登记的
+    资产图即使文件在盘上，清单也不认领它。``project`` 的键覆盖缺省骨架；``scripts/episode_1.json`` 不存在时写一份空单元剧本。
+    """
+    import json
+
+    from lib.project.project_migrations.runner import migrate_project_dir
+    from lib.project.project_migrations.v7_to_v8_artifact_manifest import migrate_v7_to_v8
+
+    payload: dict[str, Any] = {
+        "schema_version": 7,
+        "title": "T",
+        "content_mode": "narration",
+        "generation_mode": "reference_video",
+        "characters": {},
+        "scenes": {},
+        "props": {},
+        "episodes": [{"episode": 1, "title": "E1", "script_file": "scripts/episode_1.json"}],
+        **project,
+    }
+    (project_dir / "scripts").mkdir(parents=True, exist_ok=True)
+    (project_dir / "project.json").write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    script_file = project_dir / "scripts" / "episode_1.json"
+    if not script_file.exists():
+        script_file.write_text(
+            json.dumps({"episode": 1, "generation_mode": "reference_video", "video_units": []}, ensure_ascii=False),
+            encoding="utf-8",
+        )
+    migrate_v7_to_v8(project_dir)
+    migrate_project_dir(project_dir)
+    return json.loads((project_dir / "project.json").read_text(encoding="utf-8"))

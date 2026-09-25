@@ -130,6 +130,10 @@ class VideoRequestFactsFailure:
     def parameters(self) -> dict[str, object]:
         return dict(self.params)
 
+    def problem_payload(self) -> dict[str, object]:
+        """读侧问题信封：问题码、渲染参数与修复指引，Web 与 Agent 载荷同形。"""
+        return {"code": self.code, "params": self.parameters(), "action": self.action}
+
 
 class VideoRequestFactsError(ValueError):
     """消费方在需要成功事实的阶段拿到失败时抛出；``code`` / ``params`` 可直接进结构化错误与失败编码。"""
