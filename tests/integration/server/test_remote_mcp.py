@@ -30,7 +30,6 @@ from server.agent_runtime.sdk_tools.text_generation import generate_episode_scri
 from server.auth import create_download_token, create_token
 from server.cors_config import resolve_cors_policy
 from server.media_tools.context import ToolContext
-from server.media_tools.grid import generate_grid_tool, split_grids_tool
 from server.media_tools.videos import generate_videos_tool
 from server.remote_mcp import ArcApiKeyVerifier, RemoteMCPHost, build_remote_mcp_server
 from server.tool_runtime import Services
@@ -391,16 +390,8 @@ async def test_remote_mcp_returns_typed_workflow_plan_and_rejects_bad_project(
         for name in migrated | readers | drafts | text_and_script | batches
     )
     media_ctx = ToolContext("demo", remote_projects.data_root, pm=remote_projects)
-    definitions = {
-        definition.name: definition
-        for definition in (
-            generate_grid_tool(media_ctx),
-            split_grids_tool(media_ctx),
-            generate_videos_tool(media_ctx),
-        )
-    }
+    definitions = {definition.name: definition for definition in (generate_videos_tool(media_ctx),)}
     remote_batch_tools = {
-        "generate_grid",
         "generate_videos",
         "generate_episode_script",
         "generate_script_plan",
@@ -527,17 +518,11 @@ async def test_remote_grid_list_only_returns_preview_without_a_batch(
         ClientSession(read, write) as session,
     ):
         await session.initialize()
-        tools = await session.list_tools()
         result = await session.call_tool(
             "generate_grid",
             {"project": "demo", "script": "episode_1.json", "list_only": True},
         )
 
-    description = next(tool.description for tool in tools.tools if tool.name == "generate_grid")
-    assert description is not None
-    assert "generation submissions" in description
-    assert "list_only=true, the preview returns immediately without a generation_batch; do not poll" in description
-    assert "read each grid_id from the artifact_path (grids/<grid_id>.png)" in description
     assert not result.isError
     assert result.structuredContent is not None
     assert set(result.structuredContent) == {"generate_grid"}

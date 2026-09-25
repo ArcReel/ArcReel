@@ -20,7 +20,6 @@ from claude_agent_sdk import create_sdk_mcp_server
 from lib.db.base import DEFAULT_USER_ID
 from lib.generation.generation_queue_client import batch_enqueue_and_wait
 from server.agent_runtime.sdk_tools.asset_inventory import complete_asset_inventory_tool
-from server.agent_runtime.sdk_tools.enqueue_grid import generate_grid_tool, split_grids_tool
 from server.agent_runtime.sdk_tools.enqueue_videos import generate_videos_tool
 from server.agent_runtime.sdk_tools.episode_planning import (
     plan_episodes_tool,
@@ -57,8 +56,6 @@ __all__ = ["ARCREEL_MCP_TOOL_IDS", "ToolContext", "build_arcreel_mcp_server"]
 _FACTORY_TOOL_IDS: tuple[str, ...] = (
     "complete_asset_inventory",
     "complete_script_plan_rebuild",
-    "generate_grid",
-    "split_grids",
     "generate_videos",
     "generate_episode_script",
     "generate_script_plan",
@@ -88,8 +85,6 @@ _FACTORY_MIGRATION_BLOCKED_TOOL_IDS: frozenset[str] = frozenset(
     {
         "complete_asset_inventory",
         "complete_script_plan_rebuild",
-        "generate_grid",
-        "split_grids",
         "generate_videos",
         "generate_episode_script",
         "generate_script_plan",
@@ -136,8 +131,6 @@ def build_arcreel_mcp_server(*, project_name: str, data_root: Path, user_id: str
     tools = [
         complete_asset_inventory_tool(ctx),
         complete_script_plan_rebuild_tool(ctx),
-        generate_grid_tool(ctx),
-        split_grids_tool(ctx),
         generate_videos_tool(ctx),
         generate_episode_script_tool(ctx),
         generate_script_plan_tool(ctx),
