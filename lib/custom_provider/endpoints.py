@@ -25,6 +25,7 @@ from lib.backends.image_backends.gemini import GeminiImageBackend
 from lib.backends.image_backends.kling import KlingImageBackend
 from lib.backends.image_backends.minimax import MiniMaxImageBackend
 from lib.backends.image_backends.openai import OpenAIImageBackend
+from lib.backends.image_backends.openrouter import OpenRouterImageBackend
 from lib.backends.text_backends.gemini import GeminiTextBackend
 from lib.backends.text_backends.openai import OpenAITextBackend
 from lib.backends.video_backend_contract import ReferenceAudioMode, VideoCapabilities
@@ -255,6 +256,16 @@ def _build_openai_images_edits(provider, model_id: str) -> CustomImageBackend:
     return CustomImageBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
 
 
+def _build_openrouter_images(provider, model_id: str) -> CustomImageBackend:
+    """OpenRouter 统一 /images 端点（T2I + I2I）。
+
+    OpenRouter 不提供 /images/edits（实测 404），I2I 与 T2I 同 hit 一个 JSON 端点；
+    base_url 已含 /api/v1，不做 ensure_openai_base_url 的 /v1 追加。
+    """
+    delegate = OpenRouterImageBackend(api_key=provider.api_key, base_url=provider.base_url, model=model_id)
+    return CustomImageBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
+
+
 def _build_gemini_image(provider, model_id: str) -> CustomImageBackend:
     base_url = ensure_google_base_url(provider.base_url) or None
     delegate = GeminiImageBackend(api_key=provider.api_key, base_url=base_url, image_model=model_id)
@@ -392,6 +403,17 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         request_path_template="/v1/images/edits",
         image_capabilities=frozenset({ImageCapability.IMAGE_TO_IMAGE}),
         build_backend=_build_openai_images_edits,
+    ),
+    "openrouter-images": EndpointSpec(
+        key="openrouter-images",
+        media_type="image",
+        family="openrouter",
+        display_name_key="endpoint_openrouter_images_display",
+        request_method="POST",
+        # OpenRouter 统一图片端点：T2I 与 I2I 同 hit /images（不提供 /images/edits）
+        request_path_template="/images",
+        image_capabilities=frozenset({ImageCapability.TEXT_TO_IMAGE, ImageCapability.IMAGE_TO_IMAGE}),
+        build_backend=_build_openrouter_images,
     ),
     "gemini-image": EndpointSpec(
         key="gemini-image",
