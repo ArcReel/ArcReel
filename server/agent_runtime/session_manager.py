@@ -378,8 +378,7 @@ class SessionManager:
         else:
             self._agent_profile_root = (self._project_root_resolved / "agent_runtime_profile").resolve(strict=False)
         # 访问规则真相源：env 解析（profile / 日志目录）在此完成，policy 只消费
-        # resolve 后的进程级根路径（零 I/O 纯构造）。日志目录取数据根布局给出的真实
-        # 路径，覆盖 ``ARCREEL_LOG_DIR`` 自定义场景——无论落在 repo 内还是外都必须 deny。
+        # resolve 后的进程级根路径（零 I/O 纯构造）。日志目录取数据根布局给出的位置，整目录 deny。
         self.access_policy = AgentAccessPolicy(
             project_root=self._project_root_resolved,
             data_root=self.data_root,

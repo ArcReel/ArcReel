@@ -4,7 +4,7 @@
 代码中其它地方不自行拼接数据根下的条目，也不从项目目录反推数据根，一律经
 :class:`DataRootLayout` 取位置（ADR 0088）。
 
-当前布局下项目目录就是数据根；日志与 Vertex 凭证尚在数据根之外。
+当前布局下项目目录就是数据根；Vertex 凭证尚在数据根之外。
 
 「什么是项目」只由 :func:`list_project_dirs` 回答：项目目录下名字符合项目名规则、并且
 带 ``project.json`` 的目录。数据根里的其它条目一概不是项目。
@@ -14,14 +14,12 @@
 
 from __future__ import annotations
 
-import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
 
 from lib.agent.agent_memory_paths import MEMORY_DIRNAME, is_valid_memory_user_id
 from lib.infra.app_data_dir import app_data_dir
-from lib.infra.env_init import PROJECT_ROOT
 
 PROJECT_NAME_PATTERN = re.compile(r"^[A-Za-z0-9-]+$")
 PROJECT_FILENAME = "project.json"
@@ -96,12 +94,8 @@ class DataRootLayout:
 
     @property
     def log_dir(self) -> Path:
-        """日志目录：``ARCREEL_LOG_DIR``（相对路径基于代码目录）> ``<代码目录>/logs``。"""
-        raw = os.environ.get("ARCREEL_LOG_DIR", "").strip()
-        if raw:
-            path = Path(raw)
-            return path if path.is_absolute() else PROJECT_ROOT / path
-        return PROJECT_ROOT / "logs"
+        """文件日志目录。"""
+        return self.root / "logs"
 
     @property
     def vertex_keys_dir(self) -> Path:
