@@ -15,14 +15,11 @@ from mcp.server.transport_security import TransportSecuritySettings
 from pydantic import AnyHttpUrl
 from starlette.types import Receive, Scope, Send
 
-from lib.config.resolver import ConfigResolver
-from lib.db import async_session_factory
 from lib.project.project_manager import ProjectManager, get_project_manager
 from lib.script.source_loader import SourceLoader
 from server.agent_toolset.remote import remote_tools
 from server.agent_toolset.toolset import AGENT_TOOLSET
 from server.auth import API_KEY_PREFIX, _verify_api_key
-from server.services.project import workflow_planner
 from server.tool_runtime import Services
 
 # One decoded control byte may occupy six JSON bytes (``\u00XX``); leave 1 MiB for the MCP envelope.
@@ -44,14 +41,6 @@ class ArcApiKeyVerifier(TokenVerifier):
         return AccessToken(token=token, client_id=payload["sub"], scopes=["arcreel"])
 
 
-def _default_services(projects: ProjectManager) -> Services:
-    return Services(
-        projects=projects,
-        workflow_planner=workflow_planner.get_workflow_planner(projects),
-        capabilities=ConfigResolver(async_session_factory),
-    )
-
-
 def build_remote_mcp_server(
     *,
     projects: ProjectManager | None = None,
@@ -65,7 +54,7 @@ def build_remote_mcp_server(
         projects = services.projects
     else:
         projects = projects or get_project_manager()
-        services = _default_services(projects)
+        services = Services.defaults(projects)
 
     # MCP_PUBLIC_URL 只喂 RFC 9728 protected-resource metadata 与 401 challenge：ArcReel 只认
     # 静态 arc- API Key，ArcApiKeyVerifier 返回的 AccessToken 不带 resource，不参与任何校验。

@@ -220,6 +220,15 @@ class Services:
     queue: GenerationQueue = field(default_factory=get_generation_queue)
     tts_settings_resolver: TtsSettingsResolver | None = None
 
+    @classmethod
+    def defaults(cls, projects: ProjectManager) -> Services:
+        """生产缺省协作者：该项目管理器的工作流规划器、读数据库的配置解析器与全局生成队列。"""
+        return cls(
+            projects=projects,
+            workflow_planner=WorkflowPlanner(projects),
+            capabilities=ConfigResolver(async_session_factory),
+        )
+
 
 @dataclass(frozen=True, slots=True)
 class ToolProblem:
@@ -2168,12 +2177,7 @@ async def execute_queued_text_task(
         scope, services = registered
     else:
         scope = ProjectScope(project_name=str(task["project_name"]), data_root=DataRootLayout.current().root)
-        projects = ProjectManager(scope.data_root)
-        services = Services(
-            projects=projects,
-            workflow_planner=WorkflowPlanner(projects),
-            capabilities=ConfigResolver(async_session_factory),
-        )
+        services = Services.defaults(ProjectManager(scope.data_root))
     task_type = task["task_type"]
     if task_type == _TEXT_EPISODE_PLAN:
         outcome = await _execute_plan_episodes(
