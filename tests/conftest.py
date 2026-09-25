@@ -94,7 +94,6 @@ def set_video_request_facts(
     from lib.script import script_generator
     from lib.script.reference_video import request_projection
     from server.services.admission import cost_estimation
-    from server.services.project import script_review
     from server.services.tasks import video_caps
 
     def configure(facts: VideoRequestFactsResult | Mapping[str, VideoRequestFactsResult]) -> None:
@@ -107,7 +106,7 @@ def set_video_request_facts(
             fake = AsyncMock(side_effect=evaluate)
         else:
             fake = AsyncMock(return_value=facts)
-        for consumer in (script_generator, request_projection, cost_estimation, script_review, video_caps):
+        for consumer in (script_generator, request_projection, cost_estimation, video_caps):
             monkeypatch.setattr(consumer, "evaluate_video_request_facts", fake)
 
     return configure

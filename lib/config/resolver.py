@@ -312,11 +312,10 @@ def caps_generation_mode(project: dict | None) -> str | None:
 def project_video_backend_ids(project: dict) -> tuple[str, str] | None:
     """project.json 自报的视频模型身份：按 generation_mode 定桶取桶键，缺则取项目默认键。
 
-    纯读 project.json、不查 DB，供 caps 解析失败（DB / migration 故障等）时的降级路径复用：
-    桶键与默认键都在同一个明文文件里，降级只该丢掉 DB 那部分，不该顺带把桶口径也降成项目
-    默认层——否则配了 ``video_provider_r2v`` 的参考生视频项目会拿 ``video_backend`` 的档位与
-    参考图上限写剧本。层内取值口径与 ``_resolve_layered_backend`` 的项目层一致（含裸供应商
-    覆盖）。
+    纯读 project.json、不查 DB，供没有配置库会话的同步路径（归档导入按自报身份查 registry 档位）
+    使用：桶键与默认键都在同一个明文文件里，不该把桶口径降成项目默认层——否则配了
+    ``video_provider_r2v`` 的参考生视频项目会拿 ``video_backend`` 的档位取档。层内取值口径与
+    ``_resolve_layered_backend`` 的项目层一致（含裸供应商覆盖）。
     """
     keys = _VIDEO_LAYERED_KEYS[video_bucket_for_generation_mode(project.get("generation_mode"))]
     for key in (keys.project_bucket_key, keys.project_default_key):
@@ -532,19 +531,6 @@ def constrain_durations(
     return allowed
 
 
-def _resolution_for_constraints(project: dict, provider_id: str | None, model_id: str | None) -> str | None:
-    """约束求值用的分辨率：项目为该模型已保存的档位，未设置即 None（不施加分辨率约束）。
-
-    联动约束按执行期真正下发给供应商的档位求值；两条视频路线在未设分辨率时都不下发该参数
-    （``docs/adr/0019``、``docs/adr/0086``），供应商按自己的默认档位处理，故约束同样不施加。
-    自定义供应商的 DB 默认档位不在此解析：该类供应商不声明联动约束，解析出来也不改变结果，
-    不值得为此把纯函数变成 async。
-    """
-    if not provider_id or not model_id:
-        return None
-    return _resolution_from_project(project, provider_id, model_id)
-
-
 #: 时长被联动约束剔除的成因：``resolution`` = 当前分辨率下不可用，``reference`` = 参考图路径下不可用。
 #: 「型号全集就不含」不在此列——那不是收窄，消费方按不在 ``supported_durations`` 内判定。
 DurationExclusionReason = Literal["resolution", "reference"]
@@ -599,14 +585,6 @@ def duration_constraints_report(
     }
 
 
-#: 时长这一维由端点固定的模型行，在剧本规划里借用的档位。
-#:
-#: 这不是「这个模型支持几秒」——那一维不由 ArcReel 驱动，成片多长以 workflow 为准。它只是剧本
-#: 规划需要的「一个分镜大概多长」的篇幅依据：没有它，分镜拆不出来，整条规划链就断在
-#: :func:`resolve_raw_supported_durations` 返回 None 上。取值与 ``duration_presets`` 的无信息兜底
-#: 同为 ``[4, 8]``，但不从那里 import——``lib.config`` 按分层契约够不到 ``lib.custom_provider``。
-ENDPOINT_FIXED_PLANNING_DURATIONS: list[int] = [4, 8]
-
 #: 端点固定标志的成因值：能力载荷里 ``*_endpoint_fixed_reason`` 的唯一取值，标志为假时成因为 None。
 DURATION_ENDPOINT_FIXED_REASON = "endpoint"
 
@@ -614,65 +592,6 @@ DURATION_ENDPOINT_FIXED_REASON = "endpoint"
 def duration_endpoint_fixed_reason(fixed: bool) -> str | None:
     """端点固定标志对应的成因：标志为真给 :data:`DURATION_ENDPOINT_FIXED_REASON`，否则 None。"""
     return DURATION_ENDPOINT_FIXED_REASON if fixed else None
-
-
-def resolve_raw_supported_durations(project: dict, caps: dict | None = None) -> list[int] | None:
-    """收窄前的时长全集：caps → registry 两级解析。
-
-    两级都取不到时返回 None，表示「该项目尚未配置可解析的视频型号」。``caps`` 是自定义供应商
-    （``custom-`` 前缀）唯一的档位来源——registry 只收录内建供应商，故能 await 的调用方都应
-    先解析 caps 再调本函数，不带 caps 调用对这类项目恒为 None。本函数本身保持同步，供仍在
-    同步路径上的调用方（归档导入）复用同一份 registry 解析。
-
-    档位是空集且 caps 报了 ``duration_endpoint_fixed`` 时不走 registry、也不返回 None，而是给出
-    :data:`ENDPOINT_FIXED_PLANNING_DURATIONS`：那种模型行的时长不由 ArcReel 驱动（ComfyUI 的
-    workflow 自己决定出多长），但剧本规划仍要有个篇幅依据，否则整条规划链会以「型号配置不全」
-    的名义断掉——而那份配置其实是完整的。界面侧不受影响：能力查询回的 ``supported_durations``
-    与 ``duration_constraints.allowed`` 仍是空集，时长控件照常禁用。
-
-    registry 级的项目自报身份按 generation_mode 定桶取（``project_video_backend_ids``），不直取
-    项目默认层——降级掉的只是 DB，桶键就在同一个 project.json 里。
-
-    返回值不含「分辨率↔时长」「参考图↔时长」联动约束，收窄见 ``constrain_durations_for_project``。
-    """
-    if caps and caps.get("supported_durations"):
-        return list(caps["supported_durations"])
-    if caps and caps.get("duration_endpoint_fixed"):
-        return list(ENDPOINT_FIXED_PLANNING_DURATIONS)
-    ids = project_video_backend_ids(project)
-    if ids is not None:
-        provider_meta = PROVIDER_REGISTRY.get(ids[0])
-        if provider_meta:
-            model_info = provider_meta.models.get(ids[1])
-            if model_info and model_info.supported_durations:
-                return list(model_info.supported_durations)
-    return None
-
-
-def constrain_durations_for_project(
-    project: dict,
-    durations: list[int],
-    *,
-    provider_id: str | None,
-    model_id: str | None,
-    generation_mode: str | None,
-    uses_reference_images: bool | None = None,
-) -> list[int]:
-    """按项目当前配置收窄时长候选：分辨率取生效档位，参考图约束按是否真的带参考图判定。
-
-    ``uses_reference_images`` 缺省时退回「生成模式即参考生视频」的近似判定。调用方能看到
-    实际的参考图情况时应显式传入：参考生视频路径允许单元不带任何引用，执行层与调用通道都只在
-    ``reference_images`` 非空时施加该约束，按模式一刀切会把无引用单元本可申请的档位也收掉。
-    """
-    return constrain_durations(
-        provider_id,
-        model_id,
-        durations,
-        resolution=_resolution_for_constraints(project, provider_id, model_id),
-        uses_reference_images=(
-            generation_mode == "reference_video" if uses_reference_images is None else uses_reference_images
-        ),
-    )
 
 
 class VisionCapabilityError(ValueError):

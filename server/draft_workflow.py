@@ -15,6 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from lib.artifacts.artifact_manifest import ArtifactBasis
 from lib.config.resolver import ConfigResolver
 from lib.episode.episode_paths import SCRIPT_PLAN_FILENAMES, episode_drafts_dir, episode_script_filename
+from lib.generation.video_request_facts import VideoRequestFactsError
 from lib.infra.async_thread import run_sync_transaction
 from lib.infra.json_io import atomic_write_json, load_json_or_none
 from lib.project.project_manager import ProjectManager, ScriptWriteConflict
@@ -56,8 +57,7 @@ from server.text_generation import (
     _commit_single_script_plan,
     _coverage_source_scope,
     _drama_script_plan_result_text,
-    _fetch_caps_with_fallback,
-    _fetch_reference_caps_with_fallback,
+    _fetch_reference_split_caps,
     _load_novel_source,
     _load_script_plan_source_with_basis,
     _narration_script_plan_path,
@@ -65,6 +65,8 @@ from server.text_generation import (
     _reference_result_text,
     _reference_soft_violation_lines,
     _uses_reference_video_units,
+    _video_facts_failure_text,
+    fetch_storyboard_durations,
     render_soft_violation_section,
 )
 
@@ -184,14 +186,7 @@ async def revalidate_reference_script_plan_draft(
         episode,
         "reference_video",
     )
-    if config_resolver is None:
-        split_caps = await _fetch_reference_caps_with_fallback(project, episode)
-    else:
-        split_caps = await _fetch_reference_caps_with_fallback(
-            project,
-            episode,
-            config_resolver=config_resolver,
-        )
+    split_caps = await _fetch_reference_split_caps(project, config_resolver=config_resolver)
 
     # 修改过的草稿先过产出时那份 schema：拆分侧由 response_schema 与 _parse_script_plan_json 卡住时长
     # 枚举与字段非空，晋升侧漏掉这一层的话，把 duration_seconds 改成非档位值、或整个删掉（收成
@@ -373,6 +368,8 @@ async def _promote_reference_script_plan(
             draft,
             config_resolver=ctx.config_resolver,
         )
+    except VideoRequestFactsError as exc:
+        raise DraftWorkflowError("draft_invalid", _video_facts_failure_text(exc.failure)) from exc
     except ValueError as exc:
         raise DraftWorkflowError("draft_invalid", f"❌ {exc}") from exc
     violations, flat_units, split_caps = revalidation.violations, revalidation.flat_units, revalidation.caps
@@ -601,14 +598,7 @@ async def revalidate_drama_script_plan_draft(
         episode,
         "drama",
     )
-    if config_resolver is None:
-        _default_duration, supported_durations = await _fetch_caps_with_fallback(project, episode)
-    else:
-        _default_duration, supported_durations = await _fetch_caps_with_fallback(
-            project,
-            episode,
-            config_resolver=config_resolver,
-        )
+    _default_duration, supported_durations = await fetch_storyboard_durations(project, config_resolver=config_resolver)
     schema = build_drama_normalized_script_model(supported_durations)
     try:
         content = schema.model_validate(draft.content).model_dump()
@@ -652,6 +642,8 @@ async def _promote_drama_script_plan(
             draft,
             config_resolver=ctx.config_resolver,
         )
+    except VideoRequestFactsError as exc:
+        raise DraftWorkflowError("draft_invalid", _video_facts_failure_text(exc.failure)) from exc
     except ValueError as exc:
         raise DraftWorkflowError("draft_invalid", f"❌ {exc}") from exc
 
@@ -778,14 +770,7 @@ async def revalidate_narration_script_plan_draft(
         episode,
         "narration",
     )
-    if config_resolver is None:
-        _default_duration, supported_durations = await _fetch_caps_with_fallback(project, episode)
-    else:
-        _default_duration, supported_durations = await _fetch_caps_with_fallback(
-            project,
-            episode,
-            config_resolver=config_resolver,
-        )
+    _default_duration, supported_durations = await fetch_storyboard_durations(project, config_resolver=config_resolver)
 
     # 修改过的草稿先过产出时那份 schema：拆分侧由 response_schema 与 _parse_script_plan_json 卡住字段与
     # 类型，晋升侧漏掉这一层的话，把 duration_seconds 改成字符串、或整个删掉 novel_text 都能一路
@@ -858,6 +843,8 @@ async def _promote_narration_script_plan(
             draft,
             config_resolver=ctx.config_resolver,
         )
+    except VideoRequestFactsError as exc:
+        raise DraftWorkflowError("draft_invalid", _video_facts_failure_text(exc.failure)) from exc
     except ValueError as exc:
         raise DraftWorkflowError("draft_invalid", f"❌ {exc}") from exc
 

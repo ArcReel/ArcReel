@@ -29,7 +29,8 @@ from lib.artifacts.artifact_manifest import (
 )
 from lib.artifacts.formal_write import project_metadata_lock
 from lib.artifacts.version_manager import VersionManager
-from lib.config.resolver import resolve_raw_supported_durations
+from lib.config.registry import model_info_for
+from lib.config.resolver import project_video_backend_ids
 from lib.episode.episode_ledger import parse_positive_episode_num
 from lib.infra.content_digest import digest_stream, sha256_file
 from lib.infra.json_io import load_json
@@ -210,6 +211,21 @@ class ProjectArchiveValidationError(ValueError):
         if self.diagnostics is None:
             return {"blocking": [], "auto_fixable": [], "warnings": []}
         return self.diagnostics.to_import_error_payload(translate)
+
+
+def _registry_supported_durations(project: dict[str, Any]) -> list[int] | None:
+    """归档自报的视频模型在 registry 声明的时长全集；未声明型号或不在 registry 时为 None。
+
+    只读 project.json 与 registry，不经能力合成也不收窄：导入在没有配置库会话的线程里跑，
+    取不到视频请求事实，这份全集只用于给存量 per-shot 时长收编取档。
+    """
+    ids = project_video_backend_ids(project)
+    if ids is None:
+        return None
+    model_info = model_info_for(*ids)
+    if model_info is None or not model_info.supported_durations:
+        return None
+    return list(model_info.supported_durations)
 
 
 class ProjectArchiveService:
@@ -1269,16 +1285,16 @@ class ProjectArchiveService:
         # 下游的结构校验（DataValidator）要求 unit 级 duration_seconds 落在结构区间内，
         # 修复须先跑这道迁移再校验——本方法在 validate_project_tree 之前执行、写回结果
         # 由调用方按 script_changed 落盘，与其它字段修复共用同一次写盘。
-        # 档位表按归档自带 project.json 的自报身份查 registry（无 DB 访问——导入跑在 to_thread
-        # 里，且此刻自定义供应商的凭证/能力可能尚未导入本机）：迁移一次落盘，与生成侧、内容确认
-        # 口径不一致会让先跑的把非档位秒数固化。查不到（未声明型号、或自定义供应商不在 registry）
-        # 时为 None，退回结构区间 clamp。
+        # 档位表按归档自带 project.json 的自报身份查 registry 声明的全集（无 DB 访问——导入跑在
+        # to_thread 里，且此刻自定义供应商的凭证/能力可能尚未导入本机，无法求值视频请求事实）。
+        # 查不到（未声明型号、或自定义供应商不在 registry）时为 None，退回结构区间 clamp；档位
+        # 偏移由之后的预检 / 执行取档承担。
         # provider 先在副本上归一化：本方法跑在 migrate_project_dir 之前，存量归档里可能还是
         # legacy 别名（如 gemini/…），registry 查不到会让档位解析落空，而迁移幂等、归一化之后
         # 再无机会取档。归一化是纯函数且幂等，不影响随后的正式迁移。
         normalized_project = normalize_legacy_providers(project_payload)
         migrated, migration_warnings = migrate_unit_durations(
-            raw_units, supported_durations=resolve_raw_supported_durations(normalized_project)
+            raw_units, supported_durations=_registry_supported_durations(normalized_project)
         )
         changed = migrated
         for message in migration_warnings:

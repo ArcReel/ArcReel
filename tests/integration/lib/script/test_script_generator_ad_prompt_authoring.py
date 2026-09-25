@@ -6,21 +6,24 @@ import copy
 import json
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from lib.artifacts.artifact_activation import activate_artifact_target_state
-from lib.config.resolver import ConfigResolver
 from lib.project.project_manager import ProjectManager
 from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from lib.script.script_batch_edit import ScriptBatchEditCommand, ScriptBatchEditor, blank_item_after, script_revision
 from lib.script.script_generator import ScriptGenerator
 from lib.script.script_models import PENDING_AUTHORING_FIELD
-from tests.fakes import FakeConfigResolver
 
 pytestmark = pytest.mark.asyncio
+
+
+@pytest.fixture(autouse=True)
+def ad_video_request_facts(video_request_facts) -> None:
+    """分镜与参考生视频两条路线的档位都来自视频请求事实：本模块统一用共享 fixture 的 (4, 6, 8)。"""
 
 
 def _write_ad_project(tmp_path: Path, generation_mode: str) -> Path:
@@ -53,11 +56,7 @@ def _generator(project_dir: Path, responses: list[str]) -> ScriptGenerator:
     text_generator = MagicMock()
     text_generator.model = "mock"
     text_generator.generate = AsyncMock(side_effect=[MagicMock(text=text) for text in responses])
-    return ScriptGenerator(
-        project_dir,
-        generator=text_generator,
-        config_resolver=cast(ConfigResolver, FakeConfigResolver(supported_durations=(4, 6, 8))),
-    )
+    return ScriptGenerator(project_dir, generator=text_generator)
 
 
 def _script_path(project_dir: Path) -> Path:

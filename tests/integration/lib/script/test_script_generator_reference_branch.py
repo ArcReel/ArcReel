@@ -8,11 +8,10 @@ import asyncio
 import json as _json
 import threading
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from sqlalchemy.exc import OperationalError
 
 from lib.artifacts.artifact_activation import activate_artifact_target_state
 from lib.config.resolver import ConfigResolver
@@ -31,7 +30,7 @@ from lib.script.reference_video.draft_validation import DraftViolation
 from lib.script.reference_video.request_projection import configured_reference_request_facts
 from lib.script.reference_video.text_parser import extract_mentions
 from lib.script.reference_video.unit_capabilities import evaluate_reference_unit_capabilities
-from lib.script.script_generator import ScriptGenerator
+from lib.script.script_generator import PlanningVideoFacts, ScriptGenerator
 from tests.factories import make_video_request_facts
 
 SCRIPT_PLAN_UNIT = {"unit_id": "E1U01", "text": "@[主角] 推开 @[酒馆] 的门", "duration_seconds": 4}
@@ -116,28 +115,9 @@ def _formal_units(project_dir: Path) -> dict[str, dict[str, Any]]:
     return {unit["unit_id"]: unit for unit in script["video_units"]}
 
 
-class _StubConfigResolver:
-    """能力解析替身：``ScriptGenerator`` 只消费 ``video_capabilities_for_project`` 这一个读点。
-
-    ``caps=None`` 表达「解析不可用」，按生产上的真实形态抛 DB 错误，让
-    ``_fetch_video_capabilities`` 走它自己那条吞异常回退，而不是绕过回退直接喂进一个 None。
-    """
-
-    def __init__(self, caps: dict | None = None) -> None:
-        self._caps = caps
-
-    async def video_capabilities_for_project(self, project: dict, *, generation_type: object = None) -> dict:
-        if self._caps is None:
-            raise OperationalError("SELECT ...", {}, Exception("no such table: system_setting"))
-        return self._caps
-
-
-def _stub_resolver(caps: dict | None = None) -> ConfigResolver:
-    return cast(ConfigResolver, _StubConfigResolver(caps))
-
-
 @pytest.fixture(autouse=True)
 def reference_request_facts(set_video_request_facts):
+    """本模块的档位一律来自视频请求事实：缺省两桶同一份 (4, 6, 8)，需要两桶不同或失败的用例就地覆盖。"""
     set_video_request_facts(make_video_request_facts(route="reference_video", generation_type="i2v"))
 
 
@@ -156,9 +136,9 @@ async def _materialize(generator: ScriptGenerator, episode: int = 1):
 def _write_reference_project(
     tmp_path: Path, *, video_backend: str, content_mode: str = "narration", resolution: str | None = None
 ) -> Path:
-    """造一个带脚本规划的参考生视频最小项目；``video_backend`` 决定 registry 侧的真实时长档位。
+    """造一个带脚本规划的参考生视频最小项目。
 
-    ``resolution`` 给定时存为该模型的项目分辨率，时长联动约束随之按它收窄；未设置不施加分辨率约束。
+    ``video_backend`` / ``resolution`` 只是项目自报身份；规划读到的档位来自各用例提供的视频请求事实。
     """
     project_dir = tmp_path / "proj"
     project_dir.mkdir()
@@ -195,26 +175,22 @@ def _write_reference_project(
 
 @pytest.fixture
 def plan_only_reference_project(tmp_path: Path) -> Path:
-    """只有脚本规划、尚无正式剧本的 vidu2.0 1080p 项目：内容确认转换的输入。"""
+    """只有脚本规划、尚无正式剧本的项目：内容确认转换的输入。"""
     return _write_reference_project(tmp_path, video_backend="vidu/vidu2.0", resolution="1080p")
 
 
 @pytest.fixture
 def reference_project(plan_only_reference_project: Path) -> Path:
-    """vidu2.0 1080p：raw 档位 [4, 8]，参考生视频下被参考图与分辨率两条约束收窄到 [4]。
-
-    正式剧本里有一个待编写单元（``SCRIPT_PLAN_UNIT``）。
-    """
+    """正式剧本里有一个待编写单元（``SCRIPT_PLAN_UNIT``）的项目。"""
     _write_formal_units(plan_only_reference_project, [SCRIPT_PLAN_UNIT])
     return plan_only_reference_project
 
 
 @pytest.fixture
 def wide_tier_reference_project(tmp_path: Path) -> Path:
-    """viduq3-turbo：raw 档位 1–16 秒，带参考图的 unit 收窄到 3–16 秒。
+    """两桶档位不同的用例用的项目：r2v 3–16 秒、i2v 1–16 秒由各用例按桶提供事实。
 
-    参考图约束只做收窄，故「带图档位严于不带图」是真实型号唯一能表达的方向；两档之间需要
-    差异的用例都取这个型号，不再拿替身编造反向的档位。正式剧本由各用例自行写入。
+    参考图约束只做收窄，故「带图档位严于不带图」是唯一有意义的方向。正式剧本由各用例自行写入。
     """
     return _write_reference_project(tmp_path, video_backend="vidu/viduq3-turbo")
 
@@ -369,8 +345,8 @@ async def test_entry_ids_rewrite_an_authored_unit_keeping_other_fields(reference
 async def test_prompt_authoring_rejects_formal_duration_outside_effective_tiers(
     reference_project: Path, set_video_request_facts
 ):
-    """raw 档位（vidu2.0 的 [4, 8]）在参考生视频下被参考图与分辨率两条约束收窄到 [4]：正式剧本里 8 秒的
-    单元不再是合法值。不能静默取档改写落盘，须 fail-loud 并指向时间线。
+    """档位全集 [4, 6, 8] 被分辨率约束收窄到 [4]：正式剧本里 8 秒的单元不再是合法值。
+    不能静默取档改写落盘，须 fail-loud 并指向时间线。
 
     拦截须发生在 TextBackend 调用之前：带引用与不带引用两种生效档位都不接受该时长时，本次编写
     必然失败；放到输出解析阶段才拦，用户已经为它付了费。
@@ -383,8 +359,7 @@ async def test_prompt_authoring_rejects_formal_duration_outside_effective_tiers(
     _write_formal_units(reference_project, [{**SCRIPT_PLAN_UNIT, "duration_seconds": 8}])
     generator = _idle_generator()
 
-    # caps 给空字典：档位一律回落到 project.json 自报身份查 registry，不受 DB 全局默认干扰。
-    gen = ScriptGenerator(reference_project, generator=generator, config_resolver=_stub_resolver({}))
+    gen = ScriptGenerator(reference_project, generator=generator)
     with pytest.raises(ValueError, match=r"不在当前生效档位.*时间线"):
         await gen.generate(episode=1)
     generator.generate.assert_not_awaited()
@@ -411,11 +386,6 @@ async def test_no_image_five_second_unit_uses_i2v_facts_through_conversion_and_a
             ensure_ascii=False,
         ),
     )
-    caps = {
-        "provider_id": "gemini-aistudio",
-        "model": "veo-3.1-generate-preview",
-        "supported_durations": [4, 6, 8],
-    }
     set_video_request_facts(
         make_video_request_facts(
             route="reference_video",
@@ -430,7 +400,6 @@ async def test_no_image_five_second_unit_uses_i2v_facts_through_conversion_and_a
     generator = ScriptGenerator(
         project,
         generator=_fake_prompt_authoring_generator("镜头1：远景，晨光照亮空旷街道。"),
-        config_resolver=_stub_resolver(caps),
     )
 
     await _materialize(generator)
@@ -448,15 +417,15 @@ async def test_no_image_conversion_rejects_unavailable_i2v_even_when_r2v_accepts
         project,
         _json.dumps({"units": [{"unit_id": "E1U01", "text": "镜头1：空镜，街道渐亮。", "duration_seconds": 8}]}),
     )
-    caps = {
-        "provider_id": "gemini-aistudio",
-        "model": "veo-3.1-generate-preview",
-        "supported_durations": [4, 6, 8],
-    }
-    set_video_request_facts(VideoRequestFactsFailure("reference_capability_unavailable", (("capability", "i2v"),)))
+    set_video_request_facts(
+        {
+            "r2v": make_video_request_facts(route="reference_video", generation_type="r2v"),
+            "i2v": VideoRequestFactsFailure("reference_capability_unavailable", (("capability", "i2v"),)),
+        }
+    )
 
     with pytest.raises(VideoRequestFactsError) as exc:
-        await _materialize(ScriptGenerator(project, config_resolver=_stub_resolver(caps)))
+        await _materialize(ScriptGenerator(project))
 
     assert exc.value.code == "reference_capability_unavailable"
     assert not _script_path(project).exists()
@@ -488,7 +457,7 @@ async def test_script_generator_narrows_duration_tiers_per_unit_not_episode_wide
     )
 
     fake_generator = _fake_prompt_authoring_generator("镜头1：中景。@[主角] 推门", "镜头1：空镜，风吹过门廊")
-    gen = ScriptGenerator(project, generator=fake_generator, config_resolver=_stub_resolver({}))
+    gen = ScriptGenerator(project, generator=fake_generator)
     await gen.generate(episode=1)
 
     units_by_id = _formal_units(project)
@@ -515,7 +484,7 @@ async def test_script_generator_takes_duration_tier_from_final_output_references
     _write_formal_units(project, [{"unit_id": "E1U01", "text": "@[主角] 推门", "duration_seconds": 2}])
 
     fake_generator = _fake_prompt_authoring_generator("镜头1：空镜，门廊在风里轻响")
-    gen = ScriptGenerator(project, generator=fake_generator, config_resolver=_stub_resolver({}))
+    gen = ScriptGenerator(project, generator=fake_generator)
     await gen.generate(episode=1)
 
     unit = _formal_units(project)["E1U01"]
@@ -525,7 +494,7 @@ async def test_script_generator_takes_duration_tier_from_final_output_references
 
 @pytest.mark.asyncio
 async def test_prompt_authoring_takes_the_i2v_tier_for_a_registered_reference_without_image(
-    wide_tier_reference_project: Path, set_video_request_facts
+    wide_tier_reference_project: Path, set_video_request_facts, db_factory
 ):
     """提示词编写的取档按可用参考图定桶：已登记但缺图的引用让单元与内容确认面板、执行一样落 i2v，
     2 秒在 i2v 档位（1–16 秒）内合法，不因正文带 `@` 就按 r2v 档位（3–16 秒）判越档落草稿。
@@ -540,7 +509,7 @@ async def test_prompt_authoring_takes_the_i2v_tier_for_a_registered_reference_wi
     )
     project = wide_tier_reference_project
     _write_formal_units(project, [{"unit_id": "E1U01", "text": "@[主角] 推门", "duration_seconds": 2}])
-    resolver = _stub_resolver({})
+    resolver = ConfigResolver(db_factory)
     gen = ScriptGenerator(
         project, generator=_fake_prompt_authoring_generator("镜头1：中景。@[主角] 推门"), config_resolver=resolver
     )
@@ -564,25 +533,41 @@ async def test_conversion_requires_i2v_facts_for_a_registered_reference_without_
     set_video_request_facts(VideoRequestFactsFailure("reference_capability_unavailable", (("capability", "i2v"),)))
 
     with pytest.raises(VideoRequestFactsError) as exc:
-        await _materialize(ScriptGenerator(plan_only_reference_project, config_resolver=_stub_resolver({})))
+        await _materialize(ScriptGenerator(plan_only_reference_project))
 
     assert exc.value.code == "reference_capability_unavailable"
     assert not _script_path(plan_only_reference_project).exists()
 
 
 @pytest.mark.asyncio
-async def test_script_generator_reclamps_duration_even_when_caps_unavailable(reference_project: Path):
-    """caps 解析失败（DB 不可用，``_fetch_video_capabilities`` 按其文档吞掉异常返回 None）不代表
-    取不到任何档位——``_resolve_supported_durations`` 自带 caps → registry 两级回退，
-    project.json 自报的 vidu2.0 仍能兜底出 raw [4, 8] 并收窄到 [4]。8 秒落在收窄后的生效档位外，
-    取档执行了就必抛错，不执行则会静默用未取档的 8 落盘成功。
+async def test_prompt_authoring_reads_the_r2v_tier_for_a_unit_with_a_usable_reference(
+    reference_project: Path, set_video_request_facts
+):
+    """带可用参考图的单元按 r2v 桶的事实取档：r2v 收窄到 [4]、i2v 仍是 [4, 8] 时，8 秒在付费调用前不拦
+    （去掉引用就能合法落地），编写输出保留引用后按 r2v 档位判越档，产出落待修复草稿而非按 i2v 档位放行。
     """
+    set_video_request_facts(
+        {
+            "r2v": make_video_request_facts(
+                route="reference_video", generation_type="r2v", supported_durations=(4, 8), allowed_durations=(4,)
+            ),
+            "i2v": make_video_request_facts(
+                route="reference_video", generation_type="i2v", supported_durations=(4, 8), allowed_durations=(4, 8)
+            ),
+        }
+    )
     _claim_character_sheet(reference_project, "主角")
     _write_formal_units(reference_project, [{**SCRIPT_PLAN_UNIT, "duration_seconds": 8}])
+    generator = _fake_prompt_authoring_generator(PROMPT_AUTHORING_UNIT_TEXT)
 
-    gen = ScriptGenerator(reference_project, generator=_idle_generator(), config_resolver=_stub_resolver(None))
-    with pytest.raises(ValueError, match="不在当前生效档位"):
+    gen = ScriptGenerator(reference_project, generator=generator)
+    with pytest.raises(DraftViolation, match="不在当前生效档位"):
         await gen.generate(episode=1)
+
+    generator.generate.assert_awaited_once()
+    assert _formal_units(reference_project)["E1U01"]["duration_seconds"] == 8
+    envelope = _json.loads(_prompt_authoring_quarantine(reference_project).read_text(encoding="utf-8"))
+    assert [v["code"] for v in envelope["violations"]] == ["duration_off_tier"]
 
 
 @pytest.mark.asyncio
@@ -641,7 +626,7 @@ async def test_script_plan_conversion_inherits_drama_content_mode(tmp_path: Path
     """
     project_dir = _write_reference_project(tmp_path, video_backend="vidu/vidu2.0", content_mode="drama")
 
-    await _materialize(ScriptGenerator(project_dir, config_resolver=_stub_resolver({})))
+    await _materialize(ScriptGenerator(project_dir))
 
     data = _json.loads(_script_path(project_dir).read_text(encoding="utf-8"))
     assert data["content_mode"] == "drama"
@@ -649,73 +634,29 @@ async def test_script_plan_conversion_inherits_drama_content_mode(tmp_path: Path
 
 
 @pytest.mark.parametrize(
-    ("caps", "expected"),
+    ("with_references", "expected"),
     [
-        ({"max_reference_images": 3}, 3),
-        ({"max_reference_images": 1}, 1),
-        ({"max_reference_images": 0}, 0),
-        # caps 缺该键 → 无法确定上限 → None
-        ({}, None),
-        # caps 整体缺失 → None
-        (None, None),
+        (make_video_request_facts(route="reference_video", generation_type="r2v", max_reference_images=3), 3),
+        (make_video_request_facts(route="reference_video", generation_type="r2v", max_reference_images=1), 1),
+        # 0 是显式上限（不接受参考图的 endpoint），原样下传触发裁剪为 0 张
+        (make_video_request_facts(route="reference_video", generation_type="r2v", max_reference_images=0), 0),
+        # 事实未声明上限 → None
+        (make_video_request_facts(route="reference_video", generation_type="r2v", max_reference_images=None), None),
+        # r2v 桶解析不出 → 按未声明处理，带图单元另在各检查点因事实缺失被拦
+        (VideoRequestFactsFailure("reference_capability_unavailable", (("capability", "r2v"),)), None),
     ],
 )
-def test_resolve_max_refs_from_caps(tmp_path: Path, caps, expected):
-    project_dir = tmp_path / "proj"
-    project_dir.mkdir()
-    import json as _j
+def test_resolve_max_refs_reads_the_r2v_request_facts(with_references, expected):
+    """参考图数量上限只来自 r2v 桶的视频请求事实，不再回退到 project.json 自报身份查 registry。"""
+    facts = PlanningVideoFacts(
+        route="reference_video",
+        by_bucket={
+            "r2v": with_references,
+            "i2v": make_video_request_facts(route="reference_video", generation_type="i2v", max_reference_images=9),
+        },
+    )
 
-    project = {
-        "title": "t",
-        "content_mode": "narration",
-        "generation_mode": "reference_video",
-        "overview": {},
-        "style": "",
-        "style_description": "",
-        "characters": {},
-        "scenes": {},
-        "props": {},
-    }
-    (project_dir / "project.json").write_text(_j.dumps(project), encoding="utf-8")
-
-    gen = ScriptGenerator(project_dir)
-    assert gen._resolve_max_refs(caps) == expected
-
-
-@pytest.mark.parametrize(
-    ("video_backend", "expected"),
-    [
-        ("grok/grok-imagine-video", 7),
-        ("gemini-aistudio/veo-3.1-generate-preview", 3),
-        ("ark/doubao-seedance-2-0-260128", 9),
-        # registry 里 max_reference_images=0（字段默认/未声明）→ truthy 守卫当未声明 → None
-        ("ark/doubao-seedream-4-0-250828", None),
-        # registry 不存在该 provider → None
-        ("nonexistent/whatever", None),
-    ],
-)
-def test_resolve_max_refs_from_registry_fallback(tmp_path: Path, video_backend, expected):
-    """caps 缺失时退到 project.json.video_backend → registry，与 _resolve_supported_durations 同构。"""
-    project_dir = tmp_path / "proj"
-    project_dir.mkdir()
-    import json as _j
-
-    project = {
-        "title": "t",
-        "content_mode": "narration",
-        "generation_mode": "reference_video",
-        "video_backend": video_backend,
-        "overview": {},
-        "style": "",
-        "style_description": "",
-        "characters": {},
-        "scenes": {},
-        "props": {},
-    }
-    (project_dir / "project.json").write_text(_j.dumps(project), encoding="utf-8")
-
-    gen = ScriptGenerator(project_dir)
-    assert gen._resolve_max_refs(None) == expected
+    assert ScriptGenerator._resolve_max_refs(facts) == expected
 
 
 def _write_minimal_reference_project(tmp_path: Path, **overrides: Any) -> Path:
@@ -742,32 +683,29 @@ def _write_minimal_reference_project(tmp_path: Path, **overrides: Any) -> Path:
 
 
 @pytest.mark.asyncio
-async def test_generate_no_video_backend_raises_value_error(tmp_path: Path):
-    """project.json 缺 video_backend 且 caps 不可解析时，编写应在调用模型前抛 ValueError。
+async def test_generate_without_r2v_facts_fails_with_the_facts_code_before_the_paid_call(
+    tmp_path: Path, set_video_request_facts
+):
+    """带可用参考图的单元落 r2v：该桶事实解析不出时编写在调用模型前以同族问题码失败。
 
-    设计意图：supported_durations 是单一真相源，必须由 caps（DB 全局默认）或 project.json 自报身份查 registry 提供；
-    都拿不到才 fail loud，避免按兜底档位放行单元时长。
-    经 config_resolver seam 注入一个解析不可用的替身，模拟无任何 model 配置的环境。单元带可用参考图、
-    落 r2v，走的是 registry 查档位这条路。
+    档位只来自视频请求事实，不回退到 project.json 自报身份查 registry；i2v 桶可解析也不借用。
     """
+    set_video_request_facts(
+        {
+            "r2v": VideoRequestFactsFailure("reference_capability_unavailable", (("capability", "r2v"),)),
+            "i2v": make_video_request_facts(route="reference_video", generation_type="i2v"),
+        }
+    )
     project_dir = _write_minimal_reference_project(tmp_path)
     _claim_character_sheet(project_dir, "主角")
     generator = _idle_generator()
 
-    gen = ScriptGenerator(project_dir, generator=generator, config_resolver=_stub_resolver(None))
-    with pytest.raises(ValueError, match="supported_durations"):
+    gen = ScriptGenerator(project_dir, generator=generator)
+    with pytest.raises(VideoRequestFactsError) as exc:
         await gen.generate(episode=1)
+
+    assert exc.value.code == "reference_capability_unavailable"
     generator.generate.assert_not_awaited()
-
-
-@pytest.mark.asyncio
-async def test_fetch_video_capabilities_swallows_db_errors(reference_project: Path):
-    """CI 回归：裸测试容器缺 migration 时 ConfigResolver 会抛 OperationalError；
-    _fetch_video_capabilities 必须 fallback 返 None，不让 generate() 崩溃。
-    """
-    gen = ScriptGenerator(reference_project, config_resolver=_stub_resolver(None))
-    caps = await gen._fetch_video_capabilities()
-    assert caps is None
 
 
 @pytest.mark.asyncio
@@ -801,7 +739,7 @@ async def test_conversion_reads_legacy_script_plan_draft_without_source_text(pla
     saved = _json.loads((project / "drafts" / "episode_1" / "script_plan_reference_units.json").read_text("utf-8"))
     assert "source_text" not in saved["units"][0]
 
-    receipt = await _materialize(ScriptGenerator(project, config_resolver=_stub_resolver({})))
+    receipt = await _materialize(ScriptGenerator(project))
 
     assert receipt.entry_ids == ("E1U01",)
     assert list(_formal_units(project)) == ["E1U01"]
@@ -830,17 +768,23 @@ async def test_reference_script_plan_missing_raises(plan_only_reference_project:
 
 
 @pytest.mark.asyncio
-async def test_reference_script_plan_rejects_out_of_enum_duration(plan_only_reference_project: Path):
-    """读取侧复验 unit 时长 ∈ supported_durations，防手工编辑漂移出非法时长。"""
+async def test_reference_script_plan_rejects_out_of_enum_duration(
+    plan_only_reference_project: Path, set_video_request_facts
+):
+    """转换时复验 unit 时长落在两桶生效档位内：仍是全集成员、但已被收窄出局的时长也拒绝，防手工编辑漂移。"""
+    set_video_request_facts(
+        make_video_request_facts(
+            route="reference_video", generation_type="r2v", supported_durations=(4, 6, 8), allowed_durations=(4, 8)
+        )
+    )
     drafts = plan_only_reference_project / "drafts" / "episode_1"
     (drafts / "script_plan_reference_units.json").write_text(
-        _json.dumps({"units": [{"unit_id": "E1U01", "text": "@[主角] 转身", "duration_seconds": 5}]}),
+        _json.dumps({"units": [{"unit_id": "E1U01", "text": "@[主角] 转身", "duration_seconds": 6}]}),
         encoding="utf-8",
     )
     _claim_character_sheet(plan_only_reference_project, "主角")
 
-    # 固定能力来源为 project.json 自报身份查 registry（vidu2.0 → [4, 8]），隔离 DB 全局默认干扰
-    gen = ScriptGenerator(plan_only_reference_project, config_resolver=_stub_resolver(None))
+    gen = ScriptGenerator(plan_only_reference_project)
     with pytest.raises(ValueError, match="不在当前生效档位"):
         await _materialize(gen)
 
@@ -950,7 +894,7 @@ async def test_reference_script_plan_migration_waits_for_prompt_authoring_draft_
 def test_reference_script_plan_migration_carries_confirmation_confirmed_after_construction(
     plan_only_reference_project: Path,
 ):
-    """确认发生在 ScriptGenerator 构造之后（如 generate() 内 await _fetch_video_capabilities()
+    """确认发生在 ScriptGenerator 构造之后（如 generate() 内 await _fetch_video_request_facts()
     期间用户经 ScriptReviewService.confirm() 并发确认）：self.project_json 是构造时的旧快照，
     看不到这次确认，但迁移写回仍须正确搬移它——不能用这份旧快照做前置短路。
     """
@@ -1520,23 +1464,27 @@ async def test_prompt_authoring_duration_off_tier_after_merge_quarantines(
     只存在于内存里，错误却让调用方重新生成。
     """
     set_video_request_facts(
-        make_video_request_facts(
-            route="reference_video",
-            generation_type="i2v",
-            supported_durations=tuple(range(1, 17)),
-            allowed_durations=tuple(range(1, 17)),
-        )
+        {
+            "r2v": make_video_request_facts(
+                route="reference_video",
+                generation_type="r2v",
+                supported_durations=tuple(range(1, 17)),
+                allowed_durations=tuple(range(3, 17)),
+            ),
+            "i2v": make_video_request_facts(
+                route="reference_video",
+                generation_type="i2v",
+                supported_durations=tuple(range(1, 17)),
+                allowed_durations=tuple(range(1, 17)),
+            ),
+        }
     )
     project = wide_tier_reference_project
     _claim_character_sheet(project, "主角")
     _write_formal_units(project, [{"unit_id": "E1U01", "text": "他推门", "duration_seconds": 2}])
     formal_before = _script_path(project).read_bytes()
     with_reference_text = "镜头1：中景，平视。@[主角] 推开门，侧身跨过门槛。"
-    gen = ScriptGenerator(
-        project,
-        generator=_fake_prompt_authoring_generator(with_reference_text),
-        config_resolver=_stub_resolver({}),
-    )
+    gen = ScriptGenerator(project, generator=_fake_prompt_authoring_generator(with_reference_text))
 
     with pytest.raises(DraftViolation) as excinfo:
         await gen.generate(episode=1)
