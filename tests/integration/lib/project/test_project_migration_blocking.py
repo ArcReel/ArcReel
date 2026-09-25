@@ -7,10 +7,11 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
+from typing import Any
 
 import pytest
-from claude_agent_sdk import tool
 from fastapi import APIRouter, Depends, FastAPI
 from fastapi.routing import iter_route_contexts
 from fastapi.testclient import TestClient
@@ -48,6 +49,7 @@ from server.tool_runtime import (
     ProjectScope,
     PromptPreviewRequest,
     Services,
+    ToolOutcome,
     ToolRequest,
     get_episode_script,
     get_prompt_preview,
@@ -377,37 +379,9 @@ async def test_prompt_preview_reports_the_full_migration_problem(tmp_path: Path)
     assert blocked.problem.params["details"][0]["file"] == "scripts/episode_1.json"
 
 
-async def test_mcp_generation_tools_report_the_same_problem_without_running(tmp_path: Path, monkeypatch) -> None:
-    import lib.project.project_migration_guard as guard
+def test_the_blocked_set_names_real_tools_and_never_the_retry_tool() -> None:
     from server.agent_runtime import sdk_tools
 
-    projects_root = tmp_path / "projects"
-    projects_root.mkdir()
-    project_dir, *_ = _project(tmp_path)
-    _break_episode_script(project_dir)
-    failure = migrate_project_with_verdict(project_dir)
-    assert failure is not None
-
-    pm = ProjectManager(str(tmp_path))
-    monkeypatch.setattr(guard, "get_project_manager", lambda: pm)
-    ctx = sdk_tools.ToolContext(project_name="demo", data_root=tmp_path, pm=pm)
-    ran = False
-
-    @tool("generate_storyboards", "stub", {"type": "object", "properties": {}})
-    async def _inner(_args: dict[str, object]) -> dict[str, object]:
-        nonlocal ran
-        ran = True
-        return {"content": []}
-
-    guarded = sdk_tools._refuse_while_migration_failed(_inner, ctx)
-    blocked = await guarded.handler({"segment_ids": ["E1S01"]})
-
-    assert ran is False
-    assert blocked["is_error"] is True
-    assert blocked["problem"]["code"] == GenerationProblemCode.PROJECT_MIGRATION_FAILED
-    assert blocked["problem"]["action"] == GenerationAction.RETRY_PROJECT_MIGRATION
-    assert blocked["problem"]["detail"] == failure.reason
-    # The blocked set names real tools, and never the retry tool — it is the way out.
     assert set(sdk_tools.ARCREEL_MCP_TOOL_IDS) >= sdk_tools.MIGRATION_BLOCKED_TOOL_IDS
     assert "retry_project_migration" not in sdk_tools.MIGRATION_BLOCKED_TOOL_IDS
 
@@ -449,11 +423,53 @@ async def test_script_patch_refuses_at_the_declared_entry_on_a_migration_blocked
     assert blocked.problem.detail == failure.reason
 
 
+_ABSENT_REVISION = "sha256-v1:" + "0" * 64
+_DRAFT = {"episode": 1, "doc_type": "drama_script_plan"}
+
+
+@pytest.mark.parametrize(
+    ("tool_name", "arguments"),
+    [
+        ("generate_episode_script", {"episode": 1}),
+        ("generate_script_plan", {"episode": 1}),
+        ("confirm_script_review", {"episode": 1}),
+        ("open_draft", _DRAFT),
+        ("patch_draft", {**_DRAFT, "content": {"scenes": []}, "base_revision": _ABSENT_REVISION}),
+        ("promote_draft", {**_DRAFT, "base_revision": _ABSENT_REVISION}),
+        ("discard_draft", {**_DRAFT, "base_revision": _ABSENT_REVISION}),
+    ],
+)
+async def test_script_authoring_tools_refuse_at_the_declared_entry_on_a_migration_blocked_project(
+    tmp_path: Path, tool_name: str, arguments: dict[str, object]
+) -> None:
+    from server.agent_toolset.declaration import invoke_declaration
+    from server.agent_toolset.script_authoring import SCRIPT_AUTHORING_TOOLS
+    from server.media_tools.context import ToolContext, tool_services
+
+    projects_root = tmp_path / "projects"
+    projects_root.mkdir()
+    project_dir, *_ = _project(projects_root)
+    _break_episode_script(project_dir)
+    failure = migrate_project_with_verdict(project_dir)
+    assert failure is not None
+    ctx = ToolContext(project_name="demo", data_root=projects_root, pm=ProjectManager(str(projects_root)))
+    declaration = next(declaration for declaration in SCRIPT_AUTHORING_TOOLS if declaration.name == tool_name)
+
+    blocked = await invoke_declaration(declaration, arguments, ctx.scope, ctx.caller, tool_services(ctx))
+
+    assert blocked.value is None
+    assert blocked.problem is not None
+    assert blocked.problem.code == GenerationProblemCode.PROJECT_MIGRATION_FAILED
+    assert blocked.problem.detail == failure.reason
+
+
 async def test_mcp_guard_reads_the_session_projects_root_not_the_global_one(tmp_path: Path, monkeypatch) -> None:
-    """守卫的裁决必须取自 ctx.pm：会话可能绑定另一个 projects_root，同名项目不是同一个项目。"""
+    """声明入口的裁决必须取自会话的项目根：会话可能绑定另一个 projects_root，同名项目不是同一个项目。"""
 
     import lib.project.project_migration_guard as guard
-    from server.agent_runtime import sdk_tools
+    from server.agent_toolset.declaration import invoke_declaration
+    from server.agent_toolset.script_authoring import DISCARD_DRAFT
+    from server.media_tools.context import ToolContext, tool_services
 
     session_root = tmp_path / "session"
     session_root.mkdir()
@@ -467,20 +483,24 @@ async def test_mcp_guard_reads_the_session_projects_root_not_the_global_one(tmp_
     assert migrate_project_with_verdict(global_dir) is not None
 
     monkeypatch.setattr(guard, "get_project_manager", lambda: ProjectManager(str(global_root)))
-    ctx = sdk_tools.ToolContext(project_name="demo", data_root=session_root, pm=ProjectManager(str(session_root)))
+    ctx = ToolContext(project_name="demo", data_root=session_root, pm=ProjectManager(str(session_root)))
     ran = False
 
-    @tool("generate_storyboards", "stub", {"type": "object", "properties": {}})
-    async def _inner(_args: dict[str, object]) -> dict[str, object]:
+    async def _handler(*_args: object) -> ToolOutcome[Any]:
         nonlocal ran
         ran = True
-        return {"content": []}
+        return ToolOutcome(value={})
 
-    guarded = sdk_tools._refuse_while_migration_failed(_inner, ctx)
-    result = await guarded.handler({})
+    result = await invoke_declaration(
+        replace(DISCARD_DRAFT, handler=_handler),
+        {**_DRAFT, "base_revision": _ABSENT_REVISION},
+        ctx.scope,
+        ctx.caller,
+        tool_services(ctx),
+    )
 
     assert ran is True
-    assert result.get("is_error") is not True
+    assert result.problem is None
 
 
 def test_retry_keeps_the_project_blocked_when_the_chain_cannot_place_it(tmp_path: Path) -> None:

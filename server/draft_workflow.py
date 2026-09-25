@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Annotated, Any, Literal, NamedTuple, Protocol, cast
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic.json_schema import SkipJsonSchema
 
 from lib.artifacts.artifact_manifest import ArtifactBasis
 from lib.config.resolver import ConfigResolver
@@ -91,32 +92,55 @@ DraftDocType = Literal[
 PositiveEpisode = Annotated[int, Field(strict=True, ge=1)]
 
 
+_DRAFT_REVISION_DESCRIPTION = "open_draft / 上次 patch_draft 返回的 revision"
+
+
 class _DraftRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    episode: PositiveEpisode
-    doc_type: DraftDocType
+    episode: PositiveEpisode = Field(description="剧集编号")
+    doc_type: DraftDocType = Field(
+        description=(
+            "草稿对应的文档：drama_script_plan / narration_script_plan / reference_script_plan 为各创作类型的"
+            " script_plan，reference_prompt_authoring 为参考生视频正式脚本的提示词编写稿"
+        )
+    )
 
 
 class DraftLocator(_DraftRequest):
-    source: str | None = None
+    source: str | SkipJsonSchema[None] = Field(
+        default=None,
+        description=(
+            "可选小说源文件路径；仅在首次从正式 script_plan 创建草稿时用作重判来源，"
+            "缺省为本集派生源文 source/episode_N.txt"
+        ),
+    )
 
 
 class PatchDraftRequest(_DraftRequest):
-    content: dict[str, Any]
-    base_revision: str
-    accept_formal_revision: str | None = None
-    accepts_formal_revision: bool = False
-    source: str | None = None
-    updates_source: bool = False
+    """``accept_formal_revision`` 与 ``source`` 以「是否出现」区分省略与显式 null：省略即不接受 / 不改。"""
+
+    content: dict[str, Any] = Field(description="替换后的完整草稿正文；允许中间态不通过业务校验")
+    base_revision: str = Field(description=_DRAFT_REVISION_DESCRIPTION)
+    accept_formal_revision: str | None = Field(
+        default=None,
+        description=(
+            "合并正式文档并发修改后，显式接受 open_draft 返回的 formal_revision；"
+            "正式文档已不存在时该值为 null，同样显式传 null。省略表示不接受"
+        ),
+    )
+    source: str | None = Field(
+        default=None,
+        description="可选源文范围；仅在修正 script_plan 草稿的重判范围时提供，null 清除范围，省略则保持不变",
+    )
 
 
 class PromoteDraftRequest(_DraftRequest):
-    base_revision: str
+    base_revision: str = Field(description="open_draft 返回的当前草稿 revision")
 
 
 class DiscardDraftRequest(_DraftRequest):
-    base_revision: str
+    base_revision: str = Field(description=_DRAFT_REVISION_DESCRIPTION)
 
 
 class DraftWorkflowError(Exception):
@@ -466,7 +490,7 @@ def _render_script_plan_conflict_report(
         f"{latest_block}\n\n"
         f"处置：调用 open_draft 读取当前草稿与 formal_revision，对照上方最新内容合并 {field_hint}；"
         "再调用 patch_draft 提交完整 content，并把 formal_revision 作为 accept_formal_revision；"
-        "若该值为 null 且使用 remote MCP，还须传 accepts_formal_revision=true；"
+        "该值为 null 时同样显式传入 null；"
         f'最后调用 {PROMOTE_TOOL_NAME}({{"episode": {episode}, "doc_type": "{doc_type}", '
         '"base_revision": "<patch_draft 返回的新 revision>"}) 重新晋升。'
     )
@@ -488,7 +512,7 @@ def _render_prompt_authoring_conflict_report(
         f"当前正式剧本的最新内容：\n{latest}\n\n"
         "处置：调用 open_draft 读取当前草稿与 formal_revision，合并最新正式内容；"
         "再调用 patch_draft 提交完整 content，并把 formal_revision 作为 accept_formal_revision；"
-        "若该值为 null 且使用 remote MCP，还须传 accepts_formal_revision=true；"
+        "该值为 null 时同样显式传入 null；"
         f'最后调用 {PROMOTE_TOOL_NAME}({{"episode": {episode}, "doc_type": "reference_prompt_authoring", '
         '"base_revision": "<patch_draft 返回的新 revision>"}) 重新晋升。'
     )

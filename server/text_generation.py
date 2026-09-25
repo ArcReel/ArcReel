@@ -97,7 +97,7 @@ logger = logging.getLogger(__name__)
 
 MAX_INSTRUCTIONS_LEN = 4000
 
-#: 提示词编写工具收到已取消的 ``scope`` 参数时的拒绝说明，内嵌工具与远程 MCP 共用。
+#: 提示词编写工具收到已取消的 ``scope`` 参数时的拒绝说明，由其请求模型给出。
 SCOPE_REMOVED_MESSAGE = (
     "scope 参数已取消：generate_episode_script 默认只编写正式脚本中全部待编写的条目；"
     "要重写已有提示词的条目，请用 entry_ids 点名这些条目；要整集重做，请重跑脚本规划并重新完成内容确认。"

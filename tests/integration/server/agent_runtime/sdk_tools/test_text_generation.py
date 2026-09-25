@@ -13,18 +13,23 @@ from lib.backends.providers import CallPurpose
 from lib.generation.video_request_facts import VideoRequestFactsFailure
 from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from lib.script import script_review
-from server.agent_runtime.sdk_tools.text_generation import (
-    generate_episode_script_tool,
-    generate_script_plan_tool,
-)
 from server.agent_toolset.declaration import invoke_declaration
+from server.agent_toolset.envelope import json_value
 from server.agent_toolset.orientation import GET_VIDEO_CAPABILITIES
 from server.media_tools.context import ToolContext, tool_services
 from server.text_generation import TextGenerationRequest, _parse_normalized_content
-from server.tool_runtime import ToolOutcome
+from server.tool_runtime import (
+    GenerateScriptPlanRequest,
+    TextGenerationResult,
+    ToolOutcome,
+    ToolRequest,
+    generate_script_plan,
+)
 from tests.factories import make_video_request_facts, seed_endpoint_fixed_video_model
 from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
-    call,
+    problem_of,
+    run_declared_tool,
+    said,
     use_fake_caps,
 )
 
@@ -265,18 +270,20 @@ async def test_generate_script_plan_rejects_inapplicable_content_modes(
     resolver = use_fake_caps(fake_ctx)
     caller_thread = threading.get_ident()
 
-    out = await call(generate_script_plan_tool(fake_ctx), {"episode": 1, "dry_run": True})
+    out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode": 1, "dry_run": True})
 
-    assert out.get("is_error") is True
-    assert json.loads(out["content"][0]["text"])["problem"]["code"] == "generation_refused"
+    assert out.problem is not None
+    assert problem_of(out).code == "generation_refused"
     assert resolver.generation_type_calls == []
     assert fake_ctx.pm.project_load_threads
     assert all(thread != caller_thread for thread in fake_ctx.pm.project_load_threads)
 
 
-@pytest.mark.parametrize("factory", [generate_episode_script_tool, generate_script_plan_tool])
-def test_generation_tools_require_positive_episode(fake_ctx: ToolContext, factory) -> None:
-    assert factory(fake_ctx).input_schema["properties"]["episode"]["minimum"] == 1
+@pytest.mark.parametrize("name", ["generate_episode_script", "generate_script_plan", "confirm_script_review"])
+@pytest.mark.parametrize("bad", [0, True, "1"])
+async def test_text_tools_reject_a_non_positive_or_non_integer_episode(fake_ctx: ToolContext, name: str, bad) -> None:
+    out = await run_declared_tool(name, fake_ctx, {"episode": bad})
+    assert problem_of(out).code == "invalid_request"
 
 
 @pytest.mark.parametrize("bad", [0, -1, True, 1.5, "1"])
@@ -296,7 +303,9 @@ async def test_generate_episode_script_dry_run(fake_ctx: ToolContext, monkeypatc
 
     project_path = fake_ctx.project_path
     _write_formal_script(project_path)
-    (project_path / "project.json").write_text(json.dumps({"content_mode": "narration"}), encoding="utf-8")
+    (project_path / "project.json").write_text(
+        json.dumps({"schema_version": CURRENT_PROJECT_SCHEMA_VERSION, "content_mode": "narration"}), encoding="utf-8"
+    )
 
     class _FakeGenerator:
         project_json: ClassVar[dict[str, Any]] = {}
@@ -308,19 +317,20 @@ async def test_generate_episode_script_dry_run(fake_ctx: ToolContext, monkeypatc
             return "fake prompt"
 
     monkeypatch.setattr(mod, "ScriptGenerator", _FakeGenerator)
-    tool_obj = generate_episode_script_tool(fake_ctx)
-    out = await call(tool_obj, {"episode": 1, "dry_run": True})
-    assert out.get("is_error") is not True
-    assert "fake prompt" in out["content"][0]["text"]
+    out = await run_declared_tool("generate_episode_script", fake_ctx, {"episode": 1, "dry_run": True})
+    assert out.problem is None
+    assert "fake prompt" in said(out)
 
 
 async def test_generate_episode_script_without_formal_script_is_refused(fake_ctx: ToolContext) -> None:
     """非 ad 项目尚无正式脚本时拒绝编写，并指向内容确认。"""
-    (fake_ctx.project_path / "project.json").write_text(json.dumps({"content_mode": "narration"}), encoding="utf-8")
-    out = await call(generate_episode_script_tool(fake_ctx), {"episode": 1})
-    assert out.get("is_error") is True
-    assert "尚无正式脚本" in out["content"][0]["text"]
-    assert "内容确认" in out["content"][0]["text"]
+    (fake_ctx.project_path / "project.json").write_text(
+        json.dumps({"schema_version": CURRENT_PROJECT_SCHEMA_VERSION, "content_mode": "narration"}), encoding="utf-8"
+    )
+    out = await run_declared_tool("generate_episode_script", fake_ctx, {"episode": 1})
+    assert out.problem is not None
+    assert "尚无正式脚本" in said(out)
+    assert "内容确认" in said(out)
 
 
 async def test_generate_episode_script_writes_to_default_project_scripts(fake_ctx: ToolContext, monkeypatch) -> None:
@@ -329,7 +339,9 @@ async def test_generate_episode_script_writes_to_default_project_scripts(fake_ct
 
     project_path = fake_ctx.project_path
     _write_formal_script(project_path)
-    (project_path / "project.json").write_text(json.dumps({"content_mode": "narration"}), encoding="utf-8")
+    (project_path / "project.json").write_text(
+        json.dumps({"schema_version": CURRENT_PROJECT_SCHEMA_VERSION, "content_mode": "narration"}), encoding="utf-8"
+    )
 
     captured: dict[str, dict[str, Any]] = {"calls": {}}
 
@@ -347,10 +359,9 @@ async def test_generate_episode_script_writes_to_default_project_scripts(fake_ct
             return project_path / "scripts" / "episode_1.json"
 
     monkeypatch.setattr(mod, "ScriptGenerator", _FakeGenerator)
-    tool_obj = generate_episode_script_tool(fake_ctx)
 
-    out = await call(tool_obj, {"episode": 1})
-    assert out.get("is_error") is not True
+    out = await run_declared_tool("generate_episode_script", fake_ctx, {"episode": 1})
+    assert out.problem is None
     # handler 不传 output_path —— ScriptGenerator 自己决定写到哪里
     assert "output_path" not in captured["calls"]
 
@@ -361,7 +372,8 @@ async def test_generate_episode_script_ad_skips_script_plan(fake_ctx: ToolContex
 
     project_path = fake_ctx.project_path
     (project_path / "project.json").write_text(
-        json.dumps({"content_mode": "ad", "target_duration": 30}), encoding="utf-8"
+        json.dumps({"schema_version": CURRENT_PROJECT_SCHEMA_VERSION, "content_mode": "ad", "target_duration": 30}),
+        encoding="utf-8",
     )
 
     class _FakeGenerator:
@@ -376,9 +388,8 @@ async def test_generate_episode_script_ad_skips_script_plan(fake_ctx: ToolContex
             return project_path / "scripts" / "episode_1.json"
 
     monkeypatch.setattr(mod, "ScriptGenerator", _FakeGenerator)
-    tool_obj = generate_episode_script_tool(fake_ctx)
-    out = await call(tool_obj, {"episode": 1})
-    assert out.get("is_error") is not True
+    out = await run_declared_tool("generate_episode_script", fake_ctx, {"episode": 1})
+    assert out.problem is None
 
 
 async def test_generate_episode_script_entry_ids_reach_the_generator(fake_ctx: ToolContext, monkeypatch) -> None:
@@ -387,7 +398,8 @@ async def test_generate_episode_script_entry_ids_reach_the_generator(fake_ctx: T
 
     project_path = fake_ctx.project_path
     (project_path / "project.json").write_text(
-        json.dumps({"content_mode": "ad", "target_duration": 30}), encoding="utf-8"
+        json.dumps({"schema_version": CURRENT_PROJECT_SCHEMA_VERSION, "content_mode": "ad", "target_duration": 30}),
+        encoding="utf-8",
     )
     captured: dict[str, Any] = {}
 
@@ -406,10 +418,10 @@ async def test_generate_episode_script_entry_ids_reach_the_generator(fake_ctx: T
 
     monkeypatch.setattr(mod, "ScriptGenerator", _FakeGenerator)
 
-    out = await call(generate_episode_script_tool(fake_ctx), {"episode": 1, "entry_ids": ["E1S02"]})
-    assert out.get("is_error") is not True
+    out = await run_declared_tool("generate_episode_script", fake_ctx, {"episode": 1, "entry_ids": ["E1S02"]})
+    assert out.problem is None
     assert captured["entry_ids"] == ("E1S02",)
-    assert "E1S02" in out["content"][0]["text"]
+    assert "E1S02" in said(out)
 
 
 @pytest.mark.parametrize(
@@ -425,7 +437,10 @@ async def test_generate_episode_script_without_pending_entries_says_how_to_rewri
     project_path = fake_ctx.project_path
     _write_formal_script(project_path)
     (project_path / "project.json").write_text(
-        json.dumps({"content_mode": content_mode, "target_duration": 30}), encoding="utf-8"
+        json.dumps(
+            {"schema_version": CURRENT_PROJECT_SCHEMA_VERSION, "content_mode": content_mode, "target_duration": 30}
+        ),
+        encoding="utf-8",
     )
 
     class _FakeGenerator:
@@ -441,10 +456,10 @@ async def test_generate_episode_script_without_pending_entries_says_how_to_rewri
             return project_path / "scripts" / "episode_1.json"
 
     monkeypatch.setattr(mod, "ScriptGenerator", _FakeGenerator)
-    out = await call(generate_episode_script_tool(fake_ctx), {"episode": 1})
+    out = await run_declared_tool("generate_episode_script", fake_ctx, {"episode": 1})
 
-    assert out.get("is_error") is not True
-    message = out["content"][0]["text"]
+    assert out.problem is None
+    message = said(out)
     assert "没有待编写的条目" in message
     assert "entry_ids" in message
     assert redo_hint in message
@@ -457,7 +472,14 @@ async def test_generate_episode_script_reports_unbound_scene_mentions(fake_ctx: 
 
     project_path = fake_ctx.project_path
     (project_path / "project.json").write_text(
-        json.dumps({"content_mode": "ad", "target_duration": 30, "characters": {"主播": {"description": "出镜"}}}),
+        json.dumps(
+            {
+                "schema_version": CURRENT_PROJECT_SCHEMA_VERSION,
+                "content_mode": "ad",
+                "target_duration": 30,
+                "characters": {"主播": {"description": "出镜"}},
+            }
+        ),
         encoding="utf-8",
     )
     fake_ctx.pm.project_payload["characters"] = {"主播": {"description": "出镜"}}
@@ -483,10 +505,11 @@ async def test_generate_episode_script_reports_unbound_scene_mentions(fake_ctx: 
 
     monkeypatch.setattr(mod, "ScriptGenerator", _FakeGenerator)
 
-    out = await call(generate_episode_script_tool(fake_ctx), {"episode": 1, "entry_ids": ["E1S02"]})
+    out = await run_declared_tool("generate_episode_script", fake_ctx, {"episode": 1, "entry_ids": ["E1S02"]})
 
-    assert out.get("is_error") is not True
-    payload = json.loads(out["content"][0]["text"])["text_generation"]
+    assert out.problem is None
+    assert isinstance(out.value, TextGenerationResult)
+    payload = json_value(out.value)
     assert payload["warnings"] == [
         {"key": WARN_STORYBOARD_MENTION_UNBOUND, "params": {"unit_id": "E1S02", "name": "主播"}}
     ]
@@ -502,7 +525,8 @@ async def test_generate_episode_script_unknown_entry_id_is_refused_not_internal(
 
     project_path = fake_ctx.project_path
     (project_path / "project.json").write_text(
-        json.dumps({"content_mode": "ad", "target_duration": 30}), encoding="utf-8"
+        json.dumps({"schema_version": CURRENT_PROJECT_SCHEMA_VERSION, "content_mode": "ad", "target_duration": 30}),
+        encoding="utf-8",
     )
 
     class _FakeGenerator:
@@ -516,10 +540,10 @@ async def test_generate_episode_script_unknown_entry_id_is_refused_not_internal(
             raise PromptAuthoringTargetError("entry_ids 不在第 1 集正式脚本内: ['E9U99']")
 
     monkeypatch.setattr(mod, "ScriptGenerator", _FakeGenerator)
-    out = await call(generate_episode_script_tool(fake_ctx), {"episode": 1, "entry_ids": ["E9U99"]})
+    out = await run_declared_tool("generate_episode_script", fake_ctx, {"episode": 1, "entry_ids": ["E9U99"]})
 
-    assert out.get("is_error") is True
-    text = out["content"][0]["text"]
+    assert out.problem is not None
+    text = said(out)
     assert "编写范围无效" in text
     assert "generate_episode_script 失败" not in text
 
@@ -529,7 +553,8 @@ async def test_generate_episode_script_facts_failure_is_refused_with_problem_cod
 ) -> None:
     """分镜档位的视频请求事实解析不出：报「拒绝生成」并带问题码与参数，不冒成 internal_error 引导重试。"""
     (fake_ctx.project_path / "project.json").write_text(
-        json.dumps({"content_mode": "ad", "target_duration": 30}), encoding="utf-8"
+        json.dumps({"schema_version": CURRENT_PROJECT_SCHEMA_VERSION, "content_mode": "ad", "target_duration": 30}),
+        encoding="utf-8",
     )
     set_video_request_facts(
         VideoRequestFactsFailure(
@@ -538,12 +563,12 @@ async def test_generate_episode_script_facts_failure_is_refused_with_problem_cod
         )
     )
 
-    out = await call(generate_episode_script_tool(fake_ctx), {"episode": 1, "dry_run": True})
+    out = await run_declared_tool("generate_episode_script", fake_ctx, {"episode": 1, "dry_run": True})
 
-    assert out.get("is_error") is True
-    problem = json.loads(out["content"][0]["text"])["problem"]
+    assert out.problem is not None
+    problem = problem_of(out).model_dump()
     assert problem["code"] == "generation_refused"
-    assert "video_supported_durations_incompatible（provider=p, model=m, resolution=1080p" in out["content"][0]["text"]
+    assert "video_supported_durations_incompatible（provider=p, model=m, resolution=1080p" in said(out)
 
 
 @pytest.mark.parametrize("scope", ["all", "stale", None])
@@ -551,9 +576,9 @@ async def test_generate_episode_script_rejects_removed_scope_with_migration_note
     fake_ctx: ToolContext, scope: str | None
 ) -> None:
     """scope 已取消：传入即拒绝（不论取值），说明改用默认范围或 entry_ids。"""
-    out = await call(generate_episode_script_tool(fake_ctx), {"episode": 1, "scope": scope})
-    assert out.get("is_error") is True
-    text = out["content"][0]["text"]
+    out = await run_declared_tool("generate_episode_script", fake_ctx, {"episode": 1, "scope": scope})
+    assert problem_of(out).code == "invalid_request"
+    text = said(out)
     assert "scope 参数已取消" in text
     assert "entry_ids" in text
 
@@ -580,6 +605,7 @@ async def test_generate_episode_script_does_not_wait_for_script_plan_review(fake
     drafts.mkdir(parents=True)
     (drafts / "script_plan_segments.json").write_text("rerun script_plan", encoding="utf-8")
     project = {
+        "schema_version": CURRENT_PROJECT_SCHEMA_VERSION,
         "content_mode": "narration",
         "episodes": [
             {"episode": 1, "script_plan_review": {"fingerprint": "sha256-v1:" + "0" * 64, "confirmed_at": "t"}}
@@ -588,10 +614,10 @@ async def test_generate_episode_script_does_not_wait_for_script_plan_review(fake
     (project_path / "project.json").write_text(json.dumps(project), encoding="utf-8")
     assert script_review.review_status(project_path, project, 1) == "pending_review"
 
-    out = await call(generate_episode_script_tool(fake_ctx), {"episode": 1, "dry_run": True})
+    out = await run_declared_tool("generate_episode_script", fake_ctx, {"episode": 1, "dry_run": True})
 
-    assert out.get("is_error") is not True, out
-    assert "张三推门走进酒馆。" in out["content"][0]["text"]
+    assert out.problem is None, out
+    assert "张三推门走进酒馆。" in said(out)
 
 
 def test_parse_normalized_content_uses_dynamic_duration_schema() -> None:
@@ -688,10 +714,9 @@ async def test_normalize_drama_script_dry_run(fake_ctx: ToolContext, video_reque
     src.mkdir(parents=True)
     (src / "episode_1.txt").write_text("从前有座山", encoding="utf-8")
 
-    tool_obj = generate_script_plan_tool(fake_ctx)
-    out = await call(tool_obj, {"episode": 1, "dry_run": True})
-    assert out.get("is_error") is not True
-    assert "DRY RUN" in out["content"][0]["text"]
+    out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode": 1, "dry_run": True})
+    assert out.problem is None
+    assert "DRY RUN" in said(out)
 
 
 async def test_normalize_drama_script_projects_durable_inputs_once(
@@ -712,9 +737,9 @@ async def test_normalize_drama_script_projects_durable_inputs_once(
 
     monkeypatch.setattr(artifact_provenance, "project_script_plan_prompt_inputs", counted_projection)
 
-    result = await call(generate_script_plan_tool(fake_ctx), {"episode": 1, "dry_run": True})
+    result = await run_declared_tool("generate_script_plan", fake_ctx, {"episode": 1, "dry_run": True})
 
-    assert result.get("is_error") is not True, result
+    assert result.problem is None, result
     assert calls == 1
 
 
@@ -729,10 +754,9 @@ async def test_normalize_drama_script_wires_target_language(fake_ctx: ToolContex
     src.mkdir(parents=True)
     (src / "episode_1.txt").write_text("once upon a time", encoding="utf-8")
 
-    tool_obj = generate_script_plan_tool(fake_ctx)
-    out = await call(tool_obj, {"episode": 1, "dry_run": True})
-    assert out.get("is_error") is not True
-    assert "English" in out["content"][0]["text"]
+    out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode": 1, "dry_run": True})
+    assert out.problem is None
+    assert "English" in said(out)
 
 
 async def test_normalize_drama_script_rejects_empty_scenes(
@@ -758,9 +782,8 @@ async def test_normalize_drama_script_rejects_empty_scenes(
 
     monkeypatch.setattr(mod.TextGenerator, "create", fake_create)
 
-    tool_obj = generate_script_plan_tool(fake_ctx)
-    out = await call(tool_obj, {"episode": 1})
-    assert out.get("is_error") is True
+    out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode": 1})
+    assert out.problem is not None
     # 空 scenes 不写盘，避免生成阶段才必然失败
     assert not (project_path / "drafts" / "episode_1" / "script_plan_normalized_script.json").exists()
 
@@ -773,10 +796,11 @@ async def test_normalize_drama_script_injects_episode_into_prompt(fake_ctx: Tool
     src.mkdir(parents=True)
     (src / "chapter2.txt").write_text("第二集开场", encoding="utf-8")
 
-    tool_obj = generate_script_plan_tool(fake_ctx)
-    out = await call(tool_obj, {"episode": 2, "dry_run": True, "source": "source/chapter2.txt"})
-    assert out.get("is_error") is not True, out
-    prompt_text = out["content"][0]["text"]
+    out = await run_declared_tool(
+        "generate_script_plan", fake_ctx, {"episode": 2, "dry_run": True, "source": "source/chapter2.txt"}
+    )
+    assert out.problem is None, out
+    prompt_text = said(out)
     assert "E2S01" in prompt_text
     assert "第 2 集" in prompt_text or "E2S{两位序号}" in prompt_text
     assert "E1S01" not in prompt_text
@@ -798,10 +822,9 @@ async def test_normalize_drama_script_injects_episode_outline(fake_ctx: ToolCont
         }
     ]
 
-    tool_obj = generate_script_plan_tool(fake_ctx)
-    out = await call(tool_obj, {"episode": 1, "dry_run": True})
-    assert out.get("is_error") is not True, out
-    prompt_text = out["content"][0]["text"]
+    out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode": 1, "dry_run": True})
+    assert out.problem is None, out
+    prompt_text = said(out)
     assert "少年下山" in prompt_text
     assert "少年坠崖生死未卜" in prompt_text
 
@@ -858,10 +881,9 @@ async def test_normalize_drama_script_passes_project_name_to_backend(
 
     monkeypatch.setattr(mod.TextGenerator, "create", fake_create)
 
-    tool_obj = generate_script_plan_tool(fake_ctx)
-    out = await call(tool_obj, {"episode": 1})
+    out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode": 1})
 
-    assert out.get("is_error") is not True, out
+    assert out.problem is None, out
     assert captured["task_type"] is mod.TextTaskType.SCRIPT
     assert captured["purpose"] is CallPurpose.SCRIPT_GENERATION
     assert captured["create_project_name"] == "demo", (
@@ -935,12 +957,13 @@ async def test_normalize_drama_script_registers_the_frozen_explicit_source_basis
 
     monkeypatch.setattr(mod.TextGenerator, "create", fake_create)
 
-    result = await call(
-        generate_script_plan_tool(fake_ctx),
+    result = await run_declared_tool(
+        "generate_script_plan",
+        fake_ctx,
         {"episode": 1, "source": "source/selected.txt"},
     )
 
-    assert result.get("is_error") is not True, result
+    assert result.problem is None, result
     entry = ProjectArtifactManifestAdapter(fake_ctx.project_path).get_entry(ArtifactKey.episode_script_plan(1))
     assert entry is not None
     assert entry.basis_digest == expected.digest
@@ -1010,12 +1033,15 @@ async def test_normalize_drama_script_preserves_legacy_request_basis_when_manife
 
     monkeypatch.setattr(mod.TextGenerator, "create", fake_create)
 
-    result = await call(
-        generate_script_plan_tool(fake_ctx),
-        {"episode": 1, "source": "source/selected.txt"},
+    # 升级前的旧项目：工具入口按迁移裁决拒绝，这里直接调 handler 观察生成本身保留的请求依据。
+    result = await generate_script_plan(
+        ToolRequest(GenerateScriptPlanRequest(episode=1, source="source/selected.txt")),
+        fake_ctx.scope,
+        fake_ctx.caller,
+        tool_services(fake_ctx),
     )
 
-    assert result.get("is_error") is not True, result
+    assert result.problem is None, result
     entry = ProjectArtifactManifestAdapter(fake_ctx.project_path).get_entry(ArtifactKey.episode_script_plan(1))
     assert entry is not None
     assert entry.basis_digest == expected.digest
@@ -1066,9 +1092,9 @@ async def test_normalize_drama_script_marks_mixed_machine_candidate_before_revie
 
     monkeypatch.setattr(mod.TextGenerator, "create", fake_create)
 
-    result = await call(generate_script_plan_tool(fake_ctx), {"episode": 1})
+    result = await run_declared_tool("generate_script_plan", fake_ctx, {"episode": 1})
 
-    assert result.get("is_error") is not True, result
+    assert result.problem is None, result
     saved = json.loads(
         (project_path / "drafts" / "episode_1" / "script_plan_normalized_script.json").read_text(encoding="utf-8")
     )
@@ -1089,10 +1115,10 @@ async def test_normalize_drama_script_defaults_to_the_episode_derived_source(
     (source_dir / "novel.txt").write_text("整本小说原文", encoding="utf-8")
     (source_dir / "episode_2.txt").write_text("第二集派生源文", encoding="utf-8")
 
-    out = await call(generate_script_plan_tool(fake_ctx), {"episode": 1, "dry_run": True})
+    out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode": 1, "dry_run": True})
 
-    assert out.get("is_error") is not True, out
-    prompt_text = out["content"][0]["text"]
+    assert out.problem is None, out
+    prompt_text = said(out)
     assert "本集派生源文" in prompt_text
     assert "整本小说原文" not in prompt_text
     assert "第二集派生源文" not in prompt_text
@@ -1103,10 +1129,10 @@ async def test_normalize_drama_script_rejects_an_empty_explicit_source(fake_ctx:
     source_dir.mkdir(parents=True)
     (source_dir / "episode_1.txt").write_text("本集派生源文", encoding="utf-8")
 
-    out = await call(generate_script_plan_tool(fake_ctx), {"episode": 1, "source": "", "dry_run": True})
+    out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode": 1, "source": "", "dry_run": True})
 
-    assert out.get("is_error") is True
-    assert "源文件路径不能为空" in json.loads(out["content"][0]["text"])["problem"]["detail"]
+    assert out.problem is not None
+    assert "源文件路径不能为空" in problem_of(out).detail
 
 
 async def test_normalize_drama_script_rejects_a_default_source_symlink_escape(fake_ctx: ToolContext) -> None:
@@ -1116,10 +1142,10 @@ async def test_normalize_drama_script_rejects_a_default_source_symlink_escape(fa
     outside.write_text("项目外内容", encoding="utf-8")
     (source_dir / "episode_1.txt").symlink_to(outside)
 
-    out = await call(generate_script_plan_tool(fake_ctx), {"episode": 1, "dry_run": True})
+    out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode": 1, "dry_run": True})
 
-    assert out.get("is_error") is True
-    detail = json.loads(out["content"][0]["text"])["problem"]["detail"]
+    assert out.problem is not None
+    detail = problem_of(out).detail
     assert "路径超出项目目录" in detail
     assert "source/episode_1.txt" in detail
 
@@ -1133,10 +1159,10 @@ async def test_normalize_drama_script_refuses_when_the_episode_derived_source_is
     source_dir.mkdir(parents=True)
     (source_dir / "novel.txt").write_text("整本小说原文", encoding="utf-8")
 
-    out = await call(generate_script_plan_tool(fake_ctx), {"episode": 1, "dry_run": True})
+    out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode": 1, "dry_run": True})
 
-    assert out.get("is_error") is True
-    detail = json.loads(out["content"][0]["text"])["problem"]["detail"]
+    assert out.problem is not None
+    detail = problem_of(out).detail
     assert "source/episode_1.txt" in detail
     assert "plan_episodes" in detail
 
@@ -1147,10 +1173,11 @@ async def test_normalize_drama_script_injects_instructions(fake_ctx: ToolContext
     src.mkdir(parents=True)
     (src / "episode_1.txt").write_text("从前有座山", encoding="utf-8")
 
-    tool_obj = generate_script_plan_tool(fake_ctx)
-    out = await call(tool_obj, {"episode": 1, "dry_run": True, "instructions": "打斗场面多拆几个短镜头"})
-    assert out.get("is_error") is not True, out
-    prompt_text = out["content"][0]["text"]
+    out = await run_declared_tool(
+        "generate_script_plan", fake_ctx, {"episode": 1, "dry_run": True, "instructions": "打斗场面多拆几个短镜头"}
+    )
+    assert out.problem is None, out
+    prompt_text = said(out)
     assert "# 附加指令" in prompt_text
     assert "打斗场面多拆几个短镜头" in prompt_text
 
@@ -1161,7 +1188,9 @@ async def test_generate_episode_script_forwards_instructions(fake_ctx: ToolConte
 
     project_path = fake_ctx.project_path
     _write_formal_script(project_path)
-    (project_path / "project.json").write_text(json.dumps({"content_mode": "narration"}), encoding="utf-8")
+    (project_path / "project.json").write_text(
+        json.dumps({"schema_version": CURRENT_PROJECT_SCHEMA_VERSION, "content_mode": "narration"}), encoding="utf-8"
+    )
 
     captured: dict[str, Any] = {}
 
@@ -1185,14 +1214,15 @@ async def test_generate_episode_script_forwards_instructions(fake_ctx: ToolConte
             return project_path / "scripts" / "episode_1.json"
 
     monkeypatch.setattr(mod, "ScriptGenerator", _FakeGenerator)
-    tool_obj = generate_episode_script_tool(fake_ctx)
 
-    out = await call(tool_obj, {"episode": 1, "dry_run": True, "instructions": "偏好特写镜头"})
-    assert out.get("is_error") is not True, out
+    out = await run_declared_tool(
+        "generate_episode_script", fake_ctx, {"episode": 1, "dry_run": True, "instructions": "偏好特写镜头"}
+    )
+    assert out.problem is None, out
     assert captured["build_prompt"] == "偏好特写镜头"
 
-    out = await call(tool_obj, {"episode": 1, "instructions": "偏好特写镜头"})
-    assert out.get("is_error") is not True, out
+    out = await run_declared_tool("generate_episode_script", fake_ctx, {"episode": 1, "instructions": "偏好特写镜头"})
+    assert out.problem is None, out
     assert captured["generate"] == "偏好特写镜头"
 
 

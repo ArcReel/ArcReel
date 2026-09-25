@@ -159,6 +159,10 @@ from server.services.tasks.video_caps import (
     duration_constraints_payload,
 )
 from server.text_generation import (
+    MAX_INSTRUCTIONS_LEN as TEXT_INSTRUCTIONS_MAX_LEN,
+)
+from server.text_generation import (
+    SCOPE_REMOVED_MESSAGE,
     ScriptOverwriteRequiredError,
     TextGenerationError,
     TextGenerationRequest,
@@ -655,21 +659,78 @@ async def _execute_text_handler(
     )
 
 
+_TextInstructions = Annotated[
+    str,
+    Field(
+        max_length=TEXT_INSTRUCTIONS_MAX_LEN,
+        description=(
+            "用户对本次生成的附加指令原文（可选）；原样注入 prompt 末尾的「附加指令」分节，"
+            f"遵循强度由正文表达，缺省/空白视同未传，最长 {TEXT_INSTRUCTIONS_MAX_LEN} 字符"
+        ),
+    ),
+]
+_DRY_RUN_DESCRIPTION = "仅返回 prompt，不调用模型"
+
+
+class GenerateEpisodeScriptRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    episode: PositiveEpisode = Field(description="剧集编号")
+    instructions: _TextInstructions | SkipJsonSchema[None] = None
+    entry_ids: list[Annotated[str, Field(min_length=1)]] | SkipJsonSchema[None] = Field(
+        default=None,
+        description="显式重写这些条目（分镜 / 单元 id）的视觉层，不论是否待编写；省略时编写全部待编写条目",
+    )
+    dry_run: bool = Field(default=False, description=_DRY_RUN_DESCRIPTION)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _reject_retired_scope(cls, data: Any) -> Any:
+        if isinstance(data, dict) and "scope" in data:
+            raise ValueError(SCOPE_REMOVED_MESSAGE)
+        return data
+
+    def text_request(self) -> TextGenerationRequest:
+        return TextGenerationRequest(
+            episode=self.episode,
+            instructions=self.instructions,
+            entry_ids=tuple(self.entry_ids or ()),
+            dry_run=self.dry_run,
+        )
+
+
+class GenerateScriptPlanRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    episode: PositiveEpisode = Field(description="剧集编号")
+    source: str | SkipJsonSchema[None] = Field(
+        default=None, description="可选的项目内源文件相对路径；缺省读取本集派生源文 source/episode_N.txt"
+    )
+    instructions: _TextInstructions | SkipJsonSchema[None] = None
+    dry_run: bool = Field(default=False, description=_DRY_RUN_DESCRIPTION)
+
+    def text_request(self) -> TextGenerationRequest:
+        return TextGenerationRequest(
+            episode=self.episode, source=self.source, instructions=self.instructions, dry_run=self.dry_run
+        )
+
+
 async def generate_episode_script(
-    request: ToolRequest[TextGenerationRequest],
+    request: ToolRequest[GenerateEpisodeScriptRequest],
     scope: ProjectScope,
     _caller: CallerContext,
     services: Services,
 ) -> ToolOutcome[Any]:
-    if request.value.dry_run:
+    text_request = request.value.text_request()
+    if text_request.dry_run:
         return await _execute_text_handler(
-            "generate_episode_script", generate_episode_script_handler, request.value, scope, services
+            "generate_episode_script", generate_episode_script_handler, text_request, scope, services
         )
     try:
         await asyncio.to_thread(
             prompt_authoring_preflight,
             services.projects.get_project_path(scope.project_name),
-            request.value.episode,
+            text_request.episode,
         )
     except TextGenerationError as exc:
         return ToolOutcome(problem=ToolProblem("generation_refused", str(exc)))
@@ -678,8 +739,8 @@ async def generate_episode_script(
     return await _submit_text_task(
         task_type=_TEXT_EPISODE_SCRIPT,
         operation="generate_episode_script",
-        unit_id=f"episode-{request.value.episode}",
-        payload=request.value.to_payload(),
+        unit_id=f"episode-{text_request.episode}",
+        payload=text_request.to_payload(),
         scope=scope,
         caller=_caller,
         services=services,
@@ -687,11 +748,12 @@ async def generate_episode_script(
 
 
 async def generate_script_plan(
-    request: ToolRequest[TextGenerationRequest],
+    request: ToolRequest[GenerateScriptPlanRequest],
     scope: ProjectScope,
     _caller: CallerContext,
     services: Services,
 ) -> ToolOutcome[Any]:
+    text_request = request.value.text_request()
     try:
         project = await asyncio.to_thread(services.projects.load_project, scope.project_name)
         content_mode = project.get("content_mode", "narration")
@@ -709,24 +771,27 @@ async def generate_script_plan(
         return ToolOutcome(problem=ToolProblem("generation_refused", str(exc)))
     except Exception as exc:
         return ToolOutcome(problem=ToolProblem("internal_error", f"generate_script_plan 失败: {exc}"))
-    if request.value.dry_run:
-        return await _execute_text_handler("generate_script_plan", handler, request.value, scope, services)
+    if text_request.dry_run:
+        return await _execute_text_handler("generate_script_plan", handler, text_request, scope, services)
     return await _submit_text_task(
         task_type=task_type,
         operation="generate_script_plan",
-        unit_id=f"episode-{request.value.episode}",
-        payload=request.value.to_payload(),
+        unit_id=f"episode-{text_request.episode}",
+        payload=text_request.to_payload(),
         scope=scope,
         caller=_caller,
         services=services,
     )
 
 
-@dataclass(frozen=True, slots=True)
-class ConfirmScriptReviewRequest:
-    episode: int
-    #: 用户已同意覆盖的正式脚本版本（覆盖清单的 ``revision``）；该集尚无正式脚本时不必给。
-    overwrite_revision: str | None = None
+class ConfirmScriptReviewRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    episode: PositiveEpisode = Field(description="剧集编号")
+    overwrite_revision: str | SkipJsonSchema[None] = Field(
+        default=None,
+        description="用户已同意覆盖的正式脚本版本，取自 script_overwrite.revision；尚无正式脚本时不必给",
+    )
 
 
 async def confirm_script_review(
@@ -1215,9 +1280,9 @@ async def patch_draft(
             patch.content,
             patch.base_revision,
             accept_formal_revision=patch.accept_formal_revision,
-            accepts_formal_revision=patch.accepts_formal_revision,
+            accepts_formal_revision="accept_formal_revision" in patch.model_fields_set,
             source=patch.source,
-            updates_source=patch.updates_source,
+            updates_source="source" in patch.model_fields_set,
         )
     )
 
@@ -2612,11 +2677,14 @@ __all__ = [
     "CallerContext",
     "CompleteAssetInventoryRequest",
     "CompleteScriptPlanRebuildRequest",
+    "ConfirmScriptReviewRequest",
     "CreateProjectToolRequest",
     "DiscardDraftRequest",
     "DraftLocator",
     "EpisodeScriptContent",
     "EpisodeScriptRequest",
+    "GenerateEpisodeScriptRequest",
+    "GenerateScriptPlanRequest",
     "GenerationBatchToolRequest",
     "NoArguments",
     "PatchDraftRequest",

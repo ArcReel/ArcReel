@@ -24,19 +24,12 @@ from lib.script.draft_quarantine import (
     write_quarantine,
 )
 from lib.script.reference_video.draft_validation import DraftViolation
-from server.agent_runtime.sdk_tools.text_generation import (
-    generate_episode_script_tool,
-    generate_script_plan_tool,
-    open_draft_tool,
-    patch_draft_tool,
-    promote_draft_tool,
-)
 from server.draft_workflow import DraftContext, DraftWorkflow
 from server.media_tools.context import ToolContext
 from server.text_generation import TextGenerationError, TextGenerationRequest, generate_reference_script_plan
 from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
     _RV_NOVEL,
-    call,
+    draft_of,
     drama_project,
     drama_quarantine_path,
     drama_scene,
@@ -49,12 +42,14 @@ from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
     open_drama_for_edit,
     open_for_edit,
     open_nr_for_edit,
+    problem_of,
     promote_drama,
     promote_nr,
     promote_reference_draft,
     read_drama_quarantine,
     read_nr_quarantine,
     read_rv_quarantine,
+    run_declared_tool,
     run_rv_split,
     rv_generator_returning,
     rv_project,
@@ -63,6 +58,7 @@ from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
     rv_script_plan_path,
     rv_source,
     rv_unit,
+    said,
     use_fake_caps,
     write_drama_script_plan,
     write_nr_script_plan,
@@ -101,7 +97,7 @@ async def test_split_reference_video_units_quarantines_each_violation_class(
     rv_source(fake_ctx)
     out = await run_rv_split(fake_ctx, monkeypatch, [unit])
 
-    assert out.get("is_error") is True
+    assert out.problem is not None
     assert not rv_script_plan_path(fake_ctx).exists()
 
     envelope = read_rv_quarantine(fake_ctx)
@@ -112,7 +108,7 @@ async def test_split_reference_video_units_quarantines_each_violation_class(
     assert envelope["content"]["units"][0]["text"] == unit["text"]
     assert "shots" not in envelope["content"]["units"][0]
 
-    report = out["content"][0]["text"]
+    report = said(out)
     assert f"[{code}]" in report
     assert "unit E1U01" in report
     assert str(rv_quarantine_path(fake_ctx)) in report
@@ -131,7 +127,7 @@ async def test_split_reference_video_units_reports_all_bad_units_in_one_round(
     ]
     out = await run_rv_split(fake_ctx, monkeypatch, units)
 
-    assert out.get("is_error") is True
+    assert out.problem is not None
     envelope = read_rv_quarantine(fake_ctx)
     assert [v["label"] for v in envelope["violations"]] == ["unit E1U02", "unit E1U03"]
     assert [v["code"] for v in envelope["violations"]] == ["unregistered_asset", "braces_in_description"]
@@ -192,7 +188,7 @@ async def test_promote_draft_promotes_after_repair(fake_ctx: ToolContext, monkey
 
     out = await promote_reference_draft(fake_ctx)
 
-    assert out.get("is_error") is not True, out
+    assert out.problem is None, out
     assert not rv_quarantine_path(fake_ctx).exists()
     saved = json.loads(rv_script_plan_path(fake_ctx).read_text(encoding="utf-8"))
     assert saved["units"][0]["unit_id"] == "E1U01"
@@ -206,8 +202,8 @@ async def test_promote_draft_reports_again_without_round_limit(fake_ctx: ToolCon
 
     for _round in range(3):
         out = await promote_reference_draft(fake_ctx)
-        assert out.get("is_error") is True
-        assert "unregistered_asset" in out["content"][0]["text"]
+        assert out.problem is not None
+        assert "unregistered_asset" in said(out)
         assert rv_quarantine_path(fake_ctx).exists()
         assert not rv_script_plan_path(fake_ctx).exists()
 
@@ -223,19 +219,20 @@ async def test_promote_draft_rejects_stale_draft_revision(fake_ctx: ToolContext,
     rv_source(fake_ctx)
     await run_rv_split(fake_ctx, monkeypatch, [rv_unit("@[不存在的人] 出场")])
     args = {"episode": 1, "doc_type": "reference_script_plan"}
-    opened = json.loads((await call(open_draft_tool(fake_ctx), args))["content"][0]["text"])["draft"]
+    opened = draft_of(await run_declared_tool("open_draft", fake_ctx, args))
     updated = copy.deepcopy(opened["content"])
     updated["units"][0]["text"] = "@[张三] 在 @[村口] 出场"
-    patched = await call(
-        patch_draft_tool(fake_ctx),
+    patched = await run_declared_tool(
+        "patch_draft",
+        fake_ctx,
         {**args, "content": updated, "base_revision": opened["revision"]},
     )
-    assert patched.get("is_error") is not True, patched
+    assert patched.problem is None, patched
 
-    out = await call(promote_draft_tool(fake_ctx), {**args, "base_revision": opened["revision"]})
+    out = await run_declared_tool("promote_draft", fake_ctx, {**args, "base_revision": opened["revision"]})
 
-    assert out.get("is_error") is True
-    assert "revision_conflict" in out["content"][0]["text"]
+    assert out.problem is not None
+    assert problem_of(out).code == "revision_conflict"
     assert rv_quarantine_path(fake_ctx).exists()
     assert not rv_script_plan_path(fake_ctx).exists()
 
@@ -259,13 +256,13 @@ async def test_promote_conflicts_when_official_changed_after_open(fake_ctx: Tool
 
     out = await promote_reference_draft(fake_ctx)
 
-    assert out.get("is_error") is True
-    report = out["content"][0]["text"]
+    assert out.problem is not None
+    report = said(out)
     assert "并发冲突" in report
     assert "accept_formal_revision" in report
     assert "patch_draft" in report
     assert "base_revision" in report
-    assert 'doc_type\\": \\"reference_script_plan' in report
+    assert '"doc_type": "reference_script_plan"' in report
     # 冲突报告附上盘上现值的扁平草稿单元，供 Agent 对照合并
     assert "在 @[村口] 等候" in report
     # 正式文件未被覆盖，草稿仍在场
@@ -273,10 +270,11 @@ async def test_promote_conflicts_when_official_changed_after_open(fake_ctx: Tool
     assert rv_quarantine_path(fake_ctx).exists()
 
     # 按报告指引通过工具合并并显式接受正式版本后，重新晋升即放行。
-    refreshed = json.loads((await open_for_edit(fake_ctx))["content"][0]["text"])["draft"]
+    refreshed = draft_of(await open_for_edit(fake_ctx))
     refreshed["content"]["units"][0]["text"] = "@[张三] 在 @[村口] 等候"
-    patched = await call(
-        patch_draft_tool(fake_ctx),
+    patched = await run_declared_tool(
+        "patch_draft",
+        fake_ctx,
         {
             "episode": 1,
             "doc_type": "reference_script_plan",
@@ -285,9 +283,9 @@ async def test_promote_conflicts_when_official_changed_after_open(fake_ctx: Tool
             "accept_formal_revision": refreshed["formal_revision"],
         },
     )
-    assert patched.get("is_error") is not True, patched
+    assert patched.problem is None, patched
     out = await promote_reference_draft(fake_ctx)
-    assert out.get("is_error") is not True, out
+    assert out.problem is None, out
     assert not rv_quarantine_path(fake_ctx).exists()
 
 
@@ -301,16 +299,17 @@ async def test_promote_conflict_report_renders_missing_fingerprint_as_json_null(
 
     out = await promote_reference_draft(fake_ctx)
 
-    assert out.get("is_error") is True
-    report = out["content"][0]["text"]
+    assert out.problem is not None
+    report = said(out)
     assert "null" in report
     assert "None" not in report
-    assert "accepts_formal_revision=true" in report
+    assert "显式传入 null" in report
 
-    refreshed = json.loads((await open_for_edit(fake_ctx))["content"][0]["text"])["draft"]
+    refreshed = draft_of(await open_for_edit(fake_ctx))
     assert refreshed["formal_revision"] is None
-    patched = await call(
-        patch_draft_tool(fake_ctx),
+    patched = await run_declared_tool(
+        "patch_draft",
+        fake_ctx,
         {
             "episode": 1,
             "doc_type": "reference_script_plan",
@@ -319,9 +318,9 @@ async def test_promote_conflict_report_renders_missing_fingerprint_as_json_null(
             "accept_formal_revision": None,
         },
     )
-    assert patched.get("is_error") is not True, patched
+    assert patched.problem is None, patched
     out = await promote_reference_draft(fake_ctx)
-    assert out.get("is_error") is not True, out
+    assert out.problem is None, out
     assert not rv_quarantine_path(fake_ctx).exists()
 
 
@@ -338,7 +337,7 @@ async def test_promote_without_base_fingerprint_meta_promotes_unchecked(fake_ctx
 
     out = await promote_reference_draft(fake_ctx)
 
-    assert out.get("is_error") is not True, out
+    assert out.problem is None, out
     assert not rv_quarantine_path(fake_ctx).exists()
 
 
@@ -361,9 +360,9 @@ async def test_split_violation_quarantine_records_base_fingerprint(fake_ctx: Too
 
     out = await promote_reference_draft(fake_ctx)
 
-    assert out.get("is_error") is True
-    assert "并发冲突" in out["content"][0]["text"]
-    assert "base_revision" in out["content"][0]["text"]
+    assert out.problem is not None
+    assert "并发冲突" in said(out)
+    assert "base_revision" in said(out)
     assert script_review.content_fingerprint(rv_script_plan_path(fake_ctx)) == formal_fingerprint
 
 
@@ -441,8 +440,8 @@ async def test_promote_draft_rejects_schema_breach(fake_ctx: ToolContext, monkey
 
     out = await promote_reference_draft(fake_ctx)
 
-    assert out.get("is_error") is True
-    assert hint in out["content"][0]["text"]
+    assert out.problem is not None
+    assert hint in said(out)
     assert not rv_script_plan_path(fake_ctx).exists()
     assert [v["code"] for v in read_rv_quarantine(fake_ctx)["violations"]] == ["schema_invalid"]
 
@@ -472,8 +471,8 @@ async def test_promote_draft_reports_broken_outer_shape(fake_ctx: ToolContext, m
 
     out = await promote_reference_draft(fake_ctx)
 
-    assert out.get("is_error") is True
-    assert "content.units" in out["content"][0]["text"]
+    assert out.problem is not None
+    assert "content.units" in said(out)
     assert not rv_script_plan_path(fake_ctx).exists()
     refreshed = read_rv_quarantine(fake_ctx)
     assert [v["code"] for v in refreshed["violations"]] == ["schema_invalid"]
@@ -495,9 +494,9 @@ async def test_promote_draft_requires_source_provenance(fake_ctx: ToolContext, m
     rv_quarantine_path(fake_ctx).write_text(json.dumps(envelope, ensure_ascii=False), encoding="utf-8")
 
     out = await promote_reference_draft(fake_ctx)
-    assert out.get("is_error") is True
-    assert json.loads(out["content"][0]["text"])["problem"]["code"] == "draft_invalid"
-    assert "meta.source 缺失" in out["content"][0]["text"]
+    assert out.problem is not None
+    assert problem_of(out).code == "draft_invalid"
+    assert "meta.source 缺失" in said(out)
     assert not rv_script_plan_path(fake_ctx).exists()
 
 
@@ -511,8 +510,8 @@ async def test_promote_draft_reports_promotion_not_split(fake_ctx: ToolContext, 
 
     out = await promote_reference_draft(fake_ctx)
 
-    assert out.get("is_error") is not True, out
-    assert "晋升" in out["content"][0]["text"]
+    assert out.problem is None, out
+    assert "晋升" in said(out)
 
 
 def _rv_scenes(fake_ctx: ToolContext, scenes: dict[str, Any]) -> None:
@@ -541,8 +540,8 @@ async def test_promote_draft_report_names_units_without_scene_reference(fake_ctx
 
     out = await promote_reference_draft(fake_ctx)
 
-    assert out.get("is_error") is True
-    text = out["content"][0]["text"]
+    assert out.problem is not None
+    text = said(out)
     assert "unregistered_asset" in text
     assert "未引用场景" in text
     assert "unit E1U01：" in text
@@ -560,8 +559,8 @@ async def test_promote_draft_report_silent_when_every_unit_references_a_scene(
 
     out = await promote_reference_draft(fake_ctx)
 
-    assert out.get("is_error") is True
-    assert "未引用场景" not in out["content"][0]["text"]
+    assert out.problem is not None
+    assert "未引用场景" not in said(out)
 
 
 async def test_promote_receipt_names_units_without_scene_reference(fake_ctx: ToolContext, monkeypatch) -> None:
@@ -572,9 +571,9 @@ async def test_promote_receipt_names_units_without_scene_reference(fake_ctx: Too
 
     out = await promote_reference_draft(fake_ctx)
 
-    assert out.get("is_error") is not True, out
+    assert out.problem is None, out
     assert not rv_quarantine_path(fake_ctx).exists()
-    text = json.loads(out["content"][0]["text"])["draft"]["message"]
+    text = draft_of(out)["message"]
     assert "降级提示" in text
     assert "未引用场景" in text
     assert "unit E1U02：" in text
@@ -589,8 +588,8 @@ async def test_promote_receipt_silent_when_every_unit_references_a_scene(fake_ct
 
     out = await promote_reference_draft(fake_ctx)
 
-    assert out.get("is_error") is not True, out
-    assert "未引用场景" not in json.loads(out["content"][0]["text"])["draft"]["message"]
+    assert out.problem is None, out
+    assert "未引用场景" not in draft_of(out)["message"]
 
 
 async def test_cancelled_reference_script_plan_promotion_finishes_commit_and_cleanup(
@@ -658,7 +657,7 @@ async def test_writing_reference_script_plan_clears_stale_prompt_authoring_quara
 
     out = await run_rv_split(fake_ctx, monkeypatch, [rv_unit("@[张三] 起身")])
 
-    assert out.get("is_error") is not True, out
+    assert out.problem is None, out
     assert not prompt_authoring_path.exists()
 
 
@@ -683,7 +682,7 @@ async def test_promote_reference_script_plan_preserves_prompt_authoring_draft_wh
     await open_for_edit(fake_ctx, source="source/episode_1.txt")
     out = await promote_reference_draft(fake_ctx)
 
-    assert out.get("is_error") is not True, out
+    assert out.problem is None, out
     assert prompt_authoring_path.exists()
 
 
@@ -728,8 +727,8 @@ async def test_promote_draft_prompt_authoring_uses_async_factory(fake_ctx: ToolC
 
     monkeypatch.setattr(TextGenerator, "create", create_text_generator)
     out = await promote_reference_draft(fake_ctx)
-    assert out.get("is_error") is not True, out
-    assert "episode_1.json" in out["content"][0]["text"]
+    assert out.problem is None, out
+    assert "episode_1.json" in said(out)
     saved = json.loads((fake_ctx.project_path / "scripts" / "episode_1.json").read_text(encoding="utf-8"))
     assert saved["metadata"]["generator"] == "review-factory"
     assert seen["project_name"] == fake_ctx.project_name
@@ -827,7 +826,7 @@ async def test_open_script_plan_draft_waits_for_quarantine_lock(fake_ctx: ToolCo
         assert not opening.done()
 
     out = await opening
-    assert out.get("is_error") is not True, out
+    assert out.problem is None, out
     assert target.exists()
 
 
@@ -843,8 +842,8 @@ async def test_promote_draft_refuses_after_mode_switch(fake_ctx: ToolContext) ->
     )
 
     out = await promote_reference_draft(fake_ctx)
-    assert out.get("is_error") is True
-    assert "doc_type_not_applicable" in out["content"][0]["text"]
+    assert out.problem is not None
+    assert problem_of(out).code == "doc_type_not_applicable"
     assert quarantine_path(fake_ctx.project_path, 1, QUARANTINE_KIND_PROMPT_AUTHORING).exists(), (
         "残留草稿应原样留在盘上，不被这条路径消费"
     )
@@ -886,7 +885,7 @@ async def test_promote_draft_prompt_authoring_ignores_unconfirmed_script_plan(
     monkeypatch.setattr(TextGenerator, "create", create_text_generator)
     out = await promote_reference_draft(fake_ctx)
 
-    assert out.get("is_error") is not True, out
+    assert out.problem is None, out
     saved = json.loads((fake_ctx.project_path / "scripts" / "episode_1.json").read_text(encoding="utf-8"))
     assert saved["video_units"][0]["text"] == "镜头1：中景，平视。@[张三] 起身。"
     assert "pending_authoring" not in saved["video_units"][0]
@@ -895,8 +894,8 @@ async def test_promote_draft_prompt_authoring_ignores_unconfirmed_script_plan(
 
 async def test_promote_draft_without_draft(fake_ctx: ToolContext) -> None:
     out = await promote_reference_draft(fake_ctx)
-    assert out.get("is_error") is True
-    assert "draft_not_found" in out["content"][0]["text"]
+    assert out.problem is not None
+    assert problem_of(out).code == "draft_not_found"
 
 
 async def test_split_reference_video_units_clears_stale_quarantine_on_success(
@@ -908,7 +907,7 @@ async def test_split_reference_video_units_clears_stale_quarantine_on_success(
     assert rv_quarantine_path(fake_ctx).exists()
 
     out = await run_rv_split(fake_ctx, monkeypatch, [rv_unit("@[张三] 起身")])
-    assert out.get("is_error") is not True, out
+    assert out.problem is None, out
     assert not rv_quarantine_path(fake_ctx).exists()
 
 
@@ -934,9 +933,9 @@ async def _dry_run_authoring(fake_ctx: ToolContext, content_mode: str, items_key
         items_key: [entry | {"pending_authoring": True}],
     }
     (scripts / "episode_1.json").write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
-    out = await call(generate_episode_script_tool(fake_ctx), {"episode": 1, "dry_run": True})
-    assert out.get("is_error") is not True, out
-    return out["content"][0]["text"]
+    out = await run_declared_tool("generate_episode_script", fake_ctx, {"episode": 1, "dry_run": True})
+    assert out.problem is None, out
+    return said(out)
 
 
 _UNAUTHORED_PROMPTS = {"image_prompt": None, "video_prompt": None}
@@ -958,10 +957,10 @@ async def test_generate_episode_script_blocked_by_prompt_authoring_draft(fake_ct
     _write_rv_formal_script(fake_ctx, "@[张三] 起身")
     _write_prompt_authoring_draft(fake_ctx, [DraftViolation("坏", code="empty_text", label="unit E1U01")])
 
-    out = await call(generate_episode_script_tool(fake_ctx), {"episode": 1})
-    assert out.get("is_error") is True
-    assert "草稿待处置" in out["content"][0]["text"]
-    assert "promote_draft" in out["content"][0]["text"]
+    out = await run_declared_tool("generate_episode_script", fake_ctx, {"episode": 1})
+    assert out.problem is not None
+    assert "草稿待处置" in said(out)
+    assert "promote_draft" in said(out)
 
 
 async def test_generate_episode_script_not_blocked_by_reference_script_plan_draft(fake_ctx: ToolContext) -> None:
@@ -984,9 +983,9 @@ async def test_generate_episode_script_preserves_editable_draft_without_violatio
     _write_rv_formal_script(fake_ctx, "@[张三] 起身")
     _write_prompt_authoring_draft(fake_ctx, [])
 
-    out = await call(generate_episode_script_tool(fake_ctx), {"episode": 1})
-    assert out.get("is_error") is True
-    text = out["content"][0]["text"]
+    out = await run_declared_tool("generate_episode_script", fake_ctx, {"episode": 1})
+    assert out.problem is not None
+    text = said(out)
     assert "这是可编辑草稿" in text
     assert "保留已有修改" in text
     assert "按草稿内 violations" not in text
@@ -998,9 +997,9 @@ async def test_generate_episode_script_quarantine_precedes_missing_formal_script
     _write_prompt_authoring_draft(fake_ctx, [DraftViolation("坏", code="empty_text", label="unit E1U01")])
     assert not (fake_ctx.project_path / "scripts" / "episode_1.json").exists()
 
-    out = await call(generate_episode_script_tool(fake_ctx), {"episode": 1})
-    assert out.get("is_error") is True
-    text = out["content"][0]["text"]
+    out = await run_declared_tool("generate_episode_script", fake_ctx, {"episode": 1})
+    assert out.problem is not None
+    text = said(out)
     assert "草稿待处置" in text
     assert "尚无正式脚本" not in text
 
@@ -1010,10 +1009,10 @@ async def test_generate_episode_script_ignores_quarantine_after_mode_switch(fake
     rv_project(fake_ctx, generation_mode="storyboard")
     _write_rv_quarantine(fake_ctx)
 
-    out = await call(generate_episode_script_tool(fake_ctx), {"episode": 1})
-    assert out.get("is_error") is True
+    out = await run_declared_tool("generate_episode_script", fake_ctx, {"episode": 1})
+    assert out.problem is not None
     # 卡在「尚无正式脚本」这道常规校验上，而不是参考路径的草稿
-    assert "草稿待处置" not in out["content"][0]["text"]
+    assert "草稿待处置" not in said(out)
 
 
 # ---------------------------------------------------------------------------
@@ -1039,7 +1038,7 @@ async def test_promote_drama_script_plan_rederives_needs_replan(fake_ctx: ToolCo
 
     out = await promote_drama(fake_ctx)
 
-    assert out.get("is_error") is not True, out
+    assert out.problem is None, out
     saved = json.loads(drama_script_plan_path(fake_ctx).read_text(encoding="utf-8"))
     assert saved["scenes"][0]["needs_replan"] is True
 
@@ -1052,8 +1051,8 @@ async def test_promote_drama_script_plan_returns_a_receipt_with_statistics(fake_
     await open_drama_for_edit(fake_ctx, source="source/episode_1.txt")
     out = await promote_drama(fake_ctx)
 
-    assert out.get("is_error") is not True, out
-    message = json.loads(out["content"][0]["text"])["draft"]["message"]
+    assert out.problem is None, out
+    message = draft_of(out)["message"]
     assert "规范化剧本晋升" in message
     assert "1 个分镜" in message
 
@@ -1071,10 +1070,10 @@ async def test_promote_drama_script_plan_reports_schema_breach_without_writing(f
 
     out = await promote_drama(fake_ctx)
 
-    assert out.get("is_error") is True
+    assert out.problem is not None
     assert drama_script_plan_path(fake_ctx).read_text(encoding="utf-8") == before
     assert drama_quarantine_path(fake_ctx).exists()
-    assert "content.scenes[i]" in out["content"][0]["text"]
+    assert "content.scenes[i]" in said(out)
 
 
 async def test_promote_drama_script_plan_reports_video_request_facts_problem(
@@ -1088,9 +1087,9 @@ async def test_promote_drama_script_plan_reports_video_request_facts_problem(
 
     out = await promote_drama(fake_ctx)
 
-    assert out.get("is_error") is True
-    assert json.loads(out["content"][0]["text"])["problem"]["code"] == "draft_invalid"
-    assert "video_capability_unavailable（capability=i2v）" in out["content"][0]["text"]
+    assert out.problem is not None
+    assert problem_of(out).code == "draft_invalid"
+    assert "video_capability_unavailable（capability=i2v）" in said(out)
     assert drama_quarantine_path(fake_ctx).exists()
 
 
@@ -1105,7 +1104,7 @@ async def test_promote_drama_script_plan_aborts_on_concurrent_write(fake_ctx: To
 
     out = await promote_drama(fake_ctx)
 
-    assert out.get("is_error") is True
+    assert out.problem is not None
     assert drama_script_plan_path(fake_ctx).read_text(encoding="utf-8") == concurrent
     assert drama_quarantine_path(fake_ctx).exists()
 
@@ -1149,9 +1148,9 @@ async def test_normalize_drama_script_clears_quarantine_on_regeneration(fake_ctx
     use_fake_caps(fake_ctx)
     monkeypatch.setattr(mod.TextGenerator, "create", fake_create)
 
-    out = await call(generate_script_plan_tool(fake_ctx), {"episode": 1, "source": "source/episode_1.txt"})
+    out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode": 1, "source": "source/episode_1.txt"})
 
-    assert out.get("is_error") is not True, out
+    assert out.problem is None, out
     assert not drama_quarantine_path(fake_ctx).exists()
     saved = json.loads(drama_script_plan_path(fake_ctx).read_text(encoding="utf-8"))
     assert saved["scenes"][0]["scene_description"] == "重新规范化后的描述。"
@@ -1194,13 +1193,13 @@ async def test_normalize_drama_script_serializes_commit_with_draft_edits(fake_ct
 
         monkeypatch.setattr(ProjectManager, "async_file_lock", observed_async_file_lock)
         task = asyncio.create_task(
-            call(generate_script_plan_tool(fake_ctx), {"episode": 1, "source": "source/episode_1.txt"})
+            run_declared_tool("generate_script_plan", fake_ctx, {"episode": 1, "source": "source/episode_1.txt"})
         )
         await asyncio.wait_for(attempted.wait(), timeout=10)
         assert not task.done(), "generation commit must wait for the draft lock"
 
     out = await task
-    assert out.get("is_error") is not True, out
+    assert out.problem is None, out
 
 
 async def test_normalize_drama_script_preserves_draft_edited_during_model_call(
@@ -1211,7 +1210,7 @@ async def test_normalize_drama_script_preserves_draft_edited_during_model_call(
     drama_project(fake_ctx)
     write_drama_script_plan(fake_ctx, [drama_scene()])
     opened_out = await open_drama_for_edit(fake_ctx, source="source/episode_1.txt")
-    opened = json.loads(opened_out["content"][0]["text"])["draft"]
+    opened = draft_of(opened_out)
     started = asyncio.Event()
     release = asyncio.Event()
     regenerated = {"title": "第一集", "scenes": [drama_scene(scene_description="重生成内容")]}
@@ -1232,13 +1231,14 @@ async def test_normalize_drama_script_preserves_draft_edited_during_model_call(
     use_fake_caps(fake_ctx)
     monkeypatch.setattr(mod.TextGenerator, "create", fake_create)
     generation = asyncio.create_task(
-        call(generate_script_plan_tool(fake_ctx), {"episode": 1, "source": "source/episode_1.txt"})
+        run_declared_tool("generate_script_plan", fake_ctx, {"episode": 1, "source": "source/episode_1.txt"})
     )
     await started.wait()
     edited = copy.deepcopy(opened["content"])
     edited["scenes"][0]["scene_description"] = "并发编辑内容"
-    patched = await call(
-        patch_draft_tool(fake_ctx),
+    patched = await run_declared_tool(
+        "patch_draft",
+        fake_ctx,
         {
             "episode": 1,
             "doc_type": "drama_script_plan",
@@ -1246,13 +1246,13 @@ async def test_normalize_drama_script_preserves_draft_edited_during_model_call(
             "base_revision": opened["revision"],
         },
     )
-    assert patched.get("is_error") is not True, patched
+    assert patched.problem is None, patched
     release.set()
 
     out = await generation
 
-    assert out.get("is_error") is True
-    assert "draft_revision_conflict" in out["content"][0]["text"]
+    assert out.problem is not None
+    assert "draft_revision_conflict" in said(out)
     assert read_drama_quarantine(fake_ctx)["content"]["scenes"][0]["scene_description"] == "并发编辑内容"
     formal = json.loads(drama_script_plan_path(fake_ctx).read_text(encoding="utf-8"))
     assert formal["scenes"][0]["scene_description"] != "重生成内容"
@@ -1285,7 +1285,7 @@ async def test_normalize_drama_script_preserves_output_when_formal_changes_durin
     use_fake_caps(fake_ctx)
     monkeypatch.setattr(mod.TextGenerator, "create", fake_create)
     generation = asyncio.create_task(
-        call(generate_script_plan_tool(fake_ctx), {"episode": 1, "source": "source/episode_1.txt"})
+        run_declared_tool("generate_script_plan", fake_ctx, {"episode": 1, "source": "source/episode_1.txt"})
     )
     await started.wait()
     write_drama_script_plan(fake_ctx, [drama_scene(scene_description="并发正式内容")])
@@ -1293,8 +1293,8 @@ async def test_normalize_drama_script_preserves_output_when_formal_changes_durin
 
     out = await generation
 
-    assert out.get("is_error") is True
-    assert "formal_revision_conflict" in out["content"][0]["text"]
+    assert out.problem is not None
+    assert "formal_revision_conflict" in said(out)
     formal = json.loads(drama_script_plan_path(fake_ctx).read_text(encoding="utf-8"))
     assert formal["scenes"][0]["scene_description"] == "并发正式内容"
     assert read_drama_quarantine(fake_ctx)["content"]["scenes"][0]["scene_description"] == "本次生成内容"
@@ -1320,10 +1320,10 @@ async def test_split_narration_segments_quarantines_violation_instead_of_discard
     use_fake_caps(fake_ctx)
     monkeypatch.setattr(mod.TextGenerator, "create", nr_generator_returning(segments))
 
-    out = await call(generate_script_plan_tool(fake_ctx), {"episode": 1, "source": "source/episode_1.txt"})
+    out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode": 1, "source": "source/episode_1.txt"})
 
-    assert out.get("is_error") is True
-    report = out["content"][0]["text"]
+    assert out.problem is not None
+    report = said(out)
     assert str(nr_quarantine_path(fake_ctx)) in report
     assert "[duration_off_tier]" in report
     assert "[unregistered_asset]" in report
@@ -1353,9 +1353,9 @@ async def test_split_narration_segments_clears_quarantine_on_regeneration(fake_c
     use_fake_caps(fake_ctx)
     monkeypatch.setattr(mod.TextGenerator, "create", nr_generator_returning([nr_segment("E1S01", 4, _RV_NOVEL)]))
 
-    out = await call(generate_script_plan_tool(fake_ctx), {"episode": 1, "source": "source/episode_1.txt"})
+    out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode": 1, "source": "source/episode_1.txt"})
 
-    assert out.get("is_error") is not True, out
+    assert out.problem is None, out
     assert not nr_quarantine_path(fake_ctx).exists()
     assert json.loads(nr_script_plan_path(fake_ctx).read_text(encoding="utf-8"))["segments"][0]["duration_seconds"] == 4
 
@@ -1374,9 +1374,9 @@ async def test_split_narration_segments_rejects_malformed_segment_id(
         nr_generator_returning([nr_segment(segment_id, 4, _RV_NOVEL)]),
     )
 
-    out = await call(generate_script_plan_tool(fake_ctx), {"episode": 1, "source": "source/episode_1.txt"})
+    out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode": 1, "source": "source/episode_1.txt"})
 
-    assert out.get("is_error") is True
+    assert out.problem is not None
     assert not nr_script_plan_path(fake_ctx).exists()
 
 
@@ -1390,8 +1390,8 @@ async def test_promote_narration_script_plan_rejects_segment_id_from_another_epi
 
     out = await promote_nr(fake_ctx)
 
-    assert out.get("is_error") is True
-    assert "[invalid_segment_id]" in out["content"][0]["text"]
+    assert out.problem is not None
+    assert "[invalid_segment_id]" in said(out)
     assert nr_quarantine_path(fake_ctx).exists()
 
 
@@ -1408,8 +1408,8 @@ async def test_promote_narration_script_plan_reports_schema_breach_without_writi
 
     out = await promote_nr(fake_ctx)
 
-    assert out.get("is_error") is True
-    assert "[schema_invalid]" in out["content"][0]["text"]
+    assert out.problem is not None
+    assert "[schema_invalid]" in said(out)
     assert nr_script_plan_path(fake_ctx).read_text(encoding="utf-8") == before
     assert "novel_text" not in read_nr_quarantine(fake_ctx)["content"]["segments"][0]
 
@@ -1423,9 +1423,9 @@ async def test_promote_narration_script_plan_aborts_on_concurrent_write(fake_ctx
 
     out = await promote_nr(fake_ctx)
 
-    assert out.get("is_error") is True
-    assert "并发冲突" in out["content"][0]["text"]
-    assert "content.segments" in out["content"][0]["text"]
+    assert out.problem is not None
+    assert "并发冲突" in said(out)
+    assert "content.segments" in said(out)
     assert nr_quarantine_path(fake_ctx).exists(), "冲突时草稿仍在场，合并后可重试"
     assert json.loads(nr_script_plan_path(fake_ctx).read_text(encoding="utf-8"))["segments"][0]["duration_seconds"] == 6
 
@@ -1443,8 +1443,8 @@ async def test_promote_narration_script_plan_revalidates_against_current_source(
 
     out = await promote_nr(fake_ctx)
 
-    assert out.get("is_error") is True
-    assert "[novel_text_coverage]" in out["content"][0]["text"]
+    assert out.problem is not None
+    assert "[novel_text_coverage]" in said(out)
     assert nr_script_plan_path(fake_ctx).read_text(encoding="utf-8") == before
 
 
@@ -1461,15 +1461,16 @@ async def test_promote_narration_script_plan_names_source_scope_on_coverage_viol
 
     out = await promote_nr(fake_ctx)
 
-    text = out["content"][0]["text"]
-    assert out.get("is_error") is True
+    text = said(out)
+    assert out.problem is not None
     assert "[novel_text_coverage]" in text
     assert "源文件 source/episode_2.txt" in text
     assert "patch_draft" in text
 
-    refreshed = json.loads((await open_nr_for_edit(fake_ctx))["content"][0]["text"])["draft"]
-    patched = await call(
-        patch_draft_tool(fake_ctx),
+    refreshed = draft_of(await open_nr_for_edit(fake_ctx))
+    patched = await run_declared_tool(
+        "patch_draft",
+        fake_ctx,
         {
             "episode": 1,
             "doc_type": "narration_script_plan",
@@ -1478,9 +1479,9 @@ async def test_promote_narration_script_plan_names_source_scope_on_coverage_viol
             "source": "source/episode_1.txt",
         },
     )
-    assert patched.get("is_error") is not True, patched
+    assert patched.problem is None, patched
     promoted = await promote_nr(fake_ctx)
-    assert promoted.get("is_error") is not True, promoted
+    assert promoted.problem is None, promoted
 
 
 async def test_promote_narration_script_plan_revalidates_a_default_source_draft_against_the_episode_file(
@@ -1496,7 +1497,7 @@ async def test_promote_narration_script_plan_revalidates_a_default_source_draft_
 
     out = await promote_nr(fake_ctx)
 
-    assert out.get("is_error") is not True, out
+    assert out.problem is None, out
 
 
 async def test_promote_narration_script_plan_returns_a_receipt_with_statistics(fake_ctx: ToolContext) -> None:
@@ -1507,8 +1508,8 @@ async def test_promote_narration_script_plan_returns_a_receipt_with_statistics(f
 
     out = await promote_nr(fake_ctx)
 
-    assert out.get("is_error") is not True, out
-    message = json.loads(out["content"][0]["text"])["draft"]["message"]
+    assert out.problem is None, out
+    message = draft_of(out)["message"]
     assert "旁白/解说分镜晋升" in message
     assert "1 个分镜" in message
     assert "segment_break 标记" in message

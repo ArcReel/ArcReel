@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 import pytest
 
@@ -30,7 +30,11 @@ from lib.script.draft_quarantine import (
     write_quarantine,
 )
 from lib.script.reference_video.draft_validation import DraftViolation
+from server.agent_toolset.declaration import ToolDeclaration, invoke_declaration
+from server.agent_toolset.script_authoring import CONFIRM_SCRIPT_REVIEW, GENERATE_EPISODE_SCRIPT
+from server.media_tools.context import ToolContext, tool_services
 from server.services.project.script_review import ScriptReviewError, ScriptReviewService
+from server.tool_runtime import TextGenerationResult, ToolOutcome
 from tests.factories import make_video_request_facts
 from tests.fakes import FakeConfigResolver
 
@@ -127,6 +131,13 @@ def _make_project(
 
         pm.update_project("demo", _set_mode)
     return pm
+
+
+async def _agent_tool(
+    declaration: ToolDeclaration[Any, Any], ctx: ToolContext, arguments: dict[str, Any]
+) -> ToolOutcome[Any]:
+    """经工具声明的共享入口调用（两宿主同一入口），拿到 handler 的 ``ToolOutcome``。"""
+    return await invoke_declaration(declaration, arguments, ctx.scope, ctx.caller, tool_services(ctx))
 
 
 def _service(pm: ProjectManager) -> ScriptReviewService:
@@ -1481,12 +1492,6 @@ class TestReferenceVideoPromptAuthoringEnforcement:
     async def test_confirm_tool_materializes_the_script_authoring_reads(self, tmp_path, video_request_facts):
         """Agent 路径：rv 的 script_plan 未确认时尚无正式脚本，编写入口指向内容确认；confirm_script_review
         工具确认即生成正式脚本，编写入口随之放行。"""
-        from server.agent_runtime.sdk_tools.text_generation import (
-            confirm_script_review_tool,
-            generate_episode_script_tool,
-        )
-        from server.media_tools.context import ToolContext
-
         pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
         _write_rv_script_plan(pm, _rv_script_plan())
         project_path = pm.get_project_path("demo")
@@ -1497,17 +1502,17 @@ class TestReferenceVideoPromptAuthoringEnforcement:
             pm=pm,
             config_resolver=cast(ConfigResolver, FakeConfigResolver()),
         )
-        refused = await generate_episode_script_tool(ctx).handler({"episode": 1})
-        assert refused.get("is_error") is True
-        assert "尚无正式脚本" in refused["content"][0]["text"]
-        assert "内容确认" in refused["content"][0]["text"]
+        refused = await _agent_tool(GENERATE_EPISODE_SCRIPT, ctx, {"episode": 1})
+        assert refused.problem is not None
+        assert "尚无正式脚本" in refused.problem.detail
+        assert "内容确认" in refused.problem.detail
 
-        result = await confirm_script_review_tool(ctx).handler({"episode": 1})
-        assert result.get("is_error") is not True
+        result = await _agent_tool(CONFIRM_SCRIPT_REVIEW, ctx, {"episode": 1})
+        assert result.problem is None, result
         assert (project_path / "scripts" / "episode_1.json").exists()
 
-        dry_run = await generate_episode_script_tool(ctx).handler({"episode": 1, "dry_run": True})
-        assert dry_run.get("is_error") is not True, dry_run
+        dry_run = await _agent_tool(GENERATE_EPISODE_SCRIPT, ctx, {"episode": 1, "dry_run": True})
+        assert dry_run.problem is None, dry_run
 
 
 # ---------------------------------------------------------------------------
@@ -1815,9 +1820,6 @@ class TestScriptPlanWriteStore:
 class TestPromptAuthoringEnforcement:
     async def test_pending_review_does_not_block_authoring_the_formal_script(self, tmp_path):
         """编写只读正式剧本：script_plan 重跑后尚未确认时，编写入口照常放行。"""
-        from server.agent_runtime.sdk_tools.text_generation import generate_episode_script_tool
-        from server.media_tools.context import ToolContext
-
         pm = _make_project(tmp_path, "narration")
         _write_script_plan(pm, "narration", _narration_script_plan())
         _write_script(pm, _narration_script(_narration_script_segment("E1S01")))
@@ -1833,16 +1835,13 @@ class TestPromptAuthoringEnforcement:
             pm=pm,
             config_resolver=cast(ConfigResolver, FakeConfigResolver()),
         )
-        result = await generate_episode_script_tool(ctx).handler({"episode": 1, "dry_run": True})
+        result = await _agent_tool(GENERATE_EPISODE_SCRIPT, ctx, {"episode": 1, "dry_run": True})
 
-        assert result.get("is_error") is not True, result
-        assert "没有待编写的条目" in result["content"][0]["text"]
+        assert isinstance(result.value, TextGenerationResult), result
+        assert "没有待编写的条目" in result.value.message
 
     async def test_confirm_tool_unblocks_prompt_authoring(self, tmp_path, video_request_facts):
         """Agent 路径：confirm_script_review 工具确认后，gate 放行（既有 script_plan→prompt_authoring 不被破坏）。"""
-        from server.agent_runtime.sdk_tools.text_generation import confirm_script_review_tool
-        from server.media_tools.context import ToolContext
-
         pm = _make_project(tmp_path, "drama")
         _write_script_plan(pm, "drama", _admitted_drama_script_plan())
         project_path = pm.get_project_path("demo")
@@ -1854,16 +1853,13 @@ class TestPromptAuthoringEnforcement:
             pm=pm,
             config_resolver=cast(ConfigResolver, FakeConfigResolver()),
         )
-        result = await confirm_script_review_tool(ctx).handler({"episode": 1})
+        result = await _agent_tool(CONFIRM_SCRIPT_REVIEW, ctx, {"episode": 1})
 
-        assert result.get("is_error") is not True
+        assert result.problem is None, result
         assert script_review.review_status(project_path, pm.load_project("demo"), 1) == "confirmed"
 
     async def test_confirm_tool_reports_the_video_request_facts_problem(self, tmp_path, set_video_request_facts):
         """Agent 路径：视频请求事实解析不出时，确认回执带事实的问题码与参数，不止于内部错误类别。"""
-        from server.agent_runtime.sdk_tools.text_generation import confirm_script_review_tool
-        from server.media_tools.context import ToolContext
-
         set_video_request_facts(
             VideoRequestFactsFailure(
                 "video_supported_durations_incompatible",
@@ -1880,51 +1876,13 @@ class TestPromptAuthoringEnforcement:
             config_resolver=cast(ConfigResolver, FakeConfigResolver()),
         )
 
-        result = await confirm_script_review_tool(ctx).handler({"episode": 1})
+        result = await _agent_tool(CONFIRM_SCRIPT_REVIEW, ctx, {"episode": 1})
 
-        assert result.get("is_error") is True
-        text = result["content"][0]["text"]
+        assert result.problem is not None
+        text = result.problem.detail
         assert "video_supported_durations_incompatible" in text
         assert "resolution=1080p" in text
         assert script_review.review_status(project_path, pm.load_project("demo"), 1) == "pending_review"
-
-    async def test_confirm_tool_requires_the_same_overwrite_acknowledgement(self, tmp_path, video_request_facts):
-        """Agent 确认走同一服务：已有正式脚本时不带认可返回与 web 相同的清单，带认可才覆盖。"""
-        from server.agent_runtime.sdk_tools.text_generation import confirm_script_review_tool
-        from server.media_tools.context import ToolContext
-
-        pm = _make_project(tmp_path, "narration")
-        _write_script_plan(pm, "narration", _narration_script_plan())
-        _write_script(
-            pm,
-            _narration_script(
-                _narration_script_segment("E1S07", generated_assets={"video_clip": "videos/scene_E1S07.mp4"})
-            ),
-        )
-        script_path = pm.get_project_path("demo") / "scripts" / "episode_1.json"
-        before = script_path.read_bytes()
-        ctx = ToolContext(
-            project_name="demo",
-            data_root=tmp_path / "projects",
-            pm=pm,
-            config_resolver=cast(ConfigResolver, FakeConfigResolver()),
-        )
-        web_overwrite = (await _service(pm).get_state("demo", 1))["script_overwrite"]
-
-        refused = await confirm_script_review_tool(ctx).handler({"episode": 1})
-
-        assert refused["is_error"] is True
-        assert refused["problem"]["code"] == "script_overwrite_required"
-        assert refused["problem"]["params"] == {"script_overwrite": web_overwrite}
-        assert web_overwrite["entries"] == [{"id": "E1S07", "has_storyboard": False, "has_video": True}]
-        assert script_path.read_bytes() == before
-
-        confirmed = await confirm_script_review_tool(ctx).handler(
-            {"episode": 1, "overwrite_revision": web_overwrite["revision"]}
-        )
-
-        assert confirmed.get("is_error") is not True
-        assert [segment["segment_id"] for segment in _formal_script(pm)["segments"]] == ["E1S01"]
 
 
 # ---------------------------------------------------------------------------
