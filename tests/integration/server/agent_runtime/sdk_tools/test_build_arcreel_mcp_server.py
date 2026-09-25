@@ -42,7 +42,7 @@ async def _call(server, name: str, arguments: dict) -> types.CallToolResult:
 async def test_session_server_routes_factory_registered_tools_to_their_own_schema_validation(tmp_path: Path) -> None:
     server = build_arcreel_mcp_server(project_name="demo", data_root=tmp_path)["instance"]
 
-    result = await _call(server, "generate_videos", {})
+    result = await _call(server, "open_draft", {})
 
     assert result.isError is True
     assert isinstance(result.content[0], types.TextContent)

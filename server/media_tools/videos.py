@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import functools
 import logging
 from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any, Literal, Self
+
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, model_validator
+from pydantic.json_schema import SkipJsonSchema
 
 from lib.artifacts.artifact_activation import (
     ArtifactCurrencyResolver,
@@ -26,7 +30,6 @@ from lib.generation.generation_batch import GenerationBatchReadModel
 from lib.generation.generation_queue_client import (
     BatchTaskResult,
     TaskSpec,
-    batch_enqueue_and_wait,
 )
 from lib.generation.generation_result import (
     GenerationAction,
@@ -43,8 +46,8 @@ from lib.generation.generation_result import (
 )
 from lib.project.project_manager import ProjectManager, is_reference_video_project
 from lib.script.reference_video.request_projection import (
-    POST_PRODUCTION,
     USE_TTS,
+    NarrationDelivery,
     ReferenceRequestOptions,
 )
 from lib.script.script_models import get_generated_assets, resolve_content_mode
@@ -55,14 +58,13 @@ from lib.speech.speech_composition import (
     video_unit_replan_problems,
 )
 from server.media_tools.context import (
-    ToolContext,
+    GenerationToolValue,
+    RequestedIds,
+    ScriptFilename,
     generation_batch_submission_outcome,
     generation_result_outcome,
     tool_error,
-    tool_services,
-    validate_script_filename,
 )
-from server.media_tools.definition import tool
 from server.services.admission.video_batch_admission import (
     admit_reference_video_batch,
     admit_storyboard_video_request,
@@ -77,48 +79,18 @@ from server.services.admission.video_batch_admission import (
     storyboard_item_id,
     video_target_states,
 )
-from server.tool_runtime import ToolOutcome, ToolProblem, submit_media_generation
+from server.tool_runtime import (
+    BatchWaiter,
+    CallerContext,
+    ProjectScope,
+    Services,
+    ToolOutcome,
+    ToolProblem,
+    ToolRequest,
+    submit_media_generation,
+)
 
 logger = logging.getLogger(__name__)
-
-_CONFIRMED_REQUEST_DURATION_SCHEMA_PROPERTY = {
-    "type": "integer",
-    "minimum": 1,
-    "description": (
-        "用户明确接受的本次视频请求秒数档位；仅在预检返回跨档费用提示后填写。"
-        "它不冻结正文、引用、供应商或 TTS，当前投影改到其它档位时必须重新确认。"
-    ),
-}
-
-_CONFIRMED_REQUEST_DURATIONS_SCHEMA_PROPERTY = {
-    "type": "object",
-    "additionalProperties": {"type": "integer", "minimum": 1},
-    "description": (
-        '按 unit_id 记的档位确认（{"E1U1": 8}）；一次请求里多个 unit 档位不同时用它，'
-        "让原目标集合仍作为一批重发。与 confirmed_request_duration_seconds 同时给出时，本字段按 unit 覆盖。"
-    ),
-}
-
-_NARRATION_DELIVERY_SCHEMA_PROPERTY = {
-    "type": "string",
-    "enum": [POST_PRODUCTION, USE_TTS],
-    "description": (
-        "本次旁白交付方式，必填；use_tts 只使用当前 fresh TTS 的实际媒体时长，post_production 不因 TTS 缺失或过期受阻。"
-    ),
-}
-
-_SCRIPT_SCHEMA_PROPERTY = {
-    "type": "string",
-    "description": "剧本文件名（如 episode_1.json），必须是纯文件名，禁止任何路径分隔符",
-}
-
-# 视频工具的请求尾部参数，按声明顺序展开进 properties。
-_REQUEST_SCHEMA_PROPERTIES = {
-    "confirmed_request_duration_seconds": _CONFIRMED_REQUEST_DURATION_SCHEMA_PROPERTY,
-    "confirmed_request_durations": _CONFIRMED_REQUEST_DURATIONS_SCHEMA_PROPERTY,
-    "narration_delivery": _NARRATION_DELIVERY_SCHEMA_PROPERTY,
-}
-
 
 #: 已退役的入参名 → 该怎么写。键都是曾经真实存在、或与视频单元旧结构同名的写法：
 #: 前三个是点名目标的旧 id 参数，后两个是视频单元已删除的 ``shots`` 与参考清单字段。
@@ -135,7 +107,7 @@ _RETIRED_PARAMS: dict[str, str] = {
 }
 
 
-def _reject_retired_params(args: dict[str, Any]) -> None:
+def _reject_retired_params(args: Mapping[str, Any]) -> None:
     """入参里出现已退役的参数名时 fail loud，并指明当下该怎么写。
 
     Raises:
@@ -144,6 +116,118 @@ def _reject_retired_params(args: dict[str, Any]) -> None:
     for name, guidance in _RETIRED_PARAMS.items():
         if name in args:
             raise ValueError(f"参数 {name!r} 已不存在：{guidance}")
+
+
+_PositiveInt = Annotated[StrictInt, Field(ge=1)]
+
+
+class EpisodeTarget(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    scope: Literal["episode"] = Field(description="整集：只补缺视频的单元，已有可用成片一律复用")
+    episode: _PositiveInt = Field(description="集号，须与 script 的集号一致")
+
+
+class AllTarget(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    scope: Literal["all"] = Field(description="剧本内全部单元：只补缺视频的单元，已有可用成片一律复用")
+
+
+class SceneTarget(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    scope: Literal["scene"] = Field(description="单个单元")
+    ids: list[str] = Field(
+        min_length=1,
+        max_length=1,
+        description="恰好一个目标 ID：分镜图生视频为 segment_id / scene_id，参考生视频为 unit_id",
+    )
+
+
+class SelectedTarget(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    scope: Literal["selected"] = Field(description="点名的一批单元")
+    ids: RequestedIds = Field(description="目标 ID 列表：分镜图生视频为 segment_id / scene_id，参考生视频为 unit_id")
+
+
+VideoTarget = Annotated[
+    EpisodeTarget | AllTarget | SceneTarget | SelectedTarget,
+    Field(discriminator="scope"),
+]
+
+
+class GenerateVideosRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    script: ScriptFilename = Field(description="剧本纯文件名（不含目录），如 episode_1.json")
+    target: VideoTarget = Field(description="目标选择器；scope 取 episode / all / scene / selected")
+    force: StrictBool = Field(
+        default=False,
+        description="是否强制重生已有可用成片；默认复用 current / stale 成片，只允许用于 scene / selected",
+    )
+    narration_delivery: NarrationDelivery = Field(
+        description=(
+            "本次旁白交付方式，必填；use_tts 只使用当前 fresh TTS 的实际媒体时长，"
+            "post_production 不因 TTS 缺失或过期受阻"
+        )
+    )
+    confirmed_request_duration_seconds: _PositiveInt | SkipJsonSchema[None] = Field(
+        default=None,
+        description=(
+            "用户明确接受的本次视频请求秒数档位；仅在预检返回跨档费用提示后填写。"
+            "它不冻结正文、引用、供应商或 TTS，当前投影改到其它档位时必须重新确认。"
+        ),
+    )
+    confirmed_request_durations: dict[str, _PositiveInt] | SkipJsonSchema[None] = Field(
+        default=None,
+        description=(
+            '按 unit_id 记的档位确认（{"E1U1": 8}）；一次请求里多个 unit 档位不同时用它，'
+            "让原目标集合仍作为一批重发——拆成几次调用会让先入队的那一档先花掉钱。"
+            "与 confirmed_request_duration_seconds 同时给出时，本字段按 unit 覆盖。"
+        ),
+    )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _refuse_retired_params(cls, data: Any) -> Any:
+        if isinstance(data, Mapping):
+            _reject_retired_params(data)
+        return data
+
+    @model_validator(mode="after")
+    def _force_needs_explicit_ids(self) -> Self:
+        if self.force and self.target.scope not in ("scene", "selected"):
+            raise ValueError("force=true 只允许用于带显式 ID 的 scene/selected scope")
+        return self
+
+
+@dataclass(frozen=True, slots=True)
+class _VideoCall:
+    """一次视频工具调用：目标项目、调用方与协作者。"""
+
+    scope: ProjectScope
+    caller: CallerContext
+    services: Services
+
+    @property
+    def project_name(self) -> str:
+        return self.scope.project_name
+
+    @property
+    def projects(self) -> ProjectManager:
+        return self.services.projects
+
+    @property
+    def project_path(self) -> Path:
+        return self.services.projects.get_project_path(self.scope.project_name)
+
+    def stop_on_failure_waiter(self) -> BatchWaiter | None:
+        """内嵌等待器的包装：批次内一个任务失败即停止等待其余任务。"""
+
+        waiter = self.caller.batch_waiter
+        return None if waiter is None else functools.partial(waiter, stop_on_failure=True)
 
 
 _OPERATION = "generate_videos"
@@ -202,49 +286,18 @@ def _sole_speech_admission(result: GenerationBatchResult) -> dict[str, Any]:
     return {}
 
 
-def _reference_request_options(args: dict[str, Any]) -> ReferenceRequestOptions:
-    """把工具入参折成一次请求的投影选项；交付方式缺省或非法一律拒绝，不入队任何任务。
+def _reference_request_options(request: GenerateVideosRequest) -> ReferenceRequestOptions:
+    """把工具入参折成一次请求的投影选项。
 
-    交付方式决定整批走哪一套准入判据与哪一份时长基准（TTS 实测 vs 剧本计划），
-    替调用方挑一个默认值会让一批视频按它没声明过的交付方式准入并计费。
+    交付方式决定整批走哪一套准入判据与哪一份时长基准（TTS 实测 vs 剧本计划），请求模型把它
+    定为必填：替调用方挑一个默认值会让一批视频按它没声明过的交付方式准入并计费。
     storyboard 与 reference_video 两种生成模式都经这里取交付方式，判定只有这一处。
     """
 
-    delivery = args.get("narration_delivery")
-    if delivery not in (POST_PRODUCTION, USE_TTS):
-        raise ValueError(f"narration_delivery 必填，合法值：{POST_PRODUCTION} | {USE_TTS}，收到 {delivery!r}")
-    raw_confirmed = args.get("confirmed_request_duration_seconds")
-    confirmed: int | None = None
-    if raw_confirmed is not None:
-        if not isinstance(raw_confirmed, int) or isinstance(raw_confirmed, bool) or raw_confirmed <= 0:
-            raise ValueError(f"confirmed_request_duration_seconds 必须是大于 0 的整数秒档位，收到 {raw_confirmed!r}")
-        confirmed = raw_confirmed
     return ReferenceRequestOptions(
-        narration_delivery=delivery,
-        confirmed_request_duration_seconds=confirmed,
+        narration_delivery=request.narration_delivery,
+        confirmed_request_duration_seconds=request.confirmed_request_duration_seconds,
     )
-
-
-def _confirmed_request_durations(args: dict[str, Any]) -> dict[str, int]:
-    """取按 unit 记的档位确认。
-
-    整批只有一个档位时标量入参就够用；档位不止一个时必须按 unit 记，否则调用方只能
-    拆成几次调用，而拆开之后先入队的那一档已经花掉了钱，原目标集合再也无法作为一批
-    重新评估。
-    """
-
-    raw = args.get("confirmed_request_durations")
-    if raw is None:
-        return {}
-    if not isinstance(raw, dict):
-        logger.debug("confirmed_request_durations 类型非法: %s", type(raw).__name__)
-        raise ValueError("confirmed_request_durations 必须是 unit_id 到秒数档位的对象")
-    confirmed: dict[str, int] = {}
-    for unit_id, seconds in raw.items():
-        if not isinstance(seconds, int) or isinstance(seconds, bool) or seconds <= 0:
-            raise ValueError(f"confirmed_request_durations[{unit_id!r}] 必须是大于 0 的整数秒档位，收到 {seconds!r}")
-        confirmed[str(unit_id)] = seconds
-    return confirmed
 
 
 def _speech_admission_error(name: str, exc: SpeechAdmissionError, log: list[str] | None = None) -> ToolOutcome[Any]:
@@ -370,7 +423,7 @@ def _apply_delivery_payload(
 
 async def _admit_storyboard_specs(
     *,
-    ctx: ToolContext,
+    call: _VideoCall,
     project: dict[str, Any],
     script: dict[str, Any],
     script_filename: str,
@@ -392,9 +445,9 @@ async def _admit_storyboard_specs(
     """
 
     admission = await admit_storyboard_video_request(
-        project_name=ctx.project_name,
+        project_name=call.project_name,
         project=project,
-        project_path=ctx.project_path,
+        project_path=call.project_path,
         script=script,
         script_file=script_filename,
         items=items,
@@ -405,17 +458,17 @@ async def _admit_storyboard_specs(
         operation=operation,
         selection=selection,
         extra_tickets=extra_tickets,
-        user_id=ctx.caller.user_id,
-        queue=ctx.queue,
-        config_resolver=ctx.config_resolver,
-        tts_settings_resolver=ctx.tts_settings_resolver,
+        user_id=call.caller.user_id,
+        queue=call.services.queue,
+        config_resolver=call.services.capabilities,
+        tts_settings_resolver=call.services.tts_settings_resolver,
     )
     if admission.admitted:
         _apply_delivery_payload(specs, request_options, confirmed_request_durations)
     return admission
 
 
-def _resolve_reference_route(ctx: ToolContext, script: dict[str, Any]) -> str | None:
+def _resolve_reference_route(call: _VideoCall, script: dict[str, Any]) -> str | None:
     """定生成模式并把守骨架闸门。
 
     项目走参考生视频时返回 ``"reference"``，分镜图生视频返回 ``None``。
@@ -425,7 +478,7 @@ def _resolve_reference_route(ctx: ToolContext, script: dict[str, Any]) -> str | 
     Raises:
         SkeletonRouteMismatchError: 剧本骨架与项目生成模式失配，生成被拒。
     """
-    project = ctx.pm.load_project(ctx.project_name)
+    project = call.projects.load_project(call.project_name)
     content_mode = resolve_content_mode(script, project)
     ensure_route_skeleton(script, content_mode, project.get("generation_mode"))
     if not is_reference_video_project(project):
@@ -446,7 +499,7 @@ def _storyboard_item_aliases(item: dict[str, Any], id_field: str) -> set[str]:
     return {alias.strip() for alias in aliases if isinstance(alias, str) and alias.strip()}
 
 
-def _screen_storyboard_items(
+def screen_storyboard_items(
     items: Sequence[Any],
     id_field: str,
     *,
@@ -617,7 +670,7 @@ def _reference_fallback_relpath(resource_id: str) -> str:
 
 async def _generate_reference_units(
     *,
-    ctx: ToolContext,
+    call: _VideoCall,
     units: list[Any],
     builder: GenerationResultBuilder,
     states: dict[str, GenerationTargetState],
@@ -649,7 +702,7 @@ async def _generate_reference_units(
     精确相等时同样属于未通过，用户同意后调用方带对应档位重新调用完成入队。
 
     """
-    project_dir = ctx.project_path
+    project_dir = call.project_path
     output_dir = project_dir / "reference_videos"
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -698,7 +751,7 @@ async def _generate_reference_units(
     buildable = {spec.resource_id for spec in specs}
     targets = [unit for unit in units if isinstance(unit, dict) and str(unit.get("unit_id") or "") in buildable]
     admission = await admit_reference_video_batch(
-        project_name=ctx.project_name,
+        project_name=call.project_name,
         project=project,
         project_path=project_dir,
         script=script,
@@ -709,10 +762,10 @@ async def _generate_reference_units(
         operation=operation,
         selection=selection,
         extra_tickets=[*refused, *spec_refused],
-        user_id=ctx.caller.user_id,
-        queue=ctx.queue,
-        config_resolver=ctx.config_resolver,
-        tts_settings_resolver=ctx.tts_settings_resolver,
+        user_id=call.caller.user_id,
+        queue=call.services.queue,
+        config_resolver=call.services.capabilities,
+        tts_settings_resolver=call.services.tts_settings_resolver,
     )
     if not admission.admitted:
         return BatchAdmissionRefused(admission)
@@ -722,22 +775,19 @@ async def _generate_reference_units(
         unit_options = request_options_for_unit(request_options, spec.resource_id, confirmed_request_durations)
         spec.payload = {**(spec.payload or {}), "reference_request_options": unit_options.to_payload()}
         spec.unit_id = spec.resource_id
-        spec.source = ctx.caller.source
-
-    async def _wait_reference_batch(**kwargs: Any) -> tuple[list[BatchTaskResult], list[BatchTaskResult]]:
-        return await batch_enqueue_and_wait(stop_on_failure=True, **kwargs)
+        spec.source = call.caller.source
 
     submitted = await submit_media_generation(
-        scope=ctx.scope,
-        caller=ctx.caller,
-        services=tool_services(ctx),
+        scope=call.scope,
+        caller=call.caller,
+        services=call.services,
         operation=operation,
         preflight=builder.build(),
         pending_ids=[spec.resource_id for spec in specs],
         specs=specs,
         states=states,
         admission={str(item["unit_id"]): item for item in projections},
-        embedded_waiter=_wait_reference_batch,
+        embedded_waiter=call.stop_on_failure_waiter(),
     )
     if submitted.successes is None or submitted.failures is None:
         return ReferenceGenerationComplete(projections=projections, batch=submitted.batch)
@@ -764,7 +814,7 @@ def _reference_episode(project: dict[str, Any], script: dict[str, Any], script_f
 
 async def _run_reference_batch(
     *,
-    ctx: ToolContext,
+    call: _VideoCall,
     project: dict[str, Any],
     script: dict[str, Any],
     script_filename: str,
@@ -784,11 +834,11 @@ async def _run_reference_batch(
     「一律不复用」共用同一条缝。
     """
 
-    currency = active_artifact_currency_resolver(ctx.project_path, project)
+    currency = active_artifact_currency_resolver(call.project_path, project)
     states = video_target_states(units, "unit_id", episode=episode, resolver=currency)
     builder = GenerationResultBuilder(operation, selection)
     result = await _generate_reference_units(
-        ctx=ctx,
+        call=call,
         units=units,
         builder=builder,
         states=states,
@@ -806,7 +856,7 @@ async def _run_reference_batch(
     )
     if isinstance(result, BatchAdmissionRefused):
         return _batch_admission_response(result, log, builder, states)
-    if ctx.caller.source == "mcp" and result.batch is not None:
+    if call.caller.source == "mcp" and result.batch is not None:
         return generation_batch_submission_outcome(result.batch)
     batch = builder.build()
     return generation_result_outcome(
@@ -820,7 +870,7 @@ async def _run_reference_batch(
 
 async def _run_reference_episode(
     *,
-    ctx: ToolContext,
+    call: _VideoCall,
     script: dict[str, Any],
     script_filename: str,
     request_options: ReferenceRequestOptions,
@@ -834,7 +884,7 @@ async def _run_reference_episode(
     when ``_resolve_reference_route`` reports the episode branch; this captures
     the shared tail (resolve episode → generate units → header + log).
     """
-    project = ctx.pm.load_project(ctx.project_name)
+    project = call.projects.load_project(call.project_name)
     episode = _reference_episode(project, script, script_filename)
     units = script.get("video_units")
     if "video_units" in script and not isinstance(units, list):
@@ -845,9 +895,9 @@ async def _run_reference_episode(
     if not units:
         raise ValueError(f"第 {episode} 集 video_units 为空：{script_filename}")
     units, malformed = screen_script_entries(units, requested_ids=None)
-    versions = VersionManager(ctx.project_path)
+    versions = VersionManager(call.project_path)
     return await _run_reference_batch(
-        ctx=ctx,
+        call=call,
         project=project,
         script=script,
         script_filename=script_filename,
@@ -906,7 +956,7 @@ def _select_reference_units(
 
 async def _run_reference_units(
     *,
-    ctx: ToolContext,
+    call: _VideoCall,
     script_filename: str,
     unit_ids: list[str],
     request_options: ReferenceRequestOptions,
@@ -916,8 +966,8 @@ async def _run_reference_units(
     force: bool = True,
 ) -> ToolOutcome[Any]:
     """生成点名的参考生视频 unit；统一入口默认复用已有可用成片。"""
-    project = ctx.pm.load_project(ctx.project_name)
-    script = ctx.pm.load_script(ctx.project_name, script_filename)
+    project = call.projects.load_project(call.project_name)
+    script = call.projects.load_script(call.project_name, script_filename)
     episode = _reference_episode(project, script, script_filename)
 
     selected, unmatched, duplicated = _select_reference_units(script, unit_ids)
@@ -944,9 +994,9 @@ async def _run_reference_units(
         for unit_id in duplicated
     ]
 
-    versions = VersionManager(ctx.project_path)
+    versions = VersionManager(call.project_path)
     return await _run_reference_batch(
-        ctx=ctx,
+        call=call,
         project=project,
         script=script,
         script_filename=script_filename,
@@ -984,30 +1034,17 @@ class _VideoRequestContext:
     reference_route: str | None
 
 
-def _video_request_context(
-    ctx: ToolContext,
-    args: dict[str, Any],
-    script_filename: str,
-) -> _VideoRequestContext:
-    """把入参折成本次请求的投影选项、载入剧本，并定下走哪条生成模式。
+def _video_request_context(call: _VideoCall, request: GenerateVideosRequest) -> _VideoRequestContext:
+    """把入参折成本次请求的投影选项、载入剧本，并定下走哪条生成模式。"""
 
-    剧本文件名由调用方先行校验后传入：``scene_ids`` 之类的入参校验要排在文件名之后、
-    投影选项之前，入参报错的先后次序才与各入口一致。已退役参数名的拒绝落在这里，
-    所有 scope 因此共用同一份判据与同一个报错次序。
-    """
-
-    _reject_retired_params(args)
-    request_options = _reference_request_options(args)
-    confirmed_request_durations = _confirmed_request_durations(args)
-    project_dir = ctx.project_path
-    script = ctx.pm.load_script(ctx.project_name, script_filename)
+    script = call.projects.load_script(call.project_name, request.script)
     return _VideoRequestContext(
-        script_filename=script_filename,
-        request_options=request_options,
-        confirmed_request_durations=confirmed_request_durations,
-        project_dir=project_dir,
+        script_filename=request.script,
+        request_options=_reference_request_options(request),
+        confirmed_request_durations=dict(request.confirmed_request_durations or {}),
+        project_dir=call.project_path,
         script=script,
-        reference_route=_resolve_reference_route(ctx, script),
+        reference_route=_resolve_reference_route(call, script),
     )
 
 
@@ -1034,7 +1071,7 @@ def _screen_script_targets(
 
     items, id_field, _chars, _scenes, _props = get_storyboard_items(script)
     skeleton_kind = resolve_script_kind(script)
-    items, screen_refused = _screen_storyboard_items(items, id_field, requested_ids=requested_ids)
+    items, screen_refused = screen_storyboard_items(items, id_field, requested_ids=requested_ids)
     return _StoryboardScreening(
         items=items,
         id_field=id_field,
@@ -1052,8 +1089,8 @@ class _StoryboardContext:
     content_mode: str
 
 
-def _storyboard_context(ctx: ToolContext, request: _VideoRequestContext) -> _StoryboardContext:
-    project = ctx.pm.load_project(ctx.project_name)
+def _storyboard_context(call: _VideoCall, request: _VideoRequestContext) -> _StoryboardContext:
+    project = call.projects.load_project(call.project_name)
     episode = resolve_artifact_episode(
         project=project,
         script=request.script,
@@ -1074,7 +1111,7 @@ class _StoryboardBatch:
     结论这三步共用同一份口径——集中在这里，改一处判定不会只改到其中一个入口。
     """
 
-    ctx: ToolContext
+    call: _VideoCall
     request: _VideoRequestContext
     sb: _StoryboardContext
     screening: _StoryboardScreening
@@ -1133,7 +1170,7 @@ class _StoryboardBatch:
         """整批准入后提交；准入未通过则零任务入队地转述拒绝。"""
 
         admission = await _admit_storyboard_specs(
-            ctx=self.ctx,
+            call=self.call,
             project=self.sb.project,
             script=self.request.script,
             script_filename=self.request.script_filename,
@@ -1151,22 +1188,19 @@ class _StoryboardBatch:
 
         for spec in specs:
             spec.unit_id = spec.resource_id
-            spec.source = self.ctx.caller.source
-
-        async def _wait_storyboard_batch(**kwargs: Any) -> tuple[list[BatchTaskResult], list[BatchTaskResult]]:
-            return await batch_enqueue_and_wait(stop_on_failure=True, **kwargs)
+            spec.source = self.call.caller.source
 
         submitted = await submit_media_generation(
-            scope=self.ctx.scope,
-            caller=self.ctx.caller,
-            services=tool_services(self.ctx),
+            scope=self.call.scope,
+            caller=self.call.caller,
+            services=self.call.services,
             operation=self.operation,
             preflight=self.builder.build(),
             pending_ids=[spec.resource_id for spec in specs],
             specs=specs,
             states=self.states,
             admission={str(item["unit_id"]): item for item in admission.projections()},
-            embedded_waiter=_wait_storyboard_batch,
+            embedded_waiter=self.call.stop_on_failure_waiter(),
         )
         if submitted.successes is None or submitted.failures is None:
             return generation_batch_submission_outcome(submitted.batch)
@@ -1174,435 +1208,320 @@ class _StoryboardBatch:
         return generation_result_outcome(self.builder.build(), self.log, batch_id=submitted.batch.batch_id)
 
 
-def _episode_scope_tool(ctx: ToolContext):
-    @tool(
-        _OPERATION,
-        "",
-        {},
+def _check_target_episode(call: _VideoCall, request: _VideoRequestContext, episode: int) -> None:
+    """整集选择器点名的集号必须就是剧本的集号：点错集不能按剧本那一集花钱。"""
+
+    project = call.projects.load_project(call.project_name)
+    actual_episode = resolve_artifact_episode(
+        project=project,
+        script=request.script,
+        script_filename=request.script_filename,
+    ) or ProjectManager.resolve_episode_from_script(request.script, request.script_filename)
+    if episode != actual_episode:
+        raise ValueError(f"target.episode={episode} 与剧本集号 {actual_episode} 不一致")
+
+
+async def _generate_episode(call: _VideoCall, request: _VideoRequestContext, log: list[str]) -> ToolOutcome[Any]:
+    script_filename = request.script_filename
+    project_dir = request.project_dir
+
+    if request.reference_route is not None:
+        return await _run_reference_episode(
+            call=call,
+            script=request.script,
+            script_filename=script_filename,
+            request_options=request.request_options,
+            confirmed_request_durations=request.confirmed_request_durations,
+            log=log,
+            operation=_OPERATION,
+        )
+    screening = _screen_script_targets(request.script, requested_ids=None)
+    items, id_field, screen_refused = screening.items, screening.id_field, screening.refused
+    sb = _storyboard_context(call, request)
+    episode = sb.episode
+    if not items and not screen_refused:
+        raise ValueError(f"第 {episode} 集剧本为空：{script_filename}")
+
+    currency = active_artifact_currency_resolver(project_dir, sb.project)
+    states = video_target_states(items, id_field, episode=episode, resolver=currency)
+    # 整集生成始终复用仍可用的旧分镜（含 stale），从不强制重生——所以
+    already_done = _currency_reusable_ids(states, [])
+    builder = GenerationResultBuilder(_OPERATION, GenerationSelectionMode.MISSING_ONLY)
+    batch = _StoryboardBatch(
+        call=call,
+        request=request,
+        sb=sb,
+        screening=screening,
+        resolver=currency,
+        operation=_OPERATION,
+        selection=GenerationSelectionMode.MISSING_ONLY,
+        builder=builder,
+        states=states,
+        log=log,
     )
-    async def _handler(args: dict[str, Any]) -> ToolOutcome[Any]:
-        log: list[str] = []
-        try:
-            script_filename = validate_script_filename(args["script"])
-            request = _video_request_context(ctx, args, script_filename)
-            project_dir = request.project_dir
+    for done_id in already_done:
+        state = _state_for(states, str(done_id))
+        builder.skip(state)
 
-            if request.reference_route is not None:
-                return await _run_reference_episode(
-                    ctx=ctx,
-                    script=request.script,
-                    script_filename=script_filename,
-                    request_options=request.request_options,
-                    confirmed_request_durations=request.confirmed_request_durations,
-                    log=log,
-                    operation=_OPERATION,
-                )
-            screening = _screen_script_targets(request.script, requested_ids=None)
-            items, id_field, screen_refused = screening.items, screening.id_field, screening.refused
-            sb = _storyboard_context(ctx, request)
-            episode = sb.episode
-            if not items and not screen_refused:
-                raise ValueError(f"第 {episode} 集剧本为空：{script_filename}")
+    # currency 之外的第三态：Manifest 读不出该分镜的产物状态（BLOCKED），既不能
+    # 判定为可复用（进 already_done）也不能安全当作缺失去入队——不可读不等于没有，
+    # 花钱重生可能覆盖一份实际仍然可用的分镜。all scope 走
+    # select_generation_targets 已经把这一态折进 selection.unavailable，这里是
+    # 同一场判定手写的另一条腿，必须同步处理。
+    already_done_set = set(already_done)
+    blocked_states = [
+        state
+        for unit_id, state in states.items()
+        if unit_id not in already_done_set and state.status == ArtifactStatus.BLOCKED
+    ]
+    blocked_ids = [state.unit_id for state in blocked_states]
+    refused = artifact_state_tickets(blocked_states)
+    refused.extend(screen_refused)
 
-            currency = active_artifact_currency_resolver(project_dir, sb.project)
-            states = video_target_states(items, id_field, episode=episode, resolver=currency)
-            # 整集生成始终复用仍可用的旧分镜（含 stale），从不强制重生——所以
-            already_done = _currency_reusable_ids(states, [])
-            builder = GenerationResultBuilder(_OPERATION, GenerationSelectionMode.MISSING_ONLY)
-            batch = _StoryboardBatch(
-                ctx=ctx,
-                request=request,
-                sb=sb,
-                screening=screening,
-                resolver=currency,
-                operation=_OPERATION,
-                selection=GenerationSelectionMode.MISSING_ONLY,
-                builder=builder,
-                states=states,
-                log=log,
-            )
-            for done_id in already_done:
-                state = _state_for(states, str(done_id))
-                builder.skip(state)
-
-            # currency 之外的第三态：Manifest 读不出该分镜的产物状态（BLOCKED），既不能
-            # 判定为可复用（进 already_done）也不能安全当作缺失去入队——不可读不等于没有，
-            # 花钱重生可能覆盖一份实际仍然可用的分镜。all scope 走
-            # select_generation_targets 已经把这一态折进 selection.unavailable，这里是
-            # 同一场判定手写的另一条腿，必须同步处理。
-            already_done_set = set(already_done)
-            blocked_states = [
-                state
-                for unit_id, state in states.items()
-                if unit_id not in already_done_set and state.status == ArtifactStatus.BLOCKED
-            ]
-            blocked_ids = [state.unit_id for state in blocked_states]
-            refused = artifact_state_tickets(blocked_states)
-            refused.extend(screen_refused)
-
-            specs, spec_refused = await batch.build_specs(
-                items=items,
-                skip_ids=[*already_done, *blocked_ids],
-            )
-            refused.extend(spec_refused)
-
-            if not specs and not refused and not builder.recorded_ids:
-                raise RuntimeError("没有可生成的分镜")
-
-            return await batch.admit_and_submit(
-                items=items,
-                specs=specs,
-                extra_tickets=refused,
-            )
-        except SpeechAdmissionError as exc:
-            return _speech_admission_error(_OPERATION, exc, log)
-        except Exception as exc:
-            return tool_error(_OPERATION, exc, log)
-
-    return _handler
-
-
-def _all_scope_tool(ctx: ToolContext):
-    @tool(
-        _OPERATION,
-        "",
-        {},
+    specs, spec_refused = await batch.build_specs(
+        items=items,
+        skip_ids=[*already_done, *blocked_ids],
     )
-    async def _handler(args: dict[str, Any]) -> ToolOutcome[Any]:
-        log: list[str] = []
-        operation = _OPERATION
-        try:
-            script_filename = validate_script_filename(args["script"])
-            request = _video_request_context(ctx, args, script_filename)
-            project_dir = request.project_dir
+    refused.extend(spec_refused)
 
-            if request.reference_route is not None:
-                return await _run_reference_episode(
-                    ctx=ctx,
-                    script=request.script,
-                    script_filename=script_filename,
-                    request_options=request.request_options,
-                    confirmed_request_durations=request.confirmed_request_durations,
-                    log=log,
-                    operation=operation,
+    if not specs and not refused and not builder.recorded_ids:
+        raise RuntimeError("没有可生成的分镜")
+
+    return await batch.admit_and_submit(
+        items=items,
+        specs=specs,
+        extra_tickets=refused,
+    )
+
+
+async def _generate_all(call: _VideoCall, request: _VideoRequestContext, log: list[str]) -> ToolOutcome[Any]:
+    script_filename = request.script_filename
+    project_dir = request.project_dir
+
+    if request.reference_route is not None:
+        return await _run_reference_episode(
+            call=call,
+            script=request.script,
+            script_filename=script_filename,
+            request_options=request.request_options,
+            confirmed_request_durations=request.confirmed_request_durations,
+            log=log,
+            operation=_OPERATION,
+        )
+    screening = _screen_script_targets(request.script, requested_ids=None)
+    items, id_field, screen_refused = screening.items, screening.id_field, screening.refused
+    sb = _storyboard_context(call, request)
+    currency = active_artifact_currency_resolver(project_dir, sb.project)
+    versions = VersionManager(project_dir)
+    states = video_target_states(items, id_field, episode=sb.episode, resolver=currency)
+    selection = select_generation_targets(
+        candidates=[state.candidate for state in states.values()],
+        requested_ids=None,
+        resolver=currency,
+        # 一次精确匹配的手动上传与 Manifest 认定的 current/stale 同样可复用，
+        # 两条腿合起来才是「这个 ID 还缺不缺视频」。
+        reusable_override=lambda candidate: versions.selected_manual_upload_matches_current_file(
+            "videos",
+            candidate.unit_id,
+            candidate.artifact_path,
+        ),
+    )
+    # 产物状态不可读的目标由准入报告（折成准入票），结果契约里不重复记录：
+    # 同一个 unit 记两次会让结果构造器 fail loud。
+    unavailable_tickets = artifact_state_tickets(selection.unavailable)
+    builder = GenerationResultBuilder.from_selection(_OPERATION, replace(selection, unavailable=()))
+    batch = _StoryboardBatch(
+        call=call,
+        request=request,
+        sb=sb,
+        screening=screening,
+        resolver=currency,
+        operation=_OPERATION,
+        selection=GenerationSelectionMode.MISSING_ONLY,
+        builder=builder,
+        states=states,
+        log=log,
+    )
+    if not selection.targets and not unavailable_tickets and not screen_refused:
+        submitted = await submit_media_generation(
+            scope=call.scope,
+            caller=call.caller,
+            services=call.services,
+            operation=_OPERATION,
+            preflight=builder.build(),
+            pending_ids=[],
+            specs=[],
+            states=states,
+        )
+        if submitted.successes is None:
+            return generation_batch_submission_outcome(submitted.batch)
+        return generation_result_outcome(
+            builder.build(),
+            log,
+            batch_id=submitted.batch.batch_id,
+        )
+
+    # 与 ``_video_target_states`` 用同一套 ID 回退规则：条目若缺 ``id_field``
+    # 但带 ``scene_id``/``segment_id``，selection 已按回退 ID 记为 target，
+    # 这里若只认 ``id_field`` 会把它筛没——进了 requested 却永远不入队。
+    target_id_set = set(selection.target_ids)
+    pending = [item for item in items if str(storyboard_item_id(item, id_field) or "") in target_id_set]
+    specs, refused = await batch.build_specs(items=pending, skip_ids=None)
+    # 产物状态不可读的分镜被选目标环节排除在 targets 之外，但它属于这次请求：
+    # 不带进准入，同批健康的分镜会照常入队并计费，剩下这一个被无声略过。
+    refused.extend(unavailable_tickets)
+    refused.extend(screen_refused)
+    if not specs and not refused:
+        return batch.result()
+
+    return await batch.admit_and_submit(
+        items=pending,
+        specs=specs,
+        extra_tickets=refused,
+    )
+
+
+async def _generate_selected(
+    call: _VideoCall,
+    request: _VideoRequestContext,
+    log: list[str],
+    *,
+    scene_ids: list[str],
+    force: bool,
+) -> ToolOutcome[Any]:
+    script_filename = request.script_filename
+    project_dir = request.project_dir
+
+    if request.reference_route is not None:
+        return await _run_reference_units(
+            call=call,
+            script_filename=script_filename,
+            unit_ids=scene_ids,
+            request_options=request.request_options,
+            confirmed_request_durations=request.confirmed_request_durations,
+            log=log,
+            operation=_OPERATION,
+            force=force,
+        )
+
+    screening = _screen_script_targets(request.script, requested_ids=set(scene_ids))
+    items, id_field, screen_refused = screening.items, screening.id_field, screening.refused
+    sb = _storyboard_context(call, request)
+    episode = sb.episode
+
+    items_by_id: dict[str, dict[str, Any]] = {}
+    for item in items:
+        # 按同一份「能寻址到它的写法」建索引：直接拿原值当键，脏剧本里的 list / dict
+        # 别名会抛 TypeError，逐目标的结论就塌成一句通用报错。
+        for alias in _storyboard_item_aliases(item, id_field):
+            items_by_id[alias] = item
+
+    builder = GenerationResultBuilder(_OPERATION, GenerationSelectionMode.EXPLICIT)
+    selected: list[dict[str, Any]] = []
+    refused: list[UnitAdmissionTicket] = []
+    seen_canonical: set[str] = set()
+    # ``items_by_id`` 同时按 ``id_field`` 与 ``scene_id`` 索引同一个 item，
+    # 调用方若把两个值都列入 ``scene_ids`` 会让同一分镜重复入队——必须按
+    # 规范 ``id_field`` 再去一次重。
+    screened_ids = {ticket.unit_id for ticket in screen_refused}
+    for sid in scene_ids:
+        if sid in screened_ids:
+            # 筛查已经按这个名字记过一条结论，重复记名会撞上结果契约的唯一性。
+            continue
+        if sid not in items_by_id:
+            refused.append(
+                refused_ticket(
+                    sid,
+                    code=GenerationProblemCode.UNIT_NOT_FOUND,
+                    detail=f"分镜 '{sid}' 不存在",
+                    action=GenerationAction.FIX_INPUT,
                 )
-            screening = _screen_script_targets(request.script, requested_ids=None)
-            items, id_field, screen_refused = screening.items, screening.id_field, screening.refused
-            sb = _storyboard_context(ctx, request)
-            currency = active_artifact_currency_resolver(project_dir, sb.project)
-            versions = VersionManager(project_dir)
-            states = video_target_states(items, id_field, episode=sb.episode, resolver=currency)
-            selection = select_generation_targets(
-                candidates=[state.candidate for state in states.values()],
-                requested_ids=None,
-                resolver=currency,
-                # 一次精确匹配的手动上传与 Manifest 认定的 current/stale 同样可复用，
-                # 两条腿合起来才是「这个 ID 还缺不缺视频」。
-                reusable_override=lambda candidate: versions.selected_manual_upload_matches_current_file(
+            )
+            continue
+        item = items_by_id[sid]
+        canonical = str(item.get(id_field, ""))
+        if canonical and canonical in seen_canonical:
+            continue
+        seen_canonical.add(canonical)
+        selected.append(item)
+    if not selected and not refused and not screen_refused:
+        return generation_result_outcome(builder.build(), log)
+
+    currency = active_artifact_currency_resolver(project_dir, sb.project)
+    already_done: list[str] = []
+    states = video_target_states(selected, id_field, episode=episode, resolver=currency)
+    if not force:
+        versions = VersionManager(project_dir)
+        already_done = list(
+            dict.fromkeys(
+                state.unit_id
+                for state in states.values()
+                if artifact_is_reusable(state)
+                or versions.selected_manual_upload_matches_current_file(
                     "videos",
-                    candidate.unit_id,
-                    candidate.artifact_path,
-                ),
-            )
-            # 产物状态不可读的目标由准入报告（折成准入票），结果契约里不重复记录：
-            # 同一个 unit 记两次会让结果构造器 fail loud。
-            unavailable_tickets = artifact_state_tickets(selection.unavailable)
-            builder = GenerationResultBuilder.from_selection(operation, replace(selection, unavailable=()))
-            batch = _StoryboardBatch(
-                ctx=ctx,
-                request=request,
-                sb=sb,
-                screening=screening,
-                resolver=currency,
-                operation=operation,
-                selection=GenerationSelectionMode.MISSING_ONLY,
-                builder=builder,
-                states=states,
-                log=log,
-            )
-            if not selection.targets and not unavailable_tickets and not screen_refused:
-                submitted = await submit_media_generation(
-                    scope=ctx.scope,
-                    caller=ctx.caller,
-                    services=tool_services(ctx),
-                    operation=operation,
-                    preflight=builder.build(),
-                    pending_ids=[],
-                    specs=[],
-                    states=states,
-                    embedded_waiter=batch_enqueue_and_wait,
+                    state.unit_id,
+                    state.artifact_path,
                 )
-                if submitted.successes is None:
-                    return generation_batch_submission_outcome(submitted.batch)
-                return generation_result_outcome(
-                    builder.build(),
-                    log,
-                    batch_id=submitted.batch.batch_id,
-                )
-
-            # 与 ``_video_target_states`` 用同一套 ID 回退规则：条目若缺 ``id_field``
-            # 但带 ``scene_id``/``segment_id``，selection 已按回退 ID 记为 target，
-            # 这里若只认 ``id_field`` 会把它筛没——进了 requested 却永远不入队。
-            target_id_set = set(selection.target_ids)
-            pending = [item for item in items if str(storyboard_item_id(item, id_field) or "") in target_id_set]
-            specs, refused = await batch.build_specs(items=pending, skip_ids=None)
-            # 产物状态不可读的分镜被选目标环节排除在 targets 之外，但它属于这次请求：
-            # 不带进准入，同批健康的分镜会照常入队并计费，剩下这一个被无声略过。
-            refused.extend(unavailable_tickets)
-            refused.extend(screen_refused)
-            if not specs and not refused:
-                return batch.result()
-
-            return await batch.admit_and_submit(
-                items=pending,
-                specs=specs,
-                extra_tickets=refused,
             )
-        except SpeechAdmissionError as exc:
-            return _speech_admission_error(_OPERATION, exc, log)
-        except Exception as exc:
-            return tool_error(_OPERATION, exc, log)
-
-    return _handler
-
-
-def _selected_scope_tool(ctx: ToolContext):
-    @tool(
-        _OPERATION,
-        "",
-        {},
+        )
+    for done_id in already_done:
+        builder.skip(_state_for(states, str(done_id)))
+    batch = _StoryboardBatch(
+        call=call,
+        request=request,
+        sb=sb,
+        screening=screening,
+        resolver=currency,
+        operation=_OPERATION,
+        selection=GenerationSelectionMode.EXPLICIT,
+        builder=builder,
+        states=states,
+        log=log,
     )
-    async def _handler(args: dict[str, Any]) -> ToolOutcome[Any]:
-        log: list[str] = []
-        operation = _OPERATION
-        try:
-            script_filename = validate_script_filename(args["script"])
-            # 去重以避免同一 ID 重复入队；保留首次出现顺序便于人读日志。
-            scene_ids: list[str] = normalize_requested_ids(args["scene_ids"], field="scene_ids") or []
-            request = _video_request_context(ctx, args, script_filename)
-            project_dir = request.project_dir
 
-            if request.reference_route is not None:
-                return await _run_reference_units(
-                    ctx=ctx,
-                    script_filename=script_filename,
-                    unit_ids=scene_ids,
-                    request_options=request.request_options,
-                    confirmed_request_durations=request.confirmed_request_durations,
-                    log=log,
-                    operation=operation,
-                    force=bool(args.get("_force", True)),
-                )
+    specs, spec_refused = await batch.build_specs(items=selected, skip_ids=already_done)
+    refused.extend(spec_refused)
+    refused.extend(screen_refused)
 
-            screening = _screen_script_targets(request.script, requested_ids=set(scene_ids))
-            items, id_field, screen_refused = screening.items, screening.id_field, screening.refused
-            sb = _storyboard_context(ctx, request)
-            episode = sb.episode
-
-            items_by_id: dict[str, dict[str, Any]] = {}
-            for item in items:
-                # 按同一份「能寻址到它的写法」建索引：直接拿原值当键，脏剧本里的 list / dict
-                # 别名会抛 TypeError，逐目标的结论就塌成一句通用报错。
-                for alias in _storyboard_item_aliases(item, id_field):
-                    items_by_id[alias] = item
-
-            builder = GenerationResultBuilder(operation, GenerationSelectionMode.EXPLICIT)
-            selected: list[dict[str, Any]] = []
-            refused: list[UnitAdmissionTicket] = []
-            seen_canonical: set[str] = set()
-            # ``items_by_id`` 同时按 ``id_field`` 与 ``scene_id`` 索引同一个 item，
-            # 调用方若把两个值都列入 ``scene_ids`` 会让同一分镜重复入队——必须按
-            # 规范 ``id_field`` 再去一次重。
-            screened_ids = {ticket.unit_id for ticket in screen_refused}
-            for sid in scene_ids:
-                if sid in screened_ids:
-                    # 筛查已经按这个名字记过一条结论，重复记名会撞上结果契约的唯一性。
-                    continue
-                if sid not in items_by_id:
-                    refused.append(
-                        refused_ticket(
-                            sid,
-                            code=GenerationProblemCode.UNIT_NOT_FOUND,
-                            detail=f"分镜 '{sid}' 不存在",
-                            action=GenerationAction.FIX_INPUT,
-                        )
-                    )
-                    continue
-                item = items_by_id[sid]
-                canonical = str(item.get(id_field, ""))
-                if canonical and canonical in seen_canonical:
-                    continue
-                seen_canonical.add(canonical)
-                selected.append(item)
-            if not selected and not refused and not screen_refused:
-                return generation_result_outcome(builder.build(), log)
-
-            currency = active_artifact_currency_resolver(project_dir, sb.project)
-            already_done: list[str] = []
-            states = video_target_states(selected, id_field, episode=episode, resolver=currency)
-            if not args.get("_force"):
-                versions = VersionManager(project_dir)
-                already_done = list(
-                    dict.fromkeys(
-                        state.unit_id
-                        for state in states.values()
-                        if artifact_is_reusable(state)
-                        or versions.selected_manual_upload_matches_current_file(
-                            "videos",
-                            state.unit_id,
-                            state.artifact_path,
-                        )
-                    )
-                )
-            for done_id in already_done:
-                builder.skip(_state_for(states, str(done_id)))
-            batch = _StoryboardBatch(
-                ctx=ctx,
-                request=request,
-                sb=sb,
-                screening=screening,
-                resolver=currency,
-                operation=operation,
-                selection=GenerationSelectionMode.EXPLICIT,
-                builder=builder,
-                states=states,
-                log=log,
-            )
-
-            specs, spec_refused = await batch.build_specs(items=selected, skip_ids=already_done)
-            refused.extend(spec_refused)
-            refused.extend(screen_refused)
-
-            return await batch.admit_and_submit(
-                items=selected,
-                specs=specs,
-                extra_tickets=refused,
-            )
-        except SpeechAdmissionError as exc:
-            return _speech_admission_error(_OPERATION, exc, log)
-        except Exception as exc:
-            return tool_error(_OPERATION, exc, log)
-
-    return _handler
+    return await batch.admit_and_submit(
+        items=selected,
+        specs=specs,
+        extra_tickets=refused,
+    )
 
 
-async def handle_generate_videos(ctx: ToolContext, args: dict[str, Any]) -> ToolOutcome[Any]:
+async def generate_videos(
+    request: ToolRequest[GenerateVideosRequest],
+    scope: ProjectScope,
+    caller: CallerContext,
+    services: Services,
+) -> ToolOutcome[GenerationToolValue]:
+    call = _VideoCall(scope=scope, caller=caller, services=services)
+    args = request.value
+    target = args.target
+    log: list[str] = []
     try:
-        target = args.get("target")
-        if not isinstance(target, dict):
-            raise ValueError("target 必须是对象")
-        scope = target.get("scope")
-        if scope not in {"episode", "scene", "all", "selected"}:
-            raise ValueError("target.scope 必须是 episode/scene/all/selected")
-        unexpected = set(target) - {"scope", "episode", "ids"}
-        if unexpected:
-            raise ValueError(f"target 含未知字段：{', '.join(sorted(unexpected))}")
-        force = args.get("force", False)
-        if not isinstance(force, bool):
-            raise ValueError("force 必须是布尔值")
-        if force and scope not in {"scene", "selected"}:
-            raise ValueError("force=true 只允许用于带显式 ID 的 scene/selected scope")
-        forwarded = {key: value for key, value in args.items() if key not in {"target", "force"}}
-        forwarded["_force"] = force
-        if scope == "episode":
-            episode = target.get("episode")
-            if not isinstance(episode, int) or isinstance(episode, bool) or episode < 1:
-                raise ValueError("target.scope=episode 时 target.episode 必须是正整数")
-            if "ids" in target:
-                raise ValueError("target.scope=episode 时不能提供 target.ids")
-            script_filename = validate_script_filename(str(args["script"]))
-            script = ctx.pm.load_script(ctx.project_name, script_filename)
-            project = ctx.pm.load_project(ctx.project_name)
-            actual_episode = resolve_artifact_episode(
-                project=project,
-                script=script,
-                script_filename=script_filename,
-            ) or ProjectManager.resolve_episode_from_script(script, script_filename)
-            if episode != actual_episode:
-                raise ValueError(f"target.episode={episode} 与剧本集号 {actual_episode} 不一致")
-            return await _episode_scope_tool(ctx).invoke(forwarded)
-        if scope == "all":
-            if "episode" in target or "ids" in target:
-                raise ValueError("target.scope=all 时不能提供 target.episode/ids")
-            return await _all_scope_tool(ctx).invoke(forwarded)
-
-        ids = normalize_requested_ids(target.get("ids"), field="target.ids")
-        if scope == "scene" and (ids is None or len(ids) != 1):
-            raise ValueError("target.scope=scene 时 target.ids 必须恰好包含一个 ID")
-        if ids is None:
-            raise ValueError("target.scope=selected 时 target.ids 必填且不能为空")
-        if "episode" in target:
-            raise ValueError(f"target.scope={scope} 时不能提供 target.episode")
-        forwarded["scene_ids"] = ids
-        return await _selected_scope_tool(ctx).invoke(forwarded)
+        context = _video_request_context(call, args)
+        if isinstance(target, EpisodeTarget):
+            _check_target_episode(call, context, target.episode)
+            return await _generate_episode(call, context, log)
+        if isinstance(target, AllTarget):
+            return await _generate_all(call, context, log)
+        # 去重以避免同一 ID 重复入队；保留首次出现顺序便于人读日志。
+        scene_ids = normalize_requested_ids(target.ids, field="target.ids") or []
+        return await _generate_selected(call, context, log, scene_ids=scene_ids, force=args.force)
+    except SpeechAdmissionError as exc:
+        return _speech_admission_error(_OPERATION, exc, log)
     except Exception as exc:
-        return tool_error("generate_videos", exc)
-
-
-def generate_videos_tool(ctx: ToolContext):
-    @tool(
-        "generate_videos",
-        "生成视频。target.scope 取 episode/scene/all/selected；scene/selected 在 target.ids 传目标 ID。"
-        "force 默认 false，复用 current/stale 成片；true 才强制重生。narration_delivery 必填。"
-        "整批预检任一目标不通过则零任务、无 batch handle；通过后内嵌调用等待并返回逐 ID 终态结果。",
-        {
-            "type": "object",
-            "properties": {
-                "script": _SCRIPT_SCHEMA_PROPERTY,
-                "target": {
-                    "oneOf": [
-                        {
-                            "type": "object",
-                            "properties": {
-                                "scope": {"const": "episode"},
-                                "episode": {"type": "integer", "minimum": 1},
-                            },
-                            "required": ["scope", "episode"],
-                            "additionalProperties": False,
-                        },
-                        {
-                            "type": "object",
-                            "properties": {"scope": {"const": "all"}},
-                            "required": ["scope"],
-                            "additionalProperties": False,
-                        },
-                        {
-                            "type": "object",
-                            "properties": {
-                                "scope": {"const": "scene"},
-                                "ids": {
-                                    "type": "array",
-                                    "items": {"type": "string"},
-                                    "minItems": 1,
-                                    "maxItems": 1,
-                                },
-                            },
-                            "required": ["scope", "ids"],
-                            "additionalProperties": False,
-                        },
-                        {
-                            "type": "object",
-                            "properties": {
-                                "scope": {"const": "selected"},
-                                "ids": {"type": "array", "items": {"type": "string"}, "minItems": 1},
-                            },
-                            "required": ["scope", "ids"],
-                            "additionalProperties": False,
-                        },
-                    ],
-                },
-                "force": {"type": "boolean", "description": "是否强制重生已有可用成片，默认 false"},
-                **_REQUEST_SCHEMA_PROPERTIES,
-            },
-            "required": ["script", "target", "narration_delivery"],
-        },
-    )
-    async def _handler(args: dict[str, Any]) -> ToolOutcome[Any]:
-        return await handle_generate_videos(ctx, args)
-
-    return _handler
+        return tool_error(_OPERATION, exc, log)
 
 
 __all__ = [
-    "generate_videos_tool",
+    "AllTarget",
+    "EpisodeTarget",
+    "GenerateVideosRequest",
+    "SceneTarget",
+    "SelectedTarget",
+    "generate_videos",
+    "screen_storyboard_items",
 ]

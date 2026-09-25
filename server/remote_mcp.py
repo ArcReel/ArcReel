@@ -7,25 +7,20 @@ import json
 import os
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager, suppress
-from copy import deepcopy
 from typing import Any
 
 from fastapi.responses import PlainTextResponse
-from jsonschema import ValidationError as JsonSchemaValidationError
-from jsonschema import validate as validate_json
 from mcp.server.auth.provider import AccessToken, TokenVerifier
 from mcp.server.auth.settings import AuthSettings
 from mcp.server.fastmcp import Context, FastMCP
-from mcp.server.fastmcp.tools import Tool as FastMCPTool
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.types import CallToolResult, TextContent
-from pydantic import AnyHttpUrl, Field
+from pydantic import AnyHttpUrl
 from pydantic.json_schema import SkipJsonSchema
 from starlette.types import Receive, Scope, Send
 
 from lib.config.resolver import ConfigResolver
 from lib.db import async_session_factory
-from lib.db.base import DEFAULT_USER_ID
 from lib.generation.generation_batch import GenerationBatchReadModel
 from lib.project.project_manager import ProjectManager, get_project_manager
 from lib.script.source_loader import SourceLoader
@@ -41,13 +36,9 @@ from server.draft_workflow import (
     PositiveEpisode,
     PromoteDraftRequest,
 )
-from server.media_tools.context import ToolContext
-from server.media_tools.definition import ToolDefinition, media_outcome_payload
-from server.media_tools.videos import generate_videos_tool
 from server.services.project import workflow_planner
 from server.text_generation import SCOPE_REMOVED_MESSAGE, TextGenerationRequest
 from server.tool_runtime import (
-    CallerContext,
     ConfirmScriptReviewRequest,
     Services,
     ToolOutcome,
@@ -65,7 +56,6 @@ from server.tool_runtime import (
 
 # One decoded control byte may occupy six JSON bytes (``\u00XX``); leave 1 MiB for the MCP envelope.
 _MAX_REQUEST_BODY_BYTES = SourceLoader.DEFAULT_MAX_BYTES * 6 + 1024 * 1024
-_REMOTE_DURABLE_BATCH_MEDIA_TOOLS = frozenset({"generate_videos"})
 _REMOTE_DURABLE_BATCH_DESCRIPTION = (
     " Remote MCP generation submissions return durable admission and durable generation_batch state immediately; "
     "follow poll_after_seconds "
@@ -113,15 +103,6 @@ def _to_long_task_result(domain_key: str, outcome: ToolOutcome[Any]) -> CallTool
     )
 
 
-def _media_outcome_to_mcp(definition: ToolDefinition, outcome: ToolOutcome[Any]) -> CallToolResult:
-    structured, summary, is_error = media_outcome_payload(definition, outcome)
-    return CallToolResult(
-        content=[TextContent(type="text", text=summary or json.dumps(structured, ensure_ascii=False))],
-        structuredContent=structured,
-        isError=is_error,
-    )
-
-
 async def _with_progress[T](awaitable: Awaitable[T], context: Context, message: str) -> T:
     await context.report_progress(0, message=message)
 
@@ -149,73 +130,6 @@ def _default_services(projects: ProjectManager) -> Services:
     )
 
 
-def _remote_media_schema(definition: ToolDefinition) -> dict[str, Any]:
-    schema = deepcopy(definition.input_schema)
-    schema["properties"] = {
-        "project": {"type": "string", "description": "ArcReel project name"},
-        **schema.get("properties", {}),
-    }
-    schema["required"] = ["project", *schema.get("required", [])]
-    schema["additionalProperties"] = False
-    return schema
-
-
-def _remote_media_description(definition: ToolDefinition) -> str:
-    if definition.name in _REMOTE_DURABLE_BATCH_MEDIA_TOOLS:
-        return definition.description + _REMOTE_DURABLE_BATCH_DESCRIPTION
-    return definition.description
-
-
-MediaDefinitionFactory = Callable[[ToolContext], ToolDefinition]
-MediaInvoker = Callable[[str, MediaDefinitionFactory, dict[str, Any]], Awaitable[CallToolResult]]
-
-
-class _RemoteMediaTool(FastMCPTool):
-    """Validate and forward media arguments through the shared JSON schema."""
-
-    definition_factory: MediaDefinitionFactory = Field(exclude=True)
-    media_invoker: MediaInvoker = Field(exclude=True)
-    definition: ToolDefinition = Field(exclude=True)
-
-    async def run(self, arguments: dict[str, Any], context: Any = None, convert_result: bool = False) -> Any:
-        del context, convert_result
-        try:
-            validate_json(arguments, self.parameters)
-        except JsonSchemaValidationError as exc:
-            return _media_outcome_to_mcp(
-                self.definition,
-                ToolOutcome(problem=ToolProblem("invalid_request", exc.message)),
-            )
-        forwarded = dict(arguments)
-        project = forwarded.pop("project")
-        return await self.media_invoker(project, self.definition_factory, forwarded)
-
-
-def _remote_media_tool(
-    definition: ToolDefinition,
-    definition_factory: MediaDefinitionFactory,
-    media_invoker: MediaInvoker,
-) -> FastMCPTool:
-    async def unused() -> CallToolResult:
-        raise RuntimeError("remote media tools override run")
-
-    metadata = FastMCPTool.from_function(unused, structured_output=False)
-    return _RemoteMediaTool(
-        fn=unused,
-        name=definition.name,
-        title=None,
-        description=_remote_media_description(definition),
-        parameters=_remote_media_schema(definition),
-        fn_metadata=metadata.fn_metadata,
-        is_async=True,
-        context_kwarg=None,
-        annotations=None,
-        definition_factory=definition_factory,
-        media_invoker=media_invoker,
-        definition=definition,
-    )
-
-
 def build_remote_mcp_server(
     *,
     projects: ProjectManager | None = None,
@@ -231,51 +145,13 @@ def build_remote_mcp_server(
         projects = projects or get_project_manager()
         services = _default_services(projects)
 
-    def media_context(project: str) -> ToolContext:
-        scope = resolve_project_scope(project, projects)
-        return ToolContext(
-            project_name=scope.project_name,
-            data_root=scope.data_root,
-            pm=projects,
-            config_resolver=services.capabilities,
-            caller=authenticated_caller(),
-            queue=services.queue,
-        )
-
-    async def invoke_media(
-        project: str,
-        definition_factory: Callable[[ToolContext], ToolDefinition],
-        args: dict[str, Any],
-    ) -> CallToolResult:
-        try:
-            ctx = media_context(project)
-            if problem := await migration_gate(ctx.scope, services):
-                return _to_mcp_result("generation_batch", ToolOutcome(problem=problem))
-            definition = definition_factory(ctx)
-            return _media_outcome_to_mcp(definition, await definition.invoke(args))
-        except (FileNotFoundError, ValueError) as exc:
-            return _to_mcp_result("generation_batch", ToolOutcome(problem=ToolProblem("invalid_request", str(exc))))
-
-    schema_context = ToolContext(
-        project_name="schema",
-        data_root=projects.data_root,
-        pm=projects,
-        config_resolver=services.capabilities,
-        caller=CallerContext(user_id=DEFAULT_USER_ID, source="mcp"),
-        queue=services.queue,
-    )
-    media_tools: list[FastMCPTool] = []
-    for definition_factory in (generate_videos_tool,):
-        definition = definition_factory(schema_context)
-        media_tools.append(_remote_media_tool(definition, definition_factory, invoke_media))
-
     # MCP_PUBLIC_URL 只喂 RFC 9728 protected-resource metadata 与 401 challenge：ArcReel 只认
     # 静态 arc- API Key，ArcApiKeyVerifier 返回的 AccessToken 不带 resource，不参与任何校验。
     # Bearer 直连的客户端不读这两处，故该变量对常规接入可缺省。
     public_url = AnyHttpUrl(os.environ.get("MCP_PUBLIC_URL", "http://localhost:1241/mcp"))
     server = FastMCP(
         "arcreel",
-        tools=[*media_tools, *remote_tools(AGENT_TOOLSET, projects=projects, services=services)],
+        tools=remote_tools(AGENT_TOOLSET, projects=projects, services=services),
         token_verifier=token_verifier or ArcApiKeyVerifier(),
         auth=AuthSettings(
             issuer_url=public_url,

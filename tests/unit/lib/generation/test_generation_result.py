@@ -452,6 +452,31 @@ def test_recording_a_batch_reports_task_provider_and_artifact_axes_separately() 
     assert item.provider_checkpoint == ProviderCheckpoint(submitted=True, provider_job_id="job-1")
 
 
+def test_a_target_left_behind_by_an_interrupted_enqueue_is_reported_as_not_queued() -> None:
+    """顺序入队中途停下：已建成的照常记结局，没轮到的记为未入队、未计费，问题码与供应商失败分开。"""
+
+    builder = GenerationResultBuilder("probe", GenerationSelectionMode.MISSING_ONLY)
+
+    record_batch_outcomes(
+        builder,
+        successes=[_batch("A", result={"file_path": "videos/a.mp4"})],
+        failures=[
+            BatchTaskResult(
+                resource_id="B", task_id="", status="failed", error="queue unavailable", enqueue_interrupted=True
+            )
+        ],
+    )
+
+    result = builder.build()
+    assert result.succeeded == ["A"]
+    assert result.failed == ["B"]
+    left_behind = next(item for item in result.items if item.unit_id == "B")
+    assert left_behind.problem is not None
+    assert left_behind.problem.code == GenerationProblemCode.ENQUEUE_INTERRUPTED
+    assert left_behind.task_state is GenerationTaskState.NOT_QUEUED
+    assert left_behind.task_id is None
+
+
 def test_a_succeeded_batch_item_carries_the_worker_warnings() -> None:
     """worker 写进 result.warnings 的提示原样进结构化契约，Agent 与任务 API 读同一份条目。"""
 

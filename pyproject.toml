@@ -255,6 +255,7 @@ source_modules = [
     "server.media_tools.image_edits",
     "server.media_tools.narration_audio",
     "server.media_tools.storyboards",
+    "server.media_tools.videos",
     "server.tool_runtime",
 ]
 forbidden_modules = ["claude_agent_sdk", "mcp"]
