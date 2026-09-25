@@ -8,7 +8,7 @@ import os
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager, suppress
 from copy import deepcopy
-from typing import Annotated, Any
+from typing import Any
 
 from fastapi.responses import PlainTextResponse
 from jsonschema import ValidationError as JsonSchemaValidationError
@@ -29,7 +29,6 @@ from lib.db.base import DEFAULT_USER_ID
 from lib.generation.generation_batch import GenerationBatchReadModel
 from lib.project.project_manager import ProjectManager, get_project_manager
 from lib.project.source_revision import SourceScope
-from lib.script.script_batch_edit import ScriptBatchEditResult
 from lib.script.source_loader import SourceLoader
 from server.agent_toolset.envelope import json_value
 from server.agent_toolset.remote import authenticated_caller, remote_tools, resolve_project_scope
@@ -54,8 +53,6 @@ from server.tool_runtime import (
     CompleteAssetInventoryRequest,
     CompleteScriptPlanRebuildRequest,
     ConfirmScriptReviewRequest,
-    PatchEpisodeScriptOperation,
-    PatchEpisodeScriptRequest,
     PlanEpisodesRequest,
     ResetEpisodePlanningRequest,
     Services,
@@ -71,7 +68,6 @@ from server.tool_runtime import (
     migration_gate,
     open_draft,
     patch_draft,
-    patch_episode_script,
     plan_episodes,
     promote_draft,
     reset_episode_planning,
@@ -113,13 +109,11 @@ def _to_mcp_result(domain_key: str, outcome: ToolOutcome[Any]) -> CallToolResult
             structuredContent=structured,
             isError=True,
         )
-    value = outcome.value
-    payload = json_value(value)
-    structured = {domain_key: payload}
+    structured = {domain_key: json_value(outcome.value)}
     return CallToolResult(
         content=[TextContent(type="text", text=json.dumps(structured, ensure_ascii=False))],
         structuredContent=structured,
-        isError=isinstance(value, ScriptBatchEditResult) and not value.success,
+        isError=False,
     )
 
 
@@ -510,28 +504,6 @@ def build_remote_mcp_server(
                 authenticated_caller(),
                 services,
             ),
-        )
-
-    @server.tool(name="patch_episode_script", structured_output=False)
-    async def remote_patch_episode_script(  # pyright: ignore[reportUnusedFunction]
-        project: str,
-        script: str,
-        base_revision: str,
-        operations: Annotated[list[PatchEpisodeScriptOperation], Field(min_length=1)],
-    ) -> CallToolResult:
-        """Atomically apply revisioned update, insert, remove, or split operations."""
-        try:
-            scope = resolve_project_scope(project, projects)
-            request = PatchEpisodeScriptRequest.model_validate(
-                {"script": script, "base_revision": base_revision, "operations": operations}
-            )
-        except (FileNotFoundError, ValueError) as exc:
-            return _to_mcp_result("script_patch", ToolOutcome(problem=ToolProblem("invalid_request", str(exc))))
-        if problem := await migration_gate(scope, services):
-            return _to_mcp_result("script_patch", ToolOutcome(problem=problem))
-        return _to_mcp_result(
-            "script_patch",
-            await patch_episode_script(ToolRequest(request), scope, authenticated_caller(), services),
         )
 
     @server.tool(

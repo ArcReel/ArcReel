@@ -137,6 +137,7 @@ from lib.script.source_loader import (
 )
 from lib.speech.character_voice import VALID_CHARACTER_VOICE_BINDINGS
 from lib.speech.narration_delivery import TtsSettingsResolver
+from lib.speech.speech_composition import SpeechProblemCode
 from lib.workflow.workflow_plan import WorkflowPlan, WorkflowPlanRequest
 from lib.workflow.workflow_state import WorkflowRequestError
 from server.draft_workflow import (
@@ -372,31 +373,33 @@ class PatchUpdateOperation(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     op: Literal["update"]
-    id: str = Field(min_length=1)
-    fields: dict[str, Any] = Field(min_length=1)
+    id: str = Field(min_length=1, description="要修改的条目 id（segment_id / scene_id / shot_id / unit_id）")
+    fields: dict[str, Any] = Field(
+        min_length=1, description="字段路径到新值的映射；嵌套字段用点号路径，如 image_prompt.scene"
+    )
 
 
 class PatchInsertOperation(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     op: Literal["insert"]
-    after_id: str = Field(min_length=1)
-    item: dict[str, Any]
+    after_id: str = Field(min_length=1, description="新条目插在这个 id 之后")
+    item: dict[str, Any] = Field(description="新条目的完整内容；id 由系统按锚点重新分配")
 
 
 class PatchRemoveOperation(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     op: Literal["remove"]
-    id: str = Field(min_length=1)
+    id: str = Field(min_length=1, description="要删除的条目 id")
 
 
 class PatchSplitOperation(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     op: Literal["split"]
-    id: str = Field(min_length=1)
-    parts: list[dict[str, Any]] = Field(min_length=2)
+    id: str = Field(min_length=1, description="要拆分的条目 id；第一段沿用该 id，其余段分配新 id")
+    parts: list[dict[str, Any]] = Field(min_length=2, description="拆分后的各段完整内容，按顺序排列，至少两段")
 
 
 PatchEpisodeScriptOperation = Annotated[
@@ -408,9 +411,98 @@ PatchEpisodeScriptOperation = Annotated[
 class PatchEpisodeScriptRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    script: str = Field(min_length=1)
-    base_revision: str = Field(pattern=r"^sha256-v1:[0-9a-f]{64}$")
-    operations: list[PatchEpisodeScriptOperation] = Field(min_length=1)
+    script: str = Field(
+        min_length=1, description="剧本纯文件名（不含目录），如 episode_1.json；单集单文件，多集编辑每集一次调用"
+    )
+    base_revision: str = Field(
+        pattern=r"^sha256-v1:[0-9a-f]{64}$", description="get_episode_script 返回的当前 revision"
+    )
+    operations: list[PatchEpisodeScriptOperation] = Field(
+        min_length=1, description="按顺序执行的编辑操作，整批原子提交：update / insert / remove / split"
+    )
+
+    @field_validator("script")
+    @classmethod
+    def _validate_script(cls, value: str) -> str:
+        if "/" in value or "\\" in value or value in (".", ".."):
+            raise ValueError(f"script 必须是纯文件名，禁止路径分隔符: {value!r}")
+        return value
+
+
+_SPEECH_PROBLEM_CODES = frozenset(code.value for code in SpeechProblemCode)
+_REGENERATION_FIELDS = frozenset({"image_prompt", "video_prompt"})
+
+
+class ScriptSpeechProblem(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    code: str
+    unit_id: str | None
+    locations: tuple[ScriptBatchEditLocation, ...] = ()
+    reason: str
+    action: str
+
+
+class ScriptSpeechAdmission(BaseModel):
+    """剧本编辑因发声组合被拒时，被点名单元的发声准入；与 ``SpeechAdmission.to_dict()`` 同形。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    allowed: Literal[False] = False
+    unit_id: str | None
+    mode: None = None
+    problems: tuple[ScriptSpeechProblem, ...]
+
+
+class ScriptPatchResult(ScriptBatchEditResult):
+    """``patch_episode_script`` 的结果：剧本批量编辑结果，加上给 Agent 的后续动作提示。
+
+    - ``regeneration_required_ids``：提交成功且改了 image_prompt / video_prompt 的条目，须紧接着重新生成对应图 / 视频；
+    - ``speech_admission``：首个问题属于发声组合时，被点名单元的全部发声问题。
+    未绑定 mention 的提示沿用 ``warnings``。
+    """
+
+    regeneration_required_ids: tuple[str, ...] = ()
+    speech_admission: ScriptSpeechAdmission | None = None
+
+
+def _regeneration_required_ids(operations: list[PatchEpisodeScriptOperation]) -> tuple[str, ...]:
+    return tuple(
+        dict.fromkeys(
+            operation.id
+            for operation in operations
+            if isinstance(operation, PatchUpdateOperation)
+            and any(field.split(".", 1)[0] in _REGENERATION_FIELDS for field in operation.fields)
+        )
+    )
+
+
+def _speech_admission(result: ScriptBatchEditResult) -> ScriptSpeechAdmission | None:
+    if not result.problems or result.problems[0].code not in _SPEECH_PROBLEM_CODES:
+        return None
+    unit_id = result.problems[0].unit_id
+    return ScriptSpeechAdmission(
+        unit_id=unit_id,
+        problems=tuple(
+            ScriptSpeechProblem(
+                code=problem.code,
+                unit_id=problem.unit_id,
+                locations=problem.locations,
+                reason=problem.reason,
+                action=problem.next_action,
+            )
+            for problem in result.problems
+            if problem.unit_id == unit_id
+        ),
+    )
+
+
+def _script_patch_result(request: PatchEpisodeScriptRequest, result: ScriptBatchEditResult) -> ScriptPatchResult:
+    return ScriptPatchResult(
+        **dict(result),
+        regeneration_required_ids=_regeneration_required_ids(request.operations) if result.success else (),
+        speech_admission=_speech_admission(result),
+    )
 
 
 async def _run_text_generation(
@@ -1551,8 +1643,8 @@ def _patch_episode_script_sync(
 ) -> ToolOutcome[ScriptBatchEditResult]:
     try:
         current = services.projects.load_script(scope.project_name, request.value.script)
-    except FileNotFoundError as exc:
-        return ToolOutcome(problem=ToolProblem("script_not_found", str(exc)))
+    except FileNotFoundError:
+        return ToolOutcome(problem=ToolProblem("script_not_found", f"剧本不存在: {request.value.script}"))
     except Exception as exc:
         return ToolOutcome(problem=ToolProblem("internal_error", f"patch_episode_script 失败: {exc}"))
 
@@ -1620,8 +1712,11 @@ async def patch_episode_script(
     scope: ProjectScope,
     _caller: CallerContext,
     services: Services,
-) -> ToolOutcome[ScriptBatchEditResult]:
-    return await _run_sync_transaction(_patch_episode_script_sync, request, scope, services)
+) -> ToolOutcome[ScriptPatchResult]:
+    outcome = await _run_sync_transaction(_patch_episode_script_sync, request, scope, services)
+    if outcome.value is None:
+        return ToolOutcome(problem=outcome.problem)
+    return ToolOutcome(value=_script_patch_result(request.value, outcome.value))
 
 
 MAX_INSTRUCTIONS_LEN = 4000
@@ -2513,8 +2608,11 @@ __all__ = [
     "PromptPreviewRequest",
     "RenameAssetRequest",
     "ResetEpisodePlanningRequest",
+    "ScriptPatchResult",
     "ScriptPlanContent",
     "ScriptPlanContentRequest",
+    "ScriptSpeechAdmission",
+    "ScriptSpeechProblem",
     "Services",
     "SourceFilesContent",
     "SourceTextContent",

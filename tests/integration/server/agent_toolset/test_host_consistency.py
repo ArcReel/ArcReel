@@ -44,6 +44,7 @@ from server.agent_toolset.generation_batches import CANCEL_GENERATION_BATCH, GET
 from server.agent_toolset.orientation import GET_PROMPT_PREVIEW, GET_VIDEO_CAPABILITIES
 from server.agent_toolset.project_entry import CREATE_PROJECT
 from server.agent_toolset.remote import LONG_TASK_NOTE, remote_tool
+from server.agent_toolset.script_editing import PATCH_EPISODE_SCRIPT
 from server.agent_toolset.toolset import AGENT_TOOLSET
 from server.remote_mcp import build_remote_mcp_server
 from server.services.project.workflow_planner import WorkflowPlanner
@@ -84,6 +85,11 @@ SAMPLE_ARGUMENTS: dict[str, dict[str, Any]] = {
     "generate_storyboards": {"script": "episode_1.json"},
     "edit_images": {"resource_type": "character", "edits": [{"id": "张三", "instruction": "把头发改成红色"}]},
     "generate_narration_audio": {"script": "episode_1.json", "segment_ids": ["E1S01"]},
+    "patch_episode_script": {
+        "script": "episode_9.json",
+        "base_revision": "sha256-v1:" + "0" * 64,
+        "operations": [{"op": "remove", "id": "E9S01"}],
+    },
 }
 
 _DECLARATIONS = pytest.mark.parametrize("declaration", AGENT_TOOLSET, ids=lambda declaration: declaration.name)
@@ -377,6 +383,23 @@ async def test_episode_script_reader_reports_the_same_migration_problem_in_both_
     assert problem["params"]["schema_version"] == CURRENT_PROJECT_SCHEMA_VERSION
 
 
+async def test_patch_episode_script_reports_a_missing_script_as_script_not_found_in_both_hosts(
+    projects: ProjectManager, services: Services, tmp_path: Path
+) -> None:
+    arguments = SAMPLE_ARGUMENTS[PATCH_EPISODE_SCRIPT.name]
+
+    embedded = await _call_embedded(PATCH_EPISODE_SCRIPT, arguments, services)
+    remote = await _call_remote(
+        PATCH_EPISODE_SCRIPT, _remote_arguments(PATCH_EPISODE_SCRIPT, arguments), _twin_services(projects, tmp_path)
+    )
+
+    assert embedded.isError is True
+    assert remote.isError is True
+    assert _embedded_json(embedded) == remote.structuredContent
+    assert remote.structuredContent is not None
+    assert remote.structuredContent["problem"]["code"] == "script_not_found"
+
+
 def _twin_services(projects: ProjectManager, tmp_path: Path) -> Services:
     """同一初始状态的另一份项目根，让写入类工具在两宿主各跑一次、互不影响。"""
     root = tmp_path / "twin"
@@ -392,7 +415,13 @@ _TIME_DEPENDENT_RESULTS = frozenset({CREATE_PROJECT.name})
 
 # 样例入参下合法地返回 problem 的声明：测试项目缺少它们要找的对象或能力配置。其余声明在样例入参下必须成功。
 _PROBLEM_ON_SAMPLE = frozenset(
-    {GET_VIDEO_CAPABILITIES.name, GET_PROMPT_PREVIEW.name, GET_GENERATION_BATCH.name, CANCEL_GENERATION_BATCH.name}
+    {
+        GET_VIDEO_CAPABILITIES.name,
+        GET_PROMPT_PREVIEW.name,
+        GET_GENERATION_BATCH.name,
+        CANCEL_GENERATION_BATCH.name,
+        PATCH_EPISODE_SCRIPT.name,
+    }
 )
 
 

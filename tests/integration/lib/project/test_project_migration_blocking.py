@@ -38,7 +38,6 @@ from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from lib.script.script_batch_edit import script_revision
 from lib.workflow.workflow_plan import WorkflowPlanRequest
 from lib.workflow.workflow_state import WorkflowStateService
-from server.agent_runtime.sdk_tools.patch_script import patch_episode_script_tool
 from server.dependencies import require_project_migration_ok
 from server.error_handlers import register_error_handlers
 from server.media_tools.assets import ListPendingAssetsRequest, list_pending_assets
@@ -413,22 +412,15 @@ async def test_mcp_generation_tools_report_the_same_problem_without_running(tmp_
     assert "retry_project_migration" not in sdk_tools.MIGRATION_BLOCKED_TOOL_IDS
 
 
-@pytest.mark.parametrize(
-    "tool_factory",
-    [patch_episode_script_tool],
-)
-async def test_script_edit_mcp_tools_refuse_at_registration_on_a_migration_blocked_project(
-    tmp_path: Path, monkeypatch, tool_factory
-) -> None:
-    """受控剧本编辑工具登记在 MIGRATION_BLOCKED_TOOL_IDS 里，注册期包上守卫后直接拒。
+async def test_script_patch_refuses_at_the_declared_entry_on_a_migration_blocked_project(tmp_path: Path) -> None:
+    """正式剧本编辑在声明入口按迁移裁决拒绝，回执是 problem 形状。
 
-    断言两件事：工具 id 在阻断集内（``build_arcreel_mcp_server`` 就按这个集合决定包不包守卫），
-    以及包上后的回执是 problem 形状。不落到 ScriptBatchEditor.execute 的内层裁决——那条仍在，
-    作兜底，但命中它会返回 ``script_edit`` 信封而不是 ``problem``，与这里的形状断言矛盾。
+    不落到 ScriptBatchEditor.execute 的内层裁决——那条仍在，作兜底，但命中它会返回
+    ``script_patch`` 结果而不是 ``problem``，与这里的形状断言矛盾。
     """
-
-    import lib.project.project_migration_guard as guard
-    from server.agent_runtime import sdk_tools
+    from server.agent_toolset.declaration import invoke_declaration
+    from server.agent_toolset.script_editing import PATCH_EPISODE_SCRIPT
+    from server.media_tools.context import ToolContext, tool_services
 
     projects_root = tmp_path / "projects"
     projects_root.mkdir()
@@ -436,21 +428,25 @@ async def test_script_edit_mcp_tools_refuse_at_registration_on_a_migration_block
     _break_episode_script(project_dir)
     failure = migrate_project_with_verdict(project_dir)
     assert failure is not None
+    ctx = ToolContext(project_name="demo", data_root=tmp_path, pm=ProjectManager(str(tmp_path)))
 
-    pm = ProjectManager(str(tmp_path))
-    monkeypatch.setattr(guard, "get_project_manager", lambda: pm)
-    ctx = sdk_tools.ToolContext(project_name="demo", data_root=tmp_path, pm=pm)
+    blocked = await invoke_declaration(
+        PATCH_EPISODE_SCRIPT,
+        {
+            "script": "episode_1.json",
+            "base_revision": "sha256-v1:" + "0" * 64,
+            "operations": [{"op": "update", "id": "E1S02", "fields": {"note": "x"}}],
+        },
+        ctx.scope,
+        ctx.caller,
+        tool_services(ctx),
+    )
 
-    sdk_tool = tool_factory(ctx)
-    assert sdk_tool.name in sdk_tools.MIGRATION_BLOCKED_TOOL_IDS
-    guarded = sdk_tools._refuse_while_migration_failed(sdk_tool, ctx)
-    blocked = await guarded.handler({})
-
-    assert blocked["is_error"] is True
-    assert blocked["problem"]["code"] == GenerationProblemCode.PROJECT_MIGRATION_FAILED
-    assert blocked["problem"]["action"] == GenerationAction.RETRY_PROJECT_MIGRATION
-    assert blocked["problem"]["detail"] == failure.reason
-    assert "script_edit" not in blocked
+    assert blocked.value is None
+    assert blocked.problem is not None
+    assert blocked.problem.code == GenerationProblemCode.PROJECT_MIGRATION_FAILED
+    assert blocked.problem.action == GenerationAction.RETRY_PROJECT_MIGRATION
+    assert blocked.problem.detail == failure.reason
 
 
 async def test_mcp_guard_reads_the_session_projects_root_not_the_global_one(tmp_path: Path, monkeypatch) -> None:

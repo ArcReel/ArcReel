@@ -9,6 +9,7 @@ from server.agent_toolset.media_generation import MEDIA_GENERATION_TOOLS
 from server.agent_toolset.orientation import ORIENTATION_TOOLS
 from server.agent_toolset.project_entry import PROJECT_ENTRY_TOOLS
 from server.agent_toolset.repair_channel import REPAIR_CHANNEL_TOOLS
+from server.agent_toolset.script_editing import SCRIPT_EDITING_TOOLS
 
 AGENT_TOOLSET: tuple[AgentToolDeclaration, ...] = (
     *PROJECT_ENTRY_TOOLS,
@@ -17,6 +18,7 @@ AGENT_TOOLSET: tuple[AgentToolDeclaration, ...] = (
     *CONTENT_READ_TOOLS,
     *MEDIA_GENERATION_TOOLS,
     *REPAIR_CHANNEL_TOOLS,
+    *SCRIPT_EDITING_TOOLS,
 )
 
 DECLARED_TOOL_IDS: tuple[str, ...] = tuple(declaration.name for declaration in AGENT_TOOLSET)
