@@ -12,7 +12,10 @@ from __future__ import annotations
 
 from collections.abc import Collection, Mapping
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from lib.generation.video_request_facts import VideoRequestFacts
 
 
 @dataclass(frozen=True)
@@ -59,6 +62,20 @@ class VoiceRenderSettings:
             model_id=str(caps.get("model") or ""),
             audio_ready=audio_ready,
             requires_reference_image=bool(caps.get("reference_audio_per_image") or False),
+        )
+
+    @classmethod
+    def from_request_facts(
+        cls, facts: VideoRequestFacts, *, audio_ready: Collection[str] | None = None
+    ) -> VoiceRenderSettings:
+        """从一次视频请求事实取值构造：声音那几位与时长档位同源于同一次求值。"""
+        return cls(
+            voice_consistency=facts.voice_consistency,
+            requested_generate_audio=facts.requested_generate_audio,
+            max_reference_audio=facts.max_reference_audio_count,
+            model_id=facts.model_id,
+            audio_ready=audio_ready,
+            requires_reference_image=facts.reference_audio_per_image,
         )
 
     @property

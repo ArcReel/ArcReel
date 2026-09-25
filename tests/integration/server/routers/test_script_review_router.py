@@ -10,6 +10,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from lib.config.resolver import ConfigResolver
+from lib.generation.video_request_facts import VideoRequestFactsFailure
 from lib.i18n import _ as i18n_message
 from lib.infra.json_io import atomic_write_json
 from lib.project.project_manager import ProjectManager
@@ -21,20 +22,6 @@ from server.services.project.script_review import ScriptReviewService
 from tests.auth_deps import AUTH_DEPENDENCIES
 from tests.factories import make_video_request_facts
 from tests.fakes import FakeConfigResolver
-
-
-def _custom_provider_caps(*, durations: list[int], default_duration: int | None = 4, max_refs: int = 3) -> dict:
-    """自定义供应商（``custom-`` 前缀）不在 ``PROVIDER_REGISTRY``，不声明任何时长联动约束。
-
-    caps 里的档位即最终生效档位，用例要什么档位就直接写什么，不必去挑一个恰好合适的真实型号。
-    """
-    return {
-        "provider_id": "custom-acme",
-        "model": "acme-video",
-        "supported_durations": list(durations),
-        "default_duration": default_duration,
-        "max_reference_images": max_refs,
-    }
 
 
 def _drama_script_plan() -> dict:
@@ -77,7 +64,6 @@ def _client(
     *,
     generation_mode: str | None = None,
     content_mode: str = "drama",
-    caps: dict | None = None,
 ) -> tuple[TestClient, ProjectManager]:
     pm = ProjectManager(tmp_path / "projects")
     pm.create_project("demo")
@@ -88,9 +74,9 @@ def _client(
         pm.update_project("demo", lambda p: p.__setitem__("generation_mode", generation_mode))
 
     monkeypatch.setattr(router_mod, "get_project_manager", lambda: pm)
-    # 面板档位与确认转换的档位断言都经服务的 ``config_resolver`` 取视频能力：未给 caps 时注入确定的
-    # 档位表，不让用例的档位取决于跑测试的机器上有没有配置库。
-    resolver = cast(ConfigResolver, FakeConfigResolver(**(caps or {})))
+    # 面板档位与确认转换的档位断言都读视频请求事实，事实由用例经 ``set_video_request_facts`` /
+    # ``video_request_facts`` 供给；这里的解析器只是服务构造所需的占位，不触碰配置库。
+    resolver = cast(ConfigResolver, FakeConfigResolver())
     monkeypatch.setattr(
         router_mod,
         "ScriptReviewService",
@@ -172,7 +158,9 @@ class TestScriptReviewRouter:
             assert client.post(f"{base}/convert").status_code == 404
             assert script_review.review_status(pm.get_project_path("demo"), pm.load_project("demo"), 1) == "confirmed"
 
-    def test_saving_confirmed_script_plan_is_rejected_with_recognizable_code(self, tmp_path, monkeypatch):
+    def test_saving_confirmed_script_plan_is_rejected_with_recognizable_code(
+        self, tmp_path, monkeypatch, video_request_facts
+    ):
         client, pm = _client(monkeypatch, tmp_path)
         with client:
             base = "/api/v1/projects/demo/episodes/1/script-review"
@@ -194,7 +182,7 @@ class TestScriptReviewRouter:
             assert plan_path.read_bytes() == before
             assert client.get(base).json()["status"] == "confirmed"
 
-    def test_confirm_over_existing_script_requires_acknowledgement(self, tmp_path, monkeypatch):
+    def test_confirm_over_existing_script_requires_acknowledgement(self, tmp_path, monkeypatch, video_request_facts):
         client, pm = _client(monkeypatch, tmp_path)
         with client:
             base = "/api/v1/projects/demo/episodes/1/script-review"
@@ -229,14 +217,12 @@ class TestScriptReviewRouter:
             assert confirmed.json()["status"] == "confirmed"
             assert pm.load_script("demo", "episode_1.json")["scenes"][0]["pending_authoring"] is True
 
-    def test_confirm_without_resolvable_video_model_names_the_missing_configuration(self, tmp_path, monkeypatch):
+    def test_confirm_without_resolvable_video_model_names_the_missing_configuration(
+        self, tmp_path, monkeypatch, set_video_request_facts
+    ):
+        """确认转换要确定分镜时长档位：视频请求事实解析不出时按事实的问题码回 422，与预检、执行同码。"""
+        set_video_request_facts(VideoRequestFactsFailure("video_capability_unavailable", (("capability", "i2v"),)))
         client, pm = _client(monkeypatch, tmp_path)
-        unresolvable = cast(ConfigResolver, FakeConfigResolver(error=ValueError("未找到可用的 video 供应商")))
-        monkeypatch.setattr(
-            router_mod,
-            "ScriptReviewService",
-            lambda project_manager: ScriptReviewService(project_manager, config_resolver=unresolvable),
-        )
         with client:
             base = "/api/v1/projects/demo/episodes/1/script-review"
             _write_script_plan(pm, _admitted_drama_script_plan())
@@ -244,7 +230,7 @@ class TestScriptReviewRouter:
             refused = client.post(f"{base}/confirm")
 
             assert refused.status_code == 422
-            assert refused.json()["detail"] == i18n_message("script_review_video_model_unresolved")
+            assert refused.json()["detail"] == i18n_message("video_capability_unavailable", capability="i2v")
             assert not (pm.get_project_path("demo") / "scripts" / "episode_1.json").exists()
             assert client.get(base).json()["status"] == "pending_review"
 
@@ -362,9 +348,7 @@ class TestReferenceVideoRouter:
         from lib.script.draft_quarantine import QUARANTINE_KIND_SCRIPT_PLAN, write_quarantine
         from lib.script.reference_video.draft_validation import DraftViolation
 
-        client, pm = _client(
-            monkeypatch, tmp_path, generation_mode="reference_video", caps=_custom_provider_caps(durations=[4, 6, 8])
-        )
+        client, pm = _client(monkeypatch, tmp_path, generation_mode="reference_video")
         project_path = pm.get_project_path("demo")
         novel = "阿离站在屋檐下。"
         (project_path / "source").mkdir(parents=True, exist_ok=True)
@@ -401,9 +385,7 @@ class TestReferenceVideoRouter:
         from lib.script.draft_quarantine import QUARANTINE_KIND_SCRIPT_PLAN, write_quarantine
         from lib.script.reference_video.draft_validation import DraftViolation
 
-        client, pm = _client(
-            monkeypatch, tmp_path, generation_mode="reference_video", caps=_custom_provider_caps(durations=[4, 6, 8])
-        )
+        client, pm = _client(monkeypatch, tmp_path, generation_mode="reference_video")
         project_path = pm.get_project_path("demo")
         (project_path / "source").mkdir(parents=True, exist_ok=True)
         (project_path / "source" / "episode_1.txt").write_text("阿离站在屋檐下。", encoding="utf-8")
@@ -448,7 +430,7 @@ class TestReferenceVideoRouter:
             assert "stale" not in violations[0]["message"]
             assert violations[0]["label"] == ""
 
-    def test_quarantine_surfaced_for_narration_variant(self, tmp_path, monkeypatch):
+    def test_quarantine_surfaced_for_narration_variant(self, tmp_path, monkeypatch, video_request_facts):
         """narration 的待修复草稿同样进 GET 响应：违约按 narration 那套校验器读时重算。
 
         呈现按 kind 分派，不写死参考生视频——否则另两条路线的草稿在场时面板看起来「干净」，
@@ -457,9 +439,7 @@ class TestReferenceVideoRouter:
         from lib.script.draft_quarantine import QUARANTINE_KIND_NARRATION_SCRIPT_PLAN, write_quarantine
         from lib.script.draft_violation import DraftViolation
 
-        client, pm = _client(
-            monkeypatch, tmp_path, content_mode="narration", caps=_custom_provider_caps(durations=[4, 6, 8])
-        )
+        client, pm = _client(monkeypatch, tmp_path, content_mode="narration")
         project_path = pm.get_project_path("demo")
         novel = "阿离站在屋檐下。"
         (project_path / "source").mkdir(parents=True, exist_ok=True)
@@ -494,12 +474,12 @@ class TestReferenceVideoRouter:
 
             assert client.post(f"{base}/confirm").status_code == 409
 
-    def test_quarantine_surfaced_for_drama_variant(self, tmp_path, monkeypatch):
+    def test_quarantine_surfaced_for_drama_variant(self, tmp_path, monkeypatch, video_request_facts):
         """drama 的待修复草稿（取回编辑工位）同样进 GET 响应：内容重判通过则违约为空、
         正文按现值收编回传，面板据此说明「等待晋升」而不是显示一片空白。"""
         from lib.script.draft_quarantine import QUARANTINE_KIND_DRAMA_SCRIPT_PLAN, write_quarantine
 
-        client, pm = _client(monkeypatch, tmp_path, caps=_custom_provider_caps(durations=[4, 6, 8]))
+        client, pm = _client(monkeypatch, tmp_path)
         project_path = pm.get_project_path("demo")
         novel = "阿离站在屋檐下。"
         (project_path / "source").mkdir(parents=True, exist_ok=True)
@@ -642,6 +622,38 @@ class TestReferenceVideoRouter:
                 "ask the agent to re-split this episode"
             )
 
+    def test_quarantine_recheck_reports_video_request_facts_failure_by_problem_code(
+        self, tmp_path, monkeypatch, set_video_request_facts
+    ):
+        """草稿读时重算遇到视频请求事实解析不出：报成事实问题码的违约并按其文案 key 本地化，
+        不误报成草稿损坏。"""
+        from lib.script.draft_quarantine import QUARANTINE_KIND_SCRIPT_PLAN, write_quarantine
+
+        set_video_request_facts(VideoRequestFactsFailure("reference_capability_unavailable", (("capability", "r2v"),)))
+        client, pm = _client(monkeypatch, tmp_path, generation_mode="reference_video")
+        project_path = pm.get_project_path("demo")
+        (project_path / "source").mkdir(parents=True, exist_ok=True)
+        (project_path / "source" / "episode_1.txt").write_text("阿离站在屋檐下。", encoding="utf-8")
+        _write_rv_script_plan(pm, _rv_script_plan())
+        write_quarantine(
+            project_path,
+            1,
+            QUARANTINE_KIND_SCRIPT_PLAN,
+            content={"units": [{"duration_seconds": 4, "source_text": "x", "text": "镜头1：门开了"}]},
+            violations=[],
+            meta={"source": "source/episode_1.txt"},
+        )
+
+        with client:
+            body = client.get(
+                "/api/v1/projects/demo/episodes/1/script-review", headers={"Accept-Language": "en"}
+            ).json()
+            violations = body["quarantine"]["violations"]
+            assert [v["code"] for v in violations] == ["reference_capability_unavailable"]
+            assert violations[0]["message"] == i18n_message(
+                "reference_capability_unavailable", locale="en", capability="r2v"
+            )
+
     def test_duration_tiers_survive_save_and_confirm_responses(self, tmp_path, monkeypatch, video_request_facts):
         """PUT / confirm 的响应同样带 ``duration_tiers``——它们各自独立调用 ``get_state``，
         不经过 GET 那次合并；不带的话前端 ``adopt()`` 用保存后的响应覆盖 GET 读到的收窄结果，
@@ -662,23 +674,22 @@ class TestReferenceVideoRouter:
     def test_duration_tiers_and_supported_durations_resolved_for_custom_provider(
         self, tmp_path, monkeypatch, set_video_request_facts
     ):
-        """自定义供应商（``custom-`` 前缀）不在 ``PROVIDER_REGISTRY``：caps 是它唯一的档位来源。
+        """自定义供应商（``custom-`` 前缀）不在 ``PROVIDER_REGISTRY``：视频请求事实是它唯一的档位来源。
 
-        ``supported_durations``（未收窄全集，供存量草稿的读时收编 clamp）与 ``duration_tiers``
-        （收窄后的逐 unit 可选项）都要经 caps 解析出真实档位，否则这类项目的内容确认只能退回
-        结构区间 clamp，读时迁移的收编对其整体失效。
+        ``supported_durations``（声明全集，供存量草稿的读时收编 clamp）与 ``duration_tiers``
+        （收窄后的逐 unit 可选项）都按事实给出真实档位，读时迁移的收编与面板可选项同源。
         """
         set_video_request_facts(
             make_video_request_facts(
-                route="reference_video", generation_type="i2v", supported_durations=(5, 10), allowed_durations=(5, 10)
+                route="reference_video",
+                generation_type="i2v",
+                provider_id="custom-acme",
+                model_id="acme-video",
+                supported_durations=(5, 10),
+                allowed_durations=(5, 10),
             )
         )
-        client, pm = _client(
-            monkeypatch,
-            tmp_path,
-            generation_mode="reference_video",
-            caps=_custom_provider_caps(durations=[5, 10], default_duration=None),
-        )
+        client, pm = _client(monkeypatch, tmp_path, generation_mode="reference_video")
 
         with client:
             _write_rv_script_plan(pm, _rv_script_plan())

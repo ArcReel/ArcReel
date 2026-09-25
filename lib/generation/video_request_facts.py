@@ -21,7 +21,6 @@ from typing import Literal
 from sqlalchemy.exc import SQLAlchemyError
 
 from lib.config.resolver import (
-    ENDPOINT_FIXED_PLANNING_DURATIONS,
     ConfigResolver,
     DurationExclusionReason,
     VideoBucketCapabilityError,
@@ -37,6 +36,15 @@ VideoRoute = Literal["storyboard", "reference_video"]
 
 #: 求值失败的修复指引：都指向视频模型配置。
 CONFIGURE_VIDEO_MODEL_ACTION = "configure_video_model"
+
+#: 时长这一维由端点固定的模型行，在剧本规划里借用的档位。
+#:
+#: 这不是「这个模型支持几秒」——那一维不由 ArcReel 驱动，成片多长以 workflow 为准。它只是剧本
+#: 规划需要的「一个分镜大概多长」的篇幅依据：没有它，分镜拆不出来。借用只发生在规划内部
+#: （:func:`planning_durations`），界面与 Agent 载荷拿到的仍是空集加端点固定标志。取值与
+#: ``lib.custom_provider.duration_presets.DEFAULT_FALLBACK`` 同为 ``[4, 8]``，但语义不同（后者是
+#: 自定义供应商写入层的保守默认），不从那里 import。
+ENDPOINT_FIXED_PLANNING_DURATIONS: list[int] = [4, 8]
 
 #: 单元未写时长、项目也无偏好时长时的规划基准：取剧本规划借用档位里最长的一档。
 #:
@@ -130,6 +138,11 @@ class VideoRequestFactsFailure:
     def parameters(self) -> dict[str, object]:
         return dict(self.params)
 
+    def summary(self) -> str:
+        """问题码与渲染参数的单行摘要（``code（k=v, …）``），供 Agent 回执与草稿违约文案引用。"""
+        params = ", ".join(f"{key}={value}" for key, value in self.params)
+        return f"{self.code}（{params}）" if params else self.code
+
     def problem_payload(self) -> dict[str, object]:
         """读侧问题信封：问题码、渲染参数与修复指引，Web 与 Agent 载荷同形。"""
         return {"code": self.code, "params": self.parameters(), "action": self.action}
@@ -157,6 +170,21 @@ def require_video_request_facts(result: VideoRequestFacts | VideoRequestFactsFai
     if isinstance(result, VideoRequestFactsFailure):
         raise VideoRequestFactsError(result)
     return result
+
+
+def planning_durations(facts: VideoRequestFacts) -> list[int]:
+    """剧本规划可选的时长档位：收窄后的档位；时长由端点固定时借 :data:`ENDPOINT_FIXED_PLANNING_DURATIONS`。
+
+    成功事实的 ``allowed_durations`` 只在端点固定时为空（收成空集是失败），本函数因此对成功事实
+    恒返回非空档位。分镜路线的剧本规划、参考路线的拆分与提示词编写都读这一处，与预检、执行同一份
+    收窄结果；借用只发生在规划内部，界面与 Agent 载荷仍拿空集加端点固定标志。
+    """
+
+    if facts.allowed_durations:
+        return list(facts.allowed_durations)
+    if facts.duration_endpoint_fixed:
+        return list(ENDPOINT_FIXED_PLANNING_DURATIONS)
+    return []
 
 
 def audio_switch_conflict(facts: VideoRequestFacts) -> VideoRequestFactsFailure | None:

@@ -13,7 +13,6 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from lib.config.resolver import (
     ConfigResolver,
     constrain_durations,
-    constrain_durations_for_project,
     duration_constraints_report,
 )
 from lib.custom_provider import make_provider_id
@@ -267,87 +266,3 @@ def test_duration_constraints_report_without_constraints_excludes_nothing():
     report = duration_constraints_report(*_VEO, [4, 6], resolution="4k", uses_reference_images=False)
     assert report["allowed"] == []
     assert report["excluded"] == {4: "resolution", 6: "resolution"}
-
-
-def test_constrain_durations_for_project_uses_project_resolution():
-    """项目已设分辨率优先于 provider 兜底档位。"""
-    project = {"model_settings": {f"{_VEO[0]}/{_VEO[1]}": {"resolution": "720p"}}}
-    assert constrain_durations_for_project(
-        project, [4, 6, 8], provider_id=_VEO[0], model_id=_VEO[1], generation_mode="storyboard"
-    ) == [4, 6, 8]
-
-
-def test_constrain_durations_for_project_unset_resolution_not_constrained():
-    """项目未设分辨率时不施加分辨率约束——普通视频路径此时不下发 resolution 参数。
-
-    执行期发给供应商的是 ``resolve_resolution()`` 的原始结果，``None`` 即省略该参数，供应商
-    按自己的默认档位处理（Veo 省略时是 720p，4/6/8 全合法）。按 provider 兜底档位收窄会凭空
-    把未配置项目的剧本节奏锁死 8 秒，而供应商本来就接受 4/6 秒。
-    """
-    assert constrain_durations_for_project(
-        {}, [4, 6, 8], provider_id=_VEO[0], model_id=_VEO[1], generation_mode="storyboard"
-    ) == [4, 6, 8]
-    assert constrain_durations_for_project(
-        {}, [6, 10], provider_id=_HAILUO[0], model_id=_HAILUO[1], generation_mode="storyboard"
-    ) == [6, 10]
-
-
-def test_constrain_durations_for_project_unset_resolution_reference_mode_applies_only_reference_constraint():
-    """参考生视频未设分辨率时与普通路径同口径：请求不携带分辨率，只剩参考图约束。
-
-    Veo 3.1 带参考图只接受 8 秒；不带参考图的单元不施加任何约束，保留 [4, 6, 8]。
-    """
-    assert constrain_durations_for_project(
-        {}, [4, 6, 8], provider_id=_VEO[0], model_id=_VEO[1], generation_mode="reference_video"
-    ) == [8]
-    assert constrain_durations_for_project(
-        {},
-        [4, 6, 8],
-        provider_id=_VEO[0],
-        model_id=_VEO[1],
-        generation_mode="reference_video",
-        uses_reference_images=False,
-    ) == [4, 6, 8]
-    # MiniMax 海螺 1080P 只有 6 秒：未设分辨率不施加该约束。
-    assert constrain_durations_for_project(
-        {}, [6, 10], provider_id=_HAILUO[0], model_id=_HAILUO[1], generation_mode="reference_video"
-    ) == [6, 10]
-
-
-def test_constrain_durations_for_project_reference_mode():
-    """generation_mode=reference_video 触发参考图约束。"""
-    project = {"model_settings": {f"{_VEO[0]}/{_VEO[1]}": {"resolution": "720p"}}}
-    assert constrain_durations_for_project(
-        project, [4, 6, 8], provider_id=_VEO[0], model_id=_VEO[1], generation_mode="reference_video"
-    ) == [8]
-
-
-def test_constrain_durations_for_project_legacy_resolution_key():
-    """legacy video_model_settings（裸 model_id 键）同样参与求值。"""
-    project = {"video_model_settings": {_VEO[1]: {"resolution": "720p"}}}
-    assert constrain_durations_for_project(
-        project, [4, 6, 8], provider_id=_VEO[0], model_id=_VEO[1], generation_mode="storyboard"
-    ) == [4, 6, 8]
-
-
-@pytest.mark.parametrize("bad_resolution", [1080, ["1080p"], {"value": "1080p"}, True, "   "])
-def test_constrain_durations_for_project_ignores_non_string_resolution(bad_resolution: object):
-    """脏 resolution 按「未配置」处理，不带着非字符串进 ``constrain_durations`` 的 ``.strip()``。
-
-    project.json 可被手工编辑，也留有历史脏数据；这里落回未收窄的全集，与该模型未设档位同解。
-    """
-    project = {"model_settings": {f"{_VEO[0]}/{_VEO[1]}": {"resolution": bad_resolution}}}
-    assert constrain_durations_for_project(
-        project, [4, 6, 8], provider_id=_VEO[0], model_id=_VEO[1], generation_mode="storyboard"
-    ) == [4, 6, 8]
-
-
-def test_constrain_durations_for_project_falls_back_past_dirty_override_to_legacy():
-    """新键脏值不吞掉 legacy 键：脏值等同未配置，继续按 legacy 档位求值。"""
-    project = {
-        "model_settings": {f"{_VEO[0]}/{_VEO[1]}": {"resolution": 1080}},
-        "video_model_settings": {_VEO[1]: {"resolution": " 1080P "}},
-    }
-    assert constrain_durations_for_project(
-        project, [4, 6, 8], provider_id=_VEO[0], model_id=_VEO[1], generation_mode="storyboard"
-    ) == [8]

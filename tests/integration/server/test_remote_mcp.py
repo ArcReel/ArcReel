@@ -806,7 +806,9 @@ async def test_remote_mcp_entry_tools_share_one_projects_root(remote_server) -> 
     assert uploaded.structuredContent["source"]["path"] == "source/novel.txt"
 
 
-async def test_remote_mcp_draft_supports_multiple_patches_and_discard(remote_server, remote_projects) -> None:
+async def test_remote_mcp_draft_supports_multiple_patches_and_discard(
+    remote_server, remote_projects, video_request_facts
+) -> None:
     # 尚无正式剧本：脚本规划未确认，可取回编辑副本。
     (remote_projects.get_project_path("demo") / "scripts" / "episode_1.json").unlink()
     app = _mounted(remote_server)
@@ -864,7 +866,7 @@ async def test_remote_mcp_draft_supports_multiple_patches_and_discard(remote_ser
 
 
 async def test_remote_mcp_text_generation_and_script_patch_return_structured_content(
-    remote_server, remote_projects: ProjectManager
+    remote_server, remote_projects: ProjectManager, video_request_facts
 ) -> None:
     remote_projects.create_project("ad-demo", content_mode="ad")
     remote_projects.create_project_metadata(

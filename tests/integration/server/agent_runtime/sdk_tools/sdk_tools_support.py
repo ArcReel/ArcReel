@@ -340,9 +340,9 @@ def fake_caps_resolver(**kwargs: Any) -> Any:
 def use_fake_caps(fake_ctx: ToolContext, **kwargs: Any) -> Any:
     """给这个会话装上假能力解析器并返回它。
 
-    工具经 ``ToolContext.config_resolver`` 把解析器透传给能力取值器，注入后取值器里的软回退、
-    时长联动约束收窄与声音档派生照常执行——那些正是用例要保护的行为，整体替换取值器会把它们
-    一并旁路掉。
+    工具经 ``ToolContext.config_resolver`` 把解析器透传给能力 dict 与图像能力的取值器（如
+    ``get_video_capabilities`` 的能力载荷、图生图能力闸）。时长档位与声音档不经它：那些读视频请求
+    事实，用例用 ``set_video_request_facts`` / ``video_request_facts`` 提供。
     """
     resolver = fake_caps_resolver(**kwargs)
     fake_ctx.config_resolver = resolver

@@ -17,7 +17,6 @@ from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
     nr_project,
     nr_segment,
     nr_source,
-    use_fake_caps,
 )
 
 # ---------------------------------------------------------------------------
@@ -25,9 +24,8 @@ from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
 # ---------------------------------------------------------------------------
 
 
-async def test_split_narration_segments_dry_run(fake_ctx: ToolContext) -> None:
+async def test_split_narration_segments_dry_run(fake_ctx: ToolContext, video_request_facts) -> None:
     nr_source(fake_ctx)
-    use_fake_caps(fake_ctx)
 
     tool_obj = generate_script_plan_tool(fake_ctx)
     out = await call(tool_obj, {"episode": 1, "dry_run": True})
@@ -42,11 +40,10 @@ async def test_split_narration_segments_dry_run(fake_ctx: ToolContext) -> None:
     assert "# 附加指令" not in prompt_text
 
 
-async def test_split_narration_segments_injects_instructions(fake_ctx: ToolContext) -> None:
+async def test_split_narration_segments_injects_instructions(fake_ctx: ToolContext, video_request_facts) -> None:
     """instructions 原样进 prompt 末尾的中性「附加指令」分节，不附加强度措辞。"""
 
     nr_source(fake_ctx)
-    use_fake_caps(fake_ctx)
 
     tool_obj = generate_script_plan_tool(fake_ctx)
     out = await call(tool_obj, {"episode": 1, "dry_run": True, "instructions": "单个分镜出场人物尽量不超过两人"})
@@ -57,11 +54,10 @@ async def test_split_narration_segments_injects_instructions(fake_ctx: ToolConte
     assert "必须全部落实" not in prompt_text
 
 
-async def test_split_narration_segments_rejects_bad_instructions(fake_ctx: ToolContext) -> None:
+async def test_split_narration_segments_rejects_bad_instructions(fake_ctx: ToolContext, video_request_facts) -> None:
     """instructions 超长 / 非字符串按参数错误拒绝；空白 strip 后视同未传（校验为四个生成工具共享）。"""
 
     nr_source(fake_ctx)
-    use_fake_caps(fake_ctx)
     tool_obj = generate_script_plan_tool(fake_ctx)
 
     out = await call(tool_obj, {"episode": 1, "dry_run": True, "instructions": "长" * 4001})
@@ -76,7 +72,7 @@ async def test_split_narration_segments_rejects_bad_instructions(fake_ctx: ToolC
     assert "# 附加指令" not in out["content"][0]["text"]
 
 
-async def test_split_narration_segments_happy(fake_ctx: ToolContext, monkeypatch) -> None:
+async def test_split_narration_segments_happy(fake_ctx: ToolContext, monkeypatch, video_request_facts) -> None:
     """happy path：结构化分镜 script_plan 落盘；模型经文本管道按 SCRIPT 任务解析并携带 project_name 入账。"""
     from server import text_generation as mod
 
@@ -89,7 +85,6 @@ async def test_split_narration_segments_happy(fake_ctx: ToolContext, monkeypatch
         nr_segment("E1S01", 4, "张三走向村口。", characters_in_segment=["张三"], scenes=["村口"]),
         nr_segment("E1S02", 6, "他停下脚步，久久凝望。", segment_break=True),
     ]
-    use_fake_caps(fake_ctx)
     monkeypatch.setattr(mod.TextGenerator, "create", nr_generator_returning(segments, captured))
 
     tool_obj = generate_script_plan_tool(fake_ctx)
@@ -108,7 +103,7 @@ async def test_split_narration_segments_happy(fake_ctx: ToolContext, monkeypatch
 
 
 async def test_split_narration_segments_registers_the_frozen_default_source_basis(
-    fake_ctx: ToolContext, monkeypatch
+    fake_ctx: ToolContext, monkeypatch, video_request_facts
 ) -> None:
     from lib.artifacts.artifact_manifest import ArtifactKey, ProjectArtifactManifestAdapter
     from lib.artifacts.artifact_provenance import build_script_plan_basis
@@ -151,7 +146,6 @@ async def test_split_narration_segments_registers_the_frozen_default_source_basi
     async def fake_create(_task_type, project_name=None, **_kwargs):
         return _Generator()
 
-    use_fake_caps(fake_ctx)
     monkeypatch.setattr(mod.TextGenerator, "create", fake_create)
 
     result = await call(generate_script_plan_tool(fake_ctx), {"episode": 1})
@@ -162,13 +156,14 @@ async def test_split_narration_segments_registers_the_frozen_default_source_basi
     assert entry.basis_digest == expected.digest
 
 
-async def test_split_narration_segments_rejects_out_of_enum_duration(fake_ctx: ToolContext, monkeypatch) -> None:
+async def test_split_narration_segments_rejects_out_of_enum_duration(
+    fake_ctx: ToolContext, monkeypatch, video_request_facts
+) -> None:
     """静态分镜 schema 的 duration 是开区间，超出 supported_durations 的时长由工具后校验拦截，不落盘。"""
     from server import text_generation as mod
 
     nr_source(fake_ctx)
     segments = [nr_segment("E1S01", 5)]
-    use_fake_caps(fake_ctx)
     monkeypatch.setattr(mod.TextGenerator, "create", nr_generator_returning(segments))
 
     tool_obj = generate_script_plan_tool(fake_ctx)
@@ -178,12 +173,13 @@ async def test_split_narration_segments_rejects_out_of_enum_duration(fake_ctx: T
     assert not (fake_ctx.project_path / "drafts" / "episode_1" / "script_plan_segments.json").exists()
 
 
-async def test_split_narration_segments_rejects_duplicate_segment_ids(fake_ctx: ToolContext, monkeypatch) -> None:
+async def test_split_narration_segments_rejects_duplicate_segment_ids(
+    fake_ctx: ToolContext, monkeypatch, video_request_facts
+) -> None:
     from server import text_generation as mod
 
     nr_source(fake_ctx)
     segments = [nr_segment("E1S01", 4), nr_segment("E1S01", 6)]
-    use_fake_caps(fake_ctx)
     monkeypatch.setattr(mod.TextGenerator, "create", nr_generator_returning(segments))
 
     tool_obj = generate_script_plan_tool(fake_ctx)
@@ -193,13 +189,14 @@ async def test_split_narration_segments_rejects_duplicate_segment_ids(fake_ctx: 
     assert not (fake_ctx.project_path / "drafts" / "episode_1" / "script_plan_segments.json").exists()
 
 
-async def test_split_narration_segments_rejects_blank_novel_text(fake_ctx: ToolContext, monkeypatch) -> None:
+async def test_split_narration_segments_rejects_blank_novel_text(
+    fake_ctx: ToolContext, monkeypatch, video_request_facts
+) -> None:
     """novel_text 为纯空白（如单个空格）满足 schema min_length=1 却无实际旁白内容，须被后校验拦截，不落盘。"""
     from server import text_generation as mod
 
     nr_source(fake_ctx)
     segments = [nr_segment("E1S01", 4, "张三在村口等人"), nr_segment("E1S02", 4, novel_text=" ")]
-    use_fake_caps(fake_ctx)
     monkeypatch.setattr(mod.TextGenerator, "create", nr_generator_returning(segments))
 
     tool_obj = generate_script_plan_tool(fake_ctx)
@@ -210,11 +207,12 @@ async def test_split_narration_segments_rejects_blank_novel_text(fake_ctx: ToolC
     assert not (fake_ctx.project_path / "drafts" / "episode_1" / "script_plan_segments.json").exists()
 
 
-async def test_split_narration_segments_rejects_empty_segments(fake_ctx: ToolContext, monkeypatch) -> None:
+async def test_split_narration_segments_rejects_empty_segments(
+    fake_ctx: ToolContext, monkeypatch, video_request_facts
+) -> None:
     from server import text_generation as mod
 
     nr_source(fake_ctx)
-    use_fake_caps(fake_ctx)
     monkeypatch.setattr(mod.TextGenerator, "create", nr_generator_returning([]))
 
     tool_obj = generate_script_plan_tool(fake_ctx)
@@ -223,13 +221,14 @@ async def test_split_narration_segments_rejects_empty_segments(fake_ctx: ToolCon
     assert not (fake_ctx.project_path / "drafts" / "episode_1" / "script_plan_segments.json").exists()
 
 
-async def test_split_narration_segments_rejects_missing_field(fake_ctx: ToolContext, monkeypatch) -> None:
+async def test_split_narration_segments_rejects_missing_field(
+    fake_ctx: ToolContext, monkeypatch, video_request_facts
+) -> None:
     """缺资产字段（characters_in_segment 等）由既有分镜 schema（NarrationScriptPlanSegment strict）拦截。"""
     from server import text_generation as mod
 
     nr_source(fake_ctx)
     bad = {"segment_id": "E1S01", "novel_text": "缺字段", "duration_seconds": 4, "segment_break": False}
-    use_fake_caps(fake_ctx)
     monkeypatch.setattr(mod.TextGenerator, "create", nr_generator_returning([bad]))
 
     tool_obj = generate_script_plan_tool(fake_ctx)
@@ -240,14 +239,13 @@ async def test_split_narration_segments_rejects_missing_field(fake_ctx: ToolCont
 
 
 async def test_split_narration_segments_rejects_unregistered_asset_reference(
-    fake_ctx: ToolContext, monkeypatch
+    fake_ctx: ToolContext, monkeypatch, video_request_facts
 ) -> None:
     """characters_in_segment / scenes / props 引用了 project.json 未登记的名称须被拦截，不落盘。"""
     from server import text_generation as mod
 
     nr_source(fake_ctx)
     segments = [nr_segment("E1S01", 4, "张三在村口等人", characters_in_segment=["王五"])]
-    use_fake_caps(fake_ctx)
     monkeypatch.setattr(mod.TextGenerator, "create", nr_generator_returning(segments))
 
     tool_obj = generate_script_plan_tool(fake_ctx)
@@ -259,7 +257,7 @@ async def test_split_narration_segments_rejects_unregistered_asset_reference(
 
 
 async def test_split_narration_segments_accepts_asset_name_in_other_unicode_form(
-    fake_ctx: ToolContext, monkeypatch
+    fake_ctx: ToolContext, monkeypatch, video_request_facts
 ) -> None:
     """资产表记 NFC、模型写回 NFD（或反之）指的是同一个已登记资产，不该判成未登记。
 
@@ -274,7 +272,6 @@ async def test_split_narration_segments_accepts_asset_name_in_other_unicode_form
     segments = [
         nr_segment("E1S01", 4, "张三在村口等人", characters_in_segment=[unicodedata.normalize("NFD", nfc_name)])
     ]
-    use_fake_caps(fake_ctx)
     monkeypatch.setattr(mod.TextGenerator, "create", nr_generator_returning(segments))
 
     out = await call(generate_script_plan_tool(fake_ctx), {"episode": 1})
@@ -290,14 +287,15 @@ async def _nr_source_and_call(fake_ctx: ToolContext, monkeypatch, source_text: s
     src = fake_ctx.project_path / "source"
     src.mkdir(parents=True)
     (src / "episode_1.txt").write_text(source_text, encoding="utf-8")
-    use_fake_caps(fake_ctx)
     monkeypatch.setattr(mod.TextGenerator, "create", nr_generator_returning(segments))
 
     tool_obj = generate_script_plan_tool(fake_ctx)
     return await call(tool_obj, {"episode": 1})
 
 
-async def test_split_narration_segments_rejects_truncated_novel_text(fake_ctx: ToolContext, monkeypatch) -> None:
+async def test_split_narration_segments_rejects_truncated_novel_text(
+    fake_ctx: ToolContext, monkeypatch, video_request_facts
+) -> None:
     """分镜合并后比源文短（模型删减）：novel_text 完整性校验拦截，不落盘。"""
     out = await _nr_source_and_call(
         fake_ctx,
@@ -310,7 +308,9 @@ async def test_split_narration_segments_rejects_truncated_novel_text(fake_ctx: T
     assert not (fake_ctx.project_path / "drafts" / "episode_1" / "script_plan_segments.json").exists()
 
 
-async def test_split_narration_segments_rejects_rewritten_novel_text(fake_ctx: ToolContext, monkeypatch) -> None:
+async def test_split_narration_segments_rejects_rewritten_novel_text(
+    fake_ctx: ToolContext, monkeypatch, video_request_facts
+) -> None:
     """分镜文字被模型改写（非逐字）：novel_text 完整性校验拦截，不落盘。"""
     out = await _nr_source_and_call(
         fake_ctx,
@@ -326,7 +326,9 @@ async def test_split_narration_segments_rejects_rewritten_novel_text(fake_ctx: T
     assert not (fake_ctx.project_path / "drafts" / "episode_1" / "script_plan_segments.json").exists()
 
 
-async def test_split_narration_segments_rejects_reordered_novel_text(fake_ctx: ToolContext, monkeypatch) -> None:
+async def test_split_narration_segments_rejects_reordered_novel_text(
+    fake_ctx: ToolContext, monkeypatch, video_request_facts
+) -> None:
     """分镜顺序被模型打乱：novel_text 完整性校验拦截，不落盘。"""
     out = await _nr_source_and_call(
         fake_ctx,
@@ -342,7 +344,9 @@ async def test_split_narration_segments_rejects_reordered_novel_text(fake_ctx: T
     assert not (fake_ctx.project_path / "drafts" / "episode_1" / "script_plan_segments.json").exists()
 
 
-async def test_split_narration_segments_rejects_dropped_word_space(fake_ctx: ToolContext, monkeypatch) -> None:
+async def test_split_narration_segments_rejects_dropped_word_space(
+    fake_ctx: ToolContext, monkeypatch, video_request_facts
+) -> None:
     """空格分词语言里模型丢失词间空格（"Hello world" -> "Helloworld"）属实质内容损坏，须拦截。"""
     out = await _nr_source_and_call(
         fake_ctx,
@@ -355,7 +359,9 @@ async def test_split_narration_segments_rejects_dropped_word_space(fake_ctx: Too
     assert not (fake_ctx.project_path / "drafts" / "episode_1" / "script_plan_segments.json").exists()
 
 
-async def test_split_narration_segments_accepts_unicode_form_difference(fake_ctx: ToolContext, monkeypatch) -> None:
+async def test_split_narration_segments_accepts_unicode_form_difference(
+    fake_ctx: ToolContext, monkeypatch, video_request_facts
+) -> None:
     """源文以 NFD 落盘、模型回写 NFC：纯编码形式差异不是删字改字，覆盖校验不该误判。
 
     带组合附加符的语种（如 vi）两种形式都在真实语料里出现，误判会把一份逐字正确的分镜表
@@ -372,7 +378,9 @@ async def test_split_narration_segments_accepts_unicode_form_difference(fake_ctx
     assert (fake_ctx.project_path / "drafts" / "episode_1" / "script_plan_segments.json").exists()
 
 
-async def test_split_narration_segments_accepts_split_at_paragraph_break(fake_ctx: ToolContext, monkeypatch) -> None:
+async def test_split_narration_segments_accepts_split_at_paragraph_break(
+    fake_ctx: ToolContext, monkeypatch, video_request_facts
+) -> None:
     """分镜边界恰好落在源文的段落换行处：边界处允许可选空格，不应误报删减。"""
     out = await _nr_source_and_call(
         fake_ctx,
@@ -389,7 +397,7 @@ async def test_split_narration_segments_accepts_split_at_paragraph_break(fake_ct
 
 
 async def test_split_narration_segments_accepts_split_at_halfwidth_punctuation(
-    fake_ctx: ToolContext, monkeypatch
+    fake_ctx: ToolContext, monkeypatch, video_request_facts
 ) -> None:
     """分镜边界落在半角标点后（源文无空白分隔）：边界处允许可选空格，不应误报删减。"""
     out = await _nr_source_and_call(
@@ -407,7 +415,7 @@ async def test_split_narration_segments_accepts_split_at_halfwidth_punctuation(
 
 
 async def test_split_narration_segments_rejects_dropped_space_after_punctuation(
-    fake_ctx: ToolContext, monkeypatch
+    fake_ctx: ToolContext, monkeypatch, video_request_facts
 ) -> None:
     """标点后的词间空格在分镜内部（非边界）丢失："Hello, world." -> "Hello,world."，属实质内容损坏，须拦截。"""
     out = await _nr_source_and_call(

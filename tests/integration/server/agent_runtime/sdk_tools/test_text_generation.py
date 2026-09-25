@@ -23,7 +23,6 @@ from server.text_generation import TextGenerationRequest, _parse_normalized_cont
 from tests.factories import make_video_request_facts, seed_endpoint_fixed_video_model
 from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
     call,
-    fake_caps_resolver,
     use_fake_caps,
 )
 
@@ -55,9 +54,15 @@ async def test_get_video_capabilities_resolves_by_project(fake_ctx: ToolContext)
 async def test_get_video_capabilities_annotates_reference_unit_tiers(
     fake_ctx: ToolContext, set_video_request_facts
 ) -> None:
-    """Agent 只收到一处无图档位及其失败原因。"""
-    set_video_request_facts(VideoRequestFactsFailure("reference_capability_unavailable", (("capability", "i2v"),)))
-    fake_ctx.pm.project_payload["model_settings"] = {"gemini-aistudio/veo-3.1-generate-preview": {"resolution": "720p"}}
+    """带图档位取 r2v 桶事实的收窄结果；Agent 只收到一处无图档位及其失败原因。"""
+    set_video_request_facts(
+        {
+            "r2v": make_video_request_facts(
+                route="reference_video", generation_type="r2v", supported_durations=(4, 6, 8), allowed_durations=(8,)
+            ),
+            "i2v": VideoRequestFactsFailure("reference_capability_unavailable", (("capability", "i2v"),)),
+        }
+    )
     use_fake_caps(
         fake_ctx,
         provider_id="gemini-aistudio",
@@ -91,10 +96,16 @@ async def test_get_video_capabilities_annotates_reference_unit_tiers(
 async def test_get_video_capabilities_has_one_successful_no_image_channel(
     fake_ctx: ToolContext, set_video_request_facts
 ) -> None:
+    """两桶各自成功时载荷各带一套档位；能力 dict 里的旧无图档位键被弹掉，Agent 只读事实那一份。"""
     set_video_request_facts(
-        make_video_request_facts(
-            route="reference_video", generation_type="i2v", supported_durations=(5, 10), allowed_durations=(5, 10)
-        )
+        {
+            "r2v": make_video_request_facts(
+                route="reference_video", generation_type="r2v", supported_durations=(4, 6, 8), allowed_durations=(8,)
+            ),
+            "i2v": make_video_request_facts(
+                route="reference_video", generation_type="i2v", supported_durations=(5, 10), allowed_durations=(5, 10)
+            ),
+        }
     )
     use_fake_caps(
         fake_ctx,
@@ -457,6 +468,28 @@ async def test_generate_episode_script_unknown_entry_id_is_refused_not_internal(
     assert "generate_episode_script 失败" not in text
 
 
+async def test_generate_episode_script_facts_failure_is_refused_with_problem_code(
+    fake_ctx: ToolContext, set_video_request_facts
+) -> None:
+    """分镜档位的视频请求事实解析不出：报「拒绝生成」并带问题码与参数，不冒成 internal_error 引导重试。"""
+    (fake_ctx.project_path / "project.json").write_text(
+        json.dumps({"content_mode": "ad", "target_duration": 30}), encoding="utf-8"
+    )
+    set_video_request_facts(
+        VideoRequestFactsFailure(
+            "video_supported_durations_incompatible",
+            (("provider", "p"), ("model", "m"), ("resolution", "1080p"), ("capability", "i2v")),
+        )
+    )
+
+    out = await call(generate_episode_script_tool(fake_ctx), {"episode": 1, "dry_run": True})
+
+    assert out.get("is_error") is True
+    problem = json.loads(out["content"][0]["text"])["problem"]
+    assert problem["code"] == "generation_refused"
+    assert "video_supported_durations_incompatible（provider=p, model=m, resolution=1080p" in out["content"][0]["text"]
+
+
 @pytest.mark.parametrize("scope", ["all", "stale", None])
 async def test_generate_episode_script_rejects_removed_scope_with_migration_note(
     fake_ctx: ToolContext, scope: str | None
@@ -530,19 +563,21 @@ def test_parse_normalized_content_uses_dynamic_duration_schema() -> None:
         _parse_normalized_content(json.dumps({"title": "t", "scenes": [bad]}), model)
 
 
-async def test_fetch_caps_with_fallback_uses_write_layer_default() -> None:
-    """resolver 失败时软回退须与自定义供应商写入层的保守默认（duration_presets.DEFAULT_FALLBACK）
-    同一真相源——独立维护第二套回退集会让 LLM 拿到供应商未必支持的时长。"""
-    from lib.custom_provider.duration_presets import DEFAULT_FALLBACK
+async def test_fetch_storyboard_durations_raises_typed_code_when_facts_fail(set_video_request_facts) -> None:
+    """分镜桶事实解析不出时按问题码抛错，不回退到任何档位集合。"""
+    from lib.generation.video_request_facts import VideoRequestFactsError
     from server import text_generation as mod
 
-    resolver = fake_caps_resolver(error=ValueError("no provider configured"))
-    default, durations = await mod._fetch_caps_with_fallback({}, 1, config_resolver=resolver)
-    assert default is None
-    assert durations == DEFAULT_FALLBACK
+    set_video_request_facts(VideoRequestFactsFailure("video_capability_unavailable", (("capability", "i2v"),)))
+
+    with pytest.raises(VideoRequestFactsError) as exc:
+        await mod.fetch_storyboard_durations({})
+
+    assert exc.value.code == "video_capability_unavailable"
+    assert exc.value.params == {"capability": "i2v"}
 
 
-async def test_fetch_caps_with_fallback_drops_out_of_range_default() -> None:
+async def test_fetch_storyboard_durations_drops_out_of_range_default(set_video_request_facts) -> None:
     """收窄后落在集合外的已保存 default_duration 归 None（回到 auto 档），不拖垮整个工具。
 
     ``build_normalize_prompt`` 对非成员 default 是 fail-loud 的：用户在 720p 下存过 4 秒、
@@ -550,72 +585,62 @@ async def test_fetch_caps_with_fallback_drops_out_of_range_default() -> None:
     """
     from server import text_generation as mod
 
-    veo = {"provider_id": "gemini-aistudio", "model": "veo-3.1-generate-preview"}
-    project_1080p = {"model_settings": {"gemini-aistudio/veo-3.1-generate-preview": {"resolution": "1080p"}}}
+    set_video_request_facts(make_video_request_facts(supported_durations=(4, 6, 8), allowed_durations=(8,)))
 
-    narrowed = fake_caps_resolver(supported_durations=[4, 6, 8], default_duration=4, **veo)
-    default, durations = await mod._fetch_caps_with_fallback(project_1080p, 1, config_resolver=narrowed)
-    assert default is None
-    assert durations == [8]
-
-    in_range = fake_caps_resolver(supported_durations=[4, 6, 8], default_duration=8, **veo)
-    default, durations = await mod._fetch_caps_with_fallback({}, 1, config_resolver=in_range)
-    assert default == 8
-    assert durations == [4, 6, 8]
+    assert await mod.fetch_storyboard_durations({"default_duration": 4}) == (None, [8])
+    assert await mod.fetch_storyboard_durations({"default_duration": 8}) == (8, [8])
+    assert await mod.fetch_storyboard_durations({"default_duration": "8"}) == (8, [8])
+    assert await mod.fetch_storyboard_durations({"default_duration": True}) == (None, [8])
 
 
-async def test_fetch_video_caps_narrows_durations_by_constraints() -> None:
-    """交给 LLM 的时长集合已按项目分辨率经联动约束收窄。
-
-    Veo 项目保存 1080p 时只接受 8 秒；不收窄的话 drama / narration 拆分会产出 4/6 秒镜头，
-    视频入队时才被 backend 拒。
-    """
+async def test_fetch_storyboard_durations_borrows_planning_tiers_when_endpoint_fixed(set_video_request_facts) -> None:
+    """时长由端点固定的桶没有档位可选，剧本规划借共享的规划档位出篇幅。"""
+    from lib.generation.video_request_facts import ENDPOINT_FIXED_PLANNING_DURATIONS
     from server import text_generation as mod
 
-    resolver = fake_caps_resolver(
-        provider_id="gemini-aistudio",
-        model="veo-3.1-generate-preview",
-        supported_durations=[4, 6, 8],
-        default_duration=4,
+    set_video_request_facts(
+        make_video_request_facts(supported_durations=(), allowed_durations=(), duration_endpoint_fixed=True)
     )
 
-    project_1080p = {"model_settings": {"gemini-aistudio/veo-3.1-generate-preview": {"resolution": "1080p"}}}
-    default, durations = await mod.fetch_video_caps(project_1080p, config_resolver=resolver)
-    assert durations == [8]
-    # default_duration 原样返回（用户配置值），成员性由调用方按各自口径判定
-    assert default == 4
+    default, durations = await mod.fetch_storyboard_durations({"default_duration": 8})
+    assert durations == ENDPOINT_FIXED_PLANNING_DURATIONS
+    assert default == 8
 
-    # 未配置分辨率：普通路径省略 resolution 参数，供应商按自己的默认档位（Veo 720p）接受 4/6/8，
-    # 故不施加分辨率约束——按 provider 兜底档位收窄会凭空把剧本节奏锁死 8 秒。
-    _default, durations = await mod.fetch_video_caps({}, config_resolver=resolver)
-    assert durations == [4, 6, 8]
 
-    # 项目显式选了无声明的分辨率时不收窄。
-    project = {"model_settings": {"gemini-aistudio/veo-3.1-generate-preview": {"resolution": "720p"}}}
-    _default, durations = await mod.fetch_video_caps(project, config_resolver=resolver)
-    assert durations == [4, 6, 8]
+async def test_fetch_storyboard_durations_reads_the_bucket_of_the_generation_mode(set_video_request_facts) -> None:
+    """分镜桶随项目生成模式定：参考生视频项目读 r2v 桶，其余读 i2v 桶。"""
+    from server import text_generation as mod
 
-    # 参考图路径：即便分辨率无声明也收窄
-    _default, durations = await mod.fetch_video_caps(
-        project, generation_mode="reference_video", config_resolver=resolver
+    set_video_request_facts(
+        {
+            "i2v": make_video_request_facts(
+                generation_type="i2v", supported_durations=(4, 6, 8), allowed_durations=(4, 6)
+            ),
+            "r2v": make_video_request_facts(
+                generation_type="r2v", supported_durations=(4, 6, 8), allowed_durations=(8,)
+            ),
+        }
     )
-    assert durations == [8]
+
+    assert (await mod.fetch_storyboard_durations({"generation_mode": "storyboard"}))[1] == [4, 6]
+    assert (await mod.fetch_storyboard_durations({"generation_mode": "reference_video"}))[1] == [8]
 
 
-async def test_normalize_drama_script_dry_run(fake_ctx: ToolContext) -> None:
+async def test_normalize_drama_script_dry_run(fake_ctx: ToolContext, video_request_facts) -> None:
     project_path = fake_ctx.project_path
     src = project_path / "source"
     src.mkdir(parents=True)
     (src / "episode_1.txt").write_text("从前有座山", encoding="utf-8")
 
-    use_fake_caps(fake_ctx)
     tool_obj = generate_script_plan_tool(fake_ctx)
     out = await call(tool_obj, {"episode": 1, "dry_run": True})
     assert out.get("is_error") is not True
     assert "DRY RUN" in out["content"][0]["text"]
 
 
-async def test_normalize_drama_script_projects_durable_inputs_once(fake_ctx: ToolContext, monkeypatch) -> None:
+async def test_normalize_drama_script_projects_durable_inputs_once(
+    fake_ctx: ToolContext, monkeypatch, video_request_facts
+) -> None:
     from lib.artifacts import artifact_provenance
 
     source_dir = fake_ctx.project_path / "source"
@@ -630,7 +655,6 @@ async def test_normalize_drama_script_projects_durable_inputs_once(fake_ctx: Too
         return original(*args, **kwargs)
 
     monkeypatch.setattr(artifact_provenance, "project_script_plan_prompt_inputs", counted_projection)
-    use_fake_caps(fake_ctx)
 
     result = await call(generate_script_plan_tool(fake_ctx), {"episode": 1, "dry_run": True})
 
@@ -638,7 +662,7 @@ async def test_normalize_drama_script_projects_durable_inputs_once(fake_ctx: Too
     assert calls == 1
 
 
-async def test_normalize_drama_script_wires_target_language(fake_ctx: ToolContext) -> None:
+async def test_normalize_drama_script_wires_target_language(fake_ctx: ToolContext, video_request_facts) -> None:
     """normalize 把项目 source_language 透传为 build_normalize_prompt 的 target_language——
     非中文项目的 script_plan 输出语言据此切换，而非恒退默认中文。"""
 
@@ -649,14 +673,15 @@ async def test_normalize_drama_script_wires_target_language(fake_ctx: ToolContex
     src.mkdir(parents=True)
     (src / "episode_1.txt").write_text("once upon a time", encoding="utf-8")
 
-    use_fake_caps(fake_ctx)
     tool_obj = generate_script_plan_tool(fake_ctx)
     out = await call(tool_obj, {"episode": 1, "dry_run": True})
     assert out.get("is_error") is not True
     assert "English" in out["content"][0]["text"]
 
 
-async def test_normalize_drama_script_rejects_empty_scenes(fake_ctx: ToolContext, monkeypatch) -> None:
+async def test_normalize_drama_script_rejects_empty_scenes(
+    fake_ctx: ToolContext, monkeypatch, video_request_facts
+) -> None:
     """normalize 产出空 scenes → 工具报错，不把空 script_plan 当成功产物写盘（与 _load_drama_script_plan_content 同口径）。"""
     from server import text_generation as mod
 
@@ -675,7 +700,6 @@ async def test_normalize_drama_script_rejects_empty_scenes(fake_ctx: ToolContext
     async def fake_create(task_type, project_name=None, **kwargs):
         return _EmptyGenerator()
 
-    use_fake_caps(fake_ctx)
     monkeypatch.setattr(mod.TextGenerator, "create", fake_create)
 
     tool_obj = generate_script_plan_tool(fake_ctx)
@@ -685,7 +709,7 @@ async def test_normalize_drama_script_rejects_empty_scenes(fake_ctx: ToolContext
     assert not (project_path / "drafts" / "episode_1" / "script_plan_normalized_script.json").exists()
 
 
-async def test_normalize_drama_script_injects_episode_into_prompt(fake_ctx: ToolContext) -> None:
+async def test_normalize_drama_script_injects_episode_into_prompt(fake_ctx: ToolContext, video_request_facts) -> None:
     """工具必须把 episode 注入 build_normalize_prompt，避免 LLM 写错 E\\d+ 前缀。"""
 
     project_path = fake_ctx.project_path
@@ -693,7 +717,6 @@ async def test_normalize_drama_script_injects_episode_into_prompt(fake_ctx: Tool
     src.mkdir(parents=True)
     (src / "chapter2.txt").write_text("第二集开场", encoding="utf-8")
 
-    use_fake_caps(fake_ctx)
     tool_obj = generate_script_plan_tool(fake_ctx)
     out = await call(tool_obj, {"episode": 2, "dry_run": True, "source": "source/chapter2.txt"})
     assert out.get("is_error") is not True, out
@@ -703,7 +726,7 @@ async def test_normalize_drama_script_injects_episode_into_prompt(fake_ctx: Tool
     assert "E1S01" not in prompt_text
 
 
-async def test_normalize_drama_script_injects_episode_outline(fake_ctx: ToolContext) -> None:
+async def test_normalize_drama_script_injects_episode_outline(fake_ctx: ToolContext, video_request_facts) -> None:
     """分集大纲（故事节点 / 钩子）随 script_plan 注入 normalize prompt（见 ADR 0041）。"""
 
     project_path = fake_ctx.project_path
@@ -719,7 +742,6 @@ async def test_normalize_drama_script_injects_episode_outline(fake_ctx: ToolCont
         }
     ]
 
-    use_fake_caps(fake_ctx)
     tool_obj = generate_script_plan_tool(fake_ctx)
     out = await call(tool_obj, {"episode": 1, "dry_run": True})
     assert out.get("is_error") is not True, out
@@ -728,7 +750,9 @@ async def test_normalize_drama_script_injects_episode_outline(fake_ctx: ToolCont
     assert "少年坠崖生死未卜" in prompt_text
 
 
-async def test_normalize_drama_script_passes_project_name_to_backend(fake_ctx: ToolContext, monkeypatch) -> None:
+async def test_normalize_drama_script_passes_project_name_to_backend(
+    fake_ctx: ToolContext, monkeypatch, video_request_facts
+) -> None:
     """工具必须把 ctx.project_name 传给 TextGenerator.create/generate，
     否则项目级文本档位覆盖被跳过，且 usage tracking 会丢 project_name。"""
     from server import text_generation as mod
@@ -776,7 +800,6 @@ async def test_normalize_drama_script_passes_project_name_to_backend(fake_ctx: T
         captured["purpose"] = kwargs.get("purpose")
         return _FakeGenerator()
 
-    use_fake_caps(fake_ctx)
     monkeypatch.setattr(mod.TextGenerator, "create", fake_create)
 
     tool_obj = generate_script_plan_tool(fake_ctx)
@@ -796,7 +819,7 @@ async def test_normalize_drama_script_passes_project_name_to_backend(fake_ctx: T
 
 
 async def test_normalize_drama_script_registers_the_frozen_explicit_source_basis(
-    fake_ctx: ToolContext, monkeypatch
+    fake_ctx: ToolContext, monkeypatch, video_request_facts
 ) -> None:
     from lib.artifacts.artifact_manifest import ArtifactKey, ProjectArtifactManifestAdapter
     from lib.artifacts.artifact_provenance import build_script_plan_basis
@@ -854,7 +877,6 @@ async def test_normalize_drama_script_registers_the_frozen_explicit_source_basis
     async def fake_create(_task_type, project_name=None, **_kwargs):
         return _Generator()
 
-    use_fake_caps(fake_ctx)
     monkeypatch.setattr(mod.TextGenerator, "create", fake_create)
 
     result = await call(
@@ -869,7 +891,7 @@ async def test_normalize_drama_script_registers_the_frozen_explicit_source_basis
 
 
 async def test_normalize_drama_script_preserves_legacy_request_basis_when_manifest_activates(
-    fake_ctx: ToolContext, monkeypatch
+    fake_ctx: ToolContext, monkeypatch, video_request_facts
 ) -> None:
     from lib.artifacts.artifact_manifest import ArtifactKey, ProjectArtifactManifestAdapter
     from lib.artifacts.artifact_provenance import build_script_plan_basis
@@ -930,7 +952,6 @@ async def test_normalize_drama_script_preserves_legacy_request_basis_when_manife
     async def fake_create(_task_type, project_name=None, **_kwargs):
         return _Generator()
 
-    use_fake_caps(fake_ctx)
     monkeypatch.setattr(mod.TextGenerator, "create", fake_create)
 
     result = await call(
@@ -945,7 +966,7 @@ async def test_normalize_drama_script_preserves_legacy_request_basis_when_manife
 
 
 async def test_normalize_drama_script_marks_mixed_machine_candidate_before_review(
-    fake_ctx: ToolContext, monkeypatch
+    fake_ctx: ToolContext, monkeypatch, video_request_facts
 ) -> None:
     from server import text_generation as mod
 
@@ -987,7 +1008,6 @@ async def test_normalize_drama_script_marks_mixed_machine_candidate_before_revie
     async def fake_create(_task_type, project_name=None, **_kwargs):
         return _FakeGenerator()
 
-    use_fake_caps(fake_ctx)
     monkeypatch.setattr(mod.TextGenerator, "create", fake_create)
 
     result = await call(generate_script_plan_tool(fake_ctx), {"episode": 1})
@@ -1000,7 +1020,9 @@ async def test_normalize_drama_script_marks_mixed_machine_candidate_before_revie
     assert [utterance["text"] for utterance in saved["scenes"][0]["utterances"]] == ["我回来了。", "三年后。"]
 
 
-async def test_normalize_drama_script_defaults_to_the_episode_derived_source(fake_ctx: ToolContext) -> None:
+async def test_normalize_drama_script_defaults_to_the_episode_derived_source(
+    fake_ctx: ToolContext, video_request_facts
+) -> None:
     """省略 source 时只读本集派生源文：``source/`` 里的原文与别集派生文件都不进 prompt。
 
     该目录同时存放整本原文与各集派生文件，把它们一并送进 prompt 会让每一集拿到同一份源文。
@@ -1011,7 +1033,6 @@ async def test_normalize_drama_script_defaults_to_the_episode_derived_source(fak
     (source_dir / "novel.txt").write_text("整本小说原文", encoding="utf-8")
     (source_dir / "episode_2.txt").write_text("第二集派生源文", encoding="utf-8")
 
-    use_fake_caps(fake_ctx)
     out = await call(generate_script_plan_tool(fake_ctx), {"episode": 1, "dry_run": True})
 
     assert out.get("is_error") is not True, out
@@ -1049,13 +1070,13 @@ async def test_normalize_drama_script_rejects_a_default_source_symlink_escape(fa
 
 async def test_normalize_drama_script_refuses_when_the_episode_derived_source_is_missing(
     fake_ctx: ToolContext,
+    video_request_facts,
 ) -> None:
     """派生文件缺失时报错并指名重建路径，不回落到目录里的原文——那同样不是本集的内容。"""
     source_dir = fake_ctx.project_path / "source"
     source_dir.mkdir(parents=True)
     (source_dir / "novel.txt").write_text("整本小说原文", encoding="utf-8")
 
-    use_fake_caps(fake_ctx)
     out = await call(generate_script_plan_tool(fake_ctx), {"episode": 1, "dry_run": True})
 
     assert out.get("is_error") is True
@@ -1064,13 +1085,12 @@ async def test_normalize_drama_script_refuses_when_the_episode_derived_source_is
     assert "plan_episodes" in detail
 
 
-async def test_normalize_drama_script_injects_instructions(fake_ctx: ToolContext) -> None:
+async def test_normalize_drama_script_injects_instructions(fake_ctx: ToolContext, video_request_facts) -> None:
     project_path = fake_ctx.project_path
     src = project_path / "source"
     src.mkdir(parents=True)
     (src / "episode_1.txt").write_text("从前有座山", encoding="utf-8")
 
-    use_fake_caps(fake_ctx)
     tool_obj = generate_script_plan_tool(fake_ctx)
     out = await call(tool_obj, {"episode": 1, "dry_run": True, "instructions": "打斗场面多拆几个短镜头"})
     assert out.get("is_error") is not True, out

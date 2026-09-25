@@ -18,8 +18,9 @@ from sqlalchemy.exc import SQLAlchemyError
 from lib.config.resolver import (
     ConfigResolver,
     VideoGenerationType,
-    constrain_durations_for_project,
+    caps_generation_mode,
     duration_endpoint_fixed_reason,
+    video_bucket_for_generation_mode,
 )
 from lib.db import async_session_factory
 from lib.generation.video_request_facts import (
@@ -43,33 +44,19 @@ from lib.script.reference_video.voice_settings import VoiceRenderSettings
 logger = logging.getLogger(__name__)
 
 
-async def resolve_video_caps(
-    project: dict,
-    *,
-    generation_type: VideoGenerationType | None = None,
-    config_resolver: ConfigResolver | None = None,
-) -> dict:
-    """Resolve full model capabilities from an already loaded project."""
-    resolver = config_resolver or ConfigResolver(async_session_factory)
-    return await resolver.video_capabilities_for_project(project, generation_type=generation_type)
+async def storyboard_request_facts(
+    project: dict, config_resolver: ConfigResolver | None = None
+) -> VideoRequestFacts | VideoRequestFactsFailure:
+    """分镜路线读侧的视频请求事实：按项目生成模式定桶，以当前配置解析出的执行模型为身份。
 
-
-def constrained_caps_durations(
-    project: dict,
-    caps: dict,
-    durations: list[int],
-    *,
-    generation_mode: str | None,
-    uses_reference_images: bool | None = None,
-) -> list[int]:
-    """Apply model duration linkage constraints to a caller-selected duration set."""
-    return constrain_durations_for_project(
+    剧本规划与拆分工具读这一处取可选时长，与分镜预检、执行同一份收窄结果。
+    """
+    return await evaluate_video_request_facts(
         project,
-        durations,
-        provider_id=caps.get("provider_id"),
-        model_id=caps.get("model"),
-        generation_mode=generation_mode,
-        uses_reference_images=uses_reference_images,
+        route="storyboard",
+        generation_type=video_bucket_for_generation_mode(caps_generation_mode(project)),
+        identity=CONFIGURED_VIDEO_IDENTITY,
+        resolver=config_resolver or ConfigResolver(async_session_factory),
     )
 
 
@@ -78,28 +65,6 @@ def reference_request_facts_lookup(
 ) -> ReferenceRequestFactsLookup:
     """读侧按桶的视频请求事实查找；同一次请求内共用一份，每个桶至多求值一次。"""
     return configured_reference_request_facts(project, config_resolver or ConfigResolver(async_session_factory))
-
-
-async def reference_unit_duration_tiers(
-    project: dict,
-    caps: dict,
-    durations: list[int],
-    *,
-    request_facts: ReferenceRequestFactsLookup,
-) -> tuple[list[int], VideoRequestFacts | VideoRequestFactsFailure]:
-    """Return effective duration tiers for units with and without reference images.
-
-    Reference-video units without references execute through the i2v bucket.
-    Its request facts retain the failure reason when that bucket is unavailable.
-    """
-    with_references = (
-        []
-        if caps.get("duration_endpoint_fixed")
-        else constrained_caps_durations(
-            project, caps, durations, generation_mode="reference_video", uses_reference_images=True
-        )
-    )
-    return with_references, await request_facts("i2v")
 
 
 async def reference_unit_capabilities(
@@ -195,12 +160,8 @@ async def annotate_reference_unit_tiers(
     if not durations and not payload.get("duration_endpoint_fixed"):
         return
     request_facts = reference_request_facts_lookup(project, config_resolver)
-    with_refs, without_ref_facts = await reference_unit_duration_tiers(
-        project,
-        payload,
-        durations,
-        request_facts=request_facts,
-    )
+    with_ref_facts = await request_facts("r2v")
+    without_ref_facts = await request_facts("i2v")
     units = await asyncio.to_thread(reference_script_units, projects, project_name, project)
     unit_capabilities = await reference_unit_capabilities(
         project,
@@ -208,10 +169,12 @@ async def annotate_reference_unit_tiers(
         units,
         request_facts=request_facts,
     )
-    with_refs_fixed = bool(payload.get("duration_endpoint_fixed"))
+    with_refs_fixed = facts_duration_endpoint_fixed(with_ref_facts)
     without_refs_fixed = facts_duration_endpoint_fixed(without_ref_facts)
     payload["reference_unit_durations"] = {
-        "with_references": with_refs,
+        "with_references": (
+            list(with_ref_facts.allowed_durations) if isinstance(with_ref_facts, VideoRequestFacts) else []
+        ),
         "with_references_endpoint_fixed": with_refs_fixed,
         "with_references_endpoint_fixed_reason": duration_endpoint_fixed_reason(with_refs_fixed),
         "without_references": (

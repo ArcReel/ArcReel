@@ -11,6 +11,7 @@ from typing import Any
 
 import pytest
 
+from lib.generation.video_request_facts import VideoRequestFactsFailure
 from lib.project.project_manager import ProjectManager
 from lib.script import script_review
 from lib.script.draft_quarantine import (
@@ -1074,6 +1075,23 @@ async def test_promote_drama_script_plan_reports_schema_breach_without_writing(f
     assert drama_script_plan_path(fake_ctx).read_text(encoding="utf-8") == before
     assert drama_quarantine_path(fake_ctx).exists()
     assert "content.scenes[i]" in out["content"][0]["text"]
+
+
+async def test_promote_drama_script_plan_reports_video_request_facts_problem(
+    fake_ctx: ToolContext, set_video_request_facts
+) -> None:
+    """晋升重判时视频请求事实解析不出：拒绝晋升并带问题码与参数，草稿留在场。"""
+    drama_project(fake_ctx)
+    write_drama_script_plan(fake_ctx, [drama_scene()])
+    await open_drama_for_edit(fake_ctx, source="source/episode_1.txt")
+    set_video_request_facts(VideoRequestFactsFailure("video_capability_unavailable", (("capability", "i2v"),)))
+
+    out = await promote_drama(fake_ctx)
+
+    assert out.get("is_error") is True
+    assert json.loads(out["content"][0]["text"])["problem"]["code"] == "draft_invalid"
+    assert "video_capability_unavailable（capability=i2v）" in out["content"][0]["text"]
+    assert drama_quarantine_path(fake_ctx).exists()
 
 
 async def test_promote_drama_script_plan_aborts_on_concurrent_write(fake_ctx: ToolContext) -> None:

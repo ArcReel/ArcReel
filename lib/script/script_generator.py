@@ -17,7 +17,6 @@ from pathlib import Path
 from typing import Any, Optional, cast
 
 from pydantic import BaseModel, TypeAdapter, ValidationError
-from sqlalchemy.exc import SQLAlchemyError
 
 from lib.artifacts.artifact_activation import (
     ArtifactInputClaim,
@@ -30,18 +29,10 @@ from lib.artifacts.artifact_provenance import (
     build_ad_episode_script_basis,
     project_ad_episode_script_inputs,
 )
-from lib.backends.backend_assembly.specs import builtin_video_capabilities_for_model
 from lib.backends.providers import CallPurpose
 from lib.backends.text_backends.base import DEFAULT_MAX_OUTPUT_TOKENS, TextGenerationRequest, TextTaskType
 from lib.backends.text_generator import TextGenerator
-from lib.config.registry import PROVIDER_REGISTRY
-from lib.config.resolver import (
-    ConfigResolver,
-    VideoBucketCapabilityError,
-    constrain_durations_for_project,
-    project_video_backend_ids,
-    resolve_raw_supported_durations,
-)
+from lib.config.resolver import ConfigResolver, VideoGenerationType, video_bucket_for_generation_mode
 from lib.db import async_session_factory
 from lib.episode.episode_paths import (
     REFERENCE_VIDEO_SCRIPT_PLAN_FILENAME,
@@ -55,7 +46,9 @@ from lib.generation.video_request_facts import (
     VideoRequestFacts,
     VideoRequestFactsError,
     VideoRequestFactsFailure,
+    VideoRoute,
     evaluate_video_request_facts,
+    planning_durations,
     require_video_request_facts,
 )
 from lib.infra.async_thread import run_sync_transaction
@@ -222,12 +215,28 @@ class ScriptPlanNotFoundError(FileNotFoundError):
     """
 
 
-class VideoDurationsUnresolvedError(ValueError):
-    """视频模型能力与项目自报的视频型号都解析不到时长档位：项目尚未配置可用的视频模型。
+@dataclass(frozen=True)
+class PlanningVideoFacts:
+    """剧本规划读取的视频请求事实：本路线各任务类型桶的读侧求值结果。
 
-    仍是 ``ValueError`` 的子类，按准入失败处理的调用方不受影响；需要向用户指明「去配置视频
-    模型」的调用方按本类型捕获。
+    分镜路线只有项目生成模式所落的那一个桶；参考生视频路线求 r2v（带可用参考图）与 i2v（无图）
+    两桶，单元按可用参考图定桶后各读自己那一桶。失败对象原样保存，到需要成功事实的检查点才抛出
+    :class:`VideoRequestFactsError`，问题码与预检、执行同族。
     """
+
+    route: VideoRoute
+    by_bucket: Mapping[VideoGenerationType, VideoRequestFacts | VideoRequestFactsFailure]
+
+    def result(self, generation_type: VideoGenerationType) -> VideoRequestFacts | VideoRequestFactsFailure:
+        return self.by_bucket[generation_type]
+
+    def require(self, generation_type: VideoGenerationType) -> VideoRequestFacts:
+        """该桶的成功事实；解析不出即抛 :class:`VideoRequestFactsError`。"""
+        return require_video_request_facts(self.result(generation_type))
+
+    def planning_durations(self, generation_type: VideoGenerationType) -> list[int]:
+        """该桶规划可选的时长档位（端点固定时借规划档位）；解析不出即抛。"""
+        return planning_durations(self.require(generation_type))
 
 
 class ScriptGenerator:
@@ -536,7 +545,7 @@ class ScriptGenerator:
         authored: list[dict],
         *,
         reference_unit_durations: dict[str, int] | None = None,
-        caps: dict | None = None,
+        facts: PlanningVideoFacts | None = None,
     ) -> dict[str, Any]:
         """把本次编写的条目按 id 放回正式剧本快照，返回待落盘的整份剧本。
 
@@ -547,7 +556,7 @@ class ScriptGenerator:
             {targets.kind: authored},
             episode,
             reference_unit_durations=reference_unit_durations,
-            caps=caps,
+            facts=facts,
         )[targets.kind]
         # _add_metadata 按集号改写 id 前缀；正式剧本里的 id 是写回的定位锚，不随编写改变。
         replacements: dict[str, dict] = {}
@@ -579,17 +588,11 @@ class ScriptGenerator:
         if self.content_mode == "ad":
             raise ValueError("广告/短片项目没有脚本规划步骤，不适用内容确认转换")
         if gen_mode == "reference_video":
-            caps = await self._fetch_video_capabilities()
+            facts = await self._fetch_video_request_facts()
             units = await run_sync_transaction(
-                self._load_reference_script_plan,
-                episode,
-                (
-                    self._resolve_raw_supported_durations(caps, include_no_reference=True)
-                    if isinstance(caps.get("_reference_no_image_facts") if caps else None, VideoRequestFacts)
-                    else None
-                ),
+                self._load_reference_script_plan, episode, self._reference_migration_durations(facts)
             )
-            self._assert_reference_script_plan_durations(units, caps=caps, gen_mode=gen_mode)
+            self._assert_reference_script_plan_durations(units, facts=facts)
             return "reference_video", units, None
         if self.content_mode != "narration":
             content = self._load_drama_script_plan_content(episode)
@@ -597,12 +600,11 @@ class ScriptGenerator:
             scenes: list = raw_scenes if isinstance(raw_scenes, list) else []
             for scene in scenes:
                 require_script_unit_admitted("scenes", scene)
-            await self._assert_drama_script_plan_durations(scenes, episode=episode, gen_mode=gen_mode)
+            await self._assert_drama_script_plan_durations(scenes)
             raw_title = content.get("title")
             title = raw_title if isinstance(raw_title, str) and raw_title.strip() else None
             return "drama", scenes, title
-        caps = await self._fetch_video_capabilities()
-        supported = self._resolve_supported_durations(caps, gen_mode=gen_mode, uses_reference_images=None)
+        supported = self._storyboard_planning_durations(await self._fetch_video_request_facts())
         return "narration", self._load_narration_script_plan(episode, supported), None
 
     async def materialize_script_plan(
@@ -677,9 +679,7 @@ class ScriptGenerator:
             episode=episode, script_filename=filename, entry_ids=entry_ids, removed=removed
         )
 
-    async def _assert_drama_script_plan_durations(
-        self, content_scenes: list, *, episode: int, gen_mode: str | None
-    ) -> None:
+    async def _assert_drama_script_plan_durations(self, content_scenes: list) -> None:
         """校验 drama script_plan 已定分镜时长在当前能力集合内，越界 fail-loud。
 
         与 narration（``_load_narration_script_plan``）、reference_video（``_load_reference_script_plan``）
@@ -693,7 +693,7 @@ class ScriptGenerator:
         ``null`` 同取该字段的声明默认值——不填不代表不校验，落盘时补的正是这个默认值。归一化
         失败（如 ``"abc"``）不在此报错，交给落盘前的静态校验统一 fail-loud。
         """
-        supported = self._resolve_supported_durations(await self._fetch_video_capabilities(), gen_mode=gen_mode)
+        supported = self._storyboard_planning_durations(await self._fetch_video_request_facts())
         allowed = {int(d) for d in supported}
         seen: set[int] = set()
         for scene in content_scenes:
@@ -790,8 +790,7 @@ class ScriptGenerator:
             supported = None
             schema: type = AdReferenceFlatScript
         else:
-            caps = await self._fetch_video_capabilities()
-            supported = self._resolve_supported_durations(caps, gen_mode=gen_mode)
+            supported = self._storyboard_planning_durations(await self._fetch_video_request_facts())
             schema = build_episode_script_model("ad", supported)
         return self._build_ad_prompt(episode, gen_mode, supported, instructions), schema
 
@@ -846,115 +845,74 @@ class ScriptGenerator:
             return await self._build_visual_prompt(episode, targets, instructions)
         if self.content_mode == "ad":
             return self._build_ad_reference_prompt_authoring_prompt(episode, targets, instructions)
-        caps = await self._fetch_video_capabilities()
-        return self._build_reference_prompt_authoring_prompt(episode, targets, caps, instructions)
+        facts = await self._fetch_video_request_facts()
+        return self._build_reference_prompt_authoring_prompt(episode, targets, facts, instructions)
 
-    async def _fetch_video_capabilities(self) -> dict | None:
-        """从 ConfigResolver 解析视频模型能力；失败时返 None，由 _resolve_* fallback 到 project.json 直读。
+    @property
+    def _storyboard_bucket(self) -> VideoGenerationType:
+        """分镜路线（旁白 / 剧情 / 广告分镜）按项目生成模式所落的任务类型桶。"""
+        return video_bucket_for_generation_mode(self.generation_mode)
 
-        使用 `video_capabilities_for_project` 传入已加载的 project.json，不再按 `self.project_path.name`
-        重新全局加载——避免 ScriptGenerator 在非标准路径（如测试 tmp_path）实例化时目录名与
-        全局项目碰撞读到错误能力。定桶按项目 ``generation_mode``，与 ``_resolve_supported_durations``
-        收窄所用的 ``gen_mode`` 同口径。
+    async def _fetch_video_request_facts(self) -> PlanningVideoFacts:
+        """按路线逐桶求值读侧视频请求事实，与预检、执行同一份收窄结果。
 
-        宽松捕获：除 ValueError 外，DB 未 migration / 连接失败等 SQLAlchemy 异常也走 fallback，
-        保证在缺能力元数据的环境（如裸 CI 测试容器）中 generate() 仍能跑通。
-
-        任务类型桶解析闸的报错例外，原样上抛：那是配置指向的模型缺该桶所需能力或引用已失效
-        （``docs/adr/0054``），fallback 会拿项目默认模型的档位去写剧本，写出来的时长 / 参考图
-        数量执行期照样被拒。报错带 code 与修复指引，比先写一份必败的剧本更省事。
+        身份按当前配置解析（经桶能力闸），解析不出的桶保存失败对象而不抛出、不回退到项目自报
+        身份或 registry：退到别的来源写出的时长与参考图数量，执行期照样被同一道闸拒掉，报错带
+        问题码与修复指引，比先写一份必败的剧本更省事。参考生视频路线求 r2v 与 i2v 两桶，单元按
+        可用参考图定桶后各读自己那一桶。
         """
         resolver = self.config_resolver or ConfigResolver(async_session_factory)
-        try:
-            caps = await resolver.video_capabilities_for_project(self.project_json)
-        except VideoBucketCapabilityError:
-            raise
-        except (ValueError, SQLAlchemyError) as exc:
-            logger.info("video_capabilities 解析失败，将走 project.json fallback：%s", exc)
-            caps = None
-        if caps is None or self.generation_mode != "reference_video" or self.project_json.get("content_mode") == "ad":
-            return caps
-        no_ref = await evaluate_video_request_facts(
-            self.project_json,
-            route="reference_video",
-            generation_type="i2v",
-            identity=CONFIGURED_VIDEO_IDENTITY,
-            resolver=resolver,
-        )
-        return {**(caps or {}), "_reference_no_image_facts": no_ref}
+        route: VideoRoute
+        buckets: tuple[VideoGenerationType, ...]
+        if self.generation_mode == "reference_video":
+            route, buckets = "reference_video", ("r2v", "i2v")
+        else:
+            route, buckets = "storyboard", (self._storyboard_bucket,)
+        by_bucket: dict[VideoGenerationType, VideoRequestFacts | VideoRequestFactsFailure] = {}
+        for bucket in buckets:
+            by_bucket[bucket] = await evaluate_video_request_facts(
+                self.project_json,
+                route=route,
+                generation_type=bucket,
+                identity=CONFIGURED_VIDEO_IDENTITY,
+                resolver=resolver,
+            )
+        return PlanningVideoFacts(route=route, by_bucket=by_bucket)
 
-    def _resolve_backend_ids(self, caps: dict | None) -> tuple[str | None, str | None]:
-        """当前视频模型身份：caps → project.json 自报身份；都拿不到为 (None, None)。
+    def _storyboard_planning_durations(self, facts: PlanningVideoFacts) -> list[int]:
+        """分镜路线规划可选的时长档位：交给 prompt / 动态 schema 之前已按分辨率收窄。
 
-        联动约束按型号声明查，故身份要与时长的来源同一个模型：caps 在手时以它为准
-        （后端留空走全局默认、或存值已不在注册表被 resolver 回退时，实际生效的是 caps 里的），
-        否则退到 project.json 按 generation_mode 定桶取的身份（``project_video_backend_ids``，
-        与时长的 fallback 链同一层）。
+        ``supported_durations`` 是型号的时长全集，不含「分辨率↔时长」联动约束；不收窄的话设了
+        1080p 的 Veo 项目的剧本会产出 4/6 秒分镜，到视频入队时才被 backend 拒，用户已无统一纠正
+        入口。解析不出即抛 :class:`VideoRequestFactsError`。
         """
-        if caps and caps.get("provider_id") and caps.get("model"):
-            return str(caps["provider_id"]), str(caps["model"])
-        ids = project_video_backend_ids(self.project_json)
-        return ids if ids is not None else (None, None)
-
-    def _resolve_supported_durations(
-        self, caps: dict | None = None, *, gen_mode: str | None, uses_reference_images: bool | None = None
-    ) -> list[int]:
-        """从 caps → registry 两级解析，再按联动约束收窄；都拿不到抛 ValueError。
-
-        收窄发生在交给 prompt / 动态 schema 之前：``supported_durations`` 是型号的时长全集，
-        不含「分辨率↔时长」「参考图↔时长」两条联动约束。不收窄的话设了 1080p 的 Veo 项目的剧本
-        会产出 4/6 秒分镜，到视频入队时才被 backend 拒，用户已无统一纠正入口；未设分辨率时请求不
-        携带该参数，分辨率约束不生效。
-
-        ``uses_reference_images`` 由调用方按本集 script_plan 的实际引用情况传入；缺省退回按生成模式
-        判定（见 ``constrain_durations_for_project``）。
-        """
-        if gen_mode == "reference_video" and uses_reference_images is False:
-            no_ref = caps.get("_reference_no_image_facts") if caps else None
-            return list(no_ref.allowed_durations) if isinstance(no_ref, VideoRequestFacts) else []
-        raw = self._resolve_raw_supported_durations(caps)
-        provider_id, model_id = self._resolve_backend_ids(caps)
-        return constrain_durations_for_project(
-            self.project_json,
-            raw,
-            provider_id=provider_id,
-            model_id=model_id,
-            generation_mode=gen_mode,
-            uses_reference_images=uses_reference_images,
-        )
+        return facts.planning_durations(self._storyboard_bucket)
 
     def _unit_duration_off_every_tier(
-        self, duration: int, *, caps: dict | None, gen_mode: str | None
+        self, duration: int, *, facts: PlanningVideoFacts, generation_type: VideoGenerationType
     ) -> list[int] | None:
-        """时长在带图与不带图两种档位下都出局时返回带图档位，任一合法则返回 None。
+        """时长在带图与不带图两桶档位下都出局时返回该单元所落桶的档位，任一合法则返回 None。
 
-        prompt_authoring 可以给 unit 增删 `@[名称]` 提及，只在其中一种状态下出局的时长仍可能落地合法——
-        提前判死会拦掉本会成功的生成。两种状态都出局才是与参考图无关的必然失败
-        （模型或分辨率配置变化所致），可以在付费调用前拦下。
+        prompt_authoring 可以给 unit 增删 `@[名称]` 提及，只在其中一桶出局的时长仍可能落地合法——
+        提前判死会拦掉本会成功的生成。两桶都出局才是与参考图无关的必然失败
+        （模型或分辨率配置变化所致），可以在付费调用前拦下。解析不出的桶按出局计。
         """
-        for has_references in (True, False):
-            tiers = self._unit_duration_off_tier(duration, has_references=has_references, caps=caps, gen_mode=gen_mode)
-            if tiers is None:
+        for candidate in ("r2v", "i2v"):
+            if self._unit_duration_off_tier(duration, facts=facts, generation_type=candidate) is None:
                 return None
-        return self._resolve_supported_durations(caps, gen_mode=gen_mode, uses_reference_images=True)
+        return facts.planning_durations(generation_type)
 
     def _unit_duration_off_tier(
-        self, duration: int, *, has_references: bool, caps: dict | None, gen_mode: str | None
+        self, duration: int, *, facts: PlanningVideoFacts, generation_type: VideoGenerationType
     ) -> list[int] | None:
-        """时长落在该 unit 生效档位之外时返回该档位集，落在内则返回 None。
+        """时长落在该桶生效档位之外时返回该档位集，落在内则返回 None。
 
-        生效档位逐 unit 算：``has_references`` 为该 unit 此刻有可用参考图，走 r2v；没有走 i2v
-        请求事实，无图事实不可解析时返回空档位。
+        生效档位逐 unit 算：单元此刻有可用参考图走 r2v，没有走 i2v；该桶事实不可解析时返回空档位。
         """
-        if (
-            gen_mode == "reference_video"
-            and not has_references
-            and not isinstance(caps.get("_reference_no_image_facts") if caps else None, VideoRequestFacts)
-        ):
+        result = facts.result(generation_type)
+        if not isinstance(result, VideoRequestFacts):
             return []
-        tiers = self._resolve_supported_durations(caps, gen_mode=gen_mode, uses_reference_images=has_references)
-        if not tiers:
-            return None
+        tiers = planning_durations(result)
         return None if resolve_duration_slot(duration, tiers).seconds == duration else tiers
 
     def _hydrate_reference_units(self, units: Sequence[dict]) -> tuple[ReferenceUnitHydration, ...]:
@@ -965,45 +923,12 @@ class ScriptGenerator:
         return hydrate_reference_units(self.project_json, self.project_path, units)
 
     @staticmethod
-    def _require_no_image_facts(caps: dict | None) -> VideoRequestFacts:
-        result = caps.get("_reference_no_image_facts") if caps else None
-        if result is None:
-            result = VideoRequestFactsFailure("reference_capability_unavailable", (("capability", "i2v"),))
-        return require_video_request_facts(result)
-
-    def _resolve_raw_supported_durations(self, caps: dict | None, *, include_no_reference: bool = False) -> list[int]:
-        """收窄前的时长全集：委托共享解析器，取不到时抛 ValueError。
-
-        本路径的下游是 prompt 与动态枚举 schema，缺档位就无从生成，故把解析器的 None 提升为
-        异常；其余入口（内容确认 / 归档导入）对 None 的处置是退回结构 clamp，不共用这道提升。
-        """
-        durations = resolve_raw_supported_durations(self.project_json, caps)
-        if durations is None:
-            raise VideoDurationsUnresolvedError(
-                f"supported_durations 无法解析：caps={bool(caps)}, "
-                f"video_backend={self.project_json.get('video_backend')!r}；请确保 model 配置完整"
-            )
-        no_ref = caps.get("_reference_no_image_facts") if caps else None
-        if include_no_reference and isinstance(no_ref, VideoRequestFacts):
-            return sorted(set(durations) | set(no_ref.supported_durations))
-        return durations
-
-    def _resolve_max_duration(
-        self, caps: dict | None = None, *, gen_mode: str | None, uses_reference_images: bool | None = None
-    ) -> int | None:
-        """单次视频生成最长秒数；派生自 max(收窄后的 supported_durations)。
-
-        取收窄后的集合而非 caps 自带的 ``max_duration``：该值是全集最大值，参考生视频下
-        它是 unit 总时长上限，若不随联动约束收窄，script_plan 会拆出总时长超标的 unit，prompt_authoring 的
-        枚举 schema 再把它判非法——上限与枚举必须描述同一个收窄后的集合。
-        """
-        try:
-            durations = self._resolve_supported_durations(
-                caps, gen_mode=gen_mode, uses_reference_images=uses_reference_images
-            )
-        except ValueError:
-            return None
-        return max(durations)
+    def _reference_migration_durations(facts: PlanningVideoFacts) -> list[int] | None:
+        """结构收编用的时长全集：r2v 与 i2v 两桶声明全集的并集；任一桶解析不出时为 None，只做结构收编。"""
+        with_references, without_references = facts.result("r2v"), facts.result("i2v")
+        if isinstance(with_references, VideoRequestFacts) and isinstance(without_references, VideoRequestFacts):
+            return sorted(set(with_references.supported_durations) | set(without_references.supported_durations))
+        return None
 
     def _resolve_aspect_ratio(self) -> str:
         """解析项目的 aspect_ratio，向后兼容。narration / ad 默认竖屏（ad 与创建向导默认一致）。"""
@@ -1011,36 +936,16 @@ class ScriptGenerator:
             return self.project_json["aspect_ratio"]
         return "9:16" if self.content_mode in ("narration", "ad") else "16:9"
 
-    def _resolve_max_refs(self, caps: dict | None = None) -> int | None:
-        """解析当前视频模型的最大参考图数；caps → project.json 自报身份 → registry 两级回退。
+    @staticmethod
+    def _resolve_max_refs(facts: PlanningVideoFacts) -> int | None:
+        """带可用参考图的单元（r2v 桶）每请求可携带的参考图上限，取自该桶的视频请求事实。
 
         语义约定：仅 None 视为「未声明上限」（上层不在 prompt 写硬性数量约束，且 executor 跳过裁剪）；
-        caps 来源的 0 是显式上限（如不接受参考图的 endpoint），会原样下传触发裁剪为 0 张。
-        caps 解析失败（DB/migration 故障等）时退到 project.json 按 generation_mode 定桶取的身份
-        （``project_video_backend_ids``）直查 backend 声明——与 _resolve_supported_durations
-        同构，避免丢失上限导致后端按多张参考图发出而被上游拒。
-        上限的唯一声明处是 backend（执行期构造请求的一方），registry ModelInfo 不声明该值。
-        注册表身份仍要查——backend 的 caps 函数不都校验 model 存在性与
-        media_type，对任意 id 返回静态能力。0 在这条降级路径上按未声明处理（下传 0 会把降级前
-        本可申请的参考图整批裁掉，而执行期仍有 backend 校验兜底）。
+        0 是显式上限（如不接受参考图的 endpoint），会原样下传触发裁剪为 0 张。r2v 桶解析不出时
+        按未声明处理——带图单元本身会在各检查点因事实缺失被拦下，不在此另起来源。
         """
-        if caps:
-            cached = caps.get("max_reference_images")
-            if cached is not None:
-                return int(cached)
-        ids = project_video_backend_ids(self.project_json)
-        if ids is not None:
-            provider_id, model_id = ids
-            provider_meta = PROVIDER_REGISTRY.get(provider_id)
-            model_info = provider_meta.models.get(model_id) if provider_meta else None
-            if model_info is not None and model_info.media_type == "video":
-                try:
-                    backend_caps = builtin_video_capabilities_for_model(provider_id, model_id)
-                except ValueError:
-                    return None
-                if backend_caps.max_reference_images:
-                    return int(backend_caps.max_reference_images)
-        return None
+        result = facts.result("r2v")
+        return result.max_reference_images if isinstance(result, VideoRequestFacts) else None
 
     def _load_project_json(self) -> dict:
         """加载 project.json"""
@@ -1320,16 +1225,18 @@ class ScriptGenerator:
         return data
 
     def _assert_reference_script_plan_durations(
-        self, script_plan_units: list[dict], *, caps: dict | None, gen_mode: str | None
+        self, script_plan_units: list[dict], *, facts: PlanningVideoFacts
     ) -> None:
         """转为正式剧本前判脚本规划已确认的单元时长仍在当前生效档位内；正文由之后的提示词编写改写并校验。
 
-        单元按此刻可用的参考图定桶：落 i2v 的单元（无引用、引用缺图或图未被清单认领）须有 i2v 事实。
+        单元按此刻可用的参考图定桶（无引用、引用缺图或图未被清单认领落 i2v），须有所落桶的事实。
         """
         for unit, hydration in zip(script_plan_units, self._hydrate_reference_units(script_plan_units), strict=True):
-            if hydration.hydrated_generation_type == "i2v":
-                self._require_no_image_facts(caps)
-            off_tiers = self._unit_duration_off_every_tier(unit["duration_seconds"], caps=caps, gen_mode=gen_mode)
+            bucket = hydration.hydrated_generation_type
+            facts.require(bucket)
+            off_tiers = self._unit_duration_off_every_tier(
+                unit["duration_seconds"], facts=facts, generation_type=bucket
+            )
             if off_tiers is not None:
                 raise ValueError(
                     f"unit {unit['unit_id']} 已确认时长 {unit['duration_seconds']}s 不在当前生效档位 "
@@ -1337,24 +1244,24 @@ class ScriptGenerator:
                     "请调整配置回原档位，或重新拆分该集 script_plan 并重新完成内容确认"
                 )
 
-    def _assert_reference_units_authorable(self, units: list[dict], *, caps: dict | None) -> None:
+    def _assert_reference_units_authorable(self, units: list[dict], *, facts: PlanningVideoFacts) -> None:
         """提示词编写付费调用前对待编写单元现值的全部预判：时长档位仍生效 + 正文按机器口径合法。
 
         产出路径与晋升路径（待修复草稿重判前）共用这一份：草稿在场期间用户可能在时间线上改过
         单元，两处口径若分叉，就会出现「晋升放行、下次编写被拒」或反过来的死角。
         """
         for unit, hydration in zip(units, self._hydrate_reference_units(units), strict=True):
-            if hydration.hydrated_generation_type == "i2v":
-                self._require_no_image_facts(caps)
+            bucket = hydration.hydrated_generation_type
+            facts.require(bucket)
             duration = int(unit["duration_seconds"])
             # 必然失败的时长在付费调用之前拦下；放到 _add_metadata 才拦，TextBackend 的费用已经产生。
-            off_tiers = self._unit_duration_off_every_tier(duration, caps=caps, gen_mode="reference_video")
+            off_tiers = self._unit_duration_off_every_tier(duration, facts=facts, generation_type=bucket)
             if off_tiers is not None:
                 raise ValueError(
                     f"unit {unit['unit_id']} 时长 {duration}s 不在当前生效档位 {sorted(set(off_tiers))} 内；"
                     "通常是模型或分辨率配置变化让档位收窄导致，请调整配置回原档位，或在时间线上把该单元时长改到档位内"
                 )
-        self._assert_reference_unit_text_valid(units, max_refs=self._resolve_max_refs(caps))
+        self._assert_reference_unit_text_valid(units, max_refs=self._resolve_max_refs(facts))
 
     def _assert_reference_unit_text_valid(self, units: list[dict], *, max_refs: int | None) -> None:
         """按机器产物的严格口径预判正式脚本各 unit 正文，违约时把定位与出路指回时间线。
@@ -1402,7 +1309,7 @@ class ScriptGenerator:
                 raise DraftViolations(enriched) from exc
 
     def _build_reference_prompt_authoring_prompt(
-        self, episode: int, targets: PromptAuthoringTargets, caps: dict | None, instructions: str | None
+        self, episode: int, targets: PromptAuthoringTargets, facts: PlanningVideoFacts, instructions: str | None
     ) -> str:
         return build_reference_video_prompt(
             project_overview=self.project_json.get("overview", {}),
@@ -1412,7 +1319,7 @@ class ScriptGenerator:
             scenes=self._project_bucket("scenes"),
             props=self._project_bucket("props"),
             script_plan_units=list(targets.entries),
-            max_refs=self._resolve_max_refs(caps),
+            max_refs=self._resolve_max_refs(facts),
             aspect_ratio=self._resolve_aspect_ratio(),
             episode=episode,
             target_language=self.project_json.get("source_language") or "中文",
@@ -1440,19 +1347,19 @@ class ScriptGenerator:
         由 Agent 修复后经 promote_draft 重判晋升。重抽既烧钱又不收敛——同一个模型对同一份正文
         大概率再犯同一类错。
         """
-        caps = await self._fetch_video_capabilities()
+        facts = await self._fetch_video_request_facts()
         units = list(targets.entries)
-        self._assert_reference_units_authorable(units, caps=caps)
+        self._assert_reference_units_authorable(units, facts=facts)
         if await asyncio.to_thread(self._reference_prompt_authoring_draft_revision, episode) is not None:
             raise DraftViolation(
                 "reference prompt_authoring 草稿待处置；正式生成已中止，请先晋升或丢弃现有草稿",
                 code="draft_revision_conflict",
             )
-        max_refs = self._resolve_max_refs(caps)
+        max_refs = self._resolve_max_refs(facts)
         logger.info("正在为第 %d 集编写提示词（video_units，%d/%d 个单元）...", episode, len(units), len(targets.items))
         result = await self._generate_text(
             TextGenerationRequest(
-                prompt=self._build_reference_prompt_authoring_prompt(episode, targets, caps, instructions),
+                prompt=self._build_reference_prompt_authoring_prompt(episode, targets, facts, instructions),
                 response_schema=ReferencePromptAuthoringFlatScript,
                 max_output_tokens=DEFAULT_MAX_OUTPUT_TOKENS,
             )
@@ -1476,7 +1383,7 @@ class ScriptGenerator:
         try:
             authored = self._merge_reference_visual(units, response_text, episode, max_refs=max_refs)
             script_data = self._authored_script(
-                episode, targets, authored, reference_unit_durations=self._unit_durations(targets), caps=caps
+                episode, targets, authored, reference_unit_durations=self._unit_durations(targets), facts=facts
             )
         except DraftViolation as exc:
             raise await quarantine(exc) from exc
@@ -1752,7 +1659,7 @@ class ScriptGenerator:
     def _promote_reference_prompt_authoring_draft_sync(
         self,
         episode: int,
-        caps: dict | None,
+        facts: PlanningVideoFacts,
         output_filename: str | None = None,
         *,
         expected_fingerprint: str | _UnsetExpectedFingerprint | None = _UNSET_EXPECTED_FINGERPRINT,
@@ -1764,7 +1671,7 @@ class ScriptGenerator:
         with prompt_authoring_lock:
             return self._promote_reference_prompt_authoring_draft_locked_sync(
                 episode,
-                caps,
+                facts,
                 output_filename,
                 expected_fingerprint=expected_fingerprint,
             )
@@ -1772,7 +1679,7 @@ class ScriptGenerator:
     def _promote_reference_prompt_authoring_draft_locked_sync(
         self,
         episode: int,
-        caps: dict | None,
+        facts: PlanningVideoFacts,
         output_filename: str | None = None,
         *,
         expected_fingerprint: str | _UnsetExpectedFingerprint | None = _UNSET_EXPECTED_FINGERPRINT,
@@ -1800,8 +1707,8 @@ class ScriptGenerator:
         units = list(targets.entries)
         # 与产出路径同一份预判：草稿在场期间用户可能在时间线上改过单元，不复判就会让改短时长后
         # 念不完的台词、或未登记的 @[名称] 借晋升一路落盘。
-        self._assert_reference_units_authorable(units, caps=caps)
-        max_refs = self._resolve_max_refs(caps)
+        self._assert_reference_units_authorable(units, facts=facts)
+        max_refs = self._resolve_max_refs(facts)
         try:
             authored = self._merge_reference_visual(units, json.dumps(draft.content), episode, max_refs=max_refs)
             if unit_ids is None:
@@ -1818,7 +1725,7 @@ class ScriptGenerator:
             # 新增 / 去掉一个 `@` 引用就会在合并之后才判出档，留在 try 之外会让晋升在这一类上退回
             # 「报错但草稿不刷新」。
             script_data = self._authored_script(
-                episode, targets, authored, reference_unit_durations=self._unit_durations(targets), caps=caps
+                episode, targets, authored, reference_unit_durations=self._unit_durations(targets), facts=facts
             )
         except DraftViolation as exc:
             raise DraftViolation(
@@ -1891,11 +1798,11 @@ class ScriptGenerator:
         仍有违约时刷新草稿里的报告快照后抛出（``DraftViolation``），草稿留在原地供继续修改；
         无收敛轮次上限。
         """
-        caps = await self._fetch_video_capabilities()
+        facts = await self._fetch_video_request_facts()
         return await run_sync_transaction(
             self._promote_reference_prompt_authoring_draft_sync,
             episode,
-            caps,
+            facts,
             output_filename,
             expected_fingerprint=expected_fingerprint,
             _prompt_authoring_lock_held=_prompt_authoring_lock_held,
@@ -1986,7 +1893,7 @@ class ScriptGenerator:
         episode: int,
         *,
         reference_unit_durations: dict[str, int] | None = None,
-        caps: dict | None = None,
+        facts: PlanningVideoFacts | None = None,
     ) -> dict:
         """
         补充剧本元数据
@@ -1997,8 +1904,8 @@ class ScriptGenerator:
             reference_unit_durations: reference_video 路径按 unit_id（改写后）机械覆盖 LLM
                 输出的 unit 时长——script_plan 确认的原始值，未经取档；取档按下方逐 unit 重算，
                 见 ``generate`` 内的构造处注释
-            caps: 逐 unit 解析生效档位的能力值；为 None 时按 caps → registry 两级回退解析，
-                不跳过取档校验
+            facts: 逐 unit 取生效档位的视频请求事实；给了 ``reference_unit_durations`` 就必须给，
+                取档校验不跳过
 
         Returns:
             补充元数据后的剧本数据
@@ -2028,28 +1935,24 @@ class ScriptGenerator:
                 for s in (raw_rewrite_items if isinstance(raw_rewrite_items, list) else [])
                 if isinstance(s, dict) and id_field in s
             ]
+            if facts is None:
+                raise ValueError("reference_video 取档校验需要视频请求事实")
             # 取档按这个 unit 最终落地的正文算，不是 script_plan 拆分时的状态：正文里的
             # `@[名称]` 由 LLM 在 prompt_authoring 输出时决定，可能与 script_plan 的不同；桶按该正文
-            # 此刻可用的参考图判定，与内容确认面板、执行同判据。caps 为 None 也不短路——带图档位
-            # 可查 registry，无图档位必须有 i2v 请求事实。
+            # 此刻可用的参考图判定，与内容确认面板、执行同判据，各读所落桶的视频请求事实。
             for s, hydration in zip(authored, self._hydrate_reference_units(authored), strict=True):
                 target_duration = reference_unit_durations[s[id_field]]
-                with_reference_images = hydration.hydrated_generation_type == "r2v"
-                if not with_reference_images:
-                    try:
-                        self._require_no_image_facts(caps)
-                    except VideoRequestFactsError as exc:
-                        raise DraftViolation(
-                            f"unit {s[id_field]} 无参考图视频档位未知（{exc.code}）；请配置可用的图生视频模型",
-                            code=exc.code,
-                            label=f"unit {s[id_field]}",
-                        ) from exc
-                unit_tiers = self._unit_duration_off_tier(
-                    target_duration,
-                    has_references=with_reference_images,
-                    caps=caps,
-                    gen_mode=gen_mode,
-                )
+                bucket = hydration.hydrated_generation_type
+                try:
+                    facts.require(bucket)
+                except VideoRequestFactsError as exc:
+                    state, remedy = ("带参考图", "参考生视频") if bucket == "r2v" else ("无参考图", "图生视频")
+                    raise DraftViolation(
+                        f"unit {s[id_field]} {state}视频档位未知（{exc.failure.summary()}）；请配置可用的{remedy}模型",
+                        code=exc.code,
+                        label=f"unit {s[id_field]}",
+                    ) from exc
+                unit_tiers = self._unit_duration_off_tier(target_duration, facts=facts, generation_type=bucket)
                 if unit_tiers is not None:
                     # 生效档位收窄到已确认值之外：不静默取档改写——用户审阅通过的时长/费用不被
                     # 换成从未过目的值落盘。抛内容违约（而非裸 ValueError）让 reference 路径把这

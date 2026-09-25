@@ -540,6 +540,7 @@ async def test_cancel_during_invalid_script_plan_quarantine_leaves_member_runnin
     tmp_path: Path,
     file_db_factory,
     monkeypatch,
+    video_request_facts,
     project_name: str,
     generation_mode: str,
     quarantine_kind: str,

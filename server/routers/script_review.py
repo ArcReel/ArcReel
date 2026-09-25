@@ -40,17 +40,20 @@ async def _attach_duration_tiers(service: ScriptReviewService, project_name: str
 
 
 def _localize_quarantine_violations(quarantine: dict | None, _t: Translator) -> dict | None:
-    """把 ``quarantine_unreadable`` 违约的固定中文文案换成按 ``_t`` 渲染的本地化文本。
+    """把读时重算产出的固定文案违约换成按 ``_t`` 渲染的本地化文本。
 
-    该 code 只由两处产出（草稿信封本身损坏 / 重算所需的 meta 缺失损坏），两处都是不带
-    插值的固定字符串，不涉及 ``lib.script.reference_video.draft_validation`` 里其余违约类型那种
-    产出时已渲染好插值的模板——本地化改造范围限定在这两条，不牵动其余违约消息的展示形态。
+    ``quarantine_unreadable`` 只由两处产出（草稿信封本身损坏 / 重算所需的 meta 缺失损坏），都是不带
+    插值的固定字符串；带 ``params`` 的条目是视频请求事实的失败，问题码即文案 key，与内容确认的 422
+    同一呈现。二者都不涉及 ``lib.script.reference_video.draft_validation`` 里其余违约类型那种产出时已
+    渲染好插值的模板——本地化范围限定在这两类，不牵动其余违约消息的展示形态。
     """
     if quarantine is None:
         return None
     for violation in quarantine["violations"]:
         if violation["code"] == "quarantine_unreadable":
             violation["message"] = _t("script_review_quarantine_unreadable")
+        elif isinstance(violation.get("params"), dict):
+            violation["message"] = _t(violation["code"], **violation["params"])
     return quarantine
 
 
