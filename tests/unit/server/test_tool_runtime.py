@@ -43,6 +43,7 @@ from server.tool_runtime import (
     patch_episode_script,
     read_project_file,
 )
+from tests.factories import make_video_request_facts
 
 
 class _Projects:
@@ -147,7 +148,12 @@ async def test_workflow_plan_returns_typed_domain_outcome() -> None:
     assert outcome.value.status.target.episode == 1
 
 
-async def test_video_capabilities_returns_typed_domain_outcome() -> None:
+async def test_video_capabilities_returns_typed_domain_outcome(set_video_request_facts) -> None:
+    set_video_request_facts(
+        make_video_request_facts(
+            provider_id="fake", model_id="video-1", supported_durations=(4, 6), allowed_durations=(4, 6)
+        )
+    )
     project = {"generation_mode": "storyboard", "content_mode": "drama"}
     projects = _Projects(project)
     outcome = await get_video_capabilities(
@@ -158,7 +164,18 @@ async def test_video_capabilities_returns_typed_domain_outcome() -> None:
     )
 
     assert outcome.problem is None
-    assert outcome.value == {"provider_id": "fake", "model": "video-1", "supported_durations": [4, 6]}
+    assert outcome.value == {
+        "provider_id": "fake",
+        "model": "video-1",
+        "supported_durations": [4, 6],
+        "duration_constraints": {
+            "resolution": None,
+            "uses_reference_images": False,
+            "allowed": [4, 6],
+            "allowed_without_reference_images": [4, 6],
+            "excluded": {},
+        },
+    }
     assert projects.project_loads == 1
 
 

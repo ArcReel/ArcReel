@@ -11,9 +11,9 @@ import type { DurationExclusionReason, VideoCapabilities, VoiceConsistencyTier }
 //
 //   firstFrame / lastFrame  → 生效值（系统判定 ⊕ 用户覆盖），只有服务端能给出。
 //   voiceConsistency        → 服务端二维派生（模型能力 × 项目生成模式）。
-//   durations               → 型号声明全集 + 按上下文收窄后的候选与剔除成因，均由服务端
-//                             `duration_constraints_report` 算好；分辨率↔时长、参考图↔时长的
-//                             收窄规则只在 lib/config/resolver.py 一处。
+//   durations               → 型号声明全集 + 按上下文收窄后的候选与剔除成因，均由服务端视频
+//                             请求事实算好；分辨率↔时长、参考图↔时长的收窄规则只在
+//                             lib/config/resolver.py::constrain_durations 一处。
 //   参考生视频逐单元的桶与档位不在这里：服务端按可用参考图逐单元判定，随单元列表到达。
 //
 // 有项目时走 /projects/{name}/video-capabilities（可带表单里未保存的候选模型与约束上下文），

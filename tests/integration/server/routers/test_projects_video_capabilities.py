@@ -4,6 +4,13 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
+from lib.config.resolver import ConfigResolver
+from lib.generation.video_request_facts import (
+    CONFIGURED_VIDEO_IDENTITY,
+    VideoRequestFacts,
+    VideoRequestFactsFailure,
+    evaluate_video_request_facts,
+)
 from lib.i18n.zh import errors as zh_errors
 from server.routers import projects
 from tests.factories import seed_endpoint_fixed_video_model
@@ -17,14 +24,14 @@ class TestGetVideoCapabilities:
     """GET /projects/{name}/video-capabilities"""
 
     def _patch_resolver(self, monkeypatch, side_effect=None, return_value=None):
-        """用 MagicMock 替换 ConfigResolver 类，让其 instance.video_capabilities() 返回指定行为。"""
+        """用 MagicMock 替换 ConfigResolver 类，让其 instance.video_capabilities_for_project() 返回指定行为。"""
         from unittest.mock import AsyncMock, MagicMock
 
         resolver_instance = MagicMock()
         if side_effect is not None:
-            resolver_instance.video_capabilities = AsyncMock(side_effect=side_effect)
+            resolver_instance.video_capabilities_for_project = AsyncMock(side_effect=side_effect)
         else:
-            resolver_instance.video_capabilities = AsyncMock(return_value=return_value)
+            resolver_instance.video_capabilities_for_project = AsyncMock(return_value=return_value)
         monkeypatch.setattr(projects, "ConfigResolver", lambda _factory: resolver_instance)
         return resolver_instance
 
@@ -39,7 +46,7 @@ class TestGetVideoCapabilities:
         assert resp.status_code == 400
 
     def test_unknown_project_returns_404(self, tmp_path, monkeypatch):
-        self._patch_resolver(monkeypatch, side_effect=FileNotFoundError("项目 'nonexistent' 不存在"))
+        self._patch_resolver(monkeypatch, return_value={})
         client = build_projects_client(monkeypatch, _FakePM(tmp_path))
         with client:
             resp = client.get("/api/v1/projects/nonexistent/video-capabilities")
@@ -100,7 +107,6 @@ class TestRealResolverResponse:
             }
         )
         monkeypatch.setattr(projects, "async_session_factory", factory)
-        monkeypatch.setattr("lib.config.resolver.get_project_manager", lambda: pm)
         client = build_projects_client(monkeypatch, pm)
         with client:
             response = client.get("/api/v1/projects/ready/video-capabilities")
@@ -122,8 +128,6 @@ class TestRealResolverResponse:
         pm.project_data["ready"]["content_mode"] = "narration"
         pm.project_data["ready"]["video_backend"] = self.VEO
         pm.project_data["ready"]["model_settings"] = {self.VEO: {"resolution": "1080p"}}
-        # resolver 走自己 import 的 get_project_manager，与路由那份是两个绑定。
-        monkeypatch.setattr("lib.config.resolver.get_project_manager", lambda: pm)
         return build_projects_client(monkeypatch, pm)
 
     def test_saved_resolution_narrows_durations_with_reasons(self, client):
@@ -165,7 +169,10 @@ class TestRealResolverResponse:
         assert constraints["excluded"] == {}
 
     def test_reference_context_overrides_project_generation_mode(self, client):
-        """显式 ``uses_reference_images`` 压过项目生成模式，成因报 reference。"""
+        """显式 ``uses_reference_images`` 压过项目生成模式，按 r2v 桶求值，成因报 reference。
+
+        r2v 桶不推断无参考图单元的档位；分镜项目不补 i2v 桶事实，该字段为 None。
+        """
         with client:
             resp = client.get(
                 "/api/v1/projects/ready/video-capabilities",
@@ -173,8 +180,10 @@ class TestRealResolverResponse:
             )
         assert resp.status_code == 200
         constraints = resp.json()["duration_constraints"]
+        assert constraints["resolution"] == "720p"
+        assert constraints["uses_reference_images"] is True
         assert constraints["allowed"] == [8]
-        assert constraints["allowed_without_reference_images"] == [4, 6, 8]
+        assert constraints["allowed_without_reference_images"] is None
         assert constraints["excluded"] == {"4": "reference", "6": "reference"}
 
     @pytest.mark.parametrize("candidate", ["openai/sora-2", "openai"])
@@ -218,7 +227,6 @@ class TestRealResolverResponse:
             }
         )
         monkeypatch.setattr(projects, "async_session_factory", async_sessionmaker(db_engine, expire_on_commit=False))
-        monkeypatch.setattr("lib.config.resolver.get_project_manager", lambda: pm)
         client = build_projects_client(monkeypatch, pm)
         with client:
             saved = client.get("/api/v1/projects/ready/video-capabilities")
@@ -236,7 +244,6 @@ class TestRealResolverResponse:
         pm = _FakePM(tmp_path)
         pm.project_data["ready"].update({"generation_mode": "reference_video", "video_provider_r2v": self.VEO})
         monkeypatch.setattr(projects, "async_session_factory", async_sessionmaker(db_engine, expire_on_commit=False))
-        monkeypatch.setattr("lib.config.resolver.get_project_manager", lambda: pm)
         client = build_projects_client(monkeypatch, pm)
         with client:
             response = client.get(
@@ -263,7 +270,6 @@ class TestRealResolverResponse:
             }
         )
         monkeypatch.setattr(projects, "async_session_factory", async_sessionmaker(db_engine, expire_on_commit=False))
-        monkeypatch.setattr("lib.config.resolver.get_project_manager", lambda: pm)
         client = build_projects_client(monkeypatch, pm)
         with client:
             response = client.get(
@@ -274,3 +280,117 @@ class TestRealResolverResponse:
         constraints = response.json()["duration_constraints"]
         assert constraints["allowed_without_reference_images"] == [8]
         assert constraints["excluded_without_reference_images"] == {"4": "resolution", "6": "resolution"}
+
+
+class TestDurationConstraintsMatchRequestFacts:
+    """``duration_constraints`` 与同一配置落盘后的视频请求事实给出同一组收窄结果。
+
+    预览未保存的分辨率（``resolution`` 查询参数）与把该分辨率存进项目后按事实求值，结果一致。
+    """
+
+    VEO = "gemini-aistudio/veo-3.1-generate-preview"
+
+    @pytest.mark.parametrize("candidate", [False, True], ids=["saved-model", "candidate-model"])
+    @pytest.mark.parametrize(
+        ("generation_mode", "generation_type"),
+        [("storyboard", "i2v"), ("reference_video", "r2v")],
+        ids=["without-reference-images", "with-reference-images"],
+    )
+    @pytest.mark.parametrize(
+        ("saved", "query", "effective"),
+        [
+            pytest.param("1080p", None, "1080p", id="saved-resolution"),
+            pytest.param(None, None, None, id="unset-resolution"),
+            pytest.param("1080p", "720p", "720p", id="unsaved-resolution"),
+            pytest.param("720p", "1080p", "1080p", id="unsaved-narrower-resolution"),
+            pytest.param("1080p", "", None, id="unsaved-auto"),
+        ],
+    )
+    async def test_preview_equals_facts_of_the_saved_configuration(
+        self, tmp_path, db_engine, monkeypatch, candidate, generation_mode, generation_type, saved, query, effective
+    ):
+        factory = async_sessionmaker(db_engine, expire_on_commit=False)
+        pm = _FakePM(tmp_path)
+        bucket_key = f"video_provider_{generation_type}"
+        project = {
+            **pm.project_data["ready"],
+            "generation_mode": generation_mode,
+            bucket_key: "openai/sora-2" if candidate else self.VEO,
+        }
+        if saved is not None:
+            project["model_settings"] = {self.VEO: {"resolution": saved}}
+        pm.project_data["ready"] = project
+        monkeypatch.setattr(projects, "async_session_factory", factory)
+        params: dict[str, str] = {"video_backend": self.VEO} if candidate else {}
+        if query is not None:
+            params["resolution"] = query
+        with build_projects_client(monkeypatch, pm) as client:
+            response = client.get("/api/v1/projects/ready/video-capabilities", params=params)
+
+        saved_configuration = {**project, bucket_key: self.VEO}
+        saved_configuration.pop("model_settings", None)
+        if effective is not None:
+            saved_configuration["model_settings"] = {self.VEO: {"resolution": effective}}
+        facts = await evaluate_video_request_facts(
+            saved_configuration,
+            route="reference_video" if generation_type == "r2v" else "storyboard",
+            generation_type=generation_type,
+            identity=CONFIGURED_VIDEO_IDENTITY,
+            resolver=ConfigResolver(factory),
+        )
+        assert isinstance(facts, VideoRequestFacts)
+        assert response.status_code == 200, response.text
+        constraints = response.json()["duration_constraints"]
+        assert constraints["resolution"] == facts.resolution == effective
+        assert constraints["uses_reference_images"] is (generation_type == "r2v")
+        assert constraints["allowed"] == list(facts.allowed_durations)
+        assert constraints["excluded"] == {str(d): reason for d, reason in facts.excluded_durations}
+
+    async def test_facts_failure_reports_its_problem_code(
+        self, tmp_path, db_engine, monkeypatch, set_video_request_facts
+    ):
+        """该桶的视频请求事实解析不出时，按问题码返回本地化 422，不给出档位。"""
+        set_video_request_facts(
+            VideoRequestFactsFailure(
+                "video_supported_durations_incompatible",
+                (("provider", "gemini-aistudio"), ("model", "veo-3.1-generate-preview"), ("resolution", "4k")),
+            )
+        )
+        pm = _FakePM(tmp_path)
+        pm.project_data["ready"]["video_backend"] = self.VEO
+        monkeypatch.setattr(projects, "async_session_factory", async_sessionmaker(db_engine, expire_on_commit=False))
+        with build_projects_client(monkeypatch, pm) as client:
+            response = client.get("/api/v1/projects/ready/video-capabilities", params={"resolution": "4k"})
+        assert response.status_code == 422
+        assert response.json()["detail"] == zh_errors.MESSAGES["video_supported_durations_incompatible"].format(
+            provider="gemini-aistudio", model="veo-3.1-generate-preview"
+        )
+
+    @pytest.mark.parametrize("candidate", [False, True], ids=["saved-model", "candidate-model"])
+    async def test_reference_project_i2v_preview_reports_one_no_reference_tier(
+        self, tmp_path, db_engine, monkeypatch, candidate
+    ):
+        """参考生视频项目按 i2v 桶预览未保存分辨率时，无参考图档位就是这次求值本身的结果。"""
+        pm = _FakePM(tmp_path)
+        pm.project_data["ready"].update(
+            {
+                "generation_mode": "reference_video",
+                "video_provider_r2v": self.VEO,
+                "video_provider_i2v": "openai/sora-2" if candidate else self.VEO,
+                "model_settings": {self.VEO: {"resolution": "1080p"}},
+            }
+        )
+        monkeypatch.setattr(projects, "async_session_factory", async_sessionmaker(db_engine, expire_on_commit=False))
+        params = {"resolution": "720p", "uses_reference_images": "false"}
+        if candidate:
+            params["video_backend"] = self.VEO
+        with build_projects_client(monkeypatch, pm) as client:
+            response = client.get("/api/v1/projects/ready/video-capabilities", params=params)
+
+        assert response.status_code == 200, response.text
+        constraints = response.json()["duration_constraints"]
+        assert constraints["resolution"] == "720p"
+        assert constraints["allowed"] == [4, 6, 8]
+        assert constraints["allowed_without_reference_images"] == [4, 6, 8]
+        assert constraints["excluded_without_reference_images"] == {}
+        assert constraints["without_reference_problem"] is None

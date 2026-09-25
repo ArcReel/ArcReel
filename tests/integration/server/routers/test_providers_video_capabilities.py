@@ -9,9 +9,15 @@ from fastapi.testclient import TestClient
 from sqlalchemy import update
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from lib.config.resolver import VideoBucketCapabilityError
+from lib.config.resolver import ConfigResolver, VideoBucketCapabilityError
 from lib.custom_provider import make_provider_id
 from lib.db.models.custom_provider import CustomProvider, CustomProviderModel
+from lib.generation.video_request_facts import (
+    CONFIGURED_VIDEO_IDENTITY,
+    VideoRequestFacts,
+    VideoRequestFactsFailure,
+    evaluate_video_request_facts,
+)
 from lib.i18n.zh import errors as zh_errors
 from lib.infra.api_errors import BadRequestError
 from lib.project.project_manager import ProjectManager
@@ -137,10 +143,10 @@ class TestRealResolverResponse:
             provider="kling", model="kling-v3"
         )
 
-    def test_reference_path_narrows_and_keeps_no_reference_tier(self, real_resolver_client):
-        """参考图路径另给一份不叠加参考图收窄的档位，供无参考图的视频单元使用。
+    def test_reference_path_narrows_by_the_r2v_bucket(self, real_resolver_client):
+        """参考图路径按 r2v 桶求值；无项目时不知道 i2v 桶配的哪个模型，无参考图档位为 None。
 
-        取 720p：该档位本身不收窄时长，两份档位才真正不同——1080p 下两条约束指向同一结果。
+        取 720p：该档位本身不收窄时长，剔除成因只来自参考图约束。
         """
         with real_resolver_client as client:
             resp = client.get(
@@ -150,12 +156,13 @@ class TestRealResolverResponse:
         assert resp.status_code == 200
         constraints = resp.json()["duration_constraints"]
         assert constraints["uses_reference_images"] is True
+        assert constraints["resolution"] == "720p"
         assert constraints["allowed"] == [8]
-        assert constraints["allowed_without_reference_images"] == [4, 6, 8]
+        assert constraints["allowed_without_reference_images"] is None
         assert constraints["excluded"] == {"4": "reference", "6": "reference"}
 
     def test_reference_path_without_resolution_applies_no_resolution_constraint(self, real_resolver_client):
-        """参考图路径未选档位时请求不携带分辨率：只剩参考图约束，无参考图档位保留全集。"""
+        """参考图路径未选档位时请求不携带分辨率：只剩参考图约束。"""
         with real_resolver_client as client:
             resp = client.get(
                 "/api/v1/providers/video-capabilities",
@@ -165,7 +172,7 @@ class TestRealResolverResponse:
         constraints = resp.json()["duration_constraints"]
         assert constraints["resolution"] is None
         assert constraints["allowed"] == [8]
-        assert constraints["allowed_without_reference_images"] == [4, 6, 8]
+        assert constraints["excluded"] == {"4": "reference", "6": "reference"}
 
     def test_no_project_preferences_are_null(self, real_resolver_client):
         """无项目上下文：项目偏好字段为 None，不借用任何项目的已保存档位。"""
@@ -189,6 +196,59 @@ class TestRealResolverResponse:
         assert constraints["resolution"] is None
         assert constraints["uses_reference_images"] is False
         assert constraints["allowed"] == body["supported_durations"]
+
+
+@pytest.mark.parametrize("uses_reference_images", [False, True], ids=["i2v", "r2v"])
+@pytest.mark.parametrize("resolution", [None, "720p", "1080p"])
+async def test_duration_constraints_equal_facts_of_the_saved_candidate(
+    db_engine, monkeypatch, uses_reference_images, resolution
+):
+    """创建向导预览的收窄结果，等于把候选模型与分辨率存进项目后该桶视频请求事实的结果。"""
+    factory = async_sessionmaker(db_engine, expire_on_commit=False)
+    monkeypatch.setattr(providers, "async_session_factory", factory)
+    params = {"video_backend": VEO, "uses_reference_images": str(uses_reference_images).lower()}
+    if resolution is not None:
+        params["resolution"] = resolution
+    with TestClient(_app()) as client:
+        response = client.get("/api/v1/providers/video-capabilities", params=params)
+
+    generation_type = "r2v" if uses_reference_images else "i2v"
+    saved: dict = {f"video_provider_{generation_type}": VEO}
+    if resolution is not None:
+        saved["model_settings"] = {VEO: {"resolution": resolution}}
+    facts = await evaluate_video_request_facts(
+        saved,
+        route="reference_video" if uses_reference_images else "storyboard",
+        generation_type=generation_type,
+        identity=CONFIGURED_VIDEO_IDENTITY,
+        resolver=ConfigResolver(factory),
+    )
+    assert isinstance(facts, VideoRequestFacts)
+    assert response.status_code == 200, response.text
+    constraints = response.json()["duration_constraints"]
+    assert constraints["resolution"] == facts.resolution == resolution
+    assert constraints["uses_reference_images"] is uses_reference_images
+    assert constraints["allowed"] == list(facts.allowed_durations)
+    assert constraints["excluded"] == {str(d): reason for d, reason in facts.excluded_durations}
+
+
+def test_facts_failure_reports_its_problem_code(real_resolver_client, set_video_request_facts):
+    """候选所在桶的视频请求事实解析不出时，按问题码返回本地化 422。"""
+    set_video_request_facts(
+        VideoRequestFactsFailure(
+            "reference_supported_durations_incompatible",
+            (("provider", "gemini-aistudio"), ("model", "veo-3.1-generate-preview"), ("resolution", "4k")),
+        )
+    )
+    with real_resolver_client as client:
+        response = client.get(
+            "/api/v1/providers/video-capabilities",
+            params={"video_backend": VEO, "resolution": "4k", "uses_reference_images": "true"},
+        )
+    assert response.status_code == 422
+    assert response.json()["detail"] == zh_errors.MESSAGES["reference_supported_durations_incompatible"].format(
+        provider="gemini-aistudio", model="veo-3.1-generate-preview"
+    )
 
 
 @pytest.mark.parametrize("project_route", [False, True])

@@ -20,7 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from lib.agent.profile_manifest import ContentMode
 from lib.artifacts.artifact_activation import ArtifactCurrencyResolver, active_artifact_currency_resolver
-from lib.config.resolver import ConfigResolver
+from lib.config.resolver import ConfigResolver, caps_generation_mode, video_bucket_for_generation_mode
 from lib.db import async_session_factory
 from lib.episode.episode_paths import (
     DRAMA_SCRIPT_PLAN_QUARANTINE_FILENAME,
@@ -80,6 +80,7 @@ from lib.generation.generation_result import (
     migration_problem,
     problem_from_task_failure,
 )
+from lib.generation.video_request_facts import VideoRequestFactsError
 from lib.infra.async_thread import run_sync_transaction as _run_sync_transaction
 from lib.infra.content_digest import prefixed, prefixed_canonical_json_digest
 from lib.infra.data_root_layout import DataRootLayout
@@ -149,7 +150,11 @@ from server.draft_workflow import (
 )
 from server.services.admission.prompt_preview import ItemPromptPreview, ScriptItemNotFound, preview_item_prompts
 from server.services.project.workflow_planner import WorkflowPlanner
-from server.services.tasks.video_caps import annotate_reference_unit_tiers
+from server.services.tasks.video_caps import (
+    annotate_reference_unit_tiers,
+    capability_request_facts,
+    duration_constraints_payload,
+)
 from server.text_generation import (
     ScriptOverwriteRequiredError,
     TextGenerationError,
@@ -1295,6 +1300,13 @@ async def get_video_capabilities(
     try:
         project = await asyncio.to_thread(services.projects.load_project, scope.project_name)
         payload = await services.capabilities.video_capabilities_for_project(project)
+        payload["duration_constraints"] = duration_constraints_payload(
+            await capability_request_facts(
+                project,
+                generation_type=video_bucket_for_generation_mode(caps_generation_mode(project)),
+                config_resolver=services.capabilities,
+            )
+        )
         await annotate_reference_unit_tiers(
             payload,
             project,
@@ -1304,6 +1316,10 @@ async def get_video_capabilities(
         )
     except FileNotFoundError as exc:
         return ToolOutcome(problem=ToolProblem("project_not_found", f"项目未找到或缺 project.json: {exc}"))
+    except VideoRequestFactsError as exc:
+        return ToolOutcome(
+            problem=ToolProblem("capabilities_unresolved", f"无法解析视频模型能力: {exc.failure.summary()}")
+        )
     except ValueError as exc:
         return ToolOutcome(problem=ToolProblem("capabilities_unresolved", f"无法解析视频模型能力: {exc}"))
     except Exception as exc:

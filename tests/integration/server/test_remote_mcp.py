@@ -38,6 +38,7 @@ from server.media_tools.storyboards import generate_storyboards_tool
 from server.media_tools.videos import generate_videos_tool
 from server.remote_mcp import ArcApiKeyVerifier, RemoteMCPHost, build_remote_mcp_server
 from server.tool_runtime import Services
+from tests.factories import make_video_request_facts
 from tests.fakes import refuse_resume_execution
 from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import call
 
@@ -299,8 +300,13 @@ async def test_remote_mcp_rejects_non_api_key_bearer_tokens(remote_server, token
 
 
 async def test_remote_mcp_returns_typed_workflow_plan_and_rejects_bad_project(
-    remote_server, remote_projects: ProjectManager
+    remote_server, remote_projects: ProjectManager, set_video_request_facts
 ) -> None:
+    set_video_request_facts(
+        make_video_request_facts(
+            provider_id="fake", model_id="video-1", supported_durations=(4, 6), allowed_durations=(4, 6)
+        )
+    )
     app = _mounted(remote_server)
     async with (
         remote_server.session_manager.run(),
@@ -474,7 +480,18 @@ async def test_remote_mcp_returns_typed_workflow_plan_and_rejects_bad_project(
     assert result.structuredContent is not None
     assert result.structuredContent["workflow_plan"]["status"]["target"]["episode"] == 1
     assert capabilities.structuredContent == {
-        "video_capabilities": {"provider_id": "fake", "model": "video-1", "supported_durations": [4, 6]}
+        "video_capabilities": {
+            "provider_id": "fake",
+            "model": "video-1",
+            "supported_durations": [4, 6],
+            "duration_constraints": {
+                "resolution": None,
+                "uses_reference_images": False,
+                "allowed": [4, 6],
+                "allowed_without_reference_images": [4, 6],
+                "excluded": {},
+            },
+        }
     }
     assert patched.structuredContent is not None
     assert patched.structuredContent["project_patch"]["operation"] == "overview"

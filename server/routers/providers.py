@@ -36,12 +36,14 @@ from lib.config.url_utils import normalize_base_url
 from lib.db import async_session_factory, get_async_session
 from lib.db.base import dt_to_iso
 from lib.db.repositories.credential_repository import CredentialRepository
+from lib.generation.video_request_facts import ResolutionOverride, VideoRequestFactsError
 from lib.i18n import translate_or
-from lib.infra.api_errors import BadRequestError
+from lib.infra.api_errors import BadRequestError, UnprocessableError
 from lib.infra.data_root_layout import DataRootLayout
 from server.dependencies import get_config_service
 from server.i18n import Locale, Translator
 from server.routers._validators import split_video_backend_query
+from server.services.tasks.video_caps import capability_request_facts, duration_constraints_payload
 
 if TYPE_CHECKING:
     from lib.db.models.credential import ProviderCredential
@@ -437,32 +439,34 @@ async def get_model_video_capabilities(
     """无项目上下文的视频模型能力：创建向导里项目尚不存在，按候选模型直接解析。
 
     与 `/projects/{name}/video-capabilities` 同一条桶能力闸和模型能力解析链路，
-    只是没有项目可读：`default_duration` / `generation_mode` 等项目偏好为 None，时长联动约束按
-    传入的 `resolution` / `uses_reference_images` 求值（缺省不按分辨率收窄、不走参考图路径）。
+    只是没有项目可读：`default_duration` / `generation_mode` 等项目偏好为 None。
+    `duration_constraints` 由候选模型所在桶（`uses_reference_images` 为真即 r2v，否则 i2v）的视频请求
+    事实给出，`resolution` 作为「覆盖分辨率」参与求值（缺省即「自动」：自定义供应商取模型默认档，其余不带分辨率）。
     裸 provider 的补全与格式校验同项目端点。
     """
     provider_id, model_id = split_video_backend_query(video_backend)
     resolver = ConfigResolver(async_session_factory)
     generation_type = "r2v" if uses_reference_images else "i2v"
+    candidate_project = {f"video_provider_{generation_type}": f"{provider_id}/{model_id}"}
     try:
-        await resolver.resolve_video_backend(
-            {f"video_provider_{generation_type}": f"{provider_id}/{model_id}"},
-            None,
-            generation_type=generation_type,
-        )
-        caps = await resolver.video_capabilities_for_model(
-            provider_id,
-            model_id,
-            None,
-            generation_type=generation_type,
-            resolution=resolution,
-            uses_reference_images=uses_reference_images,
-        )
+        await resolver.resolve_video_backend(candidate_project, None, generation_type=generation_type)
+        caps = await resolver.video_capabilities_for_model(provider_id, model_id, None, generation_type=generation_type)
         if (caps["provider_id"], caps["model"]) != (provider_id, model_id):
             raise BadRequestError("video_capability_reference_unavailable", provider=provider_id, model=model_id)
+        caps["duration_constraints"] = duration_constraints_payload(
+            await capability_request_facts(
+                candidate_project,
+                generation_type=generation_type,
+                config_resolver=resolver,
+                resolution_override=ResolutionOverride(resolution or None),
+            )
+        )
         return caps
     except VideoBucketCapabilityError as exc:
         raise BadRequestError(exc.code, **exc.params) from exc
+    except VideoRequestFactsError as exc:
+        # 视频请求事实的问题码即 errors 目录 key（ValueError 子类，须先于其捕获）
+        raise UnprocessableError(exc.code, **exc.params) from exc
     except ValueError as exc:
         # 异常原文只进日志：str(exc) 混英文技术细节，直接插进翻译文案会让 en/vi 界面混入未译原文
         logger.warning("视频模型 '%s' 能力解析失败: %s", video_backend, exc)

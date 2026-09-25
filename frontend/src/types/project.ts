@@ -272,8 +272,8 @@ export interface ImportProjectResponse {
 export type DurationExclusionReason = "resolution" | "reference";
 
 /**
- * 一次约束上下文下的时长收窄结果与成因，服务端 `lib/config/resolver.py::duration_constraints_report`
- * 算好回传；前端只查表，不持有收窄规则。
+ * 一次约束上下文下的时长收窄结果与成因，由服务端该桶的视频请求事实
+ * （`lib/generation/video_request_facts.py`）算好回传；前端只查表，不持有收窄规则。
  */
 export interface DurationConstraints {
   /** 求值用的生效分辨率；null = 未按分辨率收窄。 */

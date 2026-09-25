@@ -25,10 +25,12 @@ from lib.config.resolver import (
 from lib.db import async_session_factory
 from lib.generation.video_request_facts import (
     CONFIGURED_VIDEO_IDENTITY,
+    ResolutionOverride,
     VideoRequestFacts,
     VideoRequestFactsFailure,
     audio_switch_conflict,
     evaluate_video_request_facts,
+    require_video_request_facts,
 )
 from lib.project.project_manager import ProjectManager
 from lib.script.reference_video.request_projection import (
@@ -109,18 +111,72 @@ def facts_duration_endpoint_fixed(result: VideoRequestFacts | VideoRequestFactsF
     return isinstance(result, VideoRequestFacts) and result.duration_endpoint_fixed
 
 
+def duration_constraints_payload(facts: VideoRequestFacts) -> dict:
+    """能力载荷里的 ``duration_constraints``：该桶视频请求事实的请求分辨率、收窄档位与剔除成因。
+
+    ``allowed_without_reference_images`` 在 i2v 桶等于 ``allowed``；r2v 桶不推断无参考图单元的档位，
+    置 None，参考生视频项目由 :func:`annotate_reference_no_image_caps` 以 i2v 桶的事实补全。
+    """
+    uses_reference_images = facts.generation_type == "r2v"
+    allowed = list(facts.allowed_durations)
+    return {
+        "resolution": facts.resolution,
+        "uses_reference_images": uses_reference_images,
+        "allowed": allowed,
+        "allowed_without_reference_images": None if uses_reference_images else allowed,
+        "excluded": dict(facts.excluded_durations),
+    }
+
+
+async def capability_request_facts(
+    project: dict,
+    *,
+    generation_type: VideoGenerationType,
+    config_resolver: ConfigResolver,
+    resolution_override: ResolutionOverride | None = None,
+) -> VideoRequestFacts:
+    """能力查询所答那个桶的视频请求事实（以当前配置解析执行模型），载荷的 ``duration_constraints`` 由它给出。
+
+    ``resolution_override`` 只由设置页与创建向导的能力预览传入。求值失败抛
+    :class:`~lib.generation.video_request_facts.VideoRequestFactsError`。
+    """
+    route = (
+        "reference_video"
+        if generation_type == "r2v" or project.get("generation_mode") == "reference_video"
+        else "storyboard"
+    )
+    return require_video_request_facts(
+        await evaluate_video_request_facts(
+            project,
+            route=route,
+            generation_type=generation_type,
+            identity=CONFIGURED_VIDEO_IDENTITY,
+            resolver=config_resolver,
+            resolution_override=resolution_override,
+        )
+    )
+
+
 async def annotate_reference_no_image_caps(
-    payload: dict, project: dict, *, config_resolver: ConfigResolver
+    payload: dict, project: dict, request_facts: VideoRequestFacts, *, config_resolver: ConfigResolver
 ) -> VideoRequestFacts | VideoRequestFactsFailure | None:
-    """Attach i2v request facts to an r2v capability response."""
+    """为参考生视频项目的能力载荷补上无参考图单元所落 i2v 桶的档位。
+
+    ``request_facts`` 是载荷所答那个桶的事实：它本身就是 i2v 桶时直接复用（含预览的覆盖分辨率），
+    否则按当前配置另求 i2v 桶。
+    """
     if project.get("generation_mode") != "reference_video":
         return None
-    result = await evaluate_video_request_facts(
-        project,
-        route="reference_video",
-        generation_type="i2v",
-        identity=CONFIGURED_VIDEO_IDENTITY,
-        resolver=config_resolver,
+    result = (
+        request_facts
+        if request_facts.generation_type == "i2v"
+        else await evaluate_video_request_facts(
+            project,
+            route="reference_video",
+            generation_type="i2v",
+            identity=CONFIGURED_VIDEO_IDENTITY,
+            resolver=config_resolver,
+        )
     )
     constraints = payload["duration_constraints"]
     constraints["allowed_without_reference_images"] = (
