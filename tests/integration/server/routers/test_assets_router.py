@@ -204,7 +204,7 @@ class TestFromProject:
         assert r.status_code == 200, r.text
         ip = r.json()["asset"]["image_path"]
         assert ip
-        assert ip.startswith("_global_assets/character/")
+        assert ip.startswith("global_assets/character/")
         # 落盘文件与源文件相同字节
         assert (pm.data_root / ip).read_bytes() == b"img"
 
@@ -344,7 +344,7 @@ class TestFromProject:
         assert r.status_code == 200, r.text
         ap = r.json()["asset"]["audio_path"]
         assert ap
-        assert ap.startswith("_global_assets/character/")
+        assert ap.startswith("global_assets/character/")
         assert (pm.data_root / ap).read_bytes() == b"audio-bytes"
 
     def test_from_project_audio_copy_failure_cleans_up_image(self, assets_env, monkeypatch):

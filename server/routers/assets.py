@@ -426,7 +426,7 @@ async def from_project(
             },
         )
 
-    # 5) 拷贝源 sheet / 参考音频到 _global_assets/{type}/{uuid}.{ext}
+    # 5) 拷贝源 sheet / 参考音频到 global_assets/{type}/{uuid}.{ext}
     # 两次拷贝共用一个失败边界：任一失败都清理已落盘的另一个文件，不留孤儿。
     new_image_path: str | None = None
     new_audio_path: str | None = None

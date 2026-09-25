@@ -61,13 +61,13 @@ def test_upgrade_creates_table(alembic_cfg: tuple[Config, Path], migration_revis
                     "asset_id": "a1",
                     "name": "战斗装",
                     "description": "黑甲",
-                    "image_path": "_global_assets/character/abc.png",
+                    "image_path": "global_assets/character/abc.png",
                 },
             )
             stored = conn.execute(
                 sa.text("SELECT asset_id, name, description, image_path FROM asset_derivatives")
             ).one()
-        assert stored == ("a1", "战斗装", "黑甲", "_global_assets/character/abc.png")
+        assert stored == ("a1", "战斗装", "黑甲", "global_assets/character/abc.png")
     finally:
         engine.dispose()
 
