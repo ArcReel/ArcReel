@@ -9,6 +9,7 @@ frontend/node_modules
 CLAUDE.local.md
 *.db
 projects/
+logs/
 vertex_keys/
 docs/
 tests/

@@ -13,8 +13,8 @@ update_docs: fact-check
 
 | 路径 | 用途 | 迁移处理 |
 |---|---|---|
-| `deploy/projects/.arcreel.db` | 默认部署的 SQLite 数据库 | 由 pgloader 导入 PostgreSQL |
-| `deploy/projects/` 中的其他文件 | 项目元数据和媒体资产 | 复制到 `deploy/production/projects/` |
+| `deploy/projects/arcreel.db` | 默认部署的 SQLite 数据库 | 由 pgloader 导入 PostgreSQL |
+| `deploy/projects/` 中的其他文件 | 项目元数据、媒体资产、日志、Vertex 凭据等 | 复制到 `deploy/production/projects/` |
 | `deploy/production/pgdata/` | PostgreSQL 集群数据 | 由 PostgreSQL 初始化，不放项目文件或 SQLite 文件 |
 
 以下命令统一用 shell 变量 `source_projects` 指向宿主机上的源数据根目录。默认部署会把它设为 `deploy/projects/` 的绝对路径；如果通过 `ARCREEL_DATA_DIR` 和自定义挂载更改了容器内数据目录，请在第 1 步把 `source_projects` 改为对应的宿主机绝对路径。容器内路径与宿主机路径可能不同，因此本文不会直接从 `.env` 推导该值。迁移期间在同一个 shell 中保留此变量。
@@ -23,7 +23,7 @@ update_docs: fact-check
 
 - 已安装 Docker 和 Docker Compose
 - 已安装 `sqlite3` 命令行工具（先运行 `sqlite3 --version` 确认）
-- ArcReel 当前使用默认 SQLite 部署，数据库位于 `deploy/projects/.arcreel.db`
+- ArcReel 当前使用默认 SQLite 部署，数据库位于 `deploy/projects/arcreel.db`。如果那里仍是旧文件名 `.arcreel.db`，说明还没有用新版本启动过，先按[数据根布局迁移](./deployment.md#data-root-layout-migration)完成升级
 - `deploy/production/pgdata/` 与 `deploy/production/projects/` 尚未存放需要保留的生产数据
 
 ## 迁移步骤 {#migration-steps}
@@ -36,8 +36,8 @@ cd "$(git rev-parse --show-toplevel)"
 source_projects="$(cd deploy/projects && pwd)"
 # 自定义数据目录示例：source_projects="/srv/arcreel/projects"
 
-if [ ! -f "${source_projects}/.arcreel.db" ]; then
-  echo "错误：${source_projects}/.arcreel.db 不存在" >&2
+if [ ! -f "${source_projects}/arcreel.db" ]; then
+  echo "错误：${source_projects}/arcreel.db 不存在" >&2
   exit 1
 fi
 
@@ -56,7 +56,7 @@ umask 077
 mkdir -p deploy/backups
 chmod 700 deploy/backups
 
-sqlite3 "${source_projects}/.arcreel.db" \
+sqlite3 "${source_projects}/arcreel.db" \
   ".backup 'deploy/backups/arcreel-sqlite-${backup_stamp}.db'"
 
 check_result="$(sqlite3 "deploy/backups/arcreel-sqlite-${backup_stamp}.db" \
@@ -73,7 +73,7 @@ tar -czf "deploy/backups/arcreel-source-${backup_stamp}.tar.gz" \
 cp deploy/.env "deploy/backups/arcreel-source-${backup_stamp}.env"
 ```
 
-守卫只接受 `PRAGMA quick_check;` 精确返回 `ok`；任一备份、校验、归档或配置复制命令失败都会立即停止迁移。`sqlite3 .backup` 通过 SQLite 备份 API 生成包含已提交 WAL 内容的一致快照；不要在服务运行时只用 `cp` 复制 `.arcreel.db`。SQLite 的 `.arcreel.db-wal` 可能保存已提交但尚未 checkpoint 的交易，与主文件分离可能丢数据或损坏备份。配套的 tar 归档保存 `source_projects` 的完整内容，旁边的 `.env` 副本保存默认部署配置；回滚时两者必须使用相同时间标签。`umask 077` 与目录模式 `0700` 会限制其中凭据和项目资产的读取权限。
+守卫只接受 `PRAGMA quick_check;` 精确返回 `ok`；任一备份、校验、归档或配置复制命令失败都会立即停止迁移。`sqlite3 .backup` 通过 SQLite 备份 API 生成包含已提交 WAL 内容的一致快照；不要在服务运行时只用 `cp` 复制 `arcreel.db`。SQLite 的 `arcreel.db-wal` 可能保存已提交但尚未 checkpoint 的交易，与主文件分离可能丢数据或损坏备份。配套的 tar 归档保存 `source_projects` 的完整内容，旁边的 `.env` 副本保存默认部署配置；回滚时两者必须使用相同时间标签。`umask 077` 与目录模式 `0700` 会限制其中凭据和项目资产的读取权限。
 
 ### 3. 准备 PostgreSQL 部署 {#configure-env}
 
@@ -120,13 +120,13 @@ for target_dir in deploy/production/projects deploy/production/pgdata; do
 done
 ```
 
-将项目和媒体资产复制到生产目录，但不把 SQLite 数据库复制进去：
+将数据根（项目、媒体资产与其余运行数据）复制到生产目录，但不把 SQLite 数据库复制进去：
 
 ```bash
 set -euo pipefail
 
 mkdir -p deploy/production/projects
-tar -C "${source_projects}" --exclude='.arcreel.db*' -cf - . | \
+tar -C "${source_projects}" --exclude='arcreel.db*' -cf - . | \
   tar -C deploy/production/projects -xf -
 ```
 
@@ -156,7 +156,7 @@ docker compose -f deploy/production/docker-compose.yml run --rm \
   arcreel bash -c '
     apt-get update &&
     apt-get install -y --no-install-recommends pgloader &&
-    pgloader sqlite:///migration-source/.arcreel.db \
+    pgloader sqlite:///migration-source/arcreel.db \
              "postgresql://arcreel:${POSTGRES_PASSWORD_URLENCODED:-$POSTGRES_PASSWORD}@postgres:5432/arcreel"
   '
 ```
@@ -187,7 +187,7 @@ docker compose -f deploy/production/docker-compose.yml \
 对比 SQLite 中的记录数：
 
 ```bash
-sqlite3 "${source_projects}/.arcreel.db" "
+sqlite3 "${source_projects}/arcreel.db" "
   SELECT 'tasks', COUNT(*) FROM tasks
   UNION ALL
   SELECT 'api_calls', COUNT(*) FROM api_calls
@@ -221,7 +221,7 @@ curl -f http://localhost:1241/health
    docker compose -f deploy/production/docker-compose.yml down
    ```
 
-2. 确认 `${source_projects}/.arcreel.db` 和 `deploy/.env` 仍在。如果源目录被修改或损坏，先选定第 2 步中同一时间标签的两个备份文件，再执行：
+2. 确认 `${source_projects}/arcreel.db` 和 `deploy/.env` 仍在。如果源目录被修改或损坏，先选定第 2 步中同一时间标签的两个备份文件，再执行：
 
    ```bash
    set -euo pipefail
