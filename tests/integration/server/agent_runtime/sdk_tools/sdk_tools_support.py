@@ -23,16 +23,12 @@ from lib.script.draft_quarantine import (
     quarantine_path,
 )
 from server.agent_runtime.sdk_tools._media_adapter import _response
-from server.agent_runtime.sdk_tools.text_generation import (
-    generate_script_plan_tool,
-    open_draft_tool,
-    promote_draft_tool,
-)
 from server.agent_toolset.declaration import invoke_declaration
+from server.agent_toolset.envelope import json_value
 from server.agent_toolset.toolset import AGENT_TOOLSET
 from server.media_tools.context import ToolContext, tool_services
 from server.media_tools.definition import ToolDefinition
-from server.tool_runtime import BatchWaiter, ToolOutcome
+from server.tool_runtime import BatchWaiter, TextGenerationResult, ToolOutcome, ToolProblem
 from tests.factories import make_video_request_facts
 from tests.fakes import FakeConfigResolver
 
@@ -78,6 +74,29 @@ async def run_declared_tool(
     declaration = next(declaration for declaration in AGENT_TOOLSET if declaration.name == name)
     caller = replace(ctx.caller, batch_waiter=batch_waiter)
     return await invoke_declaration(declaration, arguments, ctx.scope, caller, tool_services(ctx))
+
+
+def said(outcome: ToolOutcome[Any]) -> str:
+    """结果的可读文本：失败时的 problem detail，文本生成的 message，其余为值的 JSON。"""
+
+    if outcome.problem is not None:
+        return outcome.problem.detail
+    if isinstance(outcome.value, TextGenerationResult):
+        return outcome.value.message
+    return json.dumps(json_value(outcome.value), ensure_ascii=False)
+
+
+def draft_of(outcome: ToolOutcome[Any]) -> dict[str, Any]:
+    """草稿工具成功时返回的草稿。"""
+
+    assert outcome.problem is None, outcome.problem
+    assert isinstance(outcome.value, dict)
+    return outcome.value
+
+
+def problem_of(outcome: ToolOutcome[Any]) -> ToolProblem:
+    assert outcome.problem is not None, outcome.value
+    return outcome.problem
 
 
 async def run_generate_videos(
@@ -493,12 +512,12 @@ def rv_script_plan_path(fake_ctx: ToolContext):
     return fake_ctx.project_path / "drafts" / "episode_1" / "script_plan_reference_units.json"
 
 
-async def run_rv_split(fake_ctx: ToolContext, monkeypatch, units: list[dict], **caps_kwargs) -> dict:
+async def run_rv_split(fake_ctx: ToolContext, monkeypatch, units: list[dict], **caps_kwargs) -> ToolOutcome[Any]:
     from server import text_generation as mod
 
     use_fake_caps(fake_ctx, **caps_kwargs)
     monkeypatch.setattr(mod.TextGenerator, "create", rv_generator_returning(units))
-    return await call(generate_script_plan_tool(fake_ctx), {"episode": 1})
+    return await run_declared_tool("generate_script_plan", fake_ctx, {"episode": 1})
 
 
 def rv_quarantine_path(fake_ctx: ToolContext):
@@ -509,7 +528,7 @@ def read_rv_quarantine(fake_ctx: ToolContext) -> dict:
     return json.loads(rv_quarantine_path(fake_ctx).read_text(encoding="utf-8"))
 
 
-async def promote_reference_draft(fake_ctx: ToolContext, **caps_kwargs) -> dict:
+async def promote_reference_draft(fake_ctx: ToolContext, **caps_kwargs) -> ToolOutcome[Any]:
     if not (fake_ctx.project_path / "project.json").exists():
         rv_project(fake_ctx)
     use_fake_caps(fake_ctx, **caps_kwargs)
@@ -520,10 +539,9 @@ async def promote_reference_draft(fake_ctx: ToolContext, **caps_kwargs) -> dict:
     else:
         doc_type = "reference_script_plan"
     args = {"episode": 1, "doc_type": doc_type}
-    opened = await call(open_draft_tool(fake_ctx), args)
-    payload = json.loads(opened["content"][0]["text"])
-    revision = payload.get("draft", {}).get("revision", "")
-    return await call(promote_draft_tool(fake_ctx), {**args, "base_revision": revision})
+    opened = await run_declared_tool("open_draft", fake_ctx, args)
+    revision = draft_of(opened)["revision"] if opened.problem is None else ""
+    return await run_declared_tool("promote_draft", fake_ctx, {**args, "base_revision": revision})
 
 
 def write_rv_script_plan(fake_ctx: ToolContext, units: list[dict]) -> None:
@@ -543,10 +561,10 @@ def rv_saved_unit(text: str, *, unit_id: str = "E1U01", duration: int = 8) -> di
     }
 
 
-async def open_for_edit(fake_ctx: ToolContext, **args) -> dict:
+async def open_for_edit(fake_ctx: ToolContext, **args) -> ToolOutcome[Any]:
     if not (fake_ctx.project_path / "project.json").exists():
         rv_project(fake_ctx)
-    return await call(open_draft_tool(fake_ctx), {"episode": 1, "doc_type": "reference_script_plan", **args})
+    return await run_declared_tool("open_draft", fake_ctx, {"episode": 1, "doc_type": "reference_script_plan", **args})
 
 
 def nr_project(fake_ctx: ToolContext) -> None:
@@ -603,7 +621,14 @@ _DRAMA_NOVEL = "三年后，阿离回到山门。"
 def drama_project(fake_ctx: ToolContext) -> None:
     """把项目声明成 drama + 分镜图生视频，并铺好源文——正式 script_plan 的写禁与草稿通道以此为前提。"""
     (fake_ctx.project_path / "project.json").write_text(
-        json.dumps({"content_mode": "drama", "generation_mode": "storyboard"}, ensure_ascii=False),
+        json.dumps(
+            {
+                "schema_version": CURRENT_PROJECT_SCHEMA_VERSION,
+                "content_mode": "drama",
+                "generation_mode": "storyboard",
+            },
+            ensure_ascii=False,
+        ),
         encoding="utf-8",
     )
     fake_ctx.pm.project_payload["content_mode"] = "drama"
@@ -647,16 +672,16 @@ def read_drama_quarantine(fake_ctx: ToolContext) -> dict:
     return json.loads(drama_quarantine_path(fake_ctx).read_text(encoding="utf-8"))
 
 
-async def open_drama_for_edit(fake_ctx: ToolContext, **args) -> dict:
-    return await call(open_draft_tool(fake_ctx), {"episode": 1, "doc_type": "drama_script_plan", **args})
+async def open_drama_for_edit(fake_ctx: ToolContext, **args) -> ToolOutcome[Any]:
+    return await run_declared_tool("open_draft", fake_ctx, {"episode": 1, "doc_type": "drama_script_plan", **args})
 
 
-async def promote_drama(fake_ctx: ToolContext, durations=(4, 6, 8)) -> dict:
+async def promote_drama(fake_ctx: ToolContext, durations=(4, 6, 8)) -> ToolOutcome[Any]:
     use_fake_caps(fake_ctx, supported_durations=durations, default_duration=durations[0])
     args = {"episode": 1, "doc_type": "drama_script_plan"}
-    opened = await call(open_draft_tool(fake_ctx), args)
-    revision = json.loads(opened["content"][0]["text"])["draft"]["revision"]
-    return await call(promote_draft_tool(fake_ctx), {**args, "base_revision": revision})
+    opened = await run_declared_tool("open_draft", fake_ctx, args)
+    revision = draft_of(opened)["revision"]
+    return await run_declared_tool("promote_draft", fake_ctx, {**args, "base_revision": revision})
 
 
 def nr_script_plan_path(fake_ctx: ToolContext) -> Path:
@@ -677,13 +702,13 @@ def write_nr_script_plan(fake_ctx: ToolContext, segments: list[dict]) -> None:
     path.write_text(json.dumps({"segments": segments}, ensure_ascii=False), encoding="utf-8")
 
 
-async def open_nr_for_edit(fake_ctx: ToolContext, **args) -> dict:
-    return await call(open_draft_tool(fake_ctx), {"episode": 1, "doc_type": "narration_script_plan", **args})
+async def open_nr_for_edit(fake_ctx: ToolContext, **args) -> ToolOutcome[Any]:
+    return await run_declared_tool("open_draft", fake_ctx, {"episode": 1, "doc_type": "narration_script_plan", **args})
 
 
-async def promote_nr(fake_ctx: ToolContext, durations=(4, 6, 8)) -> dict:
+async def promote_nr(fake_ctx: ToolContext, durations=(4, 6, 8)) -> ToolOutcome[Any]:
     use_fake_caps(fake_ctx, supported_durations=durations, default_duration=durations[0])
     args = {"episode": 1, "doc_type": "narration_script_plan"}
-    opened = await call(open_draft_tool(fake_ctx), args)
-    revision = json.loads(opened["content"][0]["text"])["draft"]["revision"]
-    return await call(promote_draft_tool(fake_ctx), {**args, "base_revision": revision})
+    opened = await run_declared_tool("open_draft", fake_ctx, args)
+    revision = draft_of(opened)["revision"]
+    return await run_declared_tool("promote_draft", fake_ctx, {**args, "base_revision": revision})

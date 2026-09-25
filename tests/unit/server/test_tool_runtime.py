@@ -20,7 +20,6 @@ from lib.workflow.workflow_plan import WorkflowPlanRequest, build_workflow_plan
 from lib.workflow.workflow_state import WorkflowStatus
 from server import draft_workflow, tool_runtime
 from server import text_generation as shared_text_generation
-from server.agent_runtime.sdk_tools import text_generation as sdk_text_generation
 from server.tool_runtime import (
     CallerContext,
     DraftLocator,
@@ -405,17 +404,14 @@ async def test_sync_transaction_finishes_worker_before_propagating_cancellation(
     assert finished.is_set()
 
 
-def test_text_generation_dependency_points_from_host_adapters_to_shared_handler() -> None:
-    shared_path = Path(shared_text_generation.__file__)
-    sdk_path = shared_path.parent / "agent_runtime" / "sdk_tools" / "text_generation.py"
-    shared_imports = _imported_modules(shared_path)
-    sdk_imports = _imported_modules(sdk_path)
+@pytest.mark.parametrize("module", [shared_text_generation, draft_workflow], ids=lambda module: module.__name__)
+def test_shared_text_and_draft_handlers_stay_host_independent(module) -> None:
+    path = Path(module.__file__)
+    shared_imports = _imported_modules(path)
 
     assert "claude_agent_sdk" not in shared_imports
-    assert not any(module.startswith("server.agent_runtime.sdk_tools") for module in shared_imports)
-    assert "server.tool_runtime" in sdk_imports
-    assert "server.text_generation" in sdk_imports
-    assert '"is_error"' not in shared_path.read_text(encoding="utf-8")
+    assert not any(name.startswith("server.agent_runtime.sdk_tools") for name in shared_imports)
+    assert '"is_error"' not in path.read_text(encoding="utf-8")
 
 
 async def test_patch_episode_meta_returns_typed_domain_outcome(tmp_path: Path, monkeypatch) -> None:
@@ -646,31 +642,6 @@ def test_draft_locator_requires_a_strict_positive_episode(episode: object) -> No
 def test_draft_locator_rejects_unknown_document_types() -> None:
     with pytest.raises(ValidationError, match=r"DraftLocator\ndoc_type"):
         DraftLocator(episode=1, doc_type="unsupported")
-
-
-def test_draft_dependency_points_from_sdk_adapter_to_shared_workflow() -> None:
-    def imports(module) -> set[str]:
-        tree = ast.parse(Path(module.__file__).read_text(encoding="utf-8"))
-        return {
-            name
-            for node in ast.walk(tree)
-            for name in (
-                [node.module]
-                if isinstance(node, ast.ImportFrom) and node.module
-                else [alias.name for alias in node.names]
-                if isinstance(node, ast.Import)
-                else []
-            )
-        }
-
-    shared_imports = imports(draft_workflow)
-    sdk_imports = imports(sdk_text_generation)
-    shared_source = Path(draft_workflow.__file__).read_text(encoding="utf-8")
-
-    assert "claude_agent_sdk" not in shared_imports
-    assert not any(name.startswith("server.agent_runtime.sdk_tools") for name in shared_imports)
-    assert "server.draft_workflow" in sdk_imports
-    assert '"is_error"' not in shared_source
 
 
 @pytest.mark.parametrize("entry_ids", [(1,), (["E1U01"],), ({"id": "E1U01"},)])

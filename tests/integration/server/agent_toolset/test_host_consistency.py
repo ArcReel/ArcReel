@@ -46,6 +46,13 @@ from server.agent_toolset.grid_storyboards import GENERATE_GRID, SPLIT_GRIDS
 from server.agent_toolset.orientation import GET_PROMPT_PREVIEW, GET_VIDEO_CAPABILITIES
 from server.agent_toolset.project_entry import CREATE_PROJECT
 from server.agent_toolset.remote import LONG_TASK_NOTE, remote_tool
+from server.agent_toolset.script_authoring import (
+    CONFIRM_SCRIPT_REVIEW,
+    GENERATE_EPISODE_SCRIPT,
+    OPEN_DRAFT,
+    PATCH_DRAFT,
+    PROMOTE_DRAFT,
+)
 from server.agent_toolset.script_editing import PATCH_EPISODE_SCRIPT
 from server.agent_toolset.toolset import AGENT_TOOLSET
 from server.agent_toolset.workflow_completion import COMPLETE_ASSET_INVENTORY, COMPLETE_SCRIPT_PLAN_REBUILD
@@ -61,6 +68,8 @@ from server.tool_runtime import (
     ToolRequest,
     get_generation_batch,
 )
+
+_ABSENT_REVISION = "sha256-v1:" + "0" * 64
 
 # 每条声明一份合法入参；新增声明须在此登记，否则参数化用例以 KeyError 失败。
 SAMPLE_ARGUMENTS: dict[str, dict[str, Any]] = {
@@ -88,6 +97,18 @@ SAMPLE_ARGUMENTS: dict[str, dict[str, Any]] = {
     "generate_storyboards": {"script": "episode_1.json"},
     "edit_images": {"resource_type": "character", "edits": [{"id": "张三", "instruction": "把头发改成红色"}]},
     "generate_narration_audio": {"script": "episode_1.json", "segment_ids": ["E1S01"]},
+    "generate_episode_script": {"episode": 1, "dry_run": True},
+    "generate_script_plan": {"episode": 1, "dry_run": True},
+    "confirm_script_review": {"episode": 1},
+    "open_draft": {"episode": 1, "doc_type": "drama_script_plan"},
+    "patch_draft": {
+        "episode": 1,
+        "doc_type": "drama_script_plan",
+        "content": {"title": "第一集", "scenes": []},
+        "base_revision": _ABSENT_REVISION,
+    },
+    "promote_draft": {"episode": 1, "doc_type": "drama_script_plan", "base_revision": _ABSENT_REVISION},
+    "discard_draft": {"episode": 1, "doc_type": "drama_script_plan", "base_revision": _ABSENT_REVISION},
     "patch_episode_script": {
         "script": "episode_9.json",
         "base_revision": "sha256-v1:" + "0" * 64,
@@ -464,6 +485,11 @@ _PROBLEM_ON_SAMPLE = frozenset(
         GET_PROMPT_PREVIEW.name,
         GET_GENERATION_BATCH.name,
         CANCEL_GENERATION_BATCH.name,
+        # 测试项目已有正式脚本：确认需要覆盖认可，取回编辑副本被拒；没有在场草稿可改、可晋升。
+        CONFIRM_SCRIPT_REVIEW.name,
+        OPEN_DRAFT.name,
+        PATCH_DRAFT.name,
+        PROMOTE_DRAFT.name,
         PATCH_EPISODE_SCRIPT.name,
         SPLIT_GRIDS.name,
         COMPLETE_ASSET_INVENTORY.name,
@@ -608,5 +634,23 @@ async def test_grid_list_only_preview_is_the_same_json_in_both_hosts(
     assert remote.structuredContent is not None
     assert set(remote.structuredContent) == {GENERATE_GRID.name}
     assert "E1S01..E1S04" in remote.structuredContent[GENERATE_GRID.name]
+    assert _embedded_json(embedded) == remote.structuredContent
+    assert _texts(embedded) == _texts(remote)
+
+
+async def test_a_text_generation_dry_run_returns_the_same_prompt_in_both_hosts(
+    projects: ProjectManager, services: Services, tmp_path: Path
+) -> None:
+    """长任务的 dry_run 不提交批次：两宿主都立即拿到同一份 ``text_generation``，没有批次句柄。"""
+    twin = _twin_services(projects, tmp_path)
+    arguments = SAMPLE_ARGUMENTS[GENERATE_EPISODE_SCRIPT.name]
+
+    embedded = await _call_embedded(GENERATE_EPISODE_SCRIPT, arguments, services)
+    remote = await _call_remote(GENERATE_EPISODE_SCRIPT, {"project": "demo", **arguments}, twin)
+
+    assert embedded.isError is remote.isError is False
+    assert remote.structuredContent is not None
+    assert set(remote.structuredContent) == {"text_generation"}
+    assert "DRY RUN" in remote.structuredContent["text_generation"]["message"]
     assert _embedded_json(embedded) == remote.structuredContent
     assert _texts(embedded) == _texts(remote)

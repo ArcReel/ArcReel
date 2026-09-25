@@ -2,68 +2,31 @@
 
 from __future__ import annotations
 
-import asyncio
-import json
 import os
 from collections.abc import AsyncGenerator, Awaitable, Callable
-from contextlib import asynccontextmanager, suppress
+from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi.responses import PlainTextResponse
 from mcp.server.auth.provider import AccessToken, TokenVerifier
 from mcp.server.auth.settings import AuthSettings
-from mcp.server.fastmcp import Context, FastMCP
+from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
-from mcp.types import CallToolResult, TextContent
 from pydantic import AnyHttpUrl
-from pydantic.json_schema import SkipJsonSchema
 from starlette.types import Receive, Scope, Send
 
 from lib.config.resolver import ConfigResolver
 from lib.db import async_session_factory
-from lib.generation.generation_batch import GenerationBatchReadModel
 from lib.project.project_manager import ProjectManager, get_project_manager
 from lib.script.source_loader import SourceLoader
-from server.agent_toolset.envelope import json_value
-from server.agent_toolset.remote import authenticated_caller, remote_tools, resolve_project_scope
+from server.agent_toolset.remote import remote_tools
 from server.agent_toolset.toolset import AGENT_TOOLSET
 from server.auth import API_KEY_PREFIX, _verify_api_key
-from server.draft_workflow import (
-    DiscardDraftRequest,
-    DraftDocType,
-    DraftLocator,
-    PatchDraftRequest,
-    PositiveEpisode,
-    PromoteDraftRequest,
-)
 from server.services.project import workflow_planner
-from server.text_generation import SCOPE_REMOVED_MESSAGE, TextGenerationRequest
-from server.tool_runtime import (
-    ConfirmScriptReviewRequest,
-    Services,
-    ToolOutcome,
-    ToolProblem,
-    ToolRequest,
-    confirm_script_review,
-    discard_draft,
-    generate_episode_script,
-    generate_script_plan,
-    migration_gate,
-    open_draft,
-    patch_draft,
-    promote_draft,
-)
+from server.tool_runtime import Services
 
 # One decoded control byte may occupy six JSON bytes (``\u00XX``); leave 1 MiB for the MCP envelope.
 _MAX_REQUEST_BODY_BYTES = SourceLoader.DEFAULT_MAX_BYTES * 6 + 1024 * 1024
-_REMOTE_DURABLE_BATCH_DESCRIPTION = (
-    " Remote MCP generation submissions return durable admission and durable generation_batch state immediately; "
-    "follow poll_after_seconds "
-    "by calling get_generation_batch until done=true, then read the terminal requested / succeeded / failed / blocked result."
-)
-_REMOTE_TEXT_DRY_RUN_DESCRIPTION = (
-    " For dry_run=true, return the prompt immediately without a generation_batch; do not poll."
-)
 
 
 class ArcApiKeyVerifier(TokenVerifier):
@@ -79,47 +42,6 @@ class ArcApiKeyVerifier(TokenVerifier):
         if payload is None:
             return None
         return AccessToken(token=token, client_id=payload["sub"], scopes=["arcreel"])
-
-
-def _to_mcp_result(domain_key: str, outcome: ToolOutcome[Any]) -> CallToolResult:
-    if outcome.problem is not None:
-        structured = {"problem": json_value(outcome.problem)}
-        return CallToolResult(
-            content=[TextContent(type="text", text=json.dumps(structured, ensure_ascii=False))],
-            structuredContent=structured,
-            isError=True,
-        )
-    structured = {domain_key: json_value(outcome.value)}
-    return CallToolResult(
-        content=[TextContent(type="text", text=json.dumps(structured, ensure_ascii=False))],
-        structuredContent=structured,
-        isError=False,
-    )
-
-
-def _to_long_task_result(domain_key: str, outcome: ToolOutcome[Any]) -> CallToolResult:
-    return _to_mcp_result(
-        "generation_batch" if isinstance(outcome.value, GenerationBatchReadModel) else domain_key, outcome
-    )
-
-
-async def _with_progress[T](awaitable: Awaitable[T], context: Context, message: str) -> T:
-    await context.report_progress(0, message=message)
-
-    async def heartbeat() -> None:
-        progress = 1
-        while True:
-            await asyncio.sleep(10)
-            await context.report_progress(progress, message=message)
-            progress += 1
-
-    task = asyncio.create_task(heartbeat())
-    try:
-        return await awaitable
-    finally:
-        task.cancel()
-        with suppress(asyncio.CancelledError, Exception):
-            await task
 
 
 def _default_services(projects: ProjectManager) -> Services:
@@ -149,7 +71,7 @@ def build_remote_mcp_server(
     # 静态 arc- API Key，ArcApiKeyVerifier 返回的 AccessToken 不带 resource，不参与任何校验。
     # Bearer 直连的客户端不读这两处，故该变量对常规接入可缺省。
     public_url = AnyHttpUrl(os.environ.get("MCP_PUBLIC_URL", "http://localhost:1241/mcp"))
-    server = FastMCP(
+    return FastMCP(
         "arcreel",
         tools=remote_tools(AGENT_TOOLSET, projects=projects, services=services),
         token_verifier=token_verifier or ArcApiKeyVerifier(),
@@ -169,203 +91,6 @@ def build_remote_mcp_server(
         # 关闭该开关不影响 SDK 对 POST 的 Content-Type 校验。
         transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
     )
-
-    # 以下工具全部由 @server.tool 就地注册（闭包捕获 services），模块内无其它引用；basedpyright
-    # 把函数作用域内的符号一律判为私有，逐个标注的 reportUnusedFunction 均为工具误报。
-    @server.tool(name="open_draft", structured_output=False)
-    async def remote_open_draft(  # pyright: ignore[reportUnusedFunction]
-        project: str,
-        episode: PositiveEpisode,
-        doc_type: DraftDocType,
-        source: str | None = None,
-    ) -> CallToolResult:
-        """Open a revisioned editing draft for one explicit project."""
-        try:
-            scope = resolve_project_scope(project, projects)
-            request = DraftLocator(episode=episode, doc_type=doc_type, source=source)
-        except (FileNotFoundError, ValueError) as exc:
-            return _to_mcp_result("draft", ToolOutcome(problem=ToolProblem("invalid_request", str(exc))))
-        if problem := await migration_gate(scope, services):
-            return _to_mcp_result("draft", ToolOutcome(problem=problem))
-        return _to_mcp_result("draft", await open_draft(ToolRequest(request), scope, authenticated_caller(), services))
-
-    @server.tool(name="patch_draft", structured_output=False)
-    async def remote_patch_draft(  # pyright: ignore[reportUnusedFunction]
-        project: str,
-        episode: PositiveEpisode,
-        doc_type: DraftDocType,
-        content: dict[str, Any],
-        base_revision: str,
-        accept_formal_revision: str | None = None,
-        accepts_formal_revision: bool = False,
-        source: str | None = None,
-        updates_source: bool = False,
-    ) -> CallToolResult:
-        """Atomically replace a draft body; presence flags permit explicit null updates."""
-        try:
-            scope = resolve_project_scope(project, projects)
-            request = PatchDraftRequest(
-                episode=episode,
-                doc_type=doc_type,
-                content=content,
-                base_revision=base_revision,
-                accept_formal_revision=accept_formal_revision,
-                accepts_formal_revision=accepts_formal_revision or accept_formal_revision is not None,
-                source=source,
-                updates_source=updates_source or source is not None,
-            )
-        except (FileNotFoundError, ValueError) as exc:
-            return _to_mcp_result("draft", ToolOutcome(problem=ToolProblem("invalid_request", str(exc))))
-        if problem := await migration_gate(scope, services):
-            return _to_mcp_result("draft", ToolOutcome(problem=problem))
-        return _to_mcp_result("draft", await patch_draft(ToolRequest(request), scope, authenticated_caller(), services))
-
-    @server.tool(name="promote_draft", structured_output=False)
-    async def remote_promote_draft(  # pyright: ignore[reportUnusedFunction]
-        project: str, episode: PositiveEpisode, doc_type: DraftDocType, base_revision: str
-    ) -> CallToolResult:
-        """Validate and promote one editing draft into its formal document."""
-        try:
-            scope = resolve_project_scope(project, projects)
-            request = PromoteDraftRequest(episode=episode, doc_type=doc_type, base_revision=base_revision)
-        except (FileNotFoundError, ValueError) as exc:
-            return _to_mcp_result("draft", ToolOutcome(problem=ToolProblem("invalid_request", str(exc))))
-        if problem := await migration_gate(scope, services):
-            return _to_mcp_result("draft", ToolOutcome(problem=problem))
-        return _to_mcp_result(
-            "draft", await promote_draft(ToolRequest(request), scope, authenticated_caller(), services)
-        )
-
-    @server.tool(name="discard_draft", structured_output=False)
-    async def remote_discard_draft(  # pyright: ignore[reportUnusedFunction]
-        project: str, episode: PositiveEpisode, doc_type: DraftDocType, base_revision: str
-    ) -> CallToolResult:
-        """Discard one editing draft without changing its formal document."""
-        try:
-            scope = resolve_project_scope(project, projects)
-            request = DiscardDraftRequest(episode=episode, doc_type=doc_type, base_revision=base_revision)
-        except (FileNotFoundError, ValueError) as exc:
-            return _to_mcp_result("draft", ToolOutcome(problem=ToolProblem("invalid_request", str(exc))))
-        if problem := await migration_gate(scope, services):
-            return _to_mcp_result("draft", ToolOutcome(problem=problem))
-        return _to_mcp_result(
-            "draft", await discard_draft(ToolRequest(request), scope, authenticated_caller(), services)
-        )
-
-    @server.tool(
-        name="generate_episode_script",
-        description=(
-            "Generate an episode script." + _REMOTE_DURABLE_BATCH_DESCRIPTION + _REMOTE_TEXT_DRY_RUN_DESCRIPTION
-        ),
-        structured_output=False,
-    )
-    async def remote_generate_episode_script(  # pyright: ignore[reportUnusedFunction]
-        project: str,
-        episode: PositiveEpisode,
-        context: Context,
-        instructions: str | None = None,
-        entry_ids: list[str] | None = None,
-        dry_run: bool = False,
-        # scope 不在工具 schema 中：传入即拒绝并给出迁移说明，FastMCP 对未声明的参数会静默忽略。
-        scope: SkipJsonSchema[object] = None,
-    ) -> CallToolResult:
-        """Author prompts for an episode script, or return the prompt when dry_run is true.
-
-        By default only the entries marked pending authoring in the formal script are authored;
-        ``entry_ids`` explicitly re-authors the named entries. Content fields, note, end frame and
-        generated assets are kept. An ad project without a formal script generates the whole script.
-        """
-        if scope is not None:
-            return _to_mcp_result(
-                "text_generation", ToolOutcome(problem=ToolProblem("invalid_request", SCOPE_REMOVED_MESSAGE))
-            )
-        try:
-            project_scope = resolve_project_scope(project, projects)
-            request = TextGenerationRequest(
-                episode=episode,
-                instructions=instructions,
-                entry_ids=tuple(entry_ids or ()),
-                dry_run=dry_run,
-            )
-        except (FileNotFoundError, ValueError) as exc:
-            return _to_mcp_result("text_generation", ToolOutcome(problem=ToolProblem("invalid_request", str(exc))))
-        if problem := await migration_gate(project_scope, services):
-            return _to_mcp_result("text_generation", ToolOutcome(problem=problem))
-        return _to_long_task_result(
-            "text_generation",
-            await _with_progress(
-                generate_episode_script(ToolRequest(request), project_scope, authenticated_caller(), services),
-                context,
-                "Generating episode script",
-            ),
-        )
-
-    @server.tool(
-        name="generate_script_plan",
-        description=(
-            "Generate the project-appropriate structured script_plan document."
-            + _REMOTE_DURABLE_BATCH_DESCRIPTION
-            + _REMOTE_TEXT_DRY_RUN_DESCRIPTION
-        ),
-        structured_output=False,
-    )
-    async def remote_generate_script_plan(  # pyright: ignore[reportUnusedFunction]
-        project: str,
-        episode: PositiveEpisode,
-        context: Context,
-        source: str | None = None,
-        instructions: str | None = None,
-        dry_run: bool = False,
-    ) -> CallToolResult:
-        """Generate the project-appropriate structured script_plan document."""
-        try:
-            scope = resolve_project_scope(project, projects)
-            request = TextGenerationRequest(
-                episode=episode,
-                source=source,
-                instructions=instructions,
-                dry_run=dry_run,
-            )
-        except (FileNotFoundError, ValueError) as exc:
-            return _to_mcp_result("text_generation", ToolOutcome(problem=ToolProblem("invalid_request", str(exc))))
-        if problem := await migration_gate(scope, services):
-            return _to_mcp_result("text_generation", ToolOutcome(problem=problem))
-        return _to_long_task_result(
-            "text_generation",
-            await _with_progress(
-                generate_script_plan(ToolRequest(request), scope, authenticated_caller(), services),
-                context,
-                "Generating script_plan",
-            ),
-        )
-
-    @server.tool(name="confirm_script_review", structured_output=False)
-    async def remote_confirm_script_review(  # pyright: ignore[reportUnusedFunction]
-        project: str, episode: int, overwrite_revision: str | None = None
-    ) -> CallToolResult:
-        """Confirm one episode's script_plan review: convert it into the formal script before visual generation.
-
-        When the episode already has a formal script, confirming overwrites it; without a matching
-        ``overwrite_revision`` the call returns ``script_overwrite_required`` listing the shots it would remove.
-        Ask the user before retrying with ``overwrite_revision`` set to ``script_overwrite.revision``.
-        """
-        try:
-            scope = resolve_project_scope(project, projects)
-        except (FileNotFoundError, ValueError) as exc:
-            return _to_mcp_result("text_generation", ToolOutcome(problem=ToolProblem("invalid_request", str(exc))))
-        if problem := await migration_gate(scope, services):
-            return _to_mcp_result("text_generation", ToolOutcome(problem=problem))
-        return _to_mcp_result(
-            "text_generation",
-            await confirm_script_review(
-                ToolRequest(ConfirmScriptReviewRequest(episode=episode, overwrite_revision=overwrite_revision)),
-                scope,
-                authenticated_caller(),
-                services,
-            ),
-        )
-
-    return server
 
 
 class RemoteMCPHost:

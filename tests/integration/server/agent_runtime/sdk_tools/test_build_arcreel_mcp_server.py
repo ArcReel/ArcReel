@@ -39,16 +39,6 @@ async def _call(server, name: str, arguments: dict) -> types.CallToolResult:
     return result
 
 
-async def test_session_server_routes_factory_registered_tools_to_their_own_schema_validation(tmp_path: Path) -> None:
-    server = build_arcreel_mcp_server(project_name="demo", data_root=tmp_path)["instance"]
-
-    result = await _call(server, "open_draft", {})
-
-    assert result.isError is True
-    assert isinstance(result.content[0], types.TextContent)
-    assert result.content[0].text.startswith("Input validation error")
-
-
 async def test_session_entry_tools_share_the_session_projects_root(tmp_path: Path) -> None:
     projects = ProjectManager(tmp_path / "projects")
     server = build_arcreel_mcp_server(project_name="demo", data_root=projects.data_root)["instance"]

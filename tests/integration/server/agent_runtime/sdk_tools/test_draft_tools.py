@@ -10,9 +10,11 @@ import os
 import subprocess
 import sys
 import threading
+from typing import Any
 
 import pytest
 
+from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from lib.script import script_review
 from lib.script.draft_quarantine import (
     QUARANTINE_KIND_DRAMA_SCRIPT_PLAN,
@@ -23,18 +25,13 @@ from lib.script.draft_quarantine import (
     quarantine_path,
     write_quarantine,
 )
-from server.agent_runtime.sdk_tools.text_generation import (
-    discard_draft_tool,
-    open_draft_tool,
-    patch_draft_tool,
-    promote_draft_tool,
-)
 from server.draft_workflow import DraftContext, DraftWorkflow, DraftWorkflowError
 from server.media_tools.context import ToolContext
+from server.tool_runtime import ToolOutcome
 from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
     _RV_NOVEL,
-    call,
     derived_reference_names,
+    draft_of,
     drama_project,
     drama_quarantine_path,
     drama_scene,
@@ -46,12 +43,14 @@ from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
     open_drama_for_edit,
     open_for_edit,
     open_nr_for_edit,
+    problem_of,
     promote_drama,
     promote_nr,
     promote_reference_draft,
     read_drama_quarantine,
     read_nr_quarantine,
     read_rv_quarantine,
+    run_declared_tool,
     run_rv_split,
     rv_project,
     rv_quarantine_path,
@@ -59,6 +58,7 @@ from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
     rv_script_plan_path,
     rv_source,
     rv_unit,
+    said,
     use_fake_caps,
     write_drama_script_plan,
     write_nr_script_plan,
@@ -66,22 +66,6 @@ from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
 )
 
 pytestmark = pytest.mark.usefixtures("video_request_facts")
-
-
-def _draft_result(out: dict) -> dict:
-    return json.loads(out["content"][0]["text"])["draft"]
-
-
-@pytest.mark.parametrize("factory", [open_draft_tool, patch_draft_tool, promote_draft_tool, discard_draft_tool])
-def test_draft_tools_share_strict_locator_schema(fake_ctx: ToolContext, factory) -> None:
-    schema = factory(fake_ctx).input_schema
-    assert schema["properties"]["episode"]["minimum"] == 1
-    assert schema["properties"]["doc_type"]["enum"] == [
-        "drama_script_plan",
-        "narration_script_plan",
-        "reference_script_plan",
-        "reference_prompt_authoring",
-    ]
 
 
 def _write_reference_prompt_authoring(fake_ctx: ToolContext, script: dict) -> None:
@@ -104,7 +88,7 @@ async def test_open_draft_returns_flat_draft_structure(fake_ctx: ToolContext) ->
 
     out = await open_for_edit(fake_ctx, source="source/episode_1.txt")
 
-    assert out.get("is_error") is not True, out
+    assert out.problem is None, out
     envelope = read_rv_quarantine(fake_ctx)
     assert envelope["kind"] == QUARANTINE_KIND_SCRIPT_PLAN
     assert envelope["violations"] == []
@@ -139,7 +123,7 @@ async def test_open_draft_round_trips_through_promote(fake_ctx: ToolContext) -> 
 
     out = await promote_reference_draft(fake_ctx)
 
-    assert out.get("is_error") is not True, out
+    assert out.problem is None, out
     assert not rv_quarantine_path(fake_ctx).exists()
     saved = json.loads(rv_script_plan_path(fake_ctx).read_text(encoding="utf-8"))
     assert saved["units"][0]["text"] == "@[张三] 在 @[村口] 出场"
@@ -156,9 +140,9 @@ async def test_open_draft_returns_existing_draft_without_clobbering(fake_ctx: To
 
     out = await open_for_edit(fake_ctx)
 
-    assert out.get("is_error") is not True
+    assert out.problem is None
     assert rv_quarantine_path(fake_ctx).read_text(encoding="utf-8") == before
-    assert "reference_script_plan" in out["content"][0]["text"]
+    assert "reference_script_plan" in said(out)
 
 
 async def test_open_draft_without_official_file(fake_ctx: ToolContext) -> None:
@@ -167,8 +151,8 @@ async def test_open_draft_without_official_file(fake_ctx: ToolContext) -> None:
 
     out = await open_for_edit(fake_ctx)
 
-    assert out.get("is_error") is True
-    assert "generate_script_plan" in out["content"][0]["text"]
+    assert out.problem is not None
+    assert "generate_script_plan" in said(out)
     assert not rv_quarantine_path(fake_ctx).exists()
 
 
@@ -183,7 +167,7 @@ async def test_open_draft_keeps_malformed_duration_verbatim(fake_ctx: ToolContex
 
     out = await open_for_edit(fake_ctx)
 
-    assert out.get("is_error") is not True, out
+    assert out.problem is None, out
     assert read_rv_quarantine(fake_ctx)["content"]["units"][0]["duration_seconds"] == 8.0
 
 
@@ -199,7 +183,7 @@ async def test_open_draft_keeps_malformed_non_dict_unit_slot(fake_ctx: ToolConte
 
     out = await open_for_edit(fake_ctx)
 
-    assert out.get("is_error") is not True, out
+    assert out.problem is None, out
     units = read_rv_quarantine(fake_ctx)["content"]["units"]
     assert len(units) == 2
     assert units[1] == {"duration_seconds": None, "source_text": "", "text": ""}
@@ -245,7 +229,7 @@ async def test_script_plan_write_cannot_race_a_prompt_authoring_draft_patch(fake
             "video_units": [{"unit_id": "E1U01", "text": "@[张三] 起身", "duration_seconds": 4}],
         },
     )
-    opened = _draft_result(await open_for_edit(fake_ctx, doc_type="reference_prompt_authoring"))
+    opened = draft_of(await open_for_edit(fake_ctx, doc_type="reference_prompt_authoring"))
     changed = copy.deepcopy(opened["content"])
     changed["units"][0]["text"] = "并发编辑"
     target = quarantine_path(fake_ctx.project_path, 1, QUARANTINE_KIND_PROMPT_AUTHORING)
@@ -309,7 +293,7 @@ async def test_open_draft_rejects_non_reference_episode(fake_ctx: ToolContext) -
 
     out = await open_for_edit(fake_ctx)
 
-    assert out.get("is_error") is True
+    assert out.problem is not None
     assert not rv_quarantine_path(fake_ctx).exists()
 
 
@@ -320,7 +304,7 @@ async def test_open_draft_records_base_fingerprint(fake_ctx: ToolContext) -> Non
 
     out = await open_for_edit(fake_ctx)
 
-    assert out.get("is_error") is not True, out
+    assert out.problem is None, out
     meta = read_rv_quarantine(fake_ctx)["meta"]
     assert meta["base_fingerprint"] == script_review.content_fingerprint(rv_script_plan_path(fake_ctx))
 
@@ -333,7 +317,7 @@ async def test_open_draft_returns_drama_scenes(fake_ctx: ToolContext) -> None:
 
     out = await open_drama_for_edit(fake_ctx, source="source/episode_1.txt")
 
-    assert out.get("is_error") is not True, out
+    assert out.problem is None, out
     envelope = read_drama_quarantine(fake_ctx)
     assert envelope["kind"] == QUARANTINE_KIND_DRAMA_SCRIPT_PLAN
     assert envelope["violations"] == []
@@ -359,7 +343,7 @@ async def test_open_draft_drama_round_trips_through_promote(fake_ctx: ToolContex
 
     out = await promote_drama(fake_ctx)
 
-    assert out.get("is_error") is not True, out
+    assert out.problem is None, out
     assert not drama_quarantine_path(fake_ctx).exists()
     saved = json.loads(drama_script_plan_path(fake_ctx).read_text(encoding="utf-8"))
     assert saved["scenes"][0]["scene_description"] == "阿离推开山门。"
@@ -376,7 +360,7 @@ async def test_open_draft_returns_existing_drama_draft(fake_ctx: ToolContext) ->
 
     out = await open_drama_for_edit(fake_ctx, source="source/episode_1.txt")
 
-    assert out.get("is_error") is not True
+    assert out.problem is None
     assert read_drama_quarantine(fake_ctx)["content"]["scenes"][0]["scene_description"] == "未晋升的修改。"
 
 
@@ -387,9 +371,8 @@ def _mark_script_plan_confirmed(fake_ctx: ToolContext) -> None:
     (scripts / "episode_1.json").write_text(json.dumps({"title": "第一集", "scenes": []}), encoding="utf-8")
 
 
-def _problem(out: dict) -> dict:
-    assert out.get("is_error") is True, out
-    return json.loads(out["content"][0]["text"])["problem"]
+def _problem(out: ToolOutcome[Any]) -> dict[str, Any]:
+    return problem_of(out).model_dump()
 
 
 async def test_open_draft_refuses_to_copy_a_confirmed_script_plan(fake_ctx: ToolContext) -> None:
@@ -408,7 +391,7 @@ async def test_open_draft_refuses_to_copy_a_confirmed_script_plan(fake_ctx: Tool
 async def test_patch_and_promote_refuse_an_edit_copy_once_the_script_plan_is_confirmed(fake_ctx: ToolContext) -> None:
     drama_project(fake_ctx)
     write_drama_script_plan(fake_ctx, [drama_scene()])
-    opened = _draft_result(await open_drama_for_edit(fake_ctx, source="source/episode_1.txt"))
+    opened = draft_of(await open_drama_for_edit(fake_ctx, source="source/episode_1.txt"))
     _mark_script_plan_confirmed(fake_ctx)
     formal_before = drama_script_plan_path(fake_ctx).read_bytes()
     draft_before = drama_quarantine_path(fake_ctx).read_bytes()
@@ -416,9 +399,11 @@ async def test_patch_and_promote_refuse_an_edit_copy_once_the_script_plan_is_con
     content["scenes"][0]["scene_description"] = "阿离推开山门。"
     args = {"episode": 1, "doc_type": "drama_script_plan"}
 
-    patched = await call(patch_draft_tool(fake_ctx), {**args, "content": content, "base_revision": opened["revision"]})
+    patched = await run_declared_tool(
+        "patch_draft", fake_ctx, {**args, "content": content, "base_revision": opened["revision"]}
+    )
     use_fake_caps(fake_ctx, supported_durations=(4, 6, 8), default_duration=4)
-    promoted = await call(promote_draft_tool(fake_ctx), {**args, "base_revision": opened["revision"]})
+    promoted = await run_declared_tool("promote_draft", fake_ctx, {**args, "base_revision": opened["revision"]})
 
     assert _problem(patched)["code"] == "script_plan_confirmed"
     assert _problem(promoted)["code"] == "script_plan_confirmed"
@@ -445,17 +430,19 @@ async def test_rerun_draft_on_a_confirmed_script_plan_can_still_be_repaired_and_
         },
     )
     args = {"episode": 1, "doc_type": "drama_script_plan"}
-    opened = _draft_result(await call(open_draft_tool(fake_ctx), args))
+    opened = draft_of(await run_declared_tool("open_draft", fake_ctx, args))
     content = opened["content"]
     content["scenes"][0]["scene_description"] = "阿离推开山门。"
 
-    patched = _draft_result(
-        await call(patch_draft_tool(fake_ctx), {**args, "content": content, "base_revision": opened["revision"]})
+    patched = draft_of(
+        await run_declared_tool(
+            "patch_draft", fake_ctx, {**args, "content": content, "base_revision": opened["revision"]}
+        )
     )
     use_fake_caps(fake_ctx, supported_durations=(4, 6, 8), default_duration=4)
-    promoted = await call(promote_draft_tool(fake_ctx), {**args, "base_revision": patched["revision"]})
+    promoted = await run_declared_tool("promote_draft", fake_ctx, {**args, "base_revision": patched["revision"]})
 
-    assert promoted.get("is_error") is not True, promoted
+    assert promoted.problem is None, promoted
     saved = json.loads(drama_script_plan_path(fake_ctx).read_text(encoding="utf-8"))
     assert saved["scenes"][0]["scene_description"] == "阿离推开山门。"
 
@@ -476,9 +463,10 @@ async def test_prompt_authoring_draft_is_not_affected_by_a_confirmed_script_plan
     assert script_review.formal_script_plan_confirmed(fake_ctx.project_path, project, 1)
     args = {"episode": 1, "doc_type": "reference_prompt_authoring"}
 
-    opened = _draft_result(await call(open_draft_tool(fake_ctx), args))
-    patched = await call(
-        patch_draft_tool(fake_ctx),
+    opened = draft_of(await run_declared_tool("open_draft", fake_ctx, args))
+    patched = await run_declared_tool(
+        "patch_draft",
+        fake_ctx,
         {
             **args,
             "content": {"title": "第一集", "units": [{"text": "@[张三] 坐下"}]},
@@ -486,13 +474,16 @@ async def test_prompt_authoring_draft_is_not_affected_by_a_confirmed_script_plan
         },
     )
 
-    assert _draft_result(patched)["content"]["units"][0]["text"] == "@[张三] 坐下"
+    assert draft_of(patched)["content"]["units"][0]["text"] == "@[张三] 坐下"
 
 
 async def test_open_draft_rejects_variant_without_draft_channel(fake_ctx: ToolContext) -> None:
     """ad 没有结构化 script_plan，也就没有草稿通道：报错要点名这一点，不能让 Agent 以为工具坏了反复重试。"""
     (fake_ctx.project_path / "project.json").write_text(
-        json.dumps({"content_mode": "ad", "generation_mode": "storyboard"}, ensure_ascii=False),
+        json.dumps(
+            {"schema_version": CURRENT_PROJECT_SCHEMA_VERSION, "content_mode": "ad", "generation_mode": "storyboard"},
+            ensure_ascii=False,
+        ),
         encoding="utf-8",
     )
     fake_ctx.pm.project_payload["content_mode"] = "ad"
@@ -500,8 +491,8 @@ async def test_open_draft_rejects_variant_without_draft_channel(fake_ctx: ToolCo
 
     out = await open_for_edit(fake_ctx)
 
-    assert out.get("is_error") is True
-    assert "doc_type_not_applicable" in out["content"][0]["text"]
+    assert out.problem is not None
+    assert problem_of(out).code == "doc_type_not_applicable"
 
 
 async def test_open_draft_returns_narration_segments(fake_ctx: ToolContext) -> None:
@@ -512,7 +503,7 @@ async def test_open_draft_returns_narration_segments(fake_ctx: ToolContext) -> N
 
     out = await open_nr_for_edit(fake_ctx, source="source/episode_1.txt")
 
-    assert out.get("is_error") is not True, out
+    assert out.problem is None, out
     envelope = read_nr_quarantine(fake_ctx)
     assert envelope["kind"] == QUARANTINE_KIND_NARRATION_SCRIPT_PLAN
     assert envelope["content"]["segments"][0]["novel_text"] == _RV_NOVEL
@@ -534,7 +525,7 @@ async def test_open_draft_narration_round_trips_through_promote(fake_ctx: ToolCo
 
     out = await promote_nr(fake_ctx)
 
-    assert out.get("is_error") is not True, out
+    assert out.problem is None, out
     assert not nr_quarantine_path(fake_ctx).exists()
     saved = json.loads(nr_script_plan_path(fake_ctx).read_text(encoding="utf-8"))
     assert saved["segments"][0]["duration_seconds"] == 8
@@ -555,7 +546,7 @@ async def test_open_draft_returns_existing_narration_draft(fake_ctx: ToolContext
 
     out = await open_nr_for_edit(fake_ctx, source="source/episode_1.txt")
 
-    assert out.get("is_error") is not True
+    assert out.problem is None
     assert read_nr_quarantine(fake_ctx)["content"]["segments"][0]["novel_text"] == "改到一半的正文"
 
 
@@ -563,7 +554,7 @@ async def test_patch_draft_stamps_the_current_schema_version_on_a_legacy_envelop
     """patch 是草稿的另一条写入口：它写回的信封同样盖当前版本，不沿用盘上读到的版本位。"""
     rv_source(fake_ctx)
     write_rv_script_plan(fake_ctx, [rv_saved_unit("@[张三] 起身")])
-    opened = _draft_result(await open_for_edit(fake_ctx, source="source/episode_1.txt"))
+    opened = draft_of(await open_for_edit(fake_ctx, source="source/episode_1.txt"))
 
     path = rv_quarantine_path(fake_ctx)
     envelope = json.loads(path.read_text(encoding="utf-8"))
@@ -572,8 +563,9 @@ async def test_patch_draft_stamps_the_current_schema_version_on_a_legacy_envelop
 
     content = opened["content"]
     content["units"][0]["text"] = "@[张三] 走向 @[村口]"
-    patched = await call(
-        patch_draft_tool(fake_ctx),
+    patched = await run_declared_tool(
+        "patch_draft",
+        fake_ctx,
         {
             "episode": 1,
             "doc_type": "reference_script_plan",
@@ -582,7 +574,7 @@ async def test_patch_draft_stamps_the_current_schema_version_on_a_legacy_envelop
         },
     )
 
-    assert patched.get("is_error") is not True, patched
+    assert patched.problem is None, patched
     saved = json.loads(path.read_text(encoding="utf-8"))
     assert saved["meta"]["schema_version"] == QUARANTINE_SCHEMA_VERSION
     assert saved["meta"]["source"] == "source/episode_1.txt"
@@ -591,12 +583,13 @@ async def test_patch_draft_stamps_the_current_schema_version_on_a_legacy_envelop
 async def test_patch_draft_supports_multiple_rounds_and_rejects_stale_revision(fake_ctx: ToolContext) -> None:
     rv_source(fake_ctx)
     write_rv_script_plan(fake_ctx, [rv_saved_unit("@[张三] 起身")])
-    opened = _draft_result(await open_for_edit(fake_ctx, source="source/episode_1.txt"))
+    opened = draft_of(await open_for_edit(fake_ctx, source="source/episode_1.txt"))
 
     first_content = opened["content"]
     first_content["units"][0]["text"] = "@[张三] 走向 @[村口]"
-    first = await call(
-        patch_draft_tool(fake_ctx),
+    first = await run_declared_tool(
+        "patch_draft",
+        fake_ctx,
         {
             "episode": 1,
             "doc_type": "reference_script_plan",
@@ -604,11 +597,12 @@ async def test_patch_draft_supports_multiple_rounds_and_rejects_stale_revision(f
             "base_revision": opened["revision"],
         },
     )
-    first_result = _draft_result(first)
+    first_result = draft_of(first)
     assert first_result["revision"] != opened["revision"]
 
-    stale = await call(
-        patch_draft_tool(fake_ctx),
+    stale = await run_declared_tool(
+        "patch_draft",
+        fake_ctx,
         {
             "episode": 1,
             "doc_type": "reference_script_plan",
@@ -616,13 +610,14 @@ async def test_patch_draft_supports_multiple_rounds_and_rejects_stale_revision(f
             "base_revision": opened["revision"],
         },
     )
-    assert stale.get("is_error") is True
-    assert "revision_conflict" in stale["content"][0]["text"]
+    assert stale.problem is not None
+    assert problem_of(stale).code == "revision_conflict"
 
     second_content = first_result["content"]
     second_content["units"][0]["text"] = "@[张三] 在 @[村口] 停下"
-    second = await call(
-        patch_draft_tool(fake_ctx),
+    second = await run_declared_tool(
+        "patch_draft",
+        fake_ctx,
         {
             "episode": 1,
             "doc_type": "reference_script_plan",
@@ -630,7 +625,7 @@ async def test_patch_draft_supports_multiple_rounds_and_rejects_stale_revision(f
             "base_revision": first_result["revision"],
         },
     )
-    assert _draft_result(second)["content"]["units"][0]["text"] == "@[张三] 在 @[村口] 停下"
+    assert draft_of(second)["content"]["units"][0]["text"] == "@[张三] 在 @[村口] 停下"
 
 
 @pytest.mark.parametrize(
@@ -662,7 +657,7 @@ async def test_each_doc_type_completes_multi_patch_then_promote_or_discard(
         )
 
     args = {"episode": 1, "doc_type": doc_type}
-    opened = _draft_result(await call(open_draft_tool(fake_ctx), args))
+    opened = draft_of(await run_declared_tool("open_draft", fake_ctx, args))
 
     def edit(content: dict, marker: str) -> None:
         if doc_type == "drama_script_plan":
@@ -676,25 +671,27 @@ async def test_each_doc_type_completes_multi_patch_then_promote_or_discard(
 
     first_content = opened["content"]
     edit(first_content, "first")
-    first = _draft_result(
-        await call(
-            patch_draft_tool(fake_ctx),
+    first = draft_of(
+        await run_declared_tool(
+            "patch_draft",
+            fake_ctx,
             {**args, "content": first_content, "base_revision": opened["revision"]},
         )
     )
     second_content = first["content"]
     edit(second_content, "second")
-    second = _draft_result(
-        await call(
-            patch_draft_tool(fake_ctx),
+    second = draft_of(
+        await run_declared_tool(
+            "patch_draft",
+            fake_ctx,
             {**args, "content": second_content, "base_revision": first["revision"]},
         )
     )
     assert second["revision"] != first["revision"]
 
     if doc_type == "reference_prompt_authoring":
-        discarded = _draft_result(
-            await call(discard_draft_tool(fake_ctx), {**args, "base_revision": second["revision"]})
+        discarded = draft_of(
+            await run_declared_tool("discard_draft", fake_ctx, {**args, "base_revision": second["revision"]})
         )
         assert discarded["discarded"] is True
     else:
@@ -704,20 +701,21 @@ async def test_each_doc_type_completes_multi_patch_then_promote_or_discard(
             result = await promote_nr(fake_ctx)
         else:
             result = await promote_reference_draft(fake_ctx)
-        assert result.get("is_error") is not True, result
+        assert result.problem is None, result
 
 
 async def test_patch_draft_can_accept_a_merged_formal_revision(fake_ctx: ToolContext) -> None:
     rv_source(fake_ctx)
     write_rv_script_plan(fake_ctx, [rv_saved_unit("@[张三] 起身")])
-    opened = _draft_result(await open_for_edit(fake_ctx, source="source/episode_1.txt"))
+    opened = draft_of(await open_for_edit(fake_ctx, source="source/episode_1.txt"))
 
     write_rv_script_plan(fake_ctx, [rv_saved_unit("@[张三] 走向 @[村口]")])
-    refreshed = _draft_result(await open_for_edit(fake_ctx))
+    refreshed = draft_of(await open_for_edit(fake_ctx))
     merged = refreshed["content"]
     merged["units"][0]["text"] = "@[张三] 在 @[村口] 停下"
-    patched = await call(
-        patch_draft_tool(fake_ctx),
+    patched = await run_declared_tool(
+        "patch_draft",
+        fake_ctx,
         {
             "episode": 1,
             "doc_type": "reference_script_plan",
@@ -727,10 +725,66 @@ async def test_patch_draft_can_accept_a_merged_formal_revision(fake_ctx: ToolCon
         },
     )
 
-    assert patched.get("is_error") is not True, patched
+    assert patched.problem is None, patched
     assert read_rv_quarantine(fake_ctx)["meta"]["base_fingerprint"] == refreshed["formal_revision"]
     promoted = await promote_reference_draft(fake_ctx)
-    assert promoted.get("is_error") is not True, promoted
+    assert promoted.problem is None, promoted
+
+
+async def test_patch_draft_without_accept_formal_revision_keeps_the_old_baseline(fake_ctx: ToolContext) -> None:
+    """省略 accept_formal_revision 即不接受正式文档的并发修改：基线不变，晋升仍报冲突。"""
+    rv_source(fake_ctx)
+    write_rv_script_plan(fake_ctx, [rv_saved_unit("@[张三] 起身")])
+    opened = draft_of(await open_for_edit(fake_ctx, source="source/episode_1.txt"))
+    baseline = read_rv_quarantine(fake_ctx)["meta"]["base_fingerprint"]
+    write_rv_script_plan(fake_ctx, [rv_saved_unit("@[张三] 走向 @[村口]")])
+
+    patched = await run_declared_tool(
+        "patch_draft",
+        fake_ctx,
+        {
+            "episode": 1,
+            "doc_type": "reference_script_plan",
+            "content": opened["content"],
+            "base_revision": opened["revision"],
+        },
+    )
+
+    assert patched.problem is None, patched
+    assert read_rv_quarantine(fake_ctx)["meta"]["base_fingerprint"] == baseline
+    assert problem_of(await promote_reference_draft(fake_ctx)).code == "formal_revision_conflict"
+
+
+@pytest.mark.parametrize(
+    ("given", "expected_source"),
+    [
+        pytest.param({}, "source/episode_1.txt", id="omitted"),
+        pytest.param({"source": None}, None, id="explicit-null"),
+        pytest.param({"source": "source/episode_2.txt"}, "source/episode_2.txt", id="explicit-path"),
+    ],
+)
+async def test_patch_draft_changes_the_source_scope_only_when_source_is_given(
+    fake_ctx: ToolContext, given: dict, expected_source: str | None
+) -> None:
+    rv_source(fake_ctx)
+    (fake_ctx.project_path / "source" / "episode_2.txt").write_text(_RV_NOVEL, encoding="utf-8")
+    write_rv_script_plan(fake_ctx, [rv_saved_unit("@[张三] 起身")])
+    opened = draft_of(await open_for_edit(fake_ctx, source="source/episode_1.txt"))
+
+    patched = await run_declared_tool(
+        "patch_draft",
+        fake_ctx,
+        {
+            "episode": 1,
+            "doc_type": "reference_script_plan",
+            "content": opened["content"],
+            "base_revision": opened["revision"],
+            **given,
+        },
+    )
+
+    assert patched.problem is None, patched
+    assert read_rv_quarantine(fake_ctx)["meta"]["source"] == expected_source
 
 
 @pytest.mark.skipif(os.name != "posix", reason="FIFO-backed filesystem snapshot requires POSIX")
@@ -740,7 +794,7 @@ async def test_patch_draft_revision_covers_source_metadata_without_blocking_even
     rv_source(fake_ctx)
     (fake_ctx.project_path / "source" / "episode_2.txt").write_text(_RV_NOVEL, encoding="utf-8")
     write_rv_script_plan(fake_ctx, [rv_saved_unit("@[张三] 起身")])
-    opened = _draft_result(await open_for_edit(fake_ctx, source="source/episode_1.txt"))
+    opened = draft_of(await open_for_edit(fake_ctx, source="source/episode_1.txt"))
     args = {
         "episode": 1,
         "doc_type": "reference_script_plan",
@@ -783,12 +837,14 @@ with open(sys.argv[1], "w", encoding="utf-8") as fifo:
             # The child may close stdin after its FIFO write completes.
             pass
 
-    patching = asyncio.create_task(call(patch_draft_tool(fake_ctx), {**args, "source": "source/episode_2.txt"}))
+    patching = asyncio.create_task(
+        run_declared_tool("patch_draft", fake_ctx, {**args, "source": "source/episode_2.txt"})
+    )
     try:
         started = await asyncio.wait_for(asyncio.to_thread(snapshot_writer.stdout.readline), timeout=20)
         assert started == "snapshot_started\n"
         asyncio.get_running_loop().call_soon(release_fifo)
-        first = _draft_result(await patching)
+        first = draft_of(await patching)
         writer_output = await asyncio.to_thread(snapshot_writer.stdout.read)
     finally:
         release_fifo()
@@ -803,24 +859,25 @@ with open(sys.argv[1], "w", encoding="utf-8") as fifo:
             patching.cancel()
         await asyncio.gather(patching, return_exceptions=True)
 
-    stale = await call(patch_draft_tool(fake_ctx), {**args, "source": "source/episode_1.txt"})
+    stale = await run_declared_tool("patch_draft", fake_ctx, {**args, "source": "source/episode_1.txt"})
 
     assert "event_loop_blocked" not in writer_output
     assert first["revision"] != opened["revision"]
     assert read_rv_quarantine(fake_ctx)["meta"]["source"] == "source/episode_2.txt"
-    assert stale.get("is_error") is True
-    assert "revision_conflict" in stale["content"][0]["text"]
+    assert stale.problem is not None
+    assert problem_of(stale).code == "revision_conflict"
 
 
 async def test_discard_draft_rejects_stale_revision(fake_ctx: ToolContext) -> None:
     rv_source(fake_ctx)
     write_rv_script_plan(fake_ctx, [rv_saved_unit("@[张三] 起身")])
-    opened = _draft_result(await open_for_edit(fake_ctx))
+    opened = draft_of(await open_for_edit(fake_ctx))
     changed = copy.deepcopy(opened["content"])
     changed["units"][0]["text"] = "@[张三] 走向 @[村口]"
-    patched = _draft_result(
-        await call(
-            patch_draft_tool(fake_ctx),
+    patched = draft_of(
+        await run_declared_tool(
+            "patch_draft",
+            fake_ctx,
             {
                 "episode": 1,
                 "doc_type": "reference_script_plan",
@@ -830,17 +887,19 @@ async def test_discard_draft_rejects_stale_revision(fake_ctx: ToolContext) -> No
         )
     )
 
-    stale = await call(
-        discard_draft_tool(fake_ctx),
+    stale = await run_declared_tool(
+        "discard_draft",
+        fake_ctx,
         {"episode": 1, "doc_type": "reference_script_plan", "base_revision": opened["revision"]},
     )
 
-    assert stale.get("is_error") is True
-    assert "revision_conflict" in stale["content"][0]["text"]
+    assert stale.problem is not None
+    assert problem_of(stale).code == "revision_conflict"
     assert rv_quarantine_path(fake_ctx).exists()
-    discarded = _draft_result(
-        await call(
-            discard_draft_tool(fake_ctx),
+    discarded = draft_of(
+        await run_declared_tool(
+            "discard_draft",
+            fake_ctx,
             {"episode": 1, "doc_type": "reference_script_plan", "base_revision": patched["revision"]},
         )
     )
@@ -851,11 +910,11 @@ async def test_discard_draft_keeps_formal_content_and_is_idempotent(fake_ctx: To
     rv_source(fake_ctx)
     write_rv_script_plan(fake_ctx, [rv_saved_unit("@[张三] 起身")])
     formal_before = rv_script_plan_path(fake_ctx).read_text(encoding="utf-8")
-    opened = _draft_result(await open_for_edit(fake_ctx))
+    opened = draft_of(await open_for_edit(fake_ctx))
 
     args = {"episode": 1, "doc_type": "reference_script_plan", "base_revision": opened["revision"]}
-    first = _draft_result(await call(discard_draft_tool(fake_ctx), args))
-    second = _draft_result(await call(discard_draft_tool(fake_ctx), args))
+    first = draft_of(await run_declared_tool("discard_draft", fake_ctx, args))
+    second = draft_of(await run_declared_tool("discard_draft", fake_ctx, args))
 
     assert first["discarded"] is True
     assert second["discarded"] is False
@@ -875,9 +934,9 @@ async def test_open_reference_prompt_authoring_returns_flat_editable_content(fak
         },
     )
 
-    out = await call(open_draft_tool(fake_ctx), {"episode": 1, "doc_type": "reference_prompt_authoring"})
+    out = await run_declared_tool("open_draft", fake_ctx, {"episode": 1, "doc_type": "reference_prompt_authoring"})
 
-    draft = _draft_result(out)
+    draft = draft_of(out)
     assert draft["content"] == {"title": "第一集", "units": [{"text": "@[张三] 起身"}]}
     assert draft["revision"].startswith("sha256-v1:")
     envelope = json.loads(

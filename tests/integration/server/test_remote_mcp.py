@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 from pathlib import Path
 
 import httpx
@@ -26,15 +25,15 @@ from lib.script.draft_quarantine import QUARANTINE_KIND_DRAMA_SCRIPT_PLAN, read_
 from lib.workflow.workflow_plan import WorkflowPlanRequest, build_workflow_plan
 from lib.workflow.workflow_state import WorkflowStatus
 from server.agent_runtime.sdk_tools import ARCREEL_MCP_TOOL_IDS
-from server.agent_runtime.sdk_tools.text_generation import generate_episode_script_tool
+from server.agent_toolset.declaration import invoke_declaration
+from server.agent_toolset.script_authoring import GENERATE_EPISODE_SCRIPT
 from server.auth import create_download_token, create_token
 from server.cors_config import resolve_cors_policy
-from server.media_tools.context import ToolContext
+from server.media_tools.context import ToolContext, tool_services
 from server.remote_mcp import ArcApiKeyVerifier, RemoteMCPHost, build_remote_mcp_server
-from server.tool_runtime import Services
+from server.tool_runtime import Services, TextGenerationResult
 from tests.factories import make_video_request_facts
 from tests.fakes import refuse_resume_execution
-from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import call
 
 
 class _Planner:
@@ -388,19 +387,6 @@ async def test_remote_mcp_returns_typed_workflow_plan_and_rejects_bad_project(
         "project" in listed[name].inputSchema["required"]
         for name in migrated | readers | drafts | text_and_script | batches
     )
-    remote_batch_tools = {
-        "generate_episode_script",
-        "generate_script_plan",
-    }
-    for name in remote_batch_tools:
-        remote_description = listed[name].description
-        assert "durable admission" in remote_description
-        assert "durable generation_batch" in remote_description
-        assert "immediately" in remote_description
-        assert "poll_after_seconds" in remote_description
-        assert "get_generation_batch" in remote_description
-        assert "done=true" in remote_description
-    assert all(listed[name].inputSchema["properties"]["episode"]["minimum"] == 1 for name in drafts)
     patch_schema = listed["patch_episode_script"].inputSchema
     operations_schema = patch_schema["properties"]["operations"]
     operation_defs = patch_schema["$defs"]
@@ -416,7 +402,6 @@ async def test_remote_mcp_returns_typed_workflow_plan_and_rejects_bad_project(
         "split",
     }
     assert all(branch["additionalProperties"] is False for branch in operation_branches)
-    assert "base_revision" in listed["discard_draft"].inputSchema["required"]
     assert result.structuredContent is not None
     assert result.structuredContent["workflow_plan"]["status"]["target"]["episode"] == 1
     assert capabilities.structuredContent == {
@@ -733,65 +718,6 @@ async def test_remote_mcp_entry_tools_share_one_projects_root(remote_server) -> 
     assert uploaded.structuredContent["source"]["path"] == "source/novel.txt"
 
 
-async def test_remote_mcp_draft_supports_multiple_patches_and_discard(
-    remote_server, remote_projects, video_request_facts
-) -> None:
-    # 尚无正式剧本：脚本规划未确认，可取回编辑副本。
-    (remote_projects.get_project_path("demo") / "scripts" / "episode_1.json").unlink()
-    app = _mounted(remote_server)
-    async with (
-        remote_server.session_manager.run(),
-        httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=app),
-            base_url="http://localhost",
-            headers={"Authorization": "Bearer arc-valid"},
-            follow_redirects=True,
-        ) as client,
-        streamable_http_client("http://localhost/mcp", http_client=client) as (read, write, _),
-        ClientSession(read, write) as session,
-    ):
-        await session.initialize()
-        args = {"project": "demo", "episode": 1, "doc_type": "drama_script_plan"}
-        opened = await session.call_tool("open_draft", args)
-        first_content = opened.structuredContent["draft"]["content"]
-        first_content["title"] = "第一次修改"
-        first = await session.call_tool(
-            "patch_draft",
-            {
-                **args,
-                "content": first_content,
-                "base_revision": opened.structuredContent["draft"]["revision"],
-            },
-        )
-        second_content = first.structuredContent["draft"]["content"]
-        second_content["title"] = "第二次修改"
-        second = await session.call_tool(
-            "patch_draft",
-            {
-                **args,
-                "content": second_content,
-                "base_revision": first.structuredContent["draft"]["revision"],
-            },
-        )
-        discarded = await session.call_tool(
-            "discard_draft", {**args, "base_revision": second.structuredContent["draft"]["revision"]}
-        )
-        reopened = await session.call_tool("open_draft", args)
-        promoted = await session.call_tool(
-            "promote_draft",
-            {**args, "base_revision": reopened.structuredContent["draft"]["revision"]},
-        )
-
-    assert not opened.isError
-    assert not first.isError
-    assert not second.isError
-    assert second.structuredContent["draft"]["content"]["title"] == "第二次修改"
-    assert discarded.structuredContent["draft"]["discarded"] is True
-    assert not reopened.isError
-    assert not promoted.isError
-    assert promoted.structuredContent["draft"]["promoted"] is True
-
-
 async def test_remote_mcp_text_generation_and_script_patch_return_structured_content(
     remote_server, remote_projects: ProjectManager, video_request_facts
 ) -> None:
@@ -822,7 +748,6 @@ async def test_remote_mcp_text_generation_and_script_patch_return_structured_con
         ClientSession(read, write) as session,
     ):
         await session.initialize()
-        tools = {tool.name: tool for tool in (await session.list_tools()).tools}
         script_plan = await session.call_tool(
             "generate_script_plan",
             {
@@ -863,8 +788,6 @@ async def test_remote_mcp_text_generation_and_script_patch_return_structured_con
         )
 
     assert not script_plan.isError
-    assert "dry_run=true" in tools["generate_script_plan"].description
-    assert "prompt immediately without a generation_batch; do not poll" in tools["generate_script_plan"].description
     assert set(script_plan.structuredContent) == {"text_generation"}
     assert script_plan.structuredContent["text_generation"]["message"]
     assert refused.isError
@@ -873,15 +796,12 @@ async def test_remote_mcp_text_generation_and_script_patch_return_structured_con
     assert not confirmed.isError
     assert confirmed.structuredContent["text_generation"]["message"]
     assert not script.isError
-    assert "dry_run=true" in tools["generate_episode_script"].description
-    assert "prompt immediately without a generation_batch; do not poll" in tools["generate_episode_script"].description
     assert set(script.structuredContent) == {"text_generation"}
     assert "DRY RUN" in script.structuredContent["text_generation"]["message"]
-    assert "scope" not in tools["generate_episode_script"].inputSchema["properties"]
     assert scoped.isError
     assert scoped.structuredContent["problem"]["code"] == "invalid_request"
     assert "entry_ids" in scoped.structuredContent["problem"]["detail"]
-    assert progress_messages == ["Generating script_plan", "Generating episode script"]
+    assert progress_messages == []
     assert patched.isError
     assert patched.structuredContent["script_patch"]["problems"][0]["code"] == "revision_conflict"
 
@@ -971,7 +891,15 @@ async def test_text_task_is_shared_by_remote_and_embedded_hosts_and_running_memb
                 pm=projects,
                 queue=queue,
             )
-            embedded = asyncio.create_task(call(generate_episode_script_tool(embedded_ctx), {"episode": 1}))
+            embedded = asyncio.create_task(
+                invoke_declaration(
+                    GENERATE_EPISODE_SCRIPT,
+                    {"episode": 1},
+                    embedded_ctx.scope,
+                    embedded_ctx.caller,
+                    tool_services(embedded_ctx),
+                )
+            )
             await queue.deduped.wait()
 
             assert not embedded.done()
@@ -1000,7 +928,8 @@ async def test_text_task_is_shared_by_remote_and_embedded_hosts_and_running_memb
         assert still_running is not None
         assert still_running["status"] == "running"
         assert not interrupted.is_set()
-        assert json.loads(embedded_result["content"][0]["text"])["text_generation"]["message"] == "done"
+        assert isinstance(embedded_result.value, TextGenerationResult)
+        assert embedded_result.value.message == "done"
         assert terminal.structuredContent["generation_batch"]["done"] is True
         assert terminal.structuredContent["generation_batch"]["members"][0]["status"] == "succeeded"
         second = await queue.get_generation_batch(project_name="demo", batch_id=queue.batch_ids[1])
@@ -1009,25 +938,6 @@ async def test_text_task_is_shared_by_remote_and_embedded_hosts_and_running_memb
     finally:
         release.set()
         await worker.stop()
-
-
-@pytest.mark.parametrize("tool", ["generate_script_plan", "generate_episode_script"])
-async def test_remote_mcp_generation_rejects_non_positive_episode(remote_server, tool: str) -> None:
-    app = _mounted(remote_server)
-    async with (
-        remote_server.session_manager.run(),
-        httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=app),
-            base_url="http://localhost",
-            headers={"Authorization": "Bearer arc-valid"},
-            follow_redirects=True,
-        ) as client,
-        streamable_http_client("http://localhost/mcp", http_client=client) as (read, write, _),
-        ClientSession(read, write) as session,
-    ):
-        result = await session.call_tool(tool, {"project": "demo", "episode": 0, "dry_run": True})
-
-    assert result.isError
 
 
 async def test_remote_mcp_draft_preserves_explicit_null_updates(remote_server, remote_projects) -> None:
@@ -1061,9 +971,7 @@ async def test_remote_mcp_draft_preserves_explicit_null_updates(remote_server, r
                 "content": opened.structuredContent["draft"]["content"],
                 "base_revision": opened.structuredContent["draft"]["revision"],
                 "accept_formal_revision": None,
-                "accepts_formal_revision": True,
                 "source": None,
-                "updates_source": True,
             },
         )
 
@@ -1072,39 +980,6 @@ async def test_remote_mcp_draft_preserves_explicit_null_updates(remote_server, r
     assert draft is not None
     assert draft.meta["base_fingerprint"] is None
     assert draft.meta["source"] is None
-
-
-async def test_remote_mcp_draft_respects_migration_failure_gate(remote_server, remote_projects) -> None:
-    record_migration_failure(
-        remote_projects.get_project_path("demo"),
-        RuntimeError("blocked"),
-        schema_version=CURRENT_PROJECT_SCHEMA_VERSION,
-    )
-    app = _mounted(remote_server)
-    async with (
-        remote_server.session_manager.run(),
-        httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=app),
-            base_url="http://localhost",
-            headers={"Authorization": "Bearer arc-valid"},
-            follow_redirects=True,
-        ) as client,
-        streamable_http_client("http://localhost/mcp", http_client=client) as (read, write, _),
-        ClientSession(read, write) as session,
-    ):
-        await session.initialize()
-        result = await session.call_tool(
-            "discard_draft",
-            {
-                "project": "demo",
-                "episode": 1,
-                "doc_type": "drama_script_plan",
-                "base_revision": "sha256-v1:" + "0" * 64,
-            },
-        )
-
-    assert result.isError
-    assert result.structuredContent["problem"]["code"] == MIGRATION_FAILURE_CODE
 
 
 async def test_remote_mcp_host_initializes_first_request_and_can_restart() -> None:
