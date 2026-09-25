@@ -70,10 +70,11 @@ def test_collect_swallows_field_errors(monkeypatch: pytest.MonkeyPatch, tmp_path
     assert "Python" in text
 
 
-def test_collect_returns_log_dir_matching_logging_config(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    log_dir = tmp_path / "custom-logs"
-    monkeypatch.setenv("ARCREEL_LOG_DIR", str(log_dir))
+def test_collect_reports_log_dir_under_data_root(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("ARCREEL_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("ARCREEL_LOG_DIR", str(tmp_path / "custom-logs"))
     reset_for_tests()
 
     text = diag_mod.collect_diagnostics()
-    assert str(log_dir) in text
+    assert f"Log directory: {(tmp_path / 'data' / 'logs').resolve()}" in text
+    assert "custom-logs" not in text

@@ -21,9 +21,8 @@ def auth_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
 # 不需要 reload。
 @pytest.fixture
 async def logs_client(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, auth_disabled: None):
-    log_dir = tmp_path / "logs"
-    log_dir.mkdir()
-    monkeypatch.setenv("ARCREEL_LOG_DIR", str(log_dir))
+    log_dir = tmp_path / "data" / "logs"
+    log_dir.mkdir(parents=True)
     monkeypatch.setenv("ARCREEL_DATA_DIR", str(tmp_path / "data"))
     from lib.infra.app_data_dir import reset_for_tests
 
@@ -93,10 +92,8 @@ async def test_oversized_file_skipped(logs_client) -> None:
 
 
 async def test_missing_logs_dir(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, auth_disabled: None) -> None:
-    # log_dir 故意不创建
-    log_dir = tmp_path / "logs"
-    assert not log_dir.exists()
-    monkeypatch.setenv("ARCREEL_LOG_DIR", str(log_dir))
+    # 数据根下的日志目录故意不创建
+    assert not (tmp_path / "data" / "logs").exists()
     monkeypatch.setenv("ARCREEL_DATA_DIR", str(tmp_path / "data"))
     from lib.infra.app_data_dir import reset_for_tests
 
@@ -121,7 +118,6 @@ async def test_download_requires_auth(monkeypatch: pytest.MonkeyPatch, tmp_path:
     monkeypatch.setenv("AUTH_USERNAME", "admin")
     monkeypatch.setenv("AUTH_PASSWORD", "hunter2")
     monkeypatch.setenv("AUTH_TOKEN_SECRET", "test-secret-32-chars-long-xxxxx")
-    monkeypatch.setenv("ARCREEL_LOG_DIR", str(tmp_path / "logs"))
     monkeypatch.setenv("ARCREEL_DATA_DIR", str(tmp_path / "data"))
     from lib.infra.app_data_dir import reset_for_tests
 
