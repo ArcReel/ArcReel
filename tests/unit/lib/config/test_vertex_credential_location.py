@@ -24,7 +24,7 @@ def layout(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> DataRootLayout:
 
 
 @pytest.fixture
-async def resolver(db_session: AsyncSession, db_factory: async_sessionmaker[AsyncSession]) -> ConfigResolver:
+async def bound_resolver(db_session: AsyncSession, db_factory: async_sessionmaker[AsyncSession]) -> ConfigResolver:
     return ConfigResolver(db_factory, _bound_session=db_session)
 
 
@@ -46,25 +46,25 @@ def _loaded_project_id(config: dict[str, str]) -> str:
 
 
 async def test_credential_file_is_found_by_id_even_when_recorded_path_is_stale(
-    tmp_path: Path, layout: DataRootLayout, db_session: AsyncSession, resolver: ConfigResolver
+    tmp_path: Path, layout: DataRootLayout, db_session: AsyncSession, bound_resolver: ConfigResolver
 ) -> None:
     cred_id = await _active_vertex_credential(
         db_session, credentials_path=str(tmp_path / "moved-away" / "vertex_keys" / "vertex_cred_1.json")
     )
     _write_service_account(layout.vertex_credential_path(cred_id), "by-id")
 
-    config = await resolver.provider_config("gemini-vertex")
+    config = await bound_resolver.provider_config("gemini-vertex")
 
     assert _loaded_project_id(config) == "by-id"
 
 
 async def test_existing_credential_without_file_at_derived_location_uses_recorded_path(
-    tmp_path: Path, layout: DataRootLayout, db_session: AsyncSession, resolver: ConfigResolver
+    tmp_path: Path, layout: DataRootLayout, db_session: AsyncSession, bound_resolver: ConfigResolver
 ) -> None:
     recorded = tmp_path / "legacy" / "vertex_credentials.json"
     _write_service_account(recorded, "recorded")
     await _active_vertex_credential(db_session, credentials_path=str(recorded))
 
-    config = await resolver.provider_config("gemini-vertex")
+    config = await bound_resolver.provider_config("gemini-vertex")
 
     assert _loaded_project_id(config) == "recorded"

@@ -17,6 +17,7 @@ from pathlib import Path
 # 添加仓库根目录到 Python 路径
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from lib.infra.data_root_layout import PROJECT_NAME_PATTERN
 from lib.project.project_manager import ProjectManager
 
 
@@ -197,7 +198,18 @@ def main():
     fail_count = 0
 
     if args.all:
-        projects = pm.list_projects()
+        # 待迁移的旧项目还没有 project.json，不在 list_projects() 里；按项目名规则与剧本文件识别旧项目
+        projects = (
+            sorted(
+                entry.name
+                for entry in pm.projects_dir.iterdir()
+                if entry.is_dir()
+                and PROJECT_NAME_PATTERN.fullmatch(entry.name)
+                and any((entry / "scripts").glob("*.json"))
+            )
+            if pm.projects_dir.is_dir()
+            else []
+        )
         print(f"   发现 {len(projects)} 个项目")
 
         for project_name in projects:

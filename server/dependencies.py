@@ -73,7 +73,7 @@ async def require_project_migration_ok(request: Request) -> None:
 
     if request.method in _READ_ONLY_METHODS:
         return
-    name = request.path_params.get("project_name") or request.path_params.get("name")
-    if not isinstance(name, str) or not name:
+    name = _project_name_param(request)
+    if not name:
         raise RuntimeError(f"require_project_migration_ok 挂在了没有项目路径参数的路由上：{request.url.path}")
     await asyncio.to_thread(assert_project_migration_ok, name)
