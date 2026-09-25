@@ -104,3 +104,14 @@ async def test_moved_root_with_repeated_project_name_does_not_rewrite_ambiguous_
     await _migrate(projects, session_factory, tmp_path)
 
     assert await _recorded_output_path(session_factory, call_id) == stored
+
+
+async def test_path_escaping_the_project_dir_is_left_unchanged(
+    tmp_path: Path, projects: ProjectManager, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    stored = f"{projects.get_project_path('demo')}/../other/image.png"
+    call_id = await _record_call(session_factory, stored)
+
+    await _migrate(projects, session_factory, tmp_path)
+
+    assert await _recorded_output_path(session_factory, call_id) == stored

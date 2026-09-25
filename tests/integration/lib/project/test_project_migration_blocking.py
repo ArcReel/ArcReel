@@ -12,6 +12,7 @@ from pathlib import Path
 import pytest
 from claude_agent_sdk import tool
 from fastapi import APIRouter, Depends, FastAPI
+from fastapi.routing import iter_route_contexts
 from fastapi.testclient import TestClient
 
 from lib.artifacts.artifact_activation import (
@@ -549,11 +550,17 @@ def test_every_guarded_router_route_can_name_its_project() -> None:
 
     from server.app import app
 
-    for route in app.routes:
-        dependencies = getattr(getattr(route, "dependant", None), "dependencies", ())
-        if not any(dep.call is require_project_migration_ok for dep in dependencies):
-            continue
-        assert {"project_name", "name"} & set(getattr(route, "param_convertors", {})), route.path
+    guarded = [
+        route.path
+        for route in iter_route_contexts(app.routes)
+        if any(
+            dep.call is require_project_migration_ok
+            for dep in getattr(getattr(route, "dependant", None), "dependencies", ())
+        )
+    ]
+    assert guarded
+    for path in guarded:
+        assert "{project_name}" in path or "/projects/{name}/" in f"{path}/", path
 
 
 def test_a_repaired_project_is_idempotent_to_retry(tmp_path: Path) -> None:

@@ -40,21 +40,29 @@ _ABSOLUTE_PATH_PREFIX = re.compile(r"^(?:[\\/]|[A-Za-z]:[\\/])")
 
 
 def _project_relative_output_path(stored: str, *, project_name: str, project_dirs: tuple[Path, ...]) -> str | None:
-    """把调用记录里的绝对产物路径还原为项目内相对路径；找不到项目名路径段时返回 None。
+    """把调用记录里的绝对产物路径还原为项目内相对路径；无法确认落在项目内时返回 None。
 
     先按 ``project_dirs`` 前缀截取；记录写下后数据根挪过位置时前缀对不上，改在路径里找
-    项目名路径段，取其后的部分。多处命中时无法确认旧项目根，保持原值。
+    项目名路径段，取其后的部分。多处命中时无法确认旧项目根，保持原值。截取结果含
+    ``..`` 段时可能越出项目目录，同样保持原值。
     """
+    relative = _relative_to_any(stored, project_dirs)
+    if relative is None:
+        segments = [segment for segment in re.split(r"[\\/]", stored) if segment]
+        candidates = [
+            "/".join(segments[index + 1 :]) for index, segment in enumerate(segments[:-1]) if segment == project_name
+        ]
+        relative = candidates[0] if len(candidates) == 1 else None
+    return relative if relative is not None and ".." not in Path(relative).parts else None
+
+
+def _relative_to_any(stored: str, project_dirs: tuple[Path, ...]) -> str | None:
     for project_dir in project_dirs:
         try:
             return Path(stored).relative_to(project_dir).as_posix()
         except ValueError:
             continue
-    segments = [segment for segment in re.split(r"[\\/]", stored) if segment]
-    candidates = [
-        "/".join(segments[index + 1 :]) for index, segment in enumerate(segments[:-1]) if segment == project_name
-    ]
-    return candidates[0] if len(candidates) == 1 and ".." not in Path(candidates[0]).parts else None
+    return None
 
 
 async def _relativize_call_output_paths(context: DataRootMigrationContext) -> None:
