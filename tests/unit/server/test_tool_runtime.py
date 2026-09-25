@@ -24,11 +24,16 @@ from server.agent_runtime.sdk_tools import text_generation as sdk_text_generatio
 from server.tool_runtime import (
     CallerContext,
     DraftLocator,
+    EpisodeScriptRequest,
     GenerationBatchToolRequest,
+    NoArguments,
     PatchEpisodeMetaRequest,
     PatchEpisodeScriptRequest,
+    ProjectFileRequest,
     ProjectScope,
+    ScriptPlanContentRequest,
     Services,
+    SourceTextRequest,
     ToolRequest,
     get_episode_script,
     get_generation_batch,
@@ -487,9 +492,13 @@ async def test_content_readers_return_body_and_revision_from_the_same_snapshot(t
     monkeypatch.setattr(projects, "load_project", tracked_load_project)
     monkeypatch.setattr(projects, "load_script_readonly", tracked_load_script_readonly)
 
-    project = await get_project_content(ToolRequest(None), scope, caller, services)
-    script = await get_episode_script(ToolRequest("episode_1.json"), scope, caller, services)
-    script_plan = await get_script_plan_content(ToolRequest(1), scope, caller, services)
+    project = await get_project_content(ToolRequest(NoArguments()), scope, caller, services)
+    script = await get_episode_script(
+        ToolRequest(EpisodeScriptRequest(script="episode_1.json")), scope, caller, services
+    )
+    script_plan = await get_script_plan_content(
+        ToolRequest(ScriptPlanContentRequest(episode=1)), scope, caller, services
+    )
 
     assert project.problem is None
     assert project.value is not None
@@ -524,15 +533,23 @@ async def test_file_readers_share_a_business_file_allowlist_and_reject_symlinks(
     services = Services(projects=projects, workflow_planner=_Planner(_status()), capabilities=_Capabilities())
     scope = ProjectScope("demo", tmp_path)
     caller = CallerContext(user_id="u1", source="mcp")
-    sources = await list_source_files(ToolRequest(None), scope, caller, services)
-    source = await get_source_text(ToolRequest("source/episode_1.txt"), scope, caller, services)
-    script_plan = await get_script_plan_content(ToolRequest(1), scope, caller, services)
-    files = await list_project_files(ToolRequest(None), scope, caller, services)
-    script = await read_project_file(ToolRequest("scripts/episode_1.json"), scope, caller, services)
-    sensitive = await read_project_file(ToolRequest(".env"), scope, caller, services)
-    linked = await read_project_file(ToolRequest("source/linked.txt"), scope, caller, services)
-    nonregular = await read_project_file(ToolRequest("source/directory.txt"), scope, caller, services)
-    traversal = await read_project_file(ToolRequest("../demo/project.json"), scope, caller, services)
+    sources = await list_source_files(ToolRequest(NoArguments()), scope, caller, services)
+    source = await get_source_text(ToolRequest(SourceTextRequest(path="source/episode_1.txt")), scope, caller, services)
+    script_plan = await get_script_plan_content(
+        ToolRequest(ScriptPlanContentRequest(episode=1)), scope, caller, services
+    )
+    files = await list_project_files(ToolRequest(NoArguments()), scope, caller, services)
+    script = await read_project_file(
+        ToolRequest(ProjectFileRequest(path="scripts/episode_1.json")), scope, caller, services
+    )
+    sensitive = await read_project_file(ToolRequest(ProjectFileRequest(path=".env")), scope, caller, services)
+    linked = await read_project_file(ToolRequest(ProjectFileRequest(path="source/linked.txt")), scope, caller, services)
+    nonregular = await read_project_file(
+        ToolRequest(ProjectFileRequest(path="source/directory.txt")), scope, caller, services
+    )
+    traversal = await read_project_file(
+        ToolRequest(ProjectFileRequest(path="../demo/project.json")), scope, caller, services
+    )
 
     assert sources.problem is None
     assert sources.value is not None
@@ -586,7 +603,7 @@ async def test_project_file_read_holds_the_checked_file_snapshot(tmp_path: Path,
     )
 
     outcome = await read_project_file(
-        ToolRequest("source/novel.txt"),
+        ToolRequest(ProjectFileRequest(path="source/novel.txt")),
         ProjectScope("demo", tmp_path),
         CallerContext(user_id="u1", source="mcp"),
         services,
@@ -610,7 +627,7 @@ async def test_project_file_read_rejects_oversized_regular_file(tmp_path: Path) 
     )
 
     outcome = await read_project_file(
-        ToolRequest("source/novel.txt"),
+        ToolRequest(ProjectFileRequest(path="source/novel.txt")),
         ProjectScope("demo", tmp_path),
         CallerContext(user_id="u1", source="mcp"),
         services,
@@ -654,54 +671,6 @@ def test_draft_dependency_points_from_sdk_adapter_to_shared_workflow() -> None:
     assert not any(name.startswith("server.agent_runtime.sdk_tools") for name in shared_imports)
     assert "server.draft_workflow" in sdk_imports
     assert '"is_error"' not in shared_source
-
-
-@pytest.mark.parametrize("script", [1, ["episode_1.json"], {"name": "episode_1.json"}, None])
-async def test_episode_script_reader_reports_invalid_request_for_non_string_names(
-    tmp_path: Path, script: object
-) -> None:
-    """工具入参是模型给的原始 JSON，形状不合规须落成 invalid_request 而非异常。"""
-
-    project_dir = tmp_path / "projects" / "demo"
-    project_dir.mkdir(parents=True)
-    (project_dir / "project.json").write_text(
-        f'{{"content_mode":"drama","schema_version":{CURRENT_PROJECT_SCHEMA_VERSION}}}', encoding="utf-8"
-    )
-    services = Services(
-        projects=ProjectManager(tmp_path), workflow_planner=_Planner(_status()), capabilities=_Capabilities()
-    )
-
-    outcome = await get_episode_script(
-        ToolRequest(script),
-        ProjectScope("demo", tmp_path),
-        CallerContext(user_id="u1", source="mcp"),
-        services,
-    )
-
-    assert outcome.problem is not None
-    assert outcome.problem.code == "invalid_request"
-
-
-@pytest.mark.parametrize("path", [1, ["source/novel.txt"], {"path": "source/novel.txt"}])
-async def test_business_file_readers_reject_non_string_paths(tmp_path: Path, path: object) -> None:
-    project_dir = tmp_path / "projects" / "demo"
-    (project_dir / "source").mkdir(parents=True)
-    (project_dir / "project.json").write_text(
-        f'{{"content_mode":"drama","schema_version":{CURRENT_PROJECT_SCHEMA_VERSION}}}', encoding="utf-8"
-    )
-    services = Services(
-        projects=ProjectManager(tmp_path), workflow_planner=_Planner(_status()), capabilities=_Capabilities()
-    )
-    scope = ProjectScope("demo", tmp_path)
-    caller = CallerContext(user_id="u1", source="mcp")
-
-    source_text = await get_source_text(ToolRequest(path), scope, caller, services)
-    project_file = await read_project_file(ToolRequest(path), scope, caller, services)
-
-    assert source_text.problem is not None
-    assert source_text.problem.code == "unsafe_path"
-    assert project_file.problem is not None
-    assert project_file.problem.code == "unsafe_path"
 
 
 @pytest.mark.parametrize("entry_ids", [(1,), (["E1U01"],), ({"id": "E1U01"},)])

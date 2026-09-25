@@ -229,6 +229,21 @@ allow_indirect_imports = true
 source_modules = ["lib"]
 forbidden_modules = ["fastapi", "starlette"]
 
+# Agent 工具集的声明、信封与 handler 宿主无关（docs/adr/0087）：宿主 SDK 只出现在内嵌与远程两个 adapter 里。
+# 只查这些模块自己写下的 import。
+[[tool.importlinter.contracts]]
+name = "Agent 工具集声明不依赖宿主 SDK"
+type = "forbidden"
+allow_indirect_imports = true
+source_modules = [
+    "server.agent_toolset.content_read",
+    "server.agent_toolset.declaration",
+    "server.agent_toolset.envelope",
+    "server.agent_toolset.toolset",
+    "server.tool_runtime",
+]
+forbidden_modules = ["claude_agent_sdk", "mcp"]
+
 [tool.deptry]
 # 扫描范围与 basedpyright 的 include 对齐：核心库、服务端、迁移基础设施、脚本与测试。
 # exclude 是 deptry 默认值去掉 tests（测试的 import 也要参与依赖卫生判定）再补上 worktree 目录。

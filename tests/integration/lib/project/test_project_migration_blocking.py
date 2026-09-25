@@ -38,14 +38,21 @@ from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from lib.script.script_batch_edit import script_revision
 from lib.workflow.workflow_plan import WorkflowPlanRequest
 from lib.workflow.workflow_state import WorkflowStateService
-from server.agent_runtime.sdk_tools.content_read import get_episode_script_tool
 from server.agent_runtime.sdk_tools.enqueue_assets import list_pending_assets_tool
 from server.agent_runtime.sdk_tools.patch_script import patch_episode_script_tool
 from server.dependencies import require_project_migration_ok
 from server.error_handlers import register_error_handlers
 from server.media_tools.context import ToolContext
 from server.services.project.workflow_planner import WorkflowPlanner
-from server.tool_runtime import CallerContext, ProjectScope, Services, ToolRequest, retry_project_migration
+from server.tool_runtime import (
+    CallerContext,
+    EpisodeScriptRequest,
+    ProjectScope,
+    Services,
+    ToolRequest,
+    get_episode_script,
+    retry_project_migration,
+)
 from tests.integration.lib.project.project_migrations.test_project_migration_v7_v8 import _project
 
 
@@ -282,22 +289,10 @@ def _assert_list_pending_assets_unblocked(unblocked: dict, ctx: ToolContext) -> 
     assert "✅" in text
 
 
-def _assert_get_episode_script_unblocked(unblocked: dict, ctx: ToolContext) -> None:
-    payload = json.loads(unblocked["content"][0]["text"])["episode_script"]
-    assert payload["script_filename"] == "episode_1.json"
-    assert payload["revision"] == script_revision(ctx.pm.load_script_readonly(ctx.project_name, "episode_1.json"))
-
-
 @pytest.mark.parametrize(
     ("tool_factory", "args", "unblocked_fields", "assert_unblocked"),
     [
         (list_pending_assets_tool, {}, (), _assert_list_pending_assets_unblocked),
-        (
-            get_episode_script_tool,
-            {"script": "episode_1.json"},
-            (),
-            _assert_get_episode_script_unblocked,
-        ),
     ],
 )
 async def test_readonly_diagnostic_tools_report_the_migration_problem_instead_of_raising(
@@ -335,6 +330,40 @@ async def test_readonly_diagnostic_tools_report_the_migration_problem_instead_of
     for field in unblocked_fields:
         assert unblocked[field]
     assert_unblocked(unblocked, ctx)
+
+
+async def test_episode_script_reader_withholds_the_revision_until_the_migration_is_repaired(tmp_path: Path) -> None:
+    """剧本读取自报迁移裁决：失败时不签发 revision，返回带 action 与明细的完整 problem。"""
+
+    projects_root = tmp_path / "projects"
+    projects_root.mkdir()
+    project_dir, *_ = _project(projects_root)
+    _break_episode_script(project_dir)
+    failure = migrate_project_with_verdict(project_dir)
+    assert failure is not None
+    projects = ProjectManager(str(projects_root))
+    services = Services(projects=projects, workflow_planner=WorkflowPlanner(projects), capabilities=object())
+    scope = ProjectScope(project_name="demo", data_root=projects_root)
+    caller = CallerContext(user_id="u1", source="mcp")
+    request = ToolRequest(EpisodeScriptRequest(script="episode_1.json"))
+
+    blocked = await get_episode_script(request, scope, caller, services)
+
+    assert blocked.value is None
+    assert blocked.problem is not None
+    assert blocked.problem.code == MIGRATION_FAILURE_CODE
+    assert blocked.problem.detail == failure.reason
+    assert blocked.problem.action == RETRY_MIGRATION_ACTION
+    assert blocked.problem.params is not None
+    assert blocked.problem.params["details"][0]["file"] == "scripts/episode_1.json"
+
+    _repair_episode_script(project_dir)
+    assert migrate_project_with_verdict(project_dir) is None
+    unblocked = await get_episode_script(request, scope, caller, services)
+
+    assert unblocked.problem is None
+    assert unblocked.value is not None
+    assert unblocked.value.revision == script_revision(projects.load_script_readonly("demo", "episode_1.json"))
 
 
 async def test_mcp_generation_tools_report_the_same_problem_without_running(tmp_path: Path, monkeypatch) -> None:

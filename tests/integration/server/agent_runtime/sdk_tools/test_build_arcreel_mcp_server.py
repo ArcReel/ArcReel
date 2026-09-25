@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
-from server.agent_runtime.sdk_tools import build_arcreel_mcp_server
+from mcp import types
+
+from server.agent_runtime.sdk_tools import ARCREEL_MCP_TOOL_IDS, build_arcreel_mcp_server
 
 # ---------------------------------------------------------------------------
 # build_arcreel_mcp_server
@@ -17,6 +20,27 @@ def test_build_arcreel_mcp_server_contains_all_tools(tmp_path: Path) -> None:
     # SDK exposes the registered tools on srv["instance"]; we just sanity-check
     # the type returned matches the spec contract.
     assert "instance" in srv
+
+
+async def test_session_server_lists_every_catalogued_tool(tmp_path: Path) -> None:
+    server = build_arcreel_mcp_server(project_name="demo", data_root=tmp_path)["instance"]
+
+    listed = (await server.request_handlers[types.ListToolsRequest](types.ListToolsRequest())).root
+
+    assert isinstance(listed, types.ListToolsResult)
+    assert sorted(tool.name for tool in listed.tools) == sorted(ARCREEL_MCP_TOOL_IDS)
+
+
+async def test_session_server_routes_factory_registered_tools_to_their_handler(tmp_path: Path) -> None:
+    server = build_arcreel_mcp_server(project_name="demo", data_root=tmp_path)["instance"]
+    request = types.CallToolRequest(params=types.CallToolRequestParams(name="list_projects", arguments={}))
+
+    result = (await server.request_handlers[types.CallToolRequest](request)).root
+
+    assert isinstance(result, types.CallToolResult)
+    assert result.isError is False
+    assert isinstance(result.content[0], types.TextContent)
+    assert json.loads(result.content[0].text) == {"projects": []}
 
 
 def test_generate_narration_audio_registered() -> None:
