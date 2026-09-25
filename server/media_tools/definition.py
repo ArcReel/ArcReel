@@ -7,8 +7,8 @@ from dataclasses import dataclass
 from typing import Any
 
 from lib.generation.generation_batch import GenerationBatchReadModel
-from lib.generation.generation_result import GenerationBatchResult
 from server.agent_toolset.envelope import json_value
+from server.media_tools.context import generation_is_error, generation_structured, generation_summary
 from server.tool_runtime import ToolOutcome
 
 
@@ -29,20 +29,10 @@ def media_outcome_payload(
     """Project one typed media outcome; each host still owns its envelope."""
     if outcome.problem is not None:
         return {"problem": json_value(outcome.problem)}, None, True
-    if isinstance(outcome.value, GenerationBatchReadModel):
-        return {"generation_batch": json_value(outcome.value)}, None, False
-    if isinstance(outcome.value, dict) and "generation_result" in outcome.value:
-        payload = json_value(outcome.value)
-        summary = payload.pop("summary", None)
-        result = outcome.value["generation_result"]
-        admission = outcome.value.get("batch_admission")
-        is_error = (
-            isinstance(result, GenerationBatchResult)
-            and not result.ok
-            and not (isinstance(admission, dict) and admission.get("decision") == "confirmation_required")
-        )
-        return payload, summary, is_error
-    return {definition.name: json_value(outcome.value)}, None, False
+    value = outcome.value
+    if isinstance(value, GenerationBatchReadModel) or (isinstance(value, dict) and "generation_result" in value):
+        return generation_structured(value), generation_summary(value), generation_is_error(value)
+    return {definition.name: json_value(value)}, None, False
 
 
 def tool(name: str, description: str, input_schema: dict[str, Any]):

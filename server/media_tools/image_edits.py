@@ -9,7 +9,10 @@ uses, so the two entry points can't diverge (see ``server/services/tasks/image_e
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal, Self, get_args
+
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic.json_schema import SkipJsonSchema
 
 from lib.artifacts.artifact_activation import (
     ArtifactCurrencyResolver,
@@ -18,8 +21,7 @@ from lib.artifacts.artifact_activation import (
 )
 from lib.artifacts.artifact_manifest import ArtifactManifestError
 from lib.config.resolver import ConfigResolver
-from lib.db import async_session_factory
-from lib.generation.generation_queue_client import TaskSpec, batch_enqueue_and_wait
+from lib.generation.generation_queue_client import TaskSpec
 from lib.generation.generation_result import (
     GenerationAction,
     GenerationCandidate,
@@ -31,45 +33,43 @@ from lib.generation.generation_result import (
     record_batch_outcomes,
 )
 from server.media_tools.context import (
-    ToolContext,
+    GenerationToolValue,
+    ScriptFilename,
     generation_batch_submission_outcome,
     generation_result_outcome,
     tool_error,
     tool_problem,
-    tool_services,
-    validate_script_filename,
 )
-from server.media_tools.definition import tool
 from server.services.tasks.image_edit_tasks import EDITABLE_RESOURCE_TYPES, resolve_usable_image_edit_source
-from server.tool_runtime import ToolOutcome, submit_media_generation
+from server.tool_runtime import CallerContext, ProjectScope, Services, ToolOutcome, ToolRequest, submit_media_generation
 
 # 编辑始终是显式选择：一次编辑必须携带自己的指令，没有可由 Manifest 推导的
 # "缺失的编辑"，因此本工具不提供 missing-only 选择。
 _OPERATION = "edit_images"
 
 # Display label for tool output only; storyboard isn't an ASSET_SPECS member so this
-# can't reuse that dict directly (mirrors enqueue_assets._EMOJI's separate table).
+# can't reuse that dict directly (mirrors assets._EMOJI's separate table).
 _LABEL_ZH: dict[str, str] = {
     "character": "角色",
     "scene": "场景",
     "prop": "道具",
     "product": "商品",
     "storyboard": "分镜图",
+    "character_derivative": "角色衍生图",
 }
 
+EditableResourceType = Literal["character", "scene", "prop", "product", "storyboard", "character_derivative"]
+if get_args(EditableResourceType) != EDITABLE_RESOURCE_TYPES:
+    raise RuntimeError("EditableResourceType 须与 EDITABLE_RESOURCE_TYPES 逐项一致")
 
-async def _i2i_provider_available(
-    project: dict[str, Any],
-    *,
-    config_resolver: ConfigResolver | None = None,
-) -> bool:
+
+async def _i2i_provider_available(project: dict[str, Any], *, config_resolver: ConfigResolver) -> bool:
     """项目 i2i 槽解析不出可用供应商时返回 False——与 HTTP 端点入队前 fail-fast 同一判断点
     （见 ``server/routers/generate.py::_require_i2i_image_provider_configured``），批量编辑
     只需要一次「是否可用」的项目级判断，不像端点那样需要拿到 provider_id 传给入队。
     """
     try:
-        resolver = config_resolver or ConfigResolver(async_session_factory)
-        await resolver.resolve_image_backend(project, None, generation_type="i2i")
+        await config_resolver.resolve_image_backend(project, None, generation_type="i2i")
     except ValueError:
         return False
     return True
@@ -80,7 +80,7 @@ def _build_specs(
     project: dict[str, Any],
     project_path: Any,
     resource_type: str,
-    edits: list[Any],
+    edits: list[ImageEdit],
     script: dict[str, Any] | None,
     script_filename: str | None,
     artifact_episode: int | None,
@@ -92,23 +92,20 @@ def _build_specs(
 ) -> list[TaskSpec]:
     """Turn the requested edits into task specs, blocking the ones that cannot run.
 
-    Malformed entries with no usable ID stay in ``warnings``: they have no unit
-    ID to report against, so they cannot enter the per-ID contract. ``states``
-    is filled in with each resolved edit source's pre-edit path so that, if the
-    edit task itself later fails, the per-ID result still reports the untouched
-    source image instead of ``None`` — the edit never landed, but the image it
-    would have overwritten is still there.
+    Entries with a blank ID and repeated IDs stay in ``warnings``: they have no
+    unit ID of their own to report against, so they cannot enter the per-ID
+    contract. ``states`` is filled in with each resolved edit source's pre-edit
+    path so that, if the edit task itself later fails, the per-ID result still
+    reports the untouched source image instead of ``None`` — the edit never
+    landed, but the image it would have overwritten is still there.
     """
 
     label = _LABEL_ZH[resource_type]
     specs: list[TaskSpec] = []
     seen_ids: set[str] = set()
     for edit in edits:
-        if not isinstance(edit, dict):
-            warnings.append(f"⚠️  edits 中存在非法条目（须为对象），跳过: {edit!r}")
-            continue
-        resource_id = str(edit.get("id") or "").strip()
-        instruction = str(edit.get("instruction") or "").strip()
+        resource_id = edit.id.strip()
+        instruction = edit.instruction.strip()
         if not resource_id:
             warnings.append("⚠️  edits 中存在缺少 id 的条目，跳过")
             continue
@@ -186,28 +183,51 @@ def _build_specs(
     return specs
 
 
-async def handle_edit_images(ctx: ToolContext, args: dict[str, Any]) -> ToolOutcome[Any]:
+class ImageEdit(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    id: str = Field(
+        description="编辑目标 ID：资产名称；storyboard 为分镜的 segment_id / scene_id；"
+        "character_derivative 为「本体名/衍生名」"
+    )
+    instruction: str = Field(description="编辑指令：用自然语言描述要修改的部分")
+
+
+class EditImagesRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    resource_type: EditableResourceType = Field(description="编辑目标类型；一次调用只编辑同一类型")
+    edits: list[ImageEdit] = Field(
+        min_length=1, description="批量编辑列表，每项一个 id 与一条 instruction；同一 id 只保留第一条"
+    )
+    script_file: ScriptFilename | SkipJsonSchema[None] = Field(
+        default=None, description="剧本纯文件名（不含目录），如 episode_1.json；resource_type=storyboard 时必填"
+    )
+
+    @model_validator(mode="after")
+    def _storyboard_needs_script(self) -> Self:
+        if self.resource_type == "storyboard" and self.script_file is None:
+            raise ValueError("resource_type=storyboard 时 script_file 必填")
+        return self
+
+
+async def edit_images(
+    request: ToolRequest[EditImagesRequest],
+    scope: ProjectScope,
+    caller: CallerContext,
+    services: Services,
+) -> ToolOutcome[GenerationToolValue]:
     try:
-        resource_type = args.get("resource_type")
-        if resource_type not in EDITABLE_RESOURCE_TYPES:
-            return tool_problem(f"resource_type 必须是以下之一: {', '.join(EDITABLE_RESOURCE_TYPES)}")
+        resource_type = request.value.resource_type
+        edits = request.value.edits
 
-        edits = args.get("edits")
-        if not isinstance(edits, list) or not edits:
-            return tool_problem("edits 不能为空")
-
-        is_storyboard = resource_type == "storyboard"
-        script_filename: str | None = None
+        script_filename = request.value.script_file if resource_type == "storyboard" else None
         script: dict[str, Any] | None = None
-        if is_storyboard:
-            raw_script = args.get("script_file")
-            if not raw_script:
-                return tool_problem("resource_type=storyboard 时 script_file 必填")
-            script_filename = validate_script_filename(raw_script)
-            script = ctx.pm.load_script(ctx.project_name, script_filename)
+        if script_filename is not None:
+            script = services.projects.load_script(scope.project_name, script_filename)
 
-        project = ctx.pm.load_project(ctx.project_name)
-        project_path = ctx.project_path
+        project = services.projects.load_project(scope.project_name)
+        project_path = services.projects.get_project_path(scope.project_name)
         artifact_episode = None
         if script is not None and script_filename is not None:
             artifact_episode = resolve_artifact_episode(
@@ -221,19 +241,13 @@ async def handle_edit_images(ctx: ToolContext, args: dict[str, Any]) -> ToolOutc
         builder = GenerationResultBuilder(_OPERATION, GenerationSelectionMode.EXPLICIT)
         states: dict[str, GenerationTargetState] = {}
 
-        if ctx.config_resolver is None:
-            provider_available = await _i2i_provider_available(project)
-        else:
-            provider_available = await _i2i_provider_available(project, config_resolver=ctx.config_resolver)
-        if not provider_available:
+        if not await _i2i_provider_available(project, config_resolver=services.capabilities):
             # 拦截在入队前：不是某个 ID 的产物问题，是整批共享的前置条件不满足，
             # 但调用方仍按逐 ID 契约读结果，因此每个请求到的 ID 各记一条 blocked，
             # 而不是只回一段无法编程消费的文本。
             seen: set[str] = set()
             for edit in edits:
-                if not isinstance(edit, dict):
-                    continue
-                resource_id = str(edit.get("id") or "").strip()
+                resource_id = edit.id.strip()
                 if not resource_id or resource_id in seen:
                     continue
                 seen.add(resource_id)
@@ -261,21 +275,20 @@ async def handle_edit_images(ctx: ToolContext, args: dict[str, Any]) -> ToolOutc
                 warnings=warnings,
                 builder=builder,
                 states=states,
-                caller_source=ctx.caller.source,
+                caller_source=caller.source,
             )
         if not specs and not builder.recorded_ids:
             return tool_problem("\n".join([*warnings, "没有可执行的编辑任务"]))
 
         submitted = await submit_media_generation(
-            scope=ctx.scope,
-            caller=ctx.caller,
-            services=tool_services(ctx),
+            scope=scope,
+            caller=caller,
+            services=services,
             operation=_OPERATION,
             preflight=builder.build(),
             pending_ids=list(states),
             specs=specs,
             states=states,
-            embedded_waiter=batch_enqueue_and_wait,
         )
         if submitted.successes is None or submitted.failures is None:
             return generation_batch_submission_outcome(submitted.batch)
@@ -296,54 +309,4 @@ async def handle_edit_images(ctx: ToolContext, args: dict[str, Any]) -> ToolOutc
         return tool_error(_OPERATION, exc)
 
 
-def edit_images_tool(ctx: ToolContext):
-    @tool(
-        "edit_images",
-        "对已生成的资产图/分镜图做指令式局部编辑：保持原图大体不变，仅按指令修改不满意的部分"
-        "（如换发色、去掉背景杂物、调整光线氛围），支持同类型批量下发。"
-        "与「重新生成」的区别：编辑=保底图微调、不改变原 image_prompt，重生成会作废本次编辑效果"
-        "（仍按原 prompt 重画）；重新生成=按原 prompt 整图重画，会推翻已满意的部分。"
-        "用户只想改局部时用编辑；用户想推翻构图/内容重来、或原 image_prompt 本身要改时用重新生成。"
-        "resource_type 支持 character/scene/prop/product/storyboard 五类，storyboard 必须带 script_file。"
-        "编辑必然走图生图（i2i）；当前项目图片供应商不支持 i2i 时直接返回错误，不创建任何任务。"
-        "编辑始终是显式选择（每条编辑自带指令），结果按 requested / succeeded / failed / blocked 逐 ID 返回。",
-        {
-            "type": "object",
-            "properties": {
-                "resource_type": {
-                    "type": "string",
-                    "enum": list(EDITABLE_RESOURCE_TYPES),
-                    "description": "编辑目标类型",
-                },
-                "edits": {
-                    "type": "array",
-                    "items": {
-                        "type": "object",
-                        "properties": {
-                            "id": {
-                                "type": "string",
-                                "description": "资产名称，或 storyboard 的 segment_id/scene_id",
-                            },
-                            "instruction": {"type": "string", "description": "编辑指令（自然语言，描述要修改的部分）"},
-                        },
-                        "required": ["id", "instruction"],
-                    },
-                    "minItems": 1,
-                    "description": "批量编辑列表，每项一个 id + instruction",
-                },
-                "script_file": {
-                    "type": "string",
-                    "description": "剧本文件名（如 episode_1.json）；resource_type=storyboard 时必填，"
-                    "必须是纯文件名，禁止任何路径分隔符",
-                },
-            },
-            "required": ["resource_type", "edits"],
-        },
-    )
-    async def _handler(args: dict[str, Any]) -> ToolOutcome[Any]:
-        return await handle_edit_images(ctx, args)
-
-    return _handler
-
-
-__all__ = ["edit_images_tool"]
+__all__ = ["EditImagesRequest", "ImageEdit", "edit_images"]

@@ -10,16 +10,16 @@ from __future__ import annotations
 
 from typing import Any
 
+from pydantic import BaseModel, ConfigDict, Field
+from pydantic.json_schema import SkipJsonSchema
+
 from lib.artifacts.artifact_activation import (
     ArtifactCurrencyResolver,
     active_artifact_currency_resolver,
     resolve_artifact_episode,
 )
 from lib.artifacts.artifact_manifest import ArtifactKey
-from lib.generation.generation_queue_client import (
-    TaskSpec,
-    batch_enqueue_and_wait,
-)
+from lib.generation.generation_queue_client import TaskSpec
 from lib.generation.generation_result import (
     GenerationAction,
     GenerationCandidate,
@@ -37,15 +37,14 @@ from lib.script.script_skeleton import ensure_route_skeleton
 from lib.speech.narration_delivery import canonical_narration_text
 from lib.speech.speech_composition import SpeechAdmission, SpeechMode, admit_script_unit
 from server.media_tools.context import (
-    ToolContext,
+    GenerationToolValue,
+    RequestedIds,
+    ScriptFilename,
     generation_batch_submission_outcome,
     generation_result_outcome,
     tool_error,
-    tool_services,
-    validate_script_filename,
 )
-from server.media_tools.definition import tool
-from server.tool_runtime import ToolOutcome, submit_media_generation
+from server.tool_runtime import CallerContext, ProjectScope, Services, ToolOutcome, ToolRequest, submit_media_generation
 
 _OPERATION = "generate_narration_audio"
 
@@ -114,20 +113,35 @@ def _candidates(
     return candidates, problems
 
 
-async def handle_generate_narration_audio(ctx: ToolContext, args: dict[str, Any]) -> ToolOutcome[Any]:
+class GenerateNarrationAudioRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    script: ScriptFilename = Field(description="剧本纯文件名（不含目录），如 episode_1.json")
+    segment_ids: RequestedIds | SkipJsonSchema[None] = Field(
+        default=None,
+        description="当前剧本骨架的单元 ID 列表；省略则只选缺旁白配音的 narrator 单元",
+    )
+
+
+async def generate_narration_audio(
+    request: ToolRequest[GenerateNarrationAudioRequest],
+    scope: ProjectScope,
+    caller: CallerContext,
+    services: Services,
+) -> ToolOutcome[GenerationToolValue]:
     try:
-        script_filename = validate_script_filename(args["script"])
-        segment_ids = normalize_requested_ids(args.get("segment_ids"), field="segment_ids")
+        script_filename = request.value.script
+        segment_ids = normalize_requested_ids(request.value.segment_ids, field="segment_ids")
 
-        script = ctx.pm.load_script(ctx.project_name, script_filename)
+        script = services.projects.load_script(scope.project_name, script_filename)
 
-        project = ctx.pm.load_project(ctx.project_name)
+        project = services.projects.load_project(scope.project_name)
         content_mode = resolve_content_mode(script, project)
         ensure_route_skeleton(script, content_mode, project.get("generation_mode"))
         items, id_field, kind = resolve_items(script)
         if not items:
             raise ValueError("剧本没有可配音的单元")
-        resolver = active_artifact_currency_resolver(ctx.project_path, project)
+        resolver = active_artifact_currency_resolver(services.projects.get_project_path(scope.project_name), project)
         episode = (
             resolve_artifact_episode(
                 project=project,
@@ -175,21 +189,20 @@ async def handle_generate_narration_audio(ctx: ToolContext, args: dict[str, Any]
                 prompt=None,
                 script_file=script_filename,
                 unit_id=state.unit_id,
-                source=ctx.caller.source,
+                source=caller.source,
             )
             for state in targets
         ]
 
         submitted = await submit_media_generation(
-            scope=ctx.scope,
-            caller=ctx.caller,
-            services=tool_services(ctx),
+            scope=scope,
+            caller=caller,
+            services=services,
             operation=_OPERATION,
             preflight=builder.build(),
             pending_ids=[state.unit_id for state in targets],
             specs=specs,
             states=by_id,
-            embedded_waiter=batch_enqueue_and_wait,
         )
         if submitted.successes is None or submitted.failures is None:
             return generation_batch_submission_outcome(submitted.batch)
@@ -208,36 +221,4 @@ async def handle_generate_narration_audio(ctx: ToolContext, args: dict[str, Any]
         return tool_error(_OPERATION, exc)
 
 
-def generate_narration_audio_tool(ctx: ToolContext):
-    @tool(
-        _OPERATION,
-        "为任意生成模式中由 narrator 拥有发声内容的单元显式生成旁白配音（TTS）。embedded 调用入队并等待完成；"
-        "remote MCP 调用返回 durable generation_batch，须按 poll_after_seconds 查询 get_generation_batch 直到 done=true。"
-        "script 为剧本文件名（如 episode_1.json）；segment_ids 接受当前骨架的 unit ID 列表"
-        "（不传则只选缺旁白配音的 narrator 单元；已失效但可用的旧配音不会被自动重生）。"
-        "终态返回 requested / succeeded / failed / blocked 的逐 ID 结果，"
-        "每个失败项带稳定 code 与下一步动作。"
-        "合成文本在 worker 开始时从最新剧本的规范 narrator utterances 读取，不依赖分镜图或视频。",
-        {
-            "type": "object",
-            "properties": {
-                "script": {
-                    "type": "string",
-                    "description": "剧本文件名（如 episode_1.json），必须是纯文件名，禁止任何路径分隔符",
-                },
-                "segment_ids": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": "当前剧本骨架的单元 ID 列表；不传则只选缺旁白配音的 narrator 单元",
-                },
-            },
-            "required": ["script"],
-        },
-    )
-    async def _handler(args: dict[str, Any]) -> ToolOutcome[Any]:
-        return await handle_generate_narration_audio(ctx, args)
-
-    return _handler
-
-
-__all__ = ["generate_narration_audio_tool"]
+__all__ = ["GenerateNarrationAudioRequest", "generate_narration_audio"]

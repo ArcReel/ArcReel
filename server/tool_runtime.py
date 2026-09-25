@@ -136,6 +136,7 @@ from lib.script.source_loader import (
     UnsupportedFormatError,
 )
 from lib.speech.character_voice import VALID_CHARACTER_VOICE_BINDINGS
+from lib.speech.narration_delivery import TtsSettingsResolver
 from lib.workflow.workflow_plan import WorkflowPlan, WorkflowPlanRequest
 from lib.workflow.workflow_state import WorkflowRequestError
 from server.draft_workflow import (
@@ -184,10 +185,20 @@ class ProjectScope:
     data_root: Path
 
 
+type BatchWaiter = Callable[..., Awaitable[tuple[list[BatchTaskResult], list[BatchTaskResult]]]]
+
+
 @dataclass(frozen=True, slots=True)
 class CallerContext:
+    """调用方身份与宿主。
+
+    ``source`` 决定长任务阻塞还是即返：``embedded`` 由 ``batch_waiter`` 入队并等到批次终态，
+    ``mcp`` 提交后立即返回批次句柄、不需要等待器。
+    """
+
     user_id: str
     source: Literal["embedded", "mcp"]
+    batch_waiter: BatchWaiter | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -196,6 +207,7 @@ class Services:
     workflow_planner: WorkflowPlanner
     capabilities: ConfigResolver
     queue: GenerationQueue = field(default_factory=get_generation_queue)
+    tts_settings_resolver: TtsSettingsResolver | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -245,8 +257,12 @@ async def submit_media_generation(
     specs: list[TaskSpec],
     states: dict[str, GenerationTargetState] | None = None,
     admission: dict[str, dict[str, Any]] | None = None,
-    embedded_waiter: Callable[..., Awaitable[tuple[list[BatchTaskResult], list[BatchTaskResult]]]] | None = None,
+    embedded_waiter: BatchWaiter | None = None,
 ) -> MediaGenerationSubmission:
+    """提交一批媒体生成：远程调用方即返批次句柄，内嵌调用方等到批次终态。
+
+    内嵌等待器缺省取 ``caller.batch_waiter``；``embedded_waiter`` 供需要包装等待过程的调用方覆盖。
+    """
     requested, blocked = build_generation_batch_admission(
         preflight=preflight,
         pending_ids=pending_ids,
@@ -274,10 +290,11 @@ async def submit_media_generation(
         user_id=caller.user_id,
     )
     try:
-        if embedded_waiter is None:
+        waiter = embedded_waiter if embedded_waiter is not None else caller.batch_waiter
+        if waiter is None:
             raise ValueError("embedded media generation requires a batch waiter")
         if specs:
-            successes, failures = await embedded_waiter(
+            successes, failures = await waiter(
                 project_name=scope.project_name,
                 specs=specs,
                 batch_id=batch_id,

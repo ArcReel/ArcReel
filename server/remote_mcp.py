@@ -43,13 +43,9 @@ from server.draft_workflow import (
     PositiveEpisode,
     PromoteDraftRequest,
 )
-from server.media_tools.assets import generate_assets_tool, list_pending_assets_tool
 from server.media_tools.context import ToolContext
 from server.media_tools.definition import ToolDefinition, media_outcome_payload
 from server.media_tools.grid import generate_grid_tool, split_grids_tool
-from server.media_tools.image_edits import edit_images_tool
-from server.media_tools.narration_audio import generate_narration_audio_tool
-from server.media_tools.storyboards import generate_storyboards_tool
 from server.media_tools.videos import generate_videos_tool
 from server.services.project import workflow_planner
 from server.text_generation import SCOPE_REMOVED_MESSAGE, TextGenerationRequest
@@ -83,9 +79,7 @@ from server.tool_runtime import (
 
 # One decoded control byte may occupy six JSON bytes (``\u00XX``); leave 1 MiB for the MCP envelope.
 _MAX_REQUEST_BODY_BYTES = SourceLoader.DEFAULT_MAX_BYTES * 6 + 1024 * 1024
-_REMOTE_DURABLE_BATCH_MEDIA_TOOLS = frozenset(
-    {"generate_assets", "generate_storyboards", "generate_grid", "edit_images", "generate_videos"}
-)
+_REMOTE_DURABLE_BATCH_MEDIA_TOOLS = frozenset({"generate_grid", "generate_videos"})
 _REMOTE_DURABLE_BATCH_DESCRIPTION = (
     " Remote MCP generation submissions return durable admission and durable generation_batch state immediately; "
     "follow poll_after_seconds "
@@ -278,9 +272,7 @@ def build_remote_mcp_server(
     ) -> CallToolResult:
         try:
             ctx = media_context(project)
-            if definition_factory is not list_pending_assets_tool and (
-                problem := await migration_gate(ctx.scope, services)
-            ):
+            if problem := await migration_gate(ctx.scope, services):
                 return _to_mcp_result("generation_batch", ToolOutcome(problem=problem))
             definition = definition_factory(ctx)
             return _media_outcome_to_mcp(definition, await definition.invoke(args))
@@ -296,16 +288,7 @@ def build_remote_mcp_server(
         queue=services.queue,
     )
     media_tools: list[FastMCPTool] = []
-    for definition_factory in (
-        list_pending_assets_tool,
-        generate_assets_tool,
-        generate_storyboards_tool,
-        edit_images_tool,
-        generate_grid_tool,
-        split_grids_tool,
-        generate_videos_tool,
-        generate_narration_audio_tool,
-    ):
+    for definition_factory in (generate_grid_tool, split_grids_tool, generate_videos_tool):
         definition = definition_factory(schema_context)
         media_tools.append(_remote_media_tool(definition, definition_factory, invoke_media))
 
