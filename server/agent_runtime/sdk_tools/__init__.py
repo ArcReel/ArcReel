@@ -26,9 +26,6 @@ from server.agent_runtime.sdk_tools.episode_planning import (
     plan_episodes_tool,
     reset_episode_planning_tool,
 )
-from server.agent_runtime.sdk_tools.patch_script import (
-    patch_episode_script_tool,
-)
 from server.agent_runtime.sdk_tools.text_generation import (
     confirm_script_review_tool,
     discard_draft_tool,
@@ -72,7 +69,6 @@ _FACTORY_TOOL_IDS: tuple[str, ...] = (
     "discard_draft",
     "plan_episodes",
     "reset_episode_planning",
-    "patch_episode_script",
 )
 ARCREEL_MCP_TOOL_IDS: tuple[str, ...] = (*_FACTORY_TOOL_IDS, *DECLARED_TOOL_IDS)
 
@@ -104,7 +100,6 @@ _FACTORY_MIGRATION_BLOCKED_TOOL_IDS: frozenset[str] = frozenset(
         "discard_draft",
         "plan_episodes",
         "reset_episode_planning",
-        "patch_episode_script",
     }
 )
 MIGRATION_BLOCKED_TOOL_IDS: frozenset[str] = _FACTORY_MIGRATION_BLOCKED_TOOL_IDS | DECLARED_MIGRATION_BLOCKED_TOOL_IDS
@@ -153,7 +148,6 @@ def build_arcreel_mcp_server(*, project_name: str, data_root: Path, user_id: str
         discard_draft_tool(ctx),
         plan_episodes_tool(ctx),
         reset_episode_planning_tool(ctx),
-        patch_episode_script_tool(ctx),
     ]
     undeclared = create_sdk_mcp_server(
         name="arcreel",

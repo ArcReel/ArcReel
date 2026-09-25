@@ -244,6 +244,7 @@ source_modules = [
     "server.agent_toolset.orientation",
     "server.agent_toolset.project_entry",
     "server.agent_toolset.repair_channel",
+    "server.agent_toolset.script_editing",
     "server.agent_toolset.toolset",
     "server.media_tools.assets",
     "server.media_tools.context",
