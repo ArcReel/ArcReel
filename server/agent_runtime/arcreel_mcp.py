@@ -11,14 +11,11 @@ from pathlib import Path
 
 from claude_agent_sdk import McpSdkServerConfig
 
-from lib.config.resolver import ConfigResolver
-from lib.db import async_session_factory
 from lib.db.base import DEFAULT_USER_ID
 from lib.generation.generation_queue_client import batch_enqueue_and_wait
 from lib.project.project_manager import ProjectManager
 from server.agent_toolset.embedded import embedded_server
 from server.agent_toolset.toolset import AGENT_TOOLSET
-from server.services.project import workflow_planner
 from server.tool_runtime import CallerContext, ProjectScope, Services
 
 
@@ -26,18 +23,13 @@ def build_arcreel_mcp_server(
     *, project_name: str, data_root: Path, user_id: str = DEFAULT_USER_ID
 ) -> McpSdkServerConfig:
     """以会话项目构建暴露全部 ArcReel 工具的 in-process MCP server；生成类工具等到批次终态再返回。"""
-    projects = ProjectManager(data_root)
     return embedded_server(
         AGENT_TOOLSET,
         name="arcreel",
         version="1.0.0",
         scope=ProjectScope(project_name=project_name, data_root=data_root),
         caller=CallerContext(user_id=user_id, source="embedded", batch_waiter=batch_enqueue_and_wait),
-        services=Services(
-            projects=projects,
-            workflow_planner=workflow_planner.get_workflow_planner(projects),
-            capabilities=ConfigResolver(async_session_factory),
-        ),
+        services=Services.defaults(ProjectManager(data_root)),
     )
 
 

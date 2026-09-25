@@ -140,7 +140,7 @@ _SCOPED_DECLARATIONS = pytest.mark.parametrize(
 
 
 @pytest.fixture
-def projects(tmp_path: Path) -> ProjectManager:
+def seeded_projects(tmp_path: Path) -> ProjectManager:
     manager = ProjectManager(tmp_path / "data")
     root = manager.projects_dir
     manager.create_project("demo", content_mode="drama")
@@ -163,16 +163,16 @@ def projects(tmp_path: Path) -> ProjectManager:
 
 
 @pytest.fixture
-def services(projects: ProjectManager) -> Services:
+def services(seeded_projects: ProjectManager) -> Services:
     return Services(
-        projects=projects,
-        workflow_planner=WorkflowPlanner(projects),
+        projects=seeded_projects,
+        workflow_planner=WorkflowPlanner(seeded_projects),
         capabilities=ConfigResolver(async_session_factory),
     )
 
 
-def _scope(projects: ProjectManager) -> ProjectScope:
-    return ProjectScope(project_name="demo", data_root=projects.data_root)
+def _scope(seeded_projects: ProjectManager) -> ProjectScope:
+    return ProjectScope(project_name="demo", data_root=seeded_projects.data_root)
 
 
 def _answering[DeclarationT: AgentToolDeclaration](
@@ -254,8 +254,8 @@ def _without_project(schema: dict[str, Any]) -> dict[str, Any]:
     return stripped
 
 
-async def _embedded_listing(projects: ProjectManager) -> dict[str, types.Tool]:
-    server = build_arcreel_mcp_server(project_name="demo", data_root=projects.data_root)["instance"]
+async def _embedded_listing(seeded_projects: ProjectManager) -> dict[str, types.Tool]:
+    server = build_arcreel_mcp_server(project_name="demo", data_root=seeded_projects.data_root)["instance"]
     result = (await server.request_handlers[types.ListToolsRequest](types.ListToolsRequest(method="tools/list"))).root
     assert isinstance(result, types.ListToolsResult)
     return {tool.name: tool for tool in result.tools}
@@ -263,9 +263,9 @@ async def _embedded_listing(projects: ProjectManager) -> dict[str, types.Tool]:
 
 @_SCOPED_DECLARATIONS
 async def test_both_hosts_expose_the_declared_name_schema_and_description(
-    declaration: ToolDeclaration[Any, Any], projects: ProjectManager, services: Services
+    declaration: ToolDeclaration[Any, Any], seeded_projects: ProjectManager, services: Services
 ) -> None:
-    embedded = (await _embedded_listing(projects))[declaration.name]
+    embedded = (await _embedded_listing(seeded_projects))[declaration.name]
     remote = {tool.name: tool for tool in await build_remote_mcp_server(services=services).list_tools()}[
         declaration.name
     ]
@@ -287,9 +287,9 @@ async def test_both_hosts_expose_the_declared_name_schema_and_description(
     ids=lambda declaration: declaration.name,
 )
 async def test_both_hosts_expose_an_unscoped_declaration_without_project(
-    declaration: UnscopedToolDeclaration[Any, Any], projects: ProjectManager, services: Services
+    declaration: UnscopedToolDeclaration[Any, Any], seeded_projects: ProjectManager, services: Services
 ) -> None:
-    embedded = (await _embedded_listing(projects))[declaration.name]
+    embedded = (await _embedded_listing(seeded_projects))[declaration.name]
     remote = {tool.name: tool for tool in await build_remote_mcp_server(services=services).list_tools()}[
         declaration.name
     ]
@@ -303,13 +303,13 @@ async def test_both_hosts_expose_an_unscoped_declaration_without_project(
 
 
 async def test_every_tool_both_hosts_expose_is_defined_by_a_declaration(
-    projects: ProjectManager, services: Services
+    seeded_projects: ProjectManager, services: Services
 ) -> None:
     """两宿主注册的工具集合与声明集合相同：没有声明之外的第二份工具定义。
 
     ``SAMPLE_ARGUMENTS`` 逐个列出了全部工具，它的键集合同时充当工具清单。
     """
-    embedded = set(await _embedded_listing(projects))
+    embedded = set(await _embedded_listing(seeded_projects))
     remote = {tool.name for tool in await build_remote_mcp_server(services=services).list_tools()}
     declared = {declaration.name for declaration in AGENT_TOOLSET}
 
@@ -342,11 +342,11 @@ async def test_problems_pass_through_both_hosts_unchanged(
 
 @_DECLARATIONS
 async def test_invalid_arguments_are_rejected_as_the_same_invalid_request_by_both_hosts(
-    declaration: AgentToolDeclaration, projects: ProjectManager, services: Services
+    declaration: AgentToolDeclaration, seeded_projects: ProjectManager, services: Services
 ) -> None:
     arguments = {**SAMPLE_ARGUMENTS[declaration.name], "unexpected": 1}
     # 经会话真实注册的 in-process server 调用：MCP 层不做 schema 预校验，坏参数由请求模型拒绝。
-    session_server = build_arcreel_mcp_server(project_name="demo", data_root=projects.data_root)["instance"]
+    session_server = build_arcreel_mcp_server(project_name="demo", data_root=seeded_projects.data_root)["instance"]
 
     embedded = await _call_server(session_server, declaration.name, arguments)
     remote = await _call_remote(declaration, _remote_arguments(declaration, arguments), services)
@@ -362,10 +362,12 @@ async def test_invalid_arguments_are_rejected_as_the_same_invalid_request_by_bot
 
 @_SCOPED_DECLARATIONS
 async def test_a_blocked_declaration_refuses_a_migration_failed_project_at_both_entries(
-    declaration: ToolDeclaration[Any, Any], projects: ProjectManager, services: Services
+    declaration: ToolDeclaration[Any, Any], seeded_projects: ProjectManager, services: Services
 ) -> None:
     record_migration_failure(
-        projects.get_project_path("demo"), RuntimeError("清单预检失败"), schema_version=CURRENT_PROJECT_SCHEMA_VERSION
+        seeded_projects.get_project_path("demo"),
+        RuntimeError("清单预检失败"),
+        schema_version=CURRENT_PROJECT_SCHEMA_VERSION,
     )
     calls: list[object] = []
     blocked = _answering(replace(declaration, migration=BLOCKED), ToolOutcome(value={}), calls)
@@ -395,10 +397,12 @@ async def test_a_blocked_declaration_refuses_a_migration_failed_project_at_both_
     ids=lambda declaration: declaration.name,
 )
 async def test_unblocked_declarations_reach_the_handler_on_a_migration_failed_project(
-    declaration: AgentToolDeclaration, projects: ProjectManager, services: Services
+    declaration: AgentToolDeclaration, seeded_projects: ProjectManager, services: Services
 ) -> None:
     record_migration_failure(
-        projects.get_project_path("demo"), RuntimeError("清单预检失败"), schema_version=CURRENT_PROJECT_SCHEMA_VERSION
+        seeded_projects.get_project_path("demo"),
+        RuntimeError("清单预检失败"),
+        schema_version=CURRENT_PROJECT_SCHEMA_VERSION,
     )
     answering = _answering(declaration, ToolOutcome(value={"answered": True}), [])
 
@@ -418,11 +422,13 @@ async def test_unblocked_declarations_reach_the_handler_on_a_migration_failed_pr
     ids=lambda declaration: declaration.name,
 )
 async def test_declared_blocked_entries_refuse_a_migration_failed_project_before_the_handler(
-    declaration: ToolDeclaration[Any, Any], projects: ProjectManager, services: Services
+    declaration: ToolDeclaration[Any, Any], seeded_projects: ProjectManager, services: Services
 ) -> None:
     """声明为 ``BLOCKED`` 的入口按声明阻断，不依赖 handler 内层的迁移兜底。"""
     record_migration_failure(
-        projects.get_project_path("demo"), RuntimeError("清单预检失败"), schema_version=CURRENT_PROJECT_SCHEMA_VERSION
+        seeded_projects.get_project_path("demo"),
+        RuntimeError("清单预检失败"),
+        schema_version=CURRENT_PROJECT_SCHEMA_VERSION,
     )
     calls: list[object] = []
     answering = _answering(declaration, ToolOutcome(value={}), calls)
@@ -440,10 +446,12 @@ async def test_declared_blocked_entries_refuse_a_migration_failed_project_before
 
 
 async def test_episode_script_reader_reports_the_same_migration_problem_in_both_hosts(
-    projects: ProjectManager, services: Services
+    seeded_projects: ProjectManager, services: Services
 ) -> None:
     record_migration_failure(
-        projects.get_project_path("demo"), RuntimeError("清单预检失败"), schema_version=CURRENT_PROJECT_SCHEMA_VERSION
+        seeded_projects.get_project_path("demo"),
+        RuntimeError("清单预检失败"),
+        schema_version=CURRENT_PROJECT_SCHEMA_VERSION,
     )
     declaration = next(declaration for declaration in AGENT_TOOLSET if declaration.name == "get_episode_script")
 
@@ -462,13 +470,15 @@ async def test_episode_script_reader_reports_the_same_migration_problem_in_both_
 
 
 async def test_patch_episode_script_reports_a_missing_script_as_script_not_found_in_both_hosts(
-    projects: ProjectManager, services: Services, tmp_path: Path
+    seeded_projects: ProjectManager, services: Services, tmp_path: Path
 ) -> None:
     arguments = SAMPLE_ARGUMENTS[PATCH_EPISODE_SCRIPT.name]
 
     embedded = await _call_embedded(PATCH_EPISODE_SCRIPT, arguments, services)
     remote = await _call_remote(
-        PATCH_EPISODE_SCRIPT, _remote_arguments(PATCH_EPISODE_SCRIPT, arguments), _twin_services(projects, tmp_path)
+        PATCH_EPISODE_SCRIPT,
+        _remote_arguments(PATCH_EPISODE_SCRIPT, arguments),
+        _twin_services(seeded_projects, tmp_path),
     )
 
     assert embedded.isError is True
@@ -478,10 +488,10 @@ async def test_patch_episode_script_reports_a_missing_script_as_script_not_found
     assert remote.structuredContent["problem"]["code"] == "script_not_found"
 
 
-def _twin_services(projects: ProjectManager, tmp_path: Path) -> Services:
+def _twin_services(seeded_projects: ProjectManager, tmp_path: Path) -> Services:
     """同一初始状态的另一份项目根，让写入类工具在两宿主各跑一次、互不影响。"""
     root = tmp_path / "twin"
-    shutil.copytree(projects.data_root, root, symlinks=True)
+    shutil.copytree(seeded_projects.data_root, root, symlinks=True)
     twin = ProjectManager(root)
     return Services(
         projects=twin, workflow_planner=WorkflowPlanner(twin), capabilities=ConfigResolver(async_session_factory)
@@ -522,9 +532,9 @@ _PROBLEM_ON_SAMPLE = frozenset(
     ids=lambda declaration: declaration.name,
 )
 async def test_embedded_content_carries_the_same_json_as_remote_structured_content(
-    declaration: AgentToolDeclaration, projects: ProjectManager, services: Services, tmp_path: Path
+    declaration: AgentToolDeclaration, seeded_projects: ProjectManager, services: Services, tmp_path: Path
 ) -> None:
-    twin = _twin_services(projects, tmp_path)
+    twin = _twin_services(seeded_projects, tmp_path)
     embedded = await _call_embedded(declaration, SAMPLE_ARGUMENTS[declaration.name], services)
     remote = await _call_remote(declaration, _remote_arguments(declaration, SAMPLE_ARGUMENTS[declaration.name]), twin)
 
@@ -572,13 +582,13 @@ async def test_remote_project_locating_failures_are_invalid_project(
 
 
 async def test_embedded_terminal_generation_result_has_the_shape_remote_polling_reads_at_the_terminal_state(
-    projects: ProjectManager, services: Services, db_factory
+    seeded_projects: ProjectManager, services: Services, db_factory
 ) -> None:
     """长任务是唯一允许的结果差异：内嵌拿终态结果，远程拿批次句柄；两边的终态生成结果同形。"""
-    project = projects.load_project("demo")
+    project = seeded_projects.load_project("demo")
     project["characters"] = {"李四": {"description": ""}}
-    projects.save_project("demo", project)
-    services = replace(services, queue=GenerationQueue(session_factory=db_factory, project_manager=projects))
+    seeded_projects.save_project("demo", project)
+    services = replace(services, queue=GenerationQueue(session_factory=db_factory, project_manager=seeded_projects))
     declaration = next(declaration for declaration in AGENT_TOOLSET if declaration.name == "generate_assets")
     arguments = {"type": "character", "names": ["李四"]}
     waiter = AsyncMock(return_value=([], []))
@@ -589,19 +599,22 @@ async def test_embedded_terminal_generation_result_has_the_shape_remote_polling_
         [declaration],
         name="arcreel",
         version="1.0.0",
-        scope=_scope(projects),
+        scope=_scope(seeded_projects),
         caller=embedded_caller,
         services=services,
     )["instance"]
     embedded = await _call_server(session_server, declaration.name, arguments)
-    remote = await remote_tool(declaration, projects=projects, services=services, caller=lambda: remote_caller).run(
-        {"project": "demo", **arguments}
-    )
+    remote = await remote_tool(
+        declaration, projects=seeded_projects, services=services, caller=lambda: remote_caller
+    ).run({"project": "demo", **arguments})
     assert isinstance(remote, types.CallToolResult)
     assert remote.structuredContent is not None
     handle = remote.structuredContent["generation_batch"]
     polled = await get_generation_batch(
-        ToolRequest(GenerationBatchToolRequest(batch_id=handle["batch_id"])), _scope(projects), remote_caller, services
+        ToolRequest(GenerationBatchToolRequest(batch_id=handle["batch_id"])),
+        _scope(seeded_projects),
+        remote_caller,
+        services,
     )
 
     # 内嵌：摘要在前、终态结果 JSON 在后；批次全部被阻断即结果级失败。
@@ -622,10 +635,10 @@ async def test_embedded_terminal_generation_result_has_the_shape_remote_polling_
 
 
 async def test_grid_list_only_preview_is_the_same_json_in_both_hosts(
-    projects: ProjectManager, services: Services
+    seeded_projects: ProjectManager, services: Services
 ) -> None:
     """宫格预览不是生成结果：两宿主都立即拿到同一份规划文本，放在工具名下，没有批次可轮询。"""
-    project = projects.load_project("demo")
+    project = seeded_projects.load_project("demo")
     project.update(
         {
             "generation_mode": "storyboard",
@@ -633,9 +646,9 @@ async def test_grid_list_only_preview_is_the_same_json_in_both_hosts(
             "episodes": [{"episode": 1, "script_file": "episode_1.json"}],
         }
     )
-    projects.save_project("demo", project)
+    seeded_projects.save_project("demo", project)
     scenes = [{"scene_id": f"E1S0{i}", "image_prompt": "p", "segment_break": False} for i in range(1, 5)]
-    (projects.get_project_path("demo") / "scripts" / "episode_1.json").write_text(
+    (seeded_projects.get_project_path("demo") / "scripts" / "episode_1.json").write_text(
         json.dumps({"episode": 1, "content_mode": "drama", "scenes": scenes}), encoding="utf-8"
     )
     arguments = SAMPLE_ARGUMENTS[GENERATE_GRID.name]
@@ -652,10 +665,10 @@ async def test_grid_list_only_preview_is_the_same_json_in_both_hosts(
 
 
 async def test_a_text_generation_dry_run_returns_the_same_prompt_in_both_hosts(
-    projects: ProjectManager, services: Services, tmp_path: Path
+    seeded_projects: ProjectManager, services: Services, tmp_path: Path
 ) -> None:
     """长任务的 dry_run 不提交批次：两宿主都立即拿到同一份 ``text_generation``，没有批次句柄。"""
-    twin = _twin_services(projects, tmp_path)
+    twin = _twin_services(seeded_projects, tmp_path)
     arguments = SAMPLE_ARGUMENTS[GENERATE_EPISODE_SCRIPT.name]
 
     embedded = await _call_embedded(GENERATE_EPISODE_SCRIPT, arguments, services)
