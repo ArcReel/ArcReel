@@ -13,8 +13,6 @@ from server.tool_runtime import (
     complete_script_plan_rebuild,
 )
 
-_MIGRATION_REFUSAL = "项目数据升级失败时拒绝执行，返回 project_migration_failed problem。"
-
 COMPLETE_ASSET_INVENTORY = ToolDeclaration(
     name="complete_asset_inventory",
     description=(
@@ -26,7 +24,7 @@ COMPLETE_ASSET_INVENTORY = ToolDeclaration(
         "invalid_request；project.json 中资产表或 workflow 结构损坏时返回 inventory_unavailable；两者同样整笔不写。"
         "成功时新增资产写入 project.json（已存在的同名资产保持不变），"
         "并记录完成事实，返回 scope、source_revision 与提交后角色 / 场景 / 道具各自的总数。三类清单全空也是合法结果，"
-        "仍须调用。" + _MIGRATION_REFUSAL
+        "仍须调用。"
     ),
     request_model=CompleteAssetInventoryRequest,
     migration=BLOCKED,
@@ -41,7 +39,7 @@ COMPLETE_SCRIPT_PLAN_REBUILD = ToolDeclaration(
         "制作计划也能继续收敛。仅在制作计划 next_action.args 带 expected_stale_script_plan_revision 时使用，"
         "该值原样传入。该集不在待重建状态（not_stale）、缺少重建基线（missing_baseline）、基线已变化（baseline_conflict）"
         "或正式 script_plan 文件缺失（script_plan_missing）时拒绝且不写入；报冲突时刷新制作计划，不要用旧参数重试。"
-        "成功返回该集与重建后 script_plan 的 revision。" + _MIGRATION_REFUSAL
+        "成功返回该集与重建后 script_plan 的 revision。"
     ),
     request_model=CompleteScriptPlanRebuildRequest,
     migration=BLOCKED,

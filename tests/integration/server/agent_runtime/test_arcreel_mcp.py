@@ -1,4 +1,4 @@
-"""Tests for build_arcreel_mcp_server."""
+"""会话 in-process MCP server 的装配：工具目录与会话项目根。"""
 
 from __future__ import annotations
 
@@ -8,7 +8,8 @@ from pathlib import Path
 from mcp import types
 
 from lib.project.project_manager import ProjectManager
-from server.agent_runtime.sdk_tools import ARCREEL_MCP_TOOL_IDS, build_arcreel_mcp_server
+from server.agent_runtime.arcreel_mcp import build_arcreel_mcp_server
+from server.agent_toolset.toolset import ARCREEL_MCP_TOOL_IDS
 
 # ---------------------------------------------------------------------------
 # build_arcreel_mcp_server
@@ -55,14 +56,10 @@ async def test_session_entry_tools_share_the_session_projects_root(tmp_path: Pat
 
 def test_generate_narration_audio_registered() -> None:
     """旁白配音工具必须同时进 MCP 工具 id 集（前端 chip 三语校验依赖它）。"""
-    from server.agent_runtime.sdk_tools import ARCREEL_MCP_TOOL_IDS
-
     assert "generate_narration_audio" in ARCREEL_MCP_TOOL_IDS
 
 
 def test_retired_tool_names_are_not_registered() -> None:
-    from server.agent_runtime.sdk_tools import ARCREEL_MCP_TOOL_IDS
-
     assert "patch_episode_script" in ARCREEL_MCP_TOOL_IDS
     assert {
         "normalize_drama_script",

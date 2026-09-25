@@ -10,11 +10,11 @@ import pytest
 
 from lib.db.models.user import User
 from lib.speech.narration_delivery import TtsSynthesisSettings
-from server.media_tools.context import ToolContext
 from server.services.tasks.narration_delivery_tasks import ResolvedTtsSettingsResolver, active_tts_resource_ids
 from server.tool_runtime import CallerContext, ToolOutcome
 from tests.factories import make_video_request_facts
-from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
+from tests.integration.server.agent_tool_support import (
+    ToolHarness,
     read_generation_result,
     reference_video_script,
     run_generate_videos,
@@ -43,7 +43,7 @@ def _admission_codes(out: ToolOutcome[Any]) -> dict[str, list[str]]:
 
 
 async def test_generate_videos_episode_scope_batch_is_all_or_nothing_when_a_unit_is_occupied(
-    idle_fake_ctx: ToolContext, concurrent_session_factory
+    idle_fake_ctx: ToolHarness, concurrent_session_factory
 ) -> None:
     """在途任务冲突拦下整批：一个都不入队，其余 unit 报告自己是被谁扣下的。"""
     fake_ctx = idle_fake_ctx
@@ -104,7 +104,7 @@ async def test_generate_videos_episode_scope_batch_is_all_or_nothing_when_a_unit
 
 
 async def test_generate_reference_videos_reads_active_tts_from_the_callers_queue_only(
-    idle_fake_ctx: ToolContext, concurrent_session_factory
+    idle_fake_ctx: ToolHarness, concurrent_session_factory
 ) -> None:
     """参考视频预检只认同队列同租户 TTS；其他租户的任务不能占住当前请求。"""
     fake_ctx = idle_fake_ctx
@@ -184,7 +184,7 @@ async def test_generate_reference_videos_reads_active_tts_from_the_callers_queue
 
 
 async def test_generate_videos_all_scope_creates_zero_tasks_when_one_artifact_state_is_unreadable(
-    fake_ctx: ToolContext,
+    fake_ctx: ToolHarness,
 ) -> None:
     """产物状态读不出的场景属于这次请求：它带着自己的问题进准入，整批停下，健康的场景不入队计费。"""
     fake_ctx.pm.script_payload["segments"].append(
@@ -211,7 +211,7 @@ async def test_generate_videos_all_scope_creates_zero_tasks_when_one_artifact_st
 
 
 async def test_generate_videos_all_scope_blocks_a_reference_gap_and_withholds_the_batch(
-    fake_ctx: ToolContext,
+    fake_ctx: ToolHarness,
 ) -> None:
     """图生视频的整批准入与单条提交同判：引用有缺口的场景阻断，整批一个都不入队。"""
 
@@ -243,7 +243,7 @@ async def test_generate_videos_all_scope_blocks_a_reference_gap_and_withholds_th
 
 
 async def test_generate_videos_all_scope_admits_legacy_narration_stored_under_scenes(
-    fake_ctx: ToolContext,
+    fake_ctx: ToolHarness,
 ) -> None:
     """narration 数据落在 scenes 键的历史剧本按实际骨架做发声准入，不被整批判成解析失败。"""
 
@@ -288,7 +288,7 @@ async def test_generate_videos_all_scope_admits_legacy_narration_stored_under_sc
 
 
 async def test_generate_videos_all_scope_reports_an_all_unreadable_selection_as_blocked(
-    fake_ctx: ToolContext,
+    fake_ctx: ToolHarness,
 ) -> None:
     """全部目标的产物状态都读不出时不能报成空的成功：那会把每一条状态问题都藏起来。"""
     fake_ctx.pm.script_payload["segments"][0]["generated_assets"]["video_clip"] = _UNREADABLE_CLIP
@@ -302,7 +302,7 @@ async def test_generate_videos_all_scope_reports_an_all_unreadable_selection_as_
 
 
 async def test_generate_reference_episode_refuses_a_non_scalar_unit_id(
-    fake_ctx: ToolContext,
+    fake_ctx: ToolHarness,
 ) -> None:
     """整集参考生成遇到非标量 unit_id：它按位置记名拒收，健康的兄弟条目不会独自入队计费。"""
 
@@ -322,7 +322,7 @@ async def test_generate_reference_episode_refuses_a_non_scalar_unit_id(
 
 
 async def test_generate_reference_units_refuses_a_duplicated_named_unit(
-    fake_ctx: ToolContext,
+    fake_ctx: ToolHarness,
 ) -> None:
     """点名的 unit 在剧本里有两份：无从判定要做哪一条，整批停在建任务之前。"""
 

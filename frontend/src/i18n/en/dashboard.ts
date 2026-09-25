@@ -1740,7 +1740,7 @@ export default {
   'chat_interrupt_notice': 'Session interrupted by user',
   'chat_question_answer_label': 'Answered',
   // MCP tool display names (single source of truth: ARCREEL_MCP_TOOL_IDS in
-  // server/agent_runtime/sdk_tools/__init__.py; tests/test_frontend_mcp_tool_i18n.py
+  // server/agent_toolset/toolset.py; tests/unit/test_frontend_mcp_tool_i18n.py
   // enforces all locales stay in sync — adding a backend tool without wiring zh/en/vi fails CI)
   'tool_name_list_pending_assets': 'List pending assets',
   'tool_name_list_projects': 'List projects',

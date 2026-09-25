@@ -39,8 +39,7 @@ PATCH_EPISODE_SCRIPT = ToolDeclaration(
         "next_action，发声组合问题另附 speech_admission。不会删除或清空已有付费媒体；改了 image_prompt / "
         "video_prompt 的条目列在 regeneration_required_ids，须紧接着显式重新生成；画面描述里未绑定的 @[名称] "
         "列在 warnings。写入对应原文 source_text 时，项目有源文则须是本集源文的逐字片段，否则以 "
-        "source_text_not_verbatim 拒绝。剧本不存在时返回 script_not_found problem；项目数据升级失败时拒绝写入，"
-        "返回 project_migration_failed problem。"
+        "source_text_not_verbatim 拒绝。剧本不存在时返回 script_not_found problem。"
     ),
     request_model=PatchEpisodeScriptRequest,
     migration=BLOCKED,

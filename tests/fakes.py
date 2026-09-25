@@ -408,8 +408,8 @@ def fake_reference_request_projector(
 class FakeConfigResolver:
     """能力解析器 seam 的手写替身：按桶回答视频能力，不触碰配置库。
 
-    生产侧凡接 ``config_resolver`` 关键字的入口（``ToolContext``、``MediaGenerator``、``project_video_caps``
-    等能力 dict 取值器）都可注入本类，替代对这些取值器本身的整体替换——被替换掉的取值器里有软回退与
+    Agent 工具测试装配 ``ToolHarness`` 与生产侧凡接 ``config_resolver`` 关键字的入口（``MediaGenerator``、
+    ``project_video_caps`` 等能力 dict 取值器）都可注入本类，替代对这些取值器本身的整体替换——被替换掉的取值器里有软回退与
     声音档派生，那些才是用例要保护的行为。本类不实现执行模型解析与逐模型能力合成，视频请求事实的
     消费方测试改用 ``tests/conftest.py`` 的 ``set_video_request_facts`` 直接供给事实结果。
 

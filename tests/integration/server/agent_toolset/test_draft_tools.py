@@ -26,10 +26,10 @@ from lib.script.draft_quarantine import (
     write_quarantine,
 )
 from server.draft_workflow import DraftContext, DraftWorkflow, DraftWorkflowError
-from server.media_tools.context import ToolContext
 from server.tool_runtime import ToolOutcome
-from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
+from tests.integration.server.agent_tool_support import (
     _RV_NOVEL,
+    ToolHarness,
     derived_reference_names,
     draft_of,
     drama_project,
@@ -68,7 +68,7 @@ from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
 pytestmark = pytest.mark.usefixtures("video_request_facts")
 
 
-def _write_reference_prompt_authoring(fake_ctx: ToolContext, script: dict) -> None:
+def _write_reference_prompt_authoring(fake_ctx: ToolHarness, script: dict) -> None:
     fake_ctx.pm.script_payload = script
     scripts = fake_ctx.project_path / "scripts"
     scripts.mkdir(exist_ok=True)
@@ -80,7 +80,7 @@ def _write_reference_prompt_authoring(fake_ctx: ToolContext, script: dict) -> No
 # ---------------------------------------------------------------------------
 
 
-async def test_open_draft_returns_flat_draft_structure(fake_ctx: ToolContext) -> None:
+async def test_open_draft_returns_flat_draft_structure(fake_ctx: ToolHarness) -> None:
     """取回的是扁平草稿结构，不装派生物：Agent 改的是引用语法正文 / 原文锚 / 时长，
     unit_id 由晋升时按数组序号重新派生，放进草稿等于给漂移开口子。"""
     rv_source(fake_ctx)
@@ -100,7 +100,7 @@ async def test_open_draft_returns_flat_draft_structure(fake_ctx: ToolContext) ->
     assert unit["text"] == "@[张三] 起身\n@[张三] 走向 @[村口]"
 
 
-async def test_open_draft_leaves_official_file_untouched(fake_ctx: ToolContext) -> None:
+async def test_open_draft_leaves_official_file_untouched(fake_ctx: ToolHarness) -> None:
     """取回只是开编辑工位，正式文件一步不动——改动落回正式文件只发生在持锁的晋升侧。"""
     rv_source(fake_ctx)
     write_rv_script_plan(fake_ctx, [rv_saved_unit("@[张三] 起身")])
@@ -111,7 +111,7 @@ async def test_open_draft_leaves_official_file_untouched(fake_ctx: ToolContext) 
     assert rv_script_plan_path(fake_ctx).read_text(encoding="utf-8") == before
 
 
-async def test_open_draft_round_trips_through_promote(fake_ctx: ToolContext) -> None:
+async def test_open_draft_round_trips_through_promote(fake_ctx: ToolHarness) -> None:
     """情况 B 的完整闭环：取回 → 改草稿 → 晋升。改动经晋升侧的持锁写盘落回正式文件。"""
     rv_source(fake_ctx)
     write_rv_script_plan(fake_ctx, [rv_saved_unit("@[张三] 起身")])
@@ -130,7 +130,7 @@ async def test_open_draft_round_trips_through_promote(fake_ctx: ToolContext) -> 
     assert derived_reference_names(fake_ctx, saved["units"][0]["text"]) == ["张三", "村口"]
 
 
-async def test_open_draft_returns_existing_draft_without_clobbering(fake_ctx: ToolContext, monkeypatch) -> None:
+async def test_open_draft_returns_existing_draft_without_clobbering(fake_ctx: ToolHarness, monkeypatch) -> None:
     """已有草稿在场时不覆盖：那份草稿可能已含 Agent 未晋升的修改（或本就是待修复草稿），
     拿正式文件盖过去等于抹掉它手上的工作。"""
     rv_source(fake_ctx)
@@ -145,7 +145,7 @@ async def test_open_draft_returns_existing_draft_without_clobbering(fake_ctx: To
     assert "reference_script_plan" in said(out)
 
 
-async def test_open_draft_without_official_file(fake_ctx: ToolContext) -> None:
+async def test_open_draft_without_official_file(fake_ctx: ToolHarness) -> None:
     """没有正式 script_plan 时指回首次拆分工具，而不是开一份空草稿让 Agent 手写整集。"""
     rv_source(fake_ctx)
 
@@ -156,7 +156,7 @@ async def test_open_draft_without_official_file(fake_ctx: ToolContext) -> None:
     assert not rv_quarantine_path(fake_ctx).exists()
 
 
-async def test_open_draft_keeps_malformed_duration_verbatim(fake_ctx: ToolContext) -> None:
+async def test_open_draft_keeps_malformed_duration_verbatim(fake_ctx: ToolHarness) -> None:
     """盘上 unit 的字段类型不符时原样带进草稿，不归一化成合法值：``8.0`` 被改写成 ``0``
     后，Agent 从草稿里看到的是一个它没写过的时长，晋升报告说「时长不在档位内」也对不上
     盘上的原值。原样带过则由晋升侧 schema 逐条报告，Agent 看得见错在哪。"""
@@ -171,7 +171,7 @@ async def test_open_draft_keeps_malformed_duration_verbatim(fake_ctx: ToolContex
     assert read_rv_quarantine(fake_ctx)["content"]["units"][0]["duration_seconds"] == 8.0
 
 
-async def test_open_draft_keeps_malformed_non_dict_unit_slot(fake_ctx: ToolContext) -> None:
+async def test_open_draft_keeps_malformed_non_dict_unit_slot(fake_ctx: ToolHarness) -> None:
     """盘上 units 混入非 dict 元素时不能直接丢弃：跳过会让草稿数组比正式文件短一个，若剩余
     unit 都能过校验，晋升会悄悄覆盖正式文件、丢失这个 unit 而无人知晓。留空占位在原数组
     位置，让晋升侧 schema 判它结构非法、逐条报出。"""
@@ -190,7 +190,7 @@ async def test_open_draft_keeps_malformed_non_dict_unit_slot(fake_ctx: ToolConte
 
 
 async def test_open_draft_rejects_missing_source_without_side_effect(
-    fake_ctx: ToolContext,
+    fake_ctx: ToolHarness,
 ) -> None:
     """`source` 指向不存在的文件时不落盘草稿：草稿一旦创建就把这个坏路径记进 meta.source，
     晋升时 `_load_novel_source` 会反复报错，而草稿在场又挡住重新取回改正 source，Agent
@@ -217,7 +217,7 @@ async def test_open_draft_rejects_missing_source_without_side_effect(
     assert not rv_quarantine_path(fake_ctx).exists()
 
 
-async def test_script_plan_write_cannot_race_a_prompt_authoring_draft_patch(fake_ctx: ToolContext) -> None:
+async def test_script_plan_write_cannot_race_a_prompt_authoring_draft_patch(fake_ctx: ToolHarness) -> None:
     rv_source(fake_ctx)
     write_rv_script_plan(fake_ctx, [rv_saved_unit("@[张三] 起身")])
     _write_reference_prompt_authoring(
@@ -285,7 +285,7 @@ async def test_script_plan_write_cannot_race_a_prompt_authoring_draft_patch(fake
     assert not target.exists()
 
 
-async def test_open_draft_rejects_non_reference_episode(fake_ctx: ToolContext) -> None:
+async def test_open_draft_rejects_non_reference_episode(fake_ctx: ToolHarness) -> None:
     """切走参考路径的集不给编辑：盘上的 script_plan 与该集此刻的生成路径无关。与晋升工具同一判据。"""
     rv_source(fake_ctx)
     rv_project(fake_ctx, generation_mode="image_to_video")
@@ -297,7 +297,7 @@ async def test_open_draft_rejects_non_reference_episode(fake_ctx: ToolContext) -
     assert not rv_quarantine_path(fake_ctx).exists()
 
 
-async def test_open_draft_records_base_fingerprint(fake_ctx: ToolContext) -> None:
+async def test_open_draft_records_base_fingerprint(fake_ctx: ToolHarness) -> None:
     """取回时把正式文件此刻的内容指纹记进 meta.base_fingerprint，供晋升前基线比对。"""
     rv_source(fake_ctx)
     write_rv_script_plan(fake_ctx, [rv_saved_unit("@[张三] 起身")])
@@ -309,7 +309,7 @@ async def test_open_draft_records_base_fingerprint(fake_ctx: ToolContext) -> Non
     assert meta["base_fingerprint"] == script_review.content_fingerprint(rv_script_plan_path(fake_ctx))
 
 
-async def test_open_draft_returns_drama_scenes(fake_ctx: ToolContext) -> None:
+async def test_open_draft_returns_drama_scenes(fake_ctx: ToolHarness) -> None:
     """drama 取回的草稿装分镜内容表，正式文件一步不动——写盘只发生在持锁的晋升侧。"""
     drama_project(fake_ctx)
     write_drama_script_plan(fake_ctx, [drama_scene(needs_replan=True)])
@@ -331,7 +331,7 @@ async def test_open_draft_returns_drama_scenes(fake_ctx: ToolContext) -> None:
     assert drama_script_plan_path(fake_ctx).read_text(encoding="utf-8") == before
 
 
-async def test_open_draft_drama_round_trips_through_promote(fake_ctx: ToolContext) -> None:
+async def test_open_draft_drama_round_trips_through_promote(fake_ctx: ToolHarness) -> None:
     """完整闭环：取回 → 改草稿 → 晋升。改动经持锁写盘落回正式文件，派生字段按新内容重算。"""
     drama_project(fake_ctx)
     write_drama_script_plan(fake_ctx, [drama_scene()])
@@ -349,7 +349,7 @@ async def test_open_draft_drama_round_trips_through_promote(fake_ctx: ToolContex
     assert saved["scenes"][0]["scene_description"] == "阿离推开山门。"
 
 
-async def test_open_draft_returns_existing_drama_draft(fake_ctx: ToolContext) -> None:
+async def test_open_draft_returns_existing_drama_draft(fake_ctx: ToolHarness) -> None:
     """已有草稿在场时不覆盖：那份草稿可能已含未晋升的修改，出路是继续改它再晋升。"""
     drama_project(fake_ctx)
     write_drama_script_plan(fake_ctx, [drama_scene()])
@@ -364,7 +364,7 @@ async def test_open_draft_returns_existing_drama_draft(fake_ctx: ToolContext) ->
     assert read_drama_quarantine(fake_ctx)["content"]["scenes"][0]["scene_description"] == "未晋升的修改。"
 
 
-def _mark_script_plan_confirmed(fake_ctx: ToolContext) -> None:
+def _mark_script_plan_confirmed(fake_ctx: ToolHarness) -> None:
     """该集已产出正式剧本、没有确认记录：按存量口径视为脚本规划已确认。"""
     scripts = fake_ctx.project_path / "scripts"
     scripts.mkdir(exist_ok=True)
@@ -375,7 +375,7 @@ def _problem(out: ToolOutcome[Any]) -> dict[str, Any]:
     return problem_of(out).model_dump()
 
 
-async def test_open_draft_refuses_to_copy_a_confirmed_script_plan(fake_ctx: ToolContext) -> None:
+async def test_open_draft_refuses_to_copy_a_confirmed_script_plan(fake_ctx: ToolHarness) -> None:
     drama_project(fake_ctx)
     write_drama_script_plan(fake_ctx, [drama_scene()])
     _mark_script_plan_confirmed(fake_ctx)
@@ -388,7 +388,7 @@ async def test_open_draft_refuses_to_copy_a_confirmed_script_plan(fake_ctx: Tool
     assert not drama_quarantine_path(fake_ctx).exists()
 
 
-async def test_patch_and_promote_refuse_an_edit_copy_once_the_script_plan_is_confirmed(fake_ctx: ToolContext) -> None:
+async def test_patch_and_promote_refuse_an_edit_copy_once_the_script_plan_is_confirmed(fake_ctx: ToolHarness) -> None:
     drama_project(fake_ctx)
     write_drama_script_plan(fake_ctx, [drama_scene()])
     opened = draft_of(await open_drama_for_edit(fake_ctx, source="source/episode_1.txt"))
@@ -412,7 +412,7 @@ async def test_patch_and_promote_refuse_an_edit_copy_once_the_script_plan_is_con
 
 
 async def test_rerun_draft_on_a_confirmed_script_plan_can_still_be_repaired_and_promoted(
-    fake_ctx: ToolContext,
+    fake_ctx: ToolHarness,
 ) -> None:
     """重跑脚本规划留下的待修复草稿不是已确认内容的编辑副本：修复并晋升后正式脚本规划换成新内容。"""
     drama_project(fake_ctx)
@@ -447,7 +447,7 @@ async def test_rerun_draft_on_a_confirmed_script_plan_can_still_be_repaired_and_
     assert saved["scenes"][0]["scene_description"] == "阿离推开山门。"
 
 
-async def test_prompt_authoring_draft_is_not_affected_by_a_confirmed_script_plan(fake_ctx: ToolContext) -> None:
+async def test_prompt_authoring_draft_is_not_affected_by_a_confirmed_script_plan(fake_ctx: ToolHarness) -> None:
     rv_source(fake_ctx)
     write_rv_script_plan(fake_ctx, [rv_saved_unit("@[张三] 起身")])
     _write_reference_prompt_authoring(
@@ -477,7 +477,7 @@ async def test_prompt_authoring_draft_is_not_affected_by_a_confirmed_script_plan
     assert draft_of(patched)["content"]["units"][0]["text"] == "@[张三] 坐下"
 
 
-async def test_open_draft_rejects_variant_without_draft_channel(fake_ctx: ToolContext) -> None:
+async def test_open_draft_rejects_variant_without_draft_channel(fake_ctx: ToolHarness) -> None:
     """ad 没有结构化 script_plan，也就没有草稿通道：报错要点名这一点，不能让 Agent 以为工具坏了反复重试。"""
     (fake_ctx.project_path / "project.json").write_text(
         json.dumps(
@@ -495,7 +495,7 @@ async def test_open_draft_rejects_variant_without_draft_channel(fake_ctx: ToolCo
     assert problem_of(out).code == "doc_type_not_applicable"
 
 
-async def test_open_draft_returns_narration_segments(fake_ctx: ToolContext) -> None:
+async def test_open_draft_returns_narration_segments(fake_ctx: ToolHarness) -> None:
     """narration 取回的草稿装分镜表，正式文件一步不动——写盘只发生在持锁的晋升侧。"""
     nr_source(fake_ctx)
     write_nr_script_plan(fake_ctx, [nr_segment("E1S01", 4, _RV_NOVEL)])
@@ -513,7 +513,7 @@ async def test_open_draft_returns_narration_segments(fake_ctx: ToolContext) -> N
     assert nr_script_plan_path(fake_ctx).read_text(encoding="utf-8") == before
 
 
-async def test_open_draft_narration_round_trips_through_promote(fake_ctx: ToolContext) -> None:
+async def test_open_draft_narration_round_trips_through_promote(fake_ctx: ToolHarness) -> None:
     """取回 → 改草稿 → 晋升写回正式文件、草稿清除：与 drama / 参考生视频同一条晋升通道。"""
     nr_source(fake_ctx)
     write_nr_script_plan(fake_ctx, [nr_segment("E1S01", 4, _RV_NOVEL)])
@@ -532,7 +532,7 @@ async def test_open_draft_narration_round_trips_through_promote(fake_ctx: ToolCo
     assert saved["segments"][0]["novel_text"] == _RV_NOVEL
 
 
-async def test_open_draft_returns_existing_narration_draft(fake_ctx: ToolContext) -> None:
+async def test_open_draft_returns_existing_narration_draft(fake_ctx: ToolHarness) -> None:
     """已有草稿在场时不覆盖：那份草稿可能已含未晋升的修改，拿正式文件盖过去等于抹掉它的工作。"""
     nr_source(fake_ctx)
     write_nr_script_plan(fake_ctx, [nr_segment("E1S01", 4, _RV_NOVEL)])
@@ -550,7 +550,7 @@ async def test_open_draft_returns_existing_narration_draft(fake_ctx: ToolContext
     assert read_nr_quarantine(fake_ctx)["content"]["segments"][0]["novel_text"] == "改到一半的正文"
 
 
-async def test_patch_draft_stamps_the_current_schema_version_on_a_legacy_envelope(fake_ctx: ToolContext) -> None:
+async def test_patch_draft_stamps_the_current_schema_version_on_a_legacy_envelope(fake_ctx: ToolHarness) -> None:
     """patch 是草稿的另一条写入口：它写回的信封同样盖当前版本，不沿用盘上读到的版本位。"""
     rv_source(fake_ctx)
     write_rv_script_plan(fake_ctx, [rv_saved_unit("@[张三] 起身")])
@@ -580,7 +580,7 @@ async def test_patch_draft_stamps_the_current_schema_version_on_a_legacy_envelop
     assert saved["meta"]["source"] == "source/episode_1.txt"
 
 
-async def test_patch_draft_supports_multiple_rounds_and_rejects_stale_revision(fake_ctx: ToolContext) -> None:
+async def test_patch_draft_supports_multiple_rounds_and_rejects_stale_revision(fake_ctx: ToolHarness) -> None:
     rv_source(fake_ctx)
     write_rv_script_plan(fake_ctx, [rv_saved_unit("@[张三] 起身")])
     opened = draft_of(await open_for_edit(fake_ctx, source="source/episode_1.txt"))
@@ -633,7 +633,7 @@ async def test_patch_draft_supports_multiple_rounds_and_rejects_stale_revision(f
     ["drama_script_plan", "narration_script_plan", "reference_script_plan", "reference_prompt_authoring"],
 )
 async def test_each_doc_type_completes_multi_patch_then_promote_or_discard(
-    fake_ctx: ToolContext, doc_type: str
+    fake_ctx: ToolHarness, doc_type: str
 ) -> None:
     if doc_type == "drama_script_plan":
         drama_project(fake_ctx)
@@ -704,7 +704,7 @@ async def test_each_doc_type_completes_multi_patch_then_promote_or_discard(
         assert result.problem is None, result
 
 
-async def test_patch_draft_can_accept_a_merged_formal_revision(fake_ctx: ToolContext) -> None:
+async def test_patch_draft_can_accept_a_merged_formal_revision(fake_ctx: ToolHarness) -> None:
     rv_source(fake_ctx)
     write_rv_script_plan(fake_ctx, [rv_saved_unit("@[张三] 起身")])
     opened = draft_of(await open_for_edit(fake_ctx, source="source/episode_1.txt"))
@@ -731,7 +731,7 @@ async def test_patch_draft_can_accept_a_merged_formal_revision(fake_ctx: ToolCon
     assert promoted.problem is None, promoted
 
 
-async def test_patch_draft_without_accept_formal_revision_keeps_the_old_baseline(fake_ctx: ToolContext) -> None:
+async def test_patch_draft_without_accept_formal_revision_keeps_the_old_baseline(fake_ctx: ToolHarness) -> None:
     """省略 accept_formal_revision 即不接受正式文档的并发修改：基线不变，晋升仍报冲突。"""
     rv_source(fake_ctx)
     write_rv_script_plan(fake_ctx, [rv_saved_unit("@[张三] 起身")])
@@ -764,7 +764,7 @@ async def test_patch_draft_without_accept_formal_revision_keeps_the_old_baseline
     ],
 )
 async def test_patch_draft_changes_the_source_scope_only_when_source_is_given(
-    fake_ctx: ToolContext, given: dict, expected_source: str | None
+    fake_ctx: ToolHarness, given: dict, expected_source: str | None
 ) -> None:
     rv_source(fake_ctx)
     (fake_ctx.project_path / "source" / "episode_2.txt").write_text(_RV_NOVEL, encoding="utf-8")
@@ -789,7 +789,7 @@ async def test_patch_draft_changes_the_source_scope_only_when_source_is_given(
 
 @pytest.mark.skipif(os.name != "posix", reason="FIFO-backed filesystem snapshot requires POSIX")
 async def test_patch_draft_revision_covers_source_metadata_without_blocking_event_loop(
-    fake_ctx: ToolContext,
+    fake_ctx: ToolHarness,
 ) -> None:
     rv_source(fake_ctx)
     (fake_ctx.project_path / "source" / "episode_2.txt").write_text(_RV_NOVEL, encoding="utf-8")
@@ -868,7 +868,7 @@ with open(sys.argv[1], "w", encoding="utf-8") as fifo:
     assert problem_of(stale).code == "revision_conflict"
 
 
-async def test_discard_draft_rejects_stale_revision(fake_ctx: ToolContext) -> None:
+async def test_discard_draft_rejects_stale_revision(fake_ctx: ToolHarness) -> None:
     rv_source(fake_ctx)
     write_rv_script_plan(fake_ctx, [rv_saved_unit("@[张三] 起身")])
     opened = draft_of(await open_for_edit(fake_ctx))
@@ -906,7 +906,7 @@ async def test_discard_draft_rejects_stale_revision(fake_ctx: ToolContext) -> No
     assert discarded["discarded"] is True
 
 
-async def test_discard_draft_keeps_formal_content_and_is_idempotent(fake_ctx: ToolContext) -> None:
+async def test_discard_draft_keeps_formal_content_and_is_idempotent(fake_ctx: ToolHarness) -> None:
     rv_source(fake_ctx)
     write_rv_script_plan(fake_ctx, [rv_saved_unit("@[张三] 起身")])
     formal_before = rv_script_plan_path(fake_ctx).read_text(encoding="utf-8")
@@ -922,7 +922,7 @@ async def test_discard_draft_keeps_formal_content_and_is_idempotent(fake_ctx: To
     assert rv_script_plan_path(fake_ctx).read_text(encoding="utf-8") == formal_before
 
 
-async def test_open_reference_prompt_authoring_returns_flat_editable_content(fake_ctx: ToolContext) -> None:
+async def test_open_reference_prompt_authoring_returns_flat_editable_content(fake_ctx: ToolHarness) -> None:
     rv_project(fake_ctx)
     _write_reference_prompt_authoring(
         fake_ctx,

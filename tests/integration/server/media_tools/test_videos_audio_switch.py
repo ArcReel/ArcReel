@@ -22,13 +22,13 @@ from lib.generation.generation_result import GenerationSelectionMode
 from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from lib.script.reference_video.request_projection import ReferenceRequestOptions
 from lib.script.reference_video.text_parser import extract_mentions
-from server.media_tools.context import ToolContext
 from server.services.admission import video_batch_admission as admission_mod
 from server.services.admission.video_batch_admission import admit_reference_video_batch
 from server.services.tasks.video_caps import assert_audio_switch_supported
 from server.tool_runtime import ToolOutcome
 from tests.factories import make_video_request_facts
-from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
+from tests.integration.server.agent_tool_support import (
+    ToolHarness,
     read_generation_result,
     run_generate_videos,
 )
@@ -257,7 +257,7 @@ class TestStoryboardGateSkipsEmptyBatches:
         project_dir = tmp_path / "demo"
         (project_dir / "storyboards").mkdir(parents=True)
         (project_dir / "storyboards" / "scene_E1S01.png").write_bytes(b"")
-        ctx = ToolContext(project_name="demo", data_root=tmp_path, pm=_EpisodePM(project_dir, with_storyboard=False))
+        ctx = ToolHarness(project_name="demo", data_root=tmp_path, pm=_EpisodePM(project_dir, with_storyboard=False))
         rejected: list[str] = []
 
         async def _reject(_project, generation_type, **_kwargs):
@@ -289,11 +289,11 @@ class TestStoryboardGateEntersAdmission:
 
         monkeypatch.setattr(admission_mod, "get_active_tasks_for_resources", _none)
 
-    def _ctx(self, tmp_path: Path) -> ToolContext:
+    def _ctx(self, tmp_path: Path) -> ToolHarness:
         project_dir = tmp_path / "demo"
         (project_dir / "storyboards").mkdir(parents=True)
         (project_dir / "storyboards" / "scene_E1S01.png").write_bytes(b"")
-        return ToolContext(
+        return ToolHarness(
             project_name="demo",
             data_root=tmp_path,
             pm=_EpisodePM(project_dir, with_storyboard=True),

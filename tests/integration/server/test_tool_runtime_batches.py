@@ -93,13 +93,12 @@ async def test_repeated_host_submission_reuses_the_paid_task(
     )
     kwargs = {
         "scope": ProjectScope(project_name="demo", data_root=tmp_path),
-        "caller": CallerContext(user_id="default", source=source),
+        "caller": CallerContext(user_id="default", source=source, batch_waiter=_enqueue_without_wait),
         "services": services,
         "operation": "generate_storyboards",
         "preflight": GenerationResultBuilder("generate_storyboards", GenerationSelectionMode.EXPLICIT).build(),
         "pending_ids": ["E1S01"],
         "specs": [spec],
-        "embedded_waiter": _enqueue_without_wait,
     }
 
     first = await submit_media_generation(**kwargs)
@@ -131,13 +130,12 @@ async def test_embedded_submission_keeps_non_default_user_on_batch_and_task(sess
 
     submission = await submit_media_generation(
         scope=ProjectScope(project_name="demo", data_root=tmp_path),
-        caller=CallerContext(user_id="embedded-user", source="embedded"),
+        caller=CallerContext(user_id="embedded-user", source="embedded", batch_waiter=_enqueue_without_wait),
         services=services,
         operation="generate_storyboards",
         preflight=GenerationResultBuilder("generate_storyboards", GenerationSelectionMode.EXPLICIT).build(),
         pending_ids=["E1S01"],
         specs=[spec],
-        embedded_waiter=_enqueue_without_wait,
     )
 
     task_id = submission.batch.members[0].task_id
@@ -209,13 +207,16 @@ async def test_media_submission_cancellation_only_cleans_a_fresh_batch(
     submission = asyncio.create_task(
         submit_media_generation(
             scope=ProjectScope(project_name="demo", data_root=tmp_path),
-            caller=CallerContext(user_id="default", source=source),
+            caller=CallerContext(
+                user_id="default",
+                source=source,
+                batch_waiter=_enqueue_without_wait if source == "embedded" else None,
+            ),
             services=services,
             operation="generate_storyboards",
             preflight=GenerationResultBuilder("generate_storyboards", GenerationSelectionMode.EXPLICIT).build(),
             pending_ids=["E1S01"],
             specs=[spec],
-            embedded_waiter=_enqueue_without_wait if source == "embedded" else None,
         )
     )
     await reached_cancel_seam.wait()

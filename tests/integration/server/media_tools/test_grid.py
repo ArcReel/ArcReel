@@ -11,9 +11,9 @@ import pytest
 from lib.artifacts.artifact_manifest import ArtifactKey
 from lib.generation.generation_queue_client import BatchTaskResult, is_interrupted_wait_error
 from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
-from server.media_tools.context import ToolContext
 from server.media_tools.grid import GridPlanPreview
-from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
+from tests.integration.server.agent_tool_support import (
+    ToolHarness,
     read_generation_result,
     run_declared_tool,
     use_fake_caps,
@@ -73,7 +73,7 @@ def _fake_grid_waiter(enqueue, wait=None):
     return _waiter
 
 
-async def test_generate_grid_list_only(fake_ctx: ToolContext) -> None:
+async def test_generate_grid_list_only(fake_ctx: ToolHarness) -> None:
     fake_ctx.pm.project_payload["generation_mode"] = "storyboard"
     fake_ctx.pm.project_payload["grid_storyboard"] = True
     # Need enough segments to form a group with valid layout
@@ -90,7 +90,7 @@ async def test_generate_grid_list_only(fake_ctx: ToolContext) -> None:
     [("4K", "grid_16 (4×4)", "grid_9"), ("2K", "grid_9 (3×3)", "grid_16")],
 )
 async def test_generate_grid_list_only_respects_4k_gate(
-    fake_ctx: ToolContext,
+    fake_ctx: ToolHarness,
     image_resolution: str,
     expected: str,
     forbidden: str,
@@ -110,7 +110,7 @@ async def test_generate_grid_list_only_respects_4k_gate(
     assert forbidden not in text
 
 
-async def test_generate_grid_list_only_shows_split_for_oversized_group(fake_ctx: ToolContext) -> None:
+async def test_generate_grid_list_only_shows_split_for_oversized_group(fake_ctx: ToolHarness) -> None:
     # 超过单张格数上限的分组，预览按切块后的张数与档位展示，与实际入队同源
     fake_ctx.pm.project_payload["generation_mode"] = "storyboard"
     fake_ctx.pm.project_payload["grid_storyboard"] = True
@@ -124,7 +124,7 @@ async def test_generate_grid_list_only_shows_split_for_oversized_group(fake_ctx:
     assert "2 张宫格: grid_9 (3×3) + grid_4 (2×2)" in text
 
 
-async def test_generate_grid_falls_back_on_null_aspect_ratio(fake_ctx: ToolContext) -> None:
+async def test_generate_grid_falls_back_on_null_aspect_ratio(fake_ctx: ToolHarness) -> None:
     # project.json 允许把 aspect_ratio 显式写为 null；SDK 入队路径须回退到默认比例，
     # 否则 None 会写进宫格规划、任务 payload 与记录上冻结的比例
     from lib.script.grid.grid_manager import GridManager
@@ -156,7 +156,7 @@ async def test_generate_grid_falls_back_on_null_aspect_ratio(fake_ctx: ToolConte
     assert [g.video_aspect_ratio for g in GridManager(fake_ctx.project_path).list_all()] == ["9:16"]
 
 
-async def test_generate_grid_explicit_failure_preserves_the_old_artifact_path(fake_ctx: ToolContext) -> None:
+async def test_generate_grid_explicit_failure_preserves_the_old_artifact_path(fake_ctx: ToolHarness) -> None:
     """点名强制重生成失败时，报告仍要带上剧本里登记的旧图路径——否则下游分不清
     「这次替换失败、旧图还在」和「原本就没有可复用产物」，给不出正确的下一步建议。"""
     fake_ctx.pm.project_payload["generation_mode"] = "storyboard"
@@ -189,7 +189,7 @@ async def test_generate_grid_explicit_failure_preserves_the_old_artifact_path(fa
     assert item.artifact_path == "storyboards/E1S01.png"
 
 
-async def test_generate_grid_wait_timeout_is_reported_as_interrupted_not_failed(fake_ctx: ToolContext) -> None:
+async def test_generate_grid_wait_timeout_is_reported_as_interrupted_not_failed(fake_ctx: ToolHarness) -> None:
     """宫格工具经共享 batch waiter 等待时，同样不能把等待被
     打断（任务可能仍在跑）报成终态失败——那会诱导调用方重试、造成重复付费提交。"""
     from lib.generation.generation_queue_client import TaskWaitTimeoutError
@@ -252,7 +252,7 @@ _CLAMP_WARNING = {"key": "ref_too_many_images", "params": {"count": 9, "model": 
     ],
 )
 async def test_generate_grid_reports_the_grid_warnings_on_every_cell(
-    fake_ctx: ToolContext, task: dict[str, Any], succeeded: list[str], failed: list[str]
+    fake_ctx: ToolHarness, task: dict[str, Any], succeeded: list[str], failed: list[str]
 ) -> None:
     """联合图的参考图裁剪 warning 属于整张宫格：无论任务成败，它报告的每个分镜都带着它，Agent 才知道哪些图没发出。"""
     fake_ctx.pm.project_payload["generation_mode"] = "storyboard"
@@ -278,7 +278,7 @@ async def test_generate_grid_reports_the_grid_warnings_on_every_cell(
     assert [[w.model_dump() for w in item.warnings] for item in result.items] == [[_CLAMP_WARNING], [_CLAMP_WARNING]]
 
 
-async def test_generate_grid_blocks_every_scene_of_a_chunk_with_a_reference_gap(fake_ctx: ToolContext) -> None:
+async def test_generate_grid_blocks_every_scene_of_a_chunk_with_a_reference_gap(fake_ctx: ToolHarness) -> None:
     """一张联合图覆盖整个 chunk：任一分镜的引用有缺口，chunk 内每个缺口分镜都被记名阻断。"""
     fake_ctx.pm.project_payload["generation_mode"] = "storyboard"
     fake_ctx.pm.project_payload["grid_storyboard"] = True
@@ -303,7 +303,7 @@ async def test_generate_grid_blocks_every_scene_of_a_chunk_with_a_reference_gap(
 
 
 async def test_generate_grid_blocks_the_whole_group_when_one_scene_state_is_unreadable(
-    fake_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
+    fake_ctx: ToolHarness, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """宫格整组共用一张联合图：组里一格产物状态不可读，其余格不能悄悄留空。
 
@@ -363,7 +363,7 @@ async def test_generate_grid_blocks_the_whole_group_when_one_scene_state_is_unre
 
 
 async def test_generate_grid_spares_an_already_reusable_sibling_when_one_scene_state_is_unreadable(
-    fake_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
+    fake_ctx: ToolHarness, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """同组一格状态不可读会挡住整张宫格的重生成，但不牵连已确认可用的旧图：
     那些场景各自的产物状态是好的，只是恰好和坏的那格共享一张联合图。报它们
@@ -417,7 +417,7 @@ async def test_generate_grid_spares_an_already_reusable_sibling_when_one_scene_s
     assert [s.unit_id for s in result.skipped] == ["E1S03"]
 
 
-async def test_generate_grid_rejects_an_explicitly_empty_scene_selection(fake_ctx: ToolContext) -> None:
+async def test_generate_grid_rejects_an_explicitly_empty_scene_selection(fake_ctx: ToolHarness) -> None:
     """显式空集合不是「全部」：拒绝请求，而不是静默扫全集。"""
     fake_ctx.pm.project_payload["generation_mode"] = "storyboard"
     fake_ctx.pm.project_payload["grid_storyboard"] = True
@@ -428,7 +428,7 @@ async def test_generate_grid_rejects_an_explicitly_empty_scene_selection(fake_ct
     assert out.problem.code == "invalid_request"
 
 
-async def test_generate_grid_cleans_superseded_records(fake_ctx: ToolContext) -> None:
+async def test_generate_grid_cleans_superseded_records(fake_ctx: ToolHarness) -> None:
     """重生成清理规则对 SDK 路径生效：旧记录不残留在前端列表。
 
     通过 generate_grid 重生成某组宫格后，该组旧的已完成记录（同脚本同集、
@@ -494,7 +494,7 @@ async def test_generate_grid_cleans_superseded_records(fake_ctx: ToolContext) ->
     assert [g.scene_ids for g in fresh] == [["E1S01", "E1S02", "E1S03", "E1S04"]]
 
 
-async def test_generate_grid_cleanup_spares_a_fully_reusable_chunk_of_an_oversized_group(fake_ctx: ToolContext) -> None:
+async def test_generate_grid_cleanup_spares_a_fully_reusable_chunk_of_an_oversized_group(fake_ctx: ToolHarness) -> None:
     """超上限分组切成多张宫格时，清理范围不能按整组算——某一张可能整张都落在
     已复用成员上（该张没有缺口，不会被生成替代品）。若仍按整组 ID 清理，会删掉
     这张对应的旧完成记录却不产出新图，产物与 Manifest 记账双双丢失（悬空占用）。"""
@@ -554,7 +554,7 @@ async def test_generate_grid_cleanup_spares_a_fully_reusable_chunk_of_an_oversiz
     assert fully_reusable_chunk.id in remaining_ids, "chunk 没有缺口、没有生成替代品，其旧记录不得被清理规则误删"
 
 
-async def test_generate_grid_list_only_falls_back_on_null_aspect_ratio(fake_ctx: ToolContext) -> None:
+async def test_generate_grid_list_only_falls_back_on_null_aspect_ratio(fake_ctx: ToolHarness) -> None:
     # 预览路径与入队路径同源，同样不能让 None 流进 plan_grid_chunks
     fake_ctx.pm.project_payload["generation_mode"] = "storyboard"
     fake_ctx.pm.project_payload["grid_storyboard"] = True
@@ -568,7 +568,7 @@ async def test_generate_grid_list_only_falls_back_on_null_aspect_ratio(fake_ctx:
     assert "grid_4 (2×2)" in out.value.plan
 
 
-async def test_generate_grid_splits_oversized_group_into_multiple_grids(fake_ctx: ToolContext) -> None:
+async def test_generate_grid_splits_oversized_group_into_multiple_grids(fake_ctx: ToolHarness) -> None:
     # 12 个分镜 + 非 4K（上限 9）：入队 2 张宫格，分镜不重不漏，每张 prompt 分镜数与格数一致
     from lib.script.grid.grid_manager import GridManager
 
@@ -612,13 +612,13 @@ async def test_generate_grid_splits_oversized_group_into_multiple_grids(fake_ctx
     assert all(len(g.frame_chain) == g.rows * g.cols for g in grids)
 
 
-async def test_generate_grid_wrong_mode(fake_ctx: ToolContext) -> None:
+async def test_generate_grid_wrong_mode(fake_ctx: ToolHarness) -> None:
     # 项目未开启 grid_storyboard → error
     out = await run_declared_tool("generate_grid", fake_ctx, {"script": "episode_1.json"})
     assert out.problem is not None
 
 
-async def test_generate_grid_rejected_on_reference_video_route(fake_ctx: ToolContext) -> None:
+async def test_generate_grid_rejected_on_reference_video_route(fake_ctx: ToolHarness) -> None:
     # reference_video 生成模式无分镜图步骤：即使残留 grid_storyboard=true 也不适用宫格工具
     fake_ctx.pm.project_payload["generation_mode"] = "reference_video"
     fake_ctx.pm.project_payload["grid_storyboard"] = True
@@ -627,7 +627,7 @@ async def test_generate_grid_rejected_on_reference_video_route(fake_ctx: ToolCon
 
 
 async def test_generate_grid_legacy_unresolvable_episode_fails_before_enqueue(
-    fake_ctx: ToolContext,
+    fake_ctx: ToolHarness,
 ) -> None:
     fake_ctx.pm.project_payload["generation_mode"] = "storyboard"
     fake_ctx.pm.project_payload["grid_storyboard"] = True
@@ -645,7 +645,7 @@ async def test_generate_grid_legacy_unresolvable_episode_fails_before_enqueue(
     enqueue.assert_not_awaited()
 
 
-async def test_generate_grid_blocks_the_whole_chunk_when_a_prompt_is_pending(fake_ctx: ToolContext) -> None:
+async def test_generate_grid_blocks_the_whole_chunk_when_a_prompt_is_pending(fake_ctx: ToolHarness) -> None:
     """一格的 image_prompt 尚未填写（None）：整张联合图无从生成，chunk 内每一格都记名阻断。"""
     fake_ctx.pm.project_payload["generation_mode"] = "storyboard"
     fake_ctx.pm.project_payload["grid_storyboard"] = True
@@ -669,7 +669,7 @@ async def test_generate_grid_blocks_the_whole_chunk_when_a_prompt_is_pending(fak
     assert problem.params["pending_ids"] == ["E1S03"]
 
 
-def _enable_grid(fake_ctx: ToolContext, *, groups: int = 1, per_group: int = 4) -> list[str]:
+def _enable_grid(fake_ctx: ToolHarness, *, groups: int = 1, per_group: int = 4) -> list[str]:
     """开启宫格装配并铺 ``groups`` 个分组的分镜，返回分镜 ID。"""
     fake_ctx.pm.project_payload["generation_mode"] = "storyboard"
     fake_ctx.pm.project_payload["grid_storyboard"] = True
@@ -686,7 +686,7 @@ def _enable_grid(fake_ctx: ToolContext, *, groups: int = 1, per_group: int = 4) 
     return [segment["segment_id"] for segment in segments]
 
 
-def _saved_grid(fake_ctx: ToolContext, scene_ids: list[str], *, status: str) -> Any:
+def _saved_grid(fake_ctx: ToolHarness, scene_ids: list[str], *, status: str) -> Any:
     from lib.script.grid.grid_manager import GridManager
     from lib.script.grid.models import GridGeneration
 
@@ -710,7 +710,7 @@ def _saved_grid(fake_ctx: ToolContext, scene_ids: list[str], *, status: str) -> 
     return grid
 
 
-async def _queue_grid_task(fake_ctx: ToolContext, grid: Any) -> None:
+async def _queue_grid_task(fake_ctx: ToolHarness, grid: Any) -> None:
     """让在途记录在队列里有对应的活动任务（测试 worker 不认领 image lane，任务一直 queued）。"""
     await fake_ctx.queue.enqueue_task(
         project_name=fake_ctx.project_name,
@@ -725,7 +725,7 @@ async def _queue_grid_task(fake_ctx: ToolContext, grid: Any) -> None:
 
 
 async def test_generate_grid_reports_the_ready_composite_and_leaves_the_split_to_the_user(
-    fake_ctx: ToolContext,
+    fake_ctx: ToolHarness,
 ) -> None:
     """生成只产出联合图：成功的分镜指向所在宫格的联合图，切分落格留给用户确认后的 split_grids。"""
     from lib.script.grid.grid_manager import GridManager
@@ -752,7 +752,7 @@ async def test_generate_grid_reports_the_ready_composite_and_leaves_the_split_to
     assert grid.split_at is None
 
 
-async def test_generate_grid_reuses_an_identical_in_flight_grid(fake_ctx: ToolContext) -> None:
+async def test_generate_grid_reuses_an_identical_in_flight_grid(fake_ctx: ToolHarness) -> None:
     from lib.script.grid.grid_manager import GridManager
 
     scene_ids = _enable_grid(fake_ctx)
@@ -780,7 +780,7 @@ async def test_generate_grid_reuses_an_identical_in_flight_grid(fake_ctx: ToolCo
     assert [g.id for g in GridManager(fake_ctx.project_path).list_all()] == [in_flight.id]
 
 
-def _queue_backed_enqueue(fake_ctx: ToolContext, enqueued: list[str]):
+def _queue_backed_enqueue(fake_ctx: ToolHarness, enqueued: list[str]):
     """入队落到测试队列（worker 不认领 image lane，任务一直 queued），规划时能探测到在途任务。"""
 
     async def enqueue(**kwargs: Any) -> dict[str, Any]:
@@ -790,7 +790,7 @@ def _queue_backed_enqueue(fake_ctx: ToolContext, enqueued: list[str]):
     return enqueue
 
 
-async def test_concurrent_submissions_share_one_grid_instead_of_paying_twice(fake_ctx: ToolContext) -> None:
+async def test_concurrent_submissions_share_one_grid_instead_of_paying_twice(fake_ctx: ToolHarness) -> None:
     """两次提交同时替换同一条已无人处理的记录：后者等前者入队后再规划，沿用它的宫格。"""
     from lib.script.grid.grid_manager import GridManager
 
@@ -815,7 +815,7 @@ async def test_concurrent_submissions_share_one_grid_instead_of_paying_twice(fak
     assert sum("沿用已在生成中的任务（未重复提交）" in out.value["summary"] for out in outs) == 1
 
 
-async def test_a_submission_does_not_hold_back_others_while_its_grid_generates(fake_ctx: ToolContext) -> None:
+async def test_a_submission_does_not_hold_back_others_while_its_grid_generates(fake_ctx: ToolHarness) -> None:
     """入队完成即离开提交临界区：前一张联合图还在生成，同一项目的下一次提交照常规划、沿用它。"""
     scene_ids = _enable_grid(fake_ctx)
     enqueued: list[str] = []
@@ -845,7 +845,7 @@ async def test_a_submission_does_not_hold_back_others_while_its_grid_generates(f
     assert len(set(enqueued)) == 1
 
 
-async def test_generate_grid_withholds_healthy_groups_when_one_group_is_blocked(fake_ctx: ToolContext) -> None:
+async def test_generate_grid_withholds_healthy_groups_when_one_group_is_blocked(fake_ctx: ToolHarness) -> None:
     """整批准入：一组引用有缺口，另一组健康也不入队计费，逐分镜带「同批受阻」结论。"""
     _enable_grid(fake_ctx, groups=2)
     fake_ctx.pm.script_payload["segments"][6]["scenes"] = ["未登记的场景"]
@@ -870,7 +870,7 @@ async def test_generate_grid_withholds_healthy_groups_when_one_group_is_blocked(
     assert withheld.params["blocked_unit_ids"] == ["E1S05", "E1S06", "E1S07", "E1S08"]
 
 
-async def test_generate_grid_refused_batch_still_reports_the_group_already_generating(fake_ctx: ToolContext) -> None:
+async def test_generate_grid_refused_batch_still_reports_the_group_already_generating(fake_ctx: ToolHarness) -> None:
     """整批受阻时，已在生成中的那组照常跑完：逐分镜给「等在途任务」的结论，不从结果里消失。"""
     scene_ids = _enable_grid(fake_ctx, groups=2)
     fake_ctx.pm.script_payload["segments"][6]["scenes"] = ["未登记的场景"]
@@ -896,7 +896,7 @@ async def test_generate_grid_refused_batch_still_reports_the_group_already_gener
     assert items["E1S05"].problem.code == "reference_asset_unregistered"
 
 
-async def test_generate_grid_missing_only_waits_on_an_unsplit_composite(fake_ctx: ToolContext) -> None:
+async def test_generate_grid_missing_only_waits_on_an_unsplit_composite(fake_ctx: ToolHarness) -> None:
     """缺失即生成不为未切分的联合图再付一次钱：记为跳过，并提示用户审阅后切分。"""
     scene_ids = _enable_grid(fake_ctx)
     unsplit = _saved_grid(fake_ctx, scene_ids, status="completed")
@@ -920,7 +920,7 @@ async def test_generate_grid_missing_only_waits_on_an_unsplit_composite(fake_ctx
 
 
 async def test_generate_grid_judges_a_composite_finished_during_the_batch_against_the_settled_state(
-    fake_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
+    fake_ctx: ToolHarness, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """未切分宫格在出图前就被观测过：本批新出的联合图仍按出图后的目标态判定为 current。"""
     from lib.artifacts.artifact_manifest import ArtifactComparison, ArtifactStatus
@@ -972,7 +972,7 @@ async def test_generate_grid_judges_a_composite_finished_during_the_batch_agains
     assert {items[scene_id].artifact_status for scene_id in scene_ids[4:]} == {ArtifactStatus.CURRENT}
 
 
-async def test_generate_grid_refused_batch_still_lists_the_unsplit_composite(fake_ctx: ToolContext) -> None:
+async def test_generate_grid_refused_batch_still_lists_the_unsplit_composite(fake_ctx: ToolHarness) -> None:
     """另一组受阻时，未切分的联合图照样列进 grid_ids_awaiting_split，审阅切分不必等受阻组修好。"""
     scene_ids = _enable_grid(fake_ctx, groups=2)
     fake_ctx.pm.script_payload["segments"][6]["scenes"] = ["未登记的场景"]
@@ -991,7 +991,7 @@ async def test_generate_grid_refused_batch_still_lists_the_unsplit_composite(fak
     assert out.value["grid_ids_awaiting_split"] == [unsplit.id]
 
 
-async def test_generate_grid_list_only_shows_each_grid_record_and_action(fake_ctx: ToolContext) -> None:
+async def test_generate_grid_list_only_shows_each_grid_record_and_action(fake_ctx: ToolHarness) -> None:
     scene_ids = _enable_grid(fake_ctx, groups=2)
     unsplit = _saved_grid(fake_ctx, scene_ids[:4], status="completed")
     in_flight = _saved_grid(fake_ctx, scene_ids[4:], status="pending")
@@ -1005,7 +1005,7 @@ async def test_generate_grid_list_only_shows_each_grid_record_and_action(fake_ct
     assert f"正在生成，本次沿用、不重复提交；记录 {in_flight.id} 生成中" in text
 
 
-async def test_generate_grid_refuses_ad_projects(fake_ctx: ToolContext) -> None:
+async def test_generate_grid_refuses_ad_projects(fake_ctx: ToolHarness) -> None:
     _enable_grid(fake_ctx)
     fake_ctx.pm.project_payload["content_mode"] = "ad"
 
@@ -1015,7 +1015,7 @@ async def test_generate_grid_refuses_ad_projects(fake_ctx: ToolContext) -> None:
     assert out.problem.code == "ad_grid_not_supported"
 
 
-async def test_generate_grid_refuses_a_script_of_the_other_route(fake_ctx: ToolContext) -> None:
+async def test_generate_grid_refuses_a_script_of_the_other_route(fake_ctx: ToolHarness) -> None:
     """剧本骨架与生成模式失配是输入问题，不报成可重试的 internal_error。"""
     _enable_grid(fake_ctx)
     fake_ctx.pm.script_payload.pop("segments")
@@ -1028,7 +1028,7 @@ async def test_generate_grid_refuses_a_script_of_the_other_route(fake_ctx: ToolC
 
 
 async def test_split_grids_splits_each_ready_grid_and_explains_the_rest(
-    fake_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
+    fake_ctx: ToolHarness, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from server.services.grid.grid_split import GridSplitResult
 
@@ -1058,7 +1058,7 @@ async def test_split_grids_splits_each_ready_grid_and_explains_the_rest(
 
 @pytest.mark.parametrize("content", ['{{"id": "{grid_id}"}}', '{{"id": "{grid_id}", '], ids=["缺字段", "JSON 截断"])
 async def test_split_grids_reports_an_unreadable_record_without_abandoning_the_rest(
-    fake_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch, content: str
+    fake_ctx: ToolHarness, monkeypatch: pytest.MonkeyPatch, content: str
 ) -> None:
     """一条记录读不出来，只记这一张失败（不当成不存在），排在它后面的宫格照常切分。"""
     from server.services.grid.grid_split import GridSplitResult
@@ -1082,7 +1082,7 @@ async def test_split_grids_reports_an_unreadable_record_without_abandoning_the_r
     assert results[ready.id]["status"] == "split"
 
 
-async def test_split_grids_reports_a_problem_when_nothing_was_split(fake_ctx: ToolContext) -> None:
+async def test_split_grids_reports_a_problem_when_nothing_was_split(fake_ctx: ToolHarness) -> None:
 
     _enable_grid(fake_ctx)
 
@@ -1094,7 +1094,7 @@ async def test_split_grids_reports_a_problem_when_nothing_was_split(fake_ctx: To
     ]
 
 
-async def test_split_grids_refuses_projects_without_grid_storyboard(fake_ctx: ToolContext) -> None:
+async def test_split_grids_refuses_projects_without_grid_storyboard(fake_ctx: ToolHarness) -> None:
 
     out = await run_declared_tool("split_grids", fake_ctx, {"grid_ids": ["grid_000000000000"]})
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import functools
 import hashlib
 import json
 import math
@@ -12,7 +13,7 @@ import re
 import stat
 import tempfile
 from collections.abc import Awaitable, Callable
-from dataclasses import asdict, dataclass, field, is_dataclass
+from dataclasses import asdict, dataclass, field, is_dataclass, replace
 from pathlib import Path, PurePosixPath
 from typing import Annotated, Any, Literal
 
@@ -159,9 +160,7 @@ from server.services.tasks.video_caps import (
     duration_constraints_payload,
 )
 from server.text_generation import (
-    MAX_INSTRUCTIONS_LEN as TEXT_INSTRUCTIONS_MAX_LEN,
-)
-from server.text_generation import (
+    MAX_INSTRUCTIONS_LEN,
     SCOPE_REMOVED_MESSAGE,
     ScriptOverwriteRequiredError,
     TextGenerationError,
@@ -205,6 +204,12 @@ class CallerContext:
     user_id: str
     source: Literal["embedded", "mcp"]
     batch_waiter: BatchWaiter | None = None
+
+    def waiting_with(self, **options: Any) -> CallerContext:
+        """给等待器绑定额外选项（如 ``on_enqueued`` / ``stop_on_failure``）；没有等待器时原样返回。"""
+        if self.batch_waiter is None:
+            return self
+        return replace(self, batch_waiter=functools.partial(self.batch_waiter, **options))
 
 
 @dataclass(frozen=True, slots=True)
@@ -263,12 +268,8 @@ async def submit_media_generation(
     specs: list[TaskSpec],
     states: dict[str, GenerationTargetState] | None = None,
     admission: dict[str, dict[str, Any]] | None = None,
-    embedded_waiter: BatchWaiter | None = None,
 ) -> MediaGenerationSubmission:
-    """提交一批媒体生成：远程调用方即返批次句柄，内嵌调用方等到批次终态。
-
-    内嵌等待器缺省取 ``caller.batch_waiter``；``embedded_waiter`` 供需要包装等待过程的调用方覆盖。
-    """
+    """提交一批媒体生成：远程调用方即返批次句柄，内嵌调用方经 ``caller.batch_waiter`` 等到批次终态。"""
     requested, blocked = build_generation_batch_admission(
         preflight=preflight,
         pending_ids=pending_ids,
@@ -296,7 +297,7 @@ async def submit_media_generation(
         user_id=caller.user_id,
     )
     try:
-        waiter = embedded_waiter if embedded_waiter is not None else caller.batch_waiter
+        waiter = caller.batch_waiter
         if waiter is None:
             raise ValueError("embedded media generation requires a batch waiter")
         if specs:
@@ -662,10 +663,10 @@ async def _execute_text_handler(
 _TextInstructions = Annotated[
     str,
     Field(
-        max_length=TEXT_INSTRUCTIONS_MAX_LEN,
+        max_length=MAX_INSTRUCTIONS_LEN,
         description=(
             "用户对本次生成的附加指令原文（可选）；原样注入 prompt 末尾的「附加指令」分节，"
-            f"遵循强度由正文表达，缺省/空白视同未传，最长 {TEXT_INSTRUCTIONS_MAX_LEN} 字符"
+            f"遵循强度由正文表达，缺省/空白视同未传，最长 {MAX_INSTRUCTIONS_LEN} 字符"
         ),
     ),
 ]
@@ -1785,7 +1786,6 @@ async def patch_episode_script(
     return ToolOutcome(value=_script_patch_result(request.value, outcome.value))
 
 
-MAX_INSTRUCTIONS_LEN = 4000
 ASSET_TABLES = tuple(spec.bucket_key for spec in ASSET_SPECS.values())
 PROJECT_SETTINGS = (
     EPISODE_TARGET_UNITS_FIELD,
@@ -2671,7 +2671,6 @@ async def complete_script_plan_rebuild(
 __all__ = [
     "ASSET_TABLES",
     "EPISODE_META_FIELDS",
-    "MAX_INSTRUCTIONS_LEN",
     "PROJECT_OVERVIEW_FIELDS",
     "PROJECT_SETTINGS",
     "CallerContext",

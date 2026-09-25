@@ -9,7 +9,7 @@ ArcReel 的内嵌 Agent 不提供「更换 Agent 运行时后端」的选项—�
 Agent 运行时（`server/agent_runtime/`）在架构上构建于 Claude Agent SDK 之上，且产品的核心 Agent 能力全部依赖该 SDK 的专属机制：
 
 - **会话层**：`SessionActor` / `session_manager.py` 直接封装 `ClaudeSDKClient`，`options_assembler.py` 构造的 `ClaudeAgentOptions`（hooks、mcp_servers、sandbox、resume、session_store）是 SDK 专属数据结构
-- **能力层**：Skill、Subagent、SDK 进程内 MCP 工具（`sdk_tools/`）、沙箱（bwrap / sandbox-exec）、`CLAUDE.*.md` profile 注入与 manifest 同步（`lib/agent/profile_manifest.py`），均为 Claude Agent SDK 生态的机制
+- **能力层**：Skill、Subagent、SDK 进程内 MCP server（`server/agent_runtime/arcreel_mcp.py`）、沙箱（bwrap / sandbox-exec）、`CLAUDE.*.md` profile 注入与 manifest 同步（`lib/agent/profile_manifest.py`），均为 Claude Agent SDK 生态的机制
 
 更换后端不是「加一个选择项」，而是重写整个 Agent Runtime 层并放弃上述能力，成本与产品收益不成比例。
 

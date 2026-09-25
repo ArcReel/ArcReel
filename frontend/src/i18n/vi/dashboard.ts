@@ -1894,7 +1894,7 @@ export default {
   'tool_call_todo_summary': 'Danh sách việc cần làm hoàn thành {{completed}}/{{total}}',
   'tool_call_todo_updated': 'Danh sách việc cần làm đã cập nhật',
   // MCP tool display names (single source of truth: ARCREEL_MCP_TOOL_IDS in
-  // server/agent_runtime/sdk_tools/__init__.py; tests/test_frontend_mcp_tool_i18n.py
+  // server/agent_toolset/toolset.py; tests/unit/test_frontend_mcp_tool_i18n.py
   // sẽ kiểm tra các ngôn ngữ đồng bộ, thêm tool backend mà thiếu zh/en/vi sẽ fail CI)
   'tool_name_list_pending_assets': 'Liệt kê tài sản chờ tạo',
   'tool_name_list_projects': 'Liệt kê dự án',

@@ -41,7 +41,7 @@ UPLOAD_SOURCE = ToolDeclaration(
     description=(
         "把一段文本源文规范化为 UTF-8 后写入项目 source/ 目录，供源文读取与分集规划使用；返回写入后的项目相对"
         "路径、识别出的原始编码与章节数。只接受 .txt / .md 文件名；同名文件的处理由 on_conflict 决定。"
-        "写入项目文件；项目数据升级失败时拒绝写入，返回 project_migration_failed problem。"
+        "写入项目文件。"
     ),
     request_model=UploadSourceRequest,
     migration=BLOCKED,

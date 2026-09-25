@@ -1,4 +1,4 @@
-"""server.agent_runtime.sdk_tools 测试共享的替身与 helper；目录级 fixture 在 conftest.py。"""
+"""Agent 工具测试共享的装配、替身与 helper；``fake_ctx`` 等 fixture 在 ``tests/integration/server/conftest.py``。"""
 
 from __future__ import annotations
 
@@ -7,13 +7,19 @@ import json
 import re
 import threading
 from dataclasses import replace
+from functools import partial
 from pathlib import Path
-from typing import Any
+from typing import Any, overload
 
+from lib.config.resolver import ConfigResolver
+from lib.db import async_session_factory
+from lib.db.base import DEFAULT_USER_ID
+from lib.generation.generation_queue import GenerationQueue, get_generation_queue
 from lib.generation.generation_queue_client import batch_enqueue_and_wait
 from lib.generation.generation_result import (
     GenerationBatchResult,
 )
+from lib.project.project_manager import ProjectManager
 from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from lib.script.draft_quarantine import (
     QUARANTINE_KIND_DRAMA_SCRIPT_PLAN,
@@ -22,13 +28,20 @@ from lib.script.draft_quarantine import (
     QUARANTINE_KIND_SCRIPT_PLAN,
     quarantine_path,
 )
-from server.agent_runtime.sdk_tools._media_adapter import _response
-from server.agent_toolset.declaration import invoke_declaration
+from lib.speech.narration_delivery import TtsSettingsResolver
+from server.agent_toolset.declaration import ToolDeclaration, invoke_declaration
 from server.agent_toolset.envelope import json_value
 from server.agent_toolset.toolset import AGENT_TOOLSET
-from server.media_tools.context import ToolContext, tool_services
-from server.media_tools.definition import ToolDefinition
-from server.tool_runtime import BatchWaiter, TextGenerationResult, ToolOutcome, ToolProblem
+from server.services.project import workflow_planner
+from server.tool_runtime import (
+    BatchWaiter,
+    CallerContext,
+    ProjectScope,
+    Services,
+    TextGenerationResult,
+    ToolOutcome,
+    ToolProblem,
+)
 from tests.factories import make_video_request_facts
 from tests.fakes import FakeConfigResolver
 
@@ -62,18 +75,94 @@ def read_generation_result(out: dict[str, Any] | ToolOutcome[Any]) -> Generation
     return GenerationBatchResult.model_validate(out["generation_result"])
 
 
+class ToolHarness:
+    """一次 Agent 工具调用的装配：会话项目、调用方与 ``Services``；项目管理器、能力解析器与队列可换成替身。
+
+    ``services`` 每次按当前属性重建，用例改了 ``config_resolver`` 等属性后下一次调用即生效。
+    """
+
+    def __init__(
+        self,
+        project_name: str,
+        data_root: Path,
+        pm: ProjectManager | None = None,
+        *,
+        config_resolver: ConfigResolver | None = None,
+        caller: CallerContext | None = None,
+        queue: GenerationQueue | None = None,
+        tts_settings_resolver: TtsSettingsResolver | None = None,
+    ):
+        self.project_name = project_name
+        self.data_root = data_root
+        self.pm: ProjectManager = pm if pm is not None else ProjectManager(data_root)
+        self.config_resolver = config_resolver
+        self.caller = caller or CallerContext(user_id=DEFAULT_USER_ID, source="embedded")
+        self.queue = queue or get_generation_queue()
+        self.tts_settings_resolver = tts_settings_resolver
+
+    @property
+    def project_path(self) -> Path:
+        return self.pm.get_project_path(self.project_name)
+
+    @property
+    def scope(self) -> ProjectScope:
+        return ProjectScope(project_name=self.project_name, data_root=self.data_root)
+
+    @property
+    def services(self) -> Services:
+        return Services(
+            projects=self.pm,
+            workflow_planner=workflow_planner.get_workflow_planner(self.pm),
+            capabilities=self.config_resolver or ConfigResolver(async_session_factory),
+            queue=self.queue,
+            tts_settings_resolver=self.tts_settings_resolver,
+        )
+
+
+@overload
+async def run_declared_tool[ResultT](
+    declaration: ToolDeclaration[Any, ResultT],
+    ctx: ToolHarness,
+    arguments: dict[str, Any],
+    *,
+    batch_waiter: BatchWaiter = ...,
+    **collaborators: Any,
+) -> ToolOutcome[ResultT]: ...
+
+
+@overload
 async def run_declared_tool(
-    name: str,
-    ctx: ToolContext,
+    declaration: str,
+    ctx: ToolHarness,
+    arguments: dict[str, Any],
+    *,
+    batch_waiter: BatchWaiter = ...,
+    **collaborators: Any,
+) -> ToolOutcome[Any]: ...
+
+
+async def run_declared_tool(
+    declaration: ToolDeclaration[Any, Any] | str,
+    ctx: ToolHarness,
     arguments: dict[str, Any],
     *,
     batch_waiter: BatchWaiter = batch_enqueue_and_wait,
+    **collaborators: Any,
 ) -> ToolOutcome[Any]:
-    """经工具声明的共享入口调用，拿到 handler 的 ``ToolOutcome``；内嵌批次等待器随 caller 注入。"""
+    """经工具声明的共享入口（两宿主同一入口）调用，拿到 handler 的 ``ToolOutcome``。
 
-    declaration = next(declaration for declaration in AGENT_TOOLSET if declaration.name == name)
+    ``declaration`` 可传声明或工具名；内嵌批次等待器随 caller 注入；``collaborators`` 作为 handler 的
+    关键字参数注入领域协作者替身。
+    """
+
+    if isinstance(declaration, str):
+        found = next(item for item in AGENT_TOOLSET if item.name == declaration)
+        assert isinstance(found, ToolDeclaration), f"{declaration} 不作用于项目"
+        declaration = found
+    if collaborators:
+        declaration = replace(declaration, handler=partial(declaration.handler, **collaborators))
     caller = replace(ctx.caller, batch_waiter=batch_waiter)
-    return await invoke_declaration(declaration, arguments, ctx.scope, caller, tool_services(ctx))
+    return await invoke_declaration(declaration, arguments, ctx.scope, caller, ctx.services)
 
 
 def said(outcome: ToolOutcome[Any]) -> str:
@@ -100,7 +189,7 @@ def problem_of(outcome: ToolOutcome[Any]) -> ToolProblem:
 
 
 async def run_generate_videos(
-    ctx: ToolContext,
+    ctx: ToolHarness,
     target: dict[str, Any],
     *,
     script: str = "episode_1.json",
@@ -369,10 +458,10 @@ def fake_caps_resolver(**kwargs: Any) -> Any:
     return FakeConfigResolver(**kwargs)
 
 
-def use_fake_caps(fake_ctx: ToolContext, **kwargs: Any) -> Any:
+def use_fake_caps(fake_ctx: ToolHarness, **kwargs: Any) -> Any:
     """给这个会话装上假能力解析器并返回它。
 
-    工具经 ``ToolContext.config_resolver`` 把解析器透传给能力 dict 与图像能力的取值器（如
+    ``ToolHarness.config_resolver`` 经 ``Services.capabilities`` 透传给能力 dict 与图像能力的取值器（如
     ``get_video_capabilities`` 的能力载荷、图生图能力闸）。时长档位与声音档不经它：那些读视频请求
     事实，用例用 ``set_video_request_facts`` / ``video_request_facts`` 提供。
     """
@@ -381,25 +470,7 @@ def use_fake_caps(fake_ctx: ToolContext, **kwargs: Any) -> Any:
     return resolver
 
 
-async def call(tool_obj, args: dict[str, Any]) -> dict[str, Any]:
-    """调工具处理器；工具声明为必填的交付方式在未点名时补成后期配音。
-
-    绝大多数视频用例的主题不是旁白交付，逐个写死这一项只会让它们看起来在断言交付方式。
-    补齐条件取工具自己的 schema，新增视频工具无需在测试侧再登记一次。
-    专门验证该必填契约的用例直接调 ``tool_obj.handler``，不经过这里。
-    """
-
-    schema = tool_obj.input_schema
-    required = schema.get("required", ()) if isinstance(schema, dict) else ()
-    if "narration_delivery" in required and "narration_delivery" not in args:
-        args = {**args, "narration_delivery": "post_production"}
-    outcome = await tool_obj.handler(args)
-    if isinstance(tool_obj, ToolDefinition):
-        return _response(tool_obj, outcome)
-    return outcome
-
-
-def activate_unbound_project(fake_ctx: ToolContext, *, generation_mode: str = "storyboard") -> None:
+def activate_unbound_project(fake_ctx: ToolHarness, *, generation_mode: str = "storyboard") -> None:
     project = fake_ctx.pm.project_payload
     project.update(
         {
@@ -428,7 +499,7 @@ def reference_video_script(**overrides: Any) -> dict[str, Any]:
     return payload
 
 
-def use_reference_route(fake_ctx: ToolContext) -> None:
+def use_reference_route(fake_ctx: ToolHarness) -> None:
     """把 fake 项目切到参考生视频——生成模式是项目级事实，剧本不携带戳。"""
     fake_ctx.pm.project_payload["generation_mode"] = "reference_video"
 
@@ -459,7 +530,7 @@ def rv_generator_returning(units: list[dict], captured: dict[str, Any] | None = 
 _RV_NOVEL = "张三在村口等人"
 
 
-def rv_project(fake_ctx: ToolContext, generation_mode: str = "reference_video") -> None:
+def rv_project(fake_ctx: ToolHarness, generation_mode: str = "reference_video") -> None:
     """把项目声明成参考生视频路径——草稿的拆分 / 晋升 / 阻塞判定都以此为前提。
 
     盘上的 project.json 与 pm 的内存视图同步：生成入口从盘上读，晋升工具经 ``pm.load_project`` 读。
@@ -472,14 +543,14 @@ def rv_project(fake_ctx: ToolContext, generation_mode: str = "reference_video") 
     )
 
 
-def rv_source(fake_ctx: ToolContext) -> None:
+def rv_source(fake_ctx: ToolHarness) -> None:
     rv_project(fake_ctx)
     src = fake_ctx.project_path / "source"
     src.mkdir(parents=True)
     (src / "episode_1.txt").write_text(_RV_NOVEL, encoding="utf-8")
 
 
-def rv_character_sheet(fake_ctx: ToolContext, name: str, *, claimed: bool) -> None:
+def rv_character_sheet(fake_ctx: ToolHarness, name: str, *, claimed: bool) -> None:
     """给已登记角色落一张资产图；``claimed`` 时经产物激活让清单认领它，单元据此才按 r2v 定桶。"""
     from lib.artifacts.artifact_activation import activate_artifact_target_state
 
@@ -499,7 +570,7 @@ def rv_unit(text: str, *, duration: int = 8, source_text: str = _RV_NOVEL) -> di
     return {"duration_seconds": duration, "source_text": source_text, "text": text}
 
 
-def derived_reference_names(fake_ctx: ToolContext, text: str) -> list[str]:
+def derived_reference_names(fake_ctx: ToolHarness, text: str) -> list[str]:
     """正文 → 参考图名称：读侧的唯一派生入口，落盘不带 references。"""
     from lib.script.reference_video.text_parser import derive_references_from_text
 
@@ -508,11 +579,11 @@ def derived_reference_names(fake_ctx: ToolContext, text: str) -> list[str]:
     return [reference.name for reference in references]
 
 
-def rv_script_plan_path(fake_ctx: ToolContext):
+def rv_script_plan_path(fake_ctx: ToolHarness):
     return fake_ctx.project_path / "drafts" / "episode_1" / "script_plan_reference_units.json"
 
 
-async def run_rv_split(fake_ctx: ToolContext, monkeypatch, units: list[dict], **caps_kwargs) -> ToolOutcome[Any]:
+async def run_rv_split(fake_ctx: ToolHarness, monkeypatch, units: list[dict], **caps_kwargs) -> ToolOutcome[Any]:
     from server import text_generation as mod
 
     use_fake_caps(fake_ctx, **caps_kwargs)
@@ -520,15 +591,15 @@ async def run_rv_split(fake_ctx: ToolContext, monkeypatch, units: list[dict], **
     return await run_declared_tool("generate_script_plan", fake_ctx, {"episode": 1})
 
 
-def rv_quarantine_path(fake_ctx: ToolContext):
+def rv_quarantine_path(fake_ctx: ToolHarness):
     return quarantine_path(fake_ctx.project_path, 1, QUARANTINE_KIND_SCRIPT_PLAN)
 
 
-def read_rv_quarantine(fake_ctx: ToolContext) -> dict:
+def read_rv_quarantine(fake_ctx: ToolHarness) -> dict:
     return json.loads(rv_quarantine_path(fake_ctx).read_text(encoding="utf-8"))
 
 
-async def promote_reference_draft(fake_ctx: ToolContext, **caps_kwargs) -> ToolOutcome[Any]:
+async def promote_reference_draft(fake_ctx: ToolHarness, **caps_kwargs) -> ToolOutcome[Any]:
     if not (fake_ctx.project_path / "project.json").exists():
         rv_project(fake_ctx)
     use_fake_caps(fake_ctx, **caps_kwargs)
@@ -544,7 +615,7 @@ async def promote_reference_draft(fake_ctx: ToolContext, **caps_kwargs) -> ToolO
     return await run_declared_tool("promote_draft", fake_ctx, {**args, "base_revision": revision})
 
 
-def write_rv_script_plan(fake_ctx: ToolContext, units: list[dict]) -> None:
+def write_rv_script_plan(fake_ctx: ToolHarness, units: list[dict]) -> None:
     """直接铺一份正式 script_plan（模拟上一轮拆分的落盘产物）。"""
     path = rv_script_plan_path(fake_ctx)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -561,17 +632,17 @@ def rv_saved_unit(text: str, *, unit_id: str = "E1U01", duration: int = 8) -> di
     }
 
 
-async def open_for_edit(fake_ctx: ToolContext, **args) -> ToolOutcome[Any]:
+async def open_for_edit(fake_ctx: ToolHarness, **args) -> ToolOutcome[Any]:
     if not (fake_ctx.project_path / "project.json").exists():
         rv_project(fake_ctx)
     return await run_declared_tool("open_draft", fake_ctx, {"episode": 1, "doc_type": "reference_script_plan", **args})
 
 
-def nr_project(fake_ctx: ToolContext) -> None:
+def nr_project(fake_ctx: ToolHarness) -> None:
     rv_project(fake_ctx, generation_mode="storyboard")
 
 
-def nr_source(fake_ctx: ToolContext) -> None:
+def nr_source(fake_ctx: ToolHarness) -> None:
     nr_project(fake_ctx)
     src = fake_ctx.project_path / "source"
     src.mkdir(parents=True)
@@ -618,7 +689,7 @@ def nr_segment(segment_id="E1S01", duration=4, novel_text="张三走向村口。
 _DRAMA_NOVEL = "三年后，阿离回到山门。"
 
 
-def drama_project(fake_ctx: ToolContext) -> None:
+def drama_project(fake_ctx: ToolHarness) -> None:
     """把项目声明成 drama + 分镜图生视频，并铺好源文——正式 script_plan 的写禁与草稿通道以此为前提。"""
     (fake_ctx.project_path / "project.json").write_text(
         json.dumps(
@@ -654,29 +725,29 @@ def drama_scene(**overrides) -> dict:
     return scene
 
 
-def drama_script_plan_path(fake_ctx: ToolContext) -> Path:
+def drama_script_plan_path(fake_ctx: ToolHarness) -> Path:
     return fake_ctx.project_path / "drafts" / "episode_1" / "script_plan_normalized_script.json"
 
 
-def drama_quarantine_path(fake_ctx: ToolContext) -> Path:
+def drama_quarantine_path(fake_ctx: ToolHarness) -> Path:
     return quarantine_path(fake_ctx.project_path, 1, QUARANTINE_KIND_DRAMA_SCRIPT_PLAN)
 
 
-def write_drama_script_plan(fake_ctx: ToolContext, scenes: list[dict]) -> None:
+def write_drama_script_plan(fake_ctx: ToolHarness, scenes: list[dict]) -> None:
     path = drama_script_plan_path(fake_ctx)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps({"title": "第一集", "scenes": scenes}, ensure_ascii=False), encoding="utf-8")
 
 
-def read_drama_quarantine(fake_ctx: ToolContext) -> dict:
+def read_drama_quarantine(fake_ctx: ToolHarness) -> dict:
     return json.loads(drama_quarantine_path(fake_ctx).read_text(encoding="utf-8"))
 
 
-async def open_drama_for_edit(fake_ctx: ToolContext, **args) -> ToolOutcome[Any]:
+async def open_drama_for_edit(fake_ctx: ToolHarness, **args) -> ToolOutcome[Any]:
     return await run_declared_tool("open_draft", fake_ctx, {"episode": 1, "doc_type": "drama_script_plan", **args})
 
 
-async def promote_drama(fake_ctx: ToolContext, durations=(4, 6, 8)) -> ToolOutcome[Any]:
+async def promote_drama(fake_ctx: ToolHarness, durations=(4, 6, 8)) -> ToolOutcome[Any]:
     use_fake_caps(fake_ctx, supported_durations=durations, default_duration=durations[0])
     args = {"episode": 1, "doc_type": "drama_script_plan"}
     opened = await run_declared_tool("open_draft", fake_ctx, args)
@@ -684,29 +755,29 @@ async def promote_drama(fake_ctx: ToolContext, durations=(4, 6, 8)) -> ToolOutco
     return await run_declared_tool("promote_draft", fake_ctx, {**args, "base_revision": revision})
 
 
-def nr_script_plan_path(fake_ctx: ToolContext) -> Path:
+def nr_script_plan_path(fake_ctx: ToolHarness) -> Path:
     return fake_ctx.project_path / "drafts" / "episode_1" / "script_plan_segments.json"
 
 
-def nr_quarantine_path(fake_ctx: ToolContext) -> Path:
+def nr_quarantine_path(fake_ctx: ToolHarness) -> Path:
     return quarantine_path(fake_ctx.project_path, 1, QUARANTINE_KIND_NARRATION_SCRIPT_PLAN)
 
 
-def read_nr_quarantine(fake_ctx: ToolContext) -> dict:
+def read_nr_quarantine(fake_ctx: ToolHarness) -> dict:
     return json.loads(nr_quarantine_path(fake_ctx).read_text(encoding="utf-8"))
 
 
-def write_nr_script_plan(fake_ctx: ToolContext, segments: list[dict]) -> None:
+def write_nr_script_plan(fake_ctx: ToolHarness, segments: list[dict]) -> None:
     path = nr_script_plan_path(fake_ctx)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps({"segments": segments}, ensure_ascii=False), encoding="utf-8")
 
 
-async def open_nr_for_edit(fake_ctx: ToolContext, **args) -> ToolOutcome[Any]:
+async def open_nr_for_edit(fake_ctx: ToolHarness, **args) -> ToolOutcome[Any]:
     return await run_declared_tool("open_draft", fake_ctx, {"episode": 1, "doc_type": "narration_script_plan", **args})
 
 
-async def promote_nr(fake_ctx: ToolContext, durations=(4, 6, 8)) -> ToolOutcome[Any]:
+async def promote_nr(fake_ctx: ToolHarness, durations=(4, 6, 8)) -> ToolOutcome[Any]:
     use_fake_caps(fake_ctx, supported_durations=durations, default_duration=durations[0])
     args = {"episode": 1, "doc_type": "narration_script_plan"}
     opened = await run_declared_tool("open_draft", fake_ctx, args)

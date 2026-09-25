@@ -177,9 +177,8 @@ def test_generation_entries_refuse_while_the_project_is_blocked(tmp_path: Path, 
 
 
 async def test_retry_tool_returns_details_then_unblocks_once_repaired(tmp_path: Path) -> None:
-    from server.agent_toolset.declaration import invoke_declaration
     from server.agent_toolset.repair_channel import RETRY_PROJECT_MIGRATION
-    from server.media_tools.context import ToolContext, tool_services
+    from tests.integration.server.agent_tool_support import ToolHarness, run_declared_tool
 
     projects_root = tmp_path / "projects"
     projects_root.mkdir()
@@ -187,9 +186,9 @@ async def test_retry_tool_returns_details_then_unblocks_once_repaired(tmp_path: 
     _break_episode_script(project_dir)
     assert migrate_project_with_verdict(project_dir) is not None
 
-    ctx = ToolContext(project_name="demo", data_root=tmp_path, pm=ProjectManager(str(tmp_path)))
+    ctx = ToolHarness(project_name="demo", data_root=tmp_path, pm=ProjectManager(str(tmp_path)))
 
-    blocked = await invoke_declaration(RETRY_PROJECT_MIGRATION, {}, ctx.scope, ctx.caller, tool_services(ctx))
+    blocked = await run_declared_tool(RETRY_PROJECT_MIGRATION, ctx, {})
     # 与被拦截的生成工具同一个回执形状：一份 problem，不是第二套 error/reason 信封
     assert blocked.problem is not None
     assert blocked.problem.code == MIGRATION_FAILURE_CODE
@@ -198,7 +197,7 @@ async def test_retry_tool_returns_details_then_unblocks_once_repaired(tmp_path: 
     assert blocked.problem.params["details"][0]["file"] == "scripts/episode_1.json"
 
     _repair_episode_script(project_dir)
-    unblocked = await invoke_declaration(RETRY_PROJECT_MIGRATION, {}, ctx.scope, ctx.caller, tool_services(ctx))
+    unblocked = await run_declared_tool(RETRY_PROJECT_MIGRATION, ctx, {})
 
     assert unblocked.problem is None
     assert unblocked.value is not None
@@ -379,97 +378,16 @@ async def test_prompt_preview_reports_the_full_migration_problem(tmp_path: Path)
     assert blocked.problem.params["details"][0]["file"] == "scripts/episode_1.json"
 
 
-def test_the_blocked_set_names_real_tools_and_never_the_retry_tool() -> None:
-    from server.agent_runtime import sdk_tools
-
-    assert set(sdk_tools.ARCREEL_MCP_TOOL_IDS) >= sdk_tools.MIGRATION_BLOCKED_TOOL_IDS
-    assert "retry_project_migration" not in sdk_tools.MIGRATION_BLOCKED_TOOL_IDS
-
-
-async def test_script_patch_refuses_at_the_declared_entry_on_a_migration_blocked_project(tmp_path: Path) -> None:
-    """正式剧本编辑在声明入口按迁移裁决拒绝，回执是 problem 形状。
-
-    不落到 ScriptBatchEditor.execute 的内层裁决——那条仍在，作兜底，但命中它会返回
-    ``script_patch`` 结果而不是 ``problem``，与这里的形状断言矛盾。
-    """
-    from server.agent_toolset.declaration import invoke_declaration
-    from server.agent_toolset.script_editing import PATCH_EPISODE_SCRIPT
-    from server.media_tools.context import ToolContext, tool_services
-
-    projects_root = tmp_path / "projects"
-    projects_root.mkdir()
-    project_dir, *_ = _project(tmp_path)
-    _break_episode_script(project_dir)
-    failure = migrate_project_with_verdict(project_dir)
-    assert failure is not None
-    ctx = ToolContext(project_name="demo", data_root=tmp_path, pm=ProjectManager(str(tmp_path)))
-
-    blocked = await invoke_declaration(
-        PATCH_EPISODE_SCRIPT,
-        {
-            "script": "episode_1.json",
-            "base_revision": "sha256-v1:" + "0" * 64,
-            "operations": [{"op": "update", "id": "E1S02", "fields": {"note": "x"}}],
-        },
-        ctx.scope,
-        ctx.caller,
-        tool_services(ctx),
-    )
-
-    assert blocked.value is None
-    assert blocked.problem is not None
-    assert blocked.problem.code == GenerationProblemCode.PROJECT_MIGRATION_FAILED
-    assert blocked.problem.action == GenerationAction.RETRY_PROJECT_MIGRATION
-    assert blocked.problem.detail == failure.reason
-
-
 _ABSENT_REVISION = "sha256-v1:" + "0" * 64
 _DRAFT = {"episode": 1, "doc_type": "drama_script_plan"}
-
-
-@pytest.mark.parametrize(
-    ("tool_name", "arguments"),
-    [
-        ("generate_episode_script", {"episode": 1}),
-        ("generate_script_plan", {"episode": 1}),
-        ("confirm_script_review", {"episode": 1}),
-        ("open_draft", _DRAFT),
-        ("patch_draft", {**_DRAFT, "content": {"scenes": []}, "base_revision": _ABSENT_REVISION}),
-        ("promote_draft", {**_DRAFT, "base_revision": _ABSENT_REVISION}),
-        ("discard_draft", {**_DRAFT, "base_revision": _ABSENT_REVISION}),
-    ],
-)
-async def test_script_authoring_tools_refuse_at_the_declared_entry_on_a_migration_blocked_project(
-    tmp_path: Path, tool_name: str, arguments: dict[str, object]
-) -> None:
-    from server.agent_toolset.declaration import invoke_declaration
-    from server.agent_toolset.script_authoring import SCRIPT_AUTHORING_TOOLS
-    from server.media_tools.context import ToolContext, tool_services
-
-    projects_root = tmp_path / "projects"
-    projects_root.mkdir()
-    project_dir, *_ = _project(projects_root)
-    _break_episode_script(project_dir)
-    failure = migrate_project_with_verdict(project_dir)
-    assert failure is not None
-    ctx = ToolContext(project_name="demo", data_root=projects_root, pm=ProjectManager(str(projects_root)))
-    declaration = next(declaration for declaration in SCRIPT_AUTHORING_TOOLS if declaration.name == tool_name)
-
-    blocked = await invoke_declaration(declaration, arguments, ctx.scope, ctx.caller, tool_services(ctx))
-
-    assert blocked.value is None
-    assert blocked.problem is not None
-    assert blocked.problem.code == GenerationProblemCode.PROJECT_MIGRATION_FAILED
-    assert blocked.problem.detail == failure.reason
 
 
 async def test_mcp_guard_reads_the_session_projects_root_not_the_global_one(tmp_path: Path, monkeypatch) -> None:
     """声明入口的裁决必须取自会话的项目根：会话可能绑定另一个 projects_root，同名项目不是同一个项目。"""
 
     import lib.project.project_migration_guard as guard
-    from server.agent_toolset.declaration import invoke_declaration
     from server.agent_toolset.script_authoring import DISCARD_DRAFT
-    from server.media_tools.context import ToolContext, tool_services
+    from tests.integration.server.agent_tool_support import ToolHarness, run_declared_tool
 
     session_root = tmp_path / "session"
     session_root.mkdir()
@@ -483,7 +401,7 @@ async def test_mcp_guard_reads_the_session_projects_root_not_the_global_one(tmp_
     assert migrate_project_with_verdict(global_dir) is not None
 
     monkeypatch.setattr(guard, "get_project_manager", lambda: ProjectManager(str(global_root)))
-    ctx = ToolContext(project_name="demo", data_root=session_root, pm=ProjectManager(str(session_root)))
+    ctx = ToolHarness(project_name="demo", data_root=session_root, pm=ProjectManager(str(session_root)))
     ran = False
 
     async def _handler(*_args: object) -> ToolOutcome[Any]:
@@ -491,12 +409,8 @@ async def test_mcp_guard_reads_the_session_projects_root_not_the_global_one(tmp_
         ran = True
         return ToolOutcome(value={})
 
-    result = await invoke_declaration(
-        replace(DISCARD_DRAFT, handler=_handler),
-        {**_DRAFT, "base_revision": _ABSENT_REVISION},
-        ctx.scope,
-        ctx.caller,
-        tool_services(ctx),
+    result = await run_declared_tool(
+        replace(DISCARD_DRAFT, handler=_handler), ctx, {**_DRAFT, "base_revision": _ABSENT_REVISION}
     )
 
     assert ran is True

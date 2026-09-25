@@ -18,12 +18,13 @@ from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from lib.project.resource_paths import resource_relative_path
 from lib.script.script_skeleton import SkeletonRouteMismatchError
 from server.media_tools import videos as enqueue_videos_mod
-from server.media_tools.context import ToolContext, generation_is_error, tool_services
+from server.media_tools.context import generation_is_error
 from server.tool_runtime import ToolOutcome
 from tests.factories import make_video_request_facts
 from tests.fakes import fake_reference_request_facts
-from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
+from tests.integration.server.agent_tool_support import (
     _CLAIMED_BASIS_DIGEST,
+    ToolHarness,
     activate_unbound_project,
     fake_caps_resolver,
     fake_reference_projection,
@@ -185,7 +186,7 @@ _VALID_REQUEST: dict[str, Any] = {
     ],
 )
 async def test_generate_videos_refuses_a_malformed_request_before_enqueuing(
-    fake_ctx: ToolContext, overrides: dict[str, Any]
+    fake_ctx: ToolHarness, overrides: dict[str, Any]
 ) -> None:
     enqueue = AsyncMock(return_value=([], []))
 
@@ -196,7 +197,7 @@ async def test_generate_videos_refuses_a_malformed_request_before_enqueuing(
     enqueue.assert_not_awaited()
 
 
-async def test_generate_videos_refuses_an_omitted_narration_delivery(fake_ctx: ToolContext) -> None:
+async def test_generate_videos_refuses_an_omitted_narration_delivery(fake_ctx: ToolHarness) -> None:
     """缺省不折成后期配音——那会让整批按调用方没选过的交付方式准入并计费。"""
     enqueue = AsyncMock(return_value=([], []))
     arguments = {key: value for key, value in _VALID_REQUEST.items() if key != "narration_delivery"}
@@ -211,7 +212,7 @@ async def test_generate_videos_refuses_an_omitted_narration_delivery(fake_ctx: T
 
 @pytest.mark.parametrize("retired_param", sorted(enqueue_videos_mod._RETIRED_PARAMS))
 async def test_generate_videos_refuses_a_retired_param_with_its_replacement(
-    fake_ctx: ToolContext, retired_param: str
+    fake_ctx: ToolHarness, retired_param: str
 ) -> None:
     """已退役的参数名被拒，报错点名该参数并给出当下写法。"""
 
@@ -226,7 +227,7 @@ async def test_generate_videos_refuses_a_retired_param_with_its_replacement(
 
 
 async def test_generate_videos_refuses_an_episode_target_that_is_not_the_scripts_episode(
-    fake_ctx: ToolContext,
+    fake_ctx: ToolHarness,
 ) -> None:
     enqueue = AsyncMock(return_value=([], []))
 
@@ -242,13 +243,13 @@ async def test_generate_videos_refuses_an_episode_target_that_is_not_the_scripts
 # ---------------------------------------------------------------------------
 
 
-async def test_generate_videos_episode_scope_happy(fake_ctx: ToolContext) -> None:
+async def test_generate_videos_episode_scope_happy(fake_ctx: ToolHarness) -> None:
     out = await run_generate_videos(fake_ctx, _EPISODE_1, batch_waiter=fake_scene_batch)
 
     assert not _is_error(out), out
 
 
-async def test_generate_videos_episode_scope_skips_current_clip(fake_ctx: ToolContext) -> None:
+async def test_generate_videos_episode_scope_skips_current_clip(fake_ctx: ToolHarness) -> None:
     """整集调用复用清单已认领的旧片段。"""
 
     project = fake_ctx.pm.project_payload
@@ -280,7 +281,7 @@ async def test_generate_videos_episode_scope_skips_current_clip(fake_ctx: ToolCo
 
 
 async def test_generate_videos_episode_scope_blocks_a_clip_whose_manifest_state_is_unreadable(
-    fake_ctx: ToolContext,
+    fake_ctx: ToolHarness,
 ) -> None:
     """整集调用里某片段的 Manifest 比对抛错（BLOCKED）时必须报 blocked，不能落入
     「既不可复用也不算 blocked」的空档而被当作缺失去付费重生——不可读不等于没有。"""
@@ -314,7 +315,7 @@ async def test_generate_videos_episode_scope_blocks_a_clip_whose_manifest_state_
 
 
 async def test_generate_videos_episode_scope_rejects_unbound_active_script_before_enqueue(
-    fake_ctx: ToolContext,
+    fake_ctx: ToolHarness,
 ) -> None:
     activate_unbound_project(fake_ctx)
     enqueue = AsyncMock(return_value=([], []))
@@ -327,7 +328,7 @@ async def test_generate_videos_episode_scope_rejects_unbound_active_script_befor
 
 
 async def test_generate_videos_episode_scope_non_dict_generated_assets_does_not_abort_batch(
-    fake_ctx: ToolContext,
+    fake_ctx: ToolHarness,
 ) -> None:
     """整集入队先按 generated_assets.video_clip 过滤已完成条目。容器被外部编辑损坏为非 dict
     时该过滤须按「未生成」处理，而不是在 pending 过滤阶段就抛未处理 AttributeError；随后该条目
@@ -362,7 +363,7 @@ async def test_generate_videos_episode_scope_non_dict_generated_assets_does_not_
     assert _is_error(out)
 
 
-async def test_generate_videos_episode_scope_error(fake_ctx: ToolContext) -> None:
+async def test_generate_videos_episode_scope_error(fake_ctx: ToolHarness) -> None:
     fake_ctx.pm.script_payload = {"content_mode": "narration", "segments": [], "episode": 1}
 
     out = await run_generate_videos(fake_ctx, _EPISODE_1)
@@ -370,7 +371,7 @@ async def test_generate_videos_episode_scope_error(fake_ctx: ToolContext) -> Non
     assert _is_error(out)
 
 
-async def test_generate_videos_ignores_legacy_batch_checkpoint_files(fake_ctx: ToolContext) -> None:
+async def test_generate_videos_ignores_legacy_batch_checkpoint_files(fake_ctx: ToolHarness) -> None:
     checkpoint = fake_ctx.project_path / "videos" / ".checkpoint_ep1.json"
     checkpoint.parent.mkdir(parents=True, exist_ok=True)
     checkpoint.write_text("not-json", encoding="utf-8")
@@ -383,7 +384,7 @@ async def test_generate_videos_ignores_legacy_batch_checkpoint_files(fake_ctx: T
 
 
 async def test_generate_videos_resubmits_only_remaining_ids_from_a_durable_batch(
-    fake_ctx: ToolContext,
+    fake_ctx: ToolHarness,
 ) -> None:
     from lib.db.base import DEFAULT_USER_ID
     from server.tool_runtime import CallerContext
@@ -443,7 +444,7 @@ async def test_generate_videos_resubmits_only_remaining_ids_from_a_durable_batch
     ],
 )
 async def test_generate_videos_reuses_the_selected_manual_upload(
-    fake_ctx: ToolContext,
+    fake_ctx: ToolHarness,
     monkeypatch: pytest.MonkeyPatch,
     route: str,
     target: dict[str, Any],
@@ -488,14 +489,14 @@ async def test_generate_videos_reuses_the_selected_manual_upload(
     assert (await fake_ctx.queue.list_tasks(project_name="demo"))["items"] == []
 
 
-async def test_generate_videos_scene_scope_happy(fake_ctx: ToolContext) -> None:
+async def test_generate_videos_scene_scope_happy(fake_ctx: ToolHarness) -> None:
     out = await run_generate_videos(fake_ctx, _scene("E1S01"), force=True, batch_waiter=fake_scene_batch)
 
     assert not _is_error(out), out
 
 
 async def test_generate_videos_scene_scope_use_tts_requires_exact_tier_and_queues_only_request_facts(
-    fake_ctx: ToolContext, monkeypatch
+    fake_ctx: ToolHarness, monkeypatch
 ) -> None:
     from lib.speech.narration_delivery import (
         USE_TTS,
@@ -567,7 +568,7 @@ async def test_generate_videos_scene_scope_use_tts_requires_exact_tier_and_queue
     assert "actual_duration_seconds" not in payload["narration_delivery_options"]
 
 
-async def test_generate_videos_scene_scope_accepts_legacy_drama_dialogue(fake_ctx: ToolContext) -> None:
+async def test_generate_videos_scene_scope_accepts_legacy_drama_dialogue(fake_ctx: ToolHarness) -> None:
     fake_ctx.pm.project_payload["content_mode"] = "drama"
     fake_ctx.pm.script_payload = {
         "content_mode": "drama",
@@ -592,7 +593,7 @@ async def test_generate_videos_scene_scope_accepts_legacy_drama_dialogue(fake_ct
     assert not _is_error(out), out
 
 
-async def test_generate_videos_scene_scope_accepts_speech_free_legacy_drama(fake_ctx: ToolContext) -> None:
+async def test_generate_videos_scene_scope_accepts_speech_free_legacy_drama(fake_ctx: ToolHarness) -> None:
     fake_ctx.pm.project_payload["content_mode"] = "drama"
     fake_ctx.pm.script_payload = {
         "content_mode": "drama",
@@ -615,7 +616,7 @@ async def test_generate_videos_scene_scope_accepts_speech_free_legacy_drama(fake
     assert not _is_error(out), out
 
 
-async def test_generate_videos_scene_scope_accepts_legacy_narration_string_prompt(fake_ctx: ToolContext) -> None:
+async def test_generate_videos_scene_scope_accepts_legacy_narration_string_prompt(fake_ctx: ToolHarness) -> None:
     fake_ctx.pm.project_payload["content_mode"] = "narration"
     fake_ctx.pm.script_payload = {
         "content_mode": "narration",
@@ -636,7 +637,7 @@ async def test_generate_videos_scene_scope_accepts_legacy_narration_string_promp
 
 
 async def test_generate_videos_episode_scope_storyboard_batch_blocks_on_mixed_speech(
-    fake_ctx: ToolContext, monkeypatch
+    fake_ctx: ToolHarness, monkeypatch
 ) -> None:
     """分镜图生视频的整批入口同样过发声准入：一个混合发声条目扣下整批，零任务入队。"""
     project_dir = fake_ctx.pm.get_project_path("demo")
@@ -673,7 +674,7 @@ async def test_generate_videos_episode_scope_storyboard_batch_blocks_on_mixed_sp
 
 
 async def test_generate_videos_episode_scope_storyboard_batch_blocks_when_a_video_prompt_is_pending(
-    fake_ctx: ToolContext, monkeypatch
+    fake_ctx: ToolHarness, monkeypatch
 ) -> None:
     """机械转换出的条目 video_prompt 为 None：整批受阻、零任务入队，回执点名待生成的条目。"""
     project_dir = fake_ctx.pm.get_project_path("demo")
@@ -709,7 +710,7 @@ async def test_generate_videos_episode_scope_storyboard_batch_blocks_when_a_vide
     assert codes["E1S02"] == "generation_batch_admission_withheld"
 
 
-async def test_generate_videos_scene_scope_missing(fake_ctx: ToolContext) -> None:
+async def test_generate_videos_scene_scope_missing(fake_ctx: ToolHarness) -> None:
     out = await run_generate_videos(fake_ctx, _scene("NO_SUCH"), force=True)
 
     assert _is_error(out)
@@ -724,7 +725,7 @@ async def test_generate_videos_scene_scope_missing(fake_ctx: ToolContext) -> Non
     ],
 )
 async def test_generate_videos_scene_scope_rejects_invalid_storyboard_image(
-    fake_ctx: ToolContext, storyboard_value: object
+    fake_ctx: ToolHarness, storyboard_value: object
 ) -> None:
     fake_ctx.pm.script_payload["segments"][0]["generated_assets"] = {"storyboard_image": storyboard_value}
 
@@ -735,7 +736,7 @@ async def test_generate_videos_scene_scope_rejects_invalid_storyboard_image(
     assert f"invalid storyboard image path: {storyboard_value!r}" in _text(out)
 
 
-async def test_generate_videos_all_scope_happy(fake_ctx: ToolContext) -> None:
+async def test_generate_videos_all_scope_happy(fake_ctx: ToolHarness) -> None:
     async def fake_batch(*, specs, **_batch_kwargs):
         from lib.generation.generation_queue_client import BatchTaskResult
 
@@ -752,7 +753,7 @@ async def test_generate_videos_all_scope_happy(fake_ctx: ToolContext) -> None:
     assert not _is_error(out), out
 
 
-async def test_generate_videos_all_scope_error(fake_ctx: ToolContext) -> None:
+async def test_generate_videos_all_scope_error(fake_ctx: ToolHarness) -> None:
     def boom(*a, **kw):
         raise RuntimeError("broken")
 
@@ -763,13 +764,13 @@ async def test_generate_videos_all_scope_error(fake_ctx: ToolContext) -> None:
     assert _is_error(out)
 
 
-async def test_generate_videos_selected_scope_happy(fake_ctx: ToolContext) -> None:
+async def test_generate_videos_selected_scope_happy(fake_ctx: ToolHarness) -> None:
     out = await run_generate_videos(fake_ctx, _selected("E1S01"), force=True, batch_waiter=fake_scene_batch)
 
     assert not _is_error(out), out
 
 
-async def test_generate_videos_selected_scope_no_match(fake_ctx: ToolContext) -> None:
+async def test_generate_videos_selected_scope_no_match(fake_ctx: ToolHarness) -> None:
     out = await run_generate_videos(fake_ctx, _selected("NO_SUCH"), force=True)
 
     assert _is_error(out)
@@ -781,7 +782,7 @@ async def test_generate_videos_selected_scope_no_match(fake_ctx: ToolContext) ->
 
 
 async def test_generate_reference_video_rejects_unbound_active_script_before_generation(
-    fake_ctx: ToolContext,
+    fake_ctx: ToolHarness,
 ) -> None:
     activate_unbound_project(fake_ctx, generation_mode="reference_video")
     fake_ctx.pm.script_payload = reference_video_script()
@@ -795,7 +796,7 @@ async def test_generate_reference_video_rejects_unbound_active_script_before_gen
 
 
 async def test_generate_reference_video_legacy_unresolvable_episode_fails_before_generation(
-    fake_ctx: ToolContext,
+    fake_ctx: ToolHarness,
 ) -> None:
     use_reference_route(fake_ctx)
     fake_ctx.pm.script_payload = reference_video_script()
@@ -809,7 +810,7 @@ async def test_generate_reference_video_legacy_unresolvable_episode_fails_before
     enqueue.assert_not_awaited()
 
 
-async def test_generate_videos_episode_scope_reference_rejects_malformed_unit_container(fake_ctx: ToolContext) -> None:
+async def test_generate_videos_episode_scope_reference_rejects_malformed_unit_container(fake_ctx: ToolHarness) -> None:
     """``video_units`` 非数组：生成模式闸门只问键在不在，容器校验落在入队侧，
     须报出可定位的结构错误而不是下传到 unit 迭代抛 TypeError。"""
     use_reference_route(fake_ctx)
@@ -831,7 +832,7 @@ async def test_generate_videos_episode_scope_reference_rejects_malformed_unit_co
 
 
 async def test_generate_videos_episode_scope_reference_duration_needs_confirmation(
-    fake_ctx: ToolContext, monkeypatch
+    fake_ctx: ToolHarness, monkeypatch
 ) -> None:
     """申请秒数与剧本总时长不一致时，首次调用不入队，逐 ID 结果给出机器可读的待确认结论。"""
     from lib.script.reference_video.duration_slots import UP, DurationSlot
@@ -869,7 +870,7 @@ async def test_generate_videos_episode_scope_reference_duration_needs_confirmati
 
 
 async def test_generate_videos_episode_scope_reference_duration_confirm_enqueues(
-    fake_ctx: ToolContext, monkeypatch
+    fake_ctx: ToolHarness, monkeypatch
 ) -> None:
     """带精确申请档位的再次调用按取档结果入队并生成成功。"""
     from lib.generation.generation_queue_client import BatchTaskResult
@@ -907,7 +908,7 @@ async def test_generate_videos_episode_scope_reference_duration_confirm_enqueues
 
 
 async def test_generate_videos_episode_scope_confirms_two_tiers_in_one_batch(
-    fake_ctx: ToolContext, monkeypatch
+    fake_ctx: ToolHarness, monkeypatch
 ) -> None:
     """一批里档位不止一个时按 unit 确认，原目标集合仍作为一批重发，各任务带自己那一档确认。"""
     from lib.script.reference_video.duration_slots import UP, DurationSlot
@@ -958,7 +959,7 @@ async def test_generate_videos_episode_scope_confirms_two_tiers_in_one_batch(
 
 
 async def test_generate_videos_episode_scope_reference_honors_requested_narration_delivery(
-    fake_ctx: ToolContext,
+    fake_ctx: ToolHarness,
     monkeypatch,
 ) -> None:
     use_reference_route(fake_ctx)
@@ -998,7 +999,7 @@ async def test_generate_videos_episode_scope_reference_honors_requested_narratio
 
 
 async def test_generate_videos_episode_scope_reference_duration_repeat_without_confirm_still_blocked(
-    fake_ctx: ToolContext, monkeypatch
+    fake_ctx: ToolHarness, monkeypatch
 ) -> None:
     """不带确认参数的重复调用仍不入队。"""
     from lib.script.reference_video.duration_slots import UP, DurationSlot
@@ -1023,7 +1024,7 @@ async def test_generate_videos_episode_scope_reference_duration_repeat_without_c
 
 
 async def test_generate_videos_episode_scope_reference_duration_exact_enqueues_directly(
-    fake_ctx: ToolContext, monkeypatch
+    fake_ctx: ToolHarness, monkeypatch
 ) -> None:
     """总时长为档位成员时单次调用直接入队，行为与现状一致。"""
     from lib.generation.generation_queue_client import BatchTaskResult
@@ -1061,7 +1062,7 @@ async def test_generate_videos_episode_scope_reference_duration_exact_enqueues_d
 
 
 async def test_generate_videos_episode_scope_reference_duration_resolves_project_context_once(
-    fake_ctx: ToolContext, monkeypatch
+    fake_ctx: ToolHarness, monkeypatch
 ) -> None:
     """批量预检让每个可入队 unit 都经过公共 request projection。"""
     from lib.script.reference_video.duration_slots import UP, DurationSlot
@@ -1104,7 +1105,7 @@ async def test_generate_videos_episode_scope_reference_duration_resolves_project
 
 
 async def test_generate_videos_episode_scope_reference_skips_duration_context_when_nothing_to_precheck(
-    fake_ctx: ToolContext, monkeypatch
+    fake_ctx: ToolHarness, monkeypatch
 ) -> None:
     """整批都没有可预检的 unit 时不解析项目能力——解析推迟到第一个真正要取档的 unit，
     重构不能让「全部已完成/全部被跳过」的批次凭空多付一轮 DB 往返。"""
@@ -1126,7 +1127,7 @@ async def test_generate_videos_episode_scope_reference_skips_duration_context_wh
 
 
 async def test_generate_videos_episode_scope_reference_skips_duration_context_when_prompt_blank(
-    fake_ctx: ToolContext, monkeypatch
+    fake_ctx: ToolHarness, monkeypatch
 ) -> None:
     """正文全空白时 build_specs 会拒绝该 unit——预检须复用同一份结构校验提前判定，
     不能先触发项目能力解析再让 build_specs 事后跳过。"""
@@ -1149,7 +1150,7 @@ async def test_generate_videos_episode_scope_reference_skips_duration_context_wh
 
 
 async def test_generate_videos_episode_scope_ad_reference_duration_needs_confirmation(
-    ad_reference_ctx: ToolContext, monkeypatch
+    ad_reference_ctx: ToolHarness, monkeypatch
 ) -> None:
     """广告/短片的参考生视频走同一条视频单元时长确认闸门。"""
     from lib.script.reference_video.duration_slots import UP, DurationSlot
@@ -1183,7 +1184,7 @@ async def test_generate_videos_episode_scope_ad_reference_duration_needs_confirm
     ids=["scene", "all", "selected"],
 )
 async def test_generate_video_reference_duration_confirmation_across_entries(
-    fake_ctx: ToolContext, monkeypatch, target: dict[str, Any], force: bool | None
+    fake_ctx: ToolHarness, monkeypatch, target: dict[str, Any], force: bool | None
 ) -> None:
     """reference 路径的整集与点名入口共用确认闸门：未确认不入队、确认后入队。"""
     from lib.script.reference_video.duration_slots import UP, DurationSlot
@@ -1228,7 +1229,7 @@ async def test_generate_video_reference_duration_confirmation_across_entries(
 
 
 async def test_generate_videos_scene_scope_reference_use_tts_queues_only_after_the_tier_is_confirmed(
-    fake_ctx: ToolContext,
+    fake_ctx: ToolHarness,
     monkeypatch,
 ) -> None:
     from lib.script.reference_video.duration_slots import EXACT, DurationSlot
@@ -1452,7 +1453,7 @@ def test_build_video_specs_skips_non_dict_generated_assets_without_aborting_batc
     assert _refused_problems(refused) == {"S01": ("generation_unit_input_unusable", "generate_dependency")}
 
 
-async def test_generate_videos_scene_scope_generated_assets_non_dict_readable_rejection(fake_ctx: ToolContext) -> None:
+async def test_generate_videos_scene_scope_generated_assets_non_dict_readable_rejection(fake_ctx: ToolHarness) -> None:
     """generated_assets 容器本身非 dict 时须走「没有分镜图」的可读拒绝分支，
     不应在单条路径上抛未处理 AttributeError。"""
     fake_ctx.pm.script_payload["segments"][0]["generated_assets"] = ["bad"]
@@ -1560,7 +1561,7 @@ def test_storyboard_video_prompt_strips_caller_supplied_voice_profiles_for_non_d
     assert "Voice_Profiles" not in parsed
 
 
-async def test_resolve_voice_context_skips_non_drama(fake_ctx: ToolContext) -> None:
+async def test_resolve_voice_context_skips_non_drama(fake_ctx: ToolHarness) -> None:
     """narration/ad：不解析 voice_consistency，直接跳过（无 drama dialogue speaker 概念）。"""
     from server.services.admission.video_batch_admission import resolve_voice_context as _resolve_voice_context
 
@@ -1568,7 +1569,7 @@ async def test_resolve_voice_context_skips_non_drama(fake_ctx: ToolContext) -> N
 
 
 async def test_resolve_voice_context_drama_reads_project_characters_and_gate(
-    fake_ctx: ToolContext, monkeypatch
+    fake_ctx: ToolHarness, monkeypatch
 ) -> None:
     """drama：读项目角色资产，无声（C 类真无声、或本集关闭音频）时退回不注入。"""
     from server.services.admission import video_batch_admission as admission_mod
@@ -1686,7 +1687,7 @@ def _ad_reference_unit(**overrides: Any) -> dict[str, Any]:
 
 
 @pytest.fixture
-def ad_reference_ctx(fake_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch) -> ToolContext:
+def ad_reference_ctx(fake_ctx: ToolHarness, monkeypatch: pytest.MonkeyPatch) -> ToolHarness:
     fake_ctx.config_resolver = fake_caps_resolver(supported_durations=(5,), default_duration=5)
     request_facts = fake_reference_request_facts(durations=(5,), model_id="fake-video", max_reference_images=3)
     monkeypatch.setattr(
@@ -1716,7 +1717,7 @@ def ad_reference_ctx(fake_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch) -> 
     return fake_ctx
 
 
-def _successful_reference_batch(ctx: ToolContext, enqueued: list[Any]):
+def _successful_reference_batch(ctx: ToolHarness, enqueued: list[Any]):
     async def fake_batch(*, project_name: str, specs: list[Any], on_success=None, on_failure=None, **_batch_kwargs):
         from lib.generation.generation_queue_client import BatchTaskResult
 
@@ -1741,7 +1742,7 @@ def _successful_reference_batch(ctx: ToolContext, enqueued: list[Any]):
 
 
 async def test_generate_videos_episode_scope_reference_skips_malformed_unit_entries(
-    ad_reference_ctx: ToolContext,
+    ad_reference_ctx: ToolHarness,
 ) -> None:
     """脏 unit 元素交给逐条校验拒绝，不在完成扫描、音频闸门或时长预检抛未处理异常。"""
     valid = ad_reference_ctx.pm.script_payload["video_units"][0]
@@ -1761,7 +1762,7 @@ async def test_generate_videos_episode_scope_reference_skips_malformed_unit_entr
 
 
 async def test_generate_videos_episode_scope_ad_reference_enqueues_existing_video_units(
-    ad_reference_ctx: ToolContext,
+    ad_reference_ctx: ToolHarness,
 ) -> None:
     """广告/短片的参考生视频直接消费自包含 video_units，不派生或写入 reference_units。"""
     enqueued: list[Any] = []
@@ -1778,7 +1779,7 @@ async def test_generate_videos_episode_scope_ad_reference_enqueues_existing_vide
 
 
 async def test_generate_videos_episode_scope_ad_reference_does_not_claim_orphan_file(
-    ad_reference_ctx: ToolContext,
+    ad_reference_ctx: ToolHarness,
 ) -> None:
     """同名文件没有 generated_assets 归属时仍须入队，不能把孤儿文件报告为成功。"""
     orphan = ad_reference_ctx.project_path / "reference_videos/E1U1.mp4"
@@ -1795,7 +1796,7 @@ async def test_generate_videos_episode_scope_ad_reference_does_not_claim_orphan_
 
 
 async def test_generate_videos_episode_scope_reference_blocks_a_clip_whose_manifest_state_is_unreadable(
-    ad_reference_ctx: ToolContext,
+    ad_reference_ctx: ToolHarness,
 ) -> None:
     """整集参考生视频里某 unit 已有成片、但 Manifest 比对抛错（BLOCKED）时必须报
     blocked，不能让 ``artifact_is_usable`` 的 fail-loud 异常穿透成整批 tool_error——
@@ -1823,7 +1824,7 @@ async def test_generate_videos_episode_scope_reference_blocks_a_clip_whose_manif
 
 
 async def test_generate_videos_episode_scope_ad_reference_replan_unit_cannot_reuse_owned_clip(
-    ad_reference_ctx: ToolContext,
+    ad_reference_ctx: ToolHarness,
 ) -> None:
     """迁移保留的已归属视频不能绕过 needs_replan 生成闸门。"""
     ad_reference_ctx.pm.script_payload["video_units"] = [
@@ -1846,7 +1847,7 @@ async def test_generate_videos_episode_scope_ad_reference_replan_unit_cannot_reu
 
 
 async def test_generate_videos_selected_scope_ad_reference_regenerates_named_unit(
-    ad_reference_ctx: ToolContext,
+    ad_reference_ctx: ToolHarness,
 ) -> None:
     """广告点名重做沿用统一 video_unit 路径。"""
     enqueued: list[Any] = []
@@ -1872,13 +1873,13 @@ _SKELETON_BY_MODE_PAIR: dict[tuple[str, str], str] = {
 }
 
 
-def _video_call(ctx: ToolContext) -> Any:
-    return enqueue_videos_mod._VideoCall(scope=ctx.scope, caller=ctx.caller, services=tool_services(ctx))
+def _video_call(ctx: ToolHarness) -> Any:
+    return enqueue_videos_mod._VideoCall(scope=ctx.scope, caller=ctx.caller, services=ctx.services)
 
 
 @pytest.mark.parametrize(("content_mode", "generation_mode"), sorted(_SKELETON_BY_MODE_PAIR))
 def test_video_generation_dispatches_by_generation_mode_for_every_content_mode(
-    fake_ctx: ToolContext,
+    fake_ctx: ToolHarness,
     content_mode: str,
     generation_mode: str,
 ) -> None:
@@ -1895,7 +1896,7 @@ def test_video_generation_dispatches_by_generation_mode_for_every_content_mode(
 
 @pytest.mark.parametrize(("content_mode", "generation_mode"), sorted(_SKELETON_BY_MODE_PAIR))
 def test_video_generation_refuses_a_script_from_the_other_generation_mode(
-    fake_ctx: ToolContext,
+    fake_ctx: ToolHarness,
     content_mode: str,
     generation_mode: str,
 ) -> None:
@@ -1921,7 +1922,7 @@ def test_video_generation_refuses_a_script_from_the_other_generation_mode(
     ids=["episode", "scene", "all", "selected"],
 )
 async def test_generate_videos_rejects_mismatched_unit_script_on_storyboard_route(
-    fake_ctx: ToolContext, target: dict[str, Any], force: bool | None
+    fake_ctx: ToolHarness, target: dict[str, Any], force: bool | None
 ) -> None:
     """分镜图生视频项目下的 video_units 骨架剧本：四个入口一律结构报错 + 重拆指引。
 
@@ -1942,7 +1943,7 @@ async def test_generate_videos_rejects_mismatched_unit_script_on_storyboard_rout
 
 
 async def test_generate_videos_episode_scope_rejects_mismatched_storyboard_script_on_reference_route(
-    fake_ctx: ToolContext,
+    fake_ctx: ToolHarness,
 ) -> None:
     """反向：参考生视频项目下的分镜骨架剧本同样被拒，指引重跑 unit 拆分。"""
 

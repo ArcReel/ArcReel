@@ -25,6 +25,7 @@ from server.agent_toolset.declaration import (
     UnscopedToolDeclaration,
     invoke_declaration,
     invoke_unscoped_declaration,
+    tool_description,
 )
 from server.agent_toolset.envelope import encode_outcome
 from server.tool_runtime import CallerContext, ProjectScope, Services, ToolOutcome, ToolProblem
@@ -69,9 +70,10 @@ def remote_input_schema(declaration: AgentToolDeclaration) -> dict[str, Any]:
 
 
 def remote_description(declaration: AgentToolDeclaration) -> str:
+    description = tool_description(declaration)
     if isinstance(declaration, ToolDeclaration) and declaration.long_task:
-        return declaration.description + LONG_TASK_NOTE
-    return declaration.description
+        return description + LONG_TASK_NOTE
+    return description
 
 
 def remote_result(declaration: AgentToolDeclaration, outcome: ToolOutcome[Any]) -> CallToolResult:

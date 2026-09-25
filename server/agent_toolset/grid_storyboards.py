@@ -1,12 +1,13 @@
 """宫格分镜工具的声明：生成宫格联合图，经用户同意后切分落格。
 
-``generate_grid`` 是长任务，结果钩子与生成类工具同形；``list_only`` 预览不是生成结果，立即返回，
-放在工具名下。``split_grids`` 是普通写入工具。
+``generate_grid`` 是生成类长任务；``list_only`` 预览不是生成结果，立即返回，由宫格自己的结果钩子
+放在工具名下，其余值与生成类工具同形。``split_grids`` 是普通写入工具。
 """
 
 from __future__ import annotations
 
 from server.agent_toolset.declaration import BLOCKED, ToolDeclaration
+from server.agent_toolset.media_generation import generation_tool
 from server.media_tools.grid import (
     GenerateGridRequest,
     SplitGridsRequest,
@@ -17,7 +18,7 @@ from server.media_tools.grid import (
     split_grids,
 )
 
-GENERATE_GRID = ToolDeclaration(
+GENERATE_GRID = generation_tool(
     name="generate_grid",
     description=(
         "为已开启宫格装配的 storyboard 项目（generation_mode=storyboard 且 grid_storyboard=true）"
@@ -35,13 +36,9 @@ GENERATE_GRID = ToolDeclaration(
         "本身健康的分镜带 generation_batch_admission_withheld；已在生成中的宫格照常跑完，其分镜带 "
         "generation_active_task_conflict（action=wait_for_task）。"
         "终态结果的 generation_result 按 requested / succeeded / failed / blocked 逐分镜 ID 给出结局。"
-        "项目数据升级失败时拒绝执行，返回 project_migration_failed problem。"
     ),
     request_model=GenerateGridRequest,
-    migration=BLOCKED,
-    domain_key="generation_result",
     handler=generate_grid,
-    long_task=True,
     summary=grid_summary,
     projection=grid_structured,
     is_error=grid_is_error,
@@ -57,7 +54,6 @@ SPLIT_GRIDS = ToolDeclaration(
         "或 generate_grid 的 list_only 预览。"
         "逐宫格返回结果：已切分的列出写入的分镜，仍在生成、没有联合图或不存在的宫格跳过并说明原因；"
         "一张都没切分时返回 problem，params.results 带逐宫格原因。"
-        "项目数据升级失败时拒绝执行，返回 project_migration_failed problem。"
     ),
     request_model=SplitGridsRequest,
     migration=BLOCKED,

@@ -19,8 +19,6 @@ from server.tool_runtime import (
     reset_episode_planning,
 )
 
-_MIGRATION_REFUSAL = "项目数据升级失败时拒绝执行，返回 project_migration_failed problem。"
-
 
 def _plan_structured(value: PlanEpisodesResult | GenerationBatchReadModel) -> dict[str, Any]:
     """批次句柄投到 ``generation_batch``，规划完成的账本摘要投到 ``episode_plan``。"""
@@ -43,7 +41,7 @@ PLAN_EPISODES = ToolDeclaration(
         "返回会额外附全局体量核对材料（累计集数、体量最小几集、体量中位数、目标体量）：若用户给过总集数、按章节对齐等"
         "结构性偏好，须对照核对、有偏差明确告知用户；常规批次只报累计已规划集数。提交时按参与源文件记录内容指纹；若检测到"
         "已记录的源文件内容被改动或消失（源文被替换 / 编辑 / 删除，即使账本坐标仍在界内），会拒绝规划并指名变动文件，"
-        "此时需调用 reset_episode_planning 做全量重置后才能重新规划。" + _MIGRATION_REFUSAL
+        "此时需调用 reset_episode_planning 做全量重置后才能重新规划。"
     ),
     request_model=PlanEpisodesRequest,
     migration=BLOCKED,
@@ -65,7 +63,7 @@ RESET_EPISODE_PLANNING = ToolDeclaration(
         "此时改用 from_episode=1 做全量重置。两种模式都对波及已消费集（已有 script_plan / 剧本 / 媒体产物）时不执行，"
         "返回 confirmation_required=true 与受影响清单，须告知用户、确认后带 confirm_consumed=true 重新调用。"
         "任何下游产物（剧本、媒体）都不会被删除；重置范围内可由账本重造的 source/episode_N.txt 会被删除，无原文范围记录的"
-        "集文件改名留底（不会丢内容），保留段的派生文件不受影响。" + _MIGRATION_REFUSAL
+        "集文件改名留底（不会丢内容），保留段的派生文件不受影响。"
     ),
     request_model=ResetEpisodePlanningRequest,
     migration=BLOCKED,

@@ -480,6 +480,6 @@ class TestPromptPreviewTool:
 
     def test_registered_in_the_tool_catalogue(self):
         """内嵌 host 的工具目录；远程 host 的等价由 test_remote_mcp 的工具集相等断言兜住。"""
-        from server.agent_runtime.sdk_tools import ARCREEL_MCP_TOOL_IDS
+        from server.agent_toolset.toolset import ARCREEL_MCP_TOOL_IDS
 
         assert "get_prompt_preview" in ARCREEL_MCP_TOOL_IDS

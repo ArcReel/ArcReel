@@ -30,17 +30,18 @@ from lib.project.project_migration_failure import (
     record_migration_failure,
 )
 from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
-from server.agent_runtime.sdk_tools import ARCREEL_MCP_TOOL_IDS, MIGRATION_BLOCKED_TOOL_IDS, build_arcreel_mcp_server
+from server.agent_runtime.arcreel_mcp import build_arcreel_mcp_server
 from server.agent_toolset.declaration import (
     BLOCKED,
+    MIGRATION_REFUSAL_NOTE,
     AgentToolDeclaration,
     Blocked,
     ToolDeclaration,
     UnscopedToolDeclaration,
+    tool_description,
 )
 from server.agent_toolset.embedded import embedded_server
 from server.agent_toolset.envelope import json_value
-from server.agent_toolset.episode_planning import PLAN_EPISODES, RESET_EPISODE_PLANNING
 from server.agent_toolset.generation_batches import CANCEL_GENERATION_BATCH, GET_GENERATION_BATCH
 from server.agent_toolset.grid_storyboards import GENERATE_GRID, SPLIT_GRIDS
 from server.agent_toolset.orientation import GET_PROMPT_PREVIEW, GET_VIDEO_CAPABILITIES
@@ -54,7 +55,7 @@ from server.agent_toolset.script_authoring import (
     PROMOTE_DRAFT,
 )
 from server.agent_toolset.script_editing import PATCH_EPISODE_SCRIPT
-from server.agent_toolset.toolset import AGENT_TOOLSET
+from server.agent_toolset.toolset import AGENT_TOOLSET, ARCREEL_MCP_TOOL_IDS, MIGRATION_BLOCKED_TOOL_IDS
 from server.agent_toolset.workflow_completion import COMPLETE_ASSET_INVENTORY, COMPLETE_SCRIPT_PLAN_REBUILD
 from server.remote_mcp import build_remote_mcp_server
 from server.services.project.workflow_planner import WorkflowPlanner
@@ -275,8 +276,9 @@ async def test_both_hosts_expose_the_declared_name_schema_and_description(
     assert remote.inputSchema["required"][0] == "project"
     assert _without_project(remote.inputSchema) == embedded.inputSchema
     assert all(spec.get("description") for spec in embedded.inputSchema["properties"].values())
-    assert embedded.description == declaration.description
-    assert remote.description == declaration.description + (LONG_TASK_NOTE if declaration.long_task else "")
+    assert embedded.description == tool_description(declaration)
+    assert remote.description == tool_description(declaration) + (LONG_TASK_NOTE if declaration.long_task else "")
+    assert embedded.description.endswith(MIGRATION_REFUSAL_NOTE) is isinstance(declaration.migration, Blocked)
 
 
 @pytest.mark.parametrize(
@@ -297,14 +299,21 @@ async def test_both_hosts_expose_an_unscoped_declaration_without_project(
     assert remote.inputSchema == embedded.inputSchema == declaration.input_schema
     assert all(spec.get("description") for spec in embedded.inputSchema["properties"].values())
     assert embedded.description == remote.description == declaration.description
+    assert MIGRATION_REFUSAL_NOTE not in embedded.description
 
 
-def test_migration_blocked_ids_follow_each_declared_policy() -> None:
-    assert {
-        declaration.name
-        for declaration in AGENT_TOOLSET
-        if isinstance(declaration, ToolDeclaration) and isinstance(declaration.migration, Blocked)
-    } == {declaration.name for declaration in AGENT_TOOLSET if declaration.name in MIGRATION_BLOCKED_TOOL_IDS}
+async def test_every_tool_both_hosts_expose_is_defined_by_a_declaration(
+    projects: ProjectManager, services: Services
+) -> None:
+    """两宿主注册的工具集合与声明集合相同：没有声明之外的第二份工具定义。
+
+    ``SAMPLE_ARGUMENTS`` 逐个列出了全部工具，它的键集合同时充当工具清单。
+    """
+    embedded = set(await _embedded_listing(projects))
+    remote = {tool.name for tool in await build_remote_mcp_server(services=services).list_tools()}
+    declared = {declaration.name for declaration in AGENT_TOOLSET}
+
+    assert embedded == remote == declared == set(ARCREEL_MCP_TOOL_IDS) == set(SAMPLE_ARGUMENTS)
 
 
 @_DECLARATIONS
@@ -401,13 +410,17 @@ async def test_unblocked_declarations_reach_the_handler_on_a_migration_failed_pr
 
 @pytest.mark.parametrize(
     "declaration",
-    [PLAN_EPISODES, RESET_EPISODE_PLANNING, COMPLETE_ASSET_INVENTORY, COMPLETE_SCRIPT_PLAN_REBUILD],
+    [
+        declaration
+        for declaration in AGENT_TOOLSET
+        if isinstance(declaration, ToolDeclaration) and isinstance(declaration.migration, Blocked)
+    ],
     ids=lambda declaration: declaration.name,
 )
-async def test_planning_and_completion_entries_refuse_a_migration_failed_project_before_the_handler(
+async def test_declared_blocked_entries_refuse_a_migration_failed_project_before_the_handler(
     declaration: ToolDeclaration[Any, Any], projects: ProjectManager, services: Services
 ) -> None:
-    """这些入口按声明阻断，不依赖 handler 内层的迁移兜底。"""
+    """声明为 ``BLOCKED`` 的入口按声明阻断，不依赖 handler 内层的迁移兜底。"""
     record_migration_failure(
         projects.get_project_path("demo"), RuntimeError("清单预检失败"), schema_version=CURRENT_PROJECT_SCHEMA_VERSION
     )

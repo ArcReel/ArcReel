@@ -4,7 +4,7 @@
 (``lib/db/models/task.py``) populated either by fixed literal call sites
 (``server/routers/generate.py``, ``server/routers/grids.py``,
 ``server/routers/reference_videos.py``, ``server/tool_runtime.py``,
-``server/agent_runtime/sdk_tools/enqueue_*.py``) or dynamically from
+``server/media_tools/*.py``) or dynamically from
 :data:`ASSET_SPECS` keys (``lib/project/asset_types.py``) and
 :data:`DERIVATIVE_TASK_TYPE` (``lib/project/asset_derivatives.py``).
 

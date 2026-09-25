@@ -322,7 +322,7 @@ class CostEstimationService:
             except (ValueError, SQLAlchemyError):
                 image_provider, image_model = "unknown", "unknown"
 
-            # T2I 槽分辨率档：与路由入队、SDK 工具共用 ``grid_resolution`` 的取档，估算的宫格
+            # T2I 槽分辨率档：与路由入队、Agent 工具共用 ``grid_resolution`` 的取档，估算的宫格
             # 张数才不会与实际入队张数漂移；同一档位又是两路分镜图的计价档——宫格图未配置时回落
             # ``GRID_FALLBACK_RESOLUTION``（与 ``execute_grid_task`` 下发的保底档同源），普通
             # 分镜图未配置时回落 ``_IMAGE_PRICING_FALLBACK_RESOLUTION``。解析在两路之前，宫格

@@ -165,7 +165,7 @@ class TestLegacyRecordMigration:
 class TestCleanupSuperseded:
     """重生成清理规则：同脚本同集、scene_ids 是当前组子集、与本次重画的宫格有交集、非在途的旧记录被删。
 
-    HTTP 路由与 SDK 工具 (generate_grid) 共用 GridManager.cleanup_superseded，
+    HTTP 路由与 Agent 工具 (generate_grid) 共用 GridManager.cleanup_superseded，
     本类锁定规则的唯一实现。
     """
 

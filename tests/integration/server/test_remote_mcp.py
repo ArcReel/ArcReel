@@ -24,16 +24,16 @@ from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from lib.script.draft_quarantine import QUARANTINE_KIND_DRAMA_SCRIPT_PLAN, read_quarantine
 from lib.workflow.workflow_plan import WorkflowPlanRequest, build_workflow_plan
 from lib.workflow.workflow_state import WorkflowStatus
-from server.agent_runtime.sdk_tools import ARCREEL_MCP_TOOL_IDS
 from server.agent_toolset.declaration import invoke_declaration
 from server.agent_toolset.script_authoring import GENERATE_EPISODE_SCRIPT
+from server.agent_toolset.toolset import ARCREEL_MCP_TOOL_IDS
 from server.auth import create_download_token, create_token
 from server.cors_config import resolve_cors_policy
-from server.media_tools.context import ToolContext, tool_services
 from server.remote_mcp import ArcApiKeyVerifier, RemoteMCPHost, build_remote_mcp_server
 from server.tool_runtime import Services, TextGenerationResult
 from tests.factories import make_video_request_facts
 from tests.fakes import refuse_resume_execution
+from tests.integration.server.agent_tool_support import ToolHarness
 
 
 class _Planner:
@@ -885,7 +885,7 @@ async def test_text_task_is_shared_by_remote_and_embedded_hosts_and_running_memb
             await session.initialize()
             remote = await session.call_tool("generate_episode_script", {"project": "demo", "episode": 1})
             await started.wait()
-            embedded_ctx = ToolContext(
+            embedded_ctx = ToolHarness(
                 project_name="demo",
                 data_root=projects.data_root,
                 pm=projects,
@@ -897,7 +897,7 @@ async def test_text_task_is_shared_by_remote_and_embedded_hosts_and_running_memb
                     {"episode": 1},
                     embedded_ctx.scope,
                     embedded_ctx.caller,
-                    tool_services(embedded_ctx),
+                    embedded_ctx.services,
                 )
             )
             await queue.deduped.wait()

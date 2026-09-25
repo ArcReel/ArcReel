@@ -9,8 +9,8 @@ import pytest
 
 from lib.artifacts.artifact_manifest import ArtifactStatus
 from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
-from server.media_tools.context import ToolContext
-from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
+from tests.integration.server.agent_tool_support import (
+    ToolHarness,
     fake_caps_resolver,
     read_generation_result,
     run_declared_tool,
@@ -20,7 +20,7 @@ from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
 _EDIT_ZHANGSAN = {"resource_type": "character", "edits": [{"id": "张三", "instruction": "把头发改成红色"}]}
 
 
-def _give_zhangsan_a_sheet(fake_ctx: ToolContext) -> None:
+def _give_zhangsan_a_sheet(fake_ctx: ToolHarness) -> None:
     project_path = fake_ctx.project_path
     (project_path / "characters").mkdir()
     (project_path / "characters" / "zhangsan.png").write_bytes(b"png")
@@ -50,7 +50,7 @@ async def _fail_every_spec(*, specs, **_batch_kwargs):
     ]
 
 
-async def test_edit_images_happy(fake_ctx: ToolContext) -> None:
+async def test_edit_images_happy(fake_ctx: ToolHarness) -> None:
     _give_zhangsan_a_sheet(fake_ctx)
     use_fake_caps(fake_ctx)
     fake_ctx.pm.mirror_to_disk()
@@ -60,7 +60,7 @@ async def test_edit_images_happy(fake_ctx: ToolContext) -> None:
     assert read_generation_result(out).succeeded == ["张三"]
 
 
-async def test_edit_images_failure_preserves_the_untouched_source_path(fake_ctx: ToolContext) -> None:
+async def test_edit_images_failure_preserves_the_untouched_source_path(fake_ctx: ToolHarness) -> None:
     """编辑任务失败时，源图未被覆盖——结果应带回编辑前的路径而不是 None。"""
     _give_zhangsan_a_sheet(fake_ctx)
     use_fake_caps(fake_ctx)
@@ -74,7 +74,7 @@ async def test_edit_images_failure_preserves_the_untouched_source_path(fake_ctx:
     assert item.artifact_path == "characters/zhangsan.png"
 
 
-async def test_edit_images_i2i_unavailable(fake_ctx: ToolContext) -> None:
+async def test_edit_images_i2i_unavailable(fake_ctx: ToolHarness) -> None:
     """i2i 不可用时不创建任何任务（复用服务端 fail-fast 判断点）。"""
     use_fake_caps(fake_ctx, image_backend_error=ValueError("未找到可用的 image 供应商"))
     fake_ctx.pm.mirror_to_disk()
@@ -94,7 +94,7 @@ async def test_edit_images_i2i_unavailable(fake_ctx: ToolContext) -> None:
 
 
 async def test_edit_images_active_asset_without_a_manifest_claim_is_not_enqueued(
-    fake_ctx: ToolContext,
+    fake_ctx: ToolHarness,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from lib.artifacts.artifact_manifest import ArtifactComparison, ArtifactKey
@@ -129,7 +129,7 @@ async def test_edit_images_active_asset_without_a_manifest_claim_is_not_enqueued
 
 
 async def test_edit_images_one_manifest_fail_loud_error_does_not_abort_the_batch(
-    fake_ctx: ToolContext,
+    fake_ctx: ToolHarness,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """一条编辑的产物状态读取 fail-loud，不该把同批其它编辑的已算结果一起吞掉。
@@ -200,7 +200,7 @@ async def test_edit_images_one_manifest_fail_loud_error_does_not_abort_the_batch
     ],
 )
 async def test_edit_images_rejects_a_malformed_request_before_enqueue(
-    fake_ctx: ToolContext, arguments: dict[str, Any]
+    fake_ctx: ToolHarness, arguments: dict[str, Any]
 ) -> None:
     use_fake_caps(fake_ctx)
     enqueue = AsyncMock(return_value=([], []))
@@ -212,7 +212,7 @@ async def test_edit_images_rejects_a_malformed_request_before_enqueue(
     enqueue.assert_not_awaited()
 
 
-async def test_edit_images_storyboard_rejects_an_unbound_script_before_provider(fake_ctx: ToolContext) -> None:
+async def test_edit_images_storyboard_rejects_an_unbound_script_before_provider(fake_ctx: ToolHarness) -> None:
     fake_ctx.pm.project_payload["schema_version"] = CURRENT_PROJECT_SCHEMA_VERSION
     fake_ctx.pm.project_payload["episodes"] = []
     resolver = use_fake_caps(fake_ctx)
@@ -236,7 +236,7 @@ async def test_edit_images_storyboard_rejects_an_unbound_script_before_provider(
     enqueue.assert_not_awaited()
 
 
-async def test_edit_images_skips_missing_current_image(fake_ctx: ToolContext) -> None:
+async def test_edit_images_skips_missing_current_image(fake_ctx: ToolHarness) -> None:
     """资产没有可编辑的当前图（sheet 字段未设置）时逐 ID 阻断，不入队。"""
     use_fake_caps(fake_ctx)
     fake_ctx.pm.mirror_to_disk()
@@ -258,7 +258,7 @@ async def test_edit_images_skips_missing_current_image(fake_ctx: ToolContext) ->
     enqueue.assert_not_awaited()
 
 
-async def test_edit_images_build_specs_warnings(fake_ctx: ToolContext) -> None:
+async def test_edit_images_build_specs_warnings(fake_ctx: ToolHarness) -> None:
     """畸形条目分两路：有 ID 的进逐 ID blocked，无 ID 可寻址的留在 warnings；合法条目仍正常入队。"""
     _give_zhangsan_a_sheet(fake_ctx)
     use_fake_caps(fake_ctx)
@@ -296,7 +296,7 @@ async def test_edit_images_build_specs_warnings(fake_ctx: ToolContext) -> None:
     }
 
 
-async def test_edit_images_storyboard_happy(fake_ctx: ToolContext) -> None:
+async def test_edit_images_storyboard_happy(fake_ctx: ToolHarness) -> None:
     """storyboard 分支带合法 script_file 时应正常解析剧本并入队。"""
     use_fake_caps(fake_ctx)
 
@@ -314,7 +314,7 @@ async def test_edit_images_storyboard_happy(fake_ctx: ToolContext) -> None:
     assert read_generation_result(out).succeeded == ["E1S01"]
 
 
-async def test_edit_images_reports_failures(fake_ctx: ToolContext) -> None:
+async def test_edit_images_reports_failures(fake_ctx: ToolHarness) -> None:
     """批量入队返回失败项时，失败明细要带上失败原因。"""
     _give_zhangsan_a_sheet(fake_ctx)
     use_fake_caps(fake_ctx)
@@ -329,7 +329,7 @@ async def test_edit_images_reports_failures(fake_ctx: ToolContext) -> None:
     assert "provider rejected" in problem.detail
 
 
-async def test_edit_images_unexpected_exception(fake_ctx: ToolContext) -> None:
+async def test_edit_images_unexpected_exception(fake_ctx: ToolHarness) -> None:
     """未预期的异常（如 pm 读取项目失败）要落到统一的 tool_error 兜底，而非向上抛出。"""
 
     def boom(_name: str) -> dict[str, Any]:

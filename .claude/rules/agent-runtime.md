@@ -24,7 +24,7 @@ SDK 调用、options、session、streaming、hooks、permissions 或消息类型
 
 - 每个会话的 ClaudeSDKClient 调用全部经由该会话专属的 `SessionActor` task 串行执行（`docs/adr/0028`）；新增会话操作通过 actor 投递执行，不直接持有 client。
 - transcript 的 DB 镜像由 `ARCREEL_SDK_SESSION_STORE`（`db` / `off`）控制，`off` 时回退到 SDK 自带的 jsonl 路径（`docs/adr/0029`）。
-- `sdk_tools/` 内的进程内 MCP 工具由 Agent profile manifest 注入、供 Skill 调用。
+- Agent 工具由 `server/agent_toolset/` 的声明定义，内嵌会话经 `server/agent_runtime/arcreel_mcp.py` 构建进程内 MCP server、供 Skill 调用；外部 Agent 经远程 MCP 暴露同一份声明（`docs/adr/0087`）。
 - 沙箱默认开启：Linux 使用 bwrap、macOS 使用 sandbox-exec，在 Agent 工具调用外围隔离文件系统、网络与子进程。新增 Agent 工具时以沙箱开启为前提设计：路径越界与白名单外的网络请求会被拒绝，所需权限须显式声明。Windows 原生无沙箱，降级为 Bash 命令前缀白名单（`docs/adr/0025`、`docs/adr/0026`）；依赖沙箱专属能力的工具须提供 Windows 降级路径，或在沙箱不可用时显式拒绝运行。
 
 ## Agent 配置源

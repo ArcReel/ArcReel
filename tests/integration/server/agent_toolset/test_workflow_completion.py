@@ -5,27 +5,18 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
-from functools import partial
 from pathlib import Path
 from typing import Any
 
-from lib.config.resolver import ConfigResolver
-from lib.db import async_session_factory
 from lib.project.asset_inventory import complete_asset_inventory
 from lib.project.project_manager import ProjectManager
 from lib.project.source_revision import SourceScope, compute_source_revision
-from server.agent_toolset.declaration import ToolDeclaration, invoke_declaration
 from server.agent_toolset.workflow_completion import COMPLETE_ASSET_INVENTORY, COMPLETE_SCRIPT_PLAN_REBUILD
-from server.services.project.workflow_planner import WorkflowPlanner
 from server.tool_runtime import (
-    CallerContext,
     CompleteAssetInventoryResult,
     CompleteScriptPlanRebuildResult,
-    ProjectScope,
-    Services,
-    ToolOutcome,
 )
+from tests.integration.server.agent_tool_support import ToolHarness, run_declared_tool
 
 
 def _project(tmp_path: Path) -> ProjectManager:
@@ -36,23 +27,8 @@ def _project(tmp_path: Path) -> ProjectManager:
     return projects
 
 
-async def _run(
-    declaration: ToolDeclaration[Any, Any], projects: ProjectManager, arguments: dict[str, Any], **collaborators: Any
-) -> ToolOutcome[Any]:
-    """经声明入口调用，领域协作者经 handler 关键字参数注入。"""
-    injected = replace(declaration, handler=partial(declaration.handler, **collaborators))
-    services = Services(
-        projects=projects,
-        workflow_planner=WorkflowPlanner(projects),
-        capabilities=ConfigResolver(async_session_factory),
-    )
-    return await invoke_declaration(
-        injected,
-        arguments,
-        ProjectScope(project_name="demo", data_root=projects.data_root),
-        CallerContext(user_id="u1", source="embedded"),
-        services,
-    )
+def _harness(projects: ProjectManager) -> ToolHarness:
+    return ToolHarness(project_name="demo", data_root=projects.data_root, pm=projects)
 
 
 def _source_revision(projects: ProjectManager) -> str:
@@ -79,7 +55,7 @@ async def test_asset_inventory_commits_off_the_event_loop_then_refuses_a_changed
     expected = _source_revision(projects)
     arguments = {"scope": {"kind": "all", "files": []}, "expected_source_revision": expected}
 
-    success = await _run(COMPLETE_ASSET_INVENTORY, projects, arguments, run_sync=run_sync)
+    success = await run_declared_tool(COMPLETE_ASSET_INVENTORY, _harness(projects), arguments, run_sync=run_sync)
 
     assert success.problem is None
     assert success.value == CompleteAssetInventoryResult(
@@ -89,7 +65,7 @@ async def test_asset_inventory_commits_off_the_event_loop_then_refuses_a_changed
     )
 
     (projects.get_project_path("demo") / "source" / "novel.txt").write_text("又一次变化", encoding="utf-8")
-    conflict = await _run(COMPLETE_ASSET_INVENTORY, projects, arguments, run_sync=run_sync)
+    conflict = await run_declared_tool(COMPLETE_ASSET_INVENTORY, _harness(projects), arguments, run_sync=run_sync)
 
     assert conflict.problem is not None
     assert conflict.problem.code == "source_revision_conflict"
@@ -102,9 +78,9 @@ async def test_asset_inventory_commits_off_the_event_loop_then_refuses_a_changed
 async def test_asset_inventory_distinguishes_a_bad_revision_from_a_broken_workflow(tmp_path: Path) -> None:
     projects = _project(tmp_path)
 
-    invalid = await _run(
+    invalid = await run_declared_tool(
         COMPLETE_ASSET_INVENTORY,
-        projects,
+        _harness(projects),
         {"scope": {"kind": "all", "files": []}, "expected_source_revision": "not-a-revision"},
     )
     assert invalid.problem is not None
@@ -112,9 +88,9 @@ async def test_asset_inventory_distinguishes_a_bad_revision_from_a_broken_workfl
 
     expected = _source_revision(projects)
     projects.update_project("demo", lambda project: project.update(workflow="broken"))
-    unavailable = await _run(
+    unavailable = await run_declared_tool(
         COMPLETE_ASSET_INVENTORY,
-        projects,
+        _harness(projects),
         {"scope": {"kind": "all", "files": []}, "expected_source_revision": expected},
     )
     assert unavailable.problem is not None
@@ -134,9 +110,9 @@ async def test_script_plan_rebuild_forwards_the_explicit_baseline(tmp_path: Path
         calls.append(args)
         return "rebuilt-revision"
 
-    outcome = await _run(
+    outcome = await run_declared_tool(
         COMPLETE_SCRIPT_PLAN_REBUILD,
-        projects,
+        _harness(projects),
         {"episode": 2, "expected_stale_script_plan_revision": "baseline"},
         complete=complete,
     )
@@ -154,7 +130,9 @@ async def test_script_plan_rebuild_requires_the_baseline_to_be_passed_explicitly
         calls.append(args)
         return "rebuilt-revision"
 
-    outcome = await _run(COMPLETE_SCRIPT_PLAN_REBUILD, projects, {"episode": 1}, complete=complete)
+    outcome = await run_declared_tool(
+        COMPLETE_SCRIPT_PLAN_REBUILD, _harness(projects), {"episode": 1}, complete=complete
+    )
 
     assert outcome.problem is not None
     assert outcome.problem.code == "invalid_request"
