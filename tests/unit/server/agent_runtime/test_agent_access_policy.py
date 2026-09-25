@@ -363,8 +363,8 @@ def test_write_drafts_and_source_still_allowed(policy: AgentAccessPolicy) -> Non
         ".env",
         ".env.local",
         ".env.production",
-        "vertex_keys/key.json",
-        "vertex_keys/nested/secret.json",
+        "projects/vertex_keys/key.json",
+        "projects/vertex_keys/nested/secret.json",
         "projects/.system_config.json",
         "projects/.system_config.json.bak",
     ],
@@ -555,7 +555,7 @@ def test_build_sensitive_abs_paths_includes_existing_files(tmp_path: Path) -> No
     profile_dir = tmp_path / "agent_runtime_profile"
     (profile_dir / ".claude").mkdir(parents=True, exist_ok=True)
     (profile_dir / ".claude" / "settings.json").write_text("{}", encoding="utf-8")
-    (root / "vertex_keys").mkdir()
+    (root / "projects" / "vertex_keys").mkdir()
 
     policy = _make_policy(tmp_path)
     paths = policy._build_sensitive_abs_paths()
@@ -564,7 +564,7 @@ def test_build_sensitive_abs_paths_includes_existing_files(tmp_path: Path) -> No
     assert str(root.resolve() / ".env") in paths
     assert str(root.resolve() / ".env.local") in paths
     assert str(profile_dir.resolve() / ".claude" / "settings.json") in paths
-    assert str(root.resolve() / "vertex_keys") in paths
+    assert str(root.resolve() / "projects" / "vertex_keys") in paths
 
     # 不存在的 system_config.json 不应出现（SDK 会跳过 non-existent path）
     assert all(".system_config.json" not in p for p in paths)
@@ -584,7 +584,7 @@ def test_build_sensitive_abs_paths_follows_constructed_roots(tmp_path: Path) -> 
     (external_data / "arcreel.db").write_bytes(b"db")
     (external_data / "arcreel.db-wal").write_bytes(b"wal")
     (external_data / ".system_config.json").write_text("{}", encoding="utf-8")
-    (external_data.parent / "vertex_keys").mkdir()
+    (external_data / "vertex_keys").mkdir()
     # profile 目录搬到 repo 之外
     external_profile = tmp_path / "external_profile"
     (external_profile / ".claude").mkdir(parents=True)
@@ -600,7 +600,7 @@ def test_build_sensitive_abs_paths_follows_constructed_roots(tmp_path: Path) -> 
     assert str(external_data / "arcreel.db") in paths
     assert str(external_data / "arcreel.db-wal") in paths
     assert str(external_data / ".system_config.json") in paths
-    assert str(external_data.parent / "vertex_keys") in paths
+    assert str(external_data / "vertex_keys") in paths
     assert str(external_profile.resolve() / ".claude" / "settings.json") in paths
     # 清单只按构造参数给出的位置派生，不含源码根下的 ``projects/``
     assert not any(str(repo) + "/projects/" in p for p in paths)
@@ -608,7 +608,7 @@ def test_build_sensitive_abs_paths_follows_constructed_roots(tmp_path: Path) -> 
     # is_sensitive_path 也必须能识别新位置
     assert policy.is_sensitive_path((external_data / "arcreel.db").resolve())
     assert policy.is_sensitive_path((external_profile / ".claude" / "settings.json").resolve())
-    assert policy.is_sensitive_path((external_data.parent / "vertex_keys" / "k.json").resolve())
+    assert policy.is_sensitive_path((external_data / "vertex_keys" / "k.json").resolve())
 
 
 def test_build_sensitive_abs_paths_includes_log_dir(tmp_path: Path) -> None:

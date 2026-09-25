@@ -745,7 +745,6 @@ async def upload_vertex_credential(
         except OSError:
             logger.warning("无法设置凭证文件权限: %s", dest, exc_info=True)
 
-    await repo.update(cred.id, credentials_path=str(dest))
     await session.commit()
     await _invalidate_caches(request)
 

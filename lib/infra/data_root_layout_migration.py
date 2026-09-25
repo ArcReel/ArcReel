@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import logging
 import os
@@ -21,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from lib.db.models.api_call import ApiCall
 from lib.db.models.asset import Asset, AssetDerivative
+from lib.db.models.credential import ProviderCredential
 from lib.infra.data_root_layout import DataRootLayout, is_project_dir
 
 logger = logging.getLogger(__name__)
@@ -221,12 +223,127 @@ async def _move_runtime_state_to_runtime_dir(context: DataRootMigrationContext) 
     logger.info("数据根布局迁移：运行时状态收进 %s", layout.runtime_dir)
 
 
+def _copy_into_place(source: Path, dest: Path) -> None:
+    """复制到临时名再换入 ``dest``：旧位置可能是另一个卷，中途崩溃也不会留下半个目标文件。"""
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    staging = dest.with_name(f"{dest.name}.migrating")
+    shutil.copy2(source, staging)
+    os.replace(staging, dest)
+
+
+def _is_same_file(a: Path, b: Path) -> bool:
+    try:
+        return a.samefile(b)
+    except OSError:
+        return False
+
+
+def _discard_legacy_file(source: Path) -> None:
+    """删除已复制进数据根的旧文件；旧卷可能是只读挂载，删不掉时留在原处，不阻断迁移。"""
+    try:
+        source.unlink(missing_ok=True)
+    except OSError:
+        logger.warning("Vertex 凭证旧文件删除失败，保留在原位置：%s", source, exc_info=True)
+
+
+def _place_recorded_vertex_credentials(
+    layout: DataRootLayout, legacy_dir: Path, rows: list[tuple[int, str]]
+) -> list[tuple[int, str]]:
+    """把凭证记录指向的文件放到按 id 推导的位置，返回文件已就位的 ``(id, 记录路径)``。
+
+    来源取记录路径处的文件；那里没有时取旧凭证目录下的同名文件（记录的是容器内路径等当前进程
+    看不到的位置）。推导位置已有文件时不再复制。来源在旧凭证目录内的，全部记录处理完才删除，
+    几条记录共用一个文件时每条都能拿到副本；旧凭证目录之外的来源是用户自己放的文件，只复制不删。
+    两处都找不到文件的记录不返回，保持原值待下次启动重试。
+    """
+    legacy_resolved = legacy_dir.resolve()
+    placed: list[tuple[int, str]] = []
+    consumed: dict[Path, None] = {}
+    for cred_id, recorded in rows:
+        dest = layout.vertex_credential_path(cred_id)
+        recorded_path = Path(recorded)
+        source = next(
+            (
+                candidate
+                for candidate in (recorded_path, legacy_dir / recorded_path.name)
+                if candidate.is_file() and not _is_same_file(candidate, dest)
+            ),
+            None,
+        )
+        if not dest.is_file():
+            if source is None:
+                logger.warning("Vertex 凭证 %s 的文件找不到，保持记录路径：%s", cred_id, recorded)
+                continue
+            _copy_into_place(source, dest)
+        if source is not None and source.resolve().is_relative_to(legacy_resolved):
+            consumed[source] = None
+        placed.append((cred_id, recorded))
+    for source in consumed:
+        _discard_legacy_file(source)
+    return placed
+
+
+def _move_legacy_vertex_keys(legacy_dir: Path, keys_dir: Path) -> int:
+    """把旧凭证目录里剩下的凭证文件按原名搬进数据根；同名文件已在时保留旧文件。"""
+    if legacy_dir == keys_dir or not legacy_dir.is_dir():
+        return 0
+    moved = 0
+    for source in sorted(legacy_dir.glob("*.json")):
+        if not source.is_file():
+            continue
+        target = keys_dir / source.name
+        if target.exists():
+            logger.warning("数据根里已有同名 Vertex 凭证文件，保留旧位置的文件：%s", source)
+            continue
+        _copy_into_place(source, target)
+        _discard_legacy_file(source)
+        moved += 1
+    return moved
+
+
+async def _move_vertex_credentials_into_data_root(context: DataRootMigrationContext) -> None:
+    """Vertex 凭证文件从数据根的上一级（Docker 部署里是单独的卷）搬进数据根，并清空凭证记录的路径列。
+
+    只处理路径列还有值的记录与旧目录里还在的文件，重跑时没有可做的事。
+    """
+    layout = context.layout
+    legacy_dir = layout.root.parent / "vertex_keys"
+    # Agent 沙箱的 denyRead 只覆盖会话启动时已存在的路径，凭证目录须先于任何会话建好。
+    await asyncio.to_thread(layout.vertex_keys_dir.mkdir, parents=True, exist_ok=True)
+    async with context.session_factory() as session:
+        rows = [
+            (cred_id, recorded)
+            for cred_id, recorded in (
+                await session.execute(
+                    select(ProviderCredential.id, ProviderCredential.credentials_path).where(
+                        ProviderCredential.provider == "gemini-vertex",
+                        ProviderCredential.credentials_path.is_not(None),
+                        ProviderCredential.credentials_path != "",
+                    )
+                )
+            ).all()
+            if recorded
+        ]
+        placed = await asyncio.to_thread(_place_recorded_vertex_credentials, layout, legacy_dir, rows)
+        for cred_id, recorded in placed:
+            await session.execute(
+                update(ProviderCredential)
+                .where(ProviderCredential.id == cred_id, ProviderCredential.credentials_path == recorded)
+                .values(credentials_path=None)
+            )
+        await session.commit()
+    moved = await asyncio.to_thread(_move_legacy_vertex_keys, legacy_dir, layout.vertex_keys_dir)
+    if placed or moved:
+        logger.info("数据根布局迁移：%d 条 Vertex 凭证记录、%d 个旧目录凭证文件移入数据根", len(placed), moved)
+
+
 #: 按执行顺序排列的迁移步骤。
 _STEPS: tuple[MigrationStep, ...] = (
     _relativize_call_output_paths,
     _rename_global_assets_dir,
     _move_user_data_to_users_dir,
     _move_runtime_state_to_runtime_dir,
+    _move_vertex_credentials_into_data_root,
 )
 
 
