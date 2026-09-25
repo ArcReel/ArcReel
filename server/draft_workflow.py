@@ -232,6 +232,7 @@ async def revalidate_reference_script_plan_draft(
     violations = _collect_reference_flat_violations(
         flat_units,
         project,
+        project_path=project_path,
         episode=episode,
         novel_text=novel_text,
         caps=split_caps,

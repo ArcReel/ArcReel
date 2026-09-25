@@ -95,7 +95,8 @@ from lib.script.reference_video.draft_validation import (
     violation_items,
 )
 from lib.script.reference_video.duration_slots import resolve_duration_slot
-from lib.script.reference_video.text_parser import extract_mentions
+from lib.script.reference_video.request_projection import ReferenceUnitHydration
+from lib.script.reference_video.unit_capabilities import hydrate_reference_units
 from lib.script.script_document import (
     build_materialized_script,
     episode_ledger_entry,
@@ -942,7 +943,8 @@ class ScriptGenerator:
     ) -> list[int] | None:
         """时长落在该 unit 生效档位之外时返回该档位集，落在内则返回 None。
 
-        生效档位逐 unit 算：带图走 r2v，无图走 i2v 请求事实；无图事实不可解析时返回空档位。
+        生效档位逐 unit 算：``has_references`` 为该 unit 此刻有可用参考图，走 r2v；没有走 i2v
+        请求事实，无图事实不可解析时返回空档位。
         """
         if (
             gen_mode == "reference_video"
@@ -954,6 +956,13 @@ class ScriptGenerator:
         if not tiers:
             return None
         return None if resolve_duration_slot(duration, tiers).seconds == duration else tiers
+
+    def _hydrate_reference_units(self, units: Sequence[dict]) -> tuple[ReferenceUnitHydration, ...]:
+        """按执行侧同款判据（文件存在且产物清单认领）逐单元水合声明引用，得出各单元此刻所落的桶。
+
+        与内容确认面板、整批准入同一份判据：正文带 ``@`` 但引用缺图或图未被清单认领的单元落 i2v。
+        """
+        return hydrate_reference_units(self.project_json, self.project_path, units)
 
     @staticmethod
     def _require_no_image_facts(caps: dict | None) -> VideoRequestFacts:
@@ -1313,9 +1322,12 @@ class ScriptGenerator:
     def _assert_reference_script_plan_durations(
         self, script_plan_units: list[dict], *, caps: dict | None, gen_mode: str | None
     ) -> None:
-        """转为正式剧本前判脚本规划已确认的单元时长仍在当前生效档位内；正文由之后的提示词编写改写并校验。"""
-        for unit in script_plan_units:
-            if not extract_mentions(str(unit.get("text") or "")):
+        """转为正式剧本前判脚本规划已确认的单元时长仍在当前生效档位内；正文由之后的提示词编写改写并校验。
+
+        单元按此刻可用的参考图定桶：落 i2v 的单元（无引用、引用缺图或图未被清单认领）须有 i2v 事实。
+        """
+        for unit, hydration in zip(script_plan_units, self._hydrate_reference_units(script_plan_units), strict=True):
+            if hydration.hydrated_generation_type == "i2v":
                 self._require_no_image_facts(caps)
             off_tiers = self._unit_duration_off_every_tier(unit["duration_seconds"], caps=caps, gen_mode=gen_mode)
             if off_tiers is not None:
@@ -1331,8 +1343,8 @@ class ScriptGenerator:
         产出路径与晋升路径（待修复草稿重判前）共用这一份：草稿在场期间用户可能在时间线上改过
         单元，两处口径若分叉，就会出现「晋升放行、下次编写被拒」或反过来的死角。
         """
-        for unit in units:
-            if not extract_mentions(str(unit.get("text") or "")):
+        for unit, hydration in zip(units, self._hydrate_reference_units(units), strict=True):
+            if hydration.hydrated_generation_type == "i2v":
                 self._require_no_image_facts(caps)
             duration = int(unit["duration_seconds"])
             # 必然失败的时长在付费调用之前拦下；放到 _add_metadata 才拦，TextBackend 的费用已经产生。
@@ -2011,11 +2023,19 @@ class ScriptGenerator:
             raw_rewrite_items, id_field, _kind = resolve_kind_items(
                 script_data, kind=resolve_declared_kind(self.content_mode, gen_mode)
             )
-            for s in raw_rewrite_items if isinstance(raw_rewrite_items, list) else []:
-                if not (isinstance(s, dict) and id_field in s):
-                    continue
+            authored = [
+                s
+                for s in (raw_rewrite_items if isinstance(raw_rewrite_items, list) else [])
+                if isinstance(s, dict) and id_field in s
+            ]
+            # 取档按这个 unit 最终落地的正文算，不是 script_plan 拆分时的状态：正文里的
+            # `@[名称]` 由 LLM 在 prompt_authoring 输出时决定，可能与 script_plan 的不同；桶按该正文
+            # 此刻可用的参考图判定，与内容确认面板、执行同判据。caps 为 None 也不短路——带图档位
+            # 可查 registry，无图档位必须有 i2v 请求事实。
+            for s, hydration in zip(authored, self._hydrate_reference_units(authored), strict=True):
                 target_duration = reference_unit_durations[s[id_field]]
-                if not extract_mentions(str(s.get("text") or "")):
+                with_reference_images = hydration.hydrated_generation_type == "r2v"
+                if not with_reference_images:
                     try:
                         self._require_no_image_facts(caps)
                     except VideoRequestFactsError as exc:
@@ -2024,12 +2044,9 @@ class ScriptGenerator:
                             code=exc.code,
                             label=f"unit {s[id_field]}",
                         ) from exc
-                # 取档按这个 unit 最终落地的正文算，不是 script_plan 拆分时的状态：正文里的
-                # `@[名称]` 由 LLM 在 prompt_authoring 输出时决定，可能与 script_plan 的不同。caps 为 None
-                # 也不短路——带图档位可查 registry，无图档位必须有 i2v 请求事实。
                 unit_tiers = self._unit_duration_off_tier(
                     target_duration,
-                    has_references=bool(extract_mentions(str(s.get("text") or ""))),
+                    has_references=with_reference_images,
                     caps=caps,
                     gen_mode=gen_mode,
                 )

@@ -1,5 +1,7 @@
 """Tests for CostEstimationService."""
 
+import json
+from pathlib import Path
 from unittest.mock import AsyncMock
 
 import pytest
@@ -9,10 +11,15 @@ from lib.billing.cost_calculator import cost_calculator
 from lib.config.resolver import ConfigResolver
 from lib.db.repositories.usage_repo import SettlementInput, UsageRepository
 from lib.generation.video_request_facts import VideoRequestFactsFailure
-from lib.script.reference_video.request_projection import USE_TTS, ReferenceRequestOptions
+from lib.script.reference_video.request_projection import (
+    USE_TTS,
+    ReferenceRequestOptions,
+    configured_reference_request_facts,
+    project_reference_unit_request,
+)
 from lib.speech.narration_delivery import VideoRequestCostFacts
 from server.services.admission.cost_estimation import CostEstimationService, quote_video_request
-from tests.factories import make_video_request_facts
+from tests.factories import activate_reference_project, make_video_request_facts
 from tests.fakes import fake_reference_request_facts
 
 
@@ -300,6 +307,64 @@ class TestCostEstimationService:
                 actual = await usage.get_actual_costs_by_segment("bucket-resolutions")
             assert segments[bucket]["estimate"]["video"], segments[bucket]["request_projection"]
             assert segments[bucket]["estimate"]["video"] == actual[bucket]["video"]
+
+    async def test_reference_estimate_buckets_an_unclaimed_sheet_like_admission_and_execution(
+        self, db_factory, tmp_path: Path, set_video_request_facts
+    ):
+        """报价与准入、执行同判据：图在盘上但产物清单未认领的单元落 i2v 并因分裂不报价，认领的单元按 r2v 报价。"""
+        set_video_request_facts(
+            {
+                "i2v": make_video_request_facts(
+                    route="reference_video", generation_type="i2v", model_id="veo-3.1-generate-preview"
+                ),
+                "r2v": make_video_request_facts(
+                    route="reference_video",
+                    generation_type="r2v",
+                    model_id="veo-3.1-fast-generate-preview",
+                    supported_durations=(8,),
+                    allowed_durations=(8,),
+                ),
+            }
+        )
+        (tmp_path / "characters").mkdir()
+        (tmp_path / "characters" / "张三.png").write_bytes(b"image")
+        project = activate_reference_project(
+            tmp_path, {"characters": {"张三": {"description": "x", "character_sheet": "characters/张三.png"}}}
+        )
+        project["characters"]["李四"] = {"description": "y", "character_sheet": "characters/李四.png"}
+        (tmp_path / "characters" / "李四.png").write_bytes(b"image")
+        (tmp_path / "project.json").write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
+        script = _make_reference_video_script(1, "narration", [("E1U1", 8), ("E1U2", 8)])
+        script["video_units"][0]["text"] = "@[张三] 推门"
+        script["video_units"][1]["text"] = "@[李四] 回头"
+        resolver = ConfigResolver(db_factory)
+
+        result = await CostEstimationService(resolver, db_factory, project_path=tmp_path).compute(
+            project, {"scripts/episode_1.json": script}, project_name="unclaimed-sheet"
+        )
+        lookup = configured_reference_request_facts(project, resolver)
+        projections = {
+            unit["unit_id"]: await project_reference_unit_request(
+                project=project, script=script, unit=unit, project_path=tmp_path, request_facts_lookup=lookup
+            )
+            for unit in script["video_units"]
+        }
+
+        segments = {segment["segment_id"]: segment for segment in result["episodes"][0]["segments"]}
+        claimed, unclaimed = segments["E1U1"]["request_projection"], segments["E1U2"]["request_projection"]
+        assert claimed["capability"] == projections["E1U1"].hydrated_generation_type == "r2v"
+        assert unclaimed["capability"] == projections["E1U2"].hydrated_generation_type == "i2v"
+        assert (
+            [problem["code"] for problem in unclaimed["problems"]]
+            == [problem.code for problem in projections["E1U2"].blocking_problems]
+            == ["reference_asset_missing", "reference_capability_changed"]
+        )
+        assert segments["E1U2"]["estimate"]["video"] == {}
+        assert projections["E1U1"].cost is not None
+        quote = await quote_video_request(projections["E1U1"].cost, db_factory)
+        assert quote is not None
+        assert quote.amount > 0
+        assert segments["E1U1"]["estimate"]["video"] == {quote.currency: quote.amount}
 
     async def test_shared_video_quote_exposes_exact_amount_currency_and_request_coordinates(self, db_factory):
         quote = await quote_video_request(

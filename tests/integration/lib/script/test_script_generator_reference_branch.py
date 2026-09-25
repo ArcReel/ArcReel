@@ -28,7 +28,9 @@ from lib.script.draft_quarantine import (
     write_quarantine,
 )
 from lib.script.reference_video.draft_validation import DraftViolation
+from lib.script.reference_video.request_projection import configured_reference_request_facts
 from lib.script.reference_video.text_parser import extract_mentions
+from lib.script.reference_video.unit_capabilities import evaluate_reference_unit_capabilities
 from lib.script.script_generator import ScriptGenerator
 from tests.factories import make_video_request_facts
 
@@ -70,6 +72,18 @@ def _activate_project_artifacts(project_dir: Path, episode: int = 1) -> None:
     source.parent.mkdir(parents=True, exist_ok=True)
     source.write_text("原文", encoding="utf-8")
     activate_artifact_target_state(project_dir, bump_schema=False)
+
+
+def _claim_character_sheet(project_dir: Path, name: str) -> None:
+    """给已登记角色落一张资产图并经产物激活认领：正文提及它的单元据此才按 r2v 定桶。"""
+    sheet = project_dir / "characters" / f"{name}.png"
+    sheet.parent.mkdir(parents=True, exist_ok=True)
+    sheet.write_bytes(b"png")
+    project_file = project_dir / "project.json"
+    project = _json.loads(project_file.read_text(encoding="utf-8"))
+    project["characters"].setdefault(name, {"description": "d"})["character_sheet"] = f"characters/{name}.png"
+    project_file.write_text(_json.dumps(project, ensure_ascii=False), encoding="utf-8")
+    _activate_project_artifacts(project_dir)
 
 
 def _write_script_plan(project_dir: Path, payload: str, episode: int = 1) -> None:
@@ -510,12 +524,60 @@ async def test_script_generator_takes_duration_tier_from_final_output_references
 
 
 @pytest.mark.asyncio
+async def test_prompt_authoring_takes_the_i2v_tier_for_a_registered_reference_without_image(
+    wide_tier_reference_project: Path, set_video_request_facts
+):
+    """提示词编写的取档按可用参考图定桶：已登记但缺图的引用让单元与内容确认面板、执行一样落 i2v，
+    2 秒在 i2v 档位（1–16 秒）内合法，不因正文带 `@` 就按 r2v 档位（3–16 秒）判越档落草稿。
+    """
+    set_video_request_facts(
+        make_video_request_facts(
+            route="reference_video",
+            generation_type="i2v",
+            supported_durations=tuple(range(1, 17)),
+            allowed_durations=tuple(range(1, 17)),
+        )
+    )
+    project = wide_tier_reference_project
+    _write_formal_units(project, [{"unit_id": "E1U01", "text": "@[主角] 推门", "duration_seconds": 2}])
+    resolver = _stub_resolver({})
+    gen = ScriptGenerator(
+        project, generator=_fake_prompt_authoring_generator("镜头1：中景。@[主角] 推门"), config_resolver=resolver
+    )
+
+    await gen.generate(episode=1)
+
+    unit = _formal_units(project)["E1U01"]
+    assert "@[主角]" in unit["text"]
+    assert unit["duration_seconds"] == 2
+    (capability,) = await evaluate_reference_unit_capabilities(
+        gen.project_json, project, [unit], request_facts=configured_reference_request_facts(gen.project_json, resolver)
+    )
+    assert capability.generation_type == "i2v"
+
+
+@pytest.mark.asyncio
+async def test_conversion_requires_i2v_facts_for_a_registered_reference_without_image(
+    plan_only_reference_project: Path, set_video_request_facts
+):
+    """内容确认转换对已登记但缺图的单元按 i2v 定桶：i2v 事实不可解析时拒绝，不借 r2v 档位放行一份执行不了的方案。"""
+    set_video_request_facts(VideoRequestFactsFailure("reference_capability_unavailable", (("capability", "i2v"),)))
+
+    with pytest.raises(VideoRequestFactsError) as exc:
+        await _materialize(ScriptGenerator(plan_only_reference_project, config_resolver=_stub_resolver({})))
+
+    assert exc.value.code == "reference_capability_unavailable"
+    assert not _script_path(plan_only_reference_project).exists()
+
+
+@pytest.mark.asyncio
 async def test_script_generator_reclamps_duration_even_when_caps_unavailable(reference_project: Path):
     """caps 解析失败（DB 不可用，``_fetch_video_capabilities`` 按其文档吞掉异常返回 None）不代表
     取不到任何档位——``_resolve_supported_durations`` 自带 caps → registry 两级回退，
     project.json 自报的 vidu2.0 仍能兜底出 raw [4, 8] 并收窄到 [4]。8 秒落在收窄后的生效档位外，
     取档执行了就必抛错，不执行则会静默用未取档的 8 落盘成功。
     """
+    _claim_character_sheet(reference_project, "主角")
     _write_formal_units(reference_project, [{**SCRIPT_PLAN_UNIT, "duration_seconds": 8}])
 
     gen = ScriptGenerator(reference_project, generator=_idle_generator(), config_resolver=_stub_resolver(None))
@@ -685,9 +747,11 @@ async def test_generate_no_video_backend_raises_value_error(tmp_path: Path):
 
     设计意图：supported_durations 是单一真相源，必须由 caps（DB 全局默认）或 project.json 自报身份查 registry 提供；
     都拿不到才 fail loud，避免按兜底档位放行单元时长。
-    经 config_resolver seam 注入一个解析不可用的替身，模拟无任何 model 配置的环境。
+    经 config_resolver seam 注入一个解析不可用的替身，模拟无任何 model 配置的环境。单元带可用参考图、
+    落 r2v，走的是 registry 查档位这条路。
     """
     project_dir = _write_minimal_reference_project(tmp_path)
+    _claim_character_sheet(project_dir, "主角")
     generator = _idle_generator()
 
     gen = ScriptGenerator(project_dir, generator=generator, config_resolver=_stub_resolver(None))
@@ -773,6 +837,7 @@ async def test_reference_script_plan_rejects_out_of_enum_duration(plan_only_refe
         _json.dumps({"units": [{"unit_id": "E1U01", "text": "@[主角] 转身", "duration_seconds": 5}]}),
         encoding="utf-8",
     )
+    _claim_character_sheet(plan_only_reference_project, "主角")
 
     # 固定能力来源为 project.json 自报身份查 registry（vidu2.0 → [4, 8]），隔离 DB 全局默认干扰
     gen = ScriptGenerator(plan_only_reference_project, config_resolver=_stub_resolver(None))
@@ -1450,8 +1515,8 @@ async def test_prompt_authoring_duration_off_tier_after_merge_quarantines(
     """合并之后才判出的档位越界同样落待修复草稿——这份展开已经付过费了。
 
     prompt_authoring 可以给 unit 增删 `@` 引用，生效档位随之换一套：正式剧本里那个 2 秒的无引用 unit 在展开时
-    加进了引用，档位就从 1–16 秒收窄到 3–16 秒。参考图约束只做收窄，故「展开后才越界」只可能
-    发生在增加引用的方向上。这一判在 `_add_metadata` 里、在保结构 diff 之后，不接住的话产物
+    加进了带可用参考图的引用，档位就从 1–16 秒收窄到 3–16 秒。参考图约束只做收窄，故「展开后才越界」只可能
+    发生在增加可用参考图的方向上。这一判在 `_add_metadata` 里、在保结构 diff 之后，不接住的话产物
     只存在于内存里，错误却让调用方重新生成。
     """
     set_video_request_facts(
@@ -1463,6 +1528,7 @@ async def test_prompt_authoring_duration_off_tier_after_merge_quarantines(
         )
     )
     project = wide_tier_reference_project
+    _claim_character_sheet(project, "主角")
     _write_formal_units(project, [{"unit_id": "E1U01", "text": "他推门", "duration_seconds": 2}])
     formal_before = _script_path(project).read_bytes()
     with_reference_text = "镜头1：中景，平视。@[主角] 推开门，侧身跨过门槛。"

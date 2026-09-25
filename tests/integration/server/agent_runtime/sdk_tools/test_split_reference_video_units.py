@@ -8,6 +8,7 @@ from typing import Any
 import pytest
 
 from lib.generation.video_request_facts import VideoRequestFactsFailure
+from lib.script.reference_video.unit_capabilities import evaluate_reference_unit_capabilities
 from server.agent_runtime.sdk_tools.text_generation import (
     generate_script_plan_tool,
 )
@@ -21,6 +22,7 @@ from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
     fake_caps_resolver,
     read_rv_quarantine,
     run_rv_split,
+    rv_character_sheet,
     rv_generator_returning,
     rv_script_plan_path,
     rv_source,
@@ -424,12 +426,13 @@ async def test_split_reference_video_units_rejects_over_max_refs(
 async def test_split_reference_video_units_rejects_duration_off_reference_tier(
     fake_ctx: ToolContext, monkeypatch, video_request_facts
 ) -> None:
-    """带 `@` 引用的 unit 取了只有无引用 unit 才合法的时长 → 判违约、不写正式文件。
+    """带可用参考图的 unit 取了只有无图 unit 才合法的时长 → 判违约、不写正式文件。
 
     枚举卡的是两套档位的并集，这类越界过得了 schema；不在此拦，执行期才会申请不到。
     """
     rv_source(fake_ctx)
     _veo_720p(fake_ctx)
+    rv_character_sheet(fake_ctx, "张三", claimed=True)
     out = await run_rv_split(fake_ctx, monkeypatch, [rv_unit("@[张三] 起身", duration=4)], **_VEO_CAPS)
     assert out.get("is_error") is True
     text = out["content"][0]["text"]
@@ -438,6 +441,28 @@ async def test_split_reference_video_units_rejects_duration_off_reference_tier(
     # 与其余违约类同口径落草稿：档位越界同样是 Agent 改一改草稿就能修好的内容违约
     assert not rv_script_plan_path(fake_ctx).exists()
     assert [v["code"] for v in read_rv_quarantine(fake_ctx)["violations"]] == ["duration_off_tier"]
+
+
+@pytest.mark.parametrize("sheet", ["absent", "unclaimed"])
+async def test_split_reference_video_units_buckets_a_reference_without_usable_image_as_i2v(
+    fake_ctx: ToolContext, monkeypatch, video_request_facts, sheet: str
+) -> None:
+    """`@` 引用的角色没有可用参考图（未生成资产图，或图在盘上但产物清单未认领）时，单元与内容确认
+    面板、执行一样落 i2v：4 秒在 i2v 档位内合法，不按带图档位 [8] 判越档。
+    """
+    rv_source(fake_ctx)
+    _veo_720p(fake_ctx)
+    if sheet == "unclaimed":
+        rv_character_sheet(fake_ctx, "张三", claimed=False)
+    out = await run_rv_split(fake_ctx, monkeypatch, [rv_unit("@[张三] 起身", duration=4)], **_VEO_CAPS)
+    assert out.get("is_error") is not True, out
+    saved = json.loads(rv_script_plan_path(fake_ctx).read_text(encoding="utf-8"))
+    assert saved["units"][0]["duration_seconds"] == 4
+    project = json.loads((fake_ctx.project_path / "project.json").read_text(encoding="utf-8"))
+    (capability,) = await evaluate_reference_unit_capabilities(
+        project, fake_ctx.project_path, saved["units"], request_facts=reference_request_facts_lookup(project)
+    )
+    assert capability.generation_type == "i2v"
 
 
 async def test_split_reference_video_units_accepts_wide_tier_without_references(

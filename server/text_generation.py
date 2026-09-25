@@ -76,6 +76,7 @@ from lib.script.reference_video.script_preview import (
     unit_lacks_scene_reference,
 )
 from lib.script.reference_video.text_parser import extract_mentions
+from lib.script.reference_video.unit_capabilities import hydrate_reference_units
 from lib.script.reference_video.voice_settings import VoiceRenderSettings
 from lib.script.script_generator import PromptAuthoringTargetError, ScriptGenerator
 from lib.script.script_models import (
@@ -744,10 +745,10 @@ async def generate_drama_script_plan(
 class ReferenceSplitCaps(NamedTuple):
     """rv 拆分用的视频能力：两套逐 unit 档位 + 派生上限 + 用户偏好 + 声音输入档。
 
-    ``reference_durations`` / ``text_durations`` 是带 / 不带 ``@`` 引用的 unit 各自的生效档位，
+    ``reference_durations`` / ``text_durations`` 是有 / 没有可用参考图的 unit 各自的生效档位，
     ``durations`` 是二者的并集——schema 枚举与 prompt 候选集合取并集，因为落在任一套内的时长都
-    可能合法；归属哪一套要等正文里的 `@[名称]` 提及确定后才知道。三者相等即该型号在当前分辨率下未声明
-    生效的「参考图↔时长」联动约束，多数型号如此。
+    可能合法；归属哪一套要等正文里的 `@[名称]` 提及按此刻可用的参考图水合后才知道。三者相等即该型号
+    在当前分辨率下未声明生效的「参考图↔时长」联动约束，多数型号如此。
 
     ``voice`` 是同一次能力解析派生出的声音输入档，供声音相关的容忍 warning 消费——与时长档位同源
     于这一次解析，分两次查会让同一份产物的档位与声音提示描述不同时刻的配置。能力解析故障回退时
@@ -788,8 +789,8 @@ async def _fetch_reference_caps_with_fallback(
 
     收窄逐 unit 分两套（``reference_unit_duration_tiers``）：「参考图↔时长」约束只对真的带参考图
     的请求生效，整集一律按带图收窄会把无引用 unit 本可申请的短档也收掉。schema 枚举与 prompt
-    候选取两套的并集——落在任一套内的时长都可能合法，具体归属由该 unit 正文里的 `@[名称]`
-    提及决定，在正文解析之后逐 unit 判（见 ``_collect_reference_flat_violations``）。
+    候选取两套的并集——落在任一套内的时长都可能合法，具体归属由该 unit 正文提及且此刻可用的
+    参考图决定，在正文解析之后逐 unit 判（见 ``_collect_reference_flat_violations``）。
     ``max_duration`` 随之是并集的最大值。
     ``default_duration`` 非并集成员（用户配置漂移）按 None 处理，避免 prompt 自相矛盾。
     """
@@ -853,9 +854,9 @@ async def _fetch_reference_caps_with_fallback(
 
 
 def _validate_unit_duration_tier(label: str, duration: int, *, has_references: bool, caps: ReferenceSplitCaps) -> None:
-    """按该 unit 的引用状态判时长是否落在生效档位内，出档抛 ``DraftViolation``。
+    """按该 unit 此刻是否有可用参考图判时长是否落在生效档位内，出档抛 ``DraftViolation``。
 
-    schema 的枚举卡的是两套档位的并集，一个带引用的 unit 因此仍可能取到只有无引用 unit 才
+    schema 的枚举卡的是两套档位的并集，一个带可用参考图的 unit 因此仍可能取到只有无图 unit 才
     合法的秒数——那样的 unit 执行期申请不到，等到入队才失败已无统一纠正入口。错误消息给出
     两条出路（换档位 / 去引用），与 prompt 里的教学同一口径。
 
@@ -870,7 +871,7 @@ def _validate_unit_duration_tier(label: str, duration: int, *, has_references: b
     tiers = caps.tiers_for(has_references=has_references)
     if duration in tiers:
         return
-    state = "带 `@` 资产引用" if has_references else "无 `@` 资产引用"
+    state = "带可用参考图" if has_references else "无可用参考图"
     remedy = (
         "；请改取该档位内的时长，或把次要资产融入描述文字、不用 `@` 引用"
         if has_references
@@ -901,6 +902,7 @@ def _collect_reference_flat_violations(
     flat_units: list[dict[str, Any]],
     project: dict[str, Any],
     *,
+    project_path: Path,
     episode: int,
     novel_text: str,
     caps: ReferenceSplitCaps,
@@ -913,21 +915,26 @@ def _collect_reference_flat_violations(
     台词量念得完。收齐而非首个即抛：报告要能一次列全所有坏 unit，否则 Agent 每修一处就要再跑
     一轮才知道下一处。
 
-    时长档位与正文合并为一个入口：适用哪套档位取决于该 unit 正文里有没有 `@[名称]` 提及——
-    正文解析不出时无从判档位，此时报出的也只会是同一个问题的另一种说法。
+    时长档位与正文合并为一个入口：适用哪套档位取决于该 unit 正文提及的引用此刻有没有可用参考图
+    （文件存在且产物清单认领，与内容确认面板、执行同判据）——正文解析不出时无从判档位，此时报出的
+    也只会是同一个问题的另一种说法。
     """
     # 台词口播量的语速与 prompt 侧同源：项目级覆盖优先，否则按语言默认。
     speech_rate_override = project_speech_rate_override(project)
+    hydrations = hydrate_reference_units(project, project_path, flat_units)
     violations: list[DraftViolation] = []
-    for index, flat in enumerate(flat_units, start=1):
+    for index, (flat, hydration) in enumerate(zip(flat_units, hydrations, strict=True), start=1):
         label = _reference_unit_label(episode, index)
         duration = flat["duration_seconds"]
         source_text = flat["source_text"]
         text = flat["text"]
+        with_reference_images = hydration.hydrated_generation_type == "r2v"
 
-        def _check_text_and_tier(la: str = label, tx: str = text, d: int = duration) -> None:
-            refs = validate_unit_text(la, tx, project, max_refs=caps.max_refs)
-            _validate_unit_duration_tier(la, d, has_references=bool(refs), caps=caps)
+        def _check_text_and_tier(
+            la: str = label, tx: str = text, d: int = duration, with_images: bool = with_reference_images
+        ) -> None:
+            validate_unit_text(la, tx, project, max_refs=caps.max_refs)
+            _validate_unit_duration_tier(la, d, has_references=with_images, caps=caps)
 
         violations.extend(
             collect_violations(
@@ -1378,6 +1385,7 @@ async def generate_reference_script_plan(
         violations = _collect_reference_flat_violations(
             flat_units,
             project,
+            project_path=project_path,
             episode=episode,
             novel_text=novel_text,
             caps=split_caps,

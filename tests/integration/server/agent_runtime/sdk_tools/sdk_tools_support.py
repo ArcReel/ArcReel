@@ -447,6 +447,21 @@ def rv_source(fake_ctx: ToolContext) -> None:
     (src / "episode_1.txt").write_text(_RV_NOVEL, encoding="utf-8")
 
 
+def rv_character_sheet(fake_ctx: ToolContext, name: str, *, claimed: bool) -> None:
+    """给已登记角色落一张资产图；``claimed`` 时经产物激活让清单认领它，单元据此才按 r2v 定桶。"""
+    from lib.artifacts.artifact_activation import activate_artifact_target_state
+
+    sheet = fake_ctx.project_path / "characters" / f"{name}.png"
+    sheet.parent.mkdir(parents=True, exist_ok=True)
+    sheet.write_bytes(b"png")
+    fake_ctx.pm.project_payload["characters"][name]["character_sheet"] = f"characters/{name}.png"
+    (fake_ctx.project_path / "project.json").write_text(
+        json.dumps(fake_ctx.pm.project_payload, ensure_ascii=False), encoding="utf-8"
+    )
+    if claimed:
+        activate_artifact_target_state(fake_ctx.project_path, bump_schema=False)
+
+
 def rv_unit(text: str, *, duration: int = 8, source_text: str = _RV_NOVEL) -> dict:
     """script_plan 的 LLM 产出形状：一层扁平（时长 + 原文锚 + 引用语法正文）。"""
     return {"duration_seconds": duration, "source_text": source_text, "text": text}
