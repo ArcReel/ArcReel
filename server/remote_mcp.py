@@ -13,7 +13,6 @@ from typing import Annotated, Any, Literal
 from fastapi.responses import PlainTextResponse
 from jsonschema import ValidationError as JsonSchemaValidationError
 from jsonschema import validate as validate_json
-from mcp.server.auth.middleware.auth_context import get_access_token
 from mcp.server.auth.provider import AccessToken, TokenVerifier
 from mcp.server.auth.settings import AuthSettings
 from mcp.server.fastmcp import Context, FastMCP
@@ -33,6 +32,9 @@ from lib.project.source_revision import SourceScope
 from lib.script.script_batch_edit import ScriptBatchEditResult
 from lib.script.source_loader import SourceLoader
 from lib.workflow.workflow_plan import NarrationDelivery, WorkflowPlanRequest
+from server.agent_toolset.envelope import json_value
+from server.agent_toolset.remote import authenticated_caller, remote_tools, resolve_project_scope
+from server.agent_toolset.toolset import AGENT_TOOLSET
 from server.auth import API_KEY_PREFIX, _verify_api_key
 from server.draft_workflow import (
     DiscardDraftRequest,
@@ -44,7 +46,7 @@ from server.draft_workflow import (
 )
 from server.media_tools.assets import generate_assets_tool, list_pending_assets_tool
 from server.media_tools.context import ToolContext
-from server.media_tools.definition import ToolDefinition, json_value, media_outcome_payload
+from server.media_tools.definition import ToolDefinition, media_outcome_payload
 from server.media_tools.grid import generate_grid_tool, split_grids_tool
 from server.media_tools.image_edits import edit_images_tool
 from server.media_tools.narration_audio import generate_narration_audio_tool
@@ -64,7 +66,6 @@ from server.tool_runtime import (
     PatchEpisodeScriptRequest,
     PatchProjectRequest,
     PlanEpisodesRequest,
-    ProjectScope,
     PromptPreviewRequest,
     RenameAssetRequest,
     ResetEpisodePlanningRequest,
@@ -81,17 +82,11 @@ from server.tool_runtime import (
     discard_draft,
     generate_episode_script,
     generate_script_plan,
-    get_episode_script,
     get_generation_batch,
-    get_project_content,
     get_prompt_preview,
-    get_script_plan_content,
-    get_source_text,
     get_video_capabilities,
     get_workflow_plan,
-    list_project_files,
     list_projects,
-    list_source_files,
     migration_gate,
     open_draft,
     patch_draft,
@@ -100,7 +95,6 @@ from server.tool_runtime import (
     patch_project,
     plan_episodes,
     promote_draft,
-    read_project_file,
     rename_asset,
     reset_episode_planning,
     retry_project_migration,
@@ -137,14 +131,6 @@ class ArcApiKeyVerifier(TokenVerifier):
         return AccessToken(token=token, client_id=payload["sub"], scopes=["arcreel"])
 
 
-def _authenticated_caller() -> CallerContext:
-    token = get_access_token()
-    if token is None:
-        raise RuntimeError("authenticated MCP request has no access token")
-    # API-key subjects identify credentials; the supported single-operator model persists queue ownership as default.
-    return CallerContext(user_id=DEFAULT_USER_ID, source="mcp")
-
-
 def _to_mcp_result(domain_key: str, outcome: ToolOutcome[Any]) -> CallToolResult:
     if outcome.problem is not None:
         structured = {"problem": json_value(outcome.problem)}
@@ -167,14 +153,6 @@ def _to_long_task_result(domain_key: str, outcome: ToolOutcome[Any]) -> CallTool
     return _to_mcp_result(
         "generation_batch" if isinstance(outcome.value, GenerationBatchReadModel) else domain_key, outcome
     )
-
-
-def _project_scope(project: str, projects: ProjectManager) -> ProjectScope:
-    project_name = projects.normalize_project_name(project)
-    projects.get_project_path(project_name)
-    if not projects.project_exists(project_name):
-        raise FileNotFoundError(f"项目 '{project_name}' 缺少 project.json")
-    return ProjectScope(project_name=project_name, data_root=projects.data_root)
 
 
 def _media_outcome_to_mcp(definition: ToolDefinition, outcome: ToolOutcome[Any]) -> CallToolResult:
@@ -303,13 +281,13 @@ def build_remote_mcp_server(
         services = _default_services(projects)
 
     def media_context(project: str) -> ToolContext:
-        scope = _project_scope(project, projects)
+        scope = resolve_project_scope(project, projects)
         return ToolContext(
             project_name=scope.project_name,
             data_root=scope.data_root,
             pm=projects,
             config_resolver=services.capabilities,
-            caller=_authenticated_caller(),
+            caller=authenticated_caller(),
             queue=services.queue,
         )
 
@@ -357,7 +335,7 @@ def build_remote_mcp_server(
     public_url = AnyHttpUrl(os.environ.get("MCP_PUBLIC_URL", "http://localhost:1241/mcp"))
     server = FastMCP(
         "arcreel",
-        tools=media_tools,
+        tools=[*media_tools, *remote_tools(AGENT_TOOLSET, projects=projects, services=services)],
         token_verifier=token_verifier or ArcApiKeyVerifier(),
         auth=AuthSettings(
             issuer_url=public_url,
@@ -381,7 +359,7 @@ def build_remote_mcp_server(
     @server.tool(name="list_projects", structured_output=False)
     async def remote_list_projects() -> CallToolResult:  # pyright: ignore[reportUnusedFunction]
         """List ArcReel projects that can be addressed by subsequent tools."""
-        return _to_mcp_result("projects", await list_projects(ToolRequest(None), _authenticated_caller(), services))
+        return _to_mcp_result("projects", await list_projects(ToolRequest(None), authenticated_caller(), services))
 
     @server.tool(name="create_project", structured_output=False)
     async def remote_create_project(  # pyright: ignore[reportUnusedFunction]
@@ -412,7 +390,7 @@ def build_remote_mcp_server(
             )
         except ValueError as exc:
             return _to_mcp_result("project", ToolOutcome(problem=ToolProblem("invalid_request", str(exc))))
-        return _to_mcp_result("project", await create_project(ToolRequest(request), _authenticated_caller(), services))
+        return _to_mcp_result("project", await create_project(ToolRequest(request), authenticated_caller(), services))
 
     @server.tool(name="upload_source", structured_output=False)
     async def remote_upload_source(  # pyright: ignore[reportUnusedFunction]
@@ -423,12 +401,12 @@ def build_remote_mcp_server(
     ) -> CallToolResult:
         """Normalize a text source file to UTF-8 and store it in one explicit project."""
         try:
-            scope = _project_scope(project, projects)
+            scope = resolve_project_scope(project, projects)
             request = UploadSourceRequest(filename=filename, content=content, on_conflict=on_conflict)
         except (FileNotFoundError, ValueError) as exc:
             return _to_mcp_result("source", ToolOutcome(problem=ToolProblem("invalid_request", str(exc))))
         return _to_mcp_result(
-            "source", await upload_source(ToolRequest(request), scope, _authenticated_caller(), services)
+            "source", await upload_source(ToolRequest(request), scope, authenticated_caller(), services)
         )
 
     @server.tool(name="open_draft", structured_output=False)
@@ -440,13 +418,13 @@ def build_remote_mcp_server(
     ) -> CallToolResult:
         """Open a revisioned editing draft for one explicit project."""
         try:
-            scope = _project_scope(project, projects)
+            scope = resolve_project_scope(project, projects)
             request = DraftLocator(episode=episode, doc_type=doc_type, source=source)
         except (FileNotFoundError, ValueError) as exc:
             return _to_mcp_result("draft", ToolOutcome(problem=ToolProblem("invalid_request", str(exc))))
         if problem := await migration_gate(scope, services):
             return _to_mcp_result("draft", ToolOutcome(problem=problem))
-        return _to_mcp_result("draft", await open_draft(ToolRequest(request), scope, _authenticated_caller(), services))
+        return _to_mcp_result("draft", await open_draft(ToolRequest(request), scope, authenticated_caller(), services))
 
     @server.tool(name="patch_draft", structured_output=False)
     async def remote_patch_draft(  # pyright: ignore[reportUnusedFunction]
@@ -462,7 +440,7 @@ def build_remote_mcp_server(
     ) -> CallToolResult:
         """Atomically replace a draft body; presence flags permit explicit null updates."""
         try:
-            scope = _project_scope(project, projects)
+            scope = resolve_project_scope(project, projects)
             request = PatchDraftRequest(
                 episode=episode,
                 doc_type=doc_type,
@@ -477,9 +455,7 @@ def build_remote_mcp_server(
             return _to_mcp_result("draft", ToolOutcome(problem=ToolProblem("invalid_request", str(exc))))
         if problem := await migration_gate(scope, services):
             return _to_mcp_result("draft", ToolOutcome(problem=problem))
-        return _to_mcp_result(
-            "draft", await patch_draft(ToolRequest(request), scope, _authenticated_caller(), services)
-        )
+        return _to_mcp_result("draft", await patch_draft(ToolRequest(request), scope, authenticated_caller(), services))
 
     @server.tool(name="promote_draft", structured_output=False)
     async def remote_promote_draft(  # pyright: ignore[reportUnusedFunction]
@@ -487,14 +463,14 @@ def build_remote_mcp_server(
     ) -> CallToolResult:
         """Validate and promote one editing draft into its formal document."""
         try:
-            scope = _project_scope(project, projects)
+            scope = resolve_project_scope(project, projects)
             request = PromoteDraftRequest(episode=episode, doc_type=doc_type, base_revision=base_revision)
         except (FileNotFoundError, ValueError) as exc:
             return _to_mcp_result("draft", ToolOutcome(problem=ToolProblem("invalid_request", str(exc))))
         if problem := await migration_gate(scope, services):
             return _to_mcp_result("draft", ToolOutcome(problem=problem))
         return _to_mcp_result(
-            "draft", await promote_draft(ToolRequest(request), scope, _authenticated_caller(), services)
+            "draft", await promote_draft(ToolRequest(request), scope, authenticated_caller(), services)
         )
 
     @server.tool(name="discard_draft", structured_output=False)
@@ -503,14 +479,14 @@ def build_remote_mcp_server(
     ) -> CallToolResult:
         """Discard one editing draft without changing its formal document."""
         try:
-            scope = _project_scope(project, projects)
+            scope = resolve_project_scope(project, projects)
             request = DiscardDraftRequest(episode=episode, doc_type=doc_type, base_revision=base_revision)
         except (FileNotFoundError, ValueError) as exc:
             return _to_mcp_result("draft", ToolOutcome(problem=ToolProblem("invalid_request", str(exc))))
         if problem := await migration_gate(scope, services):
             return _to_mcp_result("draft", ToolOutcome(problem=problem))
         return _to_mcp_result(
-            "draft", await discard_draft(ToolRequest(request), scope, _authenticated_caller(), services)
+            "draft", await discard_draft(ToolRequest(request), scope, authenticated_caller(), services)
         )
 
     @server.tool(
@@ -541,7 +517,7 @@ def build_remote_mcp_server(
                 "text_generation", ToolOutcome(problem=ToolProblem("invalid_request", SCOPE_REMOVED_MESSAGE))
             )
         try:
-            project_scope = _project_scope(project, projects)
+            project_scope = resolve_project_scope(project, projects)
             request = TextGenerationRequest(
                 episode=episode,
                 instructions=instructions,
@@ -555,7 +531,7 @@ def build_remote_mcp_server(
         return _to_long_task_result(
             "text_generation",
             await _with_progress(
-                generate_episode_script(ToolRequest(request), project_scope, _authenticated_caller(), services),
+                generate_episode_script(ToolRequest(request), project_scope, authenticated_caller(), services),
                 context,
                 "Generating episode script",
             ),
@@ -580,7 +556,7 @@ def build_remote_mcp_server(
     ) -> CallToolResult:
         """Generate the project-appropriate structured script_plan document."""
         try:
-            scope = _project_scope(project, projects)
+            scope = resolve_project_scope(project, projects)
             request = TextGenerationRequest(
                 episode=episode,
                 source=source,
@@ -594,7 +570,7 @@ def build_remote_mcp_server(
         return _to_long_task_result(
             "text_generation",
             await _with_progress(
-                generate_script_plan(ToolRequest(request), scope, _authenticated_caller(), services),
+                generate_script_plan(ToolRequest(request), scope, authenticated_caller(), services),
                 context,
                 "Generating script_plan",
             ),
@@ -611,7 +587,7 @@ def build_remote_mcp_server(
         Ask the user before retrying with ``overwrite_revision`` set to ``script_overwrite.revision``.
         """
         try:
-            scope = _project_scope(project, projects)
+            scope = resolve_project_scope(project, projects)
         except (FileNotFoundError, ValueError) as exc:
             return _to_mcp_result("text_generation", ToolOutcome(problem=ToolProblem("invalid_request", str(exc))))
         if problem := await migration_gate(scope, services):
@@ -621,7 +597,7 @@ def build_remote_mcp_server(
             await confirm_script_review(
                 ToolRequest(ConfirmScriptReviewRequest(episode=episode, overwrite_revision=overwrite_revision)),
                 scope,
-                _authenticated_caller(),
+                authenticated_caller(),
                 services,
             ),
         )
@@ -635,7 +611,7 @@ def build_remote_mcp_server(
     ) -> CallToolResult:
         """Atomically apply revisioned update, insert, remove, or split operations."""
         try:
-            scope = _project_scope(project, projects)
+            scope = resolve_project_scope(project, projects)
             request = PatchEpisodeScriptRequest.model_validate(
                 {"script": script, "base_revision": base_revision, "operations": operations}
             )
@@ -645,7 +621,7 @@ def build_remote_mcp_server(
             return _to_mcp_result("script_patch", ToolOutcome(problem=problem))
         return _to_mcp_result(
             "script_patch",
-            await patch_episode_script(ToolRequest(request), scope, _authenticated_caller(), services),
+            await patch_episode_script(ToolRequest(request), scope, authenticated_caller(), services),
         )
 
     @server.tool(name="get_workflow_plan", structured_output=False)
@@ -657,7 +633,7 @@ def build_remote_mcp_server(
     ) -> CallToolResult:
         """Return the authoritative next-step plan for one explicit ArcReel project."""
         try:
-            scope = _project_scope(project, projects)
+            scope = resolve_project_scope(project, projects)
         except (FileNotFoundError, ValueError) as exc:
             return _to_mcp_result("workflow_plan", ToolOutcome(problem=ToolProblem("invalid_project", str(exc))))
         try:
@@ -669,27 +645,27 @@ def build_remote_mcp_server(
         except ValueError as exc:
             return _to_mcp_result("workflow_plan", ToolOutcome(problem=ToolProblem("invalid_request", str(exc))))
         return _to_mcp_result(
-            "workflow_plan", await get_workflow_plan(ToolRequest(request), scope, _authenticated_caller(), services)
+            "workflow_plan", await get_workflow_plan(ToolRequest(request), scope, authenticated_caller(), services)
         )
 
     @server.tool(name="get_generation_batch", structured_output=False)
     async def remote_get_generation_batch(project: str, batch_id: str) -> CallToolResult:  # pyright: ignore[reportUnusedFunction]
         """Read durable member states, counts, polling guidance and the terminal generation result."""
         try:
-            scope = _project_scope(project, projects)
+            scope = resolve_project_scope(project, projects)
             request = GenerationBatchToolRequest(batch_id=batch_id)
         except (FileNotFoundError, ValueError) as exc:
             return _to_mcp_result("generation_batch", ToolOutcome(problem=ToolProblem("invalid_request", str(exc))))
         return _to_mcp_result(
             "generation_batch",
-            await get_generation_batch(ToolRequest(request), scope, _authenticated_caller(), services),
+            await get_generation_batch(ToolRequest(request), scope, authenticated_caller(), services),
         )
 
     @server.tool(name="cancel_generation_batch", structured_output=False)
     async def remote_cancel_generation_batch(project: str, batch_id: str) -> CallToolResult:  # pyright: ignore[reportUnusedFunction]
         """Cancel the batch members that are still queued; members already running are not cancellable and finish normally (listed in ``skipped_running``)."""
         try:
-            scope = _project_scope(project, projects)
+            scope = resolve_project_scope(project, projects)
             request = GenerationBatchToolRequest(batch_id=batch_id)
         except (FileNotFoundError, ValueError) as exc:
             return _to_mcp_result(
@@ -698,19 +674,19 @@ def build_remote_mcp_server(
             )
         return _to_mcp_result(
             "generation_batch_cancellation",
-            await cancel_generation_batch(ToolRequest(request), scope, _authenticated_caller(), services),
+            await cancel_generation_batch(ToolRequest(request), scope, authenticated_caller(), services),
         )
 
     @server.tool(name="get_video_capabilities", structured_output=False)
     async def remote_video_capabilities(project: str) -> CallToolResult:  # pyright: ignore[reportUnusedFunction]
         """Return video capabilities for one explicit ArcReel project."""
         try:
-            scope = _project_scope(project, projects)
+            scope = resolve_project_scope(project, projects)
         except (FileNotFoundError, ValueError) as exc:
             return _to_mcp_result("video_capabilities", ToolOutcome(problem=ToolProblem("invalid_project", str(exc))))
         return _to_mcp_result(
             "video_capabilities",
-            await get_video_capabilities(ToolRequest(None), scope, _authenticated_caller(), services),
+            await get_video_capabilities(ToolRequest(None), scope, authenticated_caller(), services),
         )
 
     @server.tool(
@@ -721,12 +697,12 @@ def build_remote_mcp_server(
     async def remote_plan_episodes(project: str, instructions: str | None = None) -> CallToolResult:  # pyright: ignore[reportUnusedFunction]
         """Plan the next source window for one explicit project."""
         try:
-            scope = _project_scope(project, projects)
+            scope = resolve_project_scope(project, projects)
             request = PlanEpisodesRequest(instructions=instructions)
         except (FileNotFoundError, ValueError) as exc:
             return _to_mcp_result("episode_plan", ToolOutcome(problem=ToolProblem("invalid_request", str(exc))))
         return _to_long_task_result(
-            "episode_plan", await plan_episodes(ToolRequest(request), scope, _authenticated_caller(), services)
+            "episode_plan", await plan_episodes(ToolRequest(request), scope, authenticated_caller(), services)
         )
 
     @server.tool(name="reset_episode_planning", structured_output=False)
@@ -735,13 +711,13 @@ def build_remote_mcp_server(
     ) -> CallToolResult:
         """Reset episode planning from one episode while preserving transactional safeguards."""
         try:
-            scope = _project_scope(project, projects)
+            scope = resolve_project_scope(project, projects)
             request = ResetEpisodePlanningRequest(from_episode=from_episode, confirm_consumed=confirm_consumed)
         except (FileNotFoundError, ValueError) as exc:
             return _to_mcp_result("episode_reset", ToolOutcome(problem=ToolProblem("invalid_request", str(exc))))
         return _to_mcp_result(
             "episode_reset",
-            await reset_episode_planning(ToolRequest(request), scope, _authenticated_caller(), services),
+            await reset_episode_planning(ToolRequest(request), scope, authenticated_caller(), services),
         )
 
     @server.tool(name="patch_project", structured_output=False)
@@ -754,12 +730,12 @@ def build_remote_mcp_server(
     ) -> CallToolResult:
         """Atomically patch project assets, settings, or overview for one explicit project."""
         try:
-            scope = _project_scope(project, projects)
+            scope = resolve_project_scope(project, projects)
             request = PatchProjectRequest(table=table, entries=entries, settings=settings, overview=overview)
         except (FileNotFoundError, ValueError) as exc:
             return _to_mcp_result("project_patch", ToolOutcome(problem=ToolProblem("invalid_request", str(exc))))
         return _to_mcp_result(
-            "project_patch", await patch_project(ToolRequest(request), scope, _authenticated_caller(), services)
+            "project_patch", await patch_project(ToolRequest(request), scope, authenticated_caller(), services)
         )
 
     @server.tool(name="patch_episode_meta", structured_output=False)
@@ -768,37 +744,37 @@ def build_remote_mcp_server(
     ) -> CallToolResult:
         """Atomically patch episode-level metadata for one explicit project."""
         try:
-            scope = _project_scope(project, projects)
+            scope = resolve_project_scope(project, projects)
             request = PatchEpisodeMetaRequest(script=script, field=field, value=value)
         except (FileNotFoundError, ValueError) as exc:
             return _to_mcp_result("episode_meta_patch", ToolOutcome(problem=ToolProblem("invalid_request", str(exc))))
         return _to_mcp_result(
             "episode_meta_patch",
-            await patch_episode_meta(ToolRequest(request), scope, _authenticated_caller(), services),
+            await patch_episode_meta(ToolRequest(request), scope, authenticated_caller(), services),
         )
 
     @server.tool(name="rename_asset", structured_output=False)
     async def remote_rename_asset(project: str, table: str, old_name: str, new_name: str) -> CallToolResult:  # pyright: ignore[reportUnusedFunction]
         """Transactionally rename an asset and all project-local references."""
         try:
-            scope = _project_scope(project, projects)
+            scope = resolve_project_scope(project, projects)
             request = RenameAssetRequest(table=table, old_name=old_name, new_name=new_name)
         except (FileNotFoundError, ValueError) as exc:
             return _to_mcp_result("asset_rename", ToolOutcome(problem=ToolProblem("invalid_request", str(exc))))
         return _to_mcp_result(
-            "asset_rename", await rename_asset(ToolRequest(request), scope, _authenticated_caller(), services)
+            "asset_rename", await rename_asset(ToolRequest(request), scope, authenticated_caller(), services)
         )
 
     @server.tool(name="retry_project_migration", structured_output=False)
     async def remote_retry_project_migration(project: str) -> CallToolResult:  # pyright: ignore[reportUnusedFunction]
         """Retry the project migration chain and return the current workflow plan."""
         try:
-            scope = _project_scope(project, projects)
+            scope = resolve_project_scope(project, projects)
         except (FileNotFoundError, ValueError) as exc:
             return _to_mcp_result("migration_retry", ToolOutcome(problem=ToolProblem("invalid_project", str(exc))))
         return _to_mcp_result(
             "migration_retry",
-            await retry_project_migration(ToolRequest(None), scope, _authenticated_caller(), services),
+            await retry_project_migration(ToolRequest(None), scope, authenticated_caller(), services),
         )
 
     @server.tool(name="complete_asset_inventory", structured_output=False)
@@ -810,7 +786,7 @@ def build_remote_mcp_server(
     ) -> CallToolResult:
         """Atomically commit an asset inventory against a source revision."""
         try:
-            project_scope = _project_scope(project, projects)
+            project_scope = resolve_project_scope(project, projects)
             request = CompleteAssetInventoryRequest(
                 scope=scope,
                 expected_source_revision=expected_source_revision,
@@ -820,7 +796,7 @@ def build_remote_mcp_server(
             return _to_mcp_result("asset_inventory", ToolOutcome(problem=ToolProblem("invalid_request", str(exc))))
         return _to_mcp_result(
             "asset_inventory",
-            await complete_asset_inventory(ToolRequest(request), project_scope, _authenticated_caller(), services),
+            await complete_asset_inventory(ToolRequest(request), project_scope, authenticated_caller(), services),
         )
 
     @server.tool(name="complete_script_plan_rebuild", structured_output=False)
@@ -829,7 +805,7 @@ def build_remote_mcp_server(
     ) -> CallToolResult:
         """Record completion of a stale script_plan rebuild using its expected revision."""
         try:
-            scope = _project_scope(project, projects)
+            scope = resolve_project_scope(project, projects)
             request = CompleteScriptPlanRebuildRequest(
                 episode=episode, expected_stale_script_plan_revision=expected_stale_script_plan_revision
             )
@@ -837,98 +813,20 @@ def build_remote_mcp_server(
             return _to_mcp_result("script_plan_rebuild", ToolOutcome(problem=ToolProblem("invalid_request", str(exc))))
         return _to_mcp_result(
             "script_plan_rebuild",
-            await complete_script_plan_rebuild(ToolRequest(request), scope, _authenticated_caller(), services),
-        )
-
-    @server.tool(name="get_project_content", structured_output=False)
-    async def remote_project_content(project: str) -> CallToolResult:  # pyright: ignore[reportUnusedFunction]
-        """Return project creative content and its canonical revision."""
-        try:
-            scope = _project_scope(project, projects)
-        except (FileNotFoundError, ValueError) as exc:
-            return _to_mcp_result("project_content", ToolOutcome(problem=ToolProblem("invalid_project", str(exc))))
-        return _to_mcp_result(
-            "project_content", await get_project_content(ToolRequest(None), scope, _authenticated_caller(), services)
+            await complete_script_plan_rebuild(ToolRequest(request), scope, authenticated_caller(), services),
         )
 
     @server.tool(name="get_prompt_preview", structured_output=False)
     async def remote_prompt_preview(project: str, script: str, item_id: str) -> CallToolResult:  # pyright: ignore[reportUnusedFunction]
         """Return one shot's final image and video prompts, verbatim as generation would send them."""
         try:
-            scope = _project_scope(project, projects)
+            scope = resolve_project_scope(project, projects)
             request = PromptPreviewRequest(script=script, item_id=item_id)
         except (FileNotFoundError, ValueError) as exc:
             return _to_mcp_result("prompt_preview", ToolOutcome(problem=ToolProblem("invalid_request", str(exc))))
         return _to_mcp_result(
             "prompt_preview",
-            await get_prompt_preview(ToolRequest(request), scope, _authenticated_caller(), services),
-        )
-
-    @server.tool(name="list_source_files", structured_output=False)
-    async def remote_source_files(project: str) -> CallToolResult:  # pyright: ignore[reportUnusedFunction]
-        """List source text files with revision and etags."""
-        try:
-            scope = _project_scope(project, projects)
-        except (FileNotFoundError, ValueError) as exc:
-            return _to_mcp_result("source_files", ToolOutcome(problem=ToolProblem("invalid_project", str(exc))))
-        return _to_mcp_result(
-            "source_files", await list_source_files(ToolRequest(None), scope, _authenticated_caller(), services)
-        )
-
-    @server.tool(name="get_source_text", structured_output=False)
-    async def remote_source_text(project: str, path: str) -> CallToolResult:  # pyright: ignore[reportUnusedFunction]
-        """Read one UTF-8 source text file and its revision."""
-        try:
-            scope = _project_scope(project, projects)
-        except (FileNotFoundError, ValueError) as exc:
-            return _to_mcp_result("source_text", ToolOutcome(problem=ToolProblem("invalid_project", str(exc))))
-        return _to_mcp_result(
-            "source_text", await get_source_text(ToolRequest(path), scope, _authenticated_caller(), services)
-        )
-
-    @server.tool(name="get_episode_script", structured_output=False)
-    async def remote_episode_script(project: str, script: str) -> CallToolResult:  # pyright: ignore[reportUnusedFunction]
-        """Read an episode script body and the canonical revision used for patching."""
-        try:
-            scope = _project_scope(project, projects)
-        except (FileNotFoundError, ValueError) as exc:
-            return _to_mcp_result("episode_script", ToolOutcome(problem=ToolProblem("invalid_project", str(exc))))
-        return _to_mcp_result(
-            "episode_script", await get_episode_script(ToolRequest(script), scope, _authenticated_caller(), services)
-        )
-
-    @server.tool(name="get_script_plan_content", structured_output=False)
-    async def remote_script_plan_content(project: str, episode: int) -> CallToolResult:  # pyright: ignore[reportUnusedFunction]
-        """Read the current formal script_plan body and its canonical revision."""
-        try:
-            scope = _project_scope(project, projects)
-        except (FileNotFoundError, ValueError) as exc:
-            return _to_mcp_result("script_plan_content", ToolOutcome(problem=ToolProblem("invalid_project", str(exc))))
-        return _to_mcp_result(
-            "script_plan_content",
-            await get_script_plan_content(ToolRequest(episode), scope, _authenticated_caller(), services),
-        )
-
-    @server.tool(name="list_project_files", structured_output=False)
-    async def remote_project_files(project: str) -> CallToolResult:  # pyright: ignore[reportUnusedFunction]
-        """List the allowlisted project business files available for diagnostics."""
-        try:
-            scope = _project_scope(project, projects)
-        except (FileNotFoundError, ValueError) as exc:
-            return _to_mcp_result("project_files", ToolOutcome(problem=ToolProblem("invalid_project", str(exc))))
-        return _to_mcp_result(
-            "project_files", await list_project_files(ToolRequest(None), scope, _authenticated_caller(), services)
-        )
-
-    @server.tool(name="read_project_file", structured_output=False)
-    async def remote_project_file(project: str, path: str) -> CallToolResult:  # pyright: ignore[reportUnusedFunction]
-        """Read one allowlisted project business file and its revision/etag."""
-        try:
-            scope = _project_scope(project, projects)
-        except (FileNotFoundError, ValueError) as exc:
-            return _to_mcp_result("project_file", ToolOutcome(problem=ToolProblem("invalid_project", str(exc))))
-        return _to_mcp_result(
-            "project_file", await read_project_file(ToolRequest(path), scope, _authenticated_caller(), services)
+            await get_prompt_preview(ToolRequest(request), scope, authenticated_caller(), services),
         )
 
     return server

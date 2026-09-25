@@ -18,10 +18,12 @@ from server import tool_runtime as tool_runtime_module
 from server.tool_runtime import (
     CallerContext,
     CreateProjectToolRequest,
+    NoArguments,
     ProjectScope,
     RenameAssetRequest,
     ResetEpisodePlanningRequest,
     Services,
+    SourceTextRequest,
     ToolRequest,
     UploadSourceRequest,
     create_project,
@@ -71,8 +73,10 @@ async def test_entry_handlers_create_list_and_upload_a_readable_source(tmp_path:
         caller,
         services,
     )
-    source_files = await list_source_files(ToolRequest(None), scope, caller, services)
-    source_text = await get_source_text(ToolRequest("source/novel.txt"), scope, caller, services)
+    source_files = await list_source_files(ToolRequest(NoArguments()), scope, caller, services)
+    source_text = await get_source_text(
+        ToolRequest(SourceTextRequest(path="source/novel.txt")), scope, caller, services
+    )
 
     assert created.problem is None
     assert created.value is not None

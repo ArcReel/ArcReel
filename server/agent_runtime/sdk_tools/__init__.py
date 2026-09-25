@@ -19,15 +19,6 @@ from claude_agent_sdk import create_sdk_mcp_server
 
 from lib.db.base import DEFAULT_USER_ID
 from server.agent_runtime.sdk_tools.asset_inventory import complete_asset_inventory_tool
-from server.agent_runtime.sdk_tools.content_read import (
-    get_episode_script_tool,
-    get_project_content_tool,
-    get_script_plan_content_tool,
-    get_source_text_tool,
-    list_project_files_tool,
-    list_source_files_tool,
-    read_project_file_tool,
-)
 from server.agent_runtime.sdk_tools.enqueue_assets import (
     generate_assets_tool,
     list_pending_assets_tool,
@@ -63,23 +54,25 @@ from server.agent_runtime.sdk_tools.text_generation import (
 )
 from server.agent_runtime.sdk_tools.workflow_plan import get_workflow_plan_tool
 from server.agent_runtime.sdk_tools.workflow_status import complete_script_plan_rebuild_tool
+from server.agent_toolset.embedded import embedded_server
+from server.agent_toolset.toolset import AGENT_TOOLSET, DECLARED_MIGRATION_BLOCKED_TOOL_IDS, DECLARED_TOOL_IDS
 from server.media_tools.context import (
     ToolContext,
     migration_failure_for,
     migration_refusal_response,
+    tool_services,
 )
 from server.tool_runtime import CallerContext
 
 __all__ = ["ARCREEL_MCP_TOOL_IDS", "ToolContext", "build_arcreel_mcp_server"]
 
-# Single source of truth for the ArcReel in-process MCP tool catalogue.
-# Each id is the **short tool name** (without the ``mcp__arcreel__`` prefix the
-# SDK adds at registration). Frontend display names live in
-# ``frontend/src/i18n/{zh,en,vi}/dashboard.ts`` under the ``tool_name_<id>``
-# keys; ``tests/unit/test_frontend_mcp_tool_i18n.py`` cross-checks that every id
-# here has a translation in all locales, so adding a tool without wiring up
-# i18n fails CI.
-ARCREEL_MCP_TOOL_IDS: tuple[str, ...] = (
+# The ArcReel MCP tool catalogue: tools still registered by a per-host factory below, followed by
+# the tools derived from Agent toolset declarations. Each id is the **short tool name** (without the
+# ``mcp__arcreel__`` prefix the SDK adds at registration). Frontend display names live in
+# ``frontend/src/i18n/{zh,en,vi}/dashboard.ts`` under the ``tool_name_<id>`` keys;
+# ``tests/unit/test_frontend_mcp_tool_i18n.py`` cross-checks that every id here has a translation in
+# all locales, so adding a tool without wiring up i18n fails CI.
+_FACTORY_TOOL_IDS: tuple[str, ...] = (
     "list_projects",
     "create_project",
     "upload_source",
@@ -89,13 +82,6 @@ ARCREEL_MCP_TOOL_IDS: tuple[str, ...] = (
     "get_prompt_preview",
     "get_generation_batch",
     "cancel_generation_batch",
-    "get_project_content",
-    "list_source_files",
-    "get_source_text",
-    "get_episode_script",
-    "get_script_plan_content",
-    "list_project_files",
-    "read_project_file",
     "list_pending_assets",
     "generate_assets",
     "generate_storyboards",
@@ -120,8 +106,9 @@ ARCREEL_MCP_TOOL_IDS: tuple[str, ...] = (
     "rename_asset",
     "retry_project_migration",
 )
+ARCREEL_MCP_TOOL_IDS: tuple[str, ...] = (*_FACTORY_TOOL_IDS, *DECLARED_TOOL_IDS)
 
-# Tools wrapped at registration so they report the verdict instead of running while the
+# Factory-registered tools wrapped at registration so they report the verdict instead of running while the
 # project's schema migration verdict is a failure. Everything that generates output or
 # writes script content is named here; the controlled project/metadata editors
 # (``patch_project``, ``patch_episode_meta``, ``rename_asset``) are not, because
@@ -133,13 +120,16 @@ ARCREEL_MCP_TOOL_IDS: tuple[str, ...] = (
 # the entry declares the block, the inner check is only a fallback, and an entry
 # never skips declaring the block just because some callee happens to check too.
 #
+# Declared tools carry their own migration policy and are gated by the shared declaration entry;
+# ``MIGRATION_BLOCKED_TOOL_IDS`` is the union of both.
+#
 # The read-only tools are outside this set on purpose — they answer the verdict inside
 # their own handlers, so this frozenset stays exactly the registration-time blocks.
 # ``list_pending_assets`` reads it via ``migration_failure_for`` and returns the same
 # typed migration problem that the wrapper encodes; ``get_workflow_plan`` carries it as the plan's single problem rather
 # than refusing; ``get_video_capabilities`` reads model capability only, never the
 # project's artifacts, and stays fully available.
-MIGRATION_BLOCKED_TOOL_IDS: frozenset[str] = frozenset(
+_FACTORY_MIGRATION_BLOCKED_TOOL_IDS: frozenset[str] = frozenset(
     {
         "complete_asset_inventory",
         "complete_script_plan_rebuild",
@@ -162,6 +152,7 @@ MIGRATION_BLOCKED_TOOL_IDS: frozenset[str] = frozenset(
         "patch_episode_script",
     }
 )
+MIGRATION_BLOCKED_TOOL_IDS: frozenset[str] = _FACTORY_MIGRATION_BLOCKED_TOOL_IDS | DECLARED_MIGRATION_BLOCKED_TOOL_IDS
 
 
 def _refuse_while_migration_failed(sdk_tool: Any, ctx: ToolContext) -> Any:
@@ -202,13 +193,6 @@ def build_arcreel_mcp_server(*, project_name: str, data_root: Path, user_id: str
         get_prompt_preview_tool(ctx),
         get_generation_batch_tool(ctx),
         cancel_generation_batch_tool(ctx),
-        get_project_content_tool(ctx),
-        list_source_files_tool(ctx),
-        get_source_text_tool(ctx),
-        get_episode_script_tool(ctx),
-        get_script_plan_content_tool(ctx),
-        list_project_files_tool(ctx),
-        read_project_file_tool(ctx),
         list_pending_assets_tool(ctx),
         generate_assets_tool(ctx),
         generate_storyboards_tool(ctx),
@@ -233,11 +217,22 @@ def build_arcreel_mcp_server(*, project_name: str, data_root: Path, user_id: str
         rename_asset_tool(ctx),
         retry_project_migration_tool(ctx),
     ]
-    return create_sdk_mcp_server(
+    undeclared = create_sdk_mcp_server(
         name="arcreel",
         version="1.0.0",
         tools=[
-            _refuse_while_migration_failed(sdk_tool, ctx) if sdk_tool.name in MIGRATION_BLOCKED_TOOL_IDS else sdk_tool
+            _refuse_while_migration_failed(sdk_tool, ctx)
+            if sdk_tool.name in _FACTORY_MIGRATION_BLOCKED_TOOL_IDS
+            else sdk_tool
             for sdk_tool in tools
         ],
+    )
+    return embedded_server(
+        AGENT_TOOLSET,
+        name="arcreel",
+        version="1.0.0",
+        scope=ctx.scope,
+        caller=ctx.caller,
+        services=tool_services(ctx),
+        undeclared=undeclared["instance"],
     )

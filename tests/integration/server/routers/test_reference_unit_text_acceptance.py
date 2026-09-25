@@ -20,7 +20,7 @@ from lib.project.project_manager import ProjectManager
 from lib.project.project_migrations.runner import migrate_project_dir
 from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from lib.script.reference_video.script_preview import WARN_UNREGISTERED_MENTION
-from server.agent_runtime.sdk_tools.content_read import get_episode_script_tool
+from lib.script.script_batch_edit import script_revision
 from server.agent_runtime.sdk_tools.patch_script import patch_episode_script_tool
 from server.auth import CurrentUserInfo, get_current_user
 from server.media_tools.context import ToolContext
@@ -85,8 +85,7 @@ class _Acceptance:
         return resp.json()["unit"]
 
     async def patch_body_over_agent_tool(self, text: str, unit_id: str = _UNIT_ID) -> dict[str, Any]:
-        read = await get_episode_script_tool(self.tool_ctx).handler({"script": _SCRIPT_FILE})
-        revision = json.loads(read["content"][0]["text"])["episode_script"]["revision"]
+        revision = script_revision(self.script_on_disk())
         output = await patch_episode_script_tool(self.tool_ctx).handler(
             {
                 "script": _SCRIPT_FILE,

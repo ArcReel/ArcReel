@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
-from dataclasses import asdict, dataclass, is_dataclass
+from dataclasses import dataclass
 from typing import Any
 
 from lib.generation.generation_batch import GenerationBatchReadModel
 from lib.generation.generation_result import GenerationBatchResult
+from server.agent_toolset.envelope import json_value
 from server.tool_runtime import ToolOutcome
 
 
@@ -20,20 +21,6 @@ class ToolDefinition:
 
     async def invoke(self, args: dict[str, Any]) -> ToolOutcome[Any]:
         return await self.handler(args)
-
-
-def json_value(value: Any) -> Any:
-    """Project typed domain values into JSON-safe values for host adapters."""
-    model_dump = getattr(value, "model_dump", None)
-    if callable(model_dump):
-        return model_dump(mode="json")
-    if is_dataclass(value) and not isinstance(value, type):
-        return {key: json_value(item) for key, item in asdict(value).items()}
-    if isinstance(value, dict):
-        return {key: json_value(item) for key, item in value.items()}
-    if isinstance(value, list | tuple):
-        return [json_value(item) for item in value]
-    return value
 
 
 def media_outcome_payload(

@@ -336,6 +336,10 @@ async def test_remote_mcp_returns_typed_workflow_plan_and_rejects_bad_project(
         nonexistent = await session.call_tool("get_workflow_plan", {"project": "absent", "episode": 1})
         empty = await session.call_tool("get_workflow_plan", {"project": "empty", "episode": 1})
         escape = await session.call_tool("get_workflow_plan", {"project": "escape", "episode": 1})
+        declared_missing = await session.call_tool("get_source_text", {"path": "source/episode_1.txt"})
+        declared_escape = await session.call_tool(
+            "get_source_text", {"project": "escape", "path": "source/episode_1.txt"}
+        )
 
     assert not result.isError
     migrated = {
@@ -512,6 +516,10 @@ async def test_remote_mcp_returns_typed_workflow_plan_and_rejects_bad_project(
     assert nonexistent.isError
     assert empty.isError
     assert escape.isError
+    for declared in (declared_missing, declared_escape):
+        assert declared.isError
+        assert declared.structuredContent is not None
+        assert declared.structuredContent["problem"]["code"] == "invalid_project"
 
 
 async def test_remote_grid_list_only_returns_preview_without_a_batch(

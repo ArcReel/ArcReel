@@ -85,7 +85,7 @@ from lib.infra.async_thread import run_sync_transaction as _run_sync_transaction
 from lib.infra.content_digest import prefixed, prefixed_canonical_json_digest
 from lib.infra.data_root_layout import DataRootLayout
 from lib.infra.path_safety import safe_join
-from lib.infra.schema_guards import is_int, is_str
+from lib.infra.schema_guards import is_str
 from lib.project.asset_inventory import (
     AssetInventoryError,
     AssetInventoryInvalidRequest,
@@ -146,6 +146,7 @@ from server.draft_workflow import (
     DraftWorkflow,
     DraftWorkflowError,
     PatchDraftRequest,
+    PositiveEpisode,
     PromoteDraftRequest,
 )
 from server.services.admission.prompt_preview import ItemPromptPreview, ScriptItemNotFound, preview_item_prompts
@@ -637,6 +638,40 @@ async def confirm_script_review(
     )
 
 
+class NoArguments(BaseModel):
+    """不带参数的工具请求。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+
+class SourceTextRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    path: str = Field(
+        description="源文的项目相对路径，须位于 source/ 下，如 source/episode_1.txt；取自 list_source_files"
+    )
+
+
+class EpisodeScriptRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    script: str = Field(description="剧本纯文件名（不含目录），如 episode_1.json")
+
+
+class ScriptPlanContentRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    episode: PositiveEpisode = Field(description="集号，从 1 开始")
+
+
+class ProjectFileRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    path: str = Field(
+        description="业务文件的项目相对路径，如 project.json、scripts/episode_1.json；取自 list_project_files"
+    )
+
+
 class ProjectContent(BaseModel):
     revision: str
     project: dict[str, Any]
@@ -839,7 +874,7 @@ def _get_project_content_sync(project_name: str, projects: ProjectManager) -> Pr
 
 
 async def get_project_content(
-    _request: ToolRequest[None],
+    _request: ToolRequest[NoArguments],
     scope: ProjectScope,
     _caller: CallerContext,
     services: Services,
@@ -854,18 +889,19 @@ async def get_project_content(
 
 
 async def get_episode_script(
-    request: ToolRequest[str],
+    request: ToolRequest[EpisodeScriptRequest],
     scope: ProjectScope,
     _caller: CallerContext,
     services: Services,
 ) -> ToolOutcome[EpisodeScriptContent]:
-    filename = request.value
-    if not is_str(filename) or not filename or "/" in filename or "\\" in filename or filename in {".", ".."}:
+    """读一集剧本并签发 revision；迁移失败的项目不签发 revision，返回完整的迁移 problem。"""
+    filename = request.value.script
+    if not filename or "/" in filename or "\\" in filename or filename in {".", ".."}:
         return ToolOutcome(problem=ToolProblem("invalid_request", "script 必须是纯文件名"))
     try:
         failure = await asyncio.to_thread(project_migration_failure, scope.project_name, services.projects)
         if failure is not None:
-            return ToolOutcome(problem=ToolProblem(MIGRATION_FAILURE_CODE, failure.reason))
+            return ToolOutcome(problem=_migration_tool_problem(failure))
         script = await asyncio.to_thread(services.projects.load_script_readonly, scope.project_name, filename)
     except FileNotFoundError as exc:
         return ToolOutcome(problem=ToolProblem("file_not_found", str(exc)))
@@ -919,7 +955,7 @@ async def get_prompt_preview(
 
 
 async def list_source_files(
-    _request: ToolRequest[None],
+    _request: ToolRequest[NoArguments],
     scope: ProjectScope,
     _caller: CallerContext,
     services: Services,
@@ -938,21 +974,20 @@ async def list_source_files(
 
 
 async def get_source_text(
-    request: ToolRequest[str],
+    request: ToolRequest[SourceTextRequest],
     scope: ProjectScope,
     _caller: CallerContext,
     services: Services,
 ) -> ToolOutcome[SourceTextContent]:
+    path = request.value.path
     try:
         project_dir = services.projects.get_project_path(scope.project_name)
-        # path 是模型给的原始 JSON 入参，运行期不受 @tool schema 约束；非 str 在 startswith 上会抛
-        # AttributeError，越过本函数的降级口径变成 internal_error，故先判形状。
-        if not is_str(request.value) or not request.value.startswith("source/"):
+        if not path.startswith("source/"):
             raise ValueError("path 必须指向 source/ 下的文本文件")
-        content, revision, etag, _size = await asyncio.to_thread(_decode_business_file, project_dir, request.value)
+        content, revision, etag, _size = await asyncio.to_thread(_decode_business_file, project_dir, path)
         if not isinstance(content, str):
             raise ValueError("source 文件必须是文本")
-        return ToolOutcome(value=SourceTextContent(revision=revision, etag=etag, path=request.value, text=content))
+        return ToolOutcome(value=SourceTextContent(revision=revision, etag=etag, path=path, text=content))
     except Exception as exc:
         return ToolOutcome(problem=_file_problem("get_source_text", exc))
 
@@ -981,14 +1016,12 @@ def _get_script_plan_content_sync(
 
 
 async def get_script_plan_content(
-    request: ToolRequest[int],
+    request: ToolRequest[ScriptPlanContentRequest],
     scope: ProjectScope,
     _caller: CallerContext,
     services: Services,
 ) -> ToolOutcome[ScriptPlanContent]:
-    episode = request.value
-    if not is_int(episode, minimum=1):
-        return ToolOutcome(problem=ToolProblem("invalid_request", "episode 必须是正整数"))
+    episode = request.value.episode
     try:
         result = await asyncio.to_thread(_get_script_plan_content_sync, scope.project_name, episode, services.projects)
         if result is None:
@@ -999,7 +1032,7 @@ async def get_script_plan_content(
 
 
 async def list_project_files(
-    _request: ToolRequest[None],
+    _request: ToolRequest[NoArguments],
     scope: ProjectScope,
     _caller: CallerContext,
     services: Services,
@@ -1016,15 +1049,16 @@ async def list_project_files(
 
 
 async def read_project_file(
-    request: ToolRequest[str],
+    request: ToolRequest[ProjectFileRequest],
     scope: ProjectScope,
     _caller: CallerContext,
     services: Services,
 ) -> ToolOutcome[ProjectFileContent]:
+    path = request.value.path
     try:
         project_dir = services.projects.get_project_path(scope.project_name)
-        content, revision, etag, _size = await asyncio.to_thread(_decode_business_file, project_dir, request.value)
-        return ToolOutcome(value=ProjectFileContent(revision=revision, etag=etag, path=request.value, content=content))
+        content, revision, etag, _size = await asyncio.to_thread(_decode_business_file, project_dir, path)
+        return ToolOutcome(value=ProjectFileContent(revision=revision, etag=etag, path=path, content=content))
     except Exception as exc:
         return ToolOutcome(problem=_file_problem("read_project_file", exc))
 
@@ -2418,7 +2452,9 @@ __all__ = [
     "DiscardDraftRequest",
     "DraftLocator",
     "EpisodeScriptContent",
+    "EpisodeScriptRequest",
     "GenerationBatchToolRequest",
+    "NoArguments",
     "PatchDraftRequest",
     "PatchEpisodeMetaRequest",
     "PatchEpisodeScriptRequest",
@@ -2427,6 +2463,7 @@ __all__ = [
     "ProjectContent",
     "ProjectFileContent",
     "ProjectFileEntry",
+    "ProjectFileRequest",
     "ProjectFilesContent",
     "ProjectScope",
     "PromoteDraftRequest",
@@ -2434,9 +2471,11 @@ __all__ = [
     "RenameAssetRequest",
     "ResetEpisodePlanningRequest",
     "ScriptPlanContent",
+    "ScriptPlanContentRequest",
     "Services",
     "SourceFilesContent",
     "SourceTextContent",
+    "SourceTextRequest",
     "TextGenerationError",
     "TextGenerationRequest",
     "TextGenerationResult",
