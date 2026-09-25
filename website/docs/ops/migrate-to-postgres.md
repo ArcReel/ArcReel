@@ -120,14 +120,17 @@ for target_dir in deploy/production/projects deploy/production/pgdata; do
 done
 ```
 
-将数据根（项目、媒体资产与其余运行数据）复制到生产目录，但不把 SQLite 数据库复制进去：
+将数据根（项目、媒体资产与其余运行数据）复制到生产目录，再删掉随之复制过去的 SQLite 数据库文件（只删数据根顶层的 `arcreel.db` 及其 `-wal` / `-shm`，项目里的同名前缀文件不受影响）：
 
 ```bash
 set -euo pipefail
 
 mkdir -p deploy/production/projects
-tar -C "${source_projects}" --exclude='arcreel.db*' -cf - . | \
+tar -C "${source_projects}" -cf - . | \
   tar -C deploy/production/projects -xf -
+rm -f deploy/production/projects/arcreel.db \
+  deploy/production/projects/arcreel.db-wal \
+  deploy/production/projects/arcreel.db-shm
 ```
 
 严格模式会在目录创建或管道任一端失败时立即停止，禁止继续使用不完整的资产副本。

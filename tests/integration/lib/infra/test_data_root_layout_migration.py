@@ -1,4 +1,4 @@
-"""数据根布局迁移入口：迁移后存量数据（调用记录、用户记忆、运行时标记）按当前布局可用，重跑不改变结果。"""
+"""数据根布局迁移入口：迁移后旧布局的项目、会话与存量数据（调用记录、用户记忆、运行时标记）按当前布局可用，各步骤重跑不改变结果。"""
 
 from __future__ import annotations
 
@@ -100,6 +100,8 @@ async def test_rerunning_migration_leaves_call_records_unchanged(
     await _migrate(projects, session_factory, tmp_path)
     after_first = await _recorded_output_path(session_factory, call_id)
     updated_after_first = await _recorded_updated_at(session_factory, call_id)
+    # 后续步骤失败、完成标记未写时，下次启动各步骤从头重跑。
+    DataRootLayout(projects.data_root).layout_migration_marker_path.unlink()
     await _migrate(projects, session_factory, tmp_path)
 
     assert await _recorded_output_path(session_factory, call_id) == after_first == "videos/scene_E1S01.mp4"
@@ -114,7 +116,6 @@ async def test_moved_root_with_repeated_project_name_does_not_rewrite_ambiguous_
     stored = str(tmp_path / "old" / "demo" / "data" / "demo" / "scene.png")
     call_id = await _record_call(session_factory, stored)
 
-    await _migrate(projects, session_factory, tmp_path)
     await _migrate(projects, session_factory, tmp_path)
 
     assert await _recorded_output_path(session_factory, call_id) == stored
@@ -169,6 +170,8 @@ async def test_user_memory_stays_readable_after_migration_and_rerun(
     _write_legacy_user_memory(data_root, "u2", {"MEMORY.md": "- 另一位用户\n"})
 
     await _migrate_data_root(data_root, session_factory, sdk_config_dir)
+    # 后续步骤失败、完成标记未写时，下次启动各步骤从头重跑。
+    DataRootLayout(data_root).layout_migration_marker_path.unlink()
     await _migrate_data_root(data_root, session_factory, sdk_config_dir)
 
     assert _memory(data_root, "default").read("style.md").decode("utf-8") == "冷色调"
@@ -377,6 +380,8 @@ async def test_project_left_mid_schema_swap_is_reclaimed_after_migration(
     data_root: Path, session_factory: async_sessionmaker[AsyncSession], sdk_config_dir: Path
 ) -> None:
     _write_legacy_project(data_root, "demo", novel="交换窗口里的项目")
+    store = DbSessionStore(session_factory, user_id="default")
+    await _record_session(store, data_root / "demo")
     # 旧版本的项目 schema 迁移停在目录交换的两次改名之间：项目目录只剩 rollback 目录。
     (data_root / "demo").rename(data_root / f".demo.v6-rollback-{'a' * 32}")
 
@@ -386,3 +391,4 @@ async def test_project_left_mid_schema_swap_is_reclaimed_after_migration(
     manager = ProjectManager(data_root)
     assert manager.list_projects() == ["demo"]
     assert _novel(manager, "demo") == "交换窗口里的项目"
+    await _assert_session_usable(store, manager.get_project_path("demo"))

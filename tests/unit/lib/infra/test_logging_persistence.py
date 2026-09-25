@@ -343,6 +343,35 @@ def test_migrate_failure_logs_error(
     assert (old_dir / "arcreel.log").exists()
 
 
+def test_migrate_failed_entry_does_not_block_the_rest(
+    isolated_data_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """单个条目迁移失败只把该条目留在旧位置并记 ERROR，其余条目照常迁入。"""
+    import shutil
+
+    old_dir = isolated_data_dir / "root" / "logs"
+    new_dir = isolated_data_dir / "data" / "logs"
+    _write_legacy_logs(old_dir)
+    real_move = shutil.move
+
+    def fake_move(src: Path, dst: Path, *args: object, **kwargs: object) -> object:
+        if Path(src).name == "arcreel.log":
+            raise PermissionError("simulated permission denied")
+        return real_move(src, dst, *args, **kwargs)
+
+    monkeypatch.setattr(shutil, "move", fake_move)
+
+    with caplog.at_level(logging.ERROR, logger="lib.infra.logging_config"):
+        _migrate(isolated_data_dir)
+
+    assert any(rec.levelno == logging.ERROR for rec in caplog.records)
+    assert (old_dir / "arcreel.log").read_text(encoding="utf-8") == "old content\n"
+    assert (new_dir / "arcreel.log.2026-05-20").read_text(encoding="utf-8") == "rotated\n"
+    assert not (old_dir / "arcreel.log.2026-05-20").exists()
+
+
 def test_setup_logging_file_false_skips_file_handler(isolated_log_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """模块导入期用 file=False 时不应挂 file handler、不应 mkdir 新目录。"""
     # 注意：isolated_log_dir 指向的数据根日志目录尚未创建

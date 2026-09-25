@@ -141,6 +141,18 @@ def _rename_sdk_session_dir(sdk_projects_dir: Path, legacy_key: str, current_key
         logger.warning("数据根布局迁移：SDK 会话目录 %s 改名失败", legacy_dir, exc_info=True)
 
 
+def _moved_project_names(projects_dir: Path) -> set[str]:
+    """``projects/`` 下的项目名：名字合法的目录，加上目录交换中间目录所属的项目（认领后成为该项目）。"""
+    names: set[str] = set()
+    for entry in projects_dir.iterdir():
+        if _is_project_named_dir(entry):
+            names.add(entry.name)
+        elif _is_project_swap_dir(entry):
+            names.add(rollback_project_name(entry.name) or staging_project_name(entry.name) or "")
+    names.discard("")
+    return names
+
+
 async def _rewrite_session_store_keys(context: DataRootMigrationContext) -> None:
     """项目挪进 ``projects/`` 后，Agent 会话存储里按旧项目目录派生的键改写为按新目录派生的键。
 
@@ -149,10 +161,9 @@ async def _rewrite_session_store_keys(context: DataRootMigrationContext) -> None
     会话来源）同样按新键改名，失败只告警。
     """
     layout = context.layout
+    project_names = sorted(await asyncio.to_thread(_moved_project_names, layout.projects_dir))
     key_pairs = [
-        (make_project_key(layout.root / entry.name), make_project_key(entry))
-        for entry in await asyncio.to_thread(lambda: sorted(layout.projects_dir.iterdir()))
-        if _is_project_named_dir(entry)
+        (make_project_key(layout.root / name), make_project_key(layout.projects_dir / name)) for name in project_names
     ]
     key_pairs = [(legacy, current) for legacy, current in key_pairs if legacy != current]
     rewritten: set[tuple[str, str]] = set()
@@ -322,6 +333,8 @@ async def _rename_global_assets_dir(context: DataRootMigrationContext) -> None:
         logger.info("数据根布局迁移：%d 处全局资产路径改到 %s", rewritten, current_prefix)
 
 
+#: 旧布局的数据根内部目录（相对数据根），其下 ``users/`` 是用户数据。
+_LEGACY_INTERNAL_DIR = ".arcreel"
 #: 旧布局平放在数据根下的运行时状态（相对数据根）。
 _LEGACY_SESSION_IMPORT_MARKER = ".session_store_migration_done"
 _LEGACY_PROJECT_MIGRATION_ERROR_LOG = "_migration_errors.log"
@@ -331,12 +344,8 @@ _LEGACY_GENERATION_ADMISSION_LOCKS_DIR = ".generation-admission-locks"
 async def _move_user_data_to_users_dir(context: DataRootMigrationContext) -> None:
     """``.arcreel/users/`` 挪到 ``users/``；旧目录不存在时什么都不做。"""
     layout = context.layout
-    legacy_users = layout.legacy_internal_dir / "users"
+    legacy_users = layout.root / _LEGACY_INTERNAL_DIR / "users"
     if not legacy_users.is_dir():
-        return
-    # 与系统条目同名的旧项目尚未搬进项目目录时，不往它里面写。
-    if is_project_dir(layout.users_dir):
-        logger.warning("数据根布局迁移：%s 是一个项目，用户数据暂留 %s", layout.users_dir, legacy_users)
         return
     _merge_dir_into(legacy_users, layout.users_dir)
     with contextlib.suppress(OSError):
@@ -355,9 +364,6 @@ async def _move_runtime_state_to_runtime_dir(context: DataRootMigrationContext) 
     legacy_error_log = root / _LEGACY_PROJECT_MIGRATION_ERROR_LOG
     legacy_locks = root / _LEGACY_GENERATION_ADMISSION_LOCKS_DIR
     if not (legacy_marker.exists() or legacy_error_log.exists() or legacy_locks.exists()):
-        return
-    if is_project_dir(layout.runtime_dir):
-        logger.warning("数据根布局迁移：%s 是一个项目，运行时状态暂留数据根", layout.runtime_dir)
         return
     layout.runtime_dir.mkdir(exist_ok=True)
     if legacy_marker.exists():
@@ -461,8 +467,6 @@ async def _move_vertex_credentials_into_data_root(context: DataRootMigrationCont
     """
     layout = context.layout
     legacy_dir = layout.root.parent / "vertex_keys"
-    # Agent 沙箱的 denyRead 只覆盖会话启动时已存在的路径，凭证目录须先于任何会话建好。
-    await asyncio.to_thread(layout.vertex_keys_dir.mkdir, parents=True, exist_ok=True)
     async with context.session_factory() as session:
         rows = [
             (cred_id, recorded)

@@ -28,6 +28,8 @@ logging.getLogger("sqlalchemy.pool.impl").setLevel(logging.CRITICAL)
 logger = logging.getLogger(__name__)
 
 _SQLITE_SIDECAR_SUFFIXES = ("-wal", "-shm")
+#: 旧布局的默认 SQLite 主文件名（位于数据根下）。
+_LEGACY_SQLITE_DB_NAME = ".arcreel.db"
 
 
 def _adopt_legacy_sqlite_db(db_path: Path, legacy: Path) -> None:
@@ -63,7 +65,7 @@ def get_database_url() -> str:
 
     layout = DataRootLayout.current()
     db_path = layout.sqlite_db_path
-    _adopt_legacy_sqlite_db(db_path, layout.legacy_sqlite_db_path)
+    _adopt_legacy_sqlite_db(db_path, layout.root / _LEGACY_SQLITE_DB_NAME)
     return f"sqlite+aiosqlite:///{db_path}"
 
 

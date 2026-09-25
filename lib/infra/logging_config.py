@@ -9,7 +9,7 @@ import shutil
 from logging.handlers import TimedRotatingFileHandler
 from pathlib import Path
 
-from lib.infra.data_root_layout import PROJECT_FILENAME, DataRootLayout
+from lib.infra.data_root_layout import PROJECT_FILENAME, DataRootLayout, is_project_dir
 from lib.infra.env_init import PROJECT_ROOT
 
 _HANDLER_ATTR = "_arcreel_logging"
@@ -24,11 +24,6 @@ def _file_logging_disabled() -> bool:
 def resolve_log_dir() -> Path:
     """文件日志目录：``<数据根>/logs``（``DataRootLayout.log_dir``）。"""
     return DataRootLayout.current().log_dir
-
-
-def _log_dir_occupied_by_project(log_dir: Path) -> bool:
-    """日志目录位置上是否是一个带 ``project.json`` 的目录；是则不往里写任何东西。"""
-    return (log_dir / PROJECT_FILENAME).is_file()
 
 
 LEGACY_LOG_DIR = PROJECT_ROOT / "logs"
@@ -60,6 +55,7 @@ def migrate_legacy_log_dir(*, legacy_dir: Path = LEGACY_LOG_DIR) -> None:
     - 旧位置不可写（只读代码目录）→ 告警，原样保留，不做只复制不删源的半截迁移
     - 逐项 ``shutil.move``：同设备 rename，跨设备（Docker 旧卷）复制后删源
     - 新位置已有同名条目 → 该条目留在旧位置并告警，不覆盖；重跑只会再次跳过它
+    - 单个条目迁移失败 → 该条目留在旧位置并记 ERROR，其余条目照常迁入
     - 旧位置清空后尝试删除；删不掉（挂载点 EBUSY）就留下空目录
     - 新位置被项目占着 → 不动（告警由 :func:`attach_file_handler` 记）
     - OSError 记 ERROR，不中止启动：日志留在旧位置不影响数据根布局
@@ -68,7 +64,7 @@ def migrate_legacy_log_dir(*, legacy_dir: Path = LEGACY_LOG_DIR) -> None:
     old_dir = legacy_dir
     new_dir = resolve_log_dir()
     try:
-        if not old_dir.is_dir() or _log_dir_occupied_by_project(new_dir):
+        if not old_dir.is_dir() or is_project_dir(new_dir):
             return
         old_resolved, new_resolved = old_dir.resolve(), new_dir.resolve()
         if old_resolved == new_resolved:
@@ -94,7 +90,11 @@ def migrate_legacy_log_dir(*, legacy_dir: Path = LEGACY_LOG_DIR) -> None:
                     "legacy log entry %s not migrated: %s already exists; please merge manually", entry, target
                 )
                 continue
-            shutil.move(entry, target)
+            try:
+                shutil.move(entry, target)
+            except OSError as exc:
+                logger.error("legacy log entry %s not migrated to %s: %s; please move it manually", entry, target, exc)
+                continue
             moved += 1
         if moved:
             logger.info("migrated %d legacy log entries %s -> %s", moved, old_dir, new_dir)
@@ -179,7 +179,8 @@ def attach_file_handler(formatter: logging.Formatter | None = None) -> None:
 
     try:
         log_dir = resolve_log_dir()
-        if _log_dir_occupied_by_project(log_dir):
+        # 日志目录位置上是一个项目时不往里写任何东西。
+        if is_project_dir(log_dir):
             logging.getLogger(__name__).warning(
                 "file logging disabled for this run: %s contains %s; "
                 "file logging resumes once that directory no longer holds a project",

@@ -119,14 +119,17 @@ for target_dir in deploy/production/projects deploy/production/pgdata; do
 done
 ```
 
-Copy the data root (projects, media assets, and the remaining runtime data) to the production directory without copying the SQLite database:
+Copy the data root (projects, media assets, and the remaining runtime data) to the production directory, then delete the SQLite database files that came along (only `arcreel.db` and its `-wal` / `-shm` at the top level of the data root; files in projects with the same prefix are unaffected):
 
 ```bash
 set -euo pipefail
 
 mkdir -p deploy/production/projects
-tar -C "${source_projects}" --exclude='arcreel.db*' -cf - . | \
+tar -C "${source_projects}" -cf - . | \
   tar -C deploy/production/projects -xf -
+rm -f deploy/production/projects/arcreel.db \
+  deploy/production/projects/arcreel.db-wal \
+  deploy/production/projects/arcreel.db-shm
 ```
 
 Strict mode stops immediately if directory creation or either side of the pipeline fails, preventing the migration from using an incomplete asset copy.

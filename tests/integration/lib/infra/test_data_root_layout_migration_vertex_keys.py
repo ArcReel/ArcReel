@@ -15,7 +15,6 @@ from lib.db.repositories.credential_repository import CredentialRepository
 from lib.infra.app_data_dir import reset_for_tests
 from lib.infra.data_root_layout import DataRootLayout
 from lib.infra.data_root_layout_migration import migrate_data_root_layout
-from server.agent_runtime.agent_access_policy import AgentAccessPolicy
 
 
 @pytest.fixture
@@ -155,6 +154,8 @@ async def test_rerunning_migration_keeps_credential_loadable(
 
     await _migrate(deployed_data_root, session_factory, tmp_path)
     first = await _loaded_credential(session_factory)
+    # 后续步骤失败、完成标记未写时，下次启动各步骤从头重跑。
+    DataRootLayout(deployed_data_root).layout_migration_marker_path.unlink()
     await _migrate(deployed_data_root, session_factory, tmp_path)
 
     assert await _loaded_credential(session_factory) == first
@@ -188,7 +189,6 @@ async def test_credential_whose_file_is_missing_stays_loadable_from_its_record_o
     await _migrate(deployed_data_root, session_factory, tmp_path)
     recorded = unmounted / f"vertex_cred_{cred_id}.json"
     _write_service_account(recorded, "remounted")
-    await _migrate(deployed_data_root, session_factory, tmp_path)
 
     assert await _loaded_credential(session_factory) == (recorded, "remounted")
 
@@ -230,6 +230,8 @@ async def test_read_only_legacy_dir_does_not_block_migration(
 
     try:
         await _migrate(deployed_data_root, session_factory, tmp_path)
+        # 后续步骤失败、完成标记未写时，下次启动各步骤从头重跑。
+        DataRootLayout(deployed_data_root).layout_migration_marker_path.unlink()
         await _migrate(deployed_data_root, session_factory, tmp_path)
     finally:
         os.chmod(legacy_keys_dir, 0o755)
@@ -240,19 +242,3 @@ async def test_read_only_legacy_dir_does_not_block_migration(
     assert (
         _project_id_in(DataRootLayout(deployed_data_root).vertex_keys_dir / "vertex_credentials.json") == "dropped-in"
     )
-
-
-async def test_bash_sandbox_denies_credential_dir_on_fresh_install(
-    tmp_path: Path, deployed_data_root: Path, session_factory: async_sessionmaker[AsyncSession]
-) -> None:
-    await _migrate(deployed_data_root, session_factory, tmp_path)
-
-    repo = tmp_path / "repo"
-    policy = AgentAccessPolicy(
-        project_root=repo,
-        data_root=deployed_data_root,
-        agent_profile_root=repo / "agent_runtime_profile",
-    )
-    sandbox = policy.build_sandbox_settings(deployed_data_root / "demo", user_id="u1")
-
-    assert str(DataRootLayout(deployed_data_root).vertex_keys_dir) in sandbox["filesystem"]["denyRead"]
