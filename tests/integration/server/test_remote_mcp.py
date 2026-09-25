@@ -395,7 +395,6 @@ async def test_remote_mcp_returns_typed_workflow_plan_and_rejects_bad_project(
         "generate_videos",
         "generate_episode_script",
         "generate_script_plan",
-        "plan_episodes",
     }
     for name, definition in definitions.items():
         remote_schema = listed[name].inputSchema

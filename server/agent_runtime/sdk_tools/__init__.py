@@ -19,12 +19,7 @@ from claude_agent_sdk import create_sdk_mcp_server
 
 from lib.db.base import DEFAULT_USER_ID
 from lib.generation.generation_queue_client import batch_enqueue_and_wait
-from server.agent_runtime.sdk_tools.asset_inventory import complete_asset_inventory_tool
 from server.agent_runtime.sdk_tools.enqueue_videos import generate_videos_tool
-from server.agent_runtime.sdk_tools.episode_planning import (
-    plan_episodes_tool,
-    reset_episode_planning_tool,
-)
 from server.agent_runtime.sdk_tools.text_generation import (
     confirm_script_review_tool,
     discard_draft_tool,
@@ -34,7 +29,6 @@ from server.agent_runtime.sdk_tools.text_generation import (
     patch_draft_tool,
     promote_draft_tool,
 )
-from server.agent_runtime.sdk_tools.workflow_status import complete_script_plan_rebuild_tool
 from server.agent_toolset.embedded import embedded_server
 from server.agent_toolset.toolset import AGENT_TOOLSET, DECLARED_MIGRATION_BLOCKED_TOOL_IDS, DECLARED_TOOL_IDS
 from server.media_tools.context import (
@@ -54,8 +48,6 @@ __all__ = ["ARCREEL_MCP_TOOL_IDS", "ToolContext", "build_arcreel_mcp_server"]
 # ``tests/unit/test_frontend_mcp_tool_i18n.py`` cross-checks that every id here has a translation in
 # all locales, so adding a tool without wiring up i18n fails CI.
 _FACTORY_TOOL_IDS: tuple[str, ...] = (
-    "complete_asset_inventory",
-    "complete_script_plan_rebuild",
     "generate_videos",
     "generate_episode_script",
     "generate_script_plan",
@@ -64,8 +56,6 @@ _FACTORY_TOOL_IDS: tuple[str, ...] = (
     "patch_draft",
     "promote_draft",
     "discard_draft",
-    "plan_episodes",
-    "reset_episode_planning",
 )
 ARCREEL_MCP_TOOL_IDS: tuple[str, ...] = (*_FACTORY_TOOL_IDS, *DECLARED_TOOL_IDS)
 
@@ -83,8 +73,6 @@ ARCREEL_MCP_TOOL_IDS: tuple[str, ...] = (*_FACTORY_TOOL_IDS, *DECLARED_TOOL_IDS)
 # ``MIGRATION_BLOCKED_TOOL_IDS`` is the union of both.
 _FACTORY_MIGRATION_BLOCKED_TOOL_IDS: frozenset[str] = frozenset(
     {
-        "complete_asset_inventory",
-        "complete_script_plan_rebuild",
         "generate_videos",
         "generate_episode_script",
         "generate_script_plan",
@@ -93,8 +81,6 @@ _FACTORY_MIGRATION_BLOCKED_TOOL_IDS: frozenset[str] = frozenset(
         "patch_draft",
         "promote_draft",
         "discard_draft",
-        "plan_episodes",
-        "reset_episode_planning",
     }
 )
 MIGRATION_BLOCKED_TOOL_IDS: frozenset[str] = _FACTORY_MIGRATION_BLOCKED_TOOL_IDS | DECLARED_MIGRATION_BLOCKED_TOOL_IDS
@@ -129,8 +115,6 @@ def build_arcreel_mcp_server(*, project_name: str, data_root: Path, user_id: str
         caller=CallerContext(user_id=user_id, source="embedded", batch_waiter=batch_enqueue_and_wait),
     )
     tools = [
-        complete_asset_inventory_tool(ctx),
-        complete_script_plan_rebuild_tool(ctx),
         generate_videos_tool(ctx),
         generate_episode_script_tool(ctx),
         generate_script_plan_tool(ctx),
@@ -139,8 +123,6 @@ def build_arcreel_mcp_server(*, project_name: str, data_root: Path, user_id: str
         patch_draft_tool(ctx),
         promote_draft_tool(ctx),
         discard_draft_tool(ctx),
-        plan_episodes_tool(ctx),
-        reset_episode_planning_tool(ctx),
     ]
     undeclared = create_sdk_mcp_server(
         name="arcreel",
