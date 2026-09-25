@@ -17,7 +17,7 @@ from pathlib import Path
 # 添加仓库根目录到 Python 路径
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from lib.infra.data_root_layout import DataRootLayout
+from lib.infra.data_root_layout import DataRootLayout, list_project_dirs
 
 
 def migrate_project(project_dir: Path, dry_run: bool = False) -> dict:
@@ -112,10 +112,12 @@ def migrate_project(project_dir: Path, dry_run: bool = False) -> dict:
 def main():
     parser = argparse.ArgumentParser(description="清理项目中的冗余字段")
     parser.add_argument("--dry-run", action="store_true", help="仅预览不修改")
-    parser.add_argument("--projects-root", "--data-root", dest="data_root", default="projects", help="数据根")
+    parser.add_argument(
+        "--projects-root", "--data-root", dest="data_root", default=None, help="数据根（默认按当前配置解析）"
+    )
     args = parser.parse_args()
 
-    layout = DataRootLayout(Path(args.data_root))
+    layout = DataRootLayout(Path(args.data_root)) if args.data_root else DataRootLayout.current()
     projects_dir = layout.projects_dir
 
     if not projects_dir.exists():
@@ -127,22 +129,21 @@ def main():
 
     total_stats = {"projects_processed": 0, "projects_cleaned": 0, "scripts_cleaned": 0, "fields_removed": []}
 
-    for project_dir in projects_dir.iterdir():
-        if project_dir.is_dir() and not project_dir.name.startswith("."):
-            print(f"处理项目: {project_dir.name}")
-            stats = migrate_project(project_dir, args.dry_run)
+    for project_dir in list_project_dirs(projects_dir):
+        print(f"处理项目: {project_dir.name}")
+        stats = migrate_project(project_dir, args.dry_run)
 
-            total_stats["projects_processed"] += 1
-            if stats["project_cleaned"] or stats["scripts_cleaned"] > 0:
-                total_stats["projects_cleaned"] += 1
-            total_stats["scripts_cleaned"] += stats["scripts_cleaned"]
-            total_stats["fields_removed"].extend(stats["fields_removed"])
+        total_stats["projects_processed"] += 1
+        if stats["project_cleaned"] or stats["scripts_cleaned"] > 0:
+            total_stats["projects_cleaned"] += 1
+        total_stats["scripts_cleaned"] += stats["scripts_cleaned"]
+        total_stats["fields_removed"].extend(stats["fields_removed"])
 
-            if stats["fields_removed"]:
-                for field in stats["fields_removed"]:
-                    print(f"  - 移除: {field}")
-            else:
-                print("  - 无需清理")
+        if stats["fields_removed"]:
+            for field in stats["fields_removed"]:
+                print(f"  - 移除: {field}")
+        else:
+            print("  - 无需清理")
 
     print(f"\n{'预览' if args.dry_run else '迁移'}完成:")
     print(f"  - 处理项目: {total_stats['projects_processed']}")

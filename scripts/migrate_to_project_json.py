@@ -9,7 +9,6 @@
 
 import argparse
 import json
-import os
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
@@ -17,7 +16,7 @@ from pathlib import Path
 # 添加仓库根目录到 Python 路径
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from lib.infra.data_root_layout import PROJECT_NAME_PATTERN
+from lib.infra.data_root_layout import PROJECT_NAME_PATTERN, DataRootLayout
 from lib.project.project_manager import ProjectManager
 
 
@@ -176,7 +175,9 @@ def main():
     parser.add_argument("project", nargs="?", help="项目名称，或使用 --all 迁移所有项目")
     parser.add_argument("--all", action="store_true", help="迁移所有项目")
     parser.add_argument("--dry-run", action="store_true", help="预览模式，不实际执行")
-    parser.add_argument("--projects-root", "--data-root", dest="data_root", default=None, help="数据根")
+    parser.add_argument(
+        "--projects-root", "--data-root", dest="data_root", default=None, help="数据根（默认按当前配置解析）"
+    )
 
     args = parser.parse_args()
 
@@ -186,7 +187,7 @@ def main():
         sys.exit(1)
 
     # 初始化 ProjectManager
-    pm = ProjectManager(args.data_root or os.environ.get("AI_ANIME_PROJECTS", "projects"))
+    pm = ProjectManager(args.data_root or DataRootLayout.current().root)
 
     print("🚀 开始迁移...")
     print(f"   项目目录: {pm.projects_dir}")

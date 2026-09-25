@@ -12,8 +12,8 @@ Before migrating, distinguish the three types of data involved:
 
 | Path | Purpose | Migration Action |
 |---|---|---|
-| `deploy/projects/.arcreel.db` | SQLite database used by the default deployment | Import into PostgreSQL with pgloader |
-| Other files under `deploy/projects/` | Project metadata and media assets | Copy to `deploy/production/projects/` |
+| `deploy/projects/arcreel.db` | SQLite database used by the default deployment | Import into PostgreSQL with pgloader |
+| Other files under `deploy/projects/` | Project metadata, media assets, logs, Vertex credentials, and so on | Copy to `deploy/production/projects/` |
 | `deploy/production/pgdata/` | PostgreSQL cluster data | Initialize with PostgreSQL; never place project or SQLite files here |
 
 The commands below consistently use the shell variable `source_projects` for the source data root on the host. The default deployment sets it to the absolute path of `deploy/projects/`. If you changed the container data directory with `ARCREEL_DATA_DIR` and a custom mount, set `source_projects` in step 1 to the corresponding absolute host path. The container and host paths may differ, so this guide does not derive that value directly from `.env`. Keep this variable in the same shell throughout the migration.
@@ -22,7 +22,7 @@ The commands below consistently use the shell variable `source_projects` for the
 
 - Docker and Docker Compose are installed
 - The `sqlite3` command-line tool is installed; run `sqlite3 --version` to confirm
-- ArcReel currently uses the default SQLite deployment, with the database at `deploy/projects/.arcreel.db`
+- ArcReel currently uses the default SQLite deployment, with the database at `deploy/projects/arcreel.db`. If the file there still has the old name `.arcreel.db`, the new version has not been started yet; complete the upgrade first as described in [Data Root Layout Migration](./deployment.md#data-root-layout-migration)
 - `deploy/production/pgdata/` and `deploy/production/projects/` do not contain production data that must be preserved
 
 ## Migration Steps {#migration-steps}
@@ -35,8 +35,8 @@ cd "$(git rev-parse --show-toplevel)"
 source_projects="$(cd deploy/projects && pwd)"
 # Custom data directory example: source_projects="/srv/arcreel/projects"
 
-if [ ! -f "${source_projects}/.arcreel.db" ]; then
-  echo "Error: ${source_projects}/.arcreel.db does not exist" >&2
+if [ ! -f "${source_projects}/arcreel.db" ]; then
+  echo "Error: ${source_projects}/arcreel.db does not exist" >&2
   exit 1
 fi
 
@@ -55,7 +55,7 @@ umask 077
 mkdir -p deploy/backups
 chmod 700 deploy/backups
 
-sqlite3 "${source_projects}/.arcreel.db" \
+sqlite3 "${source_projects}/arcreel.db" \
   ".backup 'deploy/backups/arcreel-sqlite-${backup_stamp}.db'"
 
 check_result="$(sqlite3 "deploy/backups/arcreel-sqlite-${backup_stamp}.db" \
@@ -72,7 +72,7 @@ tar -czf "deploy/backups/arcreel-source-${backup_stamp}.tar.gz" \
 cp deploy/.env "deploy/backups/arcreel-source-${backup_stamp}.env"
 ```
 
-The guard accepts only an exact `ok` response from `PRAGMA quick_check;`. Any backup, check, archive, or configuration-copy failure stops the migration immediately. `sqlite3 .backup` uses the SQLite backup API to create a consistent snapshot that includes committed WAL content. Do not copy only `.arcreel.db` with `cp` while the service is running. `.arcreel.db-wal` may contain committed transactions that have not yet been checkpointed, so separating it from the main file can lose data or corrupt the backup. The paired tar archive stores the complete contents of `source_projects`, while the adjacent `.env` copy stores the default deployment configuration. Restore only artifacts with the same timestamp. `umask 077` and directory mode `0700` restrict access to the credentials and project assets they contain.
+The guard accepts only an exact `ok` response from `PRAGMA quick_check;`. Any backup, check, archive, or configuration-copy failure stops the migration immediately. `sqlite3 .backup` uses the SQLite backup API to create a consistent snapshot that includes committed WAL content. Do not copy only `arcreel.db` with `cp` while the service is running. `arcreel.db-wal` may contain committed transactions that have not yet been checkpointed, so separating it from the main file can lose data or corrupt the backup. The paired tar archive stores the complete contents of `source_projects`, while the adjacent `.env` copy stores the default deployment configuration. Restore only artifacts with the same timestamp. `umask 077` and directory mode `0700` restrict access to the credentials and project assets they contain.
 
 ### 3. Prepare the PostgreSQL Deployment {#configure-env}
 
@@ -119,13 +119,13 @@ for target_dir in deploy/production/projects deploy/production/pgdata; do
 done
 ```
 
-Copy project and media assets to the production directory without copying the SQLite database:
+Copy the data root (projects, media assets, and the remaining runtime data) to the production directory without copying the SQLite database:
 
 ```bash
 set -euo pipefail
 
 mkdir -p deploy/production/projects
-tar -C "${source_projects}" --exclude='.arcreel.db*' -cf - . | \
+tar -C "${source_projects}" --exclude='arcreel.db*' -cf - . | \
   tar -C deploy/production/projects -xf -
 ```
 
@@ -155,7 +155,7 @@ docker compose -f deploy/production/docker-compose.yml run --rm \
   arcreel bash -c '
     apt-get update &&
     apt-get install -y --no-install-recommends pgloader &&
-    pgloader sqlite:///migration-source/.arcreel.db \
+    pgloader sqlite:///migration-source/arcreel.db \
              "postgresql://arcreel:${POSTGRES_PASSWORD_URLENCODED:-$POSTGRES_PASSWORD}@postgres:5432/arcreel"
   '
 ```
@@ -186,7 +186,7 @@ docker compose -f deploy/production/docker-compose.yml \
 Compare the record counts in SQLite:
 
 ```bash
-sqlite3 "${source_projects}/.arcreel.db" "
+sqlite3 "${source_projects}/arcreel.db" "
   SELECT 'tasks', COUNT(*) FROM tasks
   UNION ALL
   SELECT 'api_calls', COUNT(*) FROM api_calls
@@ -220,7 +220,7 @@ The migration procedure above does not modify the source data directory referenc
    docker compose -f deploy/production/docker-compose.yml down
    ```
 
-2. Confirm that `${source_projects}/.arcreel.db` and `deploy/.env` still exist. If the source directory was changed or damaged, first select the two backup files from step 2 that have the same timestamp, then run:
+2. Confirm that `${source_projects}/arcreel.db` and `deploy/.env` still exist. If the source directory was changed or damaged, first select the two backup files from step 2 that have the same timestamp, then run:
 
    ```bash
    set -euo pipefail

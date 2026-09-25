@@ -27,22 +27,12 @@ env/
 .DS_Store
 Thumbs.db
 
-# Project specific
+# Default data root when ARCREEL_DATA_DIR is unset (may be a symlink): projects, database, logs, credentials, ...
 projects
-projects/*
-vertex_keys/*
-!vertex_keys/.gitkeep
 
-# Runtime log directory (PROJECT_ROOT/logs from lib/infra/logging_config.py)
+# Legacy runtime locations outside the data root; startup moves their contents into the data root
 logs/
-
-# Keep project structure but ignore generated content
-!projects/.gitkeep
-
-# New unified ORM database (SQLite)
-projects/.arcreel.db
-# Old SQLite database backups (created by migration script)
-projects/.*.db.bak
+vertex_keys/
 
 # Environment
 .env

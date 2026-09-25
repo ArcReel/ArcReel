@@ -8,6 +8,7 @@ import pytest
 
 import server.services.system.diagnostics as diag_mod
 from lib.infra.app_data_dir import reset_for_tests
+from lib.infra.data_root_layout import DataRootLayout
 
 
 def test_collect_returns_text(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -78,3 +79,24 @@ def test_collect_reports_log_dir_under_data_root(monkeypatch: pytest.MonkeyPatch
     text = diag_mod.collect_diagnostics()
     assert f"Log directory: {(tmp_path / 'data' / 'logs').resolve()}" in text
     assert "custom-logs" not in text
+
+
+def test_collect_lists_data_root_entry_locations(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("ARCREEL_DATA_DIR", str(tmp_path / "data"))
+    reset_for_tests()
+    layout = DataRootLayout.current()
+
+    reported = {line.split(": ", 1)[1] for line in diag_mod.collect_diagnostics().splitlines() if ": " in line}
+
+    for location in (layout.root, layout.projects_dir, *layout.system_dirs):
+        assert str(location) in reported
+
+
+def test_collect_reports_default_sqlite_url_under_data_root(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("ARCREEL_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.delenv("DATABASE_URL")
+    reset_for_tests()
+
+    text = diag_mod.collect_diagnostics()
+
+    assert f"Database URL: sqlite+aiosqlite:///{DataRootLayout.current().root / 'arcreel.db'}" in text.splitlines()

@@ -35,8 +35,9 @@ if command -v rsync >/dev/null 2>&1; then
     --exclude '*.pyc' \
     --exclude '.DS_Store' \
     --exclude '.env' \
-    --exclude 'projects/*' \
-    --exclude 'vertex_keys/*' \
+    --exclude '/projects' \
+    --exclude '/logs' \
+    --exclude '/vertex_keys' \
     "${SOURCE_DIR}/" "${TARGET_DIR}/"
 else
   # Fallback copy without rsync.
@@ -44,16 +45,11 @@ else
   rm -rf "${TARGET_DIR}/.git" \
          "${TARGET_DIR}/.idea" \
          "${TARGET_DIR}/.venv" \
-         "${TARGET_DIR}/vertex_keys" \
-         "${TARGET_DIR}/projects"
+         "${TARGET_DIR}/projects" \
+         "${TARGET_DIR}/logs" \
+         "${TARGET_DIR}/vertex_keys"
   rm -f "${TARGET_DIR}/.env"
-  mkdir -p "${TARGET_DIR}/projects"
-  touch "${TARGET_DIR}/projects/.gitkeep"
 fi
-
-mkdir -p "${TARGET_DIR}/projects"
-touch "${TARGET_DIR}/projects/.gitkeep"
-rm -f "${TARGET_DIR}/projects/.api_usage.db"
 
 if [[ "${INIT_GIT}" == "true" ]]; then
   (
