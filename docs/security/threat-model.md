@@ -70,7 +70,7 @@ This profile is not currently supported. If mutually untrusted people use the sa
 
 ### 4.3 Persistent system data
 
-- `.arcreel.db`, external SQL databases, WAL/SHM files, backups, snapshots, and migrations.
+- `arcreel.db`, external SQL databases, WAL/SHM files, backups, snapshots, and migrations.
 - Provider configuration, custom endpoints, task records, usage records, API-key hashes, and system settings.
 - Server logs, reverse-proxy logs, exception traces, and diagnostic artifacts.
 

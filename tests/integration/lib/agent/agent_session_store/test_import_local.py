@@ -9,6 +9,7 @@ import pytest
 from claude_agent_sdk import project_key_for_directory
 
 from lib.agent.agent_session_store.store import DbSessionStore
+from lib.infra.data_root_layout import DataRootLayout
 
 
 def _write_fake_local_transcript(project_cwd: Path, session_id: str, sdk_root: Path):
@@ -70,7 +71,7 @@ async def test_migrate_imports_local_jsonl(tmp_path, fake_sdk_home, session_fact
     loaded = await store.load({"project_key": project_key_for_directory(str(proj)), "session_id": sid})
     assert loaded is not None
     assert len(loaded) == 2
-    assert (data_root / ".session_store_migration_done").exists()
+    assert DataRootLayout(data_root).session_import_marker_path.exists()
 
 
 @pytest.mark.asyncio
@@ -111,7 +112,7 @@ async def test_migrate_skips_already_in_store_when_marker_missing(
     store = DbSessionStore(session_factory, user_id="u1")
 
     await migrate_local_transcripts_to_store(store, data_root=data_root)
-    (data_root / ".session_store_migration_done").unlink()
+    DataRootLayout(data_root).session_import_marker_path.unlink()
 
     s2 = await migrate_local_transcripts_to_store(store, data_root=data_root)
     assert s2["imported"] == 0
@@ -130,4 +131,4 @@ async def test_migrate_zero_data_user(tmp_path, fake_sdk_home, session_factory):
 
     stats = await migrate_local_transcripts_to_store(store, data_root=data_root)
     assert stats == {"imported": 0, "skipped": 0, "failed": 0}
-    assert (data_root / ".session_store_migration_done").exists()
+    assert DataRootLayout(data_root).session_import_marker_path.exists()

@@ -7,6 +7,7 @@ import contextlib
 import logging
 import os
 from collections.abc import AsyncGenerator
+from pathlib import Path
 
 from sqlalchemy import event
 from sqlalchemy.exc import OperationalError
@@ -24,14 +25,45 @@ from sqlalchemy.ext.asyncio import (
 logging.getLogger("sqlalchemy.pool.impl").setLevel(logging.CRITICAL)
 
 
+logger = logging.getLogger(__name__)
+
+_SQLITE_SIDECAR_SUFFIXES = ("-wal", "-shm")
+
+
+def _adopt_legacy_sqlite_db(db_path: Path, legacy: Path) -> None:
+    """数据根里只有旧名默认库 ``legacy`` 时，连同 ``-wal`` / ``-shm`` 改名为 ``db_path``。
+
+    ``-wal`` / ``-shm`` 先改、主文件最后改：旧主文件还在就说明没搬完，中途崩溃后下次
+    解析时接着搬，WAL 不会留在旧文件名下。新旧主文件都在时不动，只记告警。
+    """
+    if not legacy.exists():
+        return
+    if db_path.exists():
+        logger.warning("默认数据库 %s 已存在，旧库 %s 保持原位未启用", db_path, legacy)
+        return
+    for suffix in _SQLITE_SIDECAR_SUFFIXES:
+        # 并发进程（应用与 alembic）可能已先搬走同一个文件。
+        with contextlib.suppress(FileNotFoundError):
+            legacy.with_name(legacy.name + suffix).replace(db_path.with_name(db_path.name + suffix))
+    with contextlib.suppress(FileNotFoundError):
+        legacy.rename(db_path)
+    logger.info("默认数据库文件 %s 已改名为 %s", legacy, db_path)
+
+
 def get_database_url() -> str:
-    """Resolve DATABASE_URL from environment or default to SQLite."""
+    """Resolve DATABASE_URL from environment or default to SQLite.
+
+    默认 SQLite 路径解析时顺带把旧布局的库文件改名过来；应用、alembic 与脚本都经过这里，
+    不会有一方先在新文件名下建出空库。显式设置 ``DATABASE_URL`` 时不改名。
+    """
     url = os.environ.get("DATABASE_URL", "").strip()
     if url:
         return url
     from lib.infra.data_root_layout import DataRootLayout
 
-    db_path = DataRootLayout.current().sqlite_db_path
+    layout = DataRootLayout.current()
+    db_path = layout.sqlite_db_path
+    _adopt_legacy_sqlite_db(db_path, layout.legacy_sqlite_db_path)
     return f"sqlite+aiosqlite:///{db_path}"
 
 

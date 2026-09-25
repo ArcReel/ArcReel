@@ -394,10 +394,12 @@ def test_agent_profile_settings_denied(policy: AgentAccessPolicy, tool: str) -> 
     assert "敏感文件" in reason
 
 
-def test_arcreel_db_in_sensitive_list(policy: AgentAccessPolicy) -> None:
-    """入队链路使用 in-process MCP tool，sandbox 内 Agent 无需直读 db。"""
+@pytest.mark.parametrize("db_name", ["arcreel.db", "arcreel.db-wal", ".arcreel.db", ".arcreel.db-wal"])
+def test_arcreel_db_in_sensitive_list(policy: AgentAccessPolicy, db_name: str) -> None:
+    """入队链路使用 in-process MCP tool，sandbox 内 Agent 无需直读 db；
+    设置 ``DATABASE_URL`` 后不改名而留在数据根的旧名库同样受保护。"""
     cwd = _cwd(policy)
-    db = policy.data_root / ".arcreel.db"
+    db = policy.data_root / db_name
     db.parent.mkdir(parents=True, exist_ok=True)
     db.write_bytes(b"sqlite-fake")
     allowed, reason = policy.check_path_access(str(db), "Read", cwd, user_id=_USER_ID)
@@ -548,8 +550,8 @@ def test_build_sensitive_abs_paths_includes_existing_files(tmp_path: Path) -> No
     (root / ".env").write_text("X=1", encoding="utf-8")
     (root / ".env.local").write_text("Y=2", encoding="utf-8")
     (root / "projects").mkdir()
-    (root / "projects" / ".arcreel.db").write_bytes(b"sqlite-fake")
-    (root / "projects" / ".arcreel.db-shm").write_bytes(b"shm")
+    (root / "projects" / "arcreel.db").write_bytes(b"sqlite-fake")
+    (root / "projects" / "arcreel.db-shm").write_bytes(b"shm")
     profile_dir = tmp_path / "agent_runtime_profile"
     (profile_dir / ".claude").mkdir(parents=True, exist_ok=True)
     (profile_dir / ".claude" / "settings.json").write_text("{}", encoding="utf-8")
@@ -566,9 +568,9 @@ def test_build_sensitive_abs_paths_includes_existing_files(tmp_path: Path) -> No
 
     # 不存在的 system_config.json 不应出现（SDK 会跳过 non-existent path）
     assert all(".system_config.json" not in p for p in paths)
-    # .arcreel.db + WAL 辅助文件在敏感清单（入队走 MCP tool，Agent 不直读 db）
-    assert str(root.resolve() / "projects" / ".arcreel.db") in paths
-    assert str(root.resolve() / "projects" / ".arcreel.db-shm") in paths
+    # arcreel.db + WAL 辅助文件在敏感清单（入队走 MCP tool，Agent 不直读 db）
+    assert str(root.resolve() / "projects" / "arcreel.db") in paths
+    assert str(root.resolve() / "projects" / "arcreel.db-shm") in paths
 
 
 def test_build_sensitive_abs_paths_follows_constructed_roots(tmp_path: Path) -> None:
@@ -579,8 +581,8 @@ def test_build_sensitive_abs_paths_follows_constructed_roots(tmp_path: Path) -> 
     # 数据目录搬到 repo 之外
     external_data = tmp_path / "external_data" / "projects"
     external_data.mkdir(parents=True)
-    (external_data / ".arcreel.db").write_bytes(b"db")
-    (external_data / ".arcreel.db-wal").write_bytes(b"wal")
+    (external_data / "arcreel.db").write_bytes(b"db")
+    (external_data / "arcreel.db-wal").write_bytes(b"wal")
     (external_data / ".system_config.json").write_text("{}", encoding="utf-8")
     (external_data.parent / "vertex_keys").mkdir()
     # profile 目录搬到 repo 之外
@@ -595,16 +597,16 @@ def test_build_sensitive_abs_paths_follows_constructed_roots(tmp_path: Path) -> 
     )
     paths = policy._build_sensitive_abs_paths()
 
-    assert str(external_data / ".arcreel.db") in paths
-    assert str(external_data / ".arcreel.db-wal") in paths
+    assert str(external_data / "arcreel.db") in paths
+    assert str(external_data / "arcreel.db-wal") in paths
     assert str(external_data / ".system_config.json") in paths
     assert str(external_data.parent / "vertex_keys") in paths
     assert str(external_profile.resolve() / ".claude" / "settings.json") in paths
-    # 旧的 ``repo/projects/.arcreel.db`` 路径已不复存在 — 不再误指 deny 到空位置
+    # 清单只按构造参数给出的位置派生，不含源码根下的 ``projects/``
     assert not any(str(repo) + "/projects/" in p for p in paths)
 
     # is_sensitive_path 也必须能识别新位置
-    assert policy.is_sensitive_path((external_data / ".arcreel.db").resolve())
+    assert policy.is_sensitive_path((external_data / "arcreel.db").resolve())
     assert policy.is_sensitive_path((external_profile / ".claude" / "settings.json").resolve())
     assert policy.is_sensitive_path((external_data.parent / "vertex_keys" / "k.json").resolve())
 
@@ -806,7 +808,7 @@ def test_other_users_memory_dir_denied(policy: AgentAccessPolicy, tool: str) -> 
 def test_users_namespace_root_outside_memory_denied(policy: AgentAccessPolicy, tool: str) -> None:
     """放行的是 ``<user_id>/memory/``，同用户目录下的其它子树不在放行内。"""
     cwd = _cwd(policy)
-    target = policy.data_root / ".arcreel" / "users" / _USER_ID / "secrets" / "x.md"
+    target = DataRootLayout(policy.data_root).users_dir / _USER_ID / "secrets" / "x.md"
     allowed, _ = policy.check_path_access(str(target), tool, cwd, user_id=_USER_ID)
     assert not allowed
 
@@ -844,7 +846,7 @@ def test_memory_dirs_still_reject_code_extensions(policy: AgentAccessPolicy) -> 
 def test_invalid_user_id_denies_memory_instead_of_widening(policy: AgentAccessPolicy, bad_user_id: str) -> None:
     """user_id 不是单个路径段时 fail-closed：不放行任何记忆路径，也不逃出数据根。"""
     cwd = _cwd(policy)
-    escaped = policy.data_root / ".arcreel" / "users" / "victim" / "memory" / "MEMORY.md"
+    escaped = DataRootLayout(policy.data_root).user_memory_dir("victim") / "MEMORY.md"
     allowed, _ = policy.check_path_access(str(escaped), "Write", cwd, user_id=bad_user_id)
     assert not allowed
 
@@ -860,22 +862,24 @@ def test_build_sandbox_settings_allows_write_to_user_memory(policy: AgentAccessP
 
 
 def test_build_sandbox_settings_denies_read_of_the_whole_memory_root(policy: AgentAccessPolicy) -> None:
-    """内核沙箱层：Bash 不经读 hook，数据根 ``.arcreel/`` 整棵须在 denyRead 里，
-    否则 ``cat`` 得到别的用户的记忆。"""
+    """内核沙箱层：Bash 不经读 hook，数据根里各用户数据的根整棵须在 denyRead 里，
+    否则 ``cat`` 得到别的用户的记忆；布局迁移留在旧内部目录里的记忆同样如此。"""
+    layout = DataRootLayout(policy.data_root)
     settings = policy.build_sandbox_settings(_cwd(policy), user_id=_USER_ID)
-    assert str(policy.data_root / ".arcreel") in settings["filesystem"]["denyRead"]
+    assert str(layout.users_dir) in settings["filesystem"]["denyRead"]
+    assert str(layout.legacy_internal_dir) in settings["filesystem"]["denyRead"]
 
 
 def test_memory_deny_read_holds_for_invalid_user_id(policy: AgentAccessPolicy) -> None:
     """读拒不依赖 user_id：非法 user_id 只让写放行整键消失，读禁照旧。"""
     settings = policy.build_sandbox_settings(_cwd(policy), user_id="../escape")
-    assert str(policy.data_root / ".arcreel") in settings["filesystem"]["denyRead"]
+    assert str(DataRootLayout(policy.data_root).users_dir) in settings["filesystem"]["denyRead"]
 
 
 def test_build_sandbox_settings_materializes_the_deny_root(policy: AgentAccessPolicy) -> None:
     """CLI 跳过不存在的 deny 路径，而围栏只在会话启动时编译一次：目录得先建出来，
     否则会话中途才出现的别人的记忆目录整场都没有内核层保护。"""
-    deny_root = policy.data_root / ".arcreel"
+    deny_root = DataRootLayout(policy.data_root).users_dir
     assert not deny_root.exists()
     policy.build_sandbox_settings(_cwd(policy), user_id=_USER_ID)
     assert deny_root.is_dir()

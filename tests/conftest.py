@@ -26,7 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 # `lib.db.engine` 的模块级 engine 在 import 期就按 `DATABASE_URL` 绑定，进程内不再重建，
 # 所以覆写必须发生在下方任何会传染到该模块的 import 之前。未显式指定时它落在仓库根的
-# `projects/.arcreel.db`：一份文件被 xdist 的多个 worker 共用，且 schema 只由某个先跑到
+# `projects/arcreel.db`：一份文件被 xdist 的多个 worker 共用，且 schema 只由某个先跑到
 # 的用例顺带建出——用例间因此存在隐式顺序依赖。钉到本进程独占的临时库上，schema 由
 # `shared_db_schema` 显式建立。DATABASE_URL 已由外部给定（postgres-compat job、
 # 逐个用例 monkeypatch 的 alembic 用例）时不介入。
@@ -53,7 +53,7 @@ def _remove_owned_test_db_dir() -> None:
 
 if not os.environ.get("DATABASE_URL", "").strip() or os.environ.get(_OWNED_DB_MARKER) == "1":
     _OWNED_TEST_DB_DIR = tempfile.mkdtemp(prefix="arcreel-test-db-")
-    os.environ["DATABASE_URL"] = f"sqlite+aiosqlite:///{_OWNED_TEST_DB_DIR}/.arcreel.db"
+    os.environ["DATABASE_URL"] = f"sqlite+aiosqlite:///{_OWNED_TEST_DB_DIR}/arcreel.db"
     os.environ[_OWNED_DB_MARKER] = "1"
     # 回收挂在 atexit 而非 fixture teardown 上：`--collect-only`（CI 的分类 marker 闸门）
     # 与收集期中断都只 import conftest、不跑 fixture。

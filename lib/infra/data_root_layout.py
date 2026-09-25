@@ -6,10 +6,10 @@
 
 当前布局下项目目录就是数据根；Vertex 凭证尚在数据根之外。
 
-「什么是项目」只由 :func:`list_project_dirs` 回答：项目目录下名字符合项目名规则、并且
-带 ``project.json`` 的目录。数据根里的其它条目一概不是项目。
+「什么是项目」只由 :func:`is_project_dir` 回答：名字符合项目名规则、并且带 ``project.json``
+的目录。数据根里的其它条目一概不是项目。
 
-除 :func:`list_project_dirs` 外零 I/O：只派生路径，不检查存在、不建目录。
+除 :func:`is_project_dir` 与 :func:`list_project_dirs` 外零 I/O：只派生路径，不检查存在、不建目录。
 """
 
 from __future__ import annotations
@@ -25,20 +25,18 @@ PROJECT_NAME_PATTERN = re.compile(r"^[A-Za-z0-9-]+$")
 PROJECT_FILENAME = "project.json"
 
 
-def list_project_dirs(projects_dir: Path) -> list[Path]:
-    """项目目录下的全部项目，按名字排序；项目目录不存在时为空。
+def is_project_dir(path: Path) -> bool:
+    """``path`` 是不是一个项目：名字符合 :data:`PROJECT_NAME_PATTERN`、并且带 ``project.json`` 的目录。"""
+    return bool(PROJECT_NAME_PATTERN.fullmatch(path.name)) and path.is_dir() and (path / PROJECT_FILENAME).is_file()
 
-    项目是名字符合 :data:`PROJECT_NAME_PATTERN`、并且带 ``project.json`` 的目录。
-    """
+
+def list_project_dirs(projects_dir: Path) -> list[Path]:
+    """项目目录下的全部项目，按名字排序；项目目录不存在时为空。"""
     try:
         children = sorted(projects_dir.iterdir())
     except FileNotFoundError:
         return []
-    return [
-        child
-        for child in children
-        if PROJECT_NAME_PATTERN.fullmatch(child.name) and child.is_dir() and (child / PROJECT_FILENAME).is_file()
-    ]
+    return [child for child in children if is_project_dir(child)]
 
 
 @dataclass(frozen=True)
@@ -68,9 +66,9 @@ class DataRootLayout:
         return self.root / "global_assets"
 
     @property
-    def internal_dir(self) -> Path:
-        """数据根内部状态目录，目前装着用户记忆。"""
-        return self.root / ".arcreel"
+    def users_dir(self) -> Path:
+        """各用户数据的根：``<users_dir>/<user_id>/`` 下放该用户的记忆等。"""
+        return self.root / "users"
 
     def user_memory_dir(self, user_id: str) -> Path:
         """用户记忆目录。
@@ -80,12 +78,12 @@ class DataRootLayout:
         """
         if not is_valid_memory_user_id(user_id):
             raise ValueError(f"user_id 必须是单个路径段，不能为空或含路径分隔符 / 驱动器冒号 / NUL：{user_id!r}")
-        return self.internal_dir / "users" / user_id / MEMORY_DIRNAME
+        return self.users_dir / user_id / MEMORY_DIRNAME
 
     @property
     def sqlite_db_path(self) -> Path:
         """未设置 ``DATABASE_URL`` 时的默认 SQLite 主文件；``-wal`` / ``-shm`` 与之同目录同前缀。"""
-        return self.root / ".arcreel.db"
+        return self.root / "arcreel.db"
 
     @property
     def system_config_json_path(self) -> Path:
@@ -112,16 +110,31 @@ class DataRootLayout:
         return self.root / "trial_runs"
 
     @property
+    def runtime_dir(self) -> Path:
+        """进程内部状态：生成准入锁、迁移完成标记、迁移错误日志等。"""
+        return self.root / "runtime"
+
+    @property
+    def legacy_sqlite_db_path(self) -> Path:
+        """旧布局的默认 SQLite 主文件；解析默认数据库 URL 时改名为 :attr:`sqlite_db_path`。"""
+        return self.root / ".arcreel.db"
+
+    @property
+    def legacy_internal_dir(self) -> Path:
+        """旧布局的数据根内部目录；其下 ``users/`` 由布局迁移搬进 :attr:`users_dir`。"""
+        return self.root / ".arcreel"
+
+    @property
     def generation_admission_locks_dir(self) -> Path:
         """生成准入锁目录。"""
-        return self.root / ".generation-admission-locks"
+        return self.runtime_dir / "generation-admission-locks"
 
     @property
     def session_import_marker_path(self) -> Path:
         """本地 SDK 会话导入完成标记。"""
-        return self.root / ".session_store_migration_done"
+        return self.runtime_dir / "session-store-import.done"
 
     @property
     def project_migration_error_log_path(self) -> Path:
         """项目 schema 迁移的错误日志。"""
-        return self.root / "_migration_errors.log"
+        return self.runtime_dir / "project-migration-errors.log"

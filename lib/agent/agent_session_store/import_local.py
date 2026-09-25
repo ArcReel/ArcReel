@@ -93,6 +93,7 @@ async def migrate_local_transcripts_to_store(
         failed,
     )
 
+    marker.parent.mkdir(parents=True, exist_ok=True)
     marker.write_text(
         json.dumps({"imported": imported, "skipped": skipped, "failed": failed}),
         encoding="utf-8",
