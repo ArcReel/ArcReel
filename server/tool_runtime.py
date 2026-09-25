@@ -1317,8 +1317,14 @@ async def get_video_capabilities(
     except FileNotFoundError as exc:
         return ToolOutcome(problem=ToolProblem("project_not_found", f"项目未找到或缺 project.json: {exc}"))
     except VideoRequestFactsError as exc:
+        failure = exc.failure
         return ToolOutcome(
-            problem=ToolProblem("capabilities_unresolved", f"无法解析视频模型能力: {exc.failure.summary()}")
+            problem=ToolProblem(
+                failure.code,
+                f"无法解析视频模型能力: {failure.summary()}",
+                action=failure.action,
+                params=failure.parameters(),
+            )
         )
     except ValueError as exc:
         return ToolOutcome(problem=ToolProblem("capabilities_unresolved", f"无法解析视频模型能力: {exc}"))

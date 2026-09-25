@@ -29,6 +29,7 @@ from lib.generation.video_request_facts import (
     VideoRequestFacts,
     VideoRequestFactsError,
     VideoRequestFactsFailure,
+    reference_migration_durations,
 )
 from lib.infra.json_io import load_json_or_none
 from lib.project.project_manager import ProjectManager, ScriptWriteConflict
@@ -192,11 +193,7 @@ class ScriptReviewService:
         if script_review.script_plan_kind(project) != "reference_video":
             return None
         request_facts = reference_request_facts_lookup(project, self.config_resolver)
-        with_ref_facts = await request_facts("r2v")
-        without_ref_facts = await request_facts("i2v")
-        if isinstance(with_ref_facts, VideoRequestFacts) and isinstance(without_ref_facts, VideoRequestFacts):
-            return sorted(set(with_ref_facts.supported_durations) | set(without_ref_facts.supported_durations))
-        return None
+        return reference_migration_durations(await request_facts("r2v"), await request_facts("i2v"))
 
     def _read_script_plan_migrated(
         self,

@@ -309,15 +309,18 @@ def caps_generation_mode(project: dict | None) -> str | None:
     return mode if isinstance(mode, str) and mode else None
 
 
-def project_video_backend_ids(project: dict) -> tuple[str, str] | None:
-    """project.json 自报的视频模型身份：按 generation_mode 定桶取桶键，缺则取项目默认键。
+def project_video_backend_ids(
+    project: dict, *, generation_type: VideoGenerationType | None = None
+) -> tuple[str, str] | None:
+    """project.json 自报的视频模型身份：取给定桶（缺省按 generation_mode 定桶）的桶键，缺则取项目默认键。
 
     纯读 project.json、不查 DB，供没有配置库会话的同步路径（归档导入按自报身份查 registry 档位）
     使用：桶键与默认键都在同一个明文文件里，不该把桶口径降成项目默认层——否则配了
     ``video_provider_r2v`` 的参考生视频项目会拿 ``video_backend`` 的档位取档。层内取值口径与
     ``_resolve_layered_backend`` 的项目层一致（含裸供应商覆盖）。
     """
-    keys = _VIDEO_LAYERED_KEYS[video_bucket_for_generation_mode(project.get("generation_mode"))]
+    bucket = generation_type or video_bucket_for_generation_mode(project.get("generation_mode"))
+    keys = _VIDEO_LAYERED_KEYS[bucket]
     for key in (keys.project_bucket_key, keys.project_default_key):
         if key is None:
             continue

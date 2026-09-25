@@ -159,10 +159,14 @@ def test_patch_unit_rejects_a_stored_reference_list(reference_videos_client: Tes
 
 
 def test_add_unit_without_duration_falls_back_to_model_slot(
-    reference_videos_client: TestClient, monkeypatch: pytest.MonkeyPatch
+    reference_videos_client: TestClient, set_video_request_facts
 ):
     """请求不给时长 → 取项目能力解析出的档位首项（与执行层解析申请秒数的回退序同源）。"""
-    _patch_supported_durations(monkeypatch, [6, 9])
+    set_video_request_facts(
+        make_video_request_facts(
+            route="reference_video", generation_type="r2v", supported_durations=(6, 9), allowed_durations=(6, 9)
+        )
+    )
     resp = reference_videos_client.post(
         "/api/v1/projects/demo/reference-videos/episodes/1/units",
         json={"prompt": "镜头1：@张三 推门"},
@@ -171,26 +175,35 @@ def test_add_unit_without_duration_falls_back_to_model_slot(
     assert resp.json()["unit"]["duration_seconds"] == 6
 
 
-def test_add_unit_derives_references_from_text_before_selecting_duration_bucket(
-    reference_videos_client: TestClient, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize(
+    ("prompt", "bucket", "expected"),
+    [
+        ("镜头1：@[张三] 推门", "r2v", 9),
+        ("镜头1：@[李四] 回头", "i2v", 5),
+        ("镜头1：空镜", "i2v", 5),
+    ],
+)
+def test_add_unit_default_duration_follows_the_bucket_of_its_available_images(
+    reference_videos_client: TestClient,
+    tmp_path: Path,
+    set_video_request_facts,
+    prompt: str,
+    bucket: str,
+    expected: int,
 ):
-    """默认时长按正文派生出的参考图定桶：正文提到已登记资产即走 r2v 档。"""
-    from server.routers import reference_videos as router_mod
-
-    facts = make_video_request_facts(
-        route="reference_video", generation_type="r2v", supported_durations=(6, 9), allowed_durations=(6, 9)
-    )
-    resolve_context = AsyncMock(return_value=facts)
-    monkeypatch.setattr(router_mod, "resolve_new_unit_request_facts", resolve_context)
+    """默认时长按可用参考图定桶，与同一响应的逐单元结论同桶：登记了却缺图的引用落 i2v 档。"""
+    set_video_request_facts(_bucket_facts())
+    _register_character_without_sheet(tmp_path, "李四")
 
     response = reference_videos_client.post(
-        "/api/v1/projects/demo/reference-videos/episodes/1/units",
-        json={"prompt": "镜头1：@[张三] 推门"},
+        "/api/v1/projects/demo/reference-videos/episodes/1/units", json={"prompt": prompt}
     )
 
     assert response.status_code == 201, response.text
-    assert response.json()["unit"]["duration_seconds"] == 6
-    assert resolve_context.await_args.kwargs["with_references"] is True
+    body = response.json()
+    assert body["unit_capability"]["hydrated_capability"] == bucket
+    assert body["unit"]["duration_seconds"] == expected
+    assert expected in body["unit_capability"]["allowed_durations"]
 
 
 @pytest.mark.parametrize("duration_seconds", [0, -1])
@@ -785,21 +798,6 @@ def _patch_supported_durations(monkeypatch: pytest.MonkeyPatch, durations: list[
     from server.routers import reference_videos as router_mod
 
     monkeypatch.setattr(router_mod, "project_reference_unit_request", _projection_with_durations(durations))
-    monkeypatch.setattr(
-        router_mod,
-        "resolve_new_unit_request_facts",
-        AsyncMock(
-            return_value=make_video_request_facts(
-                route="reference_video",
-                generation_type="r2v",
-                provider_id="fake",
-                model_id="fake-model",
-                resolution="1080p",
-                supported_durations=tuple(durations),
-                allowed_durations=tuple(durations),
-            )
-        ),
-    )
 
 
 def _precheck(reference_videos_client: TestClient, unit_id: str):

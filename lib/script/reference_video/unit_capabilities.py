@@ -3,7 +3,7 @@
 单元列表、内容确认面板与 Agent 能力载荷都读本模块的结果；定桶判据与执行侧
 ``ReferenceUnitRequestProjector`` 同源（:func:`hydrate_unit_references` + 产物清单感知的
 资产可用性），界面因此不会按 r2v 取档而执行落 i2v。报价经 ``ReferenceUnitRequestProjector``
-走同一次水合；同档免费复用的视觉依据摘要与规划期时长闸门只需要定桶结论时读
+走同一次水合；同档免费复用的视觉依据摘要、规划期时长闸门与新建单元的默认时长只需要定桶结论时读
 :func:`hydrate_reference_units`，同一份判据不在消费方各自重写。桶级视频请求事实由调用方给出的
 按桶查找提供，同一次请求内每个桶至多求值一次，单元数不放大配置解析次数。
 """
@@ -103,7 +103,7 @@ async def evaluate_reference_unit_capabilities(
     """逐单元定桶并取所落桶的视频请求事实。
 
     ``availability`` 缺省为执行侧同款的产物清单感知判定；``request_facts`` 按桶查找由调用方
-    给出（读侧用 ``configured_reference_request_facts``，执行侧交出 lane 已求得的那一份）。
+    给出（读侧用 ``configured_reference_request_facts``）。
     """
 
     pending = list(units)

@@ -704,14 +704,7 @@ def reference_video_visual_basis_digest(
     rendered = render_video_unit_prompt(
         unit,
         project,
-        VoiceRenderSettings(
-            voice_consistency=request_facts.voice_consistency,
-            requested_generate_audio=request_facts.requested_generate_audio,
-            max_reference_audio=request_facts.max_reference_audio_count,
-            model_id=request_facts.model_id,
-            audio_ready=audio_paths,
-            requires_reference_image=request_facts.reference_audio_per_image,
-        ),
+        VoiceRenderSettings.from_request_facts(request_facts, audio_ready=audio_paths),
         request_references=[asset.reference for asset in request_assets],
     )
     if request_facts.reference_audio_per_image:

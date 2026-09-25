@@ -793,6 +793,7 @@ def _validate_unit_duration_tier(label: str, duration: int, *, has_references: b
         raise DraftViolation(
             f"{label} 无参考图视频档位未知（{caps.text_problem.code}）；请在设置中配置可用的图生视频模型",
             code=caps.text_problem.code,
+            label=label,
         )
     tiers = caps.tiers_for(has_references=has_references)
     if duration in tiers:

@@ -22,9 +22,8 @@ from lib.artifacts.visual_artifact_provenance import (
     build_reference_video_artifact_visual_basis,
     project_basis_style_description,
 )
-from lib.config.resolver import ConfigResolver, VideoGenerationType
+from lib.config.resolver import VideoGenerationType
 from lib.config.service import DEFAULT_VIDEO_POLL_TIMEOUT_SECONDS
-from lib.db import async_session_factory
 from lib.db.base import DEFAULT_USER_ID
 from lib.generation.generation_queue import (
     DispatchProviderChanged,
@@ -32,11 +31,9 @@ from lib.generation.generation_queue import (
     without_reference_video_execution_identity,
 )
 from lib.generation.video_request_facts import (
-    CONFIGURED_VIDEO_IDENTITY,
     DEFAULT_PLANNED_DURATION_SECONDS,
     VideoRequestFacts,
     VideoRequestFactsFailure,
-    evaluate_video_request_facts,
 )
 from lib.infra.path_safety import safe_join
 from lib.infra.thumbnail import extract_video_thumbnail
@@ -141,27 +138,6 @@ def _reference_limit_warning(*, provider: str, model: str | None, count: int, ma
         "key": "ref_too_many_images",
         "params": {"count": count, "model": model or provider, "max_count": max_refs},
     }
-
-
-async def resolve_new_unit_request_facts(
-    project: dict,
-    *,
-    with_references: bool,
-    resolver: ConfigResolver | None = None,
-) -> VideoRequestFactsResult:
-    """新建 unit 所落桶的读侧视频请求事实；桶判据与执行期请求投影同源（是否带参考图）。
-
-    配置库读不出时按能力不可用返回失败：新建 unit 只是退到兼容默认时长，不代表生成可执行。
-    """
-
-    generation_type = reference_video_bucket(with_references=with_references)
-    return await evaluate_video_request_facts(
-        project,
-        route="reference_video",
-        generation_type=generation_type,
-        identity=CONFIGURED_VIDEO_IDENTITY,
-        resolver=resolver or ConfigResolver(async_session_factory),
-    )
 
 
 def default_unit_duration(request_facts: VideoRequestFactsResult, project: dict) -> int:

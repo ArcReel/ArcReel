@@ -1,5 +1,6 @@
 import { useTranslation } from "react-i18next";
 import type { ReferenceUnitCapability } from "@/types";
+import { formatNameList } from "@/utils/list-format";
 import { bucketLabel } from "./unit-tier-problem";
 
 /**
@@ -13,7 +14,7 @@ export function ReferenceSplitAlert({
   capability: ReferenceUnitCapability;
   className: string;
 }) {
-  const { t } = useTranslation("dashboard");
+  const { t, i18n } = useTranslation("dashboard");
   return (
     <div role="alert" data-testid="reference-split-alert" className={className}>
       <p className="font-medium">{t("reference_unit_split_title")}</p>
@@ -21,16 +22,17 @@ export function ReferenceSplitAlert({
         {capability.unavailable_references.length > 0 && (
           <li>
             {t("reference_unit_unavailable_references", {
-              names: capability.unavailable_references
-                .map((ref) => ref.name)
-                .join("、"),
+              names: formatNameList(
+                capability.unavailable_references.map((ref) => ref.name),
+                i18n.language,
+              ),
             })}
           </li>
         )}
         {capability.unregistered_references.length > 0 && (
           <li>
             {t("reference_unit_unregistered_references", {
-              names: capability.unregistered_references.join("、"),
+              names: formatNameList(capability.unregistered_references, i18n.language),
             })}
           </li>
         )}

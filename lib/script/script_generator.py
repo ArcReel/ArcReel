@@ -49,6 +49,7 @@ from lib.generation.video_request_facts import (
     VideoRoute,
     evaluate_video_request_facts,
     planning_durations,
+    reference_migration_durations,
     require_video_request_facts,
 )
 from lib.infra.async_thread import run_sync_transaction
@@ -925,10 +926,7 @@ class ScriptGenerator:
     @staticmethod
     def _reference_migration_durations(facts: PlanningVideoFacts) -> list[int] | None:
         """结构收编用的时长全集：r2v 与 i2v 两桶声明全集的并集；任一桶解析不出时为 None，只做结构收编。"""
-        with_references, without_references = facts.result("r2v"), facts.result("i2v")
-        if isinstance(with_references, VideoRequestFacts) and isinstance(without_references, VideoRequestFacts):
-            return sorted(set(with_references.supported_durations) | set(without_references.supported_durations))
-        return None
+        return reference_migration_durations(facts.result("r2v"), facts.result("i2v"))
 
     def _resolve_aspect_ratio(self) -> str:
         """解析项目的 aspect_ratio，向后兼容。narration / ad 默认竖屏（ad 与创建向导默认一致）。"""

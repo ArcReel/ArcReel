@@ -6,23 +6,19 @@ import pytest
 
 from lib.config.resolver import ConfigResolver
 from lib.generation.video_request_facts import DEFAULT_PLANNED_DURATION_SECONDS, VideoRequestFactsFailure
-from server.services.tasks.reference_video_tasks import (
-    default_unit_duration,
-    resolve_new_unit_request_facts,
-)
+from lib.script.reference_video.request_projection import configured_reference_request_facts
+from server.services.tasks.reference_video_tasks import default_unit_duration
 from tests.factories import make_video_request_facts
 
 VEO = "gemini-aistudio/veo-3.1-generate-preview"
 
 
-@pytest.mark.parametrize(("with_references", "expected"), [(False, 4), (True, 8)])
-async def test_new_unit_default_follows_the_bucket_it_lands_in(db_factory, with_references: bool, expected: int):
+@pytest.mark.parametrize(("bucket", "expected"), [("i2v", 4), ("r2v", 8)])
+async def test_new_unit_default_follows_the_bucket_it_lands_in(db_factory, bucket: str, expected: int):
     """Veo 3.1 未设分辨率：无参考图单元落 i2v 取 [4,6,8] 的首档，带参考图单元按参考图约束只剩 8 秒。"""
     project = {"generation_mode": "reference_video", "video_provider_r2v": VEO, "video_provider_i2v": VEO}
 
-    facts = await resolve_new_unit_request_facts(
-        project, with_references=with_references, resolver=ConfigResolver(db_factory)
-    )
+    facts = await configured_reference_request_facts(project, ConfigResolver(db_factory))(bucket)
 
     assert default_unit_duration(facts, project) == expected
 
