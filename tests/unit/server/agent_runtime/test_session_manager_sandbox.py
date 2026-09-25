@@ -64,7 +64,7 @@ async def test_build_options_includes_sandbox_settings(
 def test_session_manager_wires_env_resolved_roots_into_policy(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """SessionManager 负责 env 解析（ARCREEL_PROFILE_DIR / data_root 参数），把 resolve
     后的根路径喂给 AgentAccessPolicy——用户把数据/profile 目录搬到任意位置（含 repo 外）
-    时，deny 必须跟着指过去；日志位置取 ``<数据根>/logs``，ARCREEL_LOG_DIR 不影响 deny 范围。"""
+    时，deny 必须跟着指过去；日志在 ``<数据根>/logs``，ARCREEL_LOG_DIR 不影响 deny 范围。"""
     repo = tmp_path / "repo"
     repo.mkdir()
     external_data = tmp_path / "external_data" / "projects"
@@ -86,14 +86,15 @@ def test_session_manager_wires_env_resolved_roots_into_policy(tmp_path: Path, mo
     assert policy.data_root == external_data.resolve()
     assert policy.project_root == repo.resolve()
     # 端到端：数据根下的日志对内置读工具与 Bash（内核 denyRead）都不可读
-    assert policy.is_sensitive_path((data_logs / "arcreel.log").resolve())
-    cwd = external_data / "demo"
+    cwd = sm.layout.projects_dir / "demo"
+    allowed, _ = policy.check_path_access(str(data_logs / "arcreel.log"), "Read", cwd, user_id=_USER_ID)
+    assert not allowed
     deny_read = policy.build_sandbox_settings(cwd, user_id=_USER_ID)["filesystem"]["denyRead"]
     assert str(data_logs.resolve()) in deny_read
     assert policy.is_sensitive_path((external_profile / ".claude" / "settings.json").resolve())
-    # ARCREEL_LOG_DIR 指向的目录与 repo/logs 都不是日志位置，不被 deny
-    assert not policy.is_sensitive_path((stale_logs / "anything.txt").resolve())
-    assert not policy.is_sensitive_path((repo / "logs" / "anything.txt").resolve())
+    # ARCREEL_LOG_DIR 指向的目录与 repo/logs 都不是日志位置，不进 denyRead
+    assert str(stale_logs.resolve()) not in deny_read
+    assert str((repo / "logs").resolve()) not in deny_read
 
 
 def test_configure_sandbox_runtime_swaps_policy(tmp_path: Path) -> None:

@@ -115,18 +115,21 @@ class DataRootLayout:
         return self.root / "runtime"
 
     @property
-    def top_level_entries(self) -> tuple[Path, ...]:
-        """数据根下由布局登记的全部顶层条目：项目目录与各类运行数据。"""
+    def system_dirs(self) -> tuple[Path, ...]:
+        """数据根下由布局登记的、项目目录以外的顶层目录。"""
         return (
-            self.projects_dir,
             self.global_assets_dir,
             self.users_dir,
-            self.sqlite_db_path,
             self.log_dir,
             self.vertex_keys_dir,
             self.trial_runs_dir,
             self.runtime_dir,
         )
+
+    @property
+    def top_level_entries(self) -> tuple[Path, ...]:
+        """数据根下由布局登记的全部顶层条目：项目目录与各类运行数据。"""
+        return (self.projects_dir, *self.system_dirs, self.sqlite_db_path)
 
     @property
     def legacy_sqlite_db_path(self) -> Path:

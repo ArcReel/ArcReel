@@ -252,7 +252,6 @@ async def test_bash_sandbox_denies_credential_dir_on_fresh_install(
         project_root=repo,
         data_root=deployed_data_root,
         agent_profile_root=repo / "agent_runtime_profile",
-        log_dir=DataRootLayout(deployed_data_root).log_dir,
     )
     sandbox = policy.build_sandbox_settings(deployed_data_root / "demo", user_id="u1")
 

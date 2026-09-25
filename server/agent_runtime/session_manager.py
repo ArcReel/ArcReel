@@ -377,13 +377,12 @@ class SessionManager:
             self._agent_profile_root = Path(profile_override).expanduser().resolve(strict=False)
         else:
             self._agent_profile_root = (self._project_root_resolved / "agent_runtime_profile").resolve(strict=False)
-        # 访问规则真相源：env 解析（profile / 日志目录）在此完成，policy 只消费
-        # resolve 后的进程级根路径（零 I/O 纯构造）。日志目录取数据根布局给出的位置，整目录 deny。
+        # 访问规则真相源：env 解析（profile 目录）在此完成，policy 只消费
+        # resolve 后的进程级根路径（零 I/O 纯构造）。
         self.access_policy = AgentAccessPolicy(
             project_root=self._project_root_resolved,
             data_root=self.data_root,
             agent_profile_root=self._agent_profile_root,
-            log_dir=self.layout.log_dir.resolve(),
             sandbox_enabled=sandbox_enabled,
             in_docker=in_docker,
         )
