@@ -974,6 +974,27 @@ describe("useProjectEventsSSE", () => {
       },
     );
 
+    it.each(["character", "scene", "prop", "product"] as const)(
+      "资产 %s 变更让分组缓存失效：单元可用参考图与所落的桶要重拉",
+      async (entityType) => {
+        const stream = mockProjectEventStream();
+
+        renderHarness("/");
+        emit(stream, [
+          {
+            entity_type: entityType,
+            action: "updated",
+            entity_id: "阿离",
+            label: "资产「阿离」",
+            focus: null,
+            important: false,
+          },
+        ]);
+
+        expect(useAppStore.getState().referenceVideoUnitsRevision).toBe(1);
+      },
+    );
+
     it("同批 unit 变更与生成成功只让分组缓存失效一次", async () => {
       const stream = mockProjectEventStream();
       vi.spyOn(useTasksStore.getState(), "refreshTasks").mockResolvedValue(undefined);

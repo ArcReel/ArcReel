@@ -5,8 +5,14 @@ import { useAppStore } from "@/stores/app-store";
 import { useAssistantStore } from "@/stores/assistant-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { ReferenceScriptPlanPreviewPanel } from "./ReferenceScriptPlanPreviewPanel";
+import { makeReferenceUnitCapability } from "@/test/factories";
 import type { MentionLookup } from "@/hooks/useUnitPromptHighlight";
-import type { ReferenceScriptPlanDraft, ScriptReviewState, VideoCapabilities } from "@/types";
+import type {
+  ReferenceScriptPlanDraft,
+  ReferenceUnitCapability,
+  ScriptReviewState,
+  VideoCapabilities,
+} from "@/types";
 
 const LOOKUP: MentionLookup = { 阿离: "character", 长街: "scene" };
 
@@ -31,6 +37,21 @@ const CONFIRMED: Partial<ScriptReviewState> = {
   script_overwrite: { revision: "sha256-v1:formal", entries: [], storyboard_count: 0, video_count: 0 },
 };
 
+/** 服务端对单个 unit 的定桶结论；默认「引用齐全 → r2v，档位 4/8」，用例按需覆盖。 */
+/** 本面板的缺省结论：@[阿离]/@[长街] 参考图齐全、落 r2v、档位 4/8。 */
+function mkCapability(unitId: string, patch: Partial<ReferenceUnitCapability> = {}): ReferenceUnitCapability {
+  return makeReferenceUnitCapability(unitId, {
+    declared_capability: "r2v",
+    hydrated_capability: "r2v",
+    declared_references: [
+      { type: "character", name: "阿离" },
+      { type: "scene", name: "长街" },
+    ],
+    allowed_durations: [4, 8],
+    ...patch,
+  });
+}
+
 function pendingState(overrides: Partial<ScriptReviewState> = {}): ScriptReviewState {
   return {
     episode: 1,
@@ -40,7 +61,7 @@ function pendingState(overrides: Partial<ScriptReviewState> = {}): ScriptReviewS
     confirmed_at: null,
     quarantine: null,
     supported_durations: [4, 8],
-    duration_tiers: { with_references: [4, 8], without_references: [4, 8] },
+    duration_tiers: { with_references: [4, 8], without_references: [4, 8], units: { E1U01: mkCapability("E1U01") } },
     episode_target_duration: null,
     script_overwrite: null,
     content: {
@@ -110,7 +131,7 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
     expect(screen.getByRole("button", { name: /确认拆分，继续生成/ })).toBeEnabled();
   });
 
-  it("blocks confirmation when the no-reference i2v tier is unresolved", async () => {
+  it("blocks confirmation when the unit's i2v bucket is unresolved", async () => {
     const state = pendingState({
       duration_tiers: {
         with_references: [8],
@@ -120,6 +141,15 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
           params: { capability: "i2v" },
           action: "configure_video_model",
         },
+        units: {
+          E1U01: mkCapability("E1U01", {
+            declared_capability: "i2v",
+            hydrated_capability: "i2v",
+            declared_references: [],
+            allowed_durations: null,
+            problem: { code: "video_capability_missing_i2v", params: { capability: "i2v" }, action: "configure_video_model" },
+          }),
+        },
       },
     });
     state.content = { units: [{ unit_id: "E1U01", text: "夜色中行走。", duration_seconds: 8, source_text: "夜色中行走。" }] };
@@ -127,35 +157,40 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
 
     render(<ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
 
-    expect(await screen.findByText("无参考图档位未知")).toBeInTheDocument();
-    expect(screen.getByRole("alert")).toHaveTextContent("当前模型不支持图生视频");
+    expect(await screen.findByText("图生视频（无参考图）档位未知")).toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent("当前模型不支持图生视频（无参考图）");
     expect(screen.getByRole("alert")).toHaveTextContent("video_capability_missing_i2v");
     expect(screen.getByRole("button", { name: /确认拆分，继续生成/ })).toBeDisabled();
     expect(screen.queryByRole("combobox", { name: "E1U01 时长" })).not.toBeInTheDocument();
   });
 
-  it.each([
-    { fixedBucket: "i2v", text: "夜色中行走。", withFixed: false, withoutFixed: true },
-    { fixedBucket: "r2v", text: "@[阿离] 夜色中行走。", withFixed: true, withoutFixed: false },
-  ])("keeps the $fixedBucket duration fixed in content confirmation", async ({ text, withFixed, withoutFixed }) => {
-    const state = pendingState({ duration_tiers: { with_references: [4, 8], without_references: [4, 8] } });
-    (state.content as ReferenceScriptPlanDraft).units[0].text = text;
+  it("keeps the duration fixed in content confirmation when the unit's bucket is endpoint-fixed", async () => {
+    const state = pendingState({
+      duration_tiers: {
+        with_references: [4, 8],
+        without_references: [4, 8],
+        units: {
+          E1U01: mkCapability("E1U01", {
+            allowed_durations: null,
+            duration_endpoint_fixed: true,
+            duration_endpoint_fixed_reason: "endpoint",
+          }),
+        },
+      },
+    });
     vi.spyOn(API, "getScriptReview").mockResolvedValue(state);
-    render(
-      <ReferenceScriptPlanPreviewPanel
-        projectName="p" episode={1} lookup={LOOKUP}
-        durationEndpointFixed={withFixed} durationEndpointFixedNoReference={withoutFixed}
-      />,
-    );
+    render(<ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
     expect(await screen.findByText("E1U01")).toBeInTheDocument();
     expect(screen.queryByRole("combobox", { name: "E1U01 时长" })).not.toBeInTheDocument();
     expect(screen.getByText(/时长由端点固定/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /确认拆分，继续生成/ })).toBeEnabled();
   });
 
-  it("keeps duration read-only until the canvas capabilities settle", async () => {
-    vi.spyOn(API, "getScriptReview").mockResolvedValue(pendingState());
-    render(<ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={LOOKUP} capabilitiesLoading />);
+  it("keeps duration read-only for a unit the server has not judged yet", async () => {
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(
+      pendingState({ duration_tiers: { with_references: [4, 8], without_references: [4, 8], units: {} } }),
+    );
+    render(<ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
     expect(await screen.findByText("E1U01")).toBeInTheDocument();
     expect(screen.queryByRole("combobox", { name: "E1U01 时长" })).not.toBeInTheDocument();
   });
@@ -563,7 +598,11 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
   it("keeps the duration select on a stored value that is no longer a supported tier, sorted into place", async () => {
     vi.spyOn(API, "getScriptReview").mockResolvedValue(pendingState({
       supported_durations: [4, 6],
-      duration_tiers: { with_references: [4, 6], without_references: [4, 6] },
+      duration_tiers: {
+        with_references: [4, 6],
+        without_references: [4, 6],
+        units: { E1U01: mkCapability("E1U01", { allowed_durations: [4, 6] }) },
+      },
     }));
     render(<ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
 
@@ -615,43 +654,97 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
     await waitFor(() => expect(textarea).toBeEnabled());
   });
 
-  it("picks the with-references duration tier for a unit that carries references", async () => {
+  it("uses the unit's server-narrowed tiers when its references all have images", async () => {
     vi.spyOn(API, "getScriptReview").mockResolvedValue(
       pendingState({
         supported_durations: [4, 6, 8],
-        duration_tiers: { with_references: [8], without_references: [4, 6, 8] },
+        duration_tiers: {
+          with_references: [8],
+          without_references: [4, 6, 8],
+          units: { E1U01: mkCapability("E1U01", { allowed_durations: [8] }) },
+        },
       }),
     );
     render(<ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
 
-    // unit 带 @[阿离]/@[长街] 引用：按 with_references 档位收窄，4/6 秒不再可选。
+    // 服务端判定 @[阿离]/@[长街] 参考图齐全、落 r2v 并收窄到 8 秒：4/6 秒不再可选。
     const select = await screen.findByRole<HTMLSelectElement>("combobox", { name: "E1U01 时长" });
     expect([...select.options].map((o) => o.value)).toEqual(["8"]);
+    expect(screen.queryByText(/引用的资产缺图/)).not.toBeInTheDocument();
   });
 
-  it("counts a merchandise-only body as carrying references", async () => {
-    const state = pendingState({
-      supported_durations: [4, 6, 8],
-      duration_tiers: { with_references: [8], without_references: [4, 6, 8] },
-    });
-    (state.content as ReferenceScriptPlanDraft).units[0].text = "@[保温杯] 特写";
-    (state.content as ReferenceScriptPlanDraft).units[0].duration_seconds = 8;
-    vi.spyOn(API, "getScriptReview").mockResolvedValue(state);
-    render(
-      <ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={{ ...LOOKUP, 保温杯: "product" }} />,
+  // 名字已登记但还没有参考图：服务端落 i2v，面板照用 i2v 档位并点名缺图引用，不按正文提及自判 r2v。
+  it("follows the server i2v bucket for a registered-but-imageless mention", async () => {
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(
+      pendingState({
+        supported_durations: [4, 6, 8],
+        duration_tiers: {
+          with_references: [8],
+          without_references: [4, 6, 8],
+          units: {
+            E1U01: mkCapability("E1U01", {
+              hydrated_capability: "i2v",
+              unavailable_references: [{ type: "character", name: "阿离" }],
+              allowed_durations: [4, 6, 8],
+              problems: [
+                { code: "reference_asset_missing", blocking: true, unit_id: "E1U01", locations: [], params: {}, action: "repair_reference_assets" },
+                { code: "reference_capability_changed", blocking: true, unit_id: "E1U01", locations: [], params: {}, action: "repair_reference_assets" },
+              ],
+            }),
+          },
+        },
+      }),
     );
+    render(<ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
 
-    // 商品与其它资产同规则派生参考图，档位按 with_references 收窄。
     const select = await screen.findByRole<HTMLSelectElement>("combobox", { name: "E1U01 时长" });
-    expect([...select.options].map((o) => o.value)).toEqual(["8"]);
+    expect([...select.options].map((o) => o.value)).toEqual(["4", "6", "8"]);
+    // 与画布同源的结构化分裂提示：点名缺图引用并说明将按 i2v 执行而非声明的 r2v；不拦确认。
+    const alert = screen.getByTestId("reference-split-alert");
+    expect(alert).toHaveTextContent("引用的资产缺图：阿离");
+    expect(alert).toHaveTextContent("本单元将按图生视频（无参考图）执行，而非声明的参考生视频（带参考图）");
+    expect(screen.getByRole("button", { name: /确认/ })).toBeEnabled();
+  });
+
+  it("names an unregistered mention in the split alert without claiming a bucket change", async () => {
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(
+      pendingState({
+        supported_durations: [4, 6, 8],
+        duration_tiers: {
+          with_references: [8],
+          without_references: [4, 6, 8],
+          units: {
+            E1U01: mkCapability("E1U01", {
+              declared_capability: "i2v",
+              hydrated_capability: "i2v",
+              declared_references: [],
+              unregistered_references: ["路人"],
+              allowed_durations: [4, 6, 8],
+              problems: [
+                { code: "reference_asset_unregistered", blocking: true, unit_id: "E1U01", locations: [], params: {}, action: "repair_reference_assets" },
+              ],
+            }),
+          },
+        },
+      }),
+    );
+    render(<ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
+
+    const alert = await screen.findByTestId("reference-split-alert");
+    expect(alert).toHaveTextContent("未登记的引用：路人");
+    expect(alert).not.toHaveTextContent("本单元将按");
   });
 
   it("blocks confirmation and flags a unit whose stored duration has fallen out of the effective tier", async () => {
     vi.spyOn(API, "getScriptReview").mockResolvedValue(
       pendingState({
         supported_durations: [4, 6, 8],
-        // unit 带引用，生效档位收窄到 4/6 秒——已存盘的 8 秒不再合法，但仍要照旧展示（不静默跳档）。
-        duration_tiers: { with_references: [4, 6], without_references: [4, 6, 8] },
+        // 该 unit 的生效档位收窄到 4/6 秒——已存盘的 8 秒不再合法，但仍要照旧展示（不静默跳档）。
+        duration_tiers: {
+          with_references: [4, 6],
+          without_references: [4, 6, 8],
+          units: { E1U01: mkCapability("E1U01", { allowed_durations: [4, 6] }) },
+        },
       }),
     );
     render(<ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
@@ -662,29 +755,56 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
     expect(screen.getByRole("button", { name: /确认拆分，继续生成/ })).toBeDisabled();
   });
 
-  it("recomputes the tier choice from the live-edited body", async () => {
+  it("takes the tier choice from the saved server result rather than the live-edited body", async () => {
     const withoutReferences = pendingState({
       supported_durations: [4, 6, 8],
       // 8 秒是两套档位共有的值，保证初始展示不触发「越档补首值」分支，让第二次断言干净地
       // 反映档位切换本身，而不是与该兜底行为的展示叠在一起。
-      duration_tiers: { with_references: [8], without_references: [4, 6, 8] },
+      duration_tiers: {
+        with_references: [8],
+        without_references: [4, 6, 8],
+        units: {
+          E1U01: mkCapability("E1U01", {
+            declared_capability: "i2v",
+            hydrated_capability: "i2v",
+            declared_references: [],
+            allowed_durations: [4, 6, 8],
+          }),
+        },
+      },
     });
     (withoutReferences.content as ReferenceScriptPlanDraft).units[0].text = "门开了";
     (withoutReferences.content as ReferenceScriptPlanDraft).units[0].duration_seconds = 8;
     vi.spyOn(API, "getScriptReview").mockResolvedValue(withoutReferences);
+    const saved = pendingState({
+      supported_durations: [4, 6, 8],
+      duration_tiers: {
+        with_references: [8],
+        without_references: [4, 6, 8],
+        units: { E1U01: mkCapability("E1U01", { allowed_durations: [8] }) },
+      },
+    });
+    (saved.content as ReferenceScriptPlanDraft).units[0].text = "@[阿离] 推门而入。";
+    vi.spyOn(API, "saveScriptReviewContent").mockResolvedValue(saved);
     render(<ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
 
-    // 初始无引用：按 without_references 档位，4/6/8 全可选。
+    // 初始无引用：服务端落 i2v，4/6/8 全可选。
     let select = await screen.findByRole<HTMLSelectElement>("combobox", { name: "E1U01 时长" });
     expect([...select.options].map((o) => o.value).sort()).toEqual(["4", "6", "8"]);
 
-    // 编辑正文新增 @[阿离] 引用（尚未保存）：档位应立即按 with_references 收窄到仅 8 秒。
+    // 编辑正文新增 @[阿离]（尚未保存）：面板不自判「名字已登记」，档位保持服务端上一份结论。
     fireEvent.click(screen.getByRole("button", { name: "编辑文稿" }));
     const textarea = await screen.findByDisplayValue("门开了");
-    fireEvent.change(textarea, { target: { value: "@[ 阿离 ] 推门而入。" } });
-
+    fireEvent.change(textarea, { target: { value: "@[阿离] 推门而入。" } });
     select = await screen.findByRole<HTMLSelectElement>("combobox", { name: "E1U01 时长" });
-    expect([...select.options].map((o) => o.value)).toEqual(["8"]);
+    expect([...select.options].map((o) => o.value).sort()).toEqual(["4", "6", "8"]);
+
+    // 保存后服务端按可用参考图重新定桶：r2v 收窄到仅 8 秒。
+    fireEvent.click(await screen.findByText("保存"));
+    await waitFor(() => {
+      select = screen.getByRole<HTMLSelectElement>("combobox", { name: "E1U01 时长" });
+      expect([...select.options].map((o) => o.value)).toEqual(["8"]);
+    });
   });
 
   it("offers promotion when the draft has no violations", async () => {

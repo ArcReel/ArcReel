@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi, afterEach } from "vitest";
 import { act } from "@testing-library/react";
 import { useReferenceVideoStore } from "./reference-video-store";
 import { API } from "@/api";
+import { makeReferenceUnitCapability } from "@/test/factories";
 import type { ReferenceVideoUnit, UnitGeneratedAssets } from "@/types";
 
 function mkUnit(
@@ -28,10 +29,12 @@ function mkUnit(
   };
 }
 
+
 describe("reference-video-store", () => {
   beforeEach(() => {
     useReferenceVideoStore.setState({
       unitsByEpisode: {},
+      unitCapabilitiesByEpisode: {},
       selectedUnitId: null,
       loading: false,
       error: null,
@@ -45,6 +48,7 @@ describe("reference-video-store", () => {
   it("loadUnits populates unitsByEpisode and clears loading", async () => {
     vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValueOnce({
       units: [mkUnit("E1U1"), mkUnit("E1U2")],
+      unit_capabilities: { E1U1: makeReferenceUnitCapability("E1U1"), E1U2: makeReferenceUnitCapability("E1U2", { hydrated_capability: "r2v" }) },
     });
 
     await act(async () => {
@@ -53,6 +57,8 @@ describe("reference-video-store", () => {
 
     const state = useReferenceVideoStore.getState();
     expect(state.unitsByEpisode["proj::1"]).toHaveLength(2);
+    // 逐单元的桶与档位结论随列表一起落地，画布只读这份服务端结果。
+    expect(state.unitCapabilitiesByEpisode["proj::1"].E1U2.hydrated_capability).toBe("r2v");
     expect(state.loading).toBe(false);
     expect(state.error).toBeNull();
   });
@@ -74,7 +80,7 @@ describe("reference-video-store", () => {
     // 会把新响应里已经生成的成片盖成旧数据，界面停在「无成片」直到下一次失效。
     const releases: Array<(units: ReferenceVideoUnit[]) => void> = [];
     vi.spyOn(API, "listReferenceVideoUnits").mockImplementation(
-      () => new Promise((resolve) => releases.push((units) => resolve({ units }))),
+      () => new Promise((resolve) => releases.push((units) => resolve({ units, unit_capabilities: {} }))),
     );
 
     let first: Promise<void>;
@@ -97,9 +103,12 @@ describe("reference-video-store", () => {
     // 用户刚做的编辑会在界面上被撤销，直到下一次失效才复原。
     const releases: Array<(units: ReferenceVideoUnit[]) => void> = [];
     vi.spyOn(API, "listReferenceVideoUnits").mockImplementation(
-      () => new Promise((resolve) => releases.push((units) => resolve({ units }))),
+      () => new Promise((resolve) => releases.push((units) => resolve({ units, unit_capabilities: {} }))),
     );
-    vi.spyOn(API, "addReferenceVideoUnit").mockResolvedValueOnce({ unit: mkUnit("E1U9") });
+    vi.spyOn(API, "addReferenceVideoUnit").mockResolvedValueOnce({
+      unit: mkUnit("E1U9"),
+      unit_capability: makeReferenceUnitCapability("E1U9"),
+    });
 
     await act(async () => {
       const load = useReferenceVideoStore.getState().loadUnits("proj", 1);
@@ -119,7 +128,7 @@ describe("reference-video-store", () => {
     vi.spyOn(API, "listReferenceVideoUnits").mockImplementation(
       () =>
         new Promise((resolve, reject) => {
-          releases.push({ resolve: (units) => resolve({ units }), reject });
+          releases.push({ resolve: (units) => resolve({ units, unit_capabilities: {} }), reject });
         }),
     );
 
@@ -137,7 +146,10 @@ describe("reference-video-store", () => {
   });
 
   it("addUnit appends unit and selects it", async () => {
-    vi.spyOn(API, "addReferenceVideoUnit").mockResolvedValueOnce({ unit: mkUnit("E1U3") });
+    vi.spyOn(API, "addReferenceVideoUnit").mockResolvedValueOnce({
+      unit: mkUnit("E1U3"),
+      unit_capability: makeReferenceUnitCapability("E1U3", { allowed_durations: [5, 10] }),
+    });
 
     await act(async () => {
       await useReferenceVideoStore.getState().addUnit("proj", 1, { prompt: "new" });
@@ -145,18 +157,21 @@ describe("reference-video-store", () => {
 
     const state = useReferenceVideoStore.getState();
     expect(state.unitsByEpisode["proj::1"]).toEqual([expect.objectContaining({ unit_id: "E1U3" })]);
+    expect(state.unitCapabilitiesByEpisode["proj::1"].E1U3.allowed_durations).toEqual([5, 10]);
     expect(state.selectedUnitId).toBe("E1U3");
   });
 
   it("patchUnit replaces the unit returned by server", async () => {
     useReferenceVideoStore.setState({
       unitsByEpisode: { "proj::1": [mkUnit("E1U1")] },
+      unitCapabilitiesByEpisode: { "proj::1": { E1U1: makeReferenceUnitCapability("E1U1") } },
       selectedUnitId: "E1U1",
       loading: false,
       error: null,
     });
     vi.spyOn(API, "patchReferenceVideoUnit").mockResolvedValueOnce({
       unit: mkUnit("E1U1", { note: "updated" }),
+      unit_capability: makeReferenceUnitCapability("E1U1", { hydrated_capability: "r2v", allowed_durations: [8] }),
     });
 
     await act(async () => {
@@ -164,6 +179,11 @@ describe("reference-video-store", () => {
     });
 
     expect(useReferenceVideoStore.getState().unitsByEpisode["proj::1"][0].note).toBe("updated");
+    // 正文改动可能改变可用参考图，桶与档位随 PATCH 回包同步刷新。
+    expect(useReferenceVideoStore.getState().unitCapabilitiesByEpisode["proj::1"].E1U1).toMatchObject({
+      hydrated_capability: "r2v",
+      allowed_durations: [8],
+    });
   });
 
   it("deleteUnit removes unit and clears selection if it was selected", async () => {
@@ -203,8 +223,8 @@ describe("reference-video-store", () => {
 
   it("isolates cache across projects with the same episode number", async () => {
     vi.spyOn(API, "listReferenceVideoUnits")
-      .mockResolvedValueOnce({ units: [mkUnit("A-E1-U1")] })
-      .mockResolvedValueOnce({ units: [mkUnit("B-E1-U1")] });
+      .mockResolvedValueOnce({ units: [mkUnit("A-E1-U1")], unit_capabilities: {} })
+      .mockResolvedValueOnce({ units: [mkUnit("B-E1-U1")], unit_capabilities: {} });
 
     await act(async () => {
       await useReferenceVideoStore.getState().loadUnits("projA", 1);

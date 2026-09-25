@@ -272,7 +272,7 @@ class ReferenceUnitRequestProjection:
 
 
 class ReferenceAssetAvailability(Protocol):
-    """资产可用性适配器；生产实现检查项目内文件，测试可用内存替身。"""
+    """资产可用性适配器；生产实现检查项目内文件并按产物清单认领，测试可用内存替身。"""
 
     def is_available(self, asset: ResolvedReferenceAsset) -> bool:
         raise NotImplementedError
@@ -325,6 +325,85 @@ def hydrate_reference_assets(
     available_keys = {_asset_key(asset) for asset in available}
     missing = tuple(ref for ref in declared if (ref.type, asset_name_comparison_key(ref.name)) not in available_keys)
     return ReferenceAssetHydration(available=available, missing=missing)
+
+
+@dataclass(frozen=True)
+class ReferenceUnitHydration:
+    """一个单元的声明引用经水合后的定桶结论——执行侧与读侧共用的判据。
+
+    ``declared_generation_type`` 只看正文里已登记的声明引用；``hydrated_generation_type`` 看此刻
+    确实能随请求发出的可用参考图，单元实际落哪个桶以它为准。声明与可用参考图分裂（引用未登记、
+    已登记但缺图、桶因此改变）时 ``problems`` 带阻断问题并点名不可用的引用，不静默换桶。
+    """
+
+    declared_references: tuple[ReferenceResource, ...]
+    available_assets: tuple[ResolvedReferenceAsset, ...]
+    #: 声明了、此刻却没有任何可用图片候选的引用。
+    unavailable_references: tuple[ReferenceResource, ...]
+    #: 正文提及、但项目未登记的名字。
+    unregistered_references: tuple[str, ...]
+    declared_generation_type: VideoGenerationType
+    hydrated_generation_type: VideoGenerationType
+    problems: tuple[ProjectionProblem, ...]
+
+
+def hydrate_unit_references(
+    project: dict,
+    unit: dict,
+    resolved_assets: Sequence[ResolvedReferenceAsset],
+    availability: ReferenceAssetAvailability,
+) -> ReferenceUnitHydration:
+    """把单元正文的声明引用水合成可用参考图，并据此定桶。"""
+
+    canonical = unit_reference_declarations(project, unit)
+    declared_generation_type: VideoGenerationType = "r2v" if canonical else "i2v"
+    hydration = hydrate_reference_assets(canonical, resolved_assets, availability)
+    available = hydration.available
+
+    problems: list[ProjectionProblem] = []
+    # 未登记引用不产生派生引用，因而不会出现在 ``hydration.missing`` 里，须在此单独阻断并
+    # 列名。无资产图的角色 / 场景 / 道具不需要在此另报——它们不退回原图，展开时就不产生
+    # 候选，一律落进 ``hydration.missing``。
+    admission = unit_reference_admission(project, unit)
+    if admission.unregistered:
+        problems.append(
+            _problem(
+                UNREGISTERED_REFERENCE_CODE,
+                blocking=True,
+                unregistered=admission.unregistered,
+                missing_text=admission.unregistered_text(),
+            )
+        )
+    if hydration.missing:
+        missing = tuple((ref.type, ref.name) for ref in hydration.missing)
+        problems.append(
+            _problem(
+                "reference_asset_missing",
+                blocking=True,
+                missing=missing,
+                missing_text=", ".join(f"{asset_type}: {name}" for asset_type, name in missing),
+            )
+        )
+
+    hydrated_generation_type: VideoGenerationType = "r2v" if available else "i2v"
+    if hydrated_generation_type != declared_generation_type:
+        problems.append(
+            _problem(
+                "reference_capability_changed",
+                blocking=True,
+                declared=declared_generation_type,
+                hydrated=hydrated_generation_type,
+            )
+        )
+    return ReferenceUnitHydration(
+        declared_references=canonical,
+        available_assets=available,
+        unavailable_references=hydration.missing,
+        unregistered_references=admission.unregistered,
+        declared_generation_type=declared_generation_type,
+        hydrated_generation_type=hydrated_generation_type,
+        problems=tuple(problems),
+    )
 
 
 class FilesystemReferenceAssets:
@@ -501,10 +580,11 @@ class ReferenceUnitRequestProjector:
 
         del script
         options = options or ReferenceRequestOptions()
-        canonical = unit_reference_declarations(project, unit)
-        declared_generation_type: VideoGenerationType = "r2v" if canonical else "i2v"
-        hydration = hydrate_reference_assets(canonical, resolved_assets, self._assets)
-        available = hydration.available
+        hydration = hydrate_unit_references(project, unit, resolved_assets, self._assets)
+        canonical = hydration.declared_references
+        available = hydration.available_assets
+        declared_generation_type = hydration.declared_generation_type
+        hydrated_generation_type = hydration.hydrated_generation_type
 
         problems: list[ProjectionProblem] = []
         if options.narration_preparation is not None:
@@ -519,40 +599,7 @@ class ReferenceUnitRequestProjector:
                 )
                 for delivery_problem in options.narration_preparation.problems
             )
-        # 未登记引用不产生派生引用，因而不会出现在 ``hydration.missing`` 里，须在此单独阻断并
-        # 列名。无资产图的角色 / 场景 / 道具不需要在此另报——它们不退回原图，展开时就不产生
-        # 候选，一律落进 ``hydration.missing``。
-        admission = unit_reference_admission(project, unit)
-        if admission.unregistered:
-            problems.append(
-                _problem(
-                    UNREGISTERED_REFERENCE_CODE,
-                    blocking=True,
-                    unregistered=admission.unregistered,
-                    missing_text=admission.unregistered_text(),
-                )
-            )
-        if hydration.missing:
-            missing = tuple((ref.type, ref.name) for ref in hydration.missing)
-            problems.append(
-                _problem(
-                    "reference_asset_missing",
-                    blocking=True,
-                    missing=missing,
-                    missing_text=", ".join(f"{asset_type}: {name}" for asset_type, name in missing),
-                )
-            )
-
-        hydrated_generation_type: VideoGenerationType = "r2v" if available else "i2v"
-        if hydrated_generation_type != declared_generation_type:
-            problems.append(
-                _problem(
-                    "reference_capability_changed",
-                    blocking=True,
-                    declared=declared_generation_type,
-                    hydrated=hydrated_generation_type,
-                )
-            )
+        problems.extend(hydration.problems)
 
         facts: VideoRequestFacts | None = None
         try:
@@ -720,7 +767,14 @@ async def project_reference_unit_request(
     tts_in_progress: bool = False,
     current_options_materialized: bool = False,
 ) -> ReferenceUnitRequestProjection:
-    """生产入口：从当前项目文件与配置直接构造一次 advisory 投影。"""
+    """生产入口：从当前项目文件与配置直接构造一次 advisory 投影。
+
+    资产可用性与执行侧同判据（文件存在且产物清单认领），准入、单条入队、提示词预览与限流
+    路由因此不会把执行时落 i2v 的单元判成 r2v。
+    """
+
+    # artifact_selection 依赖本模块，延迟导入避免循环。
+    from lib.script.reference_video.artifact_selection import CurrentReferenceAssets
 
     if resolver is None:
         from lib.config.resolver import ConfigResolver
@@ -740,7 +794,7 @@ async def project_reference_unit_request(
         )
     projector = ReferenceUnitRequestProjector(
         request_facts_lookup or configured_reference_request_facts(project, resolver),
-        FilesystemReferenceAssets(project_path),
+        CurrentReferenceAssets(project_path, project),
     )
     return await projector.project_current(
         project=project,

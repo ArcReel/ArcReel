@@ -1295,7 +1295,13 @@ async def get_video_capabilities(
     try:
         project = await asyncio.to_thread(services.projects.load_project, scope.project_name)
         payload = await services.capabilities.video_capabilities_for_project(project)
-        await annotate_reference_unit_tiers(payload, project, config_resolver=services.capabilities)
+        await annotate_reference_unit_tiers(
+            payload,
+            project,
+            config_resolver=services.capabilities,
+            projects=services.projects,
+            project_name=scope.project_name,
+        )
     except FileNotFoundError as exc:
         return ToolOutcome(problem=ToolProblem("project_not_found", f"项目未找到或缺 project.json: {exc}"))
     except ValueError as exc:

@@ -57,6 +57,9 @@ mcp__arcreel__get_video_capabilities({})
   部分型号对带参考图的生成另有时长限制，无引用的视频单元不受此限
 - `supported_durations`：型号声明的时长全集，**未**施加「分辨率↔时长」「参考图↔时长」联动约束；
   仅作参考，取值一律以 `reference_unit_durations` 为准
+- `reference_unit_durations.units`：已有正式视频单元的逐单元判定（本次拆分产出的新单元尚未在内）。服务端按
+  **可用参考图**定桶：`hydrated_capability` 是实际会执行的桶，`allowed_durations` 是该桶生效档位，`problems` /
+  `unavailable_references` 点名登记了却缺图的引用。引用的资产没有资产图时该单元按无引用档位执行，规划时不要把它当带图
 - `max_reference_images`：单个视频单元的参考图上限（即正文里去重后的 `@[名称]` 提及数上限）
 - `default_duration`：用户在项目设置中指定的默认秒数（可能为 null）
 - `episode_target_duration`：用户在项目设置中指定的单集成片目标时长（秒，可能为 null）——本集各单元时长合计的**软目标**，据它决定本集拆多少个单元

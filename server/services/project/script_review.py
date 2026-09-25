@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from contextlib import nullcontext
 from datetime import UTC, datetime
 from pathlib import Path
@@ -43,7 +43,13 @@ from lib.script.draft_quarantine import (
 from lib.script.script_generator import ScriptGenerator, VideoDurationsUnresolvedError
 from lib.script.script_models import DramaNormalizedScript, NarrationScriptPlanDraft, ReferenceScriptPlanDraft
 from lib.speech.speech_composition import SpeechAdmission, SpeechAdmissionError, admit_script_unit
-from server.services.tasks.video_caps import reference_unit_duration_tiers, resolve_video_caps, video_facts_problem
+from server.services.tasks.video_caps import (
+    reference_request_facts_lookup,
+    reference_unit_capabilities,
+    reference_unit_duration_tiers,
+    resolve_video_caps,
+    video_facts_problem,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -403,9 +409,13 @@ class ScriptReviewService:
         content = draft.content if revalidation.content is None else revalidation.content
         return {"content": content, "violations": violation_entries(revalidation.violations)}
 
-    async def get_reference_duration_tiers(self, project_name: str, episode: int) -> dict | None:
+    async def get_reference_duration_tiers(
+        self, project_name: str, episode: int, units: Sequence[dict[str, Any]] = ()
+    ) -> dict | None:
         """返回参考路线的两桶生效档位；i2v 失败保留问题码与修复动作。
 
+        ``units`` 是本集脚本规划的单元：``units`` 键按 ``unit_id`` 给出每个单元按可用参考图
+        所落的桶、该桶档位与声明引用的分裂情况，面板据此取档。
         非参考路线或 r2v 全集不可解析时返回 None。项目文件读取卸到线程，避免阻塞请求循环。
         """
         project = await asyncio.to_thread(self.pm.load_project, project_name)
@@ -415,11 +425,18 @@ class ScriptReviewService:
         raw = resolve_raw_supported_durations(project, caps)
         if raw is None:
             return None
+        request_facts = reference_request_facts_lookup(project, self.config_resolver)
         with_refs, without_ref_facts = await reference_unit_duration_tiers(
             project,
             caps,
             raw,
-            config_resolver=self.config_resolver,
+            request_facts=request_facts,
+        )
+        unit_capabilities = await reference_unit_capabilities(
+            project,
+            self.pm.get_project_path(project_name),
+            units,
+            request_facts=request_facts,
         )
         return {
             "with_references": sorted(set(with_refs)),
@@ -429,6 +446,7 @@ class ScriptReviewService:
             "without_references_problem": (
                 None if isinstance(without_ref_facts, VideoRequestFacts) else video_facts_problem(without_ref_facts)
             ),
+            "units": unit_capabilities,
         }
 
     async def save_content(

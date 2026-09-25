@@ -68,6 +68,8 @@ import type {
   AnthropicDiscoverRequest,
   AnthropicDiscoverResponse,
   CostEstimateResponse,
+  ReferenceUnitCapability,
+  ReferenceUnitCapabilityMap,
   ReferenceVideoUnit,
   TransitionType,
   AdShot,
@@ -2908,7 +2910,7 @@ class API {
   static async listReferenceVideoUnits(
     projectName: string,
     episode: number,
-  ): Promise<{ units: ReferenceVideoUnit[] }> {
+  ): Promise<{ units: ReferenceVideoUnit[]; unit_capabilities: ReferenceUnitCapabilityMap }> {
     return this.request(
       `/projects/${encodeURIComponent(projectName)}/reference-videos/episodes/${episode}/units`,
     );
@@ -2924,7 +2926,7 @@ class API {
       transition_to_next?: TransitionType;
       note?: string | null;
     },
-  ): Promise<{ unit: ReferenceVideoUnit }> {
+  ): Promise<{ unit: ReferenceVideoUnit; unit_capability: ReferenceUnitCapability }> {
     return this.request(
       `/projects/${encodeURIComponent(projectName)}/reference-videos/episodes/${episode}/units`,
       { method: "POST", body: JSON.stringify(payload) },
@@ -2942,7 +2944,7 @@ class API {
       transition_to_next?: TransitionType;
       note?: string | null;
     },
-  ): Promise<{ unit: ReferenceVideoUnit }> {
+  ): Promise<{ unit: ReferenceVideoUnit; unit_capability: ReferenceUnitCapability }> {
     return this.request(
       `/projects/${encodeURIComponent(projectName)}/reference-videos/episodes/${episode}/units/${encodeURIComponent(unitId)}`,
       { method: "PATCH", body: JSON.stringify(patch) },

@@ -31,7 +31,11 @@ async def _attach_duration_tiers(service: ScriptReviewService, project_name: str
     ``state["supported_durations"] is not None`` 短路——那是另一个方法的返回值，型号解析
     不到时同样为 None，靠它短路会让这类项目连未收窄的档位都拿不到。
     """
-    state["duration_tiers"] = await service.get_reference_duration_tiers(project_name, episode)
+    content = state.get("content")
+    units = content.get("units") if isinstance(content, dict) else None
+    state["duration_tiers"] = await service.get_reference_duration_tiers(
+        project_name, episode, units if isinstance(units, list) else ()
+    )
     return state
 
 

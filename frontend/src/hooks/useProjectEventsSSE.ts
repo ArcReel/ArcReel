@@ -32,6 +32,15 @@ import {
   type GroupedProjectChange,
 } from "@/utils/project-changes";
 
+
+/** 可作视频单元参考图的资产实体：它们的增删改会改变单元的可用参考图与所落的桶。 */
+const REFERENCE_ASSET_ENTITY_TYPES: ReadonlySet<ProjectChange["entity_type"]> = new Set([
+  "character",
+  "scene",
+  "prop",
+  "product",
+]);
+
 const CHANGE_PRIORITY: Record<string, number> = {
   "segment:updated": 0,
   // drama/ad/参考生视频骨架条目的 updated 与 narration 分镜同优先级，四种骨架通知排序一致。
@@ -358,10 +367,13 @@ export function useProjectEventsSSE(projectName?: string | null): void {
           void useTasksStore.getState().refreshTasks();
         }
 
-        // Unit 增删改可能来自 Agent 或另一浏览器；生成完成则改变成片。两类事件都要
-        // 作废 reference-video-store 的独立列表缓存，同一批只自增一次。
+        // Unit 增删改可能来自 Agent 或另一浏览器；生成完成则改变成片；资产增删改会改变
+        // 单元此刻可用的参考图，服务端逐单元的桶与档位随之变化。三类事件都要作废
+        // reference-video-store 的独立列表缓存，同一批只自增一次。
         if (
-          entityChanges.some((c) => c.entity_type === "reference_unit") ||
+          entityChanges.some(
+            (c) => c.entity_type === "reference_unit" || REFERENCE_ASSET_ENTITY_TYPES.has(c.entity_type),
+          ) ||
           taskChanges.some(
             (c) => c.action === "task_succeeded" && c.task_type === "reference_video",
           )

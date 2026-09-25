@@ -8,7 +8,10 @@ Voice_Profiles 注入判定）。入队时机尚未 resolve 任务实际的 prov
 
 from __future__ import annotations
 
+import asyncio
 import logging
+from collections.abc import Iterable
+from pathlib import Path
 
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -25,6 +28,15 @@ from lib.generation.video_request_facts import (
     VideoRequestFactsFailure,
     audio_switch_conflict,
     evaluate_video_request_facts,
+)
+from lib.project.project_manager import ProjectManager
+from lib.script.reference_video.request_projection import (
+    ReferenceRequestFactsLookup,
+    configured_reference_request_facts,
+)
+from lib.script.reference_video.unit_capabilities import (
+    evaluate_reference_unit_capabilities,
+    reference_unit_capability_payloads,
 )
 from lib.script.reference_video.voice_settings import VoiceRenderSettings
 
@@ -61,12 +73,19 @@ def constrained_caps_durations(
     )
 
 
+def reference_request_facts_lookup(
+    project: dict, config_resolver: ConfigResolver | None = None
+) -> ReferenceRequestFactsLookup:
+    """读侧按桶的视频请求事实查找；同一次请求内共用一份，每个桶至多求值一次。"""
+    return configured_reference_request_facts(project, config_resolver or ConfigResolver(async_session_factory))
+
+
 async def reference_unit_duration_tiers(
     project: dict,
     caps: dict,
     durations: list[int],
     *,
-    config_resolver: ConfigResolver | None = None,
+    request_facts: ReferenceRequestFactsLookup,
 ) -> tuple[list[int], VideoRequestFacts | VideoRequestFactsFailure]:
     """Return effective duration tiers for units with and without reference images.
 
@@ -80,18 +99,44 @@ async def reference_unit_duration_tiers(
             project, caps, durations, generation_mode="reference_video", uses_reference_images=True
         )
     )
-    without_references = await evaluate_video_request_facts(
-        project,
-        route="reference_video",
-        generation_type="i2v",
-        identity=CONFIGURED_VIDEO_IDENTITY,
-        resolver=config_resolver or ConfigResolver(async_session_factory),
+    return with_references, await request_facts("i2v")
+
+
+async def reference_unit_capabilities(
+    project: dict,
+    project_path: Path,
+    units: Iterable[dict],
+    *,
+    request_facts: ReferenceRequestFactsLookup,
+) -> dict[str, dict[str, object]]:
+    """按 ``unit_id`` 索引的逐单元定桶结论与所落桶档位（Web 与 Agent 同一份）。"""
+    return reference_unit_capability_payloads(
+        await evaluate_reference_unit_capabilities(project, project_path, units, request_facts=request_facts)
     )
-    return with_references, without_references
+
+
+def reference_script_units(projects: ProjectManager, project_name: str, project: dict) -> list[dict]:
+    """参考生视频项目全部已登记剧本的视频单元；非参考路线没有视频单元。
+
+    剧本文件缺失的分集跳过：那是分集尚未产出剧本，不是能力问题。
+    """
+    if project.get("generation_mode") != "reference_video":
+        return []
+    units: list[dict] = []
+    for episode in project.get("episodes") or []:
+        script_file = episode.get("script_file") if isinstance(episode, dict) else None
+        if not script_file:
+            continue
+        try:
+            script = projects.load_script(project_name, script_file)
+        except FileNotFoundError:
+            continue
+        units.extend(unit for unit in script.get("video_units") or [] if isinstance(unit, dict))
+    return units
 
 
 def video_facts_problem(failure: VideoRequestFactsFailure) -> dict:
-    return {"code": failure.code, "params": failure.parameters(), "action": failure.action}
+    return failure.problem_payload()
 
 
 def facts_duration_endpoint_fixed(result: VideoRequestFacts | VideoRequestFactsFailure) -> bool:
@@ -132,24 +177,36 @@ async def annotate_reference_unit_tiers(
     payload: dict,
     project: dict,
     *,
-    config_resolver: ConfigResolver | None = None,
+    config_resolver: ConfigResolver | None,
+    projects: ProjectManager,
+    project_name: str,
 ) -> None:
     """Add effective duration tiers only for episode reference-video units.
 
     ``supported_durations`` remains the model-declared full set. The annotation
     gives script authors the narrower execution tiers for units with and without
-    references; ad projects do not use this duration enumeration.
+    references, plus ``units``: the server-side bucket, tiers and reference split
+    of every formal unit, keyed by ``unit_id``; ad projects do not use this
+    duration enumeration.
     """
     if payload.get("generation_mode") != "reference_video" or payload.get("content_mode") == "ad":
         return
     durations = [int(d) for d in payload.get("supported_durations") or []]
     if not durations and not payload.get("duration_endpoint_fixed"):
         return
+    request_facts = reference_request_facts_lookup(project, config_resolver)
     with_refs, without_ref_facts = await reference_unit_duration_tiers(
         project,
         payload,
         durations,
-        config_resolver=config_resolver,
+        request_facts=request_facts,
+    )
+    units = await asyncio.to_thread(reference_script_units, projects, project_name, project)
+    unit_capabilities = await reference_unit_capabilities(
+        project,
+        projects.get_project_path(project_name),
+        units,
+        request_facts=request_facts,
     )
     with_refs_fixed = bool(payload.get("duration_endpoint_fixed"))
     without_refs_fixed = facts_duration_endpoint_fixed(without_ref_facts)
@@ -166,6 +223,7 @@ async def annotate_reference_unit_tiers(
             dict(without_ref_facts.excluded_durations) if isinstance(without_ref_facts, VideoRequestFacts) else None
         ),
         "problem": None if isinstance(without_ref_facts, VideoRequestFacts) else video_facts_problem(without_ref_facts),
+        "units": unit_capabilities,
     }
     # The Agent receives one no-reference channel, including failures and exclusion reasons.
     payload.get("duration_constraints", {}).pop("allowed_without_reference_images", None)

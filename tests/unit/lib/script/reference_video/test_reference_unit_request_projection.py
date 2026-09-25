@@ -1,3 +1,4 @@
+import json
 from dataclasses import replace
 from pathlib import Path
 
@@ -12,13 +13,16 @@ from lib.script.reference_video.request_projection import (
     ReferenceUnitRequestProjector,
     ResolvedReferenceAsset,
     VideoRequestFactsResult,
+    project_reference_unit_request,
     resolve_reference_assets,
     unit_reference_declarations,
 )
+from lib.script.reference_video.unit_capabilities import evaluate_reference_unit_capabilities
 from lib.script.script_models import ReferenceResource
 from lib.speech.narration_delivery import prepare_narration_delivery
 from lib.speech.speech_composition import admit_script_unit
-from tests.factories import make_video_request_facts
+from tests.factories import activate_reference_project, make_video_request_facts
+from tests.fakes import fake_reference_request_facts
 
 
 def _bucket_facts(generation_type: str) -> VideoRequestFacts:
@@ -687,3 +691,44 @@ async def test_projection_prices_the_request_resolution_without_a_fallback_tier(
 
     assert result.cost is not None
     assert result.cost.resolution is None
+
+
+def _activated_project_with_unclaimed_sheet(tmp_path: Path) -> dict:
+    """已激活产物清单的项目：张三的图由补录认领；李四的图在盘上、路径已登记，但清单从未认领。"""
+    (tmp_path / "characters").mkdir()
+    (tmp_path / "characters" / "张三.png").write_bytes(b"image")
+    project = activate_reference_project(
+        tmp_path, {"characters": {"张三": {"description": "x", "character_sheet": "characters/张三.png"}}}
+    )
+    project["characters"]["李四"] = {"description": "y", "character_sheet": "characters/李四.png"}
+    (tmp_path / "characters" / "李四.png").write_bytes(b"image")
+    (tmp_path / "project.json").write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
+    return project
+
+
+async def test_production_entry_treats_an_unclaimed_sheet_as_unavailable_like_the_read_side(tmp_path: Path) -> None:
+    """生产投影入口按产物清单认领判可用：图在盘上但清单未认领的引用落 i2v，与读侧逐单元结论同桶。"""
+    project = _activated_project_with_unclaimed_sheet(tmp_path)
+    claimed = {"unit_id": "E1U1", "text": "@[张三] 推门。", "duration_seconds": 8}
+    unclaimed = {"unit_id": "E1U2", "text": "@[李四] 回头。", "duration_seconds": 8}
+    script = {"episode": 1, "generation_mode": "reference_video", "video_units": [claimed, unclaimed]}
+    lookup = fake_reference_request_facts(durations=(8, 16))
+
+    projections = [
+        await project_reference_unit_request(
+            project=project, script=script, unit=unit, project_path=tmp_path, request_facts_lookup=lookup
+        )
+        for unit in (claimed, unclaimed)
+    ]
+    capabilities = await evaluate_reference_unit_capabilities(
+        project, tmp_path, [claimed, unclaimed], request_facts=lookup
+    )
+
+    assert [projection.hydrated_generation_type for projection in projections] == ["r2v", "i2v"]
+    assert [capability.generation_type for capability in capabilities] == ["r2v", "i2v"]
+    assert projections[0].blocking_problems == ()
+    assert [problem.code for problem in projections[1].blocking_problems] == [
+        "reference_asset_missing",
+        "reference_capability_changed",
+    ]
+    assert dict(projections[1].problems[0].params)["missing"] == (("character", "李四"),)

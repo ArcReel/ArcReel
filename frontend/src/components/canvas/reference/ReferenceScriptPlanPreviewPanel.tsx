@@ -4,6 +4,7 @@ import { AlertTriangle, ArrowRight, CheckCircle2, ChevronDown, Clock, Lock, Octa
 import type {
   ReferenceScriptPlanDraft,
   ReferenceScriptPlanFlatUnit,
+  ReferenceUnitCapability,
   ScriptReviewState,
   ScriptReviewViolation,
 } from "@/types";
@@ -23,15 +24,13 @@ import { ACCENT_BTN_CLS, ACCENT_BUTTON_STYLE, CARD_STYLE, GHOST_BTN_CLS, GHOST_B
 import { ScriptHighlight } from "@/components/shared/ScriptHighlight";
 import { toScriptLines, type MentionLookup } from "@/hooks/useUnitPromptHighlight";
 import { extractMentions } from "@/utils/reference-mentions";
-import { noImageReasonKey } from "./no-image-problem";
+import { tierProblemText } from "./unit-tier-problem";
+import { ReferenceSplitAlert } from "./ReferenceSplitAlert";
 
 interface ReferenceScriptPlanPreviewPanelProps {
   projectName: string;
   episode: number;
-  durationEndpointFixed?: boolean;
-  durationEndpointFixedNoReference?: boolean;
   videoModelUnresolved?: boolean;
-  capabilitiesLoading?: boolean;
   /** Asset name → kind, for mention coloring — same lookup the editor/parse preview share. */
   lookup: MentionLookup;
   /** 切到本集视频单元时间线；确认后的只读态据此给出去时间线修改的入口，未提供时不渲染入口。 */
@@ -137,23 +136,12 @@ function partitionViolations(violations: ScriptReviewViolation[], unitKey: strin
 }
 
 /**
- * unit 当前生效的时长档位（按是否带参考图取桶）；解析不到时返回 null，保持只读。
- *
- * 有无引用按当前正文实时判：参考图在执行期才由正文解析出来，编辑期新增/删除的
- * `@[名称]` 必须当场改变可选档位。
+ * unit 的服务端定桶结论（桶、档位、端点固定、引用分裂）：按此刻可用的参考图判定，与执行侧同一
+ * 判据。面板不按正文里「名字已登记」自判；结论随保存后的状态回流更新。型号解析不到（tiers 为
+ * null）或该 unit 尚无结论时为 null，控件保持只读。
  */
-function unitDurationTiers(
-  unit: DisplayUnit,
-  lookup: MentionLookup,
-  tiers: NonNullable<ScriptReviewState["duration_tiers"]> | null,
-): number[] | null {
-  if (!tiers) return null;
-  // 四类资产同规则（ADR 0064）：任一已登记的提及都会在执行期派生出参考图。
-  return unitHasReference(unit, lookup) ? tiers.with_references : tiers.without_references;
-}
-
-function unitHasReference(unit: DisplayUnit, lookup: MentionLookup): boolean {
-  return extractMentions(unit.scriptText).some((name) => Boolean(lookup[name]));
+function unitCapability(unit: DisplayUnit, tiers: ScriptReviewState["duration_tiers"]): ReferenceUnitCapability | null {
+  return tiers?.units[unit.key] ?? null;
 }
 
 /**
@@ -204,7 +192,8 @@ function UnitCard({
   onTextChange,
   supportedDurations,
   durationEndpointFixed,
-  durationProblemCode,
+  durationProblem,
+  split,
   outOfTier,
   onDurationChange,
   busy,
@@ -221,7 +210,10 @@ function UnitCard({
   onTextChange: ((text: string) => void) | null;
   supportedDurations: number[] | null;
   durationEndpointFixed: boolean;
-  durationProblemCode?: string;
+  /** 所落桶的视频请求事实失败：标签与带修复指引的提示，由 `tierProblemText` 按桶生成。 */
+  durationProblem: { label: string; hint: string } | null;
+  /** 声明引用与可用参考图分裂时的服务端结论（缺图 / 未登记引用、桶的改变）；无分裂为 null。 */
+  split: ReferenceUnitCapability | null;
   /** unit 当前存盘时长已不在收窄后的档位表内——展示照旧，但阻断确认（父组件按此禁用确认按钮）。 */
   outOfTier: boolean;
   onDurationChange: ((seconds: number) => void) | null;
@@ -248,9 +240,9 @@ function UnitCard({
     >
       <div className="flex items-center gap-2">
         <span className="rounded bg-bg-grad-a/70 px-1.5 py-0.5 font-mono text-[11px] text-text-2">{unit.key}</span>
-        {durationProblemCode ? (
-          <span className="text-[11px] text-amber-300" title={t("reference_no_image_unknown_hint", { code: durationProblemCode, reason: t(noImageReasonKey(durationProblemCode)) })}>
-            {t("reference_no_image_unknown_label")}
+        {durationProblem ? (
+          <span className="text-[11px] text-amber-300" title={durationProblem.hint}>
+            {durationProblem.label}
           </span>
         ) : durationOptions && onDurationChange ? (
           <select
@@ -297,6 +289,13 @@ function UnitCard({
           </button>
         )}
       </div>
+      {/* 面板不因分裂拦确认（规划期资产图常尚未生成），但按 i2v 取档时要说明桶已改变，不静默换桶。 */}
+      {split && (
+        <ReferenceSplitAlert
+          capability={split}
+          className="mt-2 rounded-[8px] border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-300"
+        />
+      )}
 
       <details open className="group mt-3">
         <summary className="flex cursor-pointer list-none items-center gap-1 font-mono text-[10px] tracking-[0.08em] text-text-4">
@@ -370,10 +369,7 @@ function selectUnitsContent(state: ScriptReviewState): ReferenceScriptPlanDraft 
 export function ReferenceScriptPlanPreviewPanel({
   projectName,
   episode,
-  durationEndpointFixed = false,
-  durationEndpointFixedNoReference = false,
   videoModelUnresolved,
-  capabilitiesLoading = false,
   lookup,
   onOpenTimeline,
 }: ReferenceScriptPlanPreviewPanelProps) {
@@ -513,21 +509,28 @@ export function ReferenceScriptPlanPreviewPanel({
   // 收窄后的档位表若已不再包含某 unit 存量存盘的时长（模型 / 分辨率 / 参考图配置变化所致），
   // 该值仍保留展示（避免 select 静默跳首档），但不能放行确认——_assert_reference_script_plan_ready
   // 会在 prompt_authoring 落盘前硬拒同一个越档值，此处先一步拦下，而不是让用户确认后才在别处失败。
+  const durationTiers = state?.duration_tiers ?? null;
   const outOfTierUnitKeys = quarantined
     ? new Set<string>()
     : new Set(
         displayUnits
           .filter((u) => {
-            const fixed = unitHasReference(u, lookup) ? durationEndpointFixed : durationEndpointFixedNoReference;
-            const tiers = unitDurationTiers(u, lookup, state?.duration_tiers ?? null);
-            return !capabilitiesLoading && !fixed && tiers != null && !tiers.includes(u.duration_seconds);
+            const capability = unitCapability(u, durationTiers);
+            const tiers = capability?.allowed_durations ?? null;
+            return capability != null && !capability.duration_endpoint_fixed && tiers != null && !tiers.includes(u.duration_seconds);
           })
           .map((u) => u.key),
       );
-  const noImageProblem = state?.duration_tiers?.without_references_problem;
-  const unknownUnitKeys = new Set(
-    displayUnits.filter((u) => noImageProblem && !unitHasReference(u, lookup)).map((u) => u.key),
-  );
+  // 所落桶的视频请求事实解析不出的 unit：档位未知，不能确认一份执行不了的方案。
+  const unknownUnits = displayUnits.flatMap((u) => {
+    const capability = unitCapability(u, durationTiers);
+    return capability?.problem ? [{ key: u.key, capability }] : [];
+  });
+  const unknownUnitKeys = new Set(unknownUnits.map((u) => u.key));
+  const firstUnknownProblem =
+    unknownUnits.length > 0
+      ? tierProblemText(t, unknownUnits[0].capability.problem!, unknownUnits[0].capability.hydrated_capability)
+      : null;
   const allViolations = quarantine?.violations ?? [];
   const hasDraftViolations = allViolations.length > 0;
   // 覆盖确认的拦截条件，触发按钮与框内确认按钮共用一位：能力请求可能在框打开之后才答复
@@ -537,8 +540,8 @@ export function ReferenceScriptPlanPreviewPanel({
     ? t(hasDraftViolations ? "reference_script_plan_confirm_blocked_hint" : "reference_script_plan_editable_hint")
     : videoModelBlocked
       ? t("dashboard:review_video_model_unresolved_hint")
-      : unknownUnitKeys.size > 0
-        ? t("reference_no_image_unknown_hint", { code: noImageProblem?.code, reason: t(noImageReasonKey(noImageProblem?.code ?? "")) })
+      : firstUnknownProblem
+        ? firstUnknownProblem.hint
       : outOfTierUnitKeys.size > 0
         ? t("reference_script_plan_duration_out_of_tier_hint")
         : undefined;
@@ -663,9 +666,9 @@ export function ReferenceScriptPlanPreviewPanel({
       </header>
 
       {videoModelBlocked && <VideoModelUnresolvedNotice projectName={projectName} />}
-      {unknownUnitKeys.size > 0 && (
+      {firstUnknownProblem && (
         <p role="alert" className="rounded-[8px] border border-amber-500/40 p-3 text-sm text-amber-200">
-          {t("reference_no_image_unknown_hint", { code: noImageProblem?.code, reason: t(noImageReasonKey(noImageProblem?.code ?? "")) })}
+          {firstUnknownProblem.hint}
         </p>
       )}
 
@@ -692,7 +695,9 @@ export function ReferenceScriptPlanPreviewPanel({
       )}
 
       <div className="flex flex-col gap-2.5">
-        {displayUnits.map((unit, i) => (
+        {displayUnits.map((unit, i) => {
+          const capability = unitCapability(unit, durationTiers);
+          return (
           <UnitCard
             key={unit.key}
             unit={unit}
@@ -704,14 +709,20 @@ export function ReferenceScriptPlanPreviewPanel({
             editing={!readOnly && editingUnitKey === unit.key}
             onToggleEdit={() => setEditingUnitKey((prev) => (prev === unit.key ? null : unit.key))}
             onTextChange={readOnly ? null : (text) => updateUnitText(i, text)}
-            supportedDurations={capabilitiesLoading ? null : unitDurationTiers(unit, lookup, state?.duration_tiers ?? null)}
-            durationEndpointFixed={unitHasReference(unit, lookup) ? durationEndpointFixed : durationEndpointFixedNoReference}
-            durationProblemCode={unknownUnitKeys.has(unit.key) ? noImageProblem?.code : undefined}
+            supportedDurations={capability?.allowed_durations ?? null}
+            durationEndpointFixed={capability?.duration_endpoint_fixed ?? false}
+            durationProblem={
+              unknownUnitKeys.has(unit.key) && capability?.problem
+                ? tierProblemText(t, capability.problem, capability.hydrated_capability)
+                : null
+            }
+            split={capability != null && capability.problems.length > 0 ? capability : null}
             outOfTier={outOfTierUnitKeys.has(unit.key)}
             onDurationChange={readOnly ? null : (seconds) => updateDuration(i, seconds)}
             busy={busy}
           />
-        ))}
+          );
+        })}
       </div>
 
       {(unassignedViolations.length > 0 || rawFallback) && (

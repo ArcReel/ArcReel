@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -10,7 +11,9 @@ import pytest
 from lib.generation.batch_admission import BatchAdmissionDecision
 from lib.generation.generation_result import GenerationAction, GenerationProblemCode, GenerationSelectionMode
 from lib.generation.video_request_facts import VideoRequestFactsFailure
+from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from lib.script.reference_video.request_projection import ReferenceRequestOptions
+from lib.script.reference_video.unit_capabilities import evaluate_reference_unit_capabilities
 from lib.speech.narration_delivery import (
     POST_PRODUCTION,
     USE_TTS,
@@ -21,7 +24,8 @@ from lib.speech.narration_delivery import (
 )
 from server.services.admission import video_batch_admission as admission_mod
 from server.services.admission.video_batch_admission import admit_reference_video_batch, admit_storyboard_video_batch
-from tests.factories import make_video_request_facts
+from server.services.tasks.video_caps import reference_request_facts_lookup
+from tests.factories import activate_reference_project, make_video_request_facts
 
 
 def _script() -> dict[str, Any]:
@@ -262,9 +266,11 @@ async def test_reference_facts_failure_keeps_action_for_each_unit(monkeypatch, t
         "video_capability_reference_unavailable", (("provider", "ark"), ("model", "removed"))
     )
     set_video_request_facts(failure)
+    project = {"schema_version": CURRENT_PROJECT_SCHEMA_VERSION}
+    (tmp_path / "project.json").write_text(json.dumps(project), encoding="utf-8")
     admission = await admit_reference_video_batch(
         project_name="demo",
-        project={},
+        project=project,
         project_path=tmp_path,
         script={"video_units": []},
         script_file="episode_1.json",
@@ -388,3 +394,70 @@ async def test_extra_tickets_join_the_same_verdict(monkeypatch, tmp_path: Path):
 
     assert admission.decision is BatchAdmissionDecision.BLOCKED
     assert admission.unit_ids == ("E9U9", "E1U1")
+
+
+def _activated_project_with_unclaimed_sheet(tmp_path: Path) -> dict[str, Any]:
+    """已激活产物清单的项目：张三的图由补录认领；李四的图在盘上、路径已登记，但清单从未认领。"""
+    (tmp_path / "characters").mkdir()
+    (tmp_path / "characters" / "张三.png").write_bytes(b"image")
+    project = activate_reference_project(
+        tmp_path, {"characters": {"张三": {"description": "x", "character_sheet": "characters/张三.png"}}}
+    )
+    project["characters"]["李四"] = {"description": "y", "character_sheet": "characters/李四.png"}
+    (tmp_path / "characters" / "李四.png").write_bytes(b"image")
+    (tmp_path / "project.json").write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
+    return project
+
+
+async def test_admission_buckets_an_unclaimed_sheet_like_the_canvas_and_blocks(
+    monkeypatch, tmp_path: Path, set_video_request_facts
+):
+    """整批准入与画布逐单元结论同判据：图在盘上但清单未认领的单元两侧都落 i2v，准入阻断而非按 r2v 放行。"""
+    _stub_state(monkeypatch)
+
+    async def _options(*, options, **_kwargs):
+        return options
+
+    monkeypatch.setattr(admission_mod, "prepare_current_reference_video_request_options", _options)
+    set_video_request_facts(
+        {
+            "i2v": make_video_request_facts(
+                route="reference_video", generation_type="i2v", supported_durations=(5, 10), allowed_durations=(5, 10)
+            ),
+            "r2v": make_video_request_facts(
+                route="reference_video", generation_type="r2v", supported_durations=(9,), allowed_durations=(9,)
+            ),
+        }
+    )
+    project = _activated_project_with_unclaimed_sheet(tmp_path)
+    units = [
+        {"unit_id": "E1U1", "text": "镜头1：@[张三] 推门", "duration_seconds": 9},
+        {"unit_id": "E1U2", "text": "镜头2：@[李四] 回头", "duration_seconds": 9},
+    ]
+    script = {"episode": 1, "generation_mode": "reference_video", "video_units": units}
+
+    admission = await admit_reference_video_batch(
+        project_name="demo",
+        project=project,
+        project_path=tmp_path,
+        script=script,
+        script_file="scripts/episode_1.json",
+        units=units,
+        request_options=ReferenceRequestOptions(),
+        operation="generate_videos",
+        selection=GenerationSelectionMode.MISSING_ONLY,
+        confirmed_request_durations={"E1U1": 9, "E1U2": 9},
+    )
+    capabilities = await evaluate_reference_unit_capabilities(
+        project, tmp_path, units, request_facts=reference_request_facts_lookup(project)
+    )
+
+    assert admission.decision is BatchAdmissionDecision.BLOCKED
+    claimed, unclaimed = admission.tickets
+    assert (claimed.projection["hydrated_capability"], claimed.problems) == ("r2v", ())
+    assert unclaimed.projection["hydrated_capability"] == "i2v"
+    assert [problem.code for problem in unclaimed.problems][:2] == [
+        "reference_asset_missing",
+        "reference_capability_changed",
+    ]
+    assert [capability.generation_type for capability in capabilities] == ["r2v", "i2v"]
