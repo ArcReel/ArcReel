@@ -30,7 +30,6 @@ from server.agent_runtime.sdk_tools.text_generation import generate_episode_scri
 from server.auth import create_download_token, create_token
 from server.cors_config import resolve_cors_policy
 from server.media_tools.context import ToolContext
-from server.media_tools.videos import generate_videos_tool
 from server.remote_mcp import ArcApiKeyVerifier, RemoteMCPHost, build_remote_mcp_server
 from server.tool_runtime import Services
 from tests.factories import make_video_request_facts
@@ -389,39 +388,18 @@ async def test_remote_mcp_returns_typed_workflow_plan_and_rejects_bad_project(
         "project" in listed[name].inputSchema["required"]
         for name in migrated | readers | drafts | text_and_script | batches
     )
-    media_ctx = ToolContext("demo", remote_projects.data_root, pm=remote_projects)
-    definitions = {definition.name: definition for definition in (generate_videos_tool(media_ctx),)}
     remote_batch_tools = {
-        "generate_videos",
         "generate_episode_script",
         "generate_script_plan",
     }
-    for name, definition in definitions.items():
-        remote_schema = listed[name].inputSchema
-        assert remote_schema["properties"]["project"]["type"] == "string"
-        assert {key: value for key, value in remote_schema["properties"].items() if key != "project"} == (
-            definition.input_schema["properties"]
-        )
-        assert remote_schema["required"] == ["project", *definition.input_schema.get("required", [])]
-        assert remote_schema["additionalProperties"] is False
-        assert {
-            key: value
-            for key, value in remote_schema.items()
-            if key not in {"properties", "required", "additionalProperties"}
-        } == {key: value for key, value in definition.input_schema.items() if key not in {"properties", "required"}}
     for name in remote_batch_tools:
         remote_description = listed[name].description
-        if name in definitions:
-            assert remote_description.startswith(definitions[name].description)
         assert "durable admission" in remote_description
         assert "durable generation_batch" in remote_description
         assert "immediately" in remote_description
         assert "poll_after_seconds" in remote_description
         assert "get_generation_batch" in remote_description
         assert "done=true" in remote_description
-    embedded_video_description = definitions["generate_videos"].description
-    assert "返回 durable batch" not in embedded_video_description
-    assert "内嵌调用等待并返回逐 ID 终态结果" in embedded_video_description
     assert all(listed[name].inputSchema["properties"]["episode"]["minimum"] == 1 for name in drafts)
     patch_schema = listed["patch_episode_script"].inputSchema
     operations_schema = patch_schema["properties"]["operations"]
@@ -438,21 +416,6 @@ async def test_remote_mcp_returns_typed_workflow_plan_and_rejects_bad_project(
         "split",
     }
     assert all(branch["additionalProperties"] is False for branch in operation_branches)
-    video_properties = listed["generate_videos"].inputSchema["properties"]
-    assert "resume" not in video_properties
-    assert "confirmed_request_duration_seconds" in video_properties
-    assert "confirmed_request_durations" in video_properties
-    assert {"narration_voice", "narration_speed", "narration_volume"}.isdisjoint(video_properties)
-    target_schema = video_properties["target"]
-    target_defs = {branch["properties"]["scope"]["const"]: branch for branch in target_schema["oneOf"]}
-    assert set(target_defs) == {"episode", "scene", "all", "selected"}
-    assert target_defs["episode"]["required"] == ["scope", "episode"]
-    assert target_defs["scene"]["required"] == ["scope", "ids"]
-    assert target_defs["scene"]["properties"]["ids"]["maxItems"] == 1
-    assert target_defs["selected"]["required"] == ["scope", "ids"]
-    assert target_defs["selected"]["properties"]["ids"]["minItems"] == 1
-    assert target_defs["all"]["required"] == ["scope"]
-    assert all(definition["additionalProperties"] is False for definition in target_defs.values())
     assert "base_revision" in listed["discard_draft"].inputSchema["required"]
     assert result.structuredContent is not None
     assert result.structuredContent["workflow_plan"]["status"]["target"]["episode"] == 1

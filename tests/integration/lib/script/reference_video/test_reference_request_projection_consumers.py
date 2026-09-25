@@ -11,9 +11,10 @@ from fastapi import HTTPException
 from lib.config.resolver import ConfigResolver
 from lib.generation.generation_queue import reference_projection_for_queued_task
 from lib.script.reference_video.request_projection import USE_TTS, ReferenceRequestOptions
+from server.agent_toolset.declaration import invoke_declaration
+from server.agent_toolset.media_generation import GENERATE_VIDEOS
 from server.auth import CurrentUserInfo
-from server.media_tools import videos
-from server.media_tools.context import ToolContext
+from server.media_tools.context import ToolContext, tool_services
 from server.routers import reference_videos
 from server.services.admission.cost_estimation import CostEstimationService, VideoRequestQuote
 from tests.factories import activate_reference_project
@@ -182,15 +183,18 @@ async def test_reference_projection_contract_stays_aligned_across_public_consume
                 ),
             )
 
-        agent_outcome = await videos.generate_videos_tool(
-            ToolContext(project_name="demo", data_root=tmp_path, pm=pm)
-        ).invoke(
+        agent_ctx = ToolContext(project_name="demo", data_root=tmp_path, pm=pm)
+        agent_outcome = await invoke_declaration(
+            GENERATE_VIDEOS,
             {
                 "script": "episode_1.json",
                 "target": {"scope": "scene", "ids": ["E1U1"]},
                 "force": True,
                 "narration_delivery": USE_TTS,
-            }
+            },
+            agent_ctx.scope,
+            agent_ctx.caller,
+            tool_services(agent_ctx),
         )
         queue_projection = await reference_projection_for_queued_task(
             project=project,

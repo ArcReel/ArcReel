@@ -1665,7 +1665,7 @@ class TestCostEstimationService:
         assert not result["project_totals"]["estimate"]["video"]
 
     async def test_narration_reference_video_estimate_skips_unenqueueable_units(self, db_factory):
-        """正文为空或只有空白的 unit 不可入队（``enqueue_videos.py::_reference_unit_spec``
+        """正文为空或只有空白的 unit 不可入队（``video_batch_admission.reference_unit_task_spec``
         对空正文直接拒绝，``TaskSpec.from_request`` 对空提示词同样拒绝），这类 unit
         不产生新预估——但 unit 整条仍要保留在结果里、纳入汇总：不可入队只影响能否产生新预估，
         不影响该 unit 是否曾经成功生成过。已有实付的 unit（曾成功生成、之后被编辑成空正文）
@@ -1754,7 +1754,7 @@ class TestCostEstimationService:
 
     async def test_narration_reference_video_estimate_skips_unit_with_malformed_duration(self, db_factory):
         """Agent/外部编辑过的剧本可能写入非数值 ``duration_seconds``（字符串、list、dict 等）。
-        SDK 侧入队预检（``enqueue_videos.py``）对每个 unit 单独 catch ``ValueError`` 跳过，
+        视频工具的入队预检（``server/media_tools/videos.py``）对每个 unit 单独 catch ``ValueError`` 跳过，
         估算须跟随同一容错口径——一个 unit 的脏时长不能让整个项目估算 500，拖累其余正常集，
         其余正常 unit 仍要继续产生预估。
         """

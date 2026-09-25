@@ -25,6 +25,7 @@ from server.media_tools.context import (
 from server.media_tools.image_edits import EditImagesRequest, edit_images
 from server.media_tools.narration_audio import GenerateNarrationAudioRequest, generate_narration_audio
 from server.media_tools.storyboards import GenerateStoryboardsRequest, generate_storyboards
+from server.media_tools.videos import GenerateVideosRequest, generate_videos
 
 _MIGRATION_REFUSAL = "项目数据升级失败时拒绝执行，返回 project_migration_failed problem。"
 
@@ -121,12 +122,29 @@ GENERATE_NARRATION_AUDIO = generation_tool(
     handler=generate_narration_audio,
 )
 
+GENERATE_VIDEOS = generation_tool(
+    name="generate_videos",
+    description=(
+        "为分镜图生视频或参考生视频项目生成视频片段（付费生成，视频写入项目）。"
+        "已有可用成片（Manifest 认定 current / stale，或被选中的手动上传版本）默认复用。"
+        "整批准入：任一目标未通过准入（缺素材、发声冲突、提示词待补、产物状态不可读等），"
+        "或有目标需要用户确认跨档时长费用时，本次零任务入队、不产生批次，"
+        "结果带 batch_admission 逐单元明细与 request_projections 请求投影；"
+        "用户确认档位后把原目标集合一次性重发，不要按档位拆成多次调用。"
+        "终态结果的 generation_result 按 requested / succeeded / failed / blocked 逐 ID 给出结局，"
+        "每个失败项带稳定 code 与下一步动作。"
+    ),
+    request_model=GenerateVideosRequest,
+    handler=generate_videos,
+)
+
 MEDIA_GENERATION_TOOLS = (
     LIST_PENDING_ASSETS,
     GENERATE_ASSETS,
     GENERATE_STORYBOARDS,
     EDIT_IMAGES,
     GENERATE_NARRATION_AUDIO,
+    GENERATE_VIDEOS,
 )
 
 __all__ = ["MEDIA_GENERATION_TOOLS", "generation_tool"]
