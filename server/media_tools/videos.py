@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import functools
 import logging
 from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass, replace
@@ -80,7 +79,6 @@ from server.services.admission.video_batch_admission import (
     video_target_states,
 )
 from server.tool_runtime import (
-    BatchWaiter,
     CallerContext,
     ProjectScope,
     Services,
@@ -223,11 +221,9 @@ class _VideoCall:
     def project_path(self) -> Path:
         return self.services.projects.get_project_path(self.scope.project_name)
 
-    def stop_on_failure_waiter(self) -> BatchWaiter | None:
-        """内嵌等待器的包装：批次内一个任务失败即停止等待其余任务。"""
-
-        waiter = self.caller.batch_waiter
-        return None if waiter is None else functools.partial(waiter, stop_on_failure=True)
+    def stop_on_failure_caller(self) -> CallerContext:
+        """等待器在批次内任一任务失败即停止等待其余任务的调用方。"""
+        return self.caller.waiting_with(stop_on_failure=True)
 
 
 _OPERATION = "generate_videos"
@@ -779,7 +775,7 @@ async def _generate_reference_units(
 
     submitted = await submit_media_generation(
         scope=call.scope,
-        caller=call.caller,
+        caller=call.stop_on_failure_caller(),
         services=call.services,
         operation=operation,
         preflight=builder.build(),
@@ -787,7 +783,6 @@ async def _generate_reference_units(
         specs=specs,
         states=states,
         admission={str(item["unit_id"]): item for item in projections},
-        embedded_waiter=call.stop_on_failure_waiter(),
     )
     if submitted.successes is None or submitted.failures is None:
         return ReferenceGenerationComplete(projections=projections, batch=submitted.batch)
@@ -1192,7 +1187,7 @@ class _StoryboardBatch:
 
         submitted = await submit_media_generation(
             scope=self.call.scope,
-            caller=self.call.caller,
+            caller=self.call.stop_on_failure_caller(),
             services=self.call.services,
             operation=self.operation,
             preflight=self.builder.build(),
@@ -1200,7 +1195,6 @@ class _StoryboardBatch:
             specs=specs,
             states=self.states,
             admission={str(item["unit_id"]): item for item in admission.projections()},
-            embedded_waiter=self.call.stop_on_failure_waiter(),
         )
         if submitted.successes is None or submitted.failures is None:
             return generation_batch_submission_outcome(submitted.batch)

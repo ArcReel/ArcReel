@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, cast
+from typing import cast
 
 import pytest
 
@@ -30,13 +30,12 @@ from lib.script.draft_quarantine import (
     write_quarantine,
 )
 from lib.script.reference_video.draft_validation import DraftViolation
-from server.agent_toolset.declaration import ToolDeclaration, invoke_declaration
 from server.agent_toolset.script_authoring import CONFIRM_SCRIPT_REVIEW, GENERATE_EPISODE_SCRIPT
-from server.media_tools.context import ToolContext, tool_services
 from server.services.project.script_review import ScriptReviewError, ScriptReviewService
-from server.tool_runtime import TextGenerationResult, ToolOutcome
+from server.tool_runtime import TextGenerationResult
 from tests.factories import make_video_request_facts
 from tests.fakes import FakeConfigResolver
+from tests.integration.server.agent_tool_support import ToolHarness, run_declared_tool
 
 
 def _drama_script_plan() -> dict:
@@ -131,13 +130,6 @@ def _make_project(
 
         pm.update_project("demo", _set_mode)
     return pm
-
-
-async def _agent_tool(
-    declaration: ToolDeclaration[Any, Any], ctx: ToolContext, arguments: dict[str, Any]
-) -> ToolOutcome[Any]:
-    """经工具声明的共享入口调用（两宿主同一入口），拿到 handler 的 ``ToolOutcome``。"""
-    return await invoke_declaration(declaration, arguments, ctx.scope, ctx.caller, tool_services(ctx))
 
 
 def _service(pm: ProjectManager) -> ScriptReviewService:
@@ -1496,22 +1488,22 @@ class TestReferenceVideoPromptAuthoringEnforcement:
         _write_rv_script_plan(pm, _rv_script_plan())
         project_path = pm.get_project_path("demo")
 
-        ctx = ToolContext(
+        ctx = ToolHarness(
             project_name="demo",
             data_root=tmp_path / "projects",
             pm=pm,
             config_resolver=cast(ConfigResolver, FakeConfigResolver()),
         )
-        refused = await _agent_tool(GENERATE_EPISODE_SCRIPT, ctx, {"episode": 1})
+        refused = await run_declared_tool(GENERATE_EPISODE_SCRIPT, ctx, {"episode": 1})
         assert refused.problem is not None
         assert "尚无正式脚本" in refused.problem.detail
         assert "内容确认" in refused.problem.detail
 
-        result = await _agent_tool(CONFIRM_SCRIPT_REVIEW, ctx, {"episode": 1})
+        result = await run_declared_tool(CONFIRM_SCRIPT_REVIEW, ctx, {"episode": 1})
         assert result.problem is None, result
         assert (project_path / "scripts" / "episode_1.json").exists()
 
-        dry_run = await _agent_tool(GENERATE_EPISODE_SCRIPT, ctx, {"episode": 1, "dry_run": True})
+        dry_run = await run_declared_tool(GENERATE_EPISODE_SCRIPT, ctx, {"episode": 1, "dry_run": True})
         assert dry_run.problem is None, dry_run
 
 
@@ -1829,13 +1821,13 @@ class TestPromptAuthoringEnforcement:
         project_path = pm.get_project_path("demo")
         assert script_review.review_status(project_path, pm.load_project("demo"), 1) == "pending_review"
 
-        ctx = ToolContext(
+        ctx = ToolHarness(
             project_name="demo",
             data_root=tmp_path / "projects",
             pm=pm,
             config_resolver=cast(ConfigResolver, FakeConfigResolver()),
         )
-        result = await _agent_tool(GENERATE_EPISODE_SCRIPT, ctx, {"episode": 1, "dry_run": True})
+        result = await run_declared_tool(GENERATE_EPISODE_SCRIPT, ctx, {"episode": 1, "dry_run": True})
 
         assert isinstance(result.value, TextGenerationResult), result
         assert "没有待编写的条目" in result.value.message
@@ -1847,13 +1839,13 @@ class TestPromptAuthoringEnforcement:
         project_path = pm.get_project_path("demo")
         assert script_review.review_status(project_path, pm.load_project("demo"), 1) == "pending_review"
 
-        ctx = ToolContext(
+        ctx = ToolHarness(
             project_name="demo",
             data_root=tmp_path / "projects",
             pm=pm,
             config_resolver=cast(ConfigResolver, FakeConfigResolver()),
         )
-        result = await _agent_tool(CONFIRM_SCRIPT_REVIEW, ctx, {"episode": 1})
+        result = await run_declared_tool(CONFIRM_SCRIPT_REVIEW, ctx, {"episode": 1})
 
         assert result.problem is None, result
         assert script_review.review_status(project_path, pm.load_project("demo"), 1) == "confirmed"
@@ -1869,14 +1861,14 @@ class TestPromptAuthoringEnforcement:
         pm = _make_project(tmp_path, "drama")
         _write_script_plan(pm, "drama", _admitted_drama_script_plan())
         project_path = pm.get_project_path("demo")
-        ctx = ToolContext(
+        ctx = ToolHarness(
             project_name="demo",
             data_root=tmp_path / "projects",
             pm=pm,
             config_resolver=cast(ConfigResolver, FakeConfigResolver()),
         )
 
-        result = await _agent_tool(CONFIRM_SCRIPT_REVIEW, ctx, {"episode": 1})
+        result = await run_declared_tool(CONFIRM_SCRIPT_REVIEW, ctx, {"episode": 1})
 
         assert result.problem is not None
         text = result.problem.detail

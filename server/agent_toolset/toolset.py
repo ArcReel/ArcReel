@@ -29,15 +29,18 @@ AGENT_TOOLSET: tuple[AgentToolDeclaration, ...] = (
     *WORKFLOW_COMPLETION_TOOLS,
 )
 
-DECLARED_TOOL_IDS: tuple[str, ...] = tuple(declaration.name for declaration in AGENT_TOOLSET)
+# 工具 id 是短名（SDK 注册时另加 ``mcp__arcreel__`` 前缀）。前端显示名在 ``frontend/src/i18n/{zh,en,vi}/dashboard.ts``
+# 的 ``tool_name_<id>`` 键下，``tests/unit/test_frontend_mcp_tool_i18n.py`` 校验每个 id 在全部语言都有翻译。
+ARCREEL_MCP_TOOL_IDS: tuple[str, ...] = tuple(declaration.name for declaration in AGENT_TOOLSET)
 
-DECLARED_MIGRATION_BLOCKED_TOOL_IDS: frozenset[str] = frozenset(
+# 项目迁移裁决为失败时在共享声明入口拒绝的工具，按各声明的迁移阻断策略派生。
+MIGRATION_BLOCKED_TOOL_IDS: frozenset[str] = frozenset(
     declaration.name
     for declaration in AGENT_TOOLSET
     if isinstance(declaration, ToolDeclaration) and isinstance(declaration.migration, Blocked)
 )
 
-if len(set(DECLARED_TOOL_IDS)) != len(DECLARED_TOOL_IDS):
+if len(set(ARCREEL_MCP_TOOL_IDS)) != len(ARCREEL_MCP_TOOL_IDS):
     raise RuntimeError("Agent 工具集中存在重名声明")
 
-__all__ = ["AGENT_TOOLSET", "DECLARED_MIGRATION_BLOCKED_TOOL_IDS", "DECLARED_TOOL_IDS"]
+__all__ = ["AGENT_TOOLSET", "ARCREEL_MCP_TOOL_IDS", "MIGRATION_BLOCKED_TOOL_IDS"]

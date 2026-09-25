@@ -8,14 +8,14 @@ from typing import Any
 import pytest
 
 from lib.project.project_manager import ProjectManager
-from server.media_tools.context import ToolContext
-from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
+from tests.integration.server.agent_tool_support import (
+    ToolHarness,
     read_generation_result,
     run_declared_tool,
 )
 
 
-async def test_list_pending_assets_happy(fake_ctx: ToolContext) -> None:
+async def test_list_pending_assets_happy(fake_ctx: ToolHarness) -> None:
     out = await run_declared_tool("list_pending_assets", fake_ctx, {})
 
     assert out.problem is None
@@ -33,7 +33,7 @@ async def test_pending_asset_tools_include_an_unclaimed_schema8_sheet(tmp_path: 
     pm.add_project_scene("demo", "客厅", "宽敞的客厅")
     pm.update_scene_sheet("demo", "客厅", "scenes/客厅.png")
     (project_dir / "scenes" / "客厅.png").write_bytes(b"png")
-    ctx = ToolContext(project_name="demo", data_root=projects_root, pm=pm)
+    ctx = ToolHarness(project_name="demo", data_root=projects_root, pm=pm)
 
     listed = await run_declared_tool("list_pending_assets", ctx, {"type": "scene"})
 
@@ -51,7 +51,7 @@ async def test_pending_asset_tools_include_an_unclaimed_schema8_sheet(tmp_path: 
     assert enqueued == ["客厅"]
 
 
-async def test_list_pending_assets_error(fake_ctx: ToolContext) -> None:
+async def test_list_pending_assets_error(fake_ctx: ToolHarness) -> None:
     def boom(_name):
         raise RuntimeError("db down")
 
@@ -63,7 +63,7 @@ async def test_list_pending_assets_error(fake_ctx: ToolContext) -> None:
     assert out.problem.code == "internal_error"
 
 
-async def test_generate_assets_happy(fake_ctx: ToolContext) -> None:
+async def test_generate_assets_happy(fake_ctx: ToolHarness) -> None:
     async def fake_batch(*, specs, **_batch_kwargs):
         from lib.generation.generation_queue_client import BatchTaskResult
 
@@ -97,7 +97,7 @@ async def test_generate_assets_happy(fake_ctx: ToolContext) -> None:
     ],
 )
 async def test_generate_assets_rejects_an_ambiguous_selection_before_enqueue(
-    fake_ctx: ToolContext, arguments: dict[str, Any]
+    fake_ctx: ToolHarness, arguments: dict[str, Any]
 ) -> None:
     """含糊的选择是调用方错误，绝不能被当成「全部缺图资产」去扫全库付费。"""
 

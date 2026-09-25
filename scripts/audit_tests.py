@@ -201,7 +201,6 @@ MOTIVE_LOGIC = "绕被测逻辑本身"
 # 其余目标按正则归档。改动这张表就改动了报告里的三档数字，增删条目请附判定依据。
 MOTIVE_OVERRIDES = {
     # 名字不像 I/O，实际经 ConfigResolver / 文件系统 / 远端探测
-    "server.agent_runtime.sdk_tools._context.resolve_video_caps": MOTIVE_IO,
     "server.media_tools.image_edits._i2i_provider_available": MOTIVE_IO,
     "lib.artifacts.artifact_manifest._O_NOFOLLOW": MOTIVE_IO,
     "server.routers.system_config._read_app_version": MOTIVE_IO,

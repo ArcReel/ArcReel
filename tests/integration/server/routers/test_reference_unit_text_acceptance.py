@@ -21,13 +21,12 @@ from lib.project.project_migrations.runner import migrate_project_dir
 from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from lib.script.reference_video.script_preview import WARN_UNREGISTERED_MENTION
 from lib.script.script_batch_edit import script_revision
-from server.agent_toolset.declaration import invoke_declaration
 from server.agent_toolset.script_editing import PATCH_EPISODE_SCRIPT
 from server.auth import CurrentUserInfo, get_current_user
-from server.media_tools.context import ToolContext, tool_services
 from server.tool_runtime import ScriptPatchResult
 from tests.auth_deps import AUTH_DEPENDENCIES
 from tests.fakes import fake_reference_request_projector
+from tests.integration.server.agent_tool_support import ToolHarness, run_declared_tool
 
 _TINY_PNG = (
     b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x04\x00\x00\x00\x04"
@@ -60,7 +59,7 @@ class _Acceptance:
         client: TestClient,
         pm: ProjectManager,
         project_dir: Path,
-        tool_ctx: ToolContext,
+        tool_ctx: ToolHarness,
     ) -> None:
         self.client = client
         self.pm = pm
@@ -88,16 +87,14 @@ class _Acceptance:
 
     async def patch_body_over_agent_tool(self, text: str, unit_id: str = _UNIT_ID) -> ScriptPatchResult:
         revision = script_revision(self.script_on_disk())
-        outcome = await invoke_declaration(
+        outcome = await run_declared_tool(
             PATCH_EPISODE_SCRIPT,
+            self.tool_ctx,
             {
                 "script": _SCRIPT_FILE,
                 "base_revision": revision,
                 "operations": [{"op": "update", "id": unit_id, "fields": {"text": text}}],
             },
-            self.tool_ctx.scope,
-            self.tool_ctx.caller,
-            tool_services(self.tool_ctx),
         )
         assert outcome.value is not None, outcome
         assert outcome.value.success, outcome.value.problems
@@ -228,7 +225,7 @@ def acceptance(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> _Acceptance:
         client=TestClient(app),
         pm=pm,
         project_dir=project_dir,
-        tool_ctx=ToolContext(project_name="demo", data_root=projects_root, pm=pm),
+        tool_ctx=ToolHarness(project_name="demo", data_root=projects_root, pm=pm),
     )
 
 

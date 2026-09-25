@@ -25,10 +25,10 @@ from lib.script.draft_quarantine import (
 )
 from lib.script.reference_video.draft_validation import DraftViolation
 from server.draft_workflow import DraftContext, DraftWorkflow
-from server.media_tools.context import ToolContext
 from server.text_generation import TextGenerationError, TextGenerationRequest, generate_reference_script_plan
-from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
+from tests.integration.server.agent_tool_support import (
     _RV_NOVEL,
+    ToolHarness,
     draft_of,
     drama_project,
     drama_quarantine_path,
@@ -91,7 +91,7 @@ _RV_VIOLATION_CASES = [
 
 @pytest.mark.parametrize(("code", "unit"), _RV_VIOLATION_CASES, ids=[c for c, _ in _RV_VIOLATION_CASES])
 async def test_split_reference_video_units_quarantines_each_violation_class(
-    fake_ctx: ToolContext, monkeypatch, code: str, unit: dict
+    fake_ctx: ToolHarness, monkeypatch, code: str, unit: dict
 ) -> None:
     """六类阻断违约逐类：产物落草稿、正式文件不被写出、报告按违约类逐条定位。"""
     rv_source(fake_ctx)
@@ -116,7 +116,7 @@ async def test_split_reference_video_units_quarantines_each_violation_class(
 
 
 async def test_split_reference_video_units_reports_all_bad_units_in_one_round(
-    fake_ctx: ToolContext, monkeypatch
+    fake_ctx: ToolHarness, monkeypatch
 ) -> None:
     """报告逐条覆盖所有坏 unit，不停在第一个——否则 Agent 每修一处就要再跑一轮付费拆分。"""
     rv_source(fake_ctx)
@@ -136,7 +136,7 @@ async def test_split_reference_video_units_reports_all_bad_units_in_one_round(
 
 
 async def test_reference_script_plan_write_transaction_does_not_block_event_loop(
-    fake_ctx: ToolContext, monkeypatch
+    fake_ctx: ToolHarness, monkeypatch
 ) -> None:
     rv_source(fake_ctx)
     resolver = use_fake_caps(fake_ctx)
@@ -177,7 +177,7 @@ async def test_reference_script_plan_write_transaction_does_not_block_event_loop
     assert all(thread != caller_thread for thread in worker_threads)
 
 
-async def test_promote_draft_promotes_after_repair(fake_ctx: ToolContext, monkeypatch) -> None:
+async def test_promote_draft_promotes_after_repair(fake_ctx: ToolHarness, monkeypatch) -> None:
     """Agent 修好草稿后晋升：正式 script_plan 落盘、草稿清除、结构由正文机械派生。"""
     rv_source(fake_ctx)
     await run_rv_split(fake_ctx, monkeypatch, [rv_unit("@[不存在的人] 出场")])
@@ -195,7 +195,7 @@ async def test_promote_draft_promotes_after_repair(fake_ctx: ToolContext, monkey
     assert saved["units"][0]["text"] == "@[张三] 在 @[村口] 出场"
 
 
-async def test_promote_draft_reports_again_without_round_limit(fake_ctx: ToolContext, monkeypatch) -> None:
+async def test_promote_draft_reports_again_without_round_limit(fake_ctx: ToolHarness, monkeypatch) -> None:
     """再违约则再返回刷新后的报告、草稿留在原地，可反复晋升——无收敛轮次上限。"""
     rv_source(fake_ctx)
     await run_rv_split(fake_ctx, monkeypatch, [rv_unit("@[不存在的人] 出场")])
@@ -215,7 +215,7 @@ async def test_promote_draft_reports_again_without_round_limit(fake_ctx: ToolCon
     assert [v["code"] for v in read_rv_quarantine(fake_ctx)["violations"]] == ["braces_in_description"]
 
 
-async def test_promote_draft_rejects_stale_draft_revision(fake_ctx: ToolContext, monkeypatch) -> None:
+async def test_promote_draft_rejects_stale_draft_revision(fake_ctx: ToolHarness, monkeypatch) -> None:
     rv_source(fake_ctx)
     await run_rv_split(fake_ctx, monkeypatch, [rv_unit("@[不存在的人] 出场")])
     args = {"episode": 1, "doc_type": "reference_script_plan"}
@@ -242,7 +242,7 @@ async def test_promote_draft_rejects_stale_draft_revision(fake_ctx: ToolContext,
 # ---------------------------------------------------------------------------
 
 
-async def test_promote_conflicts_when_official_changed_after_open(fake_ctx: ToolContext) -> None:
+async def test_promote_conflicts_when_official_changed_after_open(fake_ctx: ToolHarness) -> None:
     """「用户在内容确认界面编辑 + Agent 改草稿并晋升」的双端并发：取回后正式文件被另一写入方
     改过时，晋升中止并返回冲突报告（含最新内容与合并指引），不静默覆盖对方的修改；草稿
     留在原地。按报告经 open_draft / patch_draft 显式接受 formal_revision 后方可重新晋升。"""
@@ -289,7 +289,7 @@ async def test_promote_conflicts_when_official_changed_after_open(fake_ctx: Tool
     assert not rv_quarantine_path(fake_ctx).exists()
 
 
-async def test_promote_conflict_report_renders_missing_fingerprint_as_json_null(fake_ctx: ToolContext) -> None:
+async def test_promote_conflict_report_renders_missing_fingerprint_as_json_null(fake_ctx: ToolHarness) -> None:
     """取回后正式文件被删除：现值指纹是 null，报告须按 JSON 字面量给出而非字符串 "None"。
     照报告用 patch_draft 显式接受 null 后重晋升即放行——写成字符串则永远比对不上。"""
     rv_source(fake_ctx)
@@ -324,7 +324,7 @@ async def test_promote_conflict_report_renders_missing_fingerprint_as_json_null(
     assert not rv_quarantine_path(fake_ctx).exists()
 
 
-async def test_promote_without_base_fingerprint_meta_promotes_unchecked(fake_ctx: ToolContext) -> None:
+async def test_promote_without_base_fingerprint_meta_promotes_unchecked(fake_ctx: ToolHarness) -> None:
     """基线机制引入前产出的存量草稿缺 meta.base_fingerprint 键：按无基线晋升，不被新校验卡死。"""
     rv_source(fake_ctx)
     write_rv_script_plan(fake_ctx, [rv_saved_unit("@[张三] 起身")])
@@ -341,7 +341,7 @@ async def test_promote_without_base_fingerprint_meta_promotes_unchecked(fake_ctx
     assert not rv_quarantine_path(fake_ctx).exists()
 
 
-async def test_split_violation_quarantine_records_base_fingerprint(fake_ctx: ToolContext, monkeypatch) -> None:
+async def test_split_violation_quarantine_records_base_fingerprint(fake_ctx: ToolHarness, monkeypatch) -> None:
     """拆分违约落草稿时同样记基线：修好晋升前正式文件被并发改写的话按基线中止。
     首拆时正式文件不存在，基线为 null——晋升时若正式文件已被另一次拆分写出，同样判冲突。"""
     rv_source(fake_ctx)
@@ -366,7 +366,7 @@ async def test_split_violation_quarantine_records_base_fingerprint(fake_ctx: Too
     assert script_review.content_fingerprint(rv_script_plan_path(fake_ctx)) == formal_fingerprint
 
 
-async def test_split_violation_keeps_pre_generation_formal_baseline(fake_ctx: ToolContext, monkeypatch) -> None:
+async def test_split_violation_keeps_pre_generation_formal_baseline(fake_ctx: ToolHarness, monkeypatch) -> None:
     from server import text_generation as mod
 
     rv_source(fake_ctx)
@@ -424,7 +424,7 @@ async def test_split_violation_keeps_pre_generation_formal_baseline(fake_ctx: To
     ],
     ids=["off_slot_duration", "duration_removed", "blank_source_text"],
 )
-async def test_promote_draft_rejects_schema_breach(fake_ctx: ToolContext, monkeypatch, mutate, hint: str) -> None:
+async def test_promote_draft_rejects_schema_breach(fake_ctx: ToolHarness, monkeypatch, mutate, hint: str) -> None:
     """草稿改坏 schema 层字段同样只回报告：晋升与产出走同一份 schema，正式文件不被污染。
 
     时长枚举在产出侧由 response_schema 卡死；晋升侧若只判内容约束，Agent 把 duration_seconds
@@ -455,7 +455,7 @@ async def test_promote_draft_rejects_schema_breach(fake_ctx: ToolContext, monkey
     ],
     ids=["units_removed", "units_not_a_list", "units_emptied"],
 )
-async def test_promote_draft_reports_broken_outer_shape(fake_ctx: ToolContext, monkeypatch, mutate_content) -> None:
+async def test_promote_draft_reports_broken_outer_shape(fake_ctx: ToolHarness, monkeypatch, mutate_content) -> None:
     """外层形状被改坏同样刷新报告，而不是抛一句裸错误。
 
     units 整个删掉 / 改成非数组 / 清空都是 Agent 编辑草稿时会犯的错。只有逐 unit 的字段违约
@@ -482,7 +482,7 @@ async def test_promote_draft_reports_broken_outer_shape(fake_ctx: ToolContext, m
     assert refreshed["content"] == edited_content
 
 
-async def test_promote_draft_requires_source_provenance(fake_ctx: ToolContext, monkeypatch) -> None:
+async def test_promote_draft_requires_source_provenance(fake_ctx: ToolHarness, monkeypatch) -> None:
     """meta.source 被改掉后不晋升：按整个 source/ 重解析比产出时更松，别集的原文锚会恰好命中。"""
     rv_source(fake_ctx)
     await run_rv_split(fake_ctx, monkeypatch, [rv_unit("@[不存在的人] 出场")])
@@ -500,7 +500,7 @@ async def test_promote_draft_requires_source_provenance(fake_ctx: ToolContext, m
     assert not rv_script_plan_path(fake_ctx).exists()
 
 
-async def test_promote_draft_reports_promotion_not_split(fake_ctx: ToolContext, monkeypatch) -> None:
+async def test_promote_draft_reports_promotion_not_split(fake_ctx: ToolHarness, monkeypatch) -> None:
     """晋升成功的摘要要说「晋升」：说成「拆分」会让 Agent 以为自己的修改被一次重抽覆盖了。"""
     rv_source(fake_ctx)
     await run_rv_split(fake_ctx, monkeypatch, [rv_unit("@[不存在的人] 出场")])
@@ -514,7 +514,7 @@ async def test_promote_draft_reports_promotion_not_split(fake_ctx: ToolContext, 
     assert "晋升" in said(out)
 
 
-def _rv_scenes(fake_ctx: ToolContext, scenes: dict[str, Any]) -> None:
+def _rv_scenes(fake_ctx: ToolHarness, scenes: dict[str, Any]) -> None:
     """改写项目登记的场景资产（内存视图与盘上 project.json 同步）。"""
     fake_ctx.pm.project_payload["scenes"] = scenes
     (fake_ctx.project_path / "project.json").write_text(
@@ -523,7 +523,7 @@ def _rv_scenes(fake_ctx: ToolContext, scenes: dict[str, Any]) -> None:
     )
 
 
-async def _rv_draft_with(fake_ctx: ToolContext, monkeypatch, texts: list[str]) -> None:
+async def _rv_draft_with(fake_ctx: ToolHarness, monkeypatch, texts: list[str]) -> None:
     """铺一份待修复草稿，正文按 ``texts`` 覆盖（产出时用一条必违约的正文把草稿逼出来）。"""
     await run_rv_split(fake_ctx, monkeypatch, [rv_unit("@[不存在的人] 出场") for _ in texts])
     envelope = read_rv_quarantine(fake_ctx)
@@ -532,7 +532,7 @@ async def _rv_draft_with(fake_ctx: ToolContext, monkeypatch, texts: list[str]) -
     rv_quarantine_path(fake_ctx).write_text(json.dumps(envelope, ensure_ascii=False), encoding="utf-8")
 
 
-async def test_promote_draft_report_names_units_without_scene_reference(fake_ctx: ToolContext, monkeypatch) -> None:
+async def test_promote_draft_report_names_units_without_scene_reference(fake_ctx: ToolHarness, monkeypatch) -> None:
     """晋升被硬违约挡下时，报告也带软违约段：Agent 修草稿的每一轮都要看得见降级提示。"""
     rv_source(fake_ctx)
     _rv_scenes(fake_ctx, {"村口": {"description": "黄昏的村口"}})
@@ -550,7 +550,7 @@ async def test_promote_draft_report_names_units_without_scene_reference(fake_ctx
 
 
 async def test_promote_draft_report_silent_when_every_unit_references_a_scene(
-    fake_ctx: ToolContext, monkeypatch
+    fake_ctx: ToolHarness, monkeypatch
 ) -> None:
     """每个 unit 都引用了场景时报告不带软违约段——没有降级可提示。"""
     rv_source(fake_ctx)
@@ -563,7 +563,7 @@ async def test_promote_draft_report_silent_when_every_unit_references_a_scene(
     assert "未引用场景" not in said(out)
 
 
-async def test_promote_receipt_names_units_without_scene_reference(fake_ctx: ToolContext, monkeypatch) -> None:
+async def test_promote_receipt_names_units_without_scene_reference(fake_ctx: ToolHarness, monkeypatch) -> None:
     """晋升回执带软违约段，与拆分回执同口径——软违约不阻断晋升，正式文件照常落盘。"""
     rv_source(fake_ctx)
     _rv_scenes(fake_ctx, {"村口": {"description": "黄昏的村口"}})
@@ -580,7 +580,7 @@ async def test_promote_receipt_names_units_without_scene_reference(fake_ctx: Too
     assert "unit E1U01：" not in text
 
 
-async def test_promote_receipt_silent_when_every_unit_references_a_scene(fake_ctx: ToolContext, monkeypatch) -> None:
+async def test_promote_receipt_silent_when_every_unit_references_a_scene(fake_ctx: ToolHarness, monkeypatch) -> None:
     """每个 unit 都引用了场景时回执不带软违约段。"""
     rv_source(fake_ctx)
     _rv_scenes(fake_ctx, {"村口": {"description": "黄昏的村口"}})
@@ -593,7 +593,7 @@ async def test_promote_receipt_silent_when_every_unit_references_a_scene(fake_ct
 
 
 async def test_cancelled_reference_script_plan_promotion_finishes_commit_and_cleanup(
-    fake_ctx: ToolContext, monkeypatch
+    fake_ctx: ToolHarness, monkeypatch
 ) -> None:
     rv_source(fake_ctx)
     await run_rv_split(fake_ctx, monkeypatch, [rv_unit("@[不存在的人] 出场")])
@@ -641,7 +641,7 @@ async def test_cancelled_reference_script_plan_promotion_finishes_commit_and_cle
 
 
 async def test_writing_reference_script_plan_clears_stale_prompt_authoring_quarantine(
-    fake_ctx: ToolContext, monkeypatch
+    fake_ctx: ToolHarness, monkeypatch
 ) -> None:
     """script_plan 一变即清掉在场的 prompt_authoring 草稿：它以旧 script_plan 为 diff 基底，留着就永远晋升不了。"""
     rv_source(fake_ctx)
@@ -662,7 +662,7 @@ async def test_writing_reference_script_plan_clears_stale_prompt_authoring_quara
 
 
 async def test_promote_reference_script_plan_preserves_prompt_authoring_draft_when_content_unchanged(
-    fake_ctx: ToolContext,
+    fake_ctx: ToolHarness,
 ) -> None:
     """情况 B 中途放弃、原样晋升：取回草稿未改动即晋升，写回的 script_plan 与盘上原值逐字相同，
     此时不该清在场的 prompt_authoring 草稿——它的保结构 diff 仍然对得上这份没变的基底，Agent
@@ -686,7 +686,7 @@ async def test_promote_reference_script_plan_preserves_prompt_authoring_draft_wh
     assert prompt_authoring_path.exists()
 
 
-def _write_rv_formal_script(fake_ctx: ToolContext, text: str) -> str | None:
+def _write_rv_formal_script(fake_ctx: ToolHarness, text: str) -> str | None:
     """正式剧本里一个待编写单元 E1U01；返回写入后的内容指纹，供草稿 meta 记作生成时基线。"""
     path = fake_ctx.project_path / "scripts" / "episode_1.json"
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -700,7 +700,7 @@ def _write_rv_formal_script(fake_ctx: ToolContext, text: str) -> str | None:
     return script_review.content_fingerprint(path)
 
 
-async def test_promote_draft_prompt_authoring_uses_async_factory(fake_ctx: ToolContext, monkeypatch) -> None:
+async def test_promote_draft_prompt_authoring_uses_async_factory(fake_ctx: ToolHarness, monkeypatch) -> None:
     """prompt_authoring 晋升走 ``ScriptGenerator.create``：晋升同样经 _add_metadata 落盘，裸构造会把
     metadata.generator 记成 "unknown"，与直接生成路径的同一份产物对不上。"""
     from lib.backends.text_generator import TextGenerator
@@ -735,7 +735,7 @@ async def test_promote_draft_prompt_authoring_uses_async_factory(fake_ctx: ToolC
 
 
 async def test_promote_draft_waits_for_file_lock_without_blocking_event_loop(
-    fake_ctx: ToolContext, monkeypatch
+    fake_ctx: ToolHarness, monkeypatch
 ) -> None:
     from lib.backends.text_generator import TextGenerator
 
@@ -803,7 +803,7 @@ async def test_promote_draft_waits_for_file_lock_without_blocking_event_loop(
     assert (fake_ctx.project_path / "scripts" / "episode_1.json").exists()
 
 
-async def test_open_script_plan_draft_waits_for_quarantine_lock(fake_ctx: ToolContext, monkeypatch) -> None:
+async def test_open_script_plan_draft_waits_for_quarantine_lock(fake_ctx: ToolHarness, monkeypatch) -> None:
     drama_project(fake_ctx)
     write_drama_script_plan(fake_ctx, [drama_scene()])
     target = drama_quarantine_path(fake_ctx)
@@ -830,7 +830,7 @@ async def test_open_script_plan_draft_waits_for_quarantine_lock(fake_ctx: ToolCo
     assert target.exists()
 
 
-async def test_promote_draft_refuses_after_mode_switch(fake_ctx: ToolContext) -> None:
+async def test_promote_draft_refuses_after_mode_switch(fake_ctx: ToolHarness) -> None:
     """切走参考路径后不再晋升残留草稿：晋升会按参考路径的形状覆盖该集正式剧本。"""
     rv_project(fake_ctx, generation_mode="storyboard")
     write_quarantine(
@@ -850,7 +850,7 @@ async def test_promote_draft_refuses_after_mode_switch(fake_ctx: ToolContext) ->
 
 
 async def test_promote_draft_prompt_authoring_ignores_unconfirmed_script_plan(
-    fake_ctx: ToolContext, monkeypatch
+    fake_ctx: ToolHarness, monkeypatch
 ) -> None:
     """prompt_authoring 草稿按正式剧本晋升：脚本规划重跑后尚未确认不阻塞晋升，与编写入口同口径。"""
     from lib.backends.text_generator import TextGenerator
@@ -892,14 +892,14 @@ async def test_promote_draft_prompt_authoring_ignores_unconfirmed_script_plan(
     assert not quarantine_path(fake_ctx.project_path, 1, QUARANTINE_KIND_PROMPT_AUTHORING).exists()
 
 
-async def test_promote_draft_without_draft(fake_ctx: ToolContext) -> None:
+async def test_promote_draft_without_draft(fake_ctx: ToolHarness) -> None:
     out = await promote_reference_draft(fake_ctx)
     assert out.problem is not None
     assert problem_of(out).code == "draft_not_found"
 
 
 async def test_split_reference_video_units_clears_stale_quarantine_on_success(
-    fake_ctx: ToolContext, monkeypatch
+    fake_ctx: ToolHarness, monkeypatch
 ) -> None:
     """重拆分成功即清掉上一轮的草稿——留着会让内容确认与生成侧继续阻塞在已被取代的产物上。"""
     rv_source(fake_ctx)
@@ -911,7 +911,7 @@ async def test_split_reference_video_units_clears_stale_quarantine_on_success(
     assert not rv_quarantine_path(fake_ctx).exists()
 
 
-def _write_prompt_authoring_draft(fake_ctx: ToolContext, violations: list[DraftViolation]) -> None:
+def _write_prompt_authoring_draft(fake_ctx: ToolHarness, violations: list[DraftViolation]) -> None:
     write_quarantine(
         fake_ctx.project_path,
         1,
@@ -922,7 +922,7 @@ def _write_prompt_authoring_draft(fake_ctx: ToolContext, violations: list[DraftV
     )
 
 
-async def _dry_run_authoring(fake_ctx: ToolContext, content_mode: str, items_key: str, entry: dict) -> str:
+async def _dry_run_authoring(fake_ctx: ToolHarness, content_mode: str, items_key: str, entry: dict) -> str:
     """正式剧本里放一条待编写条目后预演编写：预检放行时真实生成器按正式剧本渲染出编写 prompt。"""
     scripts = fake_ctx.project_path / "scripts"
     scripts.mkdir(parents=True, exist_ok=True)
@@ -941,7 +941,7 @@ async def _dry_run_authoring(fake_ctx: ToolContext, content_mode: str, items_key
 _UNAUTHORED_PROMPTS = {"image_prompt": None, "video_prompt": None}
 
 
-def _write_rv_quarantine(fake_ctx: ToolContext) -> None:
+def _write_rv_quarantine(fake_ctx: ToolHarness) -> None:
     write_quarantine(
         fake_ctx.project_path,
         1,
@@ -951,7 +951,7 @@ def _write_rv_quarantine(fake_ctx: ToolContext) -> None:
     )
 
 
-async def test_generate_episode_script_blocked_by_prompt_authoring_draft(fake_ctx: ToolContext) -> None:
+async def test_generate_episode_script_blocked_by_prompt_authoring_draft(fake_ctx: ToolHarness) -> None:
     """编写自身的待修复草稿在场时入口阻塞，且给出「改草稿再晋升」的出路。"""
     rv_project(fake_ctx)
     _write_rv_formal_script(fake_ctx, "@[张三] 起身")
@@ -963,7 +963,7 @@ async def test_generate_episode_script_blocked_by_prompt_authoring_draft(fake_ct
     assert "promote_draft" in said(out)
 
 
-async def test_generate_episode_script_not_blocked_by_reference_script_plan_draft(fake_ctx: ToolContext) -> None:
+async def test_generate_episode_script_not_blocked_by_reference_script_plan_draft(fake_ctx: ToolHarness) -> None:
     """编写只读正式剧本：参考生视频脚本规划的待修复草稿在场不阻塞编写，草稿原样保留。"""
     rv_project(fake_ctx)
     _write_rv_quarantine(fake_ctx)
@@ -977,7 +977,7 @@ async def test_generate_episode_script_not_blocked_by_reference_script_plan_draf
     assert rv_quarantine_path(fake_ctx).exists()
 
 
-async def test_generate_episode_script_preserves_editable_draft_without_violations(fake_ctx: ToolContext) -> None:
+async def test_generate_episode_script_preserves_editable_draft_without_violations(fake_ctx: ToolHarness) -> None:
     """可编辑草稿没有违约报告，编写入口应引导校验晋升而不是要求凭空修改。"""
     rv_project(fake_ctx)
     _write_rv_formal_script(fake_ctx, "@[张三] 起身")
@@ -991,7 +991,7 @@ async def test_generate_episode_script_preserves_editable_draft_without_violatio
     assert "按草稿内 violations" not in text
 
 
-async def test_generate_episode_script_quarantine_precedes_missing_formal_script(fake_ctx: ToolContext) -> None:
+async def test_generate_episode_script_quarantine_precedes_missing_formal_script(fake_ctx: ToolHarness) -> None:
     """编写草稿在场而正式剧本缺失：先报草稿待处置，不把 Agent 引回重跑脚本规划。"""
     rv_project(fake_ctx)
     _write_prompt_authoring_draft(fake_ctx, [DraftViolation("坏", code="empty_text", label="unit E1U01")])
@@ -1004,7 +1004,7 @@ async def test_generate_episode_script_quarantine_precedes_missing_formal_script
     assert "尚无正式脚本" not in text
 
 
-async def test_generate_episode_script_ignores_quarantine_after_mode_switch(fake_ctx: ToolContext) -> None:
+async def test_generate_episode_script_ignores_quarantine_after_mode_switch(fake_ctx: ToolHarness) -> None:
     """切走参考路径后残留的草稿与新路径无关：非参考路径不清它们，仍判会把该集永久卡死。"""
     rv_project(fake_ctx, generation_mode="storyboard")
     _write_rv_quarantine(fake_ctx)
@@ -1020,7 +1020,7 @@ async def test_generate_episode_script_ignores_quarantine_after_mode_switch(fake
 # ---------------------------------------------------------------------------
 
 
-async def test_promote_drama_script_plan_rederives_needs_replan(fake_ctx: ToolContext) -> None:
+async def test_promote_drama_script_plan_rederives_needs_replan(fake_ctx: ToolHarness) -> None:
     """needs_replan 由晋升侧按台词准入重新派生，不取草稿里的值——它是机器判据，
     手写值一旦被采信，后续重规划会漏掉真正需要重排的场景。"""
     drama_project(fake_ctx)
@@ -1043,7 +1043,7 @@ async def test_promote_drama_script_plan_rederives_needs_replan(fake_ctx: ToolCo
     assert saved["scenes"][0]["needs_replan"] is True
 
 
-async def test_promote_drama_script_plan_returns_a_receipt_with_statistics(fake_ctx: ToolContext) -> None:
+async def test_promote_drama_script_plan_returns_a_receipt_with_statistics(fake_ctx: ToolHarness) -> None:
     """drama 晋升回执与产出回执同格式：Agent 两次都按同一份统计段读结果。"""
     drama_project(fake_ctx)
     write_drama_script_plan(fake_ctx, [drama_scene()])
@@ -1057,7 +1057,7 @@ async def test_promote_drama_script_plan_returns_a_receipt_with_statistics(fake_
     assert "1 个分镜" in message
 
 
-async def test_promote_drama_script_plan_reports_schema_breach_without_writing(fake_ctx: ToolContext) -> None:
+async def test_promote_drama_script_plan_reports_schema_breach_without_writing(fake_ctx: ToolHarness) -> None:
     """草稿被改坏时正式文件不写：草稿留在场、按 violations 继续改再晋升，不丢内容也不污染正式文件。"""
     drama_project(fake_ctx)
     write_drama_script_plan(fake_ctx, [drama_scene()])
@@ -1077,7 +1077,7 @@ async def test_promote_drama_script_plan_reports_schema_breach_without_writing(f
 
 
 async def test_promote_drama_script_plan_reports_video_request_facts_problem(
-    fake_ctx: ToolContext, set_video_request_facts
+    fake_ctx: ToolHarness, set_video_request_facts
 ) -> None:
     """晋升重判时视频请求事实解析不出：拒绝晋升并带问题码与参数，草稿留在场。"""
     drama_project(fake_ctx)
@@ -1093,7 +1093,7 @@ async def test_promote_drama_script_plan_reports_video_request_facts_problem(
     assert drama_quarantine_path(fake_ctx).exists()
 
 
-async def test_promote_drama_script_plan_aborts_on_concurrent_write(fake_ctx: ToolContext) -> None:
+async def test_promote_drama_script_plan_aborts_on_concurrent_write(fake_ctx: ToolHarness) -> None:
     """取回与晋升之间正式文件被别的写入方改过 → 中止并报冲突，不静默覆盖对方的保存。"""
     drama_project(fake_ctx)
     write_drama_script_plan(fake_ctx, [drama_scene()])
@@ -1109,7 +1109,7 @@ async def test_promote_drama_script_plan_aborts_on_concurrent_write(fake_ctx: To
     assert drama_quarantine_path(fake_ctx).exists()
 
 
-async def test_generate_episode_script_not_blocked_by_drama_script_plan_draft(fake_ctx: ToolContext) -> None:
+async def test_generate_episode_script_not_blocked_by_drama_script_plan_draft(fake_ctx: ToolHarness) -> None:
     """drama 脚本规划的待修复草稿在场不阻塞编写：编写的输入是正式剧本，草稿原样保留。"""
     drama_project(fake_ctx)
     write_drama_script_plan(fake_ctx, [drama_scene()])
@@ -1122,7 +1122,7 @@ async def test_generate_episode_script_not_blocked_by_drama_script_plan_draft(fa
     assert drama_quarantine_path(fake_ctx).exists()
 
 
-async def test_normalize_drama_script_clears_quarantine_on_regeneration(fake_ctx: ToolContext, monkeypatch) -> None:
+async def test_normalize_drama_script_clears_quarantine_on_regeneration(fake_ctx: ToolHarness, monkeypatch) -> None:
     """重新规范化是刻意的整份重建，与参考生视频的重拆分同口径：正式文件换成新产物的同一临界区内
     清掉上一轮草稿。留着它会让内容确认与 prompt_authoring 一直阻塞在一份已被取代的内容上，而草稿记下的基线
     指纹此刻也对不上，晋升只会反复报冲突——Agent 没有第二条出路。"""
@@ -1156,7 +1156,7 @@ async def test_normalize_drama_script_clears_quarantine_on_regeneration(fake_ctx
     assert saved["scenes"][0]["scene_description"] == "重新规范化后的描述。"
 
 
-async def test_normalize_drama_script_serializes_commit_with_draft_edits(fake_ctx: ToolContext, monkeypatch) -> None:
+async def test_normalize_drama_script_serializes_commit_with_draft_edits(fake_ctx: ToolHarness, monkeypatch) -> None:
     """重生成的正式文件提交与草稿 patch/promote 共用草稿锁，避免交叉覆盖。"""
     from server import text_generation as mod
 
@@ -1203,7 +1203,7 @@ async def test_normalize_drama_script_serializes_commit_with_draft_edits(fake_ct
 
 
 async def test_normalize_drama_script_preserves_draft_edited_during_model_call(
-    fake_ctx: ToolContext, monkeypatch
+    fake_ctx: ToolHarness, monkeypatch
 ) -> None:
     from server import text_generation as mod
 
@@ -1259,7 +1259,7 @@ async def test_normalize_drama_script_preserves_draft_edited_during_model_call(
 
 
 async def test_normalize_drama_script_preserves_output_when_formal_changes_during_model_call(
-    fake_ctx: ToolContext, monkeypatch
+    fake_ctx: ToolHarness, monkeypatch
 ) -> None:
     from server import text_generation as mod
 
@@ -1306,7 +1306,7 @@ async def test_normalize_drama_script_preserves_output_when_formal_changes_durin
 
 
 async def test_split_narration_segments_quarantines_violation_instead_of_discarding(
-    fake_ctx: ToolContext, monkeypatch
+    fake_ctx: ToolHarness, monkeypatch
 ) -> None:
     """违约产出落草稿而非丢弃：正式文件不写，报告带违约类与分镜定位，草稿里是这次的产出。
 
@@ -1337,7 +1337,7 @@ async def test_split_narration_segments_quarantines_violation_instead_of_discard
     assert envelope["meta"]["base_fingerprint"] is None
 
 
-async def test_split_narration_segments_clears_quarantine_on_regeneration(fake_ctx: ToolContext, monkeypatch) -> None:
+async def test_split_narration_segments_clears_quarantine_on_regeneration(fake_ctx: ToolHarness, monkeypatch) -> None:
     """重跑拆分成功后清掉上一轮的草稿：正式文件已是新产物，旧草稿留着只会让内容确认与 prompt_authoring 继续
     阻塞在一份已被取代的内容上。"""
     from server import text_generation as mod
@@ -1362,7 +1362,7 @@ async def test_split_narration_segments_clears_quarantine_on_regeneration(fake_c
 
 @pytest.mark.parametrize("segment_id", [" ", "items[0]", "E1S1", "E2S01"])
 async def test_split_narration_segments_rejects_malformed_segment_id(
-    fake_ctx: ToolContext, monkeypatch, segment_id: str
+    fake_ctx: ToolHarness, monkeypatch, segment_id: str
 ) -> None:
     from server import text_generation as mod
 
@@ -1380,7 +1380,7 @@ async def test_split_narration_segments_rejects_malformed_segment_id(
     assert not nr_script_plan_path(fake_ctx).exists()
 
 
-async def test_promote_narration_script_plan_rejects_segment_id_from_another_episode(fake_ctx: ToolContext) -> None:
+async def test_promote_narration_script_plan_rejects_segment_id_from_another_episode(fake_ctx: ToolHarness) -> None:
     nr_source(fake_ctx)
     write_nr_script_plan(fake_ctx, [nr_segment("E1S01", 4, _RV_NOVEL)])
     await open_nr_for_edit(fake_ctx, source="source/episode_1.txt")
@@ -1395,7 +1395,7 @@ async def test_promote_narration_script_plan_rejects_segment_id_from_another_epi
     assert nr_quarantine_path(fake_ctx).exists()
 
 
-async def test_promote_narration_script_plan_reports_schema_breach_without_writing(fake_ctx: ToolContext) -> None:
+async def test_promote_narration_script_plan_reports_schema_breach_without_writing(fake_ctx: ToolHarness) -> None:
     """草稿被改到过不了产出时那份 schema：报告刷新、正式文件不写，草稿保留 Agent 手里那份原样内容。"""
     nr_source(fake_ctx)
     write_nr_script_plan(fake_ctx, [nr_segment("E1S01", 4, _RV_NOVEL)])
@@ -1414,7 +1414,7 @@ async def test_promote_narration_script_plan_reports_schema_breach_without_writi
     assert "novel_text" not in read_nr_quarantine(fake_ctx)["content"]["segments"][0]
 
 
-async def test_promote_narration_script_plan_aborts_on_concurrent_write(fake_ctx: ToolContext) -> None:
+async def test_promote_narration_script_plan_aborts_on_concurrent_write(fake_ctx: ToolHarness) -> None:
     """取回后正式文件被别的写入方改过：晋升中止、报冲突让 Agent 合并，不静默覆盖。"""
     nr_source(fake_ctx)
     write_nr_script_plan(fake_ctx, [nr_segment("E1S01", 4, _RV_NOVEL)])
@@ -1430,7 +1430,7 @@ async def test_promote_narration_script_plan_aborts_on_concurrent_write(fake_ctx
     assert json.loads(nr_script_plan_path(fake_ctx).read_text(encoding="utf-8"))["segments"][0]["duration_seconds"] == 6
 
 
-async def test_promote_narration_script_plan_revalidates_against_current_source(fake_ctx: ToolContext) -> None:
+async def test_promote_narration_script_plan_revalidates_against_current_source(fake_ctx: ToolHarness) -> None:
     """晋升按现值重判原文覆盖：草稿里改写过的正文即便结构合法也拒，正式文件不被污染。"""
     nr_source(fake_ctx)
     write_nr_script_plan(fake_ctx, [nr_segment("E1S01", 4, _RV_NOVEL)])
@@ -1448,7 +1448,7 @@ async def test_promote_narration_script_plan_revalidates_against_current_source(
     assert nr_script_plan_path(fake_ctx).read_text(encoding="utf-8") == before
 
 
-async def test_promote_narration_script_plan_names_source_scope_on_coverage_violation(fake_ctx: ToolContext) -> None:
+async def test_promote_narration_script_plan_names_source_scope_on_coverage_violation(fake_ctx: ToolHarness) -> None:
     """取回时指定了别集的 source：一字未改的草稿也判不过，报告须指名范围与出路。
 
     草稿在场时不能重新取回，报告须指引 Agent 通过 patch_draft 更新源文范围。
@@ -1485,7 +1485,7 @@ async def test_promote_narration_script_plan_names_source_scope_on_coverage_viol
 
 
 async def test_promote_narration_script_plan_revalidates_a_default_source_draft_against_the_episode_file(
-    fake_ctx: ToolContext,
+    fake_ctx: ToolHarness,
 ) -> None:
     """取回时未指定 source（meta.source 为 null）时按本集派生源文重判，不受 source/ 下其他文件影响。"""
     nr_source(fake_ctx)
@@ -1500,7 +1500,7 @@ async def test_promote_narration_script_plan_revalidates_a_default_source_draft_
     assert out.problem is None, out
 
 
-async def test_promote_narration_script_plan_returns_a_receipt_with_statistics(fake_ctx: ToolContext) -> None:
+async def test_promote_narration_script_plan_returns_a_receipt_with_statistics(fake_ctx: ToolHarness) -> None:
     """narration 晋升回执与拆分回执同格式：Agent 两次都按同一份统计段读结果。"""
     nr_source(fake_ctx)
     write_nr_script_plan(fake_ctx, [nr_segment("E1S01", 4, _RV_NOVEL)])
@@ -1515,7 +1515,7 @@ async def test_promote_narration_script_plan_returns_a_receipt_with_statistics(f
     assert "segment_break 标记" in message
 
 
-async def test_generate_episode_script_not_blocked_by_narration_script_plan_draft(fake_ctx: ToolContext) -> None:
+async def test_generate_episode_script_not_blocked_by_narration_script_plan_draft(fake_ctx: ToolHarness) -> None:
     """narration 脚本规划的待修复草稿在场不阻塞编写：编写的输入是正式剧本，草稿原样保留。"""
     nr_source(fake_ctx)
     write_nr_script_plan(fake_ctx, [nr_segment("E1S01", 4, _RV_NOVEL)])

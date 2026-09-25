@@ -361,19 +361,14 @@ async def _submit(
 
     submitted = await submit_media_generation(
         scope=scope,
-        caller=caller,
+        # 入队完成即离开提交临界区：等联合图生成期间，同一项目的其他提交照常进行
+        caller=caller.waiting_with(on_enqueued=plan.section.end),
         services=services,
         operation=_OPERATION,
         preflight=builder.build(),
         pending_ids=[scene_id for ids in report_ids_by_grid.values() for scene_id in ids],
         specs=specs,
         states=states,
-        # 入队完成即离开提交临界区：等联合图生成期间，同一项目的其他提交照常进行
-        embedded_waiter=(
-            functools.partial(caller.batch_waiter, on_enqueued=plan.section.end)
-            if caller.batch_waiter is not None
-            else None
-        ),
     )
     if submitted.successes is None or submitted.failures is None:
         return generation_batch_submission_outcome(submitted.batch)
@@ -468,10 +463,9 @@ class SplitGridsRequest(BaseModel):
 async def split_grids(
     request: ToolRequest[SplitGridsRequest],
     scope: ProjectScope,
-    caller: CallerContext,
+    _caller: CallerContext,
     services: Services,
 ) -> ToolOutcome[dict[str, Any]]:
-    del caller
     try:
         grid_ids = normalize_requested_ids(request.value.grid_ids, field="grid_ids") or []
         project = services.projects.load_project(scope.project_name)

@@ -11,13 +11,12 @@ from lib.generation.generation_queue import GenerationQueue
 from lib.generation.generation_queue_client import wait_for_task
 from lib.generation.generation_worker import CapacityTable, GenerationWorker
 from lib.project.project_change_hints import register_project_change_batch_listener
-from server.media_tools.context import ToolContext
 from server.services.tasks.generation_tasks import execute_generation_task
 from server.services.tasks.resume_executor import execute_resume_video_task
-from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import FakePM, fake_caps_resolver
+from tests.integration.server.agent_tool_support import FakePM, ToolHarness, fake_caps_resolver
 
 
-def _build_fake_ctx(tmp_path: Path, session_factory, monkeypatch: pytest.MonkeyPatch) -> ToolContext:
+def _build_fake_ctx(tmp_path: Path, session_factory, monkeypatch: pytest.MonkeyPatch) -> ToolHarness:
     monkeypatch.setattr("lib.db.async_session_factory", session_factory)
     monkeypatch.setattr("server.services.admission.video_batch_admission.async_session_factory", session_factory)
     monkeypatch.setattr("server.services.tasks.video_caps.async_session_factory", session_factory)
@@ -30,7 +29,7 @@ def _build_fake_ctx(tmp_path: Path, session_factory, monkeypatch: pytest.MonkeyP
     (project_dir / "audio" / "segment_E1S02.wav").write_bytes(b"")
 
     queue = GenerationQueue(session_factory=session_factory)
-    return ToolContext(
+    return ToolHarness(
         project_name="demo",
         data_root=tmp_path,
         pm=FakePM("demo", project_dir),
@@ -40,7 +39,7 @@ def _build_fake_ctx(tmp_path: Path, session_factory, monkeypatch: pytest.MonkeyP
 
 
 @pytest.fixture
-def idle_fake_ctx(tmp_path: Path, concurrent_session_factory, monkeypatch: pytest.MonkeyPatch) -> ToolContext:
+def idle_fake_ctx(tmp_path: Path, concurrent_session_factory, monkeypatch: pytest.MonkeyPatch) -> ToolHarness:
     return _build_fake_ctx(tmp_path, concurrent_session_factory, monkeypatch)
 
 
@@ -49,7 +48,7 @@ async def fake_ctx(
     tmp_path: Path,
     concurrent_session_factory,
     monkeypatch: pytest.MonkeyPatch,
-) -> AsyncIterator[ToolContext]:
+) -> AsyncIterator[ToolHarness]:
     ctx = _build_fake_ctx(tmp_path, concurrent_session_factory, monkeypatch)
     queue = ctx.queue
 

@@ -138,6 +138,15 @@ class UnscopedToolDeclaration[RequestT: BaseModel, ResultT]:
 
 type AgentToolDeclaration = ToolDeclaration[Any, Any] | UnscopedToolDeclaration[Any, Any]
 
+MIGRATION_REFUSAL_NOTE = "项目数据升级失败时拒绝执行，返回 project_migration_failed problem。"
+
+
+def tool_description(declaration: AgentToolDeclaration) -> str:
+    """两宿主共用的工具描述：迁移阻断策略为 ``BLOCKED`` 的声明在末尾追加迁移拒绝说明。"""
+    if isinstance(declaration, ToolDeclaration) and isinstance(declaration.migration, Blocked):
+        return declaration.description + MIGRATION_REFUSAL_NOTE
+    return declaration.description
+
 
 def invalid_request_problem(exc: ValidationError) -> ToolProblem:
     errors = [
@@ -190,6 +199,7 @@ async def invoke_unscoped_declaration(
 
 __all__ = [
     "BLOCKED",
+    "MIGRATION_REFUSAL_NOTE",
     "READ_CHECK",
     "AgentToolDeclaration",
     "Blocked",
@@ -204,4 +214,5 @@ __all__ = [
     "invoke_declaration",
     "invoke_unscoped_declaration",
     "request_json_schema",
+    "tool_description",
 ]

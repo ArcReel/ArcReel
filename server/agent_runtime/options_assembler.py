@@ -32,7 +32,7 @@ from lib.i18n import DEFAULT_LOCALE, LOCALE_LANGUAGE_MAP
 from lib.infra.data_root_layout import DataRootLayout
 from lib.prompts.prompt_templates.builtin import builtin_templates
 from server.agent_runtime.agent_access_policy import AgentAccessPolicy
-from server.agent_runtime.sdk_tools import build_arcreel_mcp_server
+from server.agent_runtime.arcreel_mcp import build_arcreel_mcp_server
 from server.auth import create_token, is_auth_enabled
 
 logger = logging.getLogger(__name__)
@@ -329,7 +329,7 @@ class OptionsAssembler:
         # Windows 回退：sandbox 关闭时 Bash 系列被剥离出 allowed_tools，
         # 让 _can_use_tool 接管 prefix 白名单匹配。
         allowed_tools = policy.filter_allowed_tools(self._allowed_tools)
-        # 内置 ArcReel SDK MCP server — handler 跑在主进程，绕过 sandbox。
+        # 内置 ArcReel in-process MCP server — handler 跑在主进程，绕过 sandbox。
         # 通配符让后续新增 tool 不必同步改 allowed_tools。
         allowed_tools.append("mcp__arcreel__*")
 

@@ -9,11 +9,11 @@ import pytest
 
 from lib.generation.video_request_facts import VideoRequestFactsError, VideoRequestFactsFailure
 from lib.script.reference_video.unit_capabilities import evaluate_reference_unit_capabilities
-from server.media_tools.context import ToolContext
 from server.services.tasks.video_caps import reference_request_facts_lookup
 from tests.factories import make_video_request_facts, seed_endpoint_fixed_video_model
-from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import (
+from tests.integration.server.agent_tool_support import (
     _RV_NOVEL,
+    ToolHarness,
     derived_reference_names,
     read_rv_quarantine,
     run_declared_tool,
@@ -266,7 +266,7 @@ async def test_reference_split_planning_borrows_planning_tiers_for_endpoint_fixe
     assert caps.text_problem is None
 
 
-async def test_split_reference_video_units_dry_run(fake_ctx: ToolContext, video_request_facts) -> None:
+async def test_split_reference_video_units_dry_run(fake_ctx: ToolHarness, video_request_facts) -> None:
     rv_source(fake_ctx)
 
     out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode": 1, "dry_run": True})
@@ -282,7 +282,7 @@ async def test_split_reference_video_units_dry_run(fake_ctx: ToolContext, video_
 
 
 async def test_split_reference_video_units_happy_derives_structure(
-    fake_ctx: ToolContext, monkeypatch, video_request_facts
+    fake_ctx: ToolHarness, monkeypatch, video_request_facts
 ) -> None:
     """happy path：LLM 只写扁平正文，正文逐字落盘，只有 unit_id 由工具机械派生。"""
     from server import text_generation as mod
@@ -310,7 +310,7 @@ async def test_split_reference_video_units_happy_derives_structure(
 
 
 async def test_split_reference_video_units_numbers_unit_ids_by_order(
-    fake_ctx: ToolContext, monkeypatch, video_request_facts
+    fake_ctx: ToolHarness, monkeypatch, video_request_facts
 ) -> None:
     """unit_id 按数组序号机械编号：LLM 不写 id，也就不存在重复 / 错集号可写。"""
     rv_source(fake_ctx)
@@ -322,7 +322,7 @@ async def test_split_reference_video_units_numbers_unit_ids_by_order(
 
 
 async def test_split_reference_video_units_derives_dialogue_without_reference_image(
-    fake_ctx: ToolContext, monkeypatch, video_request_facts
+    fake_ctx: ToolHarness, monkeypatch, video_request_facts
 ) -> None:
     """台词记号的说话人位不进参考图（画外说话的角色附参考图会诱导入画）。"""
     rv_source(fake_ctx)
@@ -334,7 +334,7 @@ async def test_split_reference_video_units_derives_dialogue_without_reference_im
 
 
 async def test_split_reference_video_units_rejects_unregistered_asset(
-    fake_ctx: ToolContext, monkeypatch, video_request_facts
+    fake_ctx: ToolHarness, monkeypatch, video_request_facts
 ) -> None:
     """正文引用未登记资产名 → fail-loud，不写盘（资产名引用完整性）。"""
     rv_source(fake_ctx)
@@ -345,7 +345,7 @@ async def test_split_reference_video_units_rejects_unregistered_asset(
 
 
 async def test_split_reference_video_units_rejects_unregistered_speaker(
-    fake_ctx: ToolContext, monkeypatch, video_request_facts
+    fake_ctx: ToolHarness, monkeypatch, video_request_facts
 ) -> None:
     """说话人位未登记同样阻断：说话人决定该句台词绑哪段参考音频。"""
     rv_source(fake_ctx)
@@ -356,7 +356,7 @@ async def test_split_reference_video_units_rejects_unregistered_speaker(
 
 
 async def test_split_reference_video_units_rejects_over_max_refs(
-    fake_ctx: ToolContext, monkeypatch, set_video_request_facts
+    fake_ctx: ToolHarness, monkeypatch, set_video_request_facts
 ) -> None:
     """单 unit 的 `@` 提及上限取 r2v 桶事实的参考图上限。"""
     rv_source(fake_ctx)
@@ -368,7 +368,7 @@ async def test_split_reference_video_units_rejects_over_max_refs(
 
 
 async def test_split_reference_video_units_rejects_duration_off_reference_tier(
-    fake_ctx: ToolContext, monkeypatch, set_video_request_facts
+    fake_ctx: ToolHarness, monkeypatch, set_video_request_facts
 ) -> None:
     """带可用参考图的 unit 取了只有无图 unit 才合法的时长 → 判违约、不写正式文件。
 
@@ -388,7 +388,7 @@ async def test_split_reference_video_units_rejects_duration_off_reference_tier(
 
 
 async def test_split_reference_video_units_locates_the_unit_when_its_i2v_tiers_are_unknown(
-    fake_ctx: ToolContext, monkeypatch, set_video_request_facts
+    fake_ctx: ToolHarness, monkeypatch, set_video_request_facts
 ) -> None:
     """无图 unit 的 i2v 事实解析不出时，违约带该 unit 的定位，而不是落到集级聚合区。"""
     rv_source(fake_ctx)
@@ -407,7 +407,7 @@ async def test_split_reference_video_units_locates_the_unit_when_its_i2v_tiers_a
 
 @pytest.mark.parametrize("sheet", ["absent", "unclaimed"])
 async def test_split_reference_video_units_buckets_a_reference_without_usable_image_as_i2v(
-    fake_ctx: ToolContext, monkeypatch, set_video_request_facts, sheet: str
+    fake_ctx: ToolHarness, monkeypatch, set_video_request_facts, sheet: str
 ) -> None:
     """`@` 引用的角色没有可用参考图（未生成资产图，或图在盘上但产物清单未认领）时，单元与内容确认
     面板、执行一样落 i2v：4 秒在 i2v 档位内合法，不按带图档位 [8] 判越档。
@@ -428,7 +428,7 @@ async def test_split_reference_video_units_buckets_a_reference_without_usable_im
 
 
 async def test_split_reference_video_units_accepts_wide_tier_without_references(
-    fake_ctx: ToolContext, monkeypatch, set_video_request_facts
+    fake_ctx: ToolHarness, monkeypatch, set_video_request_facts
 ) -> None:
     """无 `@` 引用的 unit 不受「参考图↔时长」约束，仍可取更短的档位。"""
     rv_source(fake_ctx)
@@ -441,7 +441,7 @@ async def test_split_reference_video_units_accepts_wide_tier_without_references(
 
 
 async def test_split_reference_video_units_rejects_out_of_enum_duration(
-    fake_ctx: ToolContext, monkeypatch, video_request_facts
+    fake_ctx: ToolHarness, monkeypatch, video_request_facts
 ) -> None:
     """本地校验复用动态 schema：超出 supported_durations 的 unit 时长被拦截，不落盘。"""
     rv_source(fake_ctx)
@@ -451,7 +451,7 @@ async def test_split_reference_video_units_rejects_out_of_enum_duration(
     assert not rv_script_plan_path(fake_ctx).exists()
 
 
-async def test_split_reference_video_units_rejects_empty_units(fake_ctx: ToolContext, monkeypatch) -> None:
+async def test_split_reference_video_units_rejects_empty_units(fake_ctx: ToolHarness, monkeypatch) -> None:
     rv_source(fake_ctx)
     out = await run_rv_split(fake_ctx, monkeypatch, [])
     assert out.problem is not None
@@ -459,7 +459,7 @@ async def test_split_reference_video_units_rejects_empty_units(fake_ctx: ToolCon
 
 
 async def test_split_reference_video_units_rejects_non_verbatim_source_text(
-    fake_ctx: ToolContext, monkeypatch, video_request_facts
+    fake_ctx: ToolHarness, monkeypatch, video_request_facts
 ) -> None:
     """source_text 非源文逐字子串 → 响亮失败（模型转述 / 杜撰原文）。"""
     rv_source(fake_ctx)
@@ -471,7 +471,7 @@ async def test_split_reference_video_units_rejects_non_verbatim_source_text(
 
 
 async def test_split_reference_video_units_accepts_source_text_substring(
-    fake_ctx: ToolContext, monkeypatch, video_request_facts
+    fake_ctx: ToolHarness, monkeypatch, video_request_facts
 ) -> None:
     """锚只需是源文子串：unit 是画面单元，不必覆盖整段原文。"""
     rv_source(fake_ctx)
@@ -481,7 +481,7 @@ async def test_split_reference_video_units_accepts_source_text_substring(
 
 
 async def test_split_reference_video_units_rejects_dialogue_overload(
-    fake_ctx: ToolContext, monkeypatch, video_request_facts
+    fake_ctx: ToolHarness, monkeypatch, video_request_facts
 ) -> None:
     """台词量按语速估算超过 unit 时长（宽容系数外）→ 阻断。"""
     rv_source(fake_ctx)
@@ -494,7 +494,7 @@ async def test_split_reference_video_units_rejects_dialogue_overload(
 
 
 async def test_split_reference_video_units_rejects_braces_in_description(
-    fake_ctx: ToolContext, monkeypatch, video_request_facts
+    fake_ctx: ToolHarness, monkeypatch, video_request_facts
 ) -> None:
     """画面描述误用花括号保留语法 → 阻断（没被识别成发声记号的花括号须响亮失败）。"""
     rv_source(fake_ctx)
@@ -504,12 +504,12 @@ async def test_split_reference_video_units_rejects_braces_in_description(
     assert not rv_script_plan_path(fake_ctx).exists()
 
 
-async def test_split_reference_video_units_no_source(fake_ctx: ToolContext) -> None:
+async def test_split_reference_video_units_no_source(fake_ctx: ToolHarness) -> None:
     out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode": 1})
     assert out.problem is not None
 
 
-async def test_split_reference_video_units_injects_instructions(fake_ctx: ToolContext, video_request_facts) -> None:
+async def test_split_reference_video_units_injects_instructions(fake_ctx: ToolHarness, video_request_facts) -> None:
     rv_source(fake_ctx)
 
     out = await run_declared_tool(
@@ -524,7 +524,7 @@ async def test_split_reference_video_units_injects_instructions(fake_ctx: ToolCo
 
 
 async def test_split_reference_video_units_surfaces_tolerated_voice_warnings(
-    fake_ctx: ToolContext, monkeypatch, set_video_request_facts
+    fake_ctx: ToolHarness, monkeypatch, set_video_request_facts
 ) -> None:
     """三类声音降级 warning 不阻断落盘，但随产物呈现——否则直到生成后才听得出声音打了折。"""
     rv_source(fake_ctx)
@@ -541,7 +541,7 @@ async def test_split_reference_video_units_surfaces_tolerated_voice_warnings(
 
 
 async def test_split_reference_video_units_names_units_without_scene_reference(
-    fake_ctx: ToolContext, monkeypatch, video_request_facts
+    fake_ctx: ToolHarness, monkeypatch, video_request_facts
 ) -> None:
     """未引用场景的 unit 逐条指名：地点由模型自由决定，室内外交替的相邻 unit 会对不上。"""
     rv_source(fake_ctx)
@@ -560,7 +560,7 @@ async def test_split_reference_video_units_names_units_without_scene_reference(
 
 
 async def test_split_reference_video_units_reports_soft_violations_alongside_the_violation_report(
-    fake_ctx: ToolContext, monkeypatch, video_request_facts
+    fake_ctx: ToolHarness, monkeypatch, video_request_facts
 ) -> None:
     """产出即违约的报告同样带软违约段：Agent 修草稿这一轮就该看到降级提示，而非等到晋升。"""
     rv_source(fake_ctx)
@@ -581,7 +581,7 @@ async def test_split_reference_video_units_reports_soft_violations_alongside_the
 
 
 async def test_split_reference_video_units_keeps_voice_warnings_on_per_image_backend(
-    fake_ctx: ToolContext, monkeypatch, set_video_request_facts
+    fake_ctx: ToolHarness, monkeypatch, set_video_request_facts
 ) -> None:
     """逐图挂载型 backend 下 warning 照常呈现：拆分阶段还没有参考图，那一位不该参与判定。
 

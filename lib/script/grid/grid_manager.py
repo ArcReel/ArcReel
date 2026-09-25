@@ -185,7 +185,7 @@ class GridManager:
         that the regenerate does not touch are kept; a record spanning the regenerated
         chunk and an untouched one is obsolete under the current chunk plan and goes.
 
-        This is the single cleanup rule shared by the HTTP route and the SDK tool so
+        This is the single cleanup rule shared by the HTTP route and the Agent tool so
         both regenerate paths stop accumulating stale grid generations.
 
         Returns the number of deleted records.

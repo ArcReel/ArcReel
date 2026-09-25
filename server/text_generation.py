@@ -95,6 +95,8 @@ from server.services.tasks.video_caps import reference_request_facts_lookup, sto
 
 logger = logging.getLogger(__name__)
 
+# Agent 附加 instructions 的长度上限：超长会失控 token 用量并稀释模型对原文的处理，超限按参数错误提前拒绝。
+# 上限对附加指令文本足够宽松，仅挡病态输入；文本生成与分集规划共用。
 MAX_INSTRUCTIONS_LEN = 4000
 
 #: 提示词编写工具收到已取消的 ``scope`` 参数时的拒绝说明，由其请求模型给出。

@@ -1739,7 +1739,7 @@ export default {
   'chat_interrupt_notice': '用户中断了会话',
   'chat_question_answer_label': '已答复',
   // MCP tool display names (single source of truth: ARCREEL_MCP_TOOL_IDS in
-  // server/agent_runtime/sdk_tools/__init__.py; tests/test_frontend_mcp_tool_i18n.py
+  // server/agent_toolset/toolset.py; tests/unit/test_frontend_mcp_tool_i18n.py
   // 会校验缺漏，新增 backend tool 必须同步补全 zh/en/vi)
   'tool_name_list_pending_assets': '查询待生成资产',
   'tool_name_list_projects': '列出项目',

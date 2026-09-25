@@ -410,7 +410,10 @@ def test_shared_text_and_draft_handlers_stay_host_independent(module) -> None:
     shared_imports = _imported_modules(path)
 
     assert "claude_agent_sdk" not in shared_imports
-    assert not any(name.startswith("server.agent_runtime.sdk_tools") for name in shared_imports)
+    assert not any(
+        name.startswith(("server.agent_runtime", "server.agent_toolset.embedded", "server.agent_toolset.remote"))
+        for name in shared_imports
+    )
     assert '"is_error"' not in path.read_text(encoding="utf-8")
 
 

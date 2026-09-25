@@ -1,105 +1,16 @@
-"""Per-session context shared by ArcReel host adapters."""
+"""媒体工具 handler 共用的结果构造、生成类结果钩子与请求字段类型。"""
 
 from __future__ import annotations
 
-import asyncio
-import json
-from dataclasses import asdict, is_dataclass
-from pathlib import Path
 from typing import Annotated, Any
 
-from pydantic import AfterValidator, BaseModel, Field
+from pydantic import AfterValidator, Field
 
-from lib.config.resolver import ConfigResolver
-from lib.db import async_session_factory
-from lib.db.base import DEFAULT_USER_ID
 from lib.generation.generation_batch import GenerationBatchReadModel
-from lib.generation.generation_queue import GenerationQueue, get_generation_queue
-from lib.generation.generation_result import GenerationBatchResult, migration_problem, render_generation_result
+from lib.generation.generation_result import GenerationBatchResult, render_generation_result
 from lib.infra.schema_guards import is_str
-from lib.project.project_manager import ProjectManager
-from lib.project.project_migration_failure import MigrationFailureRecord
-from lib.project.project_migration_guard import project_migration_failure
-from lib.speech.narration_delivery import TtsSettingsResolver
 from server.agent_toolset.envelope import json_value
-from server.services.project import workflow_planner
-from server.tool_runtime import CallerContext, ProjectScope, Services, ToolOutcome, ToolProblem
-
-
-class ToolContext:
-    """Bind a tool handler to one caller's project and data root.
-
-    Project-scoped tools are closure-bound to ``project_name``. Project entry
-    tools may address another project, but only within this ``data_root``.
-    """
-
-    def __init__(
-        self,
-        project_name: str,
-        data_root: Path,
-        pm: ProjectManager | None = None,
-        *,
-        config_resolver: ConfigResolver | None = None,
-        caller: CallerContext | None = None,
-        queue: GenerationQueue | None = None,
-        tts_settings_resolver: TtsSettingsResolver | None = None,
-    ):
-        self.project_name = project_name
-        self.data_root = data_root
-        # Tests may inject a fake pm.
-        self.pm: ProjectManager = pm if pm is not None else ProjectManager(data_root)
-        self.config_resolver = config_resolver
-        self.caller = caller or CallerContext(user_id=DEFAULT_USER_ID, source="embedded")
-        self.queue = queue or get_generation_queue()
-        self.tts_settings_resolver = tts_settings_resolver
-
-    @property
-    def project_path(self) -> Path:
-        return self.pm.get_project_path(self.project_name)
-
-    @property
-    def scope(self) -> ProjectScope:
-        return ProjectScope(project_name=self.project_name, data_root=self.data_root)
-
-
-def tool_services(ctx: ToolContext) -> Services:
-    return Services(
-        projects=ctx.pm,
-        workflow_planner=workflow_planner.get_workflow_planner(ctx.pm),
-        capabilities=ctx.config_resolver or ConfigResolver(async_session_factory),
-        queue=ctx.queue,
-        tts_settings_resolver=ctx.tts_settings_resolver,
-    )
-
-
-def tool_outcome_response(domain_key: str, outcome: ToolOutcome[Any]) -> dict[str, Any]:
-    """Encode a host-independent outcome into the common media response shape."""
-    if outcome.problem is not None:
-        payload = outcome.problem.model_dump(mode="json")
-        return {
-            "content": [{"type": "text", "text": json.dumps({"problem": payload}, ensure_ascii=False)}],
-            "is_error": True,
-            "problem": payload,
-        }
-    value = outcome.value
-    if isinstance(value, BaseModel):
-        payload = value.model_dump(mode="json")
-    elif is_dataclass(value) and not isinstance(value, type):
-        payload = asdict(value)
-    else:
-        payload = value
-    return {"content": [{"type": "text", "text": json.dumps({domain_key: payload}, ensure_ascii=False)}]}
-
-
-async def migration_failure_for(ctx: ToolContext) -> MigrationFailureRecord | None:
-    """This session's project migration verdict, or ``None`` when it is healthy.
-
-    The registration-time write guard and the read-only tools that answer the
-    verdict inside their own handlers both go through here, so every refusal in
-    the tool layer rests on the same persisted record read the same way, off the
-    event loop.
-    """
-    return await asyncio.to_thread(project_migration_failure, ctx.project_name, ctx.pm)
+from server.tool_runtime import ToolOutcome, ToolProblem
 
 
 def tool_error(name: str, exc: BaseException, log: list[str] | None = None) -> ToolOutcome[Any]:
@@ -113,37 +24,6 @@ def tool_problem(
     detail: str, *, code: str = "invalid_request", params: dict[str, Any] | None = None
 ) -> ToolOutcome[Any]:
     return ToolOutcome(problem=ToolProblem(code, detail, params=params))
-
-
-def migration_refusal_outcome(failure: MigrationFailureRecord) -> ToolOutcome[Any]:
-    """Return the migration verdict as a typed media refusal.
-
-    Every tool that reports the verdict — the blocked ones wrapped at
-    registration and the retry tool when the rerun fails again — returns this
-    one shape, so the agent reads a single ``problem`` payload carrying the
-    named episode / file / violation instead of two envelopes for one fact.
-    """
-    problem = migration_problem(failure)
-    return ToolOutcome(
-        problem=ToolProblem(
-            code=problem.code,
-            detail=problem.detail,
-            action=problem.action,
-            params=problem.params,
-        )
-    )
-
-
-def migration_refusal_response(failure: MigrationFailureRecord, *, text: str) -> dict[str, Any]:
-    """Encode a migration refusal for non-media SDK adapters."""
-    outcome = migration_refusal_outcome(failure)
-    assert outcome.problem is not None
-    payload = outcome.problem.model_dump(mode="json")
-    return {
-        "content": [{"type": "text", "text": text + "\n" + json.dumps(payload, ensure_ascii=False, indent=2)}],
-        "is_error": True,
-        "problem": payload,
-    }
 
 
 def generation_result_outcome(
@@ -203,17 +83,12 @@ def generation_is_error(value: GenerationToolValue) -> bool:
     )
 
 
-# instructions 超长会失控 token 用量并稀释模型对原文的处理，超限按参数错误提前拒绝。
-# 上限对附加指令文本足够宽松，仅挡病态输入。
-MAX_INSTRUCTIONS_LEN = 4000
-
-
 def validate_script_filename(value: str) -> str:
     """Reject any agent-provided ``script`` arg that is not a bare basename.
 
     Agents must reference scripts by filename only (e.g. ``episode_1.json``);
-    the project root is bound by ``ToolContext`` and the ``scripts/`` subdir
-    is fixed inside ``ProjectManager.load_script``. Any path separator —
+    the project root is bound by the caller's ``ProjectScope`` and the ``scripts/``
+    subdir is fixed inside ``ProjectManager.load_script``. Any path separator —
     including a ``scripts/`` prefix or ``..`` segments — is rejected.
     """
     if not is_str(value) or not value:

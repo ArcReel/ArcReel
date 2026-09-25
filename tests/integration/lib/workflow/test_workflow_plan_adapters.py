@@ -18,15 +18,14 @@ from lib.workflow.workflow_state import (
     WorkflowStatus,
     WorkflowTarget,
 )
-from server.agent_toolset.declaration import invoke_declaration
 from server.agent_toolset.envelope import json_value
 from server.agent_toolset.orientation import GET_WORKFLOW_PLAN
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
-from server.media_tools.context import ToolContext, tool_services
 from server.routers import projects
 from server.services.project import workflow_planner
 from server.tool_runtime import ToolOutcome
+from tests.integration.server.agent_tool_support import ToolHarness, run_declared_tool
 
 
 def _project(tmp_path: Path) -> ProjectManager:
@@ -71,8 +70,8 @@ def _status() -> WorkflowStatus:
 
 async def _agent_plan(pm: ProjectManager, tmp_path: Path, arguments: dict[str, Any]) -> ToolOutcome[Any]:
     """经 Agent 工具声明的共享入口读取制作计划（两宿主同一入口）。"""
-    ctx = ToolContext(project_name="demo", data_root=tmp_path / "projects", pm=pm)
-    return await invoke_declaration(GET_WORKFLOW_PLAN, arguments, ctx.scope, ctx.caller, tool_services(ctx))
+    ctx = ToolHarness(project_name="demo", data_root=tmp_path / "projects", pm=pm)
+    return await run_declared_tool(GET_WORKFLOW_PLAN, ctx, arguments)
 
 
 class _Planner:

@@ -14,11 +14,11 @@ from lib.script.reference_video.request_projection import USE_TTS, ReferenceRequ
 from server.agent_toolset.declaration import invoke_declaration
 from server.agent_toolset.media_generation import GENERATE_VIDEOS
 from server.auth import CurrentUserInfo
-from server.media_tools.context import ToolContext, tool_services
 from server.routers import reference_videos
 from server.services.admission.cost_estimation import CostEstimationService, VideoRequestQuote
 from tests.factories import activate_reference_project
 from tests.fakes import fake_reference_request_facts, fake_reference_request_projector
+from tests.integration.server.agent_tool_support import ToolHarness
 
 
 def _stub_batch_admission_queue(monkeypatch) -> None:
@@ -183,7 +183,7 @@ async def test_reference_projection_contract_stays_aligned_across_public_consume
                 ),
             )
 
-        agent_ctx = ToolContext(project_name="demo", data_root=tmp_path, pm=pm)
+        agent_ctx = ToolHarness(project_name="demo", data_root=tmp_path, pm=pm)
         agent_outcome = await invoke_declaration(
             GENERATE_VIDEOS,
             {
@@ -194,7 +194,7 @@ async def test_reference_projection_contract_stays_aligned_across_public_consume
             },
             agent_ctx.scope,
             agent_ctx.caller,
-            tool_services(agent_ctx),
+            agent_ctx.services,
         )
         queue_projection = await reference_projection_for_queued_task(
             project=project,

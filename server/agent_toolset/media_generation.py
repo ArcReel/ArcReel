@@ -7,6 +7,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from typing import Any, overload
+
 from pydantic import BaseModel
 
 from server.agent_toolset.declaration import BLOCKED, READ_CHECK, ScopedHandler, ToolDeclaration
@@ -27,28 +30,55 @@ from server.media_tools.narration_audio import GenerateNarrationAudioRequest, ge
 from server.media_tools.storyboards import GenerateStoryboardsRequest, generate_storyboards
 from server.media_tools.videos import GenerateVideosRequest, generate_videos
 
-_MIGRATION_REFUSAL = "项目数据升级失败时拒绝执行，返回 project_migration_failed problem。"
 
-
+@overload
 def generation_tool[RequestT: BaseModel](
     *,
     name: str,
     description: str,
     request_model: type[RequestT],
     handler: ScopedHandler[RequestT, GenerationToolValue],
-) -> ToolDeclaration[RequestT, GenerationToolValue]:
-    """生成类长任务的声明：入口阻断迁移失败的项目，结果按生成结果钩子投影。"""
+) -> ToolDeclaration[RequestT, GenerationToolValue]: ...
+
+
+@overload
+def generation_tool[RequestT: BaseModel, ResultT](
+    *,
+    name: str,
+    description: str,
+    request_model: type[RequestT],
+    handler: ScopedHandler[RequestT, ResultT],
+    summary: Callable[[ResultT], str | None],
+    projection: Callable[[ResultT], dict[str, Any]],
+    is_error: Callable[[ResultT], bool],
+) -> ToolDeclaration[RequestT, ResultT]: ...
+
+
+def generation_tool(
+    *,
+    name: str,
+    description: str,
+    request_model: type[BaseModel],
+    handler: ScopedHandler[Any, Any],
+    summary: Callable[[Any], str | None] = generation_summary,
+    projection: Callable[[Any], dict[str, Any]] = generation_structured,
+    is_error: Callable[[Any], bool] = generation_is_error,
+) -> ToolDeclaration[Any, Any]:
+    """生成类长任务的声明：入口阻断迁移失败的项目，结果缺省按生成结果钩子投影。
+
+    成功值在生成结果之外还有别的形态（如宫格的规划预览）时，传入覆盖这一形态的三个钩子。
+    """
     return ToolDeclaration(
         name=name,
-        description=description + _MIGRATION_REFUSAL,
+        description=description,
         request_model=request_model,
         migration=BLOCKED,
         domain_key="generation_result",
         handler=handler,
         long_task=True,
-        summary=generation_summary,
-        projection=generation_structured,
-        is_error=generation_is_error,
+        summary=summary,
+        projection=projection,
+        is_error=is_error,
     )
 
 
