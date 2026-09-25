@@ -7,9 +7,11 @@
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
 import re
+import shutil
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -19,7 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from lib.db.models.api_call import ApiCall
 from lib.db.models.asset import Asset, AssetDerivative
-from lib.infra.data_root_layout import DataRootLayout
+from lib.infra.data_root_layout import DataRootLayout, is_project_dir
 
 logger = logging.getLogger(__name__)
 
@@ -165,8 +167,67 @@ async def _rename_global_assets_dir(context: DataRootMigrationContext) -> None:
         logger.info("数据根布局迁移：%d 处全局资产路径改到 %s", rewritten, current_prefix)
 
 
+#: 旧布局平放在数据根下的运行时状态（相对数据根）。
+_LEGACY_SESSION_IMPORT_MARKER = ".session_store_migration_done"
+_LEGACY_PROJECT_MIGRATION_ERROR_LOG = "_migration_errors.log"
+_LEGACY_GENERATION_ADMISSION_LOCKS_DIR = ".generation-admission-locks"
+
+
+async def _move_user_data_to_users_dir(context: DataRootMigrationContext) -> None:
+    """``.arcreel/users/`` 挪到 ``users/``；旧目录不存在时什么都不做。"""
+    layout = context.layout
+    legacy_users = layout.legacy_internal_dir / "users"
+    if not legacy_users.is_dir():
+        return
+    # 与系统条目同名的旧项目尚未搬进项目目录时，不往它里面写。
+    if is_project_dir(layout.users_dir):
+        logger.warning("数据根布局迁移：%s 是一个项目，用户数据暂留 %s", layout.users_dir, legacy_users)
+        return
+    _merge_dir_into(legacy_users, layout.users_dir)
+    with contextlib.suppress(OSError):
+        legacy_users.parent.rmdir()
+    logger.info("数据根布局迁移：用户数据移入 %s", layout.users_dir)
+
+
+async def _move_runtime_state_to_runtime_dir(context: DataRootMigrationContext) -> None:
+    """平放在数据根下的运行时状态收进 ``runtime/``；旧位置已完成的标记由新位置继承。
+
+    生成准入锁只在持有期间有意义，旧锁目录直接删除。
+    """
+    layout = context.layout
+    root = layout.root
+    legacy_marker = root / _LEGACY_SESSION_IMPORT_MARKER
+    legacy_error_log = root / _LEGACY_PROJECT_MIGRATION_ERROR_LOG
+    legacy_locks = root / _LEGACY_GENERATION_ADMISSION_LOCKS_DIR
+    if not (legacy_marker.exists() or legacy_error_log.exists() or legacy_locks.exists()):
+        return
+    if is_project_dir(layout.runtime_dir):
+        logger.warning("数据根布局迁移：%s 是一个项目，运行时状态暂留数据根", layout.runtime_dir)
+        return
+    layout.runtime_dir.mkdir(exist_ok=True)
+    if legacy_marker.exists():
+        if layout.session_import_marker_path.exists():
+            legacy_marker.unlink()
+        else:
+            legacy_marker.rename(layout.session_import_marker_path)
+    if legacy_error_log.exists():
+        if layout.project_migration_error_log_path.exists():
+            with layout.project_migration_error_log_path.open("a", encoding="utf-8") as merged:
+                merged.write(legacy_error_log.read_text(encoding="utf-8", errors="replace"))
+            legacy_error_log.unlink()
+        else:
+            legacy_error_log.rename(layout.project_migration_error_log_path)
+    shutil.rmtree(legacy_locks, ignore_errors=True)
+    logger.info("数据根布局迁移：运行时状态收进 %s", layout.runtime_dir)
+
+
 #: 按执行顺序排列的迁移步骤。
-_STEPS: tuple[MigrationStep, ...] = (_relativize_call_output_paths, _rename_global_assets_dir)
+_STEPS: tuple[MigrationStep, ...] = (
+    _relativize_call_output_paths,
+    _rename_global_assets_dir,
+    _move_user_data_to_users_dir,
+    _move_runtime_state_to_runtime_dir,
+)
 
 
 def default_sdk_config_dir() -> Path:

@@ -1,16 +1,22 @@
-"""数据根布局迁移入口：迁移后存量数据按当前布局可用，重跑不改变结果。"""
+"""数据根布局迁移入口：迁移后存量数据（调用记录、用户记忆、运行时标记）按当前布局可用，重跑不改变结果。"""
 
 from __future__ import annotations
 
+import json
 from datetime import datetime
 from pathlib import Path
 
 import pytest
+from claude_agent_sdk import project_key_for_directory
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from lib.agent.agent_memory_store import AgentMemoryStore
+from lib.agent.agent_session_store.import_local import migrate_local_transcripts_to_store
+from lib.agent.agent_session_store.store import DbSessionStore
 from lib.db.models.api_call import ApiCall
 from lib.db.repositories.usage_repo import SettlementInput, UsageRepository
+from lib.infra.data_root_layout import DataRootLayout
 from lib.infra.data_root_layout_migration import migrate_data_root_layout
 from lib.project.project_manager import ProjectManager
 
@@ -115,3 +121,87 @@ async def test_path_escaping_the_project_dir_is_left_unchanged(
     await _migrate(projects, session_factory, tmp_path)
 
     assert await _recorded_output_path(session_factory, call_id) == stored
+
+
+@pytest.fixture
+def data_root(tmp_path: Path) -> Path:
+    root = tmp_path / "data"
+    root.mkdir()
+    return root
+
+
+@pytest.fixture
+def sdk_config_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    sdk_home = tmp_path / "claude-config"
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(sdk_home))
+    return sdk_home
+
+
+async def _migrate_data_root(
+    data_root: Path, session_factory: async_sessionmaker[AsyncSession], sdk_config_dir: Path
+) -> None:
+    await migrate_data_root_layout(data_root, session_factory=session_factory, sdk_config_dir=sdk_config_dir)
+
+
+def _write_legacy_user_memory(data_root: Path, user_id: str, files: dict[str, str]) -> None:
+    memory_dir = data_root / ".arcreel" / "users" / user_id / "memory"
+    memory_dir.mkdir(parents=True)
+    for name, body in files.items():
+        (memory_dir / name).write_text(body, encoding="utf-8")
+
+
+def _memory(data_root: Path, user_id: str) -> AgentMemoryStore:
+    return AgentMemoryStore(DataRootLayout(data_root).user_memory_dir(user_id))
+
+
+async def test_user_memory_stays_readable_after_migration_and_rerun(
+    data_root: Path, session_factory: async_sessionmaker[AsyncSession], sdk_config_dir: Path
+) -> None:
+    _write_legacy_user_memory(data_root, "default", {"MEMORY.md": "- [偏好](style.md)\n", "style.md": "冷色调"})
+    _write_legacy_user_memory(data_root, "u2", {"MEMORY.md": "- 另一位用户\n"})
+
+    await _migrate_data_root(data_root, session_factory, sdk_config_dir)
+    await _migrate_data_root(data_root, session_factory, sdk_config_dir)
+
+    assert _memory(data_root, "default").read("style.md").decode("utf-8") == "冷色调"
+    assert _memory(data_root, "default").read("MEMORY.md").decode("utf-8") == "- [偏好](style.md)\n"
+    assert _memory(data_root, "u2").read("MEMORY.md").decode("utf-8") == "- 另一位用户\n"
+    assert ProjectManager(data_root).list_projects() == []
+
+
+async def test_user_memory_move_resumes_after_interruption(
+    data_root: Path, session_factory: async_sessionmaker[AsyncSession], sdk_config_dir: Path
+) -> None:
+    _write_legacy_user_memory(data_root, "default", {"MEMORY.md": "- 索引\n", "b.md": "后搬"})
+    # 上次迁移中断在同一用户的记忆搬了一半时。
+    moved = DataRootLayout(data_root).user_memory_dir("default")
+    moved.mkdir(parents=True)
+    (data_root / ".arcreel" / "users" / "default" / "memory" / "MEMORY.md").replace(moved / "MEMORY.md")
+
+    await _migrate_data_root(data_root, session_factory, sdk_config_dir)
+
+    assert _memory(data_root, "default").read("MEMORY.md").decode("utf-8") == "- 索引\n"
+    assert _memory(data_root, "default").read("b.md").decode("utf-8") == "后搬"
+
+
+async def test_completed_session_import_is_not_rerun_after_migration(
+    data_root: Path, session_factory: async_sessionmaker[AsyncSession], sdk_config_dir: Path
+) -> None:
+    ProjectManager(data_root).create_project("demo", content_mode="narration")
+    project_dir = data_root / "demo"
+    transcript_dir = sdk_config_dir / "projects" / project_key_for_directory(str(project_dir))
+    transcript_dir.mkdir(parents=True)
+    (transcript_dir / "00000000-0000-0000-0000-0000000000aa.jsonl").write_text(
+        json.dumps({"type": "user", "uuid": "u1", "timestamp": "2026-05-01T00:00:00Z", "message": {"content": "hi"}})
+        + "\n",
+        encoding="utf-8",
+    )
+    (data_root / ".session_store_migration_done").write_text("{}", encoding="utf-8")
+
+    await _migrate_data_root(data_root, session_factory, sdk_config_dir)
+    stats = await migrate_local_transcripts_to_store(
+        DbSessionStore(session_factory, user_id="default"), data_root=data_root
+    )
+
+    assert stats["imported"] == 0
+    assert stats.get("skipped_via_marker") is True

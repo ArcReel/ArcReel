@@ -749,7 +749,8 @@ class TestRepairAllSymlinks:
             pm.projects_dir / "bad_name",
             pm.layout.global_assets_dir,
             pm.layout.trial_runs_dir,
-            pm.layout.internal_dir,
+            pm.layout.users_dir,
+            pm.layout.runtime_dir,
         ]
         for directory in not_projects:
             directory.mkdir(parents=True, exist_ok=True)

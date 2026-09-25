@@ -33,7 +33,7 @@ def is_valid_memory_user_id(user_id: str) -> bool:
     """``user_id`` 是否可安全用作用户记忆目录的单个路径段。
 
     判据取所有平台的交集，不按当前平台放宽：``:`` 在 POSIX 上是普通字符，在
-    Windows 上让 ``<数据根>/.arcreel/users`` 与 ``C:`` 拼出的是驱动器相对路径
+    Windows 上让 ``<数据根>/users`` 与 ``C:`` 拼出的是驱动器相对路径
     （``Path`` 会丢掉左侧整段），记忆目录因此落到该驱动器的当前目录而不是数据根下。
     未来接 OIDC 身份（``issuer:subject`` 形态）时须先规整成单段再传进来。
     """

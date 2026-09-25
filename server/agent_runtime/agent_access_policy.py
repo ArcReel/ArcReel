@@ -182,7 +182,7 @@ class AgentAccessPolicy:
         覆盖后的真实位置（env 解析由调用方完成，本类只消费 resolve 后的根）：
 
         - ``.env`` / ``.env.*`` 总是相对源仓库根
-        - 默认 SQLite 文件（连同 ``-wal`` / ``-shm``）、旧版系统配置文件（连同 ``.bak``）与
+        - 默认 SQLite 文件及其旧名文件（均连同 ``-wal`` / ``-shm``）、旧版系统配置文件（连同 ``.bak``）与
           Vertex 凭证目录取数据根布局给出的位置（凭证目录与
           ``server.routers.providers.upload_vertex_credential`` 写入位置一致）
         - ``agent_runtime_profile/.claude/settings.json`` 在
@@ -192,11 +192,13 @@ class AgentAccessPolicy:
         repo = self.project_root
         layout = self._layout
         db = layout.sqlite_db_path
+        legacy_db = layout.legacy_sqlite_db_path
         system_config = layout.system_config_json_path
         profile = self.agent_profile_root
         files: tuple[Path, ...] = (
             repo / ".env",
             db,
+            legacy_db,
             system_config,
             system_config.with_name(f"{system_config.name}.bak"),
             profile / ".claude" / "settings.json",
@@ -206,6 +208,7 @@ class AgentAccessPolicy:
         globs: tuple[tuple[Path, str], ...] = (
             (repo, ".env.*"),
             (db.parent, f"{db.name}-*"),
+            (legacy_db.parent, f"{legacy_db.name}-*"),
         )
         return files, prefixes, globs
 
@@ -213,7 +216,7 @@ class AgentAccessPolicy:
         """判断已 resolve 的路径是否命中敏感文件清单。
 
         覆盖 ``.env`` / ``.env.*`` / ``vertex_keys/`` 子树 / ``.system_config.json*`` /
-        ``.arcreel.db*`` / ``agent_runtime_profile/.claude/settings.json`` / 日志目录。
+        ``arcreel.db*`` / ``.arcreel.db*`` / ``agent_runtime_profile/.claude/settings.json`` / 日志目录。
         """
         files, prefixes, globs = self._sensitive_table
         for sensitive_file in files:
@@ -290,11 +293,11 @@ class AgentAccessPolicy:
           不受 sandbox 约束），堵死 Bash（``echo>`` / ``sed`` / ``python -c``）旁路。OS 级对
           sandbox 内所有子进程生效。sandbox 内已无合法 Bash 写这三类路径（compose 写视频输出、
           split 写 ``source/``，均不碰），故不误伤。
-        - ``filesystem.allowWrite``：用户记忆目录（``<数据根>/.arcreel/users/<user_id>/memory/``）
+        - ``filesystem.allowWrite``：用户记忆目录（``<数据根>/users/<user_id>/memory/``）
           在 cwd 外，默认不可写；Agent 要用 Write/Edit 记跨项目笔记，须在内核层单独放行。
           项目记忆在 cwd 内本已可写，不重复登记。``user_id`` 非法（不是单个路径段）时不
           登记任何放行——fail-closed 优先于让记忆可写。
-        - ``filesystem.denyRead`` 另含数据根 ``.arcreel/`` 整棵（见
+        - ``filesystem.denyRead`` 另含数据根 ``users/`` 整棵（见
           ``_build_memory_deny_read_abs_paths``）：hook 层的同一条读拒只管内置 Read/Glob/Grep，
           Bash 不经该 hook（ADR 0026）。
         - ``allowUnsandboxedCommands=False``：禁止 Agent 在 sandbox 失败时
@@ -325,11 +328,11 @@ class AgentAccessPolicy:
         }
 
     def _build_memory_deny_read_abs_paths(self) -> list[str]:
-        """内核沙箱层的记忆读禁清单：数据根 ``.arcreel/`` 整棵。
+        """内核沙箱层的记忆读禁清单：数据根 ``users/`` 整棵，以及旧布局内部目录 ``.arcreel/`` 整棵。
 
         ``_check_read_access`` 的同一条读拒只覆盖内置 Read/Glob/Grep；Bash 及其子进程
         不经该 hook，只受内核沙箱约束（ADR 0026），单层存在即留 ``cat`` 旁路——别的用户的
-        记忆与数据根内部状态都会被读到。
+        记忆都会被读到。
 
         投影比 hook 严一档（hook 放行当前用户自己的记忆，这里连它一起拒）：与
         ``PROTECTED_WRITE_RULES`` 的「hook 只拒 drafts/ 下的正式 script_plan、sandbox 整目录拒」
@@ -338,16 +341,19 @@ class AgentAccessPolicy:
 
         编译前先把目录建出来：CLI 对不存在的 deny 路径「Skipping non-existent read deny
         path」、不装 deny mount，而围栏只在会话启动时编译一次——全新安装上第一个会话
-        跑起来时 ``.arcreel/`` 还不存在，此后别的用户的记忆目录一建出来，这个会话的
+        跑起来时 ``users/`` 还不存在，此后别的用户的记忆目录一建出来，这个会话的
         Bash 就能读到它。建目录失败（只读挂载、权限）时退回只登记路径：CLI 跳过它，
         hook 层仍拦住内置读工具。
+
+        旧布局内部目录只在布局迁移没能把用户数据全部搬走时残留，不再有代码往里写，
+        故只登记、不预建。
         """
-        deny_root = self._layout.internal_dir
+        deny_root = self._layout.users_dir
         try:
             deny_root.mkdir(parents=True, exist_ok=True)
         except OSError:
             logger.warning("记忆读禁根建不出来,sandbox deny 可能被 CLI 跳过: %s", deny_root)
-        return [str(deny_root)]
+        return [str(deny_root), str(self._layout.legacy_internal_dir)]
 
     def _build_memory_allow_write_abs_paths(self, user_id: str) -> list[str]:
         """内核沙箱层的记忆写放行清单：仅用户记忆目录（项目记忆在 cwd 内本已可写）。"""
@@ -605,13 +611,13 @@ class AgentAccessPolicy:
         （lib/docs 等）放行；其余（host 文件系统：~/.ssh、/etc 等）默认拒。
         """
         # 用户记忆放行须在项目目录分支之前：它落在项目目录下的
-        # ``.arcreel/`` 里，走到跨项目读隔离会被当成"别的项目"拒掉。
+        # ``users/`` 里，走到跨项目读隔离会被当成"别的项目"拒掉。
         if self._is_user_memory_path(resolved, user_id=user_id):
             return True, None
-        # 自己的记忆之外，数据根内部目录整棵拒：它装的是其他用户的记忆与 ArcReel 内部状态，
-        # 而跨项目读隔离只拦"存在的目录"，``.arcreel/`` 尚未建时会从根直放文件分支漏出去。
-        if resolved.is_relative_to(self._layout.internal_dir):
-            return False, (f"访问被拒绝：不允许读取其他用户的记忆或数据根内部目录 ({resolved})")
+        # 自己的记忆之外，数据根 ``users/`` 整棵拒：它装的是其他用户的记忆，
+        # 而跨项目读隔离只拦"存在的目录"，``users/`` 尚未建时会从根直放文件分支漏出去。
+        if resolved.is_relative_to(self._layout.users_dir):
+            return False, (f"访问被拒绝：不允许读取其他用户的数据 ({resolved})")
         if resolved.is_relative_to(project_cwd):
             return True, None
         # SDK tool-results 例外（已 resolve 的基准见 _claude_projects_dir_resolved）。

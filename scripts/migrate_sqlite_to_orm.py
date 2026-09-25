@@ -7,7 +7,7 @@ Old files:
   projects/.agent_data/sessions.db → agent_sessions table
 
 New file:
-  projects/.arcreel.db          (created by init_db / Alembic)
+  projects/arcreel.db          (created by init_db / Alembic)
 
 On success, old files are renamed to *.bak so they are preserved but won't
 interfere with the new code.

@@ -90,7 +90,7 @@ function setupBaseMocks(opts?: { credentials?: AgentCredential[] }) {
     custom_sentinel_id: "__custom__",
   });
   vi.spyOn(API, "getAgentMemory").mockResolvedValue({
-    path: "/data/.arcreel/users/default/memory",
+    path: "/data/users/default/memory",
     index: { exists: false, line_count: 0, byte_size: 0, over_limit: false },
     files: [],
   });
@@ -184,7 +184,7 @@ describe("AgentConfigTab — 用户记忆", () => {
     render(<AgentConfigTab visible />);
 
     expect(await screen.findByText(/用户记忆|User memory/)).toBeInTheDocument();
-    expect(await screen.findByText("/data/.arcreel/users/default/memory")).toBeInTheDocument();
+    expect(await screen.findByText("/data/users/default/memory")).toBeInTheDocument();
     expect(API.getAgentMemory).toHaveBeenCalledWith({ level: "user" }, expect.anything());
   });
 
