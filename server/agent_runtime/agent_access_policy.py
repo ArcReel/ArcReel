@@ -610,12 +610,11 @@ class AgentAccessPolicy:
         项目目录下其他项目子目录拒、根直放文件放行；仓库根内参考资料
         （lib/docs 等）放行；其余（host 文件系统：~/.ssh、/etc 等）默认拒。
         """
-        # 用户记忆放行须在项目目录分支之前：它落在项目目录下的
-        # ``users/`` 里，走到跨项目读隔离会被当成"别的项目"拒掉。
+        # 用户记忆放行须在数据根 ``users/`` 整棵拒之前。
         if self._is_user_memory_path(resolved, user_id=user_id):
             return True, None
-        # 自己的记忆之外，数据根 ``users/`` 整棵拒：它装的是其他用户的记忆，
-        # 而跨项目读隔离只拦"存在的目录"，``users/`` 尚未建时会从根直放文件分支漏出去。
+        # 自己的记忆之外，数据根 ``users/`` 整棵拒：它装的是其他用户的记忆，与项目目录并列、
+        # 不受跨项目读隔离约束，数据根在仓库根内时会落进仓库根参考资料放行分支。
         if resolved.is_relative_to(self._layout.users_dir):
             return False, (f"访问被拒绝：不允许读取其他用户的数据 ({resolved})")
         if resolved.is_relative_to(project_cwd):

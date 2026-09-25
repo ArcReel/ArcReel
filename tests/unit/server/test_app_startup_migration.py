@@ -45,12 +45,12 @@ def _seed_stale_project(projects_root: Path) -> tuple[Path, Path]:
 
 @pytest.mark.asyncio
 async def test_startup_migrates_projects_and_reaps_stale_backups(tmp_path, monkeypatch):
-    projects_root = tmp_path / "projects"
-    project_dir, stale_backup = _seed_stale_project(projects_root)
+    data_root = tmp_path / "data"
+    project_dir, stale_backup = _seed_stale_project(DataRootLayout(data_root).projects_dir)
 
     # 数据目录指向 tmp：迁移与备份回收都照真实跑，落点是本用例种下的项目。
-    monkeypatch.setenv("ARCREEL_DATA_DIR", str(projects_root))
-    monkeypatch.setattr("lib.project.project_manager.get_project_manager", lambda: ProjectManager(projects_root))
+    monkeypatch.setenv("ARCREEL_DATA_DIR", str(data_root))
+    monkeypatch.setattr("lib.project.project_manager.get_project_manager", lambda: ProjectManager(data_root))
     monkeypatch.setattr(app_module, "ensure_auth_password", lambda: "test")
     monkeypatch.setattr(app_module, "init_db", _noop_async)
     monkeypatch.setattr(lib.db, "init_db", _noop_async)
@@ -82,6 +82,7 @@ async def test_data_root_layout_migration_runs_before_every_project_walk(tmp_pat
 
     async def migrate_layout(root: Path, **_kwargs) -> None:
         assert root == data_root.resolve()
+        project_dir.parent.mkdir(parents=True, exist_ok=True)
         staged_project.rename(project_dir)
 
     async def import_transcripts(_store, **_kwargs) -> None:

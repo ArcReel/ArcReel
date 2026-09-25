@@ -74,7 +74,7 @@ def reference_videos_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
     from lib.project.project_manager import ProjectManager
     from server.routers import reference_videos as router_mod
 
-    custom_pm = ProjectManager(projects_root)
+    custom_pm = ProjectManager(tmp_path)
     monkeypatch.setattr(router_mod, "get_project_manager", lambda: custom_pm)
     monkeypatch.setattr(router_mod, "tts_task_in_progress", AsyncMock(return_value=False))
     # 公共 request projection 的 resolver 需要 DB；路由测试注入 in-process 能力适配器。

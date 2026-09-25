@@ -29,7 +29,7 @@ from lib.project.project_manager import ProjectManager
 
 @pytest.fixture
 def env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    """构造标准测试环境：profile_dir + projects_root + 单个项目目录。
+    """构造标准测试环境：profile_dir + 数据根 + 单个项目目录。
 
     profile 内置一个 demo skill 和顶层 CLAUDE.md。
     """
@@ -38,13 +38,10 @@ def env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     (profile_dir / ".claude" / "skills" / "demo" / "SKILL.md").write_text("demo v1")
     (profile_dir / "CLAUDE.md").write_text("prompt v1")
 
-    projects_root = tmp_path / "projects"
-    projects_root.mkdir()
-
     monkeypatch.setenv("ARCREEL_PROFILE_DIR", str(profile_dir))
 
-    pm = ProjectManager(projects_root)
-    project_dir = projects_root / "proj"
+    pm = ProjectManager(tmp_path / "data")
+    project_dir = pm.projects_dir / "proj"
     _make_project(project_dir)
     return pm, profile_dir, project_dir
 
@@ -723,17 +720,15 @@ class TestRepairAllSymlinks:
     def test_repair_all_aborts_on_profile_missing(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         """ProfileMissingError → totals.aborted=True，所有项目跳过。"""
         monkeypatch.setenv("ARCREEL_PROFILE_DIR", str(tmp_path / "nonexistent"))
-        projects_root = tmp_path / "projects"
-        projects_root.mkdir()
-        _make_project(projects_root / "proj1")
-        _make_project(projects_root / "proj2")
-        pm = ProjectManager(projects_root)
+        pm = ProjectManager(tmp_path / "data")
+        _make_project(pm.projects_dir / "proj1")
+        _make_project(pm.projects_dir / "proj2")
 
         stats = pm.sync_all_agent_profiles()
 
         assert stats["aborted"] is True
-        assert not (projects_root / "proj1" / MANIFEST_FILENAME).exists()
-        assert not (projects_root / "proj2" / MANIFEST_FILENAME).exists()
+        assert not (pm.projects_dir / "proj1" / MANIFEST_FILENAME).exists()
+        assert not (pm.projects_dir / "proj2" / MANIFEST_FILENAME).exists()
 
     def test_skips_entries_that_are_not_projects(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         """只物化到项目：没有 project.json、名字不合法的目录与数据根里的系统条目都不物化。"""

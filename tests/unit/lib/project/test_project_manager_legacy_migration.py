@@ -9,15 +9,16 @@ from lib.project.project_manager import ProjectManager
 
 @pytest.fixture
 def pm_tmp(tmp_path):
-    (tmp_path / "demo").mkdir()
-    (tmp_path / "demo" / "project.json").write_text(
+    pm = ProjectManager(tmp_path)
+    (pm.projects_dir / "demo").mkdir()
+    (pm.projects_dir / "demo" / "project.json").write_text(
         json.dumps(
             {
                 "video_model_settings": {"veo-3.1": {"resolution": "1080p"}},
             }
         )
     )
-    return ProjectManager(tmp_path), tmp_path
+    return pm, pm.projects_dir
 
 
 def test_writing_model_settings_migrates_legacy(pm_tmp):

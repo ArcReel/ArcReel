@@ -27,8 +27,8 @@ def ad_video_request_facts(video_request_facts) -> None:
 
 
 def _write_ad_project(tmp_path: Path, generation_mode: str) -> Path:
-    project_dir = tmp_path / "ad"
-    project_dir.mkdir()
+    project_dir = tmp_path / "projects" / "ad"
+    project_dir.mkdir(parents=True)
     payload = {
         "schema_version": CURRENT_PROJECT_SCHEMA_VERSION,
         "title": "速干杯",
@@ -181,7 +181,7 @@ class TestAdShotAuthoring:
     async def test_timeline_insert_and_remove_survive_default_authoring(self, tmp_path: Path) -> None:
         """时间线新增 / 移除分镜之后编写：新增的空分镜被填充，移除的分镜不会被生成回来。"""
         project_dir = await _storyboard_script(tmp_path)
-        pm = ProjectManager(str(project_dir.parent))
+        pm = ProjectManager.for_project_dir(project_dir)
         editor = ScriptBatchEditor(pm)
 
         def edit(operation: dict[str, Any]) -> None:

@@ -1806,7 +1806,7 @@ class TestProjectArchiveService:
         # 旧项目恢复（backup 被 rename 回 target_dir）
         monkeypatch.undo()
         assert pm.load_project("demo")["style"] == "Stale"
-        assert not any(p.name.startswith(".import-backup-") for p in (tmp_path / "projects").iterdir())
+        assert not any(p.name.startswith(".import-backup-") for p in pm.projects_dir.iterdir())
 
     def test_create_project_rolls_back_on_profile_sync_failure(self, tmp_path, monkeypatch):
         """create_project 内 sync_agent_profile 失败必须 rmtree 残缺 project_dir，
@@ -1824,9 +1824,9 @@ class TestProjectArchiveService:
 
         # 残缺目录已清，同名 create 应该能成功（fixture 已 stub sync 抛错，所以先 undo）
         monkeypatch.undo()
-        assert not (tmp_path / "projects" / "ghost").exists()
+        assert not (pm.projects_dir / "ghost").exists()
         pm.create_project("ghost")  # 不撞 FileExistsError
-        assert (tmp_path / "projects" / "ghost").is_dir()
+        assert (pm.projects_dir / "ghost").is_dir()
 
     def test_import_repairs_legacy_narration_payload(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")

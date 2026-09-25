@@ -1,8 +1,9 @@
 """数据根布局迁移入口：把旧布局的数据根就地迁到 :class:`DataRootLayout` 描述的当前布局。
 
 启动时在挂文件日志 handler 之后、任何遍历项目的步骤（源文件编码迁移、项目 schema
-迁移、会话导入、profile 同步）之前执行一次。步骤按顺序执行，每一步都须能安全重跑；
-某一步抛出的异常原样上抛，调用方不得在半迁移的布局上继续遍历项目。
+迁移、会话导入、profile 同步）之前执行。步骤按顺序执行，每一步都须能安全重跑；全部完成
+后在 ``runtime/`` 写完成标记，此后启动只检查标记。某一步失败时记 ERROR、不写标记，
+异常原样上抛，调用方不得在半迁移的布局上继续遍历项目。
 """
 
 from __future__ import annotations
@@ -15,15 +16,18 @@ import re
 import shutil
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 
 from sqlalchemy import or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from lib.agent.agent_session_store import AgentSessionEntry, AgentSessionSummary, make_project_key
 from lib.db.models.api_call import ApiCall
 from lib.db.models.asset import Asset, AssetDerivative
 from lib.db.models.credential import ProviderCredential
-from lib.infra.data_root_layout import DataRootLayout, is_project_dir
+from lib.infra.data_root_layout import PROJECT_NAME_PATTERN, DataRootLayout, is_project_dir
+from lib.project.project_migrations.staged_swap import rollback_project_name, staging_project_name
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +43,155 @@ class DataRootMigrationContext:
 
 
 MigrationStep = Callable[[DataRootMigrationContext], Awaitable[None]]
+
+#: 旧布局中名为 ``projects`` 的项目在项目目录建出前暂用的名字；不是合法项目名，不会被当作旧项目搬动。
+_PROJECTS_NAMESAKE_STAGING = ".projects-namesake-migrating"
+
+
+def _move_entry(source: Path, target: Path) -> None:
+    """同文件系统内把 ``source`` 挪到 ``target``；目标已存在时抛 ``FileExistsError``，两边都不动。
+
+    相对目标的符号链接挪到下一层后会指向别处，改为在新位置建指向原目标的绝对链接、再删原链接；
+    新链接已在而原链接未删（上次停在这两步之间）时只删原链接。
+    """
+    rebased_link = None
+    if source.is_symlink() and not Path(os.readlink(source)).is_absolute():
+        rebased_link = os.path.normpath(source.parent / os.readlink(source))
+    if target.is_symlink() and rebased_link is not None and os.readlink(target) == rebased_link:
+        source.unlink()
+        return
+    if target.exists() or target.is_symlink():
+        raise FileExistsError(f"数据根布局迁移：{target} 已存在，无法把 {source} 挪过去，请人工处理后重启")
+    if rebased_link is not None:
+        target.symlink_to(rebased_link, target_is_directory=True)
+        source.unlink()
+        return
+    source.rename(target)
+
+
+def _is_project_named_dir(entry: Path) -> bool:
+    """名字符合项目名规则的目录（不论有没有 ``project.json``）。"""
+    return bool(PROJECT_NAME_PATTERN.fullmatch(entry.name)) and entry.is_dir()
+
+
+def _is_project_swap_dir(entry: Path) -> bool:
+    """项目 schema 迁移目录交换留下的 rollback / staging 目录，须与项目同处一个父目录才能被认领或清理。"""
+    name = entry.name
+    return (
+        (rollback_project_name(name) is not None or staging_project_name(name) is not None)
+        and entry.is_dir()
+        and not entry.is_symlink()
+    )
+
+
+def _projects_to_move(layout: DataRootLayout) -> list[Path]:
+    """数据根下待搬进项目目录的旧条目。
+
+    名字合法的目录都搬：带 ``project.json`` 的是项目；没有的也原样搬走以保全数据，只有与布局
+    登记的顶层条目同名的留在原位。项目目录交换的中间目录随项目一起搬。项目目录本身与其余带下划线、
+    点等不合法名字的条目不在此列。
+    """
+    system_names = {entry.name for entry in layout.top_level_entries}
+    return [
+        entry
+        for entry in sorted(layout.root.iterdir())
+        if entry != layout.projects_dir
+        and (
+            (_is_project_named_dir(entry) and (entry.name not in system_names or is_project_dir(entry)))
+            or _is_project_swap_dir(entry)
+        )
+    ]
+
+
+async def _move_projects_into_projects_dir(context: DataRootMigrationContext) -> None:
+    """旧布局平放在数据根下的项目搬进 ``projects/``。
+
+    旧项目恰好名为 ``projects`` 时先改成临时名、建出项目目录，再挪进去成为
+    ``projects/projects/``，项目名不变；临时名仍在即表示上次停在这两步之间，本次接着完成。
+    """
+    layout = context.layout
+    projects_dir = layout.projects_dir
+    staging = layout.root / _PROJECTS_NAMESAKE_STAGING
+    if is_project_dir(projects_dir):
+        await asyncio.to_thread(_move_entry, projects_dir, staging)
+    await asyncio.to_thread(projects_dir.mkdir, exist_ok=True)
+    moved: list[str] = []
+    if staging.exists() or staging.is_symlink():
+        await asyncio.to_thread(_move_entry, staging, projects_dir / projects_dir.name)
+        moved.append(projects_dir.name)
+    for entry in await asyncio.to_thread(_projects_to_move, layout):
+        await asyncio.to_thread(_move_entry, entry, projects_dir / entry.name)
+        moved.append(entry.name)
+    if moved:
+        logger.info("数据根布局迁移：%d 个目录移入 %s：%s", len(moved), projects_dir, ", ".join(moved))
+
+
+def _rename_sdk_session_dir(sdk_projects_dir: Path, legacy_key: str, current_key: str) -> None:
+    """SDK 本地会话目录按新键改名；尽力而为，失败只告警。"""
+    legacy_dir = sdk_projects_dir / legacy_key
+    target = sdk_projects_dir / current_key
+    try:
+        if not legacy_dir.is_dir():
+            return
+        if target.exists():
+            logger.warning("数据根布局迁移：SDK 会话目录 %s 已存在，%s 保持原样", target, legacy_dir)
+            return
+        legacy_dir.rename(target)
+    except OSError:
+        logger.warning("数据根布局迁移：SDK 会话目录 %s 改名失败", legacy_dir, exc_info=True)
+
+
+async def _rewrite_session_store_keys(context: DataRootMigrationContext) -> None:
+    """项目挪进 ``projects/`` 后，Agent 会话存储里按旧项目目录派生的键改写为按新目录派生的键。
+
+    会话存储键由项目目录的绝对路径派生（ADR 0029）。只改写仍在旧键下的记录；新键下已有同一
+    会话时保留两边并告警。SDK 自己的本地会话目录（``ARCREEL_SDK_SESSION_STORE=off`` 时唯一的
+    会话来源）同样按新键改名，失败只告警。
+    """
+    layout = context.layout
+    key_pairs = [
+        (make_project_key(layout.root / entry.name), make_project_key(entry))
+        for entry in await asyncio.to_thread(lambda: sorted(layout.projects_dir.iterdir()))
+        if _is_project_named_dir(entry)
+    ]
+    key_pairs = [(legacy, current) for legacy, current in key_pairs if legacy != current]
+    rewritten: set[tuple[str, str]] = set()
+    async with context.session_factory() as session:
+        for legacy_key, current_key in key_pairs:
+            for table in (AgentSessionEntry, AgentSessionSummary):
+                legacy_ids = set(
+                    (await session.scalars(select(table.session_id).where(table.project_key == legacy_key))).all()
+                )
+                if not legacy_ids:
+                    continue
+                conflicting = set(
+                    (
+                        await session.scalars(
+                            select(table.session_id).where(
+                                table.project_key == current_key, table.session_id.in_(legacy_ids)
+                            )
+                        )
+                    ).all()
+                )
+                if conflicting:
+                    logger.warning(
+                        "数据根布局迁移：会话 %s 在新旧存储键下都有记录，旧键 %s 下的记录保持原样",
+                        sorted(conflicting),
+                        legacy_key,
+                    )
+                await session.execute(
+                    update(table)
+                    .where(table.project_key == legacy_key, table.session_id.not_in(conflicting))
+                    .values(project_key=current_key)
+                )
+                rewritten.update((current_key, session_id) for session_id in legacy_ids - conflicting)
+        await session.commit()
+    sdk_projects_dir = context.sdk_config_dir / "projects"
+    for legacy_key, current_key in key_pairs:
+        await asyncio.to_thread(_rename_sdk_session_dir, sdk_projects_dir, legacy_key, current_key)
+    if rewritten:
+        logger.info("数据根布局迁移：%d 个 Agent 会话改用新项目目录的存储键", len(rewritten))
+
 
 #: POSIX 绝对路径、Windows 盘符路径与 UNC 路径的开头。
 _ABSOLUTE_PATH_PREFIX = re.compile(r"^(?:[\\/]|[A-Za-z]:[\\/])")
@@ -254,7 +407,7 @@ def _place_recorded_vertex_credentials(
     来源取记录路径处的文件；那里没有时取旧凭证目录下的同名文件（记录的是容器内路径等当前进程
     看不到的位置）。推导位置已有文件时不再复制。来源在旧凭证目录内的，全部记录处理完才删除，
     几条记录共用一个文件时每条都能拿到副本；旧凭证目录之外的来源是用户自己放的文件，只复制不删。
-    两处都找不到文件的记录不返回，保持原值待下次启动重试。
+    两处都找不到文件的记录不返回，保持原值：写完成标记前的重跑会再找一次，之后读取凭证时回退到记录路径。
     """
     legacy_resolved = legacy_dir.resolve()
     placed: list[tuple[int, str]] = []
@@ -339,6 +492,10 @@ async def _move_vertex_credentials_into_data_root(context: DataRootMigrationCont
 
 #: 按执行顺序排列的迁移步骤。
 _STEPS: tuple[MigrationStep, ...] = (
+    # 项目搬迁排在系统条目各步之前：users、runtime 等是合法项目名，同名旧项目先搬走，
+    # 同一次迁移里的后续步骤才能就位。
+    _move_projects_into_projects_dir,
+    _rewrite_session_store_keys,
     _relativize_call_output_paths,
     _rename_global_assets_dir,
     _move_user_data_to_users_dir,
@@ -359,12 +516,24 @@ async def migrate_data_root_layout(
     session_factory: async_sessionmaker[AsyncSession],
     sdk_config_dir: Path,
 ) -> None:
-    """把 ``data_root`` 迁到当前布局；已是当前布局时什么都不做。"""
-    context = DataRootMigrationContext(
-        layout=DataRootLayout(data_root),
-        session_factory=session_factory,
-        sdk_config_dir=sdk_config_dir,
-    )
+    """把 ``data_root`` 迁到当前布局；完成标记已在时什么都不做。"""
+    layout = DataRootLayout(data_root)
+    marker = layout.layout_migration_marker_path
+    if await asyncio.to_thread(marker.is_file):
+        return
+    context = DataRootMigrationContext(layout=layout, session_factory=session_factory, sdk_config_dir=sdk_config_dir)
     for step in _STEPS:
-        logger.info("数据根布局迁移：执行 %s", getattr(step, "__name__", step))
-        await step(context)
+        name = getattr(step, "__name__", repr(step))
+        logger.info("数据根布局迁移：执行 %s", name)
+        try:
+            await step(context)
+        except Exception:
+            logger.exception("数据根布局迁移在 %s 失败，未写完成标记，下次启动从头续跑", name)
+            raise
+    await asyncio.to_thread(_write_marker, marker)
+    logger.info("数据根布局迁移完成：%s", marker)
+
+
+def _write_marker(marker: Path) -> None:
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    marker.write_text(datetime.now(UTC).isoformat() + "\n", encoding="utf-8")

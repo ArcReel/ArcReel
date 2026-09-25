@@ -75,7 +75,7 @@ async def chain_project(session_factory, tmp_path: Path, monkeypatch) -> Path:
     monkeypatch.setattr("lib.db.engine.async_session_factory", session_factory)
     monkeypatch.setenv("ARCREEL_DATA_DIR", str(tmp_path / "appdata"))
 
-    pm = ProjectManager(tmp_path / "projects")
+    pm = ProjectManager(tmp_path)
     for target in (
         "lib.project.project_manager.get_project_manager",
         "lib.config.resolver.get_project_manager",

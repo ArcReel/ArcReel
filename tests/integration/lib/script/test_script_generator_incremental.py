@@ -44,8 +44,8 @@ def _activate(project_dir: Path, episode: int = 1) -> None:
 
 
 def _write_project(tmp_path: Path, **overrides: Any) -> Path:
-    project_dir = tmp_path / "proj"
-    project_dir.mkdir(exist_ok=True)
+    project_dir = tmp_path / "projects" / "proj"
+    project_dir.mkdir(parents=True, exist_ok=True)
     payload: dict[str, Any] = {
         "schema_version": CURRENT_PROJECT_SCHEMA_VERSION,
         "title": "项目",
@@ -442,7 +442,7 @@ class TestPromptAuthoring:
         variant = prompt_variant
         first, second = variant.entry_ids
         project_dir, _plan_path = await _converted_and_authored(tmp_path, variant)
-        pm = ProjectManager(str(project_dir.parent))
+        pm = ProjectManager.for_project_dir(project_dir)
         editor = ScriptBatchEditor(pm)
 
         def edit(operation: dict[str, Any]) -> None:

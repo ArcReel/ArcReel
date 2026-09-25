@@ -35,15 +35,19 @@ def _make_policy(tmp_path: Path, **overrides: object) -> AgentAccessPolicy:
 def policy(tmp_path: Path) -> AgentAccessPolicy:
     project_root = tmp_path / "repo"
     project_root.mkdir()
-    (project_root / "projects").mkdir()
-    (project_root / "projects" / "selfproj").mkdir()
-    (project_root / "projects" / "other").mkdir()
+    policy = _make_policy(tmp_path)
+    (_projects_dir(policy) / "selfproj").mkdir(parents=True)
+    (_projects_dir(policy) / "other").mkdir()
     (project_root / "lib").mkdir()
-    return _make_policy(tmp_path)
+    return policy
+
+
+def _projects_dir(policy: AgentAccessPolicy) -> Path:
+    return DataRootLayout(policy.data_root).projects_dir
 
 
 def _cwd(policy: AgentAccessPolicy) -> Path:
-    return policy.data_root / "selfproj"
+    return _projects_dir(policy) / "selfproj"
 
 
 # ============================================================
@@ -63,7 +67,7 @@ def test_pure_construction_with_fake_roots() -> None:
         claude_projects_dir=fake / "claude" / "projects",
     )
     assert policy.sandbox_enabled is False
-    cwd = fake / "repo" / "projects" / "demo"
+    cwd = DataRootLayout(fake / "repo" / "projects").projects_dir / "demo"
     allowed, _ = policy.check_path_access(str(cwd / "data.json"), "Read", cwd, user_id=_USER_ID)
     assert allowed
     allowed, reason = policy.check_path_access(str(fake / "repo" / ".env"), "Read", cwd, user_id=_USER_ID)
@@ -93,7 +97,7 @@ def test_read_cwd_internal_passes(policy: AgentAccessPolicy) -> None:
 def test_read_other_project_denied(policy: AgentAccessPolicy) -> None:
     cwd = _cwd(policy)
     allowed, reason = policy.check_path_access(
-        str(policy.data_root / "other" / "x.json"), "Read", cwd, user_id=_USER_ID
+        str(_projects_dir(policy) / "other" / "x.json"), "Read", cwd, user_id=_USER_ID
     )
     assert not allowed
     assert "跨项目" in reason or "项目" in reason
@@ -297,7 +301,7 @@ def test_write_protected_with_symlinked_project_cwd_denied(
     # 真实项目目录在 tmp 根的另一处,通过 symlink 暴露
     real_root = tmp_path / "real_data"
     (real_root / "projects" / "selfproj").mkdir(parents=True)
-    link_cwd = policy.data_root / "selfproj_link"
+    link_cwd = _projects_dir(policy) / "selfproj_link"
     link_cwd.symlink_to(real_root / "projects" / "selfproj")
 
     # caller 把 symlinked cwd 传入,check_path_access 内 logical.resolve() 会展开 symlink,
@@ -467,14 +471,14 @@ def test_logs_dir_is_sensitive_prefix(tmp_path: Path) -> None:
 def test_build_sandbox_settings_disabled_returns_only_enabled_false(tmp_path: Path) -> None:
     """sandbox_enabled=False（Windows 回退）时只返回 {"enabled": False}。"""
     policy = _make_policy(tmp_path, sandbox_enabled=False)
-    cwd = policy.data_root / "demo"
+    cwd = _projects_dir(policy) / "demo"
     assert policy.build_sandbox_settings(cwd, user_id=_USER_ID) == {"enabled": False}
 
 
 def test_build_sandbox_settings_enabled_returns_full_config(tmp_path: Path) -> None:
     """sandbox_enabled=True 时出站与 loopback 均显式放行，文件围栏保持完整。"""
     policy = _make_policy(tmp_path, sandbox_enabled=True)
-    cwd = policy.data_root / "demo"
+    cwd = _projects_dir(policy) / "demo"
     settings = policy.build_sandbox_settings(cwd, user_id=_USER_ID)
     assert settings["enabled"] is True
     assert settings["autoAllowBashIfSandboxed"] is True
@@ -488,7 +492,7 @@ def test_build_sandbox_settings_enabled_returns_full_config(tmp_path: Path) -> N
 
 def test_build_sandbox_settings_in_docker_enables_weaker_nested(tmp_path: Path) -> None:
     """in_docker 透传到 enableWeakerNestedSandbox；非 Docker 默认 False。"""
-    cwd = _make_policy(tmp_path).data_root / "demo"
+    cwd = _projects_dir(_make_policy(tmp_path)) / "demo"
     assert _make_policy(tmp_path).build_sandbox_settings(cwd, user_id=_USER_ID)["enableWeakerNestedSandbox"] is False
     assert (
         _make_policy(tmp_path, in_docker=True).build_sandbox_settings(cwd, user_id=_USER_ID)[
@@ -525,7 +529,7 @@ def test_build_sandbox_settings_deny_write_includes_resolved_paths(policy: Agent
     路径时失配。与 _check_write_access 的 bases 同口径。"""
     real_root = tmp_path / "real_data"
     (real_root / "projects" / "selfproj").mkdir(parents=True)
-    link_cwd = policy.data_root / "selfproj_link"
+    link_cwd = _projects_dir(policy) / "selfproj_link"
     link_cwd.symlink_to(real_root / "projects" / "selfproj")
 
     settings = policy.build_sandbox_settings(link_cwd, user_id=_USER_ID)
@@ -817,7 +821,7 @@ def test_users_namespace_root_outside_memory_denied(policy: AgentAccessPolicy, t
 def test_data_root_other_paths_still_denied_with_memory_allowance(policy: AgentAccessPolicy, tool: str) -> None:
     """记忆放行不外溢到数据根下的其它路径：别的项目目录仍拒。"""
     cwd = _cwd(policy)
-    allowed, _ = policy.check_path_access(str(policy.data_root / "other" / "x.json"), tool, cwd, user_id=_USER_ID)
+    allowed, _ = policy.check_path_access(str(_projects_dir(policy) / "other" / "x.json"), tool, cwd, user_id=_USER_ID)
     assert not allowed
 
 

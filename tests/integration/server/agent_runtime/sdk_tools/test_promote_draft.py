@@ -770,7 +770,7 @@ async def test_promote_draft_waits_for_file_lock_without_blocking_event_loop(
         return _TextBoundary()
 
     monkeypatch.setattr(TextGenerator, "create", create_text_generator)
-    pm = ProjectManager(str(fake_ctx.project_path.parent))
+    pm = ProjectManager(fake_ctx.data_root)
     held = threading.Event()
     release = threading.Event()
 
@@ -808,7 +808,7 @@ async def test_open_script_plan_draft_waits_for_quarantine_lock(fake_ctx: ToolCo
     drama_project(fake_ctx)
     write_drama_script_plan(fake_ctx, [drama_scene()])
     target = drama_quarantine_path(fake_ctx)
-    pm = ProjectManager(str(fake_ctx.project_path.parent))
+    pm = ProjectManager(fake_ctx.data_root)
     attempted = asyncio.Event()
     original_async_lock = ProjectManager.async_file_lock
 
@@ -1179,7 +1179,7 @@ async def test_normalize_drama_script_serializes_commit_with_draft_edits(fake_ct
 
     use_fake_caps(fake_ctx)
     monkeypatch.setattr(mod.TextGenerator, "create", fake_create)
-    pm = ProjectManager(str(fake_ctx.project_path.parent))
+    pm = ProjectManager(fake_ctx.data_root)
     target = drama_quarantine_path(fake_ctx)
     attempted = asyncio.Event()
     original_async_file_lock = ProjectManager.async_file_lock

@@ -83,7 +83,7 @@ def test_failed_migration_records_the_offending_episode_and_file(tmp_path: Path)
 def test_startup_run_records_the_verdict_and_clears_it_once_repaired(tmp_path: Path) -> None:
     projects_root = tmp_path / "projects"
     projects_root.mkdir()
-    project_dir, *_ = _project(projects_root)
+    project_dir, *_ = _project(tmp_path)
     _break_episode_script(project_dir)
 
     summary = run_project_migrations(projects_root)
@@ -101,12 +101,12 @@ def test_startup_run_records_the_verdict_and_clears_it_once_repaired(tmp_path: P
 def test_workflow_status_reports_exactly_one_blocker_with_the_raw_reason(tmp_path: Path) -> None:
     projects_root = tmp_path / "projects"
     projects_root.mkdir()
-    project_dir, *_ = _project(projects_root)
+    project_dir, *_ = _project(tmp_path)
     _break_episode_script(project_dir)
     failure = migrate_project_with_verdict(project_dir)
     assert failure is not None
 
-    status = WorkflowStateService(ProjectManager(str(projects_root))).get_status("demo")
+    status = WorkflowStateService(ProjectManager(str(tmp_path))).get_status("demo")
 
     assert [blocker.code for blocker in status.blockers] == [MIGRATION_FAILURE_CODE]
     assert status.blockers[0].reason == failure.reason
@@ -116,12 +116,12 @@ def test_workflow_status_reports_exactly_one_blocker_with_the_raw_reason(tmp_pat
 async def test_workflow_plan_reports_exactly_one_problem_pointing_at_the_retry(tmp_path: Path) -> None:
     projects_root = tmp_path / "projects"
     projects_root.mkdir()
-    project_dir, *_ = _project(projects_root)
+    project_dir, *_ = _project(tmp_path)
     _break_episode_script(project_dir)
     failure = migrate_project_with_verdict(project_dir)
     assert failure is not None
 
-    plan = await WorkflowPlanner(ProjectManager(str(projects_root))).get_plan("demo", WorkflowPlanRequest())
+    plan = await WorkflowPlanner(ProjectManager(str(tmp_path))).get_plan("demo", WorkflowPlanRequest())
 
     assert len(plan.problems) == 1
     problem = plan.problems[0]
@@ -135,12 +135,12 @@ async def test_workflow_plan_reports_exactly_one_problem_pointing_at_the_retry(t
 def test_project_status_marks_the_project_for_repair(tmp_path: Path) -> None:
     projects_root = tmp_path / "projects"
     projects_root.mkdir()
-    project_dir, *_ = _project(projects_root)
+    project_dir, *_ = _project(tmp_path)
     _break_episode_script(project_dir)
     failure = migrate_project_with_verdict(project_dir)
     assert failure is not None
 
-    summary = WorkflowStateService(ProjectManager(str(projects_root))).get_project_summary("demo")
+    summary = WorkflowStateService(ProjectManager(str(tmp_path))).get_project_summary("demo")
 
     assert summary.needs_repair is True
     assert summary.repair_reason == failure.reason
@@ -151,11 +151,11 @@ def test_generation_entries_refuse_while_the_project_is_blocked(tmp_path: Path, 
 
     projects_root = tmp_path / "projects"
     projects_root.mkdir()
-    project_dir, *_ = _project(projects_root)
+    project_dir, *_ = _project(tmp_path)
     _break_episode_script(project_dir)
     assert migrate_project_with_verdict(project_dir) is not None
 
-    pm = ProjectManager(str(projects_root))
+    pm = ProjectManager(str(tmp_path))
     monkeypatch.setattr(guard, "get_project_manager", lambda: pm)
 
     with pytest.raises(ConflictError) as excinfo:
@@ -173,11 +173,11 @@ async def test_retry_tool_returns_details_then_unblocks_once_repaired(tmp_path: 
 
     projects_root = tmp_path / "projects"
     projects_root.mkdir()
-    project_dir, *_ = _project(projects_root)
+    project_dir, *_ = _project(tmp_path)
     _break_episode_script(project_dir)
     assert migrate_project_with_verdict(project_dir) is not None
 
-    ctx = ToolContext(project_name="demo", data_root=projects_root, pm=ProjectManager(str(projects_root)))
+    ctx = ToolContext(project_name="demo", data_root=tmp_path, pm=ProjectManager(str(tmp_path)))
     handler = retry_project_migration_tool(ctx).handler
 
     blocked = await handler({})
@@ -198,7 +198,7 @@ async def test_retry_tool_returns_details_then_unblocks_once_repaired(tmp_path: 
 
 async def test_retry_success_uses_caller_scoped_queue_and_capabilities(tmp_path: Path, file_db_factory) -> None:
     projects_root = tmp_path / "projects"
-    projects = ProjectManager(projects_root)
+    projects = ProjectManager(tmp_path)
     projects.create_project("demo", content_mode="ad")
     projects.create_project_metadata("demo", "Demo", "", "ad", target_duration=30)
     project_dir = projects.get_project_path("demo")
@@ -260,7 +260,7 @@ async def test_retry_success_uses_caller_scoped_queue_and_capabilities(tmp_path:
 
     outcome = await retry_project_migration(
         ToolRequest(None),
-        ProjectScope(project_name="demo", data_root=projects_root),
+        ProjectScope(project_name="demo", data_root=tmp_path),
         CallerContext(user_id="tenant-user", source="mcp"),
         services,
     )
@@ -310,12 +310,12 @@ async def test_readonly_diagnostic_tools_report_the_migration_problem_instead_of
 
     projects_root = tmp_path / "projects"
     projects_root.mkdir()
-    project_dir, *_ = _project(projects_root)
+    project_dir, *_ = _project(tmp_path)
     _break_episode_script(project_dir)
     failure = migrate_project_with_verdict(project_dir)
     assert failure is not None
 
-    ctx = ToolContext(project_name="demo", data_root=projects_root, pm=ProjectManager(str(projects_root)))
+    ctx = ToolContext(project_name="demo", data_root=tmp_path, pm=ProjectManager(str(tmp_path)))
     handler = tool_factory(ctx).handler
 
     blocked = await handler(args)
@@ -343,14 +343,14 @@ async def test_mcp_generation_tools_report_the_same_problem_without_running(tmp_
 
     projects_root = tmp_path / "projects"
     projects_root.mkdir()
-    project_dir, *_ = _project(projects_root)
+    project_dir, *_ = _project(tmp_path)
     _break_episode_script(project_dir)
     failure = migrate_project_with_verdict(project_dir)
     assert failure is not None
 
-    pm = ProjectManager(str(projects_root))
+    pm = ProjectManager(str(tmp_path))
     monkeypatch.setattr(guard, "get_project_manager", lambda: pm)
-    ctx = sdk_tools.ToolContext(project_name="demo", data_root=projects_root, pm=pm)
+    ctx = sdk_tools.ToolContext(project_name="demo", data_root=tmp_path, pm=pm)
     ran = False
 
     @tool("generate_storyboards", "stub", {"type": "object", "properties": {}})
@@ -391,14 +391,14 @@ async def test_script_edit_mcp_tools_refuse_at_registration_on_a_migration_block
 
     projects_root = tmp_path / "projects"
     projects_root.mkdir()
-    project_dir, *_ = _project(projects_root)
+    project_dir, *_ = _project(tmp_path)
     _break_episode_script(project_dir)
     failure = migrate_project_with_verdict(project_dir)
     assert failure is not None
 
-    pm = ProjectManager(str(projects_root))
+    pm = ProjectManager(str(tmp_path))
     monkeypatch.setattr(guard, "get_project_manager", lambda: pm)
-    ctx = sdk_tools.ToolContext(project_name="demo", data_root=projects_root, pm=pm)
+    ctx = sdk_tools.ToolContext(project_name="demo", data_root=tmp_path, pm=pm)
 
     sdk_tool = tool_factory(ctx)
     assert sdk_tool.name in sdk_tools.MIGRATION_BLOCKED_TOOL_IDS
@@ -451,7 +451,7 @@ def test_retry_keeps_the_project_blocked_when_the_chain_cannot_place_it(tmp_path
 
     projects_root = tmp_path / "projects"
     projects_root.mkdir()
-    project_dir, *_ = _project(projects_root)
+    project_dir, *_ = _project(tmp_path)
     _break_episode_script(project_dir)
     assert migrate_project_with_verdict(project_dir) is not None
 
@@ -469,7 +469,7 @@ def test_a_verdict_that_cannot_be_persisted_fails_loud(tmp_path: Path) -> None:
 
     projects_root = tmp_path / "projects"
     projects_root.mkdir()
-    project_dir, *_ = _project(projects_root)
+    project_dir, *_ = _project(tmp_path)
     _break_episode_script(project_dir)
     # 记录位置被一个目录占住：落盘那一步必然失败，且不依赖平台的权限语义。
     (project_dir / MIGRATION_FAILURE_FILENAME).mkdir()
@@ -519,10 +519,10 @@ def test_rest_guard_refuses_writes_but_keeps_reads_open(tmp_path: Path, monkeypa
 
     projects_root = tmp_path / "projects"
     projects_root.mkdir()
-    project_dir, *_ = _project(projects_root)
+    project_dir, *_ = _project(tmp_path)
     _break_episode_script(project_dir)
     assert migrate_project_with_verdict(project_dir) is not None
-    monkeypatch.setattr(guard, "get_project_manager", lambda: ProjectManager(str(projects_root)))
+    monkeypatch.setattr(guard, "get_project_manager", lambda: ProjectManager(str(tmp_path)))
 
     client = TestClient(_guarded_app())
 

@@ -125,7 +125,7 @@ def test_asset_sheets_and_grids_stay_current_after_the_cleanup(tmp_path: Path) -
 
     for key in (_CHARACTER_SHEET, _SCENE_SHEET, _GRID, _GRID_MEMBER):
         assert _status(project_dir, key) == "current"
-    summary = WorkflowStateService(ProjectManager(root)).get_project_summary(project_dir.name)
+    summary = WorkflowStateService(ProjectManager(tmp_path)).get_project_summary(project_dir.name)
     assert (summary.assets["character"].available, summary.assets["character"].stale) == (1, 0)
     assert (summary.assets["scene"].available, summary.assets["scene"].stale) == (1, 0)
     assert (summary.episodes[0].storyboards.available, summary.episodes[0].storyboards.stale) == (3, 0)
@@ -254,7 +254,7 @@ def test_described_grids_stay_current_and_bases_that_already_tracked_the_descrip
     for key in (_CHARACTER_SHEET, _STORYBOARD):
         assert after[key] == before[key]
         assert _status(project_dir, key) == "stale"
-    summary = WorkflowStateService(ProjectManager(root)).get_project_summary(project_dir.name)
+    summary = WorkflowStateService(ProjectManager(tmp_path)).get_project_summary(project_dir.name)
     assert (summary.episodes[0].storyboards.available, summary.episodes[0].storyboards.stale) == (3, 1)
 
 
@@ -314,7 +314,7 @@ def test_described_reference_videos_stay_current_in_workflow_and_player(
         )
         assert frozen == current
         assert frozen.digest == after[key].basis_digest
-    summary = WorkflowStateService(ProjectManager(root)).get_project_summary(project_dir.name)
+    summary = WorkflowStateService(ProjectManager(tmp_path)).get_project_summary(project_dir.name)
     assert (summary.episodes[0].videos.available, summary.episodes[0].videos.stale) == (2, 0)
 
 

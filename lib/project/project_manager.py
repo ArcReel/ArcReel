@@ -3773,3 +3773,9 @@ def get_project_manager() -> ProjectManager:
     if _project_manager is None:
         _project_manager = ProjectManager(app_data_dir())
     return _project_manager
+
+
+def reset_project_manager_for_tests() -> None:
+    """清掉 :func:`get_project_manager` 的单例，下次调用按当前数据根重建。"""
+    global _project_manager
+    _project_manager = None

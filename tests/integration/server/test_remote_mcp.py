@@ -92,7 +92,7 @@ class _AvailableImageCapabilities(_Capabilities):
 @pytest.fixture
 def remote_projects(tmp_path: Path) -> ProjectManager:
     projects_root = tmp_path / "projects"
-    manager = ProjectManager(projects_root)
+    manager = ProjectManager(tmp_path)
     manager.create_project("demo", content_mode="drama")
     manager.create_project_metadata("demo", "Demo", "", "drama")
     project_dir = projects_root / "demo"
@@ -996,7 +996,7 @@ async def test_text_task_is_shared_by_remote_and_embedded_hosts_and_running_memb
                 self.deduped.set()
             return result
 
-    projects = ProjectManager(tmp_path / "projects")
+    projects = ProjectManager(tmp_path)
     projects.create_project("demo", content_mode="ad")
     projects.create_project_metadata("demo", "Demo", "", "ad", target_duration=30, brief="卖点")
     queue = RecordingQueue(projects)

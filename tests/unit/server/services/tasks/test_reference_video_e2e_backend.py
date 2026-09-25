@@ -93,7 +93,7 @@ def seeded_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Test
     from lib.project.project_manager import ProjectManager
     from server.routers import reference_videos as router_mod
 
-    custom_pm = ProjectManager(projects_root)
+    custom_pm = ProjectManager(tmp_path)
     monkeypatch.setattr(router_mod, "get_project_manager", lambda: custom_pm)
     # 保留真实资产水合、定桶与时长投影，只隔离本用例不关心的 DB 能力查询。
     monkeypatch.setattr(

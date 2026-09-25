@@ -52,7 +52,7 @@ def test_asset_sheets_without_a_valid_generation_input_are_reported_and_read_mis
         ("character", "李四/便装"): "current",
         ("scene", "祠堂"): "missing",
     }
-    status = WorkflowStateService(ProjectManager(root)).get_status(project_dir.name)
+    status = WorkflowStateService(ProjectManager(tmp_path)).get_status(project_dir.name)
     characters = status.artifacts["asset_sheets"]["character"]
     assert characters["current_ids"] == ["李四"]
     assert characters["missing_ids"] == ["张三"]

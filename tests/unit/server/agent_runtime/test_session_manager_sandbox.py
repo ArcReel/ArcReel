@@ -33,7 +33,7 @@ def fs_session_manager(tmp_path: Path) -> SessionManager:
 async def test_build_options_includes_sandbox_settings(
     fs_session_manager: SessionManager, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    proj_dir = fs_session_manager.project_root / "projects" / "test_proj"
+    proj_dir = fs_session_manager.layout.projects_dir / "test_proj"
     proj_dir.mkdir(parents=True)
     (proj_dir / "project.json").write_text('{"title": "t"}', encoding="utf-8")
 
@@ -100,7 +100,7 @@ def test_configure_sandbox_runtime_swaps_policy(tmp_path: Path) -> None:
     """startup 期注入平台事实：整体换新 policy 而非戳改私有属性，
     后续 settings 编译 / hook 裁决立即消费新规则。"""
     sm = _make_session_manager(tmp_path, sandbox_enabled=True)
-    cwd = sm.project_root / "projects" / "demo"
+    cwd = sm.layout.projects_dir / "demo"
     assert sm.access_policy.build_sandbox_settings(cwd, user_id=_USER_ID)["enabled"] is True
 
     sm.configure_sandbox_runtime(in_docker=True, sandbox_enabled=False)
@@ -179,7 +179,7 @@ async def test_build_options_bash_in_allowed_tools_by_sandbox(
 ) -> None:
     """sandbox 关闭时剥离 Bash/BashOutput/KillBash，启用时保留。"""
     sm = _make_session_manager(tmp_path, sandbox_enabled=sandbox_enabled)
-    proj_dir = sm.project_root / "projects" / "test_proj"
+    proj_dir = sm.layout.projects_dir / "test_proj"
     proj_dir.mkdir(parents=True, exist_ok=True)
     (proj_dir / "project.json").write_text('{"title":"t"}', encoding="utf-8")
 
