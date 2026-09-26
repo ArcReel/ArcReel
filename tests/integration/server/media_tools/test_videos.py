@@ -437,6 +437,7 @@ async def test_generate_videos_resubmits_only_remaining_ids_from_a_durable_batch
         pytest.param("storyboard", _scene("E1S01"), False, id="storyboard-scene"),
         pytest.param("storyboard", _selected("E1S01"), False, id="storyboard-selected"),
         pytest.param("storyboard", _ALL, None, id="storyboard-all"),
+        pytest.param("storyboard", _EPISODE_1, None, id="storyboard-episode"),
         pytest.param("reference_video", _scene("E1U1"), False, id="reference-scene"),
         pytest.param("reference_video", _selected("E1U1"), False, id="reference-selected"),
         pytest.param("reference_video", _ALL, None, id="reference-all"),
@@ -452,8 +453,6 @@ async def test_generate_videos_reuses_the_selected_manual_upload(
 ) -> None:
     """选中的手动上传与 Manifest 认定的 current / stale 同样可复用：不强制时既不入队也不重生，
     只作为 skipped 报告。清单一律报缺失，复用只能来自手动上传这一条腿。
-
-    分镜图生视频的 episode scope 只认 Manifest 的 current / stale，不在此矩阵内。
     """
     from server.media_tools import videos as mod
 

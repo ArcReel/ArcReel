@@ -255,14 +255,24 @@ def _state_for(states: dict[str, GenerationTargetState], unit_id: str) -> Genera
     return states.get(unit_id) or GenerationTargetState(candidate=GenerationCandidate(unit_id=unit_id))
 
 
-def _currency_reusable_ids(
+def _missing_only_reusable_ids(
     states: dict[str, GenerationTargetState],
-    already_done: list[str],
+    versions: VersionManager,
 ) -> list[str]:
-    """Missing-only ids that active currency already reports current/stale."""
+    """Missing-only 下原样保留的分镜：Manifest 认定 current / stale，或一次精确匹配的选中手动上传。
 
-    done = set(already_done)
-    return [unit_id for unit_id, state in states.items() if unit_id not in done and artifact_is_reusable(state)]
+    与 ``select_generation_targets`` 同口径：产物状态不可读（BLOCKED）的分镜不走手动上传这条腿。
+    """
+
+    return [
+        unit_id
+        for unit_id, state in states.items()
+        if state.status is not ArtifactStatus.BLOCKED
+        and (
+            artifact_is_reusable(state)
+            or versions.selected_manual_upload_matches_current_file("videos", unit_id, state.artifact_path)
+        )
+    ]
 
 
 def _sole_speech_admission(result: GenerationBatchResult) -> dict[str, Any]:
@@ -1238,8 +1248,8 @@ async def _generate_episode(call: _VideoCall, request: _VideoRequestContext, log
 
     currency = active_artifact_currency_resolver(project_dir, sb.project)
     states = video_target_states(items, id_field, episode=episode, resolver=currency)
-    # 整集生成始终复用仍可用的旧分镜（含 stale），从不强制重生——所以
-    already_done = _currency_reusable_ids(states, [])
+    # 整集生成只补缺失，从不强制重生：仍可用的旧分镜（含 stale）与选中的手动上传原样保留。
+    already_done = _missing_only_reusable_ids(states, VersionManager(project_dir))
     builder = GenerationResultBuilder(_OPERATION, GenerationSelectionMode.MISSING_ONLY)
     batch = _StoryboardBatch(
         call=call,
