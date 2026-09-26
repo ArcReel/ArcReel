@@ -22,7 +22,7 @@ describe("AdInitCanvas", () => {
     expect(screen.getByLabelText("商品名称")).toBeInTheDocument();
     expect(screen.getByLabelText("商品图")).toBeInTheDocument();
     expect(screen.getByLabelText("商品描述")).toBeInTheDocument();
-    expect(screen.getByLabelText("创作 Brief")).toBeInTheDocument();
+    expect(screen.getByLabelText("创作灵感")).toBeInTheDocument();
     expect(screen.getByLabelText("生成商品资产图")).toBeInTheDocument();
   });
 
@@ -41,7 +41,7 @@ describe("AdInitCanvas", () => {
 
     fireEvent.change(screen.getByLabelText("商品名称"), { target: { value: "保温杯" } });
     fireEvent.change(screen.getByLabelText("商品描述"), { target: { value: "不锈钢保温杯" } });
-    fireEvent.change(screen.getByLabelText("创作 Brief"), { target: { value: "突出保温 12 小时" } });
+    fireEvent.change(screen.getByLabelText("创作灵感"), { target: { value: "突出保温 12 小时" } });
     fireEvent.change(screen.getByLabelText("商品图"), {
       target: { files: [makeFile("front.jpg"), makeFile("back.jpg")] },
     });
@@ -70,7 +70,7 @@ describe("AdInitCanvas", () => {
 
     render(<AdInitCanvas projectName="ad-demo" onDone={onDone} />);
 
-    fireEvent.change(screen.getByLabelText("创作 Brief"), { target: { value: "通用短片" } });
+    fireEvent.change(screen.getByLabelText("创作灵感"), { target: { value: "通用短片" } });
     fireEvent.click(screen.getByRole("button", { name: "开始创作" }));
 
     await waitFor(() => {
@@ -142,7 +142,7 @@ describe("AdInitCanvas", () => {
     const submit = screen.getByRole("button", { name: "开始创作" });
 
     // brief 已填 + 商品区有内容但缺名称：不可提交并出现提示，防止静默丢弃商品信息
-    fireEvent.change(screen.getByLabelText("创作 Brief"), { target: { value: "通用短片" } });
+    fireEvent.change(screen.getByLabelText("创作灵感"), { target: { value: "通用短片" } });
     expect(submit).toBeEnabled();
     fireEvent.change(screen.getByLabelText("商品描述"), { target: { value: "不锈钢" } });
     expect(submit).toBeDisabled();

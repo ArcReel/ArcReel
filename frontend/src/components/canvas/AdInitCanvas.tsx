@@ -267,7 +267,7 @@ export function AdInitCanvas({ projectName, onDone }: AdInitCanvasProps) {
         </div>
       </fieldset>
 
-      {/* ---- 创作 Brief ---- */}
+      {/* ---- 创作灵感 ---- */}
       <div className="mb-5">
         <FieldLabel htmlFor={briefId}>{t("dashboard:ad_init_brief_label")}</FieldLabel>
         <textarea
