@@ -17,11 +17,13 @@ from sqlalchemy.exc import IntegrityError
 
 from lib.artifacts.artifact_activation import register_artifact_entries_atomically, resolve_current_artifact_target
 from lib.artifacts.artifact_manifest import ArtifactKey
+from lib.artifacts.version_manager import MANUAL_UPLOAD_VERSION_SOURCE, InstalledVersionCommit, VersionManager
 from lib.db import async_session_factory
 from lib.db.models.asset import AssetDerivative
 from lib.db.repositories.asset_repo import AssetRepository
 from lib.infra.api_errors import NotFoundError
 from lib.project.asset_derivatives import (
+    derivative_artifact_id,
     derivative_artifact_key,
     derivative_sheet_relative_path,
     derivative_table,
@@ -41,6 +43,7 @@ from lib.project.asset_types import (
     validate_asset_name,
 )
 from lib.project.project_manager import ProjectManager, get_project_manager
+from lib.project.resource_paths import CHARACTER_DERIVATIVE_RESOURCE_TYPE
 from server.i18n import Translator
 from server.routers._asset_router_factory import localize_project_asset_name_conflict
 
@@ -517,6 +520,17 @@ async def from_project(
     return {"asset": payload}
 
 
+def _applied_sheet_version(resource_type: str, resource_id: str, sheet_file: Path) -> InstalledVersionCommit:
+    """从资产库带入项目的一张图：作为选中的手动上传版本记入历史。"""
+    return InstalledVersionCommit(
+        resource_type=resource_type,
+        resource_id=resource_id,
+        prompt="",
+        current_file=sheet_file,
+        metadata={"source": MANUAL_UPLOAD_VERSION_SOURCE},
+    )
+
+
 class ApplyToProjectRequest(BaseModel):
     asset_ids: list[str]
     target_project: str
@@ -685,6 +699,7 @@ async def apply_to_project(
                 "copy_audio_dst": copy_audio_dst,
                 "derivatives": derivative_plans,
                 "derivative_sheet_names": [],
+                "installed_sheets": [],
             }
         )
 
@@ -716,6 +731,7 @@ async def apply_to_project(
 
             plan["desired_name"] = name_
             plan["derivative_sheet_names"] = []
+            plan["installed_sheets"] = []
             if plan["copy_src"] is not None:
                 extension = plan["copy_src"].suffix.lower() or ".png"
                 plan["target_sheet"] = f"{bk}/{name_}{extension}"
@@ -749,6 +765,8 @@ async def apply_to_project(
                 data[bk] = {}
             # overwrite 策略要落在存量真实 key 上（可能是 NFD），否则会并存两条视觉同名条目
             key = existing.name if existing is not None and existing.asset_type == a_.type else name_
+            if ts:
+                plan["installed_sheets"].append(_applied_sheet_version(bk, key, project_dir / ts))
             # 整条替换前先把存量条目的衍生表接过来，再让库里带来的衍生按名覆盖上去：
             # 库里没有的存量衍生因此得以保留（覆盖导入不抹用户已登记的衍生），库里带来的
             # 同名衍生以库版本为准。新条目从空表起步，与创建路径和迁移同口径。
@@ -776,6 +794,14 @@ async def apply_to_project(
                             plan["derivative_sheet_names"].append(derivative_name)
                     # 存量键可能是 NFD 等价形态；命中就写回同一个键，避免并存两条视觉同名衍生。
                     derivative_key = resolve_asset_key(table, derivative_name) or derivative_name
+                    if derivative_sheet:
+                        plan["installed_sheets"].append(
+                            _applied_sheet_version(
+                                CHARACTER_DERIVATIVE_RESOURCE_TYPE,
+                                derivative_artifact_id(key, derivative_key),
+                                project_dir / derivative_sheet,
+                            )
+                        )
                     existing_derivative = table.get(derivative_key)
                     merged = dict(existing_derivative) if isinstance(existing_derivative, dict) else {}
                     merged["description"] = derivative["description"]
@@ -789,7 +815,7 @@ async def apply_to_project(
 
     if plans:
 
-        def _register_imported_sheet_claims(_project_file: Path) -> None:
+        def _register_imported_sheet_claims() -> None:
             owner_keys = {ArtifactKey.asset_sheet(plan["asset"].type, plan["desired_name"]) for plan in plans}
             derivative_keys = {
                 derivative_artifact_key(plan["desired_name"], derivative_name)
@@ -803,13 +829,22 @@ async def apply_to_project(
             }
             register_artifact_entries_atomically(project_dir, owner_entries | derivative_entries)
 
+        def _select_imported_sheets(_project_file: Path) -> None:
+            # 从库里带入的资产图与衍生资产图都是成品：同一次提交里各选中一条手动上传版本，
+            # 规划器据此按图本身投影依据后登记，不依赖描述与画风。
+            commits = [commit for plan in plans for commit in plan["installed_sheets"]]
+            if not commits:
+                _register_imported_sheet_claims()
+                return
+            VersionManager(project_dir).commit_installed_versions(commits, on_commit=_register_imported_sheet_claims)
+
         try:
             await asyncio.to_thread(
                 project_manager.update_project_with_file_copies,
                 req.target_project,
                 _apply_all,
                 file_copies,
-                on_commit=_register_imported_sheet_claims,
+                on_commit=_select_imported_sheets,
             )
         except ProjectAssetNameConflictError as exc:
             raise HTTPException(status_code=409, detail=localize_project_asset_name_conflict(exc, _t)) from exc

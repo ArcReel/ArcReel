@@ -50,7 +50,7 @@ from lib.artifacts.visual_artifact_provenance import (
     visual_file_digest,
 )
 from lib.episode.episode_paths import episode_source_relpath
-from lib.project.asset_derivatives import derivative_artifact_key
+from lib.project.asset_derivatives import DERIVATIVE_ASSET_TYPE, derivative_artifact_id, derivative_artifact_key
 from lib.project.asset_types import (
     ASSET_SPECS,
     DERIVATIVES_FIELD,
@@ -65,7 +65,7 @@ from lib.project.project_schema import (
     parse_project_schema_version,
     project_schema_is_current,
 )
-from lib.project.resource_paths import resource_relative_path
+from lib.project.resource_paths import CHARACTER_DERIVATIVE_RESOURCE_TYPE, resource_relative_path
 from lib.script import script_review
 from lib.script.grid.layout import grid_aspect_ratio_for
 from lib.script.grid.models import GridGeneration
@@ -446,7 +446,7 @@ class TargetStatePlanner:
                 artifact_path = raw_entry.get(spec.sheet_field)
                 if isinstance(artifact_path, str) and artifact_path:
                     key = ArtifactKey.asset_sheet(asset_type, name)
-                    uploaded_basis = self._uploaded_asset_sheet_basis(asset_type, spec, name, artifact_path)
+                    uploaded_basis = self._uploaded_sheet_basis(asset_type, spec.bucket_key, name, artifact_path)
                     if uploaded_basis is not None:
                         self._add_if_present(key, artifact_path, uploaded_basis)
                     else:
@@ -462,25 +462,26 @@ class TargetStatePlanner:
                     self._plan_asset_derivatives(spec, name, raw_entry, observation)
         self._planned.add("assets")
 
-    def _uploaded_asset_sheet_basis(
+    def _uploaded_sheet_basis(
         self,
         asset_type: str,
-        spec: AssetSpec,
-        name: str,
+        resource_type: str,
+        resource_id: str,
         artifact_path: str,
     ) -> ArtifactBasis | None:
-        """作者上传的资产图按上传本身投影依据；不是上传的选中版本时返回 ``None``，改按生成输入投影。
+        """作为成品带入的资产图或衍生资产图按图本身投影依据；否则返回 ``None``，改按生成输入投影。
 
-        成立条件：该资产选中的版本记录是手动上传，且它的受管快照与声明的资产图字节一致。
-        外部替换了资产图、或选中的是生成的版本，都不按上传依据判定。
+        作者上传与从资产库应用的图都以一条选中的手动上传版本记录为凭据。成立条件：该资源
+        选中的版本记录是手动上传，且它的受管快照与声明的图字节一致。外部替换了图、或选中的
+        是生成的版本，都不按上传依据判定。
         """
 
-        bucket = self._load_versions().get(spec.bucket_key)
+        bucket = self._load_versions().get(resource_type)
         if not isinstance(bucket, Mapping):
             return None
-        history_key = resolve_asset_key(bucket, name)
+        history_key = resolve_asset_key(bucket, resource_id)
         snapshot_rel = selected_manual_upload_snapshot(
-            bucket.get(history_key) if history_key is not None else None, spec.bucket_key
+            bucket.get(history_key) if history_key is not None else None, resource_type
         )
         if snapshot_rel is None:
             return None
@@ -510,9 +511,10 @@ class TargetStatePlanner:
     ) -> None:
         """规划一个本体条目下全部衍生资产图的规范依据。
 
-        衍生图是对本体资产图的一次编辑，规范依据因此由「本体资产图的内容 + 变化描述」
-        决定，不含项目画风。本体资产图重生成后其内容指纹改变，该本体下每一张衍生图的
-        登记依据随之与规范状态不符，即判过期。
+        生成的衍生图是对本体资产图的一次编辑，规范依据因此由「本体资产图的内容 + 变化描述」
+        决定，不含项目画风。本体资产图重生成后其内容指纹改变，该本体下每一张生成的衍生图的
+        登记依据随之与规范状态不符，即判过期。作为成品带入的衍生图按图本身投影依据，与本体
+        资产图和描述无关。
         """
         table = entry.get(DERIVATIVES_FIELD)
         if not isinstance(table, Mapping):
@@ -524,8 +526,18 @@ class TargetStatePlanner:
             artifact_path = raw_derivative.get(spec.sheet_field)
             if not derivative_name or not isinstance(artifact_path, str) or not artifact_path:
                 continue
+            key = derivative_artifact_key(owner_name, derivative_name)
+            uploaded_basis = self._uploaded_sheet_basis(
+                DERIVATIVE_ASSET_TYPE,
+                CHARACTER_DERIVATIVE_RESOURCE_TYPE,
+                derivative_artifact_id(owner_name, derivative_name),
+                artifact_path,
+            )
+            if uploaded_basis is not None:
+                self._add_if_present(key, artifact_path, uploaded_basis)
+                continue
             self._plan_generated_image(
-                derivative_artifact_key(owner_name, derivative_name),
+                key,
                 artifact_path,
                 lambda derivative_name=derivative_name: derivative_sheet_input(
                     self.project, owner=owner_name, derivative=derivative_name, observation=observation
