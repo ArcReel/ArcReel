@@ -662,7 +662,7 @@ class ProjectArchiveService:
         """Trim ``versions.json`` for a current-only export and name the snapshots that ship with it.
 
         Each bucket follows ``CURRENT_EXPORT_VERSION_RETENTION``; buckets of other
-        resource types are dropped.  Every retained record is the selected one and
+        resource types, and buckets that are not objects, are dropped.  Every retained record is the selected one and
         its managed snapshot is the only history file packed for that resource.
         """
 
@@ -691,10 +691,10 @@ class ProjectArchiveService:
                 if uploads:
                     trimmed[resource_type] = uploads
             elif retention is CurrentExportVersionRetention.SELECTED:
+                if not isinstance(bucket, dict):
+                    continue
                 selected_bucket = json.loads(json.dumps(bucket))
                 trimmed[resource_type] = selected_bucket
-                if not isinstance(selected_bucket, dict):
-                    continue
                 for resource_info in selected_bucket.values():
                     if not isinstance(resource_info, dict):
                         continue

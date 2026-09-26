@@ -141,3 +141,23 @@ async def test_imported_current_package_can_regenerate_and_restore_the_exported_
     await versions_router.restore_resource_version("demo", resource_type, resource_id, exported_version)
 
     assert current.read_bytes() == exported_content
+
+
+def test_current_package_drops_a_malformed_selected_bucket_and_stays_importable(tmp_path):
+    pm = ProjectManager(tmp_path / "projects")
+    project_dir = _project(pm)
+    _generate_versions(project_dir, "videos", "E1S01", 2)
+    versions_path = project_dir / "versions" / "versions.json"
+    payload = json.loads(versions_path.read_text(encoding="utf-8"))
+    payload["audio"] = []
+    versions_path.write_text(json.dumps(payload), encoding="utf-8")
+    service = ProjectArchiveService(pm)
+
+    archive_path, _ = service.export_project("demo", scope="current")
+
+    shutil.rmtree(project_dir)
+    service.import_project_archive(archive_path, uploaded_filename="demo.zip")
+
+    imported = json.loads((pm.get_project_path("demo") / "versions" / "versions.json").read_text(encoding="utf-8"))
+    assert "audio" not in imported
+    assert "videos" in imported
