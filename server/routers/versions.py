@@ -22,7 +22,7 @@ from lib.artifacts.artifact_activation import (
 )
 from lib.artifacts.artifact_version_provenance import parse_image_version_basis
 from lib.artifacts.formal_write import project_metadata_lock
-from lib.artifacts.version_manager import VersionManager
+from lib.artifacts.version_manager import MANUAL_UPLOAD_VERSION_SOURCE, VersionManager
 from lib.generation.generation_admission import generation_admission_lock
 from lib.infra.api_errors import BadRequestError, ConflictError
 from lib.infra.async_thread import run_noninterruptible_sync
@@ -145,6 +145,15 @@ def _commit_non_typed_restore_claim(
                 resource_type=resource_type,
                 resource_id=resource_id,
             )
+        return
+
+    if resource_type in _RESOURCE_TO_ASSET_TYPE and (record or {}).get("source") == MANUAL_UPLOAD_VERSION_SOURCE:
+        # 还原到作者上传的资产图：选中的已是这条上传记录，规划器按上传本身投影依据，投影不出即遗忘。
+        register_current_resource_artifact(
+            project_path,
+            resource_type=resource_type,
+            resource_id=resource_id,
+        )
         return
 
     try:

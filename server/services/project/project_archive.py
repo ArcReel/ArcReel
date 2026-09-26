@@ -28,7 +28,7 @@ from lib.artifacts.artifact_manifest import (
     encode_artifact_manifest_payload,
 )
 from lib.artifacts.formal_write import project_metadata_lock
-from lib.artifacts.version_manager import VersionManager
+from lib.artifacts.version_manager import VersionManager, selected_manual_upload_snapshot
 from lib.config.registry import model_info_for
 from lib.config.resolver import VideoGenerationType, project_video_backend_ids
 from lib.episode.episode_ledger import parse_positive_episode_num
@@ -36,7 +36,7 @@ from lib.infra.content_digest import digest_stream, sha256_file
 from lib.infra.json_io import load_json
 from lib.infra.path_safety import PathTraversalError, safe_join, try_safe_join
 from lib.infra.validation_messages import MessageRef, ValidationMessage, ValidationResult
-from lib.project.asset_types import asset_name_comparison_key, normalize_asset_name
+from lib.project.asset_types import ASSET_SPECS, asset_name_comparison_key, normalize_asset_name
 from lib.project.data_validator import DataValidator
 from lib.project.project_change_hints import emit_project_change_hint
 from lib.project.project_manager import ProjectManager
@@ -253,6 +253,7 @@ class ProjectArchiveService:
     )
     _ROOT_VISIBLE_ENTRIES = frozenset(DataValidator.ALLOWED_ROOT_ENTRIES)
     _TYPED_VERSION_HISTORY_DIRS = frozenset({"audio", "videos", "reference_videos"})
+    _UPLOAD_EVIDENCE_HISTORY_DIRS = frozenset(spec.bucket_key for spec in ASSET_SPECS.values()) & _VERSION_HISTORY_DIRS
     _AGENT_RUNTIME_EXCLUDES = frozenset({".claude", "CLAUDE.md"})
     _PLACEHOLDER_CHARACTER_DESCRIPTION = "Imported placeholder character"
 
@@ -565,7 +566,7 @@ class ProjectArchiveService:
             versions_path = snapshot_dir / "versions" / "versions.json"
             payload = self._load_json_file(versions_path) if versions_path.is_file() else None
             trimmed_versions = self._trim_versions_payload(payload or {})
-            retained_version_files = self._selected_typed_version_files(trimmed_versions)
+            retained_version_files = self._selected_evidence_version_files(trimmed_versions)
 
         for current_dir, dirnames, filenames in os.walk(snapshot_dir):
             current_path = Path(current_dir)
@@ -638,8 +639,20 @@ class ProjectArchiveService:
             # Current-only exports retain canonical non-typed media, not their
             # version-history snapshots.  Their metadata must leave with those
             # omitted files; typed selected snapshots remain because artifact
-            # activation uses them as independent provenance evidence.
-            if resource_type in cls._VERSION_HISTORY_DIRS and resource_type not in cls._TYPED_VERSION_HISTORY_DIRS:
+            # activation uses them as independent provenance evidence, and so
+            # do selected manual-upload asset sheets, whose snapshot proves the
+            # sheet is claimed by the upload rather than by its description.
+            if resource_type in cls._UPLOAD_EVIDENCE_HISTORY_DIRS and isinstance(resource_type_data, dict):
+                uploads = {
+                    resource_id: resource_info
+                    for resource_id, resource_info in resource_type_data.items()
+                    if selected_manual_upload_snapshot(resource_info, resource_type) is not None
+                }
+                if not uploads:
+                    del trimmed[resource_type]
+                    continue
+                trimmed[resource_type] = resource_type_data = uploads
+            elif resource_type in cls._VERSION_HISTORY_DIRS and resource_type not in cls._TYPED_VERSION_HISTORY_DIRS:
                 del trimmed[resource_type]
                 continue
             if not isinstance(resource_type_data, dict):
@@ -658,11 +671,11 @@ class ProjectArchiveService:
         return trimmed
 
     @classmethod
-    def _selected_typed_version_files(cls, payload: dict[str, Any]) -> frozenset[str]:
-        """Return exact selected typed snapshots required to prove current media."""
+    def _selected_evidence_version_files(cls, payload: dict[str, Any]) -> frozenset[str]:
+        """Return exact selected snapshots required to prove current media and uploaded sheets."""
 
         selected: set[str] = set()
-        for resource_type in cls._TYPED_VERSION_HISTORY_DIRS:
+        for resource_type in cls._TYPED_VERSION_HISTORY_DIRS | cls._UPLOAD_EVIDENCE_HISTORY_DIRS:
             resources = payload.get(resource_type)
             if not isinstance(resources, dict):
                 continue

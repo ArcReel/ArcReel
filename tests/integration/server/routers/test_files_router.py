@@ -13,7 +13,7 @@ from fastapi.testclient import TestClient
 from PIL import Image
 
 import lib.project.project_manager as project_manager_module
-from lib.artifacts.artifact_activation import ArtifactCurrencyResolver
+from lib.artifacts.artifact_activation import ArtifactCurrencyResolver, register_current_resource_artifact
 from lib.artifacts.artifact_manifest import (
     MANIFEST_FILENAME,
     ArtifactKey,
@@ -30,6 +30,7 @@ from lib.prompts.prompt_templates.builtin import builtin_templates
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import files
+from server.services.currency import upload_finalize
 from tests.factories import wav_bytes
 
 
@@ -247,19 +248,31 @@ class TestFilesRouter:
             project_dir = pm.get_project_path("demo")
             target = project_dir / first.json()["path"]
             manifest = project_dir / ".arcreel_artifacts.json"
-            before = (target.read_bytes(), (project_dir / "project.json").read_bytes(), manifest.read_bytes())
+            versions_file = project_dir / "versions" / "versions.json"
+
+            def _durable_state():
+                snapshots = sorted(path.name for path in (project_dir / "versions" / "characters").iterdir())
+                return (
+                    target.read_bytes(),
+                    (project_dir / "project.json").read_bytes(),
+                    manifest.read_bytes(),
+                    versions_file.read_bytes(),
+                    snapshots,
+                )
+
+            before = _durable_state()
 
             def _fail(*_args, **_kwargs):
                 raise RuntimeError("injected manifest failure")
 
-            monkeypatch.setattr(files, "register_current_resource_artifact", _fail)
+            monkeypatch.setattr(upload_finalize, "register_current_resource_artifact", _fail)
             failed = client.post(
                 "/api/v1/projects/demo/upload/character?name=Alice",
                 files={"file": ("replacement.png", _img_bytes("PNG", (0, 0, 255)), "image/png")},
             )
 
             assert failed.status_code == 500
-            assert (target.read_bytes(), (project_dir / "project.json").read_bytes(), manifest.read_bytes()) == before
+            assert _durable_state() == before
 
     def test_formal_sheet_upload_rechecks_a_definition_created_before_install(self, tmp_path, monkeypatch):
         client, pm = _client(monkeypatch, tmp_path)
@@ -282,7 +295,7 @@ class TestFilesRouter:
                 name,
                 relative_path,
                 generated,
-                on_commit=lambda _target: files.register_current_resource_artifact(
+                on_commit=lambda _target: register_current_resource_artifact(
                     project_dir,
                     resource_type="characters",
                     resource_id=name,
