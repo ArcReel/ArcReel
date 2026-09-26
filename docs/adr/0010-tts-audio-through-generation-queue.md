@@ -2,7 +2,7 @@
 status: accepted
 ---
 
-> TTS 的适用范围与生成基数已由 `docs/adr/0089` 扩展为「每个叙述旁白单位一段，按请求选用」，视频请求也可选择后期配音而不生成 TTS；本 ADR 关于 audio 走生成队列、backend 保持同步的决定仍有效。
+> TTS 的适用范围与生成基数已由 `docs/adr/0089` 扩展为「每个含画外音的单位一段，按请求选用」，视频请求也可选择后期配音而不生成 TTS；本 ADR 关于 audio 走生成队列、backend 保持同步的决定仍有效。
 
 # TTS（audio 媒体类型）走 GenerationQueue/Worker，像 image/video；backend 仍同步、不像内联的 text
 
