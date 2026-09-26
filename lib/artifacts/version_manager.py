@@ -69,6 +69,17 @@ class StagedVersionCommit:
     metadata: Mapping[str, Any]
 
 
+@dataclass(frozen=True, slots=True)
+class InstalledVersionCommit:
+    """One already-installed formal file participating in a multi-resource version commit."""
+
+    resource_type: str
+    resource_id: str
+    prompt: str
+    current_file: Path
+    metadata: Mapping[str, Any]
+
+
 def _get_versions_file_lock(versions_file: Path) -> threading.RLock:
     key = str(Path(versions_file).resolve())
     with _LOCKS_GUARD:
@@ -595,33 +606,70 @@ class VersionManager:
     ) -> int:
         """Record a formal file the caller already installed as the new selected version.
 
-        The caller owns the formal bytes and their rollback; this method snapshots
-        them into history, selects that version, then runs ``on_commit``.  If the
-        snapshot, the metadata write, or ``on_commit`` fails, the version metadata
-        and the new snapshot are restored to their prior state.
+        Single-resource form of :meth:`commit_installed_versions`.
         """
 
-        if resource_type not in self.RESOURCE_TYPES:
-            raise ValueError(f"不支持的资源类型: {resource_type}")
-        current_file = Path(current_file)
-        if not current_file.is_file():
-            raise FileNotFoundError(f"installed version file does not exist: {current_file}")
+        commit = InstalledVersionCommit(
+            resource_type=resource_type,
+            resource_id=resource_id,
+            prompt=prompt,
+            current_file=Path(current_file),
+            metadata=metadata,
+        )
+        return self.commit_installed_versions((commit,), on_commit=on_commit)[(resource_type, resource_id)]
+
+    def commit_installed_versions(
+        self,
+        commits: Sequence[InstalledVersionCommit],
+        *,
+        on_commit: Callable[[], None] | None = None,
+    ) -> dict[tuple[str, str], int]:
+        """Record formal files the caller already installed as new selected versions, all or none.
+
+        The caller owns the formal bytes and their rollback; this method snapshots
+        each of them into history, selects those versions, then runs ``on_commit``.
+        If any snapshot, the metadata write, or ``on_commit`` fails, the version
+        metadata and every new snapshot are restored to their prior state.  An
+        empty batch returns ``{}`` without running ``on_commit``.
+        """
+
+        batch = tuple(commits)
+        if not batch:
+            return {}
+        identities: set[tuple[str, str]] = set()
+        for commit in batch:
+            if commit.resource_type not in self.RESOURCE_TYPES:
+                raise ValueError(f"不支持的资源类型: {commit.resource_type}")
+            identity = (commit.resource_type, commit.resource_id)
+            if identity in identities:
+                raise ValueError(f"duplicate installed version identity: {identity!r}")
+            identities.add(identity)
+            if not Path(commit.current_file).is_file():
+                raise FileNotFoundError(f"installed version file does not exist: {commit.current_file}")
 
         with self._lock:
             versions_snapshot = self.versions_file.read_bytes() if self.versions_file.is_file() else None
             data = self._load_versions()
-            resource_data = data.setdefault(resource_type, {}).setdefault(
-                resource_id, {"current_version": 0, "versions": []}
-            )
             created_snapshots: list[Path] = []
+            result: dict[tuple[str, str], int] = {}
             try:
-                new_version = self._append_selected_snapshot(
-                    resource_type, resource_id, resource_data, current_file, prompt, metadata, created_snapshots
-                )
+                for commit in batch:
+                    resource_data = data.setdefault(commit.resource_type, {}).setdefault(
+                        commit.resource_id, {"current_version": 0, "versions": []}
+                    )
+                    result[(commit.resource_type, commit.resource_id)] = self._append_selected_snapshot(
+                        commit.resource_type,
+                        commit.resource_id,
+                        resource_data,
+                        Path(commit.current_file),
+                        commit.prompt,
+                        dict(commit.metadata),
+                        created_snapshots,
+                    )
                 self._save_versions(data)
                 if on_commit is not None:
                     on_commit()
-                return new_version
+                return result
             except BaseException as failure:
                 rollback_errors: list[OSError] = []
                 try:

@@ -87,14 +87,15 @@ class CurrentExportVersionRetention(Enum):
 
 
 #: 仅当前版本导出对每一类资源版本历史的保留口径，覆盖 ``RESOURCE_TYPES`` 的全部类型。
-#: 资产图（``ASSET_SPECS`` 的各个桶）由规划器按选中的手动上传记录判定时效，因此保留上传
-#: 证据。凡是时效判定读取选中手动上传记录的类型，都须归为 ``MANUAL_UPLOAD`` 或 ``SELECTED``。
+#: 资产图（``ASSET_SPECS`` 的各个桶）与角色衍生资产图由规划器按选中的手动上传记录判定
+#: 时效，因此保留上传证据。凡是时效判定读取选中手动上传记录的类型，都须归为
+#: ``MANUAL_UPLOAD`` 或 ``SELECTED``。
 CURRENT_EXPORT_VERSION_RETENTION: Mapping[str, CurrentExportVersionRetention] = MappingProxyType(
     {
         "storyboards": CurrentExportVersionRetention.NONE,
         END_FRAME_RESOURCE_TYPE: CurrentExportVersionRetention.NONE,
         "grids": CurrentExportVersionRetention.NONE,
-        CHARACTER_DERIVATIVE_RESOURCE_TYPE: CurrentExportVersionRetention.NONE,
+        CHARACTER_DERIVATIVE_RESOURCE_TYPE: CurrentExportVersionRetention.MANUAL_UPLOAD,
         "videos": CurrentExportVersionRetention.SELECTED,
         "reference_videos": CurrentExportVersionRetention.SELECTED,
         "audio": CurrentExportVersionRetention.SELECTED,

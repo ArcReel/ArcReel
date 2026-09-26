@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import pytest
-from fastapi import FastAPI
-from fastapi.testclient import TestClient
 
 from lib.artifacts.artifact_activation import ArtifactCurrencyResolver
 from lib.artifacts.artifact_manifest import (
@@ -16,28 +14,7 @@ from lib.artifacts.artifact_manifest import (
 from lib.i18n import _ as translate_message
 from lib.project.asset_derivatives import derivative_artifact_key, derivative_sheet_relative_path
 from lib.project.asset_types import DERIVATIVES_FIELD
-from lib.project.project_manager import ProjectManager
-from server.auth import CurrentUserInfo, get_current_user
-from server.error_handlers import register_error_handlers
 from server.routers import assets
-from tests.auth_deps import AUTH_DEPENDENCIES
-
-
-@pytest.fixture
-async def assets_env(db_factory, tmp_path, monkeypatch):
-    # 1) per-test ProjectManager pointed at tmp_path/projects
-    pm = ProjectManager(tmp_path / "projects")
-
-    # 2) monkeypatch symbols used inside assets router
-    monkeypatch.setattr(assets, "async_session_factory", db_factory)
-    monkeypatch.setattr(assets, "get_project_manager", lambda: pm)
-
-    app = FastAPI()
-    register_error_handlers(app)
-    app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
-    app.include_router(assets.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
-
-    return {"client": TestClient(app), "pm": pm}
 
 
 class TestAssetsCRUD:

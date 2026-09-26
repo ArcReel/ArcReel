@@ -154,10 +154,11 @@ def build_asset_sheet_visual_basis(
 
 
 def build_uploaded_asset_sheet_basis(*, asset_type: str, content_digest: str) -> ArtifactBasis:
-    """Describe an author-uploaded character, scene, prop, or product sheet.
+    """Describe an asset sheet or derivative sheet brought in as finished content.
 
-    An uploaded sheet is the finished content itself: its basis is the uploaded
-    bytes alone, so description, project style, and the asset's name are not
+    Author uploads and sheets applied from the global asset library are the
+    finished content itself: their basis is the image bytes alone, so
+    description, project style, the owner sheet, and the asset's name are not
     inputs and editing them never makes the sheet stale.
     """
 
