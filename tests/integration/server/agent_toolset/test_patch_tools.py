@@ -14,6 +14,7 @@ import pytest
 from mcp import types
 
 from lib.artifacts.artifact_manifest import ArtifactKey, ArtifactManifestEntry, ProjectArtifactManifestAdapter
+from lib.project.data_validator import DataValidator
 from lib.project.project_manager import ProjectManager
 from lib.script.reference_video.request_projection import unit_reference_declarations
 from lib.script.script_batch_edit import script_revision
@@ -182,6 +183,12 @@ def _said(outcome: ToolOutcome[ToolMessage]) -> str:
 
 def _load(ctx: ToolHarness) -> dict[str, Any]:
     return ctx.pm.load_script("demo", "episode_1.json")
+
+
+def _make_project_invalid_outside_assets(ctx: ToolHarness) -> None:
+    """让项目改前已有与资产无关的校验错误（style 类型非法）。"""
+    ctx.pm.update_project("demo", lambda p: p.update({"style": 123}))
+    assert not DataValidator(projects_dir=ctx.pm.projects_dir).validate_project("demo").valid
 
 
 async def _patch(
@@ -781,8 +788,7 @@ class TestPatchProject:
         """「不更坏」error set diff 语义：项目本就脏（无关字段非法）时，upsert 引入的
         新错误（如新 entry 的 description 不是字符串）仍应被拒——单纯 `before_valid AND after.valid`
         判定会让新错误 piggyback 通过，error set diff 才能堵这条旁路。"""
-        # 让项目改前先脏（与资产无关的历史问题，如空 style）
-        ctx.pm.update_project("demo", lambda p: p.update({"style": ""}))
+        _make_project_invalid_outside_assets(ctx)
         out = await run_declared_tool(
             PATCH_PROJECT,
             ctx,
@@ -794,9 +800,9 @@ class TestPatchProject:
         assert "空场景" not in ctx.pm.load_project("demo").get("scenes", {})
 
     async def test_upsert_allowed_when_project_already_invalid(self, ctx: ToolHarness) -> None:
-        """「不更坏」：项目本就含与资产无关的历史非法（空 style）时，patch_project 仍应成功——
+        """「不更坏」：项目本就含与资产无关的历史非法（style 类型非法）时，patch_project 仍应成功——
         否则带历史脏数据的项目会整条编辑路径不可用。"""
-        ctx.pm.update_project("demo", lambda p: p.update({"style": ""}))
+        _make_project_invalid_outside_assets(ctx)
         out = await run_declared_tool(
             PATCH_PROJECT,
             ctx,
