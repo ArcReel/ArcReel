@@ -284,7 +284,6 @@ def _registry_supported_durations(project: dict[str, Any]) -> list[int] | None:
 class ProjectArchiveService:
     _ROOT_VISIBLE_ENTRIES = frozenset(DataValidator.ALLOWED_ROOT_ENTRIES)
     _AGENT_RUNTIME_EXCLUDES = frozenset({".claude", "CLAUDE.md"})
-    _PLACEHOLDER_CHARACTER_DESCRIPTION = "Imported placeholder character"
 
     def __init__(self, project_manager: ProjectManager):
         self.project_manager = project_manager
@@ -1292,9 +1291,8 @@ class ProjectArchiveService:
         project_payload.setdefault("characters", {})
         if not isinstance(project_payload.get("characters"), dict):
             return False
-        project_payload["characters"][character_name] = {
-            "description": self._PLACEHOLDER_CHARACTER_DESCRIPTION,
-        }
+        # 占位角色不带描述：描述是生成资产图的输入，由用户补写或直接上传资产图。
+        project_payload["characters"][character_name] = {"description": ""}
         project_characters.add(character_name)
         diagnostics.add(
             "auto_fixed",

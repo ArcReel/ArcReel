@@ -506,11 +506,7 @@ class DataValidator:
                 if not isinstance(char_data, dict):
                     errors.append(_m("val_asset_format_object", asset_type=_asset("character"), name=char_name))
                     continue
-                desc = char_data.get("description")
-                if not isinstance(desc, str) or not desc:
-                    # 必须是非空字符串：description 是 LLM 直写字段，Agent 误传数字/对象
-                    # 应在守卫点 fail-loud，否则会作为合法资产落盘、下游消费时才崩
-                    errors.append(_m("val_asset_missing_description", asset_type=_asset("character"), name=char_name))
+                self._validate_asset_description(char_data, "character", char_name, errors)
                 for field_name in char_extra_fields:
                     # spec 声明的 extra_string_fields（voice_style / reference_image 等）若存在
                     # 须为字符串（可空），否则下游消费方（如把 reference_image 当路径拼接）
@@ -570,6 +566,32 @@ class DataValidator:
         self._validate_project_catalog(project.get("scenes") or {}, errors, field_label="scenes")
         self._validate_project_catalog(project.get("props") or {}, errors, field_label="props")
         self._validate_project_catalog(project.get("products") or {}, errors, field_label="products")
+
+    @staticmethod
+    def _validate_asset_description(
+        entry: dict[str, Any],
+        asset_type: str,
+        entry_name: str,
+        errors: list[ValidationMessage],
+    ) -> None:
+        """描述是生成资产图的输入，只在生成那一步要求非空；这里只守类型。
+
+        空串与缺省都合法；字段存在时须为字符串，null 同样拒绝。description 是 LLM 直写字段，
+        Agent 误传数字 / 对象须在守卫点拒绝，否则会作为合法资产落盘、下游当文本消费时才崩。
+        """
+        if "description" not in entry:
+            return
+        value = entry["description"]
+        if not isinstance(value, str):
+            errors.append(
+                _m(
+                    "val_asset_field_must_be_string",
+                    asset_type=_asset(asset_type),
+                    name=entry_name,
+                    field="description",
+                    actual=type(value).__name__,
+                )
+            )
 
     @staticmethod
     def _validate_derivatives(
@@ -633,10 +655,7 @@ class DataValidator:
             if not isinstance(data, dict):
                 errors.append(_m("val_asset_format_object", asset_type=kind, name=name))
                 continue
-            desc = data.get("description")
-            if not isinstance(desc, str) or not desc:
-                # 同 characters：description 须为非空字符串，避免数字/对象被 truthy 判通过
-                errors.append(_m("val_asset_missing_description", asset_type=kind, name=name))
+            self._validate_asset_description(data, asset_type, name, errors)
             for field_name in extra_fields:
                 val = data.get(field_name)
                 if val is not None and not isinstance(val, str):

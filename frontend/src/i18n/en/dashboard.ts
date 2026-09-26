@@ -187,7 +187,6 @@ export default {
   'enter_api_key': 'Enter API key...',
   'current_label': 'Current: ',
   'encrypted': 'Encrypted',
-  'clear': 'Clear',
   'api_base_url': 'API Base URL',
   'optional_default_hint': 'Optional, defaults to official Anthropic URL.',
   'api_base_example': 'e.g., https://api.anthropic.com',
@@ -378,7 +377,6 @@ export default {
   'product_selling_points_label': 'Selling Points',
   'product_selling_points_placeholder': 'One selling point per line',
   'add_product': 'Add Merchandise',
-  'add_character': 'Add Character',
   'add_scene': 'Add Scene',
   'add_prop': 'Add Prop',
   'model_selection': 'Model Selection',
@@ -646,18 +644,8 @@ export default {
   'add_to_library_button_label': 'Add to Library',
   'loading_placeholder': 'Loading...',
 
-  // AddCharacterForm & AddSceneInline & AddPropInline
-  'name_label': 'Name',
-  'name_placeholder': 'Character Name',
-  'desc_label': 'Description',
-  'char_desc_placeholder': 'Description of character appearance, personality, background, etc.',
-  'voice_style_label': 'Voice Style',
-  'reference_image_optional': 'Reference Image (Optional)',
-  'reference_selected': 'Reference Selected',
-  'upload_ref_image': 'Upload reference image',
-  'consistency_hint': 'Used to maintain character consistency in subsequent asset sheet generation',
+  // Form actions
   'cancel': 'Cancel',
-  'adding': 'Adding...',
   'add': 'Add',
 
   // OverviewCanvas cost & style section
@@ -1905,7 +1893,8 @@ export default {
   'ad_init_brief_placeholder': 'Describe the video you want: audience, tone, key selling points, call to action...',
   'ad_init_generate_sheet_label': 'Generate merchandise asset sheet',
   'ad_init_generate_sheet_hint': 'Turns casual photos into a standardized single merchandise asset image; review and regenerate on the merchandise page',
-  'ad_init_product_incomplete_hint': 'Merchandise info is incomplete: fill in both the merchandise name and description, or clear the merchandise section to submit a brief-only project',
+  'ad_init_product_incomplete_hint': 'Merchandise info is incomplete: fill in the merchandise name, or clear the merchandise section to submit a brief-only project',
+  'ad_init_sheet_needs_desc_hint': 'Generating the merchandise asset sheet needs a description: fill in the merchandise description, or uncheck "Generate merchandise asset sheet"',
   'ad_init_images_selected': '{{count}} selected',
   'ad_init_submit': 'Start Creating',
   'ad_init_submitting': 'Submitting...',

@@ -269,7 +269,7 @@ def _rename_agnostic_errors(
     """把校验错误压成与「被改名的那个身份」无关的指纹，映射到可读文本。
 
     资产改名的「不更坏」判据是比对改写前后的错误集合，而不少校验消息会点名是哪个资产
-    （缺 description、路径字段非法等），参数位上因此带着资产名。按渲染文本直接做集合差，
+    （数据格式错误、字段类型非法等），参数位上因此带着资产名。按渲染文本直接做集合差，
     会把一条原就存在的历史遗留错误当成改写后新增的——名字变了，文本就变了——从而拒绝
     一次本不更坏的改名。指纹按结构化消息（key + params）构造，并把参数里的新名折回旧名。
 
@@ -2681,8 +2681,7 @@ class ProjectManager:
                 body_attrs = {k: v for k, v in attrs.items() if k != DERIVATIVES_FIELD}
                 # 仅对已存在 entry 检测 no-op:全字段被白名单/legacy strip 丢空时 update({})
                 # 实际不变,归到 noop 而非 merged 避免「合并 1 个」误报。新 entry 即使
-                # cleaned 空也仍走 _build_asset_entry,让 description 缺失的 validator 拒写
-                # fail-loud(不能让"无可写字段"变成绕过 entry 创建必填校验的旁路)。
+                # cleaned 空也照常建条目,description 缺省记为空串——描述只在生成资产图时必需。
                 if existing and not body_attrs and not derivatives:
                     noop.append(name)
                     continue
@@ -2698,7 +2697,7 @@ class ProjectManager:
             # 「不更坏」按 error set diff 判定：after 不应比 before 多任何 errors。
             #   - 改前合法、改后非法 → new_errors=全部 after errors → 拒
             #   - 改前已脏、改后相同脏 → new_errors=∅ → 放行（允许带历史脏数据的项目继续 patch）
-            #   - 改前已脏、改后引入新错误（如 entries 缺 description）→ new_errors≠∅ → 拒
+            #   - 改前已脏、改后引入新错误（如 entries 的 description 不是字符串）→ new_errors≠∅ → 拒
             #   - 改前已脏、改后修复了部分 → new_errors=∅ → 放行（允许 patch 改进历史脏数据）
             # 比单纯比 valid 标志更严：堵住「带历史脏数据的项目里新 entry 的结构错误 piggyback 落盘」。
             new_errors = after_errors - before_errors

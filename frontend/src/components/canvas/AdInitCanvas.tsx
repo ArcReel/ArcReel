@@ -43,7 +43,10 @@ export function AdInitCanvas({ projectName, onDone }: AdInitCanvasProps) {
   const sheetId = useId();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const hasProduct = productName.trim() !== "" && description.trim() !== "";
+  // 建商品只要名称；描述是生成资产图的输入，只在勾选「生成商品资产图」时必填。
+  const productNameMissing = productName.trim() === "";
+  const sheetDescriptionMissing = generateSheet && description.trim() === "";
+  const hasProduct = !productNameMissing && !sheetDescriptionMissing;
   // 商品区有任意输入（名称/描述/图片）或勾选了「生成商品资产图」即视为用户想建商品：
   // 此时必须信息完整才能提交，避免 brief-only 提交静默丢弃已填的商品信息、已选图片或生图意图
   const productDirty =
@@ -230,7 +233,11 @@ export function AdInitCanvas({ projectName, onDone }: AdInitCanvasProps) {
             className="mt-2 text-[11.5px]"
             style={{ color: "var(--color-danger-2)" }}
           >
-            {t("dashboard:ad_init_product_incomplete_hint")}
+            {t(
+              productNameMissing
+                ? "dashboard:ad_init_product_incomplete_hint"
+                : "dashboard:ad_init_sheet_needs_desc_hint",
+            )}
           </p>
         )}
 
@@ -260,7 +267,7 @@ export function AdInitCanvas({ projectName, onDone }: AdInitCanvasProps) {
         </div>
       </fieldset>
 
-      {/* ---- 创作 Brief ---- */}
+      {/* ---- 创作灵感 ---- */}
       <div className="mb-5">
         <FieldLabel htmlFor={briefId}>{t("dashboard:ad_init_brief_label")}</FieldLabel>
         <textarea

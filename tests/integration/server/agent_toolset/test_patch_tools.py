@@ -14,6 +14,7 @@ import pytest
 from mcp import types
 
 from lib.artifacts.artifact_manifest import ArtifactKey, ArtifactManifestEntry, ProjectArtifactManifestAdapter
+from lib.project.data_validator import DataValidator
 from lib.project.project_manager import ProjectManager
 from lib.script.reference_video.request_projection import unit_reference_declarations
 from lib.script.script_batch_edit import script_revision
@@ -182,6 +183,12 @@ def _said(outcome: ToolOutcome[ToolMessage]) -> str:
 
 def _load(ctx: ToolHarness) -> dict[str, Any]:
     return ctx.pm.load_script("demo", "episode_1.json")
+
+
+def _make_project_invalid_outside_assets(ctx: ToolHarness) -> None:
+    """让项目改前已有与资产无关的校验错误（style 类型非法）。"""
+    ctx.pm.update_project("demo", lambda p: p.update({"style": 123}))
+    assert not DataValidator(projects_dir=ctx.pm.projects_dir).validate_project("demo").valid
 
 
 async def _patch(
@@ -756,15 +763,22 @@ class TestPatchProject:
         assert out.problem is None
         assert ctx.pm.load_project("demo")["characters"]["李白"]["description"] == "改后描述"
 
-    async def test_invalid_entry_blocked_and_not_written(self, ctx: ToolHarness) -> None:
-        """缺 description 的资产结构非法 → 校验失败、不落盘。"""
-        out = await run_declared_tool(
-            PATCH_PROJECT,
-            ctx,
-            {"table": "scenes", "entries": {"空场景": {"voice_style": "x"}}},
-        )
-        assert out.problem is not None
-        assert "空场景" not in ctx.pm.load_project("demo").get("scenes", {})
+    @pytest.mark.parametrize(
+        ("table", "entry"),
+        [
+            ("characters", {"description": ""}),
+            ("scenes", {"description": ""}),
+            ("props", {}),
+            ("products", {"description": ""}),
+        ],
+    )
+    async def test_new_asset_without_description_is_written(self, ctx: ToolHarness, table: str, entry: dict) -> None:
+        """描述只在生成资产图时必需：新资产描述为空或未给出都照常落盘，描述记为空串。"""
+        out = await run_declared_tool(PATCH_PROJECT, ctx, {"table": table, "entries": {"无描述资产": entry}})
+
+        assert out.problem is None
+        assert out.value.changes["added"] == ["无描述资产"]
+        assert ctx.pm.load_project("demo")[table]["无描述资产"]["description"] == ""
 
     async def test_unknown_table_errors(self, ctx: ToolHarness) -> None:
         out = await run_declared_tool(PATCH_PROJECT, ctx, {"table": "weapons", "entries": {"剑": {"description": "x"}}})
@@ -772,24 +786,23 @@ class TestPatchProject:
 
     async def test_invalid_entry_rejected_even_when_project_already_invalid(self, ctx: ToolHarness) -> None:
         """「不更坏」error set diff 语义：项目本就脏（无关字段非法）时，upsert 引入的
-        新错误（如新 entry 缺 description）仍应被拒——单纯 `before_valid AND after.valid` 判定
-        会让新错误 piggyback 通过，error set diff 才能堵这条旁路。"""
-        # 让项目改前先脏（与资产无关的历史问题，如空 style）
-        ctx.pm.update_project("demo", lambda p: p.update({"style": ""}))
+        新错误（如新 entry 的 description 不是字符串）仍应被拒——单纯 `before_valid AND after.valid`
+        判定会让新错误 piggyback 通过，error set diff 才能堵这条旁路。"""
+        _make_project_invalid_outside_assets(ctx)
         out = await run_declared_tool(
             PATCH_PROJECT,
             ctx,
-            # 缺 description 的非法 entry，写入引入的「新错误」
-            {"table": "scenes", "entries": {"空场景": {"voice_style": "x"}}},
+            # description 类型非法的 entry，写入引入的「新错误」
+            {"table": "scenes", "entries": {"空场景": {"description": 1}}},
         )
         assert out.problem is not None
         # 不落盘：空场景没写入
         assert "空场景" not in ctx.pm.load_project("demo").get("scenes", {})
 
     async def test_upsert_allowed_when_project_already_invalid(self, ctx: ToolHarness) -> None:
-        """「不更坏」：项目本就含与资产无关的历史非法（空 style）时，patch_project 仍应成功——
+        """「不更坏」：项目本就含与资产无关的历史非法（style 类型非法）时，patch_project 仍应成功——
         否则带历史脏数据的项目会整条编辑路径不可用。"""
-        ctx.pm.update_project("demo", lambda p: p.update({"style": ""}))
+        _make_project_invalid_outside_assets(ctx)
         out = await run_declared_tool(
             PATCH_PROJECT,
             ctx,
@@ -902,8 +915,8 @@ class TestPatchProject:
         assert char["reference_audio"] == "characters/refs_audio/李白.wav"  # 未被 Agent 覆写
 
     async def test_non_string_description_rejected(self, ctx: ToolHarness) -> None:
-        """description 必须是非空字符串：Agent 误传数字（如 LLM 把"1"输出成 int）
-        会让原 truthy 校验放行、错误数据作为合法资产落盘——守卫点须 fail-loud。"""
+        """description 必须是字符串：Agent 误传数字（如 LLM 把"1"输出成 int）
+        不能作为合法资产落盘——守卫点须 fail-loud。"""
         out = await run_declared_tool(
             PATCH_PROJECT,
             ctx,
@@ -1632,6 +1645,16 @@ class TestRenameAssetTool:
         assert "主角甲" in project["characters"]
         assert "角色A" not in project["characters"]
         assert _load(rename_ctx)["segments"][0]["characters_in_segment"] == ["主角甲"]
+
+    async def test_asset_without_description_can_be_renamed(self, ctx: ToolHarness) -> None:
+        ctx.pm.upsert_assets("demo", "scenes", {"无描述场景": {"description": ""}})
+
+        out = await run_declared_tool(
+            RENAME_ASSET, ctx, {"table": "scenes", "old_name": "无描述场景", "new_name": "村口"}
+        )
+
+        assert out.problem is None
+        assert ctx.pm.load_project("demo")["scenes"] == {"村口": {"description": "", "scene_sheet": ""}}
 
     async def test_missing_old_name_error_hints_idempotency(self, rename_ctx: ToolHarness) -> None:
         await run_declared_tool(

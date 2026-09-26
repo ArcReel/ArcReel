@@ -132,6 +132,33 @@ def test_extracted_assets_and_marker_commit_together(tmp_path: Path) -> None:
     assert completed.counts == {"characters": 1, "scenes": 1, "props": 0}
 
 
+def test_extracted_assets_without_description_commit_with_the_marker(tmp_path: Path) -> None:
+    """源文没写外观的资产以空描述登记，资产图生成时再要求补描述。"""
+    pm, project_path = _make_project(tmp_path)
+    expected = compute_source_revision(project_path, pm.load_project("demo"), SourceScope(kind="all")).revision
+    assert expected is not None
+
+    completed = complete_asset_inventory(
+        pm,
+        "demo",
+        SourceScope(kind="all"),
+        expected,
+        {
+            "characters": {"阿青": {"description": ""}},
+            "scenes": {"竹林": {"description": ""}},
+            "props": {"玉佩": {"description": ""}},
+        },
+    )
+
+    saved = pm.load_project("demo")
+    assert [
+        saved[bucket][name]["description"]
+        for bucket, name in [("characters", "阿青"), ("scenes", "竹林"), ("props", "玉佩")]
+    ] == ["", "", ""]
+    assert saved["workflow"]["asset_inventory"]["source_revision"] == expected
+    assert completed.counts == {"characters": 1, "scenes": 1, "props": 1}
+
+
 def test_scoped_completion_keeps_explicit_partial_scope(tmp_path: Path) -> None:
     pm, project_path = _make_project(tmp_path)
     project = pm.load_project("demo")

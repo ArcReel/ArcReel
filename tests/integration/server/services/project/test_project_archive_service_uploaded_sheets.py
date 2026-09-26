@@ -1,7 +1,4 @@
-"""带上传版本记录的资产图：迁移补录与各种归档导入得出同一时效结论，无上传记录的存量结论不变。
-
-归档导入的校验要求资产描述非空，描述为空的资产只出现在补录用例里。
-"""
+"""带上传版本记录的资产图：迁移补录与各种归档导入得出同一时效结论，无上传记录的存量结论不变。"""
 
 import json
 import shutil
@@ -16,13 +13,14 @@ from lib.artifacts.version_manager import MANUAL_UPLOAD_VERSION_SOURCE, VersionM
 from lib.project.asset_types import ASSET_SPECS
 from lib.project.project_manager import ProjectManager
 from lib.project.project_migrations.runner import migrate_project_dir
+from lib.workflow.workflow_state import WorkflowStateService
 from server.services.currency.upload_finalize import install_manual_asset_sheet_upload
 from server.services.project.project_archive import ARCHIVE_MANIFEST_NAME, ProjectArchiveService
 from tests.integration.server.derivative_sheet_support import solid_png_bytes
 
-#: Alice 描述为空时上传；Bob 上传后改了描述；Carol 与 Dave 的资产图没有上传版本记录。
-_BACKFILL_EXPECTED = {"Alice": "current", "Bob": "current", "Carol": "current", "Dave": "missing"}
-_ARCHIVE_EXPECTED = {"Bob": "current", "Carol": "current"}
+#: Alice 描述为空时上传；Bob 上传后改了描述；Carol 与 Dave 的资产图没有上传版本记录，Dave 描述为空；
+#: Eve 描述为空且没有资产图。
+_EXPECTED = {"Alice": "current", "Bob": "current", "Carol": "current", "Dave": "missing", "Eve": "missing"}
 
 _ADD_ASSET = {
     "character": ProjectManager.add_character,
@@ -42,7 +40,7 @@ def _statuses(project_dir: Path, names) -> dict[str, str]:
     }
 
 
-def _backfilled_project(pm: ProjectManager, *, with_empty_descriptions: bool) -> Path:
+def _backfilled_project(pm: ProjectManager) -> Path:
     """建项目、上传资产图、放无记录的资产图，再退回 v7 走整条迁移链补录。"""
 
     pm.create_project("demo")
@@ -50,13 +48,11 @@ def _backfilled_project(pm: ProjectManager, *, with_empty_descriptions: bool) ->
     project_dir = pm.get_project_path("demo")
     pm.add_character("demo", "Bob", "银发少女")
     pm.add_character("demo", "Carol", "存量角色")
-    uploads = [("Bob", (10, 200, 10))]
-    unrecorded = [("Carol", (10, 10, 200))]
-    if with_empty_descriptions:
-        pm.add_character("demo", "Alice", "")
-        pm.add_character("demo", "Dave", "")
-        uploads.append(("Alice", (200, 10, 10)))
-        unrecorded.append(("Dave", (90, 90, 90)))
+    pm.add_character("demo", "Alice", "")
+    pm.add_character("demo", "Dave", "")
+    pm.add_character("demo", "Eve", "")
+    uploads = [("Bob", (10, 200, 10)), ("Alice", (200, 10, 10))]
+    unrecorded = [("Carol", (10, 10, 200)), ("Dave", (90, 90, 90))]
     for name, color in uploads:
         install_manual_asset_sheet_upload(
             project_manager=pm,
@@ -94,9 +90,9 @@ def _strip_manifest_envelope(archive_path: Path, target_path: Path) -> None:
 
 
 def test_backfill_claims_uploaded_sheets_by_the_upload_and_leaves_unrecorded_sheets_unchanged(tmp_path):
-    project_dir = _backfilled_project(ProjectManager(tmp_path / "projects"), with_empty_descriptions=True)
+    project_dir = _backfilled_project(ProjectManager(tmp_path / "projects"))
 
-    assert _statuses(project_dir, _BACKFILL_EXPECTED) == _BACKFILL_EXPECTED
+    assert _statuses(project_dir, _EXPECTED) == _EXPECTED
 
 
 @pytest.mark.parametrize(
@@ -105,7 +101,8 @@ def test_backfill_claims_uploaded_sheets_by_the_upload_and_leaves_unrecorded_she
 )
 def test_archive_import_reaches_the_backfill_conclusion(tmp_path, scope, envelope):
     pm = ProjectManager(tmp_path / "projects")
-    project_dir = _backfilled_project(pm, with_empty_descriptions=False)
+    project_dir = _backfilled_project(pm)
+    source_status = WorkflowStateService(pm).get_status("demo")
     service = ProjectArchiveService(pm)
     archive_path, _ = service.export_project("demo", scope=scope)
     if not envelope:
@@ -117,7 +114,12 @@ def test_archive_import_reaches_the_backfill_conclusion(tmp_path, scope, envelop
     service.import_project_archive(archive_path, uploaded_filename="demo.zip")
 
     imported_dir = pm.get_project_path("demo")
-    assert _statuses(imported_dir, _ARCHIVE_EXPECTED) == _ARCHIVE_EXPECTED
+    assert _statuses(imported_dir, _EXPECTED) == _EXPECTED
+    imported_status = WorkflowStateService(pm).get_status("demo")
+    assert imported_status.blockers == source_status.blockers == []
+    assert imported_status.state == source_status.state
+    assert imported_status.next_action == source_status.next_action
+    assert imported_status.artifacts["asset_sheets"] == source_status.artifacts["asset_sheets"]
 
     def _edit(project: dict) -> None:
         project["characters"]["Bob"]["description"] = "白发老者"
@@ -125,7 +127,7 @@ def test_archive_import_reaches_the_backfill_conclusion(tmp_path, scope, envelop
         project["style_description"] = "胶片颗粒"
 
     pm.update_project("demo", _edit)
-    assert _statuses(imported_dir, _ARCHIVE_EXPECTED) == {"Bob": "current", "Carol": "stale"}
+    assert _statuses(imported_dir, _EXPECTED) == {**_EXPECTED, "Carol": "stale"}
 
 
 @pytest.mark.parametrize("asset_type", sorted(ASSET_SPECS))

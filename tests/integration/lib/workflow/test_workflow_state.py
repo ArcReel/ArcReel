@@ -1057,7 +1057,7 @@ def test_invalid_asset_definition_blocks_existing_sheet(tmp_path: Path) -> None:
     _write_artifact(project_path, sheet)
     pm.update_project(
         "demo",
-        lambda project: project.update(characters={"无描述角色": {"character_sheet": sheet}}),
+        lambda project: project.update(characters={"坏描述角色": {"description": 3, "character_sheet": sheet}}),
     )
 
     status = WorkflowStateService(pm).get_status("demo")
@@ -1065,6 +1065,31 @@ def test_invalid_asset_definition_blocks_existing_sheet(tmp_path: Path) -> None:
     assert status.state == "PROJECT_INPUT"
     assert status.blockers[0].code == "invalid_asset_definitions"
     assert status.next_action.type == "none"
+
+
+@pytest.mark.parametrize(
+    ("bucket", "entry"),
+    [
+        ("characters", {"description": ""}),
+        ("characters", {}),
+        ("scenes", {"description": ""}),
+        ("props", {"description": ""}),
+    ],
+)
+def test_asset_without_description_or_sheet_waits_for_its_sheet(tmp_path: Path, bucket: str, entry: dict) -> None:
+    pm, project_path = _make_project(tmp_path, "ad")
+    pm.update_project("demo", lambda project: project.update({bucket: {"无描述资产": entry}}))
+    _write_registered_script(
+        project_path,
+        {"episode": 1, "title": "广告", "content_mode": "ad", "shots": [_valid_ad_shot()]},
+    )
+
+    status = WorkflowStateService(pm).get_status("demo")
+
+    assert status.blockers == []
+    assert status.state == "ASSET_SHEETS"
+    assert status.next_action.type == "generate_asset_sheets"
+    assert status.next_action.requested_ids == ["无描述资产"]
 
 
 def test_missing_ledger_script_binding_is_a_blocker(tmp_path: Path) -> None:
