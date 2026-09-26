@@ -8,10 +8,12 @@ import shutil
 import stat
 import tempfile
 import zipfile
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from pathlib import Path, PurePosixPath
+from enum import Enum
+from pathlib import Path
+from types import MappingProxyType
 from typing import Any
 
 from lib.agent.agent_memory_paths import project_memory_dir
@@ -45,7 +47,12 @@ from lib.project.project_migrations.v1_to_v2_normalize_providers import (
     migrate_project_dict as normalize_legacy_providers,
 )
 from lib.project.project_schema import project_schema_is_current
-from lib.project.resource_paths import resource_extension, resource_relative_path
+from lib.project.resource_paths import (
+    CHARACTER_DERIVATIVE_RESOURCE_TYPE,
+    END_FRAME_RESOURCE_TYPE,
+    resource_extension,
+    resource_relative_path,
+)
 from lib.script.reference_video.draft_validation import dialogue_speakers
 from lib.script.reference_video.duration_migration import migrate_unit_durations
 from lib.script.reference_video.text_parser import extract_mentions
@@ -60,6 +67,40 @@ ARCHIVE_SCRIPT_SCHEMA_VERSION = 2
 DEFAULT_IMPORT_FILENAME = "imported-project.zip"
 _ARTIFACT_ACTIVATION_ERRORS = (ArtifactManifestError, OSError, UnicodeError, ValueError)
 _EXPORT_SNAPSHOT_ATTEMPTS = 3
+
+
+class CurrentExportVersionRetention(Enum):
+    """仅当前版本导出时，一类资源的版本历史在包里保留什么。
+
+    当前内容一律从正式路径导出。保留的版本记录连同它指向的快照一起入包，其余记录与
+    快照都不入包，包里的 versions.json 与快照文件因此一一对应。
+    """
+
+    NONE = "none"
+    """不保留版本历史。"""
+
+    SELECTED = "selected"
+    """每个资源保留选中的记录与快照：导入激活凭它独立核验 typed media 的依据，手动上传的视频也凭它认领。"""
+
+    MANUAL_UPLOAD = "manual_upload"
+    """只保留选中记录是手动上传的资源：规划器凭这条记录与快照按上传本身判定时效。"""
+
+
+#: 仅当前版本导出对每一类资源版本历史的保留口径，覆盖 ``RESOURCE_TYPES`` 的全部类型。
+#: 资产图（``ASSET_SPECS`` 的各个桶）由规划器按选中的手动上传记录判定时效，因此保留上传
+#: 证据。凡是时效判定读取选中手动上传记录的类型，都须归为 ``MANUAL_UPLOAD`` 或 ``SELECTED``。
+CURRENT_EXPORT_VERSION_RETENTION: Mapping[str, CurrentExportVersionRetention] = MappingProxyType(
+    {
+        "storyboards": CurrentExportVersionRetention.NONE,
+        END_FRAME_RESOURCE_TYPE: CurrentExportVersionRetention.NONE,
+        "grids": CurrentExportVersionRetention.NONE,
+        CHARACTER_DERIVATIVE_RESOURCE_TYPE: CurrentExportVersionRetention.NONE,
+        "videos": CurrentExportVersionRetention.SELECTED,
+        "reference_videos": CurrentExportVersionRetention.SELECTED,
+        "audio": CurrentExportVersionRetention.SELECTED,
+        **{spec.bucket_key: CurrentExportVersionRetention.MANUAL_UPLOAD for spec in ASSET_SPECS.values()},
+    }
+)
 
 
 def _resolve_existing_asset(name: str, candidates: set[str]) -> str:
@@ -240,20 +281,7 @@ def _registry_supported_durations(project: dict[str, Any]) -> list[int] | None:
 
 
 class ProjectArchiveService:
-    _VERSION_HISTORY_DIRS = frozenset(
-        {
-            "storyboards",
-            "videos",
-            "audio",
-            "characters",
-            "scenes",
-            "props",
-            "reference_videos",
-        }
-    )
     _ROOT_VISIBLE_ENTRIES = frozenset(DataValidator.ALLOWED_ROOT_ENTRIES)
-    _TYPED_VERSION_HISTORY_DIRS = frozenset({"audio", "videos", "reference_videos"})
-    _UPLOAD_EVIDENCE_HISTORY_DIRS = frozenset(spec.bucket_key for spec in ASSET_SPECS.values()) & _VERSION_HISTORY_DIRS
     _AGENT_RUNTIME_EXCLUDES = frozenset({".claude", "CLAUDE.md"})
     _PLACEHOLDER_CHARACTER_DESCRIPTION = "Imported placeholder character"
 
@@ -565,8 +593,9 @@ class ProjectArchiveService:
         if is_current:
             versions_path = snapshot_dir / "versions" / "versions.json"
             payload = self._load_json_file(versions_path) if versions_path.is_file() else None
-            trimmed_versions = self._trim_versions_payload(payload or {})
-            retained_version_files = self._selected_evidence_version_files(trimmed_versions)
+            trimmed_versions, retained_version_files = self._current_export_versions(
+                payload if isinstance(payload, dict) else {}
+            )
 
         for current_dir, dirnames, filenames in os.walk(snapshot_dir):
             current_path = Path(current_dir)
@@ -580,13 +609,9 @@ class ProjectArchiveService:
             ]
 
             relative_dir = current_path.relative_to(snapshot_dir)
-            if is_current and relative_dir.parts == ("versions",):
-                retained_dirs = {PurePosixPath(path).parts[1] for path in retained_version_files}
-                dirnames[:] = [
-                    name for name in dirnames if name not in self._VERSION_HISTORY_DIRS or name in retained_dirs
-                ]
-            elif is_current and relative_dir.parts[:1] == ("versions",):
-                prefix = relative_dir.as_posix().rstrip("/") + "/"
+            in_version_history = is_current and relative_dir.parts[:1] == ("versions",)
+            if in_version_history:
+                prefix = relative_dir.as_posix() + "/"
                 dirnames[:] = [
                     name
                     for name in dirnames
@@ -600,12 +625,12 @@ class ProjectArchiveService:
                 and not (current_path / name).is_symlink()
                 and not (is_root and name in self._AGENT_RUNTIME_EXCLUDES)
             ]
-            if is_current and len(relative_dir.parts) >= 2 and relative_dir.parts[0] == "versions":
+            if in_version_history:
                 visible_files = [
                     name
                     for name in visible_files
-                    if relative_dir.parts[1] not in self._VERSION_HISTORY_DIRS
-                    or (relative_dir / name).as_posix() in retained_version_files
+                    if (relative_dir / name).as_posix() in retained_version_files
+                    or (relative_dir.parts == ("versions",) and name == "versions.json")
                 ]
 
             if relative_dir != Path("."):
@@ -632,69 +657,65 @@ class ProjectArchiveService:
 
                 archive.write(source_path, arcname=archive_name)
 
-    @classmethod
-    def _trim_versions_payload(cls, payload: dict[str, Any]) -> dict[str, Any]:
-        trimmed = json.loads(json.dumps(payload))
-        for resource_type, resource_type_data in tuple(trimmed.items()):
-            # Current-only exports retain canonical non-typed media, not their
-            # version-history snapshots.  Their metadata must leave with those
-            # omitted files; typed selected snapshots remain because artifact
-            # activation uses them as independent provenance evidence, and so
-            # do selected manual-upload asset sheets, whose snapshot proves the
-            # sheet is claimed by the upload rather than by its description.
-            if resource_type in cls._UPLOAD_EVIDENCE_HISTORY_DIRS and isinstance(resource_type_data, dict):
-                uploads = {
-                    resource_id: resource_info
-                    for resource_id, resource_info in resource_type_data.items()
-                    if selected_manual_upload_snapshot(resource_info, resource_type) is not None
-                }
-                if not uploads:
-                    del trimmed[resource_type]
+    @staticmethod
+    def _current_export_versions(payload: dict[str, Any]) -> tuple[dict[str, Any], frozenset[str]]:
+        """Trim ``versions.json`` for a current-only export and name the snapshots that ship with it.
+
+        Each bucket follows ``CURRENT_EXPORT_VERSION_RETENTION``; buckets of other
+        resource types are dropped.  Every retained record is the selected one and
+        its managed snapshot is the only history file packed for that resource.
+        """
+
+        trimmed: dict[str, Any] = {}
+        snapshots: set[str] = set()
+        for resource_type, bucket in payload.items():
+            retention = CURRENT_EXPORT_VERSION_RETENTION.get(resource_type, CurrentExportVersionRetention.NONE)
+            if retention is CurrentExportVersionRetention.MANUAL_UPLOAD:
+                if not isinstance(bucket, dict):
                     continue
-                trimmed[resource_type] = resource_type_data = uploads
-            elif resource_type in cls._VERSION_HISTORY_DIRS and resource_type not in cls._TYPED_VERSION_HISTORY_DIRS:
-                del trimmed[resource_type]
-                continue
-            if not isinstance(resource_type_data, dict):
-                continue
-            for resource_info in resource_type_data.values():
-                if not isinstance(resource_info, dict):
-                    continue
-                current_ver = resource_info.get("current_version")
-                versions_list = resource_info.get("versions", [])
-                if current_ver is not None and isinstance(versions_list, list):
-                    resource_info["versions"] = [
-                        version
-                        for version in versions_list
-                        if isinstance(version, dict) and version.get("version") == current_ver
+                uploads: dict[str, Any] = {}
+                for resource_id, resource_info in bucket.items():
+                    snapshot = selected_manual_upload_snapshot(resource_info, resource_type)
+                    if snapshot is None:
+                        continue
+                    upload = json.loads(json.dumps(resource_info))
+                    upload["versions"] = [
+                        record
+                        for record in upload["versions"]
+                        if isinstance(record, dict)
+                        and record.get("version") == upload["current_version"]
+                        and record.get("file") == snapshot
                     ]
-        return trimmed
-
-    @classmethod
-    def _selected_evidence_version_files(cls, payload: dict[str, Any]) -> frozenset[str]:
-        """Return exact selected snapshots required to prove current media and uploaded sheets."""
-
-        selected: set[str] = set()
-        for resource_type in cls._TYPED_VERSION_HISTORY_DIRS | cls._UPLOAD_EVIDENCE_HISTORY_DIRS:
-            resources = payload.get(resource_type)
-            if not isinstance(resources, dict):
-                continue
-            for resource in resources.values():
-                if not isinstance(resource, dict):
+                    uploads[resource_id] = upload
+                    snapshots.add(snapshot)
+                if uploads:
+                    trimmed[resource_type] = uploads
+            elif retention is CurrentExportVersionRetention.SELECTED:
+                selected_bucket = json.loads(json.dumps(bucket))
+                trimmed[resource_type] = selected_bucket
+                if not isinstance(selected_bucket, dict):
                     continue
-                records = resource.get("versions")
-                if not isinstance(records, list) or len(records) != 1 or not isinstance(records[0], dict):
-                    continue
-                raw_path = records[0].get("file")
-                if not isinstance(raw_path, str) or "\\" in raw_path:
-                    continue
-                path = PurePosixPath(raw_path)
-                if path.is_absolute() or path.parts[:2] != ("versions", resource_type) or len(path.parts) != 3:
-                    continue
-                if any(part in {"", ".", ".."} for part in path.parts):
-                    continue
-                selected.add(path.as_posix())
-        return frozenset(selected)
+                for resource_info in selected_bucket.values():
+                    if not isinstance(resource_info, dict):
+                        continue
+                    current_ver = resource_info.get("current_version")
+                    records = resource_info.get("versions", [])
+                    if not isinstance(records, list):
+                        continue
+                    if current_ver is not None:
+                        records = [
+                            record
+                            for record in records
+                            if isinstance(record, dict) and record.get("version") == current_ver
+                        ]
+                        resource_info["versions"] = records
+                    if (
+                        len(records) == 1
+                        and isinstance(records[0], dict)
+                        and VersionManager.is_managed_snapshot_path(resource_type, records[0].get("file"))
+                    ):
+                        snapshots.add(records[0]["file"])
+        return trimmed, frozenset(snapshots)
 
     def _capture_stable_visible_tree(
         self,

@@ -12,6 +12,8 @@ import pytest
 
 from lib.artifacts.artifact_activation import ArtifactCurrencyResolver
 from lib.artifacts.artifact_manifest import MANIFEST_FILENAME, ArtifactKey
+from lib.artifacts.version_manager import MANUAL_UPLOAD_VERSION_SOURCE, VersionManager
+from lib.project.asset_types import ASSET_SPECS
 from lib.project.project_manager import ProjectManager
 from lib.project.project_migrations.runner import migrate_project_dir
 from server.services.currency.upload_finalize import install_manual_asset_sheet_upload
@@ -21,6 +23,13 @@ from tests.integration.server.derivative_sheet_support import solid_png_bytes
 #: Alice 描述为空时上传；Bob 上传后改了描述；Carol 与 Dave 的资产图没有上传版本记录。
 _BACKFILL_EXPECTED = {"Alice": "current", "Bob": "current", "Carol": "current", "Dave": "missing"}
 _ARCHIVE_EXPECTED = {"Bob": "current", "Carol": "current"}
+
+_ADD_ASSET = {
+    "character": ProjectManager.add_character,
+    "scene": ProjectManager.add_project_scene,
+    "prop": ProjectManager.add_prop,
+    "product": ProjectManager.add_product,
+}
 
 
 def _statuses(project_dir: Path, names) -> dict[str, str]:
@@ -117,3 +126,52 @@ def test_archive_import_reaches_the_backfill_conclusion(tmp_path, scope, envelop
 
     pm.update_project("demo", _edit)
     assert _statuses(imported_dir, _ARCHIVE_EXPECTED) == {"Bob": "current", "Carol": "stale"}
+
+
+@pytest.mark.parametrize("asset_type", sorted(ASSET_SPECS))
+def test_current_package_carries_only_the_selected_upload_and_keeps_the_source_conclusion(tmp_path, asset_type):
+    spec = ASSET_SPECS[asset_type]
+    sheet_path = f"{spec.subdir}/Hero.png"
+    pm = ProjectManager(tmp_path / "projects")
+    pm.create_project("demo")
+    pm.create_project_metadata("demo", "Demo", "Anime", "narration")
+    _ADD_ASSET[asset_type](pm, "demo", "Hero", "银发少女")
+    project_dir = pm.get_project_path("demo")
+    (project_dir / sheet_path).parent.mkdir(parents=True, exist_ok=True)
+    (project_dir / sheet_path).write_bytes(solid_png_bytes((90, 90, 90)))
+    VersionManager(project_dir).add_version(spec.bucket_key, "Hero", "生成", source_file=project_dir / sheet_path)
+    install_manual_asset_sheet_upload(
+        project_manager=pm,
+        project_name="demo",
+        asset_type=asset_type,
+        name="Hero",
+        sheet_path=sheet_path,
+        content=solid_png_bytes((10, 200, 10)),
+        original_filename="hero.png",
+    )
+    pm.update_asset_entry(asset_type, "demo", "Hero", lambda entry: entry.update(description="黑发少年"))
+    key = ArtifactKey.asset_sheet(asset_type, "Hero")
+    source_status = ArtifactCurrencyResolver(project_dir).compare(key, artifact_path=sheet_path).status.value
+    history = json.loads((project_dir / "versions" / "versions.json").read_text(encoding="utf-8"))
+    [upload] = [
+        record
+        for record in history[spec.bucket_key]["Hero"]["versions"]
+        if record.get("source") == MANUAL_UPLOAD_VERSION_SOURCE
+    ]
+    service = ProjectArchiveService(pm)
+
+    archive_path, _ = service.export_project("demo", scope="current")
+
+    with zipfile.ZipFile(archive_path) as archive:
+        packed = {name for name in archive.namelist() if name.startswith(f"demo/versions/{spec.bucket_key}/")}
+        payload = json.loads(archive.read("demo/versions/versions.json"))
+    assert packed == {f"demo/versions/{spec.bucket_key}/", f"demo/{upload['file']}"}
+    assert payload[spec.bucket_key] == {"Hero": {"current_version": upload["version"], "versions": [upload]}}
+
+    shutil.rmtree(project_dir)
+    service.import_project_archive(archive_path, uploaded_filename="demo.zip")
+    imported_dir = pm.get_project_path("demo")
+    resolver = ArtifactCurrencyResolver(imported_dir)
+    assert resolver.compare(key, artifact_path=sheet_path).status.value == source_status == "current"
+    pm.update_asset_entry(asset_type, "demo", "Hero", lambda entry: entry.update(description="白发老者"))
+    assert ArtifactCurrencyResolver(imported_dir).compare(key, artifact_path=sheet_path).status.value == "current"

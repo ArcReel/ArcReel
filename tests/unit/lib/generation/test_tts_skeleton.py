@@ -61,11 +61,6 @@ class TestWhitelistAndExport:
     def test_audio_allowed_root_entry(self):
         assert "audio" in DataValidator.ALLOWED_ROOT_ENTRIES
 
-    def test_audio_in_version_history_dirs(self):
-        from server.services.project.project_archive import ProjectArchiveService
-
-        assert "audio" in ProjectArchiveService._VERSION_HISTORY_DIRS
-
 
 class TestGeneratedAssetsNarrationAudio:
     def test_default_none(self):
