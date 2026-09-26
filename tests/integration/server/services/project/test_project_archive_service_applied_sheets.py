@@ -95,9 +95,10 @@ def _strip_manifest_envelope(archive_path: Path, target_path: Path) -> None:
     ("scope", "envelope"),
     [("full", True), ("current", True), ("full", False), ("current", False)],
 )
-def test_archive_import_reaches_the_source_conclusion(library_client, tmp_path, scope, envelope):
+@pytest.mark.parametrize("owner_description", ["", "白衣少年"])
+def test_archive_import_reaches_the_source_conclusion(library_client, tmp_path, scope, envelope, owner_description):
     client, pm = library_client
-    project_dir = _applied_project(client, pm, owner_description="白衣少年")
+    project_dir = _applied_project(client, pm, owner_description=owner_description)
     service = ProjectArchiveService(pm)
     archive_path, _ = service.export_project("demo", scope=scope)
     if not envelope:
