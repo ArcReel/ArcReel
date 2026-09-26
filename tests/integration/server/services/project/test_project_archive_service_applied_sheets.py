@@ -109,6 +109,7 @@ def test_archive_import_reaches_the_source_conclusion(library_client, tmp_path, 
 
     service.import_project_archive(archive_path, uploaded_filename="demo.zip")
 
+    assert pm.load_project("demo")["characters"]["王"]["description"] == owner_description
     assert _statuses(pm) == _ALL_CURRENT
     _edit_descriptions_and_style(pm)
     assert _statuses(pm) == _ALL_CURRENT
