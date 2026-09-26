@@ -78,6 +78,7 @@ from server.routers import (
     scenes,
     script_review,
     shot_uploads,
+    social_publish,
     system,
     system_config,
     tasks,
@@ -594,6 +595,7 @@ app.include_router(scenes.router, prefix="/api/v1", dependencies=[Depends(get_cu
 app.include_router(props.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["道具管理"])
 app.include_router(products.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["商品管理"])
 app.include_router(presentations.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["成片演示"])
+app.include_router(social_publish.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["社交分发"])
 app.include_router(files.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["文件管理"])
 app.include_router(
     generate.router,

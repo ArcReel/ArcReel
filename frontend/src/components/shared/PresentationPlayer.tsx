@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Download, Loader2 } from "lucide-react";
+import { Download, Loader2, Send } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
@@ -11,6 +11,7 @@ import type {
 } from "@/types/presentation";
 import { errMsg } from "@/utils/async";
 import { downloadBlob } from "@/utils/download";
+import { PublishToSocialDialog } from "./PublishToSocialDialog";
 
 interface PresentationPlayerProps {
   projectName: string;
@@ -56,6 +57,7 @@ export function PresentationPlayer({
     supportsVariants: false,
   });
   const [downloading, setDownloading] = useState(false);
+  const [publishOpen, setPublishOpen] = useState(false);
   const [positionMicroseconds, setPositionMicroseconds] = useState(0);
   const [nativeCaptionsShowing, setNativeCaptionsShowing] = useState(false);
   const canonicalPath =
@@ -429,6 +431,15 @@ export function PresentationPlayer({
         )}
         <button
           type="button"
+          onClick={() => setPublishOpen(true)}
+          aria-label={t("presentation_publish")}
+          title={t("presentation_publish")}
+          className="focus-ring grid h-6 w-6 place-items-center rounded-md bg-black/70 text-white/80 hover:text-white"
+        >
+          <Send className="h-3 w-3" aria-hidden />
+        </button>
+        <button
+          type="button"
           onClick={() => void downloadBundle()}
           disabled={downloading}
           aria-label={t("presentation_download")}
@@ -442,6 +453,19 @@ export function PresentationPlayer({
           )}
         </button>
       </div>
+      {/* 按需挂载：关闭即卸载，投递状态随之清干净（见 PublishToSocialDialog 的说明）。 */}
+      {publishOpen && (
+        <PublishToSocialDialog
+          open
+          onClose={() => setPublishOpen(false)}
+          projectName={projectName}
+          resourceType={resourceType}
+          resourceId={resourceId}
+          variant={presentation.variant}
+          videoVersion={presentation.video.version}
+          audioVersion={presentation.narration_audio?.version}
+        />
+      )}
     </div>
   );
 }

@@ -80,6 +80,55 @@ describe("PresentationPlayer", () => {
     vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined);
   });
 
+  it("discards a finished publish when the dialog is closed, so reopening starts a new one", async () => {
+    vi.spyOn(API, "getSocialPublishProfiles").mockResolvedValue({
+      active_profile: "studio",
+      video_platforms: ["tiktok"],
+      profiles: [
+        {
+          username: "studio",
+          accounts: [
+            { platform: "tiktok", display_name: "Studio", handle: "studio", reauth_required: false },
+          ],
+        },
+      ],
+    });
+    vi.spyOn(API, "publishPresentation").mockResolvedValue({
+      request_id: "arcreel-1",
+      job_id: null,
+      scheduled_date: null,
+      total_platforms: 1,
+    });
+    vi.spyOn(API, "getSocialPublishStatus").mockResolvedValue({
+      request_id: "arcreel-1",
+      job_id: null,
+      status: "completed",
+      completed: 1,
+      total: 1,
+      terminal: true,
+      outcomes: [],
+    });
+    const user = userEvent.setup();
+    render(<PresentationPlayer projectName="demo" resourceType="videos" resourceId="E1S01" />);
+    await screen.findByLabelText("E1S01 成片预览");
+
+    await user.click(screen.getByRole("button", { name: "发布到社交平台" }));
+    await user.click(await screen.findByRole("checkbox", { name: /tiktok/ }));
+    await user.click(screen.getByRole("button", { name: "发布" }));
+    await screen.findByText(/已完成/);
+
+    // el pie del panel y la X de la cabecera comparten etiqueta; el pie es el que lleva texto
+    const footerClose = screen
+      .getAllByRole("button", { name: "关闭" })
+      .find((button) => button.textContent?.trim() === "关闭");
+    await user.click(footerClose as HTMLElement);
+    await user.click(screen.getByRole("button", { name: "发布到社交平台" }));
+
+    // el diálogo se desmonta al cerrar: si quedara montado, aquí seguiría el panel de progreso
+    expect(await screen.findByRole("checkbox", { name: /tiktok/ })).not.toBeChecked();
+    expect(screen.queryByText(/已完成/)).not.toBeInTheDocument();
+  });
+
   it("renders the selected immutable video, explicit audio-off, subtitle track, and status", async () => {
     render(
       <PresentationPlayer projectName="demo" resourceType="videos" resourceId="E1S01" />,
