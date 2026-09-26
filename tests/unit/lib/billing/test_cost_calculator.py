@@ -54,16 +54,19 @@ class TestVideoCost:
         assert video(8, "1080p", False) == pytest.approx(0.40)
         assert video(8, "720p", True) == pytest.approx(0.40)
         assert video(8, "720p", False) == pytest.approx(0.24)
-        # Lite 不支持 4K，未知分辨率回退到 1080p+audio 费率 (0.08)
-        assert video(5, "unknown", True) == pytest.approx(0.40)
+        # 未指定分辨率时 Veo 按 720p 出片，结算跟随 720p；Lite 不支持 4K，未知分辨率同样回退 720p+audio (0.05)
+        assert video(8, None, True) == pytest.approx(0.40)
+        assert video(8, None, False) == pytest.approx(0.24)
+        assert video(5, "unknown", True) == pytest.approx(0.25)
         # Fast 模型 (veo-3.1-fast-generate-001，在 gemini-vertex)：1080p 含音 0.12 / 无音 0.10
         fast = "veo-3.1-fast-generate-001"
         assert video(8, "1080p", True, provider="gemini-vertex", model=fast) == pytest.approx(0.96)
         assert video(8, "1080p", False, provider="gemini-vertex", model=fast) == pytest.approx(0.8)
         assert video(8, "720p", True, provider="gemini-vertex", model=fast) == pytest.approx(0.8)
         assert video(8, "720p", False, provider="gemini-vertex", model=fast) == pytest.approx(0.64)
-        # Fast 模型未知分辨率应回退到自身的 1080p+audio 费率 (0.12)，而非标准模型的 0.40
-        assert video(5, "unknown", True, provider="gemini-vertex", model=fast) == pytest.approx(0.60)
+        # Fast 模型未指定或未知分辨率应回退到自身的 720p+audio 费率 (0.10)，而非标准模型的 0.40
+        assert video(8, None, True, provider="gemini-vertex", model=fast) == pytest.approx(0.8)
+        assert video(5, "unknown", True, provider="gemini-vertex", model=fast) == pytest.approx(0.50)
         # 4K 档（Standard 两侧 + AI Studio Fast 支持）：含音 0.60 / 0.30，无音 0.40 / 0.25
         preview = "veo-3.1-generate-preview"
         assert video(8, "4k", True, model=preview) == pytest.approx(4.8)

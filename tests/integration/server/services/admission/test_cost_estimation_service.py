@@ -1935,14 +1935,14 @@ class TestCostEstimationService:
     @pytest.mark.parametrize(
         ("video_backend", "configured_generate_audio", "expected_usd"),
         [
-            # AI Studio 无 audio-off 档，供应商恒按含音价出账：无论开关状态，预估都须落在
-            # veo-3.1-lite-generate-preview 1080p 的含音价 0.08 USD/s。
-            ("gemini-aistudio", True, 0.08),
-            ("gemini-aistudio", False, 0.08),
+            # 未设分辨率时 Veo 按 720p 出片。AI Studio 无 audio-off 档，供应商恒按含音价出账：
+            # 无论开关状态，预估都须落在 veo-3.1-lite-generate-preview 720p 的含音价 0.05 USD/s。
+            ("gemini-aistudio", True, 0.05),
+            ("gemini-aistudio", False, 0.05),
             # Vertex 有独立的 audio-off 档，不受 AI Studio 修正影响，预估随开关走
-            # （veo-3.1-fast-generate-001 1080p：含音 0.12 / 无音 0.10 USD/s）。
-            ("gemini-vertex", True, 0.12),
-            ("gemini-vertex", False, 0.10),
+            # （veo-3.1-fast-generate-001 720p：含音 0.10 / 无音 0.08 USD/s）。
+            ("gemini-vertex", True, 0.10),
+            ("gemini-vertex", False, 0.08),
         ],
     )
     async def test_video_estimate_generate_audio_by_provider(
