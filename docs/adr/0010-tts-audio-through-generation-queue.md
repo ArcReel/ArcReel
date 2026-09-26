@@ -2,6 +2,8 @@
 status: accepted
 ---
 
+> TTS 的适用范围与生成基数已由 `docs/adr/0089` 扩展为「每个叙述旁白单位一段，按请求选用」，视频请求也可选择后期配音而不生成 TTS；本 ADR 关于 audio 走生成队列、backend 保持同步的决定仍有效。
+
 # TTS（audio 媒体类型）走 GenerationQueue/Worker，像 image/video；backend 仍同步、不像内联的 text
 
 ArcReel 的媒体生成沿 `media_type` 轴扇出：image/video 走 **GenerationQueue + GenerationWorker**（按 provider×media_type 分 slot，带进度/取消/续传/孤儿处理），text 则是 **同步内联调用**（`TextGenerator` = TextBackend + UsageTracker，不入队、worker 只 `for media_type in ("image","video")`、不建 task）。接入旁白配音（TTS）时第一个分叉是：audio 跟 text 走（同步内联）还是跟 image/video 走（队列）。

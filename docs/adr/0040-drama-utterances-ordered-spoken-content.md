@@ -2,6 +2,8 @@
 status: accepted
 ---
 
+> 「同一场景可交错台词与画外音」已由 `docs/adr/0089` 取代：一个场景只能有一种发声模式，台词与叙述旁白并存即混合发声、阻断生成；叙述旁白经旁白配音或后期配音交付。本 ADR 关于有序 utterances 作为口播单一真相、`source_text` 与说话量对时长单向约束的决定仍有效。
+
 # drama 口播内容统一为有序 utterances，取代 dialogue/voiceover 双字段
 
 drama 的口播内容（角色台词 + 画外音）统一为一条**场景级、有序的判别式联合列表** `scene.utterances: list[Utterance]`，每条 `Utterance{kind: "dialogue"|"voiceover", speaker: str|None, text: str}`：插入顺序即时序（表达台词与画外音在一个场景里的先后），`kind` 决定下游路由（dialogue 进视频 YAML 交供应商生成口型音轨、voiceover 不作为视频提示词、留给字幕与日后 TTS；判别标准为是否归属具体说话角色，voiceover 仅承载无说话人的旁白解说），口播内容单一真相落在 utterances（`dialogue` 不嵌在 `video_prompt` 内）。这条统一序列是下游三处消费的共同地基——成片字幕从它派生、场景说话量对时长的约束按它估算、script_plan 结构化产出以它为目标；若口播分散在多个无序字段，字幕无源、跨类型先后丢失、对话量与时长脱钩、novel 叙述内容只能塞进画面而失真。配套：novel 源画外音克制放开（prompt 给语境创作判断、不给规则或类别白名单、不定性为兜底；screenplay 逐字提取）；场景级 `source_text`（逐字原文摘录，类比说书 `novel_text`，但纯作追溯锚、不被朗读）支撑人工审阅、单场景重生成与失真定位；成片字幕从 utterances 派生 `subtitle_spans`（按语速估时长、顺次摆放、允许留白、不撑满场景）落地剪映；场景说话量对时长取**单向约束**（台词只把时长顶上去、永不压下来）：保存期估算说话时长超 duration 仅 warn 不阻塞，生成期 script_plan 时长指引另引导模型为每场选不低于口播估算时长的档位，duration 仍由画面驱动、不机械改写。
