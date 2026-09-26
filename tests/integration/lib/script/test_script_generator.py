@@ -1171,7 +1171,6 @@ class TestPlanningVideoFacts:
     def test_narrowed_tiers_are_the_planning_tiers(self):
         """规划档位就是事实收窄后的档位，不是型号声明的全集。"""
         facts = PlanningVideoFacts(
-            route="storyboard",
             by_bucket={"i2v": make_video_request_facts(supported_durations=(4, 6, 8), allowed_durations=(8,))},
         )
         assert facts.planning_durations("i2v") == [8]
@@ -1183,7 +1182,6 @@ class TestPlanningVideoFacts:
         多长」的篇幅依据，借用固定的规划档位。
         """
         facts = PlanningVideoFacts(
-            route="storyboard",
             by_bucket={
                 "i2v": make_video_request_facts(
                     provider_id="custom-3",
@@ -1202,7 +1200,7 @@ class TestPlanningVideoFacts:
     )
     def test_a_failed_bucket_raises_the_same_code_as_execution(self, code):
         """解析不出的桶在需要成功事实的检查点带原问题码抛出，不退到全集或默认档位。"""
-        facts = PlanningVideoFacts(route="storyboard", by_bucket={"i2v": VideoRequestFactsFailure(code)})
+        facts = PlanningVideoFacts(by_bucket={"i2v": VideoRequestFactsFailure(code)})
 
         with pytest.raises(VideoRequestFactsError) as excinfo:
             facts.planning_durations("i2v")
@@ -1218,7 +1216,6 @@ class TestFetchVideoRequestFacts:
 
         facts = await sg._fetch_video_request_facts()
 
-        assert facts.route == "storyboard"
         assert set(facts.by_bucket) == {"i2v"}
         assert sg._storyboard_planning_durations(facts) == [8]
 
@@ -1234,7 +1231,6 @@ class TestFetchVideoRequestFacts:
 
         facts = await sg._fetch_video_request_facts()
 
-        assert facts.route == "reference_video"
         assert set(facts.by_bucket) == {"r2v", "i2v"}
         assert facts.planning_durations("i2v") == [4, 6, 8]
         assert sg._resolve_max_refs(facts) is None
@@ -1285,7 +1281,7 @@ async def test_planning_and_execution_read_the_same_tiers_under_one_configuratio
     planning = await sg._fetch_video_request_facts()
     executed = await evaluate_video_request_facts(
         project,
-        route=planning.route,
+        route=planning.require(bucket).route,
         generation_type=bucket,
         identity=ExecutionVideoIdentity("gemini-aistudio", "veo-3.1-generate-preview"),
         resolver=resolver,

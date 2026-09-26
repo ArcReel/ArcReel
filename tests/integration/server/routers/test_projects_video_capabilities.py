@@ -93,7 +93,7 @@ class TestRealResolverResponse:
     VEO = "gemini-aistudio/veo-3.1-generate-preview"
 
     @pytest.mark.parametrize("fixed_bucket", ["i2v", "r2v"])
-    async def test_reference_endpoint_fixed_is_reported_per_bucket(
+    async def test_endpoint_fixed_follows_the_bucket_the_payload_answers(
         self, tmp_path, db_engine, monkeypatch, fixed_bucket
     ):
         factory = async_sessionmaker(db_engine, expire_on_commit=False)
@@ -112,14 +112,8 @@ class TestRealResolverResponse:
             response = client.get("/api/v1/projects/ready/video-capabilities")
         assert response.status_code == 200, response.text
         body = response.json()
-        constraints = body["duration_constraints"]
         assert body["duration_endpoint_fixed"] is (fixed_bucket == "r2v")
         assert body["duration_endpoint_fixed_reason"] == ("endpoint" if fixed_bucket == "r2v" else None)
-        assert constraints["without_reference_duration_endpoint_fixed"] is (fixed_bucket == "i2v")
-        assert constraints["without_reference_duration_endpoint_fixed_reason"] == (
-            "endpoint" if fixed_bucket == "i2v" else None
-        )
-        assert constraints["allowed_without_reference_images"] == ([] if fixed_bucket == "i2v" else [4, 6, 8])
 
     @pytest.fixture
     def client(self, tmp_path, db_engine, monkeypatch) -> TestClient:
@@ -143,7 +137,6 @@ class TestRealResolverResponse:
             "resolution": "1080p",
             "uses_reference_images": False,
             "allowed": [8],
-            "allowed_without_reference_images": [8],
             "excluded": {"4": "resolution", "6": "resolution"},
         }
 
@@ -169,10 +162,7 @@ class TestRealResolverResponse:
         assert constraints["excluded"] == {}
 
     def test_reference_context_overrides_project_generation_mode(self, client):
-        """显式 ``uses_reference_images`` 压过项目生成模式，按 r2v 桶求值，成因报 reference。
-
-        r2v 桶不推断无参考图单元的档位；分镜项目不补 i2v 桶事实，该字段为 None。
-        """
+        """显式 ``uses_reference_images`` 压过项目生成模式，按 r2v 桶求值，成因报 reference。"""
         with client:
             resp = client.get(
                 "/api/v1/projects/ready/video-capabilities",
@@ -183,7 +173,6 @@ class TestRealResolverResponse:
         assert constraints["resolution"] == "720p"
         assert constraints["uses_reference_images"] is True
         assert constraints["allowed"] == [8]
-        assert constraints["allowed_without_reference_images"] is None
         assert constraints["excluded"] == {"4": "reference", "6": "reference"}
 
     @pytest.mark.parametrize("candidate", ["openai/sora-2", "openai"])
@@ -213,73 +202,6 @@ class TestRealResolverResponse:
         assert constraints["resolution"] is None
         assert constraints["uses_reference_images"] is uses_reference_images
         assert constraints["allowed"] == allowed
-
-    def test_reference_no_image_tiers_use_i2v_facts_for_saved_and_candidate_queries(
-        self, tmp_path, db_engine, monkeypatch
-    ):
-        """The no-image tier and exclusion reasons follow the configured i2v model in both endpoint variants."""
-        pm = _FakePM(tmp_path)
-        pm.project_data["ready"].update(
-            {
-                "generation_mode": "reference_video",
-                "video_provider_r2v": self.VEO,
-                "video_provider_i2v": "ark/doubao-seedance-2-0-260128",
-            }
-        )
-        monkeypatch.setattr(projects, "async_session_factory", async_sessionmaker(db_engine, expire_on_commit=False))
-        client = build_projects_client(monkeypatch, pm)
-        with client:
-            saved = client.get("/api/v1/projects/ready/video-capabilities")
-            candidate = client.get("/api/v1/projects/ready/video-capabilities", params={"video_backend": self.VEO})
-        for response in (saved, candidate):
-            assert response.status_code == 200
-            constraints = response.json()["duration_constraints"]
-            assert constraints["allowed"] == [8]
-            assert 5 in constraints["allowed_without_reference_images"]
-            assert constraints["excluded_without_reference_images"] == {}
-            assert constraints["without_reference_problem"] is None
-
-    @pytest.mark.parametrize("candidate", [False, True])
-    def test_reference_no_image_failure_is_structured(self, tmp_path, db_engine, monkeypatch, candidate):
-        pm = _FakePM(tmp_path)
-        pm.project_data["ready"].update({"generation_mode": "reference_video", "video_provider_r2v": self.VEO})
-        monkeypatch.setattr(projects, "async_session_factory", async_sessionmaker(db_engine, expire_on_commit=False))
-        client = build_projects_client(monkeypatch, pm)
-        with client:
-            response = client.get(
-                "/api/v1/projects/ready/video-capabilities", params={"video_backend": self.VEO} if candidate else {}
-            )
-        assert response.status_code == 200
-        constraints = response.json()["duration_constraints"]
-        assert constraints["allowed_without_reference_images"] is None
-        assert constraints["without_reference_problem"] == {
-            "code": "reference_capability_unavailable",
-            "params": {"capability": "i2v"},
-            "action": "configure_video_model",
-        }
-
-    @pytest.mark.parametrize("candidate", [False, True])
-    def test_reference_no_image_exclusions_follow_i2v_resolution(self, tmp_path, db_engine, monkeypatch, candidate):
-        pm = _FakePM(tmp_path)
-        pm.project_data["ready"].update(
-            {
-                "generation_mode": "reference_video",
-                "video_provider_r2v": "ark/doubao-seedance-2-0-260128",
-                "video_provider_i2v": self.VEO,
-                "model_settings": {self.VEO: {"resolution": "1080p"}},
-            }
-        )
-        monkeypatch.setattr(projects, "async_session_factory", async_sessionmaker(db_engine, expire_on_commit=False))
-        client = build_projects_client(monkeypatch, pm)
-        with client:
-            response = client.get(
-                "/api/v1/projects/ready/video-capabilities",
-                params={"video_backend": "ark/doubao-seedance-2-0-260128"} if candidate else {},
-            )
-        assert response.status_code == 200
-        constraints = response.json()["duration_constraints"]
-        assert constraints["allowed_without_reference_images"] == [8]
-        assert constraints["excluded_without_reference_images"] == {"4": "resolution", "6": "resolution"}
 
 
 class TestDurationConstraintsMatchRequestFacts:
@@ -367,10 +289,10 @@ class TestDurationConstraintsMatchRequestFacts:
         )
 
     @pytest.mark.parametrize("candidate", [False, True], ids=["saved-model", "candidate-model"])
-    async def test_reference_project_i2v_preview_reports_one_no_reference_tier(
+    async def test_reference_project_i2v_preview_reports_the_i2v_tier(
         self, tmp_path, db_engine, monkeypatch, candidate
     ):
-        """参考生视频项目按 i2v 桶预览未保存分辨率时，无参考图档位就是这次求值本身的结果。"""
+        """参考生视频项目按 i2v 桶预览未保存分辨率时，档位就是这次 i2v 求值本身的结果。"""
         pm = _FakePM(tmp_path)
         pm.project_data["ready"].update(
             {
@@ -391,6 +313,4 @@ class TestDurationConstraintsMatchRequestFacts:
         constraints = response.json()["duration_constraints"]
         assert constraints["resolution"] == "720p"
         assert constraints["allowed"] == [4, 6, 8]
-        assert constraints["allowed_without_reference_images"] == [4, 6, 8]
-        assert constraints["excluded_without_reference_images"] == {}
-        assert constraints["without_reference_problem"] is None
+        assert constraints["excluded"] == {}

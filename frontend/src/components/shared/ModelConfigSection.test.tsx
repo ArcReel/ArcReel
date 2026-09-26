@@ -103,14 +103,13 @@ function veoConstraints(query: VideoCapabilitiesQuery): DurationConstraints {
     return {
       ...base,
       allowed: [8],
-      allowed_without_reference_images: resolution === "1080p" || resolution === "4k" ? [8] : [4, 6, 8],
       excluded: { "4": "reference", "6": "reference" },
     };
   }
   if (resolution === "1080p" || resolution === "4k") {
-    return { ...base, allowed: [8], allowed_without_reference_images: [8], excluded: { "4": "resolution", "6": "resolution" } };
+    return { ...base, allowed: [8], excluded: { "4": "resolution", "6": "resolution" } };
   }
-  return { ...base, allowed: [4, 6, 8], allowed_without_reference_images: [4, 6, 8], excluded: {} };
+  return { ...base, allowed: [4, 6, 8], excluded: {} };
 }
 
 function fakeVideoCapabilities(videoBackend: string, query: VideoCapabilitiesQuery): Promise<VideoCapabilities> {
@@ -125,7 +124,6 @@ function fakeVideoCapabilities(videoBackend: string, query: VideoCapabilitiesQue
           resolution: query.resolution ?? null,
           uses_reference_images: query.usesReferenceImages ?? false,
           allowed: sorted,
-          allowed_without_reference_images: sorted,
           excluded: {},
         };
   return Promise.resolve({
@@ -1393,7 +1391,6 @@ describe("dimensions a ComfyUI workflow fixes", () => {
       resolution: null,
       uses_reference_images: false,
       allowed: durations,
-      allowed_without_reference_images: durations,
       excluded: {},
     };
     vi.spyOn(API, "getModelVideoCapabilities").mockResolvedValue({

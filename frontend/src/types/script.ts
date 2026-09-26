@@ -179,12 +179,10 @@ export interface ScriptReviewState {
   supported_durations: number[] | null;
   /**
    * 按「是否带参考图」收窄后的逐 unit 生效档位，与 prompt_authoring 落盘前的校验同一把尺；无法解析型号
-   * 时为 null；无图桶失败时 `without_references` 为 null，并附问题对象。
+   * 时为 null。
    */
   duration_tiers: {
     with_references: number[];
-    without_references: number[] | null;
-    without_references_problem?: { code: string; params: Record<string, unknown>; action: string } | null;
     /** 逐 unit 的服务端定桶结论（按可用参考图），面板据此取档与判越档，不按已登记引用自判。 */
     units: ReferenceUnitCapabilityMap;
   } | null;

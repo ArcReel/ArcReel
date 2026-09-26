@@ -176,7 +176,6 @@ async def test_video_capabilities_returns_typed_domain_outcome(set_video_request
             "resolution": None,
             "uses_reference_images": False,
             "allowed": [4, 6],
-            "allowed_without_reference_images": [4, 6],
             "excluded": {},
         },
     }

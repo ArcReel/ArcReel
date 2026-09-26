@@ -61,7 +61,7 @@ function pendingState(overrides: Partial<ScriptReviewState> = {}): ScriptReviewS
     confirmed_at: null,
     quarantine: null,
     supported_durations: [4, 8],
-    duration_tiers: { with_references: [4, 8], without_references: [4, 8], units: { E1U01: mkCapability("E1U01") } },
+    duration_tiers: { with_references: [4, 8], units: { E1U01: mkCapability("E1U01") } },
     episode_target_duration: null,
     script_overwrite: null,
     content: {
@@ -135,12 +135,6 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
     const state = pendingState({
       duration_tiers: {
         with_references: [8],
-        without_references: null,
-        without_references_problem: {
-          code: "video_capability_missing_i2v",
-          params: { capability: "i2v" },
-          action: "configure_video_model",
-        },
         units: {
           E1U01: mkCapability("E1U01", {
             declared_capability: "i2v",
@@ -168,7 +162,6 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
     const state = pendingState({
       duration_tiers: {
         with_references: [4, 8],
-        without_references: [4, 8],
         units: {
           E1U01: mkCapability("E1U01", {
             allowed_durations: null,
@@ -188,7 +181,7 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
 
   it("keeps duration read-only for a unit the server has not judged yet", async () => {
     vi.spyOn(API, "getScriptReview").mockResolvedValue(
-      pendingState({ duration_tiers: { with_references: [4, 8], without_references: [4, 8], units: {} } }),
+      pendingState({ duration_tiers: { with_references: [4, 8], units: {} } }),
     );
     render(<ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
     expect(await screen.findByText("E1U01")).toBeInTheDocument();
@@ -600,7 +593,6 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
       supported_durations: [4, 6],
       duration_tiers: {
         with_references: [4, 6],
-        without_references: [4, 6],
         units: { E1U01: mkCapability("E1U01", { allowed_durations: [4, 6] }) },
       },
     }));
@@ -660,7 +652,6 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
         supported_durations: [4, 6, 8],
         duration_tiers: {
           with_references: [8],
-          without_references: [4, 6, 8],
           units: { E1U01: mkCapability("E1U01", { allowed_durations: [8] }) },
         },
       }),
@@ -680,7 +671,6 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
         supported_durations: [4, 6, 8],
         duration_tiers: {
           with_references: [8],
-          without_references: [4, 6, 8],
           units: {
             E1U01: mkCapability("E1U01", {
               hydrated_capability: "i2v",
@@ -712,7 +702,6 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
         supported_durations: [4, 6, 8],
         duration_tiers: {
           with_references: [8],
-          without_references: [4, 6, 8],
           units: {
             E1U01: mkCapability("E1U01", {
               declared_capability: "i2v",
@@ -742,7 +731,6 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
         // 该 unit 的生效档位收窄到 4/6 秒——已存盘的 8 秒不再合法，但仍要照旧展示（不静默跳档）。
         duration_tiers: {
           with_references: [4, 6],
-          without_references: [4, 6, 8],
           units: { E1U01: mkCapability("E1U01", { allowed_durations: [4, 6] }) },
         },
       }),
@@ -762,7 +750,6 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
       // 反映档位切换本身，而不是与该兜底行为的展示叠在一起。
       duration_tiers: {
         with_references: [8],
-        without_references: [4, 6, 8],
         units: {
           E1U01: mkCapability("E1U01", {
             declared_capability: "i2v",
@@ -780,7 +767,6 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
       supported_durations: [4, 6, 8],
       duration_tiers: {
         with_references: [8],
-        without_references: [4, 6, 8],
         units: { E1U01: mkCapability("E1U01", { allowed_durations: [8] }) },
       },
     });

@@ -85,7 +85,6 @@ from server.services.project.project_archive import (
 )
 from server.services.project.project_cover import resolve_project_cover
 from server.services.tasks.video_caps import (
-    annotate_reference_no_image_caps,
     capability_request_facts,
     duration_constraints_payload,
 )
@@ -783,8 +782,6 @@ async def get_video_capabilities(
             resolution_override=resolution_override,
         )
         caps["duration_constraints"] = duration_constraints_payload(request_facts)
-        if caps.get("generation_mode") == "reference_video":
-            await annotate_reference_no_image_caps(caps, project, request_facts, config_resolver=resolver)
         return caps
     except FileNotFoundError as exc:
         raise NotFoundError("project_not_found", name=name) from exc

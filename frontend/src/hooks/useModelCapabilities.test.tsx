@@ -15,7 +15,6 @@ function constraints(overrides: Partial<DurationConstraints> = {}): DurationCons
     resolution: null,
     uses_reference_images: false,
     allowed: [4, 6, 8],
-    allowed_without_reference_images: [4, 6, 8],
     excluded: {},
     ...overrides,
   };

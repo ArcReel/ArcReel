@@ -225,7 +225,6 @@ class PlanningVideoFacts:
     :class:`VideoRequestFactsError`，问题码与预检、执行同族。
     """
 
-    route: VideoRoute
     by_bucket: Mapping[VideoGenerationType, VideoRequestFacts | VideoRequestFactsFailure]
 
     def result(self, generation_type: VideoGenerationType) -> VideoRequestFacts | VideoRequestFactsFailure:
@@ -878,7 +877,7 @@ class ScriptGenerator:
                 identity=CONFIGURED_VIDEO_IDENTITY,
                 resolver=resolver,
             )
-        return PlanningVideoFacts(route=route, by_bucket=by_bucket)
+        return PlanningVideoFacts(by_bucket=by_bucket)
 
     def _storyboard_planning_durations(self, facts: PlanningVideoFacts) -> list[int]:
         """分镜路线规划可选的时长档位：交给 prompt / 动态 schema 之前已按分辨率收窄。

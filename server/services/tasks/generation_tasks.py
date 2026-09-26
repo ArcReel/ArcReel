@@ -49,7 +49,6 @@ from lib.artifacts.visual_artifact_provenance import (
     project_basis_style_description,
 )
 from lib.backends.video_backend_contract import VideoCapabilityError
-from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.resolver import video_bucket_for_generation_mode
 from lib.config.service import DEFAULT_VIDEO_POLL_TIMEOUT_SECONDS
 from lib.db.base import DEFAULT_USER_ID
@@ -158,17 +157,6 @@ from server.services.tasks.narration_delivery_tasks import (
 from server.services.tasks.reference_video_tasks import execute_reference_video_task
 
 logger = logging.getLogger(__name__)
-
-
-def _get_model_default_duration(provider_name: str, model_name: str | None) -> int:
-    """从 PROVIDER_REGISTRY 查找模型的 supported_durations[0]，找不到则 fallback 4。"""
-    provider_meta = PROVIDER_REGISTRY.get(provider_name)
-    if provider_meta and model_name:
-        model_info = provider_meta.models.get(model_name)
-        if model_info and model_info.supported_durations:
-            return model_info.supported_durations[0]
-    # 自定义供应商或 registry 中无此模型时 fallback
-    return 4
 
 
 def assert_duration_supported(duration: int | float | str, supported_durations: list[int]) -> None:
@@ -1171,7 +1159,7 @@ async def execute_video_task(
     # 携带 provider 覆盖、或自定义供应商目标 model 被禁用回退时，二者一致避免 duration 守卫误判
     # （用「项目默认 model 的能力」误判「实际调用的 model」）。解析/构造失败已在
     # resolve_generation_context 内原样上抛整次任务失败。
-    # duration 解析收口于执行层：payload > project.default_duration > caps 默认。
+    # duration 解析收口于执行层：payload > project.default_duration > 请求事实的首个档位。
     # 用 ``is not None`` 而非 ``or`` 取 payload 值，避免显式 falsy 值被当作未设置。
     duration_seconds = (
         item.get("duration_seconds")
@@ -1183,11 +1171,10 @@ async def execute_video_task(
     if not duration_seconds:
         if request_facts.allowed_durations:
             duration_seconds = request_facts.allowed_durations[0]
-        elif request_facts.duration_endpoint_fixed:
-            # 端点固定没有档位可借：与 use_tts 路径取同一个规划基准，两条路径的申请秒数一致。
-            duration_seconds = storyboard_planning_duration(request_facts, declared=None, project=project)
         else:
-            duration_seconds = _get_model_default_duration(registry_provider_id, model_name)
+            # 档位为空只在时长由端点固定时成立（其余情形请求事实已失败）：没有档位可借，与 use_tts
+            # 路径取同一个规划基准，两条路径的申请秒数一致。
+            duration_seconds = storyboard_planning_duration(request_facts, declared=None, project=project)
 
     delivery_projection = None
     if delivery_options.narration_delivery == USE_TTS:
