@@ -465,7 +465,6 @@ class FakeConfigResolver:
         self._reference_payload_limits = reference_payload_limits
         self._image_resolution = image_resolution
         self.generation_type_calls: list[str | None] = []
-        self.project_names: list[str | None] = []
         self.project_payloads: list[dict[str, Any]] = []
         self.image_generation_type_calls: list[str | None] = []
         self.generate_audio_calls: list[dict[str, Any] | None] = []
@@ -479,10 +478,6 @@ class FakeConfigResolver:
         durations = caps.get("supported_durations") or []
         caps["max_duration"] = max(durations) if durations else 0
         return caps
-
-    async def video_capabilities(self, project_name: str | None = None) -> dict[str, Any]:
-        self.project_names.append(project_name)
-        return self._resolve(None)
 
     async def video_capabilities_for_project(
         self,
