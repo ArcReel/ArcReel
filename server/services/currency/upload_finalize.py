@@ -1,4 +1,4 @@
-"""用户自主上传分镜图/视频的 finalize 服务层。
+"""用户自主上传资产图、分镜图与视频的 finalize 服务层。
 
 复用生成链路的元数据回写、缩略图与版本记录原语，让上传产出的资产
 在状态推导、SSE 刷新、版本回滚上与 AI 生成的资产行为一致。
@@ -15,12 +15,14 @@ from typing import BinaryIO, Literal
 
 from lib.artifacts.artifact_activation import (
     forget_current_resource_artifact,
+    register_current_resource_artifact,
 )
 from lib.artifacts.formal_write import formal_write_transaction
 from lib.artifacts.version_manager import MANUAL_UPLOAD_VERSION_SOURCE, VersionManager
 from lib.infra.async_thread import run_noninterruptible_sync
 from lib.infra.thumbnail import extract_video_thumbnail
-from lib.project.project_manager import get_project_manager
+from lib.project.asset_types import ASSET_SPECS
+from lib.project.project_manager import ProjectManager, get_project_manager
 from server.services.tasks.formal_image_commit import storyboard_formal_image_callback
 
 # 版本记录里标记「用户手动上传」的 source 值；前端按此显示翻译文案
@@ -156,6 +158,50 @@ def stage_uploaded_bytes(content: bytes, target: Path) -> Path:
 async def save_uploaded_bytes(content: bytes, target: Path) -> None:
     """把内存中的上传内容原子写入 target（同 dot-tmp + replace + 失败清理）。"""
     await asyncio.to_thread(write_bytes_atomic, content, target)
+
+
+def install_manual_asset_sheet_upload(
+    *,
+    project_manager: ProjectManager,
+    project_name: str,
+    asset_type: str,
+    name: str,
+    sheet_path: str,
+    content: bytes,
+    original_filename: str | None,
+) -> None:
+    """Install an author-uploaded asset sheet as finished content.
+
+    For an existing asset the sheet bytes, its metadata pointer, a selected
+    ``manual_upload`` version, and the Manifest claim commit as one formal write.
+    The claim is resolved by the target-state planner, which projects an
+    uploaded sheet's basis from the upload alone, so description and project
+    style never enter it.  An asset that does not exist yet receives unclaimed
+    bytes only.
+    """
+
+    bucket_key = ASSET_SPECS[asset_type].bucket_key
+    project_dir = project_manager.get_project_path(project_name)
+    metadata: dict[str, str] = {"source": UPLOAD_VERSION_SOURCE}
+    if original_filename:
+        metadata["original_filename"] = original_filename
+
+    def _claim() -> None:
+        register_current_resource_artifact(project_dir, resource_type=bucket_key, resource_id=name)
+
+    def _select_upload(target: Path) -> None:
+        VersionManager(project_dir).commit_installed_version(
+            bucket_key, name, "", current_file=target, on_commit=_claim, **metadata
+        )
+
+    project_manager.install_asset_sheet_bytes(
+        asset_type,
+        project_name,
+        name,
+        sheet_path,
+        content,
+        on_commit=_select_upload,
+    )
 
 
 async def commit_manual_storyboard_upload(

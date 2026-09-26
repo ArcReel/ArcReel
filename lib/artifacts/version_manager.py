@@ -363,22 +363,10 @@ class VersionManager:
             canonical_rel = resource_relative_path(resource_type, resource_id)
         except (TypeError, ValueError):
             return False
-        if artifact_path != canonical_rel or not isinstance(history, Mapping):
+        if artifact_path != canonical_rel:
             return False
-        selected_version = history.get("current_version")
-        if type(selected_version) is not int or selected_version <= 0:
-            return False
-        records = history.get("versions")
-        if not isinstance(records, list):
-            return False
-        selected = next(
-            (record for record in records if isinstance(record, Mapping) and record.get("version") == selected_version),
-            None,
-        )
-        if selected is None or selected.get("source") != MANUAL_UPLOAD_VERSION_SOURCE:
-            return False
-        snapshot_rel = selected.get("file")
-        if not isinstance(snapshot_rel, str) or not self.is_managed_snapshot_path(resource_type, snapshot_rel):
+        snapshot_rel = selected_manual_upload_snapshot(history, resource_type)
+        if snapshot_rel is None:
             return False
         try:
             if adapter is None:
@@ -499,46 +487,23 @@ class VersionManager:
             data = self._load_versions()
             bucket = data.setdefault(resource_type, {})
             resource_data = bucket.setdefault(resource_id, {"current_version": 0, "versions": []})
-            records = resource_data.setdefault("versions", [])
             created_snapshots: list[Path] = []
             current_backup: Path | None = None
             current_existed = current_file.is_file()
             activation_succeeded = False
-
-            def _append_version(source: Path, version_prompt: str, version_metadata: dict) -> int:
-                previous_current_version = resource_data.get("current_version", 0)
-                if not isinstance(previous_current_version, int) or isinstance(previous_current_version, bool):
-                    previous_current_version = 0
-                new_version = max((item.get("version", 0) for item in records), default=0) + 1
-                timestamp = self._generate_timestamp()
-                rel_path = version_snapshot_relative_path(
-                    resource_type, resource_id, version=new_version, timestamp=timestamp
-                )
-                abs_path = self.project_path / rel_path
-                self._ensure_snapshot_dir(abs_path)
-                shutil.copy2(source, abs_path)
-                created_snapshots.append(abs_path)
-                records.append(
-                    {
-                        "version": new_version,
-                        "file": rel_path,
-                        "prompt": version_prompt,
-                        "created_at": self._generate_iso_timestamp(),
-                        **version_metadata,
-                        _PREVIOUS_CURRENT_VERSION: previous_current_version,
-                    }
-                )
-                resource_data["current_version"] = new_version
-                return new_version
 
             try:
                 current_file.parent.mkdir(parents=True, exist_ok=True)
                 if current_existed:
                     current_backup = _create_rollback_backup(current_file)
                     if not resource_data.get("current_version"):
-                        _append_version(current_file, "", {})
+                        self._append_selected_snapshot(
+                            resource_type, resource_id, resource_data, current_file, "", {}, created_snapshots
+                        )
 
-                new_version = _append_version(staged_file, prompt, metadata)
+                new_version = self._append_selected_snapshot(
+                    resource_type, resource_id, resource_data, staged_file, prompt, metadata, created_snapshots
+                )
                 os.replace(staged_file, current_file)
                 self._save_versions(data)
                 if on_commit is not None:
@@ -576,6 +541,103 @@ class VersionManager:
             finally:
                 if activation_succeeded:
                     _report_cleanup_failures(_unlink_paths(current_backup), active_failure=sys.exception())
+
+    def _append_selected_snapshot(
+        self,
+        resource_type: str,
+        resource_id: str,
+        resource_data: dict,
+        source: Path,
+        prompt: str,
+        metadata: dict,
+        created_snapshots: list[Path],
+    ) -> int:
+        """Snapshot ``source`` into history as a new record and select it in ``resource_data``.
+
+        The snapshot path is appended to ``created_snapshots`` before copying so
+        the caller's rollback also removes a partially written snapshot.
+        """
+
+        records = resource_data.setdefault("versions", [])
+        previous_current_version = resource_data.get("current_version", 0)
+        if not isinstance(previous_current_version, int) or isinstance(previous_current_version, bool):
+            previous_current_version = 0
+        new_version = max((item.get("version", 0) for item in records), default=0) + 1
+        rel_path = version_snapshot_relative_path(
+            resource_type, resource_id, version=new_version, timestamp=self._generate_timestamp()
+        )
+        abs_path = self.project_path / rel_path
+        created_snapshots.append(abs_path)
+        self._ensure_snapshot_dir(abs_path)
+        shutil.copy2(source, abs_path)
+        records.append(
+            {
+                "version": new_version,
+                "file": rel_path,
+                "prompt": prompt,
+                "created_at": self._generate_iso_timestamp(),
+                **metadata,
+                _PREVIOUS_CURRENT_VERSION: previous_current_version,
+            }
+        )
+        resource_data["current_version"] = new_version
+        return new_version
+
+    def commit_installed_version(
+        self,
+        resource_type: str,
+        resource_id: str,
+        prompt: str,
+        *,
+        current_file: Path,
+        on_commit: Callable[[], None] | None = None,
+        **metadata,
+    ) -> int:
+        """Record a formal file the caller already installed as the new selected version.
+
+        The caller owns the formal bytes and their rollback; this method snapshots
+        them into history, selects that version, then runs ``on_commit``.  If the
+        snapshot, the metadata write, or ``on_commit`` fails, the version metadata
+        and the new snapshot are restored to their prior state.
+        """
+
+        if resource_type not in self.RESOURCE_TYPES:
+            raise ValueError(f"不支持的资源类型: {resource_type}")
+        current_file = Path(current_file)
+        if not current_file.is_file():
+            raise FileNotFoundError(f"installed version file does not exist: {current_file}")
+
+        with self._lock:
+            versions_snapshot = self.versions_file.read_bytes() if self.versions_file.is_file() else None
+            data = self._load_versions()
+            resource_data = data.setdefault(resource_type, {}).setdefault(
+                resource_id, {"current_version": 0, "versions": []}
+            )
+            created_snapshots: list[Path] = []
+            try:
+                new_version = self._append_selected_snapshot(
+                    resource_type, resource_id, resource_data, current_file, prompt, metadata, created_snapshots
+                )
+                self._save_versions(data)
+                if on_commit is not None:
+                    on_commit()
+                return new_version
+            except BaseException as failure:
+                rollback_errors: list[OSError] = []
+                try:
+                    if versions_snapshot is None:
+                        self.versions_file.unlink(missing_ok=True)
+                    else:
+                        atomic_write_bytes(self.versions_file, versions_snapshot)
+                except OSError as exc:
+                    rollback_errors.append(exc)
+                rollback_errors.extend(cleanup_failure for _path, cleanup_failure in _unlink_paths(*created_snapshots))
+                if rollback_errors:
+                    rollback_errors[0].__cause__ = failure
+                    raise RuntimeError(
+                        "installed version commit failed and durable rollback was incomplete"
+                    ) from rollback_errors[0]
+                raise
 
     def commit_staged_versions(
         self,
@@ -1416,3 +1478,32 @@ class VersionManager:
             是否有版本记录
         """
         return self.get_current_version(resource_type, resource_id) > 0
+
+
+def selected_manual_upload_snapshot(history: object, resource_type: str) -> str | None:
+    """The managed snapshot of a resource's selected version when that version is a manual upload.
+
+    ``history`` is one resource's entry in ``versions.json``.  Returns ``None``
+    when nothing is selected, the selected record is not a manual upload, or its
+    snapshot path lies outside the resource type's history bucket.  Whether the
+    snapshot still matches the formal file is the caller's comparison.
+    """
+
+    if not isinstance(history, Mapping):
+        return None
+    selected_version = history.get("current_version")
+    if type(selected_version) is not int or selected_version <= 0:
+        return None
+    records = history.get("versions")
+    if not isinstance(records, list):
+        return None
+    selected = next(
+        (record for record in records if isinstance(record, Mapping) and record.get("version") == selected_version),
+        None,
+    )
+    if selected is None or selected.get("source") != MANUAL_UPLOAD_VERSION_SOURCE:
+        return None
+    snapshot_rel = selected.get("file")
+    if not isinstance(snapshot_rel, str) or not VersionManager.is_managed_snapshot_path(resource_type, snapshot_rel):
+        return None
+    return snapshot_rel

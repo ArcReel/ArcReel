@@ -39,18 +39,25 @@ from lib.artifacts.generation_input import (
     storyboard_image_input,
 )
 from lib.artifacts.media_artifact_currency import build_current_audio_artifact_basis, build_current_video_artifact_basis
-from lib.artifacts.version_manager import VersionManager
+from lib.artifacts.version_manager import VersionManager, selected_manual_upload_snapshot
 from lib.artifacts.visual_artifact_provenance import (
     GridStoryboardVisual,
     VisualReference,
     build_grid_composite_visual_basis,
     build_grid_member_storyboard_visual_basis,
+    build_uploaded_asset_sheet_basis,
     project_basis_style_description,
     visual_file_digest,
 )
 from lib.episode.episode_paths import episode_source_relpath
 from lib.project.asset_derivatives import derivative_artifact_key
-from lib.project.asset_types import ASSET_SPECS, DERIVATIVES_FIELD, AssetSpec, asset_name_comparison_key
+from lib.project.asset_types import (
+    ASSET_SPECS,
+    DERIVATIVES_FIELD,
+    AssetSpec,
+    asset_name_comparison_key,
+    resolve_asset_key,
+)
 from lib.project.project_migration_failure import ProjectMigrationError
 from lib.project.project_migration_report import MigrationSkippedArtifact
 from lib.project.project_schema import (
@@ -438,17 +445,61 @@ class TargetStatePlanner:
                 normalized_names.add(name)
                 artifact_path = raw_entry.get(spec.sheet_field)
                 if isinstance(artifact_path, str) and artifact_path:
-                    self._plan_generated_image(
-                        ArtifactKey.asset_sheet(asset_type, name),
-                        artifact_path,
-                        lambda asset_type=asset_type, name=name: asset_sheet_input(
-                            self.project, asset_type=asset_type, name=name, observation=observation
-                        ),
-                        label="asset sheet",
-                    )
+                    key = ArtifactKey.asset_sheet(asset_type, name)
+                    uploaded_basis = self._uploaded_asset_sheet_basis(asset_type, spec, name, artifact_path)
+                    if uploaded_basis is not None:
+                        self._add_if_present(key, artifact_path, uploaded_basis)
+                    else:
+                        self._plan_generated_image(
+                            key,
+                            artifact_path,
+                            lambda asset_type=asset_type, name=name: asset_sheet_input(
+                                self.project, asset_type=asset_type, name=name, observation=observation
+                            ),
+                            label="asset sheet",
+                        )
                 if spec.supports_derivatives:
                     self._plan_asset_derivatives(spec, name, raw_entry, observation)
         self._planned.add("assets")
+
+    def _uploaded_asset_sheet_basis(
+        self,
+        asset_type: str,
+        spec: AssetSpec,
+        name: str,
+        artifact_path: str,
+    ) -> ArtifactBasis | None:
+        """作者上传的资产图按上传本身投影依据；不是上传的选中版本时返回 ``None``，改按生成输入投影。
+
+        成立条件：该资产选中的版本记录是手动上传，且它的受管快照与声明的资产图字节一致。
+        外部替换了资产图、或选中的是生成的版本，都不按上传依据判定。
+        """
+
+        bucket = self._load_versions().get(spec.bucket_key)
+        if not isinstance(bucket, Mapping):
+            return None
+        history_key = resolve_asset_key(bucket, name)
+        snapshot_rel = selected_manual_upload_snapshot(
+            bucket.get(history_key) if history_key is not None else None, spec.bucket_key
+        )
+        if snapshot_rel is None:
+            return None
+        artifact = self._safe_present_path(self._pending_source(artifact_path))
+        snapshot = self._safe_present_path(snapshot_rel)
+        if artifact is None or snapshot is None:
+            return None
+        try:
+            if artifact.samefile(snapshot):
+                return None
+            artifact_digest = visual_file_digest(artifact)
+            snapshot_digest = visual_file_digest(snapshot)
+        except OSError:
+            return None
+        if artifact_digest != snapshot_digest:
+            return None
+        self._remember_dependency_digest(artifact, artifact_digest)
+        self._remember_dependency_digest(snapshot, snapshot_digest)
+        return build_uploaded_asset_sheet_basis(asset_type=asset_type, content_digest=artifact_digest)
 
     def _plan_asset_derivatives(
         self,
