@@ -697,8 +697,6 @@ class TestReferenceVideoRouter:
             assert body["supported_durations"] == [5, 10]
             assert body["duration_tiers"] == {
                 "with_references": [5, 10],
-                "without_references": [5, 10],
-                "without_references_problem": None,
                 "units": {"E1U01": body["duration_tiers"]["units"]["E1U01"]},
             }
             assert body["duration_tiers"]["units"]["E1U01"]["allowed_durations"] == [5, 10]

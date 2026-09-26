@@ -959,16 +959,7 @@ class TestReferenceVideoGateFlow:
         svc = _service(pm)
 
         tiers = await svc.get_reference_duration_tiers("demo", 1)
-        assert tiers == {
-            "with_references": [8],
-            "without_references": None,
-            "without_references_problem": {
-                "code": "reference_capability_unavailable",
-                "params": {"capability": "i2v"},
-                "action": "configure_video_model",
-            },
-            "units": {},
-        }
+        assert tiers == {"with_references": [8], "units": {}}
 
     async def test_reference_duration_tiers_report_each_plan_unit_bucket(self, tmp_path, set_video_request_facts):
         """面板逐单元取档以服务端定桶为准：登记了角色却没有资产图的单元落 i2v，并点名不可用引用。"""
@@ -1036,11 +1027,11 @@ class TestReferenceVideoGateFlow:
         service = _service(pm)
 
         state = await service.get_state("demo", 1)
-        tiers = await service.get_reference_duration_tiers("demo", 1)
+        tiers = await service.get_reference_duration_tiers("demo", 1, plan["units"])
 
         assert state["content"]["units"][0]["duration_seconds"] == 5
         assert 5 in state["supported_durations"]
-        assert 5 in tiers["without_references"]
+        assert tiers["units"]["E1U01"]["allowed_durations"] == [5, 10]
         assert 5 not in tiers["with_references"]
 
     @pytest.mark.parametrize("operation", ["read", "confirm"])
@@ -1075,13 +1066,13 @@ class TestReferenceVideoGateFlow:
             assert exc.value.problem.code == "reference_capability_unavailable"
 
         state = await service.get_state("demo", 1)
-        tiers = await service.get_reference_duration_tiers("demo", 1)
+        tiers = await service.get_reference_duration_tiers("demo", 1, plan["units"])
 
         assert state["content"]["units"][0]["duration_seconds"] == 5
         assert json.loads(path.read_text())["units"][0]["duration_seconds"] == 5
         assert state["supported_durations"] is None
-        assert tiers["without_references"] is None
-        assert tiers["without_references_problem"]["code"] == "reference_capability_unavailable"
+        assert tiers["units"]["E1U01"]["allowed_durations"] is None
+        assert tiers["units"]["E1U01"]["problem"]["code"] == "reference_capability_unavailable"
 
     async def test_reference_duration_tiers_none_when_with_reference_facts_unresolved(self, tmp_path):
         """r2v 桶的视频请求事实解析不出时为 None，呈现层保持只读，不借任何声明全集提供可选项。"""
@@ -1118,16 +1109,7 @@ class TestReferenceVideoGateFlow:
         svc = _service(pm)
 
         tiers = await svc.get_reference_duration_tiers("demo", 1)
-        assert tiers == {
-            "with_references": [5, 10],
-            "without_references": None,
-            "without_references_problem": {
-                "code": "reference_capability_unavailable",
-                "params": {"capability": "i2v"},
-                "action": "configure_video_model",
-            },
-            "units": {},
-        }
+        assert tiers == {"with_references": [5, 10], "units": {}}
 
 
 class TestReferenceVideoScriptPlanMigration:

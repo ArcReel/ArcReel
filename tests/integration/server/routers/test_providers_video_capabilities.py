@@ -117,7 +117,6 @@ class TestRealResolverResponse:
             "resolution": "1080p",
             "uses_reference_images": False,
             "allowed": [8],
-            "allowed_without_reference_images": [8],
             "excluded": {"4": "resolution", "6": "resolution"},
         }
 
@@ -144,7 +143,7 @@ class TestRealResolverResponse:
         )
 
     def test_reference_path_narrows_by_the_r2v_bucket(self, real_resolver_client):
-        """参考图路径按 r2v 桶求值；无项目时不知道 i2v 桶配的哪个模型，无参考图档位为 None。
+        """参考图路径按 r2v 桶求值。
 
         取 720p：该档位本身不收窄时长，剔除成因只来自参考图约束。
         """
@@ -158,7 +157,6 @@ class TestRealResolverResponse:
         assert constraints["uses_reference_images"] is True
         assert constraints["resolution"] == "720p"
         assert constraints["allowed"] == [8]
-        assert constraints["allowed_without_reference_images"] is None
         assert constraints["excluded"] == {"4": "reference", "6": "reference"}
 
     def test_reference_path_without_resolution_applies_no_resolution_constraint(self, real_resolver_client):

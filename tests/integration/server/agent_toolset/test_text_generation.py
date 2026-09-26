@@ -97,15 +97,14 @@ async def test_get_video_capabilities_annotates_reference_unit_tiers(
         },
         "units": {},
     }
-    assert "allowed_without_reference_images" not in payload.get("duration_constraints", {})
     # 全集原样保留：它是型号声明，不是生效档位
     assert payload["supported_durations"] == [4, 6, 8]
 
 
-async def test_get_video_capabilities_has_one_successful_no_image_channel(
+async def test_get_video_capabilities_reports_both_successful_buckets(
     fake_ctx: ToolHarness, set_video_request_facts
 ) -> None:
-    """两桶各自成功时载荷各带一套档位；`duration_constraints` 的无图档位键被弹掉，Agent 只读 reference_unit_durations 那一份。"""
+    """两桶各自成功时 ``reference_unit_durations`` 各带一套档位。"""
     set_video_request_facts(
         {
             "r2v": make_video_request_facts(
@@ -139,7 +138,6 @@ async def test_get_video_capabilities_has_one_successful_no_image_channel(
         "problem": None,
         "units": {},
     }
-    assert "allowed_without_reference_images" not in payload["duration_constraints"]
 
 
 @pytest.mark.parametrize("fixed_bucket", ["i2v", "r2v"])
@@ -222,7 +220,6 @@ async def test_get_video_capabilities_duration_constraints_come_from_request_fac
         "resolution": "1080p",
         "uses_reference_images": False,
         "allowed": [8],
-        "allowed_without_reference_images": [8],
         "excluded": {"4": "resolution", "6": "resolution"},
     }
 

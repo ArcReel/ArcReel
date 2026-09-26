@@ -870,12 +870,20 @@ class ConfigResolver:
                         return speed_from_str
             return await svc.get_narration_speed()
 
-    async def video_capabilities(self, project_name: str | None = None) -> dict:
-        """解析当前项目视频 model 的综合能力 + 用户项目偏好。
+    async def video_capabilities_for_project(
+        self,
+        project: dict,
+        *,
+        generation_type: VideoGenerationType | None = None,
+    ) -> dict:
+        """解析调用方已加载的项目当前视频 model 的综合能力 + 用户项目偏好。
 
         model 按项目 ``generation_mode`` 定桶（图生视频 / 宫格 → i2v，参考生视频 → r2v）后走与
         执行相同的解析入口，回答的始终是「当前配置真正会执行的那个模型」（``docs/adr/0054``）。
         生成模式创建即定、整个项目按同一种模式生成，解析因此不需要剧集上下文。
+
+        ``generation_type`` 未给定时按项目 generation_mode 定桶；给定时按指定桶解析——供参考生视频
+        内按视频单元分流的读侧（无参考图的视频单元按 i2v 桶取档 / 计价）使用。
 
         ``supported_durations`` 是型号声明全集；按请求分辨率与参考图收窄的档位由视频请求事实给出
         （``lib.generation.video_request_facts``），不在能力合成里组装。
@@ -906,24 +914,6 @@ class ConfigResolver:
                 （ComfyUI 端点除外：该协议上空集是「时长不由 ArcReel 驱动」的合法态）。
             VideoBucketCapabilityError: （ValueError 子类）解析出的模型缺该桶所需能力，或配置
                 引用已不可用。
-        """
-        async with self._open_session() as (session, svc):
-            return await self._resolve_video_capabilities(svc, session, project_name)
-
-    async def video_capabilities_for_project(
-        self,
-        project: dict,
-        *,
-        generation_type: VideoGenerationType | None = None,
-    ) -> dict:
-        """同 `video_capabilities`，但使用调用方已加载的 project dict。
-
-        优先用此变体，可避免按名称二次加载、也不依赖 `PROJECT_ROOT/projects/<name>` 目录结构
-        （例如 `ScriptGenerator` 在非标准路径实例化、或测试用 tmp_path 时，防止目录名
-        与全局项目碰撞读到错误能力）。
-
-        ``generation_type`` 未给定时按项目 generation_mode 定桶；给定时按指定桶解析——供参考生视频
-        内按视频单元分流的读侧（无参考图的视频单元按 i2v 桶取档 / 计价）使用。
         """
         async with self._open_session() as (session, svc):
             return await self._resolve_video_capabilities_from_project(
@@ -1376,16 +1366,6 @@ class ConfigResolver:
                     return ProviderModel(provider_id, model)
         provider_id, model_id = await self._resolve_layered_backend(svc, session, project, _AUDIO_LAYERED_KEYS)
         return ProviderModel(provider_id, model_id)
-
-    async def _resolve_video_capabilities(
-        self,
-        svc: ConfigService,
-        session: AsyncSession,
-        project_name: str | None,
-    ) -> dict:
-        """按两步解析：先选 model，再读 model 能力。"""
-        project = get_project_manager().load_project(project_name) if project_name else None
-        return await self._resolve_video_capabilities_from_project(svc, session, project)
 
     async def _resolve_video_capabilities_from_project(
         self,

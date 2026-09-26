@@ -26,7 +26,6 @@ from lib.config.resolver import ConfigResolver
 from lib.episode.episode_ledger import discover_episode_files, register_orphan_episode_entries
 from lib.episode.episode_target_duration import project_episode_target_duration
 from lib.generation.video_request_facts import (
-    VideoRequestFacts,
     VideoRequestFactsError,
     VideoRequestFactsFailure,
     reference_migration_durations,
@@ -46,7 +45,6 @@ from lib.speech.speech_composition import SpeechAdmission, SpeechAdmissionError,
 from server.services.tasks.video_caps import (
     reference_request_facts_lookup,
     reference_unit_capabilities,
-    video_facts_problem,
 )
 
 logger = logging.getLogger(__name__)
@@ -398,7 +396,7 @@ class ScriptReviewService:
     async def get_reference_duration_tiers(
         self, project_name: str, episode: int, units: Sequence[dict[str, Any]] = ()
     ) -> dict | None:
-        """返回参考路线的两桶生效档位；i2v 失败保留问题码与修复动作。
+        """返回参考路线带参考图的生效档位与逐单元定桶结论。
 
         ``units`` 是本集脚本规划的单元：``units`` 键按 ``unit_id`` 给出每个单元按可用参考图
         所落的桶、该桶档位与声明引用的分裂情况，面板据此取档。
@@ -411,7 +409,6 @@ class ScriptReviewService:
         with_ref_facts = await request_facts("r2v")
         if isinstance(with_ref_facts, VideoRequestFactsFailure):
             return None
-        without_ref_facts = await request_facts("i2v")
         unit_capabilities = await reference_unit_capabilities(
             project,
             self.pm.get_project_path(project_name),
@@ -420,12 +417,6 @@ class ScriptReviewService:
         )
         return {
             "with_references": list(with_ref_facts.allowed_durations),
-            "without_references": (
-                list(without_ref_facts.allowed_durations) if isinstance(without_ref_facts, VideoRequestFacts) else None
-            ),
-            "without_references_problem": (
-                None if isinstance(without_ref_facts, VideoRequestFacts) else video_facts_problem(without_ref_facts)
-            ),
             "units": unit_capabilities,
         }
 

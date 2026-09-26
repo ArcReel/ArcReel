@@ -322,7 +322,6 @@ function fakeVideoCapabilities(allowed: number[], raw: number[] = allowed) {
       resolution: null,
       uses_reference_images: false,
       allowed,
-      allowed_without_reference_images: allowed,
       excluded: {},
     },
   } as Awaited<ReturnType<typeof API.getVideoCapabilities>>;

@@ -649,7 +649,6 @@ async def test_script_plan_conversion_inherits_drama_content_mode(tmp_path: Path
 def test_resolve_max_refs_reads_the_r2v_request_facts(with_references, expected):
     """参考图数量上限只来自 r2v 桶的视频请求事实，不再回退到 project.json 自报身份查 registry。"""
     facts = PlanningVideoFacts(
-        route="reference_video",
         by_bucket={
             "r2v": with_references,
             "i2v": make_video_request_facts(route="reference_video", generation_type="i2v", max_reference_images=9),

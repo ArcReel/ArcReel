@@ -77,7 +77,6 @@ describe("WizardStep2Models", () => {
         resolution: null,
         uses_reference_images: true,
         allowed: [8],
-        allowed_without_reference_images: [4, 6, 8],
         excluded: { "4": "reference", "6": "reference" },
       },
     });

@@ -116,18 +116,11 @@ def facts_duration_endpoint_fixed(result: VideoRequestFacts | VideoRequestFactsF
 
 
 def duration_constraints_payload(facts: VideoRequestFacts) -> dict:
-    """能力载荷里的 ``duration_constraints``：该桶视频请求事实的请求分辨率、收窄档位与剔除成因。
-
-    ``allowed_without_reference_images`` 在 i2v 桶等于 ``allowed``；r2v 桶不推断无参考图单元的档位，
-    置 None，参考生视频项目由 :func:`annotate_reference_no_image_caps` 以 i2v 桶的事实补全。
-    """
-    uses_reference_images = facts.generation_type == "r2v"
-    allowed = list(facts.allowed_durations)
+    """能力载荷里的 ``duration_constraints``：该桶视频请求事实的请求分辨率、收窄档位与剔除成因。"""
     return {
         "resolution": facts.resolution,
-        "uses_reference_images": uses_reference_images,
-        "allowed": allowed,
-        "allowed_without_reference_images": None if uses_reference_images else allowed,
+        "uses_reference_images": facts.generation_type == "r2v",
+        "allowed": list(facts.allowed_durations),
         "excluded": dict(facts.excluded_durations),
     }
 
@@ -159,43 +152,6 @@ async def capability_request_facts(
             resolution_override=resolution_override,
         )
     )
-
-
-async def annotate_reference_no_image_caps(
-    payload: dict, project: dict, request_facts: VideoRequestFacts, *, config_resolver: ConfigResolver
-) -> VideoRequestFacts | VideoRequestFactsFailure | None:
-    """为参考生视频项目的能力载荷补上无参考图单元所落 i2v 桶的档位。
-
-    ``request_facts`` 是载荷所答那个桶的事实：它本身就是 i2v 桶时直接复用（含预览的覆盖分辨率），
-    否则按当前配置另求 i2v 桶。
-    """
-    if project.get("generation_mode") != "reference_video":
-        return None
-    result = (
-        request_facts
-        if request_facts.generation_type == "i2v"
-        else await evaluate_video_request_facts(
-            project,
-            route="reference_video",
-            generation_type="i2v",
-            identity=CONFIGURED_VIDEO_IDENTITY,
-            resolver=config_resolver,
-        )
-    )
-    constraints = payload["duration_constraints"]
-    constraints["allowed_without_reference_images"] = (
-        list(result.allowed_durations) if isinstance(result, VideoRequestFacts) else None
-    )
-    constraints["excluded_without_reference_images"] = (
-        dict(result.excluded_durations) if isinstance(result, VideoRequestFacts) else None
-    )
-    constraints["without_reference_problem"] = (
-        None if isinstance(result, VideoRequestFacts) else video_facts_problem(result)
-    )
-    fixed = facts_duration_endpoint_fixed(result)
-    constraints["without_reference_duration_endpoint_fixed"] = fixed
-    constraints["without_reference_duration_endpoint_fixed_reason"] = duration_endpoint_fixed_reason(fixed)
-    return result
 
 
 async def annotate_reference_unit_tiers(
@@ -248,8 +204,6 @@ async def annotate_reference_unit_tiers(
         "problem": None if isinstance(without_ref_facts, VideoRequestFacts) else video_facts_problem(without_ref_facts),
         "units": unit_capabilities,
     }
-    # The Agent receives one no-reference channel, including failures and exclusion reasons.
-    payload.get("duration_constraints", {}).pop("allowed_without_reference_images", None)
 
 
 async def project_video_caps(

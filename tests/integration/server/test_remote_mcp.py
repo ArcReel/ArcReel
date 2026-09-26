@@ -413,7 +413,6 @@ async def test_remote_mcp_returns_typed_workflow_plan_and_rejects_bad_project(
                 "resolution": None,
                 "uses_reference_images": False,
                 "allowed": [4, 6],
-                "allowed_without_reference_images": [4, 6],
                 "excluded": {},
             },
         }
