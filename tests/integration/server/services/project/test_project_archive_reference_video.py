@@ -400,6 +400,7 @@ class TestProjectArchiveReferenceVideo:
 
     def test_import_adds_placeholder_for_missing_character_speaker(self, tmp_path):
         # 说话人位在语法上就断定是角色：缺定义时与 narration/drama 对齐，自动补占位定义。
+        # 占位定义的描述留空，不把修复文字当作生成资产图的提示词。
         pm = ProjectManager(tmp_path / "projects")
         unit = _build_unit(
             video_clip="reference_videos/E1U1.mp4",
@@ -415,7 +416,7 @@ class TestProjectArchiveReferenceVideo:
         result = service.import_project_archive(archive_path, uploaded_filename="missing-char.zip")
 
         imported_project = pm.load_project(result.project_name)
-        assert "幽灵" in imported_project["characters"]
+        assert imported_project["characters"]["幽灵"]["description"] == ""
         assert any(item["code"] == "placeholder_character_added" for item in result.diagnostics["auto_fixed"])
 
     def test_import_warns_without_blocking_on_unresolved_mention(self, tmp_path):

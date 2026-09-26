@@ -188,7 +188,6 @@ export default {
   'enter_api_key': 'Nhập khóa API...',
   'current_label': 'Hiện tại: ',
   'encrypted': 'Đã mã hóa',
-  'clear': 'Xóa',
   'api_base_url': 'API Base URL',
   'optional_default_hint': 'Tùy chọn, mặc định dùng URL chính thức của Anthropic.',
   'api_base_example': 'Ví dụ: https://api.anthropic.com',
@@ -381,7 +380,6 @@ export default {
   'product_selling_points_label': 'Điểm bán hàng',
   'product_selling_points_placeholder': 'Mỗi dòng một điểm bán hàng',
   'add_product': 'Thêm hàng hóa',
-  'add_character': 'Thêm nhân vật',
   'add_scene': 'Thêm cảnh',
   'add_prop': 'Thêm đạo cụ',
   'model_selection': 'Lựa chọn mô hình',
@@ -639,18 +637,8 @@ export default {
   'add_to_library_button_label': 'Thêm vào thư viện',
   'loading_placeholder': 'Đang tải...',
 
-  // AddCharacterForm & AddSceneInline & AddPropInline
-  'name_label': 'Tên',
-  'name_placeholder': 'Tên nhân vật',
-  'desc_label': 'Mô tả',
-  'char_desc_placeholder': 'Mô tả ngoại hình, tính cách, lai lịch của nhân vật...',
-  'voice_style_label': 'Phong cách giọng',
-  'reference_image_optional': 'Ảnh tham chiếu (Tùy chọn)',
-  'reference_selected': 'Đã chọn tham chiếu',
-  'upload_ref_image': 'Tải lên ảnh tham chiếu',
-  'consistency_hint': 'Dùng để giữ tính nhất quán của nhân vật khi tạo hình tài sản sau này',
+  // Form actions
   'cancel': 'Hủy',
-  'adding': 'Đang thêm...',
   'add': 'Thêm',
 
   // OverviewCanvas cost & style section
@@ -1966,7 +1954,8 @@ export default {
   'ad_init_brief_placeholder': 'Mô tả video bạn muốn: đối tượng, phong cách, điểm bán hàng chính, lời kêu gọi hành động...',
   'ad_init_generate_sheet_label': 'Tạo hình tài sản hàng hóa',
   'ad_init_generate_sheet_hint': 'Chuyển ảnh chụp thường thành một hình tài sản hàng hóa chuẩn; xem xét và tạo lại trên trang hàng hóa',
-  'ad_init_product_incomplete_hint': 'Thông tin hàng hóa chưa đầy đủ: hãy điền cả tên và mô tả hàng hóa, hoặc xóa trống khu vực hàng hóa để chỉ gửi Brief sáng tạo',
+  'ad_init_product_incomplete_hint': 'Thông tin hàng hóa chưa đầy đủ: hãy điền tên hàng hóa, hoặc xóa trống khu vực hàng hóa để chỉ gửi Brief sáng tạo',
+  'ad_init_sheet_needs_desc_hint': 'Tạo hình tài sản hàng hóa cần có mô tả: hãy điền mô tả hàng hóa, hoặc bỏ chọn "Tạo hình tài sản hàng hóa"',
   'ad_init_images_selected': 'Đã chọn {{count}} ảnh',
   'ad_init_submit': 'Bắt đầu sáng tạo',
   'ad_init_submitting': 'Đang gửi...',

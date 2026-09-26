@@ -155,9 +155,9 @@ class TestDataValidator:
         assert any("缺少必填字段: title" in error for error in result.errors)
         assert any("content_mode" in error for error in result.errors)
         assert any("角色 'A' 数据格式错误" in error for error in result.errors)
-        # scenes/props 缺少 description 也应报错
-        assert any("场景 'X'" in error for error in result.errors)
-        assert any("道具 'Y'" in error for error in result.errors)
+        # 描述为空的场景 / 道具不报错
+        assert not any("场景 'X'" in error for error in result.errors)
+        assert not any("道具 'Y'" in error for error in result.errors)
 
     def test_validate_project_rejects_non_string_title(self, tmp_path):
         # title 字段存在但类型不是 string(如 int / null / list)应给出区分于"缺失"的明确文案,
@@ -788,48 +788,6 @@ class TestDataValidator:
         result = DataValidator(projects_dir=str(tmp_path / "projects")).validate_project("demo")
         assert not result.valid
         assert any("已废弃字段 clues" in error for error in result.errors)
-
-    def test_validate_scenes_dict_missing_description(self, tmp_path):
-        """scenes 字典中某个场景缺少 description 应报错"""
-        project_dir = tmp_path / "projects" / "demo"
-        _write_json(
-            project_dir / "project.json",
-            {
-                "title": "Test",
-                "content_mode": "narration",
-                "style": "Anime",
-                "characters": {},
-                "scenes": {
-                    "书房": {"description": ""},  # 空字符串视为缺失
-                },
-                "props": {},
-            },
-        )
-
-        result = DataValidator(projects_dir=str(tmp_path / "projects")).validate_project("demo")
-        assert not result.valid
-        assert any("场景 '书房'" in error and "description" in error for error in result.errors)
-
-    def test_validate_props_dict_missing_description(self, tmp_path):
-        """props 字典中某个道具缺少 description 应报错"""
-        project_dir = tmp_path / "projects" / "demo"
-        _write_json(
-            project_dir / "project.json",
-            {
-                "title": "Test",
-                "content_mode": "narration",
-                "style": "Anime",
-                "characters": {},
-                "scenes": {},
-                "props": {
-                    "玉佩": {},  # 完全缺少 description 键
-                },
-            },
-        )
-
-        result = DataValidator(projects_dir=str(tmp_path / "projects")).validate_project("demo")
-        assert not result.valid
-        assert any("道具 '玉佩'" in error and "description" in error for error in result.errors)
 
     def test_validate_episode_drama_invalid_scene_prop_refs(self, tmp_path):
         """剧情演绎：引用未定义的 scenes/props 应报错"""
@@ -1974,6 +1932,41 @@ class TestCharacterDerivativesStructure:
         project = _project_payload()
         project["scenes"]["古宅"]["derivatives"] = "dirty"
         assert DataValidator("/tmp").validate_project_payload(project).error_messages == []
+
+
+class TestAssetDescription:
+    """资产描述只是生成资产图的输入：存在时须为字符串，空串与缺省都合法。"""
+
+    _BUCKETS = ("characters", "scenes", "props", "products")
+
+    @staticmethod
+    def _payload_with(bucket: str, entry: dict) -> dict:
+        project = _project_payload()
+        project["products"] = {"保温杯": {"description": "不锈钢保温杯"}}
+        project[bucket] = {"无描述资产": entry}
+        return project
+
+    @pytest.mark.parametrize("bucket", _BUCKETS)
+    @pytest.mark.parametrize("entry", [{"description": ""}, {}], ids=["empty", "absent"])
+    def test_empty_or_absent_description_passes(self, bucket, entry):
+        project = self._payload_with(bucket, entry)
+
+        result = DataValidator("/tmp").validate_asset_definitions(project)
+
+        assert result.valid
+        assert result.error_messages == []
+
+    @pytest.mark.parametrize("bucket", _BUCKETS)
+    @pytest.mark.parametrize("description", [None, 3, {"text": "x"}, ["x"]])
+    def test_non_string_description_rejected(self, bucket, description):
+        project = self._payload_with(bucket, {"description": description})
+
+        result = DataValidator("/tmp").validate_asset_definitions(project)
+
+        assert not result.valid
+        assert [message.key for message in result.error_messages] == ["val_asset_field_must_be_string"]
+        assert "无描述资产" in result.errors[0]
+        assert "description" in result.errors[0]
 
 
 class TestPendingPromptValidation:

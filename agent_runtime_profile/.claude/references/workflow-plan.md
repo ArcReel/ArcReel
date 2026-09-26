@@ -85,7 +85,7 @@ ID 参数时，前者传入，后者必须**省略该参数**，不得把 `[]` �
 | `confirm_script_plan` | `mcp__arcreel__confirm_script_review` |
 | `generate_script` | dispatch `create-episode-script` 子智能体（ad 直接调 `mcp__arcreel__generate_episode_script`） |
 | `author_prompts` | 正式剧本里有待编写条目，`requested_ids` 列出这些条目：调 `mcp__arcreel__generate_episode_script`，不传 `entry_ids`，即编写全部待编写条目（见 generate-script skill） |
-| `generate_asset_sheets` | dispatch `generate-assets` 子智能体，逐类型调用 `mcp__arcreel__generate_assets` 并传 `names` |
+| `generate_asset_sheets` | dispatch `generate-assets` 子智能体，逐类型调用 `mcp__arcreel__generate_assets` 并传 `names`。因缺少 description 记为 `blocked` 的资产（`fix_input`）：依据原文写好描述，经 `mcp__arcreel__patch_project` 补上后再生成；原文没有依据时向用户确认描述，或请用户在 Web 端上传资产图。描述补上或资产图上传之前，后续 `names` 排除这些资产 |
 | `generate_storyboards` | dispatch `generate-assets` 子智能体，调用 `mcp__arcreel__generate_storyboards` 并传 `segment_ids` |
 | `generate_grid` | dispatch `generate-assets` 子智能体，调用 `mcp__arcreel__generate_grid`，不传 `scene_ids`（缺失即生成）；联合图就绪后经用户审阅同意，再调 `mcp__arcreel__split_grids` |
 | `repair_video_units` | `mcp__arcreel__get_episode_script` + `mcp__arcreel__patch_episode_script` 一次改完，再点名重做 |

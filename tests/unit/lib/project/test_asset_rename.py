@@ -899,8 +899,8 @@ class TestRenameAgnosticErrors:
         return set(_rename_agnostic_errors(result, "角色A", "甲").keys())
 
     def test_folds_exact_name_param(self) -> None:
-        renamed = ValidationMessage("val_asset_missing_description", {"asset_type": "角色", "name": "甲"})
-        original = ValidationMessage("val_asset_missing_description", {"asset_type": "角色", "name": "角色A"})
+        renamed = ValidationMessage("val_asset_format_object", {"asset_type": "角色", "name": "甲"})
+        original = ValidationMessage("val_asset_format_object", {"asset_type": "角色", "name": "角色A"})
         assert self._fingerprints(renamed) == self._fingerprints(original)
 
     def test_folds_bracketed_field_path(self) -> None:
