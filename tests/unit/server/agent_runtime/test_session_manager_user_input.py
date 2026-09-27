@@ -218,10 +218,10 @@ class TestSessionManagerUserInput:
         assert unclaimed[0].reason == "session evicted"
 
     async def test_failed_new_session_startup_does_not_count_as_unclaimed(
-        self, session_manager, meta_store, monkeypatch, caplog, tmp_path
+        self, session_manager, meta_store, monkeypatch, caplog
     ):
         """新会话没建起来，回放副本不会抵达：启动失败不计入认领失败、不产生告警。"""
-        proj_dir = tmp_path / "projects" / "demo"
+        proj_dir = session_manager.layout.projects_dir / "demo"
         proj_dir.mkdir(parents=True)
         (proj_dir / "project.json").write_text('{"title": "t"}', encoding="utf-8")
 
@@ -265,10 +265,10 @@ class TestSessionManagerUserInput:
         assert not [r for r in caplog.records if "unclaimed" in r.getMessage()]
 
     async def test_cleanup_on_error_disconnect_timeout_does_not_block(
-        self, session_manager, meta_store, monkeypatch, caplog, tmp_path
+        self, session_manager, meta_store, monkeypatch, caplog
     ):
         """启动失败清理路径里 send_disconnect 挂起时，超时兜底让清理仍在限时内完成。"""
-        proj_dir = tmp_path / "projects" / "demo"
+        proj_dir = session_manager.layout.projects_dir / "demo"
         proj_dir.mkdir(parents=True)
         (proj_dir / "project.json").write_text('{"title": "t"}', encoding="utf-8")
 
@@ -339,7 +339,7 @@ class TestSessionManagerUserInput:
     ):
         """会话跑起来后才启动失败时，断开挂起不得把待回放登记误记为未认领。"""
         session_manager = SessionManager(project_root=tmp_path, meta_store=meta_store, sdk_id_timeout=0.05)
-        proj_dir = tmp_path / "projects" / "demo"
+        proj_dir = session_manager.layout.projects_dir / "demo"
         proj_dir.mkdir(parents=True)
         (proj_dir / "project.json").write_text('{"title": "t"}', encoding="utf-8")
 

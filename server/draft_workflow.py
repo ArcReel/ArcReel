@@ -11,10 +11,12 @@ from pathlib import Path
 from typing import Annotated, Any, Literal, NamedTuple, Protocol, cast
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic.json_schema import SkipJsonSchema
 
 from lib.artifacts.artifact_manifest import ArtifactBasis
 from lib.config.resolver import ConfigResolver
 from lib.episode.episode_paths import SCRIPT_PLAN_FILENAMES, episode_drafts_dir, episode_script_filename
+from lib.generation.video_request_facts import VideoRequestFactsError
 from lib.infra.async_thread import run_sync_transaction
 from lib.infra.json_io import atomic_write_json, load_json_or_none
 from lib.project.project_manager import ProjectManager, ScriptWriteConflict
@@ -56,8 +58,7 @@ from server.text_generation import (
     _commit_single_script_plan,
     _coverage_source_scope,
     _drama_script_plan_result_text,
-    _fetch_caps_with_fallback,
-    _fetch_reference_caps_with_fallback,
+    _fetch_reference_split_caps,
     _load_novel_source,
     _load_script_plan_source_with_basis,
     _narration_script_plan_path,
@@ -65,6 +66,8 @@ from server.text_generation import (
     _reference_result_text,
     _reference_soft_violation_lines,
     _uses_reference_video_units,
+    _video_facts_failure_text,
+    fetch_storyboard_durations,
     render_soft_violation_section,
 )
 
@@ -74,7 +77,7 @@ logger = logging.getLogger(__name__)
 @dataclass(frozen=True, slots=True)
 class DraftContext:
     project_name: str
-    projects_root: Path
+    data_root: Path
     pm: ProjectManager
     config_resolver: ConfigResolver | None = None
 
@@ -89,32 +92,55 @@ DraftDocType = Literal[
 PositiveEpisode = Annotated[int, Field(strict=True, ge=1)]
 
 
+_DRAFT_REVISION_DESCRIPTION = "open_draft / 上次 patch_draft 返回的 revision"
+
+
 class _DraftRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    episode: PositiveEpisode
-    doc_type: DraftDocType
+    episode: PositiveEpisode = Field(description="剧集编号")
+    doc_type: DraftDocType = Field(
+        description=(
+            "草稿对应的文档：drama_script_plan / narration_script_plan / reference_script_plan 为各创作类型的"
+            " script_plan，reference_prompt_authoring 为参考生视频正式脚本的提示词编写稿"
+        )
+    )
 
 
 class DraftLocator(_DraftRequest):
-    source: str | None = None
+    source: str | SkipJsonSchema[None] = Field(
+        default=None,
+        description=(
+            "可选小说源文件路径；仅在首次从正式 script_plan 创建草稿时用作重判来源，"
+            "缺省为本集派生源文 source/episode_N.txt"
+        ),
+    )
 
 
 class PatchDraftRequest(_DraftRequest):
-    content: dict[str, Any]
-    base_revision: str
-    accept_formal_revision: str | None = None
-    accepts_formal_revision: bool = False
-    source: str | None = None
-    updates_source: bool = False
+    """``accept_formal_revision`` 与 ``source`` 以「是否出现」区分省略与显式 null：省略即不接受 / 不改。"""
+
+    content: dict[str, Any] = Field(description="替换后的完整草稿正文；允许中间态不通过业务校验")
+    base_revision: str = Field(description=_DRAFT_REVISION_DESCRIPTION)
+    accept_formal_revision: str | None = Field(
+        default=None,
+        description=(
+            "合并正式文档并发修改后，显式接受 open_draft 返回的 formal_revision；"
+            "正式文档已不存在时该值为 null，同样显式传 null。省略表示不接受"
+        ),
+    )
+    source: str | None = Field(
+        default=None,
+        description="可选源文范围；仅在修正 script_plan 草稿的重判范围时提供，null 清除范围，省略则保持不变",
+    )
 
 
 class PromoteDraftRequest(_DraftRequest):
-    base_revision: str
+    base_revision: str = Field(description="open_draft 返回的当前草稿 revision")
 
 
 class DiscardDraftRequest(_DraftRequest):
-    base_revision: str
+    base_revision: str = Field(description=_DRAFT_REVISION_DESCRIPTION)
 
 
 class DraftWorkflowError(Exception):
@@ -184,14 +210,7 @@ async def revalidate_reference_script_plan_draft(
         episode,
         "reference_video",
     )
-    if config_resolver is None:
-        split_caps = await _fetch_reference_caps_with_fallback(project, episode)
-    else:
-        split_caps = await _fetch_reference_caps_with_fallback(
-            project,
-            episode,
-            config_resolver=config_resolver,
-        )
+    split_caps = await _fetch_reference_split_caps(project, config_resolver=config_resolver)
 
     # 修改过的草稿先过产出时那份 schema：拆分侧由 response_schema 与 _parse_script_plan_json 卡住时长
     # 枚举与字段非空，晋升侧漏掉这一层的话，把 duration_seconds 改成非档位值、或整个删掉（收成
@@ -232,6 +251,7 @@ async def revalidate_reference_script_plan_draft(
     violations = _collect_reference_flat_violations(
         flat_units,
         project,
+        project_path=project_path,
         episode=episode,
         novel_text=novel_text,
         caps=split_caps,
@@ -363,7 +383,7 @@ async def _promote_reference_script_plan(
     只返回一个「已晋升」的布尔。
     """
     project_path = ctx.project_path
-    project = await asyncio.to_thread(ctx.pm.load_project_readonly, ctx.project_name)
+    project = await asyncio.to_thread(ctx.pm.load_project, ctx.project_name)
     try:
         revalidation = await revalidate_reference_script_plan_draft(
             project_path,
@@ -372,6 +392,8 @@ async def _promote_reference_script_plan(
             draft,
             config_resolver=ctx.config_resolver,
         )
+    except VideoRequestFactsError as exc:
+        raise DraftWorkflowError("draft_invalid", _video_facts_failure_text(exc.failure)) from exc
     except ValueError as exc:
         raise DraftWorkflowError("draft_invalid", f"❌ {exc}") from exc
     violations, flat_units, split_caps = revalidation.violations, revalidation.flat_units, revalidation.caps
@@ -468,7 +490,7 @@ def _render_script_plan_conflict_report(
         f"{latest_block}\n\n"
         f"处置：调用 open_draft 读取当前草稿与 formal_revision，对照上方最新内容合并 {field_hint}；"
         "再调用 patch_draft 提交完整 content，并把 formal_revision 作为 accept_formal_revision；"
-        "若该值为 null 且使用 remote MCP，还须传 accepts_formal_revision=true；"
+        "该值为 null 时同样显式传入 null；"
         f'最后调用 {PROMOTE_TOOL_NAME}({{"episode": {episode}, "doc_type": "{doc_type}", '
         '"base_revision": "<patch_draft 返回的新 revision>"}) 重新晋升。'
     )
@@ -490,7 +512,7 @@ def _render_prompt_authoring_conflict_report(
         f"当前正式剧本的最新内容：\n{latest}\n\n"
         "处置：调用 open_draft 读取当前草稿与 formal_revision，合并最新正式内容；"
         "再调用 patch_draft 提交完整 content，并把 formal_revision 作为 accept_formal_revision；"
-        "若该值为 null 且使用 remote MCP，还须传 accepts_formal_revision=true；"
+        "该值为 null 时同样显式传入 null；"
         f'最后调用 {PROMOTE_TOOL_NAME}({{"episode": {episode}, "doc_type": "reference_prompt_authoring", '
         '"base_revision": "<patch_draft 返回的新 revision>"}) 重新晋升。'
     )
@@ -600,14 +622,7 @@ async def revalidate_drama_script_plan_draft(
         episode,
         "drama",
     )
-    if config_resolver is None:
-        _default_duration, supported_durations = await _fetch_caps_with_fallback(project, episode)
-    else:
-        _default_duration, supported_durations = await _fetch_caps_with_fallback(
-            project,
-            episode,
-            config_resolver=config_resolver,
-        )
+    _default_duration, supported_durations = await fetch_storyboard_durations(project, config_resolver=config_resolver)
     schema = build_drama_normalized_script_model(supported_durations)
     try:
         content = schema.model_validate(draft.content).model_dump()
@@ -642,7 +657,7 @@ async def _promote_drama_script_plan(
     返回晋升回执文本：与产出回执同一出口（``_drama_script_plan_result_text``）。
     """
     project_path = ctx.project_path
-    project = await asyncio.to_thread(ctx.pm.load_project_readonly, ctx.project_name)
+    project = await asyncio.to_thread(ctx.pm.load_project, ctx.project_name)
     try:
         revalidation = await revalidate_drama_script_plan_draft(
             project_path,
@@ -651,6 +666,8 @@ async def _promote_drama_script_plan(
             draft,
             config_resolver=ctx.config_resolver,
         )
+    except VideoRequestFactsError as exc:
+        raise DraftWorkflowError("draft_invalid", _video_facts_failure_text(exc.failure)) from exc
     except ValueError as exc:
         raise DraftWorkflowError("draft_invalid", f"❌ {exc}") from exc
 
@@ -777,14 +794,7 @@ async def revalidate_narration_script_plan_draft(
         episode,
         "narration",
     )
-    if config_resolver is None:
-        _default_duration, supported_durations = await _fetch_caps_with_fallback(project, episode)
-    else:
-        _default_duration, supported_durations = await _fetch_caps_with_fallback(
-            project,
-            episode,
-            config_resolver=config_resolver,
-        )
+    _default_duration, supported_durations = await fetch_storyboard_durations(project, config_resolver=config_resolver)
 
     # 修改过的草稿先过产出时那份 schema：拆分侧由 response_schema 与 _parse_script_plan_json 卡住字段与
     # 类型，晋升侧漏掉这一层的话，把 duration_seconds 改成字符串、或整个删掉 novel_text 都能一路
@@ -848,7 +858,7 @@ async def _promote_narration_script_plan(
     返回晋升回执文本：与拆分回执同一出口（``_narration_script_plan_result_text``）。
     """
     project_path = ctx.project_path
-    project = await asyncio.to_thread(ctx.pm.load_project_readonly, ctx.project_name)
+    project = await asyncio.to_thread(ctx.pm.load_project, ctx.project_name)
     try:
         revalidation = await revalidate_narration_script_plan_draft(
             project_path,
@@ -857,6 +867,8 @@ async def _promote_narration_script_plan(
             draft,
             config_resolver=ctx.config_resolver,
         )
+    except VideoRequestFactsError as exc:
+        raise DraftWorkflowError("draft_invalid", _video_facts_failure_text(exc.failure)) from exc
     except ValueError as exc:
         raise DraftWorkflowError("draft_invalid", f"❌ {exc}") from exc
 
@@ -1079,7 +1091,7 @@ class DraftWorkflow:
             raise DraftWorkflowError("invalid_request", f"unsupported doc_type: {doc_type}")
         if allow_stale_discard:
             return kind
-        project = await asyncio.to_thread(self.ctx.pm.load_project_readonly, self.ctx.project_name)
+        project = await asyncio.to_thread(self.ctx.pm.load_project, self.ctx.project_name)
         active_script_plan = script_review.script_plan_quarantine_kind(project)
         compatible = kind == active_script_plan or (
             kind == QUARANTINE_KIND_PROMPT_AUTHORING and _uses_reference_video_units(project)
@@ -1099,7 +1111,7 @@ class DraftWorkflow:
             return
         if draft is not None and draft.meta.get(_FORMAL_EDIT_META_KEY) is not True:
             return
-        project = self.ctx.pm.load_project_readonly(self.ctx.project_name)
+        project = self.ctx.pm.load_project(self.ctx.project_name)
         if script_review.formal_script_plan_confirmed(self.ctx.project_path, project, episode):
             raise DraftWorkflowError("script_plan_confirmed", _script_plan_confirmed_detail(episode))
 
@@ -1140,7 +1152,7 @@ class DraftWorkflow:
     def _formal_path(self, episode: int, kind: str) -> Path:
         if kind == QUARANTINE_KIND_PROMPT_AUTHORING:
             return self.ctx.project_path / "scripts" / episode_script_filename(episode)
-        project = self.ctx.pm.load_project_readonly(self.ctx.project_name)
+        project = self.ctx.pm.load_project(self.ctx.project_name)
         path = script_review.script_plan_path(self.ctx.project_path, project, episode)
         if path is None:
             raise ValueError("project has no formal script_plan document")
@@ -1180,7 +1192,7 @@ class DraftWorkflow:
         path = quarantine_path(self.ctx.project_path, episode, resolved)
 
         try:
-            async with ProjectManager(str(self.ctx.projects_root)).async_file_lock(path):
+            async with ProjectManager(self.ctx.data_root).async_file_lock(path):
                 existing = await asyncio.to_thread(self._read_if_present, episode, resolved)
                 if existing is not None:
                     return existing
@@ -1266,7 +1278,7 @@ class DraftWorkflow:
     ) -> dict[str, Any]:
         resolved = await self._kind(episode, doc_type)
         path = quarantine_path(self.ctx.project_path, episode, resolved)
-        async with ProjectManager(str(self.ctx.projects_root)).async_file_lock(path):
+        async with ProjectManager(self.ctx.data_root).async_file_lock(path):
             return await run_sync_transaction(
                 self._patch_locked,
                 episode,
@@ -1298,7 +1310,7 @@ class DraftWorkflow:
         message: str
         if before_lock is not None:
             before_lock()
-        async with ProjectManager(str(self.ctx.projects_root)).async_file_lock(path):
+        async with ProjectManager(self.ctx.data_root).async_file_lock(path):
             draft, actual_revision = await asyncio.to_thread(
                 self._draft_snapshot,
                 episode,
@@ -1367,7 +1379,7 @@ class DraftWorkflow:
     ) -> dict[str, Any]:
         resolved = await self._kind(episode, doc_type, allow_stale_discard=True)
         path = quarantine_path(self.ctx.project_path, episode, resolved)
-        async with ProjectManager(str(self.ctx.projects_root)).async_file_lock(path):
+        async with ProjectManager(self.ctx.data_root).async_file_lock(path):
             draft, actual_revision = await asyncio.to_thread(
                 self._draft_snapshot,
                 episode,

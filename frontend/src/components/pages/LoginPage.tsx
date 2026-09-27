@@ -87,7 +87,10 @@ export function LoginPage() {
             system · login
           </div>
           <h1 className="font-editorial mt-1 flex items-center justify-center gap-2 text-[28px] tracking-tight text-text">
-            <img src="/android-chrome-192x192.png" alt="" aria-hidden className="h-7 w-7" />
+            <picture>
+              <source media="(prefers-reduced-motion: reduce)" srcSet="/logo.svg" />
+              <img src="/logo-animated.svg" alt="" aria-hidden className="block h-7 w-7" />
+            </picture>
             <span>{BRAND.name}</span>
           </h1>
         </div>

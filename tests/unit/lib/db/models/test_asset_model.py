@@ -18,7 +18,7 @@ async def test_asset_create_and_fetch(db_session):
         name="王小明",
         description="白衣少年",
         voice_style="清亮",
-        image_path="_global_assets/character/abc.png",
+        image_path="global_assets/character/abc.png",
         source_project="demo",
     )
     db_session.add(asset)
@@ -27,7 +27,7 @@ async def test_asset_create_and_fetch(db_session):
     row = (await db_session.execute(select(Asset).where(Asset.name == "王小明"))).scalar_one()
     assert row.type == "character"
     assert row.voice_style == "清亮"
-    assert row.image_path == "_global_assets/character/abc.png"
+    assert row.image_path == "global_assets/character/abc.png"
     assert row.description == "白衣少年"
     assert row.source_project == "demo"
     assert row.created_at is not None

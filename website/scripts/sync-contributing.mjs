@@ -31,6 +31,7 @@ const ANCHORS = new Map([
   ["### 变异测试", "mutation-testing"],
   ["### 闸门", "test-gates"],
   ["### 前端测试（vitest）", "frontend-vitest"],
+  ["### 在 worktree 与沙箱里运行闸门", "gates-in-worktrees-and-sandboxes"],
   ["## 代码质量", "code-quality"],
   ["### 依赖管理", "dependency-management"],
   ["### 注释规范", "comment-discipline"],

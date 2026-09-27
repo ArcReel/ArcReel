@@ -87,7 +87,6 @@ def _mock_pm(project_with_script, script_data=None):
     pm = MagicMock()
     pm.get_project_path.return_value = project_with_script
     pm.load_project.return_value = json.loads((project_with_script / "project.json").read_text(encoding="utf-8"))
-    pm.load_project_readonly.return_value = pm.load_project.return_value
     pm.load_script.return_value = (
         script_data
         if script_data is not None
@@ -199,29 +198,6 @@ class TestApplyGridSplit:
         updates = pm.batch_update_scene_assets.call_args.kwargs["updates"]
         assert {sid for sid, _, _ in updates} == {"E1S01"}
 
-    async def test_split_only_scene_ids_excludes_out_of_scope_ids_before_the_missing_check(
-        self, project_with_script, grid_with_image, caplog
-    ):
-        """only_scene_ids 过滤必须先于 valid_ids 检查生效：调用方只想要 E1S01 这一格
-        时，剧本里已不存在的 E1S02/E1S03（不在目标集合内）不能被当成该调用的缺口
-        计入 missing_scene_ids——那会让调用方以为它们是该调用漏掉的，实际上从未
-        被请求过。"""
-        grid = grid_with_image
-        script_data = json.loads((project_with_script / "scripts" / "episode_1.json").read_text(encoding="utf-8"))
-        script_data["segments"] = [seg for seg in script_data["segments"] if seg["segment_id"] == "E1S01"]
-        _register_grid(project_with_script, grid)
-
-        pm = _mock_pm(project_with_script, script_data)
-        with (
-            patch("server.services.grid.grid_split.get_project_manager", return_value=pm),
-            patch("server.services.tasks.generation_tasks.emit_generation_success_batch", return_value={}),
-            caplog.at_level(logging.WARNING, logger="server.services.grid.grid_split"),
-        ):
-            result = await apply_grid_split("test-project", grid, only_scene_ids=frozenset({"E1S01"}))
-
-        assert result.updated_scene_ids == ["E1S01"]
-        assert result.missing_scene_ids == []
-
     async def test_split_requires_grid_image(self, project_with_script, grid_with_image):
         grid = grid_with_image
         (project_with_script / "grids" / f"{grid.id}.png").unlink()
@@ -278,7 +254,7 @@ class TestApplyGridSplit:
                 for scene_id in ("E1S01", "E1S02", "E1S03")
             },
         }
-        pm = ProjectManager(project_with_script.parent)
+        pm = ProjectManager.for_project_dir(project_with_script)
 
         def _fail_register(*_args, **_kwargs):
             raise RuntimeError("manifest commit failed")
@@ -307,7 +283,7 @@ class TestApplyGridSplit:
         from server.routers import versions as versions_router
 
         _register_grid(project_with_script, grid_with_image)
-        pm = ProjectManager(project_with_script.parent)
+        pm = ProjectManager.for_project_dir(project_with_script)
 
         with (
             patch("server.services.grid.grid_split.get_project_manager", return_value=pm),
@@ -355,7 +331,7 @@ class TestApplyGridSplit:
             "grid": grid_file.read_bytes(),
             "storyboards": tuple(sorted((project_with_script / "storyboards").iterdir())),
         }
-        pm = ProjectManager(project_with_script.parent)
+        pm = ProjectManager.for_project_dir(project_with_script)
 
         with (
             patch("server.services.grid.grid_split.get_project_manager", return_value=pm),
@@ -378,7 +354,7 @@ class TestApplyGridSplit:
         from lib.artifacts.artifact_manifest import ArtifactKey, ProjectArtifactManifestAdapter
 
         _register_grid(project_with_script, grid_with_image)
-        pm = ProjectManager(project_with_script.parent)
+        pm = ProjectManager.for_project_dir(project_with_script)
         original_batch_update = pm.batch_update_scene_assets
         script_file = project_with_script / "scripts" / "episode_1.json"
         grid_file = project_with_script / "grids" / f"{grid_with_image.id}.json"
@@ -419,7 +395,7 @@ class TestApplyGridSplit:
             .status
             is ArtifactStatus.STALE
         )
-        pm = ProjectManager(project_with_script.parent)
+        pm = ProjectManager.for_project_dir(project_with_script)
 
         with (
             patch("server.services.grid.grid_split.get_project_manager", return_value=pm),
@@ -460,7 +436,7 @@ class TestApplyGridSplit:
             assert ProjectArtifactManifestAdapter(project_path).delete_entry(source_key)
             original_register(project_path, entries=entries, expected_entries=expected_entries)
 
-        pm = ProjectManager(project_with_script.parent)
+        pm = ProjectManager.for_project_dir(project_with_script)
         with (
             patch("server.services.grid.grid_split.get_project_manager", return_value=pm),
             pytest.raises(ArtifactManifestError, match="changed during batch registration"),
@@ -538,7 +514,7 @@ class TestApplyGridSplit:
                 replaced = True
             return original_build(**kwargs)
 
-        pm = ProjectManager(project_with_script.parent)
+        pm = ProjectManager.for_project_dir(project_with_script)
         with (
             patch("server.services.grid.grid_split.get_project_manager", return_value=pm),
             patch(
@@ -601,7 +577,7 @@ class TestApplyGridSplit:
                 replaced = True
             return original_build(**kwargs)
 
-        pm = ProjectManager(project_with_script.parent)
+        pm = ProjectManager.for_project_dir(project_with_script)
         with (
             patch("server.services.grid.grid_split.get_project_manager", return_value=pm),
             patch(
@@ -630,7 +606,7 @@ class TestApplyGridSplit:
             return original_save(image, target, *args, **kwargs)
 
         _register_grid(project_with_script, grid_with_image)
-        pm = ProjectManager(project_with_script.parent)
+        pm = ProjectManager.for_project_dir(project_with_script)
         with (
             patch("server.services.grid.grid_split.get_project_manager", return_value=pm),
             patch.object(Image.Image, "save", _write_partial_cell_then_fail),
@@ -647,7 +623,7 @@ class TestApplyGridSplit:
     ):
         _register_grid(project_with_script, grid_with_image)
         grids_dir = project_with_script / "grids"
-        pm = ProjectManager(project_with_script.parent)
+        pm = ProjectManager.for_project_dir(project_with_script)
 
         with (
             patch("server.services.grid.grid_split.get_project_manager", return_value=pm),

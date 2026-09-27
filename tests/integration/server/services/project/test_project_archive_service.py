@@ -431,7 +431,7 @@ class TestProjectArchiveService:
             service.import_project_archive(tampered_path, uploaded_filename="tampered.zip")
 
         assert any(item.code == "artifact_activation_failed" for item in exc_info.value.diagnostics.blocking)
-        assert not (pm.projects_root / "demo").exists()
+        assert not (pm.projects_dir / "demo").exists()
 
     @staticmethod
     def _rewrite_archive(source_path: Path, target_path: Path, *, rewrite) -> None:
@@ -1298,7 +1298,7 @@ class TestProjectArchiveService:
 
         assert exc_info.value.detail.render() == "导入包校验失败"
         assert any(error.startswith(f"{location}:") for error in exc_info.value.render_errors())
-        assert list(pm.projects_root.iterdir()) == []
+        assert list(pm.projects_dir.iterdir()) == []
 
     def test_import_drops_version_buckets_of_unknown_resource_types(self, tmp_path, caplog):
         pm = ProjectManager(tmp_path / "projects")
@@ -1614,7 +1614,7 @@ class TestProjectArchiveService:
         restored = pm.get_project_path("demo") / ".arcreel" / "memory"
         assert restored.joinpath("MEMORY.md").read_text(encoding="utf-8") == "index"
         assert restored.joinpath("topics", "style.md").read_text(encoding="utf-8") == "topic"
-        assert not list(pm.projects_root.glob(".import-backup-*"))
+        assert not list(pm.projects_dir.glob(".import-backup-*"))
 
     def test_import_overwrite_keeps_a_symlink_inside_project_memory_as_a_symlink(self, tmp_path):
         """记忆目录里的软链原样搬回：悬空软链也不该让整次覆盖导入失败。"""
@@ -1677,7 +1677,7 @@ class TestProjectArchiveService:
         assert result.conflict_resolution == "overwritten"
         assert pm.load_project("demo")["style"] == "Fresh"
         assert not (pm.get_project_path("demo") / ".arcreel").exists()
-        assert not list(pm.projects_root.glob(".import-backup-*"))
+        assert not list(pm.projects_dir.glob(".import-backup-*"))
 
     def test_export_omits_project_memory(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
@@ -1806,7 +1806,7 @@ class TestProjectArchiveService:
         # 旧项目恢复（backup 被 rename 回 target_dir）
         monkeypatch.undo()
         assert pm.load_project("demo")["style"] == "Stale"
-        assert not any(p.name.startswith(".import-backup-") for p in (tmp_path / "projects").iterdir())
+        assert not any(p.name.startswith(".import-backup-") for p in pm.projects_dir.iterdir())
 
     def test_create_project_rolls_back_on_profile_sync_failure(self, tmp_path, monkeypatch):
         """create_project 内 sync_agent_profile 失败必须 rmtree 残缺 project_dir，
@@ -1824,9 +1824,9 @@ class TestProjectArchiveService:
 
         # 残缺目录已清，同名 create 应该能成功（fixture 已 stub sync 抛错，所以先 undo）
         monkeypatch.undo()
-        assert not (tmp_path / "projects" / "ghost").exists()
+        assert not (pm.projects_dir / "ghost").exists()
         pm.create_project("ghost")  # 不撞 FileExistsError
-        assert (tmp_path / "projects" / "ghost").is_dir()
+        assert (pm.projects_dir / "ghost").is_dir()
 
     def test_import_repairs_legacy_narration_payload(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")

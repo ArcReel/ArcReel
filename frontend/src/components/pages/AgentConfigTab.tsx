@@ -3,6 +3,7 @@ import { AlertTriangle, Loader2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { API } from "@/api";
+import { AgentLanguageRuleSection } from "@/components/agent/AgentLanguageRuleSection";
 import { AgentMemoryCabinet } from "@/components/agent/AgentMemoryCabinet";
 import { AgentPageIntro } from "@/components/agent/AgentPageIntro";
 import { CredentialsSection } from "@/components/agent/CredentialsSection";
@@ -209,6 +210,7 @@ export function AgentConfigTab({ visible }: AgentConfigTabProps) {
             </div>
           </div>
         </SectionShell>
+        <AgentLanguageRuleSection />
         <AgentMemoryCabinet scope={{ level: "user" }} frame="section" />
       </div>
 

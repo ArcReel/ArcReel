@@ -264,9 +264,8 @@ def build_grid_task_payload(
     cols: int,
     grid_aspect_ratio: str,
     video_aspect_ratio: str,
-    report_scene_ids: list[str] | None = None,
 ) -> dict:
-    """宫格生成任务入队 payload 的唯一构造点，HTTP 路由与 SDK 工具共用。
+    """宫格生成任务入队 payload 的唯一构造点，HTTP 路由与 Agent 工具共用。
 
     两条入队路径各自内联字面量时，字段增删只改一侧就会让 worker 在另一条路径上
     读到缺字段的 payload，故收在此处。
@@ -283,5 +282,4 @@ def build_grid_task_payload(
         "cols": cols,
         "grid_aspect_ratio": grid_aspect_ratio,
         "video_aspect_ratio": video_aspect_ratio,
-        "report_scene_ids": report_scene_ids,
     }

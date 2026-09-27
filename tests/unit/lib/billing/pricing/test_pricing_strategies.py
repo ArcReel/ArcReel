@@ -238,15 +238,22 @@ class TestPerSecondMatrix:
         assert currency == "USD"
         assert amount == pytest.approx(0.64)
 
-    def test_resolution_audio_lowercased_and_unknown_falls_back_to_1080p_true(self):
-        # resolution="UNKNOWN" → .lower() 后查不到 → fallback ("1080p", True) = 0.08
+    def test_resolution_audio_omitted_uses_default_resolution(self):
+        amount, _ = calculate_pricing(
+            self.audio,
+            PricingParams(call_type="video", model="veo", duration_seconds=8, generate_audio=True),
+        )
+        assert amount == pytest.approx(0.40)
+
+    def test_resolution_audio_lowercased_and_unknown_falls_back_to_default_resolution_true(self):
+        # resolution="UNKNOWN" → .lower() 后查不到 → fallback (default_resolution, True) = 0.05
         amount, _ = calculate_pricing(
             self.audio,
             PricingParams(
                 call_type="video", model="veo", duration_seconds=5, resolution="UNKNOWN", generate_audio=True
             ),
         )
-        assert amount == pytest.approx(0.40)
+        assert amount == pytest.approx(0.25)
 
     def test_resolution_only_known(self):
         amount, _ = calculate_pricing(
@@ -292,9 +299,9 @@ class TestPerSecondMatrix:
         assert amount == pytest.approx(0.40)
 
     def test_resolution_audio_zero_fallback_rate_not_treated_as_missing(self):
-        # free 模型 (1080p,True) 显式 0.0，未知分辨率回落 fallback 时应保留自身 0.0，不误用 paid 费率。
+        # free 模型 (720p,True) 显式 0.0，未知分辨率回落 fallback 时应保留自身 0.0，不误用 paid 费率。
         pricing = PerSecondMatrix(
-            rates={"free": {("1080p", True): 0.0}, "paid": {("1080p", True): 0.08}},
+            rates={"free": {("720p", True): 0.0}, "paid": {("720p", True): 0.05}},
             default_model="paid",
             dimensions="resolution_audio",
             currency="USD",

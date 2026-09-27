@@ -9,6 +9,8 @@ custom_edit_url: https://github.com/ArcReel/ArcReel/blob/main/CONTRIBUTING.md
 
 Contributions of code, bug reports, and feature proposals are welcome!
 
+Contributions whose main purpose is to promote a commercial service (for example, adding an integration for one particular service, or adding service recommendations and links to the docs) do not go through pull requests, and such pull requests will be closed. For collaboration, contact support@arc-reel.com.
+
 ## Local Development Environment {#local-development}
 
 ```bash
@@ -95,7 +97,8 @@ Every backend test belongs to exactly one tier; CI runs `-m "not e2e"` by defaul
 
 - **Priority**: real objects (in-memory SQLite, `tmp_path`) > handwritten doubles in `tests/fakes.py` (admission criteria in its module docstring) > `spec`/`autospec` Mocks > bare `MagicMock`/`AsyncMock`. Mocks may only replace repository boundaries (third-party SDKs, network transport, subprocesses, filesystem, clocks); collaborators inside the repository use real objects or handwritten fakes.
 - **Never patch private symbols of production code** (gate, no exemptions): `patch("lib.x._y")`, `monkeypatch.setattr(mod, "_y")`, and `patch.object(Cls, "_y")` are all forbidden. Use a seam when internal behavior must be controlled.
-- **A seam is explicit parameter injection**: a constructor or keyword parameter with a production default and no behavior change, such as `retry_async(operation, *, clock=..., jitter=...)`; never a module-level replaceable global. Applies to: polling clocks/intervals/backoff, capability resolvers, HTTP probe clients, filesystem and subprocesses.
+- **A seam is explicit parameter injection**: a constructor or keyword parameter with a production default and no behavior change, such as `retry_async(operation, *, clock=..., jitter=...)`; never a module-level replaceable global. Applies to: polling clocks/intervals/backoff, HTTP probe clients, filesystem and subprocesses.
+- **Consumers construct video request facts result objects for video capabilities**: consumer tests for quoting, prechecks, execution and the like construct video request facts result or failure objects directly (`make_video_request_facts` in `tests/factories.py`), instead of faking at the capability resolver layer or hand-building capability dicts; the evaluation itself is tested with a real `ConfigResolver` plus the test database.
 - **Assert outbound HTTP with respx**: keep the real httpx client and intercept at the transport layer (`AsyncOpenAI` traffic is captured the same way), asserting the actually serialized request.
 - **Patch consolidation** (gate): a patch target string appearing in ≥3 test files must be consolidated into a shared fixture / helper, no longer written inline per file; for FastAPI route dependencies prefer `app.dependency_overrides` over patching.
 
@@ -144,6 +147,16 @@ Coverage is a signal, not a gate: CI never fails on a coverage number, and Codec
 - **Layout and size**: test files sit next to their source files, without `__tests__/` directories; "one file, one subject", the split-naming ban, and the 3000-line circuit breaker match the backend, with semantic topic suffixes allowed (such as `ShotDetail.drama.test.tsx`).
 - **Testability rework**: no production behavior changes; structural extraction at the pure-function or hook level is allowed.
 - **Configuration and lint**: `testTimeout` stays at the vitest default of 5s, with individual slow tests overriding it explicitly with an explanation; eslint enables the vitest, testing-library, and jest-dom plugins (`expect-expect` catches zero-assertion tests); bare `toHaveBeenCalled` has no ban—assertion strength is a review concern.
+
+### Running the gates in worktrees and sandboxes {#gates-in-worktrees-and-sandboxes}
+
+A worktree has no `.venv` or `node_modules`, and an agent sandbox may forbid binding local ports. Run the gates as follows and the results match the main checkout:
+
+- **Share the main checkout's `.venv` for Python**: `UV_PROJECT_ENVIRONMENT=<main-repo-root>/.venv uv run --no-sync <command>`. `--no-sync` makes `uv run` use that environment as is; without it, `uv run` syncs a full copy of the dependencies into that directory according to the worktree's `pyproject.toml`, and the `uv run ruff` in the post-save formatting hook of `.claude/settings.json` triggers the same sync. When the worktree changes `pyproject.toml` or `uv.lock`, the main checkout's `.venv` does not reflect the new dependencies: drop `UV_PROJECT_ENVIRONMENT` and `--no-sync` so that `uv run` creates and syncs the worktree's own `.venv`, and basedpyright then needs no `--venvpath`.
+- **Point basedpyright at the main checkout**: `venvPath` in `pyproject.toml` makes it look for `.venv` in the current directory, so in a worktree it exits with code 3 and `venv .venv subdirectory not found`; pass `--venvpath <main-repo-root>` and no symlink is needed.
+- **Run port-binding tests where local ports are allowed**: `tests/integration/agent_runtime_profile/test_custom_endpoint_adapter_skill.py` starts a local HTTP server and fails with `PermissionError` when the sandbox forbids binding `127.0.0.1`. Run the full backend suite once in an environment that allows local ports instead of running it in the sandbox first and again afterwards.
+- **Limit workers when running the frontend gate concurrently**: several agents running `pnpm check` at once let vitest's default worker count push the machine into test timeouts; use `pnpm check --maxWorkers=2`, which lands on the trailing `vitest run` of the script.
+- **Install frontend and docs-site dependencies per worktree**: run `pnpm install --frozen-lockfile` in the worktree's `frontend/` and `website/` separately.
 
 ## Code Quality {#code-quality}
 

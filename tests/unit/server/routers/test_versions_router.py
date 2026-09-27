@@ -425,7 +425,7 @@ class TestVersionsRouter:
     def test_unverifiable_image_restore_removes_the_previous_claim(self, tmp_path, monkeypatch):
         from lib.project.project_manager import ProjectManager
 
-        project_path = tmp_path / "demo"
+        project_path = tmp_path / "projects" / "demo"
         (project_path / "characters").mkdir(parents=True)
         project_path.joinpath("project.json").write_text(
             f'{{"schema_version":{CURRENT_PROJECT_SCHEMA_VERSION},"title":"Demo","content_mode":"narration",'
@@ -466,7 +466,7 @@ class TestVersionsRouter:
     def test_deleted_asset_restore_does_not_create_an_orphan_claim(self, tmp_path, monkeypatch):
         from lib.project.project_manager import ProjectManager
 
-        project_path = tmp_path / "demo"
+        project_path = tmp_path / "projects" / "demo"
         (project_path / "characters").mkdir(parents=True)
         project_path.joinpath("project.json").write_text(
             f'{{"schema_version":{CURRENT_PROJECT_SCHEMA_VERSION},"title":"Demo","content_mode":"narration",'
@@ -519,7 +519,7 @@ class TestVersionsRouter:
     ):
         from lib.project.project_manager import ProjectManager
 
-        project_path = tmp_path / "demo"
+        project_path = tmp_path / "projects" / "demo"
         (project_path / "characters").mkdir(parents=True)
         project_path.joinpath("project.json").write_text(
             f'{{"schema_version":{CURRENT_PROJECT_SCHEMA_VERSION},"title":"Demo","content_mode":"narration",'
@@ -565,7 +565,7 @@ class TestVersionsRouter:
     def test_storyboard_restore_duplicate_identity_rolls_back_every_formal_file(self, tmp_path, monkeypatch):
         from lib.project.project_manager import ProjectManager
 
-        project_path = tmp_path / "demo"
+        project_path = tmp_path / "projects" / "demo"
         scripts_dir = project_path / "scripts"
         storyboards_dir = project_path / "storyboards"
         scripts_dir.mkdir(parents=True)

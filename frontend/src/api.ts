@@ -29,6 +29,7 @@ import type {
   GetSystemVersionResponse,
   PromptTemplateDetail,
   PromptTemplateListResponse,
+  PromptTemplatePartial,
   ModelCandidatesResponse,
   OnboardingStatus,
   SystemConfigPatch,
@@ -42,10 +43,8 @@ import type {
   UsageRecordPage,
   UsageSummary,
   CustomProviderInfo,
-  CustomProviderModelInfo,
   CustomProviderCreateRequest,
   CustomProviderFullUpdateRequest,
-  CustomProviderModelInput,
   DiscoverModelsResponse,
   EndpointDescriptor,
   ComfyuiInferResponse,
@@ -69,6 +68,8 @@ import type {
   AnthropicDiscoverRequest,
   AnthropicDiscoverResponse,
   CostEstimateResponse,
+  ReferenceUnitCapability,
+  ReferenceUnitCapabilityMap,
   ReferenceVideoUnit,
   TransitionType,
   AdShot,
@@ -80,7 +81,9 @@ import type {
   ReferenceBatchGenerateRequest,
   ReferenceRequestOptions,
   ScriptPreview,
+  ReferenceUnitPromptPreview,
   ItemPromptPreview,
+  RenderedPromptPreview,
   ScriptReviewState,
   DramaNormalizedScript,
   NarrationScriptPlanDraft,
@@ -346,6 +349,15 @@ class API {
   ): Promise<PromptTemplateDetail> {
     const path = templateId.split("/").map(encodeURIComponent).join("/");
     return this.request(`/prompt-templates/${path}`, { signal: options.signal });
+  }
+
+  /** 片段名同样按 `/` 分层，编码方式与模版 id 一致。 */
+  static async getPromptPartial(
+    name: string,
+    options: { signal?: AbortSignal } = {}
+  ): Promise<PromptTemplatePartial> {
+    const path = name.split("/").map(encodeURIComponent).join("/");
+    return this.request(`/prompt-templates/partials/${path}`, { signal: options.signal });
   }
 
   // ==================== 首次使用引导 ====================
@@ -991,11 +1003,28 @@ class API {
     );
   }
 
+  /** 预览当前资产描述草稿，不保存；衍生按本体与衍生名共同定位。 */
+  static async previewAssetPrompt(
+    projectName: string,
+    assetType: ProjectAssetType,
+    name: string,
+    description: string,
+    options?: { signal?: AbortSignal; derivativeName?: string },
+  ): Promise<RenderedPromptPreview> {
+    const derivativePath = options?.derivativeName === undefined
+      ? ""
+      : `/derivatives/${encodeURIComponent(options.derivativeName)}`;
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/${ASSET_TYPE_PATH[assetType]}/${encodeURIComponent(name)}${derivativePath}/prompt-preview`,
+      { method: "POST", body: JSON.stringify({ description }), signal: options?.signal },
+    );
+  }
+
   /**
    * 条目最终提示词预览：分镜图与视频各一份，逐字等于执行期发给模型的文本。
    *
    * 只读——不向供应商发请求、不产生费用。读的是**已保存**的剧本内容，草稿未保存时
-   * 预览仍是上一次保存的结果。不可用原因由后端按请求语言渲染，前端不再二次翻译。
+   * 预览仍是上一次保存的结果。不可用原因由后端按请求语言渲染，前端不二次翻译。
    */
   static async previewScriptItemPrompts(
     projectName: string,
@@ -1697,12 +1726,12 @@ class API {
    * 生成角色资产图
    * @param projectName - 项目名称
    * @param charName - 角色名称
-   * @param prompt - 角色描述 prompt
+   *
+   * 请求体没有 prompt：描述只取项目里存储的条目。
    */
   static async generateCharacter(
     projectName: string,
-    charName: string,
-    prompt: string
+    charName: string
   ): Promise<{
     success: boolean;
     task_id: string;
@@ -1713,7 +1742,6 @@ class API {
       `/projects/${encodeURIComponent(projectName)}/generate/character/${encodeURIComponent(charName)}`,
       {
         method: "POST",
-        body: JSON.stringify({ prompt }),
       }
     );
   }
@@ -1722,12 +1750,12 @@ class API {
    * 生成场景资产图
    * @param projectName - 项目名称
    * @param sceneName - 场景名称
-   * @param prompt - 场景描述 prompt
+   *
+   * 请求体没有 prompt：描述只取项目里存储的条目。
    */
   static async generateProjectScene(
     projectName: string,
-    sceneName: string,
-    prompt: string
+    sceneName: string
   ): Promise<{
     success: boolean;
     task_id: string;
@@ -1738,7 +1766,6 @@ class API {
       `/projects/${encodeURIComponent(projectName)}/generate/scene/${encodeURIComponent(sceneName)}`,
       {
         method: "POST",
-        body: JSON.stringify({ prompt }),
       }
     );
   }
@@ -1747,12 +1774,12 @@ class API {
    * 生成道具资产图
    * @param projectName - 项目名称
    * @param propName - 道具名称
-   * @param prompt - 道具描述 prompt
+   *
+   * 请求体没有 prompt：描述只取项目里存储的条目。
    */
   static async generateProjectProp(
     projectName: string,
-    propName: string,
-    prompt: string
+    propName: string
   ): Promise<{
     success: boolean;
     task_id: string;
@@ -1763,7 +1790,6 @@ class API {
       `/projects/${encodeURIComponent(projectName)}/generate/prop/${encodeURIComponent(propName)}`,
       {
         method: "POST",
-        body: JSON.stringify({ prompt }),
       }
     );
   }
@@ -1772,12 +1798,12 @@ class API {
    * 生成商品资产图（product sheet）
    * @param projectName - 项目名称
    * @param productName - 商品名称
-   * @param prompt - 商品描述 prompt
+   *
+   * 请求体没有 prompt：描述只取项目里存储的条目。
    */
   static async generateProjectProduct(
     projectName: string,
-    productName: string,
-    prompt: string
+    productName: string
   ): Promise<{
     success: boolean;
     task_id: string;
@@ -1788,7 +1814,6 @@ class API {
       `/projects/${encodeURIComponent(projectName)}/generate/product/${encodeURIComponent(productName)}`,
       {
         method: "POST",
-        body: JSON.stringify({ prompt }),
       }
     );
   }
@@ -2435,10 +2460,6 @@ class API {
     return this.request(`/custom-providers/${id}`, { method: "DELETE" });
   }
 
-  static async replaceCustomProviderModels(id: number, models: CustomProviderModelInput[]): Promise<CustomProviderModelInfo[]> {
-    return this.request(`/custom-providers/${id}/models`, { method: "PUT", body: JSON.stringify({ models }) });
-  }
-
   static async discoverModels(data: { discovery_format: string; base_url: string; api_key: string }): Promise<DiscoverModelsResponse> {
     return this.request("/custom-providers/discover", { method: "POST", body: JSON.stringify(data) });
   }
@@ -2717,6 +2738,8 @@ class API {
     task_ids: string[];
     /** grid_id → task_id；只含本次真正入队的宫格。 */
     task_ids_by_grid: Record<string, string>;
+    /** 不传 sceneIds（缺失即生成）时，联合图已就绪、尚未切分落格而跳过的宫格。 */
+    unsplit_grid_ids: string[];
     deduped: boolean;
     message: string;
   }> {
@@ -2908,7 +2931,7 @@ class API {
   static getGlobalAssetUrl(path: string | null, fp?: string | null): string | null {
     if (!path) return null;
     const parts = path.split("/");
-    if (parts.length < 3 || parts[0] !== "_global_assets") return null;
+    if (parts.length < 3 || parts[0] !== "global_assets") return null;
     const type = parts[1];
     const filename = parts.slice(2).join("/");
     const qs = fp ? `?fp=${encodeURIComponent(fp)}` : "";
@@ -2921,7 +2944,7 @@ class API {
   static async listReferenceVideoUnits(
     projectName: string,
     episode: number,
-  ): Promise<{ units: ReferenceVideoUnit[] }> {
+  ): Promise<{ units: ReferenceVideoUnit[]; unit_capabilities: ReferenceUnitCapabilityMap }> {
     return this.request(
       `/projects/${encodeURIComponent(projectName)}/reference-videos/episodes/${episode}/units`,
     );
@@ -2937,7 +2960,7 @@ class API {
       transition_to_next?: TransitionType;
       note?: string | null;
     },
-  ): Promise<{ unit: ReferenceVideoUnit }> {
+  ): Promise<{ unit: ReferenceVideoUnit; unit_capability: ReferenceUnitCapability }> {
     return this.request(
       `/projects/${encodeURIComponent(projectName)}/reference-videos/episodes/${episode}/units`,
       { method: "POST", body: JSON.stringify(payload) },
@@ -2955,7 +2978,7 @@ class API {
       transition_to_next?: TransitionType;
       note?: string | null;
     },
-  ): Promise<{ unit: ReferenceVideoUnit }> {
+  ): Promise<{ unit: ReferenceVideoUnit; unit_capability: ReferenceUnitCapability }> {
     return this.request(
       `/projects/${encodeURIComponent(projectName)}/reference-videos/episodes/${episode}/units/${encodeURIComponent(unitId)}`,
       { method: "PATCH", body: JSON.stringify(patch) },
@@ -3008,7 +3031,7 @@ class API {
    * 视频单元正文的读时派生预览：utterances + 降级可见性提示。
    *
    * 只读、不落盘——正文是唯一真相。提示文本由后端按请求语言渲染（含依赖项目当前
-   * 视频模型能力的声音相关几条），前端不再二次翻译。
+   * 视频模型能力的声音相关几条），前端不二次翻译。
    */
   static async previewReferenceScript(
     projectName: string,
@@ -3018,6 +3041,19 @@ class API {
   ): Promise<ScriptPreview> {
     return this.request(
       `/projects/${encodeURIComponent(projectName)}/reference-videos/episodes/${episode}/script-preview`,
+      { method: "POST", body: JSON.stringify({ prompt }), signal: options?.signal },
+    );
+  }
+
+  static async previewReferenceUnitPrompt(
+    projectName: string,
+    episode: number,
+    unitId: string,
+    prompt: string,
+    options?: { signal?: AbortSignal },
+  ): Promise<ReferenceUnitPromptPreview> {
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/reference-videos/episodes/${episode}/units/${encodeURIComponent(unitId)}/prompt-preview`,
       { method: "POST", body: JSON.stringify({ prompt }), signal: options?.signal },
     );
   }

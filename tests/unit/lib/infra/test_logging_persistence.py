@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from collections.abc import Iterator
 from logging.handlers import TimedRotatingFileHandler
 from pathlib import Path
@@ -49,10 +50,14 @@ def reset_root_logger():
 
 
 @pytest.fixture
-def isolated_log_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    monkeypatch.setenv("ARCREEL_LOG_DIR", str(tmp_path / "logs"))
+def isolated_log_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Path]:
+    """数据根钉到 tmp_path/data，文件日志应落在 ``<数据根>/logs``。"""
+    monkeypatch.setenv("ARCREEL_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.delenv("ARCREEL_LOG_DIR", raising=False)
     monkeypatch.delenv("ARCREEL_LOG_FILE_DISABLED", raising=False)
-    return tmp_path / "logs"
+    app_data_dir_mod.reset_for_tests()
+    yield tmp_path / "data" / "logs"
+    app_data_dir_mod.reset_for_tests()
 
 
 def test_file_handler_registered_by_default(isolated_log_dir: Path) -> None:
@@ -73,10 +78,8 @@ def test_logs_written_to_file(isolated_log_dir: Path) -> None:
     assert "hello-arcreel" in log_file.read_text(encoding="utf-8")
 
 
-def test_mkdir_failure_graceful(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    target = tmp_path / "blocked" / "logs"
-    monkeypatch.setenv("ARCREEL_LOG_DIR", str(target))
-    monkeypatch.delenv("ARCREEL_LOG_FILE_DISABLED", raising=False)
+def test_mkdir_failure_graceful(isolated_log_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    target = isolated_log_dir.resolve()
 
     real_mkdir = Path.mkdir
 
@@ -110,205 +113,211 @@ def test_disabled_env_accepts_aliases(isolated_log_dir: Path, monkeypatch: pytes
     assert not any(isinstance(h, TimedRotatingFileHandler) for h in root.handlers)
 
 
-# --- resolve_log_dir 默认路径 + 一次性迁移 -------------------------------------
+# --- 日志位置 + 旧位置迁入 -----------------------------------------------------
 
 
 @pytest.fixture
-def isolated_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Path]:
-    """把 app_data_dir() 与 PROJECT_ROOT 都钉到 tmp_path 下的独立子目录。
-
-    使新旧默认路径分别落在 tmp_path/data/logs（旧）与 tmp_path/root/logs（新），
-    便于断言迁移是否搬动了文件。
-    """
-    data_root = tmp_path / "data"
-    project_root = tmp_path / "root"
-    data_root.mkdir()
-    project_root.mkdir()
-    monkeypatch.setenv("ARCREEL_DATA_DIR", str(data_root))
-    monkeypatch.delenv("ARCREEL_LOG_DIR", raising=False)
-    monkeypatch.setattr(logging_config, "PROJECT_ROOT", project_root)
-    app_data_dir_mod.reset_for_tests()
-    yield tmp_path
-    app_data_dir_mod.reset_for_tests()
+def isolated_data_dir(tmp_path: Path, isolated_log_dir: Path) -> Path:
+    """数据根为 tmp_path/data，旧日志位置为 tmp_path/root/logs（代码目录下的 ``logs``，
+    Docker 旧卷挂载点同此），经 ``legacy_dir`` 传给迁移。"""
+    (tmp_path / "data").mkdir()
+    (tmp_path / "root").mkdir()
+    return tmp_path
 
 
-def test_resolve_log_dir_default_is_project_root(isolated_data_dir: Path) -> None:
-    assert logging_config.resolve_log_dir() == isolated_data_dir / "root" / "logs"
+def _migrate(tmp: Path) -> None:
+    logging_config.migrate_legacy_log_dir(legacy_dir=tmp / "root" / "logs")
 
 
-def test_resolve_log_dir_env_override(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    target = tmp_path / "custom-logs"
-    monkeypatch.setenv("ARCREEL_LOG_DIR", str(target))
-    assert logging_config.resolve_log_dir() == target
-
-
-def test_resolve_log_dir_relative_path_resolves_against_project_root(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """相对路径 ARCREEL_LOG_DIR 必须基于 PROJECT_ROOT 解析。"""
-    project_root = tmp_path / "repo"
-    project_root.mkdir()
-    monkeypatch.setattr(logging_config, "PROJECT_ROOT", project_root)
-    monkeypatch.setenv("ARCREEL_LOG_DIR", "var/log/arcreel")
-
-    assert logging_config.resolve_log_dir() == project_root / "var" / "log" / "arcreel"
-
-
-def test_legacy_log_dir_points_to_app_data(isolated_data_dir: Path) -> None:
-    assert logging_config.legacy_log_dir() == (isolated_data_dir / "data" / "logs").resolve()
-
-
-def test_migrate_moves_legacy_dir_when_new_absent(isolated_data_dir: Path) -> None:
-    old_dir = isolated_data_dir / "data" / "logs"
-    old_dir.mkdir()
+def _write_legacy_logs(old_dir: Path) -> None:
+    old_dir.mkdir(parents=True, exist_ok=True)
     (old_dir / "arcreel.log").write_text("old content\n", encoding="utf-8")
     (old_dir / "arcreel.log.2026-05-20").write_text("rotated\n", encoding="utf-8")
 
-    logging_config.migrate_legacy_log_dir()
 
-    new_dir = isolated_data_dir / "root" / "logs"
+def _emit_and_read_log(log_dir: Path) -> str:
+    logging.getLogger("test.persistence").info("hello-arcreel")
+    for h in logging.getLogger().handlers:
+        h.flush()
+    return (log_dir / "arcreel.log").read_text(encoding="utf-8")
+
+
+def test_log_dir_env_is_ignored(isolated_data_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    custom = isolated_data_dir / "custom-logs"
+    monkeypatch.setenv("ARCREEL_LOG_DIR", str(custom))
+
+    logging_config.setup_logging()
+
+    assert "hello-arcreel" in _emit_and_read_log(isolated_data_dir / "data" / "logs")
+    assert not custom.exists()
+
+
+def test_log_dir_env_set_warns_once(
+    isolated_data_dir: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    monkeypatch.setenv("ARCREEL_LOG_DIR", str(isolated_data_dir / "custom-logs"))
+
+    with caplog.at_level(logging.WARNING, logger="lib.infra.logging_config"):
+        logging_config.warn_if_log_dir_env_set()
+
+    assert [rec.levelno for rec in caplog.records] == [logging.WARNING]
+
+
+def test_log_dir_env_unset_no_warning(isolated_data_dir: Path, caplog: pytest.LogCaptureFixture) -> None:
+    with caplog.at_level(logging.WARNING, logger="lib.infra.logging_config"):
+        logging_config.warn_if_log_dir_env_set()
+
+    assert caplog.records == []
+
+
+def test_migrate_moves_legacy_logs_into_data_root(isolated_data_dir: Path) -> None:
+    old_dir = isolated_data_dir / "root" / "logs"
+    _write_legacy_logs(old_dir)
+
+    _migrate(isolated_data_dir)
+
+    new_dir = isolated_data_dir / "data" / "logs"
     assert not old_dir.exists()
-    assert new_dir.exists()
     assert (new_dir / "arcreel.log").read_text(encoding="utf-8") == "old content\n"
-    assert (new_dir / "arcreel.log.2026-05-20").exists()
-
-
-def test_migrate_skips_when_both_have_content(isolated_data_dir: Path) -> None:
-    """新旧都有内容时不动，避免静默覆盖。"""
-    old_dir = isolated_data_dir / "data" / "logs"
-    new_dir = isolated_data_dir / "root" / "logs"
-    old_dir.mkdir()
-    new_dir.mkdir()
-    (old_dir / "arcreel.log").write_text("old\n", encoding="utf-8")
-    (new_dir / "arcreel.log").write_text("new\n", encoding="utf-8")
-
-    logging_config.migrate_legacy_log_dir()
-
-    # 两边都原样保留，不静默覆盖
-    assert (old_dir / "arcreel.log").read_text(encoding="utf-8") == "old\n"
-    assert (new_dir / "arcreel.log").read_text(encoding="utf-8") == "new\n"
-
-
-def test_migrate_proceeds_when_new_dir_empty(isolated_data_dir: Path) -> None:
-    """docker bind-mount 预创建场景：new_dir 是空目录时仍要搬旧目录过来。
-
-    docker-compose 的 ``./logs:/app/logs`` 会让 docker 启动时把宿主机 ``./logs``
-    创建为空目录。若 ``new_dir.exists()`` 直接放弃迁移，旧 logs 会一直留在
-    projects/logs 下被当作伪项目枚举——这是升级路径的核心回归用例。
-    """
-    old_dir = isolated_data_dir / "data" / "logs"
-    new_dir = isolated_data_dir / "root" / "logs"
-    old_dir.mkdir()
-    new_dir.mkdir()  # 模拟 docker 预创建的空 mount point
-    (old_dir / "arcreel.log").write_text("payload\n", encoding="utf-8")
-    (old_dir / "arcreel.log.2026-05-20").write_text("rotated\n", encoding="utf-8")
-
-    logging_config.migrate_legacy_log_dir()
-
-    assert not old_dir.exists(), "旧目录应已被搬走"
-    # new_dir 本身（挂载点）不能被 rmdir，但内容已被填入
-    assert new_dir.exists(), "new_dir 必须保留（bind-mount 挂载点不能 rmdir）"
-    assert (new_dir / "arcreel.log").read_text(encoding="utf-8") == "payload\n"
     assert (new_dir / "arcreel.log.2026-05-20").read_text(encoding="utf-8") == "rotated\n"
 
 
-def test_migrate_preserves_new_dir_when_it_is_mountpoint(
+def test_migrate_then_attach_appends_to_migrated_log(isolated_data_dir: Path) -> None:
+    """启动顺序：先迁入旧日志、再挂 handler，新日志续写在迁入的文件后面。"""
+    _write_legacy_logs(isolated_data_dir / "root" / "logs")
+
+    _migrate(isolated_data_dir)
+    logging_config.setup_logging()
+
+    content = _emit_and_read_log(isolated_data_dir / "data" / "logs")
+    assert content.startswith("old content\n")
+    assert "hello-arcreel" in content
+
+
+def test_migrate_is_rerunnable(isolated_data_dir: Path) -> None:
+    _write_legacy_logs(isolated_data_dir / "root" / "logs")
+
+    _migrate(isolated_data_dir)
+    _migrate(isolated_data_dir)
+
+    new_dir = isolated_data_dir / "data" / "logs"
+    assert sorted(p.name for p in new_dir.iterdir()) == ["arcreel.log", "arcreel.log.2026-05-20"]
+    assert (new_dir / "arcreel.log").read_text(encoding="utf-8") == "old content\n"
+
+
+def test_migrate_merges_into_existing_new_dir_without_overwrite(isolated_data_dir: Path) -> None:
+    """新位置已有同名文件时不覆盖：同名条目留在旧位置，其余照常迁入。"""
+    old_dir = isolated_data_dir / "root" / "logs"
+    new_dir = isolated_data_dir / "data" / "logs"
+    _write_legacy_logs(old_dir)
+    new_dir.mkdir()
+    (new_dir / "arcreel.log").write_text("new\n", encoding="utf-8")
+
+    _migrate(isolated_data_dir)
+
+    assert (new_dir / "arcreel.log").read_text(encoding="utf-8") == "new\n"
+    assert (old_dir / "arcreel.log").read_text(encoding="utf-8") == "old content\n"
+    assert (new_dir / "arcreel.log.2026-05-20").read_text(encoding="utf-8") == "rotated\n"
+    assert not (old_dir / "arcreel.log.2026-05-20").exists()
+
+
+def test_migrate_empties_mountpoint_that_cannot_be_removed(
     isolated_data_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """new_dir 是 docker bind-mount 挂载点时，rmdir(new_dir) 会抛 EBUSY。
-    迁移必须不依赖 rmdir(new_dir) 成功——通过 mock 让任何对 new_dir 自身
-    的 rmdir 都抛 OSError(EBUSY)，确认搬运仍能完成。
-    """
+    """Docker 旧卷 ``./logs:/app/logs``：旧位置是挂载点，rmdir 抛 EBUSY，
+    且与数据根跨设备。内容仍要复制进数据根，旧位置被清空。"""
     import errno
 
-    old_dir = isolated_data_dir / "data" / "logs"
-    new_dir = isolated_data_dir / "root" / "logs"
-    old_dir.mkdir()
-    new_dir.mkdir()
-    (old_dir / "arcreel.log").write_text("payload\n", encoding="utf-8")
-    (old_dir / "arcreel.log.2026-05-20").write_text("rotated\n", encoding="utf-8")
+    old_dir = isolated_data_dir / "root" / "logs"
+    _write_legacy_logs(old_dir)
+    (old_dir / "archive").mkdir()
+    (old_dir / "archive" / "a.log").write_text("archived\n", encoding="utf-8")
 
+    real_rename = os.rename
     real_rmdir = Path.rmdir
 
+    def fake_rename(src: str, dst: str, *args: object, **kwargs: object) -> None:
+        if Path(src).resolve().is_relative_to(old_dir.resolve()):
+            raise OSError(errno.EXDEV, "Invalid cross-device link")
+        real_rename(src, dst, *args, **kwargs)
+
     def fake_rmdir(self: Path) -> None:
-        # 任何对 new_dir 路径的 rmdir 都模拟成挂载点失败
-        if self.resolve() == new_dir.resolve():
+        if self.resolve() == old_dir.resolve():
             raise OSError(errno.EBUSY, "Device or resource busy")
         real_rmdir(self)
 
+    monkeypatch.setattr(os, "rename", fake_rename)
     monkeypatch.setattr(Path, "rmdir", fake_rmdir)
 
-    logging_config.migrate_legacy_log_dir()
+    _migrate(isolated_data_dir)
 
-    # 即使 new_dir.rmdir 全程会失败，迁移仍要完成
-    assert not old_dir.exists()
-    assert new_dir.exists()
-    assert (new_dir / "arcreel.log").read_text(encoding="utf-8") == "payload\n"
+    new_dir = isolated_data_dir / "data" / "logs"
+    assert old_dir.is_dir()
+    assert list(old_dir.iterdir()) == []
+    assert (new_dir / "arcreel.log").read_text(encoding="utf-8") == "old content\n"
     assert (new_dir / "arcreel.log.2026-05-20").read_text(encoding="utf-8") == "rotated\n"
+    assert (new_dir / "archive" / "a.log").read_text(encoding="utf-8") == "archived\n"
+
+
+def test_log_dir_occupied_by_project_is_left_untouched(
+    isolated_data_dir: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """旧布局里 ``<数据根>/logs`` 可能是名为 logs 的项目：本次启动不迁旧日志、不挂文件日志，
+    项目目录原样不动，并告警一次。"""
+    project = isolated_data_dir / "data" / "logs"
+    project.mkdir()
+    (project / "project.json").write_text("{}", encoding="utf-8")
+    old_dir = isolated_data_dir / "root" / "logs"
+    _write_legacy_logs(old_dir)
+
+    with caplog.at_level(logging.WARNING, logger="lib.infra.logging_config"):
+        _migrate(isolated_data_dir)
+        logging_config.setup_logging()
+        logging.getLogger("test.persistence").info("hello-arcreel")
+
+    assert sorted(p.name for p in project.iterdir()) == ["project.json"]
+    assert sorted(p.name for p in old_dir.iterdir()) == ["arcreel.log", "arcreel.log.2026-05-20"]
+    assert not any(isinstance(h, TimedRotatingFileHandler) for h in logging.getLogger().handlers)
+    assert [rec.levelno for rec in caplog.records if rec.name == "lib.infra.logging_config"] == [logging.WARNING]
 
 
 def test_migrate_noop_when_legacy_absent(isolated_data_dir: Path) -> None:
-    logging_config.migrate_legacy_log_dir()  # 不抛
-    assert not (isolated_data_dir / "root" / "logs").exists()
-
-
-def test_migrate_skips_when_log_dir_env_set(isolated_data_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    old_dir = isolated_data_dir / "data" / "logs"
-    old_dir.mkdir()
-    (old_dir / "arcreel.log").write_text("keep me\n", encoding="utf-8")
-    monkeypatch.setenv("ARCREEL_LOG_DIR", str(isolated_data_dir / "custom"))
-
-    logging_config.migrate_legacy_log_dir()
-
-    # 用户显式设了 LOG_DIR，旧目录原地保留
-    assert (old_dir / "arcreel.log").read_text(encoding="utf-8") == "keep me\n"
+    _migrate(isolated_data_dir)  # 不抛
+    assert not (isolated_data_dir / "data" / "logs").exists()
 
 
 def test_migrate_noop_when_paths_equal(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """ARCREEL_DATA_DIR == PROJECT_ROOT 时旧新路径解析到同一处，不要把目录自己 rename 到自己。"""
+    """数据根就是代码目录时新旧位置相同，原样保留。"""
     monkeypatch.setenv("ARCREEL_DATA_DIR", str(tmp_path))
-    monkeypatch.delenv("ARCREEL_LOG_DIR", raising=False)
-    monkeypatch.setattr(logging_config, "PROJECT_ROOT", tmp_path)
     app_data_dir_mod.reset_for_tests()
     try:
         logs = tmp_path / "logs"
         logs.mkdir()
         (logs / "arcreel.log").write_text("hi\n", encoding="utf-8")
 
-        logging_config.migrate_legacy_log_dir()  # 不抛
+        logging_config.migrate_legacy_log_dir(legacy_dir=logs)  # 不抛
 
         assert (logs / "arcreel.log").read_text(encoding="utf-8") == "hi\n"
     finally:
         app_data_dir_mod.reset_for_tests()
 
 
-def test_migrate_falls_back_to_copy_on_exdev(isolated_data_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """跨 mount 场景（docker bind-mount）下 os.rename 抛 EXDEV，shutil.move 自动降级 copy+unlink。"""
-    import errno
-    import os
+@pytest.mark.skipif(os.name != "posix" or os.geteuid() == 0, reason="directory write bits only bind non-root POSIX")
+def test_migrate_leaves_read_only_legacy_dir_intact(isolated_data_dir: Path, caplog: pytest.LogCaptureFixture) -> None:
+    """旧位置不可写（只读代码目录）：不迁、不在新位置留副本，告警后照常启动；重跑结果相同。"""
+    old_dir = isolated_data_dir / "root" / "logs"
+    _write_legacy_logs(old_dir)
+    old_dir.chmod(0o555)
+    try:
+        with caplog.at_level(logging.WARNING, logger="lib.infra.logging_config"):
+            _migrate(isolated_data_dir)
+            _migrate(isolated_data_dir)
+    finally:
+        old_dir.chmod(0o755)
 
-    old_dir = isolated_data_dir / "data" / "logs"
-    old_dir.mkdir()
-    (old_dir / "arcreel.log").write_text("payload\n", encoding="utf-8")
-    (old_dir / "arcreel.log.2026-05-20").write_text("rotated\n", encoding="utf-8")
-
-    real_rename = os.rename
-
-    def fake_rename(src: str, dst: str, *args: object, **kwargs: object) -> None:
-        # 只对老 logs dir 的根 rename 制造 EXDEV，其他路径（如 shutil 内部的临时操作）
-        # 不受影响
-        if str(src) == str(old_dir):
-            raise OSError(errno.EXDEV, "Invalid cross-device link")
-        real_rename(src, dst, *args, **kwargs)
-
-    monkeypatch.setattr(os, "rename", fake_rename)
-
-    logging_config.migrate_legacy_log_dir()
-
-    new_dir = isolated_data_dir / "root" / "logs"
-    assert not old_dir.exists(), "shutil.move 应在跨设备时自动 copy+unlink"
-    assert (new_dir / "arcreel.log").read_text(encoding="utf-8") == "payload\n"
-    assert (new_dir / "arcreel.log.2026-05-20").read_text(encoding="utf-8") == "rotated\n"
+    assert sorted(p.name for p in old_dir.iterdir()) == ["arcreel.log", "arcreel.log.2026-05-20"]
+    assert not (isolated_data_dir / "data" / "logs").exists()
+    assert [rec.levelno for rec in caplog.records] == [logging.WARNING, logging.WARNING]
 
 
 def test_migrate_failure_logs_error(
@@ -316,12 +325,11 @@ def test_migrate_failure_logs_error(
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """迁移失败必须 ERROR 级（不是 WARNING）以让 operator 看到 logs 卡在旧位置。"""
+    """迁移失败记 ERROR（日志仍留在旧位置），不中止启动。"""
     import shutil
 
-    old_dir = isolated_data_dir / "data" / "logs"
-    old_dir.mkdir()
-    (old_dir / "arcreel.log").write_text("stuck\n", encoding="utf-8")
+    old_dir = isolated_data_dir / "root" / "logs"
+    _write_legacy_logs(old_dir)
 
     def fake_move(src: str, dst: str, *args: object, **kwargs: object) -> None:
         raise PermissionError("simulated permission denied")
@@ -329,16 +337,44 @@ def test_migrate_failure_logs_error(
     monkeypatch.setattr(shutil, "move", fake_move)
 
     with caplog.at_level(logging.ERROR, logger="lib.infra.logging_config"):
-        logging_config.migrate_legacy_log_dir()
+        _migrate(isolated_data_dir)
 
-    assert any("FAILED" in rec.message and rec.levelno == logging.ERROR for rec in caplog.records)
-    # 旧 dir 仍在
+    assert any(rec.levelno == logging.ERROR for rec in caplog.records)
     assert (old_dir / "arcreel.log").exists()
+
+
+def test_migrate_failed_entry_does_not_block_the_rest(
+    isolated_data_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """单个条目迁移失败只把该条目留在旧位置并记 ERROR，其余条目照常迁入。"""
+    import shutil
+
+    old_dir = isolated_data_dir / "root" / "logs"
+    new_dir = isolated_data_dir / "data" / "logs"
+    _write_legacy_logs(old_dir)
+    real_move = shutil.move
+
+    def fake_move(src: Path, dst: Path, *args: object, **kwargs: object) -> object:
+        if Path(src).name == "arcreel.log":
+            raise PermissionError("simulated permission denied")
+        return real_move(src, dst, *args, **kwargs)
+
+    monkeypatch.setattr(shutil, "move", fake_move)
+
+    with caplog.at_level(logging.ERROR, logger="lib.infra.logging_config"):
+        _migrate(isolated_data_dir)
+
+    assert any(rec.levelno == logging.ERROR for rec in caplog.records)
+    assert (old_dir / "arcreel.log").read_text(encoding="utf-8") == "old content\n"
+    assert (new_dir / "arcreel.log.2026-05-20").read_text(encoding="utf-8") == "rotated\n"
+    assert not (old_dir / "arcreel.log.2026-05-20").exists()
 
 
 def test_setup_logging_file_false_skips_file_handler(isolated_log_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """模块导入期用 file=False 时不应挂 file handler、不应 mkdir 新目录。"""
-    # 注意：isolated_log_dir 把 ARCREEL_LOG_DIR 设到 tmp_path/logs 但还没创建
+    # 注意：isolated_log_dir 指向的数据根日志目录尚未创建
     log_dir = isolated_log_dir
     assert not log_dir.exists()
 

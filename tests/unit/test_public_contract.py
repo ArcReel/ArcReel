@@ -2,6 +2,7 @@
 
 import pytest
 from fastapi import FastAPI
+from fastapi.routing import iter_route_contexts
 from fastapi.testclient import TestClient
 
 from lib import PROJECT_ROOT
@@ -72,7 +73,8 @@ class TestAgentInstallationGuideEndpoint:
     def test_legacy_endpoints_are_not_registered(self):
         from server.app import app
 
-        paths = {path for route in app.routes if (path := getattr(route, "path", None))}
+        paths = {route.path for route in iter_route_contexts(app.routes)}
+        assert "/api/v1/projects" in paths
         assert "/skill.md" not in paths
         assert "/api/v1/agent/chat" not in paths
 

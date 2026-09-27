@@ -1,4 +1,5 @@
 import type { NarrationSegment, TaskItem } from "@/types";
+import type { ReferenceUnitCapability } from "@/types/reference-video";
 import type {
   WorkflowPlan,
   WorkflowPlanStep,
@@ -104,6 +105,28 @@ export function makeNarrationSegment(overrides: Partial<NarrationSegment> = {}):
     image_prompt: "雨夜街道",
     video_prompt: "撑伞走过",
     transition_to_next: "cut",
+    ...overrides,
+  };
+}
+
+/** 服务端逐单元定桶结论的共享构造器；缺省是无引用、落 i2v 的单元，各场景按需覆盖。 */
+export function makeReferenceUnitCapability(
+  unitId: string,
+  overrides: Partial<ReferenceUnitCapability> = {},
+): ReferenceUnitCapability {
+  return {
+    unit_id: unitId,
+    declared_capability: "i2v",
+    hydrated_capability: "i2v",
+    declared_references: [],
+    unavailable_references: [],
+    unregistered_references: [],
+    allowed_durations: [3, 8],
+    excluded_durations: {},
+    duration_endpoint_fixed: false,
+    duration_endpoint_fixed_reason: null,
+    problem: null,
+    problems: [],
     ...overrides,
   };
 }

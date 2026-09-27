@@ -25,28 +25,35 @@ router = APIRouter()
 async def _attach_duration_tiers(service: ScriptReviewService, project_name: str, episode: int, state: dict) -> dict:
     """把收窄后的逐 unit 时长档位挂到 state 上；三个改动 script_plan 内容的端点（GET/PUT/POST）
     都要走这一步——否则保存 / 确认后 ``adopt()`` 用不带 ``duration_tiers`` 的响应覆盖 GET
-    读到的收窄结果，面板退回未收窄的 ``supported_durations``，与 GET 首次加载时的呈现不一致。
+    读到的收窄结果，面板无法区分生效档位与 i2v 失败。
 
     是否调用交给 ``get_reference_duration_tiers`` 自己按 script_plan_kind 判断，不靠
     ``state["supported_durations"] is not None`` 短路——那是另一个方法的返回值，型号解析
     不到时同样为 None，靠它短路会让这类项目连未收窄的档位都拿不到。
     """
-    state["duration_tiers"] = await service.get_reference_duration_tiers(project_name, episode)
+    content = state.get("content")
+    units = content.get("units") if isinstance(content, dict) else None
+    state["duration_tiers"] = await service.get_reference_duration_tiers(
+        project_name, episode, units if isinstance(units, list) else ()
+    )
     return state
 
 
 def _localize_quarantine_violations(quarantine: dict | None, _t: Translator) -> dict | None:
-    """把 ``quarantine_unreadable`` 违约的固定中文文案换成按 ``_t`` 渲染的本地化文本。
+    """把读时重算产出的固定文案违约换成按 ``_t`` 渲染的本地化文本。
 
-    该 code 只由两处产出（草稿信封本身损坏 / 重算所需的 meta 缺失损坏），两处都是不带
-    插值的固定字符串，不涉及 ``lib.script.reference_video.draft_validation`` 里其余违约类型那种
-    产出时已渲染好插值的模板——本地化改造范围限定在这两条，不牵动其余违约消息的展示形态。
+    ``quarantine_unreadable`` 只由两处产出（草稿信封本身损坏 / 重算所需的 meta 缺失损坏），都是不带
+    插值的固定字符串；带 ``params`` 的条目是视频请求事实的失败，问题码即文案 key，与内容确认的 422
+    同一呈现。二者都不涉及 ``lib.script.reference_video.draft_validation`` 里其余违约类型那种产出时已
+    渲染好插值的模板——本地化范围限定在这两类，不牵动其余违约消息的展示形态。
     """
     if quarantine is None:
         return None
     for violation in quarantine["violations"]:
         if violation["code"] == "quarantine_unreadable":
             violation["message"] = _t("script_review_quarantine_unreadable")
+        elif isinstance(violation.get("params"), dict):
+            violation["message"] = _t(violation["code"], **violation["params"])
     return quarantine
 
 

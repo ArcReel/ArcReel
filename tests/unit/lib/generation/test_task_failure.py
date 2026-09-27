@@ -47,6 +47,43 @@ class TestEncodeFailure:
 
 
 class TestRenderKnownCodes:
+    @pytest.mark.parametrize("code", [[], {}, None, 42, True])
+    @pytest.mark.parametrize("locale", ["zh", "en", "vi"])
+    def test_malformed_gap_code_uses_original_message_fallback(self, code, locale):
+        encoded = encode_failure(
+            "reference_asset_missing",
+            missing_text="character: Alice, product: Cup",
+            gaps=[
+                {"code": "reference_asset_missing", "asset_type": "character", "name": "Alice"},
+                {"code": code, "asset_type": "product", "name": "Cup"},
+            ],
+        )
+
+        assert render_failure(encoded, _translator(locale)) == translate_message(
+            "reference_asset_missing", locale=locale, missing_text="character: Alice, product: Cup"
+        )
+
+    @pytest.mark.parametrize("locale", ["zh", "en", "vi"])
+    def test_mixed_gap_codes_render_each_cause(self, locale):
+        encoded = encode_failure(
+            "reference_asset_missing",
+            missing_text="character: Alice, product: Cup",
+            gaps=[
+                {"code": "reference_asset_missing", "asset_type": "character", "name": "Alice"},
+                {"code": "asset_original_missing", "asset_type": "product", "name": "Cup"},
+            ],
+        )
+        details = "; ".join(
+            [
+                translate_message("reference_asset_missing", locale=locale, missing_text="character: Alice"),
+                translate_message("asset_original_missing", locale=locale, missing_text="product: Cup"),
+            ]
+        )
+
+        assert render_failure(encoded, _translator(locale)) == translate_message(
+            "generation_input_multiple_gaps", locale=locale, details=details
+        )
+
     def test_renders_per_locale(self):
         encoded = encode_failure("provider_unsupported_media", provider_id="grok", media_type="image")
         assert render_failure(encoded, _translator("zh")) == "供应商 grok 不支持 image 生成"
@@ -183,6 +220,35 @@ class TestBoundReason:
         assert rendered is not None
         assert "val_ce_jsonpath_evaluation_failed" not in rendered
         assert '"key"' not in rendered
+
+    @pytest.mark.parametrize("locale", ["zh", "en", "vi"])
+    @pytest.mark.parametrize("name_length", [120, 5000])
+    def test_bounded_generation_gaps_keep_each_cause_machine_readable(self, locale, name_length):
+        gaps = [{"code": "script_prompt_pending", "asset_type": None, "name": "E1S1"}]
+        gaps.extend(
+            {
+                "code": "reference_asset_missing",
+                "asset_type": "character",
+                "name": f"Character-{index}-" + "x" * name_length,
+            }
+            for index in range(30)
+        )
+        gaps.append({"code": "asset_original_missing", "asset_type": "product", "name": "Product"})
+        reason = encode_failure("script_prompt_pending", segment_id="E1S1", missing_text="x" * 500, gaps=gaps)
+
+        bounded = bound_reason(reason, 2000)
+
+        assert len(bounded) <= 2000
+        parsed = parse_failure(bounded)
+        assert parsed is not None
+        kept = parsed[1]["gaps"]
+        assert isinstance(kept, list)
+        assert {gap["code"] for gap in kept} == {gap["code"] for gap in gaps}
+        assert len(kept) + parsed[1]["gaps_omitted"] == len(gaps)
+        rendered = render_failure(bounded, _translator(locale))
+        assert rendered is not None
+        assert "Character-0-" in rendered
+        assert "Product" in rendered
 
 
 class TestPassthrough:

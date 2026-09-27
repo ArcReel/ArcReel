@@ -1,5 +1,7 @@
 """Tests for CostEstimationService."""
 
+import json
+from pathlib import Path
 from unittest.mock import AsyncMock
 
 import pytest
@@ -8,14 +10,17 @@ from lib.backends.providers import PROVIDER_GEMINI
 from lib.billing.cost_calculator import cost_calculator
 from lib.config.resolver import ConfigResolver
 from lib.db.repositories.usage_repo import SettlementInput, UsageRepository
+from lib.generation.video_request_facts import VideoRequestFactsFailure
 from lib.script.reference_video.request_projection import (
     USE_TTS,
-    ProviderProjectionCandidate,
     ReferenceRequestOptions,
+    configured_reference_request_facts,
+    project_reference_unit_request,
 )
 from lib.speech.narration_delivery import VideoRequestCostFacts
 from server.services.admission.cost_estimation import CostEstimationService, quote_video_request
-from server.services.tasks import reference_video_tasks
+from tests.factories import activate_reference_project, make_video_request_facts
+from tests.fakes import fake_reference_request_facts
 
 
 async def _seed_call(
@@ -153,14 +158,221 @@ def _make_reference_video_script(episode: int, content_mode: str, unit_specs: li
 
 
 class TestCostEstimationService:
+    async def test_storyboard_facts_failure_reports_each_segment_without_video_quote(
+        self, db_factory, set_video_request_facts
+    ):
+        failure = VideoRequestFactsFailure(
+            "video_supported_durations_incompatible",
+            (("provider", "gemini-aistudio"), ("model", "veo-3.1-generate-preview"), ("resolution", "1080p")),
+        )
+        set_video_request_facts(failure)
+        project = {
+            "content_mode": "narration",
+            "generation_mode": "storyboard",
+            "video_provider_i2v": "gemini-aistudio/veo-3.1-generate-preview",
+            "episodes": [{"episode": 1, "title": "Ep1", "script_file": "ep1.json"}],
+        }
+        result = await CostEstimationService(ConfigResolver(db_factory), db_factory).compute(
+            project, {"ep1.json": _make_script(1, ["E1S001", "E1S002"], [8, 8])}, project_name="failed-facts"
+        )
+        for segment in result["episodes"][0]["segments"]:
+            assert segment["estimate"]["video"] == {}
+            assert segment["request_projection"]["allowed"] is False
+            problem = segment["request_projection"]["problems"][0]
+            assert (problem["code"], problem["action"], problem["params"]) == (
+                failure.code,
+                failure.action,
+                failure.parameters(),
+            )
+
+    @pytest.mark.parametrize("generation_mode", ["storyboard", "reference_video"])
+    @pytest.mark.parametrize("explicit_resolution", [False, True])
+    @pytest.mark.parametrize(
+        ("provider", "model", "selected_resolution", "duration", "usage_tokens"),
+        [
+            ("gemini-aistudio", "veo-3.1-generate-preview", "1080p", 8, None),
+            ("openai", "sora-2-pro", "1080p", 8, None),
+            ("dashscope", "happyhorse-1.1-i2v", "1080p", 8, None),
+            ("grok", "grok-imagine-video", "720p", 8, None),
+            ("minimax", "MiniMax-H3", "2k", 6, None),
+            ("minimax", "MiniMax-Hailuo-2.3", "1080p", 6, None),
+            ("kling", "kling-v3", "4k", 8, None),
+            ("vidu", "viduq3-turbo", "1080p", 8, None),
+            # token 计价仅在实际 usage 等于预估 token 数时金额相等。
+            ("ark", "doubao-seedance-1-5-pro-251215", "1080p", 8, 480_000),
+        ],
+    )
+    async def test_video_estimate_uses_request_resolution_and_settlement_pricing(
+        self,
+        db_factory,
+        generation_mode,
+        explicit_resolution,
+        provider,
+        model,
+        selected_resolution,
+        duration,
+        usage_tokens,
+    ):
+        resolution = selected_resolution if explicit_resolution else None
+        project = {
+            "title": "Test",
+            "content_mode": "narration",
+            "generation_mode": generation_mode,
+            "video_provider_i2v": f"{provider}/{model}",
+            "episodes": [{"episode": 1, "title": "Ep1", "script_file": "ep1.json"}],
+        }
+        if resolution is not None:
+            project["model_settings"] = {f"{provider}/{model}": {"resolution": resolution}}
+        script = (
+            _make_script(1, ["E1S001"], [duration])
+            if generation_mode == "storyboard"
+            else _make_reference_video_script(1, "narration", [("E1U1", duration)])
+        )
+
+        result = await CostEstimationService(ConfigResolver(db_factory), db_factory).compute(
+            project, {"ep1.json": script}, project_name="test-pricing-source"
+        )
+
+        estimate = result["episodes"][0]["segments"][0]["estimate"]["video"]
+        assert estimate
+        assert all(amount > 0 for amount in estimate.values())
+
+        async with db_factory() as session:
+            usage = UsageRepository(session)
+            call_id = await usage.start_call(
+                project_name="test-pricing-source",
+                call_type="video",
+                provider=provider,
+                model=model,
+                resolution=resolution,
+                duration_seconds=duration,
+                generate_audio=True,
+                segment_id="billed",
+            )
+            await usage.finish_call(call_id, status="success", settlement=SettlementInput(usage_tokens=usage_tokens))
+            actual = await usage.get_actual_costs_by_segment("test-pricing-source")
+        assert estimate == actual["billed"]["video"]
+
+    async def test_reference_bucket_quotes_match_execution_facts_and_settlement(self, db_factory):
+        from lib.generation.video_request_facts import (
+            ExecutionVideoIdentity,
+            VideoRequestFacts,
+            evaluate_video_request_facts,
+        )
+
+        i2v = "gemini-aistudio/veo-3.1-generate-preview"
+        r2v = "gemini-aistudio/veo-3.1-fast-generate-preview"
+        project = {
+            "content_mode": "narration",
+            "generation_mode": "reference_video",
+            "video_provider_i2v": i2v,
+            "video_provider_r2v": r2v,
+            "model_settings": {i2v: {"resolution": "720p"}, r2v: {"resolution": "1080p"}},
+            "characters": {"A": {"name": "A"}},
+            "episodes": [{"episode": 1, "script_file": "ep1.json"}],
+        }
+        script = _make_reference_video_script(1, "narration", [("i2v", 8), ("r2v", 8)])
+        script["video_units"][1]["text"] = "@[A] 走进房间"
+        resolver = ConfigResolver(db_factory)
+        result = await CostEstimationService(resolver, db_factory).compute(
+            project, {"ep1.json": script}, project_name="bucket-resolutions"
+        )
+        segments = {segment["segment_id"]: segment for segment in result["episodes"][0]["segments"]}
+        for bucket, pair, resolution, allowed in (("i2v", i2v, "720p", (4, 6, 8)), ("r2v", r2v, "1080p", (8,))):
+            provider, model = pair.split("/")
+            executed = await evaluate_video_request_facts(
+                project,
+                route="reference_video",
+                generation_type=bucket,
+                identity=ExecutionVideoIdentity(provider, model),
+                resolver=resolver,
+            )
+            assert isinstance(executed, VideoRequestFacts)
+            assert executed.resolution == resolution
+            assert executed.allowed_durations == allowed
+            assert segments[bucket]["request_projection"]["capability"] == bucket
+            async with db_factory() as session:
+                usage = UsageRepository(session)
+                call_id = await usage.start_call(
+                    project_name="bucket-resolutions",
+                    call_type="video",
+                    provider=executed.provider_id,
+                    model=executed.model_id,
+                    resolution=executed.resolution,
+                    duration_seconds=8,
+                    generate_audio=executed.generate_audio,
+                    segment_id=bucket,
+                )
+                await usage.finish_call(call_id, status="success", settlement=SettlementInput())
+                actual = await usage.get_actual_costs_by_segment("bucket-resolutions")
+            assert segments[bucket]["estimate"]["video"], segments[bucket]["request_projection"]
+            assert segments[bucket]["estimate"]["video"] == actual[bucket]["video"]
+
+    async def test_reference_estimate_buckets_an_unclaimed_sheet_like_admission_and_execution(
+        self, db_factory, tmp_path: Path, set_video_request_facts
+    ):
+        """报价与准入、执行同判据：图在盘上但产物清单未认领的单元落 i2v 并因分裂不报价，认领的单元按 r2v 报价。"""
+        set_video_request_facts(
+            {
+                "i2v": make_video_request_facts(
+                    route="reference_video", generation_type="i2v", model_id="veo-3.1-generate-preview"
+                ),
+                "r2v": make_video_request_facts(
+                    route="reference_video",
+                    generation_type="r2v",
+                    model_id="veo-3.1-fast-generate-preview",
+                    supported_durations=(8,),
+                    allowed_durations=(8,),
+                ),
+            }
+        )
+        (tmp_path / "characters").mkdir()
+        (tmp_path / "characters" / "张三.png").write_bytes(b"image")
+        project = activate_reference_project(
+            tmp_path, {"characters": {"张三": {"description": "x", "character_sheet": "characters/张三.png"}}}
+        )
+        project["characters"]["李四"] = {"description": "y", "character_sheet": "characters/李四.png"}
+        (tmp_path / "characters" / "李四.png").write_bytes(b"image")
+        (tmp_path / "project.json").write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
+        script = _make_reference_video_script(1, "narration", [("E1U1", 8), ("E1U2", 8)])
+        script["video_units"][0]["text"] = "@[张三] 推门"
+        script["video_units"][1]["text"] = "@[李四] 回头"
+        resolver = ConfigResolver(db_factory)
+
+        result = await CostEstimationService(resolver, db_factory, project_path=tmp_path).compute(
+            project, {"scripts/episode_1.json": script}, project_name="unclaimed-sheet"
+        )
+        lookup = configured_reference_request_facts(project, resolver)
+        projections = {
+            unit["unit_id"]: await project_reference_unit_request(
+                project=project, script=script, unit=unit, project_path=tmp_path, request_facts_lookup=lookup
+            )
+            for unit in script["video_units"]
+        }
+
+        segments = {segment["segment_id"]: segment for segment in result["episodes"][0]["segments"]}
+        claimed, unclaimed = segments["E1U1"]["request_projection"], segments["E1U2"]["request_projection"]
+        assert claimed["capability"] == projections["E1U1"].hydrated_generation_type == "r2v"
+        assert unclaimed["capability"] == projections["E1U2"].hydrated_generation_type == "i2v"
+        assert (
+            [problem["code"] for problem in unclaimed["problems"]]
+            == [problem.code for problem in projections["E1U2"].blocking_problems]
+            == ["reference_asset_missing", "reference_capability_changed"]
+        )
+        assert segments["E1U2"]["estimate"]["video"] == {}
+        assert projections["E1U1"].cost is not None
+        quote = await quote_video_request(projections["E1U1"].cost, db_factory)
+        assert quote is not None
+        assert quote.amount > 0
+        assert segments["E1U1"]["estimate"]["video"] == {quote.currency: quote.amount}
+
     async def test_shared_video_quote_exposes_exact_amount_currency_and_request_coordinates(self, db_factory):
         quote = await quote_video_request(
             VideoRequestCostFacts(
-                provider_id="openai",
-                model_id="sora-2",
-                resolution="720p",
+                request_facts=make_video_request_facts(
+                    provider_id="openai", model_id="sora-2", resolution="720p", generate_audio=True
+                ),
                 duration_seconds=8,
-                generate_audio=True,
             ),
             db_factory,
         )
@@ -1013,6 +1225,7 @@ class TestCostEstimationService:
             "title": "Ad",
             "content_mode": "ad",
             "generation_mode": "storyboard",
+            "video_provider_i2v": "gemini-aistudio/veo-3.1-generate-preview",
             "target_duration": 30,
             "episodes": [{"episode": 1, "title": "", "script_file": "ep1.json"}],
         }
@@ -1153,7 +1366,10 @@ class TestCostEstimationService:
         assert result["project_totals"]["actual"]["video"]["USD"] == pytest.approx(0.8)
 
     async def test_narration_reference_video_estimate_uses_rounded_up_unit_duration(self, db_factory, monkeypatch):
-        """取档向上的 unit：预估金额按取档后的秒数（8s）计，而非剧本原始总时长（5s）。"""
+        """取档向上的 unit：预估金额按取档后的秒数（6s）计，而非剧本原始总时长（5s）。
+
+        Veo 3.1 未设分辨率时请求不携带分辨率，无参考图单元按全集 [4, 6, 8] 取档。
+        """
         priced_durations: list[int | None] = []
         original = cost_calculator.calculate_cost
 
@@ -1183,32 +1399,21 @@ class TestCostEstimationService:
         assert seg["segment_id"] == "E1U1"
         assert seg["duration_seconds"] == 5
         assert seg["estimate"]["video"]
-        assert seg["request_projection"]["request_duration"] == 8
-        assert priced_durations == [8]
+        assert seg["request_projection"]["request_duration"] == 6
+        assert priced_durations == [6]
         assert seg["estimate"]["video"] == rounded["episodes"][0]["totals"]["estimate"]["video"]
 
     async def test_reference_video_quote_accepts_server_materialized_tts_duration(self, db_factory, monkeypatch):
-        class _TtsFloorCapabilities:
-            def __init__(self, _resolver):
-                pass
-
-            async def resolve_candidate(self, _project, generation_type):
-                return ProviderProjectionCandidate(
-                    generation_type=generation_type,
-                    provider_id="kling",
-                    model_id="kling-v3",
-                    supported_durations=(4, 8, 12),
-                    max_reference_images=4,
-                    resolution="1080p",
-                    generate_audio=True,
-                    requested_generate_audio=True,
-                    has_audio_track=True,
-                    audio_switch_controllable=True,
-                )
-
+        request_facts = fake_reference_request_facts(
+            durations=(4, 8, 12),
+            provider_id="kling",
+            model_id="kling-v3",
+            max_reference_images=4,
+            resolution="1080p",
+        )
         monkeypatch.setattr(
-            "server.services.admission.cost_estimation.ConfigReferenceCapabilityProjection",
-            _TtsFloorCapabilities,
+            "server.services.admission.cost_estimation.configured_reference_request_facts",
+            lambda _project, _resolver: request_facts,
         )
         monkeypatch.setattr(
             "server.services.admission.cost_estimation.active_tts_resource_ids",
@@ -1243,27 +1448,16 @@ class TestCostEstimationService:
     async def test_reference_video_tts_quote_uses_current_visual_tier_for_zero_or_incremental_cost(
         self, db_factory, monkeypatch
     ):
-        class _SoraCapabilities:
-            def __init__(self, _resolver):
-                pass
-
-            async def resolve_candidate(self, _project, generation_type):
-                return ProviderProjectionCandidate(
-                    generation_type=generation_type,
-                    provider_id="openai",
-                    model_id="sora-2",
-                    supported_durations=(4, 8, 12),
-                    max_reference_images=4,
-                    resolution="720p",
-                    generate_audio=True,
-                    requested_generate_audio=True,
-                    has_audio_track=True,
-                    audio_switch_controllable=True,
-                )
-
+        request_facts = fake_reference_request_facts(
+            durations=(4, 8, 12),
+            provider_id="openai",
+            model_id="sora-2",
+            max_reference_images=4,
+            resolution="720p",
+        )
         monkeypatch.setattr(
-            "server.services.admission.cost_estimation.ConfigReferenceCapabilityProjection",
-            _SoraCapabilities,
+            "server.services.admission.cost_estimation.configured_reference_request_facts",
+            lambda _project, _resolver: request_facts,
         )
         service = CostEstimationService(ConfigResolver(db_factory), db_factory)
         project_data = {
@@ -1353,27 +1547,16 @@ class TestCostEstimationService:
         ]
 
     async def test_reference_video_estimate_blocks_when_duration_metadata_is_empty(self, db_factory, monkeypatch):
-        class _MissingDurationCapabilities:
-            def __init__(self, _resolver):
-                pass
-
-            async def resolve_candidate(self, _project, generation_type):
-                return ProviderProjectionCandidate(
-                    generation_type=generation_type,
-                    provider_id="kling",
-                    model_id="kling-v3",
-                    supported_durations=(),
-                    max_reference_images=4,
-                    resolution="1080p",
-                    generate_audio=True,
-                    requested_generate_audio=True,
-                    has_audio_track=True,
-                    audio_switch_controllable=True,
-                )
-
+        request_facts = fake_reference_request_facts(
+            durations=(),
+            provider_id="kling",
+            model_id="kling-v3",
+            max_reference_images=4,
+            resolution="1080p",
+        )
         monkeypatch.setattr(
-            "server.services.admission.cost_estimation.ConfigReferenceCapabilityProjection",
-            _MissingDurationCapabilities,
+            "server.services.admission.cost_estimation.configured_reference_request_facts",
+            lambda _project, _resolver: request_facts,
         )
         resolver = ConfigResolver(db_factory)
         service = CostEstimationService(resolver, db_factory)
@@ -1482,7 +1665,7 @@ class TestCostEstimationService:
         assert not result["project_totals"]["estimate"]["video"]
 
     async def test_narration_reference_video_estimate_skips_unenqueueable_units(self, db_factory):
-        """正文为空或只有空白的 unit 不可入队（``enqueue_videos.py::_reference_unit_spec``
+        """正文为空或只有空白的 unit 不可入队（``video_batch_admission.reference_unit_task_spec``
         对空正文直接拒绝，``TaskSpec.from_request`` 对空提示词同样拒绝），这类 unit
         不产生新预估——但 unit 整条仍要保留在结果里、纳入汇总：不可入队只影响能否产生新预估，
         不影响该 unit 是否曾经成功生成过。已有实付的 unit（曾成功生成、之后被编辑成空正文）
@@ -1571,7 +1754,7 @@ class TestCostEstimationService:
 
     async def test_narration_reference_video_estimate_skips_unit_with_malformed_duration(self, db_factory):
         """Agent/外部编辑过的剧本可能写入非数值 ``duration_seconds``（字符串、list、dict 等）。
-        SDK 侧入队预检（``enqueue_videos.py``）对每个 unit 单独 catch ``ValueError`` 跳过，
+        视频工具的入队预检（``server/media_tools/videos.py``）对每个 unit 单独 catch ``ValueError`` 跳过，
         估算须跟随同一容错口径——一个 unit 的脏时长不能让整个项目估算 500，拖累其余正常集，
         其余正常 unit 仍要继续产生预估。
         """
@@ -1730,8 +1913,8 @@ class TestCostEstimationService:
         assert result["models"]["image"]["provider"] == "unknown"
         assert result["models"]["image"]["model"] == "unknown"
 
-    async def test_cost_estimation_resolve_resolution_exception_degrades_gracefully(self, db_factory, monkeypatch):
-        """resolve_resolution 抛异常时预估整体降级而非中断，与 image/video/audio 三处 except 兜底同构。"""
+    async def test_cost_estimation_does_not_hide_unexpected_resolution_error(self, db_factory, monkeypatch):
+        """意外的程序错误应暴露，而不是作为能力不可用生成伪报价。"""
         resolver = ConfigResolver(db_factory)
         service = CostEstimationService(resolver, db_factory)
 
@@ -1746,22 +1929,20 @@ class TestCostEstimationService:
             "episodes": [],
         }
 
-        result = await service.compute(project_data, {}, project_name="test_resolution_exc")
-
-        # compute() 不因 resolve_resolution 异常而中断，其余字段照常返回
-        assert result["models"]["video"]["provider"] == "unknown"
+        with pytest.raises(RuntimeError, match="boom"):
+            await service.compute(project_data, {}, project_name="test_resolution_exc")
 
     @pytest.mark.parametrize(
         ("video_backend", "configured_generate_audio", "expected_usd"),
         [
-            # AI Studio 无 audio-off 档，供应商恒按含音价出账：无论开关状态，预估都须落在
-            # veo-3.1-lite-generate-preview 1080p 的含音价 0.08 USD/s。
-            ("gemini-aistudio", True, 0.08),
-            ("gemini-aistudio", False, 0.08),
+            # 未设分辨率时 Veo 按 720p 出片。AI Studio 无 audio-off 档，供应商恒按含音价出账：
+            # 无论开关状态，预估都须落在 veo-3.1-lite-generate-preview 720p 的含音价 0.05 USD/s。
+            ("gemini-aistudio", True, 0.05),
+            ("gemini-aistudio", False, 0.05),
             # Vertex 有独立的 audio-off 档，不受 AI Studio 修正影响，预估随开关走
-            # （veo-3.1-fast-generate-001 1080p：含音 0.12 / 无音 0.10 USD/s）。
-            ("gemini-vertex", True, 0.12),
-            ("gemini-vertex", False, 0.10),
+            # （veo-3.1-fast-generate-001 720p：含音 0.10 / 无音 0.08 USD/s）。
+            ("gemini-vertex", True, 0.10),
+            ("gemini-vertex", False, 0.08),
         ],
     )
     async def test_video_estimate_generate_audio_by_provider(
@@ -1887,8 +2068,7 @@ class TestCostEstimationService:
         """有参考图 unit 的取档与算价读同一个模型：两者都落 r2v 桶。
 
         若取档误用 i2v 桶，5 秒的 unit 会按 kling 的 [5, 10] 停在 5 秒，再按 r2v 桶 Veo 的单价
-        算钱；而执行期按 Veo 的档位（未配分辨率走 1080p 兜底，只接受 8 秒）申请 8 秒——估算量
-        与扣费量对不上。
+        算钱；而执行期按 Veo 的档位（带参考图只接受 8 秒）申请 8 秒——估算量与扣费量对不上。
         """
         priced: list[tuple[str | None, int | None]] = []
         original = cost_calculator.calculate_cost
@@ -1899,15 +2079,6 @@ class TestCostEstimationService:
             return original(provider, params, **kwargs)
 
         monkeypatch.setattr(cost_calculator, "calculate_cost", _spy)
-
-        # 取档解析走全局 session factory（真实部署的库），测试库换成 db_factory 后照常做真实
-        # 桶解析——被观察的是它拿到哪个模型的档位，不是它怎么连库。
-        async def _caps_from_test_db(project, *, degraded_to, generation_type=None, episode=None):
-            return await ConfigResolver(db_factory).video_capabilities_for_project(
-                project, generation_type=generation_type
-            )
-
-        monkeypatch.setattr(reference_video_tasks, "project_video_caps", _caps_from_test_db)
 
         service = CostEstimationService(ConfigResolver(db_factory), db_factory)
         project_data = {
@@ -1942,13 +2113,6 @@ class TestCostEstimationService:
             return original(provider, params, **kwargs)
 
         monkeypatch.setattr(cost_calculator, "calculate_cost", _spy)
-
-        async def _caps_from_test_db(project, *, degraded_to, generation_type=None, episode=None):
-            return await ConfigResolver(db_factory).video_capabilities_for_project(
-                project, generation_type=generation_type
-            )
-
-        monkeypatch.setattr(reference_video_tasks, "project_video_caps", _caps_from_test_db)
 
         service = CostEstimationService(ConfigResolver(db_factory), db_factory)
         project_data = {
@@ -2071,6 +2235,7 @@ class TestCostEstimationService:
                         "model_id": "vid",
                         "display_name": "Vid",
                         "endpoint": "openai-video",
+                        "supported_durations": "[6]",
                         "price_unit": "second",
                         "price_input": 0.10,
                         "currency": "USD",

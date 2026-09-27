@@ -64,9 +64,10 @@ class AssetSpec:
     def agent_writable_fields(self) -> frozenset[str]:
         """Agent 写入路径（`upsert_assets` 与资产抽取的原子提交）的字段白名单。
 
-        `description` 是所有类型的必填基底，`agent_editable_extra_fields` 是各类型的字符串
-        扩展，开启衍生能力的类型另收嵌套的 ``DERIVATIVES_FIELD``（它不是字符串字段，故不
-        列进那个 tuple）。两条 Agent 入口取同一份，新增可写字段只改这里。
+        `description` 是所有类型共有的基底（可为空，只在生成资产图时必需），
+        `agent_editable_extra_fields` 是各类型的字符串扩展，开启衍生能力的类型另收嵌套的
+        ``DERIVATIVES_FIELD``（它不是字符串字段，故不列进那个 tuple）。两条 Agent 入口取同一份，
+        新增可写字段只改这里。
         """
         fields = {"description", *self.agent_editable_extra_fields}
         if self.supports_derivatives:

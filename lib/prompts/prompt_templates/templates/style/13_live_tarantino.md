@@ -2,7 +2,11 @@
 id: style/live_tarantino
 category: style
 title: 昆汀
-description: "真人画风，高对比 · 暴力美学。正文不以「画风：」起头，免得与注入处的英文 Style 标签叠成「Style: 画风：…」。"
+description: "真人画风，高对比 · 暴力美学。"
+stage: style
+invoked_by:
+  kind: user_action
+  name: style_selection
 applies_to: {}
 slots: {}
 protected: false

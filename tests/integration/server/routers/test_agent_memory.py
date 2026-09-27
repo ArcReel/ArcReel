@@ -10,9 +10,10 @@ import pytest
 from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
 
-from lib.agent.agent_memory_paths import project_memory_dir, user_memory_dir
+from lib.agent.agent_memory_paths import project_memory_dir
 from lib.agent.agent_memory_store import INDEX_FILENAME, MAX_FILE_BYTES
 from lib.i18n.zh import errors as zh_errors
+from lib.infra.data_root_layout import DataRootLayout
 from lib.project.project_manager import ProjectManager
 from lib.project.project_migration_failure import record_migration_failure
 from server.dependencies import require_project_migration_ok
@@ -25,15 +26,19 @@ PROJECT_BASE = "/api/v1/projects/demo/agent-memory"
 
 
 @pytest.fixture
-def projects_root(tmp_path):
-    root = tmp_path / "projects"
-    (root / "demo").mkdir(parents=True)
+def demo_data_root(tmp_path):
+    root = tmp_path / "data"
+    _demo_dir(root).mkdir(parents=True)
     return root
 
 
+def _demo_dir(data_root):
+    return DataRootLayout(data_root).projects_dir / "demo"
+
+
 @pytest.fixture
-def client(projects_root, monkeypatch):
-    monkeypatch.setattr(agent_memory, "get_project_manager", lambda: ProjectManager(str(projects_root)))
+def client(demo_data_root, monkeypatch):
+    monkeypatch.setattr(agent_memory, "get_project_manager", lambda: ProjectManager(str(demo_data_root)))
 
     app = FastAPI()
     app.include_router(agent_memory.user_router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
@@ -53,25 +58,25 @@ def base(request):
     return request.param
 
 
-def memory_dir(base: str, projects_root):
+def memory_dir(base: str, demo_data_root):
     if base == USER_BASE:
-        return user_memory_dir(projects_root, "default")
-    return project_memory_dir(projects_root / "demo")
+        return DataRootLayout(demo_data_root).user_memory_dir("default")
+    return project_memory_dir(_demo_dir(demo_data_root))
 
 
 class TestListing:
-    def test_missing_directory_lists_as_empty(self, client, base, projects_root):
+    def test_missing_directory_lists_as_empty(self, client, base, demo_data_root):
         response = client.get(base)
 
         assert response.status_code == 200
         assert response.json() == {
-            "path": str(memory_dir(base, projects_root)),
+            "path": str(memory_dir(base, demo_data_root)),
             "index": {"exists": False, "line_count": 0, "byte_size": 0, "over_limit": False},
             "files": [],
         }
 
-    def test_lists_entries_with_frontmatter_and_index_stats(self, client, base, projects_root):
-        directory = memory_dir(base, projects_root)
+    def test_lists_entries_with_frontmatter_and_index_stats(self, client, base, demo_data_root):
+        directory = memory_dir(base, demo_data_root)
         directory.mkdir(parents=True)
         (directory / INDEX_FILENAME).write_text("- tone.md\n", encoding="utf-8")
         (directory / "tone.md").write_text(
@@ -108,7 +113,7 @@ class TestListing:
 
 
 class TestReadWriteDelete:
-    def test_upsert_read_and_delete_round_trip(self, client, base, projects_root):
+    def test_upsert_read_and_delete_round_trip(self, client, base, demo_data_root):
         assert client.put(f"{base}/files/tone.md", content=b"first").status_code == 200
         assert client.put(f"{base}/files/tone.md", content=b"second").status_code == 200
 
@@ -116,7 +121,7 @@ class TestReadWriteDelete:
         assert read.status_code == 200
         assert read.content == b"second"
         assert read.headers["content-type"] == "text/plain; charset=utf-8"
-        assert (memory_dir(base, projects_root) / "tone.md").read_bytes() == b"second"
+        assert (memory_dir(base, demo_data_root) / "tone.md").read_bytes() == b"second"
 
         assert client.delete(f"{base}/files/tone.md").status_code == 200
         assert client.get(f"{base}/files/tone.md").status_code == 404
@@ -133,14 +138,14 @@ class TestReadWriteDelete:
         assert response.status_code == 404
         assert response.json()["detail"] == zh_errors.MESSAGES["memory_file_not_found"].format(filename="absent.md")
 
-    def test_oversized_body_is_refused(self, client, base, projects_root):
+    def test_oversized_body_is_refused(self, client, base, demo_data_root):
         response = client.put(f"{base}/files/tone.md", content=b"x" * (MAX_FILE_BYTES + 1))
 
         assert response.status_code == 400
         assert response.json()["detail"] == zh_errors.MESSAGES["memory_file_too_large"].format(
             filename="tone.md", limit_kib=256
         )
-        assert not (memory_dir(base, projects_root) / "tone.md").exists()
+        assert not (memory_dir(base, demo_data_root) / "tone.md").exists()
 
     def test_body_at_the_limit_is_accepted(self, client, base):
         assert client.put(f"{base}/files/tone.md", content=b"x" * MAX_FILE_BYTES).status_code == 200
@@ -165,25 +170,25 @@ class TestReadWriteDelete:
             assert response.status_code == 400
             assert response.json()["detail"] == zh_errors.MESSAGES["memory_invalid_filename"].format(filename=decoded)
 
-    def test_traversal_never_writes_outside_the_memory_directory(self, client, base, projects_root):
+    def test_traversal_never_writes_outside_the_memory_directory(self, client, base, demo_data_root):
         # 正斜杠形态在路由匹配阶段就落空（单段路径参数匹配不到带分隔符的 URL），
         # 拒绝发生在处理函数之前，因此这里只断言「被拒且没有任何东西落在目录外」。
         response = client.put(f"{base}/files/..%2F..%2Fescape.md", content=b"leak")
 
         assert response.status_code in {400, 404}
-        assert not (projects_root / "escape.md").exists()
-        assert not (projects_root.parent / "escape.md").exists()
+        assert not (demo_data_root / "escape.md").exists()
+        assert not (demo_data_root.parent / "escape.md").exists()
 
 
 class TestClear:
-    def test_clear_empties_the_directory_without_an_index(self, client, base, projects_root):
+    def test_clear_empties_the_directory_without_an_index(self, client, base, demo_data_root):
         client.put(f"{base}/files/tone.md", content=b"body")
         client.put(f"{base}/files/{INDEX_FILENAME}", content=b"- tone.md\n")
 
         response = client.post(f"{base}/clear")
 
         assert response.status_code == 200
-        directory = memory_dir(base, projects_root)
+        directory = memory_dir(base, demo_data_root)
         assert directory.is_dir()
         assert list(directory.iterdir()) == []
         assert client.get(base).json() == {
@@ -197,23 +202,23 @@ class TestProjectScoping:
     def test_unknown_project_is_404(self, client):
         assert client.get("/api/v1/projects/absent/agent-memory").status_code == 404
 
-    def test_project_memory_lands_under_the_project_directory(self, client, projects_root):
+    def test_project_memory_lands_under_the_project_directory(self, client, demo_data_root):
         client.put(f"{PROJECT_BASE}/files/tone.md", content=b"body")
 
-        assert (project_memory_dir(projects_root / "demo") / "tone.md").read_bytes() == b"body"
-        assert not user_memory_dir(projects_root, "default").exists()
+        assert (project_memory_dir(_demo_dir(demo_data_root)) / "tone.md").read_bytes() == b"body"
+        assert not DataRootLayout(demo_data_root).user_memory_dir("default").exists()
 
     def test_user_memory_is_not_visible_from_the_project_route(self, client):
         client.put(f"{USER_BASE}/files/tone.md", content=b"body")
 
         assert client.get(PROJECT_BASE).json()["files"] == []
 
-    def test_blocked_migration_freezes_project_writes_but_not_reads(self, client, projects_root, monkeypatch):
+    def test_blocked_migration_freezes_project_writes_but_not_reads(self, client, demo_data_root, monkeypatch):
         import lib.project.project_migration_guard as guard
 
         client.put(f"{PROJECT_BASE}/files/tone.md", content=b"body")
-        record_migration_failure(projects_root / "demo", RuntimeError("broken chain"), schema_version=1)
-        monkeypatch.setattr(guard, "get_project_manager", lambda: ProjectManager(str(projects_root)))
+        record_migration_failure(_demo_dir(demo_data_root), RuntimeError("broken chain"), schema_version=1)
+        monkeypatch.setattr(guard, "get_project_manager", lambda: ProjectManager(str(demo_data_root)))
 
         assert client.get(PROJECT_BASE).status_code == 200
         assert client.get(f"{PROJECT_BASE}/files/tone.md").status_code == 200
@@ -225,8 +230,8 @@ class TestProjectScoping:
 
 
 class TestAuthentication:
-    def test_routes_require_login(self, projects_root, monkeypatch):
-        monkeypatch.setattr(agent_memory, "get_project_manager", lambda: ProjectManager(str(projects_root)))
+    def test_routes_require_login(self, demo_data_root, monkeypatch):
+        monkeypatch.setattr(agent_memory, "get_project_manager", lambda: ProjectManager(str(demo_data_root)))
 
         app = FastAPI()
         app.include_router(agent_memory.user_router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)

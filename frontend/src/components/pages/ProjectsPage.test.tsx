@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Router } from "wouter";
@@ -550,6 +550,42 @@ describe("ProjectsPage", () => {
     });
     await waitFor(() => {
       expect(location.history?.at(-1)).toBe("/app/projects/demo-renamed");
+    });
+  });
+
+  it("names the project and the backend's reason when deleting fails", async () => {
+    const summary = (name: string, title: string) => ({
+      name,
+      title,
+      style: "",
+      thumbnail: null,
+      status: {
+        phase: "production" as Phase,
+        phase_progress: 0,
+        needs_repair: false,
+        repair_reason: null,
+        assets: {
+          character: { total: 0, available: 0, stale: 0 },
+          scene: { total: 0, available: 0, stale: 0 },
+          prop: { total: 0, available: 0, stale: 0 },
+        },
+        episodes_summary: { total: 0, scripted: 0, in_production: 0, completed: 0 },
+      },
+    });
+    vi.spyOn(API, "listProjects").mockResolvedValue({
+      projects: [summary("first", "First"), summary("second", "Second")],
+    });
+    vi.spyOn(API, "deleteProject").mockRejectedValue(new Error("项目名称 'second' 非法"));
+
+    renderPage();
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "项目操作 — Second" }));
+    await user.click(screen.getByRole("button", { name: "删除项目 — Second" }));
+    const dialog = await screen.findByRole("dialog", { name: "删除项目" });
+    await user.click(within(dialog).getByRole("button", { name: "删除项目" }));
+
+    await waitFor(() => {
+      expect(useAppStore.getState().toast?.text).toBe("删除项目「Second」失败：项目名称 'second' 非法");
     });
   });
 

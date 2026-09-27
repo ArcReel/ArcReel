@@ -71,11 +71,13 @@ class PerSecondMatrix:
     """视频按秒计费，单价由 ``dimensions`` 控制的维度组合查表得出。
 
     ``dimensions``：
-    - ``resolution_audio`` — 键 ``(分辨率小写, 是否生成有声视频)``，缺失回落 ``("1080p", True)``。
+    - ``resolution_audio`` — 键 ``(分辨率小写, 是否生成有声视频)``，分辨率未指定时按
+      ``default_resolution`` 查表，缺失回落 ``(default_resolution, True)``。
     - ``resolution_only`` — 键 ``(分辨率, None)``，缺失回落 ``(default_resolution, None)`` 再回落 0.0。
-      ``default_resolution`` 须与该模型在分辨率未显式指定（Auto）时实际下发的分辨率一致——
-      两者不一致会让 Auto 请求按错误档位结算，量级上可能是漏计费。
     - ``flat`` — 单一费率，键 ``("", None)``，与分辨率/音频无关。
+
+    两种分档计价的 ``default_resolution`` 都须与该模型在分辨率未显式指定（Auto）时实际出片的
+    分辨率一致——两者不一致会让 Auto 请求按错误档位结算，高于实际是多计费，低于实际是漏计费。
     """
 
     rates: dict[str, dict[tuple[str, bool | None], float]]

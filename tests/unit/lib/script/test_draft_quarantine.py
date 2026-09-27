@@ -1,9 +1,9 @@
 """草稿信封与违约收集的单元测试。
 
 覆盖的是「产物不丢弃」这条机制的底座：信封读写往返、坏 JSON 的降级口径、多条违约的收集与
-报告渲染。上层闭环（拆分 / 晋升 / gate 阻塞）的测试在 ``tests/server/agent_runtime/
-test_sdk_tools.py``、``tests/lib/test_script_generator_reference_branch.py`` 与
-``tests/test_script_review.py``。
+报告渲染。上层闭环（拆分 / 晋升 / gate 阻塞）的测试在 ``tests/integration/server/
+agent_toolset/test_draft_tools.py``、``tests/integration/lib/script/test_script_generator_reference_branch.py``
+与 ``tests/integration/server/services/project/test_script_review.py``。
 """
 
 from __future__ import annotations

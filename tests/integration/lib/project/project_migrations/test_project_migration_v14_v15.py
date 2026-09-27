@@ -111,7 +111,7 @@ def test_whole_chain_leaves_every_episode_ready_for_the_next_step(
 
     project = _read_json(project_dir / "project.json")
     assert project["schema_version"] == CURRENT_PROJECT_SCHEMA_VERSION
-    service = WorkflowStateService(ProjectManager(root))
+    service = WorkflowStateService(ProjectManager(tmp_path))
     materialized = service.get_status(project_dir.name, 2)
     assert materialized.next_action is not None
     assert materialized.next_action.type.value == "author_prompts"
@@ -140,7 +140,7 @@ def test_rerunning_the_script_plan_of_a_grandfathered_episode_only_asks_for_conf
 
     project = _read_json(project_dir / "project.json")
     assert review_status(project_dir, project, 3) == "pending_review"
-    status = WorkflowStateService(ProjectManager(root)).get_status(project_dir.name, 3)
+    status = WorkflowStateService(ProjectManager(tmp_path)).get_status(project_dir.name, 3)
     assert status.artifacts["script"]["state"] == "current"
     assert status.next_action is not None
     assert status.next_action.type.value == "author_prompts"

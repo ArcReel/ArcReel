@@ -10,8 +10,8 @@ from lib.project.project_manager import ProjectManager
 def _make_project(tmp_path: Path, characters: dict) -> str:
     """Create a minimal project.json and return the project name."""
     project_name = "test-proj"
-    project_dir = tmp_path / project_name
-    project_dir.mkdir()
+    project_dir = tmp_path / "projects" / project_name
+    project_dir.mkdir(parents=True)
     project_file = project_dir / "project.json"
     project_file.write_text(
         json.dumps(
@@ -121,8 +121,8 @@ class TestUpdateProjectAtomicity:
     def test_update_project_returns_the_persisted_dict(self, tmp_path: Path):
         """update_project 在单次调用内返回写回后的 dict，无需二次 load_project。"""
         project_name = "returned-proj"
-        project_dir = tmp_path / project_name
-        project_dir.mkdir()
+        project_dir = tmp_path / "projects" / project_name
+        project_dir.mkdir(parents=True)
         (project_dir / "project.json").write_text(
             json.dumps(
                 {

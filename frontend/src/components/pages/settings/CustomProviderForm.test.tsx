@@ -155,6 +155,6 @@ describe("CustomProviderForm", () => {
     );
     // 保存失败不能通知宿主：宿主会收起表单并当作已落库，用户的输入随之丢失
     expect(onSaved).not.toHaveBeenCalled();
-    expect(screen.getByRole("button", { name: "保存" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "保存" })).toBeInTheDocument();
   });
 });

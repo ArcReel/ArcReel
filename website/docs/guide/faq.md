@@ -74,7 +74,7 @@ docker compose pull
 docker compose up -d
 ```
 
-ArcReel 启动时会自动执行数据库与项目结构迁移。正常更新不会主动删除已挂载的数据目录，但更新前仍应备份项目目录、数据库和凭据文件。不要使用会删除数据卷的清理命令代替普通更新。
+ArcReel 启动时会自动执行数据库与项目结构迁移。正常更新不会主动删除已挂载的数据目录，但更新前仍应备份数据根和数据库。ArcReel 不支持降级，回到旧版本需要恢复更新前的备份。从数据根布局调整之前的版本升级时，Compose 卷的调整步骤见[数据根布局迁移](../ops/deployment.md#data-root-layout-migration)。不要使用会删除数据卷的清理命令代替普通更新。
 
 设置页的“关于”区域可以检查新版本并打开发布页，但不会在网页中自动升级服务器。
 
@@ -82,12 +82,11 @@ ArcReel 启动时会自动执行数据库与项目结构迁移。正常更新不
 
 默认 Docker 部署的主要数据位于 Compose 目录：
 
-- `projects/`：项目、素材和默认 SQLite 数据库
+- `projects/`：数据根，含项目、素材、默认 SQLite 数据库、日志和 Vertex 凭据文件，布局见[持久化目录](../ops/deployment.md#sqlite-volumes)
 - `.env`：登录与部署配置
-- `vertex_keys/`：Vertex 凭据文件
 - `claude_data/`：Agent 会话数据
 
-生产 PostgreSQL 部署还需要备份 PostgreSQL 数据库。全站备份应同时覆盖项目目录、数据库与所需凭据；PostgreSQL 使用 `pg_dump` / `pg_restore`，SQLite 应在停止服务后复制，或使用 SQLite 在线备份机制。
+生产 PostgreSQL 部署还需要备份 PostgreSQL 数据库。全站备份应同时覆盖数据根与数据库；PostgreSQL 使用 `pg_dump` / `pg_restore`，SQLite 应在停止服务后复制，或使用 SQLite 在线备份机制。
 
 Web UI 的项目 ZIP 适合迁移单个项目，但不包含全局供应商配置、账号配置、任务记录、费用记录或 Agent 会话，因此不能代替全站备份。
 

@@ -2,7 +2,11 @@
 id: text/episode_plan
 category: text
 title: 分集规划
-description: 把一个窗口的源文切分为若干集，每集给出标题、集尾钩子与逐字摘抄的结尾锚点，剧情演绎另给故事节点与下集预告语（输出结构为剧情演绎版本，旁白 / 解说不含这两个字段）。成品剧本要求照用作者自带的分集，没有分集线索时才按剧情弧切，绝不按字数硬凑。附加指令的遵循强度由指令正文自己表达，这里的分节标题保持中性、不加强度限定词；全局进度只随附加指令出现，供模型把总集数、按章对齐这类全局约束换算到本批，无附加指令时提示词保持可复现。
+description: 把源文切分为若干集，每集给出标题、集尾钩子与结尾锚点，剧情演绎另给故事节点与下集预告语。
+stage: episode_plan
+invoked_by:
+  kind: agent_tool
+  name: plan_episodes
 applies_to:
   content_mode: [drama, narration]
   source_kind: [novel, screenplay]

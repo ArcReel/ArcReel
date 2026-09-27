@@ -92,9 +92,15 @@ class TestProperties:
         assert ImageCapability.TEXT_TO_IMAGE in caps
         assert ImageCapability.IMAGE_TO_IMAGE in caps
 
-    def test_declares_no_reference_image_limit(self, backend_aistudio):
-        # 该后端不按数量裁剪参考图（全量下传，见 i2i 用例），故声明 0 让编排层不裁剪。
-        assert backend_aistudio.max_reference_images == 0
+    @pytest.mark.parametrize("model", ["gemini-3-pro-image-preview", "gemini-3.1-flash-image-preview"])
+    def test_declares_gemini_3_reference_image_limit(self, fake_rate_limiter, patch_genai, model):
+        # Gemini 3 图像模型官方上限：单请求最多混合 14 张参考图。
+        from lib.backends.image_backends.gemini import GeminiImageBackend
+
+        backend = GeminiImageBackend(
+            backend_type="aistudio", api_key="fake-key", rate_limiter=fake_rate_limiter, image_model=model
+        )
+        assert backend.max_reference_images == 14
 
 
 # ---------------------------------------------------------------------------
@@ -164,6 +170,28 @@ class TestGenerate:
         assert len(contents) == 2
         assert isinstance(contents[0], PILImage.Image)
         assert contents[1] == "draw character"
+
+    async def test_generate_truncates_references_over_the_declared_limit(self, backend_aistudio, tmp_path):
+        """编排层未裁剪时的兜底：只把前 max_reference_images 张送入 SDK，prompt 仍在末尾。"""
+        refs = []
+        for index in range(16):
+            ref_path = tmp_path / f"ref{index}.png"
+            PILImage.new("RGB", (4, 4), "blue").save(ref_path)
+            refs.append(ReferenceImage(path=str(ref_path)))
+        mock_part = MagicMock()
+        mock_part.inline_data = b"fake"
+        mock_part.as_image.return_value = PILImage.new("RGB", (10, 10), "green")
+        mock_response = MagicMock()
+        mock_response.parts = [mock_part]
+        backend_aistudio._client.aio.models.generate_content = AsyncMock(return_value=mock_response)
+
+        await backend_aistudio.generate(
+            ImageGenerationRequest(prompt="merge", output_path=tmp_path / "out.png", reference_images=refs)
+        )
+
+        contents = backend_aistudio._client.aio.models.generate_content.call_args.kwargs["contents"]
+        assert len(contents) == backend_aistudio.max_reference_images + 1 == 15
+        assert contents[-1] == "merge"
 
     async def test_generate_raises_on_empty_response(self, backend_aistudio, tmp_path):
         """generate() should raise RuntimeError when no image is returned."""

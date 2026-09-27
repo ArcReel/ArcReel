@@ -120,7 +120,7 @@ export default {
   resolution_native_placeholder: "workflow 原生（{{value}}）",
   resolution_endpoint_fixed_placeholder: "尺寸由 workflow 决定",
   resolution_fixed_hint: "此 workflow 尺寸固定：宽高没有绑定到节点，比例与分辨率选择对它无效。要改请编辑节点绑定。",
-  duration_not_driven_notice: "该模型的时长不由 ArcReel 决定：每段成片多长由 workflow 自己说了算。",
+  duration_not_driven_notice: "时长由端点固定：每段成片多长由 workflow 决定。",
   tab_custom_desc: "上传一张风格参考图，AI 会自动分析。选择此 tab 将清空模版选择。",
   upload_reference: "上传风格参考图",
   supported_formats: "PNG / JPG / WEBP",

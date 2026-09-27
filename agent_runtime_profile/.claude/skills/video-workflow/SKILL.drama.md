@@ -108,7 +108,7 @@ expected source revision：{next_action.args.expected_source_revision}
    - `source_language` 是否与源文实际语言一致。优先级：**用户显式配置 > 自动推断**（正常路径由 overview 生成自动落盘）；发现不一致时**提醒用户（WARN）、说明后果并建议修正**（错误配置会使规划的体量度量与语言前提失真），用户未修正时按显式配置继续，不阻塞流程。字段缺失或经用户确认有误时，走 `mcp__arcreel__patch_project({"settings": {"source_language": "en"|"vi"|"zh"}})` 写入
    - `episode_target_units`（每集目标体量，按 `source_language` 解读为阅读单位）：已设置则直接沿用；缺失且用户在对话中明确给过字数 → 经 `mcp__arcreel__patch_project({"settings": {"episode_target_units": N}})` 写入；缺失但项目设了 `episode_target_duration` 时，工具会按该时长经口播语速折算出每集体量，**不必再问用户字数**；两者都没有也可直接规划（工具会按短视频节奏自行把握体量），无需强制询问
 2. 调用 `mcp__arcreel__plan_episodes({})`。窗口字数与每批集数上限为工具内部默认，项目设置 `planning_window_chars` / `planning_max_episodes` 可覆盖（经 patch_project settings 写入）。**用户在规划前给出分集附加指令时**（如"严格按章节切分，一章一集""每集在某处收尾"），把附加指令原文经 `instructions` 传入：`mcp__arcreel__plan_episodes({"instructions": "附加指令原文"})`；附加指令原样注入规划 prompt 的「附加指令」分节，遵循强度由正文表达——用户明确要求硬性遵循时，把强度措辞一并写进正文（如「必须全部落实：一章一集」）。长篇会分多批规划（每批一次工具调用），该附加指令**不持久化**，须在规划完成前**每一批调用都重复带上同一 `instructions`**
-3. **批级审阅**：把工具返回的账本摘要（每集标题+钩子+体量）展示给用户，征求意见
+3. **批级审阅**：把工具返回的账本摘要展示给用户，征求意见；每一集的首尾原文都展示给用户才算完成——用户靠它核对分集边界是否切对
 4. 用户提出意见（一句话可同时包含任意多处意见，含全局偏好）→ 走「重置 + 重新规划」：先调用 `mcp__arcreel__reset_episode_planning({"from_episode": N})`，`from_episode` 取意见中最早受影响的集，保留其前的集不受影响
 5. **已消费集警告确认**：重置会波及已消费集（已有 script_plan/剧本/媒体产物）时，工具会返回受影响集清单而不执行——把影响范围告知用户、获得明确确认后，追加 `"confirm_consumed": true` 重新调用；确认执行后这些集的账本条目被清除，产物本身不删除
 6. 重置完成后，全局性意见（如每集体量）先经 `mcp__arcreel__patch_project({"settings": {"episode_target_units": N}})` 显式写入，再带调整后的 `instructions` 重新调用 `mcp__arcreel__plan_episodes` 从 `from_episode` 起分批规划、结果再次展示审阅；若新提交的集号与原消费范围重叠，工具会自动标 stale（产物不删除，需重做下游产物），无需额外确认。**规划完毕后返回会附全局核对材料**（累计集数、体量最小几集、体量中位数、目标体量——目标体量由 `episode_target_duration` 折算而来时会标明来源，核对时按软目标看待）：若用户给过总集数、按章节对齐等结构性偏好，须对照核对，有偏差须向用户明确说明（可引导用户重新走「重置 + 重新规划」修正）
@@ -235,9 +235,17 @@ dispatch `generate-assets` 子智能体：
 - `next_action.type == "generate_storyboards"` → dispatch `generate-assets`，调
   `mcp__arcreel__generate_storyboards({"script": target.script_filename, "segment_ids": requested_ids})`
 - `next_action.type == "generate_grid"` → dispatch `generate-assets`，调
-  `mcp__arcreel__generate_grid({"script": target.script_filename, "scene_ids": requested_ids})`
+  `mcp__arcreel__generate_grid({"script": target.script_filename})`——**不传 `scene_ids`**：
+  缺失即生成选中的正是 `requested_ids` 所在的分组，同时跳过联合图已就绪而未切分的宫格、沿用在途宫格；
+  点名 `scene_ids` 会把它们当作重做请求再付一次费
 
-两条路径都把 `next_action.args` 与 `requested_ids` 原样传给子智能体，由子智能体按上面映射调用工具。
+`generate_storyboards` 把 `next_action.args` 与 `requested_ids` 原样传给子智能体；`generate_grid` 只传剧本文件名。
+
+> **宫格是两段式**：`generate_grid` 只产出联合图，分镜图要经切分落格才会写入，所以在切分之前计划会继续
+> 给出 `generate_grid`。结果里的 `grid_ids_awaiting_split`（或摘要里「联合图已就绪、未切分」的宫格）
+> 列出未切分的宫格：请用户去宫格面板审阅联合图（可重新生成、上传替换或回滚），**用户明确同意切分后**，
+> 再调 `mcp__arcreel__split_grids({"grid_ids": [...]})`。不要在生成完成后自行切分；切分会覆写宫格
+> 覆盖的全部分镜图，旧图留在版本历史里可回滚。
 
 > **切换 `grid_storyboard` 后的重做**：本动作的常规触发条件是「缺分镜图」，而用户在设置页切换该开关不会让已有分镜图失效，剧本里也不记录分镜图由哪种装配方式产出——单看缺图会把整集判成已完成。用户在已有分镜图的项目上切换开关后要求按新方式出图时，与其确认要重做的分镜范围，再显式带 ID 重生：切到宫格用 `mcp__arcreel__generate_grid({"script": target.script_filename, "scene_ids": [...]})`，切回单图用 `mcp__arcreel__generate_storyboards({"script": target.script_filename, "segment_ids": [...]})`（`script` 必填；ID 列表省略时只补缺图，达不到重做效果）。已生成的视频同样不会自动失效，重出分镜图后需按新图重跑 `generate_videos` 对应分镜。
 

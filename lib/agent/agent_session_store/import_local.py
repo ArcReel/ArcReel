@@ -20,40 +20,36 @@ from claude_agent_sdk import (
 )
 
 from lib.agent.agent_session_store.store import DbSessionStore
+from lib.infra.data_root_layout import DataRootLayout, list_project_dirs
 
 logger = logging.getLogger("arcreel.session_store.import")
-
-MARKER_FILENAME = ".session_store_migration_done"
 
 
 async def migrate_local_transcripts_to_store(
     store: DbSessionStore,
     *,
-    projects_root: Path,
-    data_dir: Path,
+    data_root: Path,
 ) -> dict[str, Any]:
-    """Replay all on-disk SDK transcripts into ``store``.
+    """Replay all on-disk SDK transcripts of the projects under ``data_root`` into ``store``.
 
-    Idempotent via the marker file ``data_dir / MARKER_FILENAME`` (fast path)
+    Idempotent via the session import marker of the data root layout (fast path)
     plus per-project ``store.list_sessions`` membership checks (fallback when
     the marker is absent).
 
     Single-process safe; for multi-worker uvicorn an outer config-table lock
     must wrap this call.
     """
-    marker = data_dir / MARKER_FILENAME
+    layout = DataRootLayout(data_root)
+    projects_dir = layout.projects_dir
+    marker = layout.session_import_marker_path
     if marker.exists():
         logger.info("transcript migration: marker present, skipping")
         return {"imported": 0, "skipped": 0, "failed": 0, "skipped_via_marker": True}
 
     imported = skipped = failed = 0
 
-    if projects_root.exists():  # noqa: ASYNC240 -- 启动期一次性存在性检查，本地元数据
-        for project_cwd in sorted(projects_root.iterdir()):  # noqa: ASYNC240 -- 启动期一次列举项目根目录，单次 readdir；真正的重活 list_sessions 已 to_thread 卸载
-            # Skip dotfiles and underscore-prefixed dirs (e.g. _global_assets)
-            # to match ProjectManager.list_projects semantics.
-            if not project_cwd.is_dir() or project_cwd.name.startswith((".", "_")):
-                continue
+    if projects_dir.exists():
+        for project_cwd in list_project_dirs(projects_dir):
             try:
                 # list_sessions stat-walks SDK transcript dirs synchronously;
                 # offload so the lifespan doesn't block the event loop.
@@ -97,6 +93,7 @@ async def migrate_local_transcripts_to_store(
         failed,
     )
 
+    marker.parent.mkdir(parents=True, exist_ok=True)
     marker.write_text(
         json.dumps({"imported": imported, "skipped": skipped, "failed": failed}),
         encoding="utf-8",

@@ -97,7 +97,7 @@ def test_summary_counts_legacy_videos_and_reports_the_script_generated(tmp_path:
     migrate_v12_to_v13(project_dir)
     advance_project_schema(project_dir, to_version=CURRENT_PROJECT_SCHEMA_VERSION)
 
-    summary = WorkflowStateService(ProjectManager(root)).get_project_summary(project_dir.name)
+    summary = WorkflowStateService(ProjectManager(tmp_path)).get_project_summary(project_dir.name)
 
     episode = summary.episodes[0]
     assert episode.script_status == "generated"
@@ -113,7 +113,7 @@ def test_status_passes_the_script_plan_gate_for_a_registered_planless_script(tmp
     migrate_v12_to_v13(project_dir)
     advance_project_schema(project_dir, to_version=CURRENT_PROJECT_SCHEMA_VERSION)
 
-    status = WorkflowStateService(ProjectManager(root)).get_status(project_dir.name, 1)
+    status = WorkflowStateService(ProjectManager(tmp_path)).get_status(project_dir.name, 1)
 
     assert status.state not in {"SCRIPT_PLAN_CONTENT", "SCRIPT_PLAN_REVIEW", "FINAL_SCRIPT"}
     assert status.artifacts["script"]["state"] == ArtifactStatus.CURRENT.value
@@ -219,7 +219,7 @@ def test_full_chain_from_schema7_writes_a_migration_report_exposed_on_status(tmp
     assert report.migrated_at.endswith("Z")
     assert len(list((project_dir / "versions").glob("versions.json.bak.v12-*"))) == 1
 
-    status = WorkflowStateService(ProjectManager(root)).get_status(project_dir.name, 1)
+    status = WorkflowStateService(ProjectManager(tmp_path)).get_status(project_dir.name, 1)
     assert status.migration_report == report
 
 

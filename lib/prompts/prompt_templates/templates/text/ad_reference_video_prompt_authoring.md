@@ -2,7 +2,11 @@
 id: text/ad_reference_video_prompt_authoring
 category: text
 title: 广告 / 短片 · 参考生视频单元编写
-description: 为已有广告参考生视频脚本里带待编写标记的单元写出引用语法正文，按待编写单元的播放顺序逐条输出。单元时长与顺序已定、不进输出；单元里已有的台词与画外音逐字保留，正文为空时按 brief、商品信息与前后单元补写。其余单元只作前后文。动作描写复用共享写作指导，包含任务类型触发词规避口径。
+description: 为广告参考生视频脚本里待编写的单元写出引用语法正文。
+stage: prompt_authoring
+invoked_by:
+  kind: agent_tool
+  name: generate_episode_script
 applies_to:
   content_mode:
   - ad
@@ -42,7 +46,7 @@ protected: false
 主题：{{ project_overview.theme or "" }}
 </overview>
 
-{{ partial("shared/style_block") }}
+{{ partial("shared/text_style") }}
 
 <brief>
 {{ brief or "（未提供，按资产信息与常识自行设计）" }}

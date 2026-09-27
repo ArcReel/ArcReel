@@ -2,7 +2,11 @@
 id: text/narration_script_plan
 category: text
 title: 旁白解说 · 片段切分
-description: 按朗读节奏切分逐字原文并登记资产与时长。单集目标是软约束，允许内容所需的偏离；避免用对称展开重复说明注水与删减。
+description: 按朗读节奏把源文逐字切分为旁白解说分镜，并登记出场资产与时长。
+stage: script_plan
+invoked_by:
+  kind: agent_tool
+  name: generate_script_plan
 applies_to:
   content_mode:
   - narration
@@ -41,7 +45,7 @@ protected: false
 
 {{ partial("shared/overview_block") }}
 
-{{ partial("shared/asset_name_blocks") }}
+{{ partial("shared/lists/asset_name_blocks") }}
 
 ## 小说原文
 

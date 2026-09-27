@@ -33,7 +33,7 @@ def fs_session_manager(tmp_path: Path) -> SessionManager:
 async def test_build_options_includes_sandbox_settings(
     fs_session_manager: SessionManager, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    proj_dir = fs_session_manager.project_root / "projects" / "test_proj"
+    proj_dir = fs_session_manager.layout.projects_dir / "test_proj"
     proj_dir.mkdir(parents=True)
     (proj_dir / "project.json").write_text('{"title": "t"}', encoding="utf-8")
 
@@ -62,41 +62,46 @@ async def test_build_options_includes_sandbox_settings(
 
 
 def test_session_manager_wires_env_resolved_roots_into_policy(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """SessionManager 负责 env 解析（ARCREEL_LOG_DIR / ARCREEL_PROFILE_DIR /
-    projects_root 参数），把 resolve 后的根路径喂给 AgentAccessPolicy——用户把
-    日志/数据/profile 目录搬到任意位置（含 repo 外）时，deny 必须跟着指过去。"""
+    """SessionManager 负责 env 解析（ARCREEL_PROFILE_DIR / data_root 参数），把 resolve
+    后的根路径喂给 AgentAccessPolicy——用户把数据/profile 目录搬到任意位置（含 repo 外）
+    时，deny 必须跟着指过去；日志在 ``<数据根>/logs``，ARCREEL_LOG_DIR 不影响 deny 范围。"""
     repo = tmp_path / "repo"
     repo.mkdir()
-    external_logs = tmp_path / "external" / "arcreel_logs"
-    external_logs.mkdir(parents=True)
-    (external_logs / "arcreel.log").write_text("secret\n", encoding="utf-8")
     external_data = tmp_path / "external_data" / "projects"
-    external_data.mkdir(parents=True)
+    data_logs = external_data / "logs"
+    data_logs.mkdir(parents=True)
+    (data_logs / "arcreel.log").write_text("secret\n", encoding="utf-8")
+    stale_logs = tmp_path / "stale_logs"
+    stale_logs.mkdir()
     external_profile = tmp_path / "external_profile"
     (external_profile / ".claude").mkdir(parents=True)
 
-    monkeypatch.setenv("ARCREEL_LOG_DIR", str(external_logs))
+    monkeypatch.setenv("ARCREEL_LOG_DIR", str(stale_logs))
     monkeypatch.setenv("ARCREEL_PROFILE_DIR", str(external_profile))
 
-    sm = SessionManager(repo, SessionMetaStore(), projects_root=external_data)
+    sm = SessionManager(repo, SessionMetaStore(), data_root=external_data, sandbox_enabled=True)
     policy = sm.access_policy
 
-    assert policy.log_dir == external_logs.resolve()
     assert policy.agent_profile_root == external_profile.resolve()
-    assert policy.projects_root == external_data.resolve()
+    assert policy.data_root == external_data.resolve()
     assert policy.project_root == repo.resolve()
-    # 端到端：env 覆盖后的真实位置被认定为敏感
-    assert policy.is_sensitive_path((external_logs / "arcreel.log").resolve())
+    # 端到端：数据根下的日志对内置读工具与 Bash（内核 denyRead）都不可读
+    cwd = sm.layout.projects_dir / "demo"
+    allowed, _ = policy.check_path_access(str(data_logs / "arcreel.log"), "Read", cwd, user_id=_USER_ID)
+    assert not allowed
+    deny_read = policy.build_sandbox_settings(cwd, user_id=_USER_ID)["filesystem"]["denyRead"]
+    assert str(data_logs.resolve()) in deny_read
     assert policy.is_sensitive_path((external_profile / ".claude" / "settings.json").resolve())
-    # repo/logs 在此场景下不应被默认 deny（避免误覆盖）
-    assert not policy.is_sensitive_path((repo / "logs" / "anything.txt").resolve())
+    # ARCREEL_LOG_DIR 指向的目录与 repo/logs 都不是日志位置，不进 denyRead
+    assert str(stale_logs.resolve()) not in deny_read
+    assert str((repo / "logs").resolve()) not in deny_read
 
 
 def test_configure_sandbox_runtime_swaps_policy(tmp_path: Path) -> None:
     """startup 期注入平台事实：整体换新 policy 而非戳改私有属性，
     后续 settings 编译 / hook 裁决立即消费新规则。"""
     sm = _make_session_manager(tmp_path, sandbox_enabled=True)
-    cwd = sm.project_root / "projects" / "demo"
+    cwd = sm.layout.projects_dir / "demo"
     assert sm.access_policy.build_sandbox_settings(cwd, user_id=_USER_ID)["enabled"] is True
 
     sm.configure_sandbox_runtime(in_docker=True, sandbox_enabled=False)
@@ -175,7 +180,7 @@ async def test_build_options_bash_in_allowed_tools_by_sandbox(
 ) -> None:
     """sandbox 关闭时剥离 Bash/BashOutput/KillBash，启用时保留。"""
     sm = _make_session_manager(tmp_path, sandbox_enabled=sandbox_enabled)
-    proj_dir = sm.project_root / "projects" / "test_proj"
+    proj_dir = sm.layout.projects_dir / "test_proj"
     proj_dir.mkdir(parents=True, exist_ok=True)
     (proj_dir / "project.json").write_text('{"title":"t"}', encoding="utf-8")
 
@@ -306,7 +311,7 @@ def test_init_auto_memory_mismatch_logs_error_and_keeps_session(
 ) -> None:
     """init 上报的 auto memory 目录与预期不符：记 error，消息不被改写、会话照开。"""
     sm = _make_session_manager(tmp_path, sandbox_enabled=True)
-    proj_dir = sm.projects_root / "demo"
+    proj_dir = sm.layout.projects_dir / "demo"
     proj_dir.mkdir(parents=True, exist_ok=True)
     managed = _managed_for("demo")
     msg = _init_message(str(tmp_path / "elsewhere" / "memory"))
@@ -334,7 +339,7 @@ def test_init_auto_memory_match_logs_nothing(
 ) -> None:
     """路径一致或 CLI 未上报 memory_paths（旧版本 / auto memory 关闭）时不告警。"""
     sm = _make_session_manager(tmp_path, sandbox_enabled=True)
-    proj_dir = sm.projects_root / "demo"
+    proj_dir = sm.layout.projects_dir / "demo"
     proj_dir.mkdir(parents=True, exist_ok=True)
 
     with caplog.at_level(logging.ERROR, logger="server.agent_runtime.session_manager"):

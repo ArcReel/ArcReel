@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Check, Layers, Loader2, Pencil, Plus, Trash2, X } from "lucide-react";
 import { API } from "@/api";
+import { PromptPreviewButton } from "@/components/shared/PromptPreviewButton";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { CopyButton } from "@/components/ui/CopyButton";
 import { GlassPopover } from "@/components/ui/GlassPopover";
@@ -304,6 +305,15 @@ export function CharacterDerivativesButton({
                   </p>
                 )}
 
+                <div className="mt-1.5 flex justify-end">
+                  <PromptPreviewButton
+                    title={t("assets:prompt_preview_title", { name: `${characterName}/${name}` })}
+                    notice={t("assets:prompt_preview_draft")}
+                    load={(signal) => API.previewAssetPrompt(projectName, "character", characterName, draft, {
+                      signal, derivativeName: name,
+                    })}
+                  />
+                </div>
                 <textarea
                   rows={2}
                   className={`${INPUT_CLS} mt-1.5 resize-none leading-[1.5]`}

@@ -404,14 +404,14 @@ def test_migration_blocked_project_is_listed_as_needing_repair(tmp_path: Path) -
 
     projects_root = tmp_path / "projects"
     projects_root.mkdir()
-    project_dir, *_ = _project(projects_root)
+    project_dir, *_ = _project(tmp_path)
     script_path = project_dir / "scripts" / "episode_1.json"
     script = script_path.read_text(encoding="utf-8").replace('"segment_id"', '"dropped_id"', 1)
     script_path.write_text(script, encoding="utf-8")
     failure = migrate_project_with_verdict(project_dir)
     assert failure is not None
 
-    summary = WorkflowStateService(ProjectManager(str(projects_root))).get_project_summary("demo")
+    summary = WorkflowStateService(ProjectManager(str(tmp_path))).get_project_summary("demo")
 
     assert summary.needs_repair is True
     assert summary.repair_reason == failure.reason

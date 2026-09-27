@@ -69,7 +69,7 @@ def _make_script(episode: int, payload_size: int) -> dict:
 class TestSaveScriptConcurrency:
     def test_same_name_project_creation_claims_directory_atomically(self, tmp_path: Path, monkeypatch) -> None:
         pm = ProjectManager(tmp_path)
-        project_dir = tmp_path / "demo"
+        project_dir = pm.projects_dir / "demo"
         barrier = threading.Barrier(2)
         synchronized_threads: set[int] = set()
         synchronization_lock = threading.Lock()

@@ -43,7 +43,8 @@ from tests.auth_deps import AUTH_DEPENDENCIES
 class _FakePM:
     def __init__(self, base: Path):
         self.base = base
-        self.projects_root = base
+        self.data_root = base
+        self.projects_dir = base
         self.project_data = {
             "ready": {
                 "title": "Ready",

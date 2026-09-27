@@ -280,9 +280,27 @@ ArcReel 的项目不仅是一条数据库记录，还包括文件系统中的媒
 
 1. `ARCREEL_DATA_DIR`
 2. 兼容变量 `AI_ANIME_PROJECTS`
-3. 默认 `projects/`
+3. 默认 `<仓库根>/projects/`
 
-默认 SQLite 数据库也位于应用数据目录中。
+数据根下的布局（[ADR 0088](https://github.com/ArcReel/ArcReel/blob/main/docs/adr/0088-data-root-layered-projects-subdirectory.md)）：
+
+```text
+<数据根>/
+├── projects/<项目名>/         项目与生成资产
+├── global_assets/             全局资产库
+├── users/<user_id>/memory/    Agent 用户记忆
+├── arcreel.db                 默认 SQLite 数据库
+├── logs/                      文件日志
+├── vertex_keys/               Vertex 凭据
+├── trial_runs/                端点「测试连接」的产物
+└── runtime/                   生成准入锁、迁移完成标记、迁移错误日志
+```
+
+- 各条目的位置只由 `lib/infra/data_root_layout.py` 的 `DataRootLayout` 给出，其它代码不自行拼接，也不从项目目录反推数据根。
+- 「什么是项目」只由 `is_project_dir` 回答：`projects/` 下名字符合项目名规则、并且带 `project.json` 的目录。数据根里的其它条目一概不是项目，新增系统目录不需要前缀或登记清单。
+- Agent 读访问对数据根默认拒绝，只放行当前项目和当前用户的记忆。
+- 代码目录只放代码与配置，运行时不向其中写数据。
+- 从旧布局升级时，启动阶段的数据根布局迁移（`lib/infra/data_root_layout_migration.py`）把条目搬到上述位置，完成后写入 `runtime/` 下的完成标记。
 
 ## 10. 数据库 {#database}
 

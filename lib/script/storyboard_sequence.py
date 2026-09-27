@@ -41,7 +41,7 @@ def get_storyboard_items(script: dict) -> tuple[list[Any], str, str | None, str,
     """返回 旁白/解说、剧情演绎与广告/短片剧本的分镜列表 + 各引用字段名。
 
     ``video_units`` 骨架没有 storyboard 一说（视频按 unit 直出，见
-    ``server/agent_runtime/sdk_tools/enqueue_videos.py`` 的参考生视频分支），这里硬返回空列表是
+    ``server/media_tools/videos.py`` 的参考生视频分支），这里硬返回空列表是
     「该骨架下不存在 storyboard 任务」的明示，调用方据此跳过。判别只看剧本实际骨架、不看项目
     生成模式：本函数是查看 / 编辑 / 生成共用的结构访问器，对存量失配剧本也要如实回答；生成分派按
     项目生成模式在各生成入口做，失配由 ``lib.script.script_skeleton.ensure_route_skeleton`` 显式拒绝。

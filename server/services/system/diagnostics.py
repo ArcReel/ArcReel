@@ -7,10 +7,10 @@ import platform
 import sys
 from collections.abc import Callable
 from datetime import UTC, datetime
+from pathlib import Path
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
-from lib.infra.app_data_dir import app_data_dir
-from lib.infra.logging_config import resolve_log_dir
+from lib.infra.data_root_layout import DataRootLayout
 from lib.infra.logging_utils import _redact_value
 
 _UNAVAILABLE = "<unavailable: {exc}>"
@@ -51,19 +51,29 @@ def _os_info() -> str:
     return platform.platform()
 
 
-def _data_dir() -> str:
-    return str(app_data_dir())
+def _layout_location(pick: Callable[[DataRootLayout], Path]) -> Callable[[], str]:
+    return lambda: str(pick(DataRootLayout.current()))
 
 
-def _log_dir() -> str:
-    return str(resolve_log_dir())
+_DATA_ROOT_FIELDS: list[tuple[str, Callable[[], object]]] = [
+    ("Data directory", _layout_location(lambda layout: layout.root)),
+    ("Projects directory", _layout_location(lambda layout: layout.projects_dir)),
+    ("Global assets directory", _layout_location(lambda layout: layout.global_assets_dir)),
+    ("User data directory", _layout_location(lambda layout: layout.users_dir)),
+    ("Log directory", _layout_location(lambda layout: layout.log_dir)),
+    ("Vertex credentials directory", _layout_location(lambda layout: layout.vertex_keys_dir)),
+    ("Trial runs directory", _layout_location(lambda layout: layout.trial_runs_dir)),
+    ("Runtime state directory", _layout_location(lambda layout: layout.runtime_dir)),
+]
 
 
 _SENSITIVE_QUERY_KEYS = frozenset({"password", "passwd", "pwd", "token", "secret", "api_key", "apikey"})
 
 
 def _db_url() -> str:
-    raw = os.environ.get("DATABASE_URL", "sqlite+aiosqlite:///./projects/.arcreel.db")
+    from lib.db.engine import get_database_url
+
+    raw = get_database_url()
     try:
         parsed = urlparse(raw)
         netloc = parsed.netloc
@@ -110,8 +120,7 @@ def collect_diagnostics(*, app_version: Callable[[], object] | None = None) -> s
         ("App version", app_version or _app_version),
         ("Python", _python_version),
         ("OS", _os_info),
-        ("Data directory", _data_dir),
-        ("Log directory", _log_dir),
+        *_DATA_ROOT_FIELDS,
         ("Database URL", _db_url),
         ("Log level", _log_level),
         ("Sandbox", _sandbox_status),

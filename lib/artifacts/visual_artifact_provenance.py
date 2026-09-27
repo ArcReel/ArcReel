@@ -153,6 +153,27 @@ def build_asset_sheet_visual_basis(
     )
 
 
+def build_uploaded_asset_sheet_basis(*, asset_type: str, content_digest: str) -> ArtifactBasis:
+    """Describe an asset sheet or derivative sheet brought in as finished content.
+
+    Author uploads and sheets applied from the global asset library are the
+    finished content itself: their basis is the image bytes alone, so
+    description, project style, the owner sheet, and the asset's name are not
+    inputs and editing them never makes the sheet stale.
+    """
+
+    if asset_type not in ASSET_TYPES:
+        raise ValueError(f"unsupported asset type: {asset_type!r}")
+    return ArtifactBasis.build(
+        "artifact-visual/asset-sheet-upload",
+        kind_version=1,
+        inputs={
+            "asset": {"type": asset_type},
+            "upload": {"sha256": _require_sha256("uploaded sheet content_digest", content_digest)},
+        },
+    )
+
+
 def build_storyboard_image_visual_basis(
     *,
     resource_id: str,
@@ -540,6 +561,7 @@ __all__ = [
     "build_stale_grid_member_storyboard_visual_basis",
     "build_storyboard_image_visual_basis",
     "build_storyboard_video_artifact_visual_basis",
+    "build_uploaded_asset_sheet_basis",
     "snapshot_visual_references",
     "visual_file_digest",
     "visual_references_match_snapshot",

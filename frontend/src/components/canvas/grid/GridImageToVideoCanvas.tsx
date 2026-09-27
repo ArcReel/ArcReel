@@ -32,6 +32,10 @@ interface GridImageToVideoCanvasProps {
   scriptFile?: string;
   projectData: ProjectData | null;
   durationOptions?: number[];
+  durationEndpointFixed?: boolean;
+  videoModelUnresolved?: boolean;
+  lastFrame?: boolean | null;
+  capabilitiesLoading?: boolean;
   /** 已保存时长越界的成因判定；缺省时 ShotDetail 退回不区分成因的通用警告文案。 */
   durationWarningReason?: (seconds: number) => DurationOutOfRangeReason | null;
   onUpdatePrompt?: (
@@ -68,6 +72,10 @@ export function GridImageToVideoCanvas({
   scriptFile,
   projectData,
   durationOptions,
+  durationEndpointFixed,
+  videoModelUnresolved,
+  lastFrame,
+  capabilitiesLoading,
   durationWarningReason,
   onUpdatePrompt,
   onGenerateStoryboard,
@@ -317,6 +325,7 @@ export function GridImageToVideoCanvas({
               projectName={projectName}
               episode={episode}
               contentMode={editorContentMode}
+              videoModelUnresolved={videoModelUnresolved}
               onOpenTimeline={hasScript ? () => setActiveTab("units") : undefined}
             />
           </div>
@@ -347,6 +356,9 @@ export function GridImageToVideoCanvas({
             generatingVideo={generatingVideo}
             generatingNarration={generatingNarration}
             durationOptions={durationOptions}
+            durationEndpointFixed={durationEndpointFixed}
+            lastFrame={lastFrame}
+            capabilitiesLoading={capabilitiesLoading}
             durationWarningReason={durationWarningReason}
           />
         ) : null}

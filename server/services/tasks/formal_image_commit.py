@@ -8,7 +8,7 @@ Manifest registration commit together, and a failed commit never leaves the new 
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -19,7 +19,7 @@ from lib.artifacts.artifact_activation import (
 )
 from lib.artifacts.artifact_manifest import ArtifactBasis, ArtifactBasisDescriptor
 from lib.artifacts.artifact_version_provenance import IMAGE_ARTIFACT_BASIS_FIELD
-from lib.artifacts.image_artifact_currency import reject_failed_image_selection
+from lib.artifacts.generation_input import ASSET_SHEET_CANVAS_RATIO, FrozenGenerationInput
 from lib.artifacts.image_reference_snapshot import FrozenImageReferences
 from lib.artifacts.video_visual_provenance import resolve_video_aspect_ratio
 from lib.infra.async_thread import run_noninterruptible_sync
@@ -62,33 +62,10 @@ def register_formal_task_artifact(
     )
 
 
-async def run_formal_task_finalizer[T](
-    finalize: Callable[[], T],
-    *,
-    compensate_failure: Callable[[], None] | None = None,
-) -> T:
-    """Finish a task's formal-write transaction, rejecting the selection when it fails."""
-
-    def _finalize_with_compensation() -> T:
-        try:
-            return finalize()
-        except BaseException as failure:
-            if compensate_failure is not None:
-                try:
-                    compensate_failure()
-                except BaseException as compensation_failure:
-                    failure.add_note(f"formal image selection compensation also failed: {compensation_failure}")
-            raise
-
-    # A synchronous formal-write thread cannot be stopped after cancellation.
-    # Always await its durable outcome before the caller leaves this boundary.
-    return await run_noninterruptible_sync(_finalize_with_compensation)
-
-
 def get_aspect_ratio(project: dict, resource_type: str) -> str:
     if resource_type in ("characters", "scenes", "props", "products", CHARACTER_DERIVATIVE_RESOURCE_TYPE):
-        # 资产图生成必须显式指定宽高比；四类资产与角色衍生当前均固定为 16:9。
-        return "16:9"
+        # 资产图生成必须显式指定宽高比；四类资产与角色衍生与目标态规划器共用同一画布常量。
+        return ASSET_SHEET_CANVAS_RATIO
     return resolve_video_aspect_ratio(project, resource_type)
 
 
@@ -322,106 +299,6 @@ def asset_sheet_formal_image_callback(
     )
 
 
-async def finalize_formal_image_task(
-    *,
-    project_path: Path,
-    resource_type: str,
-    resource_id: str,
-    script_file: str | None,
-    artifact_path: str,
-    generator: Any,
-    version: int,
-    task_id: str | None,
-    basis: ArtifactBasis | ArtifactBasisDescriptor | None,
-    commit_current: Callable[[Callable[[Path], None]], None],
-    commit_tracked: Callable[[Callable[[Path], None]], None],
-) -> str:
-    """Commit one image's metadata plus selection; returns the selected version's creation time.
-
-    ``commit_current`` serves direct calls without a queued task; ``commit_tracked`` serves task
-    runs, whose registration fails closed when the target is unprovable.
-    """
-
-    def _finalize() -> str:
-        created_at = generator.versions.get_versions(resource_type, resource_id)["versions"][-1]["created_at"]
-
-        def _register(_committed_file: Path) -> None:
-            register_formal_task_artifact(
-                project_path,
-                resource_type=resource_type,
-                resource_id=resource_id,
-                script_file=script_file,
-                task_id=task_id,
-                artifact_path=artifact_path,
-                basis=basis,
-            )
-
-        commit = commit_current if task_id is None else commit_tracked
-        commit(_register)
-        return created_at
-
-    def _compensate_failed_selection() -> None:
-        reject_failed_image_selection(
-            versions=generator.versions,
-            resource_type=resource_type,
-            resource_id=resource_id,
-            version=version,
-            current_file=project_path / artifact_path,
-        )
-
-    return await run_formal_task_finalizer(
-        _finalize,
-        compensate_failure=_compensate_failed_selection,
-    )
-
-
-async def finalize_asset_sheet_task(
-    *,
-    asset_type: str,
-    project_name: str,
-    resource_id: str,
-    sheet_path: str,
-    generator: Any,
-    version: int,
-    task_id: str | None,
-    basis: ArtifactBasis | ArtifactBasisDescriptor | None = None,
-    project_manager: ProjectManager,
-) -> str:
-    """Commit one asset sheet and its selection."""
-
-    spec = ASSET_SPECS[asset_type]
-
-    def _commit_current(register: Callable[[Path], None]) -> None:
-        project_manager._update_asset_sheet(
-            asset_type,
-            project_name,
-            resource_id,
-            sheet_path,
-            on_commit=register,
-        )
-
-    def _commit_tracked(register: Callable[[Path], None]) -> None:
-        project_manager.update_project(
-            project_name,
-            _asset_sheet_metadata_mutator(spec=spec, resource_id=resource_id, sheet_path=sheet_path),
-            on_commit=register,
-        )
-
-    return await finalize_formal_image_task(
-        project_path=project_manager.get_project_path(project_name),
-        resource_type=spec.bucket_key,
-        resource_id=resource_id,
-        script_file=None,
-        artifact_path=sheet_path,
-        generator=generator,
-        version=version,
-        task_id=task_id,
-        basis=basis,
-        commit_current=_commit_current,
-        commit_tracked=_commit_tracked,
-    )
-
-
 def storyboard_formal_image_callback(
     *,
     project_name: str,
@@ -467,55 +344,6 @@ def storyboard_formal_image_callback(
     )
 
 
-async def finalize_storyboard_image_task(
-    *,
-    project_name: str,
-    script_file: str,
-    resource_id: str,
-    artifact_path: str,
-    generator: Any,
-    version: int,
-    task_id: str | None,
-    basis: ArtifactBasis | ArtifactBasisDescriptor | None = None,
-    project_manager: ProjectManager,
-) -> str:
-    """Commit storyboard metadata and image selection through one shared seam."""
-
-    def _commit_current(register: Callable[[Path], None]) -> None:
-        project_manager.update_scene_asset(
-            project_name=project_name,
-            script_filename=script_file,
-            scene_id=resource_id,
-            asset_type="storyboard_image",
-            asset_path=artifact_path,
-            on_commit=register,
-        )
-
-    def _commit_tracked(register: Callable[[Path], None]) -> None:
-        _write_storyboard_image_metadata(
-            pm=project_manager,
-            project_name=project_name,
-            script_file=script_file,
-            resource_id=resource_id,
-            artifact_path=artifact_path,
-            on_commit=register,
-        )
-
-    return await finalize_formal_image_task(
-        project_path=project_manager.get_project_path(project_name),
-        resource_type="storyboards",
-        resource_id=resource_id,
-        script_file=script_file,
-        artifact_path=artifact_path,
-        generator=generator,
-        version=version,
-        task_id=task_id,
-        basis=basis,
-        commit_current=_commit_current,
-        commit_tracked=_commit_tracked,
-    )
-
-
 @dataclass(frozen=True, slots=True)
 class FormalImagePlan:
     """Per-task differences of the shared formal image submit/activate pipeline."""
@@ -526,9 +354,11 @@ class FormalImagePlan:
     prompt: str
     aspect_ratio: str
     build_commit_callback: Callable[[Any, list[FormalImageCommitOutcome]], StagedImageCommit]
-    finalize: Callable[[Any, int], Awaitable[str]]
-    pre_submit: Callable[[], Awaitable[None]] | None = None
+    #: 解析出 generator 之后、提交供应商之前运行一次，收到任务所用的 generator。
+    pre_submit: Callable[[Any], Awaitable[None]] | None = None
     before_submit: Callable[[], Awaitable[None]] | None = None
+    #: 随新版本一起写进版本记录的额外元数据（如图片编辑的 ``source``）。
+    version_metadata: Mapping[str, Any] = field(default_factory=dict)
     #: 写进任务 ``result.warnings`` 的非阻断提示（如参考图超限裁剪）；为空时结果不带该键。
     warnings: tuple[dict[str, Any], ...] = ()
 
@@ -544,7 +374,7 @@ async def run_formal_image_task(
     plan: FormalImagePlan,
     context: GenerationContext | None = None,
 ) -> dict[str, Any]:
-    """Submit one formal image, then take either the staged activation or the finalizer path.
+    """Submit one formal image and return the outcome its staged activation recorded.
 
     ``context`` 供已经解析过 image lane 的调用方复用同一次解析——提示词里的参考图编号按
     backend 的上限裁剪过，重解析可能落到别的 backend、让编号与实发张数错位。不传则在提交
@@ -554,7 +384,7 @@ async def run_formal_image_task(
     reference_images = frozen_references.reference_images
     formal_outcomes: list[FormalImageCommitOutcome] = []
 
-    async def _submit() -> tuple[Any, tuple[Path, int]]:
+    async def _submit() -> None:
         ctx = context or await resolve_generation_context(
             project_name,
             payload,
@@ -562,14 +392,14 @@ async def run_formal_image_task(
             user_id=user_id,
             image=ImageLaneRequest(generation_type="i2i" if reference_images else "t2i"),
         )
-        if plan.pre_submit is not None:
-            await plan.pre_submit()
         generator = ctx.generator
+        if plan.pre_submit is not None:
+            await plan.pre_submit(generator)
         # before_submit 只在声明了 checkpoint 的任务上出现，不声明就不落进 kwargs
         optional: dict[str, Any] = {}
         if plan.before_submit is not None:
             optional["before_submit"] = plan.before_submit
-        generated = await generator.generate_image_async(
+        await generator.generate_image_async(
             prompt=plan.prompt,
             resource_type=plan.resource_type,
             resource_id=plan.resource_id,
@@ -580,24 +410,20 @@ async def run_formal_image_task(
             task_id=task_id,
             commit_formal_output=plan.build_commit_callback(generator, formal_outcomes),
             **optional,
+            **plan.version_metadata,
         )
-        return generator, generated
 
     try:
-        generator, (_generated_path, version) = await _submit()
+        await _submit()
     finally:
         await run_noninterruptible_sync(frozen_references.cleanup)
 
-    if formal_outcomes:
-        outcome = formal_outcomes[0]
-        version, created_at = outcome.version, outcome.created_at
-    else:
-        created_at = await plan.finalize(generator, version)
-
+    # formal_output=True 时 generate_image_async 恒经活化回调提交，回调恰好记录一条结果。
+    outcome = formal_outcomes[0]
     result: dict[str, Any] = {
-        "version": version,
+        "version": outcome.version,
         "file_path": plan.artifact_path,
-        "created_at": created_at,
+        "created_at": outcome.created_at,
         "resource_type": plan.resource_type,
         "resource_id": plan.resource_id,
     }
@@ -615,12 +441,15 @@ async def run_asset_sheet_image_task(
     user_id: str,
     task_id: str | None,
     project: dict[str, Any],
-    full_prompt: str,
-    frozen_references: FrozenImageReferences,
-    basis: ArtifactBasis | ArtifactBasisDescriptor | None,
+    frozen: FrozenGenerationInput,
+    context: GenerationContext,
     project_manager: ProjectManager,
 ) -> dict[str, Any]:
-    """Run the submit/activate pipeline shared by every asset-sheet image task."""
+    """Run the submit/activate pipeline shared by every asset-sheet image task.
+
+    ``frozen`` 是资产图冻结后的生成输入：提示词、实发参考图、登记依据与裁剪提示同出一处；
+    ``context`` 是按同一份参考图解析出的 image lane，实发张数按它的上限裁剪过。
+    """
 
     bucket_key = ASSET_SPECS[asset_type].bucket_key
     sheet_path = f"{bucket_key}/{resource_id}.png"
@@ -631,25 +460,12 @@ async def run_asset_sheet_image_task(
             project_name=project_name,
             resource_id=resource_id,
             sheet_path=sheet_path,
-            prompt=full_prompt,
+            prompt=frozen.prompt,
             versions=generator.versions,
             task_id=task_id,
-            basis=basis,
+            basis=frozen.basis,
             project_manager=project_manager,
             outcome_box=outcome_box,
-        )
-
-    async def _finalize(generator: Any, version: int) -> str:
-        return await finalize_asset_sheet_task(
-            asset_type=asset_type,
-            project_name=project_name,
-            resource_id=resource_id,
-            sheet_path=sheet_path,
-            generator=generator,
-            version=version,
-            task_id=task_id,
-            basis=basis,
-            project_manager=project_manager,
         )
 
     return await run_formal_image_task(
@@ -658,15 +474,16 @@ async def run_asset_sheet_image_task(
         project=project,
         user_id=user_id,
         task_id=task_id,
-        frozen_references=frozen_references,
+        frozen_references=frozen.references,
+        context=context,
         plan=FormalImagePlan(
             resource_type=bucket_key,
             resource_id=resource_id,
             artifact_path=sheet_path,
-            prompt=full_prompt,
+            prompt=frozen.prompt,
             aspect_ratio=get_aspect_ratio(project, bucket_key),
             build_commit_callback=_build_commit,
-            finalize=_finalize,
+            warnings=frozen.warnings,
         ),
     )
 
@@ -689,6 +506,7 @@ def grid_formal_image_callback(
 
     def _commit_metadata(activate: Callable[[], None]) -> None:
         def _complete(current_grid: Any) -> None:
+            # 联合图内容已更新，旧的落格结果不再对应当前图，split_at 清空表示「待显式切分」。
             current_grid.grid_image_path = artifact_path
             current_grid.status = "completed"
             current_grid.split_at = None

@@ -28,12 +28,14 @@ from lib.generation.task_failure import (
     FAILURE_CODE_KEYS,
     NARRATION_DELIVERY_FAILURE_CODES,
     REFERENCE_PROJECTION_FAILURE_CODES,
+    VIDEO_REQUEST_FACTS_FAILURE_CODES,
     bound_reason,
     collapse_cascade_reason,
     encode_failure,
     render_failure,
 )
 from lib.generation.task_failure_encoding import encode_task_failure_message
+from lib.generation.video_request_facts import VideoRequestFactsError, VideoRequestFactsFailure
 from lib.i18n import MESSAGES
 from lib.i18n import _ as i18n_translate
 from lib.infra.api_errors import ConflictError
@@ -480,6 +482,26 @@ def test_narration_delivery_failure_codes_are_machine_encodable_in_all_locales(c
     assert FAILURE_CODE_KEYS[code] == code
     for locale in ("zh", "en", "vi"):
         assert code in MESSAGES[locale], f"{locale} 缺少 {code}"
+
+
+@pytest.mark.parametrize("code", sorted(VIDEO_REQUEST_FACTS_FAILURE_CODES))
+def test_video_request_facts_failure_codes_are_machine_encodable_in_all_locales(code: str) -> None:
+    assert FAILURE_CODE_KEYS[code] == code
+    for locale in ("zh", "en", "vi"):
+        assert code in MESSAGES[locale], f"{locale} 缺少 {code}"
+
+
+def test_video_request_facts_rejection_keeps_code_and_params_for_localized_tasks() -> None:
+    params = {"provider": "gemini-aistudio", "model": "veo", "resolution": "1080p", "capability": "i2v"}
+    failure = VideoRequestFactsFailure("video_supported_durations_incompatible", tuple(params.items()))
+
+    stored = encode_task_failure_message(VideoRequestFactsError(failure))
+
+    assert stored.startswith("[video_supported_durations_incompatible]")
+    assert json.loads(stored.split("] ", 1)[1]) == params
+    for locale in ("zh", "en", "vi"):
+        expected = MESSAGES[locale]["video_supported_durations_incompatible"].format(**params)
+        assert render_failure(stored, _translator(locale)) == expected
 
 
 def test_changed_tts_tier_worker_rejection_preserves_confirmation_coordinates() -> None:

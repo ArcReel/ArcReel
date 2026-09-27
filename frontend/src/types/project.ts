@@ -272,8 +272,8 @@ export interface ImportProjectResponse {
 export type DurationExclusionReason = "resolution" | "reference";
 
 /**
- * 一次约束上下文下的时长收窄结果与成因，服务端 `lib/config/resolver.py::duration_constraints_report`
- * 算好回传；前端只查表，不持有收窄规则。
+ * 一次约束上下文下的时长收窄结果与成因，由服务端该桶的视频请求事实
+ * （`lib/generation/video_request_facts.py`）算好回传；前端只查表，不持有收窄规则。
  */
 export interface DurationConstraints {
   /** 求值用的生效分辨率；null = 未按分辨率收窄。 */
@@ -281,10 +281,14 @@ export interface DurationConstraints {
   uses_reference_images: boolean;
   /** 收窄结果，升序。 */
   allowed: number[];
-  /** 同分辨率下不走参考图路径的收窄结果，升序；参考生视频画布为无参考图的单元换用它。 */
-  allowed_without_reference_images: number[];
   /** 全集中被剔除的时长（键为秒数字符串）→ 成因。 */
   excluded: Record<string, DurationExclusionReason>;
+}
+
+export interface VideoCapabilityProblem {
+  code: string;
+  params: Record<string, unknown>;
+  action: string;
 }
 
 /**
@@ -311,4 +315,5 @@ export interface VideoCapabilities {
   duration_constraints: DurationConstraints;
   /** 时长这一维由端点固定（ComfyUI workflow 自己定片长）：档位为空集不是「声明缺失」。 */
   duration_endpoint_fixed?: boolean;
+  duration_endpoint_fixed_reason?: "endpoint" | null;
 }

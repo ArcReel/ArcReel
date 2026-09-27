@@ -1,3 +1,4 @@
+import asyncio
 import json
 from pathlib import Path
 from unittest.mock import AsyncMock
@@ -7,18 +8,35 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from lib.artifacts.artifact_activation import ArtifactKey, register_current_artifact_if_provable
-from lib.artifacts.artifact_manifest import ArtifactManifest, ProjectArtifactManifestAdapter
+from lib.artifacts.artifact_manifest import (
+    ArtifactBasis,
+    ArtifactManifest,
+    ProjectArtifactManifestAdapter,
+    compose_video_artifact_basis,
+)
+from lib.artifacts.version_manager import VersionManager
+from lib.artifacts.video_artifact_facts import VideoArtifactCurrencyFacts
+from lib.artifacts.video_visual_provenance import build_storyboard_video_visual_basis, resolve_video_aspect_ratio
+from lib.artifacts.visual_artifact_provenance import build_storyboard_video_artifact_visual_basis
 from lib.config.resolver import ConfigResolver, ProviderModel
+from lib.db import async_session_factory
+from lib.generation.video_request_facts import (
+    CONFIGURED_VIDEO_IDENTITY,
+    evaluate_video_request_facts,
+    require_video_request_facts,
+)
 from lib.i18n import _ as i18n_message
 from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from lib.speech.narration_delivery import TtsSynthesisSettings, build_narration_audio_basis
+from lib.speech.speech_artifact_provenance import build_video_duration_basis
 from lib.speech.speech_composition import admit_script_unit
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import generate
+from server.services.admission.cost_estimation import VideoRequestQuote
 from server.services.tasks.narration_delivery_tasks import CurrentTtsSettingsResolver
 from tests.auth_deps import AUTH_DEPENDENCIES
-from tests.factories import wav_bytes
+from tests.factories import make_video_request_facts, wav_bytes
 from tests.speech_contract_cases import SPEECH_CONTRACT_CASES, SpeechContractCase
 
 
@@ -140,9 +158,15 @@ class _FakePM:
         (self.project_path / "scripts" / "episode_1.json").write_text(json.dumps(self.script), encoding="utf-8")
 
     def register_storyboards(self) -> None:
-        """把已落盘的分镜图登记进产物清单——未登记的产物不被生产准入。"""
+        """把已落盘的资产图与分镜图依次登记进产物清单——未登记的产物不被生产准入。
+
+        资产图先于分镜图：分镜图的依据引用资产图，引用的资产图未登记时分镜图不成立。
+        """
 
         self.sync_disk()
+        for asset_type, bucket in (("character", "characters"), ("scene", "scenes"), ("prop", "props")):
+            for name in self.project.get(bucket) or {}:
+                register_current_artifact_if_provable(self.project_path, ArtifactKey.asset_sheet(asset_type, name))
         for container in ("segments", "shots", "scenes", "units"):
             for item in self.script.get(container) or []:
                 unit_id = item.get("segment_id") or item.get("shot_id") or item.get("scene_id") or item.get("unit_id")
@@ -182,6 +206,84 @@ def _prepare_files(tmp_path: Path) -> Path:
 
 async def _noop_bucket_precheck(project, generation_type):
     return None
+
+
+async def _current_config_visual_basis_digest(project: dict, project_path: Path, *, prompt: object, seed: int) -> str:
+    """按当前配置的视频请求事实，计算旁白项目 E1S01（无尾帧）分镜视频的视觉依据摘要。"""
+
+    facts = require_video_request_facts(
+        await evaluate_video_request_facts(
+            project,
+            route="storyboard",
+            generation_type="i2v",
+            identity=CONFIGURED_VIDEO_IDENTITY,
+            resolver=ConfigResolver(async_session_factory),
+        )
+    )
+    return build_storyboard_video_visual_basis(
+        prompt=prompt,
+        storyboard_image=project_path / "storyboards" / "scene_E1S01.png",
+        end_frame_image=None,
+        aspect_ratio=resolve_video_aspect_ratio(project),
+        provider_id=facts.provider_id,
+        model_id=facts.model_id,
+        resolution=facts.resolution,
+        seed=seed,
+        requested_generate_audio=facts.requested_generate_audio,
+        content_mode="narration",
+        utterances=None,
+        has_utterances=False,
+        voice_characters=None,
+    ).digest
+
+
+def _register_current_storyboard_video(
+    project_path: Path,
+    *,
+    visual_prompt: object,
+    visual_basis_digest: str,
+    duration_seconds: int,
+) -> None:
+    """登记 E1S01 的一版当前成片：正式文件、版本快照、产物清单与执行敏感的视觉依据摘要齐备。"""
+
+    formal = project_path / "videos" / "scene_E1S01.mp4"
+    formal.parent.mkdir(parents=True, exist_ok=True)
+    formal.write_bytes(b"paid-current-video")
+    visual = build_storyboard_video_artifact_visual_basis(
+        resource_id="E1S01",
+        visual_prompt=visual_prompt,
+        storyboard_image=project_path / "storyboards" / "scene_E1S01.png",
+        end_frame_image=None,
+        aspect_ratio="9:16",
+    )
+    speech = ArtifactBasis.build("artifact-speech/video", kind_version=1, inputs={"mode": "silent"})
+    duration = build_video_duration_basis(duration_seconds)
+    currency = VideoArtifactCurrencyFacts(
+        episode=1,
+        request_duration_seconds=duration_seconds,
+        visual_basis=visual,
+        speech_basis=speech,
+        duration_basis=duration,
+        video_basis=compose_video_artifact_basis(visual=visual, speech=speech, duration=duration),
+        voice_style_speakers=(),
+        duration_tiers=(duration_seconds,),
+        reference_image_limit=None,
+        parent_version=0,
+    )
+    ArtifactManifest(ProjectArtifactManifestAdapter(project_path)).register_descriptor(
+        ArtifactKey.episode_video(1, "E1S01"),
+        artifact_path="videos/scene_E1S01.mp4",
+        basis=currency.video_descriptor,
+    )
+    VersionManager(project_path).add_version(
+        "videos",
+        "E1S01",
+        "prompt",
+        source_file=formal,
+        duration_seconds=duration_seconds,
+        artifact_video_currency=currency.to_dict(),
+        visual_basis_digest=visual_basis_digest,
+    )
 
 
 def _client(monkeypatch, fake_pm, fake_queue, *, register_storyboards=True, user_id="default"):
@@ -262,7 +364,9 @@ class TestGenerateRouter:
             adjustment="exact",
             problems=(),
             current_visual_duration_seconds=8,
-            cost=VideoRequestCostFacts("openai", "sora-2", "720p", 8, True),
+            cost=VideoRequestCostFacts(
+                make_video_request_facts(provider_id="openai", model_id="sora-2", resolution="720p"), 8
+            ),
         )
         quote = AsyncMock(return_value=VideoRequestQuote(0.8, "USD", "openai", "sora-2", 8))
         monkeypatch.setattr(generate, "quote_video_request", quote)
@@ -478,6 +582,110 @@ class TestGenerateRouter:
         assert fake_queue.calls[0]["user_id"] == "tenant-user"
         assert "duration_seconds" not in fake_queue.calls[0]["payload"]
 
+    def test_video_use_tts_on_veo_without_resolution_asks_for_the_tier_execution_requests(self, tmp_path, monkeypatch):
+        """未设分辨率的 Veo 3.1 按 [4,6,8] 取档，5.5 秒旁白确认 6 秒。"""
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_pm.project["video_provider_i2v"] = "gemini-aistudio/veo-3.1-generate-preview"
+        fake_pm.script["segments"][0]["generated_assets"]["narration_audio"] = "audio/segment_E1S01.wav"
+        audio = project_path / "audio" / "segment_E1S01.wav"
+        audio.parent.mkdir()
+        audio.write_bytes(wav_bytes(5.5))
+        fake_queue = _FakeQueue()
+        client = _client(monkeypatch, fake_pm, fake_queue)
+        settings = TtsSynthesisSettings("openai", "tts-1", "alloy", None)
+        preparation = admit_script_unit("segments", fake_pm.script["segments"][0]).preparation
+        ArtifactManifest(ProjectArtifactManifestAdapter(project_path)).register(
+            ArtifactKey.episode_audio(1, "E1S01"),
+            artifact_path="audio/segment_E1S01.wav",
+            basis=build_narration_audio_basis(preparation, settings),
+        )
+
+        async def _resolve_tts(_self, _project):
+            return settings
+
+        monkeypatch.setattr(CurrentTtsSettingsResolver, "resolve_tts_synthesis_settings", _resolve_tts)
+        request = {
+            "script_file": "episode_1.json",
+            "prompt": {"action": "风吹草动", "camera_motion": "Static"},
+            "narration_delivery": "use_tts",
+        }
+
+        with client:
+            unconfirmed = client.post("/api/v1/projects/demo/generate/video/E1S01", json=request)
+            confirmed = client.post(
+                "/api/v1/projects/demo/generate/video/E1S01",
+                json={**request, "confirmed_request_duration_seconds": 6},
+            )
+
+        assert unconfirmed.status_code == 400
+        problem = unconfirmed.json()["detail"]["problems"][0]
+        assert problem["code"] == "reference_duration_confirmation_required"
+        assert problem["params"]["request_duration"] == 6
+        assert confirmed.status_code == 200, confirmed.text
+        assert confirmed.json()["narration_delivery"]["request_duration"] == 6
+        assert len(fake_queue.calls) == 1
+
+    def test_video_use_tts_precheck_matches_the_current_video_by_the_saved_prompt(self, tmp_path, monkeypatch):
+        """预检的视觉依据取盘上 video_prompt：请求 prompt 与盘上不同，仍认出按盘上提示词生成的当前成片档位。"""
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_pm.project["video_provider_i2v"] = "openai/sora-2"
+        segment = fake_pm.script["segments"][0]
+        saved_prompt = {"action": "风吹草动", "camera_motion": "Static"}
+        segment["video_prompt"] = saved_prompt
+        segment["generated_assets"]["narration_audio"] = "audio/segment_E1S01.wav"
+        audio = project_path / "audio" / "segment_E1S01.wav"
+        audio.parent.mkdir()
+        audio.write_bytes(wav_bytes(3.5))
+        fake_queue = _FakeQueue()
+        client = _client(monkeypatch, fake_pm, fake_queue)
+        settings = TtsSynthesisSettings("openai", "tts-1", "alloy", None)
+        preparation = admit_script_unit("segments", segment).preparation
+        ArtifactManifest(ProjectArtifactManifestAdapter(project_path)).register(
+            ArtifactKey.episode_audio(1, "E1S01"),
+            artifact_path="audio/segment_E1S01.wav",
+            basis=build_narration_audio_basis(preparation, settings),
+        )
+
+        async def _resolve_tts(_self, _project):
+            return settings
+
+        monkeypatch.setattr(CurrentTtsSettingsResolver, "resolve_tts_synthesis_settings", _resolve_tts)
+        monkeypatch.setattr(
+            generate,
+            "quote_video_request",
+            AsyncMock(return_value=VideoRequestQuote(0.4, "USD", "openai", "sora-2", 4)),
+        )
+        _register_current_storyboard_video(
+            project_path,
+            visual_prompt=saved_prompt,
+            visual_basis_digest=asyncio.run(
+                _current_config_visual_basis_digest(fake_pm.project, project_path, prompt=saved_prompt, seed=739)
+            ),
+            duration_seconds=4,
+        )
+        request = {
+            "script_file": "episode_1.json",
+            "seed": 739,
+            "narration_delivery": "use_tts",
+        }
+
+        with client:
+            same = client.post(
+                "/api/v1/projects/demo/generate/video/E1S01",
+                json={**request, "prompt": saved_prompt},
+            )
+            differing = client.post(
+                "/api/v1/projects/demo/generate/video/E1S01",
+                json={**request, "prompt": {"action": "请求快照里的旧动作", "camera_motion": "Pan Left"}},
+            )
+
+        assert same.status_code == 200, same.text
+        assert same.json()["narration_delivery"]["current_visual_duration"] == 4
+        assert differing.status_code == 200, differing.text
+        assert differing.json()["narration_delivery"]["current_visual_duration"] == 4
+
     def test_video_use_tts_confirms_only_the_current_higher_tier(self, tmp_path, monkeypatch):
         from dataclasses import replace
 
@@ -521,7 +729,9 @@ class TestGenerateRouter:
                     supported_durations=(4, 8),
                     confirmed_request_duration_seconds=kwargs["confirmed_request_duration_seconds"],
                 ),
-                cost=VideoRequestCostFacts("openai", "sora-2", "720p", 8, True),
+                cost=VideoRequestCostFacts(
+                    make_video_request_facts(provider_id="openai", model_id="sora-2", resolution="720p"), 8
+                ),
             )
 
         async def _quote(*_args, **_kwargs):
@@ -605,7 +815,9 @@ class TestGenerateRouter:
                     supported_durations=(4, 8),
                     confirmed_request_duration_seconds=kwargs["confirmed_request_duration_seconds"],
                 ),
-                cost=VideoRequestCostFacts("openai", "sora-2", "720p", 8, True),
+                cost=VideoRequestCostFacts(
+                    make_video_request_facts(provider_id="openai", model_id="sora-2", resolution="720p"), 8
+                ),
             )
 
         monkeypatch.setattr(generate, "prepare_current_storyboard_narrated_video_duration", _fresh)
@@ -726,9 +938,10 @@ class TestGenerateRouter:
             ("ad", "shots", "shot_id", "voiceover_text"),
         ],
     )
-    def test_narrator_video_request_rejects_mixed_queued_prompt(
+    def test_narrator_video_request_admits_the_saved_unit_not_the_request_prompt(
         self, tmp_path, monkeypatch, content_mode, root, id_field, narrator_field
     ):
+        """worker 按盘上 video_prompt 执行：盘上单元只有旁白时，请求 prompt 里的角色台词不拦截入队。"""
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
         fake_pm.project["content_mode"] = content_mode
@@ -743,7 +956,7 @@ class TestGenerateRouter:
                         "scene": "旷野",
                         "composition": {"shot_type": "medium", "lighting": "natural", "ambiance": "calm"},
                     },
-                    "video_prompt": {},
+                    "video_prompt": {"action": "风吹草动", "camera_motion": "Static"},
                     "generated_assets": {"storyboard_image": "storyboards/scene_E1S01.png"},
                 }
             ],
@@ -756,13 +969,16 @@ class TestGenerateRouter:
                 "/api/v1/projects/demo/generate/video/E1S01",
                 json={
                     "script_file": "episode_1.json",
-                    "prompt": {"dialogue": [{"speaker": "阿离", "line": "快走。"}]},
+                    "prompt": {
+                        "action": "阿离回头",
+                        "camera_motion": "Static",
+                        "dialogue": [{"speaker": "阿离", "line": "快走。"}],
+                    },
                 },
             )
 
-        assert response.status_code == 409
-        assert response.json()["detail"]["problems"][0]["code"] == "mixed_speech"
-        assert fake_queue.calls == []
+        assert response.status_code == 200, response.text
+        assert len(fake_queue.calls) == 1
 
     @pytest.mark.parametrize(
         "case",
@@ -822,25 +1038,26 @@ class TestGenerateRouter:
         )
         assert fake_queue.calls == []
 
-    def test_video_enqueue_rejected_when_audio_switch_unsupported(self, tmp_path, monkeypatch):
+    @pytest.mark.parametrize("delivery", ["post_production", "use_tts"])
+    def test_video_enqueue_rejected_when_audio_switch_unsupported(self, tmp_path, monkeypatch, delivery):
         """恒有声模型遇到「关闭音频」的配置 → 提交入口 400，不入队（无声裁剪不得带着不可能实现的意图执行）。"""
-        from lib.infra.api_errors import BadRequestError
-
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
+        fake_pm.project.update({"video_provider_i2v": "dashscope/wan2.7-i2v", "video_generate_audio": False})
         fake_queue = _FakeQueue()
         client = _client(monkeypatch, fake_pm, fake_queue)
+        if delivery == "post_production":
+            from lib.infra.api_errors import BadRequestError
 
-        async def _reject(project, generation_type):
-            assert generation_type == "i2v"
-            raise BadRequestError("video_audio_switch_not_supported", provider="dashscope", model="wan2.7-i2v")
+            async def _reject(_project, _generation_type):
+                raise BadRequestError("video_audio_switch_not_supported", provider="dashscope", model="wan2.7-i2v")
 
-        monkeypatch.setattr(generate, "require_audio_switch_supported", _reject)
+            monkeypatch.setattr(generate, "require_audio_switch_supported", _reject)
 
         with client:
             res = client.post(
                 "/api/v1/projects/demo/generate/video/E1S01",
-                json={"script_file": "episode_1.json", "prompt": "x"},
+                json={"script_file": "episode_1.json", "prompt": "x", "narration_delivery": delivery},
             )
         assert res.status_code == 400
         assert res.json()["detail"] == i18n_message(
@@ -1132,7 +1349,6 @@ class TestGenerateRouter:
         with client:
             character = client.post(
                 "/api/v1/projects/demo/generate/character/Alice",
-                json={"prompt": "女主，冷静"},
             )
             assert character.status_code == 200
             body = character.json()
@@ -1143,6 +1359,33 @@ class TestGenerateRouter:
             assert call["task_type"] == "character"
             assert call["media_type"] == "image"
             assert call["resource_id"] == "Alice"
+            # 描述只取存储的条目，入队不带 prompt 快照。
+            assert call["payload"] == {}
+
+    @pytest.mark.parametrize(
+        ("path", "bucket", "name"),
+        [
+            ("character/Alice", "characters", "Alice"),
+            ("scene/祠堂", "scenes", "祠堂"),
+            ("prop/玉佩", "props", "玉佩"),
+            ("product/保温杯", "products", "保温杯"),
+        ],
+    )
+    def test_asset_without_a_stored_description_is_refused_before_enqueue(
+        self, tmp_path, monkeypatch, path, bucket, name
+    ):
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_pm.project[bucket][name]["description"] = "  "
+        fake_queue = _FakeQueue()
+        client = _client(monkeypatch, fake_pm, fake_queue)
+
+        with client:
+            resp = client.post(f"/api/v1/projects/demo/generate/{path}", headers={"Accept-Language": "zh"})
+
+        assert resp.status_code == 400, resp.text
+        assert resp.json()["detail"] == f"资产「{name}」还没有填写描述，无法生成资产图"
+        assert fake_queue.calls == []
 
     def test_character_enqueue_resolves_nfd_registered_key(self, tmp_path, monkeypatch):
         """路径参数与桶 key 形态可以不同：登记闸口落 NFC 后，仍须能按 NFD 原文发起生成，
@@ -1161,7 +1404,6 @@ class TestGenerateRouter:
         with client:
             resp = client.post(
                 f"/api/v1/projects/demo/generate/character/{name_nfc}",
-                json={"prompt": "女主，冷静"},
             )
             assert resp.status_code == 200, resp.text
             assert fake_queue.calls[0]["resource_id"] == name_nfd
@@ -1175,7 +1417,6 @@ class TestGenerateRouter:
         with client:
             scene = client.post(
                 "/api/v1/projects/demo/generate/scene/祠堂",
-                json={"prompt": "阴森古朴"},
             )
             assert scene.status_code == 200
             body = scene.json()
@@ -1196,7 +1437,6 @@ class TestGenerateRouter:
         with client:
             prop = client.post(
                 "/api/v1/projects/demo/generate/prop/玉佩",
-                json={"prompt": "古朴玉佩"},
             )
             assert prop.status_code == 200
             body = prop.json()
@@ -1217,7 +1457,6 @@ class TestGenerateRouter:
         with client:
             product = client.post(
                 "/api/v1/projects/demo/generate/product/保温杯",
-                json={"prompt": "不锈钢保温杯"},
             )
             assert product.status_code == 200
             body = product.json()
@@ -1237,7 +1476,6 @@ class TestGenerateRouter:
         with client:
             resp = client.post(
                 "/api/v1/projects/demo/generate/product/不存在",
-                json={"prompt": "x"},
             )
             assert resp.status_code == 404
             assert fake_queue.calls == []
@@ -1298,7 +1536,6 @@ class TestGenerateRouter:
             fake_pm.project["characters"] = {}
             missing_char = client.post(
                 "/api/v1/projects/demo/generate/character/Alice",
-                json={"prompt": "x"},
             )
             assert missing_char.status_code == 404
 
@@ -1306,7 +1543,6 @@ class TestGenerateRouter:
             fake_pm.project["scenes"] = {}
             missing_scene = client.post(
                 "/api/v1/projects/demo/generate/scene/祠堂",
-                json={"prompt": "x"},
             )
             assert missing_scene.status_code == 404
 
@@ -1314,7 +1550,6 @@ class TestGenerateRouter:
             fake_pm.project["props"] = {}
             missing_prop = client.post(
                 "/api/v1/projects/demo/generate/prop/玉佩",
-                json={"prompt": "x"},
             )
             assert missing_prop.status_code == 404
 
@@ -1384,7 +1619,6 @@ class TestUnexpectedErrorMapsTo500:
         with client:
             resp = client.post(
                 "/api/v1/projects/demo/generate/character/Alice",
-                json={"prompt": "x"},
             )
             assert resp.status_code == 500
             assert "LEAK_character" not in resp.text
@@ -1394,7 +1628,6 @@ class TestUnexpectedErrorMapsTo500:
         with client:
             resp = client.post(
                 "/api/v1/projects/demo/generate/scene/祠堂",
-                json={"prompt": "x"},
             )
             assert resp.status_code == 500
             assert "LEAK_scene" not in resp.text
@@ -1404,7 +1637,6 @@ class TestUnexpectedErrorMapsTo500:
         with client:
             resp = client.post(
                 "/api/v1/projects/demo/generate/prop/玉佩",
-                json={"prompt": "x"},
             )
             assert resp.status_code == 500
             assert "LEAK_prop" not in resp.text
@@ -1414,7 +1646,6 @@ class TestUnexpectedErrorMapsTo500:
         with client:
             resp = client.post(
                 "/api/v1/projects/demo/generate/product/保温杯",
-                json={"prompt": "x"},
             )
             assert resp.status_code == 500
             assert "LEAK_product" not in resp.text
@@ -1520,7 +1751,7 @@ class TestReferenceAdmissionAtGenerationEntries:
 
     @pytest.mark.parametrize("endpoint", ["storyboard", "video"], ids=["分镜图", "图生视频"])
     def test_deleted_asset_leaves_a_blocking_reference(self, tmp_path, monkeypatch, endpoint: str):
-        """删除资产后残留的引用与从未登记的名字同一出路，不再被静默丢弃。"""
+        """删除资产后残留的引用与从未登记的名字同一出路，不被静默丢弃。"""
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
         del fake_pm.project["scenes"]["祠堂"]
@@ -1635,7 +1866,7 @@ class TestAdStoryboardRegeneration:
 
 
 class TestNoServerPathLeak:
-    """404/400/500 响应形状回归：detail 不得含服务器绝对路径片段。
+    """404/400/500 响应形状：detail 不得含服务器绝对路径片段。
 
     lib 层 FileNotFoundError 的消息携带绝对路径（如 load_script 的
     「剧本文件不存在: /abs/path」），app 级 handler 必须脱敏为通用 404 文案。
@@ -1781,7 +2012,6 @@ class TestDedupedPassthrough:
         with client:
             resp = client.post(
                 "/api/v1/projects/demo/generate/character/Alice",
-                json={"prompt": "hero"},
             )
             assert resp.status_code == 200, resp.text
             assert resp.json()["deduped"] is True

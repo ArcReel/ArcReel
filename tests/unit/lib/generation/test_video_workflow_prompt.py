@@ -24,7 +24,7 @@ from lib.generation.generation_result import (
 from lib.speech.narration_delivery import POST_PRODUCTION, USE_TTS
 from lib.workflow.workflow_rules import WORKFLOW_RULES
 from lib.workflow.workflow_state import WorkflowActionType, WorkflowTarget
-from server.agent_runtime.sdk_tools import ARCREEL_MCP_TOOL_IDS
+from server.agent_toolset.toolset import ARCREEL_MCP_TOOL_IDS
 
 REPO = Path(__file__).resolve().parents[4]
 PROFILE = REPO / "agent_runtime_profile"

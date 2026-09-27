@@ -34,7 +34,7 @@ from lib.agent.agent_profile import agent_profile_dir
 from lib.agent.profile_frontmatter import FrontmatterError, parse_profile_metadata
 from lib.agent.profile_manifest import VALID_CONTENT_MODES
 from lib.i18n import DEFAULT_LOCALE
-from lib.infra.app_data_dir import app_data_dir
+from lib.infra.data_root_layout import DataRootLayout
 from lib.project.project_manager import ProjectManager
 from server.agent_runtime.event_log import (
     EventLogService,
@@ -84,9 +84,10 @@ class InterruptSettleTimeoutError(MessageRewriteError):
 class AssistantService:
     def __init__(self, project_root: Path):
         self.project_root = Path(project_root)
-        self.projects_root = app_data_dir()
+        self.layout = DataRootLayout.current()
+        self.data_root = self.layout.root
 
-        self.pm = ProjectManager(self.projects_root)
+        self.pm = ProjectManager(self.data_root)
         self.meta_store = SessionMetaStore()
         # 会话事件日志：UI 时间线唯一读源。store 与 SessionManager 共享同一实例，
         # live 写入点（entry pipeline）与读取端（REST / SSE / 懒生成）落同一张表。
@@ -94,7 +95,7 @@ class AssistantService:
         self.session_manager = SessionManager(
             project_root=self.project_root,
             meta_store=self.meta_store,
-            projects_root=self.projects_root,
+            data_root=self.data_root,
             event_log_store=self.event_log_store,
         )
         # Shared with SessionManager (lazy-cached there) so reads via the
@@ -166,7 +167,7 @@ class AssistantService:
         if not sessions or not project_name:
             return sessions
 
-        project_cwd = str(self.projects_root / project_name)
+        project_cwd = str(self.layout.projects_dir / project_name)
         sdk_sessions: list[Any] = []
 
         if self._session_store is not None and list_sessions_from_store is not None:
@@ -214,7 +215,7 @@ class AssistantService:
             # computed from server cwd and never matches inserted rows, so the
             # delete becomes a silent no-op. Resolve project cwd from meta.
             meta = await self.meta_store.get(session_id)
-            project_cwd = str(self.projects_root / meta.project_name) if meta else None
+            project_cwd = str(self.layout.projects_dir / meta.project_name) if meta else None
             try:
                 await delete_session_via_store(self._session_store, session_id, directory=project_cwd)  # type: ignore[arg-type]
             except Exception:

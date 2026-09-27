@@ -6,13 +6,18 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from lib.project.project_manager import ProjectManager
+
 
 @pytest.mark.asyncio
-async def test_lifespan_invokes_session_store_migration(tmp_path):
+async def test_lifespan_invokes_session_store_migration(tmp_path, monkeypatch):
     """The session-store migration must be called exactly once during startup."""
     # We don't want a real lifespan to fire all its long-running side effects
     # (worker starts, http client, project event service). Patch them all out
     # and only verify our new hook is wired in.
+    # 数据根指向空的 tmp 目录：源文编码迁移照跑，遍历不到项目即返回空汇总。
+    monkeypatch.setenv("ARCREEL_DATA_DIR", str(tmp_path))
+    monkeypatch.setattr("lib.project.project_manager.get_project_manager", lambda: ProjectManager(tmp_path))
     with (
         patch(
             "server.app.migrate_local_transcripts_to_store",
@@ -24,8 +29,6 @@ async def test_lifespan_invokes_session_store_migration(tmp_path):
             return_value=type("M", (), {"migrated": [], "failed": [], "skipped": []})(),
         ),
         patch("server.app.cleanup_stale_backups"),
-        # 数据目录指向空的 tmp 目录：源文编码迁移照跑，遍历不到项目即返回空汇总。
-        patch("server.app.app_data_dir", return_value=tmp_path),
         patch("server.app.startup_http_client", new=AsyncMock(return_value=None)),
         patch("server.app.shutdown_http_client", new=AsyncMock(return_value=None)),
         patch("server.app.create_generation_worker") as worker_factory,
@@ -69,6 +72,5 @@ async def test_lifespan_invokes_session_store_migration(tmp_path):
 
     migrate_mock.assert_called_once()
     _args, kwargs = migrate_mock.call_args
-    # Sanity: store should be passed as positional arg, projects_root + data_dir as kwargs
-    assert "projects_root" in kwargs
-    assert "data_dir" in kwargs
+    # Sanity: store should be passed as positional arg, data_root as kwarg
+    assert "data_root" in kwargs

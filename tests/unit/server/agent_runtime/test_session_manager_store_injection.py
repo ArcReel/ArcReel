@@ -78,7 +78,7 @@ async def test_flush_mode_passed_to_options_default(monkeypatch, tmp_path):
     monkeypatch.setattr("server.agent_runtime.options_assembler.load_provider_env_overrides", _fake_provider_env)
     sm = _build_sm(tmp_path)
 
-    project_cwd = tmp_path / "projects" / "demo"
+    project_cwd = sm.layout.projects_dir / "demo"
     project_cwd.mkdir(parents=True)
 
     options = await sm._build_options(project_name="demo")
@@ -91,7 +91,7 @@ async def test_flush_mode_passed_to_options_batched(monkeypatch, tmp_path):
     monkeypatch.setenv("ARCREEL_SDK_SESSION_STORE_FLUSH", "batched")
     monkeypatch.setattr("server.agent_runtime.options_assembler.load_provider_env_overrides", _fake_provider_env)
     sm = _build_sm(tmp_path)
-    project_cwd = tmp_path / "projects" / "demo"
+    project_cwd = sm.layout.projects_dir / "demo"
     project_cwd.mkdir(parents=True)
 
     options = await sm._build_options(project_name="demo")
@@ -111,7 +111,7 @@ async def test_flush_mode_passed_to_options_when_store_off(monkeypatch, tmp_path
     monkeypatch.setattr("server.agent_runtime.options_assembler.load_provider_env_overrides", _fake_provider_env)
     sm = _build_sm(tmp_path)
 
-    project_cwd = tmp_path / "projects" / "demo"
+    project_cwd = sm.layout.projects_dir / "demo"
     project_cwd.mkdir(parents=True)
 
     options = await sm._build_options(project_name="demo")

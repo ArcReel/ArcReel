@@ -13,8 +13,7 @@ import base64
 import logging
 from pathlib import Path
 
-import httpx
-
+from lib.backends.artifact_download_guard import artifact_http_client
 from lib.backends.aspect_size import IMAGE_TIER_SHORT_EDGE, aspect_size, resolution_to_short_edge
 from lib.backends.backend_runtime import should_retry_submit, submit_post, with_artifact_retry
 from lib.backends.image_backends.base import (
@@ -143,7 +142,7 @@ class MiniMaxImageBackend:
             self._model,
             format_kwargs_for_log(safe_body_for_log(payload)),
         )
-        async with httpx.AsyncClient(timeout=self._http_timeout) as client:
+        async with artifact_http_client(timeout=self._http_timeout) as client:
             resp = await submit_post(
                 lambda: client.post(
                     f"{self._base_url}{_IMAGE_ENDPOINT}",

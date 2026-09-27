@@ -80,7 +80,7 @@ class ReferenceCatalogEntry:
 
     #: 归属的资产类型（``ASSET_SPECS`` 的键）。
     asset_type: str
-    #: 可写在正文与引用字段里的引用名，已在比对坐标系（Unicode NFC）中。
+    #: 可写在正文与引用字段里的引用名，已在比对坐标系（去两端空白 + Unicode NFC）中。
     name: str
     #: 承载该引用的资产表条目名，已在比对坐标系中。衍生引用（``本体名/衍生名``）下即本体名，
     #: 与 :attr:`name` 分叉——说话人位要绑的是本体这条资产，引用要指的是衍生这套外观。
@@ -126,7 +126,7 @@ class ReferenceCatalog:
             entries[name] = ReferenceCatalogEntry(asset_type=asset_type, name=name, asset_name=name, asset=asset)
             if not supports_derivatives or not isinstance(asset, Mapping):
                 continue
-            for derivative_name, derivative in normalize_asset_bucket(asset.get(DERIVATIVES_FIELD)).items():
+            for derivative_name, derivative in _reference_bucket(asset.get(DERIVATIVES_FIELD)).items():
                 reference = derivative_reference(name, derivative_name)
                 entries[reference] = ReferenceCatalogEntry(
                     asset_type=asset_type,
@@ -171,12 +171,16 @@ class ReferenceCatalog:
 def build_reference_catalog(project: object) -> ReferenceCatalog:
     """从 project.json 载荷构造引用目录——引用命名空间的唯一构造入口。
 
-    资产表的 key 在此收敛到比对坐标系（见 :func:`lib.project.asset_types.normalize_asset_bucket`）：
+    资产表的 key 在此收敛到去两端空白 + NFC 的比对坐标系：
     落盘形态 NFC / NFD 皆可且不迁移，判等两侧同形才判得准。畸形载荷（整体或某张表不是
     dict）按空表处理——其结构错误由 :class:`lib.project.data_validator.DataValidator` 另行报告，
     目录构造不重复报错也不抛异常。
     """
     payload: dict[str, Any] = project if isinstance(project, dict) else {}
     return ReferenceCatalog(
-        {spec.asset_type: normalize_asset_bucket(payload.get(spec.bucket_key)) for spec in ASSET_SPECS.values()}
+        {spec.asset_type: _reference_bucket(payload.get(spec.bucket_key)) for spec in ASSET_SPECS.values()}
     )
+
+
+def _reference_bucket(bucket: object) -> dict[str, Any]:
+    return {asset_name_comparison_key(name): asset for name, asset in normalize_asset_bucket(bucket).items()}

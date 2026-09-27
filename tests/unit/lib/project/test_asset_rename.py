@@ -327,7 +327,7 @@ class TestRenameAssetCascade:
         pm_with_assets.save_script("demo", _narration_script(), "episode_1.json")
         pm_with_assets.rename_asset("demo", "scenes", "场景A", "新场景")
 
-        validator = DataValidator(str(pm_with_assets.projects_root))
+        validator = DataValidator(str(pm_with_assets.projects_dir))
         result = validator.validate_episode("demo", "episode_1.json")
         assert not [e for e in result.errors if "新场景" in e or "场景A" in e]
         assert _load_script(pm_with_assets)["segments"][0]["scenes"] == ["新场景"]
@@ -899,8 +899,8 @@ class TestRenameAgnosticErrors:
         return set(_rename_agnostic_errors(result, "角色A", "甲").keys())
 
     def test_folds_exact_name_param(self) -> None:
-        renamed = ValidationMessage("val_asset_missing_description", {"asset_type": "角色", "name": "甲"})
-        original = ValidationMessage("val_asset_missing_description", {"asset_type": "角色", "name": "角色A"})
+        renamed = ValidationMessage("val_asset_format_object", {"asset_type": "角色", "name": "甲"})
+        original = ValidationMessage("val_asset_format_object", {"asset_type": "角色", "name": "角色A"})
         assert self._fingerprints(renamed) == self._fingerprints(original)
 
     def test_folds_bracketed_field_path(self) -> None:

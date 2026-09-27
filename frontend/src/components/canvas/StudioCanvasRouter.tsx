@@ -440,15 +440,11 @@ export function StudioCanvasRouter() {
   const handleGenerateCharacter = useCallback(async (name: string) => {
     if (!currentProjectName) return;
     try {
-      await enqueueCharacter(
-        currentProjectName,
-        name,
-        currentProjectData?.characters?.[name]?.description ?? "",
-      );
+      await enqueueCharacter(currentProjectName, name);
     } catch (err) {
       useAppStore.getState().pushToast(tRef.current("submit_failed", { message: errMsg(err) }), "error");
     }
-  }, [currentProjectName, currentProjectData]);
+  }, [currentProjectName]);
 
   const handleAddCharacterSubmit = useCallback(async (
     name: string,
@@ -490,11 +486,11 @@ export function StudioCanvasRouter() {
   const handleGenerateScene = useCallback(async (name: string) => {
     if (!currentProjectName) return;
     try {
-      await enqueueScene(currentProjectName, name, currentProjectData?.scenes?.[name]?.description ?? "");
+      await enqueueScene(currentProjectName, name);
     } catch (err) {
       useAppStore.getState().pushToast(tRef.current("submit_failed", { message: errMsg(err) }), "error");
     }
-  }, [currentProjectName, currentProjectData]);
+  }, [currentProjectName]);
 
   const handleAddSceneSubmit = useCallback(async (name: string, description: string) => {
     if (!currentProjectName) return;
@@ -522,11 +518,11 @@ export function StudioCanvasRouter() {
   const handleGenerateProp = useCallback(async (name: string) => {
     if (!currentProjectName) return;
     try {
-      await enqueueProp(currentProjectName, name, currentProjectData?.props?.[name]?.description ?? "");
+      await enqueueProp(currentProjectName, name);
     } catch (err) {
       useAppStore.getState().pushToast(tRef.current("submit_failed", { message: errMsg(err) }), "error");
     }
-  }, [currentProjectName, currentProjectData]);
+  }, [currentProjectName]);
 
   const handleAddPropSubmit = useCallback(async (name: string, description: string) => {
     if (!currentProjectName) return;
@@ -554,15 +550,11 @@ export function StudioCanvasRouter() {
   const handleGenerateProduct = useCallback(async (name: string) => {
     if (!currentProjectName) return;
     try {
-      await enqueueProduct(
-        currentProjectName,
-        name,
-        currentProjectData?.products?.[name]?.description ?? "",
-      );
+      await enqueueProduct(currentProjectName, name);
     } catch (err) {
       useAppStore.getState().pushToast(tRef.current("submit_failed", { message: errMsg(err) }), "error");
     }
-  }, [currentProjectName, currentProjectData]);
+  }, [currentProjectName]);
 
   const handleAddProductSubmit = useCallback(async (name: string, description: string, brand: string) => {
     if (!currentProjectName) return;
@@ -727,13 +719,9 @@ export function StudioCanvasRouter() {
           const script = scriptFile ? (currentScripts[scriptFile] ?? null) : null;
           const route = normalizeRoute(currentProjectData?.generation_mode);
           // 服务端已按项目生成模式（是否走参考图路径）与已保存分辨率收窄。
+          // reference_video 的参考图约束按 unit 而非按集生效：每个 unit 落哪个桶、可选哪些档位
+          // 由服务端按可用参考图逐单元判定，随单元列表到达（reference-video-store），不从这里下发。
           const durationOptions = capabilities.supportedDurations ?? undefined;
-          // reference_video 的参考图约束是按 unit 而非按集生效（同集内不带 references 的
-          // unit 不受此约束，见 lib.script.reference_video.request_projection 的
-          // ReferenceUnitRequestProjector 按可用参考图定 r2v / i2v 的判据）：服务端多备一份
-          // 不叠加参考图收窄的档位，供画布按每个 unit 自己的引用状态选用。
-          const durationOptionsNoReference =
-            capabilities.supportedDurationsWithoutReference ?? undefined;
           const durationWarningReason = (seconds: number) =>
             durationOutOfRangeReason(seconds, capabilities);
           // 档位空集的两种成因说给用户听的不是同一句：型号没登记时长 vs 这份 workflow 自己定片长。
@@ -792,10 +780,7 @@ export function StudioCanvasRouter() {
                     hasScript={Boolean(script)}
                     showPreprocess={!isAd}
                     freeDuration={isAd}
-                    // unit 时长档位随所选模型能力变化（已按本集参考图路径收窄）
-                    durationOptions={durationOptions}
-                    durationOptionsNoReference={durationOptionsNoReference}
-                    durationEndpointFixed={durationEndpointFixed}
+                    videoModelUnresolved={capabilities.videoModelUnresolved}
                   />
                 ) : gridStoryboardEnabled(currentProjectData) ? (
                   <GridImageToVideoCanvas
@@ -811,6 +796,10 @@ export function StudioCanvasRouter() {
                     projectData={currentProjectData}
                     durationOptions={durationOptions}
                     durationWarningReason={durationWarningReason}
+                    durationEndpointFixed={durationEndpointFixed}
+                    videoModelUnresolved={capabilities.videoModelUnresolved}
+                    lastFrame={capabilities.lastFrame}
+                    capabilitiesLoading={capabilities.loading}
                     onUpdatePrompt={awaitedUpdatePrompt}
                     onGenerateStoryboard={voidPromise(handleGenerateStoryboard)}
                     onGenerateVideo={handleGenerateVideo}
@@ -839,6 +828,9 @@ export function StudioCanvasRouter() {
                     durationOptions={durationOptions}
                     durationWarningReason={durationWarningReason}
                     durationEndpointFixed={durationEndpointFixed}
+                    videoModelUnresolved={capabilities.videoModelUnresolved}
+                    lastFrame={capabilities.lastFrame}
+                    capabilitiesLoading={capabilities.loading}
                     onUpdatePrompt={awaitedUpdatePrompt}
                     onMoveShot={isAd ? handleMoveShot : undefined}
                     onInsertShot={handleInsertShot}

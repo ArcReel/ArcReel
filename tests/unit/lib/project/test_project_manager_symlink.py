@@ -29,7 +29,7 @@ from lib.project.project_manager import ProjectManager
 
 @pytest.fixture
 def env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    """构造标准测试环境：profile_dir + projects_root + 单个项目目录。
+    """构造标准测试环境：profile_dir + 数据根 + 单个项目目录。
 
     profile 内置一个 demo skill 和顶层 CLAUDE.md。
     """
@@ -38,15 +38,17 @@ def env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     (profile_dir / ".claude" / "skills" / "demo" / "SKILL.md").write_text("demo v1")
     (profile_dir / "CLAUDE.md").write_text("prompt v1")
 
-    projects_root = tmp_path / "projects"
-    projects_root.mkdir()
-
     monkeypatch.setenv("ARCREEL_PROFILE_DIR", str(profile_dir))
 
-    pm = ProjectManager(projects_root)
-    project_dir = projects_root / "proj"
-    project_dir.mkdir()
+    pm = ProjectManager(tmp_path / "data")
+    project_dir = pm.projects_dir / "proj"
+    _make_project(project_dir)
     return pm, profile_dir, project_dir
+
+
+def _make_project(project_dir: Path) -> None:
+    project_dir.mkdir()
+    (project_dir / "project.json").write_text(json.dumps({"content_mode": "narration"}))
 
 
 def _read_manifest(project_dir: Path) -> dict:
@@ -690,15 +692,15 @@ class TestRepairAllSymlinks:
 
     def test_repair_all_skips_hidden_dirs(self, env):
         pm, _, _ = env
-        (pm.projects_root / ".hidden").mkdir()
+        (pm.projects_dir / ".hidden").mkdir()
         stats = pm.sync_all_agent_profiles()
-        assert not (pm.projects_root / ".hidden" / ".claude").exists()
+        assert not (pm.projects_dir / ".hidden" / ".claude").exists()
         assert stats["aborted"] is False
 
     def test_repair_all_continues_on_single_project_failure(self, env, monkeypatch: pytest.MonkeyPatch):
         """单项目异常 → 其他项目继续；failed_projects 计数。"""
         pm, _, _ = env
-        (pm.projects_root / "proj2").mkdir()
+        _make_project(pm.projects_dir / "proj2")
 
         original = pm.sync_agent_profile
 
@@ -712,49 +714,49 @@ class TestRepairAllSymlinks:
         stats = pm.sync_all_agent_profiles()
 
         assert stats["failed_projects"] == 1
-        assert (pm.projects_root / "proj2" / ".claude").is_dir()
+        assert (pm.projects_dir / "proj2" / ".claude").is_dir()
         assert stats["aborted"] is False
 
     def test_repair_all_aborts_on_profile_missing(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         """ProfileMissingError → totals.aborted=True，所有项目跳过。"""
         monkeypatch.setenv("ARCREEL_PROFILE_DIR", str(tmp_path / "nonexistent"))
-        projects_root = tmp_path / "projects"
-        projects_root.mkdir()
-        (projects_root / "proj1").mkdir()
-        (projects_root / "proj2").mkdir()
-        pm = ProjectManager(projects_root)
+        pm = ProjectManager(tmp_path / "data")
+        _make_project(pm.projects_dir / "proj1")
+        _make_project(pm.projects_dir / "proj2")
 
         stats = pm.sync_all_agent_profiles()
 
         assert stats["aborted"] is True
-        assert not (projects_root / "proj1" / MANIFEST_FILENAME).exists()
-        assert not (projects_root / "proj2" / MANIFEST_FILENAME).exists()
+        assert not (pm.projects_dir / "proj1" / MANIFEST_FILENAME).exists()
+        assert not (pm.projects_dir / "proj2" / MANIFEST_FILENAME).exists()
 
-    def test_skips_underscore_prefixed_dirs(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-        """``_global_assets`` 等下划线开头的保留目录不是项目，不该 sync。
-
-        现有 ``list_projects`` 用 ``not startswith((".", "_"))`` 规则；
-        ``sync_all_agent_profiles`` 必须对齐，否则会在 ``_global_assets/`` 下
-        无意义创建 ``.claude/``、``CLAUDE.md``、manifest。
-        """
+    def test_skips_entries_that_are_not_projects(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        """只物化到项目：没有 project.json、名字不合法的目录与数据根里的系统条目都不物化。"""
         profile_dir = tmp_path / "profile"
         (profile_dir / ".claude").mkdir(parents=True)
         (profile_dir / ".claude" / "x.md").write_text("v1")
         monkeypatch.setenv("ARCREEL_PROFILE_DIR", str(profile_dir))
 
-        projects_root = tmp_path / "projects"
-        projects_root.mkdir()
-        (projects_root / "proj").mkdir()
-        (projects_root / "_global_assets").mkdir()
-        (projects_root / ".git").mkdir()  # 真实的非项目目录
+        pm = ProjectManager(tmp_path / "data")
+        _make_project(pm.projects_dir / "proj")
+        not_projects = [
+            pm.projects_dir / "no-project-json",
+            pm.projects_dir / "bad_name",
+            pm.layout.global_assets_dir,
+            pm.layout.trial_runs_dir,
+            pm.layout.users_dir,
+            pm.layout.runtime_dir,
+        ]
+        for directory in not_projects:
+            directory.mkdir(parents=True, exist_ok=True)
+        (pm.projects_dir / "bad_name" / "project.json").write_text(json.dumps({"content_mode": "narration"}))
 
-        pm = ProjectManager(projects_root)
         pm.sync_all_agent_profiles()
 
-        assert (projects_root / "proj" / MANIFEST_FILENAME).exists()
-        assert not (projects_root / "_global_assets" / MANIFEST_FILENAME).exists()
-        assert not (projects_root / "_global_assets" / ".claude").exists()
-        assert not (projects_root / ".git" / MANIFEST_FILENAME).exists()
+        assert (pm.projects_dir / "proj" / MANIFEST_FILENAME).exists()
+        for directory in not_projects:
+            assert not (directory / MANIFEST_FILENAME).exists(), directory
+            assert not (directory / ".claude").exists(), directory
 
 
 # ---------- 老 symlink 迁移 ----------

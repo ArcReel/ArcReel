@@ -2,7 +2,11 @@
 id: text/ad_storyboard_prompt_authoring
 category: text
 title: 广告 / 短片 · 分镜提示词编写
-description: 为已有广告分镜脚本里带待编写标记的分镜补全视觉层（image_prompt / video_prompt），按 shot_id 对齐。口播、时长、段落与出场资产已在脚本中定稿、由后端原样保留，不进输出；其余分镜只作前后文，附已有画面与动作摘要以保持连续。画面依据 brief 与商品信息，商品外观忠实不臆造。
+description: 为广告分镜脚本里待编写的分镜补全画面与视频提示词（image_prompt / video_prompt）。
+stage: prompt_authoring
+invoked_by:
+  kind: agent_tool
+  name: generate_episode_script
 applies_to:
   content_mode:
   - ad
@@ -37,7 +41,7 @@ protected: false
 
 {{ partial("shared/overview_block") }}
 
-{{ partial("shared/style_block") }}
+{{ partial("shared/text_style") }}
 
 <brief>
 {{ brief or "（未提供，按商品信息与常识自行设计）" }}
@@ -51,7 +55,7 @@ protected: false
 商品入画时外观须与商品信息一致：{{ partial("shared/product_fidelity") }}。
 
 {% endif %}
-{{ partial("shared/asset_name_blocks") }}
+{{ partial("shared/lists/asset_name_blocks") }}
 
 未标注的分镜已有视觉层，只作前后文参照：待编写分镜的画面与动作要与前后分镜衔接自然、风格一致。
 

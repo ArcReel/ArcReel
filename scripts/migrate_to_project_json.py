@@ -16,6 +16,7 @@ from pathlib import Path
 # 添加仓库根目录到 Python 路径
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from lib.infra.data_root_layout import PROJECT_NAME_PATTERN, DataRootLayout
 from lib.project.project_manager import ProjectManager
 
 
@@ -174,7 +175,9 @@ def main():
     parser.add_argument("project", nargs="?", help="项目名称，或使用 --all 迁移所有项目")
     parser.add_argument("--all", action="store_true", help="迁移所有项目")
     parser.add_argument("--dry-run", action="store_true", help="预览模式，不实际执行")
-    parser.add_argument("--projects-root", default=None, help="项目根目录")
+    parser.add_argument(
+        "--projects-root", "--data-root", dest="data_root", default=None, help="数据根（默认按当前配置解析）"
+    )
 
     args = parser.parse_args()
 
@@ -184,10 +187,10 @@ def main():
         sys.exit(1)
 
     # 初始化 ProjectManager
-    pm = ProjectManager(projects_root=args.projects_root)
+    pm = ProjectManager(args.data_root or DataRootLayout.current().root)
 
     print("🚀 开始迁移...")
-    print(f"   项目根目录: {pm.projects_root}")
+    print(f"   项目目录: {pm.projects_dir}")
 
     if args.dry_run:
         print("   📋 预览模式已启用")
@@ -196,7 +199,18 @@ def main():
     fail_count = 0
 
     if args.all:
-        projects = pm.list_projects()
+        # 待迁移的旧项目还没有 project.json，不在 list_projects() 里；按项目名规则与剧本文件识别旧项目
+        projects = (
+            sorted(
+                entry.name
+                for entry in pm.projects_dir.iterdir()
+                if entry.is_dir()
+                and PROJECT_NAME_PATTERN.fullmatch(entry.name)
+                and any((entry / "scripts").glob("*.json"))
+            )
+            if pm.projects_dir.is_dir()
+            else []
+        )
         print(f"   发现 {len(projects)} 个项目")
 
         for project_name in projects:

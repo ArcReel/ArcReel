@@ -2,7 +2,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, it, expect, vi } from "vitest";
 import type { ComponentProps } from "react";
 import userEvent from "@testing-library/user-event";
-import { API, type VideoCapabilitiesQuery } from "@/api";
+import { API, ApiRequestError, type VideoCapabilitiesQuery } from "@/api";
 import { ModelConfigSection } from "./ModelConfigSection";
 import { useEndpointCatalogStore } from "@/stores/endpoint-catalog-store";
 import type {
@@ -103,14 +103,13 @@ function veoConstraints(query: VideoCapabilitiesQuery): DurationConstraints {
     return {
       ...base,
       allowed: [8],
-      allowed_without_reference_images: resolution === "1080p" || resolution === "4k" ? [8] : [4, 6, 8],
       excluded: { "4": "reference", "6": "reference" },
     };
   }
   if (resolution === "1080p" || resolution === "4k") {
-    return { ...base, allowed: [8], allowed_without_reference_images: [8], excluded: { "4": "resolution", "6": "resolution" } };
+    return { ...base, allowed: [8], excluded: { "4": "resolution", "6": "resolution" } };
   }
-  return { ...base, allowed: [4, 6, 8], allowed_without_reference_images: [4, 6, 8], excluded: {} };
+  return { ...base, allowed: [4, 6, 8], excluded: {} };
 }
 
 function fakeVideoCapabilities(videoBackend: string, query: VideoCapabilitiesQuery): Promise<VideoCapabilities> {
@@ -125,7 +124,6 @@ function fakeVideoCapabilities(videoBackend: string, query: VideoCapabilitiesQue
           resolution: query.resolution ?? null,
           uses_reference_images: query.usesReferenceImages ?? false,
           allowed: sorted,
-          allowed_without_reference_images: sorted,
           excluded: {},
         };
   return Promise.resolve({
@@ -153,6 +151,44 @@ beforeEach(() => {
 });
 
 describe("ModelConfigSection", () => {
+  it("shows the candidate bucket failure and repair hint in the creation form", async () => {
+    vi.spyOn(API, "getModelVideoCapabilities").mockRejectedValue(
+      new ApiRequestError("请重新选择支持参考生视频的模型", undefined, 400),
+    );
+    render(<ModelConfigSection showSubFields={false} value={{ ...EMPTY_VALUE, videoBackend: "gemini/veo-3" }}
+      onChange={() => {}} providers={PROVIDERS} options={OPTIONS} globalDefaults={EMPTY_GLOBALS}
+      usesReferenceImages />);
+    expect(await screen.findByRole("alert")).toHaveTextContent("请重新选择支持参考生视频的模型");
+  });
+  it("shows both reference-video bucket resolutions and keeps a shared model in sync", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    const providers = PROVIDERS.map((provider) => ({
+      ...provider,
+      models: Object.fromEntries(Object.entries(provider.models).map(([id, model]) => [
+        id, { ...model, resolutions: ["720p", "1080p"] },
+      ])),
+    }));
+    const value = {
+      ...EMPTY_VALUE,
+      videoBackend: "gemini/veo-3",
+      videoResolutions: { "gemini/veo-3": "720p" },
+      videoResolution: "720p",
+    };
+    const { rerender } = render(
+      <ModelConfigSection value={value} onChange={onChange} providers={providers} options={OPTIONS}
+        globalDefaults={EMPTY_GLOBALS} usesReferenceImages />,
+    );
+    const i2v = await screen.findByRole("combobox", { name: /图生视频.*分辨率|Image to video.*Resolution/ });
+    const r2v = screen.getByRole("combobox", { name: /参考生视频.*分辨率|Reference to video.*Resolution/ });
+    expect(i2v).toHaveValue("720p");
+    expect(r2v).toHaveValue("720p");
+    await user.selectOptions(i2v, "1080p");
+    const next = onChange.mock.lastCall?.[0];
+    rerender(<ModelConfigSection value={{ ...next, videoResolution: next.videoResolutions["gemini/veo-3"] }}
+      onChange={onChange} providers={providers} options={OPTIONS} globalDefaults={EMPTY_GLOBALS} usesReferenceImages />);
+    expect(r2v).toHaveValue("1080p");
+  });
   it("renders only the three default-layer selectors when no candidates are supplied", async () => {
     const user = userEvent.setup();
     render(
@@ -1355,7 +1391,6 @@ describe("dimensions a ComfyUI workflow fixes", () => {
       resolution: null,
       uses_reference_images: false,
       allowed: durations,
-      allowed_without_reference_images: durations,
       excluded: {},
     };
     vi.spyOn(API, "getModelVideoCapabilities").mockResolvedValue({
@@ -1417,7 +1452,7 @@ describe("dimensions a ComfyUI workflow fixes", () => {
   it("says why the duration control is absent when the workflow fixes its duration", async () => {
     renderWithConstraints({ duration_fixed: true, duration_tier_empty: true }, []);
 
-    expect(await screen.findByText(/时长不由 ArcReel 决定/)).toBeInTheDocument();
+    expect(await screen.findByText(/时长由端点固定/)).toBeInTheDocument();
     expect(screen.queryByRole("radiogroup", { name: "默认时长" })).not.toBeInTheDocument();
   });
 
@@ -1425,7 +1460,7 @@ describe("dimensions a ComfyUI workflow fixes", () => {
     // frames 绑了却没有帧率来源：项目页看到的结果与时长固定那一支一样，也要有一行说明。
     renderWithConstraints({ duration_fixed: false, duration_tier_empty: true }, []);
 
-    expect(await screen.findByText(/时长不由 ArcReel 决定/)).toBeInTheDocument();
+    expect(await screen.findByText(/时长由端点固定/)).toBeInTheDocument();
     expect(screen.queryByRole("radiogroup", { name: "默认时长" })).not.toBeInTheDocument();
   });
 
@@ -1433,6 +1468,6 @@ describe("dimensions a ComfyUI workflow fixes", () => {
     renderWithConstraints({}, [5]);
 
     expect(await screen.findByRole("radiogroup", { name: "默认时长" })).toBeInTheDocument();
-    expect(screen.queryByText(/时长不由 ArcReel 决定/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/时长由端点固定/)).not.toBeInTheDocument();
   });
 });

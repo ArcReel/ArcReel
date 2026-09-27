@@ -52,7 +52,7 @@ def _invalid_script() -> dict:
 
 
 def _pm(tmp_path: Path) -> ProjectManager:
-    pm = ProjectManager(tmp_path / "projects")
+    pm = ProjectManager(tmp_path)
     pm.create_project("demo")
     pm.create_project_metadata("demo", "Demo", "Anime", "narration")
     return pm
@@ -154,7 +154,7 @@ def _valid_drama_script(scenes: list[dict] | None = None) -> dict:
 
 
 def _pm_drama(tmp_path: Path) -> ProjectManager:
-    pm = ProjectManager(tmp_path / "projects")
+    pm = ProjectManager(tmp_path)
     pm.create_project("demo")
     pm.create_project_metadata("demo", "Demo", "Anime", "drama")
     return pm

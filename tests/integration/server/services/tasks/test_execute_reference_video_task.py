@@ -13,7 +13,9 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from lib.generation.video_request_facts import VideoRequestFactsFailure
 from lib.script.reference_video.request_projection import resolve_reference_assets
+from tests.factories import make_video_request_facts
 from tests.fakes import FakeConfigResolver
 from tests.integration.server.services.tasks.reference_video_tasks_support import (
     _TINY_PNG,
@@ -45,11 +47,10 @@ def _wire_context(
     backend_name: str,
     backend_model: str,
     registry_provider_id: str | None = None,
-    resolution_or_fallback: str = "1080p",
     resolution: str | None = None,
     max_refs: int | None = None,
-    max_duration: int | None = None,
     supported_durations: tuple[int, ...] = (3,),
+    allowed_durations: tuple[int, ...] | None = None,
     duration_endpoint_fixed: bool = False,
     voice_consistency: str = "soft",
     max_reference_audio_count: int = 0,
@@ -57,14 +58,18 @@ def _wire_context(
     requested_generate_audio: bool = True,
     generate_audio: bool = False,
     text_to_video: bool = True,
+    has_audio_track: bool = True,
+    audio_switch_controllable: bool = True,
+    request_facts_failure: VideoRequestFactsFailure | None = None,
     seen_lane_requests: list[dict[str, Any]] | None = None,
 ) -> None:
     """把 fake generator + video lane 值包成 GenerationContext，替换 resolve_generation_context 单点。
 
     执行器不触碰 MediaGenerator 私有属性、不手工重建 provider 身份——所有
-    provider/backend 身份、能力上限、resolution 均由 GenerationContext 的 video lane 提供。
-    能力上限与 resolution 的解析逻辑本身在 tests/server/test_generation_context.py 覆盖，此处
-    只需喂入 lane 值验证执行器的下游 clamp / 守卫 / 透传行为。
+    provider/backend 身份由 video lane 提供，能力与请求分辨率只读 lane 上的视频请求事实。
+    事实按 lane 请求声明的桶直接构造（``allowed_durations`` 缺省等于全集）；求值本身在
+    tests/integration/lib/generation/test_video_request_facts.py 覆盖，此处只验证执行器的下游
+    clamp / 守卫 / 透传行为。``request_facts_failure`` 给定时 lane 携带该失败对象。
 
     ``registry_provider_id`` 缺省与 ``backend_name`` 相同（多数供应商如此）；族别名供应商
     （如 ark-agent-plan 族复用 Ark backend）两者不同，需显式区分以覆盖 registry 查表路径。
@@ -91,23 +96,36 @@ def _wire_context(
     if isinstance(fake_generator.versions, MagicMock):
         fake_generator.versions.get_current_version.return_value = 0
 
-    lane = VideoLaneResult(
-        provider_model=ProviderModel(provider_id=registry_provider_id or backend_name, model_id=backend_model),
-        backend_name=backend_name,
-        backend_model=backend_model,
-        resolution=resolution,
-        resolution_or_fallback=resolution_or_fallback,
-        supported_durations=supported_durations,
-        duration_endpoint_fixed=duration_endpoint_fixed,
-        max_duration=max_duration,
-        max_reference_images=max_refs,
-        voice_consistency=voice_consistency,
-        max_reference_audio_count=max_reference_audio_count,
-        reference_audio_per_image=reference_audio_per_image,
-        requested_generate_audio=requested_generate_audio,
-        generate_audio=generate_audio,
-        text_to_video=text_to_video,
-    )
+    provider_id = registry_provider_id or backend_name
+
+    def _lane(video_request) -> VideoLaneResult:
+        request_facts = request_facts_failure or make_video_request_facts(
+            route="reference_video",
+            generation_type=video_request.generation_type,
+            provider_id=provider_id,
+            model_id=backend_model,
+            resolution=resolution,
+            supported_durations=supported_durations,
+            allowed_durations=supported_durations if allowed_durations is None else allowed_durations,
+            duration_endpoint_fixed=duration_endpoint_fixed,
+            max_reference_images=max_refs,
+            voice_consistency=voice_consistency,
+            max_reference_audio_count=max_reference_audio_count,
+            reference_audio_per_image=reference_audio_per_image,
+            requested_generate_audio=requested_generate_audio,
+            generate_audio=generate_audio,
+            has_audio_track=has_audio_track,
+            audio_switch_controllable=audio_switch_controllable,
+            text_to_video=text_to_video,
+        )
+        return VideoLaneResult(
+            provider_model=ProviderModel(provider_id=provider_id, model_id=backend_model),
+            backend_name=backend_name,
+            backend_model=backend_model,
+            resolution=resolution,
+            request_facts=request_facts,
+            requested_generate_audio_fallback=requested_generate_audio,
+        )
 
     async def _fake_resolve(*_args, **kwargs):
         if seen_lane_requests is not None:
@@ -128,7 +146,7 @@ def _wire_context(
                 narration_speed=1.1,
                 voices=(),
             )
-        return GenerationContext(generator=fake_generator, video_lane=lane, audio_lane=audio_lane)
+        return GenerationContext(generator=fake_generator, video_lane=_lane(kwargs["video"]), audio_lane=audio_lane)
 
     monkeypatch.setattr(rvt, "resolve_generation_context", _fake_resolve)
 
@@ -628,6 +646,62 @@ async def test_execute_reference_video_task_omits_reference_audio_when_episode_i
 
 
 @pytest.mark.asyncio
+async def test_execute_reference_video_task_blocks_on_request_facts_failure_with_its_code(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """lane 的视频请求事实解析不出时，执行在提交供应商前以原问题码与参数键阻断。"""
+
+    from lib.script.reference_video.request_projection import ReferenceProjectionBlockedError
+
+    proj_dir = write_project(tmp_path)
+    from server.services.tasks import reference_video_tasks as rvt
+
+    fake_pm = MagicMock()
+    fake_pm.load_project.return_value = json.loads((proj_dir / "project.json").read_text(encoding="utf-8"))
+    fake_pm.get_project_path.return_value = proj_dir
+    fake_pm.load_script.side_effect = lambda _n, _f: json.loads(
+        (proj_dir / "scripts" / "episode_1.json").read_text(encoding="utf-8")
+    )
+    monkeypatch.setattr(rvt, "get_project_manager", lambda: fake_pm)
+
+    fake_generator = MagicMock()
+    fake_generator.generate_video_async = AsyncMock()
+    _wire_context(
+        monkeypatch,
+        rvt,
+        fake_generator,
+        backend_name="gemini-aistudio",
+        backend_model="veo-3.1-generate-preview",
+        request_facts_failure=VideoRequestFactsFailure(
+            "reference_supported_durations_incompatible",
+            (
+                ("provider", "gemini-aistudio"),
+                ("model", "veo-3.1-generate-preview"),
+                ("resolution", "1080p"),
+                ("capability", "r2v"),
+            ),
+        ),
+    )
+
+    with pytest.raises(ReferenceProjectionBlockedError) as exc_info:
+        await rvt.execute_reference_video_task(
+            "demo",
+            "E1U1",
+            {"script_file": "scripts/episode_1.json"},
+            user_id="u1",
+        )
+
+    assert exc_info.value.code == "reference_supported_durations_incompatible"
+    assert exc_info.value.params == {
+        "capability": "r2v",
+        "provider": "gemini-aistudio",
+        "model": "veo-3.1-generate-preview",
+        "resolution": "1080p",
+    }
+    fake_generator.generate_video_async.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_execute_reference_video_task_rechecks_audio_switch_for_latest_model(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
@@ -656,6 +730,8 @@ async def test_execute_reference_video_task_rechecks_audio_switch_for_latest_mod
         voice_consistency="native",
         requested_generate_audio=False,
         generate_audio=True,
+        has_audio_track=True,
+        audio_switch_controllable=False,
     )
     fake_queue = MagicMock()
     fake_queue.persist_execution_checkpoint = AsyncMock()
@@ -1039,16 +1115,13 @@ async def test_execute_reference_video_task_clears_stale_video_uri_and_thumbnail
 
 
 @pytest.mark.asyncio
-async def test_execute_reference_video_task_grok_uses_provider_default_resolution(
+@pytest.mark.parametrize("resolution", ["720p", None])
+async def test_execute_reference_video_task_sends_the_request_facts_resolution(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    resolution: str | None,
 ):
-    """Regression: Grok 视频生成必须用 720p（xai_sdk 的 VideoResolutionMap 只接受 480p/720p；
-    参考生视频执行器若回退到 MediaGenerator 默认 1080p，会在 SDK 抛 `Invalid video resolution 1080p`）。
-    执行器必须把 video lane 的 `resolution_or_fallback` 原样传给 generate_video_async——
-    档位的解析/兜底逻辑（provider fallback、model_settings 优先级）在
-    tests/server/test_generation_context.py 覆盖。
-    """
+    """执行器把视频请求事实的请求分辨率原样下发：未设置即不携带该参数，不补兜底档位。"""
     proj_dir = write_project(tmp_path)
 
     from server.services.tasks import reference_video_tasks as rvt
@@ -1080,7 +1153,7 @@ async def test_execute_reference_video_task_grok_uses_provider_default_resolutio
         fake_generator,
         backend_name="grok",
         backend_model="grok-imagine-video",
-        resolution_or_fallback="720p",
+        resolution=resolution,
     )
 
     async def _fake_extract(*_a, **_k):
@@ -1095,22 +1168,15 @@ async def test_execute_reference_video_task_grok_uses_provider_default_resolutio
         user_id="u1",
     )
 
-    assert captured.get("resolution") == "720p", (
-        f"Grok 执行器必须显式传 720p，否则 MediaGenerator 默认 1080p 会被 xai_sdk 拒绝。"
-        f"实际收到: {captured.get('resolution')!r}"
-    )
+    assert "resolution" in captured
+    assert captured["resolution"] == resolution
 
 
 @pytest.mark.asyncio
-async def test_execute_reference_video_task_narrows_durations_by_registry_provider_id(
+async def test_execute_reference_video_task_picks_the_tier_from_narrowed_request_facts(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
-    """条件档位收窄按规范 registry provider_id 查表，不按 backend 报告的族名。
-
-    族别名供应商（如 ark-agent-plan 族复用 Ark backend）的 backend_name 不是 registry key：
-    拿它查 ModelInfo 会静默落空，收窄整个失效——3 秒剧本会取到 4 秒，而 Veo 3.1 带参考图
-    只接受 8 秒，执行期必然被 backend 拒绝。
-    """
+    """取档只看视频请求事实收窄后的档位：Veo 3.1 带参考图只剩 8 秒，3 秒剧本不会取到全集里的 4 秒。"""
     proj_dir = write_project(tmp_path)
 
     from server.services.tasks import reference_video_tasks as rvt
@@ -1143,8 +1209,8 @@ async def test_execute_reference_video_task_narrows_durations_by_registry_provid
         backend_name="ark-agent-plan",
         registry_provider_id="gemini-aistudio",
         backend_model="veo-3.1-generate-preview",
-        resolution_or_fallback="720p",
         supported_durations=(4, 6, 8),
+        allowed_durations=(8,),
     )
 
     async def _fake_extract(*_a, **_k):
@@ -1159,7 +1225,6 @@ async def test_execute_reference_video_task_narrows_durations_by_registry_provid
         user_id="u1",
     )
 
-    # 3 秒剧本 + 带参考图：按 registry 声明收窄到 [8]。落空则取全集首个能装下的 4 秒。
     assert captured.get("duration_seconds") == 8
 
 
@@ -1717,7 +1782,6 @@ async def test_execute_reference_video_task_rejects_duration_above_lane_maximum(
         backend_name="custom-openai",
         backend_model="my-custom-video",
         max_refs=1,
-        max_duration=6,
         supported_durations=(2, 4, 6),
     )
 
@@ -1796,7 +1860,6 @@ async def test_execute_reference_video_task_prompt_matches_clipped_refs(
         backend_name="openai",
         backend_model="sora-2",
         max_refs=1,
-        max_duration=12,
         supported_durations=(4, 8, 12),
     )
 
@@ -1823,23 +1886,22 @@ async def test_execute_reference_video_task_prompt_matches_clipped_refs(
     assert "<瓶子>" in prompt
     assert "<酒馆>@图片" not in prompt
     assert "<瓶子>@图片" not in prompt
-    from lib.script.reference_video.request_projection import (
-        ProviderProjectionCandidate,
-        clamp_reference_assets,
-    )
+    from lib.script.reference_video.request_projection import clamp_reference_assets
     from server.services.tasks.narration_delivery_tasks import reference_video_visual_basis_digest
 
-    expected_candidate = ProviderProjectionCandidate(
+    expected_facts = make_video_request_facts(
+        route="reference_video",
         generation_type="r2v",
         provider_id="openai",
         model_id="sora-2",
+        resolution=None,
         supported_durations=(4, 8, 12),
+        allowed_durations=(4, 8, 12),
         max_reference_images=1,
-        resolution="1080p",
         generate_audio=False,
         requested_generate_audio=True,
         has_audio_track=True,
-        audio_switch_controllable=False,
+        audio_switch_controllable=True,
     )
     expected_digest = reference_video_visual_basis_digest(
         project=project,
@@ -1849,7 +1911,7 @@ async def test_execute_reference_video_task_prompt_matches_clipped_refs(
             resolve_reference_assets(project, proj_dir, script["video_units"][0]),
             1,
         ),
-        candidate=expected_candidate,
+        request_facts=expected_facts,
     )
     assert captured["visual_basis_digest"] == expected_digest
 
@@ -1910,7 +1972,6 @@ async def test_execute_reference_video_task_prompt_matches_deduped_refs(
         backend_name="grok",
         backend_model="grok-imagine-video",
         max_refs=None,
-        max_duration=12,
         supported_durations=(4, 8, 12),
     )
 
@@ -1978,7 +2039,6 @@ async def test_execute_reference_video_task_reprojects_fresh_tts_duration_and_co
         backend_name="openai",
         backend_model="sora-2",
         max_refs=9,
-        max_duration=12,
         supported_durations=(4, 8, 12),
         seen_lane_requests=seen_lane_requests,
     )
@@ -2094,10 +2154,6 @@ async def test_execute_reference_video_task_reuses_same_tier_visual_without_prov
     from lib.artifacts.version_manager import VersionManager
     from lib.artifacts.video_artifact_facts import VideoArtifactCurrencyFacts
     from lib.artifacts.visual_artifact_provenance import build_reference_video_artifact_visual_basis
-    from lib.script.reference_video.request_projection import (
-        ProviderProjectionCandidate,
-        reference_audio_model_facts,
-    )
     from lib.speech.narration_delivery import NarrationAudioEvidence, TtsSynthesisSettings, prepare_narration_delivery
     from lib.speech.speech_artifact_provenance import build_video_duration_basis, build_video_speech_basis
     from lib.speech.speech_composition import admit_script_unit
@@ -2125,22 +2181,20 @@ async def test_execute_reference_video_task_reuses_same_tier_visual_without_prov
     current.write_bytes(b"existing-paid-video")
     versions = VersionManager(proj_dir)
     project = json.loads((proj_dir / "project.json").read_text(encoding="utf-8"))
-    has_audio_track, audio_switch_controllable = reference_audio_model_facts(
-        "openai", "sora-2", voice_consistency="soft", generation_type="i2v"
-    )
     # 正文没有 @ 提及 → 无参考图，执行侧按 i2v 桶分流。
-    candidate = ProviderProjectionCandidate(
+    request_facts = make_video_request_facts(
+        route="reference_video",
         generation_type="i2v",
         provider_id="openai",
         model_id="sora-2",
+        resolution=None,
         supported_durations=(4, 8, 12),
+        allowed_durations=(4, 8, 12),
         max_reference_images=9,
-        resolution="1080p",
         generate_audio=False,
         requested_generate_audio=True,
-        has_audio_track=has_audio_track,
-        audio_switch_controllable=audio_switch_controllable,
-        voice_consistency="soft",
+        has_audio_track=True,
+        audio_switch_controllable=True,
     )
     request_assets = resolve_reference_assets(project, proj_dir, unit)
     visual_basis_digest = reference_video_visual_basis_digest(
@@ -2148,7 +2202,7 @@ async def test_execute_reference_video_task_reuses_same_tier_visual_without_prov
         project_path=proj_dir,
         unit=unit,
         request_assets=request_assets,
-        candidate=candidate,
+        request_facts=request_facts,
     )
     artifact_visual_basis = build_reference_video_artifact_visual_basis(
         unit=unit,
@@ -2212,7 +2266,6 @@ async def test_execute_reference_video_task_reuses_same_tier_visual_without_prov
         backend_name="openai",
         backend_model="sora-2",
         max_refs=9,
-        max_duration=12,
         supported_durations=(4, 8, 12),
     )
 
@@ -2309,7 +2362,6 @@ async def test_execute_reference_video_task_persists_effective_duration_when_rou
         backend_name="openai",
         backend_model="sora-2",
         max_refs=9,
-        max_duration=12,
         supported_durations=(4, 8, 12),
     )
 
@@ -2367,7 +2419,6 @@ async def test_execute_reference_video_task_persists_duration_when_unchanged(
         backend_name="openai",
         backend_model="sora-2",
         max_refs=9,
-        max_duration=12,
         supported_durations=(3, 8, 12),
     )
 

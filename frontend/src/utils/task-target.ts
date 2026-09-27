@@ -1,25 +1,31 @@
 import type { TFunction } from "i18next";
+import {
+  WORKSPACE_ROUTE_CHARACTERS,
+  WORKSPACE_ROUTE_PRODUCTS,
+  WORKSPACE_ROUTE_PROPS,
+  WORKSPACE_ROUTE_SCENES,
+} from "@/app-routes";
 import type { ProjectData, TaskItem, WorkspaceNotificationTarget } from "@/types";
 
 /**
  * 由失败任务构建可点击回跳的通知 target，以及人类可读的失败文案。
  *
  * 回跳路由按 task_type 区分：
- * - character/scene/prop → 资产页（不需要剧集），resource_id 即资产名
+ * - character/scene/prop/product → 资产页（不需要剧集），resource_id 即资产名
  * - storyboard/video → 对应剧集的分镜（ShotSplitView 按 segment id 选中）
  * - grid → 对应剧集的宫格画布（导航即回跳，无 DOM 锚点）
  * - reference_video → 对应剧集的参考单元（ReferenceVideoCanvas 选中 unit）
- * - image_edit → 按 resource_type 转发到上述对应路由；product 暂无路由（与既有
- *   product 生成任务缺口一致），仅推送文案不可点击
+ * - image_edit → 按 resource_type 转发到上述对应路由
  *
  * 剧集路由由 task.script_file 反查 projectData.episodes 得到；查不到时返回
  * null，让通知仍然推送、仅不可点击（优雅降级）。
  */
 
-const ASSET_ROUTES: Record<"character" | "scene" | "prop", string> = {
-  character: "/characters",
-  scene: "/scenes",
-  prop: "/props",
+const ASSET_ROUTES: Record<"character" | "scene" | "prop" | "product", string> = {
+  character: `/${WORKSPACE_ROUTE_CHARACTERS}`,
+  scene: `/${WORKSPACE_ROUTE_SCENES}`,
+  prop: `/${WORKSPACE_ROUTE_PROPS}`,
+  product: `/${WORKSPACE_ROUTE_PRODUCTS}`,
 };
 
 const FAILURE_TEXT_KEYS: Partial<
@@ -30,6 +36,7 @@ const FAILURE_TEXT_KEYS: Partial<
   character: { key: "character_task_failed", idParam: "id" },
   scene: { key: "scene_task_failed", idParam: "id" },
   prop: { key: "prop_task_failed", idParam: "id" },
+  product: { key: "product_task_failed", idParam: "id" },
   grid: { key: "grid_task_failed", idParam: "id" },
   reference_video: { key: "reference_generation_task_failed", idParam: "unitId" },
   image_edit: { key: "image_edit_task_failed", idParam: "id" },
@@ -63,6 +70,7 @@ export function buildTaskFailureTarget(
     case "character":
     case "scene":
     case "prop":
+    case "product":
       return {
         type: task.task_type,
         id: task.resource_id,
@@ -86,12 +94,12 @@ export function buildTaskFailureTarget(
     }
     case "image_edit": {
       // image_edit 跨 character/scene/prop/product/storyboard 共用 task_type，真正
-      // 的资源种类在 resource_type；product 目前无对应 WorkspaceFocusTarget 路由
-      // （与既有 product 生成任务的通知目标缺口一致），优雅降级为不可点击。
+      // 的资源种类在 resource_type。
       switch (task.resource_type) {
         case "character":
         case "scene":
         case "prop":
+        case "product":
           return {
             type: task.resource_type,
             id: task.resource_id,

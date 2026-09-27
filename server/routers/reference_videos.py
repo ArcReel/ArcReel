@@ -16,6 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field, PositiveInt
 
 from lib.artifacts.artifact_activation import resolve_artifact_episode
 from lib.artifacts.version_manager import VersionManager
+from lib.config.resolver import ConfigResolver
 from lib.db import async_session_factory
 from lib.generation.batch_admission import BatchAdmission, BatchAdmissionDecision, refused_ticket
 from lib.generation.generation_queue import get_generation_queue
@@ -37,14 +38,15 @@ from lib.infra.path_safety import PathTraversalError, safe_join
 from lib.project.project_change_hints import project_change_source
 from lib.project.project_manager import get_project_manager, is_reference_video_project
 from lib.project.resource_paths import resource_relative_path
-from lib.script.reference_video import derive_references_from_text
 from lib.script.reference_video.request_projection import (
+    ReferenceRequestFactsLookup,
     ReferenceRequestOptions,
     ReferenceUnitRequestProjection,
+    configured_reference_request_facts,
     project_reference_unit_request,
 )
 from lib.script.reference_video.script_preview import build_script_preview
-from lib.script.reference_video.units import reference_video_bucket
+from lib.script.reference_video.unit_capabilities import hydrate_reference_units
 from lib.script.reference_video.voice_settings import VoiceRenderSettings
 from lib.script.script_editor import ScriptEditError
 from lib.speech.narration_delivery import (
@@ -62,6 +64,7 @@ from server.i18n import Translator
 from server.routers._reorder import full_permutation_error
 from server.routers._script_edits import execute_current_episode_edit, require_script_edit_result
 from server.services.admission.cost_estimation import quote_video_request
+from server.services.admission.reference_prompt_preview import render_reference_prompt_preview
 from server.services.admission.video_batch_admission import (
     admit_reference_video_batch,
     artifact_state_tickets,
@@ -84,9 +87,12 @@ from server.services.tasks.narration_delivery_tasks import (
 from server.services.tasks.reference_video_tasks import (
     apply_unit_video_assets,
     default_unit_duration,
-    resolve_project_duration_context,
 )
-from server.services.tasks.video_caps import project_video_caps
+from server.services.tasks.video_caps import (
+    project_video_caps,
+    reference_request_facts_lookup,
+    reference_unit_capabilities,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -287,10 +293,32 @@ def _require_unit_ready(unit: dict, *, ignore_marker: bool = False, allow_blank_
 # ============ 端点：列出 + 新建 ============
 
 
+async def _unit_capabilities(
+    project_name: str,
+    project: dict,
+    units: list[dict],
+    request_facts: ReferenceRequestFactsLookup | None = None,
+) -> dict[str, dict[str, object]]:
+    """逐单元按可用参考图定桶的服务端结论，随单元一起回给画布。"""
+    return await reference_unit_capabilities(
+        project,
+        get_project_manager().get_project_path(project_name),
+        units,
+        request_facts=request_facts or reference_request_facts_lookup(project),
+    )
+
+
+async def _unit_capability(
+    project_name: str, project: dict, unit: dict, request_facts: ReferenceRequestFactsLookup | None = None
+) -> dict[str, object]:
+    return (await _unit_capabilities(project_name, project, [unit], request_facts))[str(unit.get("unit_id") or "")]
+
+
 @router.get("/episodes/{episode}/units")
 async def list_units(project_name: str, episode: int, _t: Translator) -> dict[str, Any]:
-    _project, script, _sf = _load_episode_script(project_name, episode, _t)
-    return {"units": script.get("video_units") or []}
+    project, script, _sf = _load_episode_script(project_name, episode, _t)
+    units = script.get("video_units") or []
+    return {"units": units, "unit_capabilities": await _unit_capabilities(project_name, project, units)}
 
 
 @router.post("/episodes/{episode}/units", status_code=status.HTTP_201_CREATED)
@@ -301,20 +329,16 @@ async def add_unit(
     _t: Translator,
 ) -> dict[str, Any]:
     project, current, script_file = _load_episode_script(project_name, episode, _t)
-    # 取档要看这条 unit 执行时到底会不会带参考图，故按正文里已登记的 `@[名称]` 判定——
-    # 与执行期的解析同一个出口，未登记的提及不产生参考图、也就不施加带图档位约束。
-    refs, _missing = derive_references_from_text(req.prompt, project)
+    request_facts = reference_request_facts_lookup(project)
 
-    # 时长是 unit 级单一真相：请求未给出时按项目能力解析默认档位（异步 IO 不进项目锁临界区）
+    # 时长是 unit 级单一真相：请求未给出时取这条 unit 所落桶的默认档位（异步 IO 不进项目锁临界区）。
+    # 桶按可用参考图判定，与响应里的逐单元结论及执行期投影同一判据。
     duration_seconds = req.duration_seconds
     if duration_seconds is None:
-        duration_seconds = default_unit_duration(
-            await resolve_project_duration_context(
-                project, generation_type=reference_video_bucket(with_references=bool(refs))
-            ),
-            project,
-            with_references=bool(refs),
+        (hydration,) = hydrate_reference_units(
+            project, get_project_manager().get_project_path(project_name), [{"text": req.prompt}]
         )
+        duration_seconds = default_unit_duration(await request_facts(hydration.hydrated_generation_type), project)
 
     units = current.get("video_units") if isinstance(current.get("video_units"), list) else []
     unit = _build_unit_dict(
@@ -335,7 +359,11 @@ async def add_unit(
     require_script_edit_result(result)
     saved = get_project_manager().load_script(project_name, result.script)
     inserted = _find_unit(saved, unit["unit_id"], _t)
-    return {"unit": inserted, "edit_result": result.model_dump(mode="json")}
+    return {
+        "unit": inserted,
+        "unit_capability": await _unit_capability(project_name, project, inserted, request_facts),
+        "edit_result": result.model_dump(mode="json"),
+    }
 
 
 # ============ 端点：PATCH + DELETE ============
@@ -370,7 +398,7 @@ async def patch_unit(
     req: PatchUnitRequest,
     _t: Translator,
 ) -> dict[str, Any]:
-    _project, current, script_file = _load_episode_script(project_name, episode, _t)
+    project, current, script_file = _load_episode_script(project_name, episode, _t)
     _find_unit(current, unit_id, _t)
     fields: dict[str, Any] = {}
     if req.prompt is not None:
@@ -382,7 +410,8 @@ async def patch_unit(
     if req.note is not None:
         fields["note"] = req.note
     if not fields:
-        return {"unit": _find_unit(current, unit_id, _t)}
+        unit = _find_unit(current, unit_id, _t)
+        return {"unit": unit, "unit_capability": await _unit_capability(project_name, project, unit)}
     result = execute_current_episode_edit(
         get_project_manager(),
         project_name,
@@ -394,7 +423,11 @@ async def patch_unit(
     require_script_edit_result(result, operation_not_found=True)
     saved = get_project_manager().load_script(project_name, result.script)
     unit = _find_unit(saved, unit_id, _t)
-    return {"unit": unit, "edit_result": result.model_dump(mode="json")}
+    return {
+        "unit": unit,
+        "unit_capability": await _unit_capability(project_name, project, unit),
+        "edit_result": result.model_dump(mode="json"),
+    }
 
 
 @router.delete("/episodes/{episode}/units/{unit_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -485,7 +518,9 @@ async def precheck_unit_duration(
     )
 
     project_path = get_project_manager().get_project_path(project_name)
+    request_facts_lookup = configured_reference_request_facts(project, ConfigResolver(async_session_factory))
     current_options = await prepare_current_reference_video_request_options(
+        request_facts_lookup=request_facts_lookup,
         project=project,
         script=script,
         script_file=script_file,
@@ -497,6 +532,7 @@ async def precheck_unit_duration(
         tts_in_progress=tts_in_progress,
     )
     projection = await project_reference_unit_request(
+        request_facts_lookup=request_facts_lookup,
         project=project,
         script=script,
         unit=unit,
@@ -535,6 +571,40 @@ async def precheck_unit_duration(
     if request_cost is not None:
         response["request_cost"] = request_cost
     return response
+
+
+class UnitPromptPreviewRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    prompt: str
+
+
+@router.post("/episodes/{episode}/units/{unit_id}/prompt-preview")
+async def preview_unit_prompt(
+    project_name: str,
+    episode: int,
+    unit_id: str,
+    req: UnitPromptPreviewRequest,
+    _t: Translator,
+) -> dict[str, Any]:
+    """按草稿正文投影并渲染，不保存、不入队。"""
+    project, script, _sf = _load_episode_script(project_name, episode, _t)
+    unit = {**_find_unit(script, unit_id, _t), "text": req.prompt}
+    project_path = get_project_manager().get_project_path(project_name)
+    projection = await project_reference_unit_request(
+        project=project,
+        script=script,
+        unit=unit,
+        project_path=project_path,
+    )
+    return await asyncio.to_thread(
+        render_reference_prompt_preview,
+        project=project,
+        unit=unit,
+        project_path=project_path,
+        projection=projection,
+        translate=_t,
+    )
 
 
 @router.post("/episodes/{episode}/script-preview")
@@ -597,7 +667,9 @@ async def generate_unit(
         else False
     )
     project_path = get_project_manager().get_project_path(project_name)
+    request_facts_lookup = configured_reference_request_facts(project, ConfigResolver(async_session_factory))
     current_options = await prepare_current_reference_video_request_options(
+        request_facts_lookup=request_facts_lookup,
         project=project,
         script=script,
         script_file=script_file,
@@ -609,6 +681,7 @@ async def generate_unit(
         tts_in_progress=tts_in_progress,
     )
     projection = await project_reference_unit_request(
+        request_facts_lookup=request_facts_lookup,
         project=project,
         script=script,
         unit=unit,

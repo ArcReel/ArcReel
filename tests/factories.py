@@ -267,3 +267,105 @@ def comfyui_endpoint_definition(**overrides: Any) -> dict[str, Any]:
     if definition["media_type"] == "image" and "bindings" not in overrides:
         del definition["bindings"]["fps"]
     return definition
+
+
+async def seed_endpoint_fixed_video_model(db_factory, *, reference_images: bool = False) -> str:
+    """在测试库里建一个时长由端点固定的 ComfyUI 视频模型（``supported_durations`` 为空集），返回 ``provider/model``。
+
+    端点绑定首帧输入，``reference_images=True`` 时再绑定参考图输入，使该模型同时满足 i2v 与 r2v 桶的能力闸。
+    """
+    from lib.custom_provider import make_provider_id
+    from lib.db.models.custom_endpoint import CustomEndpoint
+    from lib.db.models.custom_provider import CustomProvider, CustomProviderModel
+
+    image_binding = [{"node": "11", "input": "image", "class_type": "LoadImage"}]
+    definition = comfyui_endpoint_definition()
+    definition["bindings"]["start_image"] = image_binding
+    if reference_images:
+        definition["bindings"]["reference_images"] = image_binding
+    async with db_factory() as session:
+        endpoint = CustomEndpoint(
+            definition=definition, kind="comfyui", schema_version="1.0.0", media_type="video", display_name="ComfyUI"
+        )
+        provider = CustomProvider(
+            display_name="Comfy", discovery_format="comfyui", base_url="http://comfy.test:8188", api_key=""
+        )
+        session.add_all([endpoint, provider])
+        await session.flush()
+        session.add(
+            CustomProviderModel(
+                provider_id=provider.id,
+                model_id="wan-workflow",
+                display_name="Workflow",
+                endpoint=f"ce-{endpoint.id}",
+                supported_durations="[]",
+                is_default=True,
+                is_enabled=True,
+            )
+        )
+        await session.commit()
+    return f"{make_provider_id(provider.id)}/wan-workflow"
+
+
+def make_video_request_facts(**overrides: Any):
+    """分镜路线、Veo 3.1、未设分辨率的视频请求事实；消费方测试按需覆盖字段，不手搭能力 dict。"""
+    from lib.generation.video_request_facts import VideoRequestFacts
+
+    fields: dict[str, Any] = {
+        "route": "storyboard",
+        "generation_type": "i2v",
+        "provider_id": "gemini-aistudio",
+        "model_id": "veo-3.1-generate-preview",
+        "resolution": None,
+        "supported_durations": (4, 6, 8),
+        "allowed_durations": (4, 6, 8),
+        "excluded_durations": (),
+        "duration_endpoint_fixed": False,
+        "requested_generate_audio": True,
+        "generate_audio": True,
+        "has_audio_track": True,
+        "audio_switch_controllable": False,
+        "max_reference_images": 3,
+        "text_to_video": True,
+        "first_frame": True,
+        "voice_consistency": "soft",
+        "max_reference_audio_count": 0,
+        "reference_audio_per_image": False,
+    }
+    fields.update(overrides)
+    return VideoRequestFacts(**fields)
+
+
+def activate_reference_project(project_dir: Path, project: dict[str, Any]) -> dict[str, Any]:
+    """把 v7 形态的参考生视频项目写盘并迁到当前 schema，返回迁移后的项目字典。
+
+    迁移时已登记路径、带 ``description`` 且文件在盘上的资产图由补录认领进产物清单；此后再登记的
+    资产图即使文件在盘上，清单也不认领它。``project`` 的键覆盖缺省骨架；``scripts/episode_1.json`` 不存在时写一份空单元剧本。
+    """
+    import json
+
+    from lib.project.project_migrations.runner import migrate_project_dir
+    from lib.project.project_migrations.v7_to_v8_artifact_manifest import migrate_v7_to_v8
+
+    payload: dict[str, Any] = {
+        "schema_version": 7,
+        "title": "T",
+        "content_mode": "narration",
+        "generation_mode": "reference_video",
+        "characters": {},
+        "scenes": {},
+        "props": {},
+        "episodes": [{"episode": 1, "title": "E1", "script_file": "scripts/episode_1.json"}],
+        **project,
+    }
+    (project_dir / "scripts").mkdir(parents=True, exist_ok=True)
+    (project_dir / "project.json").write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    script_file = project_dir / "scripts" / "episode_1.json"
+    if not script_file.exists():
+        script_file.write_text(
+            json.dumps({"episode": 1, "generation_mode": "reference_video", "video_units": []}, ensure_ascii=False),
+            encoding="utf-8",
+        )
+    migrate_v7_to_v8(project_dir)
+    migrate_project_dir(project_dir)
+    return json.loads((project_dir / "project.json").read_text(encoding="utf-8"))

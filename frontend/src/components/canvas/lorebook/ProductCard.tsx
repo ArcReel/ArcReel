@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useCallback, useId } from "react";
 import { useTranslation } from "react-i18next";
 import { ImagePlus, ShoppingBag, Upload } from "lucide-react";
 import { API } from "@/api";
+import { PromptPreviewButton } from "@/components/shared/PromptPreviewButton";
 import { ImageEditButton } from "@/components/canvas/timeline/ImageEditButton";
 import { VersionTimeMachine } from "@/components/canvas/timeline/VersionTimeMachine";
 import { AspectFrame } from "@/components/ui/AspectFrame";
@@ -358,7 +359,16 @@ export function ProductCard({
       </div>
 
       {/* ---- Description ---- */}
-      <CapsLabel htmlFor={descId}>{t("dashboard:description")}</CapsLabel>
+      <div className="flex items-center justify-between gap-2">
+        <CapsLabel htmlFor={descId}>{t("dashboard:description")}</CapsLabel>
+        {readOnly ? null : (
+          <PromptPreviewButton
+            title={t("assets:prompt_preview_title", { name })}
+            notice={t("assets:prompt_preview_draft")}
+            load={(signal) => API.previewAssetPrompt(projectName, "product", name, description, { signal })}
+          />
+        )}
+      </div>
       <textarea
         ref={textareaRef}
         id={descId}

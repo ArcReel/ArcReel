@@ -11,9 +11,10 @@ import type { DurationExclusionReason, VideoCapabilities, VoiceConsistencyTier }
 //
 //   firstFrame / lastFrame  → 生效值（系统判定 ⊕ 用户覆盖），只有服务端能给出。
 //   voiceConsistency        → 服务端二维派生（模型能力 × 项目生成模式）。
-//   durations               → 型号声明全集 + 按上下文收窄后的候选与剔除成因，均由服务端
-//                             `duration_constraints_report` 算好；分辨率↔时长、参考图↔时长的
-//                             收窄规则只在 lib/config/resolver.py 一处。
+//   durations               → 型号声明全集 + 按上下文收窄后的候选与剔除成因，均由服务端视频
+//                             请求事实算好；分辨率↔时长、参考图↔时长的收窄规则只在
+//                             lib/config/resolver.py::constrain_durations 一处。
+//   参考生视频逐单元的桶与档位不在这里：服务端按可用参考图逐单元判定，随单元列表到达。
 //
 // 有项目时走 /projects/{name}/video-capabilities（可带表单里未保存的候选模型与约束上下文），
 // 无项目（创建向导）走 /providers/video-capabilities 按候选模型解析。
@@ -43,11 +44,6 @@ export interface ModelCapabilities {
   rawDurations: number[] | null;
   /** 按当前上下文收窄后的时长候选（升序）；未知为 null。 */
   supportedDurations: number[] | null;
-  /**
-   * 同分辨率下不走参考图路径的收窄结果；未知为 null。参考生视频的参考图约束按视频单元是否
-   * 真的携带参考图生效，画布为无参考图的单元换用它。
-   */
-  supportedDurationsWithoutReference: number[] | null;
   /** 全集中被联动约束剔除的时长（键为秒数字符串）→ 成因；未知为空表。 */
   excludedDurations: Record<string, DurationExclusionReason>;
   /**
@@ -68,10 +64,12 @@ export interface ModelCapabilities {
   /** 声音一致性三级标识；尚未查到或查询失败时为 null（未知）。 */
   voiceConsistency: VoiceConsistencyTier | null;
   /**
-   * 服务端明确答复视频模型未配置或无法解析（端点 422）。网络等其他失败不算，仍为 false：
+   * 服务端明确答复视频模型不满足桶能力或无法解析（端点 400/422）。网络等其他失败不算，仍为 false：
    * 那只是能力未知，不能据此门控。
    */
   videoModelUnresolved: boolean;
+  /** 服务端给出的模型失效原因与修复指引。 */
+  videoModelError: string | null;
   /** 当前上下文的查询在途（含约束上下文变化后的重取）。 */
   loading: boolean;
 }
@@ -122,6 +120,7 @@ export function useModelCapabilities({
     contextKey: string;
     caps: VideoCapabilities | null;
     unresolved: boolean;
+    error: string | null;
   } | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
@@ -162,13 +161,13 @@ export function useModelCapabilities({
       .then((next) => {
         // 网络 await 之后的写 state 断点：abort 可能发生在响应已 resolve 之后。
         if (signal.aborted) return;
-        setResult({ key, contextKey, caps: next, unresolved: false });
+        setResult({ key, contextKey, caps: next, unresolved: false, error: null });
       })
       .catch((err: unknown) => {
         if (signal.aborted) return;
         // 解析失败按「能力未知」处理：门控由消费方决定如何降级，不在此处编造能力值。
-        const unresolved = err instanceof ApiRequestError && err.status === 422;
-        setResult({ key, contextKey, caps: null, unresolved });
+        const unresolved = err instanceof ApiRequestError && (err.status === 400 || err.status === 422);
+        setResult({ key, contextKey, caps: null, unresolved, error: unresolved ? err.message : null });
       });
     return () => {
       controller.abort();
@@ -185,14 +184,14 @@ export function useModelCapabilities({
   return {
     rawDurations: caps?.supported_durations?.length ? ascending(caps.supported_durations) : null,
     supportedDurations: constraints ? constraints.allowed : null,
-    supportedDurationsWithoutReference: constraints ? constraints.allowed_without_reference_images : null,
     excludedDurations: constraints?.excluded ?? EMPTY_EXCLUSIONS,
     durationEndpointFixed: caps?.duration_endpoint_fixed ?? false,
     resolvedVideoBackend: caps ? `${caps.provider_id}/${caps.model}` : null,
     firstFrame: caps ? caps.first_frame : null,
     lastFrame: caps ? caps.last_frame : null,
     voiceConsistency: caps ? caps.voice_consistency : null,
-    videoModelUnresolved: settled && result.unresolved,
+    videoModelUnresolved: fresh && result.unresolved,
+    videoModelError: fresh ? result.error : null,
     loading: key !== null && !fresh,
   };
 }

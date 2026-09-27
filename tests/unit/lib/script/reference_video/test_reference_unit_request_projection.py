@@ -1,59 +1,76 @@
+import json
 from dataclasses import replace
 from pathlib import Path
 
 import pytest
 
+from lib.generation.video_request_facts import VideoRequestFacts, VideoRequestFactsFailure
 from lib.script.reference_video.request_projection import (
     POST_PRODUCTION,
     USE_TTS,
-    ConfigReferenceCapabilityProjection,
     FilesystemReferenceAssets,
-    ProjectionResolutionError,
-    ProviderProjectionCandidate,
     ReferenceRequestOptions,
     ReferenceUnitRequestProjector,
     ResolvedReferenceAsset,
+    VideoRequestFactsResult,
+    project_reference_unit_request,
     resolve_reference_assets,
-    strict_reference_durations,
     unit_reference_declarations,
 )
+from lib.script.reference_video.unit_capabilities import evaluate_reference_unit_capabilities
 from lib.script.script_models import ReferenceResource
 from lib.speech.narration_delivery import prepare_narration_delivery
 from lib.speech.speech_composition import admit_script_unit
+from tests.factories import activate_reference_project, make_video_request_facts
+from tests.fakes import fake_reference_request_facts
 
 
-class _FakeCapabilities:
+def _bucket_facts(generation_type: str) -> VideoRequestFacts:
+    if generation_type == "r2v":
+        return make_video_request_facts(
+            route="reference_video",
+            generation_type="r2v",
+            provider_id="reference-provider",
+            model_id="reference-model",
+            resolution="1080p",
+            supported_durations=(8, 16),
+            allowed_durations=(8, 16),
+            max_reference_images=2,
+            audio_switch_controllable=True,
+        )
+    return make_video_request_facts(
+        route="reference_video",
+        generation_type="i2v",
+        provider_id="fallback-provider",
+        model_id="fallback-model",
+        resolution="720p",
+        supported_durations=(4, 8, 16),
+        allowed_durations=(4, 8, 16),
+        max_reference_images=0,
+        generate_audio=False,
+        requested_generate_audio=False,
+        has_audio_track=False,
+        audio_switch_controllable=False,
+    )
+
+
+class _FakeRequestFacts:
+    """按桶返回构造好的视频请求事实，并记录投影请求过的桶。"""
+
     def __init__(self) -> None:
         self.calls: list[str] = []
 
-    async def resolve_candidate(self, project: dict, generation_type: str) -> ProviderProjectionCandidate:
-        del project
+    async def __call__(self, generation_type: str) -> VideoRequestFactsResult:
         self.calls.append(generation_type)
-        if generation_type == "r2v":
-            return ProviderProjectionCandidate(
-                generation_type="r2v",
-                provider_id="reference-provider",
-                model_id="reference-model",
-                supported_durations=(8, 16),
-                max_reference_images=2,
-                resolution="1080p",
-                generate_audio=True,
-                requested_generate_audio=True,
-                has_audio_track=True,
-                audio_switch_controllable=True,
-            )
-        return ProviderProjectionCandidate(
-            generation_type="i2v",
-            provider_id="fallback-provider",
-            model_id="fallback-model",
-            supported_durations=(4, 8, 16),
-            max_reference_images=0,
-            resolution="720p",
-            generate_audio=False,
-            requested_generate_audio=False,
-            has_audio_track=False,
-            audio_switch_controllable=False,
-        )
+        return _bucket_facts(generation_type)
+
+
+def _fixed_request_facts(result: VideoRequestFactsResult):
+    async def lookup(generation_type: str) -> VideoRequestFactsResult:
+        del generation_type
+        return result
+
+    return lookup
 
 
 class _FakeAssets:
@@ -116,9 +133,9 @@ def test_request_options_payload_keeps_only_delivery_and_explicit_accepted_tier(
 
 @pytest.mark.asyncio
 async def test_projection_canonicalizes_current_intent_and_reprojects_after_edit() -> None:
-    capabilities = _FakeCapabilities()
+    request_facts = _FakeRequestFacts()
     missing_scene = Path("/fake/scene.png")
-    projector = ReferenceUnitRequestProjector(capabilities, _FakeAssets({missing_scene}))
+    projector = ReferenceUnitRequestProjector(request_facts, _FakeAssets({missing_scene}))
     project = {
         "generation_mode": "reference_video",
         "products": {"手袋": {}},
@@ -158,8 +175,8 @@ async def test_projection_canonicalizes_current_intent_and_reprojects_after_edit
     assert first.declared_generation_type == "r2v"
     assert first.hydrated_generation_type == "r2v"
     assert first.request_duration.seconds == 8
-    assert first.provider_candidate is not None
-    assert first.provider_candidate.pair_key == "reference-provider/reference-model"
+    assert first.request_facts is not None
+    assert (first.provider_id, first.model_id) == ("reference-provider", "reference-model")
     assert first.cost is not None
     assert first.cost.duration_seconds == 8
     assert [problem.code for problem in first.problems] == [
@@ -183,16 +200,16 @@ async def test_projection_canonicalizes_current_intent_and_reprojects_after_edit
     assert second.declared_generation_type == "i2v"
     assert second.hydrated_generation_type == "i2v"
     assert second.request_duration.seconds == 16
-    assert second.provider_candidate is not None
-    assert second.provider_candidate.pair_key == "fallback-provider/fallback-model"
+    assert second.request_facts is not None
+    assert (second.provider_id, second.model_id) == ("fallback-provider", "fallback-model")
     assert [problem.code for problem in second.problems] == ["reference_duration_confirmation_required"]
-    assert capabilities.calls == ["r2v", "i2v"]
+    assert request_facts.calls == ["r2v", "i2v"]
 
 
 @pytest.mark.asyncio
 async def test_projection_uses_tts_floor_only_for_tts_delivery() -> None:
-    capabilities = _FakeCapabilities()
-    projector = ReferenceUnitRequestProjector(capabilities, _FakeAssets(set()))
+    request_facts = _FakeRequestFacts()
+    projector = ReferenceUnitRequestProjector(request_facts, _FakeAssets(set()))
     unit = {"unit_id": "E1U1", "text": "空镜：海面翻涌。", "duration_seconds": 6}
     script = {"video_units": [unit]}
 
@@ -221,7 +238,7 @@ async def test_projection_uses_tts_floor_only_for_tts_delivery() -> None:
 
 @pytest.mark.asyncio
 async def test_projection_requires_confirmation_for_the_current_cross_tier_only() -> None:
-    projector = ReferenceUnitRequestProjector(_FakeCapabilities(), _FakeAssets(set()))
+    projector = ReferenceUnitRequestProjector(_FakeRequestFacts(), _FakeAssets(set()))
     unit = {"unit_id": "E1U1", "text": "空镜：海面翻涌。", "duration_seconds": 6}
 
     missing = await projector.project_current(
@@ -252,7 +269,7 @@ async def test_projection_requires_confirmation_for_the_current_cross_tier_only(
 
 @pytest.mark.asyncio
 async def test_projection_requires_exact_confirmation_when_fresh_tts_lands_on_a_larger_existing_tier() -> None:
-    projector = ReferenceUnitRequestProjector(_FakeCapabilities(), _FakeAssets(set()))
+    projector = ReferenceUnitRequestProjector(_FakeRequestFacts(), _FakeAssets(set()))
     unit = {"unit_id": "E1U1", "text": "空镜：海面翻涌。", "duration_seconds": 4}
 
     missing = await projector.project_current(
@@ -285,7 +302,7 @@ async def test_projection_requires_exact_confirmation_when_fresh_tts_lands_on_a_
 
 @pytest.mark.asyncio
 async def test_projection_compares_the_request_tier_to_the_selected_visual_not_the_planning_duration() -> None:
-    projector = ReferenceUnitRequestProjector(_FakeCapabilities(), _FakeAssets(set()))
+    projector = ReferenceUnitRequestProjector(_FakeRequestFacts(), _FakeAssets(set()))
     planned_four = {"unit_id": "E1U1", "text": "空镜：海面翻涌。", "duration_seconds": 4}
     planned_eight = {"unit_id": "E1U2", "text": "空镜：海面翻涌。", "duration_seconds": 8}
 
@@ -321,7 +338,7 @@ async def test_projection_compares_the_request_tier_to_the_selected_visual_not_t
 
 @pytest.mark.asyncio
 async def test_projection_rejects_duration_above_maximum_as_needs_replan() -> None:
-    projector = ReferenceUnitRequestProjector(_FakeCapabilities(), _FakeAssets(set()))
+    projector = ReferenceUnitRequestProjector(_FakeRequestFacts(), _FakeAssets(set()))
     unit = {"unit_id": "E1U1", "text": "空镜：海面翻涌。", "duration_seconds": 18}
 
     result = await projector.project_current(
@@ -344,7 +361,7 @@ async def test_projection_rejects_duration_above_maximum_as_needs_replan() -> No
 
 @pytest.mark.asyncio
 async def test_projection_carries_shared_narration_delivery_blockers() -> None:
-    projector = ReferenceUnitRequestProjector(_FakeCapabilities(), _FakeAssets(set()))
+    projector = ReferenceUnitRequestProjector(_FakeRequestFacts(), _FakeAssets(set()))
     unit = {
         "unit_id": "E1U1",
         "text": "海面。\n{旁白内容。}",
@@ -386,9 +403,9 @@ async def test_projection_carries_shared_narration_delivery_blockers() -> None:
 
 @pytest.mark.asyncio
 async def test_projection_exposes_declared_to_hydrated_bucket_change() -> None:
-    capabilities = _FakeCapabilities()
+    request_facts = _FakeRequestFacts()
     missing = Path("/fake/missing.png")
-    projector = ReferenceUnitRequestProjector(capabilities, _FakeAssets({missing}))
+    projector = ReferenceUnitRequestProjector(request_facts, _FakeAssets({missing}))
     unit = {"unit_id": "E1U1", "text": "@[阿离] 抬头。", "duration_seconds": 8}
 
     result = await projector.project_current(
@@ -399,8 +416,8 @@ async def test_projection_exposes_declared_to_hydrated_bucket_change() -> None:
     )
 
     assert (result.declared_generation_type, result.hydrated_generation_type) == ("r2v", "i2v")
-    assert result.provider_candidate is not None
-    assert result.provider_candidate.pair_key == "fallback-provider/fallback-model"
+    assert result.request_facts is not None
+    assert (result.provider_id, result.model_id) == ("fallback-provider", "fallback-model")
     assert [problem.code for problem in result.problems[:2]] == [
         "reference_asset_missing",
         "reference_capability_changed",
@@ -410,14 +427,8 @@ async def test_projection_exposes_declared_to_hydrated_bucket_change() -> None:
 
 @pytest.mark.asyncio
 async def test_projection_blocks_empty_duration_metadata_without_cost_facts() -> None:
-    base = await _FakeCapabilities().resolve_candidate({}, "i2v")
-
-    class _MissingDurations:
-        async def resolve_candidate(self, project: dict, generation_type: str) -> ProviderProjectionCandidate:
-            del project, generation_type
-            return replace(base, supported_durations=())
-
-    projector = ReferenceUnitRequestProjector(_MissingDurations(), _FakeAssets(set()))
+    facts = replace(_bucket_facts("i2v"), supported_durations=(), allowed_durations=())
+    projector = ReferenceUnitRequestProjector(_fixed_request_facts(facts), _FakeAssets(set()))
     unit = {"unit_id": "E1U1", "text": "空镜：海面翻涌。", "duration_seconds": 8}
     result = await projector.project_current(project={}, script={"video_units": [unit]}, unit=unit, resolved_assets=[])
 
@@ -431,15 +442,8 @@ async def test_projection_blocks_empty_duration_metadata_without_cost_facts() ->
 async def _endpoint_fixed_projector() -> ReferenceUnitRequestProjector:
     """时长这一维由端点固定的投影器：档位集是合法空集，成片多长由 workflow 决定。"""
 
-    base = await _FakeCapabilities().resolve_candidate({}, "i2v")
-    candidate = replace(base, supported_durations=(), duration_endpoint_fixed=True)
-
-    class _EndpointFixedDurations:
-        async def resolve_candidate(self, project: dict, generation_type: str) -> ProviderProjectionCandidate:
-            del project, generation_type
-            return candidate
-
-    return ReferenceUnitRequestProjector(_EndpointFixedDurations(), _FakeAssets(set()))
+    facts = replace(_bucket_facts("i2v"), supported_durations=(), allowed_durations=(), duration_endpoint_fixed=True)
+    return ReferenceUnitRequestProjector(_fixed_request_facts(facts), _FakeAssets(set()))
 
 
 @pytest.mark.asyncio
@@ -478,6 +482,41 @@ async def test_projection_refuses_tts_delivery_on_endpoint_fixed_durations() -> 
     assert result.problem_payloads()[0]["action"] == "choose_post_production"
 
 
+@pytest.mark.parametrize("fixed_bucket", ["i2v", "r2v"])
+async def test_tts_endpoint_fixed_follows_the_unit_bucket(fixed_bucket: str) -> None:
+    facts_by_bucket: dict[str, VideoRequestFacts] = {}
+    for bucket in ("i2v", "r2v"):
+        facts = _bucket_facts(bucket)
+        facts_by_bucket[bucket] = replace(
+            facts,
+            supported_durations=() if bucket == fixed_bucket else facts.supported_durations,
+            allowed_durations=() if bucket == fixed_bucket else facts.allowed_durations,
+            duration_endpoint_fixed=bucket == fixed_bucket,
+        )
+
+    async def request_facts(bucket: str) -> VideoRequestFactsResult:
+        return facts_by_bucket[bucket]
+
+    projector = ReferenceUnitRequestProjector(request_facts, _FakeAssets(set()))
+    for with_reference in (False, True):
+        unit = {
+            "unit_id": "E1U1",
+            "text": "@[王] 推门。" if with_reference else "空镜：海面翻涌。",
+            "duration_seconds": 8,
+        }
+        assets = [_asset("character", "王", "characters/王.png")] if with_reference else []
+        result = await projector.project_current(
+            project={"characters": {"王": {}}},
+            script={"video_units": [unit]},
+            unit=unit,
+            resolved_assets=assets,
+            options=ReferenceRequestOptions(narration_delivery=USE_TTS, current_tts_duration_seconds=6),
+        )
+        assert ("tts_duration_endpoint_fixed" in [problem.code for problem in result.problems]) is (
+            ("r2v" if with_reference else "i2v") == fixed_bucket
+        )
+
+
 @pytest.mark.asyncio
 async def test_endpoint_fixed_tts_refusal_outranks_narration_readiness_blockers() -> None:
     """读侧取首条阻断项：TTS 还没配好也先说「改选后期配音」，配好了在这种模型上仍然用不了。"""
@@ -510,12 +549,11 @@ async def test_endpoint_fixed_tts_refusal_outranks_narration_readiness_blockers(
 
 @pytest.mark.asyncio
 async def test_projection_sanitizes_unexpected_capability_failures() -> None:
-    class _BrokenCapabilities:
-        async def resolve_candidate(self, project: dict, generation_type: str) -> ProviderProjectionCandidate:
-            del project, generation_type
-            raise RuntimeError("database password leaked by driver")
+    async def _broken_request_facts(generation_type: str) -> VideoRequestFactsResult:
+        del generation_type
+        raise RuntimeError("database password leaked by driver")
 
-    projector = ReferenceUnitRequestProjector(_BrokenCapabilities(), _FakeAssets(set()))
+    projector = ReferenceUnitRequestProjector(_broken_request_facts, _FakeAssets(set()))
     unit = {"unit_id": "E1U1", "text": "空镜：海面翻涌。", "duration_seconds": 8}
 
     result = await projector.project_current(project={}, script={"video_units": [unit]}, unit=unit, resolved_assets=[])
@@ -528,19 +566,13 @@ async def test_projection_sanitizes_unexpected_capability_failures() -> None:
 
 @pytest.mark.asyncio
 async def test_projection_owns_audio_switch_conflict() -> None:
-    base = await _FakeCapabilities().resolve_candidate({}, "i2v")
-
-    class _AlwaysAudible:
-        async def resolve_candidate(self, project: dict, generation_type: str) -> ProviderProjectionCandidate:
-            del project, generation_type
-            return replace(
-                base,
-                requested_generate_audio=False,
-                has_audio_track=True,
-                audio_switch_controllable=False,
-            )
-
-    projector = ReferenceUnitRequestProjector(_AlwaysAudible(), _FakeAssets(set()))
+    facts = replace(
+        _bucket_facts("i2v"),
+        requested_generate_audio=False,
+        has_audio_track=True,
+        audio_switch_controllable=False,
+    )
+    projector = ReferenceUnitRequestProjector(_fixed_request_facts(facts), _FakeAssets(set()))
     unit = {"unit_id": "E1U1", "text": "空镜：海面翻涌。", "duration_seconds": 8}
     result = await projector.project_current(project={}, script={"video_units": [unit]}, unit=unit, resolved_assets=[])
 
@@ -614,102 +646,89 @@ def test_unit_reference_declarations_skip_unregistered_and_speaker_positions() -
 
 
 @pytest.mark.asyncio
-async def test_config_adapter_resolves_candidate_and_rejects_missing_durations() -> None:
-    class _Resolver:
-        empty = False
+@pytest.mark.parametrize(
+    ("failure", "expected_params"),
+    [
+        (
+            VideoRequestFactsFailure(
+                "reference_supported_durations_incompatible",
+                (("provider", "gemini-aistudio"), ("model", "veo-3.1"), ("resolution", "1080p"), ("capability", "i2v")),
+            ),
+            {"capability": "i2v", "provider": "gemini-aistudio", "model": "veo-3.1", "resolution": "1080p"},
+        ),
+        (
+            VideoRequestFactsFailure("video_capability_missing_t2v", (("provider", "ark"), ("model", "m"))),
+            {"capability": "i2v", "provider": "ark", "model": "m"},
+        ),
+    ],
+)
+async def test_projection_folds_request_facts_failure_into_a_blocking_problem(
+    failure: VideoRequestFactsFailure, expected_params: dict[str, object]
+) -> None:
+    """视频请求事实的失败原码进入结构化 problem，参数键名不变并补上所落的桶。"""
 
-        async def video_capabilities_for_project(self, project: dict, *, generation_type: str) -> dict:
-            del project
-            return {
-                "provider_id": "ark",
-                "model": "m",
-                "supported_durations": [] if self.empty else [4, 8],
-                "max_reference_images": 3,
-                "generate_audio": True,
-                "requested_generate_audio": True,
-                "voice_consistency": "native",
-            }
+    projector = ReferenceUnitRequestProjector(_fixed_request_facts(failure), _FakeAssets(set()))
+    unit = {"unit_id": "E1U1", "text": "空镜：海面翻涌。", "duration_seconds": 8}
 
-        async def resolve_resolution(self, project: dict, provider_id: str, model_id: str) -> str:
-            del project, provider_id, model_id
-            return "1080p"
+    result = await projector.project_current(project={}, script={"video_units": [unit]}, unit=unit, resolved_assets=[])
 
-    resolver = _Resolver()
-    adapter = ConfigReferenceCapabilityProjection(resolver)
-    candidate = await adapter.resolve_candidate({}, "r2v")
-    assert candidate.pair_key == "ark/m"
-    assert candidate.supported_durations == (4, 8)
-    assert candidate.resolution == "1080p"
-
-    resolver.empty = True
-    adapter = ConfigReferenceCapabilityProjection(resolver)
-    with pytest.raises(ProjectionResolutionError, match=r"reference_supported_durations_missing") as exc_info:
-        await adapter.resolve_candidate({}, "r2v")
-    assert exc_info.value.code == "reference_supported_durations_missing"
-
-    class _InvalidResolver(_Resolver):
-        async def video_capabilities_for_project(self, project: dict, *, generation_type: str) -> dict:
-            del project, generation_type
-            raise ValueError("supported_durations contains malformed JSON")
-
-    with pytest.raises(ProjectionResolutionError, match=r"reference_supported_durations_invalid") as invalid_exc:
-        await ConfigReferenceCapabilityProjection(_InvalidResolver()).resolve_candidate({}, "r2v")
-    assert invalid_exc.value.code == "reference_supported_durations_invalid"
-
-    class _InvalidValuesResolver(_Resolver):
-        async def video_capabilities_for_project(self, project: dict, *, generation_type: str) -> dict:
-            del project, generation_type
-            payload = await super().video_capabilities_for_project({}, generation_type="r2v")
-            payload["supported_durations"] = [4, "bad"]
-            return payload
-
-    with pytest.raises(ProjectionResolutionError, match=r"reference_supported_durations_invalid") as invalid_values_exc:
-        await ConfigReferenceCapabilityProjection(_InvalidValuesResolver()).resolve_candidate({}, "r2v")
-    assert invalid_values_exc.value.code == "reference_supported_durations_invalid"
+    assert result.request_facts is None
+    assert result.cost is None
+    assert [(problem.code, problem.blocking) for problem in result.problems] == [(failure.code, True)]
+    assert result.problems[0].parameters() == expected_params
+    assert result.problems[0].to_payload(unit_id="E1U1")["action"] == "configure_video_model"
 
 
 @pytest.mark.asyncio
-async def test_config_adapter_keeps_an_endpoint_fixed_empty_tier_set() -> None:
-    """``duration_endpoint_fixed`` 的空集不过 ``strict_reference_durations``，也不阻断。"""
+async def test_projection_prices_the_request_resolution_without_a_fallback_tier() -> None:
+    """未设分辨率的事实原样进入计价事实：请求不携带分辨率，报价也不换成兜底档位。"""
 
-    class _EndpointFixedResolver:
-        async def video_capabilities_for_project(self, project: dict, *, generation_type: str) -> dict:
-            del project, generation_type
-            return {
-                "provider_id": "custom-1",
-                "model": "comfyui-wan",
-                "supported_durations": [],
-                "duration_endpoint_fixed": True,
-                "max_reference_images": 1,
-                "generate_audio": False,
-                "requested_generate_audio": False,
-                "voice_consistency": "none",
-            }
+    facts = replace(_bucket_facts("i2v"), resolution=None)
+    projector = ReferenceUnitRequestProjector(_fixed_request_facts(facts), _FakeAssets(set()))
+    unit = {"unit_id": "E1U1", "text": "空镜：海面翻涌。", "duration_seconds": 8}
 
-        async def resolve_resolution(self, project: dict, provider_id: str, model_id: str) -> str:
-            del project, provider_id, model_id
-            return "720p"
+    result = await projector.project_current(project={}, script={"video_units": [unit]}, unit=unit, resolved_assets=[])
 
-    candidate = await ConfigReferenceCapabilityProjection(_EndpointFixedResolver()).resolve_candidate({}, "i2v")
-
-    assert candidate.supported_durations == ()
-    assert candidate.duration_endpoint_fixed is True
+    assert result.cost is not None
+    assert result.cost.resolution is None
 
 
-def test_strict_reference_durations_uses_shared_constraints_and_rejects_empty_intersection() -> None:
-    assert strict_reference_durations(
-        provider_id="gemini-aistudio",
-        model_id="veo-3.1-generate-preview",
-        durations=[4, 6, 8],
-        resolution="1080p",
-        generation_type="r2v",
-    ) == (8,)
-    with pytest.raises(ProjectionResolutionError) as exc_info:
-        strict_reference_durations(
-            provider_id="gemini-aistudio",
-            model_id="veo-3.1-generate-preview",
-            durations=[4, 6],
-            resolution="1080p",
-            generation_type="r2v",
+def _activated_project_with_unclaimed_sheet(tmp_path: Path) -> dict:
+    """已激活产物清单的项目：张三的图由补录认领；李四的图在盘上、路径已登记，但清单从未认领。"""
+    (tmp_path / "characters").mkdir()
+    (tmp_path / "characters" / "张三.png").write_bytes(b"image")
+    project = activate_reference_project(
+        tmp_path, {"characters": {"张三": {"description": "x", "character_sheet": "characters/张三.png"}}}
+    )
+    project["characters"]["李四"] = {"description": "y", "character_sheet": "characters/李四.png"}
+    (tmp_path / "characters" / "李四.png").write_bytes(b"image")
+    (tmp_path / "project.json").write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
+    return project
+
+
+async def test_production_entry_treats_an_unclaimed_sheet_as_unavailable_like_the_read_side(tmp_path: Path) -> None:
+    """生产投影入口按产物清单认领判可用：图在盘上但清单未认领的引用落 i2v，与读侧逐单元结论同桶。"""
+    project = _activated_project_with_unclaimed_sheet(tmp_path)
+    claimed = {"unit_id": "E1U1", "text": "@[张三] 推门。", "duration_seconds": 8}
+    unclaimed = {"unit_id": "E1U2", "text": "@[李四] 回头。", "duration_seconds": 8}
+    script = {"episode": 1, "generation_mode": "reference_video", "video_units": [claimed, unclaimed]}
+    lookup = fake_reference_request_facts(durations=(8, 16))
+
+    projections = [
+        await project_reference_unit_request(
+            project=project, script=script, unit=unit, project_path=tmp_path, request_facts_lookup=lookup
         )
-    assert exc_info.value.code == "reference_supported_durations_incompatible"
+        for unit in (claimed, unclaimed)
+    ]
+    capabilities = await evaluate_reference_unit_capabilities(
+        project, tmp_path, [claimed, unclaimed], request_facts=lookup
+    )
+
+    assert [projection.hydrated_generation_type for projection in projections] == ["r2v", "i2v"]
+    assert [capability.generation_type for capability in capabilities] == ["r2v", "i2v"]
+    assert projections[0].blocking_problems == ()
+    assert [problem.code for problem in projections[1].blocking_problems] == [
+        "reference_asset_missing",
+        "reference_capability_changed",
+    ]
+    assert dict(projections[1].problems[0].params)["missing"] == (("character", "李四"),)

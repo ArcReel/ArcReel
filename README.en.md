@@ -1,9 +1,9 @@
 <h1 align="center">
   <br>
   <picture>
-    <source media="(prefers-color-scheme: light)" srcset="frontend/public/android-chrome-maskable-512x512.png">
-    <source media="(prefers-color-scheme: dark)" srcset="frontend/public/android-chrome-512x512.png">
-    <img src="frontend/public/android-chrome-maskable-512x512.png" alt="ArcReel Logo" width="128">
+    <source media="(prefers-color-scheme: light)" srcset="docs/assets/logo-animated-light.svg">
+    <source media="(prefers-color-scheme: dark)" srcset="frontend/public/logo-animated.svg">
+    <img src="docs/assets/logo-animated-light.svg" alt="ArcReel Logo" width="128">
   </picture>
   <br>
   ArcReel
@@ -41,7 +41,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/assets/hero-screenshot.png" alt="ArcReel Workspace" width="900">
+  <img src="docs/assets/screenshots/hero.webp" alt="ArcReel Workspace" width="900">
 </p>
 
 ## Sponsors
@@ -69,7 +69,50 @@
       <a href="https://fluxionai.space/register?source=github&campaign=arcreel&promo=ARCREEL">Visit and sign up now</a> to receive $3 in API credits.
     </td>
   </tr>
+  <tr>
+    <td width="200" align="center" valign="top">
+      <a href="https://ofox.ai/?utm_source=github&utm_medium=sponsorship&utm_content=arcreel"><img src="docs/assets/sponsors/ofox-ai.svg" alt="OfoxAI" width="180"></a>
+    </td>
+    <td valign="top">
+      <strong>OfoxAI: Model APIs for scripts, images, and video</strong><br>
+      Access text, image, and video models through OfoxAI. Choose capabilities for refining scripts, creating character and scene references, and generating video assets. Consult the API documentation for each model’s input requirements, supported parameters, and request format.<br>
+      <a href="https://ofox.ai/?utm_source=github&utm_medium=sponsorship&utm_content=arcreel">Explore OfoxAI models and APIs →</a>
+    </td>
+  </tr>
 </table>
+
+## Screenshots
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/assets/screenshots/video-units.webp" alt="Video units"></td>
+    <td width="50%"><img src="docs/assets/screenshots/props.webp" alt="Props library"></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/assets/screenshots/scenes.webp" alt="Scenes library"></td>
+    <td width="50%"><img src="docs/assets/screenshots/ad-mode.webp" alt="Ad / product mode"></td>
+  </tr>
+</table>
+
+## Showcase
+
+<div align="center">
+  <video src="https://github.com/user-attachments/assets/fcc4ceb2-64dd-44a0-a32c-e0c00b2f9796" width="100%" controls></video>
+</div>
+
+> 《入职地府后投诉鬼都是我老客户》Episode 1
+
+<div align="center">
+  <video src="https://github.com/user-attachments/assets/d6bfe589-a5c0-4961-8bfe-b7b59be3bb8a" width="100%" controls></video>
+</div>
+
+> 《入职地府后投诉鬼都是我老客户》Episode 2
+
+<div align="center">
+  <video src="https://github.com/user-attachments/assets/1e580769-80f7-4d14-b46d-68569b6e7e4c" width="100%" controls></video>
+</div>
+
+> 《入职地府后投诉鬼都是我老客户》Episode 3
 
 ## What ArcReel is
 
@@ -149,6 +192,16 @@ Read [CONTRIBUTING.md](CONTRIBUTING.md) before starting. After cloning the repos
 ```bash
 uv run pre-commit install
 ```
+
+## Star History
+
+<a href="https://www.star-history.com/?repos=arcreel%2Farcreel&type=date&legend=top-left">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=arcreel/arcreel&type=date&theme=dark&legend=top-left" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=arcreel/arcreel&type=date&legend=top-left" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=arcreel/arcreel&type=date&legend=top-left" />
+ </picture>
+</a>
 
 ## License and commercial use
 

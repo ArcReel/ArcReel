@@ -2,7 +2,11 @@
 id: style/anim_90s_retro
 category: style
 title: 90 年代日漫
-description: "动画画风，渡边信一郎 · 神山健治。正文不以「画风：」起头，免得与注入处的英文 Style 标签叠成「Style: 画风：…」。"
+description: "动画画风，渡边信一郎 · 神山健治。"
+stage: style
+invoked_by:
+  kind: user_action
+  name: style_selection
 applies_to: {}
 slots: {}
 protected: false

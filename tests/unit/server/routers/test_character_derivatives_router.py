@@ -262,7 +262,7 @@ class TestCharacterDerivativesPersistence:
             assert persisted["characters"]["阿岚"]["derivatives"] == {
                 "战斗装": {"description": "换上黑色重甲", "character_sheet": ""}
             }
-            assert DataValidator(str(pm.projects_root)).validate_project("demo").errors == []
+            assert DataValidator(str(pm.projects_dir)).validate_project("demo").errors == []
 
             rejected = client.post(
                 "/api/v1/projects/demo/characters/阿岚/derivatives",

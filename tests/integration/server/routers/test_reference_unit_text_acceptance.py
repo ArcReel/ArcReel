@@ -20,12 +20,13 @@ from lib.project.project_manager import ProjectManager
 from lib.project.project_migrations.runner import migrate_project_dir
 from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from lib.script.reference_video.script_preview import WARN_UNREGISTERED_MENTION
-from server.agent_runtime.sdk_tools.content_read import get_episode_script_tool
-from server.agent_runtime.sdk_tools.patch_script import patch_episode_script_tool
+from lib.script.script_batch_edit import script_revision
+from server.agent_toolset.script_editing import PATCH_EPISODE_SCRIPT
 from server.auth import CurrentUserInfo, get_current_user
-from server.media_tools.context import ToolContext
+from server.tool_runtime import ScriptPatchResult
 from tests.auth_deps import AUTH_DEPENDENCIES
 from tests.fakes import fake_reference_request_projector
+from tests.integration.server.agent_tool_support import ToolHarness, run_declared_tool
 
 _TINY_PNG = (
     b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x04\x00\x00\x00\x04"
@@ -58,7 +59,7 @@ class _Acceptance:
         client: TestClient,
         pm: ProjectManager,
         project_dir: Path,
-        tool_ctx: ToolContext,
+        tool_ctx: ToolHarness,
     ) -> None:
         self.client = client
         self.pm = pm
@@ -84,18 +85,20 @@ class _Acceptance:
         assert resp.status_code == 200, resp.text
         return resp.json()["unit"]
 
-    async def patch_body_over_agent_tool(self, text: str, unit_id: str = _UNIT_ID) -> dict[str, Any]:
-        read = await get_episode_script_tool(self.tool_ctx).handler({"script": _SCRIPT_FILE})
-        revision = json.loads(read["content"][0]["text"])["episode_script"]["revision"]
-        output = await patch_episode_script_tool(self.tool_ctx).handler(
+    async def patch_body_over_agent_tool(self, text: str, unit_id: str = _UNIT_ID) -> ScriptPatchResult:
+        revision = script_revision(self.script_on_disk())
+        outcome = await run_declared_tool(
+            PATCH_EPISODE_SCRIPT,
+            self.tool_ctx,
             {
                 "script": _SCRIPT_FILE,
                 "base_revision": revision,
                 "operations": [{"op": "update", "id": unit_id, "fields": {"text": text}}],
-            }
+            },
         )
-        assert not output.get("is_error"), output
-        return output
+        assert outcome.value is not None, outcome
+        assert outcome.value.success, outcome.value.problems
+        return outcome.value
 
     async def project_request(self, unit_id: str = _UNIT_ID):
         """按磁盘上的当前正文投影一次真实生成请求（仅替换供应商能力查询）。"""
@@ -222,7 +225,7 @@ def acceptance(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> _Acceptance:
         client=TestClient(app),
         pm=pm,
         project_dir=project_dir,
-        tool_ctx=ToolContext(project_name="demo", projects_root=projects_root, pm=pm),
+        tool_ctx=ToolHarness(project_name="demo", data_root=projects_root, pm=pm),
     )
 
 

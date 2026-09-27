@@ -17,6 +17,8 @@ MESSAGES = {
     "event_label_named_entity_character": 'Character "{id}"',
     "event_label_named_entity_scene": 'Scene "{id}"',
     "event_label_named_entity_prop": 'Prop "{id}"',
+    "event_label_named_entity_product": 'Product "{id}"',
+    "event_label_named_entity_character_derivative": 'Character derivative "{id}"',
     "event_label_character_reference_audio": 'Reference audio for character "{id}"',
     "event_label_project_settings": "Project settings",
     "event_label_overview": "Project overview",

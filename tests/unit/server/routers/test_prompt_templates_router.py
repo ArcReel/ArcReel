@@ -37,6 +37,8 @@ def templates(tmp_path: Path) -> PromptTemplates:
         applies_to={"asset_type": ["character", "scene"]},
         slots={"asset_type": "资产类型", "description": "外观描述"},
         protected=False,
+        stage="asset_sheet",
+        invoked_by={"kind": "generation_task", "name": "asset"},
     )
     write_template(
         tmp_path,
@@ -49,11 +51,27 @@ def templates(tmp_path: Path) -> PromptTemplates:
         applies_to={},
         slots={"scene": "画面描述"},
         protected=True,
+        stage="storyboard_image",
+        invoked_by={"kind": "generation_task", "name": "storyboard"},
         output_schema="lib.script.script_models:ImagePrompt",
+    )
+    write_template(
+        tmp_path,
+        "text/agent_language_rule",
+        "用中文回复",
+        id="text/agent_language_rule",
+        category="text",
+        title="Agent 语言规范",
+        description="约束 Agent 回复语言",
+        applies_to={},
+        slots={},
+        protected=True,
+        stage="agent_session",
+        invoked_by={"kind": "user_action", "name": "agent_session"},
     )
     write_partial(tmp_path, "asset/sheet/title/character", "角色设定图")
     write_partial(tmp_path, "asset/sheet/title/scene", "")
-    write_partial(tmp_path, "shared/avoid", "Avoid: 水印")
+    write_partial(tmp_path, "shared/avoid", "---\nprotected: true\n---\nAvoid: 水印")
     return PromptTemplates(tmp_path)
 
 
@@ -79,6 +97,7 @@ def test_list_returns_metadata_of_every_template_in_registry_order(templates):
     with TestClient(app) as client:
         response = client.get("/api/v1/prompt-templates")
     assert response.status_code == 200
+    assert "text/agent_language_rule" not in {item["id"] for item in response.json()["templates"]}
     assert response.json() == {
         "templates": [
             {
@@ -86,6 +105,8 @@ def test_list_returns_metadata_of_every_template_in_registry_order(templates):
                 "category": "asset",
                 "title": "资产图",
                 "description": "资产设定图",
+                "stage": "asset_sheet",
+                "invoked_by": {"kind": "generation_task", "name": "asset"},
                 "applies_to": {"asset_type": ["character", "scene"]},
                 "slots": {"asset_type": "资产类型", "description": "外观描述"},
                 "protected": False,
@@ -96,6 +117,8 @@ def test_list_returns_metadata_of_every_template_in_registry_order(templates):
                 "category": "storyboard",
                 "title": "分镜图",
                 "description": "分镜画面",
+                "stage": "storyboard_image",
+                "invoked_by": {"kind": "generation_task", "name": "storyboard"},
                 "applies_to": {},
                 "slots": {"scene": "画面描述"},
                 "protected": True,
@@ -105,7 +128,7 @@ def test_list_returns_metadata_of_every_template_in_registry_order(templates):
     }
 
 
-def test_detail_returns_source_slots_and_partials_with_every_axis_value(templates):
+def test_detail_returns_source_slots_and_partial_catalog_with_every_axis_value(templates):
     app = make_app(templates)
     override_auth(app)
     with TestClient(app) as client:
@@ -117,9 +140,14 @@ def test_detail_returns_source_slots_and_partials_with_every_axis_value(template
         '{{ variant("asset/sheet/title", asset_type) }}\n\n{{ description }}\n\n{{ partial("shared/avoid") }}'
     )
     assert body["partials"] == [
-        {"name": "asset/sheet/title/character", "source": "角色设定图"},
-        {"name": "asset/sheet/title/scene", "source": ""},
-        {"name": "shared/avoid", "source": "Avoid: 水印"},
+        {
+            "name": "asset/sheet/title/character",
+            "source": "角色设定图",
+            "protected": False,
+            "referenced_by": ["asset/sheet"],
+        },
+        {"name": "asset/sheet/title/scene", "source": "", "protected": False, "referenced_by": ["asset/sheet"]},
+        {"name": "shared/avoid", "source": "Avoid: 水印", "protected": True, "referenced_by": ["asset/sheet"]},
     ]
     assert "output_schema" not in body
 
@@ -163,3 +191,75 @@ def test_builtin_style_templates_listed_as_one_group_with_whole_prompt_as_source
     assert listed[style_positions[0]]["id"] == "style/live_cinematic_ancient"
     assert detail["source"].strip() == "真人电视剧风格，精品短剧画风，大师级构图"
     assert detail["partials"] == []
+
+
+def test_list_excludes_agent_session_template_while_detail_still_serves_it(tmp_path):
+    write_template(
+        tmp_path,
+        "text/agent_language_rule",
+        "用中文回复",
+        id="text/agent_language_rule",
+        category="text",
+        title="Agent 语言规范",
+        description="约束 Agent 回复语言",
+        applies_to={},
+        slots={},
+        protected=True,
+        stage="agent_session",
+        invoked_by={"kind": "user_action", "name": "agent_session"},
+    )
+    write_template(
+        tmp_path,
+        "text/style_analysis",
+        "分析风格",
+        id="text/style_analysis",
+        category="text",
+        title="风格分析",
+        description="分析风格参考图",
+        applies_to={},
+        slots={},
+        protected=False,
+        stage="style_analysis",
+        invoked_by={"kind": "user_action", "name": "style_analysis"},
+    )
+    app = make_app(PromptTemplates(tmp_path))
+    override_auth(app)
+    with TestClient(app) as client:
+        listed = client.get("/api/v1/prompt-templates").json()["templates"]
+        detail = client.get("/api/v1/prompt-templates/text/agent_language_rule")
+    assert [item["id"] for item in listed] == ["text/style_analysis"]
+    assert detail.status_code == 200
+    assert detail.json()["source"] == "用中文回复"
+
+
+def test_unauthenticated_partial_detail_rejected(monkeypatch, templates):
+    monkeypatch.setenv("AUTH_ENABLED", "true")
+    with TestClient(make_app(templates), raise_server_exceptions=False) as client:
+        assert client.get("/api/v1/prompt-templates/partials/shared/avoid").status_code == 401
+
+
+def test_partial_detail_returns_source_lock_and_referencing_templates(templates):
+    app = make_app(templates)
+    override_auth(app)
+    with TestClient(app) as client:
+        response = client.get("/api/v1/prompt-templates/partials/shared/avoid")
+        missing = client.get("/api/v1/prompt-templates/partials/shared/missing")
+    assert response.status_code == 200
+    assert response.json() == {
+        "name": "shared/avoid",
+        "source": "Avoid: 水印",
+        "protected": True,
+        "referenced_by": ["asset/sheet"],
+    }
+    assert missing.status_code == 404
+
+
+def test_builtin_shared_partial_detail_lists_every_referencing_template_and_list_omits_partials():
+    app = make_app()
+    override_auth(app)
+    with TestClient(app) as client:
+        listed = client.get("/api/v1/prompt-templates").json()["templates"]
+        detail = client.get("/api/v1/prompt-templates/partials/shared/media_style").json()
+    assert not any(item["id"].startswith(("shared/", "partials/")) for item in listed)
+    assert detail["protected"] is True
+    assert detail["referenced_by"] == ["asset/sheet", "reference_video/unit", "storyboard/grid", "storyboard/image"]

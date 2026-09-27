@@ -169,7 +169,7 @@ export function ProjectSettingsPage() {
   const [episodeTargetDuration, setEpisodeTargetDuration] = useState<number | null>(null);
   // 源文语言由内容分析写入，此页只读——只用来决定语速的单位名词（字 / 词）
   const [sourceLanguage, setSourceLanguage] = useState<string | null>(null);
-  const [videoResolution, setVideoResolution] = useState<string | null>(null);
+  const [videoResolutions, setVideoResolutions] = useState<Record<string, string | null>>({});
   const [imageResolution, setImageResolution] = useState<string | null>(null);
   const [modelSettings, setModelSettings] = useState<Record<string, { resolution: string | null }>>({});
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
@@ -207,7 +207,7 @@ export function ProjectSettingsPage() {
     defaultDuration: null as number | null,
     speechRate: null as number | null,
     episodeTargetDuration: null as number | null,
-    videoResolution: null as string | null,
+    videoResolutions: {},
     imageResolution: null as string | null,
   });
   // 风格区独立保存，但"未保存就离开"也需被 isDirty 拦截。
@@ -336,16 +336,22 @@ export function ProjectSettingsPage() {
         nextGlobals,
         route === "reference_video",
       );
+      const executingI2V = executingVideoModel(
+        { videoBackend: vb, videoProviderI2V: vpi2v, videoProviderR2V: vpr2v }, nextGlobals, false,
+      );
       const executingIb = executingImageModel({ imageBackendDefault: ibDefault, imageBackendT2I: ibt2i }, nextGlobals);
       const ms = (project.model_settings ?? {}) as Record<string, { resolution: string | null }>;
       const legacyVideo = (project.video_model_settings ?? {}) as Record<string, { resolution?: string | null }>;
-      const vModelId = executingVb && executingVb.includes("/") ? executingVb.split("/")[1] : executingVb;
-      const vRes: string | null =
-        (executingVb ? (ms[executingVb]?.resolution ?? null) : null) ||
-        (vModelId ? (legacyVideo[vModelId]?.resolution ?? null) : null) ||
-        null;
+      const resolutions: Record<string, string | null> = Object.fromEntries(
+        Object.entries(ms).map(([model, settings]) => [model, settings?.resolution ?? null]),
+      );
+      for (const model of new Set([executingVb, executingI2V])) {
+        if (!model) continue;
+        const modelId = model.includes("/") ? model.split("/")[1] : model;
+        resolutions[model] = resolutions[model] ?? legacyVideo[modelId]?.resolution ?? null;
+      }
       const iRes: string | null = executingIb ? (ms[executingIb]?.resolution ?? null) : null;
-      setVideoResolution(vRes);
+      setVideoResolutions(resolutions);
       setImageResolution(iRes);
       setModelSettings(ms);
 
@@ -361,7 +367,7 @@ export function ProjectSettingsPage() {
         textDefault: td, textSimple: tsi, textComplex: tcx,
         aspectRatio: ar, gridStoryboard: grid, defaultDuration: dd, speechRate: sr,
         episodeTargetDuration: etd,
-        videoResolution: vRes, imageResolution: iRes,
+        videoResolutions: resolutions, imageResolution: iRes,
       };
     }));
 
@@ -419,7 +425,7 @@ export function ProjectSettingsPage() {
     defaultDuration !== initialRef.current.defaultDuration ||
     speechRate !== initialRef.current.speechRate ||
     episodeTargetDuration !== initialRef.current.episodeTargetDuration ||
-    videoResolution !== initialRef.current.videoResolution ||
+    JSON.stringify(videoResolutions) !== JSON.stringify(initialRef.current.videoResolutions) ||
     imageResolution !== initialRef.current.imageResolution ||
     styleIsDirty;
   /* eslint-enable react-hooks/refs */
@@ -502,15 +508,10 @@ export function ProjectSettingsPage() {
       // 后端按执行模型查这张表，键位对不上分辨率会被静默忽略。
       // 音色与后端 .strip() 对齐：保存时去首尾空白，避免本地基线带空格而磁盘值不带导致 isDirty 误报
       const trimmedVoice = narrationVoice.trim();
-      const executingVideo = executingVideoModel(
-        { videoBackend, videoProviderI2V, videoProviderR2V },
-        globalDefaults,
-        generationRoute === "reference_video",
-      );
       const executingImage = executingImageModel({ imageBackendDefault, imageBackendT2I }, globalDefaults);
       const newModelSettings: Record<string, { resolution: string | null }> = { ...modelSettings };
-      if (executingVideo) {
-        newModelSettings[executingVideo] = { resolution: videoResolution };
+      for (const [model, resolution] of Object.entries(videoResolutions)) {
+        newModelSettings[model] = { resolution };
       }
       if (executingImage) {
         newModelSettings[executingImage] = { resolution: imageResolution };
@@ -556,7 +557,7 @@ export function ProjectSettingsPage() {
         textDefault, textSimple, textComplex,
         aspectRatio, gridStoryboard, defaultDuration, speechRate,
         episodeTargetDuration,
-        videoResolution, imageResolution,
+        videoResolutions, imageResolution,
       };
       // grid_storyboard / video_backend 落盘后，/video-capabilities 按已存值解析——查询 key 未变
       // 不会自动重取，需显式失效（同 MediaModelSection 保存流程）。
@@ -567,7 +568,7 @@ export function ProjectSettingsPage() {
     } finally {
       setSaving(false);
     }
-  }, [modelSettings, videoBackend, videoProviderI2V, videoProviderR2V, imageBackendDefault, imageBackendT2I, imageBackendI2I, audioOverride, audioBackend, narrationVoice, narrationSpeed, voiceBinding, textDefault, textSimple, textComplex, aspectRatio, generationRoute, gridStoryboard, gridToggleVisible, defaultDuration, speechRate, episodeTargetDuration, contentMode, videoResolution, imageResolution, projectName, t, globalDefaults]);
+  }, [modelSettings, videoBackend, videoProviderI2V, videoProviderR2V, imageBackendDefault, imageBackendT2I, imageBackendI2I, audioOverride, audioBackend, narrationVoice, narrationSpeed, voiceBinding, textDefault, textSimple, textComplex, aspectRatio, generationRoute, gridStoryboard, gridToggleVisible, defaultDuration, speechRate, episodeTargetDuration, contentMode, videoResolutions, imageResolution, projectName, t, globalDefaults]);
 
   const handleResetAgentProfile = useCallback(async () => {
     if (profileResetProject !== projectName) {
@@ -772,7 +773,11 @@ export function ProjectSettingsPage() {
                     textBackendSimple: textSimple,
                     textBackendComplex: textComplex,
                     defaultDuration,
-                    videoResolution,
+                    videoResolution: videoResolutions[executingVideoModel(
+                      { videoBackend, videoProviderI2V, videoProviderR2V }, globalDefaults,
+                      generationRoute === "reference_video",
+                    )] ?? null,
+                    videoResolutions,
                     imageResolution,
                   }}
                   onChange={(next) => {
@@ -786,7 +791,7 @@ export function ProjectSettingsPage() {
                     setTextSimple(next.textBackendSimple);
                     setTextComplex(next.textBackendComplex);
                     setDefaultDuration(next.defaultDuration);
-                    setVideoResolution(next.videoResolution);
+                    setVideoResolutions(next.videoResolutions ?? videoResolutions);
                     setImageResolution(next.imageResolution);
                   }}
                   providers={providers}

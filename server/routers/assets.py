@@ -17,11 +17,13 @@ from sqlalchemy.exc import IntegrityError
 
 from lib.artifacts.artifact_activation import register_artifact_entries_atomically, resolve_current_artifact_target
 from lib.artifacts.artifact_manifest import ArtifactKey
+from lib.artifacts.version_manager import MANUAL_UPLOAD_VERSION_SOURCE, InstalledVersionCommit, VersionManager
 from lib.db import async_session_factory
 from lib.db.models.asset import AssetDerivative
 from lib.db.repositories.asset_repo import AssetRepository
 from lib.infra.api_errors import NotFoundError
 from lib.project.asset_derivatives import (
+    derivative_artifact_id,
     derivative_artifact_key,
     derivative_sheet_relative_path,
     derivative_table,
@@ -41,6 +43,7 @@ from lib.project.asset_types import (
     validate_asset_name,
 )
 from lib.project.project_manager import ProjectManager, get_project_manager
+from lib.project.resource_paths import CHARACTER_DERIVATIVE_RESOURCE_TYPE
 from server.i18n import Translator
 from server.routers._asset_router_factory import localize_project_asset_name_conflict
 
@@ -88,12 +91,12 @@ async def _serialize_one(repo: AssetRepository, asset) -> dict:
 
 
 async def _copy_into_global_pool(source: Path, asset_type: str, default_ext: str) -> str:
-    """把一个文件拷进 ``_global_assets/{type}/``，返回相对 projects_root 的登记路径。"""
+    """把一个文件拷进全局资产库的 ``{type}/`` 下，返回相对数据根的登记路径。"""
     ext = source.suffix.lower() or default_ext
-    root = get_project_manager().get_global_assets_root() / asset_type
-    uid = uuid.uuid4().hex
-    await asyncio.to_thread(shutil.copyfile, source, root / f"{uid}{ext}")
-    return f"_global_assets/{asset_type}/{uid}{ext}"
+    pm = get_project_manager()
+    target = pm.get_global_assets_root() / asset_type / f"{uuid.uuid4().hex}{ext}"
+    await asyncio.to_thread(shutil.copyfile, source, target)
+    return target.relative_to(pm.data_root).as_posix()
 
 
 def _project_file_if_present(project_dir: Path, rel_path: str) -> Path | None:
@@ -117,16 +120,15 @@ async def _save_upload(file: UploadFile, asset_type: str, _t: Translator) -> str
     if len(data) > MAX_UPLOAD_BYTES:
         raise HTTPException(status_code=413, detail=_t("asset_upload_too_large"))
 
-    root = get_project_manager().get_global_assets_root() / asset_type
-    uid = uuid.uuid4().hex
-    target = root / f"{uid}{ext}"
+    pm = get_project_manager()
+    target = pm.get_global_assets_root() / asset_type / f"{uuid.uuid4().hex}{ext}"
     await asyncio.to_thread(target.write_bytes, data)
-    # 存相对路径（相对 projects_root）
-    return f"_global_assets/{asset_type}/{uid}{ext}"
+    # 存相对数据根的路径
+    return target.relative_to(pm.data_root).as_posix()
 
 
 def _delete_global_asset_file(rel_path: str) -> None:
-    path = get_project_manager().projects_root / rel_path
+    path = get_project_manager().data_root / rel_path
     try:
         path.unlink()
     except FileNotFoundError:
@@ -427,7 +429,7 @@ async def from_project(
             },
         )
 
-    # 5) 拷贝源 sheet / 参考音频到 _global_assets/{type}/{uuid}.{ext}
+    # 5) 拷贝源 sheet / 参考音频到 global_assets/{type}/{uuid}.{ext}
     # 两次拷贝共用一个失败边界：任一失败都清理已落盘的另一个文件，不留孤儿。
     new_image_path: str | None = None
     new_audio_path: str | None = None
@@ -518,6 +520,17 @@ async def from_project(
     return {"asset": payload}
 
 
+def _applied_sheet_version(resource_type: str, resource_id: str, sheet_file: Path) -> InstalledVersionCommit:
+    """从资产库带入项目的一张图：作为选中的手动上传版本记入历史。"""
+    return InstalledVersionCommit(
+        resource_type=resource_type,
+        resource_id=resource_id,
+        prompt="",
+        current_file=sheet_file,
+        metadata={"source": MANUAL_UPLOAD_VERSION_SOURCE},
+    )
+
+
 class ApplyToProjectRequest(BaseModel):
     asset_ids: list[str]
     target_project: str
@@ -602,7 +615,7 @@ async def apply_to_project(
         copy_src: Path | None = None
         copy_dst: Path | None = None
         if a.image_path:
-            src = project_manager.projects_root / a.image_path
+            src = project_manager.data_root / a.image_path
             if src.exists() and src.is_file():
                 ext = src.suffix.lower() or ".png"
                 rel_sheet = f"{bucket_key}/{desired_name}{ext}"
@@ -628,7 +641,7 @@ async def apply_to_project(
         copy_audio_src: Path | None = None
         copy_audio_dst: Path | None = None
         if a.type == "character" and a.audio_path:
-            audio_src = project_manager.projects_root / a.audio_path
+            audio_src = project_manager.data_root / a.audio_path
             if audio_src.exists() and audio_src.is_file():
                 audio_ext = audio_src.suffix.lower() or ".wav"
                 rel_audio = f"characters/refs_audio/{desired_name}{audio_ext}"
@@ -656,7 +669,7 @@ async def apply_to_project(
             for derivative in derivatives_by_asset.get(a.id, ()):
                 derivative_src: Path | None = None
                 if derivative.image_path:
-                    candidate = project_manager.projects_root / derivative.image_path
+                    candidate = project_manager.data_root / derivative.image_path
                     if candidate.exists() and candidate.is_file():
                         derivative_src = candidate
                     else:
@@ -686,6 +699,7 @@ async def apply_to_project(
                 "copy_audio_dst": copy_audio_dst,
                 "derivatives": derivative_plans,
                 "derivative_sheet_names": [],
+                "installed_sheets": [],
             }
         )
 
@@ -717,6 +731,7 @@ async def apply_to_project(
 
             plan["desired_name"] = name_
             plan["derivative_sheet_names"] = []
+            plan["installed_sheets"] = []
             if plan["copy_src"] is not None:
                 extension = plan["copy_src"].suffix.lower() or ".png"
                 plan["target_sheet"] = f"{bk}/{name_}{extension}"
@@ -750,6 +765,8 @@ async def apply_to_project(
                 data[bk] = {}
             # overwrite 策略要落在存量真实 key 上（可能是 NFD），否则会并存两条视觉同名条目
             key = existing.name if existing is not None and existing.asset_type == a_.type else name_
+            if ts:
+                plan["installed_sheets"].append(_applied_sheet_version(bk, key, project_dir / ts))
             # 整条替换前先把存量条目的衍生表接过来，再让库里带来的衍生按名覆盖上去：
             # 库里没有的存量衍生因此得以保留（覆盖导入不抹用户已登记的衍生），库里带来的
             # 同名衍生以库版本为准。新条目从空表起步，与创建路径和迁移同口径。
@@ -777,6 +794,14 @@ async def apply_to_project(
                             plan["derivative_sheet_names"].append(derivative_name)
                     # 存量键可能是 NFD 等价形态；命中就写回同一个键，避免并存两条视觉同名衍生。
                     derivative_key = resolve_asset_key(table, derivative_name) or derivative_name
+                    if derivative_sheet:
+                        plan["installed_sheets"].append(
+                            _applied_sheet_version(
+                                CHARACTER_DERIVATIVE_RESOURCE_TYPE,
+                                derivative_artifact_id(key, derivative_key),
+                                project_dir / derivative_sheet,
+                            )
+                        )
                     existing_derivative = table.get(derivative_key)
                     merged = dict(existing_derivative) if isinstance(existing_derivative, dict) else {}
                     merged["description"] = derivative["description"]
@@ -790,17 +815,28 @@ async def apply_to_project(
 
     if plans:
 
-        def _register_imported_sheet_claims(_project_file: Path) -> None:
-            keys = {ArtifactKey.asset_sheet(plan["asset"].type, plan["desired_name"]) for plan in plans}
-            keys |= {
+        def _register_imported_sheet_claims() -> None:
+            owner_keys = {ArtifactKey.asset_sheet(plan["asset"].type, plan["desired_name"]) for plan in plans}
+            derivative_keys = {
                 derivative_artifact_key(plan["desired_name"], derivative_name)
                 for plan in plans
                 for derivative_name in plan["derivative_sheet_names"]
             }
-            register_artifact_entries_atomically(
-                project_dir,
-                {key: resolve_current_artifact_target(project_dir, key) for key in keys},
-            )
+            owner_entries = {key: resolve_current_artifact_target(project_dir, key) for key in owner_keys}
+            derivative_entries = {
+                key: resolve_current_artifact_target(project_dir, key, pending_entries=owner_entries)
+                for key in derivative_keys
+            }
+            register_artifact_entries_atomically(project_dir, owner_entries | derivative_entries)
+
+        def _select_imported_sheets(_project_file: Path) -> None:
+            # 从库里带入的资产图与衍生资产图都是成品：同一次提交里各选中一条手动上传版本，
+            # 规划器据此按图本身投影依据后登记，不依赖描述与画风。
+            commits = [commit for plan in plans for commit in plan["installed_sheets"]]
+            if not commits:
+                _register_imported_sheet_claims()
+                return
+            VersionManager(project_dir).commit_installed_versions(commits, on_commit=_register_imported_sheet_claims)
 
         try:
             await asyncio.to_thread(
@@ -808,7 +844,7 @@ async def apply_to_project(
                 req.target_project,
                 _apply_all,
                 file_copies,
-                on_commit=_register_imported_sheet_claims,
+                on_commit=_select_imported_sheets,
             )
         except ProjectAssetNameConflictError as exc:
             raise HTTPException(status_code=409, detail=localize_project_asset_name_conflict(exc, _t)) from exc

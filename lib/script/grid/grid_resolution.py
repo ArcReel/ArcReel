@@ -36,7 +36,7 @@ async def resolve_image_resolution(r: ConfigResolver, project: dict) -> str | No
 
 
 async def resolve_large_grid_allowed(project: dict) -> bool:
-    """自开 session 的门控入口，供路由与 SDK 工具使用。
+    """自开 session 的门控入口，供 HTTP 路由与宫格提交规划使用。
 
     已持有 :class:`ConfigResolver` session 的调用方（费用估算）改用
     :func:`resolve_image_resolution` + ``large_grid_allowed``，不额外开 session。

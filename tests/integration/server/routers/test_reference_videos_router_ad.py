@@ -67,7 +67,7 @@ def ad_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
     from lib.project.project_manager import ProjectManager
     from server.routers import reference_videos as router_mod
 
-    monkeypatch.setattr(router_mod, "get_project_manager", lambda: ProjectManager(projects_root))
+    monkeypatch.setattr(router_mod, "get_project_manager", lambda: ProjectManager(tmp_path))
     monkeypatch.setattr(router_mod, "tts_task_in_progress", AsyncMock(return_value=False))
     from tests.fakes import fake_reference_request_projector
 
@@ -118,7 +118,7 @@ def test_ad_units_support_crud_and_product_mentions(ad_client: TestClient) -> No
         json={"prompt": "@[按摩仪] 正面朝向镜头"},
     )
     assert patched.status_code == 200, patched.text
-    project = ProjectManager(ad_client.project_dir.parent).load_project("ad-demo")
+    project = ProjectManager.for_project_dir(ad_client.project_dir).load_project("ad-demo")
     assert [(ref.type, ref.name) for ref in unit_reference_declarations(project, patched.json()["unit"])] == [
         ("product", "按摩仪")
     ]

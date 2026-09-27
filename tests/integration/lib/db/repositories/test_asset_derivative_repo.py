@@ -22,14 +22,14 @@ async def test_replace_derivatives_round_trips_name_description_and_image(async_
 
     await repo.replace_derivatives(
         asset.id,
-        [("战斗装", "黑甲", "_global_assets/character/aa.png"), ("便装", "布衣", None)],
+        [("战斗装", "黑甲", "global_assets/character/aa.png"), ("便装", "布衣", None)],
     )
     await async_session.flush()
 
     stored = [(d.name, d.description, d.image_path) for d in await repo.list_derivatives(asset.id)]
     assert stored == [
         ("便装", "布衣", None),
-        ("战斗装", "黑甲", "_global_assets/character/aa.png"),
+        ("战斗装", "黑甲", "global_assets/character/aa.png"),
     ]
 
 

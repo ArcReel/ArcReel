@@ -32,9 +32,17 @@ class WorkflowPlanRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    episode: int | None = Field(default=None, ge=1, strict=True)
-    narration_delivery: NarrationDelivery | None = None
-    confirmed_request_durations: dict[str, PositiveStrictInt] = Field(default_factory=dict)
+    episode: int | None = Field(
+        default=None, ge=1, strict=True, description="要规划的集号，从 1 开始；缺省时按项目进度选定当前集"
+    )
+    narration_delivery: NarrationDelivery | None = Field(
+        default=None,
+        description="本次视频请求的旁白交付选择：post_production 后期配音、use_tts 生成旁白配音；只作用于本次计划，不写入项目",
+    )
+    confirmed_request_durations: dict[str, PositiveStrictInt] = Field(
+        default_factory=dict,
+        description="已与用户确认的视频请求时长，{ 单元 id: 秒数 }；只作用于本次计划的视频准入判定",
+    )
 
     @field_validator("confirmed_request_durations")
     @classmethod

@@ -2,7 +2,11 @@
 id: text/reference_video_prompt_authoring
 category: text
 title: 参考生视频 · 提示词编写
-description: 把已确认的视频单元正文按同一份引用语法扩写出景别 / 构图 / 运镜与画面细节，对全部创作类型共用一份。只做保结构扩写：单元数与顺序不变、台词逐字不变；时长由单元拆分定稿后机械沿用，不进输出。静态外观由参考图承担，正文只写动作、姿态、互动与环境动态，因此不注入资产外观取材说明。参考图上限点明台词记号的说话人不计入，与机械派生参考图的口径一致。
+description: 把已确认的参考生视频单元正文扩写出景别、构图、运镜与画面细节。
+stage: prompt_authoring
+invoked_by:
+  kind: agent_tool
+  name: generate_episode_script
 applies_to:
   content_mode: [drama, narration]
   generation_mode: [reference_video]
@@ -51,7 +55,7 @@ protected: false
 画面比例：{{ aspect_ratio }}
 </style>
 
-{{ partial("shared/asset_appearance_blocks") }}
+{{ partial("shared/lists/asset_appearance_blocks") }}
 
 <script_plan_units>
 {{ units_content }}

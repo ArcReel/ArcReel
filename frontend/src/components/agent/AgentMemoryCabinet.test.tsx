@@ -9,7 +9,7 @@ import type { AgentMemoryOverview } from "@/types/agent-memory";
 
 function overview(patch: Partial<AgentMemoryOverview> = {}): AgentMemoryOverview {
   return {
-    path: "/data/.arcreel/users/default/memory",
+    path: "/data/users/default/memory",
     index: { exists: true, line_count: 3, byte_size: 120, over_limit: false },
     files: [
       {
@@ -30,7 +30,7 @@ function overview(patch: Partial<AgentMemoryOverview> = {}): AgentMemoryOverview
 }
 
 const EMPTY: AgentMemoryOverview = {
-  path: "/data/.arcreel/users/default/memory",
+  path: "/data/users/default/memory",
   index: { exists: false, line_count: 0, byte_size: 0, over_limit: false },
   files: [],
 };
@@ -57,7 +57,7 @@ describe("AgentMemoryCabinet", () => {
     expect(within(list).getByText(/3\/200/)).toBeInTheDocument();
     expect(screen.getByText("创作者的默认画幅偏好")).toBeInTheDocument();
     expect(screen.getByText(/反馈|Feedback/)).toBeInTheDocument();
-    expect(screen.getByText("/data/.arcreel/users/default/memory")).toBeInTheDocument();
+    expect(screen.getByText("/data/users/default/memory")).toBeInTheDocument();
 
     const names = within(list)
       .getAllByText(/\.md$/)

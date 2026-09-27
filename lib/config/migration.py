@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.repository import ProviderConfigRepository, SystemSettingRepository
 from lib.config.system_config import resolve_vertex_credentials_path
+from lib.infra.data_root_layout import DataRootLayout
 
 logger = logging.getLogger(__name__)
 
@@ -61,8 +62,11 @@ _HANDLED_KEYS = {
 } | set(_SYSTEM_SETTING_KEYS)
 
 
-async def migrate_json_to_db(session: AsyncSession, json_path: Path) -> None:
-    if not json_path.exists():  # noqa: ASYNC240 -- 启动期迁移入口的一次性存在性检查，本地元数据
+async def migrate_json_to_db(session: AsyncSession, data_root: Path) -> None:
+    """把数据根下的旧版系统配置文件一次性导入数据库；文件不存在时什么都不做。"""
+    layout = DataRootLayout(data_root)
+    json_path = layout.system_config_json_path
+    if not json_path.exists():
         return
 
     logger.info("Migrating %s to database...", json_path)
@@ -80,8 +84,7 @@ async def migrate_json_to_db(session: AsyncSession, json_path: Path) -> None:
             await provider_repo.set(provider, config_key, str(value), is_secret=is_secret)
 
     # 1b. Vertex credentials — detect existing file
-    project_root = json_path.parent.parent  # projects/.system_config.json → project root
-    vertex_cred_path = resolve_vertex_credentials_path(project_root)
+    vertex_cred_path = resolve_vertex_credentials_path(layout.root)
     if vertex_cred_path and vertex_cred_path.exists():
         await provider_repo.set("gemini-vertex", "credentials_path", str(vertex_cred_path), is_secret=False)
 
@@ -142,7 +145,7 @@ async def migrate_json_to_db(session: AsyncSession, json_path: Path) -> None:
 
     # 7. Rename to .bak
     bak_path = json_path.with_suffix(".json.bak")
-    json_path.rename(bak_path)  # noqa: ASYNC240 -- 同目录 rename，纯元数据操作
+    json_path.rename(bak_path)
     logger.info("Migration complete. Renamed to %s", bak_path)
 
 

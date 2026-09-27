@@ -45,6 +45,7 @@ _ARTIFACT_KEY = derivative_artifact_key("阿岚", "战斗装")
 def _wire(monkeypatch, pm, generator) -> None:
     """把任务的项目管理器与生成上下文接到本用例自己的真实项目/生成器上。"""
     monkeypatch.setattr(derivative_sheet_tasks, "get_project_manager", lambda: pm)
+    monkeypatch.setattr(derivative_sheet_tasks, "resolve_generation_context", fake_resolve_ctx(generator))
     monkeypatch.setattr(formal_image_commit, "resolve_generation_context", fake_resolve_ctx(generator))
 
 
@@ -180,7 +181,6 @@ class TestDerivativeImageEdit:
         generator = build_generator(project_path, _backend())
         _wire(monkeypatch, pm, generator)
         monkeypatch.setattr(image_edit_tasks, "get_project_manager", lambda: pm)
-        monkeypatch.setattr(image_edit_tasks, "resolve_generation_context", fake_resolve_ctx(generator))
 
         generated = solid_png_bytes(RESULT_IMAGE_RGB)
         with capture_http() as router:

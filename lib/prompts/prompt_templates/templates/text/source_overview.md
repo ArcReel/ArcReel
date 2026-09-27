@@ -2,11 +2,11 @@
 id: text/source_overview
 category: text
 title: 源文总览
-description: >-
-  从项目源文提炼项目概述（故事梗概、题材、主题、世界观与源语言），结果写入 project.json 的 overview，
-  并注入之后所有生成环节的提示词。小说从正文归纳；成品剧本常附作者写下的创作方案，
-  形态不固定、没有统一标记，所以只描述它可能的样子，识别到就优先照用作者的设定，缺失才从正文归纳。
-  输出语言与其余文本环节同口径，由项目源语言决定。
+description: 从项目源文提炼项目概述（故事梗概、题材、主题、世界观与源语言），供之后所有生成环节的提示词使用。
+stage: source_overview
+invoked_by:
+  kind: user_action
+  name: source_overview
 applies_to:
   source_kind:
   - novel

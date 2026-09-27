@@ -20,15 +20,19 @@ from lib.workflow.workflow_plan import WorkflowPlanRequest, build_workflow_plan
 from lib.workflow.workflow_state import WorkflowStatus
 from server import draft_workflow, tool_runtime
 from server import text_generation as shared_text_generation
-from server.agent_runtime.sdk_tools import text_generation as sdk_text_generation
 from server.tool_runtime import (
     CallerContext,
     DraftLocator,
+    EpisodeScriptRequest,
     GenerationBatchToolRequest,
+    NoArguments,
     PatchEpisodeMetaRequest,
     PatchEpisodeScriptRequest,
+    ProjectFileRequest,
     ProjectScope,
+    ScriptPlanContentRequest,
     Services,
+    SourceTextRequest,
     ToolRequest,
     get_episode_script,
     get_generation_batch,
@@ -43,21 +47,18 @@ from server.tool_runtime import (
     patch_episode_script,
     read_project_file,
 )
+from tests.factories import make_video_request_facts
 
 
 class _Projects:
     def __init__(self, project: dict):
         self.project = project
         self.load_script_threads: list[int] = []
-        self.readonly_loads = 0
+        self.project_loads = 0
 
     def load_project(self, name: str) -> dict:
         assert name == "demo"
-        return self.project
-
-    def load_project_readonly(self, name: str) -> dict:
-        assert name == "demo"
-        self.readonly_loads += 1
+        self.project_loads += 1
         return self.project
 
     def load_script(self, name: str, script: str) -> dict:
@@ -151,7 +152,12 @@ async def test_workflow_plan_returns_typed_domain_outcome() -> None:
     assert outcome.value.status.target.episode == 1
 
 
-async def test_video_capabilities_returns_typed_domain_outcome() -> None:
+async def test_video_capabilities_returns_typed_domain_outcome(set_video_request_facts) -> None:
+    set_video_request_facts(
+        make_video_request_facts(
+            provider_id="fake", model_id="video-1", supported_durations=(4, 6), allowed_durations=(4, 6)
+        )
+    )
     project = {"generation_mode": "storyboard", "content_mode": "drama"}
     projects = _Projects(project)
     outcome = await get_video_capabilities(
@@ -162,8 +168,18 @@ async def test_video_capabilities_returns_typed_domain_outcome() -> None:
     )
 
     assert outcome.problem is None
-    assert outcome.value == {"provider_id": "fake", "model": "video-1", "supported_durations": [4, 6]}
-    assert projects.readonly_loads == 1
+    assert outcome.value == {
+        "provider_id": "fake",
+        "model": "video-1",
+        "supported_durations": [4, 6],
+        "duration_constraints": {
+            "resolution": None,
+            "uses_reference_images": False,
+            "allowed": [4, 6],
+            "excluded": {},
+        },
+    }
+    assert projects.project_loads == 1
 
 
 async def test_generation_batch_remains_readable_when_project_migration_is_blocked(
@@ -387,17 +403,17 @@ async def test_sync_transaction_finishes_worker_before_propagating_cancellation(
     assert finished.is_set()
 
 
-def test_text_generation_dependency_points_from_host_adapters_to_shared_handler() -> None:
-    shared_path = Path(shared_text_generation.__file__)
-    sdk_path = shared_path.parent / "agent_runtime" / "sdk_tools" / "text_generation.py"
-    shared_imports = _imported_modules(shared_path)
-    sdk_imports = _imported_modules(sdk_path)
+@pytest.mark.parametrize("module", [shared_text_generation, draft_workflow], ids=lambda module: module.__name__)
+def test_shared_text_and_draft_handlers_stay_host_independent(module) -> None:
+    path = Path(module.__file__)
+    shared_imports = _imported_modules(path)
 
     assert "claude_agent_sdk" not in shared_imports
-    assert not any(module.startswith("server.agent_runtime.sdk_tools") for module in shared_imports)
-    assert "server.tool_runtime" in sdk_imports
-    assert "server.text_generation" in sdk_imports
-    assert '"is_error"' not in shared_path.read_text(encoding="utf-8")
+    assert not any(
+        name.startswith(("server.agent_runtime", "server.agent_toolset.embedded", "server.agent_toolset.remote"))
+        for name in shared_imports
+    )
+    assert '"is_error"' not in path.read_text(encoding="utf-8")
 
 
 async def test_patch_episode_meta_returns_typed_domain_outcome(tmp_path: Path, monkeypatch) -> None:
@@ -422,7 +438,7 @@ async def test_patch_episode_meta_returns_typed_domain_outcome(tmp_path: Path, m
 
     outcome = await patch_episode_meta(
         ToolRequest(PatchEpisodeMetaRequest(script="episode_1.json", field="title", value=" 新标题 ")),
-        ProjectScope("demo", projects.projects_root),
+        ProjectScope("demo", projects.data_root),
         CallerContext(user_id="u1", source="mcp"),
         services,
     )
@@ -441,7 +457,7 @@ async def test_patch_episode_meta_returns_typed_domain_outcome(tmp_path: Path, m
 
 
 async def test_content_readers_return_body_and_revision_from_the_same_snapshot(tmp_path: Path, monkeypatch) -> None:
-    project_dir = tmp_path / "demo"
+    project_dir = tmp_path / "projects" / "demo"
     (project_dir / "scripts").mkdir(parents=True)
     script_plan_dir = project_dir / "drafts" / "episode_1"
     script_plan_dir.mkdir(parents=True)
@@ -460,23 +476,27 @@ async def test_content_readers_return_body_and_revision_from_the_same_snapshot(t
     caller = CallerContext(user_id="u1", source="mcp")
     caller_thread = threading.get_ident()
     reader_threads: list[int] = []
-    original_load_project_readonly = projects.load_project_readonly
+    original_load_project = projects.load_project
     original_load_script_readonly = projects.load_script_readonly
 
-    def tracked_load_project_readonly(project_name: str) -> dict:
+    def tracked_load_project(project_name: str) -> dict:
         reader_threads.append(threading.get_ident())
-        return original_load_project_readonly(project_name)
+        return original_load_project(project_name)
 
     def tracked_load_script_readonly(project_name: str, filename: str) -> dict:
         reader_threads.append(threading.get_ident())
         return original_load_script_readonly(project_name, filename)
 
-    monkeypatch.setattr(projects, "load_project_readonly", tracked_load_project_readonly)
+    monkeypatch.setattr(projects, "load_project", tracked_load_project)
     monkeypatch.setattr(projects, "load_script_readonly", tracked_load_script_readonly)
 
-    project = await get_project_content(ToolRequest(None), scope, caller, services)
-    script = await get_episode_script(ToolRequest("episode_1.json"), scope, caller, services)
-    script_plan = await get_script_plan_content(ToolRequest(1), scope, caller, services)
+    project = await get_project_content(ToolRequest(NoArguments()), scope, caller, services)
+    script = await get_episode_script(
+        ToolRequest(EpisodeScriptRequest(script="episode_1.json")), scope, caller, services
+    )
+    script_plan = await get_script_plan_content(
+        ToolRequest(ScriptPlanContentRequest(episode=1)), scope, caller, services
+    )
 
     assert project.problem is None
     assert project.value is not None
@@ -494,7 +514,7 @@ async def test_content_readers_return_body_and_revision_from_the_same_snapshot(t
 
 
 async def test_file_readers_share_a_business_file_allowlist_and_reject_symlinks(tmp_path: Path) -> None:
-    project_dir = tmp_path / "demo"
+    project_dir = tmp_path / "projects" / "demo"
     (project_dir / "source").mkdir(parents=True)
     (project_dir / "scripts").mkdir()
     drafts = project_dir / "drafts" / "episode_1"
@@ -511,15 +531,23 @@ async def test_file_readers_share_a_business_file_allowlist_and_reject_symlinks(
     services = Services(projects=projects, workflow_planner=_Planner(_status()), capabilities=_Capabilities())
     scope = ProjectScope("demo", tmp_path)
     caller = CallerContext(user_id="u1", source="mcp")
-    sources = await list_source_files(ToolRequest(None), scope, caller, services)
-    source = await get_source_text(ToolRequest("source/episode_1.txt"), scope, caller, services)
-    script_plan = await get_script_plan_content(ToolRequest(1), scope, caller, services)
-    files = await list_project_files(ToolRequest(None), scope, caller, services)
-    script = await read_project_file(ToolRequest("scripts/episode_1.json"), scope, caller, services)
-    sensitive = await read_project_file(ToolRequest(".env"), scope, caller, services)
-    linked = await read_project_file(ToolRequest("source/linked.txt"), scope, caller, services)
-    nonregular = await read_project_file(ToolRequest("source/directory.txt"), scope, caller, services)
-    traversal = await read_project_file(ToolRequest("../demo/project.json"), scope, caller, services)
+    sources = await list_source_files(ToolRequest(NoArguments()), scope, caller, services)
+    source = await get_source_text(ToolRequest(SourceTextRequest(path="source/episode_1.txt")), scope, caller, services)
+    script_plan = await get_script_plan_content(
+        ToolRequest(ScriptPlanContentRequest(episode=1)), scope, caller, services
+    )
+    files = await list_project_files(ToolRequest(NoArguments()), scope, caller, services)
+    script = await read_project_file(
+        ToolRequest(ProjectFileRequest(path="scripts/episode_1.json")), scope, caller, services
+    )
+    sensitive = await read_project_file(ToolRequest(ProjectFileRequest(path=".env")), scope, caller, services)
+    linked = await read_project_file(ToolRequest(ProjectFileRequest(path="source/linked.txt")), scope, caller, services)
+    nonregular = await read_project_file(
+        ToolRequest(ProjectFileRequest(path="source/directory.txt")), scope, caller, services
+    )
+    traversal = await read_project_file(
+        ToolRequest(ProjectFileRequest(path="../demo/project.json")), scope, caller, services
+    )
 
     assert sources.problem is None
     assert sources.value is not None
@@ -552,7 +580,7 @@ async def test_file_readers_share_a_business_file_allowlist_and_reject_symlinks(
 async def test_project_file_read_holds_the_checked_file_snapshot(tmp_path: Path, monkeypatch) -> None:
     if os.open not in os.supports_dir_fd:
         pytest.skip("requires openat-style directory descriptors")
-    project_dir = tmp_path / "demo"
+    project_dir = tmp_path / "projects" / "demo"
     source_dir = project_dir / "source"
     source_dir.mkdir(parents=True)
     (project_dir / "project.json").write_text("{}", encoding="utf-8")
@@ -573,7 +601,7 @@ async def test_project_file_read_holds_the_checked_file_snapshot(tmp_path: Path,
     )
 
     outcome = await read_project_file(
-        ToolRequest("source/novel.txt"),
+        ToolRequest(ProjectFileRequest(path="source/novel.txt")),
         ProjectScope("demo", tmp_path),
         CallerContext(user_id="u1", source="mcp"),
         services,
@@ -585,7 +613,7 @@ async def test_project_file_read_holds_the_checked_file_snapshot(tmp_path: Path,
 
 
 async def test_project_file_read_rejects_oversized_regular_file(tmp_path: Path) -> None:
-    project_dir = tmp_path / "demo"
+    project_dir = tmp_path / "projects" / "demo"
     source_dir = project_dir / "source"
     source_dir.mkdir(parents=True)
     (project_dir / "project.json").write_text("{}", encoding="utf-8")
@@ -597,7 +625,7 @@ async def test_project_file_read_rejects_oversized_regular_file(tmp_path: Path) 
     )
 
     outcome = await read_project_file(
-        ToolRequest("source/novel.txt"),
+        ToolRequest(ProjectFileRequest(path="source/novel.txt")),
         ProjectScope("demo", tmp_path),
         CallerContext(user_id="u1", source="mcp"),
         services,
@@ -616,79 +644,6 @@ def test_draft_locator_requires_a_strict_positive_episode(episode: object) -> No
 def test_draft_locator_rejects_unknown_document_types() -> None:
     with pytest.raises(ValidationError, match=r"DraftLocator\ndoc_type"):
         DraftLocator(episode=1, doc_type="unsupported")
-
-
-def test_draft_dependency_points_from_sdk_adapter_to_shared_workflow() -> None:
-    def imports(module) -> set[str]:
-        tree = ast.parse(Path(module.__file__).read_text(encoding="utf-8"))
-        return {
-            name
-            for node in ast.walk(tree)
-            for name in (
-                [node.module]
-                if isinstance(node, ast.ImportFrom) and node.module
-                else [alias.name for alias in node.names]
-                if isinstance(node, ast.Import)
-                else []
-            )
-        }
-
-    shared_imports = imports(draft_workflow)
-    sdk_imports = imports(sdk_text_generation)
-    shared_source = Path(draft_workflow.__file__).read_text(encoding="utf-8")
-
-    assert "claude_agent_sdk" not in shared_imports
-    assert not any(name.startswith("server.agent_runtime.sdk_tools") for name in shared_imports)
-    assert "server.draft_workflow" in sdk_imports
-    assert '"is_error"' not in shared_source
-
-
-@pytest.mark.parametrize("script", [1, ["episode_1.json"], {"name": "episode_1.json"}, None])
-async def test_episode_script_reader_reports_invalid_request_for_non_string_names(
-    tmp_path: Path, script: object
-) -> None:
-    """工具入参是模型给的原始 JSON，形状不合规须落成 invalid_request 而非异常。"""
-
-    project_dir = tmp_path / "demo"
-    project_dir.mkdir(parents=True)
-    (project_dir / "project.json").write_text(
-        f'{{"content_mode":"drama","schema_version":{CURRENT_PROJECT_SCHEMA_VERSION}}}', encoding="utf-8"
-    )
-    services = Services(
-        projects=ProjectManager(tmp_path), workflow_planner=_Planner(_status()), capabilities=_Capabilities()
-    )
-
-    outcome = await get_episode_script(
-        ToolRequest(script),
-        ProjectScope("demo", tmp_path),
-        CallerContext(user_id="u1", source="mcp"),
-        services,
-    )
-
-    assert outcome.problem is not None
-    assert outcome.problem.code == "invalid_request"
-
-
-@pytest.mark.parametrize("path", [1, ["source/novel.txt"], {"path": "source/novel.txt"}])
-async def test_business_file_readers_reject_non_string_paths(tmp_path: Path, path: object) -> None:
-    project_dir = tmp_path / "demo"
-    (project_dir / "source").mkdir(parents=True)
-    (project_dir / "project.json").write_text(
-        f'{{"content_mode":"drama","schema_version":{CURRENT_PROJECT_SCHEMA_VERSION}}}', encoding="utf-8"
-    )
-    services = Services(
-        projects=ProjectManager(tmp_path), workflow_planner=_Planner(_status()), capabilities=_Capabilities()
-    )
-    scope = ProjectScope("demo", tmp_path)
-    caller = CallerContext(user_id="u1", source="mcp")
-
-    source_text = await get_source_text(ToolRequest(path), scope, caller, services)
-    project_file = await read_project_file(ToolRequest(path), scope, caller, services)
-
-    assert source_text.problem is not None
-    assert source_text.problem.code == "unsafe_path"
-    assert project_file.problem is not None
-    assert project_file.problem.code == "unsafe_path"
 
 
 @pytest.mark.parametrize("entry_ids", [(1,), (["E1U01"],), ({"id": "E1U01"},)])

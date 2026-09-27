@@ -883,7 +883,7 @@ def _setup_pm_with_profile(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> t
 
     profile = _make_profile(tmp_path)
     monkeypatch.setattr(pm_module, "agent_profile_dir", lambda: profile)
-    pm = pm_module.ProjectManager(projects_root=str(tmp_path / "projects"))
+    pm = pm_module.ProjectManager(data_root=str(tmp_path / "projects"))
     return pm, profile
 
 
@@ -959,7 +959,7 @@ def test_sync_all_agent_profiles_isolates_corrupt_project(tmp_path: Path, monkey
     stats = pm.sync_all_agent_profiles()
     assert stats.get("aborted") is not True
     assert stats["failed_projects"] == 1
-    assert (pm.projects_root / "good" / "CLAUDE.md").read_text() == "narration top"
+    assert (pm.projects_dir / "good" / "CLAUDE.md").read_text() == "narration top"
     # 损坏项目的 CLAUDE.md 保持上次 sync 的 drama 内容，未被错切回 narration
     assert (bad_dir / "CLAUDE.md").read_text() == "drama top"
 
@@ -971,5 +971,5 @@ def test_sync_all_agent_profiles_per_project_mode(tmp_path: Path, monkeypatch: p
     # 改两个项目的内容（模拟 server 启动前 profile 已升级）
     stats = pm.sync_all_agent_profiles()
     assert stats.get("aborted") is not True
-    assert (pm.projects_root / "a" / "CLAUDE.md").read_text() == "narration top"
-    assert (pm.projects_root / "b" / "CLAUDE.md").read_text() == "drama top"
+    assert (pm.projects_dir / "a" / "CLAUDE.md").read_text() == "narration top"
+    assert (pm.projects_dir / "b" / "CLAUDE.md").read_text() == "drama top"

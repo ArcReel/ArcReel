@@ -70,9 +70,12 @@ class TestProperties:
             ImageCapability.IMAGE_TO_IMAGE,
         }
 
-    def test_declares_no_reference_image_limit(self, grok_backend):
-        # 该后端不按数量裁剪参考图（全量下传，见 i2i 用例），故声明 0 让编排层不裁剪。
-        assert grok_backend.max_reference_images == 0
+    @pytest.mark.parametrize("model", ["grok-imagine-image", "grok-imagine-image-pro"])
+    def test_declares_grok_reference_image_limit(self, patch_xai_sdk, model):
+        # xAI 官方上限：多图编辑单请求最多 5 张源图。
+        from lib.backends.image_backends.grok import GrokImageBackend
+
+        assert GrokImageBackend(api_key="fake-xai-key", model=model).max_reference_images == 5
 
 
 # ---------------------------------------------------------------------------
@@ -198,6 +201,26 @@ class TestGenerateI2I:
 
         call_kwargs = grok_backend._client.image.sample.call_args.kwargs
         assert len(call_kwargs["image_urls"]) == 2
+
+    async def test_i2i_truncates_references_over_the_declared_limit(self, grok_backend, tmp_path):
+        """编排层未裁剪时的兜底：只发前 max_reference_images 张。"""
+        refs = []
+        for index in range(7):
+            ref_path = tmp_path / f"ref{index}.png"
+            ref_path.write_bytes(b"\x89PNG\r\n\x1a\n" + bytes([index]))
+            refs.append(ReferenceImage(path=str(ref_path)))
+        mock_response = MagicMock()
+        mock_response.respect_moderation = True
+        mock_response.url = "https://example.com/merged.png"
+        grok_backend._client.image.sample = AsyncMock(return_value=mock_response)
+
+        with _image_download(mock_response.url, b"\x89PNG\r\n\x1a\n" + b"\x00" * 50):
+            await grok_backend.generate(
+                ImageGenerationRequest(prompt="Merge", output_path=tmp_path / "out.png", reference_images=refs)
+            )
+
+        call_kwargs = grok_backend._client.image.sample.call_args.kwargs
+        assert len(call_kwargs["image_urls"]) == grok_backend.max_reference_images == 5
 
     async def test_i2i_reference_encoding_keeps_event_loop_running(self, grok_backend, tmp_path, monkeypatch):
         """参考图 base64 编码要读整张图，必须卸载到线程，否则事件循环被读堵住。"""

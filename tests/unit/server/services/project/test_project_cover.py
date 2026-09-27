@@ -22,6 +22,14 @@ def _mk_manager(scripts_by_file: dict[str, dict]) -> MagicMock:
     return mgr
 
 
+# 分镜图生视频的三种分镜骨架：(content_mode, 条目数组键)。
+_STORYBOARD_SKELETONS = [
+    pytest.param("narration", "segments", id="narration-segments"),
+    pytest.param("drama", "scenes", id="drama-scenes"),
+    pytest.param("ad", "shots", id="ad-shots"),
+]
+
+
 def test_returns_video_thumbnail_when_present_in_reference_mode():
     """reference 模式已生成视频：命中 video_thumbnail 最高优先级。"""
     project = {
@@ -39,14 +47,19 @@ def test_returns_video_thumbnail_when_present_in_reference_mode():
     assert url == "/api/v1/files/proj/reference_videos/thumbnails/E1U1.jpg"
 
 
-def test_returns_video_thumbnail_in_storyboard_mode():
-    """分镜图生视频：segments 分支同样能命中 video_thumbnail。"""
-    project = {"episodes": [{"script_file": "scripts/episode_1.json"}]}
+@pytest.mark.parametrize(("content_mode", "items_key"), _STORYBOARD_SKELETONS)
+def test_returns_video_thumbnail_in_storyboard_mode(content_mode, items_key):
+    """分镜图生视频：三种分镜骨架的条目都能命中 video_thumbnail，不落到项目级场景图。"""
+    project = {
+        "episodes": [{"script_file": "scripts/episode_1.json"}],
+        "scenes": {"S": {"scene_sheet": "scenes/s.png"}},
+    }
     scripts = {
         "scripts/episode_1.json": {
-            "segments": [
+            "content_mode": content_mode,
+            items_key: [
                 {"generated_assets": {"video_thumbnail": "thumbnails/scene_E1S1.jpg"}},
-            ]
+            ],
         }
     }
     url = resolve_project_cover(_mk_manager(scripts), "proj", project)
@@ -74,13 +87,19 @@ def test_video_thumbnail_beats_storyboard_image_across_all_episodes():
     assert url == "/api/v1/files/proj/thumbnails/scene_E2S1.jpg"
 
 
-def test_falls_back_to_storyboard_image_when_no_video_thumbnail():
-    project = {"episodes": [{"script_file": "scripts/episode_1.json"}]}
+@pytest.mark.parametrize(("content_mode", "items_key"), _STORYBOARD_SKELETONS)
+def test_falls_back_to_storyboard_image_when_no_video_thumbnail(content_mode, items_key):
+    """三种分镜骨架都没有视频首帧时，取条目上的 storyboard_image，仍优先于项目级场景图。"""
+    project = {
+        "episodes": [{"script_file": "scripts/episode_1.json"}],
+        "scenes": {"S": {"scene_sheet": "scenes/s.png"}},
+    }
     scripts = {
         "scripts/episode_1.json": {
-            "segments": [
+            "content_mode": content_mode,
+            items_key: [
                 {"generated_assets": {"storyboard_image": "storyboards/scene_E1S1_first.png"}},
-            ]
+            ],
         }
     }
     url = resolve_project_cover(_mk_manager(scripts), "proj", project)
@@ -109,6 +128,28 @@ def test_tolerates_corrupt_generated_assets():
     scripts = {"scripts/episode_1.json": {"video_units": [{"generated_assets": "corrupt"}]}}
     url = resolve_project_cover(_mk_manager(scripts), "proj", project)
     assert url == "/api/v1/files/proj/scenes/酒馆.png"
+
+
+def test_tolerates_corrupt_item_arrays():
+    """条目数组非 list、条目非 dict、资产路径非字符串的脏数据按缺失跳过，不抛异常，也不遮蔽同一剧本里的真实资产。"""
+    project = {
+        "episodes": [{"script_file": "scripts/episode_1.json"}],
+        "scenes": {"酒馆": {"scene_sheet": "scenes/酒馆.png"}},
+    }
+    scripts = {
+        "scripts/episode_1.json": {
+            "segments": {"E1S1": "corrupt"},
+            "scenes": [
+                "corrupt",
+                None,
+                {"generated_assets": {"video_thumbnail": 1}},
+                {"generated_assets": {"video_thumbnail": "thumbnails/scene_E1S2.jpg"}},
+            ],
+            "shots": 0,
+        }
+    }
+    url = resolve_project_cover(_mk_manager(scripts), "proj", project)
+    assert url == "/api/v1/files/proj/thumbnails/scene_E1S2.jpg"
 
 
 def test_falls_back_to_character_sheet_when_no_scenes():
@@ -189,10 +230,8 @@ def test_preloaded_scripts_falls_back_to_manager_for_missing_entries():
 
 
 def test_mixed_segments_and_video_units_do_not_shadow_each_other():
-    """回归：分镜图生视频 script 被误塞入空 video_units 时，不应让 segments 里的真实
-    video_thumbnail / storyboard_image 被跳过退到 scene_sheet。
-    暴君1.0 复现现场：segments 里 2 个 video_thumbnail + 49 个 storyboard_image，
-    video_units 里 7 个 status:pending 空壳；旧逻辑 `video_units or segments` 让后者整体丢弃。"""
+    """分镜图生视频剧本里混入 status:pending 空壳 video_units 时，segments 里的真实
+    video_thumbnail / storyboard_image 仍参与挑选，不被跳过而退到 scene_sheet。"""
     project = {
         "episodes": [{"script_file": "scripts/episode_1.json"}],
         "scenes": {"选秀大殿": {"scene_sheet": "scenes/选秀大殿.png"}},

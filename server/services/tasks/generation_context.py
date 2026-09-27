@@ -3,7 +3,7 @@
 ``resolve_generation_context`` 在单个 ConfigResolver session 内完成全部声明 lane 的解析与
 backend 构造，返回不可变的 :class:`GenerationContext`（MediaGenerator + 各 lane 结果值对象）。
 每条 lane 固定求解顺序：解析 ProviderModel → 经 ``assemble_backend``（``docs/adr/0039``）构造
-backend → 按实际身份查 resolution 与能力。
+backend → 按实际身份查 resolution 与视频请求事实（``docs/adr/0086``）。
 
 查询身份 =（规范 registry provider_id, backend 实际 model）：provider 在构造缝中不可能漂移，
 而族别名 provider（如 ark-agent-plan 复用 Ark backend）的 ``backend.name`` 是族名、非 registry
@@ -18,7 +18,6 @@ backend 实例缓存随本模块承载：缓存是 server 执行层关切（``do
 from __future__ import annotations
 
 import asyncio
-import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -27,16 +26,27 @@ from typing import TYPE_CHECKING, Any, Literal
 from lib.backends.audio_backends.base import VoiceOption
 from lib.backends.backend_assembly import assemble_backend
 from lib.backends.gemini_shared import get_shared_rate_limiter
-from lib.config.resolver import ConfigResolver, VideoGenerationType, VoiceConsistency, get_provider_fallback
+from lib.config.resolver import (
+    ConfigResolver,
+    VideoGenerationType,
+    video_bucket_for_generation_mode,
+)
 from lib.custom_provider.backends import CustomVideoBackend
 from lib.db.base import DEFAULT_USER_ID
 from lib.generation.media_generator import MediaGenerator
+from lib.generation.video_request_facts import (
+    ExecutionVideoIdentity,
+    VideoRequestFacts,
+    VideoRequestFactsError,
+    VideoRequestFactsFailure,
+    VideoRoute,
+    evaluate_video_request_facts,
+)
 from lib.project.project_manager import get_project_manager
 
 if TYPE_CHECKING:
     from lib.config.resolver import ProviderModel
 
-logger = logging.getLogger(__name__)
 
 rate_limiter = get_shared_rate_limiter()
 
@@ -174,11 +184,15 @@ class VideoLaneRequest:
 
     ``generation_type`` 决定 i2v / r2v 任务类型桶（``docs/adr/0054``）：图生视频 / 宫格 → i2v；
     参考生视频按视频单元解析后的实际参考图分流——有参考图 → r2v，无参考图的视频单元降级
-    → i2v（由 executor 判定后声明，见 ``lib.script.reference_video.units``）。None = 不定桶，
-    走旧三级解析且不过能力闸——供 resume 等按 payload 排空、不承诺能力的路径使用。
+    → i2v（由 executor 判定后声明，见 ``lib.script.reference_video.units``）。两字段均为 None 时
+    不定桶，走三级解析且不过能力闸，供按 payload 排空、不承诺能力的路径使用。
+
+    ``route`` 声明时 lane 附带该路线的执行侧视频请求事实（``docs/adr/0086``），能力只经它读取；
+    未显式定桶时按项目生成模式定桶解析身份与求值。不声明路线的 lane（续跑按检查点排空）不求值能力。
     """
 
     generation_type: VideoGenerationType | None = None
+    route: VideoRoute | None = None
 
 
 @dataclass(frozen=True)
@@ -209,60 +223,45 @@ class ImageLaneResult:
 class VideoLaneResult:
     """video lane 解析产物。
 
-    能力字段（``supported_durations`` / ``max_duration`` / ``max_reference_images`` /
-    ``text_to_video``）在能力
-    查询失败时降级为空值（空元组 / None）放行：能力是已选定 provider/model 的元数据，缺失
-    不代表不可调用，守卫遇空值不施加限制、把决策推给 backend。``resolution_or_fallback``
-    供需要非空档位的调用方（参考生视频路径），其余语义同 :class:`ImageLaneResult`。
+    能力事实只在 ``request_facts``：以实际构造的 backend 身份求值的执行侧视频请求事实，解析不出
+    时是带类型的失败、不降级；lane 请求未声明路线时为 None。``resolution`` 是按实际身份解析的
+    请求分辨率，None 表示调用时不传该参数（``docs/adr/0019``），其余身份字段语义同
+    :class:`ImageLaneResult`。
     """
 
     provider_model: ProviderModel
     backend_name: str
     backend_model: str
     resolution: str | None
-    resolution_or_fallback: str
-    supported_durations: tuple[int, ...]
-    max_duration: int | None
-    max_reference_images: int | None
-    text_to_video: bool = True
-    # 时长这一维由端点固定（见 docs/adr/0082）：``supported_durations`` 是合法空集，成片多长
-    # 由端点自己决定。能力解析失败时留在 False——此时的空档位是「读不到能力」，仍按结构化
-    # blocker 处理，不能被误读成端点固定而放行一个无约束申请。
-    duration_endpoint_fixed: bool = False
-    # 费用与实际 provider 出账口径的有声档位，直接来自 video capabilities。
-    # 它与下方的 requested_generate_audio（用户开关意图）不等价。
-    generate_audio: bool = False
-    # 能力查询失败时降级为 "soft"（有信号才判定为真无声，与既有「无信号不落 none」口径一致，
-    # 见 lib.config.resolver.derive_voice_consistency）。
-    voice_consistency: VoiceConsistency = "soft"
-    # 每请求可携带的参考音频段数上限。降级为 0 = 不绑定任何参考音频：绑定数超上限会被
-    # gate_video_request 当场拒绝，能力不明时宁可退到 B 类软约束也不赌一个上限值。
-    max_reference_audio_count: int = 0
-    # 本集的无声开关（用户意图口径：全局设置 ← project.json 覆盖），与 MediaGenerator 结算时读的
-    # video_generate_audio 同源，**不是** caps["generate_audio"] 那个叠加了恒含音出账与默认执行档
-    # 判定的计价参数。为 False 时编排层不组装参考音频（台词文本照发）。与其余能力字段不同口径：
-    # 它不依赖 provider 能力接口，独立解析（见 resolve_generation_context 内的调用），能力查询
-    # 失败不会连带把它冲回默认值——冲回会静默重新允许参考音频上传，违背用户已关闭的意图。
-    requested_generate_audio: bool = True
-    # 音频是否须逐段挂在具体参考素材项上（如 wan2.7-r2v 的 reference_voice 字段）。为 True
-    # 时渲染层派生的音频顺序（台词 speaker 首现顺序）不能假设与参考图顺序（mention 首现顺序）
-    # 天然对齐，调用方须显式算出「谁的声音配哪张图」再随请求下发。能力查询失败降级为 False——
-    # 与其余能力字段同口径，不明时不额外收紧。
-    reference_audio_per_image: bool = False
+    request_facts: VideoRequestFacts | VideoRequestFactsFailure | None = None
+    # 未声明路线的续跑保留用户音频意图；声明路线时只读视频请求事实。
+    requested_generate_audio_fallback: bool = True
     # 自定义供应商解析出的 endpoint（ENDPOINT_REGISTRY 键）；内置供应商无该维度，为 None。
     # 续跑据此与提交时持久化的 endpoint 比对，见 server.services.tasks.resume_executor。
     endpoint: str | None = None
 
     @property
+    def requested_generate_audio(self) -> bool:
+        facts = self.request_facts
+        if isinstance(facts, VideoRequestFactsFailure):
+            raise VideoRequestFactsError(facts)
+        return facts.requested_generate_audio if facts is not None else self.requested_generate_audio_fallback
+
+    @property
     def is_silent(self) -> bool:
         """这一集是否听不到声音——模型不产音（C 类）或本集关闭了音频，两条路径同口径。
 
-        声音特征描述随该判据一并不注入：它虽是提示词文本而非音频负载，但描述的是听得到的
-        音色，无声成片里注入只会让模型把配额花在用不上的约束上。台词不看这一位——无声视频
-        里台词文本照常下发，供应商可用作口型参考。参考生视频的同名判据见
-        ``lib.script.reference_video.voice_settings.VoiceRenderSettings.is_silent``。
+        声音一致性取自视频请求事实，解析不出时按 "soft"（有信号才判定为真无声，见
+        ``lib.config.resolver.derive_voice_consistency``）。声音特征描述随该判据一并不注入：
+        它虽是提示词文本而非音频负载，但描述的是听得到的音色，无声成片里注入只会让模型把配额
+        花在用不上的约束上。台词不看这一位——无声视频里台词文本照常下发，供应商可用作口型参考。
+        参考生视频的同名判据见 ``lib.script.reference_video.voice_settings.VoiceRenderSettings.is_silent``。
         """
-        return self.voice_consistency == "none" or not self.requested_generate_audio
+        facts = self.request_facts
+        if isinstance(facts, VideoRequestFactsFailure):
+            raise VideoRequestFactsError(facts)
+        voice_consistency = facts.voice_consistency if isinstance(facts, VideoRequestFacts) else "soft"
+        return voice_consistency == "none" or not self.requested_generate_audio
 
 
 @dataclass(frozen=True)
@@ -333,8 +332,8 @@ async def resolve_generation_context(
     """在单个 ConfigResolver session 内解析全部声明 lane、构造 backend 并组装 MediaGenerator。
 
     lane 传即声明、None 跳过，任务只为用到的 lane 付出配置要求与构造成本。任一声明 lane
-    的解析或构造失败即原样上抛、整次调用失败——无部分结果、无跨 provider 兜底；仅能力
-    查询失败降级空值放行。``project`` 是调用方已加载的项目快照；``project_path`` 可由已经
+    的解析或构造失败即原样上抛、整次调用失败——无部分结果、无跨 provider 兜底；视频请求事实
+    求值失败以失败对象交给执行器按阶段处理。``project`` 是调用方已加载的项目快照；``project_path`` 可由已经
     持有项目路径的事务传入，避免同步事务解析当前配置时嵌套占用默认线程池。本函数不读项目。
 
     video lane 的定桶随 ``VideoLaneRequest.generation_type``：None 时按项目生成模式解析（见
@@ -377,7 +376,10 @@ async def resolve_generation_context(
             )
 
         if video is not None:
-            resolved = await r.resolve_video_backend(project, payload, generation_type=video.generation_type)
+            generation_type = video.generation_type
+            if generation_type is None and video.route is not None:
+                generation_type = video_bucket_for_generation_mode(project.get("generation_mode"))
+            resolved = await r.resolve_video_backend(project, payload, generation_type=generation_type)
             video_backend = await _get_or_create_video_backend(
                 resolved.provider_id,
                 {},
@@ -385,57 +387,33 @@ async def resolve_generation_context(
                 default_video_model=resolved.model_id or None,
             )
             actual_model = video_backend.model
-            resolution = await r.resolve_resolution(project, resolved.provider_id, actual_model)
-            supported_durations: tuple[int, ...] = ()
-            max_duration: int | None = None
-            max_reference_images: int | None = None
-            text_to_video = True
-            duration_endpoint_fixed = False
-            generate_audio = False
-            voice_consistency: VoiceConsistency = "soft"
-            max_reference_audio_count = 0
-            reference_audio_per_image = False
-            # 独立于能力解析：这是用户在 project.json / 全局设置里的无声意图，不来自 provider
-            # 能力接口，能力解析失败不得连带把它冲回默认值 True（会静默重新允许参考音频上传）。
-            requested_generate_audio = await r.video_generate_audio_for_project(project)
-            try:
-                # 带上该任务落的桶：音轨形态等逐路径能力位按执行子路径分叉，不传会按项目
-                # 路线定桶，参考生视频内降级到 i2v 的镜头就会拿到 r2v 的口径。
-                caps = await r.video_capabilities_for_model(
-                    resolved.provider_id, actual_model, project, generation_type=video.generation_type
+            request_facts: VideoRequestFacts | VideoRequestFactsFailure | None = None
+            if video.route is not None:
+                assert generation_type is not None
+                # 带上该任务落的桶：音轨形态等逐路径能力位按执行子路径分叉，参考生视频内降级到
+                # i2v 的镜头按 i2v 桶求值。
+                request_facts = await evaluate_video_request_facts(
+                    project,
+                    route=video.route,
+                    generation_type=generation_type,
+                    identity=ExecutionVideoIdentity(resolved.provider_id, actual_model),
+                    resolver=r,
                 )
-                supported_durations = tuple(int(d) for d in caps.get("supported_durations") or [])
-                max_duration = caps.get("max_duration")
-                max_reference_images = caps.get("max_reference_images")
-                text_to_video = bool(caps.get("text_to_video", True))
-                duration_endpoint_fixed = bool(caps.get("duration_endpoint_fixed"))
-                generate_audio = bool(caps.get("generate_audio"))
-                voice_consistency = caps.get("voice_consistency") or "soft"
-                max_reference_audio_count = int(caps.get("max_reference_audio_count") or 0)
-                reference_audio_per_image = bool(caps.get("reference_audio_per_image") or False)
-            except Exception as exc:
-                logger.info(
-                    "无法解析 video capabilities（%s/%s），能力值降级为空：%s",
-                    resolved.provider_id,
-                    actual_model,
-                    exc,
-                )
+            requested_generate_audio_fallback = True
+            if isinstance(request_facts, VideoRequestFacts):
+                resolution = request_facts.resolution
+            elif isinstance(request_facts, VideoRequestFactsFailure):
+                resolution = None
+            else:
+                resolution = await r.resolve_resolution(project, resolved.provider_id, actual_model)
+                requested_generate_audio_fallback = await r.video_generate_audio_for_project(project)
             video_result = VideoLaneResult(
                 provider_model=resolved,
                 backend_name=video_backend.name,
                 backend_model=actual_model,
                 resolution=resolution,
-                resolution_or_fallback=resolution or get_provider_fallback(resolved.provider_id),
-                supported_durations=supported_durations,
-                max_duration=max_duration,
-                max_reference_images=max_reference_images,
-                text_to_video=text_to_video,
-                duration_endpoint_fixed=duration_endpoint_fixed,
-                generate_audio=generate_audio,
-                voice_consistency=voice_consistency,
-                requested_generate_audio=requested_generate_audio,
-                max_reference_audio_count=max_reference_audio_count,
-                reference_audio_per_image=reference_audio_per_image,
+                request_facts=request_facts,
+                requested_generate_audio_fallback=requested_generate_audio_fallback,
                 # 显式按类型分流而非 getattr 探测：endpoint 为 None 恰好是「跳过续跑比对」
                 # 这条最宽松分支，属性一旦改名，探测式取值会静默失效且无任何信号。
                 endpoint=video_backend.endpoint if isinstance(video_backend, CustomVideoBackend) else None,

@@ -19,6 +19,7 @@ from server.services.tasks.generation_context import (
     ImageLaneResult,
     VideoLaneResult,
 )
+from tests.factories import make_video_request_facts
 from tests.fakes import persist_fake_script
 
 
@@ -44,10 +45,13 @@ def fake_resolve_ctx(
     duration_endpoint_fixed=False,
     voice_consistency="soft",
     requested_generate_audio=True,
+    video_request_facts=None,
     seen_lane_requests=None,
 ):
     """lane 感知的假 resolve_generation_context：按调用方声明的 lane 拼装 frozen dataclass 产物。
 
+    video lane 声明了路线时附带视频请求事实：``video_request_facts`` 给定时原样使用（可为失败对象），
+    否则按本替身的身份、分辨率与档位参数构造一份未收窄的事实。
     ``seen_lane_requests`` 传入 list 时记录每次调用声明的 lane 请求，供断言任务只声明
     自己用到的 lane。
     """
@@ -80,18 +84,30 @@ def fake_resolve_ctx(
         if video is not None:
             provider, model = video_provider
             backend_model = video_backend_model or model
+            request_facts = video_request_facts
+            if request_facts is None and video.route is not None:
+                request_facts = make_video_request_facts(
+                    route=video.route,
+                    generation_type=video.generation_type or "i2v",
+                    provider_id=provider,
+                    model_id=backend_model,
+                    resolution=video_resolution,
+                    supported_durations=tuple(supported_durations),
+                    allowed_durations=tuple(supported_durations),
+                    duration_endpoint_fixed=duration_endpoint_fixed,
+                    requested_generate_audio=requested_generate_audio,
+                    has_audio_track=voice_consistency != "none",
+                    audio_switch_controllable=True,
+                    max_reference_images=None,
+                    voice_consistency=voice_consistency,
+                )
             video_lane = VideoLaneResult(
                 provider_model=ProviderModel(provider, model),
                 backend_name=provider,
                 backend_model=backend_model,
                 resolution=video_resolution,
-                resolution_or_fallback=video_resolution or "720p",
-                supported_durations=tuple(supported_durations),
-                duration_endpoint_fixed=duration_endpoint_fixed,
-                max_duration=None,
-                max_reference_images=None,
-                voice_consistency=voice_consistency,
-                requested_generate_audio=requested_generate_audio,
+                requested_generate_audio_fallback=requested_generate_audio,
+                request_facts=request_facts,
             )
         audio_lane = None
         if audio is not None:
@@ -136,7 +152,7 @@ class _FakePM:
                     "description": "不锈钢保温杯",
                     "product_sheet": "",
                     "brand": "",
-                    "reference_images": ["products/refs/保温杯_1.jpg", "products/refs/missing.jpg"],
+                    "reference_images": ["products/refs/保温杯_1.jpg"],
                     "selling_points": [],
                 }
             },
@@ -260,10 +276,6 @@ class FakeGenerator:
         self.versions = self
         self.current_versions = {}
 
-    def generate_image(self, **kwargs):
-        self.image_calls.append(kwargs)
-        return Path("/tmp/image.png"), 1
-
     async def generate_image_async(self, **kwargs):
         self.image_calls.append(kwargs)
         self._materialize_image(kwargs["resource_type"], kwargs["resource_id"])
@@ -273,8 +285,16 @@ class FakeGenerator:
                 for reference in kwargs.get("reference_images") or []
             ]
         )
-        self.current_versions[(kwargs["resource_type"], kwargs["resource_id"])] = 1
-        return Path("/tmp/image.png"), 1
+        # 与 MediaGenerator 一样经 formal_output 的活化回调提交版本，返回回调给出的版本号
+        current = Path("/tmp/image.png")
+        version = kwargs["commit_formal_output"](current, current, {})
+        return current, version
+
+    def commit_staged_version(self, resource_type, resource_id, prompt, *, on_commit=None, **_kwargs):
+        self.current_versions[(resource_type, resource_id)] = 1
+        if on_commit is not None:
+            on_commit()
+        return 1
 
     def _materialize_image(self, resource_type: str, resource_id: str) -> None:
         if self.project_path is None:
@@ -284,10 +304,6 @@ class FakeGenerator:
         target = self.project_path / resource_relative_path(resource_type, resource_id)
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(b"png")
-
-    def generate_video(self, **kwargs):
-        self.video_calls.append(kwargs)
-        return Path("/tmp/video.mp4"), 2, "ref", "uri"
 
     async def generate_video_async(self, **kwargs):
         self.video_calls.append(kwargs)

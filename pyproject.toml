@@ -1,7 +1,7 @@
 [project]
 name = "arcreel"
 # managed by release-please — do not bump manually
-version = "0.30.0"
+version = "0.31.0"
 description = "AI video generation workspace"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -202,6 +202,15 @@ source_modules = [
 ]
 forbidden_modules = ["lib.script.reference_video"]
 
+# 视频请求事实是两条视频路线共用的求值入口（docs/adr/0086），不得直接 import 参考生视频子包。
+# 本契约只检查直接依赖，不检查经 lib.config.resolver → lib.project.project_manager 的间接项目加载链。
+[[tool.importlinter.contracts]]
+name = "视频请求事实不依赖参考生视频子包"
+type = "forbidden"
+source_modules = ["lib.generation.video_request_facts"]
+forbidden_modules = ["lib.script.reference_video"]
+allow_indirect_imports = true
+
 # 核心库与服务端的分界（website/docs/dev/architecture.md「核心库与服务端的分界」）：核心库是领域逻辑与
 # 基础设施，服务端是交付层与多入口共用的用例编排，依赖只能由服务端指向核心库。核心库需要服务端的
 # 能力时（如生成 Worker 的任务执行器与续跑执行器），由应用装配处（server/app.py）注入。
@@ -219,6 +228,38 @@ type = "forbidden"
 allow_indirect_imports = true
 source_modules = ["lib"]
 forbidden_modules = ["fastapi", "starlette"]
+
+# Agent 工具集的声明、信封与 handler 宿主无关（docs/adr/0087）：宿主 SDK 只出现在内嵌与远程两个 adapter 里。
+# 只查这些模块自己写下的 import。
+[[tool.importlinter.contracts]]
+name = "Agent 工具集声明不依赖宿主 SDK"
+type = "forbidden"
+allow_indirect_imports = true
+source_modules = [
+    "server.agent_toolset.content_read",
+    "server.agent_toolset.declaration",
+    "server.agent_toolset.envelope",
+    "server.agent_toolset.episode_planning",
+    "server.agent_toolset.generation_batches",
+    "server.agent_toolset.grid_storyboards",
+    "server.agent_toolset.media_generation",
+    "server.agent_toolset.orientation",
+    "server.agent_toolset.project_entry",
+    "server.agent_toolset.repair_channel",
+    "server.agent_toolset.script_authoring",
+    "server.agent_toolset.script_editing",
+    "server.agent_toolset.toolset",
+    "server.agent_toolset.workflow_completion",
+    "server.media_tools.assets",
+    "server.media_tools.context",
+    "server.media_tools.grid",
+    "server.media_tools.image_edits",
+    "server.media_tools.narration_audio",
+    "server.media_tools.storyboards",
+    "server.media_tools.videos",
+    "server.tool_runtime",
+]
+forbidden_modules = ["claude_agent_sdk", "mcp"]
 
 [tool.deptry]
 # 扫描范围与 basedpyright 的 include 对齐：核心库、服务端、迁移基础设施、脚本与测试。

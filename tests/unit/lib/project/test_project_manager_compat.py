@@ -20,7 +20,7 @@ def _script_path(pm, project_name, filename):
 class TestProjectManagerCompatibility:
     def test_save_episode_script_succeeds_before_project_metadata_exists(self, tmp_path):
         pm = ProjectManager(tmp_path)
-        project_dir = tmp_path / "demo"
+        project_dir = pm.projects_dir / "demo"
         (project_dir / "scripts").mkdir(parents=True)
         script = {
             "episode": 1,

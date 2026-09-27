@@ -11,7 +11,8 @@ import { sumItemDuration } from "@/utils/script-shape";
  */
 export interface EpisodeHeaderUnit {
   duration_seconds: number;
-  generated_assets: { video_clip?: string | null };
+  /** 尚未生成过产物的单元不带这一节，统计按「无成片」计入。 */
+  generated_assets?: { video_clip?: string | null };
 }
 
 export interface EpisodeHeaderProps {
@@ -28,7 +29,7 @@ export function EpisodeHeader({ episode, title, units, onSaveTitle, canEditTitle
 
   const stats = useMemo(() => {
     const total = units.length;
-    const ready = units.filter((u) => !!u.generated_assets.video_clip).length;
+    const ready = units.filter((u) => !!u.generated_assets?.video_clip).length;
     const totalDur = sumItemDuration(units);
     const percent = total > 0 ? Math.round((ready / total) * 100) : 0;
     return {

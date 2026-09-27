@@ -17,6 +17,7 @@ from lib.config.resolver import ImageBucketCapabilityError, VideoBucketCapabilit
 from lib.custom_provider.comfyui.failures import ComfyuiError
 from lib.custom_provider.declarative_backend import DeclarativeRuntimeError
 from lib.generation.task_failure import encode_failure
+from lib.generation.video_request_facts import VideoRequestFactsError
 from lib.infra.api_errors import ApiError
 from lib.references.reference_compression import ReferencePayloadFloorError
 from lib.script.reference_video.execution_checkpoint import ReferenceExecutionIdentityError
@@ -56,6 +57,7 @@ def encode_task_failure_message(exc: Exception) -> str:
         | VideoBucketCapabilityError
         | ReferenceProjectionBlockedError
         | NarratedVideoDurationBlockedError
+        | VideoRequestFactsError
         | ReferenceExecutionIdentityError
         | DeclarativeRuntimeError
         | ComfyuiError,

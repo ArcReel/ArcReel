@@ -152,9 +152,22 @@ class TestArkImageBackendProperties:
             ImageCapability.IMAGE_TO_IMAGE,
         }
 
-    def test_declares_no_reference_image_limit(self, backend):
-        # 该后端不按数量裁剪参考图（全量下传，见 i2i 用例），故声明 0 让编排层不裁剪。
-        assert backend.max_reference_images == 0
+    @pytest.mark.parametrize(
+        "model",
+        [
+            "doubao-seedream-5-0-lite-260128",
+            "doubao-seedream-5-0-260128",
+            "doubao-seedream-4-5-251128",
+            "doubao-seedream-4-0-250828",
+        ],
+    )
+    def test_declares_seedream_reference_image_limit(self, monkeypatch: pytest.MonkeyPatch, model: str):
+        # Seedream 5.0 lite / 4.5 / 4.0 官方上限 14 张（输入 + 输出 ≤ 15）；5-0-260128 与 5.0 lite 同一模型。
+        monkeypatch.delenv("ARK_API_KEY", raising=False)
+        with patch("lib.backends.image_backends.ark.create_ark_client"):
+            from lib.backends.image_backends.ark import ArkImageBackend
+
+            assert ArkImageBackend(api_key="k", model=model).max_reference_images == 14
 
 
 class TestArkImageBackendGenerate:
@@ -278,6 +291,23 @@ class TestArkImageBackendGenerate:
 
         call_kwargs = client.requests[-1]
         assert call_kwargs["image"] == expected_data_uri
+
+    async def test_i2i_truncates_references_over_the_declared_limit(self, backend_and_client, tmp_path: Path):
+        """编排层未裁剪时的兜底：只发前 max_reference_images 张。"""
+        backend, client = backend_and_client
+        refs = []
+        for index in range(16):
+            ref_file = tmp_path / f"ref{index}.png"
+            ref_file.write_bytes(f"img-{index}".encode())
+            refs.append(ReferenceImage(path=str(ref_file)))
+
+        await backend.generate(
+            ImageGenerationRequest(prompt="merge", output_path=tmp_path / "out.png", reference_images=refs)
+        )
+
+        sent = client.requests[-1]["image"]
+        assert len(sent) == backend.max_reference_images == 14
+        assert sent[-1] == "data:image/png;base64," + base64.b64encode(b"img-13").decode()
 
     async def test_i2i_multiple_refs(self, backend_and_client, tmp_path: Path):
         backend, client = backend_and_client

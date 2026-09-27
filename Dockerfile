@@ -69,9 +69,6 @@ COPY public/ public/
 # 复制前端构建产物
 COPY --from=frontend-builder /build/frontend/dist/ frontend/dist/
 
-# 创建运行时目录
-RUN mkdir -p projects vertex_keys
-
 # 暴露端口
 EXPOSE 1241
 

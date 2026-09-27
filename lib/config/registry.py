@@ -153,13 +153,15 @@ def _gemini_image_pricing(model_id: str, rates: dict[str, float]) -> PerImageByR
     return PerImageByResolution(rates={model_id: rates}, default_model=model_id, currency="USD")
 
 
-# Veo 视频费率（美元/秒），按 (分辨率, 是否生成有声视频)。
+# Veo 视频费率（美元/秒），按 (分辨率, 是否生成有声视频)。backend 在分辨率未指定时不下发
+# resolution，由供应商按默认档出片：AI Studio 与 Vertex 的 Veo 文档均写明省略时默认 720p。
 def _veo_video_pricing(model_id: str, rates: dict[tuple[str, bool | None], float]) -> PerSecondMatrix:
     return PerSecondMatrix(
         rates={model_id: rates},
         default_model=model_id,
         dimensions="resolution_audio",
         currency="USD",
+        default_resolution="720p",
     )
 
 

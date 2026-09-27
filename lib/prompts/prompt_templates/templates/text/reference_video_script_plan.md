@@ -2,7 +2,11 @@
 id: text/reference_video_script_plan
 category: text
 title: 参考生视频 · 单元拆分
-description: 把源文拆分为扁平的视频单元表（时长 + 原文锚 + 引用语法正文），对全部创作类型共用一份。本阶段只定结构与内容契约，景别 / 构图 / 运镜留给提示词编写。「参考图↔时长」联动只在型号两套档位不同时写入，且两套都写全、不假定包含关系；默认偏好只落在其中一套档位时点明适用范围。references 上限与联动约束都点明台词记号的说话人不计入，与机械派生参考图的口径一致。设了单集目标时长时按目标打包，不再无条件贴近单次上限。
+description: 把源文拆分为参考生视频单元表，每个单元含时长、原文锚与引用语法正文。
+stage: script_plan
+invoked_by:
+  kind: agent_tool
+  name: generate_script_plan
 applies_to:
   content_mode: [drama, narration]
   generation_mode: [reference_video]
@@ -44,7 +48,7 @@ protected: false
 
 {{ partial("shared/overview_block") }}
 
-{{ partial("shared/asset_appearance_blocks") }}
+{{ partial("shared/lists/asset_appearance_blocks") }}
 
 ## 小说原文
 
@@ -82,7 +86,7 @@ protected: false
   1. 硬约束：`duration_seconds` 是 unit 时长（一次生成调用一个时长），必须取支持档位（{{ durations }}）中的值。
      叙事需要的时长放不下时，把该 unit 按叙事顺序重拆为多个 unit，**不得违约时长**。
 {% if duration_tiers %}
-     本型号下该档位还随「有无参考图」分两套，按该 unit **画面描述里有没有 `@` 资产引用**取用（台词记号 `@[角色]{台词}` 的说话人不计入——它不生成参考图，只驱动音色声明）：带 `@` 引用取（{{ duration_tiers.with_references }}），不带取（{{ duration_tiers.without_references }}）。两者取其一：要么改取该 unit 引用状态对应档位内的值，要么调整引用——把次要资产融入描述文字、不用 `@` 引用，从而适用不带引用的那套档位。
+     本型号下该档位还随「有无参考图」分两套，按该 unit **画面描述里有没有 `@` 资产引用**取用（台词记号 `@[角色]{台词}` 的说话人不计入——它不生成参考图，只驱动音色声明）：带 `@` 引用取（{{ duration_tiers.with_references }}），不带取（{{ duration_tiers.without_references }}）。服务端按该 unit 此刻**可用的参考图**定档：引用的资产还没有生成参考图时，该 unit 按不带引用的那套档位执行。两者取其一：要么改取该 unit 引用状态对应档位内的值，要么调整引用——把次要资产融入描述文字、不用 `@` 引用，从而适用不带引用的那套档位。
 {% endif %}
   2. 台词下界：先估算该 unit 全部台词与画外音念完约需的秒数（口播语速约 {{ speech_rate }} {{ speech_unit }}/秒），
      取**不低于**这个秒数的档位。这是单向下界——台词永不压进念不完的短档；无台词的 unit 没有此下界。

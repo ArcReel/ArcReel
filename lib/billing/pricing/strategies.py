@@ -122,11 +122,14 @@ def _per_second_matrix(pricing: PerSecondMatrix, params: PricingParams) -> tuple
     # 「无时长视为 8 秒」的默认由 calculate_cost 对单次实时调用施加，不在此处。
     duration = params.duration_seconds if params.duration_seconds is not None else 8
     if pricing.dimensions == "resolution_audio":
-        resolution = (params.resolution or "1080p").lower()
+        default_resolution = pricing.default_resolution.lower()
+        resolution = (params.resolution or default_resolution).lower()
         # 同上：0.0 免费档不应被 or 当作缺失而回落默认模型费率。
-        own_1080p = model_costs.get(("1080p", True))
+        own_default = model_costs.get((default_resolution, True))
         fallback = (
-            own_1080p if own_1080p is not None else pricing.rates[pricing.default_model].get(("1080p", True), 0.0)
+            own_default
+            if own_default is not None
+            else pricing.rates[pricing.default_model].get((default_resolution, True), 0.0)
         )
         per_second = model_costs.get((resolution, params.generate_audio), fallback)
     elif pricing.dimensions == "resolution_only":

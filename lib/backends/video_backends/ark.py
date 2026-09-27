@@ -5,12 +5,14 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+from collections.abc import Generator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
 import httpx
 
-from lib.backends.ark_shared import create_ark_client
+from lib.backends.ark_shared import ark_base_url, create_ark_client
 from lib.backends.backend_runtime import (
     ProviderJobIdPersistenceMixin,
     download_video,
@@ -108,6 +110,10 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
         base_url: str | None = None,
     ):
         self._client = create_ark_client(api_key=api_key, base_url=base_url)
+        # 续跑回放提交域名时要按同一份凭据另建 client（SDK 在构造时绑定 base_url，没有换域名的公开方法）。
+        self._api_key = api_key
+        # 本实例请求实际发往的域名，与 create_ark_client 同一套归一化；提交时随 job_id 一并落库。
+        self._base_url = ark_base_url(base_url)
         self._model = model or self.DEFAULT_MODEL
         # service_tier 参数仅 seedance-1.x 等老模型支持；2.0 上游在 r2v 下会 400 拒绝该参数，
         # 必须不下传。2.5 按同代口径一并剔除，该口径系从 2.0 的拒绝行为推断，收窄判定
@@ -287,7 +293,8 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
         """生成视频。任务创建和轮询阶段分离重试，避免瞬态错误导致重建任务。"""
         provider_task_id = await self._create_task(request)
-        await self._persist_provider_job_id(request, provider_task_id, provider=PROVIDER_ARK)
+        # 一并写回本次实际请求的域名：续跑据此回放，否则在途改了 base_url 会按新域名去查旧任务。
+        await self._persist_provider_job_id(request, provider_task_id, provider=PROVIDER_ARK, endpoint=self._base_url)
         return await self._poll_until_done(provider_task_id, request)
 
     async def resume_video(self, job_id: str, request: VideoGenerationRequest) -> VideoGenerationResult:
@@ -430,22 +437,41 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
         """
         await download_video(video_url, output_path, label="Ark", retry_if=_retry_ark_download)
 
+    @contextmanager
+    def _polling_client(self, request: VideoGenerationRequest) -> Generator[Any]:
+        """轮询用的 SDK client：续跑且提交域名与当下配置不同时，按同一份凭据另建一个绑定提交域名的。
+
+        任务 id 只在创建它的 endpoint 上可查，用户在途改 base_url 后按新域名去轮旧任务会 404，
+        被 ``resume_video`` 误判成过期。提交路径的 ``submitted_base_url`` 恒 None，沿用实例 client。
+        另建的 client 持有独立连接池，轮询结束即关闭。
+        """
+        submitted = request.submitted_base_url
+        if not submitted or ark_base_url(submitted) == self._base_url:
+            yield self._client
+            return
+        client = create_ark_client(api_key=self._api_key, base_url=submitted)
+        try:
+            yield client
+        finally:
+            client.close()
+
     async def _poll_until_done(self, task_id: str, request: VideoGenerationRequest) -> VideoGenerationResult:
         """轮询任务状态直到完成，瞬态错误仅重试当次轮询请求。"""
-        result = await poll_with_retry(
-            poll_fn=lambda: asyncio.to_thread(self._client.content_generation.tasks.get, task_id=task_id),
-            is_done=lambda r: r.status == "succeeded",
-            is_failed=lambda r: (
-                f"Ark 视频生成失败(status={r.status}): {getattr(r, 'error', None) or 'Unknown error'}"
-                if r.status in ("failed", "expired")
-                else None
-            ),
-            max_wait=request.poll_timeout_seconds,
-            label="Ark",
-            on_progress=lambda r, elapsed: logger.info(
-                "Ark 视频生成中... 状态: %s, 已等待 %d 秒", r.status, int(elapsed)
-            ),
-        )
+        with self._polling_client(request) as client:
+            result = await poll_with_retry(
+                poll_fn=lambda: asyncio.to_thread(client.content_generation.tasks.get, task_id=task_id),
+                is_done=lambda r: r.status == "succeeded",
+                is_failed=lambda r: (
+                    f"Ark 视频生成失败(status={r.status}): {getattr(r, 'error', None) or 'Unknown error'}"
+                    if r.status in ("failed", "expired")
+                    else None
+                ),
+                max_wait=request.poll_timeout_seconds,
+                label="Ark",
+                on_progress=lambda r, elapsed: logger.info(
+                    "Ark 视频生成中... 状态: %s, 已等待 %d 秒", r.status, int(elapsed)
+                ),
+            )
 
         # Download video
         video_url = result.content.video_url

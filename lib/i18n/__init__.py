@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable, Mapping
 from typing import Any
 
 from .en import assets as en_assets
@@ -84,6 +85,55 @@ def _(key: str, locale: str = DEFAULT_LOCALE, **kwargs: Any) -> str:
         return msg.format(**kwargs)
     except Exception:
         return msg
+
+
+#: 生成输入缺口里「语义未就绪」一类：文案只点名目标自身，参数名各不相同。
+_GENERATION_INPUT_SUBJECT_PARAMS: dict[str, str] = {
+    "script_prompt_pending": "segment_id",
+    "asset_description_required": "name",
+    "derivative_description_required": "name",
+    "derivative_owner_sheet_missing": "name",
+}
+
+#: 生成输入缺口里按 ``missing_text`` 列出全部缺失项的一类。
+_GENERATION_INPUT_LIST_CODES = frozenset(
+    {"reference_asset_unregistered", "reference_asset_missing", "asset_original_missing"}
+)
+
+
+def render_generation_input_error(key: str, params: Mapping[str, Any], translate: Callable[..., str]) -> str:
+    """Render mixed generation-input gaps by cause while preserving the first machine code."""
+    gaps = params.get("gaps")
+    if not isinstance(gaps, list):
+        return translate(key, **params)
+    grouped: dict[str, list[str]] = {}
+    for gap in gaps:
+        if not isinstance(gap, dict):
+            return translate(key, **params)
+        code, name, asset_type = gap.get("code"), gap.get("name"), gap.get("asset_type")
+        if (
+            not isinstance(code, str)
+            or (code not in _GENERATION_INPUT_SUBJECT_PARAMS and code not in _GENERATION_INPUT_LIST_CODES)
+            or not isinstance(name, str)
+        ):
+            return translate(key, **params)
+        text = (
+            name
+            if code in _GENERATION_INPUT_SUBJECT_PARAMS
+            or code == "reference_asset_unregistered"
+            or not isinstance(asset_type, str)
+            else f"{asset_type}: {name}"
+        )
+        grouped.setdefault(code, []).append(text)
+    if len(grouped) < 2 or next(iter(grouped)) != key:
+        return translate(key, **params)
+    details = []
+    for code, names in grouped.items():
+        if (subject := _GENERATION_INPUT_SUBJECT_PARAMS.get(code)) is not None:
+            details.append(translate(code, **{subject: names[0]}))
+        else:
+            details.append(translate(code, missing_text=", ".join(names)))
+    return translate("generation_input_multiple_gaps", details="; ".join(details))
 
 
 def translate_or(key: str, fallback: str, locale: str = DEFAULT_LOCALE, **kwargs: Any) -> str:

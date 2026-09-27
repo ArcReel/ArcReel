@@ -39,6 +39,7 @@ from lib.backends.providers import CallPurpose, CallType, require_provider_pair
 from lib.billing.ledger import Ledger
 from lib.config.service import DEFAULT_VIDEO_POLL_TIMEOUT_SECONDS
 from lib.db.base import DEFAULT_USER_ID
+from lib.generation.video_request_facts import DEFAULT_PLANNED_DURATION_SECONDS
 from lib.infra.async_thread import run_noninterruptible_sync
 from lib.infra.path_safety import PathTraversalError, safe_join
 from lib.project.resource_paths import resource_relative_path
@@ -159,10 +160,10 @@ def segment_id_for(call_type: CallType, resource_type: str, resource_id: str) ->
     return resource_id if resource_type in allowed else None
 
 
-def _input_path(project_path: Path, value: object) -> str | None:
-    """把一份输入素材的路径归一为项目内相对路径（POSIX 分隔符）。
+def _project_relative_path(project_path: Path, value: object) -> str | None:
+    """把调用记录里的一个文件路径（输入素材或产物）归一为项目内相对路径（POSIX 分隔符）。
 
-    落库的是「这次调用喂进去的是哪份素材」，读侧要拿它在项目里定位文件，故一律相对项目根；
+    读侧要拿它在项目里定位文件，且数据根挪位后记录仍须有效，故一律相对项目根；
     项目外的路径（临时素材、绝对路径引用）保留原样。非路径值（PIL Image 等）返回 None，
     由调用点决定是否记这一项。
     """
@@ -419,21 +420,6 @@ class MediaGenerator:
                 failure.add_note(f"paid video history archival also failed: {archive_failure}")
             raise
 
-    @staticmethod
-    def _sync(coro):
-        """Run an async coroutine from synchronous code (e.g. inside to_thread)."""
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            loop = None
-
-        if loop is not None and loop.is_running():
-            import concurrent.futures
-
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-                return pool.submit(asyncio.run, coro).result()
-        return asyncio.run(coro)
-
     def _get_output_path(self, resource_type: str, resource_id: str) -> Path:
         """
         根据资源类型和 ID 推断输出路径
@@ -528,51 +514,6 @@ class MediaGenerator:
                 raise ReferencePayloadFloorError() from e
             finally:
                 cm.__exit__(None, None, None)
-
-    def generate_image(
-        self,
-        prompt: str,
-        resource_type: str,
-        resource_id: str,
-        reference_images=None,
-        aspect_ratio: str = "9:16",
-        image_size: str | None = None,
-        formal_output: bool = False,
-        task_id: str | None = None,
-        commit_formal_output: Callable[[Path, Path, Mapping[str, Any]], int] | None = None,
-        before_submit: Callable[[], Awaitable[None]] | None = None,
-        **version_metadata,
-    ) -> tuple[Path, int]:
-        """
-        生成图片（带自动版本管理，同步包装）
-
-        Args:
-            prompt: 图片生成提示词
-            resource_type: 资源类型 (storyboards, characters, clues)
-            resource_id: 资源 ID (E1S01, 姜月茴, 玉佩)
-            reference_images: 参考图片列表
-            aspect_ratio: 宽高比，默认 9:16（竖屏）
-            image_size: 图片尺寸，默认不传（由 backend/SDK 决定）
-            **version_metadata: 额外元数据
-
-        Returns:
-            (output_path, version_number) 元组
-        """
-        return self._sync(
-            self.generate_image_async(
-                prompt=prompt,
-                resource_type=resource_type,
-                resource_id=resource_id,
-                reference_images=reference_images,
-                aspect_ratio=aspect_ratio,
-                image_size=image_size,
-                formal_output=formal_output,
-                task_id=task_id,
-                commit_formal_output=commit_formal_output,
-                before_submit=before_submit,
-                **version_metadata,
-            )
-        )
 
     async def generate_image_async(
         self,
@@ -669,14 +610,14 @@ class MediaGenerator:
                 provider=cast(str, self._image_provider_id),
                 user_id=self._user_id,
                 segment_id=segment_id_for("image", resource_type, resource_id),
-                output_path=str(output_path),
+                output_path=_project_relative_path(self.project_path, output_path),
                 task_id=task_id,
                 purpose=CallPurpose.GENERATION_TASK,
                 inputs=_ledger_inputs(
                     reference_images=[
                         {"path": rel, "label": None, "role": "array"}
                         for ref in ref_images
-                        if (rel := _input_path(self.project_path, ref.path)) is not None
+                        if (rel := _project_relative_path(self.project_path, ref.path)) is not None
                     ]
                 ),
             ) as call:
@@ -794,7 +735,7 @@ class MediaGenerator:
                 provider=cast(str, self._audio_provider_id),
                 user_id=self._user_id,
                 segment_id=segment_id_for("audio", resource_type, resource_id),
-                output_path=str(output_path),
+                output_path=_project_relative_path(self.project_path, output_path),
                 task_id=task_id,
                 purpose=CallPurpose.GENERATION_TASK,
                 inputs=_ledger_inputs(
@@ -841,62 +782,6 @@ class MediaGenerator:
             return output_path, version
         finally:
             staged_path.unlink(missing_ok=True)  # noqa: ASYNC240 -- 收尾删除 staging 文件，本地元数据
-
-    def generate_video(
-        self,
-        prompt: str,
-        resource_type: str,
-        resource_id: str,
-        start_image: str | Path | Image.Image | None = None,
-        end_image: Path | None = None,
-        reference_images: list[Path] | None = None,
-        reference_audio_files: list[Path] | None = None,
-        reference_audio_targets: list[int] | None = None,
-        aspect_ratio: str = "9:16",
-        duration_seconds: str | int = "8",
-        resolution: str | None = None,
-        poll_timeout_seconds: int = DEFAULT_VIDEO_POLL_TIMEOUT_SECONDS,
-        **version_metadata,
-    ) -> tuple[Path, int, Any, str | None]:
-        """
-        生成视频（带自动版本管理，同步包装）
-
-        Args:
-            prompt: 视频生成提示词（含统一文本化的反向提示词，由 prompt_builders 在上游拼好）
-            resource_type: 资源类型 (videos)
-            resource_id: 资源 ID (E1S01)
-            start_image: 起始帧图片（image-to-video 模式）
-            end_image: 结束帧图片（first_last 模式）
-            reference_images: 参考图片列表（multi-reference 模式）
-            reference_audio_files: 参考音频列表（音色复刻），顺序即 prompt 中「音频N」的指认顺序
-            reference_audio_targets: 与 reference_audio_files 等长同序，第 i 项是该段音频对应
-                reference_images 的下标（0-based）；仅 backend 声明 reference_audio_per_image
-                时读取，见 VideoGenerationRequest.reference_audio_targets
-            aspect_ratio: 宽高比，默认 9:16（竖屏）
-            duration_seconds: 视频时长，可选 "4", "6", "8"
-            resolution: 分辨率，默认不传（由 backend/SDK 决定）
-            **version_metadata: 额外元数据
-
-        Returns:
-            (output_path, version_number, video_ref, video_uri) 四元组
-        """
-        return self._sync(
-            self.generate_video_async(
-                prompt=prompt,
-                resource_type=resource_type,
-                resource_id=resource_id,
-                start_image=start_image,
-                end_image=end_image,
-                reference_images=reference_images,
-                reference_audio_files=reference_audio_files,
-                reference_audio_targets=reference_audio_targets,
-                aspect_ratio=aspect_ratio,
-                duration_seconds=duration_seconds,
-                resolution=resolution,
-                poll_timeout_seconds=poll_timeout_seconds,
-                **version_metadata,
-            )
-        )
 
     async def generate_video_async(
         self,
@@ -956,9 +841,9 @@ class MediaGenerator:
         # 让版本元数据与 provider 请求里的 duration_seconds 类型一致（都是 int），
         # 避免 versions.json 落字符串而 ApiCall 落 int 的类型漂移。
         try:
-            duration_int = int(float(duration_seconds)) if duration_seconds else 8
+            duration_int = int(float(duration_seconds)) if duration_seconds else DEFAULT_PLANNED_DURATION_SECONDS
         except (ValueError, TypeError):
-            duration_int = 8
+            duration_int = DEFAULT_PLANNED_DURATION_SECONDS
 
         # 1. 若已存在，确保旧文件被记录。这里的 prompt / duration / provider 选项都属于即将
         # 发起的新请求，不能写到来源不明的 legacy current 上；否则新产物被拒绝回滚后，旧视频
@@ -993,7 +878,7 @@ class MediaGenerator:
             resolve_video_capabilities,
         )
 
-        # prompt 长度校验对每个请求都适用（不像尾帧/参考图/参考音频那样可选），故能力查询不再
+        # prompt 长度校验对每个请求都适用（不像尾帧/参考图/参考音频那样可选），故能力查询不
         # 按可选路径惰性触发。查询是纯读后端声明的同步调用，没有 I/O 开销。
         video_caps = resolve_video_capabilities(
             self._video_backend,
@@ -1069,21 +954,21 @@ class MediaGenerator:
                 user_id=self._user_id,
                 segment_id=segment_id_for("video", resource_type, resource_id),
                 service_tier=version_metadata.get("service_tier", "default"),
-                output_path=str(output_path),
+                output_path=_project_relative_path(self.project_path, output_path),
                 task_id=task_id,
                 purpose=CallPurpose.GENERATION_TASK,
                 inputs=_ledger_inputs(
                     reference_images=[
                         {"path": rel, "label": None, "role": "array"}
                         for ref in (reference_images or [])
-                        if (rel := _input_path(self.project_path, ref)) is not None
+                        if (rel := _project_relative_path(self.project_path, ref)) is not None
                     ],
-                    start_image=_input_path(self.project_path, start_image),
-                    end_image=_input_path(self.project_path, end_image),
+                    start_image=_project_relative_path(self.project_path, start_image),
+                    end_image=_project_relative_path(self.project_path, end_image),
                     reference_audio=[
                         rel
                         for audio in (reference_audio_files or [])
-                        if (rel := _input_path(self.project_path, audio)) is not None
+                        if (rel := _project_relative_path(self.project_path, audio)) is not None
                     ],
                     parameters=_ledger_inputs(service_tier=version_metadata.get("service_tier")),
                 ),
@@ -1231,9 +1116,9 @@ class MediaGenerator:
         # 提前到 VideoGenerationRequest / add_version 之前，让版本元数据
         # 与 provider 请求里的 duration_seconds 类型一致（都是 int，避免 versions.json 落字符串）。
         try:
-            duration_int = int(float(duration_seconds)) if duration_seconds else 8
+            duration_int = int(float(duration_seconds)) if duration_seconds else DEFAULT_PLANNED_DURATION_SECONDS
         except (ValueError, TypeError):
-            duration_int = 8
+            duration_int = DEFAULT_PLANNED_DURATION_SECONDS
 
         if self._video_backend is None:
             raise RuntimeError("video_backend not configured")

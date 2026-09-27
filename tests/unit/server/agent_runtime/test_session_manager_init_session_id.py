@@ -52,10 +52,10 @@ def test_system_message_serializes_session_id_under_data() -> None:
 async def test_send_new_session_resolves_id_from_init_when_only_system_messages_arrive(
     tmp_path: Path, meta_store: SessionMetaStore, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    proj_dir = tmp_path / "projects" / "demo"
+    manager = SessionManager(project_root=tmp_path, meta_store=meta_store, sdk_id_timeout=2.0)
+    proj_dir = manager.layout.projects_dir / "demo"
     proj_dir.mkdir(parents=True)
     (proj_dir / "project.json").write_text('{"title": "t"}', encoding="utf-8")
-    manager = SessionManager(project_root=tmp_path, meta_store=meta_store, sdk_id_timeout=2.0)
 
     client = FakeSDKClient(
         messages=[_init_message(), _api_retry_message(1), _api_retry_message(2)],

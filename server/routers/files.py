@@ -20,7 +20,6 @@ logger = logging.getLogger(__name__)
 from fastapi import APIRouter, Body, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, PlainTextResponse
 
-from lib.artifacts.artifact_activation import register_current_resource_artifact
 from lib.config.resolver import VisionCapabilityError
 from lib.episode.episode_paths import (
     REFERENCE_VIDEO_SCRIPT_PLAN_FILENAME,
@@ -55,6 +54,7 @@ from lib.speech.audio_utils import (
 )
 from server.i18n import Translator
 from server.routers._script_review_errors import raise_review_error
+from server.services.currency.upload_finalize import install_manual_asset_sheet_upload
 from server.services.project.script_review import ScriptReviewError, ScriptReviewService
 
 router = APIRouter()
@@ -278,7 +278,7 @@ async def serve_project_file(project_name: str, path: str, request: Request, _t:
 
 @public_router.get("/global-assets/{asset_type}/{filename}")
 async def serve_global_asset(asset_type: str, filename: str, _t: Translator):
-    """服务 _global_assets 下的全局资产媒体文件（仅全局库类型：character/scene/prop）"""
+    """服务 global_assets 下的全局资产媒体文件（仅全局库类型：character/scene/prop）"""
     if asset_type not in GLOBAL_LIBRARY_ASSET_TYPES:
         raise HTTPException(status_code=400, detail=_t("invalid_asset_type"))
     if "/" in filename or ".." in filename:
@@ -428,24 +428,15 @@ async def upload_file(
                     raise HTTPException(status_code=404, detail=_t(spec.host_not_found_key, name=name)) from exc
             else:
                 if upload_type in _FORMAL_SHEET_UPLOAD_TYPES and name:
-                    asset_spec = ASSET_SPECS[upload_type]
-                    asset_name = name
-
-                    def _register(_target: Path) -> None:
-                        register_current_resource_artifact(
-                            project_dir,
-                            resource_type=asset_spec.bucket_key,
-                            resource_id=asset_name,
-                        )
-
                     with project_change_source("webui"):
-                        manager.install_asset_sheet_bytes(
-                            upload_type,
-                            project_name,
-                            asset_name,
-                            relative_path,
-                            content,
-                            on_commit=_register,
+                        install_manual_asset_sheet_upload(
+                            project_manager=manager,
+                            project_name=project_name,
+                            asset_type=upload_type,
+                            name=name,
+                            sheet_path=relative_path,
+                            content=content,
+                            original_filename=original_filename,
                         )
                 else:
                     with open(target_path, "wb") as f:
@@ -994,7 +985,7 @@ def _write_plain_draft(
     # 草稿文件的迁移读改写与 Web 端保存相互串行化。
     pm = get_project_manager()
     with pm.file_lock(draft_path):
-        project = pm.load_project_readonly(project_name)
+        project = pm.load_project(project_name)
         if script_review.formal_script_plan_confirmed(project_dir, project, episode):
             raise_review_error(ScriptReviewError("script_plan_confirmed"), episode, _t)
         is_new = not draft_path.exists()

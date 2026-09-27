@@ -71,9 +71,6 @@ MESSAGES = {
     ),
     # ---- asset catalogs ----
     "val_asset_format_object": "{asset_type} '{name}' has malformed data, expected an object",
-    "val_asset_missing_description": (
-        "{asset_type} '{name}' is missing the required field: description (must be a non-empty string)"
-    ),
     "val_asset_field_must_be_object": "{asset_type} '{name}'.{field} must be an object",
     "val_asset_field_must_be_string": "{asset_type} '{name}'.{field} must be a string, got {actual}",
     "val_asset_field_bad_timestamp": "{asset_type} '{name}'.{field} is not a valid ISO8601 timestamp: {value}",

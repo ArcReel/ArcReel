@@ -383,18 +383,6 @@ class TestComfyuiEndpointAttachment:
         kept = comfyui_client.get(f"/api/v1/custom-providers/{provider['id']}").json()
         assert [m["endpoint"] for m in kept["models"]] == [comfyui_key]
 
-    async def test_the_replace_models_path_checks_the_pair_too(
-        self, comfyui_client, custom_providers_app_session_factory
-    ):
-        comfyui_key = await _store_endpoint(custom_providers_app_session_factory, comfyui_endpoint_definition())
-        declarative_key = await _store_endpoint(custom_providers_app_session_factory, custom_endpoint_definition())
-        provider = _create_provider(comfyui_client, models=[_model(comfyui_key)])
-        resp = comfyui_client.put(
-            f"/api/v1/custom-providers/{provider['id']}/models",
-            json={"models": [_model(declarative_key)]},
-        )
-        assert resp.status_code == 422
-
 
 # ---------------------------------------------------------------------------
 # 能力覆盖关闭
@@ -428,15 +416,22 @@ class TestComfyuiCapabilityOverrides:
         assert "wan-t2v" in detail
         assert "节点绑定" in detail
 
-    async def test_the_replace_models_path_refuses_it_for_the_same_reason(
+    async def test_the_full_update_path_refuses_it_for_the_same_reason(
         self, comfyui_client, custom_providers_app_session_factory
     ):
-        """整表替换与建档走同一条判定顺序，不该只有建档路径给得出专用文案。"""
+        """整表保存与建档走同一条判定顺序，不该只有建档路径给得出专用文案。"""
         key = await _store_endpoint(custom_providers_app_session_factory, comfyui_endpoint_definition())
         provider = _create_provider(comfyui_client, models=[_model(key)])
         resp = comfyui_client.put(
-            f"/api/v1/custom-providers/{provider['id']}/models",
-            json={"models": [_model(key, capability_overrides={"last_frame": True})]},
+            f"/api/v1/custom-providers/{provider['id']}",
+            json={
+                "display_name": "我的 ComfyUI",
+                "base_url": _COMFY_URL,
+                "models": [_model(key, capability_overrides={"last_frame": True})],
+                "image_max_workers": None,
+                "video_max_workers": None,
+                "audio_max_workers": None,
+            },
         )
         assert resp.status_code == 422
         assert "节点绑定" in resp.json()["detail"]

@@ -90,7 +90,6 @@ function stubModelVideoCapabilities() {
         resolution: null,
         uses_reference_images: false,
         allowed: durations,
-        allowed_without_reference_images: durations,
         excluded: {},
       },
     });

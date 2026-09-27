@@ -64,7 +64,7 @@ def test_upgraded_project_passes_consumer_side_validation(tmp_path: Path):
     # 校验器按最新 schema 形态断言（如 generation_mode 必填），消费链路入口前项目
     # 必然已走完整迁移链，这里同口径跑到当前版本再校验
     migrate_project_dir(d)
-    result = DataValidator(projects_root=str(tmp_path)).validate_project_payload(_load(d))
+    result = DataValidator(projects_dir=str(tmp_path)).validate_project_payload(_load(d))
     assert result.errors == []
 
 

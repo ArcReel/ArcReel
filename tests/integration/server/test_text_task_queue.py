@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import threading
 from collections.abc import Awaitable, Callable
@@ -36,6 +37,8 @@ from lib.script.draft_quarantine import (
 from server.text_generation import TextGenerationRequest
 from server.tool_runtime import (
     CallerContext,
+    GenerateEpisodeScriptRequest,
+    GenerateScriptPlanRequest,
     PlanEpisodesRequest,
     ProjectScope,
     Services,
@@ -105,12 +108,14 @@ async def test_all_text_long_calls_submit_single_member_batches(
         capabilities=ConfigResolver(async_session_factory),
         queue=queue,
     )
-    scope = ProjectScope(project_name=project_name, projects_root=projects.projects_root)
+    scope = ProjectScope(project_name=project_name, data_root=projects.data_root)
     caller = CallerContext(user_id=DEFAULT_USER_ID, source="mcp")
     if handler == "script":
-        outcome = await generate_episode_script(ToolRequest(TextGenerationRequest(episode=1)), scope, caller, services)
+        outcome = await generate_episode_script(
+            ToolRequest(GenerateEpisodeScriptRequest(episode=1)), scope, caller, services
+        )
     elif handler == "script_plan":
-        outcome = await generate_script_plan(ToolRequest(TextGenerationRequest(episode=1)), scope, caller, services)
+        outcome = await generate_script_plan(ToolRequest(GenerateScriptPlanRequest(episode=1)), scope, caller, services)
     else:
         outcome = await plan_episodes(ToolRequest(PlanEpisodesRequest()), scope, caller, services)
 
@@ -121,6 +126,11 @@ async def test_all_text_long_calls_submit_single_member_batches(
     assert len(batch.members) == 1
     assert batch.members[0].task_type == expected_task_type
     assert batch.poll_after_seconds is not None
+    task_id = batch.members[0].task_id
+    assert task_id is not None
+    task = await queue.get_task(task_id)
+    assert task is not None
+    assert str(projects.data_root) not in json.dumps(task["payload"], ensure_ascii=False)
 
 
 async def test_text_mcp_rejects_lost_worker_lease_without_persisting_queue_state(
@@ -141,8 +151,8 @@ async def test_text_mcp_rejects_lost_worker_lease_without_persisting_queue_state
     )
 
     outcome = await generate_script_plan(
-        ToolRequest(TextGenerationRequest(episode=1)),
-        ProjectScope(project_name="drama", projects_root=projects.projects_root),
+        ToolRequest(GenerateScriptPlanRequest(episode=1)),
+        ProjectScope(project_name="drama", data_root=projects.data_root),
         CallerContext(user_id=DEFAULT_USER_ID, source="mcp"),
         services,
     )
@@ -170,8 +180,8 @@ async def test_text_mcp_migration_rejection_cleans_only_the_fresh_batch(
         capabilities=ConfigResolver(async_session_factory),
         queue=queue,
     )
-    request = ToolRequest(TextGenerationRequest(episode=1))
-    scope = ProjectScope(project_name="drama", projects_root=projects.projects_root)
+    request = ToolRequest(GenerateScriptPlanRequest(episode=1))
+    scope = ProjectScope(project_name="drama", data_root=projects.data_root)
     caller = CallerContext(user_id=DEFAULT_USER_ID, source="mcp")
     submitted = await generate_script_plan(request, scope, caller, services)
     assert submitted.value is not None
@@ -239,7 +249,7 @@ async def test_text_submission_cancellation_only_cleans_a_fresh_batch(
         resource_id="episode-1" if cancel_state == "membership" else "old",
         # payload 取请求对象自己的投影：本用例的 membership 变体要让新提交与这条在跑任务
         # 判成同一件事，两边的事实必须逐字段相同，写死字面量会随请求字段增删而失效。
-        payload=TextGenerationRequest(episode=1).to_payload() | {"projects_root": str(projects.projects_root)},
+        payload=TextGenerationRequest(episode=1).to_payload() | {"projects_root": str(projects.data_root)},
         batch_id=historical_batch_id,
         batch_unit_id="episode-1" if cancel_state == "membership" else "old",
     )
@@ -252,8 +262,8 @@ async def test_text_submission_cancellation_only_cleans_a_fresh_batch(
 
     submission = asyncio.create_task(
         generate_script_plan(
-            ToolRequest(TextGenerationRequest(episode=1)),
-            ProjectScope(project_name="drama", projects_root=projects.projects_root),
+            ToolRequest(GenerateScriptPlanRequest(episode=1)),
+            ProjectScope(project_name="drama", data_root=projects.data_root),
             CallerContext(user_id=DEFAULT_USER_ID, source=source),
             services,
         )
@@ -286,15 +296,23 @@ async def test_text_submission_cancellation_only_cleans_a_fresh_batch(
     ]
 
 
-async def test_queued_plan_ignores_internal_payload_and_preserves_typed_failure(tmp_path: Path) -> None:
+@pytest.mark.parametrize("legacy_data_root", [False, True])
+async def test_queued_plan_resolves_data_root_from_current_config_and_preserves_typed_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, legacy_data_root: bool
+) -> None:
     projects = ProjectManager(tmp_path / "projects")
     projects.create_project("planning", content_mode="narration")
     projects.create_project_metadata("planning", "Planning", "", "narration")
+    monkeypatch.setenv("ARCREEL_DATA_DIR", str(projects.data_root))
+    payload: dict[str, Any] = {"instructions": "按章节"}
+    if legacy_data_root:
+        # 旧版本排入的任务在载荷里带着入队时的数据根；数据根此后已挪走。
+        payload["projects_root"] = str(tmp_path / "moved-away")
     task = {
         "task_id": "task-plan",
         "project_name": "planning",
         "task_type": "text_episode_plan",
-        "payload": {"instructions": "按章节", "projects_root": str(projects.projects_root)},
+        "payload": payload,
     }
 
     class Planner:
@@ -312,6 +330,8 @@ async def test_queued_plan_ignores_internal_payload_and_preserves_typed_failure(
                         hook="悬念",
                         reading_units=800,
                         ledger_status="planned",
+                        first_sentence="第一句。",
+                        last_sentence="最后一句。",
                     )
                 ],
                 cursor=None,
@@ -319,6 +339,8 @@ async def test_queued_plan_ignores_internal_payload_and_preserves_typed_failure(
 
     result = await execute_queued_text_task(task, planner_cls=Planner)
     assert result["episodes"][0]["title"] == "第一集"
+    assert result["episodes"][0]["first_sentence"] == "第一句。"
+    assert result["episodes"][0]["last_sentence"] == "最后一句。"
 
     class FailingPlanner(Planner):
         async def plan(self, instructions=None):
@@ -335,6 +357,8 @@ async def test_cancel_during_started_episode_script_commit_leaves_member_running
     tmp_path: Path, file_db_factory, monkeypatch
 ) -> None:
     projects = ProjectManager(tmp_path / "projects")
+    # worker 按当前配置解析数据根。
+    monkeypatch.setenv("ARCREEL_DATA_DIR", str(projects.data_root))
     project_path = projects.create_project("script", content_mode="ad")
     projects.create_project_metadata("script", "Script", "", "ad")
     projects.update_project(
@@ -351,7 +375,7 @@ async def test_cancel_during_started_episode_script_commit_leaves_member_running
         content_mode = "ad"
 
         def __init__(self) -> None:
-            self.project_json = projects.load_project_readonly("script")
+            self.project_json = projects.load_project("script")
 
         @classmethod
         async def create(cls, *_args, **_kwargs):
@@ -387,8 +411,8 @@ async def test_cancel_during_started_episode_script_commit_leaves_member_running
     )
     try:
         submitted = await generate_episode_script(
-            ToolRequest(TextGenerationRequest(episode=1)),
-            ProjectScope(project_name="script", projects_root=projects.projects_root),
+            ToolRequest(GenerateEpisodeScriptRequest(episode=1)),
+            ProjectScope(project_name="script", data_root=projects.data_root),
             CallerContext(user_id=DEFAULT_USER_ID, source="mcp"),
             services,
         )
@@ -419,6 +443,8 @@ async def test_cancel_during_started_episode_plan_commit_leaves_member_running_t
     monkeypatch,
 ) -> None:
     projects = ProjectManager(tmp_path / "projects")
+    # worker 按当前配置解析数据根。
+    monkeypatch.setenv("ARCREEL_DATA_DIR", str(projects.data_root))
     project_path = projects.create_project("planning", content_mode="narration")
     projects.create_project_metadata("planning", "Planning", "", "narration")
     (project_path / "source" / "novel.txt").write_text(
@@ -448,7 +474,7 @@ async def test_cancel_during_started_episode_plan_commit_leaves_member_running_t
 
     async def create_planner(_cls, path):
         planner = EpisodePlanner(path, generator=Generator())
-        planner.pm = BlockingProjectManager(projects.projects_root)
+        planner.pm = BlockingProjectManager(projects.data_root)
         return planner
 
     monkeypatch.setattr(EpisodePlanner, "create", classmethod(create_planner))
@@ -468,7 +494,7 @@ async def test_cancel_during_started_episode_plan_commit_leaves_member_running_t
     try:
         submitted = await plan_episodes(
             ToolRequest(PlanEpisodesRequest()),
-            ProjectScope(project_name="planning", projects_root=projects.projects_root),
+            ProjectScope(project_name="planning", data_root=projects.data_root),
             CallerContext(user_id=DEFAULT_USER_ID, source="mcp"),
             services,
         )
@@ -491,7 +517,7 @@ async def test_cancel_during_started_episode_plan_commit_leaves_member_running_t
     assert batch.done is True
     assert batch.members[0].status == "succeeded"
     assert (project_path / "project.json").read_bytes() != before_project
-    assert [episode["title"] for episode in projects.load_project_readonly("planning")["episodes"]] == ["古玉藏诀"]
+    assert [episode["title"] for episode in projects.load_project("planning")["episodes"]] == ["古玉藏诀"]
     assert (project_path / "source" / "episode_1.txt").exists()
 
 
@@ -518,12 +544,15 @@ async def test_cancel_during_invalid_script_plan_quarantine_leaves_member_runnin
     tmp_path: Path,
     file_db_factory,
     monkeypatch,
+    video_request_facts,
     project_name: str,
     generation_mode: str,
     quarantine_kind: str,
     generated_text: str,
 ) -> None:
     projects = ProjectManager(tmp_path / "projects")
+    # worker 按当前配置解析数据根。
+    monkeypatch.setenv("ARCREEL_DATA_DIR", str(projects.data_root))
     project_path = projects.create_project(project_name, content_mode="narration")
     projects.create_project_metadata(project_name, project_name, "", "narration")
     projects.update_project(project_name, lambda project: project.update(generation_mode=generation_mode))
@@ -564,8 +593,8 @@ async def test_cancel_during_invalid_script_plan_quarantine_leaves_member_runnin
     )
     try:
         submitted = await generate_script_plan(
-            ToolRequest(TextGenerationRequest(episode=1)),
-            ProjectScope(project_name=project_name, projects_root=projects.projects_root),
+            ToolRequest(GenerateScriptPlanRequest(episode=1)),
+            ProjectScope(project_name=project_name, data_root=projects.data_root),
             CallerContext(user_id=DEFAULT_USER_ID, source="mcp"),
             services,
         )

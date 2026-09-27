@@ -59,13 +59,11 @@ def test_agent_startup_error_without_stderr_keeps_message() -> None:
 def seeded_session_manager(tmp_path: Path) -> SessionManager:
     project_root = tmp_path / "repo"
     project_root.mkdir()
-    (project_root / "projects").mkdir()
-    proj_dir = project_root / "projects" / "demo"
-    proj_dir.mkdir()
+    manager = SessionManager(project_root, SessionMetaStore())
+    proj_dir = manager.layout.projects_dir / "demo"
+    proj_dir.mkdir(parents=True)
     (proj_dir / "project.json").write_text('{"title": "t"}', encoding="utf-8")
-
-    meta_store = SessionMetaStore()
-    return SessionManager(project_root, meta_store)
+    return manager
 
 
 @pytest.mark.asyncio

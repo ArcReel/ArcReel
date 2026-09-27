@@ -134,9 +134,10 @@ class KlingBackendBase:
         )
         return extract_kling_task_id(resp.json())
 
-    async def _poll_query(self, client: httpx.AsyncClient, endpoint_path: str) -> dict:
+    async def _poll_query(self, client: httpx.AsyncClient, endpoint_path: str, *, base_url: str | None = None) -> dict:
+        """查询任务状态；``base_url`` 缺省用当下配置的域名，续跑回放提交域名时由调用方传入。"""
         resp = await client.get(
-            f"{self._base_url}/{endpoint_path}",
+            f"{(base_url or self._base_url).rstrip('/')}/{endpoint_path}",
             headers=self._headers(),
         )
         raise_for_status_redacted(resp)

@@ -6,7 +6,7 @@ import { useAgentMemory } from "@/hooks/useAgentMemory";
 import type { AgentMemoryOverview } from "@/types/agent-memory";
 
 const OVERVIEW: AgentMemoryOverview = {
-  path: "/data/.arcreel/users/default/memory",
+  path: "/data/users/default/memory",
   index: { exists: true, line_count: 3, byte_size: 120, over_limit: false },
   files: [
     {

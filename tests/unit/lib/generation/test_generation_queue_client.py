@@ -13,6 +13,7 @@ from lib.generation.generation_queue_client import (
     TaskSpecValidationError,
     TaskWaitTimeoutError,
     WorkerOfflineError,
+    batch_enqueue_and_wait,
     batch_enqueue_and_wait_sync,
     batch_enqueue_only,
     enqueue_and_wait,
@@ -162,14 +163,16 @@ class TestTaskSpecFromRequest:
         spec = TaskSpec.from_request(task_type="storyboard", media_type="image", resource_id="S01", prompt=prompt)
         assert spec.payload == {"prompt": prompt}
 
-    def test_asset_empty_prompt_rejected(self):
-        with pytest.raises(TaskSpecValidationError) as exc:
-            TaskSpec.from_request(task_type="character", media_type="image", resource_id="张三", prompt="")
-        assert exc.value.code == "prompt_text_empty"
+    @pytest.mark.parametrize("task_type", ["character", "scene", "prop", "product"])
+    def test_asset_sheet_spec_carries_no_prompt(self, task_type):
+        # 资产图描述由执行层从存储的条目读取，入队不存快照。
+        spec = TaskSpec.from_request(task_type=task_type, media_type="image", resource_id="张三")
+        assert spec.payload == {}
 
-    def test_asset_string_prompt_builds_spec(self):
-        spec = TaskSpec.from_request(task_type="character", media_type="image", resource_id="张三", prompt="一位老者")
-        assert spec.payload == {"prompt": "一位老者"}
+    @pytest.mark.parametrize("prompt", ["一位老者", ""])
+    def test_asset_sheet_prompt_is_refused(self, prompt):
+        with pytest.raises(ValueError, match="take no prompt"):
+            TaskSpec.from_request(task_type="character", media_type="image", resource_id="张三", prompt=prompt)
 
     def test_reference_video_validates_prompt_without_snapshotting_it(self):
         # 当前 shots 只在入队守卫点校验；worker 从 script_file + resource_id 重读最新内容。
@@ -378,6 +381,36 @@ class TestGenerationQueueClient:
                 script_file="episode_01.json",
                 source="skill",
             )
+
+
+@patch("lib.generation.generation_queue_client.wait_for_task", new_callable=AsyncMock)
+@patch("lib.generation.generation_queue_client.enqueue_task_only", new_callable=AsyncMock)
+async def test_batch_enqueue_and_wait_reports_the_end_of_enqueueing_before_any_wait(mock_enqueue, mock_wait):
+    steps: list[str] = []
+
+    async def enqueue(**kwargs):
+        steps.append(f"enqueue {kwargs['resource_id']}")
+        return {"task_id": f"task-{kwargs['resource_id']}"}
+
+    async def wait(task_id, **_kwargs):
+        steps.append(f"wait {task_id}")
+        return {"status": "succeeded", "result": {}}
+
+    mock_enqueue.side_effect = enqueue
+    mock_wait.side_effect = wait
+
+    successes, failures = await batch_enqueue_and_wait(
+        project_name="demo",
+        specs=[
+            TaskSpec(task_type="grid", media_type="image", resource_id="a"),
+            TaskSpec(task_type="grid", media_type="image", resource_id="b"),
+        ],
+        on_enqueued=lambda: steps.append("enqueued"),
+    )
+
+    assert failures == []
+    assert [result.resource_id for result in successes] == ["a", "b"]
+    assert steps == ["enqueue a", "enqueue b", "enqueued", "wait task-a", "wait task-b"]
 
 
 class TestBatchEnqueueAndWaitSync:

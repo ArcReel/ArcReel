@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import pytest
-from fastapi import FastAPI
-from fastapi.testclient import TestClient
 
 from lib.artifacts.artifact_activation import ArtifactCurrencyResolver
 from lib.artifacts.artifact_manifest import (
@@ -16,28 +14,7 @@ from lib.artifacts.artifact_manifest import (
 from lib.i18n import _ as translate_message
 from lib.project.asset_derivatives import derivative_artifact_key, derivative_sheet_relative_path
 from lib.project.asset_types import DERIVATIVES_FIELD
-from lib.project.project_manager import ProjectManager
-from server.auth import CurrentUserInfo, get_current_user
-from server.error_handlers import register_error_handlers
 from server.routers import assets
-from tests.auth_deps import AUTH_DEPENDENCIES
-
-
-@pytest.fixture
-async def assets_env(db_factory, tmp_path, monkeypatch):
-    # 1) per-test ProjectManager pointed at tmp_path/projects
-    pm = ProjectManager(tmp_path / "projects")
-
-    # 2) monkeypatch symbols used inside assets router
-    monkeypatch.setattr(assets, "async_session_factory", db_factory)
-    monkeypatch.setattr(assets, "get_project_manager", lambda: pm)
-
-    app = FastAPI()
-    register_error_handlers(app)
-    app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
-    app.include_router(assets.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
-
-    return {"client": TestClient(app), "pm": pm}
 
 
 class TestAssetsCRUD:
@@ -162,7 +139,7 @@ class TestAssetsCRUD:
         assert r.status_code == 200
         old_rel = r.json()["asset"]["image_path"]
         assert old_rel
-        assert (pm.projects_root / old_rel).exists()
+        assert (pm.data_root / old_rel).exists()
 
         aid = r.json()["asset"]["id"]
 
@@ -173,7 +150,7 @@ class TestAssetsCRUD:
             files={"image": ("bad.exe", bad, "application/octet-stream")},
         )
         assert r2.status_code == 415
-        assert (pm.projects_root / old_rel).exists(), "old image deleted on failed replace"
+        assert (pm.data_root / old_rel).exists(), "old image deleted on failed replace"
 
 
 class TestFromProject:
@@ -185,8 +162,8 @@ class TestFromProject:
         pm.create_project_metadata("demo", "Demo")
         pm.add_project_character("demo", "王", "d", "")
         sheet_rel = "characters/王.png"
-        (pm.projects_root / "demo" / "characters").mkdir(parents=True, exist_ok=True)
-        (pm.projects_root / "demo" / sheet_rel).write_bytes(b"img")
+        (pm.projects_dir / "demo" / "characters").mkdir(parents=True, exist_ok=True)
+        (pm.projects_dir / "demo" / sheet_rel).write_bytes(b"img")
 
         def _set_sheet(project):
             project["characters"]["王"]["character_sheet"] = sheet_rel
@@ -204,9 +181,9 @@ class TestFromProject:
         assert r.status_code == 200, r.text
         ip = r.json()["asset"]["image_path"]
         assert ip
-        assert ip.startswith("_global_assets/character/")
+        assert ip.startswith("global_assets/character/")
         # 落盘文件与源文件相同字节
-        assert (pm.projects_root / ip).read_bytes() == b"img"
+        assert (pm.data_root / ip).read_bytes() == b"img"
 
     def test_from_project_conflict_409_and_overwrite(self, assets_env):
         client = assets_env["client"]
@@ -329,8 +306,8 @@ class TestFromProject:
         pm.create_project_metadata("demo", "Demo")
         pm.add_project_character("demo", "王", "d", "")
         audio_rel = "characters/refs_audio/王.wav"
-        (pm.projects_root / "demo" / "characters" / "refs_audio").mkdir(parents=True, exist_ok=True)
-        (pm.projects_root / "demo" / audio_rel).write_bytes(b"audio-bytes")
+        (pm.projects_dir / "demo" / "characters" / "refs_audio").mkdir(parents=True, exist_ok=True)
+        (pm.projects_dir / "demo" / audio_rel).write_bytes(b"audio-bytes")
         pm.update_character_reference_audio("demo", "王", audio_rel)
 
         r = client.post(
@@ -344,8 +321,8 @@ class TestFromProject:
         assert r.status_code == 200, r.text
         ap = r.json()["asset"]["audio_path"]
         assert ap
-        assert ap.startswith("_global_assets/character/")
-        assert (pm.projects_root / ap).read_bytes() == b"audio-bytes"
+        assert ap.startswith("global_assets/character/")
+        assert (pm.data_root / ap).read_bytes() == b"audio-bytes"
 
     def test_from_project_audio_copy_failure_cleans_up_image(self, assets_env, monkeypatch):
         """图片拷贝成功后音频拷贝失败：不留孤儿图片文件，异常正常传播。"""
@@ -355,11 +332,11 @@ class TestFromProject:
         pm.create_project_metadata("demo", "Demo")
         pm.add_project_character("demo", "王", "d", "")
         sheet_rel = "characters/王.png"
-        (pm.projects_root / "demo" / "characters").mkdir(parents=True, exist_ok=True)
-        (pm.projects_root / "demo" / sheet_rel).write_bytes(b"img")
+        (pm.projects_dir / "demo" / "characters").mkdir(parents=True, exist_ok=True)
+        (pm.projects_dir / "demo" / sheet_rel).write_bytes(b"img")
         audio_rel = "characters/refs_audio/王.wav"
-        (pm.projects_root / "demo" / "characters" / "refs_audio").mkdir(parents=True, exist_ok=True)
-        (pm.projects_root / "demo" / audio_rel).write_bytes(b"audio-bytes")
+        (pm.projects_dir / "demo" / "characters" / "refs_audio").mkdir(parents=True, exist_ok=True)
+        (pm.projects_dir / "demo" / audio_rel).write_bytes(b"audio-bytes")
 
         def _set_fields(project):
             project["characters"]["王"]["character_sheet"] = sheet_rel
@@ -753,7 +730,7 @@ class TestApplyToProject:
 
         assert response.status_code == 200
         assert response.json()["succeeded"] == [{"id": asset_id, "name": "A"}]
-        assert (pm.projects_root / "target" / "scenes" / "A.png").read_bytes() == b"image"
+        assert (pm.projects_dir / "target" / "scenes" / "A.png").read_bytes() == b"image"
 
     def test_overwrite_policy_rejects_cross_type_name(self, assets_env):
         client = assets_env["client"]
@@ -909,7 +886,7 @@ class TestApplyToProject:
         project = pm.load_project("target")
         assert project["scenes"]["Shared"]["description"] == "concurrent"
         assert project["scenes"]["Shared (2)"]["description"] == "library"
-        assert (pm.projects_root / "target" / "scenes" / "Shared (2).png").read_bytes() == b"library-image"
+        assert (pm.projects_dir / "target" / "scenes" / "Shared (2).png").read_bytes() == b"library-image"
 
     def test_invalid_policy_returns_400(self, assets_env):
         client = assets_env["client"]
@@ -971,7 +948,7 @@ class TestApplyToProject:
         rel = r0.json()["asset"]["image_path"]
 
         # Simulate external deletion of the global file
-        (pm.projects_root / rel).unlink()
+        (pm.data_root / rel).unlink()
 
         r = client.post(
             "/api/v1/assets/apply-to-project",
@@ -998,8 +975,8 @@ class TestApplyToProject:
         pm.create_project_metadata("source", "Source")
         pm.add_project_character("source", "王", "d", "")
         audio_rel = "characters/refs_audio/王.wav"
-        (pm.projects_root / "source" / "characters" / "refs_audio").mkdir(parents=True, exist_ok=True)
-        (pm.projects_root / "source" / audio_rel).write_bytes(b"audio-bytes")
+        (pm.projects_dir / "source" / "characters" / "refs_audio").mkdir(parents=True, exist_ok=True)
+        (pm.projects_dir / "source" / audio_rel).write_bytes(b"audio-bytes")
         pm.update_character_reference_audio("source", "王", audio_rel)
 
         r0 = client.post(
@@ -1010,7 +987,7 @@ class TestApplyToProject:
         ap = r0.json()["asset"]["audio_path"]
 
         # Simulate external deletion of the global audio file
-        (pm.projects_root / ap).unlink()
+        (pm.data_root / ap).unlink()
 
         pm.create_project("target")
         pm.create_project_metadata("target", "Target")
@@ -1039,8 +1016,8 @@ class TestApplyToProject:
         pm.create_project_metadata("source", "Source")
         pm.add_project_character("source", "王", "d", "")
         audio_rel = "characters/refs_audio/王.wav"
-        (pm.projects_root / "source" / "characters" / "refs_audio").mkdir(parents=True, exist_ok=True)
-        (pm.projects_root / "source" / audio_rel).write_bytes(b"audio-bytes")
+        (pm.projects_dir / "source" / "characters" / "refs_audio").mkdir(parents=True, exist_ok=True)
+        (pm.projects_dir / "source" / audio_rel).write_bytes(b"audio-bytes")
         pm.update_character_reference_audio("source", "王", audio_rel)
 
         r0 = client.post(
@@ -1061,7 +1038,7 @@ class TestApplyToProject:
             },
         )
         assert r.status_code == 200, r.text
-        target_audio = pm.projects_root / "target" / "characters" / "refs_audio" / "王.wav"
+        target_audio = pm.projects_dir / "target" / "characters" / "refs_audio" / "王.wav"
         assert target_audio.exists()
         assert target_audio.read_bytes() == b"audio-bytes"
         data = pm.load_project("target")
@@ -1098,7 +1075,7 @@ class TestApplyToProject:
         )
         assert r.status_code == 200
         # File copied to target
-        assert (pm.projects_root / "target" / "scenes" / "A.png").exists()
+        assert (pm.projects_dir / "target" / "scenes" / "A.png").exists()
         data = pm.load_project("target")
         assert data["scenes"]["A"]["scene_sheet"] == "scenes/A.png"
 
@@ -1137,7 +1114,7 @@ class TestApplyToProject:
             )
 
         assert pm.load_project("target")["scenes"] == {}
-        target_dir = pm.projects_root / "target" / "scenes"
+        target_dir = pm.projects_dir / "target" / "scenes"
         assert not (target_dir / "A.png").exists()
         assert not (target_dir / "B.png").exists()
         assert not list(target_dir.glob(".*.tmp"))
@@ -1159,7 +1136,7 @@ class TestApplyToProject:
 
         pm.create_project("target")
         pm.create_project_metadata("target", "Target")
-        target_dir = pm.projects_root / "target" / "scenes"
+        target_dir = pm.projects_dir / "target" / "scenes"
         target_dir.mkdir(parents=True, exist_ok=True)
         for name, content in (("A", b"old-a"), ("B", b"old-b")):
             (target_dir / f"{name}.png").write_bytes(content)
@@ -1211,14 +1188,14 @@ class TestApplyToProject:
 
         pm.create_project("target")
         pm.create_project_metadata("target", "Target")
-        target_image = pm.projects_root / "target" / "scenes" / "A.png"
+        target_image = pm.projects_dir / "target" / "scenes" / "A.png"
         target_image.parent.mkdir(parents=True, exist_ok=True)
         target_image.write_bytes(b"old-image")
         pm.update_project(
             "target",
             lambda project: project["scenes"].update({"A": {"description": "old", "scene_sheet": "scenes/A.png"}}),
         )
-        project_file = pm.projects_root / "target" / "project.json"
+        project_file = pm.projects_dir / "target" / "project.json"
         real_atomic_write = project_manager_module.atomic_write_json
 
         def fail_project_write(path, data):
@@ -1286,8 +1263,8 @@ class TestDerivativesThroughTheLibrary:
         stored = response.json()["asset"]["derivatives"]
         assert [(d["name"], d["description"]) for d in stored] == [("便装", "布衣"), ("战斗装", "黑甲")]
         by_name = {d["name"]: d for d in stored}
-        assert (pm.projects_root / by_name["战斗装"]["image_path"]).read_bytes() == b"battle-sheet"
-        assert (pm.projects_root / by_name["便装"]["image_path"]).read_bytes() == b"casual-sheet"
+        assert (pm.data_root / by_name["战斗装"]["image_path"]).read_bytes() == b"battle-sheet"
+        assert (pm.data_root / by_name["便装"]["image_path"]).read_bytes() == b"casual-sheet"
 
     def test_from_project_keeps_a_derivative_whose_sheet_file_is_gone(self, assets_env):
         """图缺失只丢那张图：名与描述才是衍生的身份，图可在目标项目里重新生成。"""
@@ -1341,7 +1318,7 @@ class TestDerivativesThroughTheLibrary:
         derivatives = response.json()["asset"]["derivatives"]
         assert [(d["name"], d["description"]) for d in derivatives] == [("战斗装", "改写后的黑甲")]
         for stale in stale_paths:
-            assert not (pm.projects_root / stale).exists()
+            assert not (pm.data_root / stale).exists()
 
     def test_delete_removes_the_derivative_rows_and_their_image_files(self, assets_env):
         client = assets_env["client"]
@@ -1351,13 +1328,13 @@ class TestDerivativesThroughTheLibrary:
             "/api/v1/assets/from-project",
             json={"project_name": "source", "resource_type": "character", "resource_id": "王"},
         ).json()["asset"]
-        derivative_image = pm.projects_root / created["derivatives"][0]["image_path"]
+        derivative_image = pm.data_root / created["derivatives"][0]["image_path"]
         assert derivative_image.exists()
 
         assert client.delete(f"/api/v1/assets/{created['id']}").status_code == 204
 
         assert not derivative_image.exists()
-        assert not (pm.projects_root / created["image_path"]).exists()
+        assert not (pm.data_root / created["image_path"]).exists()
         assert client.get("/api/v1/assets?type=character").json()["items"] == []
 
     def test_round_trip_restores_name_description_and_sheet_in_a_new_project(self, assets_env):
@@ -1397,6 +1374,39 @@ class TestDerivativesThroughTheLibrary:
                 .status
                 is ArtifactStatus.CURRENT
             )
+
+    def test_derivative_claim_failure_rolls_back_owner_and_project(self, assets_env, monkeypatch):
+        client = assets_env["client"]
+        pm = assets_env["pm"]
+        self._seed_character_with_derivatives(pm, "source", "王", {"战斗装": ("黑甲", b"battle-sheet")})
+        created = client.post(
+            "/api/v1/assets/from-project",
+            json={"project_name": "source", "resource_type": "character", "resource_id": "王"},
+        ).json()["asset"]
+        pm.create_project("target")
+        pm.create_project_metadata("target", "Target")
+        target_dir = pm.get_project_path("target")
+        owner_key = ArtifactKey.asset_sheet("character", "王")
+        derivative_key = derivative_artifact_key("王", "战斗装")
+
+        def _fail_claim_commit(_project_dir, entries):
+            assert set(entries) == {owner_key, derivative_key}
+            assert all(entry is not None for entry in entries.values())
+            raise RuntimeError("injected claim failure")
+
+        monkeypatch.setattr(assets, "register_artifact_entries_atomically", _fail_claim_commit)
+        with pytest.raises(RuntimeError, match="injected claim failure"):
+            client.post(
+                "/api/v1/assets/apply-to-project",
+                json={"asset_ids": [created["id"]], "target_project": "target", "conflict_policy": "skip"},
+            )
+
+        assert "王" not in pm.load_project("target")["characters"]
+        assert not (target_dir / "characters/王.png").exists()
+        assert not (target_dir / derivative_sheet_relative_path("王", "战斗装")).exists()
+        adapter = ProjectArtifactManifestAdapter(target_dir)
+        assert adapter.get_entry(owner_key) is None
+        assert adapter.get_entry(derivative_key) is None
 
     def test_rename_policy_puts_the_derivative_sheets_under_the_renamed_owner(self, assets_env):
         """冲突策略 rename 只改角色名；衍生名不变，图跟着搬到新本体名下的目录。"""
@@ -1467,7 +1477,7 @@ class TestDerivativesThroughTheLibrary:
             "/api/v1/assets/from-project",
             json={"project_name": "source", "resource_type": "character", "resource_id": "王"},
         ).json()["asset"]
-        (pm.projects_root / created["derivatives"][0]["image_path"]).unlink()
+        (pm.data_root / created["derivatives"][0]["image_path"]).unlink()
         pm.create_project("target")
         pm.create_project_metadata("target", "Target")
 

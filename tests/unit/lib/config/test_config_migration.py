@@ -35,7 +35,7 @@ def json_file(tmp_path: Path) -> Path:
 
 
 async def test_migrate_provider_configs(db_session: AsyncSession, json_file: Path):
-    await migrate_json_to_db(db_session, json_file)
+    await migrate_json_to_db(db_session, json_file.parent)
     repo = ProviderConfigRepository(db_session)
     config = await repo.get_all("gemini-aistudio")
     assert config["api_key"] == "AIza-test-key"
@@ -45,7 +45,7 @@ async def test_migrate_provider_configs(db_session: AsyncSession, json_file: Pat
 
 
 async def test_migrate_system_settings(db_session: AsyncSession, json_file: Path):
-    await migrate_json_to_db(db_session, json_file)
+    await migrate_json_to_db(db_session, json_file.parent)
     repo = SystemSettingRepository(db_session)
     val = await repo.get("default_video_backend")
     assert val == "gemini-vertex/veo-3.1-fast-generate-001"
@@ -56,13 +56,13 @@ async def test_migrate_system_settings(db_session: AsyncSession, json_file: Path
 
 
 async def test_migrate_renames_file(db_session: AsyncSession, json_file: Path):
-    await migrate_json_to_db(db_session, json_file)
+    await migrate_json_to_db(db_session, json_file.parent)
     assert not json_file.exists()  # noqa: ASYNC240 -- 测试内本地小文件读写/断言，不在生产事件循环上
     assert json_file.with_suffix(".json.bak").exists()
 
 
 async def test_migrate_max_workers_to_all_configured_providers(db_session: AsyncSession, json_file: Path):
-    await migrate_json_to_db(db_session, json_file)
+    await migrate_json_to_db(db_session, json_file.parent)
     repo = ProviderConfigRepository(db_session)
     ark = await repo.get_all("ark")
     assert ark.get("video_max_workers") == "2"
@@ -80,7 +80,7 @@ async def test_migrate_aistudio_001_to_preview(db_session: AsyncSession, tmp_pat
     }
     p = tmp_path / ".system_config.json"
     p.write_text(json.dumps(data))
-    await migrate_json_to_db(db_session, p)
+    await migrate_json_to_db(db_session, p.parent)
     repo = SystemSettingRepository(db_session)
     val = await repo.get("default_video_backend")
     assert val == "gemini-aistudio/veo-3.1-generate-preview"
@@ -90,7 +90,7 @@ async def test_migrate_noop_if_no_file(db_session: AsyncSession, tmp_path: Path)
     """源文件不存在：迁移直接返回，不抛错也不落任何配置行。"""
     nonexistent = tmp_path / ".system_config.json"
 
-    assert await migrate_json_to_db(db_session, nonexistent) is None
+    assert await migrate_json_to_db(db_session, nonexistent.parent) is None
     assert not nonexistent.exists()
     assert await ProviderConfigRepository(db_session).get_all_configs_bulk() == {}
     assert await SystemSettingRepository(db_session).get_all() == {}

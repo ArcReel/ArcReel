@@ -2,6 +2,8 @@
 
 欢迎贡献代码、报告 Bug 或提出功能建议。
 
+以推广某项商业服务为主要目的的贡献（例如新增某家服务的接入，或在文档中加入服务推荐与链接）不走 PR 流程，这类 PR 会被关闭；合作请联系 support@arc-reel.com。
+
 ## 本地开发环境
 
 ```bash
@@ -100,7 +102,8 @@ pytest `asyncio_mode = "auto"`，异步用例无需手动标记。
 
 - **优先级**：真实对象（内存 SQLite、`tmp_path`）＞ `tests/fakes.py` 手写替身（收录边界见其模块 docstring）＞ 带 `spec`/`autospec` 的 Mock ＞ 裸 `MagicMock`/`AsyncMock`。Mock 只替换仓库边界（第三方 SDK、网络传输、子进程、文件系统、时钟）；仓库内的依赖对象用真实实例；替身只出现在无法用真实对象触发的分支（异常、超时、外部失败）。
 - **禁止 patch 生产代码私有符号**（闸门，无豁免）：`patch("lib.x._y")`、`monkeypatch.setattr(mod, "_y")`、`patch.object(Cls, "_y")` 三种形式一律禁止。需要控制内部行为时走 seam。
-- **seam 即显式参数注入**：构造参数或关键字参数，带生产默认值，不改变生产行为，如 `retry_async(operation, *, clock=..., jitter=...)`；不引入模块级可替换全局。适用范围：轮询时钟/间隔/退避、能力解析器、HTTP 探测客户端、文件系统与子进程。
+- **seam 即显式参数注入**：构造参数或关键字参数，带生产默认值，不改变生产行为，如 `retry_async(operation, *, clock=..., jitter=...)`；不引入模块级可替换全局。适用范围：轮询时钟/间隔/退避、HTTP 探测客户端、文件系统与子进程。
+- **视频能力由消费方构造视频请求事实结果对象**：报价、预检、执行等消费方测试直接构造视频请求事实的结果对象或失败对象（`tests/factories.py` 的 `make_video_request_facts`），不在能力解析器层造假、不手搭能力 dict；求值本身用真实 `ConfigResolver` 加测试数据库测。
 - **进程级缓存的重置钩子取公开名**：生产模块用 `functools.cache` 之类的进程级缓存时，为测试暴露的重置入口写成公开的 `reset_*_for_tests()`（如 `lib.infra.app_data_dir.reset_for_tests`），不写下划线私有名——测试 import 私有符号既撞上上一条禁令，也会被 basedpyright 的 `reportUnusedFunction` 判成死代码。钩子只清缓存、不改生产行为。它是过渡形态，新代码优先按上一条做参数注入。
 - **出站 HTTP 断言用 respx**：保留真实 httpx 客户端，在 transport 层拦截（`AsyncOpenAI` 流量同样被捕获），断言真实序列化后的请求。
 - **patch 收编**（闸门）：同一 patch 目标字符串出现在 ≥3 个测试文件时收编为共享 fixture / helper，各文件不再各自定义；FastAPI 路由依赖优先 `app.dependency_overrides` 而非 patch。
@@ -158,6 +161,16 @@ pytest `asyncio_mode = "auto"`，异步用例无需手动标记。
 - **目录与体量**：测试文件与源文件同级并放，不使用 `__tests__/` 目录；「一文件一被测对象」、分裂命名禁令与 3000 行熔断三条与后端一致，允许语义化主题后缀（如 `ShotDetail.drama.test.tsx`）。
 - **可测性改造**：不得改变生产行为；允许抽纯函数、抽 hook 级的结构性抽取。
 - **配置与 lint**：`testTimeout` 用 vitest 默认 5s，个别慢用例显式覆写并说明；eslint 启用 vitest、testing-library、jest-dom 插件（`expect-expect` 检出零断言用例）；裸 `toHaveBeenCalled` 不设禁令，断言强度归 review。
+
+### 在 worktree 与沙箱里运行闸门
+
+worktree 里没有 `.venv` 与 `node_modules`，Agent 沙箱可能禁止绑定本地端口。按下面方式运行，闸门结果与主仓一致：
+
+- **Python 共用主仓 `.venv`**：`UV_PROJECT_ENVIRONMENT=<主仓根>/.venv uv run --no-sync <命令>`。`--no-sync` 让 `uv run` 直接使用该环境；缺了它，`uv run` 会按当前 worktree 的 `pyproject.toml` 往该目录同步一份完整依赖，`.claude/settings.json` 的保存后格式化 hook 里的 `uv run ruff` 同样会触发这次同步。worktree 改动了 `pyproject.toml` 或 `uv.lock` 时，主仓 `.venv` 不反映新依赖：省略 `UV_PROJECT_ENVIRONMENT` 与 `--no-sync`，让 `uv run` 在 worktree 里建立并同步自己的 `.venv`，basedpyright 也就不需要 `--venvpath`。
+- **basedpyright 指向主仓**：`pyproject.toml` 的 `venvPath` 让它在当前目录找 `.venv`，worktree 里以退出码 3 报 `venv .venv subdirectory not found`；加 `--venvpath <主仓根>` 即可，无需符号链接。
+- **需要本地端口的用例在允许绑定端口的环境运行**：`tests/integration/agent_runtime_profile/test_custom_endpoint_adapter_skill.py` 启动本地 HTTP 服务，沙箱禁止绑定 `127.0.0.1` 时以 `PermissionError` 失败。后端完整测试直接在允许本地端口的环境运行一次，省去沙箱内先跑一遍再复跑。
+- **并发跑前端闸门时限制 worker**：多个 Agent 同时运行 `pnpm check` 会让 vitest 默认 worker 数把机器压到用例超时；用 `pnpm check --maxWorkers=2`，参数落到脚本末尾的 `vitest run`。
+- **前端与文档站各自安装依赖**：在 worktree 的 `frontend/` 与 `website/` 分别执行 `pnpm install --frozen-lockfile`。
 
 ## 代码质量
 

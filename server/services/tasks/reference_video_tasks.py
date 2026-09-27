@@ -5,12 +5,10 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Awaitable, Callable, Mapping
-from dataclasses import dataclass, replace
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
-
-from sqlalchemy.exc import SQLAlchemyError
 
 from lib.artifacts.artifact_activation import (
     assert_current_artifact_input_claims_usable,
@@ -24,19 +22,18 @@ from lib.artifacts.visual_artifact_provenance import (
     build_reference_video_artifact_visual_basis,
     project_basis_style_description,
 )
-from lib.config.resolver import (
-    ConfigResolver,
-    VideoGenerationType,
-    constrain_durations,
-    get_provider_fallback,
-)
+from lib.config.resolver import VideoGenerationType
 from lib.config.service import DEFAULT_VIDEO_POLL_TIMEOUT_SECONDS
-from lib.db import async_session_factory
 from lib.db.base import DEFAULT_USER_ID
 from lib.generation.generation_queue import (
     DispatchProviderChanged,
     get_generation_queue,
     without_reference_video_execution_identity,
+)
+from lib.generation.video_request_facts import (
+    DEFAULT_PLANNED_DURATION_SECONDS,
+    VideoRequestFacts,
+    VideoRequestFactsFailure,
 )
 from lib.infra.path_safety import safe_join
 from lib.infra.thumbnail import extract_video_thumbnail
@@ -58,15 +55,13 @@ from lib.script.reference_video.prompt_render import (
     resolve_reference_audio_paths,
 )
 from lib.script.reference_video.request_projection import (
-    ProviderProjectionCandidate,
     ReferenceProjectionBlockedError,
     ReferenceRequestOptions,
     ReferenceUnitRequestProjector,
     ResolvedReferenceAsset,
+    VideoRequestFactsResult,
     hydrate_reference_assets,
-    reference_audio_model_facts,
     resolve_reference_assets,
-    strict_reference_durations,
     unit_reference_declarations,
 )
 from lib.script.reference_video.units import reference_video_bucket
@@ -90,7 +85,6 @@ from server.services.tasks.narration_delivery_tasks import (
     reuse_current_video_for_tier,
     tts_task_in_progress,
 )
-from server.services.tasks.video_caps import project_video_caps
 
 logger = logging.getLogger(__name__)
 
@@ -146,124 +140,21 @@ def _reference_limit_warning(*, provider: str, model: str | None, count: int, ma
     }
 
 
-#: unit 时长缺值时的兼容兜底秒数，也作为能力暂不可解析时的新建 unit 默认值。
-#: 可执行请求另由 request projection 对当前非空档位集 fail loud，不使用该兜底报价或生成。
-FALLBACK_UNIT_DURATION = 8
-
-
-def effective_reference_durations(
-    provider_id: str,
-    model: str | None,
-    durations: list[int],
-    resolution: str | None,
-    *,
-    with_reference_images: bool,
-) -> list[int]:
-    """参考生视频路径实际可申请的时长档位：全集与该请求条件的约束求交。
-
-    型号可能对「带参考图」与「按某分辨率下发」各自声明更窄的时长档位。按全集取档会选中
-    执行期必然被拒的秒数（如 Veo 3.1 带参考图只接受 8 秒，5 秒剧本按全集取档得 6 秒），
-    取档预览也会向用户展示这个申请不到的秒数，因此要先收窄再取档。
-
-    ``with_reference_images`` 为 false 时不施加参考图约束：单元正文可以不提及任何资产，
-    backend 同样只在 ``reference_images`` 非空时施加该约束——无图单元
-    套用它会把 720p 下本可申请的 4 秒错误抬到 8 秒。
-
-    ``provider_id`` 必须是规范 registry provider id（backend 族名不是 registry key）。两条约束
-    都遵循「无声明或交集为空时不收窄」的兼容口径（见
-    :func:`lib.config.resolver.constrain_durations`）。可执行请求不依赖该降级：公共投影对能力声明缺位、
-    空集或约束交集为空均返回结构化 blocker。
-    """
-    return constrain_durations(
-        provider_id, model, durations, resolution=resolution, uses_reference_images=with_reference_images
-    )
-
-
-@dataclass(frozen=True)
-class ProjectDurationContext:
-    """项目视频能力的一次性 IO 解析结果：档位全集（未按单个 unit 条件收窄）+ 分辨率 + provider/model 身份。
-
-    供新建 unit 的默认时长复用；生成预检、报价与执行均使用 ``ReferenceUnitRequestProjector``。
-    """
-
-    supported_durations: tuple[int, ...]
-    resolution: str | None
-    provider_id: str
-    model_name: str | None
-    max_duration: int | None = None
-
-
-async def resolve_project_duration_context(
-    project: dict,
-    *,
-    generation_type: VideoGenerationType | None = None,
-) -> ProjectDurationContext:
-    """一次性解析视频能力（档位全集 + 单次生成时长上限 + 分辨率 + provider/model 身份）。
-
-    ``generation_type`` 未给定时按项目生成模式定桶；给定时按指定桶解析——参考生视频内按视频单元分流的
-    调用方（费用估算、逐 unit 预检）以此对无参考图的视频单元按 i2v 桶模型取档。
-
-    解析失败时返回空档位，仅让新建 unit 选用兼容默认值；不代表生成可执行。
-    分辨率仅在档位非空时才解析，空档位下分辨率约束无意义。``max_duration`` 与
-    :func:`resolve_max_unit_duration` 取自同一份能力解析结果。
-    """
-    caps = await project_video_caps(project, degraded_to="新建 unit 使用兼容默认时长", generation_type=generation_type)
-    durations = tuple(int(d) for d in caps.get("supported_durations") or [])
-    provider_id = str(caps.get("provider_id") or "")
-    model = caps.get("model")
-    model_name = str(model) if model else None
-    max_duration = caps.get("max_duration")
-    resolution = await _project_video_resolution(project, provider_id, model_name) if durations else None
-    return ProjectDurationContext(
-        supported_durations=durations,
-        resolution=resolution,
-        provider_id=provider_id,
-        model_name=model_name,
-        max_duration=int(max_duration) if max_duration else None,
-    )
-
-
-def default_unit_duration(ctx: ProjectDurationContext, project: dict, *, with_references: bool = False) -> int:
+def default_unit_duration(request_facts: VideoRequestFactsResult, project: dict) -> int:
     """新建 unit 的默认时长（秒）：项目偏好 > 收窄后的最短档位 > 兜底。
 
-    档位按执行层同一套约束收窄（``effective_reference_durations``），使新建单元拿到的秒数
-    落在它真正被生成时能申请到的档位内。``with_references`` 须与执行期请求投影对同一
-    unit 的判据同源（是否带参考图）。项目偏好不是当前模型的档位成员时（换模型后配置漂移）
-    不采信，退到收窄后档位里的最短值（自定义供应商声明的档位可能不按升序排列）；档位不可
-    解析时无从校验偏好是否可申请，直接退到 ``FALLBACK_UNIT_DURATION``，与执行层读不到
+    档位取视频请求事实收窄后的 ``allowed_durations``，使新建单元拿到的秒数落在它真正被生成时
+    能申请到的档位内。项目偏好不是当前档位成员时（换模型后配置漂移）不采信，退到最短档；事实
+    解析不出或时长由端点固定（没有档位可取）时退到共享规划基准，与执行层读不到
     unit 时长时的兜底值同源。
     """
-    durations = effective_reference_durations(
-        ctx.provider_id,
-        ctx.model_name,
-        list(ctx.supported_durations),
-        ctx.resolution,
-        with_reference_images=with_references,
-    )
-    if not durations:
-        return FALLBACK_UNIT_DURATION
+    if isinstance(request_facts, VideoRequestFactsFailure) or not request_facts.allowed_durations:
+        return DEFAULT_PLANNED_DURATION_SECONDS
+    durations = request_facts.allowed_durations
     preferred = project.get("default_duration")
     if isinstance(preferred, int) and not isinstance(preferred, bool) and preferred in durations:
         return preferred
     return min(durations)
-
-
-async def _project_video_resolution(project: dict, provider_id: str, model_id: str | None) -> str | None:
-    """项目视频后端实际下发的分辨率；解析失败返回 None（该条约束随之不收窄）。
-
-    未显式配置时取 provider fallback，与执行层的 ``resolution_or_fallback`` 同源：预检若在
-    这里停在 None，就会漏掉「按 fallback 分辨率才生效」的档位约束——Veo 未配分辨率时执行层
-    按 1080p 下发、只接受 8 秒，预检却按全集判 6 秒为档位成员而不弹确认，生成出来的成片比
-    剧本长且用户从未被问过。
-    """
-    if not provider_id or not model_id:
-        return None
-    try:
-        resolution = await ConfigResolver(async_session_factory).resolve_resolution(project, provider_id, model_id)
-    except (ValueError, SQLAlchemyError) as exc:
-        logger.info("无法解析 video resolution，时长取档不施加分辨率约束：%s", exc)
-        return None
-    return resolution or get_provider_fallback(provider_id)
 
 
 def _build_reference_audio_wiring(
@@ -359,7 +250,7 @@ async def execute_reference_video_task(
         execution_payload,
         project=project,
         user_id=user_id,
-        video=VideoLaneRequest(generation_type=execution_generation_type),
+        video=VideoLaneRequest(generation_type=execution_generation_type, route="reference_video"),
         audio=AudioLaneRequest() if request_options.narration_delivery == USE_TTS else None,
     )
     generator = ctx.generator
@@ -373,58 +264,21 @@ async def execute_reference_video_task(
     provider_name = video.backend_name
     model_name = video.backend_model
 
-    # 3. model 粒度能力上限（单一真相源：model.supported_durations）。能力按实际 backend
-    #    身份（provider_id + backend.model）查得：自定义模型禁用回退时也直接命中活跃 model
-    #    的能力，不再出现"按旧模型裁剪、按新模型生成"的错位，原 caps.model 一致性防御分支
-    #    随之消解。查询失败时 lane 会把能力降级为空值/None，公共投影把空时长集转换为
-    #    结构化 blocker，避免制造无约束申请。
-    # 参考生视频是唯一需要非空 resolution 档位的调用方：lane 已按 registry provider_id
-    # 兜底（resolution 命中空档位时取 provider fallback），executor 直接取非空档位。
-    resolution = video.resolution_or_fallback
+    # 3. 能力只读 lane 以实际 backend 身份（provider_id + backend.model）求得的视频请求事实：
+    #    自定义模型禁用回退时也直接命中活跃 model 的能力，不会「按旧模型裁剪、按新模型生成」。
+    #    求值失败由公共投影转成结构化 blocker，不制造无约束申请。引用展开、实际文件存在、商品
+    #    优先裁剪、时长取档与音频冲突都由同一 projector 给出。payload 未声明请求选项时按直接
+    #    入队兼容语义视为已确认；显式选项保存在 reference_request_options 中。
+    lane_request_facts = video.request_facts
+    if lane_request_facts is None:
+        raise RuntimeError("reference video lane is missing its request facts")
 
-    # 当前执行 lane 适配成公共投影候选；引用展开、实际文件存在、商品优先裁剪、时长取档与
-    # 音频冲突都由同一 projector 给出。payload 未声明请求选项时按直接入队兼容语义视为
-    # 已确认；显式选项保存在 reference_request_options 中。
-    class _ExecutionCapabilities:
-        async def resolve_candidate(
-            self, project: dict, generation_type: VideoGenerationType
-        ) -> ProviderProjectionCandidate:
-            del project
-            has_audio_track, audio_switch_controllable = reference_audio_model_facts(
-                video.provider_model.provider_id,
-                video.backend_model,
-                voice_consistency=video.voice_consistency,
-                generation_type=generation_type,
-            )
-            # 时长由端点固定时档位集是合法空集（``docs/adr/0082``）：没有档位可校验也没有档位
-            # 可收窄，与预检、报价同口径跳过 strict 校验，由公共投影原样透传规划秒数。不带该
-            # 标志的空集仍是档位声明缺失，交给 strict_reference_durations fail loud。
-            durations: tuple[int, ...] = ()
-            if not video.duration_endpoint_fixed:
-                durations = strict_reference_durations(
-                    provider_id=video.provider_model.provider_id,
-                    model_id=video.backend_model,
-                    durations=video.supported_durations,
-                    resolution=video.resolution_or_fallback,
-                    generation_type=generation_type,
-                )
-            return ProviderProjectionCandidate(
-                generation_type=generation_type,
-                provider_id=video.provider_model.provider_id,
-                model_id=video.backend_model,
-                supported_durations=durations,
-                duration_endpoint_fixed=video.duration_endpoint_fixed,
-                max_reference_images=video.max_reference_images,
-                resolution=video.resolution_or_fallback,
-                generate_audio=video.generate_audio,
-                requested_generate_audio=video.requested_generate_audio,
-                has_audio_track=has_audio_track,
-                audio_switch_controllable=audio_switch_controllable,
-                voice_consistency=video.voice_consistency,
-                max_reference_audio_count=video.max_reference_audio_count,
-                reference_audio_per_image=video.reference_audio_per_image,
-                text_to_video=video.text_to_video,
-            )
+    async def _lane_request_facts(generation_type: VideoGenerationType) -> VideoRequestFactsResult:
+        # lane 与投影按同一份资产水合定桶；两次水合之间资产变了会落到另一个桶，而 lane 只为
+        # 本桶构造了 backend，按能力不可用阻断。
+        if generation_type != execution_generation_type:
+            return VideoRequestFactsFailure("reference_capability_unavailable", (("capability", generation_type),))
+        return lane_request_facts
 
     tts_in_progress = (
         await tts_task_in_progress(
@@ -437,6 +291,7 @@ async def execute_reference_video_task(
         else False
     )
     options = await prepare_current_reference_video_request_options(
+        request_facts_lookup=_lane_request_facts,
         project=project,
         script=script,
         script_file=str(script_file),
@@ -451,7 +306,7 @@ async def execute_reference_video_task(
         ),
         tts_in_progress=tts_in_progress,
     )
-    projection = await ReferenceUnitRequestProjector(_ExecutionCapabilities(), asset_availability).project_current(
+    projection = await ReferenceUnitRequestProjector(_lane_request_facts, asset_availability).project_current(
         project=project,
         script=script,
         unit=unit,
@@ -472,9 +327,11 @@ async def execute_reference_video_task(
         )
     constrained_refs = [entry.path for entry in constrained_entries]
     aspect_ratio = resolve_video_aspect_ratio(project)
-    candidate = projection.provider_candidate
-    if candidate is None:
-        raise RuntimeError("allowed reference request is missing provider capabilities")
+    request_facts: VideoRequestFacts | None = projection.request_facts
+    if request_facts is None:
+        raise RuntimeError("allowed reference request is missing its request facts")
+    # 未设分辨率即不下发（``docs/adr/0086``），请求、检查点与执行指纹都取这一个值。
+    resolution = request_facts.resolution
 
     def _current_visual_basis_digest() -> str:
         return reference_video_visual_basis_digest(
@@ -482,7 +339,7 @@ async def execute_reference_video_task(
             project_path=project_path,
             unit=unit,
             request_assets=constrained_entries,
-            candidate=candidate,
+            request_facts=request_facts,
         )
 
     visual_basis_digest = await asyncio.to_thread(_current_visual_basis_digest)
@@ -538,12 +395,12 @@ async def execute_reference_video_task(
     #    发出的段数因此严格等长（字段指向已删文件时不会留下指向不存在段的编号）。
     audio_paths = await asyncio.to_thread(resolve_reference_audio_paths, project, project_path)
     voice_settings = VoiceRenderSettings(
-        voice_consistency=video.voice_consistency,
-        requested_generate_audio=video.requested_generate_audio,
-        max_reference_audio=video.max_reference_audio_count,
+        voice_consistency=request_facts.voice_consistency,
+        requested_generate_audio=request_facts.requested_generate_audio,
+        max_reference_audio=request_facts.max_reference_audio_count,
         model_id=model_name,
         audio_ready=audio_paths,
-        requires_reference_image=video.reference_audio_per_image,
+        requires_reference_image=request_facts.reference_audio_per_image,
     )
     rendered = _render_unit_prompt(
         unit,
@@ -647,7 +504,7 @@ async def execute_reference_video_task(
                 reference_audio_files=staged_audio_paths,
                 reference_audio_speakers=audio_names,
                 reference_audio_targets=reference_audio_targets,
-                candidate=candidate,
+                request_facts=request_facts,
             )
             staged_request_assets = tuple(
                 replace(entry, path=path) for entry, path in zip(constrained_entries, provider_refs, strict=True)
@@ -675,7 +532,7 @@ async def execute_reference_video_task(
             )
             # 付费档位并入档位集，与分镜路线同口径：时长由端点固定时档位集是空的，而产物时效事实
             # 要求档位集非空且含付费档，这里的唯一档位就是那次原样透传的秒数。
-            artifact_duration_tiers = tuple(sorted({effective_duration, *candidate.supported_durations}))
+            artifact_duration_tiers = tuple(sorted({effective_duration, *request_facts.allowed_durations}))
 
             def _build_checkpoint() -> ReferenceSubmissionCheckpoint:
                 artifact_currency = VideoArtifactCurrencyFacts(
@@ -687,7 +544,7 @@ async def execute_reference_video_task(
                     video_basis=artifact_video_basis,
                     voice_style_speakers=artifact_speech.voice_style_speakers,
                     duration_tiers=artifact_duration_tiers,
-                    reference_image_limit=candidate.max_reference_images,
+                    reference_image_limit=request_facts.max_reference_images,
                     parent_version=generator.versions.get_current_version("reference_videos", resource_id),
                 )
                 return ReferenceSubmissionCheckpoint.create(
@@ -704,7 +561,7 @@ async def execute_reference_video_task(
                     duration_seconds=effective_duration,
                     aspect_ratio=aspect_ratio,
                     resolution=resolution,
-                    generate_audio=video.requested_generate_audio,
+                    generate_audio=request_facts.requested_generate_audio,
                     service_tier="default",
                     seed=None,
                     visual_basis_digest=visual_basis_digest,
@@ -774,7 +631,7 @@ async def execute_reference_video_task(
             before_formal_commit=artifact_committer.prepare_selection if artifact_committer is not None else None,
             commit_formal_output=artifact_committer,
             visual_basis_digest=visual_basis_digest,
-            generate_audio=video.requested_generate_audio,
+            generate_audio=request_facts.requested_generate_audio,
             poll_timeout_seconds=poll_timeout_seconds,
             warnings=warnings,
         )

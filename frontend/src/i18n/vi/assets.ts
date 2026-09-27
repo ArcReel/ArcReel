@@ -1,6 +1,8 @@
 import type enAssets from '../en/assets';
 
 export default {
+  prompt_preview_title: "Lời nhắc ảnh tài sản · {{name}}",
+  prompt_preview_draft: "Kết xuất từ bản nháp mô tả hiện tại. Các thay đổi không được lưu.",
   "type.character": "Nhân vật",
   "type.scene": "Cảnh",
   "type.prop": "Đạo cụ",

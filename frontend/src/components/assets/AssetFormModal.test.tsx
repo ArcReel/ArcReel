@@ -59,7 +59,7 @@ describe("AssetFormModal", () => {
         type="character" mode="edit"
         initialData={{ name: "王", description: "" }}
         derivatives={[
-          { name: "战斗装", description: "黑甲", image_path: "_global_assets/character/aa.png" },
+          { name: "战斗装", description: "黑甲", image_path: "global_assets/character/aa.png" },
           { name: "便装", description: "布衣", image_path: null },
         ]}
         imageFingerprint="2026-09-04T00:00:00Z"

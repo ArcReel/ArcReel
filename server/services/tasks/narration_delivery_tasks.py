@@ -33,23 +33,28 @@ from lib.config.resolver import ConfigResolver, VideoGenerationType
 from lib.db import async_session_factory
 from lib.db.base import DEFAULT_USER_ID
 from lib.generation.generation_queue import GenerationQueue, get_generation_queue
+from lib.generation.video_request_facts import (
+    CONFIGURED_VIDEO_IDENTITY,
+    DEFAULT_PLANNED_DURATION_SECONDS,
+    VideoRequestFacts,
+    VideoRequestFactsFailure,
+    evaluate_video_request_facts,
+    require_video_request_facts,
+)
 from lib.infra.path_safety import try_safe_join
 from lib.infra.schema_guards import is_finite_number
 from lib.project.project_manager import ProjectManager, get_project_manager
 from lib.project.resource_paths import resource_relative_path
-from lib.script.reference_video.duration_slots import DEFAULT_PLANNED_DURATION_SECONDS
 from lib.script.reference_video.prompt_render import render_video_unit_prompt, resolve_reference_audio_paths
 from lib.script.reference_video.request_projection import (
     USE_TTS,
-    ConfigReferenceCapabilityProjection,
-    FilesystemReferenceAssets,
-    ProviderProjectionCandidate,
+    ReferenceRequestFactsLookup,
     ReferenceRequestOptions,
     ResolvedReferenceAsset,
     clamp_reference_assets,
     materialize_current_reference_request_options,
-    resolve_reference_assets,
 )
+from lib.script.reference_video.unit_capabilities import hydrate_reference_units
 from lib.script.reference_video.voice_settings import VoiceRenderSettings
 from lib.script.script_editor import resolve_items
 from lib.script.script_models import resolve_content_mode
@@ -438,6 +443,18 @@ async def tts_task_in_progress(
     return resource_id in active
 
 
+def storyboard_planning_duration(facts: VideoRequestFacts, *, declared: object, project: dict[str, Any]) -> int:
+    """分镜单元的规划秒数，预检与执行共用：单元时长 > 项目偏好时长 > 收窄后的首档。
+
+    时长由端点固定的模型行没有档位可借（合法空集），退到共享的规划篇幅默认值。
+    """
+
+    for candidate in (declared, project.get("default_duration")):
+        if isinstance(candidate, int) and not isinstance(candidate, bool) and candidate > 0:
+            return candidate
+    return next(iter(facts.allowed_durations), DEFAULT_PLANNED_DURATION_SECONDS)
+
+
 async def prepare_current_storyboard_narrated_video_duration(
     *,
     project_name: str,
@@ -456,19 +473,24 @@ async def prepare_current_storyboard_narrated_video_duration(
     queue: GenerationQueue | None = None,
     config_resolver: ConfigResolver | None = None,
     tts_settings_resolver: TtsSettingsResolver | None = None,
+    video_request_facts: VideoRequestFacts | VideoRequestFactsFailure | None = None,
 ) -> NarratedVideoDurationPreparation:
-    """Materialize current TTS and video-tier facts for one storyboard unit."""
+    """Materialize current TTS and video-tier facts for one storyboard unit.
 
-    resolver = config_resolver or ConfigResolver(async_session_factory)
-    candidate = await ConfigReferenceCapabilityProjection(resolver).resolve_candidate(project, generation_type)
-    request_resolution = await resolver.resolve_resolution(project, candidate.provider_id, candidate.model_id)
-    planned = planned_duration_seconds
-    if planned is None:
-        configured = project.get("default_duration")
-        planned = configured if isinstance(configured, int) and not isinstance(configured, bool) else None
-    if planned is None or planned <= 0:
-        # 时长由端点固定的模型行没有档位可借（合法空集），退到共享的规划篇幅默认值。
-        planned = next(iter(candidate.supported_durations), DEFAULT_PLANNED_DURATION_SECONDS)
+    档位、请求分辨率、端点固定与音轨取自分镜路线的读侧视频请求事实，与执行侧只差身份来源；
+    解析不出时抛 :class:`VideoRequestFactsError`。``video_request_facts`` 给定时直接使用。
+    """
+
+    if video_request_facts is None:
+        video_request_facts = await evaluate_video_request_facts(
+            project,
+            route="storyboard",
+            generation_type=generation_type,
+            identity=CONFIGURED_VIDEO_IDENTITY,
+            resolver=config_resolver or ConfigResolver(async_session_factory),
+        )
+    facts = require_video_request_facts(video_request_facts)
+    planned = storyboard_planning_duration(facts, declared=planned_duration_seconds, project=project)
     preparation = admit_script_unit(resolve_script_kind(script), item).preparation
     active = tts_in_progress
     if active is None:
@@ -501,13 +523,13 @@ async def prepare_current_storyboard_narrated_video_duration(
         resource_id=preparation.unit_id,
         item=item,
         prompt=visual_prompt,
-        provider_id=candidate.provider_id,
-        model_id=candidate.model_id,
-        resolution=request_resolution,
+        provider_id=facts.provider_id,
+        model_id=facts.model_id,
+        resolution=facts.resolution,
         seed=seed,
-        requested_generate_audio=candidate.requested_generate_audio,
+        requested_generate_audio=facts.requested_generate_audio,
         content_mode=resolve_content_mode(script, project),
-        is_silent=not candidate.has_audio_track or not candidate.requested_generate_audio,
+        is_silent=not facts.has_audio_track or not facts.requested_generate_audio,
     )
     current_visual_duration = (
         await current_selected_video_tier(
@@ -537,9 +559,9 @@ async def prepare_current_storyboard_narrated_video_duration(
     result = prepare_narrated_video_duration(
         narration=narration,
         planned_duration_seconds=planned,
-        supported_durations=candidate.supported_durations,
+        supported_durations=facts.allowed_durations,
         confirmed_request_duration_seconds=confirmed_request_duration_seconds,
-        duration_endpoint_fixed=candidate.duration_endpoint_fixed,
+        duration_endpoint_fixed=facts.duration_endpoint_fixed,
         current_visual_duration_seconds=current_visual_duration,
         current_reusable_visual_duration_seconds=current_reusable_visual_duration,
     )
@@ -548,11 +570,8 @@ async def prepare_current_storyboard_narrated_video_duration(
     return replace(
         result,
         cost=VideoRequestCostFacts(
-            provider_id=candidate.provider_id,
-            model_id=candidate.model_id,
-            resolution=candidate.resolution,
+            request_facts=facts,
             duration_seconds=result.request_duration_seconds,
-            generate_audio=candidate.generate_audio,
         ),
     )
 
@@ -566,6 +585,7 @@ async def prepare_current_reference_video_request_options(
     project_path: Path,
     options: ReferenceRequestOptions,
     project_name: str,
+    request_facts_lookup: ReferenceRequestFactsLookup,
     user_id: str = DEFAULT_USER_ID,
     tts_settings_resolver: TtsSettingsResolver | None = None,
     tts_in_progress: bool = False,
@@ -603,6 +623,7 @@ async def prepare_current_reference_video_request_options(
             project=project,
             project_path=project_path,
             unit=unit,
+            request_facts_lookup=request_facts_lookup,
         )
         visual_tier = await current_selected_video_tier(
             project_path=project_path,
@@ -675,7 +696,7 @@ def reference_video_visual_basis_digest(
     project_path: Path,
     unit: dict[str, Any],
     request_assets: Sequence[ResolvedReferenceAsset],
-    candidate: ProviderProjectionCandidate,
+    request_facts: VideoRequestFacts,
 ) -> str:
     """Hash the exact projected reference request and every prompt-affecting input."""
 
@@ -683,17 +704,10 @@ def reference_video_visual_basis_digest(
     rendered = render_video_unit_prompt(
         unit,
         project,
-        VoiceRenderSettings(
-            voice_consistency=candidate.voice_consistency,
-            requested_generate_audio=candidate.requested_generate_audio,
-            max_reference_audio=candidate.max_reference_audio_count,
-            model_id=candidate.model_id,
-            audio_ready=audio_paths,
-            requires_reference_image=candidate.reference_audio_per_image,
-        ),
+        VoiceRenderSettings.from_request_facts(request_facts, audio_ready=audio_paths),
         request_references=[asset.reference for asset in request_assets],
     )
-    if candidate.reference_audio_per_image:
+    if request_facts.reference_audio_per_image:
         audio_wiring = [
             (speaker, target)
             for speaker, target in zip(
@@ -716,7 +730,7 @@ def reference_video_visual_basis_digest(
         reference_audio_files=[audio_paths[speaker] for speaker in audio_speakers],
         reference_audio_speakers=audio_speakers,
         reference_audio_targets=audio_targets,
-        candidate=candidate,
+        request_facts=request_facts,
     )
 
 
@@ -729,7 +743,7 @@ def materialized_reference_video_visual_basis_digest(
     reference_audio_files: Sequence[Path],
     reference_audio_speakers: Sequence[str],
     reference_audio_targets: Sequence[int] | None,
-    candidate: ProviderProjectionCandidate,
+    request_facts: VideoRequestFacts,
 ) -> str:
     """Hash a fully rendered request against the exact media bytes that will be submitted."""
 
@@ -749,18 +763,18 @@ def materialized_reference_video_visual_basis_digest(
         reference_audio_speakers=reference_audio_speakers,
         reference_audio_targets=reference_audio_targets,
         request_context={
-            "capability": candidate.generation_type,
-            "provider_id": candidate.provider_id,
-            "model_id": candidate.model_id,
-            "resolution": candidate.resolution,
-            "max_reference_images": candidate.max_reference_images,
-            "generate_audio": candidate.generate_audio,
-            "requested_generate_audio": candidate.requested_generate_audio,
-            "has_audio_track": candidate.has_audio_track,
-            "audio_switch_controllable": candidate.audio_switch_controllable,
-            "voice_consistency": candidate.voice_consistency,
-            "max_reference_audio_count": candidate.max_reference_audio_count,
-            "reference_audio_per_image": candidate.reference_audio_per_image,
+            "capability": request_facts.generation_type,
+            "provider_id": request_facts.provider_id,
+            "model_id": request_facts.model_id,
+            "resolution": request_facts.resolution,
+            "max_reference_images": request_facts.max_reference_images,
+            "generate_audio": request_facts.generate_audio,
+            "requested_generate_audio": request_facts.requested_generate_audio,
+            "has_audio_track": request_facts.has_audio_track,
+            "audio_switch_controllable": request_facts.audio_switch_controllable,
+            "voice_consistency": request_facts.voice_consistency,
+            "max_reference_audio_count": request_facts.max_reference_audio_count,
+            "reference_audio_per_image": request_facts.reference_audio_per_image,
         },
     ).digest
 
@@ -770,26 +784,26 @@ async def _reference_visual_basis_digest(
     project: dict[str, Any],
     project_path: Path,
     unit: dict[str, Any],
+    request_facts_lookup: ReferenceRequestFactsLookup,
 ) -> str | None:
-    """Resolve the current configured request basis; failures disable fast reuse."""
+    """Use the projection's request facts for visual currency; request facts failures disable fast reuse.
 
+    单元按执行侧同款判据定桶（文件存在且产物清单认领的参考图才进请求），摘要因此与执行实际
+    使用的参考图一致。水合在 try 之外：项目未到当前 schema 或清单损坏与执行侧一样直接上抛，
+    不折成「关闭快速复用」。
+    """
+
+    (hydration,) = hydrate_reference_units(project, project_path, [unit])
     try:
-        availability = FilesystemReferenceAssets(project_path)
-        available = tuple(
-            asset for asset in resolve_reference_assets(project, project_path, unit) if availability.is_available(asset)
-        )
-        generation_type: VideoGenerationType = "r2v" if available else "i2v"
-        candidate = await ConfigReferenceCapabilityProjection(ConfigResolver(async_session_factory)).resolve_candidate(
-            project, generation_type
-        )
-        request_assets = clamp_reference_assets(available, candidate.max_reference_images)
+        request_facts = require_video_request_facts(await request_facts_lookup(hydration.hydrated_generation_type))
+        request_assets = clamp_reference_assets(hydration.available_assets, request_facts.max_reference_images)
         return await asyncio.to_thread(
             reference_video_visual_basis_digest,
             project=project,
             project_path=project_path,
             unit=unit,
             request_assets=request_assets,
-            candidate=candidate,
+            request_facts=request_facts,
         )
     except Exception:
         return None

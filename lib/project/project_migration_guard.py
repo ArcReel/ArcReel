@@ -21,7 +21,7 @@ from lib.project.project_migration_failure import (
 def project_migration_failure(project_name: str, pm: ProjectManager | None = None) -> MigrationFailureRecord | None:
     """Return the blocking verdict for a project, or ``None`` when it is healthy.
 
-    Callers bound to their own projects root (an agent session's ``ToolContext``,
+    Callers bound to their own projects root (an Agent tool's ``Services.projects``,
     tests) pass their ``pm``: resolving through the global manager instead would
     read a different project directory under the same name.
     """

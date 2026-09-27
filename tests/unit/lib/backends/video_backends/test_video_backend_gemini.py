@@ -1,13 +1,17 @@
 """GeminiVideoBackend 单元测试 — mock genai SDK。"""
 
+import urllib.error
+from email.message import Message
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from google.genai import errors as genai_errors
 
 from lib.backends.gemini_shared import VERTEX_SCOPES
 from lib.backends.video_backend_contract import (
+    ResumeExpiredError,
     VideoGenerationRequest,
     VideoGenerationResult,
 )
@@ -253,7 +257,7 @@ class TestGeminiVideoBackendGenerate:
         assert mock_rate_limiter.acquired == [gemini_backend._video_model]
 
     async def test_no_negative_prompt_in_config(self, gemini_backend, tmp_path):
-        """negative_prompt 改走 prompt 文本通道，GenerateVideosConfig 不再带该字段。"""
+        """negative_prompt 走 prompt 文本通道，GenerateVideosConfig 不带该字段。"""
         output = tmp_path / "out.mp4"
 
         mock_op = _make_done_operation()
@@ -422,12 +426,15 @@ class TestDownloadVideo:
             gemini_backend._download_video(mock_ref, output)
 
 
+def _sdk_error(code: int, status: str, message: str) -> genai_errors.ClientError:
+    """按 SDK 真实形态构造 4xx 响应异常：code 取自 HTTP 状态码，响应体是 Google 标准 error 包。"""
+    return genai_errors.ClientError(code, {"error": {"code": code, "message": message, "status": status}})
+
+
 class TestGeminiResumeVideo:
-    """resume_video 路径：初次 + mid-poll NOT_FOUND 都归类为 ResumeExpiredError。"""
+    """resume_video 路径：只有按 job_id 查询 operation 得到的 404 归 ResumeExpiredError。"""
 
     async def test_mid_poll_not_found_classified_as_resume_expired(self, gemini_backend, tmp_path):
-        from lib.backends.video_backend_contract import ResumeExpiredError
-
         # 初次 operations.get 返回 pending 让 poll 进入循环；poll_fn 中抛 NOT_FOUND
         pending_op = MagicMock()
         pending_op.done = False
@@ -437,7 +444,7 @@ class TestGeminiResumeVideo:
             get_calls["n"] += 1
             if get_calls["n"] == 1:
                 return pending_op
-            raise RuntimeError("operation not found mid poll")
+            raise _sdk_error(404, "NOT_FOUND", "Operation not found")
 
         gemini_backend._client.aio.operations.get = AsyncMock(side_effect=_fake_get)
         # GenerateVideosOperation.model_validate 用 MagicMock，返回任意对象即可
@@ -448,10 +455,31 @@ class TestGeminiResumeVideo:
             await gemini_backend.resume_video("op-xyz", request)
         assert ei.value.job_id == "op-xyz"
 
-    async def test_initial_get_not_found_classified_as_resume_expired(self, gemini_backend, tmp_path):
-        from lib.backends.video_backend_contract import ResumeExpiredError
+    async def test_mid_poll_not_found_is_not_retried_when_message_carries_status_digits(self, gemini_backend, tmp_path):
+        # SDK 异常文本带整份响应，operation 名里的数字串可能含 "500" / "429"：轮询重试按状态码判定，
+        # 404 不因这些子串被当成瞬态错误重试
+        pending_op = MagicMock()
+        pending_op.done = False
+        get_calls = {"n": 0}
 
-        gemini_backend._client.aio.operations.get = AsyncMock(side_effect=RuntimeError("operation not found"))
+        async def _fake_get(_op):
+            get_calls["n"] += 1
+            if get_calls["n"] == 1:
+                return pending_op
+            raise _sdk_error(404, "NOT_FOUND", "Operation projects/5001/operations/4290 not found")
+
+        gemini_backend._client.aio.operations.get = AsyncMock(side_effect=_fake_get)
+        gemini_backend._types.GenerateVideosOperation.model_validate = MagicMock(return_value=pending_op)
+
+        request = VideoGenerationRequest(prompt="x", output_path=tmp_path / "out.mp4")
+        with bounded_poll_clock(), pytest.raises(ResumeExpiredError):
+            await gemini_backend.resume_video("op-digits", request)
+        assert get_calls["n"] == 2
+
+    async def test_initial_get_not_found_classified_as_resume_expired(self, gemini_backend, tmp_path):
+        gemini_backend._client.aio.operations.get = AsyncMock(
+            side_effect=_sdk_error(404, "NOT_FOUND", "Operation not found")
+        )
         rebuilt_op = MagicMock()
         gemini_backend._types.GenerateVideosOperation.model_validate = MagicMock(return_value=rebuilt_op)
 
@@ -466,27 +494,67 @@ class TestGeminiResumeVideo:
         )
         gemini_backend._client.aio.operations.get.assert_awaited_once_with(rebuilt_op)
 
+    @pytest.mark.parametrize(
+        "error",
+        [
+            # INVALID_ARGUMENT 表达入参不合法（如非法 operation 格式），不是 operation 不存在
+            _sdk_error(400, "INVALID_ARGUMENT", "malformed operation name"),
+            # 非 SDK 状态码的异常，文本里出现 "not found" / "expired" 也不代表 operation 已被回收
+            RuntimeError("operation not found"),
+            RuntimeError("resource expired after 24h"),
+        ],
+        ids=["invalid-argument", "not-found-text", "expired-text"],
+    )
+    async def test_query_error_without_not_found_status_propagates(self, gemini_backend, tmp_path, error):
+        gemini_backend._client.aio.operations.get = AsyncMock(side_effect=error)
 
-class TestIsGeminiNotFound:
-    """INVALID_ARGUMENT 不归过期，只保留 404 / NOT_FOUND / "not found" / "expired"。"""
+        request = VideoGenerationRequest(prompt="x", output_path=tmp_path / "out.mp4")
+        with pytest.raises(type(error)) as ei:
+            await gemini_backend.resume_video("op-xyz", request)
 
-    def test_excludes_invalid_argument(self):
-        from lib.backends.video_backends.gemini import _is_gemini_not_found
+        assert ei.value is error
 
-        exc = RuntimeError("INVALID_ARGUMENT: malformed operation name")
-        assert _is_gemini_not_found(exc) is False
+    async def test_completed_operation_error_mentioning_not_found_is_not_expired(self, gemini_backend, tmp_path):
+        # operation 已查到且完成，只是生成失败：失败原因文本与 operation 存续无关
+        failed_op = MagicMock()
+        failed_op.done = True
+        failed_op.response = None
+        failed_op.error = {"code": 5, "message": "Requested entity was not found."}
+        gemini_backend._client.aio.operations.get = AsyncMock(return_value=failed_op)
 
-    def test_not_found_string_matches(self):
-        from lib.backends.video_backends.gemini import _is_gemini_not_found
+        request = VideoGenerationRequest(prompt="x", output_path=tmp_path / "out.mp4")
+        with pytest.raises(RuntimeError, match="视频生成失败") as ei:
+            await gemini_backend.resume_video("op-xyz", request)
 
-        assert _is_gemini_not_found(RuntimeError("operation not found"))
+        assert not isinstance(ei.value, ResumeExpiredError)
 
-    def test_expired_string_matches(self):
-        from lib.backends.video_backends.gemini import _is_gemini_not_found
+    async def test_vertex_artifact_404_propagates_as_download_failure(self, gemini_backend, tmp_path):
+        # 远端任务已成功（operation 完成且带成片 URI），取件时产物 URL 返回 404
+        gemini_backend._backend_type = "vertex"
+        video_uri = "https://storage.googleapis.com/bucket/video.mp4"
+        done_op = _make_done_operation(video_uri=video_uri)
+        done_op.response.generated_videos[0].video.video_bytes = None
+        gemini_backend._client.aio.operations.get = AsyncMock(return_value=done_op)
+        not_found = urllib.error.HTTPError(video_uri, 404, "Not Found", Message(), None)
 
-        assert _is_gemini_not_found(RuntimeError("resource expired after 24h"))
+        request = VideoGenerationRequest(prompt="x", output_path=tmp_path / "out.mp4")
+        with (
+            patch("urllib.request.urlretrieve", side_effect=not_found),
+            pytest.raises(urllib.error.HTTPError) as ei,
+        ):
+            await gemini_backend.resume_video("op-xyz", request)
 
-    def test_unrelated_runtime_error_returns_false(self):
-        from lib.backends.video_backends.gemini import _is_gemini_not_found
+        assert ei.value is not_found
+        assert not request.output_path.exists()
 
-        assert _is_gemini_not_found(RuntimeError("rate limit exceeded")) is False
+    async def test_aistudio_artifact_404_propagates_as_download_failure(self, gemini_backend, tmp_path):
+        # 远端任务已成功，取件时 SDK 的 files.download 返回 404：取件失败不是 operation 过期
+        gemini_backend._client.aio.operations.get = AsyncMock(return_value=_make_done_operation())
+        not_found = _sdk_error(404, "NOT_FOUND", "File not found")
+        gemini_backend._client.files.download.side_effect = not_found
+
+        request = VideoGenerationRequest(prompt="x", output_path=tmp_path / "out.mp4")
+        with pytest.raises(genai_errors.ClientError) as ei:
+            await gemini_backend.resume_video("op-xyz", request)
+
+        assert ei.value is not_found

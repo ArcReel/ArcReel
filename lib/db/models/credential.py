@@ -6,6 +6,7 @@ from sqlalchemy import Boolean, Index, String, Text, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from lib.db.base import Base, TimestampMixin
+from lib.infra.data_root_layout import DataRootLayout
 
 
 class ProviderCredential(TimestampMixin, Base):
@@ -35,6 +36,14 @@ class ProviderCredential(TimestampMixin, Base):
     secret_key: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
+    def credentials_file(self) -> str | None:
+        """凭证文件位置：Vertex 凭证由 id 经数据根布局推导；推导位置没有文件时回退到记录的路径。"""
+        if self.provider == "gemini-vertex":
+            derived = DataRootLayout.current().vertex_credential_path(self.id)
+            if derived.is_file():
+                return str(derived)
+        return self.credentials_path
+
     def overlay_config(self, config: dict[str, str]) -> dict[str, str]:
         """将凭证字段合并到配置字典中，返回修改后的 config。
 
@@ -43,8 +52,8 @@ class ProviderCredential(TimestampMixin, Base):
         """
         if self.api_key:
             config["api_key"] = self.api_key
-        if self.credentials_path:
-            config["credentials_path"] = self.credentials_path
+        if credentials_file := self.credentials_file():
+            config["credentials_path"] = credentials_file
         if self.base_url:
             config["base_url"] = self.base_url
         if self.access_key:

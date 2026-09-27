@@ -29,6 +29,23 @@ describe("CharacterCard", () => {
     useTasksStore.setState({ tasks: [], optimisticActive: new Set() });
   });
 
+  it("previews the unsaved description without saving the card", async () => {
+    const preview = vi.spyOn(API, "previewAssetPrompt").mockResolvedValue({
+      text: "Style: 水墨\n草稿银袍", unavailable: null, is_text_form: true, warnings: [],
+    });
+    const onSave = vi.fn();
+    render(<CharacterCard name="阿岚" character={{ description: "旧描述", voice_style: "" }}
+      projectName="demo" onSave={onSave} onGenerate={vi.fn()} />);
+    fireEvent.change(screen.getByDisplayValue("旧描述"), { target: { value: "草稿银袍" } });
+    expect(preview).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "查看提示词" }));
+    expect(await screen.findByText(/Style: 水墨/)).toHaveTextContent("草稿银袍");
+    expect(screen.getByRole("dialog", { name: "资产图提示词 · 阿岚" })).toBeInTheDocument();
+    expect(screen.getByText("按当前描述草稿渲染，不会保存修改。")).toBeInTheDocument();
+    expect(preview).toHaveBeenCalledWith("demo", "character", "阿岚", "草稿银袍", { signal: expect.any(AbortSignal) });
+    expect(onSave).not.toHaveBeenCalled();
+  });
+
   it("renders existing saved reference image", () => {
     render(
       <CharacterCard

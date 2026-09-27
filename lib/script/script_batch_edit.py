@@ -449,7 +449,7 @@ class ScriptBatchEditor:
                             problems=source_text_problems,
                         )
                     )
-                reference_validation = DataValidator(self._pm.projects_root).validate_episode_payload(
+                reference_validation = DataValidator(self._pm.projects_dir).validate_episode_payload(
                     project_dir,
                     project,
                     candidate,

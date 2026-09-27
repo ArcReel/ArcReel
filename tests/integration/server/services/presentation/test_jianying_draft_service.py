@@ -153,7 +153,7 @@ def _project(tmp_path: Path, title: str = "测试项目", aspect_ratio: object =
         ),
         encoding="utf-8",
     )
-    return ProjectManager(root), path
+    return ProjectManager(tmp_path), path
 
 
 def _read_draft_archive(path: Path) -> dict:

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { UnitPreviewPanel } from "./UnitPreviewPanel";
-import type { ReferenceVideoUnit } from "@/types";
+import type { ReferenceVideoUnit, UnitGeneratedAssets } from "@/types";
 
 // VersionTimeMachine 的 busy 只关面板内的恢复按钮，触发按钮的可用性不变；替身把这个
 // 入参渲染成可断言的属性，避免为了读它去展开面板、加载版本列表。
@@ -30,7 +30,9 @@ function versionMachineBusy(): boolean {
   return screen.getByTestId("version-time-machine").dataset.busy === "true";
 }
 
-function mkUnit(overrides: Partial<ReferenceVideoUnit> = {}): ReferenceVideoUnit {
+function mkUnit(
+  overrides: Partial<ReferenceVideoUnit> = {},
+): ReferenceVideoUnit & { generated_assets: UnitGeneratedAssets } {
   return {
     unit_id: "E1U1",
     text: "x",

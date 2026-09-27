@@ -174,7 +174,7 @@ class TestDataValidatorEndFramePath:
     @pytest.fixture
     def project(self, tmp_path):
         pm = _seed_project(tmp_path, "narration")
-        return pm, DataValidator(projects_root=str(pm.projects_root))
+        return pm, DataValidator(projects_dir=str(pm.projects_dir))
 
     def _validate_with(self, pm, validator, end_frame_value):
         script = pm.load_script("demo", "episode_1.json")

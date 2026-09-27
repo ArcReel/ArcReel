@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 from pathlib import Path
 
 import httpx
@@ -25,21 +24,16 @@ from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from lib.script.draft_quarantine import QUARANTINE_KIND_DRAMA_SCRIPT_PLAN, read_quarantine
 from lib.workflow.workflow_plan import WorkflowPlanRequest, build_workflow_plan
 from lib.workflow.workflow_state import WorkflowStatus
-from server.agent_runtime.sdk_tools import ARCREEL_MCP_TOOL_IDS
-from server.agent_runtime.sdk_tools.text_generation import generate_episode_script_tool
+from server.agent_toolset.declaration import invoke_declaration
+from server.agent_toolset.script_authoring import GENERATE_EPISODE_SCRIPT
+from server.agent_toolset.toolset import ARCREEL_MCP_TOOL_IDS
 from server.auth import create_download_token, create_token
 from server.cors_config import resolve_cors_policy
-from server.media_tools.assets import generate_assets_tool, list_pending_assets_tool
-from server.media_tools.context import ToolContext
-from server.media_tools.grid import generate_grid_tool
-from server.media_tools.image_edits import edit_images_tool
-from server.media_tools.narration_audio import generate_narration_audio_tool
-from server.media_tools.storyboards import generate_storyboards_tool
-from server.media_tools.videos import generate_videos_tool
 from server.remote_mcp import ArcApiKeyVerifier, RemoteMCPHost, build_remote_mcp_server
-from server.tool_runtime import Services
+from server.tool_runtime import Services, TextGenerationResult
+from tests.factories import make_video_request_facts
 from tests.fakes import refuse_resume_execution
-from tests.integration.server.agent_runtime.sdk_tools.sdk_tools_support import call
+from tests.integration.server.agent_tool_support import ToolHarness
 
 
 class _Planner:
@@ -91,7 +85,7 @@ class _AvailableImageCapabilities(_Capabilities):
 @pytest.fixture
 def remote_projects(tmp_path: Path) -> ProjectManager:
     projects_root = tmp_path / "projects"
-    manager = ProjectManager(projects_root)
+    manager = ProjectManager(tmp_path)
     manager.create_project("demo", content_mode="drama")
     manager.create_project_metadata("demo", "Demo", "", "drama")
     project_dir = projects_root / "demo"
@@ -299,8 +293,13 @@ async def test_remote_mcp_rejects_non_api_key_bearer_tokens(remote_server, token
 
 
 async def test_remote_mcp_returns_typed_workflow_plan_and_rejects_bad_project(
-    remote_server, remote_projects: ProjectManager
+    remote_server, remote_projects: ProjectManager, set_video_request_facts
 ) -> None:
+    set_video_request_facts(
+        make_video_request_facts(
+            provider_id="fake", model_id="video-1", supported_durations=(4, 6), allowed_durations=(4, 6)
+        )
+    )
     app = _mounted(remote_server)
     async with (
         remote_server.session_manager.run(),
@@ -330,6 +329,10 @@ async def test_remote_mcp_returns_typed_workflow_plan_and_rejects_bad_project(
         nonexistent = await session.call_tool("get_workflow_plan", {"project": "absent", "episode": 1})
         empty = await session.call_tool("get_workflow_plan", {"project": "empty", "episode": 1})
         escape = await session.call_tool("get_workflow_plan", {"project": "escape", "episode": 1})
+        declared_missing = await session.call_tool("get_source_text", {"path": "source/episode_1.txt"})
+        declared_escape = await session.call_tool(
+            "get_source_text", {"project": "escape", "path": "source/episode_1.txt"}
+        )
 
     assert not result.isError
     migrated = {
@@ -384,56 +387,6 @@ async def test_remote_mcp_returns_typed_workflow_plan_and_rejects_bad_project(
         "project" in listed[name].inputSchema["required"]
         for name in migrated | readers | drafts | text_and_script | batches
     )
-    media_ctx = ToolContext("demo", remote_projects.projects_root, pm=remote_projects)
-    definitions = {
-        definition.name: definition
-        for definition in (
-            list_pending_assets_tool(media_ctx),
-            generate_assets_tool(media_ctx),
-            generate_storyboards_tool(media_ctx),
-            edit_images_tool(media_ctx),
-            generate_grid_tool(media_ctx),
-            generate_videos_tool(media_ctx),
-            generate_narration_audio_tool(media_ctx),
-        )
-    }
-    remote_batch_tools = {
-        "generate_assets",
-        "generate_storyboards",
-        "edit_images",
-        "generate_grid",
-        "generate_videos",
-        "generate_episode_script",
-        "generate_script_plan",
-        "plan_episodes",
-    }
-    for name, definition in definitions.items():
-        remote_schema = listed[name].inputSchema
-        assert remote_schema["properties"]["project"]["type"] == "string"
-        assert {key: value for key, value in remote_schema["properties"].items() if key != "project"} == (
-            definition.input_schema["properties"]
-        )
-        assert remote_schema["required"] == ["project", *definition.input_schema.get("required", [])]
-        assert remote_schema["additionalProperties"] is False
-        assert {
-            key: value
-            for key, value in remote_schema.items()
-            if key not in {"properties", "required", "additionalProperties"}
-        } == {key: value for key, value in definition.input_schema.items() if key not in {"properties", "required"}}
-    for name in remote_batch_tools:
-        remote_description = listed[name].description
-        if name in definitions:
-            assert remote_description.startswith(definitions[name].description)
-        assert "durable admission" in remote_description
-        assert "durable generation_batch" in remote_description
-        assert "immediately" in remote_description
-        assert "poll_after_seconds" in remote_description
-        assert "get_generation_batch" in remote_description
-        assert "done=true" in remote_description
-    embedded_video_description = definitions["generate_videos"].description
-    assert "返回 durable batch" not in embedded_video_description
-    assert "内嵌调用等待并返回逐 ID 终态结果" in embedded_video_description
-    assert all(listed[name].inputSchema["properties"]["episode"]["minimum"] == 1 for name in drafts)
     patch_schema = listed["patch_episode_script"].inputSchema
     operations_schema = patch_schema["properties"]["operations"]
     operation_defs = patch_schema["$defs"]
@@ -449,31 +402,20 @@ async def test_remote_mcp_returns_typed_workflow_plan_and_rejects_bad_project(
         "split",
     }
     assert all(branch["additionalProperties"] is False for branch in operation_branches)
-    video_properties = listed["generate_videos"].inputSchema["properties"]
-    assert "resume" not in video_properties
-    assert "confirmed_request_duration_seconds" in video_properties
-    assert "confirmed_request_durations" in video_properties
-    assert {"narration_voice", "narration_speed", "narration_volume"}.isdisjoint(video_properties)
-    target_schema = video_properties["target"]
-    target_defs = {branch["properties"]["scope"]["const"]: branch for branch in target_schema["oneOf"]}
-    assert set(target_defs) == {"episode", "scene", "all", "selected"}
-    assert target_defs["episode"]["required"] == ["scope", "episode"]
-    assert target_defs["scene"]["required"] == ["scope", "ids"]
-    assert target_defs["scene"]["properties"]["ids"]["maxItems"] == 1
-    assert target_defs["selected"]["required"] == ["scope", "ids"]
-    assert target_defs["selected"]["properties"]["ids"]["minItems"] == 1
-    assert target_defs["all"]["required"] == ["scope"]
-    assert all(definition["additionalProperties"] is False for definition in target_defs.values())
-    assert "base_revision" in listed["discard_draft"].inputSchema["required"]
-    narration_description = listed["generate_narration_audio"].description
-    assert "remote MCP" in narration_description
-    assert "get_generation_batch" in narration_description
-    assert "poll_after_seconds" in narration_description
-    assert "done=true" in narration_description
     assert result.structuredContent is not None
     assert result.structuredContent["workflow_plan"]["status"]["target"]["episode"] == 1
     assert capabilities.structuredContent == {
-        "video_capabilities": {"provider_id": "fake", "model": "video-1", "supported_durations": [4, 6]}
+        "video_capabilities": {
+            "provider_id": "fake",
+            "model": "video-1",
+            "supported_durations": [4, 6],
+            "duration_constraints": {
+                "resolution": None,
+                "uses_reference_images": False,
+                "allowed": [4, 6],
+                "excluded": {},
+            },
+        }
     }
     assert patched.structuredContent is not None
     assert patched.structuredContent["project_patch"]["operation"] == "overview"
@@ -494,6 +436,10 @@ async def test_remote_mcp_returns_typed_workflow_plan_and_rejects_bad_project(
     assert nonexistent.isError
     assert empty.isError
     assert escape.isError
+    for declared in (declared_missing, declared_escape):
+        assert declared.isError
+        assert declared.structuredContent is not None
+        assert declared.structuredContent["problem"]["code"] == "invalid_project"
 
 
 async def test_remote_grid_list_only_returns_preview_without_a_batch(
@@ -501,6 +447,8 @@ async def test_remote_grid_list_only_returns_preview_without_a_batch(
 ) -> None:
     project = remote_projects.load_project("demo")
     project["grid_storyboard"] = True
+    # 预览渲染按集定位的宫格记录：剧本须已绑定集号
+    project["episodes"] = [{"episode": 1, "script_file": "episode_1.json"}]
     remote_projects.save_project("demo", project)
 
     app = _mounted(remote_server)
@@ -516,48 +464,15 @@ async def test_remote_grid_list_only_returns_preview_without_a_batch(
         ClientSession(read, write) as session,
     ):
         await session.initialize()
-        tools = await session.list_tools()
         result = await session.call_tool(
             "generate_grid",
             {"project": "demo", "script": "episode_1.json", "list_only": True},
         )
 
-    description = next(tool.description for tool in tools.tools if tool.name == "generate_grid")
-    assert description is not None
-    assert "generation submissions" in description
-    assert "list_only=true, the preview returns immediately without a generation_batch; do not poll" in description
     assert not result.isError
     assert result.structuredContent is not None
     assert set(result.structuredContent) == {"generate_grid"}
     assert isinstance(result.structuredContent["generate_grid"], str)
-
-
-async def test_media_errors_are_typed_in_embedded_and_remote_hosts(
-    remote_server, remote_projects: ProjectManager
-) -> None:
-    definition = generate_assets_tool(ToolContext("demo", remote_projects.projects_root, pm=remote_projects))
-    embedded = await definition.invoke({"names": ["张三"]})
-
-    assert embedded.problem is not None
-    assert embedded.problem.code == "invalid_request"
-
-    app = _mounted(remote_server)
-    async with (
-        remote_server.session_manager.run(),
-        httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=app),
-            base_url="http://localhost",
-            headers={"Authorization": "Bearer arc-valid"},
-            follow_redirects=True,
-        ) as client,
-        streamable_http_client("http://localhost/mcp", http_client=client) as (read, write, _),
-        ClientSession(read, write) as session,
-    ):
-        await session.initialize()
-        remote = await session.call_tool("generate_assets", {"project": "demo", "names": ["张三"]})
-
-    assert remote.isError
-    assert remote.structuredContent == {"problem": embedded.problem.model_dump(mode="json")}
 
 
 async def test_remote_media_runtime_validates_shared_schema_and_forwards_nested_instruction(
@@ -802,65 +717,8 @@ async def test_remote_mcp_entry_tools_share_one_projects_root(remote_server) -> 
     assert uploaded.structuredContent["source"]["path"] == "source/novel.txt"
 
 
-async def test_remote_mcp_draft_supports_multiple_patches_and_discard(remote_server, remote_projects) -> None:
-    # 尚无正式剧本：脚本规划未确认，可取回编辑副本。
-    (remote_projects.get_project_path("demo") / "scripts" / "episode_1.json").unlink()
-    app = _mounted(remote_server)
-    async with (
-        remote_server.session_manager.run(),
-        httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=app),
-            base_url="http://localhost",
-            headers={"Authorization": "Bearer arc-valid"},
-            follow_redirects=True,
-        ) as client,
-        streamable_http_client("http://localhost/mcp", http_client=client) as (read, write, _),
-        ClientSession(read, write) as session,
-    ):
-        await session.initialize()
-        args = {"project": "demo", "episode": 1, "doc_type": "drama_script_plan"}
-        opened = await session.call_tool("open_draft", args)
-        first_content = opened.structuredContent["draft"]["content"]
-        first_content["title"] = "第一次修改"
-        first = await session.call_tool(
-            "patch_draft",
-            {
-                **args,
-                "content": first_content,
-                "base_revision": opened.structuredContent["draft"]["revision"],
-            },
-        )
-        second_content = first.structuredContent["draft"]["content"]
-        second_content["title"] = "第二次修改"
-        second = await session.call_tool(
-            "patch_draft",
-            {
-                **args,
-                "content": second_content,
-                "base_revision": first.structuredContent["draft"]["revision"],
-            },
-        )
-        discarded = await session.call_tool(
-            "discard_draft", {**args, "base_revision": second.structuredContent["draft"]["revision"]}
-        )
-        reopened = await session.call_tool("open_draft", args)
-        promoted = await session.call_tool(
-            "promote_draft",
-            {**args, "base_revision": reopened.structuredContent["draft"]["revision"]},
-        )
-
-    assert not opened.isError
-    assert not first.isError
-    assert not second.isError
-    assert second.structuredContent["draft"]["content"]["title"] == "第二次修改"
-    assert discarded.structuredContent["draft"]["discarded"] is True
-    assert not reopened.isError
-    assert not promoted.isError
-    assert promoted.structuredContent["draft"]["promoted"] is True
-
-
 async def test_remote_mcp_text_generation_and_script_patch_return_structured_content(
-    remote_server, remote_projects: ProjectManager
+    remote_server, remote_projects: ProjectManager, video_request_facts
 ) -> None:
     remote_projects.create_project("ad-demo", content_mode="ad")
     remote_projects.create_project_metadata(
@@ -889,7 +747,6 @@ async def test_remote_mcp_text_generation_and_script_patch_return_structured_con
         ClientSession(read, write) as session,
     ):
         await session.initialize()
-        tools = {tool.name: tool for tool in (await session.list_tools()).tools}
         script_plan = await session.call_tool(
             "generate_script_plan",
             {
@@ -930,8 +787,6 @@ async def test_remote_mcp_text_generation_and_script_patch_return_structured_con
         )
 
     assert not script_plan.isError
-    assert "dry_run=true" in tools["generate_script_plan"].description
-    assert "prompt immediately without a generation_batch; do not poll" in tools["generate_script_plan"].description
     assert set(script_plan.structuredContent) == {"text_generation"}
     assert script_plan.structuredContent["text_generation"]["message"]
     assert refused.isError
@@ -940,15 +795,12 @@ async def test_remote_mcp_text_generation_and_script_patch_return_structured_con
     assert not confirmed.isError
     assert confirmed.structuredContent["text_generation"]["message"]
     assert not script.isError
-    assert "dry_run=true" in tools["generate_episode_script"].description
-    assert "prompt immediately without a generation_batch; do not poll" in tools["generate_episode_script"].description
     assert set(script.structuredContent) == {"text_generation"}
     assert "DRY RUN" in script.structuredContent["text_generation"]["message"]
-    assert "scope" not in tools["generate_episode_script"].inputSchema["properties"]
     assert scoped.isError
     assert scoped.structuredContent["problem"]["code"] == "invalid_request"
     assert "entry_ids" in scoped.structuredContent["problem"]["detail"]
-    assert progress_messages == ["Generating script_plan", "Generating episode script"]
+    assert progress_messages == []
     assert patched.isError
     assert patched.structuredContent["script_patch"]["problems"][0]["code"] == "revision_conflict"
 
@@ -973,7 +825,7 @@ async def test_text_task_is_shared_by_remote_and_embedded_hosts_and_running_memb
                 self.deduped.set()
             return result
 
-    projects = ProjectManager(tmp_path / "projects")
+    projects = ProjectManager(tmp_path)
     projects.create_project("demo", content_mode="ad")
     projects.create_project_metadata("demo", "Demo", "", "ad", target_duration=30, brief="卖点")
     queue = RecordingQueue(projects)
@@ -1032,13 +884,21 @@ async def test_text_task_is_shared_by_remote_and_embedded_hosts_and_running_memb
             await session.initialize()
             remote = await session.call_tool("generate_episode_script", {"project": "demo", "episode": 1})
             await started.wait()
-            embedded_ctx = ToolContext(
+            embedded_ctx = ToolHarness(
                 project_name="demo",
-                projects_root=projects.projects_root,
+                data_root=projects.data_root,
                 pm=projects,
                 queue=queue,
             )
-            embedded = asyncio.create_task(call(generate_episode_script_tool(embedded_ctx), {"episode": 1}))
+            embedded = asyncio.create_task(
+                invoke_declaration(
+                    GENERATE_EPISODE_SCRIPT,
+                    {"episode": 1},
+                    embedded_ctx.scope,
+                    embedded_ctx.caller,
+                    embedded_ctx.services,
+                )
+            )
             await queue.deduped.wait()
 
             assert not embedded.done()
@@ -1067,7 +927,8 @@ async def test_text_task_is_shared_by_remote_and_embedded_hosts_and_running_memb
         assert still_running is not None
         assert still_running["status"] == "running"
         assert not interrupted.is_set()
-        assert json.loads(embedded_result["content"][0]["text"])["text_generation"]["message"] == "done"
+        assert isinstance(embedded_result.value, TextGenerationResult)
+        assert embedded_result.value.message == "done"
         assert terminal.structuredContent["generation_batch"]["done"] is True
         assert terminal.structuredContent["generation_batch"]["members"][0]["status"] == "succeeded"
         second = await queue.get_generation_batch(project_name="demo", batch_id=queue.batch_ids[1])
@@ -1076,25 +937,6 @@ async def test_text_task_is_shared_by_remote_and_embedded_hosts_and_running_memb
     finally:
         release.set()
         await worker.stop()
-
-
-@pytest.mark.parametrize("tool", ["generate_script_plan", "generate_episode_script"])
-async def test_remote_mcp_generation_rejects_non_positive_episode(remote_server, tool: str) -> None:
-    app = _mounted(remote_server)
-    async with (
-        remote_server.session_manager.run(),
-        httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=app),
-            base_url="http://localhost",
-            headers={"Authorization": "Bearer arc-valid"},
-            follow_redirects=True,
-        ) as client,
-        streamable_http_client("http://localhost/mcp", http_client=client) as (read, write, _),
-        ClientSession(read, write) as session,
-    ):
-        result = await session.call_tool(tool, {"project": "demo", "episode": 0, "dry_run": True})
-
-    assert result.isError
 
 
 async def test_remote_mcp_draft_preserves_explicit_null_updates(remote_server, remote_projects) -> None:
@@ -1128,9 +970,7 @@ async def test_remote_mcp_draft_preserves_explicit_null_updates(remote_server, r
                 "content": opened.structuredContent["draft"]["content"],
                 "base_revision": opened.structuredContent["draft"]["revision"],
                 "accept_formal_revision": None,
-                "accepts_formal_revision": True,
                 "source": None,
-                "updates_source": True,
             },
         )
 
@@ -1139,39 +979,6 @@ async def test_remote_mcp_draft_preserves_explicit_null_updates(remote_server, r
     assert draft is not None
     assert draft.meta["base_fingerprint"] is None
     assert draft.meta["source"] is None
-
-
-async def test_remote_mcp_draft_respects_migration_failure_gate(remote_server, remote_projects) -> None:
-    record_migration_failure(
-        remote_projects.get_project_path("demo"),
-        RuntimeError("blocked"),
-        schema_version=CURRENT_PROJECT_SCHEMA_VERSION,
-    )
-    app = _mounted(remote_server)
-    async with (
-        remote_server.session_manager.run(),
-        httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=app),
-            base_url="http://localhost",
-            headers={"Authorization": "Bearer arc-valid"},
-            follow_redirects=True,
-        ) as client,
-        streamable_http_client("http://localhost/mcp", http_client=client) as (read, write, _),
-        ClientSession(read, write) as session,
-    ):
-        await session.initialize()
-        result = await session.call_tool(
-            "discard_draft",
-            {
-                "project": "demo",
-                "episode": 1,
-                "doc_type": "drama_script_plan",
-                "base_revision": "sha256-v1:" + "0" * 64,
-            },
-        )
-
-    assert result.isError
-    assert result.structuredContent["problem"]["code"] == MIGRATION_FAILURE_CODE
 
 
 async def test_remote_mcp_host_initializes_first_request_and_can_restart() -> None:

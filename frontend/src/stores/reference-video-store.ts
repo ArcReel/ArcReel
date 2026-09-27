@@ -2,7 +2,7 @@
 import { create } from "zustand";
 import { API } from "@/api";
 import { errMsg } from "@/utils/async";
-import type { ReferenceVideoUnit, TransitionType } from "@/types";
+import type { ReferenceUnitCapabilityMap, ReferenceVideoUnit, TransitionType } from "@/types";
 
 interface AddUnitPayload {
   prompt: string;
@@ -27,6 +27,11 @@ export function referenceVideoCacheKey(projectName: string, episode: number): st
 interface ReferenceVideoStore {
   /** Keyed by `${projectName}::${episode}`. */
   unitsByEpisode: Record<string, ReferenceVideoUnit[]>;
+  /**
+   * 同 key 下逐单元的服务端定桶结论（桶、档位、引用分裂），随单元列表一起到达，写入口的
+   * 响应按单元合并——正文改了引用，桶与档位当场随响应更新，画布不自判。
+   */
+  unitCapabilitiesByEpisode: Record<string, ReferenceUnitCapabilityMap>;
   selectedUnitId: string | null;
   loading: boolean;
   error: string | null;
@@ -62,6 +67,7 @@ function invalidateInFlightLoads(cacheKey: string, set: (patch: { loading: false
 
 export const useReferenceVideoStore = create<ReferenceVideoStore>((set) => ({
   unitsByEpisode: {},
+  unitCapabilitiesByEpisode: {},
   selectedUnitId: null,
   loading: false,
   error: null,
@@ -72,10 +78,11 @@ export const useReferenceVideoStore = create<ReferenceVideoStore>((set) => ({
     _loadSeqByKey.set(cacheKey, seq);
     set({ loading: true, error: null });
     try {
-      const { units } = await API.listReferenceVideoUnits(projectName, episode);
+      const { units, unit_capabilities } = await API.listReferenceVideoUnits(projectName, episode);
       if (_loadSeqByKey.get(cacheKey) !== seq) return;
       set((s) => ({
         unitsByEpisode: { ...s.unitsByEpisode, [cacheKey]: units },
+        unitCapabilitiesByEpisode: { ...s.unitCapabilitiesByEpisode, [cacheKey]: unit_capabilities },
         loading: false,
       }));
     } catch (e) {
@@ -85,13 +92,17 @@ export const useReferenceVideoStore = create<ReferenceVideoStore>((set) => ({
   },
 
   addUnit: async (projectName, episode, payload) => {
-    const { unit } = await API.addReferenceVideoUnit(projectName, episode, payload);
+    const { unit, unit_capability } = await API.addReferenceVideoUnit(projectName, episode, payload);
     invalidateInFlightLoads(referenceVideoCacheKey(projectName, episode), set);
     set((s) => {
       const key = referenceVideoCacheKey(projectName, episode);
       const list = s.unitsByEpisode[key] ?? [];
       return {
         unitsByEpisode: { ...s.unitsByEpisode, [key]: [...list, unit] },
+        unitCapabilitiesByEpisode: {
+          ...s.unitCapabilitiesByEpisode,
+          [key]: { ...s.unitCapabilitiesByEpisode[key], [unit.unit_id]: unit_capability },
+        },
         selectedUnitId: unit.unit_id,
       };
     });
@@ -99,7 +110,7 @@ export const useReferenceVideoStore = create<ReferenceVideoStore>((set) => ({
   },
 
   patchUnit: async (projectName, episode, unitId, patch) => {
-    const { unit } = await API.patchReferenceVideoUnit(projectName, episode, unitId, patch);
+    const { unit, unit_capability } = await API.patchReferenceVideoUnit(projectName, episode, unitId, patch);
     invalidateInFlightLoads(referenceVideoCacheKey(projectName, episode), set);
     set((s) => {
       const key = referenceVideoCacheKey(projectName, episode);
@@ -108,6 +119,10 @@ export const useReferenceVideoStore = create<ReferenceVideoStore>((set) => ({
         unitsByEpisode: {
           ...s.unitsByEpisode,
           [key]: list.map((u) => (u.unit_id === unitId ? unit : u)),
+        },
+        unitCapabilitiesByEpisode: {
+          ...s.unitCapabilitiesByEpisode,
+          [key]: { ...s.unitCapabilitiesByEpisode[key], [unitId]: unit_capability },
         },
       };
     });
@@ -120,8 +135,10 @@ export const useReferenceVideoStore = create<ReferenceVideoStore>((set) => ({
     set((s) => {
       const key = referenceVideoCacheKey(projectName, episode);
       const list = s.unitsByEpisode[key] ?? [];
+      const { [unitId]: _removed, ...remaining } = s.unitCapabilitiesByEpisode[key] ?? {};
       return {
         unitsByEpisode: { ...s.unitsByEpisode, [key]: list.filter((u) => u.unit_id !== unitId) },
+        unitCapabilitiesByEpisode: { ...s.unitCapabilitiesByEpisode, [key]: remaining },
         selectedUnitId: s.selectedUnitId === unitId ? null : s.selectedUnitId,
       };
     });

@@ -12,7 +12,7 @@ status: accepted
 
 **磁盘布局**：`characters/derivatives/{角色}/{衍生}.png`，版本历史在 `versions/characters/derivatives/{角色}/`。角色名可以叫 `refs`，所以衍生不能直接放在 `characters/{角色}/` 下。改角色名挪目录，改衍生名改文件 stem，均纳入 ADR 0057 的级联改名事务。产物清单键为 `(character, "角色/衍生")`。
 
-**全局资产库**以子表 `asset_derivatives` 承载衍生，随角色整套进出，冲突策略 `rename` 只改角色名。
+**全局资产库**以子表 `asset_derivatives` 承载衍生，随角色整套进出，冲突策略 `rename` 只改角色名。随库带入项目的衍生资产图是成品，按图本身登记（见 `docs/adr/0062`）：本体资产图重生成、改本体或衍生描述都不让它判 stale；在项目里重新生成后，回到按本体资产图编辑的依据。
 
 ## 明确不采用
 

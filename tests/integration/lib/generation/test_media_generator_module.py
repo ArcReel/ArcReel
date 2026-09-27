@@ -499,9 +499,9 @@ class TestMediaGenerator:
         assert staged.read_bytes() == b"recoverable-output"
         assert backend.calls == []
 
-    def test_generate_image_success_and_failure(self, tmp_path):
+    async def test_generate_image_success_and_failure(self, tmp_path):
         gen = _build_generator(tmp_path)
-        output_path, version = gen.generate_image(
+        output_path, version = await gen.generate_image_async(
             prompt="p",
             resource_type="storyboards",
             resource_id="E1S01",
@@ -520,15 +520,26 @@ class TestMediaGenerator:
 
         gen._image_backend.generate = _raise
         with pytest.raises(RuntimeError):
-            gen.generate_image(prompt="p", resource_type="characters", resource_id="A")
+            await gen.generate_image_async(prompt="p", resource_type="characters", resource_id="A")
 
         assert any(o["status"] == "failed" for o in gen.ledger.outcomes)
 
-    @pytest.mark.asyncio
-    async def test_generate_video_sync_and_async(self, tmp_path):
+    async def test_call_records_store_artifact_path_relative_to_project(self, tmp_path):
         gen = _build_generator(tmp_path)
 
-        video_path, version, video_ref, video_uri = gen.generate_video(
+        await gen.generate_image_async(prompt="p", resource_type="storyboards", resource_id="E1S01")
+        await gen.generate_video_async(prompt="p", resource_type="videos", resource_id="E1S01")
+
+        assert [started["output_path"] for started in gen.ledger.started] == [
+            "storyboards/scene_E1S01.png",
+            "videos/scene_E1S01.mp4",
+        ]
+
+    @pytest.mark.asyncio
+    async def test_generate_video_returns_versioned_result_and_defaults_unparsable_duration(self, tmp_path):
+        gen = _build_generator(tmp_path)
+
+        video_path, version, video_ref, video_uri = await gen.generate_video_async(
             prompt="p",
             resource_type="videos",
             resource_id="E1S01",
@@ -538,6 +549,8 @@ class TestMediaGenerator:
         assert version == 1
         assert video_ref is None
         assert video_uri == "video-uri"
+        # 无法解析的时长按 8 秒计
+        assert gen.ledger.started[0]["duration_seconds"] == 8
 
         video_path2, version2, _, _ = await gen.generate_video_async(
             prompt="p",
@@ -1411,26 +1424,26 @@ class TestIs413:
         assert _is_413(_WeirdErr("request entity too large")) is True
 
 
-class TestInputPath:
-    """输入素材路径归一为项目内相对路径；项目根或素材路径任一为相对路径时同样能归一。"""
+class TestProjectRelativePath:
+    """调用记录里的文件路径归一为项目内相对路径；项目根或素材路径任一为相对路径时同样能归一。"""
 
     def test_absolute_material_under_relative_project_root_is_relativised(self, tmp_path, monkeypatch):
-        from lib.generation.media_generator import _input_path
+        from lib.generation.media_generator import _project_relative_path
 
         monkeypatch.chdir(tmp_path)
         (tmp_path / "demo" / "characters").mkdir(parents=True)
 
-        assert _input_path(Path("demo"), tmp_path / "demo" / "characters" / "a.png") == "characters/a.png"
-        assert _input_path(tmp_path / "demo", "demo/characters/a.png") == "characters/a.png"
+        assert _project_relative_path(Path("demo"), tmp_path / "demo" / "characters" / "a.png") == "characters/a.png"
+        assert _project_relative_path(tmp_path / "demo", "demo/characters/a.png") == "characters/a.png"
 
     def test_material_outside_project_keeps_its_own_form(self, tmp_path):
-        from lib.generation.media_generator import _input_path
+        from lib.generation.media_generator import _project_relative_path
 
         assert (
-            _input_path(tmp_path / "demo", tmp_path / "elsewhere" / "a.png")
+            _project_relative_path(tmp_path / "demo", tmp_path / "elsewhere" / "a.png")
             == (tmp_path / "elsewhere" / "a.png").as_posix()
         )
-        assert _input_path(tmp_path / "demo", object()) is None
+        assert _project_relative_path(tmp_path / "demo", object()) is None
 
 
 class TestReferenceCompressionSeam:

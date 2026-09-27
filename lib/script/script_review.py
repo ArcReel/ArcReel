@@ -287,7 +287,7 @@ def formal_script_plan_lock(project_path: Path, episode: int, path: Path) -> Gen
     变体的正式文件名不同，锁的粒度是文件本身，不能按变体各自造一把。
     """
     path.parent.mkdir(parents=True, exist_ok=True)
-    pm = ProjectManager(str(project_path.parent))
+    pm = ProjectManager.for_project_dir(project_path)
     with pm.file_lock(path):
         yield path
 
@@ -343,7 +343,7 @@ def formal_script_plan_write_transaction(
 def delete_script_plan_file(project_path: Path, episode: int, path: Path) -> bool:
     """Delete a formal script_plan and forget its active claim through the same transaction."""
 
-    pm = ProjectManager(str(project_path.parent))
+    pm = ProjectManager.for_project_dir(project_path)
     with pm.file_lock(path):
         if not path.exists():
             return False
@@ -429,7 +429,7 @@ def write_script_plan(
 ) -> bool:
     """Run the reference script_plan transaction in global lock order: prompt_authoring draft, then formal script_plan."""
     prompt_authoring_path = quarantine_path(project_path, episode, QUARANTINE_KIND_PROMPT_AUTHORING)
-    pm = ProjectManager(str(project_path.parent))
+    pm = ProjectManager.for_project_dir(project_path)
     if before_lock is not None:
         before_lock()
     with pm.file_lock(prompt_authoring_path), script_plan_write_lock(project_path, episode):

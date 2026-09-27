@@ -17,7 +17,13 @@ from lib.backends.video_backend_contract import (
 )
 from lib.backends.video_backends.ark import ArkVideoBackend
 from lib.backends.video_frame_slots import FIRST_FRAME_ADAPTIVE_RATIO, resolve_first_frame_aspect_ratio
-from tests.fakes import blocking_file_read_gate, bounded_poll_clock, captured_ark_clients
+from tests.fakes import (
+    blocking_file_read_gate,
+    bounded_poll_clock,
+    captured_ark_clients,
+    captured_provider_job_ids,
+)
+from tests.http_capture import capture_http, only_request
 
 
 @pytest.fixture
@@ -171,7 +177,7 @@ class TestArkGenerate:
 
     async def test_first_last_frame_role_fields(self, ark_backend, tmp_path):
         """首尾帧：start_image/end_image 必须分别带 role=first_frame / role=last_frame，
-        且 image_url 对象不再使用 position（由 role 表达位置）。"""
+        image_url 对象不带 position，位置由 role 表达。"""
         output = tmp_path / "out.mp4"
         first = tmp_path / "first.png"
         first.write_bytes(b"fake-first")
@@ -660,6 +666,66 @@ class TestArkVideoBackendBaseUrl:
         with captured_ark_clients("lib.backends.video_backends.ark") as created:
             ArkVideoBackend(api_key="k")
         assert created == [{"api_key": "k", "base_url": None}]
+
+
+_RELAY_A = "https://relay-a.example.com/api/v3"
+_RELAY_B = "https://relay-b.example.com/api/v3"
+_ARK_VIDEO_URL = "https://cdn.example.com/relay.mp4"
+
+
+def _ark_task_json(task_id: str) -> dict:
+    return {
+        "id": task_id,
+        "model": ArkVideoBackend.DEFAULT_MODEL,
+        "status": "succeeded",
+        "content": {"video_url": _ARK_VIDEO_URL},
+        "usage": {"completion_tokens": 10, "total_tokens": 10},
+        "seed": 7,
+        "created_at": 1,
+        "updated_at": 2,
+    }
+
+
+class TestArkSubmittedBaseUrlReplay:
+    """挂在自定义供应商下的 Ark 协议：提交时落下实际请求域名，续跑按该域名轮询（真实 SDK，respx 拦截）。"""
+
+    async def test_generate_persists_request_base_url(self, tmp_path):
+        with capture_http() as router, bounded_poll_clock(), captured_provider_job_ids() as persisted:
+            router.post(f"{_RELAY_A}/contents/generations/tasks").mock(
+                return_value=httpx.Response(200, json={"id": "cgt-a"})
+            )
+            router.get(f"{_RELAY_A}/contents/generations/tasks/cgt-a").mock(
+                return_value=httpx.Response(200, json=_ark_task_json("cgt-a"))
+            )
+            router.get(_ARK_VIDEO_URL).mock(return_value=httpx.Response(200, content=b"mp4"))
+
+            await ArkVideoBackend(api_key="k", base_url=f"{_RELAY_A}/").generate(
+                VideoGenerationRequest(prompt="p", output_path=tmp_path / "o.mp4", task_id="db-task-a")
+            )
+
+        assert [(r["job_id"], r["base_url"]) for r in persisted] == [("cgt-a", _RELAY_A)]
+
+    async def test_resume_polls_submitted_base_url_after_config_change(self, tmp_path):
+        # 提交时域名为 A，续跑前配置已改成 B：任务只在 A 上可查，凭据沿用当下这套
+        with capture_http() as router, bounded_poll_clock():
+            submitted = router.get(f"{_RELAY_A}/contents/generations/tasks/cgt-a").mock(
+                return_value=httpx.Response(200, json=_ark_task_json("cgt-a"))
+            )
+            current = router.get(url__regex=r"^https://relay-b\.example\.com/").mock(
+                return_value=httpx.Response(404, json={"error": {"code": "ResourceNotFound", "message": "not found"}})
+            )
+            router.get(_ARK_VIDEO_URL).mock(return_value=httpx.Response(200, content=b"resumed"))
+
+            result = await ArkVideoBackend(api_key="k", base_url=_RELAY_B).resume_video(
+                "cgt-a",
+                VideoGenerationRequest(prompt="p", output_path=tmp_path / "o.mp4", submitted_base_url=_RELAY_A),
+            )
+
+            assert only_request(submitted).headers["Authorization"] == "Bearer k"
+            assert current.call_count == 0
+
+        assert result.task_id == "cgt-a"
+        assert (tmp_path / "o.mp4").read_bytes() == b"resumed"
 
 
 class TestIsArkNotFound:

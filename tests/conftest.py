@@ -11,9 +11,10 @@ import socket
 import sys
 import tempfile
 import uuid as _uuid
-from collections.abc import AsyncGenerator, AsyncIterator
+from collections.abc import AsyncGenerator, AsyncIterator, Callable, Mapping
 from contextlib import asynccontextmanager
 from pathlib import Path
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -25,7 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 # `lib.db.engine` 的模块级 engine 在 import 期就按 `DATABASE_URL` 绑定，进程内不再重建，
 # 所以覆写必须发生在下方任何会传染到该模块的 import 之前。未显式指定时它落在仓库根的
-# `projects/.arcreel.db`：一份文件被 xdist 的多个 worker 共用，且 schema 只由某个先跑到
+# `projects/arcreel.db`：一份文件被 xdist 的多个 worker 共用，且 schema 只由某个先跑到
 # 的用例顺带建出——用例间因此存在隐式顺序依赖。钉到本进程独占的临时库上，schema 由
 # `shared_db_schema` 显式建立。DATABASE_URL 已由外部给定（postgres-compat job、
 # 逐个用例 monkeypatch 的 alembic 用例）时不介入。
@@ -52,16 +53,89 @@ def _remove_owned_test_db_dir() -> None:
 
 if not os.environ.get("DATABASE_URL", "").strip() or os.environ.get(_OWNED_DB_MARKER) == "1":
     _OWNED_TEST_DB_DIR = tempfile.mkdtemp(prefix="arcreel-test-db-")
-    os.environ["DATABASE_URL"] = f"sqlite+aiosqlite:///{_OWNED_TEST_DB_DIR}/.arcreel.db"
+    os.environ["DATABASE_URL"] = f"sqlite+aiosqlite:///{_OWNED_TEST_DB_DIR}/arcreel.db"
     os.environ[_OWNED_DB_MARKER] = "1"
     # 回收挂在 atexit 而非 fixture teardown 上：`--collect-only`（CI 的分类 marker 闸门）
     # 与收集期中断都只 import conftest、不跑 fixture。
     atexit.register(_remove_owned_test_db_dir)
 
+# 数据根与 Claude SDK 配置目录同理：默认值是仓库根下的 `projects/` 与用户的 `~/.claude`，
+# 布局迁移会在其上挪目录、改会话目录。收集期 import `server.app` 就会建出 Assistant 服务
+# 单例并按当时的数据根固定下来，所以须在任何 import 之前钉到本进程独占的临时目录；
+# 每个用例再由 `isolated_data_root` 换成各自的空数据根。
+_OWNED_TEST_HOME_DIR = tempfile.mkdtemp(prefix="arcreel-test-home-")
+os.environ["ARCREEL_DATA_DIR"] = str(Path(_OWNED_TEST_HOME_DIR) / "data")
+os.environ["CLAUDE_CONFIG_DIR"] = str(Path(_OWNED_TEST_HOME_DIR) / "claude-config")
+os.environ.pop("AI_ANIME_PROJECTS", None)
+
+
+def _remove_owned_test_home_dir() -> None:
+    """只在创建临时目录的进程里回收（pid 守卫的理由同 ``_remove_owned_test_db_dir``）。"""
+    if os.getpid() == _OWNED_TEST_DB_OWNER_PID:
+        shutil.rmtree(_OWNED_TEST_HOME_DIR, ignore_errors=True)
+
+
+atexit.register(_remove_owned_test_home_dir)
+
 import lib.generation.generation_queue as generation_queue_module
 from lib.db.base import Base
+from lib.generation.video_request_facts import VideoRequestFacts, VideoRequestFactsFailure
 from server.agent_runtime.session_manager import SessionManager
 from server.agent_runtime.session_store import SessionMetaStore
+
+
+@pytest.fixture
+def set_admission_video_request_facts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> Callable[[VideoRequestFacts | VideoRequestFactsFailure], None]:
+    """让批量准入消费测试显式提供的视频请求事实。"""
+    from server.services.admission import video_batch_admission
+
+    def configure(facts: VideoRequestFacts | VideoRequestFactsFailure) -> None:
+        monkeypatch.setattr(video_batch_admission, "evaluate_video_request_facts", AsyncMock(return_value=facts))
+
+    return configure
+
+
+VideoRequestFactsResult = VideoRequestFacts | VideoRequestFactsFailure
+
+
+@pytest.fixture
+def set_video_request_facts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> Callable[[VideoRequestFactsResult | Mapping[str, VideoRequestFactsResult]], None]:
+    """让视频能力消费方读取测试构造的事实结果，求值测试仍使用真实解析器。
+
+    传单个结果时所有桶同一份；传按任务类型桶（``"i2v"`` / ``"r2v"``）索引的映射时按桶作答，
+    供两桶配置不同的消费方用例。
+    """
+    from lib.script import script_generator
+    from lib.script.reference_video import request_projection
+    from server.services.admission import cost_estimation
+    from server.services.tasks import video_caps
+
+    def configure(facts: VideoRequestFactsResult | Mapping[str, VideoRequestFactsResult]) -> None:
+        if isinstance(facts, Mapping):
+            by_bucket = dict(facts)
+
+            async def evaluate(_project, *, generation_type, **_kwargs):
+                return by_bucket[generation_type]
+
+            fake = AsyncMock(side_effect=evaluate)
+        else:
+            fake = AsyncMock(return_value=facts)
+        for consumer in (script_generator, request_projection, cost_estimation, video_caps):
+            monkeypatch.setattr(consumer, "evaluate_video_request_facts", fake)
+
+    return configure
+
+
+@pytest.fixture
+def video_request_facts(set_video_request_facts) -> None:
+    """为无关时长分支的消费方用例提供确定的 i2v 档位。"""
+    from tests.factories import make_video_request_facts
+
+    set_video_request_facts(make_video_request_facts(route="reference_video", generation_type="i2v"))
 
 
 def _discard_pooled_connections_in_forked_child() -> None:
@@ -97,19 +171,26 @@ def discard_pooled_connections_after_fork() -> None:
 
 
 @pytest.fixture(autouse=True)
-def reset_app_data_dir_cache():
-    """``app_data_dir()`` uses ``functools.cache`` for production; reset it between
-    tests so per-test monkeypatching of ARCREEL_DATA_DIR / AI_ANIME_PROJECTS takes
-    effect immediately."""
-    from lib.infra.app_data_dir import reset_for_tests
+def isolated_data_root(tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch):
+    """每个用例默认使用一个空的临时数据根。
 
+    ``app_data_dir()`` 与 ``get_project_manager()`` 在进程内缓存，用例前后都清掉，
+    用例自己 setenv ``ARCREEL_DATA_DIR`` 后首次调用即按新值解析。会 import 应用模块的
+    autouse fixture 须声明依赖本 fixture，其间触发的解析才落在临时根上。
+    """
+    from lib.infra.app_data_dir import reset_for_tests
+    from lib.project.project_manager import reset_project_manager_for_tests
+
+    monkeypatch.setenv("ARCREEL_DATA_DIR", str(tmp_path_factory.mktemp("data-root")))
     reset_for_tests()
+    reset_project_manager_for_tests()
     yield
     reset_for_tests()
+    reset_project_manager_for_tests()
 
 
 @pytest.fixture(autouse=True)
-def stub_sandbox_check(monkeypatch, request):
+def stub_sandbox_check(isolated_data_root, monkeypatch, request):
     """Mock ``check_sandbox_available`` 返回 True，避免测试机不满足真实 bwrap probe。
 
     GitHub Actions Ubuntu 24.04 runner 上 ``apparmor_restrict_unprivileged_userns=1``

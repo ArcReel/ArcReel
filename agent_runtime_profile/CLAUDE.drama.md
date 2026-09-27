@@ -23,7 +23,7 @@
 - **单分镜/视频单元时长**：由视频模型能力和项目 `default_duration` 配置决定
   - 分镜图生视频（含 `grid_storyboard=true`）：取值必须在所选视频模型的 `supported_durations` 内，项目 `default_duration` 非 null 时作默认偏好
   - 参考生视频：视频单元时长必须取该视频单元**引用状态对应**的生效档位（`reference_unit_durations.with_references` / `.without_references`）
-  - 两者的真值均由子智能体运行时通过 `mcp__arcreel__get_video_capabilities` 工具自查；该工具返回的 `supported_durations` 是型号声明的全集，**未**施加「分辨率↔时长」「参考图↔时长」两条联动约束，生成工具会按项目分辨率再收窄一次。手工改 script_plan 时长后若入队被拒，按错误提示取收窄后的档位，不要反复重试原值
+  - 两者的真值均由子智能体运行时通过 `mcp__arcreel__get_video_capabilities` 工具自查；`supported_durations` 是主桶型号声明的全集，`reference_unit_durations.with_references` 是带图生效档位，`.without_references` 是 i2v 桶视频请求事实给出的无图生效档位。各桶的 `*_endpoint_fixed` 与 `*_endpoint_fixed_reason` 说明时长由端点固定，此时空档位合法，规划秒数只作内部基准。`.without_references` 为 `null` 时查看同对象的 `problem`（问题码、参数、修复指引），先修复图生视频模型配置，不借用主桶档位。`reference_unit_durations.units` 按 `unit_id` 给出每个已有正式视频单元由服务端按**可用参考图**判定的桶（`hydrated_capability`）、该桶生效档位（`allowed_durations`）与事实失败（`problem`）；声明引用与可用参考图分裂时 `problems` 带阻断问题、`unavailable_references` 点名缺图引用——已有单元一律以它为准，「含 `@` 引用即带图」只是规划新正文时的估计
 - **单集目标时长**：项目 `episode_target_duration` 非 null 时，脚本规划据它决定本集拆多少个分镜 / 视频单元，真值同经 `mcp__arcreel__get_video_capabilities` 自查；未显式设 `episode_target_units` 时，分集规划另按它折算每集塞多少原文，该折算值只由 `plan_episodes` 返回的核对材料给出（含来源标注），`get_video_capabilities` 不做这项折算。两处均为软目标，内容不足宁少拆、内容确实需要可超出，超出只提示不阻断
 - **图片分辨率**：1K
 - **视频分辨率**：1080p
@@ -45,7 +45,7 @@
 - **图片编辑 vs 重新生成**：审核检查点用户只想改资产图/分镜图的局部（换色、去杂物、调光线等）时用 `edit_images`——保底图微调、不改 `description`/`image_prompt`；用户想推翻构图整体重来、或本来就要改 description/image_prompt 时仍用对应的 `generate_*` 工具重新生成。用户脱离生成流程直接说「把某某改一下」时也可直接调 `edit_images`，不依赖处于哪个工作流步骤。
 - **编辑项目 JSON**：修改剧本（`scripts/*.json`）或角色/场景/道具（`project.json`）**一律走 `mcp__arcreel__*` 编辑工具**——批量改剧本时先调用 `get_episode_script` 读取正文与 revision，再把其 revision 原样作为 `patch_episode_script` 的 `base_revision`，并传有序 `operations[]`（`update` / `insert` / `remove` / `split`）；整批先预检后原子提交，失败结果用 `operation_index` 与 field location 定位，revision 冲突时重新读取再重做。改分集标题用 `patch_episode_meta`，角色/场景/道具用 `patch_project`。**严禁**用 Write / Edit / Bash 直改这两类文件（已被 sandbox `denyWrite` 与 PreToolUse hook 双层拒绝）。**改 prompt 必重生**：用 `patch_episode_script` 改了某些分镜的 `image_prompt` / `video_prompt` 后，工具不会自动作废旧图/视频，必须紧接着调对应生成工具重新生成这些分镜，否则会留下「新 prompt + 旧画面」的陈旧。
 - **Bash 用途**：仅供通用排查与文件浏览（`ls / cat / jq / python / curl` 等），以及 `compose-video` skill 内还保留的 Python 脚本。
-- **敏感文件保护**：`.env` / `vertex_keys/` / `.system_config.json*` / `.arcreel.db*` / `.claude/settings.json` 由 sandbox profile（`filesystem.denyRead`）内核级拒绝读取，并由 PreToolUse 文件访问 hook 双重防御；代码文件（.py/.js/.ts/.tsx/.sh/.yaml/.yml/.toml）受运行时 hook 阻止写入。
+- **敏感文件保护**：`.env` / `.claude/settings.json`，以及数据根里项目以外的全部数据（数据库、凭证、日志、其他用户的记忆等）由 sandbox profile（`filesystem.denyRead`）内核级拒绝读取，并由 PreToolUse 文件访问 hook 双重防御；代码文件（.py/.js/.ts/.tsx/.sh/.yaml/.yml/.toml）受运行时 hook 阻止写入。
 
 ### 路径规范
 

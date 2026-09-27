@@ -13,7 +13,7 @@ from fastapi.testclient import TestClient
 from PIL import Image
 
 import lib.project.project_manager as project_manager_module
-from lib.artifacts.artifact_activation import ArtifactCurrencyResolver
+from lib.artifacts.artifact_activation import ArtifactCurrencyResolver, register_current_resource_artifact
 from lib.artifacts.artifact_manifest import (
     MANIFEST_FILENAME,
     ArtifactKey,
@@ -30,6 +30,7 @@ from lib.prompts.prompt_templates.builtin import builtin_templates
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import files
+from server.services.currency import upload_finalize
 from tests.factories import wav_bytes
 
 
@@ -67,7 +68,7 @@ def _img_bytes(fmt="JPEG", color=(255, 0, 0)):
 
 
 def _client(monkeypatch, tmp_path):
-    pm = project_manager_module.ProjectManager(tmp_path / "projects")
+    pm = project_manager_module.ProjectManager(tmp_path)
     pm.create_project("demo")
     pm.create_project_metadata("demo", "Demo", "Anime", "narration")
     pm.add_character("demo", "Alice", "desc")
@@ -247,19 +248,31 @@ class TestFilesRouter:
             project_dir = pm.get_project_path("demo")
             target = project_dir / first.json()["path"]
             manifest = project_dir / ".arcreel_artifacts.json"
-            before = (target.read_bytes(), (project_dir / "project.json").read_bytes(), manifest.read_bytes())
+            versions_file = project_dir / "versions" / "versions.json"
+
+            def _durable_state():
+                snapshots = sorted(path.name for path in (project_dir / "versions" / "characters").iterdir())
+                return (
+                    target.read_bytes(),
+                    (project_dir / "project.json").read_bytes(),
+                    manifest.read_bytes(),
+                    versions_file.read_bytes(),
+                    snapshots,
+                )
+
+            before = _durable_state()
 
             def _fail(*_args, **_kwargs):
                 raise RuntimeError("injected manifest failure")
 
-            monkeypatch.setattr(files, "register_current_resource_artifact", _fail)
+            monkeypatch.setattr(upload_finalize, "register_current_resource_artifact", _fail)
             failed = client.post(
                 "/api/v1/projects/demo/upload/character?name=Alice",
                 files={"file": ("replacement.png", _img_bytes("PNG", (0, 0, 255)), "image/png")},
             )
 
             assert failed.status_code == 500
-            assert (target.read_bytes(), (project_dir / "project.json").read_bytes(), manifest.read_bytes()) == before
+            assert _durable_state() == before
 
     def test_formal_sheet_upload_rechecks_a_definition_created_before_install(self, tmp_path, monkeypatch):
         client, pm = _client(monkeypatch, tmp_path)
@@ -282,7 +295,7 @@ class TestFilesRouter:
                 name,
                 relative_path,
                 generated,
-                on_commit=lambda _target: files.register_current_resource_artifact(
+                on_commit=lambda _target: register_current_resource_artifact(
                     project_dir,
                     resource_type="characters",
                     resource_id=name,
@@ -1423,7 +1436,7 @@ class TestFilesRouter:
             assert resp.status_code in (400, 403, 404)
 
     def test_global_asset_symlink_escape_returns_403(self, tmp_path, monkeypatch):
-        """在 _global_assets/character/ 里放一个指向外部文件的 symlink,应被 resolve-relative 检查拦截为 403。"""
+        """在 global_assets/character/ 里放一个指向外部文件的 symlink,应被 resolve-relative 检查拦截为 403。"""
         import os
         import sys
 
@@ -1434,11 +1447,11 @@ class TestFilesRouter:
 
         client, pm = _client(monkeypatch, tmp_path)
 
-        # 在 tmp_path 下(但不在 _global_assets 里)创建一个外部目标文件
+        # 在 tmp_path 下(但不在 global_assets 里)创建一个外部目标文件
         outside = tmp_path / "outside.png"
         outside.write_bytes(b"secret")
 
-        # 在 _global_assets/character/ 下建立指向外部目标的 symlink
+        # 在 global_assets/character/ 下建立指向外部目标的 symlink
         global_dir = pm.get_global_assets_root() / "character"
         global_dir.mkdir(parents=True, exist_ok=True)
         link = global_dir / "evil.png"

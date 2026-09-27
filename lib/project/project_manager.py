@@ -56,6 +56,7 @@ from lib.episode.episode_target_duration import (
 )
 from lib.infra.app_data_dir import app_data_dir
 from lib.infra.content_digest import canonical_json_digest
+from lib.infra.data_root_layout import PROJECT_FILENAME, PROJECT_NAME_PATTERN, DataRootLayout, list_project_dirs
 from lib.infra.json_io import atomic_write_bytes, atomic_write_json, load_json, load_json_or_none
 from lib.infra.path_safety import PathTraversalError, safe_join
 from lib.infra.schema_guards import is_int, is_shape, is_str
@@ -93,7 +94,6 @@ from lib.speech.audio_utils import discard_stale_reference_audio, resolve_audio_
 
 logger = logging.getLogger(__name__)
 
-PROJECT_NAME_PATTERN = re.compile(r"^[A-Za-z0-9-]+$")
 PROJECT_SLUG_SANITIZER = re.compile(r"[^a-zA-Z0-9]+")
 
 # 生成模式（generation_mode）：二值必填，创建即定、之后不可变（可变性由 PATCH 模型结构保证）。
@@ -269,7 +269,7 @@ def _rename_agnostic_errors(
     """把校验错误压成与「被改名的那个身份」无关的指纹，映射到可读文本。
 
     资产改名的「不更坏」判据是比对改写前后的错误集合，而不少校验消息会点名是哪个资产
-    （缺 description、路径字段非法等），参数位上因此带着资产名。按渲染文本直接做集合差，
+    （数据格式错误、字段类型非法等），参数位上因此带着资产名。按渲染文本直接做集合差，
     会把一条原就存在的历史遗留错误当成改写后新增的——名字变了，文本就变了——从而拒绝
     一次本不更坏的改名。指纹按结构化消息（key + params）构造，并把参数里的新名折回旧名。
 
@@ -319,7 +319,7 @@ class ProjectManager:
     ]
 
     # 项目元数据文件名
-    PROJECT_FILE = "project.json"
+    PROJECT_FILE = PROJECT_FILENAME
 
     @staticmethod
     def normalize_project_name(name: str) -> str:
@@ -353,27 +353,17 @@ class ProjectManager:
         prefix = self._slugify_project_title(title or "")
         while True:
             candidate = f"{prefix}-{secrets.token_hex(4)}"
-            if not (self.projects_root / candidate).exists():
+            if not (self.projects_dir / candidate).exists():
                 return candidate
 
     @classmethod
-    def from_cwd(cls) -> tuple["ProjectManager", str]:
-        """从当前工作目录推断 ProjectManager 和项目名称。
-
-        假定 cwd 为 ``projects/{project_name}/`` 格式。
-        返回 ``(ProjectManager, project_name)`` 元组。
-        """
-        cwd = Path.cwd().resolve()
-        project_name = cwd.name
-        projects_root = cwd.parent
-        pm = cls(projects_root)
-        if not (projects_root / project_name / cls.PROJECT_FILE).exists():
-            raise FileNotFoundError(f"当前目录不是有效的项目目录: {cwd}")
-        return pm, project_name
+    def for_project_dir(cls, project_dir: str | Path) -> "ProjectManager":
+        """由一个项目目录构造其所在数据根的 ProjectManager（数据根经布局模块推导）。"""
+        return cls(DataRootLayout.for_project_dir(Path(project_dir)).root)
 
     def __init__(
         self,
-        projects_root: str | Path | None = None,
+        data_root: str | Path,
         *,
         script_reader: Callable[[Path], dict] | None = None,
         script_writer: Callable[[Path, dict], None] | None = None,
@@ -382,26 +372,24 @@ class ProjectManager:
         初始化项目管理器
 
         Args:
-            projects_root: 项目根目录，默认为当前目录下的 projects/
+            data_root: 数据根；项目目录等位置由数据根布局给出
             script_reader: 剧本 JSON 读取 seam；缺省时从文件系统读取。
             script_writer: 剧本 JSON 原子写入 seam；缺省时使用 atomic_write_json。
         """
-        if projects_root is None:
-            # 尝试从环境变量或默认路径获取
-            projects_root = os.environ.get("AI_ANIME_PROJECTS", "projects")
-
-        self.projects_root = Path(projects_root)
-        self.projects_root.mkdir(parents=True, exist_ok=True)
+        self.layout = DataRootLayout(Path(data_root))
+        self.data_root = self.layout.root
+        self.projects_dir = self.layout.projects_dir
+        self.projects_dir.mkdir(parents=True, exist_ok=True)
         self._script_reader = script_reader
         self._script_writer = script_writer
 
     def list_projects(self) -> list[str]:
-        """列出所有项目"""
-        return [d.name for d in self.projects_root.iterdir() if d.is_dir() and not d.name.startswith((".", "_"))]
+        """列出所有项目（判定见 ``list_project_dirs``）。"""
+        return [d.name for d in list_project_dirs(self.projects_dir)]
 
     def get_global_assets_root(self) -> Path:
         """返回全局资产根目录，并确保 character/scene/prop 子目录存在。"""
-        root = self.projects_root / "_global_assets"
+        root = self.layout.global_assets_dir
         root.mkdir(parents=True, exist_ok=True)
         for sub in ("character", "scene", "prop"):
             (root / sub).mkdir(exist_ok=True)
@@ -426,7 +414,7 @@ class ProjectManager:
             项目目录路径
         """
         name = self.normalize_project_name(name)
-        project_dir = self.projects_root / name
+        project_dir = self.projects_dir / name
 
         try:
             project_dir.mkdir()
@@ -564,8 +552,6 @@ class ProjectManager:
             "failed_projects": 0,
             "aborted": False,
         }
-        if not self.projects_root.exists():
-            return totals
         _STAT_KEYS_TO_AGGREGATE = (
             "created",
             "repaired",
@@ -582,12 +568,7 @@ class ProjectManager:
             "collision",
             "migrated_total",
         )
-        for project_dir in sorted(self.projects_root.iterdir()):
-            # 与 ``list_projects`` 同规则：跳过点开头（.git 等）和下划线开头
-            # （``_global_assets`` 保留目录 — 跨项目共享 character/scene/prop 库，
-            # 不是项目，不应物化 Agent profile）
-            if not project_dir.is_dir() or project_dir.name.startswith((".", "_")):
-                continue
+        for project_dir in list_project_dirs(self.projects_dir):
             try:
                 result = self.sync_agent_profile(project_dir)
                 for key in _STAT_KEYS_TO_AGGREGATE:
@@ -612,7 +593,7 @@ class ProjectManager:
         """获取项目路径（含路径遍历防护）"""
         name = self.normalize_project_name(name)
         try:
-            project_dir = safe_join(self.projects_root, name)
+            project_dir = safe_join(self.projects_dir, name)
         except PathTraversalError as exc:
             raise ValueError(f"非法项目名称: '{name}'") from exc
         if not project_dir.exists():
@@ -1058,10 +1039,10 @@ class ProjectManager:
         临界区原子恢复旧字节。hook 必须把自身写入设计为「成功后不再抛错」，否则它已经落下的
         外部状态无法由本方法推断如何撤销。
         """
-        # 候选解析只用于确定脚本锁身份，不得触发 load_project 的持久化迁移；命令若随后因
-        # revision / schema 等预检被拒，project.json 必须保持逐字不变。成功提交时，迁移会在
-        # 下方项目锁内与脚本、索引一起落盘并受同一份旧字节快照补偿。
-        candidate = resolve_script_file(self.load_project_readonly(project_name))
+        # 候选解析只用于确定脚本锁身份，锁外只读不写；命令若随后因 revision / schema 等预检
+        # 被拒，project.json 必须保持逐字不变。成功提交时，迁移会在下方项目锁内与脚本、索引
+        # 一起落盘并受同一份旧字节快照补偿。
+        candidate = resolve_script_file(self.load_project(project_name))
         norm = self.normalize_script_filename(candidate)
         with self._script_lock(project_name, norm), self._project_lock(project_name):
             project = self._read_project_raw_unlocked(project_name)
@@ -1286,7 +1267,7 @@ class ProjectManager:
             return script
         with self._script_lock(project_name, norm):
             # 锁内重读一次再回写：读-改-写须在同一把剧本锁内完成，否则并发写者在无锁读与回写
-            # 之间落盘的内容会被迁移结果覆盖（同 load_project 的迁移回写）。不走
+            # 之间落盘的内容会被迁移结果覆盖。不走
             # _write_script_unlocked：迁移只是格式收编，不应刷新 metadata.updated_at、
             # 不触发 project.json 同步与变更提示。
             script, migrated = self._read_script_unlocked(project_name, norm)
@@ -1857,7 +1838,7 @@ class ProjectManager:
 
     def load_project(self, project_name: str) -> dict:
         """
-        加载项目元数据
+        加载项目元数据：不取锁、不迁移、不写盘，返回 project.json 的内存快照
 
         Args:
             project_name: 项目名称
@@ -1870,14 +1851,6 @@ class ProjectManager:
         if not project_file.exists():
             raise FileNotFoundError(f"项目元数据文件不存在: {project_file}")
 
-        with open(project_file, encoding="utf-8") as f:
-            return json.load(f)
-
-    def load_project_readonly(self, project_name: str) -> dict:
-        """Load an in-memory project snapshot without locking it."""
-        project_file = self._get_project_file_path(project_name)
-        if not project_file.exists():
-            raise FileNotFoundError(f"项目元数据文件不存在: {project_file}")
         with open(project_file, encoding="utf-8") as f:
             return json.load(f)
 
@@ -2352,7 +2325,7 @@ class ProjectManager:
         `extras` 用于写入可选的模型/后端等字段（如 video_backend / image_provider_t2i /
         image_provider_i2i / text_backend_{script,overview,style}）。调用方负责剔除空值，
         本方法只按字面写入 extras 中已有的键——退役的单字段 image_backend 不在写入范围
-        （解析链不再读取、写边界已拒绝），调用方不应再传入。
+        （解析链不读取、写边界已拒绝），调用方不应再传入。
 
         `target_duration` / `brief` 仅 content_mode=ad 可用；ad 项目不持有
         `default_duration` 与 `episode_target_duration`，且 episodes 恒为第 1 集单条。
@@ -2427,7 +2400,7 @@ class ProjectManager:
         if style_template_id is not None:
             project["style_template_id"] = style_template_id
         if extras:
-            # 数据层守卫：退役的单字段 image_backend 不得写入（解析链不再读取，写回只会
+            # 数据层守卫：退役的单字段 image_backend 不得写入（解析链不读取，写回只会
             # 重新制造被静默忽略的 legacy 形态）。路由层已返回 400，这里再兜一道防非路由调用方。
             if "image_backend" in extras:
                 raise ValueError("image_backend 已废弃，请改用 image_provider_t2i / image_provider_i2i")
@@ -2491,7 +2464,7 @@ class ProjectManager:
         [已废弃] 同步项目状态
 
         此方法已废弃。status、progress、item_count 等统计字段
-        现在由项目摘要读时计算，不再存储在 JSON 文件中。
+        由项目摘要读时计算，不存储在 JSON 文件中。
 
         保留此方法仅为向后兼容，实际不执行任何写入操作。
 
@@ -2686,7 +2659,7 @@ class ProjectManager:
         noop: list[str] = []
 
         def _mutate(project: dict) -> None:
-            validator = DataValidator(str(self.projects_root))
+            validator = DataValidator(str(self.projects_dir))
             before_errors = set(validator.validate_project_payload(project).errors)  # 改前快照
             bucket = project.setdefault(spec.bucket_key, {})
             if not isinstance(bucket, dict):
@@ -2708,8 +2681,7 @@ class ProjectManager:
                 body_attrs = {k: v for k, v in attrs.items() if k != DERIVATIVES_FIELD}
                 # 仅对已存在 entry 检测 no-op:全字段被白名单/legacy strip 丢空时 update({})
                 # 实际不变,归到 noop 而非 merged 避免「合并 1 个」误报。新 entry 即使
-                # cleaned 空也仍走 _build_asset_entry,让 description 缺失的 validator 拒写
-                # fail-loud(不能让"无可写字段"变成绕过 entry 创建必填校验的旁路)。
+                # cleaned 空也照常建条目,description 缺省记为空串——描述只在生成资产图时必需。
                 if existing and not body_attrs and not derivatives:
                     noop.append(name)
                     continue
@@ -2725,7 +2697,7 @@ class ProjectManager:
             # 「不更坏」按 error set diff 判定：after 不应比 before 多任何 errors。
             #   - 改前合法、改后非法 → new_errors=全部 after errors → 拒
             #   - 改前已脏、改后相同脏 → new_errors=∅ → 放行（允许带历史脏数据的项目继续 patch）
-            #   - 改前已脏、改后引入新错误（如 entries 缺 description）→ new_errors≠∅ → 拒
+            #   - 改前已脏、改后引入新错误（如 entries 的 description 不是字符串）→ new_errors≠∅ → 拒
             #   - 改前已脏、改后修复了部分 → new_errors=∅ → 放行（允许 patch 改进历史脏数据）
             # 比单纯比 valid 标志更严：堵住「带历史脏数据的项目里新 entry 的结构错误 piggyback 落盘」。
             new_errors = after_errors - before_errors
@@ -2997,7 +2969,7 @@ class ProjectManager:
 
             # project.json 变更先在副本上应用并做「不更坏」校验：校验失败整体拒绝、任何一处不落盘。
             mutated = copy.deepcopy(project)
-            validator = DataValidator(str(self.projects_root))
+            validator = DataValidator(str(self.projects_dir))
             before_errors = _rename_agnostic_errors(validator.validate_project_payload(mutated), old_key, new_clean)
             entry = rekey_equivalent_entries(mutated[spec.bucket_key], old_key, new_clean)
             if isinstance(entry, dict):
@@ -3800,3 +3772,9 @@ def get_project_manager() -> ProjectManager:
     if _project_manager is None:
         _project_manager = ProjectManager(app_data_dir())
     return _project_manager
+
+
+def reset_project_manager_for_tests() -> None:
+    """清掉 :func:`get_project_manager` 的单例，下次调用按当前数据根重建。"""
+    global _project_manager
+    _project_manager = None

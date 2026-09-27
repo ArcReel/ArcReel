@@ -9,6 +9,7 @@ import pytest
 from claude_agent_sdk import project_key_for_directory
 
 from lib.agent.agent_session_store.store import DbSessionStore
+from lib.infra.data_root_layout import DataRootLayout
 
 
 def _write_fake_local_transcript(project_cwd: Path, session_id: str, sdk_root: Path):
@@ -52,17 +53,16 @@ def fake_sdk_home(tmp_path: Path, monkeypatch):
 async def test_migrate_imports_local_jsonl(tmp_path, fake_sdk_home, session_factory):
     from lib.agent.agent_session_store.import_local import migrate_local_transcripts_to_store
 
-    projects_root = tmp_path / "projects"
-    proj = projects_root / "demo"
+    data_root = tmp_path / "data"
+    proj = DataRootLayout(data_root).projects_dir / "demo"
     proj.mkdir(parents=True)
+    (proj / "project.json").write_text("{}")
     sid = "00000000-0000-0000-0000-0000000000aa"
     _write_fake_local_transcript(proj, sid, fake_sdk_home)
 
     store = DbSessionStore(session_factory, user_id="u1")
-    data_dir = tmp_path / "data"
-    data_dir.mkdir()
 
-    stats = await migrate_local_transcripts_to_store(store, projects_root=projects_root, data_dir=data_dir)
+    stats = await migrate_local_transcripts_to_store(store, data_root=data_root)
 
     assert stats["imported"] == 1
     assert stats["skipped"] == 0
@@ -71,24 +71,23 @@ async def test_migrate_imports_local_jsonl(tmp_path, fake_sdk_home, session_fact
     loaded = await store.load({"project_key": project_key_for_directory(str(proj)), "session_id": sid})
     assert loaded is not None
     assert len(loaded) == 2
-    assert (data_dir / ".session_store_migration_done").exists()
+    assert DataRootLayout(data_root).session_import_marker_path.exists()
 
 
 @pytest.mark.asyncio
 async def test_migrate_is_idempotent_via_marker(tmp_path, fake_sdk_home, session_factory):
     from lib.agent.agent_session_store.import_local import migrate_local_transcripts_to_store
 
-    projects_root = tmp_path / "projects"
-    proj = projects_root / "demo"
+    data_root = tmp_path / "data"
+    proj = DataRootLayout(data_root).projects_dir / "demo"
     proj.mkdir(parents=True)
+    (proj / "project.json").write_text("{}")
     sid = "00000000-0000-0000-0000-0000000000bb"
     _write_fake_local_transcript(proj, sid, fake_sdk_home)
     store = DbSessionStore(session_factory, user_id="u1")
-    data_dir = tmp_path / "data"
-    data_dir.mkdir()
 
-    s1 = await migrate_local_transcripts_to_store(store, projects_root=projects_root, data_dir=data_dir)
-    s2 = await migrate_local_transcripts_to_store(store, projects_root=projects_root, data_dir=data_dir)
+    s1 = await migrate_local_transcripts_to_store(store, data_root=data_root)
+    s2 = await migrate_local_transcripts_to_store(store, data_root=data_root)
 
     assert s1["imported"] == 1
     assert s2["imported"] == 0
@@ -104,19 +103,18 @@ async def test_migrate_skips_already_in_store_when_marker_missing(
     """Marker误删后重启应通过 store.load 探测跳过已迁会话。"""
     from lib.agent.agent_session_store.import_local import migrate_local_transcripts_to_store
 
-    projects_root = tmp_path / "projects"
-    proj = projects_root / "demo"
+    data_root = tmp_path / "data"
+    proj = DataRootLayout(data_root).projects_dir / "demo"
     proj.mkdir(parents=True)
+    (proj / "project.json").write_text("{}")
     sid = "00000000-0000-0000-0000-0000000000cc"
     _write_fake_local_transcript(proj, sid, fake_sdk_home)
     store = DbSessionStore(session_factory, user_id="u1")
-    data_dir = tmp_path / "data"
-    data_dir.mkdir()
 
-    await migrate_local_transcripts_to_store(store, projects_root=projects_root, data_dir=data_dir)
-    (data_dir / ".session_store_migration_done").unlink()
+    await migrate_local_transcripts_to_store(store, data_root=data_root)
+    DataRootLayout(data_root).session_import_marker_path.unlink()
 
-    s2 = await migrate_local_transcripts_to_store(store, projects_root=projects_root, data_dir=data_dir)
+    s2 = await migrate_local_transcripts_to_store(store, data_root=data_root)
     assert s2["imported"] == 0
     assert s2["skipped"] == 1
     assert s2["failed"] == 0
@@ -127,12 +125,10 @@ async def test_migrate_zero_data_user(tmp_path, fake_sdk_home, session_factory):
     """No projects + no SDK dir → marker still written, migration succeeds."""
     from lib.agent.agent_session_store.import_local import migrate_local_transcripts_to_store
 
-    projects_root = tmp_path / "projects"
-    projects_root.mkdir()
+    data_root = tmp_path / "data"
+    data_root.mkdir()
     store = DbSessionStore(session_factory, user_id="u1")
-    data_dir = tmp_path / "data"
-    data_dir.mkdir()
 
-    stats = await migrate_local_transcripts_to_store(store, projects_root=projects_root, data_dir=data_dir)
+    stats = await migrate_local_transcripts_to_store(store, data_root=data_root)
     assert stats == {"imported": 0, "skipped": 0, "failed": 0}
-    assert (data_dir / ".session_store_migration_done").exists()
+    assert DataRootLayout(data_root).session_import_marker_path.exists()

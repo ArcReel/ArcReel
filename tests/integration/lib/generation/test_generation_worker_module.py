@@ -14,6 +14,7 @@ from lib.generation.generation_worker import (
     _read_int_env,
 )
 from lib.script.script_editor import ScriptEditError
+from tests.factories import activate_reference_project
 from tests.fakes import bind_safe_session_factory
 from tests.integration.lib.generation.worker_support import (
     FakeWorkerQueue,
@@ -142,14 +143,17 @@ class TestExtractProvider:
     ):
         """reference_video 投影按 unit 当前实际可用参考图分桶：有图 → r2v 桶 provider，
         无参考图退化镜头 → i2v 桶 provider，与执行层降级定桶同口径。"""
-        project = {
-            "video_provider_i2v": "ark/doubao-seedance-1-5-pro-251215",
-            "video_provider_r2v": "minimax/S2V-01",
-            "video_generate_audio": True,
-            "characters": {"A": {"character_sheet": "characters/A.png"}},
-        }
         (tmp_path / "characters").mkdir()
         (tmp_path / "characters" / "A.png").write_bytes(b"image")
+        project = activate_reference_project(
+            tmp_path,
+            {
+                "video_provider_i2v": "ark/doubao-seedance-1-5-pro-251215",
+                "video_provider_r2v": "minimax/S2V-01",
+                "video_generate_audio": True,
+                "characters": {"A": {"description": "x", "character_sheet": "characters/A.png"}},
+            },
+        )
         script = {"video_units": [{"unit_id": "E1U1", "text": text}]}
         pm_cls = type(
             "PM",
@@ -243,14 +247,11 @@ class TestExtractProvider:
 
         holder = {"model": "ark/doubao-seedance-1-5-pro-251215"}
         script = {"video_units": [{"unit_id": "E1U1", "text": "空镜", "duration_seconds": 5}]}
+        activated = activate_reference_project(tmp_path, {"video_generate_audio": True})
 
         class _PM:
             def load_project(self, _name):
-                return {
-                    "generation_mode": "reference_video",
-                    "video_provider_i2v": holder["model"],
-                    "video_generate_audio": True,
-                }
+                return {**activated, "video_provider_i2v": holder["model"]}
 
             def load_script(self, _name, _filename):
                 return script

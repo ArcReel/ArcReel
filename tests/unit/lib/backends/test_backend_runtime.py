@@ -31,6 +31,7 @@ from lib.backends.backend_runtime import (
     provider_reason_summary,
     recording_poll,
     request_with_scoped_credentials,
+    resume_expiry_gate,
     should_retry_download,
     should_retry_poll,
     should_retry_signed_download,
@@ -1338,3 +1339,29 @@ class TestRecordingPoll:
         )
 
         assert await recording_poll(AsyncMock(return_value={"status": "ok"}), request)() == {"status": "ok"}
+
+
+class TestResumeExpiryGate:
+    """续跑轮询闸门：只有续跑时的 404 转 ResumeExpiredError，其余异常与新提交路径原样透出。"""
+
+    async def test_resume_404_becomes_resume_expired(self):
+        gated = resume_expiry_gate(AsyncMock(side_effect=_http_status_error(404)), resume_job_id="job-1", provider="p")
+
+        with pytest.raises(ResumeExpiredError) as ei:
+            await gated()
+
+        assert (ei.value.job_id, ei.value.provider) == ("job-1", "p")
+
+    async def test_resume_non_404_propagates(self):
+        gated = resume_expiry_gate(AsyncMock(side_effect=_http_status_error(503)), resume_job_id="job-1", provider="p")
+
+        with pytest.raises(httpx.HTTPStatusError):
+            await gated()
+
+    async def test_submit_path_404_propagates_for_retry(self):
+        gated = resume_expiry_gate(AsyncMock(side_effect=_http_status_error(404)), resume_job_id=None, provider="p")
+
+        with pytest.raises(httpx.HTTPStatusError) as ei:
+            await gated()
+
+        assert should_retry_poll(ei.value) is True

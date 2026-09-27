@@ -9,9 +9,18 @@ import { useCostStore } from "@/stores/cost-store";
 import { useTasksStore } from "@/stores/tasks-store";
 import { useUsageHeaderStore } from "@/stores/usage-header-store";
 import { errMsg } from "@/utils/async";
+import {
+  WORKSPACE_ROUTE_CHARACTERS,
+  WORKSPACE_ROUTE_EPISODES,
+  WORKSPACE_ROUTE_PRODUCTS,
+  WORKSPACE_ROUTE_PROPS,
+  WORKSPACE_ROUTE_SCENES,
+} from "@/app-routes";
 import type {
   ProjectChange,
   ProjectChangeBatchPayload,
+  ProjectChangeFocus,
+  ProjectChangePane,
   WorkspaceNotificationTarget,
 } from "@/types";
 import {
@@ -22,6 +31,15 @@ import {
   groupChangesByType,
   type GroupedProjectChange,
 } from "@/utils/project-changes";
+
+
+/** 可作视频单元参考图的资产实体：它们的增删改会改变单元的可用参考图与所落的桶。 */
+const REFERENCE_ASSET_ENTITY_TYPES: ReadonlySet<ProjectChange["entity_type"]> = new Set([
+  "character",
+  "scene",
+  "prop",
+  "product",
+]);
 
 const CHANGE_PRIORITY: Record<string, number> = {
   "segment:updated": 0,
@@ -35,6 +53,8 @@ const CHANGE_PRIORITY: Record<string, number> = {
   "scene:updated": 3.5,
   "prop:created": 4,
   "prop:updated": 4.5,
+  "product:created": 4.6,
+  "product:updated": 4.8,
   "episode:created": 5,
   "episode:updated": 6,
   "draft:created": 6.5,
@@ -71,21 +91,21 @@ function isNavigableChange(change: ProjectChange): boolean {
   return Boolean(change.focus?.anchor_type && change.focus?.anchor_id);
 }
 
+/** 定位窗格 → 工作区路由，按窗格联合类型穷尽；返回 null 表示该事件缺少路由所需信息、不可导航。 */
+const PANE_ROUTES: Record<ProjectChangePane, (focus: ProjectChangeFocus) => string | null> = {
+  characters: () => `/${WORKSPACE_ROUTE_CHARACTERS}`,
+  scenes: () => `/${WORKSPACE_ROUTE_SCENES}`,
+  props: () => `/${WORKSPACE_ROUTE_PROPS}`,
+  products: () => `/${WORKSPACE_ROUTE_PRODUCTS}`,
+  episode: (focus) =>
+    typeof focus.episode === "number" ? `/${WORKSPACE_ROUTE_EPISODES}/${focus.episode}` : null,
+};
+
 function buildNotificationTarget(change: ProjectChange): WorkspaceNotificationTarget | null {
   const focus = change.focus;
   if (!focus?.anchor_type || !focus.anchor_id) return null;
 
-  let route = "";
-  if (focus.pane === "characters") {
-    route = "/characters";
-  } else if (focus.pane === "scenes") {
-    route = "/scenes";
-  } else if (focus.pane === "props") {
-    route = "/props";
-  } else if (focus.pane === "episode" && typeof focus.episode === "number") {
-    route = `/episodes/${focus.episode}`;
-  }
-
+  const route = PANE_ROUTES[focus.pane]?.(focus);
   if (!route) return null;
 
   return {
@@ -347,10 +367,13 @@ export function useProjectEventsSSE(projectName?: string | null): void {
           void useTasksStore.getState().refreshTasks();
         }
 
-        // Unit 增删改可能来自 Agent 或另一浏览器；生成完成则改变成片。两类事件都要
-        // 作废 reference-video-store 的独立列表缓存，同一批只自增一次。
+        // Unit 增删改可能来自 Agent 或另一浏览器；生成完成则改变成片；资产增删改会改变
+        // 单元此刻可用的参考图，服务端逐单元的桶与档位随之变化。三类事件都要作废
+        // reference-video-store 的独立列表缓存，同一批只自增一次。
         if (
-          entityChanges.some((c) => c.entity_type === "reference_unit") ||
+          entityChanges.some(
+            (c) => c.entity_type === "reference_unit" || REFERENCE_ASSET_ENTITY_TYPES.has(c.entity_type),
+          ) ||
           taskChanges.some(
             (c) => c.action === "task_succeeded" && c.task_type === "reference_video",
           )

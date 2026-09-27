@@ -148,6 +148,45 @@ def write_legacy_storyboard_project(
     return project_dir
 
 
+def write_legacy_unregistrable_asset_sheet_project(root: Path) -> Path:
+    """旧资产图有缺原图、空描述和依赖不可登记本体的衍生。"""
+
+    project_dir = write_legacy_storyboard_project(root, "legacy-asset-sheet-unregistrable-input")
+    project_path = project_dir / "project.json"
+    project = json.loads(project_path.read_text(encoding="utf-8"))
+    project["characters"] = {
+        "张三": {
+            "description": "主角",
+            "reference_image": "characters/refs/张三.png",
+            "character_sheet": "characters/张三.png",
+            "derivatives": {
+                "劲装": {"description": "换上劲装", "character_sheet": "characters/derivatives/张三/劲装.png"}
+            },
+        },
+        "李四": {
+            "description": "配角",
+            "character_sheet": "characters/李四.png",
+            "derivatives": {
+                "便装": {"description": "换上便装", "character_sheet": "characters/derivatives/李四/便装.png"}
+            },
+        },
+    }
+    project["scenes"] = {"祠堂": {"description": "", "scene_sheet": "scenes/祠堂.png"}}
+    for relative in (
+        "characters/张三.png",
+        "characters/derivatives/张三/劲装.png",
+        "characters/李四.png",
+        "characters/derivatives/李四/便装.png",
+        "scenes/祠堂.png",
+    ):
+        (project_dir / relative).parent.mkdir(parents=True, exist_ok=True)
+        (project_dir / relative).write_bytes(f"sheet-{relative}".encode())
+    revision = compute_source_revision(project_dir, project, SourceScope(kind="all")).revision
+    project["workflow"] = {"asset_inventory": {"scope": {"kind": "all", "files": []}, "source_revision": revision}}
+    _write_json(project_path, project)
+    return project_dir
+
+
 def write_legacy_reference_video_project(
     root: Path,
     name: str = "legacy-reference",
@@ -502,6 +541,33 @@ def write_legacy_script_plan_project(
     return project_dir
 
 
+def write_legacy_drama_storyboard_project(
+    root: Path,
+    name: str = "legacy-drama-storyboard",
+    *,
+    schema_version: int = 7,
+) -> Path:
+    """剧情演绎项目，``project.json`` 没有 ``aspect_ratio`` 字段；第 1 集首条分镜已有分镜图。
+
+    脚本规划与正式脚本形态同 ``write_legacy_script_plan_project(variant="drama")``。
+    """
+
+    project_dir = write_legacy_script_plan_project(root, name, variant="drama", schema_version=schema_version)
+    project_path = project_dir / "project.json"
+    project = json.loads(project_path.read_text(encoding="utf-8"))
+    project.pop("aspect_ratio")
+    _write_json(project_path, project)
+    script_path = project_dir / "scripts" / "episode_1.json"
+    script = json.loads(script_path.read_text(encoding="utf-8"))
+    first = script["scenes"][0]
+    storyboard = f"storyboards/scene_{first['scene_id']}.png"
+    first["generated_assets"] = {"storyboard_image": storyboard, "status": "completed"}
+    _write_json(script_path, script)
+    (project_dir / storyboard).parent.mkdir(parents=True, exist_ok=True)
+    (project_dir / storyboard).write_bytes(f"storyboard-{first['scene_id']}".encode())
+    return project_dir
+
+
 def _mark_asset_inventory_current(project_dir: Path) -> None:
     """旧项目都跑过资产分析：清点标记与当前源文一致，制作状态越过资产清点门。"""
 
@@ -581,6 +647,7 @@ __all__ = [
     "ScriptPlanVariantName",
     "advance_project_schema",
     "bind_episode_script_to_filename",
+    "write_legacy_drama_storyboard_project",
     "write_legacy_reference_video_project",
     "write_legacy_script_plan_project",
     "write_legacy_storyboard_project",

@@ -72,7 +72,8 @@ const config: Config = {
       title: "ArcReel",
       logo: {
         alt: "ArcReel",
-        src: "img/logo.png",
+        src: "img/logo.svg",
+        srcDark: "img/logo-dark.svg",
       },
       items: [
         {

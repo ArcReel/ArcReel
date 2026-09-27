@@ -8,113 +8,201 @@ Voice_Profiles 注入判定）。入队时机尚未 resolve 任务实际的 prov
 
 from __future__ import annotations
 
+import asyncio
 import logging
+from collections.abc import Iterable
+from pathlib import Path
 
 from sqlalchemy.exc import SQLAlchemyError
 
-from lib.backends.video_backend_contract import VideoAudioMode
 from lib.config.resolver import (
     ConfigResolver,
-    VideoBucketCapabilityError,
     VideoGenerationType,
-    builtin_video_audio_track,
-    constrain_durations_for_project,
+    caps_generation_mode,
+    duration_endpoint_fixed_reason,
+    video_bucket_for_generation_mode,
 )
 from lib.db import async_session_factory
+from lib.generation.video_request_facts import (
+    CONFIGURED_VIDEO_IDENTITY,
+    ResolutionOverride,
+    VideoRequestFacts,
+    VideoRequestFactsFailure,
+    audio_switch_conflict,
+    evaluate_video_request_facts,
+    require_video_request_facts,
+)
+from lib.project.project_manager import ProjectManager
+from lib.script.reference_video.request_projection import (
+    ReferenceRequestFactsLookup,
+    configured_reference_request_facts,
+)
+from lib.script.reference_video.unit_capabilities import (
+    evaluate_reference_unit_capabilities,
+    reference_unit_capability_payloads,
+)
 from lib.script.reference_video.voice_settings import VoiceRenderSettings
 
 logger = logging.getLogger(__name__)
 
 
-async def resolve_video_caps(
-    project: dict,
-    *,
-    generation_type: VideoGenerationType | None = None,
-    config_resolver: ConfigResolver | None = None,
-) -> dict:
-    """Resolve full model capabilities from an already loaded project."""
-    resolver = config_resolver or ConfigResolver(async_session_factory)
-    return await resolver.video_capabilities_for_project(project, generation_type=generation_type)
+async def storyboard_request_facts(
+    project: dict, config_resolver: ConfigResolver | None = None
+) -> VideoRequestFacts | VideoRequestFactsFailure:
+    """分镜路线读侧的视频请求事实：按项目生成模式定桶，以当前配置解析出的执行模型为身份。
 
-
-def constrained_caps_durations(
-    project: dict,
-    caps: dict,
-    durations: list[int],
-    *,
-    generation_mode: str | None,
-    uses_reference_images: bool | None = None,
-) -> list[int]:
-    """Apply model duration linkage constraints to a caller-selected duration set."""
-    return constrain_durations_for_project(
-        project,
-        durations,
-        provider_id=caps.get("provider_id"),
-        model_id=caps.get("model"),
-        generation_mode=generation_mode,
-        uses_reference_images=uses_reference_images,
-    )
-
-
-async def reference_unit_duration_tiers(
-    project: dict,
-    caps: dict,
-    durations: list[int],
-    *,
-    config_resolver: ConfigResolver | None = None,
-) -> tuple[list[int], list[int]]:
-    """Return effective duration tiers for units with and without reference images.
-
-    Reference-video units without references execute through the i2v generation type
-    bucket. If that bucket cannot be resolved, the main r2v bucket remains the
-    soft fallback so generation type annotations never block the creative flow.
+    剧本规划与拆分工具读这一处取可选时长，与分镜预检、执行同一份收窄结果。
     """
-    with_references = constrained_caps_durations(
-        project, caps, durations, generation_mode="reference_video", uses_reference_images=True
+    return await evaluate_video_request_facts(
+        project,
+        route="storyboard",
+        generation_type=video_bucket_for_generation_mode(caps_generation_mode(project)),
+        identity=CONFIGURED_VIDEO_IDENTITY,
+        resolver=config_resolver or ConfigResolver(async_session_factory),
     )
-    i2v_caps, i2v_durations = caps, durations
-    try:
-        if config_resolver is None:
-            resolved = await resolve_video_caps(project, generation_type="i2v")
-        else:
-            resolved = await resolve_video_caps(project, generation_type="i2v", config_resolver=config_resolver)
-        resolved_durations = [int(d) for d in resolved.get("supported_durations") or []]
-        if resolved_durations:
-            i2v_caps, i2v_durations = resolved, resolved_durations
-    except (ValueError, SQLAlchemyError) as exc:
-        logger.info("i2v 桶能力不可解析，不带图档位回退按 r2v 桶求值：%s", exc)
-    without_references = constrained_caps_durations(
-        project, i2v_caps, i2v_durations, generation_mode="reference_video", uses_reference_images=False
+
+
+def reference_request_facts_lookup(
+    project: dict, config_resolver: ConfigResolver | None = None
+) -> ReferenceRequestFactsLookup:
+    """读侧按桶的视频请求事实查找；同一次请求内共用一份，每个桶至多求值一次。"""
+    return configured_reference_request_facts(project, config_resolver or ConfigResolver(async_session_factory))
+
+
+async def reference_unit_capabilities(
+    project: dict,
+    project_path: Path,
+    units: Iterable[dict],
+    *,
+    request_facts: ReferenceRequestFactsLookup,
+) -> dict[str, dict[str, object]]:
+    """按 ``unit_id`` 索引的逐单元定桶结论与所落桶档位（Web 与 Agent 同一份）。"""
+    return reference_unit_capability_payloads(
+        await evaluate_reference_unit_capabilities(project, project_path, units, request_facts=request_facts)
     )
-    return with_references, without_references
+
+
+def reference_script_units(projects: ProjectManager, project_name: str, project: dict) -> list[dict]:
+    """参考生视频项目全部已登记剧本的视频单元；非参考路线没有视频单元。
+
+    只读取、不回写存量迁移。剧本文件缺失的分集跳过：那是分集尚未产出剧本，不是能力问题；读不出
+    或解析不了的分集同样跳过并记日志，单集损坏不拖垮整份能力查询。
+    """
+    if project.get("generation_mode") != "reference_video":
+        return []
+    units: list[dict] = []
+    for episode in project.get("episodes") or []:
+        script_file = episode.get("script_file") if isinstance(episode, dict) else None
+        if not script_file:
+            continue
+        try:
+            script = projects.load_script_readonly(project_name, script_file)
+        except FileNotFoundError:
+            continue
+        except (OSError, ValueError) as exc:
+            logger.warning("能力标注跳过无法读取的剧本 %s/%s：%s", project_name, script_file, exc)
+            continue
+        units.extend(unit for unit in script.get("video_units") or [] if isinstance(unit, dict))
+    return units
+
+
+def video_facts_problem(failure: VideoRequestFactsFailure) -> dict:
+    return failure.problem_payload()
+
+
+def facts_duration_endpoint_fixed(result: VideoRequestFacts | VideoRequestFactsFailure) -> bool:
+    """该桶的时长是否由端点固定；求值失败时为 False（未知不谎报）。"""
+    return isinstance(result, VideoRequestFacts) and result.duration_endpoint_fixed
+
+
+def duration_constraints_payload(facts: VideoRequestFacts) -> dict:
+    """能力载荷里的 ``duration_constraints``：该桶视频请求事实的请求分辨率、收窄档位与剔除成因。"""
+    return {
+        "resolution": facts.resolution,
+        "uses_reference_images": facts.generation_type == "r2v",
+        "allowed": list(facts.allowed_durations),
+        "excluded": dict(facts.excluded_durations),
+    }
+
+
+async def capability_request_facts(
+    project: dict,
+    *,
+    generation_type: VideoGenerationType,
+    config_resolver: ConfigResolver,
+    resolution_override: ResolutionOverride | None = None,
+) -> VideoRequestFacts:
+    """能力查询所答那个桶的视频请求事实（以当前配置解析执行模型），载荷的 ``duration_constraints`` 由它给出。
+
+    ``resolution_override`` 只由设置页与创建向导的能力预览传入。求值失败抛
+    :class:`~lib.generation.video_request_facts.VideoRequestFactsError`。
+    """
+    route = (
+        "reference_video"
+        if generation_type == "r2v" or project.get("generation_mode") == "reference_video"
+        else "storyboard"
+    )
+    return require_video_request_facts(
+        await evaluate_video_request_facts(
+            project,
+            route=route,
+            generation_type=generation_type,
+            identity=CONFIGURED_VIDEO_IDENTITY,
+            resolver=config_resolver,
+            resolution_override=resolution_override,
+        )
+    )
 
 
 async def annotate_reference_unit_tiers(
     payload: dict,
     project: dict,
     *,
-    config_resolver: ConfigResolver | None = None,
+    config_resolver: ConfigResolver | None,
+    projects: ProjectManager,
+    project_name: str,
 ) -> None:
     """Add effective duration tiers only for episode reference-video units.
 
     ``supported_durations`` remains the model-declared full set. The annotation
     gives script authors the narrower execution tiers for units with and without
-    references; ad projects do not use this duration enumeration.
+    references, plus ``units``: the server-side bucket, tiers and reference split
+    of every formal unit, keyed by ``unit_id``; ad projects do not use this
+    duration enumeration.
     """
     if payload.get("generation_mode") != "reference_video" or payload.get("content_mode") == "ad":
         return
     durations = [int(d) for d in payload.get("supported_durations") or []]
-    if not durations:
+    if not durations and not payload.get("duration_endpoint_fixed"):
         return
-    with_refs, without_refs = await reference_unit_duration_tiers(
+    request_facts = reference_request_facts_lookup(project, config_resolver)
+    with_ref_facts = await request_facts("r2v")
+    without_ref_facts = await request_facts("i2v")
+    units = await asyncio.to_thread(reference_script_units, projects, project_name, project)
+    unit_capabilities = await reference_unit_capabilities(
         project,
-        payload,
-        durations,
-        config_resolver=config_resolver,
+        projects.get_project_path(project_name),
+        units,
+        request_facts=request_facts,
     )
+    with_refs_fixed = facts_duration_endpoint_fixed(with_ref_facts)
+    without_refs_fixed = facts_duration_endpoint_fixed(without_ref_facts)
     payload["reference_unit_durations"] = {
-        "with_references": with_refs,
-        "without_references": without_refs,
+        "with_references": (
+            list(with_ref_facts.allowed_durations) if isinstance(with_ref_facts, VideoRequestFacts) else []
+        ),
+        "with_references_endpoint_fixed": with_refs_fixed,
+        "with_references_endpoint_fixed_reason": duration_endpoint_fixed_reason(with_refs_fixed),
+        "without_references": (
+            list(without_ref_facts.allowed_durations) if isinstance(without_ref_facts, VideoRequestFacts) else None
+        ),
+        "without_references_endpoint_fixed": without_refs_fixed,
+        "without_references_endpoint_fixed_reason": duration_endpoint_fixed_reason(without_refs_fixed),
+        "excluded": (
+            dict(without_ref_facts.excluded_durations) if isinstance(without_ref_facts, VideoRequestFacts) else None
+        ),
+        "problem": None if isinstance(without_ref_facts, VideoRequestFacts) else video_facts_problem(without_ref_facts),
+        "units": unit_capabilities,
     }
 
 
@@ -155,39 +243,45 @@ async def resolve_audio_switch_conflict(project: dict, generation_type: VideoGen
     供应商，却会让编排层按无声路径裁掉全部音色约束——用户拿到的是失去音色约束的有声成片。
     视频生成的各个提交入口据此在入队前拒绝，WebUI 与 Agent 两条路径共用这一份判据。
 
-    判据按 ``generation_type`` 定的执行路径取（:func:`builtin_video_audio_track`）：同一 model 在不同
-    子路径上可以有不同的音轨形态，按无路径上下文的声明判会对参考生视频误判。
-
-    解析失败一律返回 ``None``（不把配置解析问题升级为提交期拒绝），自定义供应商与未登记模型
-    没有逐模型音轨声明，无信号不收紧。两次解析都读库，故同在一个 ``try`` 内并一并接住
-    ``SQLAlchemyError``——数据库故障退化成放行，与 :func:`project_video_caps` 的降级口径一致。
+    判据读指定桶的视频请求事实。解析失败仍放行，由其他能力预检处理。
     """
     # 模块级绑定在导入时就固化了 factory；这里延迟到调用时从 lib.db 取，测试才能替换它。
     from lib.db import async_session_factory
 
     resolver = ConfigResolver(async_session_factory)
     try:
-        selected = await resolver.resolve_video_backend(project, None, generation_type=generation_type)
-        audio_track = builtin_video_audio_track(
-            selected.provider_id, selected.model_id, generation_type=generation_type
+        result = await evaluate_video_request_facts(
+            project,
+            route="reference_video" if project.get("generation_mode") == "reference_video" else "storyboard",
+            generation_type=generation_type,
+            identity=CONFIGURED_VIDEO_IDENTITY,
+            resolver=resolver,
         )
-        if audio_track != VideoAudioMode.ALWAYS_ON:
+        if isinstance(result, VideoRequestFactsFailure) or audio_switch_conflict(result) is None:
             return None
-        if await resolver.video_generate_audio_for_project(project):
-            return None
-    except (VideoBucketCapabilityError, ValueError, SQLAlchemyError):
+    except (ValueError, SQLAlchemyError):
         return None
-    return selected.provider_id, selected.model_id
+    return result.provider_id, result.model_id
 
 
-async def assert_audio_switch_supported(project: dict, generation_type: VideoGenerationType) -> None:
+async def assert_audio_switch_supported(
+    project: dict,
+    generation_type: VideoGenerationType,
+    *,
+    request_facts: VideoRequestFacts | VideoRequestFactsFailure | None = None,
+) -> None:
     """Agent 视频入队前的音频开关预检，冲突时抛 ``ValueError``。
 
     与 WebUI 入口的 ``server.routers._validators.require_audio_switch_supported`` 判据同源
     （:func:`resolve_audio_switch_conflict`），差别只在出口：这里的消息面向 Agent 转述，不走
     Translator。
     """
-    conflict = await resolve_audio_switch_conflict(project, generation_type)
+    if request_facts is None:
+        conflict = await resolve_audio_switch_conflict(project, generation_type)
+    elif isinstance(request_facts, VideoRequestFacts) and audio_switch_conflict(request_facts) is not None:
+        conflict = request_facts.provider_id, request_facts.model_id
+    else:
+        conflict = None
     if conflict is None:
         return
     provider_id, model_id = conflict

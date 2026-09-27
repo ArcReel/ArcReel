@@ -28,8 +28,8 @@ from server.services.currency.video_artifact_currency import (
 from server.services.tasks.generation_context import AudioLaneRequest, VideoLaneRequest, resolve_generation_context
 from server.services.tasks.generation_tasks import (
     DEFAULT_USER_ID,
-    _finalize_video_task,
     emit_generation_success_batch,
+    finalize_video_task,
     get_project_manager,
 )
 from server.services.tasks.reference_video_tasks import finalize_reference_video_unit
@@ -211,7 +211,7 @@ async def execute_resume_video_task(
                         warnings=warnings,
                     )
                 else:
-                    selected_result = await _finalize_video_task(
+                    selected_result = await finalize_video_task(
                         project_name=project_name,
                         script_file=script_file,
                         project_path=project_path,

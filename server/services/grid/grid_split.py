@@ -1,7 +1,7 @@
 """宫格切分服务：把宫格当前联合图切割落格到各分镜。
 
 切分是覆写分镜格的唯一步骤，与联合图的产生（生成任务 / 手动上传 / 版本还原）解耦：
-联合图内容变更只刷新联合图自身，落格必须经本服务显式执行。HTTP 路由与 SDK 工具共用。
+联合图内容变更只刷新联合图自身，落格必须经本服务显式执行。HTTP 路由与 Agent 工具共用。
 """
 
 from __future__ import annotations
@@ -70,7 +70,6 @@ async def apply_grid_split(
     project_name: str,
     grid: GridGeneration,
     *,
-    only_scene_ids: frozenset[str] | None = None,
     register_entries: Callable[..., None] | None = None,
 ) -> GridSplitResult:
     """按 ``grid`` 当前联合图切割并覆写各分镜格。
@@ -78,9 +77,6 @@ async def apply_grid_split(
     - 每格覆写前旧文件先补登版本、覆写后登记新版本（source="grid_split"）；
     - frame_chain 中已不在剧本内的 scene id 跳过并告警；
     - 完成后写 ``grid.split_at`` 并广播项目变更事件（含逐格指纹供前端 cache-bust）。
-    - ``only_scene_ids`` 非 None 时只落格该集合内的 scene：宫格覆盖一组分镜，但组内已有
-      current/stale 分镜图的场景不该被联合图的重新渲染悄悄覆盖——``None``（HTTP 路由的整
-      张重切场景）保持覆写全部 frame_chain 成员的既有行为不变。
     """
     from PIL import Image
 
@@ -180,8 +176,6 @@ async def apply_grid_split(
                     continue
 
                 resource_id = str(frame.next_scene_id)
-                if only_scene_ids is not None and resource_id not in only_scene_ids:
-                    continue
                 if resource_id not in valid_ids:
                     missing_ids.append(resource_id)
                     continue
@@ -390,7 +384,7 @@ async def apply_grid_split(
 
                 def _prepare_versions(current_script: dict[str, Any]) -> Callable[[Path], None]:
                     _prepare_manifest_state(
-                        pm.load_project_readonly(project_name),
+                        pm.load_project(project_name),
                         current_script,
                     )
                     return _activate_versions

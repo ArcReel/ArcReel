@@ -153,7 +153,7 @@ class BatchAdmission:
         holding = self.holding_unit_ids
         if not holding or not ticket.admitted:
             return None
-        return _withheld_problem(holding)
+        return batch_admission_withheld_problem(holding)
 
     def confirmation_tiers(self) -> tuple[BatchConfirmationTier, ...]:
         """Group the units awaiting consent by the tier they would be billed at."""
@@ -256,7 +256,9 @@ class BatchAdmission:
         }
 
 
-def _withheld_problem(holding_unit_ids: Sequence[str]) -> GenerationProblem:
+def batch_admission_withheld_problem(holding_unit_ids: Sequence[str]) -> GenerationProblem:
+    """本身通过准入、但因同批其它单元受阻而未创建任务的单元的结论。"""
+
     return GenerationProblem(
         code=GenerationProblemCode.BATCH_ADMISSION_WITHHELD,
         detail=(
@@ -309,5 +311,6 @@ __all__ = [
     "BatchAdmissionDecision",
     "BatchConfirmationTier",
     "UnitAdmissionTicket",
+    "batch_admission_withheld_problem",
     "refused_ticket",
 ]

@@ -24,12 +24,14 @@ def _has_source_text_name(path: Path) -> bool:
 
 
 class SourceScope(BaseModel):
-    """The source files included in one asset-inventory analysis."""
+    """一次资产清单分析覆盖的源文范围。"""
 
     model_config = ConfigDict(extra="forbid")
 
-    kind: Literal["all", "files"]
-    files: list[str] = Field(default_factory=list)
+    kind: Literal["all", "files"] = Field(description="all 为全部源文；files 为 files 列出的源文件")
+    files: list[str] = Field(
+        default_factory=list, description="kind=files 时的源文件路径（至少一个）；kind=all 时须为空"
+    )
 
     @model_validator(mode="after")
     def _validate_shape(self) -> SourceScope:

@@ -5,6 +5,7 @@ import asyncio
 import pytest
 
 from lib.artifacts.artifact_manifest import ArtifactKey, ProjectArtifactManifestAdapter
+from lib.infra.api_errors import BadRequestError
 from lib.script.storyboard_sequence import StoryboardImageBindingRequired
 from server.services.tasks import formal_image_commit, generation_tasks
 from tests.integration.server.services.tasks.generation_tasks_support import (
@@ -48,29 +49,20 @@ class TestGenerationTasks:
             {
                 "script_file": "episode_1.json",
                 "prompt": "direct prompt",
-                "extra_reference_images": ["characters/Alice.png"],
             },
         )
         assert storyboard_result["resource_type"] == "storyboards"
         storyboard_refs = fake_generator.image_calls[0]["reference_images"]
         # 参考图只按数组序位传输、不带任何标签；身份由 prompt 内的 Reference_Images 声明行按「图N」指认。
-        # provider 收到的是任务私有快照，extra 仍保持裸 Path。
-        assert [sorted(ref) if isinstance(ref, dict) else None for ref in storyboard_refs] == [
-            ["image"],
-            ["image"],
-            ["image"],
-            None,
-            ["image"],
-        ]
-        assert all(
-            not (ref["image"] if isinstance(ref, dict) else ref).is_relative_to(project_path) for ref in storyboard_refs
-        )
-        assert fake_generator.image_reference_bytes[0] == [b"png"] * 5
+        # provider 收到的是任务私有快照。
+        assert [sorted(ref) for ref in storyboard_refs] == [["image"]] * 4
+        assert all(not ref["image"].is_relative_to(project_path) for ref in storyboard_refs)
+        assert fake_generator.image_reference_bytes[0] == [b"png"] * 4
         assert fake_generator.image_calls[0]["prompt"] == (
             "Style: Anime\n"
             "Visual style: cinematic\n"
-            "Reference_Images: 图1为角色参考图；图2为场景参考图；图3为道具参考图；图4为补充参考图；"
-            "图5为上一分镜图，只参考构图与色调。\n"
+            "Reference_Images: 图1为角色参考图；图2为场景参考图；图3为道具参考图；"
+            "图4为上一分镜图，只参考构图与色调。\n"
             "Scene: 在雨夜街道\n"
             "Composition:\n  shot_type: Medium Shot\n  lighting: 暖光\n  ambiance: 薄雾\n"
             "Avoid: 水印、多余文字、Logo"
@@ -103,7 +95,7 @@ class TestGenerationTasks:
         character_result = await generation_tasks.execute_character_task(
             "demo",
             "Alice",
-            {"prompt": "角色描述"},
+            {},
         )
         assert character_result["resource_type"] == "characters"
         assert fake_pm.project["characters"]["Alice"]["character_sheet"] == "characters/Alice.png"
@@ -111,14 +103,14 @@ class TestGenerationTasks:
         scene_result = await generation_tasks.execute_scene_task(
             "demo",
             "祠堂",
-            {"prompt": "场景描述"},
+            {},
         )
         assert scene_result["resource_type"] == "scenes"
 
         prop_result = await generation_tasks.execute_prop_task(
             "demo",
             "玉佩",
-            {"prompt": "道具描述"},
+            {},
         )
         assert prop_result["resource_type"] == "props"
 
@@ -239,14 +231,17 @@ class TestGenerationTasks:
         with pytest.raises(StoryboardImageBindingRequired, match=r"storyboard binding missing"):
             await generation_tasks.execute_video_task("demo", "E1S01", {"script_file": "episode_1.json", "prompt": "x"})
 
-        with pytest.raises(ValueError, match=r"prompt is required for character task"):
-            await generation_tasks.execute_character_task("demo", "Alice", {"prompt": ""})
-
-        with pytest.raises(ValueError, match=r"prompt is required for scene task"):
-            await generation_tasks.execute_scene_task("demo", "祠堂", {"prompt": ""})
-
-        with pytest.raises(ValueError, match=r"prompt is required for prop task"):
-            await generation_tasks.execute_prop_task("demo", "玉佩", {"prompt": ""})
+        for bucket, name in (("characters", "Alice"), ("scenes", "祠堂"), ("props", "玉佩")):
+            fake_pm.project[bucket][name]["description"] = "  "
+        for execute, name in (
+            (generation_tasks.execute_character_task, "Alice"),
+            (generation_tasks.execute_scene_task, "祠堂"),
+            (generation_tasks.execute_prop_task, "玉佩"),
+        ):
+            with pytest.raises(BadRequestError) as excinfo:
+                await execute("demo", name, {})
+            assert excinfo.value.key == "asset_description_required"
+            assert excinfo.value.params["name"] == name
 
     async def test_tasks_declare_only_needed_lanes(self, monkeypatch, tmp_path):
         """任务只声明自己用到的 lane：图片类任务不声明 video/audio（只配置图片供应商的项目
@@ -270,8 +265,8 @@ class TestGenerationTasks:
         await generation_tasks.execute_storyboard_task(
             "demo", "E1S02", {"script_file": "episode_1.json", "prompt": "画面"}
         )
-        await generation_tasks.execute_character_task("demo", "Alice", {"prompt": "角色描述"})
-        await generation_tasks.execute_scene_task("demo", "祠堂", {"prompt": "场景描述"})
+        await generation_tasks.execute_character_task("demo", "Alice", {})
+        await generation_tasks.execute_scene_task("demo", "祠堂", {})
         for req in seen:
             assert req["image"] is not None
             assert req["video"] is None

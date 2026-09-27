@@ -27,7 +27,6 @@ function caps(lastFrame: boolean): VideoCapabilities {
       resolution: null,
       uses_reference_images: false,
       allowed: [5, 8],
-      allowed_without_reference_images: [5, 8],
       excluded: {},
     },
   };

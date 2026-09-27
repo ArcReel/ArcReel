@@ -11,7 +11,7 @@ from lib.generation import generation_admission
 
 
 async def test_admission_guard_serializes_one_resource_across_script_rebinds(tmp_path, monkeypatch):
-    monkeypatch.setattr(generation_admission, "app_data_dir", lambda: tmp_path)
+    monkeypatch.setenv("ARCREEL_DATA_DIR", str(tmp_path))
     acquired = asyncio.Event()
 
     async def _acquire_rebound_binding() -> None:
@@ -36,7 +36,7 @@ async def test_admission_guard_serializes_one_resource_across_script_rebinds(tmp
 
 
 async def test_sync_compensation_guard_shares_the_async_resource_lock(tmp_path, monkeypatch):
-    monkeypatch.setattr(generation_admission, "app_data_dir", lambda: tmp_path)
+    monkeypatch.setenv("ARCREEL_DATA_DIR", str(tmp_path))
     acquired = threading.Event()
 
     def _acquire_for_compensation() -> None:
@@ -67,7 +67,7 @@ async def test_admission_guard_propagates_non_contention_lock_failures(tmp_path,
     def _fail_lock(*_args):
         raise failure
 
-    monkeypatch.setattr(generation_admission, "app_data_dir", lambda: tmp_path)
+    monkeypatch.setenv("ARCREEL_DATA_DIR", str(tmp_path))
     monkeypatch.setattr(generation_admission.portalocker, "lock", _fail_lock)
     monkeypatch.setattr(generation_admission.asyncio, "sleep", sleep)
 
@@ -90,7 +90,7 @@ async def test_admission_guard_closes_its_file_when_unlock_fails(tmp_path, monke
         captured_handle = handle
         raise OSError("unlock failed")
 
-    monkeypatch.setattr(generation_admission, "app_data_dir", lambda: tmp_path)
+    monkeypatch.setenv("ARCREEL_DATA_DIR", str(tmp_path))
     monkeypatch.setattr(generation_admission.portalocker, "unlock", _fail_unlock)
 
     with pytest.raises(OSError, match="unlock failed"):

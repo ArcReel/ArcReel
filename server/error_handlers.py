@@ -21,6 +21,7 @@ from fastapi.responses import JSONResponse
 
 from lib.generation.generation_queue import ActiveTaskRequestConflict
 from lib.generation.generation_queue_client import TaskSpecValidationError
+from lib.i18n import render_generation_input_error
 from lib.infra.api_errors import ApiError
 from lib.script.script_editor import ScriptEditError
 from server.i18n import get_translator
@@ -89,7 +90,7 @@ def register_error_handlers(
     @app.exception_handler(ApiError)
     async def _handle_api_error(request: Request, exc: ApiError) -> JSONResponse:  # pyright: ignore[reportUnusedFunction]
         _t = get_translator(request)
-        content: dict[str, object] = {"detail": _t(exc.key, **exc.params)}
+        content: dict[str, object] = {"detail": render_generation_input_error(exc.key, exc.params, _t)}
         if exc.diagnostic is not None:
             content["diagnostic"] = exc.diagnostic
         return JSONResponse(status_code=exc.status_code, content=content)

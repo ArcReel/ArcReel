@@ -40,7 +40,7 @@ class TestDataValidator:
         project_dir = tmp_path / "projects" / "demo"
         _write_json(project_dir / "project.json", _project_payload())
 
-        validator = DataValidator(projects_root=str(tmp_path / "projects"))
+        validator = DataValidator(projects_dir=str(tmp_path / "projects"))
         result = validator.validate_project("demo")
 
         assert result.valid
@@ -58,7 +58,7 @@ class TestDataValidator:
         project_dir = tmp_path / "projects" / "demo"
         _write_json(project_dir / "project.json", payload)
 
-        result = DataValidator(projects_root=str(tmp_path / "projects")).validate_project("demo")
+        result = DataValidator(projects_dir=str(tmp_path / "projects")).validate_project("demo")
 
         assert result.valid
         assert result.errors == []
@@ -71,7 +71,7 @@ class TestDataValidator:
         project_dir = tmp_path / "projects" / "demo"
         _write_json(project_dir / "project.json", payload)
 
-        result = DataValidator(projects_root=str(tmp_path / "projects")).validate_project("demo")
+        result = DataValidator(projects_dir=str(tmp_path / "projects")).validate_project("demo")
 
         assert not result.valid
         assert any("字段类型错误: style 应为字符串" in error for error in result.errors)
@@ -88,7 +88,7 @@ class TestDataValidator:
         project_dir = tmp_path / "projects" / "demo"
         _write_json(project_dir / "project.json", payload)
 
-        result = DataValidator(projects_root=str(tmp_path / "projects")).validate_project("demo")
+        result = DataValidator(projects_dir=str(tmp_path / "projects")).validate_project("demo")
 
         assert not result.valid
         assert any("缺少必填字段: style" in error for error in result.errors)
@@ -102,7 +102,7 @@ class TestDataValidator:
         project_dir = tmp_path / "projects" / "demo"
         _write_json(project_dir / "project.json", payload)
 
-        result = DataValidator(projects_root=str(tmp_path / "projects")).validate_project("demo")
+        result = DataValidator(projects_dir=str(tmp_path / "projects")).validate_project("demo")
 
         assert not result.valid
         assert any("字段类型错误: style_template_id 应为字符串" in error for error in result.errors)
@@ -116,7 +116,7 @@ class TestDataValidator:
         project_dir = tmp_path / "projects" / "demo"
         _write_json(project_dir / "project.json", payload)
 
-        result = DataValidator(projects_root=str(tmp_path / "projects")).validate_project("demo")
+        result = DataValidator(projects_dir=str(tmp_path / "projects")).validate_project("demo")
 
         assert result.valid
 
@@ -126,7 +126,7 @@ class TestDataValidator:
         project_dir = tmp_path / "projects" / "demo"
         _write_json(project_dir / "project.json", payload)
 
-        result = DataValidator(projects_root=str(tmp_path / "projects")).validate_project("demo")
+        result = DataValidator(projects_dir=str(tmp_path / "projects")).validate_project("demo")
 
         assert result.valid
 
@@ -148,16 +148,16 @@ class TestDataValidator:
             },
         )
 
-        result = DataValidator(projects_root=str(tmp_path / "projects")).validate_project("demo")
+        result = DataValidator(projects_dir=str(tmp_path / "projects")).validate_project("demo")
 
         assert not result.valid
         # title 完全缺失 → "缺少必填字段",区别于"字段类型错误"
         assert any("缺少必填字段: title" in error for error in result.errors)
         assert any("content_mode" in error for error in result.errors)
         assert any("角色 'A' 数据格式错误" in error for error in result.errors)
-        # scenes/props 缺少 description 也应报错
-        assert any("场景 'X'" in error for error in result.errors)
-        assert any("道具 'Y'" in error for error in result.errors)
+        # 描述为空的场景 / 道具不报错
+        assert not any("场景 'X'" in error for error in result.errors)
+        assert not any("道具 'Y'" in error for error in result.errors)
 
     def test_validate_project_rejects_non_string_title(self, tmp_path):
         # title 字段存在但类型不是 string(如 int / null / list)应给出区分于"缺失"的明确文案,
@@ -167,7 +167,7 @@ class TestDataValidator:
         payload["title"] = 123
         _write_json(project_dir / "project.json", payload)
 
-        result = DataValidator(projects_root=str(tmp_path / "projects")).validate_project("demo")
+        result = DataValidator(projects_dir=str(tmp_path / "projects")).validate_project("demo")
 
         assert not result.valid
         assert any("字段类型错误: title 应为字符串" in error for error in result.errors)
@@ -181,7 +181,7 @@ class TestDataValidator:
         payload["title"] = ""
         _write_json(project_dir / "project.json", payload)
 
-        result = DataValidator(projects_root=str(tmp_path / "projects")).validate_project("demo")
+        result = DataValidator(projects_dir=str(tmp_path / "projects")).validate_project("demo")
 
         assert result.valid
         assert not any("title" in error for error in result.errors)
@@ -194,7 +194,7 @@ class TestDataValidator:
         payload["characters"]["姜月茴"]["voice_updated_at"] = 12345
         _write_json(project_dir / "project.json", payload)
 
-        result = DataValidator(projects_root=str(tmp_path / "projects")).validate_project("demo")
+        result = DataValidator(projects_dir=str(tmp_path / "projects")).validate_project("demo")
 
         assert not result.valid
         assert any("voice_updated_at 必须是字符串" in error for error in result.errors)
@@ -208,7 +208,7 @@ class TestDataValidator:
         payload["characters"]["姜月茴"]["voice_updated_at"] = "not-a-date"
         _write_json(project_dir / "project.json", payload)
 
-        result = DataValidator(projects_root=str(tmp_path / "projects")).validate_project("demo")
+        result = DataValidator(projects_dir=str(tmp_path / "projects")).validate_project("demo")
 
         assert not result.valid
         assert any("voice_updated_at 不是合法的 ISO8601 时间戳" in error for error in result.errors)
@@ -219,7 +219,7 @@ class TestDataValidator:
         payload["characters"]["姜月茴"]["voice_notice_dismissed_at"] = "not-a-date"
         _write_json(project_dir / "project.json", payload)
 
-        result = DataValidator(projects_root=str(tmp_path / "projects")).validate_project("demo")
+        result = DataValidator(projects_dir=str(tmp_path / "projects")).validate_project("demo")
 
         assert not result.valid
         assert any("voice_notice_dismissed_at 不是合法的 ISO8601 时间戳" in error for error in result.errors)
@@ -233,7 +233,7 @@ class TestDataValidator:
         payload["characters"]["姜月茴"]["voice_notice_dismissed_at"] = "2026-01-02T00:00:00Z"
         _write_json(project_dir / "project.json", payload)
 
-        result = DataValidator(projects_root=str(tmp_path / "projects")).validate_project("demo")
+        result = DataValidator(projects_dir=str(tmp_path / "projects")).validate_project("demo")
 
         assert result.valid
 
@@ -260,7 +260,7 @@ class TestDataValidator:
             },
         )
 
-        result = DataValidator(projects_root=str(tmp_path / "projects")).validate_episode("demo", "episode_1.json")
+        result = DataValidator(projects_dir=str(tmp_path / "projects")).validate_episode("demo", "episode_1.json")
 
         assert result.valid
         assert any("缺少 duration_seconds" in w for w in result.warnings)
@@ -287,7 +287,7 @@ class TestDataValidator:
             },
         )
 
-        result = DataValidator(projects_root=str(tmp_path / "projects")).validate_episode("demo", "episode_1.json")
+        result = DataValidator(projects_dir=str(tmp_path / "projects")).validate_episode("demo", "episode_1.json")
 
         # 引用的音频文件不存在 → 中央校验报错（不再被白名单静默放过）
         assert not result.valid
@@ -318,7 +318,7 @@ class TestDataValidator:
             },
         )
 
-        result = DataValidator(projects_root=str(tmp_path / "projects")).validate_episode("demo", "episode_1.json")
+        result = DataValidator(projects_dir=str(tmp_path / "projects")).validate_episode("demo", "episode_1.json")
 
         # 文件存在 → 整条校验链应通过，且不产生 narration_audio 相关错误
         assert result.valid
@@ -345,7 +345,7 @@ class TestDataValidator:
             },
         )
 
-        result = DataValidator(projects_root=str(tmp_path / "projects")).validate_episode("demo", "episode_1.json")
+        result = DataValidator(projects_dir=str(tmp_path / "projects")).validate_episode("demo", "episode_1.json")
 
         assert result.valid
         # scenes/props 都是 optional，缺少时应有警告
@@ -376,7 +376,7 @@ class TestDataValidator:
             },
         )
 
-        result = DataValidator(projects_root=str(tmp_path / "projects")).validate_episode("demo", "episode_1.json")
+        result = DataValidator(projects_dir=str(tmp_path / "projects")).validate_episode("demo", "episode_1.json")
 
         assert not result.valid
         assert any("episode (整数)" in error for error in result.errors)
@@ -424,7 +424,7 @@ class TestDataValidator:
             },
         )
 
-        result = DataValidator(projects_root=str(tmp_path / "projects")).validate_episode("demo", "episode_1.json")
+        result = DataValidator(projects_dir=str(tmp_path / "projects")).validate_episode("demo", "episode_1.json")
         assert result.valid, result.errors
 
     def test_validate_episode_accepts_nfc_nfd_mismatch_on_drama_scene_refs(self, tmp_path):
@@ -461,7 +461,7 @@ class TestDataValidator:
             },
         )
 
-        result = validate_episode("demo", "episode_2.json", projects_root=str(tmp_path / "projects"))
+        result = validate_episode("demo", "episode_2.json", projects_dir=str(tmp_path / "projects"))
         assert result.valid, result.errors
 
     @pytest.mark.parametrize("bad_duration", [0, -1, "5", 4.5, True])
@@ -487,7 +487,7 @@ class TestDataValidator:
             },
         )
 
-        result = DataValidator(projects_root=str(tmp_path / "projects")).validate_episode("demo", "episode_1.json")
+        result = DataValidator(projects_dir=str(tmp_path / "projects")).validate_episode("demo", "episode_1.json")
 
         assert not result.valid, f"bad={bad_duration}"
         assert any("duration_seconds 值无效" in e for e in result.errors), f"bad={bad_duration}; errors={result.errors}"
@@ -515,7 +515,7 @@ class TestDataValidator:
             },
         )
 
-        result = validate_episode("demo", "episode_2.json", projects_root=str(tmp_path / "projects"))
+        result = validate_episode("demo", "episode_2.json", projects_dir=str(tmp_path / "projects"))
         assert result.valid
 
     def _drama_episode_with_scene(self, tmp_path, scene_extra: dict, project_extra: dict | None = None):
@@ -538,7 +538,7 @@ class TestDataValidator:
             project_dir / "scripts" / "episode_2.json",
             {"episode": 2, "title": "第二集", "content_mode": "drama", "scenes": [scene]},
         )
-        return validate_episode("demo", "episode_2.json", projects_root=str(tmp_path / "projects"))
+        return validate_episode("demo", "episode_2.json", projects_dir=str(tmp_path / "projects"))
 
     def test_validate_episode_drama_accepts_valid_utterances(self, tmp_path):
         # 合法 utterances（dialogue 带 speaker、voiceover 无 speaker）→ 通过
@@ -632,7 +632,7 @@ class TestDataValidator:
             payload = _project_payload("drama")
             payload["speech_rate_units_per_second"] = bad
             _write_json(project_dir / "project.json", payload)
-            result = validate_project("demo", projects_root=str(case_root / "projects"))
+            result = validate_project("demo", projects_dir=str(case_root / "projects"))
             assert not result.valid
             assert any("speech_rate_units_per_second" in e for e in result.errors)
 
@@ -641,7 +641,7 @@ class TestDataValidator:
         payload = _project_payload("drama")
         payload["speech_rate_units_per_second"] = 6.5
         _write_json(project_dir / "project.json", payload)
-        result = validate_project("demo", projects_root=str(tmp_path / "projects"))
+        result = validate_project("demo", projects_dir=str(tmp_path / "projects"))
         assert result.valid, result.errors
 
     def test_validate_project_rejects_out_of_range_episode_target_duration(self, tmp_path):
@@ -652,7 +652,7 @@ class TestDataValidator:
             payload = _project_payload("drama")
             payload["episode_target_duration"] = bad
             _write_json(project_dir / "project.json", payload)
-            result = validate_project("demo", projects_root=str(case_root / "projects"))
+            result = validate_project("demo", projects_dir=str(case_root / "projects"))
             assert not result.valid
             assert any("episode_target_duration" in e for e in result.errors)
 
@@ -661,7 +661,7 @@ class TestDataValidator:
         payload = _project_payload("drama")
         payload["episode_target_duration"] = 120
         _write_json(project_dir / "project.json", payload)
-        result = validate_project("demo", projects_root=str(tmp_path / "projects"))
+        result = validate_project("demo", projects_dir=str(tmp_path / "projects"))
         assert result.valid, result.errors
 
     def test_validate_episode_drama_speech_overflow_counts_voiceover(self, tmp_path):
@@ -740,7 +740,7 @@ class TestDataValidator:
         assert any("source_text" in error for error in result.errors)
 
     def test_validate_helpers_on_missing_files(self, tmp_path):
-        result = validate_project("missing", projects_root=str(tmp_path / "projects"))
+        result = validate_project("missing", projects_dir=str(tmp_path / "projects"))
         assert not result.valid
         assert any("无法加载 project.json" in error for error in result.errors)
 
@@ -767,7 +767,7 @@ class TestDataValidator:
             },
         )
 
-        result = DataValidator(projects_root=str(tmp_path / "projects")).validate_project("demo")
+        result = DataValidator(projects_dir=str(tmp_path / "projects")).validate_project("demo")
         assert result.valid
         assert result.errors == []
 
@@ -785,51 +785,9 @@ class TestDataValidator:
             },
         )
 
-        result = DataValidator(projects_root=str(tmp_path / "projects")).validate_project("demo")
+        result = DataValidator(projects_dir=str(tmp_path / "projects")).validate_project("demo")
         assert not result.valid
         assert any("已废弃字段 clues" in error for error in result.errors)
-
-    def test_validate_scenes_dict_missing_description(self, tmp_path):
-        """scenes 字典中某个场景缺少 description 应报错"""
-        project_dir = tmp_path / "projects" / "demo"
-        _write_json(
-            project_dir / "project.json",
-            {
-                "title": "Test",
-                "content_mode": "narration",
-                "style": "Anime",
-                "characters": {},
-                "scenes": {
-                    "书房": {"description": ""},  # 空字符串视为缺失
-                },
-                "props": {},
-            },
-        )
-
-        result = DataValidator(projects_root=str(tmp_path / "projects")).validate_project("demo")
-        assert not result.valid
-        assert any("场景 '书房'" in error and "description" in error for error in result.errors)
-
-    def test_validate_props_dict_missing_description(self, tmp_path):
-        """props 字典中某个道具缺少 description 应报错"""
-        project_dir = tmp_path / "projects" / "demo"
-        _write_json(
-            project_dir / "project.json",
-            {
-                "title": "Test",
-                "content_mode": "narration",
-                "style": "Anime",
-                "characters": {},
-                "scenes": {},
-                "props": {
-                    "玉佩": {},  # 完全缺少 description 键
-                },
-            },
-        )
-
-        result = DataValidator(projects_root=str(tmp_path / "projects")).validate_project("demo")
-        assert not result.valid
-        assert any("道具 '玉佩'" in error and "description" in error for error in result.errors)
 
     def test_validate_episode_drama_invalid_scene_prop_refs(self, tmp_path):
         """剧情演绎：引用未定义的 scenes/props 应报错"""
@@ -855,7 +813,7 @@ class TestDataValidator:
             },
         )
 
-        result = DataValidator(projects_root=str(tmp_path / "projects")).validate_episode("demo", "episode_3.json")
+        result = DataValidator(projects_dir=str(tmp_path / "projects")).validate_episode("demo", "episode_3.json")
         assert not result.valid
         assert any("不存在于 project.json 的场景" in error for error in result.errors)
         assert any("不存在于 project.json 的道具" in error for error in result.errors)
@@ -887,7 +845,7 @@ class TestDataValidator:
             },
         )
 
-        result = DataValidator(projects_root=str(tmp_path / "projects")).validate_episode("demo", "episode_1.json")
+        result = DataValidator(projects_dir=str(tmp_path / "projects")).validate_episode("demo", "episode_1.json")
         assert not result.valid
         assert any("不存在于 project.json 的场景" in error for error in result.errors)
 
@@ -918,7 +876,7 @@ class TestDataValidator:
             },
         )
 
-        result = DataValidator(projects_root=str(tmp_path / "projects")).validate_episode("demo", "episode_1.json")
+        result = DataValidator(projects_dir=str(tmp_path / "projects")).validate_episode("demo", "episode_1.json")
         assert result.valid, f"导出预检查不应被 scene_type 阻断,errors={result.errors}"
 
 
@@ -952,7 +910,7 @@ class TestDerivativeReferences:
         _write_json(project_dir / "project.json", payload)
         _write_json(project_dir / "scripts" / "episode_1.json", self._episode(character_reference))
 
-        return DataValidator(projects_root=str(tmp_path / "projects")).validate_episode("demo", "episode_1.json")
+        return DataValidator(projects_dir=str(tmp_path / "projects")).validate_episode("demo", "episode_1.json")
 
     def test_registered_derivative_accepted(self, tmp_path):
         assert self._validate(tmp_path, "姜月茴/劲装").valid
@@ -974,7 +932,7 @@ class TestEpisodeLedgerFields:
         if planning_cursor != "__absent__":
             payload["planning_cursor"] = planning_cursor
         _write_json(tmp_path / "projects" / "demo" / "project.json", payload)
-        return DataValidator(projects_root=str(tmp_path / "projects")).validate_project("demo")
+        return DataValidator(projects_dir=str(tmp_path / "projects")).validate_project("demo")
 
     def _entry(self, **ledger_fields):
         return {"episode": 1, "title": "开端", "script_file": "scripts/episode_1.json", **ledger_fields}
@@ -1082,7 +1040,7 @@ class TestEpisodeLedgerFields:
             }
         ]
         _write_json(tmp_path / "projects" / "demo" / "project.json", payload)
-        result = DataValidator(projects_root=str(tmp_path / "projects")).validate_project_tree(
+        result = DataValidator(projects_dir=str(tmp_path / "projects")).validate_project_tree(
             tmp_path / "projects" / "demo"
         )
         assert not any("script_file" in e for e in result.errors), result.errors
@@ -1093,7 +1051,7 @@ class TestEpisodeLedgerFields:
         payload = _project_payload()
         payload["episodes"] = [{"episode": 1, "title": "x", "script_file": "scripts/episode_1.json"}]
         _write_json(tmp_path / "projects" / "demo" / "project.json", payload)
-        result = DataValidator(projects_root=str(tmp_path / "projects")).validate_project_tree(
+        result = DataValidator(projects_dir=str(tmp_path / "projects")).validate_project_tree(
             tmp_path / "projects" / "demo"
         )
         assert not any("script_file" in e for e in result.errors), result.errors
@@ -1103,7 +1061,7 @@ class TestEpisodeLedgerFields:
         payload = _project_payload()
         payload["episodes"] = [{"title": "x", "script_file": "scripts/episode_1.json"}]
         _write_json(tmp_path / "projects" / "demo" / "project.json", payload)
-        result = DataValidator(projects_root=str(tmp_path / "projects")).validate_project_tree(
+        result = DataValidator(projects_dir=str(tmp_path / "projects")).validate_project_tree(
             tmp_path / "projects" / "demo"
         )
         assert any("episodes[0].script_file" in e for e in result.errors)
@@ -1114,7 +1072,7 @@ class TestEpisodeLedgerFields:
         payload = _project_payload()
         payload["episodes"] = [{"episode": bad_episode_num, "title": "x", "script_file": "scripts/episode_1.json"}]
         _write_json(tmp_path / "projects" / "demo" / "project.json", payload)
-        result = DataValidator(projects_root=str(tmp_path / "projects")).validate_project_tree(
+        result = DataValidator(projects_dir=str(tmp_path / "projects")).validate_project_tree(
             tmp_path / "projects" / "demo"
         )
         assert any("episodes[0].script_file" in e for e in result.errors)
@@ -1131,7 +1089,7 @@ class TestEpisodeLedgerFields:
             }
         ]
         _write_json(tmp_path / "projects" / "demo" / "project.json", payload)
-        result = DataValidator(projects_root=str(tmp_path / "projects")).validate_project_tree(
+        result = DataValidator(projects_dir=str(tmp_path / "projects")).validate_project_tree(
             tmp_path / "projects" / "demo"
         )
         assert any("越界" in e for e in result.errors)
@@ -1140,7 +1098,7 @@ class TestEpisodeLedgerFields:
         """reference_audio 是可选字段：角色没有该字段/为空串时不应报错。"""
         payload = _project_payload()
         _write_json(tmp_path / "projects" / "demo" / "project.json", payload)
-        result = DataValidator(projects_root=str(tmp_path / "projects")).validate_project_tree(
+        result = DataValidator(projects_dir=str(tmp_path / "projects")).validate_project_tree(
             tmp_path / "projects" / "demo"
         )
         assert not any("reference_audio" in e for e in result.errors)
@@ -1153,7 +1111,7 @@ class TestEpisodeLedgerFields:
         audio_path.parent.mkdir(parents=True, exist_ok=True)
         audio_path.write_bytes(b"fake-wav-bytes")
 
-        result = DataValidator(projects_root=str(tmp_path / "projects")).validate_project_tree(
+        result = DataValidator(projects_dir=str(tmp_path / "projects")).validate_project_tree(
             tmp_path / "projects" / "demo"
         )
         assert not any("reference_audio" in e for e in result.errors)
@@ -1163,7 +1121,7 @@ class TestEpisodeLedgerFields:
         payload["characters"]["姜月茴"]["reference_audio"] = "characters/refs_audio/姜月茴.wav"
         _write_json(tmp_path / "projects" / "demo" / "project.json", payload)
 
-        result = DataValidator(projects_root=str(tmp_path / "projects")).validate_project_tree(
+        result = DataValidator(projects_dir=str(tmp_path / "projects")).validate_project_tree(
             tmp_path / "projects" / "demo"
         )
         assert any("reference_audio" in e for e in result.errors)
@@ -1173,7 +1131,7 @@ class TestEpisodeLedgerFields:
         payload["characters"]["姜月茴"]["reference_audio"] = "../outside.wav"
         _write_json(tmp_path / "projects" / "demo" / "project.json", payload)
 
-        result = DataValidator(projects_root=str(tmp_path / "projects")).validate_project_tree(
+        result = DataValidator(projects_dir=str(tmp_path / "projects")).validate_project_tree(
             tmp_path / "projects" / "demo"
         )
         assert any("reference_audio" in e and "越界" in e for e in result.errors)
@@ -1201,7 +1159,7 @@ class TestAdProjectValidation:
 
     def _validate(self, tmp_path, payload: dict):
         _write_json(tmp_path / "projects" / "demo" / "project.json", payload)
-        return DataValidator(projects_root=str(tmp_path / "projects")).validate_project("demo")
+        return DataValidator(projects_dir=str(tmp_path / "projects")).validate_project("demo")
 
     def test_valid_ad_project_passes(self, tmp_path):
         result = self._validate(tmp_path, _ad_project_payload())
@@ -1292,7 +1250,7 @@ class TestGenerationModeValidation:
 
     def _validate(self, tmp_path, payload: dict):
         _write_json(tmp_path / "projects" / "demo" / "project.json", payload)
-        return DataValidator(projects_root=str(tmp_path / "projects")).validate_project("demo")
+        return DataValidator(projects_dir=str(tmp_path / "projects")).validate_project("demo")
 
     @pytest.mark.parametrize("mode", ["storyboard", "reference_video"])
     def test_binary_route_values_pass(self, tmp_path, mode):
@@ -1365,7 +1323,7 @@ class TestAdEpisodeValidation:
             project_dir / "scripts" / "episode_1.json",
             {"episode": 1, "title": "速干杯带货", "content_mode": "ad", "shots": shots},
         )
-        return DataValidator(projects_root=str(tmp_path / "projects")).validate_episode("demo", "episode_1.json")
+        return DataValidator(projects_dir=str(tmp_path / "projects")).validate_episode("demo", "episode_1.json")
 
     def test_valid_ad_script_passes(self, tmp_path):
         result = self._validate(tmp_path, [self._ad_shot()])
@@ -1404,9 +1362,9 @@ class TestAdEpisodeValidation:
         assert any("products_in_shot" in e for e in result.errors)
 
     def test_shot_product_reference_accepts_nfc_nfd_mismatch_on_storyboard_path(self, tmp_path):
-        """products_in_shot 与其收集器（collect_product_references_for_names）同口径归一：
-        NFC/NFD 不一致的合法商品名必须放行，否则校验层比实际生成时的收集层更严格，
-        挡下收集层其实能解析的商品。"""
+        """products_in_shot 与分镜图生成输入（经引用目录解析）同口径归一：
+        NFC/NFD 不一致的合法商品名必须放行，否则校验层比实际生成时的装配更严格，
+        挡下装配其实能解析的商品。"""
         import unicodedata
 
         name_nfc = unicodedata.normalize("NFC", "Hiếu")
@@ -1418,9 +1376,9 @@ class TestAdEpisodeValidation:
         assert result.valid, result.errors
 
     def test_shot_reference_accepts_nfc_nfd_mismatch_on_storyboard_path(self, tmp_path):
-        """storyboard 路径的资产引用同样按 NFC 归一比对：该路径的图片收集
-        （server.services.tasks.generation_tasks._collect_sheet_references）归一后索引，校验层
-        若在此原样比对会拒掉收集层其实能解析的合法名字。"""
+        """storyboard 路径的资产引用同样按 NFC 归一比对：该路径的参考图装配
+        （lib.artifacts.generation_input，经引用目录解析）归一后索引，校验层
+        若在此原样比对会拒掉装配其实能解析的合法名字。"""
         import unicodedata
 
         name_nfc = unicodedata.normalize("NFC", "Hiếu")
@@ -1478,7 +1436,7 @@ class TestAdEpisodeValidationEdgeCases:
                 "shots": [{"shot_id": 101, "voiceover_text": "x", "image_prompt": "i", "video_prompt": "v"}],
             },
         )
-        result = DataValidator(projects_root=str(tmp_path / "projects")).validate_episode("demo", "episode_1.json")
+        result = DataValidator(projects_dir=str(tmp_path / "projects")).validate_episode("demo", "episode_1.json")
         assert not result.valid
         assert any("shot_id" in e for e in result.errors)
 
@@ -1504,7 +1462,7 @@ class TestAdEpisodeValidationEdgeCases:
                 ],
             },
         )
-        result = DataValidator(projects_root=str(tmp_path / "projects")).validate_episode("demo", "episode_1.json")
+        result = DataValidator(projects_dir=str(tmp_path / "projects")).validate_episode("demo", "episode_1.json")
         assert not result.valid
         assert any("products_in_shot" in e for e in result.errors)
 
@@ -1512,7 +1470,7 @@ class TestAdEpisodeValidationEdgeCases:
         payload = _ad_project_payload()
         del payload["episodes"]
         _write_json(tmp_path / "projects" / "demo" / "project.json", payload)
-        result = DataValidator(projects_root=str(tmp_path / "projects")).validate_project("demo")
+        result = DataValidator(projects_dir=str(tmp_path / "projects")).validate_project("demo")
         assert not result.valid
         assert any("恒为第 1 集单条" in e for e in result.errors)
 
@@ -1542,7 +1500,7 @@ class TestAdReferenceVideoUnitsValidation:
             project_dir / "scripts" / "episode_1.json",
             {"episode": 1, "title": "速干杯带货", "content_mode": "ad", "video_units": units},
         )
-        return DataValidator(projects_root=str(tmp_path / "projects")).validate_episode("demo", "episode_1.json")
+        return DataValidator(projects_dir=str(tmp_path / "projects")).validate_episode("demo", "episode_1.json")
 
     def test_valid_self_contained_unit_passes(self, tmp_path):
         result = self._validate(tmp_path, [self._unit()])
@@ -1592,7 +1550,7 @@ class TestSourceKindValidation:
     def _validate(self, tmp_path, project):
         project_dir = tmp_path / "projects" / "demo"
         _write_json(project_dir / "project.json", project)
-        return DataValidator(projects_root=str(tmp_path / "projects")).validate_project("demo")
+        return DataValidator(projects_dir=str(tmp_path / "projects")).validate_project("demo")
 
     def test_missing_source_kind_is_valid(self, tmp_path):
         # 存量项目无 source_kind 字段：缺省 novel，不报错
@@ -1650,7 +1608,7 @@ class TestSourceKindValidation:
                 ],
             },
         )
-        result = validate_episode("demo", "episode_1.json", projects_root=str(tmp_path / "projects"))
+        result = validate_episode("demo", "episode_1.json", projects_dir=str(tmp_path / "projects"))
         assert result.valid, result.errors
 
 
@@ -1677,7 +1635,7 @@ class TestSkeletonEntryTypeGuards:
         project_dir = tmp_path / "projects" / "demo"
         _write_json(project_dir / "project.json", project)
         _write_json(project_dir / "scripts" / "episode_1.json", episode)
-        return DataValidator(projects_root=str(tmp_path / "projects")).validate_episode("demo", "episode_1.json")
+        return DataValidator(projects_dir=str(tmp_path / "projects")).validate_episode("demo", "episode_1.json")
 
     @pytest.mark.parametrize(
         ("kind", "array_key"),
@@ -1723,7 +1681,7 @@ class TestRouteSkeletonMismatchValidation:
             {"episode": 1, "title": "第一集", "content_mode": "narration", "video_units": []},
         )
 
-        result = DataValidator(projects_root=str(tmp_path / "projects")).validate_episode("demo", "episode_1.json")
+        result = DataValidator(projects_dir=str(tmp_path / "projects")).validate_episode("demo", "episode_1.json")
 
         assert not result.valid
         assert any("骨架" in error and "重新拆分" in error for error in result.errors), result.errors
@@ -1740,7 +1698,7 @@ class TestRouteSkeletonMismatchValidation:
             {"episode": 1, "title": "第一集", "content_mode": "narration", "segments": []},
         )
 
-        result = DataValidator(projects_root=str(tmp_path / "projects")).validate_episode("demo", "episode_1.json")
+        result = DataValidator(projects_dir=str(tmp_path / "projects")).validate_episode("demo", "episode_1.json")
 
         assert not result.valid
         assert any("generate_script_plan" in error for error in result.errors), result.errors
@@ -1762,7 +1720,7 @@ class TestRouteSkeletonMismatchValidation:
             },
         )
 
-        result = DataValidator(projects_root=str(tmp_path / "projects")).validate_episode("demo", "episode_1.json")
+        result = DataValidator(projects_dir=str(tmp_path / "projects")).validate_episode("demo", "episode_1.json")
 
         assert not any("骨架" in error for error in result.errors), result.errors
 
@@ -1781,7 +1739,7 @@ class TestRouteSkeletonMismatchValidation:
             },
         )
 
-        result = DataValidator(projects_root=str(tmp_path / "projects")).validate_episode("demo", "episode_1.json")
+        result = DataValidator(projects_dir=str(tmp_path / "projects")).validate_episode("demo", "episode_1.json")
 
         # 仍按 segments 骨架校验（空数组另有其错），不因残留戳被判成失配。
         assert not any("骨架" in error for error in result.errors), result.errors
@@ -1799,7 +1757,7 @@ class TestInvalidContentModeEpisodeValidation:
             {"episode": 1, "title": "第一集", "segments": []},
         )
 
-        result = DataValidator(projects_root=str(tmp_path / "projects")).validate_episode("demo", "episode_1.json")
+        result = DataValidator(projects_dir=str(tmp_path / "projects")).validate_episode("demo", "episode_1.json")
 
         assert not result.valid
         assert any("content_mode" in error for error in result.errors), result.errors
@@ -1814,7 +1772,7 @@ class TestInvalidContentModeEpisodeValidation:
             {"episode": 1, "title": "第一集", "segments": []},
         )
 
-        result = DataValidator(projects_root=str(tmp_path / "projects")).validate_project_tree(project_dir)
+        result = DataValidator(projects_dir=str(tmp_path / "projects")).validate_project_tree(project_dir)
 
         assert not result.valid
         assert any("content_mode" in error for error in result.errors), result.errors
@@ -1829,7 +1787,7 @@ class TestInvalidContentModeEpisodeValidation:
             {"episode": 1, "title": "第一集", "content_mode": "bogus_legacy", "segments": []},
         )
 
-        result = DataValidator(projects_root=str(tmp_path / "projects")).validate_episode("demo", "episode_1.json")
+        result = DataValidator(projects_dir=str(tmp_path / "projects")).validate_episode("demo", "episode_1.json")
 
         assert not result.valid
         assert any("content_mode" in error for error in result.errors), result.errors
@@ -1859,7 +1817,7 @@ class TestInvalidContentModeEpisodeValidation:
             },
         )
 
-        result = DataValidator(projects_root=str(tmp_path / "projects")).validate_episode("demo", "episode_1.json")
+        result = DataValidator(projects_dir=str(tmp_path / "projects")).validate_episode("demo", "episode_1.json")
 
         assert result.valid, result.errors
 
@@ -1906,7 +1864,7 @@ class TestDataValidatorSkeletonExhaustiveness:
         if gen_mode:
             project["generation_mode"] = gen_mode
 
-        validator = DataValidator(projects_root=str(tmp_path / "projects"))
+        validator = DataValidator(projects_dir=str(tmp_path / "projects"))
         validator._validate_episode_payload(tmp_path, project, episode, [], [])
 
         assert _KIND_TO_VALIDATOR[kind] in called
@@ -1923,7 +1881,7 @@ class TestDataValidatorSkeletonExhaustiveness:
         project = {"content_mode": "narration", "products": {}}
         episode = {"episode": 1, "title": "第一集", "content_mode": "narration", "scenes": []}
 
-        validator = DataValidator(projects_root=str(tmp_path / "projects"))
+        validator = DataValidator(projects_dir=str(tmp_path / "projects"))
         validator._validate_episode_payload(tmp_path, project, episode, [], [])
 
         assert called == ["_validate_scenes"]
@@ -1976,6 +1934,41 @@ class TestCharacterDerivativesStructure:
         assert DataValidator("/tmp").validate_project_payload(project).error_messages == []
 
 
+class TestAssetDescription:
+    """资产描述只是生成资产图的输入：存在时须为字符串，空串与缺省都合法。"""
+
+    _BUCKETS = ("characters", "scenes", "props", "products")
+
+    @staticmethod
+    def _payload_with(bucket: str, entry: dict) -> dict:
+        project = _project_payload()
+        project["products"] = {"保温杯": {"description": "不锈钢保温杯"}}
+        project[bucket] = {"无描述资产": entry}
+        return project
+
+    @pytest.mark.parametrize("bucket", _BUCKETS)
+    @pytest.mark.parametrize("entry", [{"description": ""}, {}], ids=["empty", "absent"])
+    def test_empty_or_absent_description_passes(self, bucket, entry):
+        project = self._payload_with(bucket, entry)
+
+        result = DataValidator("/tmp").validate_asset_definitions(project)
+
+        assert result.valid
+        assert result.error_messages == []
+
+    @pytest.mark.parametrize("bucket", _BUCKETS)
+    @pytest.mark.parametrize("description", [None, 3, {"text": "x"}, ["x"]])
+    def test_non_string_description_rejected(self, bucket, description):
+        project = self._payload_with(bucket, {"description": description})
+
+        result = DataValidator("/tmp").validate_asset_definitions(project)
+
+        assert not result.valid
+        assert [message.key for message in result.error_messages] == ["val_asset_field_must_be_string"]
+        assert "无描述资产" in result.errors[0]
+        assert "description" in result.errors[0]
+
+
 class TestPendingPromptValidation:
     def test_pending_prompts_are_not_reported_as_missing(self, tmp_path):
         """机械转换落盘的条目 image_prompt / video_prompt 为 None：属于待生成态，校验不报错。"""
@@ -2002,6 +1995,6 @@ class TestPendingPromptValidation:
             },
         )
 
-        result = DataValidator(projects_root=str(tmp_path / "projects")).validate_episode("demo", "episode_1.json")
+        result = DataValidator(projects_dir=str(tmp_path / "projects")).validate_episode("demo", "episode_1.json")
 
         assert not any("image_prompt" in error or "video_prompt" in error for error in result.errors)

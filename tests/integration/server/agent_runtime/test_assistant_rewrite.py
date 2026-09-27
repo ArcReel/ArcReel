@@ -14,6 +14,7 @@ import pytest
 
 from lib.agent.agent_session_store import make_project_key
 from lib.agent.agent_session_store.store import DbSessionStore
+from lib.infra.data_root_layout import DataRootLayout
 from lib.project.project_manager import ProjectManager
 from server.agent_runtime.event_log import EventLogService, EventLogStore
 from server.agent_runtime.sdk_transcript_adapter import SdkTranscriptAdapter
@@ -113,13 +114,13 @@ class FakeSessionManager:
 @pytest.fixture
 async def rewriting(session_factory, tmp_path):
     """一个有两轮对话、两条用户消息都已建立身份映射的原会话 + 装好替身运行时的服务。"""
-    projects_root = tmp_path / "projects"
-    project_cwd = projects_root / PROJECT_NAME
+    project_cwd = DataRootLayout(tmp_path).projects_dir / PROJECT_NAME
     project_cwd.mkdir(parents=True)
 
     service = AssistantService(project_root=tmp_path)
-    service.projects_root = projects_root
-    service.pm = ProjectManager(projects_root)
+    service.layout = DataRootLayout(tmp_path)
+    service.data_root = tmp_path
+    service.pm = ProjectManager(tmp_path)
 
     store = DbSessionStore(session_factory)
     log_store = EventLogStore(session_factory=session_factory)
@@ -387,7 +388,7 @@ class TestRewriteRejections:
 
     async def test_session_from_another_project_is_not_found(self, rewriting):
         service, _, session_id, _ = rewriting
-        (service.projects_root / "other").mkdir()
+        (service.layout.projects_dir / "other").mkdir()
 
         with pytest.raises(FileNotFoundError):
             await service.rewrite_message(

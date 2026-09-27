@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json as json_module
 import logging
 from pathlib import Path
@@ -29,6 +30,11 @@ logger = logging.getLogger(__name__)
 
 # 默认图片模型
 DEFAULT_IMAGE_MODEL = "gemini-3.1-flash-image-preview"
+
+# Gemini 3 图像模型单请求最多混合 14 张参考图。
+# 参考：https://ai.google.dev/gemini-api/docs/image-generation
+_MAX_REFERENCE_IMAGES = 14
+_MODELS_WITH_14_REFERENCES = frozenset({"gemini-3-pro-image-preview", "gemini-3.1-flash-image-preview"})
 
 
 class GeminiImageBackend:
@@ -100,8 +106,7 @@ class GeminiImageBackend:
 
     @property
     def max_reference_images(self) -> int:
-        # Gemini 不按数量裁剪参考图，全量随请求发出。
-        return 0
+        return _MAX_REFERENCE_IMAGES if self._image_model in _MODELS_WITH_14_REFERENCES else 0
 
     @with_retry_async(max_attempts=5, backoff_seconds=(2, 4, 8, 16, 32))
     async def generate(self, request: ImageGenerationRequest) -> ImageGenerationResult:
@@ -112,7 +117,13 @@ class GeminiImageBackend:
 
         # 2. 构建 contents：参考图按数组序位排在前，prompt 置于末尾；
         #    参考图的身份由 prompt 内的 Reference_Images 声明行按「图N」指认，图片之间不夹任何文本标签。
-        contents: list = [self._load_image_detached(ref.path) for ref in request.reference_images]
+        refs = request.reference_images
+        limit = self.max_reference_images
+        if limit and len(refs) > limit:
+            logger.warning("Gemini 参考图数量 %d 超过上限 %d，截断", len(refs), limit)
+            refs = refs[:limit]
+        # 打开并解码参考图是阻塞 I/O，逐张卸载到线程后并发等待，避免堵住事件循环
+        contents: list = await asyncio.gather(*[asyncio.to_thread(self._load_image_detached, ref.path) for ref in refs])
         contents.append(request.prompt)
 
         image_config_kwargs: dict = {"aspect_ratio": request.aspect_ratio}

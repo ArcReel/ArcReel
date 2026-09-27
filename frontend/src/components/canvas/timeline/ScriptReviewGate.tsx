@@ -12,12 +12,12 @@ import type {
 } from "@/types";
 import { useAppStore } from "@/stores/app-store";
 import { useAssistantStore } from "@/stores/assistant-store";
-import { useModelCapabilities } from "@/hooks/useModelCapabilities";
 import { useScriptReviewDraft } from "@/hooks/useScriptReviewDraft";
 import { voidPromise } from "@/utils/async";
 import { EpisodeDurationSummary } from "@/components/shared/EpisodeDurationSummary";
 import { ScriptOverwriteConfirmDialog } from "@/components/shared/ScriptOverwriteConfirmDialog";
 import { VideoModelUnresolvedNotice } from "@/components/shared/VideoModelUnresolvedNotice";
+import { useModelCapabilities } from "@/hooks/useModelCapabilities";
 import { PrimaryButton } from "@/components/ui/PrimaryButton";
 import { AutoTextarea } from "@/components/ui/AutoTextarea";
 import {
@@ -34,6 +34,7 @@ interface ScriptReviewGateProps {
   projectName: string;
   episode: number;
   contentMode: "narration" | "drama";
+  videoModelUnresolved?: boolean;
   /** 切到本集时间线；确认后的只读态据此给出去时间线修改的入口，未提供时不渲染入口。 */
   onOpenTimeline?: () => void;
 }
@@ -270,8 +271,10 @@ function QuarantinePanel(props: { quarantine: ScriptReviewQuarantine; onRequestF
  * 待修复草稿在场时整面板转只读（见 `QuarantinePanel`）：正式内容此刻仍是上一版，编辑与确认
  * 都无意义——确认端点本就按同一判据拒绝。确认之后脚本规划只读，卡片不渲染编辑控件，指引到时间线修改。
  */
-export function ScriptReviewGate({ projectName, episode, contentMode, onOpenTimeline }: ScriptReviewGateProps) {
+export function ScriptReviewGate({ projectName, episode, contentMode, videoModelUnresolved, onOpenTimeline }: ScriptReviewGateProps) {
   const { t } = useTranslation("dashboard");
+  const standaloneCapabilities = useModelCapabilities({ projectName, enabled: videoModelUnresolved === undefined });
+  const modelUnresolved = videoModelUnresolved ?? standaloneCapabilities.videoModelUnresolved;
   const pushToast = useAppStore((s) => s.pushToast);
   const [overwriteOpen, setOverwriteOpen] = useState(false);
 
@@ -298,10 +301,6 @@ export function ScriptReviewGate({ projectName, episode, contentMode, onOpenTime
     selectContent: selectReviewContent,
     onConfirmed: handleConfirmed,
   });
-
-  // 确认转出按视频模型能力定时长档位：服务端明确答复模型无法解析时提前拦下；能力请求本身失败
-  // 不算，交确认端点兜底。能力按项目生成模式定轴，不带集号；演示项目由 hook 自行跳过。
-  const { videoModelUnresolved } = useModelCapabilities({ projectName });
 
   const updateDramaScene = (index: number, patch: Partial<DramaSceneContent>) => {
     setDraft((prev) => {
@@ -376,7 +375,7 @@ export function ScriptReviewGate({ projectName, episode, contentMode, onOpenTime
   // 已确认但该集没有正式脚本（迁移转换失败或文件被删）：确认仍可用，重新确认即转出正式脚本。
   const scriptMissing = confirmed && state?.script_overwrite == null;
   const confirmLocked = quarantined || (confirmed && !scriptMissing);
-  const videoModelBlocked = videoModelUnresolved && !confirmLocked;
+  const videoModelBlocked = modelUnresolved && !confirmLocked;
   const confirmBlockedHint = quarantined
     ? t("dashboard:review_confirm_blocked_quarantined")
     : videoModelBlocked

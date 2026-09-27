@@ -17,6 +17,8 @@ MESSAGES = {
     "event_label_named_entity_character": 'Nhân vật "{id}"',
     "event_label_named_entity_scene": 'Cảnh "{id}"',
     "event_label_named_entity_prop": 'Đạo cụ "{id}"',
+    "event_label_named_entity_product": 'Sản phẩm "{id}"',
+    "event_label_named_entity_character_derivative": 'Biến thể nhân vật "{id}"',
     "event_label_character_reference_audio": 'Âm thanh tham chiếu của nhân vật "{id}"',
     "event_label_project_settings": "Cài đặt dự án",
     "event_label_overview": "Tổng quan dự án",

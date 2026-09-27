@@ -304,84 +304,38 @@ async def build_managed_with_actor(
     return managed, actor, client
 
 
-from lib.backends.image_backends.base import ImageCapability, ImageGenerationRequest, ImageGenerationResult
+def fake_reference_request_facts(
+    *,
+    durations: tuple[int, ...] = (),
+    failures: Mapping[str, Any] | None = None,
+    **overrides: Any,
+):
+    """参考路线请求投影的视频请求事实查找：按桶返回构造好的结果对象。
 
+    ``failures`` 按桶给出 ``VideoRequestFactsFailure``，命中的桶原样返回失败对象；其余桶按
+    ``durations`` 与 ``overrides`` 构造成功事实（``tests.factories.make_video_request_facts``）。
+    """
 
-class FakeImageBackend:
-    """Fake image backend for testing."""
+    from tests.factories import make_video_request_facts
 
-    def __init__(self, *, provider: str = "fake", model: str = "fake-model"):
-        self._provider = provider
-        self._model = model
+    async def lookup(generation_type):
+        if failures is not None and generation_type in failures:
+            return failures[generation_type]
+        fields: dict[str, Any] = {
+            "route": "reference_video",
+            "generation_type": generation_type,
+            "provider_id": "fake",
+            "model_id": "fake-model",
+            "resolution": "1080p",
+            "supported_durations": durations,
+            "allowed_durations": durations,
+            "max_reference_images": 9,
+            "audio_switch_controllable": True,
+        }
+        fields.update(overrides)
+        return make_video_request_facts(**fields)
 
-    @property
-    def name(self) -> str:
-        return self._provider
-
-    @property
-    def model(self) -> str:
-        return self._model
-
-    @property
-    def capabilities(self) -> set[ImageCapability]:
-        return {ImageCapability.TEXT_TO_IMAGE, ImageCapability.IMAGE_TO_IMAGE}
-
-    @property
-    def max_reference_images(self) -> int:
-        # 替身不按数量裁剪参考图，全量随请求发出。
-        return 0
-
-    async def generate(self, request: ImageGenerationRequest) -> ImageGenerationResult:
-        request.output_path.parent.mkdir(parents=True, exist_ok=True)
-        # Minimal valid PNG (1x1 pixel)
-        request.output_path.write_bytes(
-            b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01"
-            b"\x00\x00\x00\x01\x08\x02\x00\x00\x00\x90wS\xde\x00"
-            b"\x00\x00\x0cIDATx\x9cc\xf8\x0f\x00\x00\x01\x01\x00"
-            b"\x05\x18\xd8N\x00\x00\x00\x00IEND\xaeB`\x82"
-        )
-        return ImageGenerationResult(
-            image_path=request.output_path,
-            provider=self._provider,
-            model=self._model,
-        )
-
-
-class FakeReferenceCapabilityProjection:
-    """Configurable provider capability adapter for reference projection tests."""
-
-    def __init__(
-        self,
-        *,
-        durations: tuple[int, ...],
-        provider_id: str = "fake",
-        model_id: str = "fake-model",
-        max_reference_images: int | None = 9,
-        text_to_video: bool = True,
-    ) -> None:
-        self.durations = durations
-        self.provider_id = provider_id
-        self.model_id = model_id
-        self.max_reference_images = max_reference_images
-        self.text_to_video = text_to_video
-
-    async def resolve_candidate(self, project: dict, generation_type):
-        from lib.script.reference_video.request_projection import ProviderProjectionCandidate
-
-        del project
-        return ProviderProjectionCandidate(
-            generation_type=generation_type,
-            provider_id=self.provider_id,
-            model_id=self.model_id,
-            supported_durations=self.durations,
-            max_reference_images=self.max_reference_images,
-            resolution="1080p",
-            generate_audio=True,
-            requested_generate_audio=True,
-            has_audio_track=True,
-            audio_switch_controllable=True,
-            text_to_video=self.text_to_video,
-        )
+    return lookup
 
 
 def fake_reference_request_projector(
@@ -391,9 +345,13 @@ def fake_reference_request_projector(
     model_id: str = "fake-model",
     max_reference_images: int | None = 9,
     text_to_video: bool = True,
-    capabilities: FakeReferenceCapabilityProjection | None = None,
+    request_facts=None,
 ):
-    """构造使用真实资产水合与投影规则、仅替换 provider 能力查询的 async 测试入口。"""
+    """构造使用真实资产水合与投影规则、仅替换视频请求事实的 async 测试入口。
+
+    ``request_facts`` 给定时原样作为按桶查找（见 :func:`fake_reference_request_facts`），
+    否则按其余参数构造。
+    """
 
     from lib.script.reference_video.request_projection import (
         FilesystemReferenceAssets,
@@ -403,7 +361,7 @@ def fake_reference_request_projector(
         resolve_reference_assets,
     )
 
-    if capabilities is not None:
+    if request_facts is not None:
         if (
             durations is not None
             or provider_id != "fake"
@@ -411,12 +369,12 @@ def fake_reference_request_projector(
             or max_reference_images != 9
             or text_to_video is not True
         ):
-            raise ValueError("capabilities cannot be combined with candidate construction fields")
-        projection_capabilities = capabilities
+            raise ValueError("request_facts cannot be combined with facts construction fields")
+        facts_lookup = request_facts
     else:
         if durations is None:
-            raise ValueError("durations are required when capabilities are not supplied")
-        projection_capabilities = FakeReferenceCapabilityProjection(
+            raise ValueError("durations are required when request_facts are not supplied")
+        facts_lookup = fake_reference_request_facts(
             durations=durations,
             provider_id=provider_id,
             model_id=model_id,
@@ -434,7 +392,7 @@ def fake_reference_request_projector(
         **_kwargs: object,
     ) -> ReferenceUnitRequestProjection:
         return await ReferenceUnitRequestProjector(
-            projection_capabilities,
+            facts_lookup,
             FilesystemReferenceAssets(project_path),
         ).project_current(
             project=project,
@@ -450,14 +408,14 @@ def fake_reference_request_projector(
 class FakeConfigResolver:
     """能力解析器 seam 的手写替身：按桶回答视频能力，不触碰配置库。
 
-    生产侧凡接 ``config_resolver`` 关键字的入口（``ToolContext``、``MediaGenerator``、
-    ``resolve_video_caps`` / ``fetch_video_caps`` 及 ``text_generation`` 的几个取值器）都可注入本类，替代对这些取值器
-    本身的整体替换——被替换掉的取值器里有软回退、联动约束收窄与声音档派生，那些才是用例要
-    保护的行为。
+    Agent 工具测试装配 ``ToolHarness`` 与生产侧凡接 ``config_resolver`` 关键字的入口（``MediaGenerator``、
+    ``project_video_caps`` 等能力 dict 取值器）都可注入本类，替代对这些取值器本身的整体替换——被替换掉的取值器里有软回退与
+    声音档派生，那些才是用例要保护的行为。本类不实现执行模型解析与逐模型能力合成，视频请求事实的
+    消费方测试改用 ``tests/conftest.py`` 的 ``set_video_request_facts`` 直接供给事实结果。
 
     ``by_generation_type`` 给按桶分叉的路径用（参考生视频的无引用 unit 走 i2v 桶）：键是
     ``VideoGenerationType`` 字面量，值是覆盖在基础能力上的字段。``error`` / ``generate_audio_error``
-    让软回退分支不必再 patch 就能触发。
+    让软回退分支不必再 patch 就能触发。``image_resolution`` 是图像分辨率档，宫格档位门控按它取档。
     """
 
     def __init__(
@@ -480,6 +438,7 @@ class FakeConfigResolver:
         image_backend: tuple[str, str] = ("fake", "fake-image"),
         image_backend_error: BaseException | None = None,
         reference_payload_limits: tuple[int, int] | None = None,
+        image_resolution: str = "1080p",
         **extra: Any,
     ) -> None:
         self._base: dict[str, Any] = {
@@ -504,8 +463,8 @@ class FakeConfigResolver:
         self._image_backend = image_backend
         self._image_backend_error = image_backend_error
         self._reference_payload_limits = reference_payload_limits
+        self._image_resolution = image_resolution
         self.generation_type_calls: list[str | None] = []
-        self.project_names: list[str | None] = []
         self.project_payloads: list[dict[str, Any]] = []
         self.image_generation_type_calls: list[str | None] = []
         self.generate_audio_calls: list[dict[str, Any] | None] = []
@@ -520,10 +479,6 @@ class FakeConfigResolver:
         caps["max_duration"] = max(durations) if durations else 0
         return caps
 
-    async def video_capabilities(self, project_name: str | None = None) -> dict[str, Any]:
-        self.project_names.append(project_name)
-        return self._resolve(None)
-
     async def video_capabilities_for_project(
         self,
         project: dict[str, Any],
@@ -535,7 +490,7 @@ class FakeConfigResolver:
 
     async def resolve_resolution(self, project: dict[str, Any], provider_id: str, model_id: str) -> str:
         del project, provider_id, model_id
-        return "1080p"
+        return self._image_resolution
 
     async def resolve_image_backend(
         self,

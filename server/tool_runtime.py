@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import functools
 import hashlib
 import json
 import math
@@ -12,15 +13,16 @@ import re
 import stat
 import tempfile
 from collections.abc import Awaitable, Callable
-from dataclasses import asdict, dataclass, field, is_dataclass
+from dataclasses import asdict, dataclass, field, is_dataclass, replace
 from pathlib import Path, PurePosixPath
 from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic.json_schema import SkipJsonSchema
 
 from lib.agent.profile_manifest import ContentMode
 from lib.artifacts.artifact_activation import ArtifactCurrencyResolver, active_artifact_currency_resolver
-from lib.config.resolver import ConfigResolver
+from lib.config.resolver import ConfigResolver, caps_generation_mode, video_bucket_for_generation_mode
 from lib.db import async_session_factory
 from lib.episode.episode_paths import (
     DRAMA_SCRIPT_PLAN_QUARANTINE_FILENAME,
@@ -59,6 +61,7 @@ from lib.generation.generation_queue import (
     GenerationQueue,
     cleanup_fresh_generation_batch,
     get_generation_queue,
+    text_task_request_facts,
 )
 from lib.generation.generation_queue_client import (
     BatchTaskResult,
@@ -79,10 +82,12 @@ from lib.generation.generation_result import (
     migration_problem,
     problem_from_task_failure,
 )
+from lib.generation.video_request_facts import VideoRequestFactsError
 from lib.infra.async_thread import run_sync_transaction as _run_sync_transaction
 from lib.infra.content_digest import prefixed, prefixed_canonical_json_digest
+from lib.infra.data_root_layout import DataRootLayout
 from lib.infra.path_safety import safe_join
-from lib.infra.schema_guards import is_int, is_str
+from lib.infra.schema_guards import is_str
 from lib.project.asset_inventory import (
     AssetInventoryError,
     AssetInventoryInvalidRequest,
@@ -95,7 +100,6 @@ from lib.project.asset_inventory import (
 from lib.project.asset_types import ASSET_SPECS
 from lib.project.project_manager import ProjectManager, SourceKind, is_reference_video_project
 from lib.project.project_migration_failure import (
-    MIGRATION_FAILURE_CODE,
     MigrationFailureRecord,
     ProjectMigrationError,
     load_migration_failure,
@@ -134,6 +138,8 @@ from lib.script.source_loader import (
     UnsupportedFormatError,
 )
 from lib.speech.character_voice import VALID_CHARACTER_VOICE_BINDINGS
+from lib.speech.narration_delivery import TtsSettingsResolver
+from lib.speech.speech_composition import SpeechProblemCode
 from lib.workflow.workflow_plan import WorkflowPlan, WorkflowPlanRequest
 from lib.workflow.workflow_state import WorkflowRequestError
 from server.draft_workflow import (
@@ -143,12 +149,19 @@ from server.draft_workflow import (
     DraftWorkflow,
     DraftWorkflowError,
     PatchDraftRequest,
+    PositiveEpisode,
     PromoteDraftRequest,
 )
 from server.services.admission.prompt_preview import ItemPromptPreview, ScriptItemNotFound, preview_item_prompts
 from server.services.project.workflow_planner import WorkflowPlanner
-from server.services.tasks.video_caps import annotate_reference_unit_tiers
+from server.services.tasks.video_caps import (
+    annotate_reference_unit_tiers,
+    capability_request_facts,
+    duration_constraints_payload,
+)
 from server.text_generation import (
+    MAX_INSTRUCTIONS_LEN,
+    SCOPE_REMOVED_MESSAGE,
     ScriptOverwriteRequiredError,
     TextGenerationError,
     TextGenerationRequest,
@@ -174,13 +187,29 @@ class ToolRequest[RequestT]:
 @dataclass(frozen=True, slots=True)
 class ProjectScope:
     project_name: str
-    projects_root: Path
+    data_root: Path
+
+
+type BatchWaiter = Callable[..., Awaitable[tuple[list[BatchTaskResult], list[BatchTaskResult]]]]
 
 
 @dataclass(frozen=True, slots=True)
 class CallerContext:
+    """调用方身份与宿主。
+
+    ``source`` 决定长任务阻塞还是即返：``embedded`` 由 ``batch_waiter`` 入队并等到批次终态，
+    ``mcp`` 提交后立即返回批次句柄、不需要等待器。
+    """
+
     user_id: str
     source: Literal["embedded", "mcp"]
+    batch_waiter: BatchWaiter | None = None
+
+    def waiting_with(self, **options: Any) -> CallerContext:
+        """给等待器绑定额外选项（如 ``on_enqueued`` / ``stop_on_failure``）；没有等待器时原样返回。"""
+        if self.batch_waiter is None:
+            return self
+        return replace(self, batch_waiter=functools.partial(self.batch_waiter, **options))
 
 
 @dataclass(frozen=True, slots=True)
@@ -189,6 +218,16 @@ class Services:
     workflow_planner: WorkflowPlanner
     capabilities: ConfigResolver
     queue: GenerationQueue = field(default_factory=get_generation_queue)
+    tts_settings_resolver: TtsSettingsResolver | None = None
+
+    @classmethod
+    def defaults(cls, projects: ProjectManager) -> Services:
+        """生产缺省协作者：该项目管理器的工作流规划器、读数据库的配置解析器与全局生成队列。"""
+        return cls(
+            projects=projects,
+            workflow_planner=WorkflowPlanner(projects),
+            capabilities=ConfigResolver(async_session_factory),
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -217,7 +256,7 @@ class ToolOutcome[ResultT]:
 class GenerationBatchToolRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    batch_id: str = Field(min_length=1)
+    batch_id: str = Field(min_length=1, description="生成批次 id，取自生成工具返回的 generation_batch.batch_id")
 
 
 @dataclass(frozen=True, slots=True)
@@ -238,8 +277,8 @@ async def submit_media_generation(
     specs: list[TaskSpec],
     states: dict[str, GenerationTargetState] | None = None,
     admission: dict[str, dict[str, Any]] | None = None,
-    embedded_waiter: Callable[..., Awaitable[tuple[list[BatchTaskResult], list[BatchTaskResult]]]] | None = None,
 ) -> MediaGenerationSubmission:
+    """提交一批媒体生成：远程调用方即返批次句柄，内嵌调用方经 ``caller.batch_waiter`` 等到批次终态。"""
     requested, blocked = build_generation_batch_admission(
         preflight=preflight,
         pending_ids=pending_ids,
@@ -267,10 +306,11 @@ async def submit_media_generation(
         user_id=caller.user_id,
     )
     try:
-        if embedded_waiter is None:
+        waiter = caller.batch_waiter
+        if waiter is None:
             raise ValueError("embedded media generation requires a batch waiter")
         if specs:
-            successes, failures = await embedded_waiter(
+            successes, failures = await waiter(
                 project_name=scope.project_name,
                 specs=specs,
                 batch_id=batch_id,
@@ -305,7 +345,7 @@ async def get_generation_batch(
     try:
         resolver: ArtifactCurrencyResolver | None = None
         try:
-            project = await asyncio.to_thread(services.projects.load_project_readonly, scope.project_name)
+            project = await asyncio.to_thread(services.projects.load_project, scope.project_name)
             resolver = active_artifact_currency_resolver(
                 services.projects.get_project_path(scope.project_name),
                 project,
@@ -348,31 +388,33 @@ class PatchUpdateOperation(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     op: Literal["update"]
-    id: str = Field(min_length=1)
-    fields: dict[str, Any] = Field(min_length=1)
+    id: str = Field(min_length=1, description="要修改的条目 id（segment_id / scene_id / shot_id / unit_id）")
+    fields: dict[str, Any] = Field(
+        min_length=1, description="字段路径到新值的映射；嵌套字段用点号路径，如 image_prompt.scene"
+    )
 
 
 class PatchInsertOperation(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     op: Literal["insert"]
-    after_id: str = Field(min_length=1)
-    item: dict[str, Any]
+    after_id: str = Field(min_length=1, description="新条目插在这个 id 之后")
+    item: dict[str, Any] = Field(description="新条目的完整内容；id 由系统按锚点重新分配")
 
 
 class PatchRemoveOperation(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     op: Literal["remove"]
-    id: str = Field(min_length=1)
+    id: str = Field(min_length=1, description="要删除的条目 id")
 
 
 class PatchSplitOperation(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     op: Literal["split"]
-    id: str = Field(min_length=1)
-    parts: list[dict[str, Any]] = Field(min_length=2)
+    id: str = Field(min_length=1, description="要拆分的条目 id；第一段沿用该 id，其余段分配新 id")
+    parts: list[dict[str, Any]] = Field(min_length=2, description="拆分后的各段完整内容，按顺序排列，至少两段")
 
 
 PatchEpisodeScriptOperation = Annotated[
@@ -384,9 +426,98 @@ PatchEpisodeScriptOperation = Annotated[
 class PatchEpisodeScriptRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    script: str = Field(min_length=1)
-    base_revision: str = Field(pattern=r"^sha256-v1:[0-9a-f]{64}$")
-    operations: list[PatchEpisodeScriptOperation] = Field(min_length=1)
+    script: str = Field(
+        min_length=1, description="剧本纯文件名（不含目录），如 episode_1.json；单集单文件，多集编辑每集一次调用"
+    )
+    base_revision: str = Field(
+        pattern=r"^sha256-v1:[0-9a-f]{64}$", description="get_episode_script 返回的当前 revision"
+    )
+    operations: list[PatchEpisodeScriptOperation] = Field(
+        min_length=1, description="按顺序执行的编辑操作，整批原子提交：update / insert / remove / split"
+    )
+
+    @field_validator("script")
+    @classmethod
+    def _validate_script(cls, value: str) -> str:
+        if "/" in value or "\\" in value or value in (".", ".."):
+            raise ValueError(f"script 必须是纯文件名，禁止路径分隔符: {value!r}")
+        return value
+
+
+_SPEECH_PROBLEM_CODES = frozenset(code.value for code in SpeechProblemCode)
+_REGENERATION_FIELDS = frozenset({"image_prompt", "video_prompt"})
+
+
+class ScriptSpeechProblem(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    code: str
+    unit_id: str | None
+    locations: tuple[ScriptBatchEditLocation, ...] = ()
+    reason: str
+    action: str
+
+
+class ScriptSpeechAdmission(BaseModel):
+    """剧本编辑因发声组合被拒时，被点名单元的发声准入；与 ``SpeechAdmission.to_dict()`` 同形。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    allowed: Literal[False] = False
+    unit_id: str | None
+    mode: None = None
+    problems: tuple[ScriptSpeechProblem, ...]
+
+
+class ScriptPatchResult(ScriptBatchEditResult):
+    """``patch_episode_script`` 的结果：剧本批量编辑结果，加上给 Agent 的后续动作提示。
+
+    - ``regeneration_required_ids``：提交成功且改了 image_prompt / video_prompt 的条目，须紧接着重新生成对应图 / 视频；
+    - ``speech_admission``：首个问题属于发声组合时，被点名单元的全部发声问题。
+    未绑定 mention 的提示沿用 ``warnings``。
+    """
+
+    regeneration_required_ids: tuple[str, ...] = ()
+    speech_admission: ScriptSpeechAdmission | None = None
+
+
+def _regeneration_required_ids(operations: list[PatchEpisodeScriptOperation]) -> tuple[str, ...]:
+    return tuple(
+        dict.fromkeys(
+            operation.id
+            for operation in operations
+            if isinstance(operation, PatchUpdateOperation)
+            and any(field.split(".", 1)[0] in _REGENERATION_FIELDS for field in operation.fields)
+        )
+    )
+
+
+def _speech_admission(result: ScriptBatchEditResult) -> ScriptSpeechAdmission | None:
+    if not result.problems or result.problems[0].code not in _SPEECH_PROBLEM_CODES:
+        return None
+    unit_id = result.problems[0].unit_id
+    return ScriptSpeechAdmission(
+        unit_id=unit_id,
+        problems=tuple(
+            ScriptSpeechProblem(
+                code=problem.code,
+                unit_id=problem.unit_id,
+                locations=problem.locations,
+                reason=problem.reason,
+                action=problem.next_action,
+            )
+            for problem in result.problems
+            if problem.unit_id == unit_id
+        ),
+    )
+
+
+def _script_patch_result(request: PatchEpisodeScriptRequest, result: ScriptBatchEditResult) -> ScriptPatchResult:
+    return ScriptPatchResult(
+        **dict(result),
+        regeneration_required_ids=_regeneration_required_ids(request.operations) if result.success else (),
+        speech_admission=_speech_admission(result),
+    )
 
 
 async def _run_text_generation(
@@ -410,7 +541,9 @@ _TEXT_DRAMA_SCRIPT_PLAN = "text_drama_script_plan"
 _TEXT_NARRATION_SCRIPT_PLAN = "text_narration_script_plan"
 _TEXT_REFERENCE_SCRIPT_PLAN = "text_reference_script_plan"
 _TEXT_EPISODE_PLAN = "text_episode_plan"
-_TEXT_TASK_SERVICES: dict[str, Services] = {}
+#: 嵌入式宿主在本进程内提交、并在本进程内等待的文本任务：worker 沿用提交方的数据根与服务。
+#: 只在内存里，不进任务载荷；没有登记的任务（MCP 提交、重启后的存量任务）按当前配置解析。
+_TEXT_TASK_SERVICES: dict[str, tuple[ProjectScope, Services]] = {}
 
 
 def _queued_generation_problem(problem: ToolProblem) -> GenerationProblem:
@@ -439,20 +572,15 @@ async def _submit_text_task(
         resource_ids=[unit_id],
         user_id=caller.user_id,
     )
-    requested_facts = {key: value for key, value in payload.items() if key != "projects_root"}
-    if active:
-        existing_facts = {
-            key: value for key, value in (active[0].get("payload") or {}).items() if key != "projects_root"
-        }
-        if existing_facts != requested_facts:
-            return ToolOutcome(
-                problem=ToolProblem(
-                    "generation_active_task_conflict",
-                    "generation_active_task_conflict",
-                    action=GenerationAction.WAIT_FOR_TASK,
-                    params={"task_id": active[0]["task_id"], "status": active[0]["status"]},
-                )
+    if active and text_task_request_facts(active[0].get("payload")) != text_task_request_facts(payload):
+        return ToolOutcome(
+            problem=ToolProblem(
+                "generation_active_task_conflict",
+                "generation_active_task_conflict",
+                action=GenerationAction.WAIT_FOR_TASK,
+                params={"task_id": active[0]["task_id"], "status": active[0]["status"]},
             )
+        )
     snapshot = GenerationBatchRequestSnapshot(
         selection=GenerationSelectionMode.EXPLICIT,
         requested=[GenerationBatchRequestedItem(unit_id=unit_id)],
@@ -471,7 +599,7 @@ async def _submit_text_task(
             task_type=task_type,
             media_type="text",
             resource_id=unit_id,
-            payload={**payload, "projects_root": str(scope.projects_root)},
+            payload=payload,
             source=caller.source,
             user_id=caller.user_id,
             batch_id=batch_id,
@@ -480,7 +608,7 @@ async def _submit_text_task(
         )
         registered_services = caller.source == "embedded" and not enqueue.get("deduped")
         if registered_services:
-            _TEXT_TASK_SERVICES[enqueue["task_id"]] = services
+            _TEXT_TASK_SERVICES[enqueue["task_id"]] = (scope, services)
         try:
             batch = await services.queue.get_generation_batch(
                 project_name=scope.project_name, batch_id=batch_id, user_id=caller.user_id
@@ -541,21 +669,78 @@ async def _execute_text_handler(
     )
 
 
+_TextInstructions = Annotated[
+    str,
+    Field(
+        max_length=MAX_INSTRUCTIONS_LEN,
+        description=(
+            "用户对本次生成的附加指令原文（可选）；原样注入 prompt 末尾的「附加指令」分节，"
+            f"遵循强度由正文表达，缺省/空白视同未传，最长 {MAX_INSTRUCTIONS_LEN} 字符"
+        ),
+    ),
+]
+_DRY_RUN_DESCRIPTION = "仅返回 prompt，不调用模型"
+
+
+class GenerateEpisodeScriptRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    episode: PositiveEpisode = Field(description="剧集编号")
+    instructions: _TextInstructions | SkipJsonSchema[None] = None
+    entry_ids: list[Annotated[str, Field(min_length=1)]] | SkipJsonSchema[None] = Field(
+        default=None,
+        description="显式重写这些条目（分镜 / 单元 id）的视觉层，不论是否待编写；省略时编写全部待编写条目",
+    )
+    dry_run: bool = Field(default=False, description=_DRY_RUN_DESCRIPTION)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _reject_retired_scope(cls, data: Any) -> Any:
+        if isinstance(data, dict) and "scope" in data:
+            raise ValueError(SCOPE_REMOVED_MESSAGE)
+        return data
+
+    def text_request(self) -> TextGenerationRequest:
+        return TextGenerationRequest(
+            episode=self.episode,
+            instructions=self.instructions,
+            entry_ids=tuple(self.entry_ids or ()),
+            dry_run=self.dry_run,
+        )
+
+
+class GenerateScriptPlanRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    episode: PositiveEpisode = Field(description="剧集编号")
+    source: str | SkipJsonSchema[None] = Field(
+        default=None, description="可选的项目内源文件相对路径；缺省读取本集派生源文 source/episode_N.txt"
+    )
+    instructions: _TextInstructions | SkipJsonSchema[None] = None
+    dry_run: bool = Field(default=False, description=_DRY_RUN_DESCRIPTION)
+
+    def text_request(self) -> TextGenerationRequest:
+        return TextGenerationRequest(
+            episode=self.episode, source=self.source, instructions=self.instructions, dry_run=self.dry_run
+        )
+
+
 async def generate_episode_script(
-    request: ToolRequest[TextGenerationRequest],
+    request: ToolRequest[GenerateEpisodeScriptRequest],
     scope: ProjectScope,
     _caller: CallerContext,
     services: Services,
 ) -> ToolOutcome[Any]:
-    if request.value.dry_run:
+    text_request = request.value.text_request()
+    if text_request.dry_run:
         return await _execute_text_handler(
-            "generate_episode_script", generate_episode_script_handler, request.value, scope, services
+            "generate_episode_script", generate_episode_script_handler, text_request, scope, services
         )
     try:
         await asyncio.to_thread(
             prompt_authoring_preflight,
             services.projects.get_project_path(scope.project_name),
-            request.value.episode,
+            text_request.episode,
         )
     except TextGenerationError as exc:
         return ToolOutcome(problem=ToolProblem("generation_refused", str(exc)))
@@ -564,8 +749,8 @@ async def generate_episode_script(
     return await _submit_text_task(
         task_type=_TEXT_EPISODE_SCRIPT,
         operation="generate_episode_script",
-        unit_id=f"episode-{request.value.episode}",
-        payload=request.value.to_payload(),
+        unit_id=f"episode-{text_request.episode}",
+        payload=text_request.to_payload(),
         scope=scope,
         caller=_caller,
         services=services,
@@ -573,13 +758,14 @@ async def generate_episode_script(
 
 
 async def generate_script_plan(
-    request: ToolRequest[TextGenerationRequest],
+    request: ToolRequest[GenerateScriptPlanRequest],
     scope: ProjectScope,
     _caller: CallerContext,
     services: Services,
 ) -> ToolOutcome[Any]:
+    text_request = request.value.text_request()
     try:
-        project = await asyncio.to_thread(services.projects.load_project_readonly, scope.project_name)
+        project = await asyncio.to_thread(services.projects.load_project, scope.project_name)
         content_mode = project.get("content_mode", "narration")
         if content_mode == "ad":
             raise TextGenerationError("广告/短片项目无 script_plan，请直接调用 generate_episode_script")
@@ -595,24 +781,27 @@ async def generate_script_plan(
         return ToolOutcome(problem=ToolProblem("generation_refused", str(exc)))
     except Exception as exc:
         return ToolOutcome(problem=ToolProblem("internal_error", f"generate_script_plan 失败: {exc}"))
-    if request.value.dry_run:
-        return await _execute_text_handler("generate_script_plan", handler, request.value, scope, services)
+    if text_request.dry_run:
+        return await _execute_text_handler("generate_script_plan", handler, text_request, scope, services)
     return await _submit_text_task(
         task_type=task_type,
         operation="generate_script_plan",
-        unit_id=f"episode-{request.value.episode}",
-        payload=request.value.to_payload(),
+        unit_id=f"episode-{text_request.episode}",
+        payload=text_request.to_payload(),
         scope=scope,
         caller=_caller,
         services=services,
     )
 
 
-@dataclass(frozen=True, slots=True)
-class ConfirmScriptReviewRequest:
-    episode: int
-    #: 用户已同意覆盖的正式脚本版本（覆盖清单的 ``revision``）；该集尚无正式脚本时不必给。
-    overwrite_revision: str | None = None
+class ConfirmScriptReviewRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    episode: PositiveEpisode = Field(description="剧集编号")
+    overwrite_revision: str | SkipJsonSchema[None] = Field(
+        default=None,
+        description="用户已同意覆盖的正式脚本版本，取自 script_overwrite.revision；尚无正式脚本时不必给",
+    )
 
 
 async def confirm_script_review(
@@ -630,6 +819,40 @@ async def confirm_script_review(
             projects=services.projects,
             config_resolver=services.capabilities,
         ),
+    )
+
+
+class NoArguments(BaseModel):
+    """不带参数的工具请求。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+
+class SourceTextRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    path: str = Field(
+        description="源文的项目相对路径，须位于 source/ 下，如 source/episode_1.txt；取自 list_source_files"
+    )
+
+
+class EpisodeScriptRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    script: str = Field(description="剧本纯文件名（不含目录），如 episode_1.json")
+
+
+class ScriptPlanContentRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    episode: PositiveEpisode = Field(description="集号，从 1 开始")
+
+
+class ProjectFileRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    path: str = Field(
+        description="业务文件的项目相对路径，如 project.json、scripts/episode_1.json；取自 list_project_files"
     )
 
 
@@ -830,12 +1053,12 @@ def _file_problem(name: str, exc: BaseException) -> ToolProblem:
 
 
 def _get_project_content_sync(project_name: str, projects: ProjectManager) -> ProjectContent:
-    project = projects.load_project_readonly(project_name)
+    project = projects.load_project(project_name)
     return ProjectContent(revision=prefixed_canonical_json_digest(project), project=project)
 
 
 async def get_project_content(
-    _request: ToolRequest[None],
+    _request: ToolRequest[NoArguments],
     scope: ProjectScope,
     _caller: CallerContext,
     services: Services,
@@ -850,18 +1073,19 @@ async def get_project_content(
 
 
 async def get_episode_script(
-    request: ToolRequest[str],
+    request: ToolRequest[EpisodeScriptRequest],
     scope: ProjectScope,
     _caller: CallerContext,
     services: Services,
 ) -> ToolOutcome[EpisodeScriptContent]:
-    filename = request.value
-    if not is_str(filename) or not filename or "/" in filename or "\\" in filename or filename in {".", ".."}:
+    """读一集剧本并签发 revision；迁移失败的项目不签发 revision，返回完整的迁移 problem。"""
+    filename = request.value.script
+    if not filename or "/" in filename or "\\" in filename or filename in {".", ".."}:
         return ToolOutcome(problem=ToolProblem("invalid_request", "script 必须是纯文件名"))
     try:
         failure = await asyncio.to_thread(project_migration_failure, scope.project_name, services.projects)
         if failure is not None:
-            return ToolOutcome(problem=ToolProblem(MIGRATION_FAILURE_CODE, failure.reason))
+            return ToolOutcome(problem=_migration_tool_problem(failure))
         script = await asyncio.to_thread(services.projects.load_script_readonly, scope.project_name, filename)
     except FileNotFoundError as exc:
         return ToolOutcome(problem=ToolProblem("file_not_found", str(exc)))
@@ -877,8 +1101,8 @@ async def get_episode_script(
 class PromptPreviewRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    script: str = Field(min_length=1, description="剧本文件名（纯文件名）")
-    item_id: str = Field(min_length=1, description="分镜条目 id")
+    script: str = Field(min_length=1, description="剧本纯文件名（不含目录），如 episode_1.json")
+    item_id: str = Field(min_length=1, description="分镜条目 id（segment_id / scene_id / shot_id / unit_id），如 E1S01")
 
 
 async def get_prompt_preview(
@@ -897,9 +1121,8 @@ async def get_prompt_preview(
     if "/" in filename or "\\" in filename or filename in {".", ".."}:
         return ToolOutcome(problem=ToolProblem("invalid_request", "script 必须是纯文件名"))
     try:
-        failure = await asyncio.to_thread(project_migration_failure, scope.project_name, services.projects)
-        if failure is not None:
-            return ToolOutcome(problem=ToolProblem(MIGRATION_FAILURE_CODE, failure.reason))
+        if problem := await migration_gate(scope, services):
+            return ToolOutcome(problem=problem)
         preview = await preview_item_prompts(
             scope.project_name, filename, request.value.item_id, projects=services.projects
         )
@@ -915,7 +1138,7 @@ async def get_prompt_preview(
 
 
 async def list_source_files(
-    _request: ToolRequest[None],
+    _request: ToolRequest[NoArguments],
     scope: ProjectScope,
     _caller: CallerContext,
     services: Services,
@@ -934,21 +1157,20 @@ async def list_source_files(
 
 
 async def get_source_text(
-    request: ToolRequest[str],
+    request: ToolRequest[SourceTextRequest],
     scope: ProjectScope,
     _caller: CallerContext,
     services: Services,
 ) -> ToolOutcome[SourceTextContent]:
+    path = request.value.path
     try:
         project_dir = services.projects.get_project_path(scope.project_name)
-        # path 是模型给的原始 JSON 入参，运行期不受 @tool schema 约束；非 str 在 startswith 上会抛
-        # AttributeError，越过本函数的降级口径变成 internal_error，故先判形状。
-        if not is_str(request.value) or not request.value.startswith("source/"):
+        if not path.startswith("source/"):
             raise ValueError("path 必须指向 source/ 下的文本文件")
-        content, revision, etag, _size = await asyncio.to_thread(_decode_business_file, project_dir, request.value)
+        content, revision, etag, _size = await asyncio.to_thread(_decode_business_file, project_dir, path)
         if not isinstance(content, str):
             raise ValueError("source 文件必须是文本")
-        return ToolOutcome(value=SourceTextContent(revision=revision, etag=etag, path=request.value, text=content))
+        return ToolOutcome(value=SourceTextContent(revision=revision, etag=etag, path=path, text=content))
     except Exception as exc:
         return ToolOutcome(problem=_file_problem("get_source_text", exc))
 
@@ -956,7 +1178,7 @@ async def get_source_text(
 def _get_script_plan_content_sync(
     project_name: str, episode: int, projects: ProjectManager
 ) -> ScriptPlanContent | None:
-    project = projects.load_project_readonly(project_name)
+    project = projects.load_project(project_name)
     kind = script_plan_kind(project)
     if kind is None:
         return None
@@ -977,14 +1199,12 @@ def _get_script_plan_content_sync(
 
 
 async def get_script_plan_content(
-    request: ToolRequest[int],
+    request: ToolRequest[ScriptPlanContentRequest],
     scope: ProjectScope,
     _caller: CallerContext,
     services: Services,
 ) -> ToolOutcome[ScriptPlanContent]:
-    episode = request.value
-    if not is_int(episode, minimum=1):
-        return ToolOutcome(problem=ToolProblem("invalid_request", "episode 必须是正整数"))
+    episode = request.value.episode
     try:
         result = await asyncio.to_thread(_get_script_plan_content_sync, scope.project_name, episode, services.projects)
         if result is None:
@@ -995,7 +1215,7 @@ async def get_script_plan_content(
 
 
 async def list_project_files(
-    _request: ToolRequest[None],
+    _request: ToolRequest[NoArguments],
     scope: ProjectScope,
     _caller: CallerContext,
     services: Services,
@@ -1012,15 +1232,16 @@ async def list_project_files(
 
 
 async def read_project_file(
-    request: ToolRequest[str],
+    request: ToolRequest[ProjectFileRequest],
     scope: ProjectScope,
     _caller: CallerContext,
     services: Services,
 ) -> ToolOutcome[ProjectFileContent]:
+    path = request.value.path
     try:
         project_dir = services.projects.get_project_path(scope.project_name)
-        content, revision, etag, _size = await asyncio.to_thread(_decode_business_file, project_dir, request.value)
-        return ToolOutcome(value=ProjectFileContent(revision=revision, etag=etag, path=request.value, content=content))
+        content, revision, etag, _size = await asyncio.to_thread(_decode_business_file, project_dir, path)
+        return ToolOutcome(value=ProjectFileContent(revision=revision, etag=etag, path=path, content=content))
     except Exception as exc:
         return ToolOutcome(problem=_file_problem("read_project_file", exc))
 
@@ -1029,7 +1250,7 @@ def _draft_workflow(scope: ProjectScope, services: Services) -> DraftWorkflow:
     return DraftWorkflow(
         DraftContext(
             project_name=scope.project_name,
-            projects_root=scope.projects_root,
+            data_root=scope.data_root,
             pm=services.projects,
             config_resolver=services.capabilities,
         )
@@ -1069,9 +1290,9 @@ async def patch_draft(
             patch.content,
             patch.base_revision,
             accept_formal_revision=patch.accept_formal_revision,
-            accepts_formal_revision=patch.accepts_formal_revision,
+            accepts_formal_revision="accept_formal_revision" in patch.model_fields_set,
             source=patch.source,
-            updates_source=patch.updates_source,
+            updates_source="source" in patch.model_fields_set,
         )
     )
 
@@ -1105,18 +1326,24 @@ async def discard_draft(
 
 
 class CreateProjectToolRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
-    name: str
-    title: str = ""
-    content_mode: ContentMode = "narration"
-    source_kind: SourceKind = "novel"
-    generation_mode: Literal["storyboard", "reference_video"] = "storyboard"
-    grid_storyboard: bool = False
-    aspect_ratio: str = "9:16"
-    default_duration: int | None = Field(default=None, gt=0)
-    target_duration: int | None = Field(default=None, gt=0)
-    brief: str | None = None
+    name: str = Field(description="项目唯一标识，只能包含字母、数字和连字符；后续工具以它寻址项目")
+    title: str = Field(default="", description="用户可见的项目标题")
+    content_mode: ContentMode = Field(
+        default="narration", description="内容模式：narration 说书解说、drama 剧集、ad 广告/短片"
+    )
+    source_kind: SourceKind = Field(default="novel", description="源文类型：novel 小说、screenplay 剧本")
+    generation_mode: Literal["storyboard", "reference_video"] = Field(
+        default="storyboard", description="生成模式：storyboard 先出分镜图再生视频、reference_video 参考图直接生视频"
+    )
+    grid_storyboard: bool = Field(default=False, description="是否使用宫格分镜；广告/短片项目不支持")
+    aspect_ratio: str = Field(default="9:16", description="画面比例，如 9:16、16:9")
+    default_duration: int | None = Field(
+        default=None, gt=0, description="默认单镜时长（秒）；缺省不写入，由视频模型能力决定；广告/短片项目不可用"
+    )
+    target_duration: int | None = Field(default=None, gt=0, description="成片目标时长（秒）；仅广告/短片项目可用")
+    brief: str | None = Field(default=None, description="创作简报（卖点、受众等）；仅广告/短片项目可用")
 
     @model_validator(mode="after")
     def validate_mode_fields(self) -> CreateProjectToolRequest:
@@ -1131,15 +1358,18 @@ class CreateProjectToolRequest(BaseModel):
 
 
 class UploadSourceRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
-    filename: str
-    content: str
-    on_conflict: OnConflict = "fail"
+    filename: str = Field(description="带 .txt 或 .md 扩展名的纯文件名（不含目录、不以点开头）")
+    content: str = Field(description="源文件的文本内容")
+    on_conflict: OnConflict = Field(
+        default="fail",
+        description="source/ 下已有同名文件时的处理：fail 拒绝、replace 覆盖、rename 自动改名后写入",
+    )
 
 
 async def list_projects(
-    _request: ToolRequest[None],
+    _request: ToolRequest[NoArguments],
     _caller: CallerContext,
     services: Services,
 ) -> ToolOutcome[list[dict[str, Any]]]:
@@ -1147,7 +1377,7 @@ async def list_projects(
         result = []
         for name in sorted(services.projects.list_projects()):
             try:
-                project = services.projects.load_project_readonly(name)
+                project = services.projects.load_project(name)
             except (FileNotFoundError, ValueError):
                 continue
             result.append(
@@ -1211,9 +1441,6 @@ async def upload_source(
     _caller: CallerContext,
     services: Services,
 ) -> ToolOutcome[dict[str, Any]]:
-    if problem := await migration_gate(scope, services):
-        return ToolOutcome(problem=problem)
-
     def _upload() -> dict[str, Any]:
         value = request.value
         if Path(value.filename).name != value.filename or "\\" in value.filename or value.filename.startswith("."):
@@ -1288,17 +1515,40 @@ async def get_workflow_plan(
 
 
 async def get_video_capabilities(
-    _request: ToolRequest[None],
+    _request: ToolRequest[NoArguments],
     scope: ProjectScope,
     _caller: CallerContext,
     services: Services,
 ) -> ToolOutcome[dict[str, Any]]:
     try:
-        project = await asyncio.to_thread(services.projects.load_project_readonly, scope.project_name)
+        project = await asyncio.to_thread(services.projects.load_project, scope.project_name)
         payload = await services.capabilities.video_capabilities_for_project(project)
-        await annotate_reference_unit_tiers(payload, project, config_resolver=services.capabilities)
+        payload["duration_constraints"] = duration_constraints_payload(
+            await capability_request_facts(
+                project,
+                generation_type=video_bucket_for_generation_mode(caps_generation_mode(project)),
+                config_resolver=services.capabilities,
+            )
+        )
+        await annotate_reference_unit_tiers(
+            payload,
+            project,
+            config_resolver=services.capabilities,
+            projects=services.projects,
+            project_name=scope.project_name,
+        )
     except FileNotFoundError as exc:
         return ToolOutcome(problem=ToolProblem("project_not_found", f"项目未找到或缺 project.json: {exc}"))
+    except VideoRequestFactsError as exc:
+        failure = exc.failure
+        return ToolOutcome(
+            problem=ToolProblem(
+                failure.code,
+                f"无法解析视频模型能力: {failure.summary()}",
+                action=failure.action,
+                params=failure.parameters(),
+            )
+        )
     except ValueError as exc:
         return ToolOutcome(problem=ToolProblem("capabilities_unresolved", f"无法解析视频模型能力: {exc}"))
     except Exception as exc:
@@ -1469,8 +1719,8 @@ def _patch_episode_script_sync(
 ) -> ToolOutcome[ScriptBatchEditResult]:
     try:
         current = services.projects.load_script(scope.project_name, request.value.script)
-    except FileNotFoundError as exc:
-        return ToolOutcome(problem=ToolProblem("script_not_found", str(exc)))
+    except FileNotFoundError:
+        return ToolOutcome(problem=ToolProblem("script_not_found", f"剧本不存在: {request.value.script}"))
     except Exception as exc:
         return ToolOutcome(problem=ToolProblem("internal_error", f"patch_episode_script 失败: {exc}"))
 
@@ -1538,11 +1788,13 @@ async def patch_episode_script(
     scope: ProjectScope,
     _caller: CallerContext,
     services: Services,
-) -> ToolOutcome[ScriptBatchEditResult]:
-    return await _run_sync_transaction(_patch_episode_script_sync, request, scope, services)
+) -> ToolOutcome[ScriptPatchResult]:
+    outcome = await _run_sync_transaction(_patch_episode_script_sync, request, scope, services)
+    if outcome.value is None:
+        return ToolOutcome(problem=outcome.problem)
+    return ToolOutcome(value=_script_patch_result(request.value, outcome.value))
 
 
-MAX_INSTRUCTIONS_LEN = 4000
 ASSET_TABLES = tuple(spec.bucket_key for spec in ASSET_SPECS.values())
 PROJECT_SETTINGS = (
     EPISODE_TARGET_UNITS_FIELD,
@@ -1567,9 +1819,15 @@ class ToolMessage(BaseModel):
 
 
 class PlanEpisodesRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
-    instructions: str | None = None
+    instructions: str | SkipJsonSchema[None] = Field(
+        default=None,
+        description=(
+            "用户分集附加指令原文（可选，如「按章节对齐切分」）；原样注入规划 prompt 的「附加指令」分节，"
+            f"遵循强度由正文表达，需要强约束时在正文写明。每批调用都要重复带上，缺省 / 空白视同未传，最长 {MAX_INSTRUCTIONS_LEN} 字符"
+        ),
+    )
 
     @field_validator("instructions")
     @classmethod
@@ -1590,10 +1848,16 @@ class PlanEpisodesResult(ToolMessage):
 
 
 class ResetEpisodePlanningRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
-    from_episode: int = Field(strict=True, ge=1)
-    confirm_consumed: bool = Field(default=False, strict=True)
+    from_episode: int = Field(
+        strict=True, ge=1, description="重置起点集号；1 为全量重置，大于 1 为部分重置（保留其前的集）"
+    )
+    confirm_consumed: bool = Field(
+        default=False,
+        strict=True,
+        description="已向用户说明波及的已消费集并获确认后置 true；首次调用不传，由工具先返回受影响清单",
+    )
 
 
 class ResetEpisodePlanningResult(ToolMessage):
@@ -1605,12 +1869,32 @@ class ResetEpisodePlanningResult(ToolMessage):
 
 
 class PatchProjectRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
-    table: str | None = None
-    entries: dict[str, Any] | None = None
-    settings: dict[str, Any] | None = None
-    overview: dict[str, Any] | None = None
+    table: str | None = Field(
+        default=None,
+        description=f"（资产 upsert 分支，与 entries 同时给出）资产表，取值 {list(ASSET_TABLES)} 之一",
+        json_schema_extra={"enum": [*ASSET_TABLES, None]},
+    )
+    entries: dict[str, Any] | None = Field(
+        default=None,
+        description=(
+            "（资产 upsert 分支）{ 名称: { description, voice_style 等字段 } } 映射，至少一条；名称不存在则新增、"
+            "存在则合并改字段。角色条目可带 derivatives: { 衍生名: { description } }，登记本体之外的另一套外观，"
+            "按衍生名合并（同名改描述、新名加入、未提及的保留），description 写相对本体的变化"
+        ),
+    )
+    settings: dict[str, Any] | None = Field(
+        default=None,
+        description=f"（settings 写入分支）顶层字段映射，键须在白名单 {list(PROJECT_SETTINGS)} 内，值为 null 时清除该字段",
+    )
+    overview: dict[str, Any] | None = Field(
+        default=None,
+        description=(
+            f"（项目概述分支）概述字段映射，键须在白名单 {list(PROJECT_OVERVIEW_FIELDS)} 内；只更新传入字段，"
+            "概述不存在时创建"
+        ),
+    )
 
     @model_validator(mode="after")
     def _validate_shape(self) -> PatchProjectRequest:
@@ -1640,11 +1924,11 @@ class PatchProjectResult(ToolMessage):
 
 
 class PatchEpisodeMetaRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
-    script: str
-    field: Literal["title"]
-    value: str
+    script: str = Field(description="剧本纯文件名（不含目录），如 episode_1.json")
+    field: Literal["title"] = Field(description=f"要编辑的剧本顶层字段，白名单 {list(EPISODE_META_FIELDS)}")
+    value: str = Field(description="新值；title 须为非空字符串，首尾空白会被裁剪")
 
     @field_validator("script")
     @classmethod
@@ -1668,11 +1952,13 @@ class PatchEpisodeMetaResult(ToolMessage):
 
 
 class RenameAssetRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
-    table: str
-    old_name: str
-    new_name: str
+    table: str = Field(
+        description=f"资产表，取值 {list(ASSET_TABLES)} 之一", json_schema_extra={"enum": list(ASSET_TABLES)}
+    )
+    old_name: str = Field(description="现有资产名")
+    new_name: str = Field(description="新资产名；与同表既有资产冲突（按 NFC 归一判定）时整体拒绝")
 
     @field_validator("table")
     @classmethod
@@ -1696,11 +1982,19 @@ class RetryProjectMigrationResult(ToolMessage):
 
 
 class CompleteAssetInventoryRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
-    scope: SourceScope
-    expected_source_revision: str
-    entries: dict[str, Any] | None = None
+    scope: SourceScope = Field(description="本次资产分析覆盖的源文范围，原样取自制作计划 next_action.args.scope")
+    expected_source_revision: str = Field(
+        description="分析开始时的源文 revision，原样取自制作计划 next_action.args.expected_source_revision"
+    )
+    entries: dict[str, Any] | SkipJsonSchema[None] = Field(
+        default=None,
+        description=(
+            "本次新增资产：{characters/scenes/props: {名称: {description, voice_style?}}}；"
+            "角色可带 derivatives: {衍生名: {description}} 登记本体之外的另一套外观。缺省或三类全空都是合法的完成结果"
+        ),
+    )
 
 
 class CompleteAssetInventoryResult(BaseModel):
@@ -1710,10 +2004,15 @@ class CompleteAssetInventoryResult(BaseModel):
 
 
 class CompleteScriptPlanRebuildRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
-    episode: int = Field(strict=True, ge=1)
-    expected_stale_script_plan_revision: str | None
+    episode: int = Field(strict=True, ge=1, description="完成重建的集号")
+    expected_stale_script_plan_revision: str | None = Field(
+        description=(
+            "重建基线，原样取自制作计划 next_action.args.expected_stale_script_plan_revision（可能为 null，"
+            "null 也须显式传）；与项目记录不一致时拒绝"
+        )
+    )
 
 
 class CompleteScriptPlanRebuildResult(BaseModel):
@@ -1782,6 +2081,8 @@ def _format_plan(result: PlanResult) -> str:
         lines.append(
             f"- 第 {episode.episode} 集《{episode.title}》{status_note}｜体量约 {episode.reading_units}｜钩子：{episode.hook}"
         )
+        lines.append(f"  首句：{episode.first_sentence}")
+        lines.append(f"  尾句：{episode.last_sentence}")
     if result.source_exhausted:
         lines.append("源文已全部规划完毕。")
     elif result.cursor:
@@ -1791,7 +2092,7 @@ def _format_plan(result: PlanResult) -> str:
     else:
         lines.append(f"累计已规划 {result.total_planned} 集。")
     lines.append(
-        "请把以上摘要展示给用户做批级审阅；需要调整时先调用 reset_episode_planning 退回到"
+        "请把以上摘要（含每集首句与尾句原文）展示给用户做批级审阅；需要调整时先调用 reset_episode_planning 退回到"
         "最早受影响的集，再带 instructions 重新调用本工具。"
     )
     return "\n".join(lines)
@@ -1822,6 +2123,8 @@ async def _execute_plan_episodes(
                 "hook": episode.hook,
                 "reading_units": episode.reading_units,
                 "ledger_status": episode.ledger_status,
+                "first_sentence": episode.first_sentence,
+                "last_sentence": episode.last_sentence,
             }
             for episode in result.episodes
         ],
@@ -1869,15 +2172,12 @@ async def execute_queued_text_task(
 ) -> dict[str, Any]:
     """Execute one durable text task through the same host-independent handlers."""
     payload = task.get("payload") or {}
-    scope = ProjectScope(project_name=str(task["project_name"]), projects_root=Path(payload["projects_root"]))
-    services = _TEXT_TASK_SERVICES.pop(str(task["task_id"]), None)
-    if services is None:
-        projects = ProjectManager(str(payload["projects_root"]))
-        services = Services(
-            projects=projects,
-            workflow_planner=WorkflowPlanner(projects),
-            capabilities=ConfigResolver(async_session_factory),
-        )
+    registered = _TEXT_TASK_SERVICES.pop(str(task["task_id"]), None)
+    if registered is not None:
+        scope, services = registered
+    else:
+        scope = ProjectScope(project_name=str(task["project_name"]), data_root=DataRootLayout.current().root)
+        services = Services.defaults(ProjectManager(scope.data_root))
     task_type = task["task_type"]
     if task_type == _TEXT_EPISODE_PLAN:
         outcome = await _execute_plan_episodes(
@@ -2257,7 +2557,7 @@ async def rename_asset(
 
 
 async def retry_project_migration(
-    _request: ToolRequest[None],
+    _request: ToolRequest[NoArguments],
     scope: ProjectScope,
     _caller: CallerContext,
     services: Services,
@@ -2375,17 +2675,21 @@ async def complete_script_plan_rebuild(
 __all__ = [
     "ASSET_TABLES",
     "EPISODE_META_FIELDS",
-    "MAX_INSTRUCTIONS_LEN",
     "PROJECT_OVERVIEW_FIELDS",
     "PROJECT_SETTINGS",
     "CallerContext",
     "CompleteAssetInventoryRequest",
     "CompleteScriptPlanRebuildRequest",
+    "ConfirmScriptReviewRequest",
     "CreateProjectToolRequest",
     "DiscardDraftRequest",
     "DraftLocator",
     "EpisodeScriptContent",
+    "EpisodeScriptRequest",
+    "GenerateEpisodeScriptRequest",
+    "GenerateScriptPlanRequest",
     "GenerationBatchToolRequest",
+    "NoArguments",
     "PatchDraftRequest",
     "PatchEpisodeMetaRequest",
     "PatchEpisodeScriptRequest",
@@ -2394,16 +2698,22 @@ __all__ = [
     "ProjectContent",
     "ProjectFileContent",
     "ProjectFileEntry",
+    "ProjectFileRequest",
     "ProjectFilesContent",
     "ProjectScope",
     "PromoteDraftRequest",
     "PromptPreviewRequest",
     "RenameAssetRequest",
     "ResetEpisodePlanningRequest",
+    "ScriptPatchResult",
     "ScriptPlanContent",
+    "ScriptPlanContentRequest",
+    "ScriptSpeechAdmission",
+    "ScriptSpeechProblem",
     "Services",
     "SourceFilesContent",
     "SourceTextContent",
+    "SourceTextRequest",
     "TextGenerationError",
     "TextGenerationRequest",
     "TextGenerationResult",

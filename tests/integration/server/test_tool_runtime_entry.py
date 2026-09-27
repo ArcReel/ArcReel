@@ -15,13 +15,17 @@ from lib.project.asset_rename import AssetRenameReport
 from lib.project.project_manager import ProjectManager
 from lib.project.project_migration_failure import MIGRATION_FAILURE_CODE, record_migration_failure
 from server import tool_runtime as tool_runtime_module
+from server.agent_toolset.declaration import invoke_declaration
+from server.agent_toolset.project_entry import UPLOAD_SOURCE
 from server.tool_runtime import (
     CallerContext,
     CreateProjectToolRequest,
+    NoArguments,
     ProjectScope,
     RenameAssetRequest,
     ResetEpisodePlanningRequest,
     Services,
+    SourceTextRequest,
     ToolRequest,
     UploadSourceRequest,
     create_project,
@@ -63,16 +67,18 @@ async def test_entry_handlers_create_list_and_upload_a_readable_source(tmp_path:
         caller,
         services,
     )
-    projects = await list_projects(ToolRequest(None), caller, services)
-    scope = ProjectScope(project_name="demo", projects_root=services.projects.projects_root)
+    projects = await list_projects(ToolRequest(NoArguments()), caller, services)
+    scope = ProjectScope(project_name="demo", data_root=services.projects.data_root)
     uploaded = await upload_source(
         ToolRequest(UploadSourceRequest(filename="novel.txt", content="第一章\n你好")),
         scope,
         caller,
         services,
     )
-    source_files = await list_source_files(ToolRequest(None), scope, caller, services)
-    source_text = await get_source_text(ToolRequest("source/novel.txt"), scope, caller, services)
+    source_files = await list_source_files(ToolRequest(NoArguments()), scope, caller, services)
+    source_text = await get_source_text(
+        ToolRequest(SourceTextRequest(path="source/novel.txt")), scope, caller, services
+    )
 
     assert created.problem is None
     assert created.value is not None
@@ -155,7 +161,7 @@ async def test_create_project_settles_publication_before_propagating_cancellatio
     try:
         assert await asyncio.to_thread(started.wait, 1)
         assert not projects.project_exists("demo")
-        listed = await list_projects(ToolRequest(None), caller, services)
+        listed = await list_projects(ToolRequest(NoArguments()), caller, services)
         assert listed.value == []
         creation.cancel()
         await asyncio.sleep(0)
@@ -180,7 +186,7 @@ async def test_list_projects_does_not_persist_readonly_migrations(tmp_path: Path
     before = project_file.read_bytes()
 
     outcome = await list_projects(
-        ToolRequest(None),
+        ToolRequest(NoArguments()),
         CallerContext(user_id="test", source="mcp"),
         services,
     )
@@ -197,7 +203,7 @@ async def test_entry_handlers_return_typed_problems(tmp_path: Path) -> None:
 
     missing = await upload_source(
         ToolRequest(UploadSourceRequest(filename="novel.txt", content="hello")),
-        ProjectScope(project_name="missing", projects_root=services.projects.projects_root),
+        ProjectScope(project_name="missing", data_root=services.projects.data_root),
         caller,
         services,
     )
@@ -224,7 +230,7 @@ async def test_upload_source_rejects_unsafe_or_non_text_filenames(
 
     outcome = await upload_source(
         ToolRequest(UploadSourceRequest(filename=filename, content="hello")),
-        ProjectScope(project_name="demo", projects_root=services.projects.projects_root),
+        ProjectScope(project_name="demo", data_root=services.projects.data_root),
         caller,
         services,
     )
@@ -245,7 +251,7 @@ async def test_upload_source_rejects_symlinked_source_directory(tmp_path: Path) 
 
     outcome = await upload_source(
         ToolRequest(UploadSourceRequest(filename="novel.txt", content="hello")),
-        ProjectScope(project_name="demo", projects_root=services.projects.projects_root),
+        ProjectScope(project_name="demo", data_root=services.projects.data_root),
         CallerContext(user_id="test", source="mcp"),
         services,
     )
@@ -260,9 +266,10 @@ async def test_upload_source_respects_migration_failure_gate(tmp_path: Path) -> 
     project_dir = services.projects.create_project("demo")
     record_migration_failure(project_dir, ValueError("repair required"), schema_version=7)
 
-    outcome = await upload_source(
-        ToolRequest(UploadSourceRequest(filename="novel.txt", content="hello")),
-        ProjectScope(project_name="demo", projects_root=services.projects.projects_root),
+    outcome = await invoke_declaration(
+        UPLOAD_SOURCE,
+        {"filename": "novel.txt", "content": "hello"},
+        ProjectScope(project_name="demo", data_root=services.projects.data_root),
         CallerContext(user_id="test", source="mcp"),
         services,
     )
@@ -299,7 +306,7 @@ async def test_upload_source_settles_write_before_propagating_cancellation(tmp_p
     task = asyncio.create_task(
         upload_source(
             ToolRequest(UploadSourceRequest(filename="novel.txt", content="hello")),
-            ProjectScope(project_name="demo", projects_root=projects.projects_root),
+            ProjectScope(project_name="demo", data_root=projects.data_root),
             CallerContext(user_id="test", source="mcp"),
             services,
         )
@@ -318,11 +325,86 @@ async def test_upload_source_settles_write_before_propagating_cancellation(tmp_p
     assert (projects.get_project_path("demo") / "source" / "novel.txt").read_text() == "hello"
 
 
+def _uploadable_project(tmp_path: Path) -> tuple[Services, ProjectScope]:
+    services = _services(tmp_path)
+    services.projects.create_project("demo")
+    services.projects.create_project_metadata("demo", "Demo")
+    return services, ProjectScope(project_name="demo", data_root=services.projects.data_root)
+
+
+async def test_upload_source_closes_temporary_file_before_loading(tmp_path: Path, monkeypatch) -> None:
+    services, scope = _uploadable_project(tmp_path)
+    tracked: dict[str, object] = {}
+    original_temp = tool_runtime_module.tempfile.NamedTemporaryFile
+    original_load = tool_runtime_module.SourceLoader.load
+
+    def tracked_temp(*args, **kwargs):
+        handle = original_temp(*args, **kwargs)
+        tracked["handle"] = handle
+        tracked["path"] = Path(handle.name)
+        return handle
+
+    def checked_load(*args, **kwargs):
+        assert tracked["handle"].closed
+        return original_load(*args, **kwargs)
+
+    monkeypatch.setattr(tool_runtime_module.tempfile, "NamedTemporaryFile", tracked_temp)
+    monkeypatch.setattr(tool_runtime_module.SourceLoader, "load", staticmethod(checked_load))
+
+    uploaded = await upload_source(
+        ToolRequest(UploadSourceRequest(filename="novel.txt", content="hello")),
+        scope,
+        CallerContext(user_id="test", source="embedded"),
+        services,
+    )
+
+    assert uploaded.value is not None
+    assert uploaded.value["path"] == "source/novel.txt"
+    assert not tracked["path"].exists()
+
+
+async def test_upload_source_cleans_temporary_file_when_write_fails(tmp_path: Path, monkeypatch) -> None:
+    services, scope = _uploadable_project(tmp_path)
+    tracked: dict[str, Path] = {}
+    original_temp = tool_runtime_module.tempfile.NamedTemporaryFile
+
+    class FailingWrite:
+        def __init__(self, *args, **kwargs):
+            self.handle = original_temp(*args, **kwargs)
+            self.name = self.handle.name
+            tracked["path"] = Path(self.name)
+
+        def __enter__(self):
+            self.handle.__enter__()
+            return self
+
+        def __exit__(self, *args):
+            return self.handle.__exit__(*args)
+
+        def write(self, _content: bytes) -> None:
+            raise OSError("disk full")
+
+        def flush(self) -> None:
+            self.handle.flush()
+
+    monkeypatch.setattr(tool_runtime_module.tempfile, "NamedTemporaryFile", FailingWrite)
+
+    uploaded = await upload_source(
+        ToolRequest(UploadSourceRequest(filename="novel.txt", content="hello")),
+        scope,
+        CallerContext(user_id="test", source="embedded"),
+        services,
+    )
+
+    assert uploaded.problem is not None
+    assert not tracked["path"].exists()
+
+
 async def test_reset_episode_planning_settles_write_before_propagating_cancellation(tmp_path: Path) -> None:
     services = _services(tmp_path)
     services.projects.create_project("demo")
     services.projects.create_project_metadata("demo", "Demo")
-    scope = ProjectScope(project_name="demo", projects_root=services.projects.projects_root)
+    scope = ProjectScope(project_name="demo", data_root=services.projects.data_root)
     caller = CallerContext(user_id="test", source="mcp")
     started = threading.Event()
     release = threading.Event()
@@ -360,7 +442,7 @@ async def test_rename_asset_settles_write_before_propagating_cancellation(tmp_pa
     services = _services(tmp_path)
     services.projects.create_project("demo")
     services.projects.create_project_metadata("demo", "Demo")
-    scope = ProjectScope(project_name="demo", projects_root=services.projects.projects_root)
+    scope = ProjectScope(project_name="demo", data_root=services.projects.data_root)
     started = threading.Event()
     release = threading.Event()
     finished = threading.Event()
@@ -397,7 +479,7 @@ async def test_retry_migration_settles_write_before_propagating_cancellation(tmp
     services = _services(tmp_path)
     services.projects.create_project("demo")
     services.projects.create_project_metadata("demo", "Demo")
-    scope = ProjectScope(project_name="demo", projects_root=services.projects.projects_root)
+    scope = ProjectScope(project_name="demo", data_root=services.projects.data_root)
     started = threading.Event()
     release = threading.Event()
     finished = threading.Event()
@@ -410,7 +492,9 @@ async def test_retry_migration_settles_write_before_propagating_cancellation(tmp
 
     monkeypatch.setattr(tool_runtime_module, "migrate_project_with_verdict", blocking_migration)
     task = asyncio.create_task(
-        retry_project_migration(ToolRequest(None), scope, CallerContext(user_id="test", source="mcp"), services)
+        retry_project_migration(
+            ToolRequest(NoArguments()), scope, CallerContext(user_id="test", source="mcp"), services
+        )
     )
     try:
         assert await asyncio.to_thread(started.wait, 1)

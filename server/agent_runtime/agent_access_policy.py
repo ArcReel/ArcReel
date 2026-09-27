@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, ClassVar
 
-from lib.agent.agent_memory_paths import ARCREEL_DIRNAME, is_valid_memory_user_id, user_memory_dir
+from lib.agent.agent_memory_paths import is_valid_memory_user_id
 from lib.episode.episode_paths import (
     AGENT_PROTECTED_SCRIPT_PLAN_FILENAMES,
     DRAMA_SCRIPT_PLAN_QUARANTINE_FILENAME,
@@ -26,6 +26,7 @@ from lib.episode.episode_paths import (
     REFERENCE_VIDEO_PROMPT_AUTHORING_QUARANTINE_FILENAME,
     REFERENCE_VIDEO_SCRIPT_PLAN_QUARANTINE_FILENAME,
 )
+from lib.infra.data_root_layout import DataRootLayout
 from lib.script.draft_quarantine import OPEN_DRAFT_TOOL_NAME, PROMOTE_TOOL_NAME
 
 logger = logging.getLogger(__name__)
@@ -79,17 +80,12 @@ class AgentAccessPolicy:
     # 源仓库根（已 resolve）：``.env`` / ``.env.*`` 相对此根（dotenv 从仓库根
     # 加载），也是「仓库内参考资料放行」的围栏基准。
     project_root: Path
-    # 数据根（已 resolve，生产为 app_data_dir()）：``.arcreel.db*`` /
-    # ``.system_config.json*`` 所在地，也是跨项目读隔离的基准。
-    projects_root: Path
+    # 数据根（已 resolve，生产为 app_data_dir()）：默认拒读，只放行当前项目与当前用户的记忆；
+    # 其下各条目的位置由数据根布局给出。
+    data_root: Path
     # Agent profile 根（已 resolve，受调用方 env 解析控制）：
     # ``.claude/settings.json`` 所在地。
     agent_profile_root: Path
-    # 日志目录（已 resolve）：服务器日志含 HTTP 请求路径、provider 探测、异常栈，
-    # 默认 read 规则会把 project_root 当成参考资料根放行，不显式 deny 会让任意
-    # 项目 session 里的 Agent 通过 Read/Grep 读到全局日志。无论落在 repo 内还是
-    # 外（如 /var/log/arcreel）都必须 deny。
-    log_dir: Path
     # False 表示内核沙箱不支持当前平台（目前仅 Windows）——Bash 走代码白名单回退。
     sandbox_enabled: bool = True
     # SandboxSettings.enableWeakerNestedSandbox 标志。
@@ -152,6 +148,8 @@ class AgentAccessPolicy:
         "Grep": "path",
     }
     _WRITE_TOOLS: ClassVar[set[str]] = {"Write", "Edit"}
+    # 以 ``path`` 为搜索根递归读取的工具：裁决 ``path`` 本身之外还须看它的子树。
+    _SEARCH_TOOLS: ClassVar[set[str]] = {"Glob", "Grep"}
     #: 受保护写路径规则表——hook 拒绝与 sandbox denyWrite 的单一真相源。谓词引用本类的
     #: classmethod，故在类体之后赋值（见模块尾部）；新增受保护类别只在该表加一行。
     PROTECTED_WRITE_RULES: ClassVar[tuple[ProtectedWriteRule, ...]]
@@ -167,58 +165,39 @@ class AgentAccessPolicy:
     }
 
     @functools.cached_property
-    def _sensitive_table(
-        self,
-    ) -> tuple[tuple[Path, ...], tuple[Path, ...], tuple[tuple[Path, str], ...]]:
-        """敏感路径表 ``(files, prefixes, globs)``：``files`` 为精确路径、
-        ``prefixes`` 为子树根、``globs`` 为 ``(parent, pattern)`` 对。
+    def _layout(self) -> DataRootLayout:
+        return DataRootLayout(self.data_root)
 
-        按"逻辑类别"从构造字段纯推导，正确反映数据/profile/日志目录被环境
-        覆盖后的真实位置（env 解析由调用方完成，本类只消费 resolve 后的根）：
+    @functools.cached_property
+    def _sensitive_table(self) -> tuple[tuple[Path, ...], tuple[tuple[Path, str], ...]]:
+        """数据根外的敏感路径表 ``(files, globs)``：``files`` 为精确路径、``globs`` 为 ``(parent, pattern)`` 对。
+
+        按"逻辑类别"从构造字段纯推导，正确反映 profile 目录被环境覆盖后的真实位置
+        （env 解析由调用方完成，本类只消费 resolve 后的根）：
 
         - ``.env`` / ``.env.*`` 总是相对源仓库根
-        - ``.arcreel.db`` / ``.system_config.json`` / ``.arcreel.db-*`` 在
-          ``projects_root``（生产为 ``app_data_dir()``）下
-        - ``vertex_keys/`` 在 ``projects_root.parent`` 下（与
-          ``server.routers.providers.upload_vertex_credential`` 写入位置一致）
-        - ``agent_runtime_profile/.claude/settings.json`` 在
-          ``agent_profile_root`` 下
-        - ``log_dir`` 整目录为敏感前缀
+        - ``agent_runtime_profile/.claude/settings.json`` 在 ``agent_profile_root`` 下
+
+        数据根内的条目（数据库、凭证、日志等）不逐项登记：读裁决对数据根默认拒绝，
+        沙箱按数据根顶层条目整体拒读（见 ``_build_data_root_deny_read_abs_paths``）。
         """
         repo = self.project_root
-        data = self.projects_root
-        profile = self.agent_profile_root
         files: tuple[Path, ...] = (
             repo / ".env",
-            data / ".arcreel.db",
-            data / ".system_config.json",
-            data / ".system_config.json.bak",
-            profile / ".claude" / "settings.json",
+            self.agent_profile_root / ".claude" / "settings.json",
         )
-        prefixes: tuple[Path, ...] = (data.parent / "vertex_keys", self.log_dir)
-        # ``.arcreel.db-wal`` / ``.arcreel.db-shm`` 与主 db 同目录
-        globs: tuple[tuple[Path, str], ...] = (
-            (repo, ".env.*"),
-            (data, ".arcreel.db-*"),
-        )
-        return files, prefixes, globs
+        globs: tuple[tuple[Path, str], ...] = ((repo, ".env.*"),)
+        return files, globs
 
     def is_sensitive_path(self, resolved: Path) -> bool:
-        """判断已 resolve 的路径是否命中敏感文件清单。
+        """判断已 resolve 的路径是否命中数据根外的敏感文件清单。
 
-        覆盖 ``.env`` / ``.env.*`` / ``vertex_keys/`` 子树 / ``.system_config.json*`` /
-        ``.arcreel.db*`` / ``agent_runtime_profile/.claude/settings.json`` / 日志目录。
+        覆盖 ``.env`` / ``.env.*`` / ``agent_runtime_profile/.claude/settings.json``。
         """
-        files, prefixes, globs = self._sensitive_table
+        files, globs = self._sensitive_table
         for sensitive_file in files:
             if resolved == sensitive_file:
                 return True
-        for prefix in prefixes:
-            try:
-                if resolved == prefix or resolved.is_relative_to(prefix):
-                    return True
-            except ValueError:
-                continue
         for parent, pattern in globs:
             try:
                 rel = resolved.relative_to(parent)
@@ -244,7 +223,7 @@ class AgentAccessPolicy:
         """检查 file_path 是否允许给定工具访问，返回 ``(allowed, deny_reason)``。
 
         三步 dispatch：
-        - 规则 0：敏感文件（.env / vertex_keys / settings.json 等）一律拒
+        - 规则 0：数据根外的敏感文件（.env / settings.json 等）一律拒
         - 写工具（Write/Edit）→ ``_check_write_access``
         - 读工具（Read/Glob/Grep）→ ``_check_read_access``
 
@@ -268,7 +247,9 @@ class AgentAccessPolicy:
 
         if tool_name in self._WRITE_TOOLS:
             return self._check_write_access(resolved, project_cwd, logical_norm=logical_norm, user_id=user_id)
-        return self._check_read_access(resolved, project_cwd, user_id=user_id)
+        return self._check_read_access(
+            resolved, project_cwd, user_id=user_id, is_search=tool_name in self._SEARCH_TOOLS
+        )
 
     def build_sandbox_settings(self, project_cwd: Path, *, user_id: str) -> dict[str, Any]:
         """构造 SandboxSettings dict（SDK Python TypedDict 未声明 filesystem
@@ -284,12 +265,12 @@ class AgentAccessPolicy:
           不受 sandbox 约束），堵死 Bash（``echo>`` / ``sed`` / ``python -c``）旁路。OS 级对
           sandbox 内所有子进程生效。sandbox 内已无合法 Bash 写这三类路径（compose 写视频输出、
           split 写 ``source/``，均不碰），故不误伤。
-        - ``filesystem.allowWrite``：用户记忆目录（``<数据根>/.arcreel/users/<user_id>/memory/``）
+        - ``filesystem.allowWrite``：用户记忆目录（``<数据根>/users/<user_id>/memory/``）
           在 cwd 外，默认不可写；Agent 要用 Write/Edit 记跨项目笔记，须在内核层单独放行。
           项目记忆在 cwd 内本已可写，不重复登记。``user_id`` 非法（不是单个路径段）时不
           登记任何放行——fail-closed 优先于让记忆可写。
-        - ``filesystem.denyRead`` 另含数据根 ``.arcreel/`` 整棵（见
-          ``_build_memory_deny_read_abs_paths``）：hook 层的同一条读拒只管内置 Read/Glob/Grep，
+        - ``filesystem.denyRead`` 另含数据根下 ``projects/`` 以外的全部顶层条目（见
+          ``_build_data_root_deny_read_abs_paths``）：hook 层的数据根默认拒只管内置 Read/Glob/Grep，
           Bash 不经该 hook（ADR 0026）。
         - ``allowUnsandboxedCommands=False``：禁止 Agent 在 sandbox 失败时
           请求"重试 unsandboxed"，对红线场景不可接受。
@@ -302,7 +283,7 @@ class AgentAccessPolicy:
         if not self.sandbox_enabled:
             return {"enabled": False}
         filesystem: dict[str, Any] = {
-            "denyRead": self._build_sensitive_abs_paths() + self._build_memory_deny_read_abs_paths(),
+            "denyRead": self._build_sensitive_abs_paths() + self._build_data_root_deny_read_abs_paths(),
             "denyWrite": self._build_protected_write_abs_paths(project_cwd),
         }
         # 无路径可放行时整键不写：``allowWrite`` 是加法放行，空列表不表达任何意图。
@@ -318,30 +299,40 @@ class AgentAccessPolicy:
             "filesystem": filesystem,
         }
 
-    def _build_memory_deny_read_abs_paths(self) -> list[str]:
-        """内核沙箱层的记忆读禁清单：数据根 ``.arcreel/`` 整棵。
+    def _build_data_root_deny_read_abs_paths(self) -> list[str]:
+        """内核沙箱层的数据根读禁清单：数据根下 ``projects/`` 以外的全部顶层条目。
 
-        ``_check_read_access`` 的同一条读拒只覆盖内置 Read/Glob/Grep；Bash 及其子进程
-        不经该 hook，只受内核沙箱约束（ADR 0026），单层存在即留 ``cat`` 旁路——别的用户的
-        记忆与数据根内部状态都会被读到。
+        ``_check_read_access`` 的数据根默认拒只覆盖内置 Read/Glob/Grep；Bash 及其子进程
+        不经该 hook，只受内核沙箱约束（ADR 0026），单层存在即留 ``cat`` 旁路。
 
-        投影比 hook 严一档（hook 放行当前用户自己的记忆，这里连它一起拒）：与
-        ``PROTECTED_WRITE_RULES`` 的「hook 只拒 drafts/ 下的正式 script_plan、sandbox 整目录拒」
-        同一取法。Agent 读写记忆走 Read/Write/Edit（不经 sandbox），Bash 无须读记忆；
-        整棵拒换来的是新用户目录一出现即被覆盖，不必逐个枚举兄弟项。
+        投影比 hook 严一档（hook 放行当前用户自己的记忆，这里连 ``users/`` 整棵一起拒）：
+        与 ``PROTECTED_WRITE_RULES`` 的「hook 只拒 drafts/ 下的正式 script_plan、sandbox 整目录拒」
+        同一取法。Agent 读写记忆走 Read/Write/Edit（不经 sandbox），Bash 无须读记忆。
+        ``projects/`` 不在清单里，Bash 在项目之间的读取不受这里约束。
 
-        编译前先把目录建出来：CLI 对不存在的 deny 路径「Skipping non-existent read deny
-        path」、不装 deny mount，而围栏只在会话启动时编译一次——全新安装上第一个会话
-        跑起来时 ``.arcreel/`` 还不存在，此后别的用户的记忆目录一建出来，这个会话的
+        清单由两部分合成：布局登记的系统目录，加上数据根里实际存在的顶层条目——后者覆盖
+        默认库文件、旧布局残留（``.arcreel.db*``、``.arcreel/``、``.system_config.json`` 等）
+        和布局未登记的条目，不必逐项登记。
+
+        编译前先把布局登记的系统目录建出来：CLI 对不存在的 deny 路径「Skipping non-existent
+        read deny path」、不装 deny mount，而围栏只在会话启动时编译一次——全新安装上会话
+        启动时还不存在的系统目录，此后一建出来（别的用户的记忆、首次上传的凭证），这个会话的
         Bash 就能读到它。建目录失败（只读挂载、权限）时退回只登记路径：CLI 跳过它，
         hook 层仍拦住内置读工具。
         """
-        deny_root = self.projects_root / ARCREEL_DIRNAME
+        layout = self._layout
+        for system_dir in layout.system_dirs:
+            try:
+                system_dir.mkdir(parents=True, exist_ok=True)
+            except OSError:
+                logger.warning("数据根系统目录建不出来,sandbox deny 可能被 CLI 跳过: %s", system_dir)
+        entries: set[Path] = set(layout.system_dirs)
         try:
-            deny_root.mkdir(parents=True, exist_ok=True)
+            entries.update(self.data_root.iterdir())
         except OSError:
-            logger.warning("记忆读禁根建不出来,sandbox deny 可能被 CLI 跳过: %s", deny_root)
-        return [str(deny_root)]
+            logger.warning("数据根无法列出,sandbox deny 只含布局登记的系统目录: %s", self.data_root)
+        entries.discard(layout.projects_dir)
+        return sorted(str(entry) for entry in entries)
 
     def _build_memory_allow_write_abs_paths(self, user_id: str) -> list[str]:
         """内核沙箱层的记忆写放行清单：仅用户记忆目录（项目记忆在 cwd 内本已可写）。"""
@@ -357,7 +348,7 @@ class AgentAccessPolicy:
         if not is_valid_memory_user_id(user_id):
             logger.warning("user_id 不是合法路径段,记忆目录放行被跳过: %r", user_id)
             return None
-        return user_memory_dir(self.projects_root, user_id)
+        return self._layout.user_memory_dir(user_id)
 
     def _is_user_memory_path(self, resolved: Path, *, user_id: str) -> bool:
         """已 resolve 的路径是否落在当前用户的记忆目录（含目录本身）之内。
@@ -394,19 +385,17 @@ class AgentAccessPolicy:
         return paths
 
     def _build_sensitive_abs_paths(self) -> list[str]:
-        """构造敏感文件绝对路径列表，传给 sandbox profile 的 denyRead 字段。
+        """构造数据根外敏感文件的绝对路径列表，传给 sandbox profile 的 denyRead 字段。
 
         SDK CLI 会跳过不存在的 deny 路径（"Skipping non-existent deny path"），
-        所以这里枚举当前真实存在的固定清单 + glob 命中项 + prefix 目录
-        （vertex_keys / 日志整目录交给 sandbox profile 递归 deny）。
+        所以这里枚举当前真实存在的固定清单 + glob 命中项。
 
         每次会话启动重新枚举，避免后建敏感文件（.env / .env.local）绕过
         sandbox profile — sandbox profile 在 SDK 客户端启动时一次性生效，
         run-time 新增的文件若已落入命名约定就要立刻进入 denyRead。
         """
-        files, prefixes, globs = self._sensitive_table
+        files, globs = self._sensitive_table
         candidates: list[Path] = list(files)
-        candidates.extend(prefixes)
         for parent, pattern in globs:
             if parent.exists():
                 candidates.extend(parent.glob(pattern))
@@ -591,21 +580,25 @@ class AgentAccessPolicy:
         """
         return project_cwd.as_posix().replace("/", "-").replace(".", "-")
 
-    def _check_read_access(self, resolved: Path, project_cwd: Path, *, user_id: str) -> tuple[bool, str | None]:
+    def _check_read_access(
+        self, resolved: Path, project_cwd: Path, *, user_id: str, is_search: bool
+    ) -> tuple[bool, str | None]:
         """Read/Glob/Grep 的跨项目隔离 + host 文件系统封锁。
 
         用户记忆目录放行；cwd 内放行（项目记忆在其中）；SDK tool-results / /tmp/claude-*/tasks 例外放行；
-        projects_root 下其他项目子目录拒、根直放文件放行；仓库根内参考资料
+        数据根内其余一律拒（其他项目、系统条目、他人记忆、根下直放文件）；仓库根内参考资料
         （lib/docs 等）放行；其余（host 文件系统：~/.ssh、/etc 等）默认拒。
+
+        数据根默认拒须排在仓库根放行之前：数据根常位于仓库根内（开发默认 ``<仓库根>/projects``、
+        Docker ``/app/projects``），否则数据根里的条目会被当作参考资料放行。同理，Glob/Grep 的
+        搜索根（``is_search``）若包含数据根，递归会扫进数据根，一并拒绝。
+
+        数据根的归属判定走 ``_normalize_path_for_protected_compare`` 口径：``resolve`` 不规整
+        大小写，大小写不敏感卷（macOS APFS、Windows NTFS 默认）上 ``<仓库根>/PROJECTS/...`` 与
+        数据根是同一目录，按原样比对会落进仓库根放行。
         """
-        # 用户记忆放行须在 projects_root 分支之前：它落在 projects_root 下的
-        # ``.arcreel/`` 里，走到跨项目读隔离会被当成"别的项目"拒掉。
         if self._is_user_memory_path(resolved, user_id=user_id):
             return True, None
-        # 自己的记忆之外，数据根内部目录整棵拒：它装的是其他用户的记忆与 ArcReel 内部状态，
-        # 而跨项目读隔离只拦"存在的目录"，``.arcreel/`` 尚未建时会从根直放文件分支漏出去。
-        if resolved.is_relative_to(self.projects_root / ARCREEL_DIRNAME):
-            return False, (f"访问被拒绝：不允许读取其他用户的记忆或数据根内部目录 ({resolved})")
         if resolved.is_relative_to(project_cwd):
             return True, None
         # SDK tool-results 例外（已 resolve 的基准见 _claude_projects_dir_resolved）。
@@ -617,15 +610,13 @@ class AgentAccessPolicy:
         # SDK 后台任务输出例外（前缀计算见 _sdk_tmp_prefixes，实例内缓存一次）。
         if str(resolved).startswith(self._sdk_tmp_prefixes) and "tasks" in resolved.parts:
             return True, None
-        # projects_root 下：当前项目以外的子目录拒，根直放文件放行
-        projects_root = self.projects_root
-        if resolved.is_relative_to(projects_root):
-            rel_to_projects = resolved.relative_to(projects_root)
-            if rel_to_projects.parts:
-                first_entry = projects_root / rel_to_projects.parts[0]
-                if first_entry.is_dir() and first_entry.name != project_cwd.name:
-                    return False, (f"访问被拒绝：不允许跨项目读取 ({resolved} 不在当前项目 {project_cwd} 内)")
-            return True, None
+        # 数据根内：当前项目与当前用户的记忆已在上面放行，其余一律拒
+        if self._is_within_for_compare(resolved, self._layout.projects_dir):
+            return False, (f"访问被拒绝：不允许跨项目读取 ({resolved} 不在当前项目 {project_cwd} 内)")
+        if self._is_within_for_compare(resolved, self.data_root):
+            return False, (f"访问被拒绝：数据根内只能读取当前项目与你的记忆 ({resolved})")
+        if is_search and self._is_within_for_compare(self.data_root, resolved):
+            return False, (f"访问被拒绝：搜索范围包含数据根，请缩小到当前项目或具体的参考资料目录 ({resolved})")
         # 仓库根内的参考资料（lib/docs/agent_runtime_profile 等）放行
         if resolved.is_relative_to(self.project_root):
             return True, None
@@ -714,6 +705,13 @@ class AgentAccessPolicy:
             s = "\\\\" + rest[4:] if rest[:4].casefold() == "unc\\" else rest
         s = unicodedata.normalize("NFC", s)
         return os.path.normcase(s).casefold()
+
+    @classmethod
+    def _is_within_for_compare(cls, target: Path, base: Path) -> bool:
+        """``target`` 是否为 ``base`` 本身或其子路径，两侧按 ``_normalize_path_for_protected_compare`` 归一化后比对。"""
+        target_s = cls._normalize_path_for_protected_compare(target)
+        base_s = cls._normalize_path_for_protected_compare(base)
+        return target_s == base_s or target_s.startswith(base_s.rstrip(os.sep) + os.sep)
 
     @classmethod
     def _is_protected_project_json(cls, target: Path, bases: list[Path]) -> bool:

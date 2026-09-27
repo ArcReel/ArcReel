@@ -15,6 +15,8 @@ import { EndFramePicker } from "./EndFramePicker";
 
 interface EndFrameRowProps {
   projectName: string;
+  lastFrame?: boolean | null;
+  capabilitiesLoading?: boolean;
   segmentId: string;
   scriptFile: string;
   contentMode: EditorContentMode;
@@ -44,6 +46,8 @@ interface EndFrameRowProps {
  */
 export function EndFrameRow({
   projectName,
+  lastFrame,
+  capabilitiesLoading,
   segmentId,
   scriptFile,
   contentMode,
@@ -60,12 +64,12 @@ export function EndFrameRow({
   const [submitting, setSubmitting] = useState(false);
   const viewOnly = useDemoWorkbench() || readOnly;
 
-  // 能力按项目生成模式定轴、全项目同一口径（生成模式创建即定），故不带集号。
-  const { lastFrame, loading: capsLoading } = useModelCapabilities({
-    projectName,
-  });
+  const standaloneCapabilities = useModelCapabilities({ projectName, enabled: lastFrame === undefined });
+  const effectiveLastFrame = lastFrame === undefined ? standaloneCapabilities.lastFrame : lastFrame;
+  const capsLoading = capabilitiesLoading ?? standaloneCapabilities.loading;
+
   // 未查到能力（加载中 / 失败）时不谎报不支持：仅明确的 false 才门控。
-  const unsupported = lastFrame === false;
+  const unsupported = effectiveLastFrame === false;
 
   const videoBusyIds = useActiveResourceIds("video", projectName);
   // 占用不区分来源（任务队列在跑 / 视频卡手动上传在途）：二者都在写同一份 project.json，

@@ -19,6 +19,18 @@ describe("SceneCard", () => {
 
   const scene = { description: "阴森古朴" };
 
+  it("opens a prompt preview for the current description draft", async () => {
+    const preview = vi.spyOn(API, "previewAssetPrompt").mockResolvedValue({
+      text: "最终提示词：草稿外观", unavailable: null, is_text_form: true, warnings: [],
+    });
+    render(<SceneCard name="庭院" scene={{ description: "旧描述" }}
+      projectName="demo" onUpdate={vi.fn()} onGenerate={vi.fn()} />);
+    fireEvent.change(screen.getByDisplayValue("旧描述"), { target: { value: "草稿外观" } });
+    fireEvent.click(screen.getByRole("button", { name: "查看提示词" }));
+    expect(await screen.findByText("最终提示词：草稿外观")).toBeInTheDocument();
+    expect(preview).toHaveBeenCalledWith("demo", "scene", "庭院", "草稿外观", { signal: expect.any(AbortSignal) });
+  });
+
   it("renders name and description", () => {
     render(
       <SceneCard

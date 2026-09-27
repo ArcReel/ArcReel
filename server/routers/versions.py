@@ -22,7 +22,7 @@ from lib.artifacts.artifact_activation import (
 )
 from lib.artifacts.artifact_version_provenance import parse_image_version_basis
 from lib.artifacts.formal_write import project_metadata_lock
-from lib.artifacts.version_manager import VersionManager
+from lib.artifacts.version_manager import MANUAL_UPLOAD_VERSION_SOURCE, VersionManager
 from lib.generation.generation_admission import generation_admission_lock
 from lib.infra.api_errors import BadRequestError, ConflictError
 from lib.infra.async_thread import run_noninterruptible_sync
@@ -121,6 +121,8 @@ _RESOURCE_TO_ASSET_TYPE: dict[str, str] = {
     "props": "prop",
     "products": "product",
 }
+# 资产图与衍生资产图：还原到手动上传记录时按图本身重新登记。
+_SHEET_RESOURCE_TYPES = frozenset({*_RESOURCE_TO_ASSET_TYPE, CHARACTER_DERIVATIVE_RESOURCE_TYPE})
 
 
 def _commit_non_typed_restore_claim(
@@ -145,6 +147,16 @@ def _commit_non_typed_restore_claim(
                 resource_type=resource_type,
                 resource_id=resource_id,
             )
+        return
+
+    if resource_type in _SHEET_RESOURCE_TYPES and (record or {}).get("source") == MANUAL_UPLOAD_VERSION_SOURCE:
+        # 还原到作为成品带入的资产图或衍生资产图（作者上传或从资产库应用）：选中的已是这条
+        # 手动上传记录，规划器按图本身投影依据，投影不出即遗忘。
+        register_current_resource_artifact(
+            project_path,
+            resource_type=resource_type,
+            resource_id=resource_id,
+        )
         return
 
     try:

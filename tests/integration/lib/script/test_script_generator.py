@@ -4,17 +4,26 @@ import logging
 import re
 import threading
 from pathlib import Path
-from typing import ClassVar, cast
+from typing import cast
 
 import pytest
 
 from lib.artifacts.artifact_activation import activate_artifact_target_state
-from lib.config.resolver import ENDPOINT_FIXED_PLANNING_DURATIONS, ConfigResolver
+from lib.config.resolver import ConfigResolver
+from lib.generation.video_request_facts import (
+    ENDPOINT_FIXED_PLANNING_DURATIONS,
+    ExecutionVideoIdentity,
+    VideoRequestFacts,
+    VideoRequestFactsError,
+    VideoRequestFactsFailure,
+    evaluate_video_request_facts,
+)
 from lib.project.project_migrations import CURRENT_SCHEMA_VERSION
-from lib.script.script_generator import PromptAuthoringTargets, ScriptGenerator
+from lib.script.script_generator import PlanningVideoFacts, PromptAuthoringTargets, ScriptGenerator
 from lib.script.script_review import content_fingerprint, script_plan_path
 from lib.script.script_structure_validator import ScriptStructureValidationError
 from lib.speech.speech_composition import SpeechAdmissionError
+from tests.factories import make_video_request_facts
 from tests.fakes import FakeConfigResolver
 from tests.speech_contract_cases import SPEECH_CONTRACT_CASES, SpeechContractCase
 
@@ -107,25 +116,13 @@ def _write_drama_ledger_project(project_path: Path, episodes: list[dict], charac
     )
 
 
-def _drama_project_with_backend(
-    tmp_path,
-    *,
-    backend: str,
-    resolution: str,
-):
-    """造一个指定视频后端 + 分辨率的最小 drama 项目，返回项目路径。
-
-    四个 prompt_authoring 时长校验用例只在这三项上不同，其余装配逐字相同。
-    """
-    project_path = tmp_path / "demo"
+def _drama_project(tmp_path):
+    """造一个最小 drama 项目，返回项目路径；时长档位由视频请求事实提供，与项目字段无关。"""
+    project_path = tmp_path / "projects" / "demo"
     _write_drama_ledger_project(
         project_path,
         [{"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"}],
     )
-    project = json.loads((project_path / "project.json").read_text(encoding="utf-8"))
-    project["video_backend"] = backend
-    project["model_settings"] = {backend: {"resolution": resolution}}
-    _write_json(project_path / "project.json", project)
     return project_path
 
 
@@ -201,9 +198,13 @@ class _FakeTextGenerator:
 
 
 class TestScriptGenerator:
+    @pytest.fixture(autouse=True)
+    def _fixed_tier_facts(self, video_request_facts) -> None:
+        """本类用例不关心档位分支：视频请求事实固定给 4/6/8 三档。需要收窄档位的用例就地覆盖事实。"""
+
     async def test_build_prompt_renders_pending_formal_segments(self, tmp_path):
         """build_prompt 无需 client 即可使用（dry-run 模式）：narration 渲染正式剧本里待编写分镜的内容字段。"""
-        project_path = tmp_path / "demo"
+        project_path = tmp_path / "projects" / "demo"
         _write_project_json(
             project_path,
             {
@@ -228,7 +229,7 @@ class TestScriptGenerator:
 
     async def test_build_prompt_appends_user_instructions(self, tmp_path):
         """instructions 以中性「附加指令」分节追加到 prompt 末尾；未传时无该分节。"""
-        project_path = tmp_path / "demo"
+        project_path = tmp_path / "projects" / "demo"
         _write_project_json(
             project_path,
             {
@@ -253,7 +254,7 @@ class TestScriptGenerator:
 
     async def test_narration_prompt_authoring_build_prompt_uses_project_source_language(self, tmp_path):
         """narration prompt_authoring（视觉层）prompt 的输出语言须取项目 source_language（与 drama 同口径），非中文项目不得回落中文。"""
-        project_path = tmp_path / "demo"
+        project_path = tmp_path / "projects" / "demo"
         _write_project_json(
             project_path,
             {
@@ -278,7 +279,7 @@ class TestScriptGenerator:
 
     async def test_load_script_plan_drama_missing_raises_without_fallback(self, tmp_path):
         """drama 集缺 script_plan_normalized_script.json 时显式报错；不得降级改读 narration 的拆分表。"""
-        project_path = tmp_path / "demo"
+        project_path = tmp_path / "projects" / "demo"
         _write_project_json(
             project_path,
             {
@@ -297,7 +298,7 @@ class TestScriptGenerator:
 
     async def test_load_drama_script_plan_content_rejects_non_dict_top_level(self, tmp_path):
         """drama script_plan 顶层非对象（如 JSON 数组）→ ValueError，不静默当空剧本。"""
-        project_path = tmp_path / "demo"
+        project_path = tmp_path / "projects" / "demo"
         _write_drama_ledger_project(
             project_path,
             [{"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"}],
@@ -310,7 +311,7 @@ class TestScriptGenerator:
 
     async def test_load_drama_script_plan_content_rejects_non_list_scenes(self, tmp_path):
         """drama script_plan scenes 非列表（如对象）→ ValueError fail-fast，不被当成空剧本继续。"""
-        project_path = tmp_path / "demo"
+        project_path = tmp_path / "projects" / "demo"
         _write_drama_ledger_project(
             project_path,
             [{"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"}],
@@ -326,7 +327,7 @@ class TestScriptGenerator:
 
     async def test_load_drama_script_plan_content_rejects_empty_scenes(self, tmp_path):
         """drama script_plan scenes 为空列表 → ValueError fail-fast（空剧本不是合法 script_plan 产物，避免落盘 scenes=[]）。"""
-        project_path = tmp_path / "demo"
+        project_path = tmp_path / "projects" / "demo"
         _write_drama_ledger_project(
             project_path,
             [{"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"}],
@@ -342,7 +343,7 @@ class TestScriptGenerator:
 
     async def test_load_drama_script_plan_content_rejects_non_dict_scene_item(self, tmp_path):
         """drama script_plan scenes 列表含非对象项（数字 / 字符串）→ ValueError，不拖到 render/merge 阶段才炸。"""
-        project_path = tmp_path / "demo"
+        project_path = tmp_path / "projects" / "demo"
         _write_drama_ledger_project(
             project_path,
             [{"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"}],
@@ -358,7 +359,7 @@ class TestScriptGenerator:
 
     async def test_load_drama_script_plan_content_rejects_empty_scene_id(self, tmp_path):
         """drama script_plan 分镜的 scene_id 为空串 / 缺失 → ValueError fail-fast（拖到合并阶段才暴露）。"""
-        project_path = tmp_path / "demo"
+        project_path = tmp_path / "projects" / "demo"
         _write_drama_ledger_project(
             project_path,
             [{"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"}],
@@ -375,7 +376,7 @@ class TestScriptGenerator:
     async def test_load_drama_script_plan_content_rejects_rewritten_scene_id_collision(self, tmp_path):
         """原始 scene_id 互异但改写 episode 前缀后相撞（E1S02_1 与 E2S02_1 在 ep2 都成 E2S02_1）→ fail-loud，
         避免下游产物文件名 / 资产键撞车（与 _load_narration_script_plan 同口径）。"""
-        project_path = tmp_path / "demo"
+        project_path = tmp_path / "projects" / "demo"
         _write_drama_ledger_project(
             project_path,
             [{"episode": 2, "title": "第二集", "script_file": "scripts/episode_2.json"}],
@@ -389,87 +390,105 @@ class TestScriptGenerator:
         with pytest.raises(ValueError, match="改写到 episode=2 后重复"):
             generator._load_drama_script_plan_content(2)
 
-    async def test_drama_prompt_authoring_rejects_script_plan_duration_out_of_constrained_set(self, tmp_path):
-        """script_plan 在宽松分辨率下拆好、项目改到 Veo 1080p 后再跑 prompt_authoring → 越界时长 fail-loud。
+    async def test_drama_prompt_authoring_rejects_script_plan_duration_out_of_constrained_set(
+        self, tmp_path, set_video_request_facts
+    ):
+        """script_plan 在宽松档位下拆好、事实收窄到只剩 8 秒后再跑 prompt_authoring → 越界时长 fail-loud。
 
         prompt_authoring 原样透传 script_plan 时长，落盘前的静态校验只要求正整数；缺这道校验时越界值会一路存进
         剧本，直到视频入队才被拒。与 narration / reference_video 的 script_plan 读回校验对称。
         """
-        project_path = _drama_project_with_backend(
-            tmp_path, backend="gemini-aistudio/veo-3.1-generate-preview", resolution="1080p"
-        )
+        set_video_request_facts(make_video_request_facts(supported_durations=(4, 6, 8), allowed_durations=(8,)))
+        project_path = _drama_project(tmp_path)
 
         content = _drama_script_plan_content()
         content["scenes"][0]["duration_seconds"] = 4
         generator = ScriptGenerator(project_path)
         with pytest.raises(ValueError, match="script_plan 已定分镜时长非法"):
-            await generator._assert_drama_script_plan_durations(content["scenes"], episode=1, gen_mode="storyboard")
+            await generator._assert_drama_script_plan_durations(content["scenes"])
 
     @pytest.mark.parametrize(
         "raw",
         ["4", 4.0],
         ids=["numeric-string", "integral-float"],
     )
-    async def test_drama_prompt_authoring_rejects_out_of_range_duration_in_coercible_form(self, tmp_path, raw):
+    async def test_drama_prompt_authoring_rejects_out_of_range_duration_in_coercible_form(
+        self, tmp_path, set_video_request_facts, raw
+    ):
         """手编的 `"4"` / `4.0` 同样拦下：它们会被最终 schema 归一成 4 落盘，不能绕过校验。
 
         校验若按 `isinstance(..., int)` 判定就会整个跳过这两种形态，等于给越界值开一条绕路。
         """
-        project_path = _drama_project_with_backend(
-            tmp_path, backend="gemini-aistudio/veo-3.1-generate-preview", resolution="1080p"
-        )
+        set_video_request_facts(make_video_request_facts(supported_durations=(4, 6, 8), allowed_durations=(8,)))
+        project_path = _drama_project(tmp_path)
 
         content = _drama_script_plan_content()
         content["scenes"][0]["duration_seconds"] = raw
         generator = ScriptGenerator(project_path)
         with pytest.raises(ValueError, match="script_plan 已定分镜时长非法"):
-            await generator._assert_drama_script_plan_durations(content["scenes"], episode=1, gen_mode="storyboard")
+            await generator._assert_drama_script_plan_durations(content["scenes"])
 
-    async def test_drama_prompt_authoring_checks_declared_default_when_duration_absent(self, tmp_path):
+    async def test_drama_prompt_authoring_checks_declared_default_when_duration_absent(
+        self, tmp_path, set_video_request_facts
+    ):
         """缺 duration_seconds 键时按字段声明默认值校验——不填不代表不校验，落盘补的正是该默认值。
 
-        海螺 1080p 只接受 6 秒，而 DramaSceneContent 的默认是 8 秒，故该场景须被拦下。
+        事实只给 6 秒（海螺 1080p），而 DramaSceneContent 的默认是 8 秒，故该场景须被拦下。
         """
-        project_path = _drama_project_with_backend(tmp_path, backend="minimax/MiniMax-Hailuo-2.3", resolution="1080p")
+        set_video_request_facts(
+            make_video_request_facts(
+                provider_id="minimax",
+                model_id="MiniMax-Hailuo-2.3",
+                supported_durations=(6, 10),
+                allowed_durations=(6,),
+            )
+        )
+        project_path = _drama_project(tmp_path)
 
         content = _drama_script_plan_content()
         del content["scenes"][0]["duration_seconds"]
         generator = ScriptGenerator(project_path)
         with pytest.raises(ValueError, match="script_plan 已定分镜时长非法"):
-            await generator._assert_drama_script_plan_durations(content["scenes"], episode=1, gen_mode="storyboard")
+            await generator._assert_drama_script_plan_durations(content["scenes"])
 
-    async def test_drama_prompt_authoring_checks_declared_default_when_duration_null(self, tmp_path):
+    async def test_drama_prompt_authoring_checks_declared_default_when_duration_null(
+        self, tmp_path, set_video_request_facts
+    ):
         """显式 null 与缺键同口径：都按声明默认值校验，不得绕过。
 
         `dict.get` 的默认值只在缺键时生效，显式 null 会取到 None；不特判的话该场景跳过校验，
         要等 prompt_authoring 跑完、落盘时才被 Pydantic 拒，白耗一次完整的剧本生成调用。
         """
-        project_path = _drama_project_with_backend(tmp_path, backend="minimax/MiniMax-Hailuo-2.3", resolution="1080p")
+        set_video_request_facts(
+            make_video_request_facts(
+                provider_id="minimax",
+                model_id="MiniMax-Hailuo-2.3",
+                supported_durations=(6, 10),
+                allowed_durations=(6,),
+            )
+        )
+        project_path = _drama_project(tmp_path)
 
         content = _drama_script_plan_content()
         content["scenes"][0]["duration_seconds"] = None
         generator = ScriptGenerator(project_path)
         with pytest.raises(ValueError, match="script_plan 已定分镜时长非法"):
-            await generator._assert_drama_script_plan_durations(content["scenes"], episode=1, gen_mode="storyboard")
+            await generator._assert_drama_script_plan_durations(content["scenes"])
 
-    async def test_drama_prompt_authoring_accepts_script_plan_duration_within_constrained_set(self, tmp_path):
-        """同一 1080p 项目下 8 秒仍合法——收窄后集合的成员不得被这道校验误拒。"""
-        project_path = _drama_project_with_backend(
-            tmp_path, backend="gemini-aistudio/veo-3.1-generate-preview", resolution="1080p"
-        )
+    async def test_drama_prompt_authoring_accepts_script_plan_duration_within_constrained_set(
+        self, tmp_path, set_video_request_facts
+    ):
+        """事实收窄到只剩 8 秒时 8 秒仍合法——收窄后集合的成员不得被这道校验误拒。"""
+        set_video_request_facts(make_video_request_facts(supported_durations=(4, 6, 8), allowed_durations=(8,)))
+        project_path = _drama_project(tmp_path)
 
         generator = ScriptGenerator(project_path)
 
-        assert (
-            await generator._assert_drama_script_plan_durations(
-                _drama_script_plan_content()["scenes"], episode=1, gen_mode="storyboard"
-            )
-            is None
-        )
+        assert await generator._assert_drama_script_plan_durations(_drama_script_plan_content()["scenes"]) is None
 
     async def test_drama_prompt_authoring_build_prompt_renders_formal_scene_content(self, tmp_path):
         """drama prompt_authoring（视觉层）build_prompt 把正式剧本里待编写分镜的内容字段渲染入 prompt，仅求视觉字段。"""
-        project_path = tmp_path / "demo"
+        project_path = tmp_path / "projects" / "demo"
         _write_drama_ledger_project(
             project_path,
             [{"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"}],
@@ -489,7 +508,7 @@ class TestScriptGenerator:
 
     async def test_drama_prompt_authoring_build_prompt_omits_outline(self, tmp_path):
         """分集大纲驱动脚本规划的内容生成；prompt_authoring 视觉层 prompt 不渲染大纲段。"""
-        project_path = tmp_path / "demo"
+        project_path = tmp_path / "projects" / "demo"
         _write_drama_ledger_project(
             project_path,
             [
@@ -514,7 +533,7 @@ class TestScriptGenerator:
 
     async def test_drama_prompt_authoring_build_prompt_uses_project_source_language(self, tmp_path):
         """prompt_authoring 视觉层 prompt 的输出语言须取项目 source_language，非中文项目不得回落中文。"""
-        project_path = tmp_path / "demo"
+        project_path = tmp_path / "projects" / "demo"
         _write_drama_ledger_project(
             project_path,
             [{"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"}],
@@ -536,7 +555,7 @@ class TestScriptGenerator:
         assert "所有字符串值必须使用 中文" not in prompt
 
     async def test_parse_response_invalid_json_raises(self, tmp_path):
-        project_path = tmp_path / "demo"
+        project_path = tmp_path / "projects" / "demo"
         _write_json(project_path / "project.json", {"title": "项目"})
 
         generator = ScriptGenerator(project_path)
@@ -544,7 +563,7 @@ class TestScriptGenerator:
             generator._parse_response("not-json", 1)
 
     async def test_parse_response_validation_error_returns_raw_data(self, tmp_path):
-        project_path = tmp_path / "demo"
+        project_path = tmp_path / "projects" / "demo"
         _write_json(project_path / "project.json", {"title": "项目"})
 
         generator = ScriptGenerator(project_path)
@@ -554,7 +573,7 @@ class TestScriptGenerator:
 
     async def test_generate_writes_script_and_metadata(self, tmp_path):
         """待编写分镜补上视觉层并清除标记：内容字段逐字保留，metadata 刷新 generator、保留 created_at。"""
-        project_path = tmp_path / "demo"
+        project_path = tmp_path / "projects" / "demo"
         _write_project_json(
             project_path,
             {
@@ -593,7 +612,7 @@ class TestScriptGenerator:
     async def test_generate_reads_formal_baseline_without_blocking_event_loop(
         self, tmp_path, monkeypatch, content_mode
     ):
-        project_path = tmp_path / "demo"
+        project_path = tmp_path / "projects" / "demo"
         if content_mode == "narration":
             _write_project_json(
                 project_path,
@@ -671,7 +690,7 @@ class TestScriptGenerator:
 
     async def test_conversion_rejects_an_unregistered_formal_script_plan(self, tmp_path):
         """脚本规划未登记进产物清单：转换拒绝读取，不落正式剧本。"""
-        project_path = tmp_path / "demo"
+        project_path = tmp_path / "projects" / "demo"
         _write_project_json(
             project_path,
             {
@@ -701,7 +720,7 @@ class TestScriptGenerator:
 
     async def test_conversion_injects_hook_and_teaser_from_ledger(self, tmp_path):
         """正式剧本的集级 hook / next_episode_teaser 元数据来自分集账本（经写盘严格校验）。"""
-        project_path = tmp_path / "demo"
+        project_path = tmp_path / "projects" / "demo"
         _write_drama_ledger_project(
             project_path,
             [
@@ -728,7 +747,7 @@ class TestScriptGenerator:
 
     async def test_conversion_without_ledger_hook_leaves_fields_null(self, tmp_path):
         """旧式条目（账本无钩子/预告）：字段为 null，写盘校验仍通过。"""
-        project_path = tmp_path / "demo"
+        project_path = tmp_path / "projects" / "demo"
         _write_project_json(
             project_path,
             {
@@ -752,7 +771,7 @@ class TestScriptGenerator:
 
     async def test_generate_keeps_formal_entry_ids_and_episode(self, tmp_path):
         """正式剧本里的 segment_id 是写回的定位锚：编写第 10 集时条目 id 与集号原样保留。"""
-        project_path = tmp_path / "demo"
+        project_path = tmp_path / "projects" / "demo"
         _write_project_json(
             project_path,
             {
@@ -786,7 +805,7 @@ class TestScriptGenerator:
         """drama prompt_authoring LLM 输出 schema 是 DramaVisualScript（仅 scene_id + 视觉字段，无非视觉字段）。"""
         from lib.script.script_models import DramaVisualScript
 
-        project_path = tmp_path / "demo"
+        project_path = tmp_path / "projects" / "demo"
         _write_drama_ledger_project(
             project_path,
             [{"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"}],
@@ -813,7 +832,7 @@ class TestScriptGenerator:
 
     async def test_generate_drama_prompt_authoring_appends_user_instructions(self, tmp_path):
         """generate 路径的 instructions 同样以中性「附加指令」分节追加到发给模型的 prompt 末尾。"""
-        project_path = tmp_path / "demo"
+        project_path = tmp_path / "projects" / "demo"
         _write_drama_ledger_project(
             project_path,
             [{"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"}],
@@ -830,7 +849,7 @@ class TestScriptGenerator:
 
     async def test_generate_drama_prompt_authoring_rejects_mixed_scene_before_backend_call(self, tmp_path):
         """待编写分镜的台词混入旁白：发声准入在调用文本模型之前拒绝，正式剧本不动。"""
-        project_path = tmp_path / "demo"
+        project_path = tmp_path / "projects" / "demo"
         _write_drama_ledger_project(
             project_path,
             [{"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"}],
@@ -861,7 +880,7 @@ class TestScriptGenerator:
         """drama prompt_authoring generate 应在 TextGenerationRequest 上设置共享输出上限（DEFAULT_MAX_OUTPUT_TOKENS）。"""
         from lib.backends.text_backends.base import DEFAULT_MAX_OUTPUT_TOKENS
 
-        project_path = tmp_path / "demo"
+        project_path = tmp_path / "projects" / "demo"
         _write_drama_ledger_project(
             project_path,
             [{"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"}],
@@ -881,7 +900,7 @@ class TestScriptGenerator:
 
     async def test_generate_without_backend_raises(self, tmp_path):
         """未注入 backend 时调用 generate() 应抛 RuntimeError。"""
-        project_path = tmp_path / "demo"
+        project_path = tmp_path / "projects" / "demo"
         _write_json(project_path / "project.json", {"title": "项目"})
         _write(project_path / "drafts" / "episode_1" / "script_plan_segments.md", "content")
 
@@ -904,7 +923,7 @@ class TestScriptGenerator:
         save_script 咽喉的 _safe_subpath 能挡绝对路径与 path traversal,但子目录拼出的 realpath
         仍在 scripts/ 内,不挡;故公开 API 这层必须显式拒,让 docstring 不骗人。
         """
-        project_path = tmp_path / "demo"
+        project_path = tmp_path / "projects" / "demo"
         _write_json(project_path / "project.json", {"title": "项目"})
 
         fake = _FakeTextGenerator(json.dumps(_valid_narration_response(), ensure_ascii=False))
@@ -920,7 +939,7 @@ class TestAddMetadataRewritesEpisodePrefix:
     def _make_generator(
         tmp_path: Path, content_mode: str = "narration", generation_mode: str = "storyboard"
     ) -> ScriptGenerator:
-        project_path = tmp_path / "demo"
+        project_path = tmp_path / "projects" / "demo"
         _write_project_json(
             project_path,
             {
@@ -972,7 +991,7 @@ class TestAddMetadataRewritesEpisodePrefix:
         assert {key: value for key, value in out[case.kind][0].items() if key != "needs_replan"} == original
 
     def test_reference_video_rewrites_unit_ids(self, tmp_path: Path) -> None:
-        project_path = tmp_path / "demo"
+        project_path = tmp_path / "projects" / "demo"
         _write_project_json(
             project_path,
             {
@@ -1018,7 +1037,7 @@ class TestAddMetadataInjectsHiddenFields:
 
     @staticmethod
     def _make_generator(tmp_path: Path, content_mode: str = "drama") -> ScriptGenerator:
-        project_path = tmp_path / "demo"
+        project_path = tmp_path / "projects" / "demo"
         _write_project_json(
             project_path,
             {
@@ -1132,244 +1151,144 @@ class TestAddMetadataInjectsHiddenFields:
         assert out["novel"]["title"] == "项目标题"
 
 
-def test_resolve_supported_durations_raises_when_unset(tmp_path):
-    """caps、project.json、registry 三处都查不到时应抛 ValueError，不再 silent fallback。"""
-    project_dir = tmp_path / "p"
-    project_dir.mkdir()
-    (project_dir / "project.json").write_text(
-        '{"video_backend": "nonexistent-provider/nonexistent-model"}', encoding="utf-8"
-    )
-    sg = ScriptGenerator.__new__(ScriptGenerator)
-    sg.project_path = project_dir
-    sg.project_json = {"video_backend": "nonexistent-provider/nonexistent-model"}
-
-    with pytest.raises(ValueError, match="supported_durations"):
-        sg._resolve_supported_durations(None, gen_mode="storyboard")
-
-
-class TestEndpointFixedDurationStillPlans:
-    """时长由端点固定的模型行不该把剧本规划也一并挡下（``docs/adr/0082``）。
-
-    ComfyUI 的 workflow 自己决定出多长，档位因此是合法的空集；但剧本规划仍要有「一个分镜大概
-    多长」的篇幅依据。没有这条分叉，``resolve_raw_supported_durations`` 会返回 None，规划链以
-    「supported_durations 无法解析…请确保 model 配置完整」断掉——而那份配置其实是完整的。
-    """
-
-    def _sg(self, tmp_path) -> ScriptGenerator:
-        sg = ScriptGenerator.__new__(ScriptGenerator)
-        sg.project_path = tmp_path
-        sg.project_json = {"video_backend": "custom-3/my-wan-workflow"}
-        return sg
-
-    def test_an_endpoint_fixed_tier_borrows_the_planning_durations(self, tmp_path):
-        caps = {
-            "provider_id": "custom-3",
-            "model": "my-wan-workflow",
-            "supported_durations": [],
-            "duration_endpoint_fixed": True,
-        }
-
-        sg = self._sg(tmp_path)
-
-        assert sg._resolve_raw_supported_durations(caps) == ENDPOINT_FIXED_PLANNING_DURATIONS
-        assert sg._resolve_supported_durations(caps, gen_mode="storyboard") == ENDPOINT_FIXED_PLANNING_DURATIONS
-        assert sg._resolve_max_duration(caps, gen_mode="storyboard") == max(ENDPOINT_FIXED_PLANNING_DURATIONS)
-
-    def test_an_empty_tier_without_that_flag_still_raises(self, tmp_path):
-        """空集本身不是放行理由：其余协议的空集仍是配置缺陷（``docs/adr/0018``）。"""
-        caps = {"provider_id": "custom-3", "model": "m", "supported_durations": []}
-
-        with pytest.raises(ValueError, match="supported_durations"):
-            self._sg(tmp_path)._resolve_supported_durations(caps, gen_mode="storyboard")
-
-
-class TestFetchVideoCapabilitiesErrorHandling:
-    """任务类型桶解析闸的报错不被 fallback 吞掉——写剧本与执行读同一个模型的档位。"""
-
-    def _sg(self, tmp_path) -> ScriptGenerator:
-        sg = ScriptGenerator.__new__(ScriptGenerator)
-        sg.project_path = tmp_path
-        sg.project_json = {"video_backend": "kling/kling-v3", "generation_mode": "reference_video"}
-        return sg
-
-    async def test_bucket_capability_error_propagates(self, tmp_path, monkeypatch):
-        """桶模型缺能力 / 引用失效时上抛：退到 project.json 会拿项目默认模型的时长与参考图
-        上限写剧本，写出来的镜头执行期照样被同一道闸拒掉。"""
-        from lib.config.resolver import VideoBucketCapabilityError
-
-        async def _raise(_self, _project, _episode=None):
-            raise VideoBucketCapabilityError(
-                code="video_capability_missing_r2v",
-                generation_type="r2v",
-                provider_id="kling",
-                model_id="kling-v3",
-                message="video model kling/kling-v3 lacks the capability required by the r2v bucket",
-            )
-
-        monkeypatch.setattr(ConfigResolver, "video_capabilities_for_project", _raise)
-        with pytest.raises(VideoBucketCapabilityError) as excinfo:
-            await self._sg(tmp_path)._fetch_video_capabilities()
-        assert excinfo.value.code == "video_capability_missing_r2v"
-
-    async def test_other_resolution_failures_still_fall_back(self, tmp_path, monkeypatch):
-        """DB 未 migration / 缺能力元数据等环境故障仍走 fallback，裸环境下 generate() 照常跑通。"""
-
-        async def _raise(_self, _project, _episode=None):
-            raise ValueError("no video provider configured")
-
-        monkeypatch.setattr(ConfigResolver, "video_capabilities_for_project", _raise)
-        assert await self._sg(tmp_path)._fetch_video_capabilities() is None
-
-
-class TestDegradedResolutionKeepsBucket:
-    """caps 解析失败后的降级路径仍按 generation_mode 定桶读 project.json，只丢 DB 那一层。"""
-
-    _PROJECT: ClassVar[dict[str, str]] = {
-        "video_backend": "kling/kling-v3",
-        "video_provider_r2v": "gemini-aistudio/veo-3.1-generate-preview",
-        "generation_mode": "reference_video",
-    }
-
-    def test_backend_ids_fall_back_to_bucket_key(self, tmp_path):
-        sg = _sg_with_project(tmp_path, dict(self._PROJECT))
-        assert sg._resolve_backend_ids(None) == ("gemini-aistudio", "veo-3.1-generate-preview")
-
-    def test_max_refs_falls_back_to_bucket_model(self, tmp_path):
-        """参考生视频项目降级后仍按 r2v 桶模型报上限；取项目默认层会拿到不接受参考图的 kling-v3。"""
-        sg = _sg_with_project(tmp_path, dict(self._PROJECT))
-        assert sg._resolve_max_refs(None) == 3
-
-    def test_supported_durations_fall_back_to_bucket_model(self, tmp_path):
-        sg = _sg_with_project(tmp_path, dict(self._PROJECT))
-        assert sg._resolve_raw_supported_durations(None) == [4, 6, 8]
-
-
-def _sg_with_project(tmp_path, project: dict) -> ScriptGenerator:
-    """只为 _resolve_* 系列造一个不走 __init__ 的 ScriptGenerator（不需要 TextGenerator）。"""
+def _sg_with_project(tmp_path, project: dict, *, config_resolver: ConfigResolver | None = None) -> ScriptGenerator:
+    """只为读取视频请求事实造一个不走 __init__ 的 ScriptGenerator（不需要 TextGenerator）。"""
     project_dir = tmp_path / "p"
     project_dir.mkdir(exist_ok=True)
     sg = ScriptGenerator.__new__(ScriptGenerator)
     sg.project_path = project_dir
     sg.project_json = project
+    sg.config_resolver = config_resolver
     return sg
 
 
-_VEO_CAPS = {
-    "provider_id": "gemini-aistudio",
-    "model": "veo-3.1-generate-preview",
-    "supported_durations": [4, 6, 8],
-}
+_VEO = "gemini-aistudio/veo-3.1-generate-preview"
 
 
-def test_resolve_supported_durations_narrows_by_saved_resolution(tmp_path):
-    """项目保存了 1080p 时收窄到该档位声明的集合——Veo 1080p 只接受 8 秒。
+class TestPlanningVideoFacts:
+    """剧本规划读取的视频请求事实：档位直接取事实，解析不出即带码抛出，无第二来源。"""
 
-    这是验收标准第 1 条的正例：不收窄的话剧本产出 4/6 秒镜头，视频入队时才被 backend 拒。
+    def test_narrowed_tiers_are_the_planning_tiers(self):
+        """规划档位就是事实收窄后的档位，不是型号声明的全集。"""
+        facts = PlanningVideoFacts(
+            by_bucket={"i2v": make_video_request_facts(supported_durations=(4, 6, 8), allowed_durations=(8,))},
+        )
+        assert facts.planning_durations("i2v") == [8]
+
+    def test_an_endpoint_fixed_tier_borrows_the_planning_durations(self):
+        """时长由端点固定的模型行不该把剧本规划也一并挡下（``docs/adr/0082``）。
+
+        ComfyUI 的 workflow 自己决定出多长，档位因此是合法的空集；但剧本规划仍要有「一个分镜大概
+        多长」的篇幅依据，借用固定的规划档位。
+        """
+        facts = PlanningVideoFacts(
+            by_bucket={
+                "i2v": make_video_request_facts(
+                    provider_id="custom-3",
+                    model_id="my-wan-workflow",
+                    supported_durations=(),
+                    allowed_durations=(),
+                    duration_endpoint_fixed=True,
+                )
+            },
+        )
+        assert facts.planning_durations("i2v") == ENDPOINT_FIXED_PLANNING_DURATIONS
+
+    @pytest.mark.parametrize(
+        "code",
+        ["video_supported_durations_missing", "video_supported_durations_invalid", "video_capability_unavailable"],
+    )
+    def test_a_failed_bucket_raises_the_same_code_as_execution(self, code):
+        """解析不出的桶在需要成功事实的检查点带原问题码抛出，不退到全集或默认档位。"""
+        facts = PlanningVideoFacts(by_bucket={"i2v": VideoRequestFactsFailure(code)})
+
+        with pytest.raises(VideoRequestFactsError) as excinfo:
+            facts.planning_durations("i2v")
+        assert excinfo.value.code == code
+
+
+class TestFetchVideoRequestFacts:
+    """规划按路线逐桶读事实：分镜路线只有项目生成模式所落的桶，参考路线求 r2v 与 i2v 两桶。"""
+
+    async def test_storyboard_route_reads_the_single_bucket(self, tmp_path, set_video_request_facts):
+        set_video_request_facts({"i2v": make_video_request_facts(allowed_durations=(8,))})
+        sg = _sg_with_project(tmp_path, {"video_backend": _VEO, "generation_mode": "storyboard"})
+
+        facts = await sg._fetch_video_request_facts()
+
+        assert set(facts.by_bucket) == {"i2v"}
+        assert sg._storyboard_planning_durations(facts) == [8]
+
+    async def test_reference_route_keeps_a_failed_bucket_without_raising(self, tmp_path, set_video_request_facts):
+        """参考路线读两桶；解析不出的桶保存失败对象，到需要该桶的检查点才抛。"""
+        set_video_request_facts(
+            {
+                "r2v": VideoRequestFactsFailure("reference_capability_unavailable", (("capability", "r2v"),)),
+                "i2v": make_video_request_facts(route="reference_video", allowed_durations=(4, 6, 8)),
+            }
+        )
+        sg = _sg_with_project(tmp_path, {"video_backend": _VEO, "generation_mode": "reference_video"})
+
+        facts = await sg._fetch_video_request_facts()
+
+        assert set(facts.by_bucket) == {"r2v", "i2v"}
+        assert facts.planning_durations("i2v") == [4, 6, 8]
+        assert sg._resolve_max_refs(facts) is None
+        with pytest.raises(VideoRequestFactsError) as excinfo:
+            facts.planning_durations("r2v")
+        assert excinfo.value.code == "reference_capability_unavailable"
+
+
+@pytest.mark.parametrize(
+    ("project", "bucket", "expected"),
+    [
+        pytest.param(
+            {"video_backend": _VEO, "generation_mode": "storyboard", "model_settings": {_VEO: {"resolution": "1080p"}}},
+            "i2v",
+            [8],
+            id="storyboard-veo-1080p",
+        ),
+        pytest.param(
+            {"video_backend": _VEO, "generation_mode": "storyboard"},
+            "i2v",
+            [4, 6, 8],
+            id="storyboard-veo-unset-resolution",
+        ),
+        pytest.param(
+            {"video_provider_r2v": _VEO, "video_provider_i2v": _VEO, "generation_mode": "reference_video"},
+            "r2v",
+            [8],
+            id="reference-veo-with-reference-images",
+        ),
+        pytest.param(
+            {"video_provider_r2v": _VEO, "video_provider_i2v": _VEO, "generation_mode": "reference_video"},
+            "i2v",
+            [4, 6, 8],
+            id="reference-veo-without-reference-images",
+        ),
+    ],
+)
+async def test_planning_and_execution_read_the_same_tiers_under_one_configuration(
+    tmp_path, db_factory, project, bucket, expected
+):
+    """同一份配置下，剧本规划可选的档位与执行侧按实际执行模型求得的档位一致。
+
+    两侧读同一次事实求值；规划侧多写出的秒数执行期照样被拒，规划侧少给的秒数则凭空锁死剧本节奏。
     """
-    sg = _sg_with_project(
-        tmp_path,
-        {
-            "video_backend": "gemini-aistudio/veo-3.1-generate-preview",
-            "model_settings": {"gemini-aistudio/veo-3.1-generate-preview": {"resolution": "1080p"}},
-        },
+    resolver = ConfigResolver(db_factory)
+    sg = _sg_with_project(tmp_path, project, config_resolver=resolver)
+
+    planning = await sg._fetch_video_request_facts()
+    executed = await evaluate_video_request_facts(
+        project,
+        route=planning.require(bucket).route,
+        generation_type=bucket,
+        identity=ExecutionVideoIdentity("gemini-aistudio", "veo-3.1-generate-preview"),
+        resolver=resolver,
     )
-    assert sg._resolve_supported_durations(_VEO_CAPS, gen_mode="storyboard") == [8]
-    # 全集仍可单独取到，供「shot 是 clip 内编排」这类不面向供应商的维度使用
-    assert sg._resolve_raw_supported_durations(_VEO_CAPS) == [4, 6, 8]
 
-
-def test_resolve_supported_durations_unset_resolution_not_narrowed(tmp_path):
-    """项目未配分辨率时不收窄：普通视频路径此时省略 resolution 参数，Veo 按默认 720p 接受 4/6/8。
-
-    按 provider 兜底档位收窄会把未配置项目的剧本节奏凭空锁死 8 秒，而供应商本来就接受 4/6 秒。
-    """
-    sg = _sg_with_project(tmp_path, {"video_backend": "gemini-aistudio/veo-3.1-generate-preview"})
-    assert sg._resolve_supported_durations(_VEO_CAPS, gen_mode="storyboard") == [4, 6, 8]
-
-
-def test_resolve_supported_durations_respects_project_resolution(tmp_path):
-    """项目显式配置了无时长约束声明的分辨率时保留完整时长集合。"""
-    sg = _sg_with_project(
-        tmp_path,
-        {
-            "video_backend": "gemini-aistudio/veo-3.1-generate-preview",
-            "model_settings": {"gemini-aistudio/veo-3.1-generate-preview": {"resolution": "720p"}},
-        },
-    )
-    assert sg._resolve_supported_durations(_VEO_CAPS, gen_mode="storyboard") == [4, 6, 8]
-
-
-def test_resolve_supported_durations_narrows_by_reference_mode(tmp_path):
-    """参考生视频触发「参考图↔时长」约束，即便分辨率本身无声明。"""
-    sg = _sg_with_project(
-        tmp_path,
-        {
-            "video_backend": "gemini-aistudio/veo-3.1-generate-preview",
-            "model_settings": {"gemini-aistudio/veo-3.1-generate-preview": {"resolution": "720p"}},
-        },
-    )
-    assert sg._resolve_supported_durations(_VEO_CAPS, gen_mode="reference_video") == [8]
-
-
-def test_resolve_supported_durations_reference_mode_without_refs_not_narrowed(tmp_path):
-    """参考生视频但本集单元都不带引用时不施加参考图约束。
-
-    通用单元允许空 references，执行层与 backend 都只在实际带图时施加该约束；按模式一刀切
-    会错误收掉 720p 下无引用单元可申请的 4/6 秒。
-    """
-    sg = _sg_with_project(
-        tmp_path,
-        {
-            "video_backend": "gemini-aistudio/veo-3.1-generate-preview",
-            "model_settings": {"gemini-aistudio/veo-3.1-generate-preview": {"resolution": "720p"}},
-        },
-    )
-    assert sg._resolve_supported_durations(_VEO_CAPS, gen_mode="reference_video", uses_reference_images=False) == [
-        4,
-        6,
-        8,
-    ]
-    # 有引用的单元存在时照常收窄
-    assert sg._resolve_supported_durations(_VEO_CAPS, gen_mode="reference_video", uses_reference_images=True) == [8]
-
-
-def test_resolve_supported_durations_unconstrained_model_unchanged(tmp_path):
-    """已登记但无联动约束声明的型号：收窄是恒等变换，两种 gen_mode 都与全集一致。"""
-    caps = {"provider_id": "ark", "model": "doubao-seedance-1-5-pro-251215", "supported_durations": [4, 5, 6]}
-    sg = _sg_with_project(tmp_path, {"video_backend": "ark/doubao-seedance-1-5-pro-251215"})
-    assert sg._resolve_supported_durations(caps, gen_mode="storyboard") == [4, 5, 6]
-    assert sg._resolve_supported_durations(caps, gen_mode="reference_video") == [4, 5, 6]
-
-
-def test_resolve_max_duration_tracks_narrowed_set(tmp_path):
-    """max_duration 随收窄后的集合走：它在 rv 模式下是 unit 总时长上限，须与枚举同一集合。"""
-    sg = _sg_with_project(tmp_path, {"video_backend": "gemini-aistudio/veo-3.1-generate-preview"})
-    caps = {**_VEO_CAPS, "max_duration": 8}
-    assert sg._resolve_max_duration(caps, gen_mode="storyboard") == 8
-
-    hailuo_caps = {
-        "provider_id": "minimax",
-        "model": "MiniMax-Hailuo-2.3",
-        "supported_durations": [6, 10],
-        "max_duration": 10,
-    }
-    hailuo = _sg_with_project(
-        tmp_path,
-        {
-            "video_backend": "minimax/MiniMax-Hailuo-2.3",
-            "model_settings": {"minimax/MiniMax-Hailuo-2.3": {"resolution": "1080p"}},
-        },
-    )
-    # 1080p 下海螺只接受 6 秒：上限必须跟着降，否则 script_plan 会拆出 10 秒的 unit 而 prompt_authoring 判非法
-    assert hailuo._resolve_max_duration(hailuo_caps, gen_mode="storyboard") == 6
-
-    # rv 模式是 max_duration 真正当 unit 总时长上限用的分支：上限一旦退回 caps["max_duration"]
-    # （Veo 全集 8、海螺全集 10），script_plan 会按全集上限拆 unit、prompt_authoring 的枚举再判非法。
-    # 两侧都钉死具体值，同时锁定「上限 == max(枚举集合)」这条不变量。
-    for sg_case, caps_case, expected in ((sg, caps, 8), (hailuo, hailuo_caps, 6)):
-        durations = sg_case._resolve_supported_durations(caps_case, gen_mode="reference_video")
-        assert durations == [expected]
-        assert sg_case._resolve_max_duration(caps_case, gen_mode="reference_video") == expected == max(durations)
+    assert isinstance(executed, VideoRequestFacts)
+    assert planning.planning_durations(bucket) == expected == list(executed.allowed_durations)
 
 
 def _bare_generator(tmp_path: Path, project_extra: dict | None = None) -> ScriptGenerator:
@@ -1379,8 +1298,8 @@ def _bare_generator(tmp_path: Path, project_extra: dict | None = None) -> Script
     ProjectManager.update_project 无条件加锁读写该文件（不再靠内存快照短路），缺文件会
     在那一步 FileNotFoundError。
     """
-    project_dir = tmp_path / "demo"
-    project_dir.mkdir(exist_ok=True)
+    project_dir = tmp_path / "projects" / "demo"
+    project_dir.mkdir(parents=True, exist_ok=True)
     sg = ScriptGenerator.__new__(ScriptGenerator)
     sg.generator = None
     sg.project_path = project_dir
@@ -1542,12 +1461,8 @@ def _narration_visual_response(segment_ids: list[str], *, title: str = "第一�
     return {"title": title, "segments": [_visual_seg(sid) for sid in segment_ids]}
 
 
-async def _fixed_caps_468(_episode=None) -> dict:
-    return {"supported_durations": [4, 6, 8]}
-
-
 def _resolver() -> ConfigResolver:
-    return cast(ConfigResolver, FakeConfigResolver(supported_durations=(4, 6, 8)))
+    return cast(ConfigResolver, FakeConfigResolver())
 
 
 async def _materialized_script(project_path: Path, episode: int = 1) -> dict:
@@ -1919,21 +1834,20 @@ def _ad_shot(shot_id: str, *, duration: int = 4, section: str = "hook", voiceove
 
 
 class TestAdScriptGeneration:
-    async def test_build_prompt_without_script_plan_uses_brief_and_products(self, tmp_path):
+    async def test_build_prompt_without_script_plan_uses_brief_and_products(self, tmp_path, video_request_facts):
         """ad 一键生成不走 script_plan 中间文件：prompt 直接来自 brief + 商品信息 + 配比表。"""
-        project_path = tmp_path / "demo"
+        project_path = tmp_path / "projects" / "demo"
         _write_ad_project(project_path)
 
         generator = ScriptGenerator(project_path)
-        generator._fetch_video_capabilities = _fixed_caps_468
         prompt = await generator.build_prompt(1)
 
         assert "突出速干卖点" in prompt
         assert "速干杯" in prompt
 
-    async def test_build_prompt_reference_path_uses_free_duration(self, tmp_path):
+    async def test_build_prompt_reference_path_uses_free_duration(self, tmp_path, video_request_facts):
         """ad + reference_video：直接输出统一引用语法 video_units，不持久化旧镜头字段。"""
-        project_path = tmp_path / "demo"
+        project_path = tmp_path / "projects" / "demo"
         _write_ad_project(project_path, generation_mode="reference_video")
 
         generator = ScriptGenerator(project_path)
@@ -1945,9 +1859,9 @@ class TestAdScriptGeneration:
         assert "不要输出 shots、section、shot_id" in prompt
         assert "@[名称]" in prompt
 
-    async def test_build_prompt_uses_project_source_language(self, tmp_path):
+    async def test_build_prompt_uses_project_source_language(self, tmp_path, video_request_facts):
         """ad prompt 的口播语速折算与输出语言须取项目 source_language（与 drama/narration 同口径），非中文项目不得回落中文/zh 语速。"""
-        project_path = tmp_path / "demo"
+        project_path = tmp_path / "projects" / "demo"
         _write_ad_project(project_path)
         project_json_path = project_path / "project.json"
         payload = json.loads(project_json_path.read_text(encoding="utf-8"))
@@ -1955,16 +1869,15 @@ class TestAdScriptGeneration:
         _write_json(project_json_path, payload)
 
         generator = ScriptGenerator(project_path)
-        generator._fetch_video_capabilities = _fixed_caps_468
         prompt = await generator.build_prompt(1)
 
         # 输出语言规则锁定为项目 source_language，不回落默认中文
         assert "所有字符串值必须使用 en" in prompt
         assert "所有字符串值必须使用 中文" not in prompt
 
-    async def test_build_prompt_uses_project_speech_rate_override(self, tmp_path):
+    async def test_build_prompt_uses_project_speech_rate_override(self, tmp_path, video_request_facts):
         """project.json 顶层 speech_rate_units_per_second 须经真相源顶掉语言默认，落到 ad prompt 的口播折算。"""
-        project_path = tmp_path / "demo"
+        project_path = tmp_path / "projects" / "demo"
         _write_ad_project(project_path)
         project_json_path = project_path / "project.json"
         payload = json.loads(project_json_path.read_text(encoding="utf-8"))
@@ -1972,17 +1885,17 @@ class TestAdScriptGeneration:
         _write_json(project_json_path, payload)
 
         generator = ScriptGenerator(project_path)
-        generator._fetch_video_capabilities = _fixed_caps_468
         prompt = await generator.build_prompt(1)
 
         assert "口播长度按约 7.5 字/秒折算" in prompt
 
     @pytest.mark.parametrize("generation_mode", ["storyboard", "reference_video"])
-    async def test_build_prompt_ends_with_optional_instructions_section(self, tmp_path, generation_mode):
-        project_path = tmp_path / "demo"
+    async def test_build_prompt_ends_with_optional_instructions_section(
+        self, tmp_path, generation_mode, video_request_facts
+    ):
+        project_path = tmp_path / "projects" / "demo"
         _write_ad_project(project_path, generation_mode=generation_mode)
         generator = ScriptGenerator(project_path)
-        generator._fetch_video_capabilities = _fixed_caps_468
 
         plain = await generator.build_prompt(1)
         prompt = await generator.build_prompt(1, instructions="结尾给商品特写")
@@ -1991,9 +1904,9 @@ class TestAdScriptGeneration:
         assert prompt.endswith("\n\n# 附加指令\n结尾给商品特写")
         assert "\n\n\n# 附加指令" not in prompt
 
-    async def test_build_prompt_tolerates_null_project_fields(self, tmp_path):
+    async def test_build_prompt_tolerates_null_project_fields(self, tmp_path, video_request_facts):
         """project.json 手工编辑后字段显式为 null：prompt 构建按空值归一化，不抛 AttributeError。"""
-        project_path = tmp_path / "demo"
+        project_path = tmp_path / "projects" / "demo"
         _write_project_json(
             project_path,
             {
@@ -2015,15 +1928,14 @@ class TestAdScriptGeneration:
         )
 
         generator = ScriptGenerator(project_path)
-        generator._fetch_video_capabilities = _fixed_caps_468
         prompt = await generator.build_prompt(1)
 
         assert isinstance(prompt, str)
         assert prompt
 
-    async def test_generate_writes_ad_script_with_metadata(self, tmp_path):
+    async def test_generate_writes_ad_script_with_metadata(self, tmp_path, video_request_facts):
         """generate 写盘 ad 剧本：shots 骨架、content_mode=ad。"""
-        project_path = tmp_path / "demo"
+        project_path = tmp_path / "projects" / "demo"
         _write_ad_project(project_path)
 
         response = {
@@ -2036,11 +1948,6 @@ class TestAdScriptGeneration:
         fake = _FakeTextGenerator(json.dumps(response, ensure_ascii=False))
         generator = ScriptGenerator(project_path, generator=fake)
 
-        async def _fixed_caps(_episode=None):
-            return {"supported_durations": [4, 6, 8]}
-
-        generator._fetch_video_capabilities = _fixed_caps
-
         output_path = await generator.generate(1)
 
         saved = json.loads(output_path.read_text(encoding="utf-8"))
@@ -2049,19 +1956,14 @@ class TestAdScriptGeneration:
         assert [s["shot_id"] for s in saved["shots"]] == ["E1S01", "E1S02"]
         assert saved["shots"][0]["voiceover_text"] == "还在等杯子干？"
 
-    async def test_generate_ad_storyboard_passes_enum_schema(self, tmp_path):
+    async def test_generate_ad_storyboard_passes_enum_schema(self, tmp_path, video_request_facts):
         """ad + storyboard：response_schema 是 AdEpisodeScript 的 duration 枚举子类。"""
         from lib.script.script_models import AdEpisodeScript
 
-        project_path = tmp_path / "demo"
+        project_path = tmp_path / "projects" / "demo"
         _write_ad_project(project_path)
         fake = _FakeTextGenerator(json.dumps({"foo": "bar"}))
         generator = ScriptGenerator(project_path, generator=fake)
-
-        async def _fixed_caps(_episode=None):
-            return {"supported_durations": [4, 6, 8]}
-
-        generator._fetch_video_capabilities = _fixed_caps
 
         with pytest.raises(ScriptStructureValidationError):
             await generator.generate(1)
@@ -2076,11 +1978,11 @@ class TestAdScriptGeneration:
         ]
         assert [4, 6, 8] in duration_enums
 
-    async def test_generate_ad_reference_passes_free_range_schema(self, tmp_path):
+    async def test_generate_ad_reference_passes_free_range_schema(self, tmp_path, video_request_facts):
         """ad + reference_video：response_schema 只含 unit 时长与统一引用语法正文。"""
         from lib.script.script_models import AdReferenceFlatScript
 
-        project_path = tmp_path / "demo"
+        project_path = tmp_path / "projects" / "demo"
         _write_ad_project(project_path, generation_mode="reference_video")
         fake = _FakeTextGenerator(json.dumps({"foo": "bar"}))
         generator = ScriptGenerator(project_path, generator=fake)
@@ -2097,9 +1999,9 @@ class TestAdScriptGeneration:
         ]
         assert any(fs.get("minimum") == 1 and fs.get("maximum") == 300 and "enum" not in fs for fs in field_schemas)
 
-    async def test_generate_rewrites_wrong_episode_prefix_on_shot_ids(self, tmp_path):
+    async def test_generate_rewrites_wrong_episode_prefix_on_shot_ids(self, tmp_path, video_request_facts):
         """LLM 写错集号前缀时兜底改写为 E1（ad 恒单集）。"""
-        project_path = tmp_path / "demo"
+        project_path = tmp_path / "projects" / "demo"
         _write_ad_project(project_path)
         response = {
             "title": "速干杯短片",
@@ -2107,11 +2009,6 @@ class TestAdScriptGeneration:
         }
         fake = _FakeTextGenerator(json.dumps(response, ensure_ascii=False))
         generator = ScriptGenerator(project_path, generator=fake)
-
-        async def _fixed_caps(_episode=None):
-            return {"supported_durations": [4, 6, 8]}
-
-        generator._fetch_video_capabilities = _fixed_caps
 
         output_path = await generator.generate(1)
         saved = json.loads(output_path.read_text(encoding="utf-8"))
@@ -2146,7 +2043,7 @@ class TestAdParseResponseDriftRecovery:
         }
 
     def test_parse_response_recovers_drifted_payload_without_title(self, tmp_path):
-        project_path = tmp_path / "demo"
+        project_path = tmp_path / "projects" / "demo"
         _write_ad_project(project_path)
         generator = ScriptGenerator(project_path)
 
@@ -2171,7 +2068,7 @@ class TestAdParseResponseDriftRecovery:
         assert second["video_prompt"]["camera_motion"] == "Static"
 
     def test_parse_response_keeps_model_title_when_present(self, tmp_path):
-        project_path = tmp_path / "demo"
+        project_path = tmp_path / "projects" / "demo"
         _write_ad_project(project_path)
         generator = ScriptGenerator(project_path)
 
@@ -2187,7 +2084,7 @@ class TestAdQualityProbe:
     """ad 总时长偏差探针：仅日志 WARN，不阻断、不推前端。"""
 
     def _sg(self, tmp_path, *, target_duration: int = 30) -> ScriptGenerator:
-        project_path = tmp_path / "demo"
+        project_path = tmp_path / "projects" / "demo"
         _write_ad_project(project_path)
         sg = ScriptGenerator.__new__(ScriptGenerator)
         sg.generator = None
@@ -2223,18 +2120,13 @@ class TestAdQualityProbe:
             sg._quality_probe(script, episode=1)
         assert any("quality probe" in r.message and "E1S01" in r.message for r in caplog.records)
 
-    async def test_save_not_blocked_by_drift(self, tmp_path, caplog):
+    async def test_save_not_blocked_by_drift(self, tmp_path, video_request_facts, caplog):
         """偏差超阈值时保存照常成功（探针仅 WARN，不抛、不拒）。"""
-        project_path = tmp_path / "demo"
+        project_path = tmp_path / "projects" / "demo"
         _write_ad_project(project_path)
         response = {"title": "短片", "shots": [_ad_shot("E1S01", duration=4)]}  # 4 秒 vs 30 秒
         fake = _FakeTextGenerator(json.dumps(response, ensure_ascii=False))
         generator = ScriptGenerator(project_path, generator=fake)
-
-        async def _fixed_caps(_episode=None):
-            return {"supported_durations": [4, 6, 8]}
-
-        generator._fetch_video_capabilities = _fixed_caps
 
         with caplog.at_level("WARNING", logger="lib.script.script_generator"):
             output_path = await generator.generate(1)
@@ -2258,7 +2150,7 @@ class TestAdReferenceSkeletonUnity:
     """ad + reference_video 生成自包含 video_units 且不携带生成模式标记。"""
 
     async def test_generate_ad_reference_script_carries_no_generation_mode(self, tmp_path):
-        project_path = tmp_path / "demo"
+        project_path = tmp_path / "projects" / "demo"
         _write_ad_project(project_path, generation_mode="reference_video")
         response = {
             "title": "速干杯短片",
@@ -2283,7 +2175,7 @@ class TestAdReferenceSkeletonUnity:
         assert "@[速干杯]" in saved["video_units"][0]["text"]
 
     async def test_generate_ad_reference_preserves_mixed_speech_and_marks_replan(self, tmp_path):
-        project_path = tmp_path / "demo"
+        project_path = tmp_path / "projects" / "demo"
         _write_ad_project(project_path, generation_mode="reference_video")
         text = "镜头1：@[小美] 举起 @[速干杯]\n@[小美]：{试试这一杯。}\n{旁白补充卖点。}"
         fake = _FakeTextGenerator(

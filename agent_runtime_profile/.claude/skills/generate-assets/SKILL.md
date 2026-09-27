@@ -105,7 +105,7 @@ description: >-
 ## 工作流程
 
 1. **加载项目元数据** — 从 Artifact Manifest 找出资产图状态为 `missing` 的资产
-2. **入队生成任务** — description 直接作为 prompt 提交；server 端 `lib.prompts.prompt_builders` 注入布局 / 防崩 / 反向
+2. **入队生成任务** — 只提交资产名；server 执行时按项目里存储的 description 渲染（`lib.prompts.prompt_builders` 注入布局 / 防崩 / 反向）。声明了原图却读不到时生成被拒（`asset_original_missing`），让用户重新上传原图或清掉原图字段
 3. **审核检查点** — 展示每张资产图，用户可批准、要求重新生成，或要求编辑
 4. **更新 project.json** — 更新 `character_sheet` / `scene_sheet` / `prop_sheet` / `product_sheet` 路径
 

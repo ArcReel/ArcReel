@@ -200,10 +200,6 @@ def _fake_video_context(
             backend_name="openai",
             backend_model=backend_model_id,
             resolution="720p",
-            resolution_or_fallback="720p",
-            supported_durations=(8,),
-            max_duration=8,
-            max_reference_images=None,
             endpoint=endpoint,
         ),
         audio_lane=AudioLaneResult(

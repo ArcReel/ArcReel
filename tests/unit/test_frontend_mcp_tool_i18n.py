@@ -1,7 +1,7 @@
 """Cross-check that every backend ArcReel MCP tool has a frontend display name.
 
 The single source of truth is :data:`ARCREEL_MCP_TOOL_IDS` in
-``server/agent_runtime/sdk_tools/__init__.py``. The frontend renders each
+``server/agent_toolset/toolset.py``. The frontend renders each
 ``mcp__arcreel__<id>`` tool chip by looking up ``tool_name_<id>`` in the
 ``dashboard`` i18n namespace; if a backend tool ships without a corresponding
 ``tool_name_<id>`` key in zh/en/vi, the chip falls back to the raw upper-cased
@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pytest
 
-from server.agent_runtime.sdk_tools import ARCREEL_MCP_TOOL_IDS
+from server.agent_toolset.toolset import ARCREEL_MCP_TOOL_IDS
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DASHBOARD_TS = "frontend/src/i18n/{locale}/dashboard.ts"
@@ -38,7 +38,7 @@ def test_every_backend_tool_has_frontend_display_name(locale: str) -> None:
     missing = expected - keys
     assert not missing, (
         f"frontend/src/i18n/{locale}/dashboard.ts 缺少 MCP tool 显示名翻译: {sorted(missing)}。"
-        f" 单一真相源在 server/agent_runtime/sdk_tools/__init__.py 的 ARCREEL_MCP_TOOL_IDS。"
+        f" 单一真相源在 server/agent_toolset/toolset.py 的 ARCREEL_MCP_TOOL_IDS。"
     )
 
 

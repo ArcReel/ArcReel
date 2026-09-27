@@ -1,11 +1,14 @@
 export type ProjectEventSource = "webui" | "worker" | "filesystem";
 
+/** 项目事件的定位窗格：资产按其资产表名（须覆盖后端资产类型表），剧本条目统一为 episode。 */
+export type ProjectChangePane = "characters" | "scenes" | "props" | "products" | "episode";
+
 export interface ProjectChangeFocus {
-  pane: "characters" | "scenes" | "props" | "episode";
+  pane: ProjectChangePane;
   episode?: number;
   // segment/drama_scene/shot 三种骨架条目走时间线画布，锚点类型统一为 segment；video_units 走参考
   // 生视频画布，锚点类型为 reference_unit（与 WorkspaceFocusTarget["type"] 及画布守卫对齐）。
-  anchor_type?: "character" | "scene" | "prop" | "segment" | "reference_unit";
+  anchor_type?: "character" | "scene" | "prop" | "product" | "segment" | "reference_unit";
   anchor_id?: string;
   tab?: string;
 }
@@ -18,6 +21,7 @@ export interface ProjectChange {
     | "character"
     | "scene"
     | "prop"
+    | "product"
     | "segment"
     | "drama_scene"
     | "shot"
@@ -87,7 +91,7 @@ export interface ProjectDeletedPayload {
 
 export interface WorkspaceFocusTarget {
   request_id: string;
-  type: "character" | "scene" | "prop" | "segment" | "grid" | "reference_unit";
+  type: "character" | "scene" | "prop" | "product" | "segment" | "grid" | "reference_unit";
   id: string;
   route: string;
   highlight: true;

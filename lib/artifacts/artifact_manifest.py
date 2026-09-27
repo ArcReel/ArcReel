@@ -116,6 +116,16 @@ class ArtifactManifestEntry:
 
 
 @dataclass(frozen=True, slots=True)
+class ArtifactInputClaim:
+    """One Manifest-backed formal artifact selected as a provider input."""
+
+    key: ArtifactKey
+    artifact_path: str
+    basis_digest: str | None = None
+    content_digest: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class ArtifactManifestArchiveSnapshot:
     """Complete portable claims bound to the exported formal artifact bytes."""
 

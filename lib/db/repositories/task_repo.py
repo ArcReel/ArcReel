@@ -956,7 +956,7 @@ class TaskRepository(BaseRepository):
         """
         data = await self._mark_cancelled(
             task_id,
-            cancelled_by="user",
+            cancelled_by="interrupted",
             cancelled=[],
             from_statuses=("queued", "running"),
         )

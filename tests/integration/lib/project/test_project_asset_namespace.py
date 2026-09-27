@@ -73,7 +73,7 @@ def test_validator_reports_cross_type_and_equivalent_duplicates(demo_pm: Project
     project["characters"] = {" café ": {"description": "a"}}
     project["products"] = {nfd: {"description": "b"}}
 
-    result = DataValidator(str(demo_pm.projects_root)).validate_project_payload(project)
+    result = DataValidator(str(demo_pm.projects_dir)).validate_project_payload(project)
 
     assert any(message.key == "val_asset_name_duplicate" for message in result.error_messages)
 

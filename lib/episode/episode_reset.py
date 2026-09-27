@@ -452,7 +452,7 @@ def reset_episode_planning(
         raise EpisodeResetError(f"from_episode 必须是正整数，收到 {from_episode}")
 
     project_dir = Path(project_path)
-    pm = ProjectManager(str(project_dir.parent))
+    pm = ProjectManager.for_project_dir(project_dir)
     project_name = project_dir.name
 
     # 锁外预扫描/前置校验只为二段确认与快速失败服务：校验不通过或需要确认时零写入返回，

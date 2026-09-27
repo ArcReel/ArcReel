@@ -44,6 +44,37 @@ def _image_ctx(
     return _resolve
 
 
+class _FormalVersions:
+    """VersionManager 的最小替身：提交 staged 版本，在 ``on_commit`` 成功后才选中该版本。"""
+
+    def __init__(self, version: int = 1):
+        self.version = version
+        self.current: int | None = None
+        self.committed: list[tuple[str, str]] = []
+
+    def commit_staged_version(self, resource_type, resource_id, prompt, *, on_commit=None, **_kwargs):
+        self.committed.append((resource_type, resource_id))
+        self.current = self.version
+        try:
+            if on_commit is not None:
+                on_commit()
+        except BaseException:
+            self.current = None
+            raise
+        return self.version
+
+    def get_current_version(self, resource_type, resource_id):
+        return self.current
+
+    def get_versions(self, resource_type, resource_id):
+        return {"versions": [{"version": self.version, "created_at": "2026-01-01T00:00:00Z"}]}
+
+
+def _commit_formal(kwargs: dict, image_path: Path) -> tuple[Path, int]:
+    """与 MediaGenerator 一样经 formal_output 的活化回调提交，返回回调给出的版本号。"""
+    return image_path, kwargs["commit_formal_output"](image_path, image_path, {})
+
+
 @pytest.fixture
 def project_with_script(tmp_path):
     p = tmp_path / "projects" / "test-project"
@@ -179,66 +210,6 @@ class TestGroupBySegmentBreak:
         assert len(groups[0]) == 3
 
 
-def _grid_reference_images(project_path, scene_ids):
-    """按生产入口调用：清单口径的 resolver 是必选参数。"""
-    from lib.artifacts.artifact_activation import active_artifact_currency_resolver
-    from server.services.tasks.generation_tasks import _collect_grid_reference_images
-
-    project = json.loads((project_path / "project.json").read_text(encoding="utf-8"))
-    return _collect_grid_reference_images(
-        project_path,
-        {"script_file": "episode_1.json"},
-        scene_ids,
-        currency_resolver=active_artifact_currency_resolver(project_path, project),
-    )
-
-
-class TestCollectGridReferenceImages:
-    def test_no_references(self, project_with_script):
-        paths, metadata = _grid_reference_images(project_with_script, ["E1S01", "E1S02"])
-        assert paths is None
-        assert metadata == []
-
-    def test_with_character_sheet(self, project_with_script):
-        # Add a character with a sheet
-        project_data = json.loads((project_with_script / "project.json").read_text(encoding="utf-8"))
-        project_data["characters"]["hero"] = {"description": "hero", "character_sheet": "characters/hero.png"}
-        (project_with_script / "project.json").write_text(json.dumps(project_data))
-        Image.new("RGB", (4, 4)).save(project_with_script / "characters" / "hero.png")
-
-        # Update script to reference the character
-        script = json.loads((project_with_script / "scripts" / "episode_1.json").read_text(encoding="utf-8"))
-        script["segments"][0]["characters_in_segment"] = ["hero"]
-        (project_with_script / "scripts" / "episode_1.json").write_text(json.dumps(script))
-        _register_sheet(project_with_script, "characters", "hero")
-
-        paths, metadata = _grid_reference_images(project_with_script, ["E1S01"])
-        assert paths is not None
-        assert len(paths) == 1
-        assert Path(str(paths[0])).name == "hero.png"
-        assert len(metadata) == 1
-        assert metadata[0]["name"] == "hero"
-        assert metadata[0]["ref_type"] == "character"
-
-    def test_deduplicates_references(self, project_with_script):
-        project_data = json.loads((project_with_script / "project.json").read_text(encoding="utf-8"))
-        project_data["characters"]["hero"] = {"description": "hero", "character_sheet": "characters/hero.png"}
-        (project_with_script / "project.json").write_text(json.dumps(project_data))
-        Image.new("RGB", (4, 4)).save(project_with_script / "characters" / "hero.png")
-
-        # Both segments reference same character
-        script = json.loads((project_with_script / "scripts" / "episode_1.json").read_text(encoding="utf-8"))
-        script["segments"][0]["characters_in_segment"] = ["hero"]
-        script["segments"][1]["characters_in_segment"] = ["hero"]
-        (project_with_script / "scripts" / "episode_1.json").write_text(json.dumps(script))
-        _register_sheet(project_with_script, "characters", "hero")
-
-        paths, metadata = _grid_reference_images(project_with_script, ["E1S01", "E1S02"])
-        assert paths is not None
-        assert len(paths) == 1  # Deduplicated
-        assert len(metadata) == 1  # Deduplicated
-
-
 class TestExecuteGridTask:
     @pytest.fixture
     def grid_json(self, project_with_script):
@@ -274,7 +245,8 @@ class TestExecuteGridTask:
         fake_grid_image.save(grid_image_path, format="PNG")
 
         mock_generator = MagicMock()
-        mock_generator.generate_image_async = AsyncMock(return_value=(grid_image_path, 1))
+        mock_generator.versions = _FormalVersions()
+        mock_generator.generate_image_async = AsyncMock(side_effect=lambda **kw: _commit_formal(kw, grid_image_path))
 
         with (
             patch("server.services.tasks.generation_tasks.get_project_manager") as mock_pm_fn,
@@ -304,6 +276,8 @@ class TestExecuteGridTask:
         assert result["resource_type"] == "grids"
         assert result["resource_id"] == grid.id
         assert result["version"] == 1
+        # created_at 取选中版本的创建时间
+        assert result["created_at"] == "2026-01-01T00:00:00Z"
         assert "grids/" in result["file_path"]
         # 没有参考图被裁剪就没有 warning：结果不带该键
         assert "warnings" not in result
@@ -319,6 +293,68 @@ class TestExecuteGridTask:
         # 联合图内容更新后落格状态复位，等待显式切分
         assert updated_grid_data["split_at"] is None
 
+    @staticmethod
+    def _complete(project_with_script, grid, *, registered: bool):
+        from PIL import Image
+
+        grid.status = "completed"
+        grid.grid_image_path = f"grids/{grid.id}.png"
+        Image.new("RGB", (400, 400)).save(project_with_script / "grids" / f"{grid.id}.png")
+        record = project_with_script / "grids" / f"{grid.id}.json"
+        record.write_text(json.dumps(grid.to_dict(), ensure_ascii=False), encoding="utf-8")
+        if registered:
+            _register_sheet(project_with_script, "grids", grid.id)
+        return record
+
+    async def _run_duplicate(self, project_with_script, grid):
+        from server.services.tasks.generation_tasks import execute_grid_task
+
+        with (
+            patch("server.services.tasks.generation_tasks.get_project_manager") as mock_pm_fn,
+            patch(
+                "server.services.tasks.generation_tasks.resolve_generation_context",
+                side_effect=AssertionError("不该再次解析供应商出图"),
+            ),
+        ):
+            mock_pm_fn.return_value.get_project_path.return_value = project_with_script
+            mock_pm_fn.return_value.load_project.return_value = json.loads(
+                (project_with_script / "project.json").read_text(encoding="utf-8")
+            )
+            return await execute_grid_task(
+                "test-project",
+                grid.id,
+                {"prompt": "test grid prompt", "script_file": "episode_1.json"},
+                user_id="test-user",
+            )
+
+    async def test_a_task_enqueued_after_the_grid_completed_does_not_generate_again(
+        self, project_with_script, grid_json
+    ):
+        """沿用在途宫格时恰好赶上上一任务完成而重复入队：记录已是 completed，不再出图。"""
+        record = self._complete(project_with_script, grid_json, registered=True)
+        before = record.read_bytes()
+
+        result = await self._run_duplicate(project_with_script, grid_json)
+
+        assert result == {
+            "file_path": f"grids/{grid_json.id}.png",
+            "resource_type": "grids",
+            "resource_id": grid_json.id,
+        }
+        assert record.read_bytes() == before
+
+    async def test_a_duplicate_task_on_an_unusable_composite_fails_instead_of_reporting_success(
+        self, project_with_script, grid_json
+    ):
+        """联合图没有登记在案：不报成功，也不重新出图。"""
+        record = self._complete(project_with_script, grid_json, registered=False)
+        before = record.read_bytes()
+
+        with pytest.raises(ValueError, match="not usable"):
+            await self._run_duplicate(project_with_script, grid_json)
+
+        assert record.read_bytes() == before
+
     async def test_reference_images_are_clamped_to_the_backend_limit_before_numbering(
         self,
         project_with_script,
@@ -331,11 +367,11 @@ class TestExecuteGridTask:
         captured: list[dict] = []
 
         class _Generator:
-            versions = MagicMock()
+            versions = _FormalVersions()
 
             async def generate_image_async(self, **kwargs):
                 captured.append(kwargs)
-                return grid_image_path, 1
+                return _commit_formal(kwargs, grid_image_path)
 
         with (
             patch("server.services.tasks.generation_tasks.get_project_manager") as mock_pm_fn,
@@ -374,6 +410,114 @@ class TestExecuteGridTask:
         stored = json.loads((project_with_script / "grids" / f"{grid_json.id}.json").read_text(encoding="utf-8"))
         assert [ref["name"] for ref in stored["reference_images"]] == ["hero1", "hero2", "hero3"]
 
+    async def test_every_member_sheet_is_sent_beyond_six_when_the_backend_allows(
+        self,
+        project_with_script,
+        grid_json,
+    ):
+        """宫格没有固定张数上限：成员分镜引用的资产图取并集、按路径去重后全部发出与登记。"""
+        from server.services.tasks.generation_tasks import execute_grid_task
+
+        project = json.loads((project_with_script / "project.json").read_text(encoding="utf-8"))
+        script = json.loads((project_with_script / "scripts" / "episode_1.json").read_text(encoding="utf-8"))
+        names = [f"hero{index}" for index in range(1, 9)]
+        for name in names:
+            project["characters"][name] = {"description": name, "character_sheet": f"characters/{name}.png"}
+            Image.new("RGB", (4, 4)).save(project_with_script / "characters" / f"{name}.png")
+        segments = {item["segment_id"]: item for item in script["segments"]}
+        segments["E1S01"]["characters_in_segment"] = names[:4]
+        segments["E1S02"]["characters_in_segment"] = names[4:]
+        segments["E1S03"]["characters_in_segment"] = ["hero1", "hero8"]
+        (project_with_script / "project.json").write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
+        (project_with_script / "scripts" / "episode_1.json").write_text(
+            json.dumps(script, ensure_ascii=False), encoding="utf-8"
+        )
+        for name in names:
+            _register_sheet(project_with_script, "characters", name)
+        grid_image_path = project_with_script / "grids" / f"{grid_json.id}.png"
+        Image.new("RGB", (400, 400)).save(grid_image_path, format="PNG")
+        captured: list[dict] = []
+
+        class _Generator:
+            versions = _FormalVersions()
+
+            async def generate_image_async(self, **kwargs):
+                captured.append(kwargs)
+                return _commit_formal(kwargs, grid_image_path)
+
+        with (
+            patch("server.services.tasks.generation_tasks.get_project_manager") as mock_pm_fn,
+            patch(
+                "server.services.tasks.generation_tasks.resolve_generation_context",
+                new=_image_ctx(_Generator(), max_reference_images=14),
+            ),
+        ):
+            mock_pm = MagicMock()
+            mock_pm.get_project_path.return_value = project_with_script
+            mock_pm.load_project.return_value = project
+            mock_pm.load_script.return_value = script
+            mock_pm_fn.return_value = mock_pm
+
+            result = await execute_grid_task(
+                "test-project",
+                grid_json.id,
+                {"prompt": "queued prompt", "script_file": "episode_1.json"},
+                user_id="test-user",
+            )
+
+        assert len(captured[0]["reference_images"]) == 8
+        assert "warnings" not in result
+        stored = json.loads((project_with_script / "grids" / f"{grid_json.id}.json").read_text(encoding="utf-8"))
+        assert stored["reference_images"] == [
+            {"path": f"characters/{name}.png", "name": name, "ref_type": "character"} for name in names
+        ]
+
+    async def test_reference_gaps_fail_before_the_provider_is_resolved(self, project_with_script, grid_json):
+        """成员分镜引用的资产未登记或资产图不可用：付费前失败，一次列出全部缺口。"""
+        from lib.infra.api_errors import BadRequestError
+        from server.services.tasks.generation_tasks import execute_grid_task
+
+        project = json.loads((project_with_script / "project.json").read_text(encoding="utf-8"))
+        script = json.loads((project_with_script / "scripts" / "episode_1.json").read_text(encoding="utf-8"))
+        # hero 的资产图在盘上但未登记进清单；ghost 不是已登记的角色。
+        project["characters"]["hero"] = {"description": "hero", "character_sheet": "characters/hero.png"}
+        Image.new("RGB", (4, 4)).save(project_with_script / "characters" / "hero.png")
+        segments = {item["segment_id"]: item for item in script["segments"]}
+        segments["E1S01"]["characters_in_segment"] = ["hero"]
+        segments["E1S03"]["characters_in_segment"] = ["ghost", "hero"]
+        (project_with_script / "project.json").write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
+        (project_with_script / "scripts" / "episode_1.json").write_text(
+            json.dumps(script, ensure_ascii=False), encoding="utf-8"
+        )
+        resolve = AsyncMock()
+
+        with (
+            patch("server.services.tasks.generation_tasks.get_project_manager") as mock_pm_fn,
+            patch("server.services.tasks.generation_tasks.resolve_generation_context", new=resolve),
+        ):
+            mock_pm = MagicMock()
+            mock_pm.get_project_path.return_value = project_with_script
+            mock_pm.load_project.return_value = project
+            mock_pm.load_script.return_value = script
+            mock_pm_fn.return_value = mock_pm
+
+            with pytest.raises(BadRequestError) as refused:
+                await execute_grid_task(
+                    "test-project",
+                    grid_json.id,
+                    {"prompt": "queued prompt", "script_file": "episode_1.json"},
+                    user_id="test-user",
+                )
+
+        resolve.assert_not_called()
+        assert refused.value.key == "reference_asset_missing"
+        assert refused.value.params["gaps"] == [
+            {"code": "reference_asset_missing", "asset_type": "character", "name": "hero"},
+            {"code": "reference_asset_unregistered", "asset_type": "character", "name": "ghost"},
+        ]
+        stored = json.loads((project_with_script / "grids" / f"{grid_json.id}.json").read_text(encoding="utf-8"))
+        assert stored["status"] == "failed"
+
     async def test_a_dropped_reference_changing_before_submit_still_aborts(
         self,
         project_with_script,
@@ -389,11 +533,11 @@ class TestExecuteGridTask:
         captured: list[dict] = []
 
         class _Generator:
-            versions = MagicMock()
+            versions = _FormalVersions()
 
             async def generate_image_async(self, **kwargs):
                 captured.append(kwargs)
-                return grid_image_path, 1
+                return _commit_formal(kwargs, grid_image_path)
 
         hook_claim_recheck(
             monkeypatch,
@@ -479,11 +623,11 @@ class TestExecuteGridTask:
         captured = []
 
         class _Generator:
-            versions = MagicMock()
+            versions = _FormalVersions()
 
-            async def generate_image_async(self, **_kwargs):
+            async def generate_image_async(self, **kwargs):
                 script["segments"][0]["image_prompt"] = "latest prompt"
-                return project_with_script / "grids" / f"{grid_json.id}.png", 1
+                return _commit_formal(kwargs, project_with_script / "grids" / f"{grid_json.id}.png")
 
         def _register(*_args, **kwargs):
             captured.append(kwargs["basis"])
@@ -495,7 +639,7 @@ class TestExecuteGridTask:
                 "server.services.tasks.generation_tasks.resolve_generation_context",
                 new=_image_ctx(_Generator()),
             ),
-            patch("server.services.tasks.generation_tasks.register_formal_task_artifact", side_effect=_register),
+            patch("server.services.tasks.formal_image_commit.register_formal_task_artifact", side_effect=_register),
         ):
             mock_pm = MagicMock()
             mock_pm.get_project_path.return_value = project_with_script
@@ -559,11 +703,11 @@ class TestExecuteGridTask:
         captured_basis = []
 
         class _Generator:
-            versions = MagicMock()
+            versions = _FormalVersions()
 
             async def generate_image_async(self, **kwargs):
                 captured_prompt.append(kwargs["prompt"])
-                return project_with_script / "grids" / f"{grid_json.id}.png", 1
+                return _commit_formal(kwargs, project_with_script / "grids" / f"{grid_json.id}.png")
 
         with (
             patch("server.services.tasks.generation_tasks.get_project_manager") as mock_pm_fn,
@@ -572,7 +716,7 @@ class TestExecuteGridTask:
                 new=_image_ctx(_Generator()),
             ),
             patch(
-                "server.services.tasks.generation_tasks.register_formal_task_artifact",
+                "server.services.tasks.formal_image_commit.register_formal_task_artifact",
                 side_effect=lambda *_args, **kwargs: captured_basis.append(kwargs["basis"]),
             ),
         ):
@@ -621,7 +765,7 @@ class TestExecuteGridTask:
         )
         assert captured_basis == [expected_basis]
 
-    async def test_manifest_failure_rejects_selected_grid_before_marking_failed(
+    async def test_manifest_failure_keeps_grid_unselected_and_marks_it_failed(
         self,
         project_with_script,
         grid_json,
@@ -633,16 +777,8 @@ class TestExecuteGridTask:
         grid_image_path = project_with_script / "grids" / f"{grid_json.id}.png"
         Image.new("RGB", (400, 400), color=(128, 200, 100)).save(grid_image_path, format="PNG")
         mock_generator = MagicMock()
-        mock_generator.generate_image_async = AsyncMock(return_value=(grid_image_path, 2))
-
-        def _reject_before_failure(*_args, **_kwargs):
-            current_grid = json.loads(
-                (project_with_script / "grids" / f"{grid_json.id}.json").read_text(encoding="utf-8")
-            )
-            assert current_grid["status"] != "failed"
-            return True
-
-        mock_generator.versions.reject_current_version.side_effect = _reject_before_failure
+        mock_generator.versions = _FormalVersions(version=2)
+        mock_generator.generate_image_async = AsyncMock(side_effect=lambda **kw: _commit_formal(kw, grid_image_path))
 
         with (
             patch("server.services.tasks.generation_tasks.get_project_manager") as mock_pm_fn,
@@ -651,7 +787,7 @@ class TestExecuteGridTask:
                 new=_image_ctx(mock_generator),
             ),
             patch(
-                "server.services.tasks.generation_tasks.register_formal_task_artifact",
+                "server.services.tasks.formal_image_commit.register_formal_task_artifact",
                 side_effect=RuntimeError("manifest commit failed"),
             ),
         ):
@@ -673,12 +809,7 @@ class TestExecuteGridTask:
                     user_id="test-user",
                 )
 
-        mock_generator.versions.reject_current_version.assert_called_once_with(
-            "grids",
-            grid_json.id,
-            rejected_version=2,
-            current_file=grid_image_path,
-        )
+        assert mock_generator.versions.get_current_version("grids", grid_json.id) is None
         updated_grid_data = json.loads(
             (project_with_script / "grids" / f"{grid_json.id}.json").read_text(encoding="utf-8")
         )
@@ -704,7 +835,8 @@ class TestExecuteGridTask:
         fake_grid_image.save(grid_image_path, format="PNG")
 
         mock_generator = MagicMock()
-        mock_generator.generate_image_async = AsyncMock(return_value=(grid_image_path, 1))
+        mock_generator.versions = _FormalVersions()
+        mock_generator.generate_image_async = AsyncMock(side_effect=lambda **kw: _commit_formal(kw, grid_image_path))
 
         with (
             patch("server.services.tasks.generation_tasks.get_project_manager") as mock_pm_fn,
@@ -736,8 +868,7 @@ class TestExecuteGridTask:
             assert not (storyboards_dir / f"scene_{sid}.png").exists()
         # 不回写剧本、不登记分镜版本
         assert not mock_pm.batch_update_scene_assets.called
-        assert not mock_generator.versions.ensure_current_tracked.called
-        assert not mock_generator.versions.add_version.called
+        assert mock_generator.versions.committed == [("grids", grid.id)]
 
     async def test_execute_grid_task_not_found(self):
         from server.services.tasks.generation_tasks import execute_grid_task
@@ -801,7 +932,8 @@ class TestGridMetadataT2II2ISlotSelection:
         fake_grid_image.save(grid_image_path, format="PNG")
 
         mock_generator = MagicMock()
-        mock_generator.generate_image_async = AsyncMock(return_value=(grid_image_path, 1))
+        mock_generator.versions = _FormalVersions()
+        mock_generator.generate_image_async = AsyncMock(side_effect=lambda **kw: _commit_formal(kw, grid_image_path))
 
         async def _cap_aware_resolve(project_name, req_payload, *, image, **kwargs):
             # generation_type-aware：grid 任务按 reference_images 是否非空选 t2i/i2i 槽，
@@ -855,7 +987,7 @@ class TestGridMetadataT2II2ISlotSelection:
 
     async def test_uses_i2i_slot_when_reference_images_present(self, project_with_script, grid_with_empty_metadata):
         """有 character sheet 且 segment 引用了角色 → reference_images 非空 → 写 I2I 槽配置"""
-        # 给 project + script 注入 character sheet，让 _collect_grid_reference_images 返回非空
+        # 给 project + script 注入已登记的 character sheet，让宫格参考图集非空
         project_data = json.loads((project_with_script / "project.json").read_text(encoding="utf-8"))
         project_data["characters"]["hero"] = {"description": "hero", "character_sheet": "characters/hero.png"}
         (project_with_script / "project.json").write_text(json.dumps(project_data))

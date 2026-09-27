@@ -26,7 +26,13 @@ from pathlib import Path
 
 import httpx
 
-from lib.backends.backend_runtime import ProviderJobIdPersistenceMixin, download_resumable_video, recording_poll
+from lib.backends.artifact_download_guard import artifact_http_client
+from lib.backends.backend_runtime import (
+    ProviderJobIdPersistenceMixin,
+    download_resumable_video,
+    recording_poll,
+    resume_expiry_gate,
+)
 from lib.backends.kling_backend_base import KlingBackendBase
 from lib.backends.kling_shared import (
     extract_kling_video_url,
@@ -429,15 +435,18 @@ class KlingVideoBackend(KlingBackendBase, ProviderJobIdPersistenceMixin):
         subpath, payload = self._build_payload(request)
         generate_audio = self._effective_audio(request, subpath=subpath)
         logger.info("调用 Kling 视频 API payload=%s", self._safe_log_view(subpath, payload))
-        async with httpx.AsyncClient(timeout=self._http_timeout) as client:
+        # 建任务与轮询与产物下载共用出站目的地闸：base_url 由用户配置，同按不可信目标处理。
+        async with artifact_http_client(timeout=self._http_timeout) as client:
             task_id = await self._submit_task(client, f"videos/{subpath}", payload, request)
             logger.info("Kling 视频任务已创建: task_id=%s model=%s", task_id, self._model)
             # 持久化「子路径:task_id:有声标志」而非裸 task_id：resume 据此复原查询端点
-            # 与 submit 时的有声决策（见 _encode_job_id）。
+            # 与 submit 时的有声决策（见 _encode_job_id）。一并写回本次实际请求的域名：
+            # 续跑据此回放，否则在途改了 base_url 会按新域名去查旧任务。
             await self._persist_provider_job_id(
                 request,
                 _encode_job_id(subpath, task_id, generate_audio=generate_audio),
                 provider=PROVIDER_KLING,
+                endpoint=self._base_url,
             )
             return await self._poll_and_build(client, subpath, task_id, request, generate_audio=generate_audio)
 
@@ -453,8 +462,10 @@ class KlingVideoBackend(KlingBackendBase, ProviderJobIdPersistenceMixin):
         """
         subpath, task_id, persisted_audio = _decode_job_id(job_id)
         generate_audio = persisted_audio if persisted_audio is not None else False
-        async with httpx.AsyncClient(timeout=self._http_timeout) as client:
-            return await self._poll_and_build(client, subpath, task_id, request, generate_audio=generate_audio)
+        async with artifact_http_client(timeout=self._http_timeout) as client:
+            return await self._poll_and_build(
+                client, subpath, task_id, request, generate_audio=generate_audio, resume_job_id=job_id
+            )
 
     # ── HTTP poll / download ────────────────────────────────────────────
 
@@ -466,11 +477,20 @@ class KlingVideoBackend(KlingBackendBase, ProviderJobIdPersistenceMixin):
         request: VideoGenerationRequest,
         *,
         generate_audio: bool,
+        resume_job_id: str | None = None,
     ) -> VideoGenerationResult:
-        final = await self._poll_until_terminal(
-            recording_poll(lambda: self._poll_query(client, f"videos/{subpath}/{task_id}"), request),
-            max_wait=request.poll_timeout_seconds,
+        """轮询至终态、取件并组装结果；``resume_job_id`` 非空表示续跑，值为持久化的 job_id。"""
+        # 续跑轮询回放提交时的域名（提交路径恒 None）：任务 id 只在创建它的 endpoint 上可查，
+        # 用户在途改 base_url 后按新域名去轮旧任务会 404，被下方的 404 闸门误判成过期。
+        base_url = request.submitted_base_url or self._base_url
+
+        gated_poll = resume_expiry_gate(
+            recording_poll(lambda: self._poll_query(client, f"videos/{subpath}/{task_id}", base_url=base_url), request),
+            resume_job_id=resume_job_id,
+            provider=PROVIDER_KLING,
         )
+
+        final = await self._poll_until_terminal(gated_poll, max_wait=request.poll_timeout_seconds)
 
         download_url = extract_kling_video_url(final)
         await self._download_with_retry(download_url, request.output_path)

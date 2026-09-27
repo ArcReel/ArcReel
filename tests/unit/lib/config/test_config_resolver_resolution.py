@@ -1,4 +1,4 @@
-"""测试 ConfigResolver.resolve_resolution 与模块级 get_provider_fallback。
+"""测试 ConfigResolver.resolve_resolution。
 
 resolve_resolution 走公开接口（不断言私有函数），按
 project.model_settings → legacy video_model_settings → 自定义供应商默认 → None 解析；
@@ -13,9 +13,6 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from lib.config.resolver import (
     ConfigResolver,
     constrain_durations,
-    constrain_durations_for_project,
-    duration_constraints_report,
-    get_provider_fallback,
 )
 from lib.custom_provider import make_provider_id
 from lib.db.models.custom_provider import CustomProvider, CustomProviderModel
@@ -178,31 +175,6 @@ async def test_falls_through_to_custom_when_project_empty_string(resolver: Confi
     assert await resolver.resolve_resolution(project, provider_id, "m") == "1K"
 
 
-# --- get_provider_fallback（纯查表，不触 DB） ---
-
-
-@pytest.mark.parametrize(
-    ("provider_id", "expected"),
-    [
-        ("gemini", "1080p"),
-        ("gemini-aistudio", "1080p"),  # 短前缀归一化
-        ("ark", "720p"),
-        ("grok", "720p"),
-        ("openai", "720p"),
-        ("minimax", "768p"),
-        ("minimax-hailuo", "768p"),
-        ("unknown-provider", "1080p"),  # 未知 → default
-        (None, "1080p"),  # None → default
-    ],
-)
-def test_get_provider_fallback(provider_id: str | None, expected: str):
-    assert get_provider_fallback(provider_id) == expected
-
-
-def test_get_provider_fallback_custom_default():
-    assert get_provider_fallback("unknown", default="720p") == "720p"
-
-
 # ---------------------------------------------------------------------------
 # 时长联动约束
 # ---------------------------------------------------------------------------
@@ -247,132 +219,12 @@ def test_constrain_durations_falls_back():
     assert constrain_durations(*_VEO, [4, 6, 8], resolution="720p") == [4, 6, 8]
     # 型号未登记（中转站 / 自定义供应商包装）
     assert constrain_durations("gemini-aistudio", "veo-3.1-via-relay", [4, 6, 8], resolution="4k") == [4, 6, 8]
-    # 交集为空（声明自相矛盾，不该发生）：保留原候选而非清空。两维各自成立
-    assert constrain_durations(*_VEO, [4, 6], resolution="4k") == [4, 6]
-    assert constrain_durations(*_VEO, [4, 6], uses_reference_images=True) == [4, 6]
+    # 交集为空时保持空集，由事实消费方处理。
+    assert constrain_durations(*_VEO, [4, 6], resolution="4k") == []
+    assert constrain_durations(*_VEO, [4, 6], uses_reference_images=True) == []
     # resolution 缺失且不走参考图：两维都不触发
     assert constrain_durations(*_VEO, [4, 6, 8]) == [4, 6, 8]
     # 身份缺失（能力不可解析）
     assert constrain_durations(None, None, [4, 6, 8], resolution="4k") == [4, 6, 8]
     # 空候选原样返回
     assert constrain_durations(*_VEO, [], resolution="4k") == []
-
-
-def test_constrain_durations_strict_empty_intersection():
-    """严格执行边界取空交集，交由调用方 fail loud；约束公式仍与宽松读侧共用。"""
-    assert constrain_durations(*_VEO, [4, 6], resolution="4k", fallback_on_empty=False) == []
-
-
-def test_duration_constraints_report_classifies_exclusions():
-    """收窄结果连同成因：被分辨率剔除的报 resolution，被参考图剔除的报 reference。"""
-    report = duration_constraints_report(*_VEO, [8, 4, 6], resolution="1080p", uses_reference_images=False)
-    assert report == {
-        "resolution": "1080p",
-        "uses_reference_images": False,
-        "allowed": [8],
-        "allowed_without_reference_images": [8],
-        "excluded": {4: "resolution", 6: "resolution"},
-    }
-    report = duration_constraints_report(*_VEO, [4, 6, 8], resolution=None, uses_reference_images=True)
-    assert report["allowed"] == [8]
-    assert report["allowed_without_reference_images"] == [4, 6, 8]
-    assert report["excluded"] == {4: "reference", 6: "reference"}
-
-
-def test_duration_constraints_report_reference_wins_over_resolution():
-    """两条约束都剔除同一时长时报 reference：改分辨率救不回该值，提示改分辨率是误导。"""
-    report = duration_constraints_report(*_VEO, [4, 6, 8], resolution="1080p", uses_reference_images=True)
-    assert report["excluded"] == {4: "reference", 6: "reference"}
-    assert report["allowed_without_reference_images"] == [8]
-
-
-def test_duration_constraints_report_without_constraints_excludes_nothing():
-    """无声明 / 未登记型号 / 交集为空回退全集时，excluded 为空且 allowed 即全集。"""
-    report = duration_constraints_report(*_VEO, [4, 6, 8], resolution="720p", uses_reference_images=False)
-    assert report["allowed"] == [4, 6, 8]
-    assert report["excluded"] == {}
-    report = duration_constraints_report("custom-3", "relay", [5, 10], resolution="4k", uses_reference_images=True)
-    assert report["allowed"] == [5, 10]
-    assert report["excluded"] == {}
-    # 交集为空回退全集：没有被剔除的时长
-    report = duration_constraints_report(*_VEO, [4, 6], resolution="4k", uses_reference_images=False)
-    assert report["allowed"] == [4, 6]
-    assert report["excluded"] == {}
-
-
-def test_constrain_durations_for_project_uses_project_resolution():
-    """项目已设分辨率优先于 provider 兜底档位。"""
-    project = {"model_settings": {f"{_VEO[0]}/{_VEO[1]}": {"resolution": "720p"}}}
-    assert constrain_durations_for_project(
-        project, [4, 6, 8], provider_id=_VEO[0], model_id=_VEO[1], generation_mode="storyboard"
-    ) == [4, 6, 8]
-
-
-def test_constrain_durations_for_project_unset_resolution_not_constrained():
-    """项目未设分辨率时不施加分辨率约束——普通视频路径此时不下发 resolution 参数。
-
-    执行期发给供应商的是 ``resolve_resolution()`` 的原始结果，``None`` 即省略该参数，供应商
-    按自己的默认档位处理（Veo 省略时是 720p，4/6/8 全合法）。按 provider 兜底档位收窄会凭空
-    把未配置项目的剧本节奏锁死 8 秒，而供应商本来就接受 4/6 秒。
-    """
-    assert constrain_durations_for_project(
-        {}, [4, 6, 8], provider_id=_VEO[0], model_id=_VEO[1], generation_mode="storyboard"
-    ) == [4, 6, 8]
-    assert constrain_durations_for_project(
-        {}, [6, 10], provider_id=_HAILUO[0], model_id=_HAILUO[1], generation_mode="storyboard"
-    ) == [6, 10]
-
-
-def test_constrain_durations_for_project_unset_resolution_reference_mode_uses_fallback():
-    """参考生视频是唯一按供应商兜底档位求值的路径——它执行期确实下发非空档位。
-
-    ``reference_video_tasks`` 取 ``resolution_or_fallback``，故未配置分辨率时约束也得按那个
-    档位算，否则 script_plan 会按全集上限拆 unit、prompt_authoring 的枚举再判非法。Veo 兜底 1080p → 只剩 8 秒
-    （参考图约束在该模式下同样生效，二者指向同一结果）。
-    """
-    assert constrain_durations_for_project(
-        {}, [4, 6, 8], provider_id=_VEO[0], model_id=_VEO[1], generation_mode="reference_video"
-    ) == [8]
-    # minimax 兜底 768p，该档位无声明 → 分辨率维度不收窄
-    assert constrain_durations_for_project(
-        {}, [6, 10], provider_id=_HAILUO[0], model_id=_HAILUO[1], generation_mode="reference_video"
-    ) == [6, 10]
-
-
-def test_constrain_durations_for_project_reference_mode():
-    """generation_mode=reference_video 触发参考图约束。"""
-    project = {"model_settings": {f"{_VEO[0]}/{_VEO[1]}": {"resolution": "720p"}}}
-    assert constrain_durations_for_project(
-        project, [4, 6, 8], provider_id=_VEO[0], model_id=_VEO[1], generation_mode="reference_video"
-    ) == [8]
-
-
-def test_constrain_durations_for_project_legacy_resolution_key():
-    """legacy video_model_settings（裸 model_id 键）同样参与求值。"""
-    project = {"video_model_settings": {_VEO[1]: {"resolution": "720p"}}}
-    assert constrain_durations_for_project(
-        project, [4, 6, 8], provider_id=_VEO[0], model_id=_VEO[1], generation_mode="storyboard"
-    ) == [4, 6, 8]
-
-
-@pytest.mark.parametrize("bad_resolution", [1080, ["1080p"], {"value": "1080p"}, True, "   "])
-def test_constrain_durations_for_project_ignores_non_string_resolution(bad_resolution: object):
-    """脏 resolution 按「未配置」处理，不带着非字符串进 ``constrain_durations`` 的 ``.strip()``。
-
-    project.json 可被手工编辑，也留有历史脏数据；这里落回未收窄的全集，与该模型未设档位同解。
-    """
-    project = {"model_settings": {f"{_VEO[0]}/{_VEO[1]}": {"resolution": bad_resolution}}}
-    assert constrain_durations_for_project(
-        project, [4, 6, 8], provider_id=_VEO[0], model_id=_VEO[1], generation_mode="storyboard"
-    ) == [4, 6, 8]
-
-
-def test_constrain_durations_for_project_falls_back_past_dirty_override_to_legacy():
-    """新键脏值不吞掉 legacy 键：脏值等同未配置，继续按 legacy 档位求值。"""
-    project = {
-        "model_settings": {f"{_VEO[0]}/{_VEO[1]}": {"resolution": 1080}},
-        "video_model_settings": {_VEO[1]: {"resolution": " 1080P "}},
-    }
-    assert constrain_durations_for_project(
-        project, [4, 6, 8], provider_id=_VEO[0], model_id=_VEO[1], generation_mode="storyboard"
-    ) == [8]

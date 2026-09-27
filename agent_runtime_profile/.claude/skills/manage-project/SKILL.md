@@ -75,7 +75,7 @@ mcp__arcreel__get_video_capabilities({})
 
 生成模式由项目唯一决定，无集级覆盖，能力查询全项目同一口径，不接受 / 不需要 `episode` 参数。
 
-**返回**：JSON 文本，含 `provider_id` / `model` / `supported_durations[]` / `max_duration` / `max_reference_images` / `source` / `default_duration` / `episode_target_duration` / `content_mode` / `generation_mode`；narration / drama 的参考生视频项目另含 `reference_unit_durations`（`with_references` / `without_references` 两套生效档位，按视频单元有无 `@` 引用分别适用）；**ad 项目不返回该字段**——ad 的机器字段 `unit` 是从 `shots[]` 派生的轻量索引，分镜时长不受档位枚举管辖（规则见 `video-workflow/SKILL.ad.md`），不要等待该字段、也不要照档位重排 ad 分镜时长。
+**返回**：JSON 文本，含 `provider_id` / `model` / `supported_durations[]` / `max_duration` / `max_reference_images` / `source` / `default_duration` / `episode_target_duration` / `content_mode` / `generation_mode`；narration / drama 的参考生视频项目另含 `reference_unit_durations`（`with_references` / `without_references` 两套生效档位，按视频单元有无 `@` 引用分别适用；`units` 按 `unit_id` 给出每个已有正式视频单元由服务端按可用参考图判定的桶 `hydrated_capability`、该桶生效档位 `allowed_durations`、事实失败 `problem`，以及声明引用与可用参考图分裂时的 `problems` / `unavailable_references`——已有单元的桶与档位以它为准）；**ad 项目不返回该字段**——ad 的机器字段 `unit` 是从 `shots[]` 派生的轻量索引，分镜时长不受档位枚举管辖（规则见 `video-workflow/SKILL.ad.md`），不要等待该字段、也不要照档位重排 ad 分镜时长。
 
 **用途**：所有 generation_mode（storyboard / reference_video）的脚本规划子智能体在执行时自查，用于决定单分镜 / 视频单元时长。**决策优先级**（高到低）：硬约束（storyboard 分镜时长必须取自 `supported_durations`；narration / drama 的 reference_video 视频单元时长必须取自该视频单元引用状态对应的 `reference_unit_durations` 档位；ad 的分镜时长按 `SKILL.ad.md` 的自由整数规则）> `episode_target_duration` / `default_duration` 偏好（前者是本集各单元时长合计的软目标，据它决定拆多少个；后者非 null 时作单个单元的默认值）> 内容需要（reference_video 按该视频单元内容实际需要的长度取档；narration / drama 长句、复杂画面可取更长值）。装不下时重拆视频单元，不违约时长。
 

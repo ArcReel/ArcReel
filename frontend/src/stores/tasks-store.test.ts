@@ -502,7 +502,7 @@ describe("selectHasActiveTaskForScriptFile", () => {
   });
 
   it("normalizes an optional scripts/ prefix before comparing, either side", () => {
-    // router 入队路径可能传入带 scripts/ 前缀的 script_file，Agent/SDK 工具路径经
+    // router 入队路径可能传入带 scripts/ 前缀的 script_file，Agent 工具路径经
     // validate_script_filename 强制裸文件名；两种任务行格式都要能被两种调用方式
     // 传入的 scriptFile（带或不带前缀）匹配到，不依赖调用方预先裁剪。
     const prefixedTaskTasks = [

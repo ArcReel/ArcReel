@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
+from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock
 
 from lib.backends.audio_backends.base import AudioCapability, AudioSynthesisRequest, AudioSynthesisResult
@@ -111,6 +113,25 @@ class TestCustomImageBackend:
         backend = CustomImageBackend(provider_id="img-provider", delegate=delegate, model="gpt-image-2")
 
         assert backend.max_reference_images == 16
+
+    def test_gemini_image_endpoint_declares_the_gemini_limit(self):
+        # gemini-image 端点包装内置 Gemini 后端，参考图上限随之为 14。
+        from lib.custom_provider.endpoints import ENDPOINT_REGISTRY
+
+        provider = SimpleNamespace(provider_id="custom-gemini", base_url="https://relay.test", api_key="k")
+        backend = ENDPOINT_REGISTRY["gemini-image"].build_backend(
+            cast("Any", provider), "gemini-3.1-flash-image-preview"
+        )
+
+        assert backend.max_reference_images == 14
+
+    def test_gemini_image_endpoint_keeps_other_model_limits_unchanged(self):
+        from lib.custom_provider.endpoints import ENDPOINT_REGISTRY
+
+        provider = SimpleNamespace(provider_id="custom-gemini", base_url="https://relay.test", api_key="k")
+        backend = ENDPOINT_REGISTRY["gemini-image"].build_backend(cast("Any", provider), "gemini-2.5-flash-image")
+
+        assert backend.max_reference_images == 0
 
     async def test_generate_delegates(self, tmp_path: Path):
         output_path = tmp_path / "output.png"

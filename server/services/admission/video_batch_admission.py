@@ -49,6 +49,13 @@ from lib.generation.generation_result import (
     observe_artifact_status,
     select_generation_targets,
 )
+from lib.generation.video_request_facts import (
+    CONFIGURED_VIDEO_IDENTITY,
+    VideoRequestFacts,
+    VideoRequestFactsError,
+    VideoRequestFactsFailure,
+    evaluate_video_request_facts,
+)
 from lib.prompts.prompt_utils import (
     is_structured_video_prompt,
     render_storyboard_video_prompt,
@@ -59,6 +66,7 @@ from lib.script.reference_video.request_projection import (
     ProjectionProblem,
     ReferenceRequestOptions,
     ReferenceUnitRequestProjection,
+    configured_reference_request_facts,
     project_reference_unit_request,
 )
 from lib.script.script_models import get_generated_assets
@@ -351,6 +359,12 @@ def _action_for(raw: object) -> GenerationAction:
     return _PROBLEM_ACTIONS.get(str(raw), GenerationAction.FIX_INPUT)
 
 
+def _facts_failure_problem(failure: VideoRequestFactsFailure, unit_id: str) -> GenerationProblem:
+    """视频请求事实失败折成该目标的阻断问题：问题码、参数与修复指引与投影侧同一出口。"""
+
+    return _generation_problem(ProjectionProblem.from_request_facts_failure(failure), unit_id=unit_id)
+
+
 def _generation_problem(problem: ProjectionProblem | NarrationDeliveryProblem, *, unit_id: str) -> GenerationProblem:
     payload = problem.to_payload(unit_id=unit_id)
     params = payload.get("params")
@@ -462,7 +476,7 @@ async def admit_reference_video_batch(
     extra_tickets: Sequence[UnitAdmissionTicket] = (),
     user_id: str = DEFAULT_USER_ID,
     queue: GenerationQueue | None = None,
-    config_resolver: object | None = None,
+    config_resolver: ConfigResolver | None = None,
     tts_settings_resolver: TtsSettingsResolver | None = None,
 ) -> BatchAdmission:
     """Evaluate every reference unit of one request against the current state.
@@ -477,6 +491,9 @@ async def admit_reference_video_batch(
     rather than being reported next to a batch that went ahead without them.
     """
 
+    request_facts_lookup = configured_reference_request_facts(
+        project, config_resolver or ConfigResolver(async_session_factory)
+    )
     unit_ids = [str(unit.get("unit_id") or "") for unit in units if str(unit.get("unit_id") or "")]
     conflicts = await _active_conflicts(
         project_name=project_name,
@@ -549,6 +566,7 @@ async def admit_reference_video_batch(
         unit_options = request_options_for_unit(request_options, unit_id, confirmed_request_durations)
         try:
             current_options = await prepare_current_reference_video_request_options(
+                request_facts_lookup=request_facts_lookup,
                 project=project,
                 script=script,
                 script_file=script_file,
@@ -561,6 +579,7 @@ async def admit_reference_video_batch(
                 tts_in_progress=unit_id in active_tts,
             )
             projection = await project_reference_unit_request(
+                request_facts_lookup=request_facts_lookup,
                 project=project,
                 script=script,
                 unit=unit,
@@ -570,6 +589,11 @@ async def admit_reference_video_batch(
                 current_options_materialized=True,
                 resolver=config_resolver,
             )
+        except VideoRequestFactsError as exc:
+            tickets.append(
+                UnitAdmissionTicket(unit_id=unit_id, problems=(_facts_failure_problem(exc.failure, unit_id),))
+            )
+            continue
         except ValueError as exc:
             # 投影读的是剧本上的值（如 duration_seconds）：脏值在这里抛出去会让整个请求塌成
             # 一句通用错误，其余 unit 的结论无从得知。按逐 unit 的可入队性问题如实报告。
@@ -665,6 +689,7 @@ async def admit_storyboard_video_batch(
     queue: GenerationQueue | None = None,
     config_resolver: ConfigResolver | None = None,
     tts_settings_resolver: TtsSettingsResolver | None = None,
+    video_request_facts: VideoRequestFacts | VideoRequestFactsFailure | None = None,
 ) -> BatchAdmission:
     """Evaluate every storyboard unit of one request against the current state.
 
@@ -699,6 +724,14 @@ async def admit_storyboard_video_batch(
     )
     generation_type = video_bucket_for_generation_mode(project.get("generation_mode"))
     catalog = build_reference_catalog(project)
+    if items and video_request_facts is None:
+        video_request_facts = await evaluate_video_request_facts(
+            project,
+            route="storyboard",
+            generation_type=generation_type,
+            identity=CONFIGURED_VIDEO_IDENTITY,
+            resolver=config_resolver or ConfigResolver(async_session_factory),
+        )
 
     tickets: list[UnitAdmissionTicket] = list(extra_tickets)
     for resource_id, item, visual_prompt in items:
@@ -708,6 +741,15 @@ async def admit_storyboard_video_batch(
             )
             continue
         reference_problems = reference_admission_problems(admit_storyboard_item(catalog, item), unit_id=resource_id)
+        if isinstance(video_request_facts, VideoRequestFactsFailure):
+            # 事实失败与引用缺口同属这一目标的已知问题，一次报全：用户改完模型配置不该再撞见引用缺口。
+            tickets.append(
+                UnitAdmissionTicket(
+                    unit_id=resource_id,
+                    problems=(_facts_failure_problem(video_request_facts, resource_id), *reference_problems),
+                )
+            )
+            continue
         if reference_problems:
             tickets.append(UnitAdmissionTicket(unit_id=resource_id, problems=reference_problems))
             continue
@@ -735,6 +777,7 @@ async def admit_storyboard_video_batch(
             queue=queue,
             config_resolver=config_resolver,
             tts_settings_resolver=tts_settings_resolver,
+            video_request_facts=video_request_facts,
         )
         tickets.append(await _storyboard_ticket(resource_id=resource_id, preparation=preparation))
 
@@ -834,7 +877,9 @@ async def resolve_voice_context(project: dict[str, Any], content_mode: str) -> d
     return project.get("characters") or {}
 
 
-async def audio_switch_conflict(project: dict[str, Any]) -> str | None:
+async def audio_switch_conflict(
+    project: dict[str, Any], *, request_facts: VideoRequestFacts | VideoRequestFactsFailure | None = None
+) -> str | None:
     """分镜图生视频的音频闸门（``assert_audio_switch_supported``，与 WebUI 提交入口同一判据）。
 
     成片恒有声的模型收不到关闭音频的请求，放行只会让无声判据把音色约束整批裁掉。闸门与创作类型
@@ -848,7 +893,11 @@ async def audio_switch_conflict(project: dict[str, Any]) -> str | None:
     一起在建任务之前一次报全。
     """
     try:
-        await assert_audio_switch_supported(project, video_bucket_for_generation_mode(project.get("generation_mode")))
+        await assert_audio_switch_supported(
+            project,
+            video_bucket_for_generation_mode(project.get("generation_mode")),
+            request_facts=request_facts,
+        )
     except ValueError as exc:
         return str(exc)
     return None
@@ -996,10 +1045,10 @@ async def admit_storyboard_video_request(
 ) -> BatchAdmission:
     """Admit one Storyboard-mode request from the specs it would actually enqueue.
 
-    The visual prompt each spec already carries is what the admission compares
-    against the paid artifact, so the triples are built from the specs rather than
-    from the raw script items — a preview that skipped them would judge reuse on a
-    different basis than the submission it predicts.
+    目标集取自即将入队的 spec，被拒的单元不在其中。spec 携带的 prompt 由该单元当前的
+    ``video_prompt`` 经 ``render_storyboard_video_prompt`` 渲染而来；worker 执行时重读同一
+    单元当前的 ``video_prompt``，经同一出口计算视觉依据，而该出口对已渲染文本幂等，所以这里
+    判断已付费成片能否复用，与执行时用的是同一依据。
 
     音频开关冲突属于请求自身已知的配置缺口，在这里与投影侧的缺口折进同一批逐目标结论：
     留到提交前才检查，用户会先被问一遍跨档确认、同意之后才收到一句通用报错。
@@ -1012,7 +1061,18 @@ async def admit_storyboard_video_request(
         if item is None:
             raise ValueError(f"找不到待生成条目: {spec.resource_id}")
         targets.append((spec.resource_id, item, (spec.payload or {}).get("prompt")))
-    conflict_detail = await audio_switch_conflict(project) if specs else None
+    request_facts = (
+        await evaluate_video_request_facts(
+            project,
+            route="storyboard",
+            generation_type=video_bucket_for_generation_mode(project.get("generation_mode")),
+            identity=CONFIGURED_VIDEO_IDENTITY,
+            resolver=config_resolver or ConfigResolver(async_session_factory),
+        )
+        if specs
+        else None
+    )
+    conflict_detail = await audio_switch_conflict(project, request_facts=request_facts) if specs else None
     admission = await admit_storyboard_video_batch(
         project_name=project_name,
         project=project,
@@ -1029,6 +1089,7 @@ async def admit_storyboard_video_request(
         queue=queue,
         config_resolver=config_resolver,
         tts_settings_resolver=tts_settings_resolver,
+        video_request_facts=request_facts,
     )
     if conflict_detail is None:
         return admission

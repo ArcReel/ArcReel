@@ -1,15 +1,20 @@
 """分镜图参考图按图像后端上限裁剪后再编号：实发张数与声明行一致，依据仍按完整装配集登记。"""
 
+import io
 import json
 import logging
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
+from PIL import Image
 
 from lib.artifacts.artifact_activation import active_artifact_currency_resolver
 from lib.artifacts.artifact_manifest import ArtifactKey, ArtifactStatus, ProjectArtifactManifestAdapter
 from lib.artifacts.visual_artifact_provenance import VisualReference, build_storyboard_image_visual_basis
+from lib.backends.image_backends.grok import GrokImageBackend
 from lib.backends.image_backends.vidu import ViduImageBackend
 from server.services.tasks import generation_context, generation_tasks
 from tests.fakes import hook_claim_recheck
@@ -240,3 +245,50 @@ class TestLimitComesFromTheResolvedBackend:
         # 裁剪发生在编排层，Vidu 自己的兜底截断在正常路径下不再触发
         assert "超过 model=viduq2 上限 7" in caplog.text
         assert "Vidu 参考图数量" not in caplog.text
+
+
+class TestGrokLaneClampsToFive:
+    """真实 Grok backend 声明上限 5：分镜图只发前 5 张，任务结果带裁剪提示。"""
+
+    @pytest.fixture
+    async def grok_lane(self, db_factory, monkeypatch):
+        monkeypatch.setattr("lib.db.async_session_factory", db_factory)
+        generation_context.invalidate_backend_cache()
+        generation_context._backend_cache._locks.clear()
+        client = MagicMock()
+        client.image.sample = AsyncMock(
+            return_value=SimpleNamespace(respect_moderation=True, url="https://grok.test/out.png")
+        )
+
+        async def _assemble(*, provider_id, media_type, model_id, resolver, rate_limiter=None, generation_type=None):
+            assert (provider_id, media_type) == ("grok", "image")
+            with patch("lib.backends.image_backends.grok.create_grok_client", return_value=client):
+                return GrokImageBackend(api_key="k", model=model_id)
+
+        monkeypatch.setattr(generation_context, "assemble_backend", _assemble)
+        yield client
+        generation_context.invalidate_backend_cache()
+        generation_context._backend_cache._locks.clear()
+
+    async def test_grok_receives_five_images_and_the_result_warns(self, tmp_path, monkeypatch, grok_lane):
+        project_path = prepare_files(tmp_path)
+        pm = pm_with_eight_references(project_path)
+        pm.project["image_provider_i2i"] = "grok/grok-imagine-image"
+        (project_path / "project.json").write_text(json.dumps(pm.project, ensure_ascii=False), encoding="utf-8")
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: pm)
+        monkeypatch.setattr(generation_context, "get_project_manager", lambda: pm)
+        monkeypatch.setattr(generation_tasks, "emit_project_change_batch", lambda *_a, **_kw: None)
+        buffer = io.BytesIO()
+        Image.new("RGB", (8, 8), "red").save(buffer, format="PNG")
+
+        with capture_http() as router:
+            router.get("https://grok.test/out.png").mock(return_value=httpx.Response(200, content=buffer.getvalue()))
+            result = await generation_tasks.execute_storyboard_task("demo", ITEM_ID, STORYBOARD_PAYLOAD)
+
+        sent = grok_lane.image.sample.call_args.kwargs
+        assert len(sent["image_urls"]) == 5
+        assert "图1、图2、图3、图4、图5为角色参考图" in sent["prompt"]
+        assert "图6" not in sent["prompt"]
+        assert result["warnings"] == [
+            {"key": "ref_too_many_images", "params": {"count": 8, "model": "grok-imagine-image", "max_count": 5}}
+        ]

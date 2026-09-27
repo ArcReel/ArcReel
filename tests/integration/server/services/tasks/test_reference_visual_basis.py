@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from lib.script.reference_video.request_projection import resolve_reference_assets
+from tests.factories import make_video_request_facts
 from tests.integration.server.services.tasks.reference_video_tasks_support import (
     load_project_and_unit,
     write_project,
@@ -12,7 +13,6 @@ from tests.integration.server.services.tasks.reference_video_tasks_support impor
 
 
 def test_reference_visual_basis_hashes_only_audio_sent_for_the_unit(tmp_path: Path) -> None:
-    from lib.script.reference_video.request_projection import ProviderProjectionCandidate
     from server.services.tasks.narration_delivery_tasks import reference_video_visual_basis_digest
 
     proj_dir = write_project(tmp_path)
@@ -36,16 +36,15 @@ def test_reference_visual_basis_hashes_only_audio_sent_for_the_unit(tmp_path: Pa
     unrelated_audio = audio_dir / "李四.wav"
     used_audio.write_bytes(b"used-v1")
     unrelated_audio.write_bytes(b"unrelated-v1")
-    candidate = ProviderProjectionCandidate(
+    request_facts = make_video_request_facts(
+        route="reference_video",
         generation_type="r2v",
         provider_id="ark",
         model_id="doubao-seedance-2-0-260128",
-        supported_durations=(4, 8, 12),
-        max_reference_images=9,
         resolution="1080p",
-        generate_audio=True,
-        requested_generate_audio=True,
-        has_audio_track=True,
+        supported_durations=(4, 8, 12),
+        allowed_durations=(4, 8, 12),
+        max_reference_images=9,
         audio_switch_controllable=True,
         voice_consistency="native",
         max_reference_audio_count=3,
@@ -57,7 +56,7 @@ def test_reference_visual_basis_hashes_only_audio_sent_for_the_unit(tmp_path: Pa
         project_path=proj_dir,
         unit=unit,
         request_assets=request_assets,
-        candidate=candidate,
+        request_facts=request_facts,
     )
     unrelated_audio.write_bytes(b"unrelated-v2")
     after_unrelated_change = reference_video_visual_basis_digest(
@@ -65,7 +64,7 @@ def test_reference_visual_basis_hashes_only_audio_sent_for_the_unit(tmp_path: Pa
         project_path=proj_dir,
         unit=unit,
         request_assets=request_assets,
-        candidate=candidate,
+        request_facts=request_facts,
     )
     used_audio.write_bytes(b"used-v2")
     after_used_change = reference_video_visual_basis_digest(
@@ -73,7 +72,7 @@ def test_reference_visual_basis_hashes_only_audio_sent_for_the_unit(tmp_path: Pa
         project_path=proj_dir,
         unit=unit,
         request_assets=request_assets,
-        candidate=candidate,
+        request_facts=request_facts,
     )
 
     assert after_unrelated_change == original

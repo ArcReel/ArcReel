@@ -179,6 +179,7 @@ def run_derivative_generation(
     monkeypatch.setattr(derivative_sheet_tasks, "get_project_manager", lambda: pm)
     monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: pm)
     monkeypatch.setattr(formal_image_commit, "resolve_generation_context", fake_resolve_ctx(generator))
+    monkeypatch.setattr(derivative_sheet_tasks, "resolve_generation_context", fake_resolve_ctx(generator))
 
     result_bytes = solid_png_bytes(result_rgb)
     with capture_http() as router:
