@@ -28,8 +28,7 @@ _CREDENTIALS = UploadPostCredentials(api_key="secret-key", profile="studio", bas
 
 
 def _project(tmp_path: Path) -> tuple[ProjectManager, Path]:
-    root = tmp_path / "projects"
-    path = root / "demo"
+    path = tmp_path / "projects" / "demo"
     path.mkdir(parents=True)
     (path / "project.json").write_text(
         json.dumps(
@@ -44,7 +43,7 @@ def _project(tmp_path: Path) -> tuple[ProjectManager, Path]:
         ),
         encoding="utf-8",
     )
-    return ProjectManager(root), path
+    return ProjectManager(tmp_path), path
 
 
 def _presentation(project_path: Path, video: Path) -> MaterializedPresentation:
