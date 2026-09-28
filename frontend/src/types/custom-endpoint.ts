@@ -1,8 +1,8 @@
 import type { EndpointInstallation } from "./market";
 // 自定义调用端点（custom endpoint）——端点定义的前端类型，按 kind 分声明式与 ComfyUI 两种。
 // 定义 JSON 本身是唯一真相源，导入导出零封套：文件即 definition 原样 JSON。
-// 后端 schema 在 lib/custom_provider/endpoint_definition/schema.json 与
-// lib/custom_provider/comfyui/schema.json，最终判定以 POST /custom-endpoints/validate 为准，
+// 后端 schema 是 packages/arcreel-market-core/src/arcreel_market_core/ 下的
+// endpoint_definition/schema.json 与 comfyui/schema.json，最终判定以 POST /custom-endpoints/validate 为准，
 // 这里只描述 UI 需要读写的形状。
 
 /** 素材在 ArcReel 侧的来源槽位。 */
@@ -126,7 +126,7 @@ export interface EndpointDefinition {
 
 /**
  * 节点绑定的语义键名录。视频端点用全部十一个，图像端点没有首尾帧与时间轴那四个。
- * 与服务端 `lib/custom_provider/comfyui/bindings.py` 同名同序。
+ * 与服务端 `arcreel_market_core/comfyui/bindings.py` 同名同序。
  */
 export const COMFYUI_VIDEO_BINDING_KEYS = [
   "prompt",

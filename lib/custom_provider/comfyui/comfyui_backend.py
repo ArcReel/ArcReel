@@ -27,15 +27,15 @@ from uuid import uuid4
 
 import httpx
 
-from lib.backends.artifact_download_guard import artifact_http_client
-from lib.backends.backend_runtime import ProviderJobIdPersistenceMixin, notify_provider_response
-from lib.backends.video_backend_contract import (
+from arcreel_market_core.video_backend_contract import (
     ResumeExpiredError,
     VideoAudioMode,
     VideoCapabilities,
     VideoGenerationRequest,
     VideoGenerationResult,
 )
+from lib.backends.artifact_download_guard import artifact_http_client
+from lib.backends.backend_runtime import ProviderJobIdPersistenceMixin, notify_provider_response
 from lib.custom_provider.comfyui.capabilities import derive_video_capabilities
 from lib.custom_provider.comfyui.comfyui_client import ComfyuiClient, client_id_for, upload_filename
 from lib.custom_provider.comfyui.comfyui_execution import HTTP_TIMEOUT_SECONDS, ComfyuiExecution, PickedArtifact

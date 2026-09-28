@@ -14,7 +14,7 @@ from datetime import date, datetime
 from enum import StrEnum
 from pathlib import Path
 
-from lib.backends.video_backend_contract import VideoCapabilities
+from arcreel_market_core.video_backend_contract import VideoCapabilities
 from lib.backends.video_backends import (
     PROVIDER_ARK,
     PROVIDER_GEMINI,

@@ -13,6 +13,7 @@ on:
       - "Dockerfile"
       - ".dockerignore"
       - "lib/**"
+      - "packages/**"
       - "server/**"
       - "alembic/**"
       - "alembic.ini"

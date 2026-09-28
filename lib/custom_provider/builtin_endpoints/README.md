@@ -6,7 +6,7 @@ import 期读入 `ENDPOINT_REGISTRY`。
 
 约束：
 
-- 定义须过共享校验器 `lib.custom_provider.endpoint_definition.validate_definition`，
+- 定义须过共享校验器 `arcreel_market_core.endpoint_definition.validate_definition`，
   `meta.author` 为 `ArcReel`，键不得以 `ce-` 开头。任一条不满足即 import 期抛错、进程起不来。
 - 定义不落库、用户不可编辑删除；升级换文件即生效，用户「复制为我的」产出的 `ce-<id>` 副本不跟随。
 - 键与 Python 内置端点共用同一命名空间，文件名不得与注册表里已有的键重复。

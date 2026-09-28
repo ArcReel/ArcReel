@@ -23,7 +23,7 @@ from typing import Any
 
 from jsonschema import Draft202012Validator
 
-from .bindings import BINDING_KEYS_BY_MEDIA_TYPE
+from arcreel_market_core.comfyui.bindings import BINDING_KEYS_BY_MEDIA_TYPE
 
 RULES_SCHEMA_PATH = Path(__file__).parent / "inference_rules.schema.json"
 

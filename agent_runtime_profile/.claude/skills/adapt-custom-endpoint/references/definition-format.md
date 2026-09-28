@@ -1,7 +1,7 @@
 # ArcReel 自定义调用端点定义格式
 
 服务端共享 validator 是保存、预览请求、验证响应和测试连接的最终判据。当前完整 JSON Schema 位于
-[`lib/custom_provider/endpoint_definition/schema.json`](https://github.com/ArcReel/ArcReel/blob/main/lib/custom_provider/endpoint_definition/schema.json)；
+[`packages/arcreel-market-core/src/arcreel_market_core/endpoint_definition/schema.json`](https://github.com/ArcReel/ArcReel/blob/main/packages/arcreel-market-core/src/arcreel_market_core/endpoint_definition/schema.json)；
 先写最小定义，再根据 `validate` 返回的字段路径与错误码修正。
 
 ## 最小形状

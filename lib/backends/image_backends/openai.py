@@ -8,7 +8,7 @@ from contextlib import ExitStack
 from pathlib import Path
 from typing import ClassVar, Literal
 
-from lib.backends.aspect_size import IMAGE_TIER_SHORT_EDGE, aspect_size, resolution_to_short_edge
+from arcreel_market_core.aspect_size import IMAGE_TIER_SHORT_EDGE, aspect_size, resolution_to_short_edge
 from lib.backends.image_backends.base import (
     ImageCapability,
     ImageCapabilityError,

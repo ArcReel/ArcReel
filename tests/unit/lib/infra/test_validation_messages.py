@@ -1,7 +1,8 @@
-"""结构化校验消息的渲染语义：默认语言、指定 translator、嵌套翻译键、literal 通道。"""
+"""校验结果与默认语言渲染：Agent 与 CLI 边界缺省中文，Web 边界按传入的 translator。"""
 
+from arcreel_market_core.validation_messages import MessageJoin, MessageRef, ValidationMessage
 from lib.i18n import _
-from lib.infra.validation_messages import MessageJoin, MessageRef, ValidationMessage, ValidationResult
+from lib.infra.validation_messages import ValidationResult, default_translate
 
 
 def _translator(locale: str):
@@ -11,16 +12,12 @@ def _translator(locale: str):
     return translate
 
 
-class TestValidationMessage:
-    def test_render_defaults_to_chinese(self):
+class TestDefaultTranslate:
+    def test_renders_in_chinese(self):
         message = ValidationMessage("val_missing_field", {"field": "title"})
-        assert message.render() == "缺少必填字段: title"
+        assert message.render(default_translate) == "缺少必填字段: title"
 
-    def test_render_uses_supplied_translator(self):
-        message = ValidationMessage("val_missing_field", {"field": "title"})
-        assert message.render(_translator("en")) == "Missing required field: title"
-
-    def test_message_ref_param_is_translated_before_substitution(self):
+    def test_message_ref_param_follows_the_locale(self):
         message = ValidationMessage(
             "val_refs_unregistered",
             {
@@ -30,32 +27,15 @@ class TestValidationMessage:
                 "names": "Hero",
             },
         )
-        assert "角色" in message.render()
+        assert "角色" in message.render(default_translate)
         assert "角色" not in message.render(_translator("en"))
 
-    def test_validation_message_param_is_rendered_in_the_same_locale(self):
-        detail = ValidationMessage("val_ce_schema_minimum_constraint", {"limit": 1})
-        message = ValidationMessage("val_ce_invalid_value", {"detail": detail})
-
-        assert message.render(_translator("en")) == "Value does not match the format: Minimum allowed: 1"
-        assert message.render(_translator("zh")) == "取值不符合格式约定：允许的最小值或数量：1"
-
-    def test_message_join_renders_fragments_with_separator(self):
+    def test_message_join_translates_each_fragment(self):
         message = ValidationMessage(
             "val_missing_field",
             {"field": MessageJoin(("title", MessageRef("asset_type_character")), separator=" / ")},
         )
-        assert message.render() == "缺少必填字段: title / 角色"
-
-    def test_message_join_nests_recursively(self):
-        inner = MessageJoin(("novel.", MessageRef("asset_type_scene")), separator="")
-        message = ValidationMessage("val_missing_field", {"field": MessageJoin((inner, "title"))})
-        assert message.render() == "缺少必填字段: novel.场景; title"
-
-    def test_literal_channel_passes_text_through_unchanged(self):
-        message = ValidationMessage.literal("pydantic: field required")
-        assert message.render() == "pydantic: field required"
-        assert message.render(_translator("vi")) == "pydantic: field required"
+        assert message.render(default_translate) == "缺少必填字段: title / 角色"
 
 
 class TestValidationResult:

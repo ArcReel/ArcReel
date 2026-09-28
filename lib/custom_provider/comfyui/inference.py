@@ -23,10 +23,8 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
 
-from lib.infra.validation_messages import ValidationMessage
-
-from .bindings import BINDING_KEYS_BY_MEDIA_TYPE, REQUIRED_BINDING_KEYS
-from .graph import (
+from arcreel_market_core.comfyui.bindings import BINDING_KEYS_BY_MEDIA_TYPE, REQUIRED_BINDING_KEYS
+from arcreel_market_core.comfyui.graph import (
     Consumer,
     ancestors,
     class_type_of,
@@ -37,8 +35,11 @@ from .graph import (
     resolve_literal,
     unwrap_value,
 )
+from arcreel_market_core.comfyui.workflow import is_link, node_inputs
+from arcreel_market_core.validation_messages import ValidationMessage
+from lib.infra.validation_messages import default_translate
+
 from .inference_rules import ConsumerPort, InferenceRules, load_inference_rules
-from .workflow import is_link, node_inputs
 
 #: 推断消息的键前缀：信号说明与提示各有一条，与诊断码共用 ``val_ce_`` 命名空间。
 MESSAGE_KEY_PREFIX = "val_ce_infer_"
@@ -148,7 +149,7 @@ class SignalHit:
         return {
             "signal": self.signal.value,
             "weight": self.weight,
-            "message": self.message.render(translate),
+            "message": self.message.render(translate or default_translate),
         }
 
 
@@ -164,7 +165,7 @@ class Note:
         return ValidationMessage(f"{MESSAGE_KEY_PREFIX}note_{self.code.value}", self.params)
 
     def to_payload(self, translate: Callable[..., str] | None = None) -> dict[str, Any]:
-        return {"code": self.code.value, "message": self.message.render(translate)}
+        return {"code": self.code.value, "message": self.message.render(translate or default_translate)}
 
 
 @dataclass(frozen=True)

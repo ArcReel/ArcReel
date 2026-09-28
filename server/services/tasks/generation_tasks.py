@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from arcreel_market_core.video_backend_contract import VideoCapabilityError
 from lib.artifacts.artifact_activation import (
     ArtifactCurrencyResolver,
     ArtifactInputClaim,
@@ -48,7 +49,6 @@ from lib.artifacts.visual_artifact_provenance import (
     build_storyboard_video_artifact_visual_basis,
     project_basis_style_description,
 )
-from lib.backends.video_backend_contract import VideoCapabilityError
 from lib.config.resolver import video_bucket_for_generation_mode
 from lib.config.service import DEFAULT_VIDEO_POLL_TIMEOUT_SECONDS
 from lib.db.base import DEFAULT_USER_ID

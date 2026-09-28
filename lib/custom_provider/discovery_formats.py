@@ -13,7 +13,7 @@ ComfyUI 服务只认 workflow 提交。把两者配错在保存期毫无征兆�
 
 from __future__ import annotations
 
-from lib.custom_provider.endpoint_definition import COMFYUI_KIND
+from arcreel_market_core.endpoint_definition import COMFYUI_KIND
 
 #: ComfyUI 协议：连通性检查裸打 ``/system_stats``，模型发现不适用。
 COMFYUI_DISCOVERY_FORMAT = "comfyui"

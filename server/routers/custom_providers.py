@@ -17,10 +17,11 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import AfterValidator, BaseModel, Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from arcreel_market_core.endpoint_definition import COMFYUI_KIND
+from arcreel_market_core.video_backend_contract import ReferenceAudioMode, audio_capability_pair_is_coherent
 from lib.backends.artifact_download_guard import artifact_http_client
 from lib.backends.http_status_errors import raise_for_status_redacted
 from lib.backends.image_backends.base import ImageCapability
-from lib.backends.video_backend_contract import ReferenceAudioMode, audio_capability_pair_is_coherent
 from lib.config.repository import mask_secret
 from lib.custom_provider import is_custom_endpoint, make_provider_id
 from lib.custom_provider.capabilities import (
@@ -34,7 +35,6 @@ from lib.custom_provider.capabilities import (
     system_video_capabilities,
 )
 from lib.custom_provider.discovery_formats import endpoint_attachment_holds, is_comfyui_protocol
-from lib.custom_provider.endpoint_definition import COMFYUI_KIND
 from lib.custom_provider.endpoint_resolution import endpoint_spec_from_row, resolve_endpoint_spec
 from lib.custom_provider.endpoints import (
     ENDPOINT_REGISTRY,

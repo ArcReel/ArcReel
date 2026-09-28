@@ -311,7 +311,7 @@ async def test_custom_video_max_refs_negative_caps_raises(db_session: AsyncSessi
     """endpoint cap=None，caps 函数返回负数 → raise ValueError（不静默下传坏值）。"""
     import dataclasses
 
-    from lib.backends.video_backend_contract import VideoCapabilities
+    from arcreel_market_core.video_backend_contract import VideoCapabilities
     from lib.config.resolver import ConfigResolver, VideoBucketCapabilityError
     from lib.config.service import ConfigService
     from lib.custom_provider import make_provider_id

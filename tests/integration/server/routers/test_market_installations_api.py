@@ -10,13 +10,13 @@ from fastapi import FastAPI
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from arcreel_market_core.market.entry import project_meta
 from lib.db import get_async_session
 from lib.db.models.custom_endpoint import CustomEndpoint
 from lib.db.models.custom_provider import CustomProvider, CustomProviderModel
 from lib.db.models.market_installation import MarketInstallation
 from lib.db.models.market_source import MarketSource
 from lib.market.entries import MarketEntryService, get_market_entry_service
-from lib.market.entry import project_meta
 from lib.market.installations import definition_digest
 from server.error_handlers import register_error_handlers
 from server.routers import custom_endpoints, market, system_config

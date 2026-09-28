@@ -13,8 +13,8 @@ import base64
 import logging
 from pathlib import Path
 
+from arcreel_market_core.aspect_size import IMAGE_TIER_SHORT_EDGE, aspect_size, resolution_to_short_edge
 from lib.backends.artifact_download_guard import artifact_http_client
-from lib.backends.aspect_size import IMAGE_TIER_SHORT_EDGE, aspect_size, resolution_to_short_edge
 from lib.backends.backend_runtime import should_retry_submit, submit_post, with_artifact_retry
 from lib.backends.image_backends.base import (
     ImageCapability,

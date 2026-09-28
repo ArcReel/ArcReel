@@ -18,9 +18,9 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
+from arcreel_market_core.comfyui.bindings import targets_of
 from lib.backends.container_sniff import sniff_container
 
-from .bindings import targets_of
 from .failures import EXECUTION_ERROR, INTERRUPTED, ComfyuiError
 
 #: ``media_type`` → 该媒体类型的产物允许的扩展名。

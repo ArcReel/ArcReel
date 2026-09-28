@@ -86,7 +86,7 @@ class TestVideoResumeRunner:
     @pytest.mark.asyncio
     async def test_run_resume_expired(self, monkeypatch):
         """ResumeExpiredError → mark_failed [resume_expired]。"""
-        from lib.backends.video_backend_contract import ResumeExpiredError
+        from arcreel_market_core.video_backend_contract import ResumeExpiredError
 
         queue = FakeWorkerQueue()
         worker = GenerationWorker(
@@ -112,7 +112,7 @@ class TestVideoResumeRunner:
         error_message / error_code——两张表各有自己的失败登记，调用行那份只能从这里落。
         任务终态写入命中 0 行时调用行照样按失败结算，不改判为 cancelled。
         """
-        from lib.backends.video_backend_contract import ResumeExpiredError
+        from arcreel_market_core.video_backend_contract import ResumeExpiredError
         from lib.db.repositories.usage_repo import UsageRepository
 
         async with worker_db() as session:
@@ -142,7 +142,7 @@ class TestVideoResumeRunner:
     @pytest.mark.asyncio
     async def test_run_endpoint_changed(self, monkeypatch):
         """ResumeEndpointChangedError → mark_failed [resume_endpoint_changed]，错误可归因。"""
-        from lib.backends.video_backend_contract import ResumeEndpointChangedError
+        from arcreel_market_core.video_backend_contract import ResumeEndpointChangedError
 
         queue = FakeWorkerQueue()
         worker = GenerationWorker(

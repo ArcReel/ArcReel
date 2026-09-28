@@ -12,24 +12,24 @@ from typing import Any, cast
 import httpx
 import pytest
 
-from lib.backends.artifact_download_guard import (
-    VIDEO_ARTIFACT_MAX_BYTES,
-    ArtifactDestinationRejectedError,
-    ArtifactTooLargeError,
-)
-from lib.backends.backend_runtime import VIDEO_POLL_MAX_CONSECUTIVE_FAILURES
-from lib.backends.video_backend_contract import (
+from arcreel_market_core.endpoint_definition import validate_definition
+from arcreel_market_core.video_backend_contract import (
     ProviderResponseStage,
     ResumeExpiredError,
     VideoAudioMode,
     VideoCapabilities,
     VideoGenerationRequest,
 )
+from lib.backends.artifact_download_guard import (
+    VIDEO_ARTIFACT_MAX_BYTES,
+    ArtifactDestinationRejectedError,
+    ArtifactTooLargeError,
+)
+from lib.backends.backend_runtime import VIDEO_POLL_MAX_CONSECUTIVE_FAILURES
 from lib.backends.video_frame_slots import gate_video_request, resolve_video_capabilities
 from lib.custom_provider.comfyui.comfyui_backend import ComfyuiVideoBackend
 from lib.custom_provider.comfyui.failures import ComfyuiError
 from lib.custom_provider.comfyui.request_builder import workflow_sha256
-from lib.custom_provider.endpoint_definition import validate_definition
 from lib.custom_provider.endpoint_resolution import endpoint_spec_from_row
 from lib.custom_provider.factory import create_custom_backend
 from lib.generation.task_failure import render_failure

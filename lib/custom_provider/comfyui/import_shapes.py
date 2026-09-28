@@ -15,16 +15,15 @@ from collections.abc import Mapping
 from enum import StrEnum
 from typing import Any
 
-from lib.custom_provider.definition_diagnostics import (
+from arcreel_market_core.comfyui.validator import CURRENT_SCHEMA_VERSION
+from arcreel_market_core.comfyui.workflow import has_any_node
+from arcreel_market_core.definition_diagnostics import (
     ROOT_PATH,
     DefinitionDiagnostics,
     DefinitionErrorCode,
     DefinitionIssue,
 )
-from lib.custom_provider.endpoint_definition.kinds import COMFYUI_KIND
-
-from .validator import CURRENT_SCHEMA_VERSION
-from .workflow import has_any_node
+from arcreel_market_core.endpoint_definition.kinds import COMFYUI_KIND
 
 #: 自动包装时写进 ``meta`` 的占位值：原始 workflow 里没有作者与名称可取，保存前由用户改写。
 PLACEHOLDER_META_NAME = "ComfyUI workflow"

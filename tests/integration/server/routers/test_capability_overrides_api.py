@@ -826,8 +826,8 @@ class TestBuiltinBackendsDeclareCapabilityFunction:
     """每个能承载视频模型的内置 provider 都要能被纯函数问出布尔能力位。"""
 
     def test_every_builtin_video_provider_resolvable(self):
+        from arcreel_market_core.video_backend_contract import VideoCapabilities
         from lib.backends.backend_assembly.specs import builtin_video_capabilities_for_model
-        from lib.backends.video_backend_contract import VideoCapabilities
         from lib.config.registry import PROVIDER_REGISTRY
 
         for provider_id, meta in PROVIDER_REGISTRY.items():
