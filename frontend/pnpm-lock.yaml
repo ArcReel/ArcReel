@@ -57,7 +57,7 @@ importers:
         version: 3.1.1
       framer-motion:
         specifier: ^13.1.0
-        version: 13.2.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+        version: 13.4.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       i18next:
         specifier: ^26.3.6
         version: 26.4.2(typescript@6.0.3)
@@ -69,7 +69,7 @@ importers:
         version: 1.2.3
       lucide-react:
         specifier: ^1.31.0
-        version: 1.46.0(react@19.2.8)
+        version: 1.47.0(react@19.2.8)
       react:
         specifier: ^19.2.8
         version: 19.2.8
@@ -202,8 +202,8 @@ packages:
       react: ^0.14.0 || ^15.0.1 || ^16.0.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
       react-dom: ^0.14.0 || ^15.0.1 || ^16.0.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
 
-  '@antfu/install-pkg@2.0.1':
-    resolution: {integrity: sha512-iCKVQcIC0e3oDxEfs3SHQGW+ovhBMZmS1TE+bTk50rVyMCBmCfClv7Qi3HQKlumYwvjb/iIMeWCW2i67q6kFfQ==}
+  '@antfu/install-pkg@2.1.0':
+    resolution: {integrity: sha512-sdg9NxU3zR4Mnawfbc/x6GB5Wf17WYud5qOuEuxXjaKpYpMkISSJEjItGebXJ2bQ4DIcly4NYH23mtkGJjvKUw==}
 
   '@asamuzakjp/css-color@6.0.7':
     resolution: {integrity: sha512-vC/bk1Lz7Tn/EfU9/apOTBk80/8dyGyWMowPoV1tJ52muDGsDqt2HPT2klrFUiY60MQmQv9q8yIht15JnBgDGw==}
@@ -894,8 +894,8 @@ packages:
     cpu: [x64]
     os: [win32]
 
-  '@pierre/diffs@1.4.2':
-    resolution: {integrity: sha512-X9njBs6fGN+BIBhJ/otJRcxzNfsU3fd31VNquPiRW5nK051IyjuNS5JuOunqFDmEN3VCS9fm0gauyka/nMdokg==}
+  '@pierre/diffs@1.4.3':
+    resolution: {integrity: sha512-zJD10amMxjQis5/SYz9AYMTyqdvg1Rbuu6nCYJm67C0phFGHbescoQcxNnxrV2SVQcNSyxtSRwjjf4ND5IJXnA==}
     peerDependencies:
       react: ^18.3.1 || ^19.0.0
       react-dom: ^18.3.1 || ^19.0.0
@@ -929,8 +929,8 @@ packages:
       shiki:
         optional: true
 
-  '@primer/octicons@19.36.0':
-    resolution: {integrity: sha512-oC+RG3N9i8kesxb1WWQE8eE/DgBMJ3hNHhMSvzMdAuDD0EavdYCbt6JFgSO3fhcH3rQxY2iDx23tH6A31AKWJA==}
+  '@primer/octicons@19.38.0':
+    resolution: {integrity: sha512-YUU2R66aDm72CdjlTyD663sCAjILrHWK2czw+BdTUkzZfcB7bXfO6GNXm22sepLOWKPkLHezVjIHch/KNd8rMg==}
 
   '@radix-ui/primitive@1.1.7':
     resolution: {integrity: sha512-rqWnm76nYT8HoNNqEjpgJ7Pw/DrBj5iBTrmEPo6HTX5+VJyBNOqTdv4g89G63HuR5g0AaENoAcH7Is5fF2kZ8Q==}
@@ -1422,8 +1422,8 @@ packages:
       react: '>=18.0.0'
       react-dom: '>=18.0.0'
 
-  '@rc-component/virtual-list@1.5.1':
-    resolution: {integrity: sha512-boqHxdtyWC88u8quYgEO49bcBy5fzRiOcnBge+N4nLzs2k8hUQ/yw7JE9dM6yCBE4jSm5YSHVCVMS+suBuJGKA==}
+  '@rc-component/virtual-list@1.5.2':
+    resolution: {integrity: sha512-igfe7NP9cOmDAhLy5z+Juz8fhjOMzMbF7TRoR/yqXIsbU6XZm4TU7ogcm5O553P0rLF6n0j5F6J+n15Izb1tqg==}
     engines: {node: '>=8.x'}
     peerDependencies:
       react: '>=18.0.0'
@@ -1850,8 +1850,8 @@ packages:
   '@types/d3-scale@4.0.9':
     resolution: {integrity: sha512-dLmtwB8zkAeO/juAMfnV+sItKjlsw2lKdZVVy6LRr0cBmegxSABiLEpGVmSJJ8O08i4+sGR6qQtb6WtuwJdvVw==}
 
-  '@types/d3-selection@3.0.11':
-    resolution: {integrity: sha512-bhAXu23DJWsrI45xafYpkQ4NtcKMwWnAC/vKrd2l+nxMFuvOT3XMYTIj2opv8vq8AO5Yh7Qac/nSeP/3zjTK0w==}
+  '@types/d3-selection@3.0.12':
+    resolution: {integrity: sha512-Qe/KWYhEiIIxGs7HrAAjMfShxKldx19SJtr5zu53f3afPsdZNz7HHtdTLXo/kqeiWNXVycI24kSnfzBYkTzpgw==}
 
   '@types/d3-shape@3.1.7':
     resolution: {integrity: sha512-VLvUQ33C+3J+8p+Daf+nYSOsjB4GXp19/S/aGo60m9h1v6XaxjiT82lKVWJCfzhtuZ3yD7i/TPeC/fuKLLOSmg==}
@@ -3017,8 +3017,8 @@ packages:
       react-dom:
         optional: true
 
-  framer-motion@13.2.0:
-    resolution: {integrity: sha512-9E33ebgMaO33w1nN/jEdW8z3/GO483fMi4rqbMG9rt83XgW9QLKRe4NcmJ8s+fQ3O34++UHrIQwlIWGIWTITjA==}
+  framer-motion@13.4.0:
+    resolution: {integrity: sha512-HCpqKM9BTu6UYKtj0u6J1QNxojnnirNcghcSDZ+SkpiL3myxvtsgXPS3ZGEELC2eSma7YiA937rAEXtRyydSXQ==}
     peerDependencies:
       react: ^18.0.0 || ^19.0.0
       react-dom: ^18.0.0 || ^19.0.0
@@ -3051,8 +3051,8 @@ packages:
     resolution: {integrity: sha512-3hN7NaskYvMDLQY55gnW3NQ+mesEAepTqlg+VEbj7zzqEMBVNhzcGYYeqFo/TlYz6eQiFcp1HcsCZO+nGgS8zg==}
     engines: {node: '>=6.9.0'}
 
-  get-east-asian-width@1.6.0:
-    resolution: {integrity: sha512-QRbvDIbx6YklUe6RxeTeleMR0yv3cYH6PsPZHcnVn7xv7zO1BHN8r0XETu8n6Ye3Q+ahtSarc3WgtNWmehIBfA==}
+  get-east-asian-width@1.7.0:
+    resolution: {integrity: sha512-XjH1AECxf0giL2V1aU8vKyRR2ppRUb5c0EvT7zuJTokQ74bNo52zOtghqdWIqrhUD79fo3x0WfKZdOqxF6LG1Q==}
     engines: {node: '>=18'}
 
   get-intrinsic@1.3.0:
@@ -3715,8 +3715,8 @@ packages:
     peerDependencies:
       react: ^16.5.1 || ^17.0.0 || ^18.0.0 || ^19.0.0
 
-  lucide-react@1.46.0:
-    resolution: {integrity: sha512-Bv+FZXgZPrxc/NCl1e7JJVQFLdiCxYgxNVhqoV7X0p6I8ADJo8DxBnK1auH0fZz4AmqOJ3jgneL4f1i8LJQRAA==}
+  lucide-react@1.47.0:
+    resolution: {integrity: sha512-o8C23aXpNQypRY73W7fW02EyvWJinEMXgKeGjFoKym0zj3Q73hD97A1IQps1g8C14HTGsOpZL0Am+xjfgFZAbg==}
     peerDependencies:
       react: ^16.5.1 || ^17.0.0 || ^18.0.0 || ^19.0.0
 
@@ -3970,14 +3970,14 @@ packages:
   motion-dom@12.43.0:
     resolution: {integrity: sha512-azKON4d9S65PEoFUiQTMTgPheEmzf2QngdRc50AKfJp9Q9mmcBVw22c8eMq9k8kxOFHdL7+WZY7N/5F/lwiDag==}
 
-  motion-dom@13.2.0:
-    resolution: {integrity: sha512-N6gdSoWRDk0Rh/fVtlqUtLs+fEN3ELFZI3cn3IQE9Mnf3E+Mh8wjO6MstzCOPFh4Yf0L1as5m2eUyYWj8ylVSQ==}
+  motion-dom@13.3.0:
+    resolution: {integrity: sha512-AmAnB6pHdZ1vHGzWzuzteG6Q3j1lHKeX/lbST6jGlgm0cjvLUgaCk1xhOuPMOy5SgovN6wnnUdwFrkcsus7Ftg==}
 
   motion-utils@12.39.0:
     resolution: {integrity: sha512-8nadJAJjTtqRkmRF36FoJTrywK9nnFmnPwnSMyxaOCU7GDjN9RTMJIxx9De8ErM+vpPhMccr/6fo5WciyQLnMQ==}
 
-  motion-utils@13.0.0:
-    resolution: {integrity: sha512-7DnN7TmbLcYXcG4RVadXIihWlyuM9afoUww8Y5Agg431kGKiuL2/OMyP4mJ5wLz+pvN3t5ySClLOaVXJ+wekRQ==}
+  motion-utils@13.3.0:
+    resolution: {integrity: sha512-sgSschQp7EseHInIlR7hBbMuvet3RA0bs28KPZAXJcGKGdxHGvh1ogpYDilY3bOMtl73EqPNmp75sAKHYPU5sg==}
 
   motion@12.34.4:
     resolution: {integrity: sha512-J0cuDNRymNzE0M2WY8CFcbQuprHBZwY+iqADKGLLe6kQUVP4kBQ2l7Z6gWK7Zfrt5Wgxs+kCojj4qu7I4wxBIw==}
@@ -4271,8 +4271,8 @@ packages:
     peerDependencies:
       react: ^19.2.8
 
-  react-draggable@4.7.1:
-    resolution: {integrity: sha512-wa3tzfFnYt3yaZLuyU58fl1TNunfWfBekDgWhZA1+gb2jnp42wZ0ymuopR6M5kqDYmm4hKmzGlcKWjZf3Zb6RQ==}
+  react-draggable@4.7.2:
+    resolution: {integrity: sha512-pmqDx72EqhMGoJe/x42ZO2wJ9TIz7qJ5OPnFu6lVWWznEuJumlSjR+J0V4tNyDFhUo6dVvv56FeiTqN+arTgnw==}
     peerDependencies:
       react: '>= 16.3.0'
       react-dom: '>= 16.3.0'
@@ -4283,8 +4283,8 @@ packages:
     peerDependencies:
       react: '>= 16.8'
 
-  react-error-boundary@6.1.5:
-    resolution: {integrity: sha512-l2nk+KhgM6e79tAiHEs3tXTdiTW4ARniKYMQN+cLY5vQFpDOkxuXKIC4uIwYuIKoMpFQ6jEbQz9wBArUmq7GWA==}
+  react-error-boundary@6.1.6:
+    resolution: {integrity: sha512-CDXPnXDGyFIbkwaaJ6u+xgsRmJhSi6YdgUDW1vnyKHfXp1a9pfAlM+ZET2CDu80/A+8iRcmXN0NSY9BCCoWP5A==}
     peerDependencies:
       '@types/react': ^18.0.0 || ^19.0.0
       react: ^18.0.0 || ^19.0.0
@@ -5205,7 +5205,7 @@ snapshots:
       react-dom: 19.2.8(react@19.2.8)
       throttle-debounce: 5.0.2
 
-  '@antfu/install-pkg@2.0.1':
+  '@antfu/install-pkg@2.1.0':
     dependencies:
       package-manager-detector: 1.8.0
       tinyexec: 1.3.1
@@ -5642,7 +5642,7 @@ snapshots:
 
   '@iconify/utils@3.1.7':
     dependencies:
-      '@antfu/install-pkg': 2.0.1
+      '@antfu/install-pkg': 2.1.0
       '@iconify/types': 2.0.0
       import-meta-resolve: 4.2.0
 
@@ -5739,7 +5739,7 @@ snapshots:
       '@lobehub/icons': 5.18.0(@lobehub/ui@5.2.1)(@types/react@19.2.18)(antd@6.3.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       '@mdx-js/mdx': 3.1.1
       '@mdx-js/react': 3.1.1(@types/react@19.2.18)(react@19.2.8)
-      '@pierre/diffs': 1.4.2(@shikijs/themes@3.23.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      '@pierre/diffs': 1.4.3(@shikijs/themes@3.23.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       '@radix-ui/react-slot': 1.3.3(@types/react@19.2.18)(react@19.2.8)
       '@shikijs/core': 3.23.0
       '@shikijs/transformers': 3.23.0
@@ -5773,7 +5773,7 @@ snapshots:
       react: 19.2.8
       react-avatar-editor: 14.0.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       react-dom: 19.2.8(react@19.2.8)
-      react-error-boundary: 6.1.5(@types/react@19.2.18)(react@19.2.8)
+      react-error-boundary: 6.1.6(@types/react@19.2.18)(react@19.2.8)
       react-hotkeys-hook: 5.3.3(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       react-markdown: 10.1.0(@types/react@19.2.18)(react@19.2.8)
       react-merge-refs: 3.0.2(react@19.2.8)
@@ -5978,7 +5978,7 @@ snapshots:
   '@oxc-resolver/binding-win32-x64-msvc@11.24.2':
     optional: true
 
-  '@pierre/diffs@1.4.2(@shikijs/themes@3.23.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
+  '@pierre/diffs@1.4.3(@shikijs/themes@3.23.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
     dependencies:
       '@pierre/theme': 2.0.0
       '@pierre/theming': 1.0.1(@pierre/theme@2.0.0)(@shikijs/themes@3.23.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(shiki@3.23.0)
@@ -6003,7 +6003,7 @@ snapshots:
       react-dom: 19.2.8(react@19.2.8)
       shiki: 3.23.0
 
-  '@primer/octicons@19.36.0':
+  '@primer/octicons@19.38.0':
     dependencies:
       object-assign: 4.1.1
 
@@ -6407,7 +6407,7 @@ snapshots:
       '@rc-component/overflow': 1.0.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       '@rc-component/trigger': 3.10.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       '@rc-component/util': 1.13.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
-      '@rc-component/virtual-list': 1.5.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      '@rc-component/virtual-list': 1.5.2(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       clsx: 2.1.1
       react: 19.2.8
       react-dom: 19.2.8(react@19.2.8)
@@ -6438,7 +6438,7 @@ snapshots:
       '@rc-component/context': 2.0.2(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       '@rc-component/resize-observer': 1.1.2(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       '@rc-component/util': 1.13.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
-      '@rc-component/virtual-list': 1.5.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      '@rc-component/virtual-list': 1.5.2(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       clsx: 2.1.1
       react: 19.2.8
       react-dom: 19.2.8(react@19.2.8)
@@ -6493,7 +6493,7 @@ snapshots:
     dependencies:
       '@rc-component/motion': 1.3.3(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       '@rc-component/util': 1.13.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
-      '@rc-component/virtual-list': 1.5.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      '@rc-component/virtual-list': 1.5.2(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       clsx: 2.1.1
       react: 19.2.8
       react-dom: 19.2.8(react@19.2.8)
@@ -6533,7 +6533,7 @@ snapshots:
       react-dom: 19.2.8(react@19.2.8)
       react-is: 19.3.0
 
-  '@rc-component/virtual-list@1.5.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
+  '@rc-component/virtual-list@1.5.2(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
     dependencies:
       '@babel/runtime': 8.0.5
       '@rc-component/resize-observer': 1.1.2(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
@@ -6817,11 +6817,11 @@ snapshots:
 
   '@types/d3-axis@3.0.6':
     dependencies:
-      '@types/d3-selection': 3.0.11
+      '@types/d3-selection': 3.0.12
 
   '@types/d3-brush@3.0.6':
     dependencies:
-      '@types/d3-selection': 3.0.11
+      '@types/d3-selection': 3.0.12
 
   '@types/d3-chord@3.0.6': {}
 
@@ -6842,7 +6842,7 @@ snapshots:
 
   '@types/d3-drag@3.0.7':
     dependencies:
-      '@types/d3-selection': 3.0.11
+      '@types/d3-selection': 3.0.12
 
   '@types/d3-dsv@3.0.7': {}
 
@@ -6894,7 +6894,7 @@ snapshots:
     dependencies:
       '@types/d3-time': 3.0.4
 
-  '@types/d3-selection@3.0.11': {}
+  '@types/d3-selection@3.0.12': {}
 
   '@types/d3-shape@3.1.7':
     dependencies:
@@ -6916,12 +6916,12 @@ snapshots:
 
   '@types/d3-transition@3.0.9':
     dependencies:
-      '@types/d3-selection': 3.0.11
+      '@types/d3-selection': 3.0.12
 
   '@types/d3-zoom@3.0.8':
     dependencies:
       '@types/d3-interpolate': 3.0.4
-      '@types/d3-selection': 3.0.11
+      '@types/d3-selection': 3.0.12
 
   '@types/d3@7.4.3':
     dependencies:
@@ -6948,7 +6948,7 @@ snapshots:
       '@types/d3-random': 3.0.4
       '@types/d3-scale': 4.0.9
       '@types/d3-scale-chromatic': 3.1.0
-      '@types/d3-selection': 3.0.11
+      '@types/d3-selection': 3.0.12
       '@types/d3-shape': 3.2.0
       '@types/d3-time': 3.0.4
       '@types/d3-time-format': 4.0.3
@@ -8369,10 +8369,10 @@ snapshots:
       react: 19.2.8
       react-dom: 19.2.8(react@19.2.8)
 
-  framer-motion@13.2.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8):
+  framer-motion@13.4.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8):
     dependencies:
-      motion-dom: 13.2.0
-      motion-utils: 13.0.0
+      motion-dom: 13.3.0
+      motion-utils: 13.3.0
       tslib: 2.8.1
     optionalDependencies:
       react: 19.2.8
@@ -8401,7 +8401,7 @@ snapshots:
 
   gensync@1.0.0-beta.2: {}
 
-  get-east-asian-width@1.6.0: {}
+  get-east-asian-width@1.7.0: {}
 
   get-intrinsic@1.3.0:
     dependencies:
@@ -9132,7 +9132,7 @@ snapshots:
     dependencies:
       react: 19.2.8
 
-  lucide-react@1.46.0(react@19.2.8):
+  lucide-react@1.47.0(react@19.2.8):
     dependencies:
       react: 19.2.8
 
@@ -9398,7 +9398,7 @@ snapshots:
 
   micromark-extension-cjk-friendly-util@2.1.1(micromark-util-types@2.0.2):
     dependencies:
-      get-east-asian-width: 1.6.0
+      get-east-asian-width: 1.7.0
       micromark-util-character: 2.1.1
       micromark-util-symbol: 2.0.1
     optionalDependencies:
@@ -9691,13 +9691,13 @@ snapshots:
     dependencies:
       motion-utils: 12.39.0
 
-  motion-dom@13.2.0:
+  motion-dom@13.3.0:
     dependencies:
-      motion-utils: 13.0.0
+      motion-utils: 13.3.0
 
   motion-utils@12.39.0: {}
 
-  motion-utils@13.0.0: {}
+  motion-utils@13.3.0: {}
 
   motion@12.34.4(@emotion/is-prop-valid@1.4.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8):
     dependencies:
@@ -10072,7 +10072,7 @@ snapshots:
       react: 19.2.8
       scheduler: 0.27.0
 
-  react-draggable@4.7.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8):
+  react-draggable@4.7.2(react-dom@19.2.8(react@19.2.8))(react@19.2.8):
     dependencies:
       clsx: 2.1.1
       prop-types: 15.8.1
@@ -10086,7 +10086,7 @@ snapshots:
       prop-types: 15.8.1
       react: 19.2.8
 
-  react-error-boundary@6.1.5(@types/react@19.2.18)(react@19.2.8):
+  react-error-boundary@6.1.6(@types/react@19.2.18)(react@19.2.8):
     dependencies:
       react: 19.2.8
     optionalDependencies:
@@ -10145,7 +10145,7 @@ snapshots:
       re-resizable: 6.11.2(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       react: 19.2.8
       react-dom: 19.2.8(react@19.2.8)
-      react-draggable: 4.7.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      react-draggable: 4.7.2(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       tslib: 2.6.2
 
   react-stately@3.49.0(react@19.2.8):
@@ -10249,7 +10249,7 @@ snapshots:
 
   rehype-github-alerts@4.2.0:
     dependencies:
-      '@primer/octicons': 19.36.0
+      '@primer/octicons': 19.38.0
       hast-util-from-html: 2.0.3
       hast-util-is-element: 3.0.0
       unist-util-visit: 5.1.0
