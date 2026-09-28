@@ -10,7 +10,7 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING, Any, Protocol
 
-from lib.backends.video_backend_contract import ResumeEndpointChangedError, ResumeExpiredError
+from arcreel_market_core.video_backend_contract import ResumeEndpointChangedError, ResumeExpiredError
 from lib.billing.ledger import Ledger
 from lib.generation.media_generator import cleanup_staged_video_output
 from lib.generation.task_failure import encode_failure

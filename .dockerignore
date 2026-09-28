@@ -13,6 +13,7 @@ logs/
 vertex_keys/
 docs/
 tests/
+packages/*/tests/
 .pytest_cache
 .coverage
 htmlcov

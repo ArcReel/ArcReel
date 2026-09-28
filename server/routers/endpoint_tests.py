@@ -33,12 +33,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 # 判定，解析器产出的是 starlette.datastructures.UploadFile，用子类判定会全部落空。
 from starlette.datastructures import FormData, UploadFile
 
+from arcreel_market_core.endpoint_definition import AssetData, DefinitionDiagnostics, validate_definition
 from lib.backends.backend_assembly.specs import builtin_declarative_video_diagnostics
 from lib.config.registry import PROVIDER_REGISTRY, ProviderMeta, model_info_for
 from lib.config.resolver import ConfigResolver
 from lib.custom_provider import is_custom_provider, parse_provider_id
 from lib.custom_provider.comfyui.failures import ComfyuiError
-from lib.custom_provider.endpoint_definition import AssetData, DefinitionDiagnostics, validate_definition
 from lib.custom_provider.endpoint_resolution import resolve_endpoint_spec
 from lib.custom_provider.endpoint_test import (
     ASSET_SOURCES,

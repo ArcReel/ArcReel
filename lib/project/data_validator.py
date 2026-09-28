@@ -18,6 +18,7 @@ from typing import Any, ClassVar
 
 from pydantic import ValidationError
 
+from arcreel_market_core.validation_messages import MessageJoin, MessagePart, MessageRef, ValidationMessage
 from lib.agent.profile_manifest import VALID_CONTENT_MODES as _VALID_CONTENT_MODES
 from lib.episode.episode_ledger import (
     LEDGER_STATUSES,
@@ -34,7 +35,7 @@ from lib.episode.episode_target_duration import (
 )
 from lib.infra.json_io import load_json_or_none
 from lib.infra.path_safety import PathTraversalError, safe_join
-from lib.infra.validation_messages import MessageJoin, MessagePart, MessageRef, ValidationMessage, ValidationResult
+from lib.infra.validation_messages import ValidationResult
 from lib.project.asset_types import (
     ASSET_SPECS,
     DERIVATIVES_FIELD,

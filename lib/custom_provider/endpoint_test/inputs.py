@@ -10,7 +10,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 
-from lib.custom_provider.endpoint_definition import AssetData
+from arcreel_market_core.endpoint_definition import AssetData
 
 #: 素材来源名（``inputs.*.source`` 的枚举）到「是否列表型」的对应，multipart 字段名即来源名。
 ASSET_SOURCES: Mapping[str, bool] = {

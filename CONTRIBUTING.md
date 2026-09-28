@@ -64,6 +64,9 @@ pnpm check-consistency
 # 后端完整测试；单文件可直接替换 tests/ 路径，-k 仅用于人工按名称筛选
 uv run python -m pytest -n 4 --dist loadfile
 
+# workspace 子包 arcreel-market-core 的测试（自带 pytest 配置，与应用测试分开收集）
+uv run python -m pytest packages/arcreel-market-core/tests
+
 # 前端 typecheck + lint + 测试
 cd frontend && pnpm check
 ```
@@ -78,6 +81,7 @@ pytest `asyncio_mode = "auto"`，异步用例无需手动标记。
 - 后端完整测试：改动 `pyproject.toml`、`uv.lock`、根 `tests/conftest.py`、含行为的包初始化、测试选择规则，或涉及 Alembic、profile、DB、i18n、共享测试设施时执行。无法可靠判断影响范围时也执行完整测试。
 - 前端测试文件变更：直接传文件给 Vitest；普通源码变更：在 `frontend/` 运行 `pnpm exec vitest related --run <source files>`；分支级检查运行 `pnpm exec vitest run --changed <base>`。TypeScript 源码变更同时运行完整 typecheck。
 - 前端完整测试：改动 `package.json`、`pnpm-lock.yaml`、`vitest.config.*`、测试 setup、i18n 或 branding 时执行 `pnpm check`。相关测试选择为 0 时先扩大到所在功能目录，仍无法确定时执行 `pnpm check`。
+- 子包 `packages/arcreel-market-core/` 源码变更：运行子包全部测试，并按主仓的导入方选择相关测试；子包的消息键增删同时运行 `tests/unit/lib/i18n/`。
 - 任一测试文件变更后运行 `uv run python scripts/audit_tests.py --check`。
 
 ### 分层与目录
@@ -91,6 +95,7 @@ pytest `asyncio_mode = "auto"`，异步用例无需手动标记。
 | `e2e` | 端到端 | 依赖真实外部服务（远程 API、大模型调用）；CI 默认跳过，本地按需运行 |
 
 - 目录为 `tests/unit|integration|e2e/<源码顶层包镜像>`（如 `tests/unit/lib/…`、`tests/integration/server/…`）。档位 marker 由 conftest 按路径自动注入，无需手写；同时命中 `uses_db` 与 `unit` 的用例在收集期报错。镜像的正确性靠 review，不设机械校验。
+- workspace 子包的测试在 `packages/<子包>/tests/`，按子包源码目录镜像、不分档位：子包只有纯函数、`tmp_path` 与 respx 拦截的 HTTP，不触达数据库与子进程。测试目录不是包，辅助模块（如 `definition_factories.py`）经子包 pytest 配置的 `pythonpath` 导入；子包测试不 import 主仓的任何模块，渲染成自然语言的断言留在主仓 `tests/unit/lib/i18n/`。
 - alembic 迁移测试保持每个迁移脚本一个文件，位于 `tests/integration/lib/db/migrations/`，共享该目录 conftest 的 `alembic_cfg`；迁移测试维持 SQLite，PostgreSQL 侧由 CI workflow 的 alembic 升降级命令兜底。
 
 ### 体量与命名
@@ -206,13 +211,14 @@ uv run basedpyright --warnings
 uv run lint-imports
 ```
 
-- 校验 `lib.config < lib.backends.*_backends < lib.custom_provider < lib.market` 分层契约，是 CI backend-static 的必过步骤
+- 校验 `lib.config < lib.backends.*_backends < lib.custom_provider < lib.market` 分层契约，以及 workspace 子包 `arcreel_market_core` 不依赖主仓（`lib` / `server`）的契约，是 CI backend-static 的必过步骤
 - 新增 ignore 条目前先确认该依赖边无法直接消除（约定见 `pyproject.toml`）
 
 **依赖卫生（deptry）：**
 
 ```bash
 uv run deptry lib server alembic scripts tests
+(cd packages/arcreel-market-core && uv run deptry src tests)   # workspace 子包按自己的 pyproject 单独判定
 ```
 
 - 直接 import 的第三方包必须出现在 `pyproject.toml` 的依赖声明里（`DEP003`）；声明了却无 import 的包必须删除或登记为运行时插件（`DEP002`）

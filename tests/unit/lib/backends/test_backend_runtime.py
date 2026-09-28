@@ -9,6 +9,11 @@ import httpx
 import pytest
 from sqlalchemy.exc import OperationalError
 
+from arcreel_market_core.video_backend_contract import (
+    ProviderResponseStage,
+    ResumeExpiredError,
+    VideoGenerationRequest,
+)
 from lib.backends.artifact_download_guard import (
     ERROR_BODY_MAX_BYTES,
     VIDEO_ARTIFACT_MAX_BYTES,
@@ -42,11 +47,6 @@ from lib.backends.backend_runtime import (
     with_artifact_retry,
 )
 from lib.backends.http_status_errors import AmbiguousSubmitError, ProviderRejectedError
-from lib.backends.video_backend_contract import (
-    ProviderResponseStage,
-    ResumeExpiredError,
-    VideoGenerationRequest,
-)
 from tests.fakes import bounded_poll_clock, captured_provider_job_ids
 from tests.http_capture import capture_http, only_request, request_json
 

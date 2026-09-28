@@ -18,14 +18,14 @@ import httpx
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from arcreel_market_core.market.address import resolve_source_address, source_identity
+from arcreel_market_core.market.fetch import MarketFetchError, SourceStatus, fetch_index
 from lib.config.repository import SystemSettingRepository
 from lib.db.base import utc_now
 from lib.db.models.market_source import MarketSource
 from lib.db.repositories.market_source_repo import CUSTOM_KIND, OFFICIAL_KIND, MarketSourceRepository
+from lib.i18n import _
 from lib.infra.httpx_shared import get_http_client
-
-from .address import resolve_source_address, source_identity
-from .fetch import MarketFetchError, SourceStatus, fetch_index
 
 logger = logging.getLogger(__name__)
 
@@ -121,7 +121,11 @@ class MarketSourceService:
 
         now = self._clock()
         result = await fetch_index(
-            self._http_client(), resolved.index_url, proxy_prefix=proxy_prefix, cache_bust=_cache_bust_token(now)
+            self._http_client(),
+            resolved.index_url,
+            proxy_prefix=proxy_prefix,
+            cache_bust=_cache_bust_token(now),
+            translate=_last_error_translate,
         )
         assert result.index is not None
 
@@ -211,6 +215,7 @@ class MarketSourceService:
                 proxy_prefix=proxy_prefix,
                 etag=etag,
                 cache_bust=_cache_bust_token(now) if manual else None,
+                translate=_last_error_translate,
             )
         except MarketFetchError as exc:
             logger.info("market source %s refresh failed: %s", source_id, exc)
@@ -244,6 +249,11 @@ async def _ensure_unregistered(repo: MarketSourceRepository, canonical_key: str)
     identity = source_identity(canonical_key)
     if any(source_identity(source.canonical_key) == identity for source in registered):
         raise DuplicateSourceError(canonical_key)
+
+
+def _last_error_translate(key: str, **params: Any) -> str:
+    """``last_error`` 记的是技术原因，与界面语言无关，固定用英文渲染。"""
+    return _(key, locale="en", **params)
 
 
 def _cache_bust_token(now: datetime) -> int:

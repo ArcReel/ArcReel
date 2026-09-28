@@ -10,14 +10,14 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import pytest
 
-from lib.backends.http_status_errors import ArtifactDownloadError
-from lib.backends.providers import PROVIDER_DASHSCOPE
-from lib.backends.video_backend_contract import (
+from arcreel_market_core.video_backend_contract import (
     ReferenceAudioMode,
     ResumeExpiredError,
     VideoCapabilityError,
     VideoGenerationRequest,
 )
+from lib.backends.http_status_errors import ArtifactDownloadError
+from lib.backends.providers import PROVIDER_DASHSCOPE
 from tests.fakes import bounded_poll_clock, captured_provider_job_ids
 from tests.http_capture import capture_http
 

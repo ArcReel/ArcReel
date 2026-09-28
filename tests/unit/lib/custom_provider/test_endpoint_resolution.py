@@ -9,13 +9,12 @@ from typing import TYPE_CHECKING, Any, cast
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from arcreel_market_core.video_backend_contract import ReferenceAudioMode, VideoAudioMode
 from lib.backends.image_backends.base import ImageCapability
-from lib.backends.video_backend_contract import ReferenceAudioMode, VideoAudioMode
 from lib.custom_provider import is_custom_endpoint, make_endpoint_key
 from lib.custom_provider.backends import CustomVideoBackend
 from lib.custom_provider.comfyui.failures import ComfyuiError
 from lib.custom_provider.endpoint_resolution import (
-    definition_media_type,
     derive_mirror_columns,
     endpoint_spec_from_row,
     resolve_endpoint_spec,
@@ -93,9 +92,6 @@ class TestSpecFromRow:
 
 class TestKindDispatch:
     """定义的 ``kind`` 决定投影走谁；名录外的 kind 在投影层就拒，不靠某一种 kind 的规则兜底。"""
-
-    def test_media_type_comes_from_the_definition_kind(self):
-        assert definition_media_type(custom_endpoint_definition()) == "video"
 
     def test_mirror_columns_take_kind_and_media_type_from_the_definition(self):
         mirror = derive_mirror_columns(custom_endpoint_definition())
@@ -367,12 +363,6 @@ class TestKindDispatch:
         assert caught.value.code == "provider_unsupported_media"
         assert caught.value.params == {"provider_id": "custom-1", "media_type": "audio"}
         assert caught.value.code in FAILURE_CODE_KEYS
-
-    def test_media_type_of_an_unsupported_kind_is_refused(self):
-        definition = custom_endpoint_definition(kind="unregistered")
-
-        with pytest.raises(ValueError, match="unsupported endpoint definition kind"):
-            definition_media_type(definition)
 
     def test_spec_from_a_row_of_an_unsupported_kind_is_refused(self):
         """库里的 kind 是本层没有投影实现的那种：抛 ValueError，与「端点不存在」同一出口。"""

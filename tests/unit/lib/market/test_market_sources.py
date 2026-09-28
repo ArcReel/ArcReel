@@ -11,11 +11,11 @@ import httpx
 import pytest
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
+from arcreel_market_core.market.address import SourceAddressError
+from arcreel_market_core.market.fetch import MarketFetchError, SourceStatus
 from lib.config.repository import SystemSettingRepository
 from lib.db.models.market_source import MarketSource
 from lib.db.repositories.market_source_repo import MarketSourceRepository
-from lib.market.address import SourceAddressError
-from lib.market.fetch import MarketFetchError, SourceStatus
 from lib.market.sources import (
     OFFICIAL_SOURCE_ADDRESS,
     PROXY_PREFIX_SETTING,

@@ -2,7 +2,7 @@
 与供应商任务 id 落库。
 
 视频、图像、音频三类调用通道与自定义供应商的 backend 共用本模块。视频契约位于
-:mod:`lib.backends.video_backend_contract`，图像与音频契约位于各自通道包的 ``base``。图像与音频
+:mod:`arcreel_market_core.video_backend_contract`，图像与音频契约位于各自通道包的 ``base``。图像与音频
 通道经本模块不会加载视频通道包：视频请求只作类型标注出现，视频能力异常只在视频专属函数里取。
 """
 
@@ -44,7 +44,7 @@ from lib.infra.retry import (
 )
 
 if TYPE_CHECKING:
-    from lib.backends.video_backend_contract import ProviderResponseStage, VideoGenerationRequest
+    from arcreel_market_core.video_backend_contract import ProviderResponseStage, VideoGenerationRequest
 
 # `_should_retry` 默认会做字符串模式兜底（"timeout"/"503" 等），
 # 而 persist 重试要严格"DB 瞬态错误"语义——业务异常（如
@@ -881,7 +881,7 @@ def reference_audio_to_data_uri(path: Path, *, model: str, mime_types: Mapping[s
     ``audio/mp3`` 与 ``audio/mpeg`` 两种口径），合表会让其中一家收到没验证过的 MIME。
     """
     # 只有视频调用通道会调到这里；延迟导入让图像、音频通道使用运行支持时无需加载视频契约。
-    from lib.backends.video_backend_contract import VideoCapabilityError
+    from arcreel_market_core.video_backend_contract import VideoCapabilityError
 
     mime = mime_types.get(path.suffix.lower())
     if mime is None:
@@ -969,7 +969,7 @@ def resume_expiry_gate[T](
     """
     if resume_job_id is None:
         return poll_fn
-    from lib.backends.video_backend_contract import ResumeExpiredError
+    from arcreel_market_core.video_backend_contract import ResumeExpiredError
 
     async def gated() -> T:
         try:

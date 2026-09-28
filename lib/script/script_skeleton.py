@@ -27,7 +27,8 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
-from lib.infra.validation_messages import MessageRef, ValidationMessage
+from arcreel_market_core.validation_messages import MessageRef, ValidationMessage
+from lib.infra.validation_messages import default_translate
 
 logger = logging.getLogger(__name__)
 
@@ -244,7 +245,7 @@ class SkeletonRouteMismatchError(ValueError):
         super().__init__()
 
     def __str__(self) -> str:
-        return self._message.render()
+        return self._message.render(default_translate)
 
     def to_validation_message(self) -> ValidationMessage:
         """结构化形态，供校验器把失配事实按请求语言报告给用户。"""

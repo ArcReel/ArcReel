@@ -14,7 +14,8 @@ from typing import Any
 
 import pytest
 
-from lib.backends.video_backend_contract import ReferenceAudioMode, VideoAudioMode
+from arcreel_market_core.endpoint_definition import validate_definition
+from arcreel_market_core.video_backend_contract import ReferenceAudioMode, VideoAudioMode
 from lib.custom_provider import CUSTOM_ENDPOINT_KEY_PREFIX
 from lib.custom_provider.builtin_definitions import (
     BUILTIN_DEFINITION_AUTHOR,
@@ -25,7 +26,6 @@ from lib.custom_provider.builtin_definitions import (
     declarative_video_capabilities,
     load_builtin_definitions,
 )
-from lib.custom_provider.endpoint_definition import validate_definition
 from lib.custom_provider.endpoints import (
     ENDPOINT_REGISTRY,
     EndpointSpec,
@@ -33,6 +33,7 @@ from lib.custom_provider.endpoints import (
     endpoint_spec_to_dict,
     merge_builtin_definitions,
 )
+from lib.infra.validation_messages import default_translate
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 EXAMPLE_TEMPLATES_DIR = REPO_ROOT / "frontend" / "src" / "data" / "example-templates"
@@ -59,7 +60,7 @@ def _write(directory: Path, key: str, document: object) -> Path:
 @pytest.mark.parametrize("path", _shipped_definition_files(), ids=lambda p: p.name)
 def test_shipped_definition_passes_the_shared_validator(path: Path):
     diagnostics = validate_definition(json.loads(path.read_text(encoding="utf-8")))
-    assert diagnostics.valid, [issue.to_payload() for issue in diagnostics.errors]
+    assert diagnostics.valid, [issue.to_payload(default_translate) for issue in diagnostics.errors]
 
 
 def test_example_template_ships_exactly_one_file():

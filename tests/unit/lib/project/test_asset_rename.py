@@ -14,6 +14,7 @@ from typing import Any
 
 import pytest
 
+from arcreel_market_core.validation_messages import ValidationMessage
 from lib.artifacts.artifact_manifest import (
     LOCK_FILENAME,
     MANIFEST_FILENAME,
@@ -30,7 +31,7 @@ from lib.episode.episode_paths import (
     REFERENCE_VIDEO_SCRIPT_PLAN_QUARANTINE_FILENAME,
 )
 from lib.infra.json_io import atomic_write_json
-from lib.infra.validation_messages import ValidationMessage, ValidationResult
+from lib.infra.validation_messages import ValidationResult
 from lib.project.asset_rename import (
     AssetRenameConflictError,
     AssetRenameFileCollisionError,

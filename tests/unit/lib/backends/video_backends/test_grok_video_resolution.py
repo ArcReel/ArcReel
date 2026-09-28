@@ -5,7 +5,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from lib.backends.video_backend_contract import VideoGenerationRequest
+from arcreel_market_core.video_backend_contract import VideoGenerationRequest
 from lib.backends.video_backends.grok import GrokVideoBackend
 
 

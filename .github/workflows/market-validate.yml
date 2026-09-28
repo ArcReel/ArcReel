@@ -9,7 +9,8 @@
 #       uses: ArcReel/ArcReel/.github/workflows/market-validate.yml@main
 #
 # 参数：无。权限：contents: read（读调用方仓库与公开的 ArcReel/ArcReel）。
-# 校验规则来自 ArcReel/ArcReel main 分支的 lib/market，调用方不维护任何校验逻辑。
+# 校验规则来自 ArcReel/ArcReel main 分支的 arcreel-market-core 子包（packages/arcreel-market-core），
+# 调用方不维护任何校验逻辑。
 #
 # 仓内的 arcreel-market.json 是合并后由 market-publish-index 重生成的投影，PR 中通常是旧的；
 # 因此判定对象是按 PR 目录重新生成的候选索引：在临时副本里 generate 后 check，不提交。
@@ -53,7 +54,8 @@ jobs:
 
       - name: Install market tooling
         working-directory: arcreel
-        run: uv sync --locked --no-dev
+        # 只装子包及其依赖；scripts.market 从检出的源码加载纯 Python 翻译目录
+        run: uv sync --locked --no-dev --package arcreel-market-core
 
       - name: Generate candidate index (dry run)
         working-directory: arcreel
@@ -63,11 +65,11 @@ jobs:
           cp -R "${GITHUB_WORKSPACE}/market/." "$candidate/"
           rm -rf "$candidate/.git"
           # 既有索引给不出 name 时取仓库名，而不是临时目录名
-          uv run --no-sync python -m lib.market generate "$candidate" --default-name "${GITHUB_REPOSITORY#*/}"
+          uv run --no-sync python -m scripts.market generate "$candidate" --default-name "${GITHUB_REPOSITORY#*/}"
 
       - name: Check candidate
         working-directory: arcreel
-        run: uv run --no-sync python -m lib.market check "${RUNNER_TEMP}/market-candidate"
+        run: uv run --no-sync python -m scripts.market check "${RUNNER_TEMP}/market-candidate"
 
       - name: Summarize index changes
         run: |

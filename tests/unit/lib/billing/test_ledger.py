@@ -21,9 +21,9 @@ from openai import BadRequestError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
+from arcreel_market_core.video_backend_contract import ResumeExpiredError
 from lib.backends.http_status_errors import ArtifactDownloadError
 from lib.backends.providers import CallPurpose, CallStatus
-from lib.backends.video_backend_contract import ResumeExpiredError
 from lib.billing.ledger import Ledger, _settlement_from_result
 from lib.db.base import utc_now
 from lib.db.models.api_call import ApiCall

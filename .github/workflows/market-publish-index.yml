@@ -90,17 +90,18 @@ jobs:
 
       - name: Install market tooling
         working-directory: arcreel
-        run: uv sync --locked --no-dev
+        # 只装子包及其依赖；scripts.market 从检出的源码加载纯 Python 翻译目录
+        run: uv sync --locked --no-dev --package arcreel-market-core
 
       - name: Generate index
         working-directory: arcreel
         run: |
           # 既有索引给不出 name 时取仓库名，而不是检出目录名
-          uv run --no-sync python -m lib.market generate "${GITHUB_WORKSPACE}/market" --default-name "${GITHUB_REPOSITORY#*/}"
+          uv run --no-sync python -m scripts.market generate "${GITHUB_WORKSPACE}/market" --default-name "${GITHUB_REPOSITORY#*/}"
 
       - name: Check index
         working-directory: arcreel
-        run: uv run --no-sync python -m lib.market check "${GITHUB_WORKSPACE}/market"
+        run: uv run --no-sync python -m scripts.market check "${GITHUB_WORKSPACE}/market"
 
       - name: Create App token
         id: app-token

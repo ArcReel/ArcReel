@@ -1,6 +1,6 @@
 # ArcReel
 
-AI 视频创作平台，将小说、剧本或创作构想转化为短视频。三层结构：`frontend/`（React SPA）→ `server/`（FastAPI，`agent_runtime/` 封装 Claude Agent SDK）→ `lib/`（核心库）。内嵌创作 Agent 的配置源在 `agent_runtime_profile/`，与开发态 `.claude/` 分离。
+AI 视频创作平台，将小说、剧本或创作构想转化为短视频。三层结构：`frontend/`（React SPA）→ `server/`（FastAPI，`agent_runtime/` 封装 Claude Agent SDK）→ `lib/`（核心库）。内嵌创作 Agent 的配置源在 `agent_runtime_profile/`，与开发态 `.claude/` 分离。市场源工具与端点定义校验器是 uv workspace 子包 `packages/arcreel-market-core/`（`arcreel_market_core`），位于 `lib/` 之下且不依赖主仓。
 
 ## 工具链与校验
 
@@ -8,7 +8,8 @@ AI 视频创作平台，将小说、剧本或创作构想转化为短视频。�
 
 ```bash
 uv run ruff check . && uv run ruff format . && uv run basedpyright --warnings && uv run lint-imports && uv run deptry lib server alembic scripts tests && uv run python -m pytest -n 4 --dist loadfile
-uv run python scripts/audit_tests.py --check   # 改动测试文件时；同时扫后端 tests/ 与前端 *.test.*
+(cd packages/arcreel-market-core && uv run deptry src tests && uv run python -m pytest)   # 改动 packages/arcreel-market-core/ 时
+uv run python scripts/audit_tests.py --check   # 改动测试文件时；同时扫后端 tests/、子包 tests/ 与前端 *.test.*
 uv run pre-commit run --all-files actionlint && uv run pre-commit run --all-files zizmor   # 改动 .github/ 时
 (cd frontend && pnpm check)
 (cd website && pnpm check)

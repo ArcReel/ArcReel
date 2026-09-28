@@ -30,7 +30,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from lib.infra.validation_messages import ValidationMessage
+from arcreel_market_core.validation_messages import ValidationMessage
 from lib.script.reference_video.duration_slots import resolve_duration_slot
 from lib.script.script_models import REFERENCE_UNIT_DURATION_RANGE
 

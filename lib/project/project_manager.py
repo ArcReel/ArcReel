@@ -60,7 +60,7 @@ from lib.infra.data_root_layout import PROJECT_FILENAME, PROJECT_NAME_PATTERN, D
 from lib.infra.json_io import atomic_write_bytes, atomic_write_json, load_json, load_json_or_none
 from lib.infra.path_safety import PathTraversalError, safe_join
 from lib.infra.schema_guards import is_int, is_shape, is_str
-from lib.infra.validation_messages import ValidationResult
+from lib.infra.validation_messages import ValidationResult, default_translate
 from lib.project.asset_rename import (
     AssetRenameConflictError,
     AssetRenameNotFoundError,
@@ -292,7 +292,7 @@ def _rename_agnostic_errors(
                 (name, fold(value) if isinstance(value, str) else repr(value)) for name, value in message.params.items()
             )
         )
-        folded[(message.key, params)] = message.render()
+        folded[(message.key, params)] = message.render(default_translate)
     return folded
 
 
@@ -1306,7 +1306,7 @@ class ProjectManager:
 
         migrated, warnings = migrate_script_unit_durations(script)
         for message in warnings:
-            logger.warning("剧本 %s 时长收编迁移: %s", real.name, message.render())
+            logger.warning("剧本 %s 时长收编迁移: %s", real.name, message.render(default_translate))
         return script, migrated
 
     def list_scripts(self, project_name: str) -> list[str]:

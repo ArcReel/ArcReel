@@ -7,7 +7,7 @@ OpenAI 共享工具模块
 - OPENAI_RETRYABLE_ERRORS — 可重试错误类型
 - create_openai_client — AsyncOpenAI 客户端工厂
 - OPENAI_IMAGE_QUALITY_MAP — image_size 档位 → quality 映射，供 image_backends.openai 消费。
-  尺寸不再用静态 (image_size, aspect_ratio) → "WxH" 表，改由 lib.backends.aspect_size 按比例精确计算
+  尺寸不再用静态 (image_size, aspect_ratio) → "WxH" 表，改由 arcreel_market_core.aspect_size 按比例精确计算
   （比例优先、清晰度其次），见 docs/adr/0011。
 """
 

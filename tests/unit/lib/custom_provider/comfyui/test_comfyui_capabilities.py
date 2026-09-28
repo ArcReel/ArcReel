@@ -10,7 +10,6 @@ from lib.custom_provider.comfyui.capabilities import (
     default_supported_durations,
     derive_video_capabilities,
     duration_is_fixed,
-    fps_literals,
     frame_rate_is_missing,
     keeps_its_own_frame_count,
     native_duration,
@@ -315,22 +314,3 @@ class TestNativeDurationAndTheDefaultTier:
         definition["bindings"]["frames"] = [_frames_target()]
 
         assert native_duration(definition) == 7
-
-
-class TestFpsLiterals:
-    def test_every_read_only_binding_contributes_its_literal(self):
-        definition = comfyui_endpoint_definition()
-        definition["workflow"]["21"] = {"class_type": "CreateVideo", "inputs": {"fps": 24}}
-        definition["bindings"]["fps"].append(
-            {"node": "21", "input": "fps", "class_type": "CreateVideo", "direction": "read"}
-        )
-
-        assert fps_literals(definition["workflow"], definition["bindings"]) == [16.0, 24.0]
-
-    def test_a_target_whose_node_is_gone_contributes_nothing(self):
-        definition = comfyui_endpoint_definition()
-        definition["bindings"]["fps"].append(
-            {"node": "404", "input": "fps", "class_type": "CreateVideo", "direction": "read"}
-        )
-
-        assert fps_literals(definition["workflow"], definition["bindings"]) == [16.0]

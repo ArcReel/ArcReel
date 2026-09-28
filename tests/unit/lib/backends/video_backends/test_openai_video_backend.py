@@ -12,8 +12,8 @@ import pytest
 from openai import InternalServerError
 from openai.types.video_create_error import VideoCreateError
 
+from arcreel_market_core.video_backend_contract import VideoGenerationRequest
 from lib.backends.providers import PROVIDER_OPENAI
-from lib.backends.video_backend_contract import VideoGenerationRequest
 from tests.fakes import (
     blocking_file_read_gate,
     bounded_poll_clock,
@@ -543,7 +543,7 @@ class TestOpenAIVideoBackend:
 
     async def test_poll_recognizes_expired_status(self, tmp_path: Path):
         """retrieve 返回 status='expired' → 抛 ResumeExpiredError，而不是白等 max_wait。"""
-        from lib.backends.video_backend_contract import ResumeExpiredError
+        from arcreel_market_core.video_backend_contract import ResumeExpiredError
 
         mock_client = AsyncMock()
         expired_video = _make_mock_video(status="expired", video_id="vid_exp")
@@ -579,7 +579,7 @@ class TestOpenAIVideoBackend:
         """job 不存在/已过期 → ResumeExpiredError(走 [resume_expired] 路径)。"""
         from openai import NotFoundError
 
-        from lib.backends.video_backend_contract import ResumeExpiredError
+        from arcreel_market_core.video_backend_contract import ResumeExpiredError
 
         mock_client = AsyncMock()
         not_found = NotFoundError(
@@ -607,7 +607,7 @@ class TestOpenAIVideoBackend:
 
         fresh submit 路径不该带 [resume_expired] 语义——后者只有 worker 重启接续场景才用。
         """
-        from lib.backends.video_backend_contract import ResumeExpiredError
+        from arcreel_market_core.video_backend_contract import ResumeExpiredError
 
         mock_client = AsyncMock()
         mock_client.videos.create = AsyncMock(return_value=_make_mock_video(status="queued", video_id="vid_new"))
@@ -683,7 +683,7 @@ class TestProxyStatusSynonyms:
 
     async def test_uppercase_expired_still_splits_generate_and_resume(self, tmp_path: Path):
         """大写 EXPIRED 同样命中过期档：generate 抛 RuntimeError、resume 抛 ResumeExpiredError。"""
-        from lib.backends.video_backend_contract import ResumeExpiredError
+        from arcreel_market_core.video_backend_contract import ResumeExpiredError
 
         mock_client = AsyncMock()
         mock_client.videos.create = AsyncMock(return_value=_make_mock_video(status="queued", video_id="vid_new"))

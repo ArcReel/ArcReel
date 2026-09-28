@@ -7,6 +7,12 @@ from __future__ import annotations
 
 from dataclasses import replace
 
+from arcreel_market_core.video_backend_contract import (
+    VideoBackend,
+    VideoCapabilities,
+    VideoGenerationRequest,
+    VideoGenerationResult,
+)
 from lib.backends.audio_backends.base import (
     AudioBackend,
     AudioCapability,
@@ -21,12 +27,6 @@ from lib.backends.image_backends.base import (
     ImageGenerationResult,
 )
 from lib.backends.text_backends.base import TextBackend, TextCapability, TextGenerationRequest, TextGenerationResult
-from lib.backends.video_backend_contract import (
-    VideoBackend,
-    VideoCapabilities,
-    VideoGenerationRequest,
-    VideoGenerationResult,
-)
 
 
 class CustomTextBackend:

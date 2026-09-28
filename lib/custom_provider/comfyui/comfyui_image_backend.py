@@ -25,6 +25,8 @@ from uuid import uuid4
 
 import httpx
 
+from arcreel_market_core.comfyui.bindings import targets_of
+from arcreel_market_core.video_backend_contract import ProviderResponseStage
 from lib.backends.artifact_download_guard import artifact_http_client
 from lib.backends.backend_runtime import notify_provider_response_to
 from lib.backends.image_backends.base import (
@@ -32,8 +34,6 @@ from lib.backends.image_backends.base import (
     ImageGenerationRequest,
     ImageGenerationResult,
 )
-from lib.backends.video_backend_contract import ProviderResponseStage
-from lib.custom_provider.comfyui.bindings import targets_of
 from lib.custom_provider.comfyui.capabilities import takes_reference_images
 from lib.custom_provider.comfyui.comfyui_client import ComfyuiClient, client_id_for, upload_filename
 from lib.custom_provider.comfyui.comfyui_execution import HTTP_TIMEOUT_SECONDS, ComfyuiExecution

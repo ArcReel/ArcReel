@@ -15,8 +15,12 @@ from enum import Enum
 from types import UnionType
 from typing import TYPE_CHECKING, get_args, get_type_hints
 
-from lib.backends.video_backend_contract import ReferenceAudioMode, VideoCapabilities, audio_capability_pair_is_coherent
-from lib.custom_provider.endpoint_definition import COMFYUI_KIND, requires_image_input
+from arcreel_market_core.endpoint_definition import COMFYUI_KIND, requires_image_input
+from arcreel_market_core.video_backend_contract import (
+    ReferenceAudioMode,
+    VideoCapabilities,
+    audio_capability_pair_is_coherent,
+)
 
 logger = logging.getLogger(__name__)
 

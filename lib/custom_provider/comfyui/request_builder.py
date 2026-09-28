@@ -23,20 +23,25 @@ from dataclasses import dataclass
 from random import Random
 from typing import Any
 
-from lib.backends.aspect_size import DEFAULT_SHORT_EDGE, IMAGE_TIER_SHORT_EDGE, VIDEO_TIER_SHORT_EDGE, aspect_size
-from lib.backends.aspect_size import resolution_to_short_edge as short_edge_of_resolution
+from arcreel_market_core.aspect_size import (
+    DEFAULT_SHORT_EDGE,
+    IMAGE_TIER_SHORT_EDGE,
+    VIDEO_TIER_SHORT_EDGE,
+    aspect_size,
+)
+from arcreel_market_core.aspect_size import resolution_to_short_edge as short_edge_of_resolution
+from arcreel_market_core.comfyui.bindings import align_frames, step_of
+from arcreel_market_core.comfyui.bindings import bound_fps as _bound_fps
+from arcreel_market_core.comfyui.bindings import int_literal_of as _int_literal
+from arcreel_market_core.comfyui.bindings import literal_of as _literal
+from arcreel_market_core.comfyui.bindings import positive_number as _positive_number
+from arcreel_market_core.comfyui.bindings import targets_of as _targets
+from arcreel_market_core.comfyui.workflow import is_link, node_inputs
 from lib.prompts.prompt_utils import append_avoid_text, split_avoid_lines
 
-from .bindings import align_frames, step_of
-from .bindings import bound_fps as _bound_fps
-from .bindings import int_literal_of as _int_literal
-from .bindings import literal_of as _literal
-from .bindings import positive_number as _positive_number
-from .bindings import targets_of as _targets
 from .capabilities import keeps_its_own_frame_count, size_is_fixed
 from .failures import IMAGE_DROP_UNSUPPORTED, ComfyuiError
 from .inference_rules import InferenceRules, MergeNode, load_inference_rules
-from .workflow import is_link, node_inputs
 
 logger = logging.getLogger(__name__)
 
@@ -202,7 +207,7 @@ def _write_size(
 ) -> tuple[int | None, int | None]:
     """按项目比例与分辨率档派生宽高，逐条目按步长向下对齐后写入。
 
-    ``round_to`` 取宽高两侧全部步长的最小公倍数：:func:`~lib.backends.aspect_size.aspect_size` 产出的宽高
+    ``round_to`` 取宽高两侧全部步长的最小公倍数：:func:`~arcreel_market_core.aspect_size.aspect_size` 产出的宽高
     都是它的整数倍，于是每个条目各自的步长天然被整除，比例零偏差。写入前仍按条目步长再向下对齐
     一次——对齐是 workflow 那个输入自己的约束，它成立与否不该取决于 ``round_to`` 恰好怎么取。
 

@@ -25,7 +25,7 @@ MODULES = [
     # lib 顶层单文件模块
     "lib.backends.ark_shared",
     "lib.backends.backend_runtime",
-    "lib.backends.video_backend_contract",
+    "arcreel_market_core.video_backend_contract",
     "lib.project.asset_fingerprints",
     "lib.billing.cost_calculator",
     "lib.project.data_validator",
@@ -85,7 +85,7 @@ MODULES = [
 FIRST_IMPORT_MODULES = [
     "lib.backends.backend_runtime",
     "lib.backends.image_backends.base",
-    "lib.backends.video_backend_contract",
+    "arcreel_market_core.video_backend_contract",
     "lib.config.resolver",
     "lib.custom_provider.backends",
     "lib.custom_provider.capabilities",
@@ -94,9 +94,9 @@ FIRST_IMPORT_MODULES = [
     "lib.custom_provider.comfyui.import_shapes",
     "lib.custom_provider.comfyui.inference",
     "lib.custom_provider.comfyui.request_builder",
-    "lib.custom_provider.comfyui.validator",
+    "arcreel_market_core.comfyui.validator",
     "lib.custom_provider.discovery",
-    "lib.custom_provider.endpoint_definition",
+    "arcreel_market_core.endpoint_definition",
     "lib.custom_provider.endpoint_test",
     "lib.custom_provider.endpoints",
     "lib.custom_provider.factory",
@@ -148,7 +148,7 @@ def test_video_backend_contract_first_import_stays_light() -> None:
     """视频契约首位导入不加载运行支持、第三方 HTTP/ORM 或视频实现包。"""
     code = """
 import sys
-import lib.backends.video_backend_contract
+import arcreel_market_core.video_backend_contract
 
 forbidden = {
     "httpx",
