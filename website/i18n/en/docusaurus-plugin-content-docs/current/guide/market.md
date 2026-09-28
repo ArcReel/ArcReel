@@ -11,7 +11,7 @@ The market lets you browse call endpoints that others have already adapted, from
 
 ## 1. What Are the Market and Market Sources {#what-is-market}
 
-- **Market**: the "Market" section in the Configuration group of Settings, placed after "Endpoints". It runs only on your local ArcReel and the market source repositories. It does not depend on any central service operated by ArcReel, and no account is required. In the first release, the only market entry type is call endpoints.
+- **Market**: the "Market" section in the Configuration group of Settings, placed after "Endpoints". Browsing and installing run only on your local ArcReel and the market source repositories. They do not depend on any central service, and no account is required. In the first release, the only market entry type is call endpoints.
 - **Market source**: a GitHub repository (or an equivalent `https://` direct link) whose root index file `arcreel-market.json` lists its market entries. The ArcReel backend fetches the index and definitions on your behalf and only accesses raw file URLs.
 - **Official market source**: [`ArcReel/arcreel-market`](https://github.com/ArcReel/arcreel-market) ships preconfigured. It can be disabled, renamed, and reordered, but not deleted. Every other source you add yourself is a third-party market source.
 - **Market entry**: an installable item in an index, whose payload is a call endpoint definition. An entry is uniquely identified by its slug within its market source. The same slug in different market sources does not mean the same definition; such entries are displayed side by side.
