@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Copy, Download, ExternalLink, Loader2, Plus, RefreshCw, Trash2 } from "lucide-react";
+import { Copy, Download, ExternalLink, Loader2, Plus, RefreshCw, Share2, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { API } from "@/api";
 import { errMsg, voidCall } from "@/utils/async";
@@ -20,8 +20,10 @@ import type {
   EndpointInstallation,
   EndpointReference,
   EndpointValidateResponse,
+  MarketSubmission,
 } from "@/types";
 import { MarketInstallBadges } from "../market/MarketInstallBadges";
+import { MarketSubmissionBadge } from "../market/MarketSubmissionBadge";
 import { MARKET_CONTRIBUTING_URL } from "../market/market-links";
 import { isRenderableDefinition, type EndpointFormSection } from "./endpoint-definition-draft";
 import { EndpointDiagnostics } from "./EndpointDiagnostics";
@@ -32,6 +34,7 @@ import { exportEndpointDefinition } from "./export-endpoint-definition";
 import type { AnyEndpointDefinition, ComfyuiEndpointDefinition } from "@/types";
 import { VariableInsertionProvider } from "./endpoint-form-primitives";
 import { ComfyuiEndpointDetail } from "./ComfyuiEndpointDetail";
+import { ShareToMarketDialog, slugFromName } from "./ShareToMarketDialog";
 import type { ComfyuiImportDraft } from "./comfyui-import";
 
 const VALIDATE_DEBOUNCE_MS = 400;
@@ -73,6 +76,8 @@ interface EndpointDetailProps {
   marketUpdatePending: boolean;
   /** 为当前这个 ComfyUI 端点重新导入一份 workflow：新 workflow 接到传出去的这份定义上，回来走重匹配。 */
   onReimportComfyui: (current: ComfyuiEndpointDefinition) => void;
+  /** 官方服务开启时提供：该端点最近一次分享提交与提交完成回调。 */
+  share?: { submission: MarketSubmission | null; onSubmitted: (submission: MarketSubmission) => void };
 }
 
 /** 安装记录的来源描述：来源被删除时只剩规范键原文，禁用或删除都注明。 */
@@ -120,6 +125,7 @@ export function EndpointDetail({
   onUpdateFromMarket,
   marketUpdatePending,
   onReimportComfyui,
+  share,
 }: EndpointDetailProps) {
   const { t } = useTranslation(["dashboard", "common"]);
   const pushToast = useAppStore((s) => s.pushToast);
@@ -149,6 +155,7 @@ export function EndpointDetail({
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleteReferences, setDeleteReferences] = useState<EndpointReference[] | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
 
   const builtinKey = selection.mode === "builtin" ? selection.descriptor.key : null;
 
@@ -345,6 +352,37 @@ export function EndpointDetail({
     />
   );
 
+  const shareButton = (hasUnsavedChanges: boolean, pending: boolean) =>
+    share && persistedId !== null && (
+      <button
+        type="button"
+        onClick={() => setShareOpen(true)}
+        disabled={pending || marketUpdatePending || hasUnsavedChanges}
+        title={hasUnsavedChanges ? t("market_share_save_first") : undefined}
+        className={GHOST_BTN_CLS}
+      >
+        <Share2 className="h-3.5 w-3.5" aria-hidden />
+        {t("market_share_action")}
+      </button>
+    );
+  const submissionBadge = share?.submission && <MarketSubmissionBadge submission={share.submission} />;
+  const shareDialog = shareOpen && share && persistedId !== null && (
+    <ShareToMarketDialog
+      endpointId={persistedId}
+      initialSlug={
+        share.submission?.slug ?? installation?.slug ?? slugFromName(
+          selection.mode === "comfyui" ? selection.definition.meta.name : draft?.meta.name ?? "",
+        )
+      }
+      onClose={() => setShareOpen(false)}
+      onSubmitted={(submission) => {
+        setShareOpen(false);
+        pushToast(t("market_share_submitted"), "success");
+        share.onSubmitted(submission);
+      }}
+    />
+  );
+
   // ComfyUI 端点的定义是 workflow 加节点绑定，没有声明式表单的 submit / poll 两节，
   // 详情与绑定编辑器另有其形；删除入口仍由本组件提供，两种 kind 共用同一条生命周期。
   if (selection.mode === "comfyui" || selection.mode === "comfyui-draft") {
@@ -363,8 +401,11 @@ export function EndpointDetail({
           onSaved={onSaved}
           onReimport={onReimportComfyui}
           deleteButton={deleteButton}
+          shareButton={shareButton}
+          submissionBadge={submissionBadge}
         />
         {confirmDeleteDialog}
+        {shareDialog}
       </>
     );
   }
@@ -378,6 +419,7 @@ export function EndpointDetail({
             <h2 className="font-editorial text-[20px] text-text">{title}</h2>
             <KindBadge selection={selection} />
             {installation && <MarketInstallBadges state={installation.state} modified={installation.modified} />}
+            {submissionBadge}
           </div>
           <div className="mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-[12px] text-text-3">
             {draft && (
@@ -421,6 +463,7 @@ export function EndpointDetail({
         {editable ? (
           <>
             {exportButton}
+            {shareButton(dirty || jsonIssue !== null, saving)}
             <a href={MARKET_CONTRIBUTING_URL} target="_blank" rel="noreferrer" className={GHOST_BTN_CLS}>
               {t("ce_contribute_to_market")}
               <ExternalLink className="h-3 w-3" aria-hidden />
@@ -557,6 +600,7 @@ export function EndpointDetail({
       )}
 
       {confirmDeleteDialog}
+      {shareDialog}
     </div>
   );
 }

@@ -568,6 +568,8 @@ MESSAGES = {
     "official_service_disabled": "Dịch vụ chính thức đã bị tắt",
     "official_service_unavailable": "Hiện không thể kết nối dịch vụ chính thức, vui lòng thử lại sau",
     "market_entry_rating_not_installed": "Cài đặt mục này để đánh giá",
+    "market_submission_invalid": "Nội dung gửi chưa qua kiểm tra cục bộ. Hãy sửa các lỗi được báo rồi gửi lại",
+    "market_submission_icon_encoding_invalid": "Nội dung tệp biểu tượng không hợp lệ",
     "market_entry_rating_unofficial": "Chỉ có thể đánh giá các mục từ nguồn chợ chính thức",
     "official_service_error_unknown": "Dịch vụ chính thức trả về lỗi ({code})",
     "official_service_error_not_found": "Dịch vụ chính thức không có địa chỉ này",

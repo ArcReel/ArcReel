@@ -13,12 +13,19 @@ import {
   posterGridStyle,
 } from "@/components/ui/darkroom-tokens";
 import { PillSwitch } from "@/components/ui/PillSwitch";
-import type { MarketEntry, MarketEntryAggregate, MarketSourceInfo, OfficialServiceState } from "@/types";
+import type {
+  MarketEntry,
+  MarketEntryAggregate,
+  MarketSourceInfo,
+  MarketSubmission,
+  OfficialServiceState,
+} from "@/types";
 import { MarketEntryCard } from "./MarketEntryCard";
 import { MarketInstallDialog } from "./MarketInstallDialog";
 import { MARKET_CONTRIBUTING_URL } from "./market-links";
 import { KICKER_ACCENT_CLS, KICKER_CLS, SourceStatusDot } from "./market-source-status";
 import { MarketSourcesDialog } from "./MarketSourcesDialog";
+import { MarketSubmissionList } from "./MarketSubmissionList";
 import { OfficialServiceNotice } from "./OfficialServiceNotice";
 
 const ENTRY_TYPES = [
@@ -103,6 +110,7 @@ export function MarketSection() {
   const [officialBusy, setOfficialBusy] = useState(false);
   const [aggregates, setAggregates] = useState<ReadonlyMap<string, MarketEntryAggregate>>(new Map());
   const [aggregatesRevision, setAggregatesRevision] = useState(0);
+  const [submissions, setSubmissions] = useState<MarketSubmission[]>([]);
   const [location, navigate] = useLocation();
   const onlyInstalledId = useId();
   const mounted = useRef(true);
@@ -180,6 +188,24 @@ export function MarketSection() {
       });
     return () => controller.abort();
   }, [officialEnabled, sourcesLoaded, sourcesKey, installationRevision, aggregatesRevision]);
+
+  useEffect(() => {
+    if (!officialEnabled) return;
+    const controller = new AbortController();
+    API.listMarketSubmissions({ signal: controller.signal })
+      .then(({ submissions: listed }) => {
+        if (!controller.signal.aborted) setSubmissions(listed);
+      })
+      .catch(() => {
+        // 提交状态取不回时不展示，不打扰浏览。
+      });
+    return () => controller.abort();
+  }, [officialEnabled]);
+
+  const openEndpoint = (endpointKey: string) => {
+    const params = new URLSearchParams({ section: "endpoints", endpoint: endpointKey });
+    navigate(`${location}?${params}`);
+  };
 
   const updateOfficial = async (patch: { enabled?: boolean; notice_seen?: boolean }) => {
     setOfficialBusy(true);
@@ -422,15 +448,17 @@ export function MarketSection() {
                     aggregate={shownAggregates.get(aggregateKey(entry.source_id, entry.slug)) ?? null}
                     onOpen={() => setSelected(entry)}
                     onInstalledOpen={() => {
-                      if (!entry.installation) return;
-                      const params = new URLSearchParams({ section: "endpoints", endpoint: entry.installation.endpoint_key });
-                      navigate(`${location}?${params}`);
+                      if (entry.installation) openEndpoint(entry.installation.endpoint_key);
                     }}
                   />
                 );
               })}
             </div>
           ))}
+
+        {officialEnabled && submissions.length > 0 && (
+          <MarketSubmissionList submissions={submissions} onOpenEndpoint={openEndpoint} />
+        )}
 
         <div className="mt-14 rounded-[12px] border border-dashed border-hairline px-6 py-5 text-center">
           <div className={KICKER_CLS}>Contribute</div>

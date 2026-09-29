@@ -977,3 +977,135 @@ describe("EndpointsSection", () => {
     });
   });
 });
+
+describe("EndpointsSection · share to official market", () => {
+  const comfyui: CustomEndpointInfo = {
+    ...COMFYUI_MINE,
+    display_name: MINE.display_name,
+    definition: { ...COMFYUI_MINE.definition, meta: MINE.definition.meta },
+  };
+  const OFFICIAL_ON = { available: true, enabled: true, notice_seen: true, instance_id: null };
+
+  beforeEach(() => {
+    useAppStore.setState(useAppStore.getInitialState(), true);
+    useEndpointCatalogStore.setState({
+      endpoints: [...CATALOG, descriptor({ key: "ce-8", kind: "comfyui" })],
+      loading: false,
+      initialized: true,
+    });
+    vi.restoreAllMocks();
+    vi.spyOn(API, "listCustomEndpoints").mockResolvedValue({ endpoints: [MINE, comfyui] });
+    vi.spyOn(API, "listCustomProviders").mockResolvedValue({ providers: [] });
+    vi.spyOn(useEndpointCatalogStore.getState(), "refresh").mockResolvedValue(undefined);
+    vi.spyOn(API, "validateCustomEndpoint").mockResolvedValue(validation());
+    vi.spyOn(API, "inferComfyuiBindings").mockResolvedValue({
+      media_type: "video",
+      savable: true,
+      notes: [],
+      import_shape: "comfyui_api_workflow",
+      wrapped_definition: null,
+      bindings: {
+        prompt: {
+          state: "auto_selected",
+          notes: [],
+          candidates: [{
+            target: { node: "6", input: "text", class_type: "CLIPTextEncode" },
+            score: 200,
+            signals: [],
+            selected: true,
+            origin: "inferred",
+            depth: null,
+          }],
+        },
+      },
+    });
+  });
+
+  it.each([MINE, comfyui])("shows local diagnostics first and updates the $kind status badge", async (endpoint) => {
+    vi.spyOn(API, "getOfficialService").mockResolvedValue(OFFICIAL_ON);
+    vi.spyOn(API, "listMarketSubmissions").mockResolvedValue({ submissions: [] });
+    const check = vi
+      .spyOn(API, "checkMarketSubmission")
+      .mockResolvedValueOnce({
+        diagnostics: [{ file: "definition.json", path: "$", code: "val_ce_missing_field", message: "缺少字段 submit" }],
+      })
+      .mockResolvedValue({ diagnostics: [] });
+    const create = vi.spyOn(API, "createMarketSubmission").mockResolvedValue({
+      endpoint_id: endpoint.id,
+      endpoint_key: endpoint.key,
+      endpoint_display_name: "Example Video API",
+      type: "endpoint",
+      slug: "example-video",
+      status: "open",
+      pr_url: "https://github.com/ArcReel/arcreel-market/pull/101",
+      stale: false,
+    });
+    renderSection(`section=endpoints&endpoint=${endpoint.key}`);
+
+    await userEvent.click(await screen.findByRole("button", { name: "分享到官方市场" }));
+    const dialog = await screen.findByRole("dialog");
+    // slug 默认由端点名称派生；诊断未清零前不可提交。
+    expect(within(dialog).getByLabelText("slug 建议")).toHaveValue("example-video-api");
+    expect(await within(dialog).findByText("缺少字段 submit")).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "提交" })).toBeDisabled();
+
+    await userEvent.clear(within(dialog).getByLabelText("slug 建议"));
+    await userEvent.type(within(dialog).getByLabelText("slug 建议"), "example-video");
+    expect(await within(dialog).findByText("本地校验通过，可以提交")).toBeInTheDocument();
+    expect(check).toHaveBeenLastCalledWith(
+      { endpoint_id: endpoint.id, slug: "example-video", icon: null }, expect.anything(),
+    );
+    await userEvent.type(within(dialog).getByLabelText("GitHub 用户名（可选）"), "octo-cat");
+    await userEvent.click(within(dialog).getByRole("button", { name: "提交" }));
+
+    expect(create).toHaveBeenCalledWith({
+      endpoint_id: endpoint.id, slug: "example-video", icon: null, github_username: "octo-cat",
+    });
+    expect(await screen.findByText("审核中")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "查看 PR" })).toHaveAttribute(
+      "href",
+      "https://github.com/ArcReel/arcreel-market/pull/101",
+    );
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it.each([MINE, comfyui])("shows the refreshed $kind status on entering the page", async (endpoint) => {
+    vi.spyOn(API, "getOfficialService").mockResolvedValue(OFFICIAL_ON);
+    vi.spyOn(API, "listMarketSubmissions").mockResolvedValue({
+      submissions: [
+        {
+          endpoint_id: endpoint.id,
+          endpoint_key: endpoint.key,
+          endpoint_display_name: "Example Video API",
+          type: "endpoint",
+          slug: "example-video",
+          status: "merged",
+          pr_url: "https://github.com/ArcReel/arcreel-market/pull/101",
+          stale: false,
+        },
+      ],
+    });
+    renderSection(`section=endpoints&endpoint=${endpoint.key}`);
+    expect(await screen.findByText("已采纳")).toBeInTheDocument();
+  });
+
+  it.each([MINE, comfyui])("offers no $kind share action while the official service is off", async (endpoint) => {
+    vi.spyOn(API, "getOfficialService").mockResolvedValue({ ...OFFICIAL_ON, enabled: false });
+    const list = vi.spyOn(API, "listMarketSubmissions");
+    renderSection(`section=endpoints&endpoint=${endpoint.key}`);
+    expect(await screen.findByRole("button", { name: "删除" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "分享到官方市场" })).not.toBeInTheDocument();
+    expect(list).not.toHaveBeenCalled();
+  });
+
+  it("requires saving ComfyUI edits before sharing", async () => {
+    vi.spyOn(API, "getOfficialService").mockResolvedValue(OFFICIAL_ON);
+    vi.spyOn(API, "listMarketSubmissions").mockResolvedValue({ submissions: [] });
+    renderSection("section=endpoints&endpoint=ce-8");
+    const share = await screen.findByRole("button", { name: "分享到官方市场" });
+    await waitFor(() => expect(share).toBeEnabled());
+    await userEvent.type(screen.getByLabelText("端点名称"), " changed");
+    expect(share).toBeDisabled();
+    expect(share).toHaveAttribute("title", "先保存修改，再分享");
+  });
+});
