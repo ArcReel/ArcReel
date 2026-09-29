@@ -23,6 +23,7 @@ import { TimelineCanvas } from "./timeline/TimelineCanvas";
 import { OverviewCanvas } from "./OverviewCanvas";
 import { SourceFileViewer } from "./SourceFileViewer";
 import { SourceFilesPage } from "./SourceFilesPage";
+import { EpisodesPrototypePage } from "./episodes-prototype/EpisodesPrototypePage";
 import { CharactersPage } from "./lorebook/CharactersPage";
 import { ScenesPage } from "./lorebook/ScenesPage";
 import { PropsPage } from "./lorebook/PropsPage";
@@ -635,6 +636,10 @@ export function StudioCanvasRouter() {
       <Route path={`/${WORKSPACE_ROUTE_SOURCE}`}>
         {/* 演示项目没有源文件、后端也不存在该项目；侧栏已隐藏该入口，这里再兜底直接输入 URL 的情形 */}
         {demoMode ? <Redirect to="/" /> : <SourceFilesPage projectName={currentProjectName} />}
+      </Route>
+
+      <Route path="/episodes-prototype">
+        <EpisodesPrototypePage />
       </Route>
 
       <Route path={`/${WORKSPACE_ROUTE_CHARACTERS}`}>

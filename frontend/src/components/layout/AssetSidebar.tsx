@@ -103,6 +103,8 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
             icon: BookOpen,
             meta: sourceCount,
           },
+          // PROTOTYPE（#2767）
+          { key: "episodes-prototype", path: "/episodes-prototype", label: "分集（原型）", icon: BookOpen, meta: 0 },
         ]),
     {
       key: "characters",
