@@ -5,7 +5,7 @@ import "@/i18n";
 import { API, ApiRequestError } from "@/api";
 import { useAppStore } from "@/stores/app-store";
 import { createDeferred } from "@/test/deferred";
-import type { MarketEntry, MarketSourceInfo } from "@/types";
+import type { MarketEntry, MarketSourceInfo, OfficialServiceState } from "@/types";
 import { MarketSection } from "./MarketSection";
 
 const RECENT = new Date(Date.now() - 13 * 60_000).toISOString();
@@ -92,6 +92,19 @@ const ENTRIES: MarketEntry[] = [
   }),
 ];
 
+const OFFICIAL_SERVICE_OFF: OfficialServiceState = {
+  available: true,
+  enabled: false,
+  notice_seen: true,
+  instance_id: null,
+};
+const OFFICIAL_SERVICE_FIRST_VISIT: OfficialServiceState = {
+  available: true,
+  enabled: true,
+  notice_seen: false,
+  instance_id: null,
+};
+
 function cardNames(): string[] {
   return screen.queryAllByRole("article").map((card) => card.getAttribute("aria-label") ?? "");
 }
@@ -116,6 +129,8 @@ describe("MarketSection", () => {
     vi.spyOn(API, "refreshMarketSources").mockResolvedValue({ sources: [] });
     vi.spyOn(API, "listMarketEntries").mockResolvedValue({ entries: ENTRIES, app_version: "0.30.0" });
     vi.spyOn(API, "getMarketEntryIcon").mockRejectedValue(new Error("no icon"));
+    vi.spyOn(API, "getOfficialService").mockResolvedValue(OFFICIAL_SERVICE_OFF);
+    vi.spyOn(API, "listMarketEntryAggregates").mockResolvedValue({ items: [] });
   });
 
   it("counts listed entries and enabled sources in the hero kicker", async () => {
@@ -635,4 +650,67 @@ describe("MarketSection", () => {
     );
   });
 
+  describe("official service", () => {
+    const AGGREGATES = [
+      { source_id: 1, slug: "alpha", installs: 1200, rating_count: 5, rating_average: 4.33 },
+      { source_id: 1, slug: "zeta", installs: 0, rating_count: 2, rating_average: null },
+    ];
+
+    it("shows no official service elements and queries nothing while the service is off", async () => {
+      render(<MarketSection />);
+      await screen.findAllByRole("article");
+      await waitFor(() => expect(API.getOfficialService).toHaveBeenCalled());
+      expect(API.listMarketEntryAggregates).not.toHaveBeenCalled();
+      expect(screen.queryByText("安装量")).not.toBeInTheDocument();
+      expect(screen.queryByRole("heading", { name: /官方服务/ })).not.toBeInTheDocument();
+    });
+
+    it("shows install counts and ratings on official entries and explains reporting once", async () => {
+      vi.mocked(API.getOfficialService).mockResolvedValue(OFFICIAL_SERVICE_FIRST_VISIT);
+      vi.mocked(API.listMarketEntryAggregates).mockResolvedValue({ items: AGGREGATES });
+      const update = vi
+        .spyOn(API, "updateOfficialService")
+        .mockResolvedValue({ ...OFFICIAL_SERVICE_FIRST_VISIT, notice_seen: true });
+      render(<MarketSection />);
+
+      const alpha = await screen.findByRole("article", { name: "Alpha Video" });
+      await waitFor(() => expect(within(alpha).getByText("安装量")).toBeInTheDocument());
+      expect(alpha).toHaveTextContent("1,200");
+      expect(within(alpha).getByText("平均 4.3 星，5 人评分")).toBeInTheDocument();
+      const zeta = screen.getByRole("article", { name: "Zeta Gateway" });
+      expect(within(zeta).getByText("2 人评分，人数足够后显示平均分")).toBeInTheDocument();
+      expect(within(screen.getByRole("article", { name: "Alpha 团队版" })).queryByText("安装量")).not.toBeInTheDocument();
+
+      const notice = screen.getByRole("region", { name: "安装量与评分来自 ArcReel 官方服务" });
+      await userEvent.click(within(notice).getByRole("button", { name: "知道了" }));
+      expect(update).toHaveBeenCalledWith({ notice_seen: true });
+      await waitFor(() => expect(notice).not.toBeInTheDocument());
+      expect(within(alpha).getByText("安装量")).toBeInTheDocument();
+    });
+
+    it("turns the service off from the notice and drops every official element", async () => {
+      vi.mocked(API.getOfficialService).mockResolvedValue(OFFICIAL_SERVICE_FIRST_VISIT);
+      vi.mocked(API.listMarketEntryAggregates).mockResolvedValue({ items: AGGREGATES });
+      const update = vi.spyOn(API, "updateOfficialService").mockResolvedValue(OFFICIAL_SERVICE_OFF);
+      render(<MarketSection />);
+
+      const notice = await screen.findByRole("region", { name: "安装量与评分来自 ArcReel 官方服务" });
+      const alpha = await screen.findByRole("article", { name: "Alpha Video" });
+      await waitFor(() => expect(within(alpha).getByText("安装量")).toBeInTheDocument());
+      await userEvent.click(within(notice).getByRole("button", { name: "关闭官方服务" }));
+      expect(update).toHaveBeenCalledWith({ enabled: false, notice_seen: true });
+      await waitFor(() => expect(notice).not.toBeInTheDocument());
+      expect(screen.queryByText("安装量")).not.toBeInTheDocument();
+    });
+
+    it("keeps browsing without numbers when aggregates cannot be fetched", async () => {
+      vi.mocked(API.getOfficialService).mockResolvedValue({ ...OFFICIAL_SERVICE_FIRST_VISIT, notice_seen: true });
+      vi.mocked(API.listMarketEntryAggregates).mockRejectedValue(new ApiRequestError("暂时无法连接官方服务", undefined, 502));
+      render(<MarketSection />);
+      await screen.findAllByRole("article");
+      await waitFor(() => expect(API.listMarketEntryAggregates).toHaveBeenCalled());
+      expect(screen.queryByText("安装量")).not.toBeInTheDocument();
+      expect(useAppStore.getState().toast).toBeNull();
+    });
+  });
 });

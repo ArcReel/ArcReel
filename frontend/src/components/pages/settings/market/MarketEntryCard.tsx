@@ -8,7 +8,8 @@ import {
   GHOST_BTN_CLS,
   posterGridStyle,
 } from "@/components/ui/darkroom-tokens";
-import type { MarketEntry, MarketSourceKind } from "@/types";
+import type { MarketEntry, MarketEntryAggregate, MarketSourceKind } from "@/types";
+import { MarketEntryStats } from "./MarketEntryStats";
 import { MarketInstallBadges } from "./MarketInstallBadges";
 
 const ICON_SIZE = 48;
@@ -82,7 +83,8 @@ export function SourceChip({ name, kind }: { name: string; kind: MarketSourceKin
 }
 
 /**
- * 市场条目卡片：2:1 图区（icon 或首字母占位 + 两轴徽标）、名称、作者与版本、两行描述、源片与主按钮。
+ * 市场条目卡片：2:1 图区（icon 或首字母占位 + 两轴徽标）、名称、作者与版本、两行描述、源片（及官方服务的
+ * 安装量与评分）与主按钮。
  * 主按钮：未安装「安装」、可更新「更新」均打开确认弹窗；已是最新「已安装」直接打开端点。
  * 当前应用版本不满足 `min_app_version` 时整卡降透明并标出版本要求。
  */
@@ -91,6 +93,7 @@ export function MarketEntryCard({
   sourceName,
   sourceKind,
   appVersion,
+  aggregate = null,
   onOpen,
   onInstalledOpen,
 }: {
@@ -99,6 +102,8 @@ export function MarketEntryCard({
   sourceName: string;
   sourceKind: MarketSourceKind | null;
   appVersion: string | null;
+  /** 官方服务开启且取到聚合时才有；缺失即不显示数字。 */
+  aggregate?: MarketEntryAggregate | null;
   onOpen?: () => void;
   onInstalledOpen?: () => void;
 }) {
@@ -144,8 +149,9 @@ export function MarketEntryCard({
         <p className="mt-1.5 line-clamp-2 flex-1 text-[11.5px] leading-[1.5] text-text-3">
           {entry.description}
         </p>
-        <div className="mt-2">
+        <div className="mt-2 flex min-w-0 items-center justify-between gap-2">
           <SourceChip name={sourceName} kind={sourceKind} />
+          {aggregate && <MarketEntryStats aggregate={aggregate} />}
         </div>
         <button
           type="button"

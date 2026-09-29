@@ -176,6 +176,7 @@ ArcReel 在应用启动时运行 Alembic 迁移，将数据库结构升级到当
 | `ARCREEL_DATA_DIR` | `projects` | 数据根；项目、默认 SQLite 数据库、日志和 Vertex 凭据都在其下 |
 | `CORS_ORIGINS` | 通配 | 设为白名单时，浏览器型 MCP 客户端的 Origin 也须列入 |
 | `MCP_PUBLIC_URL` | `http://localhost:1241/mcp` | 可选；仅 OAuth 发现型 MCP 客户端需要 |
+| `ARCREEL_OFFICIAL_SERVICE_URL` | 内置官方服务地址 | 市场安装量、评分与分享提交所用的官方服务；设为空即整体关闭，市场回到只读取市场源的形态 |
 
 注意：
 

@@ -5,10 +5,12 @@ import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
 import { API, ApiRequestError } from "@/api";
 import i18n from "@/i18n";
+import { createDeferred } from "@/test/deferred";
 import type {
   CustomEndpointInfo,
   EndpointValidateResponse,
   MarketEntry,
+  MarketEntryAggregate,
   MarketEntryDetail,
   MarketEntryInstallation,
 } from "@/types";
@@ -90,13 +92,18 @@ const validation: EndpointValidateResponse = {
   wrapped_definition: null,
 };
 
-function show(selected = entry) {
+function show(selected = entry, official?: { aggregate: MarketEntryAggregate | null; onRated?: () => void }) {
   const onClose = vi.fn();
   const onInstallationChange = vi.fn();
   const location = memoryLocation({ path: "/settings?section=market", record: true });
   render(
     <Router hook={location.hook}>
-      <MarketInstallDialog entry={selected} onClose={onClose} onInstallationChange={onInstallationChange} />
+      <MarketInstallDialog
+        entry={selected}
+        official={official}
+        onClose={onClose}
+        onInstallationChange={onInstallationChange}
+      />
     </Router>,
   );
   return { onClose, onInstallationChange, location };
@@ -387,6 +394,94 @@ describe("MarketInstallDialog", () => {
       await userEvent.click(screen.getByRole("button", { name: "打开端点" }));
       expect(location.history?.at(-1)).toContain("section=endpoints&endpoint=ce-7");
       expect(onClose).toHaveBeenCalledOnce();
+    });
+  });
+  describe("official service rating", () => {
+    const aggregate: MarketEntryAggregate = {
+      source_id: 1,
+      slug: "demo",
+      installs: 40,
+      rating_count: 3,
+      rating_average: 4.67,
+    };
+
+    it("keeps the stars unavailable until the entry is installed", async () => {
+      const rate = vi.spyOn(API, "rateMarketEntry").mockResolvedValue(undefined);
+      show(entry, { aggregate });
+      const group = await screen.findByRole("radiogroup", { name: "你的评分" });
+      expect(group).toHaveAccessibleDescription("安装此条目后才能评分");
+      for (const star of screen.getAllByRole("radio")) expect(star).toBeDisabled();
+      expect(screen.getByText("平均 4.7 星，3 人评分")).toBeInTheDocument();
+      await userEvent.click(screen.getByRole("radio", { name: "评 5 星（满分 5 星）" }));
+      expect(rate).not.toHaveBeenCalled();
+    });
+
+    it("rates an installed entry and reports the new rating upward", async () => {
+      vi.mocked(API.getMarketEntry).mockResolvedValue({ ...detail, entry: { ...entry, installation } });
+      const rate = vi.spyOn(API, "rateMarketEntry").mockResolvedValue(undefined);
+      const onRated = vi.fn();
+      show({ ...entry, installation }, { aggregate: null, onRated });
+      await userEvent.click(await screen.findByRole("radio", { name: "评 4 星（满分 5 星）" }));
+      expect(rate).toHaveBeenCalledWith(1, "demo", 4);
+      expect(await screen.findByRole("status")).toHaveTextContent("评分已提交");
+      expect(screen.getByRole("radio", { name: "评 4 星（满分 5 星）" })).toBeChecked();
+      expect(onRated).toHaveBeenCalledTimes(1);
+    });
+
+    it("blocks updating and uninstalling while a rating is pending", async () => {
+      const outdated = { ...installation, state: "update_available" as const };
+      vi.mocked(API.getMarketEntry).mockResolvedValue({ ...detail, entry: { ...entry, installation: outdated } });
+      const pending = createDeferred<void>();
+      vi.spyOn(API, "rateMarketEntry").mockReturnValue(pending.promise);
+      show({ ...entry, installation: outdated }, { aggregate: null });
+      const update = await screen.findByRole("button", { name: "更新到 v1.0.0" });
+      await waitFor(() => expect(update).toBeEnabled());
+      await userEvent.click(screen.getByRole("radio", { name: "评 4 星（满分 5 星）" }));
+      const uninstall = screen.getByRole("button", { name: "卸载" });
+      expect(uninstall).toBeDisabled();
+      expect(update).toBeDisabled();
+      await userEvent.click(uninstall);
+      await userEvent.click(update);
+      expect(API.deleteCustomEndpoint).not.toHaveBeenCalled();
+      expect(API.installMarketEntry).not.toHaveBeenCalled();
+      await act(async () => pending.resolve());
+      expect(uninstall).toBeEnabled();
+      expect(update).toBeEnabled();
+    });
+
+    it("blocks rating while uninstalling and releases the controls after failure", async () => {
+      vi.mocked(API.getMarketEntry).mockResolvedValue({ ...detail, entry: { ...entry, installation } });
+      const pending = createDeferred<void>();
+      vi.mocked(API.deleteCustomEndpoint).mockReturnValue(pending.promise);
+      const rate = vi.spyOn(API, "rateMarketEntry").mockResolvedValue(undefined);
+      show({ ...entry, installation }, { aggregate: null });
+      await screen.findByText("凭证发往");
+      await userEvent.click(screen.getByRole("button", { name: "卸载" }));
+      const star = screen.getByRole("radio", { name: "评 4 星（满分 5 星）" });
+      expect(star).toBeDisabled();
+      await userEvent.click(star);
+      expect(rate).not.toHaveBeenCalled();
+      await act(async () => pending.reject(new Error("Cannot uninstall")));
+      expect(await screen.findByRole("alert")).toHaveTextContent("Cannot uninstall");
+      expect(star).toBeEnabled();
+    });
+
+    it("shows why the official service refused the rating", async () => {
+      vi.mocked(API.getMarketEntry).mockResolvedValue({ ...detail, entry: { ...entry, installation } });
+      vi.spyOn(API, "rateMarketEntry").mockRejectedValue(
+        new ApiRequestError("官方服务没有此实例安装该条目的记录，无法评分", undefined, 409),
+      );
+      show({ ...entry, installation }, { aggregate: null });
+      await userEvent.click(await screen.findByRole("radio", { name: "评 3 星（满分 5 星）" }));
+      expect(await screen.findByRole("alert")).toHaveTextContent(
+        "评分失败：官方服务没有此实例安装该条目的记录，无法评分",
+      );
+    });
+
+    it("renders no rating without the official prop", async () => {
+      show();
+      await screen.findByRole("button", { name: "确认安装" });
+      expect(screen.queryByRole("radiogroup")).not.toBeInTheDocument();
     });
   });
 });
