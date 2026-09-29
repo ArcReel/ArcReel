@@ -1,6 +1,7 @@
 import { useCallback, useRef } from "react";
 import { errMsg, voidPromise } from "@/utils/async";
-import { Route, Switch, Redirect } from "wouter";
+import { Route, Switch, Redirect, useSearchParams } from "wouter";
+import { EditTimelinePreviewPrototype } from "./edit-timeline-prototype/EditTimelinePreviewPrototype";
 import {
   WORKSPACE_ROUTE_LOREBOOK,
   WORKSPACE_ROUTE_CLUES,
@@ -96,6 +97,8 @@ function resolveSegmentPrompt(
 // ---------------------------------------------------------------------------
 
 export function StudioCanvasRouter() {
+  // PROTOTYPE（#2752）：带 ?variant= 时集页面换成剪辑时间线只读预览原型
+  const [prototypeParams] = useSearchParams();
   const { t } = useTranslation("dashboard");
   const tRef = useRef(t);
   // eslint-disable-next-line react-hooks/refs -- tRef 是稳定 event-handler ref 模式，用于在回调中获取最新 t 而不触发无限 useCallback 重建
@@ -736,6 +739,8 @@ export function StudioCanvasRouter() {
           // 演示项目没有源文可切片，缺剧本的分集直接说明「演示只做到第 1 集」
           const showSourceReview =
             Boolean(episode) && !script && !hasDraft && !isAd && !demoMode;
+
+          if (prototypeParams.has("variant")) return <EditTimelinePreviewPrototype />;
 
           return (
             <div className="flex h-full flex-col">
