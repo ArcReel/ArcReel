@@ -3,17 +3,21 @@
 提交的是端点已保存的定义与可选图标；本地预检不通过即 422，不出站。每个端点只记最近一次提交的令牌，
 状态列表在进入页面时向官方服务各查一次，取不回时保留上次状态并标记 ``stale``。官方服务关闭时，
 创建提交与状态列表均 409 ``official_service_disabled``，本地预检不受影响。
+
+本地记录只在官方服务返回之后以单条语句写入：创建提交按端点 upsert，状态刷新只在令牌未变时生效，
+因此同一端点的并发提交与刷新不会互相覆盖，出站期间也不持有写锁。
 """
 
 from __future__ import annotations
 
 import base64
-import binascii
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import select, update
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from lib.custom_provider import make_endpoint_key
@@ -102,7 +106,8 @@ async def _files_of(session: AsyncSession, body: CheckSubmissionRequest) -> tupl
     if body.icon is not None:
         try:
             icon = (body.icon.filename, base64.b64decode(body.icon.content, validate=True))
-        except binascii.Error as exc:
+        # 非 ASCII 字符抛 ValueError，其余非法编码抛其子类 binascii.Error。
+        except ValueError as exc:
             raise UnprocessableError("market_submission_icon_encoding_invalid") from exc
     return endpoint, submission_files(endpoint.definition, icon)
 
@@ -120,13 +125,26 @@ def _response(row: MarketSubmission, endpoint: CustomEndpoint, *, stale: bool = 
     )
 
 
-def _apply(row: MarketSubmission, status: SubmissionStatus) -> None:
-    row.token, row.type, row.slug, row.status, row.pr_url = (
-        status.token,
-        status.type,
-        status.slug,
-        status.status,
-        status.pr_url,
+def _fields(status: SubmissionStatus) -> dict[str, str]:
+    return {
+        "token": status.token,
+        "type": status.type,
+        "slug": status.slug,
+        "status": status.status,
+        "pr_url": status.pr_url,
+    }
+
+
+async def _record_submission(session: AsyncSession, endpoint_id: int, status: SubmissionStatus) -> None:
+    """以本次提交覆盖该端点的记录；同一端点并发提交时后写者生效。"""
+    values = {**_fields(status), "submitted_at": utc_now()}
+    insert = pg_insert if session.bind.dialect.name == "postgresql" else sqlite_insert
+    stmt = insert(MarketSubmission).values(custom_endpoint_id=endpoint_id, **values)
+    await session.execute(
+        stmt.on_conflict_do_update(
+            index_elements=[MarketSubmission.custom_endpoint_id],
+            set_={name: stmt.excluded[name] for name in values},
+        )
     )
 
 
@@ -167,13 +185,11 @@ async def create_submission(
                 }
             )
         raise
-    row = await session.get(MarketSubmission, endpoint.id)
-    if row is None:
-        row = MarketSubmission(custom_endpoint_id=endpoint.id)
-        session.add(row)
-    _apply(row, status)
-    row.submitted_at = utc_now()
+    await _record_submission(session, endpoint.id, status)
     await session.commit()
+    row = await session.get(MarketSubmission, endpoint.id, populate_existing=True)
+    if row is None:
+        raise NotFoundError("custom_endpoint_not_found")
     return _response(row, endpoint)
 
 
@@ -183,27 +199,44 @@ async def list_submissions(
 ) -> MarketSubmissionListResponse:
     """本地记录的提交，按提交时间倒序；未采纳的逐个向官方服务刷新一次，官方服务不可达时不再继续出站。"""
     client = await official.require()
+    newest_first = (MarketSubmission.submitted_at.desc(), MarketSubmission.custom_endpoint_id.desc())
+    pending = (
+        await session.execute(
+            select(MarketSubmission.custom_endpoint_id, MarketSubmission.token)
+            .where(MarketSubmission.status != "merged")
+            .order_by(*newest_first)
+        )
+    ).all()
+    refreshed: list[tuple[int, str, SubmissionStatus]] = []
+    stale: set[int] = set()
+    reachable = True
+    for endpoint_id, token in pending:
+        if not reachable:
+            stale.add(endpoint_id)
+            continue
+        try:
+            refreshed.append((endpoint_id, token, await client.submission_status(token)))
+        except OfficialServiceError:
+            stale.add(endpoint_id)
+        except BadGatewayError:
+            reachable = False
+            stale.add(endpoint_id)
+    for endpoint_id, token, status in refreshed:
+        # 刷新期间该端点已有新提交时令牌已变，旧令牌的结果不再写入。
+        await session.execute(
+            update(MarketSubmission)
+            .where(MarketSubmission.custom_endpoint_id == endpoint_id, MarketSubmission.token == token)
+            .values(**_fields(status))
+        )
+    await session.commit()
     rows = (
         await session.execute(
             select(MarketSubmission, CustomEndpoint)
             .join(CustomEndpoint)
-            .order_by(MarketSubmission.submitted_at.desc(), MarketSubmission.custom_endpoint_id.desc())
+            .order_by(*newest_first)
+            .execution_options(populate_existing=True)
         )
     ).all()
-    reachable = True
-    submissions: list[MarketSubmissionResponse] = []
-    for row, endpoint in rows:
-        stale = False
-        if row.status != "merged":
-            stale = True
-            if reachable:
-                try:
-                    _apply(row, await client.submission_status(row.token))
-                    stale = False
-                except OfficialServiceError:
-                    pass
-                except BadGatewayError:
-                    reachable = False
-        submissions.append(_response(row, endpoint, stale=stale))
-    await session.commit()
-    return MarketSubmissionListResponse(submissions=submissions)
+    return MarketSubmissionListResponse(
+        submissions=[_response(row, endpoint, stale=row.custom_endpoint_id in stale) for row, endpoint in rows]
+    )

@@ -124,9 +124,10 @@ export function EndpointsSection() {
         if (!controller.signal.aborted) {
           setSubmissions(new Map(listed.map((submission) => [submission.endpoint_id, submission])));
         }
-      })().catch(() => {
+      })(),
+      () => {
         // 官方服务不可用时端点页照常工作，只是不提供分享入口。
-      }),
+      },
     );
     return () => controller.abort();
   }, []);

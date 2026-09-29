@@ -569,6 +569,7 @@ MESSAGES = {
     "official_service_unavailable": "Cannot reach the official service right now; please try again later",
     "market_entry_rating_not_installed": "Install this entry to rate it",
     "market_submission_invalid": "The submission failed local validation. Fix the reported issues and submit again",
+    "market_submission_literal_credential": "This value looks like a secret written in directly: sharing publishes the definition as is, so clear this value before sharing",
     "market_submission_icon_encoding_invalid": "The icon file content is invalid",
     "market_entry_rating_unofficial": "Only entries from the official market source can be rated",
     "official_service_error_unknown": "The official service returned an error ({code})",

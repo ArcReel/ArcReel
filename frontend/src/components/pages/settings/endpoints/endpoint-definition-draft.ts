@@ -175,12 +175,11 @@ export function isRenderableDefinition(value: unknown): value is EndpointDefinit
 }
 
 /**
- * 导出文件名，与市场条目 slug 同一规则 `^[a-z0-9][a-z0-9-]{0,63}$`：从 meta.name 去重音、转小写，
- * 其余字符折成连字符，没有可用 ASCII 字符时退化为 `endpoint`。有安装记录的端点直接用记录里的 slug。
+ * 由端点名称派生市场条目 slug，规则 `^[a-z0-9][a-z0-9-]{0,63}$`：去重音、转小写，其余字符折成连字符；
+ * 名称里没有可用 ASCII 字符时为空串。
  */
-export function definitionFileName(definition: AnyEndpointDefinition, installationSlug?: string | null): string {
-  if (installationSlug) return `${installationSlug}.json`;
-  const slug = (definition.meta?.name ?? "")
+export function slugFromName(name: string): string {
+  return name
     .normalize("NFKD")
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
@@ -188,5 +187,10 @@ export function definitionFileName(definition: AnyEndpointDefinition, installati
     .replace(/^-+/, "")
     .slice(0, 64)
     .replace(/-+$/, "");
-  return `${slug || "endpoint"}.json`;
+}
+
+/** 导出文件名：有安装记录的端点直接用记录里的 slug，否则由 meta.name 派生，派生为空时退化为 `endpoint`。 */
+export function definitionFileName(definition: AnyEndpointDefinition, installationSlug?: string | null): string {
+  if (installationSlug) return `${installationSlug}.json`;
+  return `${slugFromName(definition.meta?.name ?? "") || "endpoint"}.json`;
 }

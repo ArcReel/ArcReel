@@ -6,6 +6,7 @@ import {
   readPaths,
   renameKey,
   sectionOfIssuePath,
+  slugFromName,
   writePaths,
 } from "./endpoint-definition-draft";
 
@@ -121,6 +122,17 @@ describe("isRenderableDefinition", () => {
       poll: { extract: {} },
     };
     expect(isRenderableDefinition(sparse)).toBe(true);
+  });
+});
+
+describe("slugFromName", () => {
+  it("strips accents instead of folding combining marks into hyphens", () => {
+    expect(slugFromName("Résumé Vidéo")).toBe("resume-video");
+    expect(slugFromName("Tạo video nhanh")).toBe("tao-video-nhanh");
+  });
+
+  it("is empty when nothing ASCII remains", () => {
+    expect(slugFromName("可灵视频")).toBe("");
   });
 });
 

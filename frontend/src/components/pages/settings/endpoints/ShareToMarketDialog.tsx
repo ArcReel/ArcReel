@@ -23,17 +23,6 @@ const ICON_FILENAMES: Record<string, MarketSubmissionIcon["filename"]> = {
   svg: "icon.svg",
 };
 
-/** 由端点名称派生建议 slug：只保留小写字母、数字与连字符；名称里没有可用字符时为空，由用户填写。 */
-export function slugFromName(name: string): string {
-  return name
-    .normalize("NFKD")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+/, "")
-    .slice(0, SLUG_MAX_LENGTH)
-    .replace(/-+$/, "");
-}
-
 function toBase64(buffer: ArrayBuffer): string {
   const bytes = new Uint8Array(buffer);
   let binary = "";
@@ -111,6 +100,9 @@ export function ShareToMarketDialog({
   const [slug, setSlug] = useState(initialSlug);
   const [githubUsername, setGithubUsername] = useState("");
   const [icon, setIcon] = useState<{ name: string; value: MarketSubmissionIcon } | null>(null);
+  // 每次选择或移除图标都递增；读取完成时序号已变说明被更新的选择取代，结果丢弃。
+  const iconRead = useRef(0);
+  const [readingIcon, setReadingIcon] = useState(false);
   const [iconError, setIconError] = useState<string | null>(null);
   // null：校验中或尚未取回。
   const [diagnostics, setDiagnostics] = useState<MarketSubmissionDiagnostic[] | null>(null);
@@ -141,13 +133,29 @@ export function ShareToMarketDialog({
 
   const pickIcon = async (file: File | undefined) => {
     if (!file) return;
+    const read = ++iconRead.current;
     const filename = ICON_FILENAMES[file.name.split(".").pop()?.toLowerCase() ?? ""];
     if (!filename) {
+      setReadingIcon(false);
       setIconError(t("market_share_icon_format"));
       return;
     }
     setIconError(null);
-    setIcon({ name: file.name, value: { filename, content: toBase64(await file.arrayBuffer()) } });
+    setReadingIcon(true);
+    try {
+      const content = toBase64(await file.arrayBuffer());
+      if (read === iconRead.current) setIcon({ name: file.name, value: { filename, content } });
+    } catch (error) {
+      if (read === iconRead.current) setIconError(errMsg(error));
+    } finally {
+      if (read === iconRead.current) setReadingIcon(false);
+    }
+  };
+
+  const removeIcon = () => {
+    iconRead.current += 1;
+    setReadingIcon(false);
+    setIcon(null);
   };
 
   const submit = async () => {
@@ -170,7 +178,8 @@ export function ShareToMarketDialog({
     }
   };
 
-  const canSubmit = !submitting && slug !== "" && diagnostics !== null && diagnostics.length === 0;
+  const canSubmit =
+    !submitting && !readingIcon && slug !== "" && diagnostics !== null && diagnostics.length === 0;
 
   return (
     <GlassModal
@@ -249,7 +258,7 @@ export function ShareToMarketDialog({
                   type="button"
                   className={GHOST_BTN_CLS}
                   disabled={submitting}
-                  onClick={() => setIcon(null)}
+                  onClick={removeIcon}
                 >
                   <X className="h-3.5 w-3.5" aria-hidden />
                   {t("market_share_icon_remove")}

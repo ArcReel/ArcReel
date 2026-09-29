@@ -1069,6 +1069,52 @@ describe("EndpointsSection · share to official market", () => {
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
+  it("submits only the latest icon choice and waits for its read to finish", async () => {
+    vi.spyOn(API, "getOfficialService").mockResolvedValue(OFFICIAL_ON);
+    vi.spyOn(API, "listMarketSubmissions").mockResolvedValue({ submissions: [] });
+    const check = vi.spyOn(API, "checkMarketSubmission").mockResolvedValue({ diagnostics: [] });
+    const create = vi.spyOn(API, "createMarketSubmission").mockResolvedValue({
+      endpoint_id: MINE.id,
+      endpoint_key: MINE.key,
+      endpoint_display_name: "Example Video API",
+      type: "endpoint",
+      slug: "example-video-api",
+      status: "open",
+      pr_url: "https://github.com/ArcReel/arcreel-market/pull/101",
+      stale: false,
+    });
+    let finishStale!: (buffer: ArrayBuffer) => void;
+    const stale = new File(["a"], "old.png", { type: "image/png" });
+    stale.arrayBuffer = () => new Promise((resolve) => { finishStale = resolve; });
+    let finishLatest!: (buffer: ArrayBuffer) => void;
+    const latest = new File(["b"], "new.svg", { type: "image/svg+xml" });
+    latest.arrayBuffer = () => new Promise((resolve) => { finishLatest = resolve; });
+    renderSection(`section=endpoints&endpoint=${MINE.key}`);
+
+    await userEvent.click(await screen.findByRole("button", { name: "分享到官方市场" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(await within(dialog).findByText("本地校验通过，可以提交")).toBeInTheDocument();
+    const input = within(dialog).getByTestId("market-share-icon-input");
+    await userEvent.upload(input, stale);
+    // 图标读取未完成时不可提交，否则会带着上一次的图标或不带图标出站。
+    expect(within(dialog).getByRole("button", { name: "提交" })).toBeDisabled();
+    await userEvent.upload(input, latest);
+    finishLatest(new TextEncoder().encode("<svg/>").buffer);
+    finishStale(new TextEncoder().encode("png").buffer);
+
+    const latestIcon = { filename: "icon.svg", content: btoa("<svg/>") };
+    await waitFor(() =>
+      expect(check).toHaveBeenLastCalledWith(
+        { endpoint_id: MINE.id, slug: "example-video-api", icon: latestIcon }, expect.anything(),
+      ),
+    );
+    await waitFor(() => expect(within(dialog).getByRole("button", { name: "提交" })).toBeEnabled());
+    await userEvent.click(within(dialog).getByRole("button", { name: "提交" }));
+    expect(create).toHaveBeenCalledWith({
+      endpoint_id: MINE.id, slug: "example-video-api", icon: latestIcon, github_username: null,
+    });
+  });
+
   it.each([MINE, comfyui])("shows the refreshed $kind status on entering the page", async (endpoint) => {
     vi.spyOn(API, "getOfficialService").mockResolvedValue(OFFICIAL_ON);
     vi.spyOn(API, "listMarketSubmissions").mockResolvedValue({

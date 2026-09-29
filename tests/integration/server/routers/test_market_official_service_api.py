@@ -330,6 +330,28 @@ async def test_aggregates_only_query_official_entries(market_client_factory: Cli
     "failure",
     [
         httpx.Response(200, json={"items": []}),
+        *(
+            httpx.Response(
+                200,
+                json={
+                    "items": [
+                        {"type": "endpoint", "source": OFFICIAL_KEY, "slug": slug, **numbers}
+                        for slug, numbers in (
+                            ("example", {"installs": 0, "rating_count": 0, "rating_average": None}),
+                            bad,
+                        )
+                    ]
+                },
+            )
+            for bad in (
+                ("other", {"installs": -1, "rating_count": 0, "rating_average": None}),
+                ("other", {"installs": 0, "rating_count": -1, "rating_average": None}),
+                ("other", {"installs": 0, "rating_count": 3, "rating_average": 0.5}),
+                ("other", {"installs": 0, "rating_count": 3, "rating_average": 5.01}),
+                # 数量对得上但条目身份不符：不能把别的条目的数字挂到请求的条目上。
+                ("example", {"installs": 0, "rating_count": 0, "rating_average": None}),
+            )
+        ),
         httpx.Response(503, json={"code": "instance_hash_unconfigured", "params": {}}),
         httpx.ReadTimeout("timed out"),
     ],

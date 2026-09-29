@@ -165,14 +165,14 @@ For self-hosted deployments, set the environment variable `ARCREEL_OFFICIAL_SERV
 
 ### 6.4 Share to the Official Market {#share-to-official-market}
 
-When the official service is on, your own declarative endpoints under "Endpoints" have a "Share to official market" button in the header. Save any unsaved changes first: the saved definition of the endpoint is what gets submitted.
+When the official service is on, your own declarative and ComfyUI endpoints under "Endpoints" have a "Share to official market" button in the header. Save any unsaved changes first: the saved definition of the endpoint is what gets submitted.
 
 1. The dialog first shows the local validation result, which follows the same rules as the official market's pre-check and CI. Any issues are listed one by one, and you cannot submit until all of them are fixed.
 2. Fill in the **suggested slug**: the entry directory name, derived from the endpoint name by default, with lowercase letters, digits and hyphens only. Reviewers may adjust the final slug before merging.
 3. Optionally enter your **GitHub username** to be @-mentioned in the PR, and attach a square icon (PNG, WebP or SVG, at most 64 KB).
 4. After you click "Submit", the official service opens a PR on the official market source repository, and the review happens on GitHub: merged means accepted, closed means rejected.
 
-Endpoint definitions contain no credentials; the `auth` section holds only placeholders. The submitted content appears publicly in the PR. Submitting the same slug again before the PR is merged pushes your changes to the same PR; submitting after the PR is merged or closed opens a new PR for review.
+Endpoint definitions contain no credentials; the `auth` section holds only placeholders. The submitted content appears publicly in the PR. Anything that looks like a secret written in directly blocks the submission: literal credentials in the `auth` section, literal values named `api_key`, `token`, `secret`, `Authorization`, `Cookie`, and similar at any depth of a ComfyUI workflow, or in the request headers, body, or URL query parameters of a declarative endpoint, and request header values that look like keys. Clear them before sharing. Submitting the same slug again while the PR is open pushes your changes to the same PR; submitting after the PR is merged or closed opens a new PR for review.
 
 The endpoint header and "My submissions" in the "Market" section show the status of each endpoint's latest submission (In review / Accepted / Rejected) with a PR link, refreshed once when you open the page. When the official service is unreachable, the last known status is shown.
 

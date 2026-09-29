@@ -25,7 +25,7 @@ import type {
 import { MarketInstallBadges } from "../market/MarketInstallBadges";
 import { MarketSubmissionBadge } from "../market/MarketSubmissionBadge";
 import { MARKET_CONTRIBUTING_URL } from "../market/market-links";
-import { isRenderableDefinition, type EndpointFormSection } from "./endpoint-definition-draft";
+import { isRenderableDefinition, slugFromName, type EndpointFormSection } from "./endpoint-definition-draft";
 import { EndpointDiagnostics } from "./EndpointDiagnostics";
 import { EndpointReferenceList, endpointReferences } from "./EndpointReferenceList";
 import { EndpointForm } from "./EndpointForm";
@@ -34,7 +34,7 @@ import { exportEndpointDefinition } from "./export-endpoint-definition";
 import type { AnyEndpointDefinition, ComfyuiEndpointDefinition } from "@/types";
 import { VariableInsertionProvider } from "./endpoint-form-primitives";
 import { ComfyuiEndpointDetail } from "./ComfyuiEndpointDetail";
-import { ShareToMarketDialog, slugFromName } from "./ShareToMarketDialog";
+import { ShareToMarketDialog } from "./ShareToMarketDialog";
 import type { ComfyuiImportDraft } from "./comfyui-import";
 
 const VALIDATE_DEBOUNCE_MS = 400;
