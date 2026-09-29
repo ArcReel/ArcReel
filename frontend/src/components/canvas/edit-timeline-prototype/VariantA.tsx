@@ -1,18 +1,16 @@
 // PROTOTYPE（#2752）变体 A「剪辑台」：播放器在上，多轨横向时间线在下，点选片段看详情；修改通过对话交给 Agent。
-import { AlertTriangle, Link2, Music } from "lucide-react";
+import { AlertTriangle, Music } from "lucide-react";
 import { useRef, useState } from "react";
 
-import { GHOST_BTN_CLS } from "@/components/ui/darkroom-tokens";
-
 import { fmt, TIMELINES, type ResolvedClip, unitHue } from "./model";
-import { deepLink, ISSUE_TONE, PlayButton, Stage } from "./shared";
+import { ISSUE_TONE, PlayButton, Stage } from "./shared";
 import type { VariantProps } from "./types";
 
 export const name = "剪辑台";
 
 const LABEL_W = 56;
 
-export function VariantA({ r, pb, timelineId, onSelectTimeline, variant }: VariantProps) {
+export function VariantA({ r, pb, timelineId, onSelectTimeline }: VariantProps) {
   const [selected, setSelected] = useState<string | null>(null);
   const trackRef = useRef<HTMLDivElement>(null);
   const pct = (t: number) => `${(t / r.total) * 100}%`;
@@ -43,22 +41,12 @@ export function VariantA({ r, pb, timelineId, onSelectTimeline, variant }: Varia
               }`}
             >
               {tl.name}
-              <span className="ml-1.5 text-[11px] text-text-4 tabular-nums">r{tl.revision}</span>
             </button>
           ))}
         </div>
         <span className="text-[12px] text-text-4">
           {r.timeline.updatedBy} 修改于 {r.timeline.updatedAt}
         </span>
-        <div className="ml-auto flex items-center gap-2">
-          <button
-            type="button"
-            className={GHOST_BTN_CLS}
-            onClick={() => void navigator.clipboard.writeText(deepLink(r, pb.t, variant))}
-          >
-            <Link2 className="h-3.5 w-3.5" /> 复制链接
-          </button>
-        </div>
       </div>
 
       {/* 播放器 */}
