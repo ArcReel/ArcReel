@@ -503,6 +503,8 @@ MESSAGES = {
     "official_service_disabled": "官方服务已关闭",
     "official_service_unavailable": "暂时无法连接官方服务，请稍后重试",
     "market_entry_rating_not_installed": "安装此条目后才能评分",
+    "market_submission_invalid": "提交内容未通过本地校验，请按诊断修正后再提交",
+    "market_submission_icon_encoding_invalid": "图标文件内容无效",
     "market_entry_rating_unofficial": "只有官方市场源的条目可以评分",
     "official_service_error_unknown": "官方服务返回了错误（{code}）",
     "official_service_error_not_found": "官方服务上没有这个地址",

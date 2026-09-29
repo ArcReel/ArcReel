@@ -11,6 +11,7 @@
 
 from __future__ import annotations
 
+import base64
 import logging
 import os
 import uuid
@@ -93,6 +94,20 @@ class EntryAggregate:
 
 
 @dataclass(frozen=True)
+class SubmissionStatus:
+    """官方服务上一次分享提交的状态；``status`` 为 ``open`` / ``merged`` / ``closed``。"""
+
+    token: str
+    type: str
+    slug: str
+    status: str
+    pr_url: str
+
+
+SUBMISSION_STATUSES = frozenset({"open", "merged", "closed"})
+
+
+@dataclass(frozen=True)
 class OfficialServiceState:
     #: 地址非空。
     available: bool
@@ -154,6 +169,39 @@ class OfficialServiceClient:
             )
             aggregates.extend(_parse_aggregates(response, batch))
         return aggregates
+
+    async def create_submission(
+        self, *, type: str, slug: str, files: Mapping[str, bytes], github_username: str | None
+    ) -> SubmissionStatus:
+        """文件内容按标准 base64 发送；同实例同 slug 的开放中提交由官方服务推到同一 PR，令牌不变。"""
+        meta = {"github_username": github_username} if github_username else {}
+        response = await self.request(
+            "POST",
+            "/market/submissions",
+            json={
+                "type": type,
+                "slug": slug,
+                "files": {path: base64.b64encode(content).decode("ascii") for path, content in files.items()},
+                "meta": meta,
+            },
+        )
+        return _parse_submission(response)
+
+    async def submission_status(self, token: str) -> SubmissionStatus:
+        return _parse_submission(await self.request("GET", f"/market/submissions/{token}"))
+
+
+def _parse_submission(response: httpx.Response) -> SubmissionStatus:
+    try:
+        body = response.json()
+        fields = {name: body[name] for name in ("token", "type", "slug", "status", "pr_url")}
+        if not all(isinstance(value, str) and value for value in fields.values()):
+            raise TypeError("submission field types")
+        if fields["status"] not in SUBMISSION_STATUSES:
+            raise ValueError(f"unknown status {fields['status']!r}")
+    except (ValueError, KeyError, TypeError) as exc:
+        raise _unavailable(f"malformed submission: {exc}") from exc
+    return SubmissionStatus(**fields)
 
 
 def _parse_aggregates(response: httpx.Response, refs: Sequence[EntryRef]) -> list[EntryAggregate]:

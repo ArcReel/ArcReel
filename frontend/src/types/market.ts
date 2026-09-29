@@ -125,3 +125,39 @@ export interface MarketEntryAggregate {
   /** 评分人数不足官方服务的阈值时为 null，只展示人数。 */
   rating_average: number | null;
 }
+
+/** 分享提交的状态：审核中 / 已采纳 / 已拒绝。 */
+export type MarketSubmissionStatus = "open" | "merged" | "closed";
+
+/** 一个端点最近一次分享到官方市场的提交。 */
+export interface MarketSubmission {
+  endpoint_id: number;
+  endpoint_key: string;
+  endpoint_display_name: string;
+  type: string;
+  slug: string;
+  status: MarketSubmissionStatus;
+  pr_url: string;
+  /** 本次没能从官方服务取回状态，展示的是上次保存的值。 */
+  stale: boolean;
+}
+
+/** 分享提交的一条校验诊断；`file` 相对条目目录，slug 本身不合规时为空串。 */
+export interface MarketSubmissionDiagnostic {
+  file: string;
+  path: string;
+  code: string;
+  message: string;
+}
+
+export interface MarketSubmissionIcon {
+  filename: "icon.png" | "icon.webp" | "icon.svg";
+  /** 标准 base64。 */
+  content: string;
+}
+
+export interface MarketSubmissionDraft {
+  endpoint_id: number;
+  slug: string;
+  icon: MarketSubmissionIcon | null;
+}

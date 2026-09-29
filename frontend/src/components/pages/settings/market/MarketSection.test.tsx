@@ -131,6 +131,7 @@ describe("MarketSection", () => {
     vi.spyOn(API, "getMarketEntryIcon").mockRejectedValue(new Error("no icon"));
     vi.spyOn(API, "getOfficialService").mockResolvedValue(OFFICIAL_SERVICE_OFF);
     vi.spyOn(API, "listMarketEntryAggregates").mockResolvedValue({ items: [] });
+    vi.spyOn(API, "listMarketSubmissions").mockResolvedValue({ submissions: [] });
   });
 
   it("counts listed entries and enabled sources in the hero kicker", async () => {
@@ -661,8 +662,37 @@ describe("MarketSection", () => {
       await screen.findAllByRole("article");
       await waitFor(() => expect(API.getOfficialService).toHaveBeenCalled());
       expect(API.listMarketEntryAggregates).not.toHaveBeenCalled();
+      expect(API.listMarketSubmissions).not.toHaveBeenCalled();
       expect(screen.queryByText("安装量")).not.toBeInTheDocument();
       expect(screen.queryByRole("heading", { name: /官方服务/ })).not.toBeInTheDocument();
+    });
+
+    it("lists my submissions with their status and PR link", async () => {
+      vi.mocked(API.getOfficialService).mockResolvedValue({ ...OFFICIAL_SERVICE_FIRST_VISIT, notice_seen: true });
+      vi.mocked(API.listMarketSubmissions).mockResolvedValue({
+        submissions: [
+          {
+            endpoint_id: 7,
+            endpoint_key: "ce-7",
+            endpoint_display_name: "我的端点",
+            type: "endpoint",
+            slug: "my-endpoint",
+            status: "closed",
+            pr_url: "https://github.com/ArcReel/arcreel-market/pull/9",
+            stale: true,
+          },
+        ],
+      });
+      render(<MarketSection />);
+
+      const section = await screen.findByRole("region", { name: "我的分享提交" });
+      expect(within(section).getByText("my-endpoint")).toBeInTheDocument();
+      const badge = within(section).getByText("已拒绝");
+      expect(badge).toHaveAttribute("title", "暂时无法连接官方服务，显示的是上次获取的状态");
+      expect(within(section).getByRole("link", { name: "查看 PR" })).toHaveAttribute(
+        "href",
+        "https://github.com/ArcReel/arcreel-market/pull/9",
+      );
     });
 
     it("shows install counts and ratings on official entries and explains reporting once", async () => {

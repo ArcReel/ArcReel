@@ -51,6 +51,9 @@ import type {
   ComfyuiMediaType,
   CustomEndpointInfo,
   MarketEntryAggregate,
+  MarketSubmission,
+  MarketSubmissionDiagnostic,
+  MarketSubmissionDraft,
   MarketEntryListResponse,
   MarketEntryDetail,
   MarketEntryInstallation,
@@ -2575,6 +2578,32 @@ class API {
       method: "PUT",
       body: JSON.stringify({ stars }),
     });
+  }
+
+  /** 与官方服务预检同口径的本地校验，不出站；只报错误。 */
+  static async checkMarketSubmission(
+    draft: MarketSubmissionDraft,
+    options: { signal?: AbortSignal } = {},
+  ): Promise<{ diagnostics: MarketSubmissionDiagnostic[] }> {
+    return this.request("/market/submissions/check", {
+      method: "POST",
+      body: JSON.stringify(draft),
+      signal: options.signal,
+    });
+  }
+
+  /** 把端点已保存的定义分享到官方市场；PR 未合并时再次提交进入同一 PR。 */
+  static async createMarketSubmission(
+    draft: MarketSubmissionDraft & { github_username: string | null },
+  ): Promise<MarketSubmission> {
+    return this.request("/market/submissions", { method: "POST", body: JSON.stringify(draft) });
+  }
+
+  /** 本地记录的分享提交，调用时向官方服务刷新一次状态；官方服务关闭时抛出 409。 */
+  static async listMarketSubmissions(
+    options: { signal?: AbortSignal } = {},
+  ): Promise<{ submissions: MarketSubmission[] }> {
+    return this.request("/market/submissions", { signal: options.signal });
   }
 
   // ==================== 自定义调用端点 API ====================

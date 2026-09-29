@@ -20,6 +20,7 @@ import type {
   EndpointReference,
   EndpointValidateResponse,
   MarketEntry,
+  MarketSubmission,
 } from "@/types";
 import { MarketInstallDialog } from "../market/MarketInstallDialog";
 import { isDeclarativeDefinition, newEndpointDefinition } from "./endpoint-definition-draft";
@@ -110,6 +111,25 @@ export function EndpointsSection() {
   const marketUpdateRef = useRef<AbortController | null>(null);
 
   const selectedKey = new URLSearchParams(search).get("endpoint");
+  // 官方服务开启时才有值：各端点最近一次分享提交，进入页面时刷新一次；关闭或取不回时不展示分享入口与状态。
+  const [submissions, setSubmissions] = useState<Map<number, MarketSubmission> | null>(null);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    voidCall(
+      (async () => {
+        const official = await API.getOfficialService({ signal: controller.signal });
+        if (!official.enabled) return;
+        const { submissions: listed } = await API.listMarketSubmissions({ signal: controller.signal });
+        if (!controller.signal.aborted) {
+          setSubmissions(new Map(listed.map((submission) => [submission.endpoint_id, submission])));
+        }
+      })().catch(() => {
+        // 官方服务不可用时端点页照常工作，只是不提供分享入口。
+      }),
+    );
+    return () => controller.abort();
+  }, []);
 
   const select = useCallback(
     (key: string | null) => {
@@ -634,6 +654,18 @@ export function EndpointsSection() {
             }
             marketUpdatePending={marketUpdatePending}
             onReimportComfyui={startComfyuiReimport}
+            share={
+              submissions
+                ? {
+                    submission:
+                      (selection.mode === "custom" || selection.mode === "comfyui"
+                        ? submissions.get(selection.record.id)
+                        : undefined) ?? null,
+                    onSubmitted: (submission) =>
+                      setSubmissions((current) => new Map(current).set(submission.endpoint_id, submission)),
+                  }
+                : undefined
+            }
           />
         ) : (
           <p className="p-6 text-[12.5px] text-text-3">{t("ce_select_endpoint")}</p>

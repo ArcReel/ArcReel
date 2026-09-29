@@ -80,6 +80,8 @@ export interface ComfyuiEndpointDetailProps {
   /** 把当前这份草稿交出去，重新导入的新 workflow 接到它上面。 */
   onReimport: (current: ComfyuiEndpointDefinition) => void;
   deleteButton: ReactNode;
+  shareButton?: (hasUnsavedChanges: boolean, pending: boolean) => ReactNode;
+  submissionBadge?: ReactNode;
 }
 
 /**
@@ -98,6 +100,8 @@ export function ComfyuiEndpointDetail({
   onSaved,
   onReimport,
   deleteButton,
+  shareButton,
+  submissionBadge,
 }: ComfyuiEndpointDetailProps) {
   const { t } = useTranslation(["dashboard", "common"]);
   const pushToast = useAppStore((s) => s.pushToast);
@@ -301,6 +305,7 @@ export function ComfyuiEndpointDetail({
               {t(definition.media_type === "image" ? "endpoint_image_group" : "endpoint_video_group")}
             </span>
           </div>
+          {submissionBadge}
           <div className="mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-[12px] text-text-3">
             {record && (
               <span className="font-mono text-[11.5px]" translate="no">
@@ -324,6 +329,7 @@ export function ComfyuiEndpointDetail({
         >
           {t("ce_cf_export_definition")}
         </button>
+        {shareButton?.(dirty, saving || inference === null || reinferring !== null)}
         {deleteButton}
       </div>
 
