@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from lib.custom_provider.endpoint_definition import AssetData
+from arcreel_market_core.endpoint_definition import AssetData
 from lib.custom_provider.endpoint_test import (
     EndpointTestAssets,
     EndpointTestCredentials,

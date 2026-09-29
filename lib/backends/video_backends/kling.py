@@ -26,6 +26,14 @@ from pathlib import Path
 
 import httpx
 
+from arcreel_market_core.video_backend_contract import (
+    VideoAudioMode,
+    VideoCapabilities,
+    VideoCapabilityError,
+    VideoGenerationRequest,
+    VideoGenerationResult,
+    VideoRoute,
+)
 from lib.backends.artifact_download_guard import artifact_http_client
 from lib.backends.backend_runtime import (
     ProviderJobIdPersistenceMixin,
@@ -39,14 +47,6 @@ from lib.backends.kling_shared import (
     image_to_base64,
 )
 from lib.backends.providers import PROVIDER_KLING
-from lib.backends.video_backend_contract import (
-    VideoAudioMode,
-    VideoCapabilities,
-    VideoCapabilityError,
-    VideoGenerationRequest,
-    VideoGenerationResult,
-    VideoRoute,
-)
 
 logger = logging.getLogger(__name__)
 

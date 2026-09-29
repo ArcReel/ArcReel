@@ -20,10 +20,7 @@ from fastapi import APIRouter, Body, Depends
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from lib.custom_provider import make_endpoint_key
-from lib.custom_provider.comfyui.import_shapes import ImportShape, route_import_payload, ui_workflow_refusal
-from lib.custom_provider.discovery_formats import endpoint_attachment_holds
-from lib.custom_provider.endpoint_definition import (
+from arcreel_market_core.endpoint_definition import (
     DefinitionDiagnostics,
     SchemaVersionLevel,
     VersionRelation,
@@ -34,6 +31,9 @@ from lib.custom_provider.endpoint_definition import (
     validate_definition,
     version_relation,
 )
+from lib.custom_provider import make_endpoint_key
+from lib.custom_provider.comfyui.import_shapes import ImportShape, route_import_payload, ui_workflow_refusal
+from lib.custom_provider.discovery_formats import endpoint_attachment_holds
 from lib.custom_provider.endpoint_resolution import derive_mirror_columns
 from lib.db import get_async_session
 from lib.db.base import dt_to_iso

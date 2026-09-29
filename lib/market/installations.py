@@ -13,6 +13,8 @@ from typing import Any, NamedTuple
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from arcreel_market_core.market.address import source_identity
+from arcreel_market_core.market.index import MarketIndexEntry
 from lib.custom_provider.endpoint_resolution import derive_mirror_columns
 from lib.db.base import utc_now
 from lib.db.models.custom_endpoint import CustomEndpoint
@@ -21,9 +23,7 @@ from lib.db.models.market_source import MarketSource
 from lib.db.repositories.custom_endpoint_repo import CustomEndpointRepository
 from lib.infra.api_errors import ConflictError, NotFoundError
 
-from .address import source_identity
 from .entries import snapshot_entries
-from .index import MarketIndexEntry
 
 
 class InstallationState(StrEnum):
@@ -80,7 +80,7 @@ async def write_installation(
     """调用方负责校验与提交；任一失败回滚端点与记录两者。
 
     覆盖目标只能是持有本条目安装记录的端点，或没有安装记录、与定义同作者同名的端点。安装记录按
-    :func:`~lib.market.address.source_identity` 归属来源，与市场源判重同一口径。
+    :func:`~arcreel_market_core.market.address.source_identity` 归属来源，与市场源判重同一口径。
     """
     repo = CustomEndpointRepository(session)
     mirror = derive_mirror_columns(definition)

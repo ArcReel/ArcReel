@@ -5,9 +5,9 @@ from typing import Any
 
 import pytest
 
+from arcreel_market_core.market.entry import project_meta
+from arcreel_market_core.market.index import MarketIndexEntry
 from lib.db.models.market_source import MarketSource
-from lib.market.entry import project_meta
-from lib.market.index import MarketIndexEntry
 from lib.market.installations import InstallationState, available_entries, definition_digest, installation_status
 from tests.factories import custom_endpoint_definition
 

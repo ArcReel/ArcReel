@@ -21,7 +21,7 @@ from secrets import token_hex
 from typing import Any
 from urllib.parse import urlencode
 
-from lib.custom_provider.auth_section import declares_credentials, render_auth
+from arcreel_market_core.auth_section import declares_credentials, render_auth
 from lib.custom_provider.comfyui.comfyui_backend import ComfyuiVideoBackend
 from lib.custom_provider.comfyui.comfyui_client import client_id_for, normalize_comfyui_base_url
 from lib.custom_provider.comfyui.comfyui_image_backend import ComfyuiImageBackend

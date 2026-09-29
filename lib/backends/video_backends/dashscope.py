@@ -24,6 +24,15 @@ from typing import Literal
 
 import httpx
 
+from arcreel_market_core.video_backend_contract import (
+    ReferenceAudioMode,
+    ResumeExpiredError,
+    VideoAudioMode,
+    VideoCapabilities,
+    VideoCapabilityError,
+    VideoGenerationRequest,
+    VideoGenerationResult,
+)
 from lib.backends.artifact_download_guard import artifact_http_client
 from lib.backends.backend_runtime import (
     ProviderJobIdPersistenceMixin,
@@ -51,15 +60,6 @@ from lib.backends.dashscope_shared import (
 from lib.backends.data_uri import file_to_data_uri
 from lib.backends.http_status_errors import raise_for_status_redacted
 from lib.backends.providers import PROVIDER_DASHSCOPE
-from lib.backends.video_backend_contract import (
-    ReferenceAudioMode,
-    ResumeExpiredError,
-    VideoAudioMode,
-    VideoCapabilities,
-    VideoCapabilityError,
-    VideoGenerationRequest,
-    VideoGenerationResult,
-)
 from lib.infra.logging_utils import format_kwargs_for_log
 from lib.infra.retry import (
     DEFAULT_BACKOFF_SECONDS,

@@ -6,8 +6,8 @@ from typing import Any
 
 import pytest
 
+from arcreel_market_core.endpoint_definition import validate_definition
 from lib.custom_provider.comfyui.import_shapes import ImportShape, route_import_payload, ui_workflow_refusal
-from lib.custom_provider.endpoint_definition import validate_definition
 from tests.factories import comfyui_api_workflow, comfyui_endpoint_definition, custom_endpoint_definition
 
 #: ComfyUI「Export」导出的画布存档：节点在 ``nodes`` 数组里，连线单列在 ``links``，没有 ``class_type``。

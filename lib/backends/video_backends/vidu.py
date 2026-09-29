@@ -12,6 +12,13 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
+from arcreel_market_core.video_backend_contract import (
+    VideoAudioMode,
+    VideoCapabilities,
+    VideoCapabilityError,
+    VideoGenerationRequest,
+    VideoGenerationResult,
+)
 from lib.backends.backend_runtime import (
     download_video,
     poll_with_retry,
@@ -20,13 +27,6 @@ from lib.backends.backend_runtime import (
     submit_post,
 )
 from lib.backends.providers import PROVIDER_VIDU
-from lib.backends.video_backend_contract import (
-    VideoAudioMode,
-    VideoCapabilities,
-    VideoCapabilityError,
-    VideoGenerationRequest,
-    VideoGenerationResult,
-)
 from lib.backends.vidu_shared import (
     VIDU_RETRYABLE_ERRORS,
     assert_vidu_body_size,

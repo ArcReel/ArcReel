@@ -16,6 +16,7 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any
 
+from arcreel_market_core.validation_messages import MessageRef, ValidationMessage
 from lib.agent.agent_memory_paths import project_memory_dir
 from lib.artifacts.artifact_activation import (
     ensure_imported_artifact_target_state,
@@ -37,7 +38,7 @@ from lib.episode.episode_ledger import parse_positive_episode_num
 from lib.infra.content_digest import digest_stream, sha256_file
 from lib.infra.json_io import load_json
 from lib.infra.path_safety import PathTraversalError, safe_join, try_safe_join
-from lib.infra.validation_messages import MessageRef, ValidationMessage, ValidationResult
+from lib.infra.validation_messages import ValidationResult, default_translate
 from lib.project.asset_types import ASSET_SPECS, asset_name_comparison_key, normalize_asset_name
 from lib.project.data_validator import DataValidator
 from lib.project.project_change_hints import emit_project_change_hint
@@ -138,7 +139,7 @@ class ArchiveDiagnostic:
     def to_payload(self, translate: Callable[..., str] | None = None) -> dict[str, Any]:
         payload = {
             "code": self.code,
-            "message": self.message.render(translate),
+            "message": self.message.render(translate or default_translate),
         }
         if self.location:
             payload["location"] = self.location
@@ -166,7 +167,7 @@ class ArchiveDiagnostics:
     ) -> None:
         # 判重按默认语言渲染文本比对：同 key 不同 params 是不同诊断，须各自保留；
         # params 可能含列表 / 集合等不可哈希值，渲染结果是稳定且可哈希的等价指纹。
-        key = (bucket, code, message.render(), location)
+        key = (bucket, code, message.render(default_translate), location)
         if key in self._seen:
             return
         self._seen.add(key)
@@ -234,7 +235,7 @@ class ProjectArchiveValidationError(ValueError):
         diagnostics: ArchiveDiagnostics | None = None,
         extra: dict[str, Any] | None = None,
     ):
-        super().__init__(detail.render())
+        super().__init__(detail.render(default_translate))
         self.detail = detail
         self.status_code = status_code
         self.errors = errors or []
@@ -243,10 +244,10 @@ class ProjectArchiveValidationError(ValueError):
         self.extra = dict(extra or {})
 
     def render_errors(self, translate: Callable[..., str] | None = None) -> list[str]:
-        return [error.render(translate) for error in self.errors]
+        return [error.render(translate or default_translate) for error in self.errors]
 
     def render_warnings(self, translate: Callable[..., str] | None = None) -> list[str]:
-        return [warning.render(translate) for warning in self.warnings]
+        return [warning.render(translate or default_translate) for warning in self.warnings]
 
     def diagnostics_payload(self, translate: Callable[..., str] | None = None) -> dict[str, list[dict[str, Any]]]:
         """导入失败响应里的诊断三桶；无诊断来源时给空桶，保持响应形状恒定。"""

@@ -30,17 +30,17 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
-from lib.backends.audio_backends.base import AudioCapability, AudioSynthesisRequest, AudioSynthesisResult
-from lib.backends.image_backends.base import ImageCapability, ImageGenerationRequest, ImageGenerationResult
-from lib.backends.providers import CallPurpose
-from lib.backends.text_backends.base import TextCapability, TextGenerationRequest, TextGenerationResult
-from lib.backends.text_generator import TextGenerator
-from lib.backends.video_backend_contract import (
+from arcreel_market_core.video_backend_contract import (
     ResumeExpiredError,
     VideoCapabilities,
     VideoGenerationRequest,
     VideoGenerationResult,
 )
+from lib.backends.audio_backends.base import AudioCapability, AudioSynthesisRequest, AudioSynthesisResult
+from lib.backends.image_backends.base import ImageCapability, ImageGenerationRequest, ImageGenerationResult
+from lib.backends.providers import CallPurpose
+from lib.backends.text_backends.base import TextCapability, TextGenerationRequest, TextGenerationResult
+from lib.backends.text_generator import TextGenerator
 from lib.billing.ledger import Ledger
 from lib.config.resolver import ConfigResolver
 from lib.db.models.api_call import ApiCall

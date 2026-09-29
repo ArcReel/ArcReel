@@ -7,7 +7,7 @@
 
 from __future__ import annotations
 
-from lib.custom_provider.endpoint_definition import (
+from arcreel_market_core.endpoint_definition import (
     DefinitionDiagnostics,
     DefinitionErrorCode,
     DefinitionIssue,

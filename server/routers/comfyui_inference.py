@@ -17,9 +17,9 @@ from typing import Annotated, Any, Literal
 from fastapi import APIRouter, Body
 from pydantic import BaseModel
 
+from arcreel_market_core.comfyui.validator import structural_diagnostics
 from lib.custom_provider.comfyui.import_shapes import ImportShape, route_import_payload, ui_workflow_refusal
 from lib.custom_provider.comfyui.inference import infer_bindings
-from lib.custom_provider.comfyui.validator import structural_diagnostics
 from lib.infra.api_errors import UnprocessableError
 from server.i18n import Translator
 

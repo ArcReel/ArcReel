@@ -13,6 +13,7 @@ from pathlib import Path
 import httpx
 import pytest
 
+from arcreel_market_core.video_backend_contract import VideoGenerationRequest
 from lib.backends.artifact_download_guard import ArtifactDestinationRejectedError
 from lib.backends.audio_backends.base import AudioSynthesisRequest
 from lib.backends.audio_backends.dashscope import DashScopeAudioBackend
@@ -22,7 +23,6 @@ from lib.backends.image_backends.dashscope import DashScopeImageBackend
 from lib.backends.image_backends.kling import KlingImageBackend
 from lib.backends.image_backends.minimax import MiniMaxImageBackend
 from lib.backends.image_backends.vidu import ViduImageBackend
-from lib.backends.video_backend_contract import VideoGenerationRequest
 from lib.backends.video_backends.agnes import AgnesVideoBackend
 from lib.backends.video_backends.dashscope import DashScopeVideoBackend
 from lib.backends.video_backends.vidu import ViduVideoBackend

@@ -31,6 +31,11 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
+from arcreel_market_core.video_backend_contract import (
+    ProviderResponseStage,
+    VideoCapabilityError,
+    VideoGenerationRequest,
+)
 from lib.backends.container_sniff import CONTAINER_HEAD_BYTES, sniff_container
 from lib.backends.image_backends.base import (
     ImageCapability,
@@ -39,7 +44,6 @@ from lib.backends.image_backends.base import (
     ReferenceImage,
 )
 from lib.backends.providers import CALL_TYPE_IMAGE, CALL_TYPE_VIDEO, CallPurpose
-from lib.backends.video_backend_contract import ProviderResponseStage, VideoCapabilityError, VideoGenerationRequest
 from lib.backends.video_frame_slots import resolve_first_frame_aspect_ratio
 from lib.billing.ledger import Ledger
 from lib.config.resolver import ConfigResolver

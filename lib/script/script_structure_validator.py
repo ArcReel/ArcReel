@@ -19,7 +19,8 @@ from pydantic import BaseModel, ValidationError
 # pydantic 顶层不 re-export ErrorDetails，只能直接依赖 pydantic-core。
 from pydantic_core import ErrorDetails
 
-from lib.infra.validation_messages import ValidationMessage, ValidationResult
+from arcreel_market_core.validation_messages import ValidationMessage
+from lib.infra.validation_messages import ValidationResult
 from lib.script.script_models import (
     AdEpisodeScript,
     DramaEpisodeScript,

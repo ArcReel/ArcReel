@@ -19,9 +19,8 @@ from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from arcreel_market_core.endpoint_definition import COMFYUI_KIND, DECLARATIVE_KIND, definition_media_type
 from lib.custom_provider import is_custom_endpoint, make_endpoint_key, parse_endpoint_key
-from lib.custom_provider.builtin_definitions import DECLARATIVE_MEDIA_TYPE
-from lib.custom_provider.endpoint_definition import COMFYUI_KIND, DECLARATIVE_KIND
 from lib.custom_provider.endpoints import (
     EndpointSpec,
     comfyui_endpoint_spec,
@@ -43,13 +42,6 @@ class MirrorColumns:
     display_name: str
 
 
-#: ``kind`` → 从定义读媒体类型。声明式描述的是「JSON in/out + 提交/轮询」的视频协议，恒为常量；
-#: 一份 ComfyUI workflow 产图还是产视频由它自己声明。
-_MEDIA_TYPE_BY_KIND: Mapping[str, Callable[[Mapping[str, Any]], str]] = {
-    DECLARATIVE_KIND: lambda _definition: DECLARATIVE_MEDIA_TYPE,
-    COMFYUI_KIND: lambda definition: str(definition["media_type"]),
-}
-
 #: ``kind`` → 把定义投影成 spec 的实现。
 _SPEC_BY_KIND: Mapping[str, Callable[[str, Mapping[str, Any]], EndpointSpec]] = {
     DECLARATIVE_KIND: lambda key, definition: declarative_endpoint_spec(key, definition, source="custom"),
@@ -63,15 +55,6 @@ def _dispatch[T](table: Mapping[str, T], definition: Mapping[str, Any]) -> T:
     if implementation is None:
         raise ValueError(f"unsupported endpoint definition kind: {kind!r}")
     return implementation
-
-
-def definition_media_type(definition: Mapping[str, Any]) -> str:
-    """读一份**已过校验**的定义的媒体类型，按 ``kind`` 取。
-
-    Raises:
-        ValueError: 定义的 ``kind`` 在本层没有投影实现。
-    """
-    return _dispatch(_MEDIA_TYPE_BY_KIND, definition)(definition)
 
 
 def derive_mirror_columns(definition: Mapping[str, Any]) -> MirrorColumns:

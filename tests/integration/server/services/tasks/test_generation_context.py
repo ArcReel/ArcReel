@@ -16,9 +16,9 @@ from typing import cast
 import pytest
 from sqlalchemy import update
 
+from arcreel_market_core.video_backend_contract import VideoCapabilities
 from lib.backends.audio_backends.base import VoiceOption
 from lib.backends.backend_assembly.specs import builtin_video_capabilities_for_model
-from lib.backends.video_backend_contract import VideoCapabilities
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.resolver import ConfigResolver, ProviderModel, VideoBucketCapabilityError, VoiceConsistency
 from lib.custom_provider import make_provider_id

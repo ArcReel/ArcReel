@@ -27,9 +27,9 @@ from typing import TYPE_CHECKING, Any, Optional, cast
 from PIL import Image
 
 if TYPE_CHECKING:
+    from arcreel_market_core.video_backend_contract import VideoGenerationResult
     from lib.backends.audio_backends.base import AudioBackend
     from lib.backends.image_backends.base import ImageBackend
-    from lib.backends.video_backend_contract import VideoGenerationResult
     from lib.config.resolver import ConfigResolver
     from lib.references.reference_compression import CompressedRef, PayloadLimits, ReferenceSpec
 
@@ -974,7 +974,7 @@ class MediaGenerator:
                 ),
             ) as call,
         ):
-            from lib.backends.video_backend_contract import VideoGenerationRequest
+            from arcreel_market_core.video_backend_contract import VideoGenerationRequest
 
             video_backend = self._video_backend
             # FRAME（start/end 帧，永不缩尺寸）+ ARRAY（参考数组，完整梯子）按已知序位组织成
@@ -1142,7 +1142,7 @@ class MediaGenerator:
         if before_formal_commit is not None and staged_output_path is None:
             raise ValueError("before_formal_commit requires formal video output")
 
-        from lib.backends.video_backend_contract import ResumeExpiredError, VideoGenerationRequest
+        from arcreel_market_core.video_backend_contract import ResumeExpiredError, VideoGenerationRequest
 
         request = VideoGenerationRequest(
             prompt=prompt,

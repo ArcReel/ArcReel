@@ -53,8 +53,9 @@ ENV PYTHONUNBUFFERED=1
 # 默认时区，可由 docker-compose / 运行时 -e TZ=... 覆盖
 ENV TZ=Asia/Shanghai
 
-# 先复制依赖和包元数据文件，利用缓存
+# 先复制依赖和包元数据文件，利用缓存；workspace 子包作为依赖随这一步安装，源码须先就位
 COPY pyproject.toml uv.lock README.md ./
+COPY packages/ packages/
 RUN uv sync --no-dev --no-install-project
 
 # 复制应用代码

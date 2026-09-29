@@ -42,11 +42,11 @@ dependencies = [
     "socksio>=1.0.0",
     "mcp>=1.29.0,<2",
     "jsonschema>=4.26.0",
-    "jsonpath-rfc9535>=1.0.0",
     "httpx>=0.28.1",
     "grpcio>=1.83.0",
     "numpy>=2.5.2",
     "jinja2>=3.1.6",
+    "arcreel-market-core",
 ]
 
 [dependency-groups]
@@ -69,6 +69,12 @@ dev = [
 mutation = [
     "mutmut==3.7.0",
 ]
+
+[tool.uv.workspace]
+members = ["packages/arcreel-market-core"]
+
+[tool.uv.sources]
+arcreel-market-core = { workspace = true }
 
 [build-system]
 requires = ["hatchling"]
@@ -98,7 +104,7 @@ markers = [
 ]
 
 [tool.coverage.run]
-source = ["lib", "server"]
+source = ["lib", "server", "arcreel_market_core"]
 concurrency = ["greenlet", "thread"]
 
 [tool.coverage.report]
@@ -110,14 +116,16 @@ exclude_lines = [
 ]
 
 [tool.importlinter]
-# server 进入分析范围，「核心库不依赖服务端」才看得见跨包的边；外部包只作叶子节点计入，
-# 供「核心库不依赖 HTTP 框架」点名 fastapi / starlette。
-root_packages = ["lib", "server"]
+# server 进入分析范围，「核心库不依赖服务端」才看得见跨包的边；arcreel_market_core 进入分析范围，
+# 「子包不依赖主仓」才看得见它指向 lib / server 的边。外部包只作叶子节点计入，供「核心库不依赖
+# HTTP 框架」点名 fastapi / starlette。
+root_packages = ["lib", "server", "arcreel_market_core"]
 include_external_packages = true
 
 # lib.config < lib.backends.*_backends < lib.custom_provider < lib.market：config 是配置解析的基础层，backends
-# 在其上组装出各供应商实现，custom_provider 再在 backends 之上拼装自定义供应商，market 以调用端点
-# 定义为条目载荷、复用其校验器，位于最上层。四个 backend 包为同层 sibling（`:` 分隔），彼此引用
+# 在其上组装出各供应商实现，custom_provider 再在 backends 之上拼装自定义供应商，market（市场的客户端侧：
+# 源登记、条目服务、安装记录）把条目装成自定义端点，位于最上层。四层都在 arcreel_market_core 之上，
+# 子包是最底层，见下方「arcreel_market_core 不依赖主仓」。四个 backend 包为同层 sibling（`:` 分隔），彼此引用
 # 契约（如图像通道取 video_backends.base 的 IMAGE_MIME_TYPES）不算方向违规；共用的运行支持在
 # lib.backends.backend_runtime，不属于任何一层。
 # ignore_imports 是存量违规的 baseline，逐条掐的是**违规链的终端边**而非首跳，这样中间模块
@@ -145,7 +153,6 @@ ignore_imports = [
     "lib.backends.backend_assembly.specs -> lib.backends.audio_backends.registry",
     "lib.backends.backend_assembly.specs -> lib.backends.image_backends.registry",
     "lib.backends.backend_assembly.specs -> lib.backends.video_backends.registry",
-    "lib.backends.backend_assembly.specs -> lib.backends.video_backend_contract",
     "lib.backends.backend_assembly.specs -> lib.backends.text_backends.registry",
     # 声明式内置端点的装配接缝（ADR 0039）：spec 行按 registry_backend="declarative" 从
     # 随版定义读能力与构造 backend，spec 表因此同时够到 backend 层与 custom_provider 层。
@@ -166,22 +173,32 @@ ignore_imports = [
 ]
 
 # ComfyUI 端点定义不经声明式运行时（docs/adr/0081）：两种 kind 的定义不同构，共用的只有诊断载体、
-# 诊断翻译与 kind 常量三件事。comfyui 子包一旦够到声明式的模板引擎、取值路径或它的校验实现，就是把
+# 诊断翻译与 kind 常量三件事。comfyui 一侧一旦够到声明式的模板引擎、取值路径或它的校验实现，就是把
 # 「JSON in/out + 提交 / 轮询」的假设搬进节点图这一侧，保存期与填值期从此各说各话。反向也不许：
 # 分派表在 endpoint_definition.validator，它 import comfyui.validator 是唯一允许的方向。
-# ComfyUI 的客户端、执行与两条调用通道都在子包内，连间接依赖一起查：它们用到的调用通道运行支持
-# （lib.backends.backend_runtime）与视频契约（lib.backends.video_backend_contract）都够不到声明式运行时。
+# comfyui 一侧有两处：定义契约与保存期判定在 arcreel_market_core.comfyui，客户端、执行与两条调用通道
+# 在 lib.custom_provider.comfyui。连间接依赖一起查：它们用到的调用通道运行支持
+# （lib.backends.backend_runtime）与视频契约（arcreel_market_core.video_backend_contract）都够不到声明式运行时。
 [[tool.importlinter.contracts]]
 name = "ComfyUI 端点实现不依赖声明式运行时"
 type = "forbidden"
-source_modules = ["lib.custom_provider.comfyui"]
+source_modules = ["lib.custom_provider.comfyui", "arcreel_market_core.comfyui"]
 forbidden_modules = [
     "lib.custom_provider.declarative_backend",
-    "lib.custom_provider.endpoint_definition.validator",
-    "lib.custom_provider.endpoint_definition.template_engine",
-    "lib.custom_provider.endpoint_definition.response_extractor",
-    "lib.custom_provider.endpoint_definition.jsonpath_subset",
+    "arcreel_market_core.endpoint_definition.validator",
+    "arcreel_market_core.endpoint_definition.template_engine",
+    "arcreel_market_core.endpoint_definition.response_extractor",
+    "arcreel_market_core.endpoint_definition.jsonpath_subset",
 ]
+
+# arcreel_market_core 是最底层：市场源工具与端点定义校验器被市场源仓库的 CI 与官方服务单独安装，
+# 装不到 ArcReel 应用的其余部分。子包需要应用侧能力（翻译目录、共享 HTTP 客户端）时由调用方以参数
+# 注入，主仓依赖子包，反向一律不许。
+[[tool.importlinter.contracts]]
+name = "arcreel_market_core 不依赖主仓"
+type = "forbidden"
+source_modules = ["arcreel_market_core"]
+forbidden_modules = ["lib", "server"]
 
 # 路线中立层不得依赖某一条具体路线的子包。违约条目类型（draft_violation）、草稿信封
 # （draft_quarantine）、正式 script_plan 的路径与写禁表（episode_paths）、已登记引用名的
@@ -289,6 +306,8 @@ DEP004 = [
 
 [tool.ruff]
 line-length = 120
+# 子包是 src 布局：列进 src 让 isort 把 arcreel_market_core 识别为第一方。
+src = [".", "packages/arcreel-market-core/src"]
 exclude = [".worktrees", ".claude/worktrees"]
 
 [tool.ruff.lint]
@@ -311,7 +330,7 @@ extend-immutable-calls = [
 ]
 
 [tool.basedpyright]
-include = ["lib", "server", "alembic", "tests", "scripts"]
+include = ["lib", "server", "alembic", "tests", "scripts", "packages/arcreel-market-core/src", "packages/arcreel-market-core/tests"]
 exclude = [
     "**/__pycache__",
     ".venv",
@@ -372,6 +391,22 @@ reportUnknownVariableType = "none"
 # 以下规则在测试域不做闸门：测试里 repo/manager 调用通常断言式访问，narrow 噪声大；
 # mock 返回也常被 subscript。闸门跑 `basedpyright --warnings` 后 warning 即阻断，
 # 故这批降级写成 none 才是「测试域不做闸门」这一既有决策的诚实表达。
+reportArgumentType = "none"
+reportAttributeAccessIssue = "none"
+reportOptionalSubscript = "none"
+reportOptionalMemberAccess = "none"
+reportOptionalIterable = "none"
+reportOperatorIssue = "none"
+reportOptionalCall = "none"
+
+# 子包测试与主仓 tests/ 同一口径；辅助模块经 pytest 的 pythonpath 导入，这里同样列进 extraPaths。
+[[tool.basedpyright.executionEnvironments]]
+root = "packages/arcreel-market-core/tests"
+extraPaths = ["packages/arcreel-market-core/tests"]
+reportPrivateUsage = "none"
+reportUnknownMemberType = "none"
+reportUnknownArgumentType = "none"
+reportUnknownVariableType = "none"
 reportArgumentType = "none"
 reportAttributeAccessIssue = "none"
 reportOptionalSubscript = "none"

@@ -21,6 +21,7 @@ from lib.artifacts.artifact_manifest import (
 from lib.artifacts.formal_write import project_metadata_lock
 from lib.artifacts.version_manager import VersionManager
 from lib.i18n import _
+from lib.infra.validation_messages import default_translate
 from lib.project.project_manager import ProjectManager
 from lib.project.project_migrations.runner import migrate_project_dir
 from lib.project.project_migrations.v7_to_v8_artifact_manifest import migrate_v7_to_v8
@@ -1245,7 +1246,7 @@ class TestProjectArchiveService:
         with pytest.raises(ProjectArchiveValidationError) as exc_info:
             service.import_project_archive(archive_path, uploaded_filename="broken.zip")
 
-        assert exc_info.value.detail.render() == "导入包校验失败"
+        assert exc_info.value.detail.render(default_translate) == "导入包校验失败"
         assert any("project.json" in error for error in exc_info.value.render_errors())
 
     @pytest.mark.parametrize(
@@ -1296,7 +1297,7 @@ class TestProjectArchiveService:
         with pytest.raises(ProjectArchiveValidationError) as exc_info:
             service.import_project_archive(archive_path, uploaded_filename="unmanaged-snapshot.zip")
 
-        assert exc_info.value.detail.render() == "导入包校验失败"
+        assert exc_info.value.detail.render(default_translate) == "导入包校验失败"
         assert any(error.startswith(f"{location}:") for error in exc_info.value.render_errors())
         assert list(pm.projects_dir.iterdir()) == []
 
@@ -1369,7 +1370,7 @@ class TestProjectArchiveService:
         _make_manual_zip(project_dir, archive_path)
 
         result = service.import_project_archive(archive_path, uploaded_filename="ledgered.zip")
-        assert any("episodes[0].script_file" in w for w in (m.render() for m in result.warnings))
+        assert any("episodes[0].script_file" in w for w in (m.render(default_translate) for m in result.warnings))
 
     def test_import_allows_missing_script_for_entry_without_ledger_status(self, tmp_path):
         """v2→v3 迁移不再回填 ledger_status，老项目升级后的条目可能永远没有该字段：
@@ -1384,7 +1385,7 @@ class TestProjectArchiveService:
         _make_manual_zip(project_dir, archive_path)
 
         result = service.import_project_archive(archive_path, uploaded_filename="unledgered.zip")
-        assert any("episodes[0].script_file" in w for w in (m.render() for m in result.warnings))
+        assert any("episodes[0].script_file" in w for w in (m.render(default_translate) for m in result.warnings))
 
     def test_import_rejects_missing_script_reference_for_non_positive_episode_num(self, tmp_path):
         """0/负数集号能被 parse_episode_num 解析，但不是合法集号：剧本缺失仍阻断导入。"""
@@ -1452,7 +1453,7 @@ class TestProjectArchiveService:
         )
 
         result = service.import_project_archive(archive_path, uploaded_filename="bad.zip")
-        assert any("novel.txt" in w and "编码" in w for w in (m.render() for m in result.warnings))
+        assert any("novel.txt" in w and "编码" in w for w in (m.render(default_translate) for m in result.warnings))
 
     @pytest.mark.parametrize(
         ("field_name", "target_path"),
@@ -1567,7 +1568,7 @@ class TestProjectArchiveService:
             )
 
         assert exc_info.value.status_code == 409
-        assert exc_info.value.detail.render() == "检测到项目编号冲突"
+        assert exc_info.value.detail.render(default_translate) == "检测到项目编号冲突"
         assert exc_info.value.extra["conflict_project_name"] == "demo"
 
     def test_import_overwrite_replaces_existing_project(self, tmp_path):

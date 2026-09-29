@@ -8,13 +8,13 @@ from pydantic import BaseModel
 from sqlalchemy import ColumnElement, select, true
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from arcreel_market_core.market.address import source_identity
+from arcreel_market_core.market.index import MarketIndexEntry
 from lib.custom_provider import make_endpoint_key
 from lib.db.models.custom_endpoint import CustomEndpoint
 from lib.db.models.market_installation import MarketInstallation
 from lib.db.models.market_source import MarketSource
-from lib.market.address import source_identity
 from lib.market.entries import SourcedEntry
-from lib.market.index import MarketIndexEntry
 from lib.market.installations import InstallationState, InstallationStatus, available_entries, installation_status
 
 

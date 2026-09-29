@@ -9,14 +9,14 @@ from pathlib import Path
 
 import pytest
 
-from lib.custom_provider.comfyui.bindings import BINDING_KEYS_BY_MEDIA_TYPE
+from arcreel_market_core.comfyui.bindings import BINDING_KEYS_BY_MEDIA_TYPE
+from arcreel_market_core.endpoint_definition.validator import validate_definition
 from lib.custom_provider.comfyui.inference import (
     BindingSignal,
     BindingState,
     InferenceNote,
     infer_bindings,
 )
-from lib.custom_provider.endpoint_definition.validator import validate_definition
 from tests.factories import comfyui_endpoint_definition
 
 DATA = Path(__file__).parent / "data"

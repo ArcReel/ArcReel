@@ -10,6 +10,12 @@ resolution-markers = [
     "python_full_version < '3.13' and sys_platform != 'win32'",
 ]
 
+[manifest]
+members = [
+    "arcreel",
+    "arcreel-market-core",
+]
+
 [[package]]
 name = "aiohappyeyeballs"
 version = "2.7.1"
@@ -193,6 +199,7 @@ source = { editable = "." }
 dependencies = [
     { name = "aiosqlite" },
     { name = "alembic" },
+    { name = "arcreel-market-core" },
     { name = "asyncpg" },
     { name = "beautifulsoup4" },
     { name = "charset-normalizer" },
@@ -205,7 +212,6 @@ dependencies = [
     { name = "httpx" },
     { name = "instructor" },
     { name = "jinja2" },
-    { name = "jsonpath-rfc9535" },
     { name = "jsonschema" },
     { name = "lxml" },
     { name = "mammoth" },
@@ -255,6 +261,7 @@ mutation = [
 requires-dist = [
     { name = "aiosqlite", specifier = ">=0.22.1" },
     { name = "alembic", specifier = ">=1.18.4" },
+    { name = "arcreel-market-core", editable = "packages/arcreel-market-core" },
     { name = "asyncpg", specifier = ">=0.31.0" },
     { name = "beautifulsoup4", specifier = ">=4.14.3" },
     { name = "charset-normalizer", specifier = ">=3.4.6" },
@@ -267,7 +274,6 @@ requires-dist = [
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "instructor", specifier = ">=1.14.5" },
     { name = "jinja2", specifier = ">=3.1.6" },
-    { name = "jsonpath-rfc9535", specifier = ">=1.0.0" },
     { name = "jsonschema", specifier = ">=4.26.0" },
     { name = "lxml", specifier = ">=6.1.0" },
     { name = "mammoth", specifier = ">=1.12.0" },
@@ -310,6 +316,41 @@ dev = [
     { name = "ruff", specifier = ">=0.16.0" },
 ]
 mutation = [{ name = "mutmut", specifier = "==3.7.0" }]
+
+[[package]]
+name = "arcreel-market-core"
+version = "0.1.0"
+source = { editable = "packages/arcreel-market-core" }
+dependencies = [
+    { name = "httpx" },
+    { name = "jsonpath-rfc9535" },
+    { name = "jsonschema" },
+    { name = "packaging" },
+    { name = "pillow" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "respx" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "httpx", specifier = ">=0.28.1" },
+    { name = "jsonpath-rfc9535", specifier = ">=1.0.0" },
+    { name = "jsonschema", specifier = ">=4.26.0" },
+    { name = "packaging", specifier = ">=24.0" },
+    { name = "pillow", specifier = ">=12.1.1" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "pytest", specifier = ">=9.0.2" },
+    { name = "pytest-asyncio", specifier = ">=1.3.0" },
+    { name = "respx", specifier = ">=0.22.0" },
+]
 
 [[package]]
 name = "argon2-cffi"
@@ -3392,7 +3433,7 @@ name = "uiautomation"
 version = "2.0.29"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "comtypes" },
+    { name = "comtypes", marker = "sys_platform == 'win32'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/bc/23/8238b5cb73e54c3618ce4d443c1830a2749264a0d61a9b61637096b8dc7a/uiautomation-2.0.29.tar.gz", hash = "sha256:3c169112043ce21065aead1d79c3baebdafc9cf03bd24ded02b2db11d423d88d", size = 203970, upload-time = "2025-08-05T05:14:41.194Z" }
 wheels = [

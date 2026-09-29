@@ -16,7 +16,7 @@ outputs:
     description: CI 配置域（.github/、.codecov.yml、.gitignore）是否变更
     value: ${{ steps.gate.outputs.workflow }}
   backend:
-    description: 后端域（server/lib/tests/alembic/依赖文件/agent_runtime_profile）是否变更
+    description: 后端域（server/lib/tests/alembic/workspace 子包/依赖文件/agent_runtime_profile）是否变更
     value: ${{ steps.gate.outputs.backend }}
   frontend:
     description: 前端域（frontend/）是否变更
@@ -51,6 +51,7 @@ runs:
             - 'alembic.ini'
             - 'scripts/**'
             - 'agent_runtime_profile/**'
+            - 'packages/**'
             - 'pyproject.toml'
             - 'uv.lock'
             # 后端契约测试直接读取这些前端源文件；它们同时命中 frontend 域。

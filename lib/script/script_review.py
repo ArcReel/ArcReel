@@ -30,6 +30,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
+from arcreel_market_core.validation_messages import ValidationMessage
 from lib.artifacts.formal_write import formal_write_transaction, project_metadata_lock
 from lib.episode.episode_paths import (
     REFERENCE_VIDEO_SCRIPT_PLAN_FILENAME,
@@ -40,7 +41,7 @@ from lib.episode.episode_paths import (
 from lib.infra.content_digest import canonical_json_digest
 from lib.infra.json_io import atomic_write_json, load_json_or_none
 from lib.infra.path_safety import try_safe_join
-from lib.infra.validation_messages import ValidationMessage
+from lib.infra.validation_messages import default_translate
 from lib.project.project_manager import ProjectManager, find_episode, is_reference_video_project
 from lib.script.draft_quarantine import (
     QUARANTINE_KIND_DRAMA_SCRIPT_PLAN,
@@ -712,7 +713,11 @@ def migrate_script_plan_draft_in_place(
     before = content_fingerprint_of_data(content)
     changed, warnings = migrate_unit_durations(content.get("units"), supported_durations=supported_durations)
     for message in warnings:
-        logger.warning("script_plan 草稿 %s 时长收编迁移: %s", REFERENCE_VIDEO_SCRIPT_PLAN_FILENAME, message.render())
+        logger.warning(
+            "script_plan 草稿 %s 时长收编迁移: %s",
+            REFERENCE_VIDEO_SCRIPT_PLAN_FILENAME,
+            message.render(default_translate),
+        )
     if not changed:
         return None, []
 

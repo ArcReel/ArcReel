@@ -9,12 +9,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from google.genai import errors as genai_errors
 
-from lib.backends.gemini_shared import VERTEX_SCOPES
-from lib.backends.video_backend_contract import (
+from arcreel_market_core.video_backend_contract import (
     ResumeExpiredError,
     VideoGenerationRequest,
     VideoGenerationResult,
 )
+from lib.backends.gemini_shared import VERTEX_SCOPES
 from lib.billing.cost_calculator import cost_calculator
 from tests.fakes import bounded_poll_clock
 

@@ -17,6 +17,7 @@ from typing import Annotated, Any, Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from arcreel_market_core.validation_messages import ValidationMessage
 from lib.artifacts.artifact_activation import (
     prepare_episode_script_manifest_commit,
 )
@@ -29,7 +30,7 @@ from lib.episode.episode_ledger import discover_sources, normalize_source_text
 from lib.episode.episode_paths import episode_script_filename, episode_source_relpath
 from lib.infra.content_digest import prefixed
 from lib.infra.path_safety import try_safe_join
-from lib.infra.validation_messages import ValidationMessage
+from lib.infra.validation_messages import default_translate
 from lib.project.data_validator import DataValidator
 from lib.project.project_manager import EpisodeScriptReboundError, ProjectManager
 from lib.project.project_migration_failure import (
@@ -986,7 +987,7 @@ def _validation_location(message: ValidationMessage) -> ScriptBatchEditLocation:
         return ScriptBatchEditLocation(path=path)
     if isinstance(field, str):
         return ScriptBatchEditLocation(path=_parse_path(field))
-    rendered = message.render()
+    rendered = message.render(default_translate)
     prefix = rendered.split(":", 1)[0]
     return ScriptBatchEditLocation(path=_parse_path(prefix))
 

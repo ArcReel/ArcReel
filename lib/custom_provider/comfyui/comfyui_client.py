@@ -19,6 +19,8 @@ from typing import Any
 
 import httpx
 
+from arcreel_market_core.auth_section import render_auth
+from arcreel_market_core.video_backend_contract import IMAGE_MIME_TYPES, ProviderResponseStage
 from lib.backends.backend_runtime import (
     request_with_scoped_credentials,
     should_retry_submit,
@@ -28,8 +30,6 @@ from lib.backends.backend_runtime import (
     with_artifact_retry,
 )
 from lib.backends.http_status_errors import redacted_status_error
-from lib.backends.video_backend_contract import IMAGE_MIME_TYPES, ProviderResponseStage
-from lib.custom_provider.auth_section import render_auth
 from lib.custom_provider.comfyui.failures import NODE_ERRORS, UPLOAD_FAILED, ComfyuiError
 from lib.infra.logging_utils import format_kwargs_for_log
 from lib.infra.retry import retry_async

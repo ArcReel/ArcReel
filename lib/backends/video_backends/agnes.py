@@ -30,9 +30,16 @@ from urllib.parse import urlsplit
 
 import httpx
 
+from arcreel_market_core.aspect_size import VIDEO_TIER_SHORT_EDGE, aspect_size, resolution_to_short_edge
+from arcreel_market_core.video_backend_contract import (
+    VideoAudioMode,
+    VideoCapabilities,
+    VideoCapabilityError,
+    VideoGenerationRequest,
+    VideoGenerationResult,
+)
 from lib.backends.agnes_shared import agnes_base_url, agnes_headers, agnes_host, resolve_agnes_api_key
 from lib.backends.artifact_download_guard import artifact_http_client
-from lib.backends.aspect_size import VIDEO_TIER_SHORT_EDGE, aspect_size, resolution_to_short_edge
 from lib.backends.backend_runtime import (
     ProviderJobIdPersistenceMixin,
     download_resumable_video,
@@ -45,13 +52,6 @@ from lib.backends.backend_runtime import (
 )
 from lib.backends.http_status_errors import raise_for_status_redacted
 from lib.backends.providers import PROVIDER_AGNES
-from lib.backends.video_backend_contract import (
-    VideoAudioMode,
-    VideoCapabilities,
-    VideoCapabilityError,
-    VideoGenerationRequest,
-    VideoGenerationResult,
-)
 from lib.db.repositories.usage_repo import MAX_BILLED_DURATION_SECONDS
 from lib.infra.logging_utils import format_kwargs_for_log
 from lib.infra.retry import (
