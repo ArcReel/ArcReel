@@ -102,3 +102,26 @@ export interface MarketEntryDetail {
   source: Pick<MarketSourceInfo, "id" | "kind" | "display_name" | "canonical_key" | "is_enabled" | "status" | "fetched_at" | "index">;
   app_version: string | null;
 }
+
+/** 官方服务的开关状态；`enabled` 为 false 时市场页不展示任何官方服务元素。 */
+export interface OfficialServiceState {
+  /** 官方服务地址非空。 */
+  available: boolean;
+  /** 地址非空且总开关为开。 */
+  enabled: boolean;
+  /** 市场页的首次说明已确认。 */
+  notice_seen: boolean;
+  /** 随请求发往官方服务的实例标识；尚未生成时为 null。 */
+  instance_id: string | null;
+}
+
+/** 官方市场源条目在官方服务的安装量与评分。 */
+export interface MarketEntryAggregate {
+  source_id: number;
+  slug: string;
+  /** 官方服务取整后的展示值，原样展示。 */
+  installs: number;
+  rating_count: number;
+  /** 评分人数不足官方服务的阈值时为 null，只展示人数。 */
+  rating_average: number | null;
+}

@@ -9,6 +9,7 @@ import type {
   EndpointReference,
   EndpointValidateResponse,
   MarketEntry,
+  MarketEntryAggregate,
   MarketEntryDetail,
   MarketEntryInstallation,
 } from "@/types";
@@ -23,6 +24,8 @@ import { EndpointReferenceList, endpointReferences } from "../endpoints/Endpoint
 import { exportEndpointDefinition } from "../endpoints/export-endpoint-definition";
 import { MarketInstallBadges } from "./MarketInstallBadges";
 import { EntryIcon, SourceChip } from "./MarketEntryCard";
+import { MarketEntryRating } from "./MarketEntryRating";
+import { MarketEntryStats } from "./MarketEntryStats";
 import { KICKER_ACCENT_CLS, KICKER_CLS } from "./market-source-status";
 
 interface Preview {
@@ -42,17 +45,20 @@ function displayValue(value: unknown): string {
 /**
  * 安装与更新共用的确认弹窗：先完整展示来源、校验和凭证去向，安装、更新与卸载由服务端原子执行。
  * 可更新时进入更新态，确认后经同一安装接口原地覆盖持有记录的端点；本地改过的定义先提示会被覆盖并可先导出。
+ * 传入 `official` 时（官方服务开启且条目来自官方市场源）头部显示安装量与评分，并提供评分控件。
  */
 export function MarketInstallDialog({
   entry,
   currentEndpointDefinition,
   hasUnsavedEndpointChanges = false,
+  official,
   onClose,
   onInstallationChange,
 }: {
   entry: MarketEntry;
   currentEndpointDefinition?: EndpointDefinition;
   hasUnsavedEndpointChanges?: boolean;
+  official?: { aggregate: MarketEntryAggregate | null; onRated?: () => void };
   onClose: () => void;
   onInstallationChange: (installation: MarketEntryInstallation | null) => void;
 }) {
@@ -148,7 +154,7 @@ export function MarketInstallDialog({
       `${location}?${new URLSearchParams({ section: "providers", custom: String(reference.provider_id), model: reference.model_id })}`,
     );
   const install = async () => {
-    if (!preview?.digest) return;
+    if (!preview?.digest || busy) return;
     setBusy(true);
     setError(null);
     try {
@@ -170,7 +176,7 @@ export function MarketInstallDialog({
     }
   };
   const uninstall = async () => {
-    if (!installed) return;
+    if (!installed || busy) return;
     setBusy(true);
     setError(null);
     try {
@@ -237,6 +243,19 @@ export function MarketInstallDialog({
                 )}
               </div>
               {header.description && <p className="mt-2 text-[12.5px] text-text-2">{header.description}</p>}
+              {official && (
+                <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2">
+                  {official.aggregate && <MarketEntryStats aggregate={official.aggregate} />}
+                  <MarketEntryRating
+                    sourceId={entry.source_id}
+                    slug={entry.slug}
+                    installed={installed !== null}
+                    busy={busy}
+                    onBusyChange={setBusy}
+                    onRated={official.onRated}
+                  />
+                </div>
+              )}
               {source?.kind === "custom" && (
                 <p className="mt-3 rounded-[8px] border border-warn/30 bg-warn/8 p-3 text-[12px] text-text-2">
                   {t("market_unreviewed")}

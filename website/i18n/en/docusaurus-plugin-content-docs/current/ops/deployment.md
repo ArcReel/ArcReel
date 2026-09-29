@@ -175,6 +175,7 @@ The default deployment examples currently include these core variables:
 | `ARCREEL_DATA_DIR` | `projects` | Data root; projects, the default SQLite database, logs, and Vertex credentials all live under it |
 | `CORS_ORIGINS` | Wildcard | When narrowed to an allowlist, browser MCP client origins must be listed too |
 | `MCP_PUBLIC_URL` | `http://localhost:1241/mcp` | Optional; only OAuth discovery-based MCP clients need it |
+| `ARCREEL_OFFICIAL_SERVICE_URL` | Built-in official service address | The official service behind market install counts, ratings, and submissions; set it to empty to turn it off entirely, leaving the market to read market sources only |
 
 Notes:
 

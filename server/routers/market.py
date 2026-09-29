@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, Query, Response
+from fastapi import APIRouter, BackgroundTasks, Depends, Query, Response
 from pydantic import BaseModel, Field
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -42,6 +42,7 @@ from lib.market.entries import (
     merge_entries,
 )
 from lib.market.installations import definition_digest, write_installation
+from lib.market.official_service import EntryRef, OfficialServiceGateway, get_official_service_gateway
 from lib.market.sources import DuplicateSourceError, MarketSourceService, get_market_source_service
 from server.i18n import Translator
 from server.routers._market_installations import (
@@ -61,6 +62,7 @@ router = APIRouter(prefix="/market", tags=["Market"])
 Service = Annotated[MarketSourceService, Depends(get_market_source_service)]
 EntryService = Annotated[MarketEntryService, Depends(get_market_entry_service)]
 AppVersionReader = Annotated[Callable[[], str], Depends(get_app_version_reader)]
+OfficialService = Annotated[OfficialServiceGateway, Depends(get_official_service_gateway)]
 
 #: icon 地址由前端带上条目版本作查询参数，版本变了地址就变，故浏览器可缓存较久。
 ICON_CACHE_CONTROL = "private, max-age=86400"
@@ -150,6 +152,24 @@ class MarketEntrySourceSummary(BaseModel):
     status: str
     fetched_at: str | None
     index: MarketIndexSummary | None
+
+
+class MarketEntryAggregateResponse(BaseModel):
+    source_id: int
+    slug: str
+    #: 官方服务取整后的展示值，原样展示。
+    installs: int
+    rating_count: int
+    #: 评分人数不足官方服务的阈值时为 null，只展示人数。
+    rating_average: float | None
+
+
+class MarketEntryAggregateListResponse(BaseModel):
+    items: list[MarketEntryAggregateResponse]
+
+
+class RateMarketEntryRequest(BaseModel):
+    stars: int = Field(ge=1, le=5, strict=True)
 
 
 class MarketEntryDetailResponse(BaseModel):
@@ -386,6 +406,35 @@ async def list_entries(
     )
 
 
+@router.get("/entries/aggregates", response_model=MarketEntryAggregateListResponse)
+async def list_entry_aggregates(
+    official: OfficialService,
+    session: AsyncSession = Depends(get_async_session),
+    entry_type: Annotated[str, Query(alias="type", description="条目类型；首期只有 endpoint")] = ENDPOINT_ENTRY_TYPE,
+) -> MarketEntryAggregateListResponse:
+    """启用的官方市场源里各条目在官方服务的安装量与评分；第三方源的条目不发给官方服务。官方服务关闭时 409。"""
+    client = await official.require()
+    sources = [
+        source for source in await MarketSourceRepository(session).list_ordered() if source.kind == OFFICIAL_KIND
+    ]
+    merged = merge_entries(sources, entry_type=entry_type)
+    aggregates = await client.aggregates(
+        [EntryRef(type=item.entry.type, source=item.source.canonical_key, slug=item.entry.slug) for item in merged]
+    )
+    return MarketEntryAggregateListResponse(
+        items=[
+            MarketEntryAggregateResponse(
+                source_id=item.source.id,
+                slug=item.entry.slug,
+                installs=aggregate.installs,
+                rating_count=aggregate.rating_count,
+                rating_average=aggregate.rating_average,
+            )
+            for item, aggregate in zip(merged, aggregates, strict=True)
+        ]
+    )
+
+
 @router.get("/sources/{source_id}/entries/{slug}", response_model=MarketEntryDetailResponse)
 async def get_entry(
     source_id: int,
@@ -500,10 +549,13 @@ async def install_entry(
     slug: str,
     body: InstallMarketEntryRequest,
     service: EntryService,
+    official: OfficialService,
+    background_tasks: BackgroundTasks,
     read_app_version: AppVersionReader,
     _t: Translator,
     session: AsyncSession = Depends(get_async_session),
 ) -> InstallMarketEntryResponse:
+    """官方市场源的首次安装在事务提交后以后台任务上报官方服务；更新（已有安装记录）与第三方源不上报。"""
     checked = await _checked_definition(service, session, source_id, slug)
     source, entry, definition = checked.source, checked.entry, checked.definition
     if not source.is_enabled:
@@ -520,6 +572,7 @@ async def install_entry(
         raise UnprocessableError("custom_endpoint_definition_invalid").with_diagnostic(
             validate_definition(definition).to_payload(_t)
         )
+    first_install = await entry_installation(session, SourcedEntry(source=source, entry=entry)) is None
     try:
         endpoint = await write_installation(
             session,
@@ -539,7 +592,37 @@ async def install_entry(
     installation = await entry_installation(session, SourcedEntry(source=source, entry=entry))
     if installation is None:
         raise NotFoundError("custom_endpoint_not_found")
+    app_version = _app_version(read_app_version)
+    if first_install and source.kind == OFFICIAL_KIND and app_version:
+        background_tasks.add_task(
+            official.report_install,
+            EntryRef(type=entry.type, source=source.canonical_key, slug=entry.slug),
+            version=entry.version,
+            app_version=app_version,
+        )
     return InstallMarketEntryResponse(
         endpoint=endpoint_response(endpoint, await endpoint_installation(session, endpoint.id)),
         installation=installation,
     )
+
+
+@router.put("/sources/{source_id}/entries/{slug}/rating", status_code=204)
+async def rate_entry(
+    source_id: int,
+    slug: str,
+    body: RateMarketEntryRequest,
+    official: OfficialService,
+    session: AsyncSession = Depends(get_async_session),
+) -> Response:
+    """经官方服务提交或修改评分；只有官方市场源的条目可评分。官方服务的错误码与状态码原样落到本地响应。"""
+    source = await _require_source(MarketSourceRepository(session), source_id)
+    entry = find_entry(source, slug)
+    if entry is None:
+        raise NotFoundError("market_entry_not_found")
+    if source.kind != OFFICIAL_KIND:
+        raise ConflictError("market_entry_rating_unofficial")
+    if await entry_installation(session, SourcedEntry(source=source, entry=entry)) is None:
+        raise ConflictError("market_entry_rating_not_installed")
+    client = await official.require()
+    await client.rate(EntryRef(type=entry.type, source=source.canonical_key, slug=entry.slug), body.stars)
+    return Response(status_code=204)

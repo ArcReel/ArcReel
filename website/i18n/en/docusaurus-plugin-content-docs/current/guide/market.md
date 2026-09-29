@@ -11,7 +11,7 @@ The market lets you browse call endpoints that others have already adapted, from
 
 ## 1. What Are the Market and Market Sources {#what-is-market}
 
-- **Market**: the "Market" section in the Configuration group of Settings, placed after "Endpoints". Browsing and installing run only on your local ArcReel and the market source repositories. They do not depend on any central service, and no account is required. In the first release, the only market entry type is call endpoints.
+- **Market**: the "Market" section in the Configuration group of Settings, placed after "Endpoints". Browsing and installing run only on your local ArcReel and the market source repositories. They do not depend on any central service, and no account is required. Install counts and ratings come from an official service you can turn off; see [Install Counts, Ratings, and the Official Service](#official-service). In the first release, the only market entry type is call endpoints.
 - **Market source**: a GitHub repository (or an equivalent `https://` direct link) whose root index file `arcreel-market.json` lists its market entries. The ArcReel backend fetches the index and definitions on your behalf and only accesses raw file URLs.
 - **Official market source**: [`ArcReel/arcreel-market`](https://github.com/ArcReel/arcreel-market) ships preconfigured. It can be disabled, renamed, and reordered, but not deleted. Every other source you add yourself is a third-party market source.
 - **Market entry**: an installable item in an index, whose payload is a call endpoint definition. An entry is uniquely identified by its slug within its market source. The same slug in different market sources does not mean the same definition; such entries are displayed side by side.
@@ -68,7 +68,7 @@ You can also enter the "Market" section by clicking "Get from market" in the "En
 
 ### 3.1 Browse Entries {#browse-entries}
 
-The entry grid lists entries from all enabled sources in market source order, without grouping by source. Each card shows the icon, name, `author · vversion`, description, market source, and a primary button in the lower-right corner ("Install", "Update", or "Installed").
+The entry grid lists entries from all enabled sources in market source order, without grouping by source. Each card shows the icon, name, `author · vversion`, description, market source (entries from the official market source also show install counts and ratings next to it), and a primary button in the lower-right corner ("Install", "Update", or "Installed").
 
 - **Search**: filter by name, author, and description.
 - **Entry type**: only "Endpoints" is currently available; "Prompts" and "Style templates" are marked as coming soon.
@@ -137,7 +137,33 @@ The endpoint and its installation record are deleted together. If models still u
 
 Disabling or deleting a market source does not uninstall installed endpoints.
 
-## 6. Contribute and Host Your Own Market Source {#contribute-and-host}
+## 6. Install Counts, Ratings, and the Official Service {#official-service}
+
+The official service is an overlay run by the ArcReel team that records install counts and ratings for entries from the official market source. It takes no part in browsing or installing: when it is turned off or unreachable, the market works as usual and simply shows no numbers. The frontend only talks to your local server, which sends every request to the official service on its behalf.
+
+### 6.1 Install Counts and Ratings {#installs-and-ratings}
+
+- Cards of entries from the official market source show install counts and ratings next to the market source: the download icon marks the install count (a rounded display value from the official service), and the star marks the average rating and the number of ratings. Until there are enough ratings, only the number of ratings appears. Entries from third-party market sources show no numbers and are never sent to the official service.
+- In the header of the install confirmation dialog, you can rate an entry from 1 to 5 stars and change the rating anytime. Only installed entries can be rated. If the official service has no record of this ArcReel installing the entry (for example, because the official service was off at install time), you are told the entry cannot be rated.
+
+### 6.2 What Is Reported {#what-is-reported}
+
+After you install an entry from the official market source for the **first** time, the local server reports it to the official service once: the market source, entry type, slug, entry version, and app version, with the instance ID in a request header. Updates, uninstalls, and installs from third-party market sources are never reported. A failed report does not affect the installation and is not retried.
+
+The instance ID is a randomly generated UUID, created the first time it is needed and stored locally. It is not tied to your machine or any account, and the official service stores only its hash.
+
+The first time you open the "Market" section, a notice at the top explains what is reported. Click "Got it", or click "Turn off official service" right away.
+
+### 6.3 Turn Off the Official Service and Reset the Instance ID {#turn-off-official-service}
+
+In the "Official service" card under Settings › About:
+
+- **Use the official service**: when turned off, the market page no longer shows install counts, ratings, or the notice, and the local server sends nothing to the official service.
+- **Reset instance ID**: deletes the current instance ID; a new one is created the next time the official service is contacted. The official service then treats this ArcReel as a new instance, and earlier install reports and ratings are no longer linked to it. Entries installed before the reset must be reinstalled before you can rate them again.
+
+For self-hosted deployments, set the environment variable `ARCREEL_OFFICIAL_SERVICE_URL` to empty to turn off the official service entirely; see [Deployment](../ops/deployment.md).
+
+## 7. Contribute and Host Your Own Market Source {#contribute-and-host}
 
 The official market source repository documentation is authoritative for the contribution workflow, content guidelines, and hosting your own market source:
 
