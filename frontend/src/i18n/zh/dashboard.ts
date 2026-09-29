@@ -2444,7 +2444,7 @@ export default {
   'market_share_save_first': '先保存修改，再分享',
   'market_share_submitted': '已提交到官方市场，等待审核',
   'market_share_title': '分享到官方市场',
-  'market_share_intro': '提交后，官方服务会在官方市场仓库开一个 PR，由审核者在 GitHub 上审核。合并即采纳，关闭即拒绝。PR 合并前再次提交同一 slug，修改会进入同一个 PR。',
+  'market_share_intro': '提交后，官方服务会在官方市场仓库开一个 PR，由审核者在 GitHub 上审核。合并即采纳，关闭即拒绝。PR 开放期间再次提交同一 slug，修改会进入同一个 PR；PR 合并或关闭后再提交，会开一个新的 PR。',
   'market_share_no_credentials': '提交的是这个端点已保存的定义。定义不含 API Key 等凭证，auth 节只有占位符；提交内容会公开出现在 PR 中。',
   'market_share_slug_label': 'slug 建议',
   'market_share_slug_hint': '条目目录名，只允许小写字母、数字与连字符。默认由端点名称生成，审核者可能在合并前调整最终 slug。',

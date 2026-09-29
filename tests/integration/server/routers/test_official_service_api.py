@@ -1,5 +1,6 @@
 """官方服务设置的 HTTP 契约：总开关、首次告知标记与实例标识重置。"""
 
+import json
 from collections.abc import AsyncGenerator, Callable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 
@@ -77,8 +78,16 @@ async def settings_client_factory(session_factory: async_sessionmaker[AsyncSessi
 async def _query_aggregates(client: httpx.AsyncClient) -> str:
     """查询聚合一次，返回官方服务收到的实例标识。"""
     with respx.mock(assert_all_called=True) as remote:
-        route = remote.post(AGGREGATES).respond(
-            json={"items": [{"installs": 0, "rating_count": 0, "rating_average": None}]}
+        route = remote.post(AGGREGATES).mock(
+            side_effect=lambda request: httpx.Response(
+                200,
+                json={
+                    "items": [
+                        {**ref, "installs": 0, "rating_count": 0, "rating_average": None}
+                        for ref in json.loads(request.content)["items"]
+                    ]
+                },
+            )
         )
         assert (await client.get("/market/entries/aggregates")).status_code == 200
         return route.calls.last.request.headers["X-ArcReel-Instance"]

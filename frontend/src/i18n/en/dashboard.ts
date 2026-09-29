@@ -2445,7 +2445,7 @@ export default {
   'market_share_save_first': 'Save your changes before sharing',
   'market_share_submitted': 'Submitted to the official market and awaiting review',
   'market_share_title': 'Share to the official market',
-  'market_share_intro': 'After you submit, the official service opens a PR on the official market repository, and reviewers review it on GitHub. Merged means accepted; closed means rejected. Submitting the same slug again before the PR is merged adds your changes to the same PR.',
+  'market_share_intro': 'After you submit, the official service opens a PR on the official market repository, and reviewers review it on GitHub. Merged means accepted; closed means rejected. Submitting the same slug again while the PR is open adds your changes to the same PR; after it is merged or closed, a new PR is opened.',
   'market_share_no_credentials': 'This submits the saved definition of this endpoint. Definitions contain no credentials such as API keys; the auth section holds only placeholders. The submitted content appears publicly in the PR.',
   'market_share_slug_label': 'Suggested slug',
   'market_share_slug_hint': 'The entry directory name: lowercase letters, digits and hyphens only. It defaults to one derived from the endpoint name, and reviewers may adjust the final slug before merging.',

@@ -504,6 +504,7 @@ MESSAGES = {
     "official_service_unavailable": "暂时无法连接官方服务，请稍后重试",
     "market_entry_rating_not_installed": "安装此条目后才能评分",
     "market_submission_invalid": "提交内容未通过本地校验，请按诊断修正后再提交",
+    "market_submission_literal_credential": "该值疑似直接填写了密钥：分享会把定义原样公开，请先清空这个值再分享",
     "market_submission_icon_encoding_invalid": "图标文件内容无效",
     "market_entry_rating_unofficial": "只有官方市场源的条目可以评分",
     "official_service_error_unknown": "官方服务返回了错误（{code}）",

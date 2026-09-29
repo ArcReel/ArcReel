@@ -185,13 +185,14 @@ class OfficialServiceClient:
                 "meta": meta,
             },
         )
-        return _parse_submission(response)
+        return _parse_submission(response, expected={"type": type, "slug": slug})
 
     async def submission_status(self, token: str) -> SubmissionStatus:
-        return _parse_submission(await self.request("GET", f"/market/submissions/{token}"))
+        return _parse_submission(await self.request("GET", f"/market/submissions/{token}"), expected={"token": token})
 
 
-def _parse_submission(response: httpx.Response) -> SubmissionStatus:
+def _parse_submission(response: httpx.Response, *, expected: Mapping[str, str]) -> SubmissionStatus:
+    """``expected`` 是请求所指的字段；响应属于另一个提交时按不可用处理。"""
     try:
         body = response.json()
         fields = {name: body[name] for name in ("token", "type", "slug", "status", "pr_url")}
@@ -199,6 +200,8 @@ def _parse_submission(response: httpx.Response) -> SubmissionStatus:
             raise TypeError("submission field types")
         if fields["status"] not in SUBMISSION_STATUSES:
             raise ValueError(f"unknown status {fields['status']!r}")
+        if any(fields[name] != value for name, value in expected.items()):
+            raise ValueError("submission mismatch")
     except (ValueError, KeyError, TypeError) as exc:
         raise _unavailable(f"malformed submission: {exc}") from exc
     return SubmissionStatus(**fields)
@@ -211,6 +214,8 @@ def _parse_aggregates(response: httpx.Response, refs: Sequence[EntryRef]) -> lis
             raise TypeError("items length mismatch")
         parsed = []
         for ref, item in zip(refs, items, strict=True):
+            if EntryRef(type=item["type"], source=item["source"], slug=item["slug"]) != ref:
+                raise ValueError("aggregate entry mismatch")
             installs, count, average = item["installs"], item["rating_count"], item["rating_average"]
             if not (
                 type(installs) is int
@@ -218,6 +223,9 @@ def _parse_aggregates(response: httpx.Response, refs: Sequence[EntryRef]) -> lis
                 and (average is None or (isinstance(average, int | float) and not isinstance(average, bool)))
             ):
                 raise TypeError("aggregate field types")
+            # 越界值说明响应不可信：整批按不可用处理，前端不展示数字。
+            if installs < 0 or count < 0 or (average is not None and not 1 <= average <= 5):
+                raise ValueError("aggregate field range")
             parsed.append(
                 EntryAggregate(
                     ref=ref,
@@ -315,17 +323,18 @@ class OfficialServiceGateway:
             logger.warning("Official service install report failed for %s/%s", ref.type, ref.slug, exc_info=True)
 
     async def _create_instance_id(self) -> str:
-        """并发首次生成时以先落库者为准。"""
-        candidate = str(uuid.uuid4())
-        async with self._session_factory() as session:
-            settings = SystemSettingRepository(session)
-            try:
-                session.add(SystemSetting(key=INSTANCE_ID_SETTING, value=candidate))
-                await session.commit()
-            except IntegrityError:
-                await session.rollback()
-                return await settings.get(INSTANCE_ID_SETTING)
-        return candidate
+        """并发首次生成时以先落库者为准；先落库的标识随即被重置删除时重新生成。"""
+        while True:
+            candidate = str(uuid.uuid4())
+            async with self._session_factory() as session:
+                try:
+                    session.add(SystemSetting(key=INSTANCE_ID_SETTING, value=candidate))
+                    await session.commit()
+                    return candidate
+                except IntegrityError:
+                    await session.rollback()
+                    if existing := await SystemSettingRepository(session).get(INSTANCE_ID_SETTING):
+                        return existing
 
 
 _gateway: OfficialServiceGateway | None = None
