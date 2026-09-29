@@ -77,7 +77,7 @@ export function Stage({
             {c.clip.id} · {c.unit.id} v{c.unit.currentVersion}
           </span>
           {c.staleTrim && (
-            <span className="rounded-[4px] bg-warn/90 px-1.5 py-0.5 text-black">裁切已忽略，整段播放</span>
+            <span className="rounded-[4px] bg-warn/90 px-1.5 py-0.5 text-black">素材已更新</span>
           )}
         </div>
       )}
@@ -117,9 +117,9 @@ export function PlayButton({ pb, size = "md" }: { pb: Playback; size?: "md" | "l
 }
 
 export const ISSUE_TONE = {
-  stale_trim: { dot: "bg-warn", text: "text-warn", label: "裁切已忽略" },
-  missing_unit: { dot: "bg-danger", text: "text-danger-2", label: "单元已删除" },
+  stale_trim: { dot: "bg-warn", text: "text-warn", label: "素材已更新" },
+  missing_unit: { dot: "bg-danger", text: "text-danger-2", label: "素材已删除" },
   unused_unit: { dot: "bg-text-4", text: "text-text-3", label: "未使用" },
   narration_overlap: { dot: "bg-danger", text: "text-danger-2", label: "旁白重叠" },
-  narration_overflow: { dot: "bg-danger", text: "text-danger-2", label: "旁白越界" },
+  narration_overflow: { dot: "bg-danger", text: "text-danger-2", label: "旁白超出结尾" },
 } as const;

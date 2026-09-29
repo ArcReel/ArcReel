@@ -250,7 +250,7 @@ export function resolveTimeline(timeline: EditTimeline): ResolvedTimeline {
         severity: "warn",
         clipId: c.clip.id,
         unitId: c.unit.id,
-        message: `${c.clip.id} 引用的视频单元 ${c.unit.id} 已从脚本删除，播放和渲染时跳过`,
+        message: `${c.clip.id}：素材已删除，已跳过`,
       });
     if (c.staleTrim)
       issues.push({
@@ -258,7 +258,7 @@ export function resolveTimeline(timeline: EditTimeline): ResolvedTimeline {
         severity: "warn",
         clipId: c.clip.id,
         unitId: c.unit.id,
-        message: `${c.clip.id} 的裁切按 v${c.clip.trimmedVersion} 设定，${c.unit.id} 现在用 v${c.unit.currentVersion}，已改为整段使用`,
+        message: `${c.clip.id}：素材已更新，暂用完整视频`,
       });
   }
   narrations.forEach((n, i) => {
@@ -269,7 +269,7 @@ export function resolveTimeline(timeline: EditTimeline): ResolvedTimeline {
         severity: "block",
         clipId: n.clipId,
         unitId: n.unitId,
-        message: `${n.unitId} 的旁白与下一段旁白重叠 ${(n.end - next.start).toFixed(1)}s`,
+        message: `${n.clipId}：旁白与下一段重叠 ${(n.end - next.start).toFixed(1)}s`,
       });
     if (n.end > total)
       issues.push({
@@ -277,13 +277,13 @@ export function resolveTimeline(timeline: EditTimeline): ResolvedTimeline {
         severity: "block",
         clipId: n.clipId,
         unitId: n.unitId,
-        message: `${n.unitId} 的旁白超出时间线末尾 ${(n.end - total).toFixed(1)}s`,
+        message: `${n.clipId}：旁白超出结尾 ${(n.end - total).toFixed(1)}s`,
       });
   });
   const used = new Set(timeline.clips.map((c) => c.unitId));
   const unusedUnits = UNITS.filter((u) => !u.deleted && !used.has(u.id));
   for (const u of unusedUnits)
-    issues.push({ kind: "unused_unit", severity: "warn", unitId: u.id, message: `视频单元 ${u.id} 没有用在这条剪辑时间线里` });
+    issues.push({ kind: "unused_unit", severity: "warn", unitId: u.id, message: `${u.id} 未使用` });
 
   return { timeline, clips, playable, narrations, subtitles, unusedUnits, issues, total };
 }

@@ -1,11 +1,11 @@
-// PROTOTYPE（#2752）变体 A「剪辑台」：播放器在上，多轨横向时间线在下，选中片段看详情并交给 Agent。
-import { AlertTriangle, Link2, MessageSquarePlus, Music, Scissors } from "lucide-react";
+// PROTOTYPE（#2752）变体 A「剪辑台」：播放器在上，多轨横向时间线在下，点选片段看详情；修改通过对话交给 Agent。
+import { AlertTriangle, Link2, Music } from "lucide-react";
 import { useRef, useState } from "react";
 
 import { GHOST_BTN_CLS } from "@/components/ui/darkroom-tokens";
 
-import { fmt, TIMELINES, type ResolvedClip, type ResolvedTimeline, unitHue } from "./model";
-import { askAgent, clipRef, deepLink, ISSUE_TONE, PlayButton, Stage, timelineRef } from "./shared";
+import { fmt, TIMELINES, type ResolvedClip, unitHue } from "./model";
+import { deepLink, ISSUE_TONE, PlayButton, Stage } from "./shared";
 import type { VariantProps } from "./types";
 
 export const name = "剪辑台";
@@ -56,7 +56,7 @@ export function VariantA({ r, pb, timelineId, onSelectTimeline, variant }: Varia
             className={GHOST_BTN_CLS}
             onClick={() => void navigator.clipboard.writeText(deepLink(r, pb.t, variant))}
           >
-            <Link2 className="h-3.5 w-3.5" /> 复制当前位置链接
+            <Link2 className="h-3.5 w-3.5" /> 复制链接
           </button>
         </div>
       </div>
@@ -70,7 +70,7 @@ export function VariantA({ r, pb, timelineId, onSelectTimeline, variant }: Varia
             {fmt(pb.t)} <span className="text-text-4">/ {fmt(r.total)}</span>
           </span>
           <span className="text-[12px] text-text-4">
-            {r.playable.length} 个剪辑片段 · 按当前视频版本实时拼接预览
+            {r.playable.length} 个片段 · 转场效果以成片为准
           </span>
         </div>
       </div>
@@ -87,7 +87,7 @@ export function VariantA({ r, pb, timelineId, onSelectTimeline, variant }: Varia
             ))}
           </div>
           <div ref={trackRef} className="relative cursor-pointer" onPointerDown={seekFromPointer}>
-            <TrackRow label="画面">
+            <TrackRow label="视频">
               {r.clips.map((c) =>
                 c.missing ? (
                   <MissingMarker key={c.clip.id} c={c} left={pct(c.start)} onClick={() => setSelected(c.clip.id)} />
@@ -172,7 +172,7 @@ export function VariantA({ r, pb, timelineId, onSelectTimeline, variant }: Varia
 
         {r.unusedUnits.length > 0 && (
           <div className="mt-3 flex items-center gap-2 border-t border-hairline-soft pt-2.5 text-[12px] text-text-3">
-            <span>没用上的视频单元</span>
+            <span>未使用</span>
             {r.unusedUnits.map((u) => (
               <span key={u.id} className="inline-flex items-center gap-1.5 rounded-[6px] border border-dashed border-hairline px-1.5 py-0.5">
                 <img src={u.thumb} alt="" className="h-4 w-7 rounded-[2px] object-cover" />
@@ -188,13 +188,13 @@ export function VariantA({ r, pb, timelineId, onSelectTimeline, variant }: Varia
       <div className="grid gap-4 md:grid-cols-[1.4fr_1fr]">
         <div className="rounded-[10px] border border-hairline p-4" style={{ background: "var(--color-bg-grad-a)" }}>
           {sel ? (
-            <ClipInspector r={r} c={sel} onPlay={() => pb.seek(sel.start)} />
+            <ClipInspector c={sel} />
           ) : (
-            <p className="text-[12.5px] text-text-3">点选画面轨上的剪辑片段，查看裁切、剪辑理由，或把它交给 Agent 修改。</p>
+            <p className="text-[12.5px] text-text-3">选择视频轨上的片段查看详情</p>
           )}
         </div>
         <div className="rounded-[10px] border border-hairline p-4" style={{ background: "var(--color-bg-grad-a)" }}>
-          <h3 className="mb-2 text-[13px] font-medium text-text">需要留意（{r.issues.length}）</h3>
+          <h3 className="mb-2 text-[13px] font-medium text-text">问题（{r.issues.length}）</h3>
           <ul className="space-y-1.5">
             {r.issues.map((iss, i) => (
               <li key={i}>
@@ -248,13 +248,12 @@ function ClipBlock({
   return (
     <button
       type="button"
-      onPointerDown={(e) => e.stopPropagation()}
       onClick={onSelect}
       className={`absolute inset-y-1.5 overflow-hidden rounded-[5px] text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
         selected ? "ring-2 ring-text" : active ? "ring-1 ring-accent" : ""
       } ${c.staleTrim ? "border border-dashed border-warn" : "border border-black/30"}`}
       style={{ left, width: `calc(${width} - 2px)`, background: `oklch(0.42 0.07 ${hue})` }}
-      title={`${c.clip.id} ${c.unit.id}：${c.unit.title}`}
+      title={`${c.clip.id} ${c.unit.id}：${c.unit.title}${c.staleTrim ? "（素材已更新，暂用完整视频）" : ""}`}
     >
       <span className="relative flex h-full flex-col justify-between p-1 text-[10.5px] leading-none text-white">
         <span className="flex items-center gap-1">
@@ -274,7 +273,7 @@ function MissingMarker({ c, left, onClick }: { c: ResolvedClip; left: string; on
       type="button"
       onPointerDown={(e) => e.stopPropagation()}
       onClick={onClick}
-      title={`${c.clip.id} 引用的 ${c.unit.id} 已删除`}
+      title={`${c.clip.id}：素材已删除，已跳过`}
       className="absolute inset-y-0 z-10 flex w-4 -translate-x-1/2 flex-col items-center"
       style={{ left }}
     >
@@ -286,7 +285,7 @@ function MissingMarker({ c, left, onClick }: { c: ResolvedClip; left: string; on
   );
 }
 
-function ClipInspector({ r, c, onPlay }: { r: ResolvedTimeline; c: ResolvedClip; onPlay: () => void }) {
+function ClipInspector({ c }: { c: ResolvedClip }) {
   return (
     <div className="flex gap-4">
       <img src={c.unit.thumb} alt="" className="h-[68px] w-[120px] shrink-0 rounded-[6px] object-cover" />
@@ -298,21 +297,21 @@ function ClipInspector({ r, c, onPlay }: { r: ResolvedTimeline; c: ResolvedClip;
           <span className="truncate text-[12px] text-text-3">{c.unit.title}</span>
         </div>
         <dl className="mt-1.5 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-[12px] tabular-nums">
-          <dt className="text-text-4">时间线位置</dt>
-          <dd className="text-text-2">
-            {c.missing ? "播放时跳过" : `${fmt(c.start)} – ${fmt(c.end)}（${c.duration.toFixed(1)}s）`}
+          <dt className="text-text-4">位置</dt>
+          <dd className={c.missing ? "text-danger-2" : "text-text-2"}>
+            {c.missing ? "素材已删除，已跳过" : `${fmt(c.start)} – ${fmt(c.end)}（${c.duration.toFixed(1)}s）`}
           </dd>
-          <dt className="text-text-4">
-            <Scissors className="mr-1 inline h-3 w-3" />
-            源素材
-          </dt>
+          <dt className="text-text-4">截取</dt>
           <dd className="text-text-2">
-            {c.clip.in.toFixed(1)} – {c.clip.out.toFixed(1)}s / {c.unit.duration}s，按 v{c.clip.trimmedVersion} 裁切
-            {c.staleTrim && <span className="ml-1 text-warn">（当前 v{c.unit.currentVersion}，已整段使用）</span>}
+            <span className={c.staleTrim ? "text-text-4 line-through" : ""}>
+              {c.clip.in.toFixed(1)}–{c.clip.out.toFixed(1)}s
+            </span>
+            （素材共 {c.unit.duration}s）
+            {c.staleTrim && <span className="ml-1.5 text-warn">素材已更新，暂用完整视频</span>}
           </dd>
           {c.transitionOut && (
             <>
-              <dt className="text-text-4">转到下一段</dt>
+              <dt className="text-text-4">转场</dt>
               <dd className="text-text-2">
                 {c.transitionOut.kind} {c.transitionOut.duration}s
               </dd>
@@ -320,25 +319,11 @@ function ClipInspector({ r, c, onPlay }: { r: ResolvedTimeline; c: ResolvedClip;
           )}
           {c.clip.reason && (
             <>
-              <dt className="text-text-4">剪辑理由</dt>
+              <dt className="text-text-4">说明</dt>
               <dd className="text-text-2">{c.clip.reason}</dd>
             </>
           )}
         </dl>
-        <div className="mt-3 flex gap-2">
-          {!c.missing && (
-            <button type="button" className={GHOST_BTN_CLS} onClick={onPlay}>
-              从这里播放
-            </button>
-          )}
-          <button
-            type="button"
-            className={GHOST_BTN_CLS}
-            onClick={() => askAgent(`关于${timelineRef(r)}的${clipRef(r, c)}：`)}
-          >
-            <MessageSquarePlus className="h-3.5 w-3.5" /> 让 Agent 改这一段
-          </button>
-        </div>
       </div>
     </div>
   );
