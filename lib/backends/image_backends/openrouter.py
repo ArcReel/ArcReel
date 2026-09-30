@@ -31,8 +31,13 @@ from types import SimpleNamespace
 
 import httpx
 
+from arcreel_market_core.aspect_size import (
+    IMAGE_TIER_SHORT_EDGE,
+    aspect_size,
+    parse_aspect_ratio,
+    resolution_to_short_edge,
+)
 from lib.backends.artifact_download_guard import artifact_http_client
-from lib.backends.aspect_size import IMAGE_TIER_SHORT_EDGE, aspect_size, parse_aspect_ratio, resolution_to_short_edge
 from lib.backends.backend_runtime import should_retry_submit, submit_post
 from lib.backends.image_backends.base import (
     ImageCapability,
@@ -162,27 +167,27 @@ def _resolve_model_params(supported: dict | None, image_size: str | None, aspect
 
     params = {}
     ratio = _pick_aspect_ratio(ratio_values, aspect_ratio) if ratio_values else None
+    # size 由「实际下发的比例」算：ratio 选中枚举档时按该档，选不到才退回请求比例——
+    # 否则 size 按 2:3 算、aspect_ratio 却写 9:16，两个参数自相矛盾，模型行为不可预期。
+    effective_ratio = ratio or aspect_ratio
+    short = resolution_to_short_edge(image_size, tier_map=IMAGE_TIER_SHORT_EDGE)
     if size_values:
-        # 声明 size：OpenAI 同款精确 WxH（比例优先、清晰度其次），比例档位只作冗余声明
-        short = resolution_to_short_edge(image_size, tier_map=IMAGE_TIER_SHORT_EDGE)
-        w, h = aspect_size(aspect_ratio, short, round_to=16)
+        # 声明 size：OpenAI 同款精确 WxH（比例优先、清晰度其次）
+        w, h = aspect_size(effective_ratio, short, round_to=16)
         params["size"] = f"{w}x{h}"
         if ratio:
             params["aspect_ratio"] = ratio
     elif resolution_values:
         # 声明 resolution：按枚举下发，不传 size（互斥）。ratio / resolution 拿不到（档位映射
         # 不上、极端比例超出枚举）时各自省略——比传冲突参数被 400 拒掉好。
-        resolution = _pick_resolution(
-            resolution_values, resolution_to_short_edge(image_size, tier_map=IMAGE_TIER_SHORT_EDGE)
-        )
+        resolution = _pick_resolution(resolution_values, short)
         if resolution:
             params["resolution"] = resolution
         if ratio:
             params["aspect_ratio"] = ratio
     elif ratio:
         # 只声明 aspect_ratio：size 撑清晰度，ratio 锁比例
-        short = resolution_to_short_edge(image_size, tier_map=IMAGE_TIER_SHORT_EDGE)
-        w, h = aspect_size(aspect_ratio, short, round_to=16)
+        w, h = aspect_size(effective_ratio, short, round_to=16)
         params["size"] = f"{w}x{h}"
         params["aspect_ratio"] = ratio
     # 收录但三类都不声明：省略全部尺寸参数，信任模型默认

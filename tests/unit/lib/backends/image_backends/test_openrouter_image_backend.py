@@ -36,7 +36,7 @@ _MODELS_URL = f"{_BASE_URL}/images/models"
 
 
 @pytest.fixture(autouse=True)
-def _clear_model_params_cache():
+def clear_model_params_cache():
     """目录查询是进程级缓存，测试间必须清空，否则用例间声明串味。"""
     _model_params_cache.clear()
     yield
@@ -182,6 +182,28 @@ def test_ratio_model_sends_size_ar_and_quality(tmp_path: Path):
     assert req_json["quality"] == "high"
     assert "size" in req_json
     assert "resolution" not in req_json
+
+
+def test_size_computed_from_selected_ratio_not_request_ratio(tmp_path: Path):
+    """请求比例不在枚举时：size 必须按「选中档」算，与 aspect_ratio 同源不自相矛盾。
+
+    请求 2:3、枚举只有 1:1 / 9:16 / 21:9 → 选中 9:16，size 也须按 9:16 算（1008x1792），
+    不能按 2:3 算出 688x1024 再配上 aspect_ratio=9:16——两个参数互相矛盾。
+    """
+    model = {
+        "id": "openai/gpt-image-2",
+        "supported_parameters": {
+            **_enum("aspect_ratio", "1:1", "9:16", "21:9"),
+            **_enum("quality", "auto", "low", "medium", "high"),
+        },
+    }
+    with capture_http() as router:
+        router.get(_MODELS_URL).mock(return_value=_models_response(model))
+        route = router.post(_IMAGES_URL).mock(return_value=_ok_response())
+        _run(_request(tmp_path, aspect_ratio="2:3", image_size="1K"))
+    req_json = request_json(only_request(route))
+    assert req_json["aspect_ratio"] == "9:16"
+    assert req_json["size"] == "1008x1792"
 
 
 def test_known_model_without_sizing_declarations_omits_all(tmp_path: Path):
