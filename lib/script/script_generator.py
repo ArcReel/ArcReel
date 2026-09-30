@@ -80,6 +80,7 @@ from lib.script.draft_quarantine import (
     quarantine_path,
     read_quarantine,
 )
+from lib.script.draft_violation import locate_violations, locate_violations_by_id, schema_violations
 from lib.script.reference_video.draft_validation import (
     DraftViolation,
     DraftViolations,
@@ -1448,7 +1449,7 @@ class ScriptGenerator:
 
         authored: list[dict] = []
         violations: list[DraftViolation] = []
-        for unit, flat_unit in zip(units, flat.units, strict=True):
+        for index, (unit, flat_unit) in enumerate(zip(units, flat.units, strict=True)):
             label = f"unit {unit['unit_id']}"
             # 逐 unit 收集而非首个违约即抛：报告要覆盖所有坏 unit，Agent 一轮就能看全要改什么。
             # 一个 unit 内部仍是首个违约即停——正文解析不出时，后续判定都建立在同一个问题上。
@@ -1456,7 +1457,9 @@ class ScriptGenerator:
                 validate_unit_text(label, flat_unit.text, self.project_json, max_refs=max_refs)
                 assert_dialogue_preserved(label, str(unit.get("text") or ""), flat_unit.text)
             except DraftViolation as exc:
-                violations.extend(violation_items(exc))
+                items = violation_items(exc)
+                locate_violations(items, item_index=index, item_id=str(unit["unit_id"]))
+                violations.extend(items)
                 continue
             authored.append({**unit, "text": flat_unit.text})
 
@@ -1604,12 +1607,14 @@ class ScriptGenerator:
                 )
             if before_commit is not None:
                 before_commit()
+            violations = violation_items(exc)
+            locate_violations_by_id(violations, unit_ids)
             report = quarantine_and_report(
                 self.project_path,
                 episode,
                 QUARANTINE_KIND_PROMPT_AUTHORING,
                 content=self._prompt_authoring_flat_content(response_text, episode),
-                violations=violation_items(exc),
+                violations=violations,
                 meta={
                     "base_fingerprint": (
                         content_fingerprint(formal_path)
@@ -1725,13 +1730,15 @@ class ScriptGenerator:
                 episode, targets, authored, reference_unit_durations=self._unit_durations(targets), facts=facts
             )
         except DraftViolation as exc:
+            violations = violation_items(exc)
+            locate_violations_by_id(violations, [str(unit.get("unit_id")) for unit in units])
             raise DraftViolation(
                 quarantine_and_report(
                     self.project_path,
                     episode,
                     QUARANTINE_KIND_PROMPT_AUTHORING,
                     content=draft.content,
-                    violations=violation_items(exc),
+                    violations=violations,
                     meta=draft.meta,
                 ),
                 code="quarantined",
@@ -1739,18 +1746,25 @@ class ScriptGenerator:
         except ValueError as exc:
             # schema 层（DraftViolation 是 ValueError 子类，故须排在前）同样只回报告：这条路上
             # 内容是 Agent 手写的，没有 backend 可重试，与 script_plan 晋升的 schema_invalid 同口径。
+            violations = (
+                schema_violations(exc.__cause__, draft.content, "units")
+                if isinstance(exc.__cause__, ValidationError)
+                else [
+                    DraftViolation(
+                        f"待修复草稿的 content 不符合 prompt_authoring 产出结构：{exc}", code="schema_invalid"
+                    )
+                ]
+            )
+            for violation in violations:
+                if violation.item_index is not None and violation.item_index < len(units):
+                    violation.item_id = str(units[violation.item_index]["unit_id"])
             raise DraftViolation(
                 quarantine_and_report(
                     self.project_path,
                     episode,
                     QUARANTINE_KIND_PROMPT_AUTHORING,
                     content=draft.content,
-                    violations=[
-                        DraftViolation(
-                            f"待修复草稿的 content 不符合 prompt_authoring 产出结构：{exc}",
-                            code="schema_invalid",
-                        )
-                    ],
+                    violations=violations,
                     meta=draft.meta,
                 ),
                 code="quarantined",
@@ -1947,6 +1961,7 @@ class ScriptGenerator:
                         f"unit {s[id_field]} {state}视频档位未知（{exc.failure.summary()}）；请配置可用的{remedy}模型",
                         code=exc.code,
                         label=f"unit {s[id_field]}",
+                        item_id=str(s[id_field]),
                     ) from exc
                 unit_tiers = self._unit_duration_off_tier(target_duration, facts=facts, generation_type=bucket)
                 if unit_tiers is not None:
@@ -1961,6 +1976,7 @@ class ScriptGenerator:
                         "说明模型能力已变化，需要重新拆分该集 script_plan",
                         code="duration_off_tier",
                         label=f"unit {s[id_field]}",
+                        item_id=str(s[id_field]),
                     )
                 if s.get("duration_seconds") != target_duration:
                     logger.warning(

@@ -23,8 +23,10 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-async def _attach_duration_tiers(service: ScriptReviewService, project_name: str, episode: int, state: dict) -> dict:
-    """把收窄后的逐 unit 时长档位挂到 state 上；三个改动 script_plan 内容的端点（GET/PUT/POST）
+async def _attach_duration_tiers(
+    service: ScriptReviewService, project_name: str, episode: int, state: dict, _t: Translator
+) -> dict:
+    """把逐 unit 时长档位与本地化降级提示挂到 state 上；三个端点（GET/PUT/POST）
     都要走这一步——否则保存 / 确认后 ``adopt()`` 用不带 ``duration_tiers`` 的响应覆盖 GET
     读到的收窄结果，面板无法区分生效档位与 i2v 失败。
 
@@ -37,6 +39,8 @@ async def _attach_duration_tiers(service: ScriptReviewService, project_name: str
     state["duration_tiers"] = await service.get_reference_duration_tiers(
         project_name, episode, units if isinstance(units, list) else ()
     )
+    for soft in state.get("soft_violations") or []:
+        soft["message"] = _t(soft["code"], **soft["params"])
     return state
 
 
@@ -46,22 +50,24 @@ def _attach_overwrite_text(state: dict, _t: Translator) -> dict:
     return state
 
 
-def _localize_quarantine_violations(quarantine: dict | None, _t: Translator) -> dict | None:
-    """把读时重算产出的固定文案违约换成按 ``_t`` 渲染的本地化文本。
+def localize_draft_view(view: dict | None, _t: Translator) -> dict | None:
+    """把草稿视图里的固定文案违约与降级提示换成按 ``_t`` 渲染的本地化文本。
 
     ``quarantine_unreadable`` 只由两处产出（草稿信封本身损坏 / 重算所需的 meta 缺失损坏），都是不带
     插值的固定字符串；带 ``params`` 的条目是视频请求事实的失败，问题码即文案 key，与内容确认的 422
     同一呈现。二者都不涉及 ``lib.script.reference_video.draft_validation`` 里其余违约类型那种产出时已
-    渲染好插值的模板——本地化范围限定在这两类，不牵动其余违约消息的展示形态。
+    渲染好插值的模板——违约的本地化范围限定在这两类。降级提示一律以 ``code`` 为文案 key 成文。
     """
-    if quarantine is None:
+    if view is None:
         return None
-    for violation in quarantine["violations"]:
+    for violation in view["violations"]:
         if violation["code"] == "quarantine_unreadable":
             violation["message"] = _t("script_review_quarantine_unreadable")
         elif isinstance(violation.get("params"), dict):
             violation["message"] = _t(violation["code"], **violation["params"])
-    return quarantine
+    for soft in view.get("soft_violations") or []:
+        soft["message"] = _t(soft["code"], **soft["params"])
+    return view
 
 
 @router.get("/projects/{project_name}/episodes/{episode}/script-review")
@@ -80,9 +86,9 @@ async def get_script_review(project_name: str, episode: int, _t: Translator):
         service = ScriptReviewService(get_project_manager())
         quarantine = await service.get_quarantine_info(project_name, episode)
         state = await service.get_state(project_name, episode)
-        await _attach_duration_tiers(service, project_name, episode, state)
+        await _attach_duration_tiers(service, project_name, episode, state, _t)
         _attach_overwrite_text(state, _t)
-        state["quarantine"] = _localize_quarantine_violations(quarantine, _t)
+        state["quarantine"] = localize_draft_view(quarantine, _t)
         return state
     except ScriptReviewError as exc:
         raise_review_error(exc, episode, _t)
@@ -117,9 +123,9 @@ async def update_script_review_content(
         service = ScriptReviewService(get_project_manager())
         state = await service.save_content(project_name, episode, content, base_fingerprint)
         quarantine = await service.get_quarantine_info(project_name, episode)
-        await _attach_duration_tiers(service, project_name, episode, state)
+        await _attach_duration_tiers(service, project_name, episode, state, _t)
         _attach_overwrite_text(state, _t)
-        state["quarantine"] = _localize_quarantine_violations(quarantine, _t)
+        state["quarantine"] = localize_draft_view(quarantine, _t)
         return state
     except ScriptReviewError as exc:
         raise_review_error(exc, episode, _t)
@@ -159,11 +165,9 @@ async def confirm_script_review(
         state = await service.confirm(
             project_name, episode, overwrite_revision=req.overwrite_revision if req is not None else None
         )
-        await _attach_duration_tiers(service, project_name, episode, state)
+        await _attach_duration_tiers(service, project_name, episode, state, _t)
         _attach_overwrite_text(state, _t)
-        state["quarantine"] = _localize_quarantine_violations(
-            await service.get_quarantine_info(project_name, episode), _t
-        )
+        state["quarantine"] = localize_draft_view(await service.get_quarantine_info(project_name, episode), _t)
         return state
     except ScriptReviewError as exc:
         raise_review_error(exc, episode, _t)

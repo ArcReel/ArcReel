@@ -44,12 +44,15 @@ from lib.infra.path_safety import try_safe_join
 from lib.infra.validation_messages import default_translate
 from lib.project.project_manager import ProjectManager, find_episode, is_reference_video_project
 from lib.script.draft_quarantine import (
+    DRAFT_OWNER_AGENT,
     QUARANTINE_KIND_DRAMA_SCRIPT_PLAN,
     QUARANTINE_KIND_NARRATION_SCRIPT_PLAN,
     QUARANTINE_KIND_PROMPT_AUTHORING,
     QUARANTINE_KIND_SCRIPT_PLAN,
     clear_quarantine,
+    draft_owner,
     quarantine_path,
+    read_quarantine,
 )
 from lib.script.reference_video.duration_migration import migrate_unit_durations
 from lib.script.script_editor import ScriptEditError, resolve_items
@@ -712,6 +715,13 @@ def formal_script_plan_confirmed(project_path: Path, project: dict[str, Any], ep
         return False
     live = content_fingerprint(path)
     return live is not None and _formal_script_plan_confirmed(project_path, project, episode, live)
+
+
+def formal_script_plan_agent_owned(project_path: Path, project: dict[str, Any], episode: int) -> bool:
+    """Agent 取回的可编辑草稿在场时，正式脚本规划只读；调用方在正式规划锁内判断。"""
+    kind = script_plan_quarantine_kind(project)
+    draft = read_quarantine(project_path, episode, kind) if kind is not None else None
+    return draft is not None and draft_owner(draft) == DRAFT_OWNER_AGENT
 
 
 def apply_confirmation(project: dict[str, Any], episode: int, fingerprint: str, confirmed_at: str) -> bool:

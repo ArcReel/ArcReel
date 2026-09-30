@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import hashlib
 import logging
 import uuid
 from collections import Counter
@@ -23,11 +24,13 @@ from lib.project.project_change_hints import (
     register_project_change_listener,
 )
 from lib.project.project_manager import ProjectManager
+from lib.script.draft_quarantine import DOC_TYPE_TO_QUARANTINE_KIND, quarantine_path
 from server.services.project.project_state_projection import (
     ProjectSnapshot,
     ProjectState,
     build_snapshot,
     diff_snapshots,
+    draft_state_key,
 )
 from server.sse_channel import IDLE, DropSubscriber, SseChannel
 
@@ -46,9 +49,30 @@ def _utc_now_iso() -> str:
     return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def _read_draft_digests(project_path: Path) -> dict[str, str]:
+    """在场草稿的文件内容摘要；信封损坏的草稿同样在场，按字节摘要比对。"""
+    drafts_root = project_path / "drafts"
+    digests: dict[str, str] = {}
+    if not drafts_root.is_dir():
+        return digests
+    for episode_dir in sorted(drafts_root.glob("episode_*")):
+        suffix = episode_dir.name.removeprefix("episode_")
+        if not suffix.isdigit():
+            continue
+        episode = int(suffix)
+        for kind in DOC_TYPE_TO_QUARANTINE_KIND.values():
+            try:
+                payload = quarantine_path(project_path, episode, kind).read_bytes()
+            except FileNotFoundError:
+                continue
+            digests[draft_state_key(episode, kind)] = hashlib.sha256(payload).hexdigest()
+    return digests
+
+
 def read_project_state(pm: ProjectManager, project_name: str) -> ProjectState:
     """只读加载项目状态：不回写剧本迁移、不同步集索引，无法解析的剧本跳过。"""
-    scripts_dir = pm.get_project_path(project_name) / "scripts"
+    project_path = pm.get_project_path(project_name)
+    scripts_dir = project_path / "scripts"
     project = pm.load_project(project_name)
     scripts: dict[str, dict[str, Any]] = {}
     if scripts_dir.exists():
@@ -57,7 +81,7 @@ def read_project_state(pm: ProjectManager, project_name: str) -> ProjectState:
                 scripts[script_path.name] = pm.load_script_readonly(project_name, script_path.name)
             except Exception:
                 logger.warning("跳过无法解析的剧本快照 project=%s file=%s", project_name, script_path.name)
-    return ProjectState(project=project, scripts=scripts)
+    return ProjectState(project=project, scripts=scripts, drafts=_read_draft_digests(project_path))
 
 
 # 同一件事在发布方与快照差分两侧的 action 命名差异：参考生视频任务完成时，发布方按 task_type

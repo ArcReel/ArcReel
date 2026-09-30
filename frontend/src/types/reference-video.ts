@@ -249,22 +249,70 @@ export interface ScriptReviewViolation {
   locations?: Array<{ path: Array<string | number>; line: number | null }>;
   reason?: string;
   action?: string;
+  /** 违约所在条目在草稿正文条目数组里的下标；与 `item_id` 同缺即整集层面的违约。 */
+  item_index?: number | null;
+  item_id?: string | null;
 }
 
+/** 降级提示：不阻断采用，随条目呈现。`message` 由服务端按请求语言成文。 */
+export interface DraftSoftViolation {
+  code: string;
+  params: Record<string, unknown>;
+  item_index: number;
+  item_id: string;
+  message: string;
+}
+
+/** 草稿对应的文档，取值同 Agent 草稿工具的 `doc_type`。 */
+export type DraftDocType =
+  | "drama_script_plan"
+  | "narration_script_plan"
+  | "reference_script_plan"
+  | "reference_prompt_authoring";
+
+/** 草稿的处置方：`user` 为待修复草稿（创作者可直接改），`agent` 为 Agent 的可编辑草稿（只展示状态）。 */
+export type DraftOwner = "user" | "agent";
+
 /**
- * script_plan 草稿信息（`ScriptReviewState.quarantine`）：草稿在场时才非 null，三条 script_plan
- * 路线都可能出现。`content` 是读时按同一校验器重算后的草稿层内容（校验通过部分已收编，未通过
- * 部分原样呈现 Agent 手改的文本）；`violations` 同样是读时重算的结果，不是草稿里上一轮的报告
- * 快照。
+ * 草稿的呈现视图（`ScriptReviewState.quarantine` 与草稿端点共用）：草稿在场时才非 null。
+ * `content` 是草稿正文原样，供创作者就地修改；脚本规划草稿的 `violations` 是读时按同一校验器重算的
+ * 结果，提示词编写草稿取最近一次生成 / 保存时的报告。
  *
- * `content` 的形状随路线不同（参考生视频 `{ units }`、drama `{ title, scenes }`、narration
- * `{ segments }`），且草稿正是给 Agent 手改的那一份——字段可能缺失或类型不对。故这里只声明到
- * 「一个对象」，各面板按自己那条路线逐项收窄后渲染，不信任声明。
+ * `content` 的形状随路线不同（参考生视频脚本规划 `{ units }`、提示词编写 `{ title, units }`、drama
+ * `{ title, scenes }`、narration `{ segments }`），且草稿可能被 Agent 手改过——字段可能缺失或类型不对。
+ * 故这里只声明到「一个对象」，各面板按自己那条路线逐项收窄后渲染，不信任声明。
  */
 export interface ScriptReviewQuarantine {
-  /** null 仅在草稿文件已损坏、无法解析信封形状时出现——`violations` 会带一条说明。 */
+  doc_type: DraftDocType;
+  /** 保存与丢弃的并发令牌；草稿文件已损坏时为 null。 */
+  revision: string | null;
+  editable_by: DraftOwner;
+  /** 草稿文件已损坏、或是 Agent 的可编辑草稿时为 null。 */
   content: Record<string, unknown> | null;
   violations: ScriptReviewViolation[];
+  soft_violations: DraftSoftViolation[];
+  /** 丢弃后是否有正式内容可回。 */
+  formal_exists: boolean;
+}
+
+/** 草稿端点返回的视图：`item_ids` 为提示词编写草稿各条目对应的正式剧本单元 ID。 */
+export interface EpisodeDraftView extends ScriptReviewQuarantine {
+  episode: number;
+  item_ids: string[] | null;
+}
+
+export interface EpisodeDraftSummary {
+  doc_type: DraftDocType;
+  editable_by: DraftOwner;
+  violation_count: number;
+}
+
+/** 手修保存的结果：违约清零即采用（`draft` 为 null），否则带回刷新后的草稿视图。 */
+export interface SaveEpisodeDraftResult {
+  episode: number;
+  doc_type: DraftDocType;
+  adopted: boolean;
+  draft: EpisodeDraftView | null;
 }
 
 

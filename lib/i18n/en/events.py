@@ -25,4 +25,6 @@ MESSAGES = {
     "event_label_episode": "Episode {episode}",
     "event_label_draft_normalized_script": "Episode {episode} normalized script",
     "event_label_draft_segment_splitting": "Episode {episode} segment splitting",
+    "event_label_draft_script_plan": "Episode {episode} script plan draft",
+    "event_label_draft_prompt_authoring": "Episode {episode} prompt authoring draft",
 }

@@ -875,7 +875,9 @@ def _collect_reference_flat_violations(
                     lambda la=label, tx=text, d=duration: validate_dialogue_load(
                         la, tx, d, source_language, speech_rate_override
                     ),
-                ]
+                ],
+                item_index=index - 1,
+                item_id=_reference_unit_id(episode, index),
             )
         )
     return violations
@@ -920,10 +922,20 @@ _TOLERATED_VOICE_WARNINGS = (
 )
 
 
-def _reference_voice_warning_lines(
-    unit_texts: list[str], project: dict[str, Any], voice: VoiceRenderSettings
-) -> list[str]:
-    """逐 unit 派生声音绑定，取容忍类 warning 的渲染文本（跨 unit 去重、保持首现顺序）。
+@dataclass(frozen=True, slots=True)
+class SoftViolation:
+    """一条软违约（降级提示）：``code`` 即文案 key，``params`` 为插值参数，定位到草稿条目的下标与 ID。"""
+
+    code: str
+    params: dict[str, Any]
+    item_index: int
+    item_id: str
+
+
+def _reference_voice_warnings(
+    unit_texts: list[str], project: dict[str, Any], voice: VoiceRenderSettings, *, episode: int
+) -> list[SoftViolation]:
+    """逐 unit 派生声音绑定，取容忍类 warning。
 
     逐 unit 而非把全集正文拼起来判：unit 就是一次生成调用，参考音频段数上限按调用计——拼起来
     判会把「每个 unit 各两个说话人」误报成超限。与编辑器预览、执行期渲染共用
@@ -936,39 +948,80 @@ def _reference_voice_warning_lines(
     """
     characters = project.get(BUCKET_KEY["character"]) or {}
     settings = replace(voice, requires_reference_image=False)
-    seen: set[tuple[str, str]] = set()
-    lines: list[str] = []
-    for text in unit_texts:
+    found: list[SoftViolation] = []
+    for index, text in enumerate(unit_texts, start=1):
         utterances, _syntax_warnings = derive_utterances(text)
         bindings = derive_voice_bindings(utterances, characters, settings)
         for warning in bindings.warnings:
             key = str(warning["key"])
-            if key not in _TOLERATED_VOICE_WARNINGS:
-                continue
-            rendered = translate(key, **warning["params"])
-            if (key, rendered) in seen:
-                continue
-            seen.add((key, rendered))
-            lines.append(rendered)
-    return lines
+            if key in _TOLERATED_VOICE_WARNINGS:
+                found.append(SoftViolation(key, dict(warning["params"]), index - 1, _reference_unit_id(episode, index)))
+    return found
 
 
-def _reference_scene_warning_lines(unit_texts: list[str], project: dict[str, Any], *, episode: int) -> list[str]:
-    """逐 unit 取「未引用任何场景资产」的提示，带 unit 定位。
+def _reference_scene_warnings(unit_texts: list[str], project: dict[str, Any], *, episode: int) -> list[SoftViolation]:
+    """逐 unit 取「未引用任何场景资产」的提示。
 
     与声音降级同属容忍类：地点由模型自由决定不是格式错误，正文照常落盘；但室内外交替的相邻
     unit 会各自发挥，不在产出当时说，Agent 与用户都要等看到成片才发现。
 
     判据取自 ``unit_lacks_scene_reference``，与编辑器预览的同名 warning 共用一个出口——同一份
     正文在回执与面板上必须给出同一个结论。
-
-    不跨 unit 去重：每个未引用场景的 unit 都要各自被指名，合并成一条 Agent 无从定位要改哪几个。
     """
-    message = translate(WARN_UNIT_WITHOUT_SCENE)
     return [
-        f"{_reference_unit_label(episode, index)}：{message}"
+        SoftViolation(WARN_UNIT_WITHOUT_SCENE, {}, index - 1, _reference_unit_id(episode, index))
         for index, text in enumerate(unit_texts, start=1)
         if unit_lacks_scene_reference(text, project)
+    ]
+
+
+def reference_soft_violations(
+    unit_texts: list[str],
+    project: dict[str, Any],
+    *,
+    episode: int,
+    voice: VoiceRenderSettings,
+) -> list[SoftViolation]:
+    """一份扁平产出的全部软违约（声音降级 + 未引用场景），拆分与草稿流共用的单一出口。
+
+    软违约不阻断落盘、不进违约报告，但每条呈现路径都要给出同一组结论：拆分回执、晋升回执、
+    拆分 / 晋升被违约挡下时回给 Agent 的报告，以及 Web 上展示条目的地方。派生须留在本函数内，
+    新增一类软违约才会同时到达每条路，而不是只被接到其中一条上、其余继续沉默。
+
+    顺序固定为「声音在前、场景在后」：报告与回执并排比对时，同一份产物在不同路径上给出的
+    行序不该抖动。
+    """
+    return _reference_voice_warnings(unit_texts, project, voice, episode=episode) + _reference_scene_warnings(
+        unit_texts, project, episode=episode
+    )
+
+
+def render_soft_violation_lines(soft_violations: list[SoftViolation]) -> list[str]:
+    """把软违约渲染成回给 Agent 的文本行。
+
+    声音降级跨 unit 去重、保持首现顺序：同一个角色没配参考音频，在每个 unit 各报一遍只是噪音。
+    未引用场景不去重、带 unit 定位：每个未引用场景的 unit 都要各自被指名，合并成一条 Agent 无从
+    定位要改哪几个。
+    """
+    seen: set[tuple[str, str]] = set()
+    lines: list[str] = []
+    for soft in soft_violations:
+        rendered = translate(soft.code, **soft.params)
+        if soft.code == WARN_UNIT_WITHOUT_SCENE:
+            lines.append(f"unit {soft.item_id}：{rendered}")
+            continue
+        if (soft.code, rendered) in seen:
+            continue
+        seen.add((soft.code, rendered))
+        lines.append(rendered)
+    return lines
+
+
+def soft_violation_entries(soft_violations: list[SoftViolation]) -> list[dict[str, Any]]:
+    """软违约 → 下发给 Web 的结构化条目；``message`` 由呈现边界按请求语言以 ``code`` + ``params`` 成文。"""
+    return [
+        {"code": soft.code, "params": soft.params, "item_index": soft.item_index, "item_id": soft.item_id}
+        for soft in soft_violations
     ]
 
 
@@ -979,18 +1032,8 @@ def _reference_soft_violation_lines(
     episode: int,
     voice: VoiceRenderSettings,
 ) -> list[str]:
-    """一份扁平产出的全部软违约（声音降级 + 未引用场景）文本行，拆分与草稿流共用的单一出口。
-
-    软违约不阻断落盘、不进违约报告，但每条呈现路径都要给出同一组结论：拆分回执、晋升回执、
-    以及拆分 / 晋升被违约挡下时回给 Agent 的报告。派生须留在本函数内，新增一类软违约才会同时
-    到达四条路，而不是只被接到其中一条上、其余继续沉默。
-
-    顺序固定为「声音在前、场景在后」：报告与回执并排比对时，同一份产物在不同路径上给出的
-    行序不该抖动。
-    """
-    return _reference_voice_warning_lines(unit_texts, project, voice) + _reference_scene_warning_lines(
-        unit_texts, project, episode=episode
-    )
+    """一份扁平产出的软违约文本行（拆分回执用）。"""
+    return render_soft_violation_lines(reference_soft_violations(unit_texts, project, episode=episode, voice=voice))
 
 
 #: 晋升被违约挡下时，软违约段的处置说明：草稿仍在场、这些提示不是要修的违约。
@@ -1054,6 +1097,12 @@ def _reference_result_text(
 def _narration_script_plan_path(project_path: Path, episode: int) -> Path:
     """该集正式 narration script_plan 的路径（``drafts/episode_N/script_plan_segments.json``）。"""
     return episode_drafts_dir(project_path, episode) / SCRIPT_PLAN_FILENAMES["narration"]
+
+
+def _narration_segment_id(segment: dict[str, Any]) -> str | None:
+    """违约条目定位用的 ``segment_id``；缺失或空白时为 None，定位只剩下标。"""
+    sid = segment.get("segment_id")
+    return sid if isinstance(sid, str) and sid.strip() else None
 
 
 def _narration_segment_label(segment: dict[str, Any], index: int) -> str:
@@ -1142,6 +1191,7 @@ def _collect_narration_violations(
                     f"{label} 的 segment_id 必须为 E{episode}S## 格式且集号匹配",
                     code="invalid_segment_id",
                     label=label,
+                    item_index=index,
                 )
             )
 
@@ -1176,6 +1226,8 @@ def _collect_narration_violations(
                     f"{label} 的 novel_text 为空白；每个分镜必须携带逐字取自原文的旁白正文",
                     code="blank_novel_text",
                     label=label,
+                    item_index=index,
+                    item_id=_narration_segment_id(segment),
                 )
             )
 
@@ -1190,6 +1242,8 @@ def _collect_narration_violations(
                     f"{label} 的时长 {duration} 不在模型档位 {sorted(allowed)} 内；请改取该档位内的时长",
                     code="duration_off_tier",
                     label=label,
+                    item_index=index,
+                    item_id=_narration_segment_id(segment),
                 )
             )
 
@@ -1206,6 +1260,8 @@ def _collect_narration_violations(
                         "资产名必须逐字取自 project.json 三张表，或先在 project.json 登记该资产",
                         code="unregistered_asset",
                         label=label,
+                        item_index=index,
+                        item_id=_narration_segment_id(segment),
                     )
                 )
 

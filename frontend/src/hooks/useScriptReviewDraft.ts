@@ -68,6 +68,8 @@ interface ScriptReviewDraftHandle<TDraft extends ScriptReviewContent> {
   /** 保存 / 确认请求在途：调用方据此锁住编辑控件，避免回显覆盖请求发出后的新编辑。 */
   busy: boolean;
   retry: () => void;
+  /** 静默重新拉取服务端审核态（草稿被采用或丢弃后，正式内容与草稿信息都已变化）。 */
+  refresh: () => void;
   save: () => Promise<void>;
   /**
    * 确认并整份转为正式脚本。该集已有正式脚本时须传认可覆盖的 `overwriteRevision`；缺失或已过期而被
@@ -141,6 +143,10 @@ export function useScriptReviewDraft<TDraft extends ScriptReviewContent>({
   const retry = useCallback(() => {
     setLoadError(null);
     setLoading(true);
+    setReloadNonce((n) => n + 1);
+  }, []);
+
+  const refresh = useCallback(() => {
     setReloadNonce((n) => n + 1);
   }, []);
 
@@ -234,6 +240,7 @@ export function useScriptReviewDraft<TDraft extends ScriptReviewContent>({
     confirming,
     busy,
     retry,
+    refresh,
     save,
     confirm,
   };

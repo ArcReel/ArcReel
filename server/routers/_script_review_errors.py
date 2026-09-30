@@ -51,6 +51,8 @@ def raise_review_error(exc: ScriptReviewError, episode: int, _t: Translator) -> 
         raise ConflictError("script_review_foreign_formal_script", episode=episode, filename=exc.script_filename or "")
     if exc.code == "script_plan_confirmed":
         raise ConflictError("script_review_script_plan_confirmed").with_diagnostic({"code": exc.code})
+    if exc.code == "draft_agent_owned":
+        raise ConflictError("draft_agent_owned").with_diagnostic({"code": exc.code})
     if exc.code == "conversion_conflict":
         raise ConflictError("script_conversion_conflict")
     status = _ERROR_STATUS.get(exc.code, 400)

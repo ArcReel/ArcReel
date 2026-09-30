@@ -26,6 +26,7 @@ import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { computeVoiceLegacyNotice, VoiceLegacyBanner } from "./VoiceLegacyBanner";
 import { useReferenceDurationGate } from "@/hooks/useReferenceDurationGate";
 import { ReferenceScriptPlanPreviewPanel } from "@/components/canvas/reference/ReferenceScriptPlanPreviewPanel";
+import { PromptAuthoringDraftPanel, usePromptAuthoringDraft } from "./PromptAuthoringDraftPanel";
 import { API } from "@/api";
 import {
   enqueueNarration,
@@ -182,6 +183,8 @@ export function ReferenceVideoCanvas({
   const project = useProjectsStore((s) => s.currentProjectData);
   // schema v6 起各 bucket 共用名称空间，每个名字只会声明一次。
   const mentionLookup = useMemo(() => buildMentionLookup(project), [project]);
+  // 提示词编写草稿：待修复草稿在视频单元页取代工作台呈现，Agent 的可编辑草稿只在工作台上方提示。
+  const { view: promptDraft, refresh: refreshPromptDraft } = usePromptAuthoringDraft(projectName, episode);
 
   const voiceLegacyNotice = useMemo(
     () => computeVoiceLegacyNotice(units, project?.characters ?? {}, project?.character_voice_binding),
@@ -967,6 +970,18 @@ export function ReferenceVideoCanvas({
         />
       )}
 
+      {tab === "units" && promptDraft?.editable_by === "agent" && (
+        <div className="border-b border-[var(--color-hairline-soft)] px-5 py-2">
+          <PromptAuthoringDraftPanel
+            key={`${projectName}:${episode}`}
+            projectName={projectName}
+            episode={episode}
+            view={promptDraft}
+            onSettled={refreshPromptDraft}
+          />
+        </div>
+      )}
+
       {error && tab === "units" && (
         <p
           role="alert"
@@ -986,6 +1001,18 @@ export function ReferenceVideoCanvas({
               lookup={mentionLookup}
               videoModelUnresolved={videoModelUnresolved}
               onOpenTimeline={() => setTab("units")}
+            />
+          </div>
+        </div>
+      ) : promptDraft?.editable_by === "user" ? (
+        <div className="min-h-0 flex-1 overflow-auto bg-[oklch(0.18_0.011_250_/_0.25)]">
+          <div className="mx-auto w-full max-w-3xl px-6 py-5">
+            <PromptAuthoringDraftPanel
+              key={`${projectName}:${episode}`}
+              projectName={projectName}
+              episode={episode}
+              view={promptDraft}
+              onSettled={refreshPromptDraft}
             />
           </div>
         </div>

@@ -25,4 +25,6 @@ MESSAGES = {
     "event_label_episode": "Tập {episode}",
     "event_label_draft_normalized_script": "Kịch bản đã chuẩn hóa của tập {episode}",
     "event_label_draft_segment_splitting": "Chia đoạn của tập {episode}",
+    "event_label_draft_script_plan": "Bản nháp kế hoạch kịch bản tập {episode}",
+    "event_label_draft_prompt_authoring": "Bản nháp viết prompt tập {episode}",
 }

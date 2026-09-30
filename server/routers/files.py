@@ -987,6 +987,8 @@ def _write_plain_draft(
     pm = get_project_manager()
     with pm.file_lock(draft_path):
         project = pm.load_project(project_name)
+        if script_review.formal_script_plan_agent_owned(project_dir, project, episode):
+            raise_review_error(ScriptReviewError("draft_agent_owned"), episode, _t)
         if script_review.formal_script_plan_confirmed(project_dir, project, episode):
             raise_review_error(ScriptReviewError("script_plan_confirmed"), episode, _t)
         is_new = not draft_path.exists()

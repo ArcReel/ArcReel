@@ -646,10 +646,7 @@ class TestReferenceVideoRouter:
             base = "/api/v1/projects/demo/episodes/1/script-review"
             body = client.get(base, headers={"Accept-Language": "en"}).json()
             message = body["quarantine"]["violations"][0]["message"]
-            assert message == (
-                "The draft needing fixes is corrupted or malformed and can't be read; "
-                "ask the agent to re-split this episode"
-            )
+            assert message == i18n_message("script_review_quarantine_unreadable", locale="en")
 
     def test_quarantine_recheck_reports_video_request_facts_failure_by_problem_code(
         self, tmp_path, monkeypatch, set_video_request_facts

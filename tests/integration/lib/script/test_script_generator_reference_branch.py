@@ -1448,7 +1448,9 @@ async def test_promote_prompt_authoring_draft_rejects_schema_breach_with_report(
     assert path.exists()
     assert _script_path(reference_project).read_bytes() == formal_before
     refreshed = _json.loads(path.read_text(encoding="utf-8"))
-    assert [v["code"] for v in refreshed["violations"]] == ["schema_invalid"]
+    assert [(v["code"], v.get("item_index"), v.get("item_id")) for v in refreshed["violations"]] == [
+        ("schema_invalid", 0, "E1U01")
+    ]
 
 
 @pytest.mark.asyncio
