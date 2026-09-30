@@ -292,9 +292,13 @@ stale 产物照常可预览、可导出、可参与成片，是否重做由用�
 
 **触发**：`next_action.type == "create_edit_timeline"`，本集视频已齐、还没有剪辑时间线。
 
-调 `mcp__arcreel__create_timeline({"from": "script", "episode": target.episode, "name": "完整版"})` 按脚本
+TTS 配音项目（`plan.status.artifacts.audio.missing_ids` 非空）先补齐缺失的旁白配音：按 `generate-narration-audio`
+skill 调 `mcp__arcreel__generate_narration_audio({"script": target.script_filename})`，不带 `segment_ids`。项目选择
+TTS 即已授权，无需另行确认。剪辑时间线一建好这一步就完成，之后工作流不会再回到这里补配音。
+
+再调 `mcp__arcreel__create_timeline({"from": "script", "episode": target.episode, "name": "完整版"})` 按脚本
 机械新建一条剪辑时间线，至少有一条剪辑时间线，这一步即完成。之后按 `edit-video` skill 在它上面剪辑，
-只在用户要求时出成片。
+只在用户要求时出成片或导出剪映草稿。
 
 ---
 

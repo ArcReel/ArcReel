@@ -30,6 +30,7 @@ from lib.edit_timeline import (
     TimelineIssue,
 )
 from lib.edit_timeline.model import EditTimelineContent, microseconds_to_seconds
+from lib.edit_timeline.readout import unrendered_effects
 from lib.edit_timeline.store import EditTimelineStore
 from lib.infra.async_thread import run_sync_transaction
 from lib.infra.path_safety import safe_join
@@ -44,6 +45,7 @@ from lib.jianying_draft.archive import (
 )
 from lib.jianying_draft.basis import (
     WITH_NARRATION,
+    WITHOUT_NARRATION,
     DraftNarration,
     DraftUnitBasis,
     build_jianying_draft_basis,
@@ -67,6 +69,11 @@ from server.services.presentation.presentation_read_model import (
 )
 
 _WINDOWS_UNSAFE_NAME_CHARACTERS = str.maketrans(dict.fromkeys('<>:"/\\|?*', "_"))
+
+
+def default_draft_narration(project: Mapping[str, Any]) -> DraftNarration:
+    """省略旁白版本时的默认值：TTS 配音项目带旁白，后期配音项目不带旁白。"""
+    return WITH_NARRATION if project_narration_delivery(project) == USE_TTS else WITHOUT_NARRATION
 
 
 def _applicable_issues(issues: tuple[TimelineIssue, ...], narration: DraftNarration) -> tuple[TimelineIssue, ...]:
@@ -107,7 +114,7 @@ class JianyingDraftJob:
     warnings: tuple[TimelineIssue, ...]
 
     async def render(self, output: Path, workspace: Path) -> None:
-        """把剪映草稿产物写到 ``output``；定格静帧先抽到 ``workspace``，再随产物打包。"""
+        """把剪映草稿产物写到 ``output``；定格静帧、草稿目录与素材暂存都放在 ``workspace`` 下。"""
         hold_frames: dict[str, Path] = {}
         for clip in self.placement.clips:
             if clip.hold_us <= 0:
@@ -133,6 +140,7 @@ class JianyingDraftJob:
             hold_frames=hold_frames,
             with_narration_track=self.narration == WITH_NARRATION,
             output=output,
+            workspace=workspace,
         )
 
     async def accept(self, output: Path) -> None:
@@ -196,10 +204,11 @@ class TimelineJianyingDraftService:
         self._presentations = presentation_reader or PresentationReadModelService(projects)
 
     async def _checked(
-        self, project_name: str, timeline_id: str, revision: int | None, narration: DraftNarration
+        self, project_name: str, timeline_id: str, revision: int | None, narration: DraftNarration | None
     ) -> _Checked:
         readout = await self._timelines.read(project_name, timeline_id, revision=revision)
         project = await asyncio.to_thread(self._projects.load_project, project_name)
+        narration = narration or default_draft_narration(project)
         if narration == WITH_NARRATION and project_narration_delivery(project) != USE_TTS:
             raise JianyingDraftError(
                 "jianying_draft_narration_unavailable", "只有 TTS 配音项目可以导出带旁白版本", narration=narration
@@ -212,6 +221,18 @@ class TimelineJianyingDraftService:
                 "剪辑时间线有阻断导出的问题：" + "、".join(f"{issue.code}({issue.unit_id})" for issue in blocking),
                 issues=[issue.model_dump(mode="json") for issue in blocking],
             )
+        transitions, bgm_ids = unrendered_effects(readout)
+        if transitions or bgm_ids:
+            raise JianyingDraftError(
+                "jianying_draft_content_unsupported",
+                "剪映草稿目前只能导出硬切、不带 BGM 的剪辑时间线",
+                clip_ids=transitions,
+                bgm_ids=bgm_ids,
+            )
+        if not any(clip.status != "unit_deleted" for clip in readout.clips):
+            raise JianyingDraftError(
+                "jianying_draft_empty", "剪辑时间线没有可导出的剪辑片段", timeline_id=readout.timeline.id
+            )
         check = JianyingDraftCheck(
             episode=readout.timeline.episode,
             timeline_id=readout.timeline.id,
@@ -223,9 +244,17 @@ class TimelineJianyingDraftService:
         return _Checked(readout=readout, project=project, check=check)
 
     async def check(
-        self, project_name: str, timeline_id: str, *, narration: DraftNarration, revision: int | None = None
+        self,
+        project_name: str,
+        timeline_id: str,
+        *,
+        narration: DraftNarration | None = None,
+        revision: int | None = None,
     ) -> JianyingDraftCheck:
-        """导出前检查：剪辑时间线与修订存在、旁白版本可选、没有适用于该版本的阻断级 issue。"""
+        """导出前检查：剪辑时间线与修订存在、旁白版本可选、没有适用于该版本的阻断级 issue。
+
+        ``narration`` 省略时按项目取默认旁白版本，结果的 ``narration`` 是实际检查的版本。
+        """
         return (await self._checked(project_name, timeline_id, revision, narration)).check
 
     async def prepare(
@@ -353,16 +382,23 @@ class TimelineJianyingDraftService:
             warnings=job.warnings,
         )
 
-    async def status(self, project_name: str, timeline_id: str, *, narration: DraftNarration) -> JianyingDraftStatus:
-        """剪映草稿产物的时效：current、stale（已落后于剪辑时间线，仍可下载）或 missing（从未导出，或正式文件已不在）。"""
+    async def status(
+        self, project_name: str, timeline_id: str, *, narration: DraftNarration | None = None
+    ) -> JianyingDraftStatus:
+        """剪映草稿产物的时效：current、stale（已落后于剪辑时间线，仍可下载）或 missing（从未导出，或正式文件已不在）。
+
+        ``narration`` 省略时按项目取默认旁白版本。
+        """
         document = await asyncio.to_thread(lambda: EditTimelineStore(self._projects, project_name).find(timeline_id))
 
         def resolve() -> JianyingDraftStatus:
             project_dir = self._projects.get_project_path(project_name)
-            artifact_path = jianying_draft_artifact_path(document.episode, document.id, narration)
-            resolver = active_artifact_currency_resolver(project_dir, self._projects.load_project(project_name))
+            project = self._projects.load_project(project_name)
+            variant = narration or default_draft_narration(project)
+            artifact_path = jianying_draft_artifact_path(document.episode, document.id, variant)
+            resolver = active_artifact_currency_resolver(project_dir, project)
             comparison = resolver.compare(
-                jianying_draft_key(document.episode, document.id, narration), artifact_path=artifact_path
+                jianying_draft_key(document.episode, document.id, variant), artifact_path=artifact_path
             )
             record = (
                 read_render_record(project_dir, artifact_path)
@@ -372,7 +408,7 @@ class TimelineJianyingDraftService:
             return JianyingDraftStatus(
                 episode=document.episode,
                 timeline_id=document.id,
-                narration=narration,
+                narration=variant,
                 status=comparison.status,
                 artifact_path=artifact_path,
                 version=record.version if record is not None else None,
@@ -386,15 +422,16 @@ class TimelineJianyingDraftService:
         project_name: str,
         timeline_id: str,
         *,
-        narration: DraftNarration,
+        narration: DraftNarration | None = None,
         draft_root: str,
         jianying_version: JianyingVersion,
     ) -> tuple[Path, str]:
         """把已登记的剪映草稿代入本机草稿目录与剪映版本打包；过期的草稿照常可下载。
 
-        返回临时目录里的 zip 与草稿文件夹名；调用方用完删除 zip 所在的临时目录。
+        ``narration`` 省略时按项目取默认旁白版本。返回临时目录里的 zip 与草稿文件夹名；调用方用完删除 zip 所在的临时目录。
         """
         status = await self.status(project_name, timeline_id, narration=narration)
+        narration = status.narration
         if status.status not in {ArtifactStatus.CURRENT, ArtifactStatus.STALE}:
             raise JianyingDraftError(
                 "jianying_draft_not_exported",

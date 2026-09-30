@@ -11,6 +11,7 @@ from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
 from lib.edit_timeline import EditTimelineService, RevisionAuthor
+from lib.edit_timeline.operations import SetReason
 from lib.final_cut.errors import FinalCutError
 from lib.final_cut.service import FinalCutService
 from lib.generation.generation_queue import GenerationQueue, get_generation_queue
@@ -64,11 +65,21 @@ async def test_submit_queues_a_render_task_and_status_reads_missing_until_render
 
     submitted = await final_cut_client.post(url)
     again = await final_cut_client.post(url)
-    conflicting = await final_cut_client.post(url, json={"revision": 1})
+    pinned = await final_cut_client.post(url, json={"revision": 1})
+    await EditTimelineService(timeline_project).edit(
+        "demo",
+        timeline_id,
+        base_revision=1,
+        summary="补充理由",
+        operations=[SetReason(op="set_reason", clip="c1", reason="保留开场")],
+        author=RevisionAuthor(kind="arcreel_agent"),
+    )
+    # 省略 revision 的请求按提交时的最新修订入队：时间线前进后不再去重到旧修订的任务。
+    conflicting = await final_cut_client.post(url)
     before = await final_cut_client.get(url)
 
     assert submitted.status_code == 202
-    assert again.json() == {**submitted.json(), "deduped": True}
+    assert again.json() == pinned.json() == {**submitted.json(), "deduped": True}
     assert conflicting.status_code == 409
     assert submitted.json()["task_id"] in conflicting.json()["detail"]
     assert (before.json()["status"], before.json()["download_url"]) == ("missing", None)

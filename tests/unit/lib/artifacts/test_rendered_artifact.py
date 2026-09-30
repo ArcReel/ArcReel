@@ -15,7 +15,7 @@ from lib.artifacts.artifact_manifest import (
 from lib.artifacts.rendered_artifact import commit_rendered_artifact, read_render_record
 
 
-@pytest.mark.parametrize("failure", ["acceptance", "record"])
+@pytest.mark.parametrize("failure", ["acceptance", "replacement", "record"])
 async def test_failed_replacement_never_claims_new_content_as_current(
     tmp_path: Path, monkeypatch, failure: str
 ) -> None:
@@ -40,10 +40,15 @@ async def test_failed_replacement_never_claims_new_content_as_current(
     payload = b"new"
     replace = os.replace
 
-    def replace_with_record_failure(source, target) -> None:
+    def replace_with_record_failure(source, target, **kwargs) -> None:
         if str(target).endswith(".render.json"):
             raise OSError("record write failed")
-        replace(source, target)
+        replace(source, target, **kwargs)
+
+    def replace_with_formal_failure(source, target, **kwargs) -> None:
+        if str(target) == str(tmp_path / path):
+            raise OSError("formal replacement failed")
+        replace(source, target, **kwargs)
 
     async def refuse_acceptance(output: Path) -> int:
         raise ValueError("acceptance failed")
@@ -51,6 +56,8 @@ async def test_failed_replacement_never_claims_new_content_as_current(
     with monkeypatch.context() as patch:
         if failure == "record":
             patch.setattr(os, "replace", replace_with_record_failure)
+        if failure == "replacement":
+            patch.setattr(os, "replace", replace_with_formal_failure)
         with pytest.raises((OSError, ValueError)):
             await commit_rendered_artifact(
                 tmp_path,
@@ -63,10 +70,11 @@ async def test_failed_replacement_never_claims_new_content_as_current(
 
     formal = tmp_path / path
     manifest = ArtifactManifest(ProjectArtifactManifestAdapter(tmp_path))
+    # 正式文件没被替换时旧登记保留；替换后记录写入失败时撤下登记，不把新内容配旧依据。
     assert manifest.compare(key, artifact_path=path, basis=original).status is (
-        ArtifactStatus.CURRENT if failure == "acceptance" else ArtifactStatus.MISSING
+        ArtifactStatus.MISSING if failure == "record" else ArtifactStatus.CURRENT
     )
-    assert formal.read_bytes() == (b"old" if failure == "acceptance" else b"new")
+    assert formal.read_bytes() == (b"new" if failure == "record" else b"old")
     assert read_render_record(tmp_path, path) == first.record
     assert not [item for item in formal.parent.iterdir() if item.name.startswith(".")]
     retry = await commit_rendered_artifact(

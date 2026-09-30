@@ -135,7 +135,7 @@ Agent session 的当前工作目录（cwd）已绑定到当前项目根，**所�
 | generate-storyboard | `/generate-storyboard` | 生成分镜图（分镜图生视频） |
 | generate-grid | `/generate-grid` | 生成宫格分镜图（`grid_storyboard=true` 时：按 segment_break 分组的链式宫格） |
 | generate-video | `/generate-video` | 生成视频 |
-| edit-video | `/edit-video` | 在剪辑时间线上剪辑一集，按要求出成片 |
+| edit-video | `/edit-video` | 在剪辑时间线上剪辑一集，按要求出成片或导出剪映草稿 |
 
 ## 快速开始
 
@@ -159,11 +159,11 @@ Agent session 的当前工作目录（cwd）已绑定到当前项目根，**所�
 - 内容确认后正式脚本是该集内容的唯一真相源、脚本规划只读：改台词 / 单元正文 / 对应原文一律在正式脚本上 `patch_episode_script`（对应原文须为本集源文逐字子串）；
   重跑脚本规划只用于整集重做，其确认会整份覆盖现有正式脚本（旧条目与其产物移除、手改提示词丢弃），须先取得用户同意
 - `reference_video` **只跳过分镜图**
-- 批量旁白配音由用户显式要求触发，不由 `next_action` 驱动
+- 批量旁白配音不由 `next_action` 驱动：TTS 配音项目在剪辑一步前补齐缺失配音，其余时候按用户要求触发
 
 工作流支持**灵活入口**：计划自动定位到第一个未完成的动作，支持中断后恢复。
 视频齐全后进入「剪辑」一步：本集还没有剪辑时间线时 `next_action` 为 `create_edit_timeline`，
-至少有一条即算完成。在剪辑时间线上剪辑、按用户要求出成片，都按 `edit-video` skill 进行。声音归属与
+至少有一条即算完成。在剪辑时间线上剪辑、按用户要求出成片或导出剪映草稿，都按 `edit-video` skill 进行。声音归属与
 字幕时序由服务端 presentation 结果决定；Agent 不自行估算字幕时序，也不替用户判断 TTS 是否必需。
 stale 产物照常可用，出片不清空也不覆盖旧付费媒体。
 

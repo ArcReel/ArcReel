@@ -10,6 +10,7 @@ from typing import Any, cast
 from fastapi import APIRouter, Query, Request
 
 from lib.db.repositories.task_repo import TaskNotCancellableError
+from lib.edit_timeline.errors import edit_timeline_message
 from lib.generation.generation_queue import get_generation_queue
 from lib.generation.generation_result import decode_generation_problem
 from lib.generation.task_failure import parse_failure, render_failure
@@ -81,12 +82,16 @@ def _localize_task(task: dict[str, Any], translate: Callable[..., str]) -> dict[
                         str(issue["unit_id"]) for issue in issues if isinstance(issue, dict) and issue.get("unit_id")
                     )
                 )
-            translated = translate(problem.code, **params)
+            key = problem.code
+            message = edit_timeline_message(problem.code, params)
+            if message is not None:
+                key, params = message
+            translated = translate(key, **params)
             localized = {
                 **localized,
                 "error_code": problem.code,
                 "error_params": problem.params,
-                "error_message": translated if translated != problem.code else problem.detail,
+                "error_message": translated if translated != key else problem.detail,
             }
         elif failure is None:
             localized = {**localized, "error_message": render_failure(message, translate)}

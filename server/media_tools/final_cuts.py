@@ -38,7 +38,7 @@ class RenderFinalCutRequest(BaseModel):
     revision: int | SkipJsonSchema[None] = Field(
         default=None,
         ge=1,
-        description="渲染哪个修订；省略时取渲染任务开始时的最新修订",
+        description="渲染哪个修订；省略时取提交时的最新修订",
     )
 
 
@@ -67,7 +67,7 @@ async def render_final_cut(
             final_cut_task_request(
                 episode=check.episode,
                 timeline_id=check.timeline_id,
-                revision=request.value.revision,
+                revision=check.revision,
                 variant=DEFAULT_VARIANT,
             ),
             operation=_OPERATION,

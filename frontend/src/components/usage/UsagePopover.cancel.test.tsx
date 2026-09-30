@@ -197,6 +197,16 @@ describe("UsagePopover cancellation", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("hides the cancel-all action while only local render tasks are queued", () => {
+    openWithTasks([
+      activeTask({ task_type: "render_final_cut", media_type: "render", resource_id: "tl-0000beef" }),
+    ]);
+
+    expect(
+      screen.queryByRole("button", { name: "取消所有排队中的任务" }),
+    ).not.toBeInTheDocument();
+  });
+
   it("offers no cancel action on a task that has started running", () => {
     openWithTasks([activeTask({ task_id: "t-run", status: "running" })]);
 

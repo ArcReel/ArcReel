@@ -423,12 +423,24 @@ class TestGenerationQueue:
             script_file="ep1.json",
         )
 
+        render = await queue.enqueue_task(
+            project_name="demo",
+            task_type="render_final_cut",
+            media_type="render",
+            resource_id="episode_1/tl-00000001",
+            payload={},
+        )
+
+        assert await queue.get_cancel_all_preview("demo") == 2
         result = await queue.cancel_all_queued("demo")
         assert result["cancelled_count"] == 2
 
         stats = await queue.get_task_stats(project_name="demo")
         assert stats["cancelled"] == 2
-        assert stats["queued"] == 0
+        assert stats["queued"] == 1
+        remaining = await queue.get_task(render["task_id"])
+        assert remaining is not None
+        assert remaining["status"] == "queued"
 
     async def test_persist_provider_job_id_wrapper(self, queue):
         """persist_provider_job_id 是 wrapper,只验证不抛(行为细节在 repo 层测过)。"""

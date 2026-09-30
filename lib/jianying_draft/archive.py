@@ -15,7 +15,6 @@ from __future__ import annotations
 import json
 import os
 import shutil
-import tempfile
 import zipfile
 from collections.abc import Callable, Mapping
 from pathlib import Path
@@ -151,84 +150,87 @@ def write_jianying_draft(
     hold_frames: Mapping[str, Path],
     with_narration_track: bool,
     output: Path,
+    workspace: Path,
 ) -> None:
-    """把摆好的片段写成剪映草稿产物；``hold_frames`` 按剪辑片段 ID 给出定格用的出点帧静帧。"""
-    with tempfile.TemporaryDirectory(prefix="arcreel_jy_") as temp:
-        root = Path(temp)
-        staging = _AssetStaging(root / ASSETS_DIR, project_dir)
-        staging.directory.mkdir()
-        (root / "drafts").mkdir()
-        script = draft.DraftFolder(str(root / "drafts")).create_draft(DRAFT_DIR, width=width, height=height)
-        tracks = [TrackSpec(TrackType.video), TrackSpec(TrackType.text, SUBTITLE_TRACK)]
-        if with_narration_track:
-            tracks.append(TrackSpec(TrackType.audio, NARRATION_TRACK))
-        script.append_tracks(tracks)
+    """把摆好的片段写成剪映草稿产物；``hold_frames`` 按剪辑片段 ID 给出定格用的出点帧静帧。
 
-        for clip in placement.clips:
-            if clip.source_duration_us > 0:
-                script.add_segment(
-                    VideoSegment(
-                        VideoMaterial(staging.project_file(clip.video_path)),
-                        trange(clip.start_us, clip.source_duration_us),
-                        source_timerange=trange(clip.source_in_us, clip.source_duration_us),
-                        volume=clip.volume,
-                    )
-                )
-            if clip.hold_us > 0:
-                still = staging.bundled_file(hold_frames[clip.clip_id], f"hold_{clip.clip_id}.png")
-                script.add_segment(
-                    VideoSegment(
-                        VideoMaterial(still),
-                        trange(clip.hold_start_us, clip.hold_us),
-                        source_timerange=trange(0, clip.hold_us),
-                    )
-                )
+    草稿目录与素材暂存都放在 ``workspace`` 下，由调用方负责清理。
+    """
+    root = workspace
+    staging = _AssetStaging(root / ASSETS_DIR, project_dir)
+    staging.directory.mkdir()
+    (root / "drafts").mkdir()
+    script = draft.DraftFolder(str(root / "drafts")).create_draft(DRAFT_DIR, width=width, height=height)
+    tracks = [TrackSpec(TrackType.video), TrackSpec(TrackType.text, SUBTITLE_TRACK)]
+    if with_narration_track:
+        tracks.append(TrackSpec(TrackType.audio, NARRATION_TRACK))
+    script.append_tracks(tracks)
 
-        for narration in placement.narrations:
+    for clip in placement.clips:
+        if clip.source_duration_us > 0:
             script.add_segment(
-                AudioSegment(
-                    AudioMaterial(staging.project_file(narration.audio_path)),
-                    trange(narration.start_us, narration.duration_us),
-                    source_timerange=trange(0, narration.duration_us),
-                ),
-                NARRATION_TRACK,
+                VideoSegment(
+                    VideoMaterial(staging.project_file(clip.video_path)),
+                    trange(clip.start_us, clip.source_duration_us),
+                    source_timerange=trange(clip.source_in_us, clip.source_duration_us),
+                    volume=clip.volume,
+                )
+            )
+        if clip.hold_us > 0:
+            still = staging.bundled_file(hold_frames[clip.clip_id], f"hold_{clip.clip_id}.png")
+            script.add_segment(
+                VideoSegment(
+                    VideoMaterial(still),
+                    trange(clip.hold_start_us, clip.hold_us),
+                    source_timerange=trange(0, clip.hold_us),
+                )
             )
 
-        style, border, shadow, position = _subtitle_style(width, height)
-        for subtitle in placement.subtitles:
-            script.add_segment(
-                TextSegment(
-                    text=subtitle.text,
-                    timerange=trange(subtitle.start_us, subtitle.duration_us),
-                    font=SUBTITLE_FONT,
-                    style=style,
-                    border=border,
-                    shadow=shadow,
-                    clip_settings=position,
-                ),
-                SUBTITLE_TRACK,
-            )
-        script.save()
-
-        draft_dir = root / "drafts" / DRAFT_DIR
-        content_path = draft_dir / CONTENT_NAME
-        staged_prefix = str(staging.directory) + os.sep
-        content = _map_strings(
-            json.loads(content_path.read_text(encoding="utf-8")),
-            lambda text: text.replace(staged_prefix, f"{ASSETS_PLACEHOLDER}/"),
+    for narration in placement.narrations:
+        script.add_segment(
+            AudioSegment(
+                AudioMaterial(staging.project_file(narration.audio_path)),
+                trange(narration.start_us, narration.duration_us),
+                source_timerange=trange(0, narration.duration_us),
+            ),
+            NARRATION_TRACK,
         )
-        content_path.write_text(json.dumps(content, ensure_ascii=False), encoding="utf-8")
 
-        index = {"format": INDEX_FORMAT, "duration_us": placement.duration_us, "assets": staging.index}
-        output.parent.mkdir(parents=True, exist_ok=True)
-        with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as archive:
-            archive.writestr(INDEX_NAME, json.dumps(index, ensure_ascii=False))
-            for file in sorted(draft_dir.rglob("*")):
-                if file.is_file():
-                    archive.write(file, f"{DRAFT_DIR}/{file.relative_to(draft_dir).as_posix()}")
-            for name, source in staging.index.items():
-                if source.get("bundled") is True:
-                    archive.write(staging.directory / name, f"{ASSETS_DIR}/{name}", zipfile.ZIP_STORED)
+    style, border, shadow, position = _subtitle_style(width, height)
+    for subtitle in placement.subtitles:
+        script.add_segment(
+            TextSegment(
+                text=subtitle.text,
+                timerange=trange(subtitle.start_us, subtitle.duration_us),
+                font=SUBTITLE_FONT,
+                style=style,
+                border=border,
+                shadow=shadow,
+                clip_settings=position,
+            ),
+            SUBTITLE_TRACK,
+        )
+    script.save()
+
+    draft_dir = root / "drafts" / DRAFT_DIR
+    content_path = draft_dir / CONTENT_NAME
+    staged_prefix = str(staging.directory) + os.sep
+    content = _map_strings(
+        json.loads(content_path.read_text(encoding="utf-8")),
+        lambda text: text.replace(staged_prefix, f"{ASSETS_PLACEHOLDER}/"),
+    )
+    content_path.write_text(json.dumps(content, ensure_ascii=False), encoding="utf-8")
+
+    index = {"format": INDEX_FORMAT, "duration_us": placement.duration_us, "assets": staging.index}
+    output.parent.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr(INDEX_NAME, json.dumps(index, ensure_ascii=False))
+        for file in sorted(draft_dir.rglob("*")):
+            if file.is_file():
+                archive.write(file, f"{DRAFT_DIR}/{file.relative_to(draft_dir).as_posix()}")
+        for name, source in staging.index.items():
+            if source.get("bundled") is True:
+                archive.write(staging.directory / name, f"{ASSETS_DIR}/{name}", zipfile.ZIP_STORED)
 
 
 def _read_index(archive: zipfile.ZipFile) -> dict[str, dict[str, object]]:

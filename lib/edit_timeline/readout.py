@@ -151,11 +151,12 @@ def trim_applies(clip: EditClip, media: UnitMedia) -> bool:
 
 
 def effective_source_range_us(clip: EditClip, video_version: int | None, whole_us: int) -> tuple[int, int]:
-    """片段实际取用的源素材区间；截取只对其依据的视频版本有效，出点不超过视频全长。"""
+    """片段实际取用的源素材区间；截取只对其依据的视频版本有效，入点与出点都不超过视频全长。"""
     trim = clip.trim
     if video_version is None or trim is None or trim.basis_version != video_version:
         return 0, whole_us
-    return trim.in_us, max(trim.in_us, min(trim.out_us, whole_us))
+    source_in = min(trim.in_us, whole_us)
+    return source_in, max(source_in, min(trim.out_us, whole_us))
 
 
 def clip_source_duration_us(clip: EditClip, media: UnitMedia, scripted_us: int) -> int:
@@ -295,6 +296,15 @@ def project_readout(
     )
 
 
+def unrendered_effects(readout: EditTimelineReadout) -> tuple[list[str], list[str]]:
+    """成片与剪映草稿都还不能渲染的内容，按 (片段 ID, BGM ID) 返回。
+
+    转场只算到下一个参与渲染的片段之间的切点：已删除单元的片段不参与渲染，最后一个参与渲染的片段上的转场没有效果。
+    """
+    live = [clip for clip in readout.clips if clip.status != "unit_deleted"]
+    return [clip.id for clip in live[:-1] if clip.transition_to_next is not None], [item.id for item in readout.bgm]
+
+
 __all__ = [
     "HOLD_WARNING_MICROSECONDS",
     "ISSUE_LEVELS",
@@ -315,4 +325,5 @@ __all__ = [
     "project_readout",
     "timeline_issue",
     "trim_applies",
+    "unrendered_effects",
 ]

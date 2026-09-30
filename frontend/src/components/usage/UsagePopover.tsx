@@ -139,7 +139,10 @@ export function UsagePopover({ projectName, anchorRef, panelId }: UsagePopoverPr
       ),
     ),
   );
-  const queuedCount = activeTasks.filter((task) => task.status === "queued").length;
+  // 只数列表里显示的排队任务：本地渲染任务不列出，服务端批量取消也不含它们。
+  const queuedCount = activeTasks.filter(
+    (task) => task.status === "queued" && taskToUsageRecordView(task) !== null,
+  ).length;
 
   const cancellation = useTaskCancellation(
     projectName,

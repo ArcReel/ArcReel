@@ -1,7 +1,7 @@
 """成片命令：渲染前检查、渲染并登记、读取已有成片的时效；渲染任务、HTTP 与 Agent 工具共用。
 
 渲染按「依据快照 → 临时文件 → 验收 → 原子替换并登记」进行（:mod:`lib.artifacts.rendered_artifact`）：
-依据按任务开始时的指定修订（缺省为最新修订）取快照，渲染期间剪辑时间线被改动、或显式渲染旧修订时，
+依据按任务开始时的指定修订（缺省为最新修订；HTTP 与 Agent 工具提交时已解析成具体修订）取快照，渲染期间剪辑时间线被改动、或显式渲染旧修订时，
 成片一出来就如实判为 stale。
 """
 
@@ -19,7 +19,7 @@ from lib.artifacts.rendered_artifact import commit_rendered_artifact, read_rende
 from lib.artifacts.version_manager import VersionManager
 from lib.edit_timeline.errors import EditTimelineError
 from lib.edit_timeline.model import EditTimelineDocument, TimelineRevision
-from lib.edit_timeline.readout import IssueScope, IssueSeverity, TimelineIssue, project_readout
+from lib.edit_timeline.readout import IssueScope, IssueSeverity, TimelineIssue, project_readout, unrendered_effects
 from lib.edit_timeline.sources import EpisodeScriptUnits, load_episode_script_units, load_episode_sources
 from lib.edit_timeline.store import EditTimelineStore
 from lib.final_cut.basis import (
@@ -159,16 +159,15 @@ class FinalCutService:
                 "剪辑时间线有阻断出片的问题：" + "、".join(f"{issue.code}({issue.unit_id})" for issue in blocking),
                 issues=[issue.model_dump(mode="json") for issue in blocking],
             )
-        live = [clip for clip in target.content.clips if sources.unit(clip.unit_id) is not None]
-        transitions = [clip.id for clip in live[:-1] if clip.transition_to_next is not None]
-        if transitions or target.content.bgm:
+        transitions, bgm_ids = unrendered_effects(readout)
+        if transitions or bgm_ids:
             raise FinalCutError(
                 "final_cut_content_unsupported",
                 "成片目前只能渲染硬切、不带 BGM 的剪辑时间线",
                 clip_ids=transitions,
-                bgm_ids=[item.id for item in target.content.bgm],
+                bgm_ids=bgm_ids,
             )
-        if not live:
+        if not any(clip.status != "unit_deleted" for clip in readout.clips):
             raise FinalCutError("final_cut_empty", "剪辑时间线没有可渲染的剪辑片段", timeline_id=document.id)
         try:
             await asyncio.to_thread(ffmpeg_executable)
@@ -221,13 +220,13 @@ class FinalCutService:
             )
         return inputs
 
-    async def _render_media(self, project_dir: Path, inputs: FinalCutInputs) -> dict[str, RenderMedia]:
+    async def _render_media(self, inputs: FinalCutInputs) -> dict[str, RenderMedia]:
         media: dict[str, RenderMedia] = {}
         for item in inputs.clips:
             video = item.video
             if video.unit_id in media:
                 continue
-            path = project_dir / video.artifact_path
+            path = video.snapshot
             try:
                 probe = await probe_media(path, spawn=self._spawn)
             except MediaProbeError as exc:
@@ -243,7 +242,7 @@ class FinalCutService:
                 path=path,
                 video_version=video.version,
                 duration_us=round(stream.duration_seconds * 1_000_000),
-                has_audio=probe.first_stream("audio") is not None,
+                has_audio=video.provider_audio and probe.first_stream("audio") is not None,
             )
         return media
 
@@ -260,7 +259,7 @@ class FinalCutService:
         inputs = await asyncio.to_thread(self._snapshot, project_name, checked, variant)
         basis = final_cut_basis(inputs)
         project_dir = self._project_dir(project_name)
-        media = await self._render_media(project_dir, inputs)
+        media = await self._render_media(inputs)
         plan = plan_render(render_clips([item.clip for item in inputs.clips], media), inputs.profile)
         if not plan.segments:
             raise FinalCutError("final_cut_empty", "剪辑时间线没有可渲染的剪辑片段", timeline_id=inputs.timeline_id)

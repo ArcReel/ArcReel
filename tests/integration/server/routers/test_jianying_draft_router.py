@@ -12,6 +12,7 @@ from httpx import ASGITransport, AsyncClient
 
 from lib.artifacts.version_manager import VersionManager
 from lib.edit_timeline import EditTimelineService, RevisionAuthor
+from lib.edit_timeline.operations import SetReason
 from lib.generation.generation_queue import GenerationQueue, get_generation_queue
 from lib.project.project_manager import ProjectManager
 from server.auth import create_download_token
@@ -64,8 +65,17 @@ async def test_submit_queues_an_export_and_the_registered_draft_downloads_for_th
     token = create_download_token("testuser", "demo")
 
     submitted = await draft_client.post(url)
-    again = await draft_client.post(url, json={"narration": "without_narration"})
-    conflicting = await draft_client.post(url, json={"revision": 1})
+    again = await draft_client.post(url, json={"narration": "without_narration", "revision": 1})
+    await EditTimelineService(timeline_project).edit(
+        "demo",
+        timeline_id,
+        base_revision=1,
+        summary="补充理由",
+        operations=[SetReason(op="set_reason", clip="c1", reason="保留开场")],
+        author=RevisionAuthor(kind="arcreel_agent"),
+    )
+    # 省略 revision 的请求按提交时的最新修订入队：时间线前进后不再去重到旧修订的任务。
+    conflicting = await draft_client.post(url)
     before = await draft_client.get(url)
     not_exported = await draft_client.get(download, params=_download_params(token))
 

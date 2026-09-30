@@ -709,15 +709,16 @@ class GenerationQueue:
             return await repo.get_cancel_preview(task_id)
 
     async def cancel_all_queued(self, project_name: str) -> dict[str, Any]:
+        """取消项目里排队中的生成任务。本地渲染任务不在用量面板列出，也不随批量取消。"""
         async with self._task_repo() as repo:
-            result = await repo.cancel_all_queued(project_name)
+            result = await repo.cancel_all_queued(project_name, exclude_media_types=(RENDER_MEDIA_TYPE,))
         if result["cancelled_count"] > 0:
             logger.info("批量取消 project=%s 共取消 %d 个", project_name, result["cancelled_count"])
         return result
 
     async def get_cancel_all_preview(self, project_name: str) -> int:
         async with self._task_repo() as repo:
-            return await repo.get_cancel_all_preview(project_name)
+            return await repo.get_cancel_all_preview(project_name, exclude_media_types=(RENDER_MEDIA_TYPE,))
 
     async def get_task(self, task_id: str) -> dict[str, Any] | None:
 

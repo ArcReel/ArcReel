@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any, Literal
 
 type EditTimelineErrorCode = Literal[
@@ -28,4 +29,28 @@ class EditTimelineError(Exception):
         self.params = params
 
 
-__all__ = ["EditTimelineError", "EditTimelineErrorCode"]
+# 会展示给创作者的错误码 → 译文 key：项目与集复用通用 key。批量编辑的错误只回给 Agent，不在此登记。
+_MESSAGE_KEYS: dict[str, str] = {
+    "project_not_found": "project_not_found",
+    "episode_not_found": "episode_not_found",
+    "timeline_not_found": "edit_timeline_not_found",
+    "revision_not_found": "edit_timeline_revision_not_found",
+    "timeline_name_conflict": "edit_timeline_name_conflict",
+    "timeline_name_invalid": "edit_timeline_name_invalid",
+    "script_invalid": "edit_timeline_script_invalid",
+    "timeline_invalid": "edit_timeline_invalid",
+}
+
+
+def edit_timeline_message(code: str, params: Mapping[str, Any]) -> tuple[str, dict[str, Any]] | None:
+    """错误码对应的译文 key 与插值参数；不是面向创作者的剪辑时间线错误码时返回 None。"""
+    key = _MESSAGE_KEYS.get(code)
+    if key is None:
+        return None
+    values = dict(params)
+    if "project" in values:
+        values["name"] = values.pop("project")
+    return key, values
+
+
+__all__ = ["EditTimelineError", "EditTimelineErrorCode", "edit_timeline_message"]

@@ -58,8 +58,11 @@ class EditTimelineStore:
     def _parse(path: Path) -> EditTimelineDocument:
         return _parse_document(path)
 
-    def list_documents(self, episode: int | None = None) -> list[EditTimelineDocument]:
-        """列出剪辑时间线（按集、再按创建时间）；无法解析的文件跳过并记日志。"""
+    def list_documents(self, episode: int | None = None, *, strict: bool = False) -> list[EditTimelineDocument]:
+        """列出剪辑时间线（按集、再按创建时间）。
+
+        无法解析的文件默认跳过并记日志；``strict`` 时抛出 ``timeline_invalid``。
+        """
         documents: list[EditTimelineDocument] = []
         for number, directory in self._episode_dirs():
             if episode is not None and number != episode:
@@ -70,6 +73,8 @@ class EditTimelineStore:
                 try:
                     document = self._parse(path)
                 except EditTimelineError:
+                    if strict:
+                        raise
                     logger.warning("跳过无法解析的剪辑时间线文件: %s", path, exc_info=True)
                     continue
                 if document.episode == number:
