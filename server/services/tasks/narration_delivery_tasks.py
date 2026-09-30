@@ -10,8 +10,8 @@ from __future__ import annotations
 import asyncio
 import filecmp
 import math
-from collections.abc import Awaitable, Callable, Iterable, Sequence
-from dataclasses import dataclass, replace
+from collections.abc import Callable, Iterable, Sequence
+from dataclasses import replace
 from pathlib import Path, PurePosixPath
 from typing import Any
 
@@ -61,6 +61,7 @@ from lib.script.script_models import resolve_content_mode
 from lib.script.script_skeleton import resolve_script_kind
 from lib.script.storyboard_sequence import resolve_storyboard_video_inputs
 from lib.speech.audio_utils import probe_existing_media_duration_seconds
+from lib.speech.narration_config import ProjectTtsSettingsResolver
 from lib.speech.narration_delivery import (
     NarratedVideoDurationBlockedError,
     NarratedVideoDurationPreparation,
@@ -68,68 +69,12 @@ from lib.speech.narration_delivery import (
     NarrationDeliveryRequestOptions,
     NarrationTtsStatus,
     TtsSettingsResolver,
-    TtsSynthesisSettings,
     VideoRequestCostFacts,
     prepare_current_narration_delivery,
     prepare_narrated_video_duration,
     prepare_narrated_video_output,
 )
 from lib.speech.speech_composition import admit_script_unit
-from server.services.tasks.generation_context import AudioLaneRequest, AudioLaneResult, resolve_generation_context
-
-
-@dataclass(frozen=True, slots=True)
-class ResolvedTtsSettingsResolver:
-    """Serve one audio-lane snapshot to current-state delivery projection."""
-
-    settings: TtsSynthesisSettings
-
-    @classmethod
-    def from_audio_lane(cls, audio: AudioLaneResult) -> ResolvedTtsSettingsResolver:
-        return cls(
-            TtsSynthesisSettings(
-                provider_id=audio.provider_model.provider_id,
-                model_id=audio.backend_model,
-                voice=audio.narration_voice,
-                speed=audio.narration_speed,
-            )
-        )
-
-    async def resolve_tts_synthesis_settings(self, project: dict) -> TtsSynthesisSettings:
-        del project
-        return self.settings
-
-
-class CurrentTtsSettingsResolver:
-    """Resolve freshness inputs through the same assembled audio lane as synthesis."""
-
-    def __init__(
-        self,
-        project_name: str,
-        *,
-        user_id: str = DEFAULT_USER_ID,
-        project_path: Path | None = None,
-        context_resolver: Callable[..., Awaitable[Any]] | None = None,
-    ) -> None:
-        self._project_name = project_name
-        self._user_id = user_id
-        self._project_path = project_path
-        self._context_resolver = context_resolver or resolve_generation_context
-
-    async def resolve_tts_synthesis_settings(self, project: dict) -> TtsSynthesisSettings:
-        context_kwargs: dict[str, Any] = {
-            "project": project,
-            "user_id": self._user_id,
-            "audio": AudioLaneRequest(),
-        }
-        if self._project_path is not None:
-            context_kwargs["project_path"] = self._project_path
-        ctx = await self._context_resolver(
-            self._project_name,
-            None,
-            **context_kwargs,
-        )
-        return ResolvedTtsSettingsResolver.from_audio_lane(ctx.audio).settings
 
 
 def _selected_current_video_record(
@@ -512,8 +457,7 @@ async def prepare_current_storyboard_narrated_video_duration(
         preparation=preparation,
         project_path=project_path,
         delivery="use_tts",
-        resolver=tts_settings_resolver
-        or CurrentTtsSettingsResolver(project_name, user_id=user_id, project_path=project_path),
+        resolver=tts_settings_resolver or ProjectTtsSettingsResolver(),
         tts_in_progress=active,
     )
     visual_basis_digest = await asyncio.to_thread(
@@ -607,8 +551,7 @@ async def prepare_current_reference_video_request_options(
         unit=unit,
         project_path=project_path,
         options=options,
-        resolver=tts_settings_resolver
-        or CurrentTtsSettingsResolver(project_name, user_id=user_id, project_path=project_path),
+        resolver=tts_settings_resolver or ProjectTtsSettingsResolver(),
         tts_in_progress=tts_in_progress,
         episode=episode,
     )
@@ -965,7 +908,7 @@ async def _prepare_current_task_narration_delivery(
         preparation=preparation,
         project_path=project_path,
         delivery=USE_TTS,
-        resolver=CurrentTtsSettingsResolver(project_name),
+        resolver=ProjectTtsSettingsResolver(),
         tts_in_progress=await tts_task_in_progress(
             project_name=project_name,
             resource_id=resource_id,
@@ -975,7 +918,6 @@ async def _prepare_current_task_narration_delivery(
 
 
 __all__ = [
-    "ResolvedTtsSettingsResolver",
     "active_narrated_video_resource_ids",
     "active_tts_resource_ids",
     "current_reusable_video_tier",

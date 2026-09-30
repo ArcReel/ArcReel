@@ -162,6 +162,7 @@ class _FakePM:
         target_duration=None,
         brief=None,
         source_kind=None,
+        narration=None,
     ):
         payload = {
             "title": (title or name),
@@ -188,6 +189,7 @@ class _FakePM:
             payload["style_template_id"] = style_template_id
         if extras:
             payload.update(extras)
+        payload.update(narration or {"narration_delivery": "post_production"})
         self.project_data[name] = payload
         return payload
 

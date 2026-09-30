@@ -1152,19 +1152,16 @@ class TestCostEstimationService:
         assert any("ep2.json" in m for m in warnings), warnings
 
     async def test_audio_estimate_per_segment_by_characters(self, db_factory):
-        """旁白配音预估 = novel_text 字符数 × 按字符费率；models 含 audio 条目。"""
-        from lib.config.service import ConfigService
-
-        async with db_factory() as session:
-            await ConfigService(session).set_setting("default_audio_backend", "dashscope/qwen3-tts-flash")
-            await session.commit()
-
+        """旁白配音预估 = novel_text 字符数 × 项目 TTS 快照模型的按字符费率；models 含 audio 条目。"""
         resolver = ConfigResolver(db_factory)
         service = CostEstimationService(resolver, db_factory)
 
         project_data = {
             "title": "Test",
             "content_mode": "narration",
+            "narration_delivery": "use_tts",
+            "audio_backend": "dashscope/qwen3-tts-flash",
+            "narration_voice": "Cherry",
             "episodes": [{"episode": 1, "title": "Ep1", "script_file": "ep1.json"}],
         }
         script = _make_script(1, ["E1S001", "E1S002"], [6, 8])
@@ -1183,6 +1180,30 @@ class TestCostEstimationService:
         # 集/项目两级合计纳入 audio
         assert result["episodes"][0]["totals"]["estimate"]["audio"]["CNY"] == pytest.approx(0.008)
         assert result["project_totals"]["estimate"]["audio"]["CNY"] == pytest.approx(0.008)
+
+    async def test_post_production_project_has_no_audio_estimate(self, db_factory):
+        """后期配音项目即使保留着 TTS 快照也不产生旁白配音预估，全局默认同样不参与。"""
+        from lib.config.service import ConfigService
+
+        async with db_factory() as session:
+            await ConfigService(session).set_setting("default_audio_backend", "dashscope/qwen3-tts-flash")
+            await session.commit()
+
+        service = CostEstimationService(ConfigResolver(db_factory), db_factory)
+        project_data = {
+            "title": "Test",
+            "content_mode": "narration",
+            "narration_delivery": "post_production",
+            "audio_backend": "dashscope/qwen3-tts-flash",
+            "narration_voice": "Cherry",
+            "episodes": [{"episode": 1, "title": "Ep1", "script_file": "ep1.json"}],
+        }
+        script = _make_script(1, ["E1S001"], [6])
+        script["segments"][0]["novel_text"] = "字" * 100
+
+        result = await service.compute(project_data, {"ep1.json": script}, project_name="test")
+
+        assert result["episodes"][0]["segments"][0]["estimate"]["audio"] == {}
 
     async def test_audio_actual_costs_included(self, db_factory):
         """旁白实际费用按 segment 聚合进 actual.audio。"""
@@ -2255,7 +2276,9 @@ class TestCostEstimationService:
             "content_mode": "narration",
             "image_provider_t2i": "custom-1/img",
             "video_backend": "custom-1/vid",
+            "narration_delivery": "use_tts",
             "audio_backend": "custom-1/aud",
+            "narration_voice": "alloy",
             "episodes": [{"episode": 1, "title": "Ep1", "script_file": "ep1.json"}],
         }
         script = _make_script(1, ["E1S001"], [6])

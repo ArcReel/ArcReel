@@ -27,6 +27,8 @@ import type {
   ProjectDeletedPayload,
   GetSystemConfigResponse,
   GetSystemVersionResponse,
+  NarrationDefaultsResponse,
+  TtsModelCapabilitiesResponse,
   PromptTemplateDetail,
   PromptTemplateListResponse,
   PromptTemplatePartial,
@@ -326,6 +328,21 @@ class API {
     options: { signal?: AbortSignal } = {}
   ): Promise<ModelCandidatesResponse> {
     return this.request("/system/config/model-candidates", { signal: options.signal });
+  }
+
+  /** 新建 TTS 项目的预填值（全局默认的 TTS 模型、音色与语速）。 */
+  static async getNarrationDefaults(): Promise<NarrationDefaultsResponse> {
+    return this.request("/system/narration-defaults");
+  }
+
+  /** 所选 TTS 模型（provider/model）的能力，目前只回答是否支持配音语速。 */
+  static async getTtsModelCapabilities(
+    backend: string,
+    options: { signal?: AbortSignal } = {},
+  ): Promise<TtsModelCapabilitiesResponse> {
+    return this.request(`/system/tts-model-capabilities?backend=${encodeURIComponent(backend)}`, {
+      signal: options.signal,
+    });
   }
 
   static async getSystemVersion(): Promise<GetSystemVersionResponse> {

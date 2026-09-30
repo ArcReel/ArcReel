@@ -68,6 +68,7 @@ from lib.script.reference_video.units import reference_video_bucket
 from lib.script.reference_video.voice_settings import VoiceRenderSettings
 from lib.script.script_editor import ScriptEditError
 from lib.script.script_models import ReferenceResource
+from lib.speech.narration_config import ProjectTtsSettingsResolver
 from lib.speech.narration_delivery import USE_TTS
 from lib.speech.speech_artifact_provenance import build_video_duration_basis
 from lib.speech.speech_composition import admit_script_unit, video_unit_replan_problems
@@ -78,7 +79,6 @@ from server.services.currency.video_artifact_currency import (
 )
 from server.services.tasks.generation_context import AudioLaneRequest, VideoLaneRequest, resolve_generation_context
 from server.services.tasks.narration_delivery_tasks import (
-    ResolvedTtsSettingsResolver,
     materialized_reference_video_visual_basis_digest,
     prepare_current_reference_video_request_options,
     reference_video_visual_basis_digest,
@@ -299,11 +299,7 @@ async def execute_reference_video_task(
         project_path=project_path,
         options=request_options,
         project_name=project_name,
-        tts_settings_resolver=(
-            ResolvedTtsSettingsResolver.from_audio_lane(ctx.audio)
-            if request_options.narration_delivery == USE_TTS
-            else None
-        ),
+        tts_settings_resolver=(ProjectTtsSettingsResolver() if request_options.narration_delivery == USE_TTS else None),
         tts_in_progress=tts_in_progress,
     )
     projection = await ReferenceUnitRequestProjector(_lane_request_facts, asset_availability).project_current(

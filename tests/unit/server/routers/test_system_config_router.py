@@ -609,3 +609,38 @@ class TestPatchSystemConfig:
         assert "text_backend_script" not in settings
         assert "text_backend_overview" not in settings
         assert "text_backend_style" not in settings
+
+
+class TestNarrationDefaults:
+    """新建 TTS 项目的预填值取自全局设置。"""
+
+    def test_returns_global_tts_defaults(self, monkeypatch, db_factory):
+        import asyncio
+
+        async def _seed():
+            async with db_factory() as session:
+                svc = ConfigService(session)
+                await svc.set_setting("default_audio_backend", "dashscope/qwen3-tts-flash")
+                await svc.set_setting("narration_voice", "Ethan")
+                await svc.set_setting("narration_speed", "1.2")
+                await session.commit()
+
+        asyncio.run(_seed())
+        monkeypatch.setattr(system_config_router, "async_session_factory", db_factory)
+        with TestClient(_make_app_with_mock(_make_mock_svc())) as client:
+            resp = client.get("/api/v1/system/narration-defaults")
+        assert resp.status_code == 200
+        assert resp.json() == {
+            "audio_backend": "dashscope/qwen3-tts-flash",
+            "narration_voice": "Ethan",
+            "narration_speed": 1.2,
+        }
+
+
+class TestTtsModelCapabilities:
+    def test_rejects_incomplete_backend(self):
+        app = _make_app_with_mock(_make_mock_svc())
+        register_error_handlers(app)
+        with TestClient(app) as client:
+            resp = client.get("/api/v1/system/tts-model-capabilities", params={"backend": "dashscope"})
+        assert resp.status_code == 422

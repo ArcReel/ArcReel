@@ -115,8 +115,6 @@ def fake_resolve_ctx(
                 provider_model=ProviderModel("dashscope", "configured-tts"),
                 backend_name="dashscope",
                 backend_model="actual-tts",
-                narration_voice="Cherry",
-                narration_speed=1.1,
                 voices=(),
             )
         return GenerationContext(
@@ -138,6 +136,10 @@ class _FakePM:
             "content_mode": "narration",
             "style": "Anime",
             "style_description": "cinematic",
+            "narration_delivery": "use_tts",
+            "audio_backend": "dashscope/actual-tts",
+            "narration_voice": "Cherry",
+            "narration_speed": 1.1,
             "characters": {
                 "Alice": {
                     "description": "hero",

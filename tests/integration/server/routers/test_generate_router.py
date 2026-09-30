@@ -18,7 +18,7 @@ from lib.artifacts.version_manager import VersionManager
 from lib.artifacts.video_artifact_facts import VideoArtifactCurrencyFacts
 from lib.artifacts.video_visual_provenance import build_storyboard_video_visual_basis, resolve_video_aspect_ratio
 from lib.artifacts.visual_artifact_provenance import build_storyboard_video_artifact_visual_basis
-from lib.config.resolver import ConfigResolver, ProviderModel
+from lib.config.resolver import ConfigResolver
 from lib.db import async_session_factory
 from lib.generation.video_request_facts import (
     CONFIGURED_VIDEO_IDENTITY,
@@ -34,7 +34,6 @@ from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import generate
 from server.services.admission.cost_estimation import VideoRequestQuote
-from server.services.tasks.narration_delivery_tasks import CurrentTtsSettingsResolver
 from tests.auth_deps import AUTH_DEPENDENCIES
 from tests.factories import make_video_request_facts, wav_bytes
 from tests.speech_contract_cases import SPEECH_CONTRACT_CASES, SpeechContractCase
@@ -315,13 +314,9 @@ class TestGenerateRouter:
         fake_pm = _FakePM(project_path)
         fake_queue = _FakeQueue()
         client = _client(monkeypatch, fake_pm, fake_queue)
-
-        async def _resolve_audio(_self, _project, _payload):
-            return ProviderModel("dashscope", "qwen3-tts-flash")
-
-        # 音频供应商解析器本身有 DB 依赖，替身落在解析这个协作者上；入口的「未配置即 400」
-        # 由 test_generate_router_tts 覆盖。
-        monkeypatch.setattr(ConfigResolver, "resolve_audio_backend", _resolve_audio)
+        fake_pm.project.update(
+            {"narration_delivery": "use_tts", "audio_backend": "dashscope/qwen3-tts-flash", "narration_voice": "Cherry"}
+        )
         monkeypatch.setattr(
             generate,
             "active_narrated_video_resource_ids",
@@ -555,10 +550,7 @@ class TestGenerateRouter:
             basis=build_narration_audio_basis(preparation, settings),
         )
 
-        async def _resolve_tts(_self, _project):
-            return settings
-
-        monkeypatch.setattr(CurrentTtsSettingsResolver, "resolve_tts_synthesis_settings", _resolve_tts)
+        fake_pm.project.update(audio_backend="openai/tts-1", narration_voice="alloy")
 
         with client:
             response = client.post(
@@ -601,10 +593,7 @@ class TestGenerateRouter:
             basis=build_narration_audio_basis(preparation, settings),
         )
 
-        async def _resolve_tts(_self, _project):
-            return settings
-
-        monkeypatch.setattr(CurrentTtsSettingsResolver, "resolve_tts_synthesis_settings", _resolve_tts)
+        fake_pm.project.update(audio_backend="openai/tts-1", narration_voice="alloy")
         request = {
             "script_file": "episode_1.json",
             "prompt": {"action": "风吹草动", "camera_motion": "Static"},
@@ -648,10 +637,7 @@ class TestGenerateRouter:
             basis=build_narration_audio_basis(preparation, settings),
         )
 
-        async def _resolve_tts(_self, _project):
-            return settings
-
-        monkeypatch.setattr(CurrentTtsSettingsResolver, "resolve_tts_synthesis_settings", _resolve_tts)
+        fake_pm.project.update(audio_backend="openai/tts-1", narration_voice="alloy")
         monkeypatch.setattr(
             generate,
             "quote_video_request",

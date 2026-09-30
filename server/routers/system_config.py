@@ -25,6 +25,7 @@ from packaging.version import InvalidVersion, Version
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from lib.backends.audio_backends.base import AudioCapability
 from lib.backends.generation_type_buckets import (
     BUCKETS_BY_MEDIA_TYPE,
     GenerationTypeBucket,
@@ -36,14 +37,16 @@ from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.repository import mask_secret
 from lib.config.resolver import ConfigResolver
 from lib.config.service import DEFAULT_VIDEO_POLL_TIMEOUT_SECONDS, ConfigService
-from lib.db import get_async_session
+from lib.db import async_session_factory, get_async_session
 from lib.i18n import DEFAULT_LOCALE, translate_or
 from lib.infra.api_errors import UnprocessableError
 from lib.infra.httpx_shared import get_http_client
 from lib.market.sources import PROXY_PREFIX_SETTING
+from lib.speech.narration_config import parse_tts_backend
 from server.dependencies import get_config_service
 from server.i18n import Locale, Translator
 from server.routers._validators import validate_backend_value
+from server.services.tasks.generation_context import audio_backend_capabilities
 
 logger = logging.getLogger(__name__)
 
@@ -433,6 +436,44 @@ async def get_model_candidates(
         provider_names=provider_names,
         model_names=_model_names(candidates),
     )
+
+
+class NarrationDefaultsResponse(BaseModel):
+    """新建 TTS 项目的预填值；未配置任何音频供应商时 ``audio_backend`` 为 None。"""
+
+    audio_backend: str | None
+    narration_voice: str
+    narration_speed: float | None
+
+
+@router.get("/system/narration-defaults", response_model=NarrationDefaultsResponse)
+async def get_narration_defaults(
+    svc: Annotated[ConfigService, Depends(get_config_service)],
+) -> NarrationDefaultsResponse:
+    """全局默认音频模型、旁白音色与配音语速：创建向导与项目设置切到 TTS 配音时用它预填项目快照。"""
+    try:
+        backend, voice, speed = await ConfigResolver(async_session_factory).default_narration_tts()
+        audio_backend: str | None = f"{backend.provider_id}/{backend.model_id}"
+    except ValueError:
+        audio_backend, voice, speed = None, await svc.get_narration_voice(), await svc.get_narration_speed()
+    return NarrationDefaultsResponse(audio_backend=audio_backend, narration_voice=voice, narration_speed=speed)
+
+
+class TtsModelCapabilitiesResponse(BaseModel):
+    supports_speed: bool
+
+
+@router.get("/system/tts-model-capabilities", response_model=TtsModelCapabilitiesResponse)
+async def get_tts_model_capabilities(backend: str) -> TtsModelCapabilitiesResponse:
+    """所选 TTS 模型（``provider/model``）是否把配音语速传给供应商；不支持时设置页置灰语速输入。"""
+    pair = parse_tts_backend(backend)
+    if pair is None:
+        raise UnprocessableError("narration_tts_model_required")
+    try:
+        capabilities = await audio_backend_capabilities(*pair)
+    except ValueError as exc:
+        raise UnprocessableError("narration_tts_model_invalid") from exc
+    return TtsModelCapabilitiesResponse(supports_speed=AudioCapability.SPEECH_SPEED in capabilities)
 
 
 @router.get("/system/version")

@@ -49,6 +49,7 @@ from lib.script.storyboard_sequence import (
     find_storyboard_item,
     get_storyboard_items,
 )
+from lib.speech.narration_config import NarrationConfigError, require_project_tts_generation
 from lib.speech.narration_delivery import (
     POST_PRODUCTION,
     USE_TTS,
@@ -440,6 +441,15 @@ async def _require_audio_provider_configured(project: dict) -> str:
     return resolved.provider_id
 
 
+def _require_project_tts(project: dict) -> str:
+    """旁白配音只为选了 TTS 配音、快照完整的项目生成；返回快照里的 provider_id 供入队复用。"""
+
+    try:
+        return require_project_tts_generation(project).provider_id
+    except NarrationConfigError as exc:
+        raise BadRequestError(exc.code) from exc
+
+
 async def _enqueue_tts_segment(
     *,
     project_name: str,
@@ -501,7 +511,7 @@ async def generate_tts(
 
     project, _segment = await asyncio.to_thread(_sync)
 
-    provider_id = await _require_audio_provider_configured(project)
+    provider_id = _require_project_tts(project)
 
     active_narrated_video = await active_narrated_video_resource_ids(
         project_name=project_name,
@@ -561,6 +571,7 @@ async def generate_tts_batch(
         return _project, missing
 
     project, missing_ids = await asyncio.to_thread(_sync)
+    provider_id = _require_project_tts(project)
 
     if not missing_ids:
         return {
@@ -570,8 +581,6 @@ async def generate_tts_batch(
             "deduped": False,
             "message": _t("tts_batch_none_missing"),
         }
-
-    provider_id = await _require_audio_provider_configured(project)
 
     task_ids: list[str] = []
     # 逐段给出它自己的任务行：调用方的乐观占用标记要各等各的，拿整批清单会让每一段

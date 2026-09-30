@@ -26,6 +26,8 @@ from lib.project.project_migrations.runner import MIGRATORS
 from lib.project.source_revision import SourceScope, compute_source_revision
 from lib.script.grid.models import GridGeneration, build_frame_chain
 from lib.script.script_review import content_fingerprint
+from lib.speech.narration_config import TtsSynthesisSettings
+from lib.speech.narration_delivery import build_narration_audio_basis
 from lib.speech.speech_artifact_provenance import (
     SelectedMediaEvidence,
     build_video_duration_basis,
@@ -167,6 +169,64 @@ def write_legacy_storyboard_project(
         videos[unit_id] = {"current_version": 1, "versions": [record]}
     _write_versions(project_dir, {"videos": videos})
     _mark_asset_inventory_current(project_dir)
+    return project_dir
+
+
+def write_legacy_tts_narration_project(
+    root: Path,
+    name: str = "legacy-tts-narration",
+    *,
+    settings: tuple[TtsSynthesisSettings, ...] = (
+        TtsSynthesisSettings("dashscope", "qwen3-tts-flash", "Cherry", None),
+        TtsSynthesisSettings("dashscope", "qwen3-tts-flash", "Ethan", 1.2),
+    ),
+) -> Path:
+    """在 ``write_legacy_storyboard_project`` 上补旁白配音：每个分镜一条选中的音频版本，带完整 TTS 设置。
+
+    ``project.json`` 是旧口径：没有旁白交付方式，音频后端写裸供应商，音色与语速「留空跟随全局默认」。
+    第 i 个分镜的旁白用 ``settings[i]`` 合成，``created_at`` 按分镜顺序递增。
+    """
+
+    unit_ids = tuple(f"E1S{index}" for index in range(1, len(settings) + 1))
+    project_dir = write_legacy_storyboard_project(root, name, unit_ids=unit_ids)
+    project_path = project_dir / "project.json"
+    project = json.loads(project_path.read_text(encoding="utf-8"))
+    project["audio_backend"] = "dashscope"
+    _write_json(project_path, project)
+    script_path = project_dir / "scripts" / "episode_1.json"
+    script = json.loads(script_path.read_text(encoding="utf-8"))
+    versions = VersionManager(project_dir)
+    for index, (segment, synthesis) in enumerate(zip(script["segments"], settings, strict=True), start=1):
+        unit_id = segment["segment_id"]
+        audio_path = f"audio/segment_{unit_id}.wav"
+        segment["generated_assets"]["narration_audio"] = audio_path
+        speech = {key: value for key, value in segment.items() if key != "transition_to_next"}
+        basis = ArtifactBasisDescriptor.from_basis(
+            build_narration_audio_basis(admit_script_unit("segments", speech).preparation, synthesis)
+        )
+        audio = project_dir / audio_path
+        audio.parent.mkdir(exist_ok=True)
+        audio.write_bytes(f"tts-{unit_id}".encode())
+        versions.add_version(
+            "audio",
+            unit_id,
+            segment["novel_text"],
+            source_file=audio,
+            artifact_episode=1,
+            artifact_audio_basis=basis.to_dict(),
+            execution_script_file="episode_1.json",
+            tts_actual_duration_seconds=3.0,
+            tts_provider_id=synthesis.provider_id,
+            tts_model_id=synthesis.model_id,
+            tts_voice=synthesis.voice,
+            tts_speed=synthesis.speed,
+            tts_basis_digest=basis.digest,
+        )
+        metadata_path = project_dir / "versions" / "versions.json"
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        metadata["audio"][unit_id]["versions"][-1]["created_at"] = f"2026-04-0{index}T10:00:00Z"
+        _write_json(metadata_path, metadata)
+    _write_json(script_path, script)
     return project_dir
 
 
@@ -906,5 +966,6 @@ __all__ = [
     "write_legacy_script_plan_project",
     "write_legacy_storyboard_project",
     "write_legacy_style_project",
+    "write_legacy_tts_narration_project",
     "write_undescribed_style_bases_project",
 ]

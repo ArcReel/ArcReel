@@ -406,7 +406,8 @@ class TestOpenAIAudioBackend:
             b = OpenAIAudioBackend(api_key="sk", model="gpt-4o-mini-tts")
             assert b.name == PROVIDER_OPENAI
             assert b.model == "gpt-4o-mini-tts"
-            assert b.capabilities == {AudioCapability.TEXT_TO_SPEECH}
+            # 语速随请求传给 /v1/audio/speech，设置页据此放开配音语速输入
+            assert b.capabilities == {AudioCapability.TEXT_TO_SPEECH, AudioCapability.SPEECH_SPEED}
 
     def test_provider_name_override(self):
         # 包装层（自定义供应商）可用真实 provider 记账

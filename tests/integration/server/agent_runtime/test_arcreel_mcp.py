@@ -54,6 +54,43 @@ async def test_session_entry_tools_share_the_session_projects_root(tmp_path: Pat
     assert (projects.get_project_path("demo") / "source" / "novel.txt").read_text(encoding="utf-8") == "hello"
 
 
+async def test_create_project_writes_tts_snapshot(tmp_path: Path) -> None:
+    projects = ProjectManager(tmp_path / "projects")
+    server = build_arcreel_mcp_server(project_name="demo", data_root=projects.data_root)["instance"]
+
+    created = await _call(
+        server,
+        "create_project",
+        {
+            "name": "voiced",
+            "narration_delivery": "use_tts",
+            "audio_backend": "dashscope/qwen3-tts-flash",
+            "narration_voice": "Cherry",
+            "narration_speed": None,
+        },
+    )
+    rejected = await _call(
+        server,
+        "create_project",
+        {
+            "name": "broken",
+            "narration_delivery": "use_tts",
+            "audio_backend": "dashscope",
+            "narration_voice": "Cherry",
+            "narration_speed": None,
+        },
+    )
+
+    assert created.isError is False
+    project = projects.load_project("voiced")
+    assert project["narration_delivery"] == "use_tts"
+    assert project["audio_backend"] == "dashscope/qwen3-tts-flash"
+    assert project["narration_voice"] == "Cherry"
+    assert "narration_speed" not in project
+    assert rejected.isError is True
+    assert not (projects.projects_dir / "broken").exists()
+
+
 def test_generate_narration_audio_registered() -> None:
     """旁白配音工具必须同时进 MCP 工具 id 集（前端 chip 三语校验依赖它）。"""
     assert "generate_narration_audio" in ARCREEL_MCP_TOOL_IDS

@@ -38,8 +38,16 @@ const mockSysConfig = {
     video_backends: ["gemini-aistudio/veo-3"],
     image_backends: ["gemini-aistudio/nano-banana"],
     text_backends: ["gemini-aistudio/g25"],
-    provider_names: { "gemini-aistudio": "Gemini AI Studio" },
+    audio_backends: ["dashscope/qwen3-tts-flash"],
+    provider_names: { "gemini-aistudio": "Gemini AI Studio", dashscope: "DashScope" },
   },
+};
+
+/** 全局默认的 TTS 设置，向导里切到 TTS 配音时应原样预填。 */
+const narrationDefaults = {
+  audio_backend: "dashscope/qwen3-tts-flash",
+  narration_voice: "Cherry",
+  narration_speed: 1.1,
 };
 
 const mockProviders = {
@@ -105,6 +113,8 @@ describe("CreateProjectModal", () => {
     vi.spyOn(API, "getSystemConfig").mockResolvedValue(mockSysConfig as never);
     vi.spyOn(API, "getProviders").mockResolvedValue(mockProviders as never);
     vi.spyOn(API, "listCustomProviders").mockResolvedValue({ providers: [] });
+    vi.spyOn(API, "getNarrationDefaults").mockResolvedValue(narrationDefaults);
+    vi.spyOn(API, "getTtsModelCapabilities").mockResolvedValue({ supports_speed: true });
     stubModelVideoCapabilities();
     vi.spyOn(API, "createProject").mockResolvedValue({
       success: true,
@@ -180,9 +190,55 @@ describe("CreateProjectModal", () => {
         video_backend: null,
         default_image_backend: null,
         default_duration: null,
+        narration_delivery: "post_production",
       })
     );
+    // 后期配音项目不提交 TTS 快照
+    expect(vi.mocked(API.createProject).mock.calls[0][0]).not.toHaveProperty("audio_backend");
     expect(navigateMock).toHaveBeenCalledWith("/app/projects/demo-proj");
+  });
+
+  it("prefills TTS narration with the global defaults and submits that snapshot", async () => {
+    render(<CreateProjectModal />);
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "demo" } });
+    fireEvent.click(screen.getByRole("radio", { name: /分镜图生视频/ }));
+    fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
+    fireEvent.click(await screen.findByRole("radio", { name: "TTS 配音" }));
+
+    expect(screen.getByLabelText("旁白音色 ID")).toHaveValue("Cherry");
+    expect(screen.getByLabelText("配音语速（可选）")).toHaveValue(1.1);
+    expect(screen.getByRole("button", { name: /下一步/ })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /创建项目/ }));
+
+    await waitFor(() => expect(API.createProject).toHaveBeenCalled());
+    expect(API.createProject).toHaveBeenCalledWith(
+      expect.objectContaining({
+        narration_delivery: "use_tts",
+        audio_backend: "dashscope/qwen3-tts-flash",
+        narration_voice: "Cherry",
+        narration_speed: 1.1,
+      }),
+    );
+  });
+
+  it("requires a TTS model before leaving step 2 with TTS narration", async () => {
+    vi.spyOn(API, "getNarrationDefaults").mockResolvedValue({
+      audio_backend: null,
+      narration_voice: "Cherry",
+      narration_speed: null,
+    });
+    render(<CreateProjectModal />);
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "demo" } });
+    fireEvent.click(screen.getByRole("radio", { name: /分镜图生视频/ }));
+    fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
+    fireEvent.click(await screen.findByRole("radio", { name: "TTS 配音" }));
+
+    expect(screen.getByText("选择 TTS 配音时必须选择 TTS 模型")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /下一步/ })).toBeDisabled();
+
+    fireEvent.click(screen.getByRole("radio", { name: "后期配音" }));
+    expect(screen.getByRole("button", { name: /下一步/ })).toBeEnabled();
   });
 
   it("submits grid_storyboard when the assembly toggle is switched on at creation", async () => {
@@ -389,6 +445,8 @@ describe("CreateProjectModal ad mode", () => {
     vi.spyOn(API, "getSystemConfig").mockResolvedValue(mockSysConfig as never);
     vi.spyOn(API, "getProviders").mockResolvedValue(mockProviders as never);
     vi.spyOn(API, "listCustomProviders").mockResolvedValue({ providers: [] });
+    vi.spyOn(API, "getNarrationDefaults").mockResolvedValue(narrationDefaults);
+    vi.spyOn(API, "getTtsModelCapabilities").mockResolvedValue({ supports_speed: true });
     stubModelVideoCapabilities();
     vi.spyOn(API, "createProject").mockResolvedValue({
       success: true,
@@ -509,6 +567,8 @@ describe("CreateProjectModal language switch", () => {
     );
     vi.spyOn(API, "getProviders").mockResolvedValue(mockProviders as never);
     vi.spyOn(API, "listCustomProviders").mockResolvedValue({ providers: [] });
+    vi.spyOn(API, "getNarrationDefaults").mockResolvedValue(narrationDefaults);
+    vi.spyOn(API, "getTtsModelCapabilities").mockResolvedValue({ supports_speed: true });
     stubModelVideoCapabilities();
   });
 

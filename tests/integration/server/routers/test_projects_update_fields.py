@@ -72,14 +72,15 @@ class TestProjectsRouter:
             assert "style_image" not in data
             assert "style_description" not in data
 
-    def test_update_project_persists_narration_overrides(self, tmp_path, monkeypatch):
-        """PATCH 旁白配音项目级覆盖：audio_backend / narration_voice / narration_speed 写入 project.json。"""
+    def test_update_project_switches_to_tts_with_snapshot(self, tmp_path, monkeypatch):
+        """PATCH 改为 TTS 配音并写入模型 / 音色 / 语速快照。"""
         fake_pm = _FakePM(tmp_path)
         client = build_projects_client(monkeypatch, fake_pm)
         with client:
             resp = client.patch(
                 "/api/v1/projects/ready",
                 json={
+                    "narration_delivery": "use_tts",
                     "audio_backend": "dashscope/qwen3-tts-flash",
                     "narration_voice": "Cherry",
                     "narration_speed": 1.2,
@@ -87,37 +88,77 @@ class TestProjectsRouter:
             )
             assert resp.status_code == 200
             data = fake_pm.project_data["ready"]
+            assert data["narration_delivery"] == "use_tts"
             assert data["audio_backend"] == "dashscope/qwen3-tts-flash"
             assert data["narration_voice"] == "Cherry"
             assert data["narration_speed"] == 1.2
 
-    def test_update_project_clears_narration_overrides(self, tmp_path, monkeypatch):
-        """PATCH 空值/null：旁白配音覆盖回落全局默认（从 project.json 移除）。"""
+    def test_switching_to_post_production_keeps_tts_snapshot(self, tmp_path, monkeypatch):
+        """改为后期配音只改交付方式，快照保留，已有旁白配音的依据照旧可复算。"""
         fake_pm = _FakePM(tmp_path)
-        fake_pm.project_data["ready"]["audio_backend"] = "dashscope/qwen3-tts-flash"
-        fake_pm.project_data["ready"]["narration_voice"] = "Cherry"
-        fake_pm.project_data["ready"]["narration_speed"] = 1.2
-
+        fake_pm.project_data["ready"].update(
+            narration_delivery="use_tts",
+            audio_backend="dashscope/qwen3-tts-flash",
+            narration_voice="Cherry",
+            narration_speed=1.2,
+        )
         client = build_projects_client(monkeypatch, fake_pm)
         with client:
-            resp = client.patch(
-                "/api/v1/projects/ready",
-                json={"audio_backend": None, "narration_voice": "", "narration_speed": None},
-            )
+            resp = client.patch("/api/v1/projects/ready", json={"narration_delivery": "post_production"})
             assert resp.status_code == 200
             data = fake_pm.project_data["ready"]
-            assert "audio_backend" not in data
-            assert "narration_voice" not in data
-            assert "narration_speed" not in data
+            assert data["narration_delivery"] == "post_production"
+            assert data["audio_backend"] == "dashscope/qwen3-tts-flash"
+            assert data["narration_voice"] == "Cherry"
+            assert data["narration_speed"] == 1.2
 
-            # 纯空白音色值同样按清除处理（后端 .strip() 判空），防重构回退“空白即清除”语义
-            fake_pm.project_data["ready"]["narration_voice"] = "Cherry"
-            resp = client.patch(
-                "/api/v1/projects/ready",
-                json={"narration_voice": "   "},
-            )
+    @pytest.mark.parametrize(
+        "patch",
+        [
+            {"narration_delivery": "use_tts"},
+            {"narration_delivery": "use_tts", "audio_backend": "dashscope", "narration_voice": "Cherry"},
+            {"narration_delivery": "use_tts", "audio_backend": "dashscope/qwen3-tts-flash"},
+            {"narration_delivery": None},
+        ],
+    )
+    def test_update_project_rejects_incomplete_tts_config(self, tmp_path, monkeypatch, patch):
+        """TTS 配音必须带完整快照，交付方式不可清空；拒绝时整次 PATCH 不写回。"""
+        fake_pm = _FakePM(tmp_path)
+        client = build_projects_client(monkeypatch, fake_pm)
+        with client:
+            resp = client.patch("/api/v1/projects/ready", json=patch)
+            assert resp.status_code == 422
+            assert "narration_delivery" not in fake_pm.project_data["ready"]
+            assert "audio_backend" not in fake_pm.project_data["ready"]
+
+    def test_tts_project_cannot_clear_model_or_voice(self, tmp_path, monkeypatch):
+        fake_pm = _FakePM(tmp_path)
+        fake_pm.project_data["ready"].update(
+            narration_delivery="use_tts",
+            audio_backend="dashscope/qwen3-tts-flash",
+            narration_voice="Cherry",
+        )
+        client = build_projects_client(monkeypatch, fake_pm)
+        with client:
+            assert client.patch("/api/v1/projects/ready", json={"audio_backend": None}).status_code == 422
+            assert client.patch("/api/v1/projects/ready", json={"narration_voice": "  "}).status_code == 422
+            assert fake_pm.project_data["ready"]["audio_backend"] == "dashscope/qwen3-tts-flash"
+            assert fake_pm.project_data["ready"]["narration_voice"] == "Cherry"
+
+    def test_update_project_clears_tts_speed(self, tmp_path, monkeypatch):
+        """语速 null = 不向供应商传语速，从快照中移除，不回落全局默认。"""
+        fake_pm = _FakePM(tmp_path)
+        fake_pm.project_data["ready"].update(
+            narration_delivery="use_tts",
+            audio_backend="dashscope/qwen3-tts-flash",
+            narration_voice="Cherry",
+            narration_speed=1.2,
+        )
+        client = build_projects_client(monkeypatch, fake_pm)
+        with client:
+            resp = client.patch("/api/v1/projects/ready", json={"narration_speed": None})
             assert resp.status_code == 200
-            assert "narration_voice" not in fake_pm.project_data["ready"]
+            assert "narration_speed" not in fake_pm.project_data["ready"]
 
     def test_update_project_persists_character_voice_binding(self, tmp_path, monkeypatch):
         """PATCH 角色声音绑定方式：合法枚举写入，空值回落默认（从 project.json 移除）。"""
@@ -206,7 +247,7 @@ class TestProjectsRouter:
             assert "episode_target_duration" not in fake_pm.project_data["ready"]
 
     def test_update_project_rejects_invalid_audio_backend(self, tmp_path, monkeypatch):
-        """audio_backend 非法 provider 应 400（复用 backend 格式校验）。"""
+        """TTS 模型非法 provider 应 400（复用 backend 格式校验）。"""
         fake_pm = _FakePM(tmp_path)
         client = build_projects_client(monkeypatch, fake_pm)
         with client:

@@ -1,6 +1,12 @@
 import { useTranslation } from "react-i18next";
 import { AlertTriangle, Loader2 } from "lucide-react";
 import { ModelConfigSection, type ModelConfigValue } from "@/components/shared/ModelConfigSection";
+import {
+  NarrationDeliveryFields,
+  narrationDeliveryProblem,
+  type NarrationDeliveryValue,
+} from "@/components/shared/NarrationDeliveryFields";
+import { SectionShell } from "@/components/ui/SectionShell";
 import { ACCENT_BTN_CLS, ACCENT_BUTTON_STYLE, GHOST_BTN_LG_CLS } from "@/components/ui/darkroom-tokens";
 import type { ProviderInfo } from "@/types";
 import type { CustomProviderInfo } from "@/types/custom-provider";
@@ -10,6 +16,7 @@ export interface WizardStep2Data {
     video: string[];
     image: string[];
     text: string[];
+    audio: string[];
     providerNames: Record<string, string>;
     modelNames: Record<string, string>;
   };
@@ -31,6 +38,9 @@ export interface WizardStep2Data {
 export interface WizardStep2ModelsProps {
   value: ModelConfigValue;
   onChange: (next: ModelConfigValue) => void;
+  /** 旁白交付方式与 TTS 快照；选 TTS 时必须有模型与音色才能进入下一步。 */
+  narration: NarrationDeliveryValue;
+  onNarrationChange: (next: NarrationDeliveryValue) => void;
   onBack: () => void;
   onNext: () => void;
   onCancel: () => void;
@@ -45,6 +55,8 @@ export interface WizardStep2ModelsProps {
 export function WizardStep2Models({
   value,
   onChange,
+  narration,
+  onNarrationChange,
   onBack,
   onNext,
   onCancel,
@@ -53,8 +65,9 @@ export function WizardStep2Models({
   hideDuration = false,
   usesReferenceImages = false,
 }: WizardStep2ModelsProps) {
-  const { t } = useTranslation(["common", "templates"]);
+  const { t } = useTranslation(["common", "templates", "dashboard"]);
   const loading = !data && !error;
+  const narrationBlocked = narrationDeliveryProblem(narration) !== null;
 
   return (
     <div className="space-y-5">
@@ -93,6 +106,17 @@ export function WizardStep2Models({
           enable={hideDuration ? { duration: false } : undefined}
         />
       )}
+      {data && (
+        <SectionShell kicker="Narration" title={t("dashboard:project_narration_delivery_title")}>
+          <NarrationDeliveryFields
+            value={narration}
+            onChange={onNarrationChange}
+            audioBackends={data.options.audio}
+            providerNames={data.options.providerNames}
+            modelNames={data.options.modelNames}
+          />
+        </SectionShell>
+      )}
 
       <div className="mt-7 flex items-center justify-between border-t border-hairline-soft pt-5">
         <button
@@ -114,7 +138,7 @@ export function WizardStep2Models({
           <button
             type="button"
             onClick={onNext}
-            disabled={loading}
+            disabled={loading || narrationBlocked}
             className={ACCENT_BTN_CLS}
             style={ACCENT_BUTTON_STYLE}
           >

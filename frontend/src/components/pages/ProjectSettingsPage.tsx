@@ -9,10 +9,20 @@ import { useCapabilitiesStore } from "@/stores/capabilities-store";
 import { getProviderModels, getCustomProviderModels } from "@/utils/provider-models";
 import { ModelConfigSection } from "@/components/shared/ModelConfigSection";
 import { executingImageModel, executingVideoModel } from "@/components/shared/LayeredModelFields";
-import { ProviderModelSelect } from "@/components/ui/ProviderModelSelect";
+import {
+  NarrationDeliveryFields,
+  narrationDeliveryProblem,
+  type NarrationDeliveryValue,
+} from "@/components/shared/NarrationDeliveryFields";
 import { StylePicker, type StylePickerValue } from "@/components/shared/StylePicker";
 import { DEFAULT_TEMPLATE_ID, STYLE_TEMPLATES } from "@/data/style-templates";
-import type { CharacterVoiceBinding, CustomProviderInfo, ProviderInfo } from "@/types";
+import type {
+  CharacterVoiceBinding,
+  CustomProviderInfo,
+  NarrationDefaultsResponse,
+  NarrationDelivery,
+  ProviderInfo,
+} from "@/types";
 import { DEFAULT_CHARACTER_VOICE_BINDING } from "@/types";
 import { useDisplayNames } from "@/hooks/useDisplayNames";
 import { useModelCandidates } from "@/hooks/useModelCandidates";
@@ -150,10 +160,13 @@ export function ProjectSettingsPage() {
   const [imageBackendT2I, setImageBackendT2I] = useState<string>("");
   const [imageBackendI2I, setImageBackendI2I] = useState<string>("");
   const [audioOverride, setAudioOverride] = useState<boolean | null>(null);
-  // 旁白配音（TTS）项目级覆盖：空字符串/ null 表示跟随全局默认
+  // 旁白交付方式与 TTS 快照（docs/adr/0089）：快照不跟随全局默认，切到后期配音时保留
+  const [narrationDelivery, setNarrationDelivery] = useState<NarrationDelivery>("post_production");
   const [audioBackend, setAudioBackend] = useState<string>("");
   const [narrationVoice, setNarrationVoice] = useState<string>("");
   const [narrationSpeed, setNarrationSpeed] = useState<number | null>(null);
+  // 全局默认的 TTS 设置：没有快照的项目切到 TTS 配音时用它预填
+  const [narrationDefaults, setNarrationDefaults] = useState<NarrationDefaultsResponse | null>(null);
   // 角色声音绑定方式：参考生视频路线专有；缺省即默认档（提示词软约束）
   const [voiceBinding, setVoiceBinding] = useState<CharacterVoiceBinding>(DEFAULT_CHARACTER_VOICE_BINDING);
   const [textDefault, setTextDefault] = useState<string>("");
@@ -200,6 +213,7 @@ export function ProjectSettingsPage() {
     videoBackend: "", videoProviderI2V: "", videoProviderR2V: "",
     imageBackendDefault: "", imageBackendT2I: "", imageBackendI2I: "",
     audioOverride: null as boolean | null,
+    narrationDelivery: "post_production",
     audioBackend: "", narrationVoice: "", narrationSpeed: null as number | null,
     voiceBinding: DEFAULT_CHARACTER_VOICE_BINDING,
     textDefault: "", textSimple: "", textComplex: "",
@@ -243,8 +257,10 @@ export function ProjectSettingsPage() {
       API.getProject(projectName),
       getProviderModels().catch(() => [] as ProviderInfo[]),
       getCustomProviderModels().catch(() => [] as CustomProviderInfo[]),
-    ]).then(([configRes, projectRes, providerList, customProviderList]) => {
+      API.getNarrationDefaults().catch(() => null),
+    ]).then(([configRes, projectRes, providerList, customProviderList, ttsDefaults]) => {
       if (disposed) return;
+      setNarrationDefaults(ttsDefaults);
 
       setOptions({
         video_backends: configRes.options?.video_backends ?? [],
@@ -281,6 +297,7 @@ export function ProjectSettingsPage() {
       const ibi2i = (project.image_provider_i2i as string | undefined) ?? "";
       const rawAudio = project.video_generate_audio;
       const ao = typeof rawAudio === "boolean" ? rawAudio : null;
+      const delivery: NarrationDelivery = project.narration_delivery === "use_tts" ? "use_tts" : "post_production";
       const ab = (project.audio_backend as string | undefined) ?? "";
       const nv = (project.narration_voice as string | undefined) ?? "";
       const rawSpeed = project.narration_speed;
@@ -311,6 +328,7 @@ export function ProjectSettingsPage() {
       setImageBackendT2I(ibt2i);
       setImageBackendI2I(ibi2i);
       setAudioOverride(ao);
+      setNarrationDelivery(delivery);
       setAudioBackend(ab);
       setNarrationVoice(nv);
       setNarrationSpeed(ns);
@@ -362,6 +380,7 @@ export function ProjectSettingsPage() {
         videoBackend: vb, videoProviderI2V: vpi2v, videoProviderR2V: vpr2v,
         imageBackendDefault: ibDefault, imageBackendT2I: ibt2i, imageBackendI2I: ibi2i,
         audioOverride: ao,
+        narrationDelivery: delivery,
         audioBackend: ab, narrationVoice: nv, narrationSpeed: ns,
         voiceBinding: vbind,
         textDefault: td, textSimple: tsi, textComplex: tcx,
@@ -413,6 +432,7 @@ export function ProjectSettingsPage() {
     imageBackendT2I !== initialRef.current.imageBackendT2I ||
     imageBackendI2I !== initialRef.current.imageBackendI2I ||
     audioOverride !== initialRef.current.audioOverride ||
+    narrationDelivery !== initialRef.current.narrationDelivery ||
     audioBackend !== initialRef.current.audioBackend ||
     narrationVoice !== initialRef.current.narrationVoice ||
     narrationSpeed !== initialRef.current.narrationSpeed ||
@@ -501,13 +521,62 @@ export function ProjectSettingsPage() {
   // 宫格是分镜图生视频内的装配选项；参考生视频与不支持宫格的 ad 项目下既不呈现也不参与保存
   const gridToggleVisible = generationRoute === "storyboard" && contentMode !== "ad";
 
+  const narration: NarrationDeliveryValue = {
+    delivery: narrationDelivery,
+    audioBackend,
+    narrationVoice,
+    narrationSpeed,
+  };
+
+  const handleNarrationChange = useCallback(
+    (next: NarrationDeliveryValue) => {
+      let value = next;
+      // 没有完整快照的项目切到 TTS 配音：缺的模型与音色、以及未设的语速按全局默认预填
+      const hasSnapshot = next.audioBackend.includes("/") && next.narrationVoice.trim() !== "";
+      if (next.delivery === "use_tts" && narrationDelivery !== "use_tts" && !hasSnapshot && narrationDefaults) {
+        value = {
+          ...next,
+          audioBackend: next.audioBackend.includes("/") ? next.audioBackend : (narrationDefaults.audio_backend ?? ""),
+          narrationVoice: next.narrationVoice.trim() ? next.narrationVoice : narrationDefaults.narration_voice,
+          narrationSpeed: next.narrationSpeed ?? narrationDefaults.narration_speed,
+        };
+      }
+      setNarrationDelivery(value.delivery);
+      setAudioBackend(value.audioBackend);
+      setNarrationVoice(value.narrationVoice);
+      setNarrationSpeed(value.narrationSpeed);
+    },
+    [narrationDelivery, narrationDefaults],
+  );
+
   const handleSave = useCallback(async () => {
+    const narrationProblem = narrationDeliveryProblem({
+      delivery: narrationDelivery,
+      audioBackend,
+      narrationVoice,
+      narrationSpeed,
+    });
+    if (narrationProblem) {
+      useAppStore.getState().pushToast(
+        t(narrationProblem === "model" ? "project_tts_model_required" : "project_narration_voice_required"),
+        "error",
+      );
+      return;
+    }
     setSaving(true);
     try {
       // resolution 的 key 用执行模型（细分项 ‖ 项目默认 ‖ 全局细分 ‖ 全局默认），与读侧一致；
       // 后端按执行模型查这张表，键位对不上分辨率会被静默忽略。
       // 音色与后端 .strip() 对齐：保存时去首尾空白，避免本地基线带空格而磁盘值不带导致 isDirty 误报
       const trimmedVoice = narrationVoice.trim();
+      // 旁白配置只写改动过的字段：旧项目可能留着裸供应商的音频后端，原样回写会被快照校验拒绝
+      const initial = initialRef.current;
+      const narrationPatch = {
+        ...(narrationDelivery !== initial.narrationDelivery ? { narration_delivery: narrationDelivery } : {}),
+        ...(audioBackend !== initial.audioBackend ? { audio_backend: audioBackend || null } : {}),
+        ...(trimmedVoice !== initial.narrationVoice ? { narration_voice: trimmedVoice || null } : {}),
+        ...(narrationSpeed !== initial.narrationSpeed ? { narration_speed: narrationSpeed } : {}),
+      };
       const executingImage = executingImageModel({ imageBackendDefault, imageBackendT2I }, globalDefaults);
       const newModelSettings: Record<string, { resolution: string | null }> = { ...modelSettings };
       for (const [model, resolution] of Object.entries(videoResolutions)) {
@@ -525,9 +594,7 @@ export function ProjectSettingsPage() {
         image_provider_t2i: imageBackendT2I || null,
         image_provider_i2i: imageBackendI2I || null,
         video_generate_audio: audioOverride,
-        audio_backend: audioBackend || null,
-        narration_voice: trimmedVoice || null,
-        narration_speed: narrationSpeed,
+        ...narrationPatch,
         // 绑定方式只在参考生视频路线上有效，其余路线该键与项目无关，不写
         ...(generationRoute === "reference_video" ? { character_voice_binding: voiceBinding } : {}),
         // null 即清除项目级覆盖、回退语言默认
@@ -552,7 +619,7 @@ export function ProjectSettingsPage() {
       initialRef.current = {
         videoBackend, videoProviderI2V, videoProviderR2V,
         imageBackendDefault, imageBackendT2I, imageBackendI2I, audioOverride,
-        audioBackend, narrationVoice: trimmedVoice, narrationSpeed,
+        narrationDelivery, audioBackend, narrationVoice: trimmedVoice, narrationSpeed,
         voiceBinding,
         textDefault, textSimple, textComplex,
         aspectRatio, gridStoryboard, defaultDuration, speechRate,
@@ -568,7 +635,7 @@ export function ProjectSettingsPage() {
     } finally {
       setSaving(false);
     }
-  }, [modelSettings, videoBackend, videoProviderI2V, videoProviderR2V, imageBackendDefault, imageBackendT2I, imageBackendI2I, audioOverride, audioBackend, narrationVoice, narrationSpeed, voiceBinding, textDefault, textSimple, textComplex, aspectRatio, generationRoute, gridStoryboard, gridToggleVisible, defaultDuration, speechRate, episodeTargetDuration, contentMode, videoResolutions, imageResolution, projectName, t, globalDefaults]);
+  }, [modelSettings, videoBackend, videoProviderI2V, videoProviderR2V, imageBackendDefault, imageBackendT2I, imageBackendI2I, audioOverride, narrationDelivery, audioBackend, narrationVoice, narrationSpeed, voiceBinding, textDefault, textSimple, textComplex, aspectRatio, generationRoute, gridStoryboard, gridToggleVisible, defaultDuration, speechRate, episodeTargetDuration, contentMode, videoResolutions, imageResolution, projectName, t, globalDefaults]);
 
   const handleResetAgentProfile = useCallback(async () => {
     if (profileResetProject !== projectName) {
@@ -900,8 +967,8 @@ export function ProjectSettingsPage() {
                 </div>
               </SectionCard>
 
-              {/* 口播语速估算：驱动时长建议、说话量提示与字幕定时，与配音（TTS）无关，
-                  故独立成卡、不与 Audio Channel 同栏，避免两个「语速」被读成一个设置 */}
+              {/* 口播语速估算：驱动时长建议与说话量提示，与配音（TTS）无关，
+                  故独立成卡、不与旁白交付同栏，避免两个「语速」被读成一个设置 */}
               <SectionCard kicker="Pacing Estimate">
                 <SpeechRateField
                   value={speechRate}
@@ -953,74 +1020,16 @@ export function ProjectSettingsPage() {
               </SectionCard>
               )}
 
-              {/* 旁白配音（TTS）：仅 旁白/解说消费——TTS 绑定 segment.novel_text，drama/ad 无该字段，
-                  故与两个画布的批量旁白按钮（contentMode === "narration"）同口径门控，避免对无效模式展示配音卡 */}
-              {contentMode === "narration" && (
-              <SectionCard kicker="Audio Channel" title={t("media_narration_title")}>
-                <div className="space-y-4">
-                  <div>
-                    <div className="mb-1.5 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-4">
-                      {t("default_audio_model")}
-                    </div>
-                    <ProviderModelSelect
-                      value={audioBackend}
-                      options={options.audio_backends}
-                      providerNames={allProviderNames}
-                      modelNames={allModelNames}
-                      onChange={setAudioBackend}
-                      allowDefault
-                      defaultLabel={t("follow_global_default")}
-                      fallbackValue={globalDefaults.audio || undefined}
-                      aria-label={t("default_audio_model")}
-                    />
-                  </div>
-                  <div>
-                    <label
-                      htmlFor="project-narration-voice"
-                      className="mb-1.5 block font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-4"
-                    >
-                      {t("narration_voice_label")}
-                    </label>
-                    <input
-                      id="project-narration-voice"
-                      type="text"
-                      value={narrationVoice}
-                      onChange={(e) => setNarrationVoice(e.target.value)}
-                      className="w-full rounded-[8px] border border-hairline bg-bg-grad-a/55 px-3 py-2 text-[12.5px] text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-                    />
-                    <p className="mt-1 text-[11px] text-text-4">{t("narration_voice_hint")}</p>
-                  </div>
-                  <div>
-                    <label
-                      htmlFor="project-narration-speed"
-                      className="mb-1.5 block font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-4"
-                    >
-                      {t("narration_speed_label")}
-                    </label>
-                    <input
-                      id="project-narration-speed"
-                      type="number"
-                      min={0.1}
-                      step={0.1}
-                      value={narrationSpeed ?? ""}
-                      onChange={(e) => {
-                        const raw = e.target.value;
-                        if (raw === "") {
-                          setNarrationSpeed(null);
-                          return;
-                        }
-                        const next = Number(raw);
-                        // 仅过滤非有限数：NaN/Infinity 会被序列化为 null 误触"清除"语义；
-                        // 正数约束交由保存时后端校验兜底
-                        if (Number.isFinite(next)) setNarrationSpeed(next);
-                      }}
-                      className="w-full rounded-[8px] border border-hairline bg-bg-grad-a/55 px-3 py-2 text-[12.5px] text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-                    />
-                    <p className="mt-1 text-[11px] text-text-4">{t("narration_speed_hint")}</p>
-                  </div>
-                </div>
+              {/* 旁白交付方式是每个项目的必填配置：任何内容模式的旁白单元都按它交付 */}
+              <SectionCard kicker="Narration" title={t("project_narration_delivery_title")}>
+                <NarrationDeliveryFields
+                  value={narration}
+                  onChange={handleNarrationChange}
+                  audioBackends={options.audio_backends}
+                  providerNames={allProviderNames}
+                  modelNames={allModelNames}
+                />
               </SectionCard>
-              )}
             </>
           )}
 

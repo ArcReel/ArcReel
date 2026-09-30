@@ -60,6 +60,13 @@ class _CapturingBatch:
         ], []
 
 
+@pytest.fixture(autouse=True)
+def tts_project(fake_ctx: ToolHarness) -> None:
+    fake_ctx.pm.project_payload.update(
+        {"narration_delivery": "use_tts", "audio_backend": "dashscope/qwen3-tts-flash", "narration_voice": "Cherry"}
+    )
+
+
 async def _generate(fake_ctx: ToolHarness, arguments: dict[str, Any], batch: Any = None):
     return await run_declared_tool(
         "generate_narration_audio", fake_ctx, arguments, batch_waiter=batch or _CapturingBatch()
@@ -81,6 +88,27 @@ async def test_generate_narration_audio_enqueues_missing_segments(fake_ctx: Tool
     result = read_generation_result(out)
     assert result.succeeded == ["E1S01"]
     assert result.items[0].artifact_path == "audio/segment_E1S01.wav"
+
+
+@pytest.mark.parametrize(
+    ("project_patch", "code"),
+    [
+        ({"narration_delivery": "post_production"}, "narration_delivery_post_production"),
+        ({"narration_voice": ""}, "narration_tts_voice_required"),
+    ],
+)
+async def test_generate_narration_audio_requires_a_tts_project_with_complete_snapshot(
+    fake_ctx: ToolHarness, project_patch: dict[str, Any], code: str
+) -> None:
+    fake_ctx.pm.script_payload = _narration_audio_script()
+    fake_ctx.pm.project_payload.update(project_patch)
+    batch = _CapturingBatch()
+
+    out = await _generate(fake_ctx, {"script": "episode_1.json"}, batch)
+
+    assert out.problem is not None
+    assert out.problem.code == code
+    assert batch.resource_ids == []
 
 
 def _drama_voiceover(fake_ctx: ToolHarness, *, script_declares_mode: bool) -> None:

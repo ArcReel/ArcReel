@@ -47,6 +47,7 @@ from lib.script.reference_video.request_projection import (
 from lib.script.script_editor import ScriptEditError
 from lib.script.script_models import get_generated_assets
 from lib.script.storyboard_sequence import get_storyboard_items, group_scenes_by_segment_break
+from lib.speech.narration_config import project_narration_delivery, project_tts_settings
 from lib.speech.narration_delivery import (
     USE_TTS,
     VideoRequestCostFacts,
@@ -372,13 +373,16 @@ class CostEstimationService:
                     bucket_audio,
                 )
 
-            # 旁白配音（TTS）模型：project 覆盖 > 全局默认 > auto-resolve；
-            # 未配置任何 audio 供应商时回落 unknown，该维度预估为空
-            try:
-                resolved_audio = await r.resolve_audio_backend(project_data, None)
-                audio_provider, audio_model = resolved_audio.provider_id, resolved_audio.model_id
-            except (ValueError, SQLAlchemyError):
-                audio_provider, audio_model = "unknown", "unknown"
+            # 旁白配音（TTS）模型取项目快照，不读全局默认；后期配音项目或没有快照时回落 unknown，
+            # 该维度预估为空
+            tts_settings = (
+                project_tts_settings(project_data) if project_narration_delivery(project_data) == USE_TTS else None
+            )
+            audio_provider, audio_model = (
+                (tts_settings.provider_id, tts_settings.model_id)
+                if tts_settings is not None
+                else ("unknown", "unknown")
+            )
 
         # Get actual costs + 自定义供应商价格（缺则预估恒为零，需与实际记账同源预查 DB 单价）
         async with self._session_factory() as session:

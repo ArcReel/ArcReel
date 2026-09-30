@@ -20,8 +20,6 @@ def _audio_ctx(generator):
             provider_model=ProviderModel("dashscope", "qwen3-tts-flash"),
             backend_name="dashscope",
             backend_model="qwen3-tts-flash",
-            narration_voice="Cherry",
-            narration_speed=None,
             voices=(),
         ),
     )

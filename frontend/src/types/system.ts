@@ -36,6 +36,17 @@ export interface SystemConfigOptions {
   model_names?: Record<string, string>;
 }
 
+/** 新建 TTS 项目的预填值；未配置任何音频供应商时 audio_backend 为 null。 */
+export interface NarrationDefaultsResponse {
+  audio_backend: string | null;
+  narration_voice: string;
+  narration_speed: number | null;
+}
+
+export interface TtsModelCapabilitiesResponse {
+  supports_speed: boolean;
+}
+
 export interface GetSystemConfigResponse {
   settings: SystemConfigSettings;
   options: SystemConfigOptions;

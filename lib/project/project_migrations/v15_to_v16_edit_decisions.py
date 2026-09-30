@@ -14,6 +14,14 @@
 按「已无转场」跳过；清单改写先于文件，重跑时仍能从未改的文件算出旧依据，已改写的登记不再匹配而被
 跳过。呈现模型文件是选中媒体的派生物，读时可重新物化，不另做备份。
 
+**旁白交付方式成为项目配置（ADR 0089）**
+
+- 产物清单登记了旁白配音、且至少一条登记的选中音频版本记录带完整 TTS 设置的项目判为 TTS 配音，
+  ``project.json`` 写入这些记录里 ``created_at`` 最新的一条所用的模型、音色与语速作为 TTS 快照。
+- 其余项目判为后期配音，既有的音频后端、音色与语速字段原样保留。
+- 只写 ``project.json``，随本步最后一次写入落盘；备份由 runner 负责。选中版本记录没有 TTS 设置的
+  旧音频本来就不被登记，判定不改变它们的处置。
+
 本步只改写既有登记、不增删；迁移结果按改写后完整目标态的跳过项与实际清单计数生成。
 它不解决此前的跳过原因，runner 合并链上更早一步或已有迁移报告的跳过项。
 """
@@ -30,10 +38,12 @@ from lib.artifacts.artifact_manifest import (
     MANIFEST_FILENAME,
     ArtifactBasisDescriptor,
     ArtifactKey,
+    ArtifactKind,
     ArtifactManifestEntry,
     ProjectArtifactManifestAdapter,
 )
 from lib.artifacts.artifact_planner import TargetStatePlanner
+from lib.artifacts.artifact_version_provenance import parse_typed_audio_settings, parse_typed_media_version_target
 from lib.artifacts.formal_write import project_metadata_lock
 from lib.infra.json_io import atomic_write_json
 from lib.infra.path_safety import try_safe_join
@@ -41,6 +51,14 @@ from lib.project.project_migration_report import ArtifactBackfillOutcome
 from lib.project.project_migrations.backups import ensure_versioned_backup
 from lib.project.project_schema import parse_project_schema_version
 from lib.script.script_skeleton import SKELETONS
+from lib.speech.narration_config import (
+    NARRATION_DELIVERY_FIELD,
+    POST_PRODUCTION,
+    TTS_SPEED_FIELD,
+    USE_TTS,
+    TtsSynthesisSettings,
+    tts_snapshot_fields,
+)
 from lib.speech.speech_artifact_provenance import (
     RenditionVariant,
     SelectedMediaEvidence,
@@ -202,6 +220,69 @@ def _move_transitions_out_of_scripts(project_dir: Path, project: Mapping[str, An
 
 
 # ---------------------------------------------------------------------------
+# 子步：旁白交付方式成为项目配置
+# ---------------------------------------------------------------------------
+
+
+def _selected_audio_record(versions: Mapping[str, Any], resource_id: str) -> Mapping[str, Any] | None:
+    bucket = versions.get("audio")
+    resource = bucket.get(resource_id) if isinstance(bucket, Mapping) else None
+    if not isinstance(resource, Mapping):
+        return None
+    selected_version = resource.get("current_version")
+    records = resource.get("versions")
+    if type(selected_version) is not int or not isinstance(records, list):
+        return None
+    selected = [
+        record for record in records if isinstance(record, Mapping) and record.get("version") == selected_version
+    ]
+    return selected[0] if len(selected) == 1 else None
+
+
+def _latest_registered_tts_settings(project_dir: Path) -> TtsSynthesisSettings | None:
+    """清单登记的旁白配音里，选中版本记录 ``created_at`` 最新的那条所用的 TTS 设置。"""
+
+    audio_keys = [
+        key
+        for key in ProjectArtifactManifestAdapter(project_dir).snapshot_entries()
+        if key.kind is ArtifactKind.EPISODE_AUDIO
+    ]
+    if not audio_keys:
+        return None
+    versions = _load_object(project_dir / "versions" / "versions.json") or {}
+    candidates: list[tuple[str, int, str, TtsSynthesisSettings]] = []
+    for key in audio_keys:
+        episode, resource_id = key.components
+        if type(episode) is not int or not isinstance(resource_id, str):
+            continue
+        record = _selected_audio_record(versions, resource_id)
+        if record is None:
+            continue
+        try:
+            target = parse_typed_media_version_target("audio", record)
+            settings = parse_typed_audio_settings(record)
+        except (TypeError, ValueError):
+            continue
+        if target.episode == episode:
+            candidates.append((target.created_at or "", episode, resource_id, settings))
+    if not candidates:
+        return None
+    return max(candidates, key=lambda candidate: candidate[:3])[3]
+
+
+def _narration_delivery_fields(project_dir: Path, project: Mapping[str, Any]) -> dict[str, Any]:
+    """迁移后的 ``project.json``：写入旁白交付方式，TTS 配音项目换上 TTS 快照。"""
+
+    settings = _latest_registered_tts_settings(project_dir)
+    if settings is None:
+        return {**project, NARRATION_DELIVERY_FIELD: POST_PRODUCTION}
+    migrated = {**project, NARRATION_DELIVERY_FIELD: USE_TTS, **tts_snapshot_fields(settings)}
+    if settings.speed is None:
+        del migrated[TTS_SPEED_FIELD]
+    return migrated
+
+
+# ---------------------------------------------------------------------------
 
 
 def migrate_v15_to_v16(project_dir: Path) -> ArtifactBackfillOutcome | None:
@@ -219,7 +300,10 @@ def migrate_v15_to_v16(project_dir: Path) -> ArtifactBackfillOutcome | None:
 
     with project_metadata_lock(project_dir):
         _move_transitions_out_of_scripts(project_dir, project)
-        migrated_project = {**project, "schema_version": TARGET_SCHEMA_VERSION}
+        migrated_project = {
+            **_narration_delivery_fields(project_dir, project),
+            "schema_version": TARGET_SCHEMA_VERSION,
+        }
         target = TargetStatePlanner(project_dir, project_bytes=json.dumps(migrated_project).encode()).plan()
         atomic_write_json(project_file, migrated_project)
         return ArtifactBackfillOutcome.from_entries(

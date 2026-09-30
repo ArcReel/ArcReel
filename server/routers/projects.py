@@ -14,7 +14,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import math
 import os
 import shutil
 import tempfile
@@ -64,6 +63,16 @@ from lib.script.script_editor import resolve_items
 from lib.script.script_references import annotate_derivative_references
 from lib.speech.character_voice import PROJECT_FIELD as CHARACTER_VOICE_BINDING_FIELD
 from lib.speech.character_voice import VALID_CHARACTER_VOICE_BINDINGS
+from lib.speech.narration_config import (
+    NARRATION_DELIVERY_FIELD,
+    POST_PRODUCTION,
+    TTS_BACKEND_FIELD,
+    TTS_SPEED_FIELD,
+    TTS_VOICE_FIELD,
+    NarrationConfigError,
+    NarrationDelivery,
+    validate_project_narration_config,
+)
 from lib.speech.speech_rate import MAX_SPEECH_RATE_UPS, MIN_SPEECH_RATE_UPS, SPEECH_RATE_FIELD, is_valid_speech_rate
 from lib.workflow.workflow_plan import WorkflowPlan, WorkflowPlanRequest
 from lib.workflow.workflow_state import ProjectSummary, WorkflowRequestError, WorkflowStateService, WorkflowStatus
@@ -79,6 +88,12 @@ from server.routers._script_edits import (
 from server.routers._validators import split_video_backend_query, validate_backend_value
 from server.services.admission.prompt_preview import ScriptItemNotFound, preview_item_prompts
 from server.services.project import workflow_planner as workflow_plan_service
+from server.services.project.narration_settings import (
+    NarrationSettingsInput,
+    new_project_narration_fields,
+    validate_tts_backend,
+    validate_tts_speed,
+)
 from server.services.project.project_archive import (
     ProjectArchiveService,
     ProjectArchiveValidationError,
@@ -259,6 +274,12 @@ class CreateProjectRequest(BaseModel):
     text_backend_complex: str | None = None
     default_text_backend: str | None = None
     model_settings: dict[str, dict[str, str | None]] | None = None
+    # 旁白交付方式（docs/adr/0089）：必填的项目配置，缺省后期配音。选 TTS 配音时省略的模型、音色、
+    # 配音语速以全局默认预填；写入后成为项目快照，不再继承全局默认。显式 null 语速 = 不传语速。
+    narration_delivery: NarrationDelivery = POST_PRODUCTION
+    audio_backend: str | None = None
+    narration_voice: str | None = None
+    narration_speed: float | None = None
 
 
 class EpisodePatch(BaseModel):
@@ -291,7 +312,10 @@ class UpdateProjectRequest(BaseModel):
     video_generate_audio: bool | None = None
     # 角色声音绑定方式：prompt（默认，voice_style 提示词软约束）/ reference_audio（挂角色参考音频）
     character_voice_binding: str | None = None
-    # 旁白配音（TTS）项目级覆盖：音频后端 / 音色 / 语速；留空 = 跟随全局默认
+    # 旁白交付方式（docs/adr/0089）：随时可改，不让任何已有产物过期；不可清空
+    narration_delivery: NarrationDelivery | None = None
+    # 旁白配音（TTS）快照：模型（provider/model）/ 音色 / 配音语速，不继承全局默认。
+    # TTS 配音项目的模型与音色不可清空；语速 null = 不向供应商传语速
     audio_backend: str | None = None
     narration_voice: str | None = None
     narration_speed: float | None = None
@@ -305,6 +329,42 @@ class UpdateProjectRequest(BaseModel):
     clear_style_image: bool | None = None
     episodes: list[EpisodePatch] | None = None
     model_settings: dict[str, dict[str, str | None]] | None = None
+
+
+def _apply_narration_patch(project: dict, req: UpdateProjectRequest) -> None:
+    """写入旁白交付方式与 TTS 快照；改完后 TTS 配音项目仍须带完整快照，否则整次 PATCH 422。
+
+    交付方式不进产物的生成依据：切换交付方式不让已有产物过期，改为后期配音时 TTS 快照保留。
+    """
+
+    fields = req.model_fields_set
+    try:
+        if "narration_delivery" in fields:
+            if req.narration_delivery is None:
+                raise NarrationConfigError("narration_delivery_required")
+            project[NARRATION_DELIVERY_FIELD] = req.narration_delivery
+        if TTS_BACKEND_FIELD in fields:
+            if req.audio_backend:
+                validate_backend_value(req.audio_backend, TTS_BACKEND_FIELD)
+                project[TTS_BACKEND_FIELD] = validate_tts_backend(req.audio_backend)
+            else:
+                project.pop(TTS_BACKEND_FIELD, None)
+        # 音色是照供应商文档填的字符串 id；空串 = 清除
+        if TTS_VOICE_FIELD in fields:
+            voice = (req.narration_voice or "").strip()
+            if voice:
+                project[TTS_VOICE_FIELD] = voice
+            else:
+                project.pop(TTS_VOICE_FIELD, None)
+        # 配音语速只做正有限数卫生校验，取值范围由各供应商约束
+        if TTS_SPEED_FIELD in fields:
+            if req.narration_speed is None:
+                project.pop(TTS_SPEED_FIELD, None)
+            else:
+                project[TTS_SPEED_FIELD] = validate_tts_speed(req.narration_speed)
+        validate_project_narration_config(project)
+    except NarrationConfigError as exc:
+        raise UnprocessableError(exc.code) from exc
 
 
 def _cleanup_temp_file(path: str) -> None:
@@ -632,6 +692,19 @@ async def create_project(
 ):
     """创建新项目"""
     try:
+        try:
+            narration_fields = await new_project_narration_fields(
+                NarrationSettingsInput(
+                    delivery=req.narration_delivery,
+                    audio_backend=req.audio_backend,
+                    narration_voice=req.narration_voice,
+                    narration_speed=req.narration_speed,
+                    provided=frozenset(req.model_fields_set & {TTS_BACKEND_FIELD, TTS_VOICE_FIELD, TTS_SPEED_FIELD}),
+                ),
+                resolver=ConfigResolver(async_session_factory),
+            )
+        except NarrationConfigError as exc:
+            raise UnprocessableError(exc.code) from exc
 
         def _sync():
             manager = get_project_manager()
@@ -713,6 +786,7 @@ async def create_project(
                     target_duration=req.target_duration,
                     brief=req.brief,
                     source_kind=req.source_kind,
+                    narration=narration_fields,
                 )
             return {"success": True, "name": project_name, "project": project}
 
@@ -956,7 +1030,7 @@ async def update_project(name: str, req: UpdateProjectRequest, _t: Translator):
                     project["title"] = req.title
                 if req.style is not None:
                     project["style"] = req.style
-                for field in (*_PROJECT_BACKEND_FIELDS, "audio_backend"):
+                for field in _PROJECT_BACKEND_FIELDS:
                     if field in req.model_fields_set:
                         value = getattr(req, field)
                         if value:
@@ -979,22 +1053,7 @@ async def update_project(name: str, req: UpdateProjectRequest, _t: Translator):
                         project[CHARACTER_VOICE_BINDING_FIELD] = binding
                     else:
                         raise HTTPException(status_code=422, detail=_t("character_voice_binding_invalid"))
-                # 旁白音色：照供应商文档填的字符串 id；空串 = 清除回落全局默认
-                if "narration_voice" in req.model_fields_set:
-                    voice = (req.narration_voice or "").strip()
-                    if voice:
-                        project["narration_voice"] = voice
-                    else:
-                        project.pop("narration_voice", None)
-                # 旁白语速：仅做正有限数卫生校验（拒绝 0/负数/inf/nan），取值范围由各供应商约束；null = 清除
-                if "narration_speed" in req.model_fields_set:
-                    if req.narration_speed is None:
-                        project.pop("narration_speed", None)
-                    else:
-                        speed = float(req.narration_speed)
-                        if not math.isfinite(speed) or speed <= 0:
-                            raise HTTPException(status_code=422, detail=_t("narration_speed_must_be_positive"))
-                        project["narration_speed"] = speed
+                _apply_narration_patch(project, req)
                 # 口播语速估算（阅读单位 / 秒）：宽松硬区间，null = 清除、回退语言默认
                 if "speech_rate_units_per_second" in req.model_fields_set:
                     if req.speech_rate_units_per_second is None:

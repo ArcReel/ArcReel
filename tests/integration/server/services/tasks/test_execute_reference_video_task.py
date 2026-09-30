@@ -142,8 +142,6 @@ def _wire_context(
                 provider_model=ProviderModel("dashscope", "configured-tts"),
                 backend_name="dashscope",
                 backend_model="actual-tts",
-                narration_voice="Cherry",
-                narration_speed=1.1,
                 voices=(),
             )
         return GenerationContext(generator=fake_generator, video_lane=_lane(kwargs["video"]), audio_lane=audio_lane)

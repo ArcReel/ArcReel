@@ -138,6 +138,12 @@ from lib.script.source_loader import (
     UnsupportedFormatError,
 )
 from lib.speech.character_voice import VALID_CHARACTER_VOICE_BINDINGS
+from lib.speech.narration_config import (
+    POST_PRODUCTION,
+    NarrationConfigError,
+    NarrationDelivery,
+    validate_project_narration_config,
+)
 from lib.speech.narration_delivery import TtsSettingsResolver
 from lib.speech.speech_composition import SpeechProblemCode
 from lib.workflow.workflow_plan import WorkflowPlan, WorkflowPlanRequest
@@ -153,6 +159,7 @@ from server.draft_workflow import (
     PromoteDraftRequest,
 )
 from server.services.admission.prompt_preview import ItemPromptPreview, ScriptItemNotFound, preview_item_prompts
+from server.services.project.narration_settings import NarrationSettingsInput, new_project_narration_fields
 from server.services.project.workflow_planner import WorkflowPlanner
 from server.services.tasks.video_caps import (
     annotate_reference_unit_tiers,
@@ -1344,6 +1351,24 @@ class CreateProjectToolRequest(BaseModel):
     )
     target_duration: int | None = Field(default=None, gt=0, description="成片目标时长（秒）；仅广告/短片项目可用")
     brief: str | None = Field(default=None, description="创作简报（卖点、受众等）；仅广告/短片项目可用")
+    narration_delivery: NarrationDelivery = Field(
+        default=POST_PRODUCTION,
+        description=(
+            "旁白交付方式：post_production 后期配音（画外音文字随字幕交付，创作者自行配音）、"
+            "use_tts 由 ArcReel 生成 TTS 旁白配音；创建后用户可在项目设置里修改"
+        ),
+    )
+    audio_backend: str | SkipJsonSchema[None] = Field(
+        default=None,
+        description="TTS 模型，形如 provider/model；仅 use_tts 使用，省略时取全局默认音频模型",
+    )
+    narration_voice: str | SkipJsonSchema[None] = Field(
+        default=None, description="旁白音色 id；仅 use_tts 使用，省略时取全局默认音色"
+    )
+    narration_speed: float | None = Field(
+        default=None,
+        description="配音语速倍率（正数）；仅 use_tts 使用，省略时取全局默认，null 表示不向供应商传语速",
+    )
 
     @model_validator(mode="after")
     def validate_mode_fields(self) -> CreateProjectToolRequest:
@@ -1396,13 +1421,35 @@ async def list_projects(
         return ToolOutcome(problem=ToolProblem("internal_error", f"list_projects 失败: {exc}"))
 
 
+_NARRATION_CONFIG_PROBLEMS = {
+    "narration_tts_model_required": "use_tts 需要 TTS 模型：传 audio_backend（provider/model），或先让用户配置音频供应商",
+    "narration_tts_model_invalid": "audio_backend 不是可用的 TTS 模型，需为音频供应商下的 provider/model",
+    "narration_tts_voice_required": "use_tts 需要非空的 narration_voice",
+    "narration_tts_speed_invalid": "narration_speed 必须是正的有限数值或 null",
+}
+
+
 async def create_project(
     request: ToolRequest[CreateProjectToolRequest],
     _caller: CallerContext,
     services: Services,
 ) -> ToolOutcome[dict[str, Any]]:
+    value = request.value
+    try:
+        narration = await new_project_narration_fields(
+            NarrationSettingsInput(
+                delivery=value.narration_delivery,
+                audio_backend=value.audio_backend,
+                narration_voice=value.narration_voice,
+                narration_speed=value.narration_speed,
+                provided=frozenset(value.model_fields_set & {"audio_backend", "narration_voice", "narration_speed"}),
+            ),
+            resolver=ConfigResolver(async_session_factory),
+        )
+    except NarrationConfigError as exc:
+        return ToolOutcome(problem=ToolProblem("invalid_request", _NARRATION_CONFIG_PROBLEMS[exc.code]))
+
     def _create() -> dict[str, Any]:
-        value = request.value
         name = services.projects.normalize_project_name(value.name)
         services.projects.create_project(name, content_mode=value.content_mode, publish=False)
         try:
@@ -1419,6 +1466,7 @@ async def create_project(
                 target_duration=value.target_duration,
                 brief=value.brief,
                 source_kind=value.source_kind,
+                narration=narration,
             )
         except Exception:
             services.projects.delete_project_directory(name)
@@ -2466,6 +2514,12 @@ def _patch_project_sync(
                     else:
                         diagnostics[key] = ("set", field_value)
                         project_data[key] = field_value
+                try:
+                    validate_project_narration_config(project_data)
+                except NarrationConfigError as exc:
+                    raise ValueError(
+                        f"项目的旁白交付方式是 TTS 配音，TTS 快照必须完整，本次修改被拒绝（{exc.code}）"
+                    ) from exc
 
             services.projects.update_project(scope.project_name, mutate_settings)
             return ToolOutcome(

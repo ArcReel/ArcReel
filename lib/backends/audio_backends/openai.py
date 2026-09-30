@@ -91,7 +91,7 @@ class OpenAIAudioBackend:
 
     @property
     def capabilities(self) -> set[AudioCapability]:
-        return {AudioCapability.TEXT_TO_SPEECH}
+        return {AudioCapability.TEXT_TO_SPEECH, AudioCapability.SPEECH_SPEED}
 
     def list_voices(self) -> list[VoiceOption]:
         # legacy 收窄只对官方 OpenAI 生效：自定义 openai-tts 供应商（provider_name 被覆盖）即使

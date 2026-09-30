@@ -13,11 +13,16 @@ from lib.artifacts.artifact_manifest import (
     ArtifactStatus,
     ProjectArtifactManifestAdapter,
 )
+from lib.config.resolver import ConfigResolver
+from lib.config.service import ConfigService
 from lib.project.project_manager import ProjectManager
 from lib.project.project_migration_report import load_migration_report
 from lib.project.project_migrations import CURRENT_SCHEMA_VERSION
 from lib.project.project_migrations.runner import migrate_project_dir
 from lib.project.project_migrations.v15_to_v16_edit_decisions import migrate_v15_to_v16
+from lib.speech.narration_config import ProjectTtsSettingsResolver, TtsSynthesisSettings
+from lib.speech.narration_delivery import USE_TTS, NarrationTtsStatus, prepare_current_narration_delivery
+from lib.speech.speech_composition import admit_script_unit
 from lib.speech.speech_presentation import presentation_artifact_paths
 from lib.workflow.workflow_state import WorkflowStateService
 from server.services.presentation.presentation_read_model import PresentationReadModelService
@@ -28,6 +33,7 @@ from tests.legacy_project_shapes import (
     write_legacy_presentation_project,
     write_legacy_reference_video_project,
     write_legacy_storyboard_project,
+    write_legacy_tts_narration_project,
 )
 
 _SUBTITLE_PATH, _PRESENTATION_PATH = presentation_artifact_paths(1, "E1S01", "post_production")
@@ -97,13 +103,16 @@ def _items(script: dict[str, Any]) -> list[list[dict[str, Any]]]:
 
 
 def test_the_whole_chain_from_an_old_install_leaves_no_transition(tmp_path: Path) -> None:
-    project_dir = write_legacy_storyboard_project(tmp_path)
+    project_dir = write_legacy_storyboard_project(tmp_path / "projects")
 
     migrate_project_dir(project_dir)
 
     segments = _read_json(project_dir / "scripts" / "episode_1.json")["segments"]
     assert segments
     assert all("transition_to_next" not in segment for segment in segments)
+    assert _read_json(project_dir / "project.json")["narration_delivery"] == "post_production"
+    summary = WorkflowStateService(ProjectManager(tmp_path)).get_project_summary(project_dir.name)
+    assert (summary.episodes[0].videos.available, summary.episodes[0].videos.stale) == (2, 0)
 
 
 @pytest.mark.parametrize("converted", [False, True], ids=["indexed-shots", "interrupted-conversion"])
@@ -181,6 +190,113 @@ def test_report_describes_the_completed_chain_and_keeps_legacy_audio_skips(tmp_p
     }
     status = WorkflowStateService(ProjectManager(tmp_path)).get_status(project_dir.name, 1)
     assert status.migration_report == report
+    # 旧音频的选中版本记录没有 TTS 设置，不被登记，项目判为后期配音
+    assert _read_json(project_dir / "project.json")["narration_delivery"] == "post_production"
+
+
+async def _tts_status(project_dir: Path, unit_id: str) -> NarrationTtsStatus:
+    """用户在旁白配音面板上看到的时效：按迁移后项目的 TTS 快照复算。"""
+
+    async def _duration(_path: Path) -> float:
+        return 3.0
+
+    project = _read_json(project_dir / "project.json")
+    script = _read_json(project_dir / "scripts" / "episode_1.json")
+    segment = next(item for item in script["segments"] if item["segment_id"] == unit_id)
+    prepared = await prepare_current_narration_delivery(
+        project=project,
+        episode=1,
+        preparation=admit_script_unit("segments", segment).preparation,
+        project_path=project_dir,
+        delivery=USE_TTS,
+        resolver=ProjectTtsSettingsResolver(),
+        duration_probe=_duration,
+    )
+    return prepared.tts_status
+
+
+async def test_project_with_registered_tts_audio_becomes_tts_and_its_audio_stays_current(
+    tmp_path: Path, db_factory
+) -> None:
+    used = TtsSynthesisSettings("dashscope", "qwen3-tts-flash", "Ethan", 1.2)
+    project_dir = write_legacy_tts_narration_project(tmp_path / "projects", settings=(used, used))
+
+    assert migrate_project_dir(project_dir) is True
+
+    project = _read_json(project_dir / "project.json")
+    assert project["schema_version"] == CURRENT_SCHEMA_VERSION
+    assert {key: project.get(key) for key in ("narration_delivery", "audio_backend", "narration_voice")} == {
+        "narration_delivery": "use_tts",
+        "audio_backend": "dashscope/qwen3-tts-flash",
+        "narration_voice": "Ethan",
+    }
+    assert project["narration_speed"] == 1.2
+    assert await _tts_status(project_dir, "E1S1") is NarrationTtsStatus.CURRENT
+    assert await _tts_status(project_dir, "E1S2") is NarrationTtsStatus.CURRENT
+
+    async with db_factory() as session:
+        service = ConfigService(session)
+        await service.set_setting("default_audio_backend", "dashscope/qwen-tts-latest")
+        await service.set_setting("narration_voice", "Cherry")
+        await service.set_setting("narration_speed", "0.8")
+        await session.commit()
+    defaults, voice, speed = await ConfigResolver(db_factory).default_narration_tts()
+    assert (defaults.model_id, voice, speed) == ("qwen-tts-latest", "Cherry", 0.8)
+    assert _read_json(project_dir / "project.json") == project
+    assert await _tts_status(project_dir, "E1S1") is NarrationTtsStatus.CURRENT
+
+    manager = ProjectManager(tmp_path)
+    entries = ProjectArtifactManifestAdapter(project_dir).snapshot_entries()
+    for delivery in ("post_production", "use_tts"):
+        manager.update_project(
+            project_dir.name, lambda value, delivery=delivery: value.update(narration_delivery=delivery)
+        )
+        saved = _read_json(project_dir / "project.json")
+        assert {key: saved.get(key) for key in ("audio_backend", "narration_voice", "narration_speed")} == {
+            "audio_backend": "dashscope/qwen3-tts-flash",
+            "narration_voice": "Ethan",
+            "narration_speed": 1.2,
+        }
+        assert saved["narration_delivery"] == delivery
+        assert ProjectArtifactManifestAdapter(project_dir).snapshot_entries() == entries
+        assert await _tts_status(project_dir, "E1S1") is NarrationTtsStatus.CURRENT
+        assert await _tts_status(project_dir, "E1S2") is NarrationTtsStatus.CURRENT
+        summary = WorkflowStateService(manager).get_project_summary(project_dir.name)
+        assert (summary.episodes[0].videos.available, summary.episodes[0].videos.stale) == (2, 0)
+
+
+async def test_tts_snapshot_takes_the_most_recently_generated_audio_settings(tmp_path: Path) -> None:
+    project_dir = write_legacy_tts_narration_project(
+        tmp_path / "projects",
+        settings=(
+            TtsSynthesisSettings("dashscope", "qwen3-tts-flash", "Ethan", 1.2),
+            TtsSynthesisSettings("openai", "tts-1", "alloy", None),
+        ),
+    )
+    advance_project_schema(project_dir, to_version=15)
+
+    migrate_v15_to_v16(project_dir)
+
+    project = _read_json(project_dir / "project.json")
+    assert project["narration_delivery"] == "use_tts"
+    assert (project["audio_backend"], project["narration_voice"]) == ("openai/tts-1", "alloy")
+    # 快照不设语速：旧项目里「跟随全局默认」的语速字段不再保留
+    assert "narration_speed" not in project
+    assert await _tts_status(project_dir, "E1S2") is NarrationTtsStatus.CURRENT
+    assert await _tts_status(project_dir, "E1S1") is NarrationTtsStatus.STALE
+
+
+def test_project_without_registered_narration_audio_becomes_post_production(tmp_path: Path) -> None:
+    project_dir = write_legacy_storyboard_project(tmp_path / "projects")
+    advance_project_schema(project_dir, to_version=15)
+    legacy = _read_json(project_dir / "project.json")
+    legacy.update({"audio_backend": "dashscope", "narration_voice": "Cherry"})
+    _write_json(project_dir / "project.json", legacy)
+
+    migrate_v15_to_v16(project_dir)
+
+    project = _read_json(project_dir / "project.json")
+    assert project == {**legacy, "narration_delivery": "post_production", "schema_version": 16}
 
 
 async def test_current_presentation_and_subtitle_stay_current_and_preview_rebuilds_the_same_files(

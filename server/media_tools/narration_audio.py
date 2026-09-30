@@ -34,6 +34,7 @@ from lib.project.resource_paths import resource_relative_path
 from lib.script.script_editor import resolve_items
 from lib.script.script_models import get_generated_assets, resolve_content_mode
 from lib.script.script_skeleton import ensure_route_skeleton
+from lib.speech.narration_config import NarrationConfigError, require_project_tts_generation
 from lib.speech.narration_delivery import canonical_narration_text
 from lib.speech.speech_composition import SpeechAdmission, SpeechMode, admit_script_unit
 from server.media_tools.context import (
@@ -43,10 +44,20 @@ from server.media_tools.context import (
     generation_batch_submission_outcome,
     generation_result_outcome,
     tool_error,
+    tool_problem,
 )
 from server.tool_runtime import CallerContext, ProjectScope, Services, ToolOutcome, ToolRequest, submit_media_generation
 
 _OPERATION = "generate_narration_audio"
+
+_NARRATION_CONFIG_DETAILS = {
+    "narration_delivery_post_production": (
+        "项目的旁白交付方式是后期配音，ArcReel 不为它生成旁白配音；用户要 TTS 配音时请其在项目设置里改为 TTS 配音"
+    ),
+    "narration_tts_model_required": "项目选了 TTS 配音但没有 TTS 模型，请用户在项目设置里选择 TTS 模型",
+    "narration_tts_voice_required": "项目选了 TTS 配音但没有旁白音色，请用户在项目设置里填写音色",
+    "narration_tts_speed_invalid": "项目的配音语速无效，请用户在项目设置里改正或清空",
+}
 
 
 def _tts_admission_problem(admission: SpeechAdmission) -> GenerationProblem | None:
@@ -136,6 +147,10 @@ async def generate_narration_audio(
         script = services.projects.load_script(scope.project_name, script_filename)
 
         project = services.projects.load_project(scope.project_name)
+        try:
+            require_project_tts_generation(project)
+        except NarrationConfigError as exc:
+            return tool_problem(_NARRATION_CONFIG_DETAILS[exc.code], code=exc.code)
         content_mode = resolve_content_mode(script, project)
         ensure_route_skeleton(script, content_mode, project.get("generation_mode"))
         items, id_field, kind = resolve_items(script)
