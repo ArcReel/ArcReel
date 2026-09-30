@@ -45,6 +45,7 @@ export function useProto() {
     addOwnEpisodes: run(M.addOwnEpisodes),
     addBlankEpisode: run(M.addBlankEpisode),
     simulateExternal: run(M.simulateExternal),
+    markMade: run(M.markMade),
     beginReplan: run(M.beginReplan),
     stopCandidate: run(M.stopCandidate),
     continueCandidate: run(M.continueCandidate),

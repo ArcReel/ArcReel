@@ -627,6 +627,7 @@ export function StateInspector({ p }: { p: Proto }) {
       {open && (
         <div className="mt-2 max-h-[55vh] overflow-auto rounded-lg p-3 font-mono" style={{ background: "oklch(0.12 0 0 / 0.95)", color: "oklch(0.85 0 0)" }}>
           <div className="mb-1 flex flex-wrap gap-2">
+            <button type="button" className="underline" onClick={() => p.markMade(3)}>模拟：前 3 集已开始制作</button>
             {s.files.map((f) => (
               <button key={f.id} type="button" className="underline" onClick={() => p.simulateExternal(f.id)}>模拟外部改动 {f.name.slice(0, 8)}</button>
             ))}

@@ -864,3 +864,8 @@ export function fromReal(opts: { fileName: string; text: string; kind: Kind; epi
   return withLog(normalize(s0),
     `真实项目：${opts.fileName}，${cuts.length} 集切自整本源文${bounds.length > 2 ? `；为演示多文件，在集分界处拆成 ${files.length} 个文件（只在内存里）` : ""}`);
 }
+
+/** 原型调试：把播出顺序前 n 集标为已开始制作（真实项目全是草稿时，用来看 stale / 退下的情形） */
+export function markMade(s: ProtoState, n: number): ProtoState {
+  return withLog({ ...s, episodes: s.episodes.map((e, i) => (i < n ? { ...e, hasArtifacts: true } : e)) }, `模拟：前 ${n} 集已开始制作`);
+}
