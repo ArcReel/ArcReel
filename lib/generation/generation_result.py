@@ -220,6 +220,7 @@ _TASK_FAILURE_ACTIONS: dict[str, GenerationAction] = {
     "restart_lost_image": GenerationAction.RETRY,
     "restart_lost_audio": GenerationAction.RETRY,
     "restart_lost_text": GenerationAction.RETRY,
+    "restart_lost_render": GenerationAction.RETRY,
     "restart_lost_no_job_id": GenerationAction.RETRY,
     "restart_lost_resume_no_job_id": GenerationAction.RETRY,
     "restart_lost_checkpoint_no_job_id": GenerationAction.RETRY,
@@ -1023,6 +1024,7 @@ _OPERATION_LABELS: dict[str, str] = {
     "generate_narration_audio": "旁白配音生成",
     "edit_images": "图片编辑",
     "generate_videos": "视频生成",
+    "render_final_cut": "成片渲染",
 }
 _FALLBACK_OPERATION_LABEL = "生成"
 

@@ -5,7 +5,7 @@ import { taskToUsageRecordView } from "./usage-record-view";
 
 /** 只有落库时会拿到 `segment_id` 的任务才在进行中行上挂分镜标签。 */
 function segmentIdOf(overrides: Parameters<typeof makeTask>[0]) {
-  return taskToUsageRecordView(makeTask(overrides)).segmentId;
+  return taskToUsageRecordView(makeTask(overrides))?.segmentId;
 }
 
 describe("taskToUsageRecordView", () => {
@@ -67,5 +67,13 @@ describe("taskToUsageRecordView", () => {
     expect(
       segmentIdOf({ task_type: "unknown_future", media_type: "audio", resource_id: "E1S10" }),
     ).toBe("E1S10");
+  });
+
+  it("projects no usage row for a local render task, which bills nothing", () => {
+    expect(
+      taskToUsageRecordView(
+        makeTask({ task_type: "render_final_cut", media_type: "render", provider_id: "render" }),
+      ),
+    ).toBeNull();
   });
 });

@@ -163,6 +163,7 @@ export function UsagePopover({ projectName, anchorRef, panelId }: UsagePopoverPr
     const views: UsageRecordView[] = [];
     for (const task of activeTasks) {
       const view = taskToUsageRecordView(task);
+      if (view === null) continue;
       byKey.set(view.key, task);
       views.push(view);
     }

@@ -25,6 +25,16 @@ logger = logging.getLogger(__name__)
 EDIT_TIMELINES_DIRNAME = "edit_timelines"
 
 
+def _parse_document(path: Path) -> EditTimelineDocument:
+    try:
+        document = EditTimelineDocument.model_validate(json.loads(path.read_text(encoding="utf-8")))
+    except (OSError, ValueError, ValidationError) as exc:
+        raise EditTimelineError("timeline_invalid", f"剪辑时间线文件无法解析：{path.name}", file=path.name) from exc
+    if document.id != path.stem:
+        raise EditTimelineError("timeline_invalid", f"剪辑时间线文件与其 ID 不一致：{path.name}", file=path.name)
+    return document
+
+
 class EditTimelineStore:
     def __init__(self, projects: ProjectManager, project_name: str) -> None:
         self._projects = projects
@@ -46,13 +56,7 @@ class EditTimelineStore:
 
     @staticmethod
     def _parse(path: Path) -> EditTimelineDocument:
-        try:
-            document = EditTimelineDocument.model_validate(json.loads(path.read_text(encoding="utf-8")))
-        except (OSError, ValueError, ValidationError) as exc:
-            raise EditTimelineError("timeline_invalid", f"剪辑时间线文件无法解析：{path.name}", file=path.name) from exc
-        if document.id != path.stem:
-            raise EditTimelineError("timeline_invalid", f"剪辑时间线文件与其 ID 不一致：{path.name}", file=path.name)
-        return document
+        return _parse_document(path)
 
     def list_documents(self, episode: int | None = None) -> list[EditTimelineDocument]:
         """列出剪辑时间线（按集、再按创建时间）；无法解析的文件跳过并记日志。"""
@@ -113,4 +117,21 @@ class EditTimelineStore:
         )
 
 
-__all__ = ["EDIT_TIMELINES_DIRNAME", "EditTimelineStore"]
+def read_timeline_document(project_dir: Path, episode: int, timeline_id: str) -> EditTimelineDocument | None:
+    """按集与 ID 直接读一条剪辑时间线；文件不存在、无法解析或与所在集不一致时返回 None。
+
+    供只持有项目目录的读方（产物时效判定）使用，不取集锁。
+    """
+    if not is_timeline_id(timeline_id):
+        return None
+    path = project_dir / EDIT_TIMELINES_DIRNAME / f"episode_{episode}" / f"{timeline_id}.json"
+    if not path.is_file():
+        return None
+    try:
+        document = _parse_document(path)
+    except EditTimelineError:
+        return None
+    return document if document.episode == episode else None
+
+
+__all__ = ["EDIT_TIMELINES_DIRNAME", "EditTimelineStore", "read_timeline_document"]

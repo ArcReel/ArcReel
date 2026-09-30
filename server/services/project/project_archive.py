@@ -31,6 +31,7 @@ from lib.artifacts.artifact_manifest import (
     encode_artifact_manifest_payload,
 )
 from lib.artifacts.formal_write import project_metadata_lock
+from lib.artifacts.rendered_artifact import RENDERS_DIRNAME
 from lib.artifacts.version_manager import VersionManager, selected_manual_upload_snapshot
 from lib.config.registry import model_info_for
 from lib.config.resolver import VideoGenerationType, project_video_backend_ids
@@ -283,7 +284,9 @@ def _registry_supported_durations(project: dict[str, Any]) -> list[int] | None:
 
 
 class ProjectArchiveService:
-    _ROOT_VISIBLE_ENTRIES = frozenset(DataValidator.ALLOWED_ROOT_ENTRIES)
+    # 渲染产物（成片等）随时可从项目内容重新渲染，不进归档；它们的清单条目也一并剔除，导入后读 missing。
+    _ARCHIVE_EXCLUDED_ROOTS = frozenset({RENDERS_DIRNAME})
+    _ROOT_VISIBLE_ENTRIES = frozenset(DataValidator.ALLOWED_ROOT_ENTRIES - _ARCHIVE_EXCLUDED_ROOTS)
     _AGENT_RUNTIME_EXCLUDES = frozenset({".claude", "CLAUDE.md"})
 
     def __init__(self, project_manager: ProjectManager):
@@ -766,7 +769,11 @@ class ProjectArchiveService:
         project = self._load_json_file(source_dir / self.project_manager.PROJECT_FILE)
         if not isinstance(project, dict) or not project_schema_is_current(project):
             return None
-        return dict(ProjectArtifactManifestAdapter(source_dir).snapshot_entries())
+        return {
+            key: entry
+            for key, entry in ProjectArtifactManifestAdapter(source_dir).snapshot_entries().items()
+            if entry.artifact_path.split("/", 1)[0] not in self._ARCHIVE_EXCLUDED_ROOTS
+        }
 
     def _visible_tree_signature(self, root: Path) -> tuple[tuple[str, str], ...]:
         signature: list[tuple[str, str]] = []
@@ -1773,7 +1780,7 @@ class ProjectArchiveService:
         for child in sorted(project_dir.iterdir(), key=lambda item: item.name):
             if self._is_hidden_path(Path(child.name)):
                 continue
-            if child.name in self._AGENT_RUNTIME_EXCLUDES:
+            if child.name in self._AGENT_RUNTIME_EXCLUDES or child.name in self._ARCHIVE_EXCLUDED_ROOTS:
                 continue
             if child.name not in self._ROOT_VISIBLE_ENTRIES:
                 entries.append(child.name)

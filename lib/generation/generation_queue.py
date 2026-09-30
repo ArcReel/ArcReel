@@ -27,6 +27,7 @@ from lib.generation.generation_batch import (
     build_generation_batch_read_model,
     validate_blocked_items,
 )
+from lib.generation.render_lane import RENDER_MEDIA_TYPE, RENDER_PROVIDER_ID, is_render_task_type
 from lib.generation.task_terminal_events import TERMINAL_TASK_STATUSES, emit_task_terminal_events
 from lib.infra.async_thread import run_noninterruptible_async
 from lib.project.asset_derivatives import DERIVATIVE_TASK_TYPE
@@ -58,6 +59,11 @@ def _text_request_facts(task_type: str, payload: dict[str, Any] | None) -> dict[
     if not task_type.startswith("text_"):
         return None
     return text_task_request_facts(payload)
+
+
+def _render_request_facts(task_type: str, payload: dict[str, Any] | None) -> dict[str, Any] | None:
+    """渲染任务的整个载荷就是请求（剪辑时间线、修订与版本）；同一产物身份不同请求不去重。"""
+    return dict(payload or {}) if is_render_task_type(task_type) else None
 
 
 class ActiveTaskRequestConflict(RuntimeError):
@@ -273,6 +279,10 @@ async def _derive_execution_model_for_enqueue(
     但失败时返回 ``None``（不强行回 DEFAULT_PROVIDER）——让任务走 ``provider_id IS NULL``
     兜底分支，由 worker claim 后做二次校验，比硬塞一个可能错误的 provider 安全。
     """
+    if media_type == RENDER_MEDIA_TYPE:
+        from lib.config.resolver import ProviderModel
+
+        return ProviderModel(RENDER_PROVIDER_ID, ""), None
     is_text = media_type == "text"
     is_video = media_type == "video" or task_type in ("video", "reference_video")
     is_audio = media_type == "audio" or task_type == "tts"
@@ -412,6 +422,7 @@ class GenerationQueue:
 
         requested_facts = _reference_request_facts(task_type, payload)
         text_request_facts = _text_request_facts(task_type, payload)
+        render_request_facts = _render_request_facts(task_type, payload)
 
         def _guard_deduped(existing_payload: dict[str, Any], existing_task_id: str) -> None:
             if requested_facts is not None and _reference_request_facts(task_type, existing_payload) != requested_facts:
@@ -419,6 +430,11 @@ class GenerationQueue:
             if (
                 text_request_facts is not None
                 and _text_request_facts(task_type, existing_payload) != text_request_facts
+            ):
+                raise ActiveTaskRequestConflict(resource_id=resource_id, existing_task_id=existing_task_id)
+            if (
+                render_request_facts is not None
+                and _render_request_facts(task_type, existing_payload) != render_request_facts
             ):
                 raise ActiveTaskRequestConflict(resource_id=resource_id, existing_task_id=existing_task_id)
 

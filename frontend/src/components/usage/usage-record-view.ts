@@ -86,6 +86,7 @@ const SEGMENT_RESOURCE_TYPES: Record<TaskMediaType, ReadonlySet<string> | null> 
   image: new Set(["storyboards", "videos", "grids"]),
   video: new Set(["storyboards", "videos", "reference_videos"]),
   audio: null,
+  render: new Set(),
 };
 
 /**
@@ -106,9 +107,11 @@ export function taskSegmentId(task: TaskItem): string | null {
 
 /**
  * 进行中的任务投影成记录行。任务侧没有模型与调用行，模型留空由界面显示「待解析」；
- * 计时起点取 `started_at`，尚未开始时取 `queued_at`。
+ * 计时起点取 `started_at`，尚未开始时取 `queued_at`。本地渲染任务（`render`）不调用
+ * 供应商、不记用量，没有对应的行，返回 null。
  */
-export function taskToUsageRecordView(task: TaskItem): UsageRecordView {
+export function taskToUsageRecordView(task: TaskItem): UsageRecordView | null {
+  if (task.media_type === "render") return null;
   return {
     key: `task:${task.task_id}`,
     recordId: null,

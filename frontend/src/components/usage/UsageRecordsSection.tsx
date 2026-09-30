@@ -146,7 +146,10 @@ export function UsageRecordsSection() {
   const inProgress = useMemo(() => {
     if (!showInProgress) return [];
     return sortByStartedDesc([
-      ...activeTasks.filter((task) => taskMatchesFilters(task, filters)).map(taskToUsageRecordView),
+      ...activeTasks.flatMap((task) => {
+        const view = taskMatchesFilters(task, filters) ? taskToUsageRecordView(task) : null;
+        return view === null ? [] : [view];
+      }),
       ...pendingRecords.map(usageRecordToView),
     ]);
   }, [showInProgress, activeTasks, filters, pendingRecords]);

@@ -260,6 +260,54 @@ class TestRestartRecovery:
         assert "[restart_lost_image]" in queue.failed[0][1]
 
     @pytest.mark.asyncio
+    async def test_handle_orphan_render_running_marks_restart_lost(self, tmp_path, monkeypatch):
+        """render 孤儿判失败、不重排，清理临时文件并保留正式成片与记录。"""
+        from lib.project.project_manager import ProjectManager
+
+        projects = ProjectManager(tmp_path)
+        projects.create_project("demo")
+        monkeypatch.setattr("lib.generation.restart_recovery.get_project_manager", lambda: projects)
+        render_dir = projects.get_project_path("demo") / "renders" / "episode_1" / "tl-0000abcd"
+        render_dir.mkdir(parents=True)
+        formal = render_dir / "final_cut.mp4"
+        record = render_dir / "final_cut.render.json"
+        formal.write_bytes(b"previous")
+        record.write_bytes(b"previous record")
+        token = "a" * 32
+        partial = render_dir / f".final_cut.{token}.partial.mp4"
+        work = render_dir / f".final_cut.{token}.work"
+        partial.write_bytes(b"unfinished")
+        record_temp = render_dir / ".project.interrupted.tmp"
+        record_temp.write_bytes(b"unfinished record")
+        work.mkdir()
+        (work / "segment_0000.mp4").write_bytes(b"intermediate")
+        queue = FakeWorkerQueue()
+        queue._orphans = [
+            {
+                "task_id": "render-orphan",
+                "status": "running",
+                "provider_id": "render",
+                "provider_job_id": None,
+                "media_type": "render",
+                "task_type": "render_final_cut",
+                "payload": {},
+                "project_name": "demo",
+            }
+        ]
+        worker = GenerationWorker(
+            queue=queue, executor=stub_executors.execute, resume_executor=stub_executors.execute_resume
+        )
+
+        await worker._recovery.handle_orphans()
+
+        assert queue.failed == [("render-orphan", "[restart_lost_render]")]
+        assert not partial.exists()
+        assert not record_temp.exists()
+        assert not work.exists()
+        assert formal.read_bytes() == b"previous"
+        assert record.read_bytes() == b"previous record"
+
+    @pytest.mark.asyncio
     async def test_handle_orphan_non_resumable_video_marks_resume_unsupported(self, worker_db, staged_project):
         """Grok/Vidu video 孤儿 → [resume_unsupported]（backend 无 resume，绝不重跑）。"""
         from lib.backends.providers import PROVIDER_GROK

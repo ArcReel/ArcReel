@@ -11,10 +11,13 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING, Any, Protocol
 
+from lib.artifacts.rendered_artifact import cleanup_interrupted_render_staging
 from lib.backends.providers import PROVIDER_GROK, PROVIDER_VIDU
 from lib.config.service import read_video_poll_timeout_seconds
+from lib.generation.render_lane import RENDER_MEDIA_TYPE
 from lib.generation.task_failure import encode_failure
 from lib.generation.video_resume import VideoResumeRunner, cleanup_video_staging
+from lib.project.project_manager import get_project_manager
 from lib.script.reference_video.execution_checkpoint import VideoResumeState, classify_video_resume_state
 
 if TYPE_CHECKING:
@@ -184,6 +187,19 @@ class RestartRecovery:
             if media_type == "text":
                 logger.warning("孤儿 text running → [restart_lost]: %s", task_id)
                 await self._queue.mark_task_failed(task_id, encode_failure("restart_lost_text"))
+                continue
+
+            # 本地渲染不续跑；重启时清理临时文件，lease 重夺时保留本进程仍在执行的渲染。
+            # 不自动重排，由用户决定是否重新渲染。
+            if media_type == RENDER_MEDIA_TYPE:
+                logger.warning("孤儿 render running → [restart_lost]: %s", task_id)
+                if not self._slots.occupied_providers(RENDER_MEDIA_TYPE):
+                    try:
+                        project_dir = get_project_manager().get_project_path(task["project_name"])
+                        await asyncio.to_thread(cleanup_interrupted_render_staging, project_dir)
+                    except Exception:
+                        logger.warning("清理孤儿 render 临时文件失败: %s", task_id, exc_info=True)
+                await self._queue.mark_task_failed(task_id, encode_failure("restart_lost_render"))
                 continue
 
             checkpoint = None

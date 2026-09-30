@@ -150,12 +150,19 @@ def trim_applies(clip: EditClip, media: UnitMedia) -> bool:
     return clip.trim is not None and media.video_version is not None and clip.trim.basis_version == media.video_version
 
 
+def effective_source_range_us(clip: EditClip, video_version: int | None, whole_us: int) -> tuple[int, int]:
+    """片段实际取用的源素材区间；截取只对其依据的视频版本有效，出点不超过视频全长。"""
+    trim = clip.trim
+    if video_version is None or trim is None or trim.basis_version != video_version:
+        return 0, whole_us
+    return trim.in_us, max(trim.in_us, min(trim.out_us, whole_us))
+
+
 def clip_source_duration_us(clip: EditClip, media: UnitMedia, scripted_us: int) -> int:
     """片段截取后的画面时长（不含定格延长）；没有可用视频时按编排时长占位。"""
     whole = media.video_duration_us if media.video_duration_us is not None else scripted_us
-    if clip.trim is None or not trim_applies(clip, media):
-        return whole
-    return max(0, min(clip.trim.out_us, whole) - clip.trim.in_us)
+    source_in, source_out = effective_source_range_us(clip, media.video_version, whole)
+    return source_out - source_in
 
 
 def _clip_view(clip: EditClip, sources: EpisodeSources, start_us: int) -> tuple[ClipView, int]:
@@ -304,6 +311,7 @@ __all__ = [
     "TransitionView",
     "TrimView",
     "clip_source_duration_us",
+    "effective_source_range_us",
     "project_readout",
     "timeline_issue",
     "trim_applies",

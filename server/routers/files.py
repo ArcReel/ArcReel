@@ -69,7 +69,7 @@ public_router = APIRouter()
 # 公开端点可读的媒体范围，是 ADR 0071「静态媒体」在实现上的唯一定义处。
 # 目录：项目内由生成/上传流程写入、前端以媒体元素直接引用的子目录，含其嵌套子目录
 # （characters/refs、characters/refs_audio、characters/derivatives、products/refs、
-# reference_videos/thumbnails 等）；versions/ 下只放行这些目录各自的快照桶。
+# reference_videos/thumbnails、renders/episode_N/<剪辑时间线> 等）；versions/ 下只放行这些目录各自的快照桶。
 PUBLIC_MEDIA_DIRS: frozenset[str] = frozenset(
     {
         "storyboards",
@@ -83,6 +83,7 @@ PUBLIC_MEDIA_DIRS: frozenset[str] = frozenset(
         "products",
         "grids",
         "audio",
+        "renders",
     }
 )
 PUBLIC_VERSIONS_DIR = "versions"
@@ -97,7 +98,7 @@ _PUBLIC_FILE_HEADERS: dict[str, str] = {"X-Content-Type-Options": "nosniff"}
 
 def is_public_media_path(relative_parts: tuple[str, ...]) -> bool:
     """项目内相对路径（按段拆分）是否属于公开端点可读的媒体。"""
-    if not relative_parts:
+    if not relative_parts or any(part.startswith(".") for part in relative_parts):
         return False
     name = Path(relative_parts[-1])
     if name.suffix.lower() not in PUBLIC_MEDIA_EXTENSIONS:

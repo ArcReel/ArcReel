@@ -12,7 +12,8 @@ export type TaskStatus =
   | "succeeded"
   | "failed"
   | "cancelled";
-export type TaskMediaType = "image" | "video" | "audio";
+/** `render` 是本地渲染车道（成片等），不产生用量记录。 */
+export type TaskMediaType = "image" | "video" | "audio" | "render";
 
 export interface TaskItem {
   task_id: string;

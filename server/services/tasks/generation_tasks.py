@@ -57,6 +57,7 @@ from lib.generation.generation_queue import (
     get_generation_queue,
     without_video_execution_identity,
 )
+from lib.generation.render_lane import is_render_task_type
 from lib.generation.video_request_facts import (
     DEFAULT_PLANNED_DURATION_SECONDS,
     VideoRequestFactsError,
@@ -143,6 +144,7 @@ from server.services.tasks.generation_context import (
 )
 from server.services.tasks.image_edit_tasks import execute_image_edit_task
 from server.services.tasks.reference_video_tasks import execute_reference_video_task
+from server.services.tasks.render_tasks import execute_render_task
 
 logger = logging.getLogger(__name__)
 
@@ -1805,6 +1807,8 @@ async def execute_generation_task(task: dict[str, Any], *, claimed_provider_id: 
         from server.tool_runtime import execute_queued_text_task
 
         return await execute_queued_text_task(task)
+    if is_render_task_type(task_type):
+        return await execute_render_task(task)
     if executor is None:
         raise ValueError(f"unsupported task_type: {task_type}")
 

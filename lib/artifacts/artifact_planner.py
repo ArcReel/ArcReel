@@ -328,6 +328,9 @@ class TargetStatePlanner:
         elif kind in {"episode-subtitle", "episode-presentation"}:
             self.load_episodes()
             self._plan_persisted_presentations()
+        elif kind == "episode-final-cut":
+            self.load_episodes()
+            self._plan_final_cut(key)
 
     def load_episode_bindings(self) -> None:
         if self._bindings_loaded:
@@ -1080,6 +1083,60 @@ class TargetStatePlanner:
                             )
                         )
         self._planned.add("persisted-presentations")
+
+    def _plan_final_cut(self, key: ArtifactKey) -> None:
+        """Rebuild one final cut basis from its edit timeline's latest revision.
+
+        Final cuts are only registered by the render that produced them; activation
+        never plans them, so a present file without its render-time claim reads missing.
+        """
+
+        from lib.edit_timeline.store import read_timeline_document
+        from lib.final_cut.basis import (
+            FinalCutVariant,
+            current_video,
+            final_cut_artifact_path,
+            final_cut_basis,
+            output_profile_for_project,
+            resolve_final_cut_inputs,
+            video_resource_type_for,
+        )
+
+        episode_number, timeline_id, narration, subtitles = key.components
+        episode = next((candidate for candidate in self.episodes if candidate.episode == episode_number), None)
+        if episode is None or type(episode_number) is not int or not isinstance(timeline_id, str):
+            return
+        document = read_timeline_document(self.project_dir, episode_number, timeline_id)
+        if document is None:
+            return
+        resource_type = video_resource_type_for(episode.kind)
+        versions = VersionManager(self.project_dir)
+        variant = FinalCutVariant(narration=str(narration), subtitles=str(subtitles))
+        inputs = resolve_final_cut_inputs(
+            document=document,
+            revision=document.latest,
+            variant=variant,
+            profile=output_profile_for_project(self.project, episode.kind),
+            script_unit_ids={
+                unit_id for item in episode.items if isinstance(unit_id := item.get(episode.id_field), str) and unit_id
+            },
+            video_of=lambda unit_id: current_video(
+                self.project_dir, versions, resource_type, unit_id, self._formal_content_digest
+            ),
+        )
+        if inputs.missing_video_units:
+            return
+        self._add_if_present(
+            key, final_cut_artifact_path(episode_number, timeline_id, variant), final_cut_basis(inputs)
+        )
+
+    def _formal_content_digest(self, artifact_path: str) -> str:
+        observation = self.adapter.inspect_artifact_content(artifact_path)
+        if observation.blocker is not None:
+            raise ArtifactManifestError(observation.blocker.detail)
+        if not observation.present or observation.content_digest is None:
+            raise ValueError(f"formal artifact input is not present: {observation.artifact_path}")
+        return observation.content_digest
 
     def _prove_persisted_presentation(
         self,

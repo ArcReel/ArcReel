@@ -61,6 +61,7 @@ MESSAGES = {
     "task_fail_restart_lost_image": "图片任务在服务重启时中断且无法接续，请手动重试以避免重复计费",
     "task_fail_restart_lost_audio": "配音任务在服务重启时中断且无法接续，请手动重试以避免重复计费",
     "task_fail_restart_lost_text": "文本任务在服务重启时中断且无法接续，请手动重试以避免重复计费",
+    "task_fail_restart_lost_render": "渲染任务在服务重启时中断，未产出结果；请重新提交渲染",
     "task_fail_restart_lost_no_job_id": "视频任务在服务重启时未保存接续凭据，无法自动恢复，请手动重试",
     "task_fail_restart_lost_resume_no_job_id": "任务缺少接续凭据，无法恢复，请手动重试",
     "task_fail_restart_lost_checkpoint_no_job_id": "任务已越过提交边界但未保存供应商任务编号，不能自动重试以免重复计费",
@@ -533,4 +534,13 @@ MESSAGES = {
     "edit_timeline_name_invalid": "剪辑时间线显示名须为 1–40 个字符",
     "edit_timeline_script_invalid": "第 {episode} 集的脚本无法解析，无法按脚本新建剪辑时间线",
     "edit_timeline_invalid": "剪辑时间线文件已损坏，无法读取：{file}",
+    # Final cut
+    "final_cut_variant_unsupported": "成片暂只支持渲染不带旁白、不烧入字幕的版本",
+    "final_cut_blocked": "剪辑时间线有阻止渲染成片的问题，涉及视频单元：{units}。处理这些问题后再提交渲染",
+    "final_cut_content_unsupported": "成片暂不支持转场和 BGM，只能渲染全部为硬切、不带 BGM 的剪辑时间线",
+    "final_cut_empty": "剪辑时间线没有可渲染的剪辑片段",
+    "final_cut_ffmpeg_unavailable": "随包 ffmpeg 不可用，无法渲染成片",
+    "final_cut_render_failed": "成片渲染失败，请重试",
+    "final_cut_acceptance_failed": "渲染出的成片未通过验收，请重试",
+    "final_cut_render_in_progress": "这条剪辑时间线已有一个请求不同的成片渲染任务在排队或执行（{task_id}），等它结束后再提交",
 }
