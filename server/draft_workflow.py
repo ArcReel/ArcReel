@@ -68,12 +68,12 @@ from server.text_generation import (
     _narration_script_plan_path,
     _narration_script_plan_result_text,
     _reference_result_text,
-    _uses_reference_video_units,
     _video_facts_failure_text,
     fetch_storyboard_durations,
     reference_soft_violations,
     render_soft_violation_lines,
     render_soft_violation_section,
+    uses_reference_video_units,
 )
 
 logger = logging.getLogger(__name__)
@@ -1094,7 +1094,7 @@ class DraftWorkflow:
         project = await asyncio.to_thread(self.ctx.pm.load_project, self.ctx.project_name)
         active_script_plan = script_review.script_plan_quarantine_kind(project)
         compatible = kind == active_script_plan or (
-            kind == QUARANTINE_KIND_PROMPT_AUTHORING and _uses_reference_video_units(project)
+            kind == QUARANTINE_KIND_PROMPT_AUTHORING and uses_reference_video_units(project)
         )
         if not compatible:
             raise DraftWorkflowError(

@@ -357,29 +357,6 @@ class ScriptBatchEditor:
                         if before_admission != after_admission:
                             speech_change[item_id] = index
 
-                # 分镜图生视频的一集至少保留一个分镜：空集合能过结构校验，却让该集在工作流中阻塞、
-                # 时间线也没有新增入口。参考生视频画布可从空集合新增单元，不受此限。按整批结果判定
-                # 而不是在单条 remove 处判定，同批先删后插（拆分锚点、整体替换）照常成立。
-                remaining_items, _remaining_id_field, collection_kind = resolve_items(candidate)
-                if not remaining_items and collection_kind != "video_units":
-                    last_remove = max(
-                        (i for i, op in enumerate(command.operations) if isinstance(op, RemoveOperation)),
-                        default=None,
-                    )
-                    raise _AbortEdit(
-                        self._failure(
-                            script=resolved_script,
-                            episode=episode_number,
-                            revision=before_revision,
-                            code="schema_invalid",
-                            reason="script_collection_empty",
-                            next_action="fix_operation",
-                            operation_index=last_remove,
-                            unit_id=_operation_id(command.operations[last_remove]) if last_remove is not None else None,
-                            locations=(ScriptBatchEditLocation(path=(collection_kind,)),),
-                        )
-                    )
-
                 speech_problems = _new_speech_problems(
                     candidate,
                     before_admissions=before_admissions,
@@ -450,7 +427,7 @@ class ScriptBatchEditor:
                     validate_artifacts=False,
                     validate_route=False,
                 )
-                validation_errors = _candidate_validation_errors(candidate, reference_validation.error_messages)
+                validation_errors = reference_validation.error_messages
                 if validation_errors:
                     message = validation_errors[0]
                     location = _validation_location(message)
@@ -889,25 +866,6 @@ def _admissions(script: dict[str, Any]) -> dict[str, SpeechAdmission]:
         for item in items
         if isinstance(item, dict) and isinstance(item.get(id_field), str)
     }
-
-
-def _candidate_validation_errors(
-    candidate: dict[str, Any],
-    errors: list[ValidationMessage],
-) -> list[ValidationMessage]:
-    """Drop archive-only nonempty rules after the Pydantic aggregate schema passed.
-
-    Empty scripts are valid editable drafts in every script model. DataValidator also
-    serves export/readiness checks and intentionally rejects those drafts; this command
-    uses it for project-reference validation, not generation-mode admission or to turn
-    remove-last into an impossible operation.
-    """
-
-    items, _id_field, _kind = resolve_items(candidate)
-    if items:
-        return errors
-    archive_nonempty = {"val_array_empty", "val_ad_shots_missing", "val_video_units_missing"}
-    return [message for message in errors if message.key not in archive_nonempty]
 
 
 def _new_speech_problems(

@@ -10,10 +10,15 @@ description: 广告/短片项目的工作流入口。当用户提到做视频、
 
 ## 工作流步骤
 
-先调用 `mcp__arcreel__get_workflow_plan({})` 取回权威计划。把 `steps[]`、`blockers` 与 `next_action`
-当作阶段判断的唯一真相源（`plan.status` 内嵌 `project` / `target` / `gates` / `artifacts` 快照）；
-Read 只补充创作输入与商品 soft gate 信息。每次动作完成后刷新计划。
-`next_action.type == "none"` 时：有 blockers 就展示并停止变更；`status.state == "COMPLETED"` 表示工作流已走完。
+先调用 `mcp__arcreel__get_workflow_plan({})` 取回权威计划。把 `steps[]`、`blockers`、`status.operations`
+与 `next_action` 当作阶段判断的唯一真相源（`plan.status` 内嵌 `project` / `target` / `content` / `issues` /
+`gates` / `artifacts` 快照）；Read 只补充创作输入与商品 soft gate 信息。每次动作完成后刷新计划。
+`blockers` 非空时展示并停止变更；`next_action.type == "none"` 且 `steps` 中 `edit` 为 `completed` 表示工作流
+已走完；其余 `none` 而没有 blockers 的情况，把 `status.issues` 讲给用户。
+
+用户说「继续」时按 `next_action` 推进，`next_alternatives` 非空时列出选项由用户选；用户点名一个操作时，
+`status.operations` 里它为 `admitted`（或未列出）就执行，为 `refused` 时把 `reason` 转述给用户
+（如 `ad_brief_and_products_missing`：创作灵感与商品都没填）。
 
 计划的字段含义、完整受控动作表、旁白交付、整批准入判定、四条状态轴与 stale / 历史纪律，见
 [.claude/references/workflow-plan.md](../../references/workflow-plan.md)。**本 skill 不重复一张按生成模式
@@ -22,8 +27,8 @@ Read 只补充创作输入与商品 soft gate 信息。每次动作完成后刷�
 按 `next_action.type` 直接进入对应步骤：
 
 - `next_action.type == "collect_project_input"` → 步骤 2
-- `next_action.type == "draft_selling_points"` → 步骤 3
 - `next_action.type == "generate_script"` → 步骤 5
+- `next_action.type == "start_blank_script"` / `"add_script_items"` → 引导用户在 Web 端手写或补条目（见 workflow-plan 参考）
 - `next_action.type == "generate_asset_sheets"` → 步骤 4
 - `next_action.type == "repair_video_units"` → 步骤 7 的视频单元修复
 - `next_action.type == "generate_storyboards"` → 步骤 7 的 storyboard 单图路径
@@ -35,7 +40,7 @@ Read 只补充创作输入与商品 soft gate 信息。每次动作完成后刷�
 
 1. **确认项目状态**：按计划确认 `content_mode=ad` 与项目级 `generation_mode`；Read `project.json` 补充 `title`、`target_duration`、`brief` 与 `products`。生成模式创建后不可更改。
 2. **创作输入**：带货项目未登记商品或缺原图时，引导用户在 WebUI 上传；原图是保真锚点。用 `mcp__arcreel__patch_project` 写商品描述、品牌与 `brief`。通用短片不索要商品。
-3. **起草卖点**：商品的 `selling_points` 为空时，根据 brief、描述与原图起草，与用户确认后用 `patch_project` 写回。
+3. **起草卖点**：卖点不挡脚本生成。`status.content.products_without_selling_points` 非空时可向用户提议起草；用户同意或主动要求时，根据 brief、描述与原图起草，与用户确认后用 `patch_project` 写回。
 4. **资产定义与资产图**：定义角色、场景、道具后，调用 `mcp__arcreel__generate_assets({"episode_id": <next_action.args.episode>})`：服务端生成本集引用、仍缺资产图的全部资产（含商品与衍生），与 Web 集层同一份名单。
 5. **一键生成剧本**：调用 `mcp__arcreel__generate_episode_script({"episode": 1})`。广告不走 script_plan；分镜图生视频直接产出 `shots[]`，参考生视频直接产出自包含 `video_units[]`。总时长偏离 `target_duration` 时提醒用户，不阻塞保存。
 6. **sheet 过目（软门禁）**：商品有 `product_sheet` 时，请用户在首次分镜或参考生视频生成前确认它与真品一致；只有原图时直接继续。

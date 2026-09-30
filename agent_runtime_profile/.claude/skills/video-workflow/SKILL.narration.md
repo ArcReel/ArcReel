@@ -35,7 +35,7 @@ description: 将小说转换为短视频的端到端工作流编排器。当用�
 
 1. session cwd 已经绑定到目标项目根
 2. 调用 `mcp__arcreel__get_workflow_plan({})` 取得服务端权威计划
-3. 按返回的 `next_action` 从上次未完成的动作继续
+3. 按返回的 `next_action` 继续（分岔处的备选在 `next_alternatives`）
 
 ---
 
@@ -47,16 +47,18 @@ description: 将小说转换为短视频的端到端工作流编排器。当用�
 
 计划的字段含义、完整受控动作表、旁白交付、整批准入判定、四条状态轴与 stale / 历史纪律，见
 [.claude/references/workflow-plan.md](../../references/workflow-plan.md)。**本 skill 不重复一张按创作类型
-或生成模式展开的步骤表**：哪些步骤适用、当前停在哪一步，一律读 `plan.steps[]` 与 `plan.next_action`，
-它们是阶段判断的唯一真相源。`plan.status` 内嵌完整状态快照（`project` / `target` / `state` /
-`blockers` / `gates` / `artifacts`），不需要再单独查一次状态。
+或生成模式展开的步骤表**：哪些步骤适用、建议的下一步、哪些操作此刻能执行，一律读 `plan.steps[]`、
+`plan.next_action` 与 `plan.status.operations`，它们是阶段判断的唯一真相源。`plan.status` 内嵌完整状态快照
+（`project` / `target` / `content` / `operations` / `blockers` / `issues` / `gates` / `artifacts`），不需要再单独查一次状态。
 
 调用后把 `plan.status.target.episode` 作为目标集，把 `next_action.args` 与 `requested_ids` 原样带入
 对应动作。Read / Glob 只用于执行已选定动作所需的内容，不用于另建状态机；不得根据空资产 bucket、
 文件名、旧文件存在性或对话记忆覆盖服务端结论。
 
-下文各节以 `next_action.type` 为标题。`none` 时：有 `blockers` 就展示并停止变更；
-`status.state == "COMPLETED"` 表示工作流已走完。
+下文各节以 `next_action.type` 为标题；没有单列小节的动作（如 `resolve_draft`、`start_blank_script`、
+`add_script_items`）按 workflow-plan 参考的受控动作表执行。`none` 时有 `blockers` 就展示并停止变更；
+`steps` 中 `edit` 为 `completed` 表示工作流已走完；其余情况把 `status.issues` 与 `status.content` 讲给用户。
+用户点名操作与说「继续」的区别见「灵活入口」。
 
 > 批量旁白配音不由 `next_action` 驱动，何时触发见「批量旁白配音」节。
 
@@ -322,11 +324,10 @@ revision 重试。改完后按上面的请求选择语义点名重做这些 ID�
 
 工作流**不强制从头开始**。根据计划结果，自动从正确的动作开始：
 
-- "分析小说角色" → 只执行 `analyze_assets`
-- "创建第2集剧本" → 从 `plan_episodes` 开始（如果角色已有）
-- "继续" → 计划给出第一个未完成动作
-- 指定具体动作（如"生成分镜图"）→ 该动作只是用户意图，仍先查计划：与 `next_action.type` 一致才执行；
-  不一致或有 blockers 时不入队，改为说明计划当前要求的动作与原因
+- "继续" → 执行计划的 `next_action`；`next_alternatives` 非空时是分岔，列出选项由用户选
+- 点名具体操作（如"分析小说角色""规划第2集脚本""生成分镜图"）→ 先查计划，`plan.status.operations`
+  里该操作为 `admitted`（或未列出）就执行，即使 `next_action` 指向别处；为 `refused` 时把 `reason`
+  转述给用户，说明缺什么、怎样补上。有 `blockers` 时一律不执行
 
 ---
 

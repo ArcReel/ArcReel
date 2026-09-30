@@ -9,10 +9,9 @@ from lib.script.script_skeleton import resolve_declared_kind
 
 @dataclass(frozen=True, slots=True)
 class WorkflowStepRule:
-    """One ordered workflow step and the status checkpoint that owns it."""
+    """One workflow step; the order is presentational only and never a precondition."""
 
     id: str
-    checkpoint: str | None
     applicable: bool
 
 
@@ -27,25 +26,24 @@ class WorkflowRule:
     steps: tuple[WorkflowStepRule, ...]
 
 
-_STEP_CHECKPOINTS: tuple[tuple[str, str | None], ...] = (
-    ("project_input", "PROJECT_INPUT"),
-    ("selling_points", "SELLING_POINTS"),
-    ("asset_inventory", "ASSET_INVENTORY"),
-    ("episode_plan", "EPISODE_PLAN"),
-    ("script_plan_content", "SCRIPT_PLAN_CONTENT"),
-    ("script_plan_review", "SCRIPT_PLAN_REVIEW"),
-    ("final_script", "FINAL_SCRIPT"),
-    ("asset_sheets", "ASSET_SHEETS"),
-    ("script_structure", None),
-    ("storyboard", "STORYBOARD"),
-    ("video", "VIDEO"),
-    ("edit", "EDIT"),
+_STEP_IDS: tuple[str, ...] = (
+    "project_input",
+    "selling_points",
+    "asset_inventory",
+    "episode_plan",
+    "script_plan_content",
+    "script_plan_review",
+    "final_script",
+    "asset_sheets",
+    "script_structure",
+    "storyboard",
+    "video",
+    "edit",
 )
 
 _EPISODIC_STEPS = frozenset(
     {
         "project_input",
-        "asset_inventory",
         "episode_plan",
         "script_plan_content",
         "script_plan_review",
@@ -92,10 +90,7 @@ def _build_rule(content_mode: str, generation_mode: str) -> WorkflowRule:
         generation_mode=generation_mode,
         skeleton_kind=resolve_declared_kind(content_mode, generation_mode),
         preprocessor=_PREPROCESSORS[(content_mode, generation_mode)],
-        steps=tuple(
-            WorkflowStepRule(id=step_id, checkpoint=checkpoint, applicable=step_id in applicable)
-            for step_id, checkpoint in _STEP_CHECKPOINTS
-        ),
+        steps=tuple(WorkflowStepRule(id=step_id, applicable=step_id in applicable) for step_id in _STEP_IDS),
     )
 
 

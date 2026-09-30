@@ -98,12 +98,7 @@ class WorkflowPlanner:
         structure_problems = self._structure_problems(facts)
         tasks = await self._active_tasks(project_name, status, facts, user_id=user_id, queue=queue)
         admission = None
-        if (
-            facts is not None
-            and not structure_problems
-            and status.state == "VIDEO"
-            and status.next_action.type == "generate_videos"
-        ):
+        if facts is not None and not structure_problems and status.next_action.type == "generate_videos":
             admission = await self._video_admission(
                 project_name,
                 status,

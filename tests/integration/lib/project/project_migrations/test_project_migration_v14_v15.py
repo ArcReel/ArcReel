@@ -120,7 +120,7 @@ def test_whole_chain_leaves_every_episode_ready_for_the_next_step(
     for episode in (1, 2, 3):
         status = service.get_status(project_dir.name, episode)
         assert status.artifacts["script"]["state"] == "current"
-        assert status.state not in {"SCRIPT_PLAN_CONTENT", "SCRIPT_PLAN_REVIEW"}
+        assert status.next_action.type.value not in {"prepare_script_plan", "confirm_script_plan"}
         assert review_status(project_dir, project, episode) == "confirmed"
     report = load_migration_report(project_dir)
     assert report is not None

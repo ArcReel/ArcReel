@@ -343,6 +343,12 @@ class ScriptGenerator:
         即抛 ``PromptAuthoringTargetError``。范围内的条目按补缺或显式重写选出（见
         ``select_prompt_authoring``）。不读脚本规划。
         """
+        resolver = active_artifact_currency_resolver(self.project_path, self.project_json)
+        if (
+            resolver.resolve_usable_entry(ArtifactKey.episode_script(episode), artifact_path=f"scripts/{filename}")
+            is None
+        ):
+            return None
         pm = ProjectManager.for_project_dir(self.project_path)
         try:
             script = pm.load_script_readonly(self.project_path.name, filename)
@@ -800,6 +806,10 @@ class ScriptGenerator:
             else self._parse_response(response_text, episode)
         )
         script_data = self._add_metadata(script_data, episode)
+        # 空的正式脚本对手写合法，但 AI 整份生成必须产出条目：「非空」只在这里验收。
+        items, _id_field, _kind = resolve_kind_items(script_data)
+        if isinstance(items, list) and not items:
+            raise ValueError(f"第 {episode} 集的 AI 生成脚本没有任何条目")
 
         # 经写盘统一入口保存：整集生成无「改前」，按严格结构校验（等价原 response_schema 的
         # Pydantic 校验），并继承 metadata 重算、加锁、filename↔episode 一致性与 project.json

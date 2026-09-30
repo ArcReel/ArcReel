@@ -9,8 +9,15 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from lib.generation.generation_result import GenerationAction, GenerationProblem, ProviderCheckpoint
 from lib.project.asset_types import ASSET_SPECS
+from lib.script.draft_quarantine import QUARANTINE_KIND_PROMPT_AUTHORING
 from lib.workflow.workflow_rules import WorkflowStepRule, workflow_rule
-from lib.workflow.workflow_state import WorkflowActionType, WorkflowBlocker, WorkflowNextAction, WorkflowStatus
+from lib.workflow.workflow_state import (
+    WorkflowActionType,
+    WorkflowBlocker,
+    WorkflowNextAction,
+    WorkflowStatus,
+    episode_complete,
+)
 
 PositiveStrictInt = Annotated[int, Field(strict=True, gt=0)]
 
@@ -93,12 +100,13 @@ class WorkflowPlan(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal[1] = 1
+    schema_version: Literal[2] = 2
     status: WorkflowStatus
     steps: list[WorkflowPlanStep]
     blockers: list[WorkflowBlocker]
     problems: list[GenerationProblem]
     next_action: WorkflowNextAction
+    next_alternatives: list[WorkflowNextAction] = Field(default_factory=list)
 
 
 _ARTIFACT_BY_STEP: dict[str, str] = {
@@ -126,33 +134,106 @@ _TASK_STEP: dict[str, str] = {
 }
 
 
-def _baseline_step_state(
-    rule: WorkflowStepRule,
-    *,
-    index: int,
-    current_index: int,
-    status: WorkflowStatus,
-) -> WorkflowStepState:
+#: 建议下一步归属的步骤：步骤顺序只用于呈现，下一步挂在它所属内容的那一步上。
+_ACTION_STEP: dict[WorkflowActionType, str] = {
+    WorkflowActionType.COLLECT_PROJECT_INPUT: "project_input",
+    WorkflowActionType.RETRY_PROJECT_MIGRATION: "project_input",
+    WorkflowActionType.DRAFT_SELLING_POINTS: "selling_points",
+    WorkflowActionType.ANALYZE_ASSETS: "asset_inventory",
+    WorkflowActionType.CREATE_EPISODE: "episode_plan",
+    WorkflowActionType.PLAN_EPISODES: "episode_plan",
+    WorkflowActionType.RESET_EPISODE_PLANNING: "episode_plan",
+    WorkflowActionType.PREPARE_SCRIPT_PLAN: "script_plan_content",
+    WorkflowActionType.START_BLANK_SCRIPT: "script_plan_content",
+    WorkflowActionType.PROVIDE_EPISODE_SOURCE: "script_plan_content",
+    WorkflowActionType.CONFIRM_SCRIPT_PLAN: "script_plan_review",
+    WorkflowActionType.GENERATE_SCRIPT: "final_script",
+    WorkflowActionType.ADD_SCRIPT_ITEMS: "final_script",
+    WorkflowActionType.AUTHOR_PROMPTS: "final_script",
+    WorkflowActionType.GENERATE_ASSET_SHEETS: "asset_sheets",
+    WorkflowActionType.REPAIR_VIDEO_UNITS: "script_structure",
+    WorkflowActionType.GENERATE_STORYBOARDS: "storyboard",
+    WorkflowActionType.GENERATE_GRID: "storyboard",
+    WorkflowActionType.GENERATE_VIDEOS: "video",
+    WorkflowActionType.CREATE_EDIT_TIMELINE: "edit",
+}
+
+
+def _owner_step(status: WorkflowStatus) -> str:
+    """建议下一步所属的步骤 id；没有动作时按陈述了问题的那类内容归属。"""
+    action = status.next_action
+    if action.type is WorkflowActionType.RESOLVE_DRAFT:
+        return (
+            "final_script"
+            if action.args.get("draft_kind") == QUARANTINE_KIND_PROMPT_AUTHORING
+            else "script_plan_review"
+        )
+    if action.type is not WorkflowActionType.NONE:
+        return _ACTION_STEP.get(action.type, "project_input")
+    if episode_complete(status):
+        return "edit"
+    if status.blockers or status.target is None or status.content is None:
+        return "project_input"
+    if status.content.episode_plan_stale or status.artifacts.get("script_plan", {}).get("state") == "blocked":
+        return "script_plan_content"
+    if status.artifacts.get("script", {}).get("state") == "blocked":
+        return "final_script"
+    if status.artifacts.get("storyboards", {}).get("state") == "blocked":
+        return "storyboard"
+    if any(issue.code == "invalid_edit_timelines" for issue in status.issues):
+        return "edit"
+    return "video"
+
+
+def _step_done(step_id: str, status: WorkflowStatus) -> bool:
+    """该步的内容自身是否已齐：只看这一类内容，不看前面的步骤。"""
+    content = status.content
+    if content is None:
+        return False
+    artifacts = status.artifacts
+    formal = content.formal_script == "present"
+    has_items = formal and bool(content.script_item_count)
+    if step_id == "project_input":
+        if status.project.content_mode == "ad":
+            return content.ad_inputs == "present"
+        return content.whole_source == "present" or content.episode_count > 0
+    if step_id == "selling_points":
+        return not content.products_without_selling_points
+    if step_id == "asset_inventory":
+        return artifacts.get("asset_inventory", {}).get("state") == "current"
+    if step_id == "episode_plan":
+        return content.episode_count > 0 and not content.source_remaining
+    if step_id == "script_plan_content":
+        return formal or artifacts.get("script_plan", {}).get("state") in {"current", "stale"}
+    if step_id == "script_plan_review":
+        return formal or status.gates.get("script_plan_review", {}).get("state") == "confirmed"
+    if step_id == "final_script":
+        return has_items and not content.pending_authoring_ids
+    if step_id == "asset_sheets":
+        return has_items and not content.referenced_assets_without_sheet
+    if step_id == "script_structure":
+        return has_items and not content.needs_replan_ids
+    if step_id == "storyboard":
+        return has_items and not artifacts.get("storyboards", {}).get("missing_ids")
+    if step_id == "video":
+        return has_items and not artifacts.get("videos", {}).get("missing_ids")
+    if step_id == "edit":
+        return has_items and bool(artifacts.get("edit_timelines", {}).get("timeline_ids"))
+    return False
+
+
+def _baseline_step_state(rule: WorkflowStepRule, *, owner: str, status: WorkflowStatus) -> WorkflowStepState:
     if not rule.applicable:
         return WorkflowStepState.SKIPPED
-    if index < current_index:
+    if rule.id == owner:
+        if episode_complete(status):
+            return WorkflowStepState.COMPLETED
+        if status.blockers or status.next_action.type is WorkflowActionType.NONE:
+            return WorkflowStepState.BLOCKED
+        return WorkflowStepState.READY
+    if _step_done(rule.id, status):
         return WorkflowStepState.COMPLETED
-    if index > current_index:
-        return WorkflowStepState.PENDING
-    if status.blockers or status.next_action.type is WorkflowActionType.NONE:
-        return WorkflowStepState.BLOCKED
-    return WorkflowStepState.READY
-
-
-def _current_rule_index(status: WorkflowStatus, rules: tuple[WorkflowStepRule, ...]) -> int:
-    if status.state == "COMPLETED":
-        return len(rules)
-    if status.next_action.type is WorkflowActionType.REPAIR_VIDEO_UNITS:
-        return next(index for index, rule in enumerate(rules) if rule.id == "script_structure")
-    for index, rule in enumerate(rules):
-        if rule.applicable and rule.checkpoint == status.state:
-            return index
-    raise ValueError(f"workflow state {status.state!r} is absent from its mode rule")
+    return WorkflowStepState.PENDING
 
 
 def _admission_problems(admission: dict[str, Any] | None) -> list[GenerationProblem]:
@@ -223,22 +304,39 @@ def build_workflow_plan(
 ) -> WorkflowPlan:
     """Project one immutable status snapshot and transient request observations."""
 
-    rule = workflow_rule(status.project.content_mode, status.project.generation_mode)
-    rules = rule.steps
-    current_index = _current_rule_index(status, rules)
+    try:
+        rules = workflow_rule(status.project.content_mode, status.project.generation_mode).steps
+    except ValueError:
+        if not status.blockers:
+            raise
+        return WorkflowPlan(
+            status=status,
+            steps=[
+                WorkflowPlanStep(
+                    id="project_input", state=WorkflowStepState.BLOCKED, required=True, action=status.next_action
+                )
+            ],
+            blockers=list(status.blockers),
+            problems=list(structure_problems or []),
+            next_action=status.next_action,
+        )
+    owner = _owner_step(status)
+    complete = episode_complete(status)
     structure_problems = list(structure_problems or [])
     task_observations = list(task_observations or [])
     admission_problems = _admission_problems(admission)
     steps: list[WorkflowPlanStep] = []
 
-    for index, step_rule in enumerate(rules):
+    for step_rule in rules:
         artifact_key = _ARTIFACT_BY_STEP.get(step_rule.id)
+        # 走完的工作流没有下一步可挂：完成的「剪辑」一步不带动作。
+        owns = step_rule.id == owner and not complete
         step = WorkflowPlanStep(
             id=step_rule.id,
-            state=_baseline_step_state(step_rule, index=index, current_index=current_index, status=status),
+            state=_baseline_step_state(step_rule, owner=owner, status=status),
             required=step_rule.applicable,
-            action=status.next_action if step_rule.checkpoint == status.state else None,
-            requested_ids=(list(status.next_action.requested_ids) if step_rule.checkpoint == status.state else []),
+            action=status.next_action if owns else None,
+            requested_ids=list(status.next_action.requested_ids) if owns else [],
             artifacts=dict(status.artifacts.get(artifact_key, {})) if artifact_key is not None else {},
             contracts=(
                 WorkflowStepContracts(script_edit="script_batch_edit/v1")
@@ -315,6 +413,7 @@ def build_workflow_plan(
         blockers=list(status.blockers),
         problems=[*structure_problems, *admission_problems],
         next_action=next_action,
+        next_alternatives=list(status.next_alternatives) if next_action is status.next_action else [],
     )
 
 

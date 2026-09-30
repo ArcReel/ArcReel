@@ -1,7 +1,7 @@
 # 工作流计划契约
 
-`mcp__arcreel__get_workflow_plan` 是编排的**唯一权威入口**。它返回一份只读计划：有序步骤、
-阻断原因、活动任务、视频整批准入判定，以及唯一的下一动作。
+`mcp__arcreel__get_workflow_plan` 是编排的**唯一权威入口**。它返回一份只读计划：内容现状、
+各 AI 操作此刻能否执行（准入）、有序步骤、活动任务、视频整批准入判定，以及建议的下一步。
 
 **不要在 profile 里另建一张按创作类型或生成模式展开的步骤表。** 六种模式组合（narration /
 drama / ad × storyboard / reference_video）之间哪些步骤适用、顺序如何、当前停在哪一步，全部由
@@ -23,6 +23,21 @@ mcp__arcreel__get_workflow_plan({
 `Read` / `Glob` 只用于取执行已选定动作所需的内容，不用于另建一套状态机。不得根据空资产 bucket、
 文件名、旧文件存在性或对话记忆覆盖服务端结论。
 
+## 点名与继续
+
+准入属于 AI 操作，不属于流水线位置：一个操作能否执行只看它自己的输入是否成立，与建议的下一步
+是不是它无关。据此分两种请求：
+
+- **用户点名一个操作**（如「生成第 2 集的脚本规划」「编写提示词」）：查计划后看
+  `plan.status.operations[操作]`。`state == "admitted"` 就执行，即使 `next_action` 指向别处；
+  `refused` 时把 `reason` 转述给用户（缺什么、怎样补上），不执行；`not_applicable` 时说明本项目
+  没有这个操作。`operations` 只陈述列出的操作；生成类操作的准入维持各入口自身判定
+  （ADR 0073），被拒时转述入口返回的理由。
+  工具入口用同一份判定：被拒时返回 `operation_not_admitted`，`params.reason` 与计划里的理由码相同。
+- **用户说「继续 / 下一步」**：执行 `next_action`。`next_alternatives` 非空表示此处是**分岔**
+  （如没有集原文时「手写脚本」与「补集原文后 AI 规划」并列）：把 `next_action` 与各备选讲给用户，
+  由用户选定再执行，不替用户挑。
+
 ## 读计划
 
 | 字段 | 含义 |
@@ -33,11 +48,17 @@ mcp__arcreel__get_workflow_plan({
 | `steps[].tasks[]` | 该步骤的活动任务观察，每条含 `task_id`、`status`、`provider_checkpoint`、`problem` |
 | `steps[].admission` | 视频步骤的整批准入判定（见下） |
 | `steps[].problems[]` | 逐条问题，带 `code` 与闭集 `action` |
-| `blockers[]` | 阻断项，含 `code` / `path` / `reason` |
-| `next_action` | **唯一**下一动作。按它路由，不要自己从 `steps[]` 里挑一个更靠前的动作抢跑 |
+| `blockers[]` | 项目整体不可用（数据升级失败、project.json 或产物清单读不出、创作类型或生成模式非法），含 `code` / `path` / `reason` |
+| `status.issues[]` | 内容本身的数据问题（剧本读不出、字段非法、资产定义损坏等），同样含 `code` / `path` / `reason`；只阻止依赖该内容的操作 |
+| `status.content` | 内容现状：集数、整本源文与集原文在不在、目标集的草稿、正式脚本（`present` / `absent` / `invalid`）与条目数、待编写条目、需重新规划的视频单元、被引用却没有资产图的资产；`episode_plan_stale` 为真表示该集集规划 stale、脚本规划待重建 |
+| `status.operations` | 列出的 AI 操作的结构准入，键是动作名，值为 `state`（`admitted` / `refused` / `not_applicable`）与稳定理由码 `reason`（见「点名与继续」） |
+| `next_action` | 建议的下一步。用户说「继续」时按它路由，不要自己从 `steps[]` 里挑一个更靠前的动作抢跑 |
+| `next_alternatives[]` | 分岔处与 `next_action` 并列的备选；非空时由用户选 |
 
-`blockers` 非空时：向用户展示 blockers，**停止一切变更**。`next_action.type == "none"` 且
-`status.state == "COMPLETED"` 表示工作流已走完：查询范围内的每一集都至少有一条剪辑时间线。
+`blockers` 非空时：向用户展示 blockers，**停止一切变更**。`next_action.type == "none"` 且 `steps` 中
+`edit` 为 `completed` 表示工作流已走完：查询范围内的每一集都至少有一条剪辑时间线。其余
+`next_action.type == "none"` 而 `blockers` 为空的情况，把 `status.issues` 与 `status.content` 讲给用户
+（如该集脚本读不出、集规划 stale 待重建、剪辑时间线读不出），用户点名的、准入成立的操作照常可以执行。
 
 ## 数据升级失败：修复 → 重试
 
@@ -76,14 +97,19 @@ ID 参数时，前者传入，后者必须**省略该参数**，不得把 `[]` �
 
 | `next_action.type` | 执行入口 |
 |---|---|
-| `collect_project_input` | 引导用户在 Web 端补齐项目输入 |
-| `draft_selling_points` | 起草卖点后经 `mcp__arcreel__patch_project` 写回（ad） |
-| `analyze_assets` | dispatch `analyze-assets` 子智能体 |
+| `collect_project_input` | 引导用户在 Web 端补齐项目输入（上传整本源文；ad 填创作灵感或登记商品） |
+| `create_episode` | 引导用户在 Web 端新建一集 |
+| `draft_selling_points` | 用户要求时起草卖点，经 `mcp__arcreel__patch_project` 写回（ad） |
+| `analyze_assets` | 用户要求时 dispatch `analyze-assets` 子智能体 |
 | `reset_episode_planning` | `mcp__arcreel__reset_episode_planning`，按 `next_action.args` 传参 |
 | `plan_episodes` | `mcp__arcreel__plan_episodes` |
+| `resolve_draft` | 目标集上有草稿（`args.draft_kind`）：`args.needs_repair` 为真时是写入失败留下的待修复草稿，向用户说明并按其对应操作重跑；为假时是 Agent 的可编辑草稿，按对应 skill 接着完成 |
 | `prepare_script_plan` | dispatch `next_action.args.preprocessor` 指名的子智能体 |
+| `start_blank_script` | 引导用户在 Web 端手写这一集的正式脚本 |
+| `provide_episode_source` | 引导用户为这一集补上集原文（`source/episode_N.txt`），之后即可 AI 规划脚本 |
 | `confirm_script_plan` | `mcp__arcreel__confirm_script_review` |
 | `generate_script` | dispatch `create-episode-script` 子智能体（ad 直接调 `mcp__arcreel__generate_episode_script`） |
+| `add_script_items` | 正式脚本为空：引导用户在 Web 端添加条目，或经 `mcp__arcreel__patch_episode_script` 插入 |
 | `author_prompts` | 正式剧本里有待编写条目，`requested_ids` 列出这些条目：调 `mcp__arcreel__generate_episode_script`，不传 `entry_ids`，即编写全部待编写条目（见 generate-script skill） |
 | `generate_asset_sheets` | dispatch `generate-assets` 子智能体，调用 `mcp__arcreel__generate_assets({"episode_id": <args.episode>})` 一次生成本集引用、仍缺资产图的资产。因缺少 description 记为 `blocked` 的资产（`fix_input`）：依据原文写好描述，经 `mcp__arcreel__patch_project` 补上后重跑同一调用；原文没有依据时向用户确认描述，或请用户在 Web 端上传资产图。衍生报 `generation_dependency_failed` / `derivative_owner_sheet_missing` 时先解决本体资产图 |
 | `generate_storyboards` | dispatch `generate-assets` 子智能体，调用 `mcp__arcreel__generate_storyboards` 并传 `segment_ids` |
@@ -95,7 +121,7 @@ ID 参数时，前者传入，后者必须**省略该参数**，不得把 `[]` �
 | `wait_for_task` | 计划注入：有活动任务，不入队新任务；等待并复查计划 |
 | `create_edit_timeline` | 本集视频已齐、还没有剪辑时间线：`mcp__arcreel__create_timeline`（`episode` 取 `next_action.args.episode`，`from: "script"`）按脚本机械新建一条，至少有一条剪辑时间线，「剪辑」一步即完成；之后按 `edit-video` skill 剪辑 |
 | `retry_project_migration` | 项目数据升级未完成：按明细修复后 `mcp__arcreel__retry_project_migration`（见「数据升级失败」） |
-| `none` | `blockers` 非空时展示并停止变更；`status.state == "COMPLETED"` 时工作流已走完 |
+| `none` | `blockers` 非空时展示并停止变更；`steps` 中 `edit` 为 `completed` 时工作流已走完；其余情况讲 `status.issues` 与 `status.content` |
 
 `next_action.args.preprocessor` 是权威的脚本规划子智能体名，**不要自己按创作类型×
 `generation_mode` 反推**：服务端在同一张规则表上得出它，profile 侧再推一遍只会造出第二个真相源。

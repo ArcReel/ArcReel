@@ -1612,13 +1612,12 @@ def test_schema8_workflow_keeps_a_stale_typed_video_usable(tmp_path: Path) -> No
     workflow = WorkflowStateService(ProjectManager(tmp_path))
 
     ready = workflow.get_status("ad")
-    assert ready.state == "EDIT"
+    assert ready.next_action.type == "create_edit_timeline"
     assert ready.artifacts["videos"]["current_ids"] == ["E1U1"]
 
     script["video_units"][0]["text"] = "产品换成蓝色后掠过画面"
     _write_json(project_dir / "scripts" / "episode_1.json", script)
     stale = workflow.get_status("ad")
-    assert stale.state == "EDIT"
     assert stale.artifacts["videos"]["stale_ids"] == ["E1U1"]
     assert stale.next_action.type == "create_edit_timeline"
 

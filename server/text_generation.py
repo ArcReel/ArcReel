@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import functools
 import json
 import logging
 import re
@@ -30,7 +29,6 @@ from lib.config.resolver import ConfigResolver
 from lib.episode.episode_paths import (
     SCRIPT_PLAN_FILENAMES,
     episode_drafts_dir,
-    episode_script_filename,
     episode_source_relpath,
 )
 from lib.generation.video_request_facts import (
@@ -60,7 +58,6 @@ from lib.script.draft_quarantine import (
     QUARANTINE_KIND_SCRIPT_PLAN,
     clear_quarantine,
     quarantine_and_report,
-    quarantine_exists,
     quarantine_path,
     read_quarantine,
 )
@@ -93,6 +90,14 @@ from lib.script.script_models import (
 from lib.script.storyboard_mentions import render_storyboard_mention_warnings, storyboard_mention_warnings
 from lib.speech.speech_composition import admit_script_unit
 from lib.speech.speech_rate import project_speech_rate_override
+from lib.workflow.operation_admission import (
+    AdmissionReason,
+    OperationAdmission,
+    admit_author_prompts,
+    admit_script_plan,
+    episode_source_present,
+)
+from lib.workflow.workflow_state import WorkflowStateService
 from server.services.tasks.video_caps import reference_request_facts_lookup, storyboard_request_facts
 
 logger = logging.getLogger(__name__)
@@ -442,35 +447,46 @@ def _load_script_plan_source_with_basis(
     return novel_text, prompt_inputs, basis
 
 
-def _uses_reference_video_units(project_data: dict[str, Any]) -> bool:
-    """项目是否产出视频单元——草稿只在这条路径上有意义。
-
-    ad 的 unit 是广告分镜的派生索引、无 script_plan 拆分，即使走参考生视频也不在此列。
-    """
-    if project_data.get("content_mode", "narration") == "ad":
-        return False
-    return is_reference_video_project(project_data)
+def uses_reference_video_units(project_data: dict[str, Any]) -> bool:
+    """脚本规划草稿仅适用于非广告的参考生视频项目。"""
+    return project_data.get("content_mode", "narration") != "ad" and is_reference_video_project(project_data)
 
 
-def _read_project_data(project_path: Path) -> dict[str, Any]:
-    try:
-        return json.loads((project_path / "project.json").read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return {}
+class OperationNotAdmittedError(TextGenerationError):
+    """AI 操作的结构准入不成立；``reason`` 与制作状态 ``operations`` 里同一操作的理由码一致。"""
+
+    def __init__(self, operation: str, admission: OperationAdmission, message: str) -> None:
+        super().__init__(message)
+        self.operation = operation
+        self.reason = admission.reason
 
 
-def _refuse_pending_drafts(project_path: Path, episode: int, kinds: Sequence[str]) -> None:
-    for kind in kinds:
-        if quarantine_exists(project_path, episode, kind):
-            path = quarantine_path(project_path, episode, kind)
-            draft = read_quarantine(project_path, episode, kind)
-            if draft is None:
-                action = f"请修复草稿信封，再调用 {PROMOTE_TOOL_NAME} 校验晋升。"
-            elif draft.violations:
-                action = f"请按草稿内 violations 的定位修改 content，再调用 {PROMOTE_TOOL_NAME} 晋升。"
-            else:
-                action = f"这是可编辑草稿；请保留已有修改，再调用 {PROMOTE_TOOL_NAME} 校验晋升。"
-            raise TextGenerationError(f"⏸️ 本集有草稿待处置（{path}），prompt_authoring 视觉生成已中止。{action}")
+def _refusal_text(reason: AdmissionReason | None, episode: int | None, detail: str = "") -> str:
+    where = translate("operation_episode", episode=episode) if episode is not None else translate("operation_project")
+    code = reason.value if reason is not None else "refused"
+    text = f"⏸️ {translate(f'operation_{code}', where=where)}（{code}）。"
+    return f"{text}{detail}" if detail else text
+
+
+def require_admitted(
+    operation: str, admission: OperationAdmission, *, episode: int | None = None, detail: str = ""
+) -> None:
+    """准入不成立时拒绝：理由码与制作状态同源，文案只作转述；``detail`` 补充入口自己知道的处置方式。"""
+    if not admission.admitted:
+        raise OperationNotAdmittedError(operation, admission, _refusal_text(admission.reason, episode, detail))
+
+
+def _prompt_authoring_draft_action(project_path: Path, episode: int) -> str:
+    """提示词编写草稿在场时的处置方式：按草稿是否可读、是否带违约定位分别给出。"""
+    path = quarantine_path(project_path, episode, QUARANTINE_KIND_PROMPT_AUTHORING)
+    draft = read_quarantine(project_path, episode, QUARANTINE_KIND_PROMPT_AUTHORING)
+    if draft is None:
+        action = translate("operation_draft_repair_envelope", tool=PROMOTE_TOOL_NAME)
+    elif draft.violations:
+        action = translate("operation_draft_repair_violations", tool=PROMOTE_TOOL_NAME)
+    else:
+        action = translate("operation_draft_finish", tool=PROMOTE_TOOL_NAME)
+    return translate("operation_draft_action", path=path, action=action)
 
 
 def prompt_authoring_preflight(
@@ -481,33 +497,58 @@ def prompt_authoring_preflight(
     rewrite: bool = False,
     overwrite_revision: str | None = None,
 ) -> None:
-    """提示词编写的预检：编写自身的待修复草稿与正式剧本是否在场，范围是否有效，覆盖是否已认可。
-
-    编写的输入只有正式剧本，不读脚本规划：脚本规划缺失、有草稿待处置或重跑后尚未确认，都不阻塞
-    编写。ad 尚无正式剧本时走整份生成，不要求剧本在场。补缺从不覆盖已有内容；显式重写会替换已有视觉层
-    内容而未认可时抛 ``PromptOverwriteRequiredError``，与执行时同一套判定。
-    """
-    project_data = _read_project_data(project_path)
-    if _uses_reference_video_units(project_data):
-        _refuse_pending_drafts(project_path, episode, (QUARANTINE_KIND_PROMPT_AUTHORING,))
-    if (
-        project_data.get("content_mode", "narration") != "ad"
-        and not (project_path / "scripts" / episode_script_filename(episode)).exists()
-    ):
-        raise TextGenerationError(
-            f"❌ 第 {episode} 集尚无正式脚本，无法编写提示词。"
-            "请先完成本集脚本规划，并在 Web 端完成内容确认（确认即生成正式脚本）。"
-        )
-    if not rewrite:
+    """复用制作状态的正式脚本、待编写条目与草稿事实，再调用同一份准入谓词。"""
+    projects = ProjectManager.for_project_dir(project_path)
+    status = WorkflowStateService(projects).get_status(project_path.name, episode)
+    if status.blockers:
+        raise TextGenerationError("; ".join(blocker.reason for blocker in status.blockers))
+    content = status.content
+    content_mode = status.project.content_mode
+    formal_present = (
+        status.target is not None
+        and status.target.episode == episode
+        and content is not None
+        and content.formal_script == "present"
+    )
+    if content_mode == "ad" and not formal_present:
+        operation = status.operations.get("generate_script")
+        if operation is None:
+            raise TextGenerationError(translate("operation_admission_unavailable", episode=episode))
+        require_admitted("generate_script", OperationAdmission(**operation.model_dump()), episode=episode)
         return
-    try:
-        ScriptGenerator(project_path).prompt_overwrite(
-            episode, entry_ids=entry_ids, rewrite=rewrite, overwrite_revision=overwrite_revision
-        )
-    except PromptAuthoringTargetError as exc:
-        raise TextGenerationError(f"❌ 编写范围无效: {exc}") from exc
-    except PromptOverwriteRequired as exc:
-        raise _prompt_overwrite_error(episode, exc) from exc
+    admission = admit_author_prompts(
+        formal_script=formal_present,
+        pending_ids=content.pending_authoring_ids if content is not None else [],
+        draft_pending=content is not None
+        and any(draft.kind == QUARANTINE_KIND_PROMPT_AUTHORING for draft in content.drafts),
+        explicit_ids=entry_ids,
+    )
+    detail = ""
+    if admission.reason is AdmissionReason.PROMPT_AUTHORING_DRAFT_PENDING:
+        detail = _prompt_authoring_draft_action(project_path, episode)
+    elif admission.reason is AdmissionReason.NO_PENDING_AUTHORING:
+        detail = translate("operation_redo_ad" if content_mode == "ad" else "operation_redo_episode")
+    require_admitted("author_prompts", admission, episode=episode, detail=detail)
+    if rewrite:
+        try:
+            ScriptGenerator(project_path).prompt_overwrite(
+                episode, entry_ids=entry_ids, rewrite=rewrite, overwrite_revision=overwrite_revision
+            )
+        except PromptAuthoringTargetError as exc:
+            raise TextGenerationError(f"❌ 编写范围无效: {exc}") from exc
+        except PromptOverwriteRequired as exc:
+            raise _prompt_overwrite_error(episode, exc) from exc
+
+
+def script_plan_preflight(project_path: Path, episode: int, source: str | None, content_mode: object) -> None:
+    """AI 规划脚本的准入：本集有集原文。显式指定源文件时以该文件为输入，由生成时校验。"""
+    has_source = source is not None or episode_source_present(project_path, episode)
+    require_admitted(
+        "prepare_script_plan",
+        admit_script_plan(content_mode, episode_source=has_source),
+        episode=episode,
+        detail=translate("operation_episode_source_location", path=episode_source_relpath(episode)),
+    )
 
 
 async def generate_episode_script(
@@ -521,14 +562,12 @@ async def generate_episode_script(
     instructions = _instructions(request.instructions)
     project_path = projects.get_project_path(project_name)
     await asyncio.to_thread(
-        functools.partial(
-            prompt_authoring_preflight,
-            project_path,
-            episode,
-            entry_ids=request.entry_ids,
-            rewrite=request.rewrite,
-            overwrite_revision=request.overwrite_revision,
-        )
+        prompt_authoring_preflight,
+        project_path,
+        episode,
+        entry_ids=request.entry_ids,
+        rewrite=request.rewrite,
+        overwrite_revision=request.overwrite_revision,
     )
 
     try:

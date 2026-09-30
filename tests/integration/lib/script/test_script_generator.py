@@ -1793,6 +1793,7 @@ class TestLoadReferenceScriptPlan:
 
 def _write_ad_project(project_path: Path, *, generation_mode: str = "storyboard", products: dict | None = None):
     payload = {
+        "schema_version": CURRENT_SCHEMA_VERSION,
         "title": "速干杯",
         "content_mode": "ad",
         "generation_mode": generation_mode,

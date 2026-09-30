@@ -22,7 +22,6 @@ MESSAGES = {
     "val_ledger_source_file_escapes": "source_file must not be absolute or contain ..",
     "val_ledger_start_after_end": "start must not be greater than end",
     "val_field_bad_timestamp": "{field} is not a valid ISO8601 timestamp: {value}",
-    "val_array_empty": "{field} array is empty",
     "val_item_must_be_object": "{prefix}: must be an object",
     "val_item_format_object": "{prefix}: malformed data, expected an object",
     # ---- path references ----
@@ -64,7 +63,7 @@ MESSAGES = {
     ),
     "val_ad_no_grid_storyboard": "Ad/short-film projects do not support multi-grid storyboards (grid_storyboard)",
     "val_ad_episodes_single": "Ad/short-film projects must always have exactly one episode entry (episode 1)",
-    "val_ad_shots_missing": "The ad script is missing the shots array, or it is empty",
+    "val_ad_shots_missing": "The ad script is missing the shots array",
     "val_ad_duration_drift": (
         "Script total duration {total}s deviates from target_duration {target}s by {delta:.0%}, "
         "beyond the {threshold:.0%} observation threshold (informational only, saving is not blocked)"
@@ -112,7 +111,7 @@ MESSAGES = {
     "val_unit_id_missing": "{prefix}: unit_id is missing",
     "val_unit_id_missing_required": "{prefix}: missing required field unit_id",
     "val_unit_id_duplicate": "{prefix}: duplicate unit_id '{value}'",
-    "val_video_units_missing": "The reference_video script is missing the video_units array, or it is empty",
+    "val_video_units_missing": "The reference_video script is missing the video_units array",
     "val_unit_duration_range": "{prefix}: duration_seconds must be an integer between {low} and {high}",
     # ---- skeleton / route mismatch ----
     "val_skeleton_noun_segments": "segments",

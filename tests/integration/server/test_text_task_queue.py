@@ -51,6 +51,17 @@ from server.tool_runtime import (
 from tests.fakes import refuse_resume_execution
 
 
+def _admit_text_operations(projects: ProjectManager, project_name: str) -> None:
+    """放上文本长调用的准入输入：整本源文与第 1 集集原文；广告/短片填创作灵感。"""
+    if projects.load_project(project_name).get("content_mode") == "ad":
+        projects.update_project(project_name, lambda project: project.update(brief="夏季新品"))
+        return
+    source = projects.get_project_path(project_name) / "source"
+    source.mkdir(parents=True, exist_ok=True)
+    (source / "novel.txt").write_text("第一章\n张三走向村口。", encoding="utf-8")
+    (source / "episode_1.txt").write_text("张三走向村口。", encoding="utf-8")
+
+
 async def _start_text_worker(
     queue: GenerationQueue,
     executor: Callable[..., Awaitable[dict[str, Any]]],
@@ -100,6 +111,7 @@ async def test_all_text_long_calls_submit_single_member_batches(
     projects.create_project(project_name, content_mode=content_mode)
     projects.create_project_metadata(project_name, project_name, "", content_mode)
     projects.update_project(project_name, lambda project: project.update(generation_mode=generation_mode))
+    _admit_text_operations(projects, project_name)
     queue = GenerationQueue(session_factory=file_db_factory, project_manager=projects)
     assert await queue.acquire_or_renew_worker_lease(name="default", owner_id="test-worker", ttl_seconds=60)
     services = Services(
@@ -138,6 +150,7 @@ async def test_web_prompt_authoring_returns_the_batch_without_waiting(tmp_path: 
     projects = ProjectManager(tmp_path / "projects")
     projects.create_project("demo", content_mode="ad")
     projects.create_project_metadata("demo", "demo", "", "ad")
+    projects.update_project("demo", lambda project: project.update(brief="夏季新品"))
     queue = GenerationQueue(session_factory=file_db_factory, project_manager=projects)
     assert await queue.acquire_or_renew_worker_lease(name="default", owner_id="test-worker", ttl_seconds=60)
     services = Services(
@@ -174,6 +187,7 @@ async def test_text_mcp_rejects_lost_worker_lease_without_persisting_queue_state
     projects = ProjectManager(tmp_path / "projects")
     projects.create_project("drama", content_mode="drama")
     projects.create_project_metadata("drama", "Drama", "", "drama")
+    _admit_text_operations(projects, "drama")
     queue = GenerationQueue(session_factory=file_db_factory, project_manager=projects)
     assert await queue.acquire_or_renew_worker_lease(name="default", owner_id="lost-worker", ttl_seconds=60)
     await queue.release_worker_lease(name="default", owner_id="lost-worker")
@@ -206,6 +220,7 @@ async def test_text_mcp_migration_rejection_cleans_only_the_fresh_batch(
     projects = ProjectManager(tmp_path / "projects")
     projects.create_project("drama", content_mode="drama")
     projects.create_project_metadata("drama", "Drama", "", "drama")
+    _admit_text_operations(projects, "drama")
     queue = GenerationQueue(session_factory=file_db_factory, project_manager=projects)
     assert await queue.acquire_or_renew_worker_lease(name="default", owner_id="test-worker", ttl_seconds=60)
     services = Services(
@@ -263,6 +278,7 @@ async def test_text_submission_cancellation_only_cleans_a_fresh_batch(
     projects = ProjectManager(tmp_path / "projects")
     projects.create_project("drama", content_mode="drama")
     projects.create_project_metadata("drama", "Drama", "", "drama")
+    _admit_text_operations(projects, "drama")
     queue = CancellationQueue(session_factory=concurrent_session_factory, project_manager=projects)
     assert await queue.acquire_or_renew_worker_lease(name="default", owner_id="test-worker", ttl_seconds=60)
     historical_batch_id = await queue.create_generation_batch(
@@ -395,6 +411,7 @@ async def test_cancel_during_started_episode_script_commit_leaves_member_running
     monkeypatch.setenv("ARCREEL_DATA_DIR", str(projects.data_root))
     project_path = projects.create_project("script", content_mode="ad")
     projects.create_project_metadata("script", "Script", "", "ad")
+    _admit_text_operations(projects, "script")
     projects.update_project(
         "script",
         lambda project: project.update(

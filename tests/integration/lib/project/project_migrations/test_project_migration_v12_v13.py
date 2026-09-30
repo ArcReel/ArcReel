@@ -115,7 +115,7 @@ def test_status_passes_the_script_plan_gate_for_a_registered_planless_script(tmp
 
     status = WorkflowStateService(ProjectManager(tmp_path)).get_status(project_dir.name, 1)
 
-    assert status.state not in {"SCRIPT_PLAN_CONTENT", "SCRIPT_PLAN_REVIEW", "FINAL_SCRIPT"}
+    assert status.next_action.type not in {"prepare_script_plan", "confirm_script_plan", "generate_script"}
     assert status.artifacts["script"]["state"] == ArtifactStatus.CURRENT.value
     assert status.artifacts["videos"]["current_ids"] == ["E1S1", "E1S2"]
 

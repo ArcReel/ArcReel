@@ -19,6 +19,8 @@ import pytest
 from mcp import types
 from mcp.server import Server
 
+from lib.artifacts.artifact_activation import register_current_artifact
+from lib.artifacts.artifact_manifest import ArtifactKey
 from lib.config.resolver import ConfigResolver
 from lib.db import async_session_factory
 from lib.generation.generation_queue import GenerationQueue
@@ -681,6 +683,24 @@ async def test_a_text_generation_dry_run_returns_the_same_prompt_in_both_hosts(
     seeded_projects: ProjectManager, services: Services, tmp_path: Path
 ) -> None:
     """长任务的 dry_run 不提交批次：两宿主都立即拿到同一份 ``text_generation``，没有批次句柄。"""
+    pending_scene = {
+        "scene_id": "E1S01",
+        "duration_seconds": 4,
+        "characters_in_scene": [],
+        "scenes": [],
+        "props": [],
+        "image_prompt": None,
+        "video_prompt": None,
+        "pending_authoring": True,
+        "generated_assets": {},
+    }
+    (seeded_projects.get_project_path("demo") / "scripts" / "episode_1.json").write_text(
+        json.dumps({"episode": 1, "title": "第一集", "scenes": [pending_scene]}), encoding="utf-8"
+    )
+    seeded_projects.update_project(
+        "demo", lambda project: project.update(episodes=[{"episode": 1, "script_file": "scripts/episode_1.json"}])
+    )
+    register_current_artifact(seeded_projects.get_project_path("demo"), ArtifactKey.episode_script(1))
     twin = _twin_services(seeded_projects, tmp_path)
     arguments = SAMPLE_ARGUMENTS[GENERATE_EPISODE_SCRIPT.name]
 

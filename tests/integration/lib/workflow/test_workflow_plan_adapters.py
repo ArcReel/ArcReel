@@ -46,7 +46,7 @@ def _status() -> WorkflowStatus:
                 script_filename="episode_1.json",
                 source="source/episode_1.txt",
             ),
-            "state": "VIDEO",
+            "content": None,
             "blockers": [],
             "gates": {"script_plan_review": {"state": "not_applicable", "revision": None}},
             "artifacts": {

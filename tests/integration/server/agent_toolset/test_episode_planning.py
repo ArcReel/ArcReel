@@ -71,6 +71,20 @@ def _episode(episode: int, title: str = "第一章", **overrides: Any) -> Episod
     return EpisodePlanSummary(**fields)
 
 
+@pytest.fixture(autouse=True)
+def whole_source(request: pytest.FixtureRequest) -> None:
+    """分集规划的准入要求整本源文：用到 ``fake_ctx`` 的用例都先放一份。"""
+    if "fake_ctx" in request.fixturenames:
+        ctx: ToolHarness = request.getfixturevalue("fake_ctx")
+        _write_whole_source(ctx.project_path)
+
+
+def _write_whole_source(project_path: Path) -> None:
+    source = project_path / "source"
+    source.mkdir(parents=True, exist_ok=True)
+    (source / "novel.txt").write_text("第一章\n原文", encoding="utf-8")
+
+
 def _plan_value(outcome: ToolOutcome[Any]) -> PlanEpisodesResult:
     assert outcome.problem is None
     assert isinstance(outcome.value, PlanEpisodesResult)
@@ -247,6 +261,7 @@ async def test_remote_plan_episodes_returns_the_generation_batch_handle(tmp_path
     projects = ProjectManager(tmp_path / "projects")
     projects.create_project("demo", content_mode="narration")
     projects.create_project_metadata("demo", "Demo", "", "narration")
+    _write_whole_source(projects.get_project_path("demo"))
     queue = GenerationQueue(session_factory=db_factory, project_manager=projects)
     assert await queue.acquire_or_renew_worker_lease(name="default", owner_id="test-worker", ttl_seconds=60)
     services = Services(
