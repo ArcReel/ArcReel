@@ -36,7 +36,7 @@ function RowActs({ row }: { row: Row }) {
 // ---- A 步骤清单 ------------------------------------------------------------------------
 
 export function VariantA({ s }: { s: Scenario }) {
-  const [open, setOpen] = useState(true);
+  const [open, setOpen] = useState(false);
   const next = s.next;
   return (
     <section className="border-b px-4 py-2" style={hair}>
