@@ -2,7 +2,8 @@
 import { useCallback, useEffect, useState } from "react";
 import * as M from "./model";
 
-const TICK_MS = 1100;
+/** 模拟一批（一次非流式调用）的耗时；真实耗时以分钟计 */
+const TICK_MS = 2500;
 
 export function useProto() {
   const [s, setS] = useState<M.ProtoState>(M.initialState);

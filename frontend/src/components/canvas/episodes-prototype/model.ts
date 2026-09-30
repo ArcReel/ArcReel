@@ -36,7 +36,7 @@ export interface Candidate {
 export interface ProtoState {
   episodes: Ep[];
   cursor: number;
-  planning: null | { mode: "toEnd" | "batch"; batchesDone: number };
+  planning: null | { mode: "toEnd" | "batch"; batchesDone: number; batchesTotal: number };
   candidate: Candidate | null;
   lastInstructions: string;
   sourceReplaced: boolean;
@@ -124,6 +124,11 @@ export const SOURCE_LEN = SOURCE.sentences.length;
 export const WINDOW = 110;
 const SOURCE_FILE_NAME = "雨夜码头.txt";
 export { SOURCE_FILE_NAME };
+
+/** 每批是一次非流式 LLM 调用：读一个窗口、一次性返回这批的全部集 */
+export function batchesNeeded(from: number): number {
+  return Math.max(1, Math.ceil((SOURCE_LEN - from) / WINDOW));
+}
 
 export function charsOf(range: [number, number]): number {
   let n = 0;
@@ -272,7 +277,7 @@ function clearFresh(s: ProtoState): ProtoState {
 }
 
 export function beginPlanning(s: ProtoState, mode: "toEnd" | "batch", instructions: string): ProtoState {
-  return withLog({ ...clearFresh(s), planning: { mode, batchesDone: 0 }, lastInstructions: instructions },
+  return withLog({ ...clearFresh(s), planning: { mode, batchesDone: 0, batchesTotal: mode === "batch" ? 1 : batchesNeeded(s.cursor) }, lastInstructions: instructions },
     `开始${mode === "toEnd" ? "规划到源文结尾" : "先规划一批"}（附加指令：${instructions || "无"}）`);
 }
 

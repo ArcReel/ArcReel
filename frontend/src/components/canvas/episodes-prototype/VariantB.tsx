@@ -1,6 +1,6 @@
 // PROTOTYPE（#2767）变体 B「原文双栏」：整本源文是主角，集边界是原文里可拖动的标记；
 // 右栏是规划控制与集索引。候选按原文位置并排对比：原文两侧各一条范围栏（左现有、右候选）。
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Scissors, Upload, Plus, Square, GripHorizontal } from "lucide-react";
 import { PrimaryButton } from "@/components/ui/PrimaryButton";
 import { SecondaryButton } from "@/components/ui/SecondaryButton";
@@ -28,15 +28,14 @@ export function VariantB({ p }: { p: Proto }) {
   const [dropOver, setDropOver] = useState<number | null>(null);
   const [cutAt, setCutAt] = useState<number | null>(null);
   const [cutTitle, setCutTitle] = useState("");
-  const [alt, setAlt] = useState(false);
+  const [splitAt, setSplitAt] = useState<number | null>(null);
   const [confirmNode, ask] = useConfirm();
   const headerRefs = useRef(new Map<number, HTMLElement>());
 
   useEffect(() => {
-    const on = (e: KeyboardEvent) => setAlt(e.altKey);
+    const on = (e: KeyboardEvent) => { if (e.key === "Escape") { setCutAt(null); setSplitAt(null); } };
     window.addEventListener("keydown", on);
-    window.addEventListener("keyup", on);
-    return () => { window.removeEventListener("keydown", on); window.removeEventListener("keyup", on); };
+    return () => window.removeEventListener("keydown", on);
   }, []);
 
   const cuts = M.cutEps(s);
@@ -49,7 +48,6 @@ export function VariantB({ p }: { p: Proto }) {
     [sum],
   );
   const editing = !cand;
-  const selEp = s.episodes.find((e) => e.id === selected);
 
   const chunks: Chunk[] = useMemo(() => {
     const pts = new Set<number>([0, s.cursor]);
@@ -89,73 +87,50 @@ export function VariantB({ p }: { p: Proto }) {
     return !!left && !!right && pos > left.range![0] && pos < right.range![1] && pos !== left.range![1];
   };
 
-  // ---------------------------------------------------------------- 句间隙
+  // ---------------------------------------------------------------- 句间隙（仅拖动边界时作为放置点）
   const gap = (pos: number): ReactNode => {
-    if (!editing) return null;
-    if (dragLeft != null) {
-      const ok = validDrop(pos);
-      if (!ok) return null;
-      return (
-        <span
-          key={`g${pos}`}
-          onDragOver={(e) => { e.preventDefault(); setDropOver(pos); }}
-          onDragLeave={() => setDropOver((d) => (d === pos ? null : d))}
-          onDrop={(e) => { e.preventDefault(); dropBoundary(pos); }}
-          className="mx-[1px] inline-block h-[1.2em] w-[8px] rounded-sm align-middle"
-          style={{ background: dropOver === pos ? "var(--color-accent)" : "var(--color-accent-soft)" }}
-        />
-      );
-    }
-    if (cutAt === pos) {
-      return (
-        <span key={`g${pos}`} className="mx-1 inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 align-middle" style={{ background: "oklch(0.22 0.02 265)", border: "1px solid var(--color-accent-soft)" }}>
-          <input
-            ref={(el) => { if (el && document.activeElement !== el) el.focus(); }}
-            className="w-28 rounded bg-transparent px-1 text-[11.5px] outline-none" style={{ color: "var(--color-text)" }}
-            value={cutTitle} onChange={(e) => setCutTitle(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter") { p.manualCut(pos, cutTitle); setCutAt(null); } if (e.key === "Escape") setCutAt(null); }}
-          />
-          <button type="button" className="text-[11px]" style={{ color: "var(--color-accent-2)" }} onClick={() => { p.manualCut(pos, cutTitle); setCutAt(null); }}>切出</button>
-          <button type="button" className="text-[11px]" style={{ color: "var(--color-text-4)" }} onClick={() => setCutAt(null)}>取消</button>
-        </span>
-      );
-    }
-    if (pos > s.cursor && !s.planning && !s.sourceReplaced) {
-      return (
-        <span key={`g${pos}`} className="group/gap relative inline-block h-[1.2em] w-[6px] align-middle">
-          <button
-            type="button"
-            onClick={() => { setCutAt(pos); setCutTitle(`第 ${M.maxId(s) + 1} 集`); }}
-            className="absolute -top-5 left-1/2 z-10 hidden -translate-x-1/2 items-center gap-0.5 whitespace-nowrap rounded px-1.5 py-[1px] text-[10.5px] group-hover/gap:inline-flex"
-            style={{ background: "var(--color-accent)", color: "oklch(0.14 0 0)" }}
-          >
-            <Scissors className="h-3 w-3" />在此切分
-          </button>
-          <span className="absolute inset-y-0 left-1/2 hidden w-px group-hover/gap:block" style={{ background: "var(--color-accent)" }} />
-        </span>
-      );
-    }
-    const ep = cutAtPos(pos);
-    if (ep && pos > ep.range![0] && (alt || selected === ep.id)) {
-      const allowed = M.canRestructure(s, ep.id);
-      return (
-        <span key={`g${pos}`} className="group/gap relative inline-block h-[1.2em] w-[6px] align-middle">
-          <button
-            type="button"
-            disabled={!allowed}
-            title={allowed ? "" : "该集或其后的集已有产物，不能拆分；请改用「从这一集起重新规划」"}
-            onClick={() => p.splitEp(ep.id, pos)}
-            className="absolute -top-5 left-1/2 z-10 hidden -translate-x-1/2 items-center gap-0.5 whitespace-nowrap rounded px-1.5 py-[1px] text-[10.5px] group-hover/gap:inline-flex disabled:opacity-60"
-            style={{ background: allowed ? epColor(ep.id) : "oklch(0.4 0.01 265)", color: "oklch(0.14 0 0)" }}
-          >
-            <Scissors className="h-3 w-3" />{allowed ? "在此拆分" : "有产物，改用重新规划"}
-          </button>
-          <span className="absolute inset-y-0 left-1/2 hidden w-px group-hover/gap:block" style={{ background: epColor(ep.id) }} />
-        </span>
-      );
-    }
-    return null;
+    if (!editing || dragLeft == null || !validDrop(pos)) return null;
+    return (
+      <span
+        key={`g${pos}`}
+        onDragOver={(e) => { e.preventDefault(); setDropOver(pos); }}
+        onDragLeave={() => setDropOver((d) => (d === pos ? null : d))}
+        onDrop={(e) => { e.preventDefault(); dropBoundary(pos); }}
+        className="mx-[1px] inline-block h-[1.2em] w-[8px] rounded-sm align-middle"
+        style={{ background: dropOver === pos ? "var(--color-accent)" : "var(--color-accent-soft)" }}
+      />
+    );
   };
+
+  const canCut = editing && !s.planning && !s.sourceReplaced && dragLeft == null;
+  const nextId = M.maxId(s) + 1;
+
+  const cutForm = (pos: number) => (
+    <span className="mx-1 inline-flex items-center gap-1.5 rounded-md px-2 py-0.5 align-middle text-[11.5px]" style={{ background: "oklch(0.22 0.02 265)", border: "1px solid var(--color-accent)" }}>
+      <Scissors className="h-3 w-3" style={{ color: "var(--color-accent-2)" }} />
+      <span style={{ color: "var(--color-text-3)" }}>新的一集 · {M.charsOf([s.cursor, pos]).toLocaleString()} 字</span>
+      <input
+        ref={(el) => { if (el && document.activeElement !== el) el.focus(); }}
+        aria-label="标题"
+        className="w-28 rounded bg-transparent px-1 outline-none" style={{ color: "var(--color-text)", borderBottom: "1px solid var(--color-hairline-strong)" }}
+        value={cutTitle} onChange={(e) => setCutTitle(e.target.value)}
+        onKeyDown={(e) => { if (e.key === "Enter") { p.manualCut(pos, cutTitle); setCutAt(null); } }}
+      />
+      <button type="button" className="font-medium" style={{ color: "var(--color-accent-2)" }} onClick={() => { p.manualCut(pos, cutTitle); setCutAt(null); }}>添加为第 {nextId} 集</button>
+      <button type="button" style={{ color: "var(--color-text-4)" }} onClick={() => setCutAt(null)}>取消</button>
+    </span>
+  );
+
+  const splitForm = (ep: M.Ep, pos: number) => (
+    <span className="mx-1 inline-flex items-center gap-1.5 rounded-md px-2 py-0.5 align-middle text-[11.5px]" style={{ background: "oklch(0.22 0.02 265)", border: `1px solid ${epColor(ep.id)}` }}>
+      <Scissors className="h-3 w-3" style={{ color: epColor(ep.id) }} />
+      <span style={{ color: "var(--color-text-3)" }}>
+        拆成 {M.charsOf([ep.range![0], pos]).toLocaleString()} 字 + {M.charsOf([pos, ep.range![1]]).toLocaleString()} 字，之后的集号依次后移
+      </span>
+      <button type="button" className="font-medium" style={{ color: epColor(ep.id) }} onClick={() => { p.splitEp(ep.id, pos); setSplitAt(null); }}>拆分</button>
+      <button type="button" style={{ color: "var(--color-text-4)" }} onClick={() => setSplitAt(null)}>取消</button>
+    </span>
+  );
 
   // ---------------------------------------------------------------- 左栏行
   const rows: ReactNode[] = [];
@@ -165,7 +140,7 @@ export function VariantB({ p }: { p: Proto }) {
       rows.push(
         <div key={`cur${pos}`} className="my-3 flex items-center gap-2 text-[11px]" style={{ color: "var(--color-accent-2)" }}>
           <span className="h-[2px] flex-1" style={{ background: "linear-gradient(90deg, var(--color-accent), transparent)", boxShadow: "0 0 8px var(--color-accent-glow)" }} />
-          规划游标 · 以下尚未规划{s.planning ? "（AI 规划中…）" : "；悬停句间隙可手工切出新集"}
+          以下内容尚未分集{s.planning ? " · AI 正在规划…" : " · 点击任意一句，可在这句之后切出新的一集"}
           <span className="h-[2px] flex-1" style={{ background: "linear-gradient(270deg, var(--color-accent), transparent)" }} />
         </div>,
       );
@@ -183,7 +158,7 @@ export function VariantB({ p }: { p: Proto }) {
               onDragEnd={() => { setDragLeft(null); setDropOver(null); }}
               className="inline-flex cursor-grab items-center gap-1 rounded-full px-2 py-[1px] text-[10.5px]"
               style={{ border: "1px solid var(--color-hairline-strong)", color: "var(--color-text-3)", background: "oklch(0.2 0.01 265)" }}
-              title="拖到任意句间隙，调整相邻两集的边界"
+              title="拖动到任意两句之间，调整这两集的分界"
             >
               <GripHorizontal className="h-3 w-3" />第 {prev.id} 集 ▸ 第 {startEp.id} 集
             </span>
@@ -251,11 +226,32 @@ export function VariantB({ p }: { p: Proto }) {
           {Array.from({ length: ch.end - ch.start }, (_, k) => {
             const i = ch.start + k;
             const chap = M.SOURCE.chapter[i];
+            const cuttable = canCut && unplanned;
+            const splittable = canCut && !!ep && isSel && i + 1 < ep.range![1];
+            const allowedSplit = splittable && M.canRestructure(s, ep.id);
+            const inCutPreview = cutAt != null && i >= s.cursor && i < cutAt;
+            const onPick = () => {
+              if (cuttable) { setSplitAt(null); setCutAt(i + 1); setCutTitle(`第 ${nextId} 集`); }
+              else if (allowedSplit) { setCutAt(null); setSplitAt(i + 1); }
+            };
+            const clickable = cuttable || allowedSplit;
+            const text = chap ? <b className="display-serif text-[15px]" style={{ color: unplanned ? "var(--color-text-3)" : "var(--color-text)" }}>{chap}</b> : M.SOURCE.sentences[i];
             return (
-              <span key={i}>
+              <Fragment key={i}>
                 {i > 0 && gap(i)}
-                {chap ? <b className="display-serif text-[15px]" style={{ color: unplanned ? "var(--color-text-3)" : "var(--color-text)" }}>{chap}</b> : M.SOURCE.sentences[i]}
-              </span>
+                {clickable ? (
+                  <span
+                    role="button" tabIndex={0}
+                    onClick={onPick}
+                    onKeyDown={(e) => { if (e.key === "Enter") onPick(); }}
+                    title={cuttable ? "在这句之后切出新的一集" : "在这句之后拆分"}
+                    className="cursor-pointer rounded-sm transition-colors hover:bg-[oklch(0.3_0.04_280/0.55)] hover:text-[var(--color-text)]"
+                    style={{ background: inCutPreview ? "oklch(0.3 0.05 280 / 0.45)" : undefined, color: inCutPreview ? "var(--color-text)" : undefined }}
+                  >{text}</span>
+                ) : text}
+                {cutAt === i + 1 && cutForm(i + 1)}
+                {splitAt === i + 1 && ep && splitForm(ep, i + 1)}
+              </Fragment>
             );
           })}
           {ch.end === M.SOURCE_LEN && gap(M.SOURCE_LEN)}
@@ -285,44 +281,82 @@ export function VariantB({ p }: { p: Proto }) {
   const removeAfter = (ep: M.Ep) => {
     const aff = M.affectedByRemoveAfter(s, ep.id);
     ask({
-      title: `移除第 ${ep.id} 集之后的所有切分`,
+      title: `清除第 ${ep.id} 集之后的分集`,
       body: (
         <AffectedList
           eps={aff}
-          note={`没有产物的集直接移除；已有产物的集留在账本里，转为无原文的集并标记「原文已重新规划」。游标回到第 ${ep.id} 集结尾。`}
+          note={`尚未开始制作的集会被删除；已开始制作的集会保留已生成的内容，转为无原文的集。第 ${ep.id} 集之后的原文将回到「尚未分集」状态。`}
         />
       ),
-      confirmLabel: "移除切分",
+      confirmLabel: "清除",
       danger: true,
       onOk: () => p.removeCutsAfter(ep.id),
     });
   };
 
+  const shift = (d: number) => (d === 0 ? "" : d > 0 ? `后移 ${d} 句` : `前移 ${-d} 句`);
+  const candBatchesTotal = cand ? M.batchesNeeded(replanStart) : 0;
+  const candBatchesDone = cand ? Math.min(candBatchesTotal, Math.ceil((cand.reached - replanStart) / M.WINDOW)) : 0;
+
   const rail = cand && sum ? (
     <div className="space-y-3">
       <div className="flex items-center gap-2">
-        <h3 className="display-serif text-[15px] font-semibold">候选规划</h3>
+        <h3 className="display-serif text-[15px] font-semibold">新的分集方案</h3>
         <Pill tone="accent">从第 {cand.fromEp} 集起</Pill>
+        <div className="flex-1" />
         <span className="text-[11px]" style={{ color: "var(--color-text-4)" }}>
-          {cand.status === "generating" ? "生成中…" : cand.status === "stopped" ? "已停止" : "已完成"}
+          {cand.status === "generating" ? `正在规划第 ${candBatchesDone + 1} / 约 ${candBatchesTotal} 批` : cand.status === "stopped" ? "已停止" : "规划完成"}
         </span>
       </div>
-      <div className="h-1 overflow-hidden rounded-full" style={{ background: "var(--color-hairline)" }}>
-        <div className="h-full" style={{ width: `${((cand.reached - replanStart) / Math.max(1, M.SOURCE_LEN - replanStart)) * 100}%`, background: "var(--color-accent)" }} />
-      </div>
+      {cand.status === "generating" && <BatchBar done={candBatchesDone} total={candBatchesTotal} />}
       <p className="text-[11.5px]" style={{ color: "var(--color-text-3)" }}>
-        原文左侧是现有集，右侧是候选集；<span style={{ color: DIFF }}>琥珀色虚线</span>是边界不一致的位置。账本在采纳前不动。
+        左侧色条是现有分集，右侧是新方案；<span style={{ color: DIFF }}>琥珀色虚线</span>标出分界不同的位置。采纳之前，现有分集不会变化。
       </p>
-      <CandidateSummaryBlock p={p} />
-      <div className="max-h-[36vh] space-y-1 overflow-auto">
-        {sum.mapping.map((m) => (
-          <div key={m.newId} className="rounded px-2 py-1 text-[12px]" style={{ borderLeft: `3px dashed ${epColor(m.newId)}`, background: "oklch(0.21 0.01 265 / 0.5)" }}>
-            <span className="num" style={{ color: epColor(m.newId) }}>第 {m.newId} 集</span>
-            {m.oldId === undefined && <span className="ml-1 text-[10.5px]" style={{ color: "var(--color-text-4)" }}>（新集号）</span>}
-            <span className="ml-2">{m.cand.title}</span>
-            <div className="num text-[10.5px]" style={{ color: "var(--color-text-4)" }}>{M.readLabel(M.charsOf(m.cand.range))}</div>
-          </div>
-        ))}
+      <div className="rounded-md p-2.5" style={{ background: "oklch(0.21 0.01 265 / 0.6)", border: "1px solid var(--color-hairline-soft)" }}>
+        <CandidateSummaryBlock p={p} />
+      </div>
+      <div className="text-[10.5px] uppercase tracking-[0.14em]" style={{ color: "var(--color-text-4)" }}>逐集变化</div>
+      <div className="max-h-[40vh] space-y-1 overflow-auto">
+        {sum.mapping.map((m) => {
+          const old = m.oldId !== undefined ? sum.replaced.find((e) => e.id === m.oldId) : undefined;
+          const oc = old ? M.epChars(old) : 0;
+          const nc = M.charsOf(m.cand.range);
+          const moves = old
+            ? [
+                shift(m.cand.range[0] - old.range![0]) && `开头${shift(m.cand.range[0] - old.range![0])}`,
+                shift(m.cand.range[1] - old.range![1]) && `结尾${shift(m.cand.range[1] - old.range![1])}`,
+              ].filter(Boolean)
+            : [];
+          const same = !!old && moves.length === 0;
+          const flagged = sum.staleIds.includes(m.newId);
+          return (
+            <div key={m.newId} className="rounded px-2 py-1.5 text-[12px]" style={{ borderLeft: `3px dashed ${epColor(m.newId)}`, background: "oklch(0.21 0.01 265 / 0.5)", opacity: same ? 0.6 : 1 }}>
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="num" style={{ color: epColor(m.newId) }}>第 {m.newId} 集</span>
+                {old && old.title !== m.cand.title && <span className="line-through" style={{ color: "var(--color-text-4)" }}>{old.title}</span>}
+                <span>{m.cand.title}</span>
+                {!old && <Pill tone="accent">新增</Pill>}
+                {same && <Pill>无变化</Pill>}
+                {flagged && <Pill tone="replan">需要复核</Pill>}
+              </div>
+              <div className="num text-[10.5px]" style={{ color: "var(--color-text-4)" }}>
+                {old ? `${oc.toLocaleString()} → ${nc.toLocaleString()} 字` : `${nc.toLocaleString()} 字`}
+                {moves.length > 0 && ` · ${moves.join("，")}`}
+              </div>
+              {!same && <div className="truncate text-[11px]" style={{ color: "var(--color-text-3)" }}>钩子：{m.cand.hook}</div>}
+            </div>
+          );
+        })}
+        {[...sum.toNone, ...sum.removed].map((id) => {
+          const old = sum.replaced.find((e) => e.id === id);
+          return (
+            <div key={`x${id}`} className="rounded px-2 py-1.5 text-[12px]" style={{ borderLeft: "3px dashed var(--color-hairline-strong)", background: "oklch(0.21 0.01 265 / 0.35)" }}>
+              <span className="num" style={{ color: "var(--color-text-3)" }}>第 {id} 集</span>
+              <span className="ml-1.5 line-through" style={{ color: "var(--color-text-4)" }}>{old?.title}</span>
+              <span className="ml-1.5 text-[11px]" style={{ color: "var(--color-text-3)" }}>{sum.toNone.includes(id) ? "保留已生成内容，转为无原文的集" : "将移除"}</span>
+            </div>
+          );
+        })}
       </div>
       <CandidateActions p={p} />
     </div>
@@ -337,113 +371,107 @@ export function VariantB({ p }: { p: Proto }) {
           <SecondaryButton size="sm" leadingIcon={<Plus className="h-3.5 w-3.5" />} onClick={p.addBlankEpisode}>新建一集</SecondaryButton>
         </div>
         <div className="text-[11.5px]" style={{ color: "var(--color-text-3)" }}>
-          {M.SOURCE_FILE_NAME} · 已规划 {plannedChars.toLocaleString()} / {M.TOTAL_CHARS.toLocaleString()} 字
+          {M.SOURCE_FILE_NAME} · 已分集 {plannedChars.toLocaleString()} / {M.TOTAL_CHARS.toLocaleString()} 字
         </div>
         <div className="h-1 overflow-hidden rounded-full" style={{ background: "var(--color-hairline)" }}>
           <div className="h-full" style={{ width: `${(s.cursor / M.SOURCE_LEN) * 100}%`, background: "var(--color-accent)" }} />
         </div>
         {s.sourceReplaced && (
           <div className="space-y-1.5 rounded-md px-2.5 py-2 text-[11.5px]" style={{ border: "1px dashed oklch(0.7 0.1 200 / 0.6)", color: "oklch(0.85 0.08 200)" }}>
-            整本源文已替换，接续规划不可用，需要从第 1 集起重新规划。
-            {cuts[0] && <div><SecondaryButton size="sm" onClick={() => setReplanFrom(cuts[0].id)}>从第 1 集起重新规划</SecondaryButton></div>}
+            整本源文已更换。请从第 1 集开始重新规划，让分集与新源文对应。
+            {cuts[0] && <div><SecondaryButton size="sm" onClick={() => setReplanFrom(cuts[0].id)}>从第 1 集开始重新规划</SecondaryButton></div>}
           </div>
         )}
         {s.planning ? (
-          <div className="flex items-center gap-2 rounded-md px-2.5 py-2 text-[12px]" style={{ background: "var(--color-accent-dim)", border: "1px solid var(--color-accent-soft)" }}>
-            <span className="h-2 w-2 animate-pulse rounded-full" style={{ background: "var(--color-accent)" }} />
-            {s.planning.mode === "toEnd" ? "正在规划到源文结尾" : "正在规划一批"} · 已提交 {s.planning.batchesDone} 批
-            <div className="flex-1" />
-            <SecondaryButton size="sm" leadingIcon={<Square className="h-3 w-3" />} onClick={p.stopPlanning}>停止</SecondaryButton>
+          <div className="space-y-1.5 rounded-md px-2.5 py-2 text-[12px]" style={{ background: "var(--color-accent-dim)", border: "1px solid var(--color-accent-soft)" }}>
+            <div className="flex items-center gap-2">
+              <span className="h-2 w-2 animate-pulse rounded-full" style={{ background: "var(--color-accent)" }} />
+              {s.planning.mode === "toEnd" ? `正在规划第 ${s.planning.batchesDone + 1} / 约 ${s.planning.batchesTotal} 批` : "正在规划下一批"}
+              <div className="flex-1" />
+              <SecondaryButton size="sm" leadingIcon={<Square className="h-3 w-3" />} onClick={p.stopPlanning}>停止</SecondaryButton>
+            </div>
+            <BatchBar done={s.planning.batchesDone} total={s.planning.batchesTotal} />
+            <div className="text-[11px]" style={{ color: "var(--color-text-3)" }}>
+              每批约 5 万字，完成一批就会加入列表。停止后，已完成的批次会保留。
+            </div>
           </div>
         ) : s.cursor >= M.SOURCE_LEN ? (
-          <div className="text-[12px]" style={{ color: "oklch(0.8 0.12 150)" }}>已规划到源文结尾 · 共 {cuts.length} 集切自整本源文</div>
+          <div className="text-[12px]" style={{ color: "oklch(0.8 0.12 150)" }}>整本源文已全部分集，共 {cuts.length} 集</div>
         ) : (
           <>
-            <textarea className={INPUT_CLS} rows={2} placeholder="附加指令（可选）" value={instr} onChange={(e) => setInstr(e.target.value)} />
+            <textarea className={INPUT_CLS} rows={2} placeholder="附加要求（可选），例如：每集结尾留悬念" value={instr} onChange={(e) => setInstr(e.target.value)} />
             <div className="flex gap-2">
-              <PrimaryButton size="sm" disabled={!canPlan} onClick={() => p.beginPlanning("toEnd", instr)}>规划到源文结尾</PrimaryButton>
-              <SecondaryButton size="sm" disabled={!canPlan} onClick={() => p.beginPlanning("batch", instr)}>先规划一批</SecondaryButton>
+              <PrimaryButton size="sm" disabled={!canPlan} onClick={() => p.beginPlanning("toEnd", instr)}>AI 规划剩余内容</PrimaryButton>
+              <SecondaryButton size="sm" disabled={!canPlan} onClick={() => p.beginPlanning("batch", instr)}>只规划下一批</SecondaryButton>
             </div>
           </>
         )}
       </div>
 
-      {selEp && (
-        <div className="space-y-2 rounded-md p-2.5" style={{ border: `1px solid ${epColor(selEp.id, 0.5)}`, background: "oklch(0.21 0.01 265 / 0.6)" }}>
-          <div className="flex flex-wrap items-center gap-1.5 text-[12.5px]">
-            <span className="num font-semibold" style={{ color: epColor(selEp.id) }}>第 {selEp.id} 集</span>
-            <span>{selEp.title}</span>
-            <EpPills ep={selEp} />
-          </div>
-          {selEp.origin === "cut" ? (
-            <>
-              <p className="text-[11px]" style={{ color: "var(--color-text-4)" }}>
-                在原文里拖动集之间的标记调整边界；本集内悬停句间隙可拆分（按住 Alt 可在任意集内拆分）。
-              </p>
-              <div className="flex flex-wrap gap-1.5">
-                <SecondaryButton size="sm" onClick={() => setReplanFrom(selEp.id)}>从这一集起重新规划</SecondaryButton>
-                {(() => {
-                  const nx = M.nextCut(s, selEp.id);
-                  const ok = !!nx && M.canRestructure(s, selEp.id);
-                  return (
-                    <SecondaryButton
-                      size="sm" disabled={!ok}
-                      title={!nx ? "没有下一集" : ok ? "" : "该集或其后的集已有产物，请改用重新规划"}
-                      onClick={() => p.mergeWithNext(selEp.id)}
-                    >与下一集合并</SecondaryButton>
-                  );
-                })()}
-                <SecondaryButton size="sm" disabled={M.affectedByRemoveAfter(s, selEp.id).length === 0} onClick={() => removeAfter(selEp)}>移除这一集之后的所有切分</SecondaryButton>
-              </div>
-            </>
-          ) : (
-            <p className="text-[11px]" style={{ color: "var(--color-text-4)" }}>
-              {selEp.origin === "own" ? `原文来自 ${selEp.ownFile}，不占用整本源文。` : "没有原文，不经脚本规划，只能手写脚本。"}
-            </p>
-          )}
-        </div>
-      )}
-
       <div className="space-y-1">
-        <div className="text-[10.5px] uppercase tracking-[0.14em]" style={{ color: "var(--color-text-4)" }}>切自整本源文</div>
+        <div className="text-[10.5px] uppercase tracking-[0.14em]" style={{ color: "var(--color-text-4)" }}>来自整本源文</div>
         {cuts.map((e) => (
-          <button
-            key={e.id} type="button" onClick={() => select(e.id)}
-            className="block w-full rounded-md px-2 py-1.5 text-left transition-colors hover:bg-[oklch(0.26_0.012_265/0.5)]"
-            style={{ borderLeft: `3px solid ${epColor(e.id)}`, background: selected === e.id ? "var(--color-accent-dim)" : undefined, ...(e.fresh ? FRESH_STYLE : {}) }}
-          >
-            <div className="flex flex-wrap items-center gap-1.5 text-[12px]">
-              <span className="num" style={{ color: epColor(e.id) }}>第 {e.id} 集</span>
-              <span style={{ color: "var(--color-text)" }}>{e.title}</span>
-              <EpPills ep={e} withOrigin={false} />
-            </div>
-            <div className="num text-[10.5px]" style={{ color: "var(--color-text-4)" }}>{M.readLabel(M.epChars(e))}</div>
-            <div className="truncate text-[11px]" style={{ color: "var(--color-text-3)" }}>首：{M.firstSentence(e)}</div>
-            <div className="truncate text-[11px]" style={{ color: "var(--color-text-3)" }}>尾：{M.lastSentence(e)}</div>
-          </button>
+          <div key={e.id} className="rounded-md" style={{ borderLeft: `3px solid ${epColor(e.id)}`, background: selected === e.id ? "var(--color-accent-dim)" : undefined, ...(e.fresh ? FRESH_STYLE : {}) }}>
+            <button type="button" onClick={() => select(e.id)} className="block w-full rounded-md px-2 py-1.5 text-left transition-colors hover:bg-[oklch(0.26_0.012_265/0.5)]">
+              <div className="flex flex-wrap items-center gap-1.5 text-[12px]">
+                <span className="num" style={{ color: epColor(e.id) }}>第 {e.id} 集</span>
+                <span style={{ color: "var(--color-text)" }}>{e.title}</span>
+                <EpPills ep={e} withOrigin={false} />
+              </div>
+              <div className="num text-[10.5px]" style={{ color: "var(--color-text-4)" }}>{M.readLabel(M.epChars(e))}</div>
+              <div className="truncate text-[11px]" style={{ color: "var(--color-text-3)" }}>首：{M.firstSentence(e)}</div>
+              <div className="truncate text-[11px]" style={{ color: "var(--color-text-3)" }}>尾：{M.lastSentence(e)}</div>
+            </button>
+            {selected === e.id && renderEpActions(e)}
+          </div>
         ))}
-        {cuts.length === 0 && <div className="text-[11.5px]" style={{ color: "var(--color-text-4)" }}>还没有切出的集</div>}
+        {cuts.length === 0 && <div className="text-[11.5px]" style={{ color: "var(--color-text-4)" }}>还没有从整本源文分出的集</div>}
       </div>
 
       <div className="space-y-1">
-        <div className="text-[10.5px] uppercase tracking-[0.14em]" style={{ color: "var(--color-text-4)" }}>不占用整本源文</div>
+        <div className="text-[10.5px] uppercase tracking-[0.14em]" style={{ color: "var(--color-text-4)" }}>其他集</div>
         {others.map((e) => (
-          <button
-            key={e.id} type="button" onClick={() => setSelected(e.id)}
-            className="flex w-full flex-wrap items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-[12px] hover:bg-[oklch(0.26_0.012_265/0.5)]"
-            style={{ background: selected === e.id ? "var(--color-accent-dim)" : undefined, ...(e.fresh ? FRESH_STYLE : {}) }}
-          >
-            <span className="num" style={{ color: "var(--color-text-2)" }}>第 {e.id} 集</span>
-            <span>{e.title}</span>
-            <OriginPill ep={e} />
-            <EpPills ep={e} withOrigin={false} />
-            {e.origin === "own" && <span className="num text-[10.5px]" style={{ color: "var(--color-text-4)" }}>{M.readLabel(M.epChars(e))}</span>}
-          </button>
+          <div key={e.id} className="rounded-md" style={{ background: selected === e.id ? "var(--color-accent-dim)" : undefined, ...(e.fresh ? FRESH_STYLE : {}) }}>
+            <button
+              type="button" onClick={() => setSelected(e.id)}
+              className="flex w-full flex-wrap items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-[12px] hover:bg-[oklch(0.26_0.012_265/0.5)]"
+            >
+              <span className="num" style={{ color: "var(--color-text-2)" }}>第 {e.id} 集</span>
+              <span>{e.title}</span>
+              <OriginPill ep={e} />
+              <EpPills ep={e} withOrigin={false} />
+              {e.origin === "own" && <span className="num text-[10.5px]" style={{ color: "var(--color-text-4)" }}>{M.readLabel(M.epChars(e))}</span>}
+            </button>
+            {selected === e.id && (
+              <p className="px-2 pb-2 text-[11px]" style={{ color: "var(--color-text-4)" }}>
+                {e.origin === "own" ? `原文来自上传的文件 ${e.ownFile}，可以在集页面查看和编辑。` : "这一集没有原文，可以在集页面补充原文，或直接编写脚本。"}
+              </p>
+            )}
+          </div>
         ))}
-        {others.length === 0 && <div className="text-[11.5px]" style={{ color: "var(--color-text-4)" }}>无</div>}
+        {others.length === 0 && <div className="text-[11.5px]" style={{ color: "var(--color-text-4)" }}>暂无</div>}
       </div>
     </div>
   );
+
+  function renderEpActions(ep: M.Ep) {
+    const nx = M.nextCut(s, ep.id);
+    const restructurable = M.canRestructure(s, ep.id);
+    return (
+      <div className="space-y-1.5 px-2 pb-2">
+        <p className="text-[11px]" style={{ color: "var(--color-text-4)" }}>
+          {restructurable
+            ? "在左侧原文中点击这一集里的某一句，可以在那里拆分；拖动两集之间的分界标记可以调整范围。"
+            : "这一集或之后的集已开始制作，不能拆分或合并。需要调整时，请从这一集开始重新规划。"}
+        </p>
+        <div className="flex flex-wrap gap-1.5">
+          <SecondaryButton size="sm" onClick={() => setReplanFrom(ep.id)}>从这一集开始重新规划</SecondaryButton>
+          <SecondaryButton size="sm" disabled={!nx || !restructurable} title={!nx ? "已经是最后一集" : ""} onClick={() => p.mergeWithNext(ep.id)}>与下一集合并</SecondaryButton>
+          <SecondaryButton size="sm" disabled={M.affectedByRemoveAfter(s, ep.id).length === 0} onClick={() => removeAfter(ep)}>清除之后的分集</SecondaryButton>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-full">
@@ -451,7 +479,7 @@ export function VariantB({ p }: { p: Proto }) {
         <div className="mx-auto max-w-[760px]">
           <div className="mb-4 flex items-center gap-2 text-[11px]" style={{ color: "var(--color-text-4)" }}>
             <span className="display-serif text-[14px]" style={{ color: "var(--color-text-2)" }}>{M.SOURCE_FILE_NAME}</span>
-            {cand ? "· 候选对比：左栏现有 / 右栏候选" : "· 拖动集之间的标记调整边界 · 游标之后悬停句间隙可手工切分"}
+            {cand ? "· 对比新方案：左侧现有分集，右侧新方案" : "· 拖动两集之间的分界标记可调整范围"}
           </div>
           {rows}
         </div>
@@ -462,6 +490,21 @@ export function VariantB({ p }: { p: Proto }) {
       <UploadDialog p={p} open={uploadOpen} onClose={() => setUploadOpen(false)} />
       <ReplanDialog p={p} fromId={replanFrom} onClose={() => setReplanFrom(null)} />
       {confirmNode}
+    </div>
+  );
+}
+
+/** 按批显示进度：每批是一次非流式调用，批内没有更细的进度，当前批用不定进度动画 */
+function BatchBar({ done, total }: { done: number; total: number }) {
+  return (
+    <div className="flex gap-1">
+      {Array.from({ length: total }, (_, i) => (
+        <div key={i} className="h-1 flex-1 overflow-hidden rounded-full" style={{ background: "var(--color-hairline)" }}>
+          {i < done && <div className="h-full w-full" style={{ background: "var(--color-accent)" }} />}
+          {i === done && <div className="h-full w-1/3" style={{ background: "var(--color-accent)", animation: "arc-proto-indet 1.2s ease-in-out infinite" }} />}
+        </div>
+      ))}
+      <style>{"@keyframes arc-proto-indet{0%{transform:translateX(-100%)}100%{transform:translateX(300%)}}"}</style>
     </div>
   );
 }

@@ -36,8 +36,8 @@ export function EpPills({ ep, withOrigin = true }: { ep: M.Ep; withOrigin?: bool
   return (
     <>
       {withOrigin && <OriginPill ep={ep} />}
-      {ep.hasArtifacts && <Pill tone="ok">有产物</Pill>}
-      {ep.stale && <Pill tone="replan" title="该集号的原文已被重新规划或手工切分改动，旧产物与新原文错位">原文已重新规划</Pill>}
+      {ep.hasArtifacts && <Pill tone="ok">已开始制作</Pill>}
+      {ep.stale && <Pill tone="replan" title="这一集的原文范围已变更，之前生成的内容可能与新原文不一致">原文已重新规划</Pill>}
       {ep.fresh && <Pill tone="accent">新</Pill>}
     </>
   );
@@ -80,7 +80,7 @@ export function AffectedList({ eps, note }: { eps: M.Ep[]; note?: string }) {
         {eps.map((e) => (
           <li key={e.id} className="flex items-center gap-2">
             <span className="num">第 {e.id} 集</span> {e.title}
-            {e.hasArtifacts && <Pill tone="ok">有产物</Pill>}
+            {e.hasArtifacts && <Pill tone="ok">已开始制作</Pill>}
           </li>
         ))}
       </ul>
@@ -95,7 +95,7 @@ export function guardArtifacts(ask: (r: ConfirmReq) => void, touched: M.Ep[], ti
   if (hit.length === 0) { run(); return; }
   ask({
     title,
-    body: <AffectedList eps={hit} note="这些集已有产物，改动后会标记「原文已重新规划」，产物保留、删不删由你决定。" />,
+    body: <AffectedList eps={hit} note="以下集已经生成过内容。修改后会标记为「原文已重新规划」，已生成的内容会保留，你可以之后再决定是否删除。" />,
     confirmLabel: "仍然修改",
     danger: true,
     onOk: run,
@@ -214,7 +214,7 @@ export function UploadDialog({ p, open, onClose }: { p: Proto; open: boolean; on
           <SecondaryButton size="sm" onClick={close}>取消</SecondaryButton>
           {mode === "per" && (
             <PrimaryButton size="sm" disabled={files.length === 0} onClick={() => { p.addOwnEpisodes(files.map(({ name, chars }) => ({ name, chars }))); close(); }}>
-              登记为第 {base}–{base + Math.max(files.length - 1, 0)} 集
+              添加为第 {base}–{base + Math.max(files.length - 1, 0)} 集
             </PrimaryButton>
           )}
         </div>
@@ -236,16 +236,16 @@ export function ReplanDialog({ p, fromId, onClose }: { p: Proto; fromId: number 
     <GlassModal open={fromId != null} onClose={onClose} labelledBy={titleId} widthClassName="w-full max-w-lg">
       <div className="space-y-3 p-5 text-[12.5px]" style={{ color: "var(--color-text-2)" }}>
         <h3 id={titleId} className="display-serif text-[16px] font-semibold" style={{ color: "var(--color-text)" }}>从第 {fromId} 集起重新规划</h3>
-        <p>AI 先产出候选规划，分集账本不动；看过候选的集清单和变更摘要后再决定采纳或放弃。</p>
-        <p>范围：第 {replaced.map((e) => e.id).join("、")} 集（{replaced.filter((e) => e.hasArtifacts).length} 集有产物）。</p>
+        <p>AI 会先生成一份新的分集方案供你预览。在你确认采纳之前，现有分集不会有任何变化。</p>
+        <p>将重新规划第 {replaced.map((e) => e.id).join("、")} 集，其中 {replaced.filter((e) => e.hasArtifacts).length} 集已开始制作。</p>
         {blockers.length > 0 && (
-          <p style={{ color: "oklch(0.8 0.14 60)" }}>范围内夹有其他来源的集：{blockers.map((e) => `第 ${e.id} 集`).join("、")}，不能从这里起重新规划。</p>
+          <p style={{ color: "oklch(0.8 0.14 60)" }}>{blockers.map((e) => `第 ${e.id} 集`).join("、")}的原文不来自整本源文，且位于重新规划的范围内，因此无法从这一集开始重新规划。</p>
         )}
-        {sourceBlocked && <p style={{ color: "oklch(0.8 0.14 60)" }}>整本源文已替换，只能从第 1 集起重新规划。</p>}
-        <textarea className={INPUT_CLS} rows={3} placeholder="附加指令（可选），例如：节奏再快一些，每集 1500 字左右" value={instr} onChange={(e) => setInstr(e.target.value)} />
+        {sourceBlocked && <p style={{ color: "oklch(0.8 0.14 60)" }}>整本源文已更换，请从第 1 集开始重新规划。</p>}
+        <textarea className={INPUT_CLS} rows={3} placeholder="附加要求（可选），例如：节奏再快一些，每集结尾留悬念" value={instr} onChange={(e) => setInstr(e.target.value)} />
         <div className="flex justify-end gap-2">
           <SecondaryButton size="sm" onClick={onClose}>取消</SecondaryButton>
-          <PrimaryButton size="sm" disabled={blockers.length > 0 || sourceBlocked || !!p.s.candidate} onClick={() => { if (fromId != null) p.beginReplan(fromId, instr); onClose(); }}>生成候选</PrimaryButton>
+          <PrimaryButton size="sm" disabled={blockers.length > 0 || sourceBlocked || !!p.s.candidate} onClick={() => { if (fromId != null) p.beginReplan(fromId, instr); onClose(); }}>开始规划</PrimaryButton>
         </div>
       </div>
     </GlassModal>
@@ -254,22 +254,34 @@ export function ReplanDialog({ p, fromId, onClose }: { p: Proto; fromId: number 
 
 // ---------------------------------------------------------------- 候选的变更摘要（各变体都可复用）
 
+function Row({ label, value, warn }: { label: string; value: ReactNode; warn?: boolean }) {
+  return (
+    <div className="flex gap-2">
+      <span className="w-[72px] shrink-0" style={{ color: "var(--color-text-4)" }}>{label}</span>
+      <span style={{ color: warn ? "oklch(0.85 0.08 200)" : "var(--color-text-2)" }}>{value}</span>
+    </div>
+  );
+}
+
 export function CandidateSummaryBlock({ p }: { p: Proto }) {
   const sum = M.candidateSummary(p.s);
   const c = p.s.candidate;
   if (!sum || !c) return null;
-  const moved = sum.mapping.filter((m) => m.oldId === undefined);
+  const oldChars = sum.replaced.reduce((n, e) => n + M.epChars(e), 0);
+  const newChars = c.eps.reduce((n, e) => n + M.charsOf(e.range), 0);
+  const avg = (n: number, k: number) => (k ? Math.round(n / k).toLocaleString() : "—");
   return (
-    <div className="space-y-1 text-[12px]" style={{ color: "var(--color-text-2)" }}>
-      <div>替换：第 {sum.replaced.map((e) => e.id).join("、") || "—"} 集（{sum.replaced.length} 集）→ 新规划 {sum.newCount} 集</div>
-      {sum.staleIds.length > 0 && <div>将标记「原文已重新规划」：第 {sum.staleIds.join("、")} 集（已有产物）</div>}
-      {sum.toNone.length > 0 && <div>用不完的旧集号转为无原文的集（产物保留）：第 {sum.toNone.join("、")} 集</div>}
-      {sum.removed.length > 0 && <div>移除（无产物）：第 {sum.removed.join("、")} 集</div>}
-      {moved.length > 0 && <div>接在最大集号之后：第 {moved.map((m) => m.newId).join("、")} 集</div>}
+    <div className="space-y-1 text-[12px]">
+      <Row label="集数" value={`${sum.replaced.length} 集 → ${sum.newCount} 集${c.status === "generating" ? "（规划中）" : ""}`} />
+      <Row label="平均每集" value={`${avg(oldChars, sum.replaced.length)} 字 → ${avg(newChars, sum.newCount)} 字`} />
+      <Row label="覆盖范围" value={`第 ${sum.replaced[0]?.id ?? "—"} 集起至${c.reached >= M.SOURCE_LEN ? "源文结尾" : `源文 ${Math.round((c.reached / M.SOURCE_LEN) * 100)}% 处`}`} />
+      {sum.staleIds.length > 0 && <Row warn label="需要复核" value={`第 ${sum.staleIds.join("、")} 集已开始制作，原文范围有变化，将标记「原文已重新规划」`} />}
+      {sum.toNone.length > 0 && <Row warn label="保留为无原文" value={`第 ${sum.toNone.join("、")} 集在新方案中没有对应原文；已生成的内容会保留，这些集转为无原文的集`} />}
+      {sum.removed.length > 0 && <Row label="将移除" value={`第 ${sum.removed.join("、")} 集（尚未开始制作）`} />}
+      {c.instructions && <Row label="附加要求" value={c.instructions} />}
       {c.status === "stopped" && !sum.adoptable && (
-        <div style={{ color: "oklch(0.8 0.14 60)" }}>候选中途停止且结尾落在某个旧集中间，不能采纳；可以放弃后重新生成。</div>
+        <div style={{ color: "oklch(0.8 0.14 60)" }}>新方案在中途停止，最后一集的结尾与现有分集的边界对不上，因此无法采纳。请放弃后重新规划。</div>
       )}
-      {c.instructions && <div style={{ color: "var(--color-text-4)" }}>附加指令：{c.instructions}</div>}
     </div>
   );
 }
@@ -284,8 +296,8 @@ export function CandidateActions({ p }: { p: Proto }) {
         <SecondaryButton size="sm" onClick={p.stopCandidate}>停止</SecondaryButton>
       ) : (
         <>
-          <SecondaryButton size="sm" onClick={p.discardCandidate}>放弃</SecondaryButton>
-          <PrimaryButton size="sm" disabled={!sum.adoptable} onClick={p.adoptCandidate}>采纳候选</PrimaryButton>
+          <SecondaryButton size="sm" onClick={p.discardCandidate}>放弃新方案</SecondaryButton>
+          <PrimaryButton size="sm" disabled={!sum.adoptable} onClick={p.adoptCandidate}>采纳新方案</PrimaryButton>
         </>
       )}
     </div>
