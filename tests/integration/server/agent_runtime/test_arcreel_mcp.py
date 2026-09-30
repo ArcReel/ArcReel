@@ -4,12 +4,20 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from unittest.mock import patch
 
+import pytest
+from claude_agent_sdk import ClaudeAgentOptions
 from mcp import types
 
+from lib.edit_timeline import EditTimelineService
 from lib.project.project_manager import ProjectManager
 from server.agent_runtime.arcreel_mcp import build_arcreel_mcp_server
+from server.agent_runtime.event_log import EventLogStore, build_user_entry
+from server.agent_runtime.session_manager import SessionManager
+from server.agent_runtime.session_store import SessionMetaStore
 from server.agent_toolset.toolset import ARCREEL_MCP_TOOL_IDS
+from tests.fakes import FakeSDKClient
 
 # ---------------------------------------------------------------------------
 # build_arcreel_mcp_server
@@ -109,3 +117,51 @@ def test_retired_tool_names_are_not_registered() -> None:
         "validate_and_promote_draft",
         "get_episode_script_revision",
     }.isdisjoint(ARCREEL_MCP_TOOL_IDS)
+
+
+@pytest.mark.parametrize("resume", [False, True], ids=["new", "resumed"])
+async def test_timeline_revision_records_the_session_turn(tmp_path: Path, file_db_factory, resume: bool) -> None:
+    projects = ProjectManager(tmp_path / "data")
+    projects.create_project("demo")
+    projects.create_project_metadata("demo", "Demo", "Anime", "narration")
+    projects.save_script(
+        "demo", {"episode": 1, "title": "E1", "content_mode": "narration", "segments": []}, "episode_1.json"
+    )
+    manager = SessionManager(
+        project_root=tmp_path,
+        data_root=projects.data_root,
+        meta_store=SessionMetaStore(session_factory=file_db_factory),
+        event_log_store=EventLogStore(session_factory=file_db_factory),
+    )
+    session_id = "sdk-timeline-turn"
+    client = FakeSDKClient(
+        messages=[
+            {"type": "system", "subtype": "init", "session_id": session_id, "uuid": "init-1"},
+            {"type": "result", "subtype": "success", "is_error": False, "session_id": session_id, "uuid": "r-1"},
+        ]
+    )
+    sdk_options: list[ClaudeAgentOptions] = []
+
+    def sdk_client(options: ClaudeAgentOptions) -> FakeSDKClient:
+        sdk_options.append(options)
+        return client
+
+    user_entry = build_user_entry([{"type": "text", "text": "开始剪辑"}])
+    with patch("server.agent_runtime.session_manager.ClaudeSDKClient", sdk_client):
+        if resume:
+            meta = await manager.meta_store.create("demo", session_id)
+            await manager.send_message(session_id, "开始剪辑", meta=meta, user_entry=user_entry)
+        else:
+            await manager.send_new_session("demo", "开始剪辑", user_entry=user_entry)
+    try:
+        servers = sdk_options[0].mcp_servers
+        assert isinstance(servers, dict)
+        config = servers["arcreel"]
+        assert "type" in config
+        assert config["type"] == "sdk"
+        created = await _call(config["instance"], "create_timeline", {"from": "script", "episode": 1, "name": "完整版"})
+        assert created.isError is False
+        [summary] = await EditTimelineService(projects).list_timelines("demo", episode=1)
+        assert (summary.updated_by.kind, summary.agent_turn) == ("arcreel_agent", user_entry["uuid"])
+    finally:
+        await manager.close_session(session_id)

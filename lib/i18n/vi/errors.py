@@ -588,4 +588,11 @@ MESSAGES = {
     "official_service_error_github_unavailable": "Dịch vụ chính thức hiện không kết nối được GitHub, vui lòng thử lại sau",
     "official_service_error_submissions_unconfigured": "Dịch vụ chính thức chưa mở nhận bài gửi",
     "official_service_error_submission_not_found": "Không tìm thấy bài gửi này",
+    # Edit timeline
+    "edit_timeline_not_found": "Không tìm thấy dòng thời gian dựng '{timeline_id}'",
+    "edit_timeline_revision_not_found": "Dòng thời gian dựng '{timeline_id}' không có phiên bản sửa {revision} (phiên bản mới nhất là {latest_revision})",
+    "edit_timeline_name_conflict": "Tập {episode} đã có dòng thời gian dựng tên '{name}'",
+    "edit_timeline_name_invalid": "Tên dòng thời gian dựng phải dài từ 1 đến 40 ký tự",
+    "edit_timeline_script_invalid": "Không phân tích được kịch bản của tập {episode}, nên không thể tạo dòng thời gian dựng từ kịch bản",
+    "edit_timeline_invalid": "Tệp dòng thời gian dựng bị hỏng, không đọc được: {file}",
 }

@@ -526,4 +526,11 @@ MESSAGES = {
     "official_service_error_github_unavailable": "官方服务暂时无法连接 GitHub，请稍后重试",
     "official_service_error_submissions_unconfigured": "官方服务暂未开放分享提交",
     "official_service_error_submission_not_found": "找不到这次提交",
+    # Edit timeline
+    "edit_timeline_not_found": "剪辑时间线「{timeline_id}」不存在",
+    "edit_timeline_revision_not_found": "剪辑时间线「{timeline_id}」没有修订 {revision}（最新修订为 {latest_revision}）",
+    "edit_timeline_name_conflict": "第 {episode} 集已有名为「{name}」的剪辑时间线",
+    "edit_timeline_name_invalid": "剪辑时间线显示名须为 1–40 个字符",
+    "edit_timeline_script_invalid": "第 {episode} 集的脚本无法解析，无法按脚本新建剪辑时间线",
+    "edit_timeline_invalid": "剪辑时间线文件已损坏，无法读取：{file}",
 }

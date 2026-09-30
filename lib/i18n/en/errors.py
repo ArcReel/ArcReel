@@ -588,4 +588,11 @@ MESSAGES = {
     "official_service_error_github_unavailable": "The official service cannot reach GitHub right now; please try again later",
     "official_service_error_submissions_unconfigured": "The official service is not accepting submissions yet",
     "official_service_error_submission_not_found": "Submission not found",
+    # Edit timeline
+    "edit_timeline_not_found": "Edit timeline '{timeline_id}' not found",
+    "edit_timeline_revision_not_found": "Edit timeline '{timeline_id}' has no revision {revision} (latest revision is {latest_revision})",
+    "edit_timeline_name_conflict": "Episode {episode} already has an edit timeline named '{name}'",
+    "edit_timeline_name_invalid": "Edit timeline display names must be 1–40 characters long",
+    "edit_timeline_script_invalid": "The script of episode {episode} cannot be parsed, so no edit timeline can be created from it",
+    "edit_timeline_invalid": "The edit timeline file is corrupted and cannot be read: {file}",
 }
