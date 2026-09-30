@@ -754,6 +754,20 @@ class AgentAccessPolicy:
     _PROTECTED_QUARANTINE_FILENAMES_NORM: ClassVar[frozenset[str]] = frozenset()
 
     @classmethod
+    def _is_protected_edit_timeline(cls, target: Path, bases: list[Path]) -> bool:
+        """命中剪辑时间线目录（``edit_timelines/`` 整子树，含目录本身）。
+
+        剪辑时间线的修订链与乐观并发只由剪辑时间线命令维护，直改会绕过修订与集内锁。
+        ``bases`` 与 target 的 raw/resolved 双形式口径同 ``_is_protected_project_json``。
+        """
+        target_s = cls._normalize_path_for_protected_compare(target)
+        for base in bases:
+            timelines_dir = cls._normalize_path_for_protected_compare(base / "edit_timelines")
+            if target_s == timelines_dir or target_s.startswith(timelines_dir + os.sep):
+                return True
+        return False
+
+    @classmethod
     def _is_protected_formal_script_plan(cls, target: Path, bases: list[Path]) -> bool:
         """命中受写禁的正式 script_plan（``drafts/episode_N/`` 下 ``AGENT_PROTECTED_SCRIPT_PLAN_FILENAMES``）。
 
@@ -794,6 +808,7 @@ class AgentAccessPolicy:
 #:
 #: - ``project_json``：「写入口收归」——``scripts/*.json`` 与 ``project.json`` 只能走 MCP
 #:   工具；两层投影同覆盖面（``scripts/`` 整子树 + ``project.json``）。
+#: - ``edit_timeline``：「写入口收归」——剪辑时间线只能经剪辑时间线工具追加修订；两层同覆盖面。
 #: - ``formal_script_plan``：「写入口持锁」——正式 script_plan 另有多条持同一把 per-path 锁的写入
 #:   路径，Write/Edit 取不到锁，直改即丢失更新窗口。两层刻意不对称：sandbox 按 ``drafts/``
 #:   整目录 deny（清单在会话装配期一次性构造，集是运行时增删的，逐文件枚举必然落空；Bash
@@ -808,6 +823,15 @@ AgentAccessPolicy.PROTECTED_WRITE_RULES = (
             "角色/场景/道具走 mcp__arcreel__patch_project，资产改名走 mcp__arcreel__rename_asset。"
         ),
         sandbox_subpaths=("scripts", "project.json"),
+    ),
+    ProtectedWriteRule(
+        name="edit_timeline",
+        matches=AgentAccessPolicy._is_protected_edit_timeline,
+        deny_message=(
+            "访问被拒绝：edit_timelines/ 下的剪辑时间线不可直接写入，每次剪辑都要经剪辑时间线工具追加修订；"
+            "新建走 mcp__arcreel__create_timeline，查看走 mcp__arcreel__read_timeline。"
+        ),
+        sandbox_subpaths=("edit_timelines",),
     ),
     ProtectedWriteRule(
         name="formal_script_plan",

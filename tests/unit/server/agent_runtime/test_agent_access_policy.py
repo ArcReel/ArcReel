@@ -143,6 +143,16 @@ def test_write_protected_project_json_denied(policy: AgentAccessPolicy, tool: st
 
 
 @pytest.mark.parametrize("tool", ["Write", "Edit"])
+@pytest.mark.parametrize("relative", ["edit_timelines/episode_1/tl-0000abcd.json", "edit_timelines/notes.md"])
+def test_write_edit_timeline_denied(policy: AgentAccessPolicy, tool: str, relative: str) -> None:
+    """剪辑时间线只能经剪辑时间线工具写入，报错指向工具。"""
+    cwd = _cwd(policy)
+    allowed, reason = policy.check_path_access(str(cwd / relative), tool, cwd, user_id=_USER_ID)
+    assert not allowed, f"{tool} {relative} 应被拒"
+    assert "create_timeline" in (reason or "")
+
+
+@pytest.mark.parametrize("tool", ["Write", "Edit"])
 @pytest.mark.parametrize(
     "relative",
     [
@@ -479,13 +489,14 @@ def test_build_sandbox_settings_in_docker_enables_weaker_nested(tmp_path: Path) 
 
 
 def test_build_sandbox_settings_denies_write_to_project_json(policy: AgentAccessPolicy) -> None:
-    """sandbox 启用时 denyWrite 覆盖 scripts/、project.json 与 drafts/（Bash 子进程内核级封堵）。"""
+    """sandbox 启用时 denyWrite 覆盖 scripts/、project.json、edit_timelines/ 与 drafts/（Bash 子进程内核级封堵）。"""
     cwd = _cwd(policy)
     settings = policy.build_sandbox_settings(cwd, user_id=_USER_ID)
     deny_write = settings["filesystem"]["denyWrite"]
     assert str(cwd / "scripts") in deny_write
     assert str(cwd / "project.json") in deny_write
     assert str(cwd / "drafts") in deny_write
+    assert str(cwd / "edit_timelines") in deny_write
 
 
 def test_build_sandbox_settings_denies_drafts_dir_not_per_episode_files(policy: AgentAccessPolicy) -> None:

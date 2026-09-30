@@ -20,6 +20,7 @@ from lib.artifacts.artifact_manifest import (
 )
 from lib.artifacts.formal_write import project_metadata_lock
 from lib.artifacts.version_manager import VersionManager
+from lib.edit_timeline import EditTimelineService, RevisionAuthor
 from lib.i18n import _
 from lib.infra.validation_messages import default_translate
 from lib.project.project_manager import ProjectManager
@@ -304,6 +305,24 @@ class TestProjectArchiveService:
         archive_path, _ = ProjectArchiveService(pm).export_project("demo", scope=scope)
         with zipfile.ZipFile(archive_path) as archive:
             assert "demo/end_frames/scene_E1S01.png" in set(archive.namelist())
+
+    @pytest.mark.parametrize("scope", ["full", "current"])
+    async def test_edit_timelines_round_trip_through_archive(self, tmp_path, scope):
+        """剪辑时间线是正式内容：随归档导出，导入后原样可读。"""
+        pm = ProjectManager(tmp_path / "projects")
+        _create_project(pm)
+        timelines = EditTimelineService(pm)
+        created = await timelines.create_from_script(
+            "demo", episode=1, name="完整版", author=RevisionAuthor(kind="creator")
+        )
+        service = ProjectArchiveService(pm)
+
+        archive_path, _ = service.export_project("demo", scope=scope)
+        shutil.rmtree(pm.get_project_path("demo"))
+        service.import_project_archive(archive_path, uploaded_filename="demo.zip")
+
+        imported = await timelines.read("demo", created.timeline.id)
+        assert imported == created
 
     def test_export_excludes_agent_runtime_symlinks(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")

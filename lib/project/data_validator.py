@@ -163,6 +163,7 @@ class DataValidator:
         "source",
         "scripts",
         "drafts",
+        "edit_timelines",
         "characters",
         "scenes",
         "props",

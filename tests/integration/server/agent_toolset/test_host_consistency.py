@@ -40,6 +40,7 @@ from server.agent_toolset.declaration import (
     UnscopedToolDeclaration,
     tool_description,
 )
+from server.agent_toolset.edit_timelines import CREATE_TIMELINE, READ_TIMELINE
 from server.agent_toolset.embedded import embedded_server
 from server.agent_toolset.envelope import json_value
 from server.agent_toolset.generation_batches import CANCEL_GENERATION_BATCH, GET_GENERATION_BATCH
@@ -127,6 +128,9 @@ SAMPLE_ARGUMENTS: dict[str, dict[str, Any]] = {
     "complete_script_plan_rebuild": {"episode": 1, "expected_stale_script_plan_revision": None},
     "generate_videos": {"script": "episode_1.json", "target": {"scope": "all"}},
     "select_video_version": {"unit_id": "E1S01", "version": 1},
+    "create_timeline": {"from": "script", "episode": 1, "name": "完整版"},
+    "list_timelines": {"episode": 1},
+    "read_timeline": {"timeline": "tl-0000abcd"},
 }
 
 _DECLARATIONS = pytest.mark.parametrize("declaration", AGENT_TOOLSET, ids=lambda declaration: declaration.name)
@@ -497,7 +501,7 @@ def _twin_services(seeded_projects: ProjectManager, tmp_path: Path) -> Services:
 
 
 # 真实 handler 的结果随调用时刻变化，两次调用无法逐字比较；透传一致性由其余用例的 fake handler 覆盖。
-_TIME_DEPENDENT_RESULTS = frozenset({CREATE_PROJECT.name})
+_TIME_DEPENDENT_RESULTS = frozenset({CREATE_PROJECT.name, CREATE_TIMELINE.name})
 
 # 样例入参下合法地返回 problem 的声明：测试项目缺少它们要找的对象或能力配置。其余声明在样例入参下必须成功。
 _PROBLEM_ON_SAMPLE = frozenset(
@@ -514,6 +518,7 @@ _PROBLEM_ON_SAMPLE = frozenset(
         PATCH_EPISODE_SCRIPT.name,
         SPLIT_GRIDS.name,
         SELECT_VIDEO_VERSION.name,
+        READ_TIMELINE.name,
         COMPLETE_ASSET_INVENTORY.name,
         COMPLETE_SCRIPT_PLAN_REBUILD.name,
     }

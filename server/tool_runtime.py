@@ -204,12 +204,17 @@ class CallerContext:
     """调用方身份与宿主。
 
     ``source`` 决定长任务阻塞还是即返：``embedded`` 由 ``batch_waiter`` 入队并等到批次终态，
-    ``mcp`` 提交后立即返回批次句柄、不需要等待器。
+    ``mcp`` 提交后立即返回批次句柄、不需要等待器。``agent_turn`` 在调用时给出 ArcReel Agent
+    当前所在的轮次；外部 Agent 没有轮次。
     """
 
     user_id: str
     source: Literal["embedded", "mcp"]
     batch_waiter: BatchWaiter | None = None
+    agent_turn: Callable[[], str | None] | None = None
+
+    def current_agent_turn(self) -> str | None:
+        return self.agent_turn() if self.agent_turn is not None else None
 
     def waiting_with(self, **options: Any) -> CallerContext:
         """给等待器绑定额外选项（如 ``on_enqueued`` / ``stop_on_failure``）；没有等待器时原样返回。"""

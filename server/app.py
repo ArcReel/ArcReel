@@ -62,6 +62,7 @@ from server.routers import (
     cost_estimation,
     custom_endpoints,
     custom_providers,
+    edit_timelines,
     end_frames,
     files,
     generate,
@@ -600,6 +601,9 @@ app.include_router(scenes.router, prefix="/api/v1", dependencies=[Depends(get_cu
 app.include_router(props.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["道具管理"])
 app.include_router(products.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["商品管理"])
 app.include_router(presentations.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["成片演示"])
+app.include_router(
+    edit_timelines.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["剪辑时间线"]
+)
 app.include_router(files.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["文件管理"])
 app.include_router(
     generate.router,
