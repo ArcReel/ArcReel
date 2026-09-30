@@ -14,7 +14,7 @@ import * as M from "./model";
 import type { Proto } from "./useProto";
 import {
   AffectedList, CandidateActions, CandidateSummaryBlock, EditDialog, EpPills, ExternalBanners, FRESH_STYLE, ImpactBody, KindSelect,
-  OriginPill, Pill, ReplaceDialog, ReplanDialog, UploadDialog, WARN, epColor, guardArtifacts, useConfirm, useImpact,
+  NewEpisodeDialog, OriginPill, Pill, PlanModePicker, ReplaceDialog, ReplanDialog, UploadDialog, WARN, epColor, guardArtifacts, useConfirm, useImpact,
   type ImpactReq,
 } from "./shared";
 
@@ -64,6 +64,8 @@ export function View({ p, variant }: { p: Proto; variant: VariantKey }) {
   const [replaceId, setReplaceId] = useState<string | null>(null);
   const [editId, setEditId] = useState<string | null>(null);
   const [manageOpen, setManageOpen] = useState(false);
+  const [newEp, setNewEp] = useState<{ after: number | null } | null>(null);
+  const [batch, setBatch] = useState(false);
   const [activeFileRaw, setActiveFile] = useState<string>(s.files[0]?.id ?? "");
   const [confirmNode, ask] = useConfirm();
   const [impactNode, askImpact] = useImpact(p);
@@ -78,7 +80,8 @@ export function View({ p, variant }: { p: Proto; variant: VariantKey }) {
   const cand = s.candidate;
   const sum = M.candidateSummary(s);
   const replanStart = cand ? M.replanStart(s, cand.fromEp) : 0;
-  const candRanges = sum?.mapping.map((m) => ({ id: m.newId, range: m.cand.range })) ?? [];
+  const candIds = M.candidateIds(s);
+  const candRanges = cand?.eps.map((c, i) => ({ id: candIds[i], range: c.range })) ?? [];
   const editing = !cand && !s.planning;
   const lockedFiles = new Set(s.files.filter((f) => f.pendingText != null).map((f) => f.id));
 
@@ -464,6 +467,25 @@ export function View({ p, variant }: { p: Proto; variant: VariantKey }) {
     confirmLabel: "清除", danger: true, onOk: () => p.removeCutsAfter(ep.id),
   });
 
+  const removeEp = (ep: M.Ep) => ask({
+    title: `删除${M.label(s, ep.id)}《${ep.title}》`,
+    body: (
+      <div className="space-y-1.5 text-[12px]" style={{ color: "var(--color-text-2)" }}>
+        {ep.hasArtifacts && <p style={{ color: WARN }}>这一集已经生成的脚本、分镜图和视频会一起删除，无法恢复。</p>}
+        {ep.origin === "cut" && <p>它那段原文会回到「未切分的原文」，之后可以手工切出或重新规划。</p>}
+        <p style={{ color: "var(--color-text-3)" }}>之后的集依次前移。</p>
+      </div>
+    ),
+    confirmLabel: "删除", danger: true, onOk: () => { p.deleteEp(ep.id); setSelected(null); },
+  });
+
+  const commonActions = (ep: M.Ep) => (
+    <>
+      <SecondaryButton size="sm" onClick={() => setNewEp({ after: ep.id })}>在这一集之后新建</SecondaryButton>
+      <SecondaryButton size="sm" leadingIcon={<Trash2 className="h-3 w-3" />} onClick={() => removeEp(ep)}>删除这一集</SecondaryButton>
+    </>
+  );
+
   const epActions = (ep: M.Ep) => {
     const nx = M.nextCut(s, ep.id);
     const ok = M.canRestructure(s, ep.id);
@@ -472,6 +494,7 @@ export function View({ p, variant }: { p: Proto; variant: VariantKey }) {
         <SecondaryButton size="sm" onClick={() => setReplanFrom(ep.id)}>从这一集开始重新规划</SecondaryButton>
         <SecondaryButton size="sm" disabled={!nx || !ok} onClick={() => p.mergeWithNext(ep.id)}>与下一集合并</SecondaryButton>
         <SecondaryButton size="sm" disabled={M.affectedByRemoveAfter(s, ep.id).length === 0} onClick={() => removeAfter(ep)}>清除之后的分集</SecondaryButton>
+        {commonActions(ep)}
       </div>
     );
   };
@@ -486,6 +509,7 @@ export function View({ p, variant }: { p: Proto; variant: VariantKey }) {
         </div>
         <div className="num text-[10.5px]" style={{ color: "var(--color-text-4)" }}>{M.readLabel(M.epChars(s, e))}</div>
         <div className="truncate text-[11px]" style={{ color: "var(--color-text-3)" }}>开头：{M.headExcerpt(s, e.range)}</div>
+        <div className="truncate text-[11px]" style={{ color: "var(--color-text-3)" }}>结尾：{M.tailExcerpt(s, e.range)}</div>
       </button>
       {selected === e.id && epActions(e)}
     </div>
@@ -533,7 +557,24 @@ export function View({ p, variant }: { p: Proto; variant: VariantKey }) {
       <div className="rounded-md p-2.5" style={{ background: "oklch(0.21 0.01 265 / 0.6)", border: "1px solid var(--color-hairline-soft)" }}>
         <CandidateSummaryBlock p={p} />
       </div>
-      <p className="text-[11px]" style={{ color: "var(--color-text-4)" }}>（重新规划沿用 #2767 原型，不在本票评审范围）</p>
+      {cand.status === "generating" && <ProgressBar value={(cand.reached - cand.start) / Math.max(1, lay.len - cand.start)} />}
+      <p className="text-[11.5px]" style={{ color: "var(--color-text-3)" }}>
+        左侧色条是现有分集，右侧是新方案；<span style={{ color: DIFF }}>琥珀色虚线</span>标出分界不同的位置。采纳之前，现有分集不会变化。
+      </p>
+      <div className="text-[10.5px] uppercase tracking-[0.14em]" style={{ color: "var(--color-text-4)" }}>新方案的集</div>
+      <div className="space-y-1">
+        {cand.eps.map((c, i) => (
+          <div key={candIds[i]} className="rounded px-2 py-1.5 text-[12px]" style={{ borderLeft: `3px dashed ${epColor(candIds[i])}`, background: "oklch(0.21 0.01 265 / 0.5)" }}>
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="num" style={{ color: epColor(candIds[i]) }}>{M.charsOf(s, c.range).toLocaleString()} 字</span>
+              <span>{c.title}</span>
+              <span className="text-[10.5px]" style={{ color: "var(--color-text-4)" }}>{M.fileAt(s, c.range[0]).name}</span>
+            </div>
+            <div className="truncate text-[11px]" style={{ color: "var(--color-text-3)" }}>钩子：{c.hook}</div>
+          </div>
+        ))}
+        {cand.status === "generating" && <div className="px-2 text-[11px]" style={{ color: "var(--color-text-4)" }}>之后的集等待规划…</div>}
+      </div>
       <CandidateActions p={p} />
     </div>
   ) : (
@@ -545,7 +586,7 @@ export function View({ p, variant }: { p: Proto; variant: VariantKey }) {
           <span className="num text-[11px]" style={{ color: "var(--color-text-4)" }}>{s.episodes.length} 集</span>
           <div className="flex-1" />
           <SecondaryButton size="sm" leadingIcon={<Upload className="h-3.5 w-3.5" />} onClick={() => setUploadOpen(true)}>上传原文</SecondaryButton>
-          <SecondaryButton size="sm" leadingIcon={<Plus className="h-3.5 w-3.5" />} onClick={p.addBlankEpisode}>新建一集</SecondaryButton>
+          <SecondaryButton size="sm" leadingIcon={<Plus className="h-3.5 w-3.5" />} onClick={() => setNewEp({ after: null })}>新建一集</SecondaryButton>
         </div>
         {variant === "B" ? (
           <FilesPanelB p={p} ops={fileOps} disabled={opsDisabled} locked={lockedFiles} onJump={scrollToFile} />
@@ -564,11 +605,14 @@ export function View({ p, variant }: { p: Proto; variant: VariantKey }) {
               <div className="flex-1" />
               <SecondaryButton size="sm" leadingIcon={<Square className="h-3 w-3" />} onClick={p.stopPlanning}>停止</SecondaryButton>
             </div>
+            <ProgressBar value={(s.planning.pos - s.planning.from) / Math.max(1, s.planning.until - s.planning.from)} />
+            <div className="text-[11px]" style={{ color: "var(--color-text-3)" }}>新分出的集会陆续出现在列表中。停止后，已分出的集会保留。</div>
           </div>
         ) : firstTail ? (
           <>
             <textarea className={INPUT_CLS} rows={2} placeholder="附加要求（可选）" value={instr} onChange={(e) => setInstr(e.target.value)} />
-            <PrimaryButton size="sm" disabled={!editing || tailLocked} onClick={() => { cancel(); p.beginPlanning(instr); }}>{cuts.length ? "AI 规划剩余内容" : "AI 规划分集"}</PrimaryButton>
+            <PlanModePicker batch={batch} onChange={setBatch} />
+            <PrimaryButton size="sm" disabled={!editing || tailLocked} onClick={() => { cancel(); p.beginPlanning(instr, batch); }}>{cuts.length ? "AI 规划剩余内容" : "AI 规划分集"}</PrimaryButton>
             <div className="text-[11px]" style={{ color: "var(--color-text-4)" }}>从最后一个切出的集之后（{firstTail.file.name}）接着规划到源文结尾；中间未切分的原文用「规划这段」单独规划。</div>
           </>
         ) : (
@@ -584,12 +628,15 @@ export function View({ p, variant }: { p: Proto; variant: VariantKey }) {
       <div className="space-y-1">
         <div className="text-[10.5px] uppercase tracking-[0.14em]" style={{ color: "var(--color-text-4)" }}>其他集</div>
         {others.map((e) => (
-          <div key={e.id} className="flex flex-wrap items-center gap-1.5 rounded-md px-2 py-1.5 text-[12px]" style={e.fresh ? FRESH_STYLE : undefined}>
-            <span className="num" style={{ color: "var(--color-text-2)" }}>{M.label(s, e.id)}</span>
-            <span>{e.title}</span>
-            <OriginPill ep={e} />
-            {e.origin === "own" && e.ownKind && <Pill>{M.KIND_LABEL[e.ownKind]}</Pill>}
-            <EpPills ep={e} withOrigin={false} />
+          <div key={e.id} className="rounded-md" style={{ background: selected === e.id ? "var(--color-accent-dim)" : undefined, ...(e.fresh ? FRESH_STYLE : {}) }}>
+            <button type="button" onClick={() => setSelected(e.id)} className="flex w-full flex-wrap items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-[12px] hover:bg-[oklch(0.26_0.012_265/0.5)]">
+              <span className="num" style={{ color: "var(--color-text-2)" }}>{M.label(s, e.id)}</span>
+              <span>{e.title}</span>
+              <OriginPill ep={e} />
+              {e.origin === "own" && e.ownKind && <Pill>{M.KIND_LABEL[e.ownKind]}</Pill>}
+              <EpPills ep={e} withOrigin={false} />
+            </button>
+            {selected === e.id && <div className="flex flex-wrap gap-1.5 px-2 pb-2">{commonActions(e)}</div>}
           </div>
         ))}
       </div>
@@ -648,6 +695,7 @@ export function View({ p, variant }: { p: Proto; variant: VariantKey }) {
       <ReplanDialog p={p} fromId={replanFrom} onClose={() => setReplanFrom(null)} />
       <ReplaceDialog p={p} fileId={replaceId} onClose={() => setReplaceId(null)} onNext={onNext} />
       <EditDialog p={p} fileId={editId} onClose={() => setEditId(null)} onNext={onNext} />
+      <NewEpisodeDialog p={p} open={!!newEp} afterId={newEp?.after ?? null} onClose={() => setNewEp(null)} />
       {variant === "C" && <ManageFilesDialog p={p} open={manageOpen} onClose={() => setManageOpen(false)} />}
       {confirmNode}
       {impactNode}
@@ -818,5 +866,13 @@ function ManageFilesDialog({ p, open, onClose }: { p: Proto; open: boolean; onCl
         </div>
       </div>
     </GlassModal>
+  );
+}
+
+function ProgressBar({ value }: { value: number }) {
+  return (
+    <div className="relative h-1 overflow-hidden rounded-full" style={{ background: "var(--color-hairline)" }}>
+      <div className="absolute inset-y-0 left-0" style={{ width: `${Math.min(1, value) * 100}%`, background: "var(--color-accent)" }} />
+    </div>
   );
 }

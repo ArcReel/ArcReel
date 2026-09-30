@@ -273,8 +273,9 @@ export function UploadDialog({ p, open, onClose }: { p: Proto; open: boolean; on
     else setAdded(keys.map((k) => added.find((x) => x.key === k)!));
   };
 
-  const close = () => { setAdded([]); setOrder(null); onClose(); };
-  const base = p.s.episodes.length + 1;
+  const [after, setAfter] = useState<number | null>(null);
+  const close = () => { setAdded([]); setOrder(null); setAfter(null); onClose(); };
+  const base = after == null ? p.s.episodes.length + 1 : M.posOf(p.s, after) + 1;
   const setRowKind = (key: string, k: M.Kind) => setAdded((prev) => prev.map((x) => (x.key === key ? { ...x, kind: k } : x)));
 
   const submit = () => {
@@ -282,7 +283,7 @@ export function UploadDialog({ p, open, onClose }: { p: Proto; open: boolean; on
       const files: M.SrcFile[] = added.map((x) => ({ id: x.key, name: x.name, kind: x.kind, text: x.text }));
       p.commit(M.insertFiles(p.s, files, rows.map((r) => r.key)));
     } else {
-      p.addOwnEpisodes(added.map((x) => ({ name: x.name, chars: x.text.replace(/\n/g, "").length, kind: x.kind })));
+      p.addOwnEpisodes(added.map((x) => ({ name: x.name, chars: x.text.replace(/\n/g, "").length, kind: x.kind })), after);
     }
     close();
   };
@@ -330,10 +331,10 @@ export function UploadDialog({ p, open, onClose }: { p: Proto; open: boolean; on
 
         {rows.length > 0 && (
           <div>
-            <div className="mb-1 text-[11px]" style={{ color: "var(--color-text-4)" }}>
+            <div className="mb-1.5 text-[11px]" style={{ color: "var(--color-text-4)" }}>
               {mode === "whole"
                 ? "整本源文按下面的顺序连成一整本。新文件默认接在末尾，拖动可以放到任意位置；新文件是未切分的原文，放在哪里都不影响已切出的集。"
-                : `按列表顺序添加到播出顺序末尾（第 ${base} 集起），拖动可调整顺序。`}
+                : <span className="inline-flex flex-wrap items-center gap-1.5">按列表顺序放在 <PositionSelect s={p.s} value={after} onChange={setAfter} />，拖动可调整顺序，之后的集顺延。</span>}
             </div>
             <table className="w-full text-[12.5px]">
               <tbody>
@@ -478,11 +479,27 @@ export function ExternalBanners({ p, onReview }: { p: Proto; onReview: (r: Impac
   );
 }
 
-// ---------------------------------------------------------------- 重新规划（沿用 #2767，按 #2796 不再拦截）
+// ---------------------------------------------------------------- 规划选项（一键规划与重新规划共用，#2775）
+
+export function PlanModePicker({ batch, onChange }: { batch: boolean; onChange: (b: boolean) => void }) {
+  return (
+    <div className="flex gap-1.5 text-[11.5px]">
+      {([false, true] as const).map((b) => (
+        <label key={String(b)} className={radioCardClass(batch === b)} style={{ padding: "2px 10px" }}>
+          <input type="radio" className="sr-only" checked={batch === b} onChange={() => onChange(b)} />
+          {b ? "先规划一批" : "规划到源文结尾"}
+        </label>
+      ))}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------- 重新规划（#2775 / #2795 / #2796）
 
 export function ReplanDialog({ p, fromId, onClose }: { p: Proto; fromId: number | null; onClose: () => void }) {
   const titleId = useId();
   const [instr, setInstr] = useState("");
+  const [batch, setBatch] = useState(false);
   const replaced = fromId != null ? M.cutEps(p.s).filter((e) => e.range![0] >= M.replanStart(p.s, fromId)) : [];
   const made = replaced.filter((e) => e.hasArtifacts);
   return (
@@ -490,11 +507,12 @@ export function ReplanDialog({ p, fromId, onClose }: { p: Proto; fromId: number 
       <div className="space-y-3 p-5 text-[12.5px]" style={{ color: "var(--color-text-2)" }}>
         <h3 id={titleId} className="display-serif text-[16px] font-semibold" style={{ color: "var(--color-text)" }}>从{fromId != null ? M.label(p.s, fromId) : ""}起重新规划</h3>
         <p>AI 会先生成一份新的分集方案供你预览。在你确认采纳之前，现有分集不会有任何变化。</p>
-        <p>将重新规划 {replaced.length} 集{made.length ? `，其中 ${made.map((e) => M.label(p.s, e.id)).join("、")} 已开始制作。` : "。"}</p>
+        <p>采纳后，这一集及之后从整本源文切出的 {replaced.length} 集会被新方案替换{made.length ? `，其中 ${made.map((e) => M.label(p.s, e.id)).join("、")} 已开始制作，会保留已生成的内容、转为无原文的集。` : "。"}</p>
+        <PlanModePicker batch={batch} onChange={setBatch} />
         <textarea className={INPUT_CLS} rows={3} placeholder="附加要求（可选）" value={instr} onChange={(e) => setInstr(e.target.value)} />
         <div className="flex justify-end gap-2">
           <SecondaryButton size="sm" onClick={onClose}>取消</SecondaryButton>
-          <PrimaryButton size="sm" disabled={!!p.s.candidate} onClick={() => { if (fromId != null) p.beginReplan(fromId, instr); onClose(); }}>开始规划</PrimaryButton>
+          <PrimaryButton size="sm" disabled={!!p.s.candidate} onClick={() => { if (fromId != null) p.beginReplan(fromId, instr, batch); onClose(); }}>开始规划</PrimaryButton>
         </div>
       </div>
     </GlassModal>
@@ -515,13 +533,19 @@ export function CandidateSummaryBlock({ p }: { p: Proto }) {
   const sum = M.candidateSummary(s);
   const c = s.candidate;
   if (!sum || !c) return null;
-  const lab = (ids: number[]) => ids.map((id) => M.label(s, id)).join("、");
+  const lab = (eps: M.Ep[]) => eps.map((e) => M.label(s, e.id)).join("、");
+  const oldChars = sum.replaced.reduce((n, e) => n + M.epChars(s, e), 0);
+  const newChars = c.eps.reduce((n, e) => n + M.charsOf(s, e.range), 0);
+  const avg = (n: number, k: number) => (k ? Math.round(n / k).toLocaleString() : "—");
+  const settled = c.status !== "generating";
   return (
     <div className="space-y-1 text-[12px]">
-      <Row label="集数" value={`${sum.replaced.length} 集 → ${sum.newCount} 集${c.status === "generating" ? "（规划中）" : ""}`} />
-      {sum.staleIds.length > 0 && <Row warn label="需要复核" value={`${lab(sum.staleIds)} 已开始制作，原文范围有变化`} />}
-      {c.status !== "generating" && sum.toNone.length > 0 && <Row warn label="保留为无原文" value={lab(sum.toNone)} />}
-      {c.status !== "generating" && sum.removed.length > 0 && <Row label="将移除" value={lab(sum.removed)} />}
+      <Row label="集数" value={`${sum.replaced.length} 集 → ${sum.newCount} 集${settled ? "" : "（规划中）"}`} />
+      <Row label="平均每集" value={`${avg(oldChars, sum.replaced.length)} 字 → ${avg(newChars, sum.newCount)} 字`} />
+      <Row label="覆盖范围" value={c.reached >= M.L(s).len ? `${M.label(s, c.fromEp)}起至源文结尾` : `${M.label(s, c.fromEp)}起至源文 ${Math.round((c.reached / M.L(s).len) * 100)}% 处；之后的原文回到未分集`} />
+      {settled && sum.retiredKept.length > 0 && <Row warn label="退下的集" value={`${lab(sum.retiredKept)} 已开始制作，保留已生成的内容，转为无原文的集并移到最后`} />}
+      {settled && sum.removed.length > 0 && <Row label="将移除" value={`${lab(sum.removed)}（尚未开始制作）`} />}
+      {settled && sum.moved.length > 0 && <Row label="位置变化" value={sum.moved.map((m) => `${m.ep.title} 第 ${m.from} → ${m.to} 集`).join("；")} />}
       {c.instructions && <Row label="附加要求" value={c.instructions} />}
     </div>
   );
@@ -529,18 +553,64 @@ export function CandidateSummaryBlock({ p }: { p: Proto }) {
 
 export function CandidateActions({ p }: { p: Proto }) {
   const c = p.s.candidate;
-  if (!c) return null;
+  const sum = M.candidateSummary(p.s);
+  const [del, setDel] = useState(false);
+  if (!c || !sum) return null;
+  if (c.status === "generating") return <SecondaryButton size="sm" onClick={p.stopCandidate}>停止</SecondaryButton>;
   return (
-    <div className="flex items-center gap-2">
-      {c.status === "generating" ? (
-        <SecondaryButton size="sm" onClick={p.stopCandidate}>停止</SecondaryButton>
-      ) : (
-        <>
-          <SecondaryButton size="sm" onClick={p.discardCandidate}>放弃新方案</SecondaryButton>
-          <PrimaryButton size="sm" onClick={p.adoptCandidate}>采纳新方案</PrimaryButton>
-        </>
+    <div className="space-y-2">
+      {sum.retiredKept.length > 0 && (
+        <label className="flex items-center gap-1.5 text-[11.5px]" style={{ color: "var(--color-text-3)" }}>
+          <input type="checkbox" checked={del} onChange={(e) => setDel(e.target.checked)} />
+          一并删除退下的 {sum.retiredKept.length} 集及其已生成的内容
+        </label>
       )}
+      <div className="flex items-center gap-2">
+        <SecondaryButton size="sm" onClick={p.discardCandidate}>放弃新方案</SecondaryButton>
+        {c.status === "stopped" && <SecondaryButton size="sm" onClick={p.continueCandidate}>继续规划</SecondaryButton>}
+        <PrimaryButton size="sm" disabled={!sum.adoptable} onClick={() => p.adoptCandidate(del)}>采纳新方案</PrimaryButton>
+      </div>
     </div>
+  );
+}
+
+// ---------------------------------------------------------------- 新建一集（可插在任意一集之后，#2795）
+
+export function PositionSelect({ s, value, onChange }: { s: M.ProtoState; value: number | null; onChange: (v: number | null) => void }) {
+  return (
+    <select
+      aria-label="放在"
+      value={value ?? ""}
+      onChange={(e) => onChange(e.target.value === "" ? null : Number(e.target.value))}
+      className="max-w-[260px] rounded bg-transparent px-1.5 py-0.5 text-[12px] outline-none"
+      style={{ border: "1px solid var(--color-hairline-strong)", color: "var(--color-text-2)" }}
+    >
+      <option value="">末尾</option>
+      {s.episodes.map((e, i) => <option key={e.id} value={e.id}>第 {i + 1} 集《{e.title}》之后</option>)}
+    </select>
+  );
+}
+
+export function NewEpisodeDialog({ p, open, afterId, onClose }: { p: Proto; open: boolean; afterId: number | null; onClose: () => void }) {
+  const titleId = useId();
+  const [title, setTitle] = useState("");
+  const [after, setAfter] = useState<number | null | undefined>(undefined);
+  const pos = after === undefined ? afterId : after;
+  const close = () => { setTitle(""); setAfter(undefined); onClose(); };
+  const n = pos == null ? p.s.episodes.length + 1 : M.posOf(p.s, pos) + 1;
+  return (
+    <GlassModal open={open} onClose={close} labelledBy={titleId} widthClassName="w-full max-w-md">
+      <div className="space-y-3 p-5 text-[12.5px]" style={{ color: "var(--color-text-2)" }}>
+        <h3 id={titleId} className="display-serif text-[16px] font-semibold" style={{ color: "var(--color-text)" }}>新建一集</h3>
+        <input className={INPUT_CLS} placeholder="标题" value={title} onChange={(e) => setTitle(e.target.value)} />
+        <div className="flex items-center gap-2">放在 <PositionSelect s={p.s} value={pos} onChange={setAfter} /></div>
+        <p className="text-[11.5px]" style={{ color: "var(--color-text-4)" }}>新的一集没有原文，可以在集页面补充原文或直接写脚本。将成为第 {n} 集，之后的集顺延。</p>
+        <div className="flex justify-end gap-2">
+          <SecondaryButton size="sm" onClick={close}>取消</SecondaryButton>
+          <PrimaryButton size="sm" onClick={() => { p.addBlankEpisode(title, pos); close(); }}>新建为第 {n} 集</PrimaryButton>
+        </div>
+      </div>
+    </GlassModal>
   );
 }
 

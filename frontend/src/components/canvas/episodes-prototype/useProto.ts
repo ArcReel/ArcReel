@@ -7,6 +7,7 @@ const TICK_MS = 2000;
 
 export function useProto() {
   const [s, setS] = useState<M.ProtoState>(M.initialState);
+  const [base, setBase] = useState<M.ProtoState | null>(null);
 
   useEffect(() => {
     if (!s.planning) return;
@@ -23,10 +24,16 @@ export function useProto() {
   const run = useCallback(<A extends unknown[]>(fn: (s: M.ProtoState, ...a: A) => M.ProtoState) =>
     (...a: A) => setS((p) => fn(p, ...a)), []);
 
+  const load = useCallback((st: M.ProtoState) => { setBase(st); setS(st); }, []);
+
   return {
     s,
+    source: base ? "real" as const : "sample" as const,
     commit: (next: M.ProtoState) => setS(next),
-    reset: () => setS(M.initialState()),
+    /** 装载真实项目的初始状态；重置时回到它 */
+    load,
+    reset: () => setS(base ?? M.initialState()),
+    loadSample: () => { setBase(null); setS(M.initialState()); },
     beginPlanning: run(M.beginPlanning),
     beginGapPlanning: run(M.beginGapPlanning),
     stopPlanning: run(M.stopPlanning),
@@ -40,6 +47,8 @@ export function useProto() {
     simulateExternal: run(M.simulateExternal),
     beginReplan: run(M.beginReplan),
     stopCandidate: run(M.stopCandidate),
+    continueCandidate: run(M.continueCandidate),
+    deleteEp: run(M.deleteEp),
     adoptCandidate: run(M.adoptCandidate),
     discardCandidate: run(M.discardCandidate),
   };
