@@ -14,7 +14,7 @@ Contributions whose main purpose is to promote a commercial service (for example
 ## Local Development Environment {#local-development}
 
 ```bash
-# Prerequisites: Python 3.12+, Node.js 20+, uv, pnpm, ffmpeg
+# Prerequisites: Python 3.12+, Node.js 20+, uv, pnpm (ffmpeg ships with the Python dependency imageio-ffmpeg)
 # The documentation site website/ also needs Node 24 (pinned in website/.node-version)
 # Operating system: Linux / MacOS / Windows WSL2 (native Windows is unsupported)
 
@@ -82,7 +82,7 @@ Every backend test belongs to exactly one tier; CI runs `-m "not e2e"` by defaul
 | Tier | Meaning | Boundary |
 |---|---|---|
 | `unit` | Fast and isolated | No real DB, subprocesses, or network; `tmp_path` local filesystem is allowed |
-| `integration` | Real cross-module collaboration | Real DB, filesystem, ffmpeg subprocesses; anything touching a real DB (including all alembic migration tests) belongs here |
+| `integration` | Real cross-module collaboration | Real DB, filesystem, bundled ffmpeg subprocesses; anything touching a real DB (including all alembic migration tests) belongs here |
 | `e2e` | End-to-end | Depends on real external services (remote APIs, LLM calls); skipped in CI by default, run locally when needed |
 
 - The layout is `tests/unit|integration|e2e/<mirror of the top-level source package>` (such as `tests/unit/lib/…`, `tests/integration/server/…`). Tier markers are injected automatically by conftest based on the path—never written by hand; `uses_db` combined with `unit` fails at collection time. Mirror correctness relies on review; there is no mechanical check.

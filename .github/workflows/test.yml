@@ -168,7 +168,7 @@ jobs:
 
       - name: Install system dependencies
         if: matrix.suite == 'integration'
-        run: sudo apt-get update && sudo apt-get install -y ffmpeg mediainfo bubblewrap socat
+        run: sudo apt-get update && sudo apt-get install -y mediainfo bubblewrap socat
 
       - name: Install dependencies
         run: uv sync

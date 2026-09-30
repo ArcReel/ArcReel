@@ -10,6 +10,7 @@ from io import BytesIO
 from pathlib import Path
 from typing import Any
 
+from lib.infra.ffmpeg import ffmpeg_executable
 from server.agent_runtime.models import SessionMeta
 
 
@@ -34,25 +35,28 @@ def wav_bytes(duration_seconds: float, sample_rate: int = 8000) -> bytes:
     return buf.getvalue()
 
 
-def make_test_video(path: Path, *, duration_sec: float = 1.0, fps: int = 30) -> None:
-    """使用 ffmpeg 生成极短测试视频（64x64 像素）"""
-    path.parent.mkdir(parents=True, exist_ok=True)
+def run_bundled_ffmpeg(*args: str) -> None:
+    """用随包 ffmpeg 现场合成测试素材；失败即抛 CalledProcessError。"""
     subprocess.run(
-        [
-            "ffmpeg",
-            "-y",
-            "-f",
-            "lavfi",
-            "-i",
-            f"color=black:size=64x64:duration={duration_sec}:rate={fps}",
-            "-c:v",
-            "libx264",
-            "-pix_fmt",
-            "yuv420p",
-            str(path),
-        ],
+        [ffmpeg_executable(), "-hide_banner", "-nostdin", "-loglevel", "error", "-y", *args],
         capture_output=True,
         check=True,
+    )
+
+
+def make_test_video(path: Path, *, duration_sec: float = 1.0, fps: int = 30) -> None:
+    """使用随包 ffmpeg 生成极短测试视频（64x64 像素）"""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    run_bundled_ffmpeg(
+        "-f",
+        "lavfi",
+        "-i",
+        f"color=black:size=64x64:duration={duration_sec}:rate={fps}",
+        "-c:v",
+        "libx264",
+        "-pix_fmt",
+        "yuv420p",
+        str(path),
     )
 
 
@@ -65,28 +69,22 @@ def make_test_video_with_audio_tail(
 ) -> None:
     """生成音轨/容器尾部比视频轨更长的极短 MP4。"""
     path.parent.mkdir(parents=True, exist_ok=True)
-    subprocess.run(
-        [
-            "ffmpeg",
-            "-y",
-            "-f",
-            "lavfi",
-            "-i",
-            f"color=black:size=64x64:duration={video_duration_sec}:rate={fps}",
-            "-f",
-            "lavfi",
-            "-i",
-            f"sine=frequency=440:duration={audio_duration_sec}",
-            "-c:v",
-            "libx264",
-            "-pix_fmt",
-            "yuv420p",
-            "-c:a",
-            "aac",
-            str(path),
-        ],
-        capture_output=True,
-        check=True,
+    run_bundled_ffmpeg(
+        "-f",
+        "lavfi",
+        "-i",
+        f"color=black:size=64x64:duration={video_duration_sec}:rate={fps}",
+        "-f",
+        "lavfi",
+        "-i",
+        f"sine=frequency=440:duration={audio_duration_sec}",
+        "-c:v",
+        "libx264",
+        "-pix_fmt",
+        "yuv420p",
+        "-c:a",
+        "aac",
+        str(path),
     )
 
 

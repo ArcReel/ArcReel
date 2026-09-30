@@ -7,7 +7,7 @@
 ## 本地开发环境
 
 ```bash
-# 前置要求：Python 3.12+, Node.js 20+, uv, pnpm, ffmpeg
+# 前置要求：Python 3.12+, Node.js 20+, uv, pnpm（ffmpeg 随 Python 依赖 imageio-ffmpeg 安装）
 # 文档站 website/ 另需 Node 24（版本固定于 website/.node-version）
 # 操作系统：Linux / macOS / Windows WSL2；Windows 原生可运行项目创建与基础流程，
 # Agent 沙箱在 Windows 上降级为命令前缀白名单（见 docs/adr/0025），生产部署推荐 WSL2/Docker
@@ -91,7 +91,7 @@ pytest `asyncio_mode = "auto"`，异步用例无需手动标记。
 | 档位 | 语义 | 边界 |
 |---|---|---|
 | `unit` | 快速、隔离 | 禁真实 DB、子进程、网络；允许 `tmp_path` 本地文件系统 |
-| `integration` | 跨模块真实协作 | 真实 DB、文件系统、ffmpeg 子进程；使用真实 DB 的用例（含全部 alembic 迁移测试）一律归此档 |
+| `integration` | 跨模块真实协作 | 真实 DB、文件系统、随包 ffmpeg 子进程；使用真实 DB 的用例（含全部 alembic 迁移测试）一律归此档 |
 | `e2e` | 端到端 | 依赖真实外部服务（远程 API、大模型调用）；CI 默认跳过，本地按需运行 |
 
 - 目录为 `tests/unit|integration|e2e/<源码顶层包镜像>`（如 `tests/unit/lib/…`、`tests/integration/server/…`）。档位 marker 由 conftest 按路径自动注入，无需手写；同时命中 `uses_db` 与 `unit` 的用例在收集期报错。镜像的正确性靠 review，不设机械校验。

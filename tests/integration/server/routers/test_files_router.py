@@ -376,13 +376,6 @@ class TestFilesRouter:
             assert resp.json()["detail"] == zh_errors.MESSAGES["upload_too_large"].format(max_mb=15)
 
     def test_character_audio_ref_rejects_duration_out_of_range(self, tmp_path, monkeypatch):
-        import shutil as _shutil
-
-        if _shutil.which("ffprobe") is None:
-            import pytest
-
-            pytest.skip("ffprobe not available")
-
         client, pm = _client(monkeypatch, tmp_path)
         with client:
             resp = client.post(

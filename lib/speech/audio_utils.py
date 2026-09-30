@@ -2,19 +2,14 @@
 
 from __future__ import annotations
 
-import functools
-import json
 import logging
-import math
 import os
-import shutil
 import tempfile
-from collections.abc import Awaitable, Callable
 from pathlib import Path
-from typing import cast
 
+from lib.infra.ffmpeg import FfmpegUnavailableError
+from lib.infra.media_probe import MediaProbe, MediaProbeError, probe_media
 from lib.infra.path_safety import safe_resolve
-from lib.infra.subprocess_deadline import SubprocessDeadlineExceeded, run_with_deadline
 
 logger = logging.getLogger(__name__)
 
@@ -24,10 +19,11 @@ AUDIO_REFERENCE_MAX_BYTES = 15 * 1024 * 1024
 AUDIO_REFERENCE_MIN_SECONDS = 2.0
 AUDIO_REFERENCE_MAX_SECONDS = 10.0
 
-_FFPROBE_TIMEOUT_SECONDS = 10.0
+# 上传校验在请求内同步执行，损坏文件不能长时间占住请求。
+_UPLOAD_PROBE_DEADLINE_SECONDS = 10.0
 
-# ffprobe 的 format_name 是逗号分隔的候选容器列表（如 m4a 探测出
-# "mov,mp4,m4a,3gp,3g2,mj2"），按扩展名要求其中必须含指定 token，
+# 探测出的容器格式是一组候选 demuxer 名（如 m4a 为 mov,mp4,m4a,3gp,3g2,mj2），
+# 按扩展名要求其中必须含指定 token，
 # 防止「有音轨但容器不是 wav/mp3」的文件（如把 m4a 改名为 .wav）蒙混过关。
 _CONTAINER_FORMAT_TOKENS = {
     ".wav": {"wav"},
@@ -88,67 +84,23 @@ def discard_stale_reference_audio(stale_path: Path | None) -> None:
         logger.warning("旧参考音频物理删除失败，可能残留孤儿文件：%s", stale_path, exc_info=True)
 
 
-@functools.cache
-def _ffprobe_available() -> bool:
-    """ffprobe 可执行文件是否在 PATH 中（结果缓存，避免每次调用重复 shutil.which）。"""
-    return shutil.which("ffprobe") is not None
-
-
-def reset_for_tests() -> None:
-    """test helper —— 清缓存让 monkeypatch shutil.which 立刻生效。"""
-    _ffprobe_available.cache_clear()
-
-
-# 只取时长的 ffprobe 参数，字节输入版与已落盘文件版共用一份——两处各写一份会漂移出
-# 「同一个文件两条路径量出不同时长」的口径分裂。末尾追加目标路径即可。
-_DURATION_PROBE_ARGS = ["-show_entries", "format=duration", "-of", "csv=p=0"]
-
-
-async def _run_ffprobe(extra_args: list[str]) -> bytes:
-    """执行一次 ffprobe 子进程，返回 stdout；超时/非零退出统一按不可解析处理。
-
-    `-protocol_whitelist file` 限制 ffprobe 只读本地文件：上传字节可能嵌套
-    HLS/RTMP 等播放列表引用，ffprobe 默认会跟随其中的协议自动发起网络请求
-    （对内网地址同样生效），不加白名单会把这个探测调用变成 SSRF 跳板。
-    超时同样按 ValueError 处理，避免损坏文件让 ffprobe 挂起占用请求。
-    """
+async def _probe_or_none(path: Path) -> MediaProbe | None:
+    """探测已落盘文件；随包 ffmpeg 不可用或文件无法解析时返回 None。"""
     try:
-        result = await run_with_deadline(
-            ["ffprobe", "-v", "error", "-protocol_whitelist", "file", *extra_args],
-            deadline_seconds=_FFPROBE_TIMEOUT_SECONDS,
-            capture_stdout=True,
-        )
-    except SubprocessDeadlineExceeded:
-        raise ValueError("音频文件无法解析") from None
-
-    if result.returncode != 0:
-        raise ValueError("音频文件无法解析")
-    return result.stdout
-
-
-async def probe_audio_duration_seconds(
-    content: bytes,
-    suffix: str,
-    *,
-    ffprobe_available: Callable[[], bool] | None = None,
-    run_ffprobe: Callable[[list[str]], Awaitable[bytes]] | None = None,
-) -> float | None:
-    """探测音频字节的时长（秒），并确认其中确有可解码的音频流。
-
-    ffprobe 不可用时返回 None（调用方按仓库惯例降级：跳过时长校验，不阻断上传），
-    与 lib/infra/thumbnail.py 的 ffmpeg/ffprobe 降级模式一致。
-
-    Raises:
-        ValueError: ffprobe 可用但无法解出时长、超时、容器内没有音频流
-            （如把视频文件改名为 .wav/.mp3 上传），或探测出的容器格式与
-            扩展名不符（如把 m4a/aac 改名为 .wav 上传）。
-    """
-    available = ffprobe_available or _ffprobe_available
-    probe = run_ffprobe or _run_ffprobe
-    if not available():
-        logger.info("ffprobe 不可用，跳过音频时长探测")
+        return await probe_media(path)
+    except (FfmpegUnavailableError, MediaProbeError, OSError):
         return None
 
+
+async def probe_audio_duration_seconds(content: bytes, suffix: str) -> float | None:
+    """探测音频字节的时长（秒），并确认其中确有可解码的音频流。
+
+    随包 ffmpeg 不可用时返回 None，调用方按降级处理：跳过时长校验，不阻断上传。
+
+    Raises:
+        ValueError: 无法解析、探测超时、容器内没有音频流（如把视频文件改名为 .wav/.mp3
+            上传），或容器格式与扩展名不符（如把 m4a/aac 改名为 .wav 上传）。
+    """
     tmp_path: Path | None = None
     try:
         with tempfile.NamedTemporaryFile(dir=tempfile.gettempdir(), suffix=suffix, delete=False) as tmp:
@@ -160,149 +112,63 @@ async def probe_audio_duration_seconds(
         raise
 
     try:
-        stream_types = await probe(
-            ["-select_streams", "a", "-show_entries", "stream=codec_type", "-of", "csv=p=0", str(tmp_path)]
-        )
-        if b"audio" not in stream_types:
-            raise ValueError("音频文件无法解析")
-
-        expected_tokens = _CONTAINER_FORMAT_TOKENS.get(suffix.lower())
-        if expected_tokens is not None:
-            format_name_out = await probe(["-show_entries", "format=format_name", "-of", "csv=p=0", str(tmp_path)])
-            detected_tokens = {token.strip() for token in format_name_out.decode().strip().split(",")}
-            if not detected_tokens & expected_tokens:
-                raise ValueError("音频文件无法解析")
-
-        duration_out = await probe([*_DURATION_PROBE_ARGS, str(tmp_path)])
-    except (FileNotFoundError, OSError):
-        logger.info("ffprobe 调用失败，跳过音频时长探测")
+        probe = await probe_media(tmp_path, deadline_seconds=_UPLOAD_PROBE_DEADLINE_SECONDS)
+    except (FfmpegUnavailableError, OSError):
+        logger.info("随包 ffmpeg 不可用，跳过音频时长探测", exc_info=True)
         return None
+    except MediaProbeError:
+        raise ValueError("音频文件无法解析") from None
     finally:
         tmp_path.unlink(missing_ok=True)
 
-    try:
-        return float(duration_out.decode().strip())
-    except ValueError:
-        raise ValueError("音频文件无法解析") from None
+    if probe.first_stream("audio") is None:
+        raise ValueError("音频文件无法解析")
+    expected_tokens = _CONTAINER_FORMAT_TOKENS.get(suffix.lower())
+    if expected_tokens is not None and not probe.container_formats & expected_tokens:
+        raise ValueError("音频文件无法解析")
+    if probe.duration_seconds is None:
+        raise ValueError("音频文件无法解析")
+    return probe.duration_seconds
 
 
-async def probe_existing_media_duration_seconds(
-    path: Path,
-    *,
-    ffprobe_available: Callable[[], bool] | None = None,
-    run_ffprobe: Callable[[list[str]], Awaitable[bytes]] | None = None,
-) -> float | None:
+async def probe_existing_media_duration_seconds(path: Path) -> float | None:
     """探测磁盘上已落盘媒体文件的容器时长（秒）。
 
     与 :func:`probe_audio_duration_seconds` 的字节输入版本不同：本函数直接对已存在文件探测，
-    不写临时文件、不做流类型校验。该通用入口返回容器时长；需要视频轨播放边界的调用方
-    应使用 :func:`probe_existing_video_duration_seconds`。
-    ffprobe 不可用或探测失败时返回 None，由调用方按业务严格度决定放行或阻断。
+    不写临时文件、不做流类型校验。需要视频轨播放边界的调用方应使用
+    :func:`probe_existing_video_duration_seconds`。
+    随包 ffmpeg 不可用或探测失败时返回 None，由调用方按业务严格度决定放行或阻断。
     """
-    available = ffprobe_available or _ffprobe_available
-    probe = run_ffprobe or _run_ffprobe
-    if not available():
-        return None
-    try:
-        duration_out = await probe([*_DURATION_PROBE_ARGS, str(path)])
-    except (FileNotFoundError, OSError, ValueError):
-        return None
-    try:
-        return float(duration_out.decode().strip())
-    except (OverflowError, ValueError):
-        return None
+    probe = await _probe_or_none(path)
+    return probe.duration_seconds if probe is not None else None
 
 
-def _positive_duration(value: object) -> float | None:
-    if isinstance(value, bool) or not isinstance(value, (int, float, str)):
-        return None
-    try:
-        duration = float(value)
-    except ValueError:
-        return None
-    return duration if math.isfinite(duration) and duration > 0 else None
-
-
-async def probe_existing_video_duration_seconds(
-    path: Path,
-    *,
-    ffprobe_available: Callable[[], bool] | None = None,
-    run_ffprobe: Callable[[list[str]], Awaitable[bytes]] | None = None,
-) -> float | None:
-    """探测视频轨的可播放边界，缺少流级时长时回退到容器时长。
+async def probe_existing_video_duration_seconds(path: Path) -> float | None:
+    """探测首个视频流的可播放时长；没有视频流或探测失败时返回 None。
 
     容器可能因音轨尾部较长而比视频轨更长；视频编辑器按视频轨时长约束 source range，
-    因此不能把容器尾部当成可用画面。部分容器不提供流级 duration，此时 format duration
-    与常见媒体解析器的通用轨 fallback 保持一致。
+    因此不能把容器尾部当成可用画面。
     """
-
-    available = ffprobe_available or _ffprobe_available
-    probe = run_ffprobe or _run_ffprobe
-    if not available():
-        return None
-    try:
-        output = await probe(
-            [
-                "-select_streams",
-                "v:0",
-                "-show_entries",
-                "stream=duration:format=duration",
-                "-of",
-                "json",
-                str(path),
-            ]
-        )
-        raw_payload: object = json.loads(output.decode())
-    except (FileNotFoundError, OSError, UnicodeDecodeError, ValueError):
-        return None
-    if not isinstance(raw_payload, dict):
-        return None
-    payload = cast(dict[str, object], raw_payload)
-    streams = payload.get("streams")
-    if not isinstance(streams, list) or not streams or not isinstance(streams[0], dict):
-        return None
-    duration = _positive_duration(cast(dict[str, object], streams[0]).get("duration"))
-    if duration is not None:
-        return duration
-    raw_format = payload.get("format")
-    if isinstance(raw_format, dict):
-        return _positive_duration(cast(dict[str, object], raw_format).get("duration"))
-    return None
+    probe = await _probe_or_none(path)
+    video = probe.first_stream("video") if probe is not None else None
+    return video.duration_seconds if video is not None else None
 
 
-async def probe_existing_audio_duration_seconds(
-    path: Path,
-    *,
-    ffprobe_available: Callable[[], bool] | None = None,
-    run_ffprobe: Callable[[list[str]], Awaitable[bytes]] | None = None,
-) -> float | None:
+async def probe_existing_audio_duration_seconds(path: Path) -> float | None:
     """探测正式音频时长；保留音频调用方的语义化入口。"""
 
-    return await probe_existing_media_duration_seconds(
-        path,
-        ffprobe_available=ffprobe_available,
-        run_ffprobe=run_ffprobe,
-    )
+    return await probe_existing_media_duration_seconds(path)
 
 
-async def probe_reference_audio_total_seconds(
-    paths: list[Path],
-    *,
-    ffprobe_available: Callable[[], bool] | None = None,
-    run_ffprobe: Callable[[list[str]], Awaitable[bytes]] | None = None,
-) -> float | None:
+async def probe_reference_audio_total_seconds(paths: list[Path]) -> float | None:
     """探测多段参考音频文件的总时长（秒），供请求期总时长能力校验使用。
 
-    任一文件时长探测失败（ffprobe 不可用、文件损坏）都返回 None 而非部分求和：半截总时长会
+    任一文件时长探测失败（随包 ffmpeg 不可用、文件损坏）都返回 None 而非部分求和：半截总时长会
     让调用方误判「未超限」而放行本该拦截的请求，比跳过校验更危险。
     """
     total = 0.0
     for path in paths:
-        duration = await probe_existing_audio_duration_seconds(
-            path,
-            ffprobe_available=ffprobe_available,
-            run_ffprobe=run_ffprobe,
-        )
+        duration = await probe_existing_audio_duration_seconds(path)
         if duration is None:
             return None
         total += duration

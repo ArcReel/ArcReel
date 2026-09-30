@@ -72,6 +72,7 @@ updates:
           - "Pillow"
           - "numpy"
           - "pyjianyingdraft"
+          - "imageio-ffmpeg"
         update-types:
           - "minor"
           - "patch"

@@ -43,4 +43,38 @@ https://github.com/ArcReel/ArcReel
 The ArcReel name and logo are not licensed under AGPL-3.0.
 ArcReel 名称与标识不在 AGPL-3.0 授权范围内。
 
+==== Third-party: FFmpeg / 第三方组件：FFmpeg ====
+
+ArcReel depends on the Python package imageio-ffmpeg (BSD-2-Clause), whose
+platform wheels redistribute an unmodified, statically linked FFmpeg
+executable. ArcReel runs that executable as a separate process for media
+processing, and the Docker image ships it.
+
+FFmpeg is Copyright (c) 2000-2024 the FFmpeg developers. The bundled builds are
+configured with --enable-gpl and include GPL components such as libx264, so
+they are licensed under the GNU General Public License. The Linux and Windows
+builds are additionally configured with --enable-version3 (GPL version 3 or
+later). The GPL version 3 text is in LICENSES/GPL-3.0-or-later.txt.
+
+Bundled builds (imageio-ffmpeg 0.6.0):
+  - Linux x86_64 / aarch64: FFmpeg 7.0.2, static build by John Van Sickle
+    (https://johnvansickle.com/ffmpeg/)
+  - Windows x86_64: FFmpeg 7.1, build by gyan.dev
+    (https://www.gyan.dev/ffmpeg/builds/)
+  - macOS x86_64 / arm64: FFmpeg 7.1 static build
+The binaries are published at
+https://github.com/imageio/imageio-binaries/tree/master/ffmpeg
+
+Corresponding source code:
+  - FFmpeg release sources: https://ffmpeg.org/releases/ (ffmpeg-7.0.2 and
+    ffmpeg-7.1), git tags n7.0.2 and n7.1 at https://git.ffmpeg.org/ffmpeg.git
+  - The build configuration of each binary is printed by `ffmpeg -version`;
+    the builders' pages above link the sources of the bundled libraries.
+
+ArcReel 依赖 Python 包 imageio-ffmpeg（BSD-2-Clause），其平台 wheel 再分发未经修改的
+静态链接 FFmpeg 可执行文件。ArcReel 以独立子进程调用它处理媒体，Docker 镜像亦随附
+该文件。随包构建启用了 --enable-gpl 并包含 libx264 等 GPL 组件，
+按 GNU 通用公共许可证授权（Linux 与 Windows 构建另启用 --enable-version3，即 GPL 第 3 版
+或更新版本），GPL 第 3 版全文见 LICENSES/GPL-3.0-or-later.txt。对应源码的获取方式见上。
+
 ==== End of Notices ====

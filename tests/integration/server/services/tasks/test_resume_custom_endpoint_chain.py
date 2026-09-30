@@ -68,7 +68,7 @@ async def chain_project(session_factory, tmp_path: Path, monkeypatch) -> Path:
     - ``get_project_manager`` 在链路各消费模块（resolver / generation_context /
       resume_executor / finalize helpers / worker 清理）逐点换成 tmp 下的真
       ProjectManager——resolver 等在模块顶部绑定了该名字，只 patch 定义处不生效。
-    - 缩略图抽取走 ffprobe 子进程，替换为 no-op 保持测试封闭。
+    - 缩略图抽取走 ffmpeg 子进程，替换为 no-op 保持测试封闭。
     """
     monkeypatch.setattr("lib.db.async_session_factory", session_factory)
     bind_safe_session_factory(monkeypatch, session_factory)
