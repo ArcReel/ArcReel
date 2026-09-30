@@ -14,6 +14,7 @@ from sqlalchemy import func, select
 from lib.artifacts.artifact_activation import activate_artifact_target_state
 from lib.artifacts.artifact_manifest import ArtifactKey, ProjectArtifactManifestAdapter
 from lib.backends.text_backends.base import TextGenerationResult as BackendTextGenerationResult
+from lib.backends.text_generator import TextGenerator
 from lib.config.resolver import ConfigResolver
 from lib.db import async_session_factory
 from lib.db.base import DEFAULT_USER_ID
@@ -22,17 +23,26 @@ from lib.episode.episode_planner import EpisodePlanner, EpisodePlanningError, Ep
 from lib.generation.generation_batch import GenerationBatchRequestedItem, GenerationBatchRequestSnapshot
 from lib.generation.generation_queue import GenerationQueue
 from lib.generation.generation_queue_client import wait_for_task
-from lib.generation.generation_result import GenerationAction, GenerationSelectionMode, problem_from_task_failure
+from lib.generation.generation_result import (
+    GenerationAction,
+    GenerationSelectionMode,
+    decode_generation_problem,
+    problem_from_task_failure,
+)
 from lib.generation.generation_worker import CapacityTable, GenerationWorker
 from lib.infra.api_errors import ConflictError
 from lib.infra.async_thread import run_sync_transaction
+from lib.infra.data_root_layout import DataRootLayout
 from lib.project.project_manager import ProjectManager
 from lib.project.project_migration_failure import ProjectMigrationError, record_migration_failure
 from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from lib.script.draft_quarantine import (
     QUARANTINE_KIND_NARRATION_SCRIPT_PLAN,
     QUARANTINE_KIND_SCRIPT_PLAN,
+    draft_revision,
     quarantine_path,
+    read_quarantine,
+    write_quarantine,
 )
 from server.text_generation import TextGenerationRequest
 from server.tool_runtime import (
@@ -41,14 +51,16 @@ from server.tool_runtime import (
     GenerateScriptPlanRequest,
     PlanEpisodesRequest,
     ProjectScope,
+    RepairDraftRequest,
     Services,
     ToolRequest,
     execute_queued_text_task,
     generate_episode_script,
     generate_script_plan,
     plan_episodes,
+    repair_draft,
 )
-from tests.fakes import refuse_resume_execution
+from tests.fakes import FakeTextGenerator, refuse_resume_execution
 
 
 def _admit_text_operations(projects: ProjectManager, project_name: str) -> None:
@@ -180,6 +192,133 @@ async def test_web_prompt_authoring_returns_the_batch_without_waiting(tmp_path: 
     assert task["source"] == "webui"
     assert task["payload"]["instructions"] == "冷色调"
     assert task["payload"]["rewrite"] is False
+
+
+def _narration_segment(**overrides: Any) -> dict[str, Any]:
+    segment: dict[str, Any] = {
+        "segment_id": "E1S01",
+        "novel_text": "张三走向村口。",
+        "duration_seconds": 4,
+        "segment_break": False,
+        "characters_in_segment": ["张三"],
+        "scenes": [],
+        "props": [],
+    }
+    segment.update(overrides)
+    return segment
+
+
+def _narration_project_with_draft(segments: list[dict[str, Any]]) -> tuple[ProjectManager, str]:
+    """当前数据根下的旁白/解说项目，第 1 集留着一份待修复的脚本规划草稿；返回项目管理器与草稿 revision。
+
+    worker 执行未登记服务的任务时按当前配置解析数据根，项目须建在那里。
+    """
+    projects = ProjectManager(DataRootLayout.current().root)
+    projects.create_project("demo")
+    projects.create_project_metadata("demo", "Demo", "Anime", "narration")
+    projects.add_character("demo", "张三", "村民")
+    projects.add_episode("demo", 1, "第一集", "scripts/episode_1.json")
+    project_path = projects.get_project_path("demo")
+    (project_path / "source").mkdir(exist_ok=True)
+    (project_path / "source" / "episode_1.txt").write_text("张三走向村口。", encoding="utf-8")
+    write_quarantine(
+        project_path,
+        1,
+        QUARANTINE_KIND_NARRATION_SCRIPT_PLAN,
+        content={"segments": segments},
+        violations=[],
+        meta={"source": None},
+    )
+    draft = read_quarantine(project_path, 1, QUARANTINE_KIND_NARRATION_SCRIPT_PLAN)
+    assert draft is not None
+    return projects, draft_revision(draft)
+
+
+@pytest.mark.usefixtures("video_request_facts")
+async def test_web_draft_repair_queues_a_text_task_that_adopts_the_repaired_draft(
+    file_db_factory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """AI 修复以排队文本任务提交，占用本份草稿的槽；worker 修完照常重判，违约清零即采用。"""
+    projects, revision = _narration_project_with_draft([_narration_segment(characters_in_segment=["王五"])])
+    queue = GenerationQueue(session_factory=file_db_factory, project_manager=projects)
+    assert await queue.acquire_or_renew_worker_lease(name="default", owner_id="test-worker", ttl_seconds=60)
+    services = Services(
+        projects=projects,
+        workflow_planner=object(),
+        capabilities=ConfigResolver(async_session_factory),
+        queue=queue,
+    )
+    scope = ProjectScope(project_name="demo", data_root=projects.data_root)
+    caller = CallerContext(user_id=DEFAULT_USER_ID, source="webui")
+
+    stale = await repair_draft(
+        ToolRequest(RepairDraftRequest(episode_id=1, doc_type="narration_script_plan", base_revision="stale")),
+        scope,
+        caller,
+        services,
+    )
+    assert stale.problem is not None
+    assert stale.problem.code == "revision_conflict"
+
+    outcome = await repair_draft(
+        ToolRequest(
+            RepairDraftRequest(
+                episode_id=1, doc_type="narration_script_plan", base_revision=revision, instructions="只改出场角色"
+            )
+        ),
+        scope,
+        caller,
+        services,
+    )
+    assert outcome.problem is None
+    batch = outcome.value
+    assert batch is not None
+    assert batch.done is False
+    (member,) = batch.members
+    assert (member.task_type, member.unit_id) == ("text_draft_repair", "episode-1-narration_script_plan")
+    assert member.task_id is not None
+    task = await queue.get_task(member.task_id)
+    assert task is not None
+    assert task["payload"]["instructions"] == "只改出场角色"
+
+    repaired = _narration_segment()
+    model = FakeTextGenerator(json.dumps({"segments": [repaired]}, ensure_ascii=False))
+    monkeypatch.setattr(TextGenerator, "create", model.create)
+    result = await execute_queued_text_task(task)
+
+    assert (result["adopted"], result["violation_count"]) == (True, 0)
+    assert "只改出场角色" in model.requests[0].prompt
+    project_path = projects.get_project_path("demo")
+    assert read_quarantine(project_path, 1, QUARANTINE_KIND_NARRATION_SCRIPT_PLAN) is None
+    formal = json.loads((project_path / "drafts" / "episode_1" / "script_plan_segments.json").read_text("utf-8"))
+    assert formal["segments"] == [repaired]
+
+
+@pytest.mark.usefixtures("video_request_facts")
+async def test_failed_queued_draft_repair_fails_the_task_with_a_localizable_reason(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    projects, revision = _narration_project_with_draft([_narration_segment(characters_in_segment=["王五"])])
+    monkeypatch.setattr(TextGenerator, "create", FakeTextGenerator("not json").create)
+    payload = {"episode_id": 1, "doc_type": "narration_script_plan", "base_revision": revision, "instructions": None}
+    task = {"task_id": "task-repair", "project_name": "demo", "task_type": "text_draft_repair", "payload": payload}
+
+    with pytest.raises(RuntimeError) as raised:
+        await execute_queued_text_task(task)
+
+    problem = decode_generation_problem(str(raised.value))
+    assert problem is not None
+    assert problem.code == "draft_repair_failed"
+    draft = read_quarantine(projects.get_project_path("demo"), 1, QUARANTINE_KIND_NARRATION_SCRIPT_PLAN)
+    assert draft is not None
+    assert draft_revision(draft) == revision
+
+    stale_task = {**task, "payload": {**payload, "base_revision": "stale"}}
+    with pytest.raises(RuntimeError) as raised:
+        await execute_queued_text_task(stale_task)
+    problem = decode_generation_problem(str(raised.value))
+    assert problem is not None
+    assert problem.code == "draft_revision_conflict"
 
 
 async def test_text_mcp_rejects_lost_worker_lease_without_persisting_queue_state(

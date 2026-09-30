@@ -322,6 +322,21 @@ export function useProjectEventsSSE(projectName?: string | null): void {
             ...episodes.map(({ episode }) => buildEntityRevisionKey("draft", `episode_${episode}_script_plan`)),
           );
         }
+        // 草稿 AI 修复由 worker 写回草稿或采用为正式内容，同样没有实体变更；按终态作废各集的草稿视图。
+        if (
+          taskChanges.some(
+            (c) =>
+              (c.action === "task_succeeded" || c.action === "task_failed" || c.action === "task_cancelled") &&
+              c.task_type === "text_draft_repair",
+          )
+        ) {
+          const episodes = useProjectsStore.getState().currentProjectData?.episodes ?? [];
+          invalidationKeys.push(
+            ...episodes.flatMap(({ episode }) =>
+              DRAFT_DOC_KINDS.map((kind) => buildEntityRevisionKey("draft", `episode_${episode}_${kind}`)),
+            ),
+          );
+        }
         if (invalidationKeys.length > 0) {
           invalidateEntities(invalidationKeys);
         }

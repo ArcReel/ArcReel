@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, get_args
 
 from lib.config.resolver import ConfigResolver
 from lib.db.base import DEFAULT_USER_ID
@@ -30,12 +30,15 @@ from lib.script.script_batch_edit import script_revision
 from lib.script.script_skeleton import ensure_route_skeleton, resolve_kind_items
 from lib.speech.speech_composition import admit_script_unit
 from lib.workflow.workflow_plan import (
+    TEXT_DRAFT_REPAIR_TASK_TYPE,
     WorkflowPlan,
     WorkflowPlanRequest,
     WorkflowTaskObservation,
     build_workflow_plan,
+    draft_repair_resource_id,
 )
 from lib.workflow.workflow_state import WorkflowBlocker, WorkflowStateService, WorkflowStatus
+from server.draft_workflow import DraftDocType
 from server.services.admission.video_batch_admission import (
     active_task_problem,
     admit_reference_video_batch,
@@ -192,6 +195,12 @@ class WorkflowPlanner:
                     else f"text_{status.project.content_mode}_script_plan"
                 )
                 text_queries.append((script_plan_type, episode_ids))
+            text_queries.append(
+                (
+                    TEXT_DRAFT_REPAIR_TASK_TYPE,
+                    [draft_repair_resource_id(status.target.episode, doc_type) for doc_type in get_args(DraftDocType)],
+                )
+            )
         for task_type, resource_ids in text_queries:
             rows.extend(
                 await get_active_tasks_for_resources(

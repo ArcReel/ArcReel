@@ -147,12 +147,19 @@ from lib.speech.narration_config import (
 )
 from lib.speech.speech_composition import SpeechProblemCode
 from lib.workflow.operation_admission import admit_plan_episodes, whole_source_present
-from lib.workflow.workflow_plan import WorkflowPlan, WorkflowPlanRequest
+from lib.workflow.workflow_plan import (
+    TEXT_DRAFT_REPAIR_TASK_TYPE,
+    WorkflowPlan,
+    WorkflowPlanRequest,
+    draft_repair_resource_id,
+)
 from lib.workflow.workflow_state import WorkflowRequestError, planning_docs
+from server.draft_repair import DraftRepair
 from server.draft_workflow import (
     EPISODE_ID_DESCRIPTION,
     DiscardDraftRequest,
     DraftContext,
+    DraftDocType,
     DraftLocator,
     DraftWorkflow,
     DraftWorkflowError,
@@ -674,6 +681,8 @@ async def _submit_text_task(
         result = task.get("result") or {}
         if task_type == _TEXT_EPISODE_PLAN:
             return ToolOutcome(value=PlanEpisodesResult.model_validate(result))
+        if task_type == TEXT_DRAFT_REPAIR_TASK_TYPE:
+            return ToolOutcome(value=DraftRepairResult.model_validate(result))
         return ToolOutcome(value=TextGenerationResult(**result))
     except BaseException as exc:
         await cleanup_fresh_generation_batch(
@@ -1394,6 +1403,99 @@ async def discard_draft(
     discard = request.value
     return await _run_draft(
         _draft_workflow(scope, services).discard(discard.episode_id, discard.doc_type, discard.base_revision)
+    )
+
+
+class RepairDraftRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    episode_id: PositiveEpisode = Field(description=EPISODE_ID_DESCRIPTION)
+    doc_type: DraftDocType = Field(description="待修复草稿对应的文档，取值同 open_draft")
+    base_revision: str = Field(description="读取草稿时拿到的 revision；修复写回前按它校验草稿未被改动")
+    instructions: _TextInstructions | SkipJsonSchema[None] = None
+
+
+class DraftRepairResult(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    message: str
+    episode_id: int
+    doc_type: str
+    adopted: bool = Field(description="违约已清零、草稿已采用为正式内容")
+    violation_count: int = Field(description="未采用时草稿里剩余的违约数；采用时为 0")
+
+
+async def repair_draft(
+    request: ToolRequest[RepairDraftRequest],
+    scope: ProjectScope,
+    caller: CallerContext,
+    services: Services,
+) -> ToolOutcome[Any]:
+    """AI 修复待修复草稿：预检通过后以排队文本任务提交，修完照常重判，违约清零即采用。"""
+    value = request.value
+    try:
+        await _draft_repair(scope, services).check(value.episode_id, value.doc_type, value.base_revision)
+    except DraftWorkflowError as exc:
+        return ToolOutcome(problem=ToolProblem(exc.code, exc.detail))
+    except Exception as exc:
+        return ToolOutcome(problem=_unexpected("repair_draft", exc))
+    return await _submit_text_task(
+        task_type=TEXT_DRAFT_REPAIR_TASK_TYPE,
+        operation="repair_draft",
+        unit_id=draft_repair_resource_id(value.episode_id, value.doc_type),
+        payload=value.model_dump(mode="json"),
+        scope=scope,
+        caller=caller,
+        services=services,
+    )
+
+
+#: 草稿命令错误码 → 任务失败的文案 key，与草稿 REST 的错误映射一致；其余错误归为保存未完成。
+_DRAFT_REPAIR_FAILURE_KEYS: dict[str, str] = {
+    "draft_not_found": "draft_not_found",
+    "revision_conflict": "draft_revision_conflict",
+    "formal_revision_conflict": "draft_formal_revision_conflict",
+    "draft_agent_owned": "draft_agent_owned",
+    "script_plan_confirmed": "script_review_script_plan_confirmed",
+    "draft_repair_failed": "draft_repair_failed",
+}
+
+
+def _draft_repair(scope: ProjectScope, services: Services) -> DraftRepair:
+    return DraftRepair(_draft_workflow(scope, services).ctx)
+
+
+async def _execute_draft_repair(
+    request: RepairDraftRequest, scope: ProjectScope, services: Services
+) -> ToolOutcome[DraftRepairResult]:
+    outcome = await _run_draft(
+        _draft_repair(scope, services).repair(
+            request.episode_id, request.doc_type, request.base_revision, request.instructions
+        )
+    )
+    if outcome.problem is not None:
+        # 任务失败原因按问题码本地化呈现：换成草稿命令对应的错误文案 key，Agent 面向的 detail 只作诊断。
+        key = _DRAFT_REPAIR_FAILURE_KEYS.get(outcome.problem.code, "draft_save_failed")
+        params = {"episode": request.episode_id} if key == "draft_not_found" else None
+        return ToolOutcome(problem=ToolProblem(key, outcome.problem.detail, params=params))
+    saved = outcome.value or {}
+    adopted = bool(saved.get("adopted"))
+    draft = saved.get("draft")
+    violations = draft.get("violations") if isinstance(draft, dict) else None
+    count = 0 if adopted else len(violations) if isinstance(violations, list) else 0
+    message = (
+        f"✅ AI 修复后违约已清零，集（id={request.episode_id}）{request.doc_type} 草稿已采用为正式内容"
+        if adopted
+        else f"AI 修复已写回集（id={request.episode_id}）{request.doc_type} 草稿，仍有 {count} 条违约待处理"
+    )
+    return ToolOutcome(
+        value=DraftRepairResult(
+            message=message,
+            episode_id=request.episode_id,
+            doc_type=request.doc_type,
+            adopted=adopted,
+            violation_count=count,
+        )
     )
 
 
@@ -2318,7 +2420,9 @@ async def execute_queued_text_task(
         scope = ProjectScope(project_name=str(task["project_name"]), data_root=DataRootLayout.current().root)
         services = Services.defaults(ProjectManager(scope.data_root))
     task_type = task["task_type"]
-    if task_type == _TEXT_EPISODE_PLAN:
+    if task_type == TEXT_DRAFT_REPAIR_TASK_TYPE:
+        outcome = await _execute_draft_repair(RepairDraftRequest.model_validate(payload), scope, services)
+    elif task_type == _TEXT_EPISODE_PLAN:
         outcome = await _execute_plan_episodes(
             ToolRequest(PlanEpisodesRequest(instructions=payload.get("instructions"))),
             scope,

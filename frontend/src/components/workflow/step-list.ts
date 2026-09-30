@@ -41,6 +41,7 @@ export type StepRowTone = "done" | "todo" | "partial" | "running" | "warn" | "da
 export type StepIntent =
   | { type: "agent"; text: string }
   | { type: "draft_to_agent"; docType: DraftDocType }
+  | { type: "repair_draft"; docType: DraftDocType }
   | { type: "author_prompts" }
   | { type: "author_prompts_to_agent" }
   | { type: "open_author_prompts" }
@@ -622,8 +623,10 @@ function buildNext(facts: Facts, rows: StepRowView[], ctx: StepListContext): Nex
           ...base,
           title: t("workflow:next_title_resolve_draft_repair"),
           detail: t("workflow:next_detail_resolve_draft_repair"),
+          instruction: { initial: "", persist: null },
           primary: [
             { key: "agent", label: t("workflow:act_agent"), kind: "agent", intent: { type: "draft_to_agent", docType } },
+            { key: "ai-repair", label: t("dashboard:draft_ai_repair"), kind: "ai", intent: { type: "repair_draft", docType } },
           ],
           alternatives: [
             { key: "edit-draft", label: t("workflow:act_edit_draft"), kind: "nav", intent: { type: "show_surface", surface } },

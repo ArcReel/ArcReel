@@ -4,6 +4,8 @@ import { ChevronDown } from "lucide-react";
 import { useLocation } from "wouter";
 import { API } from "@/api";
 import {
+  draftRepairResourceId,
+  enqueueDraftRepair,
   enqueuePromptAuthoring,
   enqueueScriptPlan,
   promptAuthoringResourceId,
@@ -277,6 +279,15 @@ export function WorkflowPanel({ projectName, episode, onViewUnit, onRegenerate, 
           case "draft_to_agent": {
             const draft = await API.getEpisodeDraft(projectName, episodeId, intent.docType);
             prefillAssistant(withInstruction(draftFixRequestText(t, episodeRef, intent.docType, draft.violations)));
+            break;
+          }
+          case "repair_draft": {
+            if (isResourceBusy("text_draft_repair", projectName, draftRepairResourceId(episodeId, intent.docType))) {
+              pushToast(t("dashboard:draft_repair_busy"), "error");
+              break;
+            }
+            const draft = await API.getEpisodeDraft(projectName, episodeId, intent.docType);
+            await enqueueDraftRepair(projectName, episodeId, intent.docType, draft.revision ?? "", instruction.trim() || null);
             break;
           }
           case "discard_draft": {

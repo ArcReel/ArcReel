@@ -26,6 +26,7 @@ from lib.script.draft_quarantine import (
 from lib.script.reference_video.draft_validation import DraftViolation
 from server.draft_workflow import DraftContext, DraftWorkflow
 from server.text_generation import TextGenerationError, TextGenerationRequest, generate_reference_script_plan
+from tests.fakes import FakeTextGenerator
 from tests.integration.server.agent_tool_support import (
     _RV_NOVEL,
     ToolHarness,
@@ -1142,18 +1143,10 @@ async def test_normalize_drama_script_clears_quarantine_on_regeneration(fake_ctx
 
     regenerated = {"title": "第一集", "scenes": [drama_scene(scene_description="重新规范化后的描述。")]}
 
-    class _Generator:
-        async def generate(self, _request, project_name=None):
-            class _R:
-                text = json.dumps(regenerated, ensure_ascii=False)
-
-            return _R()
-
-    async def fake_create(_task_type, project_name=None, **_kwargs):
-        return _Generator()
-
     use_fake_caps(fake_ctx)
-    monkeypatch.setattr(mod.TextGenerator, "create", fake_create)
+    monkeypatch.setattr(
+        mod.TextGenerator, "create", FakeTextGenerator(json.dumps(regenerated, ensure_ascii=False)).create
+    )
 
     out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode_id": 1, "source": "source/episode_1.txt"})
 
@@ -1173,18 +1166,10 @@ async def test_normalize_drama_script_serializes_commit_with_draft_edits(fake_ct
 
     regenerated = {"title": "第一集", "scenes": [drama_scene(scene_description="重新规范化后的描述。")]}
 
-    class _Generator:
-        async def generate(self, _request, project_name=None):
-            class _R:
-                text = json.dumps(regenerated, ensure_ascii=False)
-
-            return _R()
-
-    async def fake_create(_task_type, project_name=None, **_kwargs):
-        return _Generator()
-
     use_fake_caps(fake_ctx)
-    monkeypatch.setattr(mod.TextGenerator, "create", fake_create)
+    monkeypatch.setattr(
+        mod.TextGenerator, "create", FakeTextGenerator(json.dumps(regenerated, ensure_ascii=False)).create
+    )
     pm = ProjectManager(fake_ctx.data_root)
     target = drama_quarantine_path(fake_ctx)
     attempted = asyncio.Event()

@@ -193,6 +193,7 @@ export default {
   'task_type_text_drama_script_plan': 'Kế hoạch kịch bản',
   'task_type_text_narration_script_plan': 'Kế hoạch kịch bản',
   'task_type_text_reference_script_plan': 'Kế hoạch kịch bản',
+  'task_type_text_draft_repair': 'Sửa bản nháp',
   'task_type_character': 'Nhân vật',
   'task_type_scene': 'Cảnh',
   'task_type_prop': 'Đạo cụ',

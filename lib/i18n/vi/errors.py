@@ -225,6 +225,8 @@ MESSAGES = {
     "blank_script_formal_exists": "Tập này đã có kịch bản chính thức nên không thể bắt đầu từ trang trống. Hãy sửa trực tiếp trên dòng thời gian",
     "draft_doc_type_not_applicable": "Loại bản nháp này không áp dụng cho dự án hiện tại",
     "draft_save_failed": "Bản nháp đã được lưu nhưng chưa kiểm tra xong; vui lòng thử lại sau",
+    "draft_repair_failed": "AI chưa sửa xong, bản nháp không thay đổi. Hãy thử lại, tự sửa hoặc giao cho Agent",
+    "draft_repair_task_active": "AI đang sửa bản nháp này. Hãy thử lại sau khi hoàn tất",
     "script_review_not_applicable": "Tập này không áp dụng xác nhận nội dung (chế độ này không tạo ra kết quả kế hoạch kịch bản để xác nhận)",
     "script_review_no_script_plan": "Chưa có kết quả kế hoạch kịch bản để xác nhận; vui lòng hoàn tất kế hoạch kịch bản trước",
     "script_review_quarantined": ("Tập này có bản nháp cần xử lý; hãy sửa hoặc hủy bản nháp trước khi xác nhận"),
