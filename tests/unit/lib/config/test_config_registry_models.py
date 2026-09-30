@@ -132,6 +132,18 @@ class TestProviderRegistry:
             video_models = [mid for mid, m in meta.models.items() if m.media_type == "video"]
             assert len(video_models) > 0, f"{provider_id} has no video models"
 
+    @pytest.mark.parametrize(
+        ("provider_id", "model_id"),
+        [
+            ("gemini-aistudio", "gemini-3.1-flash-lite-preview"),
+            ("gemini-vertex", "gemini-3.1-flash-lite-preview"),
+            ("dashscope", "qwen3.6-plus"),
+            ("dashscope", "qwen3.6-flash"),
+        ],
+    )
+    def test_multimodal_text_models_declare_vision(self, provider_id, model_id):
+        assert "vision" in PROVIDER_REGISTRY[provider_id].models[model_id].capabilities
+
     def test_each_media_type_has_default(self):
         for provider_id, meta in PROVIDER_REGISTRY.items():
             by_type: dict[str, list[ModelInfo]] = {}

@@ -398,7 +398,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
             "gemini-3.1-flash-lite-preview": ModelInfo(
                 display_name="Gemini 3.1 Flash Lite",
                 media_type="text",
-                capabilities=["text_generation", "structured_output"],
+                capabilities=["text_generation", "structured_output", "vision"],
                 pricing=_gemini_text_pricing("gemini-3.1-flash-lite-preview", 0.25, 1.50),
             ),
             # --- image ---
@@ -482,7 +482,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
             "gemini-3.1-flash-lite-preview": ModelInfo(
                 display_name="Gemini 3.1 Flash Lite",
                 media_type="text",
-                capabilities=["text_generation", "structured_output"],
+                capabilities=["text_generation", "structured_output", "vision"],
                 pricing=_gemini_text_pricing("gemini-3.1-flash-lite-preview", 0.25, 1.50),
             ),
             # --- image ---
@@ -997,7 +997,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
             "qwen3.6-plus": ModelInfo(
                 display_name="Qwen3.6 Plus",
                 media_type="text",
-                capabilities=["text_generation", "structured_output"],
+                capabilities=["text_generation", "structured_output", "vision"],
                 pricing=_dashscope_text_pricing("qwen3.6-plus", 2.0, 12.0),
             ),
             "qwen3-max": ModelInfo(
@@ -1015,7 +1015,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
             "qwen3.6-flash": ModelInfo(
                 display_name="Qwen3.6 Flash",
                 media_type="text",
-                capabilities=["text_generation", "structured_output"],
+                capabilities=["text_generation", "structured_output", "vision"],
                 pricing=_dashscope_text_pricing("qwen3.6-flash", 1.2, 7.2),
             ),
             "qwen-long": ModelInfo(
