@@ -1,5 +1,5 @@
 // PROTOTYPE（#2767，一次性代码，勿合入 main）：「分集」视图与划范围 UI 的内存数据模型。
-// 位置一律以「句子下标」表示（切分点只落在句末），省掉字符偏移换算；窗口按句数缩小以便演示。
+// 位置一律是整本源文的字符偏移；界面上的分集点可以落在任意字符处，不依赖断句。窗口缩小以便演示。
 
 export type Origin = "cut" | "own" | "none";
 
@@ -8,7 +8,7 @@ export interface Ep {
   title: string;
   hook: string;
   origin: Origin;
-  /** 切自整本源文的集：[起句, 止句)，止句不含 */
+  /** 切自整本源文的集：[起, 止) 字符偏移 */
   range?: [number, number];
   ownChars?: number;
   ownFile?: string;
@@ -29,7 +29,7 @@ export interface Candidate {
   instructions: string;
   eps: CandEp[];
   status: "generating" | "ready" | "stopped";
-  /** 生成到的句位置 */
+  /** 生成到的字符位置 */
   reached: number;
 }
 
@@ -96,32 +96,44 @@ function rnd(n: number): number {
   return x - Math.floor(x);
 }
 
-function buildSource(): { sentences: string[]; paraStart: boolean[]; chapter: (string | null)[] } {
-  const sentences: string[] = [];
-  const paraStart: boolean[] = [];
-  const chapter: (string | null)[] = [];
+interface Source {
+  text: string;
+  /** 段落起点（字符偏移） */
+  paraStarts: number[];
+  /** 章标题的字符范围，渲染加粗用 */
+  chapters: [number, number][];
+  /** 句末偏移，只供「假 AI」挑切分点；界面操作不依赖断句 */
+  sentenceEnds: number[];
+}
+
+function buildSource(): Source {
+  let text = "";
+  const paraStarts: number[] = [0];
+  const chapters: [number, number][] = [];
+  const sentenceEnds: number[] = [];
   let chap = 0;
   const TOTAL = 420;
   for (let i = 0; i < TOTAL; i++) {
     if (i % 42 === 0) {
+      if (text.length) { text += "\n"; paraStarts.push(text.length); }
       const title = `第${CN_NUM[chap] ?? chap + 1}章 ${CHAPTER_NAMES[chap % CHAPTER_NAMES.length]}`;
-      sentences.push(title);
-      paraStart.push(true);
-      chapter.push(title);
+      chapters.push([text.length, text.length + title.length]);
+      text += `${title}\n`;
+      paraStarts.push(text.length);
       chap++;
       continue;
     }
-    sentences.push(CORPUS[(i * 7 + chap * 3) % CORPUS.length]);
-    paraStart.push(rnd(i) < 0.3 || chapter[i - 1] !== null);
-    chapter.push(null);
+    if (rnd(i) < 0.3 && !text.endsWith("\n")) { text += "\n"; paraStarts.push(text.length); }
+    text += CORPUS[(i * 7 + chap * 3) % CORPUS.length];
+    sentenceEnds.push(text.length);
   }
-  return { sentences, paraStart, chapter };
+  return { text, paraStarts, chapters, sentenceEnds };
 }
 
 export const SOURCE = buildSource();
-export const SOURCE_LEN = SOURCE.sentences.length;
-/** 原型里的「窗口」，对应真实的 5 万字 */
-export const WINDOW = 110;
+export const SOURCE_LEN = SOURCE.text.length;
+/** 原型里的「窗口」（字符），对应真实的 5 万字 */
+export const WINDOW = 2400;
 const SOURCE_FILE_NAME = "雨夜码头.txt";
 export { SOURCE_FILE_NAME };
 
@@ -130,10 +142,10 @@ export function batchesNeeded(from: number): number {
   return Math.max(1, Math.ceil((SOURCE_LEN - from) / WINDOW));
 }
 
+/** 字数（不计换行） */
 export function charsOf(range: [number, number]): number {
-  let n = 0;
-  for (let i = range[0]; i < range[1]; i++) n += SOURCE.sentences[i].length;
-  return n;
+  const [a, b] = range[0] <= range[1] ? range : [range[1], range[0]];
+  return SOURCE.text.slice(a, b).replace(/\n/g, "").length;
 }
 
 export const TOTAL_CHARS = charsOf([0, SOURCE_LEN]);
@@ -149,13 +161,16 @@ export function readLabel(chars: number): string {
   return `${chars.toLocaleString()} 字 · 约 ${min < 1 ? "<1" : min.toFixed(1)} 分钟`;
 }
 
-export function firstSentence(ep: Ep | CandEp): string {
+const EXCERPT = 22;
+export function headExcerpt(ep: Ep | CandEp): string {
   if (!ep.range) return "";
-  return SOURCE.sentences[ep.range[0]];
+  const t = SOURCE.text.slice(ep.range[0], ep.range[1]).replace(/\n/g, " ").trim();
+  return t.length > EXCERPT ? `${t.slice(0, EXCERPT)}…` : t;
 }
-export function lastSentence(ep: Ep | CandEp): string {
+export function tailExcerpt(ep: Ep | CandEp): string {
   if (!ep.range) return "";
-  return SOURCE.sentences[ep.range[1] - 1];
+  const t = SOURCE.text.slice(ep.range[0], ep.range[1]).replace(/\n/g, " ").trim();
+  return t.length > EXCERPT ? `…${t.slice(-EXCERPT)}` : t;
 }
 
 // ---------------------------------------------------------------- 假 AI
@@ -173,18 +188,24 @@ const HOOKS = [
   "火光里走出来的人，本该已经死了。",
 ];
 
+function snapToSentenceEnd(pos: number): number {
+  return SOURCE.sentenceEnds.find((e) => e >= pos) ?? SOURCE_LEN;
+}
+
 /** 从 from 起读一个窗口，切出其中剧情弧完整的集；到源文结尾时收尾 */
 export function fakePlanWindow(from: number, seed: number, titleOffset = 0): CandEp[] {
   const windowEnd = Math.min(from + WINDOW, SOURCE_LEN);
   const out: CandEp[] = [];
   let pos = from;
   let k = 0;
-  while (true) {
-    const len = 24 + Math.floor(rnd(seed * 31 + pos) * 14);
-    const end = pos + len;
+  while (pos < SOURCE_LEN) {
+    const len = 520 + Math.floor(rnd(seed * 31 + pos) * 300);
+    let end = snapToSentenceEnd(pos + len);
+    // 剩下不到半集的尾巴并进这一集
+    if (end <= windowEnd && windowEnd === SOURCE_LEN && SOURCE_LEN - end < 260) end = SOURCE_LEN;
     if (end > windowEnd) {
       if (windowEnd === SOURCE_LEN && pos < SOURCE_LEN) {
-        if (SOURCE_LEN - pos < 12 && out.length > 0) out[out.length - 1].range[1] = SOURCE_LEN;
+        if (SOURCE_LEN - pos < 260 && out.length > 0) out[out.length - 1].range[1] = SOURCE_LEN;
         else out.push(mkCand(pos, SOURCE_LEN, titleOffset + k));
       }
       break;
