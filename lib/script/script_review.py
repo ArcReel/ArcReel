@@ -73,6 +73,11 @@ ReviewStatus = Literal["not_applicable", "no_script_plan", "pending_review", "co
 #: 确认记录在 episode 条目上的字段名：``{"fingerprint": str, "confirmed_at": ISO8601}``。
 REVIEW_FIELD = "script_plan_review"
 
+#: 正式脚本的来历，记在 episode 条目上。取 ``BLANK_FORMAL_SCRIPT_ORIGIN`` 表示这份正式脚本是「从空白开始」
+#: 建出的，不来自任何脚本规划：此后生成的规划一律待确认，不适用存量兼容。确认后随确认记录一起移除。
+FORMAL_SCRIPT_ORIGIN_FIELD = "formal_script_origin"
+BLANK_FORMAL_SCRIPT_ORIGIN = "blank"
+
 #: stale 账本条目记录重规划提交时旧 script_plan 的内容指纹；live 指纹变化即证明 script_plan 已按新账本重建。
 STALE_SCRIPT_PLAN_REVISION_FIELD = "stale_script_plan_revision"
 
@@ -680,6 +685,7 @@ def review_status(project_path: Path, project: dict[str, Any], episode: int) -> 
     - 有确认指纹：与 live script_plan 内容指纹一致 → confirmed，不一致（script_plan 改过）→ pending_review；
     - 无确认指纹（存量 / 首次）：已产 prompt_authoring（存量项目升级前已通过该集）→ grandfather 放行 confirmed，
       避免新 gate 无谓阻塞存量 prompt_authoring 重跑；未产 prompt_authoring（feature 后首次产 script_plan）→ pending_review 待确认。
+      正式脚本是从空白开始建出的（``blank_formal_script``）不适用 grandfather，一律 pending_review。
     """
     path = script_plan_path(project_path, project, episode)
     if path is None:
@@ -699,11 +705,20 @@ def _formal_script_plan_confirmed(project_path: Path, project: dict[str, Any], e
     stored_fingerprint = stored_review(project, episode).get("fingerprint")
     if stored_fingerprint is not None:
         return stored_fingerprint == live
+    if blank_formal_script(project, episode):
+        # 从空白开始的正式脚本不来自任何规划，之后生成的规划没有被认可过。
+        return False
     # 无确认指纹（存量 / 首次）：用 prompt_authoring 产物是否已存在做 grandfather 判据。
     # 过渡态局限：存量集没有指纹基线，无法区分「script_plan 未动」与「script_plan 已重拆但未确认」——
     # 只要旧 prompt_authoring 文件仍在，重拆后的 script_plan 也会被放行、不重新阻塞。这是「不无谓阻塞存量重跑」的
     # 取舍代价，且自愈：用户或 Agent 首次确认后即写入指纹，此后走上面的指纹分支、gate 全程生效。
     return prompt_authoring_generated(project_path, project, episode)
+
+
+def blank_formal_script(project: Mapping[str, Any], episode: int) -> bool:
+    """该集正式脚本是否「从空白开始」建出、尚未被任何确认过的规划替换。"""
+    entry = find_episode(project, episode)
+    return isinstance(entry, dict) and entry.get(FORMAL_SCRIPT_ORIGIN_FIELD) == BLANK_FORMAL_SCRIPT_ORIGIN
 
 
 def formal_script_plan_confirmed(project_path: Path, project: dict[str, Any], episode: int) -> bool:
@@ -736,6 +751,8 @@ def apply_confirmation(project: dict[str, Any], episode: int, fingerprint: str, 
     if ep is None:
         return False
     ep[REVIEW_FIELD] = {"fingerprint": fingerprint, "confirmed_at": confirmed_at}
+    # 确认后的正式脚本来自这份规划，不再是从空白开始的那一份。
+    ep.pop(FORMAL_SCRIPT_ORIGIN_FIELD, None)
     return True
 
 

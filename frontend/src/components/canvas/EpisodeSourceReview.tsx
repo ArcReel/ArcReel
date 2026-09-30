@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { AlertTriangle, Anchor, ChevronDown, Loader2 } from "lucide-react";
 import { API } from "@/api";
 import { ScriptPlanButton } from "@/components/canvas/shared/ScriptPlanButton";
+import { StartBlankScriptButton } from "@/components/canvas/shared/StartBlankScriptButton";
 import { useScriptPlanEntry } from "@/hooks/useScriptPlanEntry";
 import type { EpisodeMeta } from "@/types";
 import { episodePosition } from "@/utils/episode-display";
@@ -258,12 +259,20 @@ export function EpisodeSourceReview({
           episodes={episodes}
           meta={meta}
           actions={
-            <ScriptPlanButton
-              projectName={projectName}
-              episode={episode}
-              replaces="none"
-              className="arc-btn-primary focus-ring rounded-lg px-4 py-2 text-[12.5px] font-semibold"
-            />
+            <>
+              <StartBlankScriptButton
+                projectName={projectName}
+                episode={episode}
+                discardsPlan={false}
+                className="focus-ring rounded-lg border border-[var(--color-hairline)] px-4 py-2 text-[12.5px] font-medium text-[var(--color-text-2)] transition-colors hover:text-[var(--color-text)]"
+              />
+              <ScriptPlanButton
+                projectName={projectName}
+                episode={episode}
+                replaces="none"
+                className="arc-btn-primary focus-ring rounded-lg px-4 py-2 text-[12.5px] font-semibold"
+              />
+            </>
           }
         />
         <ScriptPlanProgress projectName={projectName} episode={episode} />

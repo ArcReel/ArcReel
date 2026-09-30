@@ -222,6 +222,7 @@ MESSAGES = {
         "hãy hủy bản nháp hoặc giao cho tác nhân hợp nhất"
     ),
     "draft_agent_owned": "Tác nhân đang sửa nội dung này; hãy giao cho tác nhân hoàn tất hoặc hủy bản sửa này",
+    "blank_script_formal_exists": "Tập này đã có kịch bản chính thức nên không thể bắt đầu từ trang trống. Hãy sửa trực tiếp trên dòng thời gian",
     "draft_doc_type_not_applicable": "Loại bản nháp này không áp dụng cho dự án hiện tại",
     "draft_save_failed": "Bản nháp đã được lưu nhưng chưa kiểm tra xong; vui lòng thử lại sau",
     "script_review_not_applicable": "Tập này không áp dụng xác nhận nội dung (chế độ này không tạo ra kết quả kế hoạch kịch bản để xác nhận)",

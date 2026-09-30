@@ -15,6 +15,7 @@ id 分配与资产作废。MCP 工具与测试都复用它。
 from __future__ import annotations
 
 import logging
+import re
 from copy import deepcopy
 from typing import Any
 
@@ -120,11 +121,11 @@ def _set_nested(obj: dict[str, Any], field_path: str, value: Any) -> None:
             "要重写请给出新的提示词"
         )
     if parts[0] in {"segment_id", "scene_id", "unit_id", "shot_id"}:
-        # patch 不可改分镜 id：id 由 insert/split 从锚点派生，结构校验不查 id 唯一性，
+        # patch 不可改分镜 id：id 由 insert/split 分配，结构校验不查 id 唯一性，
         # Agent 改 id 后会让其他依赖 id 定位的 helper（update_scene_asset 等）回写到错误分镜
         # 或产生重复 id 歧义。增减分镜走 patch_episode_script 的 insert / split / remove operation。
         raise ScriptEditError(
-            f"patch_episode_script 不可改分镜 id 字段 ({parts[0]})；id 由 insert/split 派生，不允许直接修改"
+            f"patch_episode_script 不可改分镜 id 字段 ({parts[0]})；id 由 insert/split 分配，不允许直接修改"
         )
     cur: Any = obj
     # 三类异常分别报告，让 Agent 错误信息更精确（拼写错误 vs 类型错误 vs 中间节点不存在）。
@@ -154,16 +155,54 @@ def patch_field(script: dict[str, Any], item_id: str, field_path: str, value: An
     return script
 
 
-def insert_segment(script: dict[str, Any], after_id: str, new_item: dict[str, Any]) -> dict[str, Any]:
-    """在 ``after_id`` 之后插入一个新分镜，分配派生自锚点 id 的稳定新 id。
+#: 条目 id 的主序号前缀：分镜族骨架用 ``S``，参考生视频单元用 ``U``。
+_ITEM_ID_LETTERS: dict[str, str] = {"segments": "S", "scenes": "S", "shots": "S", "video_units": "U"}
+_ITEM_ID_RE = re.compile(r"^E(\d+)([SU])(\d+)(?:_\d+)?$")
 
-    新分镜的 id 字段被强制改写为 ``{after_id}_{k}``（唯一），``generated_assets`` 与
-    ``end_frame_image`` 清空。其余字段由 Agent 提供，结构是否合法由写盘统一入口校验。
+
+def _script_episode(script: dict[str, Any], ids: list[str]) -> int:
+    episode = script.get("episode")
+    if isinstance(episode, int) and not isinstance(episode, bool) and episode >= 1:
+        return episode
+    for item_id in ids:
+        if (match := _ITEM_ID_RE.match(item_id)) is not None:
+            return int(match.group(1))
+    return 1
+
+
+def new_item_id(script: dict[str, Any]) -> str:
+    """新增条目的 id：本集现存主序号的最大值顺延，Web 与 Agent 的新增都经这里取号。
+
+    分镜族为 ``E{集}S{序号:02d}``，参考生视频单元为 ``E{集}U{序号}``；序号不回填中间空缺，也不从
+    锚点派生，条目顺序只由数组位置决定。只看现存条目，所以末尾条目删掉后再新增会取回它的序号；
+    同号旧条目留下的媒体与版本历史由批量编辑在提交时清掉，新条目是全新的身份。
+    """
+    items, id_field, kind = resolve_items(script)
+    ids = [str(item.get(id_field)) for item in items if isinstance(item, dict)]
+    episode = _script_episode(script, ids)
+    letter = _ITEM_ID_LETTERS[kind]
+    numbers = [
+        int(match.group(3))
+        for item_id in ids
+        if (match := _ITEM_ID_RE.match(item_id)) is not None and int(match.group(1)) == episode
+    ]
+    number = max(numbers, default=0) + 1
+    taken = set(ids)
+    while (item_id := f"E{episode}{letter}{number:02d}" if letter == "S" else f"E{episode}U{number}") in taken:
+        number += 1
+    return item_id
+
+
+def insert_segment(script: dict[str, Any], after_id: str | None, new_item: dict[str, Any]) -> dict[str, Any]:
+    """在 ``after_id`` 之后插入一个新条目；``after_id`` 为 ``None`` 时插到最前。
+
+    新条目的 id 字段一律由 ``new_item_id`` 分配，``generated_assets`` 与 ``end_frame_image`` 清空。
+    其余字段由调用方提供，结构是否合法由写盘统一入口校验。
     """
     items, id_field, _ = resolve_items(script)
-    idx = _find_index(items, id_field, after_id)
+    idx = -1 if after_id is None else _find_index(items, id_field, after_id)
     item = deepcopy(new_item)
-    item[id_field] = _next_suffixed_id(str(after_id), _existing_ids(items, id_field))
+    item[id_field] = new_item_id(script)
     item["generated_assets"] = {}
     # 尾帧快照按分镜 id 命名，新 id 名下还没有快照；Agent 自带的值只会指向别人的快照或空路径。
     item.pop("end_frame_image", None)

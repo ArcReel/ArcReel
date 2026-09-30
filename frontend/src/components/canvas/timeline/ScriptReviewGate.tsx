@@ -29,6 +29,7 @@ import {
 } from "@/components/shared/DraftStatus";
 import { EpisodeDurationSummary } from "@/components/shared/EpisodeDurationSummary";
 import { ScriptPlanButton } from "@/components/canvas/shared/ScriptPlanButton";
+import { StartBlankScriptButton } from "@/components/canvas/shared/StartBlankScriptButton";
 import { ScriptOverwriteConfirmDialog } from "@/components/shared/ScriptOverwriteConfirmDialog";
 import { VideoModelUnresolvedNotice } from "@/components/shared/VideoModelUnresolvedNotice";
 import { useModelCapabilities } from "@/hooks/useModelCapabilities";
@@ -431,6 +432,12 @@ export function ScriptReviewGate({ projectName, episode, contentMode, videoModel
     />
   );
 
+  // 本集还没有正式脚本、规划也未确认时，可以不用这份规划、从空白开始手写；规划与待修复草稿随之弃置，先确认。
+  const blankStartAction =
+    state?.script_overwrite == null && status !== "confirmed" ? (
+      <StartBlankScriptButton projectName={projectName} episode={episode} discardsPlan className={GHOST_BTN_CLS} />
+    ) : null;
+
   // 待修复草稿在场：面板呈现草稿本身，正式内容此刻不可确认（确认端点按同一判据拒绝）。
   if (quarantine != null && quarantine.editable_by === "user") {
     const content = draftEditor.content;
@@ -470,7 +477,10 @@ export function ScriptReviewGate({ projectName, episode, contentMode, videoModel
           onHandToAgent={() => prefillAssistant(draftFixRequestText(t, episodeRef, docType, quarantine.violations))}
           onDiscard={() => setDiscardOpen(true)}
           regenerateAction={
-            <ScriptPlanButton projectName={projectName} episode={episode} replaces="draft" className={GHOST_BTN_CLS} />
+            <>
+              {blankStartAction}
+              <ScriptPlanButton projectName={projectName} episode={episode} replaces="draft" className={GHOST_BTN_CLS} />
+            </>
           }
         />
         {discardDialog}
@@ -537,13 +547,16 @@ export function ScriptReviewGate({ projectName, episode, contentMode, videoModel
           overwrite={overwrite != null}
           onOpenTimeline={confirmed ? onOpenTimeline : undefined}
           regenerateAction={
-            <ScriptPlanButton
-              projectName={projectName}
-              episode={episode}
-              replaces={confirmed ? "confirmed_plan" : "pending_plan"}
-              className={GHOST_BTN_CLS}
-              disabledReason={dirty && !confirmed ? t("dashboard:script_plan_dirty_hint") : null}
-            />
+            <>
+              {blankStartAction}
+              <ScriptPlanButton
+                projectName={projectName}
+                episode={episode}
+                replaces={confirmed ? "confirmed_plan" : "pending_plan"}
+                className={GHOST_BTN_CLS}
+                disabledReason={dirty && !confirmed ? t("dashboard:script_plan_dirty_hint") : null}
+              />
+            </>
           }
           saveAction={
             dirty && !confirmed ? (

@@ -222,6 +222,7 @@ MESSAGES = {
         "discard the draft or hand it to the agent to merge"
     ),
     "draft_agent_owned": "The agent is editing this content; hand it to the agent to finish, or discard the edit",
+    "blank_script_formal_exists": "This episode already has a formal script, so it cannot start from blank. Edit it on the timeline instead",
     "draft_doc_type_not_applicable": "This kind of draft does not apply to the current project",
     "draft_save_failed": "The draft was saved, but validation could not finish; please retry later",
     "script_review_not_applicable": "Content confirmation does not apply to this episode (this mode produces no script plan result to confirm)",

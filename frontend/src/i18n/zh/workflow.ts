@@ -148,7 +148,6 @@ export default {
   'next_detail_generate_videos_other': '{{count}} 个还没有视频。',
   'next_detail_create_edit_timeline': '本集视频已齐，可以开始剪辑。',
   'next_detail_wait_for_task': '正在生成，完成后状态会自动更新。',
-  'agent_prefill_start_blank_script': '为{{episodeRef}}从空白开始写正式脚本',
   'agent_prefill_generate_script': '按创作灵感与商品为{{episodeRef}}生成脚本',
   'agent_prefill_add_script_items_storyboard': '为{{episodeRef}}的正式脚本添加分镜',
   'agent_prefill_add_script_items_unit': '为{{episodeRef}}的正式脚本添加视频单元',

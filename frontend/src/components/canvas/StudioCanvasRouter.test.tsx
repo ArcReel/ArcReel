@@ -1173,7 +1173,7 @@ describe("StudioCanvasRouter", () => {
   });
 
   it.each([
-    ["insert-shot", "insertScriptItemAfter"],
+    ["insert-shot", "insertScriptItem"],
     ["remove-shot", "removeScriptItem"],
   ] as const)(
     "%s reports success once the edit is committed even if the local refresh then fails",

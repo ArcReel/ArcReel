@@ -5,6 +5,9 @@ import { ScriptReviewGate } from "./ScriptReviewGate";
 import { PromptAuthoringButton } from "@/components/canvas/shared/PromptAuthoringButton";
 import { ShotSplitView } from "./ShotSplitView";
 import { EpisodeHeader } from "./EpisodeHeader";
+import { EmptyScriptState } from "./EmptyScriptState";
+import type { InsertShotHandler } from "./ShotStructureActions";
+import { NoScriptBlankState } from "@/components/canvas/shared/StartBlankScriptButton";
 import { useCostStore } from "@/stores/cost-store";
 import { useActiveResourceIds } from "@/stores/tasks-store";
 import { useEpisodeSurfaceRequest } from "@/stores/episode-surface-store";
@@ -41,8 +44,8 @@ interface TimelineCanvasProps {
   ) => void | Promise<void>;
   /** 广告/短片分镜顺序调整（向前/向后移动一位），resolve 为是否移动成功 */
   onMoveShot?: (shotId: string, direction: "earlier" | "later", scriptFile?: string) => Promise<boolean>;
-  /** 在分镜之后新增分镜（旁白带正文），resolve 为是否成功 */
-  onInsertShot?: (afterId: string, novelText: string | undefined, scriptFile?: string) => Promise<boolean>;
+  /** 新增分镜（旁白带正文）：afterId 为 null 时追加到末尾；resolve 为是否成功 */
+  onInsertShot?: (afterId: string | null, novelText: string | undefined, scriptFile?: string) => Promise<boolean>;
   /** 移除分镜，resolve 为是否成功 */
   onRemoveShot?: (itemId: string, scriptFile?: string) => Promise<boolean>;
   onGenerateStoryboard?: (segmentId: string, scriptFile?: string) => void;
@@ -196,6 +199,11 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
     [ttsBusyIds, currentSegmentIds],
   );
 
+  // 广告/短片没有脚本规划：没有正式脚本时直接从空白开始。
+  if (projectData && !episodeScript && !hasDraft && editorContentMode === "ad" && !demoReadOnly) {
+    return <NoScriptBlankState projectName={projectName} episode={episode} className="h-full text-[13px]" />;
+  }
+
   if (!projectData || (!episodeScript && !hasDraft)) {
     return (
       <div
@@ -228,8 +236,8 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
   const handleMoveShot = onMoveShot
     ? (shotId: string, direction: "earlier" | "later") => onMoveShot(shotId, direction, scriptFile)
     : undefined;
-  const handleInsertShot = onInsertShot
-    ? (afterId: string, novelText?: string) => onInsertShot(afterId, novelText, scriptFile)
+  const handleInsertShot: InsertShotHandler | undefined = onInsertShot
+    ? (afterId, novelText) => onInsertShot(afterId, novelText, scriptFile)
     : undefined;
   const handleRemoveShot = onRemoveShot
     ? (itemId: string) => onRemoveShot(itemId, scriptFile)
@@ -402,8 +410,10 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
               />
             </div>
           </div>
+        ) : episodeScript && contentMode === editorContentMode ? (
+          <EmptyScriptState contentMode={editorContentMode} onInsert={handleInsertShot} />
         ) : (
-          // 兜底：timeline tab 下无可编辑分镜（剧本为空列表或未知 content_mode），
+          // 兜底：timeline tab 下无可编辑分镜（未知 content_mode），
           // 或剧本回退后 tab 仍停留在 timeline——给出指引而非空白
           <div
             className="flex h-full items-center justify-center text-[13px]"

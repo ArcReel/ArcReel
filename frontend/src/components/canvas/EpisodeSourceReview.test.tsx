@@ -57,7 +57,7 @@ describe("EpisodeSourceReview", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText("未找到本集源文切片")).toBeInTheDocument();
+      expect(screen.getByText("本集没有集原文，可以从空白开始手写脚本")).toBeInTheDocument();
     });
   });
 

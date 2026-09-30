@@ -250,7 +250,7 @@ describe("ReferenceVideoCanvas", () => {
       expect(unload.defaultPrevented).toBe(false);
     });
 
-    fireEvent.click(screen.getByRole("button", { name: /New Unit|新建 Unit/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Add video unit|新增视频单元/ }));
     await waitFor(() => expect((screen.getByRole("combobox") as HTMLTextAreaElement).value).toContain("fresh unit"));
   });
 
@@ -685,9 +685,9 @@ describe("ReferenceVideoCanvas", () => {
     const addSpy = vi.spyOn(API, "addReferenceVideoUnit").mockResolvedValue({ unit: mkUnit("E1U1"), unit_capability: makeReferenceUnitCapability("E1U1") });
     render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
     await waitFor(() =>
-      expect(screen.getByRole("button", { name: /New Unit|新建 Unit/ })).toBeInTheDocument(),
+      expect(screen.getByRole("button", { name: /Add video unit|新增视频单元/ })).toBeInTheDocument(),
     );
-    fireEvent.click(screen.getByRole("button", { name: /New Unit|新建 Unit/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Add video unit|新增视频单元/ }));
     await waitFor(() => expect(addSpy).toHaveBeenCalled());
   });
 

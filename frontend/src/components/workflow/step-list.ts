@@ -45,6 +45,7 @@ export type StepIntent =
   | { type: "open_author_prompts" }
   | { type: "plan_script" }
   | { type: "plan_script_to_agent" }
+  | { type: "start_blank_script" }
   | { type: "open_script_plan_over_draft" }
   | { type: "asset_batch"; episodeId: number }
   | { type: "discard_draft"; docType: DraftDocType }
@@ -201,6 +202,10 @@ const SOURCE_ROUTE = `/${WORKSPACE_ROUTE_SOURCE}`;
 
 function provideSourceAct(t: TFunction): StepAct {
   return { key: "provide-source", label: t("workflow:act_provide_source"), kind: "nav", intent: { type: "route", path: SOURCE_ROUTE } };
+}
+
+function blankScriptAct(t: TFunction): StepAct {
+  return { key: "blank-script", label: t("dashboard:blank_script_start"), kind: "nav", intent: { type: "start_blank_script" } };
 }
 
 function draftStatus(t: TFunction, draft: WorkflowDraft): string {
@@ -600,6 +605,7 @@ function buildNext(facts: Facts, rows: StepRowView[], ctx: StepListContext): Nex
   };
   const alternatives = plan.next_alternatives.flatMap((alt): StepAct[] => {
     if (alt.type === "provide_episode_source" && !facts.isAd) return [provideSourceAct(t)];
+    if (alt.type === "start_blank_script") return [blankScriptAct(t)];
     return [];
   });
 
@@ -660,7 +666,7 @@ function buildNext(facts: Facts, rows: StepRowView[], ctx: StepListContext): Nex
       return {
         ...base,
         detail: t(`workflow:next_detail_start_blank_script_${facts.unitWordKey}`),
-        primary: [agentAct(t, t("workflow:agent_prefill_start_blank_script", { episodeRef }))],
+        primary: [blankScriptAct(t)],
         alternatives,
       };
     case "provide_episode_source":
@@ -683,6 +689,7 @@ function buildNext(facts: Facts, rows: StepRowView[], ctx: StepListContext): Nex
         detail: t("workflow:next_detail_generate_script"),
         instruction: { initial: "", persist: null },
         primary: [agentAct(t, t("workflow:agent_prefill_generate_script", { episodeRef }))],
+        alternatives,
       };
     case "collect_project_input": {
       const reason = refusalReason(t, plan.status.operations.generate_script) ?? t("workflow:refusal_ad_brief_and_products_missing");
@@ -691,6 +698,7 @@ function buildNext(facts: Facts, rows: StepRowView[], ctx: StepListContext): Nex
         title: t("workflow:next_title_generate_script"),
         detail: t("workflow:next_detail_generate_script"),
         primary: [agentAct(t, t("workflow:agent_prefill_generate_script", { episodeRef }), undefined, reason)],
+        alternatives,
         hint: {
           key: "fill-brief",
           tone: "info",
