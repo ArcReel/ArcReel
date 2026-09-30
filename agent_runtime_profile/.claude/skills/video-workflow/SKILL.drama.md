@@ -293,8 +293,8 @@ stale 产物照常可预览、可导出、可参与成片，是否重做由用�
 **触发**：`next_action.type == "create_edit_timeline"`，本集视频已齐、还没有剪辑时间线。
 
 调 `mcp__arcreel__create_timeline({"from": "script", "episode": target.episode, "name": "完整版"})` 按脚本
-机械新建一条剪辑时间线，再与用户一起在它上面剪辑。至少有一条剪辑时间线，这一步即完成。
-导出剪映草稿不是工作流步骤，由用户在 Web 端发起。
+机械新建一条剪辑时间线，至少有一条剪辑时间线，这一步即完成。之后按 `edit-video` skill 在它上面剪辑，
+只在用户要求时出成片。
 
 ---
 

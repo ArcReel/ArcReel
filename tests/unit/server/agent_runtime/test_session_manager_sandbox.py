@@ -204,7 +204,7 @@ async def test_build_options_bash_in_allowed_tools_by_sandbox(
     ("command", "expected"),
     [
         (
-            "python .claude/skills/compose-video/scripts/compose_video.py scripts/episode_1.json",
+            "python .claude/skills/adapt-custom-endpoint/scripts/custom_endpoint.py validate",
             "PermissionResultAllow",
         ),
         ("ffmpeg -i in.mp4 out.mp4", "PermissionResultAllow"),
@@ -213,11 +213,11 @@ async def test_build_options_bash_in_allowed_tools_by_sandbox(
         ("ffmpeg -i my..clip.mp4 out.mp4", "PermissionResultAllow"),
         # 归一化容错：带引号的脚本路径、Windows 反斜杠分隔符的合法命令不误拒
         (
-            'python ".claude/skills/compose-video/scripts/compose_video.py" scripts/ep.json',
+            'python ".claude/skills/adapt-custom-endpoint/scripts/custom_endpoint.py" validate',
             "PermissionResultAllow",
         ),
         (
-            "python .claude\\skills\\compose-video\\scripts\\compose_video.py scripts/ep.json",
+            "python .claude\\skills\\adapt-custom-endpoint\\scripts\\custom_endpoint.py validate",
             "PermissionResultAllow",
         ),
         ("cat /etc/passwd", "PermissionResultDeny"),
@@ -269,9 +269,9 @@ async def test_windows_bash_whitelist_matches_main_behavior(tmp_path: Path, comm
         # python 入口必须是 <skill>/scripts/<script>.py：skills 目录下任意其它
         # 文件（无 scripts/ 段、非 .py、或直接挂在 skill 根）一律不放行
         "python .claude/skills/evil.py",
-        "python .claude/skills/compose-video/compose_video.py scripts/ep.json",
-        "python .claude/skills/compose-video/scripts/data.json",
-        "python .claude/skills/compose-video/scripts/sub/run.py",
+        "python .claude/skills/adapt-custom-endpoint/custom_endpoint.py validate",
+        "python .claude/skills/adapt-custom-endpoint/scripts/data.json",
+        "python .claude/skills/adapt-custom-endpoint/scripts/sub/run.py",
     ],
 )
 async def test_windows_bash_whitelist_blocks_metachar_chains(tmp_path: Path, command: str) -> None:

@@ -967,7 +967,7 @@ class AssistantService:
         "generate-video": "film",
         "generate-narration-audio": "audio-lines",
         "generate-assets": "users",
-        "compose-video": "scissors",
+        "edit-video": "scissors",
     }
 
     def list_available_skills(self, project_name: str | None = None) -> list[dict[str, str]]:

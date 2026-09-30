@@ -95,19 +95,29 @@
     },
     {
       "id": 5,
-      "prompt": "视频做好了，帮我加个背景音乐，音量小一点大概0.2",
-      "expected_output": "应使用 compose-video 添加 BGM，设置 --music-volume 0.2",
-      "target_skills": ["compose-video"],
+      "prompt": "第 1 集视频都生成好了，帮我剪一版，剪完出个成片",
+      "expected_output": "应使用 edit-video：确定本集剪辑时间线（没有就按脚本新建），读取后用一批 edit_timeline 操作剪辑，总结改动，再按用户要求调 render_final_cut 出成片",
+      "target_skills": ["edit-video"],
       "assertions": [
         {
-          "name": "uses_compose_video",
-          "text": "调用 compose-video 脚本",
+          "name": "reads_before_edit",
+          "text": "修改前先调 read_timeline 取得 revision，并把它作为 edit_timeline 的 base_revision",
           "type": "behavior"
         },
         {
-          "name": "correct_volume",
-          "text": "设置 --music-volume 0.2",
+          "name": "summarizes_changes",
+          "text": "一轮剪辑结束时按片段编号总结改动及理由",
           "type": "behavior"
+        },
+        {
+          "name": "renders_on_request",
+          "text": "用户已要求出成片，调 render_final_cut，并在提交前说明 warning 级 issue",
+          "type": "behavior"
+        },
+        {
+          "name": "no_ffmpeg_scripts",
+          "text": "不经 Bash 调 ffmpeg 或脚本拼接视频",
+          "type": "constraint"
         }
       ]
     }

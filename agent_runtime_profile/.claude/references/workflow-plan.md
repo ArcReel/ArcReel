@@ -93,7 +93,7 @@ ID 参数时，前者传入，后者必须**省略该参数**，不得把 `[]` �
 | `confirm_request_duration` | 计划注入：见「整批准入判定」 |
 | `generate_videos` | 视频生成工具（见 `generate-video` skill） |
 | `wait_for_task` | 计划注入：有活动任务，不入队新任务；等待并复查计划 |
-| `create_edit_timeline` | 本集视频已齐、还没有剪辑时间线：`mcp__arcreel__create_timeline`（`episode` 取 `next_action.args.episode`，`from: "script"`）按脚本机械新建一条，再与用户一起在它上面剪辑。至少有一条剪辑时间线，「剪辑」一步即完成 |
+| `create_edit_timeline` | 本集视频已齐、还没有剪辑时间线：`mcp__arcreel__create_timeline`（`episode` 取 `next_action.args.episode`，`from: "script"`）按脚本机械新建一条，至少有一条剪辑时间线，「剪辑」一步即完成；之后按 `edit-video` skill 剪辑 |
 | `retry_project_migration` | 项目数据升级未完成：按明细修复后 `mcp__arcreel__retry_project_migration`（见「数据升级失败」） |
 | `none` | `blockers` 非空时展示并停止变更；`status.state == "COMPLETED"` 时工作流已走完 |
 

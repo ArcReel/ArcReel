@@ -28,7 +28,7 @@
 - **生成方式**：按 `generation_mode` 分两路——分镜图生视频中每个分镜独立生成、以分镜图作起始帧；参考生视频按自包含视频单元直出、跳过分镜（见下文「生成模式」）
 
 > **关于 extend 功能**：Veo 3.1 extend 功能仅用于延长单个镜头，
-> 每次固定 +7 秒，不适合用于串联不同镜头。不同镜头之间使用 ffmpeg 拼接。
+> 每次固定 +7 秒，不适合用于串联不同镜头。不同镜头之间在剪辑时间线上衔接。
 
 ### 音频规范
 - **BGM 自动禁止**：生成端已在视频 prompt 末尾自动追加 `Avoid: BGM、文字字幕、水印`，无需手动追加，video_prompt 里也不要描述 BGM / 配乐
@@ -41,7 +41,7 @@
 
 - **业务入队 / 文本生成 / 能力查询**：统一走 `mcp__arcreel__*` 系列 SDK in-process MCP tool（角色/场景/道具/分镜/视频/宫格/集脚本/规范化剧本/视频能力查询）。它们跑在 server 主进程，不受 sandbox 网络白名单约束，Agent 直接以 tool 形式调用。
 - **编辑项目 JSON**：修改剧本（`scripts/*.json`）或角色/场景/道具（`project.json`）**一律走 `mcp__arcreel__*` 编辑工具**——批量改剧本时先调用 `get_episode_script` 读取正文与 revision，再把其 revision 原样作为 `patch_episode_script` 的 `base_revision`，并传有序 `operations[]`（`update` / `insert` / `remove` / `split`）；整批先预检后原子提交，失败结果用 `operation_index` 与 field location 定位，revision 冲突时重新读取再重做。改分集标题用 `patch_episode_meta`，角色/场景/道具用 `patch_project`。**严禁**用 Write / Edit / Bash 直改这两类文件（已被 sandbox `denyWrite` 与 PreToolUse hook 双层拒绝）。**改 prompt 必重生**：用 `patch_episode_script` 改了某些分镜的 `image_prompt` / `video_prompt` 后，工具不会自动作废旧图/视频，必须紧接着调对应生成工具重新生成这些分镜，否则会留下「新 prompt + 旧画面」的陈旧。
-- **Bash 用途**：仅供通用排查与文件浏览（`ls / cat / jq / python / curl` 等），以及 `manage-project` / `compose-video` 这两个 skill 内还保留的 Python 脚本。
+- **Bash 用途**：仅供通用排查与文件浏览（`ls / cat / jq / python / curl` 等）。
 - **敏感文件保护**：`.env` / `.claude/settings.json`，以及数据根里项目以外的全部数据（数据库、凭证、日志、其他用户的记忆等）由 sandbox profile（`filesystem.denyRead`）内核级拒绝读取，并由 PreToolUse 文件访问 hook 双重防御；代码文件（.py/.js/.ts/.tsx/.sh/.yaml/.yml/.toml）受运行时 hook 阻止写入。
 
 ### 路径规范
@@ -108,7 +108,7 @@ Agent session 的当前工作目录（cwd）已绑定到当前项目根，**所�
 - **剧本**：`mcp__arcreel__generate_episode_script({"episode": 1})` 单阶段产出，八段带货框架按 `target_duration` 选档配比；分镜图生视频路径向用户呈现分镜列表与口播文案，参考生视频路径呈现视频单元列表与引用语法正文，按需经 `patch_episode_script` 调整（顺序调整引导用户到 WebUI 剧本页）
 - **product sheet 过目（软门禁）**：商品生成了 `product_sheet` 时，分镜开工前（参考生视频路径为首次视频生成前）安排用户到商品资产页确认 sheet 与真品一致（见下文「商品保真」）；无 sheet（仅原图）直接进入下一步
 - **保真拦截**：分镜图生成后引导用户审核商品形象保真度，不合格的重新生成——在产生视频费用前拦截
-- **剪辑与导出**：视频齐全后进入「剪辑」一步，计划给出 `create_edit_timeline` 时为本集新建剪辑时间线，至少有一条即算完成。导出剪映草稿不是工作流步骤，由用户在 Web 端发起。声音归属与字幕时序由服务端 presentation 结果决定，预览、下载与剪映草稿消费同一份；Agent 不自行估算字幕时序、不静音供应商原音、也不替用户判断 TTS 是否必需。stale 产物照常可导出，导出不清空也不覆盖旧付费媒体。in-app 成片（compose-video）对 ad 不适用
+- **剪辑与出片**：视频齐全后进入「剪辑」一步，计划给出 `create_edit_timeline` 时为本集新建剪辑时间线，至少有一条即算完成。在剪辑时间线上剪辑、按用户要求出成片，都按 `edit-video` skill 进行。声音归属与字幕时序由服务端 presentation 结果决定；Agent 不自行估算字幕时序，也不替用户判断 TTS 是否必需。stale 产物照常可用，出片不清空也不覆盖旧付费媒体
 
 工作流支持**灵活入口**：计划自动定位到第一个未完成的动作，中断后从那里继续。
 
@@ -137,7 +137,7 @@ Agent session 的当前工作目录（cwd）已绑定到当前项目根，**所�
 
 ## 职责边界
 
-- **禁止编写代码**：不得创建或修改任何代码文件（.py/.js/.sh 等），数据处理走 `mcp__arcreel__*` 工具或 `manage-project` / `compose-video` 的现有脚本
+- **禁止编写代码**：不得创建或修改任何代码文件（.py/.js/.sh 等），数据处理走 `mcp__arcreel__*` 工具或 `manage-project` 的现有脚本
 - **代码 bug 上报**：如果明确判断 MCP 工具或 skill 脚本出现的是代码 bug（而非参数或环境问题），向用户报告错误并建议反馈给开发者
 
 ## 项目目录结构

@@ -62,7 +62,7 @@ MCP 工具内部通过 `ScriptGenerator` 完成以下步骤：
    - drama（storyboard，含 grid_storyboard）→ `DramaVisualScript`（`scene_id` + image_prompt + video_prompt）
    - ad 分镜 → `AdVisualScript`（`shot_id` + image_prompt + video_prompt）；ad 整份生成 → `AdEpisodeScript`（storyboard）或 `AdReferenceFlatScript`（reference_video）
    - reference_video → `ReferencePromptAuthoringFlatScript`：待编写单元按顺序各一段改写后的正文，台词逐字保留
-6. **补充元数据** — `episode`、`content_mode`、`novel`（项目 title + `第N集`）、时间戳。这些字段对 LLM 隐藏（SkipJsonSchema），由后端从 `project.json` 注入，避免 LLM 幻觉污染下游消费方（compose-video 的 mp4 文件名、剪映草稿等）。
+6. **补充元数据** — `episode`、`content_mode`、`novel`（项目 title + `第N集`）、时间戳。这些字段对 LLM 隐藏（SkipJsonSchema），由后端从 `project.json` 注入，避免 LLM 幻觉污染下游消费方（如剪映草稿）。
    - 注：**任何骨架的剧本都不写入顶层 `generation_mode`**。生成模式是项目级事实（`project.json` 的 `generation_mode`，创建时锁定），剧本骨架种类本身即生成模式的体现；消费方一律读 `project.json` 分派，不得从剧本上找该字段。
 
 ## 输出格式
