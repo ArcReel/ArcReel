@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { API, ConflictError } from "@/api";
+import { API } from "@/api";
 import { OverviewCanvas } from "./OverviewCanvas";
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
@@ -8,10 +8,15 @@ import { useCostStore } from "@/stores/cost-store";
 import type { ProjectData } from "@/types";
 
 vi.mock("./WelcomeCanvas", () => ({
-  WelcomeCanvas: ({ onUpload }: { onUpload: (file: File) => void }) => (
-    <button data-testid="welcome-canvas" onClick={() => onUpload(new File(["x"], "source.txt"))}>
-      welcome
-    </button>
+  WelcomeCanvas: ({ onUploadFilesChange }: { onUploadFilesChange: (files: File[] | null) => void }) => (
+    <div data-testid="welcome-canvas">
+      <button type="button" onClick={() => onUploadFilesChange([])}>
+        open upload
+      </button>
+      <button type="button" onClick={() => onUploadFilesChange(null)}>
+        close upload
+      </button>
+    </div>
   ),
 }));
 
@@ -165,6 +170,21 @@ describe("OverviewCanvas", () => {
     expect(screen.getByText("summary")).toBeInTheDocument();
   });
 
+  it("keeps the welcome canvas while its upload dialog is open, even after the first episode is registered", () => {
+    const { rerender } = render(
+      <OverviewCanvas projectName="demo" projectData={makeProjectData({ overview: undefined, episodes: [] })} />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "open upload" }));
+
+    const withEpisode = makeProjectData({ overview: undefined, episodes: [{ episode: 1, title: "", script_file: "scripts/episode_1.json" }] });
+    rerender(<OverviewCanvas projectName="demo" projectData={withEpisode} />);
+    expect(screen.getByTestId("welcome-canvas")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "close upload" }));
+    expect(screen.queryByTestId("welcome-canvas")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "创建概述" })).toBeInTheDocument();
+  });
+
   it("offers a create-overview entry when overview is absent but episodes exist", () => {
     render(
       <OverviewCanvas
@@ -173,34 +193,6 @@ describe("OverviewCanvas", () => {
       />,
     );
     expect(screen.getByRole("button", { name: "创建概述" })).toBeInTheDocument();
-  });
-
-  it("dismisses a pending conflict prompt once the canvas turns read-only", async () => {
-    vi.spyOn(API, "uploadFile").mockRejectedValue(
-      new ConflictError("existing.txt", "existing (1).txt", "conflict"),
-    );
-
-    const { rerender } = render(
-      <OverviewCanvas
-        projectName="demo"
-        projectData={makeProjectData({ overview: undefined, episodes: [] })}
-      />,
-    );
-
-    fireEvent.click(screen.getByTestId("welcome-canvas"));
-    expect(await screen.findByText("同名文件已存在")).toBeInTheDocument();
-
-    // 切到只读态（如工作台切到演示项目复用同一路由实例）——悬挂的冲突弹窗须一并清空，
-    // 不能带着「保留两者/替换」这类写操作继续留在只读页面上。
-    rerender(
-      <OverviewCanvas
-        projectName="demo"
-        projectData={makeProjectData({ overview: undefined, episodes: [] })}
-        readOnly
-      />,
-    );
-
-    expect(screen.queryByText("同名文件已存在")).not.toBeInTheDocument();
   });
 
   it("does not trigger the agent handoff prompt when switching to a read-only project", () => {
@@ -280,128 +272,6 @@ describe("OverviewCanvas", () => {
     rerender(<OverviewCanvas projectName="project-b" projectData={makeProjectData()} />);
 
     expect(useAppStore.getState().assistantPanelOpen).toBe(false);
-  });
-
-  it("does not reopen the conflict prompt if a stale upload resolves after switching to read-only", async () => {
-    let rejectUpload: ((err: unknown) => void) | undefined;
-    vi.spyOn(API, "uploadFile").mockImplementation(
-      () =>
-        new Promise((_resolve, reject) => {
-          rejectUpload = reject;
-        }),
-    );
-
-    const { rerender } = render(
-      <OverviewCanvas
-        projectName="real-project"
-        projectData={makeProjectData({ overview: undefined, episodes: [] })}
-      />,
-    );
-
-    fireEvent.click(screen.getByTestId("welcome-canvas"));
-
-    // 上传仍在途时切到只读态（如导航到演示项目复用同一路由实例）
-    rerender(
-      <OverviewCanvas
-        projectName="onboarding_demo"
-        projectData={makeProjectData()}
-        readOnly
-      />,
-    );
-
-    // 真实项目的旧上传这时才返回冲突——不该在只读页面上重新弹出弹窗
-    rejectUpload?.(new ConflictError("existing.txt", "existing (1).txt", "conflict"));
-
-    await waitFor(() => {
-      expect(screen.queryByText("同名文件已存在")).not.toBeInTheDocument();
-    });
-  });
-
-  it("does not push a stale success toast if a slow upload resolves after switching to read-only", async () => {
-    let resolveUpload: ((res: Awaited<ReturnType<typeof API.uploadFile>>) => void) | undefined;
-    vi.spyOn(API, "uploadFile").mockImplementation(
-      () =>
-        new Promise((resolve) => {
-          resolveUpload = resolve;
-        }),
-    );
-    const pushToastSpy = vi.spyOn(useAppStore.getState(), "pushToast");
-
-    const { rerender } = render(
-      <OverviewCanvas
-        projectName="real-project"
-        projectData={makeProjectData({ overview: undefined, episodes: [] })}
-      />,
-    );
-
-    fireEvent.click(screen.getByTestId("welcome-canvas"));
-    await waitFor(() => expect(resolveUpload).toBeDefined());
-
-    // 上传仍在途时切到只读态（如导航到演示项目复用同一路由实例）
-    rerender(
-      <OverviewCanvas
-        projectName="onboarding_demo"
-        projectData={makeProjectData()}
-        readOnly
-      />,
-    );
-
-    // 真实项目的旧上传这时才成功返回——不该在只读页面上展示过期的成功提示
-    resolveUpload?.({ success: true, path: "source.txt", url: "/source.txt", filename: "source.txt" });
-
-    await waitFor(() => {
-      expect(pushToastSpy).not.toHaveBeenCalled();
-    });
-  });
-
-  it("does not push a stale success toast if a slow upload resolves after the canvas unmounts", async () => {
-    let resolveUpload: ((res: Awaited<ReturnType<typeof API.uploadFile>>) => void) | undefined;
-    vi.spyOn(API, "uploadFile").mockImplementation(
-      () =>
-        new Promise((resolve) => {
-          resolveUpload = resolve;
-        }),
-    );
-    const pushToastSpy = vi.spyOn(useAppStore.getState(), "pushToast");
-
-    const { unmount } = render(
-      <OverviewCanvas
-        projectName="real-project"
-        projectData={makeProjectData({ overview: undefined, episodes: [] })}
-      />,
-    );
-
-    fireEvent.click(screen.getByTestId("welcome-canvas"));
-    await waitFor(() => expect(resolveUpload).toBeDefined());
-
-    // 用户经由历史记录跳转到非概览深链，整个组件实例被卸载——readOnlyRef 不会再更新
-    unmount();
-
-    // 卸载后旧上传才成功返回——不该在当前所在的其他路由页面上补投过期的成功提示
-    resolveUpload?.({ success: true, path: "source.txt", url: "/source.txt", filename: "source.txt" });
-
-    await waitFor(() => {
-      expect(pushToastSpy).not.toHaveBeenCalled();
-    });
-  });
-
-  it("resolves a pending conflict prompt as cancel when the canvas unmounts", async () => {
-    vi.spyOn(API, "uploadFile").mockRejectedValue(
-      new ConflictError("existing.txt", "existing (1).txt", "conflict"),
-    );
-
-    const { unmount } = render(
-      <OverviewCanvas
-        projectName="real-project"
-        projectData={makeProjectData({ overview: undefined, episodes: [] })}
-      />,
-    );
-
-    fireEvent.click(screen.getByTestId("welcome-canvas"));
-    await screen.findByText("同名文件已存在");
-
-    // 冲突弹窗等待用户决策期间组件被卸载——不该让 handleUpload 里的 Promise 永久悬空
-    expect(() => unmount()).not.toThrow();
   });
 
   it("unmounts an already-visible handoff hint when switching to read-only", () => {

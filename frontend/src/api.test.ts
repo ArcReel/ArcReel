@@ -423,7 +423,8 @@ describe("API", () => {
       await API.getPromptTemplate("asset/sheet 1");
       await API.getPromptPartial("shared/media style");
       await API.updateSystemConfig({ default_image_backend: "vertex" });
-      await API.listFiles("demo");
+      await API.getEpisodesView("demo");
+      await API.adoptSourceFile("demo", "旧 稿.txt", { target: "episode", episode: 2 });
       await API.deleteDraft("demo", 1, "script_plan");
       await API.generateOverview("demo");
       await API.updateOverview("demo", { synopsis: "new" });
@@ -566,6 +567,11 @@ describe("API", () => {
         method: "POST",
         body: JSON.stringify({ script_file: "episode_1.json" }),
       });
+      expect(requestSpy).toHaveBeenCalledWith("/projects/demo/episodes-view", { signal: undefined });
+      expect(requestSpy).toHaveBeenCalledWith(
+        "/projects/demo/source-files/%E6%97%A7%20%E7%A8%BF.txt/adopt",
+        { method: "POST", body: JSON.stringify({ target: "episode", episode: 2 }) },
+      );
     });
 
     it("editImage posts instruction with singular resource_type; script_file null for non-storyboard", async () => {
@@ -834,6 +840,22 @@ describe("API", () => {
       expect((fetchMock.mock.calls[0][1] as RequestInit).body).toBeInstanceOf(FormData);
     });
 
+    it("registers whole-source uploads at a position and per-episode uploads by role", async () => {
+      const fetchMock = vi.fn().mockResolvedValue(
+        mockResponse({ jsonData: { success: true, path: "source/a.txt", filename: "a.txt" } }),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+      const file = new File(["hello"], "a.txt", { type: "text/plain" });
+
+      await API.uploadFile("demo", "source", file, null, { role: "whole_source", onConflict: "rename", insertAt: 0 });
+      await API.uploadFile("demo", "source", file, null, { role: "episode" });
+
+      expect(fetchMock.mock.calls[0][0]).toBe(
+        "/api/v1/projects/demo/upload/source?on_conflict=rename&role=whole_source&insert_at=0",
+      );
+      expect(fetchMock.mock.calls[1][0]).toBe("/api/v1/projects/demo/upload/source?role=episode");
+    });
+
     it("throws detail when upload fails", async () => {
       const fetchMock = vi.fn().mockResolvedValue(
         mockResponse({
@@ -921,9 +943,6 @@ describe("API", () => {
         .mockResolvedValueOnce(
           mockResponse({ jsonData: { success: true }, statusText: "OK" }),
         )
-        .mockResolvedValueOnce(
-          mockResponse({ jsonData: { success: true }, statusText: "OK" }),
-        )
         .mockResolvedValueOnce(mockResponse({ textData: "draft content" }))
         .mockResolvedValueOnce(
           mockResponse({ jsonData: { success: true }, statusText: "OK" }),
@@ -933,9 +952,6 @@ describe("API", () => {
       await expect(API.getSourceContent("demo", "source.txt")).resolves.toBe(
         "source content",
       );
-      await expect(API.saveSourceFile("demo", "source.txt", "hello")).resolves.toEqual({
-        success: true,
-      });
       await expect(API.deleteSourceFile("demo", "source.txt")).resolves.toEqual({
         success: true,
       });
@@ -946,15 +962,6 @@ describe("API", () => {
 
       expect(fetchMock).toHaveBeenNthCalledWith(
         2,
-        "/api/v1/projects/demo/source/source.txt",
-        expect.objectContaining({
-          method: "PUT",
-          body: "hello",
-          headers: expect.any(Headers),
-        }),
-      );
-      expect(fetchMock).toHaveBeenNthCalledWith(
-        3,
         "/api/v1/projects/demo/source/source.txt",
         expect.objectContaining({ method: "DELETE" }),
       );

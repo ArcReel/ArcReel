@@ -1,7 +1,8 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
+import { useEpisodeSurfaceStore } from "@/stores/episode-surface-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { EpisodeSourceReview } from "./EpisodeSourceReview";
 import type { EpisodeMeta } from "@/types";
@@ -119,6 +120,23 @@ describe("EpisodeSourceReview", () => {
     fireEvent.click(screen.getByRole("button", { name: "取消" }));
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
     expect(screen.getByText("自带的原文")).toBeInTheDocument();
+  });
+
+  it("opens and focuses the source editor when the progress panel asks for the episode source", async () => {
+    vi.spyOn(API, "getSourceContent").mockResolvedValue("自带的原文");
+    const scroll = vi.fn();
+    Element.prototype.scrollIntoView = scroll;
+    const own = makeEpisode({ episode: 6, source_origin: "own", source_range: undefined });
+
+    render(<EpisodeSourceReview projectName="demo" episode={6} episodes={[own]} />);
+    await screen.findByText("自带的原文");
+
+    act(() => useEpisodeSurfaceStore.getState().show({ projectName: "demo", episode: 6, surface: "episode_source" }));
+
+    const editor = screen.getByRole("textbox");
+    expect(editor).toHaveValue("自带的原文");
+    expect(editor).toHaveFocus();
+    expect(scroll).toHaveBeenCalled();
   });
 
   it("does not render the guide section when there are no beats or hook", async () => {

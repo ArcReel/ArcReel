@@ -1,34 +1,31 @@
-
-import { useState, useRef, useCallback, useEffect } from "react";
-import { errMsg, voidCall, voidPromise } from "@/utils/async";
+import { useState, useCallback } from "react";
+import { errMsg, voidPromise } from "@/utils/async";
 import { useTranslation } from "react-i18next";
 import {
   Upload,
   FileText,
   Sparkles,
-  Loader2,
   CheckCircle2,
   Plus,
 } from "lucide-react";
-import { API } from "@/api";
-import { useAppStore } from "@/stores/app-store";
 import { getProjectDisplayName } from "@/utils/project-display";
-import {
-  SOURCE_FILE_ACCEPT,
-  SOURCE_FILE_FORMATS_LABEL,
-  isSupportedSourceFile,
-} from "@/utils/source-files";
+import { SOURCE_FILE_FORMATS_LABEL } from "@/utils/source-files";
+import { SourceUploadDialog, type SourceUploadResult } from "./episodes/SourceUploadDialog";
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-export type UploadPhase = "loading" | "idle" | "has_sources" | "uploading" | "analyzing" | "done";
+type UploadPhase = "idle" | "has_sources" | "analyzing" | "done";
 
 interface WelcomeCanvasProps {
   projectName: string;
   projectTitle?: string;
-  onUpload?: (file: File) => Promise<void>;
+  /** 整本源文清单里的文件（项目相对路径），按清单顺序。 */
+  wholeSourceFiles: string[];
+  /** 上传对话框里的文件；null 表示对话框关着。由概览页持有，对话框打开期间欢迎页不会被换下。 */
+  uploadFiles: File[] | null;
+  onUploadFilesChange: (files: File[] | null) => void;
   onAnalyze?: () => Promise<void>;
 }
 
@@ -38,142 +35,54 @@ const CARD_SHADOW =
   "inset 0 1px 0 oklch(1 0 0 / 0.04), 0 8px 24px -10px oklch(0 0 0 / 0.5)";
 
 // ---------------------------------------------------------------------------
-// WelcomeCanvas — shown when a project has no overview yet.
-// Phases: loading → idle (no sources, drag-drop) → has_sources (file list +
-// analyze CTA) → uploading → analyzing → done.
+// WelcomeCanvas — shown when a project has no overview and no episodes yet.
+// Phases: idle (no whole source) → has_sources (file list + analyze CTA) →
+// analyzing → done. Uploads go through the「分集」upload dialog so every file is
+// registered; the first whole-source upload starts the analysis automatically.
 // ---------------------------------------------------------------------------
 
 export function WelcomeCanvas({
   projectName,
   projectTitle,
-  onUpload,
+  wholeSourceFiles,
+  uploadFiles,
+  onUploadFilesChange,
   onAnalyze,
 }: WelcomeCanvasProps) {
   const { t } = useTranslation("dashboard");
   const [isDragging, setIsDragging] = useState(false);
-  const [phase, setPhase] = useState<UploadPhase>("loading");
-  const [sourceFiles, setSourceFiles] = useState<string[]>([]);
-  const [fileName, setFileName] = useState("");
+  const [analysis, setAnalysis] = useState<"analyzing" | "done" | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const sourceFilesVersion = useAppStore((s) => s.sourceFilesVersion);
   const displayProjectTitle = getProjectDisplayName(projectTitle, t("untitled_project"));
-
-  // 拉取已有源文件，决定初始 phase
-  useEffect(() => {
-    let cancelled = false;
-    voidCall((async () => {
-      try {
-        const res = await API.listFiles(projectName);
-        const sourceGroup = res.files?.source ?? [];
-        const sources = sourceGroup.map((f) => `source/${f.name}`);
-        if (!cancelled) {
-          setSourceFiles(sources);
-          setPhase((prev) => {
-            if (prev === "loading" || prev === "idle" || prev === "has_sources") {
-              return sources.length > 0 ? "has_sources" : "idle";
-            }
-            return prev;
-          });
-        }
-      } catch {
-        if (!cancelled) setPhase((prev) => (prev === "loading" ? "idle" : prev));
-      }
-    })());
-    return () => {
-      cancelled = true;
-    };
-  }, [projectName, sourceFilesVersion]);
-
-  const processFile = useCallback(
-    async (file: File) => {
-      if (!onUpload) return;
-      // 统一在汇聚点校验，让拖拽与文件选择器两个入口共用一条规则；
-      // <input accept> 只是 picker 提示，不能挡未授权类型。
-      if (!isSupportedSourceFile(file.name)) {
-        setError(t("source_unsupported_extension", { filename: file.name }));
-        return;
-      }
-      setFileName(file.name);
-      setError(null);
-
-      const wasIdle = sourceFiles.length === 0;
-
-      setPhase("uploading");
-      try {
-        await onUpload(file);
-      } catch (err) {
-        setError(t("upload_failed", { message: errMsg(err) }));
-        setPhase(sourceFiles.length > 0 ? "has_sources" : "idle");
-        return;
-      }
-
-      // 后端会规范化 .docx/.epub/.pdf → .txt，可能改名；触发 invalidate 让
-      // useEffect 用服务端真实列表回填。
-      useAppStore.getState().invalidateSourceFiles();
-
-      if (wasIdle && onAnalyze) {
-        setPhase("analyzing");
-        try {
-          await onAnalyze();
-          setPhase("done");
-        } catch (err) {
-          setError(t("analysis_failed", { message: errMsg(err) }));
-          setPhase("has_sources");
-        }
-        return;
-      }
-
-      setPhase("has_sources");
-    },
-    [onUpload, onAnalyze, sourceFiles.length, t],
-  );
+  const sourceFiles = wholeSourceFiles;
+  const phase: UploadPhase = analysis ?? (sourceFiles.length > 0 ? "has_sources" : "idle");
 
   const startAnalysis = useCallback(async () => {
     if (!onAnalyze) return;
     setError(null);
-    setPhase("analyzing");
+    setAnalysis("analyzing");
     try {
       await onAnalyze();
-      setPhase("done");
+      setAnalysis("done");
     } catch (err) {
       setError(t("analysis_failed", { message: errMsg(err) }));
-      setPhase("has_sources");
+      setAnalysis(null);
     }
   }, [onAnalyze, t]);
 
-  const handleDrop = useCallback(
-    (e: React.DragEvent) => {
-      e.preventDefault();
-      setIsDragging(false);
-      const file = e.dataTransfer.files[0];
-      if (file) voidCall(processFile(file));
+  const handleUploaded = useCallback(
+    (result: SourceUploadResult) => {
+      // 第一次放进整本源文时自动开始分析；已经有源文时只追加文件
+      if (sourceFiles.length === 0 && result.wholeSourceFiles.length > 0) void startAnalysis();
     },
-    [processFile],
+    [sourceFiles.length, startAnalysis],
   );
 
-  const handleFileSelect = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      const file = e.target.files?.[0];
-      if (file) voidCall(processFile(file));
-      e.target.value = "";
-    },
-    [processFile],
-  );
-
-  if (phase === "loading") {
-    return (
-      <div
-        className="flex min-h-[400px] items-center justify-center"
-        aria-busy="true"
-      >
-        <Loader2
-          className="h-6 w-6 animate-spin"
-          style={{ color: "var(--color-text-4)" }}
-        />
-      </div>
-    );
-  }
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+    onUploadFilesChange(Array.from(e.dataTransfer.files));
+  }, [onUploadFilesChange]);
 
   return (
     <div className="mx-auto w-full max-w-2xl space-y-6">
@@ -204,7 +113,6 @@ export function WelcomeCanvas({
         >
           {phase === "idle" && t("welcome_idle_desc")}
           {phase === "has_sources" && t("welcome_has_sources_desc")}
-          {phase === "uploading" && t("uploading_file", { name: fileName })}
           {phase === "analyzing" && t("analyzing_content_desc")}
           {phase === "done" && t("analysis_complete_loading")}
         </p>
@@ -221,7 +129,7 @@ export function WelcomeCanvas({
             }}
             onDragLeave={() => setIsDragging(false)}
             onDrop={handleDrop}
-            onClick={() => fileInputRef.current?.click()}
+            onClick={() => onUploadFilesChange([])}
             className="focus-ring relative w-full overflow-hidden rounded-2xl px-8 py-14 text-center transition-all"
             style={{
               border: isDragging
@@ -279,14 +187,6 @@ export function WelcomeCanvas({
             >
               {SOURCE_FILE_FORMATS_LABEL}
             </p>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept={SOURCE_FILE_ACCEPT}
-              aria-label={t("upload_script_file_aria")}
-              className="hidden"
-              onChange={handleFileSelect}
-            />
           </button>
 
           {/* What happens next — two info rows */}
@@ -413,21 +313,13 @@ export function WelcomeCanvas({
             </div>
             <button
               type="button"
-              onClick={() => fileInputRef.current?.click()}
+              onClick={() => onUploadFilesChange([])}
               className="focus-ring mt-3 inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[11.5px] transition-colors hover:bg-[oklch(1_0_0_/_0.05)]"
               style={{ color: "var(--color-text-3)" }}
             >
               <Plus className="h-3 w-3" />
               {t("add_more_files")}
             </button>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept={SOURCE_FILE_ACCEPT}
-              aria-label={t("upload_script_file_aria")}
-              className="hidden"
-              onChange={handleFileSelect}
-            />
           </section>
 
           {/* Compact drop zone */}
@@ -473,37 +365,6 @@ export function WelcomeCanvas({
               {t("start_ai_analysis")}
             </span>
           </button>
-        </div>
-      )}
-
-      {/* UPLOADING */}
-      {phase === "uploading" && (
-        <div
-          role="status"
-          aria-live="polite"
-          className="rounded-2xl p-12 text-center"
-          style={{
-            border: "1px solid var(--color-hairline-soft)",
-            background: CARD_BG,
-            boxShadow: CARD_SHADOW,
-          }}
-        >
-          <Loader2
-            className="mx-auto h-7 w-7 animate-spin"
-            style={{ color: "var(--color-accent-2)" }}
-          />
-          <p
-            className="mt-3 text-[13px]"
-            style={{ color: "var(--color-text-2)" }}
-          >
-            {t("uploading")}
-          </p>
-          <p
-            className="num mt-1 text-[11px]"
-            style={{ color: "var(--color-text-4)" }}
-          >
-            {fileName}
-          </p>
         </div>
       )}
 
@@ -603,6 +464,15 @@ export function WelcomeCanvas({
           {error}
         </p>
       )}
+
+      {uploadFiles !== null ? (
+        <SourceUploadDialog
+          projectName={projectName}
+          initialFiles={uploadFiles}
+          onClose={() => onUploadFilesChange(null)}
+          onUploaded={handleUploaded}
+        />
+      ) : null}
     </div>
   );
 }

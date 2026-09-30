@@ -114,6 +114,7 @@ import type {
 import type { Asset, AssetType, AssetCreatePayload, AssetUpdatePayload } from "@/types/asset";
 import type { AgentMemoryOverview, AgentMemoryScope } from "@/types/agent-memory";
 import type { EpisodeNextStep, WorkflowPlan, WorkflowPlanRequest, WorkflowStatus } from "@/types/workflow";
+import type { AdoptSourceFileTarget, EpisodesView } from "@/types/episodes-view";
 import type {
   AssetRegenerationImpact,
   AssetSheetBatchPreview,
@@ -1429,12 +1430,21 @@ class API {
     uploadType: string,
     file: File,
     name: string | null = null,
-    options: { onConflict?: "fail" | "replace" | "rename" } = {}
+    options: {
+      onConflict?: "fail" | "replace" | "rename";
+      /** 仅 source：whole_source 登记为整本源文的文件，episode 在播出顺序末尾登记一集自带原文的集。 */
+      role?: "whole_source" | "episode";
+      /** 仅 source 的 whole_source：登记后文件在整本源文清单里的下标，缺省接在末尾。 */
+      insertAt?: number;
+      signal?: AbortSignal;
+    } = {}
   ): Promise<{
     success: boolean;
     path: string;
-    url: string;
+    url?: string;
     filename?: string;
+    /** role=episode：新登记的集 ID。 */
+    episode?: number;
     normalized?: boolean;
     original_kept?: boolean;
     original_filename?: string;
@@ -1449,12 +1459,19 @@ class API {
     if (uploadType === "source" && options.onConflict) {
       qsParts.push(`on_conflict=${encodeURIComponent(options.onConflict)}`);
     }
+    if (uploadType === "source" && options.role) {
+      qsParts.push(`role=${encodeURIComponent(options.role)}`);
+    }
+    if (uploadType === "source" && options.insertAt !== undefined) {
+      qsParts.push(`insert_at=${options.insertAt}`);
+    }
     const qs = qsParts.join("&");
     const url = `/projects/${encodeURIComponent(projectName)}/upload/${uploadType}${qs ? "?" + qs : ""}`;
 
     const response = await fetch(`${API_BASE}${url}`, withAuth(url, {
       method: "POST",
       body: formData,
+      signal: options.signal,
     }));
 
     if (response.status === 409) {
@@ -1575,24 +1592,6 @@ class API {
     return API.postFileUpload<ShotUploadResult>(url, file);
   }
 
-  static async listFiles(
-    projectName: string
-  ): Promise<{
-    files: {
-      source?: { name: string; size: number; url: string; raw_filename?: string | null }[];
-      characters?: { name: string; size: number; url: string }[];
-      scenes?: { name: string; size: number; url: string }[];
-      props?: { name: string; size: number; url: string }[];
-      storyboards?: { name: string; size: number; url: string }[];
-      videos?: { name: string; size: number; url: string }[];
-      output?: { name: string; size: number; url: string }[];
-    };
-  }> {
-    return this.request(
-      `/projects/${encodeURIComponent(projectName)}/files`
-    );
-  }
-
   /**
    * 取本次请求的权威工作流计划。无副作用：不入队、不写项目，
    * `confirmed_request_durations` 只作用于这一次求解。
@@ -1675,25 +1674,26 @@ class API {
     return response.text();
   }
 
-  /**
-   * 保存 source 文件（新建或更新）
-   */
-  static async saveSourceFile(
+  /** 「分集」视图：整本源文按集分段、每集体量与首尾句、source/ 里没有登记的文件。 */
+  static async getEpisodesView(
+    projectName: string,
+    options: { signal?: AbortSignal } = {}
+  ): Promise<EpisodesView> {
+    return this.request(`/projects/${encodeURIComponent(projectName)}/episodes-view`, {
+      signal: options.signal,
+    });
+  }
+
+  /** 处置 source/ 里没有登记的文件：加入整本源文，或用作一集的原文（原文件随即删除）。 */
+  static async adoptSourceFile(
     projectName: string,
     filename: string,
-    content: string
-  ): Promise<SuccessResponse> {
-    const url = `/projects/${encodeURIComponent(projectName)}/source/${encodeURIComponent(filename)}`;
-    const response = await fetch(
-      `${API_BASE}${url}`,
-      withAuth(url, {
-        method: "PUT",
-        headers: { "Content-Type": "text/plain" },
-        body: content,
-      })
+    target: AdoptSourceFileTarget
+  ): Promise<{ success: boolean; target: string; episode?: number }> {
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/source-files/${encodeURIComponent(filename)}/adopt`,
+      { method: "POST", body: JSON.stringify(target) }
     );
-    await throwIfNotOk(response, "保存文件失败");
-    return response.json() as Promise<SuccessResponse>;
   }
 
   /**

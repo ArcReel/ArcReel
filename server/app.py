@@ -66,6 +66,7 @@ from server.routers import (
     edit_timelines,
     end_frames,
     episode_drafts,
+    episodes_view,
     files,
     generate,
     grids,
@@ -616,6 +617,7 @@ app.include_router(
     edit_timelines.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["剪辑时间线"]
 )
 app.include_router(files.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["文件管理"])
+app.include_router(episodes_view.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["分集视图"])
 app.include_router(
     generate.router,
     prefix="/api/v1",

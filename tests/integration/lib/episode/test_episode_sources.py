@@ -4,6 +4,7 @@ from pathlib import Path
 
 from lib.episode.episode_sources import (
     SourceOrigin,
+    append_whole_source_file,
     discover_sources,
     episode_source_origin,
     legacy_cut_episode_ids,
@@ -91,6 +92,40 @@ class TestWholeSourceFiles:
         project = {"whole_source_files": _files("linked.txt", "missing.txt", "a.txt")}
 
         assert [doc.rel_path for doc in discover_sources(project_dir, project)] == ["source/a.txt"]
+
+
+class TestAppendWholeSourceFile:
+    def test_new_files_go_to_the_end_by_default(self):
+        project = {"whole_source_files": _files("a.txt")}
+
+        assert append_whole_source_file(project, "source/b.txt") is True
+        assert append_whole_source_file(project, "source/a.txt") is False
+        assert whole_source_files(project) == ["source/a.txt", "source/b.txt"]
+
+    def test_index_places_the_file_among_valid_items(self):
+        malformed = {"source_file": "../outside.txt"}
+        project = {"whole_source_files": [*_files("a.txt"), malformed, *_files("c.txt")]}
+
+        append_whole_source_file(project, "source/b.txt", index=1)
+        append_whole_source_file(project, "source/first.txt", index=0)
+        append_whole_source_file(project, "source/last.txt", index=99)
+
+        assert whole_source_files(project) == [
+            "source/first.txt",
+            "source/a.txt",
+            "source/b.txt",
+            "source/c.txt",
+            "source/last.txt",
+        ]
+        assert malformed in project["whole_source_files"]
+
+    def test_inserting_before_a_cut_file_does_not_move_the_planning_start(self, tmp_path: Path):
+        project_dir = _project_dir(tmp_path, **{"a.txt": CHAPTER_A, "b.txt": CHAPTER_B})
+        project = {"whole_source_files": _files("b.txt"), "episodes": [_cut(1, "b.txt", 0, 5)]}
+
+        append_whole_source_file(project, "source/a.txt", index=0)
+
+        assert planning_start(project, discover_sources(project_dir, project)) == ("source/b.txt", 5)
 
 
 class TestPlanningStart:

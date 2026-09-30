@@ -29,9 +29,9 @@ vi.mock("./OverviewCanvas", () => ({
   OverviewCanvas: () => <div data-testid="overview-canvas">Overview</div>,
 }));
 
-vi.mock("./SourceFileViewer", () => ({
-  SourceFileViewer: ({ filename }: { filename: string }) => (
-    <div data-testid="source-file-viewer">{filename}</div>
+vi.mock("./episodes/EpisodesView", () => ({
+  EpisodesView: ({ projectName }: { projectName: string }) => (
+    <div data-testid="episodes-view">{projectName}</div>
   ),
 }));
 
@@ -456,7 +456,7 @@ describe("StudioCanvasRouter", () => {
     expect(screen.queryByTestId("character-card")).not.toBeInTheDocument();
   });
 
-  it("routes characters/scenes/props/source/episodes views correctly", async () => {
+  it("routes characters/scenes/props/episodes views correctly", async () => {
     useProjectsStore.setState({
       currentProjectName: "demo",
       currentProjectData: makeProjectData(),
@@ -477,9 +477,9 @@ describe("StudioCanvasRouter", () => {
     expect(screen.getByTestId("prop-card")).toHaveAttribute("data-name", "Sword");
     viewProps.unmount();
 
-    const viewSource = renderAt("/source/source%20file.txt");
-    expect(screen.getByTestId("source-file-viewer")).toHaveTextContent("source file.txt");
-    viewSource.unmount();
+    const viewEpisodeList = renderAt("/episodes");
+    expect(screen.getByTestId("episodes-view")).toHaveTextContent("demo");
+    viewEpisodeList.unmount();
 
     const viewEpisodes = renderAt("/episodes/1");
     expect(screen.getByTestId("timeline-canvas")).toBeInTheDocument();
@@ -489,6 +489,18 @@ describe("StudioCanvasRouter", () => {
     await waitFor(() => {
       expect(screen.queryByText("加载中...")).not.toBeInTheDocument();
     });
+  });
+
+  it("sends ad projects away from the episodes view to the overview", () => {
+    useProjectsStore.setState({
+      currentProjectName: "demo",
+      currentProjectData: makeProjectData({ content_mode: "ad" }),
+    });
+
+    renderAt("/episodes");
+
+    expect(screen.queryByTestId("episodes-view")).not.toBeInTheDocument();
+    expect(screen.getByTestId("overview-canvas")).toBeInTheDocument();
   });
 
   // 同一 StudioCanvasRouter 实例从真实项目切到演示项目（路由 nest 下 projectName 参数

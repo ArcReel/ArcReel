@@ -1,5 +1,6 @@
 import type { TFunction } from "i18next";
 
+import { episodesViewPath } from "@/components/canvas/episodes/episodes-view-model";
 import type { EpisodeMeta } from "@/types";
 import type { WorkflowNextAction, WorkflowStatus } from "@/types/workflow";
 import { episodeDisplayName, episodePosition, type EpisodeLedger } from "@/utils/episode-display";
@@ -142,7 +143,7 @@ export function projectNextGuide(
         title: t("dashboard:guide_upload_title"),
         detail: t("dashboard:guide_upload_detail"),
         instruction: false,
-        primary: [{ kind: "nav", label: t("dashboard:guide_upload_title"), to: "/source" }],
+        primary: [{ kind: "nav", label: t("dashboard:guide_upload_title"), to: episodesViewPath({ upload: "whole_source" }) }],
         alternatives,
         episodeId: null,
       };

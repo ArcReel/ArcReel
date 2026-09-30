@@ -533,6 +533,11 @@ MESSAGES = {
     "episode_source_derived": "This episode is cut from the whole source; its source text comes from episode planning and cannot be edited here",
     "episode_source_symlink": "The source file of this episode is a symbolic link and cannot be written",
     "episode_source_episode_not_found": "Episode (id={episode}) is not in the episode list",
+    "episode_source_present": "This episode already has source text; only episodes without source text can take one",
+    "source_file_not_found": "{filename} was not found in source/; it may have been deleted",
+    "source_file_registered": "{filename} is already registered; refresh to see how it is used",
+    "source_file_unreadable": "{filename} is not UTF-8 text and cannot be read",
+    "source_name_not_whole_source": "File names starting with an underscore or shaped like episode_N.txt cannot join the whole source; use {filename} as an episode's source text or delete it",
     "about_update_check_failed": "Failed to check for updates, please try again later",
     "about_version_read_failed": "Failed to read app version",
     # Image Capability

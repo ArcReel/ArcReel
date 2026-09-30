@@ -376,7 +376,7 @@ The same upgrade makes the project register episode source text and whole-source
 - Each episode records where its source text comes from: cut from the whole source, its own source text, or no source text. An `episode_N.txt` under `source/` with no matching episode in the list becomes an episode with its own source text, appended to the end of the list.
 - The whole-source file list is recorded once in the old file-name order, so the episodes already cut and the start of the next planning batch do not change; files uploaded afterwards are appended to the end of the list.
 - Each whole-source file that episodes were cut from gets a normalized text snapshot under `source/snapshots/`.
-- After the upgrade, a file placed directly in `source/` without being registered through an upload is not source text: it takes no part in episode planning and does not change any episode's source text.
+- After the upgrade, a file placed directly in `source/` without being registered through an upload is not source text: it takes no part in episode planning and does not change any episode's source text. The **Episodes** view lists these files under "N files not in use yet", where each one can be added to the whole source, used as an episode's source text, or deleted.
 
 One class of migration first copies the whole project next to its directory, rewrites the copy, and then swaps the directories. What that means for disk space and recovery:
 

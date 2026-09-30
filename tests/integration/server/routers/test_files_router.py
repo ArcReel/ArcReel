@@ -202,6 +202,28 @@ class TestFilesRouter:
         assert not (pm.get_project_path("demo") / "source" / "episode_3.txt").exists()
         assert pm.load_project("demo")["whole_source_files"] == [{"source_file": "source/第1章.txt"}]
 
+    def test_whole_source_upload_can_be_inserted_at_a_position(self, tmp_path, monkeypatch):
+        client, pm = _client(monkeypatch, tmp_path)
+
+        with client:
+            for name, insert_at in (("卷二.txt", None), ("卷一.txt", 0), ("卷三.txt", 5), ("序.txt", 0)):
+                query = "" if insert_at is None else f"?insert_at={insert_at}"
+                upload = client.post(
+                    f"/api/v1/projects/demo/upload/source{query}", files={"file": (name, "正文", "text/plain")}
+                )
+                assert upload.status_code == 200
+            negative = client.post(
+                "/api/v1/projects/demo/upload/source?insert_at=-1", files={"file": ("附录.txt", "正文", "text/plain")}
+            )
+
+        assert negative.status_code == 422
+        assert [item["source_file"] for item in pm.load_project("demo")["whole_source_files"]] == [
+            "source/序.txt",
+            "source/卷一.txt",
+            "source/卷二.txt",
+            "source/卷三.txt",
+        ]
+
     def test_source_upload_race_project_deleted_reports_project_not_found(self, tmp_path, monkeypatch):
         client, _ = _client(monkeypatch, tmp_path)
 

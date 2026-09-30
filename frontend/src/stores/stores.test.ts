@@ -117,10 +117,6 @@ describe("stores", () => {
     app.setUsagePanelOpen(true);
     expect(useAppStore.getState().usagePanelOpen).toBe(true);
 
-    expect(useAppStore.getState().sourceFilesVersion).toBe(0);
-    app.invalidateSourceFiles();
-    expect(useAppStore.getState().sourceFilesVersion).toBe(1);
-
     expect(useAppStore.getState().entityRevisions).toEqual({});
     expect(app.getEntityRevision("segment:S1")).toBe(0);
     app.invalidateEntities(["segment:S1", "character:hero", "segment:S1"]);
