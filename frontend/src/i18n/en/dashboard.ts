@@ -1753,6 +1753,7 @@ export default {
   'tool_name_generate_grid': 'Generate multi-grid storyboard',
   'tool_name_split_grids': 'Split multi-grid storyboard into cells',
   'tool_name_generate_videos': 'Generate videos',
+  'tool_name_select_video_version': 'Select video version',
   'tool_name_generate_narration_audio': 'Generate narration audio',
   'tool_name_generate_episode_script': 'Generate script',
   'tool_name_generate_script_plan': 'Generate script plan',

@@ -22,10 +22,8 @@ from lib.artifacts.artifact_manifest import (
     ArtifactManifestEntry,
     ArtifactStatus,
     ProjectArtifactManifestAdapter,
-    compose_video_artifact_basis,
 )
 from lib.artifacts.version_manager import VersionManager
-from lib.artifacts.video_artifact_facts import VideoArtifactCurrencyFacts
 from lib.artifacts.visual_artifact_provenance import build_asset_sheet_visual_basis, build_storyboard_image_visual_basis
 from lib.infra.api_errors import BadRequestError
 from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
@@ -33,7 +31,10 @@ from lib.speech.speech_artifact_provenance import build_video_duration_basis
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import versions
+from server.services.currency import typed_media_restore
+from server.services.currency.artifact_version_restore import TypedMediaRestoreTarget
 from tests.auth_deps import AUTH_DEPENDENCIES
+from tests.factories import add_typed_video_version
 
 # 产物清单是读取已生成产物的唯一口径，还原路径要落到真实的 v8 项目目录才有意义。
 _MINIMAL_PROJECT = {
@@ -225,60 +226,8 @@ class _GridPM:
 
 
 def _typed_video_versions(project_path: Path, resource_type: str, resource_id: str) -> VersionManager:
-    current_file, _relative = versions._resolve_resource_path(resource_type, resource_id, project_path)
-    current_file.parent.mkdir(parents=True, exist_ok=True)
-    current_file.write_bytes(b"typed-video")
-    visual = ArtifactBasis.build(
-        (
-            "artifact-visual/video-reference"
-            if resource_type == "reference_videos"
-            else "artifact-visual/video-storyboard"
-        ),
-        kind_version=1,
-        inputs=(
-            {
-                "unit_id": resource_id,
-                "visual_lines": ["Run."],
-                "style": "cinematic",
-                "canvas": {"aspect_ratio": "9:16"},
-                "request_references": [],
-            }
-            if resource_type == "reference_videos"
-            else {
-                "resource_id": resource_id,
-                "visual_prompt": {"action": "Run.", "camera_motion": "Static"},
-                "canvas": {"aspect_ratio": "9:16"},
-                "frames": [{"role": "storyboard", "sha256": "a" * 64}],
-            }
-        ),
-    )
-    speech = ArtifactBasis.build("artifact-speech/video", kind_version=1, inputs={"mode": "narrator_voiceover"})
-    duration = build_video_duration_basis(4)
-    currency = VideoArtifactCurrencyFacts(
-        episode=1,
-        request_duration_seconds=4,
-        visual_basis=visual,
-        speech_basis=speech,
-        duration_basis=duration,
-        video_basis=compose_video_artifact_basis(visual=visual, speech=speech, duration=duration),
-        voice_style_speakers=(),
-        duration_tiers=(4,),
-        reference_image_limit=1 if resource_type == "reference_videos" else None,
-        parent_version=0,
-    )
-    manager = VersionManager(project_path)
-    manager.add_version(
-        resource_type,
-        resource_id,
-        "typed video",
-        source_file=current_file,
-        execution_checkpoint_schema_version=3,
-        execution_duration_seconds=4,
-        execution_request_digest="d" * 64,
-        artifact_video_currency=currency.to_dict(),
-        execution_script_file="episode_1.json",
-    )
-    return manager
+    add_typed_video_version(project_path, resource_type, resource_id)
+    return VersionManager(project_path)
 
 
 def _typed_audio_project(tmp_path: Path) -> tuple[object, Path, VersionManager]:
@@ -789,16 +738,21 @@ class TestVersionsRouter:
 
     @pytest.mark.parametrize("resource_type", ["videos", "reference_videos"])
     def test_typed_video_restore_uses_selection_finalization_guard(self, tmp_path, monkeypatch, resource_type):
+        from lib.project.project_manager import ProjectManager
+
         resource_id = "E1S01"
-        project_path = tmp_path / "demo"
-        project_path.mkdir()
+        pm = ProjectManager(tmp_path)
+        pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo", "Anime", "narration")
+        pm.save_script(
+            "demo",
+            {"episode": 1, "segments": [{"segment_id": resource_id, "generated_assets": {}}]},
+            "episode_1.json",
+            validate=False,
+        )
+        project_path = pm.get_project_path("demo")
         guard_active = False
         guard_calls = []
-
-        class _PM:
-            @staticmethod
-            def get_project_path(_project_name):
-                return project_path
 
         @asynccontextmanager
         async def _guard(**identity):
@@ -810,7 +764,7 @@ class TestVersionsRouter:
             finally:
                 guard_active = False
 
-        target = versions.TypedMediaRestoreTarget(
+        target = TypedMediaRestoreTarget(
             episode=1,
             script_file="episode_1.json",
             basis=ArtifactBasisDescriptor.from_basis(build_video_duration_basis(4)),
@@ -821,11 +775,11 @@ class TestVersionsRouter:
             assert guard_active
             return {"restored_version": 1, "current_version": 1, "prompt": "p"}
 
-        monkeypatch.setattr(versions, "get_project_manager", _PM)
+        monkeypatch.setattr(versions, "get_project_manager", lambda: pm)
         monkeypatch.setattr(versions, "get_version_manager", lambda _project_name: _FakeVM(project_path))
-        monkeypatch.setattr(versions, "get_typed_media_restore_target", lambda *_args, **_kwargs: target)
-        monkeypatch.setattr(versions, "restore_typed_media_version", _restore)
-        monkeypatch.setattr(versions, "generation_admission_lock", _guard)
+        monkeypatch.setattr(typed_media_restore, "get_typed_media_restore_target", lambda *_args, **_kwargs: target)
+        monkeypatch.setattr(typed_media_restore, "restore_typed_media_version", _restore)
+        monkeypatch.setattr(typed_media_restore, "generation_admission_lock", _guard)
 
         app = FastAPI()
         app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
@@ -842,8 +796,10 @@ class TestVersionsRouter:
         pm, _project_path, manager = _typed_audio_project(tmp_path)
         monkeypatch.setattr(versions, "get_project_manager", lambda: pm)
         monkeypatch.setattr(versions, "get_version_manager", lambda project_name: manager)
-        monkeypatch.setattr(versions, "active_tts_resource_ids", AsyncMock(return_value=frozenset()))
-        monkeypatch.setattr(versions, "active_narrated_video_resource_ids", AsyncMock(return_value=frozenset()))
+        monkeypatch.setattr(typed_media_restore, "active_tts_resource_ids", AsyncMock(return_value=frozenset()))
+        monkeypatch.setattr(
+            typed_media_restore, "active_narrated_video_resource_ids", AsyncMock(return_value=frozenset())
+        )
 
         app = FastAPI()
         app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
@@ -861,11 +817,13 @@ class TestVersionsRouter:
         monkeypatch.setattr(versions, "get_project_manager", lambda: pm)
         monkeypatch.setattr(versions, "get_version_manager", lambda project_name: manager)
         monkeypatch.setattr(
-            versions,
+            typed_media_restore,
             "active_tts_resource_ids",
             AsyncMock(return_value=frozenset({"E1S01"})),
         )
-        monkeypatch.setattr(versions, "active_narrated_video_resource_ids", AsyncMock(return_value=frozenset()))
+        monkeypatch.setattr(
+            typed_media_restore, "active_narrated_video_resource_ids", AsyncMock(return_value=frozenset())
+        )
 
         app = FastAPI()
         app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
@@ -882,9 +840,9 @@ class TestVersionsRouter:
         before = (project_path / "audio" / "segment_E1S01.wav").read_bytes()
         monkeypatch.setattr(versions, "get_project_manager", lambda: pm)
         monkeypatch.setattr(versions, "get_version_manager", lambda project_name: manager)
-        monkeypatch.setattr(versions, "active_tts_resource_ids", AsyncMock(return_value=frozenset()))
+        monkeypatch.setattr(typed_media_restore, "active_tts_resource_ids", AsyncMock(return_value=frozenset()))
         monkeypatch.setattr(
-            versions,
+            typed_media_restore,
             "active_narrated_video_resource_ids",
             AsyncMock(return_value=frozenset({"E1S01"})),
         )

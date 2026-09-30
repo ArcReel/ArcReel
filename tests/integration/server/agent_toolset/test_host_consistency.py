@@ -56,6 +56,7 @@ from server.agent_toolset.script_authoring import (
 )
 from server.agent_toolset.script_editing import PATCH_EPISODE_SCRIPT
 from server.agent_toolset.toolset import AGENT_TOOLSET, ARCREEL_MCP_TOOL_IDS, MIGRATION_BLOCKED_TOOL_IDS
+from server.agent_toolset.video_versions import SELECT_VIDEO_VERSION
 from server.agent_toolset.workflow_completion import COMPLETE_ASSET_INVENTORY, COMPLETE_SCRIPT_PLAN_REBUILD
 from server.remote_mcp import build_remote_mcp_server
 from server.services.project.workflow_planner import WorkflowPlanner
@@ -129,6 +130,7 @@ SAMPLE_ARGUMENTS: dict[str, dict[str, Any]] = {
         "target": {"scope": "all"},
         "narration_delivery": "post_production",
     },
+    "select_video_version": {"unit_id": "E1S01", "version": 1},
 }
 
 _DECLARATIONS = pytest.mark.parametrize("declaration", AGENT_TOOLSET, ids=lambda declaration: declaration.name)
@@ -515,6 +517,7 @@ _PROBLEM_ON_SAMPLE = frozenset(
         PROMOTE_DRAFT.name,
         PATCH_EPISODE_SCRIPT.name,
         SPLIT_GRIDS.name,
+        SELECT_VIDEO_VERSION.name,
         COMPLETE_ASSET_INVENTORY.name,
         COMPLETE_SCRIPT_PLAN_REBUILD.name,
     }

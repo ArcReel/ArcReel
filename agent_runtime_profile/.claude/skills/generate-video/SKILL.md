@@ -64,6 +64,15 @@ description: 为分镜或自包含视频单元生成视频。当用户要求生�
 - 结果按 `requested / succeeded / failed / blocked` 逐 ID 返回，
   结构与问题码见 `.claude/references/generation-results.md`。
 
+### 切换 current 版本
+
+视频单元的 current 版本决定预览、剪辑与导出用哪一版。挑更好的版本时调用
+`mcp__arcreel__select_video_version({"unit_id": "E1S01", "version": 2})`，立即生效，无需用户确认、不收费：
+
+- 首轮审阅后，某单元的另一候选版本更好，改用它。
+- 重新生成后验收，新版本不如旧版，改回旧版本。
+- 版本号不存在时，按返回的 `params.available_versions` 重选。
+
 ### 旁白交付
 
 叙述旁白有两种交付方式，**每次请求逐次选择、从不持久化**，经 `narration_delivery` 传入，该参数在 `generate_videos` 上必填：
