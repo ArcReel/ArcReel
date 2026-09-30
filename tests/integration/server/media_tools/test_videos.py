@@ -9,7 +9,6 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from lib.artifacts.artifact_manifest import ArtifactStatus
 from lib.artifacts.version_manager import MANUAL_UPLOAD_VERSION_SOURCE, VersionManager
 from lib.generation.generation_batch import GenerationBatchReadModel
 from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
@@ -99,15 +98,6 @@ def _select_manual_video(
         source=MANUAL_UPLOAD_VERSION_SOURCE,
     )
     return artifact_path
-
-
-class _MissingEverythingResolver:
-    """An active Manifest that never admits a formal artifact as usable."""
-
-    def compare(self, key, *, artifact_path=None):
-        from lib.artifacts.artifact_manifest import ArtifactComparison
-
-        return ArtifactComparison(status=ArtifactStatus.MISSING, artifact_path=artifact_path or "")
 
 
 def _activated_project(project_dir: Path, storyboard_ids: dict[str, str] | None = None) -> dict[str, Any]:
@@ -437,63 +427,6 @@ async def test_generate_videos_resubmits_only_remaining_ids_from_a_durable_batch
     assert [item.unit_id for item in retried.value.skipped] == ["E1S01"]
     assert [(item.unit_id, item.status) for item in retried.value.members] == [("E1S02", "queued")]
     assert len((await queue.list_tasks(project_name="demo"))["items"]) == 3
-
-
-@pytest.mark.parametrize(
-    ("route", "target", "force"),
-    [
-        pytest.param("storyboard", _scene("E1S01"), False, id="storyboard-scene"),
-        pytest.param("storyboard", _selected("E1S01"), False, id="storyboard-selected"),
-        pytest.param("storyboard", _ALL, None, id="storyboard-all"),
-        pytest.param("storyboard", _EPISODE_1, None, id="storyboard-episode"),
-        pytest.param("reference_video", _scene("E1U1"), False, id="reference-scene"),
-        pytest.param("reference_video", _selected("E1U1"), False, id="reference-selected"),
-        pytest.param("reference_video", _ALL, None, id="reference-all"),
-        pytest.param("reference_video", _EPISODE_1, None, id="reference-episode"),
-    ],
-)
-async def test_generate_videos_reuses_the_selected_manual_upload(
-    fake_ctx: ToolHarness,
-    monkeypatch: pytest.MonkeyPatch,
-    route: str,
-    target: dict[str, Any],
-    force: bool | None,
-) -> None:
-    """选中的手动上传与 Manifest 认定的 current / stale 同样可复用：不强制时既不入队也不重生，
-    只作为 skipped 报告。清单一律报缺失，复用只能来自手动上传这一条腿。
-    """
-    from server.media_tools import videos as mod
-
-    fake_ctx.pm.project_payload.update(
-        {
-            "schema_version": CURRENT_PROJECT_SCHEMA_VERSION,
-            "episodes": [{"episode": 1, "script_file": "scripts/episode_1.json"}],
-        }
-    )
-    if route == "reference_video":
-        use_reference_route(fake_ctx)
-        fake_ctx.pm.script_payload = reference_video_script()
-        unit, resource_type = fake_ctx.pm.script_payload["video_units"][0], "reference_videos"
-    else:
-        unit, resource_type = fake_ctx.pm.script_payload["segments"][0], "videos"
-    unit_id = str(unit.get("unit_id") or unit.get("segment_id"))
-    video_path = _select_manual_video(
-        fake_ctx.project_path, resource_type=resource_type, resource_id=unit_id, content=b"manual-video"
-    )
-    unit.setdefault("generated_assets", {})["video_clip"] = video_path
-    monkeypatch.setattr(mod, "active_artifact_currency_resolver", lambda *_args: _MissingEverythingResolver())
-    monkeypatch.setattr(mod, "artifact_is_usable", lambda *_args: False)
-    enqueue = AsyncMock(return_value=([], []))
-    extra: dict[str, Any] = {} if force is None else {"force": force}
-
-    out = await run_generate_videos(fake_ctx, target, batch_waiter=enqueue, **extra)
-
-    assert not _is_error(out), out
-    result = read_generation_result(out)
-    assert result.requested == []
-    assert [entry.unit_id for entry in result.skipped] == [unit_id]
-    enqueue.assert_not_awaited()
-    assert (await fake_ctx.queue.list_tasks(project_name="demo"))["items"] == []
 
 
 async def test_generate_videos_scene_scope_happy(fake_ctx: ToolHarness) -> None:

@@ -109,8 +109,10 @@ _RESOURCE_TO_ASSET_TYPE: dict[str, str] = {
     "props": "prop",
     "products": "product",
 }
-# 资产图与衍生资产图：还原到手动上传记录时按图本身重新登记。
-_SHEET_RESOURCE_TYPES = frozenset({*_RESOURCE_TO_ASSET_TYPE, CHARACTER_DERIVATIVE_RESOURCE_TYPE})
+# 资产图、衍生资产图与分镜图：还原到手动上传记录时按上传字节重新登记。
+_UPLOAD_CLAIMED_RESOURCE_TYPES = frozenset(
+    {*_RESOURCE_TO_ASSET_TYPE, CHARACTER_DERIVATIVE_RESOURCE_TYPE, "storyboards"}
+)
 
 
 def _commit_non_typed_restore_claim(
@@ -137,9 +139,9 @@ def _commit_non_typed_restore_claim(
             )
         return
 
-    if resource_type in _SHEET_RESOURCE_TYPES and (record or {}).get("source") == MANUAL_UPLOAD_VERSION_SOURCE:
-        # 还原到作为成品带入的资产图或衍生资产图（作者上传或从资产库应用）：选中的已是这条
-        # 手动上传记录，规划器按图本身投影依据，投影不出即遗忘。
+    if resource_type in _UPLOAD_CLAIMED_RESOURCE_TYPES and (record or {}).get("source") == MANUAL_UPLOAD_VERSION_SOURCE:
+        # 还原到作为成品带入的资产图、衍生资产图（作者上传或从资产库应用）或作者上传的分镜图：
+        # 选中的已是这条手动上传记录，规划器按上传字节投影依据，投影不出即遗忘。
         register_current_resource_artifact(
             project_path,
             resource_type=resource_type,

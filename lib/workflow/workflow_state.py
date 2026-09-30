@@ -8,10 +8,9 @@ from __future__ import annotations
 import json
 import logging
 import unicodedata
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import StrEnum
-from functools import partial
 from pathlib import Path, PurePosixPath
 from typing import Any, Literal
 
@@ -19,7 +18,6 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from lib.artifacts.artifact_activation import ArtifactComparer, ArtifactCurrencyResolver, RegisteredArtifactResolver
 from lib.artifacts.artifact_manifest import ArtifactKey, ArtifactManifestError, ArtifactStatus
-from lib.artifacts.version_manager import VersionManager
 from lib.edit_timeline.errors import EditTimelineError
 from lib.edit_timeline.store import EditTimelineStore
 from lib.episode.episode_ledger import (
@@ -456,22 +454,8 @@ class WorkflowStateService:
         artifact_path: str,
         resource_id: str,
         blockers: list[WorkflowBlocker],
-        missing_fallback: Callable[[], bool] | None = None,
     ) -> None:
         state = cls._artifact_state(resolver, key, artifact_path, blockers)
-        if state == ArtifactStatus.MISSING.value and missing_fallback is not None:
-            try:
-                if missing_fallback():
-                    state = ArtifactStatus.CURRENT.value
-            except (ArtifactManifestError, OSError, RuntimeError, TypeError, ValueError) as exc:
-                blockers.append(
-                    WorkflowBlocker(
-                        code="artifact_currency_unavailable",
-                        path=artifact_path,
-                        reason=str(exc),
-                    )
-                )
-                state = ArtifactStatus.BLOCKED.value
         if state == ArtifactStatus.BLOCKED.value:
             collection["state"] = "blocked"
         else:
@@ -821,7 +805,6 @@ class WorkflowStateService:
         episode: int,
         resolver: ArtifactComparer | None,
         blockers: list[WorkflowBlocker],
-        manual_video_matcher: Callable[[str, object], bool] | None = None,
     ) -> dict[str, Any]:
         collection: dict[str, Any] = _empty_collection()
         if kind is None:
@@ -836,9 +819,6 @@ class WorkflowStateService:
                 continue
             artifact_path = get_generated_assets(item).get(field)
             if resolver is not None and isinstance(artifact_path, str) and artifact_path:
-                missing_fallback: Callable[[], bool] | None = None
-                if field == "video_clip" and manual_video_matcher is not None:
-                    missing_fallback = partial(manual_video_matcher, resource_id, artifact_path)
                 key = (
                     ArtifactKey.episode_storyboard(episode, resource_id)
                     if field == "storyboard_image"
@@ -853,23 +833,10 @@ class WorkflowStateService:
                     artifact_path=artifact_path,
                     resource_id=resource_id,
                     blockers=blockers,
-                    missing_fallback=missing_fallback,
                 )
             else:
                 collection["missing_ids"].append(resource_id)
         return collection
-
-    @staticmethod
-    def _manual_video_matcher(
-        project_path: Path,
-        generation_mode: object,
-        *,
-        verify_content: bool = True,
-    ) -> Callable[[str, object], bool]:
-        """手动上传的视频没有清单认领，按版本记录认领；一集内所有分镜共用一次读入的版本历史。"""
-
-        resource_type = "reference_videos" if generation_mode == "reference_video" else "videos"
-        return VersionManager(project_path).manual_upload_matcher(resource_type, verify_content=verify_content)
 
     def get_status(self, project_name: str, episode: int | None = None) -> WorkflowStatus:
         project = self.pm.load_project(project_name)
@@ -933,7 +900,6 @@ class WorkflowStateService:
                 entry,
                 resolver=resolver,
                 preloaded_scripts=preloaded_scripts,
-                verify_manual_videos=currency == "verified",
             )
             for number, entry in episodes
         ]
@@ -973,7 +939,6 @@ class WorkflowStateService:
         *,
         resolver: ArtifactComparer | None,
         preloaded_scripts: Mapping[str, dict[str, Any]] | None,
-        verify_manual_videos: bool,
     ) -> EpisodeSummary:
         script_status = self._episode_script_status(project, project_path, number, entry, resolver)
         items: list[dict[str, Any]] = []
@@ -1015,13 +980,6 @@ class WorkflowStateService:
                 episode=number,
                 resolver=resolver,
                 blockers=[],
-                manual_video_matcher=(
-                    self._manual_video_matcher(
-                        project_path, project.get("generation_mode"), verify_content=verify_manual_videos
-                    )
-                    if resolver is not None
-                    else None
-                ),
             ),
             total=len(items),
         )
@@ -1617,11 +1575,6 @@ class WorkflowStateService:
                             episode=target.episode,
                             resolver=currency,
                             blockers=blockers,
-                            manual_video_matcher=(
-                                self._manual_video_matcher(project_path, generation_mode)
-                                if currency is not None
-                                else None
-                            ),
                         )
                         # 旁白配音只作为信息报告，不参与状态推进：缺 TTS 既不是工作流缺口
                         # 也不拦剪辑，补 TTS 由用户显式发起（见 generate_narration_audio）；

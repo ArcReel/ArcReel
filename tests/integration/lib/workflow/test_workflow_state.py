@@ -13,6 +13,7 @@ from lib.artifacts.artifact_activation import (
     active_artifact_currency_resolver,
     register_current_artifact,
     register_current_artifact_if_provable,
+    register_current_resource_artifact,
 )
 from lib.artifacts.artifact_manifest import ArtifactBasisDescriptor, ArtifactKey, ProjectArtifactManifestAdapter
 from lib.artifacts.version_manager import MANUAL_UPLOAD_VERSION_SOURCE, VersionManager
@@ -1529,7 +1530,7 @@ def test_schema8_ad_reference_video_does_not_treat_an_unregistered_file_as_curre
     }
 
 
-def test_schema8_workflow_accepts_the_exact_selected_manual_reference_video(tmp_path: Path) -> None:
+def test_schema8_workflow_accepts_a_registered_manual_reference_video(tmp_path: Path) -> None:
     pm, project_path = _make_project(tmp_path, "ad", generation_mode="reference_video")
     video_path = "reference_videos/E1U1.mp4"
     _write_registered_script(
@@ -1551,6 +1552,9 @@ def test_schema8_workflow_accepts_the_exact_selected_manual_reference_video(tmp_
         staged_file=staged,
         current_file=project_path / video_path,
         source=MANUAL_UPLOAD_VERSION_SOURCE,
+    )
+    register_current_resource_artifact(
+        project_path, resource_type="reference_videos", resource_id="E1U1", script_file="scripts/episode_1.json"
     )
 
     status = WorkflowStateService(pm).get_status("demo")

@@ -107,12 +107,17 @@ def _commit_staged_formal_image(
     task_id: str | None,
     basis: ArtifactBasis | ArtifactBasisDescriptor | None,
     commit_metadata: MetadataCommitter,
+    selected_upload: bool = False,
 ) -> FormalImageCommitOutcome:
     """Commit metadata → selected bytes/version → Manifest through one nested transaction.
 
     Every formal image entry point supplies only its metadata mutation.  Version
     activation and registration stay centralized so no caller can publish a
     canonical file before all dependent state is ready to commit.
+
+    ``selected_upload`` marks an author upload: its basis is the selected upload
+    bytes alone, so nothing is resolved from generation inputs up front and the
+    claim is projected by the target-state planner once the upload is selected.
     """
 
     version_box: list[int] = []
@@ -138,7 +143,7 @@ def _commit_staged_formal_image(
 
     def _activate() -> None:
         resolved_basis = basis
-        if resolved_basis is None:
+        if resolved_basis is None and not selected_upload:
             resolved_basis = resolve_current_resource_artifact_basis(
                 project_path,
                 resource_type=resource_type,
@@ -188,6 +193,7 @@ def staged_formal_image_callback(
     basis: ArtifactBasis | ArtifactBasisDescriptor | None,
     outcome_box: list[FormalImageCommitOutcome],
     commit_metadata: MetadataCommitter,
+    selected_upload: bool = False,
 ) -> StagedImageCommit:
     """Wrap one metadata committer into the staged activation callback of an image task."""
 
@@ -206,6 +212,7 @@ def staged_formal_image_callback(
             task_id=task_id,
             basis=basis,
             commit_metadata=commit_metadata,
+            selected_upload=selected_upload,
         )
         outcome_box.append(outcome)
         return outcome.version
@@ -311,6 +318,7 @@ def storyboard_formal_image_callback(
     basis: ArtifactBasis | ArtifactBasisDescriptor | None,
     outcome_box: list[FormalImageCommitOutcome],
     project_manager: ProjectManager,
+    selected_upload: bool = False,
 ) -> StagedImageCommit:
     """Build a staged storyboard activation using the shared formal image seam."""
 
@@ -341,6 +349,7 @@ def storyboard_formal_image_callback(
         basis=basis,
         outcome_box=outcome_box,
         commit_metadata=_commit_metadata,
+        selected_upload=selected_upload,
     )
 
 

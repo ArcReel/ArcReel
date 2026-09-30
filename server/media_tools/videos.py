@@ -18,7 +18,6 @@ from lib.artifacts.artifact_activation import (
     resolve_artifact_episode,
 )
 from lib.artifacts.artifact_manifest import ArtifactKey, ArtifactManifestError, ArtifactStatus
-from lib.artifacts.version_manager import VersionManager
 from lib.generation.batch_admission import (
     BatchAdmission,
     BatchAdmissionDecision,
@@ -224,21 +223,15 @@ _OPERATION = "generate_videos"
 def _batch_video_is_reusable(
     *,
     currency: ArtifactCurrencyResolver,
-    versions: VersionManager,
     episode: int,
-    resource_type: str,
     resource_id: str,
     artifact_path: object,
 ) -> bool:
-    """Admit a batch skip from either verified currency or one exact raw upload."""
+    """Admit a batch skip from verified currency; uploads are registered like any other video."""
 
     return artifact_is_usable(
         currency,
         ArtifactKey.episode_video(episode, resource_id),
-        artifact_path,
-    ) or versions.selected_manual_upload_matches_current_file(
-        resource_type,
-        resource_id,
         artifact_path,
     )
 
@@ -247,24 +240,10 @@ def _state_for(states: dict[str, GenerationTargetState], unit_id: str) -> Genera
     return states.get(unit_id) or GenerationTargetState(candidate=GenerationCandidate(unit_id=unit_id))
 
 
-def _missing_only_reusable_ids(
-    states: dict[str, GenerationTargetState],
-    versions: VersionManager,
-) -> list[str]:
-    """Missing-only 下原样保留的分镜：Manifest 认定 current / stale，或一次精确匹配的选中手动上传。
+def _missing_only_reusable_ids(states: dict[str, GenerationTargetState]) -> list[str]:
+    """Missing-only 下原样保留的分镜：Manifest 认定 current / stale（含已登记的上传视频）。"""
 
-    与 ``select_generation_targets`` 同口径：产物状态不可读（BLOCKED）的分镜不走手动上传这条腿。
-    """
-
-    return [
-        unit_id
-        for unit_id, state in states.items()
-        if state.status is not ArtifactStatus.BLOCKED
-        and (
-            artifact_is_reusable(state)
-            or versions.selected_manual_upload_matches_current_file("videos", unit_id, state.artifact_path)
-        )
-    ]
+    return [unit_id for unit_id, state in states.items() if artifact_is_reusable(state)]
 
 
 def _sole_speech_admission(result: GenerationBatchResult) -> dict[str, Any]:
@@ -844,7 +823,6 @@ async def _run_reference_episode(
     if not units:
         raise ValueError(f"第 {episode} 集 video_units 为空：{script_filename}")
     units, malformed = screen_script_entries(units, requested_ids=None)
-    versions = VersionManager(call.project_path)
     return await _run_reference_batch(
         call=call,
         project=project,
@@ -856,9 +834,7 @@ async def _run_reference_episode(
         extra_tickets=malformed,
         reuse_existing=lambda currency, unit: _batch_video_is_reusable(
             currency=currency,
-            versions=versions,
             episode=episode,
-            resource_type="reference_videos",
             resource_id=str(unit.get("unit_id") or ""),
             artifact_path=get_generated_assets(unit).get("video_clip"),
         ),
@@ -943,7 +919,6 @@ async def _run_reference_units(
         for unit_id in duplicated
     ]
 
-    versions = VersionManager(call.project_path)
     return await _run_reference_batch(
         call=call,
         project=project,
@@ -957,9 +932,7 @@ async def _run_reference_units(
             not force
             and _batch_video_is_reusable(
                 currency=currency,
-                versions=versions,
                 episode=episode,
-                resource_type="reference_videos",
                 resource_id=str(unit.get("unit_id") or ""),
                 artifact_path=get_generated_assets(unit).get("video_clip"),
             )
@@ -1190,8 +1163,8 @@ async def _generate_episode(call: _VideoCall, request: _VideoRequestContext, log
 
     currency = active_artifact_currency_resolver(project_dir, sb.project)
     states = video_target_states(items, id_field, episode=episode, resolver=currency)
-    # 整集生成只补缺失，从不强制重生：仍可用的旧分镜（含 stale）与选中的手动上传原样保留。
-    already_done = _missing_only_reusable_ids(states, VersionManager(project_dir))
+    # 整集生成只补缺失，从不强制重生：仍可用的旧分镜（含 stale 与上传的视频）原样保留。
+    already_done = _missing_only_reusable_ids(states)
     builder = GenerationResultBuilder(_OPERATION, GenerationSelectionMode.MISSING_ONLY)
     batch = _StoryboardBatch(
         call=call,
@@ -1258,19 +1231,11 @@ async def _generate_all(call: _VideoCall, request: _VideoRequestContext, log: li
     items, id_field, screen_refused = screening.items, screening.id_field, screening.refused
     sb = _storyboard_context(call, request)
     currency = active_artifact_currency_resolver(project_dir, sb.project)
-    versions = VersionManager(project_dir)
     states = video_target_states(items, id_field, episode=sb.episode, resolver=currency)
     selection = select_generation_targets(
         candidates=[state.candidate for state in states.values()],
         requested_ids=None,
         resolver=currency,
-        # 一次精确匹配的手动上传与 Manifest 认定的 current/stale 同样可复用，
-        # 两条腿合起来才是「这个 ID 还缺不缺视频」。
-        reusable_override=lambda candidate: versions.selected_manual_upload_matches_current_file(
-            "videos",
-            candidate.unit_id,
-            candidate.artifact_path,
-        ),
     )
     # 产物状态不可读的目标由准入报告（折成准入票），结果契约里不重复记录：
     # 同一个 unit 记两次会让结果构造器 fail loud。
@@ -1397,19 +1362,7 @@ async def _generate_selected(
     already_done: list[str] = []
     states = video_target_states(selected, id_field, episode=episode, resolver=currency)
     if not force:
-        versions = VersionManager(project_dir)
-        already_done = list(
-            dict.fromkeys(
-                state.unit_id
-                for state in states.values()
-                if artifact_is_reusable(state)
-                or versions.selected_manual_upload_matches_current_file(
-                    "videos",
-                    state.unit_id,
-                    state.artifact_path,
-                )
-            )
-        )
+        already_done = list(dict.fromkeys(state.unit_id for state in states.values() if artifact_is_reusable(state)))
     for done_id in already_done:
         builder.skip(_state_for(states, str(done_id)))
     batch = _StoryboardBatch(

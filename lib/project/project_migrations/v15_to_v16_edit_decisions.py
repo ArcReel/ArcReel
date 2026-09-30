@@ -29,7 +29,13 @@
 - 选中版本额外记录新的时效时长基准，实际付费档位与执行请求摘要不变。版本记录先于清单落盘，
   清单先于项目版本；中断后重跑仍能认出旧登记与已改写的版本记录。
 
-本步只改写既有登记、不增删；迁移结果按改写后完整目标态的跳过项与实际清单计数生成。
+**上传的分镜图与视频按上传字节登记（ADR 0062 修订）**
+
+- 选中版本是与产物字节一致的手动上传的分镜图与视频，按改后目标态登记为只由上传字节决定的依据：
+  此前不登记的上传视频、被删去登记的上传分镜图补登，按生成输入登记的上传分镜图改写。
+- 只写清单，先于项目版本落盘；重跑时已登记的条目与目标一致而被跳过。
+
+除上传产物的补登外，本步只改写既有登记、不增删；迁移结果按改写后完整目标态的跳过项与实际清单计数生成。
 它不解决此前的跳过原因，runner 合并链上更早一步或已有迁移报告的跳过项。
 """
 
@@ -58,7 +64,13 @@ from lib.artifacts.artifact_version_provenance import (
     parse_typed_media_version_target,
 )
 from lib.artifacts.formal_write import project_metadata_lock
+from lib.artifacts.version_manager import selected_manual_upload_snapshot
 from lib.artifacts.video_artifact_facts import VideoArtifactCurrencyFacts
+from lib.artifacts.visual_artifact_provenance import (
+    build_uploaded_storyboard_basis,
+    build_uploaded_video_basis,
+    visual_file_digest,
+)
 from lib.infra.json_io import atomic_write_json
 from lib.infra.path_safety import try_safe_join
 from lib.project.project_migration_report import ArtifactBackfillOutcome
@@ -173,6 +185,61 @@ def _rebase_video_duration_entries(
         expected={key: stored[key] for key in replacements}, replacements=replacements
     ):
         raise RuntimeError("artifact manifest changed while rebasing video duration entries")
+
+
+# ---------------------------------------------------------------------------
+# 子步：上传的分镜图与视频按上传字节登记
+# ---------------------------------------------------------------------------
+
+#: 可上传、且由选中的上传版本决定依据的产物种类与它们的版本资源类型。
+_UPLOAD_RESOURCE_TYPES: Mapping[ArtifactKind, tuple[str, ...]] = {
+    ArtifactKind.EPISODE_STORYBOARD: ("storyboards",),
+    ArtifactKind.EPISODE_VIDEO: ("videos", "reference_videos"),
+}
+
+
+def _uploaded_basis_digest(project_dir: Path, kind: ArtifactKind, artifact_path: str) -> str | None:
+    path = try_safe_join(project_dir, artifact_path)
+    if path is None or not path.is_file():
+        return None
+    content_digest = visual_file_digest(path)
+    if kind is ArtifactKind.EPISODE_STORYBOARD:
+        return build_uploaded_storyboard_basis(content_digest=content_digest).digest
+    return build_uploaded_video_basis(content_digest=content_digest).digest
+
+
+def _register_uploaded_media(project_dir: Path, migrated: Mapping[str, Any]) -> None:
+    project_bytes = (project_dir / "project.json").read_bytes()
+    target = TargetStatePlanner(project_dir, project_bytes=json.dumps(migrated).encode()).plan()
+    assert_artifact_target_state_plan_unchanged(project_dir, target, expected_project_bytes=project_bytes)
+    versions = _load_object(project_dir / "versions" / "versions.json") or {}
+    adapter = ProjectArtifactManifestAdapter(project_dir)
+    stored = adapter.snapshot_entries()
+    replacements: dict[ArtifactKey, ArtifactManifestEntry] = {}
+    for key, entry in target.entries.items():
+        resource_types = _UPLOAD_RESOURCE_TYPES.get(key.kind)
+        if resource_types is None or stored.get(key) == entry:
+            continue
+        resource_id = str(key.components[-1])
+        if not any(
+            selected_manual_upload_snapshot(_history(versions, resource_type, resource_id), resource_type)
+            for resource_type in resource_types
+        ):
+            continue
+        if _uploaded_basis_digest(project_dir, key.kind, entry.artifact_path) == entry.basis_digest:
+            replacements[key] = entry
+    if not replacements:
+        return
+    ensure_versioned_backup(project_dir / MANIFEST_FILENAME, TARGET_SCHEMA_VERSION - 1)
+    if not adapter.replace_entries_if_matches_atomically(
+        expected={key: stored.get(key) for key in replacements}, replacements=replacements
+    ):
+        raise RuntimeError("artifact manifest changed while registering uploaded media")
+
+
+def _history(versions: Mapping[str, Any], resource_type: str, resource_id: str) -> object:
+    bucket = versions.get(resource_type)
+    return bucket.get(resource_id) if isinstance(bucket, Mapping) else None
 
 
 # ---------------------------------------------------------------------------
@@ -398,6 +465,7 @@ def migrate_v15_to_v16(project_dir: Path) -> ArtifactBackfillOutcome | None:
             "schema_version": TARGET_SCHEMA_VERSION,
         }
         _rebase_video_duration_entries(project_dir, before, migrated_project)
+        _register_uploaded_media(project_dir, migrated_project)
         target = TargetStatePlanner(project_dir, project_bytes=json.dumps(migrated_project).encode()).plan()
         atomic_write_json(project_file, migrated_project)
         return ArtifactBackfillOutcome.from_entries(

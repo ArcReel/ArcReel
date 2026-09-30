@@ -13,10 +13,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import BinaryIO, Literal
 
-from lib.artifacts.artifact_activation import (
-    forget_current_resource_artifact,
-    register_current_resource_artifact,
-)
+from lib.artifacts.artifact_activation import register_current_resource_artifact
 from lib.artifacts.formal_write import formal_write_transaction
 from lib.artifacts.version_manager import MANUAL_UPLOAD_VERSION_SOURCE, VersionManager
 from lib.infra.async_thread import run_noninterruptible_sync
@@ -232,6 +229,7 @@ async def commit_manual_storyboard_upload(
         basis=None,
         outcome_box=outcomes,
         project_manager=get_project_manager(),
+        selected_upload=True,
     )
 
     def _commit() -> int:
@@ -263,7 +261,7 @@ async def commit_manual_video_upload(
     original_filename: str | None,
     commit_metadata: ManualVideoMetadataCommit,
 ) -> int:
-    """把手动视频、版本选择、缩略图、剧本元数据与 claim 清理作为一个正式提交。
+    """把手动视频、版本选择、缩略图、剧本元数据与清单登记作为一个正式提交。
 
     缩略图先从不可见的 staging 视频生成。正式提交随后复用 ProjectManager 的剧本/项目
     事务、VersionManager 的 staged activation 与 Manifest 自身的事务补偿；任一步失败
@@ -279,10 +277,9 @@ async def commit_manual_video_upload(
             committed_version: list[int] = []
 
             def _activate(_script_path: Path) -> None:
-                def _forget_claim() -> None:
-                    # Manual uploads have no self-verifying paid-request facts, so an older
-                    # current-basis claim cannot survive their formal replacement.
-                    forget_current_resource_artifact(
+                def _claim() -> None:
+                    # 选中的已是这次上传，规划器按上传字节投影依据，投影不出即遗忘。
+                    register_current_resource_artifact(
                         project_path,
                         resource_type=resource_type,
                         resource_id=resource_id,
@@ -306,7 +303,7 @@ async def commit_manual_video_upload(
                             "",
                             staged_file=staged_video,
                             current_file=current_video,
-                            on_commit=_forget_claim,
+                            on_commit=_claim,
                             **metadata,
                         )
                     )

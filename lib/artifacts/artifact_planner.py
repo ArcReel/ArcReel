@@ -47,6 +47,8 @@ from lib.artifacts.visual_artifact_provenance import (
     build_grid_composite_visual_basis,
     build_grid_member_storyboard_visual_basis,
     build_uploaded_asset_sheet_basis,
+    build_uploaded_storyboard_basis,
+    build_uploaded_video_basis,
     project_basis_style_description,
     visual_file_digest,
 )
@@ -495,18 +497,29 @@ class TargetStatePlanner:
     ) -> ArtifactBasis | None:
         """作为成品带入的资产图或衍生资产图按图本身投影依据；否则返回 ``None``，改按生成输入投影。
 
-        作者上传与从资产库应用的图都以一条选中的手动上传版本记录为凭据。成立条件：该资源
-        选中的版本记录是手动上传，且它的受管快照与声明的图字节一致。外部替换了图、或选中的
-        是生成的版本，都不按上传依据判定。
+        作者上传与从资产库应用的图都以一条选中的手动上传版本记录为凭据，成立条件见
+        ``_selected_upload_digest``。
         """
 
         bucket = self._load_versions().get(resource_type)
         if not isinstance(bucket, Mapping):
             return None
         history_key = resolve_asset_key(bucket, resource_id)
-        snapshot_rel = selected_manual_upload_snapshot(
-            bucket.get(history_key) if history_key is not None else None, resource_type
+        digest = self._selected_upload_digest(
+            bucket.get(history_key) if history_key is not None else None, resource_type, artifact_path
         )
+        if digest is None:
+            return None
+        return build_uploaded_asset_sheet_basis(asset_type=asset_type, content_digest=digest)
+
+    def _selected_upload_digest(self, history: object, resource_type: str, artifact_path: str) -> str | None:
+        """选中版本是与声明产物字节一致的手动上传时，返回上传字节的摘要；否则返回 ``None``。
+
+        成立条件：该资源选中的版本记录是手动上传，且它的受管快照与声明的产物字节一致。外部
+        替换了产物、或选中的是生成的版本，都不按上传依据判定。
+        """
+
+        snapshot_rel = selected_manual_upload_snapshot(history, resource_type)
         if snapshot_rel is None:
             return None
         artifact = self._safe_present_path(self._pending_source(artifact_path))
@@ -524,7 +537,7 @@ class TargetStatePlanner:
             return None
         self._remember_dependency_digest(artifact, artifact_digest)
         self._remember_dependency_digest(snapshot, snapshot_digest)
-        return build_uploaded_asset_sheet_basis(asset_type=asset_type, content_digest=artifact_digest)
+        return artifact_digest
 
     def _plan_asset_derivatives(
         self,
@@ -674,6 +687,8 @@ class TargetStatePlanner:
         if not isinstance(style, str) or not isinstance(style_description, str):
             raise ValueError("project storyboard style and style description must be strings")
         observation = _PlannerInputObservation(self)
+        raw_histories = self._load_versions().get("storyboards")
+        storyboard_histories: Mapping[str, Any] = raw_histories if isinstance(raw_histories, Mapping) else {}
         for episode in self.episodes:
             storyboard_items, id_field, *_ = get_storyboard_items(episode.script)
             grid_members = self._grid_members_by_resource(episode.episode)
@@ -685,6 +700,13 @@ class TargetStatePlanner:
                 artifact_path = assets.get("storyboard_image")
                 if not isinstance(artifact_path, str) or not artifact_path:
                     continue
+                key = ArtifactKey.episode_storyboard(episode.episode, resource_id)
+                uploaded = self._selected_upload_digest(
+                    storyboard_histories.get(resource_id), "storyboards", artifact_path
+                )
+                if uploaded is not None:
+                    self._add_if_present(key, artifact_path, build_uploaded_storyboard_basis(content_digest=uploaded))
+                    continue
                 grid_target = grid_members.get(resource_id)
                 if assets.get("grid_id") is not None or assets.get("grid_cell_index") is not None:
                     if grid_target is not None:
@@ -692,7 +714,7 @@ class TargetStatePlanner:
                         self._add_if_present(key, artifact_path, basis)
                     continue
                 self._plan_generated_image(
-                    ArtifactKey.episode_storyboard(episode.episode, resource_id),
+                    key,
                     artifact_path,
                     lambda episode=episode, resource_id=resource_id: storyboard_image_input(
                         self.project,
@@ -971,6 +993,14 @@ class TargetStatePlanner:
             self._skip(key, artifact_path, "version history has no selected version")
             return
         record = selected[0]
+        if resource_type != "audio":
+            uploaded = self._selected_upload_digest(resource, resource_type, artifact_path)
+            if uploaded is not None:
+                self.entries[key] = ArtifactManifestEntry(
+                    artifact_path=artifact_path,
+                    basis_digest=build_uploaded_video_basis(content_digest=uploaded).digest,
+                )
+                return
         try:
             target = parse_typed_media_version_target(resource_type, record)
         except (TypeError, ValueError):

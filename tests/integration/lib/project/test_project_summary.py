@@ -23,7 +23,7 @@ from lib.project.project_manager import ProjectManager
 from lib.project.project_migrations.runner import migrate_project_with_verdict
 from lib.project.resource_paths import resource_relative_path
 from lib.project.source_revision import SourceRevisionResult, compute_source_revision
-from lib.workflow.workflow_state import ProjectSummaryCurrency, WorkflowStateService
+from lib.workflow.workflow_state import WorkflowStateService
 from tests.integration.lib.workflow.test_workflow_state import (
     _complete_episode_media,
     _count_source_reads,
@@ -548,7 +548,6 @@ def test_registered_currency_never_reads_artifact_content(tmp_path: Path, monkey
 
     assert verified.phase == registered.phase == "completed"
     assert verified_counts["artifact_bytes"] > 0
-    assert verified_counts["artifact_max_read"] > 1
     assert verified_counts["manifest_opens"] > 2
     assert registered_counts["artifact_bytes"] == 0
     assert registered_counts["artifact_max_read"] <= 1
@@ -556,8 +555,8 @@ def test_registered_currency_never_reads_artifact_content(tmp_path: Path, monkey
     assert registered_counts["manifest_opens"] <= 2
 
 
-def test_registered_currency_trusts_the_selected_manual_upload_without_byte_comparison(tmp_path: Path) -> None:
-    """手动上传的视频没有清单认领：完整口径要逐字节比对快照，列表口径只要求两份文件在场。"""
+def test_externally_replaced_upload_is_stale_but_still_available(tmp_path: Path) -> None:
+    """上传视频按上传字节登记：被外部替换后完整口径判 stale 仍可用，列表口径不比对内容。"""
 
     pm, project_path = _make_project(tmp_path, "narration")
     source_text = "完整原文"
@@ -570,34 +569,5 @@ def test_registered_currency_trusts_the_selected_manual_upload_without_byte_comp
     verified = service.get_project_summary("demo", currency="verified").episodes[0]
     registered = service.get_project_summary("demo", currency="registered").episodes[0]
 
-    assert (verified.videos.available, verified.status) == (0, "in_production")
-    assert (registered.videos.available, registered.status) == (1, "completed")
-
-
-@pytest.mark.parametrize("currency", ["verified", "registered"])
-def test_project_summary_reads_the_version_history_once_per_episode(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, currency: ProjectSummaryCurrency
-) -> None:
-    """手动上传的视频按版本记录认领：一集里有几个分镜，版本历史也只读一次，不随分镜数线性重读。"""
-
-    pm, project_path = _make_project(tmp_path, "narration")
-    source_text = "完整原文"
-    _write_source_and_complete(pm, project_path, source_text)
-    _plan_one_episode(pm, project_path, source_text)
-    _write_script_plan(project_path)
-    segments = [
-        _valid_narration_segment(segment_id=shot, generated_assets=_complete_episode_media(project_path, shot))
-        for shot in ("E1S01", "E1S02", "E1S03")
-    ]
-    _write_registered_script(
-        project_path,
-        {"episode": 1, "title": "第一集", "content_mode": "narration", "segments": segments},
-    )
-    _register_produced_artifacts(project_path)
-    service = WorkflowStateService(pm)
-
-    counts = _count_artifact_opens(monkeypatch, project_path)
-    summary = service.get_project_summary("demo", currency=currency)
-
-    assert summary.episodes[0].videos.model_dump() == {"total": 3, "available": 3, "stale": 0}
-    assert counts["versions_opens"] == 1
+    assert verified.videos.model_dump() == {"total": 1, "available": 1, "stale": 1}
+    assert registered.videos.model_dump() == {"total": 1, "available": 1, "stale": 0}
