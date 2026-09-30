@@ -1,3 +1,4 @@
+import asyncio
 import hashlib
 import json
 import re
@@ -12,6 +13,7 @@ import pytest
 from lib.artifacts.artifact_activation import ArtifactCurrencyResolver
 from lib.artifacts.artifact_manifest import (
     MANIFEST_FILENAME,
+    ArtifactBasis,
     ArtifactBasisDescriptor,
     ArtifactKey,
     ArtifactManifestEntry,
@@ -19,8 +21,10 @@ from lib.artifacts.artifact_manifest import (
     ProjectArtifactManifestAdapter,
 )
 from lib.artifacts.formal_write import project_metadata_lock
+from lib.artifacts.rendered_artifact import commit_rendered_artifact
 from lib.artifacts.version_manager import VersionManager
 from lib.edit_timeline import EditTimelineService, RevisionAuthor
+from lib.final_cut.basis import DEFAULT_VARIANT, final_cut_artifact_path, final_cut_key
 from lib.i18n import _
 from lib.infra.validation_messages import default_translate
 from lib.project.project_manager import ProjectManager
@@ -323,6 +327,46 @@ class TestProjectArchiveService:
 
         imported = await timelines.read("demo", created.timeline.id)
         assert imported == created
+
+    async def test_rendered_final_cuts_stay_out_of_the_archive_and_read_missing_after_import(self, tmp_path):
+        """成片可随时重新渲染：文件与清单条目都不进归档，导入后该身份读 missing。"""
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = _create_project(pm)
+        created = await EditTimelineService(pm).create_from_script(
+            "demo", episode=1, name="完整版", author=RevisionAuthor(kind="creator")
+        )
+        key = final_cut_key(1, created.timeline.id, DEFAULT_VARIANT)
+        artifact_path = final_cut_artifact_path(1, created.timeline.id, DEFAULT_VARIANT)
+
+        async def render(output: Path, _workspace: Path) -> None:
+            await asyncio.to_thread(output.write_bytes, b"final-cut")
+
+        async def accept(_output: Path) -> None:
+            return None
+
+        await commit_rendered_artifact(
+            project_dir,
+            key=key,
+            artifact_path=artifact_path,
+            basis=ArtifactBasis.build("test/final-cut", kind_version=1, inputs={"timeline_id": created.timeline.id}),
+            render=render,
+            accept=accept,
+        )
+        assert ProjectArtifactManifestAdapter(project_dir).get_entry(key) is not None
+        service = ProjectArchiveService(pm)
+
+        archive_path, _diagnostics = service.export_project("demo")
+        with zipfile.ZipFile(archive_path) as archive:
+            names = archive.namelist()
+            archive_manifest = json.loads(archive.read(f"demo/{ARCHIVE_MANIFEST_NAME}"))
+        shutil.rmtree(project_dir)
+        service.import_project_archive(archive_path, uploaded_filename="demo.zip")
+
+        assert not [name for name in names if name.startswith("demo/renders")]
+        assert key.encode() not in archive_manifest["artifact_manifest"]["entries"]
+        assert "renders" not in archive_manifest["pass_through_entries"]
+        assert not (pm.get_project_path("demo") / "renders").exists()
+        assert ProjectArtifactManifestAdapter(pm.get_project_path("demo")).get_entry(key) is None
 
     def test_export_excludes_agent_runtime_symlinks(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")

@@ -61,6 +61,7 @@ MESSAGES = {
     "task_fail_restart_lost_image": "The image task was interrupted by a service restart and cannot be resumed; please retry manually to avoid duplicate billing",
     "task_fail_restart_lost_audio": "The audio task was interrupted by a service restart and cannot be resumed; please retry manually to avoid duplicate billing",
     "task_fail_restart_lost_text": "The text task was interrupted by a service restart and cannot be resumed; please retry manually to avoid duplicate billing",
+    "task_fail_restart_lost_render": "The render task was interrupted by a service restart and produced no output; please submit the render again",
     "task_fail_restart_lost_no_job_id": "The video task did not persist a resume handle before the service restart and cannot recover automatically; please retry manually",
     "task_fail_restart_lost_resume_no_job_id": "The task is missing a resume handle and cannot be recovered; please retry manually",
     "task_fail_restart_lost_checkpoint_no_job_id": "The task crossed the submission boundary without saving a provider job ID and cannot retry automatically without risking duplicate billing",
@@ -595,4 +596,13 @@ MESSAGES = {
     "edit_timeline_name_invalid": "Edit timeline display names must be 1–40 characters long",
     "edit_timeline_script_invalid": "The script of episode {episode} cannot be parsed, so no edit timeline can be created from it",
     "edit_timeline_invalid": "The edit timeline file is corrupted and cannot be read: {file}",
+    # Final cut
+    "final_cut_variant_unsupported": "Final cuts can currently only be rendered without narration and without burned-in subtitles",
+    "final_cut_blocked": "The edit timeline has issues that block rendering the final cut, in video units: {units}. Resolve them, then submit the render again",
+    "final_cut_content_unsupported": "Final cuts do not support transitions or BGM yet; only edit timelines with hard cuts throughout and no BGM can be rendered",
+    "final_cut_empty": "The edit timeline has no clips to render",
+    "final_cut_ffmpeg_unavailable": "The bundled ffmpeg is unavailable, so the final cut cannot be rendered",
+    "final_cut_render_failed": "Rendering the final cut failed; please try again",
+    "final_cut_acceptance_failed": "The rendered final cut failed acceptance; please try again",
+    "final_cut_render_in_progress": "A final-cut render with a different request is already queued or running for this edit timeline ({task_id}); submit again after it finishes",
 }

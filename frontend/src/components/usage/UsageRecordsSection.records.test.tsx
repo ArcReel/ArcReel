@@ -215,6 +215,27 @@ describe("UsageRecordsSection records", () => {
     expect(await screen.findByText("分镜 E9S99")).toBeInTheDocument();
   });
 
+  it("leaves local render tasks out of the in-progress block", async () => {
+    useTasksStore.setState({
+      tasks: [
+        makeTask({ task_id: "t-video", status: "running", resource_id: "E1S01" }),
+        makeTask({
+          task_id: "t-render",
+          status: "running",
+          task_type: "render_final_cut",
+          media_type: "render",
+          resource_id: "tl-0000abcd.without_narration.no_subtitles",
+          provider_id: "render",
+        }),
+      ],
+    });
+    renderUsageRecordsSection();
+
+    expect(await screen.findByText("分镜 E1S01")).toBeInTheDocument();
+    expect(screen.queryByText(/tl-0000abcd/)).not.toBeInTheDocument();
+    expect(screen.getAllByText("待解析")).toHaveLength(1);
+  });
+
   it("shows a task-less pending call only once when filtering to in-progress", async () => {
     const pending = makeUsageRecord({
       id: 99,

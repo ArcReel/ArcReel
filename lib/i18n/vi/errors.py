@@ -61,6 +61,7 @@ MESSAGES = {
     "task_fail_restart_lost_image": "Tác vụ ảnh bị gián đoạn khi dịch vụ khởi động lại và không thể tiếp tục; vui lòng thử lại thủ công để tránh bị tính phí trùng",
     "task_fail_restart_lost_audio": "Tác vụ âm thanh bị gián đoạn khi dịch vụ khởi động lại và không thể tiếp tục; vui lòng thử lại thủ công để tránh bị tính phí trùng",
     "task_fail_restart_lost_text": "Tác vụ văn bản bị gián đoạn khi dịch vụ khởi động lại và không thể tiếp tục; vui lòng thử lại thủ công để tránh bị tính phí trùng",
+    "task_fail_restart_lost_render": "Tác vụ kết xuất bị gián đoạn khi dịch vụ khởi động lại và chưa tạo ra kết quả; vui lòng gửi kết xuất lại",
     "task_fail_restart_lost_no_job_id": "Tác vụ video không lưu thông tin tiếp tục trước khi dịch vụ khởi động lại và không thể tự khôi phục; vui lòng thử lại thủ công",
     "task_fail_restart_lost_resume_no_job_id": "Tác vụ thiếu thông tin tiếp tục và không thể khôi phục; vui lòng thử lại thủ công",
     "task_fail_restart_lost_checkpoint_no_job_id": "Tác vụ đã vượt qua ranh giới gửi nhưng chưa lưu mã tác vụ của nhà cung cấp và không thể tự động thử lại vì có nguy cơ tính phí trùng",
@@ -595,4 +596,13 @@ MESSAGES = {
     "edit_timeline_name_invalid": "Tên dòng thời gian dựng phải dài từ 1 đến 40 ký tự",
     "edit_timeline_script_invalid": "Không phân tích được kịch bản của tập {episode}, nên không thể tạo dòng thời gian dựng từ kịch bản",
     "edit_timeline_invalid": "Tệp dòng thời gian dựng bị hỏng, không đọc được: {file}",
+    # Final cut
+    "final_cut_variant_unsupported": "Hiện chỉ có thể kết xuất video thành phẩm không có lời dẫn và không ghi phụ đề vào hình",
+    "final_cut_blocked": "Dòng thời gian dựng có vấn đề chặn việc kết xuất video thành phẩm, ở các đơn vị video: {units}. Hãy xử lý các vấn đề này rồi gửi kết xuất lại",
+    "final_cut_content_unsupported": "Video thành phẩm chưa hỗ trợ chuyển cảnh và nhạc nền; chỉ kết xuất được dòng thời gian dựng toàn cắt thẳng, không có nhạc nền",
+    "final_cut_empty": "Dòng thời gian dựng không có đoạn nào để kết xuất",
+    "final_cut_ffmpeg_unavailable": "Không dùng được ffmpeg đi kèm, nên không thể kết xuất video thành phẩm",
+    "final_cut_render_failed": "Kết xuất video thành phẩm thất bại, vui lòng thử lại",
+    "final_cut_acceptance_failed": "Video thành phẩm vừa kết xuất không đạt kiểm tra, vui lòng thử lại",
+    "final_cut_render_in_progress": "Dòng thời gian dựng này đã có một tác vụ kết xuất với yêu cầu khác đang chờ hoặc đang chạy ({task_id}); hãy gửi lại sau khi tác vụ đó kết thúc",
 }

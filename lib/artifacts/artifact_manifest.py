@@ -12,6 +12,7 @@ import hashlib
 import json
 import math
 import os
+import re
 import secrets
 import stat
 import tempfile
@@ -72,6 +73,16 @@ class ArtifactKind(StrEnum):
     EPISODE_AUDIO = "episode-audio"
     EPISODE_SUBTITLE = "episode-subtitle"
     EPISODE_PRESENTATION = "episode-presentation"
+    EPISODE_FINAL_CUT = "episode-final-cut"
+
+
+FINAL_CUT_NARRATION_VERSIONS = frozenset({"without_narration", "with_narration"})
+"""成片的旁白版本：带旁白只对 TTS 项目开放。"""
+
+FINAL_CUT_SUBTITLE_MODES = frozenset({"no_subtitles", "burned_subtitles"})
+"""成片是否烧入字幕。"""
+
+_EDIT_TIMELINE_ID_RE = re.compile(r"^tl-[0-9a-f]{8}$")
 
 
 class ArtifactStatus(StrEnum):
@@ -1686,6 +1697,16 @@ class ArtifactKey:
                 and bool(resource_id)
                 and variant in {"post_production", "use_tts"}
             )
+        elif self.kind is ArtifactKind.EPISODE_FINAL_CUT and len(self.components) == 4:
+            episode, timeline_id, narration, subtitles = self.components
+            valid = (
+                type(episode) is int
+                and episode > 0
+                and isinstance(timeline_id, str)
+                and _EDIT_TIMELINE_ID_RE.fullmatch(timeline_id) is not None
+                and narration in FINAL_CUT_NARRATION_VERSIONS
+                and subtitles in FINAL_CUT_SUBTITLE_MODES
+            )
         if not valid:
             raise ValueError(f"artifact key components do not match {self.kind!r}: {self.components!r}")
 
@@ -1755,6 +1776,12 @@ class ArtifactKey:
                 _rendition_variant(variant),
             ),
         )
+
+    @classmethod
+    def episode_final_cut(cls, episode: int, timeline_id: str, narration: str, subtitles: str) -> Self:
+        """Identify the final cut rendered from one edit timeline in one narration/subtitle variant."""
+
+        return cls(ArtifactKind.EPISODE_FINAL_CUT, (_episode_number(episode), timeline_id, narration, subtitles))
 
     @classmethod
     def episode_resource_artifacts(cls, episode: int, resource_id: str) -> tuple[Self, ...]:

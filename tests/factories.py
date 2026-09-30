@@ -60,6 +60,65 @@ def make_test_video(path: Path, *, duration_sec: float = 1.0, fps: int = 30) -> 
     )
 
 
+def make_test_clip(path: Path, *, size: str, fps: int, seconds: float, tone: bool) -> None:
+    """用随包 ffmpeg 现场合成一段低分辨率测试画面（``testsrc``），``tone`` 时带一条等长正弦音轨。"""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    audio = ("-f", "lavfi", "-i", f"sine=frequency=440:duration={seconds}", "-c:a", "aac") if tone else ()
+    run_bundled_ffmpeg(
+        "-f",
+        "lavfi",
+        "-i",
+        f"testsrc=size={size}:rate={fps}:duration={seconds}",
+        *audio,
+        "-c:v",
+        "libx264",
+        "-pix_fmt",
+        "yuv420p",
+        "-shortest",
+        str(path),
+    )
+
+
+def install_current_video(project_path: Path, resource_type: str, unit_id: str, source: Path) -> int:
+    """把 ``source`` 登记为视频单元的新 current 版本并放到正式路径上；返回版本号。"""
+    import shutil
+
+    from lib.artifacts.version_manager import VersionManager
+    from lib.project.resource_paths import resource_relative_path
+
+    version = VersionManager(project_path).add_version(resource_type, unit_id, "prompt", source_file=source)
+    target = project_path / resource_relative_path(resource_type, unit_id)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(source, target)
+    return version
+
+
+def make_reference_video_project(projects_root: Path, unit_ids: tuple[str, ...]) -> Any:
+    """新建参考生视频模式的项目 ``demo``，第 1 集按 ``unit_ids`` 各含一个视频单元；返回其 ProjectManager。"""
+    from lib.project.project_manager import ProjectManager
+
+    manager = ProjectManager(projects_root)
+    manager.create_project("demo")
+    manager.create_project_metadata("demo", "Demo", "Anime", "narration")
+    manager.update_project("demo", lambda project: project.update({"generation_mode": "reference_video"}))
+    manager.save_script(
+        "demo",
+        {
+            "episode": 1,
+            "title": "第一集",
+            "content_mode": "narration",
+            "generation_mode": "reference_video",
+            "summary": "摘要",
+            "novel": {"title": "小说", "chapter": "第一章"},
+            "video_units": [
+                {"unit_id": unit_id, "text": f"镜头 {unit_id}", "duration_seconds": 4} for unit_id in unit_ids
+            ],
+        },
+        "episode_1.json",
+    )
+    return manager
+
+
 def make_test_video_with_audio_tail(
     path: Path,
     *,

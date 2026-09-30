@@ -137,6 +137,7 @@ SAMPLE_ARGUMENTS: dict[str, dict[str, Any]] = {
         "summary": "压低开场原声",
         "operations": [{"op": "set_volume", "clip": "c1", "volume": 0.5}],
     },
+    "render_final_cut": {"timeline": "tl-0000abcd"},
 }
 
 _DECLARATIONS = pytest.mark.parametrize("declaration", AGENT_TOOLSET, ids=lambda declaration: declaration.name)

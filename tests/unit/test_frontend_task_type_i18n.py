@@ -51,7 +51,12 @@ TEXT_TASK_TYPES = frozenset(
 
 UNIT_TASK_TYPES = frozenset({"storyboard", "grid", "tts", "video", "reference_video"})
 
-FIXED_TASK_TYPES = TEXT_TASK_TYPES | UNIT_TASK_TYPES | {"image_edit", "voice_sample", DERIVATIVE_TASK_TYPE}
+#: 本地渲染车道的任务（``server/services/tasks/render_tasks.py``）。
+RENDER_TASK_TYPES = frozenset({"render_final_cut"})
+
+FIXED_TASK_TYPES = (
+    TEXT_TASK_TYPES | UNIT_TASK_TYPES | RENDER_TASK_TYPES | {"image_edit", "voice_sample", DERIVATIVE_TASK_TYPE}
+)
 
 ALL_TASK_TYPES = FIXED_TASK_TYPES | frozenset(ASSET_SPECS.keys())
 
