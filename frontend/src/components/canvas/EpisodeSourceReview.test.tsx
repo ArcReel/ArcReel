@@ -2,7 +2,6 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
-import { useAssistantStore } from "@/stores/assistant-store";
 import { EpisodeSourceReview } from "./EpisodeSourceReview";
 import type { EpisodeMeta } from "@/types";
 
@@ -21,7 +20,6 @@ function makeEpisode(overrides: Partial<EpisodeMeta> = {}): EpisodeMeta {
 describe("EpisodeSourceReview", () => {
   beforeEach(() => {
     useAppStore.setState(useAppStore.getInitialState(), true);
-    useAssistantStore.setState(useAssistantStore.getInitialState(), true);
     vi.restoreAllMocks();
   });
 
@@ -108,32 +106,5 @@ describe("EpisodeSourceReview", () => {
     rerender(<EpisodeSourceReview projectName="demo" episode={2} episodes={episodes} />);
 
     expect(screen.getByText("新的一集")).toBeInTheDocument();
-  });
-
-  it("names an untitled episode by its broadcast position, not its episode id", async () => {
-    vi.spyOn(API, "getSourceContent").mockResolvedValue("text");
-    const episodes = [makeEpisode({ episode: 5 }), makeEpisode({ episode: 9, title: "" })];
-
-    render(<EpisodeSourceReview projectName="demo" episode={9} episodes={episodes} />);
-    fireEvent.click(screen.getByRole("button", { name: "开始创作 第 2 集" }));
-
-    expect(useAssistantStore.getState().input).toBe("为《第 2 集》（集 ID 9）生成脚本");
-    await waitFor(() => expect(screen.getByText("text")).toBeInTheDocument());
-  });
-
-  it("prefills the assistant input and opens the panel on CTA click", async () => {
-    vi.spyOn(API, "getSourceContent").mockResolvedValue("text");
-    useAppStore.setState({ assistantPanelOpen: false });
-
-    render(<EpisodeSourceReview projectName="demo" episode={1} episodes={[makeEpisode()]} />);
-
-    fireEvent.click(screen.getByRole("button", { name: "开始创作 第一章：初遇" }));
-
-    expect(useAssistantStore.getState().input).toBe("为《第一章：初遇》（集 ID 1）生成脚本");
-    expect(useAppStore.getState().assistantPanelOpen).toBe(true);
-
-    await waitFor(() => {
-      expect(screen.getByText("text")).toBeInTheDocument();
-    });
   });
 });

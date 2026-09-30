@@ -259,6 +259,8 @@ MESSAGES = {
     "prompt_overwrite_required": "AI rewrite replaces existing prompts. Review the entries to be overwritten, acknowledge the overwrite and retry",
     "prompt_authoring_task_active": "A prompt-writing task for this episode is already running. Wait for it to finish before submitting again",
     "prompt_authoring_refused": "Prompt writing could not be submitted: {reason}",
+    "script_plan_task_active": "A script-planning task for this episode is already running. Wait for it to finish before submitting again",
+    "script_plan_refused": "Script planning could not be submitted: {reason}",
     "script_review_conversion_refused": "The script plan cannot be converted to a formal script yet, so it was not confirmed; check shot durations, dialogue and the script plan status, then retry",
     "script_review_foreign_formal_script": (
         "The script file bound to episode (id={episode}) is gone and the canonical path scripts/{filename} holds another "

@@ -83,6 +83,7 @@ from server.routers import (
     providers,
     reference_videos,
     scenes,
+    script_plan,
     script_review,
     shot_uploads,
     system,
@@ -642,6 +643,12 @@ app.include_router(
     prefix="/api/v1",
     dependencies=[Depends(get_current_user), Depends(require_project_migration_ok)],
     tags=["提示词编写"],
+)
+app.include_router(
+    script_plan.router,
+    prefix="/api/v1",
+    dependencies=[Depends(get_current_user), Depends(require_project_migration_ok)],
+    tags=["脚本规划"],
 )
 app.include_router(
     shot_uploads.router,

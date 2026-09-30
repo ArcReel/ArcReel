@@ -145,6 +145,8 @@ export interface EpisodeMeta {
   outline?: { story_beats?: string[]; next_episode_teaser?: string };
   /** 上一次提示词编写的附加指令，打开「编写提示词」时预填 */
   prompt_authoring_instructions?: string;
+  /** 上一次 AI 规划脚本的附加指令，重新生成时预填 */
+  script_plan_instructions?: string;
   /**
    * Per-episode fields below come from the project summary at read time, on the artifact
    * manifest's terms — the same numbers the studio reads, never persisted to project.json.

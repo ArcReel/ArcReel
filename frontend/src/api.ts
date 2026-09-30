@@ -96,6 +96,8 @@ import type {
   SaveEpisodeDraftResult,
   AuthorPromptsRequest,
   AuthorPromptsResponse,
+  PlanScriptRequest,
+  PlanScriptResponse,
   DramaNormalizedScript,
   NarrationScriptPlanDraft,
   ReferenceScriptPlanDraft,
@@ -1149,6 +1151,33 @@ class API {
   ): Promise<{ success: boolean }> {
     return this.request(
       `/projects/${encodeURIComponent(projectName)}/episodes/${episode}/prompt-authoring/instructions`,
+      { method: "PUT", body: JSON.stringify({ instructions }) }
+    );
+  }
+
+  /**
+   * AI 规划脚本，与 Agent 的 generate_script_plan 同一服务命令；提交即返生成批次。
+   * 新的脚本规划整份替换本集现有的规划与草稿，替换前的确认由调用方负责。附加指令随请求按集保存。
+   */
+  static async planScript(
+    projectName: string,
+    episode: number,
+    body: PlanScriptRequest
+  ): Promise<PlanScriptResponse> {
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/episodes/${episode}/script-plan`,
+      { method: "POST", body: JSON.stringify(body) }
+    );
+  }
+
+  /** 只保存本集 AI 规划脚本的附加指令（「交给 Agent」路径），不提交生成。 */
+  static async saveScriptPlanInstructions(
+    projectName: string,
+    episode: number,
+    instructions: string
+  ): Promise<{ success: boolean }> {
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/episodes/${episode}/script-plan/instructions`,
       { method: "PUT", body: JSON.stringify({ instructions }) }
     );
   }

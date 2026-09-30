@@ -32,6 +32,7 @@ import { ScriptOverwriteConfirmDialog } from "@/components/shared/ScriptOverwrit
 import { VideoModelUnresolvedNotice } from "@/components/shared/VideoModelUnresolvedNotice";
 import { PrimaryButton } from "@/components/ui/PrimaryButton";
 import { AutoTextarea } from "@/components/ui/AutoTextarea";
+import { ScriptPlanButton } from "@/components/canvas/shared/ScriptPlanButton";
 import { ACCENT_BTN_CLS, ACCENT_BUTTON_STYLE, CARD_STYLE, GHOST_BTN_CLS, GHOST_BTN_LG_CLS } from "@/components/ui/darkroom-tokens";
 import { ScriptHighlight } from "@/components/shared/ScriptHighlight";
 import { toScriptLines, type MentionLookup } from "@/hooks/useUnitPromptHighlight";
@@ -572,6 +573,9 @@ export function ReferenceScriptPlanPreviewPanel({
             prefillAssistant(draftFixRequestText(t, episodeRef, "reference_script_plan", quarantine.violations))
           }
           onDiscard={() => setDiscardOpen(true)}
+          regenerateAction={
+            <ScriptPlanButton projectName={projectName} episode={episode} replaces="draft" className={GHOST_BTN_CLS} />
+          }
         />
         {discardDialog}
         <DraftEpisodeViolations
@@ -699,6 +703,13 @@ export function ReferenceScriptPlanPreviewPanel({
                 {t("dashboard:review_open_timeline")}
               </button>
             )}
+            <ScriptPlanButton
+              projectName={projectName}
+              episode={episode}
+              replaces={confirmed ? "confirmed_plan" : "pending_plan"}
+              className={GHOST_BTN_CLS}
+              disabledReason={!readOnly && dirty ? t("dashboard:script_plan_dirty_hint") : null}
+            />
             {!readOnly && dirty && (
               <button type="button" onClick={voidPromise(handleSave)} disabled={busy} className={GHOST_BTN_CLS}>
                 <Save className="h-3.5 w-3.5" />

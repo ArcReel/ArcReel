@@ -6,7 +6,7 @@ import type { SseStreamHandle } from "@/utils/sse-stream";
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useCostStore } from "@/stores/cost-store";
-import { useTasksStore } from "@/stores/tasks-store";
+import { SCRIPT_PLAN_TASK_TYPES, useTasksStore } from "@/stores/tasks-store";
 import { useUsageHeaderStore } from "@/stores/usage-header-store";
 import { errMsg } from "@/utils/async";
 import {
@@ -314,6 +314,14 @@ export function useProjectEventsSSE(projectName?: string | null): void {
         const invalidationKeys = entityChanges.map((change) =>
           buildEntityRevisionKey(change.entity_type, change.entity_id),
         );
+        // 正式脚本规划不在项目快照里，重新规划完成不会产生实体变更；按任务终态作废各集的
+        // 脚本规划视图，内容确认页据此重拉。任务事件不带集号，逐集作废，只有挂载的视图会发请求。
+        if (taskChanges.some((c) => c.action === "task_succeeded" && SCRIPT_PLAN_TASK_TYPES.has(c.task_type ?? ""))) {
+          const episodes = useProjectsStore.getState().currentProjectData?.episodes ?? [];
+          invalidationKeys.push(
+            ...episodes.map(({ episode }) => buildEntityRevisionKey("draft", `episode_${episode}_script_plan`)),
+          );
+        }
         if (invalidationKeys.length > 0) {
           invalidateEntities(invalidationKeys);
         }

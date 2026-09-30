@@ -248,6 +248,8 @@ MESSAGES = {
     "prompt_overwrite_required": "AI 重写会覆盖已有提示词。请核对将被覆盖的条目，确认覆盖后重试",
     "prompt_authoring_task_active": "本集已有进行中的提示词编写任务，请等待完成后再提交",
     "prompt_authoring_refused": "提示词编写未能提交：{reason}",
+    "script_plan_task_active": "本集已有进行中的脚本规划任务，请等待完成后再提交",
+    "script_plan_refused": "脚本规划未能提交：{reason}",
     "script_review_conversion_refused": "脚本规划暂不能转为正式脚本，本次确认未完成；请检查分镜时长、台词与脚本规划状态后重试",
     "script_review_foreign_formal_script": "集（id={episode}）绑定的剧本文件已不在，而规范路径 scripts/{filename} 上是另一集的剧本，本次确认未完成——写进去会重建那一集的剧本；请把该集的 script_file 改回它自己的剧本文件后重试",
     "script_review_quarantine_unreadable": "待修复草稿文件已损坏或格式不符，无法读取，请丢弃草稿后重新生成",

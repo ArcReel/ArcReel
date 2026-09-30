@@ -29,6 +29,8 @@ interface Props {
   onRegenerate?: (stepId: string, unitIds: string[]) => void;
   /** 下一步是编写提示词时，打开范围为全部待编写的「编写提示词」。 */
   onAuthorPrompts?: () => void;
+  /** 下一步是 AI 规划脚本时，打开「AI 规划脚本」。 */
+  onPlanScript?: () => void;
 }
 
 /**
@@ -40,7 +42,7 @@ interface Props {
  * 默认收起成一行摘要。工作流状态是背景信息，不该长期占住创作区；需要判断「现在卡在哪」
  * 的时候展开，展开状态在会话内保留。
  */
-export function WorkflowPanel({ projectName, episode, onViewUnit, onRegenerate, onAuthorPrompts }: Props) {
+export function WorkflowPanel({ projectName, episode, onViewUnit, onRegenerate, onAuthorPrompts, onPlanScript }: Props) {
   const { t } = useTranslation(["workflow", "assets"]);
   const panelId = useId();
   const alertId = useId();
@@ -158,6 +160,16 @@ export function WorkflowPanel({ projectName, episode, onViewUnit, onRegenerate, 
             style={{ border: "1px solid var(--color-hairline)", color: "var(--color-text-2)" }}
           >
             {t("dashboard:prompt_authoring_open")}
+          </button>
+        )}
+        {shown?.next_action.type === "prepare_script_plan" && onPlanScript && (
+          <button
+            type="button"
+            onClick={onPlanScript}
+            className="focus-ring rounded-md px-2 py-0.5 text-[11.5px] font-medium hover:bg-[oklch(1_0_0_/_0.05)]"
+            style={{ border: "1px solid var(--color-hairline)", color: "var(--color-text-2)" }}
+          >
+            {t("dashboard:script_plan_open")}
           </button>
         )}
         {blockers.length > 0 && (

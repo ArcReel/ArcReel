@@ -1,32 +1,32 @@
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Anchor, ChevronDown, Sparkles } from "lucide-react";
+import { AlertTriangle, Anchor, ChevronDown, Loader2 } from "lucide-react";
 import { API } from "@/api";
-import { useAppStore } from "@/stores/app-store";
-import { useAssistantStore } from "@/stores/assistant-store";
+import { ScriptPlanButton } from "@/components/canvas/shared/ScriptPlanButton";
+import { useScriptPlanEntry } from "@/hooks/useScriptPlanEntry";
 import type { EpisodeMeta } from "@/types";
-import { episodeAgentRef, episodeDisplayName, episodePosition } from "@/utils/episode-display";
+import { episodePosition } from "@/utils/episode-display";
 
 /**
- * 已选集但剧本未生成时的画布视图：呈现分集拆分结果供审阅——
- * 源文切片全文 + 拆分元信息（边界、节拍、尾钩子），CTA 唤起 Agent 起草剧本。
+ * 已选集但既没有脚本规划也没有正式脚本时的画布视图：呈现本集原文与分集元信息（边界、节拍、
+ * 尾钩子），标题行放脚本的起步入口；AI 规划脚本在跑时显示任务进度，完成后集页转入内容确认。
  * 适用 narration/drama 全部生成路径；ad 恒单集无源文切片，由 StudioCanvasRouter 排除。
  */
 
 // ---------------------------------------------------------------------------
-// 标题区：播出位置徽标 + 标题 + 状态 chip + 源文元信息 + CTA
+// 标题区：播出位置徽标 + 标题 + 状态 chip + 源文元信息 + 起步入口
 // ---------------------------------------------------------------------------
 
 function EpisodeHeader({
   episode,
   episodes,
   meta,
-  onStart,
+  actions,
 }: {
   episode: number;
   episodes: EpisodeMeta[];
   meta: EpisodeMeta | undefined;
-  onStart: () => void;
+  actions: React.ReactNode;
 }) {
   const { t } = useTranslation("dashboard");
   const position = episodePosition(episodes, episode);
@@ -82,15 +82,43 @@ function EpisodeHeader({
           ) : null}
         </div>
       </div>
-      <button
-        type="button"
-        onClick={onStart}
-        className="arc-btn-primary focus-ring mt-0.5 inline-flex shrink-0 items-center gap-1.5 rounded-lg px-4 py-2 text-[12.5px] font-semibold"
-      >
-        <Sparkles className="h-3.5 w-3.5" aria-hidden />
-        {t("episode_workspace_start_cta", { name: episodeDisplayName(episodes, episode, t) })}
-      </button>
+      <div className="mt-0.5 flex shrink-0 items-center gap-2">{actions}</div>
     </header>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// AI 规划脚本的任务进度：排队 / 生成中，或上一次失败的原因
+// ---------------------------------------------------------------------------
+
+function ScriptPlanProgress({ projectName, episode }: { projectName: string; episode: number }) {
+  const { t } = useTranslation("dashboard");
+  const { busy, latestTask } = useScriptPlanEntry(projectName, episode);
+  if (busy) {
+    return (
+      <div
+        role="status"
+        className="mt-4 flex items-center gap-2.5 rounded-xl px-4 py-3 text-[12.5px]"
+        style={{ background: "var(--color-accent-dim)", border: "1px solid var(--color-accent-soft)", color: "var(--color-text-2)" }}
+      >
+        <Loader2 className="h-4 w-4 shrink-0 motion-safe:animate-spin" style={{ color: "var(--color-accent-2)" }} aria-hidden />
+        <span>
+          {latestTask?.status === "running" ? t("script_plan_progress_running") : t("script_plan_progress_queued")}
+          {" "}
+          <span style={{ color: "var(--color-text-4)" }}>{t("script_plan_progress_hint")}</span>
+        </span>
+      </div>
+    );
+  }
+  if (latestTask?.status !== "failed") return null;
+  return (
+    <div
+      role="alert"
+      className="mt-4 flex items-start gap-2.5 rounded-xl border border-red-500/35 px-4 py-3 text-[12.5px] text-red-300"
+    >
+      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+      <span>{t("script_plan_failed", { reason: latestTask.error_message ?? t("script_plan_failed_unknown") })}</span>
+    </div>
   );
 }
 
@@ -222,19 +250,23 @@ export function EpisodeSourceReview({
   const loading = fetched?.key !== fetchKey;
   const text = loading ? null : fetched.text;
 
-  const handleStart = useCallback(() => {
-    // 经 store.input 投递一次性预填文本，AgentCopilot 消费后写入输入框；
-    // 只填不发送，已有会话时不切换、不新建
-    useAssistantStore
-      .getState()
-      .setInput(t("episode_workspace_prefill_script", { episodeRef: episodeAgentRef(episodes, episode, t) }));
-    useAppStore.getState().setAssistantPanelOpen(true);
-  }, [episode, episodes, t]);
-
   return (
     <div className="flex h-full flex-col p-6">
       <div className="mx-auto flex min-h-0 w-full max-w-4xl flex-1 flex-col">
-        <EpisodeHeader episode={episode} episodes={episodes} meta={meta} onStart={handleStart} />
+        <EpisodeHeader
+          episode={episode}
+          episodes={episodes}
+          meta={meta}
+          actions={
+            <ScriptPlanButton
+              projectName={projectName}
+              episode={episode}
+              replaces="none"
+              className="arc-btn-primary focus-ring rounded-lg px-4 py-2 text-[12.5px] font-semibold"
+            />
+          }
+        />
+        <ScriptPlanProgress projectName={projectName} episode={episode} />
         <GuideSection key={episode} meta={meta} />
 
         <div className="mt-4 flex min-h-0 flex-1 flex-col">
