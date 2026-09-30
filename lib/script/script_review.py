@@ -453,11 +453,24 @@ def stored_review(project: dict[str, Any], episode: int) -> dict[str, Any]:
 
 @dataclass(frozen=True, slots=True)
 class OverwrittenScriptEntry:
-    """覆盖式确认将移除的一条正式脚本条目，及其名下已生成的产物。"""
+    """覆盖式确认将移除的一条正式脚本条目，及其名下无法在项目内恢复的产物与归属。"""
 
     entry_id: str
     has_storyboard: bool
     has_video: bool
+    has_narration_audio: bool
+    has_end_frame: bool
+    grid_id: str | None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.entry_id,
+            "has_storyboard": self.has_storyboard,
+            "has_video": self.has_video,
+            "has_narration_audio": self.has_narration_audio,
+            "has_end_frame": self.has_end_frame,
+            "grid_id": self.grid_id,
+        }
 
 
 @dataclass(frozen=True, slots=True)
@@ -475,13 +488,70 @@ class FormalScriptOverwrite:
     def to_dict(self) -> dict[str, Any]:
         return {
             "revision": self.fingerprint,
-            "entries": [
-                {"id": entry.entry_id, "has_storyboard": entry.has_storyboard, "has_video": entry.has_video}
-                for entry in self.entries
-            ],
+            "entries": [entry.to_dict() for entry in self.entries],
             "storyboard_count": sum(entry.has_storyboard for entry in self.entries),
             "video_count": sum(entry.has_video for entry in self.entries),
+            "narration_audio_count": sum(entry.has_narration_audio for entry in self.entries),
+            "end_frame_count": sum(entry.has_end_frame for entry in self.entries),
+            "grid_member_count": sum(entry.grid_id is not None for entry in self.entries),
+            "grid_count": len({entry.grid_id for entry in self.entries if entry.grid_id is not None}),
         }
+
+
+#: 覆盖清单里逐条目列出的产物种类：``to_dict`` 的条目键 → 文案 key。顺序即行文顺序。
+_OVERWRITE_ENTRY_KINDS: tuple[tuple[str, str], ...] = (
+    ("has_storyboard", "script_overwrite_kind_storyboard"),
+    ("has_video", "script_overwrite_kind_video"),
+    ("has_narration_audio", "script_overwrite_kind_narration_audio"),
+    ("has_end_frame", "script_overwrite_kind_end_frame"),
+    ("grid_id", "script_overwrite_kind_grid"),
+)
+
+#: 覆盖清单的汇总项：（计数键，文案 key）。计数为 0 的项不出现。
+_OVERWRITE_LOSS_TOTALS: tuple[tuple[str, str], ...] = (
+    ("storyboard_count", "script_overwrite_loss_storyboard"),
+    ("video_count", "script_overwrite_loss_video"),
+    ("narration_audio_count", "script_overwrite_loss_narration_audio"),
+    ("end_frame_count", "script_overwrite_loss_end_frame"),
+    ("grid_member_count", "script_overwrite_loss_grid"),
+)
+
+
+def render_overwrite_loss_text(overwrite: Mapping[str, Any], translate: Callable[..., str]) -> str:
+    """把 ``FormalScriptOverwrite.to_dict()`` 渲染成丢失清单文本。
+
+    Web 确认框与 Agent 的 ``script_overwrite_required`` 回执都取这一份文本，文案只登记在 i18n key 表里；
+    调用方不再各自拼装清单。
+    """
+    entries: list[Mapping[str, Any]] = list(overwrite.get("entries") or ())
+    separator = translate("script_overwrite_separator")
+    lines = [translate("script_overwrite_summary", count=len(entries))]
+    totals = [
+        translate(key, count=count, grids=overwrite.get("grid_count", 0))
+        for count_key, key in _OVERWRITE_LOSS_TOTALS
+        if (count := int(overwrite.get(count_key) or 0)) > 0
+    ]
+    if totals:
+        lines.append(translate("script_overwrite_loss", items=separator.join(totals)))
+    if entries:
+        lines.append(translate("script_overwrite_history"))
+        rendered: list[str] = []
+        for entry in entries:
+            kinds = [translate(key) for field, key in _OVERWRITE_ENTRY_KINDS if entry.get(field)]
+            rendered.append(
+                translate("script_overwrite_entry", id=entry.get("id", ""), kinds=separator.join(kinds))
+                if kinds
+                else str(entry.get("id", ""))
+            )
+        lines.append(translate("script_overwrite_entries", entries=separator.join(rendered)))
+    return "\n".join(lines)
+
+
+def overwrite_with_text(overwrite: Mapping[str, Any] | None, translate: Callable[..., str]) -> dict[str, Any] | None:
+    """覆盖清单附上渲染好的丢失清单文本（``text``）；无覆盖时 None。"""
+    if overwrite is None:
+        return None
+    return {**overwrite, "text": render_overwrite_loss_text(overwrite, translate)}
 
 
 def _bound_script_filename(project: Mapping[str, Any], episode: int) -> str | None:
@@ -571,11 +641,15 @@ def formal_script_overwrite(
         if not isinstance(item, dict) or not isinstance(item.get(id_field), str) or not item[id_field]:
             continue
         assets = get_generated_assets(item)
+        grid_id = assets.get("grid_id")
         entries.append(
             OverwrittenScriptEntry(
                 entry_id=item[id_field],
                 has_storyboard=bool(assets.get("storyboard_image")),
                 has_video=bool(assets.get("video_clip")),
+                has_narration_audio=bool(assets.get("narration_audio")),
+                has_end_frame=bool(item.get("end_frame_image")),
+                grid_id=grid_id if isinstance(grid_id, str) and grid_id else None,
             )
         )
     return FormalScriptOverwrite(fingerprint=fingerprint, entries=tuple(entries))

@@ -1,9 +1,10 @@
 import { describe, it, expect, vi, afterEach, type MockInstance } from "vitest";
-import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, act, within } from "@testing-library/react";
 import { ScriptReviewGate } from "./ScriptReviewGate";
 import { API, ApiRequestError } from "@/api";
 import { useAppStore } from "@/stores/app-store";
 import { useAssistantStore } from "@/stores/assistant-store";
+import { makeScriptOverwrite, makeScriptOverwriteEntry } from "@/test/factories";
 import type { ScriptReviewState, VideoCapabilities } from "@/types";
 
 const VIDEO_CAPS = {
@@ -24,7 +25,7 @@ async function settleCapabilityRequests(spy: MockInstance<typeof API.getVideoCap
 const CONFIRMED: Partial<ScriptReviewState> = {
   status: "confirmed",
   confirmed_at: "2026-06-26T00:00:00Z",
-  script_overwrite: { revision: "sha256-v1:formal", entries: [], storyboard_count: 0, video_count: 0 },
+  script_overwrite: makeScriptOverwrite(),
 };
 
 function dramaState(overrides: Partial<ScriptReviewState> = {}): ScriptReviewState {
@@ -214,15 +215,26 @@ describe("ScriptReviewGate", () => {
   });
 
   it("renders a danger confirm that lists the consequences before overwriting a formal script", async () => {
-    const overwrite = {
+    const overwrite = makeScriptOverwrite({
       revision: "sha256-v1:listed",
       entries: [
-        { id: "E1S01", has_storyboard: true, has_video: true },
-        { id: "E1S09", has_storyboard: false, has_video: false },
+        makeScriptOverwriteEntry("E1S01", {
+          has_storyboard: true,
+          has_video: true,
+          has_narration_audio: true,
+          has_end_frame: true,
+          grid_id: "grid_a",
+        }),
+        makeScriptOverwriteEntry("E1S09"),
       ],
       storyboard_count: 1,
       video_count: 1,
-    };
+      narration_audio_count: 1,
+      end_frame_count: 1,
+      grid_member_count: 1,
+      grid_count: 1,
+      text: "现有 2 条分镜全部移除。\n以下内容无法在项目内恢复：分镜图 1 张、视频 1 段、配音 1 段、尾帧 1 张、宫格归属 1 处。\n将被移除的分镜：E1S01（分镜图、视频、配音、尾帧、宫格）、E1S09",
+    });
     vi.spyOn(API, "getScriptReview").mockResolvedValue(dramaState({ script_overwrite: overwrite }));
     const confirm = vi
       .spyOn(API, "confirmScriptReview")
@@ -237,10 +249,8 @@ describe("ScriptReviewGate", () => {
     fireEvent.click(button);
 
     const dialog = await screen.findByRole("dialog");
-    expect(dialog).toHaveTextContent("现有 2 条分镜将被移除");
-    expect(dialog).toHaveTextContent("1 张分镜图、1 段视频随分镜移除");
-    expect(dialog).toHaveTextContent("E1S01");
-    expect(dialog).toHaveTextContent("E1S09");
+    // 确认框原样呈现服务端生成的丢失清单，不在前端另拼。
+    expect(within(dialog).getByText(overwrite.text, { normalizer: (text) => text })).toBeInTheDocument();
     expect(confirm).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole("button", { name: "覆盖并确认" }));
@@ -250,12 +260,11 @@ describe("ScriptReviewGate", () => {
   });
 
   it("switches to the danger confirm when the server reports an existing formal script", async () => {
-    const overwrite = {
+    const overwrite = makeScriptOverwrite({
       revision: "sha256-v1:listed",
-      entries: [{ id: "E1S01", has_storyboard: false, has_video: false }],
-      storyboard_count: 0,
-      video_count: 0,
-    };
+      entries: [makeScriptOverwriteEntry("E1S01")],
+      text: "现有 1 条分镜全部移除。",
+    });
     vi.spyOn(API, "getScriptReview").mockResolvedValue(dramaState());
     vi.spyOn(API, "confirmScriptReview").mockRejectedValue(
       new ApiRequestError("本集已有正式脚本", { script_overwrite: overwrite }, 409),
@@ -269,21 +278,17 @@ describe("ScriptReviewGate", () => {
   });
 
   it("keeps the overwrite dialog open with the refreshed list when the formal script changed meanwhile", async () => {
-    const listed = {
+    const listed = makeScriptOverwrite({
       revision: "sha256-v1:listed",
-      entries: [{ id: "E1S01", has_storyboard: false, has_video: false }],
-      storyboard_count: 0,
-      video_count: 0,
-    };
-    const refreshed = {
+      entries: [makeScriptOverwriteEntry("E1S01")],
+      text: "现有 1 条分镜全部移除。",
+    });
+    const refreshed = makeScriptOverwrite({
       revision: "sha256-v1:refreshed",
-      entries: [
-        { id: "E1S01", has_storyboard: false, has_video: false },
-        { id: "E1S07", has_storyboard: true, has_video: false },
-      ],
+      entries: [makeScriptOverwriteEntry("E1S01"), makeScriptOverwriteEntry("E1S07", { has_storyboard: true })],
       storyboard_count: 1,
-      video_count: 0,
-    };
+      text: "现有 2 条分镜全部移除。分镜图 1 张。E1S07（分镜图）",
+    });
     vi.spyOn(API, "getScriptReview").mockResolvedValue(dramaState({ script_overwrite: listed }));
     const confirm = vi
       .spyOn(API, "confirmScriptReview")
@@ -295,7 +300,7 @@ describe("ScriptReviewGate", () => {
     fireEvent.click(await screen.findByRole("button", { name: "覆盖并确认" }));
 
     await waitFor(() => expect(screen.getByRole("dialog")).toHaveTextContent("E1S07"));
-    expect(screen.getByRole("dialog")).toHaveTextContent("1 张分镜图、0 段视频随分镜移除");
+    expect(screen.getByRole("dialog")).toHaveTextContent(refreshed.text);
 
     fireEvent.click(screen.getByRole("button", { name: "覆盖并确认" }));
     await waitFor(() => expect(confirm).toHaveBeenLastCalledWith("p", 1, { overwriteRevision: "sha256-v1:refreshed" }));
@@ -317,7 +322,7 @@ describe("ScriptReviewGate", () => {
   });
 
   it("disables the overwrite confirm too when the video model cannot be resolved", async () => {
-    const overwrite = { revision: "sha256-v1:listed", entries: [], storyboard_count: 0, video_count: 0 };
+    const overwrite = makeScriptOverwrite({ revision: "sha256-v1:listed" });
     vi.spyOn(API, "getScriptReview").mockResolvedValue(dramaState({ script_overwrite: overwrite }));
     vi.spyOn(API, "getVideoCapabilities").mockRejectedValue(new ApiRequestError("无法解析", undefined, 422));
 
@@ -328,7 +333,7 @@ describe("ScriptReviewGate", () => {
   });
 
   it("disables the in-dialog confirm when the video model turns out unresolvable after the dialog opened", async () => {
-    const overwrite = { revision: "sha256-v1:listed", entries: [], storyboard_count: 0, video_count: 0 };
+    const overwrite = makeScriptOverwrite({ revision: "sha256-v1:listed" });
     vi.spyOn(API, "getScriptReview").mockResolvedValue(dramaState({ script_overwrite: overwrite }));
     let rejectCapabilities: (reason: unknown) => void = () => {};
     vi.spyOn(API, "getVideoCapabilities").mockReturnValue(

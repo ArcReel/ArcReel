@@ -14,11 +14,14 @@ import pytest
 
 from lib.artifacts.artifact_activation import activate_artifact_target_state
 from lib.artifacts.artifact_manifest import ArtifactKey, ArtifactManifestEntry, ProjectArtifactManifestAdapter
+from lib.artifacts.version_manager import VersionManager
 from lib.config.resolver import ConfigResolver
 from lib.generation.video_request_facts import VideoRequestFactsFailure
+from lib.i18n import _ as i18n_message
 from lib.infra.json_io import atomic_write_json
 from lib.project.project_manager import ProjectManager, find_episode
 from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
+from lib.project.resource_paths import resource_relative_path
 from lib.script import script_review
 from lib.script.draft_quarantine import (
     QUARANTINE_KIND_DRAMA_SCRIPT_PLAN,
@@ -541,11 +544,29 @@ class TestConfirmMaterializesScript:
         expected_overwrite = {
             "revision": script_review.content_fingerprint_of_data(json.loads(before)),
             "entries": [
-                {"id": "E1S01", "has_storyboard": True, "has_video": False},
-                {"id": "E1S09", "has_storyboard": False, "has_video": True},
+                {
+                    "id": "E1S01",
+                    "has_storyboard": True,
+                    "has_video": False,
+                    "has_narration_audio": False,
+                    "has_end_frame": False,
+                    "grid_id": None,
+                },
+                {
+                    "id": "E1S09",
+                    "has_storyboard": False,
+                    "has_video": True,
+                    "has_narration_audio": False,
+                    "has_end_frame": False,
+                    "grid_id": None,
+                },
             ],
             "storyboard_count": 1,
             "video_count": 1,
+            "narration_audio_count": 0,
+            "end_frame_count": 0,
+            "grid_member_count": 0,
+            "grid_count": 0,
         }
 
         assert (await svc.get_state("demo", 1))["script_overwrite"] == expected_overwrite
@@ -581,6 +602,30 @@ class TestConfirmMaterializesScript:
         snapshot = adapter.snapshot_entries()
         assert not old_claims.keys() & snapshot.keys()
         assert ArtifactKey.episode_script(1) in snapshot
+
+    async def test_acknowledged_overwrite_clears_history_and_files_of_reused_entry_ids(
+        self, tmp_path, video_request_facts
+    ):
+        """新脚本沿用旧编号的条目是新身份：旧版本历史与当前媒体文件随覆盖清理；被移除的条目不动。"""
+        pm = _make_project(tmp_path, "narration")
+        _write_script_plan(pm, "narration", _narration_script_plan())
+        _write_script(pm, _narration_script(_narration_script_segment("E1S01"), _narration_script_segment("E1S09")))
+        project_path = pm.get_project_path("demo")
+        versions = VersionManager(project_path)
+        for entry_id in ("E1S01", "E1S09"):
+            for resource_type in ("storyboards", "end_frames", "videos", "audio"):
+                current = project_path / resource_relative_path(resource_type, entry_id)
+                current.parent.mkdir(parents=True, exist_ok=True)
+                current.write_bytes(b"old-" + resource_type.encode())
+                versions.add_version(resource_type, entry_id, "旧提示词", source_file=current)
+
+        await _confirm_over_existing_script(pm)
+
+        for resource_type in ("storyboards", "end_frames", "videos", "audio"):
+            assert versions.get_current_version(resource_type, "E1S01") == 0
+            assert not (project_path / resource_relative_path(resource_type, "E1S01")).exists()
+            assert versions.get_current_version(resource_type, "E1S09") == 1
+            assert (project_path / resource_relative_path(resource_type, "E1S09")).exists()
 
     async def test_acknowledgement_of_an_outdated_script_is_refused_with_the_current_listing(self, tmp_path):
         """认可只对应被列出的那份正式脚本：列出之后正式脚本又有变化，带旧版本的确认按新清单再次拒绝。"""
@@ -1831,6 +1876,42 @@ class TestPromptAuthoringEnforcement:
 
         assert result.problem is None, result
         assert script_review.review_status(project_path, pm.load_project("demo"), 1) == "confirmed"
+
+    async def test_confirm_tool_refusal_carries_the_same_loss_text_as_the_web_state(
+        self, tmp_path, video_request_facts
+    ):
+        """Agent 收到的丢失清单与 Web 确认框读的是同一份服务端文本，令牌另在 params 里。"""
+        pm = _make_project(tmp_path, "narration")
+        _write_script_plan(pm, "narration", _narration_script_plan())
+        _write_script(
+            pm,
+            _narration_script(
+                _narration_script_segment(
+                    "E1S01",
+                    end_frame_image="end_frames/scene_E1S01.png",
+                    generated_assets={"narration_audio": "audio/segment_E1S01.wav", "grid_id": "grid_ab12"},
+                )
+            ),
+        )
+        web_overwrite = script_review.overwrite_with_text(
+            (await _service(pm).get_state("demo", 1))["script_overwrite"], i18n_message
+        )
+        assert web_overwrite is not None
+        ctx = ToolHarness(
+            project_name="demo",
+            data_root=tmp_path / "projects",
+            pm=pm,
+            config_resolver=cast(ConfigResolver, FakeConfigResolver()),
+        )
+
+        refused = await run_declared_tool(CONFIRM_SCRIPT_REVIEW, ctx, {"episode": 1})
+
+        assert refused.problem is not None
+        assert refused.problem.code == "script_overwrite_required"
+        assert refused.problem.params == {"script_overwrite": web_overwrite}
+        assert web_overwrite["text"] in refused.problem.detail
+        for lost in ("配音 1 段", "尾帧 1 张", "宫格归属 1 处"):
+            assert lost in web_overwrite["text"]
 
     async def test_confirm_tool_reports_the_video_request_facts_problem(self, tmp_path, set_video_request_facts):
         """Agent 路径：视频请求事实解析不出时，确认回执带事实的问题码与参数，不止于内部错误类别。"""

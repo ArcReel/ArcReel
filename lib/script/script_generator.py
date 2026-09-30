@@ -620,7 +620,7 @@ class ScriptGenerator:
         投影见 ``lib.script.script_document.build_materialized_script``。``expected_plan_revision`` 是确认记录的脚本规划指纹，加载到的
         规划不是这份即抛 ``ScriptPlanWriteConflict``；``expected_script_fingerprint`` 是调用方认可覆盖时
         看到的正式剧本指纹（无剧本为 None），落盘时不匹配抛 ``ScriptWriteConflict``。旧剧本的条目即使
-        与新条目同 id，名下产物也随本次写入撤登记。``project_update`` 与剧本在同一写事务内修改
+        与新条目同 id，名下产物也随本次写入撤登记，并清理其历史版本与当前媒体文件。``project_update`` 与剧本在同一写事务内修改
         project.json，确认记录借此与正式剧本一起落盘。
         """
         self._script_plan_fingerprint = None

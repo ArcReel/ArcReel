@@ -1,4 +1,4 @@
-import type { NarrationSegment, TaskItem } from "@/types";
+import type { NarrationSegment, ScriptOverwrite, ScriptOverwriteEntry, TaskItem } from "@/types";
 import type { ReferenceUnitCapability } from "@/types/reference-video";
 import type {
   WorkflowPlan,
@@ -121,6 +121,38 @@ export function makeReferenceUnitCapability(
     duration_endpoint_fixed_reason: null,
     problem: null,
     problems: [],
+    ...overrides,
+  };
+}
+
+/** 覆盖清单条目的共享构造器；缺省是名下没有任何产物的条目。 */
+export function makeScriptOverwriteEntry(
+  id: string,
+  overrides: Partial<ScriptOverwriteEntry> = {},
+): ScriptOverwriteEntry {
+  return {
+    id,
+    has_storyboard: false,
+    has_video: false,
+    has_narration_audio: false,
+    has_end_frame: false,
+    grid_id: null,
+    ...overrides,
+  };
+}
+
+/** 覆盖清单的共享构造器；`text` 是服务端渲染好的丢失清单，确认框原样呈现。 */
+export function makeScriptOverwrite(overrides: Partial<ScriptOverwrite> = {}): ScriptOverwrite {
+  return {
+    revision: "sha256-v1:formal",
+    entries: [],
+    storyboard_count: 0,
+    video_count: 0,
+    narration_audio_count: 0,
+    end_frame_count: 0,
+    grid_member_count: 0,
+    grid_count: 0,
+    text: "",
     ...overrides,
   };
 }

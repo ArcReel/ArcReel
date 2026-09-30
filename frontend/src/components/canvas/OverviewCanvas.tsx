@@ -14,6 +14,7 @@ import { itemCountKey, normalizeRoute } from "@/utils/generation-mode";
 import { WelcomeCanvas } from "./WelcomeCanvas";
 import { AdInitCanvas } from "./AdInitCanvas";
 import { ConflictModal, type ConflictResolution } from "./ConflictModal";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { AgentHandoffHint } from "@/components/copilot/AgentHandoffHint";
 import { ONBOARDING_ANCHORS } from "@/onboarding/anchors";
 
@@ -71,6 +72,7 @@ export function OverviewCanvas({
   }, [projectName, projectData?.episodes, debouncedFetch]);
 
   const [regenerating, setRegenerating] = useState(false);
+  const [confirmingRegenerate, setConfirmingRegenerate] = useState(false);
   const [conflictPrompt, setConflictPrompt] = useState<{
     existing: string;
     suggestedName: string;
@@ -208,6 +210,7 @@ export function OverviewCanvas({
         .pushNotification(tRef.current("regenerate_failed", { message: errMsg(err) }), "error");
     } finally {
       setRegenerating(false);
+      setConfirmingRegenerate(false);
     }
   }, [projectName, refreshProject]);
 
@@ -377,7 +380,7 @@ export function OverviewCanvas({
                     {overview && (
                       <button
                         type="button"
-                        onClick={() => void handleRegenerate()}
+                        onClick={() => setConfirmingRegenerate(true)}
                         disabled={regenerating}
                         title={t("regen_overview_title")}
                         className="focus-ring inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] text-[var(--color-text-3)] transition-colors hover:bg-[oklch(1_0_0_/_0.05)] hover:text-[var(--color-text)] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent disabled:hover:text-[var(--color-text-3)]"
@@ -844,6 +847,17 @@ export function OverviewCanvas({
 
         <div className="h-6" />
       </div>
+      <ConfirmDialog
+        open={confirmingRegenerate && !readOnly}
+        tone="danger"
+        title={t("regen_overview_confirm_title")}
+        description={t("regen_overview_confirm_desc")}
+        confirmLabel={t("regen_overview_confirm")}
+        loadingLabel={t("regenerating_short")}
+        loading={regenerating}
+        onConfirm={() => handleRegenerate()}
+        onCancel={() => setConfirmingRegenerate(false)}
+      />
       {conflictPrompt && (
         <ConflictModal
           existing={conflictPrompt.existing}
