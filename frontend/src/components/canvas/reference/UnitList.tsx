@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { Plus, Search } from "lucide-react";
 import { StatusBadge, resolveUnitStatus } from "./unit-status";
 import type { ReferenceVideoUnit, UnitStatus } from "@/types";
+import { itemIdWithinEpisode } from "@/utils/episode-display";
 
 export interface UnitListProps {
   units: ReferenceVideoUnit[];
@@ -116,7 +117,7 @@ export function UnitList({ units, selectedId, onSelect, onAdd, dirtyMap, statusM
                     }`}
                     translate="no"
                   >
-                    {u.unit_id}
+                    {itemIdWithinEpisode(u.unit_id)}
                   </span>
                   <StatusBadge status={status} />
                   <span className="flex-1" />

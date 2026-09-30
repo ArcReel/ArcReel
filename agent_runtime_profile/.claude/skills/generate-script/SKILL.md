@@ -14,18 +14,18 @@ ArcReel 整条 pipeline 中最值得重点优化的一环。
 ## 前置条件
 
 1. 项目目录下存在 `project.json`（含 style / overview / characters / scenes / props）
-2. **正式脚本 `scripts/episode_N.json` 已存在**（drama / narration / reference_video）：内容确认即把脚本规划整集转为正式脚本，全部条目带待编写标记。确认有两条等价路径：用户在 Web 端点击确认，或在对话中明确同意后由主 Agent 调用 `mcp__arcreel__confirm_script_review({"episode": N})`。本工具只读正式脚本、不读脚本规划：脚本规划缺失或重跑后尚未确认都不影响编写。
+2. **正式脚本 `scripts/episode_N.json` 已存在**（N 是目标集的集 ID，取自计划 `target.episode`，不是第几集）（drama / narration / reference_video）：内容确认即把脚本规划整集转为正式脚本，全部条目带待编写标记。确认有两条等价路径：用户在 Web 端点击确认，或在对话中明确同意后由主 Agent 调用 `mcp__arcreel__confirm_script_review({"episode_id": N})`。本工具只读正式脚本、不读脚本规划：脚本规划缺失或重跑后尚未确认都不影响编写。
    - **ad（广告/短片）**：尚无正式脚本时本工具按 `project.json` 的 `brief` + `products`（含 selling_points）+ `target_duration` 整份生成（后端按审定的带货八段框架配比表构建 prompt，`products` 为空自动分流通用短片）；已有正式脚本时与其他路线一样只编写待编写条目。
-3. **约束失败产出保留为待修复草稿，不丢弃重抽**：参考生视频提示词编写的产出违反内容约束时，正式文件不写，产出连同逐条违约报告落到 `*.invalid.json`。用 `open_draft` 读取草稿及 revision，按 `violations[]` 修复完整 `content`，再用 `patch_draft` 提交；随后以相同 `episode` 与 `doc_type: reference_prompt_authoring` 调 `promote_draft`，仍违约则继续 open → patch → promote，无轮次上限。
+3. **约束失败产出保留为待修复草稿，不丢弃重抽**：参考生视频提示词编写的产出违反内容约束时，正式文件不写，产出连同逐条违约报告落到 `*.invalid.json`。用 `open_draft` 读取草稿及 revision，按 `violations[]` 修复完整 `content`，再用 `patch_draft` 提交；随后以相同 `episode_id` 与 `doc_type: reference_prompt_authoring` 调 `promote_draft`，仍违约则继续 open → patch → promote，无轮次上限。
 
 ## 用法
 
 通过 MCP 工具调用（项目名由 session 绑定，不需要传）：
 
 ```text
-mcp__arcreel__generate_episode_script({"episode": N})
-mcp__arcreel__generate_episode_script({"episode": N, "instructions": "<附加指令原文，可选，无则省略>"})
-mcp__arcreel__generate_episode_script({"episode": N, "dry_run": true})   # 仅预览 prompt
+mcp__arcreel__generate_episode_script({"episode_id": N})
+mcp__arcreel__generate_episode_script({"episode_id": N, "instructions": "<附加指令原文，可选，无则省略>"})
+mcp__arcreel__generate_episode_script({"episode_id": N, "dry_run": true})   # 仅预览 prompt
 ```
 
 输出路径由工具内部固定为 `{project}/scripts/episode_{N}.json`，不支持自定义；
@@ -38,7 +38,7 @@ mcp__arcreel__generate_episode_script({"episode": N, "dry_run": true})   # 仅�
 不传 `entry_ids` 调用即编写全部待编写条目，写回后标记清除：
 
 ```text
-mcp__arcreel__generate_episode_script({"episode": N})
+mcp__arcreel__generate_episode_script({"episode_id": N})
 ```
 
 - **默认补缺**：图片提示词与视频提示词各自整份判断，已有的保留，只补缺失的那一份；参考生视频按待编写
@@ -66,7 +66,7 @@ MCP 工具内部通过 `ScriptGenerator` 完成以下步骤：
    - drama（storyboard，含 grid_storyboard）→ `DramaVisualScript`（`scene_id` + image_prompt + video_prompt）
    - ad 分镜 → `AdVisualScript`（`shot_id` + image_prompt + video_prompt）；ad 整份生成 → `AdEpisodeScript`（storyboard）或 `AdReferenceFlatScript`（reference_video）
    - reference_video → `ReferencePromptAuthoringFlatScript`：待编写单元按顺序各一段改写后的正文，台词逐字保留
-6. **补充元数据** — `episode`、`content_mode`、`novel`（项目 title + `第N集`）、时间戳。这些字段对 LLM 隐藏（SkipJsonSchema），由后端从 `project.json` 注入，避免 LLM 幻觉污染下游消费方（如剪映草稿）。
+6. **补充元数据** — `episode`（集 ID）、`content_mode`、`novel`（项目 title + 本集标题，无标题时为「第 {播出位置} 集」）、时间戳。这些字段对 LLM 隐藏（SkipJsonSchema），由后端从 `project.json` 注入，避免 LLM 幻觉污染下游消费方（如剪映草稿）。
    - 注：**任何骨架的剧本都不写入顶层 `generation_mode`**。生成模式是项目级事实（`project.json` 的 `generation_mode`，创建时锁定），剧本骨架种类本身即生成模式的体现；消费方一律读 `project.json` 分派，不得从剧本上找该字段。
 
 ## 输出格式

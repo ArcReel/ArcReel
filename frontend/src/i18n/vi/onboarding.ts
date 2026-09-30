@@ -45,7 +45,7 @@ export default {
   'demo_banner_title': 'Dự án minh hoạ · Chỉ đọc',
   'demo_banner_body': 'Bạn đang xem một dự án mẫu. Chỉnh sửa, tạo, tải lên và xuất không khả dụng trong bản minh hoạ.',
   'demo_action_unavailable': 'Không khả dụng trong bản minh hoạ',
-  'demo_episode_placeholder': 'Bản minh hoạ chỉ đến tập {{episode}}: tập này chỉ có tiêu đề, chưa có kịch bản và phân cảnh.',
+  'demo_episode_placeholder': 'Bản minh hoạ chỉ đến tập {{position}}: tập này chỉ có tiêu đề, chưa có kịch bản và phân cảnh.',
 
   // Hội thoại tĩnh trong bảng Agent của bàn làm việc minh hoạ (do người dùng mở lời)
   'demo_chat_agent_analyzed': 'Đã phân tích xong tiểu thuyết — các tập, nhân vật và bối cảnh đều đã được tách ra. Bạn có thể bắt đầu sản xuất bất cứ lúc nào.',

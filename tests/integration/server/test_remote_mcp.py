@@ -45,7 +45,7 @@ class _Planner:
                 "source_revision": None,
                 "project": {"content_mode": "ad", "generation_mode": "storyboard", "grid_storyboard": False},
                 "target": {
-                    "episode": request.episode,
+                    "episode": request.episode_id,
                     "script": "scripts/episode_1.json",
                     "script_filename": "episode_1.json",
                     "source": "source/episode_1.txt",
@@ -314,21 +314,21 @@ async def test_remote_mcp_returns_typed_workflow_plan_and_rejects_bad_project(
     ):
         await session.initialize()
         tools = await session.list_tools()
-        result = await session.call_tool("get_workflow_plan", {"project": " demo ", "episode": 1})
+        result = await session.call_tool("get_workflow_plan", {"project": " demo ", "episode_id": 1})
         capabilities = await session.call_tool("get_video_capabilities", {"project": "demo"})
         patched = await session.call_tool("patch_project", {"project": "demo", "overview": {"synopsis": "远程更新"}})
         project_content = await session.call_tool("get_project_content", {"project": "demo"})
         source_files = await session.call_tool("list_source_files", {"project": "demo"})
         source_text = await session.call_tool("get_source_text", {"project": "demo", "path": "source/episode_1.txt"})
         script = await session.call_tool("get_episode_script", {"project": "demo", "script": "episode_1.json"})
-        script_plan = await session.call_tool("get_script_plan_content", {"project": "demo", "episode": 1})
+        script_plan = await session.call_tool("get_script_plan_content", {"project": "demo", "episode_id": 1})
         project_files = await session.call_tool("list_project_files", {"project": "demo"})
         project_file = await session.call_tool("read_project_file", {"project": "demo", "path": "project.json"})
-        missing = await session.call_tool("get_workflow_plan", {"episode": 1})
-        traversal = await session.call_tool("get_workflow_plan", {"project": "../demo", "episode": 1})
-        nonexistent = await session.call_tool("get_workflow_plan", {"project": "absent", "episode": 1})
-        empty = await session.call_tool("get_workflow_plan", {"project": "empty", "episode": 1})
-        escape = await session.call_tool("get_workflow_plan", {"project": "escape", "episode": 1})
+        missing = await session.call_tool("get_workflow_plan", {"episode_id": 1})
+        traversal = await session.call_tool("get_workflow_plan", {"project": "../demo", "episode_id": 1})
+        nonexistent = await session.call_tool("get_workflow_plan", {"project": "absent", "episode_id": 1})
+        empty = await session.call_tool("get_workflow_plan", {"project": "empty", "episode_id": 1})
+        escape = await session.call_tool("get_workflow_plan", {"project": "escape", "episode_id": 1})
         declared_missing = await session.call_tool("get_source_text", {"path": "source/episode_1.txt"})
         declared_escape = await session.call_tool(
             "get_source_text", {"project": "escape", "path": "source/episode_1.txt"}
@@ -751,30 +751,30 @@ async def test_remote_mcp_text_generation_and_script_patch_return_structured_con
             "generate_script_plan",
             {
                 "project": "demo",
-                "episode": 1,
+                "episode_id": 1,
                 "source": "source/episode_1.txt",
                 "dry_run": True,
             },
             progress_callback=record_progress,
         )
-        refused = await session.call_tool("confirm_script_review", {"project": "demo", "episode": 1})
+        refused = await session.call_tool("confirm_script_review", {"project": "demo", "episode_id": 1})
         refused_problem = refused.structuredContent["problem"]
         confirmed = await session.call_tool(
             "confirm_script_review",
             {
                 "project": "demo",
-                "episode": 1,
+                "episode_id": 1,
                 "overwrite_revision": refused_problem["params"]["script_overwrite"]["revision"],
             },
         )
         script = await session.call_tool(
             "generate_episode_script",
-            {"project": "ad-demo", "episode": 1, "dry_run": True},
+            {"project": "ad-demo", "episode_id": 1, "dry_run": True},
             progress_callback=record_progress,
         )
         scoped = await session.call_tool(
             "generate_episode_script",
-            {"project": "ad-demo", "episode": 1, "dry_run": True, "scope": "all"},
+            {"project": "ad-demo", "episode_id": 1, "dry_run": True, "scope": "all"},
         )
         patched = await session.call_tool(
             "patch_episode_script",
@@ -884,7 +884,7 @@ async def test_text_task_is_shared_by_remote_and_embedded_hosts_and_running_memb
             ClientSession(read, write) as session,
         ):
             await session.initialize()
-            remote = await session.call_tool("generate_episode_script", {"project": "demo", "episode": 1})
+            remote = await session.call_tool("generate_episode_script", {"project": "demo", "episode_id": 1})
             await started.wait()
             embedded_ctx = ToolHarness(
                 project_name="demo",
@@ -895,7 +895,7 @@ async def test_text_task_is_shared_by_remote_and_embedded_hosts_and_running_memb
             embedded = asyncio.create_task(
                 invoke_declaration(
                     GENERATE_EPISODE_SCRIPT,
-                    {"episode": 1},
+                    {"episode_id": 1},
                     embedded_ctx.scope,
                     embedded_ctx.caller,
                     embedded_ctx.services,
@@ -959,7 +959,7 @@ async def test_remote_mcp_draft_preserves_explicit_null_updates(remote_server, r
         await session.initialize()
         args = {
             "project": "demo",
-            "episode": 1,
+            "episode_id": 1,
             "doc_type": "drama_script_plan",
             "source": "source/episode_1.txt",
         }

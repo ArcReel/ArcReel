@@ -87,7 +87,7 @@ async def test_script_plan_without_episode_source_is_refused_with_the_status_rea
     _manual_episode(projects)
 
     outcome = await generate_script_plan(
-        ToolRequest(GenerateScriptPlanRequest(episode=1)), _scope(projects), _CALLER, _services(projects, db_factory)
+        ToolRequest(GenerateScriptPlanRequest(episode_id=1)), _scope(projects), _CALLER, _services(projects, db_factory)
     )
 
     status = WorkflowStateService(projects).get_status("demo", 1)
@@ -110,7 +110,7 @@ async def test_prompt_authoring_without_pending_entries_is_refused_with_the_stat
         register_current_artifact(project_path, ArtifactKey.episode_script(1))
 
     outcome = await generate_episode_script(
-        ToolRequest(GenerateEpisodeScriptRequest(episode=1, dry_run=dry_run)),
+        ToolRequest(GenerateEpisodeScriptRequest(episode_id=1, dry_run=dry_run)),
         _scope(projects),
         _CALLER,
         _services(projects, db_factory),
@@ -130,7 +130,7 @@ async def test_ad_script_without_brief_or_products_is_refused_with_the_status_re
     projects = _project(tmp_path, "ad")
 
     outcome = await generate_episode_script(
-        ToolRequest(GenerateEpisodeScriptRequest(episode=1)),
+        ToolRequest(GenerateEpisodeScriptRequest(episode_id=1)),
         _scope(projects),
         _CALLER,
         _services(projects, db_factory),
@@ -150,7 +150,7 @@ async def test_ad_generation_ignores_an_unregistered_script_file(tmp_path: Path,
     )
 
     outcome = await generate_episode_script(
-        ToolRequest(GenerateEpisodeScriptRequest(episode=1, dry_run=True)),
+        ToolRequest(GenerateEpisodeScriptRequest(episode_id=1, dry_run=True)),
         _scope(projects),
         _CALLER,
         _services(projects, db_factory),
@@ -169,7 +169,7 @@ async def test_unreadable_project_data_is_returned_as_a_plan_blocker(tmp_path: P
     projects = _project(tmp_path, "narration")
     (projects.get_project_path("demo") / "project.json").write_text("{", encoding="utf-8")
 
-    plan = await WorkflowPlanner(projects).get_plan("demo", WorkflowPlanRequest(episode=1))
+    plan = await WorkflowPlanner(projects).get_plan("demo", WorkflowPlanRequest(episode_id=1))
 
     assert [blocker.code for blocker in plan.blockers] == ["project_data_unavailable"]
     assert plan.status.content is None

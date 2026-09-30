@@ -1,4 +1,7 @@
 MESSAGES = {
+    "episode_position_name": "Tập {position}",
+    "episode_unlisted_name": "Tập chưa đặt tên",
+    "episode_script_name": "Kịch bản của “{name}”",
     "operation_operation_not_applicable": "Thao tác này không áp dụng cho loại dự án này",
     "operation_whole_source_missing": "Dự án chưa có toàn bộ văn bản nguồn; hãy tải lên hoặc tạo tập thủ công trước khi AI lập kế hoạch các tập",
     "operation_episode_source_missing": "{where} chưa có văn bản nguồn; hãy tự viết kịch bản trống hoặc bổ sung nguồn trước khi AI lập kế hoạch kịch bản",
@@ -8,11 +11,11 @@ MESSAGES = {
     "operation_prompt_authoring_draft_pending": "{where} có bản nháp soạn prompt cần xử lý; đã dừng soạn",
     "operation_ad_brief_and_products_missing": "Hãy thêm ý tưởng sáng tạo hoặc ít nhất một sản phẩm trước khi AI tạo kịch bản quảng cáo/phim ngắn",
     "operation_refused": "Thao tác không được phép thực hiện",
-    "operation_episode": "Tập {episode}",
+    "operation_episode": "Tập (id={episode})",
     "operation_project": "Dự án",
     "operation_redo_ad": "Xóa kịch bản chính thức trước khi tạo lại toàn bộ.",
     "operation_redo_episode": "Lập lại kế hoạch kịch bản và xác nhận lại trước khi tạo lại tập.",
-    "operation_admission_unavailable": "Không thể đọc điều kiện thực hiện thao tác cho tập {episode}",
+    "operation_admission_unavailable": "Không thể đọc điều kiện thực hiện thao tác cho tập (id={episode})",
     "operation_draft_repair_envelope": "Sửa cấu trúc bản nháp, rồi gọi {tool} để kiểm tra và áp dụng.",
     "operation_draft_repair_violations": "Sửa content tại các vị trí violations trong bản nháp, rồi gọi {tool} để áp dụng.",
     "operation_draft_finish": "Bản nháp này có thể chỉnh sửa; giữ các thay đổi hiện có, rồi gọi {tool} để kiểm tra và áp dụng.",
@@ -211,7 +214,7 @@ MESSAGES = {
     "invalid_draft_stage": "Giai đoạn bản nháp không hợp lệ: {stage}",
     "draft_file_not_found": "Tệp bản nháp không tồn tại",
     "draft_invalid_json": "Bản nháp kế hoạch kịch bản có cấu trúc không hợp lệ; vui lòng kiểm tra và thử lại",
-    "draft_not_found": "Tập {episode} không có bản nháp này; có thể nó đã được áp dụng hoặc bị hủy",
+    "draft_not_found": "Tập (id={episode}) không có bản nháp này; có thể nó đã được áp dụng hoặc bị hủy",
     "draft_revision_conflict": "Bản nháp đã thay đổi trong lúc bạn chỉnh sửa nên thao tác chưa được áp dụng; hãy xem nội dung mới nhất rồi thử lại",
     "draft_formal_revision_conflict": (
         "Nội dung chính thức đã thay đổi sau khi bản nháp được tạo nên lần lưu này chưa được áp dụng; "
@@ -257,7 +260,7 @@ MESSAGES = {
     "prompt_authoring_refused": "Không thể gửi yêu cầu viết prompt. Hãy xử lý theo lý do bên dưới rồi thử lại",
     "script_review_conversion_refused": "Kế hoạch kịch bản chưa thể chuyển thành kịch bản chính thức nên chưa được xác nhận; hãy kiểm tra thời lượng phân cảnh, lời thoại và trạng thái kế hoạch kịch bản rồi thử lại",
     "script_review_foreign_formal_script": (
-        "Tệp kịch bản được gán cho tập {episode} không còn, còn đường dẫn chuẩn scripts/{filename} lại chứa kịch bản "
+        "Tệp kịch bản được gán cho tập (id={episode}) không còn, còn đường dẫn chuẩn scripts/{filename} lại chứa kịch bản "
         "của tập khác nên xác nhận chưa hoàn tất — ghi vào đó sẽ dựng lại kịch bản của tập kia; hãy trỏ script_file "
         "của tập này về đúng kịch bản của nó rồi thử lại"
     ),
@@ -458,7 +461,7 @@ MESSAGES = {
     "ref_payload_too_large": "Dữ liệu ảnh tham chiếu vượt giới hạn của nhà cung cấp, đã thử lại với mức nén bổ sung",
     "ref_payload_floor_exceeded": "Ảnh tham chiếu quá lớn hoặc quá nhiều; ngay cả khi nén ở mức chất lượng thấp nhất vẫn vượt giới hạn kích thước yêu cầu của nhà cung cấp. Vui lòng giảm số lượng ảnh tham chiếu hoặc độ phân giải rồi thử lại",
     "ref_sora_single_ref": "Chế độ tham chiếu Sora hiện không hỗ trợ nhiều ảnh, đã hạ về một ảnh",
-    "ref_episode_not_found": "Không tìm thấy tập {episode}",
+    "ref_episode_not_found": "Không tìm thấy tập (id={episode})",
     "ref_not_reference_video_mode": "Kịch bản của tập này không ở chế độ video tham chiếu",
     "ref_unit_not_found": "Không tìm thấy đơn vị video '{unit_id}'",
     "ref_unit_needs_replan": "Đơn vị video này có vấn đề về người phát ngôn hoặc di chuyển; hãy lập kế hoạch lại trước khi tạo",
@@ -517,7 +520,7 @@ MESSAGES = {
         "nguyên tên"
     ),
     # Episode meta
-    "episode_not_found": "Không tìm thấy tập {episode} hoặc tập chưa có tệp kịch bản",
+    "episode_not_found": "Không tìm thấy tập (id={episode}) hoặc tập chưa có tệp kịch bản",
     "episode_title_empty": "Tiêu đề tập không được để trống",
     "about_update_check_failed": "Kiểm tra cập nhật thất bại, vui lòng thử lại sau",
     "about_version_read_failed": "Không đọc được phiên bản ứng dụng",
@@ -593,7 +596,7 @@ MESSAGES = {
     "rewrite_failed": "Sửa tin nhắn thất bại, vui lòng thử lại",
     "overview_source_empty": "Thư mục nguồn trống; không thể tạo tổng quan",
     "text_provider_not_configured": "Vui lòng cấu hình nhà cung cấp văn bản trước: thêm ít nhất một nhà cung cấp trong Cài đặt → Nhà cung cấp",
-    "jianying_no_completed_segments": "Tập {episode} chưa có đoạn video hoàn thành; hãy tạo video trước",
+    "jianying_no_completed_segments": "Tập (id={episode}) chưa có đoạn video hoàn thành; hãy tạo video trước",
     "presentation_unavailable": "Bản trình bày video đã chọn không khả dụng hoặc lời thuyết minh vượt quá giới hạn phương tiện",
     "project_config_invalid": "Cấu hình dự án không hợp lệ; hãy kiểm tra tham số và thử lại",
     "invalid_discovery_format": "Định dạng khám phá mô hình không được hỗ trợ: {discovery_format}",

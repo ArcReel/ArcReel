@@ -86,7 +86,7 @@ describe("UsagePopover", () => {
     });
     openPopover({ summary: makeUsageSummary({ kpi: EMPTY_KPI }) });
 
-    expect(screen.getByText("分镜 E1S10")).toBeInTheDocument();
+    expect(screen.getByText("分镜 未命名集 · S10")).toBeInTheDocument();
     expect(screen.getByText("还没有已结束的调用。")).toBeInTheDocument();
     expect(screen.getByText("本项目 · 全部")).toBeInTheDocument();
     expect(screen.getByText("0 成功")).toBeInTheDocument();
@@ -96,7 +96,7 @@ describe("UsagePopover", () => {
     openPopover({ recent: [makeUsageRecord({ id: 7, segment_id: "E1S11" })] });
 
     expect(screen.getByText("当前没有进行中的调用。")).toBeInTheDocument();
-    expect(screen.getByText("分镜 E1S11")).toBeInTheDocument();
+    expect(screen.getByText("分镜 未命名集 · S11")).toBeInTheDocument();
   });
 
   it("opens the same detail modal as the settings page from a finished row", async () => {
@@ -105,7 +105,7 @@ describe("UsagePopover", () => {
       .mockResolvedValue(makeUsageRecordDetail({ id: 7, prompt: "一只在雨里的猫" }));
     openPopover({ recent: [makeUsageRecord({ id: 7, segment_id: "E1S11" })] });
 
-    fireEvent.click(screen.getByText("分镜 E1S11"));
+    fireEvent.click(screen.getByText("分镜 未命名集 · S11"));
 
     await waitFor(() => expect(detailSpy).toHaveBeenCalledWith(7, expect.anything()));
     expect(await screen.findByText("一只在雨里的猫")).toBeInTheDocument();
@@ -118,7 +118,7 @@ describe("UsagePopover", () => {
       ],
     });
 
-    expect(screen.getByText("分镜 E1S11").parentElement).toHaveTextContent("超时");
+    expect(screen.getByText("分镜 未命名集 · S11").parentElement).toHaveTextContent("超时");
   });
 
   it("renders the success rate in the same format as the settings page", async () => {

@@ -9,8 +9,9 @@ description: "旁白/解说单集分镜拆分子智能体（content_mode=narrati
 
 **输入**：主 Agent 会在 prompt 中提供：
 - 项目名称（如 `my_project`）
-- 集数（如 `1`）
-- 本集小说文件（如 `source/episode_1.txt`）
+- 目标集的集 ID（下文记作 N，如 `7`；取自计划 `target.episode`，是内部标识，不是第几集）
+- 目标集的标题与播出位置（仅用于回报摘要）
+- 本集小说文件（如 `source/episode_7.txt`，文件名里的数字是集 ID）
 - 操作类型：首次生成、修改已有拆分 或 整集重做
 
 **输出**：保存 `drafts/episode_{N}/script_plan_segments.json` 后，返回分镜统计摘要。
@@ -68,7 +69,7 @@ mcp__arcreel__get_video_capabilities({})
 **Step 1**: 调用工具生成结构化拆分（项目名由 session 绑定，不需要传）：
 
 ```text
-mcp__arcreel__generate_script_plan({"episode": N, "source": "source/episode_N.txt", "instructions": "<附加指令原文，可选，无则省略>"})
+mcp__arcreel__generate_script_plan({"episode_id": N, "source": "source/episode_N.txt", "instructions": "<附加指令原文，可选，无则省略>"})
 ```
 
 > dry_run=true 时仅返回 prompt 不调用模型，便于审查。工具按 response_schema 约束直接产出结构化分镜 JSON，并在写盘前校验 segment_id 唯一、时长取自 `supported_durations`、资产名已登记、分镜正文逐字覆盖源文。
@@ -98,7 +99,7 @@ mcp__arcreel__generate_script_plan({"episode": N, "source": "source/episode_N.tx
 **Step 1**: 取回可编辑草稿（仅正式文件已存在、且盘上还没有草稿时）
 
 ```text
-mcp__arcreel__open_draft({"episode": N, "doc_type": "narration_script_plan", "source": "source/episode_N.txt"})
+mcp__arcreel__open_draft({"episode_id": N, "doc_type": "narration_script_plan", "source": "source/episode_N.txt"})
 ```
 
 正式文件保持原样，内容被取回到待修复草稿 `drafts/episode_{N}/script_plan_segments.invalid.json`
@@ -114,7 +115,7 @@ mcp__arcreel__open_draft({"episode": N, "doc_type": "narration_script_plan", "so
 
 - `novel_text` 必须逐字保留原文（含标点），对话分镜含完整说话内容与引导语。全部分镜按序拼接后须与源文逐字相同——晋升时按此机械重判，删减 / 改写 / 重排一律拒。用户的修改要求若针对原文文字本身，本子智能体改不动：晋升会一律判它覆盖不全，改草稿只是白跑一轮。停下来把这一点报告给主 Agent，由其决定是否先改 `source/episode_N.txt` 再重跑拆分
 - `duration_seconds` 必须取 Step 0 查得的 `supported_durations` 中的值
-- `segment_id` 保持 `E{集数}S{两位序号}` 格式（如 `E1S01`）、全集唯一，前缀须为当前集号
+- `segment_id` 保持 `E{集 ID}S{两位序号}` 格式（如 `E1S01`）、全集唯一，前缀须为本集集 ID N
 - `characters_in_segment` / `scenes` / `props` 只引用 `project.json` 已登记名称（不确定就 Read `project.json` 确认），无对应资产时显式写空数组 `[]`
 - 角色有衍生（同一角色的另一套外观，见 `project.json` 角色条目的 `derivatives` 表）时，`characters_in_segment` 按该分镜的剧情状态写：此刻处于该形态写 `本体/衍生`，回到本体描述的常态写本体名
 - `segment_break` 只在真正的场景切换点（时间跳跃 / 空间转换 / 情节转折）标 `true`
@@ -124,8 +125,8 @@ mcp__arcreel__open_draft({"episode": N, "doc_type": "narration_script_plan", "so
 **Step 3**: 晋升回正式文件
 
 ```text
-mcp__arcreel__patch_draft({"episode": N, "doc_type": "narration_script_plan", "content": <完整修改后正文>, "base_revision": "<open_draft 返回的 revision>"})
-mcp__arcreel__promote_draft({"episode": N, "doc_type": "narration_script_plan", "base_revision": "<patch_draft 返回的新 revision>"})
+mcp__arcreel__patch_draft({"episode_id": N, "doc_type": "narration_script_plan", "content": <完整修改后正文>, "base_revision": "<open_draft 返回的 revision>"})
+mcp__arcreel__promote_draft({"episode_id": N, "doc_type": "narration_script_plan", "base_revision": "<patch_draft 返回的新 revision>"})
 ```
 
 全量校验通过则写回正式 `script_plan_segments.json`、草稿自动清除；不通过则返回逐条报告，
@@ -144,10 +145,10 @@ mcp__arcreel__promote_draft({"episode": N, "doc_type": "narration_script_plan", 
 
 ```json
 {
-  "episode": 1,
+  "episode": <集 ID>,
   "segments": [
     {
-      "segment_id": "E<集号>S01",
+      "segment_id": "E<集 ID>S01",
       "novel_text": "裴与出征后的第二年，千里加急给我送回一个襁褓中的婴儿。",
       "duration_seconds": <duration>,
       "segment_break": false,
@@ -156,7 +157,7 @@ mcp__arcreel__promote_draft({"episode": N, "doc_type": "narration_script_plan", 
       "props": []
     },
     {
-      "segment_id": "E<集号>S02",
+      "segment_id": "E<集 ID>S02",
       "novel_text": "「夫人，这是侯爷的亲笔信。」老管家递上一封火漆封印的书信。",
       "duration_seconds": <duration>,
       "segment_break": false,
@@ -169,7 +170,7 @@ mcp__arcreel__promote_draft({"episode": N, "doc_type": "narration_script_plan", 
 ```
 
 > 填值规则：`<duration>` 必须取自 Step 0 查得的 `supported_durations`；`novel_text` 逐字保留含标点。
-> `<集号>` 由 `mcp__arcreel__generate_script_plan` 工具在调用时按当前 episode 注入；本示例用占位符避免误把 `E1` 当硬编码值。
+> `<集 ID>` 由 `mcp__arcreel__generate_script_plan` 工具在调用时按 `episode_id` 参数注入；本示例用占位符避免误把 `E1` 当硬编码值。
 
 ### 返回摘要
 
@@ -177,7 +178,7 @@ mcp__arcreel__promote_draft({"episode": N, "doc_type": "narration_script_plan", 
 ## 分镜拆分完成（旁白/解说 · script_plan 脚本规划）
 
 **状态**: DONE
-**项目**: {项目名}  **第 N 集**
+**项目**: {项目名}  **集**: 《{标题}》（第 {播出位置} 集，集 ID N）
 
 | 统计项 | 数值 |
 |--------|------|

@@ -144,11 +144,13 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
     return location === item.path || location.startsWith(item.path + "/");
   };
 
+  // 播出位置按完整账本的排列算，过滤不改变它；搜索按标题与播出位置匹配，集 ID 不参与。
+  const positioned = episodes.map((ep, index) => ({ ep, position: index + 1 }));
   // ad 隐藏搜索框，残留的 search state 不参与过滤，避免唯一视频入口被吞
   const filteredEps = isAd
-    ? episodes
-    : episodes.filter(
-        (ep) => !search || ep.title.includes(search) || String(ep.episode).includes(search),
+    ? positioned
+    : positioned.filter(
+        ({ ep, position }) => !search || ep.title.includes(search) || String(position).includes(search),
       );
 
   return (
@@ -305,10 +307,11 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
                   : t("dashboard:no_episode_search_results")}
               </div>
             ) : (
-              filteredEps.map((ep) => (
+              filteredEps.map(({ ep, position }) => (
                 <EpisodeCard
                   key={ep.episode}
                   ep={ep}
+                  position={position}
                   active={ep.episode === activeEp}
                   onClick={() => setLocation(`/episodes/${ep.episode}`)}
                   showEpisodeBadge={!isAd}
@@ -321,12 +324,12 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
         </>
       ) : (
         <div className="flex-1 overflow-y-auto px-2.5 py-1.5">
-          {filteredEps.map((ep) => {
+          {filteredEps.map(({ ep, position }) => {
             const epLabel = isAd
               ? t("dashboard:ad_video_section_title")
               : t("dashboard:episode_collapsed_button_label", {
-                  episode: ep.episode,
-                  title: ep.title,
+                  position,
+                  title: ep.title || t("common:episode_position_name", { position }),
                 });
             return (
             <button
@@ -344,7 +347,7 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
                     : "var(--color-text-3)",
               }}
             >
-              {isAd ? <Clapperboard className="h-4 w-4" aria-hidden /> : `E${ep.episode}`}
+              {isAd ? <Clapperboard className="h-4 w-4" aria-hidden /> : position}
             </button>
             );
           })}

@@ -38,8 +38,8 @@ describe("UnitList", () => {
         onAdd={vi.fn()}
       />,
     );
-    expect(screen.getByText("E1U1")).toBeInTheDocument();
-    expect(screen.getByText("E1U2")).toBeInTheDocument();
+    expect(screen.getByText("U1")).toBeInTheDocument();
+    expect(screen.getByText("U2")).toBeInTheDocument();
     expect(screen.getAllByText(/enter the pub/)).toHaveLength(2);
     expect(screen.getByText("3s")).toBeInTheDocument();
     expect(screen.getByText("8s")).toBeInTheDocument();

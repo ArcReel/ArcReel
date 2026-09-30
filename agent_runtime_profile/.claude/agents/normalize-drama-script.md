@@ -9,8 +9,9 @@ description: "剧情演绎单集规范化剧本子智能体。使用场景：(1)
 
 **输入**：主 Agent 会在 prompt 中提供：
 - 项目名称（如 `my_project`）
-- 集数（如 `1`）
-- 本集小说文件（如 `source/episode_1.txt`）
+- 目标集的集 ID（下文记作 N，如 `7`；取自计划 `target.episode`，是内部标识，不是第几集）
+- 目标集的标题与播出位置（仅用于回报摘要）
+- 本集小说文件（如 `source/episode_7.txt`，文件名里的数字是集 ID）
 - 操作类型：首次生成、修改已有剧本 或 整集重做
 
 **输出**：保存中间文件后，返回分镜统计摘要
@@ -72,7 +73,7 @@ mcp__arcreel__get_video_capabilities({})
 通过 MCP 工具调用（项目名由 session 绑定，不需要传）：
 
 ```text
-mcp__arcreel__generate_script_plan({"episode": N, "source": "source/episode_N.txt", "instructions": "<附加指令原文，可选，无则省略>"})
+mcp__arcreel__generate_script_plan({"episode_id": N, "source": "source/episode_N.txt", "instructions": "<附加指令原文，可选，无则省略>"})
 ```
 
 > dry_run=true 时仅返回 prompt 不调用模型，便于审查。工具按 response_schema 约束直接产出结构化内容 JSON。
@@ -89,9 +90,9 @@ mcp__arcreel__generate_script_plan({"episode": N, "source": "source/episode_N.tx
 
 **触发**：`drafts/episode_{N}/script_plan_normalized_script.invalid.json` 存在，不论正式 JSON 是否存在。
 
-1. 调用 `mcp__arcreel__open_draft({"episode": N, "doc_type": "drama_script_plan"})` 取得草稿 `content`、`violations` 与 `revision`。保留草稿中已有修改；如主 Agent 本轮传入用户修改意见，先应用该意见；`violations[]` 非空时，在上述修改基础上修复草稿 `content` 中对应字段
-2. 调用 `mcp__arcreel__patch_draft({"episode": N, "doc_type": "drama_script_plan", "content": <完整修改后正文>, "base_revision": "<open_draft 返回的 revision>"})`，记下它返回的新 `revision`
-3. 调用 `mcp__arcreel__promote_draft({"episode": N, "doc_type": "drama_script_plan", "base_revision": "<patch_draft 返回的新 revision>"})` 全量校验并晋升；仍返回违约报告时继续 open → patch → promote
+1. 调用 `mcp__arcreel__open_draft({"episode_id": N, "doc_type": "drama_script_plan"})` 取得草稿 `content`、`violations` 与 `revision`。保留草稿中已有修改；如主 Agent 本轮传入用户修改意见，先应用该意见；`violations[]` 非空时，在上述修改基础上修复草稿 `content` 中对应字段
+2. 调用 `mcp__arcreel__patch_draft({"episode_id": N, "doc_type": "drama_script_plan", "content": <完整修改后正文>, "base_revision": "<open_draft 返回的 revision>"})`，记下它返回的新 `revision`
+3. 调用 `mcp__arcreel__promote_draft({"episode_id": N, "doc_type": "drama_script_plan", "base_revision": "<patch_draft 返回的新 revision>"})` 全量校验并晋升；仍返回违约报告时继续 open → patch → promote
 
 晋升成功后正式 `script_plan_normalized_script.json` 落盘、草稿自动清除。草稿在场期间内容确认被阻塞，必须处置完成。
 
@@ -102,7 +103,7 @@ mcp__arcreel__generate_script_plan({"episode": N, "source": "source/episode_N.tx
 **Step 1**: 取回可编辑草稿
 
 ```text
-mcp__arcreel__open_draft({"episode": N, "doc_type": "drama_script_plan", "source": "source/episode_N.txt"})
+mcp__arcreel__open_draft({"episode_id": N, "doc_type": "drama_script_plan", "source": "source/episode_N.txt"})
 ```
 
 正式文件保持原样；工具会将内容取回至可编辑草稿 `drafts/episode_{N}/script_plan_normalized_script.invalid.json`
@@ -124,8 +125,8 @@ mcp__arcreel__open_draft({"episode": N, "doc_type": "drama_script_plan", "source
 **Step 3**: 晋升回正式文件
 
 ```text
-mcp__arcreel__patch_draft({"episode": N, "doc_type": "drama_script_plan", "content": <完整修改后正文>, "base_revision": "<open_draft 返回的 revision>"})
-mcp__arcreel__promote_draft({"episode": N, "doc_type": "drama_script_plan", "base_revision": "<patch_draft 返回的新 revision>"})
+mcp__arcreel__patch_draft({"episode_id": N, "doc_type": "drama_script_plan", "content": <完整修改后正文>, "base_revision": "<open_draft 返回的 revision>"})
+mcp__arcreel__promote_draft({"episode_id": N, "doc_type": "drama_script_plan", "base_revision": "<patch_draft 返回的新 revision>"})
 ```
 
 全量校验通过则写回正式 `script_plan_normalized_script.json`、可编辑草稿自动清除；不通过则返回逐条报告，
@@ -149,7 +150,7 @@ mcp__arcreel__promote_draft({"episode": N, "doc_type": "drama_script_plan", "bas
 
 **状态**: DONE
 
-**项目**: {项目名}  **第 N 集**
+**项目**: {项目名}  **集**: 《{标题}》（第 {播出位置} 集，集 ID N）
 
 | 统计项 | 数值 |
 |--------|------|
@@ -170,10 +171,10 @@ mcp__arcreel__promote_draft({"episode": N, "doc_type": "drama_script_plan", "bas
 
 ```json
 {
-  "title": "第N集标题",
+  "title": "本集标题",
   "scenes": [
     {
-      "scene_id": "E<集号>S01",
+      "scene_id": "E<集 ID>S01",
       "duration_seconds": <duration>,
       "segment_break": true,
       "characters_in_scene": ["李明"],
@@ -186,7 +187,7 @@ mcp__arcreel__promote_draft({"episode": N, "doc_type": "drama_script_plan", "bas
       "source_text": "晨雾未散，李明握紧长剑，一步步走进竹林深处。"
     },
     {
-      "scene_id": "E<集号>S02",
+      "scene_id": "E<集 ID>S02",
       "duration_seconds": <duration>,
       "segment_break": false,
       "characters_in_scene": ["李明"],
@@ -203,12 +204,12 @@ mcp__arcreel__promote_draft({"episode": N, "doc_type": "drama_script_plan", "bas
 ```
 
 > 填值规则：`<duration>` 必须取自 Step 0 查得的 `supported_durations`。
-> `<集号>` 由 `mcp__arcreel__generate_script_plan` 工具在调用时按当前 episode 注入；本示例用占位符避免误把 `E1` 当硬编码值。
+> `<集 ID>` 由 `mcp__arcreel__generate_script_plan` 工具在调用时按 `episode_id` 参数注入；本示例用占位符避免误把 `E1` 当硬编码值。
 > `scene_description` 只承载视觉内容、不内嵌口播；口播逐字落 `utterances`、原文逐字落 `source_text`。
 
 ## 注意事项
 
-- 分镜 ID 格式：E{集数}S{两位序号}；如需拆分同一主分镜，用 E{集数}S{两位序号}_{子序号}（如 `E3S05_1`），与共享模型 `scene_id` 接受的形态一致（集数 = 当前 episode，由调用工具时的 `episode` 参数决定）
+- 分镜 ID 格式：E{集 ID}S{两位序号}；如需拆分同一主分镜，用 E{集 ID}S{两位序号}_{子序号}（如 `E3S05_1`），与共享模型 `scene_id` 接受的形态一致（集 ID = 调用工具时的 `episode_id` 参数 N）
 - 每个分镜宜为一个独立的视觉画面，可在指定时长内完成
 - 时长决策序（高到低）：硬约束（取值必须在 Step 0 查得的 `supported_durations` 内，不超过 `max_duration`）> `default_duration` 偏好（非 null 时优先贴近）与本集体量（本集各单元时长合计向 `episode_target_duration` 靠拢（非 null 时；软目标，内容不足宁少拆、内容需要可超出））> 按内容取值（复杂画面如打斗 / 大场面 / 情绪铺陈可取更长值）
 - segment_break 标记真正的镜头切换点（场景、时间、地点的重大变化）

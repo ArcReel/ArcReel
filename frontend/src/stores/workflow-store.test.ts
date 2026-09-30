@@ -241,7 +241,7 @@ describe("workflow-store", () => {
     await useWorkflowStore.getState().refreshPlan("proj", 1);
     expect(spy).toHaveBeenCalledWith(
       "proj",
-      { episode: 1, confirmed_request_durations: { E1U1: 8 } },
+      { episode_id: 1, confirmed_request_durations: { E1U1: 8 } },
       expect.anything(),
     );
   });

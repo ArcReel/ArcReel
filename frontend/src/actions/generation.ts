@@ -18,6 +18,7 @@
 import { API, derivativeResourceId } from "@/api";
 import i18n from "@/i18n";
 import { useAppStore } from "@/stores/app-store";
+import { useProjectsStore } from "@/stores/projects-store";
 import type {
   AuthorPromptsRequest,
   ReferenceBatchAdmission,
@@ -30,6 +31,13 @@ import {
   type OptimisticHandle,
   type ResourceKind,
 } from "@/stores/tasks-store";
+import { episodeItemLabel } from "@/utils/episode-display";
+
+/** toast 不局限在集页面：条目按「标题 · S01」指称。 */
+function itemLabel(itemId: string): string {
+  const episodes = useProjectsStore.getState().currentProjectData?.episodes ?? [];
+  return episodeItemLabel(itemId, episodes, i18n.t);
+}
 
 export interface EnqueueResult {
   taskIds: string[];
@@ -132,7 +140,7 @@ export async function enqueueStoryboard(
     () => API.generateStoryboard(projectName, segmentId, prompt, scriptFile),
     oneTaskId,
   );
-  notifyEnqueued(res.deduped, i18n.t("dashboard:storyboard_task_submitted_toast", { id: segmentId }));
+  notifyEnqueued(res.deduped, i18n.t("dashboard:storyboard_task_submitted_toast", { id: itemLabel(segmentId) }));
   return { taskIds: [res.task_id], deduped: res.deduped };
 }
 
@@ -148,7 +156,7 @@ export async function enqueueVideo(
     () => API.generateVideo(projectName, segmentId, prompt, scriptFile, durationSeconds),
     oneTaskId,
   );
-  notifyEnqueued(res.deduped, i18n.t("dashboard:video_task_submitted_toast", { id: segmentId }));
+  notifyEnqueued(res.deduped, i18n.t("dashboard:video_task_submitted_toast", { id: itemLabel(segmentId) }));
   return { taskIds: [res.task_id], deduped: res.deduped };
 }
 
@@ -162,7 +170,7 @@ export async function enqueueNarration(
     () => API.generateNarrationAudio(projectName, segmentId, scriptFile),
     oneTaskId,
   );
-  notifyEnqueued(res.deduped, i18n.t("dashboard:narration_task_submitted_toast", { id: segmentId }));
+  notifyEnqueued(res.deduped, i18n.t("dashboard:narration_task_submitted_toast", { id: itemLabel(segmentId) }));
   return { taskIds: [res.task_id], deduped: res.deduped };
 }
 

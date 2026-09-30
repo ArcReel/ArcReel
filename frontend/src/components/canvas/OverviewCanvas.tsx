@@ -758,7 +758,7 @@ export function OverviewCanvas({
                 </p>
               ) : (
                 <div className="space-y-2">
-                  {(projectData.episodes ?? []).map((ep) => {
+                  {(projectData.episodes ?? []).map((ep, index) => {
                     // 只读态不展示费用：演示数据没有对应的真实费用记录。
                     const epCost = readOnly ? undefined : getEpisodeCost(ep.episode);
                     return (
@@ -781,11 +781,12 @@ export function OverviewCanvas({
                               border: "1px solid var(--color-accent-soft)",
                             }}
                           >
-                            E{ep.episode}
+                            {index + 1}
                           </span>
                         )}
                         <span style={{ color: "var(--color-text)", fontFamily: "var(--font-sans)" }}>
-                          {ep.title || (isAd ? projectData.title : "")}
+                          {ep.title ||
+                            (isAd ? projectData.title : t("common:episode_position_name", { position: index + 1 }))}
                         </span>
                         <span style={{ color: "var(--color-text-4)" }}>
                           {t(itemCountKey(route, { withStatus: true }), {

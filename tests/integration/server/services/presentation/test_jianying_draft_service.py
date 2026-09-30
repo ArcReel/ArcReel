@@ -282,6 +282,29 @@ async def test_export_uses_reader_variant_and_packages_its_selected_media(
         assert str(project_path) not in raw
 
 
+async def test_export_names_the_draft_by_broadcast_position_and_episode_title(tmp_path: Path) -> None:
+    pm, project_path = _project(tmp_path)
+    project = json.loads((project_path / "project.json").read_text(encoding="utf-8"))
+    project["episodes"] = [
+        {"episode": 5, "title": "山门", "script_file": "scripts/episode_5.json"},
+        {"episode": 1, "title": "下山", "script_file": "scripts/episode_1.json"},
+    ]
+    (project_path / "project.json").write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
+    video = project_path / "videos" / "E1S01.mp4"
+    make_test_video(video, duration_sec=1.0)
+    service = JianyingDraftService(
+        pm, presentation_reader=_Reader(pm, (_result(project_path, unit_id="E1S01", video_path=video, duration=1.0),))
+    )
+
+    zip_path = await service.export_episode_draft("demo", 1, "/mock/JianyingDrafts")
+
+    assert zip_path.name == "02_下山.zip"
+    with zipfile.ZipFile(zip_path) as archive:
+        assert {name.split("/", 1)[0] for name in archive.namelist()} == {"02_下山"}
+        info_name = next(name for name in archive.namelist() if name.endswith("draft_info.json"))
+        assert "/mock/JianyingDrafts/02_下山/assets" in archive.read(info_name).decode("utf-8")
+
+
 async def test_export_empty_shared_model_raises_completed_segments_error(tmp_path: Path) -> None:
     pm, _ = _project(tmp_path)
     service = JianyingDraftService(pm, presentation_reader=_Reader(pm, ()))

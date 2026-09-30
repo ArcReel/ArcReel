@@ -100,6 +100,7 @@ import type {
   NarrationScriptPlanDraft,
   ReferenceScriptPlanDraft,
   VideoCapabilities,
+  EpisodeItemRef,
 } from "@/types";
 import type { GridCapability, GridGeneration } from "@/types/grid";
 import type {
@@ -2019,8 +2020,14 @@ class API {
     taskId: string,
     options: { signal?: AbortSignal } = {},
   ): Promise<{
-    task: { task_id: string; task_type: string; resource_id: string; status: string };
-    cascaded: { task_id: string; task_type: string; resource_id: string }[];
+    task: {
+      task_id: string;
+      task_type: string;
+      resource_id: string;
+      resource_ref?: EpisodeItemRef | null;
+      status: string;
+    };
+    cascaded: { task_id: string; task_type: string; resource_id: string; resource_ref?: EpisodeItemRef | null }[];
   }> {
     return this.request(`/tasks/${encodeURIComponent(taskId)}/cancel-preview`, {
       signal: options.signal,

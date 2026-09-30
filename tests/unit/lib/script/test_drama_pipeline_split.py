@@ -12,6 +12,7 @@ import pytest
 from pydantic import ValidationError
 
 from lib.episode.episode_ledger import episode_outline_context
+from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from lib.script.script_models import (
     DramaNormalizedScript,
     DramaScene,
@@ -169,6 +170,7 @@ class TestEpisodeOutlineContext:
 
     def _project(self) -> dict:
         return {
+            "schema_version": CURRENT_PROJECT_SCHEMA_VERSION,
             "episodes": [
                 {
                     "episode": 1,
@@ -177,16 +179,40 @@ class TestEpisodeOutlineContext:
                     "outline": {"story_beats": ["下山", "遇敌"], "next_episode_teaser": "神秘人相救"},
                 },
                 {"episode": 2, "title": "绝处逢生"},  # 旧式条目：无规划数据
-            ]
+            ],
         }
 
-    def test_returns_current_and_next(self):
+    def test_returns_current_and_next_title_when_next_has_no_outline(self):
         cur, nxt = episode_outline_context(self._project(), 1)
         assert cur is not None
         assert cur["hook"] == "少年坠崖"
         assert cur["story_beats"] == ["下山", "遇敌"]
         assert cur["next_episode_teaser"] == "神秘人相救"
-        # 下一集是旧式条目（无 hook/beats/teaser）→ None
+        assert nxt is not None
+        assert nxt == {"title": "绝处逢生", "hook": None, "story_beats": [], "next_episode_teaser": None}
+
+    def test_next_follows_ledger_order_not_episode_id(self):
+        project = {
+            "schema_version": CURRENT_PROJECT_SCHEMA_VERSION,
+            "episodes": [
+                {"episode": 3, "title": "番外"},
+                {"episode": 1, "title": "正篇", "hook": "钩子", "outline": {"story_beats": ["起"]}},
+                {"episode": 2, "title": "后篇", "hook": "后钩", "outline": {"story_beats": ["承"]}},
+            ],
+        }
+        _, after_three = episode_outline_context(project, 3)
+        _, after_one = episode_outline_context(project, 1)
+        _, after_two = episode_outline_context(project, 2)
+        assert after_three is not None
+        assert after_three["story_beats"] == ["起"]
+        assert after_one is not None
+        assert after_one["story_beats"] == ["承"]
+        assert after_two is None
+
+    def test_next_without_outline_or_title_is_omitted(self):
+        project = self._project()
+        project["episodes"][1]["title"] = ""
+        _, nxt = episode_outline_context(project, 1)
         assert nxt is None
 
     def test_missing_episode_returns_none(self):

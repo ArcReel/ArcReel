@@ -35,6 +35,16 @@
   此前不登记的上传视频、被删去登记的上传分镜图补登，按生成输入登记的上传分镜图改写。
 - 只写清单，先于项目版本落盘；重跑时已登记的条目与目标一致而被跳过。
 
+**集 ID 与播出顺序分离（ADR 0096）**
+
+- ``project.json`` 写入项目历史最高号（``lib.episode.episode_ids``），取账本最大集 ID、项目目录里
+  仍带集 ID 的名字（剧本、草稿目录、源文留底、媒体名里的 ``E{N}`` 前缀、呈现与字幕目录）、产物
+  清单里的集 ID，以及 runner 注入的任务与调用记录查询结果中的最大值。账本现有顺序已按集 ID 升序，
+  即为播出顺序，不重排。
+- 下集大纲改取播出顺序中紧接的那一集，且没有规划数据时给标题（``episode_outline_context``）。
+  它是脚本规划依据的输入：与视频时效同法，改前改后各规划一次，只改写改前时新且目标已变的脚本规划
+  登记。脚本规划没有版本记录，只改清单。
+
 除上传产物的补登外，本步只改写既有登记、不增删；迁移结果按改写后完整目标态的跳过项与实际清单计数生成。
 它不解决此前的跳过原因，runner 合并链上更早一步或已有迁移报告的跳过项。
 """
@@ -42,7 +52,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -71,6 +81,7 @@ from lib.artifacts.visual_artifact_provenance import (
     build_uploaded_video_basis,
     visual_file_digest,
 )
+from lib.episode.episode_ids import episode_ids_on_disk, raise_episode_id_high_water
 from lib.infra.json_io import atomic_write_json
 from lib.infra.path_safety import try_safe_join
 from lib.project.project_migration_report import ArtifactBackfillOutcome
@@ -95,6 +106,9 @@ from lib.speech.speech_artifact_provenance import (
 from lib.speech.speech_presentation import presentation_artifact_paths
 
 TARGET_SCHEMA_VERSION = 16
+
+#: 按项目名查任务与调用记录里出现过的最大集 ID（没有记录为 0）。数据库在项目目录之外，由应用装配处注入。
+RecordedEpisodeIds = Callable[[str], int]
 
 #: 剧本条目上退役的转场字段名。历史事实，写死在这一步。
 _TRANSITION_FIELD = "transition_to_next"
@@ -129,16 +143,20 @@ def _plan_before_rewrite(project_dir: Path, project: Mapping[str, Any]) -> Artif
     return plan
 
 
-def _rebase_video_duration_entries(
-    project_dir: Path, before: ArtifactTargetStatePlan, migrated: Mapping[str, Any]
-) -> None:
+def _plan_after_rewrite(project_dir: Path, migrated: Mapping[str, Any]) -> ArtifactTargetStatePlan:
     project_bytes = (project_dir / "project.json").read_bytes()
-    adapter = ProjectArtifactManifestAdapter(project_dir)
-    stored = adapter.snapshot_entries()
     after = TargetStatePlanner(
         project_dir, project_bytes=json.dumps(migrated).encode(), allow_stale_formal_targets=True
     ).plan()
     assert_artifact_target_state_plan_unchanged(project_dir, after, expected_project_bytes=project_bytes)
+    return after
+
+
+def _rebase_video_duration_entries(
+    project_dir: Path, before: ArtifactTargetStatePlan, after: ArtifactTargetStatePlan
+) -> None:
+    adapter = ProjectArtifactManifestAdapter(project_dir)
+    stored = adapter.snapshot_entries()
     versions_path = project_dir / "versions" / "versions.json"
     versions = _load_object(versions_path) or {}
     replacements: dict[ArtifactKey, ArtifactManifestEntry] = {}
@@ -240,6 +258,47 @@ def _register_uploaded_media(project_dir: Path, migrated: Mapping[str, Any]) -> 
 def _history(versions: Mapping[str, Any], resource_type: str, resource_id: str) -> object:
     bucket = versions.get(resource_type)
     return bucket.get(resource_id) if isinstance(bucket, Mapping) else None
+
+
+# ---------------------------------------------------------------------------
+# 子步：集 ID 与播出顺序分离
+# ---------------------------------------------------------------------------
+
+
+def _with_episode_id_high_water(
+    project_dir: Path, project: Mapping[str, Any], recorded_episode_ids: RecordedEpisodeIds | None
+) -> dict[str, Any]:
+    migrated = dict(project)
+    manifest_ids = [
+        key.episode_number
+        for key in ProjectArtifactManifestAdapter(project_dir).snapshot_entries()
+        if key.episode_number is not None
+    ]
+    recorded = recorded_episode_ids(project_dir.name) if recorded_episode_ids is not None else 0
+    raise_episode_id_high_water(migrated, *episode_ids_on_disk(project_dir), *manifest_ids, recorded)
+    return migrated
+
+
+def _rebase_script_plan_entries(
+    project_dir: Path, before: ArtifactTargetStatePlan, after: ArtifactTargetStatePlan
+) -> None:
+    adapter = ProjectArtifactManifestAdapter(project_dir)
+    stored = adapter.snapshot_entries()
+    replacements = {
+        key: target
+        for key, target in after.entries.items()
+        if key.kind is ArtifactKind.EPISODE_SCRIPT_PLAN
+        and key in before.entries
+        and stored.get(key) == before.entries[key]
+        and before.entries[key] != target
+    }
+    if not replacements:
+        return
+    ensure_versioned_backup(project_dir / MANIFEST_FILENAME, TARGET_SCHEMA_VERSION - 1)
+    if not adapter.replace_entries_if_matches_atomically(
+        expected={key: stored[key] for key in replacements}, replacements=replacements
+    ):
+        raise RuntimeError("artifact manifest changed while rebasing script plan entries")
 
 
 # ---------------------------------------------------------------------------
@@ -444,7 +503,9 @@ def _narration_delivery_fields(project_dir: Path, project: Mapping[str, Any]) ->
 # ---------------------------------------------------------------------------
 
 
-def migrate_v15_to_v16(project_dir: Path) -> ArtifactBackfillOutcome | None:
+def migrate_v15_to_v16(
+    project_dir: Path, *, recorded_episode_ids: RecordedEpisodeIds | None = None
+) -> ArtifactBackfillOutcome | None:
     """v15→v16 文件级迁移。"""
 
     project_dir = Path(project_dir)
@@ -461,10 +522,14 @@ def migrate_v15_to_v16(project_dir: Path) -> ArtifactBackfillOutcome | None:
         before = _plan_before_rewrite(project_dir, project)
         _move_transitions_out_of_scripts(project_dir, project)
         migrated_project = {
-            **_narration_delivery_fields(project_dir, project),
+            **_with_episode_id_high_water(
+                project_dir, _narration_delivery_fields(project_dir, project), recorded_episode_ids
+            ),
             "schema_version": TARGET_SCHEMA_VERSION,
         }
-        _rebase_video_duration_entries(project_dir, before, migrated_project)
+        after = _plan_after_rewrite(project_dir, migrated_project)
+        _rebase_video_duration_entries(project_dir, before, after)
+        _rebase_script_plan_entries(project_dir, before, after)
         _register_uploaded_media(project_dir, migrated_project)
         target = TargetStatePlanner(project_dir, project_bytes=json.dumps(migrated_project).encode()).plan()
         atomic_write_json(project_file, migrated_project)
@@ -475,4 +540,4 @@ def migrate_v15_to_v16(project_dir: Path) -> ArtifactBackfillOutcome | None:
         )
 
 
-__all__ = ["TARGET_SCHEMA_VERSION", "migrate_v15_to_v16"]
+__all__ = ["TARGET_SCHEMA_VERSION", "RecordedEpisodeIds", "migrate_v15_to_v16"]

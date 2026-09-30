@@ -36,7 +36,7 @@ CREATE_TIMELINE = ToolDeclaration(
 LIST_TIMELINES = ToolDeclaration(
     name="list_timelines",
     description=(
-        "列出项目里的剪辑时间线：id、集号、显示名、最新修订号、剪辑片段数与最近修改时间，按集与创建顺序排列。"
+        "列出项目里的剪辑时间线：id、集 ID、显示名、最新修订号、剪辑片段数与最近修改时间，按集与创建顺序排列。"
         "只读，无副作用。"
     ),
     request_model=ListTimelinesRequest,

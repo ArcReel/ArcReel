@@ -88,6 +88,7 @@ from server.routers._script_edits import (
 from server.routers._validators import split_video_backend_query, validate_backend_value
 from server.services.admission.prompt_preview import ScriptItemNotFound, preview_item_prompts
 from server.services.project import workflow_planner as workflow_plan_service
+from server.services.project.episode_display import present_episode_diagnostics
 from server.services.project.narration_settings import (
     NarrationSettingsInput,
     new_project_narration_fields,
@@ -118,7 +119,9 @@ def get_workflow_state_service() -> WorkflowStateService:
 WorkflowStateServiceDep = Annotated[WorkflowStateService, Depends(get_workflow_state_service)]
 
 
-def _project_status_payload(summary: ProjectSummary) -> dict[str, Any]:
+def _project_status_payload(
+    summary: ProjectSummary, project: dict[str, Any], translate: Callable[..., str]
+) -> dict[str, Any]:
     """项目级状态负载：项目摘要去掉每集明细。
 
     列表与详情的 ``status`` 都只给项目粒度——阶段、进度、资产计数、分集汇总。摘要里的
@@ -126,7 +129,7 @@ def _project_status_payload(summary: ProjectSummary) -> dict[str, Any]:
     剧集接口取。
     """
 
-    return summary.model_dump(mode="json", exclude={"episodes"})
+    return present_episode_diagnostics(summary.model_dump(mode="json", exclude={"episodes"}), project, translate)
 
 
 def _merge_episode_summaries(project: dict[str, Any], summary: ProjectSummary) -> dict[str, Any]:
@@ -601,18 +604,16 @@ async def export_jianying_draft(
         logger.exception("剪映草稿导出失败: project=%s episode=%d", name, episode)
         raise HTTPException(status_code=500, detail=_t("jianying_export_failed")) from exc
 
-    download_name = f"{name}_episode_{episode}_jianying_draft.zip"
-
     return FileResponse(
         path=str(zip_path),
         media_type="application/zip",
-        filename=download_name,
+        filename=zip_path.name,
         background=BackgroundTask(_cleanup_temp_dir, str(zip_path.parent)),
     )
 
 
 @router.get("/projects")
-async def list_projects(summaries: WorkflowStateServiceDep):
+async def list_projects(summaries: WorkflowStateServiceDep, _t: Translator):
     """列出所有项目"""
 
     def _sync():
@@ -658,7 +659,9 @@ async def list_projects(summaries: WorkflowStateServiceDep):
                             name,
                             preloaded_scripts=preloaded_scripts,
                             currency="registered",
-                        )
+                        ),
+                        project,
+                        _t,
                     )
 
                     raw_title = project.get("title")
@@ -878,12 +881,16 @@ async def get_video_capabilities(
 @router.get("/projects/{name}/workflow-status", response_model=WorkflowStatus)
 async def get_workflow_status(
     name: str,
+    _t: Translator,
     episode: Annotated[int | None, Query(ge=1)] = None,
 ):
     """Return the authenticated, server-authoritative project workflow status."""
 
     try:
-        return await asyncio.to_thread(WorkflowStateService(get_project_manager()).get_status, name, episode)
+        manager = get_project_manager()
+        status = await asyncio.to_thread(WorkflowStateService(manager).get_status, name, episode)
+        project = await asyncio.to_thread(manager.load_project, name)
+        return WorkflowStatus.model_validate(present_episode_diagnostics(status.model_dump(mode="json"), project, _t))
     except FileNotFoundError as exc:
         raise NotFoundError("project_not_found", name=name) from exc
     except WorkflowRequestError as exc:
@@ -891,15 +898,18 @@ async def get_workflow_status(
 
 
 @router.post("/projects/{name}/workflow-plan", response_model=WorkflowPlan)
-async def get_workflow_plan(name: str, request: WorkflowPlanRequest, current_user: CurrentUser):
+async def get_workflow_plan(name: str, request: WorkflowPlanRequest, current_user: CurrentUser, _t: Translator):
     """Return the side-effect-free plan for one transient workflow request."""
 
     try:
-        return await workflow_plan_service.get_workflow_planner(get_project_manager()).get_plan(
+        manager = get_project_manager()
+        plan = await workflow_plan_service.get_workflow_planner(manager).get_plan(
             name,
             request,
             user_id=current_user.id,
         )
+        project = await asyncio.to_thread(manager.load_project, name)
+        return WorkflowPlan.model_validate(present_episode_diagnostics(plan.model_dump(mode="json"), project, _t))
     except FileNotFoundError as exc:
         raise NotFoundError("project_not_found", name=name) from exc
     except WorkflowRequestError as exc:
@@ -925,7 +935,7 @@ async def get_project(
             # 阶段、产物计数与每集明细一律来自项目摘要投影（读时计算，不写入 JSON）
             summary = summaries.get_project_summary(name)
             project = _merge_episode_summaries(project, summary)
-            project["status"] = _project_status_payload(summary)
+            project["status"] = _project_status_payload(summary, project, _t)
 
             scripts = {}
             for ep in project.get("episodes", []):

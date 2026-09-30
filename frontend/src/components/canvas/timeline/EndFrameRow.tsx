@@ -11,6 +11,7 @@ import { useProjectsStore } from "@/stores/projects-store";
 import { isResourceBusy, useActiveResourceIds } from "@/stores/tasks-store";
 import type { EditorContentMode } from "@/utils/script-shape";
 import { errMsg } from "@/utils/async";
+import { itemIdWithinEpisode } from "@/utils/episode-display";
 import { EndFramePicker } from "./EndFramePicker";
 
 interface EndFrameRowProps {
@@ -247,7 +248,7 @@ export function EndFrameRow({
               {previewUrl ? (
                 <img
                   src={previewUrl}
-                  alt={t("end_frame_preview_alt", { id: segmentId })}
+                  alt={t("end_frame_preview_alt", { id: itemIdWithinEpisode(segmentId) })}
                   className="h-full w-full object-cover"
                 />
               ) : (

@@ -173,6 +173,34 @@ def write_legacy_storyboard_project(
     return project_dir
 
 
+def write_legacy_episode_id_remnants_project(
+    root: Path,
+    name: str = "legacy-episode-id-remnants",
+    *,
+    schema_version: int = 7,
+    record_remnant: Literal["version_history", "grid"] | None = None,
+) -> Path:
+    """集号仍是「账本最大号 + 1」时期的项目：账本只剩第 1 集，更大的集号只留在磁盘残留里。
+
+    重置与重新规划曾把集号退回复用，被清出账本的集留下草稿目录（``drafts/episode_5/``）、
+    源文留底（``source/_episode_6.txt.bak``）与媒体文件（``videos/scene_E8S01.mp4``）。
+    """
+
+    project_dir = write_legacy_storyboard_project(root, name, schema_version=schema_version)
+    (project_dir / "drafts" / "episode_5").mkdir(parents=True)
+    (project_dir / "drafts" / "episode_5" / "notes.txt").write_text("旧草稿", encoding="utf-8")
+    (project_dir / "source" / "_episode_6.txt.bak").write_text("旧集原文", encoding="utf-8")
+    (project_dir / "videos" / "scene_E8S01.mp4").write_bytes(b"orphan-video")
+    if record_remnant == "version_history":
+        versions_file = project_dir / "versions" / "versions.json"
+        versions = json.loads(versions_file.read_text(encoding="utf-8")) if versions_file.exists() else {}
+        versions.setdefault("videos", {})["E41S01"] = {"current_version": 1, "versions": []}
+        _write_json(versions_file, versions)
+    elif record_remnant == "grid":
+        _write_json(project_dir / "grids" / "grid_old.json", {"episode": 41, "scene_ids": ["E41S01"]})
+    return project_dir
+
+
 def write_legacy_tts_narration_project(
     root: Path,
     name: str = "legacy-tts-narration",
@@ -1066,6 +1094,7 @@ __all__ = [
     "legacy_transition_presentation_basis",
     "write_legacy_ad_reference_video_project",
     "write_legacy_drama_storyboard_project",
+    "write_legacy_episode_id_remnants_project",
     "write_legacy_presentation_project",
     "write_legacy_reference_video_project",
     "write_legacy_script_plan_project",

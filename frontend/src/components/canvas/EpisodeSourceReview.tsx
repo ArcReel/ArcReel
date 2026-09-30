@@ -5,6 +5,7 @@ import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
 import { useAssistantStore } from "@/stores/assistant-store";
 import type { EpisodeMeta } from "@/types";
+import { episodeAgentRef, episodeDisplayName, episodePosition } from "@/utils/episode-display";
 
 /**
  * 已选集但剧本未生成时的画布视图：呈现分集拆分结果供审阅——
@@ -13,19 +14,22 @@ import type { EpisodeMeta } from "@/types";
  */
 
 // ---------------------------------------------------------------------------
-// 标题区：E 徽标 + 标题 + 状态 chip + 源文元信息 + CTA
+// 标题区：播出位置徽标 + 标题 + 状态 chip + 源文元信息 + CTA
 // ---------------------------------------------------------------------------
 
 function EpisodeHeader({
   episode,
+  episodes,
   meta,
   onStart,
 }: {
   episode: number;
+  episodes: EpisodeMeta[];
   meta: EpisodeMeta | undefined;
   onStart: () => void;
 }) {
   const { t } = useTranslation("dashboard");
+  const position = episodePosition(episodes, episode);
   const r = meta?.source_range;
   const chars = r?.start != null && r?.end != null ? r.end - r.start : null;
   const sourceName = r?.source_file?.replace(/^source\//, "");
@@ -40,7 +44,7 @@ function EpisodeHeader({
             "inset 0 1px 0 oklch(1 0 0 / 0.25), 0 0 0 1px oklch(1 0 0 / 0.12), 0 4px 12px -4px var(--color-accent-glow)",
         }}
       >
-        E{episode}
+        {position ?? "—"}
       </div>
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2.5">
@@ -84,7 +88,7 @@ function EpisodeHeader({
         className="arc-btn-primary focus-ring mt-0.5 inline-flex shrink-0 items-center gap-1.5 rounded-lg px-4 py-2 text-[12.5px] font-semibold"
       >
         <Sparkles className="h-3.5 w-3.5" aria-hidden />
-        {t("episode_workspace_start_cta", { episode })}
+        {t("episode_workspace_start_cta", { name: episodeDisplayName(episodes, episode, t) })}
       </button>
     </header>
   );
@@ -221,14 +225,16 @@ export function EpisodeSourceReview({
   const handleStart = useCallback(() => {
     // 经 store.input 投递一次性预填文本，AgentCopilot 消费后写入输入框；
     // 只填不发送，已有会话时不切换、不新建
-    useAssistantStore.getState().setInput(t("episode_workspace_prefill_script", { episode }));
+    useAssistantStore
+      .getState()
+      .setInput(t("episode_workspace_prefill_script", { episodeRef: episodeAgentRef(episodes, episode, t) }));
     useAppStore.getState().setAssistantPanelOpen(true);
-  }, [episode, t]);
+  }, [episode, episodes, t]);
 
   return (
     <div className="flex h-full flex-col p-6">
       <div className="mx-auto flex min-h-0 w-full max-w-4xl flex-1 flex-col">
-        <EpisodeHeader episode={episode} meta={meta} onStart={handleStart} />
+        <EpisodeHeader episode={episode} episodes={episodes} meta={meta} onStart={handleStart} />
         <GuideSection key={episode} meta={meta} />
 
         <div className="mt-4 flex min-h-0 flex-1 flex-col">
@@ -253,7 +259,7 @@ export function EpisodeSourceReview({
               </p>
             ) : (
               <p className="text-center text-[13px]" style={{ color: "var(--color-text-4)" }}>
-                {t("episode_workspace_source_missing", { episode })}
+                {t("episode_workspace_source_missing")}
               </p>
             )}
           </div>

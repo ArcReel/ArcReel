@@ -81,7 +81,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => {
         const plan = await API.getWorkflowPlan(
           curProject,
           {
-            episode: curEpisode,
+            episode_id: curEpisode,
             confirmed_request_durations: get().confirmedDurations,
           },
           { signal },

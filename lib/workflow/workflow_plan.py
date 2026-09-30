@@ -38,8 +38,11 @@ class WorkflowPlanRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    episode: int | None = Field(
-        default=None, ge=1, strict=True, description="要规划的集号，从 1 开始；缺省时按项目进度选定当前集"
+    episode_id: int | None = Field(
+        default=None,
+        ge=1,
+        strict=True,
+        description="要规划的集的集 ID（项目详情 episodes[].episode）；缺省时按播出顺序选定当前集",
     )
     confirmed_request_durations: dict[str, PositiveStrictInt] = Field(
         default_factory=dict,

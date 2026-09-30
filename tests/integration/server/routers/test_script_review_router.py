@@ -222,7 +222,7 @@ class TestScriptReviewRouter:
                 "grid_count": 1,
             }
             expected_overwrite["text"] = script_review.render_overwrite_loss_text(expected_overwrite, i18n_message)
-            # 丢失清单列出配音、尾帧与宫格归属，Web 与 Agent 读同一份文本。
+            # 丢失清单列出配音、尾帧与宫格归属；Web 诊断按标题指称条目。
             for lost in ("分镜图 1 张", "视频 1 段", "配音 1 段", "尾帧 1 张", "宫格归属 1 处"):
                 assert lost in expected_overwrite["text"]
 
@@ -236,7 +236,13 @@ class TestScriptReviewRouter:
             refused = client.post(f"{base}/confirm")
             assert refused.status_code == 409
             assert refused.json()["detail"] == i18n_message("script_review_overwrite_required")
-            assert refused.json()["diagnostic"] == {"script_overwrite": expected_overwrite}
+            displayed_overwrite = refused.json()["diagnostic"]["script_overwrite"]
+            displayed_text = displayed_overwrite.pop("text")
+            assert displayed_overwrite == {key: value for key, value in expected_overwrite.items() if key != "text"}
+            assert "E1S01" not in displayed_text
+            assert "S01" in displayed_text
+            for lost in ("分镜图 1 张", "视频 1 段", "配音 1 段", "尾帧 1 张", "宫格归属 1 处"):
+                assert lost in displayed_text
             assert script_path.read_bytes() == before
             assert client.get(base).json()["status"] == "pending_review"
 

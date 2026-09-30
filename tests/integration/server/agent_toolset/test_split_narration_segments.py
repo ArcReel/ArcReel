@@ -25,7 +25,7 @@ from tests.integration.server.agent_tool_support import (
 async def test_split_narration_segments_dry_run(fake_ctx: ToolHarness, video_request_facts) -> None:
     nr_source(fake_ctx)
 
-    out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode": 1, "dry_run": True})
+    out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode_id": 1, "dry_run": True})
     assert out.problem is None, out
     prompt_text = said(out)
     assert "DRY RUN" in prompt_text
@@ -45,7 +45,7 @@ async def test_split_narration_segments_injects_instructions(fake_ctx: ToolHarne
     out = await run_declared_tool(
         "generate_script_plan",
         fake_ctx,
-        {"episode": 1, "dry_run": True, "instructions": "单个分镜出场人物尽量不超过两人"},
+        {"episode_id": 1, "dry_run": True, "instructions": "单个分镜出场人物尽量不超过两人"},
     )
     assert out.problem is None, out
     prompt_text = said(out)
@@ -60,16 +60,18 @@ async def test_split_narration_segments_rejects_bad_instructions(fake_ctx: ToolH
     nr_source(fake_ctx)
 
     out = await run_declared_tool(
-        "generate_script_plan", fake_ctx, {"episode": 1, "dry_run": True, "instructions": "长" * 4001}
+        "generate_script_plan", fake_ctx, {"episode_id": 1, "dry_run": True, "instructions": "长" * 4001}
     )
     assert out.problem is not None
     assert "4000" in said(out)
 
-    out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode": 1, "dry_run": True, "instructions": 42})
+    out = await run_declared_tool(
+        "generate_script_plan", fake_ctx, {"episode_id": 1, "dry_run": True, "instructions": 42}
+    )
     assert out.problem is not None
 
     out = await run_declared_tool(
-        "generate_script_plan", fake_ctx, {"episode": 1, "dry_run": True, "instructions": "   \n  "}
+        "generate_script_plan", fake_ctx, {"episode_id": 1, "dry_run": True, "instructions": "   \n  "}
     )
     assert out.problem is None, out
     assert "# 附加指令" not in said(out)
@@ -90,7 +92,7 @@ async def test_split_narration_segments_happy(fake_ctx: ToolHarness, monkeypatch
     ]
     monkeypatch.setattr(mod.TextGenerator, "create", nr_generator_returning(segments, captured))
 
-    out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode": 1})
+    out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode_id": 1})
     assert out.problem is None, out
 
     script_plan_path = fake_ctx.project_path / "drafts" / "episode_1" / "script_plan_segments.json"
@@ -150,7 +152,7 @@ async def test_split_narration_segments_registers_the_frozen_default_source_basi
 
     monkeypatch.setattr(mod.TextGenerator, "create", fake_create)
 
-    result = await run_declared_tool("generate_script_plan", fake_ctx, {"episode": 1})
+    result = await run_declared_tool("generate_script_plan", fake_ctx, {"episode_id": 1})
 
     assert result.problem is None, result
     entry = ProjectArtifactManifestAdapter(fake_ctx.project_path).get_entry(ArtifactKey.episode_script_plan(1))
@@ -168,7 +170,7 @@ async def test_split_narration_segments_rejects_out_of_enum_duration(
     segments = [nr_segment("E1S01", 5)]
     monkeypatch.setattr(mod.TextGenerator, "create", nr_generator_returning(segments))
 
-    out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode": 1})
+    out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode_id": 1})
     assert out.problem is not None
     assert "不在模型档位" in said(out)
     assert not (fake_ctx.project_path / "drafts" / "episode_1" / "script_plan_segments.json").exists()
@@ -183,7 +185,7 @@ async def test_split_narration_segments_rejects_duplicate_segment_ids(
     segments = [nr_segment("E1S01", 4), nr_segment("E1S01", 6)]
     monkeypatch.setattr(mod.TextGenerator, "create", nr_generator_returning(segments))
 
-    out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode": 1})
+    out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode_id": 1})
     assert out.problem is not None
     assert "segment_id 重复" in said(out)
     assert not (fake_ctx.project_path / "drafts" / "episode_1" / "script_plan_segments.json").exists()
@@ -199,7 +201,7 @@ async def test_split_narration_segments_rejects_blank_novel_text(
     segments = [nr_segment("E1S01", 4, "张三在村口等人"), nr_segment("E1S02", 4, novel_text=" ")]
     monkeypatch.setattr(mod.TextGenerator, "create", nr_generator_returning(segments))
 
-    out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode": 1})
+    out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode_id": 1})
     assert out.problem is not None
     assert "novel_text 为空白" in said(out)
     assert "E1S02" in said(out)
@@ -214,7 +216,7 @@ async def test_split_narration_segments_rejects_empty_segments(
     nr_source(fake_ctx)
     monkeypatch.setattr(mod.TextGenerator, "create", nr_generator_returning([]))
 
-    out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode": 1})
+    out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode_id": 1})
     assert out.problem is not None
     assert not (fake_ctx.project_path / "drafts" / "episode_1" / "script_plan_segments.json").exists()
 
@@ -229,7 +231,7 @@ async def test_split_narration_segments_rejects_missing_field(
     bad = {"segment_id": "E1S01", "novel_text": "缺字段", "duration_seconds": 4, "segment_break": False}
     monkeypatch.setattr(mod.TextGenerator, "create", nr_generator_returning([bad]))
 
-    out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode": 1})
+    out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode_id": 1})
     assert out.problem is not None
     assert "script_plan 拆分内容结构校验失败" in said(out)
     assert not (fake_ctx.project_path / "drafts" / "episode_1" / "script_plan_segments.json").exists()
@@ -245,7 +247,7 @@ async def test_split_narration_segments_rejects_unregistered_asset_reference(
     segments = [nr_segment("E1S01", 4, "张三在村口等人", characters_in_segment=["王五"])]
     monkeypatch.setattr(mod.TextGenerator, "create", nr_generator_returning(segments))
 
-    out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode": 1})
+    out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode_id": 1})
     assert out.problem is not None
     assert "未登记的资产名" in said(out)
     assert "王五" in said(out)
@@ -270,7 +272,7 @@ async def test_split_narration_segments_accepts_asset_name_in_other_unicode_form
     ]
     monkeypatch.setattr(mod.TextGenerator, "create", nr_generator_returning(segments))
 
-    out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode": 1})
+    out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode_id": 1})
 
     assert out.problem is None, out
     assert (fake_ctx.project_path / "drafts" / "episode_1" / "script_plan_segments.json").exists()
@@ -285,7 +287,7 @@ async def _nr_source_and_call(fake_ctx: ToolHarness, monkeypatch, source_text: s
     (src / "episode_1.txt").write_text(source_text, encoding="utf-8")
     monkeypatch.setattr(mod.TextGenerator, "create", nr_generator_returning(segments))
 
-    return await run_declared_tool("generate_script_plan", fake_ctx, {"episode": 1})
+    return await run_declared_tool("generate_script_plan", fake_ctx, {"episode_id": 1})
 
 
 async def test_split_narration_segments_rejects_truncated_novel_text(
@@ -426,5 +428,5 @@ async def test_split_narration_segments_rejects_dropped_space_after_punctuation(
 
 async def test_split_narration_segments_no_source(fake_ctx: ToolHarness) -> None:
     nr_project(fake_ctx)
-    out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode": 1})
+    out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode_id": 1})
     assert out.problem is not None

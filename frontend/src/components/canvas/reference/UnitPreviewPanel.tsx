@@ -9,6 +9,7 @@ import { UPLOAD_VIDEO_ACCEPT, UploadIconButton } from "@/components/ui/UploadIco
 import { formatCost } from "@/utils/cost-format";
 import { StatusBadge, resolveUnitStatus } from "./unit-status";
 import type { CostBreakdown, ReferenceVideoUnit, UnitStatus } from "@/types";
+import { itemIdWithinEpisode } from "@/utils/episode-display";
 
 export interface UnitPreviewPanelProps {
   unit: ReferenceVideoUnit | null;
@@ -283,7 +284,7 @@ export function UnitPreviewPanel({
         <dl className="grid grid-cols-[auto_1fr] gap-x-3.5 gap-y-1.5 text-[11.5px]">
           <dt className="text-[var(--color-text-4)]">{t("reference_meta_unit")}</dt>
           <dd className="font-mono text-[var(--color-text-2)]" translate="no">
-            {unit.unit_id}
+            {itemIdWithinEpisode(unit.unit_id)}
           </dd>
           <dt className="text-[var(--color-text-4)]">{t("reference_meta_duration")}</dt>
           <dd className="font-mono tabular-nums text-[var(--color-text-2)]">

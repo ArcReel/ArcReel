@@ -337,7 +337,7 @@ def test_stale_video_remains_editable_without_an_implicit_regeneration_step() ->
         "missing_ids": [],
     }
     status.next_action = WorkflowNextAction(
-        type=WorkflowActionType.CREATE_EDIT_TIMELINE, args={"episode": 1}, reason="episode has no edit timeline"
+        type=WorkflowActionType.CREATE_EDIT_TIMELINE, args={"episode_id": 1}, reason="episode has no edit timeline"
     )
 
     plan = build_workflow_plan(status)

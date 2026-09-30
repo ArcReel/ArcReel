@@ -73,7 +73,7 @@ description）时不落盘并返回 `is_error: true`。
 mcp__arcreel__get_video_capabilities({})
 ```
 
-生成模式由项目唯一决定，无集级覆盖，能力查询全项目同一口径，不接受 / 不需要 `episode` 参数。
+生成模式由项目唯一决定，无集级覆盖，能力查询全项目同一口径，不接受 / 不需要 `episode_id` 参数。
 
 **返回**：JSON 文本，含 `provider_id` / `model` / `supported_durations[]` / `max_duration` / `max_reference_images` / `source` / `default_duration` / `episode_target_duration` / `content_mode` / `generation_mode`；narration / drama 的参考生视频项目另含 `reference_unit_durations`（`with_references` / `without_references` 两套生效档位，按视频单元有无 `@` 引用分别适用；`units` 按 `unit_id` 给出每个已有正式视频单元由服务端按可用参考图判定的桶 `hydrated_capability`、该桶生效档位 `allowed_durations`、事实失败 `problem`，以及声明引用与可用参考图分裂时的 `problems` / `unavailable_references`——已有单元的桶与档位以它为准）；**ad 项目不返回该字段**——ad 的机器字段 `unit` 是从 `shots[]` 派生的轻量索引，分镜时长不受档位枚举管辖（规则见 `video-workflow/SKILL.ad.md`），不要等待该字段、也不要照档位重排 ad 分镜时长。
 

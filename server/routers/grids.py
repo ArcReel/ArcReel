@@ -11,7 +11,7 @@ import asyncio
 from collections.abc import Callable
 from pathlib import Path
 
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi import APIRouter, File, HTTPException, Request, UploadFile
 from pydantic import BaseModel
 
 from lib.artifacts.artifact_activation import (
@@ -56,6 +56,7 @@ from server.services.grid.grid_submission import (
     plan_grid_submission,
     queue_active_grid_tasks,
 )
+from server.services.project.episode_display import present_request_diagnostics
 
 router = APIRouter(prefix="/projects/{project_name}", tags=["grids"])
 
@@ -237,14 +238,14 @@ async def get_grid_capability(project_name: str):
 
 
 @router.get("/grids")
-async def list_grids(project_name: str):
+async def list_grids(project_name: str, request: Request, _t: Translator):
     """列出项目下所有宫格图记录。"""
     try:
         project_path = get_project_manager().get_project_path(project_name)
     except ValueError as exc:
         raise BadRequestError("invalid_project_name", name=project_name) from exc
     gm = GridManager(project_path)
-    return [g.to_dict() for g in gm.list_all()]
+    return await present_request_diagnostics([g.to_dict() for g in gm.list_all()], request, _t)
 
 
 # ==================== 宫格图详情 ====================
@@ -262,14 +263,14 @@ def _load_grid_or_404(project_path: Path, grid_id: str) -> GridGeneration:
 
 
 @router.get("/grids/{grid_id}")
-async def get_grid(project_name: str, grid_id: str):
+async def get_grid(project_name: str, grid_id: str, request: Request, _t: Translator):
     """获取单个宫格图记录。"""
     try:
         project_path = get_project_manager().get_project_path(project_name)
     except ValueError as exc:
         raise BadRequestError("invalid_project_name", name=project_name) from exc
     grid = _load_grid_or_404(project_path, grid_id)
-    return grid.to_dict()
+    return await present_request_diagnostics(grid.to_dict(), request, _t)
 
 
 # ==================== 重新生成宫格图 ====================

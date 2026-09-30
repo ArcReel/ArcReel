@@ -24,6 +24,7 @@ from lib.agent.profile_manifest import ContentMode
 from lib.artifacts.artifact_activation import ArtifactCurrencyResolver, active_artifact_currency_resolver
 from lib.config.resolver import ConfigResolver, caps_generation_mode, video_bucket_for_generation_mode
 from lib.db import async_session_factory
+from lib.episode.episode_ids import describe_episode_for_agent, episode_position
 from lib.episode.episode_paths import (
     DRAMA_SCRIPT_PLAN_QUARANTINE_FILENAME,
     NARRATION_SCRIPT_PLAN_QUARANTINE_FILENAME,
@@ -149,6 +150,7 @@ from lib.workflow.operation_admission import admit_plan_episodes, whole_source_p
 from lib.workflow.workflow_plan import WorkflowPlan, WorkflowPlanRequest
 from lib.workflow.workflow_state import WorkflowRequestError, planning_docs
 from server.draft_workflow import (
+    EPISODE_ID_DESCRIPTION,
     DiscardDraftRequest,
     DraftContext,
     DraftLocator,
@@ -159,6 +161,7 @@ from server.draft_workflow import (
     PromoteDraftRequest,
 )
 from server.services.admission.prompt_preview import ItemPromptPreview, ScriptItemNotFound, preview_item_prompts
+from server.services.project.episode_id_records import recorded_episode_ids_on
 from server.services.project.narration_settings import NarrationSettingsInput, new_project_narration_fields
 from server.services.project.workflow_planner import WorkflowPlanner
 from server.services.tasks.video_caps import (
@@ -724,7 +727,7 @@ _DRY_RUN_DESCRIPTION = "仅返回 prompt，不调用模型"
 class GenerateEpisodeScriptRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    episode: PositiveEpisode = Field(description="剧集编号")
+    episode_id: PositiveEpisode = Field(description=EPISODE_ID_DESCRIPTION)
     instructions: _TextInstructions | SkipJsonSchema[None] = None
     entry_ids: list[Annotated[str, Field(min_length=1)]] | SkipJsonSchema[None] = Field(
         default=None,
@@ -749,7 +752,7 @@ class GenerateEpisodeScriptRequest(BaseModel):
 
     def text_request(self) -> TextGenerationRequest:
         return TextGenerationRequest(
-            episode=self.episode,
+            episode=self.episode_id,
             instructions=self.instructions,
             entry_ids=tuple(self.entry_ids or ()),
             rewrite=self.rewrite,
@@ -761,7 +764,7 @@ class GenerateEpisodeScriptRequest(BaseModel):
 class GenerateScriptPlanRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    episode: PositiveEpisode = Field(description="剧集编号")
+    episode_id: PositiveEpisode = Field(description=EPISODE_ID_DESCRIPTION)
     source: str | SkipJsonSchema[None] = Field(
         default=None, description="可选的项目内源文件相对路径；缺省读取本集派生源文 source/episode_N.txt"
     )
@@ -770,7 +773,7 @@ class GenerateScriptPlanRequest(BaseModel):
 
     def text_request(self) -> TextGenerationRequest:
         return TextGenerationRequest(
-            episode=self.episode, source=self.source, instructions=self.instructions, dry_run=self.dry_run
+            episode=self.episode_id, source=self.source, instructions=self.instructions, dry_run=self.dry_run
         )
 
 
@@ -862,7 +865,7 @@ async def generate_script_plan(
 class ConfirmScriptReviewRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    episode: PositiveEpisode = Field(description="剧集编号")
+    episode_id: PositiveEpisode = Field(description=EPISODE_ID_DESCRIPTION)
     overwrite_revision: str | SkipJsonSchema[None] = Field(
         default=None,
         description="用户听完丢失清单并同意覆盖后，才传入的令牌，取自 script_overwrite.revision；尚无正式脚本时不必给",
@@ -878,7 +881,7 @@ async def confirm_script_review(
     return await _run_text_generation(
         "confirm_script_review",
         confirm_script_review_handler(
-            request.value.episode,
+            request.value.episode_id,
             overwrite_revision=request.value.overwrite_revision,
             project_name=scope.project_name,
             projects=services.projects,
@@ -910,7 +913,7 @@ class EpisodeScriptRequest(BaseModel):
 class ScriptPlanContentRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    episode: PositiveEpisode = Field(description="集号，从 1 开始")
+    episode_id: PositiveEpisode = Field(description=EPISODE_ID_DESCRIPTION)
 
 
 class ProjectFileRequest(BaseModel):
@@ -1269,7 +1272,7 @@ async def get_script_plan_content(
     _caller: CallerContext,
     services: Services,
 ) -> ToolOutcome[ScriptPlanContent]:
-    episode = request.value.episode
+    episode = request.value.episode_id
     try:
         result = await asyncio.to_thread(_get_script_plan_content_sync, scope.project_name, episode, services.projects)
         if result is None:
@@ -1338,7 +1341,7 @@ async def open_draft(
     services: Services,
 ) -> ToolOutcome[dict[str, Any]]:
     locator = request.value
-    return await _run_draft(_draft_workflow(scope, services).open(locator.episode, locator.doc_type, locator.source))
+    return await _run_draft(_draft_workflow(scope, services).open(locator.episode_id, locator.doc_type, locator.source))
 
 
 async def patch_draft(
@@ -1350,7 +1353,7 @@ async def patch_draft(
     patch = request.value
     return await _run_draft(
         _draft_workflow(scope, services).patch(
-            patch.episode,
+            patch.episode_id,
             patch.doc_type,
             patch.content,
             patch.base_revision,
@@ -1371,7 +1374,7 @@ async def promote_draft(
     promotion = request.value
     return await _run_draft(
         _draft_workflow(scope, services).promote(
-            promotion.episode,
+            promotion.episode_id,
             promotion.doc_type,
             promotion.base_revision,
         )
@@ -1386,7 +1389,7 @@ async def discard_draft(
 ) -> ToolOutcome[dict[str, Any]]:
     discard = request.value
     return await _run_draft(
-        _draft_workflow(scope, services).discard(discard.episode, discard.doc_type, discard.base_revision)
+        _draft_workflow(scope, services).discard(discard.episode_id, discard.doc_type, discard.base_revision)
     )
 
 
@@ -1956,8 +1959,11 @@ class PlanEpisodesResult(ToolMessage):
 class ResetEpisodePlanningRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    from_episode: int = Field(
-        strict=True, ge=1, description="重置起点集号；1 为全量重置，大于 1 为部分重置（保留其前的集）"
+    episode_id: PositiveEpisode | SkipJsonSchema[None] = Field(
+        default=None,
+        description=(
+            "从哪一集起重置（集 ID）；省略或给播出顺序中的第一集为全量重置，其他集为部分重置（保留播出顺序中它之前的集）"
+        ),
     )
     confirm_consumed: bool = Field(
         default=False,
@@ -2112,7 +2118,7 @@ class CompleteAssetInventoryResult(BaseModel):
 class CompleteScriptPlanRebuildRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    episode: int = Field(strict=True, ge=1, description="完成重建的集号")
+    episode_id: int = Field(strict=True, ge=1, description=EPISODE_ID_DESCRIPTION)
     expected_stale_script_plan_revision: str | None = Field(
         description=(
             "重建基线，原样取自制作计划 next_action.args.expected_stale_script_plan_revision（可能为 null，"
@@ -2122,7 +2128,7 @@ class CompleteScriptPlanRebuildRequest(BaseModel):
 
 
 class CompleteScriptPlanRebuildResult(BaseModel):
-    episode: int
+    episode_id: int
     script_plan_revision: str
 
 
@@ -2159,10 +2165,12 @@ def _ledger_stats_payload(stats: LedgerStats | None) -> dict[str, Any] | None:
     }
 
 
-def _render_ledger_stats(stats: LedgerStats) -> list[str]:
+def _render_ledger_stats(stats: LedgerStats, project: Mapping[str, Any]) -> list[str]:
     lines = [f"累计总集数：{stats.total_episodes}"]
     if stats.smallest:
-        smallest = "、".join(f"第 {num} 集（约 {units}）" for num, units in stats.smallest)
+        smallest = "、".join(
+            f"{describe_episode_for_agent(project, num)}（约 {units}）" for num, units in stats.smallest
+        )
         lines.append(f"体量最小的几集：{smallest}")
     if stats.median_units is not None:
         lines.append(f"全账本体量中位数：约 {stats.median_units}")
@@ -2175,17 +2183,18 @@ def _render_ledger_stats(stats: LedgerStats) -> list[str]:
     return lines
 
 
-def _format_plan(result: PlanResult) -> str:
+def _format_plan(result: PlanResult, project: Mapping[str, Any]) -> str:
     if not result.episodes and result.source_exhausted:
         lines = ["源文已全部规划完毕，没有可规划的新内容。"]
         if result.ledger_stats is not None:
-            lines += _render_ledger_stats(result.ledger_stats)
+            lines += _render_ledger_stats(result.ledger_stats, project)
         return "\n".join(lines)
     lines = [f"✅ 已规划 {len(result.episodes)} 集："]
     for episode in result.episodes:
         status_note = "（stale，需重做下游产物）" if episode.ledger_status == "stale" else ""
         lines.append(
-            f"- 第 {episode.episode} 集《{episode.title}》{status_note}｜体量约 {episode.reading_units}｜钩子：{episode.hook}"
+            f"- {describe_episode_for_agent(project, episode.episode)}{status_note}"
+            f"｜体量约 {episode.reading_units}｜钩子：{episode.hook}"
         )
         lines.append(f"  首句：{episode.first_sentence}")
         lines.append(f"  尾句：{episode.last_sentence}")
@@ -2194,7 +2203,7 @@ def _format_plan(result: PlanResult) -> str:
     elif result.cursor:
         lines.append(f"下一批规划起点：{result.cursor.get('source_file')} 偏移 {result.cursor.get('offset')}")
     if result.ledger_stats is not None:
-        lines += _render_ledger_stats(result.ledger_stats)
+        lines += _render_ledger_stats(result.ledger_stats, project)
     else:
         lines.append(f"累计已规划 {result.total_planned} 集。")
     lines.append(
@@ -2220,11 +2229,13 @@ async def _execute_plan_episodes(
         return ToolOutcome(problem=ToolProblem("episode_planning_failed", f"❌ 分集规划失败：{exc}"))
     except Exception as exc:
         return ToolOutcome(problem=_unexpected("plan_episodes", exc))
+    project = services.projects.load_project(scope.project_name)
     value = PlanEpisodesResult(
-        message=_format_plan(result),
+        message=_format_plan(result, project),
         episodes=[
             {
-                "episode": episode.episode,
+                "episode_id": episode.episode,
+                "position": episode_position(project, episode.episode),
                 "title": episode.title,
                 "hook": episode.hook,
                 "reading_units": episode.reading_units,
@@ -2350,11 +2361,12 @@ async def reset_episode_planning(
     if problem := await migration_gate(scope, services):
         return ToolOutcome(problem=problem)
     value = request.value
+    project_before = services.projects.load_project(scope.project_name)
     try:
         result = await _run_sync_transaction(
             resetter,
             services.projects.get_project_path(scope.project_name),
-            from_episode=value.from_episode,
+            episode_id=value.episode_id,
             confirm_consumed=value.confirm_consumed,
         )
     except (EpisodeResetError, FileNotFoundError) as exc:
@@ -2362,15 +2374,20 @@ async def reset_episode_planning(
     except Exception as exc:
         return ToolOutcome(problem=_unexpected("reset_episode_planning", exc))
 
+    def _episodes(ids: list[int]) -> str:
+        return "、".join(describe_episode_for_agent(project_before, episode_id) for episode_id in ids)
+
+    partial = value.episode_id is not None and episode_position(project_before, value.episode_id) not in (None, 1)
+    start = describe_episode_for_agent(project_before, value.episode_id) if value.episode_id is not None else ""
     if isinstance(result, ResetConfirmationRequired):
-        episodes = "、".join(str(num) for num in result.consumed_episodes)
         aftermath = (
-            "账本清空后这些集需要重新规划"
-            if value.from_episode == 1
-            else f"这些集的账本条目被清除后需要重新规划，第 1..{value.from_episode - 1} 集保留不动"
+            f"这些集的账本条目被清除后需要重新规划，播出顺序中 {start} 之前的集保留不动"
+            if partial
+            else "账本清空后这些集需要重新规划"
         )
         lines = [
-            f"⚠️ 本次重置会波及已消费集（已有 script_plan/剧本/媒体产物）：第 {episodes} 集。尚未执行任何改动。",
+            f"⚠️ 本次重置会波及已消费集（已有 script_plan/剧本/媒体产物）：{_episodes(result.consumed_episodes)}。"
+            "尚未执行任何改动。",
             "请把影响范围告知用户；用户确认后带 confirm_consumed=true 重新调用"
             f"（剧本与媒体产物不会被删除，但{aftermath}）。",
         ]
@@ -2385,25 +2402,24 @@ async def reset_episode_planning(
             )
         )
 
-    if value.from_episode == 1:
-        lines = [f"✅ 已全量重置分集规划：清空 {len(result.removed_episodes)} 集，planning_cursor 已置空。"]
-    else:
+    if partial:
         lines = [
-            f"✅ 已部分重置分集规划：清空第 {value.from_episode} 集起共 {len(result.removed_episodes)} 集，"
-            f"planning_cursor 已退到第 {value.from_episode - 1} 集原文范围末尾。"
+            f"✅ 已部分重置分集规划：从 {start} 起清空 {len(result.removed_episodes)} 集，"
+            "planning_cursor 已退到保留段最后一个切出集的原文范围末尾。"
         ]
+    else:
+        lines = [f"✅ 已全量重置分集规划：清空 {len(result.removed_episodes)} 集，planning_cursor 已置空。"]
     if result.deleted_files:
         lines.append(f"已删除可重造的派生集文件 {len(result.deleted_files)} 个。")
     if result.archived_files:
         archived = "、".join(f"{src} → {dst}" for src, dst in result.archived_files)
         lines.append(f"无原文范围记录的集文件已改名留底（内容保留）：{archived}")
     if result.consumed_episodes:
-        consumed = "、".join(str(num) for num in result.consumed_episodes)
-        lines.append(f"第 {consumed} 集的剧本 / 媒体产物仍在磁盘，未删除。")
+        lines.append(f"{_episodes(result.consumed_episodes)} 的剧本 / 媒体产物仍在磁盘，未删除。")
     lines.append(
-        "账本已空，请调用 plan_episodes 从头重新规划（集号从第 1 集起）。"
-        if value.from_episode == 1
-        else f"请调用 plan_episodes 继续规划（新集号从第 {value.from_episode} 集起）。"
+        "请调用 plan_episodes 继续规划；新规划的集分配新的集 ID，不复用被清除的集 ID。"
+        if partial
+        else "账本已空，请调用 plan_episodes 从头重新规划；新规划的集分配新的集 ID，不复用被清除的集 ID。"
     )
     return ToolOutcome(
         value=ResetEpisodePlanningResult(
@@ -2692,7 +2708,11 @@ async def retry_project_migration(
 ) -> ToolOutcome[RetryProjectMigrationResult]:
     project_dir = services.projects.get_project_path(scope.project_name)
     try:
-        failure = await _run_sync_transaction(migrate_project_with_verdict, project_dir)
+        failure = await _run_sync_transaction(
+            migrate_project_with_verdict,
+            project_dir,
+            recorded_episode_ids=recorded_episode_ids_on(asyncio.get_running_loop()),
+        )
         if failure is not None:
             return ToolOutcome(problem=_migration_tool_problem(failure))
         plan = await services.workflow_planner.get_plan(
@@ -2790,14 +2810,16 @@ async def complete_script_plan_rebuild(
             complete,
             services.projects,
             scope.project_name,
-            value.episode,
+            value.episode_id,
             value.expected_stale_script_plan_revision,
         )
     except ScriptPlanRebuildCompletionError as exc:
         return ToolOutcome(problem=ToolProblem(exc.code, str(exc)))
     except Exception as exc:
         return ToolOutcome(problem=_unexpected("complete_script_plan_rebuild", exc))
-    return ToolOutcome(value=CompleteScriptPlanRebuildResult(episode=value.episode, script_plan_revision=revision))
+    return ToolOutcome(
+        value=CompleteScriptPlanRebuildResult(episode_id=value.episode_id, script_plan_revision=revision)
+    )
 
 
 __all__ = [

@@ -6,6 +6,7 @@ import { useAssistantStore } from "@/stores/assistant-store";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { PrimaryButton } from "@/components/ui/PrimaryButton";
 import { CARD_STYLE, GHOST_BTN_CLS } from "@/components/ui/darkroom-tokens";
+import { itemIdsInEpisodeText } from "@/utils/episode-display";
 
 /** 把一段指令预填进 Agent 输入框并打开面板；只填不发送，用户核对后自行发送。 */
 export function prefillAssistant(text: string): void {
@@ -13,10 +14,13 @@ export function prefillAssistant(text: string): void {
   useAppStore.getState().setAssistantPanelOpen(true);
 }
 
-/** 待修复草稿交给 Agent 时的预填：列出违约，或在违约已清零时请它直接采用。 */
+/**
+ * 待修复草稿交给 Agent 时的预填：列出违约，或在违约已清零时请它直接采用。
+ * `episodeRef` 是集名连同集 ID 的指称（`episodeAgentRef`）。
+ */
 export function draftFixRequestText(
   t: (key: string, options?: Record<string, unknown>) => string,
-  episode: number,
+  episodeRef: string,
   docType: DraftDocType,
   violations: ScriptReviewViolation[],
 ): string {
@@ -24,10 +28,10 @@ export function draftFixRequestText(
     docType === "reference_prompt_authoring" ? "dashboard:draft_name_prompt_authoring" : "dashboard:draft_name_script_plan",
   );
   if (violations.length === 0) {
-    return t("dashboard:draft_fix_request_promote_prefill", { episode, docType, draftName });
+    return t("dashboard:draft_fix_request_promote_prefill", { episodeRef, docType, draftName });
   }
   return [
-    t("dashboard:draft_fix_request_prefill_header", { episode, count: violations.length, docType, draftName }),
+    t("dashboard:draft_fix_request_prefill_header", { episodeRef, count: violations.length, docType, draftName }),
     ...violations.map((v, i) => `${i + 1}. ${v.message}`),
   ].join("\n");
 }
@@ -254,7 +258,7 @@ export function DraftViolationList({ violations }: { violations: ScriptReviewVio
       {violations.map((v, i) => (
         <li key={`${v.code}-${i}`} className="flex items-start gap-1.5 text-[11px] leading-snug text-red-300">
           <OctagonAlert className="mt-px h-3 w-3 shrink-0" aria-hidden="true" />
-          <span>{v.message}</span>
+          <span>{itemIdsInEpisodeText(v.message)}</span>
         </li>
       ))}
     </ul>
@@ -269,7 +273,7 @@ export function DraftSoftViolationList({ softViolations }: { softViolations: Dra
       {softViolations.map((soft, i) => (
         <li key={`${soft.code}-${i}`} className="flex items-start gap-1.5 text-[11px] leading-snug text-amber-300">
           <AlertTriangle className="mt-px h-3 w-3 shrink-0" aria-hidden="true" />
-          <span>{soft.message}</span>
+          <span>{itemIdsInEpisodeText(soft.message)}</span>
         </li>
       ))}
     </ul>

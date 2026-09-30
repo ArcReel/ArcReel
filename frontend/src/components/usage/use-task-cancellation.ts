@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { API, ApiRequestError } from "@/api";
+import type { EpisodeItemRef } from "@/types";
 
 interface CascadeTask {
   task_id: string;
   task_type: string;
   resource_id: string;
+  resource_ref?: EpisodeItemRef | null;
 }
 
 /** 待确认的取消请求。单个取消带级联预览，全部取消带排队中条数。 */

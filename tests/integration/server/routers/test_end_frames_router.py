@@ -228,7 +228,7 @@ class TestSelectChannel:
         assert resp.status_code == 400
         # max_mb 由字节上限整除 1 MB 得出，本例上限被压到 16 字节故为 0
         assert resp.json()["detail"] == i18n_message(
-            "end_frame_source_too_large", max_mb=0, path="storyboards/scene_E1S02.png"
+            "end_frame_source_too_large", max_mb=0, path="storyboards/scene_未命名集 · S02.png"
         )
         assert _segment(pm).get("end_frame_image") is None
 

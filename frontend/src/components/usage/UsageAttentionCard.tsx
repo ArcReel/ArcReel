@@ -5,6 +5,7 @@ import { CARD_STYLE } from "@/components/ui/darkroom-tokens";
 import type { UsageAttention, UsageSummary } from "@/types";
 import type { UsageRecordsFilters } from "@/stores/usage-records-store";
 import { formatShortDateTime } from "@/utils/date-format";
+import { episodeItemRefLabel } from "@/utils/episode-display";
 import {
   MEDIA_META,
   formatRatio,
@@ -73,7 +74,7 @@ function AttentionItem({
       })
     : t("usage_attention_consecutive_title", {
         project: item.project_name || t("usage_project_untitled"),
-        segment: item.segment_id,
+        segment: episodeItemRefLabel(item.segment_id, item.segment_ref, t),
       });
 
   const detail = isRate

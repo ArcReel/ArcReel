@@ -36,12 +36,12 @@ description: 为分镜或自包含视频单元生成视频。当用户要求生�
 
 | 操作 | 工具 |
 |------|------|
-| 整集生成（默认操作） | `mcp__arcreel__generate_videos({"script": "episode_1.json", "target": {"scope": "episode", "episode": 1}})` |
+| 整集生成（默认操作） | `mcp__arcreel__generate_videos({"script": "episode_1.json", "target": {"scope": "episode", "episode_id": 1}})` |
 | 单分镜 | `mcp__arcreel__generate_videos({"script": "episode_1.json", "target": {"scope": "scene", "ids": ["E1S01"]}})` |
 | 批量自选 | `mcp__arcreel__generate_videos({"script": "episode_1.json", "target": {"scope": "selected", "ids": ["E1S01", "E1S05", "E1S10"]}})` |
 | 全部待处理 | `mcp__arcreel__generate_videos({"script": "episode_1.json", "target": {"scope": "all"}})` |
 
-把 `target.ids` 在分镜图生视频解释为分镜 ID，在参考生视频解释为 `unit_id`。集号由剧本元数据或文件名解析。
+把 `target.ids` 在分镜图生视频解释为分镜 ID，在参考生视频解释为 `unit_id`。整集生成的 `target.episode_id` 是剧本所属那一集的集 ID（与文件名 `episode_{集 ID}.json` 中的数字相同，取计划 `target.episode`），不是第几集。
 
 ### 点名重新生成视频单元
 
@@ -86,7 +86,7 @@ description: 为分镜或自包含视频单元生成视频。当用户要求生�
 与变长/变短；确认后经 `confirmed_request_durations`（按 unit_id 记档位）让**原目标集合仍作为一批重发**：
 
 ```text
-mcp__arcreel__generate_videos({"script": "episode_1.json", "target": {"scope": "episode", "episode": 1},
+mcp__arcreel__generate_videos({"script": "episode_1.json", "target": {"scope": "episode", "episode_id": 1},
                                "confirmed_request_durations": {"E1U1": 8}})
 ```
 

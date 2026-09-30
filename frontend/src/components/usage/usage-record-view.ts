@@ -1,5 +1,6 @@
 import type {
   CallType,
+  EpisodeItemRef,
   TaskItem,
   TaskMediaType,
   UsageRecord,
@@ -27,6 +28,8 @@ export interface UsageRecordView {
   status: UsageRecordStatus;
   purpose: string | null;
   segmentId: string | null;
+  /** segmentId 所属集的标题与播出位置，界面据此显示「标题 · S01」。 */
+  segmentRef: EpisodeItemRef | null;
   errorCode: string | null;
   errorMessage: string | null;
   /** 已结束调用的开始时刻；进行中行用它排序与计时。 */
@@ -49,6 +52,7 @@ export function usageRecordToView(record: UsageRecord): UsageRecordView {
     status: record.status,
     purpose: record.purpose,
     segmentId: record.segment_id,
+    segmentRef: record.segment_ref ?? null,
     errorCode: record.error_code,
     errorMessage: record.error_message,
     startedAt: record.started_at,
@@ -123,6 +127,7 @@ export function taskToUsageRecordView(task: TaskItem): UsageRecordView | null {
     status: "pending",
     purpose: "generation_task",
     segmentId: taskSegmentId(task),
+    segmentRef: taskSegmentId(task) === null ? null : (task.resource_ref ?? null),
     errorCode: null,
     errorMessage: null,
     startedAt: task.started_at ?? task.queued_at,

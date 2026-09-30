@@ -47,6 +47,13 @@
 - **Bash 用途**：仅供通用排查与文件浏览（`ls / cat / jq / python / curl` 等）。
 - **敏感文件保护**：`.env` / `.claude/settings.json`，以及数据根里项目以外的全部数据（数据库、凭证、日志、其他用户的记忆等）由 sandbox profile（`filesystem.denyRead`）内核级拒绝读取，并由 PreToolUse 文件访问 hook 双重防御；代码文件（.py/.js/.ts/.tsx/.sh/.yaml/.yml/.toml）受运行时 hook 阻止写入。
 
+### 集的指称
+
+- **集 ID** 是一集的内部标识：项目 `episodes[].episode`、计划 `target.episode` / `next_action.args.episode_id`、文件名 `episode_{集 ID}`、条目 ID 前缀 `E{集 ID}`（如 `E7S01`）都是它。集 ID 只分配不复用，新集接着历史最高号编，**不代表第几集**
+- **播出顺序**就是 `episodes[]` 的排列：第 N 个条目即第 N 集
+- 工具的 `episode_id` 参数只传集 ID：用户说「第 3 集」或报标题时，先在 `episodes[]` 里按位置或标题找到那一集，再取它的集 ID
+- 对用户称呼一集用播出位置与标题（如「第 3 集《城门遇袭》」），集 ID 留在工具调用里；工具输出的「《标题》（第 N 个，id=X）」照此转述
+
 ### 路径规范
 
 Agent session 的当前工作目录（cwd）已绑定到当前项目根，**所有工具参数中的路径必须遵循以下规则**：
@@ -202,7 +209,7 @@ projects/{项目名}/      # ← session cwd 已在此，下面均为 cwd 内的
 - `schema_version`：项目数据格式版本（当前 1）
 - `title`、`content_mode`（`narration`/`drama`）、`generation_mode`（`storyboard`/`reference_video`，创建后不可更改）、`grid_storyboard`（布尔，仅 `generation_mode="storyboard"` 下生效，由用户在设置页开关）、`style`、`style_description`
 - `overview`：项目概述（synopsis、genre、theme、world_setting）
-- `episodes`：分集账本（单一真相源）：episode、title、script_file，以及账本字段 `source_range`（原文范围）/ `hook`（集尾钩子）/ `outline`（drama 分集大纲）/ `ledger_status`（planned/consumed/stale）；顶层 `planning_cursor` 标记下一批规划起点。`source/episode_N.txt` 是账本的派生物，由规划工具维护，不要手工编辑或重命名。例外：用户自行拆好分集、`source/` 下只有这些文件而无整本原文时，它们就是源文，账本按文件自动登记（条目无 `source_range`），逐集直接做脚本规划，不合并、不重切、不改名
+- `episodes`：分集账本（单一真相源，排列即播出顺序）：episode（集 ID）、title、script_file，以及账本字段 `source_range`（原文范围）/ `hook`（集尾钩子）/ `outline`（drama 分集大纲）/ `ledger_status`（planned/consumed/stale）；顶层 `planning_cursor` 标记下一批规划起点。`source/episode_{集 ID}.txt` 是账本的派生物，由规划工具维护，不要手工编辑或重命名。例外：用户自行拆好分集、`source/` 下只有这些文件而无整本原文时，它们就是源文，账本按文件自动登记（条目无 `source_range`），逐集直接做脚本规划，不合并、不重切、不改名
 - `characters`：角色完整定义（description、voice_style、character_sheet）
 - `scenes`：场景完整定义（description、scene_sheet）
 - `props`：道具完整定义（description、prop_sheet）
@@ -211,4 +218,4 @@ projects/{项目名}/      # ← session cwd 已在此，下面均为 cwd 内的
 
 - 角色/场景/道具的完整定义**只存储在 project.json**，剧本中仅引用名称
 - 项目摘要 `episodes[]` 的 `item_count`（分镜数 / 视频单元数）、`status`、产物计数等派生字段由项目摘要**读时计算**，不存储
-- 剧集元数据（episode/title/script_file）在剧本保存时**写时同步**
+- 剧集元数据（episode 集 ID / title / script_file）在剧本保存时**写时同步**

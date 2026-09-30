@@ -131,7 +131,7 @@ class TestGenerateTtsSingle:
             )
 
         assert response.status_code == 400, response.text
-        assert response.json()["detail"] == i18n_message("invalid_script_file", name="episode_1.json")
+        assert response.json()["detail"] == i18n_message("invalid_script_file", name="「未命名集」的剧本")
         assert fake_queue.calls == []
 
     def test_enqueue_success(self, tmp_path, monkeypatch):
@@ -309,7 +309,7 @@ class TestGenerateTtsBatch:
             )
 
         assert response.status_code == 400, response.text
-        assert response.json()["detail"] == i18n_message("invalid_script_file", name="episode_1.json")
+        assert response.json()["detail"] == i18n_message("invalid_script_file", name="「未命名集」的剧本")
         assert fake_queue.calls == []
 
     def test_episode_is_resolved_from_the_canonical_filename(self, tmp_path, monkeypatch):

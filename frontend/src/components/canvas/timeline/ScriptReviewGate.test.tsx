@@ -1,3 +1,4 @@
+import { itemIdsInEpisodeText } from "@/utils/episode-display";
 import { describe, it, expect, vi, afterEach, type MockInstance } from "vitest";
 import { render, screen, fireEvent, waitFor, act, within } from "@testing-library/react";
 import { ScriptReviewGate } from "./ScriptReviewGate";
@@ -124,7 +125,7 @@ describe("ScriptReviewGate", () => {
 
     await waitFor(() => expect(screen.getByDisplayValue("你终于回来了。")).toBeInTheDocument());
     expect(screen.getByDisplayValue("阿离")).toBeInTheDocument();
-    expect(screen.getByText("E1S01")).toBeInTheDocument();
+    expect(screen.getByText("S01")).toBeInTheDocument();
     expect(screen.getByText("待确认")).toBeInTheDocument();
     expect(screen.getByText("确认并继续")).toBeInTheDocument();
   });
@@ -273,7 +274,7 @@ describe("ScriptReviewGate", () => {
 
     const dialog = await screen.findByRole("dialog");
     // 确认框原样呈现服务端生成的丢失清单，不在前端另拼。
-    expect(within(dialog).getByText(overwrite.text, { normalizer: (text) => text })).toBeInTheDocument();
+    expect(within(dialog).getByText(itemIdsInEpisodeText(overwrite.text), { normalizer: (text) => text })).toBeInTheDocument();
     expect(confirm).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole("button", { name: "覆盖并确认" }));
@@ -322,8 +323,8 @@ describe("ScriptReviewGate", () => {
     fireEvent.click(await screen.findByRole("button", { name: "确认并覆盖正式脚本" }));
     fireEvent.click(await screen.findByRole("button", { name: "覆盖并确认" }));
 
-    await waitFor(() => expect(screen.getByRole("dialog")).toHaveTextContent("E1S07"));
-    expect(screen.getByRole("dialog")).toHaveTextContent(refreshed.text);
+    await waitFor(() => expect(screen.getByRole("dialog")).toHaveTextContent("S07"));
+    expect(screen.getByRole("dialog")).toHaveTextContent(itemIdsInEpisodeText(refreshed.text));
 
     fireEvent.click(screen.getByRole("button", { name: "覆盖并确认" }));
     await waitFor(() => expect(confirm).toHaveBeenLastCalledWith("p", 1, { overwriteRevision: "sha256-v1:refreshed" }));
@@ -446,7 +447,7 @@ describe("ScriptReviewGate", () => {
     vi.spyOn(API, "getScriptReview").mockResolvedValue(dramaState());
     render(<ScriptReviewGate projectName="p" episode={1} contentMode="drama" />);
 
-    await waitFor(() => expect(screen.getByText("E1S01")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("S01")).toBeInTheDocument());
     expect(screen.queryByText(/目标/)).not.toBeInTheDocument();
   });
 
@@ -455,7 +456,7 @@ describe("ScriptReviewGate", () => {
     render(<ScriptReviewGate projectName="p" episode={1} contentMode="narration" />);
 
     await waitFor(() => expect(screen.getByDisplayValue("裴与出征后的第二年。")).toBeInTheDocument());
-    expect(screen.getByText("E1S01")).toBeInTheDocument();
+    expect(screen.getByText("S01")).toBeInTheDocument();
   });
 
   it("presents a draft needing fixes with violations on their items and adopts it once a hand fix clears them", async () => {
@@ -477,7 +478,7 @@ describe("ScriptReviewGate", () => {
     render(<ScriptReviewGate projectName="p" episode={1} contentMode="narration" />);
 
     // 违约挂在所在分镜卡上，整集层面的违约置顶；面板呈现的是草稿而非正式内容，也不提供确认。
-    await waitFor(() => expect(screen.getByText("segment E1S01 的原文为空")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("segment S01 的原文为空")).toBeInTheDocument());
     expect(screen.getByText("源文末尾有一段未被任何分镜覆盖")).toBeInTheDocument();
     expect(screen.queryByDisplayValue("裴与出征后的第二年。")).not.toBeInTheDocument();
     expect(screen.queryByText("确认并继续")).not.toBeInTheDocument();

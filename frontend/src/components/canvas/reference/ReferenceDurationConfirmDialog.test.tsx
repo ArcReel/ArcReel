@@ -98,7 +98,7 @@ describe("ReferenceDurationConfirmDialog", () => {
     expect(screen.getByText("以下调整将在本次生成中生效：")).toBeInTheDocument();
     expect(screen.getByText("参考图数量 3 超出 openai/sora-2 上限 1")).toBeInTheDocument();
     expect(screen.getByText("参考图数量 5 超出 openai/sora-2 上限 1")).toBeInTheDocument();
-    expect(screen.getByText("E1U2")).toBeInTheDocument();
+    expect(screen.getByText("U2")).toBeInTheDocument();
   });
 
   it("stands on its own when only advisory problems need confirming", () => {
@@ -123,7 +123,7 @@ describe("ReferenceDurationConfirmDialog", () => {
     expect(screen.getByText("参考图数量 3 超出 openai/sora-2 上限 1")).toBeInTheDocument();
     // 没有档位偏离就不画对照行，也不出现单元标签
     expect(screen.queryByText("4 秒")).not.toBeInTheDocument();
-    expect(screen.queryByText("E1U1")).not.toBeInTheDocument();
+    expect(screen.queryByText("U1")).not.toBeInTheDocument();
   });
 
   it("renders nothing when no item needs confirming", () => {

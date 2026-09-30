@@ -4,8 +4,10 @@ API 调用统计路由
 提供调用记录查询和统计摘要接口。
 """
 
+import asyncio
+from collections.abc import Callable
 from datetime import UTC, datetime
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, cast
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Query
@@ -15,9 +17,11 @@ from lib.backends.providers import CallStatus, CallType
 from lib.billing.usage_summary import UsageFilterOptions, UsageWindowTooWideError, build_summary
 from lib.db import async_session_factory
 from lib.db.repositories.usage_repo import UsageCursor, UsageCursorError, UsageFilters, UsageRepository, as_utc
-from lib.i18n import translate_or
+from lib.i18n import _, translate_or
 from lib.infra.api_errors import NotFoundError, UnprocessableError
-from server.i18n import Locale
+from lib.project.project_manager import get_project_manager
+from server.i18n import Locale, Translator
+from server.services.project.episode_item_refs import with_episode_item_refs
 
 router = APIRouter()
 _CALL_STATUS_DESCRIPTION = f"状态 ({'/'.join(CallStatus)})"
@@ -26,6 +30,14 @@ _CALL_STATUS_DESCRIPTION = f"状态 ({'/'.join(CallStatus)})"
 # ---------------------------------------------------------------------------
 # 使用记录读接口；响应形状由 Pydantic 模型声明。
 # ---------------------------------------------------------------------------
+
+
+class EpisodeItemRef(BaseModel):
+    """条目所属集的标题与播出位置、集内 ID；界面据此显示「标题 · S01」，不显示集 ID。"""
+
+    episode_title: str
+    episode_position: int
+    item_id: str
 
 
 class UsageRecord(BaseModel):
@@ -44,6 +56,7 @@ class UsageRecord(BaseModel):
     error_params: Any = None
     error_message: str | None = None
     segment_id: str | None = None
+    segment_ref: EpisodeItemRef | None = None
     output_path: str | None = None
     started_at: str
     finished_at: str | None = None
@@ -104,6 +117,7 @@ def _multi(value: str | None) -> tuple[str, ...]:
 
 @router.get("/usage/records", response_model=UsageRecordPage)
 async def list_usage_records(
+    _t: Translator,
     project_name: str | None = Query(None, description="项目名称；端点试跑记录用空串"),
     provider: str | None = Query(None, description="供应商 id，逗号分隔多选"),
     model: str | None = Query(None, description="模型，逗号分隔多选"),
@@ -135,15 +149,23 @@ async def list_usage_records(
             limit=limit,
             cursor=decoded,
         )
+    page["items"] = await asyncio.to_thread(_with_segment_refs, page["items"], _t)
     return UsageRecordPage.model_validate(page)
 
 
+def _with_segment_refs(items: list[dict[str, Any]], translate: Callable[..., str] = _) -> list[dict[str, Any]]:
+    return with_episode_item_refs(
+        items, id_field="segment_id", ref_field="segment_ref", projects=get_project_manager(), translate=translate
+    )
+
+
 @router.get("/usage/records/{record_id}", response_model=UsageRecordDetail)
-async def get_usage_record(record_id: int) -> UsageRecordDetail:
+async def get_usage_record(record_id: int, _t: Translator) -> UsageRecordDetail:
     async with async_session_factory() as session:
         record = await UsageRepository(session).get_record(record_id)
     if record is None:
         raise NotFoundError("usage_record_not_found")
+    [record] = await asyncio.to_thread(_with_segment_refs, [record], _t)
     return UsageRecordDetail.model_validate(record)
 
 
@@ -233,6 +255,7 @@ class UsageConsecutiveFailuresAttention(BaseModel):
     project_name: str
     media_type: str
     segment_id: str
+    segment_ref: EpisodeItemRef | None = None
     count: int
     first_failed_at: str
     last_failed_at: str
@@ -318,6 +341,8 @@ async def get_usage_summary(
         models=options.models,
     )
     try:
-        return build_summary(rows, tz=zone, since=since_utc, until=until_utc, filter_options=localized)
+        summary = build_summary(rows, tz=zone, since=since_utc, until=until_utc, filter_options=localized)
     except UsageWindowTooWideError as exc:
         raise UnprocessableError("usage_range_too_wide") from exc
+    summary["attention"] = await asyncio.to_thread(_with_segment_refs, cast(list[dict[str, Any]], summary["attention"]))
+    return summary

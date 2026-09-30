@@ -124,10 +124,12 @@ async def test_all_text_long_calls_submit_single_member_batches(
     caller = CallerContext(user_id=DEFAULT_USER_ID, source="mcp")
     if handler == "script":
         outcome = await generate_episode_script(
-            ToolRequest(GenerateEpisodeScriptRequest(episode=1)), scope, caller, services
+            ToolRequest(GenerateEpisodeScriptRequest(episode_id=1)), scope, caller, services
         )
     elif handler == "script_plan":
-        outcome = await generate_script_plan(ToolRequest(GenerateScriptPlanRequest(episode=1)), scope, caller, services)
+        outcome = await generate_script_plan(
+            ToolRequest(GenerateScriptPlanRequest(episode_id=1)), scope, caller, services
+        )
     else:
         outcome = await plan_episodes(ToolRequest(PlanEpisodesRequest()), scope, caller, services)
 
@@ -161,7 +163,7 @@ async def test_web_prompt_authoring_returns_the_batch_without_waiting(tmp_path: 
     )
 
     outcome = await generate_episode_script(
-        ToolRequest(GenerateEpisodeScriptRequest(episode=1, instructions="冷色调")),
+        ToolRequest(GenerateEpisodeScriptRequest(episode_id=1, instructions="冷色调")),
         ProjectScope(project_name="demo", data_root=projects.data_root),
         CallerContext(user_id=DEFAULT_USER_ID, source="webui"),
         services,
@@ -199,7 +201,7 @@ async def test_text_mcp_rejects_lost_worker_lease_without_persisting_queue_state
     )
 
     outcome = await generate_script_plan(
-        ToolRequest(GenerateScriptPlanRequest(episode=1)),
+        ToolRequest(GenerateScriptPlanRequest(episode_id=1)),
         ProjectScope(project_name="drama", data_root=projects.data_root),
         CallerContext(user_id=DEFAULT_USER_ID, source="mcp"),
         services,
@@ -229,7 +231,7 @@ async def test_text_mcp_migration_rejection_cleans_only_the_fresh_batch(
         capabilities=ConfigResolver(async_session_factory),
         queue=queue,
     )
-    request = ToolRequest(GenerateScriptPlanRequest(episode=1))
+    request = ToolRequest(GenerateScriptPlanRequest(episode_id=1))
     scope = ProjectScope(project_name="drama", data_root=projects.data_root)
     caller = CallerContext(user_id=DEFAULT_USER_ID, source="mcp")
     submitted = await generate_script_plan(request, scope, caller, services)
@@ -312,7 +314,7 @@ async def test_text_submission_cancellation_only_cleans_a_fresh_batch(
 
     submission = asyncio.create_task(
         generate_script_plan(
-            ToolRequest(GenerateScriptPlanRequest(episode=1)),
+            ToolRequest(GenerateScriptPlanRequest(episode_id=1)),
             ProjectScope(project_name="drama", data_root=projects.data_root),
             CallerContext(user_id=DEFAULT_USER_ID, source=source),
             services,
@@ -462,7 +464,7 @@ async def test_cancel_during_started_episode_script_commit_leaves_member_running
     )
     try:
         submitted = await generate_episode_script(
-            ToolRequest(GenerateEpisodeScriptRequest(episode=1)),
+            ToolRequest(GenerateEpisodeScriptRequest(episode_id=1)),
             ProjectScope(project_name="script", data_root=projects.data_root),
             CallerContext(user_id=DEFAULT_USER_ID, source="mcp"),
             services,
@@ -644,7 +646,7 @@ async def test_cancel_during_invalid_script_plan_quarantine_leaves_member_runnin
     )
     try:
         submitted = await generate_script_plan(
-            ToolRequest(GenerateScriptPlanRequest(episode=1)),
+            ToolRequest(GenerateScriptPlanRequest(episode_id=1)),
             ProjectScope(project_name=project_name, data_root=projects.data_root),
             CallerContext(user_id=DEFAULT_USER_ID, source="mcp"),
             services,

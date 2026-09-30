@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { Plus, Trash2 } from "lucide-react";
 import { AutoTextarea } from "@/components/ui/AutoTextarea";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { itemIdWithinEpisode } from "@/utils/episode-display";
 
 interface ShotStructureActionsProps {
   segmentId: string;
@@ -111,7 +112,7 @@ export function ShotStructureActions({
       {onRemove && (
         <ConfirmDialog
           open={removeOpen}
-          title={t("shot_remove_title", { id: segmentId })}
+          title={t("shot_remove_title", { id: itemIdWithinEpisode(segmentId) })}
           description={t("shot_remove_desc")}
           confirmLabel={t("shot_remove_confirm")}
           tone="danger"

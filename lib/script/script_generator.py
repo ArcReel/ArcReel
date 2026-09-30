@@ -35,6 +35,7 @@ from lib.backends.text_backends.base import DEFAULT_MAX_OUTPUT_TOKENS, TextGener
 from lib.backends.text_generator import TextGenerator
 from lib.config.resolver import ConfigResolver, VideoGenerationType, video_bucket_for_generation_mode
 from lib.db import async_session_factory
+from lib.episode.episode_ids import default_episode_title
 from lib.episode.episode_paths import (
     REFERENCE_VIDEO_SCRIPT_PLAN_FILENAME,
     REFERENCE_VIDEO_SCRIPT_PLAN_LEGACY_FILENAME,
@@ -357,13 +358,13 @@ class ScriptGenerator:
         kind = resolve_declared_kind(self.content_mode, self.generation_mode)
         raw_items, id_field, _kind = resolve_kind_items(script, kind=kind)
         if not isinstance(raw_items, list):
-            raise ValueError(f"第 {episode} 集正式脚本的 {kind} 不是条目数组，无法编写提示词")
+            raise ValueError(f"集（id={episode}）正式脚本的 {kind} 不是条目数组，无法编写提示词")
         items = [item for item in cast(list[Any], raw_items) if isinstance(item, dict) and id_field in item]
         requested = tuple(dict.fromkeys(entry_ids or ()))
         known = {str(item[id_field]) for item in items}
         unknown = [entry_id for entry_id in requested if entry_id not in known]
         if unknown:
-            raise PromptAuthoringTargetError(f"entry_ids 不在第 {episode} 集正式脚本内: {unknown}")
+            raise PromptAuthoringTargetError(f"entry_ids 不在集（id={episode}）正式脚本内: {unknown}")
         selection = select_prompt_authoring(items, kind=kind, id_field=id_field, entry_ids=requested, rewrite=rewrite)
         selected = {entry.entry_id for entry in selection.entries}
         entries = tuple(item for item in items if str(item[id_field]) in selected)
@@ -437,10 +438,10 @@ class ScriptGenerator:
         if targets is None:
             if self.content_mode != "ad":
                 raise PromptAuthoringTargetError(
-                    f"第 {episode} 集尚无正式脚本：请先完成脚本规划并在 Web 端完成内容确认，确认即生成正式脚本"
+                    f"集（id={episode}）尚无正式脚本：请先完成脚本规划并在 Web 端完成内容确认，确认即生成正式脚本"
                 )
             if entry_ids:
-                raise PromptAuthoringTargetError(f"第 {episode} 集尚无正式脚本，entry_ids 无从对应")
+                raise PromptAuthoringTargetError(f"集（id={episode}）尚无正式脚本，entry_ids 无从对应")
             # ad 两种生成模式都一键生成、不走 script_plan；参考生视频直接产出自包含 video_units。
             prompt, schema = await self._compose_ad(episode, gen_mode, instructions)
             self._freeze_ad_artifact_basis(episode)
@@ -563,14 +564,14 @@ class ScriptGenerator:
         for item in visual_items:
             entry_id = str(item[id_field])
             if entry_id in visual_by_id:
-                raise ValueError(f"episode {episode} 视觉层 {id_field} 重复: {entry_id}")
+                raise ValueError(f"集（id={episode}）视觉层 {id_field} 重复: {entry_id}")
             visual_by_id[entry_id] = item
         missing = [entry_id for entry_id in targets.ids if entry_id not in visual_by_id]
         if missing:
-            raise ValueError(f"episode {episode} 视觉层缺少本次编写的条目: {missing}")
+            raise ValueError(f"集（id={episode}）视觉层缺少本次编写的条目: {missing}")
         extra = sorted(set(visual_by_id) - set(targets.ids))
         if extra:
-            raise ValueError(f"episode {episode} 视觉层含本次编写范围之外的 {id_field}: {extra}")
+            raise ValueError(f"集（id={episode}）视觉层含本次编写范围之外的 {id_field}: {extra}")
         return [
             {
                 **entry,
@@ -686,7 +687,7 @@ class ScriptGenerator:
         previous_ids = tuple(entry.entry_id for entry in previous.entries) if previous is not None else ()
         plan_path = script_plan_path(self.project_path, self.project_json, episode)
         if plan_path is None:
-            raise FileNotFoundError(f"第 {episode} 集不适用脚本规划")
+            raise FileNotFoundError(f"集（id={episode}）不适用脚本规划")
         claim = self._script_plan_input_claim
         pm = ProjectManager.for_project_dir(self.project_path)
 
@@ -904,10 +905,10 @@ class ScriptGenerator:
         if targets is None:
             if self.content_mode != "ad":
                 raise PromptAuthoringTargetError(
-                    f"第 {episode} 集尚无正式脚本：请先完成脚本规划并在 Web 端完成内容确认，确认即生成正式脚本"
+                    f"集（id={episode}）尚无正式脚本：请先完成脚本规划并在 Web 端完成内容确认，确认即生成正式脚本"
                 )
             if entry_ids:
-                raise PromptAuthoringTargetError(f"第 {episode} 集尚无正式脚本，entry_ids 无从对应")
+                raise PromptAuthoringTargetError(f"集（id={episode}）尚无正式脚本，entry_ids 无从对应")
             prompt, _schema = await self._compose_ad(episode, self.generation_mode, instructions)
             return prompt
         if not targets.entries:
@@ -1098,7 +1099,7 @@ class ScriptGenerator:
         quarantine = quarantine_path(self.project_path, episode, QUARANTINE_KIND_SCRIPT_PLAN)
         if quarantine.exists():
             raise ValueError(
-                f"第 {episode} 集有待修复草稿（{quarantine}），脚本规划转换已中止；"
+                f"集（id={episode}）有待修复草稿（{quarantine}），脚本规划转换已中止；"
                 f"请先修改该草稿并经 {PROMOTE_TOOL_NAME} 晋升为正式 script_plan"
             )
         if not script_plan_json.exists():
@@ -1188,7 +1189,7 @@ class ScriptGenerator:
         quarantine = quarantine_path(self.project_path, episode, QUARANTINE_KIND_NARRATION_SCRIPT_PLAN)
         if quarantine.exists():
             raise ValueError(
-                f"第 {episode} 集 script_plan 有草稿待处置（{quarantine}），脚本规划转换已中止；"
+                f"集（id={episode}） script_plan 有草稿待处置（{quarantine}），脚本规划转换已中止；"
                 f"请先修改该草稿并经 {PROMOTE_TOOL_NAME} 晋升为正式 script_plan"
             )
         drafts_path = episode_drafts_dir(self.project_path, episode)
@@ -1261,7 +1262,7 @@ class ScriptGenerator:
         quarantine = quarantine_path(self.project_path, episode, QUARANTINE_KIND_DRAMA_SCRIPT_PLAN)
         if quarantine.exists():
             raise ValueError(
-                f"第 {episode} 集有待修复草稿（{quarantine}），脚本规划转换已中止；"
+                f"集（id={episode}）有待修复草稿（{quarantine}），脚本规划转换已中止；"
                 f"请先修改该草稿并经 {PROMOTE_TOOL_NAME} 晋升为正式 script_plan"
             )
         raw = self._load_script_plan(episode)
@@ -1486,7 +1487,7 @@ class ScriptGenerator:
         if isinstance(data, dict):
             raw_title = data.get("title")
             if not (isinstance(raw_title, str) and raw_title.strip()):
-                data["title"] = f"第{episode}集"
+                data["title"] = default_episode_title(self.project_json, episode)
         try:
             return ReferencePromptAuthoringFlatScript.model_validate(data)
         except ValidationError as e:
@@ -1759,7 +1760,7 @@ class ScriptGenerator:
         draft = read_quarantine(self.project_path, episode, QUARANTINE_KIND_PROMPT_AUTHORING)
         if draft is None:
             raise FileNotFoundError(
-                f"第 {episode} 集没有可晋升的 prompt_authoring 待修复草稿"
+                f"集（id={episode}）没有可晋升的 prompt_authoring 待修复草稿"
                 f"（{quarantine_path(self.project_path, episode, QUARANTINE_KIND_PROMPT_AUTHORING)} 缺失或内容不是合法信封）"
             )
 
@@ -1772,7 +1773,7 @@ class ScriptGenerator:
         )
         targets = self._load_prompt_authoring_targets(episode, filename, unit_ids, rewrite=True)
         if targets is None:
-            raise FileNotFoundError(f"第 {episode} 集尚无正式脚本，无法晋升 prompt_authoring 待修复草稿")
+            raise FileNotFoundError(f"集（id={episode}）尚无正式脚本，无法晋升 prompt_authoring 待修复草稿")
         if unit_ids is None:
             # 未记录单元的草稿产自整份编写：按正式剧本的全部单元重判，单元数对不上时如实报告。
             targets = replace(targets, entries=tuple(item for item in targets.items if isinstance(item, dict)))
@@ -1914,7 +1915,7 @@ class ScriptGenerator:
         if isinstance(data, dict):
             title = data.get("title")
             if not (isinstance(title, str) and title.strip()):
-                data["title"] = f"第{episode}集"
+                data["title"] = default_episode_title(self.project_json, episode)
 
         # 校验模型经规范解析定骨架种类（分镜图生视频按创作类型，参考生视频统一 video_units），
         # kind→模型映射留本地（模型属上层依赖，不进 SKELETONS 窄表）。
@@ -1964,7 +1965,11 @@ class ScriptGenerator:
             units.append(unit)
 
         return ReferenceVideoScript.model_validate(
-            {"title": flat.title or f"第{episode}集", "content_mode": "ad", "video_units": units}
+            {
+                "title": flat.title or default_episode_title(self.project_json, episode),
+                "content_mode": "ad",
+                "video_units": units,
+            }
         ).model_dump()
 
     def _add_metadata(

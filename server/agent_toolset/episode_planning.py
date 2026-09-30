@@ -31,8 +31,9 @@ PLAN_EPISODES = ToolDeclaration(
     name="plan_episodes",
     description=(
         "分集规划：从账本 planning_cursor 起读一个源文窗口，调用项目配置的文本模型一次规划出窗口内所有剧情弧完整的集"
-        "（标题 / 钩子 / 原文范围；drama 另含分集大纲），在同一把项目锁内写账本、派生 source/episode_N.txt 并清理残留"
-        "派生文件。返回账本摘要（每集标题、钩子、体量，以及本集原文的首句与尾句，超长句截断），首尾句供用户核对分集边界。"
+        "（标题 / 钩子 / 原文范围；drama 另含分集大纲），在同一把项目锁内写账本、派生 source/episode_{集 ID}.txt 并清理残留"
+        "派生文件。返回账本摘要（每集标题、集 ID 与播出位置、钩子、体量，以及本集原文的首句与尾句，超长句截断），首尾句供用户核对"
+        "分集边界。新集按项目历史最高集 ID 递增分配，集 ID 不代表播出顺序，向用户指称一集用标题与播出位置。"
         "窗口字数与每批集数上限为内部默认，project.json 顶层 planning_window_chars / planning_max_episodes 可覆盖；"
         "每集目标体量取 episode_target_units，未设时按 episode_target_duration 经口播语速折算（折算值在返回的核对材料里"
         "标明来源）。用户提供分集附加指令（如按章节对齐切分、指定某处收尾）时经 instructions 传入原文，规划 prompt 另附"
@@ -55,14 +56,14 @@ RESET_EPISODE_PLANNING = ToolDeclaration(
     name="reset_episode_planning",
     description=(
         "重置分集规划：把账本退回未规划状态的逃生口，不调用文本模型，不受供应商配置影响。"
-        "from_episode=1 是全量重置（清空整个账本与 planning_cursor），源文被替换或删除重建、账本写坏导致规划报"
-        "「起点越界」「范围无效」等错误并永久失败时用它恢复，零前置校验、任何损坏状态都能执行成功。"
-        "from_episode>1 是部分重置：保留第 1..from_episode-1 集，只清除 from_episode 起的条目，游标退到第 "
-        "from_episode-1 集原文范围末尾，下次 plan_episodes 从第 from_episode 集续接编号；这条路径有前置校验（全部已记录"
-        "源文指纹须与当前源文一致，且保留段坐标须完整、连续、落在当前源文界内），任一不满足会拒绝执行并指明具体原因，"
-        "此时改用 from_episode=1 做全量重置。两种模式都对波及已消费集（已有 script_plan / 剧本 / 媒体产物）时不执行，"
+        "省略 episode_id（或给播出顺序中第一集的集 ID）是全量重置：清空整个账本与 planning_cursor，源文被替换或删除重建、"
+        "账本写坏导致规划报「起点越界」「范围无效」等错误并永久失败时用它恢复，零前置校验、任何损坏状态都能执行成功。"
+        "给其他集的 episode_id 是部分重置：保留播出顺序中该集之前的集，只清除该集及之后的条目，游标退到保留段最后一个"
+        "带原文范围记录的集的范围末尾；这条路径有前置校验（全部已记录源文指纹须与当前源文一致，且保留段坐标须在当前源文"
+        "界内、依次推进不重叠），任一不满足会拒绝执行并指明具体原因，此时改用全量重置。之后 plan_episodes 规划的集分配"
+        "新的集 ID，被清除的集 ID 不再复用。两种模式都对波及已消费集（已有 script_plan / 剧本 / 媒体产物）时不执行，"
         "返回 confirmation_required=true 与受影响清单，须告知用户、确认后带 confirm_consumed=true 重新调用。"
-        "任何下游产物（剧本、媒体）都不会被删除；重置范围内可由账本重造的 source/episode_N.txt 会被删除，无原文范围记录的"
+        "任何下游产物（剧本、媒体）都不会被删除；重置范围内可由账本重造的派生集文件会被删除，无原文范围记录的"
         "集文件改名留底（不会丢内容），保留段的派生文件不受影响。"
     ),
     request_model=ResetEpisodePlanningRequest,

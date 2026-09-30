@@ -81,7 +81,7 @@ class WorkflowPlanner:
         status = await asyncio.to_thread(
             WorkflowStateService(self._pm).get_status,
             project_name,
-            request.episode,
+            request.episode_id,
         )
         blocked = next((b for b in status.blockers if b.code == MIGRATION_FAILURE_CODE), None)
         if blocked is not None:

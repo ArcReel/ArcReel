@@ -1522,16 +1522,16 @@ class TestReferenceVideoPromptAuthoringEnforcement:
             pm=pm,
             config_resolver=cast(ConfigResolver, FakeConfigResolver()),
         )
-        refused = await run_declared_tool(GENERATE_EPISODE_SCRIPT, ctx, {"episode": 1})
+        refused = await run_declared_tool(GENERATE_EPISODE_SCRIPT, ctx, {"episode_id": 1})
         assert refused.problem is not None
         assert "尚无正式脚本" in refused.problem.detail
         assert "内容确认" in refused.problem.detail
 
-        result = await run_declared_tool(CONFIRM_SCRIPT_REVIEW, ctx, {"episode": 1})
+        result = await run_declared_tool(CONFIRM_SCRIPT_REVIEW, ctx, {"episode_id": 1})
         assert result.problem is None, result
         assert (project_path / "scripts" / "episode_1.json").exists()
 
-        dry_run = await run_declared_tool(GENERATE_EPISODE_SCRIPT, ctx, {"episode": 1, "dry_run": True})
+        dry_run = await run_declared_tool(GENERATE_EPISODE_SCRIPT, ctx, {"episode_id": 1, "dry_run": True})
         assert dry_run.problem is None, dry_run
 
 
@@ -1903,7 +1903,7 @@ class TestPromptAuthoringEnforcement:
             pm=pm,
             config_resolver=cast(ConfigResolver, FakeConfigResolver()),
         )
-        result = await run_declared_tool(GENERATE_EPISODE_SCRIPT, ctx, {"episode": 1, "dry_run": True})
+        result = await run_declared_tool(GENERATE_EPISODE_SCRIPT, ctx, {"episode_id": 1, "dry_run": True})
 
         assert isinstance(result.value, TextGenerationResult), result
         assert "DRY RUN" in result.value.message
@@ -1921,7 +1921,7 @@ class TestPromptAuthoringEnforcement:
             pm=pm,
             config_resolver=cast(ConfigResolver, FakeConfigResolver()),
         )
-        result = await run_declared_tool(CONFIRM_SCRIPT_REVIEW, ctx, {"episode": 1})
+        result = await run_declared_tool(CONFIRM_SCRIPT_REVIEW, ctx, {"episode_id": 1})
 
         assert result.problem is None, result
         assert script_review.review_status(project_path, pm.load_project("demo"), 1) == "confirmed"
@@ -1953,7 +1953,7 @@ class TestPromptAuthoringEnforcement:
             config_resolver=cast(ConfigResolver, FakeConfigResolver()),
         )
 
-        refused = await run_declared_tool(CONFIRM_SCRIPT_REVIEW, ctx, {"episode": 1})
+        refused = await run_declared_tool(CONFIRM_SCRIPT_REVIEW, ctx, {"episode_id": 1})
 
         assert refused.problem is not None
         assert refused.problem.code == "script_overwrite_required"
@@ -1980,7 +1980,7 @@ class TestPromptAuthoringEnforcement:
             config_resolver=cast(ConfigResolver, FakeConfigResolver()),
         )
 
-        result = await run_declared_tool(CONFIRM_SCRIPT_REVIEW, ctx, {"episode": 1})
+        result = await run_declared_tool(CONFIRM_SCRIPT_REVIEW, ctx, {"episode_id": 1})
 
         assert result.problem is not None
         text = result.problem.detail

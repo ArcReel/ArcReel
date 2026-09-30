@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 
 import type { TaskItem } from "@/types";
 import { useNowTick } from "@/hooks/useNowTick";
+import { episodeItemRefLabel } from "@/utils/episode-display";
 import { MEDIA_META, elapsedSince, purposeKey } from "./usage-record-format";
 import type { UsageRecordView } from "./usage-record-view";
 
@@ -58,7 +59,7 @@ export function UsageActiveRow({
   const cancellable = task?.status === "queued";
   const purpose = purposeKey(view.purpose);
   const target = view.segmentId
-    ? t("usage_target_segment", { id: view.segmentId })
+    ? t("usage_target_segment", { id: episodeItemRefLabel(view.segmentId, view.segmentRef, t) })
     : purpose
       ? t(purpose)
       : "—";

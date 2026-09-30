@@ -312,13 +312,14 @@ export function useProjectEventsSSE(projectName?: string | null): void {
           groupChangesByType(entityChanges),
         );
 
+        const episodeLedger = useProjectsStore.getState().currentProjectData?.episodes ?? [];
         if (entityChanges.length > 0 && payload.source !== "webui") {
           for (const group of groupedChanges) {
             if (!hasImportantChanges(group)) {
               continue;
             }
             pushNotification(
-              formatGroupedNotificationText(group, tEventsRef.current),
+              formatGroupedNotificationText(group, tEventsRef.current, episodeLedger),
               "success",
             );
           }
@@ -351,7 +352,7 @@ export function useProjectEventsSSE(projectName?: string | null): void {
                     return null;
                   }
                   pushWorkspaceNotification({
-                    text: formatGroupedDeferredText(group, tEventsRef.current),
+                    text: formatGroupedDeferredText(group, tEventsRef.current, episodeLedger),
                     target,
                   });
                   return target;

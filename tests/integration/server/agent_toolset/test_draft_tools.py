@@ -397,7 +397,7 @@ async def test_patch_and_promote_refuse_an_edit_copy_once_the_script_plan_is_con
     draft_before = drama_quarantine_path(fake_ctx).read_bytes()
     content = opened["content"]
     content["scenes"][0]["scene_description"] = "阿离推开山门。"
-    args = {"episode": 1, "doc_type": "drama_script_plan"}
+    args = {"episode_id": 1, "doc_type": "drama_script_plan"}
 
     patched = await run_declared_tool(
         "patch_draft", fake_ctx, {**args, "content": content, "base_revision": opened["revision"]}
@@ -429,7 +429,7 @@ async def test_rerun_draft_on_a_confirmed_script_plan_can_still_be_repaired_and_
             "base_fingerprint": script_review.content_fingerprint(drama_script_plan_path(fake_ctx)),
         },
     )
-    args = {"episode": 1, "doc_type": "drama_script_plan"}
+    args = {"episode_id": 1, "doc_type": "drama_script_plan"}
     opened = draft_of(await run_declared_tool("open_draft", fake_ctx, args))
     content = opened["content"]
     content["scenes"][0]["scene_description"] = "阿离推开山门。"
@@ -461,7 +461,7 @@ async def test_prompt_authoring_draft_is_not_affected_by_a_confirmed_script_plan
     )
     project = fake_ctx.pm.load_project(fake_ctx.project_name)
     assert script_review.formal_script_plan_confirmed(fake_ctx.project_path, project, 1)
-    args = {"episode": 1, "doc_type": "reference_prompt_authoring"}
+    args = {"episode_id": 1, "doc_type": "reference_prompt_authoring"}
 
     opened = draft_of(await run_declared_tool("open_draft", fake_ctx, args))
     patched = await run_declared_tool(
@@ -567,7 +567,7 @@ async def test_patch_draft_stamps_the_current_schema_version_on_a_legacy_envelop
         "patch_draft",
         fake_ctx,
         {
-            "episode": 1,
+            "episode_id": 1,
             "doc_type": "reference_script_plan",
             "content": content,
             "base_revision": opened["revision"],
@@ -591,7 +591,7 @@ async def test_patch_draft_supports_multiple_rounds_and_rejects_stale_revision(f
         "patch_draft",
         fake_ctx,
         {
-            "episode": 1,
+            "episode_id": 1,
             "doc_type": "reference_script_plan",
             "content": first_content,
             "base_revision": opened["revision"],
@@ -604,7 +604,7 @@ async def test_patch_draft_supports_multiple_rounds_and_rejects_stale_revision(f
         "patch_draft",
         fake_ctx,
         {
-            "episode": 1,
+            "episode_id": 1,
             "doc_type": "reference_script_plan",
             "content": {"units": []},
             "base_revision": opened["revision"],
@@ -619,7 +619,7 @@ async def test_patch_draft_supports_multiple_rounds_and_rejects_stale_revision(f
         "patch_draft",
         fake_ctx,
         {
-            "episode": 1,
+            "episode_id": 1,
             "doc_type": "reference_script_plan",
             "content": second_content,
             "base_revision": first_result["revision"],
@@ -656,7 +656,7 @@ async def test_each_doc_type_completes_multi_patch_then_promote_or_discard(
             },
         )
 
-    args = {"episode": 1, "doc_type": doc_type}
+    args = {"episode_id": 1, "doc_type": doc_type}
     opened = draft_of(await run_declared_tool("open_draft", fake_ctx, args))
 
     def edit(content: dict, marker: str) -> None:
@@ -717,7 +717,7 @@ async def test_patch_draft_can_accept_a_merged_formal_revision(fake_ctx: ToolHar
         "patch_draft",
         fake_ctx,
         {
-            "episode": 1,
+            "episode_id": 1,
             "doc_type": "reference_script_plan",
             "content": merged,
             "base_revision": opened["revision"],
@@ -743,7 +743,7 @@ async def test_patch_draft_without_accept_formal_revision_keeps_the_old_baseline
         "patch_draft",
         fake_ctx,
         {
-            "episode": 1,
+            "episode_id": 1,
             "doc_type": "reference_script_plan",
             "content": opened["content"],
             "base_revision": opened["revision"],
@@ -775,7 +775,7 @@ async def test_patch_draft_changes_the_source_scope_only_when_source_is_given(
         "patch_draft",
         fake_ctx,
         {
-            "episode": 1,
+            "episode_id": 1,
             "doc_type": "reference_script_plan",
             "content": opened["content"],
             "base_revision": opened["revision"],
@@ -796,7 +796,7 @@ async def test_patch_draft_revision_covers_source_metadata_without_blocking_even
     write_rv_script_plan(fake_ctx, [rv_saved_unit("@[张三] 起身")])
     opened = draft_of(await open_for_edit(fake_ctx, source="source/episode_1.txt"))
     args = {
-        "episode": 1,
+        "episode_id": 1,
         "doc_type": "reference_script_plan",
         "content": opened["content"],
         "base_revision": opened["revision"],
@@ -879,7 +879,7 @@ async def test_discard_draft_rejects_stale_revision(fake_ctx: ToolHarness) -> No
             "patch_draft",
             fake_ctx,
             {
-                "episode": 1,
+                "episode_id": 1,
                 "doc_type": "reference_script_plan",
                 "content": changed,
                 "base_revision": opened["revision"],
@@ -890,7 +890,7 @@ async def test_discard_draft_rejects_stale_revision(fake_ctx: ToolHarness) -> No
     stale = await run_declared_tool(
         "discard_draft",
         fake_ctx,
-        {"episode": 1, "doc_type": "reference_script_plan", "base_revision": opened["revision"]},
+        {"episode_id": 1, "doc_type": "reference_script_plan", "base_revision": opened["revision"]},
     )
 
     assert stale.problem is not None
@@ -900,7 +900,7 @@ async def test_discard_draft_rejects_stale_revision(fake_ctx: ToolHarness) -> No
         await run_declared_tool(
             "discard_draft",
             fake_ctx,
-            {"episode": 1, "doc_type": "reference_script_plan", "base_revision": patched["revision"]},
+            {"episode_id": 1, "doc_type": "reference_script_plan", "base_revision": patched["revision"]},
         )
     )
     assert discarded["discarded"] is True
@@ -912,7 +912,7 @@ async def test_discard_draft_keeps_formal_content_and_is_idempotent(fake_ctx: To
     formal_before = rv_script_plan_path(fake_ctx).read_text(encoding="utf-8")
     opened = draft_of(await open_for_edit(fake_ctx))
 
-    args = {"episode": 1, "doc_type": "reference_script_plan", "base_revision": opened["revision"]}
+    args = {"episode_id": 1, "doc_type": "reference_script_plan", "base_revision": opened["revision"]}
     first = draft_of(await run_declared_tool("discard_draft", fake_ctx, args))
     second = draft_of(await run_declared_tool("discard_draft", fake_ctx, args))
 
@@ -934,7 +934,7 @@ async def test_open_reference_prompt_authoring_returns_flat_editable_content(fak
         },
     )
 
-    out = await run_declared_tool("open_draft", fake_ctx, {"episode": 1, "doc_type": "reference_prompt_authoring"})
+    out = await run_declared_tool("open_draft", fake_ctx, {"episode_id": 1, "doc_type": "reference_prompt_authoring"})
 
     draft = draft_of(out)
     assert draft["content"] == {"title": "第一集", "units": [{"text": "@[张三] 起身"}]}

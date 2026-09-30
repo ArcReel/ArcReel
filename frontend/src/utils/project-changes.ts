@@ -1,11 +1,15 @@
 import type { TFunction } from "i18next";
 
-import type { ProjectChange } from "@/types";
+import type { EpisodeMeta, ProjectChange } from "@/types";
+import { episodeDisplayName, episodeItemLabel } from "@/utils/episode-display";
 
 const GROUP_NAME_LIMIT = 5;
 
 /** 事件通知文案的翻译函数，由调用方从 `events` 命名空间取得。 */
 export type EventsT = TFunction<"events">;
+
+/** 把事件里的集 ID 与条目 ID 换成「标题 · S01」所需的账本，按播出顺序排列。 */
+export type EpisodeLedger = readonly Pick<EpisodeMeta, "episode" | "title">[];
 
 // 完成事件：一次生成跑完的信号。同时承担两种用途——
 // 一、通知类别（action 本身即类别，与 entity_type 无关）：优先级查表、导航行为、通知文案均不按
@@ -59,12 +63,20 @@ export function groupChangesByType(
 
 // 事件携带的稳定 label_key + label_params 是文案真相源；label 是后端按默认语言渲染的兜底，
 // 只在事件来自不认识该 key 的旧发布方时兜住，不参与常规渲染。
-function resolveChangeLabel(change: ProjectChange, t: EventsT): string {
+// 集 ID 与带集前缀的条目 ID 不直接露给创作者：集换成标题（或播出位置），条目换成「标题 · S01」。
+function resolveChangeLabel(change: ProjectChange, t: EventsT, episodes: EpisodeLedger): string {
   if (!change.label_key) {
     return change.label;
   }
+  const params: Record<string, unknown> = { ...change.label_params };
+  if (typeof params.id === "string") {
+    params.id = episodeItemLabel(params.id, episodes, t);
+  }
+  if (typeof params.episode === "number") {
+    params.episode_name = episodeDisplayName(episodes, params.episode, t);
+  }
   return t(`label.${change.label_key}`, {
-    ...change.label_params,
+    ...params,
     defaultValue: change.label,
   });
 }
@@ -90,7 +102,7 @@ function getEntityLabel(group: GroupedProjectChange, t: EventsT): string {
   });
 }
 
-function getChangeListLabel(change: ProjectChange, t: EventsT): string {
+function getChangeListLabel(change: ProjectChange, t: EventsT, episodes: EpisodeLedger): string {
   if (
     change.entity_type === "character" ||
     change.entity_type === "scene" ||
@@ -101,15 +113,15 @@ function getChangeListLabel(change: ProjectChange, t: EventsT): string {
     change.entity_type === "shot" ||
     change.entity_type === "reference_unit"
   ) {
-    return change.entity_id;
+    return episodeItemLabel(change.entity_id, episodes, t);
   }
-  return resolveChangeLabel(change, t);
+  return resolveChangeLabel(change, t, episodes);
 }
 
-function summarizeGroupNames(group: GroupedProjectChange, t: EventsT): string {
+function summarizeGroupNames(group: GroupedProjectChange, t: EventsT, episodes: EpisodeLedger): string {
   const names = group.changes
     .slice(0, GROUP_NAME_LIMIT)
-    .map((change) => getChangeListLabel(change, t));
+    .map((change) => getChangeListLabel(change, t, episodes));
   const suffix = group.changes.length > GROUP_NAME_LIMIT ? t("list.more_suffix") : "";
   return `${names.join(t("list.separator"))}${suffix}`;
 }
@@ -149,35 +161,37 @@ function groupTextKey(group: GroupedProjectChange): string {
 export function formatGroupedNotificationText(
   group: GroupedProjectChange,
   t: EventsT,
+  episodes: EpisodeLedger = [],
 ): string {
   if (group.changes.length === 1) {
     const change = group.changes[0];
     return t(`single.${singleTextKey(change.action)}`, {
-      label: resolveChangeLabel(change, t),
+      label: resolveChangeLabel(change, t, episodes),
     });
   }
 
   return t(`group.${groupTextKey(group)}`, {
     count: group.changes.length,
     entity: getEntityLabel(group, t),
-    summary: summarizeGroupNames(group, t),
+    summary: summarizeGroupNames(group, t, episodes),
   });
 }
 
 export function formatGroupedDeferredText(
   group: GroupedProjectChange,
   t: EventsT,
+  episodes: EpisodeLedger = [],
 ): string {
   if (group.changes.length === 1) {
     const change = group.changes[0];
     return t(`deferred.${singleTextKey(change.action)}`, {
-      label: resolveChangeLabel(change, t),
+      label: resolveChangeLabel(change, t, episodes),
     });
   }
 
   return t(`group_deferred.${groupTextKey(group)}`, {
     count: group.changes.length,
     entity: getEntityLabel(group, t),
-    summary: summarizeGroupNames(group, t),
+    summary: summarizeGroupNames(group, t, episodes),
   });
 }

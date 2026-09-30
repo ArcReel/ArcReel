@@ -37,7 +37,7 @@ class CreateTimelineRequest(BaseModel):
         alias="from",
         description="新建方式。script：按当前脚本顺序排列每个视频单元，整段使用、全部硬切",
     )
-    episode: PositiveEpisode = Field(description="集号，从 1 开始")
+    episode: PositiveEpisode = Field(description="集的集 ID（项目详情 episodes[].episode），不是第几集")
     name: str = Field(
         min_length=1,
         max_length=TIMELINE_NAME_MAX_LENGTH,

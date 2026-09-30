@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { StickyNote, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { itemIdWithinEpisode } from "@/utils/episode-display";
 
 interface NotesDrawerProps {
   /** 当前 shot 的 ID（用于 placeholder） */
@@ -130,7 +131,7 @@ export function NotesDrawer({ shotId, value, onCommit }: NotesDrawerProps) {
                 // 抽屉打开时聚焦，避免使用 autoFocus prop 触发 a11y lint
                 if (el) requestAnimationFrame(() => el.focus());
               }}
-              placeholder={t("shot_notes_placeholder", { id: shotId })}
+              placeholder={t("shot_notes_placeholder", { id: itemIdWithinEpisode(shotId) })}
               className="w-full resize-y rounded-md p-2.5 text-[12.5px] outline-none focus-ring"
               style={{
                 minHeight: 140,

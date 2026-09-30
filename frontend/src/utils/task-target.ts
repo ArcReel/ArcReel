@@ -6,6 +6,7 @@ import {
   WORKSPACE_ROUTE_SCENES,
 } from "@/app-routes";
 import type { ProjectData, TaskItem, WorkspaceNotificationTarget } from "@/types";
+import { itemIdsInEpisodeText, episodeItemLabel } from "@/utils/episode-display";
 
 /**
  * 由失败任务构建可点击回跳的通知 target，以及人类可读的失败文案。
@@ -137,14 +138,14 @@ const PROVIDER_REASON_MAX_LENGTH = 120;
 
 /**
  * 上游拒因摘要：后端在 `provider_rejected` 的 error_params 里单独回传的上游原文，
- * 不参与翻译，与走 i18n 模板的 error_message 分开渲染。级联失败等其它失败码没有
+ * 不参与翻译，显示时剥去条目的集 ID 前缀，与 i18n 模板的 error_message 分开渲染。其它失败码没有
  * 这个字段，返回 null。
  */
 export function providerReasonOf(task: TaskItem): string | null {
   if (task.error_code !== "provider_rejected") return null;
   const reason = task.error_params?.provider_reason;
   if (typeof reason !== "string") return null;
-  const trimmed = reason.trim();
+  const trimmed = itemIdsInEpisodeText(reason.trim());
   return trimmed || null;
 }
 
@@ -158,13 +159,18 @@ function truncateProviderReason(reason: string): string {
 
 /**
  * 失败任务的通知文案。未知 task_type 返回 null（调用方据此跳过推送）。
- * 有上游拒因摘要时追加在按 task_type 选出的文案之后。
+ * 条目按「标题 · S01」指称；有上游拒因摘要时追加在按 task_type 选出的文案之后。
  */
-export function describeTaskFailure(t: TFunction, task: TaskItem): string | null {
+export function describeTaskFailure(
+  t: TFunction,
+  task: TaskItem,
+  projectData: ProjectData | null = null,
+): string | null {
   const reason = task.error_message ?? t("reference_status_failed");
   const config = FAILURE_TEXT_KEYS[task.task_type];
   if (!config) return null;
-  const message = t(config.key, { [config.idParam]: task.resource_id, reason });
+  const target = episodeItemLabel(task.resource_id, projectData?.episodes ?? [], t);
+  const message = t(config.key, { [config.idParam]: target, reason });
   const providerReason = providerReasonOf(task);
   if (!providerReason) return message;
   // 拒因后缀单独取模板再拼接，不把已渲染的 message 当插值变量传回 i18next：插值

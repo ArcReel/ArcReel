@@ -59,7 +59,7 @@ describe("EpisodeSourceReview", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText("未找到本集源文切片（source/episode_2.txt）")).toBeInTheDocument();
+      expect(screen.getByText("未找到本集源文切片")).toBeInTheDocument();
     });
   });
 
@@ -110,15 +110,26 @@ describe("EpisodeSourceReview", () => {
     expect(screen.getByText("新的一集")).toBeInTheDocument();
   });
 
+  it("names an untitled episode by its broadcast position, not its episode id", async () => {
+    vi.spyOn(API, "getSourceContent").mockResolvedValue("text");
+    const episodes = [makeEpisode({ episode: 5 }), makeEpisode({ episode: 9, title: "" })];
+
+    render(<EpisodeSourceReview projectName="demo" episode={9} episodes={episodes} />);
+    fireEvent.click(screen.getByRole("button", { name: "开始创作 第 2 集" }));
+
+    expect(useAssistantStore.getState().input).toBe("为《第 2 集》（集 ID 9）生成脚本");
+    await waitFor(() => expect(screen.getByText("text")).toBeInTheDocument());
+  });
+
   it("prefills the assistant input and opens the panel on CTA click", async () => {
     vi.spyOn(API, "getSourceContent").mockResolvedValue("text");
     useAppStore.setState({ assistantPanelOpen: false });
 
     render(<EpisodeSourceReview projectName="demo" episode={1} episodes={[makeEpisode()]} />);
 
-    fireEvent.click(screen.getByRole("button", { name: "开始创作 E1" }));
+    fireEvent.click(screen.getByRole("button", { name: "开始创作 第一章：初遇" }));
 
-    expect(useAssistantStore.getState().input).toBe("为第 1 集生成脚本");
+    expect(useAssistantStore.getState().input).toBe("为《第一章：初遇》（集 ID 1）生成脚本");
     expect(useAppStore.getState().assistantPanelOpen).toBe(true);
 
     await waitFor(() => {

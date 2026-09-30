@@ -37,6 +37,7 @@ from lib.backends.text_backends.base import (
     truncate_for_log,
 )
 from lib.backends.text_generator import TextGenerator
+from lib.episode.episode_ids import allocate_episode_ids, episode_id_high_water
 from lib.episode.episode_ledger import (
     SOURCE_FINGERPRINTS_KEY,
     SourceDoc,
@@ -551,19 +552,16 @@ class EpisodePlanner:
             if changed:
                 raise _source_changed_error(changed)
             episodes_list = [e for e in (p.get("episodes") or []) if e is not None]
-            nums = [parse_episode_num(e.get("episode")) for e in episodes_list if isinstance(e, dict)]
-            # 集号只在正整数域上推进：负数/0 集号属脏数据，不让它把新集编号拖成非正数
-            next_num = max((n for n in nums if n is not None and n > 0), default=0) + 1
+            # 新集一律分配历史最高号之后的集 ID，接在账本末尾
+            new_ids = allocate_episode_ids(p, len(drafts))
             prev = start
-            for offset_idx, (draft_ep, rel_end) in enumerate(zip(drafts, ends, strict=True)):
-                num = next_num + offset_idx
+            for num, draft_ep, rel_end in zip(new_ids, drafts, ends, strict=True):
                 abs_end = start + rel_end
                 entry = _ledger_entry_from_draft(
                     draft_ep, num=num, source_rel=source_rel, start=prev, end=abs_end, status="planned"
                 )
-                # 新集号若在磁盘上已有剧本/script_plan/媒体产物（如重置到更早集号后重新规划、
-                # 新布局与原消费范围重叠），说明该集实际已被消费过；标 stale 提示主 Agent
-                # 需重做下游产物，产物本身不删除
+                # 新集 ID 在磁盘上已有剧本/script_plan 产物（历史最高号之外的手工残留），说明该 ID
+                # 实际已被消费过；标 stale 提示主 Agent 需重做下游产物，产物本身不删除
                 if has_downstream_products(self.project_path, num, entry):
                     entry["ledger_status"] = "stale"
                     script_plan_path = script_review.script_plan_path(self.project_path, p, num)
@@ -586,7 +584,6 @@ class EpisodePlanner:
                     )
                 )
                 prev = abs_end
-            _sort_episodes_if_possible(episodes_list)
             p["episodes"] = episodes_list
             p["planning_cursor"] = {"source_file": source_rel, "offset": start + ends[-1]}
             p[SOURCE_FINGERPRINTS_KEY] = current_fingerprints
@@ -603,7 +600,7 @@ class EpisodePlanner:
             if isinstance(entry, Mapping)
         }
         ledger_nums = {num for num in ledger_nums if num is not None and num > 0}
-        next_num = max(ledger_nums, default=0) + 1
+        next_num = episode_id_high_water(project) + 1
         formal_paths = existing_derived | {
             episode_source_path(self.project_path, num)
             for num in (*sorted(ledger_nums), *range(next_num, next_num + len(drafts)))
@@ -702,9 +699,8 @@ class EpisodePlanner:
             raise _DraftRejected([f"输出不符合 schema：{issues}"]) from exc
 
     def _effective_start(self, project: Mapping[str, Any]) -> tuple[str, int]:
-        """下一批规划起点：以账本中最后一个锚定集的范围末尾为准，游标更靠后时取游标。"""
+        """下一批规划起点：以播出顺序中最后一个锚定集的范围末尾为准，游标更靠后时取游标。"""
         last: tuple[str, int] | None = None
-        best_num: int | None = None
         for entry in project.get("episodes") or []:
             if not isinstance(entry, dict):
                 continue
@@ -714,13 +710,7 @@ class EpisodePlanner:
                 continue
             rel = source_range.get("source_file")
             end = source_range.get("end")
-            if (
-                isinstance(rel, str)
-                and isinstance(end, int)
-                and not isinstance(end, bool)
-                and (best_num is None or num > best_num)
-            ):
-                best_num = num
+            if isinstance(rel, str) and isinstance(end, int) and not isinstance(end, bool):
                 last = (rel, end)
         cursor = project.get("planning_cursor")
         cur: tuple[str, int] | None = None
@@ -892,7 +882,7 @@ class EpisodePlanner:
             keep.add(num)
             source_range = entry.get("source_range")
             if not isinstance(source_range, Mapping):
-                raise EpisodePlanningError(f"第 {num} 集缺少原文范围记录，无法完成派生文件对账，提交已中止")
+                raise EpisodePlanningError(f"集（id={num}）缺少原文范围记录，无法完成派生文件对账，提交已中止")
             rel = source_range.get("source_file")
             seg_start = source_range.get("start")
             seg_end = source_range.get("end")
@@ -903,24 +893,24 @@ class EpisodePlanner:
                 or isinstance(seg_start, bool)
                 or isinstance(seg_end, bool)
             ):
-                raise EpisodePlanningError(f"第 {num} 集原文范围记录非法，无法完成派生文件对账，提交已中止")
+                raise EpisodePlanningError(f"集（id={num}）原文范围记录非法，无法完成派生文件对账，提交已中止")
             text = text_cache.get(rel)
             if text is None:
                 try:
                     text = self._load_normalized_source(rel)
                 except EpisodePlanningError as exc:
-                    raise EpisodePlanningError(f"第 {num} 集派生文件重写失败，提交已中止：{exc}") from exc
+                    raise EpisodePlanningError(f"集（id={num}）派生文件重写失败，提交已中止：{exc}") from exc
                 text_cache[rel] = text
             # Python 切片对负值/越界静默容忍，脏坐标会写出与账本不符的内容，必须显式拦截
             if not 0 <= seg_start <= seg_end <= len(text):
                 raise EpisodePlanningError(
-                    f"第 {num} 集原文范围越界（start={seg_start}，end={seg_end}，源文长度 {len(text)}），"
+                    f"集（id={num}）原文范围越界（start={seg_start}，end={seg_end}，源文长度 {len(text)}），"
                     "无法完成派生文件对账，提交已中止"
                 )
             episode_path = episode_source_path(self.project_path, num)
             # 文件级符号链接同样拒绝：write_text 会跟随链接把内容写到链接目标（可能在项目外）
             if episode_path.is_symlink():
-                raise EpisodePlanningError(f"第 {num} 集派生文件是符号链接，拒绝写入，提交已中止")
+                raise EpisodePlanningError(f"集（id={num}）派生文件是符号链接，拒绝写入，提交已中止")
             writes.append((episode_path, text[seg_start:seg_end]))
         # 校验全部通过后统一落盘：校验类失败不会留下按新布局部分重写的派生文件
         source_dir.mkdir(exist_ok=True)
@@ -990,12 +980,6 @@ class EpisodePlanner:
         )
 
 
-def _sort_episodes_if_possible(episodes: list[Any]) -> None:
-    """全部集号可解析时按集号排序，否则保持原序。"""
-    if all(isinstance(e, dict) and parse_episode_num(e.get("episode")) is not None for e in episodes):
-        episodes.sort(key=lambda e: parse_episode_num(e["episode"]) or 0)
-
-
 def _count_planned_episodes(project: Mapping[str, Any]) -> int:
     """账本现算已规划集数（含全部 ledger_status），供全局进度提示使用。"""
     return sum(
@@ -1011,16 +995,14 @@ def _context_entries(project: Mapping[str, Any]) -> list[dict[str, Any]]:
     只取有位置记录的条目：没有 source_range 的集不是本机制规划出来的，它的标题/钩子
     未必出自同一套分集口径，不拿来当续写基准。
     """
-    anchored: list[tuple[int, dict[str, Any]]] = []
-    for entry in project.get("episodes") or []:
-        if not isinstance(entry, dict):
-            continue
-        num = parse_episode_num(entry.get("episode"))
-        if num is None or not isinstance(entry.get("source_range"), Mapping):
-            continue
-        anchored.append((num, entry))
-    anchored.sort(key=lambda pair: pair[0])
-    return [e for _, e in anchored[-_CONTEXT_EPISODES_LIMIT:]]
+    anchored = [
+        entry
+        for entry in project.get("episodes") or []
+        if isinstance(entry, dict)
+        and parse_episode_num(entry.get("episode")) is not None
+        and isinstance(entry.get("source_range"), Mapping)
+    ]
+    return anchored[-_CONTEXT_EPISODES_LIMIT:]
 
 
 def _build_planning_prompt(

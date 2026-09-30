@@ -18,6 +18,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from pydantic.json_schema import SkipJsonSchema
 
 from lib.artifacts.artifact_activation import active_artifact_currency_resolver
+from lib.episode.episode_ids import describe_episode_for_agent
 from lib.generation.generation_result import (
     GenerationResultBuilder,
     normalize_requested_ids,
@@ -95,7 +96,7 @@ async def list_pending_assets(
         if problem is not None:
             return ToolOutcome(problem=problem)
         value = request.value
-        _project, plan = await load_asset_sheet_batch_plan(
+        project, plan = await load_asset_sheet_batch_plan(
             services.projects,
             services.queue,
             project_name=scope.project_name,
@@ -103,7 +104,7 @@ async def list_pending_assets(
             user_id=caller.user_id,
         )
         pending = [*plan.target_ids, *(item.unit_id for item in plan.preflight.items)]
-        where = f"第 {value.episode_id} 集（id={value.episode_id}）引用的" if value.episode_id is not None else ""
+        where = f"{describe_episode_for_agent(project, value.episode_id)}引用的" if value.episode_id is not None else ""
         types = (value.type,) if value.type else ALL_TYPES
         lines: list[str] = []
         for asset_type in types:

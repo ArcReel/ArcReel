@@ -218,7 +218,7 @@ async def test_promote_draft_reports_again_without_round_limit(fake_ctx: ToolHar
 async def test_promote_draft_rejects_stale_draft_revision(fake_ctx: ToolHarness, monkeypatch) -> None:
     rv_source(fake_ctx)
     await run_rv_split(fake_ctx, monkeypatch, [rv_unit("@[不存在的人] 出场")])
-    args = {"episode": 1, "doc_type": "reference_script_plan"}
+    args = {"episode_id": 1, "doc_type": "reference_script_plan"}
     opened = draft_of(await run_declared_tool("open_draft", fake_ctx, args))
     updated = copy.deepcopy(opened["content"])
     updated["units"][0]["text"] = "@[张三] 在 @[村口] 出场"
@@ -276,7 +276,7 @@ async def test_promote_conflicts_when_official_changed_after_open(fake_ctx: Tool
         "patch_draft",
         fake_ctx,
         {
-            "episode": 1,
+            "episode_id": 1,
             "doc_type": "reference_script_plan",
             "content": refreshed["content"],
             "base_revision": refreshed["revision"],
@@ -311,7 +311,7 @@ async def test_promote_conflict_report_renders_missing_fingerprint_as_json_null(
         "patch_draft",
         fake_ctx,
         {
-            "episode": 1,
+            "episode_id": 1,
             "doc_type": "reference_script_plan",
             "content": refreshed["content"],
             "base_revision": refreshed["revision"],
@@ -937,7 +937,7 @@ async def _dry_run_authoring(fake_ctx: ToolHarness, content_mode: str, items_key
     ProjectManager.for_project_dir(fake_ctx.project_path).save_script(
         fake_ctx.project_path.name, script, "episode_1.json", validate=False
     )
-    out = await run_declared_tool("generate_episode_script", fake_ctx, {"episode": 1, "dry_run": True})
+    out = await run_declared_tool("generate_episode_script", fake_ctx, {"episode_id": 1, "dry_run": True})
     assert out.problem is None, out
     return said(out)
 
@@ -961,7 +961,7 @@ async def test_generate_episode_script_blocked_by_prompt_authoring_draft(fake_ct
     _write_rv_formal_script(fake_ctx, "@[张三] 起身")
     _write_prompt_authoring_draft(fake_ctx, [DraftViolation("坏", code="empty_text", label="unit E1U01")])
 
-    out = await run_declared_tool("generate_episode_script", fake_ctx, {"episode": 1})
+    out = await run_declared_tool("generate_episode_script", fake_ctx, {"episode_id": 1})
     assert out.problem is not None
     assert "草稿待处置" in said(out)
     assert "promote_draft" in said(out)
@@ -987,7 +987,7 @@ async def test_generate_episode_script_preserves_editable_draft_without_violatio
     _write_rv_formal_script(fake_ctx, "@[张三] 起身")
     _write_prompt_authoring_draft(fake_ctx, [])
 
-    out = await run_declared_tool("generate_episode_script", fake_ctx, {"episode": 1})
+    out = await run_declared_tool("generate_episode_script", fake_ctx, {"episode_id": 1})
     assert out.problem is not None
     text = said(out)
     assert "这是可编辑草稿" in text
@@ -1001,7 +1001,7 @@ async def test_generate_episode_script_quarantine_precedes_missing_formal_script
     _write_prompt_authoring_draft(fake_ctx, [DraftViolation("坏", code="empty_text", label="unit E1U01")])
     assert not (fake_ctx.project_path / "scripts" / "episode_1.json").exists()
 
-    out = await run_declared_tool("generate_episode_script", fake_ctx, {"episode": 1})
+    out = await run_declared_tool("generate_episode_script", fake_ctx, {"episode_id": 1})
     assert out.problem is not None
     text = said(out)
     assert "草稿待处置" in text
@@ -1013,7 +1013,7 @@ async def test_generate_episode_script_ignores_quarantine_after_mode_switch(fake
     rv_project(fake_ctx, generation_mode="storyboard")
     _write_rv_quarantine(fake_ctx)
 
-    out = await run_declared_tool("generate_episode_script", fake_ctx, {"episode": 1})
+    out = await run_declared_tool("generate_episode_script", fake_ctx, {"episode_id": 1})
     assert out.problem is not None
     # 卡在「尚无正式脚本」这道常规校验上，而不是参考路径的草稿
     assert "草稿待处置" not in said(out)
@@ -1155,7 +1155,7 @@ async def test_normalize_drama_script_clears_quarantine_on_regeneration(fake_ctx
     use_fake_caps(fake_ctx)
     monkeypatch.setattr(mod.TextGenerator, "create", fake_create)
 
-    out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode": 1, "source": "source/episode_1.txt"})
+    out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode_id": 1, "source": "source/episode_1.txt"})
 
     assert out.problem is None, out
     assert not drama_quarantine_path(fake_ctx).exists()
@@ -1200,7 +1200,7 @@ async def test_normalize_drama_script_serializes_commit_with_draft_edits(fake_ct
 
         monkeypatch.setattr(ProjectManager, "async_file_lock", observed_async_file_lock)
         task = asyncio.create_task(
-            run_declared_tool("generate_script_plan", fake_ctx, {"episode": 1, "source": "source/episode_1.txt"})
+            run_declared_tool("generate_script_plan", fake_ctx, {"episode_id": 1, "source": "source/episode_1.txt"})
         )
         await asyncio.wait_for(attempted.wait(), timeout=10)
         assert not task.done(), "generation commit must wait for the draft lock"
@@ -1238,7 +1238,7 @@ async def test_normalize_drama_script_preserves_draft_edited_during_model_call(
     use_fake_caps(fake_ctx)
     monkeypatch.setattr(mod.TextGenerator, "create", fake_create)
     generation = asyncio.create_task(
-        run_declared_tool("generate_script_plan", fake_ctx, {"episode": 1, "source": "source/episode_1.txt"})
+        run_declared_tool("generate_script_plan", fake_ctx, {"episode_id": 1, "source": "source/episode_1.txt"})
     )
     await started.wait()
     edited = copy.deepcopy(opened["content"])
@@ -1247,7 +1247,7 @@ async def test_normalize_drama_script_preserves_draft_edited_during_model_call(
         "patch_draft",
         fake_ctx,
         {
-            "episode": 1,
+            "episode_id": 1,
             "doc_type": "drama_script_plan",
             "content": edited,
             "base_revision": opened["revision"],
@@ -1292,7 +1292,7 @@ async def test_normalize_drama_script_preserves_output_when_formal_changes_durin
     use_fake_caps(fake_ctx)
     monkeypatch.setattr(mod.TextGenerator, "create", fake_create)
     generation = asyncio.create_task(
-        run_declared_tool("generate_script_plan", fake_ctx, {"episode": 1, "source": "source/episode_1.txt"})
+        run_declared_tool("generate_script_plan", fake_ctx, {"episode_id": 1, "source": "source/episode_1.txt"})
     )
     await started.wait()
     write_drama_script_plan(fake_ctx, [drama_scene(scene_description="并发正式内容")])
@@ -1327,7 +1327,7 @@ async def test_split_narration_segments_quarantines_violation_instead_of_discard
     use_fake_caps(fake_ctx)
     monkeypatch.setattr(mod.TextGenerator, "create", nr_generator_returning(segments))
 
-    out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode": 1, "source": "source/episode_1.txt"})
+    out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode_id": 1, "source": "source/episode_1.txt"})
 
     assert out.problem is not None
     report = said(out)
@@ -1360,7 +1360,7 @@ async def test_split_narration_segments_clears_quarantine_on_regeneration(fake_c
     use_fake_caps(fake_ctx)
     monkeypatch.setattr(mod.TextGenerator, "create", nr_generator_returning([nr_segment("E1S01", 4, _RV_NOVEL)]))
 
-    out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode": 1, "source": "source/episode_1.txt"})
+    out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode_id": 1, "source": "source/episode_1.txt"})
 
     assert out.problem is None, out
     assert not nr_quarantine_path(fake_ctx).exists()
@@ -1381,7 +1381,7 @@ async def test_split_narration_segments_rejects_malformed_segment_id(
         nr_generator_returning([nr_segment(segment_id, 4, _RV_NOVEL)]),
     )
 
-    out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode": 1, "source": "source/episode_1.txt"})
+    out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode_id": 1, "source": "source/episode_1.txt"})
 
     assert out.problem is not None
     assert not nr_script_plan_path(fake_ctx).exists()
@@ -1479,7 +1479,7 @@ async def test_promote_narration_script_plan_names_source_scope_on_coverage_viol
         "patch_draft",
         fake_ctx,
         {
-            "episode": 1,
+            "episode_id": 1,
             "doc_type": "narration_script_plan",
             "content": refreshed["content"],
             "base_revision": refreshed["revision"],

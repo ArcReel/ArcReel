@@ -752,7 +752,6 @@ export function StudioCanvasRouter() {
                 <PromptAuthoringHost
                   projectName={currentProjectName}
                   episode={epNum}
-                  episodeTitle={episode?.title}
                   script={script}
                   savedInstructions={episode?.prompt_authoring_instructions}
                 />
