@@ -88,9 +88,17 @@ def _replace_and_register(
     formal = project_dir / artifact_path
     with project_metadata_lock(project_dir):
         previous = read_render_record(project_dir, artifact_path)
-        manifest = ArtifactManifest(ProjectArtifactManifestAdapter(project_dir))
+        adapter = ProjectArtifactManifestAdapter(project_dir)
+        claimed = adapter.get_entry(key)
+        manifest = ArtifactManifest(adapter)
         manifest.forget_entry_transactionally(key)
-        os.replace(rendered, formal)
+        try:
+            os.replace(rendered, formal)
+        except BaseException:
+            # 正式文件没被替换，旧文件仍与旧登记相符。
+            if claimed is not None and adapter.get_entry(key) is None:
+                adapter.put_entry(key, claimed)
+            raise
         record = RenderRecord(
             version=(previous.version if previous is not None else 0) + 1,
             rendered_at=datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z"),

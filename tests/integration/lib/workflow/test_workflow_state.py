@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import unicodedata
 from pathlib import Path
 
@@ -575,6 +576,29 @@ def test_narration_progresses_through_storyboard_video_to_edit(tmp_path: Path) -
     assert ready.next_action.type == "none"
     assert ready.blockers == []
     assert ready.artifacts["edit_timelines"] == {"timeline_ids": [timeline_id]}
+
+    # 剪辑时间线目录读不了时停在「剪辑」一步并报 blocker，不让整个状态查询失败。
+    if os.geteuid() != 0:
+        edit_root = project_path / "edit_timelines"
+        edit_root.chmod(0)
+        try:
+            unreadable = service.get_status("demo")
+        finally:
+            edit_root.chmod(0o755)
+        assert unreadable.state == "EDIT"
+        assert unreadable.next_action.type == "none"
+        assert [blocker.code for blocker in unreadable.blockers] == ["invalid_edit_timelines"]
+
+    # 已有一条可用时间线，另一条文件损坏时同样停在「剪辑」一步并报 blocker。
+    corrupt = project_path / "edit_timelines" / "episode_1" / "tl-0000beef.json"
+    corrupt.write_text("{", encoding="utf-8")
+    try:
+        malformed = service.get_status("demo")
+    finally:
+        corrupt.unlink()
+    assert malformed.state == "EDIT"
+    assert malformed.next_action.type == "none"
+    assert [blocker.code for blocker in malformed.blockers] == ["invalid_edit_timelines"]
 
     pm.update_project(
         "demo",

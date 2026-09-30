@@ -2,7 +2,7 @@
 
 产物身份是「集 + 剪辑时间线 + 旁白版本 + 是否烧入字幕」。生成依据只收录渲染实际消费的内容：
 剪辑时间线修订里影响画面与声音的部分（片段顺序、生效的截取、原声音量、定格延长、转场），
-各片段所用视频单元 current 视频的版本与内容指纹，以及输出画布。修订号标识本次剪辑决策快照；剪辑理由不单独进入依据；
+各片段所用视频单元 current 视频的版本、内容指纹与供应商原声开关，以及输出画布。修订号标识本次剪辑决策快照；剪辑理由不单独进入依据；
 截取所依据的版本已不是 current 时截取被忽略，依据里也记为整段使用。
 
 渲染任务开始时按指定修订取依据快照，产物时效判定按最新修订重建依据，两处共用
@@ -18,7 +18,7 @@ from typing import Any
 
 from lib.artifacts.artifact_manifest import ArtifactBasis, ArtifactKey
 from lib.artifacts.rendered_artifact import RENDERS_DIRNAME
-from lib.artifacts.version_manager import VersionManager
+from lib.artifacts.version_manager import UnmanagedSnapshotPathError, VersionManager
 from lib.artifacts.video_visual_provenance import resolve_video_aspect_ratio
 from lib.edit_timeline.model import EditClip, EditTimelineDocument, TimelineRevision
 from lib.final_cut.render_plan import OutputProfile, output_profile_for_aspect_ratio
@@ -68,13 +68,18 @@ def output_profile_for_project(project: Mapping[str, Any], script_kind: str) -> 
 
 @dataclass(frozen=True, slots=True)
 class CurrentVideo:
-    """视频单元 current 视频的正式文件与内容指纹。"""
+    """视频单元 current 视频的正式文件，以及渲染读取的该版本快照文件与快照的内容指纹。
+
+    ``provider_audio`` 取自该版本记录的供应商原声开关：记录为未生成原声时，渲染不使用快照里的音轨。
+    """
 
     resource_type: str
     unit_id: str
     version: int
     artifact_path: str
     content_digest: str
+    snapshot: Path
+    provider_audio: bool
 
 
 def current_video(
@@ -84,18 +89,42 @@ def current_video(
     unit_id: str,
     digest: Callable[[str], str],
 ) -> CurrentVideo | None:
-    """可用视频：current 版本 > 0 且正式文件在场；stale 视频同样可用。"""
+    """可用视频：current 版本 > 0、正式文件与该版本快照都在场；stale 视频同样可用。
+
+    渲染读取版本快照而不是正式文件：正式文件会被新生成或版本恢复替换，快照不会。内容指纹也取自快照，
+    依据描述的就是渲染实际读取的字节。
+    """
     version = versions.get_current_version(resource_type, unit_id)
     artifact_path = resource_relative_path(resource_type, unit_id)
     if version <= 0 or not (project_dir / artifact_path).is_file():
         return None
+    found = _version_snapshot(project_dir, versions, resource_type, unit_id, version)
+    if found is None:
+        return None
+    snapshot, record = found
     return CurrentVideo(
         resource_type=resource_type,
         unit_id=unit_id,
         version=version,
         artifact_path=artifact_path,
-        content_digest=digest(artifact_path),
+        content_digest=digest(snapshot.relative_to(project_dir).as_posix()),
+        snapshot=snapshot,
+        provider_audio=record.get("execution_generate_audio") is not False,
     )
+
+
+def _version_snapshot(
+    project_dir: Path, versions: VersionManager, resource_type: str, unit_id: str, version: int
+) -> tuple[Path, Mapping[str, Any]] | None:
+    records = versions.get_versions(resource_type, unit_id).get("versions")
+    for record in records if isinstance(records, list) else []:
+        if isinstance(record, Mapping) and record.get("version") == version:
+            try:
+                path = VersionManager.resolve_snapshot_path(project_dir, resource_type, record.get("file"))
+            except UnmanagedSnapshotPathError:
+                return None
+            return (path, record) if path.is_file() else None
+    return None
 
 
 @dataclass(frozen=True, slots=True)
@@ -162,6 +191,7 @@ def _clip_input(item: ConsumedClip) -> dict[str, object]:
             "resource_type": item.video.resource_type,
             "version": item.video.version,
             "content_digest": item.video.content_digest,
+            "provider_audio": item.video.provider_audio,
         },
         "trim": {"in_us": trim.in_us, "out_us": trim.out_us} if trim is not None else None,
         "source_volume": clip.source_volume,

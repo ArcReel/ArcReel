@@ -11,6 +11,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 
 from lib.edit_timeline.model import EditClip, EditTimelineContent
+from lib.edit_timeline.readout import effective_source_range_us
 
 
 @dataclass(frozen=True, slots=True)
@@ -94,10 +95,7 @@ class DraftPlacement:
 
 def _source_window(clip: EditClip, unit: UnitMaterial) -> tuple[int, int]:
     """截取后的源素材区间 ``[in, out)``：current 已不是截取所依据的版本时整段使用。"""
-    if clip.trim is None or clip.trim.basis_version != unit.video_version:
-        return 0, unit.video_duration_us
-    source_in = min(clip.trim.in_us, unit.video_duration_us)
-    return source_in, max(source_in, min(clip.trim.out_us, unit.video_duration_us))
+    return effective_source_range_us(clip, unit.video_version, unit.video_duration_us)
 
 
 def _clip_subtitles(clip: PlacedClip, unit: UnitMaterial, *, carries: bool) -> list[PlacedSubtitle]:

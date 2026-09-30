@@ -219,8 +219,8 @@ class _Batch:
         in_range = 0 <= spec.source_in < spec.source_out <= whole + 0.001
         in_us = seconds_to_microseconds(spec.source_in) if in_range else 0
         out_us = seconds_to_microseconds(spec.source_out) if in_range else 0
-        # 出点按毫秒规整后可能比实测时长多出不足 1 毫秒，规整回视频末尾。
-        if whole_us < out_us < whole_us + 1_000:
+        # 出点按毫秒规整后可能比实测时长多出至多 1 毫秒，规整回视频末尾。
+        if whole_us < out_us <= whole_us + 1_000:
             out_us = whole_us
         allowed = (
             f"0 ≤ source_in < source_out ≤ {whole}，且至少保留 {microseconds_to_seconds(MIN_TRIM_MICROSECONDS)} 秒"
@@ -434,12 +434,18 @@ def apply_operations(
     next_clip_number: int,
     operations: Sequence[TimelineOperation],
     sources: EpisodeSources,
+    *,
+    check_windows: bool = True,
 ) -> AppliedBatch:
-    """依次应用一批操作；任一条非法即抛出 ``operation_invalid``。BGM 轨原样保留。"""
+    """依次应用一批操作；任一条非法即抛出 ``operation_invalid``。BGM 轨原样保留。
+
+    ``check_windows`` 为 False 时跳过整批的转场窗口检查，只用于先判断并发冲突的预演。
+    """
     batch = _Batch(content, next_clip_number, sources)
     for index, operation in enumerate(operations):
         batch.apply(index, operation)
-    batch.check_transition_windows()
+    if check_windows:
+        batch.check_transition_windows()
     return AppliedBatch(
         content=EditTimelineContent(clips=tuple(batch.clips), bgm=content.bgm),
         next_clip_number=batch.next_clip_number,

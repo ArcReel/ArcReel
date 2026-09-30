@@ -166,6 +166,12 @@ async def test_stale_base_still_applies_when_its_clips_were_untouched(service: E
             {"op": "insert", "unit_id": "E1U3", "after": "c1"},
             ["c1"],
         ),
+        # 他人在 c2 后插入片段，本批要加转场的 c2→c3 切点已不存在
+        (
+            {"op": "insert", "unit_id": "E1U1", "after": "c2"},
+            {"op": "set_transition", "clip": "c2", "transition": {"type": "dissolve", "duration": 0.2}},
+            ["c2"],
+        ),
     ],
 )
 async def test_stale_base_is_rejected_with_the_conflicting_clips(
@@ -501,3 +507,66 @@ async def test_changes_restored_within_a_single_batch_still_conflict(service: Ed
         await _edit(service, timeline_id, 1, {"op": "set_hold", "clip": "c1", "hold": 0.5})
     assert excinfo.value.params["conflicting_clip_ids"] == ["c1"]
     assert (await service.read("demo", timeline_id)).revision == 2
+
+
+@pytest.mark.usefixtures("three_clips")
+async def test_trim_out_point_one_millisecond_past_the_end_snaps_to_the_video_end(
+    service: EditTimelineService,
+) -> None:
+    timeline_id = await _create(service)
+    before = await service.read("demo", timeline_id)
+    whole = next(clip for clip in before.clips if clip.id == "c2").duration
+
+    result = await _edit(
+        service,
+        timeline_id,
+        1,
+        {"op": "set_trim", "clip": "c2", "trim": {"source_in": 0.2, "source_out": round(whole + 0.001, 3)}},
+    )
+
+    [clip] = [clip for clip in result.clips if clip.id == "c2"]
+    assert clip.trim is not None
+    assert (clip.trim.source_in, clip.trim.source_out) == (0.2, whole)
+    assert clip.duration == round(whole - 0.2, 3)
+
+
+@pytest.mark.usefixtures("three_clips")
+async def test_a_moved_cut_is_reported_as_a_conflict_before_the_new_neighbour_is_validated(
+    service: EditTimelineService,
+) -> None:
+    timeline_id = await _create(service)
+    await _edit(service, timeline_id, 1, {"op": "insert", "unit_id": "E1U3", "after": "c1"})
+
+    # c1→c2 容得下 1.2 秒转场；他人插入的 c4 只有 0.5 秒，但本批看到的切点已不存在，应先报冲突。
+    with pytest.raises(EditTimelineError) as excinfo:
+        await _edit(
+            service,
+            timeline_id,
+            1,
+            {"op": "set_transition", "clip": "c1", "transition": {"type": "dissolve", "duration": 1.2}},
+        )
+
+    assert excinfo.value.code == "revision_conflict"
+    assert excinfo.value.params["conflicting_clip_ids"] == ["c1"]
+
+
+@pytest.mark.usefixtures("three_clips")
+async def test_stale_transition_is_checked_against_the_latest_neighbour_lengths(service: EditTimelineService) -> None:
+    timeline_id = await _create(service)
+    await _edit(
+        service, timeline_id, 1, {"op": "set_trim", "clip": "c2", "trim": {"source_in": 0.5, "source_out": 0.75}}
+    )
+    await _edit(
+        service, timeline_id, 2, {"op": "set_trim", "clip": "c2", "trim": {"source_in": 0.0, "source_out": 1.5}}
+    )
+
+    # 基准修订上 c2 只有 0.25 秒、放不下 0.8 秒转场；最新修订上 c2 已恢复整段，这批操作合法。
+    result = await _edit(
+        service,
+        timeline_id,
+        2,
+        {"op": "set_transition", "clip": "c1", "transition": {"type": "dissolve", "duration": 0.8}},
+    )
+    assert result.revision == 4
+    current = await service.read("demo", timeline_id)
+    assert current.clips[0].transition_to_next is not None

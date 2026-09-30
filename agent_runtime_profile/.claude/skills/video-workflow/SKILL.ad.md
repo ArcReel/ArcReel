@@ -61,9 +61,12 @@ Read 只补充创作输入与商品 soft gate 信息。每次动作完成后刷�
    - 带货项目走分镜图生视频时，先审核商品分镜保真度，再产生视频费用；通用短片没有商品分镜，不设这道审核。
    - 参考生视频按自包含视频单元生成，跳过分镜；参考图在执行期按正文 `@[名称]` 的首次提及顺序解析，商品与角色、场景、道具同规则。用户不满意时按 `unit_id` 点名重做。
 
-8. **剪辑**：调 `mcp__arcreel__create_timeline({"from": "script", "episode": target.episode, "name": "完整版"})`
+8. **剪辑**：TTS 配音项目（`plan.status.artifacts.audio.missing_ids` 非空）先按 `generate-narration-audio` skill
+   调 `mcp__arcreel__generate_narration_audio({"script": target.script_filename})` 补齐缺失的旁白配音，不带
+   `segment_ids`；项目选择 TTS 即已授权。剪辑时间线一建好这一步就完成，之后工作流不会再回到这里补配音。
+   再调 `mcp__arcreel__create_timeline({"from": "script", "episode": target.episode, "name": "完整版"})`
    按脚本机械新建一条剪辑时间线，至少有一条剪辑时间线，这一步即完成。之后按 `edit-video` skill
-   在它上面剪辑，只在用户要求时出成片。声音归属与字幕时序由服务端 presentation 结果决定——
+   在它上面剪辑，只在用户要求时出成片或导出剪映草稿。声音归属与字幕时序由服务端 presentation 结果决定——
    **不要自行估算字幕时间轴，也不要替用户判断 TTS 是否必需**。stale 产物照常可用，出片不清空也不
    覆盖旧付费媒体。
 

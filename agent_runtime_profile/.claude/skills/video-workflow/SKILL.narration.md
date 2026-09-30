@@ -58,8 +58,7 @@ description: 将小说转换为短视频的端到端工作流编排器。当用�
 下文各节以 `next_action.type` 为标题。`none` 时：有 `blockers` 就展示并停止变更；
 `status.state == "COMPLETED"` 表示工作流已走完。
 
-> 批量旁白配音由用户显式触发（见「批量旁白配音」节）：它只依赖剧本各段的 `novel_text`，
-> 独立于分镜图/视频——`generate_script` 产出剧本后即可执行。
+> 批量旁白配音不由 `next_action` 驱动，何时触发见「批量旁白配音」节。
 
 ---
 
@@ -295,9 +294,12 @@ stale 产物照常可预览、可导出、可参与成片，是否重做由用�
 
 **触发**：`next_action.type == "create_edit_timeline"`，本集视频已齐、还没有剪辑时间线。
 
-调 `mcp__arcreel__create_timeline({"from": "script", "episode": target.episode, "name": "完整版"})` 按脚本
+TTS 配音项目（`plan.status.artifacts.audio.missing_ids` 非空）先按「批量旁白配音」节补齐缺失配音。剪辑时间线一建好
+这一步就完成，之后工作流不会再回到这里补配音。
+
+再调 `mcp__arcreel__create_timeline({"from": "script", "episode": target.episode, "name": "完整版"})` 按脚本
 机械新建一条剪辑时间线，至少有一条剪辑时间线，这一步即完成。之后按 `edit-video` skill 在它上面剪辑，
-只在用户要求时出成片。
+只在用户要求时出成片或导出剪映草稿。
 
 ---
 

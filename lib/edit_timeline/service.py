@@ -7,6 +7,7 @@ import secrets
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from itertools import pairwise
 
 from pydantic import BaseModel, ConfigDict, TypeAdapter, ValidationError
 
@@ -22,6 +23,7 @@ from lib.edit_timeline.model import (
 from lib.edit_timeline.operations import (
     AppliedBatch,
     InsertClip,
+    SetTransition,
     TimelineOperation,
     apply_operations,
     default_source_volume,
@@ -132,6 +134,10 @@ def _normalized_name(name: str) -> str:
         return _TIMELINE_NAME.validate_python(name)
     except ValidationError as exc:
         raise EditTimelineError("timeline_name_invalid", "剪辑时间线显示名须为 1–40 个字符", name=name) from exc
+
+
+def _successors(content: EditTimelineContent) -> dict[str, str]:
+    return dict(pairwise(clip.id for clip in content.clips))
 
 
 class EditTimelineService:
@@ -333,7 +339,12 @@ class EditTimelineService:
         operations: Sequence[TimelineOperation],
         sources: EpisodeSources,
     ) -> AppliedBatch:
-        """本批在基准修订上点名或会改动的片段，与基准修订之后他人改动过的片段不能相交。"""
+        """本批在基准修订上点名或会改动的片段，与基准修订之后他人改动过的片段不能相交。
+
+        本批设置转场的片段，在基准修订与最新修订上应用本批后必须接着同一个片段：转场描述的是
+        调用方在基准修订上看到的那个切点。两次预演只判断冲突、不校验转场窗口；窗口按最新修订在最后的
+        完整应用中校验。
+        """
         since_base: set[str] = set()
         for previous, revision in zip(
             document.revisions[base.number - 1 : -1], document.revisions[base.number :], strict=True
@@ -343,7 +354,7 @@ class EditTimelineService:
                 if revision.changed_clip_ids is not None
                 else diff_content(previous.content, revision.content).changed
             )
-        on_base = apply_operations(base.content, document.next_clip_number, operations, sources)
+        on_base = apply_operations(base.content, document.next_clip_number, operations, sources, check_windows=False)
         touched = on_base.referenced | frozenset(on_base.last_operation)
 
         def reject(conflicting: set[str] | frozenset[str]) -> None:
@@ -360,10 +371,19 @@ class EditTimelineService:
 
         if conflicting := touched & since_base:
             reject(conflicting)
-        on_latest = apply_operations(document.latest.content, document.next_clip_number, operations, sources)
+        on_latest = apply_operations(
+            document.latest.content, document.next_clip_number, operations, sources, check_windows=False
+        )
         if conflicting := frozenset(on_latest.last_operation) & since_base:
             reject(conflicting)
-        return on_latest
+        base_next, latest_next = _successors(on_base.content), _successors(on_latest.content)
+        if moved_cuts := {
+            operation.clip
+            for operation in operations
+            if isinstance(operation, SetTransition) and base_next.get(operation.clip) != latest_next.get(operation.clip)
+        }:
+            reject(moved_cuts)
+        return apply_operations(document.latest.content, document.next_clip_number, operations, sources)
 
     async def list_timelines(self, project_name: str, *, episode: int | None = None) -> tuple[TimelineSummary, ...]:
         def load() -> list[EditTimelineDocument]:

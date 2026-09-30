@@ -6,7 +6,7 @@ import json
 import logging
 import time
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from typing import Any
 
 from sqlalchemy import ColumnElement, func, select, text, update
@@ -963,16 +963,31 @@ class TaskRepository(BaseRepository):
         await self.session.commit()
         return 1 if data is not None else 0
 
-    async def get_cancel_all_preview(self, project_name: str) -> int:
-        """返回项目中当前 queued 状态的任务数量。"""
-        stmt = select(func.count()).select_from(Task).where(Task.project_name == project_name, Task.status == "queued")
+    async def get_cancel_all_preview(self, project_name: str, *, exclude_media_types: Collection[str] = ()) -> int:
+        """返回项目中当前 queued 状态的任务数量；``exclude_media_types`` 里的媒体类型不计。"""
+        stmt = (
+            select(func.count())
+            .select_from(Task)
+            .where(
+                Task.project_name == project_name, Task.status == "queued", Task.media_type.not_in(exclude_media_types)
+            )
+        )
         result = await self.session.execute(self._scope_query(stmt, Task))
         return result.scalar_one()
 
-    async def cancel_all_queued(self, project_name: str) -> dict[str, Any]:
-        """取消项目中所有 queued 任务。"""
+    async def cancel_all_queued(
+        self, project_name: str, *, exclude_media_types: Collection[str] = ()
+    ) -> dict[str, Any]:
+        """取消项目中所有 queued 任务；``exclude_media_types`` 里的媒体类型不取消。"""
         queued_result = await self.session.execute(
-            self._scope_query(select(Task).where(Task.project_name == project_name, Task.status == "queued"), Task)
+            self._scope_query(
+                select(Task).where(
+                    Task.project_name == project_name,
+                    Task.status == "queued",
+                    Task.media_type.not_in(exclude_media_types),
+                ),
+                Task,
+            )
         )
         task_ids = [t.task_id for t in queued_result.scalars().all()]
         if not task_ids:

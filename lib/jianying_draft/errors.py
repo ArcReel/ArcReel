@@ -7,6 +7,8 @@ from typing import Any, Literal
 type JianyingDraftErrorCode = Literal[
     "jianying_draft_narration_unavailable",
     "jianying_draft_blocked",
+    "jianying_draft_content_unsupported",
+    "jianying_draft_empty",
     "jianying_draft_presentation_unavailable",
     "jianying_draft_hold_frame_unavailable",
     "jianying_draft_acceptance_failed",

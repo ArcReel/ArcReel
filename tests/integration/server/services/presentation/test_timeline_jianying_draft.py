@@ -24,8 +24,8 @@ from lib.artifacts.version_manager import VersionManager
 from lib.artifacts.video_artifact_facts import VideoArtifactCurrencyFacts
 from lib.artifacts.visual_artifact_provenance import build_storyboard_video_artifact_visual_basis
 from lib.edit_timeline import EditTimelineService, RevisionAuthor
-from lib.edit_timeline.model import ClipTrim, EditTimelineContent, TimelineRevision
-from lib.edit_timeline.operations import SetReason, SetVolume
+from lib.edit_timeline.model import BgmClip, ClipTrim, EditTimelineContent, TimelineRevision
+from lib.edit_timeline.operations import SetReason, SetTransition, SetVolume, TransitionSpec
 from lib.edit_timeline.store import EditTimelineStore
 from lib.jianying_draft.errors import JianyingDraftError
 from lib.project.project_manager import ProjectManager
@@ -404,3 +404,72 @@ async def test_export_is_refused_on_blocking_issues_and_unavailable_narration_va
         ("video_missing", "E1S03")
     ]
     assert not (project_path / "renders" / "episode_1" / blocked_id).exists()
+
+
+async def test_transitions_and_bgm_are_refused_like_the_final_cut(tmp_path: Path) -> None:
+    pm, project_path = _setup_project(tmp_path)
+    timeline_id = await _edited_timeline(pm)
+    service = TimelineJianyingDraftService(pm)
+    await EditTimelineService(pm).edit(
+        "demo",
+        timeline_id,
+        base_revision=2,
+        summary="加转场",
+        operations=[
+            SetTransition(op="set_transition", clip="c1", transition=TransitionSpec(type="dissolve", duration=0.4))
+        ],
+        author=CREATOR,
+    )
+
+    with pytest.raises(JianyingDraftError) as transition_refused:
+        await service.render("demo", timeline_id, narration="without_narration")
+    assert transition_refused.value.code == "jianying_draft_content_unsupported"
+    assert transition_refused.value.params == {"clip_ids": ["c1"], "bgm_ids": []}
+
+    store = EditTimelineStore(pm, "demo")
+    document = store.find(timeline_id)
+    content = document.latest.content
+    hard_cut = content.model_copy(
+        update={
+            "clips": tuple(clip.model_copy(update={"transition_to_next": None}) for clip in content.clips),
+            "bgm": (BgmClip(id="b1", bgm_id="theme", start_us=0, in_us=0, out_us=1_000_000),),
+        }
+    )
+    with store.locked_episode(document.episode):
+        store.write(document.model_copy(update={"next_bgm_number": 2}))
+    _append_revision(pm, timeline_id, hard_cut)
+
+    with pytest.raises(JianyingDraftError) as bgm_refused:
+        await service.check("demo", timeline_id, narration="without_narration")
+    assert bgm_refused.value.params == {"clip_ids": [], "bgm_ids": ["b1"]}
+    assert not (project_path / "renders" / "episode_1" / timeline_id).exists()
+
+
+async def test_edit_timeline_without_clips_is_refused_like_the_final_cut(tmp_path: Path) -> None:
+    pm, project_path = _setup_project(tmp_path)
+    timeline_id = await _edited_timeline(pm)
+    _append_revision(pm, timeline_id, EditTimelineContent())
+
+    with pytest.raises(JianyingDraftError) as refused:
+        await TimelineJianyingDraftService(pm).render("demo", timeline_id, narration="without_narration")
+    assert refused.value.code == "jianying_draft_empty"
+    assert not (project_path / "renders" / "episode_1" / timeline_id).exists()
+
+
+@pytest.mark.parametrize(
+    ("narration_delivery", "expected"),
+    [("use_tts", "with_narration"), ("post_production", "without_narration")],
+)
+async def test_omitted_narration_version_follows_the_project_narration_delivery(
+    tmp_path: Path, narration_delivery: str, expected: str
+) -> None:
+    pm, _project_path = _setup_project(tmp_path, narration_delivery=narration_delivery)
+    timeline_id = await _edited_timeline(pm)
+    service = TimelineJianyingDraftService(pm)
+
+    check = await service.check("demo", timeline_id)
+    await service.render("demo", timeline_id, narration=check.narration)
+    status = await service.status("demo", timeline_id)
+
+    assert check.narration == expected
+    assert (status.narration, status.status) == (expected, ArtifactStatus.CURRENT)

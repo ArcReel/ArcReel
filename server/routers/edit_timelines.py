@@ -22,12 +22,13 @@ from lib.edit_timeline import (
     RevisionAuthor,
     TimelineSummary,
 )
+from lib.edit_timeline.errors import edit_timeline_message
 from lib.final_cut.basis import DEFAULT_VARIANT
 from lib.final_cut.errors import FinalCutError
 from lib.final_cut.service import FinalCutService, FinalCutStatus
 from lib.generation.generation_queue import ActiveTaskRequestConflict, GenerationQueue, get_generation_queue
 from lib.infra.api_errors import ApiError
-from lib.jianying_draft.basis import WITHOUT_NARRATION, DraftNarration
+from lib.jianying_draft.basis import DraftNarration
 from lib.jianying_draft.errors import JianyingDraftError
 from lib.jianying_draft.results import JianyingDraftStatus
 from lib.project.project_manager import get_project_manager
@@ -70,24 +71,24 @@ def get_jianying_draft_service() -> TimelineJianyingDraftService:
 # 具体类型只在 TYPE_CHECKING 下可见：pyJianYingDraft 是重依赖，运行期按需惰性导入。
 JianyingDraftServiceDep = Annotated[Any, Depends(get_jianying_draft_service)]
 
-_ERROR_STATUS: dict[str, tuple[str, int]] = {
-    "project_not_found": ("project_not_found", 404),
-    "episode_not_found": ("episode_not_found", 404),
-    "timeline_not_found": ("edit_timeline_not_found", 404),
-    "revision_not_found": ("edit_timeline_revision_not_found", 404),
-    "timeline_name_conflict": ("edit_timeline_name_conflict", 409),
-    "timeline_name_invalid": ("edit_timeline_name_invalid", 422),
-    "script_invalid": ("edit_timeline_script_invalid", 422),
-    "timeline_invalid": ("edit_timeline_invalid", 422),
+_ERROR_STATUS: dict[str, int] = {
+    "project_not_found": 404,
+    "episode_not_found": 404,
+    "timeline_not_found": 404,
+    "revision_not_found": 404,
+    "timeline_name_conflict": 409,
+    "timeline_name_invalid": 422,
+    "script_invalid": 422,
+    "timeline_invalid": 422,
 }
 
 
 def edit_timeline_api_error(exc: EditTimelineError) -> ApiError:
-    key, status_code = _ERROR_STATUS[exc.code]
-    params = dict(exc.params)
-    if "project" in params:
-        params["name"] = params.pop("project")
-    return ApiError(key, status_code=status_code, **params)
+    message = edit_timeline_message(exc.code, exc.params)
+    if message is None:
+        raise exc
+    key, params = message
+    return ApiError(key, status_code=_ERROR_STATUS[exc.code], **params)
 
 
 _FINAL_CUT_STATUS: dict[str, int] = {
@@ -192,7 +193,7 @@ async def render_final_cut(
     user: CurrentUser,
     body: RenderFinalCutBody | None = None,
 ) -> FinalCutSubmission:
-    """先检查阻断问题再入队；``revision`` 省略时渲染任务开始时的最新修订。"""
+    """先检查阻断问题再入队；``revision`` 省略时渲染提交时的最新修订。"""
     revision = body.revision if body is not None else None
     try:
         check = await service.check(project_name, timeline_id, revision=revision, variant=DEFAULT_VARIANT)
@@ -201,7 +202,7 @@ async def render_final_cut(
     except FinalCutError as exc:
         raise final_cut_api_error(exc) from exc
     request = final_cut_task_request(
-        episode=check.episode, timeline_id=check.timeline_id, revision=revision, variant=DEFAULT_VARIANT
+        episode=check.episode, timeline_id=check.timeline_id, revision=check.revision, variant=DEFAULT_VARIANT
     )
     try:
         enqueued = await queue.enqueue_task(
@@ -237,7 +238,8 @@ class ExportJianyingDraftBody(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     revision: int | None = Field(default=None, ge=1)
-    narration: DraftNarration = WITHOUT_NARRATION
+    # 省略时按项目取默认旁白版本：TTS 配音项目带旁白，其余不带旁白。
+    narration: DraftNarration | None = None
 
 
 class JianyingDraftSubmission(BaseModel):
@@ -249,6 +251,8 @@ class JianyingDraftSubmission(BaseModel):
 _JIANYING_DRAFT_STATUS: dict[str, int] = {
     "jianying_draft_narration_unavailable": 422,
     "jianying_draft_blocked": 409,
+    "jianying_draft_content_unsupported": 422,
+    "jianying_draft_empty": 422,
     "jianying_draft_not_exported": 404,
     "jianying_draft_invalid": 409,
 }
@@ -277,7 +281,7 @@ async def export_jianying_draft(
     user: CurrentUser,
     body: ExportJianyingDraftBody | None = None,
 ) -> JianyingDraftSubmission:
-    """先检查阻断问题再入队；``revision`` 省略时导出任务开始时的最新修订。"""
+    """先检查阻断问题再入队；``revision`` 省略时导出提交时的最新修订。"""
     request_body = body or ExportJianyingDraftBody()
     try:
         check = await service.check(
@@ -290,8 +294,8 @@ async def export_jianying_draft(
     request = jianying_draft_task_request(
         episode=check.episode,
         timeline_id=check.timeline_id,
-        revision=request_body.revision,
-        narration=request_body.narration,
+        revision=check.revision,
+        narration=check.narration,
     )
     try:
         enqueued = await queue.enqueue_task(
@@ -309,7 +313,7 @@ async def read_jianying_draft(
     project_name: str,
     timeline_id: str,
     service: JianyingDraftServiceDep,
-    narration: DraftNarration = Query(WITHOUT_NARRATION, description="旁白版本"),
+    narration: DraftNarration | None = Query(None, description="旁白版本；省略时按项目取默认版本"),
 ) -> JianyingDraftStatus:
     """剪映草稿现状：current、stale（已落后于剪辑时间线，仍可下载）或 missing（还没导出过）。"""
     try:
@@ -337,7 +341,7 @@ async def download_jianying_draft(
     draft_path: str = Query(..., description="用户本机的剪映草稿目录"),
     download_token: str = Query(..., description="下载 token"),
     jianying_version: Literal["5", "6"] = Query("6", description="剪映版本：6 表示 6 及以上，5 表示 5.x"),
-    narration: DraftNarration = Query(WITHOUT_NARRATION, description="旁白版本"),
+    narration: DraftNarration | None = Query(None, description="旁白版本；省略时按项目取默认版本"),
 ) -> FileResponse:
     """下载已登记的剪映草稿：本机草稿目录与剪映版本在此代入，过期的草稿照常可下载。"""
     try:

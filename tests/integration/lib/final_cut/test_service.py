@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import os
+import shutil
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -11,6 +13,7 @@ import pytest
 
 from lib.artifacts.artifact_currency import active_artifact_currency_resolver
 from lib.artifacts.artifact_manifest import ArtifactStatus
+from lib.artifacts.version_manager import VersionManager
 from lib.edit_timeline import EditTimelineService, RevisionAuthor
 from lib.edit_timeline.model import EditTimelineContent, TimelineRevision
 from lib.edit_timeline.operations import SetReason, SetVolume
@@ -20,6 +23,7 @@ from lib.final_cut.errors import FinalCutError
 from lib.final_cut.service import FinalCutService
 from lib.infra.media_probe import probe_media
 from lib.project.project_manager import ProjectManager
+from lib.project.resource_paths import resource_relative_path
 from tests.factories import install_current_video, make_test_clip
 
 CREATOR = RevisionAuthor(kind="creator", user_id="u1")
@@ -191,6 +195,58 @@ async def test_an_edit_while_rendering_makes_the_final_cut_stale_on_arrival(rend
     assert edited.is_set()
     assert result.revision == 1
     assert _status(render_project, timeline_id, result.artifact_path) is ArtifactStatus.STALE
+
+
+@pytest.mark.usefixtures("media")
+async def test_rendering_reads_the_snapshotted_video_version_when_the_formal_file_is_replaced(
+    render_project: ProjectManager, tmp_path: Path
+) -> None:
+    timeline_id = await _create_timeline(render_project)
+    readout = await EditTimelineService(render_project).read("demo", timeline_id)
+    formal = render_project.get_project_path("demo") / resource_relative_path("reference_videos", "E1U2")
+    replacement = tmp_path / "replacement.mp4"
+    make_test_clip(replacement, size="90x160", fps=25, seconds=3.0, tone=False)
+    replaced = asyncio.Event()
+
+    async def spawn_after_replacing(*args: Any, **kwargs: Any) -> Any:
+        if not replaced.is_set():
+            os.replace(replacement, formal)
+            replaced.set()
+        return await asyncio.create_subprocess_exec(*args, **kwargs)
+
+    result = await FinalCutService(render_project, spawn=spawn_after_replacing).render("demo", timeline_id)
+
+    assert replaced.is_set()
+    assert result.acceptance.video_duration == pytest.approx(readout.duration, abs=0.05)
+    # 依据描述渲染实际读取的快照；版本记录仍指向同一版本，成片读为 current。
+    assert _status(render_project, timeline_id, result.artifact_path) is ArtifactStatus.CURRENT
+
+
+@pytest.mark.usefixtures("media")
+async def test_provider_audio_recorded_as_not_generated_is_left_out_of_the_mix(
+    render_project: ProjectManager, tmp_path: Path
+) -> None:
+    project_dir = render_project.get_project_path("demo")
+    silent_request = tmp_path / "silent-request.mp4"
+    make_test_clip(silent_request, size="160x90", fps=24, seconds=1.0, tone=True)
+    VersionManager(project_dir).add_version(
+        "reference_videos", "E1U1", "prompt", source_file=silent_request, execution_generate_audio=False
+    )
+    shutil.copy2(silent_request, project_dir / resource_relative_path("reference_videos", "E1U1"))
+    timeline_id = await _create_timeline(render_project)
+    mixed_inputs: list[str] = []
+
+    async def spawn_recording_mix(*args: Any, **kwargs: Any) -> Any:
+        if any("anullsrc" in str(arg) for arg in args):
+            mixed_inputs.extend(str(args[index + 1]) for index, arg in enumerate(args) if arg == "-i")
+        return await asyncio.create_subprocess_exec(*args, **kwargs)
+
+    await FinalCutService(render_project, spawn=spawn_recording_mix).render("demo", timeline_id)
+
+    # 只有 E1U3 的原声进入混音；E1U1 的快照虽带音轨，版本记录为未生成原声。
+    sources = [Path(path).name for path in mixed_inputs if not path.startswith("anullsrc")]
+    assert len(sources) == 1
+    assert sources[0].startswith("E1U3")
 
 
 @pytest.mark.usefixtures("media")

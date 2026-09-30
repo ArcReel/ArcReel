@@ -20,6 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from lib.artifacts.artifact_activation import ArtifactComparer, ArtifactCurrencyResolver, RegisteredArtifactResolver
 from lib.artifacts.artifact_manifest import ArtifactKey, ArtifactManifestError, ArtifactStatus
 from lib.artifacts.version_manager import VersionManager
+from lib.edit_timeline.errors import EditTimelineError
 from lib.edit_timeline.store import EditTimelineStore
 from lib.episode.episode_ledger import (
     SOURCE_FINGERPRINTS_KEY,
@@ -1643,7 +1644,12 @@ class WorkflowStateService:
                                 args={"episode": target.episode},
                                 ids=missing,
                             )
-                        elif not self._edit_timeline_ids(project_name, target.episode, artifacts):
+                        elif (
+                            timeline_ids := self._edit_timeline_ids(project_name, target.episode, artifacts, blockers)
+                        ) is None:
+                            state = "EDIT"
+                            next_action = _action(WorkflowActionType.NONE, "edit timelines cannot be read")
+                        elif not timeline_ids:
                             state = "EDIT"
                             next_action = _action(
                                 WorkflowActionType.CREATE_EDIT_TIMELINE,
@@ -1683,10 +1689,29 @@ class WorkflowStateService:
 
         return self._response(project, source, target, state, blockers, gates, artifacts, next_action)
 
-    def _edit_timeline_ids(self, project_name: str, episode: int, artifacts: dict[str, dict[str, Any]]) -> list[str]:
-        """「剪辑」一步的完成判据：该集至少有一条剪辑时间线。结果同时写进 ``artifacts``。"""
+    def _edit_timeline_ids(
+        self,
+        project_name: str,
+        episode: int,
+        artifacts: dict[str, dict[str, Any]],
+        blockers: list[WorkflowBlocker],
+    ) -> list[str] | None:
+        """「剪辑」一步的完成判据：该集至少有一条剪辑时间线。结果同时写进 ``artifacts``。
 
-        ids = [document.id for document in EditTimelineStore(self.pm, project_name).list_documents(episode)]
+        目录读取失败或有时间线文件无法解析时记一条 blocker 并返回 None。
+        """
+
+        try:
+            documents = EditTimelineStore(self.pm, project_name).list_documents(episode, strict=True)
+        except (OSError, EditTimelineError) as exc:
+            blockers.append(
+                WorkflowBlocker(
+                    code="invalid_edit_timelines", path=f"edit_timelines/episode_{episode}", reason=str(exc)
+                )
+            )
+            artifacts["edit_timelines"] = {"timeline_ids": []}
+            return None
+        ids = [document.id for document in documents]
         artifacts["edit_timelines"] = {"timeline_ids": ids}
         return ids
 

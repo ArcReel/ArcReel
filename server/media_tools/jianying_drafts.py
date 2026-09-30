@@ -13,7 +13,7 @@ from pydantic.json_schema import SkipJsonSchema
 
 from lib.edit_timeline.errors import EditTimelineError
 from lib.generation.generation_batch import GenerationBatchReadModel
-from lib.jianying_draft.basis import WITH_NARRATION, WITHOUT_NARRATION, DraftNarration
+from lib.jianying_draft.basis import WITH_NARRATION, DraftNarration
 from lib.jianying_draft.errors import JianyingDraftError
 from lib.jianying_draft.results import JianyingDraftRender
 from server.agent_toolset.envelope import json_value
@@ -32,11 +32,14 @@ class ExportJianyingDraftRequest(BaseModel):
     revision: int | SkipJsonSchema[None] = Field(
         default=None,
         ge=1,
-        description="导出哪个修订；省略时取导出任务开始时的最新修订",
+        description="导出哪个修订；省略时取提交时的最新修订",
     )
-    narration: DraftNarration = Field(
-        default=WITHOUT_NARRATION,
-        description="旁白版本：without_narration 不带旁白轨；with_narration 带旁白轨，只对 TTS 配音项目开放",
+    narration: DraftNarration | SkipJsonSchema[None] = Field(
+        default=None,
+        description=(
+            "旁白版本：without_narration 不带旁白轨；with_narration 带旁白轨，只对 TTS 配音项目开放。"
+            "省略时 TTS 配音项目取 with_narration，其余取 without_narration"
+        ),
     )
 
 
@@ -68,8 +71,8 @@ async def export_jianying_draft(
             jianying_draft_task_request(
                 episode=check.episode,
                 timeline_id=check.timeline_id,
-                revision=value.revision,
-                narration=value.narration,
+                revision=check.revision,
+                narration=check.narration,
             ),
             operation=_OPERATION,
             scope=scope,

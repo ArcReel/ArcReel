@@ -310,7 +310,8 @@ DEP004 = [
 line-length = 120
 # 子包是 src 布局：列进 src 让 isort 把 arcreel_market_core 识别为第一方。
 src = [".", "packages/arcreel-market-core/src"]
-exclude = [".worktrees", ".claude/worktrees"]
+# .agents/skills 是按 skills-lock.json 安装的外部 skill，随上游更新，不套本仓规则。
+exclude = [".worktrees", ".claude/worktrees", ".agents/skills"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "C4", "PIE", "PT", "RET", "PERF", "RUF", "SIM", "ASYNC"]

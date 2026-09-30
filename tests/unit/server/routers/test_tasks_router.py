@@ -187,6 +187,33 @@ class TestTaskErrorLocalization:
                 assert (row["error_code"], row["error_params"]) == (code, params)
         assert items == original
 
+    def test_edit_timeline_problems_in_render_tasks_use_the_same_keys_as_http(self, monkeypatch):
+        from lib.edit_timeline.errors import EditTimelineError
+        from lib.generation.generation_result import encode_generation_problem
+        from lib.i18n import _
+        from server.services.tasks.render_tasks import render_problem
+
+        cases = [
+            ("timeline_invalid", {"file": "tl-1.json"}, "edit_timeline_invalid", {"file": "tl-1.json"}),
+            ("project_not_found", {"project": "demo"}, "project_not_found", {"name": "demo"}),
+        ]
+        items = [
+            {
+                "task_id": code,
+                "error_message": encode_generation_problem(
+                    render_problem(EditTimelineError(code, "诊断原文", **params))
+                ),
+            }
+            for code, params, _key, _values in cases
+        ]
+        client = self._client(monkeypatch, _RenderQueue(items=items))
+        for locale in ("zh", "en", "vi"):
+            rows = client.get("/api/v1/tasks", headers={"Accept-Language": locale}).json()["items"]
+            for row, (code, params, key, values) in zip(rows, cases, strict=True):
+                assert row["error_message"] == _(key, locale=locale, **values)
+                assert "{" not in row["error_message"]
+                assert (row["error_code"], row["error_params"]) == (code, params)
+
     def test_list_tasks_passthrough_raw_and_legacy(self, monkeypatch):
         items = [
             {"task_id": "raw", "error_message": "RuntimeError: provider 500"},
