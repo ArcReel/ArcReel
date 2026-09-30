@@ -314,11 +314,6 @@ async def test_formal_selection_validates_frozen_tts_when_current_tts_changes(
         "server.services.tasks.narration_delivery_tasks.probe_existing_media_duration_seconds",
         AsyncMock(return_value=8.0),
     )
-    monkeypatch.setattr(
-        video_artifact_currency.CurrentTtsSettingsResolver,
-        "resolve_tts_synthesis_settings",
-        AsyncMock(side_effect=ValueError("current TTS is no longer configured")),
-    )
     project_manager = MagicMock()
     project_manager.load_project.return_value = {}
     committer = VideoArtifactCommitter(
@@ -381,7 +376,16 @@ async def test_formal_selection_reloads_current_tts_settings_for_currency_check(
             nonlocal selection_guard_active
             selection_guard_active = True
             try:
-                yield {}, {}
+                # 选片守卫内读到的项目带着新的 TTS 快照；守卫外的 load_project 看不到它
+                yield (
+                    {
+                        "narration_delivery": "use_tts",
+                        "audio_backend": "new-provider/new-model",
+                        "narration_voice": "new-voice",
+                        "narration_speed": 1.2,
+                    },
+                    {},
+                )
             finally:
                 selection_guard_active = False
 
@@ -391,18 +395,12 @@ async def test_formal_selection_reloads_current_tts_settings_for_currency_check(
         AsyncMock(),
     )
 
-    async def _resolve_settings(_project):
-        assert selection_guard_active
-        return current_settings
-
-    resolve_settings = AsyncMock(side_effect=_resolve_settings)
-    monkeypatch.setattr(
-        video_artifact_currency.CurrentTtsSettingsResolver,
-        "resolve_tts_synthesis_settings",
-        resolve_settings,
-    )
+    basis_calls = 0
 
     def _current_basis(**kwargs):
+        nonlocal basis_calls
+        basis_calls += 1
+        assert selection_guard_active
         assert kwargs["current_tts_settings"] == current_settings
         return ArtifactBasisDescriptor.from_basis(build_video_duration_basis(12))
 
@@ -429,11 +427,11 @@ async def test_formal_selection_reloads_current_tts_settings_for_currency_check(
     }
 
     await committer.prepare_selection(staged, 8, metadata)
-    resolve_settings.assert_not_awaited()
+    assert basis_calls == 0
     outcome = await asyncio.to_thread(committer, staged, current, 8, metadata)
 
     assert outcome.selected is False
-    resolve_settings.assert_awaited_once_with({})
+    assert basis_calls >= 1
 
 
 @pytest.mark.asyncio
@@ -465,11 +463,6 @@ async def test_failed_formal_selection_validation_archives_paid_video_without_cu
         video_artifact_currency,
         "validate_generated_video_covers_tts_duration",
         AsyncMock(side_effect=failure),
-    )
-    monkeypatch.setattr(
-        video_artifact_currency.CurrentTtsSettingsResolver,
-        "resolve_tts_synthesis_settings",
-        AsyncMock(return_value=TtsSynthesisSettings("p", "m", "v", None)),
     )
     committer = VideoArtifactCommitter(
         project_manager=_PM(),

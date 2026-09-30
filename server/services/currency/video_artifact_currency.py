@@ -22,20 +22,19 @@ from lib.artifacts.version_manager import PaidVersionCommit, VersionManager
 from lib.artifacts.video_artifact_commit import commit_paid_video_artifact
 from lib.artifacts.video_artifact_facts import VIDEO_ARTIFACT_RESTORE_BLOCKER_FIELD, VideoArtifactCurrencyFacts
 from lib.generation.generation_admission import generation_admission_lock, generation_admission_lock_sync
-from lib.infra.async_thread import EventLoopBridge, run_noninterruptible_async
+from lib.infra.async_thread import run_noninterruptible_async
 from lib.infra.json_io import atomic_write_bytes
 from lib.project.asset_types import asset_name_comparison_key
 from lib.project.project_manager import ProjectManager, resolve_episode_script_binding
 from lib.script.reference_video.execution_checkpoint import NarrationExecutionFacts
 from lib.script.script_editor import resolve_items
-from lib.speech.narration_delivery import TtsSynthesisSettings
+from lib.speech.narration_config import TtsSynthesisSettings, project_tts_settings
 from lib.speech.speech_artifact_provenance import (
     build_video_speech_basis,
     project_character_voice_evidence,
 )
 from lib.speech.speech_composition import SpeechMode, SpeechPreparation
 from server.services.tasks.narration_delivery_tasks import (
-    CurrentTtsSettingsResolver,
     validate_generated_video_covers_tts_duration,
 )
 
@@ -118,7 +117,6 @@ class VideoArtifactCommitter:
         self._prior_thumbnail: tuple[Path, bool, bytes | None] | None = None
         self._current_tts_settings: TtsSynthesisSettings | None = None
         self._current_tts_basis_resolved = False
-        self._tts_settings_bridge: EventLoopBridge | None = None
         self._restore_blocker: str | None = None
         self._admission_guard: AbstractAsyncContextManager[None] | None = None
 
@@ -151,7 +149,6 @@ class VideoArtifactCommitter:
         raw_narration = version_metadata.get("execution_narration")
         if not isinstance(raw_narration, Mapping) or raw_narration.get("delivery") != "use_tts":
             return
-        self._tts_settings_bridge = EventLoopBridge.capture()
         try:
             narration = NarrationExecutionFacts.from_dict(dict(raw_narration))
             if narration.actual_duration_seconds is None:
@@ -222,24 +219,9 @@ class VideoArtifactCommitter:
                 and narration.get("delivery") == "use_tts"
                 and not self._current_tts_basis_resolved
             ):
-                bridge = self._tts_settings_bridge
-                if bridge is None:
-                    self.selection_error = RuntimeError("current TTS selection was not prepared on an event loop")
-                    return None
-                try:
-                    self._current_tts_settings = bridge.run(
-                        CurrentTtsSettingsResolver(
-                            self._project_name,
-                            project_path=self._project_path,
-                        ).resolve_tts_synthesis_settings(project)
-                    )
-                except ValueError:
-                    # No configured current TTS means there is no fresh duration
-                    # that can invalidate the execution-frozen video tier.
-                    self._current_tts_settings = None
-                except (Exception, asyncio.CancelledError) as exc:
-                    self.selection_error = exc
-                    return None
+                # No complete snapshot means there is no fresh duration that
+                # can invalidate the execution-frozen video tier.
+                self._current_tts_settings = project_tts_settings(project)
                 self._current_tts_basis_resolved = True
             return build_current_video_artifact_basis(
                 project_path=self._project_path,

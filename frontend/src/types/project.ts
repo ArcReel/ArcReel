@@ -8,6 +8,7 @@
  */
 
 import type { VoiceConsistencyTier } from "@/types/provider";
+import type { NarrationDelivery } from "@/types/workflow";
 import type { GenerationRoute } from "@/utils/generation-mode";
 
 export interface ProjectOverview {
@@ -198,7 +199,10 @@ export interface ProjectData {
   video_generate_audio?: boolean | null;
   /** 角色声音绑定方式：prompt（默认，按 voice_style 提示词软约束）/ reference_audio（挂角色参考音频）。 */
   character_voice_binding?: CharacterVoiceBinding;
-  /** 旁白配音（TTS）项目级覆盖：音频后端 / 音色 / 语速，留空即跟随全局默认 */
+  /** 旁白交付方式（docs/adr/0089）：TTS 配音或后期配音，缺省按后期配音处理 */
+  narration_delivery?: NarrationDelivery;
+  /** TTS 快照：provider/model、音色与语速。创建时以全局默认预填，之后不继承全局默认；
+   *  改为后期配音后保留。语速缺省表示不向供应商传语速 */
   audio_backend?: string | null;
   narration_voice?: string | null;
   narration_speed?: number | null;

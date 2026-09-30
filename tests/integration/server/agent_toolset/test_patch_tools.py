@@ -1405,7 +1405,7 @@ class TestPatchProjectSettings:
 
 
 class TestPatchProjectNarrationSettings:
-    """narration_voice / narration_speed 经 settings 白名单写入/清除/校验（项目级旁白覆盖）。"""
+    """narration_voice / narration_speed 经 settings 白名单写入/清除/校验（项目的 TTS 快照）。"""
 
     async def test_set_narration_voice(self, ctx: ToolHarness) -> None:
         out = await run_declared_tool(PATCH_PROJECT, ctx, {"settings": {"narration_voice": "Ethan"}})
@@ -1459,6 +1459,17 @@ class TestPatchProjectNarrationSettings:
         assert "narration_speed 必须是正的有限数值" in _said(out)
         assert "narration_speed" not in ctx.pm.load_project("demo")
 
+    async def test_tts_project_keeps_complete_snapshot(self, ctx: ToolHarness) -> None:
+        ctx.pm.update_project(
+            "demo",
+            lambda project: project.update(
+                narration_delivery="use_tts", audio_backend="dashscope/qwen3-tts-flash", narration_voice="Cherry"
+            ),
+        )
+        out = await run_declared_tool(PATCH_PROJECT, ctx, {"settings": {"narration_voice": None}})
+        assert out.problem is not None
+        assert ctx.pm.load_project("demo")["narration_voice"] == "Cherry"
+
     async def test_one_invalid_field_rejects_whole_batch(self, ctx: ToolHarness) -> None:
         out = await run_declared_tool(
             PATCH_PROJECT,
@@ -1470,21 +1481,20 @@ class TestPatchProjectNarrationSettings:
         assert "narration_voice" not in project
         assert "narration_speed" not in project
 
-    async def test_resolver_uses_values_written_by_tool(self, ctx: ToolHarness, db_factory) -> None:
-        """工具写入与生成端解析读的是同一份顶层字段:写入后 resolver 实际解析出覆盖值。"""
-        from lib.config.resolver import ConfigResolver
+    async def test_tts_snapshot_reads_values_written_by_tool(self, ctx: ToolHarness) -> None:
+        """工具写入与 TTS 快照读的是同一份顶层字段。"""
+        from lib.speech.narration_config import project_tts_settings
 
+        ctx.pm.update_project("demo", lambda project: project.update(audio_backend="dashscope/qwen3-tts-flash"))
         out = await run_declared_tool(
             PATCH_PROJECT,
             ctx,
             {"settings": {"narration_voice": "Ethan", "narration_speed": 1.2}},
         )
         assert out.problem is None
-        project = ctx.pm.load_project("demo")
-
-        resolver = ConfigResolver(db_factory)
-        assert await resolver.resolve_narration_voice(project) == "Ethan"
-        assert await resolver.resolve_narration_speed(project) == 1.2
+        settings = project_tts_settings(ctx.pm.load_project("demo"))
+        assert settings is not None
+        assert (settings.voice, settings.speed) == ("Ethan", 1.2)
 
 
 class TestPatchProjectOverview:

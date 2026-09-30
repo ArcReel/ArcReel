@@ -7,7 +7,6 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from lib.artifacts.artifact_manifest import ArtifactComparison, ArtifactKey, ArtifactStatus
-from lib.config.resolver import ConfigResolver, ProviderModel
 from lib.i18n import _ as i18n_message
 from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from server.auth import CurrentUserInfo, get_current_user
@@ -35,6 +34,9 @@ class _FakePM:
             "schema_version": CURRENT_PROJECT_SCHEMA_VERSION,
             "episodes": [{"episode": 1, "script_file": "scripts/episode_1.json"}],
             "content_mode": "narration",
+            "narration_delivery": "use_tts",
+            "audio_backend": "dashscope/qwen3-tts-flash",
+            "narration_voice": "Cherry",
         }
         self.script = {
             "episode": 1,
@@ -99,7 +101,7 @@ class _ScriptBackedResolver:
         return ArtifactComparison(status=status, artifact_path=artifact_path)
 
 
-def _client(monkeypatch, fake_pm, fake_queue, *, audio_provider_ready=True, currency=None):
+def _client(monkeypatch, fake_pm, fake_queue, *, currency=None):
     monkeypatch.setattr(
         generate,
         "active_artifact_currency_resolver",
@@ -112,13 +114,6 @@ def _client(monkeypatch, fake_pm, fake_queue, *, audio_provider_ready=True, curr
         return set()
 
     monkeypatch.setattr(generate, "active_narrated_video_resource_ids", _no_active_narrated_video)
-
-    async def _resolve(self, project, payload):
-        if not audio_provider_ready:
-            raise ValueError("未找到可用的 audio 供应商")
-        return ProviderModel("dashscope", "qwen3-tts-flash")
-
-    monkeypatch.setattr(ConfigResolver, "resolve_audio_backend", _resolve)
 
     app = FastAPI()
     register_error_handlers(app)
@@ -168,7 +163,7 @@ class TestGenerateTtsSingle:
             assert call["script_file"] == "episode_1.json"
             assert call["payload"]["script_file"] == "episode_1.json"
             assert call["source"] == "webui"
-            # 路由层已解析过一次 provider，入队直接复用，不再逐段重复解析
+            # 入队的供应商取自项目的 TTS 快照
             assert call["provider_id"] == "dashscope"
 
     def test_regenerate_allowed_when_audio_exists(self, tmp_path, monkeypatch):
@@ -211,10 +206,11 @@ class TestGenerateTtsSingle:
             assert res.status_code == 400
             assert fake_queue.calls == []
 
-    def test_audio_provider_not_configured_400(self, tmp_path, monkeypatch):
+    def test_post_production_project_is_rejected(self, tmp_path, monkeypatch):
         fake_pm = _FakePM(tmp_path / "projects" / "demo")
+        fake_pm.project["narration_delivery"] = "post_production"
         fake_queue = _FakeQueue()
-        client = _client(monkeypatch, fake_pm, fake_queue, audio_provider_ready=False)
+        client = _client(monkeypatch, fake_pm, fake_queue)
 
         with client:
             res = client.post(
@@ -222,8 +218,7 @@ class TestGenerateTtsSingle:
                 json={"script_file": "episode_1.json"},
             )
             assert res.status_code == 400
-            # 提示语明确指向音频供应商配置入口
-            assert "音频" in res.json()["detail"]
+            assert res.json()["detail"] == i18n_message("narration_delivery_post_production")
             assert fake_queue.calls == []
 
     def test_reference_video_narrator_unit_is_an_independent_explicit_tts_action(self, tmp_path, monkeypatch):
@@ -475,10 +470,11 @@ class TestGenerateTtsBatch:
             assert body["task_ids_by_segment"] == {}
             assert fake_queue.calls == []
 
-    def test_audio_provider_not_configured_400(self, tmp_path, monkeypatch):
+    def test_tts_project_without_model_snapshot_400(self, tmp_path, monkeypatch):
         fake_pm = _FakePM(tmp_path / "projects" / "demo")
+        del fake_pm.project["audio_backend"]
         fake_queue = _FakeQueue()
-        client = _client(monkeypatch, fake_pm, fake_queue, audio_provider_ready=False)
+        client = _client(monkeypatch, fake_pm, fake_queue)
 
         with client:
             res = client.post(
@@ -486,26 +482,24 @@ class TestGenerateTtsBatch:
                 json={"script_file": "episode_1.json"},
             )
             assert res.status_code == 400
+            assert res.json()["detail"] == i18n_message("narration_tts_model_required")
             assert fake_queue.calls == []
 
-    def test_none_missing_skips_provider_check(self, tmp_path, monkeypatch):
-        """无缺段时直接返回成功：即使 audio 供应商未配置也不应 400。"""
+    def test_post_production_project_is_rejected_even_when_none_missing(self, tmp_path, monkeypatch):
         fake_pm = _FakePM(tmp_path / "projects" / "demo")
+        fake_pm.project["narration_delivery"] = "post_production"
         for seg in fake_pm.script["segments"]:
             seg["generated_assets"] = {"narration_audio": f"audio/segment_{seg['segment_id']}.wav"}
         fake_queue = _FakeQueue()
-        client = _client(monkeypatch, fake_pm, fake_queue, audio_provider_ready=False)
+        client = _client(monkeypatch, fake_pm, fake_queue)
 
         with client:
             res = client.post(
                 "/api/v1/projects/demo/generate/tts",
                 json={"script_file": "episode_1.json"},
             )
-            assert res.status_code == 200, res.text
-            body = res.json()
-            assert body["success"] is True
-            assert body["task_ids"] == []
-            assert body["task_ids_by_segment"] == {}
+            assert res.status_code == 400
+            assert res.json()["detail"] == i18n_message("narration_delivery_post_production")
             assert fake_queue.calls == []
 
 

@@ -20,7 +20,7 @@ export type WorkflowStepState =
 /** 产物时效。stale 是「可继续使用的告警」，不是缺失，也不授权自动重生。 */
 export type ArtifactStatus = "current" | "stale" | "missing" | "blocked";
 
-/** 本次请求的旁白交付方式；不写回项目，只作用于这一次生成。 */
+/** 旁白交付方式：项目配置（docs/adr/0089）与视频请求上的按次选择共用这组取值。 */
 export type NarrationDelivery = "post_production" | "use_tts";
 
 /**

@@ -25,7 +25,6 @@ from lib.script.reference_video.execution_checkpoint import (
     StagedProviderMedia,
     StoryboardSubmissionCheckpoint,
 )
-from lib.speech.narration_delivery import TtsSynthesisSettings
 
 
 class _FakeProjectManager:
@@ -206,8 +205,6 @@ def _fake_video_context(
             provider_model=ProviderModel("dashscope", "tts-model"),
             backend_name="dashscope",
             backend_model="tts-model",
-            narration_voice="Cherry",
-            narration_speed=None,
             voices=(),
         ),
     )
@@ -655,10 +652,7 @@ async def test_reference_resume_reads_only_strict_checkpoint_request_and_cleans_
         "server.services.currency.video_artifact_currency.validate_generated_video_covers_tts_duration",
         output_guard,
     )
-    monkeypatch.setattr(
-        "server.services.currency.video_artifact_currency.CurrentTtsSettingsResolver.resolve_tts_synthesis_settings",
-        AsyncMock(return_value=TtsSynthesisSettings("dashscope", "tts-model", "Cherry", None)),
-    )
+    fake_pm.project.update(audio_backend="dashscope/tts-model", narration_voice="Cherry")
     finalize = AsyncMock(return_value={"resource_type": "reference_videos", "resource_id": "E1U1"})
     monkeypatch.setattr(resume_executor, "finalize_reference_video_unit", finalize)
     monkeypatch.setattr(resume_executor, "emit_generation_success_batch", lambda **_kwargs: None)

@@ -13,7 +13,7 @@ from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, replace
 from enum import StrEnum
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, Protocol, assert_never
+from typing import TYPE_CHECKING, Protocol, assert_never
 
 if TYPE_CHECKING:
     from lib.generation.video_request_facts import VideoRequestFacts
@@ -32,16 +32,13 @@ from lib.infra.schema_guards import is_int
 from lib.project.resource_paths import resource_relative_path
 from lib.script.reference_video.duration_slots import Adjustment, project_request_duration
 from lib.speech.audio_utils import probe_existing_audio_duration_seconds
+from lib.speech.narration_config import POST_PRODUCTION, USE_TTS, NarrationDelivery, TtsSynthesisSettings
 from lib.speech.speech_composition import (
     SpeechFieldLocation,
     SpeechMode,
     SpeechOwner,
     SpeechPreparation,
 )
-
-POST_PRODUCTION = "post_production"
-USE_TTS = "use_tts"
-NarrationDelivery = Literal["post_production", "use_tts"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -99,26 +96,6 @@ class NarrationTtsStatus(StrEnum):
     CURRENT = "current"
     UNMEASURABLE = "unmeasurable"
     BLOCKED = "blocked"
-
-
-@dataclass(frozen=True, slots=True)
-class TtsSynthesisSettings:
-    """Resolved paid-synthesis inputs that participate in TTS currency."""
-
-    provider_id: str
-    model_id: str
-    voice: str
-    speed: float | None
-
-    def __post_init__(self) -> None:
-        if not self.provider_id.strip():
-            raise ValueError("provider_id must be non-empty")
-        if not self.model_id.strip():
-            raise ValueError("model_id must be non-empty")
-        if not self.voice.strip():
-            raise ValueError("voice must be non-empty")
-        if self.speed is not None and (not math.isfinite(self.speed) or self.speed <= 0):
-            raise ValueError("speed must be positive and finite or null")
 
 
 class TtsSettingsResolver(Protocol):

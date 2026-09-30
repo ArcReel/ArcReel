@@ -112,46 +112,6 @@ def _stub_current_narration_reload(monkeypatch, tmp_path: Path, *, narration, re
     return pm
 
 
-async def test_current_settings_use_canonical_provider_and_actual_backend_model(monkeypatch, tmp_path: Path) -> None:
-    from lib.config.resolver import ProviderModel
-    from server.services.tasks.generation_context import AudioLaneResult, GenerationContext
-
-    ctx = GenerationContext(
-        generator=MagicMock(),
-        audio_lane=AudioLaneResult(
-            provider_model=ProviderModel("custom-7", "configured-model"),
-            backend_name="openai",
-            backend_model="fallback-model",
-            narration_voice="alloy",
-            narration_speed=1.2,
-            voices=(),
-        ),
-    )
-    resolve = AsyncMock(return_value=ctx)
-    monkeypatch.setattr(narration_delivery_tasks, "resolve_generation_context", resolve)
-
-    project = {"name": "demo"}
-    project_path = tmp_path / "demo"
-    settings = await narration_delivery_tasks.CurrentTtsSettingsResolver(
-        "demo",
-        user_id="owner",
-        project_path=project_path,
-    ).resolve_tts_synthesis_settings(project)
-
-    assert settings.provider_id == "custom-7"
-    assert settings.model_id == "fallback-model"
-    assert settings.voice == "alloy"
-    assert settings.speed == 1.2
-    resolve.assert_awaited_once_with(
-        "demo",
-        None,
-        project=project,
-        project_path=project_path,
-        user_id="owner",
-        audio=narration_delivery_tasks.AudioLaneRequest(),
-    )
-
-
 @pytest.mark.parametrize(
     ("actual_duration", "expected_code"),
     [(None, "video_duration_unavailable"), (6.1, "video_shorter_than_tts")],

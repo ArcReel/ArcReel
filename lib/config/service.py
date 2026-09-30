@@ -18,8 +18,8 @@ _DEFAULT_VIDEO_BACKEND = "gemini-aistudio/veo-3.1-lite-generate-preview"
 _DEFAULT_IMAGE_BACKEND = "gemini-aistudio/gemini-3.1-flash-image-preview"
 _DEFAULT_TEXT_BACKEND = "gemini-aistudio/gemini-3-flash-preview"
 _DEFAULT_AUDIO_BACKEND = "dashscope/qwen3-tts-flash"
-# 旁白默认音色（DashScope 预设）；可被 project.json 顶层 narration_voice 或全局 setting 覆盖
-# （与 video_backend 等同走顶层 key，非 settings 子字典）。
+# 旁白默认音色（DashScope 预设）；全局 setting 未配置时的兜底。全局音色与语速只作为新建 TTS 项目
+# 的预填值，项目创建后以 project.json 顶层的快照为准（docs/adr/0089）。
 _DEFAULT_NARRATION_VOICE = "Cherry"
 MIN_VIDEO_POLL_TIMEOUT_SECONDS = 60
 

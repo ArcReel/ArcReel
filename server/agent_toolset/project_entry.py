@@ -26,8 +26,9 @@ LIST_PROJECTS = UnscopedToolDeclaration(
 CREATE_PROJECT = UnscopedToolDeclaration(
     name="create_project",
     description=(
-        "创建一个 ArcReel 项目并写入完整的项目元数据（标题、内容模式、源文类型、生成模式、画面比例等），"
+        "创建一个 ArcReel 项目并写入完整的项目元数据（标题、内容模式、源文类型、生成模式、画面比例、旁白交付方式等），"
         "返回规范化后的项目 name 与 project.json 内容；后续工具以该 name 寻址项目。"
+        "旁白交付方式缺省后期配音；选 use_tts 时省略的 TTS 模型、音色与语速以全局默认预填，写入后成为项目快照。"
         "同名项目已存在时返回 project_exists，不覆盖。广告/短片项目（content_mode=ad）不接受 default_duration "
         "与宫格分镜，target_duration 与 brief 仅广告/短片项目可用。元数据写入失败时回滚已创建的项目目录。"
     ),

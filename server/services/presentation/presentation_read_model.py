@@ -23,6 +23,7 @@ from lib.project.project_manager import ProjectManager
 from lib.project.resource_paths import resource_relative_path
 from lib.script.script_editor import resolve_items
 from lib.speech.audio_utils import probe_existing_media_duration_seconds, probe_existing_video_duration_seconds
+from lib.speech.narration_config import ProjectTtsSettingsResolver
 from lib.speech.narration_delivery import (
     POST_PRODUCTION,
     USE_TTS,
@@ -48,7 +49,6 @@ from server.services.currency.artifact_version_restore import (
     parse_typed_media_version_record,
 )
 from server.services.currency.video_artifact_currency import build_current_video_artifact_basis
-from server.services.tasks.narration_delivery_tasks import CurrentTtsSettingsResolver
 
 DurationProbe = Callable[[Path], Awaitable[float | None]]
 ContentDigest = Callable[[Path], str]
@@ -131,10 +131,7 @@ class PresentationReadModelService:
     ) -> None:
         self._project_manager = project_manager
         self._settings_resolver_factory = settings_resolver_factory or (
-            lambda project_name, project_path: CurrentTtsSettingsResolver(
-                project_name,
-                project_path=project_path,
-            )
+            lambda _project_name, _project_path: ProjectTtsSettingsResolver()
         )
         self._video_duration_probe = duration_probe or video_duration_probe
         self._audio_duration_probe = duration_probe or audio_duration_probe

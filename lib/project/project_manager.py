@@ -91,6 +91,12 @@ from lib.script.reference_video.duration_migration import migrate_script_unit_du
 from lib.script.script_editor import ScriptEditError, resolve_items
 from lib.script.script_models import get_generated_assets
 from lib.speech.audio_utils import discard_stale_reference_audio, resolve_audio_ref_path, resolve_stale_reference_audio
+from lib.speech.narration_config import (
+    NARRATION_CONFIG_FIELDS,
+    NARRATION_DELIVERY_FIELD,
+    POST_PRODUCTION,
+    validate_project_narration_config,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -2318,6 +2324,7 @@ class ProjectManager:
         target_duration: int | None = None,
         brief: str | None = None,
         source_kind: str | None = None,
+        narration: Mapping[str, object] | None = None,
     ) -> dict:
         """
         创建新的项目元数据文件
@@ -2335,6 +2342,9 @@ class ProjectManager:
 
         `source_kind` 为源文件性质（novel / screenplay），缺省 novel，创建即定、之后不可变
         （可变性守卫在路由 PATCH 层，与 content_mode 同性质）。
+
+        `narration` 是旁白交付配置字段（交付方式与 TTS 快照，见 `lib.speech.narration_config`），
+        缺省为后期配音；TTS 配音必须带完整快照。
         """
         project_name = self.normalize_project_name(project_name)
         project_title = str(title).strip() if title is not None else ""
@@ -2377,11 +2387,18 @@ class ProjectManager:
             "characters": {},
             "scenes": {},
             "props": {},
+            NARRATION_DELIVERY_FIELD: POST_PRODUCTION,
             "metadata": {
                 "created_at": datetime.now(UTC).isoformat(),
                 "updated_at": datetime.now(UTC).isoformat(),
             },
         }
+        if narration is not None:
+            unknown = set(narration) - set(NARRATION_CONFIG_FIELDS)
+            if unknown:
+                raise ValueError(f"narration 只接受旁白交付配置字段，收到: {sorted(unknown)}")
+            project.update(narration)
+            validate_project_narration_config(project)
         if resolved_mode == "ad":
             project["target_duration"] = (
                 target_duration if target_duration is not None else self.AD_DEFAULT_TARGET_DURATION

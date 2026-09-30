@@ -19,11 +19,11 @@ from lib.script.reference_video.request_projection import (
     configured_reference_request_facts,
     project_reference_unit_request,
 )
+from lib.speech.narration_config import ProjectTtsSettingsResolver
 from lib.speech.narration_delivery import USE_TTS, TtsSynthesisSettings, build_narration_audio_basis
 from lib.speech.speech_artifact_provenance import build_video_duration_basis, build_video_speech_basis
 from lib.speech.speech_composition import admit_script_unit
 from server.services.tasks.narration_delivery_tasks import (
-    ResolvedTtsSettingsResolver,
     prepare_current_reference_video_request_options,
     reference_video_visual_basis_digest,
 )
@@ -39,6 +39,9 @@ async def test_reference_reuse_and_projection_keep_the_same_resolution_snapshot(
         "video_generate_audio": True,
         "model_settings": {pair: {"resolution": "720p"}},
         "episodes": [{"episode": 1, "script_file": "episode_1.json"}],
+        "narration_delivery": USE_TTS,
+        "audio_backend": "openai/tts-1",
+        "narration_voice": "alloy",
     }
     unit = {
         "unit_id": "E1U1",
@@ -110,7 +113,7 @@ async def test_reference_reuse_and_projection_keep_the_same_resolution_snapshot(
         options=ReferenceRequestOptions(narration_delivery=USE_TTS),
         project_name="demo",
         request_facts_lookup=lookup,
-        tts_settings_resolver=ResolvedTtsSettingsResolver(settings),
+        tts_settings_resolver=ProjectTtsSettingsResolver(),
     )
     projection = await project_reference_unit_request(
         project=project,
@@ -152,6 +155,7 @@ async def test_visual_reuse_digest_buckets_an_unclaimed_sheet_like_execution(
         }
     )
     project = activate_reference_project(tmp_path, {})
+    project.update({"narration_delivery": USE_TTS, "audio_backend": "openai/tts-1", "narration_voice": "alloy"})
     project["characters"]["李四"] = {"description": "y", "character_sheet": "characters/李四.png"}
     (tmp_path / "characters").mkdir()
     (tmp_path / "characters" / "李四.png").write_bytes(b"image")
@@ -232,7 +236,7 @@ async def test_visual_reuse_digest_buckets_an_unclaimed_sheet_like_execution(
         options=ReferenceRequestOptions(narration_delivery=USE_TTS),
         project_name="demo",
         request_facts_lookup=lookup,
-        tts_settings_resolver=ResolvedTtsSettingsResolver(settings),
+        tts_settings_resolver=ProjectTtsSettingsResolver(),
     )
 
     assert options.current_visual_duration_seconds == 8

@@ -63,7 +63,7 @@ from lib.generation.video_request_facts import (
     require_video_request_facts,
 )
 from lib.infra.api_errors import ConflictError
-from lib.infra.async_thread import EventLoopBridge, run_noninterruptible_sync
+from lib.infra.async_thread import run_noninterruptible_sync
 from lib.infra.path_safety import safe_join, try_safe_join
 from lib.infra.schema_guards import is_int
 from lib.infra.thumbnail import extract_video_thumbnail
@@ -108,11 +108,16 @@ from lib.speech.audio_utils import (
     probe_audio_duration_seconds,
     probe_existing_audio_duration_seconds,
 )
+from lib.speech.narration_config import (
+    NarrationConfigError,
+    ProjectTtsSettingsResolver,
+    project_tts_settings,
+    require_project_tts_generation,
+)
 from lib.speech.narration_delivery import (
     USE_TTS,
     NarratedVideoDurationBlockedError,
     NarrationDeliveryRequestOptions,
-    TtsSynthesisSettings,
     build_narration_audio_basis,
     canonical_narration_text,
     prepare_current_narrated_video_duration,
@@ -146,8 +151,6 @@ from server.services.tasks.generation_context import (
 )
 from server.services.tasks.image_edit_tasks import execute_image_edit_task
 from server.services.tasks.narration_delivery_tasks import (
-    CurrentTtsSettingsResolver,
-    ResolvedTtsSettingsResolver,
     active_narrated_video_resource_ids,
     current_selected_video_tier,
     reuse_current_video_for_tier,
@@ -661,29 +664,29 @@ async def execute_tts_task(
     ):
         raise ConflictError("tts_conflicts_with_active_narrated_video", resource_id=resource_id)
 
+    # 旁白配音只按项目的 TTS 快照合成：项目改为后期配音或快照不完整时拒绝执行。
+    settings = require_project_tts_generation(project)
+    voice = settings.voice
+    speed = settings.speed
+    # 快照带完整的 provider/model，audio lane 按项目层解析即落到它；不传 payload，
+    # 历史任务携带的供应商不得越过项目快照。
     ctx = await resolve_generation_context(
         project_name,
-        payload,
+        None,
         project=project,
         user_id=user_id,
         audio=AudioLaneRequest(),
     )
+    # 自定义后端可回退到默认型号；旁白快照不允许用另一个型号合成并登记为所选型号。
+    if ctx.audio.backend_model != settings.model_id:
+        raise NarrationConfigError("narration_tts_model_invalid")
     generator = ctx.generator
-    voice = ctx.audio.narration_voice
-    speed = ctx.audio.narration_speed
-    settings = TtsSynthesisSettings(
-        provider_id=ctx.audio.provider_model.provider_id,
-        model_id=ctx.audio.backend_model,
-        voice=voice,
-        speed=speed,
-    )
     basis = build_narration_audio_basis(preparation, settings) if preparation is not None else None
 
     audio_rel = resource_relative_path("audio", resource_id)
     duration_seconds: float | None = None
     # 选片依据的解析失败在回调里发生、在外层消费，用单元素信箱传递而非 nonlocal 哨兵。
     tts_selection_errors: list[BaseException] = []
-    tts_settings_bridge = EventLoopBridge.capture()
     selected_current = True
 
     class _TtsSelectionResolutionFailed(RuntimeError):
@@ -794,18 +797,10 @@ async def execute_tts_task(
             ) as current_script:
                 if not guarded_project:
                     raise RuntimeError("TTS commit guard did not expose the current project")
-                try:
-                    current_commit_settings = tts_settings_bridge.run(
-                        CurrentTtsSettingsResolver(
-                            project_name,
-                            user_id=user_id,
-                            project_path=project_path,
-                            context_resolver=resolve_generation_context,
-                        ).resolve_tts_synthesis_settings(guarded_project[-1])
-                    )
-                except (Exception, asyncio.CancelledError) as exc:
-                    tts_selection_errors.append(exc)
-                    raise _TtsSelectionResolutionFailed from exc
+                current_commit_settings = project_tts_settings(guarded_project[-1])
+                if current_commit_settings is None:
+                    tts_selection_errors.append(ValueError("project TTS snapshot is no longer complete"))
+                    raise _TtsSelectionResolutionFailed
                 items, id_field, current_kind = _resolve_tts_task_items(
                     current_script,
                     reference_video_route=reference_video_route,
@@ -1197,7 +1192,7 @@ async def execute_video_task(
             supported_durations=constrained_durations,
             confirmed_request_duration_seconds=delivery_options.confirmed_request_duration_seconds,
             duration_endpoint_fixed=request_facts.duration_endpoint_fixed,
-            resolver=ResolvedTtsSettingsResolver.from_audio_lane(ctx.audio),
+            resolver=ProjectTtsSettingsResolver(),
             tts_in_progress=await tts_task_in_progress(
                 project_name=project_name,
                 resource_id=resource_id,

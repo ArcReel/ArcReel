@@ -9,6 +9,7 @@ const mockData = {
     video: ["gemini-aistudio/veo-3"],
     image: ["gemini-aistudio/nano-banana"],
     text: ["gemini-aistudio/g25"],
+    audio: ["dashscope/qwen3-tts-flash"],
     providerNames: { "gemini-aistudio": "Gemini AI Studio" },
   },
   providers: [
@@ -45,6 +46,13 @@ const mockData = {
     textComplex: "",
   },
 } as unknown as WizardStep2Data;
+
+const postProduction = {
+  delivery: "post_production" as const,
+  audioBackend: "",
+  narrationVoice: "",
+  narrationSpeed: null,
+};
 
 const baseValue = {
   videoBackend: "",
@@ -87,6 +95,8 @@ describe("WizardStep2Models", () => {
       <WizardStep2Models
         value={baseValue}
         onChange={() => {}}
+        narration={postProduction}
+        onNarrationChange={() => {}}
         onBack={() => {}}
         onNext={() => {}}
         onCancel={() => {}}
@@ -102,6 +112,8 @@ describe("WizardStep2Models", () => {
       <WizardStep2Models
         value={baseValue}
         onChange={() => {}}
+        narration={postProduction}
+        onNarrationChange={() => {}}
         onBack={() => {}}
         onNext={() => {}}
         onCancel={() => {}}
@@ -120,6 +132,8 @@ describe("WizardStep2Models", () => {
       <WizardStep2Models
         value={baseValue}
         onChange={() => {}}
+        narration={postProduction}
+        onNarrationChange={() => {}}
         onBack={() => {}}
         onNext={() => {}}
         onCancel={() => {}}
@@ -145,6 +159,8 @@ describe("WizardStep2Models", () => {
       <WizardStep2Models
         value={baseValue}
         onChange={() => {}}
+        narration={postProduction}
+        onNarrationChange={() => {}}
         onBack={onBack}
         onNext={() => {}}
         onCancel={() => {}}
@@ -162,6 +178,8 @@ describe("WizardStep2Models", () => {
       <WizardStep2Models
         value={baseValue}
         onChange={() => {}}
+        narration={postProduction}
+        onNarrationChange={() => {}}
         onBack={() => {}}
         onNext={onNext}
         onCancel={() => {}}
@@ -179,6 +197,8 @@ describe("WizardStep2Models", () => {
       <WizardStep2Models
         value={baseValue}
         onChange={() => {}}
+        narration={postProduction}
+        onNarrationChange={() => {}}
         onBack={() => {}}
         onNext={() => {}}
         onCancel={onCancel}
@@ -195,6 +215,8 @@ describe("WizardStep2Models", () => {
       <WizardStep2Models
         value={baseValue}
         onChange={() => {}}
+        narration={postProduction}
+        onNarrationChange={() => {}}
         onBack={() => {}}
         onNext={() => {}}
         onCancel={() => {}}

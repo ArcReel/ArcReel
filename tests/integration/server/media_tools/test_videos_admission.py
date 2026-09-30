@@ -9,8 +9,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from lib.db.models.user import User
-from lib.speech.narration_delivery import TtsSynthesisSettings
-from server.services.tasks.narration_delivery_tasks import ResolvedTtsSettingsResolver, active_tts_resource_ids
+from server.services.tasks.narration_delivery_tasks import active_tts_resource_ids
 from server.tool_runtime import CallerContext, ToolOutcome
 from tests.factories import make_video_request_facts
 from tests.integration.server.agent_tool_support import (
@@ -108,10 +107,10 @@ async def test_generate_reference_videos_reads_active_tts_from_the_callers_queue
 ) -> None:
     """参考视频预检只认同队列同租户 TTS；其他租户的任务不能占住当前请求。"""
     fake_ctx = idle_fake_ctx
-    fake_ctx.tts_settings_resolver = ResolvedTtsSettingsResolver(
-        TtsSynthesisSettings(provider_id="dashscope", model_id="qwen3-tts-flash", voice="Cherry", speed=None)
-    )
     use_reference_route(fake_ctx)
+    fake_ctx.pm.project_payload.update(
+        {"narration_delivery": "use_tts", "audio_backend": "dashscope/qwen3-tts-flash", "narration_voice": "Cherry"}
+    )
     (fake_ctx.project_path / "project.json").write_text(
         json.dumps(fake_ctx.pm.project_payload, ensure_ascii=False),
         encoding="utf-8",
