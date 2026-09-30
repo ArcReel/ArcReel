@@ -47,10 +47,10 @@ Read 只补充创作输入与商品 soft gate 信息。每次动作完成后刷�
    - `next_action.type == "generate_grid"` → 调
      `mcp__arcreel__generate_grid({"script": target.script_filename})`（不传 `scene_ids`：缺失即生成，不重做联合图已就绪、未切分的宫格）
    - `next_action.type == "choose_narration_delivery"` → 本次请求含叙述旁白。**显式说明**并在
-     「使用当前 TTS」与「后期配音」之间二选一，选择经 `narration_delivery` 带进下一次
+     「使用 TTS」与「后期配音」之间二选一，选择经 `narration_delivery` 带进下一次
      `mcp__arcreel__get_workflow_plan`（不持久化，每次查询都要重新带上）。未配置 TTS 时默认后期配音，
-     不要为了让视频继续而建议用户去配置 TTS 供应商；选 TTS 时先显式生成并让用户试听，再按
-     预检返回的 `problems[].action` 处理（action 是权威，不要按 `code` 自己推）
+     不要为了让视频继续而建议用户去配置 TTS 供应商；选 TTS 时旁白配音按 `generate-narration-audio`
+     单独合成，视频请求不受影响
    - `next_action.type == "confirm_request_duration"` → 按 `admission.confirmation.tiers[]` 逐档位展示
      涉及的视频单元与费用，确认后经 `confirmed_request_durations` 连同仍成立的 `narration_delivery` 一起带回
    - `next_action.type == "generate_videos"` → 先看 `plan.steps[].admission.decision`：只有 `admitted`
@@ -58,10 +58,8 @@ Read 只补充创作输入与商品 soft gate 信息。每次动作完成后刷�
      `problems[].code`、原因与 `problems[].action`（被 `blocked_unit_ids` 连累的视频单元带
      `generation_batch_admission_withheld`，如实说明不是它自身有问题）；修掉被拒视频单元后整批重来，
      不拆批先跑通过的那一半。入队时若 `requested_ids` 非空则调
-     `mcp__arcreel__generate_videos({"script": target.script_filename, "target": {"scope": "selected", "ids": requested_ids}, "force": true, "narration_delivery": chosen_narration_delivery})`；
-     `requested_ids` 为空时才调 `mcp__arcreel__generate_videos({"script": target.script_filename, "target": {"scope": "episode", "episode": target.episode}, "narration_delivery": chosen_narration_delivery})`。
-     `narration_delivery` 必填，填本次已向用户确认的那个值：省略或写错值一律返回工具错误、不入队
-     任何任务，也不退回后期配音；没和用户确认过就先走 `choose_narration_delivery`，不要自己填。
+     `mcp__arcreel__generate_videos({"script": target.script_filename, "target": {"scope": "selected", "ids": requested_ids}, "force": true})`；
+     `requested_ids` 为空时才调 `mcp__arcreel__generate_videos({"script": target.script_filename, "target": {"scope": "episode", "episode": target.episode}})`。
      返回后按逐 ID 分账陈述结果（`succeeded` / `failed` / `blocked` / `skipped`），并把 workflow 步骤
      状态、队列任务、供应商 checkpoint、产物时效四轴分开说——「任务成功」不等于「当前产物有效」；
      stale 产物照常可用，是否重做由用户决定，不自动删除或重生已付费产物

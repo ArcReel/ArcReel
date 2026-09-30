@@ -3,7 +3,6 @@ import json
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import ClassVar
-from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -1000,106 +999,6 @@ class TestMediaGenerator:
         )
 
         assert not staged.exists()
-
-    @pytest.mark.asyncio
-    async def test_rejected_short_video_does_not_make_legacy_predecessor_reusable(
-        self,
-        monkeypatch: pytest.MonkeyPatch,
-        tmp_path: Path,
-    ) -> None:
-        from lib.artifacts.version_manager import VersionManager
-        from lib.speech.narration_delivery import (
-            USE_TTS,
-            NarratedVideoDurationBlockedError,
-            NarrationDeliveryPreparation,
-            NarrationTtsStatus,
-        )
-        from server.services.tasks import narration_delivery_tasks
-
-        gen = _build_generator(tmp_path)
-        gen.versions = VersionManager(gen.project_path)
-        output_path = gen._get_output_path("videos", "E1S01")
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        output_path.write_bytes(b"legacy-video-with-unknown-tier")
-
-        _, version, _, _ = await gen.generate_video_async(
-            prompt="new request",
-            resource_type="videos",
-            resource_id="E1S01",
-            duration_seconds=8,
-        )
-        monkeypatch.setattr(
-            narration_delivery_tasks,
-            "probe_existing_media_duration_seconds",
-            AsyncMock(return_value=4.0),
-        )
-        narration = NarrationDeliveryPreparation(
-            delivery=USE_TTS,
-            unit_id="E1S01",
-            speech_mode=None,
-            tts_status=NarrationTtsStatus.CURRENT,
-            artifact_path="audio/segment_E1S01.wav",
-            basis_digest="basis",
-            actual_duration_seconds=6.2,
-            problems=(),
-        )
-
-        # 重载协程本体照跑，只把它的三个协作者换成替身；在途 TTS 判定仍走真实代码，
-        # 空闲由生成队列的空结果给出。
-        class _IdleQueue:
-            async def get_active_tasks_for_resources(self, **_kwargs) -> list[dict]:
-                return []
-
-        pm = MagicMock()
-        pm.load_project.return_value = {
-            "name": "demo",
-            "episodes": [{"episode": 1, "script_file": "episode_1.json"}],
-        }
-        pm.get_project_path.return_value = gen.project_path
-        pm.load_script.return_value = {
-            "episode": 1,
-            "content_mode": "narration",
-            "segments": [{"segment_id": "E1S01", "narration": "旁白。", "duration_seconds": 8}],
-        }
-        monkeypatch.setattr(narration_delivery_tasks, "get_project_manager", lambda: pm)
-        monkeypatch.setattr(
-            narration_delivery_tasks,
-            "prepare_current_narration_delivery",
-            AsyncMock(return_value=narration),
-        )
-        monkeypatch.setattr(narration_delivery_tasks, "get_generation_queue", _IdleQueue)
-
-        with pytest.raises(NarratedVideoDurationBlockedError):
-            await narration_delivery_tasks.require_generated_video_covers_current_tts(
-                project_name="demo",
-                script_file="episode_1.json",
-                request_duration_seconds=8,
-                output_path=output_path,
-                versions=gen.versions,
-                resource_type="videos",
-                resource_id="E1S01",
-                version=version,
-            )
-
-        assert output_path.read_bytes() == b"legacy-video-with-unknown-tier"
-        item = {
-            "generated_assets": {
-                "status": "completed",
-                "video_clip": "videos/scene_E1S01.mp4",
-            }
-        }
-        assert (
-            await narration_delivery_tasks.reuse_current_video_for_tier(
-                project_path=gen.project_path,
-                versions=gen.versions,
-                item=item,
-                resource_type="videos",
-                resource_id="E1S01",
-                request_duration_seconds=8,
-                minimum_actual_duration_seconds=6.2,
-            )
-            is None
-        )
 
     @pytest.mark.asyncio
     async def test_generate_video_async_segment_id_by_resource_type(self, tmp_path):

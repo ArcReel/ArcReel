@@ -36,13 +36,10 @@ description: 为分镜或自包含视频单元生成视频。当用户要求生�
 
 | 操作 | 工具 |
 |------|------|
-| 整集生成（默认操作） | `mcp__arcreel__generate_videos({"script": "episode_1.json", "target": {"scope": "episode", "episode": 1}, "narration_delivery": chosen_narration_delivery})` |
-| 单分镜 | `mcp__arcreel__generate_videos({"script": "episode_1.json", "target": {"scope": "scene", "ids": ["E1S01"]}, "narration_delivery": chosen_narration_delivery})` |
-| 批量自选 | `mcp__arcreel__generate_videos({"script": "episode_1.json", "target": {"scope": "selected", "ids": ["E1S01", "E1S05", "E1S10"]}, "narration_delivery": chosen_narration_delivery})` |
-| 全部待处理 | `mcp__arcreel__generate_videos({"script": "episode_1.json", "target": {"scope": "all"}, "narration_delivery": chosen_narration_delivery})` |
-
-每次调用都必须带 `narration_delivery`（见「旁白交付」）：省略或写错值一律返回工具错误、不入队任何任务。
-上表的 `chosen_narration_delivery` 是占位符，调用前换成本次已向用户确认的那个值，不要照抄一个具体值。
+| 整集生成（默认操作） | `mcp__arcreel__generate_videos({"script": "episode_1.json", "target": {"scope": "episode", "episode": 1}})` |
+| 单分镜 | `mcp__arcreel__generate_videos({"script": "episode_1.json", "target": {"scope": "scene", "ids": ["E1S01"]}})` |
+| 批量自选 | `mcp__arcreel__generate_videos({"script": "episode_1.json", "target": {"scope": "selected", "ids": ["E1S01", "E1S05", "E1S10"]}})` |
+| 全部待处理 | `mcp__arcreel__generate_videos({"script": "episode_1.json", "target": {"scope": "all"}})` |
 
 把 `target.ids` 在分镜图生视频解释为分镜 ID，在参考生视频解释为 `unit_id`。集号由剧本元数据或文件名解析。
 
@@ -52,8 +49,8 @@ description: 为分镜或自包含视频单元生成视频。当用户要求生�
 
 | 操作 | 工具 |
 |------|------|
-| 重新生成单个视频单元 | `mcp__arcreel__generate_videos({"script": "episode_1.json", "target": {"scope": "scene", "ids": ["E1U2"]}, "force": true, "narration_delivery": chosen_narration_delivery})` |
-| 重新生成多个视频单元 | `mcp__arcreel__generate_videos({"script": "episode_1.json", "target": {"scope": "selected", "ids": ["E1U2", "E1U3"]}, "force": true, "narration_delivery": chosen_narration_delivery})` |
+| 重新生成单个视频单元 | `mcp__arcreel__generate_videos({"script": "episode_1.json", "target": {"scope": "scene", "ids": ["E1U2"]}, "force": true})` |
+| 重新生成多个视频单元 | `mcp__arcreel__generate_videos({"script": "episode_1.json", "target": {"scope": "selected", "ids": ["E1U2", "E1U3"]}, "force": true})` |
 
 一次调用完成入队并返回 durable batch；按返回的 `poll_after_seconds` 调用 `get_generation_batch`，直到 `done: true` 后再处理结果：
 
@@ -73,39 +70,24 @@ description: 为分镜或自包含视频单元生成视频。当用户要求生�
 - 重新生成后验收，新版本不如旧版，改回旧版本。
 - 版本号不存在时，按返回的 `params.available_versions` 重选。
 
-### 旁白交付
+### 视频与旁白
 
-叙述旁白有两种交付方式，**每次请求逐次选择、从不持久化**，经 `narration_delivery` 传入，该参数在 `generate_videos` 上必填：
-
-| 取值 | 含义 |
-|---|---|
-| `post_production` | 后期配音：视频照常生成，旁白留到剪映等后期工具里补 |
-| `use_tts` | 使用当前 TTS：按 fresh 旁白音频的实际媒体时长参与时长求解 |
-
-对每次叙述旁白视频请求都要**显式向用户说明并选择**，不要默默沿用上一次，也不要在没问过用户时
-直接填 `post_production` 凑够必填项。未配置 TTS 时用户通常选后期配音——那不是工作流缺口，视频照常成片，**不要为了让视频继续而建议用户去配置 TTS 供应商**。
-选 `use_tts` 时先显式生成并让用户试听旁白（`generate-narration-audio`），再按预检返回的
-`problems[].action` 处理——**action 是权威，不要按 `code` 自己推**：`tts_missing` 先生成、
-`tts_stale` / `tts_duration_unavailable` 先重新合成（旧音频保留）、`tts_generating` 与
-`tts_conflicts_with_active_narrated_video` 等待在跑的任务后重查（不要重复提交）、
-`tts_not_applicable` 改选后期配音、`tts_state_unavailable` 报为独立缺口而不是当作缺失去重生。
-
-`generation_mode == "reference_video"` **只跳过分镜图**，不跳过 audio：旁白交付选择在两种生成模式下都要做。
+视频请求只看剧本：一律按视频单元的编排时长申请档位，准入、报价与恢复都与项目的旁白交付方式无关，
+未配置 TTS 的项目照常生成与恢复视频。旁白配音在剪辑阶段单独生成（`generate-narration-audio`）。
+`generate_videos` 没有 `narration_delivery` 参数，带上会被拒绝。
 
 ### 整批准入判定与档位确认
 
 视频整批请求是**全有或全无**：准入 `admitted` 时整批入队，`blocked` 或 `confirmation_required` 时
 **一个任务都不入队**。Web 与 Agent 走同一套准入与同一套请求选择语义，没有 Agent 专属的宽松通道。
 
-按视频单元的引用状态选择生效档位，把编排时长投影到能容纳内容的申请档位。申请档位不同于当前视觉时长时
+参考生视频按视频单元的引用状态选择生效档位，把编排时长投影到模型支持的申请档位。申请档位不同于编排时长时
 预检返回 `reference_duration_confirmation_required`，逐档位向用户说明涉及的视频单元、编排秒数、申请秒数
-与变长/变短；确认后经 `confirmed_request_durations`（按 unit_id 记档位）让**原目标集合仍作为一批重发**。
-重发要连同本次请求已选的 `narration_delivery` 一起带上——该参数不持久化，省略会让重发直接失败，
-不会退回后期配音把用户选的「使用当前 TTS」悄悄换掉：
+与变长/变短；确认后经 `confirmed_request_durations`（按 unit_id 记档位）让**原目标集合仍作为一批重发**：
 
 ```text
 mcp__arcreel__generate_videos({"script": "episode_1.json", "target": {"scope": "episode", "episode": 1},
-                               "narration_delivery": "use_tts", "confirmed_request_durations": {"E1U1": 8}})
+                               "confirmed_request_durations": {"E1U1": 8}})
 ```
 
 被拒时逐视频单元报告 `unit_id`、`problem.code`、原因与 `problem.action`；通过的视频单元带
@@ -128,7 +110,7 @@ stale 产物照常可预览、可导出、可参与成片，服务端会复用�
 
 1. 加载项目和剧本，确认骨架与生成模式一致。
 2. 在分镜图生视频确认分镜图可用；在参考生视频确认视频单元正文非空、编排时长合法。
-3. 与用户确定本次旁白交付方式，调用相应 MCP 工具，处理准入拒绝与档位确认。
+3. 调用 MCP 工具入队，处理准入拒绝与档位确认。
 4. 展示结果，按用户选择点名重做不满意的分镜或视频单元。
 5. 以工具写回的 `generated_assets.video_clip` 作为成片归属。
 

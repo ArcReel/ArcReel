@@ -9,10 +9,14 @@ import pytest
 from lib.artifacts.artifact_activation import ArtifactCurrencyResolver
 from lib.artifacts.artifact_manifest import (
     ArtifactKey,
+    ArtifactManifest,
     ArtifactManifestEntry,
     ArtifactStatus,
     ProjectArtifactManifestAdapter,
 )
+from lib.artifacts.artifact_planner import TargetStatePlanner
+from lib.artifacts.artifact_version_provenance import VIDEO_CURRENCY_DURATION_FIELD, parse_typed_media_version_target
+from lib.artifacts.media_artifact_currency import build_current_video_artifact_basis
 from lib.config.resolver import ConfigResolver
 from lib.config.service import ConfigService
 from lib.project.project_manager import ProjectManager
@@ -20,8 +24,9 @@ from lib.project.project_migration_report import load_migration_report
 from lib.project.project_migrations import CURRENT_SCHEMA_VERSION
 from lib.project.project_migrations.runner import migrate_project_dir
 from lib.project.project_migrations.v15_to_v16_edit_decisions import migrate_v15_to_v16
+from lib.project.resource_paths import resource_relative_path
 from lib.speech.narration_config import ProjectTtsSettingsResolver, TtsSynthesisSettings
-from lib.speech.narration_delivery import USE_TTS, NarrationTtsStatus, prepare_current_narration_delivery
+from lib.speech.narration_delivery import build_narration_audio_basis, resolve_tts_synthesis_settings
 from lib.speech.speech_composition import admit_script_unit
 from lib.speech.speech_presentation import presentation_artifact_paths
 from lib.workflow.workflow_state import WorkflowStateService
@@ -194,25 +199,20 @@ def test_report_describes_the_completed_chain_and_keeps_legacy_audio_skips(tmp_p
     assert _read_json(project_dir / "project.json")["narration_delivery"] == "post_production"
 
 
-async def _tts_status(project_dir: Path, unit_id: str) -> NarrationTtsStatus:
+async def _tts_status(project_dir: Path, unit_id: str) -> ArtifactStatus:
     """用户在旁白配音面板上看到的时效：按迁移后项目的 TTS 快照复算。"""
-
-    async def _duration(_path: Path) -> float:
-        return 3.0
 
     project = _read_json(project_dir / "project.json")
     script = _read_json(project_dir / "scripts" / "episode_1.json")
     segment = next(item for item in script["segments"] if item["segment_id"] == unit_id)
-    prepared = await prepare_current_narration_delivery(
-        project=project,
-        episode=1,
-        preparation=admit_script_unit("segments", segment).preparation,
-        project_path=project_dir,
-        delivery=USE_TTS,
-        resolver=ProjectTtsSettingsResolver(),
-        duration_probe=_duration,
+    settings = await resolve_tts_synthesis_settings(project, ProjectTtsSettingsResolver())
+    basis = build_narration_audio_basis(admit_script_unit("segments", segment).preparation, settings)
+    comparison = ArtifactManifest(ProjectArtifactManifestAdapter(project_dir)).compare(
+        ArtifactKey.episode_audio(1, unit_id),
+        artifact_path=resource_relative_path("audio", unit_id),
+        basis=basis,
     )
-    return prepared.tts_status
+    return comparison.status
 
 
 async def test_project_with_registered_tts_audio_becomes_tts_and_its_audio_stays_current(
@@ -231,8 +231,8 @@ async def test_project_with_registered_tts_audio_becomes_tts_and_its_audio_stays
         "narration_voice": "Ethan",
     }
     assert project["narration_speed"] == 1.2
-    assert await _tts_status(project_dir, "E1S1") is NarrationTtsStatus.CURRENT
-    assert await _tts_status(project_dir, "E1S2") is NarrationTtsStatus.CURRENT
+    assert await _tts_status(project_dir, "E1S1") is ArtifactStatus.CURRENT
+    assert await _tts_status(project_dir, "E1S2") is ArtifactStatus.CURRENT
 
     async with db_factory() as session:
         service = ConfigService(session)
@@ -243,7 +243,7 @@ async def test_project_with_registered_tts_audio_becomes_tts_and_its_audio_stays
     defaults, voice, speed = await ConfigResolver(db_factory).default_narration_tts()
     assert (defaults.model_id, voice, speed) == ("qwen-tts-latest", "Cherry", 0.8)
     assert _read_json(project_dir / "project.json") == project
-    assert await _tts_status(project_dir, "E1S1") is NarrationTtsStatus.CURRENT
+    assert await _tts_status(project_dir, "E1S1") is ArtifactStatus.CURRENT
 
     manager = ProjectManager(tmp_path)
     entries = ProjectArtifactManifestAdapter(project_dir).snapshot_entries()
@@ -259,8 +259,8 @@ async def test_project_with_registered_tts_audio_becomes_tts_and_its_audio_stays
         }
         assert saved["narration_delivery"] == delivery
         assert ProjectArtifactManifestAdapter(project_dir).snapshot_entries() == entries
-        assert await _tts_status(project_dir, "E1S1") is NarrationTtsStatus.CURRENT
-        assert await _tts_status(project_dir, "E1S2") is NarrationTtsStatus.CURRENT
+        assert await _tts_status(project_dir, "E1S1") is ArtifactStatus.CURRENT
+        assert await _tts_status(project_dir, "E1S2") is ArtifactStatus.CURRENT
         summary = WorkflowStateService(manager).get_project_summary(project_dir.name)
         assert (summary.episodes[0].videos.available, summary.episodes[0].videos.stale) == (2, 0)
 
@@ -282,8 +282,72 @@ async def test_tts_snapshot_takes_the_most_recently_generated_audio_settings(tmp
     assert (project["audio_backend"], project["narration_voice"]) == ("openai/tts-1", "alloy")
     # 快照不设语速：旧项目里「跟随全局默认」的语速字段不再保留
     assert "narration_speed" not in project
-    assert await _tts_status(project_dir, "E1S2") is NarrationTtsStatus.CURRENT
-    assert await _tts_status(project_dir, "E1S1") is NarrationTtsStatus.STALE
+    assert await _tts_status(project_dir, "E1S2") is ArtifactStatus.CURRENT
+    assert await _tts_status(project_dir, "E1S1") is ArtifactStatus.STALE
+
+
+@pytest.mark.parametrize("schema_version", [13, 15])
+@pytest.mark.parametrize("uses_project_default", [False, True], ids=["unit-duration", "project-default"])
+async def test_upgrade_preserves_paid_videos_raised_by_tts_but_does_not_refresh_stale_videos(
+    tmp_path: Path, schema_version: int, uses_project_default: bool
+) -> None:
+    settings = TtsSynthesisSettings("dashscope", "qwen3-tts-flash", "Cherry", None)
+    project_dir = write_legacy_tts_narration_project(
+        tmp_path / "projects", settings=(settings, settings), raised_video_duration_seconds=8
+    )
+    if uses_project_default:
+        project_path = project_dir / "project.json"
+        project = _read_json(project_path)
+        project["default_duration"] = 4
+        _write_json(project_path, project)
+        script_path = project_dir / "scripts" / "episode_1.json"
+        script = _read_json(script_path)
+        for item in script["segments"]:
+            del item["duration_seconds"]
+        _write_json(script_path, script)
+    advance_project_schema(project_dir, to_version=schema_version)
+    adapter = ProjectArtifactManifestAdapter(project_dir)
+    legacy_target = TargetStatePlanner(project_dir).plan()
+    for unit_id in ("E1S1", "E1S2"):
+        key = ArtifactKey.episode_video(1, unit_id)
+        assert adapter.get_entry(key) == legacy_target.entries[key]
+    script_path = project_dir / "scripts" / "episode_1.json"
+    script = _read_json(script_path)
+    script["segments"][1]["video_prompt"]["action"] = "已经改写的画面"
+    _write_json(script_path, script)
+    stale_entry = adapter.get_entry(ArtifactKey.episode_video(1, "E1S2"))
+    versions_path = project_dir / "versions" / "versions.json"
+    before = _read_json(versions_path)
+    media = {path.name: path.read_bytes() for path in (project_dir / "videos").glob("*.mp4")}
+
+    assert migrate_project_dir(project_dir) is True
+
+    status = WorkflowStateService(ProjectManager(tmp_path)).get_status(project_dir.name, 1)
+    assert status.artifacts["videos"]["current_ids"] == ["E1S1"]
+    assert status.artifacts["videos"]["stale_ids"] == ["E1S2"]
+    assert adapter.get_entry(ArtifactKey.episode_video(1, "E1S2")) == stale_entry
+    after = _read_json(versions_path)
+    selected = after["videos"]["E1S1"]["versions"][0]
+    assert selected == {**before["videos"]["E1S1"]["versions"][0], VIDEO_CURRENCY_DURATION_FIELD: 4}
+    assert after["videos"]["E1S2"] == before["videos"]["E1S2"]
+    assert selected["execution_duration_seconds"] == 8
+    assert selected["artifact_video_currency"]["request_duration_seconds"] == 8
+    assert adapter.get_entry(ArtifactKey.episode_video(1, "E1S1")).basis_digest == (
+        parse_typed_media_version_target("videos", selected).basis.digest
+    )
+    assert {path.name: path.read_bytes() for path in (project_dir / "videos").glob("*.mp4")} == media
+
+    async def probe(_path: Path) -> float:
+        return 8.0
+
+    preview = await PresentationReadModelService(ProjectManager(tmp_path), duration_probe=probe).materialize_unit(
+        project_name=project_dir.name, resource_type="videos", resource_id="E1S1", variant="post_production"
+    )
+    assert preview.presentation.currency == "current"
+    report = load_migration_report(project_dir)
+    assert report is not None
+    assert report.registered["episode-video"] == 2
+    assert list(versions_path.parent.glob("versions.json.bak.v15-*"))
 
 
 def test_project_without_registered_narration_audio_becomes_post_production(tmp_path: Path) -> None:
@@ -297,6 +361,77 @@ def test_project_without_registered_narration_audio_becomes_post_production(tmp_
 
     project = _read_json(project_dir / "project.json")
     assert project == {**legacy, "narration_delivery": "post_production", "schema_version": 16}
+
+
+@pytest.mark.parametrize("invalid_audio", ["missing-claim", "wrong-script"])
+def test_upgrade_does_not_refresh_a_raised_video_whose_narration_is_not_current(
+    tmp_path: Path, invalid_audio: str
+) -> None:
+    project_dir = write_legacy_tts_narration_project(
+        tmp_path / "projects",
+        settings=(TtsSynthesisSettings("dashscope", "qwen3-tts-flash", "Cherry", None),),
+        raised_video_duration_seconds=8,
+    )
+    advance_project_schema(project_dir, to_version=15)
+    adapter = ProjectArtifactManifestAdapter(project_dir)
+    key = ArtifactKey.episode_video(1, "E1S1")
+    entry = adapter.get_entry(key)
+    versions_path = project_dir / "versions" / "versions.json"
+    versions = _read_json(versions_path)
+    if invalid_audio == "missing-claim":
+        adapter.delete_entry(ArtifactKey.episode_audio(1, "E1S1"))
+    else:
+        versions["audio"]["E1S1"]["versions"][0]["execution_script_file"] = "episode_2.json"
+        _write_json(versions_path, versions)
+    selected = versions["videos"]["E1S1"]["versions"][0]
+    before = build_current_video_artifact_basis(
+        project_path=project_dir,
+        project=_read_json(project_dir / "project.json"),
+        script=_read_json(project_dir / "scripts" / "episode_1.json"),
+        resource_type="videos",
+        resource_id="E1S1",
+        version_metadata=selected,
+    )
+    assert before is not None
+    assert before.digest != entry.basis_digest
+
+    migrate_project_dir(project_dir)
+
+    assert adapter.get_entry(key) == entry
+    assert _read_json(versions_path)["videos"] == versions["videos"]
+    status = WorkflowStateService(ProjectManager(tmp_path)).get_status(project_dir.name, 1)
+    assert status.artifacts["videos"]["stale_ids"] == ["E1S1"]
+    assert status.artifacts["videos"]["current_ids"] == []
+
+
+@pytest.mark.parametrize("manifest_committed", [False, True], ids=["versions-only", "versions-and-manifest"])
+def test_raised_video_duration_rebase_can_resume_before_project_version_commit(
+    tmp_path: Path, manifest_committed: bool
+) -> None:
+    project_dir = write_legacy_tts_narration_project(
+        tmp_path / "projects",
+        settings=(TtsSynthesisSettings("dashscope", "qwen3-tts-flash", "Cherry", None),),
+        raised_video_duration_seconds=8,
+    )
+    advance_project_schema(project_dir, to_version=15)
+    project_path = project_dir / "project.json"
+    project_bytes = project_path.read_bytes()
+    adapter = ProjectArtifactManifestAdapter(project_dir)
+    old_entries = adapter.snapshot_entries()
+    migrate_project_dir(project_dir)
+    new_entries = adapter.snapshot_entries()
+    versions_path = project_dir / "versions" / "versions.json"
+    new_versions = versions_path.read_bytes()
+
+    project_path.write_bytes(project_bytes)
+    if not manifest_committed:
+        adapter.replace_entries_atomically(old_entries)
+    assert migrate_project_dir(project_dir) is True
+
+    assert adapter.snapshot_entries() == new_entries
+    assert versions_path.read_bytes() == new_versions
+    status = WorkflowStateService(ProjectManager(tmp_path)).get_status(project_dir.name, 1)
+    assert status.artifacts["videos"]["current_ids"] == ["E1S1"]
 
 
 async def test_current_presentation_and_subtitle_stay_current_and_preview_rebuilds_the_same_files(

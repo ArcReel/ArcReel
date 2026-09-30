@@ -113,7 +113,6 @@ ID 参数时，前者传入，后者必须**省略该参数**，不得把 `[]` �
 | `fix_input` | 剧本/声明本身不合法：按 `problems[].detail` 定位，经 `mcp__arcreel__patch_episode_script` 改对再重查 |
 | `replan_unit` | 视频单元需要重新规划：走 `repair_video_units` 那一行的改法 |
 | `generate_dependency` | 缺上游产物（资产图等参考图）：先补齐依赖再重查 |
-| `generate_tts` / `regenerate_tts` | 缺旁白音频 / 依据已变：经 `generate-narration-audio` 合成后重查 |
 | `configure_provider` | 当前供应商或档位不支持这次请求：告知用户要改哪项配置，**重试同一请求只会被同样拒绝** |
 | `repair_artifact_state` | 产物状态读不出来：报为独立缺口，绝不当作缺失去重生 |
 | `retry` | 可安全重发同一请求 |
@@ -124,12 +123,12 @@ ID 参数时，前者传入，后者必须**省略该参数**，不得把 `[]` �
 
 ## 旁白交付
 
-叙述旁白有两种交付方式，**每次视频请求逐次选择、从不持久化**：
+叙述旁白有两种交付方式。视频请求与它无关：两种方式下视频的申请档位、准入与费用完全相同。
 
 | 选项 | 含义 |
 |---|---|
-| `post_production` | 后期配音：视频照常生成，旁白留到剪映等后期工具里补 |
-| `use_tts` | 使用当前 TTS：把已生成的旁白音频作为本次请求的依据 |
+| `post_production` | 后期配音：旁白留到剪映等后期工具里补 |
+| `use_tts` | 使用 TTS：旁白配音由 `generate-narration-audio` 合成，剪辑阶段与视频对齐 |
 
 参考生视频同样要做交付选择：两种生成模式跳过哪些步骤见
 [generation-modes.md](generation-modes.md)。
@@ -138,29 +137,13 @@ ID 参数时，前者传入，后者必须**省略该参数**，不得把 `[]` �
 
 1. 向用户**显式说明**这次要发起的是叙述旁白视频请求，列出两个选项及各自后果，请其选择。
 2. 用户选 `post_production` → 带 `narration_delivery: "post_production"` 重查计划，继续。
-3. 用户选 `use_tts` → 先**显式生成并让用户试听**旁白音频（`generate-narration-audio` skill），
-   再带 `narration_delivery: "use_tts"` 重查计划，按返回的问题码处理：
+3. 用户选 `use_tts` → 带 `narration_delivery: "use_tts"` 重查计划，继续；旁白配音按
+   `generate-narration-audio` 单独合成并让用户试听。
 
-本字段在计划查询上可选，在 `generate_videos` 上**必填**：省略或写错值一律返回工具错误、
-不入队任何任务，也不退回后期配音。凑够必填项不等于做过选择——没问过用户就不要自己填一个值。
+`generate_videos` 没有 `narration_delivery` 参数：交付选择只作用于计划查询。
 
-每条问题的 `action` 是权威处理方式，下表只是常见码的说明；**照 `problems[].action` 执行，
-不要按 `code` 自己推**：
-
-| `code` | `action` | 处理 |
-|---|---|---|
-| `tts_missing` | `generate_tts` | 先生成旁白配音，再重查 |
-| `tts_stale` | `regenerate_tts` | 依据已变，重新合成该段再重查；旧音频保留 |
-| `tts_duration_unavailable` | `regenerate_tts` | 时长读不出来，按重新合成处理 |
-| `tts_generating` | `wait_for_task` | 已有旁白任务在跑，**不要再提交一次**，等待后重查 |
-| `tts_conflicts_with_active_narrated_video` | `wait_for_task` | 该视频单元有带旁白的视频任务在跑，等待后重查 |
-| `tts_not_applicable` | `fix_input` | 该视频单元没有叙述旁白，改选 `post_production` |
-| `tts_duration_endpoint_fixed` | `fix_input` | 该模型的成片时长由端点固定，申请不到装得下旁白的时长，改选 `post_production`；换供应商配置也拿不回时长控制权 |
-| `tts_state_unavailable` | `repair_artifact_state` | 产物状态读不出来，报告缺口，不当作缺失去重生 |
-| `tts_not_configured` | `configure_provider` | 见下 |
-
-**未配置 TTS 时默认走后期配音。** `tts_not_configured` 只是「这次选了 TTS 但没有可用供应商」
-的事实，不是工作流缺口，也不拦导出。此时告诉用户后期配音方式照常可用、视频不受影响，
+**未配置 TTS 时默认走后期配音。** 缺 TTS 供应商不是工作流缺口，也不拦视频与导出。
+此时告诉用户后期配音方式照常可用、视频不受影响，
 **不要建议用户为了继续做视频去配置 TTS 供应商**；只有用户主动想要 in-app 旁白时才说明去哪配。
 
 ## 整批准入判定
@@ -176,8 +159,7 @@ ID 参数时，前者传入，后者必须**省略该参数**，不得把 `[]` �
   其 `blocked_unit_ids` 指出是被谁挡住的——把这层因果如实说给用户，不要报成它们自己有问题。
 - `decision == "confirmation_required"` 时 `admission.confirmation.tiers[]` 给出按申请档位分组的
   视频单元与费用。取得用户确认后，把确认过的档位填进 `confirmed_request_durations`、连同仍成立的
-  `narration_delivery` 一起重查计划；同一对参数在 `generate_videos` 重发时同样要带全，
-  后者漏带 `narration_delivery` 会直接失败。
+  `narration_delivery` 一起重查计划；`generate_videos` 重发时带上同一份 `confirmed_request_durations`。
 - **不要把整批拆成小批去「先跑通过的那半批」。** 那既绕开了全有或全无，也会在补齐后重复提交
   已经付过费的视频单元。修掉被拒的视频单元，整批重来。
 

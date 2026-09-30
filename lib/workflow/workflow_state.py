@@ -138,8 +138,6 @@ class WorkflowActionType(StrEnum):
     RETRY = "retry"
     FIX_INPUT = "fix_input"
     GENERATE_DEPENDENCY = "generate_dependency"
-    GENERATE_TTS = "generate_tts"
-    REGENERATE_TTS = "regenerate_tts"
     WAIT_FOR_TASK = "wait_for_task"
     REPLAN_UNIT = "replan_unit"
     CONFIRM_REQUEST_DURATION = "confirm_request_duration"

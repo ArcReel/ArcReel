@@ -137,6 +137,30 @@ class VideoRequestFacts:
     reference_audio_per_image: bool
 
 
+@dataclass(frozen=True, slots=True)
+class VideoRequestCostFacts:
+    """报价共用的供应商请求坐标：一份视频请求事实加上这次申请的秒数。"""
+
+    request_facts: VideoRequestFacts
+    duration_seconds: int
+
+    @property
+    def provider_id(self) -> str:
+        return self.request_facts.provider_id
+
+    @property
+    def model_id(self) -> str:
+        return self.request_facts.model_id
+
+    @property
+    def resolution(self) -> str | None:
+        return self.request_facts.resolution
+
+    @property
+    def generate_audio(self) -> bool:
+        return self.request_facts.generate_audio
+
+
 @dataclass(frozen=True)
 class VideoRequestFactsFailure:
     """求值失败：问题码、渲染参数与修复指引。参数键名属持久化契约，只增不改。"""

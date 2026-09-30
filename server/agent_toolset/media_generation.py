@@ -157,6 +157,7 @@ GENERATE_VIDEOS = generation_tool(
     description=(
         "为分镜图生视频或参考生视频项目生成视频片段（付费生成，视频写入项目）。"
         "已有可用成片（Manifest 认定 current / stale，或被选中的手动上传版本）默认复用。"
+        "申请档位取剧本编排时长，与项目的旁白交付方式无关。"
         "整批准入：任一目标未通过准入（缺素材、发声冲突、提示词待补、产物状态不可读等），"
         "或有目标需要用户确认跨档时长费用时，本次零任务入队、不产生批次，"
         "结果带 batch_admission 逐单元明细与 request_projections 请求投影；"

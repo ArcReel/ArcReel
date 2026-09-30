@@ -8,8 +8,8 @@ never consults whichever provider configuration happens to be active later.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -32,6 +32,7 @@ from lib.artifacts.visual_artifact_provenance import (
 )
 from lib.project.asset_types import asset_name_comparison_key
 from lib.project.project_manager import ProjectManager, resolve_episode_script_binding
+from lib.project.project_schema import parse_project_schema_version
 from lib.project.resource_paths import resource_relative_path
 from lib.script.reference_video.duration_slots import resolve_duration_slot
 from lib.script.reference_video.prompt_render import resolve_reference_audio_paths
@@ -45,15 +46,13 @@ from lib.script.reference_video.request_projection import (
 from lib.script.script_editor import resolve_items
 from lib.script.storyboard_sequence import resolve_storyboard_video_inputs
 from lib.speech.character_voice import character_voice_binding
-from lib.speech.narration_delivery import TtsSynthesisSettings, build_narration_audio_basis
+from lib.speech.narration_delivery import build_narration_audio_basis
 from lib.speech.speech_artifact_provenance import (
     build_video_duration_basis,
     build_video_speech_basis,
     project_character_voice_evidence,
 )
-from lib.speech.speech_composition import SpeechPreparation, admit_script_unit
-
-AudioManifestEntryResolver = Callable[[ArtifactKey], ArtifactManifestEntry | None]
+from lib.speech.speech_composition import admit_script_unit
 
 
 def build_current_audio_artifact_basis(
@@ -120,12 +119,7 @@ def project_video_basis_components(
     skeleton_kind: str,
     resource_type: str,
     resource_id: str,
-    episode: int,
     shape: VideoExecutionShape,
-    versions: VersionManager,
-    version_metadata: Mapping[str, Any],
-    current_tts_settings: TtsSynthesisSettings | None = None,
-    resolve_audio_manifest_entry: AudioManifestEntryResolver | None = None,
 ) -> VideoBasisComponents:
     """Project the current script item through ``shape`` into the three video basis components.
 
@@ -189,19 +183,7 @@ def project_video_basis_components(
     else:
         raise ValueError(f"resource type does not carry video artifact metadata: {resource_type}")
 
-    duration = _current_duration_tier_basis(
-        project_path=project_path,
-        project=project,
-        item=item,
-        resource_id=resource_id,
-        episode=episode,
-        versions=versions,
-        version_metadata=version_metadata,
-        duration_tiers=shape.duration_tiers,
-        preparation=admission.preparation,
-        current_tts_settings=current_tts_settings,
-        resolve_audio_manifest_entry=resolve_audio_manifest_entry,
-    )
+    duration = _current_duration_tier_basis(project=project, item=item, duration_tiers=shape.duration_tiers)
     if duration is None:
         raise ValueError("planned duration cannot be placed on the paid duration tiers")
     return VideoBasisComponents(visual=visual, speech=speech, duration=duration)
@@ -214,10 +196,8 @@ def build_current_video_artifact_basis(
     script: dict[str, Any],
     resource_type: str,
     resource_id: str,
-    versions: VersionManager,
     version_metadata: Mapping[str, Any],
-    current_tts_settings: TtsSynthesisSettings | None = None,
-    resolve_audio_manifest_entry: AudioManifestEntryResolver | None = None,
+    legacy_audio_entries: Mapping[ArtifactKey, ArtifactManifestEntry] | None = None,
 ) -> ArtifactBasisDescriptor | None:
     """Rebuild current video inputs using only frozen execution dependency shape."""
 
@@ -258,102 +238,100 @@ def build_current_video_artifact_basis(
             skeleton_kind=kind,
             resource_type=resource_type,
             resource_id=resource_id,
-            episode=episode,
             shape=shape,
-            versions=versions,
-            version_metadata=version_metadata,
-            current_tts_settings=current_tts_settings,
-            resolve_audio_manifest_entry=resolve_audio_manifest_entry,
         )
+        if parse_project_schema_version(project) < 16:
+            legacy_duration = _legacy_narrated_duration(
+                project_path=project_path,
+                project=project,
+                item=item,
+                skeleton_kind=kind,
+                resource_id=resource_id,
+                episode=episode,
+                record=version_metadata,
+                tiers=shape.duration_tiers,
+                audio_entries=legacy_audio_entries,
+            )
+            if legacy_duration is not None:
+                components = replace(components, duration=legacy_duration)
     except (KeyError, OSError, TypeError, ValueError):
         return None
     return ArtifactBasisDescriptor.from_basis(components.compose())
 
 
-def _current_duration_tier_basis(
+def _legacy_narrated_duration(
     *,
     project_path: Path,
     project: Mapping[str, Any],
     item: Mapping[str, Any],
+    skeleton_kind: str,
     resource_id: str,
     episode: int,
-    versions: VersionManager,
-    version_metadata: Mapping[str, Any],
-    duration_tiers: tuple[int, ...],
-    preparation: SpeechPreparation,
-    current_tts_settings: TtsSynthesisSettings | None,
-    resolve_audio_manifest_entry: AudioManifestEntryResolver | None,
+    record: Mapping[str, Any],
+    tiers: tuple[int, ...],
+    audio_entries: Mapping[ArtifactKey, ArtifactManifestEntry] | None,
 ) -> ArtifactBasis | None:
-    tiers = duration_tiers
+    """schema < 16 的迁移读法：只有已登记且时新的选中配音会抬升旧视频基准。"""
+
+    narration = record.get("execution_narration")
+    if not isinstance(narration, Mapping) or narration.get("delivery") != "use_tts":
+        return None
+    history = VersionManager(project_path).get_versions("audio", resource_id)
+    selected = next((entry for entry in history["versions"] if entry.get("is_current")), None)
+    if not isinstance(selected, Mapping):
+        return None
+    try:
+        target = parse_typed_media_version_target("audio", selected)
+        current = build_current_audio_artifact_basis(item=item, skeleton_kind=skeleton_kind, version_record=selected)
+    except (TypeError, ValueError):
+        return None
+    actual = selected.get("tts_actual_duration_seconds")
+    planned = item.get("duration_seconds")
+    if type(planned) is not int or planned <= 0:
+        planned = project.get("default_duration")
+    path = resource_relative_path("audio", resource_id)
+    key = ArtifactKey.episode_audio(episode, resource_id)
+    entry = (
+        audio_entries.get(key)
+        if audio_entries is not None
+        else ProjectArtifactManifestAdapter(project_path).get_entry(key)
+    )
+    if (
+        target.episode != episode
+        or resolve_episode_script_binding(project, episode, target.script_file) is None
+        or current != target.basis
+        or entry != ArtifactManifestEntry(path, target.basis.digest)
+        or not (project_path / path).is_file()
+        or isinstance(actual, bool)
+        or not isinstance(actual, int | float)
+        or actual <= 0
+        or type(planned) is not int
+        or planned <= 0
+    ):
+        return None
+    slot = resolve_duration_slot(max(planned, actual), tiers)
+    if max(planned, actual) > slot.seconds:
+        raise ValueError("legacy narration duration exceeds the paid tiers")
+    return build_video_duration_basis(slot.seconds)
+
+
+def _current_duration_tier_basis(
+    *,
+    project: Mapping[str, Any],
+    item: Mapping[str, Any],
+    duration_tiers: tuple[int, ...],
+) -> ArtifactBasis | None:
+    """Place the planned duration on the execution-frozen tiers; narration never moves the tier."""
+
     planned = item.get("duration_seconds")
     if type(planned) is not int or planned <= 0:
         planned = project.get("default_duration")
     if type(planned) is not int or planned <= 0:
         return None
-    duration_input: int | float = planned
-    narration = version_metadata.get("execution_narration")
-    if isinstance(narration, Mapping) and narration.get("delivery") == "use_tts":
-        actual = _selected_current_tts_duration(
-            project_path=project_path,
-            versions=versions,
-            episode=episode,
-            resource_id=resource_id,
-            preparation=preparation,
-            current_tts_settings=current_tts_settings,
-            resolve_audio_manifest_entry=resolve_audio_manifest_entry,
-        )
-        if actual is not None:
-            duration_input = max(duration_input, actual)
-    slot = resolve_duration_slot(duration_input, tiers)
-    if slot.adjustment == "down" and duration_input > slot.seconds:
+    slot = resolve_duration_slot(planned, duration_tiers)
+    if slot.adjustment == "down" and planned > slot.seconds:
         return None
     return build_video_duration_basis(slot.seconds)
-
-
-def _selected_current_tts_duration(
-    *,
-    project_path: Path,
-    versions: VersionManager,
-    episode: int,
-    resource_id: str,
-    preparation: SpeechPreparation,
-    current_tts_settings: TtsSynthesisSettings | None,
-    resolve_audio_manifest_entry: AudioManifestEntryResolver | None,
-) -> float | None:
-    history = versions.get_versions("audio", resource_id)
-    selected = next((record for record in history["versions"] if record.get("is_current")), None)
-    if not isinstance(selected, dict):
-        return None
-    raw_basis = selected.get("artifact_audio_basis")
-    actual = selected.get("tts_actual_duration_seconds")
-    if not isinstance(raw_basis, Mapping) or isinstance(actual, bool) or not isinstance(actual, (int, float)):
-        return None
-    try:
-        descriptor = ArtifactBasisDescriptor.from_dict(raw_basis)
-    except ValueError:
-        return None
-    if descriptor.kind != "narration-delivery/tts-audio" or actual <= 0:
-        return None
-    if current_tts_settings is None:
-        return None
-    try:
-        expected = ArtifactBasisDescriptor.from_basis(build_narration_audio_basis(preparation, current_tts_settings))
-    except (TypeError, ValueError):
-        return None
-    if descriptor != expected:
-        return None
-    key = ArtifactKey.episode_audio(episode, resource_id)
-    entry = (
-        resolve_audio_manifest_entry(key)
-        if resolve_audio_manifest_entry is not None
-        else ProjectArtifactManifestAdapter(project_path).get_entry(key)
-    )
-    expected_path = resource_relative_path("audio", resource_id)
-    if entry is None or entry.artifact_path != expected_path or entry.basis_digest != descriptor.digest:
-        return None
-    if not (project_path / expected_path).is_file():
-        return None
-    return float(actual)
 
 
 def _execution_reference_audio_speakers(value: object) -> tuple[str, ...] | None:
@@ -375,7 +353,6 @@ def _execution_reference_audio_speakers(value: object) -> tuple[str, ...] | None
 
 
 __all__ = [
-    "AudioManifestEntryResolver",
     "VideoBasisComponents",
     "VideoExecutionShape",
     "build_current_audio_artifact_basis",

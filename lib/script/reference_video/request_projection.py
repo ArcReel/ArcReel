@@ -10,11 +10,10 @@ fingerprint 或可执行请求快照；worker 开始处理时必须重新投影�
 
 from __future__ import annotations
 
-import math
 from collections.abc import Awaitable, Callable, Sequence
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Protocol, cast
+from typing import TYPE_CHECKING, Protocol
 
 from lib.config.resolver import (
     VideoGenerationType,
@@ -23,6 +22,7 @@ from lib.config.resolver import (
 from lib.generation.video_request_facts import (
     CONFIGURED_VIDEO_IDENTITY,
     DEFAULT_PLANNED_DURATION_SECONDS,
+    VideoRequestCostFacts,
     VideoRequestFacts,
     VideoRequestFactsFailure,
     audio_switch_conflict,
@@ -41,66 +41,40 @@ from lib.references.reference_catalog import build_reference_catalog
 from lib.script.reference_video.duration_slots import (
     DurationSlot,
     project_request_duration,
-    request_duration_input,
 )
 from lib.script.reference_video.text_parser import derive_references_from_text
 from lib.script.script_models import ReferenceResource
-from lib.speech.narration_delivery import (
-    POST_PRODUCTION as POST_PRODUCTION,
-)
-from lib.speech.narration_delivery import (
-    USE_TTS,
-    NarrationDeliveryPreparation,
-    NarrationDeliveryRequestOptions,
-    TtsSettingsResolver,
-    VideoRequestCostFacts,
-    prepare_current_narration_delivery,
-)
-from lib.speech.narration_delivery import (
-    NarrationDelivery as NarrationDelivery,
-)
-from lib.speech.speech_composition import admit_script_unit
 
 if TYPE_CHECKING:
     from lib.config.resolver import ConfigResolver
 
 
 @dataclass(frozen=True)
-class ReferenceRequestOptions(NarrationDeliveryRequestOptions):
+class ReferenceRequestOptions:
     """影响当前 unit 请求投影、但不属于剧本内容的调用选项。
 
-    ``current_tts_duration_seconds``、``current_visual_duration_seconds`` 与
-    ``current_reusable_visual_duration_seconds`` 只允许服务端 current-state seam 注入，不会序列化进队列。
-    队列保存用户选择的交付方式与明确接受的时长档位，worker 再以最新剧本、TTS 和模型能力
-    重投影；档位变化后旧确认不会继续放行。
+    队列只保存用户明确接受的时长档位；worker 再以最新剧本与模型能力重投影，档位变化后旧确认
+    不会继续放行。旧版本入队的选项里可能还带着 ``narration_delivery``，读取时忽略。
     """
 
-    current_tts_duration_seconds: float | None = field(default=None, repr=False, compare=False)
-    narration_preparation: NarrationDeliveryPreparation | None = field(default=None, repr=False, compare=False)
-    current_visual_duration_seconds: int | None = field(default=None, repr=False, compare=False)
-    current_reusable_visual_duration_seconds: int | None = field(default=None, repr=False, compare=False)
+    confirmed_request_duration_seconds: int | None = None
     _legacy_duration_confirmed: bool = field(default=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:
-        NarrationDeliveryRequestOptions.__post_init__(self)
-        floor = self.current_tts_duration_seconds
-        if floor is not None and (not math.isfinite(floor) or floor <= 0):
-            raise ValueError("current_tts_duration_seconds must be positive and finite or null")
-        visual_duration = self.current_visual_duration_seconds
-        if visual_duration is not None and not is_int(visual_duration, minimum=1):
-            raise ValueError("current_visual_duration_seconds must be a positive integer or null")
-        reusable_visual_duration = self.current_reusable_visual_duration_seconds
-        if reusable_visual_duration is not None and not is_int(reusable_visual_duration, minimum=1):
-            raise ValueError("current_reusable_visual_duration_seconds must be a positive integer or null")
-        preparation = self.narration_preparation
-        if preparation is not None and preparation.delivery != self.narration_delivery:
-            raise ValueError("narration preparation must describe the selected delivery")
+        confirmed = self.confirmed_request_duration_seconds
+        if confirmed is not None and not is_int(confirmed, minimum=1):
+            raise ValueError("confirmed_request_duration_seconds must be a positive integer or null")
 
     @property
     def legacy_duration_confirmed(self) -> bool:
         """Whether an option-less task predates explicit tier coordinates."""
 
         return self._legacy_duration_confirmed
+
+    def to_payload(self) -> dict[str, object]:
+        if self.confirmed_request_duration_seconds is None:
+            return {}
+        return {"confirmed_request_duration_seconds": self.confirmed_request_duration_seconds}
 
     @classmethod
     def from_payload(
@@ -118,14 +92,8 @@ class ReferenceRequestOptions(NarrationDeliveryRequestOptions):
         raw = root.get(key)
         if not isinstance(raw, dict):
             return cls()
-        durable = NarrationDeliveryRequestOptions.from_payload(
-            root,
-            key=key,
-        )
-        return cls(
-            narration_delivery=durable.narration_delivery,
-            confirmed_request_duration_seconds=durable.confirmed_request_duration_seconds,
-        )
+        confirmed = raw.get("confirmed_request_duration_seconds")
+        return cls(confirmed_request_duration_seconds=confirmed if is_int(confirmed, minimum=1) else None)
 
 
 @dataclass(frozen=True)
@@ -135,9 +103,6 @@ class ResolvedReferenceAsset:
     path: Path
     reference: ReferenceResource
     kind: str = "asset"
-
-
-ProjectionCostFacts = VideoRequestCostFacts
 
 
 @dataclass(frozen=True)
@@ -225,12 +190,9 @@ class ReferenceUnitRequestProjection:
     #: 单元所落桶的视频请求事实；求值失败时为 None，失败已折成 ``problems`` 里的阻断项。
     request_facts: VideoRequestFacts | None
     planned_duration: int
-    narration_duration_floor: float | None
-    current_visual_duration: int | None
-    duration_input: int | float
+    duration_input: int
     request_duration: DurationSlot | None
-    cost: ProjectionCostFacts | None
-    narration_preparation: NarrationDeliveryPreparation | None
+    cost: VideoRequestCostFacts | None
     problems: tuple[ProjectionProblem, ...]
 
     @property
@@ -261,13 +223,10 @@ class ReferenceUnitRequestProjection:
             "provider_id": self.provider_id,
             "model_id": self.model_id,
             "planned_duration": self.planned_duration,
-            "current_visual_duration": self.current_visual_duration,
             "duration_input": self.duration_input,
             "request_duration": self.request_duration.seconds if self.request_duration is not None else None,
             "problems": self.problem_payloads(),
         }
-        if self.narration_preparation is not None:
-            payload["narration_delivery"] = self.narration_preparation.to_payload()
         return payload
 
 
@@ -525,7 +484,6 @@ _PROBLEM_PRESENTATION: dict[str, tuple[str, tuple[tuple[str | int, ...], ...]]] 
         (("generation_settings", "generate_audio"),),
     ),
     "reference_duration_confirmation_required": ("confirm_duration", (("duration_seconds",),)),
-    "tts_duration_endpoint_fixed": ("choose_post_production", (("narration_delivery",),)),
     "needs_replan": ("replan_unit", (("duration_seconds",),)),
     "reference_supported_durations_missing": ("configure_video_model", (("duration_seconds",),)),
     "reference_supported_durations_invalid": ("configure_video_model", (("duration_seconds",),)),
@@ -586,20 +544,7 @@ class ReferenceUnitRequestProjector:
         declared_generation_type = hydration.declared_generation_type
         hydrated_generation_type = hydration.hydrated_generation_type
 
-        problems: list[ProjectionProblem] = []
-        if options.narration_preparation is not None:
-            problems.extend(
-                ProjectionProblem(
-                    code=delivery_problem.code,
-                    blocking=delivery_problem.blocking,
-                    params=delivery_problem.params,
-                    reason=delivery_problem.reason,
-                    action=delivery_problem.action,
-                    locations=tuple(location.path for location in delivery_problem.locations),
-                )
-                for delivery_problem in options.narration_preparation.problems
-            )
-        problems.extend(hydration.problems)
+        problems: list[ProjectionProblem] = list(hydration.problems)
 
         facts: VideoRequestFacts | None = None
         try:
@@ -659,47 +604,22 @@ class ReferenceUnitRequestProjector:
                 )
 
         planned_duration = _planned_duration(unit)
-        prepared_floor = (
-            options.narration_preparation.duration_floor if options.narration_preparation is not None else None
-        )
-        narration_floor = (
-            (prepared_floor if prepared_floor is not None else options.current_tts_duration_seconds)
-            if options.narration_delivery == USE_TTS
-            else None
-        )
-        if narration_floor is not None and (not math.isfinite(narration_floor) or narration_floor <= 0):
-            raise ValueError("narration_duration_floor must be positive")
-        duration_input: int | float = request_duration_input(planned_duration, narration_floor)
+        duration_input = planned_duration
         request_duration: DurationSlot | None = None
-        cost: ProjectionCostFacts | None = None
+        cost: VideoRequestCostFacts | None = None
 
         if facts is not None:
             # 取档判定与分镜路线同一份实现；这里只把它的结论映射成参考生视频的 problem code。
             projected = project_request_duration(
                 planned_duration_seconds=planned_duration,
                 supported_durations=facts.allowed_durations,
-                narration_duration_floor=narration_floor,
                 duration_endpoint_fixed=facts.duration_endpoint_fixed,
-                uses_tts=options.narration_delivery == USE_TTS,
-                current_visual_duration_seconds=options.current_visual_duration_seconds,
                 confirmed_request_duration_seconds=options.confirmed_request_duration_seconds,
                 confirmation_waived=options.legacy_duration_confirmed,
             )
             duration_input = projected.duration_input
             request_duration = projected.slot
-            if projected.problem == "tts_duration_endpoint_fixed":
-                # 排在旁白交付带过来的问题之前：读侧取首条阻断项作为指引，而「配好 TTS / 等它
-                # 生成完」在这种模型上做完也仍然不能用 use_tts，唯一出路是改选后期配音。
-                problems.insert(
-                    0,
-                    _problem(
-                        "tts_duration_endpoint_fixed",
-                        blocking=True,
-                        provider=facts.provider_id,
-                        model=facts.model_id,
-                    ),
-                )
-            elif projected.problem == "supported_durations_missing":
+            if projected.problem == "supported_durations_missing":
                 problems.append(
                     _problem(
                         "reference_supported_durations_missing",
@@ -726,11 +646,10 @@ class ReferenceUnitRequestProjector:
                         duration_input=projected.duration_input,
                         request_duration=projected.slot.seconds,
                         adjustment=projected.slot.adjustment,
-                        current_visual_duration=options.current_visual_duration_seconds,
                     )
                 )
             if projected.slot is not None:
-                cost = ProjectionCostFacts(
+                cost = VideoRequestCostFacts(
                     request_facts=facts,
                     duration_seconds=projected.slot.seconds,
                 )
@@ -744,12 +663,9 @@ class ReferenceUnitRequestProjector:
             hydrated_generation_type=hydrated_generation_type,
             request_facts=facts,
             planned_duration=planned_duration,
-            narration_duration_floor=narration_floor,
-            current_visual_duration=options.current_visual_duration_seconds,
             duration_input=duration_input,
             request_duration=request_duration,
             cost=cost,
-            narration_preparation=options.narration_preparation,
             problems=tuple(problems),
         )
 
@@ -763,9 +679,6 @@ async def project_reference_unit_request(
     options: ReferenceRequestOptions | None = None,
     resolver: ConfigResolver | None = None,
     request_facts_lookup: ReferenceRequestFactsLookup | None = None,
-    tts_settings_resolver: TtsSettingsResolver | None = None,
-    tts_in_progress: bool = False,
-    current_options_materialized: bool = False,
 ) -> ReferenceUnitRequestProjection:
     """生产入口：从当前项目文件与配置直接构造一次 advisory 投影。
 
@@ -776,24 +689,15 @@ async def project_reference_unit_request(
     # artifact_selection 依赖本模块，延迟导入避免循环。
     from lib.script.reference_video.artifact_selection import CurrentReferenceAssets
 
-    if resolver is None:
-        from lib.config.resolver import ConfigResolver
-        from lib.db import async_session_factory
+    if request_facts_lookup is None:
+        if resolver is None:
+            from lib.config.resolver import ConfigResolver
+            from lib.db import async_session_factory
 
-        resolver = ConfigResolver(async_session_factory)
-    options = options or ReferenceRequestOptions()
-    if not current_options_materialized:
-        options = await materialize_current_reference_request_options(
-            project=project,
-            script=script,
-            unit=unit,
-            project_path=project_path,
-            options=options,
-            resolver=tts_settings_resolver or cast(TtsSettingsResolver, resolver),
-            tts_in_progress=tts_in_progress,
-        )
+            resolver = ConfigResolver(async_session_factory)
+        request_facts_lookup = configured_reference_request_facts(project, resolver)
     projector = ReferenceUnitRequestProjector(
-        request_facts_lookup or configured_reference_request_facts(project, resolver),
+        request_facts_lookup,
         CurrentReferenceAssets(project_path, project),
     )
     return await projector.project_current(
@@ -801,43 +705,5 @@ async def project_reference_unit_request(
         script=script,
         unit=unit,
         resolved_assets=resolve_reference_assets(project, project_path, unit),
-        options=options,
-    )
-
-
-async def materialize_current_reference_request_options(
-    *,
-    project: dict,
-    script: dict,
-    unit: dict,
-    project_path: Path,
-    options: ReferenceRequestOptions,
-    resolver: TtsSettingsResolver,
-    tts_in_progress: bool = False,
-    episode: int | None = None,
-) -> ReferenceRequestOptions:
-    """Attach current, server-owned TTS facts without changing durable request facts."""
-
-    if options.narration_delivery != USE_TTS:
-        return replace(
-            options,
-            current_tts_duration_seconds=None,
-            narration_preparation=None,
-        )
-    if not isinstance(episode, int) or isinstance(episode, bool):
-        raise ValueError("reference video script requires an integer episode for TTS delivery")
-    admission = admit_script_unit("video_units", unit)
-    preparation = await prepare_current_narration_delivery(
-        project=project,
-        episode=episode,
-        preparation=admission.preparation,
-        project_path=project_path,
-        delivery=options.narration_delivery,
-        resolver=resolver,
-        tts_in_progress=tts_in_progress,
-    )
-    return replace(
-        options,
-        current_tts_duration_seconds=preparation.duration_floor,
-        narration_preparation=preparation,
+        options=options or ReferenceRequestOptions(),
     )

@@ -622,7 +622,6 @@ export default {
   'generate_storyboard_failed': 'Tạo phân cảnh thất bại: {{message}}',
   'video_task_submitted_toast': 'Đã gửi tác vụ tạo video cho "{{id}}"',
   'generate_video_failed': 'Tạo video thất bại: {{message}}',
-  'workflow_regenerate_needs_confirmation': 'Thời lượng yêu cầu lần này cần xác nhận mức trước — đã chuyển bạn đến cảnh quay tương ứng',
   'narration_task_submitted_toast': 'Đã gửi tác vụ tạo âm thanh thuyết minh cho "{{id}}"',
   'script_generation_notice_toast': 'Đang tạo kịch bản — bước này mất khá lâu, vui lòng đợi…',
   'narration_batch_submitted_toast': 'Đã gửi {{count}} tác vụ tạo âm thanh thuyết minh',
@@ -1331,8 +1330,6 @@ export default {
   'reference_duration_note_longer': 'Chi phí video được tính theo mức {{duration}} đã yêu cầu. Video được giao đúng thời lượng đó và không bị cắt về mốc yêu cầu.',
   'reference_duration_note_shorter': 'Mô hình chỉ hỗ trợ tối đa {{duration}} nên video không chứa hết mốc thời lượng yêu cầu.',
   'reference_duration_note_no_trim': 'Mỗi video được tính phí theo mức đã yêu cầu ở trên. Video được giao đúng thời lượng đó và không bị cắt.',
-  'reference_duration_request_basis': 'Mốc yêu cầu gồm lời dẫn đã đo: {{duration}}',
-  'reference_duration_request_cost': 'Chi phí yêu cầu video mới: {{cost}} · {{provider}}/{{model}} · {{duration}}',
   'reference_duration_batch_summary': '{{count}} đơn vị sẽ dùng mức thời lượng video khác:',
   'reference_advisory_heading': 'Các điều chỉnh sau sẽ áp dụng cho lần tạo này:',
   'reference_advisory_confirm_title': 'Xác nhận tạo video',
@@ -2061,10 +2058,6 @@ export default {
   'script_edit_manifest_invalid': 'Không thể xác minh trạng thái sản phẩm nên kịch bản chưa được thay đổi. Hãy thử lại hoặc sửa dữ liệu dự án.',
   'script_edit_commit_failed': 'Không thể lưu kịch bản an toàn. Hãy thử lại.',
   'script_edit_rejected': 'Chỉnh sửa kịch bản bị từ chối. Hãy kiểm tra thao tác tương ứng rồi thử lại.',
-  'narration_delivery_label': 'Cách giao lời dẫn',
-  'narration_delivery_post_production': 'Thêm ở hậu kỳ',
-  'narration_delivery_use_tts': 'Dùng TTS hiện tại',
-  'narration_delivery_tts_duration_endpoint_fixed': 'Thời lượng thành phẩm của model này do endpoint quyết định, không thể yêu cầu video đủ dài cho lời dẫn; hãy thêm lời dẫn ở hậu kỳ.',
 
   // 自定义调用端点
   'ce_section_title': 'Điểm gọi',

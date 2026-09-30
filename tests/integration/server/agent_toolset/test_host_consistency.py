@@ -125,11 +125,7 @@ SAMPLE_ARGUMENTS: dict[str, dict[str, Any]] = {
         "expected_source_revision": "sha256-v1:" + "0" * 64,
     },
     "complete_script_plan_rebuild": {"episode": 1, "expected_stale_script_plan_revision": None},
-    "generate_videos": {
-        "script": "episode_1.json",
-        "target": {"scope": "all"},
-        "narration_delivery": "post_production",
-    },
+    "generate_videos": {"script": "episode_1.json", "target": {"scope": "all"}},
     "select_video_version": {"unit_id": "E1S01", "version": 1},
 }
 

@@ -629,7 +629,6 @@ export default {
   'generate_storyboard_failed': 'Failed to generate storyboard: {{message}}',
   'video_task_submitted_toast': 'Video generation task for "{{id}}" submitted',
   'generate_video_failed': 'Failed to generate video: {{message}}',
-  'workflow_regenerate_needs_confirmation': 'This request duration needs a tier confirmation — jumped to the shot for you',
   'narration_task_submitted_toast': 'Narration audio task for "{{id}}" submitted',
   'script_generation_notice_toast': 'Generating the script — this step takes a while, please wait…',
   'narration_batch_submitted_toast': 'Submitted {{count}} narration audio tasks',
@@ -1355,8 +1354,6 @@ export default {
   'reference_duration_note_longer': 'Video cost is calculated at the requested {{duration}} tier. The clip is delivered at that length and is not trimmed back to the request basis.',
   'reference_duration_note_shorter': 'The model tops out at {{duration}}, so the clip cannot hold the full request basis.',
   'reference_duration_note_no_trim': 'Each video is billed at its requested tier above. Clips are delivered at that length and are not trimmed.',
-  'reference_duration_request_basis': 'Request basis including measured narration: {{duration}}',
-  'reference_duration_request_cost': 'New video request: {{cost}} · {{provider}}/{{model}} · {{duration}}',
   'reference_duration_batch_summary': '{{count}} units will use a different video duration tier:',
   'reference_advisory_heading': 'The following adjustments will apply to this generation:',
   'reference_advisory_confirm_title': 'Confirm video generation',
@@ -2063,10 +2060,6 @@ export default {
   'script_edit_manifest_invalid': 'Artifact state could not be verified, so the script was not changed. Retry or repair the project data.',
   'script_edit_commit_failed': 'The script could not be saved safely. Retry the edit.',
   'script_edit_rejected': 'The script edit was rejected. Review the affected operation and retry.',
-  'narration_delivery_label': 'Narration delivery',
-  'narration_delivery_post_production': 'Add in post-production',
-  'narration_delivery_use_tts': 'Use current TTS',
-  'narration_delivery_tts_duration_endpoint_fixed': "This model's output duration is fixed by the endpoint, so no clip long enough for the narration can be requested; add narration in post-production.",
 
   // 自定义调用端点
   'ce_section_title': 'Endpoints',

@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Route, Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
-import { API, NarratedVideoDurationError } from "@/api";
+import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
 import { useConfigStatusStore } from "@/stores/config-status-store";
 import { useProjectsStore } from "@/stores/projects-store";
@@ -170,11 +170,7 @@ vi.mock("./grid/GridImageToVideoCanvas", () => ({
       scriptFile: string,
       sceneIds?: string[],
     ) => void | Promise<void>;
-    onGenerateVideo?: (
-      segmentId: string,
-      scriptFile?: string,
-      requestOptions?: { narration_delivery: "use_tts" },
-    ) => void | Promise<void>;
+    onGenerateVideo?: (segmentId: string, scriptFile?: string) => void | Promise<void>;
   }) => (
     <div data-testid="grid-canvas">
       <button onClick={() => void onGenerateGrid?.(1, "episode_1.json")}>generate-grid</button>
@@ -183,7 +179,7 @@ vi.mock("./grid/GridImageToVideoCanvas", () => ({
           const button = event.currentTarget;
           button.dataset.videoResult = "pending";
           void Promise.resolve(
-            onGenerateVideo?.("SEG-1", "episode_1.json", { narration_delivery: "use_tts" }),
+            onGenerateVideo?.("SEG-1", "episode_1.json"),
           ).then(
             () => {
               button.dataset.videoResult = "resolved";
@@ -1269,11 +1265,7 @@ describe("StudioCanvasRouter", () => {
     });
   });
 
-  it("routes the panel's video regenerate to the duration-confirmation flow instead of a dead-end raw toast", async () => {
-    // 视频重生撞上时长档位需要确认时，enqueueVideo 内部对 NarratedVideoDurationError
-    // 选择 rethrow（而不是像其它入队回调那样自己吞掉转成 toast）。面板没有自己的确认
-    // 弹窗——把用户带到承接这套确认流程的单元卡上，并给一句翻译过的提示，而不是把
-    // 供应商侧的裸 message 直接扔出来。
+  it("routes the panel's video regenerate through the storyboard video entry", async () => {
     const projectData = makeProjectData();
     useProjectsStore.setState({
       currentProjectName: "demo",
@@ -1284,44 +1276,16 @@ describe("StudioCanvasRouter", () => {
       project: projectData,
       scripts: { "episode_1.json": makeScript() },
     });
-    vi.spyOn(API, "generateVideo").mockRejectedValue(
-      new NarratedVideoDurationError({
-        allowed: false,
-        kind: "narrated_video_duration",
-        unit_id: "SEG-1",
-        narration_delivery: {},
-        planned_duration: 4,
-        duration_input: 6.2,
-        request_duration: 8,
-        adjustment: "up",
-        problems: [
-          {
-            code: "reference_duration_confirmation_required",
-            blocking: true,
-            unit_id: "SEG-1",
-            locations: [{ path: ["duration_seconds"], line: null }],
-            params: { duration_input: 6.2, request_duration: 8 },
-            reason: "request_duration_uses_different_tier",
-            action: "confirm_duration",
-            message: "本次时长基准 6.2s 将按 8s 档位生成，请确认后重试",
-          },
-        ],
-      }),
-    );
+    vi.spyOn(API, "generateVideo").mockRejectedValue(new Error("provider down"));
 
     renderAt("/episodes/1");
 
     fireEvent.click(screen.getByText("workflow-regenerate-video"));
     await waitFor(() => {
       expect(useAppStore.getState().toast?.tone).toBe("error");
-      // 断言的是翻译过的引导文案本身，不是"不包含供应商原始 message"这个弱条件——
-      // 空文本、错译 key 或无关错误文本都得挡在这条断言之外。
-      expect(useAppStore.getState().toast?.text).toBe(
-        "本次申请时长需要先确认档位，已为你定位到对应分镜",
-      );
+      expect(useAppStore.getState().toast?.text).toBe("生成视频失败: provider down");
     });
-    expect(useAppStore.getState().scrollTarget?.id).toBe("SEG-1");
-    expect(useAppStore.getState().scrollTarget?.type).toBe("segment");
+    expect(API.generateVideo).toHaveBeenCalledWith("demo", "SEG-1", "video prompt", "episode_1.json", 4);
   });
 
   it("withholds the panel's regenerate entry on the reference route instead of wiring a dead button", async () => {
@@ -1644,7 +1608,7 @@ describe("StudioCanvasRouter", () => {
     });
   });
 
-  it("preserves the grid video promise for duration confirmation", async () => {
+  it("submits the grid video without any narration delivery choice", async () => {
     const projectData = makeProjectData({ generation_mode: "storyboard", grid_storyboard: true });
     useProjectsStore.setState({
       currentProjectName: "demo",
@@ -1655,31 +1619,12 @@ describe("StudioCanvasRouter", () => {
       project: projectData,
       scripts: { "episode_1.json": makeScript() },
     });
-    vi.spyOn(API, "generateVideo").mockRejectedValue(
-      new NarratedVideoDurationError({
-        allowed: false,
-        kind: "narrated_video_duration",
-        unit_id: "SEG-1",
-        narration_delivery: {},
-        planned_duration: 4,
-        duration_input: 6.2,
-        request_duration: 8,
-        adjustment: "up",
-        problems: [
-          {
-            code: "reference_duration_confirmation_required",
-            blocking: true,
-            unit_id: "SEG-1",
-            locations: [{ path: ["duration_seconds"], line: null }],
-            params: { duration_input: 6.2, request_duration: 8 },
-            reason: "request_duration_uses_different_tier",
-            action: "confirm_duration",
-            message: "本次时长基准 6.2s 将按 8s 档位生成，请确认后重试",
-          },
-        ],
-      }),
-    );
-    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(API, "generateVideo").mockResolvedValue({
+      success: true,
+      task_id: "t-v",
+      deduped: false,
+      message: "已提交",
+    });
 
     renderAt("/episodes/1");
 
@@ -1687,7 +1632,7 @@ describe("StudioCanvasRouter", () => {
     fireEvent.click(button);
 
     await waitFor(() => {
-      expect(button).toHaveAttribute("data-video-result", "NarratedVideoDurationError");
+      expect(button).toHaveAttribute("data-video-result", "resolved");
     });
     expect(API.generateVideo).toHaveBeenCalledWith(
       "demo",
@@ -1695,7 +1640,6 @@ describe("StudioCanvasRouter", () => {
       "video prompt",
       "episode_1.json",
       4,
-      { narration_delivery: "use_tts" },
     );
   });
 

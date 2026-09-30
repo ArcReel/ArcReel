@@ -23,7 +23,6 @@ from lib.references.reference_compression import ReferencePayloadFloorError
 from lib.script.reference_video.execution_checkpoint import ReferenceExecutionIdentityError
 from lib.script.reference_video.request_projection import ReferenceProjectionBlockedError
 from lib.script.script_editor import ScriptEditError
-from lib.speech.narration_delivery import NarratedVideoDurationBlockedError
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +55,6 @@ def encode_task_failure_message(exc: Exception) -> str:
         | ImageBucketCapabilityError
         | VideoBucketCapabilityError
         | ReferenceProjectionBlockedError
-        | NarratedVideoDurationBlockedError
         | VideoRequestFactsError
         | ReferenceExecutionIdentityError
         | DeclarativeRuntimeError

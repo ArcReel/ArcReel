@@ -3,11 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { API } from "@/api";
 import { useCostStore } from "@/stores/cost-store";
 import { useTasksStore } from "@/stores/tasks-store";
-import type {
-  NarrationEpisodeScript,
-  ProjectData,
-  ReferenceGenerationRequestOptions,
-} from "@/types";
+import type { NarrationEpisodeScript, ProjectData } from "@/types";
 import { GridImageToVideoCanvas } from "./GridImageToVideoCanvas";
 
 vi.mock("../timeline/ScriptReviewGate", async () => {
@@ -26,23 +22,15 @@ vi.mock("../timeline/ShotSplitView", () => ({
     onGenerateVideo,
     durationEndpointFixed,
   }: {
-    onGenerateVideo?: (
-      segmentId: string,
-      requestOptions?: ReferenceGenerationRequestOptions,
-    ) => void;
+    onGenerateVideo?: (segmentId: string) => void;
     durationEndpointFixed?: boolean;
   }) => (
     <button
       type="button"
       data-duration-endpoint-fixed={durationEndpointFixed ? "yes" : "no"}
-      onClick={() =>
-        onGenerateVideo?.("SEG-1", {
-          narration_delivery: "use_tts",
-          confirmed_request_duration_seconds: 8,
-        })
-      }
+      onClick={() => onGenerateVideo?.("SEG-1")}
     >
-      generate-video-with-tts
+      generate-video
     </button>
   ),
 }));
@@ -93,7 +81,7 @@ describe("GridImageToVideoCanvas", () => {
     });
   });
 
-  it("forwards narration delivery and confirmation through the grid canvas", () => {
+  it("forwards the shot's video request with the canvas script file", () => {
     const onGenerateVideo = vi.fn();
     render(
       <GridImageToVideoCanvas
@@ -107,12 +95,9 @@ describe("GridImageToVideoCanvas", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "generate-video-with-tts" }));
+    fireEvent.click(screen.getByRole("button", { name: "generate-video" }));
 
-    expect(onGenerateVideo).toHaveBeenCalledWith("SEG-1", "scripts/episode_1.json", {
-      narration_delivery: "use_tts",
-      confirmed_request_duration_seconds: 8,
-    });
+    expect(onGenerateVideo).toHaveBeenCalledWith("SEG-1", "scripts/episode_1.json");
   });
 
   it("forwards endpoint-fixed duration to grid shot controls", () => {
@@ -123,7 +108,7 @@ describe("GridImageToVideoCanvas", () => {
         durationEndpointFixed
       />,
     );
-    expect(screen.getByRole("button", { name: "generate-video-with-tts" })).toHaveAttribute(
+    expect(screen.getByRole("button", { name: "generate-video" })).toHaveAttribute(
       "data-duration-endpoint-fixed", "yes",
     );
   });

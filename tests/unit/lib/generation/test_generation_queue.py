@@ -1,9 +1,11 @@
 """Tests for GenerationQueue (async wrapper over TaskRepository)."""
 
 import asyncio
+import json
 
 import pytest
 
+from lib.db.models.task import Task
 from lib.db.repositories.task_repo import TaskNotCancellableError
 from lib.generation.generation_admission import generation_admission_lock
 from lib.generation.generation_queue import (
@@ -100,77 +102,13 @@ class TestGenerationQueue:
         assert not second["deduped"]
         assert second["task_id"] != first["task_id"]
 
-    async def test_active_video_task_rejects_conflicting_narration_delivery(self, queue):
+    async def test_active_video_task_dedupes_regardless_of_legacy_delivery_options(self, queue):
         first = await queue.enqueue_task(
             project_name="demo",
             task_type="video",
             media_type="video",
             resource_id="E1S01",
-            payload={"narration_delivery_options": {"narration_delivery": "post_production"}},
-            script_file="episode_01.json",
-            provider_id="video-provider",
-        )
-
-        with pytest.raises(RuntimeError, match="different narration delivery request"):
-            await queue.enqueue_task(
-                project_name="demo",
-                task_type="video",
-                media_type="video",
-                resource_id="E1S01",
-                payload={"narration_delivery_options": {"narration_delivery": "use_tts"}},
-                script_file="episode_01.json",
-                provider_id="video-provider",
-            )
-
-        active = await queue.get_task(first["task_id"])
-        assert active is not None
-        assert active["payload"]["narration_delivery_options"] == {"narration_delivery": "post_production"}
-
-    async def test_active_reference_video_task_rejects_a_different_confirmed_duration(self, queue):
-        await queue.enqueue_task(
-            project_name="demo",
-            task_type="reference_video",
-            media_type="video",
-            resource_id="E1U1",
-            payload={
-                "reference_request_options": {
-                    "narration_delivery": "use_tts",
-                    "confirmed_request_duration_seconds": 8,
-                }
-            },
-            script_file="episode_01.json",
-            provider_id="video-provider",
-        )
-
-        with pytest.raises(RuntimeError, match="different narration delivery request"):
-            await queue.enqueue_task(
-                project_name="demo",
-                task_type="reference_video",
-                media_type="video",
-                resource_id="E1U1",
-                payload={
-                    "reference_request_options": {
-                        "narration_delivery": "use_tts",
-                        "confirmed_request_duration_seconds": 12,
-                    }
-                },
-                script_file="episode_01.json",
-                provider_id="video-provider",
-            )
-
-    async def test_active_video_task_still_dedupes_the_same_narration_request(self, queue):
-        payload = {
-            "narration_delivery_options": {
-                "narration_delivery": "use_tts",
-                "confirmed_request_duration_seconds": 8,
-            }
-        }
-        first = await queue.enqueue_task(
-            project_name="demo",
-            task_type="video",
-            media_type="video",
-            resource_id="E1S01",
-            payload=payload,
+            payload={"narration_delivery_options": {"narration_delivery": "use_tts"}},
             script_file="episode_01.json",
             provider_id="video-provider",
         )
@@ -180,7 +118,7 @@ class TestGenerationQueue:
             task_type="video",
             media_type="video",
             resource_id="E1S01",
-            payload=payload,
+            payload={"prompt": "p"},
             script_file="episode_01.json",
             provider_id="video-provider",
         )
@@ -188,7 +126,68 @@ class TestGenerationQueue:
         assert duplicate["deduped"] is True
         assert duplicate["task_id"] == first["task_id"]
 
-    async def test_reference_rate_limit_projection_ignores_narration_delivery(self, monkeypatch, tmp_path):
+    async def test_active_reference_video_task_rejects_a_different_confirmed_duration(self, queue):
+        await queue.enqueue_task(
+            project_name="demo",
+            task_type="reference_video",
+            media_type="video",
+            resource_id="E1U1",
+            payload={"reference_request_options": {"confirmed_request_duration_seconds": 8}},
+            script_file="episode_01.json",
+            provider_id="video-provider",
+        )
+
+        with pytest.raises(RuntimeError, match="different request options"):
+            await queue.enqueue_task(
+                project_name="demo",
+                task_type="reference_video",
+                media_type="video",
+                resource_id="E1U1",
+                payload={"reference_request_options": {"confirmed_request_duration_seconds": 12}},
+                script_file="episode_01.json",
+                provider_id="video-provider",
+            )
+
+    async def test_active_reference_video_task_ignores_a_legacy_delivery_key_when_deduping(self, queue, db_factory):
+        """旧版本入队的 reference_request_options 里还带着 narration_delivery；比对请求选项时忽略它。"""
+
+        first = await queue.enqueue_task(
+            project_name="demo",
+            task_type="reference_video",
+            media_type="video",
+            resource_id="E1U1",
+            payload={},
+            script_file="episode_01.json",
+            provider_id="video-provider",
+        )
+        async with db_factory() as session:
+            task = await session.get(Task, first["task_id"])
+            assert task is not None
+            task.payload_json = json.dumps(
+                {
+                    "script_file": "episode_01.json",
+                    "reference_request_options": {
+                        "narration_delivery": "use_tts",
+                        "confirmed_request_duration_seconds": 8,
+                    },
+                }
+            )
+            await session.commit()
+
+        duplicate = await queue.enqueue_task(
+            project_name="demo",
+            task_type="reference_video",
+            media_type="video",
+            resource_id="E1U1",
+            payload={"reference_request_options": {"confirmed_request_duration_seconds": 8}},
+            script_file="episode_01.json",
+            provider_id="video-provider",
+        )
+
+        assert duplicate["deduped"] is True
+        assert duplicate["task_id"] == first["task_id"]
+
+    async def test_reference_rate_limit_projection_ignores_queued_request_options(self, monkeypatch, tmp_path):
         seen_options = []
         sentinel = object()
 
@@ -224,7 +223,7 @@ class TestGenerationQueue:
         )
 
         assert projection is sentinel
-        assert seen_options[0].to_payload() == {"narration_delivery": "post_production"}
+        assert seen_options[0].to_payload() == {}
 
     async def test_worker_lease_takeover(self, queue):
         first_ok = await queue.acquire_or_renew_worker_lease(
@@ -604,10 +603,7 @@ class TestProjectExecutionProviderOnEnqueue:
         task = await queue.get_task(enqueued["task_id"])
         assert task["payload"] == {
             "script_file": "ep1.json",
-            "reference_request_options": {
-                "narration_delivery": "use_tts",
-                "confirmed_request_duration_seconds": 12,
-            },
+            "reference_request_options": {"confirmed_request_duration_seconds": 12},
         }
         assert "video_provider_r2v" not in task["payload"]
         assert "video_provider_i2v" not in task["payload"]

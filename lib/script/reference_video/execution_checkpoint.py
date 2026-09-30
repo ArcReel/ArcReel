@@ -23,18 +23,25 @@ from lib.artifacts.video_artifact_facts import VideoArtifactCurrencyFacts
 from lib.infra.content_digest import canonical_json, canonical_json_digest, sha256_file_with_size
 from lib.infra.json_io import atomic_write_json, load_json
 from lib.infra.path_safety import safe_join
-from lib.infra.schema_guards import is_bool, is_finite_number, is_int, is_shape, is_str
+from lib.infra.schema_guards import is_bool, is_int, is_shape, is_str
 
 logger = logging.getLogger(__name__)
 
 ProviderMediaRole = Literal["reference_image", "reference_audio", "start_image", "end_image"]
 ReferenceGenerationType = Literal["i2v", "r2v"]
 
-_SCHEMA_VERSION = 3
+_SCHEMA_VERSION = 4
 #: 版本记录 ``execution_checkpoint_schema_version`` 的当前值，供补写来源的迁移与写侧共用一个字面量。
 CHECKPOINT_SCHEMA_VERSION = _SCHEMA_VERSION
+#: 带完整产物时效事实、并且仍记录旁白交付事实的检查点。
+_NARRATION_CURRENCY_SCHEMA_VERSION = 3
 _VISUAL_BASIS_SCHEMA_VERSION = 2
 _LEGACY_SCHEMA_VERSION = 1
+#: 带完整产物时效事实的检查点版本；版本记录按它们判断来源是否完整。
+CURRENCY_CHECKPOINT_SCHEMA_VERSIONS = frozenset({_NARRATION_CURRENCY_SCHEMA_VERSION, _SCHEMA_VERSION})
+_SUPPORTED_SCHEMA_VERSIONS = frozenset(
+    {_LEGACY_SCHEMA_VERSION, _VISUAL_BASIS_SCHEMA_VERSION, _NARRATION_CURRENCY_SCHEMA_VERSION, _SCHEMA_VERSION}
+)
 _CHECKPOINT_KIND = "reference_video_submit"
 _STORYBOARD_CHECKPOINT_KIND = "storyboard_video_submit"
 _STAGING_MANIFEST_VERSION = 1
@@ -427,78 +434,6 @@ def cleanup_staged_provider_media(project_path: Path, task_id: str) -> None:
 
 
 @dataclass(frozen=True, slots=True)
-class NarrationExecutionFacts:
-    """Execution-start narration facts; the audio itself is not a provider input."""
-
-    delivery: Literal["post_production", "use_tts"]
-    tts_status: str
-    artifact_path: str
-    basis_digest: str | None
-    actual_duration_seconds: float | None
-
-    _FIELDS = frozenset({"delivery", "tts_status", "artifact_path", "basis_digest", "actual_duration_seconds"})
-
-    def __post_init__(self) -> None:
-        if self.delivery not in ("post_production", "use_tts"):
-            raise ValueError(f"unsupported narration delivery: {self.delivery!r}")
-        if self.tts_status not in {
-            "not_applicable",
-            "not_configured",
-            "missing",
-            "generating",
-            "stale",
-            "current",
-            "unmeasurable",
-            "blocked",
-        }:
-            raise ValueError(f"unsupported narration TTS status: {self.tts_status!r}")
-        _require_relative_locator(self.artifact_path, "artifact_path", allow_empty=True)
-        _require_basis_digest(self.basis_digest, "basis_digest", optional=True)
-        if self.actual_duration_seconds is not None and (
-            not is_finite_number(self.actual_duration_seconds) or self.actual_duration_seconds <= 0
-        ):
-            raise ValueError("actual_duration_seconds must be positive and finite or null")
-        if self.delivery == "post_production":
-            if (
-                self.tts_status != "not_applicable"
-                or self.artifact_path
-                or self.basis_digest is not None
-                or self.actual_duration_seconds is not None
-            ):
-                raise ValueError("post-production narration cannot carry TTS execution facts")
-        elif (
-            self.tts_status != "current"
-            or not self.artifact_path
-            or self.basis_digest is None
-            or self.actual_duration_seconds is None
-        ):
-            raise ValueError("use_tts narration requires complete current TTS execution facts")
-
-    def to_dict(self) -> dict[str, object]:
-        return {
-            "delivery": self.delivery,
-            "tts_status": self.tts_status,
-            "artifact_path": self.artifact_path,
-            "basis_digest": self.basis_digest,
-            "actual_duration_seconds": self.actual_duration_seconds,
-        }
-
-    @classmethod
-    def from_dict(cls, value: object) -> NarrationExecutionFacts:
-        if not isinstance(value, dict):
-            raise ValueError("narration facts must be an object")
-        raw = cast(dict[str, Any], value)
-        _require_exact_keys(raw, cls._FIELDS, "narration")
-        return cls(
-            delivery=raw["delivery"],
-            tts_status=raw["tts_status"],
-            artifact_path=raw["artifact_path"],
-            basis_digest=raw["basis_digest"],
-            actual_duration_seconds=raw["actual_duration_seconds"],
-        )
-
-
-@dataclass(frozen=True, slots=True)
 class _VideoSubmissionCheckpoint:
     """Strict, versioned identity shared by both video execution routes."""
 
@@ -528,7 +463,8 @@ class _VideoSubmissionCheckpoint:
     visual_basis_digest: str
     legacy_artifact_visual_basis: ArtifactBasisDescriptor | None
     artifact_currency: VideoArtifactCurrencyFacts | None
-    narration: NarrationExecutionFacts
+    #: schema v1–v3 的旁白交付事实，原样保留只为复核 ``request_digest``；v4 起不再记录。
+    legacy_narration: dict[str, Any] | None
     media: tuple[StagedProviderMedia, ...]
     reference_audio_targets: tuple[int, ...] | None
     request_digest: str
@@ -562,7 +498,8 @@ class _VideoSubmissionCheckpoint:
         }
     )
     _VISUAL_BASIS_FIELDS = _LEGACY_FIELDS | {"artifact_visual_basis"}
-    _FIELDS = _LEGACY_FIELDS | {"artifact_currency"}
+    _NARRATION_CURRENCY_FIELDS = _LEGACY_FIELDS | {"artifact_currency"}
+    _FIELDS = _NARRATION_CURRENCY_FIELDS - {"narration"}
 
     @property
     def artifact_episode(self) -> int | None:
@@ -601,7 +538,7 @@ class _VideoSubmissionCheckpoint:
     def __post_init__(self) -> None:
         if (
             not is_int(self.schema_version)
-            or self.schema_version not in {_LEGACY_SCHEMA_VERSION, _VISUAL_BASIS_SCHEMA_VERSION, _SCHEMA_VERSION}
+            or self.schema_version not in _SUPPORTED_SCHEMA_VERSIONS
             or self.kind != self.CHECKPOINT_KIND
         ):
             raise ValueError("unsupported video submission checkpoint version or kind")
@@ -636,15 +573,20 @@ class _VideoSubmissionCheckpoint:
                 raise ValueError("artifact_visual_basis kind does not match checkpoint kind")
         elif self.legacy_artifact_visual_basis is not None:
             raise ValueError("checkpoint schema cannot carry a legacy artifact_visual_basis")
-        if self.schema_version == _SCHEMA_VERSION:
+        if self.schema_version in CURRENCY_CHECKPOINT_SCHEMA_VERSIONS:
             if not isinstance(self.artifact_currency, VideoArtifactCurrencyFacts):
-                raise ValueError("schema v3 checkpoint requires complete artifact currency facts")
+                raise ValueError("currency checkpoint requires complete artifact currency facts")
             if self.artifact_currency.request_duration_seconds != self.duration_seconds:
                 raise ValueError("artifact currency request duration does not match checkpoint request")
             if self.artifact_currency.visual_basis.kind != self.ARTIFACT_VISUAL_BASIS_KIND:
                 raise ValueError("artifact currency visual kind does not match checkpoint kind")
         elif self.artifact_currency is not None:
             raise ValueError("older checkpoint cannot carry complete artifact currency facts")
+        if self.schema_version == _SCHEMA_VERSION:
+            if self.legacy_narration is not None:
+                raise ValueError("current checkpoint schema does not record narration delivery")
+        elif not isinstance(self.legacy_narration, dict):
+            raise ValueError("older checkpoint requires its recorded narration facts")
         if tuple(item.index for item in self.media) != tuple(range(len(self.media))):
             raise ValueError("provider media indexes must be contiguous and ordered")
         expected_prefix = f".arcreel/tasks/{self.task_id}/provider_media/"
@@ -699,16 +641,17 @@ class _VideoSubmissionCheckpoint:
             "service_tier": self.service_tier,
             "seed": self.seed,
             "visual_basis_digest": self.visual_basis_digest,
-            "narration": self.narration.to_dict(),
             "media": [item.to_dict() for item in self.media],
             "reference_audio_targets": (
                 list(self.reference_audio_targets) if self.reference_audio_targets is not None else None
             ),
         }
+        if self.legacy_narration is not None:
+            payload["narration"] = self.legacy_narration
         if self.schema_version == _VISUAL_BASIS_SCHEMA_VERSION:
             assert self.legacy_artifact_visual_basis is not None
             payload["artifact_visual_basis"] = self.legacy_artifact_visual_basis.to_dict()
-        elif self.schema_version == _SCHEMA_VERSION:
+        elif self.schema_version in CURRENCY_CHECKPOINT_SCHEMA_VERSIONS:
             assert self.artifact_currency is not None
             payload["artifact_currency"] = self.artifact_currency.to_dict()
         return payload
@@ -718,7 +661,7 @@ class _VideoSubmissionCheckpoint:
 
         payload = self._request_payload()
         # Schema v2 preserved its historical provider-request digest semantics.
-        # Schema v3 binds complete artifact currency evidence into the immutable
+        # Schema v3+ binds complete artifact currency evidence into the immutable
         # checkpoint so a version cannot replace typed components independently.
         if self.schema_version == _VISUAL_BASIS_SCHEMA_VERSION:
             payload.pop("artifact_visual_basis", None)
@@ -752,7 +695,6 @@ class _VideoSubmissionCheckpoint:
         seed: int | None,
         visual_basis_digest: str,
         artifact_currency: VideoArtifactCurrencyFacts,
-        narration: NarrationExecutionFacts,
         media: tuple[StagedProviderMedia, ...],
         reference_audio_targets: tuple[int, ...] | None,
     ) -> Self:
@@ -779,7 +721,6 @@ class _VideoSubmissionCheckpoint:
             "seed": seed,
             "visual_basis_digest": visual_basis_digest,
             "artifact_currency": artifact_currency.to_dict(),
-            "narration": narration.to_dict(),
             "media": [item.to_dict() for item in media],
             "reference_audio_targets": list(reference_audio_targets) if reference_audio_targets is not None else None,
         }
@@ -807,7 +748,7 @@ class _VideoSubmissionCheckpoint:
             visual_basis_digest=visual_basis_digest,
             legacy_artifact_visual_basis=None,
             artifact_currency=artifact_currency,
-            narration=narration,
+            legacy_narration=None,
             media=media,
             reference_audio_targets=reference_audio_targets,
             request_digest=request_digest,
@@ -825,11 +766,7 @@ class _VideoSubmissionCheckpoint:
             raise ValueError("execution checkpoint must be a JSON object")
         raw = cast(dict[str, Any], decoded)
         schema_version = raw.get("schema_version")
-        if type(schema_version) is not int or schema_version not in {
-            _LEGACY_SCHEMA_VERSION,
-            _VISUAL_BASIS_SCHEMA_VERSION,
-            _SCHEMA_VERSION,
-        }:
+        if type(schema_version) is not int or schema_version not in _SUPPORTED_SCHEMA_VERSIONS:
             raise ValueError("unsupported video submission checkpoint version or kind")
         # 任务与调用的关联只有 ``api_calls.task_id`` 一个真相源；检查点不再带调用坐标。
         # 升级前落库的在途检查点仍带这个键，丢弃它即可继续接续——它不进 request_digest，
@@ -842,6 +779,8 @@ class _VideoSubmissionCheckpoint:
                 if schema_version == _LEGACY_SCHEMA_VERSION
                 else cls._VISUAL_BASIS_FIELDS
                 if schema_version == _VISUAL_BASIS_SCHEMA_VERSION
+                else cls._NARRATION_CURRENCY_FIELDS
+                if schema_version == _NARRATION_CURRENCY_SCHEMA_VERSION
                 else cls._FIELDS
             ),
             "checkpoint",
@@ -880,10 +819,10 @@ class _VideoSubmissionCheckpoint:
             ),
             artifact_currency=(
                 VideoArtifactCurrencyFacts.from_dict(raw["artifact_currency"])
-                if schema_version == _SCHEMA_VERSION
+                if schema_version in CURRENCY_CHECKPOINT_SCHEMA_VERSIONS
                 else None
             ),
-            narration=NarrationExecutionFacts.from_dict(raw["narration"]),
+            legacy_narration=raw.get("narration"),
             media=tuple(StagedProviderMedia.from_dict(item) for item in media),
             reference_audio_targets=tuple(targets) if targets is not None else None,
             request_digest=raw["request_digest"],
@@ -931,7 +870,6 @@ def checkpoint_version_metadata(checkpoint: VideoSubmissionCheckpoint) -> dict[s
         "execution_service_tier": checkpoint.service_tier,
         "execution_seed": checkpoint.seed,
         "execution_visual_basis_digest": checkpoint.visual_basis_digest,
-        "execution_narration": checkpoint.narration.to_dict(),
         "execution_provider_media": [item.to_dict() for item in checkpoint.media],
         "execution_reference_audio_targets": (
             list(checkpoint.reference_audio_targets) if checkpoint.reference_audio_targets is not None else None
@@ -1014,7 +952,7 @@ def classify_video_resume_state(
 
 __all__ = [
     "CHECKPOINT_SCHEMA_VERSION",
-    "NarrationExecutionFacts",
+    "CURRENCY_CHECKPOINT_SCHEMA_VERSIONS",
     "ProviderMediaInput",
     "ReferenceExecutionIdentityError",
     "ReferenceSubmissionCheckpoint",

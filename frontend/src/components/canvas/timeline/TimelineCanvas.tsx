@@ -19,7 +19,6 @@ import type {
   DramaScene,
   AdShot,
   ProjectData,
-  ReferenceGenerationRequestOptions,
 } from "@/types";
 
 type Segment = NarrationSegment | DramaScene | AdShot;
@@ -45,11 +44,7 @@ interface TimelineCanvasProps {
   /** 移除分镜，resolve 为是否成功 */
   onRemoveShot?: (itemId: string, scriptFile?: string) => Promise<boolean>;
   onGenerateStoryboard?: (segmentId: string, scriptFile?: string) => void;
-  onGenerateVideo?: (
-    segmentId: string,
-    scriptFile?: string,
-    requestOptions?: ReferenceGenerationRequestOptions,
-  ) => void | Promise<void>;
+  onGenerateVideo?: (segmentId: string, scriptFile?: string) => void | Promise<void>;
   onGenerateNarration?: (segmentId: string, scriptFile?: string) => void;
   onGenerateEpisodeNarration?: (scriptFile?: string) => void;
   durationOptions?: number[];
@@ -239,8 +234,7 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
     ? (segId: string) => onGenerateStoryboard(segId, scriptFile)
     : undefined;
   const handleGenVid = onGenerateVideo
-    ? (segId: string, requestOptions?: ReferenceGenerationRequestOptions) =>
-        onGenerateVideo(segId, scriptFile, requestOptions)
+    ? (segId: string) => onGenerateVideo(segId, scriptFile)
     : undefined;
   const handleGenNarration = onGenerateNarration
     ? (segId: string) => onGenerateNarration(segId, scriptFile)

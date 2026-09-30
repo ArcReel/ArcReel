@@ -28,7 +28,6 @@ from lib.script.draft_quarantine import (
     QUARANTINE_KIND_SCRIPT_PLAN,
     quarantine_path,
 )
-from lib.speech.narration_delivery import TtsSettingsResolver
 from server.agent_toolset.declaration import ToolDeclaration, invoke_declaration
 from server.agent_toolset.envelope import json_value
 from server.agent_toolset.toolset import AGENT_TOOLSET
@@ -90,7 +89,6 @@ class ToolHarness:
         config_resolver: ConfigResolver | None = None,
         caller: CallerContext | None = None,
         queue: GenerationQueue | None = None,
-        tts_settings_resolver: TtsSettingsResolver | None = None,
     ):
         self.project_name = project_name
         self.data_root = data_root
@@ -98,7 +96,6 @@ class ToolHarness:
         self.config_resolver = config_resolver
         self.caller = caller or CallerContext(user_id=DEFAULT_USER_ID, source="embedded")
         self.queue = queue or get_generation_queue()
-        self.tts_settings_resolver = tts_settings_resolver
 
     @property
     def project_path(self) -> Path:
@@ -115,7 +112,6 @@ class ToolHarness:
             workflow_planner=workflow_planner.get_workflow_planner(self.pm),
             capabilities=self.config_resolver or ConfigResolver(async_session_factory),
             queue=self.queue,
-            tts_settings_resolver=self.tts_settings_resolver,
         )
 
 
@@ -193,19 +189,15 @@ async def run_generate_videos(
     target: dict[str, Any],
     *,
     script: str = "episode_1.json",
-    narration_delivery: str = "post_production",
     batch_waiter: BatchWaiter = batch_enqueue_and_wait,
     **arguments: Any,
 ) -> ToolOutcome[Any]:
-    """经 ``generate_videos`` 声明入口生成视频，拿到 handler 的 ``ToolOutcome``。
-
-    绝大多数视频用例的主题不是旁白交付，交付方式缺省为后期配音；专门验证交付方式的用例显式传入。
-    """
+    """经 ``generate_videos`` 声明入口生成视频，拿到 handler 的 ``ToolOutcome``。"""
 
     return await run_declared_tool(
         "generate_videos",
         ctx,
-        {"script": script, "target": target, "narration_delivery": narration_delivery, **arguments},
+        {"script": script, "target": target, **arguments},
         batch_waiter=batch_waiter,
     )
 
@@ -393,8 +385,6 @@ class FakePM:
 def fake_reference_projection(
     slot_for=None,
     calls: list[str] | None = None,
-    *,
-    current_tts_duration_seconds: float | None = None,
 ):
     """Agent 工具测试用的 in-process request projection adapter。"""
 
@@ -436,8 +426,6 @@ def fake_reference_projection(
             ResolvedReferenceAsset(path=Path(f"{reference.type}/{reference.name}.png"), reference=reference)
             for reference in references
         ]
-        if options is not None and current_tts_duration_seconds is not None:
-            options = replace(options, current_tts_duration_seconds=current_tts_duration_seconds)
         return await ReferenceUnitRequestProjector(_request_facts, _Available()).project_current(
             project=project,
             script=script,

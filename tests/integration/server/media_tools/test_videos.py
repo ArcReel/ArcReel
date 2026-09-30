@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import unicodedata
-from dataclasses import replace
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock
@@ -156,7 +155,14 @@ def _refused_problems(refused: list[Any]) -> dict[str, tuple[str, str]]:
 _VALID_REQUEST: dict[str, Any] = {
     "script": "episode_1.json",
     "target": _EPISODE_1,
-    "narration_delivery": "post_production",
+}
+
+# 项目级旁白交付配置的两种取值；视频请求对两者一视同仁。
+_POST_PRODUCTION_PROJECT: dict[str, Any] = {"narration_delivery": "post_production"}
+_USE_TTS_PROJECT: dict[str, Any] = {
+    "narration_delivery": "use_tts",
+    "audio_backend": "dashscope/qwen3-tts-flash",
+    "narration_voice": "Cherry",
 }
 
 
@@ -175,9 +181,6 @@ _VALID_REQUEST: dict[str, Any] = {
         pytest.param({"target": {"scope": "selected", "ids": []}}, id="selected-with-empty-ids"),
         pytest.param({"target": _ALL, "force": True}, id="force-on-all"),
         pytest.param({"force": True}, id="force-on-episode"),
-        pytest.param({"narration_delivery": None}, id="delivery-null"),
-        pytest.param({"narration_delivery": "post-production"}, id="delivery-misspelled"),
-        pytest.param({"narration_delivery": "tts"}, id="delivery-unknown"),
         pytest.param({"confirmed_request_duration_seconds": 0}, id="tier-zero"),
         pytest.param({"confirmed_request_duration_seconds": True}, id="tier-boolean"),
         pytest.param({"confirmed_request_duration_seconds": "12"}, id="tier-string"),
@@ -197,17 +200,23 @@ async def test_generate_videos_refuses_a_malformed_request_before_enqueuing(
     enqueue.assert_not_awaited()
 
 
-async def test_generate_videos_refuses_an_omitted_narration_delivery(fake_ctx: ToolHarness) -> None:
-    """缺省不折成后期配音——那会让整批按调用方没选过的交付方式准入并计费。"""
+@pytest.mark.parametrize("delivery", ["post_production", "use_tts"])
+async def test_generate_videos_refuses_a_narration_delivery_without_enqueuing(
+    fake_ctx: ToolHarness, delivery: str
+) -> None:
+    """旁白交付方式是项目配置：请求里带上它时整次调用被拒，指引说明视频按剧本计划时长请求。"""
     enqueue = AsyncMock(return_value=([], []))
-    arguments = {key: value for key, value in _VALID_REQUEST.items() if key != "narration_delivery"}
 
-    out = await run_declared_tool("generate_videos", fake_ctx, arguments, batch_waiter=enqueue)
+    out = await run_declared_tool(
+        "generate_videos", fake_ctx, {**_VALID_REQUEST, "narration_delivery": delivery}, batch_waiter=enqueue
+    )
 
     assert out.problem is not None
     assert out.problem.code == "invalid_request"
     assert "narration_delivery" in out.problem.detail
+    assert "项目配置" in out.problem.detail
     enqueue.assert_not_awaited()
+    assert (await fake_ctx.queue.list_tasks(project_name="demo"))["items"] == []
 
 
 @pytest.mark.parametrize("retired_param", sorted(enqueue_videos_mod._RETIRED_PARAMS))
@@ -494,77 +503,32 @@ async def test_generate_videos_scene_scope_happy(fake_ctx: ToolHarness) -> None:
     assert not _is_error(out), out
 
 
-async def test_generate_videos_scene_scope_use_tts_requires_exact_tier_and_queues_only_request_facts(
-    fake_ctx: ToolHarness, monkeypatch
+async def test_generate_videos_storyboard_request_is_independent_of_project_narration_delivery(
+    fake_ctx: ToolHarness,
 ) -> None:
-    from lib.speech.narration_delivery import (
-        USE_TTS,
-        NarrationDeliveryPreparation,
-        NarrationTtsStatus,
-        VideoRequestCostFacts,
-        prepare_narrated_video_duration,
-    )
-    from server.services.admission.cost_estimation import VideoRequestQuote
+    """分镜图生视频：TTS 配音项目与后期配音项目得到同一份准入结论与同一份入队请求。"""
 
-    async def fake_prepare(**kwargs):
-        narration = NarrationDeliveryPreparation(
-            delivery=USE_TTS,
-            unit_id="E1S01",
-            speech_mode=None,
-            tts_status=NarrationTtsStatus.CURRENT,
-            artifact_path="audio/segment_E1S01.wav",
-            basis_digest="basis",
-            actual_duration_seconds=9.5,
-            problems=(),
-        )
-        return replace(
-            prepare_narrated_video_duration(
-                narration=narration,
-                planned_duration_seconds=4,
-                supported_durations=(4, 8, 12),
-                confirmed_request_duration_seconds=kwargs["confirmed_request_duration_seconds"],
-            ),
-            cost=VideoRequestCostFacts(make_video_request_facts(provider_id="openai", model_id="sora-2"), 12),
-        )
+    async def _submit(project_config: dict[str, Any]) -> tuple[dict[str, Any], list[Any]]:
+        fake_ctx.pm.project_payload.update(project_config)
+        enqueued: list[Any] = []
 
-    enqueue = AsyncMock(side_effect=fake_scene_batch)
-    monkeypatch.setattr(
-        "server.services.admission.video_batch_admission.active_tts_resource_ids", AsyncMock(return_value=frozenset())
-    )
-    monkeypatch.setattr(
-        "server.services.admission.video_batch_admission.prepare_current_storyboard_narrated_video_duration",
-        fake_prepare,
-    )
-    monkeypatch.setattr(
-        "server.services.admission.video_batch_admission.quote_video_request",
-        AsyncMock(return_value=VideoRequestQuote(1.2, "USD", "openai", "sora-2", 12)),
-    )
+        async def _batch(*, specs, **batch_kwargs):
+            enqueued.extend(specs)
+            return await fake_scene_batch(specs=specs, **batch_kwargs)
 
-    pending = await run_generate_videos(
-        fake_ctx, _scene("E1S01"), force=True, narration_delivery="use_tts", batch_waiter=enqueue
-    )
-    assert not _is_error(pending), pending
-    assert pending.value["batch_admission"]["decision"] == "confirmation_required"
-    enqueue.assert_not_awaited()
+        out = await run_generate_videos(fake_ctx, _scene("E1S01"), force=True, batch_waiter=_batch)
+        assert not _is_error(out), out
+        return read_generation_result(out).model_dump(mode="json"), [
+            (spec.resource_id, spec.payload) for spec in enqueued
+        ]
 
-    completed = await run_generate_videos(
-        fake_ctx,
-        _scene("E1S01"),
-        force=True,
-        narration_delivery="use_tts",
-        confirmed_request_duration_seconds=12,
-        batch_waiter=enqueue,
-    )
+    post_production = await _submit(_POST_PRODUCTION_PROJECT)
+    use_tts = await _submit(_USE_TTS_PROJECT)
 
-    assert not _is_error(completed), completed
-    payload = enqueue.await_args.kwargs["specs"][0].payload
-    assert "duration_seconds" not in payload
-    assert payload["narration_delivery_options"] == {
-        "narration_delivery": "use_tts",
-        "confirmed_request_duration_seconds": 12,
-    }
-    assert "basis_digest" not in payload["narration_delivery_options"]
-    assert "actual_duration_seconds" not in payload["narration_delivery_options"]
+    assert use_tts == post_production
+    [(resource_id, payload)] = use_tts[1]
+    assert resource_id == "E1S01"
+    assert "narration_delivery_options" not in (payload or {})
 
 
 async def test_generate_videos_scene_scope_accepts_legacy_drama_dialogue(fake_ctx: ToolHarness) -> None:
@@ -866,6 +830,8 @@ async def test_generate_videos_episode_scope_reference_duration_needs_confirmati
     assert item.problem is not None
     assert item.problem.code == "reference_duration_confirmation_required"
     assert item.problem.action == "confirm_request_duration"
+    # 摘要以剧本计划时长为比较基准，并直接给出成片会变长还是变短。
+    assert "E1U1：剧本时长 5s，将申请 8s（成片更长 3s）" in _text(out)
 
 
 async def test_generate_videos_episode_scope_reference_duration_confirm_enqueues(
@@ -957,44 +923,58 @@ async def test_generate_videos_episode_scope_confirms_two_tiers_in_one_batch(
     assert confirmed == {"E1U1": 8, "E1U2": 12}
 
 
-async def test_generate_videos_episode_scope_reference_honors_requested_narration_delivery(
+async def test_generate_videos_reference_request_is_independent_of_project_narration_delivery(
     fake_ctx: ToolHarness,
-    monkeypatch,
+    set_video_request_facts,
 ) -> None:
+    """参考生视频：TTS 配音项目与后期配音项目得到同一份申请档位、准入结论、报价与入队请求。"""
     use_reference_route(fake_ctx)
     fake_ctx.pm.script_payload = reference_video_script()
-    enqueued: list[Any] = []
-    projected_deliveries: list[str] = []
-    base_projection = fake_reference_projection()
-
-    async def _capture_delivery(**kwargs):
-        projected_deliveries.append(kwargs["options"].narration_delivery)
-        return await base_projection(**kwargs)
-
-    active_tts = AsyncMock(return_value=frozenset())
-    monkeypatch.setattr(
-        "server.services.admission.video_batch_admission.project_reference_unit_request", _capture_delivery
-    )
-    monkeypatch.setattr("server.services.admission.video_batch_admission.active_tts_resource_ids", active_tts)
-
-    completed = await run_generate_videos(
-        fake_ctx, _EPISODE_1, narration_delivery="post_production", batch_waiter=_recording_batch(enqueued)
+    fake_ctx.pm.script_payload["video_units"][0]["text"] = "推门"
+    set_video_request_facts(
+        make_video_request_facts(
+            route="reference_video",
+            provider_id="openai",
+            model_id="sora-2",
+            resolution="720p",
+            supported_durations=(4, 8, 12),
+            allowed_durations=(4, 8, 12),
+        )
     )
 
-    assert completed.problem is None, completed
-    assert projected_deliveries == ["post_production"]
-    # 后期配音不查 TTS 在途状态：该路径不以 TTS 为输入。
-    active_tts.assert_not_awaited()
-    assert enqueued[0].payload["reference_request_options"] == {
-        "narration_delivery": "post_production",
+    async def _submit(project_config: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any], list[Any]]:
+        fake_ctx.pm.project_payload.update(project_config)
+        enqueued: list[Any] = []
+        pending = await run_generate_videos(fake_ctx, _EPISODE_1, batch_waiter=_recording_batch(enqueued))
+        assert not _is_error(pending), pending
+        assert enqueued == []
+        confirmed = await run_generate_videos(
+            fake_ctx, _EPISODE_1, confirmed_request_duration_seconds=8, batch_waiter=_recording_batch(enqueued)
+        )
+        assert confirmed.problem is None, confirmed
+        return (
+            pending.value["batch_admission"],
+            confirmed.value["request_projections"],
+            [(spec.resource_id, spec.payload) for spec in enqueued],
+        )
+
+    post_production = await _submit(_POST_PRODUCTION_PROJECT)
+    use_tts = await _submit(_USE_TTS_PROJECT)
+
+    assert use_tts == post_production
+    admission, _projections, specs = use_tts
+    assert admission["decision"] == "confirmation_required"
+    [unit] = admission["units"]
+    assert unit["request_duration_seconds"] == 8
+    assert unit["request_cost"] == {
+        "amount": pytest.approx(0.8),
+        "currency": "USD",
+        "provider_id": "openai",
+        "model_id": "sora-2",
+        "request_duration_seconds": 8,
     }
-
-    projected_deliveries.clear()
-    await run_generate_videos(
-        fake_ctx, _EPISODE_1, narration_delivery="use_tts", batch_waiter=_recording_batch(enqueued)
-    )
-    assert projected_deliveries == ["use_tts"]
-    active_tts.assert_awaited()
+    assert specs == [("E1U1", specs[0][1])]
+    assert specs[0][1]["reference_request_options"] == {"confirmed_request_duration_seconds": 8}
 
 
 async def test_generate_videos_episode_scope_reference_duration_repeat_without_confirm_still_blocked(
@@ -1225,69 +1205,6 @@ async def test_generate_video_reference_duration_confirmation_across_entries(
 
     assert confirmed.problem is None, confirmed
     assert [s.resource_id for s in enqueued] == ["E1U1"]
-
-
-async def test_generate_videos_scene_scope_reference_use_tts_queues_only_after_the_tier_is_confirmed(
-    fake_ctx: ToolHarness,
-    monkeypatch,
-) -> None:
-    from lib.script.reference_video.duration_slots import EXACT, DurationSlot
-    from server.services.admission.cost_estimation import VideoRequestQuote
-
-    use_reference_route(fake_ctx)
-    fake_ctx.pm.script_payload = reference_video_script()
-
-    def fake_precheck(_ctx, _unit):
-        return DurationSlot(seconds=8, total_seconds=8, adjustment=EXACT)
-
-    async def _current_options(**kwargs):
-        return replace(
-            kwargs["options"],
-            current_tts_duration_seconds=8.0,
-            current_visual_duration_seconds=4,
-        )
-
-    enqueued: list[Any] = []
-    monkeypatch.setattr(
-        "server.services.admission.video_batch_admission.prepare_current_reference_video_request_options",
-        _current_options,
-    )
-    monkeypatch.setattr(
-        "server.services.admission.video_batch_admission.project_reference_unit_request",
-        fake_reference_projection(fake_precheck),
-    )
-    monkeypatch.setattr(
-        "server.services.admission.video_batch_admission.active_tts_resource_ids", AsyncMock(return_value=frozenset())
-    )
-    monkeypatch.setattr(
-        "server.services.admission.video_batch_admission.get_active_tasks_for_resources", AsyncMock(return_value=[])
-    )
-    monkeypatch.setattr(
-        "server.services.admission.video_batch_admission.quote_video_request",
-        AsyncMock(return_value=VideoRequestQuote(0.8, "USD", "fake", "fake-r2v", 8)),
-    )
-
-    pending = await run_generate_videos(
-        fake_ctx, _scene("E1U1"), force=True, narration_delivery="use_tts", batch_waiter=_recording_batch(enqueued)
-    )
-
-    assert not _is_error(pending), pending
-    assert pending.value["batch_admission"]["decision"] == "confirmation_required"
-    assert enqueued == []
-
-    accepted = await run_generate_videos(
-        fake_ctx,
-        _scene("E1U1"),
-        force=True,
-        narration_delivery="use_tts",
-        confirmed_request_duration_seconds=8,
-        batch_waiter=_recording_batch(enqueued),
-    )
-    assert accepted.problem is None, accepted
-    assert enqueued[0].payload["reference_request_options"] == {
-        "narration_delivery": "use_tts",
-        "confirmed_request_duration_seconds": 8,
-    }
 
 
 def test_asset_description_gate_rejects_invalid_description() -> None:

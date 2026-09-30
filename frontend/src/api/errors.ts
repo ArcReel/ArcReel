@@ -5,7 +5,6 @@
 
 import type {
   FailureObservation,
-  NarratedVideoDurationAdmission,
   ReferenceProjectionAdmission,
 } from "@/types";
 import i18n from "@/i18n";
@@ -20,8 +19,7 @@ export interface ErrorResponse {
     | AgentFailureDetail
     | SpeechAdmission
     | ScriptEditResult
-    | ReferenceProjectionAdmission
-    | NarratedVideoDurationAdmission;
+    | ReferenceProjectionAdmission;
 }
 
 export interface SpeechAdmissionLocation {
@@ -106,17 +104,6 @@ export class ReferenceProjectionError extends Error {
     const firstBlocking = projection.problems.find(({ blocking }) => blocking);
     super(firstBlocking?.message || firstBlocking?.code || "reference_request_projection_blocked");
     this.name = "ReferenceProjectionError";
-  }
-}
-
-/** Preserves current TTS/duration blockers so callers can perform an exact-tier retry. */
-export class NarratedVideoDurationError extends Error {
-  readonly code = "narrated_video_duration_blocked" as const;
-
-  constructor(public readonly admission: NarratedVideoDurationAdmission) {
-    const firstBlocking = admission.problems.find(({ blocking }) => blocking);
-    super(firstBlocking?.message || firstBlocking?.code || "narrated_video_duration_blocked");
-    this.name = "NarratedVideoDurationError";
   }
 }
 
@@ -270,45 +257,6 @@ export function isReferenceProjectionAdmission(value: unknown): value is Referen
             && (field.line === null || typeof field.line === "number")
           );
         })
-        && Boolean(entry.params)
-        && typeof entry.params === "object"
-        && !Array.isArray(entry.params)
-        && typeof entry.action === "string"
-        && (entry.message === undefined || typeof entry.message === "string")
-      );
-    })
-  );
-}
-
-export function isNarratedVideoDurationAdmission(value: unknown): value is NarratedVideoDurationAdmission {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-  const detail = value as Record<string, unknown>;
-  return (
-    detail.allowed === false
-    && detail.kind === "narrated_video_duration"
-    && typeof detail.unit_id === "string"
-    && typeof detail.narration_delivery === "object"
-    && detail.narration_delivery !== null
-    && !Array.isArray(detail.narration_delivery)
-    && typeof detail.planned_duration === "number"
-    && typeof detail.duration_input === "number"
-    && (detail.request_duration === null || typeof detail.request_duration === "number")
-    && (
-      detail.adjustment === null
-      || detail.adjustment === "exact"
-      || detail.adjustment === "up"
-      || detail.adjustment === "down"
-    )
-    && Array.isArray(detail.problems)
-    && detail.problems.length > 0
-    && detail.problems.every((problem) => {
-      if (!problem || typeof problem !== "object" || Array.isArray(problem)) return false;
-      const entry = problem as Record<string, unknown>;
-      return (
-        typeof entry.code === "string"
-        && typeof entry.blocking === "boolean"
-        && typeof entry.unit_id === "string"
-        && Array.isArray(entry.locations)
         && Boolean(entry.params)
         && typeof entry.params === "object"
         && !Array.isArray(entry.params)

@@ -1,16 +1,14 @@
 """Reference request projection contract across public consumers."""
 
-from dataclasses import replace
 from pathlib import Path
 from typing import Any, cast
-from unittest.mock import AsyncMock
 
 import pytest
-from fastapi import HTTPException
+from fastapi import HTTPException, Request
 
 from lib.config.resolver import ConfigResolver
 from lib.generation.generation_queue import reference_projection_for_queued_task
-from lib.script.reference_video.request_projection import USE_TTS, ReferenceRequestOptions
+from lib.script.reference_video.request_projection import ReferenceRequestOptions
 from server.agent_toolset.declaration import invoke_declaration
 from server.agent_toolset.media_generation import GENERATE_VIDEOS
 from server.auth import CurrentUserInfo
@@ -24,7 +22,7 @@ from tests.integration.server.agent_tool_support import ToolHarness
 def _stub_batch_admission_queue(monkeypatch) -> None:
     """Cut the batch admission's task-store lookups off the ambient database.
 
-    准入在评估每个 unit 之前先整批探在途任务与在途 TTS，两处都走全局引擎；
+    准入在评估每个 unit 之前先整批探在途任务，走的是全局引擎；
     不打桩时这些用例会连上开发机上的 sqlite 文件，本地能过、干净环境报 no such table。
     """
 
@@ -33,9 +31,6 @@ def _stub_batch_admission_queue(monkeypatch) -> None:
 
     monkeypatch.setattr(
         "server.services.admission.video_batch_admission.get_active_tasks_for_resources", _no_active_tasks
-    )
-    monkeypatch.setattr(
-        "server.services.admission.video_batch_admission.active_tts_resource_ids", AsyncMock(return_value=frozenset())
     )
 
 
@@ -80,17 +75,7 @@ async def test_reference_projection_contract_stays_aligned_across_public_consume
             "episodes": [{"episode": 1, "title": "", "script_file": "scripts/episode_1.json"}],
         },
     )
-    options = ReferenceRequestOptions(narration_delivery=USE_TTS)
-
     project_current = fake_reference_request_projector(request_facts=request_facts)
-
-    async def project_current_with_tts(**kwargs):
-        request_options = kwargs.get("options") or ReferenceRequestOptions()
-        kwargs["options"] = replace(request_options, current_tts_duration_seconds=9.5)
-        return await project_current(**kwargs)
-
-    async def materialize_current_tts(**kwargs):
-        return replace(kwargs["options"], current_tts_duration_seconds=9.5)
 
     async def quote_current(facts, _session_factory):
         return VideoRequestQuote(
@@ -120,45 +105,25 @@ async def test_reference_projection_contract_stays_aligned_across_public_consume
         lambda _project, _resolver: request_facts,
     )
     monkeypatch.setattr(reference_videos, "get_project_manager", lambda: pm)
-    monkeypatch.setattr(reference_videos, "project_reference_unit_request", project_current_with_tts)
+    monkeypatch.setattr(reference_videos, "project_reference_unit_request", project_current)
     monkeypatch.setattr(
-        "server.services.admission.video_batch_admission.project_reference_unit_request", project_current_with_tts
+        "server.services.admission.video_batch_admission.project_reference_unit_request", project_current
     )
-    monkeypatch.setattr(reference_videos, "prepare_current_reference_video_request_options", materialize_current_tts)
-    monkeypatch.setattr(
-        "server.services.admission.video_batch_admission.prepare_current_reference_video_request_options",
-        materialize_current_tts,
-    )
-    monkeypatch.setattr(reference_videos, "tts_task_in_progress", AsyncMock(return_value=False))
     _stub_batch_admission_queue(monkeypatch)
-    monkeypatch.setattr(reference_videos, "quote_video_request", quote_current)
     monkeypatch.setattr("server.services.admission.video_batch_admission.quote_video_request", quote_current)
     monkeypatch.setattr("lib.config.resolver.get_project_manager", lambda: pm)
     monkeypatch.setattr(
         "lib.script.reference_video.request_projection.project_reference_unit_request",
-        project_current_with_tts,
-    )
-    monkeypatch.setattr(
-        "server.services.admission.cost_estimation.prepare_current_reference_video_request_options",
-        materialize_current_tts,
+        project_current,
     )
     service = CostEstimationService(ConfigResolver(db_factory), db_factory, project_path=tmp_path)
 
-    async def observe(expected_input: float, expected_slot: int) -> None:
-        def unexpected_global_queue():
-            raise AssertionError("cost projection must use its injected database")
-
-        with monkeypatch.context() as isolated:
-            isolated.setattr(
-                "server.services.tasks.narration_delivery_tasks.get_generation_queue",
-                unexpected_global_queue,
-            )
-            quote = await service.compute(
-                project,
-                {"scripts/episode_1.json": script},
-                project_name="demo",
-                reference_request_options={"E1U1": options},
-            )
+    async def observe(expected_input: int, expected_slot: int) -> None:
+        quote = await service.compute(
+            project,
+            {"scripts/episode_1.json": script},
+            project_name="demo",
+        )
         quote_projection = quote["episodes"][0]["segments"][0]["request_projection"]
 
         with pytest.raises(HTTPException) as web_precheck_blocked:
@@ -166,9 +131,8 @@ async def test_reference_projection_contract_stays_aligned_across_public_consume
                 project_name="demo",
                 episode=1,
                 unit_id="E1U1",
-                user=CurrentUserInfo(id="u1", sub="test", role="admin"),
+                request=Request({"type": "http", "query_string": b"", "headers": []}),
                 _t=lambda key, **_params: key,
-                narration_delivery=USE_TTS,
             )
         with pytest.raises(HTTPException) as web_generate_blocked:
             await reference_videos.generate_unit(
@@ -177,9 +141,7 @@ async def test_reference_projection_contract_stays_aligned_across_public_consume
                 unit_id="E1U1",
                 user=CurrentUserInfo(id="u1", sub="test", role="admin"),
                 _t=lambda key, **_params: key,
-                req=reference_videos.GenerateUnitRequest(
-                    narration_delivery=USE_TTS,
-                ),
+                req=reference_videos.GenerateUnitRequest(),
             )
 
         agent_ctx = ToolHarness(project_name="demo", data_root=tmp_path, pm=pm)
@@ -189,7 +151,6 @@ async def test_reference_projection_contract_stays_aligned_across_public_consume
                 "script": "episode_1.json",
                 "target": {"scope": "scene", "ids": ["E1U1"]},
                 "force": True,
-                "narration_delivery": USE_TTS,
             },
             agent_ctx.scope,
             agent_ctx.caller,
@@ -198,7 +159,10 @@ async def test_reference_projection_contract_stays_aligned_across_public_consume
         queue_projection = await reference_projection_for_queued_task(
             project=project,
             project_name="demo",
-            payload={"script_file": "scripts/episode_1.json", "reference_request_options": options.to_payload()},
+            payload={
+                "script_file": "scripts/episode_1.json",
+                "reference_request_options": ReferenceRequestOptions().to_payload(),
+            },
             resource_id="E1U1",
         )
         assert queue_projection is not None
@@ -223,15 +187,13 @@ async def test_reference_projection_contract_stays_aligned_across_public_consume
                 projection["duration_input"],
                 projection["request_duration"],
             ) == expected_facts
-        queue_duration_input = unit["duration_seconds"]
-        queue_request_duration = 8 if queue_duration_input == 5 else 12
         assert (
             queue_projection.hydrated_generation_type,
             queue_projection.provider_id,
             queue_projection.model_id,
             queue_projection.duration_input,
             queue_projection.request_duration.seconds if queue_projection.request_duration else None,
-        ) == ("r2v", "fake", "fake-model", queue_duration_input, queue_request_duration)
+        ) == expected_facts
 
         duration_code = "needs_replan" if expected_input > expected_slot else "reference_duration_confirmation_required"
         expected_codes = [
@@ -244,6 +206,6 @@ async def test_reference_projection_contract_stays_aligned_across_public_consume
             assert [problem["code"] for problem in problems] == expected_codes
         assert [problem.code for problem in queue_projection.problems] == expected_codes
 
-    await observe(9.5, 12)
+    await observe(5, 8)
     unit["duration_seconds"] = 13
     await observe(13, 12)

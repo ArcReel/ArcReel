@@ -122,7 +122,7 @@ class TestLibExceptionHandlers:
         resp = client.get("/active-video-request-conflict", headers={"Accept-Language": "en"})
         assert resp.status_code == 409
         assert resp.json()["detail"] == (
-            "Unit 'E1S01' already has a video task using different narration delivery options; "
+            "Unit 'E1S01' already has a video task with a different confirmed request duration; "
             "wait for it to finish before retrying (a task that is still queued can be cancelled first)."
         )
 

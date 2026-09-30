@@ -797,9 +797,6 @@ class TestVersionsRouter:
         monkeypatch.setattr(versions, "get_project_manager", lambda: pm)
         monkeypatch.setattr(versions, "get_version_manager", lambda project_name: manager)
         monkeypatch.setattr(typed_media_restore, "active_tts_resource_ids", AsyncMock(return_value=frozenset()))
-        monkeypatch.setattr(
-            typed_media_restore, "active_narrated_video_resource_ids", AsyncMock(return_value=frozenset())
-        )
 
         app = FastAPI()
         app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
@@ -819,31 +816,6 @@ class TestVersionsRouter:
         monkeypatch.setattr(
             typed_media_restore,
             "active_tts_resource_ids",
-            AsyncMock(return_value=frozenset({"E1S01"})),
-        )
-        monkeypatch.setattr(
-            typed_media_restore, "active_narrated_video_resource_ids", AsyncMock(return_value=frozenset())
-        )
-
-        app = FastAPI()
-        app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
-        app.include_router(versions.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
-        register_error_handlers(app)
-        with TestClient(app) as client:
-            response = client.post("/api/v1/projects/demo/versions/audio/E1S01/restore/1")
-
-        assert response.status_code == 409
-        assert (project_path / "audio" / "segment_E1S01.wav").read_bytes() == before
-
-    def test_audio_restore_is_blocked_while_video_consumes_current_tts(self, tmp_path, monkeypatch):
-        pm, project_path, manager = _typed_audio_project(tmp_path)
-        before = (project_path / "audio" / "segment_E1S01.wav").read_bytes()
-        monkeypatch.setattr(versions, "get_project_manager", lambda: pm)
-        monkeypatch.setattr(versions, "get_version_manager", lambda project_name: manager)
-        monkeypatch.setattr(typed_media_restore, "active_tts_resource_ids", AsyncMock(return_value=frozenset()))
-        monkeypatch.setattr(
-            typed_media_restore,
-            "active_narrated_video_resource_ids",
             AsyncMock(return_value=frozenset({"E1S01"})),
         )
 

@@ -11,7 +11,6 @@
 
 from __future__ import annotations
 
-import math
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Literal
@@ -81,7 +80,6 @@ def resolve_duration_slot(total_seconds: int | float, supported_durations: Seque
 #: 共享时长投影给出的问题类别。调用方按自己的信封映射成 problem code：类别是判定，
 #: code 与文案属各路线的对外契约。
 DurationProblem = Literal[
-    "tts_duration_endpoint_fixed",
     "supported_durations_missing",
     "needs_replan",
     "confirmation_required",
@@ -92,43 +90,29 @@ DurationProblem = Literal[
 class RequestDurationProjection:
     """一次请求的时长结论：申请档位、取档偏移与唯一的阻断类别。
 
-    ``slot`` 为 None 表示这次请求算不出可申请的秒数（档位声明缺失，或 TTS 旁白交付撞上
-    端点固定时长）；此时 ``problem`` 必然非空。``endpoint_fixed`` 为真表示这一维不由
-    ArcReel 驱动，``slot.seconds`` 是原样透传的规划秒数而非档位成员。
+    ``slot`` 为 None 表示档位声明缺失、算不出可申请的秒数；此时 ``problem`` 必然非空。
+    ``endpoint_fixed`` 为真表示这一维不由 ArcReel 驱动，``slot.seconds`` 是原样透传的规划
+    秒数而非档位成员。
     """
 
-    duration_input: int | float
+    duration_input: int
     slot: DurationSlot | None
     endpoint_fixed: bool
     problem: DurationProblem | None
-
-
-def request_duration_input(
-    planned_duration_seconds: int,
-    narration_duration_floor: float | None = None,
-) -> int | float:
-    """请求时长基准：规划秒数与当前 TTS 时长下限取大。"""
-
-    return max(planned_duration_seconds, narration_duration_floor or 0)
 
 
 def project_request_duration(
     *,
     planned_duration_seconds: int,
     supported_durations: Sequence[int],
-    narration_duration_floor: float | None = None,
     duration_endpoint_fixed: bool = False,
-    uses_tts: bool = False,
-    current_visual_duration_seconds: int | None = None,
     confirmed_request_duration_seconds: int | None = None,
     confirmation_waived: bool = False,
 ) -> RequestDurationProjection:
-    """把规划篇幅、当前 TTS 下限与模型档位投影成一次请求的时长结论。
+    """把编排时长与模型档位投影成一次请求的时长结论；请求时长基准就是编排时长。
 
     ``duration_endpoint_fixed`` 为真时档位集是空的合法状态（时长这一维由端点固定，见
     ``docs/adr/0082``）：不收窄、不要求确认，规划秒数原样透传，端点会按 workflow 自己那档出片。
-    这一维不由 ArcReel 驱动也就意味着无法为一段 TTS 申请足够长的成片，``uses_tts`` 为真时
-    因此判「不支持」而不是让请求带着注定装不下旁白的时长进队列。
 
     不带 ``duration_endpoint_fixed`` 的空集是档位声明缺失（``docs/adr/0018``），仍按
     ``supported_durations_missing`` 阻断。
@@ -136,29 +120,13 @@ def project_request_duration(
 
     if isinstance(planned_duration_seconds, bool) or planned_duration_seconds <= 0:
         raise ValueError("planned_duration_seconds must be a positive integer")
-    if narration_duration_floor is not None and (
-        not math.isfinite(narration_duration_floor) or narration_duration_floor <= 0
-    ):
-        raise ValueError("narration_duration_floor must be positive and finite or null")
-    if current_visual_duration_seconds is not None and (
-        isinstance(current_visual_duration_seconds, bool) or current_visual_duration_seconds <= 0
-    ):
-        raise ValueError("current_visual_duration_seconds must be a positive integer or null")
 
-    duration_input = request_duration_input(planned_duration_seconds, narration_duration_floor)
     if duration_endpoint_fixed:
-        if uses_tts:
-            return RequestDurationProjection(
-                duration_input=duration_input,
-                slot=None,
-                endpoint_fixed=True,
-                problem="tts_duration_endpoint_fixed",
-            )
         return RequestDurationProjection(
-            duration_input=duration_input,
+            duration_input=planned_duration_seconds,
             slot=DurationSlot(
                 seconds=planned_duration_seconds,
-                total_seconds=duration_input,
+                total_seconds=planned_duration_seconds,
                 adjustment=UNCONSTRAINED,
             ),
             endpoint_fixed=True,
@@ -170,24 +138,24 @@ def project_request_duration(
     )
     if not durations:
         return RequestDurationProjection(
-            duration_input=duration_input,
+            duration_input=planned_duration_seconds,
             slot=None,
             endpoint_fixed=False,
             problem="supported_durations_missing",
         )
 
-    slot = resolve_duration_slot(duration_input, durations)
+    slot = resolve_duration_slot(planned_duration_seconds, durations)
     problem: DurationProblem | None = None
     if slot.adjustment == DOWN:
         problem = "needs_replan"
     elif (
-        slot.seconds != (current_visual_duration_seconds or planned_duration_seconds)
+        slot.seconds != planned_duration_seconds
         and not confirmation_waived
         and confirmed_request_duration_seconds != slot.seconds
     ):
         problem = "confirmation_required"
     return RequestDurationProjection(
-        duration_input=duration_input,
+        duration_input=planned_duration_seconds,
         slot=slot,
         endpoint_fixed=False,
         problem=problem,

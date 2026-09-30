@@ -133,18 +133,12 @@ describe("enqueueStoryboard", () => {
 });
 
 describe("单资源入队动作的乐观标记 kind / taskType", () => {
-  it("video 将请求级旁白交付与精确确认档位原样交给 API", async () => {
+  it("video 只把提示词、剧本与时长交给 API", async () => {
     const generate = vi.spyOn(API, "generateVideo").mockResolvedValue(SINGLE_OK);
 
-    await enqueueVideo("demo", "seg-1", "p", "episode_1.json", 8, {
-      narration_delivery: "use_tts",
-      confirmed_request_duration_seconds: 12,
-    });
+    await enqueueVideo("demo", "seg-1", "p", "episode_1.json", 8);
 
-    expect(generate).toHaveBeenCalledWith("demo", "seg-1", "p", "episode_1.json", 8, {
-      narration_delivery: "use_tts",
-      confirmed_request_duration_seconds: 12,
-    });
+    expect(generate).toHaveBeenCalledWith("demo", "seg-1", "p", "episode_1.json", 8);
   });
 
   it.each([
@@ -432,7 +426,6 @@ describe("enqueueReferenceVideoBatch", () => {
   const ADMISSION = {
     operation: "generate_reference_videos_batch",
     selection: "explicit",
-    narration_delivery: "post_production",
     units: [],
     confirmation: null,
     skipped_unit_ids: [],
@@ -451,12 +444,10 @@ describe("enqueueReferenceVideoBatch", () => {
       } as never);
 
     const res = await enqueueReferenceVideoBatch("demo", 1, {
-      narration_delivery: "post_production",
       unit_ids: ["E1U1", "E1U2"],
     });
 
     expect(batch).toHaveBeenCalledWith("demo", 1, {
-      narration_delivery: "post_production",
       unit_ids: ["E1U1", "E1U2"],
     });
     expect(occupied("demo", "reference_video", "E1U1")).toBe(true);
@@ -478,7 +469,6 @@ describe("enqueueReferenceVideoBatch", () => {
     } as never);
 
     await enqueueReferenceVideoBatch("demo", 1, {
-      narration_delivery: "post_production",
       unit_ids: ["E1U1", "E1U2"],
     });
 
@@ -514,7 +504,6 @@ describe("enqueueReferenceVideoBatch", () => {
     } as never);
 
     const res = await enqueueReferenceVideoBatch("demo", 1, {
-      narration_delivery: "post_production",
       unit_ids: ["E1U1", "E1U2"],
     });
 
@@ -557,8 +546,7 @@ describe("enqueueReferenceVideoBatch", () => {
 
     try {
       await enqueueReferenceVideoBatch("demo", 1, {
-        narration_delivery: "post_production",
-        unit_ids: ["E1U1", "E1U2"],
+          unit_ids: ["E1U1", "E1U2"],
       });
     } finally {
       useAppStore.setState({ pushToast: realPushToast });
@@ -586,8 +574,7 @@ describe("enqueueReferenceVideoBatch", () => {
       } as never);
 
       const res = await enqueueReferenceVideoBatch("demo", 1, {
-        narration_delivery: "post_production",
-        unit_ids: ["E1U1"],
+          unit_ids: ["E1U1"],
       });
 
       expect(res.decision).toBe(decision);
@@ -600,8 +587,7 @@ describe("enqueueReferenceVideoBatch", () => {
     vi.spyOn(API, "generateReferenceVideoBatch").mockRejectedValue(new Error("boom"));
 
     await expect(enqueueReferenceVideoBatch("demo", 1, {
-        narration_delivery: "post_production",
-        unit_ids: ["E1U1"],
+          unit_ids: ["E1U1"],
       })).rejects.toThrow(
       "boom",
     );

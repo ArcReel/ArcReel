@@ -115,8 +115,6 @@ class GenerationAction(StrEnum):
     RETRY = "retry"
     FIX_INPUT = "fix_input"
     GENERATE_DEPENDENCY = "generate_dependency"
-    GENERATE_TTS = "generate_tts"
-    REGENERATE_TTS = "regenerate_tts"
     WAIT_FOR_TASK = "wait_for_task"
     REPLAN_UNIT = "replan_unit"
     CONFIRM_REQUEST_DURATION = "confirm_request_duration"
@@ -136,16 +134,6 @@ class GenerationAction(StrEnum):
 # ``tests/unit/lib/generation/test_generation_result.py`` is the drift guard.
 _TASK_FAILURE_ACTIONS: dict[str, GenerationAction] = {
     "needs_replan": GenerationAction.REPLAN_UNIT,
-    "tts_missing": GenerationAction.GENERATE_TTS,
-    "tts_stale": GenerationAction.REGENERATE_TTS,
-    "tts_generating": GenerationAction.WAIT_FOR_TASK,
-    "tts_not_applicable": GenerationAction.FIX_INPUT,
-    # 时长这一维不由 ArcReel 驱动，换供应商配置也拿不回控制权：能改的只有这次请求的交付方式。
-    "tts_duration_endpoint_fixed": GenerationAction.FIX_INPUT,
-    "tts_not_configured": GenerationAction.CONFIGURE_PROVIDER,
-    "tts_state_unavailable": GenerationAction.REPAIR_ARTIFACT_STATE,
-    "tts_duration_unavailable": GenerationAction.REGENERATE_TTS,
-    "tts_conflicts_with_active_narrated_video": GenerationAction.WAIT_FOR_TASK,
     "reference_duration_confirmation_required": GenerationAction.CONFIRM_REQUEST_DURATION,
     "reference_asset_missing": GenerationAction.GENERATE_DEPENDENCY,
     "reference_asset_unregistered": GenerationAction.GENERATE_DEPENDENCY,
@@ -191,14 +179,12 @@ _TASK_FAILURE_ACTIONS: dict[str, GenerationAction] = {
     # 供应商已出片、只是没取回来：重发同一请求会再建一个付费任务，正确的一步是接续取件。
     "artifact_download_failed": GenerationAction.RETRY_ARTIFACT_DOWNLOAD,
     "execution_identity_unrecoverable": GenerationAction.RETRY,
-    "video_shorter_than_tts": GenerationAction.RETRY,
     "script_edit_error": GenerationAction.FIX_INPUT,
     "script_edit_items_not_list": GenerationAction.FIX_INPUT,
     "script_edit_unit_lists_invalid": GenerationAction.FIX_INPUT,
     "script_edit_generated_assets_invalid": GenerationAction.FIX_INPUT,
     # 供应商不认这个档位 / 组合：换配置，重试同一请求只会被同样拒绝。
     "image_dashscope_4k_t2i_only": GenerationAction.CONFIGURE_PROVIDER,
-    "video_duration_unavailable": GenerationAction.CONFIGURE_PROVIDER,
     "video_supported_durations_missing": GenerationAction.CONFIGURE_PROVIDER,
     "video_supported_durations_invalid": GenerationAction.CONFIGURE_PROVIDER,
     "video_supported_durations_incompatible": GenerationAction.CONFIGURE_PROVIDER,
@@ -1010,8 +996,6 @@ _ACTION_LABELS: dict[GenerationAction, str] = {
     GenerationAction.RETRY: "可重试",
     GenerationAction.FIX_INPUT: "需修正输入",
     GenerationAction.GENERATE_DEPENDENCY: "需先生成依赖",
-    GenerationAction.GENERATE_TTS: "需先生成旁白配音",
-    GenerationAction.REGENERATE_TTS: "需重新生成旁白配音",
     GenerationAction.WAIT_FOR_TASK: "等待进行中任务完成",
     GenerationAction.REPLAN_UNIT: "需重新规划内容",
     GenerationAction.CONFIRM_REQUEST_DURATION: "需确认时长档位",

@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import json
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -20,8 +21,8 @@ from arcreel_market_core.video_backend_contract import ResumeExpiredError
 from lib.artifacts.artifact_manifest import ArtifactBasis, compose_video_artifact_basis
 from lib.artifacts.version_manager import PaidVersionCommit
 from lib.artifacts.video_artifact_facts import VideoArtifactCurrencyFacts
+from lib.infra.content_digest import canonical_json, canonical_json_digest
 from lib.script.reference_video.execution_checkpoint import (
-    NarrationExecutionFacts,
     StagedProviderMedia,
     StoryboardSubmissionCheckpoint,
 )
@@ -164,13 +165,6 @@ def _storyboard_checkpoint_json(
             reference_image_limit=None,
             parent_version=0,
         ),
-        narration=NarrationExecutionFacts(
-            delivery="post_production",
-            tts_status="not_applicable",
-            artifact_path="",
-            basis_digest=None,
-            actual_duration_seconds=None,
-        ),
         media=(media,),
         reference_audio_targets=None,
     ).to_json()
@@ -190,7 +184,7 @@ def _fake_video_context(
     与生产路径（``video=VideoLaneRequest()``）一致。
     """
     from lib.config.resolver import ProviderModel
-    from server.services.tasks.generation_context import AudioLaneResult, GenerationContext, VideoLaneResult
+    from server.services.tasks.generation_context import GenerationContext, VideoLaneResult
 
     return GenerationContext(
         generator=fake_generator,
@@ -200,12 +194,6 @@ def _fake_video_context(
             backend_model=backend_model_id,
             resolution="720p",
             endpoint=endpoint,
-        ),
-        audio_lane=AudioLaneResult(
-            provider_model=ProviderModel("dashscope", "tts-model"),
-            backend_name="dashscope",
-            backend_model="tts-model",
-            voices=(),
         ),
     )
 
@@ -546,13 +534,41 @@ async def test_execute_resume_rejects_image_task(monkeypatch, fake_pm):
         await execute_resume_video_task(image_task, job_id="x")
 
 
+#: schema v3 检查点记录的两种旁白交付事实，形状取自升级前的落库契约。
+_V3_USE_TTS_NARRATION = {
+    "delivery": "use_tts",
+    "tts_status": "current",
+    "artifact_path": "audio/segment_E1U1.wav",
+    "basis_digest": "sha256-v1:" + "b" * 64,
+    "actual_duration_seconds": 10.5,
+}
+_V3_POST_PRODUCTION_NARRATION = {
+    "delivery": "post_production",
+    "tts_status": "not_applicable",
+    "artifact_path": "",
+    "basis_digest": None,
+    "actual_duration_seconds": None,
+}
+
+
+def _as_schema_v3(checkpoint_json: str, narration: dict[str, Any]) -> str:
+    """把当前版本的检查点改写成升级前落库的 schema v3 形状：多一份旁白交付事实，摘要随之重算。"""
+
+    raw = json.loads(checkpoint_json)
+    raw.pop("request_digest")
+    raw["schema_version"] = 3
+    raw["narration"] = narration
+    raw["request_digest"] = canonical_json_digest(raw)
+    return canonical_json(raw)
+
+
 def _reference_checkpoint(
     project_path: Path,
     *,
     endpoint_guard: str | None = None,
-    use_tts: bool = True,
+    legacy_narration: dict[str, Any] | None = None,
 ) -> str:
-    from lib.script.reference_video.execution_checkpoint import NarrationExecutionFacts, ReferenceSubmissionCheckpoint
+    from lib.script.reference_video.execution_checkpoint import ReferenceSubmissionCheckpoint
 
     staging = project_path / ".arcreel" / "tasks" / "T-ref" / "provider_media"
     staging.mkdir(parents=True, exist_ok=True)
@@ -574,7 +590,7 @@ def _reference_checkpoint(
         kind_version=1,
         inputs={"request_duration_seconds": 12},
     )
-    return ReferenceSubmissionCheckpoint.create(
+    checkpoint_json = ReferenceSubmissionCheckpoint.create(
         task_id="T-ref",
         project_name="demo",
         script_file="scripts/frozen.json",
@@ -604,26 +620,10 @@ def _reference_checkpoint(
             reference_image_limit=3,
             parent_version=0,
         ),
-        narration=(
-            NarrationExecutionFacts(
-                delivery="use_tts",
-                tts_status="current",
-                artifact_path="audio/segment_E1U1.wav",
-                basis_digest="sha256-v1:" + "b" * 64,
-                actual_duration_seconds=10.5,
-            )
-            if use_tts
-            else NarrationExecutionFacts(
-                delivery="post_production",
-                tts_status="not_applicable",
-                artifact_path="",
-                basis_digest=None,
-                actual_duration_seconds=None,
-            )
-        ),
         media=(),
         reference_audio_targets=None,
     ).to_json()
+    return checkpoint_json if legacy_narration is None else _as_schema_v3(checkpoint_json, legacy_narration)
 
 
 @pytest.mark.asyncio
@@ -647,12 +647,6 @@ async def test_reference_resume_reads_only_strict_checkpoint_request_and_cleans_
         )
 
     monkeypatch.setattr(resume_executor, "resolve_generation_context", _resolve)
-    output_guard = AsyncMock()
-    monkeypatch.setattr(
-        "server.services.currency.video_artifact_currency.validate_generated_video_covers_tts_duration",
-        output_guard,
-    )
-    fake_pm.project.update(audio_backend="dashscope/tts-model", narration_voice="Cherry")
     finalize = AsyncMock(return_value={"resource_type": "reference_videos", "resource_id": "E1U1"})
     monkeypatch.setattr(resume_executor, "finalize_reference_video_unit", finalize)
     monkeypatch.setattr(resume_executor, "emit_generation_success_batch", lambda **_kwargs: None)
@@ -705,65 +699,68 @@ async def test_reference_resume_reads_only_strict_checkpoint_request_and_cleans_
     assert checkpoint.artifact_visual_basis is not None
     assert checkpoint.artifact_currency is not None
     assert call["artifact_video_currency"] == checkpoint.artifact_currency.to_dict()
-    output_guard.assert_awaited_once_with(
-        resource_id="E1U1",
-        request_duration_seconds=12,
-        output_path=Path(tempfile.gettempdir()) / "video.mp4",
-        tts_actual_duration_seconds=10.5,
-    )
     finalize.assert_awaited_once()
     assert finalize.await_args.kwargs["script_file"] == "scripts/frozen.json"
     assert not (fake_pm.project_path / ".arcreel" / "tasks" / "T-ref" / "provider_media").exists()
 
 
 @pytest.mark.asyncio
-async def test_reference_resume_post_production_does_not_reproject_tts(monkeypatch, fake_pm):
+@pytest.mark.parametrize(
+    "legacy_narration",
+    [None, _V3_USE_TTS_NARRATION, _V3_POST_PRODUCTION_NARRATION],
+    ids=["schema-v4", "schema-v3-use-tts", "schema-v3-post-production"],
+)
+async def test_reference_resume_without_tts_config_declares_no_audio_lane(
+    monkeypatch, fake_pm, legacy_narration: dict[str, Any] | None
+):
+    """项目没有任何 TTS 配置时，中断的视频任务照常续跑：只声明 video lane，按检查点冻结的秒数轮询。
+
+    升级前落库的 v3 检查点带着旁白交付事实（含 use_tts），续跑同样不声明音频 lane。
+    """
+    from lib.script.reference_video.execution_checkpoint import ReferenceSubmissionCheckpoint
     from server.services.tasks import resume_executor
     from server.services.tasks.resume_executor import execute_resume_video_task
 
+    assert not {"audio_backend", "narration_voice", "narration_speed"} & fake_pm.project.keys()
     fake_gen = _FakeGenerator()
     monkeypatch.setattr(resume_executor, "get_project_manager", lambda: fake_pm)
-    monkeypatch.setattr(
-        resume_executor,
-        "resolve_generation_context",
-        AsyncMock(
-            return_value=_fake_video_context(
-                fake_gen,
-                provider_id="custom-7",
-                provider_model_id="cinema-v1",
-                backend_model_id="cinema-v1-resolved",
-            )
-        ),
-    )
+    captured: dict[str, Any] = {}
 
-    async def _guard_must_not_run(**kwargs):
-        raise AssertionError(f"无 TTS 的续跑不得重投影旁白时长: {kwargs}")
+    async def _resolve(project_name: str, payload: dict, **kwargs: Any):
+        captured.update(kwargs)
+        return _fake_video_context(
+            fake_gen,
+            provider_id="custom-7",
+            provider_model_id="cinema-v1",
+            backend_model_id="cinema-v1-resolved",
+        )
 
-    monkeypatch.setattr(
-        "server.services.currency.video_artifact_currency.validate_generated_video_covers_tts_duration",
-        _guard_must_not_run,
-    )
+    monkeypatch.setattr(resume_executor, "resolve_generation_context", _resolve)
     monkeypatch.setattr(
         resume_executor,
         "finalize_reference_video_unit",
         AsyncMock(return_value={"resource_type": "reference_videos", "resource_id": "E1U1"}),
     )
     monkeypatch.setattr(resume_executor, "emit_generation_success_batch", lambda **_kwargs: None)
+    checkpoint_json = _reference_checkpoint(fake_pm.project_path, legacy_narration=legacy_narration)
     task = {
         "task_id": "T-ref",
         "task_type": "reference_video",
         "project_name": "demo",
         "resource_id": "E1U1",
         "script_file": "scripts/frozen.json",
-        "execution_checkpoint_json": _reference_checkpoint(fake_pm.project_path, use_tts=False),
+        "execution_checkpoint_json": checkpoint_json,
         "payload": {},
     }
 
-    # 时长守卫一旦被触碰用例即炸；判据本体落在续跑真正跑完、产出该单元这件事上。
     result = await execute_resume_video_task(task, job_id="job-1")
 
-    assert result["resource_type"] == "reference_videos"
-    assert result["resource_id"] == "E1U1"
+    assert result == {"resource_type": "reference_videos", "resource_id": "E1U1"}
+    assert captured.get("audio") is None
+    assert captured["video"].generation_type == "r2v"
+    call = fake_gen.resume_calls[0]
+    assert call["duration_seconds"] == 12
+    assert call["execution_request_digest"] == ReferenceSubmissionCheckpoint.from_json(checkpoint_json).request_digest
 
 
 @pytest.mark.asyncio

@@ -110,11 +110,6 @@ def _client(monkeypatch, fake_pm, fake_queue, *, currency=None):
     monkeypatch.setattr(generate, "get_project_manager", lambda: fake_pm)
     monkeypatch.setattr(generate, "get_generation_queue", lambda: fake_queue)
 
-    async def _no_active_narrated_video(**_kwargs):
-        return set()
-
-    monkeypatch.setattr(generate, "active_narrated_video_resource_ids", _no_active_narrated_video)
-
     app = FastAPI()
     register_error_handlers(app)
     app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
@@ -179,6 +174,28 @@ class TestGenerateTtsSingle:
             )
             assert res.status_code == 200, res.text
             assert len(fake_queue.calls) == 1
+
+    def test_regenerate_is_not_blocked_by_an_active_video_task(self, tmp_path, monkeypatch):
+        """视频生成不读旁白配音：同一段的视频任务在跑时，重新生成旁白照常入队。"""
+
+        class _QueueWithActiveVideo(_FakeQueue):
+            async def get_active_tasks_for_resources(self, **kwargs):
+                if kwargs.get("task_type") != "video":
+                    return []
+                return [{"task_id": "video-1", "task_type": "video", "resource_id": "E1S02", "status": "running"}]
+
+        fake_pm = _FakePM(tmp_path / "projects" / "demo")
+        fake_queue = _QueueWithActiveVideo()
+        client = _client(monkeypatch, fake_pm, fake_queue)
+
+        with client:
+            res = client.post(
+                "/api/v1/projects/demo/generate/tts/E1S02",
+                json={"script_file": "episode_1.json"},
+            )
+
+        assert res.status_code == 200, res.text
+        assert [(call["task_type"], call["resource_id"]) for call in fake_queue.calls] == [("tts", "E1S02")]
 
     def test_segment_not_found_404(self, tmp_path, monkeypatch):
         fake_pm = _FakePM(tmp_path / "projects" / "demo")

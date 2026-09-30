@@ -11,7 +11,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, File, HTTPException, Response, UploadFile, status
+from fastapi import APIRouter, File, HTTPException, Request, Response, UploadFile, status
 from pydantic import BaseModel, ConfigDict, Field, PositiveInt
 
 from lib.artifacts.artifact_activation import resolve_artifact_episode
@@ -49,21 +49,13 @@ from lib.script.reference_video.script_preview import build_script_preview
 from lib.script.reference_video.unit_capabilities import hydrate_reference_units
 from lib.script.reference_video.voice_settings import VoiceRenderSettings
 from lib.script.script_editor import ScriptEditError
-from lib.speech.narration_delivery import (
-    POST_PRODUCTION,
-    USE_TTS,
-    NarrationDelivery,
-    video_request_cost_unavailable_problem,
-    video_request_requires_exact_quote,
-    video_request_reuses_current_visual,
-)
 from lib.speech.speech_composition import admit_script_unit, refresh_video_unit_replan_state
 from server.auth import CurrentUser
 from server.error_handlers import script_edit_detail
 from server.i18n import Translator
 from server.routers._reorder import full_permutation_error
 from server.routers._script_edits import execute_current_episode_edit, require_script_edit_result
-from server.services.admission.cost_estimation import quote_video_request
+from server.routers._validators import reject_retired_query_params
 from server.services.admission.reference_prompt_preview import render_reference_prompt_preview
 from server.services.admission.video_batch_admission import (
     admit_reference_video_batch,
@@ -80,10 +72,6 @@ from server.services.currency.upload_finalize import (
     validate_upload,
 )
 from server.services.tasks.generation_tasks import emit_generation_success_batch
-from server.services.tasks.narration_delivery_tasks import (
-    prepare_current_reference_video_request_options,
-    tts_task_in_progress,
-)
 from server.services.tasks.reference_video_tasks import (
     apply_unit_video_assets,
     default_unit_duration,
@@ -120,17 +108,13 @@ class AddUnitRequest(BaseModel):
 
 
 class GenerateUnitRequest(BaseModel):
-    # 单目标入口保留后期配音默认（docs/adr/0061）：请求由用户在这条 unit 的界面上直接触发，
-    # 界面已呈现该 unit 的旁白状态与费用，代价也止于这一条视频。必填只加在替整批选定准入判据
-    # 与时长基准的入口（``GenerateUnitsBatchRequest``）与由模型推断参数的 Agent 视频工具上。
-    narration_delivery: NarrationDelivery = POST_PRODUCTION
+    # 旁白交付方式是项目配置，不影响视频请求；已删除的按请求交付字段按未知字段拒收。
+    model_config = ConfigDict(extra="forbid")
+
     confirmed_request_duration_seconds: int | None = Field(default=None, gt=0)
 
     def projection_options(self) -> ReferenceRequestOptions:
-        return ReferenceRequestOptions(
-            narration_delivery=self.narration_delivery,
-            confirmed_request_duration_seconds=self.confirmed_request_duration_seconds,
-        )
+        return ReferenceRequestOptions(confirmed_request_duration_seconds=self.confirmed_request_duration_seconds)
 
 
 class GenerateUnitsBatchRequest(BaseModel):
@@ -140,14 +124,10 @@ class GenerateUnitsBatchRequest(BaseModel):
     ``confirmed_request_durations`` 为用户在聚合确认中接受的时长档位。
     """
 
-    unit_ids: list[str] | None = None
-    # 交付方式必填：默认成后期配音会让一次没声明的请求跳过 use_tts 的 fresh / 可测校验，
-    # 整批按另一种交付方式准入，而调用方并不知道自己选过。
-    narration_delivery: NarrationDelivery
-    confirmed_request_durations: dict[str, PositiveInt] = Field(default_factory=dict)
+    model_config = ConfigDict(extra="forbid")
 
-    def projection_options(self) -> ReferenceRequestOptions:
-        return ReferenceRequestOptions(narration_delivery=self.narration_delivery)
+    unit_ids: list[str] | None = None
+    confirmed_request_durations: dict[str, PositiveInt] = Field(default_factory=dict)
 
 
 # ============ 辅助 ============
@@ -185,7 +165,6 @@ def _raise_projection_blocker(
     _t: Translator,
     *,
     allow_duration_confirmation: bool,
-    request_cost: dict[str, object] | None = None,
 ) -> None:
     blockers = [
         problem
@@ -197,51 +176,9 @@ def _raise_projection_blocker(
     detail = projection.to_advisory_payload()
     detail["allowed"] = False
     detail["problems"] = _problem_payload(projection, _t)
-    if request_cost is not None:
-        detail["request_cost"] = request_cost
     raise HTTPException(
         status_code=400,
         detail=detail,
-    )
-
-
-async def _quote_reference_request(
-    *,
-    projection: ReferenceUnitRequestProjection,
-    options: ReferenceRequestOptions,
-    _t: Translator,
-) -> dict[str, object] | None:
-    """Quote one TTS-aware request or fail closed when a paid tier change has no exact price."""
-
-    cost = projection.cost
-    if cost is None or options.narration_delivery != USE_TTS:
-        return None
-    quote = await quote_video_request(cost, async_session_factory)
-    if quote is not None:
-        if video_request_reuses_current_visual(
-            request_duration_seconds=cost.duration_seconds,
-            current_reusable_visual_duration_seconds=options.current_reusable_visual_duration_seconds,
-        ):
-            quote = quote.without_new_video_charge()
-        return quote.to_payload()
-    if not video_request_requires_exact_quote(
-        request_duration_seconds=cost.duration_seconds,
-        planned_duration_seconds=projection.planned_duration,
-        current_visual_duration_seconds=options.current_visual_duration_seconds,
-        current_reusable_visual_duration_seconds=options.current_reusable_visual_duration_seconds,
-    ):
-        return None
-
-    cost_problem = video_request_cost_unavailable_problem(cost)
-    cost_payload = cost_problem.to_payload(unit_id=projection.unit_id)
-    cost_payload["message"] = _t(cost_problem.code, **cost_problem.parameters())
-    raise HTTPException(
-        status_code=400,
-        detail={
-            **projection.to_advisory_payload(),
-            "allowed": False,
-            "problems": [*_problem_payload(projection, _t), cost_payload],
-        },
     )
 
 
@@ -485,73 +422,36 @@ async def precheck_unit_duration(
     project_name: str,
     episode: int,
     unit_id: str,
-    user: CurrentUser,
+    request: Request,
     _t: Translator,
-    narration_delivery: NarrationDelivery = POST_PRODUCTION,
 ) -> dict[str, Any]:
-    """入队前的时长取档预检：申请秒数与请求时长基准不一致时前端需先向用户确认。
+    """入队前的时长取档预检：申请秒数与剧本计划时长不一致时前端需先向用户确认。
 
-    ``needs_confirmation`` 为 false 时仅表示请求时长基准本身是当前档位成员。能力或档位元数据
+    ``needs_confirmation`` 为 false 时仅表示计划时长本身是当前档位成员。能力或档位元数据
     无法解析时返回结构化 blocker，不制造无约束申请。
     """
-    project, script, script_file = _load_episode_script(project_name, episode, _t)
+    reject_retired_query_params(request, "narration_delivery")
+    project, script, _script_file = _load_episode_script(project_name, episode, _t)
     unit = _find_unit(script, unit_id, _t)
     _require_unit_ready(unit)
-    queue = get_generation_queue()
-    tts_in_progress = (
-        await tts_task_in_progress(
-            project_name=project_name,
-            resource_id=unit_id,
-            script_file=script_file,
-            user_id=user.id,
-            queue=queue,
-        )
-        if narration_delivery == USE_TTS
-        else False
-    )
-
-    project_path = get_project_manager().get_project_path(project_name)
-    request_facts_lookup = configured_reference_request_facts(project, ConfigResolver(async_session_factory))
-    current_options = await prepare_current_reference_video_request_options(
-        request_facts_lookup=request_facts_lookup,
-        project=project,
-        script=script,
-        script_file=script_file,
-        unit=unit,
-        project_path=project_path,
-        options=ReferenceRequestOptions(narration_delivery=narration_delivery),
-        project_name=project_name,
-        user_id=user.id,
-        tts_in_progress=tts_in_progress,
-    )
     projection = await project_reference_unit_request(
-        request_facts_lookup=request_facts_lookup,
+        request_facts_lookup=configured_reference_request_facts(project, ConfigResolver(async_session_factory)),
         project=project,
         script=script,
         unit=unit,
-        project_path=project_path,
-        options=current_options,
-        tts_in_progress=tts_in_progress,
-        current_options_materialized=True,
+        project_path=get_project_manager().get_project_path(project_name),
     )
-    request_cost = await _quote_reference_request(projection=projection, options=current_options, _t=_t)
-    _raise_projection_blocker(
-        projection,
-        _t,
-        allow_duration_confirmation=True,
-        request_cost=request_cost,
-    )
+    _raise_projection_blocker(projection, _t, allow_duration_confirmation=True)
     slot = projection.request_duration
     if slot is None:
         raise BadRequestError("reference_supported_durations_missing")
-    response: dict[str, Any] = {
+    return {
         **projection.to_advisory_payload(),
         "needs_confirmation": any(
             problem.blocking and problem.code == "reference_duration_confirmation_required"
             for problem in projection.problems
         ),
         "script_duration": projection.planned_duration,
-        "current_visual_duration": projection.current_visual_duration,
         "duration_input": projection.duration_input,
         "request_duration": slot.seconds,
         "adjustment": slot.adjustment,
@@ -561,9 +461,6 @@ async def precheck_unit_duration(
         "model_id": projection.model_id,
         "problems": _problem_payload(projection, _t),
     }
-    if request_cost is not None:
-        response["request_cost"] = request_cost
-    return response
 
 
 class UnitPromptPreviewRequest(BaseModel):
@@ -647,49 +544,15 @@ async def generate_unit(
     _require_unit_ready(unit)
     guard_prompt = str(unit.get("text") or "")
     request_options = (req or GenerateUnitRequest()).projection_options()
-    queue = get_generation_queue()
-    tts_in_progress = (
-        await tts_task_in_progress(
-            project_name=project_name,
-            resource_id=unit_id,
-            script_file=script_file,
-            user_id=user.id,
-            queue=queue,
-        )
-        if request_options.narration_delivery == USE_TTS
-        else False
-    )
-    project_path = get_project_manager().get_project_path(project_name)
-    request_facts_lookup = configured_reference_request_facts(project, ConfigResolver(async_session_factory))
-    current_options = await prepare_current_reference_video_request_options(
-        request_facts_lookup=request_facts_lookup,
-        project=project,
-        script=script,
-        script_file=script_file,
-        unit=unit,
-        project_path=project_path,
-        options=request_options,
-        project_name=project_name,
-        user_id=user.id,
-        tts_in_progress=tts_in_progress,
-    )
     projection = await project_reference_unit_request(
-        request_facts_lookup=request_facts_lookup,
+        request_facts_lookup=configured_reference_request_facts(project, ConfigResolver(async_session_factory)),
         project=project,
         script=script,
         unit=unit,
-        project_path=project_path,
-        options=current_options,
-        tts_in_progress=tts_in_progress,
-        current_options_materialized=True,
+        project_path=get_project_manager().get_project_path(project_name),
+        options=request_options,
     )
-    request_cost = await _quote_reference_request(projection=projection, options=current_options, _t=_t)
-    _raise_projection_blocker(
-        projection,
-        _t,
-        allow_duration_confirmation=False,
-        request_cost=request_cost,
-    )
+    _raise_projection_blocker(projection, _t, allow_duration_confirmation=False)
 
     # 经统一守卫点构造：空提示词的结构校验在此当场拒绝（400），与 SDK 入队路径一致，
     # 不再漏到执行层失败（见 ADR-0001）。
@@ -705,7 +568,7 @@ async def generate_unit(
     except TaskSpecValidationError as exc:
         raise HTTPException(status_code=400, detail=_t(exc.code, **exc.params)) from exc
 
-    result = await queue.enqueue_task(
+    result = await get_generation_queue().enqueue_task(
         project_name=project_name,
         task_type=spec.task_type,
         media_type=spec.media_type,
@@ -715,13 +578,10 @@ async def generate_unit(
         source="webui",
         user_id=user.id,
     )
-    projection_payload = {**projection.to_advisory_payload(), "problems": _problem_payload(projection, _t)}
-    if request_cost is not None:
-        projection_payload["request_cost"] = request_cost
     return {
         "task_id": result["task_id"],
         "deduped": result.get("deduped", False),
-        "projection": projection_payload,
+        "projection": {**projection.to_advisory_payload(), "problems": _problem_payload(projection, _t)},
     }
 
 
@@ -820,7 +680,7 @@ async def generate_units_batch(
         script=script,
         script_file=script_file,
         units=targets,
-        request_options=body.projection_options(),
+        request_options=ReferenceRequestOptions(),
         operation="generate_reference_videos_batch",
         selection=(
             GenerationSelectionMode.EXPLICIT if requested_ids is not None else GenerationSelectionMode.MISSING_ONLY
@@ -848,7 +708,7 @@ async def generate_units_batch(
         # 确认过的档位按 unit 记进请求事实：它是本次请求的一部分，而不是全批共用的一个值。
         # 复用准入用的那份推导，两处各算一遍才是口径分叉的来源。
         options = request_options_for_unit(
-            body.projection_options(),
+            ReferenceRequestOptions(),
             spec.resource_id,
             body.confirmed_request_durations,
         )

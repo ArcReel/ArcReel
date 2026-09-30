@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from fastapi import Request
+from fastapi.exceptions import RequestValidationError
+
 from lib.config.registry import PROVIDER_REGISTRY, default_model_for_provider
 from lib.config.resolver import ConfigResolver, VideoBucketCapabilityError, VideoGenerationType
 from lib.infra.api_errors import BadRequestError
@@ -20,6 +23,23 @@ def split_video_backend_query(video_backend: str) -> tuple[str, str]:
     if not provider_id or not model_id:
         raise BadRequestError("video_backend_malformed", value=video_backend)
     return provider_id, model_id
+
+
+def reject_retired_query_params(request: Request, *names: str) -> None:
+    """已删除的查询参数按未知字段拒收（422），与请求体 ``extra="forbid"`` 的拒收同形。"""
+
+    errors = [
+        {
+            "type": "extra_forbidden",
+            "loc": ("query", name),
+            "msg": "Extra inputs are not permitted",
+            "input": request.query_params[name],
+        }
+        for name in names
+        if name in request.query_params
+    ]
+    if errors:
+        raise RequestValidationError(errors)
 
 
 async def require_video_bucket_capability(project: dict, generation_type: VideoGenerationType) -> None:

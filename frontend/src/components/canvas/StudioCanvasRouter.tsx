@@ -31,7 +31,7 @@ import { ReferenceVideoCanvas } from "./reference/ReferenceVideoCanvas";
 import { GridImageToVideoCanvas } from "./grid/GridImageToVideoCanvas";
 import { EpisodeSourceReview } from "./EpisodeSourceReview";
 import { WorkflowPanel } from "@/components/workflow/WorkflowPanel";
-import { API, NarratedVideoDurationError } from "@/api";
+import { API } from "@/api";
 import {
   enqueueCharacter,
   enqueueEpisodeNarration,
@@ -53,7 +53,6 @@ import type {
   Scene,
   Prop,
   Product,
-  ReferenceGenerationRequestOptions,
 } from "@/types";
 import type { EpisodeScript } from "@/types/script";
 
@@ -283,11 +282,7 @@ export function StudioCanvasRouter() {
     }
   }, [currentProjectName, currentScripts]);
 
-  const handleGenerateVideo = useCallback(async (
-    segmentId: string,
-    scriptFile?: string,
-    requestOptions?: ReferenceGenerationRequestOptions,
-  ) => {
+  const handleGenerateVideo = useCallback(async (segmentId: string, scriptFile?: string) => {
     if (!currentProjectName || !currentScripts) return;
     const resolved = resolveSegmentPrompt(currentScripts, segmentId, "video_prompt", scriptFile);
     if (!resolved) return;
@@ -298,10 +293,8 @@ export function StudioCanvasRouter() {
         resolved.prompt as string | Record<string, unknown>,
         resolved.resolvedFile,
         resolved.duration,
-        requestOptions,
       );
     } catch (err) {
-      if (err instanceof NarratedVideoDurationError) throw err;
       useAppStore.getState().pushToast(tRef.current("generate_video_failed", { message: errMsg(err) }), "error");
     }
   }, [currentProjectName, currentScripts]);
@@ -370,13 +363,6 @@ export function StudioCanvasRouter() {
           await handleGenerateNarration(unitId, scriptFile);
         }
       } catch (err) {
-        // 时长档位确认只在单元卡自己的确认弹窗里发生，面板不复刻这套流程——
-        // 把用户带到那张卡上完成确认，而不是甩出一句没有下文的裸错误。
-        if (err instanceof NarratedVideoDurationError) {
-          useAppStore.getState().pushToast(tRef.current("workflow_regenerate_needs_confirmation"), "error");
-          handleViewWorkflowUnit(unitId);
-          continue;
-        }
         useAppStore.getState().pushToast(tRef.current("generate_video_failed", { message: errMsg(err) }), "error");
       }
     }
@@ -386,7 +372,6 @@ export function StudioCanvasRouter() {
     handleGenerateStoryboard,
     handleGenerateVideo,
     handleGenerateNarration,
-    handleViewWorkflowUnit,
   ]);
 
   // ---- Character CRUD callbacks ----

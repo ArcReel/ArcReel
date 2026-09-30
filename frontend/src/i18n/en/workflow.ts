@@ -104,7 +104,7 @@ export default {
   'tier_cost_unknown': 'price unavailable',
   'tier_unknown': 'length undetermined',
   'duration_seconds': '{{value}}s',
-  'unit_tiers': 'now {{current}} · requesting {{request}}',
+  'unit_request_tier': 'requesting {{request}}',
 
   // ---- Narration delivery ----
   'delivery_title': 'Narration for this batch',
@@ -121,8 +121,6 @@ export default {
   'action_retry': 'try again shortly',
   'action_fix_input': 'review and fix the generation setup for this unit',
   'action_generate_dependency': 'add or replace the missing reference assets',
-  'action_generate_tts': 'generate the narration audio for this unit',
-  'action_regenerate_tts': 'regenerate the narration audio for this unit',
   'action_wait_for_task': 'wait for the running attempt to finish',
   'action_replan_unit': 'rewrite this unit so it fits the length you can generate',
   'action_confirm_request_duration': 'confirm the requested length',
@@ -164,6 +162,4 @@ export default {
   'problem_generation_post_processing_failed': 'The video was generated but post-processing failed.',
   'problem_reference_asset_unregistered': 'This unit references assets that are not registered.',
   'problem_reference_asset_missing': 'A referenced asset has no asset sheet yet.',
-  'problem_tts_not_configured': 'No text-to-speech model is configured.',
-  'problem_tts_duration_endpoint_fixed': "This model's output duration is fixed by the endpoint, so no clip long enough for the narration can be requested.",
 };

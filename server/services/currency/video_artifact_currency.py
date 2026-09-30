@@ -20,23 +20,18 @@ from lib.artifacts.artifact_manifest import (
 from lib.artifacts.media_artifact_currency import build_current_video_artifact_basis
 from lib.artifacts.version_manager import PaidVersionCommit, VersionManager
 from lib.artifacts.video_artifact_commit import commit_paid_video_artifact
-from lib.artifacts.video_artifact_facts import VIDEO_ARTIFACT_RESTORE_BLOCKER_FIELD, VideoArtifactCurrencyFacts
+from lib.artifacts.video_artifact_facts import VideoArtifactCurrencyFacts
 from lib.generation.generation_admission import generation_admission_lock, generation_admission_lock_sync
 from lib.infra.async_thread import run_noninterruptible_async
 from lib.infra.json_io import atomic_write_bytes
 from lib.project.asset_types import asset_name_comparison_key
 from lib.project.project_manager import ProjectManager, resolve_episode_script_binding
-from lib.script.reference_video.execution_checkpoint import NarrationExecutionFacts
 from lib.script.script_editor import resolve_items
-from lib.speech.narration_config import TtsSynthesisSettings, project_tts_settings
 from lib.speech.speech_artifact_provenance import (
     build_video_speech_basis,
     project_character_voice_evidence,
 )
 from lib.speech.speech_composition import SpeechMode, SpeechPreparation
-from server.services.tasks.narration_delivery_tasks import (
-    validate_generated_video_covers_tts_duration,
-)
 
 
 @dataclass(frozen=True, slots=True)
@@ -106,7 +101,6 @@ class VideoArtifactCommitter:
         self._resource_id = resource_id
         self._prompt = prompt
         self.outcome: PaidVersionCommit | None = None
-        self.selection_error: BaseException | None = None
         self._current_file: Path | None = None
         self._selected_episode: int | None = None
         self._selected_script_file: str | None = None
@@ -115,9 +109,6 @@ class VideoArtifactCommitter:
         self._prior_manifest_entry: ArtifactManifestEntry | None = None
         self._prior_assets: dict[str, tuple[bool, Any]] | None = None
         self._prior_thumbnail: tuple[Path, bool, bytes | None] | None = None
-        self._current_tts_settings: TtsSynthesisSettings | None = None
-        self._current_tts_basis_resolved = False
-        self._restore_blocker: str | None = None
         self._admission_guard: AbstractAsyncContextManager[None] | None = None
 
     async def prepare_selection(
@@ -126,14 +117,9 @@ class VideoArtifactCommitter:
         duration_seconds: int,
         version_metadata: Mapping[str, Any],
     ) -> None:
-        """Validate paid bytes before the synchronous lock-held selection decision.
+        """Acquire the selection/finalization guard before the lock-held selection decision."""
 
-        Validation failures are retained instead of raised here.  The ensuing
-        formal callback can then archive the paid bytes history-only, after
-        which the executor re-raises the stored failure without ever exposing
-        the invalid media as current.
-        """
-
+        del staged_file, duration_seconds
         script_file = version_metadata.get("execution_script_file")
         if isinstance(script_file, str) and script_file:
             if self._admission_guard is not None:
@@ -145,30 +131,6 @@ class VideoArtifactCommitter:
             )
             await run_noninterruptible_async(guard.__aenter__())
             self._admission_guard = guard
-
-        raw_narration = version_metadata.get("execution_narration")
-        if not isinstance(raw_narration, Mapping) or raw_narration.get("delivery") != "use_tts":
-            return
-        try:
-            narration = NarrationExecutionFacts.from_dict(dict(raw_narration))
-            if narration.actual_duration_seconds is None:
-                raise ValueError("use_tts execution facts are missing actual duration")
-            await validate_generated_video_covers_tts_duration(
-                resource_id=self._resource_id,
-                request_duration_seconds=duration_seconds,
-                output_path=staged_file,
-                tts_actual_duration_seconds=narration.actual_duration_seconds,
-            )
-        except (Exception, asyncio.CancelledError) as exc:
-            self.selection_error = exc
-            code = getattr(exc, "code", None)
-            self._restore_blocker = code if isinstance(code, str) and code else "output_duration_unverified"
-            return
-
-        try:
-            VideoArtifactCurrencyFacts.from_dict(version_metadata.get("artifact_video_currency"))
-        except (TypeError, ValueError):
-            return
 
     async def release_admission_guard(self) -> None:
         """Release the selection/finalization guard, if formal preparation acquired it."""
@@ -188,8 +150,6 @@ class VideoArtifactCommitter:
     ) -> PaidVersionCommit:
         snapshot: dict[str, dict[str, Any] | None] = {"project": None, "script": None}
         metadata = dict(version_metadata)
-        if self._restore_blocker is not None:
-            metadata[VIDEO_ARTIFACT_RESTORE_BLOCKER_FIELD] = self._restore_blocker
         script_file = metadata.get("execution_script_file")
 
         @contextmanager
@@ -207,31 +167,17 @@ class VideoArtifactCommitter:
                 yield
 
         def _current_basis(metadata: Mapping[str, Any]) -> ArtifactBasisDescriptor | None:
-            if self.selection_error is not None:
-                return None
-            narration = metadata.get("execution_narration")
             project = snapshot["project"]
             script = snapshot["script"]
             if project is None or script is None:
                 return None
-            if (
-                isinstance(narration, Mapping)
-                and narration.get("delivery") == "use_tts"
-                and not self._current_tts_basis_resolved
-            ):
-                # No complete snapshot means there is no fresh duration that
-                # can invalidate the execution-frozen video tier.
-                self._current_tts_settings = project_tts_settings(project)
-                self._current_tts_basis_resolved = True
             return build_current_video_artifact_basis(
                 project_path=self._project_path,
                 project=project,
                 script=script,
                 resource_type=self._resource_type,
                 resource_id=self._resource_id,
-                versions=self._versions,
                 version_metadata=metadata,
-                current_tts_settings=self._current_tts_settings,
             )
 
         self._current_file = current_file
@@ -539,8 +485,6 @@ async def complete_video_artifact_commit(
     try:
         if committer.outcome is None:
             raise RuntimeError("formal video generator returned without invoking the artifact commit callback")
-        if committer.selection_error is not None:
-            raise committer.selection_error
         if not committer.outcome.selected:
             result = await asyncio.to_thread(
                 paid_video_history_result,
