@@ -1067,6 +1067,16 @@ def _reference_project(tmp_path: Path, *, sources: dict[str, str]) -> tuple[Proj
     for filename, text in sources.items():
         source_dir.mkdir(parents=True, exist_ok=True)
         (source_dir / filename).write_text(text, encoding="utf-8")
+
+    def _register(project: dict) -> None:
+        # episode_1.txt 登记为第 1 集自带的原文，其余文件登记为整本源文
+        project["whole_source_files"] = [
+            {"source_file": f"source/{filename}"} for filename in sources if filename != "episode_1.txt"
+        ]
+        if "episode_1.txt" in sources:
+            project["episodes"][0]["source_origin"] = "own"
+
+    pm.update_project("demo", _register)
     return pm, ScriptBatchEditor(pm)
 
 

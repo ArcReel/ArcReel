@@ -1121,6 +1121,23 @@ class API {
     );
   }
 
+  /**
+   * 集页填写或改写本集原文。无原文的集保存后转为自带原文的集；切自整本源文的集返回 409。
+   */
+  static async updateEpisodeSource(
+    projectName: string,
+    episode: number,
+    text: string
+  ): Promise<SuccessResponse> {
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/episodes/${episode}/source`,
+      {
+        method: "PUT",
+        body: JSON.stringify({ text }),
+      }
+    );
+  }
+
   // ==================== script_plan → prompt_authoring 内容确认 ====================
 
   /** 读取该集 script_plan 结构化中间态 + 内容确认状态（供 web 渲染与编辑）。 */

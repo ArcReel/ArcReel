@@ -207,7 +207,7 @@ projects/{项目名}/      # ← session cwd 已在此，下面均为 cwd 内的
 - `schema_version`：项目数据格式版本（当前 1）
 - `title`、`content_mode`（`narration`/`drama`）、`generation_mode`（`storyboard`/`reference_video`，创建后不可更改）、`grid_storyboard`（布尔，仅 `generation_mode="storyboard"` 下生效，由用户在设置页开关）、`style`、`style_description`
 - `overview`：项目概述（synopsis、genre、theme、world_setting）
-- `episodes`：分集账本（单一真相源，排列即播出顺序）：episode（集 ID）、title、script_file，以及账本字段 `source_range`（原文范围）/ `hook`（集尾钩子）/ `outline`（drama 分集大纲）/ `ledger_status`（planned/consumed/stale）；顶层 `planning_cursor` 标记下一批规划起点。`source/episode_{集 ID}.txt` 是账本的派生物，由规划工具维护，不要手工编辑或重命名。例外：用户自行拆好分集、`source/` 下只有这些文件而无整本原文时，它们就是源文，账本按文件自动登记（条目无 `source_range`），逐集直接做脚本规划，不合并、不重切、不改名
+- `episodes`：分集账本（单一真相源，排列即播出顺序）：episode（集 ID）、title、script_file，以及账本字段 `source_origin`（本集原文来源：`whole_source` 切自整本源文 / `own` 自带原文 / `none` 无原文）/ `source_range`（原文范围，仅切出集）/ `hook`（集尾钩子）/ `outline`（drama 分集大纲）/ `ledger_status`（planned/consumed/stale）。顶层 `whole_source_files` 是整本源文的文件清单，排列即文件先后，下一批规划从最后一个切出集的结尾接续；`source/` 里未登记的文件不是源文，要纳入须经 `upload_source` 登记。切出集的 `source/episode_{集 ID}.txt` 是账本的派生物，由规划工具维护，不要手工编辑或重命名。自带原文的集的集文件就是该集原文：用户自行拆好的分集用 `upload_source`（`role=episode`）逐集登记，逐集直接做脚本规划，不合并、不重切、不改名
 - `characters`：角色完整定义（description、voice_style、character_sheet）
 - `scenes`：场景完整定义（description、scene_sheet）
 - `props`：道具完整定义（description、prop_sheet）

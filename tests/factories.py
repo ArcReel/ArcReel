@@ -482,3 +482,26 @@ def add_typed_video_version(
         artifact_video_currency=currency.to_dict(),
         execution_script_file="episode_1.json",
     )
+
+
+def register_project_sources(
+    projects: Any,
+    project_name: str,
+    *,
+    whole_source: dict[str, str] | None = None,
+    own_episodes: tuple[str, ...] = (),
+) -> list[int]:
+    """经登记命令放入源文：``whole_source`` 是文件名到全文的整本源文，``own_episodes`` 逐集登记为自带原文的集。
+
+    返回自带原文的集分配到的集 ID。
+    """
+    from lib.episode.episode_source_commands import add_own_source_episode, register_whole_source_file
+
+    project_dir = projects.get_project_path(project_name)
+    episode_ids: list[int] = []
+    with projects.locked_source_registration(project_name) as (source_dir, project):
+        for filename, text in (whole_source or {}).items():
+            (source_dir / filename).write_text(text, encoding="utf-8")
+            register_whole_source_file(project, f"source/{filename}")
+        episode_ids.extend(add_own_source_episode(project_dir, project, text) for text in own_episodes)
+    return episode_ids

@@ -23,9 +23,15 @@ from lib.agent.profile_manifest import VALID_CONTENT_MODES as _VALID_CONTENT_MOD
 from lib.episode.episode_ledger import (
     LEDGER_STATUSES,
     EpisodeOutline,
-    PlanningCursor,
     SourceRange,
     parse_positive_episode_num,
+)
+from lib.episode.episode_sources import (
+    SOURCE_ORIGIN_FIELD,
+    SOURCE_ORIGINS,
+    WHOLE_SOURCE_FILES_KEY,
+    SourceOrigin,
+    is_whole_source_file_path,
 )
 from lib.episode.episode_target_duration import (
     EPISODE_TARGET_DURATION_FIELD,
@@ -306,7 +312,20 @@ class DataValidator:
             # 容忍放行、只留排查线索：分不清是存量遗留值还是手编拼写错误，不拿它判项目损坏
             logger.debug("%s: ledger_status 取值 %r 不在当前状态集内，按无状态处理", prefix, ledger_status)
 
+        source_origin = episode.get(SOURCE_ORIGIN_FIELD)
+        if source_origin is not None and source_origin not in SOURCE_ORIGINS:
+            errors.append(
+                _m(
+                    "val_source_origin_invalid",
+                    prefix=prefix,
+                    value=source_origin,
+                    allowed=", ".join(SOURCE_ORIGINS),
+                )
+            )
+
         source_range = episode.get("source_range")
+        if source_range is not None and source_origin in {SourceOrigin.OWN.value, SourceOrigin.NONE.value}:
+            errors.append(_m("val_source_range_requires_whole_source", prefix=prefix))
         if source_range is not None:
             try:
                 SourceRange.model_validate(source_range)
@@ -483,12 +502,14 @@ class DataValidator:
 
                 self._validate_episode_ledger_fields(episode, prefix, errors)
 
-        planning_cursor = project.get("planning_cursor")
-        if planning_cursor is not None:
-            try:
-                PlanningCursor.model_validate(planning_cursor)
-            except ValidationError as exc:
-                errors.append(_m("val_field_invalid", field="planning_cursor", detail=_pydantic_error_summary(exc)))
+        whole_source = project.get(WHOLE_SOURCE_FILES_KEY)
+        if whole_source is not None:
+            if not isinstance(whole_source, list):
+                errors.append(_m("val_field_must_be_array", field=WHOLE_SOURCE_FILES_KEY))
+            else:
+                for index, item in enumerate(whole_source):
+                    if not isinstance(item, dict) or not is_whole_source_file_path(item.get("source_file")):
+                        errors.append(_m("val_whole_source_file_invalid", index=index))
 
         for first, duplicate in project_asset_name_conflicts(project):
             errors.append(

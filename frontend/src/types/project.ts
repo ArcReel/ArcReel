@@ -129,6 +129,11 @@ export interface EpisodeMeta {
   hook?: string;
   /** Written by episode_planner at split time: slice boundary in the source file (char offsets) */
   source_range?: { source_file?: string; start?: number; end?: number };
+  /**
+   * 本集原文的来源：切自整本源文、自带原文（逐集上传或在集页填写）、无原文。
+   * 缺省按有无 source_range 推断。
+   */
+  source_origin?: "whole_source" | "own" | "none";
   /** Written by episode_planner at split time (drama only) */
   outline?: { story_beats?: string[]; next_episode_teaser?: string };
   /** 上一次提示词编写的附加指令，打开「编写提示词」时预填 */

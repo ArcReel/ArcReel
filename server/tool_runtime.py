@@ -25,6 +25,7 @@ from lib.artifacts.artifact_activation import ArtifactCurrencyResolver, active_a
 from lib.config.resolver import ConfigResolver, caps_generation_mode, video_bucket_for_generation_mode
 from lib.db import async_session_factory
 from lib.episode.episode_ids import describe_episode_for_agent, episode_position
+from lib.episode.episode_ledger import is_derived_episode_name
 from lib.episode.episode_paths import (
     DRAMA_SCRIPT_PLAN_QUARANTINE_FILENAME,
     NARRATION_SCRIPT_PLAN_QUARANTINE_FILENAME,
@@ -34,6 +35,7 @@ from lib.episode.episode_paths import (
     REFERENCE_VIDEO_SCRIPT_PLAN_QUARANTINE_FILENAME,
     SCRIPT_PLAN_FILENAMES,
     SCRIPT_PLAN_LEGACY_FILENAMES,
+    episode_source_relpath,
 )
 from lib.episode.episode_planner import EpisodePlanner, EpisodePlanningError, LedgerStats, PlanResult
 from lib.episode.episode_reset import (
@@ -43,6 +45,11 @@ from lib.episode.episode_reset import (
 from lib.episode.episode_reset import (
     reset_episode_planning as reset_episode_planning_service,
 )
+from lib.episode.episode_source_commands import (
+    add_own_source_episode,
+    register_whole_source_file,
+)
+from lib.episode.episode_sources import first_cut_episode_id
 from lib.episode.episode_target_duration import (
     EPISODE_TARGET_DURATION_FIELD,
     MAX_EPISODE_TARGET_DURATION,
@@ -846,9 +853,9 @@ async def generate_script_plan(
         await asyncio.to_thread(
             script_plan_preflight,
             services.projects.get_project_path(scope.project_name),
+            project,
             text_request.episode,
             text_request.source,
-            content_mode,
         )
         if is_reference_video_project(project):
             handler, task_type = generate_reference_script_plan, _TEXT_REFERENCE_SCRIPT_PLAN
@@ -1556,7 +1563,14 @@ class UploadSourceRequest(BaseModel):
     content: str = Field(description="源文件的文本内容")
     on_conflict: OnConflict = Field(
         default="fail",
-        description="source/ 下已有同名文件时的处理：fail 拒绝、replace 覆盖、rename 自动改名后写入",
+        description="source/ 下已有同名文件时的处理：fail 拒绝、replace 覆盖、rename 自动改名后写入；role=episode 时不适用",
+    )
+    role: Literal["whole_source", "episode"] = Field(
+        default="whole_source",
+        description=(
+            "whole_source：登记为整本源文的文件，接在文件清单末尾，供分集规划切分；"
+            "episode：登记为一集自带原文的集，接在播出顺序末尾，分配新集 ID，逐集直接做脚本规划"
+        ),
     )
 
 
@@ -1671,13 +1685,33 @@ async def upload_source(
                 source_path = Path(source.name)
                 source.write(value.content.encode("utf-8"))
                 source.flush()
-            with services.projects.locked_source_mutation(scope.project_name) as source_dir:
+            if value.role == "episode":
+                extracted = SourceLoader.extract(source_path, original_filename=value.filename)
+                project_dir = services.projects.get_project_path(scope.project_name)
+                with services.projects.locked_source_registration(scope.project_name) as (_dir, project):
+                    episode = add_own_source_episode(project_dir, project, extracted.text)
+                    described = describe_episode_for_agent(project, episode)
+                return {
+                    "episode_id": episode,
+                    "episode": described,
+                    "path": episode_source_relpath(episode),
+                    "original_filename": value.filename,
+                    "used_encoding": extracted.used_encoding,
+                    "chapter_count": extracted.chapter_count,
+                }
+            if is_derived_episode_name(f"{Path(value.filename).stem}.txt"):
+                raise ValueError(
+                    f"文件名 {value.filename} 与集文件 episode_N.txt 同名，整本源文的文件须改名后上传；"
+                    "逐集原文用 role=episode 上传"
+                )
+            with services.projects.locked_source_registration(scope.project_name) as (source_dir, project):
                 result = SourceLoader.load(
                     source_path,
                     source_dir,
                     original_filename=value.filename,
                     on_conflict=value.on_conflict,
                 )
+                register_whole_source_file(project, f"source/{result.normalized_path.name}")
         finally:
             if source_path is not None:
                 source_path.unlink(missing_ok=True)
@@ -2072,7 +2106,7 @@ class ResetEpisodePlanningRequest(BaseModel):
     episode_id: PositiveEpisode | SkipJsonSchema[None] = Field(
         default=None,
         description=(
-            "从哪一集起重置（集 ID）；省略或给播出顺序中的第一集为全量重置，其他集为部分重置（保留播出顺序中它之前的集）"
+            "从哪个切出集起重置（集 ID）；省略或给播出顺序中第一个切出集为全量重置，其他切出集为部分重置（保留播出顺序中它之前的集）"
         ),
     )
     confirm_consumed: bool = Field(
@@ -2369,7 +2403,9 @@ def _plan_episodes_preflight(projects: ProjectManager, project_name: str) -> Non
     source = compute_source_revision(projects.get_project_path(project_name), project, SourceScope(kind="all"))
     require_admitted(
         "plan_episodes",
-        admit_plan_episodes(project.get("content_mode"), whole_source=whole_source_present(planning_docs(source))),
+        admit_plan_episodes(
+            project.get("content_mode"), whole_source=whole_source_present(planning_docs(project, source))
+        ),
     )
 
 
@@ -2489,13 +2525,13 @@ async def reset_episode_planning(
     def _episodes(ids: list[int]) -> str:
         return "、".join(describe_episode_for_agent(project_before, episode_id) for episode_id in ids)
 
-    partial = value.episode_id is not None and episode_position(project_before, value.episode_id) not in (None, 1)
+    partial = value.episode_id is not None and value.episode_id != first_cut_episode_id(project_before)
     start = describe_episode_for_agent(project_before, value.episode_id) if value.episode_id is not None else ""
     if isinstance(result, ResetConfirmationRequired):
         aftermath = (
             f"这些集的账本条目被清除后需要重新规划，播出顺序中 {start} 之前的集保留不动"
             if partial
-            else "账本清空后这些集需要重新规划"
+            else "切出集全部移出账本后需要重新规划"
         )
         lines = [
             f"⚠️ 本次重置会波及已消费集（已有 script_plan/剧本/媒体产物）：{_episodes(result.consumed_episodes)}。"
@@ -2516,11 +2552,11 @@ async def reset_episode_planning(
 
     if partial:
         lines = [
-            f"✅ 已部分重置分集规划：从 {start} 起清空 {len(result.removed_episodes)} 集，"
-            "planning_cursor 已退到保留段最后一个切出集的原文范围末尾。"
+            f"✅ 已部分重置分集规划：从 {start} 起清空 {len(result.removed_episodes)} 个切出集，"
+            "接续规划从保留段最后一个切出集的结尾读起。"
         ]
     else:
-        lines = [f"✅ 已全量重置分集规划：清空 {len(result.removed_episodes)} 集，planning_cursor 已置空。"]
+        lines = [f"✅ 已全量重置分集规划：清空 {len(result.removed_episodes)} 个切出集，下次规划从整本源文开头读起。"]
     if result.deleted_files:
         lines.append(f"已删除可重造的派生集文件 {len(result.deleted_files)} 个。")
     if result.archived_files:
@@ -2531,7 +2567,8 @@ async def reset_episode_planning(
     lines.append(
         "请调用 plan_episodes 继续规划；新规划的集分配新的集 ID，不复用被清除的集 ID。"
         if partial
-        else "账本已空，请调用 plan_episodes 从头重新规划；新规划的集分配新的集 ID，不复用被清除的集 ID。"
+        else "切出集已全部移出账本（自带原文与无原文的集保留不动），请调用 plan_episodes 从头重新规划；"
+        "新规划的集分配新的集 ID，不复用被清除的集 ID。"
     )
     return ToolOutcome(
         value=ResetEpisodePlanningResult(

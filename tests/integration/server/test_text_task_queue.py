@@ -60,6 +60,7 @@ from server.tool_runtime import (
     plan_episodes,
     repair_draft,
 )
+from tests.factories import register_project_sources
 from tests.fakes import FakeTextGenerator, refuse_resume_execution
 
 
@@ -68,10 +69,12 @@ def _admit_text_operations(projects: ProjectManager, project_name: str) -> None:
     if projects.load_project(project_name).get("content_mode") == "ad":
         projects.update_project(project_name, lambda project: project.update(brief="夏季新品"))
         return
-    source = projects.get_project_path(project_name) / "source"
-    source.mkdir(parents=True, exist_ok=True)
-    (source / "novel.txt").write_text("第一章\n张三走向村口。", encoding="utf-8")
-    (source / "episode_1.txt").write_text("张三走向村口。", encoding="utf-8")
+    register_project_sources(
+        projects,
+        project_name,
+        whole_source={"novel.txt": "第一章\n张三走向村口。"},
+        own_episodes=("张三走向村口。",),
+    )
 
 
 async def _start_text_worker(
@@ -639,10 +642,7 @@ async def test_cancel_during_started_episode_plan_commit_leaves_member_running_t
     monkeypatch.setenv("ARCREEL_DATA_DIR", str(projects.data_root))
     project_path = projects.create_project("planning", content_mode="narration")
     projects.create_project_metadata("planning", "Planning", "", "narration")
-    (project_path / "source" / "novel.txt").write_text(
-        "第一章。少年得到古玉，玉中藏着剑诀。",
-        encoding="utf-8",
-    )
+    register_project_sources(projects, "planning", whole_source={"novel.txt": "第一章。少年得到古玉，玉中藏着剑诀。"})
     before_project = (project_path / "project.json").read_bytes()
     started = threading.Event()
     release = threading.Event()
@@ -748,7 +748,7 @@ async def test_cancel_during_invalid_script_plan_quarantine_leaves_member_runnin
     project_path = projects.create_project(project_name, content_mode="narration")
     projects.create_project_metadata(project_name, project_name, "", "narration")
     projects.update_project(project_name, lambda project: project.update(generation_mode=generation_mode))
-    (project_path / "source" / "episode_1.txt").write_text("张三走向村口。", encoding="utf-8")
+    register_project_sources(projects, project_name, own_episodes=("张三走向村口。",))
 
     class Generator:
         async def generate(self, _request, project_name=None):

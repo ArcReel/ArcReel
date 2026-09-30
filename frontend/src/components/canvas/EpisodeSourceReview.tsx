@@ -1,18 +1,30 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { AlertTriangle, Anchor, ChevronDown, Loader2 } from "lucide-react";
+import { AlertTriangle, Anchor, ChevronDown, Loader2, PencilLine } from "lucide-react";
 import { API } from "@/api";
 import { ScriptPlanButton } from "@/components/canvas/shared/ScriptPlanButton";
 import { StartBlankScriptButton } from "@/components/canvas/shared/StartBlankScriptButton";
 import { useScriptPlanEntry } from "@/hooks/useScriptPlanEntry";
+import { useAppStore } from "@/stores/app-store";
+import { useProjectsStore } from "@/stores/projects-store";
 import type { EpisodeMeta } from "@/types";
+import { errMsg } from "@/utils/async";
 import { episodePosition } from "@/utils/episode-display";
 
 /**
  * 已选集但既没有脚本规划也没有正式脚本时的画布视图：呈现本集原文与分集元信息（边界、节拍、
  * 尾钩子），标题行放脚本的起步入口；AI 规划脚本在跑时显示任务进度，完成后集页转入内容确认。
  * 适用 narration/drama 全部生成路径；ad 恒单集无源文切片，由 StudioCanvasRouter 排除。
+ *
+ * 本集原文按来源区分：切自整本源文的集只读（集文件由分集规划派生）；自带原文的集可改写；
+ * 无原文的集直接给出填写框，保存后转为自带原文的集。
  */
+
+type SourceOrigin = NonNullable<EpisodeMeta["source_origin"]>;
+
+function sourceOriginOf(meta: EpisodeMeta | undefined): SourceOrigin {
+  return meta?.source_origin ?? (meta?.source_range ? "whole_source" : "none");
+}
 
 // ---------------------------------------------------------------------------
 // 标题区：播出位置徽标 + 标题 + 状态 chip + 源文元信息 + 起步入口
@@ -216,6 +228,69 @@ function GuideSection({ meta }: { meta: EpisodeMeta | undefined }) {
 }
 
 // ---------------------------------------------------------------------------
+// 集原文填写框：无原文的集填写或粘贴，自带原文的集改写
+// ---------------------------------------------------------------------------
+
+function SourceEditor({
+  initialText,
+  saving,
+  onSave,
+  onCancel,
+}: {
+  initialText: string;
+  saving: boolean;
+  onSave: (text: string) => void;
+  onCancel: (() => void) | null;
+}) {
+  const { t } = useTranslation(["dashboard", "common"]);
+  const [draft, setDraft] = useState(initialText);
+  const blank = draft.trim() === "";
+  return (
+    <div className="mx-auto flex h-full max-w-[66ch] flex-col gap-3">
+      {onCancel ? null : (
+        <p className="text-[13px] leading-[1.7]" style={{ color: "var(--color-text-3)" }}>
+          {t("episode_workspace_source_empty_hint")}
+        </p>
+      )}
+      <textarea
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        placeholder={t("episode_workspace_source_placeholder")}
+        aria-label={t("episode_workspace_source_placeholder")}
+        disabled={saving}
+        className="focus-ring min-h-[280px] flex-1 resize-none rounded-lg px-4 py-3 text-[14px] leading-[1.9]"
+        style={{
+          color: "var(--color-text-2)",
+          background: "oklch(0.18 0.010 265 / 0.6)",
+          border: "1px solid var(--color-hairline)",
+        }}
+      />
+      <div className="flex items-center justify-end gap-2">
+        {onCancel ? (
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={saving}
+            className="focus-ring rounded-lg px-3.5 py-1.5 text-[12.5px]"
+            style={{ color: "var(--color-text-3)", border: "1px solid var(--color-hairline)" }}
+          >
+            {t("common:cancel")}
+          </button>
+        ) : null}
+        <button
+          type="button"
+          onClick={() => onSave(draft)}
+          disabled={saving || blank}
+          className="arc-btn-primary focus-ring rounded-lg px-4 py-1.5 text-[12.5px] font-semibold disabled:opacity-50"
+        >
+          {saving ? t("common:saving") : t("episode_workspace_source_save")}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // 入口：顶栏导览（可折叠） + 全宽居中阅读列
 // ---------------------------------------------------------------------------
 
@@ -250,6 +325,30 @@ export function EpisodeSourceReview({
 
   const loading = fetched?.key !== fetchKey;
   const text = loading ? null : fetched.text;
+  const origin = sourceOriginOf(meta);
+  // 编辑态同样带归属 key，切集后自动退出
+  const [editingKey, setEditingKey] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const editable = origin !== "whole_source";
+  const editing = editable && (editingKey === fetchKey || (!loading && !text));
+
+  const handleSave = useCallback(
+    async (draft: string) => {
+      setSaving(true);
+      try {
+        await API.updateEpisodeSource(projectName, episode, draft);
+        setFetched({ key: `${projectName}::${episode}`, text: draft });
+        setEditingKey(null);
+        useAppStore.getState().pushToast(t("episode_workspace_source_saved"), "success");
+        void useProjectsStore.getState().refreshProject(projectName);
+      } catch (err) {
+        useAppStore.getState().pushToast(t("episode_workspace_source_save_failed", { message: errMsg(err) }), "error");
+      } finally {
+        setSaving(false);
+      }
+    },
+    [projectName, episode, t],
+  );
 
   return (
     <div className="flex h-full flex-col p-6">
@@ -291,13 +390,36 @@ export function EpisodeSourceReview({
               <p className="text-center text-[13px]" style={{ color: "var(--color-text-4)" }}>
                 {t("episode_workspace_source_loading")}
               </p>
+            ) : editing ? (
+              <SourceEditor
+                key={fetchKey}
+                initialText={text ?? ""}
+                saving={saving}
+                onSave={(draft) => void handleSave(draft)}
+                onCancel={text ? () => setEditingKey(null) : null}
+              />
             ) : text ? (
-              <p
-                className="mx-auto max-w-[66ch] whitespace-pre-wrap pb-10 text-[14px] leading-[2]"
-                style={{ color: "var(--color-text-2)", textAlign: "justify" }}
-              >
-                {text}
-              </p>
+              <div className="mx-auto max-w-[66ch] pb-10">
+                {editable ? (
+                  <div className="mb-3 flex justify-end">
+                    <button
+                      type="button"
+                      onClick={() => setEditingKey(fetchKey)}
+                      className="focus-ring inline-flex items-center gap-1.5 rounded-lg px-3 py-1 text-[12px]"
+                      style={{ color: "var(--color-text-3)", border: "1px solid var(--color-hairline)" }}
+                    >
+                      <PencilLine className="h-3.5 w-3.5" aria-hidden />
+                      {t("episode_workspace_source_edit")}
+                    </button>
+                  </div>
+                ) : null}
+                <p
+                  className="whitespace-pre-wrap text-[14px] leading-[2]"
+                  style={{ color: "var(--color-text-2)", textAlign: "justify" }}
+                >
+                  {text}
+                </p>
+              </div>
             ) : (
               <p className="text-center text-[13px]" style={{ color: "var(--color-text-4)" }}>
                 {t("episode_workspace_source_missing")}

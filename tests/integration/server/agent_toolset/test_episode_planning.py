@@ -77,6 +77,7 @@ def whole_source(request: pytest.FixtureRequest) -> None:
     if "fake_ctx" in request.fixturenames:
         ctx: ToolHarness = request.getfixturevalue("fake_ctx")
         _write_whole_source(ctx.project_path)
+        _register_whole_source(ctx)
 
 
 def _write_whole_source(project_path: Path) -> None:
@@ -85,10 +86,16 @@ def _write_whole_source(project_path: Path) -> None:
     (source / "novel.txt").write_text("第一章\n原文", encoding="utf-8")
 
 
+def _register_whole_source(ctx: ToolHarness) -> None:
+    ctx.pm.project_payload["whole_source_files"] = [{"source_file": "source/novel.txt"}]
+
+
 def _seed_ledger(ctx: ToolHarness, *episodes: tuple[int, str]) -> None:
     """按播出顺序写入账本条目（集 ID, 标题）。"""
 
-    ctx.pm.project_payload["episodes"] = [{"episode": num, "title": title} for num, title in episodes]
+    ctx.pm.project_payload["episodes"] = [
+        {"episode": num, "title": title, "source_origin": "whole_source"} for num, title in episodes
+    ]
 
 
 def _plan_value(outcome: ToolOutcome[Any]) -> PlanEpisodesResult:
@@ -270,6 +277,7 @@ async def test_remote_plan_episodes_returns_the_generation_batch_handle(tmp_path
     projects.create_project("demo", content_mode="narration")
     projects.create_project_metadata("demo", "Demo", "", "narration")
     _write_whole_source(projects.get_project_path("demo"))
+    projects.update_project("demo", lambda p: p.update(whole_source_files=[{"source_file": "source/novel.txt"}]))
     queue = GenerationQueue(session_factory=db_factory, project_manager=projects)
     assert await queue.acquire_or_renew_worker_lease(name="default", owner_id="test-worker", ttl_seconds=60)
     services = Services(
@@ -331,7 +339,7 @@ async def test_reset_episode_planning_full_reset_points_back_to_planning(fake_ct
     assert captured["args"][1:] == (None, False)
     assert value.confirmation_required is False
     assert value.removed_episodes == [1, 2]
-    assert "清空 2 集" in value.message
+    assert "清空 2 个切出集" in value.message
     assert "source/_episode_2.txt.bak" in value.message
     assert "plan_episodes" in value.message
 
@@ -375,9 +383,9 @@ async def test_reset_episode_planning_partial_reset_reports_the_new_starting_poi
         await run_declared_tool(RESET_EPISODE_PLANNING, fake_ctx, {"episode_id": 2}, resetter=_fake_reset(result))
     )
 
-    for fragment in ("部分重置", "从 《下山》（第 2 个，id=2） 起清空 2 集", "不复用被清除的集 ID"):
+    for fragment in ("部分重置", "从 《下山》（第 2 个，id=2） 起清空 2 个切出集", "不复用被清除的集 ID"):
         assert fragment in value.message
-    assert "账本已空" not in value.message
+    assert "切出集已全部移出账本" not in value.message
 
 
 async def test_reset_episode_planning_reports_a_failed_partial_precheck(fake_ctx: ToolHarness) -> None:

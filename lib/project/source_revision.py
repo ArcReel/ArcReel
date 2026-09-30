@@ -11,16 +11,39 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
-from lib.episode.episode_ledger import SOURCE_TEXT_SUFFIXES, episode_files_are_derived, is_derived_episode_name
+from lib.episode.episode_ledger import SOURCE_TEXT_SUFFIXES, parse_positive_episode_num
+from lib.episode.episode_paths import episode_source_relpath
+from lib.episode.episode_sources import SourceOrigin, episode_source_origin, whole_source_files
 from lib.infra.content_digest import prefixed_canonical_json_digest
 
 
-def _has_source_text_name(path: Path) -> bool:
-    """目录项的文件名是否像源文：扩展名合法、非点/下划线前缀（含派生集文件名）。
+def _registered_source_paths(project: Mapping[str, Any]) -> list[str]:
+    """项目登记的全部源文：整本源文清单里的文件，加上自带原文的集的集文件。
 
-    不看是否普通文件：那是 ``_read_sources`` 的事，非普通文件在那里以阻塞项报出而不是静默跳过。
+    切出集的集文件是派生物、无原文的集没有集文件，``source/`` 里未登记的文件也不算。
     """
-    return not path.name.startswith((".", "_")) and path.suffix.lower() in SOURCE_TEXT_SUFFIXES
+    paths = whole_source_files(project)
+    raw_episodes = project.get("episodes")
+    for entry in raw_episodes if isinstance(raw_episodes, list) else []:
+        if not isinstance(entry, Mapping) or episode_source_origin(entry) is not SourceOrigin.OWN:
+            continue
+        episode = parse_positive_episode_num(entry.get("episode"))
+        if episode is not None and episode_source_relpath(episode) not in paths:
+            paths.append(episode_source_relpath(episode))
+    return paths
+
+
+def _derived_episode_paths(project: Mapping[str, Any]) -> set[str]:
+    """切出集的集文件路径：它们由账本派生，不是源文。"""
+    raw_episodes = project.get("episodes")
+    derived: set[str] = set()
+    for entry in raw_episodes if isinstance(raw_episodes, list) else []:
+        if not isinstance(entry, Mapping) or episode_source_origin(entry) is not SourceOrigin.WHOLE_SOURCE:
+            continue
+        episode = parse_positive_episode_num(entry.get("episode"))
+        if episode is not None:
+            derived.add(episode_source_relpath(episode))
+    return derived
 
 
 class SourceScope(BaseModel):
@@ -107,7 +130,7 @@ def _canonical_relative_path(value: str) -> str | None:
 
 
 def _all_source_paths(
-    project_dir: Path, scope: SourceScope
+    project_dir: Path, project: Mapping[str, Any], scope: SourceScope
 ) -> tuple[list[tuple[str, Path]], SourceRevisionResult | None]:
     source_dir = project_dir / "source"
     if source_dir.is_symlink():
@@ -116,27 +139,19 @@ def _all_source_paths(
         return [], None
     if not source_dir.is_dir():
         return [], _blocked(scope, "source_not_directory", "source", "source path is not a directory")
-    try:
-        entries = list(source_dir.iterdir())
-    except OSError as exc:
-        return [], _blocked(scope, "source_unreadable", "source", f"source directory cannot be read: {exc}")
 
-    skip_episode_files = episode_files_are_derived(entries)
     paths: list[tuple[str, Path]] = []
-    for path in entries:
-        name = path.name
-        if not _has_source_text_name(path):
-            continue
-        if skip_episode_files and is_derived_episode_name(name):
-            continue
-        rel = unicodedata.normalize("NFC", f"source/{name}")
-        paths.append((rel, path))
+    for rel in _registered_source_paths(project):
+        path = project_dir.joinpath(*PurePosixPath(rel).parts)
+        # 登记了、但已不在盘上的文件不进修订号：它不是能读到的源文，也不该让其余源文一并不可用
+        if path.exists() or path.is_symlink():
+            paths.append((unicodedata.normalize("NFC", rel), path))
     paths.sort(key=lambda item: item[1])
     return paths, None
 
 
 def _scoped_source_paths(
-    project_dir: Path, scope: SourceScope
+    project_dir: Path, project: Mapping[str, Any], scope: SourceScope
 ) -> tuple[list[tuple[str, Path]], SourceRevisionResult | None]:
     source_dir = project_dir / "source"
     if source_dir.is_symlink():
@@ -147,7 +162,7 @@ def _scoped_source_paths(
         entries = list(source_dir.iterdir()) if source_dir.exists() else []
     except OSError as exc:
         return [], _blocked(scope, "source_unreadable", "source", f"source directory cannot be read: {exc}")
-    skip_episode_files = episode_files_are_derived(entries)
+    derived_paths = _derived_episode_paths(project)
     by_canonical_path: dict[str, list[Path]] = {}
     for entry in entries:
         rel = unicodedata.normalize("NFC", f"source/{entry.name}")
@@ -162,7 +177,7 @@ def _scoped_source_paths(
         pure = PurePosixPath(rel)
         if len(pure.parts) != 2 or pure.parts[0] != "source" or pure.suffix.lower() not in SOURCE_TEXT_SUFFIXES:
             return [], _blocked(scope, "invalid_source_scope", rel, "scoped files must be source text files")
-        if skip_episode_files and is_derived_episode_name(pure.name):
+        if rel in derived_paths:
             return [], _blocked(scope, "invalid_source_scope", rel, "derived episode files are not source text")
         if rel in seen:
             continue
@@ -236,9 +251,9 @@ def compute_source_revision(
         return _blocked(None, "invalid_source_scope", "workflow.asset_inventory.scope", str(exc))
 
     if parsed_scope.kind == "all":
-        paths, error = _all_source_paths(project_dir, parsed_scope)
+        paths, error = _all_source_paths(project_dir, project, parsed_scope)
     else:
-        paths, error = _scoped_source_paths(project_dir, parsed_scope)
+        paths, error = _scoped_source_paths(project_dir, project, parsed_scope)
     if error is not None:
         return error
 

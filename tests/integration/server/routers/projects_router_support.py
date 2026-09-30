@@ -120,6 +120,11 @@ class _FakePM:
         source_dir.mkdir(parents=True, exist_ok=True)
         yield source_dir
 
+    @contextmanager
+    def locked_source_registration(self, name):
+        with self.locked_source_mutation(name) as source_dir:
+            yield source_dir, self.project_data.setdefault(name, {"episodes": []})
+
     def delete_project_directory(self, name):
         shutil.rmtree(self.get_project_path(name))
 

@@ -20,10 +20,7 @@ from typing import Any
 
 from pydantic import BaseModel, ValidationError
 
-from lib.artifacts.artifact_manifest import ArtifactKey
-from lib.artifacts.artifact_registration import register_current_artifact_if_provable
 from lib.config.resolver import ConfigResolver
-from lib.episode.episode_ledger import discover_episode_files, register_orphan_episode_entries
 from lib.episode.episode_target_duration import project_episode_target_duration
 from lib.generation.video_request_facts import (
     VideoRequestFactsError,
@@ -142,48 +139,15 @@ class ScriptReviewService:
         return kind, _SCRIPT_PLAN_CONTENT_MODEL[kind]
 
     def _require_episode(self, project_name: str, project: dict[str, Any], episode: int) -> dict[str, Any]:
-        """gate 适用时校验该集已在 project.json ``episodes[]`` 登记，返回（必要时已自愈的）project。
+        """gate 适用时校验该集已在 project.json ``episodes[]`` 登记，返回 project。
 
         与 ``confirm`` 的写入前置一致：避免 ``get_state`` 把未登记分集误报成 no_script_plan、
         ``save_content`` 给未登记分集写出永远无法与 project.json 关联的孤儿 script_plan 文件。
-
-        条目缺失时不立即拒绝：若该集的派生文件 ``source/episode_N.txt`` 实际存在（用户绕过
-        分集规划器、手动预拆分上传的存量场景），先用 ``register_orphan_episode_entries`` 自愈
-        补建条目再重新校验，而非直接判死锁——手动预拆分与账本为空同时出现时，唯一的登记来源
-        就是这次自愈，不做即无法登记、也无法确认。派生文件也不存在时（真正缺失的集号）不自愈，
-        直接抛出。补建出的条目没有位置记录（source_range），消费链路照常，重新规划须先走一次
-        全量重置。
+        集只经显式登记进入账本，``source/`` 里有同名集文件不算登记。
         """
-        if script_review.find_episode(project, episode) is not None:
-            return project
-        project_path = self.pm.get_project_path(project_name)
-        if episode not in discover_episode_files(project_path):
-            raise ScriptReviewError("episode_not_found")
-        project = self._register_orphan_episodes(project_name)
         if script_review.find_episode(project, episode) is None:
             raise ScriptReviewError("episode_not_found")
-        # 条目补建前落盘的 script_plan 证明不了来源、未被登记；补建后按现值补登记，确认时的
-        # 整集转换才读得到这份正式 script_plan。
-        register_current_artifact_if_provable(project_path, ArtifactKey.episode_script_plan(episode))
         return project
-
-    def _register_orphan_episodes(self, project_name: str) -> dict[str, Any]:
-        """在项目锁内运行一次 ``register_orphan_episode_entries`` 并落盘，返回自愈后的 project。
-
-        落盘走 ``ProjectManager.update_project`` 的锁内 read-modify-write，不绕锁直写
-        project.json。``register_orphan_episode_entries`` 是不修改入参的纯函数，返回新 dict；
-        这里在回调内把结果拷回被就地修改的 ``p``，桥接纯函数输出与 update_project 的
-        原地修改约定。已登记的集号在纯函数内部即被跳过，重复触发不会重写既有条目或产生
-        重复集号。
-        """
-        project_path = self.pm.get_project_path(project_name)
-
-        def _mutate(p: dict[str, Any]) -> None:
-            healed = register_orphan_episode_entries(project_path, p)
-            p.clear()
-            p.update(healed)
-
-        return self.pm.update_project(project_name, _mutate)
 
     async def _resolve_supported_durations(self, project: dict[str, Any]) -> list[int] | None:
         """结构收编用的时长全集：参考路线取 r2v 与 i2v 两桶视频请求事实声明全集的并集。

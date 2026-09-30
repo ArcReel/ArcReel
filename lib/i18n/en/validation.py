@@ -44,6 +44,9 @@ MESSAGES = {
     "val_novel_must_be_object": "The novel field must be an object",
     # ---- episode entries and ledger ----
     "val_ledger_status_type": "{prefix}: ledger_status must be a string, got: {value}",
+    "val_source_origin_invalid": "{prefix}: invalid source_origin '{value}', must be one of {allowed}",
+    "val_source_range_requires_whole_source": "{prefix}: only an episode cut from the whole source (source_origin whole_source) can have source_range",
+    "val_whole_source_file_invalid": "whole_source_files[{index}] must be an object with source_file pointing to a .txt or .md file directly under source/",
     "val_episode_missing_num_at": "{prefix}: missing required field episode (integer)",
     "val_episode_missing_title_at": "{prefix}: missing required field title (string, may be empty)",
     "val_episode_missing_num": "Missing required field: episode (integer)",

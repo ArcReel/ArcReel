@@ -1,16 +1,17 @@
-"""分集规划重置：把账本退回未规划状态的逃生口。
+"""分集规划重置：把账本中切自整本源文的集退回未规划状态的逃生口。
 
-账本坐标绑定具体源文内容，源文被替换或账本被写坏后，规划入口会因坐标越界 /
-范围无效而永久失败。全量重置（不指定集）是这种局面的唯一出路：
-**零前置校验**——不读旧坐标、不解析范围，账本处于任何损坏状态都必须执行成功，
-执行后 ``episodes`` 清空、``planning_cursor`` 置 null、源文指纹清除，
-``plan_episodes`` 可从头重新规划。
+只动切出集：自带原文与无原文的集不占用整本源文，两种重置都原样保留它们的条目、集文件与下游产物，
+相对顺序不变（见 ``docs/adr/0031``）。
 
-部分重置（指定播出顺序中第一集之外的某一集）保留账本里它之前的集、清除它及其后的条目，
-与全量重置相反，走**前置校验**：全部已记录源文指纹须与当前源文一致，且保留段的
-``source_range`` 须落在当前源文界内、沿源文位置前进——任一不满足都无法安全推算「保留到哪、
-退回到哪」，直接拒绝执行（账本不改动）并指引改用全量重置。校验通过后 ``planning_cursor``
-退到保留段最后一个切出集的原文范围末尾，源文指纹字段保留不动（已验证与当前源文一致）。
+账本坐标绑定具体源文内容，源文被替换或账本被写坏后，规划入口会因坐标越界 / 范围无效而永久失败。
+全量重置（不指定集）是这种局面的唯一出路：**零前置校验**——不读旧坐标、不解析范围，账本处于任何
+损坏状态都必须执行成功，执行后切出集全部移出账本、源文指纹与快照清除，``plan_episodes`` 可从头
+重新规划。
+
+部分重置（指定播出顺序中第一个切出集之外的某个切出集）保留账本里它之前的集、清除它及其后的切出集，
+与全量重置相反，走**前置校验**：全部已记录源文指纹须与当前源文一致，且保留段的 ``source_range`` 须
+落在当前源文界内、沿源文位置前进——任一不满足都无法安全推算「保留到哪、退回到哪」，直接拒绝执行
+（账本不改动）并指引改用全量重置。接续规划的起点由账本推导，随之退到保留段最后一个切出集的结尾。
 
 两种重置都不回退项目历史最高号（``lib.episode.episode_ids``）：被清除的集 ID 不再分配，
 重新规划出的集取新 ID，旧 ID 的产物不会被新集认领。
@@ -19,11 +20,10 @@
 逃生口不能因供应商未配置而失效。写入与 ``EpisodePlanner`` 共用同一把项目锁
 （``ProjectManager.update_project``），提交纪律一致。
 
-派生集文件按「是否可从账本重造」分流：账本条目带 ``source_range`` 的
+被清除的切出集的集文件按「是否可从账本重造」分流：带 ``source_range`` 的
 ``source/episode_N.txt`` 是派生物，直接删除；无 ``source_range`` 的集文件可能是
 老项目原件（含手工内容，无坐标可重造），改名留底而非删除。下游产物（剧本 JSON、
-script_plan 中间文件、媒体）一律不删。部分重置时上述处置只施于保留段之外的集 ID，
-保留段的派生文件与下游产物不受影响。
+script_plan 中间文件、媒体）一律不删。
 """
 
 from __future__ import annotations
@@ -45,11 +45,20 @@ from lib.episode.episode_ledger import (
     SOURCE_FINGERPRINTS_KEY,
     discover_episode_file_aliases,
     discover_product_episode_nums,
-    discover_sources,
     has_downstream_products,
     mismatched_source_fingerprints,
     parse_episode_num,
     parse_source_range,
+)
+from lib.episode.episode_sources import (
+    SOURCE_SNAPSHOTS_DIR,
+    archive_episode_file_path,
+    discover_sources,
+    first_cut_episode_id,
+    is_cut_episode,
+    source_snapshot_path,
+    sync_source_snapshots,
+    whole_source_files,
 )
 from lib.project.project_manager import ProjectManager
 
@@ -93,26 +102,6 @@ class _ResetPlan:
     consumed: list[int]
     deletes: list[Path]
     archives: list[Path]
-
-
-def _archive_path(path: Path) -> Path:
-    """派生集文件的留底路径：下划线前缀 + ``.bak`` 尾缀，同名时追加序号。
-
-    两处改动缺一不可地把文件挡在发现逻辑之外：下划线前缀让 ``discover_sources``
-    跳过（不会被当成新源文），``.bak`` 后缀既不属于源文后缀白名单、也让
-    ``discover_episode_files`` 的 ``episode_N.txt`` 全匹配落空（不会被当成派生集文件
-    重新补建账本条目）。
-    """
-    base = f"_{path.name}"
-    candidate = path.with_name(f"{base}.bak")
-    index = 1
-    # exists() 对悬空符号链接返回 False（它会解引用到不存在的目标）：上一次重置把悬空
-    # episode_N.txt 留底后，candidate 本身可能就是这样一个悬空链接，仅查 exists() 会漏判
-    # 占用，导致 rename() 静默覆盖上一次的留底，违反本函数「同名时追加序号」的承诺
-    while candidate.exists() or candidate.is_symlink():
-        candidate = path.with_name(f"{base}.{index}.bak")
-        index += 1
-    return candidate
 
 
 _FULL_RESET_HINT = "请改用不带 episode_id 的全量重置"
@@ -177,8 +166,8 @@ def _scan(project_dir: Path, project: Mapping[str, Any], *, retained: frozenset[
         return num not in retained
 
     # 账本条目、磁盘派生文件、磁盘下游产物三者取并集：
-    # - 孤儿集文件（账本无对应条目）同样要处置，否则重置后它会被孤儿条目登记
-    #   （``register_orphan_episode_entries``）重新补建成账本条目，账本清空的承诺落空
+    # - 孤儿集文件（账本无对应条目）同样要处置：它无法证明可从账本重造，按留底处理，
+    #   重置后 source/ 里不留下与账本对不上的集文件
     # - 孤儿下游产物同样要纳入已消费判定，否则会绕过确认直接清空
     for num in sorted(set(entries) | set(episode_file_aliases) | product_nums):
         if not _in_scope(num):
@@ -198,7 +187,7 @@ def _scan(project_dir: Path, project: Mapping[str, Any], *, retained: frozenset[
         if not paths:
             continue
         # 同一集号可能存在多个 padding 别名（episode_1.txt / episode_01.txt），
-        # 全部按同一处置口径处理，否则未处理的别名会被孤儿条目登记重新补建账本条目。
+        # 全部按同一处置口径处理，否则未处理的别名会作为残留留在 source/ 里。
         # 判定是否可删除取该集号全部重复条目的可重造性交集：任一条目无法证明文件可
         # 从账本重造，都按无法重造处理——删除是不可逆操作，证据冲突时偏保守
         can_recreate = all(_has_recreatable_source_range(dupe) for dupe in dupes)
@@ -224,9 +213,8 @@ def _apply_files(
 ) -> tuple[list[str], list[tuple[str, str]]]:
     """落盘文件处置：删派生集文件、留底非派生集文件、清理余文文件。
 
-    失败一律抛错中止提交（账本写回随之回滚）：残留的集文件会被孤儿条目登记重新认领
-    成账本条目，「重置后账本为空」的承诺会被悄悄推翻，宁可整体失败让调用方重试。重置本身
-    幂等，重跑即可自愈已完成的部分。
+    失败一律抛错中止提交（账本写回随之回滚）：残留的集文件与账本对不上，宁可整体失败让调用方
+    重试。重置本身幂等，重跑即可自愈已完成的部分。
     """
     # source/ 是符号链接或（Windows 原生）目录联接时拒绝处置：这类 reparse point 会让
     # source_dir 之下的路径解析穿透到项目外目录，unlink/rename 因此可能作用到外部文件；
@@ -243,13 +231,13 @@ def _apply_files(
             raise EpisodeResetError(f"派生集文件删除失败，重置已中止：{path.name}: {exc}") from exc
         deleted.append(_rel(project_dir, path))
     for path in plan.archives:
-        target = archive_targets[path] if archive_targets is not None else _archive_path(path)
+        target = archive_targets[path] if archive_targets is not None else archive_episode_file_path(path)
         try:
             path.rename(target)
         except OSError as exc:
             raise EpisodeResetError(f"集文件留底改名失败，重置已中止：{path.name}: {exc}") from exc
         archived.append((_rel(project_dir, path), _rel(project_dir, target)))
-    # 余文文件是旧拆分流程的进度指针，账本游标已取代它；留着只会让用户在 source/ 下
+    # 余文文件不是源文，也不记录规划进度（起点由账本推导）；留着只会让用户在 source/ 下
     # 看到一份与账本无关的陈旧剩余正文，随重置一并清理
     remaining = project_dir / "source" / "_remaining.txt"
     if remaining.is_file():
@@ -266,16 +254,16 @@ def _rel(project_dir: Path, path: Path) -> str:
 
 @dataclass(frozen=True)
 class _PartialReset:
-    """部分重置的边界：保留段集 ID（按播出顺序）与重置后的 planning_cursor。"""
+    """部分重置的边界：保留段集 ID（按播出顺序）与保留段所引用源文的规范化全文。"""
 
     retained: tuple[int, ...]
-    cursor: tuple[str, int]
+    texts: Mapping[str, str]
 
 
 def _resolve_partial_reset(project_dir: Path, project: Mapping[str, Any], *, episode_id: int) -> _PartialReset:
-    """校验部分重置的前置条件，返回保留段与重置后的 planning_cursor。
+    """校验部分重置的前置条件，返回保留段。
 
-    账本顺序即播出顺序：``episode_id`` 之前的条目是保留段，它及其后的条目被清除。任一条件
+    账本顺序即播出顺序：``episode_id`` 之前的条目是保留段，它及其后的切出集被清除。任一条件
     不满足都会让「保留到哪、退回到哪」无法安全推算，抛 :class:`EpisodeResetError` 并指引
     改用全量重置；调用方保证校验失败时账本不被改动：
 
@@ -284,12 +272,14 @@ def _resolve_partial_reset(project_dir: Path, project: Mapping[str, Any], *, epi
     - ``episode_id`` 必须在账本中，且不是播出顺序中的第一集（那是全量重置）
     - 全部已记录源文指纹须与当前源文一致（``mismatched_source_fingerprints``，与
       ``EpisodePlanner`` 的提交门禁同一套逃生口）
-    - 保留段里带可信 ``source_range`` 的集须落在对应源文件当前长度界内且非空（``start < end``），
+    - 保留段里带可信 ``source_range`` 的切出集须落在对应源文件当前长度界内且非空（``start < end``），
       并按播出顺序沿源文位置前进：同一源文件内后一条 ``start`` 不早于前一条 ``end``，跨源文件时
-      切到排序更靠后的文件。两集之间留下的未切分原文空段是合法的；重叠或倒退说明账本已损坏
-    - 保留段至少有一集带可信的 ``source_range``，游标退到其中最后一集的原文范围末尾
+      切到整本源文清单中更靠后的文件。两集之间留下的未切分原文空段是合法的；重叠或倒退说明账本已损坏
 
-    没有位置记录的集（``source_range`` 缺失或结构不完整）不占源文位置，不参与坐标校验。
+    - 保留段里的切出集都须带结构完整的 ``source_range``：缺失的是旧流程留下的切出集，保留下来仍会拦住
+      分集规划，部分重置解决不了
+
+    自带原文与无原文的集不占源文位置，不参与坐标校验。
     """
     raw_episodes = project.get("episodes")
     if not isinstance(raw_episodes, list):
@@ -317,7 +307,7 @@ def _resolve_partial_reset(project_dir: Path, project: Mapping[str, Any], *, epi
         raise EpisodeResetError(f"集 ID {episode_id} 不在账本中，无法从此处部分重置")
     retained = ordered[:boundary]
 
-    current_sources = discover_sources(project_dir)
+    current_sources = discover_sources(project_dir, project)
     mismatched = mismatched_source_fingerprints(project.get(SOURCE_FINGERPRINTS_KEY), current_sources)
     if mismatched:
         raise EpisodeResetError(
@@ -329,9 +319,14 @@ def _resolve_partial_reset(project_dir: Path, project: Mapping[str, Any], *, epi
     source_order = {doc.rel_path: idx for idx, doc in enumerate(current_sources)}
     prev: tuple[str, int] | None = None
     for num, entry in retained:
+        if not is_cut_episode(entry):
+            continue
         coords = parse_source_range(entry)
         if coords is None:
-            continue
+            raise EpisodeResetError(
+                f"保留段里的集 ID {num} 是没有带可信原文范围记录（source_range）的切出集，部分重置后仍无法接续"
+                f"分集规划，{_FULL_RESET_HINT}"
+            )
         rel, start, end = coords
         text = text_by_rel.get(rel)
         if text is None or not (0 <= start < end <= len(text)):
@@ -350,19 +345,19 @@ def _resolve_partial_reset(project_dir: Path, project: Mapping[str, Any], *, epi
                 )
         prev = (rel, end)
 
-    if prev is None:
-        raise EpisodeResetError(
-            f"保留段没有带可信原文范围记录（source_range）的集，无法确定部分重置后的规划起点，{_FULL_RESET_HINT}"
-        )
-    return _PartialReset(retained=tuple(num for num, _entry in retained), cursor=prev)
+    return _PartialReset(retained=tuple(num for num, _entry in retained), texts=text_by_rel)
 
 
-def _first_ledger_episode_id(project: Mapping[str, Any]) -> int | None:
+def _other_origin_episode_ids(project: Mapping[str, Any]) -> frozenset[int]:
+    """自带原文与无原文的集 ID：两种重置都不动它们。账本损坏时按可解析的条目容忍计算。"""
     raw_episodes = project.get("episodes")
-    for entry in raw_episodes if isinstance(raw_episodes, list) else []:
-        if isinstance(entry, Mapping):
-            return parse_episode_num(entry.get("episode"))
-    return None
+    return frozenset(
+        num
+        for entry in (raw_episodes if isinstance(raw_episodes, list) else [])
+        if isinstance(entry, Mapping)
+        and not is_cut_episode(entry)
+        and (num := parse_episode_num(entry.get("episode"))) is not None
+    )
 
 
 def reset_episode_planning(
@@ -373,7 +368,7 @@ def reset_episode_planning(
 ) -> EpisodeResetResult | ResetConfirmationRequired:
     """重置分集规划账本。
 
-    不给 ``episode_id``（或它是播出顺序中的第一集）：全量重置，零前置校验，账本处于任何
+    不给 ``episode_id``（或它是播出顺序中的第一个切出集）：全量重置，零前置校验，账本处于任何
     损坏状态都必须执行成功（见模块文档）。给出其他集：部分重置，保留播出顺序中它之前的集，
     见 :func:`_resolve_partial_reset` 的前置校验；校验不通过时指名具体原因并指引改用全量
     重置，账本不被改动。被清除的集 ID 不会被再次分配，重新规划出的集取历史最高号之后的新 ID。
@@ -397,13 +392,17 @@ def reset_episode_planning(
     # 锁外预扫描/前置校验只为二段确认与快速失败服务：校验不通过或需要确认时零写入返回，
     # 不进锁、不碰文件
     project = pm.load_project(project_name)
-    partial_from = None if episode_id is None or episode_id == _first_ledger_episode_id(project) else episode_id
+    partial_from = None if episode_id is None or episode_id == first_cut_episode_id(project) else episode_id
 
     def _boundary(p: Mapping[str, Any]) -> _PartialReset | None:
         return None if partial_from is None else _resolve_partial_reset(project_dir, p, episode_id=partial_from)
 
+    def _retained(p: Mapping[str, Any], boundary: _PartialReset | None) -> frozenset[int]:
+        kept = _other_origin_episode_ids(p)
+        return kept | frozenset(boundary.retained) if boundary is not None else kept
+
     boundary = _boundary(project)
-    plan = _scan(project_dir, project, retained=frozenset(boundary.retained) if boundary else frozenset())
+    plan = _scan(project_dir, project, retained=_retained(project, boundary))
     if plan.consumed and not confirm_consumed:
         return ResetConfirmationRequired(
             consumed_episodes=plan.consumed,
@@ -413,29 +412,30 @@ def reset_episode_planning(
     # 结果只能在锁内（按锁内复扫的实际处置）拼出，用闭包变量带回锁外
     committed: list[EpisodeResetResult] = []
     commit_plan: _ResetPlan | None = None
+    snapshot_texts: dict[str, str] = {}
+    committed_project: dict[str, Any] = {}
     manifest_expected: dict[ArtifactKey, ArtifactManifestEntry | None] = {}
     manifest_removals: dict[ArtifactKey, ArtifactManifestEntry | None] = {}
     recover_unreadable_manifest = False
 
     def _commit(p: dict[str, Any]) -> None:
-        nonlocal commit_plan, manifest_expected, manifest_removals, recover_unreadable_manifest
+        nonlocal commit_plan, manifest_expected, manifest_removals, recover_unreadable_manifest, snapshot_texts
         # 锁内重新校验/重新扫描：确认清单与前置校验都是锁外读取时刻的快照，期间源文件
         # 可能被外部改动、也可能出现清单之外的新消费集
         locked_boundary = _boundary(p)
-        retained = frozenset(locked_boundary.retained) if locked_boundary else frozenset()
+        retained = _retained(p, locked_boundary)
         current = _scan(project_dir, p, retained=retained)
         if any(num not in plan.consumed for num in current.consumed):
             raise EpisodeResetConflictError("重置期间出现新的已消费集，需重新确认后再执行")
+        raw_episodes = p.get("episodes")
+        p["episodes"] = [
+            entry
+            for entry in (raw_episodes if isinstance(raw_episodes, list) else [])
+            if isinstance(entry, Mapping) and parse_episode_num(entry.get("episode")) in retained
+        ]
         if locked_boundary is not None:
-            p["episodes"] = [
-                entry
-                for entry in p["episodes"]
-                if isinstance(entry, Mapping) and parse_episode_num(entry.get("episode")) in retained
-            ]
-            p["planning_cursor"] = {"source_file": locked_boundary.cursor[0], "offset": locked_boundary.cursor[1]}
+            snapshot_texts = dict(locked_boundary.texts)
         else:
-            p["episodes"] = []
-            p["planning_cursor"] = None
             p.pop(SOURCE_FINGERPRINTS_KEY, None)
         try:
             snapshot = ProjectArtifactManifestAdapter(project_dir).snapshot_entries()
@@ -454,16 +454,23 @@ def reset_episode_planning(
             }
             manifest_removals = dict.fromkeys(manifest_expected)
         commit_plan = current
+        committed_project.update(p)
 
     def _commit_side_effects(_project_file: Path) -> None:
         if commit_plan is None:  # pragma: no cover - update_project calls mutate before on_commit
             raise EpisodeResetError("重置未执行：文件处置计划未生成")
         _assert_source_directory_safe(project_dir)
-        archive_targets = {path: _archive_path(path) for path in commit_plan.archives}
+        archive_targets = {path: archive_episode_file_path(path) for path in commit_plan.archives}
         remaining = project_dir / "source" / "_remaining.txt"
         transaction_paths = [*commit_plan.deletes, remaining]
         for source, target in archive_targets.items():
             transaction_paths.extend((source, target))
+        snapshot_dir = project_dir / SOURCE_SNAPSHOTS_DIR
+        if snapshot_dir.is_dir() and not snapshot_dir.is_symlink():
+            transaction_paths.extend(path for path in snapshot_dir.iterdir() if path.is_file())
+        transaction_paths.extend(
+            source_snapshot_path(project_dir, rel) for rel in whole_source_files(committed_project)
+        )
 
         from lib.artifacts.artifact_activation import register_artifact_entries_atomically
 
@@ -473,6 +480,7 @@ def reset_episode_planning(
                 commit_plan,
                 archive_targets=archive_targets,
             )
+            sync_source_snapshots(project_dir, committed_project, snapshot_texts)
             if manifest_removals:
                 register_artifact_entries_atomically(
                     project_dir,

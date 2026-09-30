@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from dataclasses import replace
 from pathlib import Path
@@ -198,6 +199,84 @@ def write_legacy_episode_id_remnants_project(
         _write_json(versions_file, versions)
     elif record_remnant == "grid":
         _write_json(project_dir / "grids" / "grid_old.json", {"episode": 41, "scene_ids": ["E41S01"]})
+    return project_dir
+
+
+LEGACY_CHAPTER_TEN = "第十章开头。第十章中段。第十章结尾。"
+LEGACY_CHAPTER_TWO = "第二章全文。"
+
+
+def write_legacy_episode_sources_project(
+    root: Path,
+    name: str = "legacy-episode-sources",
+    *,
+    schema_version: int = 15,
+    pre_split: bool = False,
+    legacy_split: bool = False,
+    edited_outside: bool = False,
+) -> Path:
+    """整本源文按 ``source/`` 文件名排序认定、没有账本条目的集文件读时补登的项目。
+
+    默认形态：``第10章.txt`` 按文件名排在 ``第2章.txt`` 之前，账本切出两集、``planning_cursor`` 停在
+    ``第10章.txt`` 中段，另有一个没有账本条目的 ``episode_7.txt``。``pre_split=True`` 时 ``source/``
+    只有用户自行拆好的 ``episode_1.txt`` / ``episode_2.txt``，账本为空。
+
+    ``legacy_split=True``：旧拆分流程切出的两集，账本条目没有 ``source_range``，也没有源文指纹与游标，
+    ``source/`` 里留着 ``_remaining.txt``；另有一个没有集文件的第 3 集条目。``edited_outside=True``：``第10章.txt`` 在记下指纹之后被服务之外改过。
+    """
+
+    project_dir = root / name
+    source_dir = project_dir / "source"
+    source_dir.mkdir(parents=True)
+    project: dict[str, Any] = {
+        "schema_version": schema_version,
+        "title": "旧分集项目",
+        "content_mode": "narration",
+        "generation_mode": "storyboard",
+        "source_kind": "novel",
+        "source_language": "zh",
+        "style": "写实",
+        "aspect_ratio": "9:16",
+        "characters": {},
+        "scenes": {},
+        "props": {},
+        "products": {},
+        "episodes": [],
+    }
+    if pre_split:
+        (source_dir / "episode_1.txt").write_text("用户拆好的第一集。", encoding="utf-8")
+        (source_dir / "episode_2.txt").write_text("用户拆好的第二集。", encoding="utf-8")
+    else:
+        (source_dir / "第10章.txt").write_text(LEGACY_CHAPTER_TEN, encoding="utf-8")
+        (source_dir / "第2章.txt").write_text(LEGACY_CHAPTER_TWO, encoding="utf-8")
+        first_end = LEGACY_CHAPTER_TEN.index("第十章中段")
+        second_end = LEGACY_CHAPTER_TEN.index("第十章结尾")
+        ranges = [(1, 0, first_end), (2, first_end, second_end)]
+        for episode, start, end in ranges:
+            (source_dir / f"episode_{episode}.txt").write_text(LEGACY_CHAPTER_TEN[start:end], encoding="utf-8")
+            entry: dict[str, Any] = {
+                "episode": episode,
+                "title": f"第{episode}集",
+                "script_file": f"scripts/episode_{episode}.json",
+                "ledger_status": "planned",
+            }
+            if not legacy_split:
+                entry["source_range"] = {"source_file": "source/第10章.txt", "start": start, "end": end}
+            project["episodes"].append(entry)
+        (source_dir / "episode_7.txt").write_text("另放进来的一集。", encoding="utf-8")
+        if legacy_split:
+            (source_dir / "_remaining.txt").write_text(LEGACY_CHAPTER_TEN[second_end:], encoding="utf-8")
+            project["episodes"].append(
+                {"episode": 3, "title": "第3集", "script_file": "scripts/episode_3.json", "ledger_status": "planned"}
+            )
+        else:
+            project["planning_cursor"] = {"source_file": "source/第10章.txt", "offset": second_end}
+            project["source_fingerprints"] = {
+                "source/第10章.txt": hashlib.sha256(LEGACY_CHAPTER_TEN.encode("utf-8")).hexdigest()
+            }
+        if edited_outside:
+            (source_dir / "第10章.txt").write_text(f"{LEGACY_CHAPTER_TEN}补写的一句。", encoding="utf-8")
+    _write_json(project_dir / "project.json", project)
     return project_dir
 
 

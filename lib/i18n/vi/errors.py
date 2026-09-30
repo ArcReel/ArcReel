@@ -276,6 +276,7 @@ MESSAGES = {
     ),
     # Source loader
     "source_unsupported_format": "Định dạng nguồn không hỗ trợ: {ext} (hỗ trợ: .txt / .md / .docx / .epub / .pdf)",
+    "source_name_reserved": "Tên tệp dạng episode_N.txt được dành cho tệp nguyên văn của tập; hãy đổi tên tệp trước khi tải lên làm toàn bộ văn bản nguồn",
     "source_decode_failed": "Không giải mã được tệp nguồn '{filename}' (đã thử: {tried})",
     "source_corrupt_file": "Tệp nguồn '{filename}' không thể phân tích: {reason}",
     "source_too_large": "Tệp nguồn '{filename}' quá lớn ({size_mb} MB > {limit_mb} MB)",
@@ -530,6 +531,10 @@ MESSAGES = {
     "episode_not_found": "Không tìm thấy tập (id={episode}) hoặc tập chưa có tệp kịch bản",
     "storyboard_batch_script_invalid": "Không thể dùng kịch bản chính thức của tập {episode} để tạo hàng loạt phân cảnh: cấu trúc kịch bản không khớp với chế độ tạo của dự án, hoặc kịch bản chưa gắn với tập này",
     "episode_title_empty": "Tiêu đề tập không được để trống",
+    "episode_source_empty": "Nguyên văn của tập không được để trống",
+    "episode_source_derived": "Tập này được cắt từ toàn bộ văn bản nguồn; nguyên văn của tập do lập kế hoạch phân tập tạo ra, không thể sửa tại đây",
+    "episode_source_symlink": "Tệp nguyên văn của tập này là liên kết tượng trưng, không thể ghi",
+    "episode_source_episode_not_found": "Tập (id={episode}) không có trong danh sách tập",
     "about_update_check_failed": "Kiểm tra cập nhật thất bại, vui lòng thử lại sau",
     "about_version_read_failed": "Không đọc được phiên bản ứng dụng",
     # Image Capability

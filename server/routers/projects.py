@@ -43,6 +43,12 @@ from lib.config.resolver import (
     video_bucket_for_generation_mode,
 )
 from lib.db import async_session_factory
+from lib.episode.episode_ledger import is_derived_episode_name
+from lib.episode.episode_source_commands import (
+    EpisodeSourceError,
+    register_whole_source_file,
+    set_episode_source_text,
+)
 from lib.episode.episode_target_duration import (
     EPISODE_TARGET_DURATION_FIELD,
     MAX_EPISODE_TARGET_DURATION,
@@ -1747,6 +1753,10 @@ class UpdateEpisodeRequest(BaseModel):
     title: str
 
 
+class UpdateEpisodeSourceRequest(BaseModel):
+    text: str
+
+
 @router.patch("/projects/{name}/segments/{segment_id}", dependencies=[Depends(require_project_migration_ok)])
 async def update_segment(
     name: str,
@@ -1882,6 +1892,34 @@ async def update_episode(name: str, episode: int, req: UpdateEpisodeRequest, _t:
         raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
 
 
+@router.put("/projects/{name}/episodes/{episode}/source", dependencies=[Depends(require_project_migration_ok)])
+async def update_episode_source(name: str, episode: int, req: UpdateEpisodeSourceRequest, _t: Translator):
+    """集页填写或改写本集原文：无原文的集填上后转为自带原文的集。切出集的原文由分集规划派生，这里拒绝。"""
+
+    def _sync() -> dict[str, Any]:
+        manager = get_project_manager()
+        if not manager.project_exists(name):
+            raise NotFoundError("project_not_found", name=name)
+        with project_change_source("webui"):
+            origin = set_episode_source_text(manager, name, episode, req.text)
+        return {"success": True, "episode": episode, "source_origin": origin.value}
+
+    try:
+        return await asyncio.to_thread(_sync)
+    except EpisodeSourceError as exc:
+        if exc.code == "episode_not_found":
+            raise HTTPException(
+                status_code=404, detail=_t("episode_source_episode_not_found", episode=episode)
+            ) from exc
+        status = 409 if exc.code in {"episode_source_derived", "episode_source_symlink"} else 422
+        raise HTTPException(status_code=status, detail=_t(exc.code)) from exc
+    except (HTTPException, ApiError):
+        raise
+    except Exception as exc:
+        logger.exception("请求处理失败")
+        raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
+
+
 # ==================== 源文件管理 ====================
 
 
@@ -1929,9 +1967,11 @@ async def set_project_source(
         def _sync_write():
             if not manager.project_exists(name):
                 raise HTTPException(status_code=404, detail=_t("project_not_found", name=name))
-            with manager.locked_source_mutation(name) as source_dir:
+            with manager.locked_source_registration(name) as (source_dir, project):
                 if raw is not None:
                     safe_filename = Path(original_name).name
+                    if is_derived_episode_name(safe_filename):
+                        raise HTTPException(status_code=400, detail=_t("source_name_reserved"))
                     try:
                         text = raw.decode("utf-8")
                     except UnicodeDecodeError as exc:
@@ -1939,11 +1979,13 @@ async def set_project_source(
                     if len(text) > MAX_CHARS:
                         raise HTTPException(status_code=400, detail=_t("file_too_large", max_chars=MAX_CHARS))
                     (source_dir / safe_filename).write_text(text, encoding="utf-8")
+                    register_whole_source_file(project, f"source/{safe_filename}")
                     return safe_filename, len(text)
                 if len(text_content) > MAX_CHARS:
                     raise HTTPException(status_code=400, detail=_t("file_too_large", max_chars=MAX_CHARS))
                 safe_filename = "novel.txt"
                 (source_dir / safe_filename).write_text(text_content, encoding="utf-8")
+                register_whole_source_file(project, f"source/{safe_filename}")
                 return safe_filename, len(text_content)
 
         safe_filename, chars = await asyncio.to_thread(_sync_write)

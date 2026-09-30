@@ -9,18 +9,27 @@ import pytest
 from lib.project.source_revision import SourceScope, compute_source_revision
 
 
-def _project() -> dict[str, object]:
-    return {"source_kind": "novel", "source_language": "zh"}
+def _project(*whole_source: str, own: tuple[int, ...] = (), cut: tuple[int, ...] = ()) -> dict[str, object]:
+    """``whole_source`` 按顺序登记为整本源文；``own`` / ``cut`` 是自带原文与切出集的集 ID。"""
+    return {
+        "source_kind": "novel",
+        "source_language": "zh",
+        "whole_source_files": [{"source_file": f"source/{name}"} for name in whole_source],
+        "episodes": [{"episode": n, "source_origin": "own"} for n in own]
+        + [{"episode": n, "source_origin": "whole_source"} for n in cut],
+    }
 
 
-def test_all_source_revision_is_stable_and_excludes_planned_episode_files(tmp_path: Path) -> None:
+def test_all_source_revision_is_stable_and_excludes_derived_and_unregistered_files(tmp_path: Path) -> None:
     source = tmp_path / "source"
     source.mkdir()
     (source / "novel.txt").write_bytes("原文\r\n第二行".encode())
+    project = _project("novel.txt", cut=(1,))
 
-    first = compute_source_revision(tmp_path, _project(), SourceScope(kind="all"))
+    first = compute_source_revision(tmp_path, project, SourceScope(kind="all"))
     (source / "episode_1.txt").write_bytes(b"derived planning output")
-    second = compute_source_revision(tmp_path, _project(), SourceScope(kind="all"))
+    (source / "stray.txt").write_text("没有登记的文件", encoding="utf-8")
+    second = compute_source_revision(tmp_path, project, SourceScope(kind="all"))
 
     assert first.blockers == []
     assert first.files == ["source/novel.txt"]
@@ -29,14 +38,14 @@ def test_all_source_revision_is_stable_and_excludes_planned_episode_files(tmp_pa
     assert second == first
 
 
-def test_all_scope_treats_episode_files_as_source_when_nothing_else_is_authored(tmp_path: Path) -> None:
-    """source/ 下只有 episode_N.txt（用户手动预拆分）：没有任何原文能派生出它们，它们就是源文。"""
+def test_all_scope_includes_own_source_episode_files(tmp_path: Path) -> None:
+    """自带原文的集的集文件就是源文，与整本源文一并计入。"""
     source = tmp_path / "source"
     source.mkdir()
     (source / "episode_2.txt").write_text("第二集", encoding="utf-8")
     (source / "episode_1.txt").write_text("第一集", encoding="utf-8")
 
-    result = compute_source_revision(tmp_path, _project(), SourceScope(kind="all"))
+    result = compute_source_revision(tmp_path, _project(own=(2, 1)), SourceScope(kind="all"))
 
     assert result.blockers == []
     assert result.files == ["source/episode_1.txt", "source/episode_2.txt"]
@@ -44,14 +53,14 @@ def test_all_scope_treats_episode_files_as_source_when_nothing_else_is_authored(
     assert result.revision is not None
 
 
-def test_scoped_revision_accepts_episode_files_when_nothing_else_is_authored(tmp_path: Path) -> None:
+def test_scoped_revision_accepts_own_source_episode_files(tmp_path: Path) -> None:
     source = tmp_path / "source"
     source.mkdir()
     (source / "episode_1.txt").write_text("第一集", encoding="utf-8")
 
     result = compute_source_revision(
         tmp_path,
-        _project(),
+        _project(own=(1,)),
         SourceScope(kind="files", files=["source/episode_1.txt"]),
     )
 
@@ -59,7 +68,7 @@ def test_scoped_revision_accepts_episode_files_when_nothing_else_is_authored(tmp
     assert result.files == ["source/episode_1.txt"]
 
 
-def test_scoped_revision_rejects_planned_episode_files(tmp_path: Path) -> None:
+def test_scoped_revision_rejects_cut_episode_files(tmp_path: Path) -> None:
     source = tmp_path / "source"
     source.mkdir()
     (source / "novel.txt").write_text("原文", encoding="utf-8")
@@ -67,7 +76,7 @@ def test_scoped_revision_rejects_planned_episode_files(tmp_path: Path) -> None:
 
     result = compute_source_revision(
         tmp_path,
-        _project(),
+        _project("novel.txt", cut=(1,)),
         SourceScope(kind="files", files=["source/episode_1.txt"]),
     )
 
@@ -80,12 +89,13 @@ def test_scoped_revision_resolves_canonical_unicode_path_to_filesystem_spelling(
     source.mkdir()
     disk_name = unicodedata.normalize("NFD", "truyện.txt")
     (source / disk_name).write_text("nội dung", encoding="utf-8")
-    all_result = compute_source_revision(tmp_path, _project(), SourceScope(kind="all"))
+    project = _project(disk_name)
+    all_result = compute_source_revision(tmp_path, project, SourceScope(kind="all"))
     assert all_result.files == ["source/truyện.txt"]
 
     scoped_result = compute_source_revision(
         tmp_path,
-        _project(),
+        project,
         SourceScope(kind="files", files=all_result.files),
     )
 
@@ -99,7 +109,7 @@ def test_revision_rejects_source_that_is_not_valid_utf8(tmp_path: Path) -> None:
     source.mkdir()
     (source / "broken.txt").write_bytes(b"\xff\xfe")
 
-    result = compute_source_revision(tmp_path, _project(), SourceScope(kind="all"))
+    result = compute_source_revision(tmp_path, _project("broken.txt"), SourceScope(kind="all"))
 
     assert result.revision is None
     assert result.blockers[0].code == "source_unreadable"
@@ -110,15 +120,16 @@ def test_revision_changes_with_raw_bytes_path_and_source_semantics(tmp_path: Pat
     source.mkdir()
     original = source / "a.txt"
     original.write_bytes(b"same text\r\n")
-    baseline = compute_source_revision(tmp_path, _project(), SourceScope(kind="all"))
+    project = _project("a.txt", "b.txt")
+    baseline = compute_source_revision(tmp_path, project, SourceScope(kind="all"))
 
     original.write_bytes(b"same text\n")
-    changed_bytes = compute_source_revision(tmp_path, _project(), SourceScope(kind="all"))
+    changed_bytes = compute_source_revision(tmp_path, project, SourceScope(kind="all"))
     original.rename(source / "b.txt")
-    changed_path = compute_source_revision(tmp_path, _project(), SourceScope(kind="all"))
+    changed_path = compute_source_revision(tmp_path, project, SourceScope(kind="all"))
     changed_semantics = compute_source_revision(
         tmp_path,
-        {"source_kind": "screenplay", "source_language": "zh"},
+        {**project, "source_kind": "screenplay"},
         SourceScope(kind="all"),
     )
 
@@ -133,12 +144,12 @@ def test_revision_payload_order_is_stable_across_unicode_filename_spelling(tmp_p
     accented = source / nfd_name
     accented.write_text("accented", encoding="utf-8")
     (source / "b.txt").write_text("plain", encoding="utf-8")
-    before = compute_source_revision(tmp_path, _project(), SourceScope(kind="all"))
+    before = compute_source_revision(tmp_path, _project(nfd_name, "b.txt"), SourceScope(kind="all"))
 
     intermediate = source / "rename.tmp"
     accented.rename(intermediate)
     intermediate.rename(source / nfc_name)
-    after = compute_source_revision(tmp_path, _project(), SourceScope(kind="all"))
+    after = compute_source_revision(tmp_path, _project(nfc_name, "b.txt"), SourceScope(kind="all"))
 
     assert after.revision == before.revision
 
@@ -198,7 +209,7 @@ def test_all_scope_reports_candidate_symlink_instead_of_skipping_it(tmp_path: Pa
     target.write_text("outside source", encoding="utf-8")
     (source / "novel.txt").symlink_to(target)
 
-    result = compute_source_revision(tmp_path, _project(), SourceScope(kind="all"))
+    result = compute_source_revision(tmp_path, _project("novel.txt"), SourceScope(kind="all"))
 
     assert result.revision is None
     assert [(b.code, b.path) for b in result.blockers] == [("source_symlink", "source/novel.txt")]
@@ -218,8 +229,8 @@ def test_all_scope_reports_symlinked_source_dir(tmp_path: Path) -> None:
     assert [(b.code, b.path) for b in result.blockers] == [("source_symlink", "source")]
 
 
-def test_all_scope_reports_symlink_beside_manual_episode_files(tmp_path: Path) -> None:
-    """符号链接不算原文，episode_N.txt 仍是源文；符号链接本身照常以阻塞项报出。"""
+def test_all_scope_reports_registered_symlink_beside_own_source_episode_files(tmp_path: Path) -> None:
+    """登记为整本源文的符号链接照常以阻塞项报出，自带原文的集文件不受影响。"""
     source = tmp_path / "source"
     source.mkdir()
     (source / "episode_1.txt").write_text("第一集", encoding="utf-8")
@@ -227,7 +238,21 @@ def test_all_scope_reports_symlink_beside_manual_episode_files(tmp_path: Path) -
     target.write_text("outside source", encoding="utf-8")
     (source / "linked.md").symlink_to(target)
 
-    result = compute_source_revision(tmp_path, _project(), SourceScope(kind="all"))
+    result = compute_source_revision(tmp_path, _project("linked.md", own=(1,)), SourceScope(kind="all"))
 
     assert result.revision is None
     assert [(b.code, b.path) for b in result.blockers] == [("source_symlink", "source/linked.md")]
+
+
+def test_all_scope_ignores_unregistered_symlink(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "episode_1.txt").write_text("第一集", encoding="utf-8")
+    target = tmp_path / "target.md"
+    target.write_text("outside source", encoding="utf-8")
+    (source / "linked.md").symlink_to(target)
+
+    result = compute_source_revision(tmp_path, _project(own=(1,)), SourceScope(kind="all"))
+
+    assert result.blockers == []
+    assert result.files == ["source/episode_1.txt"]

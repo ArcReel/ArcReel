@@ -17,7 +17,8 @@ import pytest
 
 from lib.artifacts.artifact_activation import register_current_artifact
 from lib.artifacts.artifact_manifest import MANIFEST_FILENAME, ArtifactKey
-from lib.episode.episode_ledger import SOURCE_FINGERPRINTS_KEY, compute_source_fingerprints, discover_sources
+from lib.episode.episode_ledger import SOURCE_FINGERPRINTS_KEY, compute_source_fingerprints
+from lib.episode.episode_sources import discover_sources
 from lib.infra.json_io import atomic_write_json
 from lib.project.project_manager import ProjectManager
 from lib.project.project_migrations.runner import migrate_project_with_verdict
@@ -44,8 +45,7 @@ def _plan_one_episode(pm: ProjectManager, project_path: Path, source_text: str) 
         project["episodes"] = [
             {"episode": 1, "script_file": "scripts/episode_1.json", "ledger_status": "planned"},
         ]
-        project["planning_cursor"] = {"source_file": "source/novel.txt", "offset": len(source_text)}
-        project[SOURCE_FINGERPRINTS_KEY] = compute_source_fingerprints(discover_sources(project_path))
+        project[SOURCE_FINGERPRINTS_KEY] = compute_source_fingerprints(discover_sources(project_path, project))
 
     pm.update_project("demo", _plan)
 

@@ -26,8 +26,9 @@ from lib.artifacts.artifact_manifest import (
     ArtifactManifestError,
     ProjectArtifactManifestAdapter,
 )
-from lib.episode.episode_ledger import discover_sources, normalize_source_text
+from lib.episode.episode_ledger import normalize_source_text
 from lib.episode.episode_paths import episode_script_filename, episode_source_relpath
+from lib.episode.episode_sources import discover_sources
 from lib.infra.content_digest import prefixed
 from lib.infra.path_safety import try_safe_join
 from lib.infra.validation_messages import default_translate
@@ -415,6 +416,7 @@ class ScriptBatchEditor:
                 project_dir = self._pm.get_project_path(project_name)
                 source_text_problems = _source_text_problems(
                     project_dir,
+                    self._pm.load_project(project_name),
                     episode_number,
                     original,
                     candidate,
@@ -791,6 +793,7 @@ def _apply_operation(
 
 def _source_text_problems(
     project_dir: Path,
+    project: Mapping[str, Any],
     episode: int | None,
     original: dict[str, Any],
     candidate: dict[str, Any],
@@ -821,7 +824,7 @@ def _source_text_problems(
         written.append((index, item_id, source_text))
     if not written:
         return ()
-    sources = _anchor_sources(project_dir, episode)
+    sources = _anchor_sources(project_dir, project, episode)
     problems: list[ScriptBatchEditProblem] = []
     for index, item_id, source_text in written:
         if not sources or any(is_verbatim_source_anchor(source_text, source) for source in sources):
@@ -840,11 +843,11 @@ def _source_text_problems(
     return tuple(problems)
 
 
-def _anchor_sources(project_dir: Path, episode: int | None) -> list[str]:
+def _anchor_sources(project_dir: Path, project: Mapping[str, Any], episode: int | None) -> list[str]:
     """对应原文的比对源文。
 
-    本集派生源文 ``source/episode_N.txt`` 可读且非空时只认它，与拆分工具生成对应原文时读的
-    是同一份；缺失或集号未知时回落到项目源文（命中任一份即可），项目也没有源文时返回空列表。
+    本集集文件 ``source/episode_N.txt`` 可读且非空时只认它，与拆分工具生成对应原文时读的
+    是同一份；缺失或集号未知时回落到整本源文（命中任一份即可），项目也没有源文时返回空列表。
     """
     episode_source = (
         None if episode is None else try_safe_join(project_dir, episode_source_relpath(episode), require_file=True)
@@ -856,7 +859,7 @@ def _anchor_sources(project_dir: Path, episode: int | None) -> list[str]:
             text = ""
         if text.strip():
             return [text]
-    return [doc.text for doc in discover_sources(project_dir)]
+    return [doc.text for doc in discover_sources(project_dir, project)]
 
 
 def _admissions(script: dict[str, Any]) -> dict[str, SpeechAdmission]:

@@ -18,12 +18,8 @@ from lib.artifacts.artifact_activation import (
 from lib.artifacts.artifact_manifest import ArtifactBasisDescriptor, ArtifactKey, ProjectArtifactManifestAdapter
 from lib.artifacts.version_manager import MANUAL_UPLOAD_VERSION_SOURCE, VersionManager
 from lib.edit_timeline import EditTimelineService, RevisionAuthor
-from lib.episode.episode_ledger import (
-    SOURCE_FINGERPRINTS_KEY,
-    compute_source_fingerprints,
-    discover_sources,
-    register_orphan_episode_entries,
-)
+from lib.episode.episode_ledger import SOURCE_FINGERPRINTS_KEY, compute_source_fingerprints
+from lib.episode.episode_sources import discover_sources
 from lib.infra.json_io import atomic_write_json
 from lib.project.asset_inventory import complete_asset_inventory
 from lib.project.episode_asset_references import episode_referenced_assets
@@ -45,6 +41,7 @@ from lib.speech.narration_delivery import (
 from lib.speech.speech_composition import admit_script_unit
 from lib.workflow.workflow_state import WorkflowStateService, episode_complete, planning_docs
 from server.services.admission.asset_sheet_batch import AssetSheetScope, plan_asset_sheet_batch
+from tests.factories import register_project_sources
 
 
 def _make_project(
@@ -64,8 +61,7 @@ def _make_project(
 
 
 def _write_source_and_complete(pm: ProjectManager, project_path: Path, text: str = "原文") -> str:
-    source = project_path / "source" / "novel.txt"
-    source.write_text(text, encoding="utf-8")
+    register_project_sources(pm, "demo", whole_source={"novel.txt": text})
     scope = SourceScope(kind="all")
     revision = compute_source_revision(project_path, pm.load_project("demo"), scope).revision
     assert revision is not None
@@ -355,15 +351,10 @@ def test_drama_target_comes_from_ledger_not_derived_filenames(tmp_path: Path) ->
     assert status.next_action.args["preprocessor"] == "normalize-drama-script"
 
 
-def test_manual_presplit_project_routes_to_script_plan_without_writing_the_ledger(tmp_path: Path) -> None:
-    """source/ 只有用户自行拆好的 episode_N.txt、账本为空：各集有集原文，但没有整本源文。
-
-    状态按内存里补建的账本条目（无 source_range）给出结论，直达本集脚本规划、不经分集规划，
-    也不先提取资产清单；读状态不写 project.json，账本登记留给内容确认入口。
-    """
+def test_own_source_episodes_route_to_script_plan_without_episode_planning(tmp_path: Path) -> None:
+    """逐集登记自带原文、没有整本源文的项目：直达本集脚本规划，不经分集规划，也不先提取资产清单。"""
     pm, project_path = _make_project(tmp_path, "drama", generation_mode="reference_video")
-    for number in (1, 2, 3):
-        _write_episode_source(project_path, number, f"第{number}集原文")
+    register_project_sources(pm, "demo", own_episodes=tuple(f"第{number}集原文" for number in (1, 2, 3)))
     project_file = project_path / "project.json"
     before = project_file.read_bytes()
     service = WorkflowStateService(pm)
@@ -381,23 +372,16 @@ def test_manual_presplit_project_routes_to_script_plan_without_writing_the_ledge
 
 
 def test_manual_presplit_project_reaches_edit_without_planning_records(tmp_path: Path) -> None:
-    """手动预拆分项目没有源文指纹与规划游标（从未走过分集规划），产物齐备时照样进入剪辑。
+    """逐集登记自带原文的项目没有整本源文与源文指纹（从未走过分集规划），产物齐备时照样进入剪辑。
 
-    源文本身就是各集的文件，没有待排布的原文；「源文尚未排布完」的口径对它不成立，不得把
-    做完的集打回分集规划。
+    没有待排布的整本源文；「源文尚未排布完」的口径对它不成立，不得把做完的集打回分集规划。
     """
     pm, project_path = _make_project(tmp_path, "narration")
-    _write_episode_source(project_path, 1, "第一集原文")
+    assert register_project_sources(pm, "demo", own_episodes=("第一集原文",)) == [1]
     scope = SourceScope(kind="all")
     revision = compute_source_revision(project_path, pm.load_project("demo"), scope).revision
     assert revision is not None
     complete_asset_inventory(pm, "demo", scope, revision)
-
-    def _confirm_episode(project: dict) -> None:
-        # 内容确认入口落盘的账本条目：只有集号，没有 source_range。
-        project["episodes"] = register_orphan_episode_entries(project_path, project)["episodes"]
-
-    pm.update_project("demo", _confirm_episode)
     draft_dir = project_path / "drafts" / "episode_1"
     draft_dir.mkdir(parents=True)
     atomic_write_json(draft_dir / "script_plan_segments.json", {"episode": 1, "segments": []})
@@ -413,15 +397,15 @@ def test_manual_presplit_project_reaches_edit_without_planning_records(tmp_path:
     project = pm.load_project("demo")
     assert [entry["episode"] for entry in project["episodes"]] == [1]
     assert "source_range" not in project["episodes"][0]
+    assert project["episodes"][0]["source_origin"] == "own"
     assert SOURCE_FINGERPRINTS_KEY not in project
-    assert project["planning_cursor"] is None
 
     status = WorkflowStateService(pm).get_status("demo")
     assert status.next_action.type == "create_edit_timeline"
 
 
-def test_manual_presplit_summary_lists_episodes_without_writing_the_ledger(tmp_path: Path) -> None:
-    """项目列表投影同样按内存补建的账本读集数：手动预拆分项目一进列表就按集数展示，project.json 不动。"""
+def test_unregistered_episode_files_do_not_become_episodes(tmp_path: Path) -> None:
+    """直接放进 source/ 的 episode_N.txt 没有登记，读状态与项目列表都不把它们当成集，project.json 不动。"""
     pm, project_path = _make_project(tmp_path, "narration")
     _write_episode_source(project_path, 1, "第一集原文")
     _write_episode_source(project_path, 2, "第二集原文")
@@ -429,8 +413,11 @@ def test_manual_presplit_summary_lists_episodes_without_writing_the_ledger(tmp_p
     before = project_file.read_bytes()
 
     summary = WorkflowStateService(pm).get_project_summary("demo")
+    status = WorkflowStateService(pm).get_status("demo")
 
-    assert [episode.episode for episode in summary.episodes] == [1, 2]
+    assert summary.episodes == []
+    assert status.target is None
+    assert status.operations["plan_episodes"].reason == "whole_source_missing"
     assert project_file.read_bytes() == before
 
 
@@ -548,6 +535,7 @@ def test_unsafe_source_is_an_issue_instead_of_skipping_or_raising(tmp_path: Path
     target = project_path / "target.txt"
     target.write_text("source", encoding="utf-8")
     (project_path / "source" / "novel.txt").symlink_to(target)
+    pm.update_project("demo", lambda project: project.update(whole_source_files=[{"source_file": "source/novel.txt"}]))
 
     status = WorkflowStateService(pm).get_status("demo")
     assert status.blockers == []
@@ -571,8 +559,7 @@ def test_narration_progresses_through_storyboard_video_to_edit(tmp_path: Path) -
                 "source_range": {"source_file": "source/novel.txt", "start": 0, "end": len(source_text)},
             }
         ]
-        project["planning_cursor"] = {"source_file": "source/novel.txt", "offset": len(source_text)}
-        project[SOURCE_FINGERPRINTS_KEY] = compute_source_fingerprints(discover_sources(project_path))
+        project[SOURCE_FINGERPRINTS_KEY] = compute_source_fingerprints(discover_sources(project_path, project))
 
     pm.update_project("demo", _plan)
     draft_dir = project_path / "drafts" / "episode_1"
@@ -701,8 +688,7 @@ def test_narration_audio_manifest_state_unreadable_does_not_block_edit(tmp_path:
                 "source_range": {"source_file": "source/novel.txt", "start": 0, "end": len(source_text)},
             }
         ]
-        project["planning_cursor"] = {"source_file": "source/novel.txt", "offset": len(source_text)}
-        project[SOURCE_FINGERPRINTS_KEY] = compute_source_fingerprints(discover_sources(project_path))
+        project[SOURCE_FINGERPRINTS_KEY] = compute_source_fingerprints(discover_sources(project_path, project))
         project["schema_version"] = CURRENT_PROJECT_SCHEMA_VERSION
         project["narration_delivery"] = "use_tts"
         project["audio_backend"] = f"{_TTS_SETTINGS.provider_id}/{_TTS_SETTINGS.model_id}"
@@ -764,10 +750,10 @@ def test_unplanned_source_with_legacy_episode_without_source_range_requires_full
                 "title": "第一集",
                 "script_file": "scripts/episode_1.json",
                 "ledger_status": "consumed",
+                "source_origin": "whole_source",
             }
         ]
-        project["planning_cursor"] = {"source_file": "source/novel.txt", "offset": 1}
-        project[SOURCE_FINGERPRINTS_KEY] = compute_source_fingerprints(discover_sources(project_path))
+        project[SOURCE_FINGERPRINTS_KEY] = compute_source_fingerprints(discover_sources(project_path, project))
 
     pm.update_project("demo", _plan)
     draft_dir = project_path / "drafts" / "episode_1"
@@ -836,8 +822,7 @@ def test_status_reads_each_source_file_exactly_once(tmp_path: Path, monkeypatch:
     """修订号计算与分集排布共用同一次读取；源文越多，重复读的代价越大。"""
 
     pm, project_path = _make_project(tmp_path, "narration")
-    (project_path / "source" / "novel.txt").write_text("第一份原文", encoding="utf-8")
-    (project_path / "source" / "extra.md").write_text("第二份原文", encoding="utf-8")
+    register_project_sources(pm, "demo", whole_source={"novel.txt": "第一份原文", "extra.md": "第二份原文"})
 
     source_reads = _count_source_reads(monkeypatch, project_path)
     WorkflowStateService(pm).get_status("demo")
@@ -858,10 +843,10 @@ def test_completed_first_episode_does_not_hide_later_incomplete_episode(
                 "episode": episode,
                 "script_file": f"scripts/episode_{episode}.json",
                 "ledger_status": "planned",
+                "source_origin": "own" if episode == 1 else "none",
             }
             for episode in (1, 2)
         ]
-        project["planning_cursor"] = {"source_file": "source/novel.txt", "offset": 1}
 
     pm.update_project("demo", _plan)
     draft_dir = project_path / "drafts" / "episode_1"
@@ -894,8 +879,9 @@ def test_completed_first_episode_does_not_hide_later_incomplete_episode(
     status = WorkflowStateService(pm).get_status("demo")
 
     assert load_calls == 1
-    # 整本源文仍只读一次；集原文另被「本集有集原文」这条准入事实读一次、比对 script_plan 基线时读一次。
-    assert source_reads == {"novel.txt": 1, "episode_1.txt": 2}
+    # 整本源文仍只读一次；自带原文的集的集文件计入源文修订号读一次，另被「本集有集原文」这条准入事实
+    # 读一次、比对 script_plan 基线时读一次。
+    assert source_reads == {"novel.txt": 1, "episode_1.txt": 3}
     assert status.target is not None
     assert status.target.episode == 2
     assert status.next_action.type == "start_blank_script"
@@ -913,15 +899,16 @@ def test_stale_episode_stays_out_of_the_next_step(tmp_path: Path) -> None:
                 "episode": 1,
                 "script_file": "scripts/episode_1.json",
                 "ledger_status": "planned",
+                "source_range": {"source_file": "source/novel.txt", "start": 0, "end": 2},
             },
             {
                 "episode": 2,
                 "script_file": "scripts/episode_2.json",
                 "ledger_status": "stale",
+                "source_range": {"source_file": "source/novel.txt", "start": 2, "end": len(source_text)},
             },
         ]
-        project["planning_cursor"] = {"source_file": "source/novel.txt", "offset": len(source_text)}
-        project[SOURCE_FINGERPRINTS_KEY] = compute_source_fingerprints(discover_sources(project_path))
+        project[SOURCE_FINGERPRINTS_KEY] = compute_source_fingerprints(discover_sources(project_path, project))
 
     pm.update_project("demo", _plan)
     draft_dir = project_path / "drafts" / "episode_1"
@@ -966,13 +953,21 @@ def test_episode_next_steps_follow_the_ledger_and_match_the_per_episode_status(t
     _write_source_and_complete(pm, project_path, source_text)
 
     def _plan(project: dict) -> None:
+        bounds = {3: (0, 1), 1: (1, 2), 2: (2, len(source_text))}
         project["episodes"] = [
-            {"episode": 3, "script_file": "scripts/episode_3.json", "ledger_status": "planned"},
-            {"episode": 1, "script_file": "scripts/episode_1.json", "ledger_status": "planned"},
-            {"episode": 2, "script_file": "scripts/episode_2.json", "ledger_status": "stale"},
+            {
+                "episode": episode,
+                "script_file": f"scripts/episode_{episode}.json",
+                "ledger_status": status,
+                "source_range": {
+                    "source_file": "source/novel.txt",
+                    "start": bounds[episode][0],
+                    "end": bounds[episode][1],
+                },
+            }
+            for episode, status in ((3, "planned"), (1, "planned"), (2, "stale"))
         ]
-        project["planning_cursor"] = {"source_file": "source/novel.txt", "offset": len(source_text)}
-        project[SOURCE_FINGERPRINTS_KEY] = compute_source_fingerprints(discover_sources(project_path))
+        project[SOURCE_FINGERPRINTS_KEY] = compute_source_fingerprints(discover_sources(project_path, project))
 
     pm.update_project("demo", _plan)
     draft_dir = project_path / "drafts" / "episode_1"
@@ -1026,6 +1021,7 @@ def test_legacy_stale_episode_without_baseline_requires_planning_reset(tmp_path:
                     "episode": 1,
                     "script_file": "scripts/episode_1.json",
                     "ledger_status": "stale",
+                    "source_origin": "whole_source",
                 }
             ]
         ),
@@ -1048,8 +1044,7 @@ def test_requested_missing_episode_is_an_issue_not_a_blocker(tmp_path: Path) -> 
         "demo",
         lambda project: project.update(
             episodes=[{"episode": 1, "script_file": "scripts/episode_1.json", "ledger_status": "planned"}],
-            planning_cursor={"source_file": "source/novel.txt", "offset": len(source_text)},
-            **{SOURCE_FINGERPRINTS_KEY: compute_source_fingerprints(discover_sources(project_path))},
+            **{SOURCE_FINGERPRINTS_KEY: compute_source_fingerprints(discover_sources(project_path, project))},
         ),
     )
 
@@ -1060,79 +1055,77 @@ def test_requested_missing_episode_is_an_issue_not_a_blocker(tmp_path: Path) -> 
     assert status.target.episode == 1
 
 
-def test_source_inserted_before_cursor_requires_planning_reset(tmp_path: Path) -> None:
-    pm, project_path = _make_project(tmp_path, "narration")
-    source_dir = project_path / "source"
-    (source_dir / "a.txt").write_text("已规划", encoding="utf-8")
+def _cut_whole_source(pm: ProjectManager, project_path: Path, source_file: str, end: int) -> None:
+    """账本切出一集覆盖 ``source_file`` 的 ``[0, end)``，并记下参与源文的指纹。"""
+
+    def _plan(project: dict) -> None:
+        project["episodes"] = [
+            {
+                "episode": 1,
+                "title": "第一集",
+                "script_file": "scripts/episode_1.json",
+                "ledger_status": "planned",
+                "source_origin": "whole_source",
+                "source_range": {"source_file": source_file, "start": 0, "end": end},
+            }
+        ]
+        project[SOURCE_FINGERPRINTS_KEY] = compute_source_fingerprints(discover_sources(project_path, project))
+
+    pm.update_project("demo", _plan)
+
+
+def _complete_inventory(pm: ProjectManager, project_path: Path) -> None:
     scope = SourceScope(kind="all")
-    project = pm.load_project("demo")
-    initial = compute_source_revision(project_path, project, scope).revision
-    assert initial is not None
-    complete_asset_inventory(pm, "demo", scope, initial)
-    pm.update_project(
-        "demo",
-        lambda data: data.update(
-            planning_cursor={"source_file": "source/a.txt", "offset": 3},
-            **{SOURCE_FINGERPRINTS_KEY: compute_source_fingerprints(discover_sources(project_path))},
-        ),
-    )
-    (source_dir / "0.txt").write_text("新增", encoding="utf-8")
-    refreshed = compute_source_revision(project_path, pm.load_project("demo"), scope).revision
-    assert refreshed is not None
-    complete_asset_inventory(pm, "demo", scope, refreshed)
+    revision = compute_source_revision(project_path, pm.load_project("demo"), scope).revision
+    assert revision is not None
+    complete_asset_inventory(pm, "demo", scope, revision)
+
+
+def test_source_uploaded_after_planning_continues_planning_without_reset(tmp_path: Path) -> None:
+    pm, project_path = _make_project(tmp_path, "narration")
+    register_project_sources(pm, "demo", whole_source={"b.txt": "已规划"})
+    _cut_whole_source(pm, project_path, "source/b.txt", 3)
+    register_project_sources(pm, "demo", whole_source={"a.txt": "新增"})
+    _complete_inventory(pm, project_path)
 
     status = WorkflowStateService(pm).get_status("demo")
-    assert status.next_action.type == "reset_episode_planning"
-    assert status.next_action.args == {}
+    assert status.next_action.type != "reset_episode_planning"
+    assert status.operations["plan_episodes"].state == "admitted"
+    assert status.content is not None
+    assert status.content.source_remaining is True
 
 
-def test_decomposed_recorded_source_does_not_trigger_repeated_planning_reset(tmp_path: Path) -> None:
+def test_unregistered_file_in_source_is_not_whole_source(tmp_path: Path) -> None:
     pm, project_path = _make_project(tmp_path, "narration")
-    source_dir = project_path / "source"
+    register_project_sources(pm, "demo", whole_source={"b.txt": "已规划"})
+    _cut_whole_source(pm, project_path, "source/b.txt", 3)
+    _complete_inventory(pm, project_path)
+    before = WorkflowStateService(pm).get_status("demo", 1)
+
+    (project_path / "source" / "a.txt").write_text("没有登记的文件", encoding="utf-8")
+    (project_path / "source" / "episode_2.txt").write_text("没有登记的集文件", encoding="utf-8")
+
+    after = WorkflowStateService(pm).get_status("demo", 1)
+    assert after.content is not None
+    assert before.content is not None
+    assert after.content.source_remaining is False
+    assert after.content.episode_count == before.content.episode_count == 1
+    assert after.next_action.type == before.next_action.type
+    assert after.source_revision == before.source_revision
+    assert [entry["source_origin"] for entry in pm.load_project("demo")["episodes"]] == ["whole_source"]
+
+
+def test_decomposed_recorded_source_does_not_trigger_planning_reset(tmp_path: Path) -> None:
+    pm, project_path = _make_project(tmp_path, "narration")
     decomposed_name = unicodedata.normalize("NFD", "é.txt")
-    source_path = source_dir / decomposed_name
-    source_path.write_text("已规划", encoding="utf-8")
-    scope = SourceScope(kind="all")
-    project = pm.load_project("demo")
-    revision = compute_source_revision(project_path, project, scope).revision
-    assert revision is not None
-    complete_asset_inventory(pm, "demo", scope, revision)
-    pm.update_project(
-        "demo",
-        lambda data: data.update(
-            planning_cursor={"source_file": f"source/{decomposed_name}", "offset": 3},
-            **{SOURCE_FINGERPRINTS_KEY: compute_source_fingerprints(discover_sources(project_path))},
-        ),
-    )
+    register_project_sources(pm, "demo", whole_source={decomposed_name: "已规划"})
+    _cut_whole_source(pm, project_path, f"source/{decomposed_name}", 3)
+    _complete_inventory(pm, project_path)
 
     status = WorkflowStateService(pm).get_status("demo")
-    assert status.next_action.type == "plan_episodes"
-
-
-def test_later_raw_sorted_source_does_not_trigger_planning_reset(tmp_path: Path) -> None:
-    pm, project_path = _make_project(tmp_path, "narration")
-    source_dir = project_path / "source"
-    decomposed_name = unicodedata.normalize("NFD", "á.txt")
-    (source_dir / decomposed_name).write_text("已规划", encoding="utf-8")
-    scope = SourceScope(kind="all")
-    project = pm.load_project("demo")
-    revision = compute_source_revision(project_path, project, scope).revision
-    assert revision is not None
-    complete_asset_inventory(pm, "demo", scope, revision)
-    pm.update_project(
-        "demo",
-        lambda data: data.update(
-            planning_cursor={"source_file": f"source/{decomposed_name}", "offset": 3},
-            **{SOURCE_FINGERPRINTS_KEY: compute_source_fingerprints(discover_sources(project_path))},
-        ),
-    )
-    (source_dir / "b.txt").write_text("后续", encoding="utf-8")
-    refreshed = compute_source_revision(project_path, pm.load_project("demo"), scope).revision
-    assert refreshed is not None
-    complete_asset_inventory(pm, "demo", scope, refreshed)
-
-    status = WorkflowStateService(pm).get_status("demo")
-    assert status.next_action.type == "plan_episodes"
+    assert status.next_action.type != "reset_episode_planning"
+    assert status.content is not None
+    assert status.content.source_remaining is False
 
 
 def test_whitespace_only_source_is_missing_project_input(tmp_path: Path) -> None:
@@ -2168,8 +2161,7 @@ def test_narration_script_without_source_text_blocks_media_progress(tmp_path: Pa
         "demo",
         lambda project: project.update(
             episodes=[{"episode": 1, "script_file": "scripts/episode_1.json", "ledger_status": "consumed"}],
-            planning_cursor={"source_file": "source/novel.txt", "offset": len(source_text)},
-            **{SOURCE_FINGERPRINTS_KEY: compute_source_fingerprints(discover_sources(project_path))},
+            **{SOURCE_FINGERPRINTS_KEY: compute_source_fingerprints(discover_sources(project_path, project))},
         ),
     )
     draft_dir = project_path / "drafts" / "episode_1"
@@ -2210,66 +2202,77 @@ def test_invalid_required_script_field_blocks_export(tmp_path: Path) -> None:
     assert status.next_action.type == "none"
 
 
-def test_planning_completion_resolves_nfc_cursor_to_nfd_filesystem_path(tmp_path: Path) -> None:
+def _cut_everything(project: dict, docs: list) -> None:
+    project["episodes"] = [
+        {
+            "episode": index,
+            "source_origin": "whole_source",
+            "source_range": {
+                "source_file": unicodedata.normalize("NFC", doc.rel_path),
+                "start": 0,
+                "end": len(doc.text),
+            },
+        }
+        for index, doc in enumerate(docs, start=1)
+    ]
+    project[SOURCE_FINGERPRINTS_KEY] = compute_source_fingerprints(docs)
+
+
+def test_planning_completion_resolves_nfc_range_to_nfd_filesystem_path(tmp_path: Path) -> None:
     pm, project_path = _make_project(tmp_path, "narration")
-    decomposed_name = unicodedata.normalize("NFD", "truyện.txt")
-    source_path = project_path / "source" / decomposed_name
-    source_path.write_text("完整原文", encoding="utf-8")
+    register_project_sources(pm, "demo", whole_source={unicodedata.normalize("NFD", "truyện.txt"): "完整原文"})
     project = pm.load_project("demo")
     source = compute_source_revision(project_path, project, SourceScope(kind="all"))
     assert source.revision is not None
-    project["planning_cursor"] = {"source_file": source.files[-1], "offset": 4}
-    project[SOURCE_FINGERPRINTS_KEY] = compute_source_fingerprints(discover_sources(project_path))
+    _cut_everything(project, discover_sources(project_path, project))
 
-    assert WorkflowStateService._planning_complete(project, source, planning_docs(source)) is True
+    assert WorkflowStateService._planning_complete(project, planning_docs(project, source)) is True
 
 
 def test_planning_without_source_fingerprint_baseline_is_incomplete(tmp_path: Path) -> None:
     pm, project_path = _make_project(tmp_path, "narration")
-    source_path = project_path / "source" / "novel.txt"
-    source_path.write_text("完整原文", encoding="utf-8")
+    register_project_sources(pm, "demo", whole_source={"novel.txt": "完整原文"})
     project = pm.load_project("demo")
     source = compute_source_revision(project_path, project, SourceScope(kind="all"))
     assert source.revision is not None
-    project["planning_cursor"] = {"source_file": source.files[-1], "offset": 4}
 
-    assert WorkflowStateService._planning_complete(project, source, planning_docs(source)) is False
+    assert WorkflowStateService._planning_complete(project, planning_docs(project, source)) is False
 
 
 def test_new_source_file_continues_planning_without_resetting_existing_fingerprints(tmp_path: Path) -> None:
     pm, project_path = _make_project(tmp_path, "narration")
-    original_path = project_path / "source" / "a.txt"
-    original_path.write_text("已规划原文", encoding="utf-8")
+    register_project_sources(pm, "demo", whole_source={"z.txt": "已规划原文"})
     project = pm.load_project("demo")
-    project["planning_cursor"] = {"source_file": "source/a.txt", "offset": len("已规划原文")}
-    project[SOURCE_FINGERPRINTS_KEY] = compute_source_fingerprints(discover_sources(project_path))
+    _cut_everything(project, discover_sources(project_path, project))
     pm.save_project("demo", project)
-    initial_revision = compute_source_revision(project_path, pm.load_project("demo"), SourceScope(kind="all")).revision
-    assert initial_revision is not None
-    complete_asset_inventory(pm, "demo", SourceScope(kind="all"), initial_revision)
-    (project_path / "source" / "z.txt").write_text("新增原文", encoding="utf-8")
+    register_project_sources(pm, "demo", whole_source={"a.txt": "新增原文"})
     revision = compute_source_revision(project_path, pm.load_project("demo"), SourceScope(kind="all")).revision
     assert revision is not None
     complete_asset_inventory(pm, "demo", SourceScope(kind="all"), revision)
 
     status = WorkflowStateService(pm).get_status("demo")
-    assert status.next_action.type == "plan_episodes"
+    assert status.next_action.type != "reset_episode_planning"
+    assert status.operations["plan_episodes"].state == "admitted"
+    assert status.content is not None
+    assert status.content.source_remaining is True
 
 
-def test_planning_completion_preserves_planner_order_for_canonical_paths(tmp_path: Path) -> None:
+def test_planning_completion_follows_the_registered_file_order(tmp_path: Path) -> None:
     pm, project_path = _make_project(tmp_path, "narration")
-    source_dir = project_path / "source"
-    (source_dir / unicodedata.normalize("NFD", "á.txt")).write_text("第一份", encoding="utf-8")
-    (source_dir / "b.txt").write_text("第二份", encoding="utf-8")
+    register_project_sources(
+        pm, "demo", whole_source={"b.txt": "第一份", unicodedata.normalize("NFD", "á.txt"): "第二份"}
+    )
     project = pm.load_project("demo")
-    docs = discover_sources(project_path)
+    docs = discover_sources(project_path, project)
     source = compute_source_revision(project_path, project, SourceScope(kind="all"))
     assert source.revision is not None
-    assert source.files == [unicodedata.normalize("NFC", doc.rel_path) for doc in docs]
-    project["planning_cursor"] = {"source_file": docs[-1].rel_path, "offset": len(docs[-1].text)}
-    project[SOURCE_FINGERPRINTS_KEY] = compute_source_fingerprints(docs)
+    assert [doc.rel_path for doc in planning_docs(project, source)] == [doc.rel_path for doc in docs]
+    assert [unicodedata.normalize("NFC", doc.rel_path) for doc in docs] == ["source/b.txt", "source/á.txt"]
+    _cut_everything(project, docs[:1])
+    assert WorkflowStateService._planning_complete(project, planning_docs(project, source)) is False
+    _cut_everything(project, docs)
 
-    assert WorkflowStateService._planning_complete(project, source, planning_docs(source)) is True
+    assert WorkflowStateService._planning_complete(project, planning_docs(project, source)) is True
 
 
 def test_duplicate_reference_video_unit_ids_block_completion(tmp_path: Path) -> None:
@@ -2333,7 +2336,6 @@ def test_reference_video_route_skips_storyboards_and_audio(tmp_path: Path) -> No
                 "ledger_status": "consumed",
             }
         ]
-        project["planning_cursor"] = {"source_file": "source/novel.txt", "offset": len(source_text)}
 
     pm.update_project("demo", _plan)
     draft_dir = project_path / "drafts" / "episode_1"
@@ -2364,7 +2366,6 @@ def test_workflow_status_does_not_persist_read_time_script_migrations(tmp_path: 
         "demo",
         lambda project: project.update(
             episodes=[{"episode": 1, "script_file": "scripts/episode_1.json", "ledger_status": "consumed"}],
-            planning_cursor={"source_file": "source/novel.txt", "offset": len(source_text)},
         ),
     )
     draft_dir = project_path / "drafts" / "episode_1"
