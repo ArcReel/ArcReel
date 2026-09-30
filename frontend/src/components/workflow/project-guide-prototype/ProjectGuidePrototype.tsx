@@ -25,7 +25,8 @@ import {
 
 export const VARIANTS = [
   { key: "A", name: "进度胶囊 + 概览引导卡" },
-  { key: "B", name: "顶栏下一步" },
+  { key: "B", name: "顶栏下一步 · 整条" },
+  { key: "B2", name: "顶栏下一步 · 分开" },
   { key: "C", name: "项目面板 + 分段进度条" },
 ];
 
@@ -215,7 +216,8 @@ export function ProtoHeaderCenter() {
   return (
     <Log>
       {v === "A" && <HeaderA />}
-      {v === "B" && <HeaderB />}
+      {v === "B" && <HeaderB form="bar" />}
+      {v === "B2" && <HeaderB form="split" />}
       {v === "C" && <HeaderC />}
     </Log>
   );
@@ -339,27 +341,63 @@ function HeaderA() {
   );
 }
 
-function HeaderB() {
+/** 平的状态面：不内凹、不含凸起亮片，避免读成分段开关。 */
+const FLAT = {
+  background: "linear-gradient(180deg, oklch(0.25 0.012 265 / 0.9), oklch(0.22 0.011 265 / 0.9))",
+  border: "1px solid var(--color-hairline)",
+  boxShadow: "inset 0 1px 0 oklch(1 0 0 / 0.04), 0 1px 2px oklch(0 0 0 / 0.3)",
+};
+const FLAT_WARM = {
+  background: "var(--color-warm-soft)",
+  border: "1px solid var(--color-warm-ring)",
+  boxShadow: "inset 0 1px 0 oklch(1 0 0 / 0.04)",
+};
+
+function Seg({ children, onClick, title }: { children: ReactNode; onClick?: () => void; title?: string }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={title}
+      className="focus-ring inline-flex h-full items-center gap-1.5 whitespace-nowrap px-3 text-xs hover:bg-[oklch(1_0_0_/_0.04)]"
+    >
+      {children}
+    </button>
+  );
+}
+
+const Divider = ({ warm }: { warm?: boolean }) => (
+  <span aria-hidden className="h-3.5 w-px" style={{ background: warm ? "var(--color-warm-ring)" : "var(--color-hairline)" }} />
+);
+
+const Kicker = ({ children }: { children: ReactNode }) => (
+  <span className="text-[11px]" style={{ color: "var(--color-text-4)" }}>{children}</span>
+);
+
+/** form="bar"：一整条平的状态条，竖线分隔；form="split"：进度为纯文字，下一步单独成一个按钮胶囊。 */
+function HeaderB({ form }: { form: "bar" | "split" }) {
   const p = usePScenario();
   const current = useCurrentEpisode();
   const migration = useMigrationActive(p);
   const [open, setOpen] = useState<"eps" | "next" | "mig" | null>(null);
   const { phase, attempts } = useRetry();
   const toggle = (k: "eps" | "next" | "mig") => setOpen((o) => (o === k ? null : k));
+  const shell = "inline-flex h-[28px] items-center overflow-hidden rounded-full";
 
   if (migration) {
     return (
       <div className="relative">
-        <Track warm>
-          <Chip onClick={() => toggle("mig")}>
+        <div className={shell} style={FLAT_WARM}>
+          <Seg onClick={() => toggle("mig")}>
             <AlertTriangle className="h-3.5 w-3.5" style={{ color: "var(--color-warm)" }} />
             <span style={{ color: "var(--color-text)" }}>
               {phase === "failed" ? `重试没有成功 · ${attempts} 次` : "数据升级没有完成"}
             </span>
-            <ChevronDown className="h-3 w-3" />
-          </Chip>
-          <RetryButton size="sm" />
-        </Track>
+            <ChevronDown className="h-3 w-3" style={{ color: "var(--color-text-3)" }} />
+          </Seg>
+          <Divider warm />
+          <div className="px-1.5"><RetryButton size="sm" /></div>
+        </div>
         {(open === "mig" || phase === "failed") && (
           <Popover width={440}>
             <div className="space-y-2">
@@ -375,31 +413,66 @@ function HeaderB() {
   const next = p.next;
   // 集页上：项目层下一步指向本集时让位给下方面板，只留进度。
   const yieldToPanel = current != null && next?.episode === current;
+  const has = p.episodes.length > 0;
+  const progress = (
+    <>
+      <Ring done={doneCount(p)} total={p.episodes.length} />
+      <span className="num" style={{ color: "var(--color-text-2)" }}>
+        {has ? `${doneCount(p)}/${p.episodes.length} 集` : "尚未建集"}
+      </span>
+      {staleCount(p) > 0 && <WarmDot n={staleCount(p)} />}
+    </>
+  );
+  const nextLabel = next && !yieldToPanel && (
+    <>
+      <Kicker>下一步</Kicker>
+      <span className="font-medium" style={{ color: "var(--color-text)" }}>{next.title}</span>
+      <ChevronDown className="h-3 w-3" style={{ color: "var(--color-text-3)" }} />
+    </>
+  );
+
   return (
     <div className="relative">
-      <Track>
-        <Chip onClick={() => p.episodes.length && toggle("eps")}>
-          <Ring done={doneCount(p)} total={p.episodes.length} />
-          <span className="num">{p.episodes.length ? `${doneCount(p)}/${p.episodes.length}` : "尚未建集"}</span>
-        </Chip>
-        {next && !yieldToPanel && (
-          <Chip raised onClick={() => toggle("next")} title={next.detail}>
-            <Badge on>→</Badge>
-            <span>{next.title}</span>
-            <ChevronDown className="h-3 w-3" style={{ color: "var(--color-text-3)" }} />
-          </Chip>
-        )}
-        {yieldToPanel && <Chip><Badge>{current}</Badge>当前集</Chip>}
-      </Track>
-      {open === "eps" && (
-        <Popover><EpisodeList p={p} current={current} /></Popover>
+      {form === "bar" ? (
+        <div className={shell} style={FLAT}>
+          <Seg onClick={() => has && toggle("eps")}>{progress}</Seg>
+          {nextLabel && (
+            <>
+              <Divider />
+              <Seg onClick={() => toggle("next")} title={next?.detail}>{nextLabel}</Seg>
+            </>
+          )}
+          {yieldToPanel && (
+            <>
+              <Divider />
+              <span className="px-3 text-[11px]" style={{ color: "var(--color-text-4)" }}>下一步见本集面板</span>
+            </>
+          )}
+        </div>
+      ) : (
+        <div className="flex items-center gap-3">
+          <button type="button" onClick={() => has && toggle("eps")} className="focus-ring inline-flex items-center gap-1.5 rounded text-xs">
+            {progress}
+          </button>
+          {nextLabel && (
+            <button
+              type="button"
+              onClick={() => toggle("next")}
+              title={next?.detail}
+              className="focus-ring inline-flex h-[26px] items-center gap-1.5 rounded-full px-3 text-xs"
+              style={{ border: "1px solid var(--color-accent-soft)", background: "var(--color-accent-dim)" }}
+            >
+              {nextLabel}
+            </button>
+          )}
+        </div>
       )}
-      {open === "next" && next && (
-        <Popover width={460}><NextBlock next={next} compact /></Popover>
-      )}
+      {open === "eps" && <Popover><EpisodeList p={p} current={current} /></Popover>}
+      {open === "next" && next && <Popover width={460}><NextBlock next={next} compact /></Popover>}
     </div>
   );
 }
+
 
 const SEG: Record<EpState, React.CSSProperties> = {
   done: { background: "oklch(0.76 0.09 295 / 0.55)" },
@@ -502,7 +575,7 @@ export function ProtoOverviewGuide() {
     <Log>
       {v === "A" && <OverviewA />}
       {v === "C" && <OverviewC />}
-      {v === "B" && (
+      {(v === "B" || v === "B2") && (
         <div className="mx-auto max-w-5xl px-6 pt-4 text-[11.5px]" style={{ color: "var(--color-text-4)" }}>
           （变体 B：项目层下一步只在顶栏，概览页不另放。）
         </div>
