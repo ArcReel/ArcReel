@@ -19,7 +19,6 @@ function makeSegments(count: number): NarrationSegment[] {
     characters_in_segment: [],
     image_prompt: "",
     video_prompt: "",
-    transition_to_next: "cut",
   })) as NarrationSegment[];
 }
 

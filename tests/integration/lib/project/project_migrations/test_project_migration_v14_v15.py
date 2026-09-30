@@ -19,7 +19,7 @@ from lib.artifacts.artifact_manifest import (
 from lib.artifacts.artifact_provenance import build_episode_script_basis, project_episode_script_prompt_inputs
 from lib.project.project_manager import ProjectManager
 from lib.project.project_migration_failure import ProjectMigrationError
-from lib.project.project_migration_report import load_migration_report
+from lib.project.project_migration_report import build_migration_report, load_migration_report, write_migration_report
 from lib.project.project_migrations.runner import migrate_project_dir
 from lib.project.project_migrations.v14_to_v15_formal_script_truth import migrate_v14_to_v15
 from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
@@ -185,7 +185,8 @@ def test_script_already_stale_before_the_migration_stays_stale(tmp_path: Path) -
     assert _script_status(project_dir, _SCRIPT) == "stale"
 
 
-def test_unmaterializable_confirmed_episode_appears_in_the_migration_report(tmp_path: Path) -> None:
+@pytest.mark.parametrize("start_version", [14, 15])
+def test_unmaterializable_confirmed_episode_appears_in_the_migration_report(tmp_path: Path, start_version: int) -> None:
     root = tmp_path / "projects"
     project_dir = _project_at_v14(root)
     plan_path = project_dir / "drafts" / "episode_2" / _PLAN_FILES["narration"]
@@ -194,10 +195,17 @@ def test_unmaterializable_confirmed_episode_appears_in_the_migration_report(tmp_
     project["episodes"][1]["script_plan_review"]["fingerprint"] = content_fingerprint(plan_path)
     _write_json(project_dir / "project.json", project)
 
+    if start_version == 15:
+        outcome = migrate_v14_to_v15(project_dir)
+        assert outcome is not None
+        write_migration_report(
+            project_dir, build_migration_report(outcome, from_schema_version=14, to_schema_version=15)
+        )
     migrate_project_dir(project_dir)
 
     report = load_migration_report(project_dir)
     assert report is not None
+    assert report.to_schema_version == CURRENT_PROJECT_SCHEMA_VERSION
     assert [(item.kind, item.episode) for item in report.skipped if item.episode == 2] == [("episode-script", 2)]
     assert not (project_dir / "scripts" / "episode_2.json").exists()
 

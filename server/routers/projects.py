@@ -1450,7 +1450,6 @@ _SHOT_UPDATABLE_FIELDS = (
     "scenes",
     "props",
     "products_in_shot",
-    "transition_to_next",
     "note",
 )
 
@@ -1605,7 +1604,6 @@ class UpdateSegmentRequest(BaseModel):
     novel_text: str | None = None
     image_prompt: dict | str | None = None
     video_prompt: dict | str | None = None
-    transition_to_next: str | None = None
     note: str | None = None
     characters_in_segment: list[str] | None = None
     scenes: list[str] | None = None
@@ -1659,7 +1657,6 @@ async def update_segment(
                 "novel_text",
                 "image_prompt",
                 "video_prompt",
-                "transition_to_next",
             ):
                 value = getattr(req, field)
                 if value is not None:

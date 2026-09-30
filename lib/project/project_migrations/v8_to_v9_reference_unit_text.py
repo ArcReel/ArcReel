@@ -100,7 +100,8 @@ def _migrate_unit(unit: object, location: str, model: type[BaseModel]) -> dict[s
     if migrated.pop("migration_requires_content_replan", None) is True:
         migrated["needs_replan"] = True
     migrated["text"] = text
-    model.model_validate(migrated)
+    # 转场到 v15→v16 才从条目上删除，自检的当前模型已不含它。
+    model.model_validate({key: value for key, value in migrated.items() if key != "transition_to_next"})
     return migrated
 
 

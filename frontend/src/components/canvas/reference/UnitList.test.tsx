@@ -8,7 +8,6 @@ function mkUnit(id: string, overrides: Partial<ReferenceVideoUnit> = {}): Refere
     unit_id: id,
     text: "@[张三] enter the pub",
     duration_seconds: 3,
-    transition_to_next: "cut",
     note: null,
     generated_assets: {
       storyboard_image: null,

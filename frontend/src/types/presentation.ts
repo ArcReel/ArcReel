@@ -46,7 +46,6 @@ export interface PresentationReadModel {
   episode: number;
   resource_type: PresentationResourceType;
   script_file: string;
-  transition_to_next: string;
   subtitle_artifact_path: string | null;
   presentation_artifact_path: string | null;
   persisted: boolean;

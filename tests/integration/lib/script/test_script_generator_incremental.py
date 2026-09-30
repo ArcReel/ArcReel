@@ -301,7 +301,6 @@ _PLAN_ENTRIES_KEY = {"narration": "segments", "drama": "scenes", "reference_vide
 #: 用户手工成果与已付费产物引用：未变条目必须原样保留这些字段（见 issue 验收判据）。
 _USER_FIELDS: dict[str, Any] = {
     "note": "用户备注",
-    "transition_to_next": "fade",
     "generated_assets": {"storyboard_image": "storyboards/scene.png", "status": "storyboard_ready"},
 }
 

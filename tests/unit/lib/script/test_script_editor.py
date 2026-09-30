@@ -78,7 +78,6 @@ def _unit(unit_id: str = "E1U1", shots: list[dict] | None = None) -> dict:
         "shots": shots,
         "references": [],
         "duration_seconds": 8,
-        "transition_to_next": "cut",  # 对齐 Pydantic 默认；剧本经 model_dump 后该字段总会出现
         "generated_assets": {"video_clip": "scripts/z.mp4"},
     }
 
@@ -139,8 +138,8 @@ class TestPatchField:
         assert script["scenes"][1]["scene_type"] == "空镜"
 
     def test_patch_reference_unit_field(self):
-        script = patch_field(_reference(), "E1U2", "transition_to_next", "fade")
-        assert script["video_units"][1]["transition_to_next"] == "fade"
+        script = patch_field(_reference(), "E1U2", "note", "备注")
+        assert script["video_units"][1]["note"] == "备注"
 
     def test_patch_unknown_leaf_field_succeeds_at_set_nested_layer(self):
         # _set_nested 单元层面允许叶子写入——dict 操作不查 schema。

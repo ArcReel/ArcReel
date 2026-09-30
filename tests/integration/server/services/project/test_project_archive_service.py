@@ -84,7 +84,6 @@ def _build_episode_payload(*, video_uri: str | None = None) -> dict:
                 "props": ["Key"],
                 "image_prompt": "img",
                 "video_prompt": "vid",
-                "transition_to_next": "cut",
                 "generated_assets": {
                     "storyboard_image": "storyboards/scene_E1S01.png",
                     "video_clip": "videos/scene_E1S01.mp4",

@@ -158,6 +158,24 @@ def test_patch_unit_rejects_a_stored_reference_list(reference_videos_client: Tes
     assert resp.status_code == 422, resp.text
 
 
+def test_unit_writes_reject_transition_and_leave_the_script_unchanged(reference_videos_client: TestClient):
+    """转场不再是单元字段：带它的新增与修改按未知字段拒绝，不写回剧本。"""
+    uid = _seed_unit(reference_videos_client)
+    before = reference_videos_client.get("/api/v1/projects/demo/reference-videos/episodes/1/units").json()
+
+    added = reference_videos_client.post(
+        "/api/v1/projects/demo/reference-videos/episodes/1/units",
+        json={"prompt": "@张三 推门", "transition_to_next": "fade"},
+    )
+    patched = reference_videos_client.patch(
+        f"/api/v1/projects/demo/reference-videos/episodes/1/units/{uid}",
+        json={"note": "hi", "transition_to_next": "fade"},
+    )
+
+    assert (added.status_code, patched.status_code) == (422, 422)
+    assert reference_videos_client.get("/api/v1/projects/demo/reference-videos/episodes/1/units").json() == before
+
+
 def test_add_unit_without_duration_falls_back_to_model_slot(
     reference_videos_client: TestClient, set_video_request_facts
 ):
@@ -1161,12 +1179,11 @@ def test_patch_unit_duration_override_without_header(reference_videos_client: Te
     # 仅改 duration_seconds（无 prompt）：走 elif 分支按已有 override 直接覆盖时长
     resp = reference_videos_client.patch(
         f"/api/v1/projects/demo/reference-videos/episodes/1/units/{uid}",
-        json={"duration_seconds": 8, "transition_to_next": "fade", "note": "hi"},
+        json={"duration_seconds": 8, "note": "hi"},
     )
     assert resp.status_code == 200, resp.text
     unit = resp.json()["unit"]
     assert unit["duration_seconds"] == 8
-    assert unit["transition_to_next"] == "fade"
     assert unit["note"] == "hi"
 
     # 带无 header 的新 prompt + duration_seconds：走 prompt 分支并对单镜头 override 时长

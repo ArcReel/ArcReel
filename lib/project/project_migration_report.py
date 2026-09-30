@@ -65,17 +65,24 @@ class ArtifactBackfillOutcome:
 
     registered: Mapping[str, int]
     skipped: tuple[MigrationSkippedArtifact, ...]
+    preserve_previous_skips: bool = False
+    """Rewriting existing claims alone cannot resolve skips from earlier steps."""
 
     @classmethod
     def from_entries(
         cls,
         entries: Mapping[ArtifactKey, object],
         *skipped_groups: Sequence[MigrationSkippedArtifact],
+        preserve_previous_skips: bool = False,
     ) -> ArtifactBackfillOutcome:
         """Count registered entries per kind; skip groups merge with the first reason winning."""
 
         registered = Counter(key.kind.value for key in entries)
-        return cls(registered=dict(registered), skipped=merge_skipped(*skipped_groups))
+        return cls(
+            registered=dict(registered),
+            skipped=merge_skipped(*skipped_groups),
+            preserve_previous_skips=preserve_previous_skips,
+        )
 
 
 def merge_skipped(

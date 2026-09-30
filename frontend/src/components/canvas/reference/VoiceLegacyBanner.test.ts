@@ -23,7 +23,6 @@ function unit(id: string, characterName: string, generatedAssets: UnitGeneratedA
     unit_id: id,
     text: `@[${characterName}] 出场。@[${characterName}]{我来了}`,
     duration_seconds: 5,
-    transition_to_next: "cut",
     note: null,
     generated_assets: generatedAssets,
   };

@@ -1872,7 +1872,6 @@ class ScriptGenerator:
                 "unit_id": unit_id,
                 "text": source.text,
                 "duration_seconds": source.duration_seconds,
-                "transition_to_next": "cut",
                 "note": None,
                 "generated_assets": {},
             }

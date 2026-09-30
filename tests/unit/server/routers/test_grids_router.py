@@ -49,7 +49,6 @@ def _narration_script(count: int = 4):
                     "ambiance_audio": "quiet",
                     "dialogue": [],
                 },
-                "transition_to_next": "cut",
                 "generated_assets": {"storyboard_image": None, "video_clip": None, "status": "pending"},
             }
             for i in range(1, count + 1)

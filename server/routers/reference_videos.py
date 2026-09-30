@@ -116,7 +116,6 @@ class AddUnitRequest(BaseModel):
 
     prompt: str
     duration_seconds: int | None = Field(default=None, ge=1)
-    transition_to_next: str = Field(default="cut", pattern=r"^(cut|fade|dissolve)$")
     note: str | None = None
 
 
@@ -259,14 +258,12 @@ def _build_unit_dict(
     unit_id: str,
     prompt: str,
     duration_seconds: int,
-    transition: str,
     note: str | None,
 ) -> dict:
     unit = {
         "unit_id": unit_id,
         "text": prompt,
         "duration_seconds": duration_seconds,
-        "transition_to_next": transition,
         "note": note,
         "generated_assets": {
             "storyboard_image": None,
@@ -345,7 +342,6 @@ async def add_unit(
         unit_id=_next_unit_id(current, episode),
         prompt=req.prompt,
         duration_seconds=int(duration_seconds),
-        transition=req.transition_to_next,
         note=req.note,
     )
     result = execute_current_episode_edit(
@@ -375,7 +371,6 @@ class PatchUnitRequest(BaseModel):
 
     prompt: str | None = None
     duration_seconds: int | None = Field(default=None, ge=1)
-    transition_to_next: str | None = Field(default=None, pattern=r"^(cut|fade|dissolve)$")
     note: str | None = None
 
 
@@ -405,8 +400,6 @@ async def patch_unit(
         fields["text"] = req.prompt
     if req.duration_seconds is not None:
         fields["duration_seconds"] = req.duration_seconds
-    if req.transition_to_next is not None:
-        fields["transition_to_next"] = req.transition_to_next
     if req.note is not None:
         fields["note"] = req.note
     if not fields:

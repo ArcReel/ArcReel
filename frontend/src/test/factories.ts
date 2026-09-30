@@ -104,7 +104,6 @@ export function makeNarrationSegment(overrides: Partial<NarrationSegment> = {}):
     props: [],
     image_prompt: "雨夜街道",
     video_prompt: "撑伞走过",
-    transition_to_next: "cut",
     ...overrides,
   };
 }

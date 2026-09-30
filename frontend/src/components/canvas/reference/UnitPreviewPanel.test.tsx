@@ -37,7 +37,6 @@ function mkUnit(
     unit_id: "E1U1",
     text: "x",
     duration_seconds: 3,
-    transition_to_next: "cut",
     note: null,
     generated_assets: {
       storyboard_image: null,

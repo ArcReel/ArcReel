@@ -24,7 +24,6 @@ from pyJianYingDraft import (
     TextStyle,
     TrackSpec,
     TrackType,
-    TransitionType,
     VideoMaterial,
     VideoSegment,
     trange,
@@ -39,11 +38,6 @@ from server.services.presentation.presentation_read_model import (
     MaterializedPresentation,
     PresentationReadModelService,
 )
-
-_TRANSITION_MAP: dict[str, TransitionType] = {
-    "fade": TransitionType.闪黑,
-    "dissolve": TransitionType.叠化,
-}
 
 
 class NoCompletedSegmentsError(ValueError):
@@ -154,8 +148,7 @@ class JianyingDraftService:
         subtitle_position = ClipSettings(transform_y=-0.75 if is_portrait else -0.8)
 
         offset_microseconds = 0
-        last_index = len(presentations) - 1
-        for index, staged in enumerate(presentations):
+        for staged in presentations:
             presentation = staged.value.presentation
             video_track = presentation.video
             video_material = VideoMaterial(staged.video_path)
@@ -165,10 +158,6 @@ class JianyingDraftService:
                 source_timerange=trange(video_track.start_microseconds, video_track.duration_microseconds),
                 volume=video_track.gain,
             )
-            if index < last_index:
-                transition = _TRANSITION_MAP.get(staged.value.transition_to_next)
-                if transition is not None:
-                    video_segment.add_transition(transition)
             script_file.add_segment(video_segment)
 
             for cue in presentation.subtitles:

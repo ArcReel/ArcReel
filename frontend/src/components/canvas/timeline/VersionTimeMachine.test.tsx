@@ -308,7 +308,6 @@ describe("VersionTimeMachine", () => {
       episode: 1,
       resource_type: "videos",
       script_file: "episode_1.json",
-      transition_to_next: "cut",
       subtitle_artifact_path: null,
       presentation_artifact_path: null,
       persisted: false,

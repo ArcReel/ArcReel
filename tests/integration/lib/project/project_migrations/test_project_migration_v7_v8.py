@@ -162,7 +162,6 @@ def _write_verified_presentation_claims(
             "episode": episode,
             "resource_type": "videos",
             "script_file": f"episode_{episode}.json",
-            "transition_to_next": "cut",
             "subtitle_artifact_path": subtitle_path,
             "presentation_artifact_path": presentation_path,
             "persisted": True,

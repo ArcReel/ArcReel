@@ -76,7 +76,6 @@ import type {
   ReferenceUnitCapability,
   ReferenceUnitCapabilityMap,
   ReferenceVideoUnit,
-  TransitionType,
   AdShot,
   DramaScene,
   NarrationSegment,
@@ -1085,7 +1084,7 @@ class API {
   /**
    * 旁白/解说分镜 PATCH（剧情演绎分镜走 {@link API.updateScene}）。`updates` 必带
    * `script_file`，其余为可选白名单字段：`duration_seconds`、`segment_break`、`novel_text`、
-   * `image_prompt`、`video_prompt`、`transition_to_next`、`note`、
+   * `image_prompt`、`video_prompt`、`note`、
    * `characters_in_segment`、`scenes`、`props`。字段清单以后端为准，
    * mirrors server/routers/projects.py UpdateSegmentRequest。
    * 保留 Record 以兼容 spread 调用。
@@ -2988,7 +2987,6 @@ class API {
     payload: {
       prompt: string;
       duration_seconds?: number;
-      transition_to_next?: TransitionType;
       note?: string | null;
     },
   ): Promise<{ unit: ReferenceVideoUnit; unit_capability: ReferenceUnitCapability }> {
@@ -2998,7 +2996,7 @@ class API {
     );
   }
 
-  /** Patch body/duration/transition/note on an existing unit. */
+  /** Patch body/duration/note on an existing unit. */
   static async patchReferenceVideoUnit(
     projectName: string,
     episode: number,
@@ -3006,7 +3004,6 @@ class API {
     patch: {
       prompt?: string;
       duration_seconds?: number;
-      transition_to_next?: TransitionType;
       note?: string | null;
     },
   ): Promise<{ unit: ReferenceVideoUnit; unit_capability: ReferenceUnitCapability }> {

@@ -366,7 +366,6 @@ After media generation is complete, there are two output paths.
 FFmpeg handles:
 
 - clip concatenation;
-- transitions;
 - audio;
 - final encoding.
 
