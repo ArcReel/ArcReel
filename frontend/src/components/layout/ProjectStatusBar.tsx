@@ -7,8 +7,9 @@ import { API } from "@/api";
 import { ApiRequestError } from "@/api/errors";
 import { prefillAssistant } from "@/components/shared/DraftStatus";
 import { Popover } from "@/components/ui/Popover";
-import { PrimaryButton } from "@/components/ui/PrimaryButton";
 import { GHOST_BTN_CLS } from "@/components/ui/darkroom-tokens";
+import { StepActButton } from "@/components/workflow/StepActButton";
+import type { StepAct } from "@/components/workflow/step-list";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { useDemoWorkbench } from "@/onboarding/use-demo-workbench";
 import { useAppStore } from "@/stores/app-store";
@@ -42,7 +43,7 @@ const FLAT_WARM = {
 };
 const SHELL = "inline-flex h-[28px] items-center overflow-hidden rounded-full";
 
-/** 附加要求在会话内按项目保留上一次的输入，不写进项目。 */
+/** 附加指令在会话内按项目保留上一次的输入，不写进项目。 */
 const lastInstructions = new Map<string, string>();
 
 type Open = "episodes" | "next" | "migration" | null;
@@ -161,31 +162,15 @@ function GuideButtonView({
   onNavigate: (to: string) => void;
 }) {
   const { t } = useTranslation();
-  const onClick = () => {
+  const act: StepAct =
+    button.kind === "nav"
+      ? { key: button.label, label: button.label, kind: "nav", intent: { type: "route", path: button.to } }
+      : { key: button.label, label: button.label, kind: "agent", intent: { type: "agent", text: button.prefill } };
+  const onRun = () => {
     if (button.kind === "nav") onNavigate(button.to);
     else prefillAssistant(withInstruction(t, button.prefill, instruction));
   };
-  if (!primary) {
-    return (
-      <button
-        type="button"
-        onClick={onClick}
-        className="focus-ring rounded text-[12px] underline underline-offset-2 hover:opacity-80"
-        style={{ color: "var(--color-text-2)" }}
-      >
-        {button.label}
-      </button>
-    );
-  }
-  return (
-    <PrimaryButton
-      size="sm"
-      onClick={onClick}
-      leadingIcon={button.kind === "agent" ? <Bot aria-hidden className="h-3.5 w-3.5" /> : undefined}
-    >
-      {button.label}
-    </PrimaryButton>
-  );
+  return <StepActButton act={act} onRun={onRun} size={primary ? "md" : "sm"} asLink={!primary} />;
 }
 
 function NextPanel({

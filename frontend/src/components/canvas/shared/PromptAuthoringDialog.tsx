@@ -20,6 +20,7 @@ import { errMsg } from "@/utils/async";
 import { useEpisodeLedger } from "@/hooks/useEpisodeLedger";
 import { episodeAgentRef, itemIdsInEpisodeText } from "@/utils/episode-display";
 import { promptAuthoringEntries, type PromptAuthoringEntry } from "./prompt-authoring-entries";
+import { promptAuthoringHandoffText } from "./prompt-authoring-handoff";
 
 function readPromptOverwrite(err: unknown): PromptOverwrite | null {
   if (!(err instanceof ApiRequestError) || err.status !== 409) return null;
@@ -167,17 +168,14 @@ export function PromptAuthoringDialog({
       setSubmitting(false);
       return;
     }
-    const lines = [
-      t("prompt_authoring_agent_prefill", {
+    useAssistantStore.getState().setInput(
+      promptAuthoringHandoffText(t, {
         episodeRef: episodeAgentRef(episodeLedger, episode, t),
-        scope: scopeLabel,
+        scopeLabel,
+        rewrite,
+        instructions,
       }),
-      rewrite ? t("prompt_authoring_agent_prefill_rewrite") : t("prompt_authoring_agent_prefill_fill"),
-    ];
-    if (instructions.trim()) {
-      lines.push(t("prompt_authoring_agent_prefill_instructions", { instructions: instructions.trim() }));
-    }
-    useAssistantStore.getState().setInput(lines.join("\n"));
+    );
     useAppStore.getState().setAssistantPanelOpen(true);
     setSubmitting(false);
     onClose();

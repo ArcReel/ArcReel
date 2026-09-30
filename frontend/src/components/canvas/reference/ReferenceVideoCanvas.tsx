@@ -45,6 +45,7 @@ import {
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useCostStore } from "@/stores/cost-store";
+import { useEpisodeSurfaceRequest } from "@/stores/episode-surface-store";
 import { errMsg } from "@/utils/async";
 import { PromptAuthoringButton } from "@/components/canvas/shared/PromptAuthoringButton";
 import {
@@ -794,6 +795,11 @@ export function ReferenceVideoCanvas({
     // eslint-disable-next-line react-hooks/set-state-in-effect -- 镜像 GridImageToVideoCanvas 同款效果
     if (hasScript || !showPreprocess) setTab("units");
   }, [hasScript, showPreprocess]);
+
+  useEpisodeSurfaceRequest(projectName, episode, "script_plan", () => {
+    if (showPreprocess) setTab("preproc");
+  });
+  useEpisodeSurfaceRequest(projectName, episode, "prompt_authoring_draft", () => setTab("units"));
 
   // 通知回跳：收到 reference_unit scroll target 时切到 units tab 并选中对应 unit
   // （镜像 ShotSplitView 的选择式回跳）。units 异步加载，靠依赖变化重试到命中或过期。

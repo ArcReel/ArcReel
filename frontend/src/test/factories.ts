@@ -1,6 +1,7 @@
 import type { NarrationSegment, ScriptOverwrite, ScriptOverwriteEntry, TaskItem } from "@/types";
 import type { ReferenceUnitCapability } from "@/types/reference-video";
 import type {
+  WorkflowContent,
   WorkflowPlan,
   WorkflowPlanStep,
   WorkflowStatus,
@@ -51,7 +52,31 @@ export function makeStep(overrides: Partial<WorkflowPlanStep> = {}): WorkflowPla
   };
 }
 
-function makeStatus(overrides: Partial<WorkflowStatus> = {}): WorkflowStatus {
+/** 一集的内容现状；缺省是有集原文、正式脚本 2 条、提示词都已编写、没有草稿与提醒。 */
+export function makeContent(overrides: Partial<WorkflowContent> = {}): WorkflowContent {
+  return {
+    episode_count: 1,
+    whole_source: "present",
+    source_remaining: false,
+    ad_inputs: "not_applicable",
+    products_without_selling_points: [],
+    episode_source: "present",
+    episode_plan_stale: false,
+    expected_stale_script_plan_revision: null,
+    drafts: [],
+    formal_script: "present",
+    script_item_count: 2,
+    pending_authoring_ids: [],
+    needs_replan_ids: [],
+    referenced_assets_without_sheet: [],
+    unregistered_references: [],
+    referenced_asset_sheets_stale: [],
+    referenced_assets_without_description: [],
+    ...overrides,
+  };
+}
+
+export function makeStatus(overrides: Partial<WorkflowStatus> = {}): WorkflowStatus {
   return {
     schema_version: 2,
     project_revision: "sha256-v1:project",
@@ -60,7 +85,7 @@ function makeStatus(overrides: Partial<WorkflowStatus> = {}): WorkflowStatus {
     target: { episode: 1, script: "scripts/episode_1.json", script_filename: "episode_1.json", source: "source/episode_1.txt" },
     blockers: [],
     issues: [],
-    content: null,
+    content: makeContent(),
     operations: {},
     gates: {},
     artifacts: {},

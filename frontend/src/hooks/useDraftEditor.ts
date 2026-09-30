@@ -49,7 +49,7 @@ function isDirty<T>(synced: Synced<T>): boolean {
   return JSON.stringify(synced.edited) !== JSON.stringify(synced.base);
 }
 
-function diagnosticCode(err: unknown): string | null {
+export function diagnosticCode(err: unknown): string | null {
   if (!(err instanceof ApiRequestError)) return null;
   const diagnostic = err.diagnostic;
   if (diagnostic == null || typeof diagnostic !== "object") return null;

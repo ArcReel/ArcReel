@@ -245,6 +245,10 @@ export interface WorkflowContent {
   needs_replan_ids: string[];
   referenced_assets_without_sheet: string[];
   unregistered_references: string[];
+  /** 本集引用、资产图过期的资产；只陈述，不进建议的下一步。 */
+  referenced_asset_sheets_stale: string[];
+  /** 本集引用、缺描述因而不能生成资产图的资产；只陈述，不进建议的下一步。 */
+  referenced_assets_without_description: string[];
 }
 
 /** 上一次跑完的项目迁移没能登记的一件产物及原因。 */

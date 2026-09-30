@@ -35,7 +35,6 @@ import { API } from "@/api";
 import { PromptAuthoringHost } from "@/components/canvas/shared/PromptAuthoringDialog";
 import { usePromptAuthoringStore } from "@/stores/prompt-authoring-store";
 import { ScriptPlanHost } from "@/components/canvas/shared/ScriptPlanDialog";
-import { useScriptPlanStore } from "@/stores/script-plan-store";
 import {
   enqueueCharacter,
   enqueueEpisodeNarration,
@@ -747,10 +746,6 @@ export function StudioCanvasRouter() {
                     script
                       ? () => usePromptAuthoringStore.getState().open({ projectName: currentProjectName, episode: epNum, scope: "pending" })
                       : undefined
-                  }
-                  // 建议 AI 规划脚本时本集既无规划也无正式脚本，不会替换任何内容。
-                  onPlanScript={() =>
-                    useScriptPlanStore.getState().open({ projectName: currentProjectName, episode: epNum, replaces: "none" })
                   }
                 />
               )}

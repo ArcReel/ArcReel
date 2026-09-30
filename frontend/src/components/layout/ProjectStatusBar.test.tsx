@@ -148,7 +148,7 @@ describe("ProjectStatusBar", () => {
     await user.click(screen.getByRole("button", { name: "交给 Agent" }));
 
     expect(useAssistantStore.getState().input).toBe(
-      "请为整本源文规划分集，一直规划到源文结尾。\n附加要求：每集 90 秒",
+      "请为整本源文规划分集，一直规划到源文结尾。\n附加指令：每集 90 秒",
     );
     expect(useAppStore.getState().assistantPanelOpen).toBe(true);
     expect(screen.getByRole("button", { name: "交给 Agent 新建一集" })).toBeInTheDocument();
