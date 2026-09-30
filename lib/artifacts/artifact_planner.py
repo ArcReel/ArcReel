@@ -1126,6 +1126,7 @@ class TargetStatePlanner:
                 narration_audio=frozen_audio,
                 provider_audio_enabled=provider_audio_enabled,
                 transition_to_next=transition,
+                subtitle_sentences_prepared=True,
             )
         except (TypeError, ValueError):
             return None

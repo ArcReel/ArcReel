@@ -27,6 +27,7 @@ from lib.project.project_migrations.v12_to_v13_legacy_media_provenance import mi
 from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from lib.speech.narration_delivery import TtsSynthesisSettings, build_narration_audio_basis, canonical_narration_text
 from lib.speech.speech_artifact_provenance import (
+    build_mechanical_subtitle_basis,
     build_video_duration_basis,
     build_video_speech_basis,
     media_content_digest,
@@ -794,4 +795,77 @@ async def test_legacy_video_materializes_after_the_provenance_backfill_migration
         1,
         "videos",
         "episode_1.json",
+    )
+
+
+@pytest.mark.parametrize(
+    ("text", "expected_cues"),
+    [
+        ("甲。乙乙乙！", ["甲。", "乙乙乙！"]),
+        ("中文。Hello. Bye", ["中文。", "Hello. Bye"]),
+        ("Kho\u0302ng sao. Đi thôi!", ["Không sao.", "Đi thôi!"]),
+    ],
+)
+async def test_legacy_subtitle_policy_is_stale_and_regenerates_as_current(
+    tmp_path: Path, text: str, expected_cues: list[str]
+) -> None:
+    pm, project_path, settings = _setup_narrator_project(tmp_path)
+    script_path = project_path / "scripts" / "episode_1.json"
+    script = json.loads(script_path.read_text(encoding="utf-8"))
+    script["segments"][0]["novel_text"] = text
+    _write_json(script_path, script)
+
+    async def probe(path: Path) -> float | None:
+        return 4.5 if path.suffix == ".wav" else 6.25
+
+    service = PresentationReadModelService(
+        pm,
+        settings_resolver_factory=lambda _project_name, _project_path: _SettingsResolver(settings),
+        duration_probe=probe,
+    )
+    result = await service.materialize_unit(
+        project_name="demo",
+        resource_type="videos",
+        resource_id="E1S01",
+        variant="post_production",
+    )
+    assert result.subtitle_artifact_path is not None
+    subtitle_key = ArtifactKey.episode_subtitle(1, "E1S01", "post_production")
+    assert [cue.text for cue in result.presentation.subtitles] == expected_cues
+    assert (
+        ArtifactCurrencyResolver(project_path).compare(subtitle_key, artifact_path=result.subtitle_artifact_path).status
+        is ArtifactStatus.CURRENT
+    )
+    preparation = admit_script_unit(
+        "segments", json.loads((project_path / "scripts" / "episode_1.json").read_text(encoding="utf-8"))["segments"][0]
+    ).preparation
+    legacy_basis = build_mechanical_subtitle_basis(
+        preparation,
+        variant="post_production",
+        video=result.presentation.video.media.evidence,
+        timing_policy={"kind": "mechanical-text-length", "version": 1},
+    )
+    ArtifactManifest(ProjectArtifactManifestAdapter(project_path)).register(
+        subtitle_key,
+        artifact_path=result.subtitle_artifact_path,
+        basis=legacy_basis,
+    )
+
+    resolver = ArtifactCurrencyResolver(project_path)
+    assert resolver.compare(subtitle_key, artifact_path=result.subtitle_artifact_path).status is ArtifactStatus.STALE
+
+    regenerated = await service.materialize_unit(
+        project_name="demo",
+        resource_type="videos",
+        resource_id="E1S01",
+        variant="post_production",
+    )
+
+    assert regenerated.subtitle_artifact_path is not None
+    assert [cue.text for cue in regenerated.presentation.subtitles] == expected_cues
+    assert (
+        ArtifactCurrencyResolver(project_path)
+        .compare(subtitle_key, artifact_path=regenerated.subtitle_artifact_path)
+        .status
+        is ArtifactStatus.CURRENT
     )

@@ -24,6 +24,7 @@ from lib.speech.speech_artifact_provenance import (
     project_subtitle_utterances,
 )
 from lib.speech.speech_composition import SpeechMode, SpeechOwner, SpeechPreparation
+from lib.speech.subtitle_sentences import subtitle_reading_units
 
 MICROSECONDS_PER_SECOND = 1_000_000
 MediaSelection = Literal["current", "history"]
@@ -114,9 +115,9 @@ class SubtitleTimingPolicy(Protocol):
 
 @dataclass(frozen=True, slots=True)
 class MechanicalSubtitleTiming:
-    """Allocate a real media boundary by normalized Unicode text length."""
+    """Allocate a real media boundary across sentences by reading-unit proportion."""
 
-    policy_version: int = 1
+    policy_version: int = 2
 
     def __post_init__(self) -> None:
         if type(self.policy_version) is not int or self.policy_version <= 0:
@@ -125,7 +126,7 @@ class MechanicalSubtitleTiming:
     @property
     def basis_identity(self) -> dict[str, object]:
         return {
-            "kind": "mechanical-text-length",
+            "kind": "mechanical-sentence-reading-units",
             "version": self.policy_version,
         }
 
@@ -139,10 +140,8 @@ class MechanicalSubtitleTiming:
             raise ValueError("boundary_microseconds must be a positive integer")
         if not utterances:
             return ()
-        weights = tuple(len(utterance.text) for utterance in utterances)
+        weights = tuple(subtitle_reading_units(utterance.text) for utterance in utterances)
         total_weight = sum(weights)
-        if total_weight <= 0:  # pragma: no cover - SubtitleUtteranceEvidence invariant
-            raise ValueError("subtitle utterances must contain visible text")
 
         cues: list[SubtitleCue] = []
         cumulative = 0
@@ -382,6 +381,7 @@ def materialize_speech_presentation(
     narration_audio: PresentationMedia | None = None,
     transition_to_next: str = "cut",
     timing: SubtitleTimingPolicy | None = None,
+    subtitle_sentences_prepared: bool = False,
 ) -> SpeechPresentation:
     """Materialize one validated presentation from selected real media."""
 
@@ -406,7 +406,7 @@ def materialize_speech_presentation(
             )
 
     timing_adapter = timing or MechanicalSubtitleTiming()
-    utterances = project_subtitle_utterances(preparation)
+    utterances = project_subtitle_utterances(preparation, subtitle_sentences_prepared=subtitle_sentences_prepared)
     subtitle_boundary = narration_duration if narration_duration is not None else video_duration
     assert subtitle_boundary is not None
     subtitles = timing_adapter.distribute(utterances, boundary_microseconds=subtitle_boundary)
@@ -416,6 +416,7 @@ def materialize_speech_presentation(
         video=video.evidence,
         narration_audio=narration_audio.evidence if narration_audio is not None else None,
         timing_policy=timing_adapter.basis_identity,
+        subtitle_sentences_prepared=subtitle_sentences_prepared,
     )
     presentation_basis = build_presentation_basis(
         variant=variant,

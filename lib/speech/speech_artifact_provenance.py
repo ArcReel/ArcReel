@@ -19,11 +19,12 @@ from lib.infra.schema_guards import is_finite_number, is_str
 from lib.project.asset_types import asset_name_comparison_key, normalize_asset_bucket
 from lib.speech.narration_delivery import POST_PRODUCTION, USE_TTS
 from lib.speech.speech_composition import SpeechMode, SpeechOwner, SpeechPreparation
+from lib.speech.subtitle_sentences import split_sentences
 
 RenditionVariant = Literal["post_production", "use_tts"]
 _DEFAULT_SUBTITLE_TIMING_POLICY: Mapping[str, object] = {
-    "kind": "mechanical-text-length",
-    "version": 1,
+    "kind": "mechanical-sentence-reading-units",
+    "version": 2,
 }
 _DEFAULT_PRESENTATION_MIX_POLICY: Mapping[str, object] = {
     "kind": "provider-original-plus-optional-tts",
@@ -252,6 +253,7 @@ def build_mechanical_subtitle_basis(
     video: SelectedMediaEvidence,
     narration_audio: SelectedMediaEvidence | None = None,
     timing_policy: Mapping[str, object] = _DEFAULT_SUBTITLE_TIMING_POLICY,
+    subtitle_sentences_prepared: bool = False,
 ) -> ArtifactBasis:
     """Describe a mechanical subtitle draft without materializing its timeline."""
 
@@ -270,7 +272,12 @@ def build_mechanical_subtitle_basis(
         inputs={
             "variant": normalized_variant,
             "mode": mode.value,
-            "utterances": [utterance.basis_input() for utterance in project_subtitle_utterances(preparation)],
+            "utterances": [
+                utterance.basis_input()
+                for utterance in project_subtitle_utterances(
+                    preparation, subtitle_sentences_prepared=subtitle_sentences_prepared
+                )
+            ],
             "boundary_media": boundary.basis_input(),
             "timing_policy": dict(timing_policy),
         },
@@ -313,8 +320,10 @@ def build_presentation_basis(
     )
 
 
-def project_subtitle_utterances(preparation: SpeechPreparation) -> tuple[SubtitleUtteranceEvidence, ...]:
-    """Return the one canonical utterance projection used by basis and timing."""
+def project_subtitle_utterances(
+    preparation: SpeechPreparation, *, subtitle_sentences_prepared: bool = False
+) -> tuple[SubtitleUtteranceEvidence, ...]:
+    """Project canonical sentences, preserving boundaries when replaying frozen cues."""
 
     _require_prepared_speech(preparation)
     values: list[SubtitleUtteranceEvidence] = []
@@ -322,12 +331,13 @@ def project_subtitle_utterances(preparation: SpeechPreparation) -> tuple[Subtitl
         text = _canonical_text(utterance.text)
         if not text:
             continue
-        values.append(
+        values.extend(
             SubtitleUtteranceEvidence(
                 owner=utterance.owner,
                 speaker=utterance.speaker,
-                text=text,
+                text=sentence,
             )
+            for sentence in ((text,) if subtitle_sentences_prepared else split_sentences(text))
         )
     return tuple(values)
 
