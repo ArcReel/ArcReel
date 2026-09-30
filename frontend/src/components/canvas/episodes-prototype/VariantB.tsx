@@ -367,9 +367,9 @@ export function VariantB({ p }: { p: Proto }) {
     const end = M.SOURCE.text[row.end - 1] === "\n" ? row.end - 1 : row.end;
 
     left.push(
-      <div key={`c${pos}`} className="flex gap-2" style={{ marginTop: isParaStart ? 8 : 0 }}>
+      <div key={`c${pos}`} className="flex gap-2">
         <div className="relative shrink-0" style={{ width: cand ? 40 : 4 }}>
-          {ep && <div className="absolute inset-y-0 right-0 w-[4px] rounded-sm" style={{ background: epColor(ep.id, outside ? 0.25 : 0.8) }} />}
+          {ep && <div className="absolute inset-y-0 right-0 w-[4px]" style={{ background: epColor(ep.id, outside ? 0.25 : 0.8) }} />}
           {cand && ep && ep.range![0] === pos && (
             <span className="num absolute right-2 top-0 text-[10px]" style={{ color: epColor(ep.id, outside ? 0.4 : 1) }}>{ep.id}</span>
           )}
@@ -382,6 +382,8 @@ export function VariantB({ p }: { p: Proto }) {
             opacity: outside || outOfMove ? 0.4 : 1,
             background: isSel ? "var(--color-accent-dim)" : undefined,
             borderTop: diff ? `1px dashed ${DIFF}` : undefined,
+            // 段落间距放在文字内边距里，让左右色条在同一集内连成一条
+            paddingTop: isParaStart ? 8 : 0,
             cursor: editing ? "text" : undefined,
           }}
         >
@@ -391,7 +393,7 @@ export function VariantB({ p }: { p: Proto }) {
           <div className="relative shrink-0" style={{ width: 40 }}>
             {cr ? (
               <>
-                <div className="absolute inset-y-0 left-0 w-[4px] rounded-sm" style={{ background: epColor(cr.id, 0.8), outline: "1px dashed oklch(1 0 0 / 0.25)" }} />
+                <div className="absolute inset-y-0 left-0 w-[4px]" style={{ background: epColor(cr.id, 0.55) }} />
                 {cr.range[0] === pos && <span className="num absolute left-2 top-0 text-[10px]" style={{ color: epColor(cr.id) }}>{cr.id}</span>}
                 {diff && candStarts.has(pos) && <span className="absolute left-0 top-0 h-[2px] w-full" style={{ background: DIFF }} />}
               </>
