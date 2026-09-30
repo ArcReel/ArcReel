@@ -22,6 +22,7 @@ from pyJianYingDraft import (
     TextSegment,
     TextShadow,
     TextStyle,
+    TrackSpec,
     TrackType,
     TransitionType,
     VideoMaterial,
@@ -123,14 +124,15 @@ class JianyingDraftService:
         draft_dir.parent.mkdir(parents=True, exist_ok=True)
         folder = draft.DraftFolder(str(draft_dir.parent))
         script_file = folder.create_draft(draft_name, width=width, height=height, allow_replace=True)
-        script_file.add_track(TrackType.video)
+        track_specs = [TrackSpec(TrackType.video)]
 
         has_subtitles = any(staged.value.presentation.subtitles for staged in presentations)
         has_narration = any(staged.value.presentation.narration_audio is not None for staged in presentations)
         if has_subtitles:
-            script_file.add_track(TrackType.text, "字幕")
+            track_specs.append(TrackSpec(TrackType.text, "字幕"))
         if has_narration:
-            script_file.add_track(TrackType.audio, "旁白")
+            track_specs.append(TrackSpec(TrackType.audio, "旁白"))
+        script_file.append_tracks(track_specs)
 
         is_portrait = height > width
         text_style = TextStyle(
