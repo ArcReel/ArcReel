@@ -1,6 +1,6 @@
-"""项目摘要投影：广度视图（项目列表、卡片、全局头）读到的阶段与产物计数。
+"""项目摘要投影：广度视图（项目列表、卡片、全局头）读到的集进度与产物计数。
 
-断言的是投影的外部输出——阶段归并、可用 / stale 计数、分集汇总，以及它与工作台
+断言的是投影的外部输出——各集进度、可用 / stale 计数、分集汇总，以及它与工作台
 制作状态同用一份产物清单这件事，不断言内部调用顺序。两种产物口径各有一组：
 ``verified`` 与工作台逐件同数，``registered`` 只看登记与在场、不读产物内容。
 """
@@ -162,19 +162,17 @@ def _count_artifact_opens(monkeypatch: pytest.MonkeyPatch, project_path: Path) -
     return counts
 
 
-def test_project_without_asset_inventory_is_in_preparation(tmp_path: Path) -> None:
+def test_project_without_episodes_has_an_empty_episode_summary(tmp_path: Path) -> None:
     pm, project_path = _make_project(tmp_path, "narration")
     (project_path / "source" / "novel.txt").write_text("原文", encoding="utf-8")
 
     summary = WorkflowStateService(pm).get_project_summary("demo")
 
-    assert summary.phase == "preparation"
-    assert summary.phase_progress == 0.0
     assert summary.episodes == []
     assert summary.episodes_summary.total == 0
 
 
-def test_planned_episode_without_script_is_in_script_phase(tmp_path: Path) -> None:
+def test_planned_episode_without_script_is_segmented(tmp_path: Path) -> None:
     pm, project_path = _make_project(tmp_path, "narration")
     source_text = "完整原文"
     _write_source_and_complete(pm, project_path, source_text)
@@ -184,13 +182,11 @@ def test_planned_episode_without_script_is_in_script_phase(tmp_path: Path) -> No
 
     summary = WorkflowStateService(pm).get_project_summary("demo")
 
-    assert summary.phase == "script"
-    assert summary.phase_progress == 0.0
     assert [episode.script_status for episode in summary.episodes] == ["segmented"]
     assert [episode.status for episode in summary.episodes] == ["draft"]
 
 
-def test_script_without_media_is_in_production(tmp_path: Path) -> None:
+def test_script_without_media_reports_a_scripted_episode(tmp_path: Path) -> None:
     pm, project_path = _make_project(tmp_path, "narration")
     source_text = "完整原文"
     _write_source_and_complete(pm, project_path, source_text)
@@ -209,8 +205,6 @@ def test_script_without_media_is_in_production(tmp_path: Path) -> None:
 
     summary = WorkflowStateService(pm).get_project_summary("demo")
 
-    assert summary.phase == "production"
-    assert summary.phase_progress == 0.0
     episode = summary.episodes[0]
     assert episode.script_status == "generated"
     assert episode.status == "scripted"
@@ -281,8 +275,6 @@ def test_all_artifacts_usable_reports_completed(tmp_path: Path) -> None:
 
     summary = WorkflowStateService(pm).get_project_summary("demo")
 
-    assert summary.phase == "completed"
-    assert summary.phase_progress == 1.0
     assert summary.episodes_summary.model_dump() == {
         "total": 1,
         "scripted": 1,
@@ -310,7 +302,6 @@ def test_deleting_an_asset_sheet_drops_the_available_count_like_the_workbench(tm
     after = service.get_project_summary("demo")
     assert after.assets["character"].model_dump() == {"total": 1, "available": 0, "stale": 0}
     assert service.get_status("demo").artifacts["asset_sheets"]["character"]["missing_ids"] == ["小明"]
-    assert after.phase == "production"
 
 
 def test_deleting_a_video_drops_the_episode_out_of_completed(tmp_path: Path) -> None:
@@ -327,7 +318,6 @@ def test_deleting_a_video_drops_the_episode_out_of_completed(tmp_path: Path) -> 
     episode = summary.episodes[0]
     assert (episode.videos.total, episode.videos.available) == (1, 0)
     assert episode.status == "in_production"
-    assert summary.phase == "production"
     assert summary.episodes_summary.completed == 0
 
 
@@ -346,7 +336,6 @@ def test_stale_ledger_episode_falls_back_to_pending_preprocess(tmp_path: Path) -
 
     summary = WorkflowStateService(pm).get_project_summary("demo")
 
-    assert summary.phase == "script"
     assert [episode.script_status for episode in summary.episodes] == ["none"]
     assert summary.episodes_summary.scripted == 0
     assert summary.episodes[0].videos.total == 0
@@ -374,7 +363,7 @@ def test_summary_never_reads_the_source_corpus(tmp_path: Path, monkeypatch: pyte
     """列出 N 个项目不该读 N 份小说：整本源文与源文修订号都不进本投影。
 
     分集原文（``source/episode_N.txt``）只是 script_plan 基线的输入；本投影计数的剧本与媒体产物
-    都不以 script_plan 为依据，因此同样不读。一旦有人为了算阶段又去读整本源文、分集原文，
+    都不以 script_plan 为依据，因此同样不读。一旦有人为了算进度又去读整本源文、分集原文，
     或为了修订号做全量 sha256，它就会红。
     """
 
@@ -393,7 +382,7 @@ def test_summary_never_reads_the_source_corpus(tmp_path: Path, monkeypatch: pyte
     source_reads = _count_source_reads(monkeypatch, project_path)
     summary = WorkflowStateService(pm).get_project_summary("demo")
 
-    assert summary.phase == "completed"
+    assert summary.episodes_summary.completed == 1
     # 整本源文、分集原文（source/ 直下全部文件）一次不读，修订号也不算。
     assert revision_calls == []
     assert source_reads == {}
@@ -415,21 +404,20 @@ def test_migration_blocked_project_is_listed_as_needing_repair(tmp_path: Path) -
 
     assert summary.needs_repair is True
     assert summary.repair_reason == failure.reason
-    assert summary.phase == "preparation"
     # 产物清单对未升级的数据不可读，一件产物都不报可用；集数照常列出，项目不从列表里消失。
     assert summary.episodes_summary.total == len(summary.episodes)
     assert all(episode.videos.available == 0 for episode in summary.episodes)
 
 
 def test_deleting_a_storyboard_drops_the_episode_out_of_completed(tmp_path: Path) -> None:
-    """分镜图也是制作阶段的产物：删掉一张，大厅与工作台一起退回「制作」。"""
+    """分镜图也是一集要交的产物：删掉一张，大厅与工作台一起把该集退回制作中。"""
 
     pm, project_path = _make_project(tmp_path, "narration")
     source_text = "完整原文"
     _write_source_and_complete(pm, project_path, source_text)
     _episode_with_media(pm, project_path, source_text)
     service = WorkflowStateService(pm)
-    assert service.get_project_summary("demo").phase == "completed"
+    assert service.get_project_summary("demo").episodes_summary.completed == 1
 
     (project_path / resource_relative_path("storyboards", "E1S01")).unlink()
 
@@ -437,8 +425,7 @@ def test_deleting_a_storyboard_drops_the_episode_out_of_completed(tmp_path: Path
     episode = summary.episodes[0]
     assert (episode.storyboards.total, episode.storyboards.available) == (1, 0)
     assert episode.status == "in_production"
-    assert summary.phase == "production"
-    assert summary.phase_progress < 1.0
+    assert summary.episodes_summary.completed == 0
     assert service.get_status("demo").next_action.type == "generate_storyboards"
 
 
@@ -497,8 +484,7 @@ def test_registered_currency_counts_stale_artifacts_as_current(tmp_path: Path) -
 
     assert verified.assets["character"].model_dump() == {"total": 1, "available": 1, "stale": 1}
     assert registered.assets["character"].model_dump() == {"total": 1, "available": 1, "stale": 0}
-    # 阶段、进度与分集汇总不因口径而异：可用数相同，只是不再区分新旧。
-    assert (registered.phase, registered.phase_progress) == (verified.phase, verified.phase_progress)
+    # 分集汇总不因口径而异：可用数相同，只是不再区分新旧。
     assert registered.episodes_summary == verified.episodes_summary
 
 
@@ -510,7 +496,7 @@ def test_registered_currency_still_requires_registration_and_presence(tmp_path: 
     _write_source_and_complete(pm, project_path, source_text)
     _episode_with_media(pm, project_path, source_text)
     service = WorkflowStateService(pm)
-    assert service.get_project_summary("demo", currency="registered").phase == "completed"
+    assert service.get_project_summary("demo", currency="registered").episodes_summary.completed == 1
 
     # 补录之后才写入的资产图：清单里没有它。
     _add_character_with_sheet(pm, project_path, name="小红")
@@ -522,7 +508,7 @@ def test_registered_currency_still_requires_registration_and_presence(tmp_path: 
     episode = summary.episodes[0]
     assert (episode.videos.total, episode.videos.available) == (1, 0)
     assert episode.status == "in_production"
-    assert summary.phase == "production"
+    assert summary.episodes_summary.completed == 0
 
 
 def test_registered_currency_never_reads_artifact_content(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -546,7 +532,7 @@ def test_registered_currency_never_reads_artifact_content(tmp_path: Path, monkey
     registered_counts = _count_artifact_opens(monkeypatch, project_path)
     registered = service.get_project_summary("demo", currency="registered")
 
-    assert verified.phase == registered.phase == "completed"
+    assert verified.episodes_summary.completed == registered.episodes_summary.completed == 1
     assert verified_counts["artifact_bytes"] > 0
     assert verified_counts["manifest_opens"] > 2
     assert registered_counts["artifact_bytes"] == 0

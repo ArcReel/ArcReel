@@ -205,6 +205,41 @@ async def test_retry_tool_returns_details_then_unblocks_once_repaired(tmp_path: 
     assert unblocked.value.workflow_plan.status.blockers == []
 
 
+def test_web_retry_reports_the_reason_then_unblocks_once_repaired(tmp_path: Path, monkeypatch) -> None:
+    """Web 的「重试」与 Agent 的重试工具走同一服务：失败带回原因与明细，修好后解除阻断。"""
+    from server.auth import CurrentUserInfo, get_current_user
+    from server.routers import project_migration
+
+    projects_root = tmp_path / "projects"
+    projects_root.mkdir()
+    project_dir, *_ = _project(tmp_path)
+    _break_episode_script(project_dir)
+    assert migrate_project_with_verdict(project_dir) is not None
+    pm = ProjectManager(str(tmp_path))
+    monkeypatch.setattr(project_migration, "get_project_manager", lambda: pm)
+    app = FastAPI()
+    app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="tester", role="admin")
+    app.include_router(project_migration.router, dependencies=[Depends(get_current_user)])
+    register_error_handlers(app)
+    client = TestClient(app)
+
+    refused = client.post("/projects/demo/migration/retry")
+
+    assert refused.status_code == 422
+    diagnostic = refused.json()["diagnostic"]
+    # 失败原文经 Web 呈现边界改写集指称，其余原样。
+    assert "item 0 has no identity" in diagnostic["reason"]
+    assert diagnostic["details"][0]["file"] == "scripts/episode_1.json"
+
+    _repair_episode_script(project_dir)
+    retried = client.post("/projects/demo/migration/retry")
+
+    assert retried.status_code == 200
+    assert load_migration_failure(project_dir) is None
+    assert WorkflowStateService(pm).get_project_summary("demo").needs_repair is False
+    assert client.post("/projects/missing/migration/retry").status_code == 404
+
+
 async def test_retry_success_uses_caller_scoped_queue_and_capabilities(tmp_path: Path, file_db_factory) -> None:
     projects_root = tmp_path / "projects"
     projects = ProjectManager(tmp_path)

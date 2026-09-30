@@ -32,6 +32,7 @@ from lib.project.project_migration_failure import (
     MIGRATION_FAILURE_CODE,
     MIGRATION_FAILURE_FILENAME,
     RETRY_MIGRATION_ACTION,
+    record_migration_failure,
 )
 from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from lib.project.resource_paths import resource_relative_path
@@ -956,6 +957,62 @@ def test_stale_episode_stays_out_of_the_next_step(tmp_path: Path) -> None:
     assert stale.content is not None
     assert stale.content.episode_plan_stale is True
     assert stale.next_action.type == "none"
+
+
+def test_episode_next_steps_follow_the_ledger_and_match_the_per_episode_status(tmp_path: Path) -> None:
+    """逐集清单按账本顺序给出每一集的下一步，与按集查询的制作状态相同。"""
+    pm, project_path = _make_project(tmp_path, "narration")
+    source_text = "完整原文"
+    _write_source_and_complete(pm, project_path, source_text)
+
+    def _plan(project: dict) -> None:
+        project["episodes"] = [
+            {"episode": 3, "script_file": "scripts/episode_3.json", "ledger_status": "planned"},
+            {"episode": 1, "script_file": "scripts/episode_1.json", "ledger_status": "planned"},
+            {"episode": 2, "script_file": "scripts/episode_2.json", "ledger_status": "stale"},
+        ]
+        project["planning_cursor"] = {"source_file": "source/novel.txt", "offset": len(source_text)}
+        project[SOURCE_FINGERPRINTS_KEY] = compute_source_fingerprints(discover_sources(project_path))
+
+    pm.update_project("demo", _plan)
+    draft_dir = project_path / "drafts" / "episode_1"
+    draft_dir.mkdir(parents=True)
+    _write_episode_source(project_path, 1)
+    atomic_write_json(draft_dir / "script_plan_segments.json", {"episode": 1, "segments": []})
+    generated_assets = _complete_episode_media(project_path)
+    _write_registered_script(
+        project_path,
+        {
+            "episode": 1,
+            "title": "第一集",
+            "content_mode": "narration",
+            "segments": [_valid_narration_segment(generated_assets=generated_assets)],
+        },
+    )
+    _register_produced_artifacts(project_path)
+    _create_edit_timeline(pm)
+    service = WorkflowStateService(pm)
+
+    steps = service.get_episode_next_steps("demo")
+
+    assert [step.episode for step in steps] == [3, 1, 2]
+    assert [step.next_action.type for step in steps] == ["start_blank_script", "none", "none"]
+    assert [step.plan_stale for step in steps] == [False, False, True]
+    for step in steps:
+        assert step.next_action == service.get_status("demo", step.episode).next_action
+
+
+def test_episode_next_steps_are_empty_while_the_migration_has_failed(tmp_path: Path) -> None:
+    pm, project_path = _make_project(tmp_path, "narration")
+    pm.update_project(
+        "demo",
+        lambda project: project.update(
+            episodes=[{"episode": 1, "script_file": "scripts/episode_1.json", "ledger_status": "planned"}]
+        ),
+    )
+    record_migration_failure(project_path, ValueError("step failed"), schema_version=1)
+
+    assert WorkflowStateService(pm).get_episode_next_steps("demo") == []
 
 
 def test_legacy_stale_episode_without_baseline_requires_planning_reset(tmp_path: Path) -> None:

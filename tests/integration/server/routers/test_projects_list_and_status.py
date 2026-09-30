@@ -49,14 +49,15 @@ class TestProjectsRouter:
         assert fake_summaries.currencies == ["verified"]
 
     def test_list_projects_status_comes_from_the_project_summary(self, tmp_path, monkeypatch):
-        """列表页的阶段与计数一律来自项目摘要：四值阶段在，五值 current_phase 不在。"""
+        """列表页的计数一律来自项目摘要：项目阶段已取消，phase 与 current_phase 都不在。"""
         client = build_projects_client(monkeypatch, _FakePM(tmp_path))
         with client:
             resp = client.get("/api/v1/projects")
 
         assert resp.status_code == 200
         status = next(item for item in resp.json()["projects"] if item["name"] == "ready")["status"]
-        assert status["phase"] == "production"
+        assert status["episodes_summary"]["total"] == 1
+        assert "phase" not in status
         assert "current_phase" not in status
         assert status["assets"]["character"] == {"total": 1, "available": 0, "stale": 0}
         # 每集明细归项目详情端点，不驮在 N 个项目的列表里
@@ -70,7 +71,8 @@ class TestProjectsRouter:
 
         assert resp.status_code == 200
         status = resp.json()["project"]["status"]
-        assert status["phase"] == "production"
+        assert status["episodes_summary"]["completed"] == 0
+        assert "phase" not in status
         assert status["needs_repair"] is False
         assert "current_phase" not in status
 

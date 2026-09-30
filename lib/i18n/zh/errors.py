@@ -247,6 +247,7 @@ MESSAGES = {
     "prompt_overwrite_field_text": "单元正文",
     "prompt_overwrite_required": "AI 重写会覆盖已有提示词。请核对将被覆盖的条目，确认覆盖后重试",
     "prompt_authoring_task_active": "本集已有进行中的提示词编写任务，请等待完成后再提交",
+    "project_migration_retry_failed": "数据升级仍未完成，项目文件需要先修复",
     "prompt_authoring_refused": "提示词编写未能提交：{reason}",
     "script_plan_task_active": "本集已有进行中的脚本规划任务，请等待完成后再提交",
     "script_plan_refused": "脚本规划未能提交：{reason}",

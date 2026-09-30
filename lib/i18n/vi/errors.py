@@ -258,6 +258,7 @@ MESSAGES = {
     "prompt_overwrite_field_text": "nội dung đơn vị",
     "prompt_overwrite_required": "Viết lại bằng AI sẽ ghi đè prompt hiện có. Hãy xem các mục sẽ bị ghi đè, đồng ý ghi đè rồi thử lại",
     "prompt_authoring_task_active": "Tập này đang có tác vụ viết prompt chưa hoàn tất. Hãy đợi tác vụ xong rồi gửi lại",
+    "project_migration_retry_failed": "Nâng cấp dữ liệu vẫn chưa hoàn tất; cần sửa các tệp dự án trước",
     "prompt_authoring_refused": "Không thể gửi yêu cầu viết prompt: {reason}",
     "script_plan_task_active": "Tập này đang có tác vụ lập kế hoạch kịch bản chưa hoàn tất. Hãy đợi tác vụ xong rồi gửi lại",
     "script_plan_refused": "Không thể gửi yêu cầu lập kế hoạch kịch bản: {reason}",

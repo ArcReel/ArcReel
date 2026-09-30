@@ -75,7 +75,13 @@ from lib.speech.narration_config import (
 )
 from lib.speech.speech_rate import MAX_SPEECH_RATE_UPS, MIN_SPEECH_RATE_UPS, SPEECH_RATE_FIELD, is_valid_speech_rate
 from lib.workflow.workflow_plan import WorkflowPlan, WorkflowPlanRequest
-from lib.workflow.workflow_state import ProjectSummary, WorkflowRequestError, WorkflowStateService, WorkflowStatus
+from lib.workflow.workflow_state import (
+    EpisodeNextStep,
+    ProjectSummary,
+    WorkflowRequestError,
+    WorkflowStateService,
+    WorkflowStatus,
+)
 from server.auth import CurrentUser, create_download_token, verify_download_token
 from server.dependencies import require_project_migration_ok
 from server.i18n import Translator
@@ -124,7 +130,7 @@ def _project_status_payload(
 ) -> dict[str, Any]:
     """项目级状态负载：项目摘要去掉每集明细。
 
-    列表与详情的 ``status`` 都只给项目粒度——阶段、进度、资产计数、分集汇总。摘要里的
+    列表与详情的 ``status`` 都只给项目粒度——修复标记、资产计数、分集汇总。摘要里的
     每集明细留在服务层，不让 N 个项目的列表驮上 N×集数 的对象；剧集粒度的消费方另经
     剧集接口取。
     """
@@ -895,6 +901,28 @@ async def get_workflow_status(
         raise NotFoundError("project_not_found", name=name) from exc
     except WorkflowRequestError as exc:
         raise BadRequestError("request_invalid") from exc
+
+
+class EpisodeNextSteps(BaseModel):
+    episodes: list[EpisodeNextStep]
+
+
+@router.get("/projects/{name}/workflow-status/episodes", response_model=EpisodeNextSteps)
+async def get_episode_next_steps(name: str, _t: Translator):
+    """账本顺序中每一集建议的下一步，供项目层的逐集清单使用。"""
+
+    try:
+        manager = get_project_manager()
+        steps = await asyncio.to_thread(WorkflowStateService(manager).get_episode_next_steps, name)
+        if not steps:
+            # 项目整体不可用时没有逐集下一步，也不再读一次项目。
+            return EpisodeNextSteps(episodes=[])
+        project = await asyncio.to_thread(manager.load_project, name)
+    except FileNotFoundError as exc:
+        raise NotFoundError("project_not_found", name=name) from exc
+    return EpisodeNextSteps.model_validate(
+        present_episode_diagnostics(EpisodeNextSteps(episodes=steps).model_dump(mode="json"), project, _t)
+    )
 
 
 @router.post("/projects/{name}/workflow-plan", response_model=WorkflowPlan)

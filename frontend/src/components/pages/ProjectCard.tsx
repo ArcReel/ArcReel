@@ -1,38 +1,33 @@
 /**
- * 项目大厅的卡片及其零件（海报 / 阶段徽标 / 分集条 / 进度条配色）。
+ * 项目大厅的卡片及其零件（海报 / 集进度徽标 / 分集条 / 进度条配色）。
  *
  * 从 ProjectsPage 拆出来，是因为引导的演示卡也要用同一张卡 —— 「项目推进后长这样」
  * 这句话只有在演示卡与真实卡片是同一份实现时才不会随时间说谎。演示卡走 `readOnly`
  * 形态：点进去是只读工作台，卡上不带操作菜单。
  */
 
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { Link } from "wouter";
 import { MoreHorizontal, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { getProjectDisplayName } from "@/utils/project-display";
-import { ProgressBar } from "@/components/ui/ProgressBar";
 import { hashHue, posterGridStyle } from "@/components/ui/darkroom-tokens";
-import type { ArtifactCount, Phase, ProjectStatus, ProjectSummary } from "@/types";
+import type { ArtifactCount, ProjectStatus, ProjectSummary } from "@/types";
 
-interface PhaseTone {
+interface ProgressTone {
   dot: string;
   text: string;
   glow: string;
 }
 
-const PHASE_TONE: Record<Phase, PhaseTone> = {
-  preparation: {
+/** 集进度徽标的三种色调：尚未建集、制作中、已有的集全部完成。 */
+const PROGRESS_TONE: Record<ProjectProgress, ProgressTone> = {
+  empty: {
     dot: "oklch(0.64 0.020 265)",
     text: "oklch(0.78 0.010 265)",
     glow: "transparent",
   },
-  script: {
-    dot: "oklch(0.80 0.12 75)",
-    text: "oklch(0.90 0.08 75)",
-    glow: "oklch(0.80 0.12 75 / 0.35)",
-  },
-  production: {
+  in_progress: {
     dot: "oklch(0.76 0.09 295)",
     text: "oklch(0.88 0.05 295)",
     glow: "oklch(0.76 0.09 295 / 0.40)",
@@ -43,6 +38,31 @@ const PHASE_TONE: Record<Phase, PhaseTone> = {
     glow: "oklch(0.78 0.10 155 / 0.35)",
   },
 };
+
+/**
+ * 项目的集进度：没有集、制作中、已有的集全部完成。只由各集进度得出，不是流水线阶段；
+ * 「全部完成」不看源文是否还有未切分的部分（项目摘要不读源文）。
+ */
+export type ProjectProgress = "empty" | "in_progress" | "completed";
+
+export function projectProgress(status: ProjectStatus | null): ProjectProgress {
+  const episodes = status?.episodes_summary;
+  if (!episodes || episodes.total === 0) return "empty";
+  return episodes.completed >= episodes.total ? "completed" : "in_progress";
+}
+
+/** 集进度的一句话：「已完成 N / M 集」，没有集时「尚未建集」。 */
+export function useProgressLabel(): (status: ProjectStatus | null) => string {
+  const { t } = useTranslation("dashboard");
+  return useCallback(
+    (status: ProjectStatus | null) => {
+      const episodes = status?.episodes_summary;
+      if (!episodes || episodes.total === 0) return t("lobby_card_no_episodes");
+      return t("lobby_card_progress", { completed: episodes.completed, total: episodes.total });
+    },
+    [t],
+  );
+}
 
 const POSTER_FX_STYLE: CSSProperties = {
   background:
@@ -57,7 +77,7 @@ const POSTER_SPROCKET_STYLE: CSSProperties = {
 };
 
 export function asProjectStatus(s: ProjectSummary["status"]): ProjectStatus | null {
-  return s && "phase" in s ? (s as ProjectStatus) : null;
+  return s && "episodes_summary" in s ? (s as ProjectStatus) : null;
 }
 
 // -- Poster -------------------------------------------------------------------
@@ -173,11 +193,11 @@ export function repairReasonOf(status: ProjectStatus | null): string | null {
   return status?.needs_repair ? (status.repair_reason ?? null) : null;
 }
 
-// -- PhasePill / EpisodeStrip -------------------------------------------------
+// -- ProgressPill / EpisodeStrip ----------------------------------------------
 
-export function PhasePill({ phase, label }: { phase: Phase | null; label: string }) {
-  const tone = phase ? PHASE_TONE[phase] : PHASE_TONE.preparation;
-  const isProduction = phase === "production";
+export function ProgressPill({ progress, label }: { progress: ProjectProgress; label: string }) {
+  const tone = PROGRESS_TONE[progress];
+  const pulsing = progress === "in_progress";
   return (
     <span
       className="inline-flex items-center gap-1.5 rounded-full border border-hairline-soft bg-bg-grad-a/60 px-2 py-[2px] font-mono text-[10px] font-semibold uppercase tracking-[0.06em]"
@@ -185,7 +205,7 @@ export function PhasePill({ phase, label }: { phase: Phase | null; label: string
     >
       <span
         aria-hidden
-        className={isProduction ? "motion-safe:animate-pulse" : undefined}
+        className={pulsing ? "motion-safe:animate-pulse" : undefined}
         style={{
           width: 5,
           height: 5,
@@ -258,25 +278,11 @@ export function gradientProgressStyles(variant: "accent" | "good"): {
 
 // -- ProjectCard --------------------------------------------------------------
 
-/** 四个阶段的本地化标签。卡片、筛选胶囊、搜索匹配都读同一份。 */
-export function usePhaseLabels(): Record<Phase, string> {
-  const { t } = useTranslation("dashboard");
-  return useMemo(
-    () => ({
-      preparation: t("phase_preparation"),
-      script: t("phase_script"),
-      production: t("phase_production"),
-      completed: t("phase_completed"),
-    }),
-    [t],
-  );
-}
-
 /**
- * 「比当前内容旧」的一行提示。stale 的产物仍然可用，所以它不进缺口计数，
- * 而是单独说明有几件可以考虑重生——大厅卡与「正在编辑」卡共用同一句话。
+ * 「N 项需要更新」的提醒：比当前内容旧的产物。stale 的产物仍然可用，
+ * 所以它不进缺口计数，而是单独提醒——大厅卡与「正在编辑」卡共用同一句话。
  */
-export function StaleAssetsLine({ count }: { count: number }) {
+export function NeedsUpdateLine({ count }: { count: number }) {
   const { t } = useTranslation("dashboard");
   if (count <= 0) return null;
   return (
@@ -287,7 +293,7 @@ export function StaleAssetsLine({ count }: { count: number }) {
         style={{ background: "var(--color-warm-bright)" }}
       />
       <span className="font-mono text-[10px] tracking-[0.04em] text-warm-bright">
-        {t("lobby_card_stale_assets", { count })}
+        {t("lobby_card_needs_update", { count })}
       </span>
     </div>
   );
@@ -300,8 +306,8 @@ export function assetCount(status: ProjectStatus | null, assetType: string): Art
   return status?.assets?.[assetType] ?? EMPTY_COUNT;
 }
 
-/** 全部资产类型的 stale 张数之和——卡片上只列举三类计数，这一行不漏掉其余类型。 */
-export function staleAssetTotal(status: ProjectStatus | null): number {
+/** 需要更新的产物件数：全部资产类型的 stale 张数——卡片只列举三类计数，这里不漏掉其余类型。 */
+export function staleArtifactTotal(status: ProjectStatus | null): number {
   return Object.values(status?.assets ?? {}).reduce((sum, count) => sum + count.stale, 0);
 }
 
@@ -320,7 +326,7 @@ type ProjectCardProps = ProjectCardBaseProps &
 export function ProjectCard(props: ProjectCardProps) {
   const { project, styleLabel } = props;
   const { t } = useTranslation(["dashboard", "onboarding"]);
-  const phaseLabels = usePhaseLabels();
+  const progressLabel = useProgressLabel();
   const [menuOpen, setMenuOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -347,13 +353,12 @@ export function ProjectCard(props: ProjectCardProps) {
   }, [menuOpen]);
 
   const status = asProjectStatus(project.status);
-  const phase: Phase | null = status?.phase ?? null;
-  const phaseLabel = phase ? phaseLabels[phase] : "";
-  const progressPct = status ? Math.round(status.phase_progress * 100) : 0;
+  const progress = projectProgress(status);
+  const progressText = progressLabel(status);
   const characters = assetCount(status, "character");
   const scenes = assetCount(status, "scene");
   const propsStat = assetCount(status, "prop");
-  const staleAssets = staleAssetTotal(status);
+  const staleArtifacts = staleArtifactTotal(status);
   const episodes =
     status?.episodes_summary ?? { total: 0, scripted: 0, in_production: 0, completed: 0 };
   const projectDisplayName = getProjectDisplayName(project.title, t("untitled_project"));
@@ -364,18 +369,14 @@ export function ProjectCard(props: ProjectCardProps) {
   const linkLabel = [
     projectDisplayName,
     styleLabel,
-    phaseLabel,
+    progressText,
     status?.needs_repair ? t("lobby_card_needs_repair") : "",
     repairReason ?? "",
-    staleAssets > 0 ? t("lobby_card_stale_assets", { count: staleAssets }) : "",
+    staleArtifacts > 0 ? t("lobby_card_needs_update", { count: staleArtifacts }) : "",
     props.readOnly ? t("onboarding:demo_banner_title") : "",
   ]
     .filter(Boolean)
     .join(" · ");
-
-  const { trackStyle, barStyle } = gradientProgressStyles(
-    phase === "completed" ? "good" : "accent",
-  );
 
   const body = (
     <>
@@ -397,7 +398,7 @@ export function ProjectCard(props: ProjectCardProps) {
         </div>
 
         <div className="mb-3 flex items-center gap-2">
-          <PhasePill phase={phase} label={phaseLabel} />
+          <ProgressPill progress={progress} label={progressText} />
           {status?.needs_repair ? <NeedsRepairPill /> : null}
         </div>
 
@@ -435,26 +436,7 @@ export function ProjectCard(props: ProjectCardProps) {
           ))}
         </div>
 
-        <div className="mt-3 flex items-center gap-2.5">
-          <ProgressBar
-            value={progressPct}
-            label={t("lobby_now_editing_progress_label")}
-            className="h-[3px] rounded-[2px] bg-transparent"
-            style={trackStyle}
-            barClassName="rounded-none"
-            barStyle={barStyle}
-          />
-          <span
-            className="font-mono text-[10.5px] font-semibold tabular-nums"
-            style={{
-              color: phase === "completed" ? "var(--color-good)" : "var(--color-accent-2)",
-            }}
-          >
-            {progressPct}%
-          </span>
-        </div>
-
-        <StaleAssetsLine count={staleAssets} />
+        <NeedsUpdateLine count={staleArtifacts} />
       </div>
     </>
   );

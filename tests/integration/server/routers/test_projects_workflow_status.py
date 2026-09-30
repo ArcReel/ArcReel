@@ -87,3 +87,27 @@ async def test_workflow_status_rest_blames_the_request_only_for_request_errors(
         response = client.get("/api/v1/projects/demo/workflow-status", params={"episode": 2})
 
     assert response.status_code == expected_status
+
+
+async def test_episode_next_steps_rest_lists_each_episode_and_404s_missing_project(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pm = _project(tmp_path)
+    expected = WorkflowStateService(pm).get_episode_next_steps("demo")
+
+    monkeypatch.setattr(projects, "get_project_manager", lambda: pm)
+    app = FastAPI()
+    app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="u1", sub="tester")
+    app.include_router(projects.router, prefix="/api/v1", dependencies=[Depends(get_current_user)])
+    register_error_handlers(app)
+    with TestClient(app) as client:
+        listed = client.get("/api/v1/projects/demo/workflow-status/episodes")
+        missing = client.get("/api/v1/projects/ghost/workflow-status/episodes")
+
+    assert listed.status_code == 200
+    steps = listed.json()["episodes"]
+    assert expected
+    assert [(step["episode"], step["next_action"]["type"]) for step in steps] == [
+        (step.episode, step.next_action.type.value) for step in expected
+    ]
+    assert missing.status_code == 404
