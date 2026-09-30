@@ -1618,11 +1618,6 @@ class TestReferenceCompressionSeam:
 
     async def test_reference_audio_total_duration_exceeded_raises_before_backend_call(self, tmp_path):
         """caps 声明了总时长上限时，超限须在调 backend.generate（即付费请求）之前被拦截。"""
-        import shutil
-
-        if shutil.which("ffprobe") is None:
-            pytest.skip("ffprobe not available")
-
         from arcreel_market_core.video_backend_contract import (
             ReferenceAudioMode,
             VideoCapabilities,
@@ -1672,7 +1667,7 @@ class TestReferenceCompressionSeam:
         assert gen.ledger.outcomes == []
 
     async def test_total_duration_exceeded_check_skipped_when_probe_fails(self, tmp_path, monkeypatch):
-        """caps 声明了总时长上限，但探测失败（ffprobe 不可用等）返回 None 时，按既有降级口径放行而非阻断。"""
+        """caps 声明了总时长上限，但探测失败（随包 ffmpeg 不可用等）返回 None 时，按既有降级口径放行而非阻断。"""
         from arcreel_market_core.video_backend_contract import ReferenceAudioMode, VideoCapabilities
 
         gen = _build_generator(tmp_path)
@@ -1714,7 +1709,7 @@ class TestReferenceCompressionSeam:
         assert gen.ledger.outcomes, "探测失败时应放行请求，不阻断到 backend"
 
     async def test_total_duration_not_probed_when_backend_declares_no_limit(self, tmp_path, monkeypatch):
-        """未声明总时长约束的后端不该为每个请求多付一轮 ffprobe——探测按能力声明惰性触发。"""
+        """未声明总时长约束的后端不该为每个请求多付一轮探测子进程——探测按能力声明惰性触发。"""
         from arcreel_market_core.video_backend_contract import ReferenceAudioMode, VideoCapabilities
 
         gen = _build_generator(tmp_path)

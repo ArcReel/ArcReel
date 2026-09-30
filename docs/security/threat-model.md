@@ -28,7 +28,7 @@ ArcReel is a self-hosted AI video production workspace with the following princi
 - A SQLAlchemy database, commonly SQLite, that stores configuration, provider credentials, API-key hashes, task state, usage records, and other application data.
 - Third-party AI provider integrations using configured credentials and base URLs.
 - Generation workers that submit provider jobs, poll status, download generated artifacts, persist state, and recover interrupted work.
-- Native media processing through ffmpeg and ffprobe.
+- Native media processing through the ffmpeg binary bundled with the `imageio-ffmpeg` Python package; ffprobe is not used.
 - A Claude SDK-based project assistant with sandbox policy, permission callbacks, project-bound file rules, network restrictions, and in-process MCP tools.
 - Docker deployment with bind-mounted project data, logs, environment configuration, Vertex credentials, and Claude session data.
 
@@ -153,7 +153,7 @@ A compromised Python package, Node package, container image, SDK, ffmpeg build, 
 | Application → SDK built-in file tools | LLM-selected `Read`, `Write`, `Edit`, `Glob`, and `Grep` paths | Main-process `PreToolUse` hooks backed by `AgentAccessPolicy` | Sensitive-file access, cross-project access, protected-file modification |
 | Application → sandboxed Bash | Commands, paths, environment, and network destinations | Kernel sandbox profile, `AgentAccessPolicy`, command policy, environment scrubbing | Sensitive-file access, cross-project access, command execution, network abuse |
 | Application → in-process MCP tools | LLM-selected structured arguments | Closure-bound project context, strict validation, protected workflows | Sandbox bypass through main-process capability |
-| Application → ffmpeg/ffprobe | Uploaded or provider-supplied media | Extension checks, argument-list subprocess invocation, selected lifecycle cleanup | Native-parser exploitation, CPU/I/O starvation, stuck workers |
+| Application → bundled ffmpeg | Uploaded or provider-supplied media | Extension checks, argument-list subprocess invocation, `file`-only protocol whitelist on media probes, subprocess deadlines, selected lifecycle cleanup | Native-parser exploitation, CPU/I/O starvation, stuck workers |
 | Container → host/private network | Bind mounts, capabilities, network identity | Mount scope, host permissions, Agent sandbox, application access policy | Expanded blast radius after process or sandbox compromise |
 | Reverse proxy/logging layer | Tokens, paths, query strings, forwarded headers | TLS, header policy, redaction, access-log configuration | Credential leakage, scheme confusion, unexpected exposure |
 
@@ -357,7 +357,7 @@ A sandbox escape, permission-policy bypass, cross-project access, or in-process 
 
 ### 10.6 Media processing and workers
 
-User-uploaded and provider-supplied media crosses into ffmpeg/ffprobe and worker execution. Relevant threats include:
+User-uploaded and provider-supplied media crosses into the bundled ffmpeg and worker execution. Relevant threats include:
 
 - Native parser vulnerabilities.
 - Long-running or stuck subprocesses.

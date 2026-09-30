@@ -130,7 +130,7 @@ def gate_video_request(
     ``reference_audio_total_seconds`` 是调用方前置探测好的多段参考音频总时长（秒），本函数
     不做 I/O、不自行探测——探测需要读音频元数据，只能在能拿到文件的组装前置校验处完成
     （见 :func:`lib.generation.media_generator.MediaGenerator.generate_video_async`）。传 None 表示总时长
-    未知（探测失败/环境不支持），此时跳过总时长校验而不是当作超限拒绝——与本仓库 ffprobe
+    未知（探测失败/环境不支持），此时跳过总时长校验而不是当作超限拒绝——与本仓库媒体探测
     不可用时降级放行的既有口径一致。
 
     ``prompt`` 与三条可选路径不同：它在每个请求上都存在，故 ``caps`` 未声明

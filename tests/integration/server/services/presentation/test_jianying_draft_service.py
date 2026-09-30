@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import json
-import shutil
-import subprocess
 import zipfile
 from pathlib import Path
 
@@ -30,26 +28,14 @@ from lib.speech.speech_presentation import (
 )
 from server.services.presentation.jianying_draft_service import JianyingDraftService, NoCompletedSegmentsError
 from server.services.presentation.presentation_read_model import MaterializedEpisode, MaterializedPresentation
-from tests.factories import make_test_video, make_test_video_with_audio_tail
+from tests.factories import make_test_video, make_test_video_with_audio_tail, run_bundled_ffmpeg
 
 
 def make_test_audio(path: Path, *, duration_sec: float = 1.0) -> None:
-    """使用 ffmpeg 生成极短测试音频（正弦波 wav，pcm_s16le 为 ffmpeg 内置编码器）"""
+    """使用随包 ffmpeg 生成极短测试音频（正弦波 wav）"""
     path.parent.mkdir(parents=True, exist_ok=True)
-    subprocess.run(
-        [
-            "ffmpeg",
-            "-y",
-            "-f",
-            "lavfi",
-            "-i",
-            f"sine=frequency=440:duration={duration_sec}",
-            "-c:a",
-            "pcm_s16le",
-            str(path),
-        ],
-        capture_output=True,
-        check=True,
+    run_bundled_ffmpeg(
+        "-f", "lavfi", "-i", f"sine=frequency=440:duration={duration_sec}", "-c:a", "pcm_s16le", str(path)
     )
 
 
@@ -201,10 +187,6 @@ async def test_export_serializes_only_shared_track_gains_actual_boundaries_and_c
     ]
 
 
-@pytest.mark.skipif(
-    shutil.which("ffmpeg") is None or shutil.which("ffprobe") is None,
-    reason="ffmpeg/ffprobe not available",
-)
 async def test_export_accepts_video_track_boundary_when_container_has_a_longer_audio_tail(tmp_path: Path) -> None:
     pm, project_path = _project(tmp_path)
     video = project_path / "versions" / "videos" / "tail.mp4"

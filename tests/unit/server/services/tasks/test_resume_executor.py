@@ -244,7 +244,7 @@ def _patch_resume_executor_deps(
     monkeypatch.setattr("server.services.tasks.generation_tasks.get_project_manager", lambda: fake_pm)
     monkeypatch.setattr("server.services.tasks.reference_video_tasks.get_project_manager", lambda: fake_pm)
 
-    # extract_video_thumbnail 真实实现走 ffprobe；mock 成 no-op 让 finalize 不依赖外部工具
+    # extract_video_thumbnail 真实实现走 ffmpeg 子进程；mock 成 no-op 让 finalize 不依赖外部工具
     async def _fake_thumb(*_args, **_kwargs):
         return False
 

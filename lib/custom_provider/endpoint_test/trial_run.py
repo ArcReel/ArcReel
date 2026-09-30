@@ -646,7 +646,7 @@ async def _gate_trial_request(
     reference_images = assets.get("reference_images")
     reference_audio = assets.get("reference_audio_files")
     audio_files = list(reference_audio) if isinstance(reference_audio, list) else None
-    # 与生产路径同一探测：总时长探不出（ffprobe 不可用）传 None，闸按未知跳过该项而非拒绝。
+    # 与生产路径同一探测：总时长探不出（随包 ffmpeg 不可用）传 None，闸按未知跳过该项而非拒绝。
     total_seconds = await probe_reference_audio_total_seconds(audio_files) if audio_files else None
     images = list(reference_images) if isinstance(reference_images, list) else None
     end_image = _single(assets.get("end_image"))

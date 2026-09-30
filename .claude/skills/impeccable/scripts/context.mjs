@@ -1394,16 +1394,16 @@ function appendDetectorFallback(parts, ctx) {
 // files the boot reads regardless. The deep pass (git drift, token divergence,
 // cross-workspace sweep) belongs to the doctor command, not to every session.
 // One boot-time probe replaces every session re-deriving its image toolchain:
-// harnesses and OSes differ (cwebp, sips on macOS, magick, ffmpeg), and the
+// harnesses and OSes differ (cwebp, sips on macOS, magick), and the
 // agent should read this line instead of running command -v per image.
 function appendImageToolsDirective(parts) {
   const probe = process.platform === 'win32' ? 'where' : 'which';
-  const found = ['cwebp', 'sips', 'magick', 'ffmpeg'].filter((tool) => {
+  const found = ['cwebp', 'sips', 'magick'].filter((tool) => {
     try { return spawnSync(probe, [tool], { stdio: 'ignore' }).status === 0; } catch { return false; }
   });
   parts.push(found.length
     ? `IMAGE_TOOLS: available image converters on this machine: ${found.join(', ')}. Use the first suitable one; never probe again this session.`
-    : 'IMAGE_TOOLS: no image converter found (cwebp, sips, magick, ffmpeg). Ship PNG output unconverted rather than probing per image.');
+    : 'IMAGE_TOOLS: no image converter found (cwebp, sips, magick). Ship PNG output unconverted rather than probing per image.');
 }
 
 function appendStalenessDirective(parts, ctx, options) {
