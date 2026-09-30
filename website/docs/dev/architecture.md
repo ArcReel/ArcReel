@@ -402,6 +402,10 @@ HTTP 入口为 `POST /api/v1/projects/{project_name}/edit-timelines/{timeline_id
 
 “可继续编辑”是 ArcReel 与只输出单个视频文件的生成工具之间的重要差异。
 
+由剪辑时间线生成的剪映草稿是产物，身份为「集 + 剪辑时间线 + 旁白版本」（`without_narration` 或 `with_narration`，带旁白版本只对 TTS 配音项目开放），落盘在 `renders/episode_{N}/{timeline_id}/jianying_draft.{旁白版本}.zip`。导出与成片一样是 `render` 车道任务（`render_jianying_draft`），经同一套「依据快照 → 临时文件 → 验收 → 原子替换并登记」落盘，每个产物身份只保留最新文件并记录版本号。`server/services/presentation/timeline_jianying_draft.py` 在入队前和任务开始时都按所选旁白版本检查阻断级 issue，再以各视频单元当前的呈现模型为素材层，把截取、原声音量、定格延长（出点帧静帧）、旁白轨（仅带旁白版本）与字幕轨（思源黑体 CN Bold）映射到草稿。生成依据收录剪辑时间线的修订号、修订中参与渲染的部分、画幅与各单元的呈现依据；剪辑理由不单独进入依据，但任何新修订都会让旧修订导出的草稿读作过期，素材改动同理。
+
+产物 zip 只保存草稿文件、定格静帧和素材索引，素材路径写成占位符。HTTP 入口为 `POST /api/v1/projects/{project_name}/edit-timelines/{timeline_id}/jianying-draft`（可带 `revision` 与 `narration`，返回任务 ID）与 `GET` 同一路径（返回时效与版本）；下载 `GET .../jianying-draft/download` 凭项目下载 token 校验，这时才代入本机草稿目录与剪映版本（5.x 为 `draft_content.json`，6+ 为 `draft_info.json`），并从项目的版本快照取素材打包。公开媒体文件路由不放行草稿 zip。Agent 工具 `export_jianying_draft` 声明为长任务，调用方式与 `render_final_cut` 相同。`renders/` 不进项目归档，导入后读作 missing。
+
 ### 成片读取模型 {#presentation-read-model}
 
 浏览器预览、可编辑包下载和剪映草稿不各自推导声音、字幕或时长，而是共同消费成片读取模型。该模型固定已选视频版本、可选 TTS 版本、实际媒体时长、原音开关、字幕时序以及当前或历史状态；当前成片的字幕和呈现描述分别物化到 `subtitles/` 与 `presentations/`，并登记到项目 Artifact Manifest。历史选择只读，不覆盖当前物化结果。

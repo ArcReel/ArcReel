@@ -155,6 +155,38 @@ class TestTaskErrorLocalization:
         body = client.get("/api/v1/tasks").json()["items"][0]
         assert body["error_message"].startswith("图片任务")
 
+    def test_render_problems_are_localized_without_changing_the_stored_envelope(self, monkeypatch):
+        from lib.generation.generation_result import encode_generation_problem
+        from lib.i18n import _
+        from lib.jianying_draft.errors import JianyingDraftError
+        from server.services.tasks.render_tasks import render_problem
+
+        cases = [
+            ("jianying_draft_presentation_unavailable", {"unit_id": "E1U2"}),
+            ("jianying_draft_hold_frame_unavailable", {"clip_id": "c1"}),
+            ("jianying_draft_acceptance_failed", {}),
+            ("jianying_draft_blocked", {"issues": [{"unit_id": "E1U2", "code": "video_missing"}]}),
+        ]
+        items = [
+            {
+                "task_id": code,
+                "error_message": encode_generation_problem(
+                    render_problem(JianyingDraftError(code, "诊断原文", **params))
+                ),
+            }
+            for code, params in cases
+        ]
+        original = [dict(item) for item in items]
+        client = self._client(monkeypatch, _RenderQueue(items=items))
+        for locale in ("zh", "en", "vi"):
+            rows = client.get("/api/v1/tasks", headers={"Accept-Language": locale}).json()["items"]
+            for row, (code, params) in zip(rows, cases, strict=True):
+                translated_params = {**params, "units": "E1U2"} if "issues" in params else params
+                assert row["error_message"] == _(code, locale=locale, **translated_params)
+                assert row["error_message"] not in {code, "诊断原文"}
+                assert (row["error_code"], row["error_params"]) == (code, params)
+        assert items == original
+
     def test_list_tasks_passthrough_raw_and_legacy(self, monkeypatch):
         items = [
             {"task_id": "raw", "error_message": "RuntimeError: provider 500"},

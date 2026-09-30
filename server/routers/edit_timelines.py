@@ -1,15 +1,19 @@
-"""剪辑时间线的 HTTP 入口：列表、读取、按脚本机械新建，以及成片的提交、现状与下载地址。
+"""剪辑时间线的 HTTP 入口：列表、读取、按脚本机械新建，以及成片与剪映草稿的提交、现状与下载。
 
-行为全部在 lib 层剪辑时间线命令与成片服务里；成片渲染作为 ``render`` 车道任务入队。
+行为全部在 lib 层剪辑时间线命令、成片服务与剪映草稿服务里；渲染作为 ``render`` 车道任务入队。
 """
 
 from __future__ import annotations
 
-from typing import Annotated, Literal
+import shutil
+from typing import TYPE_CHECKING, Annotated, Any, Literal
 
-from fastapi import APIRouter, Depends, Query
+import jwt
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi import Path as PathParam
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, ConfigDict, Field
+from starlette.background import BackgroundTask
 
 from lib.edit_timeline import (
     EditTimelineError,
@@ -23,13 +27,23 @@ from lib.final_cut.errors import FinalCutError
 from lib.final_cut.service import FinalCutService, FinalCutStatus
 from lib.generation.generation_queue import ActiveTaskRequestConflict, GenerationQueue, get_generation_queue
 from lib.infra.api_errors import ApiError
+from lib.jianying_draft.basis import WITHOUT_NARRATION, DraftNarration
+from lib.jianying_draft.errors import JianyingDraftError
+from lib.jianying_draft.results import JianyingDraftStatus
 from lib.project.project_manager import get_project_manager
-from server.auth import CurrentUser
+from server.auth import CurrentUser, verify_download_token
 from server.dependencies import require_project_migration_ok
+from server.i18n import Translator
 from server.media_tools.final_cuts import final_cut_download_url
-from server.services.tasks.render_tasks import final_cut_task_request
+from server.services.tasks.render_tasks import final_cut_task_request, jianying_draft_task_request
+
+if TYPE_CHECKING:
+    from server.services.presentation.timeline_jianying_draft import TimelineJianyingDraftService
 
 router = APIRouter(dependencies=[Depends(require_project_migration_ok)])
+
+# 浏览器原生下载带不了 Authorization header，端点内校验短时效下载 token（见 docs/adr/0071）。
+self_auth_router = APIRouter()
 
 
 def get_edit_timeline_service() -> EditTimelineService:
@@ -45,6 +59,16 @@ def get_final_cut_service() -> FinalCutService:
 
 FinalCutServiceDep = Annotated[FinalCutService, Depends(get_final_cut_service)]
 GenerationQueueDep = Annotated[GenerationQueue, Depends(get_generation_queue)]
+
+
+def get_jianying_draft_service() -> TimelineJianyingDraftService:
+    from server.services.presentation.timeline_jianying_draft import TimelineJianyingDraftService
+
+    return TimelineJianyingDraftService(get_project_manager())
+
+
+# 具体类型只在 TYPE_CHECKING 下可见：pyJianYingDraft 是重依赖，运行期按需惰性导入。
+JianyingDraftServiceDep = Annotated[Any, Depends(get_jianying_draft_service)]
 
 _ERROR_STATUS: dict[str, tuple[str, int]] = {
     "project_not_found": ("project_not_found", 404),
@@ -207,3 +231,135 @@ async def read_final_cut(
         else None
     )
     return FinalCutStatusResponse(**status.model_dump(), download_url=download_url)
+
+
+class ExportJianyingDraftBody(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    revision: int | None = Field(default=None, ge=1)
+    narration: DraftNarration = WITHOUT_NARRATION
+
+
+class JianyingDraftSubmission(BaseModel):
+    task_id: str
+    deduped: bool
+    artifact_path: str
+
+
+_JIANYING_DRAFT_STATUS: dict[str, int] = {
+    "jianying_draft_narration_unavailable": 422,
+    "jianying_draft_blocked": 409,
+    "jianying_draft_not_exported": 404,
+    "jianying_draft_invalid": 409,
+}
+
+
+def jianying_draft_api_error(exc: JianyingDraftError) -> ApiError:
+    """剪映草稿错误的摘要只列出阻断的视频单元；结构化的问题清单挂在诊断上。"""
+    params = dict(exc.params)
+    issues = params.pop("issues", None)
+    if issues is not None:
+        params["units"] = "、".join(
+            dict.fromkeys(str(issue.get("unit_id")) for issue in issues if issue.get("unit_id"))
+        )
+    error = ApiError(exc.code, status_code=_JIANYING_DRAFT_STATUS[exc.code], **params)
+    if issues is not None:
+        error.with_diagnostic({"issues": issues})
+    return error
+
+
+@router.post("/projects/{project_name}/edit-timelines/{timeline_id}/jianying-draft", status_code=202)
+async def export_jianying_draft(
+    project_name: str,
+    timeline_id: str,
+    service: JianyingDraftServiceDep,
+    queue: GenerationQueueDep,
+    user: CurrentUser,
+    body: ExportJianyingDraftBody | None = None,
+) -> JianyingDraftSubmission:
+    """先检查阻断问题再入队；``revision`` 省略时导出任务开始时的最新修订。"""
+    request_body = body or ExportJianyingDraftBody()
+    try:
+        check = await service.check(
+            project_name, timeline_id, narration=request_body.narration, revision=request_body.revision
+        )
+    except EditTimelineError as exc:
+        raise edit_timeline_api_error(exc) from exc
+    except JianyingDraftError as exc:
+        raise jianying_draft_api_error(exc) from exc
+    request = jianying_draft_task_request(
+        episode=check.episode,
+        timeline_id=check.timeline_id,
+        revision=request_body.revision,
+        narration=request_body.narration,
+    )
+    try:
+        enqueued = await queue.enqueue_task(
+            project_name=project_name, **request.enqueue_fields(), source="webui", user_id=user.id
+        )
+    except ActiveTaskRequestConflict as exc:
+        raise ApiError("jianying_draft_export_in_progress", status_code=409, task_id=exc.existing_task_id) from exc
+    return JianyingDraftSubmission(
+        task_id=enqueued["task_id"], deduped=bool(enqueued.get("deduped", False)), artifact_path=request.artifact_path
+    )
+
+
+@router.get("/projects/{project_name}/edit-timelines/{timeline_id}/jianying-draft")
+async def read_jianying_draft(
+    project_name: str,
+    timeline_id: str,
+    service: JianyingDraftServiceDep,
+    narration: DraftNarration = Query(WITHOUT_NARRATION, description="旁白版本"),
+) -> JianyingDraftStatus:
+    """剪映草稿现状：current、stale（已落后于剪辑时间线，仍可下载）或 missing（还没导出过）。"""
+    try:
+        return await service.status(project_name, timeline_id, narration=narration)
+    except EditTimelineError as exc:
+        raise edit_timeline_api_error(exc) from exc
+
+
+def _draft_root(value: str, _t: Translator) -> str:
+    if not value or not value.strip():
+        raise HTTPException(status_code=422, detail=_t("jianying_path_invalid"))
+    if len(value) > 1024:
+        raise HTTPException(status_code=422, detail=_t("jianying_path_too_long"))
+    if any(ord(character) < 32 for character in value):
+        raise HTTPException(status_code=422, detail=_t("jianying_path_illegal"))
+    return value.strip()
+
+
+@self_auth_router.get("/projects/{project_name}/edit-timelines/{timeline_id}/jianying-draft/download")
+async def download_jianying_draft(
+    project_name: str,
+    timeline_id: str,
+    _t: Translator,
+    service: JianyingDraftServiceDep,
+    draft_path: str = Query(..., description="用户本机的剪映草稿目录"),
+    download_token: str = Query(..., description="下载 token"),
+    jianying_version: Literal["5", "6"] = Query("6", description="剪映版本：6 表示 6 及以上，5 表示 5.x"),
+    narration: DraftNarration = Query(WITHOUT_NARRATION, description="旁白版本"),
+) -> FileResponse:
+    """下载已登记的剪映草稿：本机草稿目录与剪映版本在此代入，过期的草稿照常可下载。"""
+    try:
+        verify_download_token(download_token, project_name)
+    except jwt.ExpiredSignatureError as exc:
+        raise HTTPException(status_code=401, detail=_t("download_expired")) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=403, detail=_t("download_token_mismatch")) from exc
+    except jwt.InvalidTokenError as exc:
+        raise HTTPException(status_code=401, detail=_t("download_token_invalid")) from exc
+    root = _draft_root(draft_path, _t)
+    try:
+        package, name = await service.package_download(
+            project_name, timeline_id, narration=narration, draft_root=root, jianying_version=jianying_version
+        )
+    except EditTimelineError as exc:
+        raise edit_timeline_api_error(exc) from exc
+    except JianyingDraftError as exc:
+        raise jianying_draft_api_error(exc) from exc
+    return FileResponse(
+        path=str(package),
+        media_type="application/zip",
+        filename=f"{name}.zip",
+        background=BackgroundTask(shutil.rmtree, str(package.parent), ignore_errors=True),
+    )

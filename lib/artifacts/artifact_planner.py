@@ -40,6 +40,7 @@ from lib.artifacts.generation_input import (
 )
 from lib.artifacts.media_artifact_currency import build_current_audio_artifact_basis, build_current_video_artifact_basis
 from lib.artifacts.version_manager import VersionManager, selected_manual_upload_snapshot
+from lib.artifacts.video_visual_provenance import resolve_video_aspect_ratio
 from lib.artifacts.visual_artifact_provenance import (
     GridStoryboardVisual,
     VisualReference,
@@ -50,6 +51,14 @@ from lib.artifacts.visual_artifact_provenance import (
     visual_file_digest,
 )
 from lib.episode.episode_paths import episode_source_relpath
+from lib.jianying_draft.basis import (
+    DraftNarration,
+    DraftUnitBasis,
+    build_jianying_draft_basis,
+    draft_unit_ids,
+    effective_unit_variant,
+    jianying_draft_artifact_path,
+)
 from lib.project.asset_derivatives import DERIVATIVE_ASSET_TYPE, derivative_artifact_id, derivative_artifact_key
 from lib.project.asset_types import (
     ASSET_SPECS,
@@ -239,6 +248,7 @@ class TargetStatePlanner:
         self._episodes_loaded = False
         self.entries: dict[ArtifactKey, ArtifactManifestEntry] = {}
         self.bases: dict[ArtifactKey, ArtifactBasis] = {}
+        self.current_presentation_bases: dict[ArtifactKey, ArtifactBasis] = {}
         self.formal_paths: dict[ArtifactKey, str] = {}
         self._path_owners: dict[str, ArtifactKey] = {}
         self.skipped: list[MigrationSkippedArtifact] = []
@@ -331,6 +341,9 @@ class TargetStatePlanner:
         elif kind == "episode-final-cut":
             self.load_episodes()
             self._plan_final_cut(key)
+        elif kind == "episode-jianying-draft":
+            self.load_episodes()
+            self._plan_jianying_draft(key)
 
     def load_episode_bindings(self) -> None:
         if self._bindings_loaded:
@@ -1062,6 +1075,9 @@ class TargetStatePlanner:
                     )
                     if proof is None:
                         continue
+                    presentation_key = ArtifactKey.episode_presentation(episode.episode, resource_id, variant)
+                    if proof.current_presentation_basis is not None:
+                        self.current_presentation_bases[presentation_key] = proof.current_presentation_basis
                     subtitle_basis = (
                         proof.frozen_subtitle_basis if self._activation_mode else proof.current_subtitle_basis
                     )
@@ -1076,11 +1092,9 @@ class TargetStatePlanner:
                             )
                         )
                     if presentation_basis is not None:
-                        self.entries[ArtifactKey.episode_presentation(episode.episode, resource_id, variant)] = (
-                            ArtifactManifestEntry(
-                                artifact_path=presentation_path,
-                                basis_digest=presentation_basis.digest,
-                            )
+                        self.entries[presentation_key] = ArtifactManifestEntry(
+                            artifact_path=presentation_path,
+                            basis_digest=presentation_basis.digest,
                         )
         self._planned.add("persisted-presentations")
 
@@ -1137,6 +1151,84 @@ class TargetStatePlanner:
         if not observation.present or observation.content_digest is None:
             raise ValueError(f"formal artifact input is not present: {observation.artifact_path}")
         return observation.content_digest
+
+    def _plan_jianying_draft(self, key: ArtifactKey) -> None:
+        """按剪辑时间线的最新修订与各单元当前的呈现模型重建剪映草稿的依据。
+
+        剪映草稿只在渲染时登记，不参与整份激活。剪辑时间线或集已不在时不给出目标；某个视频单元
+        没有可证明的当前素材层时，依据把它记为不可用，已登记的草稿读作过期、登记保留。
+        """
+
+        from lib.edit_timeline.store import read_timeline_document
+
+        episode_number, timeline_id, narration = cast(tuple[int, str, DraftNarration], key.components)
+        episode = next((candidate for candidate in self.episodes if candidate.episode == episode_number), None)
+        if episode is None:
+            return
+        document = read_timeline_document(self.project_dir, episode_number, timeline_id)
+        if document is None:
+            return
+        self._plan_persisted_presentations()
+        resource_type = "reference_videos" if episode.kind == "video_units" else "videos"
+        items = {str(item[episode.id_field]): item for item in episode.items}
+        versions = self._load_versions()
+        units = [
+            self._draft_unit_basis(
+                episode=episode,
+                item=items[unit_id],
+                unit_id=unit_id,
+                resource_type=resource_type,
+                narration=narration,
+                versions=versions,
+            )
+            for unit_id in draft_unit_ids(document.latest.content, items)
+        ]
+        basis = build_jianying_draft_basis(
+            timeline_id=timeline_id,
+            revision=document.latest,
+            narration=narration,
+            aspect_ratio=resolve_video_aspect_ratio(self.project, resource_type),
+            units=units,
+        )
+        self._add_if_present(key, jianying_draft_artifact_path(episode_number, timeline_id, narration), basis)
+
+    def _draft_unit_basis(
+        self,
+        *,
+        episode: _EpisodeState,
+        item: Mapping[str, Any],
+        unit_id: str,
+        resource_type: str,
+        narration: DraftNarration,
+        versions: Mapping[str, Any],
+    ) -> DraftUnitBasis:
+        bucket = versions.get(resource_type)
+        history = bucket.get(unit_id) if isinstance(bucket, Mapping) else None
+        manual_snapshot = selected_manual_upload_snapshot(history, resource_type)
+        if manual_snapshot is not None:
+            assert isinstance(history, Mapping)
+            snapshot = self._safe_present_path(manual_snapshot)
+            if snapshot is None:
+                return DraftUnitBasis(unit_id, unavailable=True)
+            try:
+                content_digest = media_content_digest(snapshot)
+            except OSError:
+                return DraftUnitBasis(unit_id, unavailable=True)
+            return DraftUnitBasis(unit_id, manual_upload=(cast(int, history["current_version"]), content_digest))
+        audio_bucket = versions.get("audio")
+        audio = audio_bucket.get(unit_id) if isinstance(audio_bucket, Mapping) else None
+        audio_version = audio.get("current_version") if isinstance(audio, Mapping) else None
+        effective = effective_unit_variant(
+            narration,
+            admit_script_unit(episode.kind, item).mode,
+            has_narration_audio=type(audio_version) is int and audio_version > 0,
+        )
+        presentation = self.current_presentation_bases.get(
+            ArtifactKey.episode_presentation(episode.episode, unit_id, effective)
+        )
+        if presentation is None:
+            return DraftUnitBasis(unit_id, unavailable=True)
+        return DraftUnitBasis(unit_id, presentation_digest=presentation.digest)
 
     def _prove_persisted_presentation(
         self,

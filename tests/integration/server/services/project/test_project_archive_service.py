@@ -27,6 +27,7 @@ from lib.edit_timeline import EditTimelineService, RevisionAuthor
 from lib.final_cut.basis import DEFAULT_VARIANT, final_cut_artifact_path, final_cut_key
 from lib.i18n import _
 from lib.infra.validation_messages import default_translate
+from lib.jianying_draft.basis import jianying_draft_artifact_path, jianying_draft_key
 from lib.project.project_manager import ProjectManager
 from lib.project.project_migrations.runner import migrate_project_dir
 from lib.project.project_migrations.v7_to_v8_artifact_manifest import migrate_v7_to_v8
@@ -328,31 +329,37 @@ class TestProjectArchiveService:
         imported = await timelines.read("demo", created.timeline.id)
         assert imported == created
 
-    async def test_rendered_final_cuts_stay_out_of_the_archive_and_read_missing_after_import(self, tmp_path):
-        """成片可随时重新渲染：文件与清单条目都不进归档，导入后该身份读 missing。"""
+    async def test_rendered_artifacts_stay_out_of_the_archive_and_read_missing_after_import(self, tmp_path):
+        """成片与剪映草稿可随时重新渲染：文件与清单条目都不进归档，导出不报未知条目，导入后这些身份读 missing。"""
         pm = ProjectManager(tmp_path / "projects")
         project_dir = _create_project(pm)
         created = await EditTimelineService(pm).create_from_script(
             "demo", episode=1, name="完整版", author=RevisionAuthor(kind="creator")
         )
-        key = final_cut_key(1, created.timeline.id, DEFAULT_VARIANT)
-        artifact_path = final_cut_artifact_path(1, created.timeline.id, DEFAULT_VARIANT)
+        timeline_id = created.timeline.id
+        rendered = {
+            final_cut_key(1, timeline_id, DEFAULT_VARIANT): final_cut_artifact_path(1, timeline_id, DEFAULT_VARIANT),
+            jianying_draft_key(1, timeline_id, "with_narration"): jianying_draft_artifact_path(
+                1, timeline_id, "with_narration"
+            ),
+        }
 
         async def render(output: Path, _workspace: Path) -> None:
-            await asyncio.to_thread(output.write_bytes, b"final-cut")
+            await asyncio.to_thread(output.write_bytes, b"rendered")
 
         async def accept(_output: Path) -> None:
             return None
 
-        await commit_rendered_artifact(
-            project_dir,
-            key=key,
-            artifact_path=artifact_path,
-            basis=ArtifactBasis.build("test/final-cut", kind_version=1, inputs={"timeline_id": created.timeline.id}),
-            render=render,
-            accept=accept,
-        )
-        assert ProjectArtifactManifestAdapter(project_dir).get_entry(key) is not None
+        for key, artifact_path in rendered.items():
+            await commit_rendered_artifact(
+                project_dir,
+                key=key,
+                artifact_path=artifact_path,
+                basis=ArtifactBasis.build("test/rendered", kind_version=1, inputs={"timeline_id": timeline_id}),
+                render=render,
+                accept=accept,
+            )
+            assert ProjectArtifactManifestAdapter(project_dir).get_entry(key) is not None
         service = ProjectArchiveService(pm)
 
         archive_path, _diagnostics = service.export_project("demo")
@@ -363,10 +370,12 @@ class TestProjectArchiveService:
         service.import_project_archive(archive_path, uploaded_filename="demo.zip")
 
         assert not [name for name in names if name.startswith("demo/renders")]
-        assert key.encode() not in archive_manifest["artifact_manifest"]["entries"]
+        assert not {key.encode() for key in rendered} & set(archive_manifest["artifact_manifest"]["entries"])
         assert "renders" not in archive_manifest["pass_through_entries"]
+        assert "renders" not in json.dumps(archive_manifest["export_diagnostics"], ensure_ascii=False)
         assert not (pm.get_project_path("demo") / "renders").exists()
-        assert ProjectArtifactManifestAdapter(pm.get_project_path("demo")).get_entry(key) is None
+        imported = ProjectArtifactManifestAdapter(pm.get_project_path("demo"))
+        assert all(imported.get_entry(key) is None for key in rendered)
 
     def test_export_excludes_agent_runtime_symlinks(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")

@@ -74,10 +74,11 @@ class ArtifactKind(StrEnum):
     EPISODE_SUBTITLE = "episode-subtitle"
     EPISODE_PRESENTATION = "episode-presentation"
     EPISODE_FINAL_CUT = "episode-final-cut"
+    EPISODE_JIANYING_DRAFT = "episode-jianying-draft"
 
 
-FINAL_CUT_NARRATION_VERSIONS = frozenset({"without_narration", "with_narration"})
-"""成片的旁白版本：带旁白只对 TTS 项目开放。"""
+NARRATION_VERSIONS = frozenset({"without_narration", "with_narration"})
+"""成片与剪映草稿的旁白版本：带旁白只对 TTS 项目开放。"""
 
 FINAL_CUT_SUBTITLE_MODES = frozenset({"no_subtitles", "burned_subtitles"})
 """成片是否烧入字幕。"""
@@ -1704,8 +1705,17 @@ class ArtifactKey:
                 and episode > 0
                 and isinstance(timeline_id, str)
                 and _EDIT_TIMELINE_ID_RE.fullmatch(timeline_id) is not None
-                and narration in FINAL_CUT_NARRATION_VERSIONS
+                and narration in NARRATION_VERSIONS
                 and subtitles in FINAL_CUT_SUBTITLE_MODES
+            )
+        elif self.kind is ArtifactKind.EPISODE_JIANYING_DRAFT and len(self.components) == 3:
+            episode, timeline_id, narration = self.components
+            valid = (
+                type(episode) is int
+                and episode > 0
+                and isinstance(timeline_id, str)
+                and _EDIT_TIMELINE_ID_RE.fullmatch(timeline_id) is not None
+                and narration in NARRATION_VERSIONS
             )
         if not valid:
             raise ValueError(f"artifact key components do not match {self.kind!r}: {self.components!r}")
@@ -1782,6 +1792,12 @@ class ArtifactKey:
         """Identify the final cut rendered from one edit timeline in one narration/subtitle variant."""
 
         return cls(ArtifactKind.EPISODE_FINAL_CUT, (_episode_number(episode), timeline_id, narration, subtitles))
+
+    @classmethod
+    def episode_jianying_draft(cls, episode: int, timeline_id: str, narration: str) -> Self:
+        """Identify the Jianying draft exported from one edit timeline in one narration version."""
+
+        return cls(ArtifactKind.EPISODE_JIANYING_DRAFT, (_episode_number(episode), timeline_id, narration))
 
     @classmethod
     def episode_resource_artifacts(cls, episode: int, resource_id: str) -> tuple[Self, ...]:

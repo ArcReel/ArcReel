@@ -695,6 +695,7 @@ app.include_router(files.public_router, prefix="/api/v1", tags=["文件管理"])
 # 自带认证端点：浏览器原生下载导航带不了 Authorization header，
 # 端点内 verify_download_token 校验短时效下载 token（见 docs/adr/0071）。
 app.include_router(projects.self_auth_router, prefix="/api/v1", tags=["项目管理"])
+app.include_router(edit_timelines.self_auth_router, prefix="/api/v1", tags=["剪辑时间线"])
 
 
 @app.api_route("/mcp", methods=["DELETE", "GET", "HEAD", "POST"], include_in_schema=False)

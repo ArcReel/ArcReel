@@ -1,4 +1,4 @@
-"""渲染成片工具：经工具声明入口提交到 render 车道，内嵌调用方拿到可下载的成片，外部调用方拿到批次句柄。"""
+"""导出剪映草稿工具：经工具声明入口提交到 render 车道，内嵌调用方拿到已登记的草稿，外部调用方拿到批次句柄。"""
 
 from __future__ import annotations
 
@@ -15,11 +15,11 @@ from lib.generation.generation_batch import GenerationBatchReadModel
 from lib.generation.generation_queue import GenerationQueue
 from lib.generation.generation_worker import CapacityTable, GenerationWorker
 from lib.project.project_manager import ProjectManager
-from server.agent_toolset.final_cuts import RENDER_FINAL_CUT
-from server.media_tools.final_cuts import FinalCutToolResult
+from server.agent_toolset.jianying_drafts import EXPORT_JIANYING_DRAFT
+from server.media_tools.jianying_drafts import JianyingDraftToolResult
 from server.services.tasks.render_tasks import execute_render_task
 from server.tool_runtime import CallerContext
-from tests.factories import install_current_video, make_test_clip
+from tests.factories import install_current_video, install_uploaded_video, make_test_clip
 from tests.fakes import refuse_resume_execution
 from tests.integration.server.agent_tool_support import ToolHarness, run_declared_tool
 
@@ -27,10 +27,8 @@ EMBEDDED = CallerContext(user_id=DEFAULT_USER_ID, source="embedded")
 REMOTE = CallerContext(user_id=DEFAULT_USER_ID, source="mcp")
 
 
-def _install(timeline_project: ProjectManager, tmp_path: Path, unit_id: str) -> None:
-    source = tmp_path / "media" / f"{unit_id}.mp4"
-    make_test_clip(source, size="160x90", fps=30, seconds=1.0, tone=True)
-    install_current_video(timeline_project.get_project_path("demo"), "reference_videos", unit_id, source)
+def _install(timeline_project: ProjectManager, unit_id: str) -> None:
+    install_uploaded_video(timeline_project.get_project_path("demo"), "reference_videos", unit_id, seconds=1.0)
 
 
 async def _timeline(timeline_project: ProjectManager) -> str:
@@ -73,38 +71,39 @@ async def render_worker(
 
 
 @pytest.mark.usefixtures("render_worker")
-async def test_embedded_agent_waits_for_a_downloadable_final_cut(
+async def test_embedded_agent_waits_for_a_registered_draft(
     tmp_path: Path, timeline_project: ProjectManager, render_queue: GenerationQueue
 ) -> None:
-    _install(timeline_project, tmp_path, "E1U1")
-    _install(timeline_project, tmp_path, "E1U2")
+    _install(timeline_project, "E1U1")
+    _install(timeline_project, "E1U2")
     timeline_id = await _timeline(timeline_project)
+    project_dir = timeline_project.get_project_path("demo")
 
     outcome = await run_declared_tool(
-        RENDER_FINAL_CUT,
+        EXPORT_JIANYING_DRAFT,
         ToolHarness("demo", tmp_path, timeline_project, caller=EMBEDDED, queue=render_queue),
         {"timeline": timeline_id},
     )
 
     assert outcome.problem is None
-    assert isinstance(outcome.value, FinalCutToolResult)
-    final_cut = outcome.value.final_cut
-    assert (timeline_project.get_project_path("demo") / final_cut.artifact_path).is_file()
-    assert outcome.value.download_url == f"/api/v1/files/demo/{final_cut.artifact_path}?v=1"
-    assert final_cut.acceptance.video_duration == pytest.approx(2.0, abs=0.05)
+    assert isinstance(outcome.value, JianyingDraftToolResult)
+    draft = outcome.value.jianying_draft
+    assert draft.artifact_path == f"renders/episode_1/{timeline_id}/jianying_draft.without_narration.zip"
+    assert (draft.revision, draft.narration, draft.version, draft.duration) == (1, "without_narration", 1, 2.0)
+    assert (project_dir / draft.artifact_path).is_file()
+    assert not list((project_dir / "renders").rglob(".*"))
     batch = await render_queue.get_generation_batch(
         project_name="demo",
         batch_id=outcome.value.batch_id,
         user_id=DEFAULT_USER_ID,
-        resolver=active_artifact_currency_resolver(
-            timeline_project.get_project_path("demo"), timeline_project.load_project("demo")
-        ),
+        resolver=active_artifact_currency_resolver(project_dir, timeline_project.load_project("demo")),
     )
+    assert batch.operation == "export_jianying_draft"
     assert batch.generation_result is not None
     [item] = batch.generation_result.items
     assert (item.unit_id, item.artifact_path, item.artifact_status) == (
-        f"{timeline_id}.without_narration.no_subtitles",
-        final_cut.artifact_path,
+        f"{timeline_id}.jianying_draft.without_narration",
+        draft.artifact_path,
         "current",
     )
 
@@ -112,36 +111,76 @@ async def test_embedded_agent_waits_for_a_downloadable_final_cut(
 async def test_external_agent_gets_a_batch_handle_to_poll(
     tmp_path: Path, timeline_project: ProjectManager, render_queue: GenerationQueue
 ) -> None:
-    _install(timeline_project, tmp_path, "E1U1")
-    _install(timeline_project, tmp_path, "E1U2")
+    _install(timeline_project, "E1U1")
+    _install(timeline_project, "E1U2")
     timeline_id = await _timeline(timeline_project)
     assert await render_queue.acquire_or_renew_worker_lease(name="default", owner_id="test-worker", ttl_seconds=60)
 
     outcome = await run_declared_tool(
-        RENDER_FINAL_CUT,
+        EXPORT_JIANYING_DRAFT,
         ToolHarness("demo", tmp_path, timeline_project, caller=REMOTE, queue=render_queue),
         {"timeline": timeline_id},
     )
 
     assert isinstance(outcome.value, GenerationBatchReadModel)
-    assert outcome.value.operation == "render_final_cut"
+    assert outcome.value.operation == "export_jianying_draft"
     [member] = outcome.value.members
-    assert member.unit_id == f"{timeline_id}.without_narration.no_subtitles"
+    assert member.unit_id == f"{timeline_id}.jianying_draft.without_narration"
+    [task] = (await render_queue.list_tasks(project_name="demo"))["items"]
+    assert (task["task_type"], task["media_type"]) == ("render_jianying_draft", "render")
 
 
-async def test_blocking_issues_are_refused_before_anything_is_queued(
-    tmp_path: Path, timeline_project: ProjectManager, render_queue: GenerationQueue
+@pytest.mark.parametrize(
+    ("installed", "narration", "code"),
+    [
+        (("E1U1",), "without_narration", "jianying_draft_blocked"),
+        (("E1U1", "E1U2"), "with_narration", "jianying_draft_narration_unavailable"),
+    ],
+)
+async def test_refusals_happen_before_anything_is_queued(
+    tmp_path: Path,
+    timeline_project: ProjectManager,
+    render_queue: GenerationQueue,
+    installed: tuple[str, ...],
+    narration: str,
+    code: str,
 ) -> None:
-    _install(timeline_project, tmp_path, "E1U1")
+    for unit_id in installed:
+        _install(timeline_project, unit_id)
     timeline_id = await _timeline(timeline_project)
 
     outcome = await run_declared_tool(
-        RENDER_FINAL_CUT,
+        EXPORT_JIANYING_DRAFT,
         ToolHarness("demo", tmp_path, timeline_project, caller=REMOTE, queue=render_queue),
+        {"timeline": timeline_id, "narration": narration},
+    )
+
+    assert outcome.problem is not None
+    assert outcome.problem.code == code
+    assert await render_queue.list_tasks(project_name="demo") == {"items": [], "total": 0, "page": 1, "page_size": 50}
+
+
+@pytest.mark.usefixtures("render_worker")
+async def test_a_render_time_failure_comes_back_as_a_stable_problem_without_leftovers(
+    tmp_path: Path, timeline_project: ProjectManager, render_queue: GenerationQueue
+) -> None:
+    _install(timeline_project, "E1U1")
+    project_dir = timeline_project.get_project_path("demo")
+    source = tmp_path / "media" / "E1U2.mp4"
+    make_test_clip(source, size="160x90", fps=30, seconds=1.0, tone=True)
+    # 没有类型化来源、也不是手动上传的版本投影不出呈现模型，只有任务开始物化素材层时才发现
+    install_current_video(project_dir, "reference_videos", "E1U2", source)
+    timeline_id = await _timeline(timeline_project)
+
+    outcome = await run_declared_tool(
+        EXPORT_JIANYING_DRAFT,
+        ToolHarness("demo", tmp_path, timeline_project, caller=EMBEDDED, queue=render_queue),
         {"timeline": timeline_id},
     )
 
     assert outcome.problem is not None
-    assert outcome.problem.code == "final_cut_blocked"
-    assert [issue["unit_id"] for issue in (outcome.problem.params or {})["issues"]] == ["E1U2"]
-    assert await render_queue.list_tasks(project_name="demo") == {"items": [], "total": 0, "page": 1, "page_size": 50}
+    assert (outcome.problem.code, outcome.problem.params) == (
+        "jianying_draft_presentation_unavailable",
+        {"unit_id": "E1U2"},
+    )
+    assert not [path for path in (project_dir / "renders").rglob("*") if path.is_file()]

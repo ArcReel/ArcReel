@@ -543,6 +543,7 @@ export default {
   'task_type_text_narration_script_plan': 'Kế hoạch kịch bản',
   'task_type_text_reference_script_plan': 'Kế hoạch kịch bản',
   'task_type_render_final_cut': 'Kết xuất video thành phẩm',
+  'task_type_render_jianying_draft': 'Xuất bản nháp Jianying',
 
   // Agent
   'new_session': 'Phiên mới',
@@ -1924,6 +1925,7 @@ export default {
   'tool_name_read_timeline': 'Đọc dòng thời gian dựng',
   'tool_name_edit_timeline': 'Chỉnh sửa dòng thời gian dựng',
   'tool_name_render_final_cut': 'Kết xuất video thành phẩm',
+  'tool_name_export_jianying_draft': 'Xuất bản nháp Jianying',
   'tool_name_generate_narration_audio': 'Tạo âm thanh thuyết minh',
   'tool_name_generate_episode_script': 'Tạo kịch bản',
   'tool_name_generate_script_plan': 'Tạo kế hoạch kịch bản',

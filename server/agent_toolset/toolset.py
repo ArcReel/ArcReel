@@ -9,6 +9,7 @@ from server.agent_toolset.episode_planning import EPISODE_PLANNING_TOOLS
 from server.agent_toolset.final_cuts import FINAL_CUT_TOOLS
 from server.agent_toolset.generation_batches import GENERATION_BATCH_TOOLS
 from server.agent_toolset.grid_storyboards import GRID_STORYBOARD_TOOLS
+from server.agent_toolset.jianying_drafts import JIANYING_DRAFT_TOOLS
 from server.agent_toolset.media_generation import MEDIA_GENERATION_TOOLS
 from server.agent_toolset.orientation import ORIENTATION_TOOLS
 from server.agent_toolset.project_entry import PROJECT_ENTRY_TOOLS
@@ -28,6 +29,7 @@ AGENT_TOOLSET: tuple[AgentToolDeclaration, ...] = (
     *VIDEO_VERSION_TOOLS,
     *EDIT_TIMELINE_TOOLS,
     *FINAL_CUT_TOOLS,
+    *JIANYING_DRAFT_TOOLS,
     *SCRIPT_AUTHORING_TOOLS,
     *REPAIR_CHANNEL_TOOLS,
     *SCRIPT_EDITING_TOOLS,

@@ -93,30 +93,21 @@ def install_current_video(project_path: Path, resource_type: str, unit_id: str, 
     return version
 
 
-def make_reference_video_project(projects_root: Path, unit_ids: tuple[str, ...]) -> Any:
-    """新建参考生视频模式的项目 ``demo``，第 1 集按 ``unit_ids`` 各含一个视频单元；返回其 ProjectManager。"""
-    from lib.project.project_manager import ProjectManager
+def install_uploaded_video(project_path: Path, resource_type: str, unit_id: str, *, seconds: float) -> None:
+    """把一段现场合成的测试画面（带音轨）作为视频单元的手动上传版本，放到正式路径上。"""
+    from lib.artifacts.version_manager import MANUAL_UPLOAD_VERSION_SOURCE, VersionManager
+    from lib.project.resource_paths import resource_relative_path
 
-    manager = ProjectManager(projects_root)
-    manager.create_project("demo")
-    manager.create_project_metadata("demo", "Demo", "Anime", "narration")
-    manager.update_project("demo", lambda project: project.update({"generation_mode": "reference_video"}))
-    manager.save_script(
-        "demo",
-        {
-            "episode": 1,
-            "title": "第一集",
-            "content_mode": "narration",
-            "generation_mode": "reference_video",
-            "summary": "摘要",
-            "novel": {"title": "小说", "chapter": "第一章"},
-            "video_units": [
-                {"unit_id": unit_id, "text": f"镜头 {unit_id}", "duration_seconds": 4} for unit_id in unit_ids
-            ],
-        },
-        "episode_1.json",
+    staged = project_path / f".{unit_id}.upload.mp4"
+    make_test_clip(staged, size="160x90", fps=30, seconds=seconds, tone=True)
+    VersionManager(project_path).commit_staged_version(
+        resource_type,
+        unit_id,
+        "",
+        staged_file=staged,
+        current_file=project_path / resource_relative_path(resource_type, unit_id),
+        source=MANUAL_UPLOAD_VERSION_SOURCE,
     )
-    return manager
 
 
 def make_test_video_with_audio_tail(
