@@ -5,7 +5,7 @@
  * - lib/script/script_models.py (NarrationSegment, DramaScene, ImagePrompt, VideoPrompt, etc.)
  */
 
-import type { ReferenceScriptPlanDraft, ReferenceUnitCapabilityMap, ScriptReviewQuarantine } from "./reference-video";
+import type { DraftSoftViolation, ReferenceScriptPlanDraft, ReferenceUnitCapabilityMap, ScriptReviewQuarantine } from "./reference-video";
 
 export const SHOT_TYPES = [
   "Extreme Close-up",
@@ -187,6 +187,8 @@ export interface ScriptReviewState {
   content: DramaNormalizedScript | NarrationScriptPlanDraft | ReferenceScriptPlanDraft | null;
   /** 草稿在场时非 null（三条 script_plan 路线都可能出现），否则 null。 */
   quarantine: ScriptReviewQuarantine | null;
+  /** 正式参考规划的逐单元降级提示，只提示、不阻断。 */
+  soft_violations?: DraftSoftViolation[];
   /**
    * unit 时长可选档位，reference_video 变体才非 null（项目未配置视频型号而解析不到时也为
    * null，呈现层退回只读秒数）。与后端读时迁移收编所用的是同一份档位表——结构区间全集，不

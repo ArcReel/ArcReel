@@ -29,4 +29,6 @@ MESSAGES = {
     "event_label_episode": "第 {episode} 集",
     "event_label_draft_normalized_script": "第 {episode} 集规范化脚本",
     "event_label_draft_segment_splitting": "第 {episode} 集分镜拆分",
+    "event_label_draft_script_plan": "第 {episode} 集脚本规划草稿",
+    "event_label_draft_prompt_authoring": "第 {episode} 集提示词编写草稿",
 }

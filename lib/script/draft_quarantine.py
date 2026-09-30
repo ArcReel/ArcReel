@@ -19,9 +19,9 @@ script_plan 就先取回一份草稿、改完走同一条晋升通道写盘。�
 信封形状::
 
     {"kind": ..., "episode": N, "meta": {..., "schema_version": V},
-     "violations": [{"code","label","message"}, ...], "content": {...}}
+     "violations": [{"code","label","message", "item_index"?, "item_id"?}, ...], "content": {...}}
 
-``violations`` 是上一轮判定的快照，只供 Agent 阅读定位——晋升时一律按 ``content`` 现值重判，
+``violations`` 是上一轮判定的快照，供 Agent 阅读定位与 Web 呈现——晋升时一律按 ``content`` 现值重判，
 不信任草稿里的这份记录。``meta`` 存重判所需、又无法从项目状态重新导出的上下文：script_plan 的源文
 路径（晋升时按整个 ``source/`` 目录重解析会让原文锚的子串判定比产出时更松），以及产出 / 取回
 时正式文件的内容指纹（``base_fingerprint``，晋升前的乐观并发基线）。
@@ -106,6 +106,14 @@ PROMOTE_TOOL_NAME = "promote_draft"
 #: 写盘只发生在晋升侧，与另三条路径同一把锁。写禁策略的拒绝消息也要指名它，故同样收在这里。
 OPEN_DRAFT_TOOL_NAME = "open_draft"
 
+#: 草稿 meta 标记：这份草稿是 Agent 经 ``open_draft`` 从正式内容取回的可编辑草稿，不是生成留下的待修复
+#: 草稿。已确认的脚本规划只读，编辑副本的修改与晋升按它拒绝；Web 只展示可编辑草稿的状态、不展示内容。
+FORMAL_EDIT_META_KEY = "formal_edit"
+
+#: 草稿的处置方：``user`` 为待修复草稿（创作者可直接改），``agent`` 为 Agent 的可编辑草稿。
+DRAFT_OWNER_USER = "user"
+DRAFT_OWNER_AGENT = "agent"
+
 DOC_TYPE_DRAMA_SCRIPT_PLAN = "drama_script_plan"
 DOC_TYPE_NARRATION_SCRIPT_PLAN = "narration_script_plan"
 DOC_TYPE_REFERENCE_SCRIPT_PLAN = "reference_script_plan"
@@ -136,6 +144,11 @@ class QuarantinedDraft:
     meta: dict[str, Any]
     schema_version: int
     path: Path
+
+
+def draft_owner(draft: QuarantinedDraft) -> str:
+    """草稿的处置方：带可编辑草稿标记的归 Agent，其余（生成留下的待修复草稿）归创作者。"""
+    return DRAFT_OWNER_AGENT if draft.meta.get(FORMAL_EDIT_META_KEY) is True else DRAFT_OWNER_USER
 
 
 def resolve_schema_version(meta: dict[str, Any]) -> int:
@@ -220,7 +233,7 @@ def quarantine_path(project_path: Path, episode: int, kind: str) -> Path:
 
 
 def violation_entries(violations: list[DraftViolation]) -> list[dict[str, Any]]:
-    """违约异常 → 落盘 / 呈现用的结构化条目（违约类 + unit 定位 + 消息 + 可选行号）。"""
+    """违约异常 → 落盘 / 呈现用的结构化条目（违约类 + 定位前缀 + 消息 + 可选行号与条目定位）。"""
     entries: list[dict[str, Any]] = []
     for violation in violations:
         entry: dict[str, Any] = {
@@ -235,6 +248,10 @@ def violation_entries(violations: list[DraftViolation]) -> list[dict[str, Any]]:
             entry["reason"] = violation.reason
         if violation.action is not None:
             entry["action"] = violation.action
+        if violation.item_index is not None:
+            entry["item_index"] = violation.item_index
+        if violation.item_id is not None:
+            entry["item_id"] = violation.item_id
         entries.append(entry)
     return entries
 
@@ -363,6 +380,9 @@ __all__ = [
     "DOC_TYPE_REFERENCE_PROMPT_AUTHORING",
     "DOC_TYPE_REFERENCE_SCRIPT_PLAN",
     "DOC_TYPE_TO_QUARANTINE_KIND",
+    "DRAFT_OWNER_AGENT",
+    "DRAFT_OWNER_USER",
+    "FORMAL_EDIT_META_KEY",
     "OPEN_DRAFT_TOOL_NAME",
     "PROMOTE_TOOL_NAME",
     "QUARANTINE_FILENAMES",
@@ -373,6 +393,7 @@ __all__ = [
     "QUARANTINE_SCHEMA_VERSION",
     "QuarantinedDraft",
     "clear_quarantine",
+    "draft_owner",
     "draft_payload",
     "draft_revision",
     "quarantine_and_report",

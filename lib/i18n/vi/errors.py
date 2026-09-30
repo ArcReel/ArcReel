@@ -193,9 +193,18 @@ MESSAGES = {
     "invalid_draft_stage": "Giai đoạn bản nháp không hợp lệ: {stage}",
     "draft_file_not_found": "Tệp bản nháp không tồn tại",
     "draft_invalid_json": "Bản nháp kế hoạch kịch bản có cấu trúc không hợp lệ; vui lòng kiểm tra và thử lại",
+    "draft_not_found": "Tập {episode} không có bản nháp này; có thể nó đã được áp dụng hoặc bị hủy",
+    "draft_revision_conflict": "Bản nháp đã thay đổi trong lúc bạn chỉnh sửa nên thao tác chưa được áp dụng; hãy xem nội dung mới nhất rồi thử lại",
+    "draft_formal_revision_conflict": (
+        "Nội dung chính thức đã thay đổi sau khi bản nháp được tạo nên lần lưu này chưa được áp dụng; "
+        "hãy hủy bản nháp hoặc giao cho tác nhân hợp nhất"
+    ),
+    "draft_agent_owned": "Tác nhân đang sửa nội dung này; hãy giao cho tác nhân hoàn tất hoặc hủy bản sửa này",
+    "draft_doc_type_not_applicable": "Loại bản nháp này không áp dụng cho dự án hiện tại",
+    "draft_save_failed": "Bản nháp đã được lưu nhưng chưa kiểm tra xong; vui lòng thử lại sau",
     "script_review_not_applicable": "Tập này không áp dụng xác nhận nội dung (chế độ này không tạo ra kết quả kế hoạch kịch bản để xác nhận)",
     "script_review_no_script_plan": "Chưa có kết quả kế hoạch kịch bản để xác nhận; vui lòng hoàn tất kế hoạch kịch bản trước",
-    "script_review_quarantined": ("Tập này có bản nháp cần sửa; hãy để tác nhân sửa và thăng cấp trước khi xác nhận"),
+    "script_review_quarantined": ("Tập này có bản nháp cần xử lý; hãy sửa hoặc hủy bản nháp trước khi xác nhận"),
     "script_review_conflict": (
         "Bản nháp kế hoạch kịch bản đã bị người chỉnh sửa khác thay đổi trong lúc bạn đang chỉnh sửa; lần lưu này chưa được áp dụng. "
         "Hãy tải lại để xem nội dung mới nhất, hợp nhất thay đổi của bạn rồi lưu lại"
@@ -226,7 +235,7 @@ MESSAGES = {
         "của tập này về đúng kịch bản của nó rồi thử lại"
     ),
     "script_review_quarantine_unreadable": (
-        "Tệp bản nháp cần sửa đã hỏng hoặc sai định dạng, không thể đọc được; hãy để tác nhân chia lại tập này"
+        "Tệp bản nháp cần sửa đã hỏng hoặc sai định dạng, không thể đọc được; hãy hủy bản nháp rồi tạo lại"
     ),
     # Source loader
     "source_unsupported_format": "Định dạng nguồn không hỗ trợ: {ext} (hỗ trợ: .txt / .md / .docx / .epub / .pdf)",

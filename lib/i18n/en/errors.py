@@ -193,11 +193,18 @@ MESSAGES = {
     "invalid_draft_stage": "Invalid draft stage: {stage}",
     "draft_file_not_found": "Draft file does not exist",
     "draft_invalid_json": "The script plan draft has an invalid structure; please check and retry",
+    "draft_not_found": "Episode {episode} has no such draft; it may already have been adopted or discarded",
+    "draft_revision_conflict": "The draft changed while you were editing, so this action was not applied; review the latest content and retry",
+    "draft_formal_revision_conflict": (
+        "The formal content changed after this draft was produced, so the save was not adopted; "
+        "discard the draft or hand it to the agent to merge"
+    ),
+    "draft_agent_owned": "The agent is editing this content; hand it to the agent to finish, or discard the edit",
+    "draft_doc_type_not_applicable": "This kind of draft does not apply to the current project",
+    "draft_save_failed": "The draft was saved, but validation could not finish; please retry later",
     "script_review_not_applicable": "Content confirmation does not apply to this episode (this mode produces no script plan result to confirm)",
     "script_review_no_script_plan": "No script plan result to confirm yet; please finish the script plan first",
-    "script_review_quarantined": (
-        "This episode has a draft needing fixes; let the agent fix and promote it before confirming"
-    ),
+    "script_review_quarantined": ("This episode has a draft to resolve; fix or discard the draft before confirming"),
     "script_review_conflict": (
         "The script plan draft was modified by another editor while you were editing; your save was not applied. "
         "Refresh to see the latest content, merge your changes, then save again"
@@ -228,7 +235,7 @@ MESSAGES = {
         "point this episode's script_file back at its own script, then retry"
     ),
     "script_review_quarantine_unreadable": (
-        "The draft needing fixes is corrupted or malformed and can't be read; ask the agent to re-split this episode"
+        "The draft needing fixes is corrupted or malformed and can't be read; discard it and generate again"
     ),
     # Source loader
     "source_unsupported_format": "Unsupported source format: {ext} (supported: .txt / .md / .docx / .epub / .pdf)",

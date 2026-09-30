@@ -90,6 +90,10 @@ import type {
   ItemPromptPreview,
   RenderedPromptPreview,
   ScriptReviewState,
+  DraftDocType,
+  EpisodeDraftSummary,
+  EpisodeDraftView,
+  SaveEpisodeDraftResult,
   DramaNormalizedScript,
   NarrationScriptPlanDraft,
   ReferenceScriptPlanDraft,
@@ -1134,6 +1138,64 @@ class API {
         method: "POST",
         body: JSON.stringify({ overwrite_revision: options.overwriteRevision ?? null }),
       }
+    );
+  }
+
+  // ==================== 草稿（待修复草稿 / Agent 的可编辑草稿） ====================
+
+  /** 本集在场的草稿摘要。 */
+  static async listEpisodeDrafts(
+    projectName: string,
+    episode: number,
+    options: { signal?: AbortSignal } = {}
+  ): Promise<{ episode: number; drafts: EpisodeDraftSummary[] }> {
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/episodes/${episode}/drafts`,
+      { signal: options.signal }
+    );
+  }
+
+  /** 一份草稿的呈现视图：违约与降级提示逐条目定位；Agent 的可编辑草稿不带正文。 */
+  static async getEpisodeDraft(
+    projectName: string,
+    episode: number,
+    docType: DraftDocType,
+    options: { signal?: AbortSignal } = {}
+  ): Promise<EpisodeDraftView> {
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/episodes/${episode}/drafts/${docType}`,
+      { signal: options.signal }
+    );
+  }
+
+  /** 手修保存：服务端全量重判，违约清零即采用为正式内容，否则返回刷新后的草稿视图。 */
+  static async saveEpisodeDraft(
+    projectName: string,
+    episode: number,
+    docType: DraftDocType,
+    content: Record<string, unknown>,
+    baseRevision: string
+  ): Promise<SaveEpisodeDraftResult> {
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/episodes/${episode}/drafts/${docType}`,
+      {
+        method: "PUT",
+        body: JSON.stringify({ content, base_revision: baseRevision }),
+      }
+    );
+  }
+
+  /** 丢弃草稿，回到正式内容。 */
+  static async discardEpisodeDraft(
+    projectName: string,
+    episode: number,
+    docType: DraftDocType,
+    baseRevision: string | null
+  ): Promise<{ episode: number; doc_type: DraftDocType; discarded: boolean }> {
+    const query = `?base_revision=${encodeURIComponent(baseRevision ?? "")}`;
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/episodes/${episode}/drafts/${docType}${query}`,
+      { method: "DELETE" }
     );
   }
 

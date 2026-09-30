@@ -125,8 +125,47 @@ describe("ReferenceVideoCanvas", () => {
       model_id: "kling-v2-1-master",
       problems: [],
     });
+    vi.spyOn(API, "listEpisodeDrafts").mockResolvedValue({ episode: 1, drafts: [] });
   });
   afterEach(() => vi.restoreAllMocks());
+
+  it("presents a prompt authoring draft needing fixes in place of the unit workbench and saves a hand fix", async () => {
+    vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [mkUnit("E1U1"), mkUnit("E1U2")], unit_capabilities: {} });
+    vi.spyOn(API, "listEpisodeDrafts").mockResolvedValue({
+      episode: 1,
+      drafts: [{ doc_type: "reference_prompt_authoring", editable_by: "user", violation_count: 1 }],
+    });
+    vi.spyOn(API, "getEpisodeDraft").mockResolvedValue({
+      episode: 1,
+      doc_type: "reference_prompt_authoring",
+      revision: "rev-1",
+      editable_by: "user",
+      content: { title: "第1集", units: [{ text: "镜头一" }, { text: "镜头二｛全角｝" }] },
+      violations: [{ code: "fullwidth_braces", label: "unit E1U2", message: "unit E1U2 使用了全角花括号", line: 0, item_index: 1 }],
+      soft_violations: [],
+      formal_exists: true,
+      item_ids: ["E1U1", "E1U2"],
+    });
+    const save = vi
+      .spyOn(API, "saveEpisodeDraft")
+      .mockResolvedValue({ episode: 1, doc_type: "reference_prompt_authoring", adopted: true, draft: null });
+    render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
+
+    expect(await screen.findByText("unit E1U2 使用了全角花括号")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "E1U2 · 1" })).toBeInTheDocument();
+    fireEvent.change(screen.getByRole("textbox", { name: "E1U2 正文" }), { target: { value: "镜头二" } });
+    fireEvent.click(screen.getByRole("button", { name: /保存并校验/ }));
+
+    await waitFor(() =>
+      expect(save).toHaveBeenCalledWith(
+        "proj",
+        1,
+        "reference_prompt_authoring",
+        { title: "第1集", units: [{ text: "镜头一" }, { text: "镜头二" }] },
+        "rev-1",
+      ),
+    );
+  });
 
   it("loads units on mount and renders the list", async () => {
     vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [mkUnit("E1U1"), mkUnit("E1U2")], unit_capabilities: {} });

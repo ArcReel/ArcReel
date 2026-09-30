@@ -16,6 +16,8 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable, Sequence
 from typing import Any
 
+from pydantic import ValidationError
+
 
 class DraftViolation(ValueError):
     """草稿产出违约。引用语法误用只是其中一类——原文锚、台词量、台词保真与生成侧的补充
@@ -29,6 +31,10 @@ class DraftViolation(ValueError):
     ``toScriptLines`` 的 ``sourceLine`` 同一坐标系），仅在校验发生于具体某一行时才有意义
     （如语法误用）；单元级、无自然行归属的违约（台词量超载、引用未登记等）留空，供呈现层
     区分「行内锚定」与「落卡内聚合区」两条路径。
+
+    ``item_index`` 是违约所在条目在草稿正文条目数组（``units`` / ``scenes`` / ``segments``）里的
+    0-based 下标，``item_id`` 是该条目的 ID（参考单元 ``unit_id``、分镜 ``segment_id`` 等）；呈现层
+    按下标把违约挂到对应条目上，不解析 ``label``。两者都为空即整集层面的违约。
     """
 
     def __init__(
@@ -41,6 +47,8 @@ class DraftViolation(ValueError):
         locations: tuple[dict[str, object], ...] = (),
         reason: str | None = None,
         action: str | None = None,
+        item_index: int | None = None,
+        item_id: str | None = None,
     ):
         super().__init__(message)
         self.code = code
@@ -49,6 +57,30 @@ class DraftViolation(ValueError):
         self.locations = locations
         self.reason = reason
         self.action = action
+        self.item_index = item_index
+        self.item_id = item_id
+
+
+def schema_violations(
+    exc: ValidationError, content: dict[str, Any], root: str, id_field: str | None = None
+) -> list[DraftViolation]:
+    """将 schema 字段错误按原始条目定位；顶层或数组整体错误保留为整集违约。"""
+    items = content.get(root)
+    violations: list[DraftViolation] = []
+    for error in exc.errors():
+        loc = error["loc"]
+        index = loc[1] if len(loc) > 1 and loc[0] == root and type(loc[1]) is int else None
+        item = items[index] if isinstance(items, list) and index is not None and index < len(items) else None
+        item_id = item.get(id_field) if isinstance(item, dict) and id_field is not None else None
+        violations.append(
+            DraftViolation(
+                f"草稿的 content.{'.'.join(str(part) for part in loc)} 不符合产出结构：{error['msg']}",
+                code="schema_invalid",
+                item_index=index,
+                item_id=item_id if isinstance(item_id, str) else None,
+            )
+        )
+    return violations
 
 
 class DraftViolations(DraftViolation):
@@ -68,7 +100,9 @@ def violation_items(exc: DraftViolation) -> list[DraftViolation]:
     return list(exc.items) if isinstance(exc, DraftViolations) else [exc]
 
 
-def collect_violations(checks: Iterable[Callable[[], Any]]) -> list[DraftViolation]:
+def collect_violations(
+    checks: Iterable[Callable[[], Any]], *, item_index: int | None = None, item_id: str | None = None
+) -> list[DraftViolation]:
     """依次执行各校验，收集 :class:`DraftViolation` 而不在首个违约处中断。
 
     单个校验函数内部仍是首个违约即抛（各判定共用一次遍历、后续判定以前面的结论为前提），
@@ -77,6 +111,8 @@ def collect_violations(checks: Iterable[Callable[[], Any]]) -> list[DraftViolati
 
     只吞 ``DraftViolation``：其余异常（解析器内部错误、脏数据引发的类型错误）照常上抛，
     不被伪装成一条内容违约。
+
+    ``item_index`` / ``item_id`` 给出时，把这批校验收到的违约定位到该条目（已自带定位的不改）。
     """
     found: list[DraftViolation] = []
     for check in checks:
@@ -84,7 +120,28 @@ def collect_violations(checks: Iterable[Callable[[], Any]]) -> list[DraftViolati
             check()
         except DraftViolation as exc:
             found.extend(violation_items(exc))
+    if item_index is not None or item_id is not None:
+        locate_violations(found, item_index=item_index, item_id=item_id)
     return found
+
+
+def locate_violations(
+    violations: Iterable[DraftViolation], *, item_index: int | None = None, item_id: str | None = None
+) -> None:
+    """给尚未定位的违约补上条目定位；已带定位的保持原值。"""
+    for violation in violations:
+        if violation.item_index is None and item_index is not None:
+            violation.item_index = item_index
+        if violation.item_id is None and item_id is not None:
+            violation.item_id = item_id
+
+
+def locate_violations_by_id(violations: Iterable[DraftViolation], item_ids: Sequence[str]) -> None:
+    """按 ``item_id`` 在条目 ID 序列里的位置补上 ``item_index``。"""
+    positions = {item_id: index for index, item_id in enumerate(item_ids)}
+    for violation in violations:
+        if violation.item_index is None and violation.item_id in positions:
+            violation.item_index = positions[violation.item_id]
 
 
 def render_violation_report(violations: Sequence[DraftViolation]) -> str:
@@ -100,6 +157,8 @@ __all__ = [
     "DraftViolation",
     "DraftViolations",
     "collect_violations",
+    "locate_violations",
+    "locate_violations_by_id",
     "render_violation_report",
     "violation_items",
 ]

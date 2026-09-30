@@ -25,6 +25,8 @@ export default {
   "label.episode": "第 {{episode}} 集",
   "label.draft_normalized_script": "第 {{episode}} 集规范化脚本",
   "label.draft_segment_splitting": "第 {{episode}} 集分镜拆分",
+  "label.draft_script_plan": "第 {{episode}} 集脚本规划草稿",
+  "label.draft_prompt_authoring": "第 {{episode}} 集提示词编写草稿",
 
   "entity.project": "项目",
   "entity.character": "角色",

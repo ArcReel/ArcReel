@@ -34,6 +34,7 @@ from lib.script.draft_quarantine import (
 )
 from lib.script.reference_video.draft_validation import DraftViolation
 from server.agent_toolset.script_authoring import CONFIRM_SCRIPT_REVIEW, GENERATE_EPISODE_SCRIPT
+from server.draft_workflow import DraftContext, DraftWorkflow
 from server.services.project.script_review import ScriptReviewError, ScriptReviewService
 from server.tool_runtime import TextGenerationResult
 from tests.factories import make_video_request_facts
@@ -1564,6 +1565,49 @@ class TestApplicability:
 
 
 class TestErrors:
+    @pytest.mark.parametrize("kind", ["drama", "narration", "reference_video"])
+    async def test_agent_draft_keeps_formal_plan_readonly_until_discarded(self, tmp_path, video_request_facts, kind):
+        pm = _make_project(
+            tmp_path,
+            "narration" if kind == "narration" else "drama",
+            generation_mode="reference_video" if kind == "reference_video" else None,
+        )
+        if kind == "reference_video":
+            content = _rv_script_plan()
+            path = _write_rv_script_plan(pm, content)
+            doc_type = "reference_script_plan"
+        else:
+            content = _admitted_drama_script_plan() if kind == "drama" else _narration_script_plan()
+            path = _write_script_plan(pm, kind, content)
+            doc_type = f"{kind}_script_plan"
+        service = _service(pm)
+        state = await service.get_state("demo", 1)
+        original = path.read_bytes()
+        workflow = DraftWorkflow(
+            DraftContext(project_name="demo", data_root=pm.data_root, pm=pm, config_resolver=service.config_resolver)
+        )
+        opened = await workflow.open(1, doc_type)
+        quarantine_kind = script_review.script_plan_quarantine_kind(pm.load_project("demo"))
+        assert quarantine_kind is not None
+        draft_path = quarantine_path(pm.get_project_path("demo"), 1, quarantine_kind)
+        original_draft = draft_path.read_bytes()
+        edited = json.loads(json.dumps(state["content"]))
+        if kind == "narration":
+            edited["segments"][0]["novel_text"] += "后来。"
+        elif kind == "drama":
+            edited["title"] = "修改后的标题"
+        else:
+            edited["units"][0]["text"] += "\n雨停了。"
+
+        with pytest.raises(ScriptReviewError) as exc:
+            await service.save_content("demo", 1, edited, state["fingerprint"])
+
+        assert exc.value.code == "draft_agent_owned"
+        assert path.read_bytes() == original
+        assert draft_path.read_bytes() == original_draft
+        await workflow.discard(1, doc_type, opened["revision"])
+        assert (await service.save_content("demo", 1, edited, state["fingerprint"]))["status"] == "pending_review"
+
     async def test_save_empty_dialogue_speaker_returns_structured_admission(self, tmp_path):
         pm = _make_project(tmp_path, "drama")
         svc = _service(pm)

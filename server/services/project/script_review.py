@@ -34,7 +34,12 @@ from lib.infra.json_io import load_json_or_none
 from lib.project.project_manager import ProjectManager, ScriptWriteConflict
 from lib.script import script_review
 from lib.script.draft_quarantine import (
+    DRAFT_OWNER_AGENT,
+    DRAFT_OWNER_USER,
     QUARANTINE_KIND_PROMPT_AUTHORING,
+    QUARANTINE_KIND_TO_DOC_TYPE,
+    draft_owner,
+    draft_revision,
     quarantine_path,
     read_quarantine,
     violation_entries,
@@ -46,6 +51,7 @@ from server.services.tasks.video_caps import (
     reference_request_facts_lookup,
     reference_unit_capabilities,
 )
+from server.text_generation import _fetch_reference_split_caps, reference_soft_violations, soft_violation_entries
 
 logger = logging.getLogger(__name__)
 
@@ -246,7 +252,20 @@ class ScriptReviewService:
         """
         project = await asyncio.to_thread(self.pm.load_project, project_name)
         supported_durations = await self._resolve_supported_durations(project)
-        return await asyncio.to_thread(self._get_state_sync, project_name, project, episode, supported_durations)
+        state = await asyncio.to_thread(self._get_state_sync, project_name, project, episode, supported_durations)
+        state["soft_violations"] = []
+        content = state["content"]
+        if script_review.script_plan_kind(project) == "reference_video" and isinstance(content, dict):
+            try:
+                caps = await _fetch_reference_split_caps(project, config_resolver=self.config_resolver)
+            except VideoRequestFactsError:
+                return state
+            units = content.get("units") or []
+            texts = [str(unit.get("text") or "") if isinstance(unit, dict) else "" for unit in units]
+            state["soft_violations"] = soft_violation_entries(
+                reference_soft_violations(texts, project, episode=episode, voice=caps.voice)
+            )
+        return state
 
     def _get_state_sync(
         self,
@@ -300,22 +319,20 @@ class ScriptReviewService:
         }
 
     async def get_quarantine_info(self, project_name: str, episode: int) -> dict[str, Any] | None:
-        """本集 script_plan 草稿的信息（供内容确认呈现违约），不适用 / 无草稿时 None。
+        """本集 script_plan 草稿的呈现视图（供内容确认页展示与手修），不适用 / 无草稿时 None。
 
-        读时按产出时那套校验器全量重算（``revalidate_script_plan_draft`` 按 kind 分派到该变体的重判
-        器，晋升工具同一份代码），不信任草稿里 ``violations`` 的上一轮快照——草稿在场期间源文或
-        模型配置可能已变，报告要对现值负责。本方法与 ``get_state`` 各自读盘、互不依赖，由 router
-        在同一次请求内合并两者的返回。
+        视图字段：``doc_type``、``revision``（手修保存与丢弃的并发令牌；信封损坏时为 None）、
+        ``editable_by``（``user`` 为待修复草稿，``agent`` 为 Agent 的可编辑草稿）、``content``（草稿正文
+        原样，供创作者就地修改；Agent 的可编辑草稿不展示内容，为 None）、``violations``、
+        ``soft_violations``（逐条目定位的降级提示）与 ``formal_exists``（丢弃后是否有正式脚本规划可回）。
 
-        ``content`` 校验通过时返回收编后的草稿层内容（形状随变体：参考生视频扁平 units、drama 的
-        title + scenes、narration 的 segments），未通过时返回草稿原样内容 + 违约列表，供呈现层
-        原样展示 Agent 手改的那份文本。meta 被改坏以致无从重算时，把「无法重算」本身作为一条违约
-        返回，而不是退回草稿里那份上一轮快照——报告一律对现值负责，读时重算失败也是现值的一部分。
+        违约读时按产出时那套校验器全量重算（``revalidate_script_plan_draft`` 按 kind 分派到该变体的
+        重判器，晋升工具同一份代码），不信任草稿里 ``violations`` 的上一轮快照——草稿在场期间源文或
+        模型配置可能已变，报告要对现值负责。meta 被改坏以致无从重算时，把「无法重算」本身作为一条
+        违约返回，而不是退回草稿里那份上一轮快照。可编辑草稿归 Agent 处置，不重算。
 
-        项目 / 草稿的同步文件读取经 ``asyncio.to_thread`` 卸到线程——本方法整体是
-        ``async``（内部要 ``await`` 重算里的能力解析），若前半截同步 I/O 直接跑在事件循环上，
-        源文越大越占用循环时间，拖慢并发的其它请求；``get_state`` 把同步主体整段卸到线程，
-        这里保持同一纪律。
+        本方法与 ``get_state`` 各自读盘、互不依赖，由 router 在同一次请求内合并两者的返回。项目 /
+        草稿的同步文件读取经 ``asyncio.to_thread`` 卸到线程，避免源文较大时占用事件循环。
         """
         project = await asyncio.to_thread(self.pm.load_project, project_name)
         quarantine_kind = script_review.script_plan_quarantine_kind(project)
@@ -325,6 +342,16 @@ class ScriptReviewService:
         quarantine_path = script_review.script_plan_quarantine_path(project_path, project, episode)
         if quarantine_path is None or not quarantine_path.exists():
             return None
+        formal_path = script_review.script_plan_path(project_path, project, episode)
+        view: dict[str, Any] = {
+            "doc_type": QUARANTINE_KIND_TO_DOC_TYPE[quarantine_kind],
+            "revision": None,
+            "editable_by": DRAFT_OWNER_USER,
+            "content": None,
+            "violations": [],
+            "soft_violations": [],
+            "formal_exists": formal_path is not None and await asyncio.to_thread(formal_path.exists),
+        }
         draft = await asyncio.to_thread(read_quarantine, project_path, episode, quarantine_kind)
         if draft is None:
             if not quarantine_path.exists():
@@ -335,17 +362,13 @@ class ScriptReviewService:
             # 文件存在但信封形状坏（非法 JSON / 顶层非对象 / content 非对象）：`read_quarantine`
             # 按「无草稿」返回 None 是它自己的读取口径（供 confirm 的存在性判断照常阻塞），
             # 但呈现层不能照单全收——那会让面板看起来「干净」，实际草稿仍在阻塞确认。
-            return {
-                "content": None,
-                "violations": [
-                    {
-                        "code": "quarantine_unreadable",
-                        "label": "",
-                        "message": "草稿文件已损坏或格式不符，无法解析",
-                        "line": None,
-                    }
-                ],
-            }
+            view["violations"] = [_unreadable_violation("草稿文件已损坏或格式不符，无法解析")]
+            return view
+        view["revision"] = draft_revision(draft)
+        view["editable_by"] = draft_owner(draft)
+        if view["editable_by"] == DRAFT_OWNER_AGENT:
+            return view
+        view["content"] = draft.content
         # 延迟导入避免模块级循环依赖：draft_workflow 复用本服务的持锁写入能力。
         from server.draft_workflow import revalidate_script_plan_draft
 
@@ -358,40 +381,27 @@ class ScriptReviewService:
                 config_resolver=self.config_resolver,
             )
         except VideoRequestFactsError as exc:
-            # 视频请求事实解析不出是配置问题而非草稿损坏：按事实的问题码与参数报成一条无 unit 归属的
+            # 视频请求事实解析不出是配置问题而非草稿损坏：按事实的问题码与参数报成一条无条目归属的
             # 违约，router 按问题码的文案 key 本地化 message。
-            return {
-                "content": draft.content,
-                "violations": [
-                    {
-                        "code": exc.code,
-                        "label": "",
-                        "message": f"视频时长档位无法解析：{exc.failure.summary()}；请在设置中配置可用的视频模型后重新校验",
-                        "line": None,
-                        "params": exc.params,
-                    }
-                ],
-            }
+            view["violations"] = [
+                {
+                    "code": exc.code,
+                    "label": "",
+                    "message": f"视频时长档位无法解析：{exc.failure.summary()}；请在设置中配置可用的视频模型后重新校验",
+                    "line": None,
+                    "params": exc.params,
+                }
+            ]
+            return view
         except ValueError as exc:
-            # meta.source 缺失等草稿被改坏的情形：把重算失败本身报成一条无 unit 归属的违约，
-            # 呈现层落聚合区。gate 不崩，用户也不会看到一份与现值脱钩的旧报告。异常文本含
+            # meta.source 缺失等草稿被改坏的情形：把重算失败本身报成一条整集层面的违约。异常文本含
             # draft.path，只记日志、不回传给调用方——面向用户的 message 不能带内部路径。
             logger.warning("草稿重算失败 project=%s episode=%s：%s", project_name, episode, exc)
-            return {
-                "content": draft.content,
-                "violations": [
-                    {
-                        "code": "quarantine_unreadable",
-                        "label": "",
-                        "message": "草稿的产出上下文缺失或损坏，无法重新校验",
-                        "line": None,
-                    }
-                ],
-            }
-        # 重判器没能收编内容（连产出时的 schema 都没过）时退回草稿原样内容：呈现层要展示的是
-        # Agent 手改的那份文本，收编不了就不代它改形。
-        content = draft.content if revalidation.content is None else revalidation.content
-        return {"content": content, "violations": violation_entries(revalidation.violations)}
+            view["violations"] = [_unreadable_violation("草稿的产出上下文缺失或损坏，无法重新校验")]
+            return view
+        view["violations"] = violation_entries(revalidation.violations)
+        view["soft_violations"] = soft_violation_entries(list(revalidation.soft_violations))
+        return view
 
     async def get_reference_duration_tiers(
         self, project_name: str, episode: int, units: Sequence[dict[str, Any]] = ()
@@ -427,6 +437,7 @@ class ScriptReviewService:
 
         内容变更使指纹漂移，``get_state`` 据此自动回到 pending_review——保存即重新需要确认。
         已确认的脚本规划只读，保存抛 ``script_plan_confirmed``、不落盘；重跑脚本规划写出新内容后恢复可保存。
+        Agent 的可编辑草稿在场时，正式规划也只读，保存抛 ``draft_agent_owned``。
 
         ``base_fingerprint`` 是编辑方读取内容（``get_state``）时拿到的指纹：给定时在锁内与盘上
         现值比对，不一致（编辑期间另一写入方已改过 script_plan）抛 ``conflict``、不落盘——后写方拿
@@ -469,7 +480,7 @@ class ScriptReviewService:
                     self.pm.file_lock(prompt_authoring_path),
                     script_review.script_plan_write_lock(project_path, episode),
                 ):
-                    self._reject_confirmed_script_plan(project_name, project_path, episode)
+                    self._reject_readonly_script_plan(project_name, project_path, episode)
                     _require_changed_speech_admitted(kind, _read_json(path), validated)
                     script_review.write_script_plan_locked(
                         project_path, episode, validated, expected_fingerprint=expected
@@ -480,16 +491,18 @@ class ScriptReviewService:
                 # 台词准入判定，让基线过期的保存拿到 conflict 而不是一条它改不动的准入意见。
                 # 比对既已在此做过，落盘出口不再重复比对（默认 UNCHECKED）。
                 with script_review.formal_script_plan_lock(project_path, episode, path):
-                    self._reject_confirmed_script_plan(project_name, project_path, episode)
+                    self._reject_readonly_script_plan(project_name, project_path, episode)
                     script_review.assert_base_fingerprint(path, expected)
                     _require_changed_speech_admitted(kind, _read_json(path), validated)
                     script_review.write_formal_script_plan_locked(project_path, episode, path, validated)
         except script_review.ScriptPlanWriteConflict as exc:
             raise ScriptReviewError("conflict", str(exc)) from exc
 
-    def _reject_confirmed_script_plan(self, project_name: str, project_path: Path, episode: int) -> None:
-        """已确认的脚本规划只读：持脚本规划锁时按最新确认记录判定，已确认即拒绝保存。"""
+    def _reject_readonly_script_plan(self, project_name: str, project_path: Path, episode: int) -> None:
+        """持正式规划锁按最新确认记录与 Agent 草稿归属拒绝只读规划的保存。"""
         project = self.pm.load_project(project_name)
+        if script_review.formal_script_plan_agent_owned(project_path, project, episode):
+            raise ScriptReviewError("draft_agent_owned")
         if script_review.formal_script_plan_confirmed(project_path, project, episode):
             raise ScriptReviewError("script_plan_confirmed")
 
@@ -628,6 +641,11 @@ class ScriptReviewService:
 def _overwrite_dict(project_path: Path, project: Mapping[str, Any], episode: int) -> dict[str, Any] | None:
     overwrite = script_review.formal_script_overwrite(project_path, project, episode)
     return overwrite.to_dict() if overwrite is not None else None
+
+
+def _unreadable_violation(message: str) -> dict[str, Any]:
+    """草稿无从重算时的那条整集层面违约；router 按 ``quarantine_unreadable`` 的文案 key 本地化。"""
+    return {"code": "quarantine_unreadable", "label": "", "message": message, "line": None}
 
 
 def _read_json(path: Path) -> dict[str, Any] | None:
