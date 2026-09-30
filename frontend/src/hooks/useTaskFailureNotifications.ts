@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { useTasksStore } from "@/stores/tasks-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useAppStore } from "@/stores/app-store";
+import { isAssetSheetBatchTask } from "@/stores/asset-sheet-batch-store";
 import { buildTaskFailureTarget, describeTaskFailure } from "@/utils/task-target";
 import type { TaskStatus } from "@/types";
 
@@ -70,7 +71,8 @@ export function useTaskFailureNotifications(projectName?: string | null): void {
       const before = prev.get(tk.task_id);
       const isTransition = before !== undefined && before !== "failed";
       const isFreshFailure = seeded && before === undefined;
-      if (tk.status === "failed" && (isTransition || isFreshFailure)) {
+      // 资产图批次的成员由 useAssetSheetBatchNotifications 整批汇总成一条通知。
+      if (tk.status === "failed" && (isTransition || isFreshFailure) && !isAssetSheetBatchTask(tk.task_id)) {
         const text = describeTaskFailure(tRef.current, tk);
         if (text) {
           useAppStore.getState().pushNotification(text, "error", {

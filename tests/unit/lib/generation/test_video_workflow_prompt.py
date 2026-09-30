@@ -267,12 +267,14 @@ def test_every_content_mode_materializes_the_video_workflow_skill(mode: str) -> 
 
 
 @pytest.mark.parametrize("filename", WORKFLOW_VARIANTS)
-def test_generate_assets_calls_pass_the_intersection_variable(filename: str) -> None:
-    calls = re.findall(r"mcp__arcreel__generate_assets\((\{[^}]*\})\)", _skill(filename))
+def test_asset_sheet_step_generates_by_episode_id(filename: str) -> None:
+    """「本集引用的资产」由服务端按集算：工作流只按 episode_id 调一次，不在提示词里拼名单。"""
+
+    content = _skill(filename)
+    calls = re.findall(r"mcp__arcreel__generate_assets\((\{[^}]*\})\)", content)
 
     assert calls, f"{filename} 没有 generate_assets 调用模板，断言失去意义"
     for call in calls:
-        names_value = re.search(r'"names":\s*(\[[^\]]*\])', call)
-        assert names_value is not None, f"{filename} 的 {call} 未给出 names 参数"
-        assert "requested_ids" not in names_value.group(1)
-        assert "names" in names_value.group(1)
+        assert '"episode_id"' in call
+        assert '"names"' not in call
+    assert "missing_ids ∩" not in content

@@ -747,7 +747,6 @@ def test_every_machine_identifier_has_a_product_language_label() -> None:
 def test_every_generation_entry_point_has_a_product_language_label() -> None:
     """每个生成入口都登记了产品语言名，摘要抬头才不会回落到中性措辞。"""
     from server.media_tools import (
-        assets,
         final_cuts,
         grid,
         image_edits,
@@ -755,9 +754,10 @@ def test_every_generation_entry_point_has_a_product_language_label() -> None:
         storyboards,
         videos,
     )
+    from server.services.admission.asset_sheet_batch import ASSET_BATCH_OPERATION
 
     operations = {
-        assets._OPERATION,
+        ASSET_BATCH_OPERATION,
         final_cuts._OPERATION,
         grid._OPERATION,
         image_edits._OPERATION,

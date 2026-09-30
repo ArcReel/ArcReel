@@ -1,7 +1,9 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { User } from "lucide-react";
+import { AssetSheetBatchControls } from "./AssetSheetBatchControls";
 import { GalleryToolbar } from "./GalleryToolbar";
+import { matchesSheetFilter, useAssetSheetStatus, useSheetStatusByName, type SheetStatusFilter } from "./useAssetSheetStatus";
 import { CharacterCard } from "./CharacterCard";
 import { AssetFormModal } from "@/components/assets/AssetFormModal";
 import { AssetPickerModal } from "@/components/assets/AssetPickerModal";
@@ -34,8 +36,12 @@ export function CharactersPage({ projectName, characters, onSaveCharacter, onGen
   const [picking, setPicking] = useState(false);
 
   useScrollTarget("character");
+  const sheetRows = useAssetSheetStatus(projectName);
+  const sheetStatus = useSheetStatusByName(sheetRows, "character");
+  const [sheetFilter, setSheetFilter] = useState<SheetStatusFilter>("all");
 
   const entries = Object.entries(characters);
+  const shownEntries = entries.filter(([name]) => matchesSheetFilter(sheetStatus.get(name), sheetFilter));
 
   const handleImport = async (ids: string[]) => {
     try {
@@ -60,7 +66,16 @@ export function CharactersPage({ projectName, characters, onSaveCharacter, onGen
         count={entries.length}
         onAdd={readOnly ? undefined : () => setAdding(true)}
         onPickFromLibrary={readOnly ? undefined : () => setPicking(true)}
-      />
+      >
+        <AssetSheetBatchControls
+          projectName={projectName}
+          assetType="character"
+          rows={sheetRows}
+          filter={sheetFilter}
+          onFilterChange={setSheetFilter}
+          readOnly={readOnly}
+        />
+      </GalleryToolbar>
       <div className="px-5 py-5" data-onboarding={ONBOARDING_ANCHORS.workbenchLorebook}>
         {entries.length === 0 ? (
           <GalleryEmptyState
@@ -73,7 +88,7 @@ export function CharactersPage({ projectName, characters, onSaveCharacter, onGen
           />
         ) : (
           <div className="grid justify-evenly gap-4 [grid-template-columns:repeat(auto-fill,320px)]">
-            {entries.map(([name, char]) => (
+            {shownEntries.map(([name, char]) => (
               <CharacterCard key={name} name={name} character={char} projectName={projectName}
                 onSave={onSaveCharacter}
                 onGenerate={onGenerateCharacter}
@@ -81,6 +96,7 @@ export function CharactersPage({ projectName, characters, onSaveCharacter, onGen
                 onReload={onRefreshProject}
                 generating={generatingCharacterNames?.has(name)}
                 voiceBinding={voiceBinding}
+                sheetStatus={sheetStatus.get(name)}
                 readOnly={readOnly}
               />
             ))}

@@ -13,7 +13,9 @@ import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { isResourceBusy, useActiveResourceIds } from "@/stores/tasks-store";
 import { errMsg } from "@/utils/async";
-import type { CharacterDerivativeStatus } from "@/types";
+import { MissingDescriptionChip, hasUsableDescription } from "./AssetSheetStatusBadge";
+import { useStaleRegenerateConfirm } from "./useStaleRegenerateConfirm";
+import type { AssetSheetStatusRow, CharacterDerivativeStatus } from "@/types";
 
 interface CharacterDerivativeSheetProps {
   projectName: string;
@@ -50,14 +52,16 @@ export function CharacterDerivativeSheet({
   // 回退换掉图之后 key 变了，自然重新试一次，否则占位内容会一直顶到组件卸载。
   const [errorKey, setErrorKey] = useState<string | null>(null);
   const resourceId = derivativeResourceId(characterName, derivativeName);
-  const sheetPath = status?.character_sheet ?? "";
+  const artifactStatus = status?.artifact_status ?? (status?.stale ? "stale" : status?.character_sheet ? "current" : "missing");
+  const sheetPath = artifactStatus === "missing" ? "" : status?.character_sheet ?? "";
   const sheetFp = useProjectsStore((s) => (sheetPath ? s.getAssetFingerprint(sheetPath) : null));
   const sheetKey = sheetPath ? `${sheetPath}#${sheetFp ?? ""}` : null;
   const imgError = errorKey !== null && errorKey === sheetKey;
   const activeIds = useActiveResourceIds("character_derivative", projectName);
   const generating = activeIds.has(resourceId);
   const sheetUrl = sheetPath ? API.getFileUrl(projectName, sheetPath, sheetFp) : null;
-  const stale = status?.stale === true;
+  const stale = artifactStatus === "stale";
+  const descriptionMissing = !hasUsableDescription(status?.description);
   const alt = `${characterName}/${derivativeName}`;
 
   const handleGenerate = async () => {
@@ -72,6 +76,23 @@ export function CharacterDerivativeSheet({
       useAppStore.getState().pushToast(errMsg(err), "error");
     }
   };
+  const sheetStatus: AssetSheetStatusRow = {
+    unit_id: `character/${resourceId}`,
+    asset_type: "character",
+    name: characterName,
+    derivative: derivativeName,
+    status: artifactStatus,
+    description_missing: descriptionMissing,
+    image_to_image: true,
+  };
+  const staleConfirm = useStaleRegenerateConfirm({
+    projectName,
+    assetType: "character",
+    name: characterName,
+    derivativeName,
+    status: sheetStatus,
+    onGenerate: () => void handleGenerate(),
+  });
 
   return (
     <div className="mt-2">
@@ -112,11 +133,12 @@ export function CharacterDerivativeSheet({
         )}
       </div>
 
-      <div className="mt-1.5 flex items-center gap-1">
+      {descriptionMissing && <div className="mt-1.5"><MissingDescriptionChip /></div>}
+      <div className="mt-1.5 flex items-center gap-1" title={descriptionMissing ? t("sheet_description_required") : undefined}>
         <GenerateButton
-          onClick={() => void handleGenerate()}
+          onClick={staleConfirm.request}
           loading={generating}
-          disabled={busy || !ownerHasSheet}
+          disabled={busy || !ownerHasSheet || descriptionMissing}
           label={sheetPath ? t("assets:derivative_regenerate") : t("assets:derivative_generate")}
           className="!px-2 !py-1 !text-[11px]"
         />
@@ -136,6 +158,7 @@ export function CharacterDerivativeSheet({
           busy={busy || generating}
         />
       </div>
+      {staleConfirm.dialog}
     </div>
   );
 }

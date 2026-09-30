@@ -28,6 +28,14 @@ const ASSET_ROUTES: Record<"character" | "scene" | "prop" | "product", string> =
   product: `/${WORKSPACE_ROUTE_PRODUCTS}`,
 };
 
+/** 资产页上某张资产的回跳 target（衍生定位到其本体卡片）。 */
+export function assetNotificationTarget(
+  assetType: keyof typeof ASSET_ROUTES,
+  name: string,
+): WorkspaceNotificationTarget {
+  return { type: assetType, id: name, route: ASSET_ROUTES[assetType], highlight_style: "flash" };
+}
+
 const FAILURE_TEXT_KEYS: Partial<
   Record<TaskItem["task_type"], { key: string; idParam: "id" | "unitId" }>
 > = {

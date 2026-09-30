@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CharacterDerivativeSheet } from "./CharacterDerivativeSheet";
 import { API } from "@/api";
@@ -61,6 +61,7 @@ describe("CharacterDerivativeSheet", () => {
   });
 
   it("enqueues a regeneration addressed by the compound resource id", async () => {
+    vi.spyOn(API, "getAssetRegenerationImpact").mockResolvedValue({ storyboards: 2, videos: 1, derivatives: 0 });
     const spy = vi
       .spyOn(API, "generateCharacterDerivative")
       .mockResolvedValue({ success: true, task_id: "task-1", deduped: false, message: "已提交" });
@@ -68,8 +69,27 @@ describe("CharacterDerivativeSheet", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "重新生成" }));
 
+    expect(await screen.findByRole("dialog")).toHaveTextContent("2 张分镜图、1 段视频");
+    expect(spy).not.toHaveBeenCalled();
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "重新生成" }));
+
     await waitFor(() => expect(spy).toHaveBeenCalledWith("demo", "阿岚", "战斗装"));
     expect(useTasksStore.getState().optimisticActive.size).toBeGreaterThan(0);
+  });
+
+  it("disables generation and explains a missing description", () => {
+    renderSheet({ description: "   ", character_sheet: "", stale: false });
+
+    expect(screen.getByRole("button", { name: "生成衍生图" })).toBeDisabled();
+    expect(screen.getByText("缺描述")).toHaveAttribute("title", "需要先填写描述");
+  });
+
+  it("treats a registered but unreadable derivative image as pending", () => {
+    renderSheet({ description: "换上黑色重甲", character_sheet: SHEET_PATH, stale: false, artifact_status: "missing" });
+
+    expect(screen.queryByAltText("阿岚/战斗装")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "生成衍生图" })).toBeEnabled();
+    expect(screen.getByText("还没有衍生图")).toBeInTheDocument();
   });
 
   it("retries the image once the sheet is replaced", async () => {

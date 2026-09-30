@@ -2,14 +2,24 @@
 
 from __future__ import annotations
 
+import json
 from typing import Any
+
+import pytest
 
 from lib.generation.generation_batch import (
     GenerationBatchRequestedItem,
     GenerationBatchRequestSnapshot,
     build_generation_batch_read_model,
 )
-from lib.generation.generation_result import GenerationItemState, GenerationSelectionMode, GenerationWarning
+from lib.generation.generation_result import (
+    GenerationAction,
+    GenerationItemState,
+    GenerationProblemCode,
+    GenerationSelectionMode,
+    GenerationWarning,
+)
+from lib.generation.task_failure import encode_failure
 
 
 def _batch(*unit_ids: str) -> dict[str, Any]:
@@ -88,3 +98,59 @@ def test_terminal_result_keeps_the_worker_warnings_of_a_post_processing_failure(
     item = read.generation_result.items[0]
     assert item.state is GenerationItemState.FAILED
     assert item.warnings == [GenerationWarning(key="ref_too_many_images", params=clamp["params"])]
+
+
+def test_a_member_held_back_by_a_failed_in_batch_dependency_reports_that_dependency() -> None:
+    """同批前置成员失败时，后继成员从未执行：报「依赖未成功」并点名前置成员，而不是泛化的级联失败。"""
+
+    batch = _batch("character/张三", "character/张三/黑衣")
+    batch["requested"] = GenerationBatchRequestSnapshot(
+        selection=GenerationSelectionMode.MISSING_ONLY,
+        requested=[
+            GenerationBatchRequestedItem(unit_id="character/张三"),
+            GenerationBatchRequestedItem(unit_id="character/张三/黑衣", depends_on="character/张三"),
+        ],
+    ).model_dump(mode="json")
+    owner_failure = "[provider_rejected] " + json.dumps({"detail": "bad prompt"})
+    read = build_generation_batch_read_model(
+        batch,
+        [
+            {
+                "unit_id": "character/张三",
+                "task_id": "task-owner",
+                "task_type": "character",
+                "status": "failed",
+                "deduped": False,
+                "error_message": owner_failure,
+            },
+            {
+                "unit_id": "character/张三/黑衣",
+                "task_id": "task-derivative",
+                "task_type": "character_derivative",
+                "status": "failed",
+                "deduped": False,
+                "error_message": encode_failure(
+                    "cascade_blocked_dependency", dependency_task_id="task-owner", reason=owner_failure
+                ),
+            },
+        ],
+        queue_depth={},
+    )
+
+    assert read.generation_result is not None
+    items = {item.unit_id: item for item in read.generation_result.items}
+    assert items["character/张三"].problem is not None
+    assert items["character/张三"].problem.code == "provider_rejected"
+    held = items["character/张三/黑衣"].problem
+    assert held is not None
+    assert held.code == GenerationProblemCode.DEPENDENCY_FAILED
+    assert held.action is GenerationAction.GENERATE_DEPENDENCY
+    assert held.params == {"dependency": "character/张三"}
+
+
+def test_a_dependency_must_name_a_member_of_the_same_batch() -> None:
+    with pytest.raises(ValueError, match="depends on a unit outside this batch"):
+        GenerationBatchRequestSnapshot(
+            selection=GenerationSelectionMode.MISSING_ONLY,
+            requested=[GenerationBatchRequestedItem(unit_id="character/张三/黑衣", depends_on="character/张三")],
+        )

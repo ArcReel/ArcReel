@@ -1,6 +1,7 @@
 import { useEffect, useId, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, Sparkles } from "lucide-react";
+import { AssetSheetBatchDialog } from "@/components/canvas/lorebook/AssetSheetBatchDialog";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useTasksStore } from "@/stores/tasks-store";
 import { useWorkflowStore } from "@/stores/workflow-store";
@@ -38,10 +39,11 @@ interface Props {
  * 的时候展开，展开状态在会话内保留。
  */
 export function WorkflowPanel({ projectName, episode, onViewUnit, onRegenerate }: Props) {
-  const { t } = useTranslation("workflow");
+  const { t } = useTranslation(["workflow", "assets"]);
   const panelId = useId();
   const alertId = useId();
   const [expanded, setExpanded] = useState(false);
+  const [assetBatchEpisode, setAssetBatchEpisode] = useState<number | null>(null);
 
   const plan = useWorkflowStore((s) => s.plan);
   const planKey = useWorkflowStore((s) => s.planKey);
@@ -93,6 +95,12 @@ export function WorkflowPanel({ projectName, episode, onViewUnit, onRegenerate }
     [shown, t],
   );
 
+  // 下一步是补本集资产图时，就地给出集层批量入口；范围取计划给出的集 ID。
+  const assetSheetEpisode =
+    shown?.next_action.type === "generate_asset_sheets" && typeof shown.next_action.args.episode === "number"
+      ? shown.next_action.args.episode
+      : null;
+
   // 摘要行只复述后端给的下一步动作，不做任何本地推断。
   const headline = shown
     ? nextStepForAction(t, shown.next_action.type)
@@ -125,6 +133,21 @@ export function WorkflowPanel({ projectName, episode, onViewUnit, onRegenerate }
         <span className="min-w-0 flex-1 truncate text-[12px]" style={{ color: "var(--color-text-3)" }}>
           {headline}
         </span>
+        {assetSheetEpisode !== null && (
+          <button
+            type="button"
+            onClick={() => setAssetBatchEpisode(assetSheetEpisode)}
+            className="focus-ring inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11.5px]"
+            style={{
+              color: "var(--color-text-2)",
+              border: "1px solid var(--color-accent-soft)",
+              background: "var(--color-accent-dim)",
+            }}
+          >
+            <Sparkles aria-hidden className="h-3 w-3" />
+            {t("assets:sheet_batch_episode_button")}
+          </button>
+        )}
         {blockers.length > 0 && (
           <span
             className="rounded-full px-2 py-0.5 text-[11px]"
@@ -193,6 +216,13 @@ export function WorkflowPanel({ projectName, episode, onViewUnit, onRegenerate }
             </p>
           )}
         </div>
+      )}
+      {assetBatchEpisode !== null && (
+        <AssetSheetBatchDialog
+          projectName={projectName}
+          scope={{ episode_id: assetBatchEpisode }}
+          onClose={() => setAssetBatchEpisode(null)}
+        />
       )}
     </section>
   );

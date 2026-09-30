@@ -36,7 +36,7 @@ from lib.artifacts.artifact_manifest import (
     ArtifactManifestError,
     ArtifactStatus,
 )
-from lib.generation.task_failure import parse_failure
+from lib.generation.task_failure import CASCADE_FAILURE_CODE, parse_failure
 from lib.i18n import _ as translate_default
 from lib.project.project_migration_failure import (
     MIGRATION_FAILURE_CODE,
@@ -99,6 +99,10 @@ class GenerationProblemCode(StrEnum):
     running; only the targets carrying this code still need queueing, and a
     missing-only sweep picks up exactly those."""
     ACTIVE_TASK_CONFLICT = "generation_active_task_conflict"
+    DEPENDENCY_FAILED = "generation_dependency_failed"
+    """This unit waited on another member of the same batch whose task did not
+    succeed, so it was never submitted to the provider and nothing was billed.
+    ``params.dependency`` names that member; generating it first is the next step."""
     BATCH_ADMISSION_WITHHELD = "generation_batch_admission_withheld"
     """This unit itself passed admission, but a sibling in the same batch did
     not. Batch video generation is all-or-nothing before any task is created, so
@@ -634,6 +638,27 @@ def problem_from_task_failure(
     )
 
 
+def dependency_failure_problem(
+    problem: GenerationProblem, dependency: str | None, *, dependency_not_queued: bool = False
+) -> GenerationProblem:
+    """A failed unit's problem; one held back by a failed in-batch dependency says so.
+
+    The queue marks such a unit failed without ever running it, so nothing was
+    submitted to the provider and nothing was billed. Naming the dependency
+    instead of the generic cascade keeps the next step pointed at the unit that
+    actually failed.
+    """
+
+    if dependency is None or (problem.code != CASCADE_FAILURE_CODE and not dependency_not_queued):
+        return problem
+    return GenerationProblem(
+        code=GenerationProblemCode.DEPENDENCY_FAILED,
+        detail=f"batch dependency {dependency} did not succeed; this unit was not submitted",
+        action=GenerationAction.GENERATE_DEPENDENCY,
+        params={"dependency": dependency},
+    )
+
+
 def enqueue_problem(detail: str | None, *, interrupted: bool = False) -> GenerationProblem:
     """Report a target that never reached the queue, for Web and Agent alike.
 
@@ -709,6 +734,21 @@ class GenerationResultBuilder:
 
         builder = cls(operation, selection.mode)
         builder.absorb(selection)
+        return builder
+
+    @classmethod
+    def from_preflight(cls, preflight: GenerationBatchResult) -> Self:
+        """Seed a builder with a preflight's blocked and skipped units, to fold the
+        executed outcomes of its targets in afterwards."""
+
+        if preflight.succeeded or preflight.failed:
+            raise ValueError("a preflight cannot contain executed outcomes")
+        builder = cls(preflight.operation, preflight.selection)
+        for skipped in preflight.skipped:
+            builder._seen.add(skipped.unit_id)
+            builder._skipped.append(skipped)
+        for item in preflight.items:
+            builder._record(item)
         return builder
 
     def absorb(self, selection: GenerationSelection) -> None:
@@ -910,6 +950,7 @@ def record_batch_outcomes(
     resolver: ArtifactCurrencyResolver | None = None,
     unit_id_of: Callable[[str], str] | None = None,
     fallback_path: Callable[[str], str] | None = None,
+    dependencies: Mapping[str, str] | None = None,
 ) -> None:
     """Fold one queue batch into the per-ID contract, for every entry point.
 
@@ -918,7 +959,8 @@ def record_batch_outcomes(
     and that is reported on its own axis rather than downgrading the task
     result. ``unit_id_of`` maps a queue ``resource_id`` to this contract's unit
     ID where the two differ; ``fallback_path`` supplies the conventional
-    relative path when the worker returned none.
+    relative path when the worker returned none. ``dependencies`` maps a unit
+    to the in-batch unit it waited on, as recorded in the batch snapshot.
     """
 
     def _state(unit_id: str) -> GenerationTargetState:
@@ -946,6 +988,7 @@ def record_batch_outcomes(
             provider_checkpoint=provider_checkpoint_from_task(br.task),
             warnings=generation_warnings_from_result(br.result),
         )
+    not_queued_ids = {unit_id_of(br.resource_id) if unit_id_of else br.resource_id for br in failures if not br.task_id}
     for br in failures:
         unit_id = unit_id_of(br.resource_id) if unit_id_of else br.resource_id
         state = _state(unit_id)
@@ -958,7 +1001,12 @@ def record_batch_outcomes(
         # again vs. inspect the provider failure).
         if not br.task_id:
             task_state = GenerationTaskState.NOT_QUEUED
-            problem = enqueue_problem(br.error, interrupted=br.enqueue_interrupted)
+            dependency = (dependencies or {}).get(unit_id)
+            problem = dependency_failure_problem(
+                enqueue_problem(br.error, interrupted=br.enqueue_interrupted),
+                dependency,
+                dependency_not_queued=dependency in not_queued_ids,
+            )
         else:
             if br.status == "cancelled":
                 task_state = GenerationTaskState.CANCELLED
@@ -966,8 +1014,11 @@ def record_batch_outcomes(
                 task_state = GenerationTaskState.INTERRUPTED
             else:
                 task_state = GenerationTaskState.FAILED
-            problem = problem_from_task_failure(
-                br.error, cancelled=br.status == "cancelled", interrupted=br.status == "interrupted"
+            problem = dependency_failure_problem(
+                problem_from_task_failure(
+                    br.error, cancelled=br.status == "cancelled", interrupted=br.status == "interrupted"
+                ),
+                (dependencies or {}).get(unit_id),
             )
         builder.fail(
             unit_id,

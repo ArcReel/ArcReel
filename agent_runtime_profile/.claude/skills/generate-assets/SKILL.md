@@ -17,7 +17,8 @@ description: >-
 - 用户只需在 project.json 中维护 `description`；最终交给图像 backend 的完整 prompt
   （含布局 / 防崩短语 / 反向提示词）由 `lib/prompts/prompt_builders.py` 在 server 端拼好，
   WebUI 与 Skill 走同一份真相源。
-- Pending 判定：Artifact Manifest 中该资产图状态为 `missing`；`stale` 产物复用，不计入待生成。
+- Pending 判定：Artifact Manifest 中该资产图状态为 `missing`（含登记了文件却读不到）；`stale` 产物复用，不计入待生成。
+- 衍生（`本体/衍生`）与本体同批：本体也待生成时，本体图成功后衍生才提交；本体失败则衍生报 `generation_dependency_failed`，不提交。
 
 ---
 
@@ -91,13 +92,18 @@ description: >-
 | 操作 | 工具 |
 |------|------|
 | 列出所有/某类 pending | `mcp__arcreel__list_pending_assets({"type": "character"})`（type 可省略） |
+| 列出本集引用的 pending | `mcp__arcreel__list_pending_assets({"episode_id": 3})` |
+| 生成本集引用的全部 pending（含商品与衍生） | `mcp__arcreel__generate_assets({"episode_id": 3})` |
 | 生成所有 pending（四类各一轮） | `mcp__arcreel__generate_assets({})` |
 | 生成某类全部 pending | `mcp__arcreel__generate_assets({"type": "character"})` |
 | 生成指定多个 | `mcp__arcreel__generate_assets({"type": "prop", "names": ["玉佩", "密信"]})` |
 | 生成单个 | `mcp__arcreel__generate_assets({"type": "scene", "names": ["村口老槐树"]})` |
 | 生成单个商品 | `mcp__arcreel__generate_assets({"type": "product", "names": ["保温杯"]})` |
+| 生成衍生 | `mcp__arcreel__generate_assets({"type": "character", "names": ["张三/战损"]})` |
 
-结果按 `requested / succeeded / failed / blocked / skipped` 逐 ID 返回，ID 形如 `character/张三`；
+`episode_id` 不与 `type` / `names` 同用；「本集引用了哪些资产」由服务端计算，与 Web 集层同一份名单。
+
+结果按 `requested / succeeded / failed / blocked / skipped` 逐 ID 返回，ID 形如 `character/张三`（衍生为 `character/张三/战损`）；
 已失效但可复用的旧图进入 `skipped`，不会自动重生；
 按每一项自带的 `problem.code` 与 `problem.action` 决定下一步，不要解析文本。
 结构详见 `.claude/references/generation-results.md`。

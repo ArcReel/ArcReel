@@ -161,7 +161,7 @@ FAILURE_CODE_KEYS: dict[str, str] = {
 # group matching even if a param value contains an escaped newline.
 _STRUCTURED_RE = re.compile(r"^\[(\w+)\](?:[ ](\{.*\}))?$", re.DOTALL)
 
-_CASCADE_CODE = "cascade_blocked_dependency"
+CASCADE_FAILURE_CODE = "cascade_blocked_dependency"
 
 # collapse_cascade_reason 的解包上限，纯粹的空转防线。
 _MAX_CASCADE_UNWRAP = 100
@@ -230,7 +230,7 @@ def collapse_cascade_reason(reason: str) -> str:
     seen = 0
     while True:
         parsed = parse_failure(reason)
-        if parsed is None or parsed[0] != _CASCADE_CODE:
+        if parsed is None or parsed[0] != CASCADE_FAILURE_CODE:
             return reason
         nested = parsed[1].get("reason")
         if not isinstance(nested, str):
@@ -366,7 +366,7 @@ def render_failure(error_message: str | None, translate: Callable[..., str]) -> 
     if parsed is None:
         return error_message
     code, params = parsed
-    if code == _CASCADE_CODE:
+    if code == CASCADE_FAILURE_CODE:
         nested_reason = params.get("reason")
         if isinstance(nested_reason, str):
             params = {**params, "reason": render_failure(nested_reason, translate)}

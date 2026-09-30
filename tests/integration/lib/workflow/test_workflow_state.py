@@ -10,6 +10,7 @@ import pytest
 import lib.script.script_review as script_review
 from lib.artifacts.artifact_activation import (
     activate_artifact_target_state,
+    active_artifact_currency_resolver,
     register_current_artifact,
     register_current_artifact_if_provable,
 )
@@ -24,6 +25,7 @@ from lib.episode.episode_ledger import (
 )
 from lib.infra.json_io import atomic_write_json
 from lib.project.asset_inventory import complete_asset_inventory
+from lib.project.episode_asset_references import episode_referenced_assets
 from lib.project.project_manager import ProjectManager
 from lib.project.project_migration_failure import (
     MIGRATION_FAILURE_CODE,
@@ -40,6 +42,7 @@ from lib.speech.narration_delivery import (
 )
 from lib.speech.speech_composition import admit_script_unit
 from lib.workflow.workflow_state import WorkflowStateService, planning_docs
+from server.services.admission.asset_sheet_batch import AssetSheetScope, plan_asset_sheet_batch
 
 
 def _make_project(
@@ -1131,17 +1134,76 @@ def test_invalid_asset_definition_blocks_existing_sheet(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize(
-    ("bucket", "entry"),
+    ("bucket", "field", "entry"),
     [
-        ("characters", {"description": ""}),
-        ("characters", {}),
-        ("scenes", {"description": ""}),
-        ("props", {"description": ""}),
+        ("characters", "characters_in_shot", {"description": ""}),
+        ("characters", "characters_in_shot", {}),
+        ("scenes", "scenes", {"description": ""}),
+        ("props", "props", {"description": ""}),
     ],
 )
-def test_asset_without_description_or_sheet_waits_for_its_sheet(tmp_path: Path, bucket: str, entry: dict) -> None:
+def test_asset_without_description_is_not_suggested_for_generation(
+    tmp_path: Path, bucket: str, field: str, entry: dict
+) -> None:
     pm, project_path = _make_project(tmp_path, "ad")
     pm.update_project("demo", lambda project: project.update({bucket: {"无描述资产": entry}}))
+    _write_registered_script(
+        project_path,
+        {"episode": 1, "title": "广告", "content_mode": "ad", "shots": [_valid_ad_shot(**{field: ["无描述资产"]})]},
+    )
+
+    status = WorkflowStateService(pm).get_status("demo")
+
+    assert status.blockers == []
+    assert status.state != "ASSET_SHEETS"
+    assert status.next_action.type != "generate_asset_sheets"
+
+
+@pytest.mark.parametrize("kind", ["product", "derivative", "owner_and_derivative", "blocked_derivative"])
+def test_episode_sheet_suggestion_matches_batch_targets(tmp_path: Path, kind: str) -> None:
+    pm, project_path = _make_project(tmp_path, "ad")
+    if kind == "product":
+        pm.add_product("demo", "杯子", "透明杯")
+        pm.update_project("demo", lambda project: project["products"]["杯子"].update({"selling_points": ["轻便"]}))
+        shot = _valid_ad_shot(products_in_shot=["杯子"])
+    else:
+        pm.add_character("demo", "Alice", "勇敢的少女")
+        pm.update_project(
+            "demo",
+            lambda project: project["characters"]["Alice"].update(
+                {"derivatives": {"战损": {"description": "衣服破损"}}}
+            ),
+        )
+        if kind == "derivative":
+            _write_artifact(project_path, "characters/Alice.png")
+            pm.update_project_character_sheet("demo", "Alice", "characters/Alice.png")
+            register_current_artifact(project_path, ArtifactKey.asset_sheet("character", "Alice"))
+        elif kind == "blocked_derivative":
+            pm.update_project("demo", lambda project: project["characters"]["Alice"].update({"description": ""}))
+        shot = _valid_ad_shot(characters_in_shot=["Alice/战损"])
+    script = {"episode": 1, "title": "广告", "content_mode": "ad", "shots": [shot]}
+    _write_registered_script(project_path, script)
+    project = pm.load_project("demo")
+    plan = plan_asset_sheet_batch(
+        project,
+        active_artifact_currency_resolver(project_path, project),
+        AssetSheetScope(episode_id=1),
+        referenced=episode_referenced_assets(project, script),
+    )
+
+    status = WorkflowStateService(pm).get_status("demo")
+
+    if plan.target_ids:
+        assert status.next_action.type == "generate_asset_sheets"
+        assert status.next_action.args == {"episode": 1}
+        assert set(status.next_action.requested_ids) == {unit_id.split("/", 1)[1] for unit_id in plan.target_ids}
+    else:
+        assert status.next_action.type != "generate_asset_sheets"
+
+
+def test_a_missing_sheet_the_episode_does_not_reference_does_not_hold_it_back(tmp_path: Path) -> None:
+    pm, project_path = _make_project(tmp_path, "ad")
+    pm.update_project("demo", lambda project: project.update({"props": {"别集的道具": {"description": "古玉"}}}))
     _write_registered_script(
         project_path,
         {"episode": 1, "title": "广告", "content_mode": "ad", "shots": [_valid_ad_shot()]},
@@ -1149,10 +1211,8 @@ def test_asset_without_description_or_sheet_waits_for_its_sheet(tmp_path: Path, 
 
     status = WorkflowStateService(pm).get_status("demo")
 
-    assert status.blockers == []
-    assert status.state == "ASSET_SHEETS"
-    assert status.next_action.type == "generate_asset_sheets"
-    assert status.next_action.requested_ids == ["无描述资产"]
+    assert status.state != "ASSET_SHEETS"
+    assert status.next_action.type != "generate_asset_sheets"
 
 
 def test_missing_ledger_script_binding_is_a_blocker(tmp_path: Path) -> None:

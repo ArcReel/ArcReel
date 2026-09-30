@@ -12,7 +12,7 @@ import os
 import re
 import stat
 import tempfile
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import asdict, dataclass, field, is_dataclass, replace
 from pathlib import Path, PurePosixPath
 from typing import Annotated, Any, Literal
@@ -287,13 +287,19 @@ async def submit_media_generation(
     specs: list[TaskSpec],
     states: dict[str, GenerationTargetState] | None = None,
     admission: dict[str, dict[str, Any]] | None = None,
+    dependencies: Mapping[str, str] | None = None,
 ) -> MediaGenerationSubmission:
-    """提交一批媒体生成：远程调用方即返批次句柄，内嵌调用方经 ``caller.batch_waiter`` 等到批次终态。"""
+    """提交一批媒体生成：远程调用方即返批次句柄，内嵌调用方经 ``caller.batch_waiter`` 等到批次终态。
+
+    ``dependencies`` 记下批内先后：某单元要等同批另一单元的任务成功后才执行（其 ``TaskSpec``
+    经 ``dependency_resource_id`` 指向那个单元），前置失败时它不提交给供应商。
+    """
     requested, blocked = build_generation_batch_admission(
         preflight=preflight,
         pending_ids=pending_ids,
         states=states,
         admission=admission,
+        dependencies=dependencies,
     )
     if caller.source == "mcp":
         batch, _enqueued, _enqueue_failures = await submit_generation_batch(
