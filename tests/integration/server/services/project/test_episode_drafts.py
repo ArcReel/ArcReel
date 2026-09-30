@@ -1,4 +1,5 @@
-"""一集草稿的 Web 读写：视图的条目定位、手修保存清零即采用、可编辑草稿归 Agent、丢弃回到正式内容。"""
+"""一集草稿的 Web 读写：视图的条目定位、手修保存清零即采用、可编辑草稿归 Agent、丢弃回到正式内容，
+以及 AI 修复（``DraftRepair``）的范围、合并与重判。"""
 
 from __future__ import annotations
 
@@ -7,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+from lib.backends.text_generator import TextGenerator
 from lib.project.project_manager import ProjectManager
 from lib.script.draft_quarantine import (
     FORMAL_EDIT_META_KEY,
@@ -18,10 +20,12 @@ from lib.script.draft_quarantine import (
     write_quarantine,
 )
 from lib.script.draft_violation import DraftViolation
-from server.draft_workflow import DraftWorkflowError
+from server.draft_repair import DraftRepair
+from server.draft_workflow import DraftContext, DraftWorkflowError
 from server.services.project.episode_drafts import EpisodeDraftService
 from server.services.project.script_review import ScriptReviewService
 from tests.factories import make_video_request_facts
+from tests.fakes import FakeTextGenerator
 
 pytestmark = pytest.mark.usefixtures("video_request_facts")
 
@@ -225,6 +229,88 @@ async def test_discard_returns_to_the_formal_script_plan(narration) -> None:
     with pytest.raises(DraftWorkflowError) as exc_info:
         await service.get_draft("demo", 1, "narration_script_plan")
     assert exc_info.value.code == "draft_not_found"
+
+
+def _repair(pm: ProjectManager) -> DraftRepair:
+    return DraftRepair(DraftContext(project_name="demo", data_root=pm.data_root, pm=pm))
+
+
+async def test_ai_repair_rewrites_only_the_violating_item_and_adopts_when_clean(narration, monkeypatch) -> None:
+    pm, project_path = narration
+    kept = _segment(novel_text="张三在村口", segment_break=True)
+    broken = _segment(segment_id="E1S02", novel_text="等人。", characters_in_segment=["王五"])
+    _write_narration_draft(project_path, [kept, broken])
+    view = await EpisodeDraftService(pm).get_draft("demo", 1, "narration_script_plan")
+    assert [(v["code"], v.get("item_index")) for v in view["violations"]] == [("unregistered_asset", 1)]
+    repaired = _segment(segment_id="E1S02", novel_text="等人。", characters_in_segment=["张三"])
+    model = FakeTextGenerator(json.dumps({"segments": [repaired]}, ensure_ascii=False))
+    monkeypatch.setattr(TextGenerator, "create", model.create)
+
+    result = await _repair(pm).repair(1, "narration_script_plan", view["revision"], "保持口语化")
+
+    assert result["adopted"] is True
+    assert _formal_segments(project_path) == [kept, repaired]
+    # 交给模型改的只有违约条目：完整草稿只作上下文，修改要求里只列出 segments[1]。
+    (request,) = model.requests
+    requirements = request.prompt.split("# 修改要求", 1)[1]
+    assert "## `segments[1]`" in requirements
+    assert '"segment_id": "E1S02"' in requirements
+    assert '"segment_id": "E1S01"' not in requirements
+    assert "保持口语化" in requirements
+
+
+async def test_ai_repair_rewrites_the_whole_draft_for_episode_level_violations(narration, monkeypatch) -> None:
+    pm, project_path = narration
+    _write_narration_draft(project_path, [_segment(), _segment(segment_id="E1S02")])
+    view = await EpisodeDraftService(pm).get_draft("demo", 1, "narration_script_plan")
+    assert ("novel_text_coverage", None) in {(v["code"], v.get("item_index")) for v in view["violations"]}
+    model = FakeTextGenerator(json.dumps({"segments": [_segment()]}, ensure_ascii=False))
+    monkeypatch.setattr(TextGenerator, "create", model.create)
+
+    result = await _repair(pm).repair(1, "narration_script_plan", view["revision"], None)
+
+    assert result["adopted"] is True
+    assert _formal_segments(project_path) == [_segment()]
+
+
+async def test_ai_repair_that_still_violates_updates_the_draft(narration, monkeypatch) -> None:
+    pm, project_path = narration
+    _write_narration_draft(project_path, [_segment(characters_in_segment=["王五"])])
+    service = EpisodeDraftService(pm)
+    view = await service.get_draft("demo", 1, "narration_script_plan")
+    still_broken = _segment(characters_in_segment=["王五"], duration_seconds=5)
+    model = FakeTextGenerator(json.dumps({"segments": [still_broken]}, ensure_ascii=False))
+    monkeypatch.setattr(TextGenerator, "create", model.create)
+
+    result = await _repair(pm).repair(1, "narration_script_plan", view["revision"], None)
+
+    assert result["adopted"] is False
+    after = await service.get_draft("demo", 1, "narration_script_plan")
+    assert after["content"] == {"segments": [still_broken]}
+    assert {(v["code"], v.get("item_index")) for v in after["violations"]} == {
+        ("unregistered_asset", 0),
+        ("duration_off_tier", 0),
+    }
+
+
+@pytest.mark.parametrize(
+    "reply",
+    [RuntimeError("provider down"), "not json", json.dumps({"segments": []})],
+    ids=["provider_error", "not_json", "wrong_item_count"],
+)
+async def test_failed_ai_repair_leaves_the_draft_untouched(narration, monkeypatch, reply) -> None:
+    pm, project_path = narration
+    _write_narration_draft(project_path, [_segment(characters_in_segment=["王五"])])
+    service = EpisodeDraftService(pm)
+    view = await service.get_draft("demo", 1, "narration_script_plan")
+    monkeypatch.setattr(TextGenerator, "create", FakeTextGenerator(reply).create)
+
+    with pytest.raises(DraftWorkflowError) as exc_info:
+        await _repair(pm).repair(1, "narration_script_plan", view["revision"], None)
+
+    assert exc_info.value.code == "draft_repair_failed"
+    after = await service.get_draft("demo", 1, "narration_script_plan")
+    assert (after["revision"], after["content"]) == (view["revision"], view["content"])
 
 
 async def test_prompt_authoring_draft_view_maps_items_to_formal_units(tmp_path: Path) -> None:

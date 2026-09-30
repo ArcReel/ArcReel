@@ -93,7 +93,7 @@ export function PromptAuthoringDraftPanel({ projectName, episode, view, onSettle
   const itemRefs = useRef(new Map<number, HTMLElement>());
   const episodeLevelRef = useRef<HTMLElement | null>(null);
   const scrollTo = (el: HTMLElement | null | undefined) => el?.scrollIntoView({ behavior: "smooth", block: "center" });
-  const busy = editor.saving || editor.discarding;
+  const busy = editor.saving || editor.discarding || editor.repairing;
   const agentOwned = view.editable_by === "agent";
 
   const discardDialog = (
@@ -145,6 +145,8 @@ export function PromptAuthoringDraftPanel({ projectName, episode, view, onSettle
         editable={content != null}
         dirty={editor.dirty}
         saving={editor.saving}
+        repairing={editor.repairing}
+        onRepair={editor.repair}
         busy={busy}
         outdated={editor.outdated}
         onSave={voidPromise(editor.save)}

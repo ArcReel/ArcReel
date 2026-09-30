@@ -191,6 +191,7 @@ export default {
   'task_type_text_drama_script_plan': 'Script plan',
   'task_type_text_narration_script_plan': 'Script plan',
   'task_type_text_reference_script_plan': 'Script plan',
+  'task_type_text_draft_repair': 'Draft repair',
   'task_type_character': 'Character',
   'task_type_scene': 'Scene',
   'task_type_prop': 'Prop',

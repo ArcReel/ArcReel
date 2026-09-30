@@ -124,6 +124,16 @@ _ARTIFACT_BY_STEP: dict[str, str] = {
     "edit": "edit_timelines",
 }
 
+#: 草稿 AI 修复的任务类型；资源 ID 见 :func:`draft_repair_resource_id`。
+TEXT_DRAFT_REPAIR_TASK_TYPE = "text_draft_repair"
+_PROMPT_AUTHORING_DRAFT_DOC_TYPE = "reference_prompt_authoring"
+
+
+def draft_repair_resource_id(episode: int, doc_type: str) -> str:
+    """AI 修复任务的占用槽：一份草稿一个，同一集的脚本规划草稿与提示词编写草稿互不占用。"""
+    return f"episode-{episode}-{doc_type}"
+
+
 _TASK_STEP: dict[str, str] = {
     "text_episode_plan": "episode_plan",
     "text_drama_script_plan": "script_plan_content",
@@ -136,6 +146,14 @@ _TASK_STEP: dict[str, str] = {
     "video": "video",
     "reference_video": "video",
 }
+
+
+def _task_step(observation: WorkflowTaskObservation) -> str | None:
+    """任务归入的步骤：草稿 AI 修复按草稿归入脚本规划或正式脚本（提示词编写草稿），其余按任务类型。"""
+    if observation.task_type == TEXT_DRAFT_REPAIR_TASK_TYPE:
+        prompt_authoring = observation.unit_id.endswith(f"-{_PROMPT_AUTHORING_DRAFT_DOC_TYPE}")
+        return "final_script" if prompt_authoring else "script_plan_content"
+    return _TASK_STEP.get(observation.task_type)
 
 
 #: 建议下一步归属的步骤：步骤顺序只用于呈现，下一步挂在它所属内容的那一步上。
@@ -367,7 +385,7 @@ def build_workflow_plan(
                 by_id[media_step].action = None
 
     for observation in task_observations:
-        step_id = _TASK_STEP.get(observation.task_type)
+        step_id = _task_step(observation)
         if step_id is None:
             continue
         step = by_id[step_id]

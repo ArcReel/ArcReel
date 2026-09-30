@@ -21,6 +21,7 @@ import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import type {
   AuthorPromptsRequest,
+  DraftDocType,
   PlanScriptRequest,
   ReferenceBatchAdmission,
   ReferenceBatchGenerateRequest,
@@ -486,5 +487,32 @@ export async function enqueueScriptPlan(
   const taskIds = res.batch.members.flatMap((member) => (member.task_id ? [member.task_id] : []));
   const deduped = res.batch.members.some((member) => member.deduped === true);
   notifyEnqueued(deduped, i18n.t("dashboard:script_plan_queued"), "info");
+  return { taskIds, deduped };
+}
+
+/** 草稿 AI 修复任务的占用槽：一份草稿一个，resource_id 与服务端 `episode-{N}-{doc_type}` 一致。 */
+export function draftRepairResourceId(episode: number, docType: DraftDocType): string {
+  return `episode-${episode}-${docType}`;
+}
+
+/**
+ * 提交待修复草稿的 AI 修复。修复读取的是 `baseRevision` 那一版已保存的草稿；草稿已变、本份草稿
+ * 已有进行中的修复等服务端错误原样抛出。
+ */
+export async function enqueueDraftRepair(
+  projectName: string,
+  episode: number,
+  docType: DraftDocType,
+  baseRevision: string,
+  instructions: string | null,
+): Promise<EnqueueResult> {
+  const res = await submit(
+    [markResource(projectName, "text_draft_repair", draftRepairResourceId(episode, docType), "text_draft_repair")],
+    () => API.repairEpisodeDraft(projectName, episode, docType, baseRevision, instructions),
+    (response) => response.batch.members.flatMap((member) => (member.task_id ? [member.task_id] : [])),
+  );
+  const taskIds = res.batch.members.flatMap((member) => (member.task_id ? [member.task_id] : []));
+  const deduped = res.batch.members.some((member) => member.deduped === true);
+  notifyEnqueued(deduped, i18n.t("dashboard:draft_repair_queued"), "info");
   return { taskIds, deduped };
 }

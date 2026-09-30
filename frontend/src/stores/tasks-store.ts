@@ -26,7 +26,8 @@ export type ResourceKind =
   | "reference_video"
   | "grid"
   | "text_episode_script"
-  | "text_script_plan";
+  | "text_script_plan"
+  | "text_draft_repair";
 
 /** 可做指令式编辑的资源种类；`image_edit` 任务按此归入对应资源槽。 */
 export type ImageEditResourceKind = Extract<

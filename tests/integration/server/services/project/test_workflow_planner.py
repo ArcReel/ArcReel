@@ -180,6 +180,22 @@ def _project_at_text_stage(tmp_path: Path, stage: str, content_mode: str, genera
             "episode-1",
         ),
         ("final_script", "ad", "storyboard", "text_episode_script", "final_script", "episode-1"),
+        (
+            "script_plan",
+            "drama",
+            "storyboard",
+            "text_draft_repair",
+            "script_plan_content",
+            "episode-1-drama_script_plan",
+        ),
+        (
+            "script_plan",
+            "narration",
+            "reference_video",
+            "text_draft_repair",
+            "final_script",
+            "episode-1-reference_prompt_authoring",
+        ),
     ],
 )
 async def test_recovered_plan_waits_for_active_text_task(

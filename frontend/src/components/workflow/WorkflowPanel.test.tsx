@@ -267,6 +267,35 @@ describe("WorkflowPanel 草稿", () => {
     await waitFor(() => expect(useAssistantStore.getState().input).toContain("时长不在档位内"));
   });
 
+  it("待修复草稿可以直接 AI 修复：按读到的版本提交，附加指令只随本次修复", async () => {
+    useTasksStore.getState().setTasks([]);
+    vi.spyOn(API, "getEpisodeDraft").mockResolvedValue({
+      doc_type: "drama_script_plan",
+      revision: "rev-3",
+      editable_by: "user",
+      content: {},
+      violations: [{ item_id: "E1S01", message: "时长不在档位内" }],
+      soft_violations: [],
+      formal_exists: false,
+      episode: 1,
+      item_ids: null,
+    } as unknown as Awaited<ReturnType<typeof API.getEpisodeDraft>>);
+    const repair = vi
+      .spyOn(API, "repairEpisodeDraft")
+      .mockResolvedValue({ batch: { members: [] } } as unknown as Awaited<ReturnType<typeof API.repairEpisodeDraft>>);
+    await renderExpanded(
+      scenario({
+        next: nextAction("resolve_draft", { args: { episode_id: 1, draft_kind: "drama_script_plan", needs_repair: true } }),
+        content: { drafts: [repairDraft], formal_script: "absent", script_item_count: null },
+      }),
+    );
+    const next = screen.getByTestId("workflow-next-step");
+    fireEvent.change(within(next).getByRole("textbox"), { target: { value: "只调整时长" } });
+    fireEvent.click(within(next).getByRole("button", { name: "AI 修复" }));
+
+    await waitFor(() => expect(repair).toHaveBeenCalledWith("proj", 1, "drama_script_plan", "rev-3", "只调整时长"));
+  });
+
   it("脚本规划的待修复草稿可以重新规划，打开的弹窗先说明会替换草稿", async () => {
     useScriptPlanStore.getState().close();
     await renderExpanded(

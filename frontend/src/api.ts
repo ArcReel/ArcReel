@@ -98,6 +98,7 @@ import type {
   AuthorPromptsResponse,
   PlanScriptRequest,
   PlanScriptResponse,
+  DraftRepairResponse,
   DramaNormalizedScript,
   NarrationScriptPlanDraft,
   ReferenceScriptPlanDraft,
@@ -1270,6 +1271,26 @@ class API {
       {
         method: "PUT",
         body: JSON.stringify({ content, base_revision: baseRevision }),
+      }
+    );
+  }
+
+  /**
+   * AI 修复，与 Agent 同一服务命令；以排队文本任务提交，立即返回生成批次。只改违约所在的条目，
+   * 修完照常重判，违约清零即采用，否则写回草稿。附加指令不保存。
+   */
+  static async repairEpisodeDraft(
+    projectName: string,
+    episode: number,
+    docType: DraftDocType,
+    baseRevision: string,
+    instructions: string | null
+  ): Promise<DraftRepairResponse> {
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/episodes/${episode}/drafts/${docType}/repair`,
+      {
+        method: "POST",
+        body: JSON.stringify({ base_revision: baseRevision, instructions }),
       }
     );
   }

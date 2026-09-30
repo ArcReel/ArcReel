@@ -526,7 +526,7 @@ export function ReferenceScriptPlanPreviewPanel({
     );
   }
 
-  const draftBusy = draftEditor.saving || draftEditor.discarding;
+  const draftBusy = draftEditor.saving || draftEditor.discarding || draftEditor.repairing;
   const discardDialog = quarantine && (
     <DiscardDraftDialog
       open={discardOpen}
@@ -573,6 +573,8 @@ export function ReferenceScriptPlanPreviewPanel({
           editable={content != null}
           dirty={draftEditor.dirty}
           saving={draftEditor.saving}
+          repairing={draftEditor.repairing}
+          onRepair={draftEditor.repair}
           busy={draftBusy}
           outdated={draftEditor.outdated}
           onSave={voidPromise(draftEditor.save)}

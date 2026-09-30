@@ -217,6 +217,8 @@ MESSAGES = {
     "blank_script_formal_exists": "本集已有正式脚本，不能从空白开始。请直接在时间线上修改",
     "draft_doc_type_not_applicable": "这类草稿不适用于当前项目",
     "draft_save_failed": "草稿已保存，但校验未能完成，请稍后重试",
+    "draft_repair_failed": "AI 修复没有完成，草稿未改动；请重试，或手动修改、交给 Agent",
+    "draft_repair_task_active": "这份草稿正在 AI 修复，请等修复完成后再试",
     "script_review_not_applicable": "该集不适用内容确认（该模式没有可确认的脚本规划结果）",
     "script_review_no_script_plan": "尚无可确认的脚本规划结果，请先完成脚本规划",
     "script_review_quarantined": "本集有草稿待处理，请先修复或丢弃草稿后再确认",

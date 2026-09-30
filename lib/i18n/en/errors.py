@@ -225,6 +225,8 @@ MESSAGES = {
     "blank_script_formal_exists": "This episode already has a formal script, so it cannot start from blank. Edit it on the timeline instead",
     "draft_doc_type_not_applicable": "This kind of draft does not apply to the current project",
     "draft_save_failed": "The draft was saved, but validation could not finish; please retry later",
+    "draft_repair_failed": "AI repair did not finish and the draft is unchanged. Try again, edit it yourself, or hand it to the Agent",
+    "draft_repair_task_active": "AI is already repairing this draft. Try again after it finishes",
     "script_review_not_applicable": "Content confirmation does not apply to this episode (this mode produces no script plan result to confirm)",
     "script_review_no_script_plan": "No script plan result to confirm yet; please finish the script plan first",
     "script_review_quarantined": ("This episode has a draft to resolve; fix or discard the draft before confirming"),

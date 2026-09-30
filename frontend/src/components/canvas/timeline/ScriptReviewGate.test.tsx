@@ -5,8 +5,9 @@ import { ScriptReviewGate } from "./ScriptReviewGate";
 import { API, ApiRequestError } from "@/api";
 import { useAppStore } from "@/stores/app-store";
 import { useAssistantStore } from "@/stores/assistant-store";
-import { makeScriptOverwrite, makeScriptOverwriteEntry } from "@/test/factories";
-import type { ScriptReviewQuarantine, ScriptReviewState, VideoCapabilities } from "@/types";
+import { useTasksStore } from "@/stores/tasks-store";
+import { makeScriptOverwrite, makeScriptOverwriteEntry, makeTask } from "@/test/factories";
+import type { ScriptReviewQuarantine, ScriptReviewState, TaskItem, VideoCapabilities } from "@/types";
 
 const VIDEO_CAPS = {
   provider_id: "gemini",
@@ -522,6 +523,93 @@ describe("ScriptReviewGate", () => {
 
     await waitFor(() => expect(screen.getByText("仍有一处违约")).toBeInTheDocument());
     expect(screen.getByDisplayValue("仍然不对。")).toBeInTheDocument();
+  });
+
+  it("queues an AI repair of the saved draft with one-off instructions and adopts once the task clears the violations", async () => {
+    useTasksStore.setState(useTasksStore.getInitialState(), true);
+    const get = vi.spyOn(API, "getScriptReview").mockResolvedValue(
+      narrationState({
+        quarantine: draftView({
+          content: { segments: [NARRATION_SEGMENT] },
+          violations: [
+            { code: "duration_off_tier", label: "segment E1S01", message: "segment E1S01 的时长 5 不在模型档位内", line: null, item_index: 0 },
+          ],
+        }),
+      }),
+    );
+    const resourceId = "episode-1-narration_script_plan";
+    const repair = vi.spyOn(API, "repairEpisodeDraft").mockResolvedValue({
+      batch: { batch_id: "b-1", members: [{ unit_id: resourceId, task_id: "t-repair" }] },
+    });
+    const repairTask = (overrides: Partial<TaskItem>) =>
+      makeTask({
+        task_id: "t-repair",
+        project_name: "p",
+        task_type: "text_draft_repair",
+        resource_id: resourceId,
+        ...overrides,
+      });
+    render(<ScriptReviewGate projectName="p" episode={1} contentMode="narration" />);
+
+    // 有未保存的修改时不可用：AI 修复读取的是已保存的草稿。
+    await waitFor(() => expect(screen.getByDisplayValue("裴与出征后的第二年。")).toBeInTheDocument());
+    fireEvent.change(screen.getByRole("textbox", { name: "小说原文" }), { target: { value: "改了一半。" } });
+    expect(screen.getByRole("button", { name: /AI 修复/ })).toBeDisabled();
+    fireEvent.change(screen.getByRole("textbox", { name: "小说原文" }), { target: { value: "裴与出征后的第二年。" } });
+
+    fireEvent.click(screen.getByRole("button", { name: /AI 修复/ }));
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.change(within(dialog).getByRole("textbox"), { target: { value: "只调整时长" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: /开始修复/ }));
+
+    await waitFor(() => expect(repair).toHaveBeenCalledWith("p", 1, "narration_script_plan", "rev-1", "只调整时长"));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    // 任务排队或执行期间状态条显示修复中，其余入口锁住；任务落定前不重拉。
+    act(() => useTasksStore.setState({ tasks: [repairTask({ status: "running" })] }));
+    expect(screen.getByRole("button", { name: /修复中/ })).toBeDisabled();
+    expect(get).toHaveBeenCalledTimes(1);
+
+    act(() =>
+      useTasksStore.setState({
+        tasks: [repairTask({ status: "succeeded", result: { adopted: true, violation_count: 0 } })],
+      }),
+    );
+    await waitFor(() => expect(get).toHaveBeenCalledTimes(2));
+    expect(useAppStore.getState().toast?.text).toBe("违约已清零，草稿已采用为正式内容");
+  });
+
+  it("reports a failed AI repair task with its reason", async () => {
+    useTasksStore.setState(useTasksStore.getInitialState(), true);
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(
+      narrationState({
+        quarantine: draftView({
+          content: { segments: [NARRATION_SEGMENT] },
+          violations: [
+            { code: "duration_off_tier", label: "segment E1S01", message: "segment E1S01 的时长 5 不在模型档位内", line: null, item_index: 0 },
+          ],
+        }),
+      }),
+    );
+    const running = makeTask({
+      task_id: "t-repair",
+      project_name: "p",
+      task_type: "text_draft_repair",
+      resource_id: "episode-1-narration_script_plan",
+      status: "running",
+    });
+    // 别处提交、页面打开时已在跑的修复同样跟踪到终态。
+    useTasksStore.setState({ tasks: [running] });
+    render(<ScriptReviewGate projectName="p" episode={1} contentMode="narration" />);
+    await waitFor(() => expect(screen.getByRole("button", { name: /修复中/ })).toBeDisabled());
+
+    act(() =>
+      useTasksStore.setState({
+        tasks: [{ ...running, status: "failed", error_message: "AI 修复没有完成，草稿未改动" }],
+      }),
+    );
+
+    await waitFor(() => expect(useAppStore.getState().toast?.text).toBe("AI 修复没有完成，草稿未改动"));
+    expect(screen.getByRole("button", { name: /AI 修复/ })).toBeEnabled();
   });
 
   it("hands a draft needing fixes to the assistant with its violations, or asks it to promote when none remain", async () => {
