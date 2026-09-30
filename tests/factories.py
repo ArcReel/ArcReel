@@ -369,3 +369,68 @@ def activate_reference_project(project_dir: Path, project: dict[str, Any]) -> di
     migrate_v7_to_v8(project_dir)
     migrate_project_dir(project_dir)
     return json.loads((project_dir / "project.json").read_text(encoding="utf-8"))
+
+
+def add_typed_video_version(
+    project_path: Path,
+    resource_type: str,
+    resource_id: str,
+    *,
+    content: bytes = b"typed-video",
+) -> int:
+    """给一个视频单元追加一个带完整取证描述的版本（可还原），当前文件内容即 ``content``；返回版本号。"""
+    from lib.artifacts.artifact_manifest import ArtifactBasis, compose_video_artifact_basis
+    from lib.artifacts.version_manager import VersionManager
+    from lib.artifacts.video_artifact_facts import VideoArtifactCurrencyFacts
+    from lib.project.resource_paths import resource_relative_path
+    from lib.speech.speech_artifact_provenance import build_video_duration_basis
+
+    reference = resource_type == "reference_videos"
+    current_file = project_path / resource_relative_path(resource_type, resource_id)
+    current_file.parent.mkdir(parents=True, exist_ok=True)
+    current_file.write_bytes(content)
+    visual = ArtifactBasis.build(
+        "artifact-visual/video-reference" if reference else "artifact-visual/video-storyboard",
+        kind_version=1,
+        inputs=(
+            {
+                "unit_id": resource_id,
+                "visual_lines": ["Run."],
+                "style": "cinematic",
+                "canvas": {"aspect_ratio": "9:16"},
+                "request_references": [],
+            }
+            if reference
+            else {
+                "resource_id": resource_id,
+                "visual_prompt": {"action": "Run.", "camera_motion": "Static"},
+                "canvas": {"aspect_ratio": "9:16"},
+                "frames": [{"role": "storyboard", "sha256": "a" * 64}],
+            }
+        ),
+    )
+    speech = ArtifactBasis.build("artifact-speech/video", kind_version=1, inputs={"mode": "narrator_voiceover"})
+    duration = build_video_duration_basis(4)
+    currency = VideoArtifactCurrencyFacts(
+        episode=1,
+        request_duration_seconds=4,
+        visual_basis=visual,
+        speech_basis=speech,
+        duration_basis=duration,
+        video_basis=compose_video_artifact_basis(visual=visual, speech=speech, duration=duration),
+        voice_style_speakers=(),
+        duration_tiers=(4,),
+        reference_image_limit=1 if reference else None,
+        parent_version=0,
+    )
+    return VersionManager(project_path).add_version(
+        resource_type,
+        resource_id,
+        "typed video",
+        source_file=current_file,
+        execution_checkpoint_schema_version=3,
+        execution_duration_seconds=4,
+        execution_request_digest="d" * 64,
+        artifact_video_currency=currency.to_dict(),
+        execution_script_file="episode_1.json",
+    )

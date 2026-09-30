@@ -1907,6 +1907,7 @@ export default {
   'tool_name_generate_grid': 'Tạo ảnh phân cảnh đa lưới',
   'tool_name_split_grids': 'Tách phân cảnh đa lưới vào khung hình',
   'tool_name_generate_videos': 'Tạo video',
+  'tool_name_select_video_version': 'Chọn phiên bản video',
   'tool_name_generate_narration_audio': 'Tạo âm thanh thuyết minh',
   'tool_name_generate_episode_script': 'Tạo kịch bản',
   'tool_name_generate_script_plan': 'Tạo kế hoạch kịch bản',

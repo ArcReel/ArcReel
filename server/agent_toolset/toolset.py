@@ -13,6 +13,7 @@ from server.agent_toolset.project_entry import PROJECT_ENTRY_TOOLS
 from server.agent_toolset.repair_channel import REPAIR_CHANNEL_TOOLS
 from server.agent_toolset.script_authoring import SCRIPT_AUTHORING_TOOLS
 from server.agent_toolset.script_editing import SCRIPT_EDITING_TOOLS
+from server.agent_toolset.video_versions import VIDEO_VERSION_TOOLS
 from server.agent_toolset.workflow_completion import WORKFLOW_COMPLETION_TOOLS
 
 AGENT_TOOLSET: tuple[AgentToolDeclaration, ...] = (
@@ -22,6 +23,7 @@ AGENT_TOOLSET: tuple[AgentToolDeclaration, ...] = (
     *CONTENT_READ_TOOLS,
     *MEDIA_GENERATION_TOOLS,
     *GRID_STORYBOARD_TOOLS,
+    *VIDEO_VERSION_TOOLS,
     *SCRIPT_AUTHORING_TOOLS,
     *REPAIR_CHANNEL_TOOLS,
     *SCRIPT_EDITING_TOOLS,

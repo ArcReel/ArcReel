@@ -23,25 +23,19 @@ from lib.artifacts.artifact_activation import (
 from lib.artifacts.artifact_version_provenance import parse_image_version_basis
 from lib.artifacts.formal_write import project_metadata_lock
 from lib.artifacts.version_manager import MANUAL_UPLOAD_VERSION_SOURCE, VersionManager
-from lib.generation.generation_admission import generation_admission_lock
-from lib.infra.api_errors import BadRequestError, ConflictError
-from lib.infra.async_thread import run_noninterruptible_sync
-from lib.infra.path_safety import PathTraversalError, safe_join
+from lib.infra.api_errors import BadRequestError
 from lib.project.asset_derivatives import DerivativeSheetTarget, derivative_artifact_id, split_derivative_artifact_id
 from lib.project.project_change_hints import project_change_source
 from lib.project.project_manager import get_project_manager
-from lib.project.resource_paths import CHARACTER_DERIVATIVE_RESOURCE_TYPE, resource_relative_path
+from lib.project.resource_paths import CHARACTER_DERIVATIVE_RESOURCE_TYPE
 from lib.script.grid.grid_access import ensure_grid_writable
 from server.services.currency.artifact_version_restore import (
-    TypedMediaRestoreTarget,
-    get_typed_media_restore_target,
     is_typed_media_restore_resource,
     is_typed_media_version_restorable,
-    restore_typed_media_version,
 )
+from server.services.currency.typed_media_restore import resolve_media_file, restore_typed_media_resource
 from server.services.presentation.presentation_read_model import is_presentation_version_available
 from server.services.tasks.derivative_sheet_tasks import point_derivative_at_sheet
-from server.services.tasks.narration_delivery_tasks import active_narrated_video_resource_ids, active_tts_resource_ids
 
 router = APIRouter()
 
@@ -78,13 +72,7 @@ def _resolve_resource_path(
     """返回 (current_file_absolute, relative_file_path)；资源类型不可还原或 ID 越界时抛出领域异常。"""
     if resource_type not in _RESTORABLE_RESOURCE_TYPES:
         raise BadRequestError("unsupported_resource_type", resource_type=resource_type)
-    relative = resource_relative_path(resource_type, resource_id)
-    # 路径遍历防护：resource_id 拼出的绝对路径不得逃出项目目录（与 MediaGenerator._get_output_path 对齐）。
-    try:
-        current_file = safe_join(project_path, relative)
-    except PathTraversalError as exc:
-        raise BadRequestError("invalid_resource_id", resource_id=resource_id) from exc
-    return current_file, relative
+    return resolve_media_file(resource_type, resource_id, project_path)
 
 
 def _sync_grid_record(
@@ -382,15 +370,16 @@ async def restore_resource_version(
 ) -> dict[str, Any]:
     """版本还原的实现。资源 id 带层级（角色衍生）的路由不能走单段路径参数，共用此函数。"""
     try:
-        target: TypedMediaRestoreTarget | None = None
         if is_typed_media_restore_resource(resource_type):
-            target = await asyncio.to_thread(
-                get_typed_media_restore_target,
-                get_version_manager(project_name),
-                resource_type=resource_type,
-                resource_id=resource_id,
-                version=version,
-            )
+            with project_change_source("webui"):
+                return await restore_typed_media_resource(
+                    project_manager=get_project_manager(),
+                    versions=get_version_manager(project_name),
+                    project_name=project_name,
+                    resource_type=resource_type,
+                    resource_id=resource_id,
+                    version=version,
+                )
 
         def _sync():
             # 还原同样是一条联合图写入路径（换回历史联合图 + 复位宫格记录），
@@ -402,46 +391,21 @@ async def restore_resource_version(
             project_path = get_project_manager().get_project_path(project_name)
             current_file, file_path = _resolve_resource_path(resource_type, resource_id, project_path)
 
-            if is_typed_media_restore_resource(resource_type):
-                result = restore_typed_media_version(
-                    project_manager=get_project_manager(),
-                    project_name=project_name,
-                    project_path=project_path,
-                    versions=vm,
-                    resource_type=resource_type,
-                    resource_id=resource_id,
-                    version=version,
-                    current_file=current_file,
-                    artifact_path=file_path,
-                )
-            else:
-                result = _restore_non_typed_version(
-                    versions=vm,
-                    resource_type=resource_type,
-                    project_name=project_name,
-                    resource_id=resource_id,
-                    version=version,
-                    current_file=current_file,
-                    file_path=file_path,
-                    project_path=project_path,
-                )
+            result = _restore_non_typed_version(
+                versions=vm,
+                resource_type=resource_type,
+                project_name=project_name,
+                resource_id=resource_id,
+                version=version,
+                current_file=current_file,
+                file_path=file_path,
+                project_path=project_path,
+            )
 
-            # 计算还原后文件的 fingerprint；视频还原时同步删除缩略图（内容已失效）
+            # 计算还原后文件的 fingerprint
             asset_fingerprints: dict[str, int] = {}
             if current_file.exists():
                 asset_fingerprints[file_path] = current_file.stat().st_mtime_ns
-
-            if resource_type == "videos":
-                thumbnail_path = project_path / "thumbnails" / f"scene_{resource_id}.jpg"
-                thumbnail_key = f"thumbnails/scene_{resource_id}.jpg"
-                thumbnail_path.unlink(missing_ok=True)
-                # fingerprint=0 通知前端该文件已失效（poster 消失直到重新生成）
-                asset_fingerprints[thumbnail_key] = 0
-            elif resource_type == "reference_videos":
-                thumbnail_path = project_path / "reference_videos" / "thumbnails" / f"{resource_id}.jpg"
-                thumbnail_key = f"reference_videos/thumbnails/{resource_id}.jpg"
-                thumbnail_path.unlink(missing_ok=True)
-                asset_fingerprints[thumbnail_key] = 0
 
             return {
                 "success": True,
@@ -450,28 +414,6 @@ async def restore_resource_version(
                 "asset_fingerprints": asset_fingerprints,
             }
 
-        if target is not None:
-            async with generation_admission_lock(
-                project_name=project_name,
-                script_file=target.script_file,
-                resource_id=resource_id,
-            ):
-                if resource_type == "audio":
-                    active_tts, active_video = await asyncio.gather(
-                        active_tts_resource_ids(
-                            project_name=project_name,
-                            resource_ids=(resource_id,),
-                            script_file=target.script_file,
-                        ),
-                        active_narrated_video_resource_ids(
-                            project_name=project_name,
-                            resource_ids=(resource_id,),
-                            script_file=target.script_file,
-                        ),
-                    )
-                    if resource_id in active_tts or resource_id in active_video:
-                        raise ConflictError("audio_restore_conflicts_with_active_task", resource_id=resource_id)
-                return await run_noninterruptible_sync(_sync)
         return await asyncio.to_thread(_sync)
 
     except ValueError as e:
