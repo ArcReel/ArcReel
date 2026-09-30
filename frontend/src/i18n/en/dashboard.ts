@@ -1767,6 +1767,7 @@ export default {
   'tool_name_create_timeline': 'Create edit timeline',
   'tool_name_list_timelines': 'List edit timelines',
   'tool_name_read_timeline': 'Read edit timeline',
+  'tool_name_edit_timeline': 'Update edit timeline',
   'tool_name_generate_narration_audio': 'Generate narration audio',
   'tool_name_generate_episode_script': 'Generate script',
   'tool_name_generate_script_plan': 'Generate script plan',

@@ -34,17 +34,24 @@ class IssueScope(StrEnum):
 
 
 class IssueCode(StrEnum):
+    TRIM_IGNORED = "trim_ignored"
     UNIT_DELETED = "unit_deleted"
     UNIT_UNUSED = "unit_unused"
     VIDEO_MISSING = "video_missing"
+    HOLD_TOO_LONG = "hold_too_long"
 
 
 ISSUE_LEVELS: dict[IssueCode, tuple[IssueSeverity, IssueScope]] = {
+    IssueCode.TRIM_IGNORED: (IssueSeverity.INFO, IssueScope.ALL),
     IssueCode.UNIT_DELETED: (IssueSeverity.INFO, IssueScope.ALL),
     IssueCode.UNIT_UNUSED: (IssueSeverity.INFO, IssueScope.ALL),
     IssueCode.VIDEO_MISSING: (IssueSeverity.BLOCKING, IssueScope.ALL),
+    IssueCode.HOLD_TOO_LONG: (IssueSeverity.WARNING, IssueScope.ALL),
 }
 """每种 issue 的固定级别与影响范围；读取结果与出片前的阻断检查共用这张表。"""
+
+HOLD_WARNING_MICROSECONDS = 2_000_000
+"""单个剪辑片段的定格延长超过这个时长即报定格过长。"""
 
 
 class _View(BaseModel):
@@ -138,10 +145,15 @@ class EditTimelineReadout(_View):
     issues: tuple[TimelineIssue, ...]
 
 
-def _clip_source_duration_us(clip: EditClip, media: UnitMedia, scripted_us: int) -> int:
-    """片段截取后的画面时长：截取只对其依据的视频版本有效，current 已换版本时整段使用。"""
+def trim_applies(clip: EditClip, media: UnitMedia) -> bool:
+    """截取只对其依据的视频版本有效；current 已换版本或没有可用视频时整段使用。"""
+    return clip.trim is not None and media.video_version is not None and clip.trim.basis_version == media.video_version
+
+
+def clip_source_duration_us(clip: EditClip, media: UnitMedia, scripted_us: int) -> int:
+    """片段截取后的画面时长（不含定格延长）；没有可用视频时按编排时长占位。"""
     whole = media.video_duration_us if media.video_duration_us is not None else scripted_us
-    if media.video_version is None or clip.trim is None or clip.trim.basis_version != media.video_version:
+    if clip.trim is None or not trim_applies(clip, media):
         return whole
     return max(0, min(clip.trim.out_us, whole) - clip.trim.in_us)
 
@@ -155,7 +167,7 @@ def _clip_view(clip: EditClip, sources: EpisodeSources, start_us: int) -> tuple[
         narration = None
     else:
         status = "ready" if media.video_version is not None else "video_missing"
-        duration_us = _clip_source_duration_us(clip, media, unit.scripted_duration_us) + clip.hold_us
+        duration_us = clip_source_duration_us(clip, media, unit.scripted_duration_us) + clip.hold_us
         narration = None
         if clip.carries_narration and unit.speech_mode is SpeechMode.NARRATOR_VOICEOVER:
             end_us = start_us + media.narration_duration_us if media.narration_duration_us is not None else None
@@ -205,6 +217,32 @@ def _structural_issues(revision: TimelineRevision, sources: EpisodeSources) -> l
             issues.append(timeline_issue(IssueCode.UNIT_DELETED, clip_ids=(clip.id,), unit_id=clip.unit_id))
             continue
         used.setdefault(clip.unit_id, []).append(clip.id)
+        media = sources.media.get(clip.unit_id)
+        if (
+            clip.trim is not None
+            and media is not None
+            and media.video_version is not None
+            and not trim_applies(clip, media)
+        ):
+            issues.append(
+                timeline_issue(
+                    IssueCode.TRIM_IGNORED,
+                    clip_ids=(clip.id,),
+                    unit_id=clip.unit_id,
+                    basis_version=clip.trim.basis_version,
+                    current_version=media.video_version,
+                )
+            )
+        if clip.hold_us > HOLD_WARNING_MICROSECONDS:
+            issues.append(
+                timeline_issue(
+                    IssueCode.HOLD_TOO_LONG,
+                    clip_ids=(clip.id,),
+                    unit_id=clip.unit_id,
+                    hold=microseconds_to_seconds(clip.hold_us),
+                    limit=microseconds_to_seconds(HOLD_WARNING_MICROSECONDS),
+                )
+            )
     for unit_id, clip_ids in used.items():
         media = sources.media.get(unit_id)
         if media is None or media.video_version is None:
@@ -251,6 +289,7 @@ def project_readout(
 
 
 __all__ = [
+    "HOLD_WARNING_MICROSECONDS",
     "ISSUE_LEVELS",
     "BgmView",
     "ClipStatus",
@@ -264,6 +303,8 @@ __all__ = [
     "TimelineIssue",
     "TransitionView",
     "TrimView",
+    "clip_source_duration_us",
     "project_readout",
     "timeline_issue",
+    "trim_applies",
 ]

@@ -9,13 +9,20 @@ from lib.edit_timeline.readout import (
     IssueSeverity,
     TimelineIssue,
 )
-from lib.edit_timeline.service import EditTimelineService, TimelineSummary
+from lib.edit_timeline.service import (
+    ConcurrentRevision,
+    EditTimelineService,
+    EditTimelineWriteResult,
+    TimelineSummary,
+)
 
 __all__ = [
+    "ConcurrentRevision",
     "EditTimelineError",
     "EditTimelineErrorCode",
     "EditTimelineReadout",
     "EditTimelineService",
+    "EditTimelineWriteResult",
     "IssueCode",
     "IssueScope",
     "IssueSeverity",

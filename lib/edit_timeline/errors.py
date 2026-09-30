@@ -13,6 +13,9 @@ type EditTimelineErrorCode = Literal[
     "timeline_name_invalid",
     "timeline_name_conflict",
     "timeline_invalid",
+    "operation_invalid",
+    "revision_conflict",
+    "revision_summary_invalid",
 ]
 
 

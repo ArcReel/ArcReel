@@ -1766,6 +1766,7 @@ export default {
   'tool_name_create_timeline': '新建剪辑时间线',
   'tool_name_list_timelines': '列出剪辑时间线',
   'tool_name_read_timeline': '读取剪辑时间线',
+  'tool_name_edit_timeline': '修改剪辑时间线',
   'tool_name_generate_narration_audio': '生成旁白配音',
   'tool_name_generate_episode_script': '生成脚本',
   'tool_name_generate_script_plan': '生成脚本规划',

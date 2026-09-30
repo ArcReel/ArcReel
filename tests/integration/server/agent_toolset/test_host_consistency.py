@@ -40,7 +40,7 @@ from server.agent_toolset.declaration import (
     UnscopedToolDeclaration,
     tool_description,
 )
-from server.agent_toolset.edit_timelines import CREATE_TIMELINE, READ_TIMELINE
+from server.agent_toolset.edit_timelines import CREATE_TIMELINE, EDIT_TIMELINE, READ_TIMELINE
 from server.agent_toolset.embedded import embedded_server
 from server.agent_toolset.envelope import json_value
 from server.agent_toolset.generation_batches import CANCEL_GENERATION_BATCH, GET_GENERATION_BATCH
@@ -131,6 +131,12 @@ SAMPLE_ARGUMENTS: dict[str, dict[str, Any]] = {
     "create_timeline": {"from": "script", "episode": 1, "name": "完整版"},
     "list_timelines": {"episode": 1},
     "read_timeline": {"timeline": "tl-0000abcd"},
+    "edit_timeline": {
+        "timeline": "tl-0000abcd",
+        "base_revision": 1,
+        "summary": "压低开场原声",
+        "operations": [{"op": "set_volume", "clip": "c1", "volume": 0.5}],
+    },
 }
 
 _DECLARATIONS = pytest.mark.parametrize("declaration", AGENT_TOOLSET, ids=lambda declaration: declaration.name)
@@ -519,6 +525,7 @@ _PROBLEM_ON_SAMPLE = frozenset(
         SPLIT_GRIDS.name,
         SELECT_VIDEO_VERSION.name,
         READ_TIMELINE.name,
+        EDIT_TIMELINE.name,
         COMPLETE_ASSET_INVENTORY.name,
         COMPLETE_SCRIPT_PLAN_REBUILD.name,
     }

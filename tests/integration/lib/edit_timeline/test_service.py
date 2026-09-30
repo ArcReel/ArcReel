@@ -2,23 +2,21 @@
 
 from __future__ import annotations
 
-import shutil
-from pathlib import Path
+from collections.abc import Callable
 from typing import Any
 
 import pytest
 
-from lib.artifacts.version_manager import VersionManager
 from lib.edit_timeline import (
     EditTimelineError,
     EditTimelineService,
     RevisionAuthor,
 )
 from lib.project.project_manager import ProjectManager
-from lib.project.resource_paths import resource_relative_path
-from tests.factories import make_test_video, wav_bytes
 
 CREATOR = RevisionAuthor(kind="creator", user_id="u1")
+
+type InstallMedia = Callable[[str, float], None]
 
 
 def _unit(unit_id: str, text: str) -> dict[str, Any]:
@@ -37,59 +35,13 @@ def _script(*units: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-@pytest.fixture
-def pm(tmp_path: Path) -> ProjectManager:
-    manager = ProjectManager(str(tmp_path / "projects"))
-    manager.create_project("demo")
-    manager.create_project_metadata("demo", "Demo", "Anime", "narration")
-    manager.upsert_assets("demo", "characters", {"角色A": {"description": "主角"}})
-    manager.update_project("demo", lambda project: project.update({"generation_mode": "reference_video"}))
-    manager.save_script(
-        "demo",
-        _script(
-            _unit("E1U1", "@[角色A]{你好}"),
-            _unit("E1U2", "{风起了}"),
-            _unit("E1U3", "推门进屋"),
-        ),
-        "episode_1.json",
-    )
-    return manager
-
-
-def _install_media(pm: ProjectManager, tmp_path: Path, resource_type: str, unit_id: str, source: Path) -> None:
-    """登记一个 current 版本，并把它放到正式路径上。"""
-    project_path = pm.get_project_path("demo")
-    VersionManager(project_path).add_version(resource_type, unit_id, "prompt", source_file=source)
-    target = project_path / resource_relative_path(resource_type, unit_id)
-    target.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(source, target)
-
-
-def _install_video(pm: ProjectManager, tmp_path: Path, unit_id: str, seconds: float) -> None:
-    source = tmp_path / "media" / f"{unit_id}.mp4"
-    make_test_video(source, duration_sec=seconds)
-    _install_media(pm, tmp_path, "reference_videos", unit_id, source)
-
-
-def _install_narration(pm: ProjectManager, tmp_path: Path, unit_id: str, seconds: float) -> None:
-    source = tmp_path / "media" / f"{unit_id}.wav"
-    source.parent.mkdir(parents=True, exist_ok=True)
-    source.write_bytes(wav_bytes(seconds))
-    _install_media(pm, tmp_path, "audio", unit_id, source)
-
-
-@pytest.fixture
-def service(pm: ProjectManager) -> EditTimelineService:
-    return EditTimelineService(pm)
-
-
 async def test_mechanical_timeline_orders_clips_by_script_with_voice_defaults(
-    pm: ProjectManager, tmp_path: Path, service: EditTimelineService
+    service: EditTimelineService, install_video: InstallMedia, install_narration: InstallMedia
 ) -> None:
-    _install_video(pm, tmp_path, "E1U1", 1.0)
-    _install_video(pm, tmp_path, "E1U2", 1.5)
-    _install_video(pm, tmp_path, "E1U3", 0.5)
-    _install_narration(pm, tmp_path, "E1U2", 0.8)
+    install_video("E1U1", 1.0)
+    install_video("E1U2", 1.5)
+    install_video("E1U3", 0.5)
+    install_narration("E1U2", 0.8)
 
     created = await service.create_from_script("demo", episode=1, name="完整版", author=CREATOR)
     readout = await service.read("demo", created.timeline.id)
@@ -117,10 +69,10 @@ def _issues(readout, code: str) -> list[tuple[tuple[str, ...], str | None, str]]
 
 
 async def test_script_changes_surface_as_deleted_and_unused_units(
-    pm: ProjectManager, tmp_path: Path, service: EditTimelineService
+    pm: ProjectManager, service: EditTimelineService, install_video: InstallMedia
 ) -> None:
     for unit_id in ("E1U1", "E1U2", "E1U3"):
-        _install_video(pm, tmp_path, unit_id, 1.0)
+        install_video(unit_id, 1.0)
     created = await service.create_from_script("demo", episode=1, name="初剪", author=CREATOR)
 
     pm.save_script(
@@ -144,10 +96,10 @@ async def test_script_changes_surface_as_deleted_and_unused_units(
 
 
 async def test_unit_without_usable_video_blocks_and_keeps_scripted_length(
-    pm: ProjectManager, tmp_path: Path, service: EditTimelineService
+    service: EditTimelineService, install_video: InstallMedia
 ) -> None:
-    _install_video(pm, tmp_path, "E1U1", 1.0)
-    _install_video(pm, tmp_path, "E1U3", 1.0)
+    install_video("E1U1", 1.0)
+    install_video("E1U3", 1.0)
 
     created = await service.create_from_script("demo", episode=1, name="初剪", author=CREATOR)
 
@@ -202,11 +154,11 @@ async def test_reading_an_unknown_timeline_is_rejected(service: EditTimelineServ
 
 
 async def test_media_durations_accumulate_before_rounding_to_milliseconds(
-    pm: ProjectManager, tmp_path: Path, service: EditTimelineService
+    service: EditTimelineService, install_video: InstallMedia
 ) -> None:
     # 每段 31 帧 / 30fps，单段显示为 1.033 秒，三段合计应为 3.100 秒。
     for unit_id in ("E1U1", "E1U2", "E1U3"):
-        _install_video(pm, tmp_path, unit_id, 1.03)
+        install_video(unit_id, 1.03)
     created = await service.create_from_script("demo", episode=1, name="帧时长", author=CREATOR)
     readout = await service.read("demo", created.timeline.id)
 
