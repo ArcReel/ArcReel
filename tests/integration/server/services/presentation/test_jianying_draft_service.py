@@ -185,6 +185,11 @@ async def test_export_serializes_only_shared_track_gains_actual_boundaries_and_c
     )
 
     content = _read_draft_archive(archive)
+    assert [(track["type"], track["name"]) for track in content["tracks"]] == [
+        ("video", "video"),
+        ("text", "字幕"),
+        ("audio", "旁白"),
+    ]
     video_track = next(track for track in content["tracks"] if track.get("type") == "video")
     audio_track = next(track for track in content["tracks"] if track.get("type") == "audio")
     text_track = next(track for track in content["tracks"] if track.get("type") == "text")
