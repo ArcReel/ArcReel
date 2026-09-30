@@ -221,28 +221,28 @@ describe("WorkflowPanel 结构化问题与阻断", () => {
   });
 });
 
-describe("WorkflowPanel 旁白交付", () => {
-  const deliveryStep = makeStep({ id: "narration_delivery", state: "ready" });
-
-  it("两种交付方式都在本次操作中可选，并说明不写回项目", async () => {
-    await renderExpanded(makePlan({ steps: [deliveryStep] }));
-    expect(screen.getByRole("radio", { name: "后期配音" })).toBeEnabled();
-    expect(screen.getByRole("radio", { name: "使用已配置的语音合成" })).toBeEnabled();
-    expect(screen.getByText(/只作用于本次生成，不写回项目设置/)).toBeInTheDocument();
-  });
-
-  it("选择后按该交付方式重新求解", async () => {
-    const spy = mockPlan(makePlan({ steps: [deliveryStep] }));
-    render(<WorkflowPanel projectName="proj" episode={1} />);
-    fireEvent.click(await screen.findByRole("button", { name: /制作状态/ }));
-    fireEvent.click(await screen.findByRole("radio", { name: "后期配音" }));
-    await waitFor(() =>
-      expect(spy).toHaveBeenCalledWith(
-        "proj",
-        expect.objectContaining({ narration_delivery: "post_production" }),
-        expect.anything(),
-      ),
+describe("WorkflowPanel 剪辑", () => {
+  it("剪辑一步陈述下一步是新建剪辑时间线，不再出现交付方式选择", async () => {
+    const action = {
+      type: "create_edit_timeline" as const,
+      args: { episode: 1 },
+      requested_ids: [],
+      requires_confirmation: false,
+      reason: "episode has no edit timeline",
+    };
+    await renderExpanded(
+      makePlan({
+        steps: [
+          makeStep({ id: "video", state: "completed" }),
+          makeStep({ id: "edit", state: "ready", action, artifacts: { timeline_ids: [] } }),
+        ],
+        next_action: action,
+      }),
     );
+    const row = screen.getByTestId("workflow-step-edit");
+    expect(within(row).getByRole("heading", { name: "剪辑" })).toBeInTheDocument();
+    expect(within(row).getByText("下一步：新建剪辑时间线并交给 Agent 剪辑")).toBeInTheDocument();
+    expect(screen.queryByRole("radio")).not.toBeInTheDocument();
   });
 });
 

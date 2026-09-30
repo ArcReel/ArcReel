@@ -20,7 +20,6 @@ from lib.generation.generation_result import (
     GenerationItemState,
     GenerationProblemCode,
 )
-from lib.speech.narration_delivery import POST_PRODUCTION, USE_TTS
 from lib.workflow.workflow_rules import WORKFLOW_RULES
 from lib.workflow.workflow_state import WorkflowActionType, WorkflowTarget
 from server.agent_toolset.toolset import ARCREEL_MCP_TOOL_IDS
@@ -117,11 +116,19 @@ def test_plan_reference_documents_every_target_field() -> None:
 # ------------------------------------------------------------------- 旁白交付
 
 
-def test_delivery_options_are_both_named_where_the_choice_is_made() -> None:
+def test_profile_no_longer_routes_a_per_request_delivery_choice() -> None:
+    content = "\n".join(path.read_text(encoding="utf-8") for path in PROFILE.rglob("*.md"))
+
+    assert "choose_narration_delivery" not in content
+    assert "WorkflowPlanRequest" not in content
+    assert '"narration_delivery":' not in _reference(WORKFLOW_PLAN_REFERENCE)
+
+
+def test_edit_step_names_the_registered_timeline_tool() -> None:
     content = _reference(WORKFLOW_PLAN_REFERENCE)
 
-    assert POST_PRODUCTION in content
-    assert USE_TTS in content
+    assert "create_timeline" in ARCREEL_MCP_TOOL_IDS
+    assert "mcp__arcreel__create_timeline" in content
 
 
 def test_generate_video_waits_on_the_durable_batch_without_forcing_completed_targets() -> None:

@@ -12,13 +12,12 @@ drama / ad × storyboard / reference_video）之间哪些步骤适用、顺序�
 ```text
 mcp__arcreel__get_workflow_plan({
   "episode": N,                                  // 可选：用户指定集数时传
-  "narration_delivery": "post_production" | "use_tts",  // 可选：本次旁白交付选择
   "confirmed_request_durations": {"E1U1": 8}    // 可选：用户已确认的逐视频单元申请档位（键是 unit ID）
 })
 ```
 
-三个字段都只属于**这一次查询**，服务端不会持久化。因此每次重新查询都要把仍然成立的选择原样
-带上；漏带等于把选择撤回。
+两个字段都只属于**这一次查询**，服务端不会持久化。因此每次重新查询都要把仍然成立的选择原样
+带上；漏带等于把选择撤回。旁白交付方式是项目配置，计划直接读项目，查询里没有这个字段。
 
 调用时机：进入工作流、用户说「继续 / 下一步 / 查看进度」、以及**每次工具或子智能体完成之后**。
 `Read` / `Glob` 只用于取执行已选定动作所需的内容，不用于另建一套状态机。不得根据空资产 bucket、
@@ -37,7 +36,8 @@ mcp__arcreel__get_workflow_plan({
 | `blockers[]` | 阻断项，含 `code` / `path` / `reason` |
 | `next_action` | **唯一**下一动作。按它路由，不要自己从 `steps[]` 里挑一个更靠前的动作抢跑 |
 
-`next_action.type == "none"` 或 `blockers` 非空时：向用户展示 blockers，**停止一切变更**。
+`blockers` 非空时：向用户展示 blockers，**停止一切变更**。`next_action.type == "none"` 且
+`status.state == "COMPLETED"` 表示工作流已走完：查询范围内的每一集都至少有一条剪辑时间线。
 
 ## 数据升级失败：修复 → 重试
 
@@ -90,13 +90,12 @@ ID 参数时，前者传入，后者必须**省略该参数**，不得把 `[]` �
 | `generate_grid` | dispatch `generate-assets` 子智能体，调用 `mcp__arcreel__generate_grid`，不传 `scene_ids`（缺失即生成）；联合图就绪后经用户审阅同意，再调 `mcp__arcreel__split_grids` |
 | `repair_video_units` | `mcp__arcreel__get_episode_script` + `mcp__arcreel__patch_episode_script` 一次改完，再点名重做 |
 | `patch_episode_script` | 计划注入：`next_action.args` 已给 `base_revision` 与逐条 `problems`，一次批量改完 |
-| `choose_narration_delivery` | 计划注入：见「旁白交付」 |
 | `confirm_request_duration` | 计划注入：见「整批准入判定」 |
 | `generate_videos` | 视频生成工具（见 `generate-video` skill） |
 | `wait_for_task` | 计划注入：有活动任务，不入队新任务；等待并复查计划 |
-| `export` | 引导用户在 Web 端导出 |
+| `create_edit_timeline` | 本集视频已齐、还没有剪辑时间线：`mcp__arcreel__create_timeline`（`episode` 取 `next_action.args.episode`，`from: "script"`）按脚本机械新建一条，再与用户一起在它上面剪辑。至少有一条剪辑时间线，「剪辑」一步即完成 |
 | `retry_project_migration` | 项目数据升级未完成：按明细修复后 `mcp__arcreel__retry_project_migration`（见「数据升级失败」） |
-| `none` | 展示 `blockers` 并停止变更 |
+| `none` | `blockers` 非空时展示并停止变更；`status.state == "COMPLETED"` 时工作流已走完 |
 
 `next_action.args.preprocessor` 是权威的脚本规划子智能体名，**不要自己按创作类型×
 `generation_mode` 反推**：服务端在同一张规则表上得出它，profile 侧再推一遍只会造出第二个真相源。
@@ -123,28 +122,13 @@ ID 参数时，前者传入，后者必须**省略该参数**，不得把 `[]` �
 
 ## 旁白交付
 
-叙述旁白有两种交付方式。视频请求与它无关：两种方式下视频的申请档位、准入与费用完全相同。
+旁白交付方式（`post_production` 后期配音 / `use_tts` TTS 配音）是项目配置，在项目设置里修改；工作流
+里没有交付选择这一步。视频请求与它无关：两种方式下视频的申请档位、准入与费用完全相同。
 
-| 选项 | 含义 |
-|---|---|
-| `post_production` | 后期配音：旁白留到剪映等后期工具里补 |
-| `use_tts` | 使用 TTS：旁白配音由 `generate-narration-audio` 合成，剪辑阶段与视频对齐 |
-
-参考生视频同样要做交付选择：两种生成模式跳过哪些步骤见
-[generation-modes.md](generation-modes.md)。
-
-计划给出 `next_action.type == "choose_narration_delivery"` 时：
-
-1. 向用户**显式说明**这次要发起的是叙述旁白视频请求，列出两个选项及各自后果，请其选择。
-2. 用户选 `post_production` → 带 `narration_delivery: "post_production"` 重查计划，继续。
-3. 用户选 `use_tts` → 带 `narration_delivery: "use_tts"` 重查计划，继续；旁白配音按
-   `generate-narration-audio` 单独合成并让用户试听。
-
-`generate_videos` 没有 `narration_delivery` 参数：交付选择只作用于计划查询。
-
-**未配置 TTS 时默认走后期配音。** 缺 TTS 供应商不是工作流缺口，也不拦视频与导出。
-此时告诉用户后期配音方式照常可用、视频不受影响，
-**不要建议用户为了继续做视频去配置 TTS 供应商**；只有用户主动想要 in-app 旁白时才说明去哪配。
+旁白配音不是视频生成的前置条件。`plan.status.artifacts.audio` 只在 TTS 配音项目里报告哪些旁白
+配音缺失或 stale；后期配音项目为 `not_applicable`。TTS 项目在首轮自动剪辑时按缺失补齐配音，
+项目选择 TTS 即已授权，无需另行确认；用户也可随时要求用 `generate-narration-audio` 生成。
+stale 配音仅在用户要求重合成时重新生成。
 
 ## 整批准入判定
 
@@ -158,8 +142,7 @@ ID 参数时，前者传入，后者必须**省略该参数**，不得把 `[]` �
   `problems[].action`（下一步动作）。通过的视频单元会带 `generation_batch_admission_withheld`，
   其 `blocked_unit_ids` 指出是被谁挡住的——把这层因果如实说给用户，不要报成它们自己有问题。
 - `decision == "confirmation_required"` 时 `admission.confirmation.tiers[]` 给出按申请档位分组的
-  视频单元与费用。取得用户确认后，把确认过的档位填进 `confirmed_request_durations`、连同仍成立的
-  `narration_delivery` 一起重查计划；`generate_videos` 重发时带上同一份 `confirmed_request_durations`。
+  视频单元与费用。取得用户确认后，把确认过的档位填进 `confirmed_request_durations` 重查计划；`generate_videos` 重发时带上同一份 `confirmed_request_durations`。
 - **不要把整批拆成小批去「先跑通过的那半批」。** 那既绕开了全有或全无，也会在补齐后重复提交
   已经付过费的视频单元。修掉被拒的视频单元，整批重来。
 

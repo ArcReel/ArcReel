@@ -13,7 +13,7 @@ description: 广告/短片项目的工作流入口。当用户提到做视频、
 先调用 `mcp__arcreel__get_workflow_plan({})` 取回权威计划。把 `steps[]`、`blockers` 与 `next_action`
 当作阶段判断的唯一真相源（`plan.status` 内嵌 `project` / `target` / `gates` / `artifacts` 快照）；
 Read 只补充创作输入与商品 soft gate 信息。每次动作完成后刷新计划。
-`next_action.type == "none"` 时展示 blockers 并停止变更。
+`next_action.type == "none"` 时：有 blockers 就展示并停止变更；`status.state == "COMPLETED"` 表示工作流已走完。
 
 计划的字段含义、完整受控动作表、旁白交付、整批准入判定、四条状态轴与 stale / 历史纪律，见
 [.claude/references/workflow-plan.md](../../references/workflow-plan.md)。**本 skill 不重复一张按生成模式
@@ -29,7 +29,7 @@ Read 只补充创作输入与商品 soft gate 信息。每次动作完成后刷�
 - `next_action.type == "generate_storyboards"` → 步骤 7 的 storyboard 单图路径
 - `next_action.type == "generate_grid"` → 步骤 7 的 storyboard 宫格路径
 - `next_action.type == "generate_videos"` → 步骤 7 的视频生成
-- `next_action.type == "export"` → 步骤 8
+- `next_action.type == "create_edit_timeline"` → 步骤 8
 
 调用工具或 dispatch 子智能体时带入 `target.episode`、`next_action.args` 与 `requested_ids`，不二次检查 `generation_mode` 或 `grid_storyboard` 来改选阶段。步骤内的商品原图与 sheet 过目规则是执行动作前的 soft gate。
 
@@ -46,13 +46,8 @@ Read 只补充创作输入与商品 soft gate 信息。每次动作完成后刷�
      `mcp__arcreel__generate_storyboards({"script": target.script_filename, "segment_ids": requested_ids})`
    - `next_action.type == "generate_grid"` → 调
      `mcp__arcreel__generate_grid({"script": target.script_filename})`（不传 `scene_ids`：缺失即生成，不重做联合图已就绪、未切分的宫格）
-   - `next_action.type == "choose_narration_delivery"` → 本次请求含叙述旁白。**显式说明**并在
-     「使用 TTS」与「后期配音」之间二选一，选择经 `narration_delivery` 带进下一次
-     `mcp__arcreel__get_workflow_plan`（不持久化，每次查询都要重新带上）。未配置 TTS 时默认后期配音，
-     不要为了让视频继续而建议用户去配置 TTS 供应商；选 TTS 时旁白配音按 `generate-narration-audio`
-     单独合成，视频请求不受影响
    - `next_action.type == "confirm_request_duration"` → 按 `admission.confirmation.tiers[]` 逐档位展示
-     涉及的视频单元与费用，确认后经 `confirmed_request_durations` 连同仍成立的 `narration_delivery` 一起带回
+     涉及的视频单元与费用，确认后经 `confirmed_request_durations` 带回下一次 `mcp__arcreel__get_workflow_plan`
    - `next_action.type == "generate_videos"` → 先看 `plan.steps[].admission.decision`：只有 `admitted`
      才入队，`blocked` / `confirmation_required` 时**一个任务都不入队**，逐视频单元报告 `unit_id`、
      `problems[].code`、原因与 `problems[].action`（被 `blocked_unit_ids` 连累的视频单元带
@@ -66,7 +61,9 @@ Read 只补充创作输入与商品 soft gate 信息。每次动作完成后刷�
    - 带货项目走分镜图生视频时，先审核商品分镜保真度，再产生视频费用；通用短片没有商品分镜，不设这道审核。
    - 参考生视频按自包含视频单元生成，跳过分镜；参考图在执行期按正文 `@[名称]` 的首次提及顺序解析，商品与角色、场景、道具同规则。用户不满意时按 `unit_id` 点名重做。
 
-8. **导出剪映草稿**：视频齐全后引导用户在 Web 端导出。声音归属与字幕时序由服务端 presentation 结果
+8. **剪辑**：调 `mcp__arcreel__create_timeline({"from": "script", "episode": target.episode, "name": "完整版"})`
+   按脚本机械新建一条剪辑时间线，再与用户一起在它上面剪辑；至少有一条剪辑时间线，这一步即完成。
+   导出剪映草稿不是工作流步骤，由用户在 Web 端发起。声音归属与字幕时序由服务端 presentation 结果
    决定，预览、下载与剪映草稿消费同一份——**不要自行估算字幕时间轴、不要静音 供应商原音、
    也不要替用户判断 TTS 是否必需**。stale 产物照常可导出，导出不清空也不覆盖旧付费媒体。
    广告不走 in-app `compose-video`。

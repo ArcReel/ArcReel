@@ -542,6 +542,8 @@ export function ReferenceVideoCanvas({
     },
     [handleGenerateNarration],
   );
+  // 后期配音项目不生成旁白配音：收起生成入口，已有配音照常试听。
+  const onGenerateNarration = project?.narration_delivery === "use_tts" ? onGenerateNarrationVoid : undefined;
 
   // 批量生成的作用对象：全部尚无成片的 unit（含 needs_replan、在途、失败重试）。按钮禁用须与
   // 它同一口径——只看当前选中 unit 是否在跑、与作用对象无关的判定会脱节：选中项空闲时按钮会在
@@ -1336,7 +1338,7 @@ export function ReferenceVideoCanvas({
                           narrationText={selectedNarrationText}
                           narrationGenerating={ttsBusyUnitIds.has(selected.unit_id)}
                           narrationEstimatedCost={narrationEstimatedCost}
-                          onGenerateNarration={onGenerateNarrationVoid}
+                          onGenerateNarration={onGenerateNarration}
                           onGenerate={onGenerateVoid}
                           generationBlocked={Boolean(selected.needs_replan)}
                           onUploadVideo={handleUploadVideo}
@@ -1371,7 +1373,7 @@ export function ReferenceVideoCanvas({
                   narrationText={selectedNarrationText}
                   narrationGenerating={selected ? ttsBusyUnitIds.has(selected.unit_id) : false}
                   narrationEstimatedCost={narrationEstimatedCost}
-                  onGenerateNarration={onGenerateNarrationVoid}
+                  onGenerateNarration={onGenerateNarration}
                   onGenerate={onGenerateVoid}
                   generationBlocked={Boolean(selected?.needs_replan)}
                   onUploadVideo={handleUploadVideo}

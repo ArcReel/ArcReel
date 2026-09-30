@@ -65,7 +65,7 @@ class _Planner:
                 "next_action": {"type": "generate_script", "reason": "script missing"},
             }
         )
-        return build_workflow_plan(status, narration_delivery=request.narration_delivery)
+        return build_workflow_plan(status)
 
 
 class _Capabilities:

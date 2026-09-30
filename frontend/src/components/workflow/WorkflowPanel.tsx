@@ -1,11 +1,10 @@
-import { useCallback, useEffect, useId, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ChevronDown } from "lucide-react";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useTasksStore } from "@/stores/tasks-store";
 import { useWorkflowStore } from "@/stores/workflow-store";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
-import type { NarrationDelivery } from "@/types/workflow";
 import { ProblemList } from "./ProblemList";
 import { WorkflowStepRow } from "./WorkflowStepRow";
 import { STEP_RAILS } from "./state-language";
@@ -48,8 +47,6 @@ export function WorkflowPanel({ projectName, episode, onViewUnit, onRegenerate }
   const planKey = useWorkflowStore((s) => s.planKey);
   const loading = useWorkflowStore((s) => s.loading);
   const error = useWorkflowStore((s) => s.error);
-  const narrationDelivery = useWorkflowStore((s) => s.narrationDelivery);
-  const setNarrationDelivery = useWorkflowStore((s) => s.setNarrationDelivery);
   const confirmDurations = useWorkflowStore((s) => s.confirmDurations);
   const confirmedDurations = useWorkflowStore((s) => s.confirmedDurations);
   const refreshPlan = useWorkflowStore((s) => s.refreshPlan);
@@ -77,7 +74,6 @@ export function WorkflowPanel({ projectName, episode, onViewUnit, onRegenerate }
     episode,
     snapshotRevision,
     settledTaskFingerprint,
-    narrationDelivery,
     confirmedDurations,
     refreshPlan,
   ]);
@@ -95,10 +91,6 @@ export function WorkflowPanel({ projectName, episode, onViewUnit, onRegenerate }
   const planProblems = useMemo(
     () => (shown ? problemViews(t, shown.problems, "plan") : []),
     [shown, t],
-  );
-  const handleSelectDelivery = useCallback(
-    (delivery: NarrationDelivery) => setNarrationDelivery(delivery),
-    [setNarrationDelivery],
   );
 
   // 摘要行只复述后端给的下一步动作，不做任何本地推断。
@@ -192,14 +184,6 @@ export function WorkflowPanel({ projectName, episode, onViewUnit, onRegenerate }
                   onRegenerate={onRegenerate}
                   onConfirmDurations={confirmDurations}
                   busy={loading}
-                  narration={
-                    step.id === "narration_delivery"
-                      ? {
-                          choice: shown.narration_delivery,
-                          onSelect: handleSelectDelivery,
-                        }
-                      : undefined
-                  }
                 />
               ))}
             </ol>

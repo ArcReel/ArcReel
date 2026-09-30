@@ -4,15 +4,30 @@ import json
 import logging
 
 import pytest
+from fastapi import FastAPI
+from httpx import ASGITransport, AsyncClient
 
+from lib.artifacts.artifact_activation import register_current_artifact
+from lib.artifacts.artifact_manifest import ArtifactKey
+from lib.artifacts.version_manager import MANUAL_UPLOAD_VERSION_SOURCE, VersionManager
+from lib.edit_timeline import EditTimelineService
+from lib.generation.generation_queue import GenerationQueue
 from lib.project.project_change_hints import emit_project_change_batch, project_change_source
 from lib.project.project_manager import ProjectManager
+from lib.workflow.workflow_plan import WorkflowPlanRequest
+from server.agent_toolset.edit_timelines import CREATE_TIMELINE
+from server.dependencies import require_project_migration_ok
+from server.routers import edit_timelines
 from server.services.project.project_events import (
     PROJECT_DELETED_EVENT,
     ProjectEventService,
     read_project_state,
 )
 from server.services.project.project_state_projection import ProjectState
+from server.services.project.workflow_planner import WorkflowPlanner
+from tests.auth_deps import override_auth
+from tests.factories import make_test_video
+from tests.integration.server.agent_tool_support import ToolHarness, run_declared_tool
 
 
 class _ControlledReader:
@@ -64,6 +79,86 @@ async def _next_event(stream, *, timeout: float) -> tuple[str, dict]:  # noqa: A
         raise AssertionError("stream ended before a real event arrived")
 
     return await asyncio.wait_for(_pull(), timeout=timeout)
+
+
+@pytest.mark.parametrize("entry", ["agent", "http"])
+async def test_timeline_creation_refreshes_project_events_and_completes_workflow(tmp_path, db_factory, entry):
+    pm = ProjectManager(tmp_path / "projects")
+    pm.create_project("demo")
+    pm.create_project_metadata(
+        "demo", "Demo", "", "ad", target_duration=4, extras={"generation_mode": "reference_video"}
+    )
+    project_path = pm.get_project_path("demo")
+    pm.save_script(
+        "demo",
+        {
+            "episode": 1,
+            "title": "广告",
+            "content_mode": "ad",
+            "generation_mode": "reference_video",
+            "video_units": [
+                {
+                    "unit_id": "E1U01",
+                    "text": "镜头",
+                    "duration_seconds": 4,
+                    "generated_assets": {"video_clip": "reference_videos/E1U01.mp4"},
+                }
+            ],
+        },
+        "episode_1.json",
+    )
+    register_current_artifact(project_path, ArtifactKey.episode_script(1))
+    staged = tmp_path / "video.mp4"
+    make_test_video(staged, duration_sec=1)
+    VersionManager(project_path).commit_staged_version(
+        "reference_videos",
+        "E1U01",
+        "",
+        staged_file=staged,
+        current_file=project_path / "reference_videos/E1U01.mp4",
+        source=MANUAL_UPLOAD_VERSION_SOURCE,
+    )
+    queue = GenerationQueue(session_factory=db_factory, project_manager=pm)
+    planner = WorkflowPlanner(pm)
+    request = WorkflowPlanRequest(episode=1)
+    before = await planner.get_plan("demo", request, queue=queue)
+    assert before.status.state == "EDIT"
+    assert before.steps[-1].state == "ready"
+
+    service = ProjectEventService(tmp_path, poll_interval=30)
+    await service.start()
+    try:
+        async with service.stream_events("demo") as stream:
+            assert (await anext(stream))[0] == "snapshot"
+            with project_change_source("worker" if entry == "agent" else "webui"):
+                if entry == "agent":
+                    created = await run_declared_tool(
+                        CREATE_TIMELINE,
+                        ToolHarness("demo", tmp_path / "projects", pm, queue=queue),
+                        {"from": "script", "episode": 1, "name": "完整版"},
+                    )
+                    assert created.problem is None
+                else:
+                    app = FastAPI()
+                    override_auth(app)
+                    app.dependency_overrides[require_project_migration_ok] = lambda: None
+                    app.dependency_overrides[edit_timelines.get_edit_timeline_service] = lambda: EditTimelineService(pm)
+                    app.include_router(edit_timelines.router)
+                    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                        response = await client.post(
+                            "/projects/demo/episodes/1/edit-timelines", json={"from": "script", "name": "完整版"}
+                        )
+                    assert response.status_code == 201
+            event_name, payload = await _next_event(stream, timeout=1)
+            assert event_name == "changes"
+            assert payload["source"] == ("worker" if entry == "agent" else "webui")
+            assert payload["changes"][0]["entity_type"] == "episode"
+            assert payload["changes"][0]["episode"] == 1
+            after = await planner.get_plan("demo", request, queue=queue)
+            assert after.status.state == "COMPLETED"
+            assert after.steps[-1].state == "completed"
+    finally:
+        await service.shutdown()
 
 
 class TestProjectEventService:

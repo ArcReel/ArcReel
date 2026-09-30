@@ -117,8 +117,10 @@ vi.mock("./timeline/TimelineCanvas", () => ({
       </button>
       <button onClick={() => onGenerateStoryboard?.("SEG-1")}>generate-storyboard</button>
       <button onClick={() => onGenerateVideo?.("SEG-1")}>generate-video</button>
-      <button onClick={() => onGenerateNarration?.("SEG-1")}>generate-narration</button>
-      <button onClick={() => onGenerateEpisodeNarration?.()}>generate-episode-narration</button>
+      {onGenerateNarration && <button onClick={() => onGenerateNarration("SEG-1")}>generate-narration</button>}
+      {onGenerateEpisodeNarration && (
+        <button onClick={() => onGenerateEpisodeNarration()}>generate-episode-narration</button>
+      )}
       <button onClick={() => void onSaveTitle?.("新标题")?.catch(() => {})}>save-title</button>
     </div>
   ),
@@ -1451,15 +1453,32 @@ describe("StudioCanvasRouter", () => {
     });
   });
 
+  it("hides narration generation entries for post-production projects", () => {
+    useProjectsStore.setState({
+      currentProjectName: "demo",
+      currentProjectData: makeProjectData({ narration_delivery: "post_production" }),
+      currentScripts: { "episode_1.json": makeScript() },
+    });
+    vi.spyOn(API, "getProject").mockResolvedValue({
+      project: makeProjectData({ narration_delivery: "post_production" }),
+      scripts: { "episode_1.json": makeScript() },
+    });
+
+    renderAt("/episodes/1");
+
+    expect(screen.queryByText("generate-narration")).not.toBeInTheDocument();
+    expect(screen.queryByText("generate-episode-narration")).not.toBeInTheDocument();
+  });
+
   it("submits narration generation and shows a success toast", async () => {
     useProjectsStore.setState({
       currentProjectName: "demo",
-      currentProjectData: makeProjectData(),
+      currentProjectData: makeProjectData({ narration_delivery: "use_tts" }),
       currentScripts: { "episode_1.json": makeScript() },
     });
 
     vi.spyOn(API, "getProject").mockResolvedValue({
-      project: makeProjectData(),
+      project: makeProjectData({ narration_delivery: "use_tts" }),
       scripts: { "episode_1.json": makeScript() },
     });
     vi.spyOn(API, "generateNarrationAudio").mockResolvedValue({
@@ -1482,12 +1501,12 @@ describe("StudioCanvasRouter", () => {
   it("reports narration generation failure with an error toast", async () => {
     useProjectsStore.setState({
       currentProjectName: "demo",
-      currentProjectData: makeProjectData(),
+      currentProjectData: makeProjectData({ narration_delivery: "use_tts" }),
       currentScripts: { "episode_1.json": makeScript() },
     });
 
     vi.spyOn(API, "getProject").mockResolvedValue({
-      project: makeProjectData(),
+      project: makeProjectData({ narration_delivery: "use_tts" }),
       scripts: { "episode_1.json": makeScript() },
     });
     vi.spyOn(API, "generateNarrationAudio").mockRejectedValue(new Error("tts failed"));
@@ -1504,12 +1523,12 @@ describe("StudioCanvasRouter", () => {
   it("submits episode narration batch and reports the submitted count", async () => {
     useProjectsStore.setState({
       currentProjectName: "demo",
-      currentProjectData: makeProjectData(),
+      currentProjectData: makeProjectData({ narration_delivery: "use_tts" }),
       currentScripts: { "episode_1.json": makeScript() },
     });
 
     vi.spyOn(API, "getProject").mockResolvedValue({
-      project: makeProjectData(),
+      project: makeProjectData({ narration_delivery: "use_tts" }),
       scripts: { "episode_1.json": makeScript() },
     });
     vi.spyOn(API, "generateEpisodeNarrationAudio").mockResolvedValue({
@@ -1533,12 +1552,12 @@ describe("StudioCanvasRouter", () => {
   it("tells the user when episode narration has nothing missing", async () => {
     useProjectsStore.setState({
       currentProjectName: "demo",
-      currentProjectData: makeProjectData(),
+      currentProjectData: makeProjectData({ narration_delivery: "use_tts" }),
       currentScripts: { "episode_1.json": makeScript() },
     });
 
     vi.spyOn(API, "getProject").mockResolvedValue({
-      project: makeProjectData(),
+      project: makeProjectData({ narration_delivery: "use_tts" }),
       scripts: { "episode_1.json": makeScript() },
     });
     vi.spyOn(API, "generateEpisodeNarrationAudio").mockResolvedValue({
@@ -1561,7 +1580,7 @@ describe("StudioCanvasRouter", () => {
   it("blocks narration generation when no audio provider is configured", async () => {
     useProjectsStore.setState({
       currentProjectName: "demo",
-      currentProjectData: makeProjectData(),
+      currentProjectData: makeProjectData({ narration_delivery: "use_tts" }),
       currentScripts: { "episode_1.json": makeScript() },
     });
     useConfigStatusStore.setState({
@@ -1570,7 +1589,7 @@ describe("StudioCanvasRouter", () => {
     });
 
     vi.spyOn(API, "getProject").mockResolvedValue({
-      project: makeProjectData(),
+      project: makeProjectData({ narration_delivery: "use_tts" }),
       scripts: { "episode_1.json": makeScript() },
     });
     const generateSpy = vi.spyOn(API, "generateNarrationAudio");

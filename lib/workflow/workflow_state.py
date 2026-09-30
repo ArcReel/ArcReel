@@ -20,6 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from lib.artifacts.artifact_activation import ArtifactComparer, ArtifactCurrencyResolver, RegisteredArtifactResolver
 from lib.artifacts.artifact_manifest import ArtifactKey, ArtifactManifestError, ArtifactStatus
 from lib.artifacts.version_manager import VersionManager
+from lib.edit_timeline.store import EditTimelineStore
 from lib.episode.episode_ledger import (
     SOURCE_FINGERPRINTS_KEY,
     SourceDoc,
@@ -47,6 +48,7 @@ from lib.project.source_revision import SourceRevisionResult, SourceScope, compu
 from lib.script import script_review
 from lib.script.script_models import PENDING_AUTHORING_FIELD, get_generated_assets, script_duration_total
 from lib.script.script_skeleton import SKELETONS, STORYBOARD_ITEM_ID_PATTERN, ensure_route_skeleton, resolve_kind_items
+from lib.speech.narration_config import USE_TTS, project_narration_delivery
 from lib.workflow.workflow_rules import workflow_rule
 
 logger = logging.getLogger(__name__)
@@ -62,7 +64,8 @@ WorkflowStateName = Literal[
     "ASSET_SHEETS",
     "STORYBOARD",
     "VIDEO",
-    "EXPORT_READY",
+    "EDIT",
+    "COMPLETED",
 ]
 
 
@@ -125,14 +128,13 @@ class WorkflowActionType(StrEnum):
     GENERATE_GRID = "generate_grid"
     REPAIR_VIDEO_UNITS = "repair_video_units"
     GENERATE_VIDEOS = "generate_videos"
-    EXPORT = "export"
+    CREATE_EDIT_TIMELINE = "create_edit_timeline"
 
     # 数据升级失败的项目在任何阶段都只报这一个动作
     RETRY_PROJECT_MIGRATION = "retry_project_migration"
 
     # ``build_workflow_plan`` 投影时注入的动作
     PATCH_EPISODE_SCRIPT = "patch_episode_script"
-    CHOOSE_NARRATION_DELIVERY = "choose_narration_delivery"
 
     # ``GenerationAction`` 闭集；整批准入判定与任务失败把它原样交回成 next_action
     RETRY = "retry"
@@ -175,7 +177,7 @@ class WorkflowStatus(BaseModel):
     """上一次跑完的项目迁移登记与跳过了什么；只作说明，不影响状态与阻断。"""
 
 
-#: 11 值制作状态在广度视图（项目列表、卡片、全局头）上的归并显示。
+#: 12 值制作状态在广度视图（项目列表、卡片、全局头）上的归并显示。
 ProjectPhase = Literal["preparation", "script", "production", "completed"]
 
 #: 每集脚本的产物态派生值：正式脚本可用即 generated，只有 script_plan 即 segmented。
@@ -242,7 +244,7 @@ class ProjectSummary(BaseModel):
 
     代价是两处判定不进入本投影，它们都只能由源文得出：资产清单是否跟得上源文改动，
     以及源文是否已全部排布成集。因此本投影可能把「产物齐备但源文尚未排布完」的项目显示为
-    「完成」，而工作台按 11 值状态仍报 EPISODE_PLAN。产物口径本身两处一致：可用与 stale
+    「完成」，而工作台按 12 值状态仍报 EPISODE_PLAN。产物口径本身两处一致：可用与 stale
     都取自同一份产物清单。
 
     产物判定有两种口径（``ProjectSummaryCurrency``）：``verified`` 逐件与规范状态比对，能
@@ -387,7 +389,7 @@ def _episode_production_status(
 
 
 def _sheet_bearing_counts(assets: Mapping[str, ArtifactCount]) -> list[ArtifactCount]:
-    """商品没有资产图产物：与 11 值状态的 ASSET_SHEETS 判据同口径地把它排除。"""
+    """商品没有资产图产物：与 12 值状态的 ASSET_SHEETS 判据同口径地把它排除。"""
 
     return [count for asset_type, count in assets.items() if asset_type != "product"]
 
@@ -1059,7 +1061,7 @@ class WorkflowStateService:
         """由 script_plan 与正式脚本的产物态派生该集的脚本进度。
 
         账本标 stale 的集（重新规划后原文范围已失效）回到 none：它的下游要重做，
-        与 11 值状态把这类集打回 SCRIPT_PLAN_CONTENT 同口径。
+        与 12 值状态把这类集打回 SCRIPT_PLAN_CONTENT 同口径。
         """
 
         if entry.get("ledger_status") == "stale":
@@ -1089,11 +1091,11 @@ class WorkflowStateService:
         assets: Mapping[str, ArtifactCount],
         episodes: list[EpisodeSummary],
     ) -> ProjectPhase:
-        """把 11 值制作状态的归并显示投到项目粒度：取最不推进的一集所在阶段。
+        """把 12 值制作状态的归并显示投到项目粒度：取最不推进的一集所在阶段。
 
         ``PROJECT_INPUT / SELLING_POINTS / ASSET_INVENTORY / EPISODE_PLAN`` → preparation，
-        ``SCRIPT_PLAN_* / FINAL_SCRIPT`` → script，``ASSET_SHEETS / STORYBOARD / VIDEO`` → production，
-        ``EXPORT_READY`` → completed。
+        ``SCRIPT_PLAN_* / FINAL_SCRIPT`` → script，``ASSET_SHEETS / STORYBOARD / VIDEO / EDIT`` → production，
+        ``COMPLETED`` → completed。
         """
 
         mode = project.get("content_mode")
@@ -1587,8 +1589,8 @@ class WorkflowStateService:
                             ),
                         )
                         # 旁白配音只作为信息报告，不参与状态推进：缺 TTS 既不是工作流缺口
-                        # 也不拦导出，补 TTS 由用户显式发起（见 generate_narration_audio），
-                        # 后期配音方式根本不需要 TTS。Manifest 读不出某条 TTS 状态时同理——
+                        # 也不拦剪辑，补 TTS 由用户显式发起（见 generate_narration_audio）；
+                        # 后期配音项目不需要 TTS，不报缺口。Manifest 读不出某条 TTS 状态时同理——
                         # 传独立的 audio_blockers 而非共享 blockers，不让它触发下面
                         # ``if blockers`` 把状态钉在 VIDEO；不可读事实仍经
                         # ``artifacts["audio"]["state"] == "blocked"`` 报告，只是不拦进度。
@@ -1603,7 +1605,9 @@ class WorkflowStateService:
                                 resolver=currency,
                                 blockers=audio_blockers,
                             )
-                            if mode == "narration" and generation_mode == "storyboard"
+                            if mode == "narration"
+                            and generation_mode == "storyboard"
+                            and project_narration_delivery(project) == USE_TTS
                             else _not_applicable_collection()
                         )
                         if blockers:
@@ -1639,6 +1643,13 @@ class WorkflowStateService:
                                 args={"episode": target.episode},
                                 ids=missing,
                             )
+                        elif not self._edit_timeline_ids(project_name, target.episode, artifacts):
+                            state = "EDIT"
+                            next_action = _action(
+                                WorkflowActionType.CREATE_EDIT_TIMELINE,
+                                "episode has no edit timeline",
+                                args={"episode": target.episode},
+                            )
                         elif episode is None and mode != "ad":
                             later_status = next(
                                 (
@@ -1648,7 +1659,7 @@ class WorkflowStateService:
                                     and (
                                         status := self._get_status(project_name, project, project_path, number, shared)
                                     ).state
-                                    != "EXPORT_READY"
+                                    != "COMPLETED"
                                     and not (
                                         status.state == "EPISODE_PLAN" and status.next_action.type == "plan_episodes"
                                     )
@@ -1661,16 +1672,23 @@ class WorkflowStateService:
                                 state = "EPISODE_PLAN"
                                 next_action = self._planning_action(project, "source text remains unplanned")
                             else:
-                                state = "EXPORT_READY"
-                                next_action = _action(WorkflowActionType.EXPORT, "all required artifacts are usable")
+                                state = "COMPLETED"
+                                next_action = _action(WorkflowActionType.NONE, "every episode has an edit timeline")
                         elif mode != "ad" and not shared.planning_complete:
                             state = "EPISODE_PLAN"
                             next_action = self._planning_action(project, "source text remains unplanned")
                         else:
-                            state = "EXPORT_READY"
-                            next_action = _action(WorkflowActionType.EXPORT, "all required artifacts are usable")
+                            state = "COMPLETED"
+                            next_action = _action(WorkflowActionType.NONE, "every episode has an edit timeline")
 
         return self._response(project, source, target, state, blockers, gates, artifacts, next_action)
+
+    def _edit_timeline_ids(self, project_name: str, episode: int, artifacts: dict[str, dict[str, Any]]) -> list[str]:
+        """「剪辑」一步的完成判据：该集至少有一条剪辑时间线。结果同时写进 ``artifacts``。"""
+
+        ids = [document.id for document in EditTimelineStore(self.pm, project_name).list_documents(episode)]
+        artifacts["edit_timelines"] = {"timeline_ids": ids}
+        return ids
 
     @staticmethod
     def _script_usable_without_plan(

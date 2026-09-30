@@ -8,7 +8,6 @@ from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
 
 from lib.project.project_manager import ProjectManager
-from lib.speech.narration_delivery import POST_PRODUCTION
 from lib.workflow.workflow_plan import WorkflowPlanRequest, build_workflow_plan
 from lib.workflow.workflow_state import (
     WorkflowActionType,
@@ -88,7 +87,7 @@ class _Planner:
         config_resolver=None,
     ):
         self.calls.append((project_name, request, user_id))
-        return build_workflow_plan(_status(), narration_delivery=request.narration_delivery)
+        return build_workflow_plan(_status())
 
 
 async def test_rest_and_mcp_serialize_the_same_workflow_plan(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -98,7 +97,6 @@ async def test_rest_and_mcp_serialize_the_same_workflow_plan(tmp_path: Path, mon
     monkeypatch.setattr(projects, "get_project_manager", lambda: pm)
     payload = {
         "episode": 1,
-        "narration_delivery": POST_PRODUCTION,
         "confirmed_request_durations": {"E1S01": 5},
     }
 
@@ -118,17 +116,26 @@ async def test_rest_and_mcp_serialize_the_same_workflow_plan(tmp_path: Path, mon
     ]
 
 
-async def test_workflow_plan_mcp_rejects_invalid_transient_choice_before_service(
+async def test_workflow_plan_rejects_the_retired_delivery_choice_before_service(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     pm = _project(tmp_path)
     planner = _Planner()
     monkeypatch.setattr(workflow_planner, "get_workflow_planner", lambda _pm=None: planner)
+    monkeypatch.setattr(projects, "get_project_manager", lambda: pm)
+    payload = {"narration_delivery": "post_production"}
 
-    outcome = await _agent_plan(pm, tmp_path, {"narration_delivery": "persist_this_choice"})
+    outcome = await _agent_plan(pm, tmp_path, payload)
+
+    app = FastAPI()
+    app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="u1", sub="tester")
+    app.include_router(projects.router, prefix="/api/v1", dependencies=[Depends(get_current_user)])
+    with TestClient(app) as client:
+        response = client.post("/api/v1/projects/demo/workflow-plan", json=payload)
 
     assert outcome.problem is not None
     assert outcome.problem.code == "invalid_request"
+    assert response.status_code == 422
     assert planner.calls == []
 
 

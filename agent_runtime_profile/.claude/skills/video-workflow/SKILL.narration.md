@@ -55,11 +55,11 @@ description: 将小说转换为短视频的端到端工作流编排器。当用�
 对应动作。Read / Glob 只用于执行已选定动作所需的内容，不用于另建状态机；不得根据空资产 bucket、
 文件名、旧文件存在性或对话记忆覆盖服务端结论。
 
-下文各节以 `next_action.type` 为标题。`export` 表示工作流完成，`none` 表示展示 `blockers` 并停止变更。
+下文各节以 `next_action.type` 为标题。`none` 时：有 `blockers` 就展示并停止变更；
+`status.state == "COMPLETED"` 表示工作流已走完。
 
 > 批量旁白配音由用户显式触发（见「批量旁白配音」节）：它只依赖剧本各段的 `novel_text`，
-> 独立于分镜图/视频——`generate_script` 产出剧本后即可执行。它与「本次视频请求的旁白交付选择」
-> 是两件事，后者由 `choose_narration_delivery` 驱动，见 workflow-plan 参考。
+> 独立于分镜图/视频——`generate_script` 产出剧本后即可执行。
 
 ---
 
@@ -257,15 +257,10 @@ dispatch `generate-assets` 子智能体：
 
 **触发**：`next_action.type == "generate_videos"`
 
-入队前计划可能先交回两个受控动作，按 [workflow-plan](../../references/workflow-plan.md) 处理完再重查计划：
-
-- `choose_narration_delivery` — 本次请求含叙述旁白。向用户**显式说明**这次要发起的是叙述旁白视频
-  请求，并在「使用 TTS」与「后期配音」之间二选一；选择经 `narration_delivery` 带进下一次
-  `mcp__arcreel__get_workflow_plan`，不持久化，之后每次查询都要重新带上。未配置 TTS 时默认后期配音，
-  不要为了让视频继续而建议用户去配置 TTS 供应商；选 TTS 时旁白配音按 `generate-narration-audio`
-  单独合成，视频请求不受影响
-- `confirm_request_duration` — 整批准入判定要求确认申请档位。按 `admission.confirmation.tiers[]` 逐档位
-  展示涉及的视频单元与费用，取得确认后经 `confirmed_request_durations` 连同仍成立的 `narration_delivery` 一起带回
+入队前计划可能先交回 `confirm_request_duration`：整批准入判定要求确认申请档位。按
+`admission.confirmation.tiers[]` 逐档位展示涉及的视频单元与费用，取得确认后经
+`confirmed_request_durations` 带回下一次 `mcp__arcreel__get_workflow_plan`（见
+[workflow-plan](../../references/workflow-plan.md)）。
 
 只有 `plan.steps[].admission.decision == "admitted"` 才入队；`blocked` 或 `confirmation_required` 时
 **一个任务都不入队**。此时逐视频单元报告 `admission.units[]` 的 `unit_id`、`problems[].code`、原因与
@@ -296,19 +291,28 @@ stale 产物照常可预览、可导出、可参与成片，是否重做由用�
 
 ---
 
+## `create_edit_timeline`：剪辑
+
+**触发**：`next_action.type == "create_edit_timeline"`，本集视频已齐、还没有剪辑时间线。
+
+调 `mcp__arcreel__create_timeline({"from": "script", "episode": target.episode, "name": "完整版"})` 按脚本
+机械新建一条剪辑时间线，再与用户一起在它上面剪辑。至少有一条剪辑时间线，这一步即完成。
+导出剪映草稿不是工作流步骤，由用户在 Web 端发起。
+
+---
+
 ## 批量旁白配音
 
-**触发**：用户明确要求生成旁白配音，或在 `choose_narration_delivery` 处选了「使用 TTS」。
-它不由计划的 `next_action` 驱动——缺 TTS 不是工作流缺口，计划不会因此停下，也不会因此拦住视频与导出；
-`plan.status.artifacts.audio` 只如实报告哪些段缺配音。
-
-后期配音方式的旁白不需要 TTS，不要为它补齐，也不要建议用户为了继续做视频去配置 TTS 供应商。
+**触发**：TTS 项目首轮自动剪辑时补齐缺失配音，或用户明确要求生成旁白配音；项目选择 TTS 即已授权
+首次补齐，无需另行确认，stale 配音仅按用户要求重合成。后期配音项目若要生成旁白配音，先请用户在
+项目设置里改为 TTS 配音。它不由计划的 `next_action` 驱动，也不拦住视频生成；
+`plan.status.artifacts.audio` 在 TTS 项目报告缺失或 stale，后期配音项目为 `not_applicable`。
 
 旁白配音以各段 `novel_text` 原文逐段合成语音，只依赖剧本、独立于分镜图/视频：
 用户要求时可在 `generate_script` 产出剧本后随时执行。
 
-`generation_mode == "reference_video"` **只跳过分镜图**，不跳过 audio：参考生视频没有按段批量 TTS 的
-入口（无 `segments[]`），但旁白交付选择照样要做，见 `choose_narration_delivery`。
+`generation_mode == "reference_video"` **只跳过分镜图**：参考生视频没有按段批量 TTS 的
+入口（无 `segments[]`），旁白配音按视频单元逐个生成。
 
 **dispatch `generate-assets` 子智能体**：
 

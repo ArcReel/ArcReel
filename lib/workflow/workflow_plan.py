@@ -9,7 +9,6 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from lib.generation.generation_result import GenerationAction, GenerationProblem, ProviderCheckpoint
 from lib.project.asset_types import ASSET_SPECS
-from lib.speech.narration_delivery import POST_PRODUCTION, USE_TTS, NarrationDelivery
 from lib.workflow.workflow_rules import WorkflowStepRule, workflow_rule
 from lib.workflow.workflow_state import WorkflowActionType, WorkflowBlocker, WorkflowNextAction, WorkflowStatus
 
@@ -35,10 +34,6 @@ class WorkflowPlanRequest(BaseModel):
     episode: int | None = Field(
         default=None, ge=1, strict=True, description="要规划的集号，从 1 开始；缺省时按项目进度选定当前集"
     )
-    narration_delivery: NarrationDelivery | None = Field(
-        default=None,
-        description="本次视频请求的旁白交付选择：post_production 后期配音、use_tts 生成旁白配音；只作用于本次计划，不写入项目",
-    )
     confirmed_request_durations: dict[str, PositiveStrictInt] = Field(
         default_factory=dict,
         description="已与用户确认的视频请求时长，{ 单元 id: 秒数 }；只作用于本次计划的视频准入判定",
@@ -51,16 +46,6 @@ class WorkflowPlanRequest(BaseModel):
             if not unit_id.strip():
                 raise ValueError("confirmed_request_durations keys must be non-empty unit ids")
         return value
-
-
-class WorkflowNarrationDelivery(BaseModel):
-    """The non-persistent delivery choice attached to this plan only."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    selected: NarrationDelivery | None
-    options: tuple[Literal["post_production"], Literal["use_tts"]] = (POST_PRODUCTION, USE_TTS)
-    persisted: Literal[False] = False
 
 
 class WorkflowTaskObservation(BaseModel):
@@ -110,7 +95,6 @@ class WorkflowPlan(BaseModel):
 
     schema_version: Literal[1] = 1
     status: WorkflowStatus
-    narration_delivery: WorkflowNarrationDelivery
     steps: list[WorkflowPlanStep]
     blockers: list[WorkflowBlocker]
     problems: list[GenerationProblem]
@@ -124,8 +108,8 @@ _ARTIFACT_BY_STEP: dict[str, str] = {
     "script_plan_review": "script_plan",
     "final_script": "script",
     "storyboard": "storyboards",
-    "narration_delivery": "audio",
     "video": "videos",
+    "edit": "edit_timelines",
 }
 
 _TASK_STEP: dict[str, str] = {
@@ -137,7 +121,6 @@ _TASK_STEP: dict[str, str] = {
     **dict.fromkeys(ASSET_SPECS, "asset_sheets"),
     "storyboard": "storyboard",
     "grid": "storyboard",
-    "tts": "narration_delivery",
     "video": "video",
     "reference_video": "video",
 }
@@ -162,6 +145,8 @@ def _baseline_step_state(
 
 
 def _current_rule_index(status: WorkflowStatus, rules: tuple[WorkflowStepRule, ...]) -> int:
+    if status.state == "COMPLETED":
+        return len(rules)
     if status.next_action.type is WorkflowActionType.REPAIR_VIDEO_UNITS:
         return next(index for index, rule in enumerate(rules) if rule.id == "script_structure")
     for index, rule in enumerate(rules):
@@ -231,7 +216,6 @@ def _admission_action(
 def build_workflow_plan(
     status: WorkflowStatus,
     *,
-    narration_delivery: NarrationDelivery | None = None,
     structure_problems: list[GenerationProblem] | None = None,
     script_revision: str | None = None,
     task_observations: list[WorkflowTaskObservation] | None = None,
@@ -264,8 +248,6 @@ def build_workflow_plan(
                 else WorkflowStepContracts()
             ),
         )
-        if step_rule.id == "narration_delivery":
-            step.required = status.state == "VIDEO" and status.next_action.type is WorkflowActionType.GENERATE_VIDEOS
         if step.artifacts.get("state") == "blocked" and step.state is not WorkflowStepState.SKIPPED:
             step.state = WorkflowStepState.BLOCKED
         steps.append(step)
@@ -277,21 +259,10 @@ def build_workflow_plan(
         structure_step.problems = structure_problems
         structure_step.requested_ids = _problem_unit_ids(structure_problems)
         structure_step.action = _structure_action(structure_problems, script_revision=script_revision)
-        for media_step in ("storyboard", "narration_delivery", "video"):
+        for media_step in ("storyboard", "video"):
             if by_id[media_step].state is not WorkflowStepState.SKIPPED:
                 by_id[media_step].state = WorkflowStepState.PENDING
                 by_id[media_step].action = None
-
-    delivery_step = by_id["narration_delivery"]
-    delivery_index = next(index for index, item in enumerate(rules) if item.id == "narration_delivery")
-    if not structure_problems and current_index >= delivery_index:
-        # 音轨产物 blocked 只对本次选择 TTS 的请求成立：后期配音路径不消费 TTS 产物，
-        # 交付选择尚未作出时两条路径都还开放，两种情况都不该被音轨阻断吞掉。
-        tts_blocked = narration_delivery == USE_TTS and delivery_step.state is WorkflowStepState.BLOCKED
-        if not tts_blocked:
-            delivery_step.state = (
-                WorkflowStepState.COMPLETED if narration_delivery is not None else WorkflowStepState.READY
-            )
 
     for observation in task_observations:
         step_id = _TASK_STEP.get(observation.task_type)
@@ -332,20 +303,6 @@ def build_workflow_plan(
                 step.action = next_action
         if video_step.state is not WorkflowStepState.ACTIVE:
             video_step.action = None
-    elif (
-        status.state == "VIDEO"
-        and status.next_action.type is WorkflowActionType.GENERATE_VIDEOS
-        and narration_delivery is None
-    ):
-        next_action = WorkflowNextAction(
-            type=WorkflowActionType.CHOOSE_NARRATION_DELIVERY,
-            args={"options": [POST_PRODUCTION, USE_TTS]},
-            requested_ids=list(status.next_action.requested_ids),
-            reason="choose narration delivery for this video request",
-        )
-        delivery_step.action = next_action
-        video_step.state = WorkflowStepState.PENDING
-        video_step.action = None
     elif admission is not None and admission.get("decision") != "admitted":
         next_action = _admission_action(admission, admission_problems, list(status.next_action.requested_ids))
         video_step.action = next_action
@@ -354,7 +311,6 @@ def build_workflow_plan(
 
     return WorkflowPlan(
         status=status,
-        narration_delivery=WorkflowNarrationDelivery(selected=narration_delivery),
         steps=steps,
         blockers=list(status.blockers),
         problems=[*structure_problems, *admission_problems],
@@ -363,7 +319,6 @@ def build_workflow_plan(
 
 
 __all__ = [
-    "WorkflowNarrationDelivery",
     "WorkflowPlan",
     "WorkflowPlanRequest",
     "WorkflowPlanStep",

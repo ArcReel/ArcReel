@@ -18,7 +18,6 @@ from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from lib.project.source_revision import SourceScope, compute_source_revision
 from lib.script.grid.grid_manager import GridManager
 from lib.script.grid.models import GridGeneration
-from lib.speech.narration_delivery import POST_PRODUCTION
 from lib.workflow.workflow_plan import WorkflowPlanRequest, WorkflowStepState
 from lib.workflow.workflow_state import (
     WorkflowActionType,
@@ -260,7 +259,7 @@ async def test_planner_uses_shared_admission_and_never_reads_the_real_task_singl
     monkeypatch.setattr(workflow_planner, "get_active_tasks_for_resources", _active_tasks)
     monkeypatch.setattr(workflow_planner, "admit_storyboard_video_request", _admit)
 
-    request = WorkflowPlanRequest(narration_delivery=POST_PRODUCTION)
+    request = WorkflowPlanRequest()
     first = await workflow_planner.WorkflowPlanner(pm).get_plan("demo", request)
     second = await workflow_planner.WorkflowPlanner(pm).get_plan("demo", request)
 
@@ -302,9 +301,7 @@ async def test_active_task_and_provider_checkpoint_are_reported_as_separate_axes
     monkeypatch.setattr(workflow_planner, "get_active_tasks_for_resources", _active_tasks)
     monkeypatch.setattr(workflow_planner, "admit_storyboard_video_request", _admit)
 
-    plan = await workflow_planner.WorkflowPlanner(pm).get_plan(
-        "demo", WorkflowPlanRequest(narration_delivery=POST_PRODUCTION)
-    )
+    plan = await workflow_planner.WorkflowPlanner(pm).get_plan("demo", WorkflowPlanRequest())
 
     video = next(step for step in plan.steps if step.id == "video")
     assert video.state is WorkflowStepState.ACTIVE
@@ -523,9 +520,7 @@ async def test_recovery_checkpoint_without_provider_job_remains_visible(
     monkeypatch.setattr(workflow_planner, "get_active_tasks_for_resources", _active_tasks)
     monkeypatch.setattr(workflow_planner, "admit_storyboard_video_request", _admit)
 
-    plan = await workflow_planner.WorkflowPlanner(pm).get_plan(
-        "demo", WorkflowPlanRequest(narration_delivery=POST_PRODUCTION)
-    )
+    plan = await workflow_planner.WorkflowPlanner(pm).get_plan("demo", WorkflowPlanRequest())
 
     checkpoint = next(step for step in plan.steps if step.id == "video").tasks[0].provider_checkpoint
     assert checkpoint is not None
@@ -608,9 +603,7 @@ async def test_planner_refuses_a_unit_whose_video_input_is_unusable(
     monkeypatch.setattr(video_batch_admission, "get_active_tasks_for_resources", _no_active_tasks)
 
     before = sorted(path.relative_to(tmp_path).as_posix() for path in tmp_path.rglob("*"))  # noqa: ASYNC240 -- 测试内本地小文件读写/断言，不在生产事件循环上
-    plan = await workflow_planner.WorkflowPlanner(pm).get_plan(
-        "demo", WorkflowPlanRequest(narration_delivery=POST_PRODUCTION)
-    )
+    plan = await workflow_planner.WorkflowPlanner(pm).get_plan("demo", WorkflowPlanRequest())
 
     # 走提交侧那条缝要读 Manifest 与分镜图，读到的一切仍不得在项目目录留下痕迹。
     assert sorted(path.relative_to(tmp_path).as_posix() for path in tmp_path.rglob("*")) == before  # noqa: ASYNC240 -- 测试内本地小文件读写/断言，不在生产事件循环上
@@ -653,9 +646,7 @@ async def test_planner_folds_a_video_request_facts_failure_into_each_target(
     )
     set_admission_video_request_facts(failure)
 
-    plan = await workflow_planner.WorkflowPlanner(pm).get_plan(
-        "demo", WorkflowPlanRequest(narration_delivery=POST_PRODUCTION)
-    )
+    plan = await workflow_planner.WorkflowPlanner(pm).get_plan("demo", WorkflowPlanRequest())
 
     video = next(step for step in plan.steps if step.id == "video")
     assert video.admission is not None
@@ -693,9 +684,7 @@ async def test_planner_reports_the_audio_switch_conflict_before_any_task_exists(
     monkeypatch.setattr(video_batch_admission, "get_active_tasks_for_resources", _no_active_tasks)
     set_admission_video_request_facts(make_video_request_facts(requested_generate_audio=False))
 
-    plan = await workflow_planner.WorkflowPlanner(pm).get_plan(
-        "demo", WorkflowPlanRequest(narration_delivery=POST_PRODUCTION)
-    )
+    plan = await workflow_planner.WorkflowPlanner(pm).get_plan("demo", WorkflowPlanRequest())
 
     video = next(step for step in plan.steps if step.id == "video")
     assert video.admission is not None

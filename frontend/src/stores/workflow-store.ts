@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { API } from "@/api";
-import type { NarrationDelivery, WorkflowPlan } from "@/types/workflow";
+import type { WorkflowPlan } from "@/types/workflow";
 
 /**
  * 一次计划刷新的结算结果。`cancelled` 不是失败：目标项目/剧集在途中易主，
@@ -21,15 +21,9 @@ interface WorkflowState {
   loading: boolean;
   /** 最近一次刷新的错误文案；`plan` 仍保留上一次的结果。 */
   error: string | null;
-  /**
-   * 本次请求的旁白交付方式。后端把它标为 `persisted: false`——它不写回项目，
-   * 只决定这一次求解按哪条路径评估，因此存在前端会话态里而不是项目数据里。
-   */
-  narrationDelivery: NarrationDelivery | null;
   /** 用户已确认的申请档位，按 unit 给；确认后重求解会带上。 */
   confirmedDurations: Record<string, number>;
 
-  setNarrationDelivery: (delivery: NarrationDelivery | null) => void;
   confirmDurations: (durations: Record<string, number>) => void;
   /**
    * 取回目标的计划。
@@ -88,7 +82,6 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => {
           curProject,
           {
             episode: curEpisode,
-            narration_delivery: get().narrationDelivery,
             confirmed_request_durations: get().confirmedDurations,
           },
           { signal },
@@ -135,10 +128,8 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => {
     planKey: null,
     loading: false,
     error: null,
-    narrationDelivery: null,
     confirmedDurations: {},
 
-    setNarrationDelivery: (delivery) => set({ narrationDelivery: delivery }),
     confirmDurations: (durations) =>
       set((s) => ({ confirmedDurations: { ...s.confirmedDurations, ...durations } })),
 
@@ -156,7 +147,6 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => {
         planKey: null,
         error: null,
         loading: false,
-        narrationDelivery: null,
         confirmedDurations: {},
       });
     },
