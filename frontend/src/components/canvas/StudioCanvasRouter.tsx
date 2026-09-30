@@ -225,8 +225,9 @@ export function StudioCanvasRouter() {
     }
   }, [refreshProject]);
 
+  // afterId 为 null 时追加到末尾（空脚本里即第一条）。
   const handleInsertShot = useCallback(async (
-    afterId: string,
+    afterId: string | null,
     novelText: string | undefined,
     scriptFile?: string,
   ): Promise<boolean> => {
@@ -234,7 +235,7 @@ export function StudioCanvasRouter() {
     const resolvedFile = scriptFile ?? Object.keys(currentScripts)[0];
     if (!resolvedFile) return false;
     try {
-      await API.insertScriptItemAfter(currentProjectName, afterId, resolvedFile, novelText);
+      await API.insertScriptItem(currentProjectName, resolvedFile, { afterId: afterId ?? undefined, novelText });
     } catch (err) {
       useAppStore.getState().pushToast(tRef.current("shot_insert_failed", { message: errMsg(err) }), "error");
       return false;
@@ -816,6 +817,9 @@ export function StudioCanvasRouter() {
                     onGenerateGrid={handleGenerateGrid}
                     onRestoreStoryboard={handleRestoreAsset}
                     onRestoreVideo={handleRestoreAsset}
+                    onInsertFirstShot={
+                      demoMode ? undefined : (novelText, file) => handleInsertShot(null, novelText, file)
+                    }
                   />
                 ) : (
                   <TimelineCanvas

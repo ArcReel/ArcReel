@@ -9,6 +9,7 @@ import { useAppStore } from "@/stores/app-store";
 import { getScriptItemId, type EditorContentMode } from "@/utils/script-shape";
 import { ShotList } from "./ShotList";
 import { ShotDetail } from "./ShotDetail";
+import type { InsertShotHandler } from "./ShotStructureActions";
 
 type Segment = NarrationSegment | DramaScene | AdShot;
 
@@ -29,8 +30,8 @@ interface ShotSplitViewProps {
   ) => void | Promise<void>;
   /** 广告/短片分镜顺序调整，resolve 为是否移动成功 */
   onMoveShot?: (shotId: string, direction: "earlier" | "later") => Promise<boolean>;
-  /** 在分镜之后新增分镜（旁白带正文），resolve 为是否成功 */
-  onInsertShot?: (afterId: string, novelText?: string) => Promise<boolean>;
+  /** 新增分镜（旁白带正文）：afterId 为 null 时追加到末尾；resolve 为是否成功 */
+  onInsertShot?: InsertShotHandler;
   /** 移除分镜，resolve 为是否成功 */
   onRemoveShot?: (itemId: string) => Promise<boolean>;
   onGenerateStoryboard?: (segmentId: string) => void;
@@ -120,11 +121,12 @@ export function ShotSplitView({
       setStructurePending(false);
     }
   };
-  const handleInsertShot = onInsertShot
-    ? (afterId: string, novelText?: string) =>
+  const handleInsertShot: InsertShotHandler | undefined = onInsertShot
+    ? (afterId, novelText) =>
         runStructureChange(
           () => onInsertShot(afterId, novelText),
-          () => setSelectedIndex((i) => i + 1),
+          // 插在当前分镜之后的选中紧随其后的新分镜；追加到末尾的选中新的末条。
+          () => setSelectedIndex((i) => (afterId === null ? segments.length : i + 1)),
         )
     : undefined;
   const handleRemoveShot = onRemoveShot
@@ -180,6 +182,8 @@ export function ShotSplitView({
         collapsed={collapsed}
         onToggleCollapse={() => setCollapsed((c) => !c)}
         scrollContainerRef={listScrollRef}
+        onAppend={handleInsertShot}
+        appendDisabled={structurePending || movePending}
       />
       <ShotDetail
         key={segmentId}

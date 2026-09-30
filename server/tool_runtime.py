@@ -422,8 +422,12 @@ class PatchInsertOperation(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     op: Literal["insert"]
-    after_id: str = Field(min_length=1, description="新条目插在这个 id 之后")
-    item: dict[str, Any] = Field(description="新条目的完整内容；id 由系统按锚点重新分配")
+    after_id: str | None = Field(
+        default=None,
+        min_length=1,
+        description="新条目插在这个 id 之后；省略或为 null 时插到最前（空脚本的第一条即如此）",
+    )
+    item: dict[str, Any] = Field(description="新条目的完整内容；id 由系统分配，取本集现有最大序号的下一个号")
 
 
 class PatchRemoveOperation(BaseModel):
@@ -1750,7 +1754,11 @@ def _project_patch_operations(
                 unit_id=insert_after_id,
             )
             items, id_field, _kind = resolve_items(preview)
-            anchor = next(i for i, item in enumerate(items) if str(item.get(id_field)) == insert_after_id)
+            anchor = (
+                -1
+                if insert_after_id is None
+                else next(i for i, item in enumerate(items) if str(item.get(id_field)) == insert_after_id)
+            )
             append(
                 {"op": "insert_after", "after_id": insert_after_id, "item": copy.deepcopy(items[anchor + 1])},
                 index,

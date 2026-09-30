@@ -241,7 +241,7 @@ class TestPatchEpisodeScript:
                         {"op": "update", "id": "E1S01", "fields": {"image_prompt.scene": "@[无名路人]回头"}},
                         {"op": "insert", "after_id": "E1S01", "item": _segment("ignored")},
                         {"op": "split", "id": "E1S02", "parts": [_segment("a"), _segment("b")]},
-                        {"op": "remove", "id": "E1S01_1"},
+                        {"op": "remove", "id": "E1S03"},
                     ],
                 },
             )
@@ -533,7 +533,7 @@ class TestPatchEpisodeScriptStructuralOperations:
         out = await _patch(ctx, [{"op": "insert", "after_id": "E1S01", "item": _segment("IGN")}])
         _committed(out)
         ids = [s["segment_id"] for s in _load(ctx)["segments"]]
-        assert ids == ["E1S01", "E1S01_1", "E1S02"]
+        assert ids == ["E1S01", "E1S03", "E1S02"]
 
     @pytest.mark.parametrize(("prompts", "expected"), [(_UNAUTHORED, True), ({}, False)])
     async def test_insert_marks_new_entry_pending_authoring_unless_prompts_are_supplied(
@@ -543,7 +543,7 @@ class TestPatchEpisodeScriptStructuralOperations:
 
         _committed(out)
         segments = {s["segment_id"]: s for s in _load(ctx)["segments"]}
-        assert segments["E1S01_1"].get("pending_authoring", False) is expected
+        assert segments["E1S03"].get("pending_authoring", False) is expected
         assert "pending_authoring" not in segments["E1S01"]
 
     async def test_split_marks_parts_without_prompts_pending_authoring(self, ctx: ToolHarness) -> None:
@@ -590,33 +590,37 @@ class TestPatchEpisodeScriptStructuralOperations:
         _committed(out)
         assert [s["segment_id"] for s in _load(ctx)["segments"]] == ["E1S02"]
 
-    @pytest.mark.parametrize("replacement", ["insert", "split"])
+    @pytest.mark.parametrize(
+        ("removed_id", "structural"),
+        [
+            # 删掉末条再新增，取号回到被删的号。
+            ("E1S02", {"op": "insert", "after_id": "E1S01", "item": _segment("ignored")}),
+            ("E1S01_1", {"op": "split", "id": "E1S01", "parts": [_segment("a"), _segment("b")]}),
+        ],
+    )
     async def test_new_identity_does_not_inherit_removed_id_assets(
         self,
         ctx: ToolHarness,
-        replacement: str,
+        removed_id: str,
+        structural: dict[str, Any],
     ) -> None:
         script = _script()
-        removed = _segment("E1S01_1")
+        script["segments"] = [s for s in script["segments"] if s["segment_id"] != removed_id]
+        removed = _segment(removed_id)
         removed["generated_assets"] = {"video_clip": "old-paid.mp4", "status": "completed"}
         script["segments"].insert(1, removed)
         ctx.pm.save_script("demo", script, "episode_1.json")
         adapter = ProjectArtifactManifestAdapter(ctx.project_path)
-        old_video = ArtifactKey.episode_video(1, "E1S01_1")
+        old_video = ArtifactKey.episode_video(1, removed_id)
         adapter.put_entry(
             old_video,
             ArtifactManifestEntry(artifact_path="videos/old-paid.mp4", basis_digest=f"sha256-v1:{'a' * 64}"),
         )
-        structural = (
-            {"op": "insert", "after_id": "E1S01", "item": _segment("ignored")}
-            if replacement == "insert"
-            else {"op": "split", "id": "E1S01", "parts": [_segment("a"), _segment("b")]}
-        )
 
-        out = await _patch(ctx, [{"op": "remove", "id": "E1S01_1"}, structural])
+        out = await _patch(ctx, [{"op": "remove", "id": removed_id}, structural])
 
         _committed(out)
-        recycled = next(segment for segment in _load(ctx)["segments"] if segment["segment_id"] == "E1S01_1")
+        recycled = next(segment for segment in _load(ctx)["segments"] if segment["segment_id"] == removed_id)
         assert recycled["generated_assets"] == {}
         assert adapter.get_entry(old_video) is None
 

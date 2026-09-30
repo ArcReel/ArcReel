@@ -1317,25 +1317,30 @@ class API {
   }
 
   /**
-   * 在分镜 `itemId` 之后新增一条待编写分镜（剧情演绎 / 旁白 / 广告通用）。服务端按当前剧本
-   * revision 执行，并发改写时返回 409。旁白分镜的正文即配音内容，`novelText` 必填。
+   * 新增一条待编写分镜（剧情演绎 / 旁白 / 广告通用）：`afterId` 给定时插在该分镜之后，缺省时追加到
+   * 末尾（空脚本里即第一条）。服务端按当前剧本 revision 执行，并发改写时返回 409；新分镜不继承同号
+   * 旧分镜的产物与版本历史。旁白分镜的正文即配音内容，`novelText` 必填。
    */
-  static async insertScriptItemAfter(
+  static async insertScriptItem(
     projectName: string,
-    itemId: string,
     scriptFile: string,
-    novelText?: string
+    options: { afterId?: string; novelText?: string } = {}
   ): Promise<SuccessResponse & { item: NarrationSegment | DramaScene | AdShot | null }> {
-    return this.request(
-      `/projects/${encodeURIComponent(projectName)}/script-items/${encodeURIComponent(itemId)}/insert-after`,
-      {
-        method: "POST",
-        body: JSON.stringify({
-          script_file: scriptFile,
-          ...(novelText !== undefined ? { novel_text: novelText } : {}),
-        }),
-      }
-    );
+    return this.request(`/projects/${encodeURIComponent(projectName)}/script-items`, {
+      method: "POST",
+      body: JSON.stringify({
+        script_file: scriptFile,
+        ...(options.afterId !== undefined ? { after_id: options.afterId } : {}),
+        ...(options.novelText !== undefined ? { novel_text: options.novelText } : {}),
+      }),
+    });
+  }
+
+  /** 从空白开始：本集没有正式脚本时建出空的正式脚本，未确认的脚本规划随之弃置。 */
+  static async startBlankScript(projectName: string, episode: number): Promise<SuccessResponse & { script_file: string }> {
+    return this.request(`/projects/${encodeURIComponent(projectName)}/episodes/${episode}/blank-script`, {
+      method: "POST",
+    });
   }
 
   /** 移除分镜 `itemId`，其产物随分镜一并移除；服务端按当前剧本 revision 执行。 */
@@ -3201,6 +3206,8 @@ class API {
       prompt: string;
       duration_seconds?: number;
       note?: string | null;
+      /** 插在这个单元之后；缺省时追加到末尾。 */
+      after_unit_id?: string;
     },
   ): Promise<{ unit: ReferenceVideoUnit; unit_capability: ReferenceUnitCapability }> {
     return this.request(

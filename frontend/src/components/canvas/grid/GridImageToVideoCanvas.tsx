@@ -5,6 +5,7 @@ import { EpisodeHeader } from "../timeline/EpisodeHeader";
 import { ScriptReviewGate } from "../timeline/ScriptReviewGate";
 import { PromptAuthoringButton } from "../shared/PromptAuthoringButton";
 import { ShotSplitView } from "../timeline/ShotSplitView";
+import { EmptyScriptState } from "../timeline/EmptyScriptState";
 import { GridPreviewView } from "./GridPreviewView";
 import { useAppStore } from "@/stores/app-store";
 import { useCostStore } from "@/stores/cost-store";
@@ -56,6 +57,8 @@ interface GridImageToVideoCanvasProps {
   ) => Promise<void> | void;
   onRestoreStoryboard?: () => Promise<void> | void;
   onRestoreVideo?: () => Promise<void> | void;
+  /** 空脚本里新增第一个分镜（旁白带正文）；resolve 为是否成功 */
+  onInsertFirstShot?: (novelText: string | undefined, scriptFile?: string) => Promise<boolean>;
   onSaveTitle?: (next: string) => Promise<void>;
   canEditTitle?: boolean;
 }
@@ -82,6 +85,7 @@ export function GridImageToVideoCanvas({
   onGenerateGrid,
   onRestoreStoryboard,
   onRestoreVideo,
+  onInsertFirstShot,
   onSaveTitle,
   canEditTitle,
 }: GridImageToVideoCanvasProps) {
@@ -365,6 +369,13 @@ export function GridImageToVideoCanvas({
             lastFrame={lastFrame}
             capabilitiesLoading={capabilitiesLoading}
             durationWarningReason={durationWarningReason}
+          />
+        ) : episodeScript && editorContentMode ? (
+          <EmptyScriptState
+            contentMode={editorContentMode}
+            onInsert={
+              onInsertFirstShot ? (_afterId, novelText) => onInsertFirstShot(novelText, scriptFile) : undefined
+            }
           />
         ) : null}
       </div>

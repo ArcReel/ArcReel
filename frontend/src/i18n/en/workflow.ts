@@ -146,7 +146,6 @@ export default {
   'next_detail_generate_videos_other': '{{count}} items have no video yet.',
   'next_detail_create_edit_timeline': 'All videos for this episode are ready. You can start editing.',
   'next_detail_wait_for_task': 'Generation is in progress. The status updates when it finishes.',
-  'agent_prefill_start_blank_script': 'Start the final script of {{episodeRef}} from blank',
   'agent_prefill_generate_script': 'Generate the script of {{episodeRef}} from the brief and products',
   'agent_prefill_add_script_items_storyboard': 'Add shots to the final script of {{episodeRef}}',
   'agent_prefill_add_script_items_unit': 'Add video units to the final script of {{episodeRef}}',

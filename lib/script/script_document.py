@@ -22,6 +22,9 @@ from lib.speech.speech_composition import admit_script_unit
 #: 内容确认转出的剧本写进 ``metadata.generator`` 的标记：条目是按脚本规划投影出来的，不经文本模型。
 SCRIPT_PLAN_CONVERSION_GENERATOR = "script_plan_conversion"
 
+#: 「从空白开始」建出的剧本写进 ``metadata.generator`` 的标记：条目由创作者手写，不经文本模型。
+BLANK_SCRIPT_GENERATOR = "blank"
+
 
 def episode_ledger_entry(project: Mapping[str, Any], episode: int) -> dict[str, Any]:
     """按集号取 project.json episodes 条目；缺失返回空 dict。"""
@@ -166,8 +169,21 @@ def build_materialized_script(
     return script_data
 
 
+def build_blank_script(project: Mapping[str, Any], episode: int) -> dict[str, Any]:
+    """「从空白开始」的整集正式剧本：按项目两轴定骨架，条目数组为空，不写盘。
+
+    标题取分集账本标题，否则按播出位置兜底。
+    """
+    items_key = resolve_declared_kind(project.get("content_mode"), project.get("generation_mode"))
+    script_data: dict[str, Any] = {"title": default_episode_title(project, episode), items_key: []}
+    prepare_script_entries(script_data, project=project, episode=episode)
+    return finish_script_document(script_data, project=project, episode=episode, generator=BLANK_SCRIPT_GENERATOR)
+
+
 __all__ = [
+    "BLANK_SCRIPT_GENERATOR",
     "SCRIPT_PLAN_CONVERSION_GENERATOR",
+    "build_blank_script",
     "build_materialized_script",
     "episode_ledger_entry",
     "finish_script_document",

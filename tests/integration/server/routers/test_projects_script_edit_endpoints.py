@@ -709,8 +709,8 @@ class TestProjectsRouter:
             (
                 "post",
                 "ad-ready",
-                "/api/v1/projects/ad-ready/script-items/E1S01/insert-after",
-                {"script_file": "episode_1.json"},
+                "/api/v1/projects/ad-ready/script-items",
+                {"script_file": "episode_1.json", "after_id": "E1S01"},
             ),
             (
                 "delete",
@@ -901,12 +901,12 @@ class TestScriptItemInsertAndRemove:
     ):
         pm, client = self._client(tmp_path, monkeypatch, content_mode)
         items_key, id_field, _content = _ITEM_SHAPES[content_mode]
-        body = {"script_file": "episode_1.json"}
+        body = {"script_file": "episode_1.json", "after_id": "E1S01"}
         if content_mode == "narration":
             body["novel_text"] = "风停了。"
 
         with client:
-            response = client.post("/api/v1/projects/demo/script-items/E1S01/insert-after", json=body)
+            response = client.post("/api/v1/projects/demo/script-items", json=body)
 
         assert response.status_code == 200, response.json()
         inserted = response.json()["item"]
@@ -926,8 +926,8 @@ class TestScriptItemInsertAndRemove:
 
         with client:
             response = client.post(
-                "/api/v1/projects/demo/script-items/E1S01/insert-after",
-                json={"script_file": "episode_1.json", "novel_text": novel_text},
+                "/api/v1/projects/demo/script-items",
+                json={"script_file": "episode_1.json", "after_id": "E1S01", "novel_text": novel_text},
             )
 
         assert response.status_code == 422
@@ -967,7 +967,7 @@ class TestScriptItemInsertAndRemove:
     @pytest.mark.parametrize(
         ("method", "endpoint", "body"),
         [
-            ("post", "/api/v1/projects/demo/script-items/E1S01/insert-after", {"script_file": "episode_1.json"}),
+            ("post", "/api/v1/projects/demo/script-items", {"script_file": "episode_1.json", "after_id": "E1S01"}),
             ("delete", "/api/v1/projects/demo/script-items/E1S01?script_file=episode_1.json", None),
         ],
     )
@@ -1007,7 +1007,7 @@ class TestScriptItemInsertAndRemove:
 
         with client:
             inserted = client.post(
-                "/api/v1/projects/ready/script-items/E1U1/insert-after", json={"script_file": "episode_1.json"}
+                "/api/v1/projects/ready/script-items", json={"script_file": "episode_1.json", "after_id": "E1U1"}
             )
             removed = client.delete("/api/v1/projects/ready/script-items/E1U1?script_file=episode_1.json")
 

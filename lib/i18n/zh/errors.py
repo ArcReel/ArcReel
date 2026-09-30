@@ -214,6 +214,7 @@ MESSAGES = {
     "draft_revision_conflict": "草稿在你编辑期间已被修改，本次操作未生效；请查看最新内容后重试",
     "draft_formal_revision_conflict": "正式内容在草稿产出后已被修改，本次保存未采用；请丢弃草稿或交给 Agent 合并",
     "draft_agent_owned": "Agent 正在修改这份内容，请交给 Agent 完成或丢弃这份修改",
+    "blank_script_formal_exists": "本集已有正式脚本，不能从空白开始。请直接在时间线上修改",
     "draft_doc_type_not_applicable": "这类草稿不适用于当前项目",
     "draft_save_failed": "草稿已保存，但校验未能完成，请稍后重试",
     "script_review_not_applicable": "该集不适用内容确认（该模式没有可确认的脚本规划结果）",

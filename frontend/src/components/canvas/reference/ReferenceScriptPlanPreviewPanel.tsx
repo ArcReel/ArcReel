@@ -33,6 +33,7 @@ import { VideoModelUnresolvedNotice } from "@/components/shared/VideoModelUnreso
 import { PrimaryButton } from "@/components/ui/PrimaryButton";
 import { AutoTextarea } from "@/components/ui/AutoTextarea";
 import { ScriptPlanButton } from "@/components/canvas/shared/ScriptPlanButton";
+import { StartBlankScriptButton } from "@/components/canvas/shared/StartBlankScriptButton";
 import { ACCENT_BTN_CLS, ACCENT_BUTTON_STYLE, CARD_STYLE, GHOST_BTN_CLS, GHOST_BTN_LG_CLS } from "@/components/ui/darkroom-tokens";
 import { ScriptHighlight } from "@/components/shared/ScriptHighlight";
 import { toScriptLines, type MentionLookup } from "@/hooks/useUnitPromptHighlight";
@@ -540,6 +541,13 @@ export function ReferenceScriptPlanPreviewPanel({
   );
 
   // 待修复草稿在场：面板呈现草稿本身，正式内容此刻不可确认（确认端点按同一判据拒绝）。
+  // 本集还没有正式脚本、规划也未确认时，可以不用这份规划、从空白开始手写；规划与待修复草稿随之弃置，先确认。
+  // Agent 正在编辑草稿时不给入口，服务端同样拒绝。
+  const blankStartAction =
+    state?.script_overwrite == null && status !== "confirmed" && quarantine?.editable_by !== "agent" ? (
+      <StartBlankScriptButton projectName={projectName} episode={episode} discardsPlan className={GHOST_BTN_CLS} />
+    ) : null;
+
   if (quarantine != null && quarantine.editable_by === "user") {
     const content = draftEditor.content;
     const displayUnits =
@@ -574,7 +582,10 @@ export function ReferenceScriptPlanPreviewPanel({
           }
           onDiscard={() => setDiscardOpen(true)}
           regenerateAction={
-            <ScriptPlanButton projectName={projectName} episode={episode} replaces="draft" className={GHOST_BTN_CLS} />
+            <>
+              {blankStartAction}
+              <ScriptPlanButton projectName={projectName} episode={episode} replaces="draft" className={GHOST_BTN_CLS} />
+            </>
           }
         />
         {discardDialog}
@@ -703,6 +714,7 @@ export function ReferenceScriptPlanPreviewPanel({
                 {t("dashboard:review_open_timeline")}
               </button>
             )}
+            {blankStartAction}
             <ScriptPlanButton
               projectName={projectName}
               episode={episode}

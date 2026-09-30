@@ -39,9 +39,10 @@ from lib.project.project_migration_failure import (
     ProjectMigrationError,
     load_migration_verdict,
 )
+from lib.project.script_entry_cleanup import purge_replaced_entry_media
 from lib.script.prompt_authoring_scope import VISUAL_LAYER_FIELDS, visual_layer_complete
 from lib.script.reference_video.draft_validation import is_verbatim_source_anchor
-from lib.script.script_editor import ScriptEditError, patch_field, resolve_items
+from lib.script.script_editor import ScriptEditError, new_item_id, patch_field, resolve_items
 from lib.script.script_models import PENDING_AUTHORING_FIELD
 from lib.script.script_review import content_fingerprint_of_data
 from lib.script.script_structure_validator import validate_script_structure
@@ -209,7 +210,11 @@ class ScriptBatchEditor:
         *,
         fresh_insert_indexes: frozenset[int] = frozenset(),
     ) -> ScriptBatchEditResult:
-        """Commit a command; marked inserts create fresh identities even when an ID is reused."""
+        """Commit a command; inserts create fresh identities even when an ID is reused.
+
+        An insert keeps the media of an item only when the same batch removed that ID first
+        and the index is not marked in ``fresh_insert_indexes``.
+        """
 
         # 迁移裁决先于任何解析与写入：清单是读取已生成产物的唯一口径，未升级的项目没有
         # 清单可写。放在入口而不是提交处，是因为提交前有几条早退（如剧本集号不成立就
@@ -267,6 +272,8 @@ class ScriptBatchEditor:
         def finalize_manifest(_script_path: Path) -> None:
             if commit_manifest is not None:
                 commit_manifest()
+            # 仍持剧本锁：新条目的媒体不能在同号旧身份清理完成前落盘。
+            purge_replaced_entry_media(self._pm.get_project_path(project_name), fresh_insert_ids)
 
         try:
             with self._pm.locked_episode_script(
@@ -327,6 +334,11 @@ class ScriptBatchEditor:
                 removed_items: dict[str, dict[str, Any]] = {}
 
                 for index, operation in enumerate(command.operations):
+                    # 插入的 id 不是本批先删后插的同一条目时，就是一个全新身份：同号旧条目留下的
+                    # 产物登记、媒体与版本历史都不属于它。
+                    fresh_insert = isinstance(operation, InsertAfterOperation) and (
+                        index in fresh_insert_indexes or _operation_id(operation) not in removed_items
+                    )
                     try:
                         item_id, before_admission, after_admission = _apply_operation(
                             candidate,
@@ -349,7 +361,7 @@ class ScriptBatchEditor:
                             )
                         ) from exc
                     if item_id is not None:
-                        if index in fresh_insert_indexes and isinstance(operation, InsertAfterOperation):
+                        if fresh_insert:
                             fresh_insert_ids.add(item_id)
                         last_touch[item_id] = index
                         if item_id not in affected_ids:
@@ -612,33 +624,21 @@ _BLANK_ITEM_FIELDS: dict[str, dict[str, Any]] = {
 }
 
 
-def blank_item_after(script: dict[str, Any], after_id: str) -> dict[str, Any]:
+def blank_item_after(script: dict[str, Any], after_id: str | None) -> dict[str, Any]:
     """构造紧随 ``after_id`` 插入的空分镜（分镜图生视频的 segments / scenes / shots）。
 
-    id 为 ``E{集}S{序号}``，序号取本集现存主序号的最大值顺延，不回填中间空缺；只看现存条目，
-    因此末尾分镜被移除后再新增会取回其序号。集号取剧本 ``episode``，缺失时取锚点 id 的集号前缀。
-    视觉层留空，由批量编辑 insert 置待编写。
+    id 由 ``new_item_id`` 分配，与 Agent 新增同一取号规则。时长沿用锚点分镜；``after_id`` 为
+    ``None``（空脚本里的第一条）时取 8 秒。视觉层留空，由批量编辑 insert 置待编写。
     """
     items, id_field, kind = resolve_items(script)
     if kind not in _BLANK_ITEM_FIELDS:
         raise ScriptEditError(f"{kind} does not support blank item insertion")
-    anchor = items[_find_index(items, id_field, after_id)]
-    episode = script.get("episode")
-    if not isinstance(episode, int) or isinstance(episode, bool) or episode < 1:
-        match = re.match(r"^E(\d+)S", after_id)
-        episode = int(match.group(1)) if match is not None else 1
-    existing = {str(item.get(id_field)) for item in items if isinstance(item, dict)}
-    pattern = re.compile(rf"^E{episode}S(\d+)(?:_\d+)?$")
-    numbers = [int(match.group(1)) for item_id in existing if (match := pattern.match(item_id)) is not None]
-    number = max(numbers, default=0) + 1
-    while (item_id := f"E{episode}S{number:02d}") in existing:
-        number += 1
-    duration = anchor.get("duration_seconds")
+    duration = None if after_id is None else items[_find_index(items, id_field, after_id)].get("duration_seconds")
     if isinstance(duration, float) and duration.is_integer():
         # JSON 里的 5.0 与 5 是同一个整数时长，剧本结构校验同样接受。
         duration = int(duration)
     return {
-        id_field: item_id,
+        id_field: new_item_id(script),
         "duration_seconds": duration if isinstance(duration, int) and not isinstance(duration, bool) else 8,
         **copy.deepcopy(_BLANK_ITEM_FIELDS[kind]),
         "image_prompt": None,

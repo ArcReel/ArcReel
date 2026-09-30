@@ -176,6 +176,26 @@ describe("WorkflowPanel 准入与置灰", () => {
     // 下一步挂在正式脚本行，给的是从空白开始
     expect(within(screen.getByTestId("workflow-row-script")).getByText("下一步：从空白开始")).toBeInTheDocument();
   });
+
+  it("从空白开始直接建出空的正式脚本并刷新项目", async () => {
+    const start = vi.spyOn(API, "startBlankScript").mockResolvedValue({ success: true, script_file: "episode_1.json" });
+    const refresh = vi.spyOn(useProjectsStore.getState(), "refreshProject").mockResolvedValue("success");
+    await renderExpanded(
+      scenario({
+        next: nextAction("start_blank_script"),
+        content: { episode_source: "absent", formal_script: "absent", script_item_count: null },
+        status: {
+          artifacts: { script_plan: { state: "missing" } },
+          operations: { prepare_script_plan: { state: "refused", reason: "episode_source_missing" } },
+        },
+      }),
+    );
+    const next = screen.getByTestId("workflow-next-step");
+    expect(within(next).queryByRole("button", { name: "交给 Agent" })).not.toBeInTheDocument();
+    fireEvent.click(within(next).getByRole("button", { name: "从空白开始" }));
+    await waitFor(() => expect(start).toHaveBeenCalledWith("proj", 1));
+    await waitFor(() => expect(refresh).toHaveBeenCalledWith("proj"));
+  });
 });
 
 describe("WorkflowPanel 提醒", () => {

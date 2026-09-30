@@ -51,13 +51,14 @@ from lib.episode.episode_target_duration import (
 )
 from lib.generation.video_request_facts import ResolutionOverride, VideoRequestFactsError
 from lib.i18n import render_generation_input_error
-from lib.infra.api_errors import ApiError, BadRequestError, NotFoundError, UnprocessableError
+from lib.infra.api_errors import ApiError, BadRequestError, ConflictError, NotFoundError, UnprocessableError
 from lib.infra.json_io import domain_error_on_value_error
 from lib.project.asset_fingerprints import compute_asset_fingerprints
 from lib.project.asset_types import asset_name_comparison_key
 from lib.project.project_change_hints import project_change_source
 from lib.project.project_manager import EmptySourceError, EpisodeScriptReboundError, SourceKind, get_project_manager
 from lib.prompts.style_templates import is_known_template, resolve_template_prompt
+from lib.script.blank_script import BlankScriptError, start_blank_script
 from lib.script.script_batch_edit import ScriptBatchEditCommand, ScriptBatchEditor, blank_item_after, script_revision
 from lib.script.script_editor import resolve_items
 from lib.script.script_references import annotate_derivative_references
@@ -1335,12 +1336,12 @@ async def preview_script_item_prompts(
 _STORYBOARD_ITEM_KINDS = frozenset({"segments", "scenes", "shots"})
 
 
-def _require_storyboard_items(script: dict, item_id: str) -> tuple[list, str, str]:
-    """返回分镜图生视频剧本的条目数组；形态不支持或 id 未命中时抛对应 API 错误。"""
+def _require_storyboard_items(script: dict, item_id: str | None) -> tuple[list, str, str]:
+    """返回分镜图生视频剧本的条目数组；形态不支持或给定 id 未命中时抛对应 API 错误。"""
     items, id_field, kind = resolve_items(script)
     if kind not in _STORYBOARD_ITEM_KINDS:
         raise BadRequestError("storyboard_script_required")
-    if not any(isinstance(item, dict) and item.get(id_field) == item_id for item in items):
+    if item_id is not None and not any(isinstance(item, dict) and item.get(id_field) == item_id for item in items):
         raise NotFoundError("script_item_not_found", id=item_id)
     return items, id_field, kind
 
@@ -1349,29 +1350,35 @@ class InsertScriptItemRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     script_file: str
+    #: 新分镜插在这条分镜之后；缺省时追加到末尾，空脚本里即第一条。
+    after_id: str | None = Field(default=None, min_length=1)
     #: 旁白 / 解说分镜的正文即配音内容，新增时必填；其余形态插入空条目、忽略此字段。
     novel_text: str | None = None
 
 
 @router.post(
-    "/projects/{name}/script-items/{item_id}/insert-after",
+    "/projects/{name}/script-items",
     dependencies=[Depends(require_project_migration_ok)],
 )
-async def insert_script_item_after(
+async def insert_script_item(
     name: str,
-    item_id: str,
     req: InsertScriptItemRequest,
     _t: Translator,
     make_script_batch_editor: ScriptBatchEditorFactoryDep,
 ):
-    """在分镜 ``item_id`` 之后新增一条待编写分镜，按当前剧本 revision 执行 ``insert_after``。"""
+    """新增一条待编写分镜，按当前剧本 revision 执行 ``insert_after``；新分镜不继承同号旧分镜的产物。"""
     try:
 
         def _sync():
             manager = get_project_manager()
             current = manager.load_script(name, req.script_file)
-            _items, id_field, kind = _require_storyboard_items(current, item_id)
-            item = blank_item_after(current, item_id)
+            items, id_field, kind = _require_storyboard_items(current, req.after_id)
+            last_id = next(
+                (item.get(id_field) for item in reversed(items) if isinstance(item, dict)),
+                None,
+            )
+            after_id = req.after_id if req.after_id is not None else last_id
+            item = blank_item_after(current, after_id)
             if kind == "segments":
                 if req.novel_text is None or not req.novel_text.strip():
                     raise UnprocessableError("narration_segment_text_required")
@@ -1381,7 +1388,7 @@ async def insert_script_item_after(
                     manager,
                     name,
                     req.script_file,
-                    [{"op": "insert_after", "after_id": item_id, "item": item}],
+                    [{"op": "insert_after", "after_id": after_id, "item": item}],
                     editor=make_script_batch_editor(manager),
                     current_script=current,
                 )
@@ -1404,6 +1411,30 @@ async def insert_script_item_after(
     except Exception as exc:
         logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
+
+
+@router.post(
+    "/projects/{name}/episodes/{episode}/blank-script",
+    dependencies=[Depends(require_project_migration_ok)],
+)
+async def start_episode_blank_script(name: str, episode: int):
+    """从空白开始：本集没有正式脚本时建出空的正式脚本，弃置未确认的脚本规划。"""
+
+    def _sync():
+        with project_change_source("webui"):
+            return start_blank_script(get_project_manager(), name, episode)
+
+    try:
+        script_file = await asyncio.to_thread(_sync)
+    except FileNotFoundError as exc:
+        raise NotFoundError("project_not_found", name=name) from exc
+    except BlankScriptError as exc:
+        if exc.code == "episode_not_found":
+            raise NotFoundError("episode_not_found", episode=episode) from exc
+        if exc.code == "draft_agent_owned":
+            raise ConflictError("draft_agent_owned") from exc
+        raise ConflictError("blank_script_formal_exists").with_diagnostic(str(exc)) from exc
+    return {"success": True, "script_file": script_file}
 
 
 @router.delete(

@@ -148,7 +148,6 @@ export default {
   'next_detail_generate_videos_other': '{{count}} mục chưa có video.',
   'next_detail_create_edit_timeline': 'Video của tập đã đủ, có thể bắt đầu dựng.',
   'next_detail_wait_for_task': 'Đang tạo, trạng thái sẽ tự cập nhật khi xong.',
-  'agent_prefill_start_blank_script': 'Viết kịch bản chính thức cho {{episodeRef}} từ trống',
   'agent_prefill_generate_script': 'Tạo kịch bản cho {{episodeRef}} theo ý tưởng và sản phẩm',
   'agent_prefill_add_script_items_storyboard': 'Thêm phân cảnh vào kịch bản chính thức của {{episodeRef}}',
   'agent_prefill_add_script_items_unit': 'Thêm đơn vị video vào kịch bản chính thức của {{episodeRef}}',

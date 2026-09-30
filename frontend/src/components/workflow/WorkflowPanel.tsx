@@ -262,6 +262,11 @@ export function WorkflowPanel({ projectName, episode, onViewUnit, onRegenerate, 
             }
             await enqueueScriptPlan(projectName, episodeId, { instructions: instruction.trim() || null });
             break;
+          case "start_blank_script":
+            await API.startBlankScript(projectName, episodeId);
+            await useProjectsStore.getState().refreshProject(projectName);
+            void refreshPlan(projectName, episode);
+            break;
           case "draft_to_agent": {
             const draft = await API.getEpisodeDraft(projectName, episodeId, intent.docType);
             prefillAssistant(withInstruction(draftFixRequestText(t, episodeRef, intent.docType, draft.violations)));
@@ -286,7 +291,7 @@ export function WorkflowPanel({ projectName, episode, onViewUnit, onRegenerate, 
         setRunning(false);
       }
     },
-    [episodeId, withInstruction, onAuthorPrompts, projectName, onViewUnit, setLocation, instruction, shown, t, episodeRef, pushToast],
+    [episodeId, episode, withInstruction, onAuthorPrompts, projectName, onViewUnit, setLocation, instruction, shown, t, episodeRef, pushToast, refreshPlan],
   );
 
   const confirmDiscard = async () => {
