@@ -30,7 +30,7 @@
 - **生成方式**：按 `generation_mode` 分两路——分镜图生视频每个分镜独立生成、以分镜图作起始帧（`grid_storyboard=true` 时起始帧来自宫格切块）；参考生视频按 video_unit 直出、以资产图作 `reference_images`，无分镜图
 
 > **关于 extend 功能**：Veo 3.1 extend 功能仅用于延长单个分镜或视频单元，
-> 每次固定 +7 秒，不适合用于串联不同镜头。不同分镜或视频单元之间使用 ffmpeg 拼接。
+> 每次固定 +7 秒，不适合用于串联不同镜头。不同分镜或视频单元之间在剪辑时间线上衔接。
 
 ### 音频规范
 - **BGM 自动禁止**：生成端已在视频 prompt 末尾自动追加 `Avoid: BGM、文字字幕、水印`，无需手动追加，video_prompt 里也不要描述 BGM / 配乐
@@ -136,6 +136,7 @@ Agent session 的当前工作目录（cwd）已绑定到当前项目根，**所�
 | generate-grid | `/generate-grid` | 生成宫格分镜图（`grid_storyboard=true` 时：按 segment_break 分组的链式宫格） |
 | generate-video | `/generate-video` | 生成视频 |
 | generate-narration-audio | `/generate-narration-audio` | 生成旁白配音（按段 TTS，只依赖剧本 novel_text） |
+| edit-video | `/edit-video` | 在剪辑时间线上剪辑一集，按要求出成片 |
 
 ## 快速开始
 
@@ -163,9 +164,9 @@ Agent session 的当前工作目录（cwd）已绑定到当前项目根，**所�
 
 工作流支持**灵活入口**：计划自动定位到第一个未完成的动作，支持中断后恢复。
 视频齐全后进入「剪辑」一步：本集还没有剪辑时间线时 `next_action` 为 `create_edit_timeline`，
-至少有一条即算完成。导出剪映草稿不是工作流步骤，由用户在 Web 端发起——声音归属与字幕时序由服务端
-presentation 结果决定，预览、下载与剪映草稿消费同一份；Agent 不自行估算字幕时序、不静音供应商原音、
-也不替用户判断 TTS 是否必需。stale 产物照常可导出，导出不清空也不覆盖旧付费媒体。
+至少有一条即算完成。在剪辑时间线上剪辑、按用户要求出成片，都按 `edit-video` skill 进行。声音归属与
+字幕时序由服务端 presentation 结果决定；Agent 不自行估算字幕时序，也不替用户判断 TTS 是否必需。
+stale 产物照常可用，出片不清空也不覆盖旧付费媒体。
 
 ## 关键原则
 

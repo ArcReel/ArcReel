@@ -44,7 +44,7 @@ uv sync --group mutation
 
 `only_mutate` 跑完记得还原成注释，`mutants/` 已在 `.gitignore`。
 
-**凡读源码文本而不是 import 模块的用例，都要在 `pytest_add_cli_args` 里按 nodeid `--deselect`，不要整文件 `--ignore`。** `mutants/` 里的源文件同时含所有 mutant 变体（每个字符串字面量都多出 `XXfooXX` / `FOO` 两份），任何扫 `lib/` `server/` 源码字面量再比对登记表的用例都会在 stats 阶段报「未登记」，整轮起不来。`--ignore` 的粒度是文件：同文件里的行为测试会一并消失，它们独家覆盖的 mutant 就记成存活（`test_task_failure_capability.py` 三个扫描用例之外的 100 余个用例就是这种情况）。已排除的是该文件的 `test_capability_codes_registered_no_drift` / `test_no_unscannable_capability_construction_sites` / `test_capability_construction_sites_supply_every_template_param`；新加排除时在 `[tool.mutmut]` 注释里写明它独家能杀什么、为何排除不漏杀（判据同 `test_skill_script_path_guards.py`：排除只多出假存活，不藏假杀死）。
+**凡读源码文本而不是 import 模块的用例，都要在 `pytest_add_cli_args` 里按 nodeid `--deselect`，不要整文件 `--ignore`。** `mutants/` 里的源文件同时含所有 mutant 变体（每个字符串字面量都多出 `XXfooXX` / `FOO` 两份），任何扫 `lib/` `server/` 源码字面量再比对登记表的用例都会在 stats 阶段报「未登记」，整轮起不来。`--ignore` 的粒度是文件：同文件里的行为测试会一并消失，它们独家覆盖的 mutant 就记成存活（`test_task_failure_capability.py` 三个扫描用例之外的 100 余个用例就是这种情况）。已排除的是该文件的 `test_capability_codes_registered_no_drift` / `test_no_unscannable_capability_construction_sites` / `test_capability_construction_sites_supply_every_template_param`；新加排除时在 `[tool.mutmut]` 注释里写明它独家能杀什么、为何排除不漏杀（判据：排除只多出假存活，不藏假杀死）。
 
 ## 3. 读结果
 
@@ -120,7 +120,6 @@ uv run python scripts/mutmut_compare.py \
 - **新增的测试文件不触及任何被变异函数时，增量 stats 会中止。** mutmut 检测到新用例只对它们跑一次 stats，若这批用例没碰到任何 mutant，报 `Stopping early, because we could not find any test case for any mutant` 退出。删 `mutants/mutmut-stats.json` 走全量 stats。
 - **不要在 `mutants/` 里跑 `uv run`。** uv 会按那份 `pyproject.toml` 副本另建一个环境，mutmut 不在里面，变异模块顶部的 trampoline import 直接 `ModuleNotFoundError`。用 `../.venv/bin/python`。
 - **`tests-for-mutant` 只在项目根可用。** 它读 `mutants/mutmut-stats.json`，在 `mutants/` 里跑找不到。
-- **`tests/unit/test_skill_script_path_guards.py` 被整体排除**，理由在 `[tool.mutmut]` 注释。排除只会多出假存活（多复核一个），不会造成假杀死。
 - **`timeout_multiplier` 不要调小。** 调小不省时间，只会让已证实的真存活被记成 killed，把无效测试藏起来。
 - **−11（段错误）成批出现即整轮作废，不要逐个复核。** 已知的一种成因在 macOS：环境里没有 `*_proxy` 变量时，`urllib.request.getproxies()` 经 `_scproxy` 调 SystemConfiguration 读系统代理，该框架在 fork 出的多线程子进程里直接段错误，凡构造 `openai.OpenAI` / `httpx.Client` 的用例都中招（第二批 2186 个里 577 个），而同一个 mutant 在新进程里复核却正常。`tests/mutmut_plugin.py` 已把这两个入口换成常量实现；再成批出现就用 `PYTHONFAULTHANDLER=1 uv run mutmut run <mutant>` 单跑一个看崩溃栈，别当成负载或偶发。判据：−11 只该零星出现（首批 616 个里 2 个）。
 - **测试选集走全量。** 只跑 `tests/unit` 快 5.5 倍，但约 45% 的存活是假的，每个都要复核一次全量套件，总账更贵。

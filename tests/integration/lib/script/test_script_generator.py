@@ -1031,7 +1031,7 @@ class TestAddMetadataRewritesEpisodePrefix:
 class TestAddMetadataInjectsHiddenFields:
     """LLM schema 隐藏 content_mode / novel 之后,_add_metadata 必须保证持久化 JSON 仍带这些字段。
 
-    下游消费方(项目摘要 / files router / jianying / compose-video)读 dict,不读 model,
+    下游消费方(项目摘要 / files router / jianying)读 dict,不读 model,
     所以兜底必须落在 dict 层。
     """
 
@@ -1084,8 +1084,7 @@ class TestAddMetadataInjectsHiddenFields:
 
     def test_drama_overrides_empty_novel_after_model_dump(self, tmp_path: Path) -> None:
         """e2e: model_validate → model_dump 后 novel 永远存在但为空字典,_add_metadata
-        必须按"内容是否为空"判断而非"key 是否存在",否则 compose-video 输出文件名将退化为
-        '_final.mp4',save_script 退化为 '_script.json',多集互相覆盖。
+        必须按"内容是否为空"判断而非"key 是否存在",否则 novel 停留在空占位。
         """
         from lib.script.script_models import DramaEpisodeScript
 
@@ -1139,7 +1138,7 @@ class TestAddMetadataInjectsHiddenFields:
         assert out["novel"] == {"title": "项目标题", "chapter": "第2集"}
 
     def test_partial_novel_only_title_is_also_reinjected(self, tmp_path: Path) -> None:
-        """半填 novel(只有 title 或只有 chapter)也应触发重注入,避免 compose-video 文件名残缺。"""
+        """半填 novel(只有 title 或只有 chapter)也应触发重注入,避免 novel 残缺。"""
         sg = self._make_generator(tmp_path, content_mode="drama")
         data = {
             "title": "第一集",

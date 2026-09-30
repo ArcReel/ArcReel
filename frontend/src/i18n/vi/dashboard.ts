@@ -1954,7 +1954,7 @@ export default {
   'skill_name_generate_video': 'Tạo video',
   'skill_name_generate_narration_audio': 'Tạo âm thanh thuyết minh',
   'skill_name_generate_assets': 'Tạo tài sản',
-  'skill_name_compose_video': 'Ghép video',
+  'skill_name_edit_video': 'Dựng video',
   'skill_name_adapt_custom_endpoint': 'Điều chỉnh điểm cuối gọi tùy chỉnh',
   'upload_aborted_project_changed': 'Đã đổi dự án; đã hủy tải lên {{filename}}',
   'workspace_nav_characters': 'Nhân vật',

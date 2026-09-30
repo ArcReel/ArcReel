@@ -1800,7 +1800,7 @@ export default {
   'skill_name_generate_video': 'Generate video',
   'skill_name_generate_narration_audio': 'Generate narration audio',
   'skill_name_generate_assets': 'Generate assets',
-  'skill_name_compose_video': 'Compose video',
+  'skill_name_edit_video': 'Edit video',
   'skill_name_adapt_custom_endpoint': 'Adapt custom call endpoint',
   // PendingQuestionWizard
   'pending_question_wizard_label': 'Your input needed',
