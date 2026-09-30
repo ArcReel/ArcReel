@@ -170,22 +170,6 @@ def test_missing_only_reselects_a_recorded_path_the_manifest_no_longer_claims() 
     assert [state.unit_id for state in selection.skipped] == ["KEPT"]
 
 
-def test_missing_only_admits_an_override_leg_without_rechecking_the_filesystem(tmp_path: Path) -> None:
-    """另一条可复用的腿（如精确匹配的手动上传）独立成立，判定只看这条腿本身。"""
-
-    resolver = _Resolver({"A": ArtifactStatus.MISSING})
-
-    selection = select_generation_targets(
-        candidates=[_candidate("A", path="videos/gone.mp4")],
-        requested_ids=None,
-        resolver=resolver,
-        reusable_override=lambda _candidate: True,
-    )
-
-    assert selection.target_ids == ()
-    assert [state.unit_id for state in selection.skipped] == ["A"]
-
-
 def test_missing_only_does_not_recheck_the_filesystem(tmp_path: Path) -> None:
     """只信比对结论：磁盘上没有同名文件也不改变判定。"""
 

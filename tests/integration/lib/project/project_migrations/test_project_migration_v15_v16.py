@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import pytest
 
@@ -30,6 +30,7 @@ from lib.speech.speech_presentation import presentation_artifact_paths
 from lib.workflow.workflow_state import WorkflowStateService
 from server.services.presentation.presentation_read_model import PresentationReadModelService
 from tests.legacy_project_shapes import (
+    add_legacy_manual_uploads,
     advance_project_schema,
     legacy_transition_presentation_basis,
     write_legacy_ad_reference_video_project,
@@ -539,3 +540,50 @@ def test_corrupt_input_is_refused_before_any_file_is_rewritten(tmp_path: Path) -
         migrate_v15_to_v16(project_dir)
 
     assert {path: path.read_bytes() for path in project_dir.rglob("*") if path.is_file()} == before
+
+
+@pytest.mark.parametrize("storyboard_shape", ["blank-prompt", "missing-sheet", "generated-basis"])
+def test_upgrade_registers_uploaded_videos_and_storyboards_by_their_bytes(
+    tmp_path: Path, storyboard_shape: Literal["blank-prompt", "missing-sheet", "generated-basis"]
+) -> None:
+    project_dir = write_legacy_storyboard_project(tmp_path / "projects")
+    advance_project_schema(project_dir, to_version=15)
+    add_legacy_manual_uploads(project_dir, video_unit="E1S1", storyboard_unit="E1S2", storyboard_shape=storyboard_shape)
+    video_key, video_path = ArtifactKey.episode_video(1, "E1S1"), "videos/scene_E1S1.mp4"
+    storyboard_key, storyboard_path = ArtifactKey.episode_storyboard(1, "E1S2"), "storyboards/scene_E1S2.png"
+    adapter = ProjectArtifactManifestAdapter(project_dir)
+    old_entry = adapter.get_entry(storyboard_key)
+    assert (old_entry is not None) == (storyboard_shape == "generated-basis")
+
+    assert migrate_project_dir(project_dir) is True
+
+    assert _status(project_dir, video_key, video_path) is ArtifactStatus.CURRENT
+    assert _status(project_dir, storyboard_key, storyboard_path) is ArtifactStatus.CURRENT
+    assert adapter.get_entry(storyboard_key) != old_entry
+    assert list(project_dir.glob(".arcreel_artifacts.json.bak.v15-*"))
+    summary = WorkflowStateService(ProjectManager(tmp_path)).get_project_summary(project_dir.name)
+    assert (summary.episodes[0].storyboards.available, summary.episodes[0].videos.available) == (2, 2)
+
+    with (project_dir / "scripts" / "episode_1.json").open("r+", encoding="utf-8") as handle:
+        script = json.load(handle)
+        for segment in script["segments"]:
+            segment["image_prompt"] = {"scene": "改写后的画面"}
+            segment["video_prompt"] = {"action": "改写后的动作", "camera_motion": "Static"}
+        handle.seek(0)
+        handle.truncate()
+        json.dump(script, handle, ensure_ascii=False)
+    assert _status(project_dir, video_key, video_path) is ArtifactStatus.CURRENT
+    assert _status(project_dir, storyboard_key, storyboard_path) is ArtifactStatus.CURRENT
+
+
+def test_the_whole_chain_registers_uploads_made_before_the_manifest(tmp_path: Path) -> None:
+    project_dir = write_legacy_storyboard_project(tmp_path / "projects")
+    add_legacy_manual_uploads(project_dir, video_unit="E1S1", storyboard_unit="E1S2")
+
+    assert migrate_project_dir(project_dir) is True
+
+    assert _status(project_dir, ArtifactKey.episode_video(1, "E1S1"), "videos/scene_E1S1.mp4") is ArtifactStatus.CURRENT
+    assert (
+        _status(project_dir, ArtifactKey.episode_storyboard(1, "E1S2"), "storyboards/scene_E1S2.png")
+        is ArtifactStatus.CURRENT
+    )

@@ -981,6 +981,71 @@ def legacy_transition_presentation_basis(
     )
 
 
+def add_legacy_manual_uploads(
+    project_dir: Path,
+    *,
+    video_unit: str,
+    storyboard_unit: str,
+    storyboard_shape: Literal["blank-prompt", "missing-sheet", "generated-basis"] = "blank-prompt",
+) -> None:
+    """按 schema ≤ 15 的上传代码写出一段上传视频与一张上传分镜图。
+
+    上传视频只选中一条 ``manual_upload`` 版本记录，清单不登记；上传分镜图在提示词为空或
+    引用资产缺图时删去登记，生成输入成立时仍保留按生成输入计算的登记。
+    """
+
+    versions_path = project_dir / "versions" / "versions.json"
+    versions = json.loads(versions_path.read_text(encoding="utf-8"))
+    uploads = {
+        ("videos", video_unit): (f"videos/scene_{video_unit}.mp4", b"uploaded-video"),
+        ("storyboards", storyboard_unit): (f"storyboards/scene_{storyboard_unit}.png", b"uploaded-storyboard"),
+    }
+    for (resource_type, unit_id), (artifact_path, content) in uploads.items():
+        history = versions.setdefault(resource_type, {}).setdefault(unit_id, {"current_version": 0, "versions": []})
+        version = len(history["versions"]) + 1
+        snapshot = (
+            f"versions/{resource_type}/{unit_id}_v{version}_{_LEGACY_SNAPSHOT_TIMESTAMP}{Path(artifact_path).suffix}"
+        )
+        for path in (project_dir / artifact_path, project_dir / snapshot):
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(content)
+        history["versions"].append(
+            {
+                "version": version,
+                "file": snapshot,
+                "prompt": "",
+                "created_at": "2026-09-01T00:00:00Z",
+                "source": "manual_upload",
+                "original_filename": Path(artifact_path).name,
+            }
+        )
+        history["current_version"] = version
+    _write_json(versions_path, versions)
+
+    script_path = project_dir / "scripts" / "episode_1.json"
+    script = json.loads(script_path.read_text(encoding="utf-8"))
+    for segment in script["segments"]:
+        if segment["segment_id"] == storyboard_unit:
+            if storyboard_shape == "blank-prompt":
+                segment["image_prompt"] = ""
+            elif storyboard_shape == "missing-sheet":
+                segment["characters_in_segment"] = ["Alice"]
+    _write_json(script_path, script)
+    if storyboard_shape == "missing-sheet":
+        project_path = project_dir / "project.json"
+        project = json.loads(project_path.read_text(encoding="utf-8"))
+        project["characters"]["Alice"] = {"description": "银发少女", "character_sheet": None}
+        _write_json(project_path, project)
+    adapter = ProjectArtifactManifestAdapter(project_dir)
+    replacements: dict[ArtifactKey, ArtifactManifestEntry | None] = {ArtifactKey.episode_video(1, video_unit): None}
+    if storyboard_shape != "generated-basis":
+        replacements[ArtifactKey.episode_storyboard(1, storyboard_unit)] = None
+    adapter.replace_entries_if_matches_atomically(
+        expected={},
+        replacements=replacements,
+    )
+
+
 def advance_project_schema(project_dir: Path, *, to_version: int) -> None:
     """按迁移链把项目从当前 ``schema_version`` 逐级推进到 ``to_version``。"""
 
@@ -995,6 +1060,7 @@ def advance_project_schema(project_dir: Path, *, to_version: int) -> None:
 
 __all__ = [
     "ScriptPlanVariantName",
+    "add_legacy_manual_uploads",
     "advance_project_schema",
     "bind_episode_script_to_filename",
     "legacy_transition_presentation_basis",

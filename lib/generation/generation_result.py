@@ -534,7 +534,6 @@ def select_generation_targets(
     candidates: Sequence[GenerationCandidate],
     requested_ids: Sequence[str] | None,
     resolver: ArtifactCurrencyResolver,
-    reusable_override: Callable[[GenerationCandidate], bool] | None = None,
 ) -> GenerationSelection:
     """Resolve one request's targets from an explicit ID set or from ``missing``.
 
@@ -576,11 +575,7 @@ def select_generation_targets(
         if state.status is ArtifactStatus.BLOCKED:
             unavailable.append(state)
             continue
-        reusable = artifact_is_reusable(state)
-        if not reusable and reusable_override is not None:
-            # 覆盖判定提供的是另一条可复用的腿（如一次精确匹配的手动上传）。
-            reusable = reusable_override(state.candidate)
-        if reusable:
+        if artifact_is_reusable(state):
             skipped.append(state)
             continue
         targets.append(state)

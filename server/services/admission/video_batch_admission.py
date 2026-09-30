@@ -21,11 +21,9 @@ from typing import Any, cast
 from lib.artifacts.artifact_activation import (
     ArtifactCurrencyResolver,
     active_artifact_currency_resolver,
-    artifact_is_usable,
     resolve_usable_storyboard_video_inputs,
 )
 from lib.artifacts.artifact_manifest import ArtifactKey
-from lib.artifacts.version_manager import VersionManager
 from lib.config.resolver import ConfigResolver, video_bucket_for_generation_mode
 from lib.db import async_session_factory
 from lib.db.base import DEFAULT_USER_ID
@@ -252,24 +250,11 @@ def resolve_reference_batch_targets(
     """
 
     resolver = active_artifact_currency_resolver(project_path, project)
-    versions = VersionManager(project_path)
     states = video_target_states(units, "unit_id", episode=episode, resolver=resolver)
     selection = select_generation_targets(
         candidates=[state.candidate for state in states.values()],
         requested_ids=requested_ids,
         resolver=resolver,
-        reusable_override=lambda candidate: (
-            artifact_is_usable(
-                resolver,
-                ArtifactKey.episode_video(episode, candidate.unit_id),
-                candidate.artifact_path,
-            )
-            or versions.selected_manual_upload_matches_current_file(
-                "reference_videos",
-                candidate.unit_id,
-                candidate.artifact_path,
-            )
-        ),
     )
     target_ids = set(selection.target_ids)
     targets = [unit for unit in units if isinstance(unit, dict) and str(unit.get("unit_id") or "") in target_ids]
