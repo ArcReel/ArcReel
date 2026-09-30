@@ -18,6 +18,7 @@ import {
   doneCount,
   retryAgentAct,
   useRetry,
+  type EpState,
   type ProjectNext,
   type ProjectScenario,
 } from "./model";
@@ -220,27 +221,112 @@ export function ProtoHeaderCenter() {
   );
 }
 
+// 三个顶栏都沿用原阶段条的胶囊语言：内凹轨道 + 凸起亮片 + 圆形数字徽标。
+
+const TRACK = {
+  background: "oklch(0.17 0.010 265 / 0.6)",
+  border: "1px solid var(--color-hairline)",
+  boxShadow: "inset 0 1px 2px oklch(0 0 0 / 0.25)",
+};
+const TRACK_WARM = {
+  background: "var(--color-warm-soft)",
+  border: "1px solid var(--color-warm-ring)",
+  boxShadow: "inset 0 1px 2px oklch(0 0 0 / 0.25)",
+};
+const RAISED = {
+  color: "var(--color-text)",
+  background: "linear-gradient(180deg, oklch(0.30 0.012 265), oklch(0.26 0.012 265))",
+  boxShadow: "0 0 0 1px var(--color-hairline-strong), 0 1px 2px oklch(0 0 0 / 0.3)",
+};
+
+function Track({ children, warm }: { children: ReactNode; warm?: boolean }) {
+  return (
+    <div className="inline-flex items-center gap-px rounded-full p-[3px]" style={warm ? TRACK_WARM : TRACK}>
+      {children}
+    </div>
+  );
+}
+
+function Chip({ children, raised, onClick, title }: { children: ReactNode; raised?: boolean; onClick?: () => void; title?: string }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={title}
+      className="focus-ring inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-3 py-1 text-xs font-medium transition-colors"
+      style={raised ? RAISED : { color: "var(--color-text-3)", background: "transparent" }}
+    >
+      {children}
+    </button>
+  );
+}
+
+function Badge({ children, on }: { children: ReactNode; on?: boolean }) {
+  return (
+    <span
+      className="num inline-grid h-[15px] min-w-[15px] place-items-center rounded-full px-[3px] text-[10px] font-bold"
+      style={
+        on
+          ? { background: "var(--color-accent)", color: "oklch(0.12 0 0)", boxShadow: "0 0 8px -1px var(--color-accent-glow)" }
+          : { background: "oklch(0.32 0.012 265)", color: "var(--color-text-3)" }
+      }
+    >
+      {children}
+    </span>
+  );
+}
+
+/** 15px 进度环，与数字徽标同尺寸。 */
+function Ring({ done, total }: { done: number; total: number }) {
+  const r = 6;
+  const c = 2 * Math.PI * r;
+  const f = total ? done / total : 0;
+  return (
+    <svg width="15" height="15" viewBox="0 0 15 15" aria-hidden>
+      <circle cx="7.5" cy="7.5" r={r} fill="none" stroke="oklch(0.32 0.012 265)" strokeWidth="2.2" />
+      <circle
+        cx="7.5" cy="7.5" r={r} fill="none" stroke="var(--color-accent)" strokeWidth="2.2" strokeLinecap="round"
+        strokeDasharray={`${c * f} ${c}`} transform="rotate(-90 7.5 7.5)"
+        style={{ filter: "drop-shadow(0 0 3px var(--color-accent-glow))" }}
+      />
+    </svg>
+  );
+}
+
+function WarmDot({ n }: { n: number }) {
+  return (
+    <span className="inline-flex items-center gap-1 text-[11px]" style={{ color: "var(--color-warm)" }}>
+      <span className="h-1.5 w-1.5 rounded-full" style={{ background: "var(--color-warm)" }} />
+      <span className="num">{n}</span>
+    </span>
+  );
+}
+
 function HeaderA() {
   const p = usePScenario();
   const current = useCurrentEpisode();
   const [open, setOpen] = useState(false);
   const migration = useMigrationActive(p);
   const stale = staleCount(p);
+  const has = p.episodes.length > 0;
   return (
     <div className="relative">
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        className="focus-ring inline-flex items-center gap-2 rounded-full border px-3 py-1 text-[12px]"
-        style={{ ...hair, color: "var(--color-text-2)" }}
-      >
-        {migration && <AlertTriangle className="h-3.5 w-3.5" style={{ color: "var(--color-warm)" }} />}
-        <span style={{ color: "var(--color-text)" }}>{progressText(p)}</span>
-        {p.planningProgress != null && <span style={{ color: "var(--color-accent-2)" }}>· 分集规划中 {p.planningProgress}%</span>}
-        {stale > 0 && <span style={{ color: "var(--color-warm)" }}>· {stale} 集需要更新</span>}
-        {p.episodes.length > 0 && <ChevronDown className="h-3 w-3" />}
-      </button>
-      {open && p.episodes.length > 0 && (
+      <Track warm={migration}>
+        <Chip raised onClick={() => has && setOpen((o) => !o)}>
+          {migration ? <AlertTriangle className="h-3.5 w-3.5" style={{ color: "var(--color-warm)" }} /> : <Ring done={doneCount(p)} total={p.episodes.length} />}
+          <span>{progressText(p)}</span>
+          {has && <ChevronDown className="h-3 w-3" style={{ color: "var(--color-text-3)" }} />}
+        </Chip>
+        {p.planningProgress != null && (
+          <Chip><Badge on>{p.planningProgress}</Badge>分集规划中</Chip>
+        )}
+        {stale > 0 && (
+          <Chip title={`${stale} 集有产物需要更新`} onClick={() => setOpen((o) => !o)}>
+            <WarmDot n={stale} />需要更新
+          </Chip>
+        )}
+      </Track>
+      {open && has && (
         <Popover>
           <EpisodeList p={p} current={current} />
           <div className="mt-2 border-t pt-2 text-[11.5px]" style={{ ...hair, color: "var(--color-text-3)" }}>
@@ -257,25 +343,28 @@ function HeaderB() {
   const p = usePScenario();
   const current = useCurrentEpisode();
   const migration = useMigrationActive(p);
-  const [open, setOpen] = useState(false);
-  const phase = useRetry((s) => s.phase);
+  const [open, setOpen] = useState<"eps" | "next" | "mig" | null>(null);
+  const { phase, attempts } = useRetry();
+  const toggle = (k: "eps" | "next" | "mig") => setOpen((o) => (o === k ? null : k));
 
   if (migration) {
     return (
-      <div className="relative flex items-center gap-2 rounded-full border py-0.5 pl-3 pr-1 text-[12px]" style={{ borderColor: "var(--color-warm-ring)", background: "var(--color-warm-soft)" }}>
-        <AlertTriangle className="h-3.5 w-3.5" style={{ color: "var(--color-warm)" }} />
-        <button type="button" onClick={() => setOpen((o) => !o)} className="focus-ring" style={{ color: "var(--color-text)" }}>
-          {phase === "failed" ? `重试没有成功（${useRetry.getState().attempts} 次）` : "数据升级没有完成 · 生成已关闭"}
-          <ChevronDown className="ml-1 inline h-3 w-3" />
-        </button>
-        <RetryButton size="sm" />
-        {(open || phase === "failed") && (
+      <div className="relative">
+        <Track warm>
+          <Chip onClick={() => toggle("mig")}>
+            <AlertTriangle className="h-3.5 w-3.5" style={{ color: "var(--color-warm)" }} />
+            <span style={{ color: "var(--color-text)" }}>
+              {phase === "failed" ? `重试没有成功 · ${attempts} 次` : "数据升级没有完成"}
+            </span>
+            <ChevronDown className="h-3 w-3" />
+          </Chip>
+          <RetryButton size="sm" />
+        </Track>
+        {(open === "mig" || phase === "failed") && (
           <Popover width={440}>
             <div className="space-y-2">
               <MigrationText p={p} />
-              <div className="flex items-center gap-2">
-                <ActButton act={retryAgentAct} size="sm" />
-              </div>
+              <ActButton act={retryAgentAct} size="sm" />
             </div>
           </Popover>
         )}
@@ -287,77 +376,85 @@ function HeaderB() {
   // 集页上：项目层下一步指向本集时让位给下方面板，只留进度。
   const yieldToPanel = current != null && next?.episode === current;
   return (
-    <div className="relative flex items-center gap-2.5 text-[12px]">
-      <button type="button" onClick={() => setOpen((o) => !o)} className="focus-ring tabular-nums" style={{ color: "var(--color-text-2)" }}>
-        {progressText(p)}
-        {p.episodes.length > 0 && <ChevronDown className="ml-0.5 inline h-3 w-3" />}
-      </button>
-      {next && !yieldToPanel && (
-        <>
-          <span className="h-3.5 w-px" style={{ background: "var(--color-hairline)" }} />
-          <span style={{ color: "var(--color-text-3)" }}>下一步</span>
-          <span className="max-w-[220px] truncate" style={{ color: "var(--color-text)" }} title={next.detail}>{next.title}</span>
-          {next.primary.map((a) => <ActButton key={a.label} act={a} size="sm" />)}
-        </>
+    <div className="relative">
+      <Track>
+        <Chip onClick={() => p.episodes.length && toggle("eps")}>
+          <Ring done={doneCount(p)} total={p.episodes.length} />
+          <span className="num">{p.episodes.length ? `${doneCount(p)}/${p.episodes.length}` : "尚未建集"}</span>
+        </Chip>
+        {next && !yieldToPanel && (
+          <Chip raised onClick={() => toggle("next")} title={next.detail}>
+            <Badge on>→</Badge>
+            <span>{next.title}</span>
+            <ChevronDown className="h-3 w-3" style={{ color: "var(--color-text-3)" }} />
+          </Chip>
+        )}
+        {yieldToPanel && <Chip><Badge>{current}</Badge>当前集</Chip>}
+      </Track>
+      {open === "eps" && (
+        <Popover><EpisodeList p={p} current={current} /></Popover>
       )}
-      {yieldToPanel && (
-        <span className="text-[11.5px]" style={{ color: "var(--color-text-4)" }}>· 当前是建议继续的一集</span>
-      )}
-      {open && p.episodes.length > 0 && (
-        <Popover>
-          <EpisodeList p={p} current={current} />
-        </Popover>
+      {open === "next" && next && (
+        <Popover width={460}><NextBlock next={next} compact /></Popover>
       )}
     </div>
   );
 }
+
+const SEG: Record<EpState, React.CSSProperties> = {
+  done: { background: "oklch(0.76 0.09 295 / 0.55)" },
+  progress: { background: "var(--color-accent)", boxShadow: "0 0 8px -1px var(--color-accent-glow)" },
+  todo: { background: "oklch(0.30 0.012 265)" },
+  stale: { background: "var(--color-warm)" },
+  repair: { background: "var(--color-danger)" },
+};
 
 function HeaderC() {
   const p = usePScenario();
   const current = useCurrentEpisode();
   const migration = useMigrationActive(p);
   const log = useLast((s) => s.set);
-  if (p.episodes.length === 0) {
-    return <span className="text-[12px]" style={{ color: "var(--color-text-3)" }}>{p.planningProgress != null ? `AI 分集规划中 ${p.planningProgress}%` : "尚未建集"}</span>;
-  }
-  const segW = Math.max(10, Math.min(26, 300 / p.episodes.length));
+  const [hover, setHover] = useState<number | null>(null);
+  const hovered = p.episodes.find((e) => e.id === hover);
+  const n = p.episodes.length;
+  const segW = Math.max(6, Math.min(18, 220 / Math.max(n, 1)));
   return (
-    <div className="flex items-center gap-2.5 text-[12px]">
-      {migration && (
-        <span title="项目数据升级没有完成" className="inline-flex items-center gap-1" style={{ color: "var(--color-warm)" }}>
-          <AlertTriangle className="h-3.5 w-3.5" />
-        </span>
-      )}
-      <span className="tabular-nums" style={{ color: "var(--color-text-2)" }}>
-        {p.content === "ad" ? progressText(p) : `${doneCount(p)} / ${p.episodes.length} 集`}
-      </span>
-      {p.content !== "ad" && (
-        <div className="flex items-center gap-[3px]" style={{ opacity: migration ? 0.5 : 1 }}>
+    <Track warm={migration}>
+      <Chip raised>
+        {migration ? <AlertTriangle className="h-3.5 w-3.5" style={{ color: "var(--color-warm)" }} /> : <Ring done={doneCount(p)} total={n} />}
+        <span className="num">{n ? (p.content === "ad" ? progressText(p) : `${doneCount(p)}/${n}`) : "尚未建集"}</span>
+      </Chip>
+      {n > 0 && p.content !== "ad" && (
+        <div className="flex items-center gap-[3px] px-2.5" onMouseLeave={() => setHover(null)}>
           {p.episodes.map((e) => (
             <button
               key={e.id}
               type="button"
+              onMouseEnter={() => setHover(e.id)}
               onClick={() => log({ label: `第 ${e.id} 集`, kind: "nav", effect: `跳到第 ${e.id} 集` })}
-              title={`第 ${e.id} 集 · ${e.title} · ${EP_LABEL[e.state]}${e.next ? ` · 下一步：${e.next}` : ""}`}
-              className="focus-ring h-[14px] rounded-[3px]"
+              aria-label={`第 ${e.id} 集 · ${EP_LABEL[e.state]}`}
+              className="focus-ring h-[6px] rounded-full transition-transform hover:scale-y-150"
               style={{
                 width: segW,
-                background: e.state === "todo" ? "transparent" : EP_COLOR[e.state],
-                border: e.state === "todo" ? `1px dashed ${EP_COLOR.todo}` : "none",
-                outline: current === e.id ? "2px solid var(--color-text)" : undefined,
-                outlineOffset: 1,
-                opacity: e.state === "done" ? 0.55 : 1,
+                ...SEG[e.state],
+                outline: current === e.id ? "1.5px solid var(--color-text)" : undefined,
+                outlineOffset: 2,
               }}
             />
           ))}
-          {p.planningProgress != null && (
-            <span className="ml-1 text-[11px]" style={{ color: "var(--color-accent-2)" }}>+ 规划中 {p.planningProgress}%</span>
-          )}
         </div>
       )}
-    </div>
+      {(hovered || p.planningProgress != null) && (
+        <span className="whitespace-nowrap pr-3 text-[11px]" style={{ color: "var(--color-text-3)" }}>
+          {hovered
+            ? `E${hovered.id} ${hovered.title} · ${hovered.next ? hovered.next : EP_LABEL[hovered.state]}`
+            : `分集规划中 ${p.planningProgress}%`}
+        </span>
+      )}
+    </Track>
   );
 }
+
 
 // ---- 迁移横幅（顶栏下方） ---------------------------------------------------------------
 
