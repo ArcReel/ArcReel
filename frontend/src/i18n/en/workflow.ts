@@ -23,9 +23,8 @@ export default {
   'step_asset_sheets': 'Asset images',
   'step_script_structure': 'Script structure',
   'step_storyboard': 'Storyboards',
-  'step_narration_delivery': 'Narration delivery',
   'step_video': 'Video',
-  'step_export': 'Export',
+  'step_edit': 'Edit',
   'step_state_completed': 'Done',
   'step_state_ready': 'Ready to run',
   'step_state_active': 'Running',
@@ -106,15 +105,6 @@ export default {
   'duration_seconds': '{{value}}s',
   'unit_request_tier': 'requesting {{request}}',
 
-  // ---- Narration delivery ----
-  'delivery_title': 'Narration for this batch',
-  'delivery_this_request_only': 'This choice applies to this generation only. It is not saved to the project.',
-  'delivery_post_production': 'Add narration in post-production',
-  'delivery_post_production_hint': 'Videos are generated without narration audio. You add the voice track later.',
-  'delivery_use_tts': 'Use the configured text-to-speech',
-  'delivery_use_tts_hint': 'Narration audio is generated first, and video length follows it.',
-  'delivery_tts_unavailable': 'Text-to-speech is not set up yet, so choose post-production narration to continue. The rest of the workflow is unaffected.',
-
   // ---- Next-step phrases ----
   'action_unknown': 'follow the guidance from the agent',
   'action_none': 'nothing to do',
@@ -143,8 +133,7 @@ export default {
   'action_repair_video_units': 'fix the script units flagged below',
   'action_generate_videos': 'generate the missing videos',
   'action_patch_episode_script': 'correct the script fields listed below',
-  'action_choose_narration_delivery': 'choose how narration is delivered for this batch',
-  'action_export': 'export the finished episode',
+  'action_create_edit_timeline': 'create an edit timeline and let the Agent edit it',
   'action_retry_project_migration': 'fix the reported project files, then retry the data upgrade',
 
   // ---- Problem summaries ----

@@ -16,8 +16,8 @@ GET_WORKFLOW_PLAN = ToolDeclaration(
     name="get_workflow_plan",
     description=(
         "读取项目的权威制作计划：有序步骤、阻断原因、结构问题、活动任务观测、视频准入与唯一的下一动作 "
-        "next_action。每一步动手前先读它，按 next_action 行动。narration_delivery 与 "
-        "confirmed_request_durations 只作用于本次计划，不写入项目。只读，无副作用。"
+        "next_action。每一步动手前先读它，按 next_action 行动。confirmed_request_durations "
+        "只作用于本次计划，不写入项目。只读，无副作用。"
         "项目数据升级失败时计划只含这一条 project_migration_failed 问题，下一动作指向修复。"
     ),
     request_model=WorkflowPlanRequest,

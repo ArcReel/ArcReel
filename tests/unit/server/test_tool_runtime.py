@@ -83,7 +83,7 @@ class _Planner:
     ):
         assert project_name == "demo"
         assert user_id == "u1"
-        return build_workflow_plan(self.status, narration_delivery=request.narration_delivery)
+        return build_workflow_plan(self.status)
 
 
 class _Capabilities:

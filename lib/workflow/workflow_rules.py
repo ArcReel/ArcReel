@@ -38,9 +38,8 @@ _STEP_CHECKPOINTS: tuple[tuple[str, str | None], ...] = (
     ("asset_sheets", "ASSET_SHEETS"),
     ("script_structure", None),
     ("storyboard", "STORYBOARD"),
-    ("narration_delivery", None),
     ("video", "VIDEO"),
-    ("export", "EXPORT_READY"),
+    ("edit", "EDIT"),
 )
 
 _EPISODIC_STEPS = frozenset(
@@ -53,9 +52,8 @@ _EPISODIC_STEPS = frozenset(
         "final_script",
         "asset_sheets",
         "script_structure",
-        "narration_delivery",
         "video",
-        "export",
+        "edit",
     }
 )
 
@@ -69,9 +67,8 @@ _CONTENT_STEPS: dict[str, frozenset[str]] = {
             "final_script",
             "asset_sheets",
             "script_structure",
-            "narration_delivery",
             "video",
-            "export",
+            "edit",
         }
     ),
 }

@@ -25,9 +25,8 @@ export default {
   'step_asset_sheets': '资产图',
   'step_script_structure': '脚本结构',
   'step_storyboard': '分镜图',
-  'step_narration_delivery': '旁白交付',
   'step_video': '视频',
-  'step_export': '导出',
+  'step_edit': '剪辑',
   'step_state_completed': '已完成',
   'step_state_ready': '可以开始',
   'step_state_active': '进行中',
@@ -108,15 +107,6 @@ export default {
   'duration_seconds': '{{value}} 秒',
   'unit_request_tier': '申请 {{request}}',
 
-  // ---- 旁白交付 ----
-  'delivery_title': '本批的旁白交付方式',
-  'delivery_this_request_only': '这个选择只作用于本次生成，不写回项目设置。',
-  'delivery_post_production': '后期配音',
-  'delivery_post_production_hint': '视频不带旁白音轨，配音在后期另行加入。',
-  'delivery_use_tts': '使用已配置的语音合成',
-  'delivery_use_tts_hint': '先生成旁白配音，视频时长按旁白配音时长取档。',
-  'delivery_tts_unavailable': '语音合成还没配置好，选后期配音即可继续。工作流其余部分不受影响。',
-
   // ---- 下一步动作短语 ----
   'action_unknown': '按 Agent 给出的指引继续',
   'action_none': '暂时无需操作',
@@ -145,8 +135,7 @@ export default {
   'action_repair_video_units': '修正下面列出的脚本单元',
   'action_generate_videos': '生成缺失的视频',
   'action_patch_episode_script': '修正下面列出的脚本字段',
-  'action_choose_narration_delivery': '选择本批的旁白交付方式',
-  'action_export': '导出成片',
+  'action_create_edit_timeline': '新建剪辑时间线并交给 Agent 剪辑',
   'action_retry_project_migration': '修复报告的项目文件后重试数据升级',
 
   // ---- 问题摘要 ----

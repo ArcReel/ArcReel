@@ -31,7 +31,7 @@ from server.tool_runtime import (
 class _Planner:
     async def get_plan(self, project_name: str, request: WorkflowPlanRequest):
         assert project_name == "demo"
-        return build_workflow_plan(_status(), narration_delivery=request.narration_delivery)
+        return build_workflow_plan(_status())
 
 
 class _Capabilities:

@@ -55,7 +55,8 @@ description: 将小说转换为短视频的端到端工作流编排器。当用�
 对应动作。Read / Glob 只用于执行已选定动作所需的内容，不用于另建状态机；不得根据空资产 bucket、
 文件名、旧文件存在性或对话记忆覆盖服务端结论。
 
-下文各节以 `next_action.type` 为标题。`export` 表示工作流完成，`none` 表示展示 `blockers` 并停止变更。
+下文各节以 `next_action.type` 为标题。`none` 时：有 `blockers` 就展示并停止变更；
+`status.state == "COMPLETED"` 表示工作流已走完。
 
 ---
 
@@ -253,15 +254,10 @@ dispatch `generate-assets` 子智能体：
 
 **触发**：`next_action.type == "generate_videos"`
 
-入队前计划可能先交回两个受控动作，按 [workflow-plan](../../references/workflow-plan.md) 处理完再重查计划：
-
-- `choose_narration_delivery` — 本次请求含叙述旁白。向用户**显式说明**这次要发起的是叙述旁白视频
-  请求，并在「使用 TTS」与「后期配音」之间二选一；选择经 `narration_delivery` 带进下一次
-  `mcp__arcreel__get_workflow_plan`，不持久化，之后每次查询都要重新带上。未配置 TTS 时默认后期配音，
-  不要为了让视频继续而建议用户去配置 TTS 供应商；选 TTS 时旁白配音按 `generate-narration-audio`
-  单独合成，视频请求不受影响
-- `confirm_request_duration` — 整批准入判定要求确认申请档位。按 `admission.confirmation.tiers[]` 逐档位
-  展示涉及的视频单元与费用，取得确认后经 `confirmed_request_durations` 连同仍成立的 `narration_delivery` 一起带回
+入队前计划可能先交回 `confirm_request_duration`：整批准入判定要求确认申请档位。按
+`admission.confirmation.tiers[]` 逐档位展示涉及的视频单元与费用，取得确认后经
+`confirmed_request_durations` 带回下一次 `mcp__arcreel__get_workflow_plan`（见
+[workflow-plan](../../references/workflow-plan.md)）。
 
 只有 `plan.steps[].admission.decision == "admitted"` 才入队；`blocked` 或 `confirmation_required` 时
 **一个任务都不入队**。此时逐视频单元报告 `admission.units[]` 的 `unit_id`、`problems[].code`、原因与
@@ -289,6 +285,16 @@ dispatch `generate-assets` 子智能体：
 返回后按逐 ID 分账陈述结果（`succeeded` / `failed` / `blocked` / `skipped`），并把 workflow 步骤状态、
 队列任务、供应商 checkpoint、产物时效四轴**分开说**——「任务成功」不等于「当前产物有效」。
 stale 产物照常可预览、可导出、可参与成片，是否重做由用户明确决定；不自动删除、覆盖或重生已付费产物。
+
+---
+
+## `create_edit_timeline`：剪辑
+
+**触发**：`next_action.type == "create_edit_timeline"`，本集视频已齐、还没有剪辑时间线。
+
+调 `mcp__arcreel__create_timeline({"from": "script", "episode": target.episode, "name": "完整版"})` 按脚本
+机械新建一条剪辑时间线，再与用户一起在它上面剪辑。至少有一条剪辑时间线，这一步即完成。
+导出剪映草稿不是工作流步骤，由用户在 Web 端发起。
 
 ---
 

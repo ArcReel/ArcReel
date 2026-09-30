@@ -1,14 +1,13 @@
 import { useId } from "react";
 import { useTranslation } from "react-i18next";
-import type { NarrationDelivery, WorkflowPlanStep } from "@/types/workflow";
+import type { WorkflowPlanStep } from "@/types/workflow";
 import { ArtifactMeter, artifactCounts } from "./ArtifactMeter";
 import { BatchAdmissionSummary } from "./BatchAdmissionSummary";
-import { NarrationDeliveryChoice } from "./NarrationDeliveryChoice";
 import { ProblemList } from "./ProblemList";
 import { StaleArtifacts } from "./StaleArtifacts";
 import { TaskChips } from "./TaskChips";
 import { INLINE_ACTION_CLS, STEP_RAILS } from "./state-language";
-import { nextStepForAction, problemViews, type ProblemView } from "./problem-views";
+import { nextStepForAction, problemViews } from "./problem-views";
 
 /** 轨道刻度：步骤进度这一轴的唯一图形。产物用填充块、任务用描边胶囊，三者不共用形状。 */
 function RailMark({ step }: { step: WorkflowPlanStep }) {
@@ -40,12 +39,6 @@ function RailMark({ step }: { step: WorkflowPlanStep }) {
   );
 }
 
-export interface NarrationChoiceBinding {
-  choice: import("@/types/workflow").WorkflowNarrationDeliveryChoice;
-  ttsUnavailable?: ProblemView | null;
-  onSelect: (delivery: NarrationDelivery) => void;
-}
-
 interface Props {
   step: WorkflowPlanStep;
   /** 跳到画布上的该单元；预览与版本历史都在那里，面板不另起一套播放器。 */
@@ -54,8 +47,6 @@ interface Props {
   onRegenerate?: (stepId: string, unitIds: string[]) => void;
   /** 按当前档位确认整批并重新求解。 */
   onConfirmDurations?: (durations: Record<string, number>) => void;
-  /** 仅 `narration_delivery` 步骤绑定。 */
-  narration?: NarrationChoiceBinding;
   busy?: boolean;
 }
 
@@ -71,7 +62,6 @@ export function WorkflowStepRow({
   onViewUnit,
   onRegenerate,
   onConfirmDurations,
-  narration,
   busy,
 }: Props) {
   const { t } = useTranslation("workflow");
@@ -115,15 +105,6 @@ export function WorkflowStepRow({
         ) : (
           <>
             <ArtifactMeter collection={step.artifacts} />
-
-            {narration && (
-              <NarrationDeliveryChoice
-                choice={narration.choice}
-                ttsUnavailable={narration.ttsUnavailable}
-                onSelect={narration.onSelect}
-                busy={busy}
-              />
-            )}
 
             <StaleArtifacts
               staleIds={staleIds}

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pytest
+from pydantic import ValidationError
 
 from lib.generation.batch_admission import BatchAdmission, UnitAdmissionTicket
 from lib.generation.generation_result import (
@@ -9,8 +10,8 @@ from lib.generation.generation_result import (
     GenerationSelectionMode,
     ProviderCheckpoint,
 )
-from lib.speech.narration_delivery import POST_PRODUCTION, USE_TTS, NarrationDelivery
 from lib.workflow.workflow_plan import (
+    WorkflowPlanRequest,
     WorkflowStepState,
     WorkflowTaskObservation,
     build_workflow_plan,
@@ -64,7 +65,7 @@ def _status(
                     "stale_ids": [],
                     "missing_ids": requested_ids or ["E1S01"],
                 },
-                "audio": {"current_ids": [], "stale_ids": [], "missing_ids": ["E1S01"]},
+                "audio": {"state": "not_applicable", "current_ids": [], "stale_ids": [], "missing_ids": []},
             },
             "next_action": WorkflowNextAction(
                 type=WorkflowActionType(action),
@@ -92,21 +93,16 @@ def test_rules_exhaust_the_six_content_and_generation_mode_combinations() -> Non
     for content_mode, generation_mode in WORKFLOW_RULES:
         rule = workflow_rule(content_mode, generation_mode)
         step_ids = [step.id for step in rule.steps]
-        assert step_ids.index("script_structure") < step_ids.index("storyboard")
-        assert step_ids.index("storyboard") < step_ids.index("narration_delivery")
-        assert step_ids.index("narration_delivery") < step_ids.index("video")
+        assert "narration_delivery" not in step_ids
+        assert "export" not in step_ids
+        assert step_ids[-3:] == ["storyboard", "video", "edit"]
         storyboard = next(step for step in rule.steps if step.id == "storyboard")
         assert storyboard.applicable is (generation_mode == "storyboard")
-        assert next(step for step in rule.steps if step.id == "narration_delivery").applicable is True
+        assert next(step for step in rule.steps if step.id == "edit").applicable is True
 
 
 @pytest.mark.parametrize(("content_mode", "generation_mode"), sorted(WORKFLOW_RULES))
-@pytest.mark.parametrize("narration_delivery", [POST_PRODUCTION, USE_TTS])
-def test_every_route_keeps_each_transient_narration_delivery_choice(
-    content_mode: str,
-    generation_mode: str,
-    narration_delivery: NarrationDelivery,
-) -> None:
+def test_missing_videos_are_the_next_action_without_a_delivery_choice(content_mode: str, generation_mode: str) -> None:
     status = _status(content_mode=content_mode, generation_mode=generation_mode)
     admission = BatchAdmission(
         operation="generate_videos",
@@ -114,68 +110,49 @@ def test_every_route_keeps_each_transient_narration_delivery_choice(
         tickets=(UnitAdmissionTicket("E1S01"),),
     )
 
-    plan = build_workflow_plan(
-        status,
-        narration_delivery=narration_delivery,
-        admission=admission.to_payload(),
-    )
+    plan = build_workflow_plan(status, admission=admission.to_payload())
 
-    assert plan.narration_delivery.selected == narration_delivery
-    assert plan.narration_delivery.persisted is False
+    assert "narration_delivery" not in plan.model_dump()
     assert _step(plan, "storyboard").required is (generation_mode == "storyboard")
-    assert _step(plan, "narration_delivery").state is WorkflowStepState.COMPLETED
-    assert _step(plan, "video").state is WorkflowStepState.READY
-
-
-def test_reference_route_skips_only_storyboard_media_not_delivery_choice() -> None:
-    plan = build_workflow_plan(_status(generation_mode="reference_video"))
-
-    assert _step(plan, "storyboard").state is WorkflowStepState.SKIPPED
-    assert _step(plan, "narration_delivery").state is WorkflowStepState.READY
-    assert plan.next_action.type == "choose_narration_delivery"
-
-
-def test_post_production_keeps_video_executable_when_tts_is_missing() -> None:
-    status = _status()
-    admission = BatchAdmission(
-        operation="generate_videos",
-        selection=GenerationSelectionMode.MISSING_ONLY,
-        tickets=(UnitAdmissionTicket("E1S01"),),
-    )
-
-    plan = build_workflow_plan(
-        status,
-        narration_delivery=POST_PRODUCTION,
-        admission=admission.to_payload(),
-    )
-
-    assert plan.narration_delivery.selected == POST_PRODUCTION
-    assert _step(plan, "narration_delivery").state is WorkflowStepState.COMPLETED
     assert _step(plan, "video").state is WorkflowStepState.READY
     assert _step(plan, "video").artifacts["missing_ids"] == ["E1S01"]
+    assert _step(plan, "edit").state is WorkflowStepState.PENDING
     assert plan.next_action == status.next_action
 
 
-def _status_with_blocked_audio() -> WorkflowStatus:
-    status = _status()
-    artifacts = dict(status.artifacts)
-    artifacts["audio"] = {"state": "blocked", "current_ids": [], "stale_ids": [], "missing_ids": ["E1S01"]}
-    return status.model_copy(update={"artifacts": artifacts})
+def test_plan_request_no_longer_accepts_a_narration_delivery_choice() -> None:
+    with pytest.raises(ValidationError):
+        WorkflowPlanRequest.model_validate({"narration_delivery": "use_tts"})
 
 
-def test_blocked_audio_artifact_survives_the_delivery_step_projection() -> None:
-    plan = build_workflow_plan(_status_with_blocked_audio(), narration_delivery=USE_TTS)
+def test_episode_without_edit_timeline_points_to_the_edit_step() -> None:
+    status = _status(state="EDIT", action="create_edit_timeline")
+    status.artifacts["videos"] = {"current_ids": ["E1S01"], "stale_ids": [], "missing_ids": []}
+    status.artifacts["edit_timelines"] = {"timeline_ids": []}
 
-    assert _step(plan, "narration_delivery").state is WorkflowStepState.BLOCKED
-    assert _step(plan, "narration_delivery").artifacts["state"] == "blocked"
+    plan = build_workflow_plan(status)
+
+    edit = _step(plan, "edit")
+    assert _step(plan, "video").state is WorkflowStepState.COMPLETED
+    assert edit.state is WorkflowStepState.READY
+    assert edit.action is not None
+    assert edit.action.type == "create_edit_timeline"
+    assert edit.artifacts == {"timeline_ids": []}
+    assert plan.next_action.type == "create_edit_timeline"
 
 
-@pytest.mark.parametrize("delivery", [POST_PRODUCTION, None])
-def test_blocked_audio_artifact_does_not_block_the_post_production_path(delivery: NarrationDelivery | None) -> None:
-    plan = build_workflow_plan(_status_with_blocked_audio(), narration_delivery=delivery)
+def test_episode_with_an_edit_timeline_completes_every_applicable_step() -> None:
+    status = _status(generation_mode="reference_video", state="COMPLETED", action="none")
+    status.artifacts["videos"] = {"current_ids": ["E1S01"], "stale_ids": [], "missing_ids": []}
+    status.artifacts["edit_timelines"] = {"timeline_ids": ["tl-0123abcd"]}
 
-    expected = WorkflowStepState.COMPLETED if delivery is not None else WorkflowStepState.READY
-    assert _step(plan, "narration_delivery").state is expected
+    plan = build_workflow_plan(status)
+
+    assert _step(plan, "storyboard").state is WorkflowStepState.SKIPPED
+    assert all(step.state is WorkflowStepState.COMPLETED for step in plan.steps if step.required)
+    assert _step(plan, "edit").artifacts == {"timeline_ids": ["tl-0123abcd"]}
+    assert all(step.action is None for step in plan.steps)
+    assert plan.next_action.type == "none"
 
 
 def test_use_tts_preserves_structured_admission_blockers() -> None:
@@ -192,7 +169,6 @@ def test_use_tts_preserves_structured_admission_blockers() -> None:
 
     plan = build_workflow_plan(
         _status(),
-        narration_delivery=USE_TTS,
         admission=admission.to_payload(),
     )
 
@@ -225,7 +201,6 @@ def test_multiple_admission_repairs_preserve_the_first_structured_action() -> No
 
     plan = build_workflow_plan(
         _status(requested_ids=["E1S01", "E1S02"]),
-        narration_delivery=USE_TTS,
         admission=admission.to_payload(),
     )
 
@@ -316,7 +291,6 @@ def test_artifact_task_and_checkpoint_axes_remain_distinct() -> None:
 
     plan = build_workflow_plan(
         status,
-        narration_delivery=POST_PRODUCTION,
         task_observations=[task],
     )
 
@@ -330,14 +304,16 @@ def test_artifact_task_and_checkpoint_axes_remain_distinct() -> None:
     assert plan.next_action.type == GenerationAction.WAIT_FOR_TASK.value
 
 
-def test_stale_video_remains_exportable_without_an_implicit_regeneration_step() -> None:
-    status = _status(state="EXPORT_READY", action="export")
+def test_stale_video_remains_editable_without_an_implicit_regeneration_step() -> None:
+    status = _status(state="EDIT", action="create_edit_timeline")
     status.artifacts["videos"] = {
         "current_ids": [],
         "stale_ids": ["E1S01"],
         "missing_ids": [],
     }
-    status.next_action = WorkflowNextAction(type=WorkflowActionType.EXPORT, reason="usable media is ready")
+    status.next_action = WorkflowNextAction(
+        type=WorkflowActionType.CREATE_EDIT_TIMELINE, args={"episode": 1}, reason="episode has no edit timeline"
+    )
 
     plan = build_workflow_plan(status)
 
@@ -345,4 +321,4 @@ def test_stale_video_remains_exportable_without_an_implicit_regeneration_step() 
     assert video.state is WorkflowStepState.COMPLETED
     assert video.artifacts["stale_ids"] == ["E1S01"]
     assert video.action is None
-    assert plan.next_action.type == "export"
+    assert plan.next_action.type == "create_edit_timeline"

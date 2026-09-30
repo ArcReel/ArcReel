@@ -333,6 +333,9 @@ export function StudioCanvasRouter() {
     }
   }, [currentProjectName, currentScripts, ensureAudioProviderConfigured]);
 
+  // 后期配音项目不生成旁白配音：收起画布上的生成入口，已有配音照常试听。
+  const narrationGenerationEnabled = currentProjectData?.narration_delivery === "use_tts";
+
   // ---- Workflow panel callbacks ----
   // 面板只陈述状态，动作交回既有入口执行：跳转复用 Agent 定位用的同一条 scrollTarget 缝，
   // 重生复用本组件已有的入队回调。面板不自建播放器，也不自建入队路径。
@@ -359,8 +362,6 @@ export function StudioCanvasRouter() {
           await handleGenerateStoryboard(unitId, scriptFile);
         } else if (stepId === "video") {
           await handleGenerateVideo(unitId, scriptFile);
-        } else if (stepId === "narration_delivery") {
-          await handleGenerateNarration(unitId, scriptFile);
         }
       } catch (err) {
         useAppStore.getState().pushToast(tRef.current("generate_video_failed", { message: errMsg(err) }), "error");
@@ -371,7 +372,6 @@ export function StudioCanvasRouter() {
     currentScripts,
     handleGenerateStoryboard,
     handleGenerateVideo,
-    handleGenerateNarration,
   ]);
 
   // ---- Character CRUD callbacks ----
@@ -788,8 +788,8 @@ export function StudioCanvasRouter() {
                     onUpdatePrompt={awaitedUpdatePrompt}
                     onGenerateStoryboard={voidPromise(handleGenerateStoryboard)}
                     onGenerateVideo={handleGenerateVideo}
-                    onGenerateNarration={voidPromise(handleGenerateNarration)}
-                    onGenerateEpisodeNarration={voidPromise(handleGenerateEpisodeNarration)}
+                    onGenerateNarration={narrationGenerationEnabled ? voidPromise(handleGenerateNarration) : undefined}
+                    onGenerateEpisodeNarration={narrationGenerationEnabled ? voidPromise(handleGenerateEpisodeNarration) : undefined}
                     onGenerateGrid={handleGenerateGrid}
                     onRestoreStoryboard={handleRestoreAsset}
                     onRestoreVideo={handleRestoreAsset}
@@ -822,8 +822,8 @@ export function StudioCanvasRouter() {
                     onRemoveShot={handleRemoveShot}
                     onGenerateStoryboard={voidPromise(handleGenerateStoryboard)}
                     onGenerateVideo={handleGenerateVideo}
-                    onGenerateNarration={voidPromise(handleGenerateNarration)}
-                    onGenerateEpisodeNarration={voidPromise(handleGenerateEpisodeNarration)}
+                    onGenerateNarration={narrationGenerationEnabled ? voidPromise(handleGenerateNarration) : undefined}
+                    onGenerateEpisodeNarration={narrationGenerationEnabled ? voidPromise(handleGenerateEpisodeNarration) : undefined}
                     onRestoreStoryboard={handleRestoreAsset}
                     onRestoreVideo={handleRestoreAsset}
                   />

@@ -20,7 +20,7 @@ export type WorkflowStepState =
 /** 产物时效。stale 是「可继续使用的告警」，不是缺失，也不授权自动重生。 */
 export type ArtifactStatus = "current" | "stale" | "missing" | "blocked";
 
-/** 旁白交付方式：项目配置（docs/adr/0089）与视频请求上的按次选择共用这组取值。 */
+/** 旁白交付方式：项目配置（docs/adr/0089）。 */
 export type NarrationDelivery = "post_production" | "use_tts";
 
 /**
@@ -44,10 +44,9 @@ export const WORKFLOW_ACTION_TYPES = [
   "generate_grid",
   "repair_video_units",
   "generate_videos",
-  "export",
+  "create_edit_timeline",
   "retry_project_migration",
   "patch_episode_script",
-  "choose_narration_delivery",
   "retry",
   "fix_input",
   "generate_dependency",
@@ -222,7 +221,8 @@ export type WorkflowStateName =
   | "ASSET_SHEETS"
   | "STORYBOARD"
   | "VIDEO"
-  | "EXPORT_READY";
+  | "EDIT"
+  | "COMPLETED";
 
 /** 上一次跑完的项目迁移没能登记的一件产物及原因。 */
 export interface WorkflowMigrationSkippedArtifact {
@@ -260,20 +260,9 @@ export interface WorkflowStatus {
   migration_report?: WorkflowMigrationReport | null;
 }
 
-/**
- * 旁白交付选择的呈现契约：`persisted: false` 是后端的明示——
- * 这个选择只作用于本次请求，界面不能把它讲成项目设置。
- */
-export interface WorkflowNarrationDeliveryChoice {
-  selected: NarrationDelivery | null;
-  options: NarrationDelivery[];
-  persisted: false;
-}
-
 export interface WorkflowPlan {
   schema_version: 1;
   status: WorkflowStatus;
-  narration_delivery: WorkflowNarrationDeliveryChoice;
   steps: WorkflowPlanStep[];
   blockers: WorkflowBlocker[];
   problems: GenerationProblem[];
@@ -283,6 +272,5 @@ export interface WorkflowPlan {
 /** `POST /projects/{name}/workflow-plan` 的请求体。 */
 export interface WorkflowPlanRequest {
   episode?: number | null;
-  narration_delivery?: NarrationDelivery | null;
   confirmed_request_durations?: Record<string, number>;
 }

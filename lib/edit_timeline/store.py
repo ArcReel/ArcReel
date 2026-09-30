@@ -17,6 +17,7 @@ from pydantic import ValidationError
 from lib.edit_timeline.errors import EditTimelineError
 from lib.edit_timeline.model import EditTimelineDocument, is_timeline_id
 from lib.infra.json_io import atomic_write_json
+from lib.project.project_change_hints import build_change_label, emit_project_change_batch
 from lib.project.project_manager import ProjectManager
 
 logger = logging.getLogger(__name__)
@@ -27,6 +28,7 @@ EDIT_TIMELINES_DIRNAME = "edit_timelines"
 class EditTimelineStore:
     def __init__(self, projects: ProjectManager, project_name: str) -> None:
         self._projects = projects
+        self._project_name = project_name
         self._root = projects.get_project_path(project_name) / EDIT_TIMELINES_DIRNAME
 
     def _episode_dir(self, episode: int) -> Path:
@@ -95,6 +97,20 @@ class EditTimelineStore:
         path = self._episode_dir(document.episode) / f"{document.id}.json"
         path.parent.mkdir(parents=True, exist_ok=True)
         atomic_write_json(path, document.model_dump(mode="json"))
+        emit_project_change_batch(
+            self._project_name,
+            [
+                {
+                    "entity_type": "episode",
+                    "action": "updated",
+                    "entity_id": str(document.episode),
+                    "episode": document.episode,
+                    **build_change_label("episode", episode=document.episode),
+                    "focus": None,
+                    "important": False,
+                }
+            ],
+        )
 
 
 __all__ = ["EDIT_TIMELINES_DIRNAME", "EditTimelineStore"]

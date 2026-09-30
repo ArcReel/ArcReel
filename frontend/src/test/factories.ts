@@ -78,11 +78,6 @@ export function makePlan(overrides: Partial<WorkflowPlan> = {}): WorkflowPlan {
   return {
     schema_version: 1,
     status,
-    narration_delivery: {
-      selected: null,
-      options: ["post_production", "use_tts"],
-      persisted: false,
-    },
     steps: [makeStep()],
     blockers: status.blockers,
     problems: [],

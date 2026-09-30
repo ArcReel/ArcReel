@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import unicodedata
 from pathlib import Path
 
@@ -13,6 +14,7 @@ from lib.artifacts.artifact_activation import (
 )
 from lib.artifacts.artifact_manifest import ArtifactBasisDescriptor, ArtifactKey, ProjectArtifactManifestAdapter
 from lib.artifacts.version_manager import MANUAL_UPLOAD_VERSION_SOURCE, VersionManager
+from lib.edit_timeline import EditTimelineService, RevisionAuthor
 from lib.episode.episode_ledger import (
     SOURCE_FINGERPRINTS_KEY,
     compute_source_fingerprints,
@@ -343,8 +345,8 @@ def test_manual_presplit_project_routes_to_script_plan_without_writing_the_ledge
     assert pm.load_project("demo")["episodes"] == []
 
 
-def test_manual_presplit_project_reaches_export_ready_without_planning_records(tmp_path: Path) -> None:
-    """手动预拆分项目没有源文指纹与规划游标（从未走过分集规划），产物齐备时照样到达 EXPORT_READY。
+def test_manual_presplit_project_reaches_edit_without_planning_records(tmp_path: Path) -> None:
+    """手动预拆分项目没有源文指纹与规划游标（从未走过分集规划），产物齐备时照样进入剪辑。
 
     源文本身就是各集的文件，没有待排布的原文；「源文尚未排布完」的口径对它不成立，不得把
     做完的集打回分集规划。
@@ -381,8 +383,8 @@ def test_manual_presplit_project_reaches_export_ready_without_planning_records(t
 
     status = WorkflowStateService(pm).get_status("demo")
 
-    assert status.state == "EXPORT_READY"
-    assert status.next_action.type == "export"
+    assert status.state == "EDIT"
+    assert status.next_action.type == "create_edit_timeline"
 
 
 def test_manual_presplit_summary_lists_episodes_without_writing_the_ledger(tmp_path: Path) -> None:
@@ -507,7 +509,7 @@ def test_unsafe_source_returns_blocker_instead_of_skipping_or_raising(tmp_path: 
     assert status.next_action.type == "none"
 
 
-def test_narration_progresses_through_storyboard_video_to_export(tmp_path: Path) -> None:
+def test_narration_progresses_through_storyboard_video_to_edit(tmp_path: Path) -> None:
     pm, project_path = _make_project(tmp_path, "narration")
     source_text = "完整原文"
     _write_source_and_complete(pm, project_path, source_text)
@@ -557,12 +559,22 @@ def test_narration_progresses_through_storyboard_video_to_export(tmp_path: Path)
     script["segments"][0]["generated_assets"]["video_clip"] = _commit_media_version(project_path, "videos", "E1S01")
     atomic_write_json(script_path, script)
     _register_produced_artifacts(project_path)
-    # 视频齐备即可导出：缺旁白配音只在 artifacts["audio"] 里如实报告，
-    # 既不推进状态机也不拦导出（补 TTS 由用户显式发起）。
+    # 视频齐备后进入剪辑：本集还没有剪辑时间线，下一步是新建剪辑时间线。
+    # 后期配音项目不报旁白配音缺口。
+    editing = service.get_status("demo")
+    assert editing.state == "EDIT"
+    assert editing.next_action.type == "create_edit_timeline"
+    assert editing.next_action.args == {"episode": 1}
+    assert editing.artifacts["edit_timelines"] == {"timeline_ids": []}
+    assert editing.artifacts["audio"]["state"] == "not_applicable"
+    assert editing.artifacts["audio"]["missing_ids"] == []
+
+    timeline_id = _create_edit_timeline(pm)
     ready = service.get_status("demo")
-    assert ready.state == "EXPORT_READY"
-    assert ready.next_action.type == "export"
-    assert ready.artifacts["audio"]["missing_ids"] == ["E1S01"]
+    assert ready.state == "COMPLETED"
+    assert ready.next_action.type == "none"
+    assert ready.blockers == []
+    assert ready.artifacts["edit_timelines"] == {"timeline_ids": [timeline_id]}
 
     pm.update_project(
         "demo",
@@ -577,8 +589,10 @@ def test_narration_progresses_through_storyboard_video_to_export(tmp_path: Path)
     )
     atomic_write_json(script_path, script)
     _register_produced_artifacts(project_path)
+    # 缺旁白配音只在 TTS 配音项目的 artifacts["audio"] 里如实报告，不推进状态机。
     still_ready = service.get_status("demo")
-    assert still_ready.state == "EXPORT_READY"
+    assert still_ready.state == "COMPLETED"
+    assert still_ready.artifacts["audio"]["current_ids"] == ["E1S01"]
     assert still_ready.artifacts["audio"]["missing_ids"] == []
 
     (project_path / "source" / "novel.txt").write_text("全新文本", encoding="utf-8")
@@ -596,10 +610,10 @@ def test_narration_progresses_through_storyboard_video_to_export(tmp_path: Path)
     assert replanning.next_action.args == {"from_episode": 1}
 
 
-def test_narration_audio_manifest_state_unreadable_does_not_block_export(tmp_path: Path, monkeypatch) -> None:
+def test_narration_audio_manifest_state_unreadable_does_not_block_edit(tmp_path: Path, monkeypatch) -> None:
     """旁白配音只作为信息报告，不参与状态推进：即便 Manifest 判定该条 TTS 状态不可读
     （BLOCKED），也不能让它借道共享 blockers 列表把工作流钉在 VIDEO——视频齐备时仍须
-    到达 EXPORT_READY，不可读事实只经 artifacts["audio"]["state"] 报告。用一个只对
+    进入 EDIT，不可读事实只经 artifacts["audio"]["state"] 报告。用一个只对
     narration_audio 键抛错的假 resolver 隔离验证，不牵扯 script_plan/script Manifest 激活的
     全套前置状态。"""
     from lib.artifacts.artifact_manifest import ArtifactComparison, ArtifactStatus
@@ -621,6 +635,9 @@ def test_narration_audio_manifest_state_unreadable_does_not_block_export(tmp_pat
         project["planning_cursor"] = {"source_file": "source/novel.txt", "offset": len(source_text)}
         project[SOURCE_FINGERPRINTS_KEY] = compute_source_fingerprints(discover_sources(project_path))
         project["schema_version"] = CURRENT_PROJECT_SCHEMA_VERSION
+        project["narration_delivery"] = "use_tts"
+        project["audio_backend"] = f"{_TTS_SETTINGS.provider_id}/{_TTS_SETTINGS.model_id}"
+        project["narration_voice"] = _TTS_SETTINGS.voice
 
     pm.update_project("demo", _plan)
     draft_dir = project_path / "drafts" / "episode_1"
@@ -662,7 +679,7 @@ def test_narration_audio_manifest_state_unreadable_does_not_block_export(tmp_pat
 
     status = WorkflowStateService(pm).get_status("demo")
 
-    assert status.state == "EXPORT_READY"
+    assert status.state == "EDIT"
     assert status.artifacts["audio"]["state"] == "blocked"
     assert not any(b.path == audio_path for b in status.blockers)
 
@@ -700,12 +717,24 @@ def test_unplanned_source_with_legacy_episode_without_source_range_requires_full
         },
     )
     _register_produced_artifacts(project_path)
+    _create_edit_timeline(pm)
 
     status = WorkflowStateService(pm).get_status("demo")
 
     assert status.state == "EPISODE_PLAN"
     assert status.next_action.type == "reset_episode_planning"
     assert status.next_action.args == {"from_episode": 1}
+
+
+def _create_edit_timeline(pm: ProjectManager, episode: int = 1) -> str:
+    """按脚本机械新建一条剪辑时间线，让该集走完「剪辑」一步。"""
+
+    readout = asyncio.run(
+        EditTimelineService(pm).create_from_script(
+            "demo", episode=episode, name="完整版", author=RevisionAuthor(kind="creator", user_id="u1")
+        )
+    )
+    return readout.timeline.id
 
 
 def _count_source_reads(monkeypatch: pytest.MonkeyPatch, project_path: Path) -> dict[str, int]:
@@ -784,6 +813,7 @@ def test_completed_first_episode_does_not_hide_later_incomplete_episode(
         },
     )
     _register_produced_artifacts(project_path)
+    _create_edit_timeline(pm)
 
     original_load_project = pm.load_project
     load_calls = 0
@@ -843,6 +873,7 @@ def test_completed_first_episode_does_not_hide_later_planning_reset(tmp_path: Pa
         },
     )
     _register_produced_artifacts(project_path)
+    _create_edit_timeline(pm)
 
     status = WorkflowStateService(pm).get_status("demo")
 
@@ -1440,13 +1471,13 @@ def test_schema8_workflow_accepts_the_exact_selected_manual_reference_video(tmp_
 
     status = WorkflowStateService(pm).get_status("demo")
 
-    assert status.state == "EXPORT_READY"
+    assert status.state == "EDIT"
     assert status.artifacts["videos"] == {
         "current_ids": ["E1U1"],
         "missing_ids": [],
         "stale_ids": [],
     }
-    assert status.next_action.type == "export"
+    assert status.next_action.type == "create_edit_timeline"
 
 
 def test_schema8_workflow_does_not_parse_an_unclaimed_malformed_script(tmp_path: Path) -> None:

@@ -25,9 +25,8 @@ export default {
   'step_asset_sheets': 'Ảnh tài nguyên',
   'step_script_structure': 'Cấu trúc kịch bản',
   'step_storyboard': 'Ảnh phân cảnh',
-  'step_narration_delivery': 'Cách đưa lời dẫn',
   'step_video': 'Video',
-  'step_export': 'Xuất bản',
+  'step_edit': 'Dựng phim',
   'step_state_completed': 'Đã xong',
   'step_state_ready': 'Sẵn sàng chạy',
   'step_state_active': 'Đang chạy',
@@ -108,15 +107,6 @@ export default {
   'duration_seconds': '{{value}} giây',
   'unit_request_tier': 'yêu cầu {{request}}',
 
-  // ---- Cách đưa lời dẫn ----
-  'delivery_title': 'Lời dẫn cho lô này',
-  'delivery_this_request_only': 'Lựa chọn này chỉ áp dụng cho lần tạo này, không lưu vào dự án.',
-  'delivery_post_production': 'Lồng tiếng ở khâu hậu kỳ',
-  'delivery_post_production_hint': 'Video được tạo không kèm lời dẫn; bạn thêm giọng đọc sau.',
-  'delivery_use_tts': 'Dùng giọng đọc tổng hợp đã cấu hình',
-  'delivery_use_tts_hint': 'Tạo lời dẫn trước, thời lượng video bám theo lời dẫn.',
-  'delivery_tts_unavailable': 'Giọng đọc tổng hợp chưa được cấu hình, hãy chọn lồng tiếng hậu kỳ để đi tiếp. Phần còn lại của quy trình không bị ảnh hưởng.',
-
   // ---- Cụm từ bước tiếp theo ----
   'action_unknown': 'làm theo hướng dẫn của Agent',
   'action_none': 'chưa cần thao tác',
@@ -145,8 +135,7 @@ export default {
   'action_repair_video_units': 'sửa các đơn vị kịch bản được liệt kê bên dưới',
   'action_generate_videos': 'tạo các video còn thiếu',
   'action_patch_episode_script': 'sửa các trường kịch bản được liệt kê bên dưới',
-  'action_choose_narration_delivery': 'chọn cách đưa lời dẫn cho lô này',
-  'action_export': 'xuất tập đã hoàn thành',
+  'action_create_edit_timeline': 'tạo dòng thời gian dựng và giao cho Agent dựng',
   'action_retry_project_migration': 'sửa các tệp dự án được báo cáo rồi thử lại việc nâng cấp dữ liệu',
 
   // ---- Tóm tắt vấn đề ----

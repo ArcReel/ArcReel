@@ -28,7 +28,6 @@ from lib.script.grid.grid_manager import GridManager
 from lib.script.reference_video.request_projection import ReferenceRequestOptions
 from lib.script.script_batch_edit import script_revision
 from lib.script.script_skeleton import ensure_route_skeleton, resolve_kind_items
-from lib.speech.narration_delivery import USE_TTS
 from lib.speech.speech_composition import admit_script_unit
 from lib.workflow.workflow_plan import (
     WorkflowPlan,
@@ -90,7 +89,6 @@ class WorkflowPlanner:
             # planned off inputs the migration itself refused.
             return build_workflow_plan(
                 status,
-                narration_delivery=request.narration_delivery,
                 structure_problems=[await self._migration_problem(project_name, blocked)],
                 script_revision=None,
                 task_observations=[],
@@ -98,12 +96,11 @@ class WorkflowPlanner:
             )
         facts = await self._script_facts(project_name, status)
         structure_problems = self._structure_problems(facts)
-        tasks = await self._active_tasks(project_name, status, facts, request, user_id=user_id, queue=queue)
+        tasks = await self._active_tasks(project_name, status, facts, user_id=user_id, queue=queue)
         admission = None
         if (
             facts is not None
             and not structure_problems
-            and request.narration_delivery is not None
             and status.state == "VIDEO"
             and status.next_action.type == "generate_videos"
         ):
@@ -118,7 +115,6 @@ class WorkflowPlanner:
             )
         return build_workflow_plan(
             status,
-            narration_delivery=request.narration_delivery,
             structure_problems=structure_problems,
             script_revision=facts.revision if facts is not None else None,
             task_observations=tasks,
@@ -185,7 +181,6 @@ class WorkflowPlanner:
         project_name: str,
         status: WorkflowStatus,
         facts: _ScriptFacts | None,
-        request: WorkflowPlanRequest,
         *,
         user_id: str,
         queue: GenerationQueue,
@@ -261,8 +256,6 @@ class WorkflowPlanner:
                         )
                 else:
                     task_types.append("storyboard")
-            if request.narration_delivery == USE_TTS:
-                task_types.append("tts")
             for task_type in task_types:
                 rows.extend(
                     await get_active_tasks_for_resources(

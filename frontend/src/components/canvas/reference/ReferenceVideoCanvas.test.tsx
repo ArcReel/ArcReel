@@ -333,6 +333,7 @@ describe("ReferenceVideoCanvas", () => {
       currentProjectName: "proj",
       currentProjectData: {
         ...STUB_PROJECT,
+        narration_delivery: "use_tts",
         episodes: [{ episode: 1, title: "", script_file: "episode_1.json" }],
       },
     });
@@ -353,6 +354,26 @@ describe("ReferenceVideoCanvas", () => {
     } as never);
     expect(await screen.findByRole("button", { name: /重新生成旁白配音|Regenerate narration audio/ })).toBeInTheDocument();
     expect(document.querySelector('audio[src*="audio/segment_E1U1.wav"]')).not.toBeNull();
+  });
+
+  it("keeps existing narration audio playable but hides generation for post-production projects", async () => {
+    const unit = mkUnit("E1U1");
+    unit.text = "镜头推进。\n{夜色深沉。}";
+    unit.generated_assets.narration_audio = "audio/segment_E1U1.wav";
+    vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [unit], unit_capabilities: {} });
+    useProjectsStore.setState({
+      currentProjectName: "proj",
+      currentProjectData: {
+        ...STUB_PROJECT,
+        narration_delivery: "post_production",
+        episodes: [{ episode: 1, title: "", script_file: "episode_1.json" }],
+      },
+    });
+
+    render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
+
+    await waitFor(() => expect(document.querySelector('audio[src*="audio/segment_E1U1.wav"]')).not.toBeNull());
+    expect(screen.queryByRole("button", { name: /生成旁白配音|Generate narration audio/ })).not.toBeInTheDocument();
   });
 
   // 正文是单一真相：保存把编辑器里那段文本原样送到 PATCH 的 prompt 位，

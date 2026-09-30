@@ -37,13 +37,13 @@ describe("workflow-store", () => {
     vi.spyOn(API, "getWorkflowPlan").mockResolvedValue(makePlan());
     const store = useWorkflowStore.getState();
     await store.refreshPlan("proj", 1);
-    store.setNarrationDelivery("use_tts");
+    store.confirmDurations({ E1U1: 8 });
     expect(useWorkflowStore.getState().planKey).toBe("proj::1");
 
     await useWorkflowStore.getState().refreshPlan("proj", 2);
     expect(useWorkflowStore.getState().planKey).toBe("proj::2");
-    // 旁白交付是「本次请求」的选择，换目标即作废，不跟着走到下一集
-    expect(useWorkflowStore.getState().narrationDelivery).toBeNull();
+    // 已确认档位是「本次请求」的选择，换目标即作废，不跟着走到下一集
+    expect(useWorkflowStore.getState().confirmedDurations).toEqual({});
   });
 
   it("首次加载期间切换目标：旧目标的迟到响应作废，不写进 store", async () => {
@@ -234,15 +234,14 @@ describe("workflow-store", () => {
     expect(maxInFlight).toBe(2);
   });
 
-  it("求解带上本次请求的交付选择与已确认档位", async () => {
+  it("求解带上本次请求的已确认档位", async () => {
     const spy = vi.spyOn(API, "getWorkflowPlan").mockResolvedValue(makePlan());
     const store = useWorkflowStore.getState();
-    store.setNarrationDelivery("post_production");
     store.confirmDurations({ E1U1: 8 });
     await useWorkflowStore.getState().refreshPlan("proj", 1);
     expect(spy).toHaveBeenCalledWith(
       "proj",
-      { episode: 1, narration_delivery: "post_production", confirmed_request_durations: { E1U1: 8 } },
+      { episode: 1, confirmed_request_durations: { E1U1: 8 } },
       expect.anything(),
     );
   });
