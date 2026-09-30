@@ -4,7 +4,7 @@ status: accepted
 
 # 剧本源（source_kind=screenplay）：提取优先复用全链路，逐字仅锚可听内容
 
-> 本 ADR 中「plan 批级审阅（调整走「重置 + 重新规划」）」的调整路径已由 `docs/adr/0032` 的「重新规划走候选→采纳，窗口是内部常数（修订）」取代：screenplay 与 novel 一样，调整是先出候选、采纳后替换的重新规划。其余内容仍然有效。
+> 本 ADR 中「plan 批级审阅（调整走「重置 + 重新规划」）」的调整路径已由 `docs/adr/0032` 的「调整已有规划：重新规划与手工切分」取代：screenplay 与 novel 一样，调整是先出候选、采纳后替换的重新规划。其余内容仍然有效。
 
 drama 模式预期源文件是小说，由三段 LLM（plan_episodes 语义切分 / script_plan 改编为场景表 / prompt_authoring 转写为 JSON）从散文**创作**出剧本；但有用户直接上传自带分集、场次、台词、画外音、人物的成品剧本，现有「改编式」链路会把它**二次改写**——plan_episodes 重切作者的分集、script_plan 改编台词、画外音整段丢失。决定新增项目级 `source_kind`（`novel` 默认 / `screenplay`）作为与 content_mode、generation_mode 都正交的第三轴「源文件性质」，**创建时确定、之后不可变**（与 content_mode 同性质）；`screenplay` 下整条 drama 链路从「创作」翻为「提取优先」，且逐字保真只锚「可听见的内容」。
 
