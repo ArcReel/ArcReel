@@ -29,7 +29,7 @@ from lib.artifacts.artifact_provenance import (
     build_script_plan_basis,
     decode_script_plan_source,
 )
-from lib.artifacts.artifact_version_provenance import parse_typed_audio_settings, parse_typed_media_version_target
+from lib.artifacts.artifact_version_provenance import parse_typed_media_version_target
 from lib.artifacts.generation_input import (
     ImageGenerationInput,
     InputRefused,
@@ -209,12 +209,14 @@ class TargetStatePlanner:
         allow_stale_formal_targets: bool = False,
         pending_renames: Mapping[str, str] | None = None,
         pending_entries: Mapping[ArtifactKey, ArtifactManifestEntry | None] | None = None,
+        legacy_audio_entries: Mapping[ArtifactKey, ArtifactManifestEntry] | None = None,
     ) -> None:
         self.project_dir = project_dir.resolve(strict=True)
         self.adapter = ProjectArtifactManifestAdapter(self.project_dir)
         self.project_path = self.project_dir / "project.json"
         self.pending_renames = dict(pending_renames or {})
         self.pending_entries = dict(pending_entries or {})
+        self.legacy_audio_entries = legacy_audio_entries
         if episode_scope is not None and (type(episode_scope) is not int or episode_scope < 1):
             raise ValueError("episode scope must be a positive integer or null")
         self.episode_scope = episode_scope
@@ -998,10 +1000,12 @@ class TargetStatePlanner:
                     script=episode.script,
                     resource_type=resource_type,
                     resource_id=resource_id,
-                    versions=VersionManager(self.project_dir),
                     version_metadata=record,
-                    current_tts_settings=self._selected_audio_settings(versions, episode, resource_id),
-                    resolve_audio_manifest_entry=self.entries.get if self._activation_mode else None,
+                    legacy_audio_entries=(
+                        self.legacy_audio_entries
+                        if self.legacy_audio_entries is not None
+                        else (self.entries if self._activation_mode else None)
+                    ),
                 )
         except (KeyError, OSError, TypeError, ValueError):
             self._skip(key, artifact_path, "current basis cannot be projected from the script")
@@ -1325,35 +1329,6 @@ class TargetStatePlanner:
             return None
         self.dependencies[path] = raw
         return cast(Mapping[str, Any], parsed)
-
-    @staticmethod
-    def _selected_audio_settings(
-        versions: Mapping[str, Any],
-        episode: _EpisodeState,
-        resource_id: str,
-    ):
-        bucket = versions.get("audio")
-        resource = bucket.get(resource_id) if isinstance(bucket, Mapping) else None
-        if not isinstance(resource, Mapping):
-            return None
-        selected_version = resource.get("current_version")
-        records = resource.get("versions")
-        if type(selected_version) is not int or not isinstance(records, list):
-            return None
-        selected = [
-            record for record in records if isinstance(record, Mapping) and record.get("version") == selected_version
-        ]
-        if len(selected) != 1:
-            return None
-        record = selected[0]
-        try:
-            target = parse_typed_media_version_target("audio", record)
-            settings = parse_typed_audio_settings(record)
-        except (TypeError, ValueError):
-            return None
-        if target.episode != episode.episode or normalize_script_binding(target.script_file) != episode.script_file:
-            return None
-        return settings
 
     def _load_versions(self) -> Mapping[str, Any]:
         if self._versions is not None:

@@ -18,7 +18,6 @@ from lib.artifacts.artifact_version_provenance import (
     parse_typed_media_version_target,
 )
 from lib.artifacts.media_artifact_currency import build_current_video_artifact_basis
-from lib.artifacts.version_manager import VersionManager
 from lib.project.project_manager import ProjectManager
 from lib.project.project_migration_report import load_migration_report
 from lib.project.project_migrations.runner import migrate_project_dir
@@ -309,7 +308,6 @@ def test_described_reference_videos_stay_current_in_workflow_and_player(
             script=script,
             resource_type="reference_videos",
             resource_id=resource_id,
-            versions=VersionManager(project_dir),
             version_metadata=record,
         )
         assert frozen == current

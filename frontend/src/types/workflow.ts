@@ -51,8 +51,6 @@ export const WORKFLOW_ACTION_TYPES = [
   "retry",
   "fix_input",
   "generate_dependency",
-  "generate_tts",
-  "regenerate_tts",
   "wait_for_task",
   "replan_unit",
   "confirm_request_duration",
@@ -179,7 +177,6 @@ export interface BatchAdmissionUnit {
   admitted: boolean;
   withheld?: boolean;
   request_duration_seconds?: number | null;
-  current_duration_seconds?: number | null;
   request_cost?: VideoRequestCostQuote | null;
   problems: AdmissionProblem[];
   projection?: unknown;
@@ -197,7 +194,6 @@ export interface WorkflowAdmission {
   decision: BatchAdmissionDecision;
   operation: string;
   selection: "explicit" | "missing_only";
-  narration_delivery: NarrationDelivery;
   units: BatchAdmissionUnit[];
   confirmation?: { tiers: BatchAdmissionTier[] } | null;
 }

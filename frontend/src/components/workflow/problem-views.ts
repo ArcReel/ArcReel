@@ -122,8 +122,8 @@ export function isWithheld(unit: BatchAdmissionUnit): boolean {
 }
 
 /**
- * 逐单元的准入缺口。档位对比与原因同行呈现：光说「时长超上限」看不出差多少，
- * 用户判断该去改什么主要靠这两个数字。
+ * 逐单元的准入缺口。申请档位与原因同行呈现：光说「时长超上限」看不出差多少，
+ * 用户判断该去改什么主要靠这个数字。
  */
 export function admissionUnitViews(
   t: Translate,
@@ -133,17 +133,8 @@ export function admissionUnitViews(
   const views: ProblemView[] = [];
   for (const unit of units) {
     const meta =
-      unit.current_duration_seconds != null || unit.request_duration_seconds != null
-        ? t("unit_tiers", {
-            current:
-              unit.current_duration_seconds != null
-                ? formatSeconds(unit.current_duration_seconds)
-                : t("tier_unknown"),
-            request:
-              unit.request_duration_seconds != null
-                ? formatSeconds(unit.request_duration_seconds)
-                : t("tier_unknown"),
-          })
+      unit.request_duration_seconds != null
+        ? t("unit_request_tier", { request: formatSeconds(unit.request_duration_seconds) })
         : null;
     unit.problems.forEach((problem, index) => {
       views.push({

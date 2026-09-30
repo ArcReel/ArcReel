@@ -111,7 +111,6 @@ def test_every_route_keeps_each_transient_narration_delivery_choice(
     admission = BatchAdmission(
         operation="generate_videos",
         selection=GenerationSelectionMode.MISSING_ONLY,
-        narration_delivery=narration_delivery,
         tickets=(UnitAdmissionTicket("E1S01"),),
     )
 
@@ -141,7 +140,6 @@ def test_post_production_keeps_video_executable_when_tts_is_missing() -> None:
     admission = BatchAdmission(
         operation="generate_videos",
         selection=GenerationSelectionMode.MISSING_ONLY,
-        narration_delivery=POST_PRODUCTION,
         tickets=(UnitAdmissionTicket("E1S01"),),
     )
 
@@ -182,14 +180,13 @@ def test_blocked_audio_artifact_does_not_block_the_post_production_path(delivery
 
 def test_use_tts_preserves_structured_admission_blockers() -> None:
     problem = GenerationProblem(
-        code="tts_missing",
-        detail="current TTS is missing",
-        action=GenerationAction.GENERATE_TTS,
+        code="reference_asset_missing",
+        detail="a referenced image is missing",
+        action=GenerationAction.FIX_INPUT,
     )
     admission = BatchAdmission(
         operation="generate_videos",
         selection=GenerationSelectionMode.MISSING_ONLY,
-        narration_delivery=USE_TTS,
         tickets=(UnitAdmissionTicket("E1S01", problems=(problem,)),),
     )
 
@@ -203,14 +200,14 @@ def test_use_tts_preserves_structured_admission_blockers() -> None:
     assert video.state is WorkflowStepState.BLOCKED
     assert video.problems == [problem]
     assert video.admission["decision"] == "blocked"
-    assert plan.next_action.type == GenerationAction.GENERATE_TTS.value
+    assert plan.next_action.type == GenerationAction.FIX_INPUT.value
 
 
 def test_multiple_admission_repairs_preserve_the_first_structured_action() -> None:
-    generate_tts = GenerationProblem(
-        code="tts_missing",
-        detail="current TTS is missing",
-        action=GenerationAction.GENERATE_TTS,
+    fix_input = GenerationProblem(
+        code="reference_asset_missing",
+        detail="a referenced image is missing",
+        action=GenerationAction.FIX_INPUT,
     )
     configure_provider = GenerationProblem(
         code="video_capability_missing_i2v",
@@ -220,9 +217,8 @@ def test_multiple_admission_repairs_preserve_the_first_structured_action() -> No
     admission = BatchAdmission(
         operation="generate_videos",
         selection=GenerationSelectionMode.MISSING_ONLY,
-        narration_delivery=USE_TTS,
         tickets=(
-            UnitAdmissionTicket("E1S01", problems=(generate_tts,)),
+            UnitAdmissionTicket("E1S01", problems=(fix_input,)),
             UnitAdmissionTicket("E1S02", problems=(configure_provider,)),
         ),
     )
@@ -233,8 +229,8 @@ def test_multiple_admission_repairs_preserve_the_first_structured_action() -> No
         admission=admission.to_payload(),
     )
 
-    assert plan.problems == [generate_tts, configure_provider]
-    assert plan.next_action.type == GenerationAction.GENERATE_TTS.value
+    assert plan.problems == [fix_input, configure_provider]
+    assert plan.next_action.type == GenerationAction.FIX_INPUT.value
 
 
 def test_structure_problems_block_before_every_media_step_and_point_to_atomic_edit() -> None:

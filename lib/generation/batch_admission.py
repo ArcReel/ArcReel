@@ -57,7 +57,6 @@ class UnitAdmissionTicket:
     unit_id: str
     problems: tuple[GenerationProblem, ...] = ()
     request_duration_seconds: int | None = None
-    current_duration_seconds: int | None = None
     request_cost: Mapping[str, object] | None = None
     projection: Mapping[str, object] | None = None
 
@@ -76,7 +75,6 @@ class UnitAdmissionTicket:
             "unit_id": self.unit_id,
             "admitted": self.admitted,
             "request_duration_seconds": self.request_duration_seconds,
-            "current_duration_seconds": self.current_duration_seconds,
             "request_cost": dict(self.request_cost) if self.request_cost is not None else None,
             "problems": [problem.model_dump(mode="json") for problem in self.problems],
             "projection": dict(self.projection) if self.projection is not None else None,
@@ -112,7 +110,6 @@ class BatchAdmission:
 
     operation: str
     selection: GenerationSelectionMode
-    narration_delivery: str
     tickets: tuple[UnitAdmissionTicket, ...]
 
     @property
@@ -248,7 +245,6 @@ class BatchAdmission:
             "decision": self.decision.value,
             "operation": self.operation,
             "selection": self.selection.value,
-            "narration_delivery": self.narration_delivery,
             "units": units,
             "confirmation": {"tiers": [tier.to_payload() for tier in self.confirmation_tiers()]}
             if self.decision is BatchAdmissionDecision.CONFIRMATION_REQUIRED

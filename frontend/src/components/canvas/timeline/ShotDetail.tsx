@@ -31,8 +31,6 @@ import { ResponsiveDetailGrid } from "./ResponsiveDetailGrid";
 import { MediaCard } from "./MediaCard";
 import { EndFrameRow } from "./EndFrameRow";
 import { NarrationAudioCard } from "./NarrationAudioCard";
-import { NarrationDeliveryChoice } from "@/components/shared/NarrationDeliveryChoice";
-import { ReferenceDurationConfirmDialog } from "../reference/ReferenceDurationConfirmDialog";
 import { NotesDrawer } from "./NotesDrawer";
 import { PromptPreviewButton } from "@/components/shared/PromptPreviewButton";
 import { ReferencesSection } from "./ReferencesSection";
@@ -40,7 +38,7 @@ import { StatusBadge, statusFromAssets } from "./StatusBadge";
 import { ShotStructureActions } from "./ShotStructureActions";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { Popover } from "@/components/ui/Popover";
-import { API, NarratedVideoDurationError } from "@/api";
+import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
 import { isResourceBusy, isScriptFileBusy } from "@/stores/tasks-store";
 import { useCostStore } from "@/stores/cost-store";
@@ -53,7 +51,6 @@ import {
   isStructuredVideoPrompt,
 } from "@/utils/prompt-shape";
 import { isContinuousIntegerRange } from "@/utils/duration_format";
-import type { NarratedVideoDurationAdmission, ReferenceGenerationRequestOptions } from "@/types";
 
 type Segment = NarrationSegment | DramaScene | AdShot;
 type DetailContentMode = "narration" | "drama" | "ad";
@@ -94,10 +91,7 @@ interface ShotDetailProps {
   /** 分镜新增 / 移除请求在途，切镜与增删入口禁用 */
   structurePending?: boolean;
   onGenerateStoryboard?: (segmentId: string) => void;
-  onGenerateVideo?: (
-    segmentId: string,
-    requestOptions?: ReferenceGenerationRequestOptions,
-  ) => void | Promise<void>;
+  onGenerateVideo?: (segmentId: string) => void | Promise<void>;
   onGenerateNarration?: (segmentId: string) => void;
   onRestoreStoryboard?: () => Promise<void> | void;
   onRestoreVideo?: () => Promise<void> | void;
@@ -525,51 +519,6 @@ export function ShotDetail({
   const [saving, setSaving] = useState(false);
   const [uploadingKind, setUploadingKind] = useState<"storyboard" | "video" | null>(null);
   const [endFrameSubmitting, setEndFrameSubmitting] = useState(false);
-  const [narrationDeliverySelection, setNarrationDeliverySelection] = useState<{
-    delivery: "post_production" | "use_tts";
-    narrationText: string;
-  }>({ delivery: "post_production", narrationText });
-  const narrationDelivery =
-    hasNarrationText && narrationDeliverySelection.narrationText === narrationText
-      ? narrationDeliverySelection.delivery
-      : "post_production";
-  const [pendingDurationConfirmation, setPendingDurationConfirmation] = useState<{
-    admission: NarratedVideoDurationAdmission;
-    delivery: "post_production" | "use_tts";
-    narrationText: string;
-  } | null>(null);
-
-  const requestVideo = async (
-    delivery: "post_production" | "use_tts",
-    confirmedRequestDuration?: number,
-  ) => {
-    if (!onGenerateVideo) return;
-    const requestOptions: ReferenceGenerationRequestOptions = {
-      narration_delivery: delivery,
-      ...(confirmedRequestDuration == null
-        ? {}
-        : { confirmed_request_duration_seconds: confirmedRequestDuration }),
-    };
-    try {
-      await onGenerateVideo(segmentId, requestOptions);
-      setPendingDurationConfirmation(null);
-    } catch (error) {
-      if (
-        error instanceof NarratedVideoDurationError
-        && error.admission.request_duration !== null
-        && error.admission.problems.some(
-          ({ blocking, code }) => blocking && code === "reference_duration_confirmation_required",
-        )
-      ) {
-        setPendingDurationConfirmation({ admission: error.admission, delivery, narrationText });
-        return;
-      }
-      useAppStore
-        .getState()
-        .pushToast(t("generate_video_failed", { message: errMsg(error) }), "error");
-    }
-  };
-
   const handleUpload = async (kind: "storyboard" | "video", file: File) => {
     // 单个分镜同时只允许一个上传：两张卡写同一后端资源族，避免并发覆写
     if (!scriptFile || uploadingKind) return;
@@ -1190,20 +1139,6 @@ export function ShotDetail({
         generateDisabledHint={dirty ? dirtyHint : undefined}
       />
       <div className="flex flex-col">
-        {hasNarrationText && onGenerateVideo && (
-          <div className="mb-2 flex justify-end">
-            <NarrationDeliveryChoice
-              value={narrationDelivery}
-              onChange={(value) => {
-                setPendingDurationConfirmation(null);
-                setNarrationDeliverySelection({ delivery: value, narrationText });
-              }}
-              disabled={generatingVideo || dirty || saving}
-              ttsDurationEndpointFixed={durationEndpointFixed}
-              compact
-            />
-          </div>
-        )}
         {scriptFile && onGenerateVideo && (
           <EndFrameRow
             projectName={projectName}
@@ -1229,8 +1164,8 @@ export function ShotDetail({
           generating={generatingVideo}
           generateDisabled={!hasStoryboard || dirty || saving}
           generateDisabledHint={dirty ? dirtyHint : undefined}
-          estimatedCost={narrationDelivery === "use_tts" ? undefined : vidEstimate ?? undefined}
-          onGenerate={onGenerateVideo ? () => void requestVideo(narrationDelivery) : undefined}
+          estimatedCost={vidEstimate ?? undefined}
+          onGenerate={onGenerateVideo ? () => void onGenerateVideo(segmentId) : undefined}
           onRestore={onRestoreVideo}
           onUpload={
             scriptFile && !refsReadOnly ? (file) => handleUpload("video", file) : undefined
@@ -1250,37 +1185,6 @@ export function ShotDetail({
           generateDisabledHint={!hasNarrationText ? t("no_original_text") : dirty ? dirtyHint : undefined}
           estimatedCost={narrationEstimate ?? undefined}
           onGenerate={onGenerateNarration ? () => onGenerateNarration(segmentId) : undefined}
-        />
-      )}
-      {pendingDurationConfirmation?.narrationText === narrationText
-        && pendingDurationConfirmation.admission.request_duration != null && (
-        <ReferenceDurationConfirmDialog
-          open
-          items={[{
-            unitId: segmentId,
-            precheck: {
-              needs_confirmation: true,
-              script_duration: pendingDurationConfirmation.admission.planned_duration,
-              current_visual_duration: pendingDurationConfirmation.admission.current_visual_duration,
-              duration_input: pendingDurationConfirmation.admission.duration_input,
-              request_duration: pendingDurationConfirmation.admission.request_duration,
-              adjustment: pendingDurationConfirmation.admission.adjustment ?? "up",
-              declared_capability: "i2v",
-              hydrated_capability: "i2v",
-              provider_id: null,
-              model_id: null,
-              request_cost: pendingDurationConfirmation.admission.request_cost,
-              problems: pendingDurationConfirmation.admission.problems,
-            },
-          }]}
-          onConfirm={() => {
-            const pending = pendingDurationConfirmation;
-            setPendingDurationConfirmation(null);
-            if (pending.admission.request_duration !== null) {
-              void requestVideo(pending.delivery, pending.admission.request_duration);
-            }
-          }}
-          onCancel={() => setPendingDurationConfirmation(null)}
         />
       )}
       <ConfirmDialog

@@ -18,7 +18,6 @@ from lib.artifacts.artifact_manifest import (
 from lib.artifacts.video_artifact_facts import VideoArtifactCurrencyFacts
 from lib.infra.path_safety import PathTraversalError
 from lib.script.reference_video.execution_checkpoint import (
-    NarrationExecutionFacts,
     ProviderMediaInput,
     ReferenceExecutionIdentityError,
     ReferenceSubmissionCheckpoint,
@@ -86,6 +85,25 @@ def _stage_inputs(project_path: Path) -> tuple[ProviderMediaInput, ...]:
     )
 
 
+#: 旧版检查点记录的旁白交付事实；新版不再记录，旧载荷只为校验 request_digest 原样保留。
+_LEGACY_NARRATION = {
+    "delivery": "use_tts",
+    "tts_status": "current",
+    "artifact_path": "audio/segment_E1U1.wav",
+    "basis_digest": "b" * 64,
+    "actual_duration_seconds": 6.25,
+}
+
+
+def _redigest(raw: dict[str, object], *, excluded: frozenset[str] = frozenset()) -> None:
+    """按旧版写侧的口径重算 request_digest，模拟升级前落库的检查点。"""
+
+    digest_payload = {key: value for key, value in raw.items() if key != "request_digest" and key not in excluded}
+    raw["request_digest"] = hashlib.sha256(
+        json.dumps(digest_payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+
+
 def _checkpoint(project_path: Path) -> ReferenceSubmissionCheckpoint:
     staged = stage_provider_media(project_path, "task-1", _stage_inputs(project_path))
     visual = _reference_visual_basis("E1U1")
@@ -132,13 +150,6 @@ def _checkpoint(project_path: Path) -> ReferenceSubmissionCheckpoint:
             duration_tiers=(4, 8, 12),
             reference_image_limit=3,
             parent_version=0,
-        ),
-        narration=NarrationExecutionFacts(
-            delivery="use_tts",
-            tts_status="current",
-            artifact_path="audio/segment_E1U1.wav",
-            basis_digest="b" * 64,
-            actual_duration_seconds=6.25,
         ),
         media=staged,
         reference_audio_targets=(0,),
@@ -303,7 +314,10 @@ def test_checkpoint_round_trip_is_versioned_strict_and_self_authenticating(tmp_p
     assert restored.prompt_sha256 == "0a90e70b38c8a4b4675f11f2fca1da4324d41f12b15c9b6151581d41753c34b7"
     assert len(restored.request_digest) == 64
     assert restored.media[0].source_locator == "characters/Alice.png"
-    assert restored.narration.actual_duration_seconds == 6.25
+    assert restored.schema_version == 4
+    assert restored.legacy_narration is None
+    assert "narration" not in json.loads(checkpoint.to_json())
+    assert "execution_narration" not in checkpoint_version_metadata(restored)
     assert restored.artifact_visual_basis == artifact_visual_basis
     assert restored.artifact_speech_basis is not None
     assert restored.artifact_duration_basis is not None
@@ -413,19 +427,13 @@ def test_legacy_checkpoint_remains_resumable_without_inventing_artifact_basis(tm
     raw = json.loads(_checkpoint(tmp_path / "demo").to_json())
     raw["schema_version"] = 1
     raw.pop("artifact_currency")
-    digest_payload = {key: value for key, value in raw.items() if key != "request_digest"}
-    raw["request_digest"] = hashlib.sha256(
-        json.dumps(
-            digest_payload,
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(",", ":"),
-        ).encode("utf-8")
-    ).hexdigest()
+    raw["narration"] = _LEGACY_NARRATION
+    _redigest(raw)
 
     restored = ReferenceSubmissionCheckpoint.from_json(json.dumps(raw))
 
     assert restored.schema_version == 1
+    assert restored.legacy_narration == _LEGACY_NARRATION
     assert restored.artifact_visual_basis is None
     assert "artifact_visual_basis" not in checkpoint_version_metadata(restored)
 
@@ -440,12 +448,8 @@ def test_visual_only_checkpoint_remains_resumable_but_cannot_claim_complete_vide
         "kind_version": artifact_visual_basis["kind_version"],
         "digest": artifact_visual_basis["digest"],
     }
-    digest_payload = {
-        key: value for key, value in raw.items() if key not in {"request_digest", "artifact_visual_basis"}
-    }
-    raw["request_digest"] = hashlib.sha256(
-        json.dumps(digest_payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
-    ).hexdigest()
+    raw["narration"] = _LEGACY_NARRATION
+    _redigest(raw, excluded=frozenset({"artifact_visual_basis"}))
 
     restored = ReferenceSubmissionCheckpoint.from_json(json.dumps(raw))
 
@@ -455,16 +459,48 @@ def test_visual_only_checkpoint_remains_resumable_but_cannot_claim_complete_vide
     assert "artifact_video_basis" not in checkpoint_version_metadata(restored)
 
 
-def test_checkpoint_rejects_incoherent_narration_and_media_facts(tmp_path: Path) -> None:
+def test_narration_recording_checkpoint_stays_resumable_with_complete_currency(tmp_path: Path) -> None:
+    """v3 检查点仍带旁白交付事实：原样保留以校验摘要，产物时效事实照常可用。"""
+
+    checkpoint = _checkpoint(tmp_path / "demo")
+    raw = json.loads(checkpoint.to_json())
+    raw["schema_version"] = 3
+    raw["narration"] = _LEGACY_NARRATION
+    _redigest(raw)
+
+    restored = ReferenceSubmissionCheckpoint.from_json(json.dumps(raw))
+
+    assert restored.schema_version == 3
+    assert restored.legacy_narration == _LEGACY_NARRATION
+    assert restored.artifact_currency == checkpoint.artifact_currency
+    assert json.loads(restored.to_json()) == raw
+    assert "execution_narration" not in checkpoint_version_metadata(restored)
+
+    raw["narration"] = {**_LEGACY_NARRATION, "actual_duration_seconds": 9.5}
+    with pytest.raises(ValueError, match="request_digest"):
+        ReferenceSubmissionCheckpoint.from_json(json.dumps(raw))
+
+    raw.pop("narration")
+    _redigest(raw)
+    with pytest.raises(ValueError, match="missing checkpoint fields"):
+        ReferenceSubmissionCheckpoint.from_json(json.dumps(raw))
+
+
+def test_current_checkpoint_refuses_narration_facts(tmp_path: Path) -> None:
+    checkpoint = _checkpoint(tmp_path / "demo")
+    raw = json.loads(checkpoint.to_json())
+    raw["narration"] = _LEGACY_NARRATION
+    _redigest(raw)
+
+    with pytest.raises(ValueError, match="unexpected checkpoint fields"):
+        ReferenceSubmissionCheckpoint.from_json(json.dumps(raw))
+    with pytest.raises(ValueError, match="does not record narration delivery"):
+        replace(checkpoint, legacy_narration=_LEGACY_NARRATION)
+
+
+def test_checkpoint_rejects_incoherent_media_facts(tmp_path: Path) -> None:
     checkpoint = _checkpoint(tmp_path / "demo")
 
-    with pytest.raises(ValueError, match="current TTS"):
-        replace(checkpoint, narration=replace(checkpoint.narration, tts_status="stale"))
-    with pytest.raises(ValueError, match="post-production"):
-        replace(
-            checkpoint,
-            narration=replace(checkpoint.narration, delivery="post_production"),
-        )
     with pytest.raises(ValueError, match="target_index"):
         replace(
             checkpoint,
@@ -505,7 +541,6 @@ def test_checkpoint_rejects_noncanonical_staged_locator_and_wrong_identity(tmp_p
             seed=checkpoint.seed,
             visual_basis_digest=checkpoint.visual_basis_digest,
             artifact_currency=checkpoint.artifact_currency,
-            narration=checkpoint.narration,
             media=(wrong_task, *checkpoint.media[1:]),
             reference_audio_targets=checkpoint.reference_audio_targets,
         )
@@ -576,13 +611,6 @@ def test_storyboard_checkpoint_round_trip_and_four_resume_states(tmp_path: Path)
             duration_tiers=(4, 8, 12),
             reference_image_limit=None,
             parent_version=0,
-        ),
-        narration=NarrationExecutionFacts(
-            delivery="post_production",
-            tts_status="not_applicable",
-            artifact_path="",
-            basis_digest=None,
-            actual_duration_seconds=None,
         ),
         media=staged,
         reference_audio_targets=None,

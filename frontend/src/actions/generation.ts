@@ -141,13 +141,10 @@ export async function enqueueVideo(
   prompt: string | Record<string, unknown>,
   scriptFile: string,
   durationSeconds?: number,
-  requestOptions?: ReferenceGenerationRequestOptions,
 ): Promise<EnqueueResult> {
   const res = await submit(
     [markResource(projectName, "video", segmentId, "video")],
-    () => requestOptions
-      ? API.generateVideo(projectName, segmentId, prompt, scriptFile, durationSeconds, requestOptions)
-      : API.generateVideo(projectName, segmentId, prompt, scriptFile, durationSeconds),
+    () => API.generateVideo(projectName, segmentId, prompt, scriptFile, durationSeconds),
     oneTaskId,
   );
   notifyEnqueued(res.deduped, i18n.t("dashboard:video_task_submitted_toast", { id: segmentId }));

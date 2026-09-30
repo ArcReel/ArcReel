@@ -6,8 +6,6 @@ import pytest
 
 from lib.generation.video_request_facts import VideoRequestFacts, VideoRequestFactsFailure
 from lib.script.reference_video.request_projection import (
-    POST_PRODUCTION,
-    USE_TTS,
     FilesystemReferenceAssets,
     ReferenceRequestOptions,
     ReferenceUnitRequestProjector,
@@ -19,8 +17,6 @@ from lib.script.reference_video.request_projection import (
 )
 from lib.script.reference_video.unit_capabilities import evaluate_reference_unit_capabilities
 from lib.script.script_models import ReferenceResource
-from lib.speech.narration_delivery import prepare_narration_delivery
-from lib.speech.speech_composition import admit_script_unit
 from tests.factories import activate_reference_project, make_video_request_facts
 from tests.fakes import fake_reference_request_facts
 
@@ -96,7 +92,7 @@ def test_request_options_only_treat_payload_without_options_as_legacy_confirmed(
         legacy_duration_confirmed=True,
     )
     partial = ReferenceRequestOptions.from_payload(
-        {"reference_request_options": {"narration_delivery": USE_TTS}},
+        {"reference_request_options": {"narration_delivery": "use_tts"}},
         legacy_duration_confirmed=True,
     )
 
@@ -105,29 +101,23 @@ def test_request_options_only_treat_payload_without_options_as_legacy_confirmed(
     assert partial.legacy_duration_confirmed is False
 
 
-def test_request_options_payload_keeps_only_delivery_and_explicit_accepted_tier() -> None:
-    options = ReferenceRequestOptions(
-        narration_delivery=USE_TTS,
-        confirmed_request_duration_seconds=16,
-        current_tts_duration_seconds=9.5,
-    )
+def test_request_options_payload_keeps_only_the_explicit_accepted_tier() -> None:
+    options = ReferenceRequestOptions(confirmed_request_duration_seconds=16)
 
-    assert options.to_payload() == {
-        "narration_delivery": USE_TTS,
-        "confirmed_request_duration_seconds": 16,
-    }
+    assert ReferenceRequestOptions().to_payload() == {}
+    assert options.to_payload() == {"confirmed_request_duration_seconds": 16}
     restored = ReferenceRequestOptions.from_payload(
         {
             "reference_request_options": {
                 **options.to_payload(),
+                "narration_delivery": "use_tts",
                 "narration_duration_floor": 123,
                 "duration_confirmed": True,
             }
         }
     )
-    assert restored.narration_delivery == USE_TTS
-    assert restored.confirmed_request_duration_seconds == 16
-    assert restored.current_tts_duration_seconds is None
+    assert restored == options
+    assert restored.to_payload() == {"confirmed_request_duration_seconds": 16}
     assert restored.legacy_duration_confirmed is False
 
 
@@ -161,7 +151,7 @@ async def test_projection_canonicalizes_current_intent_and_reprojects_after_edit
         script=script,
         unit=unit,
         resolved_assets=assets,
-        options=ReferenceRequestOptions(narration_delivery=POST_PRODUCTION),
+        options=ReferenceRequestOptions(),
     )
 
     # 引用顺序即正文首次提及顺序，商品不再排最前。
@@ -192,7 +182,7 @@ async def test_projection_canonicalizes_current_intent_and_reprojects_after_edit
         script=edited_script,
         unit=edited_unit,
         resolved_assets=assets,
-        options=ReferenceRequestOptions(narration_delivery=POST_PRODUCTION),
+        options=ReferenceRequestOptions(),
     )
 
     assert second.declared_references == ()
@@ -206,34 +196,34 @@ async def test_projection_canonicalizes_current_intent_and_reprojects_after_edit
     assert request_facts.calls == ["r2v", "i2v"]
 
 
-@pytest.mark.asyncio
-async def test_projection_uses_tts_floor_only_for_tts_delivery() -> None:
-    request_facts = _FakeRequestFacts()
-    projector = ReferenceUnitRequestProjector(request_facts, _FakeAssets(set()))
-    unit = {"unit_id": "E1U1", "text": "空镜：海面翻涌。", "duration_seconds": 6}
-    script = {"video_units": [unit]}
+@pytest.mark.parametrize("endpoint_fixed", [False, True])
+async def test_projection_is_identical_for_tts_and_post_production_projects(endpoint_fixed: bool) -> None:
+    """旁白交付方式是项目配置，不进入视频请求：两种项目得到同一时长基准、申请档位与计费事实。"""
 
-    tts = await projector.project_current(
-        project={},
-        script=script,
-        unit=unit,
-        resolved_assets=[],
-        options=ReferenceRequestOptions(narration_delivery=USE_TTS, current_tts_duration_seconds=9.5),
-    )
-    post = await projector.project_current(
-        project={},
-        script=script,
-        unit=unit,
-        resolved_assets=[],
-        options=ReferenceRequestOptions(narration_delivery=POST_PRODUCTION, current_tts_duration_seconds=9.5),
-    )
+    facts = _bucket_facts("i2v")
+    if endpoint_fixed:
+        facts = replace(facts, supported_durations=(), allowed_durations=(), duration_endpoint_fixed=True)
+    projector = ReferenceUnitRequestProjector(_fixed_request_facts(facts), _FakeAssets(set()))
+    unit = {"unit_id": "E1U1", "text": "海面翻涌。\n{旁白内容很长很长。}", "duration_seconds": 6}
+    script = {"episode": 1, "video_units": [unit]}
+    tts_project = {
+        "generation_mode": "reference_video",
+        "narration_delivery": "use_tts",
+        "audio_backend": "gemini/gemini-tts",
+        "narration_voice": "Kore",
+        "narration_speed": 1.2,
+    }
+    post_project = {"generation_mode": "reference_video", "narration_delivery": "post_production"}
 
-    assert tts.duration_input == 9.5
-    assert tts.request_duration is not None
-    assert tts.request_duration.seconds == 16
-    assert post.duration_input == 6
-    assert post.request_duration is not None
-    assert post.request_duration.seconds == 8
+    tts, post = [
+        await projector.project_current(project=project, script=script, unit=unit, resolved_assets=[])
+        for project in (tts_project, post_project)
+    ]
+
+    assert tts.to_advisory_payload() == post.to_advisory_payload()
+    assert tts.cost == post.cost
+    assert tts.cost is not None
+    assert (tts.duration_input, tts.cost.duration_seconds) == (6, 6 if endpoint_fixed else 8)
 
 
 @pytest.mark.asyncio
@@ -268,75 +258,6 @@ async def test_projection_requires_confirmation_for_the_current_cross_tier_only(
 
 
 @pytest.mark.asyncio
-async def test_projection_requires_exact_confirmation_when_fresh_tts_lands_on_a_larger_existing_tier() -> None:
-    projector = ReferenceUnitRequestProjector(_FakeRequestFacts(), _FakeAssets(set()))
-    unit = {"unit_id": "E1U1", "text": "空镜：海面翻涌。", "duration_seconds": 4}
-
-    missing = await projector.project_current(
-        project={},
-        script={"video_units": [unit]},
-        unit=unit,
-        resolved_assets=[],
-        options=ReferenceRequestOptions(
-            narration_delivery=USE_TTS,
-            current_tts_duration_seconds=8.0,
-        ),
-    )
-    accepted = await projector.project_current(
-        project={},
-        script={"video_units": [unit]},
-        unit=unit,
-        resolved_assets=[],
-        options=ReferenceRequestOptions(
-            narration_delivery=USE_TTS,
-            current_tts_duration_seconds=8.0,
-            confirmed_request_duration_seconds=8,
-        ),
-    )
-
-    assert missing.request_duration is not None
-    assert missing.request_duration.seconds == 8
-    assert [problem.code for problem in missing.blocking_problems] == ["reference_duration_confirmation_required"]
-    assert not accepted.blocking_problems
-
-
-@pytest.mark.asyncio
-async def test_projection_compares_the_request_tier_to_the_selected_visual_not_the_planning_duration() -> None:
-    projector = ReferenceUnitRequestProjector(_FakeRequestFacts(), _FakeAssets(set()))
-    planned_four = {"unit_id": "E1U1", "text": "空镜：海面翻涌。", "duration_seconds": 4}
-    planned_eight = {"unit_id": "E1U2", "text": "空镜：海面翻涌。", "duration_seconds": 8}
-
-    reusable = await projector.project_current(
-        project={},
-        script={"video_units": [planned_four]},
-        unit=planned_four,
-        resolved_assets=[],
-        options=ReferenceRequestOptions(
-            narration_delivery=USE_TTS,
-            current_tts_duration_seconds=8.0,
-            current_visual_duration_seconds=8,
-        ),
-    )
-    replacement = await projector.project_current(
-        project={},
-        script={"video_units": [planned_eight]},
-        unit=planned_eight,
-        resolved_assets=[],
-        options=ReferenceRequestOptions(
-            narration_delivery=USE_TTS,
-            current_tts_duration_seconds=8.0,
-            current_visual_duration_seconds=4,
-        ),
-    )
-
-    assert reusable.request_duration is not None
-    assert reusable.request_duration.seconds == 8
-    assert not reusable.blocking_problems
-    assert [problem.code for problem in replacement.blocking_problems] == ["reference_duration_confirmation_required"]
-    assert replacement.blocking_problems[0].parameters()["current_visual_duration"] == 4
-
-
-@pytest.mark.asyncio
 async def test_projection_rejects_duration_above_maximum_as_needs_replan() -> None:
     projector = ReferenceUnitRequestProjector(_FakeRequestFacts(), _FakeAssets(set()))
     unit = {"unit_id": "E1U1", "text": "空镜：海面翻涌。", "duration_seconds": 18}
@@ -357,48 +278,6 @@ async def test_projection_rejects_duration_above_maximum_as_needs_replan() -> No
         "maximum_duration": 16,
     }
     assert result.problem_payloads()[0]["action"] == "replan_unit"
-
-
-@pytest.mark.asyncio
-async def test_projection_carries_shared_narration_delivery_blockers() -> None:
-    projector = ReferenceUnitRequestProjector(_FakeRequestFacts(), _FakeAssets(set()))
-    unit = {
-        "unit_id": "E1U1",
-        "text": "海面。\n{旁白内容。}",
-        "duration_seconds": 8,
-    }
-    preparation = admit_script_unit("video_units", unit).preparation
-    delivery = prepare_narration_delivery(
-        delivery=USE_TTS,
-        preparation=preparation,
-        artifact_path="audio/segment_E1U1.wav",
-        settings=None,
-        evidence=None,
-    )
-
-    result = await projector.project_current(
-        project={},
-        script={"episode": 1, "video_units": [unit]},
-        unit=unit,
-        resolved_assets=[],
-        options=ReferenceRequestOptions(
-            narration_delivery=USE_TTS,
-            narration_preparation=delivery,
-        ),
-    )
-
-    assert result.narration_preparation is delivery
-    assert [problem.code for problem in result.blocking_problems] == ["tts_not_configured"]
-    assert result.problem_payloads()[0] == {
-        "code": "tts_not_configured",
-        "blocking": True,
-        "unit_id": "E1U1",
-        "locations": [{"path": ["generation_settings", "audio_backend"], "line": None}],
-        "params": {},
-        "reason": "tts_provider_unavailable",
-        "action": "configure_tts",
-    }
-    assert result.to_advisory_payload()["narration_delivery"] == delivery.to_payload()
 
 
 @pytest.mark.asyncio
@@ -460,91 +339,6 @@ async def test_projection_passes_the_planned_duration_through_endpoint_fixed_dur
     assert result.request_duration.needs_confirmation is False
     assert result.cost is not None
     assert result.cost.duration_seconds == 10
-
-
-@pytest.mark.asyncio
-async def test_projection_refuses_tts_delivery_on_endpoint_fixed_durations() -> None:
-    """时长不由 ArcReel 驱动就申请不到装得下旁白的成片：结构化拒绝，不说「无法报价」。"""
-
-    projector = await _endpoint_fixed_projector()
-    unit = {"unit_id": "E1U1", "text": "空镜：海面翻涌。", "duration_seconds": 10}
-    result = await projector.project_current(
-        project={},
-        script={"video_units": [unit]},
-        unit=unit,
-        resolved_assets=[],
-        options=ReferenceRequestOptions(narration_delivery=USE_TTS, current_tts_duration_seconds=14.5),
-    )
-
-    assert [(problem.code, problem.blocking) for problem in result.problems] == [("tts_duration_endpoint_fixed", True)]
-    assert result.request_duration is None
-    assert result.cost is None
-    assert result.problem_payloads()[0]["action"] == "choose_post_production"
-
-
-@pytest.mark.parametrize("fixed_bucket", ["i2v", "r2v"])
-async def test_tts_endpoint_fixed_follows_the_unit_bucket(fixed_bucket: str) -> None:
-    facts_by_bucket: dict[str, VideoRequestFacts] = {}
-    for bucket in ("i2v", "r2v"):
-        facts = _bucket_facts(bucket)
-        facts_by_bucket[bucket] = replace(
-            facts,
-            supported_durations=() if bucket == fixed_bucket else facts.supported_durations,
-            allowed_durations=() if bucket == fixed_bucket else facts.allowed_durations,
-            duration_endpoint_fixed=bucket == fixed_bucket,
-        )
-
-    async def request_facts(bucket: str) -> VideoRequestFactsResult:
-        return facts_by_bucket[bucket]
-
-    projector = ReferenceUnitRequestProjector(request_facts, _FakeAssets(set()))
-    for with_reference in (False, True):
-        unit = {
-            "unit_id": "E1U1",
-            "text": "@[王] 推门。" if with_reference else "空镜：海面翻涌。",
-            "duration_seconds": 8,
-        }
-        assets = [_asset("character", "王", "characters/王.png")] if with_reference else []
-        result = await projector.project_current(
-            project={"characters": {"王": {}}},
-            script={"video_units": [unit]},
-            unit=unit,
-            resolved_assets=assets,
-            options=ReferenceRequestOptions(narration_delivery=USE_TTS, current_tts_duration_seconds=6),
-        )
-        assert ("tts_duration_endpoint_fixed" in [problem.code for problem in result.problems]) is (
-            ("r2v" if with_reference else "i2v") == fixed_bucket
-        )
-
-
-@pytest.mark.asyncio
-async def test_endpoint_fixed_tts_refusal_outranks_narration_readiness_blockers() -> None:
-    """读侧取首条阻断项：TTS 还没配好也先说「改选后期配音」，配好了在这种模型上仍然用不了。"""
-
-    projector = await _endpoint_fixed_projector()
-    unit = {"unit_id": "E1U1", "text": "海面。\n{旁白内容。}", "duration_seconds": 10}
-    delivery = prepare_narration_delivery(
-        delivery=USE_TTS,
-        preparation=admit_script_unit("video_units", unit).preparation,
-        artifact_path="audio/segment_E1U1.wav",
-        settings=None,
-        evidence=None,
-    )
-    assert [problem.code for problem in delivery.problems] == ["tts_not_configured"]
-
-    result = await projector.project_current(
-        project={},
-        script={"episode": 1, "video_units": [unit]},
-        unit=unit,
-        resolved_assets=[],
-        options=ReferenceRequestOptions(narration_delivery=USE_TTS, narration_preparation=delivery),
-    )
-
-    assert [problem.code for problem in result.blocking_problems] == [
-        "tts_duration_endpoint_fixed",
-        "tts_not_configured",
-    ]
-    assert result.problem_payloads()[0]["action"] == "choose_post_production"
 
 
 @pytest.mark.asyncio

@@ -1,6 +1,5 @@
 """Tests for execute_video_task."""
 
-import copy
 import json
 import re
 from collections.abc import Mapping
@@ -15,7 +14,6 @@ from lib.artifacts.artifact_manifest import (
     ArtifactManifest,
     ProjectArtifactManifestAdapter,
 )
-from lib.artifacts.video_visual_provenance import build_storyboard_video_visual_basis
 from lib.backends.video_frame_slots import gate_video_request
 from lib.generation.generation_queue import DispatchProviderChanged
 from lib.generation.video_request_facts import (
@@ -24,13 +22,10 @@ from lib.generation.video_request_facts import (
     VideoRequestFactsFailure,
 )
 from lib.speech.narration_delivery import (
+    POST_PRODUCTION,
     USE_TTS,
-    NarratedVideoDurationBlockedError,
-    NarrationDeliveryPreparation,
-    NarrationTtsStatus,
     TtsSynthesisSettings,
     build_narration_audio_basis,
-    prepare_narrated_video_duration,
 )
 from lib.speech.speech_composition import admit_script_unit
 from server.services.tasks import generation_tasks
@@ -350,85 +345,17 @@ class TestGenerationTasks:
 
         assert fake_generator.video_calls == []
 
-    async def test_execute_video_task_reprojects_current_tts_and_rejects_changed_tier(self, monkeypatch, tmp_path):
+    @pytest.mark.parametrize("narration_delivery", [USE_TTS, POST_PRODUCTION])
+    async def test_execute_video_task_requests_planned_duration_regardless_of_narration_delivery(
+        self, monkeypatch, tmp_path, narration_delivery
+    ):
+        """视频按剧本计划时长申请，只声明 video lane：项目的旁白交付方式与已有的更长旁白配音都不改变请求。"""
         project_path = prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
-        seed_current_storyboard(fake_pm)
-        fake_generator = FakeGenerator()
-        current_tts_duration = 6.2
-        seen_lane_requests: list[dict] = []
-
-        async def fake_prepare_current_narrated_video_duration(**kwargs):
-            tts_settings = await kwargs["resolver"].resolve_tts_synthesis_settings(kwargs["project"])
-            assert tts_settings == TtsSynthesisSettings("dashscope", "actual-tts", "Cherry", 1.1)
-            narration = NarrationDeliveryPreparation(
-                delivery=USE_TTS,
-                unit_id="E1S01",
-                speech_mode=None,
-                tts_status=NarrationTtsStatus.CURRENT,
-                artifact_path="audio/segment_E1S01.wav",
-                basis_digest="current-basis",
-                actual_duration_seconds=current_tts_duration,
-                problems=(),
-            )
-            return prepare_narrated_video_duration(
-                narration=narration,
-                planned_duration_seconds=kwargs["planned_duration_seconds"],
-                supported_durations=kwargs["supported_durations"],
-                confirmed_request_duration_seconds=kwargs["confirmed_request_duration_seconds"],
-            )
-
-        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
-        monkeypatch.setattr(
-            generation_tasks,
-            "resolve_generation_context",
-            fake_resolve_ctx(
-                fake_generator,
-                supported_durations=(4, 8, 12),
-                seen_lane_requests=seen_lane_requests,
-            ),
-        )
-        monkeypatch.setattr(
-            generation_tasks,
-            "prepare_current_narrated_video_duration",
-            fake_prepare_current_narrated_video_duration,
-        )
-        monkeypatch.setattr(generation_tasks, "tts_task_in_progress", AsyncMock(return_value=False))
-        monkeypatch.setattr(generation_tasks, "extract_video_thumbnail", async_return(None))
-        monkeypatch.setattr(generation_tasks, "emit_project_change_batch", lambda *a, **kw: None)
-        payload = {
-            "script_file": "episode_1.json",
-            "prompt": {"action": "跑", "camera_motion": "Static", "dialogue": []},
-            "narration_delivery_options": {
-                "narration_delivery": USE_TTS,
-                "confirmed_request_duration_seconds": 8,
-            },
-        }
-
-        await generation_tasks.execute_video_task("demo", "E1S01", payload)
-        assert fake_generator.video_calls[0]["duration_seconds"] == 8
-        assert len(seen_lane_requests) == 1
-        assert seen_lane_requests[0]["video"] is not None
-        assert seen_lane_requests[0]["audio"] is not None
-
-        # Worker 必须从执行时最新 unit 重新取规划时长；队列不保存预检派生档位。
-        fake_pm.script["segments"][0]["duration_seconds"] = 8
-        current_tts_duration = 9.5
-        with pytest.raises(NarratedVideoDurationBlockedError) as exc:
-            await generation_tasks.execute_video_task("demo", "E1S01", payload)
-
-        assert exc.value.preparation.problem_payloads()[0]["code"] == "reference_duration_confirmation_required"
-        assert exc.value.preparation.request_duration_seconds == 12
-        assert len(fake_generator.video_calls) == 1
-        assert len(seen_lane_requests) == 2
-
-    async def test_execute_video_task_use_tts_plans_and_projects_from_request_facts(self, monkeypatch, tmp_path):
-        """单元无时长时按事实收窄后的首档规划，投影档位取事实而非 lane 的未收窄全集。"""
-        project_path = prepare_files(tmp_path)
-        fake_pm = _FakePM(project_path)
+        fake_pm.project["narration_delivery"] = narration_delivery
         seed_current_storyboard(fake_pm)
         item = fake_pm.script["segments"][0]
-        item.pop("duration_seconds", None)
+        item["duration_seconds"] = 4
         item["novel_text"] = "旁白。"
         item["video_prompt"] = {}
         item["generated_assets"]["narration_audio"] = "audio/segment_E1S01.wav"
@@ -444,37 +371,26 @@ class TestGenerationTasks:
             ),
         )
         fake_generator = FakeGenerator()
-
-        facts = make_video_request_facts(
-            resolution="1080p", allowed_durations=(8,), excluded_durations=((4, "resolution"), (6, "resolution"))
-        )
+        seen_lane_requests: list[dict] = []
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
         monkeypatch.setattr(
             generation_tasks,
             "resolve_generation_context",
-            fake_resolve_ctx(
-                fake_generator, video_resolution="720p", supported_durations=(4, 6), video_request_facts=facts
-            ),
+            fake_resolve_ctx(fake_generator, supported_durations=(4, 8, 12), seen_lane_requests=seen_lane_requests),
         )
-        monkeypatch.setattr(generation_tasks, "tts_task_in_progress", AsyncMock(return_value=False))
         monkeypatch.setattr(generation_tasks, "extract_video_thumbnail", async_return(None))
         monkeypatch.setattr(generation_tasks, "emit_project_change_batch", lambda *a, **kw: None)
 
         await generation_tasks.execute_video_task(
             "demo",
             "E1S01",
-            {
-                "script_file": "episode_1.json",
-                "prompt": {"action": "跑", "camera_motion": "Static", "dialogue": []},
-                "narration_delivery_options": {"narration_delivery": USE_TTS},
-            },
+            {"script_file": "episode_1.json", "prompt": {"action": "跑", "camera_motion": "Static", "dialogue": []}},
         )
 
-        assert fake_generator.video_calls[0]["duration_seconds"] == 8
-        assert fake_generator.video_calls[0]["resolution"] == "1080p"
+        assert fake_generator.video_calls[0]["duration_seconds"] == 4
+        assert [request["audio"] for request in seen_lane_requests] == [None]
 
-    @pytest.mark.parametrize("use_tts", [False, True])
-    async def test_execute_video_task_blocks_on_unresolvable_request_facts(self, monkeypatch, tmp_path, use_tts):
+    async def test_execute_video_task_blocks_on_unresolvable_request_facts(self, monkeypatch, tmp_path):
         """排队期间配置变化让档位收成空集：提交供应商前以原问题码阻断，不回退到未收窄的全集。"""
         project_path = prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
@@ -490,7 +406,6 @@ class TestGenerationTasks:
             "resolve_generation_context",
             fake_resolve_ctx(fake_generator, video_request_facts=failure),
         )
-        monkeypatch.setattr(generation_tasks, "tts_task_in_progress", AsyncMock(return_value=False))
 
         with pytest.raises(DispatchProviderChanged):
             await generation_tasks.execute_video_task(
@@ -499,7 +414,6 @@ class TestGenerationTasks:
                 {
                     "script_file": "episode_1.json",
                     "prompt": {"action": "跑", "camera_motion": "Static"},
-                    "narration_delivery_options": {"narration_delivery": USE_TTS} if use_tts else {},
                 },
                 claimed_provider_id="other",
             )
@@ -511,212 +425,12 @@ class TestGenerationTasks:
                 {
                     "script_file": "episode_1.json",
                     "prompt": {"action": "跑", "camera_motion": "Static", "dialogue": []},
-                    "narration_delivery_options": {"narration_delivery": USE_TTS} if use_tts else {},
                 },
             )
 
         assert exc.value.code == "video_supported_durations_incompatible"
         assert exc.value.params["resolution"] == "1080p"
         assert fake_generator.video_calls == []
-
-    async def test_execute_video_task_blocks_use_tts_when_duration_is_endpoint_fixed(self, monkeypatch, tmp_path):
-        """执行期能力已变成「时长由端点固定」时，use_tts 请求按 tts_duration_endpoint_fixed 拒绝。
-
-        走真实的当前态旁白准备：本单元没有旁白产物，因此旁白侧另有 ``tts_missing``；能力事实
-        排在它之前，读侧取首条时拿到的是「改选后期配音」而不是「去生成旁白」。
-        """
-        project_path = prepare_files(tmp_path)
-        fake_pm = _FakePM(project_path)
-        seed_current_storyboard(fake_pm)
-        # 旁白归属的画外音单元：有可合成的原文、没有结构化角色台词，use_tts 因此本来是可选的。
-        fake_pm.script["segments"][0]["novel_text"] = "海面翻涌，风把灯塔的光切成碎片。"
-        fake_pm.script["segments"][0]["video_prompt"] = None
-        fake_generator = FakeGenerator()
-
-        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
-        monkeypatch.setattr(
-            generation_tasks,
-            "resolve_generation_context",
-            fake_resolve_ctx(fake_generator, supported_durations=(), duration_endpoint_fixed=True),
-        )
-        monkeypatch.setattr(generation_tasks, "tts_task_in_progress", AsyncMock(return_value=False))
-        monkeypatch.setattr(generation_tasks, "extract_video_thumbnail", async_return(None))
-        monkeypatch.setattr(generation_tasks, "emit_project_change_batch", lambda *a, **kw: None)
-
-        with pytest.raises(NarratedVideoDurationBlockedError) as exc:
-            await generation_tasks.execute_video_task(
-                "demo",
-                "E1S01",
-                {
-                    "script_file": "episode_1.json",
-                    "prompt": {"action": "跑", "camera_motion": "Static", "dialogue": []},
-                    "narration_delivery_options": {"narration_delivery": USE_TTS},
-                },
-            )
-
-        payloads = exc.value.preparation.problem_payloads()
-        assert [payload["code"] for payload in payloads] == ["tts_duration_endpoint_fixed", "tts_missing"]
-        assert payloads[0]["action"] == "choose_post_production"
-        assert fake_generator.video_calls == []
-
-    async def test_execute_video_task_reuses_selected_visual_in_the_latest_tts_tier_without_side_effects(
-        self,
-        monkeypatch,
-        tmp_path,
-    ):
-        from lib.artifacts.artifact_manifest import (
-            ArtifactKey,
-            ProjectArtifactManifestAdapter,
-            compose_video_artifact_basis,
-        )
-        from lib.artifacts.version_manager import VersionManager
-        from lib.artifacts.video_artifact_facts import VideoArtifactCurrencyFacts
-        from lib.artifacts.visual_artifact_provenance import build_storyboard_video_artifact_visual_basis
-        from lib.speech.speech_artifact_provenance import build_video_duration_basis, build_video_speech_basis
-        from lib.speech.speech_composition import admit_script_unit
-
-        project_path = prepare_files(tmp_path)
-        fake_pm = _FakePM(project_path)
-        seed_current_storyboard(fake_pm)
-        fake_generator = FakeGenerator()
-        fake_generator.versions = VersionManager(project_path)
-        item = fake_pm.script["segments"][0]
-        item["novel_text"] = "current narration"
-        item["generated_assets"] = {
-            "status": "completed",
-            "storyboard_image": "storyboards/scene_E1S01.png",
-            "video_clip": "videos/scene_E1S01.mp4",
-            "video_uri": "provider://existing",
-        }
-        current = project_path / "videos" / "scene_E1S01.mp4"
-        current.parent.mkdir(parents=True, exist_ok=True)
-        current.write_bytes(b"existing-paid-video")
-        visual_prompt = {"action": "跑", "camera_motion": "Static", "dialogue": []}
-        item["video_prompt"] = visual_prompt
-        visual_basis = build_storyboard_video_visual_basis(
-            prompt=visual_prompt,
-            storyboard_image=project_path / "storyboards" / "scene_E1S01.png",
-            end_frame_image=None,
-            aspect_ratio="9:16",
-            provider_id="ark",
-            model_id="seedance",
-            resolution="720p",
-            seed=None,
-            requested_generate_audio=True,
-            content_mode="narration",
-            utterances=None,
-            has_utterances=False,
-            voice_characters=None,
-        )
-        artifact_visual_basis = build_storyboard_video_artifact_visual_basis(
-            resource_id="E1S01",
-            visual_prompt=visual_prompt,
-            storyboard_image=project_path / "storyboards" / "scene_E1S01.png",
-            end_frame_image=None,
-            aspect_ratio="9:16",
-        )
-        artifact_speech_basis = build_video_speech_basis(admit_script_unit("segments", item).preparation)
-        artifact_duration_basis = build_video_duration_basis(8)
-        artifact_currency = VideoArtifactCurrencyFacts(
-            episode=1,
-            request_duration_seconds=8,
-            visual_basis=artifact_visual_basis,
-            speech_basis=artifact_speech_basis,
-            duration_basis=artifact_duration_basis,
-            video_basis=compose_video_artifact_basis(
-                visual=artifact_visual_basis,
-                speech=artifact_speech_basis,
-                duration=artifact_duration_basis,
-            ),
-            voice_style_speakers=(),
-            duration_tiers=(4, 8, 12),
-            reference_image_limit=None,
-            parent_version=0,
-        )
-        selected_version = fake_generator.versions.add_version(
-            "videos",
-            "E1S01",
-            "old visual",
-            source_file=current,
-            duration_seconds=8,
-            visual_basis_digest=visual_basis.digest,
-            execution_checkpoint_schema_version=3,
-            execution_script_file="episode_1.json",
-            execution_duration_seconds=8,
-            execution_request_digest="d" * 64,
-            execution_provider_media=[],
-            artifact_video_currency=artifact_currency.to_dict(),
-        )
-        ArtifactManifest(ProjectArtifactManifestAdapter(project_path)).register_descriptor(
-            ArtifactKey.episode_video(1, "E1S01"),
-            artifact_path="videos/scene_E1S01.mp4",
-            basis=artifact_currency.video_descriptor,
-        )
-        script_before = copy.deepcopy(fake_pm.script)
-        history_before = copy.deepcopy(fake_generator.versions.get_versions("videos", "E1S01"))
-
-        async def _prepare(**kwargs):
-            narration = NarrationDeliveryPreparation(
-                delivery=USE_TTS,
-                unit_id="E1S01",
-                speech_mode=None,
-                tts_status=NarrationTtsStatus.CURRENT,
-                artifact_path="audio/segment_E1S01.wav",
-                basis_digest="sha256-v1:" + "c" * 64,
-                actual_duration_seconds=6.2,
-                problems=(),
-            )
-            return prepare_narrated_video_duration(
-                narration=narration,
-                planned_duration_seconds=kwargs["planned_duration_seconds"],
-                supported_durations=kwargs["supported_durations"],
-                confirmed_request_duration_seconds=kwargs["confirmed_request_duration_seconds"],
-            )
-
-        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
-        monkeypatch.setattr(
-            generation_tasks,
-            "resolve_generation_context",
-            fake_resolve_ctx(
-                fake_generator,
-                video_provider=("ark", "configured-seedance"),
-                video_backend_model="seedance",
-                supported_durations=(4, 8, 12),
-            ),
-        )
-        monkeypatch.setattr(generation_tasks, "prepare_current_narrated_video_duration", _prepare)
-        monkeypatch.setattr(generation_tasks, "tts_task_in_progress", AsyncMock(return_value=False))
-        monkeypatch.setattr(
-            "server.services.tasks.narration_delivery_tasks.probe_existing_media_duration_seconds",
-            AsyncMock(return_value=8.0),
-        )
-        fake_queue = type("Queue", (), {})()
-        fake_queue.persist_execution_checkpoint = AsyncMock()
-        monkeypatch.setattr(generation_tasks, "get_generation_queue", lambda: fake_queue)
-
-        result = await generation_tasks.execute_video_task(
-            "demo",
-            "E1S01",
-            {
-                "script_file": "episode_1.json",
-                "prompt": visual_prompt,
-                "narration_delivery_options": {
-                    "narration_delivery": USE_TTS,
-                    "confirmed_request_duration_seconds": 8,
-                },
-            },
-            task_id="task-reuse",
-        )
-
-        assert result["reused_existing"] is True
-        assert result["version"] == selected_version
-        assert result["request_duration_seconds"] == 8
-        assert fake_generator.video_calls == []
-        fake_queue.persist_execution_checkpoint.assert_not_awaited()
-        assert not (project_path / ".arcreel" / "tasks" / "task-reuse" / "provider_media").exists()
-        assert fake_pm.script == script_before
-        assert fake_generator.versions.get_versions("videos", "E1S01") == history_before
-        assert current.read_bytes() == b"existing-paid-video"
 
     async def test_execute_video_task_storyboard_image_grid_filename_resolves(self, monkeypatch, tmp_path):
         """宫格项目 storyboard_image 指向 scene_{id}_first.png（非 canonical 文件名），只要登记在
@@ -1734,10 +1448,10 @@ class TestGenerationTasks:
         assert result["resource_type"] == "videos"
         assert fake_generator.video_calls[0]["duration_seconds"] == 6
 
-    async def test_execute_video_task_default_duration_on_endpoint_fixed_matches_tts_planning_basis(
+    async def test_execute_video_task_default_duration_on_endpoint_fixed_uses_planning_basis(
         self, monkeypatch, tmp_path
     ):
-        """时长由端点固定、单元与项目都没写时长时，非 TTS 请求申请的秒数与 use_tts 路径同取共享规划基准。"""
+        """时长由端点固定、单元与项目都没写时长时，申请的秒数取共享的默认规划时长。"""
         project_path = prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
         seed_current_storyboard(fake_pm)

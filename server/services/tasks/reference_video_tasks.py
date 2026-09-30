@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -17,7 +17,7 @@ from lib.artifacts.artifact_activation import (
 from lib.artifacts.artifact_manifest import compose_video_artifact_basis
 from lib.artifacts.version_manager import VersionManager
 from lib.artifacts.video_artifact_facts import VideoArtifactCurrencyFacts
-from lib.artifacts.video_visual_provenance import resolve_video_aspect_ratio
+from lib.artifacts.video_visual_provenance import build_reference_video_visual_basis, resolve_video_aspect_ratio
 from lib.artifacts.visual_artifact_provenance import (
     build_reference_video_artifact_visual_basis,
     project_basis_style_description,
@@ -40,7 +40,6 @@ from lib.infra.thumbnail import extract_video_thumbnail
 from lib.project.project_manager import get_project_manager
 from lib.script.reference_video.artifact_selection import CurrentReferenceAssets
 from lib.script.reference_video.execution_checkpoint import (
-    NarrationExecutionFacts,
     ProviderMediaInput,
     ReferenceSubmissionCheckpoint,
     StagedProviderMedia,
@@ -68,8 +67,6 @@ from lib.script.reference_video.units import reference_video_bucket
 from lib.script.reference_video.voice_settings import VoiceRenderSettings
 from lib.script.script_editor import ScriptEditError
 from lib.script.script_models import ReferenceResource
-from lib.speech.narration_config import ProjectTtsSettingsResolver
-from lib.speech.narration_delivery import USE_TTS
 from lib.speech.speech_artifact_provenance import build_video_duration_basis
 from lib.speech.speech_composition import admit_script_unit, video_unit_replan_problems
 from server.services.currency.video_artifact_currency import (
@@ -77,14 +74,7 @@ from server.services.currency.video_artifact_currency import (
     complete_video_artifact_commit,
     freeze_video_speech_facts,
 )
-from server.services.tasks.generation_context import AudioLaneRequest, VideoLaneRequest, resolve_generation_context
-from server.services.tasks.narration_delivery_tasks import (
-    materialized_reference_video_visual_basis_digest,
-    prepare_current_reference_video_request_options,
-    reference_video_visual_basis_digest,
-    reuse_current_video_for_tier,
-    tts_task_in_progress,
-)
+from server.services.tasks.generation_context import VideoLaneRequest, resolve_generation_context
 
 logger = logging.getLogger(__name__)
 
@@ -182,6 +172,95 @@ def _build_reference_audio_wiring(
     return [audio_paths[name] for name in rendered.audio_speakers], None
 
 
+def reference_video_visual_basis_digest(
+    *,
+    project: dict[str, Any],
+    project_path: Path,
+    unit: dict[str, Any],
+    request_assets: Sequence[ResolvedReferenceAsset],
+    request_facts: VideoRequestFacts,
+) -> str:
+    """Hash the exact projected reference request and every prompt-affecting input."""
+
+    audio_paths = resolve_reference_audio_paths(project, project_path)
+    rendered = render_video_unit_prompt(
+        unit,
+        project,
+        VoiceRenderSettings.from_request_facts(request_facts, audio_ready=audio_paths),
+        request_references=[asset.reference for asset in request_assets],
+    )
+    if request_facts.reference_audio_per_image:
+        audio_wiring = [
+            (speaker, target)
+            for speaker, target in zip(
+                rendered.audio_speakers,
+                rendered.audio_speaker_reference_index,
+                strict=True,
+            )
+            if target is not None
+        ]
+        audio_speakers = [speaker for speaker, _target in audio_wiring]
+        audio_targets: list[int] | None = [target for _speaker, target in audio_wiring]
+    else:
+        audio_speakers = list(rendered.audio_speakers)
+        audio_targets = None
+    return materialized_reference_video_visual_basis_digest(
+        rendered_prompt=rendered.prompt,
+        aspect_ratio=resolve_video_aspect_ratio(project),
+        reference_images=[asset.path for asset in request_assets],
+        request_assets=request_assets,
+        reference_audio_files=[audio_paths[speaker] for speaker in audio_speakers],
+        reference_audio_speakers=audio_speakers,
+        reference_audio_targets=audio_targets,
+        request_facts=request_facts,
+    )
+
+
+def materialized_reference_video_visual_basis_digest(
+    *,
+    rendered_prompt: object,
+    aspect_ratio: object,
+    reference_images: Sequence[Path],
+    request_assets: Sequence[ResolvedReferenceAsset],
+    reference_audio_files: Sequence[Path],
+    reference_audio_speakers: Sequence[str],
+    reference_audio_targets: Sequence[int] | None,
+    request_facts: VideoRequestFacts,
+) -> str:
+    """Hash a fully rendered request against the exact media bytes that will be submitted."""
+
+    return build_reference_video_visual_basis(
+        rendered_prompt=rendered_prompt,
+        aspect_ratio=aspect_ratio,
+        reference_images=reference_images,
+        reference_descriptors=[
+            {
+                "type": asset.reference.type,
+                "name": asset.reference.name,
+                "kind": asset.kind,
+            }
+            for asset in request_assets
+        ],
+        reference_audio_files=reference_audio_files,
+        reference_audio_speakers=reference_audio_speakers,
+        reference_audio_targets=reference_audio_targets,
+        request_context={
+            "capability": request_facts.generation_type,
+            "provider_id": request_facts.provider_id,
+            "model_id": request_facts.model_id,
+            "resolution": request_facts.resolution,
+            "max_reference_images": request_facts.max_reference_images,
+            "generate_audio": request_facts.generate_audio,
+            "requested_generate_audio": request_facts.requested_generate_audio,
+            "has_audio_track": request_facts.has_audio_track,
+            "audio_switch_controllable": request_facts.audio_switch_controllable,
+            "voice_consistency": request_facts.voice_consistency,
+            "max_reference_audio_count": request_facts.max_reference_audio_count,
+            "reference_audio_per_image": request_facts.reference_audio_per_image,
+        },
+    ).digest
+
+
 async def execute_reference_video_task(
     project_name: str,
     resource_id: str,
@@ -251,7 +330,6 @@ async def execute_reference_video_task(
         project=project,
         user_id=user_id,
         video=VideoLaneRequest(generation_type=execution_generation_type, route="reference_video"),
-        audio=AudioLaneRequest() if request_options.narration_delivery == USE_TTS else None,
     )
     generator = ctx.generator
     video = ctx.video
@@ -280,34 +358,12 @@ async def execute_reference_video_task(
             return VideoRequestFactsFailure("reference_capability_unavailable", (("capability", generation_type),))
         return lane_request_facts
 
-    tts_in_progress = (
-        await tts_task_in_progress(
-            project_name=project_name,
-            resource_id=resource_id,
-            script_file=str(script_file),
-            user_id=user_id,
-        )
-        if request_options.narration_delivery == USE_TTS
-        else False
-    )
-    options = await prepare_current_reference_video_request_options(
-        request_facts_lookup=_lane_request_facts,
-        project=project,
-        script=script,
-        script_file=str(script_file),
-        unit=unit,
-        project_path=project_path,
-        options=request_options,
-        project_name=project_name,
-        tts_settings_resolver=(ProjectTtsSettingsResolver() if request_options.narration_delivery == USE_TTS else None),
-        tts_in_progress=tts_in_progress,
-    )
     projection = await ReferenceUnitRequestProjector(_lane_request_facts, asset_availability).project_current(
         project=project,
         script=script,
         unit=unit,
         resolved_assets=resolved_assets,
-        options=options,
+        options=request_options,
     )
     if projection.blocking_problems:
         raise ReferenceProjectionBlockedError(projection.blocking_problems[0])
@@ -362,25 +418,6 @@ async def execute_reference_video_task(
     if duration_warning is not None:
         warnings.append(duration_warning)
 
-    if request_options.narration_delivery == USE_TTS:
-        narration = options.narration_preparation
-        if narration is None or narration.actual_duration_seconds is None:
-            raise RuntimeError("allowed TTS reference request is missing actual narration duration")
-        reused = await reuse_current_video_for_tier(
-            project_path=project_path,
-            versions=generator.versions,
-            item=unit,
-            resource_type="reference_videos",
-            resource_id=resource_id,
-            request_duration_seconds=effective_duration,
-            minimum_actual_duration_seconds=narration.actual_duration_seconds,
-            visual_basis_digest=visual_basis_digest,
-            revalidate_visual_basis_digest=_current_visual_basis_digest,
-            warnings=warnings,
-        )
-        if reused is not None:
-            return reused
-
     # 4. 所有创作类型共用三段论渲染。解析条目同时携带请求路径与逻辑主体；商品的一条逻辑
     #    引用可展开成多张图片，裁剪后直接按条目传给渲染，保证 `图片N` 的 1-based 索引与
     #    调用通道实际收到的 reference_images 一一对应。商品高保真尾注也只点名仍实际发图的商品。
@@ -411,8 +448,7 @@ async def execute_reference_video_task(
     # 解析派生的降级提示与生成结果同屏可见：与解析预览面板同一批 {key, params} 条目。
     warnings = [*warnings, *rendered.warnings]
 
-    # 5. Worker submissions use immutable task-local inputs. The TTS narration artifact is deliberately absent:
-    # it controls admission/duration but is not attached to VideoGenerationRequest.
+    # 5. Worker submissions use immutable task-local inputs.
     provider_refs = constrained_refs
     provider_audio = reference_audio_files or None
     staged_media: tuple[StagedProviderMedia, ...] = ()
@@ -455,16 +491,6 @@ async def execute_reference_video_task(
                 target_index=target,
             )
             for name, path, target in zip(audio_names, reference_audio_files, audio_target_values, strict=True)
-        )
-        current_narration = options.narration_preparation
-        narration_facts = NarrationExecutionFacts(
-            delivery=options.narration_delivery,
-            tts_status=(current_narration.tts_status.value if current_narration is not None else "not_applicable"),
-            artifact_path=(current_narration.artifact_path if current_narration is not None else ""),
-            basis_digest=(current_narration.basis_digest if current_narration is not None else None),
-            actual_duration_seconds=(
-                current_narration.actual_duration_seconds if current_narration is not None else None
-            ),
         )
         audio_targets_tuple = tuple(reference_audio_targets) if reference_audio_targets is not None else None
         stage = stage_media_for_task or _stage_provider_media_for_task
@@ -562,7 +588,6 @@ async def execute_reference_video_task(
                     seed=None,
                     visual_basis_digest=visual_basis_digest,
                     artifact_currency=artifact_currency,
-                    narration=narration_facts,
                     media=staged_media,
                     reference_audio_targets=audio_targets_tuple,
                 )

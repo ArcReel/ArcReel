@@ -254,7 +254,6 @@ async def test_planner_uses_shared_admission_and_never_reads_the_real_task_singl
         return BatchAdmission(
             operation=kwargs["operation"],
             selection=kwargs["selection"],
-            narration_delivery=kwargs["request_options"].narration_delivery,
             tickets=(UnitAdmissionTicket("E1S01"),),
         )
 
@@ -297,7 +296,6 @@ async def test_active_task_and_provider_checkpoint_are_reported_as_separate_axes
         return BatchAdmission(
             operation=kwargs["operation"],
             selection=kwargs["selection"],
-            narration_delivery=kwargs["request_options"].narration_delivery,
             tickets=(UnitAdmissionTicket("E1S01"),),
         )
 
@@ -519,7 +517,6 @@ async def test_recovery_checkpoint_without_provider_job_remains_visible(
         return BatchAdmission(
             operation=kwargs["operation"],
             selection=kwargs["selection"],
-            narration_delivery=kwargs["request_options"].narration_delivery,
             tickets=(UnitAdmissionTicket("E1S01"),),
         )
 

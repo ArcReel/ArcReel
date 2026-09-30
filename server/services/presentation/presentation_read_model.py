@@ -231,9 +231,7 @@ class PresentationReadModelService:
             script=script,
             resource_type=resource_type,
             resource_id=resource_id,
-            versions=versions,
             selected=selected_video,
-            settings=settings,
         )
         provider_audio_enabled = selected_video.record.get("execution_generate_audio")
         if not isinstance(provider_audio_enabled, bool):
@@ -588,9 +586,7 @@ class PresentationReadModelService:
         script: dict[str, Any],
         resource_type: str,
         resource_id: str,
-        versions: VersionManager,
         selected: _SelectedVersion,
-        settings: TtsSynthesisSettings | None,
     ) -> MediaCurrency:
         if selected.target is None:
             raise PresentationUnavailableError("video currency requires typed presentation provenance")
@@ -600,9 +596,7 @@ class PresentationReadModelService:
             script=script,
             resource_type=resource_type,
             resource_id=resource_id,
-            versions=versions,
             version_metadata=selected.record,
-            current_tts_settings=settings,
         )
         return "current" if current == selected.target.basis else "stale"
 

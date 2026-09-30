@@ -12,14 +12,6 @@ import { STEP_RAILS } from "./state-language";
 import { blockerViews, nextStepForAction, problemViews } from "./problem-views";
 
 /**
- * 挡住 use_tts 这一条路径、但不挡后期配音的问题码。
- *
- * `tts_not_configured` 是「没有可用的语音合成供应商」，`tts_duration_endpoint_fixed` 是
- * 「该模型的成片时长由端点固定、申请不到装得下旁白的时长」；两者都不是工作流缺口。
- */
-const TTS_DELIVERY_BLOCKING_CODES = ["tts_not_configured", "tts_duration_endpoint_fixed"];
-
-/**
  * 任务指纹变化到发起重新求解之间的合并窗口（毫秒）。
  *
  * 一批任务入队/开跑/落地时状态是逐条跳的，每跳一次就求解一次计划，等于为同一批生成
@@ -104,18 +96,6 @@ export function WorkflowPanel({ projectName, episode, onViewUnit, onRegenerate }
     () => (shown ? problemViews(t, shown.problems, "plan") : []),
     [shown, t],
   );
-  const ttsUnavailable = useMemo(() => {
-    if (!shown) return null;
-    // TTS 没配好这件事是视频整批准入判定求解出来的（选了 TTS 才会跑那一轮），落点是计划的
-    // 问题清单与视频步骤，而不是旁白交付步骤自己。所以按 code 在整份计划里找：只翻交付
-    // 步骤的 problems 永远翻不到，那条引导就等于不存在。
-    const problem = [
-      ...shown.problems,
-      ...shown.steps.flatMap((step) => step.problems),
-    ].find((item) => TTS_DELIVERY_BLOCKING_CODES.includes(item.code));
-    return problem ? (problemViews(t, [problem], "tts")[0] ?? null) : null;
-  }, [shown, t]);
-
   const handleSelectDelivery = useCallback(
     (delivery: NarrationDelivery) => setNarrationDelivery(delivery),
     [setNarrationDelivery],
@@ -216,7 +196,6 @@ export function WorkflowPanel({ projectName, episode, onViewUnit, onRegenerate }
                     step.id === "narration_delivery"
                       ? {
                           choice: shown.narration_delivery,
-                          ttsUnavailable,
                           onSelect: handleSelectDelivery,
                         }
                       : undefined

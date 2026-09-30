@@ -10,7 +10,6 @@ import type { DurationExclusionReason, VideoCapabilityProblem } from "./project"
 import type { RenderedPromptPreview } from "./script";
 import type {
   AdmissionProblem,
-  VideoRequestCostQuote,
   WorkflowAdmission,
 } from "./workflow";
 
@@ -74,10 +73,6 @@ export interface ReferenceVideoUnit {
   source_text?: string;
 }
 
-export interface ReferenceRequestOptions {
-  narration_delivery?: "post_production" | "use_tts";
-}
-
 /** 任务类型桶：无可用参考图落 i2v，有则落 r2v。 */
 export type ReferenceVideoBucket = "i2v" | "r2v";
 
@@ -112,7 +107,7 @@ export interface ReferenceUnitCapability {
 /** 按 `unit_id` 索引的逐单元结论。 */
 export type ReferenceUnitCapabilityMap = Record<string, ReferenceUnitCapability>;
 
-export interface ReferenceGenerationRequestOptions extends ReferenceRequestOptions {
+export interface ReferenceGenerationRequestOptions {
   /** Exact video tier accepted for this request; omitted when no cross-tier confirmation is needed. */
   confirmed_request_duration_seconds?: number | null;
 }
@@ -140,23 +135,6 @@ export interface ReferenceProjectionAdmission {
   problems: ReferenceProjectionProblem[];
 }
 
-export type { VideoRequestCostQuote } from "./workflow";
-
-/** Current-state duration admission returned before a storyboard video is enqueued. */
-export interface NarratedVideoDurationAdmission {
-  allowed: false;
-  kind: "narrated_video_duration";
-  unit_id: string;
-  narration_delivery: Record<string, unknown>;
-  planned_duration: number;
-  current_visual_duration?: number | null;
-  duration_input: number;
-  request_duration: number | null;
-  adjustment: "exact" | "up" | "down" | null;
-  request_cost?: VideoRequestCostQuote;
-  problems: ReferenceProjectionProblem[];
-}
-
 /**
  * 时长取档预检结果。`adjustment` 说明申请秒数相对取档输入的偏移方向：
  * `exact` 一致、`up` 成片更长、`down` 成片更短。能力元数据不可解析时预检直接失败。
@@ -166,9 +144,7 @@ export interface ReferenceDurationPrecheck {
   needs_confirmation: boolean;
   /** 剧本编排时长（秒） */
   script_duration: number;
-  /** 当前选中且实际时长足够承载 fresh TTS 的视觉档位；没有可信成片时为 null */
-  current_visual_duration?: number | null;
-  /** 取档输入；使用 TTS 时为剧本时长与实际旁白时长下限的较大值 */
+  /** 取档输入，即剧本编排时长 */
   duration_input: number;
   /** 将向模型申请的档位秒数 */
   request_duration: number;
@@ -177,7 +153,6 @@ export interface ReferenceDurationPrecheck {
   hydrated_capability: "i2v" | "r2v";
   provider_id: string | null;
   model_id: string | null;
-  request_cost?: VideoRequestCostQuote;
   problems: ReferenceProjectionProblem[];
 }
 
@@ -204,8 +179,6 @@ export interface ReferenceBatchAdmission extends WorkflowAdmission {
 /** 批量端点请求体：省略 unit_ids 表示「缺失即生成」，空数组会被后端拒绝。 */
 export interface ReferenceBatchGenerateRequest {
   unit_ids?: string[];
-  /** 必填：不声明就等于让这次批量绕过旁白交付方式的选择。 */
-  narration_delivery: "post_production" | "use_tts";
   /** 用户已确认的申请档位，按 unit 给 */
   confirmed_request_durations?: Record<string, number>;
 }

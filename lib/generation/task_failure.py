@@ -69,11 +69,11 @@ REFERENCE_PROJECTION_FAILURE_CODES: frozenset[str] = frozenset(
         "reference_asset_unregistered",
         "reference_capability_changed",
         "reference_capability_unavailable",
+        "needs_replan",
         "reference_duration_confirmation_required",
         "reference_supported_durations_incompatible",
         "reference_supported_durations_invalid",
         "reference_supported_durations_missing",
-        "tts_duration_endpoint_fixed",
         "video_audio_switch_not_supported",
         "video_capability_missing_i2v",
         "video_capability_missing_r2v",
@@ -95,25 +95,6 @@ GENERATION_INPUT_FAILURE_CODES: frozenset[str] = frozenset(
     }
 )
 
-NARRATION_DELIVERY_FAILURE_CODES: frozenset[str] = frozenset(
-    {
-        "needs_replan",
-        "reference_duration_confirmation_required",
-        "tts_duration_endpoint_fixed",
-        "tts_duration_unavailable",
-        "tts_generating",
-        "tts_conflicts_with_active_narrated_video",
-        "tts_missing",
-        "tts_not_applicable",
-        "tts_not_configured",
-        "tts_stale",
-        "tts_state_unavailable",
-        "video_duration_unavailable",
-        "video_shorter_than_tts",
-        "video_supported_durations_missing",
-    }
-)
-
 # 视频请求事实（``lib.generation.video_request_facts``）求值失败时分镜路线一族的问题码：执行器经
 # ``VideoRequestFactsError`` 阻断并按原码落库，与预检同码。参考路线一族与桶能力闸的码已在上面登记。
 VIDEO_REQUEST_FACTS_FAILURE_CODES: frozenset[str] = frozenset(
@@ -132,7 +113,6 @@ FAILURE_CODE_KEYS: dict[str, str] = {
     **{code: code for code in CAPABILITY_FAILURE_CODES},
     **{code: code for code in REFERENCE_PROJECTION_FAILURE_CODES},
     **{code: code for code in GENERATION_INPUT_FAILURE_CODES},
-    **{code: code for code in NARRATION_DELIVERY_FAILURE_CODES},
     **{code: code for code in VIDEO_REQUEST_FACTS_FAILURE_CODES},
     "provider_unsupported_media": "task_fail_provider_unsupported_media",
     # 上游确定性 4xx 拒绝。params 里的 provider_reason 是脱敏截断后的上游原文，刻意不进

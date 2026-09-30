@@ -4,7 +4,6 @@ import type {
   NarrationSegment,
   DramaScene,
   AdShot,
-  ReferenceGenerationRequestOptions,
 } from "@/types";
 import { useAppStore } from "@/stores/app-store";
 import { getScriptItemId, type EditorContentMode } from "@/utils/script-shape";
@@ -33,10 +32,7 @@ interface ShotSplitViewProps {
   /** 移除分镜，resolve 为是否成功 */
   onRemoveShot?: (itemId: string) => Promise<boolean>;
   onGenerateStoryboard?: (segmentId: string) => void;
-  onGenerateVideo?: (
-    segmentId: string,
-    requestOptions?: ReferenceGenerationRequestOptions,
-  ) => void | Promise<void>;
+  onGenerateVideo?: (segmentId: string) => void | Promise<void>;
   onGenerateNarration?: (segmentId: string) => void;
   onRestoreStoryboard?: () => Promise<void> | void;
   onRestoreVideo?: () => Promise<void> | void;

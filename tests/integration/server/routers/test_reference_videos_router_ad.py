@@ -68,7 +68,6 @@ def ad_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
     from server.routers import reference_videos as router_mod
 
     monkeypatch.setattr(router_mod, "get_project_manager", lambda: ProjectManager(tmp_path))
-    monkeypatch.setattr(router_mod, "tts_task_in_progress", AsyncMock(return_value=False))
     from tests.fakes import fake_reference_request_projector
 
     monkeypatch.setattr(
@@ -144,10 +143,7 @@ def test_generate_enqueues_self_contained_unit(ad_client: TestClient) -> None:
     assert kwargs["resource_id"] == "E1U1"
     assert kwargs["script_file"] == "scripts/episode_1.json"
     assert "prompt" not in kwargs["payload"]
-    assert kwargs["payload"]["reference_request_options"] == {
-        "narration_delivery": "post_production",
-        "confirmed_request_duration_seconds": 8,
-    }
+    assert kwargs["payload"]["reference_request_options"] == {"confirmed_request_duration_seconds": 8}
 
 
 def test_replan_shell_and_mixed_speech_are_blocked_before_enqueue(ad_client: TestClient) -> None:

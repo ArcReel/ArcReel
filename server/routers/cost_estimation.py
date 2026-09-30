@@ -5,15 +5,15 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 
 from lib.config.resolver import ConfigResolver
 from lib.db import async_session_factory
 from lib.infra.api_errors import NotFoundError
 from lib.project.project_manager import get_project_manager
 from lib.script.reference_video import find_reference_unit
-from lib.script.reference_video.request_projection import POST_PRODUCTION, NarrationDelivery, ReferenceRequestOptions
 from server.i18n import Translator
+from server.routers._validators import reject_retired_query_params
 from server.services.admission.cost_estimation import CostEstimationService
 
 router = APIRouter()
@@ -23,11 +23,13 @@ logger = logging.getLogger(__name__)
 @router.get("/projects/{project_name}/cost-estimate")
 async def get_cost_estimate(
     project_name: str,
+    request: Request,
     _t: Translator,
     reference_unit_id: str | None = None,
-    narration_delivery: NarrationDelivery = POST_PRODUCTION,
 ):
     """获取项目费用估算（预估 + 实际）。"""
+
+    reject_retired_query_params(request, "narration_delivery")
 
     def _sync():
         pm = get_project_manager()
@@ -62,22 +64,11 @@ async def get_cost_estimate(
 
     if reference_unit_id and not any(find_reference_unit(script, reference_unit_id) for script in scripts.values()):
         raise HTTPException(status_code=404, detail=_t("ref_unit_not_found", unit_id=reference_unit_id))
-    reference_request_options = (
-        {
-            reference_unit_id: ReferenceRequestOptions(
-                narration_delivery=narration_delivery,
-            )
-        }
-        if reference_unit_id
-        else None
-    )
-
     try:
         return await service.compute(
             project_data,
             scripts,
             project_name=project_name,
-            reference_request_options=reference_request_options,
         )
     except Exception as exc:
         logger.exception("费用估算失败")

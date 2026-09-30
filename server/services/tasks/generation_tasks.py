@@ -58,14 +58,13 @@ from lib.generation.generation_queue import (
     without_video_execution_identity,
 )
 from lib.generation.video_request_facts import (
+    DEFAULT_PLANNED_DURATION_SECONDS,
     VideoRequestFactsError,
     audio_switch_conflict,
     require_video_request_facts,
 )
-from lib.infra.api_errors import ConflictError
 from lib.infra.async_thread import run_noninterruptible_sync
 from lib.infra.path_safety import safe_join, try_safe_join
-from lib.infra.schema_guards import is_int
 from lib.infra.thumbnail import extract_video_thumbnail
 from lib.project.asset_derivatives import DERIVATIVE_ASSET_TYPE, DERIVATIVE_TASK_TYPE
 from lib.project.asset_types import (
@@ -86,7 +85,6 @@ from lib.prompts.prompt_style import normalize_style_value
 from lib.prompts.prompt_utils import render_storyboard_video_prompt
 from lib.prompts.reference_image_numbering import clamp_reference_images
 from lib.script.reference_video.execution_checkpoint import (
-    NarrationExecutionFacts,
     ProviderMediaInput,
     StagedProviderMedia,
     StoryboardSubmissionCheckpoint,
@@ -110,18 +108,12 @@ from lib.speech.audio_utils import (
 )
 from lib.speech.narration_config import (
     NarrationConfigError,
-    ProjectTtsSettingsResolver,
     project_tts_settings,
     require_project_tts_generation,
 )
 from lib.speech.narration_delivery import (
-    USE_TTS,
-    NarratedVideoDurationBlockedError,
-    NarrationDeliveryRequestOptions,
     build_narration_audio_basis,
     canonical_narration_text,
-    prepare_current_narrated_video_duration,
-    prepare_narrated_video_duration,
     register_narration_audio_transactionally,
 )
 from lib.speech.speech_artifact_provenance import build_video_duration_basis
@@ -150,13 +142,6 @@ from server.services.tasks.generation_context import (
     resolve_generation_context,
 )
 from server.services.tasks.image_edit_tasks import execute_image_edit_task
-from server.services.tasks.narration_delivery_tasks import (
-    active_narrated_video_resource_ids,
-    current_selected_video_tier,
-    reuse_current_video_for_tier,
-    storyboard_planning_duration,
-    tts_task_in_progress,
-)
 from server.services.tasks.reference_video_tasks import execute_reference_video_task
 
 logger = logging.getLogger(__name__)
@@ -656,14 +641,6 @@ async def execute_tts_task(
         formal_input_claims,
     ) = await asyncio.to_thread(_prepare)
 
-    if isinstance(script_file, str) and resource_id in await active_narrated_video_resource_ids(
-        project_name=project_name,
-        resource_ids=(resource_id,),
-        script_file=script_file,
-        user_id=user_id,
-    ):
-        raise ConflictError("tts_conflicts_with_active_narrated_video", resource_id=resource_id)
-
     # 旁白配音只按项目的 TTS 快照合成：项目改为后期配音或快照不完整时拒绝执行。
     settings = require_project_tts_generation(project)
     voice = settings.voice
@@ -1064,7 +1041,6 @@ async def execute_video_task(
     if prompt is None:
         raise ValueError("current script unit is missing video_prompt")
     requested_visual_prompt = copy.deepcopy(prompt)
-    delivery_options = NarrationDeliveryRequestOptions.from_payload(payload)
     # lane 归桶按项目生成模式求值，与提交入口（``generate_video``）同源：入口挡掉参考生视频后
     # 到达这里的项目恒为 i2v，但桶不在两处各硬编码一次，避免生成模式口径分叉。
     execution_payload = without_video_execution_identity(payload) if task_id is not None else payload
@@ -1077,7 +1053,6 @@ async def execute_video_task(
             generation_type=video_bucket_for_generation_mode(project.get("generation_mode")),
             route="storyboard",
         ),
-        audio=AudioLaneRequest() if delivery_options.narration_delivery == USE_TTS else None,
     )
     generator = ctx.generator
     registry_provider_id = ctx.video.provider_model.provider_id
@@ -1167,92 +1142,16 @@ async def execute_video_task(
         if request_facts.allowed_durations:
             duration_seconds = request_facts.allowed_durations[0]
         else:
-            # 档位为空只在时长由端点固定时成立（其余情形请求事实已失败）：没有档位可借，与 use_tts
-            # 路径取同一个规划基准，两条路径的申请秒数一致。
-            duration_seconds = storyboard_planning_duration(request_facts, declared=None, project=project)
+            # 档位为空只在时长由端点固定时成立（其余情形请求事实已失败）：没有档位可借，取共享的
+            # 规划篇幅默认值。
+            duration_seconds = DEFAULT_PLANNED_DURATION_SECONDS
 
-    delivery_projection = None
-    if delivery_options.narration_delivery == USE_TTS:
-        episode = artifact_episode
-        # 档位与端点固定取自执行侧视频请求事实，与预检只差身份来源。
-        assert request_facts is not None
-        current_planned_duration = storyboard_planning_duration(
-            request_facts,
-            declared=item.get("duration_seconds") if isinstance(item, dict) else None,
-            project=project,
-        )
-        constrained_durations = list(request_facts.allowed_durations)
-        delivery_projection = await prepare_current_narrated_video_duration(
-            project=project,
-            episode=episode,
-            preparation=admit_script_unit(script_kind, item).preparation,
-            project_path=project_path,
-            delivery=delivery_options.narration_delivery,
-            planned_duration_seconds=current_planned_duration,
-            supported_durations=constrained_durations,
-            confirmed_request_duration_seconds=delivery_options.confirmed_request_duration_seconds,
-            duration_endpoint_fixed=request_facts.duration_endpoint_fixed,
-            resolver=ProjectTtsSettingsResolver(),
-            tts_in_progress=await tts_task_in_progress(
-                project_name=project_name,
-                resource_id=resource_id,
-                script_file=str(script_file),
-                user_id=user_id,
-            ),
-        )
-        narration_actual_duration = delivery_projection.narration.actual_duration_seconds
-        current_visual_duration = (
-            await current_selected_video_tier(
-                project_path=project_path,
-                versions=generator.versions,
-                item=item,
-                resource_type="videos",
-                resource_id=resource_id,
-                visual_basis_digest=visual_basis_digest,
-            )
-            if narration_actual_duration is not None
-            else None
-        )
-        delivery_projection = prepare_narrated_video_duration(
-            narration=delivery_projection.narration,
-            planned_duration_seconds=current_planned_duration,
-            supported_durations=constrained_durations,
-            confirmed_request_duration_seconds=delivery_options.confirmed_request_duration_seconds,
-            duration_endpoint_fixed=request_facts.duration_endpoint_fixed,
-            current_visual_duration_seconds=current_visual_duration,
-        )
-        if not delivery_projection.allowed:
-            raise NarratedVideoDurationBlockedError(delivery_projection)
-        request_duration = delivery_projection.request_duration_seconds
-        if request_duration is None:
-            raise RuntimeError("allowed narrated video projection is missing a request duration")
-        duration_seconds = request_duration
     if not isinstance(duration_seconds, (int, str)) or isinstance(duration_seconds, bool):
         raise ValueError("video request duration must be an integer or integer string")
     # 能力守卫：provider 解析之后的唯一权威家（见 ADR-0001）。安全解析交给守卫，
     # 此处不预先 int() 截断，避免把非整数秒静默修正成「碰巧合法」的值。
     assert_duration_supported(duration_seconds, supported_durations)
     duration_seconds = int(float(duration_seconds))
-
-    if delivery_projection is not None:
-        if not is_int(duration_seconds):
-            raise RuntimeError("allowed TTS video projection produced a non-integer request duration")
-        narration_actual_duration = delivery_projection.narration.actual_duration_seconds
-        if narration_actual_duration is None:
-            raise RuntimeError("allowed TTS video projection is missing actual narration duration")
-        reused = await reuse_current_video_for_tier(
-            project_path=project_path,
-            versions=generator.versions,
-            item=item,
-            resource_type="videos",
-            resource_id=resource_id,
-            request_duration_seconds=duration_seconds,
-            minimum_actual_duration_seconds=narration_actual_duration,
-            visual_basis_digest=visual_basis_digest,
-            revalidate_visual_basis_digest=_current_visual_basis_digest,
-        )
-        if reused is not None:
-            return reused
 
     provider_start_image = storyboard_file
     provider_end_image = end_image
@@ -1335,14 +1234,6 @@ async def execute_video_task(
                 speech=artifact_speech.basis,
                 duration=artifact_duration_basis,
             )
-            narration = delivery_projection.narration if delivery_projection is not None else None
-            narration_facts = NarrationExecutionFacts(
-                delivery=delivery_options.narration_delivery,
-                tts_status=narration.tts_status.value if narration is not None else "not_applicable",
-                artifact_path=narration.artifact_path if narration is not None else "",
-                basis_digest=narration.basis_digest if narration is not None else None,
-                actual_duration_seconds=narration.actual_duration_seconds if narration is not None else None,
-            )
 
             async def _checkpoint_before_submit() -> Mapping[str, object]:
                 await asyncio.to_thread(assert_current_artifact_input_claims_usable, project_path, formal_input_claims)
@@ -1377,7 +1268,6 @@ async def execute_video_task(
                     seed=seed,
                     visual_basis_digest=visual_basis_digest,
                     artifact_currency=artifact_currency,
-                    narration=narration_facts,
                     media=staged_media,
                     reference_audio_targets=None,
                 )

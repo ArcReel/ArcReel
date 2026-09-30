@@ -13,7 +13,6 @@ from contextlib import AbstractContextManager, contextmanager
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
-from unittest.mock import AsyncMock
 
 import pytest
 
@@ -283,11 +282,6 @@ def tts_env(monkeypatch, tmp_path):
         return 5.25
 
     monkeypatch.setattr(generation_tasks, "probe_existing_audio_duration_seconds", _duration)
-    monkeypatch.setattr(
-        generation_tasks,
-        "active_narrated_video_resource_ids",
-        AsyncMock(return_value=frozenset()),
-    )
     return pm, gen
 
 
@@ -397,26 +391,6 @@ class TestExecuteTtsTask:
                 {"script_file": "episode_1.json"},
             )
 
-        assert gen.audio_calls == []
-
-    async def test_active_use_tts_video_blocks_regeneration_before_provider_call(self, tts_env, monkeypatch):
-        from lib.infra.api_errors import ConflictError
-
-        _pm, gen = tts_env
-        monkeypatch.setattr(
-            generation_tasks,
-            "active_narrated_video_resource_ids",
-            AsyncMock(return_value=frozenset({"E1S01"})),
-        )
-
-        with pytest.raises(ConflictError) as exc_info:
-            await generation_tasks.execute_tts_task(
-                "demo",
-                "E1S01",
-                {"script_file": "episode_1.json"},
-            )
-
-        assert exc_info.value.key == "tts_conflicts_with_active_narrated_video"
         assert gen.audio_calls == []
 
     async def test_explicit_payload_text(self, tts_env):

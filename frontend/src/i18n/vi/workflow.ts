@@ -106,7 +106,7 @@ export default {
   'tier_cost_unknown': 'chưa có báo giá',
   'tier_unknown': 'chưa xác định mức',
   'duration_seconds': '{{value}} giây',
-  'unit_tiers': 'hiện {{current}} · yêu cầu {{request}}',
+  'unit_request_tier': 'yêu cầu {{request}}',
 
   // ---- Cách đưa lời dẫn ----
   'delivery_title': 'Lời dẫn cho lô này',
@@ -123,8 +123,6 @@ export default {
   'action_retry': 'thử lại sau ít phút',
   'action_fix_input': 'kiểm tra và sửa cấu hình tạo của đơn vị này',
   'action_generate_dependency': 'bổ sung hoặc thay tài nguyên tham chiếu còn thiếu',
-  'action_generate_tts': 'tạo lời dẫn cho đơn vị này',
-  'action_regenerate_tts': 'tạo lại lời dẫn cho đơn vị này',
   'action_wait_for_task': 'đợi lần thử đang chạy kết thúc',
   'action_replan_unit': 'viết lại đơn vị này cho vừa thời lượng có thể tạo',
   'action_confirm_request_duration': 'xác nhận mức thời lượng yêu cầu',
@@ -166,6 +164,4 @@ export default {
   'problem_generation_post_processing_failed': 'Video đã tạo xong nhưng xử lý hậu kỳ thất bại.',
   'problem_reference_asset_unregistered': 'Đơn vị này tham chiếu đến tài nguyên chưa được đăng ký.',
   'problem_reference_asset_missing': 'Tài nguyên được tham chiếu chưa có ảnh tài nguyên.',
-  'problem_tts_not_configured': 'Chưa cấu hình mô hình giọng đọc tổng hợp.',
-  'problem_tts_duration_endpoint_fixed': 'Thời lượng thành phẩm của model này do endpoint quyết định, không thể yêu cầu video đủ dài cho lời dẫn.',
 } satisfies Record<keyof typeof enWorkflow, string>;

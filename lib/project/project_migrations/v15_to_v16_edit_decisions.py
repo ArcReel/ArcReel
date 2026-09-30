@@ -22,6 +22,12 @@
 - 只写 ``project.json``，随本步最后一次写入落盘；备份由 runner 负责。选中版本记录没有 TTS 设置的
   旧音频本来就不被登记，判定不改变它们的处置。
 
+**视频时效不再以旁白时长为输入**
+
+- 按旧口径与新口径各规划一次目标态，只改写改前时新且目标已变的视频登记；本就过期的登记保留。
+- 选中版本额外记录新的时效时长基准，实际付费档位与执行请求摘要不变。版本记录先于清单落盘，
+  清单先于项目版本；中断后重跑仍能认出旧登记与已改写的版本记录。
+
 本步只改写既有登记、不增删；迁移结果按改写后完整目标态的跳过项与实际清单计数生成。
 它不解决此前的跳过原因，runner 合并链上更早一步或已有迁移报告的跳过项。
 """
@@ -34,6 +40,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from lib.artifacts.artifact_activation import assert_artifact_target_state_plan_unchanged
 from lib.artifacts.artifact_manifest import (
     MANIFEST_FILENAME,
     ArtifactBasisDescriptor,
@@ -41,10 +48,16 @@ from lib.artifacts.artifact_manifest import (
     ArtifactKind,
     ArtifactManifestEntry,
     ProjectArtifactManifestAdapter,
+    compose_video_artifact_basis,
 )
 from lib.artifacts.artifact_planner import TargetStatePlanner
-from lib.artifacts.artifact_version_provenance import parse_typed_audio_settings, parse_typed_media_version_target
+from lib.artifacts.artifact_version_provenance import (
+    VIDEO_CURRENCY_DURATION_FIELD,
+    parse_typed_audio_settings,
+    parse_typed_media_version_target,
+)
 from lib.artifacts.formal_write import project_metadata_lock
+from lib.artifacts.video_artifact_facts import VideoArtifactCurrencyFacts
 from lib.infra.json_io import atomic_write_json
 from lib.infra.path_safety import try_safe_join
 from lib.project.project_migration_report import ArtifactBackfillOutcome
@@ -64,6 +77,7 @@ from lib.speech.speech_artifact_provenance import (
     SelectedMediaEvidence,
     build_legacy_transition_presentation_basis,
     build_presentation_basis,
+    build_video_duration_basis,
 )
 from lib.speech.speech_presentation import presentation_artifact_paths
 
@@ -81,6 +95,74 @@ def _load_object(path: Path) -> dict[str, Any] | None:
     except (OSError, ValueError):
         return None
     return parsed if isinstance(parsed, dict) else None
+
+
+# ---------------------------------------------------------------------------
+# 子步：视频时效与旁白下限解耦
+# ---------------------------------------------------------------------------
+
+
+def _rebase_video_duration_entries(project_dir: Path, project: Mapping[str, Any], migrated: Mapping[str, Any]) -> None:
+    project_bytes = (project_dir / "project.json").read_bytes()
+    adapter = ProjectArtifactManifestAdapter(project_dir)
+    stored = adapter.snapshot_entries()
+    before = TargetStatePlanner(
+        project_dir,
+        project_bytes=json.dumps(project).encode(),
+        allow_stale_formal_targets=True,
+        legacy_audio_entries=stored,
+    ).plan()
+    after = TargetStatePlanner(
+        project_dir, project_bytes=json.dumps(migrated).encode(), allow_stale_formal_targets=True
+    ).plan()
+    for plan in (before, after):
+        assert_artifact_target_state_plan_unchanged(project_dir, plan, expected_project_bytes=project_bytes)
+    versions_path = project_dir / "versions" / "versions.json"
+    versions = _load_object(versions_path) or {}
+    replacements: dict[ArtifactKey, ArtifactManifestEntry] = {}
+    changed = False
+    for key, target in after.entries.items():
+        if (
+            key.kind is not ArtifactKind.EPISODE_VIDEO
+            or key not in before.entries
+            or stored.get(key) != before.entries[key]
+            or before.entries[key] == target
+        ):
+            continue
+        resource_id = str(key.components[-1])
+        resource_type = "reference_videos" if target.artifact_path.startswith("reference_videos/") else "videos"
+        record = _selected_version_record(versions, resource_type, resource_id)
+        if record is None:
+            continue
+        try:
+            frozen = parse_typed_media_version_target(resource_type, record)
+            facts = VideoArtifactCurrencyFacts.from_dict(record.get("artifact_video_currency"))
+        except (TypeError, ValueError):
+            continue
+        if frozen.basis.digest == target.basis_digest:
+            replacements[key] = target
+            continue
+        if frozen.basis.digest != stored[key].basis_digest:
+            continue
+        for tier in facts.duration_tiers:
+            basis = compose_video_artifact_basis(
+                visual=facts.visual_basis, speech=facts.speech_basis, duration=build_video_duration_basis(tier)
+            )
+            if basis.digest == target.basis_digest:
+                record[VIDEO_CURRENCY_DURATION_FIELD] = tier
+                replacements[key] = target
+                changed = True
+                break
+    if not replacements:
+        return
+    if changed:
+        ensure_versioned_backup(versions_path, TARGET_SCHEMA_VERSION - 1)
+        atomic_write_json(versions_path, versions)
+    ensure_versioned_backup(project_dir / MANIFEST_FILENAME, TARGET_SCHEMA_VERSION - 1)
+    if not adapter.replace_entries_if_matches_atomically(
+        expected={key: stored[key] for key in replacements}, replacements=replacements
+    ):
+        raise RuntimeError("artifact manifest changed while rebasing video duration entries")
 
 
 # ---------------------------------------------------------------------------
@@ -224,8 +306,10 @@ def _move_transitions_out_of_scripts(project_dir: Path, project: Mapping[str, An
 # ---------------------------------------------------------------------------
 
 
-def _selected_audio_record(versions: Mapping[str, Any], resource_id: str) -> Mapping[str, Any] | None:
-    bucket = versions.get("audio")
+def _selected_version_record(
+    versions: Mapping[str, Any], resource_type: str, resource_id: str
+) -> dict[str, Any] | None:
+    bucket = versions.get(resource_type)
     resource = bucket.get(resource_id) if isinstance(bucket, Mapping) else None
     if not isinstance(resource, Mapping):
         return None
@@ -233,9 +317,7 @@ def _selected_audio_record(versions: Mapping[str, Any], resource_id: str) -> Map
     records = resource.get("versions")
     if type(selected_version) is not int or not isinstance(records, list):
         return None
-    selected = [
-        record for record in records if isinstance(record, Mapping) and record.get("version") == selected_version
-    ]
+    selected = [record for record in records if isinstance(record, dict) and record.get("version") == selected_version]
     return selected[0] if len(selected) == 1 else None
 
 
@@ -255,7 +337,7 @@ def _latest_registered_tts_settings(project_dir: Path) -> TtsSynthesisSettings |
         episode, resource_id = key.components
         if type(episode) is not int or not isinstance(resource_id, str):
             continue
-        record = _selected_audio_record(versions, resource_id)
+        record = _selected_version_record(versions, "audio", resource_id)
         if record is None:
             continue
         try:
@@ -304,6 +386,7 @@ def migrate_v15_to_v16(project_dir: Path) -> ArtifactBackfillOutcome | None:
             **_narration_delivery_fields(project_dir, project),
             "schema_version": TARGET_SCHEMA_VERSION,
         }
+        _rebase_video_duration_entries(project_dir, project, migrated_project)
         target = TargetStatePlanner(project_dir, project_bytes=json.dumps(migrated_project).encode()).plan()
         atomic_write_json(project_file, migrated_project)
         return ArtifactBackfillOutcome.from_entries(

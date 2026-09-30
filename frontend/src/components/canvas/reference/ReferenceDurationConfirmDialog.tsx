@@ -1,7 +1,6 @@
 import { useTranslation } from "react-i18next";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import type { ReferenceDurationPrecheck } from "@/types";
-import { formatCurrencyAmount } from "@/utils/cost-format";
 import { advisoryProblems } from "./advisory-problems";
 
 /** 需确认的单元及其取档结果。 */
@@ -17,7 +16,7 @@ interface Props {
   onCancel: () => void;
 }
 
-/** 一行「当前视觉/剧本档位 → 申请档位」对照，秒数等宽以便多行纵向对齐。 */
+/** 一行「剧本档位 → 申请档位」对照，秒数等宽以便多行纵向对齐。 */
 function DurationRow({
   label,
   item,
@@ -37,7 +36,7 @@ function DurationRow({
         </span>
       )}
       <span className="tabular-nums" style={{ color: "var(--color-text-2)" }}>
-        {seconds(item.precheck.current_visual_duration ?? item.precheck.script_duration)}
+        {seconds(item.precheck.script_duration)}
       </span>
       <span aria-hidden style={{ color: "var(--color-text-4)" }}>
         →
@@ -46,35 +45,13 @@ function DurationRow({
         {seconds(item.precheck.request_duration)}
       </span>
       <span style={{ color: "var(--color-text-3)" }}>{diffText}</span>
-      {item.precheck.duration_input !== (
-        item.precheck.current_visual_duration ?? item.precheck.script_duration
-      ) && (
-        <span className="basis-full text-[11.5px]" style={{ color: "var(--color-text-2)" }}>
-          {t("reference_duration_request_basis", {
-            duration: seconds(item.precheck.duration_input),
-          })}
-        </span>
-      )}
-      {item.precheck.request_cost && (
-        <span className="basis-full text-[11.5px]" style={{ color: "var(--color-text-2)" }}>
-          {t("reference_duration_request_cost", {
-            cost: formatCurrencyAmount(
-              item.precheck.request_cost.currency,
-              item.precheck.request_cost.amount,
-            ),
-            provider: item.precheck.request_cost.provider_id,
-            model: item.precheck.request_cost.model_id,
-            duration: seconds(item.precheck.request_cost.request_duration_seconds),
-          })}
-        </span>
-      )}
     </li>
   );
 }
 
 /**
- * 视频入队前的确认：模型只接受离散时长档位，fresh TTS 需要的申请档位一旦偏离当前视觉档位
- * （没有可信成片时偏离剧本档位），就在入队前讲清楚档位与费用，由用户决定是否继续；预检的
+ * 视频入队前的确认：模型只接受离散时长档位，申请档位一旦偏离剧本档位，就在入队前讲清楚
+ * 档位，由用户决定是否继续；预检的
  * 非阻断问题（参考图取前 N 张）与取档偏离同等触发本弹窗，列在时长对照行之下——它们改变
  * 成片内容却不拦截入队，事后界面上没有任何展示面。
  *
@@ -91,8 +68,7 @@ export function ReferenceDurationConfirmDialog({ open, items, onConfirm, onCance
   if (durationItems.length === 0 && advisoryItems.length === 0) return null;
 
   const seconds = (value: number) => t("reference_duration_seconds", { value });
-  const baseline = (item: DurationConfirmItem) =>
-    item.precheck.current_visual_duration ?? item.precheck.script_duration;
+  const baseline = (item: DurationConfirmItem) => item.precheck.script_duration;
   const diffText = (item: DurationConfirmItem) => {
     const { request_duration } = item.precheck;
     const previous = baseline(item);

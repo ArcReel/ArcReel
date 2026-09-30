@@ -9,11 +9,11 @@ from unittest.mock import AsyncMock
 import pytest
 
 from lib.db.models.user import User
-from server.services.tasks.narration_delivery_tasks import active_tts_resource_ids
 from server.tool_runtime import CallerContext, ToolOutcome
 from tests.factories import make_video_request_facts
 from tests.integration.server.agent_tool_support import (
     ToolHarness,
+    fake_reference_projection,
     read_generation_result,
     reference_video_script,
     run_generate_videos,
@@ -102,11 +102,15 @@ async def test_generate_videos_episode_scope_batch_is_all_or_nothing_when_a_unit
     assert codes["E1S01"] == "generation_batch_admission_withheld"
 
 
-async def test_generate_reference_videos_reads_active_tts_from_the_callers_queue_only(
-    idle_fake_ctx: ToolHarness, concurrent_session_factory
+async def test_generate_reference_videos_ignores_narration_audio_state(
+    idle_fake_ctx: ToolHarness, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """参考视频预检只认同队列同租户 TTS；其他租户的任务不能占住当前请求。"""
+    """TTS 配音项目里旁白配音缺失或正在生成，都不影响参考生视频的准入与入队。"""
     fake_ctx = idle_fake_ctx
+    monkeypatch.setattr(
+        "server.services.admission.video_batch_admission.project_reference_unit_request",
+        fake_reference_projection(),
+    )
     use_reference_route(fake_ctx)
     fake_ctx.pm.project_payload.update(
         {"narration_delivery": "use_tts", "audio_backend": "dashscope/qwen3-tts-flash", "narration_voice": "Cherry"}
@@ -125,61 +129,25 @@ async def test_generate_reference_videos_reads_active_tts_from_the_callers_queue
         }
     )
     fake_ctx.pm.script_payload = script
-    async with concurrent_session_factory() as session:
-        session.add(User(id="tenant-user", username="tenant-user"))
-        await session.commit()
-    fake_ctx.caller = CallerContext(user_id="tenant-user", source="embedded")
-    other_user = await fake_ctx.queue.enqueue_task(
-        project_name="demo",
-        task_type="tts",
-        media_type="audio",
-        resource_id="E1U1",
-        script_file="episode_1.json",
-        payload={"text": "别人的发声任务"},
-    )
-    caller_tts = await fake_ctx.queue.enqueue_task(
+    await fake_ctx.queue.enqueue_task(
         project_name="demo",
         task_type="tts",
         media_type="audio",
         resource_id="E1U2",
         script_file="episode_1.json",
-        payload={"text": "当前调用方的发声任务"},
-        user_id="tenant-user",
+        payload={"text": "回声渐渐远去。"},
     )
-    assert await active_tts_resource_ids(
-        project_name="demo",
-        resource_ids=("E1U1", "E1U2"),
-        script_file="episode_1.json",
-        user_id="tenant-user",
-        queue=fake_ctx.queue,
-    ) == frozenset({"E1U2"})
-    assert await active_tts_resource_ids(
-        project_name="demo",
-        resource_ids=("E1U1", "E1U2"),
-        script_file="episode_1.json",
-        queue=fake_ctx.queue,
-    ) == frozenset({"E1U1"})
+    enqueued: list[Any] = []
 
-    out = await run_generate_videos(fake_ctx, _EPISODE_1, narration_delivery="use_tts")
+    async def _batch(*, specs, **_batch_kwargs):
+        enqueued.extend(specs)
+        return [], []
 
-    other_task = await fake_ctx.queue.get_task(other_user["task_id"])
-    caller_task = await fake_ctx.queue.get_task(caller_tts["task_id"])
-    assert other_task is not None
-    assert other_task["user_id"] == "default"
-    assert caller_task is not None
-    assert caller_task["user_id"] == "tenant-user"
-    result = read_generation_result(out)
-    assert sorted(result.blocked) == ["E1U1", "E1U2"]
-    problems = {item.unit_id: item.problem for item in result.items if item.problem is not None}
-    assert problems["E1U1"].code == "tts_missing"
-    assert problems["E1U2"].code == "tts_generating"
-    assert not await fake_ctx.queue.get_active_tasks_for_resources(
-        project_name="demo",
-        task_type="reference_video",
-        resource_ids=["E1U1", "E1U2"],
-        script_file="episode_1.json",
-        user_id="tenant-user",
-    )
+    out = await run_generate_videos(fake_ctx, _EPISODE_1, batch_waiter=_batch)
+
+    assert out.problem is None, out
+    assert read_generation_result(out).blocked == []
+    assert sorted(spec.resource_id for spec in enqueued) == ["E1U1", "E1U2"]
 
 
 async def test_generate_videos_all_scope_creates_zero_tasks_when_one_artifact_state_is_unreadable(

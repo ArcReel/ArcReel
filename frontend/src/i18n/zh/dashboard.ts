@@ -628,7 +628,6 @@ export default {
   'generate_storyboard_failed': '生成分镜失败: {{message}}',
   'video_task_submitted_toast': '已提交视频 "{{id}}" 生成任务',
   'generate_video_failed': '生成视频失败: {{message}}',
-  'workflow_regenerate_needs_confirmation': '本次申请时长需要先确认档位，已为你定位到对应分镜',
   'narration_task_submitted_toast': '已提交旁白配音 "{{id}}" 生成任务',
   'script_generation_notice_toast': '正在生成脚本，这一步耗时较长，请耐心等待…',
   'narration_batch_submitted_toast': '已提交 {{count}} 个旁白配音生成任务',
@@ -1354,8 +1353,6 @@ export default {
   'reference_duration_note_longer': '视频费用按申请的 {{duration}} 档位计算；成片也按该时长交付，不会裁剪到请求时长基准。',
   'reference_duration_note_shorter': '模型最长支持 {{duration}}，成片放不下完整的请求时长基准。',
   'reference_duration_note_no_trim': '每个视频的费用按上方申请档位计算；成片按该时长交付，不会裁剪。',
-  'reference_duration_request_basis': '含实际旁白的请求时长基准：{{duration}}',
-  'reference_duration_request_cost': '新视频请求费用：{{cost}} · {{provider}}/{{model}} · {{duration}}',
   'reference_duration_batch_summary': '{{count}} 个单元将改用不同的视频时长档位：',
   'reference_advisory_heading': '以下调整将在本次生成中生效：',
   'reference_advisory_confirm_title': '确认视频生成',
@@ -2062,10 +2059,6 @@ export default {
   'script_edit_manifest_invalid': '无法核验产物状态，因此未修改脚本。请重试或修复项目数据。',
   'script_edit_commit_failed': '无法安全保存脚本，请重试。',
   'script_edit_rejected': '脚本编辑被拒绝，请检查对应操作后重试。',
-  'narration_delivery_label': '旁白交付',
-  'narration_delivery_post_production': '后期配音',
-  'narration_delivery_use_tts': '使用当前 TTS',
-  'narration_delivery_tts_duration_endpoint_fixed': '该模型的成片时长由端点固定，无法为旁白申请足够长的成片；请用后期配音。',
 
   // 自定义调用端点
   'ce_section_title': '调用端点',

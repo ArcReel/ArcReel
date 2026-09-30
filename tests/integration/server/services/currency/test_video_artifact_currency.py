@@ -17,12 +17,11 @@ from lib.artifacts.artifact_manifest import (
     compose_video_artifact_basis,
 )
 from lib.artifacts.version_manager import PaidVersionCommit, VersionManager
-from lib.artifacts.video_artifact_facts import VIDEO_ARTIFACT_RESTORE_BLOCKER_FIELD, VideoArtifactCurrencyFacts
+from lib.artifacts.video_artifact_facts import VideoArtifactCurrencyFacts
 from lib.artifacts.visual_artifact_provenance import (
     build_reference_video_artifact_visual_basis,
     build_storyboard_video_artifact_visual_basis,
 )
-from lib.script.reference_video.execution_checkpoint import NarrationExecutionFacts
 from lib.script.reference_video.request_projection import (
     FilesystemReferenceAssets,
     clamp_reference_assets,
@@ -38,7 +37,6 @@ from lib.speech.speech_artifact_provenance import (
 )
 from lib.speech.speech_composition import admit_script_unit
 from server.services.currency import video_artifact_currency
-from server.services.currency.artifact_version_restore import is_typed_media_version_restorable
 from server.services.currency.video_artifact_currency import (
     VideoArtifactCommitter,
     build_current_video_artifact_basis,
@@ -90,7 +88,6 @@ async def test_shared_video_completion_returns_nonselected_paid_history_without_
     version = versions.add_version("videos", "E1S01", "p", source_file=paid)
     committer = MagicMock()
     committer.outcome = PaidVersionCommit(version=version, selected=False)
-    committer.selection_error = None
     committer.release_admission_guard = AsyncMock()
     finalize = AsyncMock()
     completed = MagicMock()
@@ -126,7 +123,6 @@ async def test_a_storyboard_video_kept_only_in_history_still_carries_its_warning
     version = versions.add_version("videos", "E1S01", "p", source_file=paid)
     committer = MagicMock()
     committer.outcome = PaidVersionCommit(version=version, selected=False)
-    committer.selection_error = None
     committer.release_admission_guard = AsyncMock()
     warning = {"key": "comfyui_multiple_outputs", "params": {"count": 2, "filename": "final.mp4"}}
 
@@ -179,7 +175,6 @@ async def test_video_admission_guard_spans_selection_and_finalize(
         8,
         {
             "execution_script_file": "episode_1.json",
-            "execution_narration": {"delivery": "post_production"},
         },
     )
     assert guard_active
@@ -242,7 +237,6 @@ async def test_paid_video_guard_acquisition_defers_cancellation_until_the_guard_
             8,
             {
                 "execution_script_file": "episode_1.json",
-                "execution_narration": {"delivery": "post_production"},
             },
         )
     )
@@ -260,246 +254,6 @@ async def test_paid_video_guard_acquisition_defers_cancellation_until_the_guard_
     assert guard_active
     await committer.release_admission_guard()
     assert not guard_active
-
-
-@pytest.mark.asyncio
-async def test_formal_selection_preparation_turns_execution_tts_validation_failure_into_history_only(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    failure = RuntimeError("generated video does not cover execution TTS")
-    validate = AsyncMock(side_effect=failure)
-    monkeypatch.setattr(video_artifact_currency, "validate_generated_video_covers_tts_duration", validate)
-    committer = VideoArtifactCommitter(
-        project_manager=MagicMock(),
-        project_name="demo",
-        project_path=tmp_path,
-        versions=MagicMock(),
-        resource_type="videos",
-        resource_id="E1S01",
-        prompt="p",
-    )
-    staged = tmp_path / "staged.mp4"
-    staged.write_bytes(b"paid-video")
-    metadata = {
-        "execution_script_file": "episode_1.json",
-        "execution_narration": NarrationExecutionFacts(
-            delivery="use_tts",
-            tts_status="current",
-            artifact_path="audio/segment_E1S01.wav",
-            basis_digest="sha256-v1:" + "a" * 64,
-            actual_duration_seconds=6.2,
-        ).to_dict(),
-    }
-
-    await committer.prepare_selection(staged, 8, metadata)
-
-    assert committer.selection_error is failure
-    validate.assert_awaited_once_with(
-        resource_id="E1S01",
-        request_duration_seconds=8,
-        output_path=staged,
-        tts_actual_duration_seconds=6.2,
-    )
-
-
-@pytest.mark.asyncio
-async def test_formal_selection_validates_frozen_tts_when_current_tts_changes(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A paid result is judged against the TTS accepted at submission, not mutable current state."""
-
-    monkeypatch.setattr(
-        "server.services.tasks.narration_delivery_tasks.probe_existing_media_duration_seconds",
-        AsyncMock(return_value=8.0),
-    )
-    project_manager = MagicMock()
-    project_manager.load_project.return_value = {}
-    committer = VideoArtifactCommitter(
-        project_manager=project_manager,
-        project_name="demo",
-        project_path=tmp_path,
-        versions=MagicMock(),
-        resource_type="videos",
-        resource_id="E1S01",
-        prompt="p",
-    )
-    staged = tmp_path / "staged.mp4"
-    staged.write_bytes(b"paid-video")
-    narration = NarrationExecutionFacts(
-        delivery="use_tts",
-        tts_status="current",
-        artifact_path="audio/segment_E1S01.wav",
-        basis_digest="sha256-v1:" + "a" * 64,
-        actual_duration_seconds=6.2,
-    )
-
-    await committer.prepare_selection(
-        staged,
-        8,
-        {
-            "artifact_video_currency": _currency("frozen").to_dict(),
-            "execution_script_file": "episode_1.json",
-            "execution_narration": narration.to_dict(),
-        },
-    )
-
-    # 当前 TTS 解析器被换成一抛就错：冻结档若误取当前状态，selection_error 不会是 None。
-    assert committer.selection_error is None
-
-
-@pytest.mark.asyncio
-async def test_formal_selection_reloads_current_tts_settings_for_currency_check(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    project_path = tmp_path / "demo"
-    current = project_path / "videos" / "scene_E1S01.mp4"
-    current.parent.mkdir(parents=True)
-    current.write_bytes(b"old-current")
-    staged = current.with_name(".paid-staged.mp4")
-    staged.write_bytes(b"paid-video")
-    versions = VersionManager(project_path)
-    old_version = versions.add_version("videos", "E1S01", "old", source_file=current)
-    currency = _currency("frozen", parent_version=old_version)
-    current_settings = TtsSynthesisSettings("new-provider", "new-model", "new-voice", 1.2)
-    selection_guard_active = False
-
-    class _PM:
-        @staticmethod
-        def load_project(_name):
-            return {}
-
-        @contextmanager
-        def locked_project_script_snapshot(self, *_args):
-            nonlocal selection_guard_active
-            selection_guard_active = True
-            try:
-                # 选片守卫内读到的项目带着新的 TTS 快照；守卫外的 load_project 看不到它
-                yield (
-                    {
-                        "narration_delivery": "use_tts",
-                        "audio_backend": "new-provider/new-model",
-                        "narration_voice": "new-voice",
-                        "narration_speed": 1.2,
-                    },
-                    {},
-                )
-            finally:
-                selection_guard_active = False
-
-    monkeypatch.setattr(
-        video_artifact_currency,
-        "validate_generated_video_covers_tts_duration",
-        AsyncMock(),
-    )
-
-    basis_calls = 0
-
-    def _current_basis(**kwargs):
-        nonlocal basis_calls
-        basis_calls += 1
-        assert selection_guard_active
-        assert kwargs["current_tts_settings"] == current_settings
-        return ArtifactBasisDescriptor.from_basis(build_video_duration_basis(12))
-
-    monkeypatch.setattr(video_artifact_currency, "build_current_video_artifact_basis", _current_basis)
-    committer = VideoArtifactCommitter(
-        project_manager=_PM(),
-        project_name="demo",
-        project_path=project_path,
-        versions=versions,
-        resource_type="videos",
-        resource_id="E1S01",
-        prompt="p",
-    )
-    metadata = {
-        "artifact_video_currency": currency.to_dict(),
-        "execution_script_file": "episode_1.json",
-        "execution_narration": NarrationExecutionFacts(
-            delivery="use_tts",
-            tts_status="current",
-            artifact_path="audio/segment_E1S01.wav",
-            basis_digest="sha256-v1:" + "a" * 64,
-            actual_duration_seconds=6.2,
-        ).to_dict(),
-    }
-
-    await committer.prepare_selection(staged, 8, metadata)
-    assert basis_calls == 0
-    outcome = await asyncio.to_thread(committer, staged, current, 8, metadata)
-
-    assert outcome.selected is False
-    assert basis_calls >= 1
-
-
-@pytest.mark.asyncio
-async def test_failed_formal_selection_validation_archives_paid_video_without_current_window(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    project_path = tmp_path / "demo"
-    current = project_path / "videos" / "scene_E1S01.mp4"
-    current.parent.mkdir(parents=True)
-    current.write_bytes(b"old-current")
-    staged = current.with_name(".paid-staged.mp4")
-    staged.write_bytes(b"short-paid-video")
-    versions = VersionManager(project_path)
-    old_version = versions.add_version("videos", "E1S01", "old", source_file=current)
-    currency = _currency("frozen", parent_version=old_version)
-
-    class _PM:
-        @staticmethod
-        def load_project(_name):
-            return {}
-
-        @contextmanager
-        def locked_project_script_snapshot(self, *_args):
-            yield {}, {}
-
-    failure = RuntimeError("short output")
-    monkeypatch.setattr(
-        video_artifact_currency,
-        "validate_generated_video_covers_tts_duration",
-        AsyncMock(side_effect=failure),
-    )
-    committer = VideoArtifactCommitter(
-        project_manager=_PM(),
-        project_name="demo",
-        project_path=project_path,
-        versions=versions,
-        resource_type="videos",
-        resource_id="E1S01",
-        prompt="p",
-    )
-    metadata = {
-        "artifact_video_currency": currency.to_dict(),
-        "execution_checkpoint_schema_version": 3,
-        "execution_duration_seconds": 8,
-        "execution_request_digest": "d" * 64,
-        "execution_script_file": "episode_1.json",
-        "execution_narration": NarrationExecutionFacts(
-            delivery="use_tts",
-            tts_status="current",
-            artifact_path="audio/segment_E1S01.wav",
-            basis_digest="sha256-v1:" + "a" * 64,
-            actual_duration_seconds=6.2,
-        ).to_dict(),
-    }
-
-    await committer.prepare_selection(staged, 8, metadata)
-    outcome = committer(staged, current, 8, metadata)
-
-    assert committer.selection_error is failure
-    assert outcome.selected is False
-    assert current.read_bytes() == b"old-current"
-    history = versions.get_versions("videos", "E1S01")
-    assert history["current_version"] == old_version
-    rejected = history["versions"][-1]
-    assert (project_path / rejected["file"]).read_bytes() == b"short-paid-video"
-    assert rejected[VIDEO_ARTIFACT_RESTORE_BLOCKER_FIELD] == "output_duration_unverified"
-    assert is_typed_media_version_restorable("videos", rejected) is False
 
 
 @pytest.mark.parametrize("script_change", ["none", "rebound", "removed", "legacy"])
@@ -603,7 +357,6 @@ def test_selected_video_compensation_restores_media_manifest_and_only_video_asse
     metadata = {
         "artifact_video_currency": new_currency.to_dict(),
         "execution_script_file": "episode_1.json",
-        "execution_narration": {"delivery": "post_production"},
     }
 
     outcome = committer(staged, current, 8, metadata)
@@ -715,7 +468,6 @@ def test_selected_video_compensation_preserves_the_original_and_rollback_failure
     metadata = {
         "artifact_video_currency": new_currency.to_dict(),
         "execution_script_file": "episode_1.json",
-        "execution_narration": {"delivery": "post_production"},
     }
     assert committer(staged, current, 8, metadata).selected is True
     thumbnail.write_bytes(b"new-thumbnail")
@@ -823,20 +575,12 @@ def _storyboard_state(tmp_path: Path) -> tuple[Path, dict, dict, dict[str, objec
         "artifact_video_currency": currency.to_dict(),
         "execution_script_file": "episode_1.json",
         "execution_provider_media": [],
-        "execution_narration": {
-            "delivery": "post_production",
-            "tts_status": "not_applicable",
-            "artifact_path": "",
-            "basis_digest": None,
-            "actual_duration_seconds": None,
-        },
     }
     return project_path, project, script, metadata
 
 
 def test_storyboard_current_basis_tracks_speech_and_ignores_provider_metadata(tmp_path: Path) -> None:
     project_path, project, script, metadata = _storyboard_state(tmp_path)
-    versions = VersionManager(project_path)
     preparation = admit_script_unit("scenes", script["scenes"][0]).preparation
     visual = build_storyboard_video_artifact_visual_basis(
         resource_id="E1S01",
@@ -868,7 +612,6 @@ def test_storyboard_current_basis_tracks_speech_and_ignores_provider_metadata(tm
             script=script,
             resource_type="videos",
             resource_id="E1S01",
-            versions=versions,
             version_metadata={**metadata, "execution_provider_id": "changed-provider"},
         )
         == expected
@@ -883,7 +626,6 @@ def test_storyboard_current_basis_tracks_speech_and_ignores_provider_metadata(tm
             script=script,
             resource_type="videos",
             resource_id="E1S01",
-            versions=versions,
             version_metadata=metadata,
         )
         != expected
@@ -901,15 +643,15 @@ def test_current_video_basis_rejects_an_episode_rebound_to_another_script(tmp_pa
             script=script,
             resource_type="videos",
             resource_id="E1S01",
-            versions=VersionManager(project_path),
             version_metadata=metadata,
         )
         is None
     )
 
 
-def test_current_selected_tts_and_planned_tier_drive_video_currency(tmp_path: Path) -> None:
-    project_path, project, script, metadata = _storyboard_state(tmp_path)
+def test_video_currency_duration_tracks_only_the_planned_tier(tmp_path: Path) -> None:
+    """时长档位基准只取剧本计划时长：项目的旁白交付方式与已有旁白配音都不改变视频时效。"""
+    project_path, project, _script, metadata = _storyboard_state(tmp_path)
     project["content_mode"] = "narration"
     project["characters"] = {}
     script = {
@@ -925,24 +667,30 @@ def test_current_selected_tts_and_planned_tier_drive_video_currency(tmp_path: Pa
             }
         ],
     }
-    metadata["execution_narration"] = {"delivery": "use_tts"}
-    metadata["artifact_video_currency"] = _currency(
-        "narration",
-        request_duration=8,
-        duration_tiers=(4, 8),
-    ).to_dict()
-    versions = VersionManager(project_path)
+    metadata["artifact_video_currency"] = _currency("narration", request_duration=8, duration_tiers=(4, 8)).to_dict()
+
+    def _basis(current_project: dict, current_script: dict) -> ArtifactBasisDescriptor | None:
+        return build_current_video_artifact_basis(
+            project_path=project_path,
+            project=current_project,
+            script=current_script,
+            resource_type="videos",
+            resource_id="E1S01",
+            version_metadata=metadata,
+        )
+
+    post_production = {**project, "narration_delivery": "post_production"}
+    use_tts = {**project, "narration_delivery": "use_tts"}
+    without_tts = _basis(post_production, script)
+
+    # 一份比计划时长更长的当前旁白配音
     audio = project_path / "audio" / "segment_E1S01.wav"
     audio.parent.mkdir(parents=True)
     audio.write_bytes(b"audio")
     preparation = admit_script_unit("segments", script["segments"][0]).preparation
     settings = TtsSynthesisSettings(provider_id="p", model_id="m", voice="v", speed=1.0)
-    audio_basis = build_narration_audio_basis(
-        preparation,
-        settings,
-    )
-    descriptor = ArtifactBasisDescriptor.from_basis(audio_basis)
-    versions.add_version(
+    descriptor = ArtifactBasisDescriptor.from_basis(build_narration_audio_basis(preparation, settings))
+    VersionManager(project_path).add_version(
         "audio",
         "E1S01",
         "wind",
@@ -955,95 +703,16 @@ def test_current_selected_tts_and_planned_tier_drive_video_currency(tmp_path: Pa
         artifact_path="audio/segment_E1S01.wav",
         basis=descriptor,
     )
+    longer_plan = deepcopy(script)
+    longer_plan["segments"][0]["duration_seconds"] = 8
+    beyond_tiers = deepcopy(script)
+    beyond_tiers["segments"][0]["duration_seconds"] = 12
 
-    long_basis = build_current_video_artifact_basis(
-        project_path=project_path,
-        project=project,
-        script=script,
-        resource_type="videos",
-        resource_id="E1S01",
-        versions=versions,
-        version_metadata=metadata,
-        current_tts_settings=settings,
-    )
-
-    versions.add_version(
-        "audio",
-        "E1S01",
-        "wind shorter",
-        source_file=audio,
-        artifact_audio_basis=descriptor.to_dict(),
-        tts_actual_duration_seconds=6.5,
-    )
-    same_tier = build_current_video_artifact_basis(
-        project_path=project_path,
-        project=project,
-        script=script,
-        resource_type="videos",
-        resource_id="E1S01",
-        versions=versions,
-        version_metadata=metadata,
-        current_tts_settings=settings,
-    )
-    versions.add_version(
-        "audio",
-        "E1S01",
-        "wind short",
-        source_file=audio,
-        artifact_audio_basis=descriptor.to_dict(),
-        tts_actual_duration_seconds=3.5,
-    )
-    shorter_tier = build_current_video_artifact_basis(
-        project_path=project_path,
-        project=project,
-        script=script,
-        resource_type="videos",
-        resource_id="E1S01",
-        versions=versions,
-        version_metadata=metadata,
-        current_tts_settings=settings,
-    )
-    stale_script = deepcopy(script)
-    stale_script["segments"][0]["novel_text"] = "旁白已修改，当前配音不再 fresh。"
-    stale_tts = build_current_video_artifact_basis(
-        project_path=project_path,
-        project=project,
-        script=stale_script,
-        resource_type="videos",
-        resource_id="E1S01",
-        versions=versions,
-        version_metadata=metadata,
-        current_tts_settings=settings,
-    )
-    ProjectArtifactManifestAdapter(project_path).delete_entry(ArtifactKey.episode_audio(1, "E1S01"))
-    unavailable_tts = build_current_video_artifact_basis(
-        project_path=project_path,
-        project=project,
-        script=script,
-        resource_type="videos",
-        resource_id="E1S01",
-        versions=versions,
-        version_metadata=metadata,
-        current_tts_settings=settings,
-    )
-    expanded_script = deepcopy(script)
-    expanded_script["segments"][0]["duration_seconds"] = 12
-    unavailable_tts_with_longer_plan = build_current_video_artifact_basis(
-        project_path=project_path,
-        project=project,
-        script=expanded_script,
-        resource_type="videos",
-        resource_id="E1S01",
-        versions=versions,
-        version_metadata=metadata,
-        current_tts_settings=settings,
-    )
-
-    assert long_basis == same_tier
-    assert shorter_tier != long_basis
-    assert stale_tts != long_basis
-    assert unavailable_tts == shorter_tier
-    assert unavailable_tts_with_longer_plan is None
+    assert without_tts is not None
+    assert _basis(use_tts, script) == without_tts
+    assert _basis(post_production, script) == without_tts
+    assert _basis(use_tts, longer_plan) != without_tts
+    assert _basis(use_tts, beyond_tiers) is None
 
 
 def _reference_video_state(tmp_path: Path) -> tuple[Path, dict, dict, dict[str, object]]:
@@ -1121,13 +790,6 @@ def _reference_video_state(tmp_path: Path) -> tuple[Path, dict, dict, dict[str, 
                 "staged_locator": "characters/refs_audio/阿离.wav",
             }
         ],
-        "execution_narration": {
-            "delivery": "post_production",
-            "tts_status": "not_applicable",
-            "artifact_path": "",
-            "basis_digest": None,
-            "actual_duration_seconds": None,
-        },
     }
     return project_path, project, script, metadata
 
@@ -1139,7 +801,6 @@ def _reference_video_basis(project_path: Path, project: dict, script: dict, meta
         script=script,
         resource_type="reference_videos",
         resource_id="E1U1",
-        versions=VersionManager(project_path),
         version_metadata=metadata,
     )
 

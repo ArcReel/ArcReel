@@ -22,7 +22,6 @@ import { EpisodeHeader } from "./EpisodeHeader";
 import { ReferenceDurationConfirmDialog } from "./ReferenceDurationConfirmDialog";
 import { ReferenceBatchAdmissionDialog } from "./ReferenceBatchAdmissionDialog";
 import { referenceBatchOutcome } from "./batch-outcome";
-import { NarrationDeliveryChoice } from "@/components/shared/NarrationDeliveryChoice";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { computeVoiceLegacyNotice, VoiceLegacyBanner } from "./VoiceLegacyBanner";
 import { useReferenceDurationGate } from "@/hooks/useReferenceDurationGate";
@@ -53,7 +52,6 @@ import {
 } from "@/utils/reference-mentions";
 import type {
   ReferenceBatchAdmission,
-  ReferenceRequestOptions,
   ReferenceUnitCapabilityMap,
   ReferenceVideoUnit,
   UnitStatus,
@@ -76,8 +74,6 @@ export interface ReferenceVideoCanvasProps {
    * 标志不从这里来：它们随单元列表由服务端按可用参考图逐单元给出（`unitCapabilitiesByEpisode`）。
    */
   videoModelUnresolved?: boolean;
-  /** 上游旁白工作流给出的请求事实；不在画布内探测或推断 TTS 状态。 */
-  requestOptions?: ReferenceRequestOptions;
 }
 
 const EMPTY_UNITS: readonly ReferenceVideoUnit[] = Object.freeze([]);
@@ -164,19 +160,8 @@ export function ReferenceVideoCanvas({
   showPreprocess = true,
   freeDuration = false,
   videoModelUnresolved,
-  requestOptions,
 }: ReferenceVideoCanvasProps) {
   const { t } = useTranslation("dashboard");
-  const [narrationDelivery, setNarrationDelivery] = useState<"post_production" | "use_tts">(
-    requestOptions?.narration_delivery ?? "post_production",
-  );
-  const effectiveRequestOptions = useMemo<ReferenceRequestOptions>(
-    () =>
-      requestOptions || narrationDelivery !== "post_production"
-        ? { ...requestOptions, narration_delivery: narrationDelivery }
-        : {},
-    [narrationDelivery, requestOptions],
-  );
 
   const loadUnits = useReferenceVideoStore((s) => s.loadUnits);
   const addUnit = useReferenceVideoStore((s) => s.addUnit);
@@ -420,20 +405,12 @@ export function ReferenceVideoCanvas({
     [projectName, episode, uploading.ref, restoring.ref, durationSaving.ref],
   );
 
-  const durationGate = useReferenceDurationGate({
-    projectName,
-    episode,
-    requestOptions: effectiveRequestOptions,
-  });
+  const durationGate = useReferenceDurationGate({ projectName, episode });
   /** 整批准入判定的未决结论（需确认 / 受阻）；admitted 由 toast 反馈，不进这里。 */
   const [batchAdmission, setBatchAdmission] = useState<ReferenceBatchAdmission | null>(null);
 
   const enqueue = useCallback(
-    async (
-      unitId: string,
-      confirmedRequestDuration: number | undefined,
-      options: ReferenceRequestOptions,
-    ) => {
+    async (unitId: string, confirmedRequestDuration: number | undefined) => {
       // 提交前用 getState() 新鲜读复核：按钮渲染期捕获的占用态未必是最新的
       // （批量循环、Agent 入队、SSE 落库都可能在渲染之后、点击之前占用同一 unit）；
       // 时长确认弹窗打开期间同样会经过这段窗口，故复核落在入队这一刻。
@@ -447,12 +424,12 @@ export function ReferenceVideoCanvas({
       }
       try {
         // 乐观打标（请求发出前）、失败回滚与 queued/deduped 提示都在动作层内完成
-        await enqueueReferenceVideoUnit(projectName, episode, unitId, {
-          ...options,
-          ...(confirmedRequestDuration == null
-            ? {}
-            : { confirmed_request_duration_seconds: confirmedRequestDuration }),
-        });
+        await enqueueReferenceVideoUnit(
+          projectName,
+          episode,
+          unitId,
+          confirmedRequestDuration == null ? {} : { confirmed_request_duration_seconds: confirmedRequestDuration },
+        );
       } catch (e) {
         toastError(e, (msg) => t("reference_generate_request_failed", { error: msg }));
       }
@@ -469,11 +446,11 @@ export function ReferenceVideoCanvas({
    * 单元入口专用：批量入口走服务端的全有或全无准入，一次请求评估全部目标。
    */
   const makeEnqueueSerially = useCallback(
-    (canEnqueue: (unitId: string) => boolean, options: ReferenceRequestOptions) =>
+    (canEnqueue: (unitId: string) => boolean) =>
       async (unitIds: string[], confirmedDurations: ReadonlyMap<string, number>) => {
       for (const id of unitIds) {
         if (!canEnqueue(id)) continue;
-        await enqueue(id, confirmedDurations.get(id), options);
+        await enqueue(id, confirmedDurations.get(id));
       }
     },
     [enqueue],
@@ -492,7 +469,7 @@ export function ReferenceVideoCanvas({
       }
       await durationGate.run(
         [unitId],
-        makeEnqueueSerially(canEnqueueUnit, effectiveRequestOptions),
+        makeEnqueueSerially(canEnqueueUnit),
         canEnqueueUnit,
       );
     },
@@ -502,7 +479,6 @@ export function ReferenceVideoCanvas({
       isUnitLocked,
       isUnitGenerationBlocked,
       canEnqueueUnit,
-      effectiveRequestOptions,
       t,
     ],
   );
@@ -574,9 +550,6 @@ export function ReferenceVideoCanvas({
     () => units.filter((u) => statusMap[u.unit_id] !== "ready"),
     [units, statusMap],
   );
-  const batchDurationEndpointFixed = batchTargets.some(
-    (unit) => unitCapabilities[unit.unit_id]?.duration_endpoint_fixed ?? false,
-  );
 
   /**
    * 一次请求走服务端的全有或全无准入，{@link referenceBatchOutcome} 的五种结局都是评估
@@ -588,9 +561,6 @@ export function ReferenceVideoCanvas({
       try {
         const admission = await enqueueReferenceVideoBatch(projectName, episode, {
           unit_ids: unitIds,
-          // 旁白交付方式随请求走，与单元入口同一个选择：不带上它，整批会按服务端
-          // 默认的「后期配音」准入，用户在画布上选的「使用当前 TTS」被静默丢弃。
-          narration_delivery: narrationDelivery,
           ...(confirmedDurations ? { confirmed_request_durations: confirmedDurations } : {}),
         });
         setBatchAdmission(referenceBatchOutcome(admission) === "queued" ? null : admission);
@@ -599,7 +569,7 @@ export function ReferenceVideoCanvas({
         toastError(e, (msg) => t("reference_batch_request_failed", { error: msg }));
       }
     },
-    [projectName, episode, narrationDelivery, t],
+    [projectName, episode, t],
   );
 
   const handleBatchGenerate = useCallback(async () => {
@@ -901,7 +871,6 @@ export function ReferenceVideoCanvas({
     selected ? s._segmentIndex.get(selected.unit_id) : undefined,
   );
   const estimatedCost = segCost?.estimate.video;
-  const displayedEstimatedCost = narrationDelivery === "use_tts" ? undefined : estimatedCost;
   const actualCost = segCost?.actual.video;
   const narrationEstimatedCost = segCost?.estimate.audio;
   const selectedNarrationText = unitNarrationText(selected);
@@ -975,17 +944,10 @@ export function ReferenceVideoCanvas({
         <span className="flex-1" />
         {tab === "units" && (
           <>
-            <NarrationDeliveryChoice
-              value={narrationDelivery}
-              onChange={setNarrationDelivery}
-              ttsDurationEndpointFixed={selectedDurationEndpointFixed}
-              compact
-            />
             <button
               type="button"
               onClick={() => void handleBatchGenerate()}
-              disabled={batchTargets.length === 0 || (batchDurationEndpointFixed && narrationDelivery === "use_tts")}
-              title={batchDurationEndpointFixed && narrationDelivery === "use_tts" ? t("narration_delivery_tts_duration_endpoint_fixed") : undefined}
+              disabled={batchTargets.length === 0}
               className="focus-ring inline-flex items-center gap-1.5 rounded-md border border-[var(--color-hairline)] bg-[oklch(0.22_0.011_265_/_0.5)] px-2.5 py-1 text-[11.5px] text-[var(--color-text-2)] transition-colors hover:bg-[oklch(0.26_0.013_265_/_0.7)] hover:text-[var(--color-text)] disabled:cursor-not-allowed disabled:opacity-60"
             >
               <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
@@ -1369,7 +1331,7 @@ export function ReferenceVideoCanvas({
                           status={statusMap[selected.unit_id]}
                           errorMessage={failureMessage}
                           busy={selectedBusy}
-                          estimatedCost={displayedEstimatedCost}
+                          estimatedCost={estimatedCost}
                           actualCost={actualCost}
                           narrationText={selectedNarrationText}
                           narrationGenerating={ttsBusyUnitIds.has(selected.unit_id)}
@@ -1404,7 +1366,7 @@ export function ReferenceVideoCanvas({
                   status={selected ? statusMap[selected.unit_id] : undefined}
                   errorMessage={failureMessage}
                   busy={selectedBusy}
-                  estimatedCost={displayedEstimatedCost}
+                  estimatedCost={estimatedCost}
                   actualCost={actualCost}
                   narrationText={selectedNarrationText}
                   narrationGenerating={selected ? ttsBusyUnitIds.has(selected.unit_id) : false}

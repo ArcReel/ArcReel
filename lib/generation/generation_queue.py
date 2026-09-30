@@ -43,10 +43,6 @@ logger = logging.getLogger(__name__)
 
 _VIDEO_EXECUTION_IDENTITY_KEYS = frozenset({"video_provider_i2v", "video_provider_r2v"})
 _REFERENCE_VIDEO_ENQUEUE_PAYLOAD_KEYS = frozenset({"script_file", "reference_request_options"})
-_NARRATION_REQUEST_KEY_BY_TASK_TYPE = {
-    "video": "narration_delivery_options",
-    "reference_video": "reference_request_options",
-}
 
 
 #: 旧版本入队的文本任务在载荷里带着入队时的数据根；执行按当前配置解析，判同也不计它。
@@ -71,8 +67,7 @@ class ActiveTaskRequestConflict(RuntimeError):
         self.resource_id = resource_id
         self.existing_task_id = existing_task_id
         super().__init__(
-            f"resource '{resource_id}' already has active task '{existing_task_id}' "
-            "with a different narration delivery request"
+            f"resource '{resource_id}' already has active task '{existing_task_id}' with different request options"
         )
 
 
@@ -102,14 +97,13 @@ async def cleanup_fresh_generation_batch(
         failure.add_note(f"fresh batch cleanup also failed: {cleanup_failure}")
 
 
-def _narration_request_facts(task_type: str, payload: dict[str, Any] | None) -> dict[str, object] | None:
-    key = _NARRATION_REQUEST_KEY_BY_TASK_TYPE.get(task_type)
-    if key is None:
+def _reference_request_facts(task_type: str, payload: dict[str, Any] | None) -> dict[str, object] | None:
+    if task_type != "reference_video":
         return None
 
-    from lib.speech.narration_delivery import NarrationDeliveryRequestOptions
+    from lib.script.reference_video.request_projection import ReferenceRequestOptions
 
-    return NarrationDeliveryRequestOptions.from_payload(payload or {}, key=key).to_payload()
+    return ReferenceRequestOptions.from_payload(payload or {}).to_payload()
 
 
 class DispatchProviderChanged(RuntimeError):
@@ -215,8 +209,6 @@ async def reference_projection_for_queued_task(
             unit=unit,
             project_path=project_path,
             # Claim/rate-limit routing only needs the hydrated visual generation type.
-            # Narration currency belongs to Web/Agent/worker projections, whose
-            # server adapter can assemble the effective audio backend identity.
             options=ReferenceRequestOptions(),
         )
     except Exception:
@@ -418,11 +410,11 @@ class GenerationQueue:
                 # Video provider/model is only an advisory claim projection until the worker materializes the
                 # current request and persists its pre-submit checkpoint. Enqueue payload never freezes identity.
 
-        requested_facts = _narration_request_facts(task_type, payload)
+        requested_facts = _reference_request_facts(task_type, payload)
         text_request_facts = _text_request_facts(task_type, payload)
 
         def _guard_deduped(existing_payload: dict[str, Any], existing_task_id: str) -> None:
-            if requested_facts is not None and _narration_request_facts(task_type, existing_payload) != requested_facts:
+            if requested_facts is not None and _reference_request_facts(task_type, existing_payload) != requested_facts:
                 raise ActiveTaskRequestConflict(resource_id=resource_id, existing_task_id=existing_task_id)
             if (
                 text_request_facts is not None

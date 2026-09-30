@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, Literal
 
@@ -26,7 +27,7 @@ from lib.project.project_migrations.runner import MIGRATORS
 from lib.project.source_revision import SourceScope, compute_source_revision
 from lib.script.grid.models import GridGeneration, build_frame_chain
 from lib.script.script_review import content_fingerprint
-from lib.speech.narration_config import TtsSynthesisSettings
+from lib.speech.narration_config import TtsSynthesisSettings, tts_snapshot_fields
 from lib.speech.narration_delivery import build_narration_audio_basis
 from lib.speech.speech_artifact_provenance import (
     SelectedMediaEvidence,
@@ -180,11 +181,13 @@ def write_legacy_tts_narration_project(
         TtsSynthesisSettings("dashscope", "qwen3-tts-flash", "Cherry", None),
         TtsSynthesisSettings("dashscope", "qwen3-tts-flash", "Ethan", 1.2),
     ),
+    raised_video_duration_seconds: int | None = None,
 ) -> Path:
     """在 ``write_legacy_storyboard_project`` 上补旁白配音：每个分镜一条选中的音频版本，带完整 TTS 设置。
 
     ``project.json`` 是旧口径：没有旁白交付方式，音频后端写裸供应商，音色与语速「留空跟随全局默认」。
     第 i 个分镜的旁白用 ``settings[i]`` 合成，``created_at`` 按分镜顺序递增。
+    ``raised_video_duration_seconds`` 非空时停在 schema 13，视频申请按旁白下限升档，编排仍为 4 秒。
     """
 
     unit_ids = tuple(f"E1S{index}" for index in range(1, len(settings) + 1))
@@ -227,6 +230,42 @@ def write_legacy_tts_narration_project(
         metadata["audio"][unit_id]["versions"][-1]["created_at"] = f"2026-04-0{index}T10:00:00Z"
         _write_json(metadata_path, metadata)
     _write_json(script_path, script)
+    if raised_video_duration_seconds is not None:
+        advance_project_schema(project_dir, to_version=13)
+        project = json.loads(project_path.read_bytes())
+        project.update(tts_snapshot_fields(settings[-1]))
+        _write_json(project_path, project)
+        metadata_path = project_dir / "versions" / "versions.json"
+        metadata = json.loads(metadata_path.read_bytes())
+        adapter = ProjectArtifactManifestAdapter(project_dir)
+        for unit_id in unit_ids:
+            metadata["audio"][unit_id]["versions"][0]["tts_actual_duration_seconds"] = (
+                raised_video_duration_seconds - 2.0
+            )
+            record = metadata["videos"][unit_id]["versions"][0]
+            facts = VideoArtifactCurrencyFacts.from_dict(record["artifact_video_currency"])
+            duration = build_video_duration_basis(raised_video_duration_seconds)
+            facts = replace(
+                facts,
+                request_duration_seconds=raised_video_duration_seconds,
+                duration_tiers=(4, raised_video_duration_seconds),
+                duration_basis=duration,
+                video_basis=compose_video_artifact_basis(
+                    visual=facts.visual_basis, speech=facts.speech_basis, duration=duration
+                ),
+            )
+            record.update(
+                artifact_video_currency=facts.to_dict(),
+                execution_checkpoint_schema_version=3,
+                execution_duration_seconds=raised_video_duration_seconds,
+                duration_seconds=raised_video_duration_seconds,
+                execution_narration={"delivery": "use_tts"},
+            )
+            adapter.put_entry(
+                ArtifactKey.episode_video(1, unit_id),
+                ArtifactManifestEntry(f"videos/scene_{unit_id}.mp4", facts.video_basis.digest),
+            )
+        _write_json(metadata_path, metadata)
     return project_dir
 
 

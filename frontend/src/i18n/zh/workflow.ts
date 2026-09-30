@@ -106,7 +106,7 @@ export default {
   'tier_cost_unknown': '报价不可用',
   'tier_unknown': '档位待定',
   'duration_seconds': '{{value}} 秒',
-  'unit_tiers': '当前 {{current}} · 申请 {{request}}',
+  'unit_request_tier': '申请 {{request}}',
 
   // ---- 旁白交付 ----
   'delivery_title': '本批的旁白交付方式',
@@ -123,8 +123,6 @@ export default {
   'action_retry': '稍后重试',
   'action_fix_input': '检查并修正这个单元的生成配置',
   'action_generate_dependency': '补上或更换缺失的参考素材',
-  'action_generate_tts': '为这个单元生成旁白配音',
-  'action_regenerate_tts': '重新生成这个单元的旁白配音',
   'action_wait_for_task': '等正在跑的尝试结束',
   'action_replan_unit': '改写这个单元，让它落进可生成的时长范围',
   'action_confirm_request_duration': '确认申请的时长档位',
@@ -166,6 +164,4 @@ export default {
   'problem_generation_post_processing_failed': '视频生成完成，但后期处理失败。',
   'problem_reference_asset_unregistered': '这个单元引用了未登记的资产名。',
   'problem_reference_asset_missing': '引用的资产还没有资产图。',
-  'problem_tts_not_configured': '还没有配置语音合成模型。',
-  'problem_tts_duration_endpoint_fixed': '该模型的成片时长由端点固定，申请不到装得下旁白的时长。',
 } satisfies Record<keyof typeof enWorkflow, string>;

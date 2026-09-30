@@ -305,7 +305,6 @@ class WorkflowPlanner:
         queue: GenerationQueue,
         config_resolver: ConfigResolver | None,
     ) -> dict[str, Any]:
-        options = ReferenceRequestOptions(narration_delivery=request.narration_delivery or "post_production")
         if status.project.generation_mode == "reference_video":
             screened, malformed = screen_script_entries(facts.script.get("video_units"), requested_ids=None)
             targets, selection, _states = resolve_reference_batch_targets(
@@ -323,7 +322,7 @@ class WorkflowPlanner:
                 script=facts.script,
                 script_file=facts.script_file,
                 units=targets,
-                request_options=options,
+                request_options=ReferenceRequestOptions(),
                 operation=status.next_action.type,
                 selection=selection.mode,
                 confirmed_request_durations=request.confirmed_request_durations,
@@ -362,16 +361,12 @@ class WorkflowPlanner:
         admission = await admit_storyboard_video_request(
             project_name=project_name,
             project=facts.project,
-            project_path=facts.project_path,
-            script=facts.script,
             script_file=facts.script_file,
             items=items,
             id_field=id_field,
             specs=specs,
-            request_options=options,
             operation=status.next_action.type,
             selection=GenerationSelectionMode.MISSING_ONLY,
-            confirmed_request_durations=request.confirmed_request_durations,
             extra_tickets=refused,
             user_id=user_id,
             queue=queue,

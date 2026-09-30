@@ -26,7 +26,6 @@ from lib.generation import task_failure
 from lib.generation.task_failure import (
     CAPABILITY_FAILURE_CODES,
     FAILURE_CODE_KEYS,
-    NARRATION_DELIVERY_FAILURE_CODES,
     REFERENCE_PROJECTION_FAILURE_CODES,
     VIDEO_REQUEST_FACTS_FAILURE_CODES,
     bound_reason,
@@ -38,16 +37,8 @@ from lib.generation.task_failure_encoding import encode_task_failure_message
 from lib.generation.video_request_facts import VideoRequestFactsError, VideoRequestFactsFailure
 from lib.i18n import MESSAGES
 from lib.i18n import _ as i18n_translate
-from lib.infra.api_errors import ConflictError
 from lib.references.reference_compression import ReferencePayloadFloorError
 from lib.script.reference_video.request_projection import ProjectionProblem, ReferenceProjectionBlockedError
-from lib.speech.narration_delivery import (
-    USE_TTS,
-    NarratedVideoDurationBlockedError,
-    NarrationDeliveryPreparation,
-    NarrationTtsStatus,
-    prepare_narrated_video_duration,
-)
 
 # AST 守卫扫的是真实源码树、渲染断言用的是真实 i18n 目录，不 mock 任何被测入口。
 
@@ -477,13 +468,6 @@ def test_projection_failure_preserves_canonical_code_and_params_for_localized_ta
         assert render_failure(stored, _translator(locale)) == expected
 
 
-@pytest.mark.parametrize("code", sorted(NARRATION_DELIVERY_FAILURE_CODES))
-def test_narration_delivery_failure_codes_are_machine_encodable_in_all_locales(code: str) -> None:
-    assert FAILURE_CODE_KEYS[code] == code
-    for locale in ("zh", "en", "vi"):
-        assert code in MESSAGES[locale], f"{locale} 缺少 {code}"
-
-
 @pytest.mark.parametrize("code", sorted(VIDEO_REQUEST_FACTS_FAILURE_CODES))
 def test_video_request_facts_failure_codes_are_machine_encodable_in_all_locales(code: str) -> None:
     assert FAILURE_CODE_KEYS[code] == code
@@ -504,43 +488,29 @@ def test_video_request_facts_rejection_keeps_code_and_params_for_localized_tasks
         assert render_failure(stored, _translator(locale)) == expected
 
 
-def test_changed_tts_tier_worker_rejection_preserves_confirmation_coordinates() -> None:
-    narration = NarrationDeliveryPreparation(
-        delivery=USE_TTS,
-        unit_id="E1S01",
-        speech_mode=None,
-        tts_status=NarrationTtsStatus.CURRENT,
-        artifact_path="audio/segment_E1S01.wav",
-        basis_digest="basis",
-        actual_duration_seconds=9.5,
-        problems=(),
-    )
-    preparation = prepare_narrated_video_duration(
-        narration=narration,
-        planned_duration_seconds=4,
-        supported_durations=(4, 8, 12),
-        confirmed_request_duration_seconds=8,
-    )
-
-    stored = encode_task_failure_message(NarratedVideoDurationBlockedError(preparation))
-
-    assert stored.startswith("[reference_duration_confirmation_required]")
-    assert json.loads(stored.split("] ", 1)[1]) == {
-        "adjustment": "up",
-        "current_visual_duration": None,
-        "duration_input": 9.5,
-        "request_duration": 12,
-        "script_duration": 4,
-    }
+#: 视频生成不再读旁白交付后删掉的失败码与重试标记；历史任务行上的原文照原样透传。
+_RETIRED_NARRATED_VIDEO_CODES = (
+    "tts_duration_endpoint_fixed",
+    "video_shorter_than_tts",
+    "video_duration_unavailable",
+    "video_request_cost_unavailable",
+    "tts_conflicts_with_active_narrated_video",
+    "tts_missing",
+    "tts_generating",
+    "tts_stale",
+    "tts_state_unavailable",
+    "tts_duration_unavailable",
+    "tts_not_configured",
+)
 
 
-def test_active_narrated_video_worker_rejection_is_localizable() -> None:
-    stored = encode_task_failure_message(ConflictError("tts_conflicts_with_active_narrated_video", resource_id="E1U01"))
-
-    assert stored == '[tts_conflicts_with_active_narrated_video] {"resource_id": "E1U01"}'
+@pytest.mark.parametrize("code", _RETIRED_NARRATED_VIDEO_CODES)
+def test_retired_narrated_video_codes_are_gone_and_historic_rows_pass_through(code: str) -> None:
+    assert code not in FAILURE_CODE_KEYS
     for locale in ("zh", "en", "vi"):
-        expected = MESSAGES[locale]["tts_conflicts_with_active_narrated_video"].format(resource_id="E1U01")
-        assert render_failure(stored, _translator(locale)) == expected
+        assert code not in MESSAGES[locale]
+    stored = f'[{code}] {{"resource_id": "E1U01"}}'
+    assert render_failure(stored, _translator("zh")) == stored
 
 
 @pytest.mark.parametrize(

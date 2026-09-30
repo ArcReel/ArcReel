@@ -25,7 +25,7 @@ from server.services.currency.artifact_version_restore import (
     get_typed_media_restore_target,
     restore_typed_media_version,
 )
-from server.services.tasks.narration_delivery_tasks import active_narrated_video_resource_ids, active_tts_resource_ids
+from server.services.tasks.narration_delivery_tasks import active_tts_resource_ids
 
 logger = logging.getLogger(__name__)
 
@@ -137,19 +137,12 @@ async def restore_typed_media_resource(
             resource_id=resource_id,
         ):
             if resource_type == "audio":
-                active_tts, active_video = await asyncio.gather(
-                    active_tts_resource_ids(
-                        project_name=project_name,
-                        resource_ids=(resource_id,),
-                        script_file=target.script_file,
-                    ),
-                    active_narrated_video_resource_ids(
-                        project_name=project_name,
-                        resource_ids=(resource_id,),
-                        script_file=target.script_file,
-                    ),
+                active_tts = await active_tts_resource_ids(
+                    project_name=project_name,
+                    resource_ids=(resource_id,),
+                    script_file=target.script_file,
                 )
-                if resource_id in active_tts or resource_id in active_video:
+                if resource_id in active_tts:
                     raise ConflictError("audio_restore_conflicts_with_active_task", resource_id=resource_id)
             return await run_noninterruptible_sync(_sync)
 

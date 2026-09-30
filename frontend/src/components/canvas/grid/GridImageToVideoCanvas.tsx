@@ -17,7 +17,6 @@ import type {
   NarrationSegment,
   DramaScene,
   ProjectData,
-  ReferenceGenerationRequestOptions,
 } from "@/types";
 
 type Segment = NarrationSegment | DramaScene;
@@ -45,11 +44,7 @@ interface GridImageToVideoCanvasProps {
     scriptFile?: string,
   ) => void | Promise<void>;
   onGenerateStoryboard?: (segmentId: string, scriptFile?: string) => void;
-  onGenerateVideo?: (
-    segmentId: string,
-    scriptFile?: string,
-    requestOptions?: ReferenceGenerationRequestOptions,
-  ) => void | Promise<void>;
+  onGenerateVideo?: (segmentId: string, scriptFile?: string) => void | Promise<void>;
   onGenerateNarration?: (segmentId: string, scriptFile?: string) => void;
   onGenerateEpisodeNarration?: (scriptFile?: string) => void;
   onGenerateGrid?: (
@@ -210,10 +205,7 @@ export function GridImageToVideoCanvas({
     value?: unknown,
   ) => onUpdatePrompt?.(segId, fieldOrPatch, value, scriptFile);
   const handleGenSb = (segId: string) => onGenerateStoryboard?.(segId, scriptFile);
-  const handleGenVid = (
-    segId: string,
-    requestOptions?: ReferenceGenerationRequestOptions,
-  ) => onGenerateVideo?.(segId, scriptFile, requestOptions);
+  const handleGenVid = (segId: string) => onGenerateVideo?.(segId, scriptFile);
   const handleGenNarration = onGenerateNarration
     ? (segId: string) => onGenerateNarration(segId, scriptFile)
     : undefined;

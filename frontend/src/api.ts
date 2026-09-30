@@ -85,7 +85,6 @@ import type {
   ReferenceGenerationRequestOptions,
   ReferenceBatchAdmission,
   ReferenceBatchGenerateRequest,
-  ReferenceRequestOptions,
   ScriptPreview,
   ReferenceUnitPromptPreview,
   ItemPromptPreview,
@@ -151,7 +150,6 @@ export {
   AgentFailureError,
   ApiRequestError,
   ConflictError,
-  NarratedVideoDurationError,
   ReadOnlyModeError,
   ReferenceProjectionError,
   ScriptEditCommandError,
@@ -205,18 +203,6 @@ function versionsResourcePath(projectName: string, resourceType: string, resourc
     return `${base}/character-derivative/${encodeURIComponent(owner)}/${encodeURIComponent(derivative)}`;
   }
   return `${base}/${encodeURIComponent(resourceType)}/${encodeURIComponent(resourceId)}`;
-}
-
-function referenceRequestQuery(
-  options: ReferenceRequestOptions,
-  initial?: Record<string, string>,
-): string {
-  const query = new URLSearchParams(initial);
-  if (options.narration_delivery) {
-    query.set("narration_delivery", options.narration_delivery);
-  }
-  const serialized = query.toString();
-  return serialized ? `?${serialized}` : "";
 }
 
 function presentationEndpoint(
@@ -1587,7 +1573,6 @@ class API {
     prompt: string | Record<string, unknown>,
     scriptFile: string,
     durationSeconds: number = 4,
-    requestOptions: ReferenceGenerationRequestOptions = {},
   ): Promise<{ success: boolean; task_id: string; deduped: boolean; message: string }> {
     return this.request(
       `/projects/${encodeURIComponent(projectName)}/generate/video/${encodeURIComponent(segmentId)}`,
@@ -1597,7 +1582,6 @@ class API {
           prompt,
           script_file: scriptFile,
           duration_seconds: durationSeconds,
-          ...requestOptions,
         }),
       }
     );
@@ -2754,12 +2738,11 @@ class API {
    */
   static async getCostEstimate(
     projectName: string,
-    options: ReferenceRequestOptions & { referenceUnitId?: string; signal?: AbortSignal } = {}
+    options: { referenceUnitId?: string; signal?: AbortSignal } = {}
   ): Promise<CostEstimateResponse> {
-    const suffix = referenceRequestQuery(
-      options,
-      options.referenceUnitId ? { reference_unit_id: options.referenceUnitId } : undefined,
-    );
+    const suffix = options.referenceUnitId
+      ? `?${new URLSearchParams({ reference_unit_id: options.referenceUnitId }).toString()}`
+      : "";
     return this.request(`/projects/${encodeURIComponent(projectName)}/cost-estimate${suffix}`, {
       signal: options.signal,
     });
@@ -3063,11 +3046,10 @@ class API {
     projectName: string,
     episode: number,
     unitId: string,
-    options?: ReferenceRequestOptions & { signal?: AbortSignal },
+    options?: { signal?: AbortSignal },
   ): Promise<ReferenceDurationPrecheck> {
-    const suffix = referenceRequestQuery(options ?? {});
     return this.request(
-      `/projects/${encodeURIComponent(projectName)}/reference-videos/episodes/${episode}/units/${encodeURIComponent(unitId)}/duration-precheck${suffix}`,
+      `/projects/${encodeURIComponent(projectName)}/reference-videos/episodes/${episode}/units/${encodeURIComponent(unitId)}/duration-precheck`,
       { signal: options?.signal },
     );
   }

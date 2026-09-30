@@ -44,11 +44,7 @@ from lib.generation.generation_result import (
     select_generation_targets,
 )
 from lib.project.project_manager import ProjectManager, is_reference_video_project
-from lib.script.reference_video.request_projection import (
-    USE_TTS,
-    NarrationDelivery,
-    ReferenceRequestOptions,
-)
+from lib.script.reference_video.request_projection import ReferenceRequestOptions
 from lib.script.script_models import get_generated_assets, resolve_content_mode
 from lib.script.script_skeleton import ensure_route_skeleton, resolve_script_kind
 from lib.script.storyboard_sequence import get_storyboard_items
@@ -91,9 +87,10 @@ from server.tool_runtime import (
 logger = logging.getLogger(__name__)
 
 #: 已退役的入参名 → 该怎么写。键都是曾经真实存在、或与视频单元旧结构同名的写法：
-#: 前三个是点名目标的旧 id 参数，后两个是视频单元已删除的 ``shots`` 与参考清单字段。
-#: 视频单元现在只持有 ``text`` 与 ``duration_seconds``，参考图在执行期从正文的
-#: ``@[名称]`` 首次提及顺序派生，两者都不再经工具入参传入。
+#: 前三个是点名目标的旧 id 参数，``shots`` 与参考清单是视频单元已删除的字段，
+#: ``narration_delivery`` 是已删除的按请求交付方式。视频单元现在只持有 ``text`` 与
+#: ``duration_seconds``，参考图在执行期从正文的 ``@[名称]`` 首次提及顺序派生；
+#: 旁白交付方式是项目配置，不影响视频请求。
 _RETIRED_PARAMS: dict[str, str] = {
     "resume": "查询 durable batch，并用 selected scope、force=false 只重发未成功的 ID",
     "shot_ids": "改用 target.ids，并选择 scene（单个）或 selected（批量）scope",
@@ -102,6 +99,7 @@ _RETIRED_PARAMS: dict[str, str] = {
     "shots": "视频单元不再有 shots 数组；正文写在剧本的 text 字段里，经 patch_episode_script 修改",
     "references": "视频单元不再有参考清单；参考图由正文的 @[名称] 提及在执行期派生",
     "reference_images": "视频单元不再有参考清单；参考图由正文的 @[名称] 提及在执行期派生",
+    "narration_delivery": "视频生成不再按请求选择旁白交付方式；视频一律按剧本计划时长请求，旁白交付方式是项目配置",
 }
 
 
@@ -165,17 +163,11 @@ class GenerateVideosRequest(BaseModel):
         default=False,
         description="是否强制重生已有可用成片；默认复用 current / stale 成片，只允许用于 scene / selected",
     )
-    narration_delivery: NarrationDelivery = Field(
-        description=(
-            "本次旁白交付方式，必填；use_tts 只使用当前 fresh TTS 的实际媒体时长，"
-            "post_production 不因 TTS 缺失或过期受阻"
-        )
-    )
     confirmed_request_duration_seconds: _PositiveInt | SkipJsonSchema[None] = Field(
         default=None,
         description=(
-            "用户明确接受的本次视频请求秒数档位；仅在预检返回跨档费用提示后填写。"
-            "它不冻结正文、引用、供应商或 TTS，当前投影改到其它档位时必须重新确认。"
+            "用户明确接受的本次视频请求秒数档位；仅参考生视频在返回跨档确认后填写。"
+            "它不冻结正文、引用或供应商，当前投影改到其它档位时必须重新确认。"
         ),
     )
     confirmed_request_durations: dict[str, _PositiveInt] | SkipJsonSchema[None] = Field(
@@ -293,17 +285,9 @@ def _sole_speech_admission(result: GenerationBatchResult) -> dict[str, Any]:
 
 
 def _reference_request_options(request: GenerateVideosRequest) -> ReferenceRequestOptions:
-    """把工具入参折成一次请求的投影选项。
+    """把工具入参折成一次参考生视频请求的投影选项。"""
 
-    交付方式决定整批走哪一套准入判据与哪一份时长基准（TTS 实测 vs 剧本计划），请求模型把它
-    定为必填：替调用方挑一个默认值会让一批视频按它没声明过的交付方式准入并计费。
-    storyboard 与 reference_video 两种生成模式都经这里取交付方式，判定只有这一处。
-    """
-
-    return ReferenceRequestOptions(
-        narration_delivery=request.narration_delivery,
-        confirmed_request_duration_seconds=request.confirmed_request_duration_seconds,
-    )
+    return ReferenceRequestOptions(confirmed_request_duration_seconds=request.confirmed_request_duration_seconds)
 
 
 def _speech_admission_error(name: str, exc: SpeechAdmissionError, log: list[str] | None = None) -> ToolOutcome[Any]:
@@ -344,22 +328,15 @@ def _confirmation_lines(admission: BatchAdmission) -> list[str]:
     for ticket in admission.tickets:
         if not ticket.confirmation_only:
             continue
-        params = ticket.problems[0].params
-        baseline = ticket.current_duration_seconds
+        planned = ticket.problems[0].params.get("script_duration")
         requested = ticket.request_duration_seconds
-        tier_basis = (
-            f"现有视觉档位 {baseline}s" if isinstance(baseline, int) else f"剧本档位 {params.get('script_duration')}s"
-        )
-        # 与现有成片的差值直接给出：档位数字本身不说明成片会变长还是变短。
+        # 与剧本计划时长的差值直接给出：档位数字本身不说明成片会变长还是变短。
         delta = ""
-        if isinstance(baseline, int) and isinstance(requested, int) and requested != baseline:
-            direction = "更长" if requested > baseline else "更短"
-            delta = f"（成片{direction} {abs(requested - baseline)}s）"
+        if isinstance(planned, int) and isinstance(requested, int) and requested != planned:
+            direction = "更长" if requested > planned else "更短"
+            delta = f"（成片{direction} {abs(requested - planned)}s）"
         requested_label = f"{requested}s" if isinstance(requested, int) else "档位待定"
-        lines.append(
-            f"  · {ticket.unit_id}：{tier_basis}，将申请 {requested_label}{delta}，"
-            f"时长基准 {params.get('duration_input')}s"
-        )
+        lines.append(f"  · {ticket.unit_id}：剧本时长 {planned}s，将申请 {requested_label}{delta}")
     lines.append(
         "视频费用按上述申请档位计算，确认仅对本次请求有效。用户同意后，带 "
         "confirmed_request_durations={<unit_id>: <request_duration>} 把原来这一批目标一次性重发；"
@@ -407,26 +384,6 @@ def _batch_admission_response(
     return ToolOutcome(value=payload)
 
 
-def _apply_delivery_payload(
-    specs: list[TaskSpec],
-    request_options: ReferenceRequestOptions,
-    confirmed_request_durations: Mapping[str, int],
-) -> None:
-    """Attach this request's delivery choice to every admitted storyboard spec.
-
-    TTS 的取档结果是当前状态投影，不是耐久请求事实。worker 起跑时会从最新剧本 unit、
-    fresh TTS 与当前模型能力重投影；即使 TaskSpec 的旧构造器放入 duration_seconds，
-    这里也必须剥离。跨档确认按 unit 记入各自的请求事实——worker 重投影时读的是任务上的
-    这份选项，只写整批共用的那一份会让准入已接受的档位在执行期重新变成待确认。
-    """
-
-    for spec in specs:
-        unit_options = request_options_for_unit(request_options, spec.resource_id, confirmed_request_durations)
-        spec.payload = {**(spec.payload or {}), "narration_delivery_options": unit_options.to_payload()}
-        if request_options.narration_delivery == USE_TTS:
-            spec.payload.pop("duration_seconds", None)
-
-
 async def _admit_storyboard_specs(
     *,
     call: _VideoCall,
@@ -436,42 +393,30 @@ async def _admit_storyboard_specs(
     items: list[dict[str, Any]],
     id_field: str,
     specs: list[TaskSpec],
-    request_options: ReferenceRequestOptions,
-    confirmed_request_durations: Mapping[str, int],
     operation: str,
     selection: GenerationSelectionMode,
     extra_tickets: list[UnitAdmissionTicket],
 ) -> BatchAdmission:
-    """Admit the Storyboard-mode specs, then stamp the delivery choice onto them.
+    """Admit the Storyboard-mode specs.
 
-    The admission itself is the shared one the read-only plan also consults, so a
-    preview and the submission it predicts cannot reach different verdicts. Only the
-    payload stamping is enqueue-side: it is a request fact, not part of the basis the
-    admission compares.
+    The admission is the shared one the read-only plan also consults, so a preview
+    and the submission it predicts cannot reach different verdicts.
     """
 
-    admission = await admit_storyboard_video_request(
+    return await admit_storyboard_video_request(
         project_name=call.project_name,
         project=project,
-        project_path=call.project_path,
-        script=script,
         script_file=script_filename,
         items=items,
         id_field=id_field,
         specs=specs,
-        request_options=request_options,
-        confirmed_request_durations=confirmed_request_durations,
         operation=operation,
         selection=selection,
         extra_tickets=extra_tickets,
         user_id=call.caller.user_id,
         queue=call.services.queue,
         config_resolver=call.services.capabilities,
-        tts_settings_resolver=call.services.tts_settings_resolver,
     )
-    if admission.admitted:
-        _apply_delivery_payload(specs, request_options, confirmed_request_durations)
-    return admission
 
 
 def _resolve_reference_route(call: _VideoCall, script: dict[str, Any]) -> str | None:
@@ -771,7 +716,6 @@ async def _generate_reference_units(
         user_id=call.caller.user_id,
         queue=call.services.queue,
         config_resolver=call.services.capabilities,
-        tts_settings_resolver=call.services.tts_settings_resolver,
     )
     if not admission.admitted:
         return BatchAdmissionRefused(admission)
@@ -1182,8 +1126,6 @@ class _StoryboardBatch:
             items=items,
             id_field=self.screening.id_field,
             specs=specs,
-            request_options=self.request.request_options,
-            confirmed_request_durations=self.request.confirmed_request_durations,
             operation=self.operation,
             selection=self.selection,
             extra_tickets=extra_tickets,

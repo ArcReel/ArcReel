@@ -244,81 +244,6 @@ describe("WorkflowPanel 旁白交付", () => {
       ),
     );
   });
-
-  it("未配置 TTS 时引导后期配音，且不把整个工作流标红", async () => {
-    await renderExpanded(
-      makePlan({
-        steps: [
-          makeStep({
-            id: "narration_delivery",
-            state: "blocked",
-            problems: [
-              {
-                code: "tts_not_configured",
-                detail: "tts provider unavailable",
-                action: "configure_provider",
-                params: { path: ["generation_settings", "audio_backend"] },
-              },
-            ],
-          }),
-        ],
-      }),
-    );
-    expect(screen.getByRole("radio", { name: "使用已配置的语音合成" })).toBeDisabled();
-    expect(screen.getByRole("radio", { name: "后期配音" })).toBeEnabled();
-    expect(screen.getByText(/选后期配音即可继续/)).toBeInTheDocument();
-    // 只是一条路径没配好，不是整集受阻——面板不弹错误摘要
-    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
-  });
-
-  it("成片时长由端点固定时同样引导后期配音", async () => {
-    await renderExpanded(
-      makePlan({
-        steps: [
-          makeStep({
-            id: "narration_delivery",
-            state: "blocked",
-            problems: [
-              {
-                code: "tts_duration_endpoint_fixed",
-                detail: "video duration fixed by endpoint",
-                action: "fix_input",
-                params: { path: ["narration_delivery"] },
-              },
-            ],
-          }),
-        ],
-      }),
-    );
-
-    expect(screen.getByRole("radio", { name: "使用已配置的语音合成" })).toBeDisabled();
-    expect(screen.getByRole("radio", { name: "后期配音" })).toBeEnabled();
-    expect(screen.getByText(/选后期配音即可继续/)).toBeInTheDocument();
-    expect(screen.getAllByText(/成片时长由端点固定/).length).toBeGreaterThan(0);
-  });
-
-  it("TTS 未配置这条问题落在视频步骤上时同样引导后期配音", async () => {
-    // 这条问题由视频整批准入判定求解得出（选了 TTS 才跑那一轮），后端把它挂在计划的问题
-    // 清单与视频步骤上，而不是旁白交付步骤。只翻交付步骤的 problems 会漏掉它。
-    const problem = {
-      code: "tts_not_configured",
-      detail: "tts provider unavailable",
-      action: "configure_provider",
-      params: { path: ["generation_settings", "audio_backend"] },
-    };
-    await renderExpanded(
-      makePlan({
-        problems: [problem],
-        steps: [
-          makeStep({ id: "narration_delivery", state: "ready" }),
-          makeStep({ id: "video", state: "blocked", problems: [problem] }),
-        ],
-      }),
-    );
-    expect(screen.getByRole("radio", { name: "使用已配置的语音合成" })).toBeDisabled();
-    expect(screen.getByRole("radio", { name: "后期配音" })).toBeEnabled();
-    expect(screen.getByText(/选后期配音即可继续/)).toBeInTheDocument();
-  });
 });
 
 describe("WorkflowPanel 整批准入判定", () => {
@@ -333,7 +258,6 @@ describe("WorkflowPanel 整批准入判定", () => {
               decision: "blocked",
               operation: "generate_videos",
               selection: "missing_only",
-              narration_delivery: "post_production",
               units: [
                 {
                   unit_id: "E1U1",
@@ -387,7 +311,6 @@ describe("WorkflowPanel 整批准入判定", () => {
               decision: "blocked",
               operation: "generate_videos",
               selection: "missing_only",
-              narration_delivery: "post_production",
               units: [
                 {
                   unit_id: "E1U1",
@@ -430,7 +353,6 @@ describe("WorkflowPanel 整批准入判定", () => {
               decision: "confirmation_required",
               operation: "generate_videos",
               selection: "missing_only",
-              narration_delivery: "post_production",
               units: [],
               confirmation: {
                 tiers: [

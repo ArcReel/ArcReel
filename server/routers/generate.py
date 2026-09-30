@@ -11,10 +11,9 @@
 
 import asyncio
 import logging
-from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from lib.artifacts.artifact_activation import (
     active_artifact_currency_resolver,
@@ -26,13 +25,6 @@ from lib.artifacts.artifact_manifest import ArtifactKey
 from lib.config.resolver import ConfigResolver, video_bucket_for_generation_mode
 from lib.generation.generation_queue import get_generation_queue
 from lib.generation.generation_queue_client import TaskSpec
-from lib.generation.video_request_facts import (
-    CONFIGURED_VIDEO_IDENTITY,
-    VideoRequestFacts,
-    VideoRequestFactsError,
-    audio_switch_conflict,
-    evaluate_video_request_facts,
-)
 from lib.infra.api_errors import BadRequestError, ConflictError, NotFoundError
 from lib.infra.json_io import domain_error_on_value_error
 from lib.infra.path_safety import safe_exists, safe_join
@@ -50,33 +42,17 @@ from lib.script.storyboard_sequence import (
     get_storyboard_items,
 )
 from lib.speech.narration_config import NarrationConfigError, require_project_tts_generation
-from lib.speech.narration_delivery import (
-    POST_PRODUCTION,
-    USE_TTS,
-    NarratedVideoDurationPreparation,
-    NarrationDelivery,
-    NarrationDeliveryRequestOptions,
-    canonical_narration_text,
-    video_request_cost_unavailable_problem,
-    video_request_requires_exact_quote,
-    video_request_reuses_current_visual,
-)
+from lib.speech.narration_delivery import canonical_narration_text
 from lib.speech.speech_composition import SpeechMode, admit_script_unit
 from server.auth import CurrentUser
 from server.i18n import Translator
 from server.routers._validators import require_audio_switch_supported, require_video_bucket_capability
-from server.services.admission.cost_estimation import quote_video_request
 from server.services.admission.reference_admission import require_admitted_storyboard_references
 from server.services.tasks.derivative_sheet_tasks import build_derivative_sheet_instruction
 from server.services.tasks.generation_context import AudioLaneRequest, resolve_generation_context
 from server.services.tasks.image_edit_tasks import (
     EDITABLE_RESOURCE_TYPES,
     resolve_usable_image_edit_source,
-)
-from server.services.tasks.narration_delivery_tasks import (
-    active_narrated_video_resource_ids,
-    prepare_current_storyboard_narrated_video_duration,
-    tts_task_in_progress,
 )
 
 logger = logging.getLogger(__name__)
@@ -108,15 +84,13 @@ class GenerateStoryboardRequest(BaseModel):
 
 
 class GenerateVideoRequest(BaseModel):
+    # 旁白交付方式是项目配置，不影响视频请求；已删除的按请求交付字段按未知字段拒收。
+    model_config = ConfigDict(extra="forbid")
+
     prompt: str | dict
     script_file: str
     duration_seconds: int | None = Field(default=None, gt=0)
     seed: int | None = None
-    # 单目标入口保留后期配音默认（docs/adr/0061）：请求由用户在这一段的界面上直接触发，
-    # 界面已呈现该段的旁白状态与费用，代价也止于这一段。必填只加在替整批选定准入判据与
-    # 时长基准的批量入口与由模型推断参数的 Agent 视频工具上。
-    narration_delivery: NarrationDelivery = POST_PRODUCTION
-    confirmed_request_duration_seconds: int | None = Field(default=None, gt=0)
 
 
 class GenerateTtsRequest(BaseModel):
@@ -130,40 +104,6 @@ class GenerateVoiceSampleRequest(BaseModel):
 
 class ConfirmVoiceSampleRequest(BaseModel):
     task_id: str
-
-
-async def _localized_narrated_video_payload(
-    preparation: NarratedVideoDurationPreparation,
-    _t: Translator,
-) -> dict[str, object]:
-    payload = preparation.to_payload()
-    problems = preparation.problem_payloads()
-    for item, problem in zip(problems, preparation.problems, strict=True):
-        item["message"] = _t(problem.code, **problem.parameters())
-    payload["problems"] = problems
-    if preparation.cost is not None:
-        from lib.db import async_session_factory
-
-        quote = await quote_video_request(preparation.cost, async_session_factory)
-        if quote is not None:
-            if video_request_reuses_current_visual(
-                request_duration_seconds=preparation.request_duration_seconds,
-                current_reusable_visual_duration_seconds=preparation.current_reusable_visual_duration_seconds,
-            ):
-                quote = quote.without_new_video_charge()
-            payload["request_cost"] = quote.to_payload()
-        elif video_request_requires_exact_quote(
-            request_duration_seconds=preparation.request_duration_seconds,
-            planned_duration_seconds=preparation.planned_duration_seconds,
-            current_visual_duration_seconds=preparation.current_visual_duration_seconds,
-            current_reusable_visual_duration_seconds=preparation.current_reusable_visual_duration_seconds,
-        ):
-            cost_problem = video_request_cost_unavailable_problem(preparation.cost)
-            cost_payload = cost_problem.to_payload(unit_id=preparation.narration.unit_id)
-            cost_payload["message"] = _t(cost_problem.code, **cost_problem.parameters())
-            payload["allowed"] = False
-            problems.append(cost_payload)
-    return payload
 
 
 class EditImageRequest(BaseModel):
@@ -256,7 +196,7 @@ async def generate_video(
     仅服务分镜图生视频：参考生视频没有分镜图这一步，在此拒绝并指引换入口。
     """
 
-    def _sync() -> tuple[dict, Path, dict, dict]:
+    def _sync() -> dict:
         pm_local = get_project_manager()
         project = pm_local.load_project(project_name)
         project_path = pm_local.get_project_path(project_name)
@@ -281,7 +221,7 @@ async def generate_video(
             raise NotFoundError("segment_not_found", id=segment_id)
         require_admitted_storyboard_references(project, [resolved[0]])
         # worker 执行时按剧本当前的 video_prompt 生成，入队 payload 里的请求 prompt 不参与执行；
-        # 发声准入与下面 use_tts 预检的视觉依据因此都以盘上单元为准。
+        # 发声准入因此以盘上单元为准。
         admission = admit_script_unit(resolve_script_kind(script), resolved[0])
         if not admission.allowed:
             raise HTTPException(status_code=409, detail=admission.to_dict())
@@ -304,92 +244,23 @@ async def generate_video(
             raise BadRequestError("generate_storyboard_first", segment_id=segment_id) from None
         except ValueError:
             raise BadRequestError("invalid_storyboard_image_path", segment_id=segment_id) from None
-        return project, project_path, script, resolved[0]
+        return project
 
-    project, project_path, script, item = await asyncio.to_thread(_sync)
+    project = await asyncio.to_thread(_sync)
 
     # 归桶按项目生成模式求值（docs/adr/0054），与执行层 lane 声明同源、不第二次硬编码 i2v；
     # 上面的生成模式检查已挡掉参考生视频，此处对能到达的项目恒为 i2v。解析闸预检让能力缺失 /
     # 悬空引用在提交入口即返回修复指引，而非任务面板里的异步失败。
     _video_bucket = video_bucket_for_generation_mode(project.get("generation_mode"))
-    video_request_facts = None
-    if req.narration_delivery == USE_TTS:
-        from lib.db import async_session_factory
-
-        video_request_facts = await evaluate_video_request_facts(
-            project,
-            route="storyboard",
-            generation_type=_video_bucket,
-            identity=CONFIGURED_VIDEO_IDENTITY,
-            resolver=ConfigResolver(async_session_factory),
-        )
-        if isinstance(video_request_facts, VideoRequestFacts) and (
-            conflict := audio_switch_conflict(video_request_facts)
-        ):
-            raise BadRequestError(conflict.code, **conflict.parameters())
-    else:
-        await require_video_bucket_capability(project, _video_bucket)
-        await require_audio_switch_supported(project, _video_bucket)
-
-    delivery_projection: NarratedVideoDurationPreparation | None = None
-    delivery_payload: dict[str, object] | None = None
-    queue = get_generation_queue()
-    if req.narration_delivery == USE_TTS:
-        current_planned_duration = item.get("duration_seconds")
-        if (
-            not isinstance(current_planned_duration, int)
-            or isinstance(current_planned_duration, bool)
-            or current_planned_duration <= 0
-        ):
-            current_planned_duration = None
-        try:
-            delivery_projection = await prepare_current_storyboard_narrated_video_duration(
-                project_name=project_name,
-                project=project,
-                project_path=project_path,
-                script=script,
-                script_file=req.script_file,
-                item=item,
-                visual_prompt=item.get("video_prompt"),
-                seed=req.seed,
-                generation_type=_video_bucket,
-                # use_tts 不把请求中的 duration 持久化进队列；预检必须和 worker 一样基于
-                # 当前盘上单元重投影，否则客户端旧快照可能先通过、执行时才要求另一档确认。
-                planned_duration_seconds=current_planned_duration,
-                confirmed_request_duration_seconds=req.confirmed_request_duration_seconds,
-                tts_in_progress=await tts_task_in_progress(
-                    project_name=project_name,
-                    resource_id=segment_id,
-                    script_file=req.script_file,
-                    user_id=user.id,
-                    queue=queue,
-                ),
-                user_id=user.id,
-                queue=queue,
-                video_request_facts=video_request_facts,
-            )
-        except VideoRequestFactsError as exc:
-            raise BadRequestError(exc.code, **exc.params) from exc
-        delivery_payload = await _localized_narrated_video_payload(delivery_projection, _t)
-        if not delivery_payload["allowed"]:
-            raise HTTPException(
-                status_code=400,
-                detail=delivery_payload,
-            )
-
-    delivery_options = NarrationDeliveryRequestOptions(
-        narration_delivery=req.narration_delivery,
-        confirmed_request_duration_seconds=req.confirmed_request_duration_seconds,
-    )
+    await require_video_bucket_capability(project, _video_bucket)
+    await require_audio_switch_supported(project, _video_bucket)
 
     # 结构校验 + 构造经单一守卫点（与 SDK 入队同源，规则不分叉）。
     # duration 是能力维度，留待执行层在 provider 解析后校验（见 ADR-0001）。
     extra_payload: dict[str, object] = {
         "seed": req.seed,
-        "narration_delivery_options": delivery_options.to_payload(),
+        "duration_seconds": req.duration_seconds,
     }
-    if req.narration_delivery != USE_TTS:
-        extra_payload["duration_seconds"] = req.duration_seconds
     spec = TaskSpec.from_request(
         task_type="video",
         media_type="video",
@@ -400,7 +271,7 @@ async def generate_video(
     )
 
     # 入队（provider 由服务层根据配置自动解析，调用方无需传递）
-    result = await queue.enqueue_task(
+    result = await get_generation_queue().enqueue_task(
         project_name=project_name,
         task_type=spec.task_type,
         media_type=spec.media_type,
@@ -411,15 +282,12 @@ async def generate_video(
         user_id=user.id,
     )
 
-    response = {
+    return {
         "success": True,
         "task_id": result["task_id"],
         "deduped": result.get("deduped", False),
         "message": _t("video_task_submitted", segment_id=segment_id),
     }
-    if delivery_payload is not None:
-        response["narration_delivery"] = delivery_payload
-    return response
 
 
 # ==================== 旁白配音（TTS）生成 ====================
@@ -512,15 +380,6 @@ async def generate_tts(
     project, _segment = await asyncio.to_thread(_sync)
 
     provider_id = _require_project_tts(project)
-
-    active_narrated_video = await active_narrated_video_resource_ids(
-        project_name=project_name,
-        resource_ids=(segment_id,),
-        script_file=req.script_file,
-        user_id=user.id,
-    )
-    if segment_id in active_narrated_video:
-        raise ConflictError("tts_conflicts_with_active_narrated_video", resource_id=segment_id)
 
     result = await _enqueue_tts_segment(
         project_name=project_name,

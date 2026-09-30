@@ -17,7 +17,6 @@ from lib.agent.profile_manifest import VALID_CONTENT_MODES, resolve_profile_file
 from lib.generation.batch_admission import DURATION_CONFIRMATION_CODE, BatchAdmissionDecision
 from lib.generation.generation_result import (
     _TASK_FAILURE_ACTIONS,
-    GenerationAction,
     GenerationItemState,
     GenerationProblemCode,
 )
@@ -34,7 +33,6 @@ WORKFLOW_PLAN_REFERENCE = REFERENCES / "workflow-plan.md"
 GENERATION_RESULTS_REFERENCE = REFERENCES / "generation-results.md"
 VIDEO_SKILL = PROFILE / ".claude" / "skills" / "generate-video" / "SKILL.md"
 DISTRIBUTED_VIDEO_WORKFLOW = REPO / "skills" / "video-workflow" / "SKILL.md"
-NARRATION_AUDIO_SKILL = PROFILE / ".claude" / "skills" / "generate-narration-audio" / "SKILL.md"
 
 WORKFLOW_VARIANTS = ("SKILL.narration.md", "SKILL.drama.md", "SKILL.ad.md")
 EPISODIC_VARIANTS = ("SKILL.narration.md", "SKILL.drama.md")
@@ -44,8 +42,20 @@ EPISODIC_VARIANTS = ("SKILL.narration.md", "SKILL.drama.md")
 # 时这份契约测试会直接红。
 CONTROLLED_ACTIONS = tuple(action.value for action in WorkflowActionType)
 
-TTS_PROBLEM_CODES = tuple(code for code in _TASK_FAILURE_ACTIONS if code.startswith("tts_"))
-assert TTS_PROBLEM_CODES, "_TASK_FAILURE_ACTIONS 里已没有 tts_ 前缀问题码，请更新本测试的派生条件"
+#: 视频生成不再读旁白交付后删掉的问题码；档案里留着它们会让 Agent 按不存在的结论行事。
+RETIRED_NARRATED_VIDEO_CODES = (
+    "tts_duration_endpoint_fixed",
+    "video_shorter_than_tts",
+    "video_duration_unavailable",
+    "video_request_cost_unavailable",
+    "tts_conflicts_with_active_narrated_video",
+    "tts_missing",
+    "tts_generating",
+    "tts_stale",
+    "tts_state_unavailable",
+    "tts_duration_unavailable",
+    "tts_not_configured",
+)
 
 
 def _skill(filename: str) -> str:
@@ -107,9 +117,8 @@ def test_plan_reference_documents_every_target_field() -> None:
 # ------------------------------------------------------------------- 旁白交付
 
 
-@pytest.mark.parametrize("path", [WORKFLOW_PLAN_REFERENCE, VIDEO_SKILL])
-def test_delivery_options_are_both_named_where_the_choice_is_made(path: Path) -> None:
-    content = _reference(path)
+def test_delivery_options_are_both_named_where_the_choice_is_made() -> None:
+    content = _reference(WORKFLOW_PLAN_REFERENCE)
 
     assert POST_PRODUCTION in content
     assert USE_TTS in content
@@ -131,22 +140,15 @@ def test_preexisting_tasks_use_bounded_plan_polling() -> None:
     assert "get_workflow_plan" in content
 
 
-def test_plan_reference_covers_every_tts_problem_code_and_its_action() -> None:
-    content = _reference(WORKFLOW_PLAN_REFERENCE)
+def test_profile_names_no_retired_narrated_video_code() -> None:
+    for code in RETIRED_NARRATED_VIDEO_CODES:
+        assert code not in _TASK_FAILURE_ACTIONS
+    content = "\n".join(
+        path.read_text(encoding="utf-8") for path in PROFILE.rglob("*") if path.suffix in {".json", ".md", ".py"}
+    )
 
-    for code in TTS_PROBLEM_CODES:
-        assert f"`{code}`" in content, f"旁白问题码表缺 {code}"
-        assert f"`{_TASK_FAILURE_ACTIONS[code].value}`" in content
-
-
-def test_narration_audio_skill_covers_the_tts_actions() -> None:
-    content = NARRATION_AUDIO_SKILL.read_text(encoding="utf-8")
-
-    for action in (GenerationAction.GENERATE_TTS, GenerationAction.REGENERATE_TTS, GenerationAction.WAIT_FOR_TASK):
-        assert action.value in content
-    for code in ("tts_stale", "tts_duration_unavailable"):
-        assert _TASK_FAILURE_ACTIONS[code] is GenerationAction.REGENERATE_TTS
-        assert code in content
+    for code in RETIRED_NARRATED_VIDEO_CODES:
+        assert code not in content, f"档案仍提到已删除的问题码 {code}"
 
 
 # ------------------------------------------------------------------- 整批准入判定

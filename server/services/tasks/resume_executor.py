@@ -25,7 +25,7 @@ from server.services.currency.video_artifact_currency import (
     VideoArtifactCommitter,
     complete_video_artifact_commit,
 )
-from server.services.tasks.generation_context import AudioLaneRequest, VideoLaneRequest, resolve_generation_context
+from server.services.tasks.generation_context import VideoLaneRequest, resolve_generation_context
 from server.services.tasks.generation_tasks import (
     DEFAULT_USER_ID,
     emit_generation_success_batch,
@@ -136,7 +136,6 @@ async def execute_resume_video_task(
             project=project,
             user_id=user_id,
             video=video_request,
-            audio=(AudioLaneRequest() if checkpoint.narration.delivery == "use_tts" else None),
         )
         generator = ctx.generator
 

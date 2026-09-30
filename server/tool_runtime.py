@@ -144,7 +144,6 @@ from lib.speech.narration_config import (
     NarrationDelivery,
     validate_project_narration_config,
 )
-from lib.speech.narration_delivery import TtsSettingsResolver
 from lib.speech.speech_composition import SpeechProblemCode
 from lib.workflow.workflow_plan import WorkflowPlan, WorkflowPlanRequest
 from lib.workflow.workflow_state import WorkflowRequestError
@@ -225,7 +224,6 @@ class Services:
     workflow_planner: WorkflowPlanner
     capabilities: ConfigResolver
     queue: GenerationQueue = field(default_factory=get_generation_queue)
-    tts_settings_resolver: TtsSettingsResolver | None = None
 
     @classmethod
     def defaults(cls, projects: ProjectManager) -> Services:
