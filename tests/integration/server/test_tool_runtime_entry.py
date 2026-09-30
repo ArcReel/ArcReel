@@ -6,6 +6,7 @@ import threading
 from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
+from typing import Any
 
 import pytest
 from pydantic import ValidationError
@@ -516,3 +517,39 @@ def test_create_project_request_rejects_mode_specific_fields_before_writing(tmp_
         CreateProjectToolRequest(name="demo", content_mode="narration", target_duration=30)
 
     assert services.projects.list_projects() == []
+
+
+async def test_upload_source_registers_whole_source_files_and_own_source_episodes(tmp_path: Path) -> None:
+    services = _services(tmp_path)
+    caller = CallerContext(user_id="test", source="mcp")
+    await create_project(
+        ToolRequest(
+            CreateProjectToolRequest(name="demo", title="Demo", content_mode="narration", generation_mode="storyboard")
+        ),
+        caller,
+        services,
+    )
+    scope = ProjectScope(project_name="demo", data_root=services.projects.data_root)
+
+    async def upload(**fields: Any) -> Any:
+        return await upload_source(ToolRequest(UploadSourceRequest(**fields)), scope, caller, services)
+
+    whole = await upload(filename="novel.txt", content="第一章\n整本")
+    first = await upload(filename="第一集.txt", content="第一集原文", role="episode")
+    second = await upload(filename="第二集.txt", content="第二集原文", role="episode")
+    reserved = await upload(filename="episode_3.txt", content="整本的一部分")
+    blank = await upload(filename="空.txt", content="  ", role="episode")
+
+    assert whole.problem is None
+    assert first.value is not None
+    assert first.value["episode_id"] == 1
+    assert second.value is not None
+    assert second.value["path"] == "source/episode_2.txt"
+    assert reserved.problem is not None
+    assert blank.problem is not None
+    project = services.projects.load_project("demo")
+    assert project["whole_source_files"] == [{"source_file": "source/novel.txt"}]
+    assert [(entry["episode"], entry["source_origin"]) for entry in project["episodes"]] == [(1, "own"), (2, "own")]
+    project_dir = services.projects.get_project_path("demo")
+    assert (project_dir / "source" / "episode_1.txt").read_text(encoding="utf-8") == "第一集原文"
+    assert not (project_dir / "source" / "episode_3.txt").exists()

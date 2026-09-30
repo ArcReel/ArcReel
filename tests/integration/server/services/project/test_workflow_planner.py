@@ -5,7 +5,8 @@ from typing import Any
 
 import pytest
 
-from lib.episode.episode_ledger import SOURCE_FINGERPRINTS_KEY, compute_source_fingerprints, discover_sources
+from lib.episode.episode_ledger import SOURCE_FINGERPRINTS_KEY, compute_source_fingerprints
+from lib.episode.episode_sources import discover_sources
 from lib.generation.batch_admission import BatchAdmission, UnitAdmissionTicket
 from lib.generation.generation_batch import GenerationBatchRequestedItem, GenerationBatchRequestSnapshot
 from lib.generation.generation_queue import GenerationQueue
@@ -158,8 +159,7 @@ def _project_at_text_stage(tmp_path: Path, stage: str, content_mode: str, genera
                 "source_range": {"source_file": "source/novel.txt", "start": 0, "end": 4},
             }
         ]
-        project["planning_cursor"] = {"source_file": "source/novel.txt", "offset": 4}
-        project[SOURCE_FINGERPRINTS_KEY] = compute_source_fingerprints(discover_sources(project_path))
+        project[SOURCE_FINGERPRINTS_KEY] = compute_source_fingerprints(discover_sources(project_path, project))
 
     pm.update_project("demo", _plan)
     return pm

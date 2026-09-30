@@ -908,6 +908,7 @@ async def test_normalize_drama_script_injects_episode_outline(fake_ctx: ToolHarn
             "title": "初入江湖",
             "hook": "少年坠崖生死未卜",
             "outline": {"story_beats": ["少年下山"], "next_episode_teaser": None},
+            "source_origin": "own",
         }
     ]
 

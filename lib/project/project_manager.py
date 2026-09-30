@@ -49,6 +49,7 @@ from lib.episode.episode_paths import (
     episode_script_filename,
     episode_script_relpath,
 )
+from lib.episode.episode_sources import SOURCE_ORIGIN_FIELD, WHOLE_SOURCE_FILES_KEY, SourceOrigin
 from lib.episode.episode_target_duration import (
     EPISODE_TARGET_DURATION_FIELD,
     MAX_EPISODE_TARGET_DURATION,
@@ -1249,7 +1250,8 @@ class ProjectManager:
         episodes = project.setdefault("episodes", [])
         episode_entry: dict[str, Any] | None = next((ep for ep in episodes if ep["episode"] == episode_num), None)
         if episode_entry is None:
-            episode_entry = {"episode": episode_num}
+            # 剧本先于账本条目落盘的集没有登记过集原文
+            episode_entry = {"episode": episode_num, SOURCE_ORIGIN_FIELD: SourceOrigin.NONE.value}
             episodes.append(episode_entry)
         # 同步核心元数据（不包含统计字段，统计字段由项目摘要读时计算）
         episode_entry["title"] = episode_title
@@ -1890,6 +1892,26 @@ class ProjectManager:
             source_dir.mkdir(parents=True, exist_ok=True)
             yield source_dir
 
+    @contextmanager
+    def locked_source_registration(self, project_name: str) -> Generator[tuple[Path, dict]]:
+        """:meth:`locked_source_mutation` 的登记变体：源文文件与 project.json 的登记在同一把项目锁内改。
+
+        产出 ``(source_dir, project)``；块内就地修改 ``project``（整本源文清单、分集账本），块正常
+        退出且 ``project`` 有变化时写回 ``project.json``。块内抛错时不写回，已写的源文文件由调用方清理。
+        """
+        project_file = self._get_project_file_path(project_name)
+        changed = False
+        with self.locked_source_mutation(project_name) as source_dir:
+            project = self._read_project_raw_unlocked(project_name)
+            before = json.dumps(project, sort_keys=True, ensure_ascii=False)
+            yield source_dir, project
+            if json.dumps(project, sort_keys=True, ensure_ascii=False) != before:
+                self._apply_project_mutation_unlocked(project, lambda _project: None)
+                atomic_write_json(project_file, project)
+                changed = True
+        if changed:
+            emit_project_change_hint(project_name, changed_paths=[self.PROJECT_FILE])
+
     @asynccontextmanager
     async def async_file_lock(
         self,
@@ -2313,6 +2335,7 @@ class ProjectManager:
         "episode": 1,
         "title": "",
         "script_file": episode_script_relpath(1),
+        SOURCE_ORIGIN_FIELD: SourceOrigin.NONE.value,
     }
     # 创建入口未传 target_duration 时的数据层兜底（与创建向导默认档位同值）
     AD_DEFAULT_TARGET_DURATION = 60
@@ -2390,7 +2413,7 @@ class ProjectManager:
             "aspect_ratio": aspect_ratio or "9:16",
             "style": style or "",
             "episodes": [],
-            "planning_cursor": None,
+            WHOLE_SOURCE_FILES_KEY: [],
             "characters": {},
             "scenes": {},
             "props": {},

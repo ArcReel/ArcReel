@@ -11,7 +11,7 @@ import unicodedata
 from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import StrEnum
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -23,15 +23,12 @@ from lib.edit_timeline.store import EditTimelineStore
 from lib.episode.episode_ledger import (
     SOURCE_FINGERPRINTS_KEY,
     SourceDoc,
-    compute_source_fingerprints,
-    episodes_without_source_range,
-    is_derived_episode_name,
     mismatched_source_fingerprints,
     normalize_source_text,
     parse_positive_episode_num,
-    register_orphan_episode_entries,
 )
 from lib.episode.episode_paths import episode_source_relpath
+from lib.episode.episode_sources import legacy_cut_episode_ids, unplanned_text_remains, whole_source_files
 from lib.infra.content_digest import prefixed_canonical_json_digest
 from lib.project.asset_derivatives import derivative_artifact_key, derivative_table, split_derivative_artifact_id
 from lib.project.asset_types import ASSET_SPECS, asset_name_comparison_key
@@ -397,8 +394,8 @@ def _action(
     )
 
 
-def planning_docs(source: SourceRevisionResult | None) -> tuple[SourceDoc, ...]:
-    """把修订号计算那一次读取的原文转成账本坐标系里的源文档。
+def planning_docs(project: Mapping[str, Any], source: SourceRevisionResult | None) -> tuple[SourceDoc, ...]:
+    """把修订号计算那一次读取的原文转成整本源文：按项目登记的文件清单顺序，账本坐标系里的规范化全文。
 
     源文在一次状态查询里只读一遍：``compute_source_revision`` 已经把每份源文读进内存，
     分集排布所需的归一化全文由那一次读取派生，不再回磁盘重读。
@@ -406,10 +403,13 @@ def planning_docs(source: SourceRevisionResult | None) -> tuple[SourceDoc, ...]:
 
     if source is None or source.blockers:
         return ()
-    return tuple(
-        SourceDoc(rel_path=f"source/{document.name}", text=normalize_source_text(document.text))
-        for document in source.documents
-    )
+    by_rel = {unicodedata.normalize("NFC", f"source/{document.name}"): document for document in source.documents}
+    docs: list[SourceDoc] = []
+    for rel in whole_source_files(project):
+        document = by_rel.get(unicodedata.normalize("NFC", rel))
+        if document is not None:
+            docs.append(SourceDoc(rel_path=rel, text=normalize_source_text(document.text)))
+    return tuple(docs)
 
 
 def _planning_fingerprints_diverged(project: Mapping[str, Any], sources: tuple[SourceDoc, ...]) -> bool:
@@ -417,31 +417,6 @@ def _planning_fingerprints_diverged(project: Mapping[str, Any], sources: tuple[S
     if not isinstance(recorded, Mapping) or not recorded:
         return False
     return bool(mismatched_source_fingerprints(recorded, list(sources)))
-
-
-def _new_source_precedes_cursor(project: Mapping[str, Any], sources: tuple[SourceDoc, ...]) -> bool:
-    recorded = project.get(SOURCE_FINGERPRINTS_KEY)
-    cursor = project.get("planning_cursor")
-    if not isinstance(recorded, Mapping) or not isinstance(cursor, Mapping):
-        return False
-    cursor_file = cursor.get("source_file")
-    if not isinstance(cursor_file, str):
-        return False
-    canonical_cursor = unicodedata.normalize("NFC", cursor_file)
-    canonical_recorded = {
-        unicodedata.normalize("NFC", recorded_path) for recorded_path in recorded if isinstance(recorded_path, str)
-    }
-    cursor_indexes = [
-        index
-        for index, source in enumerate(sources)
-        if unicodedata.normalize("NFC", source.rel_path) == canonical_cursor
-    ]
-    if len(cursor_indexes) != 1:
-        return False
-    return any(
-        unicodedata.normalize("NFC", source.rel_path) not in canonical_recorded
-        for source in sources[: cursor_indexes[0] + 1]
-    )
 
 
 def _empty_collection() -> dict[str, list[str]]:
@@ -696,38 +671,16 @@ class WorkflowStateService:
         return parsed
 
     @staticmethod
-    def _planning_complete(
-        project: dict[str, Any],
-        source: SourceRevisionResult | None,
-        planning_sources: tuple[SourceDoc, ...],
-    ) -> bool:
-        """判定源文是否已全部排布完。
+    def _planning_complete(project: dict[str, Any], planning_sources: tuple[SourceDoc, ...]) -> bool:
+        """判定整本源文是否已全部排布完：由账本推导的规划起点之后没有非空白的原文。
 
-        源文只来自 ``planning_sources``——本次请求已经读过一遍的那份，不再回磁盘取。
-        手动预拆分（源文全是 ``episode_N.txt``）没有待排布的原文，也从不产生源文指纹与
-        规划游标，直接视为排布完，做完的集才不会被打回分集规划。
+        源文只来自 ``planning_sources``——本次请求已经读过一遍的那份，不再回磁盘取。源文在规划之后
+        被改动时不算排布完，由规划动作转为重置。
         """
 
-        if source is None or not source.files:
+        if not planning_sources or _planning_fingerprints_diverged(project, planning_sources):
             return False
-        if all(is_derived_episode_name(PurePosixPath(rel).name) for rel in source.files):
-            return True
-        recorded_fingerprints = project.get(SOURCE_FINGERPRINTS_KEY)
-        if not isinstance(recorded_fingerprints, Mapping) or not recorded_fingerprints:
-            return False
-        current_fingerprints = compute_source_fingerprints(list(planning_sources))
-        if dict(recorded_fingerprints) != current_fingerprints:
-            return False
-        cursor = project.get("planning_cursor")
-        if not isinstance(cursor, Mapping):
-            return False
-        rel = cursor.get("source_file")
-        offset = cursor.get("offset")
-        canonical_rel = unicodedata.normalize("NFC", rel) if isinstance(rel, str) else None
-        if canonical_rel != source.files[-1] or not isinstance(offset, int) or isinstance(offset, bool):
-            return False
-        matching_docs = [doc for doc in planning_sources if unicodedata.normalize("NFC", doc.rel_path) == canonical_rel]
-        return len(matching_docs) == 1 and offset >= len(matching_docs[0].text)
+        return not unplanned_text_remains(project, list(planning_sources))
 
     def _load_script_artifacts(
         self,
@@ -917,12 +870,6 @@ class WorkflowStateService:
         failure = load_migration_verdict(project_path)
         if failure is not None:
             return self._migration_blocked_status(project, failure)
-        # 用户自行拆好 source/episode_N.txt 上传、账本为空时，先在内存里补建条目再读账本，路线才有
-        # 目标集可选；否则空账本会把这些集指去分集规划，而那条路对手动预拆分只会以「条目缺位置
-        # 记录、请全量重置」告终。补建与分集规划器、内容确认共用同一登记函数（条目无 source_range，
-        # 规划入口照旧拒绝），但这里不写 project.json：状态计算不改变结论性数据（见模块 docstring），
-        # 登记落盘留给真正开始消费这些集的入口。
-        project = register_orphan_episode_entries(project_path, project)
         shared = self._shared_facts(project_path, project)
         status = self._get_status(project_name, project, project_path, episode, shared)
         status.migration_report = load_migration_report(project_path)
@@ -944,7 +891,6 @@ class WorkflowStateService:
             return []
         if not isinstance(project, dict) or load_migration_verdict(project_path) is not None:
             return []
-        project = register_orphan_episode_entries(project_path, project)
         shared = self._shared_facts(project_path, project)
         if shared.blockers:
             return []
@@ -982,8 +928,6 @@ class WorkflowStateService:
         failure = load_migration_verdict(project_path)
         if failure is not None:
             return self._migration_blocked_summary(project, self._episodes(project, []), failure)
-        # 与 get_status 同一口径：手动预拆分的集在内存里补进账本后再数集数，不落盘。
-        project = register_orphan_episode_entries(project_path, project)
         episodes = self._episodes(project, [])
         try:
             resolver: ArtifactComparer | None = (
@@ -1257,8 +1201,8 @@ class WorkflowStateService:
                 )
             )
         source, inventory = self._source_inventory(project_path, project, str(mode), issues)
-        planning_sources = planning_docs(source) if mode != "ad" else ()
-        planning_complete = self._planning_complete(project, source, planning_sources)
+        planning_sources = planning_docs(project, source) if mode != "ad" else ()
+        planning_complete = self._planning_complete(project, planning_sources)
         sheets = self._asset_sheets(project_path, project, issues, currency)
         episodes = self._episodes(project, issues)
         return _SharedWorkflowFacts(
@@ -1357,8 +1301,8 @@ class WorkflowStateService:
     def _planning_action(
         self, project: dict[str, Any], shared: _SharedWorkflowFacts, reason: str
     ) -> WorkflowNextAction:
-        """继续分集规划的动作：规划器会拒绝接续时（缺位置记录、源文已改动）改为从头重置。"""
-        if episodes_without_source_range(project):
+        """继续分集规划的动作：规划器会拒绝接续时（切出集缺位置记录、源文已改动）改为从头重置。"""
+        if legacy_cut_episode_ids(project):
             return _action(
                 WorkflowActionType.RESET_EPISODE_PLANNING,
                 "episode ledger lacks source range records",
@@ -1367,11 +1311,6 @@ class WorkflowStateService:
             return _action(
                 WorkflowActionType.RESET_EPISODE_PLANNING,
                 "source files changed after episode planning",
-            )
-        if _new_source_precedes_cursor(project, shared.planning_sources):
-            return _action(
-                WorkflowActionType.RESET_EPISODE_PLANNING,
-                "new source text precedes the current planning cursor",
             )
         return _action(WorkflowActionType.PLAN_EPISODES, reason)
 
@@ -1678,7 +1617,7 @@ class WorkflowStateService:
         if target is None:
             return respond(None, _action(WorkflowActionType.NONE, "episode script binding is invalid"))
 
-        episode_source = not is_ad and episode_source_present(project_path, number)
+        episode_source = not is_ad and episode_source_present(project_path, number, entry)
         content.episode_source = "not_applicable" if is_ad else ("present" if episode_source else "absent")
         content.drafts = self._episode_drafts(project_path, project, number)
         stale, stale_revision = (

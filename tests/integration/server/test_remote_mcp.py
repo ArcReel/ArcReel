@@ -10,7 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 
-from lib.artifacts.artifact_activation import register_current_artifact_if_provable
+from lib.artifacts.artifact_activation import activate_artifact_target_state, register_current_artifact_if_provable
 from lib.artifacts.artifact_manifest import ArtifactKey
 from lib.generation.generation_batch import GenerationBatchRequestSnapshot
 from lib.generation.generation_queue import GenerationQueue
@@ -31,7 +31,7 @@ from server.auth import create_download_token, create_token
 from server.cors_config import resolve_cors_policy
 from server.remote_mcp import ArcApiKeyVerifier, RemoteMCPHost, build_remote_mcp_server
 from server.tool_runtime import Services, TextGenerationResult
-from tests.factories import make_video_request_facts
+from tests.factories import make_video_request_facts, register_project_sources
 from tests.fakes import refuse_resume_execution
 from tests.integration.server.agent_tool_support import ToolHarness
 
@@ -89,8 +89,7 @@ def remote_projects(tmp_path: Path) -> ProjectManager:
     manager.create_project("demo", content_mode="drama")
     manager.create_project_metadata("demo", "Demo", "", "drama")
     project_dir = projects_root / "demo"
-    (project_dir / "source").mkdir(exist_ok=True)
-    (project_dir / "source" / "episode_1.txt").write_text("第一集原文", encoding="utf-8")
+    register_project_sources(manager, "demo", own_episodes=("第一集原文",))
     (project_dir / "scripts").mkdir(exist_ok=True)
     (project_dir / "scripts" / "episode_1.json").write_text('{"episode":1,"scenes":[]}', encoding="utf-8")
     drafts = project_dir / "drafts" / "episode_1"
@@ -101,6 +100,7 @@ def remote_projects(tmp_path: Path) -> ProjectManager:
         '"scene_description":"山门前。","utterances":[],"source_text":"第一集原文"}]}',
         encoding="utf-8",
     )
+    activate_artifact_target_state(project_dir, bump_schema=False)
     (projects_root / "empty").mkdir()
     outside = tmp_path / "outside"
     outside.mkdir()

@@ -31,24 +31,35 @@ def _conclusion(admission: OperationAdmission) -> tuple[str, str | None]:
     [
         ([], False),
         ([SourceDoc(rel_path="source/novel.txt", text=" \n\t")], False),
-        ([SourceDoc(rel_path="source/episode_1.txt", text="集原文")], False),
+        ([SourceDoc(rel_path="source/novel.txt", text=" "), SourceDoc(rel_path="source/b.txt", text="正文")], True),
         ([SourceDoc(rel_path="source/novel.txt", text="正文")], True),
     ],
 )
-def test_whole_source_is_a_non_blank_file_other_than_episode_sources(docs: list[SourceDoc], expected: bool) -> None:
+def test_whole_source_is_any_non_blank_registered_file(docs: list[SourceDoc], expected: bool) -> None:
     assert whole_source_present(docs) is expected
 
 
-def test_episode_source_is_a_non_blank_regular_file(tmp_path: Path) -> None:
+@pytest.mark.parametrize("origin", ["own", "whole_source"])
+def test_episode_source_is_a_non_blank_regular_file(tmp_path: Path, origin: str) -> None:
     source = tmp_path / "source"
     source.mkdir()
-    assert episode_source_present(tmp_path, 1) is False
+    entry = {"episode": 1, "source_origin": origin}
+    assert episode_source_present(tmp_path, 1, entry) is False
     (source / "episode_1.txt").write_text("  ", encoding="utf-8")
-    assert episode_source_present(tmp_path, 1) is False
+    assert episode_source_present(tmp_path, 1, entry) is False
     (source / "episode_1.txt").write_text("原文", encoding="utf-8")
-    assert episode_source_present(tmp_path, 1) is True
+    assert episode_source_present(tmp_path, 1, entry) is True
     (source / "episode_2.txt").symlink_to(source / "episode_1.txt")
-    assert episode_source_present(tmp_path, 2) is False
+    assert episode_source_present(tmp_path, 2, {"episode": 2, "source_origin": origin}) is False
+
+
+def test_no_source_episode_has_no_episode_source_even_with_a_file_on_disk(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "episode_1.txt").write_text("没有登记的原文", encoding="utf-8")
+
+    assert episode_source_present(tmp_path, 1, {"episode": 1, "source_origin": "none"}) is False
+    assert episode_source_present(tmp_path, 1, None) is False
 
 
 @pytest.mark.parametrize(

@@ -26,7 +26,7 @@ description: 将小说转换为短视频的端到端工作流编排器。当用�
 
 1. 提示用户在 Web 端先创建项目，**创建时指定 content_mode（narration / drama）与 generation_mode（storyboard / reference_video）**；两者创建后均不可变更，Agent 无对应写入权限。session 启动后 cwd 已绑定到对应项目根
 2. 使用 Read 工具读取 `project.json`，确认 `title`、`content_mode`、`generation_mode` 字段（本 session 当前 content_mode 为 `drama`，创建后不可变更）
-3. 请用户将小说文本放入 `source/`
+3. 请用户在 Web 端上传小说文本（整本源文），或经 `mcp__arcreel__upload_source` 写入；直接放进 `source/` 而未登记的文件不是源文
 4. **上传后自动生成项目概述**（synopsis、genre、theme、world_setting）
 
 > 标准项目子目录由 `create_project()` 自动建好：`source/`、`scripts/`、`drafts/`、`characters/`、`scenes/`、`props/`、`storyboards/`、`grids/`、`videos/`、`reference_videos/`、`thumbnails/`、`output/`。
@@ -103,16 +103,16 @@ expected source revision：{next_action.args.expected_source_revision}
 
 **触发**：`next_action.type == "plan_episodes"`
 
-**用户已自行分集时不走本节**：用户把拆好的 `source/episode_N.txt` 直接放进 `source/`（没有整本原文）时，这些文件本身就是源文，账本会按文件自动登记（条目无原文范围记录），计划不会给出 `plan_episodes`，而是逐集直接进入脚本规划。**不要**把它们合并成全本、**不要**调 `plan_episodes` 重切、**不要**改名或重排；`plan_episodes` 对这类账本一律拒绝并指路全量重置，而全量重置会把这些集文件改名留底——只有用户明确要求重新切分时才走那条路，且须事前告知这一后果并取得确认。
+**用户已自行分集时不走本节**：用户拆好的每集原文逐集经 `mcp__arcreel__upload_source`（`role=episode`）登记为自带原文的集，或在集页直接填写；这些集不参与分集规划，计划逐集直接进入脚本规划。把每一集原样登记为一集，保持用户给出的分集与先后；合并成全本再用 `plan_episodes` 重切只在用户明确要求重新切分时才做。分集规划与重置只动切自整本源文的集，自带原文与无原文的集原样保留。
 
-分集规划由服务端工具完成：工具内部从 `planning_cursor` 起读一个源文窗口，调用项目配置的文本模型一次规划出窗口内所有剧情弧完整的集（标题/钩子/原文范围 + 分集大纲：故事节点与下集预告），在同一把项目锁内写账本、派生 `source/episode_{N}.txt` 并清理残留派生文件。**主 Agent 只调一次工具、只收摘要**——不读小说原文、不自行选切分点：
+分集规划由服务端工具完成：工具内部按整本源文文件清单（`whole_source_files`）的顺序，从最后一个切出集的结尾起读一个源文窗口，调用项目配置的文本模型一次规划出窗口内所有剧情弧完整的集（标题/钩子/原文范围 + 分集大纲：故事节点与下集预告），在同一把项目锁内写账本、派生 `source/episode_{N}.txt` 并清理残留派生文件。**主 Agent 只调一次工具、只收摘要**——不读小说原文、不自行选切分点：
 
 1. 规划前快速核对 `project.json`：
    - `source_language` 是否与源文实际语言一致。优先级：**用户显式配置 > 自动推断**（正常路径由 overview 生成自动落盘）；发现不一致时**提醒用户（WARN）、说明后果并建议修正**（错误配置会使规划的体量度量与语言前提失真），用户未修正时按显式配置继续，不阻塞流程。字段缺失或经用户确认有误时，走 `mcp__arcreel__patch_project({"settings": {"source_language": "en"|"vi"|"zh"}})` 写入
    - `episode_target_units`（每集目标体量，按 `source_language` 解读为阅读单位）：已设置则直接沿用；缺失且用户在对话中明确给过字数 → 经 `mcp__arcreel__patch_project({"settings": {"episode_target_units": N}})` 写入；缺失但项目设了 `episode_target_duration` 时，工具会按该时长经口播语速折算出每集体量，**不必再问用户字数**；两者都没有也可直接规划（工具会按短视频节奏自行把握体量），无需强制询问
 2. 调用 `mcp__arcreel__plan_episodes({})`。窗口字数与每批集数上限为工具内部默认，项目设置 `planning_window_chars` / `planning_max_episodes` 可覆盖（经 patch_project settings 写入）。**用户在规划前给出分集附加指令时**（如"严格按章节切分，一章一集""每集在某处收尾"），把附加指令原文经 `instructions` 传入：`mcp__arcreel__plan_episodes({"instructions": "附加指令原文"})`；附加指令原样注入规划 prompt 的「附加指令」分节，遵循强度由正文表达——用户明确要求硬性遵循时，把强度措辞一并写进正文（如「必须全部落实：一章一集」）。长篇会分多批规划（每批一次工具调用），该附加指令**不持久化**，须在规划完成前**每一批调用都重复带上同一 `instructions`**
 3. **批级审阅**：把工具返回的账本摘要展示给用户，征求意见；每一集的首尾原文都展示给用户才算完成——用户靠它核对分集边界是否切对
-4. 用户提出意见（一句话可同时包含任意多处意见，含全局偏好）→ 走「重置 + 重新规划」：先调用 `mcp__arcreel__reset_episode_planning({"episode_id": X})`，`episode_id` 取意见中播出顺序最早受影响那一集的集 ID，保留播出顺序中其前的集不受影响；最早受影响的是第一集时省略 `episode_id`，即全量重置
+4. 用户提出意见（一句话可同时包含任意多处意见，含全局偏好）→ 走「重置 + 重新规划」：先调用 `mcp__arcreel__reset_episode_planning({"episode_id": X})`，`episode_id` 取意见中播出顺序最早受影响那一集的集 ID，保留播出顺序中其前的集不受影响；最早受影响的是第一个切出集时省略 `episode_id`，即全量重置
 5. **已消费集警告确认**：重置会波及已消费集（已有 script_plan/剧本/媒体产物）时，工具会返回受影响集清单而不执行——把影响范围告知用户、获得明确确认后，追加 `"confirm_consumed": true` 重新调用；确认执行后这些集的账本条目被清除，产物本身不删除
 6. 重置完成后，全局性意见（如每集体量）先经 `mcp__arcreel__patch_project({"settings": {"episode_target_units": N}})` 显式写入，再带调整后的 `instructions` 重新调用 `mcp__arcreel__plan_episodes` 从保留段之后起分批规划、结果再次展示审阅；重新规划出的集一律分配新的集 ID，被清除的集 ID 不再复用，其剧本与媒体产物留在磁盘上、不会接到新集上，新集的下游产物需重新制作。**规划完毕后返回会附全局核对材料**（累计集数、体量最小几集、体量中位数、目标体量——目标体量由 `episode_target_duration` 折算而来时会标明来源，核对时按软目标看待）：若用户给过总集数、按章节对齐等结构性偏好，须对照核对，有偏差须向用户明确说明（可引导用户重新走「重置 + 重新规划」修正）
 7. 用户对本批规划满意后刷新计划继续。**用户显式授权全自主时**（如"直接跑完整个流程不用逐步确认"），可跳过批级审阅直接继续

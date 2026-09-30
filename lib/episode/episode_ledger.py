@@ -1,24 +1,21 @@
 """分集账本：episodes[] 账本字段的数据模型与账本读取工具。
 
-project.json 的 episodes 列表是分集单一真相源，条目在 episode/title/script_file
-之外扩展账本字段（source_range / hook / outline / ledger_status），顶层增加
-planning_cursor 标记下一批规划起点。物理 ``source/episode_N.txt`` 是派生物——除非 ``source/``
-下只有它们、没有任何能派生出它们的原文（手动预拆分上传），此时它们本身就是源文（见
-``episode_files_are_derived``）。
+project.json 的 episodes 列表是分集单一真相源，条目在 episode/title/script_file 之外扩展账本字段
+（source_range / hook / outline / ledger_status），并记录集原文的来源（见
+``lib.episode.episode_sources``）。切自整本源文的集的物理 ``source/episode_N.txt`` 是派生物；自带原文
+的集文件就是该集的源文。
 
-``source_range`` 是账本里唯一的位置真相：有它才能从源文重造派生文件、才能续接
-规划。账本字段全部可缺失，缺失即该集没有位置记录（旧拆分流程写入、或手工预拆分
-上传）——这类条目的物理集文件就是它的最终记录，下游消费不受影响，但规划入口会
-拒绝执行并指引全量重置（见 ``lib.episode.episode_planner`` 与 ``lib.episode.episode_reset``）。
+``source_range`` 是切出集唯一的位置真相：有它才能从源文重造派生文件、才能续接规划。旧拆分流程切出的
+集没有它，照常消费，但规划入口会拒绝执行并指引全量重置（见 ``lib.episode.episode_planner`` 与
+``lib.episode.episode_reset``）。
 """
 
 from __future__ import annotations
 
 import hashlib
-import logging
 import re
 import unicodedata
-from collections.abc import Iterable, Mapping
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any, Literal, get_args
@@ -29,8 +26,6 @@ from lib.episode.episode_paths import episode_drafts_dir, episode_script_relpath
 from lib.infra.path_safety import safe_exists
 from lib.infra.text_utils import normalize_newlines
 from lib.project.project_schema import parse_project_schema_version
-
-logger = logging.getLogger(__name__)
 
 _STRICT_CONFIG = ConfigDict(extra="forbid")
 
@@ -44,7 +39,7 @@ _EPISODE_FILE_RE = re.compile(r"episode_([0-9]+)\.txt")
 _SCRIPT_FILE_RE = re.compile(r"episode_([0-9]+)\.json")
 _DRAFT_DIR_RE = re.compile(r"episode_([0-9]+)")
 
-# 「什么后缀算源文本文件」的唯一定义，候选枚举与其他源文读取方共用
+# 「什么后缀算源文本文件」的唯一定义，整本源文清单与其他源文读取方共用
 SOURCE_TEXT_SUFFIXES = {".txt", ".md"}
 
 # project.json 顶层源文指纹字段（源文相对路径 → 归一化文本 sha256）。账本坐标绑定
@@ -107,20 +102,6 @@ class EpisodeOutline(BaseModel):
     next_episode_teaser: str | None = None
 
 
-class PlanningCursor(BaseModel):
-    """下一批规划起点（归一化坐标系字符偏移）。"""
-
-    model_config = _STRICT_CONFIG
-
-    source_file: str
-    offset: int = Field(ge=0)
-
-    @field_validator("source_file")
-    @classmethod
-    def _check_source_file(cls, value: str) -> str:
-        return _validate_rel_posix_path(value)
-
-
 #: 从这一 schema 起，下集大纲取播出顺序中紧接的那一集，且没有规划数据时退为只给标题。
 #: 更早的项目只在迁移链中出现：v15→v16 之前的激活沿用「集号 + 1、没有规划数据就不给」的
 #: 口径，由 v15→v16 按新旧口径各规划一次，改写只因下集大纲变了的脚本规划登记。
@@ -181,7 +162,7 @@ def episode_outline_context(
 def normalize_source_text(text: str) -> str:
     """账本坐标系的唯一归一化函数：Unicode NFC + 换行统一为 ``\\n``。
 
-    source_range / planning_cursor 的偏移量全部落在本函数输出的坐标系内，
+    source_range 的偏移量全部落在本函数输出的坐标系内，
     任何按偏移切片源文的消费方必须先对源文执行本函数。
     """
     return unicodedata.normalize("NFC", normalize_newlines(text))
@@ -189,19 +170,10 @@ def normalize_source_text(text: str) -> str:
 
 @dataclass
 class SourceDoc:
-    """候选源文件：项目根相对 POSIX 路径 + 归一化全文。"""
+    """整本源文的一个文件：项目根相对 POSIX 路径 + 归一化全文。"""
 
     rel_path: str
     text: str
-
-
-def _read_text_or_none(path: Path) -> str | None:
-    """读取文本文件；不可读/非 UTF-8 返回 None（容错降级，不让单个坏文件拖垮整次枚举）。"""
-    try:
-        return path.read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError) as exc:
-        logger.warning("文本文件读取失败，按缺失处理：%s: %s", path, exc)
-        return None
 
 
 def parse_episode_num(value: Any) -> int | None:
@@ -240,62 +212,10 @@ def is_derived_episode_name(name: str) -> bool:
     return _EPISODE_FILE_RE.fullmatch(name) is not None
 
 
-def _is_candidate_source(path: Path) -> bool:
-    """``source/`` 直下扩展名合法、非点/下划线前缀的普通文件（含派生集文件名）。
-
-    符号链接条目（含悬空链接）不进候选；是否越出项目的检查与报告归 ``lib.project.source_revision``。
-    """
-    return (
-        not path.is_symlink()
-        and path.is_file()
-        and not path.name.startswith((".", "_"))
-        and path.suffix.lower() in SOURCE_TEXT_SUFFIXES
-    )
-
-
-def episode_files_are_derived(entries: Iterable[Path]) -> bool:
-    """``source/`` 目录项里的 ``episode_N.txt`` 是否该按派生物对待。
-
-    由目录整体决定：目录里另有候选源文时，集文件是分集规划按账本派生出来的（改动原文即改动
-    源文，派生文件不重复计入）；目录里只有 ``episode_N.txt`` 时没有任何原文能派生出它们——那是
-    用户自行拆好上传的分集，它们本身就是源文（见 ``docs/adr/0031``）。符号链接条目不算候选源文，
-    不计入「另有原文」。源文枚举与源文修订共用这一个判定，两边的源文口径不会分裂。
-    """
-    return any(not is_derived_episode_name(path.name) and _is_candidate_source(path) for path in entries)
-
-
-def discover_sources(project_dir: Path) -> list[SourceDoc]:
-    """枚举 source/ 直下一级的候选源文件（.txt/.md），按文件名排序。
-
-    排除下划线/点前缀文件（_remaining.txt 等）与子目录（source/raw/ 原格式备份天然不进
-    候选）；派生集文件（episode_N.txt）只在目录另有原文时排除（见 ``episode_files_are_derived``）。
-    符号链接不进候选：``source/`` 目录本身是符号链接或 junction 时视为无源文，直下的符号链接
-    条目静默跳过。
-    """
-    source_dir = project_dir / "source"
-    # is_junction() POSIX 上恒为 False，与 lib.episode.episode_reset 对 source/ 目录的检查一致
-    if source_dir.is_symlink() or source_dir.is_junction() or not source_dir.is_dir():
-        return []
-    entries = sorted(source_dir.iterdir())
-    skip_episode_files = episode_files_are_derived(entries)
-    docs: list[SourceDoc] = []
-    for path in entries:
-        name = path.name
-        if skip_episode_files and is_derived_episode_name(name):
-            continue
-        if not _is_candidate_source(path):
-            continue
-        text = _read_text_or_none(path)
-        if text is None:
-            continue
-        docs.append(SourceDoc(rel_path=f"source/{name}", text=normalize_source_text(text)))
-    return docs
-
-
 def compute_source_fingerprints(sources: list[SourceDoc]) -> dict[str, str]:
     """按源文件记录归一化文本的 sha256 指纹（源文相对路径 → hexdigest）。
 
-    ``sources`` 取自 ``discover_sources``，其 ``text`` 已是 ``normalize_source_text`` 输出，
+    ``sources`` 取自 ``lib.episode.episode_sources.discover_sources``，其 ``text`` 已是 ``normalize_source_text`` 输出，
     故换行风格（CRLF/LF）差异不会体现在指纹上。
     """
     return {doc.rel_path: hashlib.sha256(doc.text.encode("utf-8")).hexdigest() for doc in sources}
@@ -306,7 +226,7 @@ def mismatched_source_fingerprints(recorded: Any, sources: list[SourceDoc]) -> l
 
     只比对「已记录」的文件：``recorded`` 非 ``Mapping`` 或某文件不在其中，视为存量项目 /
     新源文件尚未补记指纹，不参与比对（不阻塞首次规划）。已记录文件若当前指纹不同、或该
-    文件已从候选源文件中消失（被删除/改名），均判为不一致——账本坐标绑定的原文内容已不
+    文件已从整本源文中消失（被删除/移出清单），均判为不一致——账本坐标绑定的原文内容已不
     可信，唯一出路是全量重置。记录值形状损坏（非 str）按未记录处理，不让脏数据本身崩溃
     比对逻辑。
     """
@@ -405,42 +325,6 @@ def has_downstream_products(project_dir: Path, episode_num: int, entry: Mapping[
     return drafts_dir.is_dir() and any(drafts_dir.glob("script_plan_*"))
 
 
-def register_orphan_episode_entries(project_dir: Path, project: Mapping[str, Any]) -> dict[str, Any]:
-    """为磁盘上有派生集文件、账本却无条目的集号补建条目。纯函数：不修改入参，对文件系统只读。
-
-    只做登记（``episode`` / ``title`` / ``script_file`` / ``ledger_status``），不写
-    ``source_range``——补建出的条目因此没有位置记录，规划入口会据此拒绝并指引全量重置，
-    消费链路照常。``script_file`` 填规范预期路径，剧本生成时 ``_apply_episode_sync``
-    按集号命中本条目回填真实值；``ledger_status`` 按磁盘产物取 consumed / planned。
-
-    用于用户绕过分集规划器、手动预拆分上传的存量场景（见
-    ``server.services.project.script_review``）：账本为空时这是该集唯一的登记来源。已登记的集号
-    不重复补建，可安全重跑。
-    """
-    data = dict(project)
-    raw_episodes = data.get("episodes", [])
-    if not isinstance(raw_episodes, list):
-        return data  # 形状异常留给 data_validator 报告，本函数不处理
-
-    episodes: list[Any] = list(raw_episodes)
-    known: set[int] = set()
-    for entry in episodes:
-        if isinstance(entry, Mapping):
-            num = parse_episode_num(entry.get("episode"))
-            if num is not None:
-                known.add(num)
-
-    for num in sorted(discover_episode_files(project_dir)):
-        if num not in known:
-            entry = {"episode": num, "title": "", "script_file": episode_script_relpath(num)}
-            entry["ledger_status"] = "consumed" if has_downstream_products(project_dir, num, entry) else "planned"
-            episodes.append(entry)
-            known.add(num)
-
-    data["episodes"] = episodes
-    return data
-
-
 def parse_source_range(entry: Mapping[str, Any]) -> tuple[str, int, int] | None:
     """解析条目的 ``source_range`` 坐标，结构不完整时返回 None。
 
@@ -464,23 +348,3 @@ def parse_source_range(entry: Mapping[str, Any]) -> tuple[str, int, int] | None:
     ):
         return rel, start, end
     return None
-
-
-def episodes_without_source_range(project: Mapping[str, Any]) -> list[int]:
-    """账本中没有位置记录（``source_range`` 缺失或结构不完整）的集号，升序去重。
-
-    这类条目无法重造派生文件、也无法据以续接规划，是规划入口（plan / 部分重置）拒绝
-    执行的依据；消费链路不看它。集号无法解析的条目不在此列——它们由各调用方按自身
-    的损坏容忍口径处理。
-    """
-    nums: set[int] = set()
-    raw_episodes = project.get("episodes")
-    for entry in raw_episodes if isinstance(raw_episodes, list) else []:
-        if not isinstance(entry, Mapping):
-            continue
-        num = parse_episode_num(entry.get("episode"))
-        if num is None:
-            continue
-        if parse_source_range(entry) is None:
-            nums.add(num)
-    return sorted(nums)

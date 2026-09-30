@@ -16,6 +16,7 @@ from server.tool_runtime import (
     CompleteAssetInventoryResult,
     CompleteScriptPlanRebuildResult,
 )
+from tests.factories import register_project_sources
 from tests.integration.server.agent_tool_support import ToolHarness, run_declared_tool
 
 
@@ -23,7 +24,7 @@ def _project(tmp_path: Path) -> ProjectManager:
     projects = ProjectManager(tmp_path / "projects")
     projects.create_project("demo")
     projects.create_project_metadata("demo", "Demo", "", "narration")
-    (projects.get_project_path("demo") / "source" / "novel.txt").write_text("最初的原文", encoding="utf-8")
+    register_project_sources(projects, "demo", whole_source={"novel.txt": "最初的原文"})
     return projects
 
 

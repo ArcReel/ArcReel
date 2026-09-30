@@ -276,6 +276,7 @@ MESSAGES = {
     ),
     # Source loader
     "source_unsupported_format": "Unsupported source format: {ext} (supported: .txt / .md / .docx / .epub / .pdf)",
+    "source_name_reserved": "File names like episode_N.txt are reserved for episode source files; rename the file before uploading it as part of the whole source",
     "source_decode_failed": "Failed to decode source file '{filename}' (tried: {tried})",
     "source_corrupt_file": "Source file '{filename}' is not parseable: {reason}",
     "source_too_large": "Source file '{filename}' is too large ({size_mb} MB > {limit_mb} MB)",
@@ -528,6 +529,10 @@ MESSAGES = {
     "episode_not_found": "Episode (id={episode}) not found or has no script file yet",
     "storyboard_batch_script_invalid": "The formal script of episode {episode} cannot be used for batch storyboard generation: its structure does not match the project generation mode, or it is not bound to this episode",
     "episode_title_empty": "Episode title cannot be empty",
+    "episode_source_empty": "Episode source text cannot be empty",
+    "episode_source_derived": "This episode is cut from the whole source; its source text comes from episode planning and cannot be edited here",
+    "episode_source_symlink": "The source file of this episode is a symbolic link and cannot be written",
+    "episode_source_episode_not_found": "Episode (id={episode}) is not in the episode list",
     "about_update_check_failed": "Failed to check for updates, please try again later",
     "about_version_read_failed": "Failed to read app version",
     # Image Capability

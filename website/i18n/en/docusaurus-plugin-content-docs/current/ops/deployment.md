@@ -371,6 +371,13 @@ The same upgrade makes narration delivery a project setting: projects that alrea
 
 The same upgrade separates the internal episode number from broadcast order: the interface, notifications and exported Jianying drafts refer to an episode by its position in the list and its title, and no longer show episode numbers. The migration records the highest episode number the project has used, covering existing episodes as well as old numbers that remain in drafts, source backups, media files, version histories, grid records, task records and call records after a reset or replan, including file paths referenced by generation inputs; new episodes are numbered after it, so they never collide with those leftovers. The order of existing episodes does not change. The "next episode outline" that script plans reference now comes from the episode immediately after it in the list; script plans that were current before the upgrade stay current, and ones already stale stay stale.
 
+The same upgrade makes the project register episode source text and whole-source files explicitly:
+
+- Each episode records where its source text comes from: cut from the whole source, its own source text, or no source text. An `episode_N.txt` under `source/` with no matching episode in the list becomes an episode with its own source text, appended to the end of the list.
+- The whole-source file list is recorded once in the old file-name order, so the episodes already cut and the start of the next planning batch do not change; files uploaded afterwards are appended to the end of the list.
+- Each whole-source file that episodes were cut from gets a normalized text snapshot under `source/snapshots/`.
+- After the upgrade, a file placed directly in `source/` without being registered through an upload is not source text: it takes no part in episode planning and does not change any episode's source text.
+
 One class of migration first copies the whole project next to its directory, rewrites the copy, and then swaps the directories. What that means for disk space and recovery:
 
 - Free space is checked before the migration starts. If it cannot hold the copy, that project fails with a "disk space is insufficient" error and its directory is left untouched; free up space and restart to continue.

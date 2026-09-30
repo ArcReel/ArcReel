@@ -259,6 +259,7 @@ MESSAGES = {
     "script_review_quarantine_unreadable": "待修复草稿文件已损坏或格式不符，无法读取，请丢弃草稿后重新生成",
     # Source loader
     "source_unsupported_format": "不支持的源文件格式：{ext}（支持 .txt / .md / .docx / .epub / .pdf）",
+    "source_name_reserved": "形如 episode_N.txt 的文件名留给集原文文件，作为整本源文上传前请先改名",
     "source_decode_failed": "源文件「{filename}」解码失败（已尝试：{tried}）",
     "source_corrupt_file": "源文件「{filename}」无法解析：{reason}",
     "source_too_large": "源文件「{filename}」过大（{size_mb} MB > {limit_mb} MB）",
@@ -465,6 +466,10 @@ MESSAGES = {
     "episode_not_found": "集（id={episode}）不存在或尚无脚本文件",
     "storyboard_batch_script_invalid": "第 {episode} 集的正式脚本不能用于分镜批量生成：脚本结构与项目的生成模式不符，或脚本未绑定到这一集",
     "episode_title_empty": "分集标题不能为空",
+    "episode_source_empty": "集原文不能为空",
+    "episode_source_derived": "这一集切自整本源文，集原文由分集规划得出，不能在这里改写",
+    "episode_source_symlink": "这一集的集原文文件是符号链接，无法写入",
+    "episode_source_episode_not_found": "集（id={episode}）不在分集列表中",
     "about_update_check_failed": "检查更新失败，请稍后重试",
     "about_version_read_failed": "读取应用版本失败",
     # Image Capability

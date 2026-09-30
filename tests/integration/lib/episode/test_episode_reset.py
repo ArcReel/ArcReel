@@ -22,9 +22,7 @@ from lib.episode.episode_ledger import (
     SOURCE_FINGERPRINTS_KEY,
     discover_episode_file_aliases,
     discover_episode_files,
-    discover_sources,
 )
-from lib.episode.episode_planner import EpisodePlanner
 from lib.episode.episode_reset import (
     EpisodeResetConflictError,
     EpisodeResetError,
@@ -32,6 +30,7 @@ from lib.episode.episode_reset import (
     ResetConfirmationRequired,
     reset_episode_planning,
 )
+from lib.episode.episode_sources import discover_sources, planning_start
 
 # 全部用例跨 EpisodeReset / ProjectManager / EpisodePlanner 协作，用真实 tmp_path 文件系统，
 # 不 mock 被测模块的公共入口——按 CONTRIBUTING.md 的 marker 纪律归类为 integration。
@@ -43,7 +42,6 @@ def _write_project(
     tmp_path: Path,
     *,
     episodes: list | None = None,
-    planning_cursor: dict | None = None,
     extra: dict | None = None,
     source_text: str = SOURCE,
 ) -> Path:
@@ -59,7 +57,7 @@ def _write_project(
         "scenes": {},
         "props": {},
         "episodes": episodes or [],
-        "planning_cursor": planning_cursor,
+        "whole_source_files": [{"source_file": "source/novel.txt"}],
     }
     if extra:
         project.update(extra)
@@ -72,6 +70,12 @@ def _load_project(project_dir: Path) -> dict:
     return json.loads((project_dir / "project.json").read_text(encoding="utf-8"))
 
 
+def _planning_start(project_dir: Path) -> tuple[str, int] | None:
+    """由账本推导的接续规划起点。"""
+    project = _load_project(project_dir)
+    return planning_start(project, discover_sources(project_dir, project))
+
+
 def _entry(num: int, *, source_range: dict | None, status: str = "planned") -> dict:
     return {
         "episode": num,
@@ -79,6 +83,7 @@ def _entry(num: int, *, source_range: dict | None, status: str = "planned") -> d
         "script_file": f"scripts/episode_{num}.json",
         "source_range": source_range,
         "ledger_status": status,
+        "source_origin": "whole_source",
     }
 
 
@@ -123,7 +128,6 @@ def test_reset_on_corrupted_ledger_clears_everything(tmp_path: Path) -> None:
             _entry(1, source_range={"source_file": "source/novel.txt", "start": 0, "end": 99999}),
             _entry(2, source_range={"source_file": "source/gone.txt", "start": 500, "end": 900}),
         ],
-        planning_cursor={"source_file": "source/gone.txt", "offset": 99999},
     )
     (project_dir / "source" / "episode_1.txt").write_text("旧内容", encoding="utf-8")
 
@@ -133,16 +137,15 @@ def test_reset_on_corrupted_ledger_clears_everything(tmp_path: Path) -> None:
     assert result.removed_episodes == [1, 2]
     project = _load_project(project_dir)
     assert project["episodes"] == []
-    assert project["planning_cursor"] is None
+    assert _planning_start(project_dir) == ("source/novel.txt", 0)
     # 重置后规划起点回到第一个源文件开头（plan 可正常从头规划）
-    assert EpisodePlanner(project_dir)._effective_start(project) == ("source/novel.txt", 0)
+    assert _planning_start(project_dir) == ("source/novel.txt", 0)
 
 
 def test_full_reset_recovers_an_unreadable_artifact_manifest(tmp_path: Path) -> None:
     project_dir = _write_project(
         tmp_path,
         episodes=[_entry(1, source_range={"source_file": "source/novel.txt", "start": 0, "end": 10})],
-        planning_cursor={"source_file": "source/novel.txt", "offset": 10},
         extra={"schema_version": 8},
     )
     derived = project_dir / "source" / "episode_1.txt"
@@ -166,7 +169,6 @@ def test_unreadable_manifest_recovery_failure_restores_full_reset_exactly(
     project_dir = _write_project(
         tmp_path,
         episodes=[_entry(1, source_range={"source_file": "source/novel.txt", "start": 0, "end": 10})],
-        planning_cursor={"source_file": "source/novel.txt", "offset": 10},
         extra={"schema_version": 8},
     )
     derived = project_dir / "source" / "episode_1.txt"
@@ -201,7 +203,7 @@ def test_reset_clears_source_fingerprints(tmp_path: Path) -> None:
 
 
 def test_reset_removes_remaining_file(tmp_path: Path) -> None:
-    """余文文件被清理：账本游标已取代它，留着只会在 source/ 下留一份与账本无关的陈旧剩余正文。"""
+    """余文文件被清理：由账本推导的规划起点已取代它，留着只会在 source/ 下留一份与账本无关的陈旧剩余正文。"""
     project_dir = _write_project(tmp_path)
     remaining = project_dir / "source" / "_remaining.txt"
     remaining.write_text("第三章 风波。少女身份成谜。", encoding="utf-8")
@@ -209,8 +211,7 @@ def test_reset_removes_remaining_file(tmp_path: Path) -> None:
     reset_episode_planning(project_dir)
 
     assert not remaining.exists()
-    project = _load_project(project_dir)
-    assert EpisodePlanner(project_dir)._effective_start(project) == ("source/novel.txt", 0)
+    assert _planning_start(project_dir) == ("source/novel.txt", 0)
 
 
 # ---------------------------------------------------------------------------
@@ -253,7 +254,7 @@ def test_archived_file_left_out_of_discovery(tmp_path: Path) -> None:
     reset_episode_planning(project_dir)
 
     assert discover_episode_files(project_dir) == {}
-    assert [doc.rel_path for doc in discover_sources(project_dir)] == ["source/novel.txt"]
+    assert [doc.rel_path for doc in discover_sources(project_dir, _load_project(project_dir))] == ["source/novel.txt"]
 
 
 def test_archive_does_not_overwrite_existing_backup(tmp_path: Path) -> None:
@@ -288,7 +289,6 @@ def test_file_failure_aborts_and_leaves_ledger_intact(tmp_path: Path, monkeypatc
     project_dir = _write_project(
         tmp_path,
         episodes=[_entry(1, source_range={"source_file": "source/novel.txt", "start": 0, "end": 10})],
-        planning_cursor={"source_file": "source/novel.txt", "offset": 10},
     )
     (project_dir / "source" / "episode_1.txt").write_text(SOURCE[:10], encoding="utf-8")
     before = _load_project(project_dir)
@@ -344,7 +344,6 @@ def test_consumed_requires_confirmation_and_writes_nothing(tmp_path: Path) -> No
             _entry(1, source_range={"source_file": "source/novel.txt", "start": 0, "end": 10}, status="consumed"),
             _entry(2, source_range={"source_file": "source/novel.txt", "start": 10, "end": 20}),
         ],
-        planning_cursor={"source_file": "source/novel.txt", "offset": 20},
     )
     derived = project_dir / "source" / "episode_1.txt"
     derived.write_text("已消费集", encoding="utf-8")
@@ -362,7 +361,14 @@ def test_consumed_detected_from_disk_when_ledger_status_missing(tmp_path: Path) 
     """账本状态不可信时以磁盘产物为准：条目无 ledger_status 但剧本已存在，仍要确认。"""
     project_dir = _write_project(
         tmp_path,
-        episodes=[{"episode": 1, "title": "第 1 集", "script_file": "scripts/episode_1.json"}],
+        episodes=[
+            {
+                "episode": 1,
+                "title": "第 1 集",
+                "script_file": "scripts/episode_1.json",
+                "source_origin": "whole_source",
+            }
+        ],
     )
     _write_script(project_dir, 1)
 
@@ -393,7 +399,7 @@ def test_confirmed_reset_keeps_downstream_products(tmp_path: Path) -> None:
     assert script_plan.is_file()
     project = _load_project(project_dir)
     assert project["episodes"] == []
-    assert project["planning_cursor"] is None
+    assert _planning_start(project_dir) == ("source/novel.txt", 0)
 
 
 # ---------------------------------------------------------------------------
@@ -498,8 +504,8 @@ def test_reset_aggregates_downstream_products_across_duplicate_entries(tmp_path:
     project_dir = _write_project(
         tmp_path,
         episodes=[
-            {"episode": 1, "title": "首条", "script_file": "scripts/episode_1.json"},
-            {"episode": 1, "title": "后条", "script_file": "scripts/custom_name.json"},
+            {"episode": 1, "title": "首条", "script_file": "scripts/episode_1.json", "source_origin": "whole_source"},
+            {"episode": 1, "title": "后条", "script_file": "scripts/custom_name.json", "source_origin": "whole_source"},
         ],
     )
     scripts = project_dir / "scripts"
@@ -706,7 +712,6 @@ def test_partial_reset_keeps_retained_episodes_and_rewinds_cursor(tmp_path: Path
             _entry(2, source_range={"source_file": "source/novel.txt", "start": end1, "end": end2}),
             _entry(3, source_range={"source_file": "source/novel.txt", "start": end2, "end": end2 + 10}),
         ],
-        planning_cursor={"source_file": "source/novel.txt", "offset": end2 + 10},
     )
     (project_dir / "source" / "episode_2.txt").write_text(SOURCE[end1:end2], encoding="utf-8")
     (project_dir / "source" / "episode_3.txt").write_text(SOURCE[end2 : end2 + 10], encoding="utf-8")
@@ -717,8 +722,8 @@ def test_partial_reset_keeps_retained_episodes_and_rewinds_cursor(tmp_path: Path
     assert result.removed_episodes == [2, 3]
     project = _load_project(project_dir)
     assert [e["episode"] for e in project["episodes"]] == [1]
-    assert project["planning_cursor"] == {"source_file": "source/novel.txt", "offset": end1}
-    assert EpisodePlanner(project_dir)._effective_start(project) == ("source/novel.txt", end1)
+    assert _planning_start(project_dir) == ("source/novel.txt", end1)
+    assert _planning_start(project_dir) == ("source/novel.txt", end1)
 
 
 def test_partial_reset_deletes_derived_files_in_range_keeps_retained(tmp_path: Path) -> None:
@@ -798,7 +803,7 @@ def test_partial_reset_boundary_follows_ledger_order_not_episode_ids(tmp_path: P
     assert sorted(result.removed_episodes) == [2, 5]
     project = _load_project(project_dir)
     assert [e["episode"] for e in project["episodes"]] == [7]
-    assert project["planning_cursor"] == {"source_file": "source/novel.txt", "offset": 10}
+    assert _planning_start(project_dir) == ("source/novel.txt", 10)
 
 
 def test_reset_from_first_ledger_episode_is_full_reset(tmp_path: Path) -> None:
@@ -809,7 +814,6 @@ def test_reset_from_first_ledger_episode_is_full_reset(tmp_path: Path) -> None:
             _entry(4, source_range={"source_file": "source/novel.txt", "start": 0, "end": 10}),
             _entry(1, source_range={"source_file": "source/novel.txt", "start": 10, "end": 20}),
         ],
-        planning_cursor={"source_file": "source/novel.txt", "offset": 20},
     )
 
     result = reset_episode_planning(project_dir, episode_id=4)
@@ -817,7 +821,7 @@ def test_reset_from_first_ledger_episode_is_full_reset(tmp_path: Path) -> None:
     assert isinstance(result, EpisodeResetResult)
     project = _load_project(project_dir)
     assert project["episodes"] == []
-    assert project["planning_cursor"] is None
+    assert _planning_start(project_dir) == ("source/novel.txt", 0)
 
 
 def test_partial_reset_rejects_when_retain_boundary_has_no_source_range(tmp_path: Path) -> None:
@@ -925,7 +929,7 @@ def test_partial_reset_tolerates_unsplit_source_gaps(tmp_path: Path) -> None:
     assert isinstance(result, EpisodeResetResult)
     project = _load_project(project_dir)
     assert [e["episode"] for e in project["episodes"]] == [1, 3]
-    assert project["planning_cursor"] == {"source_file": "source/novel.txt", "offset": 30}
+    assert _planning_start(project_dir) == ("source/novel.txt", 30)
 
 
 def test_partial_reset_rejects_backward_source_file_switch(tmp_path: Path) -> None:
@@ -934,6 +938,11 @@ def test_partial_reset_rejects_backward_source_file_switch(tmp_path: Path) -> No
     (project_dir / "source" / "a.txt").write_text("A" * 10, encoding="utf-8")
     (project_dir / "source" / "c.txt").write_text("C" * 10, encoding="utf-8")
     project = _load_project(project_dir)
+    project["whole_source_files"] = [
+        {"source_file": "source/a.txt"},
+        {"source_file": "source/c.txt"},
+        {"source_file": "source/novel.txt"},
+    ]
     project["episodes"] = [
         _entry(1, source_range={"source_file": "source/c.txt", "start": 0, "end": 10}),
         _entry(2, source_range={"source_file": "source/a.txt", "start": 0, "end": 10}),
@@ -949,12 +958,17 @@ def test_partial_reset_rejects_backward_source_file_switch(tmp_path: Path) -> No
 
 
 def test_partial_reset_allows_first_episode_after_blank_leading_source(tmp_path: Path) -> None:
-    """排序中排在第 1 集源文件之前的文件若只剩空白（EpisodePlanner 会自动跳过），
+    """整本源文清单中排在第 1 集源文件之前的文件若只剩空白（EpisodePlanner 会自动跳过），
     第 1 集合法落在非首个文件，不应被误判为账本损坏。"""
     project_dir = _write_project(tmp_path)
     (project_dir / "source" / "a.txt").write_text("   \n  ", encoding="utf-8")
     (project_dir / "source" / "b.txt").write_text("B" * 10, encoding="utf-8")
     project = _load_project(project_dir)
+    project["whole_source_files"] = [
+        {"source_file": "source/a.txt"},
+        {"source_file": "source/b.txt"},
+        {"source_file": "source/novel.txt"},
+    ]
     project["episodes"] = [
         _entry(1, source_range={"source_file": "source/b.txt", "start": 0, "end": 10}),
         _entry(2, source_range={"source_file": "source/b.txt", "start": 10, "end": 10}),
@@ -964,7 +978,7 @@ def test_partial_reset_allows_first_episode_after_blank_leading_source(tmp_path:
     result = reset_episode_planning(project_dir, episode_id=2)
 
     assert isinstance(result, EpisodeResetResult)
-    assert _load_project(project_dir)["planning_cursor"] == {"source_file": "source/b.txt", "offset": 10}
+    assert _planning_start(project_dir) == ("source/b.txt", 10)
 
 
 def test_partial_reset_allows_skip_over_blank_middle_source(tmp_path: Path) -> None:
@@ -975,6 +989,12 @@ def test_partial_reset_allows_skip_over_blank_middle_source(tmp_path: Path) -> N
     (project_dir / "source" / "b.txt").write_text("   \n  ", encoding="utf-8")
     (project_dir / "source" / "c.txt").write_text("C" * 10, encoding="utf-8")
     project = _load_project(project_dir)
+    project["whole_source_files"] = [
+        {"source_file": "source/a.txt"},
+        {"source_file": "source/b.txt"},
+        {"source_file": "source/c.txt"},
+        {"source_file": "source/novel.txt"},
+    ]
     project["episodes"] = [
         _entry(1, source_range={"source_file": "source/a.txt", "start": 0, "end": 10}),
         _entry(2, source_range={"source_file": "source/c.txt", "start": 0, "end": 10}),
@@ -985,16 +1005,41 @@ def test_partial_reset_allows_skip_over_blank_middle_source(tmp_path: Path) -> N
     result = reset_episode_planning(project_dir, episode_id=3)
 
     assert isinstance(result, EpisodeResetResult)
-    assert _load_project(project_dir)["planning_cursor"] == {"source_file": "source/c.txt", "offset": 10}
+    assert _planning_start(project_dir) == ("source/c.txt", 10)
 
 
-def test_partial_reset_skips_retained_entry_without_source_range(tmp_path: Path) -> None:
-    """保留段中没有位置记录的集不占源文位置，不参与坐标校验。"""
+def test_full_reset_keeps_own_source_and_no_source_episodes(tmp_path: Path) -> None:
+    """全量重置只移除切出集：自带原文与无原文的集连同集文件留在原处，相对顺序不变。"""
+    project_dir = _write_project(
+        tmp_path,
+        episodes=[
+            {"episode": 5, "title": "自带", "script_file": "scripts/episode_5.json", "source_origin": "own"},
+            _entry(1, source_range={"source_file": "source/novel.txt", "start": 0, "end": 10}),
+            {"episode": 6, "title": "待填", "script_file": "scripts/episode_6.json", "source_origin": "none"},
+            _entry(2, source_range={"source_file": "source/novel.txt", "start": 10, "end": 20}),
+        ],
+    )
+    (project_dir / "source" / "episode_5.txt").write_text("自带的原文", encoding="utf-8")
+    (project_dir / "source" / "episode_1.txt").write_text(SOURCE[:10], encoding="utf-8")
+
+    result = reset_episode_planning(project_dir)
+
+    assert isinstance(result, EpisodeResetResult)
+    assert result.removed_episodes == [1, 2]
+    project = _load_project(project_dir)
+    assert [(e["episode"], e["source_origin"]) for e in project["episodes"]] == [(5, "own"), (6, "none")]
+    assert (project_dir / "source" / "episode_5.txt").read_text(encoding="utf-8") == "自带的原文"
+    assert not (project_dir / "source" / "episode_1.txt").exists()
+    assert _planning_start(project_dir) == ("source/novel.txt", 0)
+
+
+def test_partial_reset_skips_other_origin_episodes_in_the_retained_segment(tmp_path: Path) -> None:
+    """保留段里自带原文的集不占源文位置，不参与坐标校验，重置后原样保留。"""
     project_dir = _write_project(
         tmp_path,
         episodes=[
             _entry(1, source_range={"source_file": "source/novel.txt", "start": 0, "end": 10}),
-            _entry(2, source_range=None),
+            {"episode": 2, "title": "自带", "script_file": "scripts/episode_2.json", "source_origin": "own"},
             _entry(3, source_range={"source_file": "source/novel.txt", "start": 20, "end": 30}),
             _entry(4, source_range={"source_file": "source/novel.txt", "start": 30, "end": 40}),
         ],
@@ -1005,7 +1050,7 @@ def test_partial_reset_skips_retained_entry_without_source_range(tmp_path: Path)
     assert isinstance(result, EpisodeResetResult)
     project = _load_project(project_dir)
     assert [e["episode"] for e in project["episodes"]] == [1, 2, 3]
-    assert project["planning_cursor"] == {"source_file": "source/novel.txt", "offset": 30}
+    assert _planning_start(project_dir) == ("source/novel.txt", 30)
 
 
 def test_partial_reset_rejects_zero_length_retained_range(tmp_path: Path) -> None:
@@ -1044,7 +1089,7 @@ def test_partial_reset_accepts_retain_boundary_without_ledger_status(tmp_path: P
     assert isinstance(result, EpisodeResetResult)
     after = _load_project(project_dir)
     assert [e["episode"] for e in after["episodes"]] == [1]
-    assert after["planning_cursor"] == {"source_file": "source/novel.txt", "offset": 10}
+    assert _planning_start(project_dir) == ("source/novel.txt", 10)
 
 
 def test_partial_reset_trusts_source_range_under_legacy_status(tmp_path: Path) -> None:
@@ -1064,7 +1109,7 @@ def test_partial_reset_trusts_source_range_under_legacy_status(tmp_path: Path) -
     result = reset_episode_planning(project_dir, episode_id=2)
 
     assert isinstance(result, EpisodeResetResult)
-    assert _load_project(project_dir)["planning_cursor"] == {"source_file": "source/novel.txt", "offset": 10}
+    assert _planning_start(project_dir) == ("source/novel.txt", 10)
 
 
 def test_partial_reset_rejects_non_positive_episode_numbers_in_ledger(tmp_path: Path) -> None:
@@ -1190,7 +1235,6 @@ def test_partial_reset_removes_all_unbound_episode_claims_and_preserves_retained
                 status="consumed",
             ),
         ],
-        planning_cursor={"source_file": "source/novel.txt", "offset": 20},
         extra={"schema_version": 8},
     )
     (project_dir / "source" / "episode_1.txt").write_text(SOURCE[:10], encoding="utf-8")
@@ -1253,7 +1297,6 @@ def test_manifest_failure_restores_reset_project_and_claims_exactly(
                 status="consumed",
             )
         ],
-        planning_cursor={"source_file": "source/novel.txt", "offset": 10},
         extra={"schema_version": 8},
     )
     derived = project_dir / "source" / "episode_1.txt"

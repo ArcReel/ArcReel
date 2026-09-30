@@ -40,9 +40,11 @@ CREATE_PROJECT = UnscopedToolDeclaration(
 UPLOAD_SOURCE = ToolDeclaration(
     name="upload_source",
     description=(
-        "把一段文本源文规范化为 UTF-8 后写入项目 source/ 目录，供源文读取与分集规划使用；返回写入后的项目相对"
-        "路径、识别出的原始编码与章节数。只接受 .txt / .md 文件名；同名文件的处理由 on_conflict 决定。"
-        "写入项目文件。"
+        "把一段文本源文规范化为 UTF-8 后写入项目 source/ 目录并登记，返回写入后的项目相对路径、识别出的原始编码"
+        "与章节数。role=whole_source（默认）登记为整本源文的文件，接在文件清单末尾，供分集规划切分；只接受 .txt / .md "
+        "文件名，episode_N.txt 形式的文件名留给集文件，会被拒绝；同名文件的处理由 on_conflict 决定。role=episode 登记为"
+        "一集自带原文的集：分配新集 ID、写入 source/episode_{集 ID}.txt、接在播出顺序末尾，另返回集 ID，用户自行拆好的"
+        "分集逐个这样上传。直接写进 source/ 而未经登记的文件不是源文。写入项目文件。"
     ),
     request_model=UploadSourceRequest,
     migration=BLOCKED,

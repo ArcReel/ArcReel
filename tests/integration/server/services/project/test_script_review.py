@@ -37,7 +37,7 @@ from server.agent_toolset.script_authoring import CONFIRM_SCRIPT_REVIEW, GENERAT
 from server.draft_workflow import DraftContext, DraftWorkflow
 from server.services.project.script_review import ScriptReviewError, ScriptReviewService
 from server.tool_runtime import TextGenerationResult
-from tests.factories import make_video_request_facts
+from tests.factories import make_video_request_facts, register_project_sources
 from tests.fakes import FakeConfigResolver
 from tests.integration.server.agent_tool_support import ToolHarness, run_declared_tool
 
@@ -192,7 +192,7 @@ def _write_prompt_authoring(pm: ProjectManager) -> Path:
 
 
 def _make_manual_split_project(tmp_path: Path, content_mode: str) -> ProjectManager:
-    """手动预拆分场景：绕过分集规划器，``episodes[]`` 账本为空，仅有派生 source/episode_N.txt。"""
+    """没有整本源文、账本为空的项目：集由调用方逐集登记或直接写文件构造。"""
     pm = ProjectManager(tmp_path / "projects")
     pm.create_project("demo")
     pm.create_project_metadata("demo", "Demo", "Anime", content_mode)
@@ -2059,25 +2059,22 @@ class TestLegacyEnumeration:
 # ---------------------------------------------------------------------------
 
 
-class TestManualSplitSelfHeal:
-    async def test_get_state_self_heals_orphan_without_source_range(self, tmp_path):
-        """get_state 为孤儿派生文件自愈登记条目且不写 source_range。"""
+class TestOwnSourceEpisodes:
+    async def test_unregistered_episode_file_is_not_an_episode(self, tmp_path):
+        """source/ 里未登记的 episode_N.txt 不会被补登为一集：读状态报 episode_not_found，账本不动。"""
         pm = _make_manual_split_project(tmp_path, "narration")
         _write_source_text(pm, "episode_1.txt", "裴与出征后的第二年。")
-        _write_script_plan(pm, "narration", _narration_script_plan())
 
-        state = await _service(pm).get_state("demo", 1)
-        assert state["status"] == "pending_review"
+        with pytest.raises(ScriptReviewError) as exc:
+            await _service(pm).get_state("demo", 1)
 
-        ep = script_review.find_episode(pm.load_project("demo"), 1)
-        assert ep is not None
-        assert ep["ledger_status"] == "consumed"  # 已有 script_plan 中间文件
-        assert "source_range" not in ep
+        assert exc.value.code == "episode_not_found"
+        assert pm.load_project("demo")["episodes"] == []
 
-    async def test_confirm_self_heals_and_unblocks_prompt_authoring(self, tmp_path, video_request_facts):
-        """confirm（web 与 Agent 工具共用同一 service）可补齐空账本条目并放行 prompt_authoring。"""
+    async def test_confirm_unblocks_prompt_authoring_for_an_own_source_episode(self, tmp_path, video_request_facts):
+        """逐集登记的自带原文的集走同一条内容确认出口。"""
         pm = _make_manual_split_project(tmp_path, "drama")
-        _write_source_text(pm, "episode_1.txt", "任意派生内容")
+        assert register_project_sources(pm, "demo", own_episodes=("任意原文内容",)) == [1]
         _write_script_plan(pm, "drama", _admitted_drama_script_plan())
 
         confirmed = await _service(pm).confirm("demo", 1)
@@ -2085,76 +2082,7 @@ class TestManualSplitSelfHeal:
 
         project_path = pm.get_project_path("demo")
         assert script_review.review_status(project_path, pm.load_project("demo"), 1) == "confirmed"
-
-    async def test_self_heal_never_anchors_even_when_source_text_matches(self, tmp_path):
-        """派生文件内容即使能在原文中精确匹配，自愈也只登记不锚定：位置记录只由规划工具写入。"""
-        pm = _make_manual_split_project(tmp_path, "narration")
-        original = "裴与出征后的第二年，送回一个襁褓中的婴儿。后续内容在此。"
-        _write_source_text(pm, "novel.txt", original)
-        _write_source_text(pm, "episode_1.txt", "裴与出征后的第二年，送回一个襁褓中的婴儿。")
-
-        await _service(pm).get_state("demo", 1)
-
         ep = script_review.find_episode(pm.load_project("demo"), 1)
         assert ep is not None
+        assert ep["source_origin"] == "own"
         assert "source_range" not in ep
-
-    async def test_self_heal_registers_all_orphans_not_just_requested(self, tmp_path):
-        """自愈一次登记账本中所有孤儿集号的派生文件，不只是当前请求的那一集。"""
-        pm = _make_manual_split_project(tmp_path, "narration")
-        _write_source_text(pm, "episode_1.txt", "第一集内容")
-        _write_source_text(pm, "episode_2.txt", "第二集内容")
-
-        await _service(pm).get_state("demo", 1)
-
-        project = pm.load_project("demo")
-        assert script_review.find_episode(project, 1) is not None
-        assert script_review.find_episode(project, 2) is not None
-
-    async def test_self_heal_preserves_existing_ledger_status_entries(self, tmp_path):
-        """已带 ledger_status 的条目（规划工具写入）不因其他集号的自愈触发被改写。"""
-        pm = _make_manual_split_project(tmp_path, "narration")
-        pm.add_episode("demo", 1, "第一集", "scripts/episode_1.json")
-
-        def _mark_planned(p: dict) -> None:
-            ep = next(e for e in p["episodes"] if e["episode"] == 1)
-            ep["ledger_status"] = "planned"
-            ep["source_range"] = {"source_file": "source/novel.txt", "start": 0, "end": 5}
-
-        pm.update_project("demo", _mark_planned)
-        _write_source_text(pm, "episode_2.txt", "第二集派生内容")
-
-        # 触发对孤儿集（episode 2）的自愈请求，不涉及 episode 1。
-        await _service(pm).get_state("demo", 2)
-
-        project = pm.load_project("demo")
-        ep1 = script_review.find_episode(project, 1)
-        assert ep1 is not None
-        assert ep1["ledger_status"] == "planned"
-        assert ep1["source_range"] == {"source_file": "source/novel.txt", "start": 0, "end": 5}
-        assert script_review.find_episode(project, 2) is not None
-
-    async def test_self_heal_does_not_apply_when_derivative_file_missing(self, tmp_path):
-        """账本为空且该集派生文件也不存在（真正缺失的集号）→ 仍抛 episode_not_found，不自愈。"""
-        pm = _make_manual_split_project(tmp_path, "narration")
-        with pytest.raises(ScriptReviewError) as exc:
-            await _service(pm).get_state("demo", 1)
-        assert exc.value.code == "episode_not_found"
-        assert pm.load_project("demo")["episodes"] == []
-
-    async def test_self_heal_idempotent_no_duplicate_entries(self, tmp_path):
-        """重复触发自愈（同集反复读状态）不产生重复集号条目，也不重复改写已登记条目。"""
-        pm = _make_manual_split_project(tmp_path, "narration")
-        _write_source_text(pm, "episode_1.txt", "第一集派生内容")
-
-        svc = _service(pm)
-        await svc.get_state("demo", 1)
-        first = script_review.find_episode(pm.load_project("demo"), 1)
-
-        await svc.get_state("demo", 1)
-        await svc.get_state("demo", 1)
-
-        project = pm.load_project("demo")
-        matches = [e for e in project["episodes"] if e.get("episode") == 1]
-        assert len(matches) == 1
-        assert matches[0] == first

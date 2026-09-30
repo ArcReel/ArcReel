@@ -193,7 +193,11 @@ def test_residual_item_array_of_another_skeleton_does_not_vote():
 def test_project_settings_are_everything_outside_assets_episodes_overview_and_metadata():
     before = ProjectState(project=_project(), scripts={})
 
-    for key, value in (("style", "Realistic"), ("planning_cursor", {"offset": 3}), ("aspect_ratio", "9:16")):
+    for key, value in (
+        ("style", "Realistic"),
+        ("whole_source_files", [{"source_file": "source/novel.txt"}]),
+        ("aspect_ratio", "9:16"),
+    ):
         [change] = _diff(before, ProjectState(project=_project(**{key: value}), scripts={}))
         assert _triples([change]) == [("project", "updated", "project")], key
         assert (change["label_key"], change["focus"], change["important"]) == ("project_settings", None, False)
