@@ -56,7 +56,6 @@ async def test_reference_projection_contract_stays_aligned_across_public_consume
         "unit_id": "E1U1",
         "text": "镜头：@[甲] 与 @[乙] 看向 @[丙]",
         "duration_seconds": 5,
-        "transition_to_next": "cut",
         "generated_assets": {},
     }
     script: dict[str, Any] = {

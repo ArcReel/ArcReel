@@ -2,19 +2,17 @@
 import { create } from "zustand";
 import { API } from "@/api";
 import { errMsg } from "@/utils/async";
-import type { ReferenceUnitCapabilityMap, ReferenceVideoUnit, TransitionType } from "@/types";
+import type { ReferenceUnitCapabilityMap, ReferenceVideoUnit } from "@/types";
 
 interface AddUnitPayload {
   prompt: string;
   duration_seconds?: number;
-  transition_to_next?: TransitionType;
   note?: string | null;
 }
 
 interface PatchUnitPayload {
   prompt?: string;
   duration_seconds?: number;
-  transition_to_next?: TransitionType;
   note?: string | null;
 }
 

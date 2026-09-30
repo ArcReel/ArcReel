@@ -252,7 +252,7 @@ async def test_current_tts_presentation_materializes_manifest_and_actual_media_b
     assert adapter.get_entry(ArtifactKey.episode_presentation(1, "E1S01", "use_tts")) is not None
 
 
-async def test_persisted_presentation_becomes_stale_when_the_live_transition_changes(tmp_path: Path) -> None:
+async def test_persisted_presentation_records_no_transition_and_stays_current(tmp_path: Path) -> None:
     pm, project_path, settings = _setup_narrator_project(tmp_path)
 
     async def probe(path: Path) -> float | None:
@@ -269,17 +269,16 @@ async def test_persisted_presentation_becomes_stale_when_the_live_transition_cha
         variant="post_production",
     )
     assert result.presentation_artifact_path is not None
-    script_path = project_path / "scripts" / "episode_1.json"
-    script = json.loads(script_path.read_text(encoding="utf-8"))
-    script["segments"][0]["transition_to_next"] = "dissolve"
-    _write_json(script_path, script)
+    persisted = json.loads((project_path / result.presentation_artifact_path).read_text(encoding="utf-8"))
+    assert "transition_to_next" not in persisted
+    assert "transition_to_next" not in result.to_dict()
 
     comparison = ArtifactCurrencyResolver(project_path).compare(
         ArtifactKey.episode_presentation(1, "E1S01", "post_production"),
         artifact_path=result.presentation_artifact_path,
     )
 
-    assert comparison.status is ArtifactStatus.STALE
+    assert comparison.status is ArtifactStatus.CURRENT
 
 
 async def test_video_and_audio_use_their_semantic_duration_probes(tmp_path: Path) -> None:

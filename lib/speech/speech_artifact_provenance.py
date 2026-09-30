@@ -284,6 +284,13 @@ def build_mechanical_subtitle_basis(
     )
 
 
+#: 呈现模型依据从这一 schema 起不记脚本条目上的转场。
+PRESENTATION_WITHOUT_TRANSITION_SCHEMA_VERSION = 16
+_PRESENTATION_BASIS_KIND = "artifact-speech/presentation"
+_PRESENTATION_BASIS_VERSION = 3
+_LEGACY_TRANSITION_PRESENTATION_BASIS_VERSION = 2
+
+
 def build_presentation_basis(
     *,
     variant: RenditionVariant,
@@ -291,7 +298,6 @@ def build_presentation_basis(
     subtitle: ArtifactBasis | ArtifactBasisDescriptor,
     narration_audio: SelectedMediaEvidence | None = None,
     provider_audio_enabled: bool = True,
-    transition_to_next: str = "cut",
     mix_policy: Mapping[str, object] = _DEFAULT_PRESENTATION_MIX_POLICY,
 ) -> ArtifactBasis:
     """Describe a final-presentation variant without performing media mixing."""
@@ -304,11 +310,10 @@ def build_presentation_basis(
         raise ValueError("post_production presentation basis cannot include narration audio")
 
     return ArtifactBasis.build(
-        "artifact-speech/presentation",
-        kind_version=2,
+        _PRESENTATION_BASIS_KIND,
+        kind_version=_PRESENTATION_BASIS_VERSION,
         inputs={
             "variant": normalized_variant,
-            "transition_to_next": transition_to_next,
             "video": video.basis_input(),
             "subtitle": subtitle_descriptor.to_dict(),
             "narration_audio": narration_audio.basis_input() if narration_audio is not None else None,
@@ -317,6 +322,27 @@ def build_presentation_basis(
                 "provider_audio_enabled": provider_audio_enabled,
             },
         },
+    )
+
+
+def build_legacy_transition_presentation_basis(presentation: ArtifactBasis, transition_to_next: str) -> ArtifactBasis:
+    """schema 低于 16 的项目持久化的呈现模型依据：输入比当前依据多一项脚本条目上的转场。
+
+    只在迁移链中出现：v15→v16 之前各步的整份激活按它核对存量呈现模型文件，v15→v16 再把文件与
+    清单登记改写到当前依据。
+    """
+
+    if presentation.kind != _PRESENTATION_BASIS_KIND or presentation.kind_version != _PRESENTATION_BASIS_VERSION:
+        raise ValueError("legacy transition basis derives only from a current presentation basis")
+    if not is_str(transition_to_next):
+        raise ValueError("transition_to_next must be a string")
+    inputs = presentation.to_evidence_dict()["inputs"]
+    if not isinstance(inputs, Mapping):  # pragma: no cover - ArtifactBasis invariant
+        raise TypeError("presentation basis inputs must be an object")
+    return ArtifactBasis.build(
+        _PRESENTATION_BASIS_KIND,
+        kind_version=_LEGACY_TRANSITION_PRESENTATION_BASIS_VERSION,
+        inputs={**inputs, "transition_to_next": transition_to_next},
     )
 
 
@@ -373,10 +399,12 @@ def media_content_digest(path: Path) -> str:
 
 
 __all__ = [
+    "PRESENTATION_WITHOUT_TRANSITION_SCHEMA_VERSION",
     "CharacterVoiceEvidence",
     "RenditionVariant",
     "SelectedMediaEvidence",
     "SubtitleUtteranceEvidence",
+    "build_legacy_transition_presentation_basis",
     "build_mechanical_subtitle_basis",
     "build_presentation_basis",
     "build_video_duration_basis",

@@ -46,7 +46,6 @@ def write_project(tmp_path: Path, *, register_script: bool = True) -> Path:
                 "unit_id": "E1U1",
                 "text": "@张三 推门，走进 @酒馆",
                 "duration_seconds": 3,
-                "transition_to_next": "cut",
                 "note": None,
                 "generated_assets": {
                     "storyboard_image": None,

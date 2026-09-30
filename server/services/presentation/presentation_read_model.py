@@ -70,7 +70,6 @@ class MaterializedPresentation:
     episode: int
     resource_type: str
     script_file: str
-    transition_to_next: str
     presentation: PresentationValue
     subtitle_artifact_path: str | None
     presentation_artifact_path: str | None
@@ -84,7 +83,6 @@ class MaterializedPresentation:
             "episode": self.episode,
             "resource_type": self.resource_type,
             "script_file": self.script_file,
-            "transition_to_next": self.transition_to_next,
             "subtitle_artifact_path": self.subtitle_artifact_path,
             "presentation_artifact_path": self.presentation_artifact_path,
             "persisted": self.persisted,
@@ -284,8 +282,6 @@ class PresentationReadModelService:
                 content_digest=audio_content_digest,
             )
 
-        transition = item.get("transition_to_next")
-        transition_to_next = transition if isinstance(transition, str) else "cut"
         try:
             presentation = materialize_speech_presentation(
                 admission.preparation,
@@ -293,7 +289,6 @@ class PresentationReadModelService:
                 video=video_media,
                 narration_audio=audio_media,
                 provider_audio_enabled=provider_audio_enabled,
-                transition_to_next=transition_to_next,
             )
         except (TypeError, ValueError) as exc:
             raise PresentationUnavailableError("selected media cannot form the requested presentation") from exc
@@ -301,7 +296,6 @@ class PresentationReadModelService:
             episode=selected_video.target.episode,
             resource_type=resource_type,
             script_file=script_file,
-            transition_to_next=transition_to_next,
             presentation=presentation,
             subtitle_artifact_path=None,
             presentation_artifact_path=None,
@@ -672,14 +666,14 @@ class PresentationReadModelService:
         episode_snapshot: _EpisodeSnapshot | None,
     ) -> MaterializedPresentation:
         if episode_snapshot is None:
-            episode, script_file, item = await self._locate_unverified_video_unit(
+            episode, script_file, _item = await self._locate_unverified_video_unit(
                 project_name=project_name,
                 project=project,
                 resource_type=resource_type,
                 resource_id=resource_id,
             )
         else:
-            item, kind = self._find_item(episode_snapshot.script, resource_id)
+            _item, kind = self._find_item(episode_snapshot.script, resource_id)
             expected_type = "reference_videos" if kind == "video_units" else "videos"
             if expected_type != resource_type:
                 raise PresentationUnavailableError(f"script unit is unavailable: {resource_id}")
@@ -699,7 +693,6 @@ class PresentationReadModelService:
             presentation = materialize_raw_video_presentation(unit_id=resource_id, video=media)
         except (OSError, TypeError, ValueError) as exc:
             raise PresentationUnavailableError(f"selected media cannot be inspected: {selected.relative_path}") from exc
-        transition = item.get("transition_to_next")
         await asyncio.to_thread(
             self._require_selection_unchanged,
             project_path=project_path,
@@ -712,7 +705,6 @@ class PresentationReadModelService:
             episode=episode,
             resource_type=resource_type,
             script_file=script_file,
-            transition_to_next=transition if isinstance(transition, str) else "cut",
             presentation=presentation,
             subtitle_artifact_path=None,
             presentation_artifact_path=None,
@@ -866,7 +858,6 @@ class PresentationReadModelService:
             episode=result.episode,
             resource_type=result.resource_type,
             script_file=result.script_file,
-            transition_to_next=result.transition_to_next,
             presentation=presentation,
             subtitle_artifact_path=subtitle_path,
             presentation_artifact_path=presentation_path,

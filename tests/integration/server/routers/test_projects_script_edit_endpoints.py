@@ -132,6 +132,24 @@ class TestProjectsRouter:
         assert response.json()["segment"]["novel_text"] == "风停了。"
         assert fake_pm.scripts[("ready", "narration.json")]["segments"][0]["novel_text"] == "风停了。"
 
+    def test_update_segment_ignores_transition(self, tmp_path, monkeypatch):
+        fake_pm = _FakePM(tmp_path)
+        fake_pm.scripts[("ready", "narration.json")] = {
+            "content_mode": "narration",
+            "segments": [{"segment_id": "E1S01", "duration_seconds": 4, "novel_text": "风吹过旷野。"}],
+        }
+        client = build_projects_client(monkeypatch, fake_pm)
+
+        with client:
+            response = client.patch(
+                "/api/v1/projects/ready/segments/E1S01",
+                json={"script_file": "narration.json", "transition_to_next": "fade", "note": "备注"},
+            )
+
+        assert response.status_code == 200
+        segment = fake_pm.scripts[("ready", "narration.json")]["segments"][0]
+        assert (segment["note"], "transition_to_next" in segment) == ("备注", False)
+
     def test_update_scene_ignores_source_text(self, tmp_path, monkeypatch):
         fake_pm = _FakePM(tmp_path)
         fake_pm.scripts[("ready", "episode_1.json")] = {

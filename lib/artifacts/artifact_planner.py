@@ -72,7 +72,13 @@ from lib.script.grid.models import GridGeneration
 from lib.script.script_editor import resolve_items
 from lib.script.storyboard_sequence import get_storyboard_items
 from lib.speech.narration_delivery import POST_PRODUCTION, USE_TTS
-from lib.speech.speech_artifact_provenance import RenditionVariant, SelectedMediaEvidence, media_content_digest
+from lib.speech.speech_artifact_provenance import (
+    PRESENTATION_WITHOUT_TRANSITION_SCHEMA_VERSION,
+    RenditionVariant,
+    SelectedMediaEvidence,
+    build_legacy_transition_presentation_basis,
+    media_content_digest,
+)
 from lib.speech.speech_composition import (
     SpeechComposition,
     SpeechFieldLocation,
@@ -1115,9 +1121,6 @@ class TargetStatePlanner:
         )
         if frozen_preparation is None or not isinstance(provider_audio_enabled, bool):
             return None
-        transition = presentation.get("transition_to_next")
-        if not isinstance(transition, str):
-            return None
         try:
             frozen = materialize_speech_presentation(
                 frozen_preparation,
@@ -1125,21 +1128,33 @@ class TargetStatePlanner:
                 video=frozen_video,
                 narration_audio=frozen_audio,
                 provider_audio_enabled=provider_audio_enabled,
-                transition_to_next=transition,
                 subtitle_sentences_prepared=True,
             )
         except (TypeError, ValueError):
             return None
+        frozen_presentation_basis = frozen.presentation_basis
         expected_presentation = {
             "episode": episode.episode,
             "resource_type": resource_type,
             "script_file": Path(episode.script_file).name,
-            "transition_to_next": transition,
             "subtitle_artifact_path": subtitle_path,
             "presentation_artifact_path": presentation_path,
             "persisted": True,
             **frozen.to_dict(),
         }
+        legacy_transition = presentation.get("transition_to_next")
+        if (
+            isinstance(legacy_transition, str)
+            and parse_project_schema_version(self.project) < PRESENTATION_WITHOUT_TRANSITION_SCHEMA_VERSION
+        ):
+            # 迁移链中 v15→v16 之前的激活：存量文件带转场，依据按那时的口径核对与登记。
+            frozen_presentation_basis = build_legacy_transition_presentation_basis(
+                frozen.presentation_basis, legacy_transition
+            )
+            expected_presentation["transition_to_next"] = legacy_transition
+            expected_presentation["presentation_basis"] = ArtifactBasisDescriptor.from_basis(
+                frozen_presentation_basis
+            ).to_dict()
         if dict(subtitle) != frozen.subtitle_artifact_dict() or dict(presentation) != expected_presentation:
             return None
 
@@ -1147,8 +1162,6 @@ class TargetStatePlanner:
         current_presentation: ArtifactBasis | None = None
         admission = admit_script_unit(episode.kind, item)
         if admission.allowed:
-            live_transition = item.get("transition_to_next")
-            current_transition = live_transition if isinstance(live_transition, str) else "cut"
             try:
                 current = materialize_speech_presentation(
                     admission.preparation,
@@ -1156,7 +1169,6 @@ class TargetStatePlanner:
                     video=current_video,
                     narration_audio=current_audio,
                     provider_audio_enabled=provider_audio_enabled,
-                    transition_to_next=current_transition,
                 )
             except (TypeError, ValueError):
                 pass
@@ -1165,7 +1177,7 @@ class TargetStatePlanner:
                 current_presentation = current.presentation_basis
         return _PersistedPresentationProof(
             frozen_subtitle_basis=frozen.subtitle_basis,
-            frozen_presentation_basis=frozen.presentation_basis,
+            frozen_presentation_basis=frozen_presentation_basis,
             current_subtitle_basis=current_subtitle,
             current_presentation_basis=current_presentation,
         )

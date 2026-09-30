@@ -35,7 +35,6 @@ def _narration_script(resource_id: str) -> dict:
                 "props": [],
                 "image_prompt": "image",
                 "video_prompt": "video",
-                "transition_to_next": "cut",
                 "generated_assets": {},
             }
         ],

@@ -122,7 +122,6 @@ def project_with_script(tmp_path):
                             "ambiance_audio": "quiet",
                             "dialogue": [],
                         },
-                        "transition_to_next": "cut",
                         "generated_assets": {"storyboard_image": None, "video_clip": None, "status": "pending"},
                     }
                     for i in range(1, 7)

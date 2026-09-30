@@ -25,7 +25,6 @@ function makeShot(overrides: Partial<AdShot> = {}): AdShot {
       ambiance_audio: "水声",
       dialogue: [],
     },
-    transition_to_next: "cut",
     ...overrides,
   };
 }
@@ -329,7 +328,6 @@ describe("ShotDetail 广告/短片", () => {
       characters_in_segment: [],
       image_prompt: "img",
       video_prompt: "vid",
-      transition_to_next: "cut" as const,
     };
     render(
       <ShotDetail

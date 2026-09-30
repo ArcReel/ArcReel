@@ -35,7 +35,6 @@ def test_reference_video_unit_minimal():
     assert u.unit_id == "E1U1"
     assert u.text == "镜头一\n镜头二"
     assert u.duration_seconds == 8
-    assert u.transition_to_next == "cut"
     assert u.needs_replan is False
 
 
@@ -61,9 +60,9 @@ def test_reference_video_unit_empty_text_only_allowed_as_replan_shell():
         _make_unit(text="", duration_seconds=8, needs_replan=True)
 
 
-def test_reference_video_unit_transition_enum():
+def test_reference_video_unit_rejects_transition():
     with pytest.raises(ValidationError):
-        _make_unit(transition_to_next="wipe")
+        _make_unit(transition_to_next="cut")
 
 
 def test_reference_video_script_valid():

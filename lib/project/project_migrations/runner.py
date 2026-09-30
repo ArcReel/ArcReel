@@ -25,6 +25,8 @@ from lib.project.project_migration_failure import (
 from lib.project.project_migration_report import (
     ArtifactBackfillOutcome,
     build_migration_report,
+    load_migration_report,
+    merge_skipped,
     write_migration_report,
 )
 from lib.project.project_migrations.backups import (
@@ -52,6 +54,7 @@ from lib.project.project_migrations.v11_to_v12_character_derivatives import migr
 from lib.project.project_migrations.v12_to_v13_legacy_media_provenance import migrate_v12_to_v13
 from lib.project.project_migrations.v13_to_v14_legacy_style_values import migrate_v13_to_v14
 from lib.project.project_migrations.v14_to_v15_formal_script_truth import migrate_v14_to_v15
+from lib.project.project_migrations.v15_to_v16_edit_decisions import migrate_v15_to_v16
 from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION, parse_project_schema_version
 
 logger = logging.getLogger(__name__)
@@ -182,6 +185,17 @@ def migrate_project_dir(project_dir: Path) -> bool:
             raise RuntimeError(f"no migrator from v{version}")
         step_outcome = migrator(project_dir)
         if step_outcome is not None:
+            if step_outcome.preserve_previous_skips:
+                previous_report = load_migration_report(project_dir) if outcome is None else None
+                previous_skips = (
+                    outcome.skipped
+                    if outcome is not None
+                    else (previous_report.skipped if previous_report is not None else ())
+                )
+                step_outcome = ArtifactBackfillOutcome(
+                    registered=step_outcome.registered,
+                    skipped=merge_skipped(previous_skips, step_outcome.skipped),
+                )
             outcome = step_outcome
         version += 1
     if outcome is not None:
@@ -296,7 +310,8 @@ def cleanup_stale_backups(projects_dir: Path, max_age_days: int = 7) -> None:
             (project_dir / "project.json", project_backup_versions),
             (project_dir / "versions" / "versions.json", project_backup_versions),
             # 清单不只在激活那一步被改写：v9→v10 改它的 key 与草稿路径，v12→v13 整份重投影，
-            # v13→v14 改写受风格值归一与风格描述补记影响的条目，v14→v15 改写剧本登记。
+            # v13→v14 改写受风格值归一与风格描述补记影响的条目，v14→v15 改写剧本登记，
+            # v15→v16 改写呈现模型登记。
             (project_dir / ".arcreel_artifacts.json", project_backup_versions),
             *((source, project_backup_versions) for source in _bound_script_sources(project_dir)),
         )
@@ -335,3 +350,4 @@ MIGRATORS[11] = migrate_v11_to_v12
 MIGRATORS[12] = migrate_v12_to_v13
 MIGRATORS[13] = migrate_v13_to_v14
 MIGRATORS[14] = migrate_v14_to_v15
+MIGRATORS[15] = migrate_v15_to_v16

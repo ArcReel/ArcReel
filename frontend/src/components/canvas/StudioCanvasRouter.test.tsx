@@ -360,7 +360,6 @@ function makeScript(): EpisodeScript {
         props: ["Sword"],
         image_prompt: "image prompt",
         video_prompt: "video prompt",
-        transition_to_next: "cut",
       },
     ],
   };
@@ -380,7 +379,6 @@ function makeAdScript(): EpisodeScript {
         voiceover_text: "口播文案",
         image_prompt: "ad image prompt",
         video_prompt: "ad video prompt",
-        transition_to_next: "cut",
       },
     ],
   };
@@ -400,7 +398,6 @@ function makeDramaScript(): EpisodeScript {
         characters_in_scene: ["Hero"],
         image_prompt: "drama image prompt",
         video_prompt: "drama video prompt",
-        transition_to_next: "cut",
       },
     ],
   };
@@ -1091,7 +1088,6 @@ describe("StudioCanvasRouter", () => {
       voiceover_text: "立即下单",
       image_prompt: "p2",
       video_prompt: "v2",
-      transition_to_next: "cut",
     });
     useProjectsStore.setState({
       currentProjectName: "demo",
@@ -1126,7 +1122,6 @@ describe("StudioCanvasRouter", () => {
       voiceover_text: "立即下单",
       image_prompt: "p2",
       video_prompt: "v2",
-      transition_to_next: "cut",
     });
     useProjectsStore.setState({
       currentProjectName: "demo",
@@ -1159,7 +1154,6 @@ describe("StudioCanvasRouter", () => {
       voiceover_text: "立即下单",
       image_prompt: "p2",
       video_prompt: "v2",
-      transition_to_next: "cut",
     });
     useProjectsStore.setState({
       currentProjectName: "demo",

@@ -75,7 +75,6 @@ class TestScriptModels:
             ),
         )
 
-        assert segment.transition_to_next == "cut"
         assert segment.generated_assets.status == "pending"
         assert segment.scenes == []
         assert segment.props == ["玉佩"]
@@ -327,7 +326,6 @@ class TestAdScriptModels:
         assert shot.characters_in_shot == []
         assert shot.scenes == []
         assert shot.props == []
-        assert shot.transition_to_next == "cut"
         assert shot.generated_assets.status == "pending"
 
     def test_ad_shot_requires_voiceover_text_field(self):
@@ -644,12 +642,8 @@ class TestLLMSchemaExclusion:
         assert seg.note == "用户标注"
         assert seg.generated_assets.status == "completed"
 
-    def test_schema_excludes_scene_type_summary_content_mode_novel_transition(self):
-        """LLM 不该看到 scene_type / summary / content_mode / novel / transition_to_next。
-
-        前 4 个由 _add_metadata 注入或彻底无消费；transition_to_next 由 Pydantic default="cut"
-        兜底,FE PATCH 路径独立。
-        """
+    def test_schema_excludes_scene_type_summary_content_mode_novel(self):
+        """LLM 不该看到 scene_type / summary / content_mode / novel：由 _add_metadata 注入或彻底无消费。"""
         from lib.script.script_models import (
             DramaEpisodeScript,
             NarrationEpisodeScript,
@@ -664,7 +658,6 @@ class TestLLMSchemaExclusion:
             assert "novel" not in top_props, f"{model.__name__} 顶层不应有 novel"
             assert "content_mode" not in top_props, f"{model.__name__} 顶层不应有 content_mode"
             assert "scene_type" not in keys, f"{model.__name__} 不应有 scene_type"
-            assert "transition_to_next" not in keys, f"{model.__name__} 不应有 transition_to_next"
 
     def test_schema_excludes_hook_and_teaser_including_derived_models(self):
         """hook / next_episode_teaser 由分集账本注入，LLM 不该看到——
@@ -778,22 +771,23 @@ class TestRuntimeBackwardCompat:
         assert narration.content_mode == "narration"
         assert narration.novel.title == ""
 
-    def test_segment_transition_to_next_defaults_to_cut(self):
-        """LLM 不写 transition_to_next 时,default='cut' 兜底。"""
-        seg = NarrationSegment.model_validate(
-            {
-                "segment_id": "E1S01",
-                "duration_seconds": 4,
-                "novel_text": "x",
-                "characters_in_segment": [],
-                "image_prompt": {
-                    "scene": "s",
-                    "composition": {"shot_type": "Medium Shot", "lighting": "l", "ambiance": "a"},
-                },
-                "video_prompt": {"action": "a", "camera_motion": "Static", "ambiance_audio": "x"},
-            }
-        )
-        assert seg.transition_to_next == "cut"
+    def test_segment_rejects_transition(self):
+        """转场不属于脚本条目：带 transition_to_next 的分镜按未知字段拒绝。"""
+        with pytest.raises(ValidationError):
+            NarrationSegment.model_validate(
+                {
+                    "segment_id": "E1S01",
+                    "duration_seconds": 4,
+                    "novel_text": "x",
+                    "characters_in_segment": [],
+                    "image_prompt": {
+                        "scene": "s",
+                        "composition": {"shot_type": "Medium Shot", "lighting": "l", "ambiance": "a"},
+                    },
+                    "video_prompt": {"action": "a", "camera_motion": "Static", "ambiance_audio": "x"},
+                    "transition_to_next": "cut",
+                }
+            )
 
 
 class TestGeneratedAssetsTemplateContract:

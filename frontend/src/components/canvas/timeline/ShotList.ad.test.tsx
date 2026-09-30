@@ -28,7 +28,6 @@ function makeShot(overrides: Partial<AdShot> = {}): AdShot {
       ambiance_audio: "水声",
       dialogue: [],
     },
-    transition_to_next: "cut",
     ...overrides,
   };
 }

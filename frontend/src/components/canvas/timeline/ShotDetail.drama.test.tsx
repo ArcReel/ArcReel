@@ -22,7 +22,6 @@ function makeScene(overrides: Partial<DramaScene> = {}): DramaScene {
     },
     video_prompt: { action: "推门而入", camera_motion: "Static", ambiance_audio: "风声", dialogue: [] },
     utterances: sampleUtterances,
-    transition_to_next: "cut",
     ...overrides,
   };
 }

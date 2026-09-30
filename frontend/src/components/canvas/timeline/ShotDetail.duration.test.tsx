@@ -23,7 +23,6 @@ function makeScene(durationSeconds: number): DramaScene {
     },
     video_prompt: { action: "推门而入", camera_motion: "Static", ambiance_audio: "", dialogue: [] },
     utterances: [],
-    transition_to_next: "cut",
   };
 }
 

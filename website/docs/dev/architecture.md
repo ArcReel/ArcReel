@@ -370,7 +370,6 @@ ArcReel 使用 SQLAlchemy 2.0 异步 ORM。
 使用 FFmpeg 处理：
 
 - 片段拼接；
-- 转场；
 - 音频；
 - 最终编码。
 

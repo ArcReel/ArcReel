@@ -26,7 +26,6 @@ def _valid_reference_script(episode: int = 1) -> dict:
                 "unit_id": f"E{episode}U1",
                 "text": "@[张三] 推门\n@[酒馆] 全景",
                 "duration_seconds": 8,
-                "transition_to_next": "cut",
                 "note": None,
                 "generated_assets": {
                     "storyboard_image": None,

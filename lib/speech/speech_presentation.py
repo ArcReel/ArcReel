@@ -379,7 +379,6 @@ def materialize_speech_presentation(
     video: PresentationMedia,
     provider_audio_enabled: bool,
     narration_audio: PresentationMedia | None = None,
-    transition_to_next: str = "cut",
     timing: SubtitleTimingPolicy | None = None,
     subtitle_sentences_prepared: bool = False,
 ) -> SpeechPresentation:
@@ -424,7 +423,6 @@ def materialize_speech_presentation(
         subtitle=subtitle_basis,
         narration_audio=narration_audio.evidence if narration_audio is not None else None,
         provider_audio_enabled=provider_audio_enabled,
-        transition_to_next=transition_to_next,
     )
     sources = (video,) if narration_audio is None else (video, narration_audio)
     selection: MediaSelection = "history" if any(source.selection == "history" for source in sources) else "current"

@@ -279,7 +279,6 @@ export function buildDemoScripts(t: DemoT): Record<string, NarrationEpisodeScrip
         ambiance_audio: t(`demo_shot_${n}_audio`),
         dialogue: [],
       },
-      transition_to_next: skeleton.segmentBreak ? "fade" : "cut",
       generated_assets: {
         storyboard_image: skeleton.hasStoryboard
           ? demoPlaceholder(segmentId, "storyboard")

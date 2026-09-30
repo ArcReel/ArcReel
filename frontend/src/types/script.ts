@@ -73,7 +73,6 @@ export const CAMERA_MOTION_I18N_KEYS: Record<CameraMotion, string> = {
   Shake: "camera_motion_shake",
 };
 
-export type TransitionType = "cut" | "fade" | "dissolve";
 export type DurationSeconds = number;
 export type AssetStatus = "pending" | "storyboard_ready" | "completed";
 
@@ -237,7 +236,6 @@ export interface NarrationSegment {
   /** `null` = 待编写：内容确认转出的正式脚本只有内容层，提示词尚未编写。 */
   image_prompt: ImagePrompt | string | null;
   video_prompt: VideoPrompt | string | null;
-  transition_to_next: TransitionType;
   note?: string;
   /**
    * 尾帧快照路径（项目内相对路径）。视频从分镜图开场、过渡到这张图收尾。
@@ -267,7 +265,6 @@ export interface DramaScene {
   utterances?: Utterance[];
   /** 对应原文：内容确认时从脚本规划透传，时间线只读；手动新增的分镜为空或缺省。 */
   source_text?: string;
-  transition_to_next: TransitionType;
   note?: string;
   /**
    * 尾帧快照路径（项目内相对路径）。视频从分镜图开场、过渡到这张图收尾。
@@ -332,7 +329,6 @@ export interface AdShot {
   /** 待编写分镜（手动新增）为 null，由提示词编写补出。 */
   image_prompt: ImagePrompt | string | null;
   video_prompt: VideoPrompt | string | null;
-  transition_to_next: TransitionType;
   note?: string;
   /**
    * 尾帧快照路径（项目内相对路径）。视频从分镜图开场、过渡到这张图收尾。

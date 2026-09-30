@@ -88,7 +88,6 @@ def _make_script(
                     "composition": {"shot_type": "medium", "lighting": "l", "ambiance": "a"},
                 },
                 "video_prompt": {"action": "a", "camera_motion": "Static", "ambiance_audio": "aa"},
-                "transition_to_next": "cut",
                 "generated_assets": assets,
             }
         )
@@ -119,7 +118,6 @@ def _make_ad_script(shot_ids: list[str], durations: list[int]) -> dict:
                     "composition": {"shot_type": "medium", "lighting": "l", "ambiance": "a"},
                 },
                 "video_prompt": {"action": "a", "camera_motion": "Static", "ambiance_audio": "aa"},
-                "transition_to_next": "cut",
                 "generated_assets": {"storyboard_image": None, "video_clip": None, "status": "pending"},
             }
         )
@@ -142,7 +140,6 @@ def _make_reference_video_script(episode: int, content_mode: str, unit_specs: li
                 "unit_id": unit_id,
                 "text": "t",
                 "duration_seconds": duration,
-                "transition_to_next": "cut",
                 "generated_assets": {"video_clip": None, "status": "pending"},
             }
         )
@@ -1689,7 +1686,6 @@ class TestCostEstimationService:
                 "text": "",
                 "needs_replan": True,
                 "duration_seconds": 5,
-                "transition_to_next": "cut",
                 "generated_assets": {"video_clip": None, "status": "pending"},
             }
         )
@@ -1698,7 +1694,6 @@ class TestCostEstimationService:
                 "unit_id": "E1U3",
                 "text": "   ",
                 "duration_seconds": 5,
-                "transition_to_next": "cut",
                 "generated_assets": {"video_clip": None, "status": "pending"},
             }
         )

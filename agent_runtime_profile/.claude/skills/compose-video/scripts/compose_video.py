@@ -255,9 +255,7 @@ def _coerce_numeric_duration(raw: object) -> float | None:
     部分 webm/流式封装会让 `stream.duration="N/A"`（真值字符串，`or` 无法回退），
     或返回空串 / 非数值；统一在这里过滤，让调用方走数值有效性而不是真值判断。
 
-    同时拒绝 `nan` / `inf` 和非正数：`float("nan") <= 0.5` 是 `False`，
-    会绕过 `_build_xfade_filter_complex` 的短片段降级，把 `nan` 直接传进
-    xfade `offset` 参数，ffmpeg 会因此报错。
+    同时拒绝 `nan` / `inf` 和非正数：它们会作为 atrim 静音音轨长度直接传给 ffmpeg 并报错。
     """
     if raw is None:
         return None
@@ -330,7 +328,7 @@ def probe_media(video_path: Path) -> dict[str, object]:
     fps = _resolve_fps(video_stream.get("avg_frame_rate"), video_stream.get("r_frame_rate"))
 
     # duration 优先 video stream（mkv/webm 等容器 format.duration 与 stream.duration
-    # 可能相差几毫秒；atrim 静音音轨长度与 xfade offset 需要精确，必须以 stream 为准）。
+    # 可能相差几毫秒；atrim 静音音轨长度需要精确，必须以 stream 为准）。
     # 但 ffprobe 对部分 webm/流式封装会让 stream.duration="N/A"（真值字符串，
     # `or` 链不会回退），所以这里用数值有效性而不是真值判断逐级回退。
     duration = _coerce_numeric_duration(video_stream.get("duration"))
@@ -544,175 +542,6 @@ def concatenate_simple(video_paths: list, output_path: Path):
         concatenate_final(normalized_paths, output_path)
 
 
-_XFADE_TYPE_MAP: dict[str, str] = {
-    "fade": "fade",
-    "dissolve": "dissolve",
-    "wipe": "wipeleft",
-}
-
-
-def _build_xfade_filter_complex(
-    durations: list[float],
-    transitions: list[str],
-    transition_duration: float,
-) -> str | None:
-    """按 cut 边界把片段切成 group，组内 xfade + acrossfade，组间 concat 串联。
-
-    - 单段或全 cut 序列：返回 None，由调用方走 concatenate_final 的纯 concat 路径
-    - 短片段（duration <= transition_duration）所触边界自动降级为 cut，避免 xfade
-      offset 为负
-    - video 走 xfade chain、audio 走 acrossfade chain，两者每个边界都消耗
-      transition_duration 秒，组内总时长一致 → 音画同步
-    - 组间用 concat=v=1:a=1 串联，避开"全局 xfade offset 在 cut 边界累加错位"
-    """
-    n = len(durations)
-    if n < 2:
-        return None
-
-    # 计算每个边界的有效转场类型（None 表示走 cut）
-    boundary_xfade: list[str | None] = []
-    for i in range(n - 1):
-        transition = transitions[i] if i < len(transitions) else "fade"
-        if transition == "cut":
-            boundary_xfade.append(None)
-            continue
-        xfade = _XFADE_TYPE_MAP.get(transition, "fade")
-        if durations[i] <= transition_duration or durations[i + 1] <= transition_duration:
-            boundary_xfade.append(None)
-            continue
-        boundary_xfade.append(xfade)
-
-    # 中段双侧 xfade 守卫：相邻 xfade 让中段同时承担入场 + 出场两个转场，合计需要
-    # 2*transition_duration 秒；单边界守卫只看单侧会漏判，导致 xfade 时段交叉。
-    # 对两侧都是 xfade 且 duration < 2*td 的中段，降左侧边界为 cut（保留右侧）。
-    # 从左向右遍历、原地修改，链式短中段逐个降级；恰好等于 2*td 视为足够不降级。
-    for i in range(1, n - 1):
-        if (
-            boundary_xfade[i - 1] is not None
-            and boundary_xfade[i] is not None
-            and durations[i] < 2 * transition_duration
-        ):
-            boundary_xfade[i - 1] = None
-
-    if all(b is None for b in boundary_xfade):
-        return None
-
-    # 按 cut 边界把片段索引切成 group（每个 group 内部边界都是 xfade）
-    groups: list[list[int]] = []
-    current: list[int] = [0]
-    for i, b in enumerate(boundary_xfade):
-        if b is None:
-            groups.append(current)
-            current = [i + 1]
-        else:
-            current.append(i + 1)
-    groups.append(current)
-
-    filter_parts: list[str] = []
-    group_outputs: list[tuple[str, str]] = []
-
-    for gi, group in enumerate(groups):
-        if len(group) == 1:
-            idx = group[0]
-            group_outputs.append((f"[{idx}:v]", f"[{idx}:a]"))
-            continue
-
-        group_durations = [durations[j] for j in group]
-
-        # video xfade chain：offset 在组内累加，索引从 group 起点起算
-        prev_v = f"[{group[0]}:v]"
-        for k in range(1, len(group)):
-            xfade_type = boundary_xfade[group[k] - 1]
-            assert xfade_type is not None
-            offset = sum(group_durations[:k]) - k * transition_duration
-            out_v = f"[g{gi}v]" if k == len(group) - 1 else f"[g{gi}v{k}]"
-            filter_parts.append(
-                f"{prev_v}[{group[k]}:v]xfade=transition={xfade_type}:"
-                f"duration={transition_duration}:offset={offset:.3f}{out_v}"
-            )
-            prev_v = out_v
-
-        # audio acrossfade chain：与 video xfade 一一对应，每个边界消耗 transition_duration
-        prev_a = f"[{group[0]}:a]"
-        for k in range(1, len(group)):
-            out_a = f"[g{gi}a]" if k == len(group) - 1 else f"[g{gi}a{k}]"
-            filter_parts.append(f"{prev_a}[{group[k]}:a]acrossfade=d={transition_duration}:c1=tri:c2=tri{out_a}")
-            prev_a = out_a
-
-        group_outputs.append((f"[g{gi}v]", f"[g{gi}a]"))
-
-    if len(group_outputs) == 1:
-        v_label, a_label = group_outputs[0]
-        filter_parts.append(f"{v_label}null[vout]")
-        filter_parts.append(f"{a_label}anull[aout]")
-    else:
-        concat_inputs = "".join(f"{v}{a}" for v, a in group_outputs)
-        filter_parts.append(f"{concat_inputs}concat=n={len(group_outputs)}:v=1:a=1[vout][aout]")
-
-    return ";".join(filter_parts)
-
-
-def concatenate_with_transitions(
-    video_paths: list, transitions: list, output_path: Path, transition_duration: float = 0.5
-):
-    """
-    使用 xfade 滤镜实现场景间转场，cut 边界用 concat 串联以避免滤镜链断裂。
-    """
-    with tempfile.TemporaryDirectory(prefix="compose-video-") as temp_dir:
-        normalized_paths = normalize_clips(video_paths, Path(temp_dir))
-        if len(normalized_paths) < 2:
-            concatenate_final(normalized_paths, output_path)
-            return
-
-        # xfade offset 必须取 video stream 时长：归一化后的 MP4 因 AAC priming /
-        # 容器取整，format.duration 可能比 stream.duration 长几毫秒，把它直接当
-        # offset 喂给 xfade 会让转场触发时机偏晚，看上去几乎"没淡出"。
-        # 复用 probe_media 的 stream-优先 + N/A 回退逻辑，而不是走 get_video_duration（仅 format.duration）。
-        durations = [float(probe_media(p)["duration"]) for p in normalized_paths]
-        filter_complex = _build_xfade_filter_complex(durations, transitions, transition_duration)
-
-        if filter_complex is None:
-            concatenate_final(normalized_paths, output_path)
-            return
-
-        inputs: list[str] = []
-        for path in normalized_paths:
-            inputs.extend(["-i", str(path.resolve())])
-
-        cmd = [
-            "ffmpeg",
-            "-y",
-            *inputs,
-            "-filter_complex",
-            filter_complex,
-            "-map",
-            "[vout]",
-            "-map",
-            "[aout]",
-            "-c:v",
-            "libx264",
-            "-preset",
-            "medium",
-            "-crf",
-            "18",
-            "-pix_fmt",
-            "yuv420p",
-            "-c:a",
-            "aac",
-            "-b:a",
-            "192k",
-            "-movflags",
-            "+faststart",
-            str(output_path),
-        ]
-
-        result = run_capture(cmd)
-
-        if result.returncode != 0:
-            print(f"⚠️  转场效果失败，尝试简单拼接: {result.stderr[:200]}")
-            concatenate_final(normalized_paths, output_path)
-
-
 def add_background_music(video_path: Path, music_path: Path, output_path: Path, music_volume: float = 0.3):
     """
     添加背景音乐
@@ -753,7 +582,6 @@ def compose_video(
     script_filename: str,
     output_filename: str | None = None,
     music_path: str | None = None,
-    use_transitions: bool = True,
 ) -> Path:
     """
     合成最终视频
@@ -762,7 +590,6 @@ def compose_video(
         script_filename: 剧本文件名
         output_filename: 输出文件名
         music_path: 背景音乐文件路径
-        use_transitions: 是否使用转场效果
 
     Returns:
         输出视频路径
@@ -784,7 +611,6 @@ def compose_video(
 
     # 收集视频片段
     video_paths = []
-    transitions = []
 
     for scene in script["scenes"]:
         video_clip = get_generated_assets(scene).get("video_clip")
@@ -802,7 +628,6 @@ def compose_video(
             raise FileNotFoundError(f"视频文件不存在或不是普通文件: {video_path}")
 
         video_paths.append(video_path)
-        transitions.append(scene.get("transition_to_next", "cut"))
 
     if not video_paths:
         raise ValueError("没有可用的视频片段")
@@ -841,10 +666,7 @@ def compose_video(
     # 合成视频
     print("🎬 正在合成视频...")
 
-    if use_transitions and any(t != "cut" for t in transitions):
-        concatenate_with_transitions(video_paths, transitions, output_path)
-    else:
-        concatenate_simple(video_paths, output_path)
+    concatenate_simple(video_paths, output_path)
 
     print(f"✅ 视频合成完成: {output_path}")
 
@@ -864,7 +686,6 @@ def main():
     parser.add_argument("script", help="剧本文件名")
     parser.add_argument("--output", help="输出文件名")
     parser.add_argument("--music", help="背景音乐文件")
-    parser.add_argument("--no-transitions", action="store_true", help="不使用转场效果")
 
     args = parser.parse_args()
 
@@ -882,7 +703,7 @@ def main():
         sys.exit(1)
 
     try:
-        output_path = compose_video(args.script, args.output, args.music, use_transitions=not args.no_transitions)
+        output_path = compose_video(args.script, args.output, args.music)
 
         print(f"\n🎉 最终视频: {output_path}")
         print("   单独片段保留在: videos/")

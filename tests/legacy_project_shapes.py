@@ -11,11 +11,32 @@ import json
 from pathlib import Path
 from typing import Any, Literal
 
-from lib.artifacts.artifact_manifest import ArtifactKey, ArtifactManifestEntry, ProjectArtifactManifestAdapter
+from lib.artifacts.artifact_manifest import (
+    ArtifactBasis,
+    ArtifactBasisDescriptor,
+    ArtifactKey,
+    ArtifactManifestEntry,
+    ProjectArtifactManifestAdapter,
+    compose_video_artifact_basis,
+)
+from lib.artifacts.version_manager import VersionManager
+from lib.artifacts.video_artifact_facts import VideoArtifactCurrencyFacts
+from lib.artifacts.visual_artifact_provenance import build_storyboard_video_artifact_visual_basis
 from lib.project.project_migrations.runner import MIGRATORS
 from lib.project.source_revision import SourceScope, compute_source_revision
 from lib.script.grid.models import GridGeneration, build_frame_chain
 from lib.script.script_review import content_fingerprint
+from lib.speech.speech_artifact_provenance import (
+    SelectedMediaEvidence,
+    build_video_duration_basis,
+    build_video_speech_basis,
+)
+from lib.speech.speech_composition import admit_script_unit
+from lib.speech.speech_presentation import (
+    PresentationMedia,
+    materialize_speech_presentation,
+    presentation_artifact_paths,
+)
 
 _LEGACY_SNAPSHOT_TIMESTAMP = "20260302T145652"
 
@@ -119,6 +140,7 @@ def write_legacy_storyboard_project(
                 "props": [],
                 "image_prompt": {"scene": f"画面 {index}"},
                 "video_prompt": {"action": f"动作 {index}", "camera_motion": "Pan Right"},
+                "transition_to_next": "fade" if index == 1 else "cut",
                 "generated_assets": {
                     "storyboard_image": f"storyboards/scene_{unit_id}.png",
                     "video_clip": f"videos/scene_{unit_id}.mp4",
@@ -196,6 +218,7 @@ def write_legacy_reference_video_project(
     with_legacy_audio: bool = False,
     style: str = "写实",
     style_description: str = "电影感",
+    split_unit_text: bool = False,
 ) -> Path:
     """drama + reference_video 路线的旧项目：视频单元直出，版本记录是旧形态。"""
 
@@ -231,9 +254,15 @@ def write_legacy_reference_video_project(
                 "unit_id": unit_id,
                 "duration_seconds": 8,
                 "text": f"第{index}个单元的画面描述。",
+                "transition_to_next": "dissolve" if index == 1 else "cut",
                 "generated_assets": assets,
             }
         )
+    if split_unit_text:
+        for unit in units:
+            text = unit.pop("text")
+            unit["shots"] = [{"shot_id": f"{unit['unit_id']}S1", "text": text}]
+            unit["references"] = []
     _write_json(
         project_dir / "scripts" / "episode_1.json",
         {"episode": 1, "title": "第一集", "content_mode": "drama", "video_units": units},
@@ -271,6 +300,47 @@ def write_legacy_reference_video_project(
             }
     _write_versions(project_dir, {"reference_videos": videos, "audio": audio})
     _mark_asset_inventory_current(project_dir)
+    return project_dir
+
+
+def write_legacy_ad_reference_video_project(root: Path, *, converted: bool = False) -> Path:
+    """schema 6 广告的旧镜头索引，或镜头已转换、项目版本尚未提交的中断形态。"""
+
+    project_dir = write_legacy_reference_video_project(root, schema_version=6)
+    project_path = project_dir / "project.json"
+    project = json.loads(project_path.read_bytes())
+    project["content_mode"] = "ad"
+    project["target_duration"] = 16
+    _write_json(project_path, project)
+    script_path = project_dir / "scripts" / "episode_1.json"
+    script = json.loads(script_path.read_bytes())
+    script["content_mode"] = "ad"
+    units = script.pop("video_units")
+    script["duration_seconds"] = 16
+    if converted:
+        script["video_units"] = [
+            {**unit, "text": f"镜头{index}；缓慢转动", "note": None} for index, unit in enumerate(units, start=1)
+        ]
+    else:
+        script["shots"] = [
+            {
+                "shot_id": f"E1S{index}",
+                "duration_seconds": 8,
+                "image_prompt": {"scene": f"镜头{index}"},
+                "video_prompt": {"action": "缓慢转动"},
+                "transition_to_next": unit["transition_to_next"],
+            }
+            for index, unit in enumerate(units, start=1)
+        ]
+        script["reference_units"] = [
+            {
+                "unit_id": unit["unit_id"],
+                "shot_ids": [f"E1S{index}"],
+                "generated_assets": unit["generated_assets"],
+            }
+            for index, unit in enumerate(units, start=1)
+        ]
+    _write_json(script_path, script)
     return project_dir
 
 
@@ -326,6 +396,7 @@ def write_legacy_style_project(
             "props": [],
             "image_prompt": {"scene": f"{resource_id} 的画面", "composition": {"shot_type": "Medium Shot"}},
             "video_prompt": {"action": f"{resource_id} 的动作"},
+            "transition_to_next": "cut",
             "generated_assets": {
                 "storyboard_image": f"storyboards/scene_{resource_id}.png",
                 "grid_id": grid_id,
@@ -349,6 +420,7 @@ def write_legacy_style_project(
                 "composition": {"shot_type": "Wide Shot", "lighting": "夜色", "ambiance": "清冷"},
             },
             "video_prompt": {"action": "回望"},
+            "transition_to_next": "fade",
             "generated_assets": {"storyboard_image": "storyboards/scene_E1S03.png", "status": "completed"},
         }
     )
@@ -450,6 +522,7 @@ def _legacy_script_entry(
         entry["video_prompt"] = {"action": "动作"} if authored else None
     if with_revisions:
         entry["script_plan_entry_revision"] = _LEGACY_ENTRY_REVISION
+    entry["transition_to_next"] = "cut"
     return entry
 
 
@@ -631,6 +704,184 @@ def bind_episode_script_to_filename(project_dir: Path, episode: int, filename: s
         adapter.put_entry(key, ArtifactManifestEntry(artifact_path=script_file, basis_digest=entry.basis_digest))
 
 
+def write_legacy_presentation_project(
+    root: Path,
+    name: str = "legacy-presentation",
+    *,
+    transition: str = "fade",
+    schema_version: int = 7,
+) -> Path:
+    """旁白项目，唯一分镜的后期配音呈现模型已物化；剧本条目与呈现模型文件都带转场。
+
+    呈现模型依据是当时的口径：输入里有 ``transition_to_next``。视频版本记录带类型化来源，
+    呈现模型文件自证成立，迁移链上的激活据此登记它与字幕草稿。
+    """
+
+    project_dir = root / name
+    project_dir.mkdir(parents=True)
+    _write_json(
+        project_dir / "project.json",
+        {
+            "schema_version": schema_version,
+            "title": "旧呈现模型项目",
+            "content_mode": "narration",
+            "generation_mode": "storyboard",
+            "source_kind": "novel",
+            "source_language": "中文",
+            "style": "水墨",
+            "style_description": "",
+            "aspect_ratio": "9:16",
+            "grid_storyboard": False,
+            "characters": {},
+            "scenes": {},
+            "props": {},
+            "products": {},
+            "episodes": [{"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"}],
+        },
+    )
+    item: dict[str, Any] = {
+        "segment_id": "E1S01",
+        "duration_seconds": 4,
+        "novel_text": "雨夜",
+        "image_prompt": "阿离站在雨中",
+        "video_prompt": "阿离转身",
+        "characters_in_segment": [],
+        "scenes": [],
+        "props": [],
+        "transition_to_next": transition,
+        "generated_assets": {
+            "storyboard_image": "storyboards/scene_E1S01.png",
+            "video_clip": "videos/scene_E1S01.mp4",
+        },
+    }
+    _write_json(
+        project_dir / "scripts" / "episode_1.json",
+        {"episode": 1, "title": "第一集", "content_mode": "narration", "segments": [item]},
+    )
+    (project_dir / "source").mkdir()
+    (project_dir / "source" / "episode_1.txt").write_text("雨夜", encoding="utf-8")
+    _write_json(
+        project_dir / "drafts" / "episode_1" / "script_plan_segments.json", {"segments": [{"novel_text": "雨夜"}]}
+    )
+    storyboard = project_dir / "storyboards" / "scene_E1S01.png"
+    storyboard.parent.mkdir(parents=True)
+    storyboard.write_bytes(b"storyboard")
+    video = project_dir / "videos" / "scene_E1S01.mp4"
+    video.parent.mkdir(parents=True)
+    video.write_bytes(b"paid-video")
+
+    preparation = admit_script_unit("segments", item).preparation
+    visual = build_storyboard_video_artifact_visual_basis(
+        resource_id="E1S01",
+        visual_prompt=item["video_prompt"],
+        storyboard_image=storyboard,
+        end_frame_image=None,
+        aspect_ratio="9:16",
+    )
+    speech = build_video_speech_basis(preparation)
+    duration = build_video_duration_basis(4)
+    facts = VideoArtifactCurrencyFacts(
+        episode=1,
+        request_duration_seconds=4,
+        visual_basis=visual,
+        speech_basis=speech,
+        duration_basis=duration,
+        video_basis=compose_video_artifact_basis(visual=visual, speech=speech, duration=duration),
+        voice_style_speakers=(),
+        duration_tiers=(4,),
+        reference_image_limit=None,
+        parent_version=0,
+    )
+    versions = VersionManager(project_dir)
+    selected_version = versions.add_version(
+        "videos",
+        "E1S01",
+        "paid",
+        source_file=video,
+        execution_checkpoint_schema_version=3,
+        execution_duration_seconds=4,
+        execution_request_digest="a" * 64,
+        execution_script_file="episode_1.json",
+        execution_provider_media=[],
+        execution_generate_audio=True,
+        artifact_video_currency=facts.to_dict(),
+    )
+    selected = next(
+        record
+        for record in versions.get_versions("videos", "E1S01")["versions"]
+        if record["version"] == selected_version
+    )
+    media = PresentationMedia(
+        artifact_path=selected["file"],
+        version=selected_version,
+        selection="current",
+        currency="current",
+        evidence=SelectedMediaEvidence.from_file(
+            basis=facts.video_basis, path=project_dir / selected["file"], actual_duration_seconds=4.0
+        ),
+    )
+    presentation = materialize_speech_presentation(
+        preparation, variant="post_production", video=media, provider_audio_enabled=True
+    )
+    legacy_basis = legacy_transition_presentation_basis(
+        variant="post_production",
+        transition=transition,
+        video=media.evidence.basis_input(),
+        subtitle=ArtifactBasisDescriptor.from_basis(presentation.subtitle_basis).to_dict(),
+        narration_audio=None,
+        provider_audio_enabled=True,
+    )
+    subtitle_path, presentation_path = presentation_artifact_paths(1, "E1S01", "post_production")
+    _write_json(project_dir / subtitle_path, presentation.subtitle_artifact_dict())
+    _write_json(
+        project_dir / presentation_path,
+        {
+            "episode": 1,
+            "resource_type": "videos",
+            "script_file": "episode_1.json",
+            "transition_to_next": transition,
+            "subtitle_artifact_path": subtitle_path,
+            "presentation_artifact_path": presentation_path,
+            "persisted": True,
+            **presentation.to_dict(),
+            "presentation_basis": ArtifactBasisDescriptor.from_basis(legacy_basis).to_dict(),
+        },
+    )
+    _mark_asset_inventory_current(project_dir)
+    return project_dir
+
+
+def legacy_transition_presentation_basis(
+    *,
+    variant: str,
+    transition: str,
+    video: dict[str, object],
+    subtitle: dict[str, object],
+    narration_audio: dict[str, object] | None,
+    provider_audio_enabled: bool,
+) -> ArtifactBasis:
+    """schema ≤ 15 的代码给呈现模型算的依据：输入含脚本条目上的转场。"""
+
+    return ArtifactBasis.build(
+        "artifact-speech/presentation",
+        kind_version=2,
+        inputs={
+            "variant": variant,
+            "transition_to_next": transition,
+            "video": video,
+            "subtitle": subtitle,
+            "narration_audio": narration_audio,
+            "mix_policy": {
+                "kind": "provider-original-plus-optional-tts",
+                "version": 1,
+                "provider_video_gain": 1.0,
+                "narration_audio_gain": 1.0,
+                "provider_audio_enabled": provider_audio_enabled,
+            },
+        },
+    )
+
+
 def advance_project_schema(project_dir: Path, *, to_version: int) -> None:
     """按迁移链把项目从当前 ``schema_version`` 逐级推进到 ``to_version``。"""
 
@@ -647,7 +898,10 @@ __all__ = [
     "ScriptPlanVariantName",
     "advance_project_schema",
     "bind_episode_script_to_filename",
+    "legacy_transition_presentation_basis",
+    "write_legacy_ad_reference_video_project",
     "write_legacy_drama_storyboard_project",
+    "write_legacy_presentation_project",
     "write_legacy_reference_video_project",
     "write_legacy_script_plan_project",
     "write_legacy_storyboard_project",

@@ -59,12 +59,6 @@ CameraMotion = Literal[
     "Shake",
 ]
 
-TransitionType = Literal[
-    "cut",
-    "fade",
-    "dissolve",
-]
-
 logger = logging.getLogger(__name__)
 
 
@@ -265,9 +259,6 @@ class NarrationSegment(BaseModel):
     props: list[str] = Field(default_factory=list, description="出场道具名称列表")
     image_prompt: ImagePrompt | PromptText | PendingPrompt = Field(default=None, description="分镜图生成提示词")
     video_prompt: VideoPrompt | PromptText | PendingPrompt = Field(default=None, description="视频生成提示词")
-    # transition_to_next 由 _add_metadata default + 用户 PATCH 路径(projects.py UpdateSegmentRequest)管理;
-    # LLM 无 prompt 引导,隐藏避免乱填污染剪映/compose-video 合成
-    transition_to_next: SkipJsonSchema[TransitionType] = Field(default="cut", description="转场类型")
     # 以下字段对 LLM 隐藏（SkipJsonSchema）：note 是人工备注、generated_assets 是 post-LLM 运行时状态。
     # 仍保留在 Pydantic 模型里以便存储 / 校验，但不出现在 response_schema 中，避免 LLM 填污染数据。
     note: SkipJsonSchema[str | None] = Field(default=None, description="用户备注（不参与生成）")
@@ -526,8 +517,6 @@ class DramaScene(BaseModel):
     # 视觉改编描述：内容确认转换时由脚本规划透传，作为提示词编写的视觉基底；对 LLM 隐藏。
     # 存量正式脚本无此字段时为空串。
     scene_description: SkipJsonSchema[str] = Field(default="", description="视觉改编描述")
-    # 见 NarrationSegment.transition_to_next 说明
-    transition_to_next: SkipJsonSchema[TransitionType] = Field(default="cut", description="转场类型")
     # 见 NarrationSegment 同名字段说明。
     note: SkipJsonSchema[str | None] = Field(default=None, description="用户备注（不参与生成）")
     end_frame_image: SkipJsonSchema[str | None] = Field(default=None, description="尾帧快照路径（项目内相对路径）")
@@ -671,8 +660,6 @@ class AdShot(BaseModel):
     # 由提示词编写补出（见 _fill_pending_prompts 与结构校验）。
     image_prompt: ImagePrompt | PromptText | PendingPrompt = Field(description="分镜图生成提示词")
     video_prompt: VideoPrompt | PromptText | PendingPrompt = Field(description="视频生成提示词")
-    # 见 NarrationSegment.transition_to_next 说明
-    transition_to_next: SkipJsonSchema[TransitionType] = Field(default="cut", description="转场类型")
     # 见 NarrationSegment 同名字段说明。
     note: SkipJsonSchema[str | None] = Field(default=None, description="用户备注（不参与生成）")
     end_frame_image: SkipJsonSchema[str | None] = Field(default=None, description="尾帧快照路径（项目内相对路径）")
@@ -823,8 +810,7 @@ class ReferenceVideoUnit(BaseModel):
         le=REFERENCE_UNIT_DURATION_RANGE[1],
         description="该单元时长（秒）",
     )
-    # transition_to_next / note / generated_assets 均为 UI / runtime / 人工字段，对 LLM 隐藏。
-    transition_to_next: SkipJsonSchema[TransitionType] = Field(default="cut", description="转场类型")
+    # note / generated_assets 均为 UI / runtime / 人工字段，对 LLM 隐藏。
     note: SkipJsonSchema[str | None] = Field(default=None, description="用户备注")
     generated_assets: SkipJsonSchema[GeneratedAssets] = Field(
         default_factory=GeneratedAssets, description="生成资源状态"

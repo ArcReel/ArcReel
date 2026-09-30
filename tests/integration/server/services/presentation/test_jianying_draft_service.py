@@ -98,7 +98,6 @@ def _result(
     audio_path: Path | None = None,
     audio_duration: float | None = None,
     provider_audio_enabled: bool = True,
-    transition: str = "cut",
 ) -> MaterializedPresentation:
     mode = SpeechMode.NARRATOR_VOICEOVER
     audio = None
@@ -115,7 +114,6 @@ def _result(
         episode=1,
         resource_type="videos",
         script_file="episode_1.json",
-        transition_to_next=transition,
         presentation=presentation,
         subtitle_artifact_path=None,
         presentation_artifact_path=None,
@@ -224,15 +222,15 @@ async def test_export_accepts_video_track_boundary_when_container_has_a_longer_a
     assert video_track["segments"][0]["source_timerange"] == {"start": 0, "duration": 1_000_000}
 
 
-async def test_export_uses_shared_transition_and_unity_provider_track(tmp_path: Path) -> None:
+async def test_export_hard_cuts_between_units_on_a_unity_provider_track(tmp_path: Path) -> None:
     pm, project_path = _project(tmp_path)
     first = project_path / "versions" / "videos" / "first.mp4"
     second = project_path / "versions" / "videos" / "second.mp4"
     first.parent.mkdir(parents=True)
     make_test_video(first, duration_sec=1.0)
     make_test_video(second, duration_sec=1.0)
-    one = _result(project_path, unit_id="one", video_path=first, duration=1.0, transition="fade")
-    two = _result(project_path, unit_id="two", video_path=second, duration=1.0, transition="fade")
+    one = _result(project_path, unit_id="one", video_path=first, duration=1.0)
+    two = _result(project_path, unit_id="two", video_path=second, duration=1.0)
     archive = await JianyingDraftService(pm, presentation_reader=_Reader(pm, (one, two))).export_episode_draft(
         "demo", 1, "/mock/JianyingDrafts"
     )
@@ -240,8 +238,7 @@ async def test_export_uses_shared_transition_and_unity_provider_track(tmp_path: 
     content = _read_draft_archive(archive)
     track = next(candidate for candidate in content["tracks"] if candidate.get("type") == "video")
     assert [segment["volume"] for segment in track["segments"]] == pytest.approx([1.0, 1.0])
-    transitions = content.get("materials", {}).get("transitions", [])
-    assert [transition["effect_id"] for transition in transitions] == ["321493"]
+    assert content.get("materials", {}).get("transitions", []) == []
 
 
 async def test_export_uses_reader_variant_and_packages_its_selected_media(
@@ -395,7 +392,6 @@ async def test_export_keeps_unverified_manual_upload_raw_without_speech_tracks(t
         episode=1,
         resource_type="videos",
         script_file="episode_1.json",
-        transition_to_next="cut",
         presentation=presentation,
         subtitle_artifact_path=None,
         presentation_artifact_path=None,

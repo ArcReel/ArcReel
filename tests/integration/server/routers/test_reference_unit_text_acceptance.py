@@ -123,7 +123,6 @@ def _v8_unit(unit_id: str, *, texts: list[str], references: list[dict[str, str]]
     return {
         "unit_id": unit_id,
         "duration_seconds": _UNIT_DURATION,
-        "transition_to_next": "cut",
         "shots": [{"shot_id": f"{unit_id}S{i + 1}", "text": text} for i, text in enumerate(texts)],
         "references": references,
         "generated_assets": {"status": "pending", "video_clip": None},
