@@ -145,7 +145,7 @@ Agent session 的当前工作目录（cwd）已绑定到当前项目根，**所�
 ## 工作流程概览
 
 `/video-workflow` 编排 skill 按服务端计划推进（每个动作完成后等待用户确认）。**步骤表不在这里，
-也不在 skill 里**：调用 `mcp__arcreel__get_workflow_plan` 取回 `steps[]` 与唯一的 `next_action`，
+也不在 skill 里**：调用 `mcp__arcreel__get_workflow_plan` 取回 `steps[]`、各 AI 操作的准入 `status.operations` 与建议的 `next_action`，
 照它路由。六种模式组合的步骤适用性、受控动作表、旁白交付、整批准入判定与状态轴读法见
 `.claude/references/workflow-plan.md`。
 
@@ -162,7 +162,7 @@ Agent session 的当前工作目录（cwd）已绑定到当前项目根，**所�
 - `reference_video` **只跳过分镜图**
 - TTS 项目在首轮自动剪辑时补齐缺失旁白配音，也可按用户显式要求生成；stale 配音仅按用户要求重合成。后期配音项目若要生成旁白配音，先请用户在项目设置里改为 TTS 配音。视频生成不依赖旁白配音
 
-工作流支持**灵活入口**：计划自动定位到第一个未完成的动作，支持中断后恢复。
+工作流支持**灵活入口**：用户说「继续」时按 `next_action` 推进，中断后从那里继续；用户点名的操作只要 `status.operations` 里准入成立就直接执行，不必等它成为下一步。
 视频齐全后进入「剪辑」一步：本集还没有剪辑时间线时 `next_action` 为 `create_edit_timeline`，
 至少有一条即算完成。在剪辑时间线上剪辑、按用户要求出成片或导出剪映草稿，都按 `edit-video` skill 进行。声音归属与
 字幕时序由服务端 presentation 结果决定；Agent 不自行估算字幕时序，也不替用户判断 TTS 是否必需。

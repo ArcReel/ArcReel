@@ -106,7 +106,7 @@ from lib.project.project_migration_failure import (
 )
 from lib.project.project_migration_guard import project_migration_failure
 from lib.project.project_migrations import migrate_project_with_verdict
-from lib.project.source_revision import SourceScope
+from lib.project.source_revision import SourceScope, compute_source_revision
 from lib.script.script_batch_edit import (
     ScriptBatchEditCommand,
     ScriptBatchEditLocation,
@@ -145,8 +145,9 @@ from lib.speech.narration_config import (
     validate_project_narration_config,
 )
 from lib.speech.speech_composition import SpeechProblemCode
+from lib.workflow.operation_admission import admit_plan_episodes, whole_source_present
 from lib.workflow.workflow_plan import WorkflowPlan, WorkflowPlanRequest
-from lib.workflow.workflow_state import WorkflowRequestError
+from lib.workflow.workflow_state import WorkflowRequestError, planning_docs
 from server.draft_workflow import (
     DiscardDraftRequest,
     DraftContext,
@@ -168,6 +169,7 @@ from server.services.tasks.video_caps import (
 from server.text_generation import (
     MAX_INSTRUCTIONS_LEN,
     SCOPE_REMOVED_MESSAGE,
+    OperationNotAdmittedError,
     PromptOverwriteRequiredError,
     ScriptOverwriteRequiredError,
     TextGenerationError,
@@ -177,6 +179,8 @@ from server.text_generation import (
     generate_narration_script_plan,
     generate_reference_script_plan,
     prompt_authoring_preflight,
+    require_admitted,
+    script_plan_preflight,
 )
 from server.text_generation import (
     confirm_script_review as confirm_script_review_handler,
@@ -541,6 +545,16 @@ def _prompt_overwrite_problem(exc: PromptOverwriteRequiredError) -> ToolProblem:
     return ToolProblem("prompt_overwrite_required", str(exc), params={"prompt_overwrite": exc.overwrite})
 
 
+def _not_admitted_problem(exc: OperationNotAdmittedError) -> ToolProblem:
+    """准入不成立的拒绝：``params.reason`` 与制作状态 ``operations`` 里同一操作的理由码一致。"""
+    return ToolProblem(
+        "operation_not_admitted",
+        str(exc),
+        action=GenerationAction.FIX_INPUT,
+        params={"operation": exc.operation, "reason": exc.reason.value if exc.reason is not None else None},
+    )
+
+
 async def _run_text_generation(
     operation: str,
     call: Awaitable[TextGenerationResult],
@@ -553,6 +567,8 @@ async def _run_text_generation(
         )
     except PromptOverwriteRequiredError as exc:
         return ToolOutcome(problem=_prompt_overwrite_problem(exc))
+    except OperationNotAdmittedError as exc:
+        return ToolOutcome(problem=_not_admitted_problem(exc))
     except TextGenerationError as exc:
         return ToolOutcome(problem=ToolProblem("generation_refused", str(exc)))
     except Exception as exc:
@@ -782,6 +798,8 @@ async def generate_episode_script(
         )
     except PromptOverwriteRequiredError as exc:
         return ToolOutcome(problem=_prompt_overwrite_problem(exc))
+    except OperationNotAdmittedError as exc:
+        return ToolOutcome(problem=_not_admitted_problem(exc))
     except TextGenerationError as exc:
         return ToolOutcome(problem=ToolProblem("generation_refused", str(exc)))
     except Exception as exc:
@@ -807,16 +825,23 @@ async def generate_script_plan(
     try:
         project = await asyncio.to_thread(services.projects.load_project, scope.project_name)
         content_mode = project.get("content_mode", "narration")
-        if content_mode == "ad":
-            raise TextGenerationError("广告/短片项目无 script_plan，请直接调用 generate_episode_script")
+        if content_mode not in {"narration", "drama", "ad"}:
+            raise TextGenerationError(f"不支持的创作类型: {content_mode}")
+        await asyncio.to_thread(
+            script_plan_preflight,
+            services.projects.get_project_path(scope.project_name),
+            text_request.episode,
+            text_request.source,
+            content_mode,
+        )
         if is_reference_video_project(project):
             handler, task_type = generate_reference_script_plan, _TEXT_REFERENCE_SCRIPT_PLAN
         elif content_mode == "narration":
             handler, task_type = generate_narration_script_plan, _TEXT_NARRATION_SCRIPT_PLAN
-        elif content_mode == "drama":
-            handler, task_type = generate_drama_script_plan, _TEXT_DRAMA_SCRIPT_PLAN
         else:
-            raise TextGenerationError(f"不支持的创作类型: {content_mode}")
+            handler, task_type = generate_drama_script_plan, _TEXT_DRAMA_SCRIPT_PLAN
+    except OperationNotAdmittedError as exc:
+        return ToolOutcome(problem=_not_admitted_problem(exc))
     except TextGenerationError as exc:
         return ToolOutcome(problem=ToolProblem("generation_refused", str(exc)))
     except Exception as exc:
@@ -2217,6 +2242,16 @@ async def _execute_plan_episodes(
     return ToolOutcome(value=value)
 
 
+def _plan_episodes_preflight(projects: ProjectManager, project_name: str) -> None:
+    """AI 分集规划的准入：有整本源文；与制作状态读同一份源文并调用同一谓词。"""
+    project = projects.load_project(project_name)
+    source = compute_source_revision(projects.get_project_path(project_name), project, SourceScope(kind="all"))
+    require_admitted(
+        "plan_episodes",
+        admit_plan_episodes(project.get("content_mode"), whole_source=whole_source_present(planning_docs(source))),
+    )
+
+
 async def plan_episodes(
     request: ToolRequest[PlanEpisodesRequest],
     scope: ProjectScope,
@@ -2227,6 +2262,10 @@ async def plan_episodes(
 ) -> ToolOutcome[Any]:
     if problem := await migration_gate(scope, services):
         return ToolOutcome(problem=problem)
+    try:
+        await asyncio.to_thread(_plan_episodes_preflight, services.projects, scope.project_name)
+    except OperationNotAdmittedError as exc:
+        return ToolOutcome(problem=_not_admitted_problem(exc))
     if planner_cls is not EpisodePlanner:
         return await _execute_plan_episodes(request, scope, services, planner_cls=planner_cls)
     return await _submit_text_task(

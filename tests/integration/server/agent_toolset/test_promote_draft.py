@@ -696,7 +696,9 @@ def _write_rv_formal_script(fake_ctx: ToolHarness, text: str) -> str | None:
         "title": "第1集",
         "video_units": [{"unit_id": "E1U01", "text": text, "duration_seconds": 8, "pending_authoring": True}],
     }
-    path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
+    ProjectManager.for_project_dir(fake_ctx.project_path).save_script(
+        fake_ctx.project_path.name, script, "episode_1.json", validate=False
+    )
     return script_review.content_fingerprint(path)
 
 
@@ -932,7 +934,9 @@ async def _dry_run_authoring(fake_ctx: ToolHarness, content_mode: str, items_key
         "title": "第1集",
         items_key: [entry | {"pending_authoring": True}],
     }
-    (scripts / "episode_1.json").write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
+    ProjectManager.for_project_dir(fake_ctx.project_path).save_script(
+        fake_ctx.project_path.name, script, "episode_1.json", validate=False
+    )
     out = await run_declared_tool("generate_episode_script", fake_ctx, {"episode": 1, "dry_run": True})
     assert out.problem is None, out
     return said(out)
@@ -1114,6 +1118,9 @@ async def test_generate_episode_script_not_blocked_by_drama_script_plan_draft(fa
     drama_project(fake_ctx)
     write_drama_script_plan(fake_ctx, [drama_scene()])
     await open_drama_for_edit(fake_ctx, source="source/episode_1.txt")
+    ProjectManager.for_project_dir(fake_ctx.project_path).update_project(
+        fake_ctx.project_path.name, lambda project: project.update(characters={"阿离": {"description": "主角"}})
+    )
 
     prompt = await _dry_run_authoring(fake_ctx, "drama", "scenes", drama_scene() | _UNAUTHORED_PROMPTS)
 

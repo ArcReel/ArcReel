@@ -513,16 +513,15 @@ class TestPatchEpisodeScriptStructuralOperations:
     @pytest.mark.parametrize(
         ("fixture", "items_key"), [("ctx", "segments"), ("drama_ctx", "scenes"), ("ad_ctx", "shots")]
     )
-    async def test_removing_the_last_item_is_rejected_atomically(
+    async def test_removing_every_item_commits_an_empty_script(
         self, request: pytest.FixtureRequest, fixture: str, items_key: str
     ) -> None:
         tool_ctx: ToolHarness = request.getfixturevalue(fixture)
-        before = _load(tool_ctx)
 
         out = await _patch(tool_ctx, [{"op": "remove", "id": "E1S01"}, {"op": "remove", "id": "E1S02"}])
 
-        assert _rejected(out).problems[0].reason == "script_collection_empty"
-        assert _load(tool_ctx) == before
+        _committed(out)
+        assert _load(tool_ctx)[items_key] == []
 
     async def test_removing_one_of_several_items_still_commits(self, ad_ctx: ToolHarness) -> None:
         out = await _patch(ad_ctx, [{"op": "remove", "id": "E1S01"}])

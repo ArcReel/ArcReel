@@ -31,13 +31,18 @@ export type NarrationDelivery = "post_production" | "use_tts";
 export const WORKFLOW_ACTION_TYPES = [
   "none",
   "collect_project_input",
+  "create_episode",
   "draft_selling_points",
   "analyze_assets",
   "plan_episodes",
   "reset_episode_planning",
+  "resolve_draft",
   "prepare_script_plan",
+  "start_blank_script",
+  "provide_episode_source",
   "confirm_script_plan",
   "generate_script",
+  "add_script_items",
   "author_prompts",
   "generate_asset_sheets",
   "generate_storyboards",
@@ -210,19 +215,37 @@ export interface WorkflowTarget {
   source: string;
 }
 
-export type WorkflowStateName =
-  | "PROJECT_INPUT"
-  | "SELLING_POINTS"
-  | "ASSET_INVENTORY"
-  | "EPISODE_PLAN"
-  | "SCRIPT_PLAN_CONTENT"
-  | "SCRIPT_PLAN_REVIEW"
-  | "FINAL_SCRIPT"
-  | "ASSET_SHEETS"
-  | "STORYBOARD"
-  | "VIDEO"
-  | "EDIT"
-  | "COMPLETED";
+/** 一个 AI 操作此刻的结构准入；`reason` 是稳定的理由码，与操作入口的拒绝理由同源。 */
+export interface WorkflowOperation {
+  state: "admitted" | "refused" | "not_applicable";
+  reason?: string | null;
+}
+
+/** 目标集上在场的一份草稿；`needs_repair` 区分待修复草稿与 Agent 的可编辑草稿。 */
+export interface WorkflowDraft {
+  kind: string;
+  path: string;
+  needs_repair: boolean;
+}
+
+/** 内容现状。集级字段只在有目标集时有值；项目整体不可用时整份为空。 */
+export interface WorkflowContent {
+  episode_count: number;
+  whole_source: "present" | "absent" | "not_applicable";
+  source_remaining: boolean;
+  ad_inputs: "present" | "absent" | "not_applicable";
+  products_without_selling_points: string[];
+  episode_source?: "present" | "absent" | "not_applicable" | null;
+  episode_plan_stale: boolean;
+  expected_stale_script_plan_revision?: string | null;
+  drafts: WorkflowDraft[];
+  formal_script?: "present" | "absent" | "invalid" | null;
+  script_item_count?: number | null;
+  pending_authoring_ids: string[];
+  needs_replan_ids: string[];
+  referenced_assets_without_sheet: string[];
+  unregistered_references: string[];
+}
 
 /** 上一次跑完的项目迁移没能登记的一件产物及原因。 */
 export interface WorkflowMigrationSkippedArtifact {
@@ -246,27 +269,36 @@ export interface WorkflowMigrationReport {
   skipped: WorkflowMigrationSkippedArtifact[];
 }
 
+/**
+ * 制作状态：内容现状（`content` / `artifacts`）、各 AI 操作的准入（`operations`）与建议的下一步
+ * （`next_action`，分岔处的并列选项在 `next_alternatives`）。`blockers` 只表示项目整体不可用，
+ * 内容本身的数据问题在 `issues`。
+ */
 export interface WorkflowStatus {
-  schema_version: 1;
+  schema_version: 2;
   project_revision: string;
   source_revision: string | null;
   project: WorkflowProject;
   target: WorkflowTarget | null;
-  state: WorkflowStateName;
   blockers: WorkflowBlocker[];
+  issues: WorkflowBlocker[];
+  content: WorkflowContent | null;
+  operations: Record<string, WorkflowOperation>;
   gates: Record<string, Record<string, unknown>>;
   artifacts: Record<string, WorkflowArtifactCollection>;
   next_action: WorkflowNextAction;
+  next_alternatives: WorkflowNextAction[];
   migration_report?: WorkflowMigrationReport | null;
 }
 
 export interface WorkflowPlan {
-  schema_version: 1;
+  schema_version: 2;
   status: WorkflowStatus;
   steps: WorkflowPlanStep[];
   blockers: WorkflowBlocker[];
   problems: GenerationProblem[];
   next_action: WorkflowNextAction;
+  next_alternatives: WorkflowNextAction[];
 }
 
 /** `POST /projects/{name}/workflow-plan` 的请求体。 */

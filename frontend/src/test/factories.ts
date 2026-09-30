@@ -53,13 +53,15 @@ export function makeStep(overrides: Partial<WorkflowPlanStep> = {}): WorkflowPla
 
 function makeStatus(overrides: Partial<WorkflowStatus> = {}): WorkflowStatus {
   return {
-    schema_version: 1,
+    schema_version: 2,
     project_revision: "sha256-v1:project",
     source_revision: "sha256-v1:source",
     project: { content_mode: "narration", generation_mode: "storyboard", grid_storyboard: false },
     target: { episode: 1, script: "scripts/episode_1.json", script_filename: "episode_1.json", source: "source/episode_1.txt" },
-    state: "VIDEO",
     blockers: [],
+    issues: [],
+    content: null,
+    operations: {},
     gates: {},
     artifacts: {},
     next_action: {
@@ -69,6 +71,7 @@ function makeStatus(overrides: Partial<WorkflowStatus> = {}): WorkflowStatus {
       requires_confirmation: false,
       reason: "next",
     },
+    next_alternatives: [],
     ...overrides,
   };
 }
@@ -76,12 +79,13 @@ function makeStatus(overrides: Partial<WorkflowStatus> = {}): WorkflowStatus {
 export function makePlan(overrides: Partial<WorkflowPlan> = {}): WorkflowPlan {
   const status = overrides.status ?? makeStatus();
   return {
-    schema_version: 1,
+    schema_version: 2,
     status,
     steps: [makeStep()],
     blockers: status.blockers,
     problems: [],
     next_action: status.next_action,
+    next_alternatives: status.next_alternatives,
     ...overrides,
   };
 }

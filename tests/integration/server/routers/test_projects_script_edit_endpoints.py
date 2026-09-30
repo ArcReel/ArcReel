@@ -948,12 +948,11 @@ class TestScriptItemInsertAndRemove:
         assert missing.status_code == 404
 
     @pytest.mark.parametrize("content_mode", ["narration", "drama", "ad"])
-    def test_removing_the_only_item_is_rejected_without_writing(self, tmp_path, monkeypatch, content_mode: str):
+    def test_removing_the_only_item_leaves_a_legal_empty_script(self, tmp_path, monkeypatch, content_mode: str):
         pm, client = self._client(tmp_path, monkeypatch, content_mode)
         items_key, _id_field, _content = _ITEM_SHAPES[content_mode]
         with pm.locked_script("demo", "episode_1.json") as script:
             del script[items_key][1]
-        before = pm.load_script("demo", "episode_1.json")
 
         with client:
             response = client.delete(
@@ -961,9 +960,9 @@ class TestScriptItemInsertAndRemove:
                 headers={"Accept-Language": "zh"},
             )
 
-        assert response.status_code == 422
-        assert response.json()["detail"] == "本集只剩这一个分镜，不能移除"
-        assert pm.load_script("demo", "episode_1.json") == before
+        assert response.status_code == 200, response.json()
+        assert response.json()["edit_result"]["affected_ids"] == ["E1S01"]
+        assert pm.load_script("demo", "episode_1.json")[items_key] == []
 
     @pytest.mark.parametrize(
         ("method", "endpoint", "body"),

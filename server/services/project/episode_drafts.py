@@ -33,9 +33,9 @@ from server.draft_workflow import DraftContext, DraftWorkflow, DraftWorkflowErro
 from server.services.project.script_review import ScriptReviewService
 from server.text_generation import (
     _fetch_reference_split_caps,
-    _uses_reference_video_units,
     reference_soft_violations,
     soft_violation_entries,
+    uses_reference_video_units,
 )
 
 
@@ -61,7 +61,7 @@ class EpisodeDraftService:
         script_plan_kind = script_review.script_plan_quarantine_kind(project)
         if script_plan_kind is not None:
             kinds.append(script_plan_kind)
-        if _uses_reference_video_units(project):
+        if uses_reference_video_units(project):
             kinds.append(QUARANTINE_KIND_PROMPT_AUTHORING)
         return kinds
 

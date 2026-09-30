@@ -439,7 +439,7 @@ def test_deleting_a_storyboard_drops_the_episode_out_of_completed(tmp_path: Path
     assert episode.status == "in_production"
     assert summary.phase == "production"
     assert summary.phase_progress < 1.0
-    assert service.get_status("demo").state == "STORYBOARD"
+    assert service.get_status("demo").next_action.type == "generate_storyboards"
 
 
 def test_episode_counts_match_the_workbench_on_the_same_project(tmp_path: Path) -> None:

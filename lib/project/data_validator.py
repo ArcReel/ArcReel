@@ -876,9 +876,6 @@ class DataValidator:
         if not isinstance(segments, list):
             errors.append(_m("val_field_must_be_array", field="segments"))
             return
-        if not segments:
-            errors.append(_m("val_array_empty", field="segments"))
-            return
 
         for index, segment in enumerate(segments):
             prefix = f"segments[{index}]"
@@ -965,9 +962,6 @@ class DataValidator:
         """
         if not isinstance(scenes, list):
             errors.append(_m("val_field_must_be_array", field="scenes"))
-            return
-        if not scenes:
-            errors.append(_m("val_array_empty", field="scenes"))
             return
 
         for index, scene in enumerate(scenes):
@@ -1148,7 +1142,7 @@ class DataValidator:
         资产引用一律按 NFC 归一比对（见 ``_validate_segment_refs``），与两条生成路径的
         各收集器同口径。
         """
-        if not isinstance(shots, list) or not shots:
+        if not isinstance(shots, list):
             errors.append(_m("val_ad_shots_missing"))
             return
 
@@ -1286,7 +1280,7 @@ class DataValidator:
         project_dir: Path | None = None,
     ) -> None:
         """验证 video_units（参考生视频）"""
-        if not isinstance(video_units, list) or not video_units:
+        if not isinstance(video_units, list):
             errors.append(_m("val_video_units_missing"))
             return
 

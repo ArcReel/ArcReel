@@ -97,7 +97,7 @@ Agent session 的当前工作目录（cwd）已绑定到当前项目根，**所�
 
 `/video-workflow` 编排 skill 按服务端计划推进（每个动作完成后与用户确认再继续）；用户提到做视频、继续项目、查看进度时使用该 skill。涉及尚未落地的环节时如实告知用户，不要用 narration/drama 的小说流程替代。
 
-**步骤表不在这里，也不在 skill 里**：调用 `mcp__arcreel__get_workflow_plan` 取回 `steps[]` 与唯一的 `next_action`，照它路由。受控动作表、旁白交付、整批准入判定与状态轴读法见 `.claude/references/workflow-plan.md`。
+**步骤表不在这里，也不在 skill 里**：调用 `mcp__arcreel__get_workflow_plan` 取回 `steps[]`、各 AI 操作的准入 `status.operations` 与建议的 `next_action`，照它路由。受控动作表、旁白交付、整批准入判定与状态轴读法见 `.claude/references/workflow-plan.md`。
 
 需要在这里说清、不由计划表达的 ad 专属规则：
 
@@ -110,7 +110,7 @@ Agent session 的当前工作目录（cwd）已绑定到当前项目根，**所�
 - **保真拦截**：分镜图生成后引导用户审核商品形象保真度，不合格的重新生成——在产生视频费用前拦截
 - **剪辑与出片**：视频齐全后进入「剪辑」一步，计划给出 `create_edit_timeline` 时为本集新建剪辑时间线，至少有一条即算完成。在剪辑时间线上剪辑、按用户要求出成片或导出剪映草稿，都按 `edit-video` skill 进行。声音归属与字幕时序由服务端 presentation 结果决定；Agent 不自行估算字幕时序，也不替用户判断 TTS 是否必需。stale 产物照常可用，出片不清空也不覆盖旧付费媒体
 
-工作流支持**灵活入口**：计划自动定位到第一个未完成的动作，中断后从那里继续。
+工作流支持**灵活入口**：用户说「继续」时按 `next_action` 推进，中断后从那里继续；用户点名的操作只要 `status.operations` 里准入成立就直接执行，不必等它成为下一步。
 
 ### 商品保真（软门禁）
 

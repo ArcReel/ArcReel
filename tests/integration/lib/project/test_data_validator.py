@@ -1329,10 +1329,9 @@ class TestAdEpisodeValidation:
         result = self._validate(tmp_path, [self._ad_shot()])
         assert result.valid, result.errors
 
-    def test_empty_shots_rejected(self, tmp_path):
+    def test_empty_shots_are_a_legal_empty_script(self, tmp_path):
         result = self._validate(tmp_path, [])
-        assert not result.valid
-        assert any("shots" in e for e in result.errors)
+        assert result.valid, result.errors
 
     def test_bad_shot_id_rejected(self, tmp_path):
         result = self._validate(tmp_path, [self._ad_shot(shot_id="S01")])

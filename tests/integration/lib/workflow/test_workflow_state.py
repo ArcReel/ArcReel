@@ -42,7 +42,7 @@ from lib.speech.narration_delivery import (
     canonical_narration_text,
 )
 from lib.speech.speech_composition import admit_script_unit
-from lib.workflow.workflow_state import WorkflowStateService, planning_docs
+from lib.workflow.workflow_state import WorkflowStateService, episode_complete, planning_docs
 from server.services.admission.asset_sheet_batch import AssetSheetScope, plan_asset_sheet_batch
 
 
@@ -263,16 +263,52 @@ def _valid_video_unit(**overrides: object) -> dict:
     return unit
 
 
-def test_narration_empty_inventory_completes_and_advances_to_episode_plan(tmp_path: Path) -> None:
+def test_empty_project_asks_for_source_or_a_new_episode(tmp_path: Path) -> None:
+    pm, _project_path = _make_project(tmp_path, "narration")
+
+    status = WorkflowStateService(pm).get_status("demo")
+
+    assert status.blockers == []
+    assert status.target is None
+    assert status.content is not None
+    assert (status.content.whole_source, status.content.episode_count) == ("absent", 0)
+    assert status.operations["plan_episodes"].model_dump() == {"state": "refused", "reason": "whole_source_missing"}
+    assert status.next_action.type == "collect_project_input"
+    assert [action.type for action in status.next_alternatives] == ["create_episode"]
+
+
+def test_manual_episode_without_any_source_has_no_blockers(tmp_path: Path) -> None:
+    pm, _project_path = _make_project(tmp_path, "drama")
+    pm.update_project(
+        "demo",
+        lambda project: project.update(
+            episodes=[
+                {"episode": 1, "title": "番外", "script_file": "scripts/episode_1.json", "ledger_status": "planned"}
+            ]
+        ),
+    )
+
+    status = WorkflowStateService(pm).get_status("demo")
+
+    assert status.blockers == []
+    assert status.issues == []
+    assert status.content is not None
+    assert (status.content.whole_source, status.content.episode_source) == ("absent", "absent")
+    assert status.operations["plan_episodes"].reason == "whole_source_missing"
+    assert status.operations["prepare_script_plan"].reason == "episode_source_missing"
+    assert status.next_action.type == "start_blank_script"
+    assert [action.type for action in status.next_alternatives] == ["provide_episode_source"]
+
+
+def test_whole_source_without_episodes_suggests_planning_or_a_new_episode(tmp_path: Path) -> None:
     pm, project_path = _make_project(tmp_path, "narration")
     revision = _write_source_and_complete(pm, project_path)
 
     status = WorkflowStateService(pm).get_status("demo")
 
-    assert status.schema_version == 1
+    assert status.schema_version == 2
     assert status.project.content_mode == "narration"
     assert status.source_revision == revision
-    assert status.state == "EPISODE_PLAN"
     assert status.artifacts["asset_inventory"]["state"] == "current"
     assert status.artifacts["asset_sheets"] == {
         "character": {"current_ids": [], "missing_ids": [], "stale_ids": []},
@@ -280,13 +316,19 @@ def test_narration_empty_inventory_completes_and_advances_to_episode_plan(tmp_pa
         "prop": {"current_ids": [], "missing_ids": [], "stale_ids": []},
         "product": {"current_ids": [], "missing_ids": [], "stale_ids": []},
     }
+    assert status.blockers == []
+    assert status.content is not None
+    assert (status.content.whole_source, status.content.episode_count) == ("present", 0)
+    assert status.operations["plan_episodes"].state == "admitted"
     assert status.next_action.type == "plan_episodes"
+    assert [action.type for action in status.next_alternatives] == ["create_episode"]
 
 
 def test_drama_target_comes_from_ledger_not_derived_filenames(tmp_path: Path) -> None:
     pm, project_path = _make_project(tmp_path, "drama")
     _write_source_and_complete(pm, project_path)
     (project_path / "source" / "episode_1.txt").write_text("派生集文件", encoding="utf-8")
+    (project_path / "source" / "episode_2.txt").write_text("第二集原文", encoding="utf-8")
     (project_path / "scripts" / "episode_1.json").write_text("{}", encoding="utf-8")
 
     def _plan(project: dict) -> None:
@@ -302,22 +344,21 @@ def test_drama_target_comes_from_ledger_not_derived_filenames(tmp_path: Path) ->
 
     pm.update_project("demo", _plan)
 
-    status = WorkflowStateService(pm).get_status("demo")
+    status = WorkflowStateService(pm).get_status("demo", 2)
 
     assert status.target is not None
     assert status.target.episode == 2
     assert status.target.script == "scripts/custom-name.json"
     assert status.target.script_filename == "custom-name.json"
-    assert status.state == "SCRIPT_PLAN_CONTENT"
     assert status.next_action.type == "prepare_script_plan"
     assert status.next_action.args["preprocessor"] == "normalize-drama-script"
 
 
 def test_manual_presplit_project_routes_to_script_plan_without_writing_the_ledger(tmp_path: Path) -> None:
-    """source/ 只有用户自行拆好的 episode_N.txt、账本为空：这些文件就是源文，不报缺源文。
+    """source/ 只有用户自行拆好的 episode_N.txt、账本为空：各集有集原文，但没有整本源文。
 
-    状态按内存里补建的账本条目（无 source_range）给出结论，路线从资产清单直达本集脚本规划、
-    全程不经分集规划；读状态不写 project.json，账本登记留给内容确认入口。
+    状态按内存里补建的账本条目（无 source_range）给出结论，直达本集脚本规划、不经分集规划，
+    也不先提取资产清单；读状态不写 project.json，账本登记留给内容确认入口。
     """
     pm, project_path = _make_project(tmp_path, "drama", generation_mode="reference_video")
     for number in (1, 2, 3):
@@ -328,26 +369,14 @@ def test_manual_presplit_project_routes_to_script_plan_without_writing_the_ledge
 
     status = service.get_status("demo")
 
-    assert status.state == "ASSET_INVENTORY"
-    assert status.next_action.type == "analyze_assets"
-    assert status.next_action.args["scope"] == {"kind": "all", "files": []}
-    assert project_file.read_bytes() == before
-
-    scope = SourceScope(kind="all")
-    revision = compute_source_revision(project_path, pm.load_project("demo"), scope)
-    assert revision.files == ["source/episode_1.txt", "source/episode_2.txt", "source/episode_3.txt"]
-    assert revision.revision == status.source_revision
-    complete_asset_inventory(pm, "demo", scope, revision.revision)
-
-    status = service.get_status("demo")
-
     assert status.target is not None
     assert status.target.episode == 1
     assert status.target.source == "source/episode_1.txt"
-    assert status.state == "SCRIPT_PLAN_CONTENT"
     assert status.next_action.type == "prepare_script_plan"
     assert status.next_action.args["episode"] == 1
-    assert pm.load_project("demo")["episodes"] == []
+    assert status.operations["plan_episodes"].reason == "whole_source_missing"
+    assert status.operations["prepare_script_plan"].state == "admitted"
+    assert project_file.read_bytes() == before
 
 
 def test_manual_presplit_project_reaches_edit_without_planning_records(tmp_path: Path) -> None:
@@ -387,8 +416,6 @@ def test_manual_presplit_project_reaches_edit_without_planning_records(tmp_path:
     assert project["planning_cursor"] is None
 
     status = WorkflowStateService(pm).get_status("demo")
-
-    assert status.state == "EDIT"
     assert status.next_action.type == "create_edit_timeline"
 
 
@@ -413,10 +440,30 @@ def test_ad_is_episode_one_and_skips_asset_inventory_and_script_plan(tmp_path: P
 
     assert status.target is not None
     assert status.target.episode == 1
+    assert status.blockers == []
     assert status.artifacts["asset_inventory"]["state"] == "not_applicable"
     assert status.gates["script_plan_review"]["state"] == "not_applicable"
-    assert status.state == "FINAL_SCRIPT"
+    assert status.operations["plan_episodes"].state == "not_applicable"
+    assert status.operations["prepare_script_plan"].state == "not_applicable"
+    assert (status.operations["generate_script"].state, status.operations["generate_script"].reason) == (
+        "refused",
+        "ad_brief_and_products_missing",
+    )
+    assert status.next_action.type == "collect_project_input"
+    assert [action.type for action in status.next_alternatives] == ["start_blank_script"]
+
+
+def test_ad_with_a_brief_but_no_products_can_generate_its_script(tmp_path: Path) -> None:
+    pm, _project_path = _make_project(tmp_path, "ad")
+    pm.update_project("demo", lambda project: project.update(brief="夏日防晒喷雾，30 秒种草"))
+
+    status = WorkflowStateService(pm).get_status("demo")
+
+    assert status.content is not None
+    assert status.content.ad_inputs == "present"
+    assert status.operations["generate_script"].state == "admitted"
     assert status.next_action.type == "generate_script"
+    assert [action.type for action in status.next_alternatives] == ["start_blank_script"]
 
 
 def test_media_paths_must_resolve_to_project_files_before_becoming_current(tmp_path: Path) -> None:
@@ -442,14 +489,14 @@ def test_media_paths_must_resolve_to_project_files_before_becoming_current(tmp_p
     # 越界指针是硬阻断（不是「当作没生成」），项目内但未登记的指针才是 missing。
     assert status.artifacts["storyboards"]["state"] == "blocked"
     assert status.artifacts["storyboards"]["current_ids"] == []
-    assert [blocker.code for blocker in status.blockers] == ["artifact_path_invalid"]
-    assert "../outside.png" in status.blockers[0].reason
+    assert [blocker.code for blocker in status.issues] == ["artifact_path_invalid"]
+    assert "../outside.png" in status.issues[0].reason
     assert status.artifacts["videos"]["current_ids"] == []
     assert status.artifacts["videos"]["missing_ids"] == ["E1S01"]
     assert status.next_action.type == "none"
 
 
-def test_appended_source_only_refreshes_inventory_and_preserves_existing_work(tmp_path: Path) -> None:
+def test_stale_asset_inventory_is_stated_but_gates_nothing(tmp_path: Path) -> None:
     pm, project_path = _make_project(tmp_path, "narration")
     old_revision = _write_source_and_complete(pm, project_path, "第一段")
 
@@ -469,15 +516,11 @@ def test_appended_source_only_refreshes_inventory_and_preserves_existing_work(tm
     (project_path / "source" / "novel.txt").write_text("第一段\n追加段落", encoding="utf-8")
 
     status = WorkflowStateService(pm).get_status("demo")
-
-    assert status.state == "ASSET_INVENTORY"
     assert status.source_revision != old_revision
     assert status.artifacts["asset_inventory"]["state"] == "stale"
-    assert status.next_action.type == "analyze_assets"
-    assert status.next_action.args == {
-        "scope": {"kind": "all", "files": []},
-        "expected_source_revision": status.source_revision,
-    }
+    assert status.blockers == []
+    assert status.next_action.type == "start_blank_script"
+    assert [action.type for action in status.next_alternatives] == ["provide_episode_source"]
     stored = pm.load_project("demo")
     assert list(stored["characters"]) == ["阿离"]
     assert stored["episodes"][0]["episode"] == 1
@@ -492,8 +535,6 @@ def test_partial_inventory_scope_never_unlocks_full_workflow(tmp_path: Path) -> 
     complete_asset_inventory(pm, "demo", scope, revision)
 
     status = WorkflowStateService(pm).get_status("demo")
-
-    assert status.state == "ASSET_INVENTORY"
     assert status.artifacts["asset_inventory"]["state"] == "partial"
     assert status.artifacts["asset_inventory"]["recorded_scope"] == {
         "kind": "files",
@@ -501,17 +542,17 @@ def test_partial_inventory_scope_never_unlocks_full_workflow(tmp_path: Path) -> 
     }
 
 
-def test_unsafe_source_returns_blocker_instead_of_skipping_or_raising(tmp_path: Path) -> None:
+def test_unsafe_source_is_an_issue_instead_of_skipping_or_raising(tmp_path: Path) -> None:
     pm, project_path = _make_project(tmp_path, "narration")
     target = project_path / "target.txt"
     target.write_text("source", encoding="utf-8")
     (project_path / "source" / "novel.txt").symlink_to(target)
 
     status = WorkflowStateService(pm).get_status("demo")
-
-    assert status.state == "PROJECT_INPUT"
-    assert status.blockers[0].code == "source_symlink"
-    assert status.next_action.type == "none"
+    assert status.blockers == []
+    assert status.issues[0].code == "source_symlink"
+    assert status.operations["plan_episodes"].reason == "whole_source_missing"
+    assert status.next_action.type == "collect_project_input"
 
 
 def test_narration_progresses_through_storyboard_video_to_edit(tmp_path: Path) -> None:
@@ -550,7 +591,6 @@ def test_narration_progresses_through_storyboard_video_to_edit(tmp_path: Path) -
     service = WorkflowStateService(pm)
 
     storyboard = service.get_status("demo")
-    assert storyboard.state == "STORYBOARD"
     assert storyboard.next_action.requested_ids == ["E1S01"]
 
     storyboard_path = resource_relative_path("storyboards", "E1S01")
@@ -559,7 +599,7 @@ def test_narration_progresses_through_storyboard_video_to_edit(tmp_path: Path) -
     atomic_write_json(script_path, script)
     _register_produced_artifacts(project_path)
     video = service.get_status("demo")
-    assert video.state == "VIDEO"
+    assert video.next_action.type == "generate_videos"
 
     script["segments"][0]["generated_assets"]["video_clip"] = _commit_media_version(project_path, "videos", "E1S01")
     atomic_write_json(script_path, script)
@@ -567,7 +607,6 @@ def test_narration_progresses_through_storyboard_video_to_edit(tmp_path: Path) -
     # 视频齐备后进入剪辑：本集还没有剪辑时间线，下一步是新建剪辑时间线。
     # 后期配音项目不报旁白配音缺口。
     editing = service.get_status("demo")
-    assert editing.state == "EDIT"
     assert editing.next_action.type == "create_edit_timeline"
     assert editing.next_action.args == {"episode": 1}
     assert editing.artifacts["edit_timelines"] == {"timeline_ids": []}
@@ -576,12 +615,13 @@ def test_narration_progresses_through_storyboard_video_to_edit(tmp_path: Path) -
 
     timeline_id = _create_edit_timeline(pm)
     ready = service.get_status("demo")
-    assert ready.state == "COMPLETED"
     assert ready.next_action.type == "none"
+    assert episode_complete(ready)
     assert ready.blockers == []
+    assert ready.issues == []
     assert ready.artifacts["edit_timelines"] == {"timeline_ids": [timeline_id]}
 
-    # 剪辑时间线目录读不了时停在「剪辑」一步并报 blocker，不让整个状态查询失败。
+    # 剪辑时间线目录读不了时停在「剪辑」一步并报 issue，不让整个状态查询失败。
     if os.geteuid() != 0:
         edit_root = project_path / "edit_timelines"
         edit_root.chmod(0)
@@ -589,20 +629,21 @@ def test_narration_progresses_through_storyboard_video_to_edit(tmp_path: Path) -
             unreadable = service.get_status("demo")
         finally:
             edit_root.chmod(0o755)
-        assert unreadable.state == "EDIT"
         assert unreadable.next_action.type == "none"
-        assert [blocker.code for blocker in unreadable.blockers] == ["invalid_edit_timelines"]
+        assert not episode_complete(unreadable)
+        assert unreadable.blockers == []
+        assert [issue.code for issue in unreadable.issues] == ["invalid_edit_timelines"]
 
-    # 已有一条可用时间线，另一条文件损坏时同样停在「剪辑」一步并报 blocker。
+    # 已有一条可用时间线，另一条文件损坏时同样停在「剪辑」一步并报 issue。
     corrupt = project_path / "edit_timelines" / "episode_1" / "tl-0000beef.json"
     corrupt.write_text("{", encoding="utf-8")
     try:
         malformed = service.get_status("demo")
     finally:
         corrupt.unlink()
-    assert malformed.state == "EDIT"
     assert malformed.next_action.type == "none"
-    assert [blocker.code for blocker in malformed.blockers] == ["invalid_edit_timelines"]
+    assert not episode_complete(malformed)
+    assert [issue.code for issue in malformed.issues] == ["invalid_edit_timelines"]
 
     pm.update_project(
         "demo",
@@ -619,7 +660,7 @@ def test_narration_progresses_through_storyboard_video_to_edit(tmp_path: Path) -
     _register_produced_artifacts(project_path)
     # 缺旁白配音只在 TTS 配音项目的 artifacts["audio"] 里如实报告，不推进状态机。
     still_ready = service.get_status("demo")
-    assert still_ready.state == "COMPLETED"
+    assert episode_complete(still_ready)
     assert still_ready.artifacts["audio"]["current_ids"] == ["E1S01"]
     assert still_ready.artifacts["audio"]["missing_ids"] == []
 
@@ -633,7 +674,6 @@ def test_narration_progresses_through_storyboard_video_to_edit(tmp_path: Path) -
     complete_asset_inventory(pm, "demo", SourceScope(kind="all"), refreshed_revision)
 
     replanning = service.get_status("demo")
-    assert replanning.state == "EPISODE_PLAN"
     assert replanning.next_action.type == "reset_episode_planning"
     assert replanning.next_action.args == {"from_episode": 1}
 
@@ -706,8 +746,6 @@ def test_narration_audio_manifest_state_unreadable_does_not_block_edit(tmp_path:
     )
 
     status = WorkflowStateService(pm).get_status("demo")
-
-    assert status.state == "EDIT"
     assert status.artifacts["audio"]["state"] == "blocked"
     assert not any(b.path == audio_path for b in status.blockers)
 
@@ -748,8 +786,6 @@ def test_unplanned_source_with_legacy_episode_without_source_range_requires_full
     _create_edit_timeline(pm)
 
     status = WorkflowStateService(pm).get_status("demo")
-
-    assert status.state == "EPISODE_PLAN"
     assert status.next_action.type == "reset_episode_planning"
     assert status.next_action.args == {"from_episode": 1}
 
@@ -856,15 +892,15 @@ def test_completed_first_episode_does_not_hide_later_incomplete_episode(
     status = WorkflowStateService(pm).get_status("demo")
 
     assert load_calls == 1
-    # 整本源文仍只读一次；分集原文是 script_plan 基线的输入，只在比对 script_plan 时读一次。
-    assert source_reads == {"novel.txt": 1, "episode_1.txt": 1}
+    # 整本源文仍只读一次；集原文另被「本集有集原文」这条准入事实读一次、比对 script_plan 基线时读一次。
+    assert source_reads == {"novel.txt": 1, "episode_1.txt": 2}
     assert status.target is not None
     assert status.target.episode == 2
-    assert status.state == "SCRIPT_PLAN_CONTENT"
-    assert status.next_action.type == "prepare_script_plan"
+    assert status.next_action.type == "start_blank_script"
 
 
-def test_completed_first_episode_does_not_hide_later_planning_reset(tmp_path: Path) -> None:
+def test_stale_episode_stays_out_of_the_next_step(tmp_path: Path) -> None:
+    """集规划状态为 stale 的集只在现状里陈述，不进建议的下一步。"""
     pm, project_path = _make_project(tmp_path, "narration")
     source_text = "完整原文"
     _write_source_and_complete(pm, project_path, source_text)
@@ -903,13 +939,16 @@ def test_completed_first_episode_does_not_hide_later_planning_reset(tmp_path: Pa
     _register_produced_artifacts(project_path)
     _create_edit_timeline(pm)
 
-    status = WorkflowStateService(pm).get_status("demo")
-
-    assert status.state == "EPISODE_PLAN"
+    service = WorkflowStateService(pm)
+    status = service.get_status("demo")
     assert status.target is not None
-    assert status.target.episode == 2
-    assert status.next_action.type == "reset_episode_planning"
-    assert status.next_action.args == {"from_episode": 2}
+    assert status.target.episode == 1
+    assert episode_complete(status)
+
+    stale = service.get_status("demo", 2)
+    assert stale.content is not None
+    assert stale.content.episode_plan_stale is True
+    assert stale.next_action.type == "none"
 
 
 def test_legacy_stale_episode_without_baseline_requires_planning_reset(tmp_path: Path) -> None:
@@ -933,13 +972,11 @@ def test_legacy_stale_episode_without_baseline_requires_planning_reset(tmp_path:
     atomic_write_json(draft_dir / "script_plan_segments.json", {"episode": 1, "segments": [{"segment_id": "E1S01"}]})
 
     status = WorkflowStateService(pm).get_status("demo")
-
-    assert status.state == "EPISODE_PLAN"
     assert status.next_action.type == "reset_episode_planning"
     assert status.next_action.args == {"from_episode": 1}
 
 
-def test_requested_missing_episode_is_blocked_when_source_is_fully_planned(tmp_path: Path) -> None:
+def test_requested_missing_episode_is_an_issue_not_a_blocker(tmp_path: Path) -> None:
     pm, project_path = _make_project(tmp_path, "narration")
     source_text = "完整原文"
     _write_source_and_complete(pm, project_path, source_text)
@@ -953,11 +990,10 @@ def test_requested_missing_episode_is_blocked_when_source_is_fully_planned(tmp_p
     )
 
     status = WorkflowStateService(pm).get_status("demo", 2)
-
-    assert status.state == "EPISODE_PLAN"
-    assert status.target is None
-    assert status.blockers[0].code == "episode_unavailable"
-    assert status.next_action.type == "none"
+    assert status.blockers == []
+    assert [issue.code for issue in status.issues] == ["episode_unavailable"]
+    assert status.target is not None
+    assert status.target.episode == 1
 
 
 def test_source_inserted_before_cursor_requires_planning_reset(tmp_path: Path) -> None:
@@ -982,8 +1018,6 @@ def test_source_inserted_before_cursor_requires_planning_reset(tmp_path: Path) -
     complete_asset_inventory(pm, "demo", scope, refreshed)
 
     status = WorkflowStateService(pm).get_status("demo")
-
-    assert status.state == "EPISODE_PLAN"
     assert status.next_action.type == "reset_episode_planning"
     assert status.next_action.args == {"from_episode": 1}
 
@@ -1008,8 +1042,6 @@ def test_decomposed_recorded_source_does_not_trigger_repeated_planning_reset(tmp
     )
 
     status = WorkflowStateService(pm).get_status("demo")
-
-    assert status.state == "EPISODE_PLAN"
     assert status.next_action.type == "plan_episodes"
 
 
@@ -1036,8 +1068,6 @@ def test_later_raw_sorted_source_does_not_trigger_planning_reset(tmp_path: Path)
     complete_asset_inventory(pm, "demo", scope, refreshed)
 
     status = WorkflowStateService(pm).get_status("demo")
-
-    assert status.state == "EPISODE_PLAN"
     assert status.next_action.type == "plan_episodes"
 
 
@@ -1046,21 +1076,17 @@ def test_whitespace_only_source_is_missing_project_input(tmp_path: Path) -> None
     _write_source_and_complete(pm, project_path, " \n\t ")
 
     status = WorkflowStateService(pm).get_status("demo")
-
-    assert status.state == "PROJECT_INPUT"
     assert status.next_action.type == "collect_project_input"
 
 
-def test_non_boolean_grid_storyboard_blocks_route_dispatch(tmp_path: Path) -> None:
+def test_non_boolean_grid_storyboard_is_an_issue_not_a_blocker(tmp_path: Path) -> None:
     pm, _project_path = _make_project(tmp_path, "ad")
     pm.update_project("demo", lambda project: project.update(grid_storyboard="false"))
 
     status = WorkflowStateService(pm).get_status("demo")
-
-    assert status.state == "PROJECT_INPUT"
     assert status.project.grid_storyboard is False
-    assert status.blockers[0].code == "invalid_grid_storyboard"
-    assert status.next_action.type == "none"
+    assert status.blockers == []
+    assert status.issues[0].code == "invalid_grid_storyboard"
 
 
 @pytest.mark.parametrize(
@@ -1075,14 +1101,12 @@ def test_non_string_project_mode_returns_blocker(tmp_path: Path, field: str, val
     pm.update_project("demo", lambda project: project.update({field: value}))
 
     status = WorkflowStateService(pm).get_status("demo")
-
-    assert status.state == "PROJECT_INPUT"
     assert status.blockers[0].code == blocker_code
     assert status.next_action.type == "none"
 
 
 @pytest.mark.parametrize("ledger_status", [[], {}])
-def test_non_string_ledger_status_returns_blocker(tmp_path: Path, ledger_status: object) -> None:
+def test_non_string_ledger_status_is_an_issue(tmp_path: Path, ledger_status: object) -> None:
     pm, project_path = _make_project(tmp_path, "narration")
     _write_source_and_complete(pm, project_path)
     pm.update_project(
@@ -1099,26 +1123,22 @@ def test_non_string_ledger_status_returns_blocker(tmp_path: Path, ledger_status:
     )
 
     status = WorkflowStateService(pm).get_status("demo")
-
-    assert status.state == "PROJECT_INPUT"
     assert status.target is None
-    assert status.blockers[0].code == "invalid_ledger_status"
-    assert status.next_action.type == "none"
+    assert status.blockers == []
+    assert status.issues[0].code == "invalid_ledger_status"
 
 
 @pytest.mark.parametrize("target_duration", [None, 0, -1, False, "30"])
-def test_invalid_ad_target_duration_blocks_script_generation(tmp_path: Path, target_duration: object) -> None:
+def test_invalid_ad_target_duration_is_an_issue(tmp_path: Path, target_duration: object) -> None:
     pm, _project_path = _make_project(tmp_path, "ad")
     pm.update_project("demo", lambda project: project.update(target_duration=target_duration))
 
     status = WorkflowStateService(pm).get_status("demo")
-
-    assert status.state == "PROJECT_INPUT"
-    assert status.blockers[0].code == "invalid_target_duration"
-    assert status.next_action.type == "none"
+    assert status.blockers == []
+    assert status.issues[0].code == "invalid_target_duration"
 
 
-def test_invalid_asset_definition_blocks_existing_sheet(tmp_path: Path) -> None:
+def test_invalid_asset_definition_is_an_issue(tmp_path: Path) -> None:
     pm, project_path = _make_project(tmp_path, "ad")
     sheet = "characters/invalid.png"
     _write_artifact(project_path, sheet)
@@ -1128,10 +1148,8 @@ def test_invalid_asset_definition_blocks_existing_sheet(tmp_path: Path) -> None:
     )
 
     status = WorkflowStateService(pm).get_status("demo")
-
-    assert status.state == "PROJECT_INPUT"
-    assert status.blockers[0].code == "invalid_asset_definitions"
-    assert status.next_action.type == "none"
+    assert status.blockers == []
+    assert status.issues[0].code == "invalid_asset_definitions"
 
 
 @pytest.mark.parametrize(
@@ -1156,7 +1174,6 @@ def test_asset_without_description_is_not_suggested_for_generation(
     status = WorkflowStateService(pm).get_status("demo")
 
     assert status.blockers == []
-    assert status.state != "ASSET_SHEETS"
     assert status.next_action.type != "generate_asset_sheets"
 
 
@@ -1212,11 +1229,24 @@ def test_a_missing_sheet_the_episode_does_not_reference_does_not_hold_it_back(tm
 
     status = WorkflowStateService(pm).get_status("demo")
 
-    assert status.state != "ASSET_SHEETS"
     assert status.next_action.type != "generate_asset_sheets"
 
 
-def test_missing_ledger_script_binding_is_a_blocker(tmp_path: Path) -> None:
+def test_asset_the_episode_does_not_reference_stays_out_of_the_next_step(tmp_path: Path) -> None:
+    pm, project_path = _make_project(tmp_path, "ad")
+    pm.update_project("demo", lambda project: project.update(characters={"未出场角色": {"description": "配角"}}))
+    _write_registered_script(
+        project_path,
+        {"episode": 1, "title": "广告", "content_mode": "ad", "shots": [_valid_ad_shot()]},
+    )
+
+    status = WorkflowStateService(pm).get_status("demo")
+
+    assert status.artifacts["asset_sheets"]["character"]["missing_ids"] == ["未出场角色"]
+    assert status.next_action.type == "generate_storyboards"
+
+
+def test_missing_ledger_script_binding_is_an_issue(tmp_path: Path) -> None:
     pm, project_path = _make_project(tmp_path, "narration")
     _write_source_and_complete(pm, project_path)
     pm.update_project(
@@ -1225,10 +1255,8 @@ def test_missing_ledger_script_binding_is_a_blocker(tmp_path: Path) -> None:
     )
 
     status = WorkflowStateService(pm).get_status("demo")
-
-    assert status.state == "PROJECT_INPUT"
     assert status.target is None
-    assert status.blockers[0].code == "invalid_script_binding"
+    assert status.issues[0].code == "invalid_script_binding"
     assert status.next_action.type == "none"
 
 
@@ -1269,15 +1297,13 @@ def test_script_episode_must_match_ledger_target(tmp_path: Path) -> None:
     _edit_claimed_script(project_path, {**bound, "episode": 1})
 
     status = WorkflowStateService(pm).get_status("demo")
-
-    assert status.state == "FINAL_SCRIPT"
     assert status.artifacts["script"]["state"] == "blocked"
-    assert status.blockers[0].code == "artifact_currency_unavailable"
-    assert "does not match its project binding" in status.blockers[0].reason
+    assert status.issues[0].code == "artifact_currency_unavailable"
+    assert "does not match its project binding" in status.issues[0].reason
     assert status.next_action.type == "none"
 
 
-def test_malformed_script_collection_is_a_blocker_not_an_exception(tmp_path: Path) -> None:
+def test_malformed_script_collection_is_an_issue_not_an_exception(tmp_path: Path) -> None:
     pm, project_path = _make_project(tmp_path, "ad")
     _write_registered_script(
         project_path, {"episode": 1, "title": "广告", "content_mode": "ad", "shots": [_valid_ad_shot()]}
@@ -1285,15 +1311,13 @@ def test_malformed_script_collection_is_a_blocker_not_an_exception(tmp_path: Pat
     _edit_claimed_script(project_path, {"episode": 1, "content_mode": "ad", "shots": {"not": "a list"}})
 
     status = WorkflowStateService(pm).get_status("demo")
-
-    assert status.state == "FINAL_SCRIPT"
     assert status.artifacts["script"]["state"] == "blocked"
-    assert status.blockers[0].code == "artifact_currency_unavailable"
-    assert "shots" in status.blockers[0].reason
+    assert status.issues[0].code == "artifact_currency_unavailable"
+    assert "shots" in status.issues[0].reason
     assert status.next_action.type == "none"
 
 
-def test_non_object_script_is_a_blocker_not_an_exception(tmp_path: Path) -> None:
+def test_non_object_script_is_an_issue_not_an_exception(tmp_path: Path) -> None:
     pm, project_path = _make_project(tmp_path, "ad")
     _write_registered_script(
         project_path, {"episode": 1, "title": "广告", "content_mode": "ad", "shots": [_valid_ad_shot()]}
@@ -1301,11 +1325,9 @@ def test_non_object_script_is_a_blocker_not_an_exception(tmp_path: Path) -> None
     _edit_claimed_script(project_path, [])
 
     status = WorkflowStateService(pm).get_status("demo")
-
-    assert status.state == "FINAL_SCRIPT"
     assert status.artifacts["script"]["state"] == "blocked"
-    assert status.blockers[0].code == "artifact_currency_unavailable"
-    assert "must contain an object" in status.blockers[0].reason
+    assert status.issues[0].code == "artifact_currency_unavailable"
+    assert "must contain an object" in status.issues[0].reason
 
 
 @pytest.mark.parametrize(
@@ -1357,8 +1379,6 @@ def test_legacy_storyboard_script_without_duration_remains_resumable(
     )
 
     status = WorkflowStateService(pm).get_status("demo")
-
-    assert status.state == "STORYBOARD"
     assert status.artifacts["script"]["state"] == "current"
     assert not status.blockers
 
@@ -1439,27 +1459,27 @@ def test_legacy_narration_scenes_skeleton_remains_resumable(tmp_path: Path) -> N
     )
 
     status = WorkflowStateService(pm).get_status("demo")
-
-    assert status.state == "STORYBOARD"
     assert status.artifacts["script"]["state"] == "current"
     assert status.next_action.requested_ids == ["E1S01"]
 
 
-def test_empty_script_collection_is_a_blocker_not_completed_work(tmp_path: Path) -> None:
+def test_empty_formal_script_is_legal_and_asks_for_items(tmp_path: Path) -> None:
     pm, project_path = _make_project(tmp_path, "ad")
     _write_registered_script(
         project_path,
-        {"episode": 1, "content_mode": "ad", "shots": []},
+        {"episode": 1, "title": "广告", "content_mode": "ad", "shots": []},
     )
 
     status = WorkflowStateService(pm).get_status("demo")
+    assert status.blockers == []
+    assert status.issues == []
+    assert status.artifacts["script"]["state"] == "current"
+    assert status.content is not None
+    assert (status.content.formal_script, status.content.script_item_count) == ("present", 0)
+    assert status.next_action.type == "add_script_items"
 
-    assert status.state == "FINAL_SCRIPT"
-    assert status.artifacts["script"]["state"] == "blocked"
-    assert status.blockers[0].code == "invalid_script_collection"
 
-
-def test_script_entry_without_required_id_is_a_blocker(tmp_path: Path) -> None:
+def test_script_entry_without_required_id_is_an_issue(tmp_path: Path) -> None:
     pm, project_path = _make_project(tmp_path, "ad")
     _write_registered_script(
         project_path, {"episode": 1, "title": "广告", "content_mode": "ad", "shots": [_valid_ad_shot()]}
@@ -1467,11 +1487,9 @@ def test_script_entry_without_required_id_is_a_blocker(tmp_path: Path) -> None:
     _edit_claimed_script(project_path, {"episode": 1, "content_mode": "ad", "shots": [{"duration_seconds": 4}]})
 
     status = WorkflowStateService(pm).get_status("demo")
-
-    assert status.state == "FINAL_SCRIPT"
     assert status.artifacts["script"]["state"] == "blocked"
-    assert status.blockers[0].code == "artifact_currency_unavailable"
-    assert "item 0 has no identity" in status.blockers[0].reason
+    assert status.issues[0].code == "artifact_currency_unavailable"
+    assert "item 0 has no identity" in status.issues[0].reason
 
 
 def test_optional_product_sheet_does_not_block_ad_media(tmp_path: Path) -> None:
@@ -1502,7 +1520,6 @@ def test_optional_product_sheet_does_not_block_ad_media(tmp_path: Path) -> None:
     status = WorkflowStateService(pm).get_status("demo")
 
     assert status.artifacts["asset_sheets"]["product"]["missing_ids"] == ["杯子"]
-    assert status.state == "STORYBOARD"
     assert status.next_action.type == "generate_storyboards"
 
 
@@ -1521,8 +1538,6 @@ def test_schema8_ad_reference_video_does_not_treat_an_unregistered_file_as_curre
     )
 
     status = WorkflowStateService(pm).get_status("demo")
-
-    assert status.state == "VIDEO"
     assert status.artifacts["videos"] == {
         "current_ids": [],
         "missing_ids": ["E1U1"],
@@ -1558,8 +1573,6 @@ def test_schema8_workflow_accepts_a_registered_manual_reference_video(tmp_path: 
     )
 
     status = WorkflowStateService(pm).get_status("demo")
-
-    assert status.state == "EDIT"
     assert status.artifacts["videos"] == {
         "current_ids": ["E1U1"],
         "missing_ids": [],
@@ -1570,11 +1583,10 @@ def test_schema8_workflow_accepts_a_registered_manual_reference_video(tmp_path: 
 
 def test_schema8_workflow_does_not_parse_an_unclaimed_malformed_script(tmp_path: Path) -> None:
     pm, project_path = _make_project(tmp_path, "ad")
+    pm.update_project("demo", lambda project: project.update(brief="夏季新品"))
     (project_path / "scripts" / "episode_1.json").write_text("{", encoding="utf-8")
 
     status = WorkflowStateService(pm).get_status("demo")
-
-    assert status.state == "FINAL_SCRIPT"
     assert status.artifacts["script"] == {"state": "missing", "path": "scripts/episode_1.json"}
     assert status.blockers == []
     assert status.next_action.type == "generate_script"
@@ -1612,7 +1624,6 @@ def test_schema8_manifest_reports_current_stale_missing_and_blocked_without_file
     _register_produced_artifacts(project_path)
 
     current = WorkflowStateService(pm).get_status("demo")
-    assert current.state == "VIDEO"
     assert current.artifacts["script"]["state"] == "current"
     assert current.artifacts["asset_sheets"]["character"]["current_ids"] == ["Alice"]
     assert current.artifacts["storyboards"]["current_ids"] == ["E1S01"]
@@ -1621,14 +1632,12 @@ def test_schema8_manifest_reports_current_stale_missing_and_blocked_without_file
     script["shots"][0]["image_prompt"] = "blue coat hero"
     atomic_write_json(script_path, script)
     stale = WorkflowStateService(pm).get_status("demo")
-    assert stale.state == "VIDEO"
     assert stale.artifacts["asset_sheets"]["character"]["stale_ids"] == ["Alice"]
     assert stale.artifacts["storyboards"]["stale_ids"] == ["E1S01"]
 
     adapter = ProjectArtifactManifestAdapter(project_path)
     adapter.delete_entry(ArtifactKey.episode_storyboard(1, "E1S01"))
     missing = WorkflowStateService(pm).get_status("demo")
-    assert missing.state == "STORYBOARD"
     assert missing.artifacts["storyboards"]["missing_ids"] == ["E1S01"]
 
     register_current_artifact(project_path, ArtifactKey.episode_storyboard(1, "E1S01"))
@@ -1636,9 +1645,8 @@ def test_schema8_manifest_reports_current_stale_missing_and_blocked_without_file
     storyboard_file.unlink()
     storyboard_file.symlink_to(project_path / sheet_path)
     blocked = WorkflowStateService(pm).get_status("demo")
-    assert blocked.state == "VIDEO"
     assert blocked.artifacts["storyboards"]["state"] == "blocked"
-    assert any(item.code == "artifact_symlink" for item in blocked.blockers)
+    assert any(item.code == "artifact_symlink" for item in blocked.issues)
 
 
 def test_ad_reference_video_does_not_hydrate_legacy_shots(tmp_path: Path) -> None:
@@ -1654,12 +1662,10 @@ def test_ad_reference_video_does_not_hydrate_legacy_shots(tmp_path: Path) -> Non
     )
 
     status = WorkflowStateService(pm).get_status("demo")
-
-    assert status.state == "FINAL_SCRIPT"
-    assert any(blocker.code == "invalid_project_mode" for blocker in status.blockers)
+    assert any(blocker.code == "invalid_project_mode" for blocker in status.issues)
 
 
-def test_stale_episode_requires_script_plan_even_when_old_artifacts_exist(tmp_path: Path) -> None:
+def test_stale_episode_is_stated_but_stays_out_of_the_next_step(tmp_path: Path) -> None:
     pm, project_path = _make_project(tmp_path, "narration")
     _write_source_and_complete(pm, project_path)
 
@@ -1693,11 +1699,12 @@ def test_stale_episode_requires_script_plan_even_when_old_artifacts_exist(tmp_pa
         ),
     )
 
-    status = WorkflowStateService(pm).get_status("demo")
-
-    assert status.state == "SCRIPT_PLAN_CONTENT"
+    status = WorkflowStateService(pm).get_status("demo", 1)
     assert status.artifacts["script_plan"]["state"] == "stale"
-    assert status.next_action.type == "prepare_script_plan"
+    assert status.content is not None
+    assert status.content.episode_plan_stale is True
+    assert status.content.expected_stale_script_plan_revision == script_review.content_fingerprint(script_plan_path)
+    assert status.next_action.type == "none"
 
 
 def test_stale_episode_advances_after_script_plan_is_rebuilt(tmp_path: Path) -> None:
@@ -1722,13 +1729,11 @@ def test_stale_episode_advances_after_script_plan_is_rebuilt(tmp_path: Path) -> 
 
     pm.update_project("demo", _plan)
     service = WorkflowStateService(pm)
-    assert service.get_status("demo").state == "SCRIPT_PLAN_CONTENT"
+    assert service.get_status("demo").content.episode_plan_stale is True
 
     atomic_write_json(script_plan_path, {"episode": 1, "segments": [{"segment_id": "E1S02"}]})
     _register_script_plan(project_path)
     rebuilt = service.get_status("demo")
-
-    assert rebuilt.state == "SCRIPT_PLAN_REVIEW"
     assert rebuilt.next_action.type == "confirm_script_plan"
     assert rebuilt.next_action.requires_confirmation is True
 
@@ -1758,18 +1763,19 @@ def test_identical_stale_script_plan_rebuild_advances_after_explicit_completion(
         ),
     )
     service = WorkflowStateService(pm)
-    before = service.get_status("demo")
-    assert before.next_action.type == "prepare_script_plan"
-    assert before.next_action.args["expected_stale_script_plan_revision"] == baseline
+    before = service.get_status("demo", 1)
+    assert before.content is not None
+    assert before.content.episode_plan_stale is True
+    assert before.content.expected_stale_script_plan_revision == baseline
 
     atomic_write_json(script_plan_path, content)
     _register_script_plan(project_path)
-    still_pending = service.get_status("demo")
-    assert still_pending.next_action.type == "prepare_script_plan"
+    still_pending = service.get_status("demo", 1)
+    assert still_pending.content is not None
+    assert still_pending.content.episode_plan_stale is True
     script_review.complete_stale_script_plan_rebuild(pm, "demo", 1, baseline)
 
     completed = service.get_status("demo")
-    assert completed.state == "SCRIPT_PLAN_REVIEW"
     assert completed.next_action.type == "confirm_script_plan"
 
 
@@ -1806,14 +1812,15 @@ def test_null_baseline_stale_rebuild_requires_confirming_the_rebuilt_script_plan
     # 剧本的认领留存，但它所依据的 script_plan 已不在盘上——这正是待重建的祖传剧本形态。
     script_plan_path.unlink()
     service = WorkflowStateService(pm)
-    assert service.get_status("demo").next_action.type == "prepare_script_plan"
+    awaiting_rebuild = service.get_status("demo", 1)
+    assert awaiting_rebuild.content is not None
+    assert awaiting_rebuild.content.episode_plan_stale is True
 
     atomic_write_json(script_plan_path, {"episode": 1, "segments": [{"segment_id": "E1S01"}]})
     _register_script_plan(project_path)
     script_review.complete_stale_script_plan_rebuild(pm, "demo", 1, None)
 
     pending_review = service.get_status("demo")
-    assert pending_review.state == "SCRIPT_PLAN_REVIEW"
     assert pending_review.next_action.type == "confirm_script_plan"
     revision = script_review.content_fingerprint(script_plan_path)
     assert revision is not None
@@ -1823,11 +1830,10 @@ def test_null_baseline_stale_rebuild_requires_confirming_the_rebuilt_script_plan
 
     pm.update_project("demo", _confirm)
     confirmed = service.get_status("demo")
-    assert confirmed.state == "STORYBOARD"
     assert confirmed.next_action.type == "generate_storyboards"
 
 
-def test_quarantined_script_plan_is_a_blocker_not_a_confirmation_loop(tmp_path: Path) -> None:
+def test_quarantined_script_plan_is_a_draft_to_resolve_not_a_confirmation_loop(tmp_path: Path) -> None:
     pm, project_path = _make_project(tmp_path, "drama", generation_mode="reference_video")
     _write_source_and_complete(pm, project_path)
     pm.update_project(
@@ -1845,11 +1851,10 @@ def test_quarantined_script_plan_is_a_blocker_not_a_confirmation_loop(tmp_path: 
     atomic_write_json(quarantine, {})
 
     status = WorkflowStateService(pm).get_status("demo")
-
-    assert status.state == "SCRIPT_PLAN_REVIEW"
     assert status.artifacts["script_plan"]["state"] == "blocked"
-    assert status.blockers[0].code == "script_plan_quarantined"
-    assert status.next_action.type == "none"
+    assert status.blockers == []
+    assert status.next_action.type == "resolve_draft"
+    assert status.next_action.args["needs_repair"] is True
 
 
 def _narration_project_with_confirmed_plan(tmp_path: Path, *, write_script: bool) -> tuple[ProjectManager, Path, Path]:
@@ -1897,7 +1902,6 @@ def test_unconfirmed_script_plan_rerun_only_shows_as_pending_review(tmp_path: Pa
     assert status.gates["script_plan_review"]["state"] == "pending"
     assert status.artifacts["script"]["state"] == "current"
     assert not status.blockers
-    assert status.state == "STORYBOARD"
     assert status.next_action.type == "generate_storyboards"
 
 
@@ -1915,12 +1919,11 @@ def test_confirmed_script_plan_change_keeps_the_formal_script_current(tmp_path: 
     status = WorkflowStateService(pm).get_status("demo")
 
     assert status.artifacts["script"]["state"] == "current"
-    assert status.state == "STORYBOARD"
     assert status.next_action.type == "generate_storyboards"
 
 
-def test_quarantined_script_plan_rerun_does_not_block_a_formal_script_in_use(tmp_path: Path) -> None:
-    """重跑落了待修复草稿、但正式脚本在用：脚本规划标 blocked 且不给阻塞项，下游照常推进。"""
+def test_quarantined_script_plan_rerun_is_resolved_before_the_formal_script_moves_on(tmp_path: Path) -> None:
+    """重跑落了待修复草稿、但正式脚本在用：脚本规划标 blocked 且不给阻塞项，下一步先处置草稿。"""
     pm, project_path, _script_plan_path = _narration_project_with_confirmed_plan(tmp_path, write_script=True)
     quarantine = script_review.script_plan_quarantine_path(project_path, pm.load_project("demo"), 1)
     assert quarantine is not None
@@ -1931,8 +1934,9 @@ def test_quarantined_script_plan_rerun_does_not_block_a_formal_script_in_use(tmp
     assert status.artifacts["script_plan"]["state"] == "blocked"
     assert status.gates["script_plan_review"]["state"] == "pending"
     assert not status.blockers
-    assert status.state == "STORYBOARD"
-    assert status.next_action.type == "generate_storyboards"
+    assert status.content is not None
+    assert [(draft.kind, draft.needs_repair) for draft in status.content.drafts] == [("narration_script_plan", True)]
+    assert status.next_action.type == "resolve_draft"
 
 
 def test_confirmed_script_plan_without_formal_script_asks_to_confirm_again(tmp_path: Path) -> None:
@@ -1945,7 +1949,6 @@ def test_confirmed_script_plan_without_formal_script_asks_to_confirm_again(tmp_p
 
     for status in (first, second):
         assert status.artifacts["script"]["state"] == "missing"
-        assert status.state == "SCRIPT_PLAN_REVIEW"
         assert status.next_action.type == "confirm_script_plan"
         assert status.next_action.requires_confirmation is True
         assert status.next_action.args == {"episode": 1}
@@ -1954,6 +1957,7 @@ def test_confirmed_script_plan_without_formal_script_asks_to_confirm_again(tmp_p
 def test_ad_without_script_still_asks_to_generate_the_script(tmp_path: Path) -> None:
     """ad 没有脚本规划，缺剧本时仍由 generate_script 直接产出。"""
     pm, _project_path = _make_project(tmp_path, "ad")
+    pm.update_project("demo", lambda project: project.update(brief="夏季新品"))
 
     status = WorkflowStateService(pm).get_status("demo")
 
@@ -1993,11 +1997,9 @@ def test_blocked_final_script_is_not_reclassified_as_stale_by_provenance(tmp_pat
     _edit_claimed_script(project_path, [])
 
     status = WorkflowStateService(pm).get_status("demo")
-
-    assert status.state == "FINAL_SCRIPT"
     assert status.artifacts["script"]["state"] == "blocked"
-    assert status.blockers[0].code == "artifact_currency_unavailable"
-    assert "must contain an object" in status.blockers[0].reason
+    assert status.issues[0].code == "artifact_currency_unavailable"
+    assert "must contain an object" in status.issues[0].reason
     assert status.next_action.type == "none"
 
 
@@ -2013,9 +2015,7 @@ def test_script_id_must_match_the_shared_storyboard_pattern(tmp_path: Path) -> N
     )
 
     status = WorkflowStateService(pm).get_status("demo")
-
-    assert status.state == "FINAL_SCRIPT"
-    assert status.blockers[0].code == "invalid_script_id"
+    assert status.issues[0].code == "invalid_script_id"
 
 
 def test_ad_reference_replan_shell_requests_repair_before_generation(tmp_path: Path) -> None:
@@ -2041,8 +2041,6 @@ def test_ad_reference_replan_shell_requests_repair_before_generation(tmp_path: P
     )
 
     status = WorkflowStateService(pm).get_status("demo")
-
-    assert status.state == "VIDEO"
     assert status.artifacts["videos"]["stale_ids"] == ["E1U1"]
     assert status.next_action.type == "repair_video_units"
     assert status.next_action.requested_ids == ["E1U1"]
@@ -2065,10 +2063,8 @@ def test_structurally_incomplete_ad_script_blocks_media_progress(tmp_path: Path,
     )
 
     status = WorkflowStateService(pm).get_status("demo")
-
-    assert status.state == "FINAL_SCRIPT"
     assert status.artifacts["script"]["state"] == "blocked"
-    assert status.blockers[0].code == "invalid_script_structure"
+    assert status.issues[0].code == "invalid_script_structure"
     assert status.next_action.type == "none"
 
 
@@ -2101,10 +2097,8 @@ def test_narration_script_without_source_text_blocks_media_progress(tmp_path: Pa
     )
 
     status = WorkflowStateService(pm).get_status("demo")
-
-    assert status.state == "FINAL_SCRIPT"
     assert status.artifacts["script"]["state"] == "blocked"
-    assert status.blockers[0].code == "invalid_script_structure"
+    assert status.issues[0].code == "invalid_script_structure"
 
 
 def test_invalid_required_script_field_blocks_export(tmp_path: Path) -> None:
@@ -2119,10 +2113,8 @@ def test_invalid_required_script_field_blocks_export(tmp_path: Path) -> None:
     )
 
     status = WorkflowStateService(pm).get_status("demo")
-
-    assert status.state == "FINAL_SCRIPT"
     assert status.artifacts["script"]["state"] == "blocked"
-    assert status.blockers[0].code == "invalid_script_structure"
+    assert status.issues[0].code == "invalid_script_structure"
     assert status.next_action.type == "none"
 
 
@@ -2169,8 +2161,6 @@ def test_new_source_file_continues_planning_without_resetting_existing_fingerpri
     complete_asset_inventory(pm, "demo", SourceScope(kind="all"), revision)
 
     status = WorkflowStateService(pm).get_status("demo")
-
-    assert status.state == "EPISODE_PLAN"
     assert status.next_action.type == "plan_episodes"
 
 
@@ -2233,11 +2223,9 @@ def test_duplicate_reference_video_unit_ids_block_completion(tmp_path: Path) -> 
     )
 
     status = WorkflowStateService(pm).get_status("demo")
-
-    assert status.state == "FINAL_SCRIPT"
     assert status.artifacts["script"]["state"] == "blocked"
-    assert status.blockers[0].code == "artifact_currency_unavailable"
-    assert "duplicate resource identity 'E1U01'" in status.blockers[0].reason
+    assert status.issues[0].code == "artifact_currency_unavailable"
+    assert "duplicate resource identity 'E1U01'" in status.issues[0].reason
 
 
 def test_reference_video_route_skips_storyboards_and_audio(tmp_path: Path) -> None:
@@ -2271,8 +2259,6 @@ def test_reference_video_route_skips_storyboards_and_audio(tmp_path: Path) -> No
     )
 
     status = WorkflowStateService(pm).get_status("demo")
-
-    assert status.state == "VIDEO"
     assert status.artifacts["storyboards"]["state"] == "not_applicable"
     assert status.artifacts["audio"]["state"] == "not_applicable"
     assert status.next_action.requested_ids == ["E1U01"]
@@ -2312,9 +2298,7 @@ def test_workflow_status_does_not_persist_read_time_script_migrations(tmp_path: 
     )
     before = script_path.read_bytes()
 
-    status = WorkflowStateService(pm).get_status("demo")
-
-    assert status.state == "VIDEO"
+    WorkflowStateService(pm).get_status("demo")
     assert script_path.read_bytes() == before
     assert not (script_path.parent / ".episode_1.json.lock").exists()
 
@@ -2328,8 +2312,6 @@ def test_unmigrated_project_reports_only_the_migration_blocker(tmp_path: Path) -
     pm.update_project("demo", lambda project: project.update(schema_version=7))
 
     status = WorkflowStateService(pm).get_status("demo")
-
-    assert status.state == "PROJECT_INPUT"
     assert [blocker.code for blocker in status.blockers] == [MIGRATION_FAILURE_CODE]
     assert status.blockers[0].path == MIGRATION_FAILURE_FILENAME
     assert status.blockers[0].reason == (
@@ -2357,7 +2339,7 @@ def test_workflow_status_does_not_persist_read_time_project_migrations(tmp_path:
     assert project_path_json.read_bytes() == before
 
 
-def test_nested_ledger_script_path_is_blocked_before_dispatch(tmp_path: Path) -> None:
+def test_nested_ledger_script_path_is_an_issue_before_dispatch(tmp_path: Path) -> None:
     pm, project_path = _make_project(tmp_path, "ad")
     pm.update_project(
         "demo",
@@ -2385,11 +2367,9 @@ def test_nested_ledger_script_path_is_blocked_before_dispatch(tmp_path: Path) ->
     )
 
     status = WorkflowStateService(pm).get_status("demo")
-
-    assert status.state == "PROJECT_INPUT"
-    assert status.target is not None
-    assert status.target.script_filename == "archive/custom.json"
-    assert status.blockers[0].code == "invalid_script_path"
+    assert status.target is None
+    assert status.blockers == []
+    assert status.issues[0].code == "invalid_script_path"
     assert status.next_action.type == "none"
 
 
@@ -2449,7 +2429,6 @@ def test_pending_authoring_entries_ask_to_author_prompts_before_visual_generatio
     status = WorkflowStateService(pm).get_status("demo")
 
     assert status.artifacts["script"]["state"] == "current"
-    assert status.state == "FINAL_SCRIPT"
     assert status.next_action.type == "author_prompts"
     assert status.next_action.requested_ids == ["E1S02"]
     assert status.next_action.args["episode"] == 1
@@ -2487,8 +2466,6 @@ def test_pending_reference_units_ask_to_author_prompts(tmp_path: Path) -> None:
     )
 
     status = WorkflowStateService(pm).get_status("demo")
-
-    assert status.state == "FINAL_SCRIPT"
     assert status.next_action.type == "author_prompts"
     assert status.next_action.requested_ids == ["E1U01"]
 
@@ -2546,3 +2523,22 @@ def test_empty_prompts_without_pending_authoring_do_not_ask_to_author_prompts(tm
     status = WorkflowStateService(pm).get_status("demo")
 
     assert status.next_action.type == "generate_storyboards"
+
+
+@pytest.mark.parametrize("payload", [None, b"{", b"[]", b"\xff"])
+def test_unreadable_project_data_returns_only_a_project_blocker(tmp_path: Path, payload: bytes | None) -> None:
+    pm, project_path = _make_project(tmp_path, "narration")
+    project_file = project_path / "project.json"
+    if payload is None:
+        project_file.unlink()
+    else:
+        project_file.write_bytes(payload)
+
+    status = WorkflowStateService(pm).get_status("demo", 1)
+
+    assert [(blocker.code, blocker.path) for blocker in status.blockers] == [
+        ("project_data_unavailable", "project.json")
+    ]
+    assert status.content is None
+    assert status.operations == {}
+    assert status.next_action.type == "none"

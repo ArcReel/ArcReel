@@ -22,7 +22,6 @@ MESSAGES = {
     "val_ledger_source_file_escapes": "source_file không được là đường dẫn tuyệt đối hoặc chứa ..",
     "val_ledger_start_after_end": "start không được lớn hơn end",
     "val_field_bad_timestamp": "{field} không phải dấu thời gian ISO8601 hợp lệ: {value}",
-    "val_array_empty": "Mảng {field} rỗng",
     "val_item_must_be_object": "{prefix}: phải là đối tượng",
     "val_item_format_object": "{prefix}: dữ liệu sai định dạng, phải là đối tượng",
     # ---- tham chiếu đường dẫn ----
@@ -64,7 +63,7 @@ MESSAGES = {
     ),
     "val_ad_no_grid_storyboard": "Dự án quảng cáo/phim ngắn không hỗ trợ phân cảnh đa lưới (grid_storyboard)",
     "val_ad_episodes_single": "Dự án quảng cáo/phim ngắn phải luôn có đúng một mục tập (tập 1)",
-    "val_ad_shots_missing": "Kịch bản ad thiếu mảng shots hoặc mảng rỗng",
+    "val_ad_shots_missing": "Kịch bản ad thiếu mảng shots",
     "val_ad_duration_drift": (
         "Tổng thời lượng kịch bản {total} giây lệch {delta:.0%} so với target_duration {target} giây, "
         "vượt ngưỡng quan sát {threshold:.0%} (chỉ là thông báo, không chặn lưu)"
@@ -112,7 +111,7 @@ MESSAGES = {
     "val_unit_id_missing": "{prefix}: thiếu unit_id",
     "val_unit_id_missing_required": "{prefix}: thiếu trường bắt buộc unit_id",
     "val_unit_id_duplicate": "{prefix}: unit_id trùng lặp '{value}'",
-    "val_video_units_missing": "Kịch bản reference_video thiếu mảng video_units hoặc mảng rỗng",
+    "val_video_units_missing": "Kịch bản reference_video thiếu mảng video_units",
     "val_unit_duration_range": "{prefix}: duration_seconds phải là số nguyên trong khoảng {low}-{high}",
     # ---- khung xương và chế độ tạo video ----
     "val_skeleton_noun_segments": "phân cảnh",

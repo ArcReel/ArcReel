@@ -1881,11 +1881,16 @@ class TestScriptPlanWriteStore:
 
 
 class TestPromptAuthoringEnforcement:
-    async def test_pending_review_does_not_block_authoring_the_formal_script(self, tmp_path):
+    async def test_pending_review_does_not_block_authoring_the_formal_script(self, tmp_path, video_request_facts):
         """编写只读正式剧本：script_plan 重跑后尚未确认时，编写入口照常放行。"""
         pm = _make_project(tmp_path, "narration")
         _write_script_plan(pm, "narration", _narration_script_plan())
-        _write_script(pm, _narration_script(_narration_script_segment("E1S01")))
+        _write_script(pm, _narration_script({**_narration_script_segment("E1S01"), "pending_authoring": True}))
+        pm.save_script(
+            "demo",
+            _narration_script({**_narration_script_segment("E1S01"), "pending_authoring": True}),
+            "episode_1.json",
+        )
         pm.update_project(
             "demo", lambda p: script_review.apply_confirmation(p, 1, "sha256-v1:" + "0" * 64, "2026-01-01T00:00:00Z")
         )
@@ -1901,7 +1906,7 @@ class TestPromptAuthoringEnforcement:
         result = await run_declared_tool(GENERATE_EPISODE_SCRIPT, ctx, {"episode": 1, "dry_run": True})
 
         assert isinstance(result.value, TextGenerationResult), result
-        assert "没有要编写的条目" in result.value.message
+        assert "DRY RUN" in result.value.message
 
     async def test_confirm_tool_unblocks_prompt_authoring(self, tmp_path, video_request_facts):
         """Agent 路径：confirm_script_review 工具确认后，gate 放行（既有 script_plan→prompt_authoring 不被破坏）。"""

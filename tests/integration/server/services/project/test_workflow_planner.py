@@ -31,7 +31,7 @@ from server.services.project import workflow_planner
 from tests.factories import make_video_request_facts
 
 
-def _status(*, state: str = "VIDEO", action: str = "generate_videos") -> WorkflowStatus:
+def _status(*, action: str = "generate_videos") -> WorkflowStatus:
     return WorkflowStatus.model_validate(
         {
             "project_revision": "sha256-v1:project",
@@ -47,7 +47,7 @@ def _status(*, state: str = "VIDEO", action: str = "generate_videos") -> Workflo
                 script_filename="episode_1.json",
                 source="source/episode_1.txt",
             ),
-            "state": state,
+            "content": None,
             "blockers": [],
             "gates": {"script_plan_review": {"state": "confirmed", "revision": "script_plan"}},
             "artifacts": {
@@ -321,7 +321,7 @@ async def test_active_task_and_provider_checkpoint_are_reported_as_separate_axes
 async def test_grid_storyboard_plan_waits_for_active_grid_task(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     project_path = _project_dir(tmp_path)
     pm = _ProjectManager(project_path, _script())
-    status = _status(state="STORYBOARD", action="generate_grid").model_copy(
+    status = _status(action="generate_grid").model_copy(
         update={
             "project": WorkflowProject(
                 content_mode="narration",
@@ -381,7 +381,7 @@ async def test_asset_sheet_plan_waits_for_active_asset_task(tmp_path: Path, monk
     monkeypatch.setattr(
         workflow_planner.WorkflowStateService,
         "get_status",
-        lambda *_args: _status(state="ASSET_SHEETS", action="generate_asset_sheets"),
+        lambda *_args: _status(action="generate_asset_sheets"),
     )
 
     async def _active_tasks(**kwargs: Any) -> list[dict[str, Any]]:
@@ -431,7 +431,7 @@ async def test_product_task_replanning_returns_its_durable_handle_without_crossi
             assert project_manager is planner_pm
 
         def get_status(self, *_args: object) -> WorkflowStatus:
-            return _status(state="STORYBOARD", action="generate_storyboards")
+            return _status(action="generate_storyboards")
 
     monkeypatch.setattr(workflow_planner, "WorkflowStateService", ProductWorkflowStateService)
     queue = GenerationQueue(session_factory=db_factory, project_manager=queue_pm)
@@ -536,7 +536,7 @@ async def test_mixed_speech_blocks_before_storyboard_and_uses_atomic_script_edit
     monkeypatch.setattr(
         workflow_planner.WorkflowStateService,
         "get_status",
-        lambda *_args: _status(state="STORYBOARD", action="generate_storyboards"),
+        lambda *_args: _status(action="generate_storyboards"),
     )
 
     async def _active_tasks(**_kwargs: Any) -> list[dict[str, Any]]:

@@ -26,7 +26,6 @@ MESSAGES = {
     "val_ledger_source_file_escapes": "source_file 不能是绝对路径或包含 ..",
     "val_ledger_start_after_end": "start 不能大于 end",
     "val_field_bad_timestamp": "{field} 不是合法的 ISO8601 时间戳: {value}",
-    "val_array_empty": "{field} 数组为空",
     "val_item_must_be_object": "{prefix}: 必须是对象",
     "val_item_format_object": "{prefix}: 数据格式错误，应为对象",
     # ---- 路径引用 ----
@@ -58,7 +57,7 @@ MESSAGES = {
     "val_ad_no_episode_target_duration": "广告/短片项目不持有 episode_target_duration（整集体量按 target_duration 预算规划）",
     "val_ad_no_grid_storyboard": "广告/短片项目不支持多宫格分镜（grid_storyboard）",
     "val_ad_episodes_single": "广告/短片项目 episodes 必须恒为第 1 集单条",
-    "val_ad_shots_missing": "ad 脚本缺少 shots 数组或为空",
+    "val_ad_shots_missing": "ad 脚本缺少 shots 数组",
     "val_ad_duration_drift": (
         "脚本总时长 {total} 秒与 target_duration {target} 秒偏差 {delta:.0%}，"
         "超过 {threshold:.0%} 观察阈值（仅提示，不阻塞保存）"
@@ -102,7 +101,7 @@ MESSAGES = {
     "val_unit_id_missing": "{prefix}: 缺少 unit_id",
     "val_unit_id_missing_required": "{prefix}: 缺少必填字段 unit_id",
     "val_unit_id_duplicate": "{prefix}: unit_id 重复 '{value}'",
-    "val_video_units_missing": "reference_video 脚本缺少 video_units 数组或为空",
+    "val_video_units_missing": "reference_video 脚本缺少 video_units 数组",
     "val_unit_duration_range": "{prefix}: duration_seconds 必须是 {low}-{high} 之间的整数",
     # ---- 骨架与生成模式失配 ----
     "val_skeleton_noun_segments": "分镜",
