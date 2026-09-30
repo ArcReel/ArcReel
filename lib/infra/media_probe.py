@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from fractions import Fraction
 from pathlib import Path
 
-from lib.infra.ffmpeg import ffmpeg_executable
+from lib.infra.ffmpeg import ffmpeg_executable, local_file_input
 from lib.infra.subprocess_deadline import (
     DEFAULT_TERMINATE_GRACE_SECONDS,
     Spawner,
@@ -151,10 +151,7 @@ async def probe_media(
     grace: float = DEFAULT_TERMINATE_GRACE_SECONDS,
     spawn: Spawner | None = None,
 ) -> MediaProbe:
-    """探测 ``path`` 的容器格式与音视频流。
-
-    输入经 ``file:`` 协议打开并限定 ``-protocol_whitelist file``：媒体文件可能嵌套
-    HLS/RTMP 等播放列表引用，ffmpeg 默认会跟随其中的协议发起网络请求（对内网地址同样生效）。
+    """探测 ``path`` 的容器格式与音视频流。输入只经本地文件协议打开（见 ``local_file_input``）。
 
     Raises:
         FfmpegUnavailableError: 随包 ffmpeg 不可用。
@@ -166,10 +163,7 @@ async def probe_media(
         "-hide_banner",
         "-nostdin",
         "-nostats",
-        "-protocol_whitelist",
-        "file",
-        "-i",
-        f"file:{path}",
+        *local_file_input(path),
         "-map",
         "0:v?",
         "-map",

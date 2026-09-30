@@ -1442,7 +1442,7 @@ async def create_project(
                 narration_speed=value.narration_speed,
                 provided=frozenset(value.model_fields_set & {"audio_backend", "narration_voice", "narration_speed"}),
             ),
-            resolver=ConfigResolver(async_session_factory),
+            resolver=services.capabilities,
         )
     except NarrationConfigError as exc:
         return ToolOutcome(problem=ToolProblem("invalid_request", _NARRATION_CONFIG_PROBLEMS[exc.code]))

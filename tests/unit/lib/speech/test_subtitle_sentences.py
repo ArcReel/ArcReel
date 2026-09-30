@@ -18,6 +18,8 @@ from lib.speech.subtitle_sentences import split_sentences, subtitle_reading_unit
         ("没有句末标点", ("没有句末标点",)),
         ("第一段\n\n第二段", ("第一段\n\n第二段",)),
         ("第一句。\n第二句。", ("第一句。", "第二句。")),
+        ("他问：“真的吗？”……", ("他问：“真的吗？”……",)),
+        ("他问：“真的吗？”……然后走了。", ("他问：“真的吗？”", "……然后走了。")),
     ],
 )
 def test_chinese_splits_after_sentence_terminators_and_keeps_them(text: str, expected: tuple[str, ...]) -> None:

@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from uuid import uuid4
 
-from lib.infra.ffmpeg import FfmpegUnavailableError, ffmpeg_executable
+from lib.infra.ffmpeg import FfmpegUnavailableError, ffmpeg_executable, local_file_input
 from lib.infra.media_probe import MediaProbeError, probe_media
 from lib.infra.subprocess_deadline import (
     DEFAULT_TERMINATE_GRACE_SECONDS,
@@ -69,7 +69,7 @@ async def extract_video_thumbnail(
 
     try:
         written = await _run_ffmpeg_to_output(
-            [ffmpeg, "-nostdin", "-y", "-i", str(video_path), "-vframes", "1", "-q:v", "2"],
+            [ffmpeg, "-nostdin", "-y", *local_file_input(video_path), "-vframes", "1", "-q:v", "2"],
             thumbnail_path,
             deadlines=deadlines,
             spawn=spawn,
@@ -113,8 +113,7 @@ async def _probe_frame_count(
                 "-nostats",
                 "-progress",
                 "pipe:1",
-                "-i",
-                str(video_path),
+                *local_file_input(video_path),
                 "-map",
                 "0:v:0",
                 "-f",
@@ -186,8 +185,7 @@ async def _extract_frame_at_index(
             ffmpeg,
             "-nostdin",
             "-y",
-            "-i",
-            str(video_path),
+            *local_file_input(video_path),
             "-vf",
             f"select='eq(n\\,{frame_index})'",
             "-fps_mode",

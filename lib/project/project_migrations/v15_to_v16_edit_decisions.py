@@ -25,6 +25,7 @@
 **视频时效不再以旁白时长为输入**
 
 - 按旧口径与新口径各规划一次目标态，只改写改前时新且目标已变的视频登记；本就过期的登记保留。
+  改前目标态在本步任何写入之前规划，兼作只读预检；视频的依据不含转场，先于转场子步规划不改变结果。
 - 选中版本额外记录新的时效时长基准，实际付费档位与执行请求摘要不变。版本记录先于清单落盘，
   清单先于项目版本；中断后重跑仍能认出旧登记与已改写的版本记录。
 
@@ -50,7 +51,7 @@ from lib.artifacts.artifact_manifest import (
     ProjectArtifactManifestAdapter,
     compose_video_artifact_basis,
 )
-from lib.artifacts.artifact_planner import TargetStatePlanner
+from lib.artifacts.artifact_planner import ArtifactTargetStatePlan, TargetStatePlanner
 from lib.artifacts.artifact_version_provenance import (
     VIDEO_CURRENCY_DURATION_FIELD,
     parse_typed_audio_settings,
@@ -102,21 +103,30 @@ def _load_object(path: Path) -> dict[str, Any] | None:
 # ---------------------------------------------------------------------------
 
 
-def _rebase_video_duration_entries(project_dir: Path, project: Mapping[str, Any], migrated: Mapping[str, Any]) -> None:
+def _plan_before_rewrite(project_dir: Path, project: Mapping[str, Any]) -> ArtifactTargetStatePlan:
+    """改前目标态。在本步任何写入之前规划，兼作只读预检：输入损坏时项目目录不被改动。"""
+
     project_bytes = (project_dir / "project.json").read_bytes()
-    adapter = ProjectArtifactManifestAdapter(project_dir)
-    stored = adapter.snapshot_entries()
-    before = TargetStatePlanner(
+    plan = TargetStatePlanner(
         project_dir,
         project_bytes=json.dumps(project).encode(),
         allow_stale_formal_targets=True,
-        legacy_audio_entries=stored,
+        legacy_audio_entries=ProjectArtifactManifestAdapter(project_dir).snapshot_entries(),
     ).plan()
+    assert_artifact_target_state_plan_unchanged(project_dir, plan, expected_project_bytes=project_bytes)
+    return plan
+
+
+def _rebase_video_duration_entries(
+    project_dir: Path, before: ArtifactTargetStatePlan, migrated: Mapping[str, Any]
+) -> None:
+    project_bytes = (project_dir / "project.json").read_bytes()
+    adapter = ProjectArtifactManifestAdapter(project_dir)
+    stored = adapter.snapshot_entries()
     after = TargetStatePlanner(
         project_dir, project_bytes=json.dumps(migrated).encode(), allow_stale_formal_targets=True
     ).plan()
-    for plan in (before, after):
-        assert_artifact_target_state_plan_unchanged(project_dir, plan, expected_project_bytes=project_bytes)
+    assert_artifact_target_state_plan_unchanged(project_dir, after, expected_project_bytes=project_bytes)
     versions_path = project_dir / "versions" / "versions.json"
     versions = _load_object(versions_path) or {}
     replacements: dict[ArtifactKey, ArtifactManifestEntry] = {}
@@ -381,12 +391,13 @@ def migrate_v15_to_v16(project_dir: Path) -> ArtifactBackfillOutcome | None:
         return None
 
     with project_metadata_lock(project_dir):
+        before = _plan_before_rewrite(project_dir, project)
         _move_transitions_out_of_scripts(project_dir, project)
         migrated_project = {
             **_narration_delivery_fields(project_dir, project),
             "schema_version": TARGET_SCHEMA_VERSION,
         }
-        _rebase_video_duration_entries(project_dir, project, migrated_project)
+        _rebase_video_duration_entries(project_dir, before, migrated_project)
         target = TargetStatePlanner(project_dir, project_bytes=json.dumps(migrated_project).encode()).plan()
         atomic_write_json(project_file, migrated_project)
         return ArtifactBackfillOutcome.from_entries(

@@ -35,6 +35,7 @@ function useTtsSpeedSupport(backend: string): boolean | null {
     voidCall((async () => {
       try {
         const res = await API.getTtsModelCapabilities(backend, { signal: controller.signal });
+        if (controller.signal.aborted) return;
         setAnswer({ backend, supportsSpeed: res.supports_speed });
       } catch {
         // 查不到能力时不置灰：语速仍由供应商自行决定是否生效

@@ -4,7 +4,8 @@
 上保存 TTS 模型、音色与配音语速的快照：创建时以全局默认值预填，之后不再继承全局默认。
 
 快照与交付方式相互独立：改为后期配音后快照保留，已有旁白配音的生成依据照旧可以复算，时效不变；
-只有生成旁白配音要求项目当前选的是 TTS 配音。
+只有生成旁白配音要求项目当前选的是 TTS 配音。旁白配音的时效按当前快照复算，修改快照后，
+按旧设置生成的配音读作 stale。
 
 本模块只依赖标准库，``lib.project`` 等底层模块可以直接引用。
 """
@@ -27,6 +28,8 @@ TTS_BACKEND_FIELD = "audio_backend"
 TTS_VOICE_FIELD = "narration_voice"
 TTS_SPEED_FIELD = "narration_speed"
 NARRATION_CONFIG_FIELDS = (NARRATION_DELIVERY_FIELD, TTS_BACKEND_FIELD, TTS_VOICE_FIELD, TTS_SPEED_FIELD)
+#: 自这一项目 schema 起 TTS 快照是旁白配音时效的输入；更早的 schema 没有快照。
+PROJECT_TTS_SNAPSHOT_SCHEMA_VERSION = 16
 
 
 @dataclass(frozen=True, slots=True)
@@ -158,6 +161,7 @@ __all__ = [
     "NARRATION_CONFIG_FIELDS",
     "NARRATION_DELIVERY_FIELD",
     "POST_PRODUCTION",
+    "PROJECT_TTS_SNAPSHOT_SCHEMA_VERSION",
     "TTS_BACKEND_FIELD",
     "TTS_SPEED_FIELD",
     "TTS_VOICE_FIELD",

@@ -564,6 +564,14 @@ def test_narration_progresses_through_storyboard_video_to_export(tmp_path: Path)
     assert ready.next_action.type == "export"
     assert ready.artifacts["audio"]["missing_ids"] == ["E1S01"]
 
+    pm.update_project(
+        "demo",
+        lambda project: project.update(
+            narration_delivery="use_tts",
+            audio_backend=f"{_TTS_SETTINGS.provider_id}/{_TTS_SETTINGS.model_id}",
+            narration_voice=_TTS_SETTINGS.voice,
+        ),
+    )
     script["segments"][0]["generated_assets"]["narration_audio"] = _commit_audio_version(
         project_path, script["segments"][0], "E1S01"
     )

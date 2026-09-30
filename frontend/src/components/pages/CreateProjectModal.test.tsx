@@ -241,6 +241,17 @@ describe("CreateProjectModal", () => {
     expect(screen.getByRole("button", { name: /下一步/ })).toBeEnabled();
   });
 
+  it("keeps step 2 usable without TTS prefill when the narration defaults cannot be read", async () => {
+    vi.spyOn(API, "getNarrationDefaults").mockRejectedValue(new Error("boom"));
+    render(<CreateProjectModal />);
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "demo" } });
+    fireEvent.click(screen.getByRole("radio", { name: /分镜图生视频/ }));
+    fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
+    fireEvent.click(await screen.findByRole("radio", { name: "TTS 配音" }));
+
+    expect(screen.getByText("选择 TTS 配音时必须选择 TTS 模型")).toBeInTheDocument();
+  });
+
   it("submits grid_storyboard when the assembly toggle is switched on at creation", async () => {
     render(<CreateProjectModal />);
     fireEvent.change(screen.getByRole("textbox"), { target: { value: "demo" } });

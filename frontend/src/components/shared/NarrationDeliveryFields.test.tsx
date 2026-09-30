@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { act, render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { describe, it, expect, vi } from "vitest";
 import "@/i18n";
 import { API } from "@/api";
@@ -56,6 +56,33 @@ describe("NarrationDeliveryFields", () => {
 
     await waitFor(() => expect(API.getTtsModelCapabilities).toHaveBeenCalled());
     expect(screen.getByLabelText("配音语速（可选）")).toBeEnabled();
+  });
+
+  it("ignores a late capability answer for a model that is no longer selected", async () => {
+    let answerPrevious: (value: { supports_speed: boolean }) => void = () => {};
+    vi.spyOn(API, "getTtsModelCapabilities").mockImplementation((backend) =>
+      backend === "openai/tts-1"
+        ? new Promise((resolve) => {
+            answerPrevious = resolve;
+          })
+        : Promise.resolve({ supports_speed: false }),
+    );
+    const props = {
+      onChange: vi.fn(),
+      audioBackends: ["dashscope/qwen3-tts-flash", "openai/tts-1"],
+      providerNames: { dashscope: "DashScope", openai: "OpenAI" },
+      modelNames: {},
+    };
+    const { rerender } = render(
+      <NarrationDeliveryFields {...props} value={{ ...ttsProject, audioBackend: "openai/tts-1" }} />,
+    );
+    await waitFor(() => expect(API.getTtsModelCapabilities).toHaveBeenCalledWith("openai/tts-1", expect.anything()));
+
+    rerender(<NarrationDeliveryFields {...props} value={ttsProject} />);
+    await waitFor(() => expect(screen.getByLabelText("配音语速（可选）")).toBeDisabled());
+    await act(async () => answerPrevious({ supports_speed: true }));
+
+    expect(screen.getByLabelText("配音语速（可选）")).toBeDisabled();
   });
 
   it("flags a TTS project without a voice", () => {
