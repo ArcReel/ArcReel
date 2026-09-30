@@ -1,176 +1,325 @@
-// PROTOTYPE（#2767，一次性代码，勿合入 main）：「分集」视图与划范围 UI 的内存数据模型。
-// 位置一律是整本源文的字符偏移；界面上的分集点可以落在任意字符处，不依赖断句。窗口缩小以便演示。
+// PROTOTYPE（#2831，基于 #2767，一次性代码，勿合入 main）：多文件整本源文 +「分集」视图的内存数据模型。
+// 整本源文由多个文件按项目记录的顺序拼成；切出集的原文范围记为「文件 + 文件内偏移」，不跨文件（#2830）。
+// 账本条目顺序即播出顺序，界面上的「第 N 集」按位置派生，id 只做内部身份与配色（#2795）。
+// 重新规划沿用 #2767 原型的逻辑（候选沿用旧 id），不在本票评审范围。
 
 export type Origin = "cut" | "own" | "none";
+export type Kind = "novel" | "script";
+export const KIND_LABEL: Record<Kind, string> = { novel: "小说", script: "剧本" };
+
+export interface SrcFile {
+  id: string;
+  name: string;
+  kind: Kind;
+  text: string;
+  /** 在 ArcReel 之外被改动后磁盘上的新内容；text 仍是上次登记时的快照 */
+  pendingText?: string;
+}
+
+export interface Loc { file: string; a: number; b: number }
 
 export interface Ep {
   id: number;
   title: string;
   hook: string;
   origin: Origin;
-  /** 切自整本源文的集：[起, 止) 字符偏移 */
+  /** 切出集：文件内的 [起, 止) */
+  loc?: Loc;
+  /** 派生：整本源文拼接后的全局偏移，只供渲染 */
   range?: [number, number];
   ownChars?: number;
   ownFile?: string;
+  ownKind?: Kind;
   hasArtifacts: boolean;
-  /** 集规划状态 stale：「原文已重新规划」 */
   stale: boolean;
   fresh?: boolean;
 }
 
-export interface CandEp {
-  title: string;
-  hook: string;
-  range: [number, number];
-}
+export interface CandEp { title: string; hook: string; range: [number, number] }
 
 export interface Candidate {
   fromEp: number;
   instructions: string;
   eps: CandEp[];
   status: "generating" | "ready" | "stopped";
-  /** 生成到的字符位置 */
   reached: number;
 }
 
+export interface Planning { from: number; pos: number; until: number; gap: boolean }
+
 export interface ProtoState {
+  files: SrcFile[];
   episodes: Ep[];
-  cursor: number;
-  planning: null | { mode: "toEnd" | "batch"; batchesDone: number; batchesTotal: number };
+  planning: Planning | null;
   candidate: Candidate | null;
   lastInstructions: string;
-  sourceReplaced: boolean;
   log: string[];
 }
 
-// ---------------------------------------------------------------- 源文
+// ---------------------------------------------------------------- 假源文
 
 const CORPUS = [
-  "雨下了整整一夜，码头上的灯一盏接一盏灭了。",
-  "沈砚把领口竖起来，站在仓库门口没有动。",
-  "他知道今晚来的人不会只有一个。",
-  "“东西带来了吗？”黑暗里有人开口，嗓音沙哑。",
-  "沈砚没有回答，只是把手里的信封往前递了半寸。",
-  "对方笑了一声，那笑声让人想起生锈的铁门。",
-  "许知意坐在车里，隔着起雾的玻璃盯着这一幕。",
-  "她答应过父亲，绝不再踏进这座城半步。",
-  "可父亲已经死了，承诺也就跟着埋进了土里。",
-  "三年前那场火烧掉了许家的半条街，也烧掉了所有账本。",
-  "所有人都说那是意外，只有她不信。",
-  "沈砚回到车上时，衣角还在往下滴水。",
-  "“他们要的不是钱。”他说，“他们要一个名字。”",
-  "许知意转过头，第一次认真地看着这个男人。",
-  "她想起老管家临终前说的那句话：别相信姓沈的。",
-  "可眼下，她能信的人只剩他一个。",
-  "第二天一早，报纸头版登出了仓库失火的消息。",
-  "照片上的废墟里，隐约能看见半截烧焦的招牌。",
-  "陆警官把报纸摔在桌上，烟灰落了一桌子。",
-  "“又是许家的旧账。”他盯着窗外，声音压得很低。",
-  "局里没人愿意碰这个案子，上一个碰的人已经调去了边境。",
-  "许知意推门进来的时候，陆警官的烟刚好燃尽。",
-  "“我要看三年前的卷宗。”她说得很平静。",
-  "陆警官沉默了很久，最后从抽屉里摸出一把钥匙。",
-  "档案室在地下二层，灯管坏了一半，走廊尽头一片漆黑。",
-  "卷宗比她想象的薄得多，关键的几页被人撕掉了。",
-  "撕口很整齐，像是用尺子比着裁下来的。",
-  "她在最后一页的背面发现了一行铅笔字，字迹熟悉得让她发抖。",
-  "那是父亲的笔迹，写的是一个日期和一个码头编号。",
-  "沈砚看到那行字时，脸色第一次变了。",
-  "“这个编号，”他慢慢说，“是我家的船。”",
-  "窗外又开始下雨，雨点敲在铁皮屋檐上，像有人在数着什么。",
-  "许知意把卷宗合上，指节因为用力而发白。",
-  "她终于明白，这座城里没有一个人是干净的。",
-  "包括她自己。",
-  "夜里，有人往她住的旅馆门缝里塞了一张空白信封。",
-  "信封里什么都没有，只有一股淡淡的烟草味。",
-  "她认得那个味道，那是父亲生前最爱的牌子。",
-  "沈砚说这是警告，她却觉得这是邀请。",
+  "雨下了整整一夜，码头上的灯一盏接一盏灭了。", "沈砚把领口竖起来，站在仓库门口没有动。", "他知道今晚来的人不会只有一个。",
+  "“东西带来了吗？”黑暗里有人开口，嗓音沙哑。", "沈砚没有回答，只是把手里的信封往前递了半寸。", "对方笑了一声，那笑声让人想起生锈的铁门。",
+  "许知意坐在车里，隔着起雾的玻璃盯着这一幕。", "她答应过父亲，绝不再踏进这座城半步。", "可父亲已经死了，承诺也就跟着埋进了土里。",
+  "三年前那场火烧掉了许家的半条街，也烧掉了所有账本。", "所有人都说那是意外，只有她不信。", "沈砚回到车上时，衣角还在往下滴水。",
+  "“他们要的不是钱。”他说，“他们要一个名字。”", "许知意转过头，第一次认真地看着这个男人。", "她想起老管家临终前说的那句话：别相信姓沈的。",
+  "可眼下，她能信的人只剩他一个。", "第二天一早，报纸头版登出了仓库失火的消息。", "照片上的废墟里，隐约能看见半截烧焦的招牌。",
+  "陆警官把报纸摔在桌上，烟灰落了一桌子。", "“又是许家的旧账。”他盯着窗外，声音压得很低。", "局里没人愿意碰这个案子，上一个碰的人已经调去了边境。",
+  "许知意推门进来的时候，陆警官的烟刚好燃尽。", "“我要看三年前的卷宗。”她说得很平静。", "陆警官沉默了很久，最后从抽屉里摸出一把钥匙。",
+  "档案室在地下二层，灯管坏了一半，走廊尽头一片漆黑。", "卷宗比她想象的薄得多，关键的几页被人撕掉了。", "撕口很整齐，像是用尺子比着裁下来的。",
+  "她在最后一页的背面发现了一行铅笔字，字迹熟悉得让她发抖。", "那是父亲的笔迹，写的是一个日期和一个码头编号。", "沈砚看到那行字时，脸色第一次变了。",
+  "“这个编号，”他慢慢说，“是我家的船。”", "窗外又开始下雨，雨点敲在铁皮屋檐上，像有人在数着什么。", "许知意把卷宗合上，指节因为用力而发白。",
+  "她终于明白，这座城里没有一个人是干净的。", "包括她自己。", "夜里，有人往她住的旅馆门缝里塞了一张空白信封。",
+  "信封里什么都没有，只有一股淡淡的烟草味。", "她认得那个味道，那是父亲生前最爱的牌子。", "沈砚说这是警告，她却觉得这是邀请。",
   "天亮之前，他们决定再去一次码头。",
 ];
-
-const CHAPTER_NAMES = ["雨夜", "旧账", "卷宗", "空白信封", "船号", "火起", "证人", "黎明", "反咬", "摊牌"];
-const CN_NUM = ["一", "二", "三", "四", "五", "六", "七", "八", "九", "十", "十一", "十二"];
+const CHAPTER_NAMES = ["雨夜", "旧账", "卷宗", "空白信封", "船号", "火起", "证人", "黎明", "反咬", "摊牌", "潮信", "余烬"];
+const CN_NUM = ["一", "二", "三", "四", "五", "六", "七", "八", "九", "十", "十一", "十二", "十三", "十四", "十五"];
+const SPEAKERS = ["沈砚", "许知意", "陆警官", "老管家"];
 
 function rnd(n: number): number {
   const x = Math.sin(n * 12.9898 + 78.233) * 43758.5453;
   return x - Math.floor(x);
 }
 
-interface Source {
+export function genNovel(seed: number, chapFrom: number, chapCount: number, perChap = 40): string {
+  let text = "";
+  for (let c = 0; c < chapCount; c++) {
+    const n = chapFrom + c;
+    text += `${text ? "\n" : ""}第${CN_NUM[n] ?? n + 1}章 ${CHAPTER_NAMES[n % CHAPTER_NAMES.length]}\n`;
+    for (let i = 0; i < perChap; i++) {
+      if (i > 0 && rnd(seed * 97 + c * 41 + i) < 0.3) text += "\n";
+      text += CORPUS[(seed * 11 + c * 7 + i * 3) % CORPUS.length];
+    }
+  }
+  return text;
+}
+
+export function genScript(seed: number, sceneFrom: number, sceneCount: number, perScene = 18): string {
+  let text = "";
+  for (let c = 0; c < sceneCount; c++) {
+    const n = sceneFrom + c;
+    text += `${text ? "\n" : ""}第${CN_NUM[n] ?? n + 1}场 ${CHAPTER_NAMES[(n + 4) % CHAPTER_NAMES.length]} · 夜\n`;
+    for (let i = 0; i < perScene; i++) {
+      const line = CORPUS[(seed * 13 + c * 5 + i * 7) % CORPUS.length];
+      text += i % 3 === 0 ? `△ ${line}\n` : `${SPEAKERS[(i + c) % SPEAKERS.length]}：${line}\n`;
+    }
+  }
+  return text.replace(/\n$/, "");
+}
+
+// ---------------------------------------------------------------- 版面（整本源文拼接后的全局视图）
+
+export interface FileSpan { id: string; name: string; kind: Kind; start: number; end: number; pending: boolean }
+export interface Layout {
   text: string;
-  /** 段落起点（字符偏移） */
+  len: number;
+  files: FileSpan[];
   paraStarts: number[];
-  /** 章标题的字符范围，渲染加粗用 */
   chapters: [number, number][];
-  /** 句末偏移，只供「假 AI」挑切分点；界面操作不依赖断句 */
   sentenceEnds: number[];
 }
 
-function buildSource(): Source {
+const layoutCache = new WeakMap<SrcFile[], Layout>();
+
+export function L(s: { files: SrcFile[] }): Layout {
+  const hit = layoutCache.get(s.files);
+  if (hit) return hit;
   let text = "";
-  const paraStarts: number[] = [0];
-  const chapters: [number, number][] = [];
-  const sentenceEnds: number[] = [];
-  let chap = 0;
-  const TOTAL = 420;
-  for (let i = 0; i < TOTAL; i++) {
-    if (i % 42 === 0) {
-      if (text.length) { text += "\n"; paraStarts.push(text.length); }
-      const title = `第${CN_NUM[chap] ?? chap + 1}章 ${CHAPTER_NAMES[chap % CHAPTER_NAMES.length]}`;
-      chapters.push([text.length, text.length + title.length]);
-      text += `${title}\n`;
-      paraStarts.push(text.length);
-      chap++;
-      continue;
-    }
-    if (rnd(i) < 0.3 && !text.endsWith("\n")) { text += "\n"; paraStarts.push(text.length); }
-    text += CORPUS[(i * 7 + chap * 3) % CORPUS.length];
-    sentenceEnds.push(text.length);
+  const files: FileSpan[] = [];
+  for (const f of s.files) {
+    const start = text.length;
+    text += f.text;
+    files.push({ id: f.id, name: f.name, kind: f.kind, start, end: text.length, pending: f.pendingText != null });
   }
-  return { text, paraStarts, chapters, sentenceEnds };
+  const para = new Set<number>(files.map((f) => f.start));
+  const ends = new Set<number>(files.map((f) => f.end));
+  const chapters: [number, number][] = [];
+  const lineStarts = new Set<number>(files.map((f) => f.start));
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (c === "\n") { ends.add(i); if (i + 1 < text.length) { para.add(i + 1); lineStarts.add(i + 1); } }
+    if ("。！？".includes(c)) ends.add(text[i + 1] === "”" ? i + 2 : i + 1);
+  }
+  for (const ls of lineStarts) {
+    const m = /^第[^\s]{1,4}[章场] [^\n]*/.exec(text.slice(ls, ls + 40));
+    if (m) chapters.push([ls, ls + m[0].length]);
+  }
+  const out: Layout = {
+    text, len: text.length, files,
+    paraStarts: [...para].sort((a, b) => a - b),
+    chapters: chapters.sort((a, b) => a[0] - b[0]),
+    sentenceEnds: [...ends].sort((a, b) => a - b),
+  };
+  layoutCache.set(s.files, out);
+  return out;
 }
 
-export const SOURCE = buildSource();
-export const SOURCE_LEN = SOURCE.text.length;
-/** 原型里的「窗口」（字符），对应真实的 5 万字 */
-export const WINDOW = 2400;
-const SOURCE_FILE_NAME = "雨夜码头.txt";
-export { SOURCE_FILE_NAME };
-
-/** 每批是一次非流式 LLM 调用：读一个窗口、一次性返回这批的全部集 */
-export function batchesNeeded(from: number): number {
-  return Math.max(1, Math.ceil((SOURCE_LEN - from) / WINDOW));
+export function fileAt(s: ProtoState, pos: number): FileSpan {
+  const fs = L(s).files;
+  return fs.find((f) => f.start <= pos && pos < f.end) ?? fs[fs.length - 1];
 }
-
-/** 字数（不计换行） */
-export function charsOf(range: [number, number]): number {
+export function fileSpan(s: ProtoState, id: string): FileSpan | undefined {
+  return L(s).files.find((f) => f.id === id);
+}
+export function charsOf(s: ProtoState, range: [number, number]): number {
   const [a, b] = range[0] <= range[1] ? range : [range[1], range[0]];
-  return SOURCE.text.slice(a, b).replace(/\n/g, "").length;
+  return L(s).text.slice(a, b).replace(/\n/g, "").length;
 }
-
-export const TOTAL_CHARS = charsOf([0, SOURCE_LEN]);
-
-export function epChars(ep: Ep): number {
-  if (ep.origin === "cut" && ep.range) return charsOf(ep.range);
+export function totalChars(s: ProtoState): number {
+  return charsOf(s, [0, L(s).len]);
+}
+export function epChars(s: ProtoState, ep: Ep): number {
+  if (ep.origin === "cut" && ep.range) return charsOf(s, ep.range);
   return ep.ownChars ?? 0;
 }
-
-/** 朗读量：按 250 字/分钟估 */
 export function readLabel(chars: number): string {
   const min = chars / 250;
   return `${chars.toLocaleString()} 字 · 约 ${min < 1 ? "<1" : min.toFixed(1)} 分钟`;
 }
-
 const EXCERPT = 22;
-export function headExcerpt(ep: Ep | CandEp): string {
-  if (!ep.range) return "";
-  const t = SOURCE.text.slice(ep.range[0], ep.range[1]).replace(/\n/g, " ").trim();
+export function headExcerpt(s: ProtoState, range?: [number, number]): string {
+  if (!range) return "";
+  const t = L(s).text.slice(range[0], range[1]).replace(/\n/g, " ").trim();
   return t.length > EXCERPT ? `${t.slice(0, EXCERPT)}…` : t;
 }
-export function tailExcerpt(ep: Ep | CandEp): string {
-  if (!ep.range) return "";
-  const t = SOURCE.text.slice(ep.range[0], ep.range[1]).replace(/\n/g, " ").trim();
+export function tailExcerpt(s: ProtoState, range?: [number, number]): string {
+  if (!range) return "";
+  const t = L(s).text.slice(range[0], range[1]).replace(/\n/g, " ").trim();
   return t.length > EXCERPT ? `…${t.slice(-EXCERPT)}` : t;
+}
+
+/** 原型里的「窗口」（字符），对应真实的 5 万字 */
+export const WINDOW = 2400;
+
+// ---------------------------------------------------------------- 账本查询
+
+export function cutEps(s: ProtoState): Ep[] {
+  return s.episodes.filter((e) => e.origin === "cut").sort((a, b) => a.range![0] - b.range![0]);
+}
+export function otherEps(s: ProtoState): Ep[] {
+  return s.episodes.filter((e) => e.origin !== "cut");
+}
+export function maxId(s: ProtoState): number {
+  return s.episodes.reduce((m, e) => Math.max(m, e.id), 0);
+}
+export function posOf(s: ProtoState, id: number): number {
+  return s.episodes.findIndex((e) => e.id === id) + 1;
+}
+export function label(s: ProtoState, id: number): string {
+  const n = posOf(s, id);
+  return n > 0 ? `第 ${n} 集` : "—";
+}
+export function cursor(s: ProtoState): number {
+  return cutEps(s).reduce((m, e) => Math.max(m, e.range![1]), 0);
+}
+export function nextCut(s: ProtoState, id: number): Ep | undefined {
+  const list = cutEps(s);
+  const i = list.findIndex((e) => e.id === id);
+  const nx = i >= 0 ? list[i + 1] : undefined;
+  return nx && nx.loc!.file === list[i].loc!.file && nx.loc!.a === list[i].loc!.b ? nx : undefined;
+}
+export function canRestructure(s: ProtoState, id: number): boolean {
+  const list = cutEps(s);
+  const i = list.findIndex((e) => e.id === id);
+  return i >= 0 && list.slice(i).every((e) => !e.hasArtifacts);
+}
+export function epsInFile(s: ProtoState, fileId: string): Ep[] {
+  return cutEps(s).filter((e) => e.loc!.file === fileId);
+}
+export function fileCoverage(s: ProtoState, fileId: string): { cut: number; total: number } {
+  const f = fileSpan(s, fileId);
+  if (!f) return { cut: 0, total: 0 };
+  return { cut: epsInFile(s, fileId).reduce((n, e) => n + epChars(s, e), 0), total: charsOf(s, [f.start, f.end]) };
+}
+
+export interface Span { a: number; b: number; file: FileSpan; gap: boolean }
+/** 未切分的原文：按文件切开；规划游标之前的是切出集之间的空段，之后的是尚未规划的部分 */
+export function spans(s: ProtoState): Span[] {
+  const cur = cursor(s);
+  const cuts = cutEps(s);
+  const out: Span[] = [];
+  for (const f of L(s).files) {
+    let x = f.start;
+    for (const c of cuts.filter((e) => e.loc!.file === f.id)) {
+      if (c.range![0] > x) out.push({ a: x, b: c.range![0], file: f, gap: true });
+      x = c.range![1];
+    }
+    if (x < f.end) out.push({ a: x, b: f.end, file: f, gap: true });
+  }
+  return out.filter((sp) => charsOf(s, [sp.a, sp.b]) > 0).map((sp) => ({ ...sp, gap: sp.b <= cur }));
+}
+export function spanAt(s: ProtoState, pos: number): Span | undefined {
+  return spans(s).find((sp) => sp.a < pos && pos <= sp.b);
+}
+
+// ---------------------------------------------------------------- 归一：派生全局范围 + 按锚点排播出顺序
+
+function sync(s: ProtoState): ProtoState {
+  const st = new Map(L(s).files.map((f) => [f.id, f.start]));
+  return {
+    ...s,
+    episodes: s.episodes.map((e) =>
+      e.origin === "cut" && e.loc
+        ? { ...e, range: [st.get(e.loc.file)! + e.loc.a, st.get(e.loc.file)! + e.loc.b] as [number, number] }
+        : { ...e, range: undefined, loc: undefined }),
+  };
+}
+
+/** 切出集之间锁定源文顺序；其他来源的集跟着它前面最近的切出集（锚点）走 */
+function normalize(s0: ProtoState): ProtoState {
+  const s = sync(s0);
+  const head: Ep[] = [];
+  const groups = new Map<number, Ep[]>();
+  let anchor: number | null = null;
+  for (const e of s.episodes) {
+    if (e.origin === "cut") { anchor = e.id; groups.set(e.id, []); }
+    else if (anchor == null) head.push(e);
+    else groups.get(anchor)!.push(e);
+  }
+  const cuts = s.episodes.filter((e) => e.origin === "cut").sort((a, b) => a.range![0] - b.range![0]);
+  return { ...s, episodes: [...head, ...cuts.flatMap((c) => [c, ...groups.get(c.id)!])] };
+}
+
+/** 退下的集：有产物的转为无原文并标 stale，移到播出顺序末尾；没有产物的直接移除 */
+function retire(s: ProtoState, ids: Set<number>): ProtoState {
+  const kept = s.episodes.filter((e) => !ids.has(e.id));
+  const back = s.episodes
+    .filter((e) => ids.has(e.id) && e.hasArtifacts)
+    .map((e) => ({ ...e, origin: "none" as const, loc: undefined, range: undefined, stale: true }));
+  const t = normalize({ ...s, episodes: kept });
+  return { ...t, episodes: [...t.episodes, ...back] };
+}
+
+function locOf(s: ProtoState, a: number, b: number): Loc {
+  const f = fileAt(s, a);
+  return { file: f.id, a: a - f.start, b: b - f.start };
+}
+
+function withLog(s: ProtoState, msg: string): ProtoState {
+  return { ...s, log: [msg, ...s.log].slice(0, 40) };
+}
+function clearFresh(s: ProtoState): ProtoState {
+  return { ...s, episodes: s.episodes.map((e) => (e.fresh ? { ...e, fresh: false } : e)) };
+}
+
+/** 新切出的集插入播出顺序：接续规划紧接最后一个切出集；空段里的集排在前一个切出集（及跟着它的集）之后 */
+function insertCuts(s: ProtoState, eps: Ep[], at: number): ProtoState {
+  const ledger = [...s.episodes];
+  const cuts = cutEps(s);
+  const prev = cuts.filter((c) => c.range![1] <= at).at(-1);
+  const isTail = !cuts.some((c) => c.range![0] >= at);
+  let idx: number;
+  if (!prev) {
+    const first = ledger.findIndex((e) => e.origin === "cut");
+    idx = first >= 0 ? first : ledger.length;
+  } else {
+    idx = ledger.findIndex((e) => e.id === prev.id) + 1;
+    if (!isTail) while (idx < ledger.length && ledger[idx].origin !== "cut") idx++;
+  }
+  ledger.splice(idx, 0, ...eps);
+  return normalize({ ...s, episodes: ledger });
 }
 
 // ---------------------------------------------------------------- 假 AI
@@ -180,224 +329,151 @@ const TITLES = [
   "反咬", "摊牌", "黎明前", "旧船号", "撕掉的三页", "父亲的笔迹", "地下二层", "调去边境的人",
 ];
 const HOOKS = [
-  "信封递出去的那一刻，对方叫出了她父亲的名字。",
-  "卷宗最后一页的铅笔字，指向一艘早已沉没的船。",
-  "陆警官交出钥匙前，只提了一个条件。",
-  "旅馆门缝里又多了一个信封，这次里面有东西。",
-  "沈砚终于承认，三年前他就在码头上。",
-  "火光里走出来的人，本该已经死了。",
+  "信封递出去的那一刻，对方叫出了她父亲的名字。", "卷宗最后一页的铅笔字，指向一艘早已沉没的船。",
+  "陆警官交出钥匙前，只提了一个条件。", "旅馆门缝里又多了一个信封，这次里面有东西。",
+  "沈砚终于承认，三年前他就在码头上。", "火光里走出来的人，本该已经死了。",
 ];
 
-function snapToSentenceEnd(pos: number): number {
-  return SOURCE.sentenceEnds.find((e) => e >= pos) ?? SOURCE_LEN;
-}
-
-/** 从 from 起读一个窗口，切出其中剧情弧完整的集；到源文结尾时收尾 */
-export function fakePlanWindow(from: number, seed: number, titleOffset = 0): CandEp[] {
-  const windowEnd = Math.min(from + WINDOW, SOURCE_LEN);
+/** 一个窗口：从 from 起最多 WINDOW 字，不跨文件（切出集不跨文件，窗口遇文件边界即截断） */
+function planChunk(s: ProtoState, from: number, until: number, seed: number): { eps: CandEp[]; reached: number } {
+  const lay = L(s);
+  const f = fileAt(s, from);
+  const hardEnd = Math.min(f.end, until);
+  const windowEnd = Math.min(from + WINDOW, hardEnd);
   const out: CandEp[] = [];
   let pos = from;
-  let k = 0;
-  while (pos < SOURCE_LEN) {
+  while (pos < hardEnd) {
     const len = 520 + Math.floor(rnd(seed * 31 + pos) * 300);
-    let end = snapToSentenceEnd(pos + len);
-    // 剩下不到半集的尾巴并进这一集
-    if (end <= windowEnd && windowEnd === SOURCE_LEN && SOURCE_LEN - end < 260) end = SOURCE_LEN;
-    if (end > windowEnd) {
-      if (windowEnd === SOURCE_LEN && pos < SOURCE_LEN) {
-        if (SOURCE_LEN - pos < 260 && out.length > 0) out[out.length - 1].range[1] = SOURCE_LEN;
-        else out.push(mkCand(pos, SOURCE_LEN, titleOffset + k));
-      }
+    const end = lay.sentenceEnds.find((e) => e >= pos + len) ?? hardEnd;
+    if (end >= hardEnd || (windowEnd === hardEnd && hardEnd - end < 260)) {
+      if (windowEnd === hardEnd) { out.push(mkCand(pos, hardEnd, seed + out.length)); pos = hardEnd; }
       break;
     }
-    out.push(mkCand(pos, end, titleOffset + k));
+    if (end > windowEnd) break;
+    out.push(mkCand(pos, end, seed + out.length));
     pos = end;
-    k++;
   }
-  return out;
+  return { eps: out, reached: pos === from ? windowEnd : pos };
 }
 
 function mkCand(a: number, b: number, k: number): CandEp {
-  return {
-    title: TITLES[(a + k) % TITLES.length],
-    hook: HOOKS[(a * 3 + k) % HOOKS.length],
-    range: [a, b],
-  };
-}
-
-// ---------------------------------------------------------------- 账本查询
-
-export function cutEps(s: ProtoState): Ep[] {
-  return s.episodes.filter((e) => e.origin === "cut").sort((a, b) => a.range![0] - b.range![0]);
-}
-export function otherEps(s: ProtoState): Ep[] {
-  return s.episodes.filter((e) => e.origin !== "cut").sort((a, b) => a.id - b.id);
-}
-export function byId(s: ProtoState): Ep[] {
-  return [...s.episodes].sort((a, b) => a.id - b.id);
-}
-export function maxId(s: ProtoState): number {
-  return s.episodes.reduce((m, e) => Math.max(m, e.id), 0);
-}
-export function nextCut(s: ProtoState, id: number): Ep | undefined {
-  const list = cutEps(s);
-  const i = list.findIndex((e) => e.id === id);
-  return i >= 0 ? list[i + 1] : undefined;
-}
-/** 拆分 / 合并只在该集及其后切出的集都没有产物时允许 */
-export function canRestructure(s: ProtoState, id: number): boolean {
-  const list = cutEps(s);
-  const i = list.findIndex((e) => e.id === id);
-  return i >= 0 && list.slice(i).every((e) => !e.hasArtifacts);
-}
-/** 从第 N 集（N>1 的非首个切出集）起重新规划时，范围内夹着其他来源的集就拒绝 */
-export function replanBlockers(s: ProtoState, id: number): Ep[] {
-  const first = cutEps(s)[0];
-  if (!first || first.id === id) return [];
-  // 夹在重新规划范围（第 id 集到最后一个切出集）之间的其他来源集
-  const lastCut = Math.max(...cutEps(s).map((e) => e.id));
-  return otherEps(s).filter((e) => e.id > id && e.id < lastCut);
+  return { title: TITLES[(a + k) % TITLES.length], hook: HOOKS[(a * 3 + k) % HOOKS.length], range: [a, b] };
 }
 
 // ---------------------------------------------------------------- 初始账本
 
 export function initialState(): ProtoState {
-  const planned = fakePlanWindow(0, 1).concat(fakePlanWindow(fakePlanWindow(0, 1).at(-1)!.range[1], 2, 5));
-  const first6 = planned.slice(0, 6);
-  const episodes: Ep[] = first6.map((c, i) => ({
-    id: i + 1,
-    title: c.title,
-    hook: c.hook,
-    origin: "cut",
-    range: c.range,
-    hasArtifacts: i < 4,
-    stale: i === 3,
-  }));
-  episodes.push({
-    id: 7, title: "番外·雨夜", hook: "", origin: "own", ownChars: 2140, ownFile: "番外_雨夜.txt",
-    hasArtifacts: true, stale: false,
-  });
-  episodes.push({ id: 8, title: "第 8 集", hook: "", origin: "none", hasArtifacts: false, stale: false });
-  return {
-    episodes,
-    cursor: first6.at(-1)!.range[1],
-    planning: null,
-    candidate: null,
-    lastInstructions: "每集结尾停在人物做出决定之前",
-    sourceReplaced: false,
-    log: ["初始账本：第 1–6 集切自整本源文（1–4 有产物，4 已 stale），第 7 集自带原文，第 8 集无原文"],
+  const files: SrcFile[] = [
+    { id: "f1", name: "雨夜码头·卷一.txt", kind: "novel", text: genNovel(1, 0, 3) },
+    { id: "f2", name: "雨夜码头·卷二.txt", kind: "novel", text: genNovel(2, 3, 2) },
+    { id: "f3", name: "卷三·旧船（剧本稿）.txt", kind: "script", text: genScript(3, 0, 5) },
+  ];
+  const s0: ProtoState = { files, episodes: [], planning: null, candidate: null, lastInstructions: "每集结尾停在人物做出决定之前", log: [] };
+  const lay = L(s0);
+  let id = 0;
+  const eps: Ep[] = [];
+  const cutFile = (fid: string, limit: number, arts: number) => {
+    const f = lay.files.find((x) => x.id === fid)!;
+    let pos = f.start;
+    let k = 0;
+    while (pos < f.end && k < limit) {
+      const { eps: batch, reached } = planChunk(s0, pos, f.end, id + 3);
+      for (const c of batch) {
+        if (k >= limit) break;
+        eps.push({ id: ++id, title: c.title, hook: c.hook, origin: "cut", loc: locOf(s0, c.range[0], c.range[1]), hasArtifacts: k < arts, stale: false });
+        pos = c.range[1];
+        k++;
+      }
+      if (batch.length === 0) pos = reached;
+    }
   };
+  cutFile("f1", 99, 3);
+  cutFile("f3", 2, 1);
+  eps.push(
+    { id: ++id, title: "番外·雨夜", hook: "", origin: "own", ownChars: 2140, ownFile: "番外_雨夜.txt", ownKind: "novel", hasArtifacts: true, stale: false },
+    { id: ++id, title: "预告片", hook: "", origin: "none", hasArtifacts: false, stale: false },
+  );
+  return withLog(normalize({ ...s0, episodes: eps }),
+    "初始：卷一全部切出（前 3 集已开始制作）；卷二是后来插入的，尚未分集（空段）；卷三（剧本）切出 2 集；另有自带原文、无原文的集各一");
 }
 
-// ---------------------------------------------------------------- 写操作（纯函数）
+// ---------------------------------------------------------------- 规划
 
-function withLog(s: ProtoState, msg: string): ProtoState {
-  return { ...s, log: [msg, ...s.log].slice(0, 40) };
+export function beginPlanning(s: ProtoState, instructions: string): ProtoState {
+  const cur = cursor(s);
+  return withLog({ ...clearFresh(s), planning: { from: cur, pos: cur, until: L(s).len, gap: false }, lastInstructions: instructions },
+    `AI 规划剩余内容（附加要求：${instructions || "无"}）`);
 }
 
-function clearFresh(s: ProtoState): ProtoState {
-  return { ...s, episodes: s.episodes.map((e) => (e.fresh ? { ...e, fresh: false } : e)) };
+export function beginGapPlanning(s: ProtoState, a: number, b: number): ProtoState {
+  return withLog({ ...clearFresh(s), planning: { from: a, pos: a, until: b, gap: true } },
+    `规划这段未切分的原文：${fileAt(s, a).name} ${charsOf(s, [a, b])} 字，不替换任何集，直接提交`);
 }
 
-export function beginPlanning(s: ProtoState, mode: "toEnd" | "batch", instructions: string): ProtoState {
-  return withLog({ ...clearFresh(s), planning: { mode, batchesDone: 0, batchesTotal: mode === "batch" ? 1 : batchesNeeded(s.cursor) }, lastInstructions: instructions },
-    `开始${mode === "toEnd" ? "规划到源文结尾" : "先规划一批"}（附加指令：${instructions || "无"}）`);
-}
-
-/** 模拟服务端提交一个窗口的结果 */
 export function planOneWindow(s: ProtoState): ProtoState {
-  if (!s.planning) return s;
-  const batch = fakePlanWindow(s.cursor, s.cursor + 7, s.planning.batchesDone * 3);
+  const p = s.planning;
+  if (!p) return s;
+  const { eps, reached } = planChunk(s, p.pos, p.until, p.pos + 7);
   let id = maxId(s);
-  const added: Ep[] = batch.map((c) => ({
-    id: ++id, title: c.title, hook: c.hook, origin: "cut", range: c.range,
+  const added: Ep[] = eps.map((c) => ({
+    id: ++id, title: c.title, hook: c.hook, origin: "cut", loc: locOf(s, c.range[0], c.range[1]),
     hasArtifacts: false, stale: false, fresh: true,
   }));
-  const cursor = batch.length ? batch.at(-1)!.range[1] : s.cursor;
-  const done = cursor >= SOURCE_LEN || s.planning.mode === "batch" || batch.length === 0;
-  const next: ProtoState = {
-    ...s,
-    episodes: [...s.episodes, ...added],
-    cursor,
-    planning: done ? null : { ...s.planning, batchesDone: s.planning.batchesDone + 1 },
-  };
-  return withLog(next, `提交一批：第 ${added[0]?.id ?? "-"}–${added.at(-1)?.id ?? "-"} 集，游标 → 句 ${cursor}${done ? "（结束）" : ""}`);
+  let next = added.length ? insertCuts(s, added, eps[0].range[0]) : s;
+  const done = reached >= p.until;
+  next = { ...next, planning: done ? null : { ...p, pos: reached } };
+  return withLog(next, `提交一窗：${added.map((e) => label(next, e.id)).join("、") || "无"}${done ? "（结束）" : ""}`);
 }
 
 export function stopPlanning(s: ProtoState): ProtoState {
-  return withLog({ ...s, planning: null }, "已停止规划，已提交的批次保留");
+  return withLog({ ...s, planning: null }, "已停止规划，已提交的集保留");
 }
 
-function markTouched(e: Ep): Ep {
+// ---------------------------------------------------------------- 手工切分
+
+export function cutAt(s: ProtoState, pos: number, title?: string): ProtoState {
+  const sp = spanAt(s, pos);
+  if (!sp) return s;
+  const id = maxId(s) + 1;
+  const ep: Ep = { id, title: title || "新的一集", hook: "", origin: "cut", loc: locOf(s, sp.a, pos), hasArtifacts: false, stale: false, fresh: true };
+  const next = insertCuts(clearFresh(s), [ep], sp.a);
+  return withLog(next, `手工切分：${label(next, id)} = ${sp.file.name} ${charsOf(s, [sp.a, pos])} 字`);
+}
+
+function touch(e: Ep): Ep {
   return e.hasArtifacts ? { ...e, stale: true } : e;
 }
 
 export function moveBoundary(s: ProtoState, leftId: number, pos: number): ProtoState {
   const right = nextCut(s, leftId);
   const left = s.episodes.find((e) => e.id === leftId);
-  if (!left || !right || !left.range || !right.range) return s;
-  if (right.range[0] !== left.range[1]) return s;
-  if (pos <= left.range[0] || pos >= right.range[1]) return s;
+  if (!left?.range || !right?.range || pos <= left.range[0] || pos >= right.range[1]) return s;
+  const f = fileSpan(s, left.loc!.file)!;
   const episodes = s.episodes.map((e) => {
-    if (e.id === left.id) return markTouched({ ...e, range: [e.range![0], pos] as [number, number] });
-    if (e.id === right.id) return markTouched({ ...e, range: [pos, e.range![1]] as [number, number] });
+    if (e.id === left.id) return touch({ ...e, loc: { ...e.loc!, b: pos - f.start } });
+    if (e.id === right.id) return touch({ ...e, loc: { ...e.loc!, a: pos - f.start } });
     return e;
   });
-  return withLog({ ...s, episodes }, `拖动第 ${left.id}/${right.id} 集边界 → 句 ${pos}`);
-}
-
-export function manualCut(s: ProtoState, endPos: number, title?: string): ProtoState {
-  if (endPos <= s.cursor || endPos > SOURCE_LEN) return s;
-  const id = maxId(s) + 1;
-  const ep: Ep = {
-    id, title: title || `第 ${id} 集`, hook: "", origin: "cut", range: [s.cursor, endPos],
-    hasArtifacts: false, stale: false, fresh: true,
-  };
-  return withLog({ ...clearFresh(s), episodes: [...s.episodes, ep], cursor: endPos },
-    `手工切分：第 ${id} 集 = 句 ${s.cursor}–${endPos}`);
-}
-
-/** 拆分 / 合并后，从该集起切出的集依次重排集号，跳过其他来源占用的集号 */
-function renumberFrom(s: ProtoState, fromId: number, cuts: Ep[]): Ep[] {
-  const reserved = new Set(otherEps(s).map((e) => e.id));
-  const before = cutEps(s).filter((e) => e.id < fromId);
-  let id = fromId;
-  const renum = cuts.map((e) => {
-    while (reserved.has(id)) id++;
-    return { ...e, id: id++ };
-  });
-  return [...before, ...renum, ...otherEps(s)];
+  return withLog(normalize({ ...s, episodes }), `移动 ${label(s, left.id)} / ${label(s, right.id)} 的分界`);
 }
 
 export function splitEp(s: ProtoState, id: number, pos: number): ProtoState {
   const ep = s.episodes.find((e) => e.id === id);
   if (!ep?.range || !canRestructure(s, id) || pos <= ep.range[0] || pos >= ep.range[1]) return s;
-  const tail = cutEps(s).filter((e) => e.range![0] > ep.range![0]);
-  const a: Ep = { ...ep, range: [ep.range[0], pos] };
-  const b: Ep = { ...ep, title: `${ep.title}（下）`, hook: "", range: [pos, ep.range[1]], fresh: true };
-  return withLog({ ...s, episodes: renumberFrom(s, id, [a, b, ...tail]) }, `拆分第 ${id} 集 @ 句 ${pos}，其后集号顺延`);
+  const f = fileSpan(s, ep.loc!.file)!;
+  const nid = maxId(s) + 1;
+  const ledger = s.episodes.flatMap((e) => (e.id === id
+    ? [{ ...e, loc: { ...e.loc!, b: pos - f.start } }, { ...e, id: nid, title: `${e.title}（下）`, hook: "", loc: { ...e.loc!, a: pos - f.start }, fresh: true }]
+    : [e]));
+  return withLog(normalize({ ...s, episodes: ledger }), `拆分 ${label(s, id)}`);
 }
 
 export function mergeWithNext(s: ProtoState, id: number): ProtoState {
   const ep = s.episodes.find((e) => e.id === id);
   const nx = nextCut(s, id);
-  if (!ep?.range || !nx?.range || !canRestructure(s, id)) return s;
-  const tail = cutEps(s).filter((e) => e.range![0] > nx.range![0]);
-  const merged: Ep = { ...ep, range: [ep.range[0], nx.range[1]] };
-  return withLog({ ...s, episodes: renumberFrom(s, id, [merged, ...tail]) }, `合并第 ${id} 集与第 ${nx.id} 集，其后集号前移`);
-}
-
-/** 移除某一集之后的所有切分：有产物的转为无原文的集并标 stale，没有产物的直接移除 */
-export function removeCutsAfter(s: ProtoState, id: number): ProtoState {
-  const ep = s.episodes.find((e) => e.id === id);
-  if (!ep?.range) return s;
-  const after = new Set(cutEps(s).filter((e) => e.range![0] >= ep.range![1]).map((e) => e.id));
-  const episodes = s.episodes.flatMap((e) => {
-    if (!after.has(e.id)) return [e];
-    if (e.hasArtifacts) return [{ ...e, origin: "none" as const, range: undefined, stale: true }];
-    return [];
-  });
-  return withLog({ ...s, episodes, cursor: ep.range[1] }, `移除第 ${id} 集之后的所有切分（${after.size} 集），游标回到句 ${ep.range[1]}`);
+  if (!ep || !nx || !canRestructure(s, id)) return s;
+  const episodes = s.episodes.filter((e) => e.id !== nx.id).map((e) => (e.id === id ? { ...e, loc: { ...e.loc!, b: nx.loc!.b } } : e));
+  return withLog(normalize({ ...s, episodes }), `合并 ${label(s, id)} 与 ${label(s, nx.id)}`);
 }
 
 export function affectedByRemoveAfter(s: ProtoState, id: number): Ep[] {
@@ -406,49 +482,225 @@ export function affectedByRemoveAfter(s: ProtoState, id: number): Ep[] {
   return cutEps(s).filter((e) => e.range![0] >= ep.range![1]);
 }
 
-export function addOwnEpisodes(s: ProtoState, files: { name: string; chars: number }[]): ProtoState {
+export function removeCutsAfter(s: ProtoState, id: number): ProtoState {
+  const ids = new Set(affectedByRemoveAfter(s, id).map((e) => e.id));
+  return withLog(retire(s, ids), `清除 ${label(s, id)} 之后的所有切分（${ids.size} 集）`);
+}
+
+export function addOwnEpisodes(s: ProtoState, files: { name: string; chars: number; kind: Kind }[]): ProtoState {
   let id = maxId(s);
   const added: Ep[] = files.map((f) => ({
-    id: ++id, title: f.name.replace(/\.[^.]+$/, ""), hook: "", origin: "own", ownChars: f.chars, ownFile: f.name,
+    id: ++id, title: f.name.replace(/\.[^.]+$/, ""), hook: "", origin: "own", ownChars: f.chars, ownFile: f.name, ownKind: f.kind,
     hasArtifacts: false, stale: false, fresh: true,
   }));
-  return withLog({ ...clearFresh(s), episodes: [...s.episodes, ...added] },
-    `上传逐集原文：${files.map((f, i) => `${f.name}→第 ${maxId(s) + i + 1} 集`).join("，")}`);
+  return withLog({ ...clearFresh(s), episodes: [...s.episodes, ...added] }, `上传逐集原文 ${files.length} 个`);
 }
 
 export function addBlankEpisode(s: ProtoState): ProtoState {
   const id = maxId(s) + 1;
-  return withLog({ ...clearFresh(s), episodes: [...s.episodes, { id, title: `第 ${id} 集`, hook: "", origin: "none", hasArtifacts: false, stale: false, fresh: true }] },
-    `新建一集：第 ${id} 集（无原文）`);
+  return withLog({ ...clearFresh(s), episodes: [...s.episodes, { id, title: "新的一集", hook: "", origin: "none", hasArtifacts: false, stale: false, fresh: true }] }, "新建一集（无原文）");
 }
 
-export function replaceSource(s: ProtoState): ProtoState {
-  return withLog({ ...s, sourceReplaced: true }, "整本源文已替换：接续规划与从第 N 集起重新规划被拒，只能从第 1 集起重新规划");
+// ---------------------------------------------------------------- 文件操作（#2830）
+
+let fileSeq = 100;
+export function newFileId(): string {
+  return `f${++fileSeq}`;
 }
 
-export function renameEp(s: ProtoState, id: number, title: string, hook: string): ProtoState {
-  return { ...s, episodes: s.episodes.map((e) => (e.id === id ? { ...e, title, hook } : e)) };
+/** 插入文件：不动任何集，新文件是未切分的原文 */
+export function insertFiles(s: ProtoState, added: SrcFile[], order: string[]): ProtoState {
+  const all = [...s.files, ...added];
+  const files = order.map((id) => all.find((f) => f.id === id)).filter((f): f is SrcFile => !!f);
+  return withLog(normalize({ ...clearFresh(s), files }), `新增整本源文文件：${added.map((f) => f.name).join("、")}`);
 }
 
-// ---------------------------------------------------------------- 候选
+/** 调序：切出集整块跟着文件走，其他来源的集按锚点落位，不标 stale */
+export function reorderFiles(s: ProtoState, order: string[]): ProtoState {
+  const files = order.map((id) => s.files.find((f) => f.id === id)).filter((f): f is SrcFile => !!f);
+  return withLog(normalize({ ...s, files }), `文件调序：${files.map((f) => f.name).join(" → ")}`);
+}
+
+/** 删除文件：该文件里的切出集按移除切分处理 */
+export function deleteFile(s: ProtoState, id: string): ProtoState {
+  const f = s.files.find((x) => x.id === id);
+  const ids = new Set(epsInFile(s, id).map((e) => e.id));
+  const t = retire(s, ids);
+  return withLog(normalize({ ...t, files: t.files.filter((x) => x.id !== id) }), `删除文件 ${f?.name}`);
+}
+
+export function setKind(s: ProtoState, id: string, kind: Kind): ProtoState {
+  return withLog({ ...s, files: s.files.map((f) => (f.id === id ? { ...f, kind } : f)) }, `源文件类型：${s.files.find((f) => f.id === id)?.name} → ${KIND_LABEL[kind]}`);
+}
+
+/** 替换 / 编辑 / 快照对齐：改动前后的文本逐句对齐，逐集映射边界 */
+export function rewriteFile(s: ProtoState, id: string, newText: string, opts: { kind?: Kind; name?: string; why: string } = { why: "编辑" }): ProtoState {
+  const f = s.files.find((x) => x.id === id);
+  if (!f) return s;
+  const al = aligner(f.text, newText);
+  const inFile = epsInFile(s, id);
+  const starts = new Set(inFile.map((e) => e.loc!.a));
+  const retired = new Set<number>();
+  let floor = 0;
+  const mapped = new Map<number, Ep>();
+  for (const e of inFile) {
+    const a2 = Math.max(floor, al.right(e.loc!.a));
+    const b2 = starts.has(e.loc!.b) ? al.right(e.loc!.b) : al.left(e.loc!.b);
+    if (b2 <= a2 || newText.slice(a2, b2).replace(/\s/g, "") === "") { retired.add(e.id); continue; }
+    const changed = f.text.slice(e.loc!.a, e.loc!.b) !== newText.slice(a2, b2);
+    mapped.set(e.id, { ...(changed ? touch(e) : e), loc: { file: id, a: a2, b: b2 } });
+    floor = b2;
+  }
+  const t: ProtoState = {
+    ...s,
+    files: s.files.map((x) => (x.id === id ? { ...x, text: newText, pendingText: undefined, kind: opts.kind ?? x.kind, name: opts.name ?? x.name } : x)),
+    episodes: s.episodes.map((e) => mapped.get(e.id) ?? e),
+  };
+  return withLog(retire(t, retired), `${opts.why}文件 ${f.name}`);
+}
+
+export function applyPending(s: ProtoState, id: string): ProtoState {
+  const f = s.files.find((x) => x.id === id);
+  if (f?.pendingText == null) return s;
+  return rewriteFile(s, id, f.pendingText, { why: "按快照对齐外部改动：" });
+}
+
+/** 原型调试：模拟源文件在 ArcReel 之外被改动（磁盘内容变了，快照仍是旧的） */
+export function simulateExternal(s: ProtoState, id: string): ProtoState {
+  const f = s.files.find((x) => x.id === id);
+  if (!f) return s;
+  return withLog({ ...s, files: s.files.map((x) => (x.id === id ? { ...x, pendingText: revise(x.text, 5) } : x)) }, `模拟：${f.name} 在 ArcReel 之外被改动`);
+}
+
+/** 示例修订版：改写一句、插入一句、删掉一段、末尾追加一段 */
+export function revise(text: string, seed = 1): string {
+  const toks = tokenize(text);
+  const n = toks.length;
+  const out: string[] = [];
+  const del0 = Math.floor(n * (0.58 + rnd(seed) * 0.04));
+  const del1 = del0 + Math.max(4, Math.floor(n * 0.12));
+  const ins = Math.floor(n * 0.4);
+  const mod = Math.floor(n * 0.22);
+  toks.forEach((t, i) => {
+    if (i === ins) out.push("她忽然想起，那天夜里码头上其实还有第三个人。");
+    if (i >= del0 && i < del1) return;
+    out.push(i === mod ? t.replace(/。/, "，谁也没有再说话。") : t);
+  });
+  return `${out.join("")}\n尾声\n雨停了。码头上只剩一盏灯还亮着，像是在等什么人回来。`;
+}
+
+// ---------------------------------------------------------------- 文本对齐（按句 LCS）
+
+function tokenize(t: string): string[] {
+  const out: string[] = [];
+  let cur = "";
+  for (let i = 0; i < t.length; i++) {
+    const c = t[i];
+    cur += c;
+    if (c === "\n" || ("。！？".includes(c) && t[i + 1] !== "”") || (c === "”" && "。！？".includes(t[i - 1]))) { out.push(cur); cur = ""; }
+  }
+  if (cur) out.push(cur);
+  return out;
+}
+
+function aligner(oldT: string, newT: string) {
+  const A = tokenize(oldT);
+  const B = tokenize(newT);
+  const n = A.length;
+  const m = B.length;
+  const W = m + 1;
+  const dp = new Int32Array((n + 1) * W);
+  for (let i = n - 1; i >= 0; i--) {
+    for (let j = m - 1; j >= 0; j--) {
+      dp[i * W + j] = A[i] === B[j] ? dp[(i + 1) * W + j + 1] + 1 : Math.max(dp[(i + 1) * W + j], dp[i * W + j + 1]);
+    }
+  }
+  const match = new Int32Array(n).fill(-1);
+  for (let i = 0, j = 0; i < n && j < m;) {
+    if (A[i] === B[j]) { match[i] = j; i++; j++; }
+    else if (dp[(i + 1) * W + j] >= dp[i * W + j + 1]) i++;
+    else j++;
+  }
+  const oa: number[] = [];
+  const nb: number[] = [];
+  A.reduce((x, t) => { oa.push(x); return x + t.length; }, 0);
+  B.reduce((x, t) => { nb.push(x); return x + t.length; }, 0);
+  const tokAt = (x: number) => { let i = 0; while (i + 1 < n && oa[i + 1] <= x) i++; return i; };
+  return {
+    /** 集的起点：新文字插在分界上时归前一集 */
+    right(x: number): number {
+      if (x >= oldT.length) return newT.length;
+      const i = tokAt(x);
+      if (match[i] >= 0) return nb[match[i]] + (x - oa[i]);
+      for (let k = i + 1; k < n; k++) if (match[k] >= 0) return nb[match[k]];
+      return newT.length;
+    },
+    /** 后面没有紧邻切出集的终点：之后插入的文字留作未切分的原文 */
+    left(x: number): number {
+      if (x <= 0) return 0;
+      const i = tokAt(x - 1);
+      if (match[i] >= 0) return nb[match[i]] + (x - oa[i]);
+      for (let k = i - 1; k >= 0; k--) if (match[k] >= 0) return nb[match[k]] + A[k].length;
+      return 0;
+    },
+  };
+}
+
+// ---------------------------------------------------------------- 影响清单（确认前展示）
+
+export interface Impact {
+  moved: { ep: Ep; from: number; to: number }[];
+  shifted: Ep[];
+  changedStale: Ep[];
+  changedPlain: Ep[];
+  retired: Ep[];
+  removed: Ep[];
+  kindStale: Ep[];
+}
+
+export function impact(prev: ProtoState, next: ProtoState): Impact {
+  const out: Impact = { moved: [], shifted: [], changedStale: [], changedPlain: [], retired: [], removed: [], kindStale: [] };
+  const kindOf = (s: ProtoState, e: Ep) => s.files.find((f) => f.id === e.loc?.file)?.kind;
+  for (const e of prev.episodes) {
+    const n = next.episodes.find((x) => x.id === e.id);
+    if (e.origin === "cut") {
+      if (!n) { out.removed.push(e); continue; }
+      if (n.origin !== "cut") { out.retired.push(e); continue; }
+      const t0 = L(prev).text.slice(e.range![0], e.range![1]);
+      const t1 = L(next).text.slice(n.range![0], n.range![1]);
+      if (t0 !== t1) (n.hasArtifacts ? out.changedStale : out.changedPlain).push(e);
+      else if (e.loc!.a !== n.loc!.a || e.loc!.b !== n.loc!.b) out.shifted.push(e);
+      if (e.hasArtifacts && kindOf(prev, e) !== kindOf(next, n)) out.kindStale.push(e);
+    }
+    if (n) {
+      const a = posOf(prev, e.id);
+      const b = posOf(next, e.id);
+      if (a !== b && n.origin === e.origin) out.moved.push({ ep: e, from: a, to: b });
+    }
+  }
+  return out;
+}
+
+export function impactEmpty(i: Impact): boolean {
+  return !i.shifted.length && !i.changedStale.length && !i.changedPlain.length && !i.retired.length && !i.removed.length && !i.kindStale.length;
+}
+
+// ---------------------------------------------------------------- 候选（沿用 #2767）
+
+export function replanStart(s: ProtoState, fromId: number): number {
+  return s.episodes.find((e) => e.id === fromId)?.range?.[0] ?? 0;
+}
 
 export function beginReplan(s: ProtoState, fromId: number, instructions: string): ProtoState {
   return withLog({ ...s, candidate: { fromEp: fromId, instructions, eps: [], status: "generating", reached: replanStart(s, fromId) } },
-    `从第 ${fromId} 集起重新规划：生成候选（账本不动）`);
-}
-
-export function replanStart(s: ProtoState, fromId: number): number {
-  const ep = s.episodes.find((e) => e.id === fromId);
-  return ep?.range?.[0] ?? 0;
+    `从 ${label(s, fromId)} 起重新规划：生成候选（账本不动）`);
 }
 
 export function candidateStep(s: ProtoState): ProtoState {
   const c = s.candidate;
   if (!c || c.status !== "generating") return s;
-  const batch = fakePlanWindow(c.reached, c.reached + 101, c.eps.length + 2);
-  const reached = batch.length ? batch.at(-1)!.range[1] : SOURCE_LEN;
-  const done = reached >= SOURCE_LEN;
-  return { ...s, candidate: { ...c, eps: [...c.eps, ...batch], reached, status: done ? "ready" : "generating" } };
+  const { eps, reached } = planChunk(s, c.reached, L(s).len, c.reached + 101);
+  return { ...s, candidate: { ...c, eps: [...c.eps, ...eps], reached, status: reached >= L(s).len ? "ready" : "generating" } };
 }
 
 export function stopCandidate(s: ProtoState): ProtoState {
@@ -463,7 +715,6 @@ export interface CandidateSummary {
   staleIds: number[];
   toNone: number[];
   removed: number[];
-  /** 中途停止时能否采纳（#2775 的建议：覆盖到结尾或恰好停在旧集边界上） */
   adoptable: boolean;
 }
 
@@ -473,25 +724,17 @@ export function candidateSummary(s: ProtoState): CandidateSummary | null {
   const start = replanStart(s, c.fromEp);
   const replaced = cutEps(s).filter((e) => e.range![0] >= start);
   const oldIds = replaced.map((e) => e.id);
-  let extra = Math.max(maxId(s), ...oldIds);
-  const mapping = c.eps.map((cand, i) => {
-    const oldId = oldIds[i];
-    return { newId: oldId ?? ++extra, oldId, cand };
-  });
+  let extra = maxId(s);
+  const mapping = c.eps.map((cand, i) => ({ newId: oldIds[i] ?? ++extra, oldId: oldIds[i], cand }));
   const leftover = replaced.slice(c.eps.length);
   const staleIds = replaced
     .filter((e, i) => e.hasArtifacts && (i >= c.eps.length || c.eps[i].range.join() !== e.range!.join()))
     .map((e) => e.id);
-  const boundaries = new Set(cutEps(s).map((e) => e.range![1]));
-  const adoptable = c.status === "ready" || (c.status === "stopped" && boundaries.has(c.reached));
   return {
-    replaced,
-    newCount: c.eps.length,
-    mapping,
-    staleIds,
+    replaced, newCount: c.eps.length, mapping, staleIds,
     toNone: leftover.filter((e) => e.hasArtifacts).map((e) => e.id),
     removed: leftover.filter((e) => !e.hasArtifacts).map((e) => e.id),
-    adoptable,
+    adoptable: c.status !== "generating",
   };
 }
 
@@ -499,26 +742,22 @@ export function adoptCandidate(s: ProtoState): ProtoState {
   const c = s.candidate;
   const sum = candidateSummary(s);
   if (!c || !sum || !sum.adoptable) return s;
-  const replacedIds = new Set(sum.replaced.map((e) => e.id));
   const oldById = new Map(sum.replaced.map((e) => [e.id, e]));
-  const kept = s.episodes.filter((e) => !replacedIds.has(e.id));
-  const fromCand: Ep[] = sum.mapping.map((m) => {
-    const old = m.oldId ? oldById.get(m.oldId) : undefined;
-    return {
-      id: m.newId, title: m.cand.title, hook: m.cand.hook, origin: "cut", range: m.cand.range,
-      hasArtifacts: old?.hasArtifacts ?? false, stale: sum.staleIds.includes(m.newId) || (old?.stale ?? false), fresh: true,
-    };
+  const mappedOld = new Map(sum.mapping.filter((m) => m.oldId != null).map((m) => [m.oldId!, m]));
+  const retired = new Set(sum.replaced.filter((e) => !mappedOld.has(e.id)).map((e) => e.id));
+  const episodes = s.episodes.map((e) => {
+    const m = mappedOld.get(e.id);
+    if (!m) return e;
+    const old = oldById.get(e.id)!;
+    return { ...e, title: m.cand.title, hook: m.cand.hook, loc: locOf(s, m.cand.range[0], m.cand.range[1]), stale: sum.staleIds.includes(e.id) || old.stale, fresh: true };
   });
-  const toNone: Ep[] = sum.toNone.map((id) => ({ ...oldById.get(id)!, origin: "none", range: undefined, stale: true }));
-  return withLog({
-    ...clearFresh(s),
-    episodes: [...kept, ...fromCand, ...toNone],
-    cursor: c.reached,
-    candidate: null,
-    sourceReplaced: c.fromEp === cutEps(s)[0]?.id ? false : s.sourceReplaced,
-  }, `采纳候选：替换第 ${sum.replaced.map((e) => e.id).join("、")} 集，stale：${sum.staleIds.join("、") || "无"}`);
+  const added: Ep[] = sum.mapping.filter((m) => m.oldId == null).map((m) => ({
+    id: m.newId, title: m.cand.title, hook: m.cand.hook, origin: "cut", loc: locOf(s, m.cand.range[0], m.cand.range[1]), hasArtifacts: false, stale: false, fresh: true,
+  }));
+  const t = normalize({ ...clearFresh(s), episodes: [...episodes, ...added], candidate: null });
+  return withLog(retire(t, retired), `采纳新方案：${sum.replaced.length} 集 → ${sum.newCount} 集`);
 }
 
 export function discardCandidate(s: ProtoState): ProtoState {
-  return withLog({ ...s, candidate: null }, "放弃候选，账本未改动");
+  return withLog({ ...s, candidate: null }, "放弃新方案，账本未改动");
 }

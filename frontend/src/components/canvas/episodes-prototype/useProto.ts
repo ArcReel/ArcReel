@@ -1,9 +1,9 @@
-// PROTOTYPE（#2767）：内存状态 + 模拟服务端逐窗串联的计时器。
+// PROTOTYPE（#2831）：内存状态 + 模拟服务端逐窗串联的计时器。
+// 文件操作先用纯函数算出下一状态、给确认对话框列影响，确认后再 commit。
 import { useCallback, useEffect, useState } from "react";
 import * as M from "./model";
 
-/** 模拟一批（一次非流式调用）的耗时；真实耗时以分钟计 */
-const TICK_MS = 2500;
+const TICK_MS = 2000;
 
 export function useProto() {
   const [s, setS] = useState<M.ProtoState>(M.initialState);
@@ -12,7 +12,7 @@ export function useProto() {
     if (!s.planning) return;
     const t = setTimeout(() => setS((p) => M.planOneWindow(p)), TICK_MS);
     return () => clearTimeout(t);
-  }, [s.planning, s.cursor]);
+  }, [s.planning]);
 
   useEffect(() => {
     if (s.candidate?.status !== "generating") return;
@@ -25,18 +25,19 @@ export function useProto() {
 
   return {
     s,
+    commit: (next: M.ProtoState) => setS(next),
     reset: () => setS(M.initialState()),
     beginPlanning: run(M.beginPlanning),
+    beginGapPlanning: run(M.beginGapPlanning),
     stopPlanning: run(M.stopPlanning),
     moveBoundary: run(M.moveBoundary),
-    manualCut: run(M.manualCut),
+    cutAt: run(M.cutAt),
     splitEp: run(M.splitEp),
     mergeWithNext: run(M.mergeWithNext),
     removeCutsAfter: run(M.removeCutsAfter),
     addOwnEpisodes: run(M.addOwnEpisodes),
     addBlankEpisode: run(M.addBlankEpisode),
-    replaceSource: run(M.replaceSource),
-    renameEp: run(M.renameEp),
+    simulateExternal: run(M.simulateExternal),
     beginReplan: run(M.beginReplan),
     stopCandidate: run(M.stopCandidate),
     adoptCandidate: run(M.adoptCandidate),
