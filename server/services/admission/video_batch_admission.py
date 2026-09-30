@@ -233,6 +233,140 @@ def screen_script_entries(
     return clean, tickets
 
 
+def storyboard_item_aliases(item: dict[str, Any], id_field: str) -> set[str]:
+    """点名时能寻址到这个条目的全部写法。
+
+    各入口既认规范 ``id_field`` 也认 ``scene_id`` 别名，两者在剧本里可以不同；按哪一个
+    点名都要指到同一个条目，否则同一个名字在不同入口指向不同条目。
+    """
+
+    # 先按类型过滤再进集合：脏剧本里的 list / dict 别名不可哈希，直接建集合会抛 TypeError，
+    # 逐目标的拒绝契约就塌成一句通用报错。
+    aliases = (item.get(id_field), item.get("scene_id"))
+    return {alias.strip() for alias in aliases if isinstance(alias, str) and alias.strip()}
+
+
+def screen_storyboard_items(
+    items: Sequence[Any],
+    id_field: str,
+    *,
+    requested_ids: Collection[str] | None,
+) -> tuple[list[dict[str, Any]], list[UnitAdmissionTicket]]:
+    """把剧本条目分成「能当目标的」与「成不了目标的」两份，后者按位置记名。
+
+    非对象条目、id 不是字符串、id 为空、以及同一个 id 出现多次，都会让后面按 id 索引的每一步
+    失手：条目被静默滤掉时同批健康的目标独自入队计费，撞上集合查询时又把逐目标的拒绝契约打成
+    一句通用报错。数字与布尔 id 混过 ``str()`` 进队列后，执行期按原值比对同样找不到目标。
+    各入口在读 id 之前先经这一道筛，这些失手都变成一张记名的准入票。
+
+    缺失即生成把整个剧本当作目标集合，剧本里任何一处脏条目都参与判定；点名生成的目标集合由
+    调用方给定，只有点到的 id 上的脏（同一个 id 的副本）才参与，否则别处的脏数据会否决一次
+    精确点名的重做。
+
+    记名用带方括号的位置写法，与合法 id 不共用命名空间：同名会让结果契约把两条不同的条目
+    当作同一个，写第二遍时 fail loud，用户拿到的又是一句通用报错。
+    """
+
+    clean: list[dict[str, Any]] = []
+    tickets: list[UnitAdmissionTicket] = []
+    seen: set[str] = set()
+    addressable: list[tuple[dict[str, Any], str]] = []
+    taken = {
+        str(storyboard_item_id(item, id_field)).strip()
+        for item in items
+        if isinstance(item, dict) and isinstance(storyboard_item_id(item, id_field), str)
+    }
+    named = set(requested_ids) if requested_ids is not None else None
+    if named is not None:
+        # 点名的 ID 也占着记名空间：点到剧本里没有的名字时上游还会记一条「不存在」，
+        # 诊断名与它同名会把两条并成一条。
+        taken |= named
+    refused_names: set[str] = set()
+    for index, item in enumerate(items):
+        detail: str | None = None
+        item_id = ""
+        if not isinstance(item, dict):
+            detail = "该条目不是对象"
+        else:
+            raw_id = storyboard_item_id(item, id_field)
+            if raw_id is not None and not isinstance(raw_id, str):
+                detail = "该条目的 ID 不是字符串"
+            else:
+                item_id = (raw_id or "").strip()
+                if not item_id:
+                    detail = "该条目没有可用的 ID"
+        if detail is not None:
+            if named is None:
+                tickets.append(
+                    refused_ticket(
+                        diagnostic_unit_id(f"items[{index}]", taken),
+                        code=GenerationProblemCode.UNIT_REQUEST_INVALID,
+                        detail=detail,
+                        action=GenerationAction.FIX_INPUT,
+                    )
+                )
+            elif isinstance(item, dict):
+                # 点名点中的正好是这个脏条目：按点名的写法给结论，否则调用方只收到一句
+                # 「不存在」，而这个名字在剧本里明明有条目。
+                for name in sorted(storyboard_item_aliases(item, id_field) & named):
+                    if name in refused_names:
+                        continue
+                    refused_names.add(name)
+                    tickets.append(
+                        refused_ticket(
+                            name,
+                            code=GenerationProblemCode.UNIT_REQUEST_INVALID,
+                            detail=detail,
+                            action=GenerationAction.FIX_INPUT,
+                        )
+                    )
+            continue
+        if named is not None:
+            addressable.append((item, item_id))
+            continue
+        if item_id in seen:
+            tickets.append(
+                refused_ticket(
+                    diagnostic_unit_id(f"{item_id}#{index}", taken),
+                    code=GenerationProblemCode.UNIT_REQUEST_INVALID,
+                    detail=f"ID {item_id} 在剧本中重复出现",
+                    action=GenerationAction.FIX_INPUT,
+                )
+            )
+            continue
+        seen.add(item_id)
+        clean.append(item)
+    if named is None:
+        return clean, tickets
+
+    # 点名可以用规范 ID，也可以用 ``scene_id`` 别名，两者在剧本里可以不同；执行期按规范 ID
+    # 定位目标。因此一个名字指到几个条目，要把「直接被它寻址的条目」连同「与之共用规范 ID
+    # 的兄弟」一起数：只按名字数会漏掉别名不同、规范 ID 相同的那种，各入口按各自的查法分别
+    # 选中头一个或末一个，同一次点名在不同入口做的是不同条目。
+    by_canonical: dict[str, list[dict[str, Any]]] = {}
+    for item, item_id in addressable:
+        by_canonical.setdefault(item_id, []).append(item)
+    ambiguous: set[int] = set()
+    for name in sorted(named - refused_names):
+        owners = {id(item) for item, _ in addressable if name in storyboard_item_aliases(item, id_field)}
+        targets = {
+            id(sibling) for item, item_id in addressable if id(item) in owners for sibling in by_canonical[item_id]
+        }
+        if len(targets) <= 1:
+            continue
+        ambiguous |= targets
+        tickets.append(
+            refused_ticket(
+                name,
+                code=GenerationProblemCode.UNIT_REQUEST_INVALID,
+                detail=f"ID {name} 在剧本中指向多个条目",
+                action=GenerationAction.FIX_INPUT,
+            )
+        )
+    clean.extend(item for item, _ in addressable if id(item) not in ambiguous)
+    return clean, tickets
+
+
 def resolve_reference_batch_targets(
     *,
     units: Sequence[Any],
@@ -825,6 +959,20 @@ def build_storyboard_video_specs(
     return specs, refused
 
 
+async def storyboard_video_request_facts(
+    project: dict[str, Any], config_resolver: ConfigResolver | None = None
+) -> VideoRequestFacts | VideoRequestFactsFailure:
+    """分镜图生视频按项目当前配置的视频请求事实：准入与报价读同一份。"""
+
+    return await evaluate_video_request_facts(
+        project,
+        route="storyboard",
+        generation_type=video_bucket_for_generation_mode(project.get("generation_mode")),
+        identity=CONFIGURED_VIDEO_IDENTITY,
+        resolver=config_resolver or ConfigResolver(async_session_factory),
+    )
+
+
 async def admit_storyboard_video_request(
     *,
     project_name: str,
@@ -839,10 +987,12 @@ async def admit_storyboard_video_request(
     user_id: str = DEFAULT_USER_ID,
     queue: GenerationQueue | None = None,
     config_resolver: ConfigResolver | None = None,
+    video_request_facts: VideoRequestFacts | VideoRequestFactsFailure | None = None,
 ) -> BatchAdmission:
     """Admit one Storyboard-mode request from the specs it would actually enqueue.
 
-    目标集取自即将入队的 spec，被拒的单元不在其中。
+    目标集取自即将入队的 spec，被拒的单元不在其中。``video_request_facts`` 由已求值过的调用方
+    传入（批量预览还要用同一份事实报价），缺省时在此求值。
 
     音频开关冲突属于请求自身已知的配置缺口，在这里与其余缺口折进同一批逐目标结论：
     短路返回只会报出这一条，用户改完配置重试才撞见下一个已知缺口。
@@ -856,15 +1006,7 @@ async def admit_storyboard_video_request(
             raise ValueError(f"找不到待生成条目: {spec.resource_id}")
         targets.append((spec.resource_id, item))
     request_facts = (
-        await evaluate_video_request_facts(
-            project,
-            route="storyboard",
-            generation_type=video_bucket_for_generation_mode(project.get("generation_mode")),
-            identity=CONFIGURED_VIDEO_IDENTITY,
-            resolver=config_resolver or ConfigResolver(async_session_factory),
-        )
-        if specs
-        else None
+        (video_request_facts or await storyboard_video_request_facts(project, config_resolver)) if specs else None
     )
     conflict_detail = await audio_switch_conflict(project, request_facts=request_facts) if specs else None
     admission = await admit_storyboard_video_batch(
@@ -912,8 +1054,11 @@ __all__ = [
     "request_options_for_unit",
     "resolve_reference_batch_targets",
     "resolve_voice_context",
+    "screen_storyboard_items",
     "speech_admission_problems",
     "speech_admission_ticket",
+    "storyboard_item_aliases",
     "storyboard_video_prompt",
+    "storyboard_video_request_facts",
     "video_target_states",
 ]

@@ -28,6 +28,7 @@ import {
   enqueueReferenceVideoUnit,
   enqueueScene,
   enqueueStoryboard,
+  enqueueStoryboardBatch,
   enqueueVideo,
 } from "@/actions/generation";
 
@@ -593,5 +594,42 @@ describe("enqueueReferenceVideoBatch", () => {
     );
 
     expect(markCounts()).toEqual({ resource: 0, scriptFile: 0 });
+  });
+});
+
+describe("enqueueStoryboardBatch", () => {
+  it("按服务端返回的分镜逐项打占用标记，并弹提交与未排上的提示", async () => {
+    vi.spyOn(API, "submitStoryboardBatch").mockResolvedValue({
+      batch_id: "b1",
+      task_ids_by_unit: { E1S01: "t1", E1S02: "t2" },
+      skipped: [{ unit_id: "E1S04", reason: "missing_prompt" }],
+      enqueue_failures: [{ unit_id: "E1S03", problem: { code: "generation_enqueue_failed" } }],
+    });
+
+    await enqueueStoryboardBatch("demo", 1, "storyboards");
+
+    expect(occupied("demo", "storyboard", "E1S01")).toBe(true);
+    expect(occupied("demo", "storyboard", "E1S02")).toBe(true);
+    expect(occupied("demo", "storyboard", "E1S03")).toBe(false);
+    expect(useAppStore.getState().toast).toMatchObject({
+      text: i18n.t("dashboard:storyboard_batch_enqueue_failed", { count: 1 }),
+      tone: "warning",
+    });
+  });
+
+  it("分镜视频整批准入未通过时不打标、不提示", async () => {
+    vi.spyOn(API, "submitStoryboardBatch").mockResolvedValue({
+      batch_id: null,
+      task_ids_by_unit: {},
+      skipped: [],
+      enqueue_failures: [],
+      admission: { decision: "blocked", operation: "generate_videos", selection: "missing_only", units: [] },
+    });
+
+    const res = await enqueueStoryboardBatch("demo", 1, "videos");
+
+    expect(res.admission?.decision).toBe("blocked");
+    expect(markCounts().resource).toBe(0);
+    expect(useAppStore.getState().toast).toBeNull();
   });
 });

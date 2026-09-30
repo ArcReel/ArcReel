@@ -410,6 +410,36 @@ describe("WorkflowPanel 集层资产图入口", () => {
   });
 });
 
+describe("WorkflowPanel 分镜图与视频批量入口", () => {
+  it.each([
+    ["generate_storyboards", "批量生成分镜图", "storyboards"],
+    ["generate_videos", "批量生成视频", "videos"],
+  ] as const)("下一步是 %s 时，直接调用打开本集的批量确认", async (action, label, kind) => {
+    const preview = vi
+      .spyOn(API, "previewStoryboardBatch")
+      .mockResolvedValue({ targets: [], skipped: [], estimated_cost: null });
+    await renderPanel(
+      scenario({
+        next: nextAction(action, { requested_ids: ["E1S01"] }),
+        status: { project: { content_mode: "narration", generation_mode: "storyboard", grid_storyboard: false } },
+      }),
+    );
+    fireEvent.click(await screen.findByRole("button", { name: label }));
+    await waitFor(() => expect(preview).toHaveBeenCalledWith("proj", 1, kind, expect.anything()));
+  });
+
+  it("参考生视频项目的视频下一步不给分镜视频批量入口", async () => {
+    await renderPanel(
+      scenario({
+        next: nextAction("generate_videos"),
+        status: { project: { content_mode: "narration", generation_mode: "reference_video", grid_storyboard: false } },
+      }),
+    );
+    await screen.findByRole("button", { name: "交给 Agent" });
+    expect(screen.queryByRole("button", { name: "批量生成视频" })).not.toBeInTheDocument();
+  });
+});
+
 describe("WorkflowPanel 过期产物、任务与准入", () => {
   const videoScenario = (step: Partial<WorkflowPlanStep>) =>
     scenario({ next: nextAction("generate_videos"), steps: [makeStep({ id: "video", ...step })] });

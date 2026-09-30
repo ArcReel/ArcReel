@@ -524,6 +524,7 @@ MESSAGES = {
     ),
     # Episode meta
     "episode_not_found": "Episode (id={episode}) not found or has no script file yet",
+    "storyboard_batch_script_invalid": "The formal script of episode {episode} cannot be used for batch storyboard generation: its structure does not match the project generation mode, or it is not bound to this episode",
     "episode_title_empty": "Episode title cannot be empty",
     "about_update_check_failed": "Failed to check for updates, please try again later",
     "about_version_read_failed": "Failed to read app version",

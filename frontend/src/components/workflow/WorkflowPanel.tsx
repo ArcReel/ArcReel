@@ -10,6 +10,7 @@ import {
   scriptPlanResourceId,
 } from "@/actions/generation";
 import { AssetSheetBatchDialog } from "@/components/canvas/lorebook/AssetSheetBatchDialog";
+import { StoryboardBatchDialog } from "@/components/canvas/timeline/StoryboardBatchDialog";
 import { promptAuthoringHandoffText } from "@/components/canvas/shared/prompt-authoring-handoff";
 import { DiscardDraftDialog, draftFallbackText, draftFixRequestText, prefillAssistant } from "@/components/shared/DraftStatus";
 import { diagnosticCode } from "@/hooks/useDraftEditor";
@@ -21,7 +22,7 @@ import { useProjectsStore } from "@/stores/projects-store";
 import { useScriptPlanStore } from "@/stores/script-plan-store";
 import { isResourceBusy, useTasksStore } from "@/stores/tasks-store";
 import { useWorkflowStore } from "@/stores/workflow-store";
-import type { ProjectData } from "@/types";
+import type { ProjectData, StoryboardBatchKind } from "@/types";
 import type { DraftDocType } from "@/types/reference-video";
 import { errMsg } from "@/utils/async";
 import { episodeAgentRef } from "@/utils/episode-display";
@@ -99,6 +100,9 @@ export function WorkflowPanel({ projectName, episode, onViewUnit, onRegenerate, 
   const [, setLocation] = useLocation();
   const [expanded, setExpanded] = useState(false);
   const [assetBatchEpisode, setAssetBatchEpisode] = useState<number | null>(null);
+  const [storyboardBatch, setStoryboardBatch] = useState<{ episodeId: number; kind: StoryboardBatchKind } | null>(
+    null,
+  );
   const [instructionDraft, setInstructionDraft] = useState<{ key: string; value: string } | null>(null);
   const [running, setRunning] = useState(false);
   const [pendingDiscard, setPendingDiscard] = useState<PendingDiscard | null>(null);
@@ -206,6 +210,9 @@ export function WorkflowPanel({ projectName, episode, onViewUnit, onRegenerate, 
           return;
         case "asset_batch":
           setAssetBatchEpisode(intent.episodeId);
+          return;
+        case "storyboard_batch":
+          setStoryboardBatch({ episodeId: intent.episodeId, kind: intent.kind });
           return;
         case "show_surface":
           useEpisodeSurfaceStore.getState().show({ projectName, episode: episodeId, surface: intent.surface });
@@ -457,6 +464,14 @@ export function WorkflowPanel({ projectName, episode, onViewUnit, onRegenerate, 
           projectName={projectName}
           scope={{ episode_id: assetBatchEpisode }}
           onClose={() => setAssetBatchEpisode(null)}
+        />
+      )}
+      {storyboardBatch !== null && (
+        <StoryboardBatchDialog
+          projectName={projectName}
+          episode={storyboardBatch.episodeId}
+          kind={storyboardBatch.kind}
+          onClose={() => setStoryboardBatch(null)}
         />
       )}
       {pendingDiscard && (

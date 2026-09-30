@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { ScriptReviewGate } from "./ScriptReviewGate";
 import { PromptAuthoringButton } from "@/components/canvas/shared/PromptAuthoringButton";
 import { ShotSplitView } from "./ShotSplitView";
+import { StoryboardBatchDialog } from "./StoryboardBatchDialog";
 import { EpisodeHeader } from "./EpisodeHeader";
 import { EmptyScriptState } from "./EmptyScriptState";
 import type { InsertShotHandler } from "./ShotStructureActions";
@@ -24,6 +25,7 @@ import type {
   DramaScene,
   AdShot,
   ProjectData,
+  StoryboardBatchKind,
 } from "@/types";
 
 type Segment = NarrationSegment | DramaScene | AdShot;
@@ -124,6 +126,7 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
   const showTabs = Boolean(hasDraft) && editorContentMode !== "ad";
   const defaultTab = hasScript ? "timeline" : "preprocessing";
   const [activeTab, setActiveTab] = useState<"preprocessing" | "timeline">(defaultTab);
+  const [batchKind, setBatchKind] = useState<StoryboardBatchKind | null>(null);
 
   // Auto-switch to timeline when script becomes available
   useEffect(() => {
@@ -332,7 +335,8 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
             <button
               type="button"
               className="sv-navbtn inline-flex items-center gap-1.5"
-              disabled
+              disabled={demoReadOnly}
+              onClick={() => setBatchKind("storyboards")}
               title={t("batch_generate_storyboards")}
             >
               <Sparkles className="h-3 w-3" />
@@ -341,7 +345,8 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
             <button
               type="button"
               className="sv-navbtn inline-flex items-center gap-1.5"
-              disabled
+              disabled={demoReadOnly}
+              onClick={() => setBatchKind("videos")}
               title={t("batch_generate_videos")}
             >
               <Sparkles className="h-3 w-3" />
@@ -362,6 +367,15 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
           </div>
         )}
       </div>
+
+      {batchKind && (
+        <StoryboardBatchDialog
+          projectName={projectName}
+          episode={episode}
+          kind={batchKind}
+          onClose={() => setBatchKind(null)}
+        />
+      )}
 
       {/* 主体 */}
       <div

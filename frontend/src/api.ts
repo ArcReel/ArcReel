@@ -122,6 +122,11 @@ import type {
   AssetSheetType,
 } from "@/types/asset-sheet";
 import type {
+  StoryboardBatchKind,
+  StoryboardBatchPreview,
+  StoryboardBatchSubmitted,
+} from "@/types/storyboard-batch";
+import type {
   AgentCredential,
   CreateAgentCredentialRequest,
   PresetProvidersResponse,
@@ -837,6 +842,30 @@ class API {
     return this.request(`/projects/${encodeURIComponent(projectName)}/asset-sheets/batch`, {
       method: "POST",
       body: JSON.stringify(scope),
+    });
+  }
+
+  /** 规划一集的分镜图或分镜视频批量但不建任务：名单、跳过项与能算出时的预估费用。 */
+  static async previewStoryboardBatch(
+    projectName: string,
+    episode: number,
+    kind: StoryboardBatchKind,
+    options: { signal?: AbortSignal } = {}
+  ): Promise<StoryboardBatchPreview> {
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/episodes/${episode}/${kind}/batch/preview`,
+      { method: "POST", signal: options.signal }
+    );
+  }
+
+  /** 提交一集的分镜图或分镜视频批量；分镜视频整批准入未通过时不建任务，返回结论。 */
+  static async submitStoryboardBatch(
+    projectName: string,
+    episode: number,
+    kind: StoryboardBatchKind
+  ): Promise<StoryboardBatchSubmitted> {
+    return this.request(`/projects/${encodeURIComponent(projectName)}/episodes/${episode}/${kind}/batch`, {
+      method: "POST",
     });
   }
 
