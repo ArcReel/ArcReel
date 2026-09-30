@@ -151,13 +151,30 @@ export type ScriptReviewStatus =
   | "pending_review"
   | "confirmed";
 
-/** 内容确认将覆盖的正式脚本：旧分镜全部移除，列出每条分镜名下已生成的产物。 */
+/** 内容确认将覆盖的正式脚本条目，及其名下无法在项目内恢复的产物与归属。 */
+export interface ScriptOverwriteEntry {
+  id: string;
+  has_storyboard: boolean;
+  has_video: boolean;
+  has_narration_audio: boolean;
+  has_end_frame: boolean;
+  /** 所属宫格（联合图）ID；不在任何宫格内为 null。 */
+  grid_id: string | null;
+}
+
+/** 内容确认将覆盖的正式脚本：旧分镜全部移除，列出每条分镜名下无法恢复的产物。 */
 export interface ScriptOverwrite {
   /** 被列出的这份正式脚本的版本；认可覆盖时原样回传，正式脚本之后又有变化则按新清单再次拒绝。 */
   revision: string;
-  entries: { id: string; has_storyboard: boolean; has_video: boolean }[];
+  entries: ScriptOverwriteEntry[];
   storyboard_count: number;
   video_count: number;
+  narration_audio_count: number;
+  end_frame_count: number;
+  grid_member_count: number;
+  grid_count: number;
+  /** 服务端生成的丢失清单文本（已按请求语言成文）；确认框原样呈现，Agent 收到同一份。 */
+  text: string;
 }
 
 /** script_plan→prompt_authoring 内容确认状态（后端 server/routers/script_review.py 的 GET 响应）。 */

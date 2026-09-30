@@ -5,7 +5,7 @@ import { useAppStore } from "@/stores/app-store";
 import { useAssistantStore } from "@/stores/assistant-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { ReferenceScriptPlanPreviewPanel } from "./ReferenceScriptPlanPreviewPanel";
-import { makeReferenceUnitCapability } from "@/test/factories";
+import { makeReferenceUnitCapability, makeScriptOverwrite, makeScriptOverwriteEntry } from "@/test/factories";
 import type { MentionLookup } from "@/hooks/useUnitPromptHighlight";
 import type {
   ReferenceScriptPlanDraft,
@@ -34,7 +34,7 @@ async function settleCapabilityRequests(spy: MockInstance<typeof API.getVideoCap
 const CONFIRMED: Partial<ScriptReviewState> = {
   status: "confirmed",
   confirmed_at: "2026-06-26T00:00:00Z",
-  script_overwrite: { revision: "sha256-v1:formal", entries: [], storyboard_count: 0, video_count: 0 },
+  script_overwrite: makeScriptOverwrite(),
 };
 
 /** 服务端对单个 unit 的定桶结论；默认「引用齐全 → r2v，档位 4/8」，用例按需覆盖。 */
@@ -302,12 +302,12 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
   });
 
   it("confirms over an existing formal script only through the danger overwrite dialog", async () => {
-    const overwrite = {
+    const overwrite = makeScriptOverwrite({
       revision: "sha256-v1:listed",
-      entries: [{ id: "E1U01", has_storyboard: false, has_video: true }],
-      storyboard_count: 0,
+      entries: [makeScriptOverwriteEntry("E1U01", { has_video: true })],
       video_count: 1,
-    };
+      text: "现有 1 条分镜全部移除。视频 1 段。",
+    });
     vi.spyOn(API, "getScriptReview").mockResolvedValue(pendingState({ script_overwrite: overwrite }));
     const confirm = vi
       .spyOn(API, "confirmScriptReview")
@@ -320,28 +320,28 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
     expect(screen.queryByRole("button", { name: /确认拆分，继续生成/ })).not.toBeInTheDocument();
 
     fireEvent.click(button);
-    expect(await screen.findByRole("dialog")).toHaveTextContent("0 张分镜图、1 段视频随分镜移除");
+    expect(await screen.findByRole("dialog")).toHaveTextContent(overwrite.text);
     fireEvent.click(screen.getByRole("button", { name: "覆盖并确认" }));
 
     await waitFor(() => expect(confirm).toHaveBeenCalledWith("p", 1, { overwriteRevision: "sha256-v1:listed" }));
   });
 
   it("keeps the overwrite dialog open with the refreshed list when the formal script changed meanwhile", async () => {
-    const listed = {
+    const listed = makeScriptOverwrite({
       revision: "sha256-v1:listed",
-      entries: [{ id: "E1U01", has_storyboard: false, has_video: true }],
-      storyboard_count: 0,
+      entries: [makeScriptOverwriteEntry("E1U01", { has_video: true })],
       video_count: 1,
-    };
-    const refreshed = {
+      text: "现有 1 条分镜全部移除。视频 1 段。",
+    });
+    const refreshed = makeScriptOverwrite({
       revision: "sha256-v1:refreshed",
       entries: [
-        { id: "E1U01", has_storyboard: false, has_video: true },
-        { id: "E1U05", has_storyboard: false, has_video: true },
+        makeScriptOverwriteEntry("E1U01", { has_video: true }),
+        makeScriptOverwriteEntry("E1U05", { has_video: true }),
       ],
-      storyboard_count: 0,
       video_count: 2,
-    };
+      text: "现有 2 条分镜全部移除。视频 2 段。E1U05（视频）",
+    });
     vi.spyOn(API, "getScriptReview").mockResolvedValue(pendingState({ script_overwrite: listed }));
     const confirm = vi
       .spyOn(API, "confirmScriptReview")
@@ -353,7 +353,7 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
     fireEvent.click(await screen.findByRole("button", { name: "覆盖并确认" }));
 
     await waitFor(() => expect(screen.getByRole("dialog")).toHaveTextContent("E1U05"));
-    expect(screen.getByRole("dialog")).toHaveTextContent("0 张分镜图、2 段视频随分镜移除");
+    expect(screen.getByRole("dialog")).toHaveTextContent(refreshed.text);
 
     fireEvent.click(screen.getByRole("button", { name: "覆盖并确认" }));
     await waitFor(() => expect(confirm).toHaveBeenLastCalledWith("p", 1, { overwriteRevision: "sha256-v1:refreshed" }));
@@ -375,7 +375,7 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
   });
 
   it("disables the overwrite confirm too when the video model cannot be resolved", async () => {
-    const overwrite = { revision: "sha256-v1:listed", entries: [], storyboard_count: 0, video_count: 0 };
+    const overwrite = makeScriptOverwrite({ revision: "sha256-v1:listed" });
     vi.spyOn(API, "getScriptReview").mockResolvedValue(pendingState({ script_overwrite: overwrite }));
     vi.spyOn(API, "getVideoCapabilities").mockRejectedValue(new ApiRequestError("无法解析", undefined, 422));
 
@@ -386,7 +386,7 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
   });
 
   it("disables the in-dialog confirm when the video model turns out unresolvable after the dialog opened", async () => {
-    const overwrite = { revision: "sha256-v1:listed", entries: [], storyboard_count: 0, video_count: 0 };
+    const overwrite = makeScriptOverwrite({ revision: "sha256-v1:listed" });
     vi.spyOn(API, "getScriptReview").mockResolvedValue(pendingState({ script_overwrite: overwrite }));
     let rejectCapabilities: (reason: unknown) => void = () => {};
     vi.spyOn(API, "getVideoCapabilities").mockReturnValue(

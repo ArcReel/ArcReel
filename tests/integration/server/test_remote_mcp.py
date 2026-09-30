@@ -792,6 +792,8 @@ async def test_remote_mcp_text_generation_and_script_patch_return_structured_con
     assert refused.isError
     assert refused_problem["code"] == "script_overwrite_required"
     assert refused_problem["params"]["script_overwrite"]["entries"] == []
+    # 回执正文就是服务端生成的丢失清单，与 params 里的文本同一份。
+    assert refused_problem["params"]["script_overwrite"]["text"] in refused_problem["detail"]
     assert not confirmed.isError
     assert confirmed.structuredContent["text_generation"]["message"]
     assert not script.isError

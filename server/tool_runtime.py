@@ -810,7 +810,7 @@ class ConfirmScriptReviewRequest(BaseModel):
     episode: PositiveEpisode = Field(description="剧集编号")
     overwrite_revision: str | SkipJsonSchema[None] = Field(
         default=None,
-        description="用户已同意覆盖的正式脚本版本，取自 script_overwrite.revision；尚无正式脚本时不必给",
+        description="用户听完丢失清单并同意覆盖后，才传入的令牌，取自 script_overwrite.revision；尚无正式脚本时不必给",
     )
 
 

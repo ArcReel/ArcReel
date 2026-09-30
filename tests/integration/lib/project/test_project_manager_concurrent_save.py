@@ -13,8 +13,10 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
+import portalocker
 import pytest
 
+from lib.artifacts.version_manager import VersionManager
 from lib.infra.content_digest import canonical_json_digest
 from lib.project import project_manager as project_manager_module
 from lib.project.project_manager import ProjectManager, ScriptWriteConflict
@@ -67,6 +69,39 @@ def _make_script(episode: int, payload_size: int) -> dict:
 
 
 class TestSaveScriptConcurrency:
+    def test_replacement_media_cleanup_keeps_script_writers_locked_out(self, tmp_path: Path, monkeypatch) -> None:
+        pm = ProjectManager(tmp_path)
+        _seed_project(pm, "demo")
+        script = _make_script(1, 1)
+        pm.save_script("demo", script, "episode_1.json")
+        project_path = pm.get_project_path("demo")
+        current = project_path / "videos" / "scene_E1S0.mp4"
+        current.parent.mkdir(parents=True, exist_ok=True)
+        current.write_bytes(b"old-video")
+        versions = VersionManager(project_path)
+        versions.add_version("videos", "E1S0", "old", source_file=current)
+        script_lock = project_path / "scripts" / ".episode_1.json.lock"
+        checked: list[Path] = []
+        original_unlink = Path.unlink
+
+        def guarded_unlink(path: Path, *args, **kwargs) -> None:
+            if path == current:
+                # 媒体被删除时，独立写方不能取得正式剧本锁并提交新产物。
+                with (
+                    pytest.raises(portalocker.AlreadyLocked),
+                    portalocker.Lock(script_lock, flags=portalocker.LOCK_EX | portalocker.LOCK_NB),
+                ):
+                    pass
+                checked.append(path)
+            original_unlink(path, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "unlink", guarded_unlink)
+        pm.save_script("demo", script, "episode_1.json", replaced_resource_ids=("E1S0",))
+
+        assert checked == [current]
+        assert not current.exists()
+        assert versions.get_versions("videos", "E1S0")["versions"] == []
+
     def test_same_name_project_creation_claims_directory_atomically(self, tmp_path: Path, monkeypatch) -> None:
         pm = ProjectManager(tmp_path)
         project_dir = pm.projects_dir / "demo"

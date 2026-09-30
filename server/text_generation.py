@@ -571,12 +571,14 @@ async def confirm_script_review(
         )
     except ScriptReviewError as exc:
         if exc.code == "overwrite_required":
+            overwrite = script_review.overwrite_with_text(exc.overwrite, translate)
+            loss_text = overwrite["text"] if overwrite is not None else ""
             raise ScriptOverwriteRequiredError(
-                f"⚠️ 第 {episode} 集已有正式脚本，确认会整份覆盖它：旧分镜全部移除，其分镜图与视频不再显示，"
-                "手改的提示词一并丢弃。params.script_overwrite 列出将被移除的分镜与产物；"
-                "须先向用户说明并取得明确同意，再以 overwrite_revision=params.script_overwrite.revision 重新确认；"
+                f"⚠️ 第 {episode} 集需要用户确认覆盖，本次未写入。\n{loss_text}\n"
+                "须先把上面的丢失清单原文转述给用户，得到明确同意后，再以 "
+                "overwrite_revision=params.script_overwrite.revision 重新确认；"
                 "正式脚本在此期间又有变化时会按新清单再次拒绝。",
-                exc.overwrite,
+                overwrite,
             ) from exc
         if exc.problem is not None:
             raise TextGenerationError(_video_facts_failure_text(exc.problem)) from exc

@@ -108,10 +108,28 @@ describe("OverviewCanvas", () => {
     render(<OverviewCanvas projectName="demo" projectData={makeProjectData()} />);
 
     fireEvent.click(screen.getByRole("button", { name: "重新生成" }));
+    // 现有概述没有版本历史：先确认，确认前不调用生成。
+    expect(await screen.findByRole("dialog")).toHaveTextContent("整份替换现有概述");
+    expect(API.generateOverview).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "替换并重新生成" }));
     await waitFor(() => {
       expect(API.generateOverview).toHaveBeenCalledWith("demo");
     });
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
   }, 10_000);
+
+  it("leaves the overview untouched when the regenerate confirm is cancelled", async () => {
+    vi.spyOn(API, "generateOverview").mockResolvedValue(undefined as never);
+
+    render(<OverviewCanvas projectName="demo" projectData={makeProjectData()} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "重新生成" }));
+    fireEvent.click(await screen.findByRole("button", { name: "取消" }));
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(API.generateOverview).not.toHaveBeenCalled();
+  });
 
   it("edits the four overview fields and saves via API.updateOverview", async () => {
     vi.spyOn(API, "updateOverview").mockResolvedValue(undefined as never);

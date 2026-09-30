@@ -10,6 +10,7 @@ from typing import NoReturn
 from fastapi import HTTPException
 
 from lib.infra.api_errors import ConflictError, UnprocessableError
+from lib.script.script_review import overwrite_with_text
 from server.i18n import Translator
 from server.services.project.script_review import ScriptReviewError
 
@@ -38,7 +39,9 @@ _ERROR_I18N: dict[str, str] = {
 def raise_review_error(exc: ScriptReviewError, episode: int, _t: Translator) -> NoReturn:
     """把 ``ScriptReviewError`` 抛成对应的 ``HTTPException``；未登记的错误码落 400。"""
     if exc.code == "overwrite_required":
-        raise ConflictError("script_review_overwrite_required").with_diagnostic({"script_overwrite": exc.overwrite})
+        raise ConflictError("script_review_overwrite_required").with_diagnostic(
+            {"script_overwrite": overwrite_with_text(exc.overwrite, _t)}
+        )
     if exc.code == "conversion_refused":
         raise UnprocessableError("script_review_conversion_refused").with_diagnostic(exc.message)
     if exc.code == "video_request_facts" and exc.problem is not None:

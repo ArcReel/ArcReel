@@ -85,6 +85,7 @@ from lib.project.asset_types import (
 )
 from lib.project.project_change_hints import emit_project_change_hint
 from lib.project.project_schema import parse_project_schema_version
+from lib.project.script_entry_cleanup import purge_replaced_entry_media
 from lib.references.reference_catalog import derivative_reference
 from lib.script.draft_quarantine import QUARANTINE_FILENAMES
 from lib.script.reference_video.duration_migration import migrate_script_unit_durations
@@ -706,7 +707,7 @@ class ProjectManager:
                 改前剧本，由写盘统一入口按需读盘取改前（已存在则不更坏，全新保存则严格校验）。
             artifact_basis: 生成调用开始前冻结的剧本来源 basis；普通编辑不传，按提交时现值解析。
             expected_fingerprint: 可选的正式剧本内容基线；在剧本锁内不匹配时拒绝写入。
-            replaced_resource_ids: 新旧剧本都有、但身份已换成新条目的 id；它们名下的产物登记随本次写入撤销。
+            replaced_resource_ids: 新旧剧本都有、但身份已换成新条目的 id；撤销产物登记，并在剧本锁内清理旧媒体与历史。
             project_update: 与剧本、集索引同一写事务内对 project.json 的额外修改；仅带集号的剧本可用。
 
         Returns:
@@ -776,7 +777,7 @@ class ProjectManager:
 
                 prepare_on_commit = _prepare_manifest_commit
 
-            return self._commit_script_unlocked(
+            output = self._commit_script_unlocked(
                 project_name,
                 script,
                 filename,
@@ -785,6 +786,9 @@ class ProjectManager:
                 prepare_on_commit=prepare_on_commit,
                 project_update=project_update,
             )
+            # 替换已提交，仍持剧本锁：新条目的媒体不能在旧身份清理完成前落盘。
+            purge_replaced_entry_media(self.get_project_path(project_name), replaced_resource_ids)
+            return output
 
     def _commit_script_unlocked(
         self,

@@ -12,6 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from lib.infra.api_errors import NotFoundError
 from lib.project.project_manager import get_project_manager
+from lib.script.script_review import overwrite_with_text
 from server.dependencies import require_project_migration_ok
 from server.i18n import Translator
 from server.routers._script_review_errors import raise_review_error
@@ -36,6 +37,12 @@ async def _attach_duration_tiers(service: ScriptReviewService, project_name: str
     state["duration_tiers"] = await service.get_reference_duration_tiers(
         project_name, episode, units if isinstance(units, list) else ()
     )
+    return state
+
+
+def _attach_overwrite_text(state: dict, _t: Translator) -> dict:
+    """给覆盖清单附上服务端渲染的丢失清单文本；Web 确认框只呈现这份文本，与 Agent 回执同源。"""
+    state["script_overwrite"] = overwrite_with_text(state.get("script_overwrite"), _t)
     return state
 
 
@@ -74,6 +81,7 @@ async def get_script_review(project_name: str, episode: int, _t: Translator):
         quarantine = await service.get_quarantine_info(project_name, episode)
         state = await service.get_state(project_name, episode)
         await _attach_duration_tiers(service, project_name, episode, state)
+        _attach_overwrite_text(state, _t)
         state["quarantine"] = _localize_quarantine_violations(quarantine, _t)
         return state
     except ScriptReviewError as exc:
@@ -110,6 +118,7 @@ async def update_script_review_content(
         state = await service.save_content(project_name, episode, content, base_fingerprint)
         quarantine = await service.get_quarantine_info(project_name, episode)
         await _attach_duration_tiers(service, project_name, episode, state)
+        _attach_overwrite_text(state, _t)
         state["quarantine"] = _localize_quarantine_violations(quarantine, _t)
         return state
     except ScriptReviewError as exc:
@@ -151,6 +160,7 @@ async def confirm_script_review(
             project_name, episode, overwrite_revision=req.overwrite_revision if req is not None else None
         )
         await _attach_duration_tiers(service, project_name, episode, state)
+        _attach_overwrite_text(state, _t)
         state["quarantine"] = _localize_quarantine_violations(
             await service.get_quarantine_info(project_name, episode), _t
         )
