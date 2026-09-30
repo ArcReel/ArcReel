@@ -231,7 +231,7 @@ describe("UsageRecordsSection records", () => {
     });
     renderUsageRecordsSection();
 
-    expect(await screen.findByText("分镜 E1S01")).toBeInTheDocument();
+    expect(await screen.findByText("分镜 未命名集 · S01")).toBeInTheDocument();
     expect(screen.queryByText(/tl-0000abcd/)).not.toBeInTheDocument();
     expect(screen.getAllByText("待解析")).toHaveLength(1);
   });

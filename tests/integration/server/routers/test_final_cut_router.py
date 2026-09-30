@@ -101,7 +101,7 @@ async def test_blocking_issues_answer_409_naming_the_units(
     response = await final_cut_client.post(f"/api/v1/projects/demo/edit-timelines/{timeline_id}/final-cut")
 
     assert response.status_code == 409
-    assert "E1U2" in response.json()["detail"]
+    assert "未命名集 · U2" in response.json()["detail"]
     assert [issue["unit_id"] for issue in response.json()["diagnostic"]["issues"]] == ["E1U2"]
 
 

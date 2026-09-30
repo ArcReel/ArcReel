@@ -126,7 +126,7 @@ export default {
   "sheet_batch_submitted": "Submitted {{count}} asset sheets",
   "sheet_batch_done": "Asset sheet batch finished: {{count}} generated",
   "sheet_batch_done_with_failures": "Asset sheet batch finished: {{succeeded}} generated, {{failed}} failed",
-  "sheet_batch_owner_missing": "{{count}} derivatives weren't submitted because their base sheet wasn't generated",
+  "sheet_batch_owner_missing": "{{count}} derivative sheets weren't submitted because their base sheet wasn't generated",
   "sheet_regenerate_stale_title": "Regenerate this sheet?",
   "sheet_regenerate_stale_impact": "Once regenerated, {{storyboards}} storyboard images and {{videos}} videos that use it become stale.",
   "sheet_regenerate_stale_derivatives": "Its {{count}} derivative sheets become stale too.",

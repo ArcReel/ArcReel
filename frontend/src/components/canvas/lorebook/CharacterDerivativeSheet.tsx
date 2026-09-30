@@ -91,6 +91,7 @@ export function CharacterDerivativeSheet({
     name: characterName,
     derivativeName,
     status: sheetStatus,
+    hasSheet: Boolean(sheetPath),
     onGenerate: () => void handleGenerate(),
   });
 

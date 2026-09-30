@@ -187,7 +187,7 @@ def current_cast_artifacts(cast_projects: ProjectManager) -> ProjectManager:
 def test_counts_current_storyboards_videos_and_derivatives(current_cast_artifacts: ProjectManager) -> None:
     impact = asset_regeneration_impact(current_cast_artifacts, PROJECT, "character", "Alice")
 
-    assert impact == AssetRegenerationImpact(storyboards=1, videos=1, derivatives=1)
+    assert impact == AssetRegenerationImpact(stale=False, storyboards=1, videos=1, derivatives=1)
 
 
 def test_an_unknown_asset_raises_key_error(cast_projects: ProjectManager) -> None:
@@ -198,4 +198,11 @@ def test_an_unknown_asset_raises_key_error(cast_projects: ProjectManager) -> Non
 def test_derivative_impact_counts_only_its_compound_references(current_cast_artifacts: ProjectManager) -> None:
     impact = asset_regeneration_impact(current_cast_artifacts, PROJECT, "character", "Alice", derivative_name="战损")
 
-    assert impact == AssetRegenerationImpact(storyboards=1, videos=1, derivatives=0)
+    assert impact == AssetRegenerationImpact(stale=False, storyboards=1, videos=1, derivatives=0)
+
+
+def test_reports_whether_the_sheet_itself_is_stale_now(current_cast_artifacts: ProjectManager) -> None:
+    """界面据此决定是否先确认连带影响，不依赖可能滞后的本地状态行。"""
+    impact = asset_regeneration_impact(current_cast_artifacts, PROJECT, "character", "Alice", derivative_name="雨夜")
+
+    assert impact.stale is True

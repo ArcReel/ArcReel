@@ -179,6 +179,7 @@ export function ProductCard({
     assetType: "product",
     name,
     status: sheetStatus,
+    hasSheet: Boolean(product.product_sheet),
     onGenerate: () => onGenerate(name),
   });
 

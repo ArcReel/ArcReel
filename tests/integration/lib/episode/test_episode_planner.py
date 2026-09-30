@@ -827,6 +827,29 @@ class TestPlan:
         assert (project_dir / "project.json").read_text(encoding="utf-8") == after_concurrent_commit[0]
         assert not list((project_dir / "source").glob("episode_*.txt"))
 
+    async def test_plan_raises_planning_conflict_when_episode_ids_are_allocated_during_call(self, tmp_path: Path):
+        """请求在途时另一写方分配过集 ID（账本与进度不变、历史最高号前移）：整批作废，不写出未受保护的派生文件。"""
+        project_dir = _write_project(tmp_path)
+        after_concurrent_write: list[str] = []
+
+        class _ConcurrentAllocationGenerator(_FakeTextGenerator):
+            async def generate(self, request, project_name=None):
+                project = _load_project(project_dir)
+                project["episode_id_high_water"] = 5
+                (project_dir / "project.json").write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
+                after_concurrent_write.append((project_dir / "project.json").read_text(encoding="utf-8"))
+                return await super().generate(request, project_name)
+
+        fake = _ConcurrentAllocationGenerator(
+            [_plan_response([{"title": "古玉藏诀", "hook": "玉中剑诀来历成谜", "end_anchor": ANCHOR_EP1}])]
+        )
+
+        with pytest.raises(PlanningConflictError, match="并发"):
+            await EpisodePlanner(project_dir, generator=fake).plan()
+
+        assert (project_dir / "project.json").read_text(encoding="utf-8") == after_concurrent_write[0]
+        assert not list((project_dir / "source").glob("episode_*.txt"))
+
     async def test_plan_truncation_short_circuits_retry_and_hints_leverage(self, tmp_path: Path):
         """结构化输出被截断时不重试，直接冒泡 EpisodePlanningError 并附带调小窗口/集数的提示（见 docs/adr/0044）。"""
         from lib.backends.text_backends.base import TextOutputTruncatedError

@@ -61,7 +61,7 @@ describe("CharacterDerivativeSheet", () => {
   });
 
   it("enqueues a regeneration addressed by the compound resource id", async () => {
-    vi.spyOn(API, "getAssetRegenerationImpact").mockResolvedValue({ storyboards: 2, videos: 1, derivatives: 0 });
+    vi.spyOn(API, "getAssetRegenerationImpact").mockResolvedValue({ stale: true, storyboards: 2, videos: 1, derivatives: 0 });
     const spy = vi
       .spyOn(API, "generateCharacterDerivative")
       .mockResolvedValue({ success: true, task_id: "task-1", deduped: false, message: "已提交" });
@@ -109,6 +109,7 @@ describe("CharacterDerivativeSheet", () => {
 
   it("rechecks the busy slot at submit time and drops the click", async () => {
     const spy = vi.spyOn(API, "generateCharacterDerivative");
+    vi.spyOn(API, "getAssetRegenerationImpact").mockResolvedValue({ stale: false, storyboards: 0, videos: 0, derivatives: 0 });
     renderSheet({ description: "换上黑色重甲", character_sheet: SHEET_PATH, stale: false });
     // 面板停留期间该衍生被另一次生成占用：提交时刻新鲜读复核应当拦下。
     useTasksStore.setState({

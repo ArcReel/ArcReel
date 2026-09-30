@@ -346,9 +346,9 @@ class _Batch:
         if unit is None:
             raise _invalid(
                 index,
-                f"视频单元 {operation.unit_id} 不在第 {self.sources.script.episode} 集的脚本里",
+                f"视频单元 {operation.unit_id} 不在集（id={self.sources.script.episode}）的脚本里",
                 field="unit_id",
-                allowed=f"第 {self.sources.script.episode} 集脚本中的视频单元 ID",
+                allowed=f"集（id={self.sources.script.episode}）脚本中的视频单元 ID",
             )
         clip_id = f"c{self.next_clip_number}"
         clip = EditClip(

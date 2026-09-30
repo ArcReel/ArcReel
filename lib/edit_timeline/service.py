@@ -159,7 +159,7 @@ class EditTimelineService:
             if any(existing.name.casefold() == name.casefold() for existing in store.list_documents(episode)):
                 raise EditTimelineError(
                     "timeline_name_conflict",
-                    f"第 {episode} 集已有名为「{name}」的剪辑时间线",
+                    f"集（id={episode}）已有名为「{name}」的剪辑时间线",
                     episode=episode,
                     name=name,
                 )

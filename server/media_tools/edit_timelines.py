@@ -173,7 +173,7 @@ def _issue_counts(issues: tuple[TimelineIssue, ...]) -> str:
 def timeline_readout_summary(readout: EditTimelineReadout) -> str:
     timeline = readout.timeline
     return (
-        f"剪辑时间线「{timeline.name}」（{timeline.id}，第 {timeline.episode} 集）修订 {readout.revision}："
+        f"剪辑时间线「{timeline.name}」（{timeline.id}）属于集（id={timeline.episode}），修订 {readout.revision}："
         f"{len(readout.clips)} 个剪辑片段，总时长 {readout.duration} 秒；issues：{_issue_counts(readout.issues)}"
     )
 
@@ -191,7 +191,7 @@ def timeline_list_summary(timelines: tuple[TimelineSummary, ...]) -> str:
     if not timelines:
         return "还没有剪辑时间线；用 create_timeline 按脚本新建一条"
     return "\n".join(
-        f"- {item.id} 第 {item.episode} 集「{item.name}」修订 {item.revision}，{item.clip_count} 个剪辑片段，"
+        f"- {item.id} 集（id={item.episode}）「{item.name}」修订 {item.revision}，{item.clip_count} 个剪辑片段，"
         f"最近修改 {item.updated_at}"
         for item in timelines
     )

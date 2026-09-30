@@ -418,7 +418,7 @@ async def test_split_violation_keeps_pre_generation_formal_baseline(fake_ctx: To
 @pytest.mark.parametrize(
     ("mutate", "hint"),
     [
-        (lambda u: u.update(duration_seconds=7), "7"),
+        (lambda u: u.update(duration_seconds=7), "当前值：7"),
         (lambda u: u.pop("duration_seconds"), "duration_seconds"),
         (lambda u: u.update(source_text=""), "source_text"),
     ],
@@ -963,7 +963,7 @@ async def test_generate_episode_script_blocked_by_prompt_authoring_draft(fake_ct
 
     out = await run_declared_tool("generate_episode_script", fake_ctx, {"episode_id": 1})
     assert out.problem is not None
-    assert "草稿待处置" in said(out)
+    assert "待处理的提示词编写草稿" in said(out)
     assert "promote_draft" in said(out)
 
 
@@ -996,7 +996,7 @@ async def test_generate_episode_script_preserves_editable_draft_without_violatio
 
 
 async def test_generate_episode_script_quarantine_precedes_missing_formal_script(fake_ctx: ToolHarness) -> None:
-    """编写草稿在场而正式剧本缺失：先报草稿待处置，不把 Agent 引回重跑脚本规划。"""
+    """编写草稿在场而正式剧本缺失：先报草稿待处理，不把 Agent 引回重跑脚本规划。"""
     rv_project(fake_ctx)
     _write_prompt_authoring_draft(fake_ctx, [DraftViolation("坏", code="empty_text", label="unit E1U01")])
     assert not (fake_ctx.project_path / "scripts" / "episode_1.json").exists()
@@ -1004,7 +1004,7 @@ async def test_generate_episode_script_quarantine_precedes_missing_formal_script
     out = await run_declared_tool("generate_episode_script", fake_ctx, {"episode_id": 1})
     assert out.problem is not None
     text = said(out)
-    assert "草稿待处置" in text
+    assert "待处理的提示词编写草稿" in text
     assert "尚无正式脚本" not in text
 
 
@@ -1016,7 +1016,7 @@ async def test_generate_episode_script_ignores_quarantine_after_mode_switch(fake
     out = await run_declared_tool("generate_episode_script", fake_ctx, {"episode_id": 1})
     assert out.problem is not None
     # 卡在「尚无正式脚本」这道常规校验上，而不是参考路径的草稿
-    assert "草稿待处置" not in said(out)
+    assert "待处理的提示词编写草稿" not in said(out)
 
 
 # ---------------------------------------------------------------------------

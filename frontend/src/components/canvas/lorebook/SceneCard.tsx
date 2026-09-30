@@ -130,6 +130,7 @@ export function SceneCard({
     assetType: "scene",
     name,
     status: sheetStatus,
+    hasSheet: Boolean(scene.scene_sheet),
     onGenerate: () => onGenerate(name),
   });
 

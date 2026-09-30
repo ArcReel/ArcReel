@@ -13,6 +13,7 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable, Iterable, Sequence
 from typing import Any
 
@@ -72,9 +73,15 @@ def schema_violations(
         index = loc[1] if len(loc) > 1 and loc[0] == root and type(loc[1]) is int else None
         item = items[index] if isinstance(items, list) and index is not None and index < len(items) else None
         item_id = item.get(id_field) if isinstance(item, dict) and id_field is not None else None
+        value = error.get("input")
+        shown = (
+            f"（当前值：{json.dumps(value, ensure_ascii=False)}）"
+            if error["type"] != "missing" and isinstance(value, (bool, int, float, str)) and len(str(value)) <= 40
+            else ""
+        )
         violations.append(
             DraftViolation(
-                f"草稿的 content.{'.'.join(str(part) for part in loc)} 不符合产出结构：{error['msg']}",
+                f"草稿的 content.{'.'.join(str(part) for part in loc)} 不符合产出结构：{error['msg']}{shown}",
                 code="schema_invalid",
                 item_index=index,
                 item_id=item_id if isinstance(item_id, str) else None,

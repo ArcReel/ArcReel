@@ -528,7 +528,8 @@ def prompt_authoring_preflight(
     if admission.reason is AdmissionReason.PROMPT_AUTHORING_DRAFT_PENDING:
         detail = _prompt_authoring_draft_action(project_path, episode)
     elif admission.reason is AdmissionReason.NO_PENDING_AUTHORING:
-        detail = translate("operation_redo_ad" if content_mode == "ad" else "operation_redo_episode")
+        redo = translate("operation_redo_ad" if content_mode == "ad" else "operation_redo_episode")
+        detail = f"{translate('operation_rewrite_hint')}{redo}"
     require_admitted("author_prompts", admission, episode=episode, detail=detail)
     if rewrite:
         try:

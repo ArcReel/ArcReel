@@ -680,8 +680,8 @@ def test_narration_progresses_through_storyboard_video_to_edit(tmp_path: Path) -
 
 def test_narration_audio_manifest_state_unreadable_does_not_block_edit(tmp_path: Path, monkeypatch) -> None:
     """旁白配音只作为信息报告，不参与状态推进：即便 Manifest 判定该条 TTS 状态不可读
-    （BLOCKED），也不能让它借道共享 blockers 列表把工作流钉在 VIDEO——视频齐备时仍须
-    进入 EDIT，不可读事实只经 artifacts["audio"]["state"] 报告。用一个只对
+    （BLOCKED），也不能让它借道共享 blockers 列表拦住剪辑——视频齐备时下一步仍是新建
+    剪辑时间线，不可读事实只经 artifacts["audio"]["state"] 报告。用一个只对
     narration_audio 键抛错的假 resolver 隔离验证，不牵扯 script_plan/script Manifest 激活的
     全套前置状态。"""
     from lib.artifacts.artifact_manifest import ArtifactComparison, ArtifactStatus
@@ -746,6 +746,7 @@ def test_narration_audio_manifest_state_unreadable_does_not_block_edit(tmp_path:
     )
 
     status = WorkflowStateService(pm).get_status("demo")
+    assert status.next_action.type == "create_edit_timeline"
     assert status.artifacts["audio"]["state"] == "blocked"
     assert not any(b.path == audio_path for b in status.blockers)
 
@@ -940,10 +941,16 @@ def test_stale_episode_stays_out_of_the_next_step(tmp_path: Path) -> None:
     _create_edit_timeline(pm)
 
     service = WorkflowStateService(pm)
+    assert episode_complete(service.get_status("demo", 1))
+
+    # 其余集都完成时，默认视图停在待重建的 stale 集上陈述现状，不报全部完成。
     status = service.get_status("demo")
     assert status.target is not None
-    assert status.target.episode == 1
-    assert episode_complete(status)
+    assert status.target.episode == 2
+    assert status.content is not None
+    assert status.content.episode_plan_stale is True
+    assert status.next_action.type == "none"
+    assert not episode_complete(status)
 
     stale = service.get_status("demo", 2)
     assert stale.content is not None

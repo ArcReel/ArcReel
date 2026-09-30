@@ -32,6 +32,7 @@ _REFERENCE_LIST_FIELDS: frozenset[str] = frozenset(
 
 @dataclass(frozen=True, slots=True)
 class AssetRegenerationImpact:
+    stale: bool
     storyboards: int
     videos: int
     derivatives: int
@@ -75,7 +76,7 @@ def asset_regeneration_impact(
     *,
     derivative_name: str | None = None,
 ) -> AssetRegenerationImpact:
-    """重生指定本体或衍生资产图会让多少件现行产物过期；资产不存在抛 ``KeyError``。"""
+    """这张本体或衍生资产图此刻是否过期，以及重生它会让多少件现行产物过期；资产不存在抛 ``KeyError``。"""
 
     spec = ASSET_SPECS[asset_type]
     project = projects.load_project(project_name)
@@ -86,13 +87,18 @@ def asset_regeneration_impact(
         raise KeyError(name)
     resolver = active_artifact_currency_resolver(projects.get_project_path(project_name), project)
     target = asset_name_comparison_key(key)
+    sheet_key = ArtifactKey.asset_sheet(asset_type, target)
+    sheet_path = entry.get(spec.sheet_field)
     if derivative_name is not None:
-        derivative_key = (
-            resolve_asset_key(derivative_table(entry), derivative_name) if spec.supports_derivatives else None
-        )
-        if derivative_key is None:
+        derivatives_of_entry = derivative_table(entry)
+        derivative_key = resolve_asset_key(derivatives_of_entry, derivative_name) if spec.supports_derivatives else None
+        derivative = derivatives_of_entry.get(derivative_key) if derivative_key is not None else None
+        if derivative_key is None or not isinstance(derivative, Mapping):
             raise KeyError(derivative_name)
+        sheet_key = derivative_artifact_key(target, asset_name_comparison_key(derivative_key))
+        sheet_path = derivative.get(spec.sheet_field)
         target = derivative_artifact_id(target, asset_name_comparison_key(derivative_key))
+    stale, _blocker = observe_artifact_status(resolver=resolver, key=sheet_key, artifact_path=sheet_path)
 
     derivatives = 0
     if spec.supports_derivatives and derivative_name is None:
@@ -127,7 +133,9 @@ def asset_regeneration_impact(
                 resolver, ArtifactKey.episode_storyboard(episode, resource_id), generated.get("storyboard_image")
             ):
                 storyboards += 1
-    return AssetRegenerationImpact(storyboards=storyboards, videos=videos, derivatives=derivatives)
+    return AssetRegenerationImpact(
+        stale=stale is ArtifactStatus.STALE, storyboards=storyboards, videos=videos, derivatives=derivatives
+    )
 
 
 __all__ = ["AssetRegenerationImpact", "asset_regeneration_impact"]

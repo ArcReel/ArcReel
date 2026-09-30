@@ -527,6 +527,9 @@ class EpisodePlanner:
 
         summaries: list[EpisodePlanSummary] = []
         committed: dict[str, Any] = {"stale": []}
+        # 派生文件的事务保护路径按锁外快照预算，锁内分配出的集 ID 必须与之一致
+        next_num = episode_id_high_water(project) + 1
+        protected_ids = list(range(next_num, next_num + len(drafts)))
 
         def _commit(p: dict) -> None:
             # 锁内复核缺位置记录的条目：与指纹复核同一套逃生口——模型调用期间账本可能被
@@ -554,6 +557,8 @@ class EpisodePlanner:
             episodes_list = [e for e in (p.get("episodes") or []) if e is not None]
             # 新集一律分配历史最高号之后的集 ID，接在账本末尾
             new_ids = allocate_episode_ids(p, len(drafts))
+            if new_ids != protected_ids:
+                raise PlanningConflictError("规划期间有并发写入分配了新的集 ID，本次结果作废；请重新调用规划")
             prev = start
             for num, draft_ep, rel_end in zip(new_ids, drafts, ends, strict=True):
                 abs_end = start + rel_end
@@ -600,10 +605,8 @@ class EpisodePlanner:
             if isinstance(entry, Mapping)
         }
         ledger_nums = {num for num in ledger_nums if num is not None and num > 0}
-        next_num = episode_id_high_water(project) + 1
         formal_paths = existing_derived | {
-            episode_source_path(self.project_path, num)
-            for num in (*sorted(ledger_nums), *range(next_num, next_num + len(drafts)))
+            episode_source_path(self.project_path, num) for num in (*sorted(ledger_nums), *protected_ids)
         }
         formal_paths.add(self.project_path / "source" / "_remaining.txt")
         final_project = await self._update_project(_commit, formal_paths=tuple(sorted(formal_paths)))

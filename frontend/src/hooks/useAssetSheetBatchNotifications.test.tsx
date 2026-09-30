@@ -86,7 +86,7 @@ describe("useAssetSheetBatchNotifications", () => {
     const [notification] = useAppStore.getState().workspaceNotifications;
     expect(notification.tone).toBe("error");
     expect(notification.text).toContain("0 张已生成，2 张失败");
-    expect(notification.text).toContain("1 张衍生因本体资产图未生成而未提交");
+    expect(notification.text).toContain("1 张衍生图因本体资产图未生成而未提交");
     expect(notification.target).toMatchObject({ type: "character", id: "Alice" });
     expect(useAssetSheetBatchStore.getState().batches).toEqual({});
   });
@@ -132,7 +132,7 @@ describe("useAssetSheetBatchNotifications", () => {
     const [notification] = useAppStore.getState().workspaceNotifications;
     expect(notification.tone).toBe("error");
     expect(notification.text).toContain(queued ? "1 张已生成，1 张失败" : "0 张已生成，2 张失败");
-    expect(notification.text).toContain("1 张衍生因本体资产图未生成而未提交");
+    expect(notification.text).toContain("1 张衍生图因本体资产图未生成而未提交");
     expect(notification.target).toMatchObject({ type: "character", id: "Alice" });
     expect(useAssetSheetBatchStore.getState().batches).toEqual({});
   });

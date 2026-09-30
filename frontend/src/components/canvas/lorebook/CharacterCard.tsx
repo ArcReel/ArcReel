@@ -314,6 +314,7 @@ export function CharacterCard({
     assetType: "character",
     name,
     status: sheetStatus,
+    hasSheet: Boolean(character.character_sheet),
     onGenerate: () => onGenerate(name),
   });
 

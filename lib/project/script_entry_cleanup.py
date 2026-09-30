@@ -33,8 +33,9 @@ ENTRY_MEDIA_RESOURCE_TYPES: tuple[str, ...] = (
 def purge_replaced_entry_media(project_dir: Path, entry_ids: Iterable[str]) -> None:
     """清掉这些条目编号名下的版本历史与当前媒体文件。
 
+    在正式脚本提交之后运行，是提交的收尾而非其一部分：清理失败只记日志，不把已成功的覆盖报成失败。
     版本历史先于当前文件清：中途失败留下的是「无人引用的字节」，而不是「指向已删文件的历史」。
-    文件删不掉只记日志——正式脚本与产物清单已经不再引用它。
+    文件删不掉同样只记日志——正式脚本与产物清单已经不再引用它。
     """
     ids = tuple(dict.fromkeys(entry_ids))
     if not ids:
@@ -42,7 +43,10 @@ def purge_replaced_entry_media(project_dir: Path, entry_ids: Iterable[str]) -> N
     versions = VersionManager(project_dir)
     for entry_id in ids:
         for resource_type in ENTRY_MEDIA_RESOURCE_TYPES:
-            versions.purge_resource(resource_type, entry_id)
+            try:
+                versions.purge_resource(resource_type, entry_id)
+            except (OSError, ValueError):
+                logger.error("被替换条目 %s 的 %s 版本历史清理失败，旧历史仍在", entry_id, resource_type, exc_info=True)
     for entry_id in ids:
         for resource_type in ENTRY_MEDIA_RESOURCE_TYPES:
             # 编号来自磁盘上的旧剧本，不可信任：越界的编号解析不出路径，跳过。

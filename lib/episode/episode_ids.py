@@ -122,6 +122,15 @@ def default_episode_title(project: Mapping[str, Any], episode_id: int) -> str:
     return f"第 {position} 集" if position is not None else "未命名集"
 
 
+def episode_file_label(project: Mapping[str, Any], episode_id: int) -> str | None:
+    """文件与文件夹名里的集指称：``{两位播出位置}_{集标题}``；集不在账本里时返回 None。"""
+
+    position = episode_position(project, episode_id)
+    if position is None:
+        return None
+    return f"{position:02d}_{default_episode_title(project, episode_id)}"
+
+
 def describe_episode_for_agent(project: Mapping[str, Any], episode_id: int) -> str:
     """Agent 工具输出里的集指称：``《标题》（第 N 个，id=X）``。
 
@@ -216,6 +225,7 @@ __all__ = [
     "allocate_episode_ids",
     "default_episode_title",
     "describe_episode_for_agent",
+    "episode_file_label",
     "episode_id_high_water",
     "episode_ids_in_names",
     "episode_ids_in_record",

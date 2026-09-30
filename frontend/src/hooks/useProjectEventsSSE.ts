@@ -101,6 +101,9 @@ const PANE_ROUTES: Record<ProjectChangePane, (focus: ProjectChangeFocus) => stri
     typeof focus.episode === "number" ? `/${WORKSPACE_ROUTE_EPISODES}/${focus.episode}` : null,
 };
 
+/** 草稿视图订阅的实体 ID 后缀：`draft:episode_N_<kind>`。 */
+const DRAFT_DOC_KINDS = ["script_plan", "prompt_authoring"] as const;
+
 function buildNotificationTarget(change: ProjectChange): WorkspaceNotificationTarget | null {
   const focus = change.focus;
   if (!focus?.anchor_type || !focus.anchor_id) return null;
@@ -264,6 +267,13 @@ export function useProjectEventsSSE(projectName?: string | null): void {
         const previousFingerprint = lastFingerprintRef.current;
         lastFingerprintRef.current = payload.fingerprint;
         if (previousFingerprint && previousFingerprint !== payload.fingerprint) {
+          // 草稿视图各自取数、只随 draft 事件重拉；断线期间错过的草稿变化在这里一并作废。
+          const episodes = useProjectsStore.getState().currentProjectData?.episodes ?? [];
+          invalidateEntities(
+            episodes.flatMap(({ episode }) =>
+              DRAFT_DOC_KINDS.map((kind) => buildEntityRevisionKey("draft", `episode_${episode}_${kind}`)),
+            ),
+          );
           void refreshProject();
         }
         // 快照在每次建连时到达。首次之外的每一次都意味着断过一次线：断线期间的结算与
@@ -312,20 +322,11 @@ export function useProjectEventsSSE(projectName?: string | null): void {
           groupChangesByType(entityChanges),
         );
 
-        const episodeLedger = useProjectsStore.getState().currentProjectData?.episodes ?? [];
-        if (entityChanges.length > 0 && payload.source !== "webui") {
-          for (const group of groupedChanges) {
-            if (!hasImportantChanges(group)) {
-              continue;
-            }
-            pushNotification(
-              formatGroupedNotificationText(group, tEventsRef.current, episodeLedger),
-              "success",
-            );
-          }
-        }
+        const notifyChanges = entityChanges.length > 0 && payload.source !== "webui";
+        const workspaceNotifications: { group: (typeof groupedChanges)[number]; target: WorkspaceNotificationTarget }[] =
+          [];
 
-        if (entityChanges.length > 0 && payload.source !== "webui") {
+        if (notifyChanges) {
           // Draft 事件 — 自动导航到剧集脚本规划 Tab
           let draftHandled = false;
           for (const change of entityChanges) {
@@ -351,10 +352,7 @@ export function useProjectEventsSSE(projectName?: string | null): void {
                   if (!target) {
                     return null;
                   }
-                  pushWorkspaceNotification({
-                    text: formatGroupedDeferredText(group, tEventsRef.current, episodeLedger),
-                    target,
-                  });
+                  workspaceNotifications.push({ group, target });
                   return target;
                 })
                 .find(Boolean) ?? null;
@@ -385,7 +383,27 @@ export function useProjectEventsSSE(projectName?: string | null): void {
         // 每个批次都重拉，纯任务终态批次也不例外：后端每次广播都会把项目快照 rebase
         // 到最新，与之并发的文件变更来不及被扫描 diff 出来就失去基线；refreshProject
         // 是这类漏广播的兜底，不能因为「本批次只有任务事件」就跳过。
-        void refreshProject();
+        // 通知里的集标题与播出位置取刷新后的账本：Agent 新建、改名或调序的集在事件到达时
+        // 还不在本地账本里，按旧账本成文会显示成未命名集或旧标题，推出后无法再改。
+        void refreshProject().finally(() => {
+          if (disposed || !notifyChanges) return;
+          const episodeLedger = useProjectsStore.getState().currentProjectData?.episodes ?? [];
+          for (const group of groupedChanges) {
+            if (!hasImportantChanges(group)) {
+              continue;
+            }
+            pushNotification(
+              formatGroupedNotificationText(group, tEventsRef.current, episodeLedger),
+              "success",
+            );
+          }
+          for (const { group, target } of workspaceNotifications) {
+            pushWorkspaceNotification({
+              text: formatGroupedDeferredText(group, tEventsRef.current, episodeLedger),
+              target,
+            });
+          }
+        });
 
         // Refresh cost data when generation completes
         const hasCompletionEvent = entityChanges.some((c) =>

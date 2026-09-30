@@ -12,6 +12,7 @@ from lib.project.asset_types import ASSET_SPECS
 from lib.script.draft_quarantine import QUARANTINE_KIND_PROMPT_AUTHORING
 from lib.workflow.workflow_rules import WorkflowStepRule, workflow_rule
 from lib.workflow.workflow_state import (
+    INVALID_EDIT_TIMELINES_CODE,
     WorkflowActionType,
     WorkflowBlocker,
     WorkflowNextAction,
@@ -183,7 +184,7 @@ def _owner_step(status: WorkflowStatus) -> str:
         return "final_script"
     if status.artifacts.get("storyboards", {}).get("state") == "blocked":
         return "storyboard"
-    if any(issue.code == "invalid_edit_timelines" for issue in status.issues):
+    if any(issue.code == INVALID_EDIT_TIMELINES_CODE for issue in status.issues):
         return "edit"
     return "video"
 

@@ -47,7 +47,7 @@ describe("AssetSheetBatchDialog", () => {
     render(<AssetSheetBatchDialog projectName="demo" scope={{ episode_id: 2 }} onClose={onClose} />);
 
     expect(await screen.findByText("将生成 3 张")).toBeInTheDocument();
-    expect(screen.getByText(/本体「Alice」生成后提交/)).toBeInTheDocument();
+    expect(screen.getByText(/等本体「Alice」的资产图生成后提交/)).toBeInTheDocument();
     expect(screen.getByText(/本体资产图未生成/)).toBeInTheDocument();
     expect(screen.getByText("预估费用：$0.12")).toBeInTheDocument();
 
