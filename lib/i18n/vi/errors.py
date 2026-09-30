@@ -259,6 +259,8 @@ MESSAGES = {
     "prompt_overwrite_required": "Viết lại bằng AI sẽ ghi đè prompt hiện có. Hãy xem các mục sẽ bị ghi đè, đồng ý ghi đè rồi thử lại",
     "prompt_authoring_task_active": "Tập này đang có tác vụ viết prompt chưa hoàn tất. Hãy đợi tác vụ xong rồi gửi lại",
     "prompt_authoring_refused": "Không thể gửi yêu cầu viết prompt: {reason}",
+    "script_plan_task_active": "Tập này đang có tác vụ lập kế hoạch kịch bản chưa hoàn tất. Hãy đợi tác vụ xong rồi gửi lại",
+    "script_plan_refused": "Không thể gửi yêu cầu lập kế hoạch kịch bản: {reason}",
     "script_review_conversion_refused": "Kế hoạch kịch bản chưa thể chuyển thành kịch bản chính thức nên chưa được xác nhận; hãy kiểm tra thời lượng phân cảnh, lời thoại và trạng thái kế hoạch kịch bản rồi thử lại",
     "script_review_foreign_formal_script": (
         "Tệp kịch bản được gán cho tập (id={episode}) không còn, còn đường dẫn chuẩn scripts/{filename} lại chứa kịch bản "

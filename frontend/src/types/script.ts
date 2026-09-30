@@ -390,6 +390,14 @@ export interface AuthorPromptsResponse {
   batch: { batch_id: string; members: { unit_id: string; task_id: string | null; deduped?: boolean }[] };
 }
 
+/** AI 规划脚本的请求：附加指令（随请求按集保存）。 */
+export interface PlanScriptRequest {
+  instructions?: string | null;
+}
+
+/** 提交后立即返回的生成批次，形状同提示词编写。 */
+export type PlanScriptResponse = AuthorPromptsResponse;
+
 /**
  * 一侧提示词的最终渲染结果。`text` 与 `unavailable` 恰有一个非 null；
  * `unavailable` 已是后端按请求语言渲染的成品文案，前端不再二次翻译。

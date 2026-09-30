@@ -25,7 +25,8 @@ export type ResourceKind =
   | "tts"
   | "reference_video"
   | "grid"
-  | "text_episode_script";
+  | "text_episode_script"
+  | "text_script_plan";
 
 /** 可做指令式编辑的资源种类；`image_edit` 任务按此归入对应资源槽。 */
 export type ImageEditResourceKind = Extract<
@@ -456,6 +457,13 @@ export function isOccupyingStatus(status: TaskStatus): boolean {
   return status === "queued" || status === "running";
 }
 
+/** 脚本规划按项目模式分三种任务类型，一个项目只用其中一种。 */
+export const SCRIPT_PLAN_TASK_TYPES: ReadonlySet<string> = new Set([
+  "text_drama_script_plan",
+  "text_narration_script_plan",
+  "text_reference_script_plan",
+]);
+
 /**
  * 任务占用的「资源种类」。除 image_edit 外，task_type 本身即资源种类；image_edit 跨
  * character/scene/prop/product/storyboard 共用一个 task_type，真正的种类在 resource_type，
@@ -463,6 +471,8 @@ export function isOccupyingStatus(status: TaskStatus): boolean {
  * `voice_sample`（角色 TTS 试听样本）同理归入 `character`——它与该角色的资产图生成/
  * 编辑/上传共用同一占用槽（见 {@link enqueueCharacterVoiceSample}），乐观标记在请求
  * 发出前就用 `character` kind 打标，真实任务行落库后须归到同一 kind 才能让位不断档。
+ * 脚本规划的三种任务类型（{@link SCRIPT_PLAN_TASK_TYPES}）统一归入 `text_script_plan`，
+ * 入口不必按项目模式选择占用槽。
  *
  * 两处断言是数据边界：{@link TaskItem} 的字段来自后端、TS 管不到其值域。后端若出现未在
  * {@link ResourceKind} 登记的种类，该行匹配不上任何占用槽（退化为不参与占用判定），
@@ -474,6 +484,9 @@ export function taskResourceKind(task: TaskItem): ResourceKind | "" {
   }
   if (task.task_type === "voice_sample") {
     return "character";
+  }
+  if (SCRIPT_PLAN_TASK_TYPES.has(task.task_type)) {
+    return "text_script_plan";
   }
   return task.task_type as ResourceKind;
 }

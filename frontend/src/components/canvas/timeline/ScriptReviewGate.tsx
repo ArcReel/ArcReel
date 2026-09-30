@@ -28,6 +28,7 @@ import {
   prefillAssistant,
 } from "@/components/shared/DraftStatus";
 import { EpisodeDurationSummary } from "@/components/shared/EpisodeDurationSummary";
+import { ScriptPlanButton } from "@/components/canvas/shared/ScriptPlanButton";
 import { ScriptOverwriteConfirmDialog } from "@/components/shared/ScriptOverwriteConfirmDialog";
 import { VideoModelUnresolvedNotice } from "@/components/shared/VideoModelUnresolvedNotice";
 import { useModelCapabilities } from "@/hooks/useModelCapabilities";
@@ -468,6 +469,9 @@ export function ScriptReviewGate({ projectName, episode, contentMode, videoModel
           onReloadLatest={draftEditor.reloadLatest}
           onHandToAgent={() => prefillAssistant(draftFixRequestText(t, episodeRef, docType, quarantine.violations))}
           onDiscard={() => setDiscardOpen(true)}
+          regenerateAction={
+            <ScriptPlanButton projectName={projectName} episode={episode} replaces="draft" className={GHOST_BTN_CLS} />
+          }
         />
         {discardDialog}
         <DraftEpisodeViolations
@@ -532,6 +536,15 @@ export function ScriptReviewGate({ projectName, episode, contentMode, videoModel
           scriptMissing={scriptMissing}
           overwrite={overwrite != null}
           onOpenTimeline={confirmed ? onOpenTimeline : undefined}
+          regenerateAction={
+            <ScriptPlanButton
+              projectName={projectName}
+              episode={episode}
+              replaces={confirmed ? "confirmed_plan" : "pending_plan"}
+              className={GHOST_BTN_CLS}
+              disabledReason={dirty && !confirmed ? t("dashboard:script_plan_dirty_hint") : null}
+            />
+          }
           saveAction={
             dirty && !confirmed ? (
               <button type="button" onClick={voidPromise(handleSave)} disabled={busy} className={GHOST_BTN_CLS}>
@@ -633,6 +646,7 @@ function ReviewStatusBar({
   scriptMissing,
   overwrite,
   onOpenTimeline,
+  regenerateAction,
   saveAction,
   confirmAction,
 }: {
@@ -640,6 +654,7 @@ function ReviewStatusBar({
   scriptMissing: boolean;
   overwrite: boolean;
   onOpenTimeline?: () => void;
+  regenerateAction: React.ReactNode;
   saveAction: React.ReactNode;
   confirmAction: React.ReactNode;
 }) {
@@ -674,6 +689,7 @@ function ReviewStatusBar({
             {t("review_open_timeline")}
           </button>
         )}
+        {regenerateAction}
         {saveAction}
         {confirmAction}
       </div>

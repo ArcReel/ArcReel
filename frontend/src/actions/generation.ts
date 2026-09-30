@@ -21,6 +21,7 @@ import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import type {
   AuthorPromptsRequest,
+  PlanScriptRequest,
   ReferenceBatchAdmission,
   ReferenceBatchGenerateRequest,
   ReferenceGenerationRequestOptions,
@@ -427,5 +428,30 @@ export async function enqueuePromptAuthoring(
     i18n.t(request.rewrite ? "dashboard:prompt_authoring_rewrite_queued" : "dashboard:prompt_authoring_queued"),
     "info",
   );
+  return { taskIds, deduped };
+}
+
+/** 脚本规划任务的占用槽：一集一个文本任务，resource_id 与服务端 `episode-{N}` 一致。 */
+export function scriptPlanResourceId(episode: number): string {
+  return `episode-${episode}`;
+}
+
+/**
+ * 提交 AI 规划脚本。新的规划整份替换本集现有的规划与草稿，替换前的确认由调用方负责；
+ * 准入不成立或本集已有进行中的规划时，服务端的错误原样抛出。
+ */
+export async function enqueueScriptPlan(
+  projectName: string,
+  episode: number,
+  request: PlanScriptRequest,
+): Promise<EnqueueResult> {
+  const res = await submit(
+    [markResource(projectName, "text_script_plan", scriptPlanResourceId(episode), "text_script_plan")],
+    () => API.planScript(projectName, episode, request),
+    (response) => response.batch.members.flatMap((member) => (member.task_id ? [member.task_id] : [])),
+  );
+  const taskIds = res.batch.members.flatMap((member) => (member.task_id ? [member.task_id] : []));
+  const deduped = res.batch.members.some((member) => member.deduped === true);
+  notifyEnqueued(deduped, i18n.t("dashboard:script_plan_queued"), "info");
   return { taskIds, deduped };
 }

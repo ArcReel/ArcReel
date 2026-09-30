@@ -60,11 +60,13 @@ interface InvalidDraftBarProps {
   onReloadLatest: () => void;
   onHandToAgent: () => void;
   onDiscard: () => void;
+  /** 「重新规划」入口；草稿没有对应的重新生成动作时省略。 */
+  regenerateAction?: React.ReactNode;
 }
 
 /**
  * 待修复草稿的状态条：违约计数与逐条目跳转、整集层面的违约计数，以及「交给 Agent / 保存并校验 /
- * 丢弃草稿」三个入口。违约清零时保存即可采用，此时即便没有改动也允许保存。
+ * 丢弃草稿」三个入口，脚本规划草稿另有「重新规划」。违约清零时保存即可采用，此时即便没有改动也允许保存。
  */
 export function InvalidDraftBar({
   title,
@@ -82,6 +84,7 @@ export function InvalidDraftBar({
   onReloadLatest,
   onHandToAgent,
   onDiscard,
+  regenerateAction,
 }: InvalidDraftBarProps) {
   const { t } = useTranslation("dashboard");
   const clean = violationCount === 0;
@@ -181,14 +184,17 @@ export function InvalidDraftBar({
         ) : (
           <span />
         )}
-        <button
-          type="button"
-          onClick={onDiscard}
-          disabled={busy}
-          className="text-[11px] text-red-300 underline decoration-red-300/40 underline-offset-2 hover:decoration-red-300 disabled:opacity-50"
-        >
-          {t("draft_discard_action")}
-        </button>
+        <span className="flex items-center gap-3">
+          {regenerateAction}
+          <button
+            type="button"
+            onClick={onDiscard}
+            disabled={busy}
+            className="text-[11px] text-red-300 underline decoration-red-300/40 underline-offset-2 hover:decoration-red-300 disabled:opacity-50"
+          >
+            {t("draft_discard_action")}
+          </button>
+        </span>
       </div>
     </header>
   );
