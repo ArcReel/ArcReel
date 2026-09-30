@@ -989,6 +989,7 @@ class TargetStatePlanner:
         try:
             if resource_type == "audio":
                 current_basis = build_current_audio_artifact_basis(
+                    project=self.project,
                     item=item,
                     skeleton_kind=episode.kind,
                     version_record=record,

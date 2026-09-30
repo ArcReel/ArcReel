@@ -92,6 +92,15 @@ def ffmpeg_executable() -> str:
     return str(status.executable)
 
 
+def local_file_input(path: Path) -> list[str]:
+    """把 ``path`` 作为本地文件输入的 ffmpeg 参数。
+
+    输入经 ``file:`` 协议打开并限定 ``-protocol_whitelist file``：媒体文件可能嵌套
+    HLS/RTMP 等播放列表引用，限定后 ffmpeg 不跟随其中的协议发起网络请求。
+    """
+    return ["-protocol_whitelist", "file", "-i", f"file:{path}"]
+
+
 def log_ffmpeg_status() -> FfmpegStatus:
     """执行自检并记录结论，供服务启动时调用。"""
     status = ffmpeg_status()

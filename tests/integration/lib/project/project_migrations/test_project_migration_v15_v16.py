@@ -9,7 +9,6 @@ import pytest
 from lib.artifacts.artifact_activation import ArtifactCurrencyResolver
 from lib.artifacts.artifact_manifest import (
     ArtifactKey,
-    ArtifactManifest,
     ArtifactManifestEntry,
     ArtifactStatus,
     ProjectArtifactManifestAdapter,
@@ -20,14 +19,13 @@ from lib.artifacts.media_artifact_currency import build_current_video_artifact_b
 from lib.config.resolver import ConfigResolver
 from lib.config.service import ConfigService
 from lib.project.project_manager import ProjectManager
+from lib.project.project_migration_failure import ProjectMigrationError
 from lib.project.project_migration_report import load_migration_report
 from lib.project.project_migrations import CURRENT_SCHEMA_VERSION
 from lib.project.project_migrations.runner import migrate_project_dir
 from lib.project.project_migrations.v15_to_v16_edit_decisions import migrate_v15_to_v16
 from lib.project.resource_paths import resource_relative_path
-from lib.speech.narration_config import ProjectTtsSettingsResolver, TtsSynthesisSettings
-from lib.speech.narration_delivery import build_narration_audio_basis, resolve_tts_synthesis_settings
-from lib.speech.speech_composition import admit_script_unit
+from lib.speech.narration_config import TtsSynthesisSettings
 from lib.speech.speech_presentation import presentation_artifact_paths
 from lib.workflow.workflow_state import WorkflowStateService
 from server.services.presentation.presentation_read_model import PresentationReadModelService
@@ -200,17 +198,10 @@ def test_report_describes_the_completed_chain_and_keeps_legacy_audio_skips(tmp_p
 
 
 async def _tts_status(project_dir: Path, unit_id: str) -> ArtifactStatus:
-    """用户在旁白配音面板上看到的时效：按迁移后项目的 TTS 快照复算。"""
+    """工作流状态与缺失补齐读到的旁白配音时效。"""
 
-    project = _read_json(project_dir / "project.json")
-    script = _read_json(project_dir / "scripts" / "episode_1.json")
-    segment = next(item for item in script["segments"] if item["segment_id"] == unit_id)
-    settings = await resolve_tts_synthesis_settings(project, ProjectTtsSettingsResolver())
-    basis = build_narration_audio_basis(admit_script_unit("segments", segment).preparation, settings)
-    comparison = ArtifactManifest(ProjectArtifactManifestAdapter(project_dir)).compare(
-        ArtifactKey.episode_audio(1, unit_id),
-        artifact_path=resource_relative_path("audio", unit_id),
-        basis=basis,
+    comparison = ArtifactCurrencyResolver(project_dir).compare(
+        ArtifactKey.episode_audio(1, unit_id), artifact_path=resource_relative_path("audio", unit_id)
     )
     return comparison.status
 
@@ -263,6 +254,13 @@ async def test_project_with_registered_tts_audio_becomes_tts_and_its_audio_stays
         assert await _tts_status(project_dir, "E1S2") is ArtifactStatus.CURRENT
         summary = WorkflowStateService(manager).get_project_summary(project_dir.name)
         assert (summary.episodes[0].videos.available, summary.episodes[0].videos.stale) == (2, 0)
+
+    manager.update_project(project_dir.name, lambda value: value.update(narration_voice="Cherry"))
+    assert await _tts_status(project_dir, "E1S1") is ArtifactStatus.STALE
+    status = WorkflowStateService(manager).get_status(project_dir.name, 1)
+    assert status.artifacts["audio"]["stale_ids"] == ["E1S1", "E1S2"]
+    manager.update_project(project_dir.name, lambda value: value.update(narration_voice="Ethan"))
+    assert await _tts_status(project_dir, "E1S1") is ArtifactStatus.CURRENT
 
 
 async def test_tts_snapshot_takes_the_most_recently_generated_audio_settings(tmp_path: Path) -> None:
@@ -530,3 +528,14 @@ def test_presentation_file_that_does_not_match_its_recorded_basis_is_left_alone(
 
     assert _read_json(project_dir / _PRESENTATION_PATH) == tampered
     assert ProjectArtifactManifestAdapter(project_dir).get_entry(_PRESENTATION_KEY) == entry
+
+
+def test_corrupt_input_is_refused_before_any_file_is_rewritten(tmp_path: Path) -> None:
+    project_dir = _v15_legacy_presentation(tmp_path)
+    (project_dir / "versions" / "versions.json").write_text("{", encoding="utf-8")
+    before = {path: path.read_bytes() for path in project_dir.rglob("*") if path.is_file()}
+
+    with pytest.raises(ProjectMigrationError, match="version metadata"):
+        migrate_v15_to_v16(project_dir)
+
+    assert {path: path.read_bytes() for path in project_dir.rglob("*") if path.is_file()} == before

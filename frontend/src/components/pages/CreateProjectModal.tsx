@@ -206,10 +206,11 @@ export function CreateProjectModal() {
           API.getSystemConfig(),
           API.getProviders(),
           API.listCustomProviders(),
-          API.getNarrationDefaults(),
+          // 预填只是便利：读不到全局默认时 TTS 字段留空，由用户自选
+          API.getNarrationDefaults().catch(() => null),
         ]);
         if (cancelled) return;
-        if (!narrationPrefilled.current) {
+        if (!narrationPrefilled.current && narrationDefaults) {
           narrationPrefilled.current = true;
           setNarration((prev) => ({
             ...prev,

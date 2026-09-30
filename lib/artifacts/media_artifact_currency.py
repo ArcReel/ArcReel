@@ -1,9 +1,11 @@
 """Configuration-free current bases for selected typed media artifacts.
 
 The selected version freezes execution-only dependency shape (duration tiers,
-reference clamping, voice-style speakers, and TTS settings).  Current currency
-reprojects only durable project/script inputs through that frozen shape; it
-never consults whichever provider configuration happens to be active later.
+reference clamping, and voice-style speakers).  Current currency reprojects only
+durable project/script inputs through that frozen shape; it never consults
+whichever provider configuration happens to be active later.  From schema 16 the
+project's TTS snapshot is such a durable input; earlier schemas have no snapshot
+and reproject narration audio through the version's execution-frozen settings.
 """
 
 from __future__ import annotations
@@ -46,6 +48,7 @@ from lib.script.reference_video.request_projection import (
 from lib.script.script_editor import resolve_items
 from lib.script.storyboard_sequence import resolve_storyboard_video_inputs
 from lib.speech.character_voice import character_voice_binding
+from lib.speech.narration_config import PROJECT_TTS_SNAPSHOT_SCHEMA_VERSION, project_tts_settings
 from lib.speech.narration_delivery import build_narration_audio_basis
 from lib.speech.speech_artifact_provenance import (
     build_video_duration_basis,
@@ -57,15 +60,24 @@ from lib.speech.speech_composition import admit_script_unit
 
 def build_current_audio_artifact_basis(
     *,
+    project: Mapping[str, Any],
     item: Mapping[str, Any],
     skeleton_kind: str,
     version_record: Mapping[str, Any],
 ) -> ArtifactBasisDescriptor | None:
-    """Reproject current narration text through execution-frozen TTS settings."""
+    """Reproject current narration text through the project's current TTS settings.
+
+    A current-schema project without a complete TTS snapshot has no current basis.
+    """
 
     try:
         target = parse_typed_media_version_target("audio", version_record)
-        settings = parse_typed_audio_settings(version_record)
+        if parse_project_schema_version(project) >= PROJECT_TTS_SNAPSHOT_SCHEMA_VERSION:
+            settings = project_tts_settings(project)
+            if settings is None:
+                return None
+        else:
+            settings = parse_typed_audio_settings(version_record)
         admission = admit_script_unit(skeleton_kind, item)
         current = ArtifactBasisDescriptor.from_basis(build_narration_audio_basis(admission.preparation, settings))
     except (TypeError, ValueError):
@@ -282,7 +294,9 @@ def _legacy_narrated_duration(
         return None
     try:
         target = parse_typed_media_version_target("audio", selected)
-        current = build_current_audio_artifact_basis(item=item, skeleton_kind=skeleton_kind, version_record=selected)
+        current = build_current_audio_artifact_basis(
+            project=project, item=item, skeleton_kind=skeleton_kind, version_record=selected
+        )
     except (TypeError, ValueError):
         return None
     actual = selected.get("tts_actual_duration_seconds")
