@@ -549,6 +549,7 @@ export default {
   'task_type_text_narration_script_plan': '脚本规划',
   'task_type_text_reference_script_plan': '脚本规划',
   'task_type_render_final_cut': '成片渲染',
+  'task_type_render_jianying_draft': '剪映草稿导出',
 
   // Agent
   'new_session': '新会话',
@@ -1769,6 +1770,7 @@ export default {
   'tool_name_read_timeline': '读取剪辑时间线',
   'tool_name_edit_timeline': '修改剪辑时间线',
   'tool_name_render_final_cut': '渲染成片',
+  'tool_name_export_jianying_draft': '导出剪映草稿',
   'tool_name_generate_narration_audio': '生成旁白配音',
   'tool_name_generate_episode_script': '生成脚本',
   'tool_name_generate_script_plan': '生成脚本规划',

@@ -550,6 +550,7 @@ export default {
   'task_type_text_narration_script_plan': 'Script plan',
   'task_type_text_reference_script_plan': 'Script plan',
   'task_type_render_final_cut': 'Final cut render',
+  'task_type_render_jianying_draft': 'Jianying draft export',
 
   // Agent
   'new_session': 'New Session',
@@ -1770,6 +1771,7 @@ export default {
   'tool_name_read_timeline': 'Read edit timeline',
   'tool_name_edit_timeline': 'Update edit timeline',
   'tool_name_render_final_cut': 'Render final cut',
+  'tool_name_export_jianying_draft': 'Export Jianying draft',
   'tool_name_generate_narration_audio': 'Generate narration audio',
   'tool_name_generate_episode_script': 'Generate script',
   'tool_name_generate_script_plan': 'Generate script plan',

@@ -39,9 +39,9 @@ async def test_render_lane_runs_one_task_at_a_time_without_blocking_text(file_db
     )
     second = await queue.enqueue_task(
         project_name=project_name,
-        task_type="render_final_cut",
+        task_type="render_jianying_draft",
         media_type="render",
-        resource_id="tl-00000002.without_narration.no_subtitles",
+        resource_id="tl-00000002.jianying_draft.without_narration",
     )
     text = await queue.enqueue_task(
         project_name=project_name,

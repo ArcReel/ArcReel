@@ -605,4 +605,13 @@ MESSAGES = {
     "final_cut_render_failed": "Kết xuất video thành phẩm thất bại, vui lòng thử lại",
     "final_cut_acceptance_failed": "Video thành phẩm vừa kết xuất không đạt kiểm tra, vui lòng thử lại",
     "final_cut_render_in_progress": "Dòng thời gian dựng này đã có một tác vụ kết xuất với yêu cầu khác đang chờ hoặc đang chạy ({task_id}); hãy gửi lại sau khi tác vụ đó kết thúc",
+    # Jianying draft
+    "jianying_draft_narration_unavailable": "Chỉ dự án lồng tiếng TTS mới xuất được bản nháp Jianying có lời dẫn",
+    "jianying_draft_blocked": "Dòng thời gian dựng có vấn đề chặn việc xuất bản nháp Jianying, ở các đơn vị video: {units}. Hãy xử lý các vấn đề này rồi gửi xuất lại",
+    "jianying_draft_export_in_progress": "Dòng thời gian dựng này đã có một tác vụ xuất bản nháp Jianying với yêu cầu khác đang chờ hoặc đang chạy ({task_id}); hãy gửi lại sau khi tác vụ đó kết thúc",
+    "jianying_draft_not_exported": "Dòng thời gian dựng '{timeline_id}' chưa xuất bản nháp Jianying cho phiên bản lời dẫn này; hãy xuất trước",
+    "jianying_draft_invalid": "Bản nháp Jianying của dòng thời gian dựng '{timeline_id}' bị hỏng hoặc tham chiếu tư liệu không còn tồn tại; hãy xuất lại",
+    "jianying_draft_presentation_unavailable": "Tư liệu của đơn vị video {unit_id} không thể dùng trong bản nháp Jianying; hãy kiểm tra video và âm thanh lời dẫn rồi xuất lại",
+    "jianying_draft_hold_frame_unavailable": "Không thể trích khung hình tại điểm kết thúc của đoạn {clip_id}, nên bản nháp Jianying chưa được xuất; vui lòng thử lại",
+    "jianying_draft_acceptance_failed": "Bản nháp Jianying vừa tạo không đạt kiểm tra; vui lòng thử lại",
 }

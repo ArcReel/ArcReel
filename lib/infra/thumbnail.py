@@ -255,3 +255,58 @@ async def extract_video_last_frame(
     except Exception:
         logger.warning("提取视频尾帧失败: %s", video_path, exc_info=True)
         return None
+
+
+async def extract_video_frame_before(
+    video_path: Path,
+    output_path: Path,
+    end_seconds: float,
+    *,
+    deadlines: FrameExtractionDeadlines = DEFAULT_DEADLINES,
+    spawn: Spawner | None = None,
+) -> Path | None:
+    """
+    提取源时间 ``end_seconds`` 之前的最后一帧作为 PNG，即播放到这个出点时停留的画面。
+
+    从出点前 1 秒处定位后顺序解码，丢掉起点不早于出点的帧，其余逐帧覆盖同一个输出文件，写到最后的就是出点前的最后一帧。
+
+    Returns:
+        输出路径（成功）或 None（失败 / 随包 ffmpeg 不可用）
+    """
+    if end_seconds <= 0 or not video_path.exists():  # noqa: ASYNC240 -- 输入视频存在性检查，本地元数据；抽帧本身走 run_with_deadline 子进程
+        return None
+
+    try:
+        ffmpeg = ffmpeg_executable()
+    except FfmpegUnavailableError as exc:
+        logger.info("随包 ffmpeg 不可用，跳过出点帧提取：%s", exc)
+        return None
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    seek = max(0.0, end_seconds - 1.0)
+    try:
+        written = await _run_ffmpeg_to_output(
+            [
+                ffmpeg,
+                "-nostdin",
+                "-y",
+                "-ss",
+                f"{seek:.6f}",
+                *local_file_input(video_path),
+                "-map",
+                "0:v:0",
+                "-vf",
+                f"trim=end={end_seconds - seek:.6f}",
+                "-fps_mode",
+                "passthrough",
+                "-update",
+                "1",
+            ],
+            output_path,
+            deadlines=deadlines,
+            spawn=spawn,
+        )
+        return output_path if written else None
+    except Exception:
+        logger.warning("提取视频出点帧失败: %s", video_path, exc_info=True)
+        return None

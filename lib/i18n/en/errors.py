@@ -605,4 +605,13 @@ MESSAGES = {
     "final_cut_render_failed": "Rendering the final cut failed; please try again",
     "final_cut_acceptance_failed": "The rendered final cut failed acceptance; please try again",
     "final_cut_render_in_progress": "A final-cut render with a different request is already queued or running for this edit timeline ({task_id}); submit again after it finishes",
+    # Jianying draft
+    "jianying_draft_narration_unavailable": "Only TTS voiceover projects can export the Jianying draft version with narration",
+    "jianying_draft_blocked": "The edit timeline has issues that block exporting the Jianying draft, in video units: {units}. Resolve them, then submit the export again",
+    "jianying_draft_export_in_progress": "A Jianying draft export with a different request is already queued or running for this edit timeline ({task_id}); submit again after it finishes",
+    "jianying_draft_not_exported": "Edit timeline '{timeline_id}' has no exported Jianying draft for this narration version yet; export it first",
+    "jianying_draft_invalid": "The Jianying draft of edit timeline '{timeline_id}' is damaged or references media that no longer exists; export it again",
+    "jianying_draft_presentation_unavailable": "Media for video unit {unit_id} cannot be used in the Jianying draft; check the video and narration audio, then export again",
+    "jianying_draft_hold_frame_unavailable": "The out-point frame of clip {clip_id} could not be extracted, so the Jianying draft was not exported; please try again",
+    "jianying_draft_acceptance_failed": "The generated Jianying draft failed acceptance; please try again",
 }

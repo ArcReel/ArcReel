@@ -11,6 +11,7 @@ from fastapi import APIRouter, Query, Request
 
 from lib.db.repositories.task_repo import TaskNotCancellableError
 from lib.generation.generation_queue import get_generation_queue
+from lib.generation.generation_result import decode_generation_problem
 from lib.generation.task_failure import parse_failure, render_failure
 from lib.infra.api_errors import BadRequestError, ConflictError, NotFoundError
 from server.i18n import Translator
@@ -70,7 +71,24 @@ def _localize_task(task: dict[str, Any], translate: Callable[..., str]) -> dict[
     message = localized.get("error_message")
     if message:
         failure = parse_failure(message)
-        if failure is None:
+        problem = decode_generation_problem(message)
+        if problem is not None:
+            params = dict(problem.params)
+            issues = params.get("issues")
+            if isinstance(issues, list):
+                params["units"] = "、".join(
+                    dict.fromkeys(
+                        str(issue["unit_id"]) for issue in issues if isinstance(issue, dict) and issue.get("unit_id")
+                    )
+                )
+            translated = translate(problem.code, **params)
+            localized = {
+                **localized,
+                "error_code": problem.code,
+                "error_params": problem.params,
+                "error_message": translated if translated != problem.code else problem.detail,
+            }
+        elif failure is None:
             localized = {**localized, "error_message": render_failure(message, translate)}
         else:
             code, params = failure

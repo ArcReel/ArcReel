@@ -252,7 +252,8 @@ def encode_generation_problem(problem: GenerationProblem) -> str:
     return _PERSISTED_GENERATION_PROBLEM_PREFIX + problem.model_dump_json()
 
 
-def _persisted_generation_problem(error_message: str | None) -> GenerationProblem | None:
+def decode_generation_problem(error_message: str | None) -> GenerationProblem | None:
+    """Read a persisted generation problem; raw or malformed failures return None."""
     if not error_message or not error_message.startswith(_PERSISTED_GENERATION_PROBLEM_PREFIX):
         return None
     try:
@@ -615,7 +616,7 @@ def problem_from_task_failure(
             detail=error_message or "wait for task was interrupted before it reached a terminal state",
             action=GenerationAction.WAIT_FOR_TASK,
         )
-    if persisted := _persisted_generation_problem(error_message):
+    if persisted := decode_generation_problem(error_message):
         return persisted
     parsed = parse_failure(error_message)
     if parsed is None:
@@ -1025,6 +1026,7 @@ _OPERATION_LABELS: dict[str, str] = {
     "edit_images": "图片编辑",
     "generate_videos": "视频生成",
     "render_final_cut": "成片渲染",
+    "export_jianying_draft": "剪映草稿导出",
 }
 _FALLBACK_OPERATION_LABEL = "生成"
 
@@ -1100,6 +1102,7 @@ __all__ = [
     "ProviderCheckpoint",
     "artifact_is_reusable",
     "artifact_state_problem",
+    "decode_generation_problem",
     "encode_generation_problem",
     "enqueue_problem",
     "generation_warnings_from_result",

@@ -18,12 +18,7 @@ from lib.project.project_manager import ProjectManager
 from server.error_handlers import register_error_handlers
 from server.routers import edit_timelines
 from tests.auth_deps import override_auth
-from tests.factories import install_current_video, make_reference_video_project, make_test_clip
-
-
-@pytest.fixture
-def timeline_project(tmp_path: Path) -> ProjectManager:
-    return make_reference_video_project(tmp_path / "projects", ("E1U1", "E1U2"))
+from tests.factories import install_current_video, make_test_clip
 
 
 def _install(timeline_project: ProjectManager, tmp_path: Path, unit_id: str) -> None:
