@@ -92,16 +92,6 @@ export interface EpisodesSummary {
   completed: number;
 }
 
-/** Production state merged for the lobby, in workflow order */
-export const PHASE_ORDER = [
-  "preparation",
-  "script",
-  "production",
-  "completed",
-] as const;
-
-export type Phase = (typeof PHASE_ORDER)[number];
-
 /** One artifact group: available = current plus stale, stale counted separately */
 export interface ArtifactCount {
   total: number;
@@ -111,8 +101,6 @@ export interface ArtifactCount {
 
 /** Project summary projection, injected at read time by WorkflowStateService */
 export interface ProjectStatus {
-  phase: Phase;
-  phase_progress: number;
   /** Schema migration (artifact backfill included) failed; generation is closed until repaired */
   needs_repair: boolean;
   /** The migration failure message exactly as raised, or null when not blocked */

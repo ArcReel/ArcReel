@@ -8,7 +8,6 @@ import { useAppStore } from "@/stores/app-store";
 import { useConfigStatusStore } from "@/stores/config-status-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { ProjectsPage } from "@/components/pages/ProjectsPage";
-import type { Phase } from "@/types";
 
 vi.mock("@/components/pages/CreateProjectModal", () => ({
   CreateProjectModal: () => <div data-testid="create-project-modal">Create Project Modal</div>,
@@ -101,8 +100,6 @@ describe("ProjectsPage", () => {
           style_template_id: "anim_kyoto",
           thumbnail: null,
           status: {
-            phase: "production",
-            phase_progress: 0.5,
             needs_repair: false,
             repair_reason: null,
             assets: {
@@ -122,12 +119,12 @@ describe("ProjectsPage", () => {
     // featured "Now Editing" card — see ProjectsPage.tsx Darkroom design.
     expect((await screen.findAllByText("Demo Project")).length).toBeGreaterThan(0);
     expect(screen.getAllByText("商业动画 京都").length).toBeGreaterThan(0);
-    // 阶段名与工作台同一套词：卡片胶囊、筛选胶囊、Hero 计数格都读「制作」
-    expect(screen.getAllByText("制作").length).toBeGreaterThan(0);
-    expect(screen.getByText("50%")).toBeInTheDocument();
+    // 卡片报集进度，不报项目阶段
+    expect(screen.getAllByText("已完成 0 / 1 集").length).toBeGreaterThan(0);
+    expect(screen.queryByText("制作")).not.toBeInTheDocument();
   });
 
-  it("filters by the four merged phases and counts each pill", async () => {
+  it("filters completed projects by episode progress", async () => {
     vi.spyOn(API, "listProjects").mockResolvedValue({
       projects: [
         {
@@ -137,8 +134,6 @@ describe("ProjectsPage", () => {
           style_template_id: "anim_kyoto",
           thumbnail: null,
           status: {
-            phase: "script" as const,
-            phase_progress: 0.5,
             needs_repair: false,
             repair_reason: null,
             assets: { character: { total: 1, available: 1, stale: 0 } },
@@ -152,12 +147,10 @@ describe("ProjectsPage", () => {
           style_template_id: "anim_kyoto",
           thumbnail: null,
           status: {
-            phase: "production" as const,
-            phase_progress: 0.4,
             needs_repair: false,
             repair_reason: null,
             assets: { character: { total: 1, available: 1, stale: 0 } },
-            episodes_summary: { total: 2, scripted: 2, in_production: 1, completed: 0 },
+            episodes_summary: { total: 2, scripted: 2, in_production: 0, completed: 2 },
           },
         },
       ],
@@ -165,13 +158,13 @@ describe("ProjectsPage", () => {
 
     renderPage();
 
-    const scriptPill = await screen.findByRole("button", { name: /脚本/ });
-    fireEvent.click(scriptPill);
+    const completedPill = await screen.findByRole("button", { name: /^已完成\s*1$/ });
+    fireEvent.click(completedPill);
 
     await waitFor(() => {
-      expect(screen.queryByText("Shooting Project")).not.toBeInTheDocument();
+      expect(screen.queryByText("Writing Project")).not.toBeInTheDocument();
     });
-    expect(screen.getAllByText("Writing Project").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Shooting Project").length).toBeGreaterThan(0);
   });
 
   it("tells the reader how many sheets are older than the current content", async () => {
@@ -184,8 +177,6 @@ describe("ProjectsPage", () => {
           style_template_id: "anim_kyoto",
           thumbnail: null,
           status: {
-            phase: "production" as const,
-            phase_progress: 0.5,
             needs_repair: false,
             repair_reason: null,
             assets: {
@@ -203,7 +194,7 @@ describe("ProjectsPage", () => {
 
     renderPage();
 
-    expect(await screen.findByText("3 张资产图比当前内容旧")).toBeInTheDocument();
+    expect(await screen.findByText("3 项需要更新")).toBeInTheDocument();
     // stale 仍是可用产物：计数格照报 3 / 3，不从可用里扣
     expect(screen.getAllByText("3 / 3").length).toBeGreaterThan(0);
   });
@@ -218,8 +209,6 @@ describe("ProjectsPage", () => {
           style_template_id: "anim_kyoto",
           thumbnail: null,
           status: {
-            phase: "production",
-            phase_progress: 0.5,
             needs_repair: true,
             repair_reason: "episode script scripts/episode_1.json item 2 has no identity",
             assets: {
@@ -245,8 +234,6 @@ describe("ProjectsPage", () => {
 
   it("puts the repair state and reason into the library card's accessible name", async () => {
     const brokenStatus = {
-      phase: "production" as const,
-      phase_progress: 0.5,
       needs_repair: true,
       repair_reason: "episode script scripts/episode_1.json item 2 has no identity",
       assets: {
@@ -264,7 +251,7 @@ describe("ProjectsPage", () => {
           style: "Anime",
           style_template_id: "anim_kyoto",
           thumbnail: null,
-          status: { ...brokenStatus, needs_repair: false, repair_reason: null, phase_progress: 0.9 },
+          status: { ...brokenStatus, needs_repair: false, repair_reason: null },
         },
         {
           name: "broken",
@@ -298,8 +285,6 @@ describe("ProjectsPage", () => {
           style_image: "style_reference.png",
           thumbnail: null,
           status: {
-            phase: "production",
-            phase_progress: 0.1,
             needs_repair: false,
             repair_reason: null,
             assets: {
@@ -330,8 +315,6 @@ describe("ProjectsPage", () => {
           style_image: null,
           thumbnail: null,
           status: {
-            phase: "production",
-            phase_progress: 0,
             needs_repair: false,
             repair_reason: null,
             assets: {
@@ -376,8 +359,6 @@ describe("ProjectsPage", () => {
             style: "Anime",
             thumbnail: null,
             status: {
-              phase: "completed",
-              phase_progress: 1,
               needs_repair: false,
               repair_reason: null,
               assets: {
@@ -485,8 +466,6 @@ describe("ProjectsPage", () => {
             style: "Anime",
             thumbnail: null,
             status: {
-              phase: "completed",
-              phase_progress: 1,
               needs_repair: false,
               repair_reason: null,
               assets: {
@@ -560,8 +539,6 @@ describe("ProjectsPage", () => {
       style: "",
       thumbnail: null,
       status: {
-        phase: "production" as Phase,
-        phase_progress: 0,
         needs_repair: false,
         repair_reason: null,
         assets: {
@@ -589,40 +566,46 @@ describe("ProjectsPage", () => {
     });
   });
 
-  it("breaks the hero counts down over all four phases", async () => {
-    const project = (name: string, phase: Phase) => ({
+  it("counts projects by episode progress and by what needs attention", async () => {
+    const project = (
+      name: string,
+      episodes: { total: number; completed: number },
+      needsRepair = false,
+    ) => ({
       name,
       title: name,
       style: "Anime",
       thumbnail: null,
       status: {
-        phase,
-        phase_progress: 0,
-        needs_repair: false,
-        repair_reason: null,
+        needs_repair: needsRepair,
+        repair_reason: needsRepair ? "broken" : null,
         assets: {
           character: { total: 0, available: 0, stale: 0 },
           scene: { total: 0, available: 0, stale: 0 },
           prop: { total: 0, available: 0, stale: 0 },
         },
-        episodes_summary: { total: 0, scripted: 0, in_production: 0, completed: 0 },
+        episodes_summary: {
+          total: episodes.total,
+          scripted: episodes.total,
+          in_production: 0,
+          completed: episodes.completed,
+        },
       },
     });
     vi.spyOn(API, "listProjects").mockResolvedValue({
       projects: [
-        project("prep-a", "preparation"),
-        project("prep-b", "preparation"),
-        project("scripted", "script"),
-        project("filming", "production"),
-        project("done", "completed"),
+        project("empty", { total: 0, completed: 0 }),
+        project("halfway", { total: 4, completed: 2 }),
+        project("broken", { total: 2, completed: 0 }, true),
+        project("done", { total: 3, completed: 3 }),
       ],
     });
 
     renderPage();
 
-    // 每个阶段都要有自己的一格：新建项目落在「准备」，不能只汇进总数就消失。
+    // 没有集的项目算进行中；「需要处理」与进度正交，需要修复的项目同时计入两格。
     const hero = await screen.findByTestId("lobby-hero-stats");
     const cells = Array.from(hero.children).map((cell) => cell.textContent);
-    expect(cells).toEqual(["项目5", "准备2", "脚本1", "制作1", "完成1"]);
+    expect(cells).toEqual(["项目4", "进行中3", "已完成1", "需要处理1"]);
   });
 });

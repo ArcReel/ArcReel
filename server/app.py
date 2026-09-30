@@ -76,6 +76,7 @@ from server.routers import (
     presentations,
     products,
     project_events,
+    project_migration,
     projects,
     prompt_authoring,
     prompt_templates,
@@ -661,6 +662,9 @@ app.include_router(
     prefix="/api/v1",
     dependencies=[Depends(get_current_user), Depends(require_project_migration_ok)],
     tags=["分镜尾帧"],
+)
+app.include_router(
+    project_migration.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["项目数据升级"]
 )
 app.include_router(versions.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["版本管理"])
 app.include_router(usage.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["费用统计"])

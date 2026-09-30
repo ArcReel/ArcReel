@@ -418,8 +418,6 @@ class _FakeSummaries:
         self.last_preloaded_scripts = preloaded_scripts
         self.currencies.append(currency)
         return ProjectSummary(
-            phase="production",
-            phase_progress=0.5,
             needs_repair=False,
             repair_reason=None,
             assets={"character": ArtifactCount(total=1, available=0, stale=0)},

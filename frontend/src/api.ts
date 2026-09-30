@@ -112,7 +112,7 @@ import type {
 } from "@/types/presentation";
 import type { Asset, AssetType, AssetCreatePayload, AssetUpdatePayload } from "@/types/asset";
 import type { AgentMemoryOverview, AgentMemoryScope } from "@/types/agent-memory";
-import type { WorkflowPlan, WorkflowPlanRequest } from "@/types/workflow";
+import type { EpisodeNextStep, WorkflowPlan, WorkflowPlanRequest, WorkflowStatus } from "@/types/workflow";
 import type {
   AssetRegenerationImpact,
   AssetSheetBatchPreview,
@@ -1534,6 +1534,36 @@ class API {
       method: "POST",
       body: JSON.stringify(request),
       signal: options.signal,
+    });
+  }
+
+  /** 项目层的制作状态：不指定集时，下一步取账本顺序中第一个未完成的集或项目层动作。 */
+  static async getWorkflowStatus(
+    projectName: string,
+    options: { signal?: AbortSignal } = {}
+  ): Promise<WorkflowStatus> {
+    return this.request(`/projects/${encodeURIComponent(projectName)}/workflow-status`, {
+      signal: options.signal,
+    });
+  }
+
+  /** 账本顺序中每一集建议的下一步。 */
+  static async getEpisodeNextSteps(
+    projectName: string,
+    options: { signal?: AbortSignal } = {}
+  ): Promise<{ episodes: EpisodeNextStep[] }> {
+    return this.request(`/projects/${encodeURIComponent(projectName)}/workflow-status/episodes`, {
+      signal: options.signal,
+    });
+  }
+
+  /**
+   * 重跑项目数据升级链，与 Agent 的 retry_project_migration 同一服务命令。
+   * 仍失败时 422，`diagnostic.reason` 是失败原文，`diagnostic.details` 是结构化明细。
+   */
+  static async retryProjectMigration(projectName: string): Promise<{ success: boolean }> {
+    return this.request(`/projects/${encodeURIComponent(projectName)}/migration/retry`, {
+      method: "POST",
     });
   }
 

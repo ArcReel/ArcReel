@@ -258,6 +258,7 @@ MESSAGES = {
     "prompt_overwrite_field_text": "unit text",
     "prompt_overwrite_required": "AI rewrite replaces existing prompts. Review the entries to be overwritten, acknowledge the overwrite and retry",
     "prompt_authoring_task_active": "A prompt-writing task for this episode is already running. Wait for it to finish before submitting again",
+    "project_migration_retry_failed": "The data upgrade still did not finish; the project files need repair first",
     "prompt_authoring_refused": "Prompt writing could not be submitted: {reason}",
     "script_plan_task_active": "A script-planning task for this episode is already running. Wait for it to finish before submitting again",
     "script_plan_refused": "Script planning could not be submitted: {reason}",

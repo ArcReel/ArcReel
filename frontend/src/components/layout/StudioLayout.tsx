@@ -10,7 +10,6 @@ import { useTaskRefresh } from "@/hooks/useTaskRefresh";
 import { useProjectEventsSSE } from "@/hooks/useProjectEventsSSE";
 import { TaskFailureListener } from "./TaskFailureListener";
 import { ScriptGenerationNoticeListener } from "./ScriptGenerationNoticeListener";
-import { MigrationRepairBanner } from "./MigrationRepairBanner";
 import { useProjectsStore } from "@/stores/projects-store";
 import { DemoAssistantPanel } from "@/onboarding/DemoAssistantPanel";
 import { DemoReadOnlyBanner } from "@/onboarding/DemoReadOnlyBanner";
@@ -164,7 +163,6 @@ export function StudioLayout({ children }: StudioLayoutProps) {
       <ScriptGenerationNoticeListener />
       <GlobalHeader onNavigateBack={() => setLocation("~/app/projects")} />
       {demoMode ? <DemoReadOnlyBanner /> : null}
-      <MigrationRepairBanner />
       <div className="flex flex-1 overflow-hidden">
         <AssetSidebar />
         <main className="flex-1 overflow-hidden">

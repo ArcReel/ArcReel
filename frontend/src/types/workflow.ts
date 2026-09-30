@@ -291,6 +291,14 @@ export interface WorkflowStatus {
   migration_report?: WorkflowMigrationReport | null;
 }
 
+/** 账本中一集建议的下一步（`GET /projects/{name}/workflow-status/episodes`），按账本顺序排列。 */
+export interface EpisodeNextStep {
+  episode: number;
+  /** 该集的集规划已失效（原文已重新规划），下一步为 `none`。 */
+  plan_stale: boolean;
+  next_action: WorkflowNextAction;
+}
+
 export interface WorkflowPlan {
   schema_version: 2;
   status: WorkflowStatus;

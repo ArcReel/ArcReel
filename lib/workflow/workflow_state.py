@@ -263,9 +263,6 @@ def episode_complete(status: WorkflowStatus) -> bool:
     }
 
 
-#: 项目在广度视图（项目列表、卡片、全局头）上的粗粒度阶段，由各集进度归并。
-ProjectPhase = Literal["preparation", "script", "production", "completed"]
-
 #: 每集脚本的产物态派生值：正式脚本可用即 generated，只有 script_plan 即 segmented。
 EpisodeScriptStatus = Literal["none", "segmented", "generated"]
 
@@ -322,14 +319,14 @@ class EpisodesSummary(BaseModel):
 
 
 class ProjectSummary(BaseModel):
-    """项目在广度视图上的投影：阶段、资产可用计数、分集汇总。
+    """项目在广度视图上的投影：资产可用计数、分集汇总与各集进度。
 
     与 ``WorkflowStatus`` 同源不同粒度——后者回答「这个项目下一步做什么」，本模型回答
-    「几十个项目各自在哪一步、手上有多少可用产物」。因此它只读项目元数据、各集脚本与
-    产物清单：源文正文与源文修订号（sha256）不参与，否则列出 N 个项目就要读 N 份小说。
+    「几十个项目各自完成了几集、手上有多少可用产物」；项目的进度就是各集的进度。因此它只读
+    项目元数据、各集脚本与产物清单：源文正文与源文修订号（sha256）不参与，否则列出 N 个项目就要读 N 份小说。
 
-    代价是「源文是否已全部排布成集」不进入本投影，它只能由源文得出。因此本投影可能把
-    「产物齐备但源文尚未排布完」的项目显示为「完成」，而制作状态的下一步仍是继续分集规划。
+    代价是「源文是否已全部排布成集」不进入本投影，它只能由源文得出。因此本投影可能报告
+    「已有的集全部完成」，而制作状态的下一步仍是继续分集规划。
     产物口径本身两处一致：可用与 stale 都取自同一份产物清单。
 
     产物判定有两种口径（``ProjectSummaryCurrency``）：``verified`` 逐件与规范状态比对，能
@@ -341,15 +338,24 @@ class ProjectSummary(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal[1] = 1
-    phase: ProjectPhase
-    phase_progress: float
+    schema_version: Literal[2] = 2
     needs_repair: bool
     repair_reason: str | None
     #: 按 ``ASSET_SPECS`` 的资产类型键给出资产图计数，新增资产类型自动进入投影。
     assets: dict[str, ArtifactCount]
     episodes_summary: EpisodesSummary
     episodes: list[EpisodeSummary]
+
+
+class EpisodeNextStep(BaseModel):
+    """账本中一集建议的下一步，供项目层的逐集清单使用；与按集查询制作状态的 ``next_action`` 相同。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    episode: int
+    #: 该集的集规划已失效（原文已重新规划），下一步为 ``none``，等待重建。
+    plan_stale: bool
+    next_action: WorkflowNextAction
 
 
 @dataclass(frozen=True)
@@ -447,7 +453,7 @@ def _episode_production_status(
     storyboards: ArtifactCount,
     videos: ArtifactCount,
 ) -> EpisodeProductionStatus:
-    """分镜图与视频一起算：两者都是制作阶段的产物，缺任何一件该集都还没做完。
+    """分镜图与视频一起算：两者都是一集要交的产物，缺任何一件该集都还没做完。
 
     参考生视频没有分镜图步骤，那条路上 ``storyboards`` 恒为零计数，判据自然只剩视频。
     """
@@ -461,12 +467,6 @@ def _episode_production_status(
     if available:
         return "in_production"
     return "scripted"
-
-
-def _sheet_bearing_counts(assets: Mapping[str, ArtifactCount]) -> list[ArtifactCount]:
-    """商品没有资产图产物：与制作状态「本集引用的资产缺资产图」同口径地把它排除。"""
-
-    return [count for asset_type, count in assets.items() if asset_type != "product"]
 
 
 def _asset_bucket_total(project: Mapping[str, Any], bucket_key: str) -> int:
@@ -924,6 +924,38 @@ class WorkflowStateService:
         status.migration_report = load_migration_report(project_path)
         return status
 
+    def get_episode_next_steps(self, project_name: str) -> list[EpisodeNextStep]:
+        """按账本顺序给出每一集的下一步。
+
+        项目整体不可用（迁移失败、项目数据读不出、存在 blockers）时没有集层的下一步，返回空列表；
+        此时项目层的制作状态会说明原因。
+        """
+
+        project_path = self.pm.get_project_path(project_name)
+        try:
+            project: Any = self.pm.load_project(project_name)
+        except FileNotFoundError:
+            raise
+        except (OSError, ValueError):
+            return []
+        if not isinstance(project, dict) or load_migration_verdict(project_path) is not None:
+            return []
+        project = register_orphan_episode_entries(project_path, project)
+        shared = self._shared_facts(project_path, project)
+        if shared.blockers:
+            return []
+        steps: list[EpisodeNextStep] = []
+        for pair in shared.episodes:
+            status = self._episode_status(project_name, project, project_path, shared, pair)
+            steps.append(
+                EpisodeNextStep(
+                    episode=pair[0],
+                    plan_stale=status.content is not None and status.content.episode_plan_stale,
+                    next_action=status.next_action,
+                )
+            )
+        return steps
+
     def get_project_summary(
         self,
         project_name: str,
@@ -972,10 +1004,7 @@ class WorkflowStateService:
             )
             for number, entry in episodes
         ]
-        phase = self._project_phase(assets, episode_summaries)
         return ProjectSummary(
-            phase=phase,
-            phase_progress=self._phase_progress(phase, assets, episode_summaries),
             needs_repair=False,
             repair_reason=None,
             assets=assets,
@@ -1114,52 +1143,6 @@ class WorkflowStateService:
         )
         return "segmented" if state in {ArtifactStatus.CURRENT.value, ArtifactStatus.STALE.value} else "none"
 
-    @staticmethod
-    def _project_phase(
-        assets: Mapping[str, ArtifactCount],
-        episodes: list[EpisodeSummary],
-    ) -> ProjectPhase:
-        """把各集进度归并到项目粒度：取最不推进的一集所在阶段。
-
-        没有集 → preparation；有集的脚本未生成 → script；资产图与每集产物齐备 → completed；
-        其余 → production。
-        """
-
-        if not episodes:
-            return "preparation"
-        if any(episode.script_status != "generated" for episode in episodes):
-            return "script"
-        sheets_complete = all(count.available >= count.total for count in _sheet_bearing_counts(assets))
-        if sheets_complete and all(episode.status == "completed" for episode in episodes):
-            return "completed"
-        return "production"
-
-    @staticmethod
-    def _phase_progress(
-        phase: ProjectPhase,
-        assets: Mapping[str, ArtifactCount],
-        episodes: list[EpisodeSummary],
-    ) -> float:
-        """脚本阶段按已生成脚本的集数算；制作阶段按可用产物占应有产物的比例算。
-
-        制作阶段的分母收全该阶段要交的三类产物——资产图、分镜图、视频——否则缺一类
-        产物的项目会停在 100%。
-        """
-
-        if phase == "preparation":
-            return 0.0
-        if phase == "completed":
-            return 1.0
-        if phase == "script":
-            if not episodes:
-                return 0.0
-            return sum(1 for episode in episodes if episode.script_status == "generated") / len(episodes)
-        counts = [*_sheet_bearing_counts(assets)]
-        counts.extend(episode.storyboards for episode in episodes)
-        counts.extend(episode.videos for episode in episodes)
-        total = sum(count.total for count in counts)
-        return sum(min(count.available, count.total) for count in counts) / total if total else 0.0
-
     @classmethod
     def _migration_blocked_summary(
         cls,
@@ -1187,8 +1170,6 @@ class WorkflowStateService:
             for number, _entry in episodes
         ]
         return ProjectSummary(
-            phase="preparation",
-            phase_progress=0.0,
             needs_repair=True,
             repair_reason=failure.reason,
             assets={
@@ -2040,9 +2021,9 @@ __all__ = [
     "EPISODE_COMPLETE_REASON",
     "INVALID_EDIT_TIMELINES_CODE",
     "ArtifactCount",
+    "EpisodeNextStep",
     "EpisodeSummary",
     "EpisodesSummary",
-    "ProjectPhase",
     "ProjectSummary",
     "WorkflowActionType",
     "WorkflowBlocker",
