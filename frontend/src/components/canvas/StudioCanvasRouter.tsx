@@ -31,6 +31,7 @@ import { ReferenceVideoCanvas } from "./reference/ReferenceVideoCanvas";
 import { GridImageToVideoCanvas } from "./grid/GridImageToVideoCanvas";
 import { EpisodeSourceReview } from "./EpisodeSourceReview";
 import { WorkflowPanel } from "@/components/workflow/WorkflowPanel";
+import { ProtoOverviewGuide } from "@/components/workflow/project-guide-prototype/ProjectGuidePrototype";
 import { WorkflowPanelPrototype } from "@/components/workflow/panel-prototype/WorkflowPanelPrototype";
 import { API, NarratedVideoDurationError } from "@/api";
 import {
@@ -618,11 +619,17 @@ export function StudioCanvasRouter() {
   return (
     <Switch>
       <Route path="/">
-        <OverviewCanvas
-          projectName={currentProjectName}
-          projectData={currentProjectData}
-          readOnly={demoMode}
-        />
+        {/* PROTOTYPE #2829：带 ?variant= 时在概览顶部挂项目层引导 */}
+        <div className="flex h-full flex-col">
+          {new URLSearchParams(window.location.search).has("variant") && <div className="shrink-0"><ProtoOverviewGuide /></div>}
+          <div className="min-h-0 flex-1">
+            <OverviewCanvas
+              projectName={currentProjectName}
+              projectData={currentProjectData}
+              readOnly={demoMode}
+            />
+          </div>
+        </div>
       </Route>
 
       <Route path={`/${WORKSPACE_ROUTE_LOREBOOK}`}>

@@ -11,6 +11,7 @@ import { useProjectEventsSSE } from "@/hooks/useProjectEventsSSE";
 import { TaskFailureListener } from "./TaskFailureListener";
 import { ScriptGenerationNoticeListener } from "./ScriptGenerationNoticeListener";
 import { MigrationRepairBanner } from "./MigrationRepairBanner";
+import { ProtoControls, ProtoMigrationBanner, useProtoActive } from "@/components/workflow/project-guide-prototype/ProjectGuidePrototype";
 import { useProjectsStore } from "@/stores/projects-store";
 import { DemoAssistantPanel } from "@/onboarding/DemoAssistantPanel";
 import { DemoReadOnlyBanner } from "@/onboarding/DemoReadOnlyBanner";
@@ -33,6 +34,7 @@ interface StudioLayoutProps {
 export function StudioLayout({ children }: StudioLayoutProps) {
   const { t } = useTranslation("dashboard");
   const [, setLocation] = useLocation();
+  const protoActive = useProtoActive();
   const currentProjectName = useProjectsStore((s) => s.currentProjectName);
   // 演示项目在后端不存在：任务 / 项目事件流和 Agent 都是真实写路径，演示态下整条都不接
   const demoMode = useDemoWorkbench();
@@ -164,7 +166,9 @@ export function StudioLayout({ children }: StudioLayoutProps) {
       <ScriptGenerationNoticeListener />
       <GlobalHeader onNavigateBack={() => setLocation("~/app/projects")} />
       {demoMode ? <DemoReadOnlyBanner /> : null}
-      <MigrationRepairBanner />
+      {/* PROTOTYPE #2829 */}
+      {protoActive ? <ProtoMigrationBanner /> : <MigrationRepairBanner />}
+      {protoActive && <ProtoControls />}
       <div className="flex flex-1 overflow-hidden">
         <AssetSidebar />
         <main className="flex-1 overflow-hidden">

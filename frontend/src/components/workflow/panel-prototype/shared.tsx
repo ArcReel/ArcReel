@@ -5,7 +5,7 @@ import { CONTENT_LABEL, GEN_LABEL, NOTE_COLOR, SCENARIOS, type Act, type Note, t
 
 // ---- 点击回显：原型不接任何真实操作，点了什么、会发生什么都显示在左下角 ----------------
 
-const LogCtx = createContext<(a: Act) => void>(() => {});
+export const LogCtx = createContext<(a: Act) => void>(() => {});
 export const useLog = () => useContext(LogCtx);
 
 export function LogProvider({ children }: { children: ReactNode }) {

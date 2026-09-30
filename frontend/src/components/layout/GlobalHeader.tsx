@@ -14,6 +14,7 @@ import { WorkspaceNotificationsDrawer } from "./WorkspaceNotificationsDrawer";
 import { ExportScopeDialog } from "./ExportScopeDialog";
 import { ProjectMenu } from "./ProjectMenu";
 import { PhaseStepper } from "./PhaseStepper";
+import { ProtoHeaderCenter, useProtoActive } from "@/components/workflow/project-guide-prototype/ProjectGuidePrototype";
 
 import { API } from "@/api";
 import { ArchiveDiagnosticsDialog } from "@/components/shared/ArchiveDiagnosticsDialog";
@@ -58,6 +59,7 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
   const workspaceNotifications = useAppStore((s) => s.workspaceNotifications);
 
   const currentPhase = currentProjectData?.status?.phase;
+  const protoActive = useProtoActive();
   const unreadNotificationCount = workspaceNotifications.filter((item) => !item.read).length;
 
   // 演示项目在后端没有用量记录，入口整个不渲染。demoMode 在演示→真实切换时先于 store
@@ -211,7 +213,8 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
 
         {/* ---- Center: phase stepper ---- */}
         <div className="hidden justify-self-center md:flex">
-          <PhaseStepper currentPhase={currentPhase} />
+          {/* PROTOTYPE #2829 */}
+          {protoActive ? <ProtoHeaderCenter /> : <PhaseStepper currentPhase={currentPhase} />}
         </div>
 
         {/* ---- Right: actions ---- */}
