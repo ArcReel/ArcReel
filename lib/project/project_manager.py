@@ -73,7 +73,6 @@ from lib.project.asset_types import (
     ASSET_SPECS,
     DERIVATIVES_FIELD,
     ProjectAssetNameConflictError,
-    asset_name_comparison_key,
     ensure_project_asset_name_available,
     ensure_project_asset_namespace,
     find_project_asset_name,
@@ -3253,32 +3252,6 @@ class ProjectManager:
             raise KeyError(f"{spec.label_zh} '{name}' 不存在")
         return bucket[key]
 
-    def _get_pending_assets(self, asset_type: str, project_name: str) -> list[dict]:
-        """Return assets without a usable formal sheet, per the Artifact Manifest.
-
-        Registration is the whole verdict: a sheet whose file was deleted is
-        pending again, and an unmigrated project is refused rather than served
-        from a second reading rule.
-        """
-
-        from lib.artifacts.artifact_activation import active_artifact_currency_resolver, artifact_is_usable
-        from lib.artifacts.artifact_manifest import ArtifactKey
-
-        spec = ASSET_SPECS[asset_type]
-        project = self.load_project(project_name)
-        project_dir = self.get_project_path(project_name)
-        resolver = active_artifact_currency_resolver(project_dir, project)
-        pending = []
-        for name, entry in (project.get(spec.bucket_key) or {}).items():
-            usable = artifact_is_usable(
-                resolver,
-                ArtifactKey.asset_sheet(asset_type, asset_name_comparison_key(name)),
-                entry.get(spec.sheet_field),
-            )
-            if not usable:
-                pending.append({"name": name, **entry})
-        return pending
-
     def _get_asset_path(self, asset_type: str, project_name: str, filename: str) -> Path:
         """获取资产文件在项目目录下的绝对路径。"""
         spec = ASSET_SPECS[asset_type]
@@ -3496,10 +3469,6 @@ class ProjectManager:
         """获取场景定义"""
         return self._get_asset("scene", project_name, name)
 
-    def get_pending_project_scenes(self, project_name: str) -> list[dict]:
-        """产物清单未登记可用 scene_sheet 的场景；项目未迁移时阻断。"""
-        return self._get_pending_assets("scene", project_name)
-
     def get_scene_path(self, project_name: str, filename: str) -> Path:
         """获取场景资产图路径"""
         return self._get_asset_path("scene", project_name, filename)
@@ -3514,17 +3483,9 @@ class ProjectManager:
         """获取道具定义"""
         return self._get_asset("prop", project_name, name)
 
-    def get_pending_project_props(self, project_name: str) -> list[dict]:
-        """产物清单未登记可用 prop_sheet 的道具；项目未迁移时阻断。"""
-        return self._get_pending_assets("prop", project_name)
-
     def get_prop_path(self, project_name: str, filename: str) -> Path:
         """获取道具资产图路径"""
         return self._get_asset_path("prop", project_name, filename)
-
-    def get_pending_characters(self, project_name: str) -> list[dict]:
-        """产物清单未登记可用 character_sheet 的角色；项目未迁移时阻断。"""
-        return self._get_pending_assets("character", project_name)
 
     # ==================== 商品管理（product） ====================
 
@@ -3535,10 +3496,6 @@ class ProjectManager:
     def get_product(self, project_name: str, name: str) -> dict:
         """获取商品定义"""
         return self._get_asset("product", project_name, name)
-
-    def get_pending_project_products(self, project_name: str) -> list[dict]:
-        """产物清单未登记可用 product_sheet 的商品；项目未迁移时阻断。"""
-        return self._get_pending_assets("product", project_name)
 
     def get_product_path(self, project_name: str, filename: str) -> Path:
         """获取商品图片路径"""

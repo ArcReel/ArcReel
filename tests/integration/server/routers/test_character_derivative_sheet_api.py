@@ -118,14 +118,18 @@ class TestDerivativeStatusEndpoint:
             fresh = client.get("/api/v1/projects/demo/characters/阿岚/derivatives")
             write_two_tone_png(project_path / "characters/阿岚.png", left=(10, 10, 10), right=(240, 240, 240))
             stale = client.get("/api/v1/projects/demo/characters/阿岚/derivatives")
+            (project_path / _SHEET_PATH).unlink()
+            missing = client.get("/api/v1/projects/demo/characters/阿岚/derivatives")
 
         assert fresh.status_code == 200, fresh.text
         assert fresh.json()["derivatives"]["战斗装"] == {
             "description": "换上黑色重甲",
             "character_sheet": _SHEET_PATH,
             "stale": False,
+            "artifact_status": "current",
         }
         assert stale.json()["derivatives"]["战斗装"]["stale"] is True
+        assert missing.json()["derivatives"]["战斗装"]["artifact_status"] == "missing"
 
     def test_an_ungenerated_derivative_has_no_sheet_and_is_not_stale(self, tmp_path, monkeypatch):
         pm, _project_path = seed_derivative_project(tmp_path)
@@ -135,6 +139,7 @@ class TestDerivativeStatusEndpoint:
             "description": "换上黑色重甲",
             "character_sheet": "",
             "stale": False,
+            "artifact_status": "missing",
         }
 
 
@@ -257,6 +262,7 @@ class TestDerivativeRenameCascade:
             "description": "换上黑色重甲",
             "character_sheet": derivative_sheet_relative_path("阿岚", "夜行装"),
             "stale": True,
+            "artifact_status": "stale",
         }
 
     def test_renaming_the_character_carries_its_derivatives_along(self, tmp_path, monkeypatch):

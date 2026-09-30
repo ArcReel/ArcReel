@@ -105,6 +105,14 @@ import type { Asset, AssetType, AssetCreatePayload, AssetUpdatePayload } from "@
 import type { AgentMemoryOverview, AgentMemoryScope } from "@/types/agent-memory";
 import type { WorkflowPlan, WorkflowPlanRequest } from "@/types/workflow";
 import type {
+  AssetRegenerationImpact,
+  AssetSheetBatchPreview,
+  AssetSheetBatchScope,
+  AssetSheetBatchSubmitted,
+  AssetSheetStatusRow,
+  AssetSheetType,
+} from "@/types/asset-sheet";
+import type {
   AgentCredential,
   CreateAgentCredentialRequest,
   PresetProvidersResponse,
@@ -786,6 +794,53 @@ class API {
     return this.request(
       `/projects/${encodeURIComponent(projectName)}/generate/character/${encodeURIComponent(charName)}/derivatives/${encodeURIComponent(derivativeName)}`,
       { method: "POST" }
+    );
+  }
+
+  // ==================== 资产图状态与批量生成 ====================
+
+  /** 项目里每张资产图（含衍生）按产物清单判定的状态与是否缺描述。 */
+  static async getAssetSheetStatus(
+    projectName: string,
+    options?: { signal?: AbortSignal }
+  ): Promise<{ assets: AssetSheetStatusRow[] }> {
+    return this.request(`/projects/${encodeURIComponent(projectName)}/asset-sheets/status`, {
+      signal: options?.signal,
+    });
+  }
+
+  /** 规划一批但不建任务：要生成的名单、跳过项与能算出时的预估费用。 */
+  static async previewAssetSheetBatch(
+    projectName: string,
+    scope: AssetSheetBatchScope
+  ): Promise<AssetSheetBatchPreview> {
+    return this.request(`/projects/${encodeURIComponent(projectName)}/asset-sheets/batch/preview`, {
+      method: "POST",
+      body: JSON.stringify(scope),
+    });
+  }
+
+  /** 提交一批，立即返回成员任务；整批终态由调用方按任务跟踪。 */
+  static async submitAssetSheetBatch(
+    projectName: string,
+    scope: AssetSheetBatchScope
+  ): Promise<AssetSheetBatchSubmitted> {
+    return this.request(`/projects/${encodeURIComponent(projectName)}/asset-sheets/batch`, {
+      method: "POST",
+      body: JSON.stringify(scope),
+    });
+  }
+
+  /** 重生这张资产图会让多少件现行产物转为过期。 */
+  static async getAssetRegenerationImpact(
+    projectName: string,
+    assetType: AssetSheetType,
+    name: string,
+    derivativeName?: string
+  ): Promise<AssetRegenerationImpact> {
+    const query = derivativeName ? `?${new URLSearchParams({ derivative_name: derivativeName })}` : "";
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/asset-sheets/${assetType}/${encodeURIComponent(name)}/regeneration-impact${query}`
     );
   }
 

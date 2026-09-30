@@ -527,3 +527,28 @@ describe("WorkflowPanel 产品语言", () => {
     expect(screen.queryByText(/请助手修复/)).not.toBeInTheDocument();
   });
 });
+
+describe("WorkflowPanel 集层资产图入口", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("offers the episode batch when the next step is generating this episode's asset sheets", async () => {
+    const preview = vi
+      .spyOn(API, "previewAssetSheetBatch")
+      .mockResolvedValue({ targets: [], skipped: [], estimated_cost: null });
+    const nextAction = {
+      type: "generate_asset_sheets" as const,
+      args: { episode: 3 },
+      requested_ids: ["庭院"],
+      requires_confirmation: false,
+      reason: "assets referenced by this episode need sheets",
+    };
+    mockPlan(makePlan({ next_action: nextAction }));
+    render(<WorkflowPanel projectName="proj" episode={3} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "生成本集待生成的资产" }));
+
+    await waitFor(() => expect(preview).toHaveBeenCalledWith("proj", { episode_id: 3 }));
+  });
+});

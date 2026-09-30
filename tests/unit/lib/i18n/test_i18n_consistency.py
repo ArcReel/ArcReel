@@ -166,6 +166,7 @@ def test_batch_admission_problem_codes_are_translated():
         GenerationProblemCode.TASK_CANCELLED,
         GenerationProblemCode.TASK_INTERRUPTED,
         GenerationProblemCode.POST_PROCESSING_FAILED,
+        GenerationProblemCode.DEPENDENCY_FAILED,
     }
     codes = (
         set(_PROBLEM_PRESENTATION)

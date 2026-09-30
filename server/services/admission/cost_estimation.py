@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import logging
 import re
+from collections import Counter
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -826,3 +828,57 @@ class CostEstimationService:
                 ep_act[cost_type] = _merge_breakdowns(ep_act.get(cost_type, {}), amounts)
 
         return segments_result, ep_est, ep_act
+
+
+ImageLane = Literal["t2i", "i2i"]
+
+
+async def estimate_image_batch_cost(
+    project: dict[str, Any],
+    lanes: Sequence[ImageLane],
+    *,
+    resolver: ConfigResolver,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> CostBreakdown | None:
+    """一批图片生成按当前项目配置的预估费用；供应商或单价解析不出时返回 ``None``（算不出）。
+
+    每张图按自己的生图通道计价：文生图与图生图是两个正交的能力槽，可能配置成不同的模型。
+    分辨率档与执行侧同样按通道解析出的模型取，取不到时按保底档计价。
+    """
+
+    counts = Counter(lanes)
+    if not counts:
+        return {}
+    identities: dict[ImageLane, tuple[str, str, str | None]] = {}
+    try:
+        async with resolver.session() as r:
+            for lane in counts:
+                resolved = await r.resolve_image_backend(project, None, generation_type=lane)
+                try:
+                    resolution = await r.resolve_resolution(project, resolved.provider_id, resolved.model_id or "")
+                except (ValueError, SQLAlchemyError):
+                    resolution = None
+                identities[lane] = (resolved.provider_id, resolved.model_id or "", resolution)
+        total: CostBreakdown = {}
+        async with session_factory() as session:
+            repo = CustomProviderRepository(session)
+            for lane, count in counts.items():
+                provider, model, resolution = identities[lane]
+                price = await repo.resolve_price(provider, model)
+                amount, currency = cost_calculator.calculate_cost(
+                    provider,
+                    PricingParams(
+                        call_type="image",
+                        model=model,
+                        resolution=resolution or _IMAGE_PRICING_FALLBACK_RESOLUTION,
+                    ),
+                    custom_price_input=price.price_input,
+                    custom_price_output=price.price_output,
+                    custom_currency=price.currency,
+                    estimate_only=True,
+                )
+                _add_cost(total, amount * count, currency)
+    except (ValueError, SQLAlchemyError):
+        logger.debug("无法估算这批图片的费用", exc_info=True)
+        return None
+    return total

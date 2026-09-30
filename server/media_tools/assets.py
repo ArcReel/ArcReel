@@ -1,40 +1,42 @@
-"""Host-neutral tools for asset image generation (character / scene / prop / product).
+"""Host-neutral tools for asset image generation (character / scene / prop / product and derivatives).
 
-``generate_assets`` addresses one asset by its qualified ``<type>/<name>`` unit
-ID: a single call may span four asset types whose names can collide, and the
-per-ID result contract requires globally unique IDs within one batch.
+Both tools are thin adapters over :mod:`server.services.admission.asset_sheet_batch`, the
+service the Web gallery and episode entries call too, so an Agent listing or
+generating by ``episode_id`` sees exactly what the Web episode entry sees.
+``generate_assets`` addresses one asset by its qualified ``<type>/<name>`` unit ID
+(a derivative is ``character/<owner>/<derivative>``): a single call may span four
+asset types whose names can collide, and the per-ID result contract requires
+globally unique IDs within one batch.
 """
 
 from __future__ import annotations
 
-from typing import Any, Literal, Self, get_args
+import asyncio
+from typing import Literal, Self, get_args
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from pydantic.json_schema import SkipJsonSchema
 
-from lib.artifacts.artifact_activation import ArtifactCurrencyResolver, active_artifact_currency_resolver
-from lib.artifacts.artifact_manifest import ArtifactKey
-from lib.generation.generation_queue_client import TaskSpec
+from lib.artifacts.artifact_activation import active_artifact_currency_resolver
 from lib.generation.generation_result import (
-    GenerationAction,
-    GenerationCandidate,
-    GenerationProblem,
-    GenerationProblemCode,
     GenerationResultBuilder,
-    GenerationSelectionMode,
-    GenerationTargetState,
     normalize_requested_ids,
     record_batch_outcomes,
-    select_generation_targets,
 )
-from lib.project.asset_types import ASSET_SPECS, AssetSpec, asset_name_comparison_key, resolve_asset_key
-from lib.project.project_manager import ProjectManager
+from lib.project.asset_types import ASSET_SPECS
 from server.media_tools.context import (
     GenerationToolValue,
     RequestedIds,
     generation_batch_submission_outcome,
     generation_result_outcome,
     tool_error,
+    tool_problem,
+)
+from server.services.admission.asset_sheet_batch import (
+    ASSET_BATCH_OPERATION,
+    AssetBatchEpisodeNotFound,
+    AssetSheetScope,
+    load_asset_sheet_batch_plan,
 )
 from server.tool_runtime import (
     CallerContext,
@@ -57,117 +59,70 @@ AssetType = Literal["character", "scene", "prop", "product"]
 if get_args(AssetType) != ALL_TYPES:
     raise RuntimeError("AssetType 须与 ASSET_SPECS 的资产类型逐项一致")
 
-_OPERATION = "generate_assets"
-
-_PENDING_DISPATCH = {
-    "character": lambda pm, name: pm.get_pending_characters(name),
-    "scene": lambda pm, name: pm.get_pending_project_scenes(name),
-    "prop": lambda pm, name: pm.get_pending_project_props(name),
-    "product": lambda pm, name: pm.get_pending_project_products(name),
-}
-
-
-def _get_pending(pm: ProjectManager, project_name: str, asset_type: str) -> list[dict]:
-    return _PENDING_DISPATCH[asset_type](pm, project_name)
-
-
-def asset_unit_id(asset_type: str, name: str) -> str:
-    """Qualify an asset name so IDs stay unique across asset types."""
-
-    return f"{asset_type}/{name}"
-
-
-def asset_name_of(unit_id: str) -> str:
-    """The bare asset name inside a qualified unit ID — inverse of :func:`asset_unit_id`."""
-
-    return unit_id.split("/", 1)[1]
-
-
-def _asset_candidates(
-    project: dict[str, Any],
-    asset_type: str,
-    resolver: ArtifactCurrencyResolver,
-) -> list[GenerationCandidate]:
-    """Missing-only candidates for one asset type."""
-
-    spec = ASSET_SPECS[asset_type]
-    candidates: list[GenerationCandidate] = []
-    for name, entry in (project.get(spec.bucket_key) or {}).items():
-        sheet = entry.get(spec.sheet_field) if isinstance(entry, dict) else None
-        candidates.append(
-            GenerationCandidate(
-                unit_id=asset_unit_id(asset_type, name),
-                artifact_key=ArtifactKey.asset_sheet(asset_type, asset_name_comparison_key(name)),
-                artifact_path=sheet if isinstance(sheet, str) else None,
-            )
-        )
-    return candidates
-
-
-def _requested_unit_ids(
-    project: dict[str, Any],
-    asset_type: str,
-    names: list[str] | None,
-) -> list[str] | None:
-    """Resolve caller-supplied names to canonical qualified unit IDs.
-
-    Unresolvable names keep their literal spelling so the selection reports them
-    as unmatched instead of silently dropping them.
-    """
-
-    if names is None:
-        return None
-    assets_dict = (project.get(ASSET_SPECS[asset_type].bucket_key) or {}) if project else {}
-    resolved: list[str] = []
-    for name in names:
-        key = resolve_asset_key(assets_dict, name)
-        resolved.append(asset_unit_id(asset_type, key if key is not None else name))
-    return list(dict.fromkeys(resolved))
-
-
-def _description_of(project: dict[str, Any], asset_type: str, unit_id: str) -> str | None:
-    spec = ASSET_SPECS[asset_type]
-    name = asset_name_of(unit_id)
-    entry = (project.get(spec.bucket_key) or {}).get(name)
-    description = entry.get("description") if isinstance(entry, dict) else None
-    return description if isinstance(description, str) and description.strip() else None
+_EPISODE_ID_DESCRIPTION = (
+    "集 ID；给出时只覆盖这一集正式脚本引用的资产（含商品与衍生，衍生连带其本体），与 Web 集层的批量生成同一范围。"
+    "不能与 type / names 同时使用"
+)
 
 
 class ListPendingAssetsRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     type: AssetType | SkipJsonSchema[None] = Field(default=None, description="资产类型；省略则汇总全部类型的待生成资产")
+    episode_id: int | SkipJsonSchema[None] = Field(default=None, ge=1, description=_EPISODE_ID_DESCRIPTION)
+
+    @model_validator(mode="after")
+    def _episode_excludes_type(self) -> Self:
+        if self.episode_id is not None and self.type is not None:
+            raise ValueError("episode_id 不能与 type 同时使用")
+        return self
+
+
+def _preview(description: str | None) -> str:
+    if description is None:
+        return "（缺描述，补上前不会生成）"
+    return description[:60] + "..." if len(description) > 60 else description
 
 
 async def list_pending_assets(
     request: ToolRequest[ListPendingAssetsRequest],
     scope: ProjectScope,
-    _caller: CallerContext,
+    caller: CallerContext,
     services: Services,
 ) -> ToolOutcome[str]:
     try:
         problem = await migration_gate(scope, services)
         if problem is not None:
             return ToolOutcome(problem=problem)
-        asset_type = request.value.type
-        types = (asset_type,) if asset_type else ALL_TYPES
+        value = request.value
+        _project, plan = await load_asset_sheet_batch_plan(
+            services.projects,
+            services.queue,
+            project_name=scope.project_name,
+            scope=AssetSheetScope(asset_type=value.type, episode_id=value.episode_id),
+            user_id=caller.user_id,
+        )
+        pending = [*plan.target_ids, *(item.unit_id for item in plan.preflight.items)]
+        where = f"第 {value.episode_id} 集（id={value.episode_id}）引用的" if value.episode_id is not None else ""
+        types = (value.type,) if value.type else ALL_TYPES
         lines: list[str] = []
-        total = 0
-        for t in types:
-            spec = ASSET_SPECS[t]
-            pending = _get_pending(services.projects, scope.project_name, t)
-            if not pending:
-                lines.append(f"✅ 项目 '{scope.project_name}' 所有{spec.label_zh}都已有资产图")
+        for asset_type in types:
+            label = ASSET_SPECS[asset_type].label_zh
+            of_type = [unit_id for unit_id in pending if plan.units[unit_id].asset_type == asset_type]
+            if not of_type:
+                lines.append(f"✅ 项目 '{scope.project_name}' {where}{label}都已有资产图")
                 continue
-            total += len(pending)
-            lines.append(f"\n📋 待生成的{spec.label_zh} ({len(pending)} 个):")
-            for item in pending:
-                desc = item.get("description", "") or ""
-                desc_preview = desc[:60] + "..." if len(desc) > 60 else desc
-                lines.append(f"  {_EMOJI[t]} {item['name']} — {desc_preview}")
-        if not asset_type and total == 0:
-            lines.append(f"\n✅ 项目 '{scope.project_name}' 所有资产均已有资产图")
+            lines.append(f"\n📋 {where}待生成的{label} ({len(of_type)} 个):")
+            for unit_id in of_type:
+                unit = plan.units[unit_id]
+                kind = f"（{unit.owner} 的衍生）" if unit.is_derivative else ""
+                generating = "（生成中）" if unit_id in plan.generating else ""
+                lines.append(f"  {_EMOJI[asset_type]} {unit.name}{kind}{generating} — {_preview(unit.description)}")
+        if not value.type and not pending:
+            lines.append(f"\n✅ 项目 '{scope.project_name}' {where}资产均已有资产图")
         return ToolOutcome(value="\n".join(lines))
+    except AssetBatchEpisodeNotFound as exc:
+        return tool_problem(str(exc), code="episode_not_found", params={"episode_id": exc.episode_id})
     except Exception as exc:
         return tool_error("list_pending_assets", exc)
 
@@ -180,12 +135,16 @@ class GenerateAssetsRequest(BaseModel):
     )
     names: RequestedIds | SkipJsonSchema[None] = Field(
         default=None,
-        description="要生成的资产名称列表；必须配合 type 使用，与 all 互斥。省略则只选缺资产图的资产",
+        description=(
+            "要生成的资产名称列表，衍生写作 本体/衍生；必须配合 type 使用，与 all、episode_id 互斥。"
+            "省略则只选缺资产图的资产"
+        ),
     )
     all: bool = Field(
         default=False,
         description="显式要求扫描所选类型的全部缺图资产；与 names 互斥。省略 names 时本就只选缺图资产",
     )
+    episode_id: int | SkipJsonSchema[None] = Field(default=None, ge=1, description=_EPISODE_ID_DESCRIPTION)
 
     @model_validator(mode="after")
     def _names_need_one_type(self) -> Self:
@@ -193,6 +152,8 @@ class GenerateAssetsRequest(BaseModel):
             raise ValueError("names 必须配合 type 使用")
         if self.names is not None and self.all:
             raise ValueError("all 与 names 互斥，不能同时使用")
+        if self.episode_id is not None and (self.type is not None or self.names is not None):
+            raise ValueError("episode_id 不能与 type / names 同时使用")
         return self
 
 
@@ -203,91 +164,57 @@ async def generate_assets(
     services: Services,
 ) -> ToolOutcome[GenerationToolValue]:
     try:
-        asset_type = request.value.type
-        names = normalize_requested_ids(request.value.names, field="names")
-
-        project = services.projects.load_project(scope.project_name)
-        resolver = active_artifact_currency_resolver(services.projects.get_project_path(scope.project_name), project)
-        types = (asset_type,) if asset_type else ALL_TYPES
-
-        builder = GenerationResultBuilder(
-            _OPERATION,
-            GenerationSelectionMode.EXPLICIT if names is not None else GenerationSelectionMode.MISSING_ONLY,
+        value = request.value
+        names = normalize_requested_ids(value.names, field="names")
+        project, plan = await load_asset_sheet_batch_plan(
+            services.projects,
+            services.queue,
+            project_name=scope.project_name,
+            scope=AssetSheetScope(
+                asset_type=value.type,
+                episode_id=value.episode_id,
+                names=tuple(names) if names is not None else None,
+            ),
+            user_id=caller.user_id,
         )
-        targets: list[tuple[AssetSpec, GenerationTargetState]] = []
-        for t in types:
-            spec = ASSET_SPECS[t]
-            selection = select_generation_targets(
-                candidates=_asset_candidates(project, t, resolver),
-                requested_ids=_requested_unit_ids(project, t, names),
-                resolver=resolver,
-            )
-            builder.absorb(selection)
-            for state in selection.targets:
-                if _description_of(project, t, state.unit_id) is None:
-                    builder.block(
-                        state.unit_id,
-                        problem=GenerationProblem(
-                            code=GenerationProblemCode.UNIT_REQUEST_INVALID,
-                            detail=f"{spec.label_zh} '{state.unit_id}' 缺少 description，无法生成资产图",
-                            action=GenerationAction.FIX_INPUT,
-                        ),
-                        artifact_key=state.artifact_key,
-                        artifact_path=state.artifact_path,
-                        artifact_status=state.status,
-                    )
-                    continue
-                targets.append((spec, state))
-
-        by_id = {state.unit_id: state for _spec, state in targets}
-
-        task_specs = [
-            TaskSpec.from_request(
-                task_type=spec.asset_type,
-                media_type="image",
-                resource_id=asset_name_of(state.unit_id),
-                unit_id=state.unit_id,
-                source=caller.source,
-            )
-            for spec, state in targets
-        ]
         submitted = await submit_media_generation(
             scope=scope,
             caller=caller,
             services=services,
-            operation=_OPERATION,
-            preflight=builder.build(),
-            pending_ids=[state.unit_id for _spec, state in targets],
-            specs=task_specs,
-            states=by_id,
+            operation=ASSET_BATCH_OPERATION,
+            preflight=plan.preflight,
+            pending_ids=plan.target_ids,
+            specs=plan.task_specs(source=caller.source),
+            states=dict(plan.states),
+            dependencies=plan.dependencies,
         )
         if submitted.successes is None or submitted.failures is None:
             return generation_batch_submission_outcome(submitted.batch)
+
+        builder = GenerationResultBuilder.from_preflight(plan.preflight)
+        resolver = await asyncio.to_thread(
+            active_artifact_currency_resolver, services.projects.get_project_path(scope.project_name), project
+        )
         record_batch_outcomes(
             builder,
             successes=submitted.successes,
             failures=submitted.failures,
-            states=by_id,
+            states=plan.states,
             resolver=resolver,
-            unit_id_of=lambda rid: (
-                rid if "/" in rid else next(unit_id for unit_id in by_id if asset_name_of(unit_id) == rid)
-            ),
-            fallback_path=lambda unit_id: (
-                f"{ASSET_SPECS[unit_id.split('/', 1)[0]].subdir}/{asset_name_of(unit_id)}.png"
-            ),
+            fallback_path=lambda unit_id: plan.units[unit_id].default_sheet_path,
+            dependencies=plan.dependencies,
         )
-
         return generation_result_outcome(builder.build(), batch_id=submitted.batch.batch_id)
+    except AssetBatchEpisodeNotFound as exc:
+        return tool_problem(str(exc), code="episode_not_found", params={"episode_id": exc.episode_id})
     except Exception as exc:
-        return tool_error(_OPERATION, exc)
+        return tool_error(ASSET_BATCH_OPERATION, exc)
 
 
 __all__ = [
     "ALL_TYPES",
     "GenerateAssetsRequest",
     "ListPendingAssetsRequest",
-    "asset_name_of",
-    "asset_unit_id",
     "generate_assets",
     "list_pending_assets",
 ]

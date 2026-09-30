@@ -13,7 +13,9 @@ import { useProjectsStore } from "@/stores/projects-store";
 import { errMsg } from "@/utils/async";
 import { rejectIfAssetBusy } from "./assetBusyGuard";
 import { EditableAssetName } from "./EditableAssetName";
-import type { Product } from "@/types";
+import { AssetSheetStaleBadge, MissingDescriptionChip, hasUsableDescription, sheetIsPending } from "./AssetSheetStatusBadge";
+import { useStaleRegenerateConfirm } from "./useStaleRegenerateConfirm";
+import type { AssetSheetStatusRow, Product } from "@/types";
 
 // ---------------------------------------------------------------------------
 // Props
@@ -28,6 +30,8 @@ interface ProductCardProps {
   onRestoreVersion?: () => void | Promise<void>;
   onReload?: () => void | Promise<unknown>;
   generating?: boolean;
+  /** 产物清单对这张资产图的判定；未取到时按项目数据展示。 */
+  sheetStatus?: AssetSheetStatusRow;
   /** 只读展示（引导演示项目）：所有改写入口不渲染，文本字段不可编辑。 */
   readOnly?: boolean;
 }
@@ -53,6 +57,7 @@ export function ProductCard({
   onRestoreVersion,
   onReload,
   generating = false,
+  sheetStatus,
   readOnly = false,
 }: ProductCardProps) {
   const { t } = useTranslation(["dashboard", "assets", "common"]);
@@ -165,9 +170,17 @@ export function ProductCard({
     });
   };
 
-  const sheetUrl = product.product_sheet
+  const sheetUrl = product.product_sheet && !sheetIsPending(sheetStatus)
     ? API.getFileUrl(projectName, product.product_sheet, sheetFp)
     : null;
+  const descriptionMissing = !hasUsableDescription(product.description);
+  const staleConfirm = useStaleRegenerateConfirm({
+    projectName,
+    assetType: "product",
+    name,
+    status: sheetStatus,
+    onGenerate: () => onGenerate(name),
+  });
 
   return (
     <div
@@ -329,7 +342,7 @@ export function ProductCard({
       <div className="mb-4">
         <CapsLabel>{t("dashboard:product_design")}</CapsLabel>
         <div
-          className="mt-1.5 overflow-hidden rounded-lg"
+          className="relative mt-1.5 overflow-hidden rounded-lg"
           style={{ border: "1px solid var(--color-hairline-soft)" }}
         >
           <PreviewableImageFrame
@@ -355,12 +368,16 @@ export function ProductCard({
               )}
             </AspectFrame>
           </PreviewableImageFrame>
+          {sheetUrl && !imgError && <AssetSheetStaleBadge status={sheetStatus} />}
         </div>
       </div>
 
       {/* ---- Description ---- */}
       <div className="flex items-center justify-between gap-2">
-        <CapsLabel htmlFor={descId}>{t("dashboard:description")}</CapsLabel>
+        <span className="flex items-center gap-1.5">
+          <CapsLabel htmlFor={descId}>{t("dashboard:description")}</CapsLabel>
+          {descriptionMissing && <MissingDescriptionChip />}
+        </span>
         {readOnly ? null : (
           <PromptPreviewButton
             title={t("assets:prompt_preview_title", { name })}
@@ -426,13 +443,17 @@ export function ProductCard({
       )}
 
       {readOnly ? null : (
-      <GenerateButton
-        onClick={() => onGenerate(name)}
-        loading={generating}
-        label={product.product_sheet ? t("dashboard:regenerate_design") : t("dashboard:generate_design")}
-        className="w-full justify-center"
-      />
+      <span className="block" title={descriptionMissing ? t("assets:sheet_description_required") : undefined}>
+        <GenerateButton
+          onClick={staleConfirm.request}
+          loading={generating}
+          disabled={descriptionMissing}
+          label={product.product_sheet ? t("dashboard:regenerate_design") : t("dashboard:generate_design")}
+          className="w-full justify-center"
+        />
+      </span>
       )}
+      {staleConfirm.dialog}
     </div>
   );
 }

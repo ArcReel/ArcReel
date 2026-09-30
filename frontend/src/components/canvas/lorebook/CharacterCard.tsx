@@ -16,8 +16,10 @@ import { errMsg } from "@/utils/async";
 import { rejectIfAssetBusy } from "./assetBusyGuard";
 import { CharacterDerivativesButton } from "./CharacterDerivativesButton";
 import { EditableAssetName } from "./EditableAssetName";
+import { AssetSheetStaleBadge, MissingDescriptionChip, hasUsableDescription, sheetIsPending } from "./AssetSheetStatusBadge";
+import { useStaleRegenerateConfirm } from "./useStaleRegenerateConfirm";
 import { VoiceSampleButton } from "./VoiceSampleButton";
-import type { Character, CharacterVoiceBinding } from "@/types";
+import type { AssetSheetStatusRow, Character, CharacterVoiceBinding } from "@/types";
 import { DEFAULT_CHARACTER_VOICE_BINDING } from "@/types";
 
 interface CharacterSavePayload {
@@ -45,6 +47,8 @@ interface CharacterCardProps {
   onRestoreVersion?: () => Promise<void> | void;
   onReload?: () => Promise<unknown> | void;
   generating?: boolean;
+  /** 产物清单对这张资产图的判定；未取到时按项目数据展示。 */
+  sheetStatus?: AssetSheetStatusRow;
   /** 项目的角色声音绑定方式；prompt（默认）下参考音频不生效，折叠为可选项。 */
   voiceBinding?: CharacterVoiceBinding;
   /** 只读展示（引导演示项目）：所有改写入口不渲染，文本字段不可编辑。 */
@@ -92,6 +96,7 @@ export function CharacterCard({
   onRestoreVersion,
   onReload,
   generating = false,
+  sheetStatus,
   voiceBinding = DEFAULT_CHARACTER_VOICE_BINDING,
   readOnly = false,
 }: CharacterCardProps) {
@@ -300,9 +305,17 @@ export function CharacterCard({
     }
   };
 
-  const sheetUrl = character.character_sheet
+  const sheetUrl = character.character_sheet && !sheetIsPending(sheetStatus)
     ? API.getFileUrl(projectName, character.character_sheet, sheetFp)
     : null;
+  const descriptionMissing = !hasUsableDescription(character.description);
+  const staleConfirm = useStaleRegenerateConfirm({
+    projectName,
+    assetType: "character",
+    name,
+    status: sheetStatus,
+    onGenerate: () => onGenerate(name),
+  });
 
   const savedReferenceUrl = character.reference_image
     ? API.getFileUrl(projectName, character.reference_image, referenceFp)
@@ -441,7 +454,7 @@ export function CharacterCard({
         <div>
           <CapsLabel>{t("character_design")}</CapsLabel>
           <div
-            className="mt-1.5 overflow-hidden rounded-lg"
+            className="relative mt-1.5 overflow-hidden rounded-lg"
             style={{ border: "1px solid var(--color-hairline-soft)" }}
           >
             <PreviewableImageFrame
@@ -466,6 +479,7 @@ export function CharacterCard({
                 />
               </AspectFrame>
             </PreviewableImageFrame>
+            {sheetUrl && !imgError && <AssetSheetStaleBadge status={sheetStatus} />}
           </div>
         </div>
 
@@ -559,7 +573,10 @@ export function CharacterCard({
       </div>
 
       <div className="flex items-center justify-between gap-2">
-        <CapsLabel htmlFor={descId}>{t("description")}</CapsLabel>
+        <span className="flex items-center gap-1.5">
+          <CapsLabel htmlFor={descId}>{t("description")}</CapsLabel>
+          {descriptionMissing && <MissingDescriptionChip />}
+        </span>
         {readOnly ? null : (
           <PromptPreviewButton
             title={t("assets:prompt_preview_title", { name })}
@@ -755,15 +772,17 @@ export function CharacterCard({
       )}
 
       {readOnly ? null : (
-      <div className="mt-4">
+      <div className="mt-4" title={descriptionMissing ? t("assets:sheet_description_required") : undefined}>
         <GenerateButton
-          onClick={() => onGenerate(name)}
+          onClick={staleConfirm.request}
           loading={generating}
+          disabled={descriptionMissing}
           label={character.character_sheet ? t("regenerate_design") : t("generate_design")}
           className="w-full justify-center"
         />
       </div>
       )}
+      {staleConfirm.dialog}
     </div>
   );
 }

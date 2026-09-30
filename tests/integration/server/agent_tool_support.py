@@ -366,21 +366,6 @@ class FakePM:
     def project_exists(self, _name: str) -> bool:
         return True
 
-    def get_pending_characters(self, _name: str) -> list[dict[str, Any]]:
-        return [
-            {"name": "张三", "description": "主角描述"},
-            {"name": "李四", "description": ""},
-        ]
-
-    def get_pending_project_scenes(self, _name: str) -> list[dict[str, Any]]:
-        return [{"name": "村口", "description": "黄昏村口"}]
-
-    def get_pending_project_props(self, _name: str) -> list[dict[str, Any]]:
-        return []
-
-    def get_pending_project_products(self, _name: str) -> list[dict[str, Any]]:
-        return [{"name": "保温杯", "description": "不锈钢保温杯"}]
-
 
 def fake_reference_projection(
     slot_for=None,

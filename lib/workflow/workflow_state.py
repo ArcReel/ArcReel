@@ -35,8 +35,10 @@ from lib.episode.episode_ledger import (
 )
 from lib.episode.episode_paths import episode_source_relpath
 from lib.infra.content_digest import prefixed_canonical_json_digest
+from lib.project.asset_derivatives import derivative_table, split_derivative_artifact_id
 from lib.project.asset_types import ASSET_SPECS, asset_name_comparison_key
 from lib.project.data_validator import DataValidator
+from lib.project.episode_asset_references import episode_referenced_assets
 from lib.project.project_manager import ProjectManager
 from lib.project.project_migration_failure import (
     MIGRATION_FAILURE_CODE,
@@ -1515,7 +1517,7 @@ class WorkflowStateService:
                                 project, source, target, state, blockers, gates, artifacts, next_action
                             )
 
-                script_artifact, items, kind, _script = self._load_script_artifacts(
+                script_artifact, items, kind, episode_script = self._load_script_artifacts(
                     project_path, project_name, project, target, blockers, currency
                 )
                 artifacts["script"] = script_artifact
@@ -1548,17 +1550,49 @@ class WorkflowStateService:
                         ids=pending_authoring_ids,
                     )
                 else:
-                    missing_sheets = [
-                        asset_id
-                        for asset_type, collection in sheets.items()
-                        if asset_type != "product"
-                        for asset_id in collection.get("missing_ids", [])
-                    ]
+                    missing_sheets: list[str] = []
+                    accepted_sheets: set[tuple[str, str]] = set()
+                    for asset in sorted(
+                        episode_referenced_assets(project, episode_script),
+                        key=lambda asset: (asset.owner is not None, asset.asset_type, asset.name),
+                    ):
+                        spec = ASSET_SPECS[asset.asset_type]
+                        owner = project[spec.bucket_key][asset.owner or asset.name]
+                        entry = (
+                            derivative_table(owner)[split_derivative_artifact_id(asset.name)[1]]
+                            if asset.owner is not None
+                            else owner
+                        )
+                        description = entry.get("description")
+                        if not isinstance(description, str) or not description.strip():
+                            continue
+                        path = entry.get(spec.sheet_field)
+                        sheet_state = (
+                            self._artifact_state(
+                                currency,
+                                ArtifactKey.asset_sheet(asset.asset_type, asset_name_comparison_key(asset.name)),
+                                path,
+                                blockers,
+                            )
+                            if currency is not None and isinstance(path, str) and path
+                            else ArtifactStatus.MISSING.value
+                        )
+                        if sheet_state != ArtifactStatus.MISSING.value:
+                            continue
+                        if asset.owner is not None:
+                            owner_sheets = sheets[asset.asset_type]
+                            if (asset.asset_type, asset.owner) not in accepted_sheets and asset.owner not in (
+                                owner_sheets["current_ids"] + owner_sheets["stale_ids"]
+                            ):
+                                continue
+                        missing_sheets.append(asset.name)
+                        accepted_sheets.add((asset.asset_type, asset.name))
                     if missing_sheets:
                         state = "ASSET_SHEETS"
                         next_action = _action(
                             WorkflowActionType.GENERATE_ASSET_SHEETS,
-                            "asset definitions need sheets",
+                            "assets referenced by this episode need sheets",
+                            args={"episode": target.episode},
                             ids=missing_sheets,
                         )
                     else:

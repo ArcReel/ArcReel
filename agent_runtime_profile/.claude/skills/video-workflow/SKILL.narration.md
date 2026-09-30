@@ -161,70 +161,25 @@ dispatch prompt 通用参数：项目名称、项目路径、集数、本集小�
 
 ---
 
-## `generate_asset_sheets`：资产设计（character / scene / prop 三类并行）
+## `generate_asset_sheets`：本集资产图
 
-**触发**：`next_action.type == "generate_asset_sheets"`。空资产 bucket 是 `analyze_assets` 的合法完成结果，
-不得据此回退；对每个资产类型，取 `artifacts.asset_sheets[type].missing_ids` 与 `requested_ids` 的交集作为
-该类型的 `names`，同时传给子智能体和工具：
-- character 缺 character_sheet
-- scene 缺 scene_sheet
-- prop 缺 prop_sheet
+**触发**：`next_action.type == "generate_asset_sheets"`，`next_action.args.episode` 是目标集 ID。
+空资产 bucket 是 `analyze_assets` 的合法完成结果，不得据此回退。
 
-**调度规则（显式条件判断，按类型独立决定）**：
-
-```text
-对于 type ∈ {character, scene, prop}:
-  names = artifacts.asset_sheets[type].missing_ids ∩ requested_ids
-  若 names 非空 → dispatch 对应的 `generate-assets` 子智能体，并把 names 原样传给子智能体和工具
-  若 names 为空 → 跳过，不 dispatch；不得回退到整类 missing_ids
-
-三类判断彼此独立，结果可能 dispatch 0~3 个子智能体。
-所有 dispatch 的子智能体返回后，合并摘要展示给用户，进入动作间确认。
-```
-
-下面三个 dispatch 块是模板，只实例化满足上述条件的那几个：
-
-### 子智能体 — 角色设计
-
-**触发**：该类 `names` 交集非空
+「本集引用了哪些资产」由服务端算：按集 ID 调一次 `generate_assets`，服务端生成本集引用、仍缺资产图的全部资产
+（角色 / 场景 / 道具 / 商品及衍生），与 Web 集层「生成待生成的资产」同一份名单；衍生与本体同批，本体图生成成功后才提交衍生。
 
 ```text
 dispatch `generate-assets` 子智能体：
-  任务类型：character
+  任务类型：asset_sheets
   项目名称：{project_name}
-  待生成项：{names 交集}
   工具调用：
-    mcp__arcreel__generate_assets({"type": "character", "names": [该类型 names]})
-  验证方式：重新读取 project.json，检查对应角色的 character_sheet 字段
+    mcp__arcreel__generate_assets({"episode_id": <next_action.args.episode>})
+  验证方式：按返回的 requested / succeeded / failed / blocked 逐 ID 汇报
 ```
 
-### 子智能体 — 场景设计
-
-**触发**：该类 `names` 交集非空
-
-```text
-dispatch `generate-assets` 子智能体：
-  任务类型：scene
-  项目名称：{project_name}
-  待生成项：{names 交集}
-  工具调用：
-    mcp__arcreel__generate_assets({"type": "scene", "names": [该类型 names]})
-  验证方式：重新读取 project.json，检查对应场景的 scene_sheet 字段
-```
-
-### 子智能体 — 道具设计
-
-**触发**：该类 `names` 交集非空
-
-```text
-dispatch `generate-assets` 子智能体：
-  任务类型：prop
-  项目名称：{project_name}
-  待生成项：{names 交集}
-  工具调用：
-    mcp__arcreel__generate_assets({"type": "prop", "names": [该类型 names]})
-  验证方式：重新读取 project.json，检查对应道具的 prop_sheet 字段
-```
+子智能体返回后，把摘要展示给用户，进入动作间确认。`blocked` 项的处理见
+[workflow-plan](../../references/workflow-plan.md) 的 `generate_asset_sheets` 行。
 
 ---
 

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import unicodedata
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock
@@ -1205,42 +1204,6 @@ async def test_generate_video_reference_duration_confirmation_across_entries(
 
     assert confirmed.problem is None, confirmed
     assert [s.resource_id for s in enqueued] == ["E1U1"]
-
-
-def test_asset_description_gate_rejects_invalid_description() -> None:
-    """空白 / 非字符串描述都拿不到可用 description，由调用方按逐 ID blocked 报告，
-    不应抛错（.strip()）或漏到 from_request 而中断整批。"""
-    from lib.project.asset_types import ASSET_SPECS
-    from server.media_tools.assets import _description_of, asset_unit_id
-
-    bucket = ASSET_SPECS["character"].bucket_key
-    project = {
-        bucket: {
-            "Alice": {"description": "   "},  # 空白
-            "Carol": {"description": {"x": 1}},  # 非字符串，.strip() 会抛 AttributeError
-            "Bob": {"description": "勇士"},
-        }
-    }
-
-    assert _description_of(project, "character", asset_unit_id("character", "Alice")) is None
-    assert _description_of(project, "character", asset_unit_id("character", "Carol")) is None
-    assert _description_of(project, "character", asset_unit_id("character", "Bob")) == "勇士"
-
-
-def test_asset_requested_ids_resolve_nfd_registered_key() -> None:
-    """Agent 给的名字与桶 key 形态可以不同：按坐标系解析后落到真实落盘 key 的 unit ID。"""
-
-    from lib.project.asset_types import ASSET_SPECS
-    from server.media_tools.assets import _requested_unit_ids, asset_unit_id
-
-    name_nfc = unicodedata.normalize("NFC", "Hiếu")
-    name_nfd = unicodedata.normalize("NFD", "Hiếu")
-    bucket = ASSET_SPECS["character"].bucket_key
-    project = {bucket: {name_nfd: {"description": "存量 NFD 角色"}}}
-
-    assert _requested_unit_ids(project, "character", [name_nfc]) == [asset_unit_id("character", name_nfd)]
-    # 同一资产的两种拼写解析到同一个 unit ID，只入一次队。
-    assert _requested_unit_ids(project, "character", [name_nfc, name_nfd]) == [asset_unit_id("character", name_nfd)]
 
 
 def test_build_video_specs_does_not_validate_duration_at_enqueue(tmp_path) -> None:

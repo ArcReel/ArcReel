@@ -1,7 +1,9 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Landmark } from "lucide-react";
+import { AssetSheetBatchControls } from "./AssetSheetBatchControls";
 import { GalleryToolbar } from "./GalleryToolbar";
+import { matchesSheetFilter, useAssetSheetStatus, useSheetStatusByName, type SheetStatusFilter } from "./useAssetSheetStatus";
 import { SceneCard } from "./SceneCard";
 import { AssetFormModal } from "@/components/assets/AssetFormModal";
 import { AssetPickerModal } from "@/components/assets/AssetPickerModal";
@@ -31,8 +33,12 @@ export function ScenesPage({ projectName, scenes, onUpdateScene, onGenerateScene
   const [picking, setPicking] = useState(false);
 
   useScrollTarget("scene");
+  const sheetRows = useAssetSheetStatus(projectName);
+  const sheetStatus = useSheetStatusByName(sheetRows, "scene");
+  const [sheetFilter, setSheetFilter] = useState<SheetStatusFilter>("all");
 
   const entries = Object.entries(scenes);
+  const shownEntries = entries.filter(([name]) => matchesSheetFilter(sheetStatus.get(name), sheetFilter));
 
   const handleImport = async (ids: string[]) => {
     try {
@@ -57,7 +63,16 @@ export function ScenesPage({ projectName, scenes, onUpdateScene, onGenerateScene
         count={entries.length}
         onAdd={readOnly ? undefined : () => setAdding(true)}
         onPickFromLibrary={readOnly ? undefined : () => setPicking(true)}
-      />
+      >
+        <AssetSheetBatchControls
+          projectName={projectName}
+          assetType="scene"
+          rows={sheetRows}
+          filter={sheetFilter}
+          onFilterChange={setSheetFilter}
+          readOnly={readOnly}
+        />
+      </GalleryToolbar>
       <div className="px-5 py-5">
         {entries.length === 0 ? (
           <GalleryEmptyState
@@ -68,13 +83,14 @@ export function ScenesPage({ projectName, scenes, onUpdateScene, onGenerateScene
           />
         ) : (
           <div className="grid justify-evenly gap-4 [grid-template-columns:repeat(auto-fill,320px)]">
-            {entries.map(([name, scene]) => (
+            {shownEntries.map(([name, scene]) => (
               <SceneCard key={name} name={name} scene={scene} projectName={projectName}
                 onUpdate={onUpdateScene}
                 onGenerate={onGenerateScene}
                 onRestoreVersion={onRestoreSceneVersion}
                 onReload={onRefreshProject}
                 generating={generatingSceneNames?.has(name)}
+                sheetStatus={sheetStatus.get(name)}
                 readOnly={readOnly}
               />
             ))}

@@ -1,7 +1,9 @@
 import { useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ShoppingBag } from "lucide-react";
+import { AssetSheetBatchControls } from "./AssetSheetBatchControls";
 import { GalleryToolbar } from "./GalleryToolbar";
+import { matchesSheetFilter, useAssetSheetStatus, useSheetStatusByName, type SheetStatusFilter } from "./useAssetSheetStatus";
 import { ProductCard } from "./ProductCard";
 import { GlassModal } from "@/components/ui/GlassModal";
 import { ModalCloseButton } from "@/components/ui/ModalCloseButton";
@@ -43,8 +45,12 @@ export function ProductsPage({
   const [adding, setAdding] = useState(false);
 
   useScrollTarget("product");
+  const sheetRows = useAssetSheetStatus(projectName);
+  const sheetStatus = useSheetStatusByName(sheetRows, "product");
+  const [sheetFilter, setSheetFilter] = useState<SheetStatusFilter>("all");
 
   const entries = Object.entries(products);
+  const shownEntries = entries.filter(([name]) => matchesSheetFilter(sheetStatus.get(name), sheetFilter));
 
   return (
     <div className="flex h-full flex-col overflow-y-auto">
@@ -52,7 +58,16 @@ export function ProductsPage({
         title={t("dashboard:products")}
         count={entries.length}
         onAdd={readOnly ? undefined : () => setAdding(true)}
-      />
+      >
+        <AssetSheetBatchControls
+          projectName={projectName}
+          assetType="product"
+          rows={sheetRows}
+          filter={sheetFilter}
+          onFilterChange={setSheetFilter}
+          readOnly={readOnly}
+        />
+      </GalleryToolbar>
       <div className="px-5 py-5">
         {entries.length === 0 ? (
           <GalleryEmptyState
@@ -63,7 +78,7 @@ export function ProductsPage({
           />
         ) : (
           <div className="grid justify-evenly gap-4 [grid-template-columns:repeat(auto-fill,320px)]">
-            {entries.map(([name, product]) => (
+            {shownEntries.map(([name, product]) => (
               <ProductCard
                 key={name}
                 name={name}
@@ -74,6 +89,7 @@ export function ProductsPage({
                 onRestoreVersion={onRestoreProductVersion}
                 onReload={onRefreshProject}
                 generating={generatingProductNames?.has(name)}
+                sheetStatus={sheetStatus.get(name)}
                 readOnly={readOnly}
               />
             ))}

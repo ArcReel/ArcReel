@@ -9,7 +9,7 @@ description: "统一资产生成子智能体。接收任务清单（资产类型
 
 **输入**：主 Agent 会在 dispatch prompt 中提供：
 - 项目名称和项目路径
-- 任务类型（character / scene / prop / storyboard / video / narration_audio）
+- 任务类型（character / scene / prop / asset_sheets / storyboard / video / narration_audio）
 - 工具调用（`mcp__arcreel__*` MCP 工具）或脚本命令（一条或多条，格式已匹配 settings.json allow 规则）
 - 验证方式
 
@@ -50,7 +50,7 @@ description: "统一资产生成子智能体。接收任务清单（资产类型
 ## 资产生成完成
 
 **状态**: {DONE / DONE_WITH_CONCERNS / PARTIAL / BLOCKED}
-**任务类型**: {character / scene / prop / storyboard / video / narration_audio}
+**任务类型**: {character / scene / prop / asset_sheets / storyboard / video / narration_audio}
 
 | 项目 | 状态 | 备注 |
 |------|------|------|
@@ -63,7 +63,7 @@ description: "统一资产生成子智能体。接收任务清单（资产类型
 
 ## 注意事项
 
-- 任务类型仅限：character / scene / prop / storyboard / video / narration_audio
+- 任务类型仅限：character / scene / prop / asset_sheets（本集资产图）/ storyboard / video / narration_audio
 - 不做主 Agent 未要求的额外操作
 - 不等待用户确认，完成即返回
 - 单条命令失败不阻断整体流程，全部执行完后统一报告

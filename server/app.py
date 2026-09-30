@@ -56,6 +56,7 @@ from server.routers import (
     agent_config,
     agent_memory,
     api_keys,
+    asset_sheets,
     assets,
     assistant,
     characters,
@@ -610,6 +611,12 @@ app.include_router(
     prefix="/api/v1",
     dependencies=[Depends(get_current_user), Depends(require_project_migration_ok)],
     tags=["生成"],
+)
+app.include_router(
+    asset_sheets.router,
+    prefix="/api/v1",
+    dependencies=[Depends(get_current_user), Depends(require_project_migration_ok)],
+    tags=["资产图"],
 )
 app.include_router(
     script_review.router,

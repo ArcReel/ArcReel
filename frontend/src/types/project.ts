@@ -36,6 +36,8 @@ export interface CharacterDerivative {
 export interface CharacterDerivativeStatus extends CharacterDerivative {
   /** 已登记的衍生图不再等于规范状态时为真；还没生成过则为假。 */
   stale: boolean;
+  /** 产物清单状态；登记文件不可读时为 missing。 */
+  artifact_status?: "current" | "stale" | "missing" | "blocked";
 }
 
 export interface Character {
