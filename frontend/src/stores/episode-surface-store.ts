@@ -3,9 +3,9 @@ import { create } from "zustand";
 
 /**
  * 集页画布上可以被点名打开的区域：脚本规划（内容确认与脚本规划草稿都在这里），
- * 以及参考生视频的提示词编写草稿。
+ * 参考生视频的提示词编写草稿，以及集原文（无原文的集的填写框）。
  */
-export type EpisodeSurface = "script_plan" | "prompt_authoring_draft";
+export type EpisodeSurface = "script_plan" | "prompt_authoring_draft" | "episode_source";
 
 interface EpisodeSurfaceRequest {
   projectName: string;

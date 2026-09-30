@@ -134,6 +134,11 @@ export interface EpisodeMeta {
    * 缺省按有无 source_range 推断。
    */
   source_origin?: "whole_source" | "own" | "none";
+  /**
+   * 集规划状态。只有 stale 对创作者有意义：这一集的原文已被重新规划或删改，
+   * 与产物过期（storyboards / videos 的 stale）是两件事。
+   */
+  ledger_status?: "planned" | "consumed" | "stale";
   /** Written by episode_planner at split time (drama only) */
   outline?: { story_beats?: string[]; next_episode_teaser?: string };
   /** 上一次提示词编写的附加指令，打开「编写提示词」时预填 */
@@ -185,6 +190,8 @@ export interface ProjectData {
   /** 仅 ad：创作诉求短文本（可空）。 */
   brief?: string;
   schema_version?: number;
+  /** 整本源文的文件清单，按创作者排定的顺序。 */
+  whole_source_files?: { source_file: string }[];
   episodes: EpisodeMeta[];
   characters: Record<string, Character>;
   scenes?: Record<string, Scene>;

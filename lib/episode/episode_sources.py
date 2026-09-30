@@ -105,10 +105,14 @@ def episode_entry(project: Mapping[str, Any], episode_id: int) -> Mapping[str, A
 
 
 def is_episode_source_file(project: Mapping[str, Any], rel: str) -> bool:
-    """``rel`` 是否为账本里某一集的集文件 ``source/episode_N.txt``（派生物或自带原文）。"""
+    """``rel`` 是否为账本里某一集的集文件 ``source/episode_N.txt``（派生物或自带原文）。
+
+    无原文的集没有集文件，盘上与它同名的文件不算。
+    """
     return any(
         (episode_id := parse_positive_episode_num(entry.get("episode"))) is not None
         and rel == episode_source_relpath(episode_id)
+        and episode_source_origin(entry) is not SourceOrigin.NONE
         for entry in _entries(project)
     )
 
@@ -151,15 +155,26 @@ def whole_source_files(project: Mapping[str, Any]) -> list[str]:
     return files
 
 
-def append_whole_source_file(project: dict[str, Any], rel: str) -> bool:
-    """把文件接在整本源文清单末尾；已在清单里时不动，返回是否新增。"""
+def append_whole_source_file(project: dict[str, Any], rel: str, *, index: int | None = None) -> bool:
+    """把文件登记进整本源文清单；已在清单里时不动，返回是否新增。
+
+    ``index`` 是登记后文件在 :func:`whole_source_files` 里的下标，缺省或超出末尾时接在末尾，负数按 0 处理。
+    """
     if not is_whole_source_file_path(rel):
         raise ValueError(f"整本源文的文件须直接位于 source/ 下且为 .txt / .md：{rel}")
-    if rel in whole_source_files(project):
+    files = whole_source_files(project)
+    if rel in files:
         return False
     raw = project.get(WHOLE_SOURCE_FILES_KEY)
     items = list(raw) if isinstance(raw, list) else []
-    items.append({"source_file": rel})
+    position = len(items)
+    if index is not None and index < len(files):
+        # 清单里可能夹着形状非法或重复的元素，按合法文件定位到原始列表里的插入处
+        anchor = files[max(index, 0)]
+        position = next(
+            i for i, item in enumerate(items) if isinstance(item, Mapping) and item.get("source_file") == anchor
+        )
+    items.insert(position, {"source_file": rel})
     project[WHOLE_SOURCE_FILES_KEY] = items
     return True
 

@@ -470,6 +470,11 @@ MESSAGES = {
     "episode_source_derived": "这一集切自整本源文，集原文由分集规划得出，不能在这里改写",
     "episode_source_symlink": "这一集的集原文文件是符号链接，无法写入",
     "episode_source_episode_not_found": "集（id={episode}）不在分集列表中",
+    "episode_source_present": "这一集已经有集原文，只能给无原文的集补充原文",
+    "source_file_not_found": "source/ 下没有找到 {filename}，可能已被删除",
+    "source_file_registered": "{filename} 已经登记过，刷新后查看它现在的用途",
+    "source_file_unreadable": "{filename} 不是 UTF-8 文本，无法读取",
+    "source_name_not_whole_source": "以下划线开头或形如 episode_N.txt 的文件名不能加入整本源文，可以把 {filename} 作为某一集的原文，或者删除",
     "about_update_check_failed": "检查更新失败，请稍后重试",
     "about_version_read_failed": "读取应用版本失败",
     # Image Capability

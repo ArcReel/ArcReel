@@ -13,11 +13,11 @@ import tempfile
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Literal
 
 logger = logging.getLogger(__name__)
 
-from fastapi import APIRouter, Body, File, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Body, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse, PlainTextResponse
 
 from lib.config.resolver import VisionCapabilityError
@@ -319,6 +319,7 @@ async def upload_file(
     name: str | None = None,
     on_conflict: OnConflict = "fail",
     role: SourceUploadRole = "whole_source",
+    insert_at: Annotated[int | None, Query(ge=0)] = None,
 ):
     """
     上传文件
@@ -332,6 +333,7 @@ async def upload_file(
         on_conflict: source 类型独有 — fail / replace / rename
         role: source 类型独有 — whole_source 登记为整本源文的文件，接在清单末尾；episode 登记为
             播出顺序末尾的一集自带原文的集
+        insert_at: role=whole_source 独有 — 登记后文件在整本源文清单里的下标，缺省或超出末尾时接在末尾
     """
     spec = UPLOAD_SPECS.get(upload_type)
     if spec is None:
@@ -363,6 +365,7 @@ async def upload_file(
             project_name=project_name,
             file=file,
             on_conflict=on_conflict,
+            insert_at=insert_at,
             _t=_t,
         )
 
@@ -523,6 +526,7 @@ async def _handle_source_upload(
     project_name: str,
     file: UploadFile,
     on_conflict: OnConflict,
+    insert_at: int | None,
     _t: Translator,
 ):
     """Source 分支：通过 SourceLoader 规范化为 UTF-8 .txt，并按需备份原始字节，登记为整本源文的文件。"""
@@ -554,7 +558,7 @@ async def _handle_source_upload(
                     original_filename=original_filename,
                     on_conflict=on_conflict,
                 )
-                register_whole_source_file(project, f"source/{result.normalized_path.name}")
+                register_whole_source_file(project, f"source/{result.normalized_path.name}", index=insert_at)
                 return result
         finally:
             tmp_path.unlink(missing_ok=True)

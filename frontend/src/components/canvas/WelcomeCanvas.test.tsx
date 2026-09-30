@@ -1,138 +1,88 @@
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { I18nextProvider } from "react-i18next";
-import { WelcomeCanvas } from "@/components/canvas/WelcomeCanvas";
+
 import { API } from "@/api";
-import i18n from "@/i18n";
+import { WelcomeCanvas } from "@/components/canvas/WelcomeCanvas";
 import { useAppStore } from "@/stores/app-store";
+import { useProjectsStore } from "@/stores/projects-store";
 
-describe("WelcomeCanvas", () => {
-  beforeEach(() => {
-    useAppStore.setState(useAppStore.getInitialState(), true);
-    vi.restoreAllMocks();
-  });
+type WelcomeProps = Parameters<typeof WelcomeCanvas>[0];
 
-  it("shows the project title instead of the internal project name", async () => {
-    vi.spyOn(API, "listFiles").mockResolvedValue({ files: { source: [] } });
+/** 概览页持有上传对话框的开关状态，这里用同样的受控方式挂载。 */
+function ControlledWelcome(props: Omit<WelcomeProps, "uploadFiles" | "onUploadFilesChange">) {
+  const [uploadFiles, setUploadFiles] = useState<File[] | null>(null);
+  return <WelcomeCanvas {...props} uploadFiles={uploadFiles} onUploadFilesChange={setUploadFiles} />;
+}
 
-    render(
-      <WelcomeCanvas
-        projectName="halou-92d19a04"
-        projectTitle="哈喽项目"
-      />,
-    );
-
-    expect(await screen.findByText("欢迎来到 哈喽项目！")).toBeInTheDocument();
-    expect(screen.queryByText("欢迎来到 halou-92d19a04！")).not.toBeInTheDocument();
-  });
-});
-
-function renderWelcome(props: Partial<Parameters<typeof WelcomeCanvas>[0]>) {
+function renderWelcome(props: Partial<Omit<WelcomeProps, "uploadFiles" | "onUploadFilesChange">> = {}) {
   return render(
-    <I18nextProvider i18n={i18n}>
-      <WelcomeCanvas
-        projectName="p"
-        onUpload={props.onUpload ?? vi.fn().mockResolvedValue(undefined)}
-        onAnalyze={props.onAnalyze ?? vi.fn().mockResolvedValue(undefined)}
-        {...props}
-      />
-    </I18nextProvider>,
+    <ControlledWelcome
+      projectName="p"
+      wholeSourceFiles={[]}
+      onAnalyze={props.onAnalyze ?? vi.fn().mockResolvedValue(undefined)}
+      {...props}
+    />,
   );
 }
 
-describe("WelcomeCanvas auto-analyze on first upload", () => {
+function dropOnZone(files: File[]) {
+  const dropZone = screen.getByText("拖拽文件到此处").closest("button");
+  expect(dropZone).not.toBeNull();
+  fireEvent.drop(dropZone as HTMLElement, { dataTransfer: { files } });
+}
+
+describe("WelcomeCanvas", () => {
   beforeEach(() => {
-    useAppStore.setState(useAppStore.getInitialState(), true);
     vi.restoreAllMocks();
-    vi.spyOn(API, "listFiles").mockResolvedValue({ files: { source: [] } });
+    useAppStore.setState(useAppStore.getInitialState(), true);
+    useProjectsStore.setState(useProjectsStore.getInitialState(), true);
+    vi.spyOn(useProjectsStore.getState(), "refreshProject").mockResolvedValue("success");
   });
 
-  it("triggers onAnalyze automatically after first upload from idle", async () => {
-    const onUpload = vi.fn().mockResolvedValue(undefined);
+  it("shows the project title instead of the internal project name", () => {
+    renderWelcome({ projectName: "halou-92d19a04", projectTitle: "哈喽项目" });
+
+    expect(screen.getByText("欢迎来到 哈喽项目！")).toBeInTheDocument();
+    expect(screen.queryByText("欢迎来到 halou-92d19a04！")).not.toBeInTheDocument();
+  });
+
+  it("opens the upload dialog with the dropped files", () => {
+    renderWelcome();
+
+    dropOnZone([new File(["x"], "novel.txt", { type: "text/plain" })]);
+
+    expect(screen.getByRole("dialog", { name: "上传原文" })).toBeInTheDocument();
+    expect(screen.getByTitle("novel.txt")).toBeInTheDocument();
+  });
+
+  it("starts the analysis after the first whole-source upload", async () => {
+    vi.spyOn(API, "uploadFile").mockResolvedValue({ success: true, path: "source/novel.txt", filename: "novel.txt" });
     const onAnalyze = vi.fn().mockResolvedValue(undefined);
-    renderWelcome({ onUpload, onAnalyze });
+    renderWelcome({ onAnalyze });
 
-    const input = await screen.findByLabelText(/upload|上传/i);
-    const file = new File(["x"], "novel.txt", { type: "text/plain" });
-    fireEvent.change(input, { target: { files: [file] } });
+    dropOnZone([new File(["x"], "novel.txt", { type: "text/plain" })]);
+    fireEvent.click(screen.getByRole("button", { name: "上传 1 个文件" }));
 
-    await waitFor(() => expect(onUpload).toHaveBeenCalledWith(file));
     await waitFor(() => expect(onAnalyze).toHaveBeenCalledTimes(1));
   });
 
-  it("does NOT auto-trigger analyze when uploading from has_sources", async () => {
-    vi.spyOn(API, "listFiles").mockResolvedValue({
-      files: { source: [{ name: "existing.txt", size: 10, url: "/x" }] },
-    });
-    const onUpload = vi.fn().mockResolvedValue(undefined);
+  it("only adds files when the project already has a whole source", async () => {
+    const upload = vi
+      .spyOn(API, "uploadFile")
+      .mockResolvedValue({ success: true, path: "source/second.txt", filename: "second.txt" });
     const onAnalyze = vi.fn();
-    renderWelcome({ onUpload, onAnalyze });
+    renderWelcome({ onAnalyze, wholeSourceFiles: ["source/first.txt"] });
 
-    const input = await screen.findByLabelText(/upload|上传/i);
-    const file = new File(["x"], "second.docx");
-    fireEvent.change(input, { target: { files: [file] } });
+    expect(screen.getByText("first.txt")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /添加更多文件/ }));
+    fireEvent.change(screen.getByLabelText("选择文件"), {
+      target: { files: [new File(["x"], "second.docx")] },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "上传 1 个文件" }));
 
-    await waitFor(() => expect(onUpload).toHaveBeenCalled());
+    await waitFor(() => expect(upload).toHaveBeenCalled());
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(onAnalyze).not.toHaveBeenCalled();
-  });
-});
-
-describe("WelcomeCanvas accept extension", () => {
-  beforeEach(() => {
-    useAppStore.setState(useAppStore.getInitialState(), true);
-    vi.restoreAllMocks();
-    vi.spyOn(API, "listFiles").mockResolvedValue({ files: { source: [] } });
-  });
-
-  it("accepts .docx, .epub, .pdf in input accept attribute", async () => {
-    renderWelcome({});
-    const input = (await screen.findByLabelText(/upload|上传/i)) as HTMLInputElement;
-    expect(input.accept).toContain(".docx");
-    expect(input.accept).toContain(".epub");
-    expect(input.accept).toContain(".pdf");
-  });
-});
-
-describe("WelcomeCanvas unsupported file validation", () => {
-  beforeEach(() => {
-    useAppStore.setState(useAppStore.getInitialState(), true);
-    vi.restoreAllMocks();
-    vi.spyOn(API, "listFiles").mockResolvedValue({ files: { source: [] } });
-  });
-
-  it("shows an error and does not upload when an unsupported file is dropped", async () => {
-    const onUpload = vi.fn().mockResolvedValue(undefined);
-    renderWelcome({ onUpload });
-
-    const dropZone = (await screen.findByText("拖拽文件到此处")).closest("button");
-    expect(dropZone).not.toBeNull();
-    const file = new File(["x"], "cover.png", { type: "image/png" });
-    fireEvent.drop(dropZone as HTMLElement, { dataTransfer: { files: [file] } });
-
-    expect(await screen.findByRole("alert")).toHaveTextContent("不支持的文件类型：cover.png");
-    expect(onUpload).not.toHaveBeenCalled();
-  });
-
-  it("shows an error and does not upload when an unsupported file is picked", async () => {
-    const onUpload = vi.fn().mockResolvedValue(undefined);
-    renderWelcome({ onUpload });
-
-    const input = await screen.findByLabelText(/upload|上传/i);
-    const file = new File(["x"], "cover.png", { type: "image/png" });
-    fireEvent.change(input, { target: { files: [file] } });
-
-    expect(await screen.findByRole("alert")).toHaveTextContent("不支持的文件类型：cover.png");
-    expect(onUpload).not.toHaveBeenCalled();
-  });
-
-  it("uploads when a supported file is dropped", async () => {
-    const onUpload = vi.fn().mockResolvedValue(undefined);
-    renderWelcome({ onUpload });
-
-    const dropZone = (await screen.findByText("拖拽文件到此处")).closest("button");
-    const file = new File(["x"], "novel.txt", { type: "text/plain" });
-    fireEvent.drop(dropZone as HTMLElement, { dataTransfer: { files: [file] } });
-
-    await waitFor(() => expect(onUpload).toHaveBeenCalledWith(file));
   });
 });

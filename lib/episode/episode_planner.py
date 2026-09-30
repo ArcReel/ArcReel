@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import json
 import logging
-import re
 import statistics
 from collections.abc import Callable, Mapping
 from dataclasses import asdict, dataclass, field
@@ -35,6 +34,7 @@ from lib.backends.text_backends.base import (
     truncate_for_log,
 )
 from lib.backends.text_generator import TextGenerator
+from lib.episode.episode_excerpts import edge_sentences
 from lib.episode.episode_ids import allocate_episode_ids, episode_id_high_water
 from lib.episode.episode_ledger import (
     SOURCE_FINGERPRINTS_KEY,
@@ -84,15 +84,6 @@ _CONTEXT_EPISODES_LIMIT = 5
 # 缺位置记录的集号在拒绝信息里最多逐个列出的条数（整本老项目可能每一集都缺，逐个列
 # 会把错误信息撑成几百集的清单）
 _MISSING_RANGE_LISTED_LIMIT = 10
-
-# 摘要里每集首句 / 尾句的最大字符数（含省略号）：超长时首句留开头、尾句留结尾
-_EDGE_SENTENCE_MAX_CHARS = 60
-
-# 一句 = 一行内到句末标点（连同其后的收尾引号 / 括号）为止；英文句点在收尾符号后是空白或行尾时算句末，
-# 但全大写缩写（场景标题的 INT. / EXT.）后的句点不算，场景标题整行成句
-_SENTENCE_RE = re.compile(
-    r"[^\n]+?(?:[。！？!?…]+[」』”’\"'）)]*|(?<![A-Z]{2})\.[」』”’\"'）)]*(?=\s|$)|$)", re.MULTILINE
-)
 
 
 class EpisodePlanningError(RuntimeError):
@@ -232,21 +223,6 @@ def _fold_for_match(text: str) -> str:
         else:
             out.append(ch)
     return "".join(out)
-
-
-def _edge_sentences(segment: str) -> tuple[str, str]:
-    """本集原文的首句与尾句，超长时首句截留开头、尾句截留结尾并以省略号标出截断处。"""
-    sentences = [m.group().strip() for m in _SENTENCE_RE.finditer(segment)]
-    sentences = [sentence for sentence in sentences if sentence]
-    if not sentences:
-        return "", ""
-    first, last = sentences[0], sentences[-1]
-    limit = _EDGE_SENTENCE_MAX_CHARS
-    if len(first) > limit:
-        first = first[: limit - 1] + "…"
-    if len(last) > limit:
-        last = "…" + last[-(limit - 1) :]
-    return first, last
 
 
 def _find_all_overlapping(haystack: str, needle: str) -> list[int]:
@@ -580,7 +556,7 @@ class EpisodePlanner:
                     committed["stale"].append(num)
                 new_entries.append(entry)
                 segment = text[prev:abs_end]
-                first_sentence, last_sentence = _edge_sentences(segment)
+                first_sentence, last_sentence = edge_sentences(segment)
                 summaries.append(
                     EpisodePlanSummary(
                         episode=num,

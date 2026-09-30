@@ -124,10 +124,10 @@ describe("OnboardingTour", () => {
     await waitFor(() => expect(status).toHaveBeenCalled());
   });
 
-  it("runs on the source files list page, which has no filename segment", async () => {
+  it("runs on the project-level episodes view, which has no episode segment", async () => {
     const status = vi.spyOn(API, "getOnboardingStatus").mockResolvedValue({ seen: false });
 
-    renderAt("/app/projects/my-novel/source");
+    renderAt("/app/projects/my-novel/episodes");
 
     await waitFor(() => expect(status).toHaveBeenCalled());
   });

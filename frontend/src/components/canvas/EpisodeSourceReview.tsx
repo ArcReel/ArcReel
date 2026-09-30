@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { AlertTriangle, Anchor, ChevronDown, Loader2, PencilLine } from "lucide-react";
 import { API } from "@/api";
@@ -6,6 +6,7 @@ import { ScriptPlanButton } from "@/components/canvas/shared/ScriptPlanButton";
 import { StartBlankScriptButton } from "@/components/canvas/shared/StartBlankScriptButton";
 import { useScriptPlanEntry } from "@/hooks/useScriptPlanEntry";
 import { useAppStore } from "@/stores/app-store";
+import { useEpisodeSurfaceRequest } from "@/stores/episode-surface-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import type { EpisodeMeta } from "@/types";
 import { errMsg } from "@/utils/async";
@@ -234,17 +235,27 @@ function GuideSection({ meta }: { meta: EpisodeMeta | undefined }) {
 function SourceEditor({
   initialText,
   saving,
+  focusToken,
   onSave,
   onCancel,
 }: {
   initialText: string;
   saving: boolean;
+  /** 每次变化都把焦点移到填写框（制作进度面板的「补充集原文」）。 */
+  focusToken: number;
   onSave: (text: string) => void;
   onCancel: (() => void) | null;
 }) {
   const { t } = useTranslation(["dashboard", "common"]);
   const [draft, setDraft] = useState(initialText);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const blank = draft.trim() === "";
+
+  useEffect(() => {
+    if (focusToken === 0) return;
+    textareaRef.current?.focus();
+    textareaRef.current?.scrollIntoView({ block: "center" });
+  }, [focusToken]);
   return (
     <div className="mx-auto flex h-full max-w-[66ch] flex-col gap-3">
       {onCancel ? null : (
@@ -253,6 +264,7 @@ function SourceEditor({
         </p>
       )}
       <textarea
+        ref={textareaRef}
         value={draft}
         onChange={(e) => setDraft(e.target.value)}
         placeholder={t("episode_workspace_source_placeholder")}
@@ -331,6 +343,13 @@ export function EpisodeSourceReview({
   const [saving, setSaving] = useState(false);
   const editable = origin !== "whole_source";
   const editing = editable && (editingKey === fetchKey || (!loading && !text));
+  const [focusToken, setFocusToken] = useState(0);
+
+  useEpisodeSurfaceRequest(projectName, episode, "episode_source", () => {
+    if (!editable) return;
+    setEditingKey(fetchKey);
+    setFocusToken((value) => value + 1);
+  });
 
   const handleSave = useCallback(
     async (draft: string) => {
@@ -395,6 +414,7 @@ export function EpisodeSourceReview({
                 key={fetchKey}
                 initialText={text ?? ""}
                 saving={saving}
+                focusToken={focusToken}
                 onSave={(draft) => void handleSave(draft)}
                 onCancel={text ? () => setEditingKey(null) : null}
               />

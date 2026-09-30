@@ -10,7 +10,8 @@ import type {
   WorkflowPlan,
   WorkflowPlanStep,
 } from "@/types/workflow";
-import { ROUTE_APP_SETTINGS, WORKSPACE_ROUTE_PRODUCTS, WORKSPACE_ROUTE_SOURCE } from "@/app-routes";
+import { ROUTE_APP_SETTINGS, WORKSPACE_ROUTE_PRODUCTS } from "@/app-routes";
+import { episodesViewPath } from "@/components/canvas/episodes/episodes-view-model";
 import type { EpisodeSurface } from "@/stores/episode-surface-store";
 import { formatNameList } from "@/utils/list-format";
 
@@ -201,10 +202,14 @@ function mediaStatus(t: TFunction, collection: WorkflowArtifactCollection | unde
   return { status: t("workflow:status_media_some", { count: total, available }), tone: "partial" };
 }
 
-const SOURCE_ROUTE = `/${WORKSPACE_ROUTE_SOURCE}`;
-
+/** 补充集原文：集页上无原文的集直接显示填写框，按下后聚焦到它。 */
 function provideSourceAct(t: TFunction): StepAct {
-  return { key: "provide-source", label: t("workflow:act_provide_source"), kind: "nav", intent: { type: "route", path: SOURCE_ROUTE } };
+  return {
+    key: "provide-source",
+    label: t("workflow:act_provide_source"),
+    kind: "nav",
+    intent: { type: "show_surface", surface: "episode_source" },
+  };
 }
 
 function blankScriptAct(t: TFunction): StepAct {
@@ -277,7 +282,12 @@ function buildRows(facts: Facts, ctx: StepListContext): StepRowView[] {
         key: "plan-stale",
         tone: "warn",
         text: t("workflow:note_episode_plan_stale"),
-        act: { key: "view-source", label: t("workflow:act_view_source"), kind: "nav", intent: { type: "route", path: SOURCE_ROUTE } },
+        act: {
+          key: "view-source",
+          label: t("workflow:act_view_source"),
+          kind: "nav",
+          intent: { type: "route", path: episodesViewPath({ episode: ctx.episodeId }) },
+        },
       });
     }
     const acts: StepAct[] =

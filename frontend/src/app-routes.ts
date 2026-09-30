@@ -19,20 +19,19 @@ export const APP_TOP_LEVEL_ROUTES = [ROUTE_APP, ROUTE_APP_PROJECTS, ROUTE_APP_SE
 export const WORKSPACE_ROUTE_SETTINGS = "settings";
 export const WORKSPACE_ROUTE_LOREBOOK = "lorebook";
 export const WORKSPACE_ROUTE_CLUES = "clues";
-export const WORKSPACE_ROUTE_SOURCE = "source";
 export const WORKSPACE_ROUTE_CHARACTERS = "characters";
 export const WORKSPACE_ROUTE_SCENES = "scenes";
 export const WORKSPACE_ROUTE_PROPS = "props";
 export const WORKSPACE_ROUTE_PRODUCTS = "products";
 export const WORKSPACE_ROUTE_EPISODES = "episodes";
 
-/** 无子路径、直接匹配的工作区叶子路由段。`source` 除了列表页本身还接受 `/:filename`，
- *  在下面的正则里额外拼一条 `source/[^/]+` 分支覆盖后者。 */
+/** 无子路径、直接匹配的工作区叶子路由段。`episodes` 除了「分集」视图本身还接受 `/:episodeId`（集页），
+ *  在下面的正则里额外拼一条 `episodes/[^/]+` 分支覆盖后者。 */
 const WORKSPACE_STATIC_LEAF_ROUTES = [
   WORKSPACE_ROUTE_SETTINGS,
   WORKSPACE_ROUTE_LOREBOOK,
   WORKSPACE_ROUTE_CLUES,
-  WORKSPACE_ROUTE_SOURCE,
+  WORKSPACE_ROUTE_EPISODES,
   WORKSPACE_ROUTE_CHARACTERS,
   WORKSPACE_ROUTE_SCENES,
   WORKSPACE_ROUTE_PROPS,
@@ -49,6 +48,6 @@ const WORKSPACE_STATIC_LEAF_ROUTES = [
  * 上 `i`，否则大小写变体的合法路径会被本模式误判为未注册子路径。
  */
 export const APP_PROJECT_WORKSPACE_PATTERN = new RegExp(
-  `^${ROUTE_APP_PROJECTS}/[^/]+(/(?:${WORKSPACE_STATIC_LEAF_ROUTES.join("|")}|${WORKSPACE_ROUTE_SOURCE}/[^/]+|${WORKSPACE_ROUTE_EPISODES}/[^/]+))?$`,
+  `^${ROUTE_APP_PROJECTS}/[^/]+(/(?:${WORKSPACE_STATIC_LEAF_ROUTES.join("|")}|${WORKSPACE_ROUTE_EPISODES}/[^/]+))?$`,
   "i",
 );
