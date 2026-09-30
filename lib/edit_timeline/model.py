@@ -157,6 +157,18 @@ class EditTimelineContent(_Frozen):
             raise ValueError("bgm clip ids must be unique")
         return self
 
+    @model_validator(mode="after")
+    def _one_narration_carrier_per_unit(self) -> EditTimelineContent:
+        carriers = [clip.unit_id for clip in self.clips if clip.carries_narration]
+        if len(set(carriers)) != len(carriers):
+            raise ValueError("a video unit's narration can be carried by at most one clip")
+        return self
+
+
+def clip_number(clip_id: str) -> int:
+    """片段编号里的序号：``c12`` / ``b3`` → 12 / 3。"""
+    return int(clip_id[1:])
+
 
 type AuthorKind = Literal["creator", "arcreel_agent", "external_agent"]
 
@@ -178,6 +190,8 @@ class TimelineRevision(_Frozen):
     agent_turn: str | None = None
     created_at: str
     content: EditTimelineContent
+    changed_clip_ids: tuple[Annotated[str, Field(pattern=CLIP_ID_PATTERN)], ...] | None = None
+    """本修订实际改动的片段（含批内改后恢复）；旧修订缺省时由内容差异推断。"""
 
 
 class EditTimelineDocument(_Frozen):
@@ -200,6 +214,11 @@ class EditTimelineDocument(_Frozen):
         for index, revision in enumerate(self.revisions, start=1):
             if revision.number != index:
                 raise ValueError("revisions must be numbered consecutively from 1")
+        for revision in self.revisions:
+            if any(clip_number(clip.id) >= self.next_clip_number for clip in revision.content.clips):
+                raise ValueError("clip ids must be allocated below next_clip_number")
+            if any(clip_number(clip.id) >= self.next_bgm_number for clip in revision.content.bgm):
+                raise ValueError("bgm clip ids must be allocated below next_bgm_number")
         return self
 
     @property
@@ -234,6 +253,7 @@ __all__ = [
     "TimelineRevision",
     "Transition",
     "TransitionType",
+    "clip_number",
     "is_timeline_id",
     "microseconds_to_seconds",
     "seconds_to_microseconds",

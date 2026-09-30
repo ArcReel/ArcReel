@@ -150,6 +150,7 @@ def test_write_edit_timeline_denied(policy: AgentAccessPolicy, tool: str, relati
     allowed, reason = policy.check_path_access(str(cwd / relative), tool, cwd, user_id=_USER_ID)
     assert not allowed, f"{tool} {relative} 应被拒"
     assert "create_timeline" in (reason or "")
+    assert "edit_timeline" in (reason or "")
 
 
 @pytest.mark.parametrize("tool", ["Write", "Edit"])

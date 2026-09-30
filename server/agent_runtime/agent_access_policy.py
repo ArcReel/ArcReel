@@ -829,7 +829,8 @@ AgentAccessPolicy.PROTECTED_WRITE_RULES = (
         matches=AgentAccessPolicy._is_protected_edit_timeline,
         deny_message=(
             "访问被拒绝：edit_timelines/ 下的剪辑时间线不可直接写入，每次剪辑都要经剪辑时间线工具追加修订；"
-            "新建走 mcp__arcreel__create_timeline，查看走 mcp__arcreel__read_timeline。"
+            "新建走 mcp__arcreel__create_timeline，查看走 mcp__arcreel__read_timeline，"
+            "修改走 mcp__arcreel__edit_timeline。"
         ),
         sandbox_subpaths=("edit_timelines",),
     ),
