@@ -1310,6 +1310,34 @@ def test_asset_the_episode_does_not_reference_stays_out_of_the_next_step(tmp_pat
     assert status.next_action.type == "generate_storyboards"
 
 
+def test_referenced_asset_reminders_stay_out_of_the_next_step(tmp_path: Path) -> None:
+    pm, project_path = _make_project(tmp_path, "ad")
+    for name in ("Alice", "Carol"):
+        pm.add_character("demo", name, "红衣")
+        _write_artifact(project_path, f"characters/{name}.png")
+        pm.update_project_character_sheet("demo", name, f"characters/{name}.png")
+        register_current_artifact(project_path, ArtifactKey.asset_sheet("character", name))
+    pm.update_project("demo", lambda project: project["characters"].update({"Bob": {"description": ""}}))
+    _write_registered_script(
+        project_path,
+        {
+            "episode": 1,
+            "title": "广告",
+            "content_mode": "ad",
+            "shots": [_valid_ad_shot(characters_in_shot=["Alice", "Bob"])],
+        },
+    )
+    for name in ("Alice", "Carol"):
+        pm.update_project("demo", lambda project, name=name: project["characters"][name].update(description="蓝衣"))
+
+    status = WorkflowStateService(pm).get_status("demo")
+
+    assert status.content is not None
+    assert status.content.referenced_asset_sheets_stale == ["Alice"]
+    assert status.content.referenced_assets_without_description == ["Bob"]
+    assert status.next_action.type == "generate_storyboards"
+
+
 def test_missing_ledger_script_binding_is_an_issue(tmp_path: Path) -> None:
     pm, project_path = _make_project(tmp_path, "narration")
     _write_source_and_complete(pm, project_path)

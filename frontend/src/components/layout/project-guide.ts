@@ -20,7 +20,7 @@ export interface ProjectNextGuide {
   title: string;
   /** 弹层里的一句说明。 */
   detail: string;
-  /** 是否带附加要求输入框；附加要求只写进交给 Agent 的消息。 */
+  /** 是否带附加指令输入框；附加指令只写进交给 Agent 的消息。 */
   instruction: boolean;
   primary: GuideButton[];
   alternatives: GuideButton[];
@@ -158,7 +158,7 @@ export function projectNextGuide(
   }
 }
 
-/** 交给 Agent 的消息：附加要求非空时另起一行附上。 */
+/** 交给 Agent 的消息：附加指令非空时另起一行附上。 */
 export function withInstruction(t: TFunction, prefill: string, instruction: string): string {
   const text = instruction.trim();
   return text ? `${prefill}\n${t("dashboard:guide_prefill_instruction", { instruction: text })}` : prefill;

@@ -1,15 +1,42 @@
-import { useEffect, useId, useMemo, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { ChevronDown, Sparkles } from "lucide-react";
+import { ChevronDown } from "lucide-react";
+import { useLocation } from "wouter";
+import { API } from "@/api";
+import {
+  enqueuePromptAuthoring,
+  enqueueScriptPlan,
+  promptAuthoringResourceId,
+  scriptPlanResourceId,
+} from "@/actions/generation";
 import { AssetSheetBatchDialog } from "@/components/canvas/lorebook/AssetSheetBatchDialog";
-import { useProjectsStore } from "@/stores/projects-store";
-import { useTasksStore } from "@/stores/tasks-store";
-import { useWorkflowStore } from "@/stores/workflow-store";
+import { promptAuthoringHandoffText } from "@/components/canvas/shared/prompt-authoring-handoff";
+import { DiscardDraftDialog, draftFallbackText, draftFixRequestText, prefillAssistant } from "@/components/shared/DraftStatus";
+import { diagnosticCode } from "@/hooks/useDraftEditor";
+import { useEpisodeLedger } from "@/hooks/useEpisodeLedger";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
+import { useAppStore } from "@/stores/app-store";
+import { useEpisodeSurfaceStore } from "@/stores/episode-surface-store";
+import { useProjectsStore } from "@/stores/projects-store";
+import { useScriptPlanStore } from "@/stores/script-plan-store";
+import { isResourceBusy, useTasksStore } from "@/stores/tasks-store";
+import { useWorkflowStore } from "@/stores/workflow-store";
+import type { ProjectData } from "@/types";
+import type { DraftDocType } from "@/types/reference-video";
+import { errMsg } from "@/utils/async";
+import { episodeAgentRef } from "@/utils/episode-display";
+import {
+  WORKSPACE_ROUTE_CHARACTERS,
+  WORKSPACE_ROUTE_PRODUCTS,
+  WORKSPACE_ROUTE_PROPS,
+  WORKSPACE_ROUTE_SCENES,
+} from "@/app-routes";
 import { ProblemList } from "./ProblemList";
-import { WorkflowStepRow } from "./WorkflowStepRow";
-import { STEP_RAILS } from "./state-language";
+import { StepActButton } from "./StepActButton";
+import { StepListRow } from "./StepListRow";
+import { BLOCKED_TONE } from "./state-language";
 import { blockerViews, nextStepForAction, problemViews } from "./problem-views";
+import { buildStepList, type StepAct } from "./step-list";
 
 /**
  * 任务指纹变化到发起重新求解之间的合并窗口（毫秒）。
@@ -20,6 +47,31 @@ import { blockerViews, nextStepForAction, problemViews } from "./problem-views";
  */
 const PLAN_REFRESH_DEBOUNCE_MS = 250;
 
+const ASSET_ROUTES: [keyof ProjectData, string][] = [
+  ["characters", WORKSPACE_ROUTE_CHARACTERS],
+  ["scenes", WORKSPACE_ROUTE_SCENES],
+  ["props", WORKSPACE_ROUTE_PROPS],
+  ["products", WORKSPACE_ROUTE_PRODUCTS],
+];
+
+/** 资产名（衍生为「本体/衍生」）所在类型的画廊路由。 */
+function assetRouteIn(project: ProjectData | null, name: string): string | null {
+  if (!project) return null;
+  const owner = name.split("/", 1)[0];
+  for (const [bucket, route] of ASSET_ROUTES) {
+    const table = project[bucket];
+    if (table && typeof table === "object" && owner in table) return `/${route}`;
+  }
+  return null;
+}
+
+interface PendingDiscard {
+  docType: DraftDocType;
+  revision: string | null;
+  agentOwned: boolean;
+  fallbackText: string;
+}
+
 interface Props {
   projectName: string;
   episode: number | null;
@@ -27,27 +79,30 @@ interface Props {
   onViewUnit?: (unitId: string) => void;
   /** 显式重生某一步的指定单元。 */
   onRegenerate?: (stepId: string, unitIds: string[]) => void;
-  /** 下一步是编写提示词时，打开范围为全部待编写的「编写提示词」。 */
+  /** 打开范围为全部待编写的「编写提示词」；本集还没有正式脚本时不传。 */
   onAuthorPrompts?: () => void;
-  /** 下一步是 AI 规划脚本时，打开「AI 规划脚本」。 */
-  onPlanScript?: () => void;
 }
 
 /**
- * 项目工作流面板。
+ * 集页的制作进度面板（步骤清单）。
  *
- * 它只投影后端给出的权威计划：步骤、阻断、产物时效、任务与准入结论都照原样陈述，
- * 界面不自行推断下一步，也不把 stale、失败、缺失、受阻折成一个模糊的「有问题」。
+ * 它投影后端给出的制作状态：每行一类内容的现状，建议的下一步就地展开在所属行，入口按
+ * 「交给 Agent」为主、直接 AI 调用为次。界面不自行推断下一步；准入不满足的入口照常显示，
+ * 悬停说明原因。过期、缺描述这类提醒只挂在对应行。
  *
- * 默认收起成一行摘要。工作流状态是背景信息，不该长期占住创作区；需要判断「现在卡在哪」
- * 的时候展开，展开状态在会话内保留。
+ * 默认收起成一行：制作进度 · 一句话现状 · 下一步的主次入口。展开状态在会话内保留。
  */
-export function WorkflowPanel({ projectName, episode, onViewUnit, onRegenerate, onAuthorPrompts, onPlanScript }: Props) {
-  const { t } = useTranslation(["workflow", "assets"]);
+export function WorkflowPanel({ projectName, episode, onViewUnit, onRegenerate, onAuthorPrompts }: Props) {
+  const { t, i18n } = useTranslation(["workflow", "dashboard", "assets"]);
   const panelId = useId();
   const alertId = useId();
+  const [, setLocation] = useLocation();
   const [expanded, setExpanded] = useState(false);
   const [assetBatchEpisode, setAssetBatchEpisode] = useState<number | null>(null);
+  const [instructionDraft, setInstructionDraft] = useState<{ key: string; value: string } | null>(null);
+  const [running, setRunning] = useState(false);
+  const [pendingDiscard, setPendingDiscard] = useState<PendingDiscard | null>(null);
+  const [discarding, setDiscarding] = useState(false);
 
   const plan = useWorkflowStore((s) => s.plan);
   const planKey = useWorkflowStore((s) => s.planKey);
@@ -57,6 +112,8 @@ export function WorkflowPanel({ projectName, episode, onViewUnit, onRegenerate, 
   const confirmedDurations = useWorkflowStore((s) => s.confirmedDurations);
   const refreshPlan = useWorkflowStore((s) => s.refreshPlan);
   const resetTarget = useWorkflowStore((s) => s.resetTarget);
+  const projectData = useProjectsStore((s) => s.currentProjectData);
+  const ledger = useEpisodeLedger();
 
   // 项目快照修订号与任务指纹是两条既有的变更信号：前者随 project.json / 剧本写入递增
   // （SSE 项目事件驱动），后者随任务轮询变化。计划同时依赖这两类事实，故两者都进依赖。
@@ -89,28 +146,175 @@ export function WorkflowPanel({ projectName, episode, onViewUnit, onRegenerate, 
   const currentKey = `${projectName}::${episode ?? ""}`;
   // 计划属于另一个目标时不拿它陈述当前目标——切集途中的旧事实比没有事实更糟。
   const shown = planKey === currentKey ? plan : null;
+  const episodeId = shown?.status.target?.episode ?? episode;
+  const episodeMeta = projectData?.episodes?.find((entry) => entry.episode === episodeId);
+  const episodeRef = episodeId != null ? episodeAgentRef(ledger, episodeId, t) : "";
 
-  const blockers = useMemo(
-    () => (shown ? blockerViews(t, shown.blockers) : []),
-    [shown, t],
+  const view = useMemo(() => {
+    if (!shown || episodeId == null) return null;
+    return buildStepList(shown, {
+      t,
+      lang: i18n.language,
+      episodeId,
+      episodeRef,
+      episodeDurationSeconds: episodeMeta?.duration_seconds ?? null,
+      adTargetSeconds: projectData?.content_mode === "ad" ? (projectData.target_duration ?? null) : null,
+      assetRoute: (name) => assetRouteIn(projectData, name),
+      savedPromptInstructions: episodeMeta?.prompt_authoring_instructions ?? "",
+      savedScriptPlanInstructions: episodeMeta?.script_plan_instructions ?? "",
+      canAuthorPrompts: Boolean(onAuthorPrompts),
+      canViewUnit: Boolean(onViewUnit),
+    });
+  }, [shown, episodeId, episodeRef, episodeMeta, projectData, t, i18n.language, onAuthorPrompts, onViewUnit]);
+
+  const blockers = useMemo(() => (shown ? blockerViews(t, shown.blockers) : []), [shown, t]);
+  const issues = useMemo(() => (shown ? blockerViews(t, shown.status.issues) : []), [shown, t]);
+  const planProblems = useMemo(() => (shown ? problemViews(t, shown.problems, "plan") : []), [shown, t]);
+
+  const next = view?.next ?? null;
+  const instructionKey = next?.instruction ? `${currentKey}::${next.actionType}` : null;
+  const instruction =
+    instructionKey && instructionDraft?.key === instructionKey
+      ? instructionDraft.value
+      : (next?.instruction?.initial ?? "");
+
+  const pushToast = useAppStore((s) => s.pushToast);
+  // 助手面板收起时右上角浮着 Agent 球，收起行右端的入口要给它让出位置。
+  const assistantFloating = !useAppStore((s) => s.assistantPanelOpen);
+
+  const withInstruction = useCallback(
+    (text: string) => {
+      const extra = instruction.trim();
+      return extra ? `${text}\n${t("workflow:agent_prefill_instructions", { instructions: extra })}` : text;
+    },
+    [instruction, t],
   );
-  const planProblems = useMemo(
-    () => (shown ? problemViews(t, shown.problems, "plan") : []),
-    [shown, t],
+
+  const run = useCallback(
+    async (act: StepAct) => {
+      if (episodeId == null) return;
+      const intent = act.intent;
+      switch (intent.type) {
+        case "agent":
+          prefillAssistant(withInstruction(intent.text));
+          return;
+        case "open_author_prompts":
+          onAuthorPrompts?.();
+          return;
+        case "open_script_plan_over_draft":
+          useScriptPlanStore.getState().open({ projectName, episode: episodeId, replaces: "draft" });
+          return;
+        case "asset_batch":
+          setAssetBatchEpisode(intent.episodeId);
+          return;
+        case "show_surface":
+          useEpisodeSurfaceStore.getState().show({ projectName, episode: episodeId, surface: intent.surface });
+          return;
+        case "view_unit":
+          onViewUnit?.(intent.unitId);
+          return;
+        case "route":
+          setLocation(intent.path);
+          return;
+        default:
+          break;
+      }
+      setRunning(true);
+      try {
+        switch (intent.type) {
+          case "author_prompts_to_agent": {
+            await API.savePromptAuthoringInstructions(projectName, episodeId, instruction.trim());
+            const pending = shown?.status.content?.pending_authoring_ids.length ?? 0;
+            prefillAssistant(
+              promptAuthoringHandoffText(t, {
+                episodeRef,
+                scopeLabel: t("dashboard:prompt_authoring_scope_pending_prefill", { count: pending }),
+                rewrite: false,
+                instructions: instruction,
+              }),
+            );
+            break;
+          }
+          case "author_prompts":
+            if (isResourceBusy("text_episode_script", projectName, promptAuthoringResourceId(episodeId))) {
+              pushToast(t("dashboard:prompt_authoring_busy"), "error");
+              break;
+            }
+            await enqueuePromptAuthoring(projectName, episodeId, {
+              entry_ids: null,
+              rewrite: false,
+              instructions: instruction.trim() || null,
+              overwrite_revision: null,
+            });
+            break;
+          case "plan_script_to_agent": {
+            const extra = instruction.trim();
+            await API.saveScriptPlanInstructions(projectName, episodeId, extra);
+            const lines = [t("dashboard:script_plan_agent_prefill", { episodeRef })];
+            if (extra) lines.push(t("dashboard:script_plan_agent_prefill_instructions", { instructions: extra }));
+            prefillAssistant(lines.join("\n"));
+            break;
+          }
+          case "plan_script":
+            if (isResourceBusy("text_script_plan", projectName, scriptPlanResourceId(episodeId))) {
+              pushToast(t("dashboard:script_plan_busy"), "error");
+              break;
+            }
+            await enqueueScriptPlan(projectName, episodeId, { instructions: instruction.trim() || null });
+            break;
+          case "draft_to_agent": {
+            const draft = await API.getEpisodeDraft(projectName, episodeId, intent.docType);
+            prefillAssistant(withInstruction(draftFixRequestText(t, episodeRef, intent.docType, draft.violations)));
+            break;
+          }
+          case "discard_draft": {
+            const draft = await API.getEpisodeDraft(projectName, episodeId, intent.docType);
+            setPendingDiscard({
+              docType: intent.docType,
+              revision: draft.revision,
+              agentOwned: draft.editable_by === "agent",
+              fallbackText: draftFallbackText(t, intent.docType, draft.formal_exists),
+            });
+            break;
+          }
+          default:
+            break;
+        }
+      } catch (err) {
+        pushToast(errMsg(err), "error");
+      } finally {
+        setRunning(false);
+      }
+    },
+    [episodeId, withInstruction, onAuthorPrompts, projectName, onViewUnit, setLocation, instruction, shown, t, episodeRef, pushToast],
   );
 
-  // 下一步是补本集资产图时，就地给出集层批量入口；范围取计划给出的集 ID。
-  const assetSheetEpisode =
-    shown?.next_action.type === "generate_asset_sheets" && typeof shown.next_action.args.episode_id === "number"
-      ? shown.next_action.args.episode_id
-      : null;
+  const confirmDiscard = async () => {
+    if (!pendingDiscard || episodeId == null) return;
+    setDiscarding(true);
+    try {
+      await API.discardEpisodeDraft(projectName, episodeId, pendingDiscard.docType, pendingDiscard.revision);
+      pushToast(t("dashboard:draft_discarded_toast"), "success");
+    } catch (err) {
+      pushToast(
+        diagnosticCode(err) === "revision_conflict" ? t("dashboard:draft_conflict_toast") : errMsg(err),
+        diagnosticCode(err) === "revision_conflict" ? "warning" : "error",
+      );
+    } finally {
+      setDiscarding(false);
+      setPendingDiscard(null);
+      void refreshPlan(projectName, episode);
+    }
+  };
 
-  // 摘要行只复述后端给的下一步动作，不做任何本地推断。
-  const headline = shown
-    ? nextStepForAction(t, shown.next_action.type)
-    : loading
-      ? t("plan_loading")
-      : t("plan_unavailable");
+  // 计划没能投影成步骤清单（项目整体不可用、目标集绑定损坏）时，只复述后端给的下一步。
+  const headline = view
+    ? view.summary
+    : shown
+      ? nextStepForAction(t, shown.next_action.type)
+      : loading
+        ? t("plan_loading")
+        : t("plan_unavailable");
 
   return (
     <section
@@ -118,7 +322,7 @@ export function WorkflowPanel({ projectName, episode, onViewUnit, onRegenerate, 
       style={{ borderColor: "var(--color-hairline)" }}
       data-testid="workflow-panel"
     >
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+      <div className={`flex flex-wrap items-center gap-x-3 gap-y-1 ${assistantFloating ? "pr-12" : ""}`}>
         <button
           type="button"
           aria-expanded={expanded}
@@ -137,47 +341,41 @@ export function WorkflowPanel({ projectName, episode, onViewUnit, onRegenerate, 
         <span className="min-w-0 flex-1 truncate text-[12px]" style={{ color: "var(--color-text-3)" }}>
           {headline}
         </span>
-        {assetSheetEpisode !== null && (
-          <button
-            type="button"
-            onClick={() => setAssetBatchEpisode(assetSheetEpisode)}
-            className="focus-ring inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11.5px]"
+        {view?.adDuration && (
+          <span
+            className="rounded-full px-2 py-0.5 text-[11px] tabular-nums"
+            title={view.adDuration.over ? t("ad_duration_over_hint") : undefined}
+            data-over={view.adDuration.over || undefined}
             style={{
-              color: "var(--color-text-2)",
-              border: "1px solid var(--color-accent-soft)",
-              background: "var(--color-accent-dim)",
+              border: `1px solid ${view.adDuration.over ? "var(--color-warm-ring)" : "var(--color-hairline)"}`,
+              color: view.adDuration.over ? "var(--color-warm)" : "var(--color-text-3)",
             }}
           >
-            <Sparkles aria-hidden className="h-3 w-3" />
-            {t("assets:sheet_batch_episode_button")}
-          </button>
+            {view.adDuration.total != null
+              ? t("ad_duration", { total: view.adDuration.total, target: view.adDuration.target })
+              : t("ad_duration_no_script", { target: view.adDuration.target })}
+          </span>
         )}
-        {shown?.next_action.type === "author_prompts" && onAuthorPrompts && (
-          <button
-            type="button"
-            onClick={onAuthorPrompts}
-            className="focus-ring rounded-md px-2 py-0.5 text-[11.5px] font-medium hover:bg-[oklch(1_0_0_/_0.05)]"
-            style={{ border: "1px solid var(--color-hairline)", color: "var(--color-text-2)" }}
-          >
-            {t("dashboard:prompt_authoring_open")}
-          </button>
-        )}
-        {shown?.next_action.type === "prepare_script_plan" && onPlanScript && (
-          <button
-            type="button"
-            onClick={onPlanScript}
-            className="focus-ring rounded-md px-2 py-0.5 text-[11.5px] font-medium hover:bg-[oklch(1_0_0_/_0.05)]"
-            style={{ border: "1px solid var(--color-hairline)", color: "var(--color-text-2)" }}
-          >
-            {t("dashboard:script_plan_open")}
-          </button>
+        {!expanded && next && next.primary.length > 0 && (
+          <span className="flex flex-wrap items-center gap-2">
+            <span className="text-[11.5px]" style={{ color: "var(--color-text-3)" }}>
+              {t("next_label")}
+            </span>
+            {next.primary.map((act) => (
+              <StepActButton key={act.key} act={act} onRun={(target) => void run(target)} size="sm" busy={running} />
+            ))}
+            {/* 主入口都不可点时，把下一步里的跳转提示一并带到收起行。 */}
+            {next.hint?.act && next.primary.every((act) => act.disabledReason) && (
+              <StepActButton act={next.hint.act} onRun={(target) => void run(target)} size="sm" asLink busy={running} />
+            )}
+          </span>
         )}
         {blockers.length > 0 && (
           <span
             className="rounded-full px-2 py-0.5 text-[11px]"
             style={{
-              border: `1px solid ${STEP_RAILS.blocked.tone.ring}`,
-              color: STEP_RAILS.blocked.tone.color,
+              border: `1px solid ${BLOCKED_TONE.ring}`,
+              color: BLOCKED_TONE.color,
             }}
           >
             {t("panel_blocker_count", { count: blockers.length })}
@@ -198,14 +396,14 @@ export function WorkflowPanel({ projectName, episode, onViewUnit, onRegenerate, 
               role="alert"
               className="rounded-lg px-3 py-2"
               style={{
-                background: STEP_RAILS.blocked.tone.soft,
-                border: `1px solid ${STEP_RAILS.blocked.tone.ring}`,
+                background: BLOCKED_TONE.soft,
+                border: `1px solid ${BLOCKED_TONE.ring}`,
               }}
             >
               <h3
                 id={alertId}
                 className="text-[12px] font-medium"
-                style={{ color: STEP_RAILS.blocked.tone.color }}
+                style={{ color: BLOCKED_TONE.color }}
               >
                 {t("blockers_title", { count: blockers.length })}
               </h3>
@@ -217,27 +415,35 @@ export function WorkflowPanel({ projectName, episode, onViewUnit, onRegenerate, 
             </div>
           )}
 
+          {issues.length > 0 && <ProblemList problems={issues} className="space-y-1.5 text-[12px]" />}
+
           {planProblems.length > 0 && (
             <ProblemList problems={planProblems} className="space-y-1.5 text-[12px]" />
           )}
 
-          {shown ? (
+          {view ? (
             <ol className="m-0 list-none p-0">
-              {shown.steps.map((step) => (
-                <WorkflowStepRow
-                  key={step.id}
-                  step={step}
+              {view.rows.map((row) => (
+                <StepListRow
+                  key={row.key}
+                  row={row}
+                  next={next?.rowKey === row.key ? next : null}
+                  instruction={instruction}
+                  onInstructionChange={(value) => instructionKey && setInstructionDraft({ key: instructionKey, value })}
+                  onRun={(act) => void run(act)}
                   onViewUnit={onViewUnit}
                   onRegenerate={onRegenerate}
                   onConfirmDurations={confirmDurations}
-                  busy={loading}
+                  busy={loading || running}
                 />
               ))}
             </ol>
           ) : (
-            <p className="text-[12px]" style={{ color: "var(--color-text-3)" }}>
-              {loading ? t("plan_loading") : t("plan_unavailable")}
-            </p>
+            !shown && (
+              <p className="text-[12px]" style={{ color: "var(--color-text-3)" }}>
+                {loading ? t("plan_loading") : t("plan_unavailable")}
+              </p>
+            )
           )}
         </div>
       )}
@@ -246,6 +452,16 @@ export function WorkflowPanel({ projectName, episode, onViewUnit, onRegenerate, 
           projectName={projectName}
           scope={{ episode_id: assetBatchEpisode }}
           onClose={() => setAssetBatchEpisode(null)}
+        />
+      )}
+      {pendingDiscard && (
+        <DiscardDraftDialog
+          open
+          agentOwned={pendingDiscard.agentOwned}
+          fallbackText={pendingDiscard.fallbackText}
+          loading={discarding}
+          onConfirm={() => void confirmDiscard()}
+          onCancel={() => setPendingDiscard(null)}
         />
       )}
     </section>

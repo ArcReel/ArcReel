@@ -7,6 +7,7 @@ import { ShotSplitView } from "./ShotSplitView";
 import { EpisodeHeader } from "./EpisodeHeader";
 import { useCostStore } from "@/stores/cost-store";
 import { useActiveResourceIds } from "@/stores/tasks-store";
+import { useEpisodeSurfaceRequest } from "@/stores/episode-surface-store";
 import { getScriptItemId, sumItemDuration } from "@/utils/script-shape";
 import { ONBOARDING_ANCHORS } from "@/onboarding/anchors";
 import { useDemoWorkbench } from "@/onboarding/use-demo-workbench";
@@ -126,6 +127,10 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- script 就绪时自动切到 timeline tab，是 navigation 驱动的有意切换
     if (hasScript) setActiveTab("timeline");
   }, [hasScript]);
+
+  useEpisodeSurfaceRequest(projectName, episode, "script_plan", () => {
+    if (showTabs) setActiveTab("preprocessing");
+  });
 
   const episodeCost = useCostStore((s) =>
     episodeScript ? s.getEpisodeCost(episodeScript.episode) : undefined,

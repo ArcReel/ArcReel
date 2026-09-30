@@ -8,6 +8,7 @@ import { ShotSplitView } from "../timeline/ShotSplitView";
 import { GridPreviewView } from "./GridPreviewView";
 import { useAppStore } from "@/stores/app-store";
 import { useCostStore } from "@/stores/cost-store";
+import { useEpisodeSurfaceRequest } from "@/stores/episode-surface-store";
 import { useActiveResourceIds, useHasActiveTaskForScriptFile } from "@/stores/tasks-store";
 import { getScriptItemId, sumItemDuration } from "@/utils/script-shape";
 import type { DurationOutOfRangeReason } from "@/hooks/useModelCapabilities";
@@ -102,6 +103,10 @@ export function GridImageToVideoCanvas({
     // eslint-disable-next-line react-hooks/set-state-in-effect
     if (hasScript) setActiveTab("units");
   }, [hasScript]);
+
+  useEpisodeSurfaceRequest(projectName, episode, "script_plan", () => {
+    if (showTabs) setActiveTab("preprocessing");
+  });
 
   const episodeCost = useCostStore((s) =>
     episodeScript ? s.getEpisodeCost(episodeScript.episode) : undefined,

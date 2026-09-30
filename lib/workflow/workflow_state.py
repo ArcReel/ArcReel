@@ -216,6 +216,10 @@ class WorkflowContent(BaseModel):
     referenced_assets_without_sheet: list[str] = Field(default_factory=list)
     #: 本集引用、但没有登记的名字；生成入口会据此拒绝。
     unregistered_references: list[str] = Field(default_factory=list)
+    #: 本集引用、资产图过期的资产（含衍生）。只陈述，不进建议的下一步。
+    referenced_asset_sheets_stale: list[str] = Field(default_factory=list)
+    #: 本集引用、缺描述因而不能生成资产图的资产（含衍生）。只陈述，不进建议的下一步。
+    referenced_assets_without_description: list[str] = Field(default_factory=list)
 
 
 class WorkflowStatus(BaseModel):
@@ -1566,6 +1570,68 @@ class WorkflowStateService:
             unregistered.extend(missing)
         return admit_references(catalog, references=references, unregistered=unregistered)
 
+    def _referenced_sheet_facts(
+        self,
+        project: dict[str, Any],
+        items: list[dict[str, Any]],
+        kind: str | None,
+        shared: _SharedWorkflowFacts,
+        issues: list[WorkflowBlocker],
+    ) -> tuple[list[str], list[str], list[str]]:
+        """本集引用的资产图现状：(待生成且可生成, 过期, 缺描述)。
+
+        待生成与资产图批量的集范围同一判定：缺描述的不算；衍生的本体没有可用资产图、也不在同批时不算。
+        """
+        missing: list[str] = []
+        stale: list[str] = []
+        without_description: list[str] = []
+        accepted_sheets: set[tuple[str, str]] = set()
+        for asset in sorted(
+            episode_referenced_assets(project, ({kind: items} if kind else None)),
+            key=lambda asset: (asset.owner is not None, asset.asset_type, asset.name),
+        ):
+            spec = ASSET_SPECS[asset.asset_type]
+            owner = project[spec.bucket_key][asset.owner or asset.name]
+            entry = (
+                derivative_table(owner)[split_derivative_artifact_id(asset.name)[1]]
+                if asset.owner is not None
+                else owner
+            )
+            description = entry.get("description")
+            if not isinstance(description, str) or not description.strip():
+                without_description.append(asset.name)
+                continue
+            path = entry.get(spec.sheet_field)
+            sheet_state = (
+                self._artifact_state(
+                    shared.currency,
+                    (
+                        derivative_artifact_key(
+                            *map(asset_name_comparison_key, split_derivative_artifact_id(asset.name))
+                        )
+                        if asset.owner is not None
+                        else ArtifactKey.asset_sheet(asset.asset_type, asset_name_comparison_key(asset.name))
+                    ),
+                    path,
+                    issues,
+                )
+                if shared.currency is not None and isinstance(path, str) and path
+                else ArtifactStatus.MISSING.value
+            )
+            if sheet_state == ArtifactStatus.STALE.value:
+                stale.append(asset.name)
+            if sheet_state != ArtifactStatus.MISSING.value:
+                continue
+            if asset.owner is not None:
+                owner_sheets = shared.sheets[asset.asset_type]
+                if (asset.asset_type, asset.owner) not in accepted_sheets and asset.owner not in (
+                    owner_sheets["current_ids"] + owner_sheets["stale_ids"]
+                ):
+                    continue
+            missing.append(asset.name)
+            accepted_sheets.add((asset.asset_type, asset.name))
+        return missing, stale, without_description
+
     def _episode_status(
         self,
         project_name: str,
@@ -1664,6 +1730,7 @@ class WorkflowStateService:
         pending_ids: list[str] = []
         replan_ids: list[str] = []
         without_sheet: list[str] = []
+        missing_sheets: list[str] = []
         if formal_present:
             content.script_item_count = len(items)
             pending_ids = pending_authoring_entry_ids(items, kind)
@@ -1677,6 +1744,9 @@ class WorkflowStateService:
             without_sheet = [name for _asset_type, name in admission.without_sheet]
             content.referenced_assets_without_sheet = without_sheet
             content.unregistered_references = list(admission.unregistered)
+            missing_sheets, content.referenced_asset_sheets_stale, content.referenced_assets_without_description = (
+                self._referenced_sheet_facts(project, items, kind, shared, issues)
+            )
             artifacts["storyboards"] = (
                 self._media_collection(
                     project_path,
@@ -1843,49 +1913,6 @@ class WorkflowStateService:
                     ids=replan_ids,
                 ),
             )
-        missing_sheets: list[str] = []
-        accepted_sheets: set[tuple[str, str]] = set()
-        for asset in sorted(
-            episode_referenced_assets(project, ({kind: items} if kind else None)),
-            key=lambda asset: (asset.owner is not None, asset.asset_type, asset.name),
-        ):
-            spec = ASSET_SPECS[asset.asset_type]
-            owner = project[spec.bucket_key][asset.owner or asset.name]
-            entry = (
-                derivative_table(owner)[split_derivative_artifact_id(asset.name)[1]]
-                if asset.owner is not None
-                else owner
-            )
-            description = entry.get("description")
-            if not isinstance(description, str) or not description.strip():
-                continue
-            path = entry.get(spec.sheet_field)
-            sheet_state = (
-                self._artifact_state(
-                    shared.currency,
-                    (
-                        derivative_artifact_key(
-                            *map(asset_name_comparison_key, split_derivative_artifact_id(asset.name))
-                        )
-                        if asset.owner is not None
-                        else ArtifactKey.asset_sheet(asset.asset_type, asset_name_comparison_key(asset.name))
-                    ),
-                    path,
-                    issues,
-                )
-                if shared.currency is not None and isinstance(path, str) and path
-                else ArtifactStatus.MISSING.value
-            )
-            if sheet_state != ArtifactStatus.MISSING.value:
-                continue
-            if asset.owner is not None:
-                owner_sheets = shared.sheets[asset.asset_type]
-                if (asset.asset_type, asset.owner) not in accepted_sheets and asset.owner not in (
-                    owner_sheets["current_ids"] + owner_sheets["stale_ids"]
-                ):
-                    continue
-            missing_sheets.append(asset.name)
-            accepted_sheets.add((asset.asset_type, asset.name))
         if missing_sheets:
             return respond(
                 target,
