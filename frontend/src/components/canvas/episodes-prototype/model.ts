@@ -254,7 +254,9 @@ export function canRestructure(s: ProtoState, id: number): boolean {
 export function replanBlockers(s: ProtoState, id: number): Ep[] {
   const first = cutEps(s)[0];
   if (!first || first.id === id) return [];
-  return otherEps(s).filter((e) => e.id > id);
+  // 夹在重新规划范围（第 id 集到最后一个切出集）之间的其他来源集
+  const lastCut = Math.max(...cutEps(s).map((e) => e.id));
+  return otherEps(s).filter((e) => e.id > id && e.id < lastCut);
 }
 
 // ---------------------------------------------------------------- 初始账本

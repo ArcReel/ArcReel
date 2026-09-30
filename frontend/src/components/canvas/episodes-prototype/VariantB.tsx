@@ -136,6 +136,12 @@ export function VariantB({ p }: { p: Proto }) {
     return () => window.removeEventListener("keydown", on);
   }, []);
 
+  // 新方案开始生成时，把原文滚到重新规划的起点
+  const candFrom = cand?.fromEp;
+  useEffect(() => {
+    if (candFrom != null) headerRefs.current.get(candFrom)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [candFrom]);
+
   const select = (id: number) => {
     setSelected(id);
     headerRefs.current.get(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -469,7 +475,7 @@ export function VariantB({ p }: { p: Proto }) {
         <CandidateSummaryBlock p={p} />
       </div>
       <div className="text-[10.5px] uppercase tracking-[0.14em]" style={{ color: "var(--color-text-4)" }}>逐集变化</div>
-      <div className="max-h-[40vh] space-y-1 overflow-auto">
+      <div className="space-y-1">
         {sum.mapping.map((m) => {
           const old = m.oldId !== undefined ? sum.replaced.find((e) => e.id === m.oldId) : undefined;
           const nc = M.charsOf(m.cand.range);
@@ -501,11 +507,14 @@ export function VariantB({ p }: { p: Proto }) {
         })}
         {[...sum.toNone, ...sum.removed].map((id) => {
           const old = sum.replaced.find((e) => e.id === id);
+          const pending = cand.status === "generating";
           return (
             <div key={`x${id}`} className="rounded px-2 py-1.5 text-[12px]" style={{ borderLeft: "3px dashed var(--color-hairline-strong)", background: "oklch(0.21 0.01 265 / 0.35)" }}>
               <span className="num" style={{ color: "var(--color-text-3)" }}>第 {id} 集</span>
-              <span className="ml-1.5 line-through" style={{ color: "var(--color-text-4)" }}>{old?.title}</span>
-              <span className="ml-1.5 text-[11px]" style={{ color: "var(--color-text-3)" }}>{sum.toNone.includes(id) ? "保留已生成内容，转为无原文的集" : "将移除"}</span>
+              <span className={`ml-1.5 ${pending ? "" : "line-through"}`} style={{ color: "var(--color-text-4)" }}>{old?.title}</span>
+              <span className="ml-1.5 text-[11px]" style={{ color: "var(--color-text-3)" }}>
+                {pending ? "等待规划" : sum.toNone.includes(id) ? "保留已生成内容，转为无原文的集" : "将移除"}
+              </span>
             </div>
           );
         })}

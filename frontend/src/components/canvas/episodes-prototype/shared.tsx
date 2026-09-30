@@ -177,7 +177,7 @@ export function UploadDialog({ p, open, onClose }: { p: Proto; open: boolean; on
               />
               <SecondaryButton size="sm" onClick={() => inputRef.current?.click()}>选择文件</SecondaryButton>
               <SecondaryButton size="sm" onClick={() => addFiles(SAMPLE_FILES.map((f) => ({ ...f, key: `${f.key}-${Date.now()}` })))}>添加示例文件</SecondaryButton>
-              <span className="text-[11px]" style={{ color: "var(--color-text-4)" }}>集号从第 {base} 集往后接续，文件名不决定集号</span>
+              <span className="text-[11px]" style={{ color: "var(--color-text-4)" }}>集号从第 {base} 集往后接续，按列表顺序分配；拖动可调整顺序</span>
             </div>
             {files.length > 0 && (
               <table className="w-full text-[12.5px]">
@@ -214,7 +214,7 @@ export function UploadDialog({ p, open, onClose }: { p: Proto; open: boolean; on
           <SecondaryButton size="sm" onClick={close}>取消</SecondaryButton>
           {mode === "per" && (
             <PrimaryButton size="sm" disabled={files.length === 0} onClick={() => { p.addOwnEpisodes(files.map(({ name, chars }) => ({ name, chars }))); close(); }}>
-              添加为第 {base}–{base + Math.max(files.length - 1, 0)} 集
+              {files.length === 0 ? "添加" : files.length === 1 ? `添加为第 ${base} 集` : `添加为第 ${base}–${base + files.length - 1} 集`}
             </PrimaryButton>
           )}
         </div>
@@ -237,7 +237,10 @@ export function ReplanDialog({ p, fromId, onClose }: { p: Proto; fromId: number 
       <div className="space-y-3 p-5 text-[12.5px]" style={{ color: "var(--color-text-2)" }}>
         <h3 id={titleId} className="display-serif text-[16px] font-semibold" style={{ color: "var(--color-text)" }}>从第 {fromId} 集起重新规划</h3>
         <p>AI 会先生成一份新的分集方案供你预览。在你确认采纳之前，现有分集不会有任何变化。</p>
-        <p>将重新规划第 {replaced.map((e) => e.id).join("、")} 集，其中 {replaced.filter((e) => e.hasArtifacts).length} 集已开始制作。</p>
+        <p>
+          将重新规划第 {replaced.map((e) => e.id).join("、")} 集
+          {replaced.some((e) => e.hasArtifacts) ? `，其中第 ${replaced.filter((e) => e.hasArtifacts).map((e) => e.id).join("、")} 集已开始制作。` : "。"}
+        </p>
         {blockers.length > 0 && (
           <p style={{ color: "oklch(0.8 0.14 60)" }}>{blockers.map((e) => `第 ${e.id} 集`).join("、")}的原文不来自整本源文，且位于重新规划的范围内，因此无法从这一集开始重新规划。</p>
         )}
@@ -276,8 +279,9 @@ export function CandidateSummaryBlock({ p }: { p: Proto }) {
       <Row label="平均每集" value={`${avg(oldChars, sum.replaced.length)} 字 → ${avg(newChars, sum.newCount)} 字`} />
       <Row label="覆盖范围" value={`第 ${sum.replaced[0]?.id ?? "—"} 集起至${c.reached >= M.SOURCE_LEN ? "源文结尾" : `源文 ${Math.round((c.reached / M.SOURCE_LEN) * 100)}% 处`}`} />
       {sum.staleIds.length > 0 && <Row warn label="需要复核" value={`第 ${sum.staleIds.join("、")} 集已开始制作，原文范围有变化，将标记「原文已重新规划」`} />}
-      {sum.toNone.length > 0 && <Row warn label="保留为无原文" value={`第 ${sum.toNone.join("、")} 集在新方案中没有对应原文；已生成的内容会保留，这些集转为无原文的集`} />}
-      {sum.removed.length > 0 && <Row label="将移除" value={`第 ${sum.removed.join("、")} 集（尚未开始制作）`} />}
+      {/* 规划中尚未覆盖到的集还没有结论，停止或完成后才给出去向 */}
+      {c.status !== "generating" && sum.toNone.length > 0 && <Row warn label="保留为无原文" value={`第 ${sum.toNone.join("、")} 集在新方案中没有对应原文；已生成的内容会保留，这些集转为无原文的集`} />}
+      {c.status !== "generating" && sum.removed.length > 0 && <Row label="将移除" value={`第 ${sum.removed.join("、")} 集（尚未开始制作）`} />}
       {c.instructions && <Row label="附加要求" value={c.instructions} />}
       {c.status === "stopped" && !sum.adoptable && (
         <div style={{ color: "oklch(0.8 0.14 60)" }}>新方案在中途停止，最后一集的结尾与现有分集的边界对不上，因此无法采纳。请放弃后重新规划。</div>
@@ -309,13 +313,13 @@ export function CandidateActions({ p }: { p: Proto }) {
 export function StateInspector({ p }: { p: Proto }) {
   const [open, setOpen] = useState(false);
   return (
-    <div className="fixed bottom-16 right-4 z-[99] w-[340px] text-[11px]">
-      <button type="button" onClick={() => setOpen(!open)} className="ml-auto block rounded-full px-3 py-1" style={{ background: "oklch(0.95 0.12 95)", color: "oklch(0.2 0 0)" }}>
+    <div className="fixed bottom-16 left-4 z-[99] w-[340px] text-[11px]">
+      <button type="button" onClick={() => setOpen(!open)} className="block rounded-full px-3 py-1" style={{ background: "oklch(0.95 0.12 95)", color: "oklch(0.2 0 0)" }}>
         {open ? "收起账本" : "账本状态"}
       </button>
       {open && (
         <div className="mt-2 max-h-[50vh] overflow-auto rounded-lg p-3 font-mono" style={{ background: "oklch(0.12 0 0 / 0.95)", color: "oklch(0.85 0 0)" }}>
-          <div>cursor: 句 {p.s.cursor} / {M.SOURCE_LEN} · planning: {p.s.planning ? `${p.s.planning.mode} #${p.s.planning.batchesDone}` : "—"}</div>
+          <div>cursor: 字 {p.s.cursor} / {M.SOURCE_LEN} · planning: {p.s.planning ? `${p.s.planning.mode} #${p.s.planning.batchesDone}` : "—"}</div>
           <div>candidate: {p.s.candidate ? `${p.s.candidate.status} from ${p.s.candidate.fromEp}, ${p.s.candidate.eps.length} 集` : "—"} · sourceReplaced: {String(p.s.sourceReplaced)}</div>
           <table className="mt-2 w-full">
             <tbody>
