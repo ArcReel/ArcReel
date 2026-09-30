@@ -17,6 +17,8 @@ interface ShotSplitViewProps {
   contentMode: EditorContentMode;
   aspectRatio: "9:16" | "16:9";
   projectName: string;
+  /** 当前集号；给了才在分镜详情里提供单条「编写提示词」入口 */
+  episode?: number;
   /** 当前剧集剧本文件名，分镜图/视频自主上传需要它定位剧本条目 */
   scriptFile?: string;
   isGridMode?: boolean;
@@ -57,6 +59,7 @@ export function ShotSplitView({
   contentMode,
   aspectRatio,
   projectName,
+  episode,
   scriptFile,
   isGridMode,
   onUpdatePrompt,
@@ -185,6 +188,7 @@ export function ShotSplitView({
         contentMode={contentMode}
         aspectRatio={aspectRatio}
         projectName={projectName}
+        episode={episode}
         scriptFile={scriptFile}
         isGridMode={isGridMode}
         selectedIndex={safeIndex}

@@ -168,6 +168,7 @@ from server.services.tasks.video_caps import (
 from server.text_generation import (
     MAX_INSTRUCTIONS_LEN,
     SCOPE_REMOVED_MESSAGE,
+    PromptOverwriteRequiredError,
     ScriptOverwriteRequiredError,
     TextGenerationError,
     TextGenerationRequest,
@@ -204,12 +205,12 @@ class CallerContext:
     """调用方身份与宿主。
 
     ``source`` 决定长任务阻塞还是即返：``embedded`` 由 ``batch_waiter`` 入队并等到批次终态，
-    ``mcp`` 提交后立即返回批次句柄、不需要等待器。``agent_turn`` 在调用时给出 ArcReel Agent
+    ``mcp`` 与 Web 的 ``webui`` 提交后立即返回批次句柄、不需要等待器。``agent_turn`` 在调用时给出 ArcReel Agent
     当前所在的轮次；外部 Agent 没有轮次。
     """
 
     user_id: str
-    source: Literal["embedded", "mcp"]
+    source: Literal["embedded", "mcp", "webui"]
     batch_waiter: BatchWaiter | None = None
     agent_turn: Callable[[], str | None] | None = None
 
@@ -301,7 +302,7 @@ async def submit_media_generation(
         admission=admission,
         dependencies=dependencies,
     )
-    if caller.source == "mcp":
+    if caller.source != "embedded":
         batch, _enqueued, _enqueue_failures = await submit_generation_batch(
             project_name=scope.project_name,
             operation=operation,
@@ -536,6 +537,10 @@ def _script_patch_result(request: PatchEpisodeScriptRequest, result: ScriptBatch
     )
 
 
+def _prompt_overwrite_problem(exc: PromptOverwriteRequiredError) -> ToolProblem:
+    return ToolProblem("prompt_overwrite_required", str(exc), params={"prompt_overwrite": exc.overwrite})
+
+
 async def _run_text_generation(
     operation: str,
     call: Awaitable[TextGenerationResult],
@@ -546,6 +551,8 @@ async def _run_text_generation(
         return ToolOutcome(
             problem=ToolProblem("script_overwrite_required", str(exc), params={"script_overwrite": exc.overwrite})
         )
+    except PromptOverwriteRequiredError as exc:
+        return ToolOutcome(problem=_prompt_overwrite_problem(exc))
     except TextGenerationError as exc:
         return ToolOutcome(problem=ToolProblem("generation_refused", str(exc)))
     except Exception as exc:
@@ -629,7 +636,7 @@ async def _submit_text_task(
             batch = await services.queue.get_generation_batch(
                 project_name=scope.project_name, batch_id=batch_id, user_id=caller.user_id
             )
-            if caller.source == "mcp":
+            if caller.source != "embedded":
                 return ToolOutcome(value=batch)
             task = await wait_for_task(enqueue["task_id"], queue=services.queue)
         finally:
@@ -705,7 +712,15 @@ class GenerateEpisodeScriptRequest(BaseModel):
     instructions: _TextInstructions | SkipJsonSchema[None] = None
     entry_ids: list[Annotated[str, Field(min_length=1)]] | SkipJsonSchema[None] = Field(
         default=None,
-        description="显式重写这些条目（分镜 / 单元 id）的视觉层，不论是否待编写；省略时编写全部待编写条目",
+        description="本次编写的范围（分镜 / 单元 id）；省略时为全部待编写条目。点名只划定范围，不授权覆盖已有内容",
+    )
+    rewrite: bool = Field(
+        default=False,
+        description="显式重写范围内条目的全部视觉层；省略时补缺，已有的图片 / 视频提示词保留、只补缺失的那一份",
+    )
+    overwrite_revision: str | SkipJsonSchema[None] = Field(
+        default=None,
+        description="用户听完丢失清单并同意覆盖后，才传入的令牌，取自 prompt_overwrite.revision；不覆盖已有内容时不必给",
     )
     dry_run: bool = Field(default=False, description=_DRY_RUN_DESCRIPTION)
 
@@ -721,6 +736,8 @@ class GenerateEpisodeScriptRequest(BaseModel):
             episode=self.episode,
             instructions=self.instructions,
             entry_ids=tuple(self.entry_ids or ()),
+            rewrite=self.rewrite,
+            overwrite_revision=self.overwrite_revision,
             dry_run=self.dry_run,
         )
 
@@ -754,10 +771,17 @@ async def generate_episode_script(
         )
     try:
         await asyncio.to_thread(
-            prompt_authoring_preflight,
-            services.projects.get_project_path(scope.project_name),
-            text_request.episode,
+            functools.partial(
+                prompt_authoring_preflight,
+                services.projects.get_project_path(scope.project_name),
+                text_request.episode,
+                entry_ids=text_request.entry_ids,
+                rewrite=text_request.rewrite,
+                overwrite_revision=text_request.overwrite_revision,
+            )
         )
+    except PromptOverwriteRequiredError as exc:
+        return ToolOutcome(problem=_prompt_overwrite_problem(exc))
     except TextGenerationError as exc:
         return ToolOutcome(problem=ToolProblem("generation_refused", str(exc)))
     except Exception as exc:
@@ -2250,6 +2274,8 @@ async def execute_queued_text_task(
             instructions=payload.get("instructions"),
             dry_run=bool(payload.get("dry_run")),
             entry_ids=tuple(payload.get("entry_ids") or ()),
+            rewrite=bool(payload.get("rewrite")),
+            overwrite_revision=payload.get("overwrite_revision"),
         )
         handlers = {
             _TEXT_EPISODE_SCRIPT: ("generate_episode_script", generate_episode_script_handler),

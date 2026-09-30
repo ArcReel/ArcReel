@@ -19,6 +19,7 @@ import { API, derivativeResourceId } from "@/api";
 import i18n from "@/i18n";
 import { useAppStore } from "@/stores/app-store";
 import type {
+  AuthorPromptsRequest,
   ReferenceBatchAdmission,
   ReferenceBatchGenerateRequest,
   ReferenceGenerationRequestOptions,
@@ -390,4 +391,33 @@ export async function enqueueReferenceVideoBatch(
     }
   }
   return res;
+}
+
+/** 提示词编写任务的占用槽：一集一个文本任务，resource_id 与服务端 `episode-{N}` 一致。 */
+export function promptAuthoringResourceId(episode: number): string {
+  return `episode-${episode}`;
+}
+
+/**
+ * 提交提示词编写（「AI 编写 / AI 重写」）。显式重写需要确认覆盖时服务端 409，错误原样抛出，
+ * 由调用方读 `diagnostic.prompt_overwrite` 弹确认框后带令牌重试。
+ */
+export async function enqueuePromptAuthoring(
+  projectName: string,
+  episode: number,
+  request: AuthorPromptsRequest,
+): Promise<EnqueueResult> {
+  const res = await submit(
+    [markResource(projectName, "text_episode_script", promptAuthoringResourceId(episode), "text_episode_script")],
+    () => API.authorPrompts(projectName, episode, request),
+    (response) => response.batch.members.flatMap((member) => (member.task_id ? [member.task_id] : [])),
+  );
+  const taskIds = res.batch.members.flatMap((member) => (member.task_id ? [member.task_id] : []));
+  const deduped = res.batch.members.some((member) => member.deduped === true);
+  notifyEnqueued(
+    deduped,
+    i18n.t(request.rewrite ? "dashboard:prompt_authoring_rewrite_queued" : "dashboard:prompt_authoring_queued"),
+    "info",
+  );
+  return { taskIds, deduped };
 }

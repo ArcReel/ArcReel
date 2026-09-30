@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Sparkles } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { ScriptReviewGate } from "./ScriptReviewGate";
+import { PromptAuthoringButton } from "@/components/canvas/shared/PromptAuthoringButton";
 import { ShotSplitView } from "./ShotSplitView";
 import { EpisodeHeader } from "./EpisodeHeader";
 import { useCostStore } from "@/stores/cost-store";
@@ -309,6 +310,12 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
 
         {activeTab === "timeline" && hasScript && (
           <div className="mr-1 inline-flex items-center gap-1.5">
+            <PromptAuthoringButton
+              projectName={projectName}
+              episode={episode}
+              scope="pending"
+              className="sv-navbtn"
+            />
             <button
               type="button"
               className="sv-navbtn inline-flex items-center gap-1.5"
@@ -367,6 +374,7 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
                 contentMode={editorContentMode}
                 aspectRatio={aspectRatio}
                 projectName={projectName}
+                episode={episode}
                 scriptFile={scriptFile}
                 isGridMode={false}
                 onUpdatePrompt={handleUpdatePrompt}

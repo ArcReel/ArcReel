@@ -17,6 +17,7 @@ from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from lib.script.script_batch_edit import ScriptBatchEditCommand, ScriptBatchEditor, blank_item_after, script_revision
 from lib.script.script_generator import ScriptGenerator
 from lib.script.script_models import PENDING_AUTHORING_FIELD
+from lib.script.script_review import content_fingerprint
 
 pytestmark = pytest.mark.asyncio
 
@@ -223,7 +224,10 @@ class TestAdShotAuthoring:
         before_first = _items(project_dir, "shots", "shot_id")["E1S01"]
         before_second = _item_json(project_dir, "shots", "shot_id", "E1S02")
 
-        await _generator(project_dir, [_shot_visual("E1S01", mark="点名")]).generate(1, entry_ids=["E1S01"])
+        revision = content_fingerprint(project_dir / "scripts" / "episode_1.json")
+        await _generator(project_dir, [_shot_visual("E1S01", mark="点名")]).generate(
+            1, entry_ids=["E1S01"], rewrite=True, overwrite_revision=revision
+        )
 
         after_first = _items(project_dir, "shots", "shot_id")["E1S01"]
         assert after_first["image_prompt"]["scene"] == "点名-E1S01"

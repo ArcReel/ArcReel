@@ -94,6 +94,8 @@ import type {
   EpisodeDraftSummary,
   EpisodeDraftView,
   SaveEpisodeDraftResult,
+  AuthorPromptsRequest,
+  AuthorPromptsResponse,
   DramaNormalizedScript,
   NarrationScriptPlanDraft,
   ReferenceScriptPlanDraft,
@@ -1119,6 +1121,34 @@ class API {
         method: "PUT",
         body: JSON.stringify(content),
       }
+    );
+  }
+
+  /**
+   * 提示词编写（「AI 编写 / AI 重写」），与 Agent 的 generate_episode_script 同一服务命令；提交即返生成批次。
+   * 显式重写会覆盖已有内容而未带有效 `overwrite_revision` 时 409，`diagnostic.prompt_overwrite` 带丢失清单。
+   * 附加指令随请求按集保存。
+   */
+  static async authorPrompts(
+    projectName: string,
+    episode: number,
+    body: AuthorPromptsRequest
+  ): Promise<AuthorPromptsResponse> {
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/episodes/${episode}/prompt-authoring`,
+      { method: "POST", body: JSON.stringify(body) }
+    );
+  }
+
+  /** 只保存本集提示词编写的附加指令（「交给 Agent」路径），不提交生成。 */
+  static async savePromptAuthoringInstructions(
+    projectName: string,
+    episode: number,
+    instructions: string
+  ): Promise<{ success: boolean }> {
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/episodes/${episode}/prompt-authoring/instructions`,
+      { method: "PUT", body: JSON.stringify({ instructions }) }
     );
   }
 

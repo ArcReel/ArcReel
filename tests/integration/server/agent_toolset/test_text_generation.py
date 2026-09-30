@@ -414,6 +414,31 @@ async def test_generate_episode_script_entry_ids_reach_the_generator(fake_ctx: T
     assert "E1S02" in said(out)
 
 
+async def test_generate_episode_script_rewrite_over_existing_prompts_returns_the_loss_list(
+    fake_ctx: ToolHarness,
+) -> None:
+    """Agent 显式重写已有提示词：提交前按同一服务拒绝，回执带服务端丢失清单与认可令牌，不提交任务。"""
+    project_path = fake_ctx.project_path
+    (project_path / "project.json").write_text(
+        json.dumps({"schema_version": CURRENT_PROJECT_SCHEMA_VERSION, "content_mode": "narration"}), encoding="utf-8"
+    )
+    scripts = project_path / "scripts"
+    scripts.mkdir(parents=True, exist_ok=True)
+    segment = {"segment_id": "E1S01", "novel_text": "原文。", "image_prompt": "手写图片", "video_prompt": None}
+    (scripts / "episode_1.json").write_text(json.dumps({"episode": 1, "segments": [segment]}), encoding="utf-8")
+
+    out = await run_declared_tool(
+        "generate_episode_script", fake_ctx, {"episode": 1, "entry_ids": ["E1S01"], "rewrite": True}
+    )
+
+    assert out.problem is not None
+    assert out.problem.code == "prompt_overwrite_required"
+    overwrite = (out.problem.params or {})["prompt_overwrite"]
+    assert overwrite["revision"] == script_review.content_fingerprint(scripts / "episode_1.json")
+    assert overwrite["entries"] == [{"id": "E1S01", "fields": ["image_prompt"]}]
+    assert overwrite["text"] in said(out)
+
+
 @pytest.mark.parametrize(
     ("content_mode", "redo_hint"),
     [("narration", "重跑脚本规划"), ("ad", "移除正式脚本")],

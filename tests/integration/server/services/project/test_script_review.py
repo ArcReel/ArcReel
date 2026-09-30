@@ -1901,7 +1901,7 @@ class TestPromptAuthoringEnforcement:
         result = await run_declared_tool(GENERATE_EPISODE_SCRIPT, ctx, {"episode": 1, "dry_run": True})
 
         assert isinstance(result.value, TextGenerationResult), result
-        assert "没有待编写的条目" in result.value.message
+        assert "没有要编写的条目" in result.value.message
 
     async def test_confirm_tool_unblocks_prompt_authoring(self, tmp_path, video_request_facts):
         """Agent 路径：confirm_script_review 工具确认后，gate 放行（既有 script_plan→prompt_authoring 不被破坏）。"""

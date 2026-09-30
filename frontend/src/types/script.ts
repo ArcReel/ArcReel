@@ -371,6 +371,25 @@ export interface AdEpisodeScript {
 
 export type EpisodeScript = NarrationEpisodeScript | DramaEpisodeScript | AdEpisodeScript;
 
+/** 提示词编写的请求：范围（省略为全部待编写）、是否显式重写、附加指令与覆盖令牌。 */
+export interface AuthorPromptsRequest {
+  entry_ids?: string[] | null;
+  rewrite?: boolean;
+  instructions?: string | null;
+  overwrite_revision?: string | null;
+}
+
+/** 显式重写将覆盖的已有视觉层内容；`text` 是服务端渲染的丢失清单，`revision` 是认可令牌。 */
+export interface PromptOverwrite {
+  revision: string | null;
+  entries: { id: string; fields: string[] }[];
+  text: string;
+}
+
+export interface AuthorPromptsResponse {
+  batch: { batch_id: string; members: { unit_id: string; task_id: string | null; deduped?: boolean }[] };
+}
+
 /**
  * 一侧提示词的最终渲染结果。`text` 与 `unavailable` 恰有一个非 null；
  * `unavailable` 已是后端按请求语言渲染的成品文案，前端不再二次翻译。

@@ -77,6 +77,7 @@ from server.routers import (
     products,
     project_events,
     projects,
+    prompt_authoring,
     prompt_templates,
     props,
     providers,
@@ -630,6 +631,12 @@ app.include_router(
     prefix="/api/v1",
     dependencies=[Depends(get_current_user), Depends(require_project_migration_ok)],
     tags=["内容确认"],
+)
+app.include_router(
+    prompt_authoring.router,
+    prefix="/api/v1",
+    dependencies=[Depends(get_current_user), Depends(require_project_migration_ok)],
+    tags=["提示词编写"],
 )
 app.include_router(
     shot_uploads.router,

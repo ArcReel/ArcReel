@@ -228,6 +228,15 @@ MESSAGES = {
     "script_overwrite_kind_narration_audio": "voice-over",
     "script_overwrite_kind_end_frame": "end frame",
     "script_overwrite_kind_grid": "grid",
+    "prompt_overwrite_summary": "AI rewrite replaces the existing prompts of {count} entries. Replaced content has no version history and cannot be recovered inside the project.",
+    "prompt_overwrite_entries": "Entries to be overwritten: {entries}",
+    "prompt_overwrite_entry": "{id} ({fields})",
+    "prompt_overwrite_field_image_prompt": "image prompt",
+    "prompt_overwrite_field_video_prompt": "video prompt",
+    "prompt_overwrite_field_text": "unit text",
+    "prompt_overwrite_required": "AI rewrite replaces existing prompts. Review the entries to be overwritten, acknowledge the overwrite and retry",
+    "prompt_authoring_task_active": "A prompt-writing task for this episode is already running. Wait for it to finish before submitting again",
+    "prompt_authoring_refused": "Prompt writing could not be submitted. Resolve the reason below and retry",
     "script_review_conversion_refused": "The script plan cannot be converted to a formal script yet, so it was not confirmed; check shot durations, dialogue and the script plan status, then retry",
     "script_review_foreign_formal_script": (
         "The script file bound to episode {episode} is gone and the canonical path scripts/{filename} holds another "

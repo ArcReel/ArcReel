@@ -46,6 +46,7 @@ import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useCostStore } from "@/stores/cost-store";
 import { errMsg } from "@/utils/async";
+import { PromptAuthoringButton } from "@/components/canvas/shared/PromptAuthoringButton";
 import {
   buildMentionLookup,
   lineSpeechMarks,
@@ -949,6 +950,15 @@ export function ReferenceVideoCanvas({
         <span className="flex-1" />
         {tab === "units" && (
           <>
+            {hasScript && (
+              <PromptAuthoringButton
+                projectName={projectName}
+                episode={episode}
+                scope={selectedUnitId ? "current" : "pending"}
+                currentEntryId={selectedUnitId}
+                className="focus-ring rounded-md border border-[var(--color-hairline)] bg-[oklch(0.22_0.011_265_/_0.5)] px-2.5 py-1 text-[11.5px] text-[var(--color-text-2)] transition-colors hover:bg-[oklch(0.26_0.013_265_/_0.7)] hover:text-[var(--color-text)]"
+              />
+            )}
             <button
               type="button"
               onClick={() => void handleBatchGenerate()}

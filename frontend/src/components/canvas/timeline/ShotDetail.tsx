@@ -51,6 +51,7 @@ import {
   isStructuredVideoPrompt,
 } from "@/utils/prompt-shape";
 import { isContinuousIntegerRange } from "@/utils/duration_format";
+import { PromptAuthoringButton } from "@/components/canvas/shared/PromptAuthoringButton";
 
 type Segment = NarrationSegment | DramaScene | AdShot;
 type DetailContentMode = "narration" | "drama" | "ad";
@@ -67,6 +68,8 @@ interface ShotDetailProps {
   contentMode: DetailContentMode;
   aspectRatio: "9:16" | "16:9";
   projectName: string;
+  /** 当前集号；给了才提供单条「编写提示词」入口 */
+  episode?: number;
   /** 当前剧集剧本文件名，分镜图/视频自主上传需要它定位剧本条目 */
   scriptFile?: string;
   isGridMode?: boolean;
@@ -453,6 +456,7 @@ export function ShotDetail({
   contentMode,
   aspectRatio,
   projectName,
+  episode,
   scriptFile,
   isGridMode,
   selectedIndex,
@@ -1007,15 +1011,27 @@ export function ShotDetail({
 
   const midColumn = (
     <div className="flex h-full min-h-0 flex-col gap-3 overflow-y-auto px-5 pb-7 pt-3.5">
-      <div
-        className="text-[10.5px] font-bold uppercase"
-        style={{
-          color: "var(--color-text-4)",
-          letterSpacing: "1px",
-          fontFamily: "var(--font-mono)",
-        }}
-      >
-        {t("detail_section_prompts")}
+      <div className="flex items-center gap-2">
+        <div
+          className="text-[10.5px] font-bold uppercase"
+          style={{
+            color: "var(--color-text-4)",
+            letterSpacing: "1px",
+            fontFamily: "var(--font-mono)",
+          }}
+        >
+          {t("detail_section_prompts")}
+        </div>
+        <span className="flex-1" />
+        {episode !== undefined && (
+          <PromptAuthoringButton
+            projectName={projectName}
+            episode={episode}
+            scope="current"
+            currentEntryId={segmentId}
+            className="sv-navbtn"
+          />
+        )}
       </div>
 
       {segment.pending_authoring === true && (

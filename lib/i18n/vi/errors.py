@@ -228,6 +228,15 @@ MESSAGES = {
     "script_overwrite_kind_narration_audio": "lồng tiếng",
     "script_overwrite_kind_end_frame": "khung hình cuối",
     "script_overwrite_kind_grid": "lưới",
+    "prompt_overwrite_summary": "Viết lại bằng AI sẽ thay thế prompt hiện có của {count} mục. Nội dung bị thay thế không có lịch sử phiên bản và không thể khôi phục trong dự án.",
+    "prompt_overwrite_entries": "Các mục sẽ bị ghi đè: {entries}",
+    "prompt_overwrite_entry": "{id} ({fields})",
+    "prompt_overwrite_field_image_prompt": "prompt hình ảnh",
+    "prompt_overwrite_field_video_prompt": "prompt video",
+    "prompt_overwrite_field_text": "nội dung đơn vị",
+    "prompt_overwrite_required": "Viết lại bằng AI sẽ ghi đè prompt hiện có. Hãy xem các mục sẽ bị ghi đè, đồng ý ghi đè rồi thử lại",
+    "prompt_authoring_task_active": "Tập này đang có tác vụ viết prompt chưa hoàn tất. Hãy đợi tác vụ xong rồi gửi lại",
+    "prompt_authoring_refused": "Không thể gửi yêu cầu viết prompt. Hãy xử lý theo lý do bên dưới rồi thử lại",
     "script_review_conversion_refused": "Kế hoạch kịch bản chưa thể chuyển thành kịch bản chính thức nên chưa được xác nhận; hãy kiểm tra thời lượng phân cảnh, lời thoại và trạng thái kế hoạch kịch bản rồi thử lại",
     "script_review_foreign_formal_script": (
         "Tệp kịch bản được gán cho tập {episode} không còn, còn đường dẫn chuẩn scripts/{filename} lại chứa kịch bản "

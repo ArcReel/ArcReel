@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import functools
 import json
 import logging
 import re
@@ -64,6 +65,7 @@ from lib.script.draft_quarantine import (
     read_quarantine,
 )
 from lib.script.draft_violation import DraftViolation, collect_violations
+from lib.script.prompt_authoring_scope import PromptOverwriteRequired, prompt_overwrite_with_text
 from lib.script.reference_video.draft_validation import (
     validate_dialogue_load,
     validate_source_text_anchor,
@@ -102,7 +104,7 @@ MAX_INSTRUCTIONS_LEN = 4000
 #: 提示词编写工具收到已取消的 ``scope`` 参数时的拒绝说明，由其请求模型给出。
 SCOPE_REMOVED_MESSAGE = (
     "scope 参数已取消：generate_episode_script 默认只编写正式脚本中全部待编写的条目；"
-    "要重写已有提示词的条目，请用 entry_ids 点名这些条目；要整集重做，请重跑脚本规划并重新完成内容确认。"
+    "要覆盖已有提示词的条目，请用 entry_ids 点名这些条目并传 rewrite=true；要整集重做，请重跑脚本规划并重新完成内容确认。"
 )
 
 
@@ -112,8 +114,12 @@ class TextGenerationRequest:
     source: str | None = None
     instructions: str | None = None
     dry_run: bool = False
-    #: 提示词编写显式重写这些条目；为空时编写全部待编写条目。
+    #: 提示词编写的范围；为空时是全部待编写条目。
     entry_ids: tuple[str, ...] = ()
+    #: 提示词编写显式重写范围内条目的全部视觉层；为 False 时只补缺失的视觉层字段。
+    rewrite: bool = False
+    #: 用户认可覆盖的正式脚本指纹，取自 ``prompt_overwrite.revision``。
+    overwrite_revision: str | None = None
 
     def __post_init__(self) -> None:
         if not is_int(self.episode, minimum=1):
@@ -145,6 +151,25 @@ class TextGenerationResult:
 
 class TextGenerationError(Exception):
     """Expected refusal from a text-generation handler."""
+
+
+class PromptOverwriteRequiredError(TextGenerationError):
+    """提示词显式重写会替换已有视觉层内容，而调用方未认可覆盖；携带丢失清单（含 ``text``）。"""
+
+    def __init__(self, message: str, overwrite: dict[str, Any]) -> None:
+        super().__init__(message)
+        self.overwrite = overwrite
+
+
+def _prompt_overwrite_error(episode: int, exc: PromptOverwriteRequired) -> PromptOverwriteRequiredError:
+    overwrite = prompt_overwrite_with_text(exc.overwrite.to_dict(), translate)
+    return PromptOverwriteRequiredError(
+        f"⚠️ 第 {episode} 集的显式重写需要用户确认覆盖，本次未调用文本模型、未写入。\n{overwrite['text']}\n"
+        "须先把上面的丢失清单原文转述给用户，得到明确同意后，再以 "
+        "overwrite_revision=params.prompt_overwrite.revision 重新调用；"
+        "正式脚本在此期间又有变化时会按新清单再次拒绝。",
+        overwrite,
+    )
 
 
 class ScriptOverwriteRequiredError(TextGenerationError):
@@ -448,22 +473,41 @@ def _refuse_pending_drafts(project_path: Path, episode: int, kinds: Sequence[str
             raise TextGenerationError(f"⏸️ 本集有草稿待处置（{path}），prompt_authoring 视觉生成已中止。{action}")
 
 
-def prompt_authoring_preflight(project_path: Path, episode: int) -> None:
-    """提示词编写的预检：编写自身的待修复草稿与正式剧本是否在场。
+def prompt_authoring_preflight(
+    project_path: Path,
+    episode: int,
+    *,
+    entry_ids: Sequence[str] = (),
+    rewrite: bool = False,
+    overwrite_revision: str | None = None,
+) -> None:
+    """提示词编写的预检：编写自身的待修复草稿与正式剧本是否在场，范围是否有效，覆盖是否已认可。
 
     编写的输入只有正式剧本，不读脚本规划：脚本规划缺失、有草稿待处置或重跑后尚未确认，都不阻塞
-    编写。ad 尚无正式剧本时走整份生成，不要求剧本在场。
+    编写。ad 尚无正式剧本时走整份生成，不要求剧本在场。补缺从不覆盖已有内容；显式重写会替换已有视觉层
+    内容而未认可时抛 ``PromptOverwriteRequiredError``，与执行时同一套判定。
     """
     project_data = _read_project_data(project_path)
     if _uses_reference_video_units(project_data):
         _refuse_pending_drafts(project_path, episode, (QUARANTINE_KIND_PROMPT_AUTHORING,))
-    if project_data.get("content_mode", "narration") == "ad":
-        return
-    if not (project_path / "scripts" / episode_script_filename(episode)).exists():
+    if (
+        project_data.get("content_mode", "narration") != "ad"
+        and not (project_path / "scripts" / episode_script_filename(episode)).exists()
+    ):
         raise TextGenerationError(
             f"❌ 第 {episode} 集尚无正式脚本，无法编写提示词。"
             "请先完成本集脚本规划，并在 Web 端完成内容确认（确认即生成正式脚本）。"
         )
+    if not rewrite:
+        return
+    try:
+        ScriptGenerator(project_path).prompt_overwrite(
+            episode, entry_ids=entry_ids, rewrite=rewrite, overwrite_revision=overwrite_revision
+        )
+    except PromptAuthoringTargetError as exc:
+        raise TextGenerationError(f"❌ 编写范围无效: {exc}") from exc
+    except PromptOverwriteRequired as exc:
+        raise _prompt_overwrite_error(episode, exc) from exc
 
 
 async def generate_episode_script(
@@ -476,7 +520,16 @@ async def generate_episode_script(
     episode = request.episode
     instructions = _instructions(request.instructions)
     project_path = projects.get_project_path(project_name)
-    await asyncio.to_thread(prompt_authoring_preflight, project_path, episode)
+    await asyncio.to_thread(
+        functools.partial(
+            prompt_authoring_preflight,
+            project_path,
+            episode,
+            entry_ids=request.entry_ids,
+            rewrite=request.rewrite,
+            overwrite_revision=request.overwrite_revision,
+        )
+    )
 
     try:
         if request.dry_run:
@@ -485,7 +538,9 @@ async def generate_episode_script(
                 project_path,
                 config_resolver=config_resolver,
             )
-            prompt = await generator.build_prompt(episode, instructions=instructions, entry_ids=request.entry_ids)
+            prompt = await generator.build_prompt(
+                episode, instructions=instructions, entry_ids=request.entry_ids, rewrite=request.rewrite
+            )
             return TextGenerationResult(f"DRY RUN — 以下是将发送给文本模型的 Prompt:\n\n{prompt}")
 
         generator = await ScriptGenerator.create(
@@ -501,12 +556,18 @@ async def generate_episode_script(
             ).exists
         )
         rewritten: list[str] = []
+        skipped: list[str] = []
         result_path = await generator.generate(
             episode=episode,
             instructions=instructions,
             entry_ids=request.entry_ids,
+            rewrite=request.rewrite,
+            overwrite_revision=request.overwrite_revision,
             rewritten_entry_ids=rewritten,
+            skipped_entry_ids=skipped,
         )
+    except PromptOverwriteRequired as exc:
+        raise _prompt_overwrite_error(episode, exc) from exc
     except PromptAuthoringTargetError as exc:
         # 点名的条目不在正式剧本内是调用方的错：报「拒绝生成」而不是让它冒成 internal_error，
         # 后者会引导 Agent 原样重试同一份必然失败的参数。
@@ -515,14 +576,17 @@ async def generate_episode_script(
         raise TextGenerationError(_video_facts_failure_text(exc.failure)) from exc
     except FileNotFoundError as exc:
         raise TextGenerationError(f"❌ 文件错误: {exc}") from exc
+    skipped_note = (
+        f"\n   视觉层已齐、补缺未改动的条目: {'、'.join(skipped)}（要覆盖请传 rewrite=true）" if skipped else ""
+    )
     if not rewritten and formal_existed:
         redo = "要整份重做请先移除正式脚本" if generator.content_mode == "ad" else "要整集重做请重跑脚本规划并重新确认"
         return TextGenerationResult(
-            f"✅ 第 {episode} 集没有待编写的条目，未调用文本模型，正式脚本未改动: {result_path}\n"
-            f"   要重写指定条目请传 entry_ids；{redo}。"
+            f"✅ 第 {episode} 集没有待编写的条目，未调用文本模型，正式脚本未改动: {result_path}{skipped_note}\n"
+            f"   要覆盖已有视觉层请用 entry_ids 点名并传 rewrite=true；{redo}。"
         )
     rewritten_note = "、".join(rewritten) if rewritten else "整份生成"
-    summary = f"✅ 剧本生成完成: {result_path}\n   本次编写条目: {rewritten_note}"
+    summary = f"✅ 剧本生成完成: {result_path}\n   本次编写条目: {rewritten_note}{skipped_note}"
     warnings = await asyncio.to_thread(_rewritten_mention_warnings, projects, project_name, result_path, rewritten)
     summary += _unbound_mentions_note(warnings)
     return TextGenerationResult(summary, warnings)

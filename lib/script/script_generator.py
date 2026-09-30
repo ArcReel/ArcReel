@@ -5,6 +5,7 @@ script_generator.py - 剧本生成器
 """
 
 import asyncio
+import functools
 import hashlib
 import json
 import logging
@@ -81,6 +82,12 @@ from lib.script.draft_quarantine import (
     read_quarantine,
 )
 from lib.script.draft_violation import locate_violations, locate_violations_by_id, schema_violations
+from lib.script.prompt_authoring_scope import (
+    PromptAuthoringSelection,
+    PromptOverwrite,
+    PromptOverwriteRequired,
+    select_prompt_authoring,
+)
 from lib.script.reference_video.draft_validation import (
     DraftViolation,
     DraftViolations,
@@ -101,7 +108,6 @@ from lib.script.script_document import (
 )
 from lib.script.script_models import (
     AD_TARGET_DURATION_DRIFT_THRESHOLD,
-    PENDING_AUTHORING_FIELD,
     AdEpisodeScript,
     AdReferenceFlatScript,
     AdVisualScript,
@@ -147,7 +153,9 @@ _DURATION_ADAPTER = TypeAdapter(int)
 _DRAMA_DEFAULT_DURATION = DramaSceneContent.model_fields["duration_seconds"].default
 
 #: dry-run 在本次没有条目要编写时的回答：此时真实运行不会调用文本模型，也就没有 prompt 可预览。
-_NO_ENTRY_TO_AUTHOR_NOTE = "本次没有待编写的条目：运行时不会调用文本模型；要重写指定条目请传 entry_ids。"
+_NO_ENTRY_TO_AUTHOR_NOTE = (
+    "本次没有要编写的条目：运行时不会调用文本模型；要覆盖已有视觉层，请用 entry_ids 点名条目并传 rewrite=true。"
+)
 
 #: ad 参考生视频单元正文的放行口径：这几类发声归属问题由 needs_replan 标记承接，不阻断落盘。
 _AD_UNIT_REPLAN_CODES = frozenset({"mixed_speech", "empty_speaker", "parse_failed"})
@@ -186,10 +194,15 @@ class PromptAuthoringTargets:
     id_field: str
     script: dict[str, Any]
     entries: tuple[dict[str, Any], ...]
+    selection: PromptAuthoringSelection
 
     @property
     def ids(self) -> tuple[str, ...]:
         return tuple(str(entry[self.id_field]) for entry in self.entries)
+
+    def fields_of(self, entry_id: str) -> tuple[str, ...]:
+        """该条目本次写回的视觉层字段。"""
+        return next(entry.fields for entry in self.selection.entries if entry.entry_id == entry_id)
 
     @property
     def items(self) -> list[Any]:
@@ -238,6 +251,15 @@ class PlanningVideoFacts:
     def planning_durations(self, generation_type: VideoGenerationType) -> list[int]:
         """该桶规划可选的时长档位（端点固定时借规划档位）；解析不出即抛。"""
         return planning_durations(self.require(generation_type))
+
+
+def _require_overwrite_acknowledged(
+    targets: PromptAuthoringTargets, baseline: str | None, overwrite_revision: str | None
+) -> None:
+    """显式重写会替换已有视觉层内容时，覆盖令牌须与读取目标时的正式剧本指纹一致。"""
+    overwritten = targets.selection.overwritten
+    if overwritten and (overwrite_revision is None or overwrite_revision != baseline):
+        raise PromptOverwriteRequired(PromptOverwrite(fingerprint=baseline, entries=overwritten))
 
 
 class ScriptGenerator:
@@ -312,11 +334,14 @@ class ScriptGenerator:
         episode: int,
         filename: str,
         entry_ids: Iterable[str] | None,
+        *,
+        rewrite: bool = False,
     ) -> PromptAuthoringTargets | None:
         """读正式脚本并定出本次编写的条目；正式脚本不存在时返回 None。
 
-        ``entry_ids`` 为空时取全部带待编写标记的条目；非空时只取这些条目（不论是否待编写），
-        其中任一 id 不在正式脚本里即抛 ``PromptAuthoringTargetError``。不读脚本规划。
+        ``entry_ids`` 为空时范围是全部带待编写标记的条目，非空时是这些条目，其中任一 id 不在正式脚本里
+        即抛 ``PromptAuthoringTargetError``。范围内的条目按补缺或显式重写选出（见
+        ``select_prompt_authoring``）。不读脚本规划。
         """
         pm = ProjectManager.for_project_dir(self.project_path)
         try:
@@ -333,12 +358,10 @@ class ScriptGenerator:
         unknown = [entry_id for entry_id in requested if entry_id not in known]
         if unknown:
             raise PromptAuthoringTargetError(f"entry_ids 不在第 {episode} 集正式脚本内: {unknown}")
-        if requested:
-            selected = set(requested)
-            entries = tuple(item for item in items if str(item[id_field]) in selected)
-        else:
-            entries = tuple(item for item in items if item.get(PENDING_AUTHORING_FIELD) is True)
-        return PromptAuthoringTargets(kind=kind, id_field=id_field, script=script, entries=entries)
+        selection = select_prompt_authoring(items, kind=kind, id_field=id_field, entry_ids=requested, rewrite=rewrite)
+        selected = {entry.entry_id for entry in selection.entries}
+        entries = tuple(item for item in items if str(item[id_field]) in selected)
+        return PromptAuthoringTargets(kind=kind, id_field=id_field, script=script, entries=entries, selection=selection)
 
     async def generate(
         self,
@@ -347,7 +370,10 @@ class ScriptGenerator:
         *,
         instructions: str | None = None,
         entry_ids: Iterable[str] | None = None,
+        rewrite: bool = False,
+        overwrite_revision: str | None = None,
         rewritten_entry_ids: list[str] | None = None,
+        skipped_entry_ids: list[str] | None = None,
         before_quarantine_commit: Callable[[], None] | None = None,
     ) -> Path:
         """
@@ -363,10 +389,14 @@ class ScriptGenerator:
                 项目 scripts/ 目录，故此参数只决定文件名、不接受目录。
             instructions: 用户输入的附加指令原文；非空时以中性「附加指令」分节追加到
                 prompt 末尾（遵循强度由正文表达），所有 content_mode / 生成模式同口径。
-            entry_ids: 显式重写这些条目的视觉层（不论是否待编写）；为空时编写全部待编写条目。
-                任一 id 不在正式剧本内即报错、不落盘。
+            entry_ids: 本次编写的范围；为空时是全部待编写条目。任一 id 不在正式剧本内即报错、不落盘。
+                点名只划定范围：补缺时视觉层已齐的条目照常跳过。
+            rewrite: 显式重写范围内条目的全部视觉层；为 False 时补缺，只写缺失的视觉层字段。
+            overwrite_revision: 调用方认可覆盖的正式剧本指纹（取自丢失清单的 ``revision``）。显式重写
+                会替换已有视觉层内容时，缺失或与当前正式剧本不符即抛 ``PromptOverwriteRequired``、不调用模型。
             rewritten_entry_ids: 可选收集器；非 None 时就地填入本次编写的条目 id（剧本顺序），
                 供调用方在回执里列出。ad 整份生成时保持为空。
+            skipped_entry_ids: 可选收集器；非 None 时就地填入范围内因视觉层已齐而未编写的条目 id。
 
         Returns:
             正式剧本 JSON 文件路径
@@ -395,7 +425,9 @@ class ScriptGenerator:
         # 基线先于读入正式剧本：编写用的快照与 expected_fingerprint 出自同一时刻之前，两者之间
         # 落下的并发保存在写入时按冲突拒绝，而不是被本次写回覆盖。
         formal_baseline = await asyncio.to_thread(content_fingerprint, self.project_path / "scripts" / filename)
-        targets = await asyncio.to_thread(self._load_prompt_authoring_targets, episode, filename, entry_ids)
+        targets = await asyncio.to_thread(
+            functools.partial(self._load_prompt_authoring_targets, episode, filename, entry_ids, rewrite=rewrite)
+        )
         if targets is None:
             if self.content_mode != "ad":
                 raise PromptAuthoringTargetError(
@@ -413,8 +445,11 @@ class ScriptGenerator:
                 output_filename,
             )
 
+        _require_overwrite_acknowledged(targets, formal_baseline, overwrite_revision)
         if rewritten_entry_ids is not None:
             rewritten_entry_ids[:] = targets.ids
+        if skipped_entry_ids is not None:
+            skipped_entry_ids[:] = targets.selection.skipped
         output_path = self.project_path / "scripts" / filename
         if not targets.entries:
             logger.info("第 %d 集没有待编写条目，未调用文本模型", episode)
@@ -513,7 +548,7 @@ class ScriptGenerator:
 
     @staticmethod
     def _merge_visual_layer(targets: PromptAuthoringTargets, visual_items: list[dict], episode: int) -> list[dict]:
-        """把视觉层按条目 id 写回正式剧本条目：只覆盖 image_prompt / video_prompt，其余字段原样保留。
+        """把视觉层按条目 id 写回正式剧本条目：只写本次选出的视觉层字段，其余字段原样保留。
 
         视觉层须与本次编写的条目一一对应：缺、多、重都 fail-loud，杜绝错配与漏写。
         """
@@ -533,8 +568,10 @@ class ScriptGenerator:
         return [
             {
                 **entry,
-                "image_prompt": visual_by_id[str(entry[id_field])]["image_prompt"],
-                "video_prompt": visual_by_id[str(entry[id_field])]["video_prompt"],
+                **{
+                    field: visual_by_id[str(entry[id_field])][field]
+                    for field in targets.fields_of(str(entry[id_field]))
+                },
             }
             for entry in targets.entries
         ]
@@ -817,8 +854,31 @@ class ScriptGenerator:
             speech_rate_override=cast(float | None, direct_inputs["speech_rate_override"]),
         )
 
+    def prompt_overwrite(
+        self,
+        episode: int,
+        *,
+        entry_ids: Iterable[str] | None = None,
+        rewrite: bool = False,
+        overwrite_revision: str | None = None,
+    ) -> None:
+        """提交前的覆盖预检：与 ``generate`` 同一套对象选择，未认可的覆盖抛 ``PromptOverwriteRequired``。
+
+        点名的条目不在正式剧本里同样抛 ``PromptAuthoringTargetError``；尚无正式剧本时不检查。
+        """
+        filename = formal_script_filename(self.project_path, self.project_json, episode)
+        baseline = content_fingerprint(self.project_path / "scripts" / filename)
+        targets = self._load_prompt_authoring_targets(episode, filename, entry_ids, rewrite=rewrite)
+        if targets is not None:
+            _require_overwrite_acknowledged(targets, baseline, overwrite_revision)
+
     async def build_prompt(
-        self, episode: int, *, instructions: str | None = None, entry_ids: Iterable[str] | None = None
+        self,
+        episode: int,
+        *,
+        instructions: str | None = None,
+        entry_ids: Iterable[str] | None = None,
+        rewrite: bool = False,
     ) -> str:
         """
         构建 Prompt（用于 dry-run 模式）
@@ -829,7 +889,7 @@ class ScriptGenerator:
         dry-run 恒以该集绑定的正式剧本为准：它不落盘，也就没有 ``output_filename`` 可言。
         """
         targets = self._load_prompt_authoring_targets(
-            episode, formal_script_filename(self.project_path, self.project_json, episode), entry_ids
+            episode, formal_script_filename(self.project_path, self.project_json, episode), entry_ids, rewrite=rewrite
         )
         if targets is None:
             if self.content_mode != "ad":
@@ -1339,10 +1399,10 @@ class ScriptGenerator:
         instructions: str | None,
         before_quarantine_commit: Callable[[], None] | None,
     ) -> Path:
-        """参考生视频的提示词编写：只改写待编写单元的正文，其余单元逐字不动。
+        """参考生视频的提示词编写：只改写本次选中单元的正文，其余单元逐字不动。
 
         LLM 只出引用语法正文（与待编写单元等长、同序）；违约不丢弃，连同逐条报告落待修复草稿，
-        由 Agent 修复后经 promote_draft 重判晋升。重抽既烧钱又不收敛——同一个模型对同一份正文
+        修复后经草稿晋升重判写回正式剧本。重抽既烧钱又不收敛——同一个模型对同一份正文
         大概率再犯同一类错。
         """
         facts = await self._fetch_video_request_facts()
@@ -1700,7 +1760,7 @@ class ScriptGenerator:
             if isinstance(raw_unit_ids, list)
             else None
         )
-        targets = self._load_prompt_authoring_targets(episode, filename, unit_ids)
+        targets = self._load_prompt_authoring_targets(episode, filename, unit_ids, rewrite=True)
         if targets is None:
             raise FileNotFoundError(f"第 {episode} 集尚无正式脚本，无法晋升 prompt_authoring 待修复草稿")
         if unit_ids is None:

@@ -45,8 +45,12 @@ GENERATE_EPISODE_SCRIPT = ToolDeclaration(
     name="generate_episode_script",
     description=(
         "提示词编写：为正式脚本中待编写的分镜 / 视频单元补出视觉层，输入是正式脚本自身的内容，不读脚本规划。"
-        "默认只编写全部待编写条目；entry_ids 显式重写指定条目的视觉层。内容字段、备注、尾帧与已生成产物原样保留。"
-        "ad 项目尚无正式脚本时整份生成。dry_run=true 时直接返回 prompt，不提交生成任务。"
+        "默认补缺：范围是全部待编写条目或 entry_ids 点名的条目，图片提示词与视频提示词各自整份判断，已有的保留、"
+        "只补缺失的那一份；参考生视频按待编写标记展开单元正文。rewrite=true 显式重写范围内条目的全部视觉层；"
+        "会覆盖已有内容时返回 prompt_overwrite_required，回执正文即服务端生成的丢失清单，"
+        "params.prompt_overwrite.revision 是认可令牌；先向用户转述清单，得到同意后才以该 revision 作为 overwrite_revision 重新调用。"
+        "内容字段、备注、尾帧与已生成产物原样保留。ad 项目尚无正式脚本时整份生成。"
+        "dry_run=true 时直接返回 prompt，不提交生成任务。"
     ),
     request_model=GenerateEpisodeScriptRequest,
     migration=BLOCKED,
