@@ -1015,7 +1015,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
             "qwen3.6-flash": ModelInfo(
                 display_name="Qwen3.6 Flash",
                 media_type="text",
-                capabilities=["text_generation", "structured_output"],
+                capabilities=["text_generation", "structured_output", "vision"],
                 pricing=_dashscope_text_pricing("qwen3.6-flash", 1.2, 7.2),
             ),
             "qwen-long": ModelInfo(

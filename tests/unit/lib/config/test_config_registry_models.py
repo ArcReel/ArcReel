@@ -138,6 +138,7 @@ class TestProviderRegistry:
             ("gemini-aistudio", "gemini-3.1-flash-lite-preview"),
             ("gemini-vertex", "gemini-3.1-flash-lite-preview"),
             ("dashscope", "qwen3.6-plus"),
+            ("dashscope", "qwen3.6-flash"),
         ],
     )
     def test_multimodal_text_models_declare_vision(self, provider_id, model_id):
