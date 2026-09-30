@@ -17,6 +17,7 @@ from typing import ClassVar
 
 import httpx
 
+from arcreel_market_core.video_backend_contract import VideoGenerationRequest
 from lib.backends.backend_runtime import (
     VIDEO_POLL_INTERVAL_SECONDS,
     poll_with_retry,
@@ -37,7 +38,6 @@ from lib.backends.kling_shared import (
     resolve_kling_jwt_credentials,
 )
 from lib.backends.providers import PROVIDER_KLING
-from lib.backends.video_backend_contract import VideoGenerationRequest
 from lib.config.url_utils import normalize_base_url
 from lib.infra.retry import (
     DEFAULT_BACKOFF_SECONDS,

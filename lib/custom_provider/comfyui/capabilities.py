@@ -21,15 +21,23 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from .bindings import align_frames, bound_fps, int_literal_of, literal_of, positive_number, step_of, targets_of
-from .graph import class_type_of, link_of
+from arcreel_market_core.comfyui.bindings import (
+    align_frames,
+    bound_fps,
+    int_literal_of,
+    positive_number,
+    step_of,
+    targets_of,
+)
+from arcreel_market_core.comfyui.graph import class_type_of, link_of
+from arcreel_market_core.comfyui.workflow import is_link, node_inputs
+
 from .inference_rules import AudioTrackSource, load_inference_rules
-from .workflow import is_link, node_inputs
 
 #: 决定「有没有图输入」的三项语义键。三项全空即这份 workflow 不吃任何图片素材。
 _IMAGE_BINDING_KEYS = ("start_image", "end_image", "reference_images")
 
-#: 音轨的两种结论，取值与 :class:`lib.backends.video_backend_contract.VideoAudioMode` 的成员值逐字相同。
+#: 音轨的两种结论，取值与 :class:`arcreel_market_core.video_backend_contract.VideoAudioMode` 的成员值逐字相同。
 #: 永远不会是 ``controllable``：ComfyUI 侧没有可下发的音轨开关。
 AudioTrack = Literal["always_on", "always_off"]
 
@@ -264,10 +272,3 @@ def default_supported_durations(definition: Mapping[str, Any]) -> list[int]:
     """
     native = native_duration(definition)
     return [] if native is None or native <= 0 else [native]
-
-
-def fps_literals(workflow: Mapping[str, Any], bindings: Mapping[str, Any]) -> list[float]:
-    """全部 ``fps`` 只读绑定各自读出的正字面值，按绑定顺序。"""
-    return [
-        value for target in targets_of(bindings.get("fps")) if (value := positive_number(literal_of(workflow, target)))
-    ]

@@ -9,7 +9,7 @@ import httpx
 import pytest
 import respx
 
-from lib.backends.video_backend_contract import (
+from arcreel_market_core.video_backend_contract import (
     ReferenceAudioMode,
     VideoCapabilityError,
     VideoGenerationRequest,

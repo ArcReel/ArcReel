@@ -13,7 +13,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from enum import StrEnum
 
-from lib.custom_provider.endpoint_definition import COMFYUI_KIND, DECLARATIVE_KIND
+from arcreel_market_core.endpoint_definition import COMFYUI_KIND, DECLARATIVE_KIND
 
 
 class EndpointTestMode(StrEnum):

@@ -6,7 +6,8 @@
 或 monkeypatch 注入的调用记录容器），没有任何针对返回值、状态、副作用的断言。
 
 类 2「patch 被测公共入口或私有符号」：`patch(...)` / `patch.object(...)` /
-`monkeypatch.setattr(...)` 的目标以 `lib.` / `server.` 开头且命中 `_` 前缀私有符号；
+`monkeypatch.setattr(...)` 的目标以生产包（`lib.` / `server.` / `arcreel_market_core.`）开头且命中
+`_` 前缀私有符号；
 以及 integration 标记用例 patch 了被测 module 自身的公共入口。
 
 类 3「共享设施结构」：conftest 被 import；测试文件定义与生效 conftest 同名的 fixture；
@@ -24,6 +25,8 @@
 `--check` 是闸门形态：以 `规则号 file:line 修复指引` 列出上述全部命中，非零即退出码 1。
 零容忍，无基线、无豁免标注——误报通过修改本脚本解决。
 
+后端测试目录缺省为 `tests/` 与 workspace 子包的 `packages/*/tests/`，可用 `--tests` 重复指定。
+
 零第三方依赖，只用 `ast`。用法见 `--help`。
 """
 
@@ -35,7 +38,7 @@ import json
 import re
 import sys
 from collections import Counter, defaultdict
-from collections.abc import Callable, Container, Iterable, Mapping
+from collections.abc import Callable, Container, Iterable, Mapping, Sequence
 from copy import deepcopy
 from dataclasses import asdict, dataclass
 from fnmatch import fnmatch
@@ -622,6 +625,17 @@ def _declares_abstract(node: ast.ClassDef) -> bool:
 
 TIER_MARKS = ("unit", "integration", "e2e")
 
+#: 生产代码的顶层包 → 相对仓库根的源码目录。workspace 子包是 src 布局，源码不在仓库根下。
+PRODUCTION_PACKAGES: Mapping[str, str] = {
+    "lib": ".",
+    "server": ".",
+    "arcreel_market_core": "packages/arcreel-market-core/src",
+}
+PRODUCTION_PREFIXES = tuple(f"{name}." for name in PRODUCTION_PACKAGES)
+
+#: 缺省扫描的后端测试目录：主仓 `tests/` 之外，workspace 子包各有独立的测试目录。
+DEFAULT_TESTS_DIRS = ("tests", "packages/arcreel-market-core/tests")
+
 
 def tier_from_path(path: Path, tests_dir: Path) -> str | None:
     """档位 marker 取 `tests/unit|integration|e2e/` 的第一段目录名。
@@ -679,11 +693,11 @@ class AliasIndex:
             if isinstance(node, ast.Import):
                 for alias in node.names:
                     self.imported_modules.add(alias.name)
-                    if alias.name.startswith(("lib.", "server.")):
+                    if alias.name.startswith(PRODUCTION_PREFIXES):
                         self.import_counter[alias.name] += 1
             elif isinstance(node, ast.ImportFrom) and node.module and node.level == 0:
                 self.imported_modules.add(node.module)
-                if node.module.split(".")[0] in ("lib", "server"):
+                if node.module.split(".")[0] in PRODUCTION_PACKAGES:
                     for alias in node.names:
                         # `from lib.x import y`：y 可能是子模块也可能是符号，两种都登记
                         self.import_counter[f"{node.module}.{alias.name}"] += 1
@@ -702,8 +716,8 @@ class AliasIndex:
         stem = path.stem
         if stem.startswith("test_"):
             stem = stem[5:]
-        pool = {m for m in self.imported_modules if m.startswith(("lib.", "server."))}
-        pool |= {m for m in self.import_counter if m.startswith(("lib.", "server."))}
+        pool = {m for m in self.imported_modules if m.startswith(PRODUCTION_PREFIXES)}
+        pool |= {m for m in self.import_counter if m.startswith(PRODUCTION_PREFIXES)}
         # 必须排序后遍历：并列长度下不定的迭代顺序会让「被测 module」在多次运行间抖动。
         candidates = sorted(m for m in pool if is_module(m))
         best: str | None = None
@@ -926,7 +940,7 @@ def classify_motive(target: str) -> str:
 
 
 def is_private_target(target: str) -> bool:
-    if not target.startswith(("lib.", "server.")):
+    if not target.startswith(PRODUCTION_PREFIXES):
         return False
     return any(seg.startswith("_") and not seg.startswith("__") for seg in target.split(".")[1:])
 
@@ -959,7 +973,8 @@ class ProductionIndex:
 
     def _module_file(self, module: str) -> Path | None:
         rel = module.replace(".", "/")
-        for candidate in (self.root / f"{rel}.py", self.root / rel / "__init__.py"):
+        base = self.root / PRODUCTION_PACKAGES.get(module.split(".")[0], ".")
+        for candidate in (base / f"{rel}.py", base / rel / "__init__.py"):
             if candidate.is_file():
                 return candidate
         return None
@@ -1743,8 +1758,9 @@ def scan_module_duplicates(rel: str, tree: ast.Module, scope: CollectionScope) -
 # ---------------------------------------------------------------- 汇总输出
 
 
-def run(root: Path, tests_dir: Path, top: int, frontend_src: Path | None = None) -> dict[str, object]:
-    files = sorted(p for p in tests_dir.rglob("*.py") if p.name != "__init__.py")
+def run(root: Path, tests_dir: Path | Sequence[Path], top: int, frontend_src: Path | None = None) -> dict[str, object]:
+    tests_dirs = [tests_dir] if isinstance(tests_dir, Path) else list(tests_dir)
+    files = sorted((p, base) for base in tests_dirs for p in base.rglob("*.py") if p.name != "__init__.py")
     stats: list[FileStat] = []
     double_only: list[DoubleOnlyTest] = []
     no_assertion_cases: list[NoAssertionTest] = []
@@ -1754,9 +1770,9 @@ def run(root: Path, tests_dir: Path, top: int, frontend_src: Path | None = None)
     parsed: list[tuple[Path, ast.Module]] = []
     prod = ProductionIndex(root)
 
-    for path in files:
+    for path, base in files:
         try:
-            scanner = FileScanner(path, root, tests_dir, prod)
+            scanner = FileScanner(path, root, base, prod)
             scanner.scan()
         except SyntaxError as exc:
             failures.append(
@@ -1816,7 +1832,8 @@ def run(root: Path, tests_dir: Path, top: int, frontend_src: Path | None = None)
     structure_counter = Counter(f.rule for f in structure)
 
     frontend_files = frontend_test_files(frontend_src) if frontend_src and frontend_src.is_dir() else []
-    shape = scan_file_shape(root, files + frontend_files) + scan_frontend_layout(root, frontend_files)
+    backend_files = [path for path, _ in files]
+    shape = scan_file_shape(root, backend_files + frontend_files) + scan_frontend_layout(root, frontend_files)
     shape_counter = Counter(f.rule for f in shape)
 
     return {
@@ -1961,7 +1978,11 @@ def main(argv: list[str] | None = None) -> int:
         description="审计 tests/ 中「测 mock 本身」与「patch 私有符号/被测公共入口」的用例",
     )
     parser.add_argument("--root", default=".", help="仓库根目录（默认当前目录）")
-    parser.add_argument("--tests", default="tests", help="测试目录，相对 root（默认 tests）")
+    parser.add_argument(
+        "--tests",
+        action="append",
+        help=f"测试目录，相对 root，可重复指定（默认 {' '.join(DEFAULT_TESTS_DIRS)}，其中不存在的子包目录跳过）",
+    )
     parser.add_argument("--top", type=int, default=30, help="Top N 榜单长度（默认 30）")
     parser.add_argument("--json", dest="json_out", help="把完整明细写入该 JSON 文件")
     parser.add_argument(
@@ -1977,12 +1998,17 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     root = Path(args.root).resolve()
-    tests_dir = root / args.tests
-    if not tests_dir.is_dir():
-        print(f"测试目录不存在：{tests_dir}", file=sys.stderr)
-        return 2
+    if args.tests:
+        tests_dirs = [root / name for name in args.tests]
+    else:
+        primary, *packages = DEFAULT_TESTS_DIRS
+        tests_dirs = [root / primary, *(root / name for name in packages if (root / name).is_dir())]
+    for tests_dir in tests_dirs:
+        if not tests_dir.is_dir():
+            print(f"测试目录不存在：{tests_dir}", file=sys.stderr)
+            return 2
 
-    result = run(root, tests_dir, args.top, root / args.frontend)
+    result = run(root, tests_dirs, args.top, root / args.frontend)
     totals = result["totals"]
     assert isinstance(totals, dict)
 

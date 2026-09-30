@@ -5,8 +5,8 @@ import json
 import pytest
 from jsonschema import Draft202012Validator
 
+from arcreel_market_core.comfyui.bindings import BINDING_KEYS_BY_MEDIA_TYPE
 from lib.custom_provider.comfyui import inference_rules as rules_module
-from lib.custom_provider.comfyui.bindings import BINDING_KEYS_BY_MEDIA_TYPE
 from lib.custom_provider.comfyui.inference import SIGNAL_WEIGHTS, WEAKEST_GRADED_WEIGHT, BindingSignal
 from lib.custom_provider.comfyui.inference_rules import (
     RULES_PATHS,

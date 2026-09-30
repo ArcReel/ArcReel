@@ -66,6 +66,8 @@ from server.routers import (
     generate,
     grids,
     market,
+    market_submissions,
+    official_service,
     onboarding,
     presentations,
     products,
@@ -646,6 +648,10 @@ app.include_router(
     custom_endpoints.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["自定义调用端点"]
 )
 app.include_router(market.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["市场"])
+app.include_router(market_submissions.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["市场"])
+app.include_router(
+    official_service.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["官方服务"]
+)
 app.include_router(
     cost_estimation.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["费用估算"]
 )

@@ -50,9 +50,14 @@ import type {
   ComfyuiInferResponse,
   ComfyuiMediaType,
   CustomEndpointInfo,
+  MarketEntryAggregate,
+  MarketSubmission,
+  MarketSubmissionDiagnostic,
+  MarketSubmissionDraft,
   MarketEntryListResponse,
   MarketEntryDetail,
   MarketEntryInstallation,
+  OfficialServiceState,
   MarketSourceInfo,
   MarketSourceListResponse,
   EndpointDefinition,
@@ -2573,6 +2578,66 @@ class API {
     const response = await fetch(`${API_BASE}${url}`, withAuth(url, { signal: options.signal }));
     await throwIfNotOk(response, "获取条目图标失败");
     return response.blob();
+  }
+
+  // ==================== 官方服务 API ====================
+  // 前端只与本地服务端通信；官方服务的调用全部由本地服务端代理，关闭时本地服务端零出站。
+
+  static async getOfficialService(options: { signal?: AbortSignal } = {}): Promise<OfficialServiceState> {
+    return this.request("/official-service", { signal: options.signal });
+  }
+
+  static async updateOfficialService(patch: {
+    enabled?: boolean;
+    notice_seen?: boolean;
+  }): Promise<OfficialServiceState> {
+    return this.request("/official-service", { method: "PATCH", body: JSON.stringify(patch) });
+  }
+
+  /** 删除实例标识；下次请求官方服务时生成新的。 */
+  static async resetOfficialInstanceId(): Promise<OfficialServiceState> {
+    return this.request("/official-service/instance-id/reset", { method: "POST" });
+  }
+
+  /** 启用的官方市场源条目的安装量与评分；官方服务关闭或取不回时抛错。 */
+  static async listMarketEntryAggregates(
+    options: { signal?: AbortSignal } = {},
+  ): Promise<{ items: MarketEntryAggregate[] }> {
+    return this.request("/market/entries/aggregates?type=endpoint", { signal: options.signal });
+  }
+
+  /** 1–5 星；官方服务没有本实例的安装记录时抛出 409。 */
+  static async rateMarketEntry(sourceId: number, slug: string, stars: number): Promise<void> {
+    return this.request(`/market/sources/${sourceId}/entries/${encodeURIComponent(slug)}/rating`, {
+      method: "PUT",
+      body: JSON.stringify({ stars }),
+    });
+  }
+
+  /** 与官方服务预检同口径的本地校验，不出站；只报错误。 */
+  static async checkMarketSubmission(
+    draft: MarketSubmissionDraft,
+    options: { signal?: AbortSignal } = {},
+  ): Promise<{ diagnostics: MarketSubmissionDiagnostic[] }> {
+    return this.request("/market/submissions/check", {
+      method: "POST",
+      body: JSON.stringify(draft),
+      signal: options.signal,
+    });
+  }
+
+  /** 把端点已保存的定义分享到官方市场；PR 未合并时再次提交进入同一 PR。 */
+  static async createMarketSubmission(
+    draft: MarketSubmissionDraft & { github_username: string | null },
+  ): Promise<MarketSubmission> {
+    return this.request("/market/submissions", { method: "POST", body: JSON.stringify(draft) });
+  }
+
+  /** 本地记录的分享提交，调用时向官方服务刷新一次状态；官方服务关闭时抛出 409。 */
+  static async listMarketSubmissions(
+    options: { signal?: AbortSignal } = {},
+  ): Promise<{ submissions: MarketSubmission[] }> {
+    return this.request("/market/submissions", { signal: options.signal });
   }
 
   // ==================== 自定义调用端点 API ====================

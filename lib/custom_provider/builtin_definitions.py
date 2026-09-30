@@ -6,7 +6,7 @@
 
 装载是 fail-fast 的：任何一份定义不合法（JSON 解析失败、过不了共享校验器、键占用 ``ce-`` 前缀、
 作者不是 ArcReel）进程就起不来，而不是等到用户挑中该端点发起生成才失败。校验一律走
-:func:`lib.custom_provider.endpoint_definition.validate_definition`——随版定义与用户定义同一把尺子。
+:func:`arcreel_market_core.endpoint_definition.validate_definition`——随版定义与用户定义同一把尺子。
 
 本模块只做「文件 → 定义 + 元数据」，不构造 :class:`~lib.custom_provider.endpoints.EndpointSpec`，
 故不依赖 ``endpoints``（后者依赖本模块）。
@@ -20,18 +20,15 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
-from lib.backends.video_backend_contract import VideoCapabilities
+from arcreel_market_core.endpoint_definition import DefinitionIssue, validate_definition
+from arcreel_market_core.video_backend_contract import VideoCapabilities
 from lib.custom_provider import CUSTOM_ENDPOINT_KEY_PREFIX
-from lib.custom_provider.endpoint_definition import DefinitionIssue, validate_definition
 
 #: 随版定义所在目录。文件名（不含 ``.json``）即内置端点键。
 BUILTIN_DEFINITIONS_DIR = Path(__file__).parent / "builtin_endpoints"
 
 #: 随版定义的作者署名。「复制为我的」产出的副本沿用它，用户改名改版本自便。
 BUILTIN_DEFINITION_AUTHOR = "ArcReel"
-
-#: 声明式定义描述的是「JSON in/out + 提交/轮询」的视频协议，媒体类型恒为 video。
-DECLARATIVE_MEDIA_TYPE = "video"
 
 
 class BuiltinDefinitionError(RuntimeError):

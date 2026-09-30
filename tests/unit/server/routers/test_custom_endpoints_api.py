@@ -13,7 +13,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from lib.custom_provider.endpoint_definition import CURRENT_SCHEMA_VERSION
+from arcreel_market_core.endpoint_definition import CURRENT_SCHEMA_VERSION
 from lib.db import get_async_session
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 from server.auth import CurrentUserInfo, get_current_user

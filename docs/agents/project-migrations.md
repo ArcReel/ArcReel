@@ -5,7 +5,7 @@
 ## 步骤
 
 1. **列出这一步要处理的全部旧形态。** 每种形态是「某个版本之前的代码写出的、与当前代码期望不同的数据」；下表是已知清单，新发现的形态先补进表里。完成判据：每种相关形态在 `tests/legacy_project_shapes.py` 里有一个构造出的样本。
-2. **写迁移器，登记与跳过都要有出口。** 改写产物清单的迁移返回 `ArtifactBackfillOutcome`（`lib/project/project_migration_report.py`），runner 把它折进项目内的 `.migration_report.json`。规划器里每一条「不登记」的分支调用 `_skip(...)` 给出原因。完成判据：跳过的每一件产物都出现在迁移报告里。
+2. **写迁移器，登记与跳过都要有出口。** 一个发行版至多新增一步迁移：`CURRENT_PROJECT_SCHEMA_VERSION` 比最近的 `v*` 发版 tag 上的值大，说明最新一步尚未发版，改动并进这一步；两者相等才新开一步。改写产物清单的迁移返回 `ArtifactBackfillOutcome`（`lib/project/project_migration_report.py`），runner 把它折进项目内的 `.migration_report.json`。规划器里每一条「不登记」的分支调用 `_skip(...)` 给出原因。完成判据：跳过的每一件产物都出现在迁移报告里。
 3. **在旧形态样本上跑到用户口径。** 除迁移器本身的断言外，至少一条用例用 `WorkflowStateService.get_project_summary` / `get_status` 或演示读模型断言用户看到的结果（计数、状态、预览可用）。完成判据：`tests/integration/lib/project/project_migrations/` 下的用例覆盖了「≤ 上一版实际安装」到当前版本的整条链（`migrate_project_dir`），不只单步。
 4. **同步面向用户的迁移说明。** `website/docs/ops/deployment.md` 的「项目结构迁移」一节描述备份、报告与重试行为；行为变了就改它。
 

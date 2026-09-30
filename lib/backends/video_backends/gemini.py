@@ -10,6 +10,14 @@ from typing import Any
 
 from PIL import Image
 
+from arcreel_market_core.video_backend_contract import (
+    ResumeExpiredError,
+    VideoAudioMode,
+    VideoCapabilities,
+    VideoCapabilityError,
+    VideoGenerationRequest,
+    VideoGenerationResult,
+)
 from lib.backends.backend_runtime import (
     ProviderJobIdPersistenceMixin,
     is_retryable_http_status,
@@ -19,14 +27,6 @@ from lib.backends.backend_runtime import (
 )
 from lib.backends.gemini_shared import VERTEX_SCOPES, RateLimiter, get_shared_rate_limiter, resolve_gemini_api_key
 from lib.backends.providers import PROVIDER_GEMINI
-from lib.backends.video_backend_contract import (
-    ResumeExpiredError,
-    VideoAudioMode,
-    VideoCapabilities,
-    VideoCapabilityError,
-    VideoGenerationRequest,
-    VideoGenerationResult,
-)
 from lib.config.registry import model_info_for
 from lib.config.system_config import resolve_vertex_credentials_path
 from lib.config.url_utils import normalize_base_url

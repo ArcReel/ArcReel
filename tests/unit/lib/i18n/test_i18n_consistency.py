@@ -177,6 +177,20 @@ def test_batch_admission_problem_codes_are_translated():
             assert code in MESSAGES[locale], f"problem code '{code}' has no {locale} message"
 
 
+def test_market_core_message_keys_are_translated():
+    """Every message key arcreel-market-core can emit must read as prose.
+
+    The subpackage ships no translation catalog: its diagnostics carry only a key
+    and params, and the application renders them. A key missing here reaches the
+    user as a bare identifier.
+    """
+    from arcreel_market_core.message_keys import MESSAGE_KEYS
+
+    for key in sorted(MESSAGE_KEYS):
+        for locale in SUPPORTED_LOCALES:
+            assert key in MESSAGES[locale], f"market core message key '{key}' has no {locale} message"
+
+
 def _event_label_keys(messages: dict[str, str]) -> set[str]:
     prefix = "event_label_"
     return {key.removeprefix(prefix) for key in messages if key.startswith(prefix)}

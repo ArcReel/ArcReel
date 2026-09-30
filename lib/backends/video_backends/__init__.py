@@ -1,5 +1,11 @@
 """视频生成服务层公共 API。"""
 
+from arcreel_market_core.video_backend_contract import (
+    ReferenceAudioMode,
+    VideoBackend,
+    VideoGenerationRequest,
+    VideoGenerationResult,
+)
 from lib.backends.providers import (
     PROVIDER_ARK,
     PROVIDER_ARK_AGENT_PLAN,
@@ -7,12 +13,6 @@ from lib.backends.providers import (
     PROVIDER_GROK,
     PROVIDER_NEWAPI,
     PROVIDER_OPENAI,
-)
-from lib.backends.video_backend_contract import (
-    ReferenceAudioMode,
-    VideoBackend,
-    VideoGenerationRequest,
-    VideoGenerationResult,
 )
 from lib.backends.video_backends.registry import create_backend, get_registered_backends, register_backend
 

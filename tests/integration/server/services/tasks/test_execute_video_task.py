@@ -9,13 +9,13 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from arcreel_market_core.video_backend_contract import VideoCapabilities, VideoCapabilityError
 from lib.artifacts.artifact_manifest import (
     ArtifactKey,
     ArtifactManifest,
     ProjectArtifactManifestAdapter,
 )
 from lib.artifacts.video_visual_provenance import build_storyboard_video_visual_basis
-from lib.backends.video_backend_contract import VideoCapabilities, VideoCapabilityError
 from lib.backends.video_frame_slots import gate_video_request
 from lib.generation.generation_queue import DispatchProviderChanged
 from lib.generation.video_request_facts import (

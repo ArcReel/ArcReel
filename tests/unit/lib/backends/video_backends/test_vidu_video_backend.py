@@ -7,8 +7,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from arcreel_market_core.video_backend_contract import VideoCapabilityError, VideoGenerationRequest
 from lib.backends.providers import PROVIDER_VIDU
-from lib.backends.video_backend_contract import VideoCapabilityError, VideoGenerationRequest
 from lib.backends.video_backends.vidu import (
     _DURATION_RULES,
     _ENDPOINT_MODELS,

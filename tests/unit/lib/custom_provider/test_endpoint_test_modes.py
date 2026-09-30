@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from lib.custom_provider.endpoint_definition import COMFYUI_KIND, DECLARATIVE_KIND
+from arcreel_market_core.endpoint_definition import COMFYUI_KIND, DECLARATIVE_KIND
 from lib.custom_provider.endpoint_test import SUPPORTED_KINDS, TESTABLE_KINDS, EndpointTestMode, supports_test_mode
 
 

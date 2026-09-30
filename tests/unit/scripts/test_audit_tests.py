@@ -834,3 +834,24 @@ def test_same_named_nested_classes_share_the_stricter_optout(tmp_path: Path) -> 
     )
 
     assert gate_violations(_audit(tmp_path)) == []
+
+
+def test_workspace_package_tests_are_scanned_against_its_src_layout(tmp_path: Path, capsys) -> None:
+    _repo(tmp_path)
+    source = tmp_path / "packages" / "arcreel-market-core" / "src" / "arcreel_market_core"
+    source.mkdir(parents=True)
+    (source / "__init__.py").write_text("", encoding="utf-8")
+    (source / "codes.py").write_text("def _lookup():\n    return 1\n", encoding="utf-8")
+    package_tests = tmp_path / "packages" / "arcreel-market-core" / "tests"
+    package_tests.mkdir()
+    (package_tests / "test_codes.py").write_text(
+        "from unittest.mock import patch\n\n\n"
+        "def test_a():\n"
+        '    with patch("arcreel_market_core.codes._lookup", return_value=2):\n'
+        "        value = 2\n"
+        "    assert value == 2\n",
+        encoding="utf-8",
+    )
+
+    assert main(["--root", str(tmp_path), "--check"]) == 1
+    assert "PRIVATE-PATCH packages/arcreel-market-core/tests/test_codes.py:5" in capsys.readouterr().out

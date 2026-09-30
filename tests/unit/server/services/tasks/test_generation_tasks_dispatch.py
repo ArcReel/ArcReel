@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
+from arcreel_market_core.video_backend_contract import VideoCapabilityError
 from lib.backends.image_backends.base import ImageCapabilityError
-from lib.backends.video_backend_contract import VideoCapabilityError
 from lib.references.reference_compression import ReferencePayloadFloorError
 from server.services.tasks.generation_tasks import _SKELETON_DRIVEN_TASK_ACTIONS, _TASK_EXECUTORS
 

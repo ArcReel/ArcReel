@@ -10,8 +10,8 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
+from arcreel_market_core.aspect_size import IMAGE_TIER_SHORT_EDGE, aspect_size, resolution_to_short_edge
 from lib.backends.artifact_download_guard import artifact_http_client
-from lib.backends.aspect_size import IMAGE_TIER_SHORT_EDGE, aspect_size, resolution_to_short_edge
 from lib.backends.backend_runtime import should_retry_submit, submit_post
 from lib.backends.dashscope_shared import (
     dashscope_headers,
@@ -45,7 +45,7 @@ _I2I_ONLY_MARKERS = ("qwen-image-edit",)
 _QWEN_REF_LIMIT = 3
 _WAN_REF_LIMIT = 9
 
-# 缺分辨率时各族默认短边。比例永远来自 aspect_ratio，由 lib.backends.aspect_size 在各族像素约束内
+# 缺分辨率时各族默认短边。比例永远来自 aspect_ratio，由 arcreel_market_core.aspect_size 在各族像素约束内
 # 算精确比例（见 docs/adr/0011），不用带比例偏差的静态像素表：
 #   - qwen 融合系列 native 默认 2048²；wan 默认 2K 档；编辑系列由 max_long_edge 自然收口。
 _DEFAULT_WAN_BUDGET = "2K"

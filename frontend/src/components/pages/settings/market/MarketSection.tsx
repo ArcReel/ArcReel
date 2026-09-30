@@ -13,12 +13,20 @@ import {
   posterGridStyle,
 } from "@/components/ui/darkroom-tokens";
 import { PillSwitch } from "@/components/ui/PillSwitch";
-import type { MarketEntry, MarketSourceInfo } from "@/types";
+import type {
+  MarketEntry,
+  MarketEntryAggregate,
+  MarketSourceInfo,
+  MarketSubmission,
+  OfficialServiceState,
+} from "@/types";
 import { MarketEntryCard } from "./MarketEntryCard";
 import { MarketInstallDialog } from "./MarketInstallDialog";
 import { MARKET_CONTRIBUTING_URL } from "./market-links";
 import { KICKER_ACCENT_CLS, KICKER_CLS, SourceStatusDot } from "./market-source-status";
 import { MarketSourcesDialog } from "./MarketSourcesDialog";
+import { MarketSubmissionList } from "./MarketSubmissionList";
+import { OfficialServiceNotice } from "./OfficialServiceNotice";
 
 const ENTRY_TYPES = [
   { id: "endpoint", labelKey: "market_type_endpoint", available: true },
@@ -66,6 +74,12 @@ function marketKicker(entryCount: number, sourceCount: number): string {
   return `Market · ${entryCount} ${endpoints} from ${sourceCount} ${sources}`;
 }
 
+const NO_AGGREGATES: ReadonlyMap<string, MarketEntryAggregate> = new Map();
+
+function aggregateKey(sourceId: number, slug: string): string {
+  return `${sourceId}/${slug}`;
+}
+
 function matchesQuery(entry: MarketEntry, query: string): boolean {
   if (!query) return true;
   const haystack = `${entry.name}\n${entry.author}\n${entry.description ?? ""}`.toLocaleLowerCase();
@@ -75,6 +89,7 @@ function matchesQuery(entry: MarketEntry, query: string): boolean {
 /**
  * 市场小节：hero 头部、失败横幅、筛选行、条目网格与市场源管理弹窗。打开时先渲染缓存的
  * 源列表与条目，再在后台刷新距上次成功刷新超过 1 小时的启用源；源有变化时重新拉取条目。
+ * 官方服务开启时另拉官方市场源条目的安装量与评分，首次进入显示一次说明；关闭或读不到状态时不展示任何官方服务元素。
  */
 export function MarketSection() {
   const { t, i18n } = useTranslation(["dashboard", "common"]);
@@ -91,6 +106,11 @@ export function MarketSection() {
   const [onlyInstalled, setOnlyInstalled] = useState(false);
   const [installationRevision, setInstallationRevision] = useState(0);
   const [selected, setSelected] = useState<MarketEntry | null>(null);
+  const [official, setOfficial] = useState<OfficialServiceState | null>(null);
+  const [officialBusy, setOfficialBusy] = useState(false);
+  const [aggregates, setAggregates] = useState<ReadonlyMap<string, MarketEntryAggregate>>(new Map());
+  const [aggregatesRevision, setAggregatesRevision] = useState(0);
+  const [submissions, setSubmissions] = useState<MarketSubmission[]>([]);
   const [location, navigate] = useLocation();
   const onlyInstalledId = useId();
   const mounted = useRef(true);
@@ -140,6 +160,64 @@ export function MarketSection() {
       });
     return () => controller.abort();
   }, [sourcesLoaded, sourcesKey, installationRevision, pushToast, t]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    API.getOfficialService({ signal: controller.signal })
+      .then((state) => {
+        if (!controller.signal.aborted) setOfficial(state);
+      })
+      .catch(() => {
+        // 读不到状态时按关闭处理：市场本身不依赖官方服务。
+      });
+    return () => controller.abort();
+  }, []);
+
+  const officialEnabled = official?.enabled === true;
+  useEffect(() => {
+    if (!officialEnabled || !sourcesLoaded) return;
+    const controller = new AbortController();
+    API.listMarketEntryAggregates({ signal: controller.signal })
+      .then(({ items }) => {
+        if (controller.signal.aborted) return;
+        setAggregates(new Map(items.map((item) => [aggregateKey(item.source_id, item.slug), item])));
+      })
+      .catch(() => {
+        // 聚合取不回时不显示数字，不打扰浏览。
+        if (!controller.signal.aborted) setAggregates(new Map());
+      });
+    return () => controller.abort();
+  }, [officialEnabled, sourcesLoaded, sourcesKey, installationRevision, aggregatesRevision]);
+
+  useEffect(() => {
+    if (!officialEnabled) return;
+    const controller = new AbortController();
+    API.listMarketSubmissions({ signal: controller.signal })
+      .then(({ submissions: listed }) => {
+        if (!controller.signal.aborted) setSubmissions(listed);
+      })
+      .catch(() => {
+        // 提交状态取不回时不展示，不打扰浏览。
+      });
+    return () => controller.abort();
+  }, [officialEnabled]);
+
+  const openEndpoint = (endpointKey: string) => {
+    const params = new URLSearchParams({ section: "endpoints", endpoint: endpointKey });
+    navigate(`${location}?${params}`);
+  };
+
+  const updateOfficial = async (patch: { enabled?: boolean; notice_seen?: boolean }) => {
+    setOfficialBusy(true);
+    try {
+      const state = await API.updateOfficialService(patch);
+      if (mounted.current) setOfficial(state);
+    } catch (err) {
+      if (mounted.current) pushToast(t("official_service_update_failed", { message: errMsg(err) }), "error");
+    } finally {
+      if (mounted.current) setOfficialBusy(false);
+    }
+  };
 
   const refreshAll = useCallback(async () => {
     const targets = sources.filter((source) => source.is_enabled).map((source) => source.id);
@@ -194,6 +272,8 @@ export function MarketSection() {
   const failing = enabled.filter((source) => source.status !== "ok" && source.status !== "never_fetched");
   const sourcesById = useMemo(() => new Map(sources.map((source) => [source.id, source])), [sources]);
   const allEntries = entries ?? [];
+  // 关闭后不再展示上一轮取到的数字；重新开启时由拉取 effect 覆盖。
+  const shownAggregates = officialEnabled ? aggregates : NO_AGGREGATES;
   const trimmedQuery = query.trim();
   const visible = allEntries.filter(
     (entry) =>
@@ -257,6 +337,14 @@ export function MarketSection() {
             {t("market_manage_sources")}
           </button>
         </header>
+
+        {officialEnabled && official?.notice_seen === false && (
+          <OfficialServiceNotice
+            busy={officialBusy}
+            onAcknowledge={() => void updateOfficial({ notice_seen: true })}
+            onTurnOff={() => void updateOfficial({ enabled: false, notice_seen: true })}
+          />
+        )}
 
         {failing.length > 0 && (
           <div
@@ -357,17 +445,20 @@ export function MarketSection() {
                     sourceName={source?.display_name ?? entry.source_display_name}
                     sourceKind={source?.kind ?? null}
                     appVersion={appVersion}
+                    aggregate={shownAggregates.get(aggregateKey(entry.source_id, entry.slug)) ?? null}
                     onOpen={() => setSelected(entry)}
                     onInstalledOpen={() => {
-                      if (!entry.installation) return;
-                      const params = new URLSearchParams({ section: "endpoints", endpoint: entry.installation.endpoint_key });
-                      navigate(`${location}?${params}`);
+                      if (entry.installation) openEndpoint(entry.installation.endpoint_key);
                     }}
                   />
                 );
               })}
             </div>
           ))}
+
+        {officialEnabled && submissions.length > 0 && (
+          <MarketSubmissionList submissions={submissions} onOpenEndpoint={openEndpoint} />
+        )}
 
         <div className="mt-14 rounded-[12px] border border-dashed border-hairline px-6 py-5 text-center">
           <div className={KICKER_CLS}>Contribute</div>
@@ -388,6 +479,14 @@ export function MarketSection() {
         <MarketInstallDialog
           key={`${selected.source_id}/${selected.slug}`}
           entry={selected}
+          official={
+            officialEnabled && sourcesById.get(selected.source_id)?.kind === "official"
+              ? {
+                  aggregate: shownAggregates.get(aggregateKey(selected.source_id, selected.slug)) ?? null,
+                  onRated: () => setAggregatesRevision((revision) => revision + 1),
+                }
+              : undefined
+          }
           onClose={() => setSelected(null)}
           onInstallationChange={(installation) => {
             setInstallationRevision((revision) => revision + 1);

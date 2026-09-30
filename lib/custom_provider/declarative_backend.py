@@ -20,6 +20,27 @@ from urllib.parse import quote
 
 import httpx
 
+from arcreel_market_core.endpoint_definition import (
+    AssetData,
+    JsonPathEvaluationError,
+    RenderedRequest,
+    TemplateRenderError,
+    build_context,
+    encode_inputs,
+    extract_value,
+    map_status,
+    render_request,
+)
+from arcreel_market_core.validation_messages import ValidationMessage
+from arcreel_market_core.video_backend_contract import (
+    IMAGE_MIME_TYPES,
+    ProviderJobStatus,
+    ProviderResponseStage,
+    ResumeExpiredError,
+    VideoCapabilities,
+    VideoGenerationRequest,
+    VideoGenerationResult,
+)
 from lib.backends.artifact_download_guard import VIDEO_ARTIFACT_MAX_BYTES, artifact_http_client
 from lib.backends.backend_runtime import (
     ProviderJobIdPersistenceMixin,
@@ -34,30 +55,10 @@ from lib.backends.backend_runtime import (
     with_artifact_retry,
 )
 from lib.backends.http_status_errors import redacted_status_error
-from lib.backends.video_backend_contract import (
-    IMAGE_MIME_TYPES,
-    ProviderJobStatus,
-    ProviderResponseStage,
-    ResumeExpiredError,
-    VideoCapabilities,
-    VideoGenerationRequest,
-    VideoGenerationResult,
-)
-from lib.custom_provider.endpoint_definition import (
-    AssetData,
-    JsonPathEvaluationError,
-    RenderedRequest,
-    TemplateRenderError,
-    build_context,
-    encode_inputs,
-    extract_value,
-    map_status,
-    render_request,
-)
 from lib.db.repositories.usage_repo import MAX_BILLED_DURATION_SECONDS
 from lib.infra.logging_utils import format_kwargs_for_log
 from lib.infra.retry import NonRetryableError, retry_async
-from lib.infra.validation_messages import ValidationMessage
+from lib.infra.validation_messages import default_translate
 
 _HTTP_TIMEOUT_SECONDS = 60
 logger = logging.getLogger(__name__)
@@ -175,7 +176,7 @@ class DeclarativeRuntimeError(RuntimeError):
             if isinstance(detail, ValidationMessage)
             else detail
         }
-        super().__init__(detail.render() if isinstance(detail, ValidationMessage) else detail)
+        super().__init__(detail.render(default_translate) if isinstance(detail, ValidationMessage) else detail)
 
 
 @dataclass(frozen=True)

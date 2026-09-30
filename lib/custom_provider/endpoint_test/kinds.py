@@ -14,7 +14,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-from lib.custom_provider.endpoint_definition import COMFYUI_KIND, DECLARATIVE_KIND
+from arcreel_market_core.endpoint_definition import COMFYUI_KIND, DECLARATIVE_KIND
 from lib.custom_provider.endpoints import declarative_requires_api_key, declarative_requires_base_url
 
 from .comfyui import comfyui_credential_needs, comfyui_target, preview_comfyui_request

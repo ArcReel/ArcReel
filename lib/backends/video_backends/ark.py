@@ -12,6 +12,14 @@ from typing import Any
 
 import httpx
 
+from arcreel_market_core.video_backend_contract import (
+    ReferenceAudioMode,
+    ResumeExpiredError,
+    VideoCapabilities,
+    VideoCapabilityError,
+    VideoGenerationRequest,
+    VideoGenerationResult,
+)
 from lib.backends.ark_shared import ark_base_url, create_ark_client
 from lib.backends.backend_runtime import (
     ProviderJobIdPersistenceMixin,
@@ -21,14 +29,6 @@ from lib.backends.backend_runtime import (
     should_retry_download,
 )
 from lib.backends.providers import PROVIDER_ARK
-from lib.backends.video_backend_contract import (
-    ReferenceAudioMode,
-    ResumeExpiredError,
-    VideoCapabilities,
-    VideoCapabilityError,
-    VideoGenerationRequest,
-    VideoGenerationResult,
-)
 from lib.infra.logging_utils import format_kwargs_for_log
 from lib.infra.retry import with_retry_async
 

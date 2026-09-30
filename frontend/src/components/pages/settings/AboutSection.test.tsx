@@ -19,6 +19,12 @@ const VERSION_RESPONSE: GetSystemVersionResponse = {
 describe("AboutSection diagnostics download", () => {
   beforeEach(() => {
     vi.spyOn(API, "getSystemVersion").mockResolvedValue(VERSION_RESPONSE);
+    vi.spyOn(API, "getOfficialService").mockResolvedValue({
+      available: true,
+      enabled: true,
+      notice_seen: true,
+      instance_id: null,
+    });
     vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:mock-diagnostics");
     vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
   });

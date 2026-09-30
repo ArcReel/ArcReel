@@ -8,22 +8,22 @@ from typing import ClassVar
 import httpx
 import pytest
 
-from lib.backends.artifact_download_guard import ArtifactDestinationRejectedError
-from lib.backends.backend_runtime import VIDEO_POLL_MAX_CONSECUTIVE_FAILURES
-from lib.backends.http_status_errors import ProviderRejectedError
-from lib.backends.video_backend_contract import (
+from arcreel_market_core.endpoint_definition import validate_definition
+from arcreel_market_core.video_backend_contract import (
     ProviderJobStatus,
     ProviderResponseStage,
     ResumeExpiredError,
     VideoGenerationRequest,
 )
+from lib.backends.artifact_download_guard import ArtifactDestinationRejectedError
+from lib.backends.backend_runtime import VIDEO_POLL_MAX_CONSECUTIVE_FAILURES
+from lib.backends.http_status_errors import ProviderRejectedError
 from lib.custom_provider.declarative_backend import (
     DeclarativeRuntimeError,
     DeclarativeVideoBackend,
     extract_duration,
     extract_provider_state,
 )
-from lib.custom_provider.endpoint_definition import validate_definition
 from lib.db.repositories.usage_repo import MAX_BILLED_DURATION_SECONDS
 from lib.generation.task_failure_encoding import encode_task_failure_message
 from tests.factories import custom_endpoint_definition
