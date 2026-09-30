@@ -19,6 +19,7 @@ from lib.generation.video_request_facts import (
     evaluate_video_request_facts,
 )
 from lib.project.project_migrations import CURRENT_SCHEMA_VERSION
+from lib.script.prompt_authoring_scope import select_prompt_authoring
 from lib.script.script_generator import PlanningVideoFacts, PromptAuthoringTargets, ScriptGenerator
 from lib.script.script_review import content_fingerprint, script_plan_path
 from lib.script.script_structure_validator import ScriptStructureValidationError
@@ -1491,6 +1492,9 @@ def _segment_targets(segments: list[dict], target_ids: list[str]) -> PromptAutho
         id_field="segment_id",
         script=script,
         entries=tuple(seg for seg in segments if seg["segment_id"] in wanted),
+        selection=select_prompt_authoring(
+            segments, kind="segments", id_field="segment_id", entry_ids=target_ids, rewrite=True
+        ),
     )
 
 

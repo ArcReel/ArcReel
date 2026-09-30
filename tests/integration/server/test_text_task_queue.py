@@ -133,6 +133,40 @@ async def test_all_text_long_calls_submit_single_member_batches(
     assert str(projects.data_root) not in json.dumps(task["payload"], ensure_ascii=False)
 
 
+async def test_web_prompt_authoring_returns_the_batch_without_waiting(tmp_path: Path, file_db_factory) -> None:
+    """Web 入口与 Agent 同一个服务命令：提交即返批次句柄，任务按 Web 来源登记，载荷带范围与模式。"""
+    projects = ProjectManager(tmp_path / "projects")
+    projects.create_project("demo", content_mode="ad")
+    projects.create_project_metadata("demo", "demo", "", "ad")
+    queue = GenerationQueue(session_factory=file_db_factory, project_manager=projects)
+    assert await queue.acquire_or_renew_worker_lease(name="default", owner_id="test-worker", ttl_seconds=60)
+    services = Services(
+        projects=projects,
+        workflow_planner=object(),
+        capabilities=ConfigResolver(async_session_factory),
+        queue=queue,
+    )
+
+    outcome = await generate_episode_script(
+        ToolRequest(GenerateEpisodeScriptRequest(episode=1, instructions="冷色调")),
+        ProjectScope(project_name="demo", data_root=projects.data_root),
+        CallerContext(user_id=DEFAULT_USER_ID, source="webui"),
+        services,
+    )
+
+    assert outcome.problem is None
+    batch = outcome.value
+    assert batch is not None
+    assert batch.done is False
+    task_id = batch.members[0].task_id
+    assert task_id is not None
+    task = await queue.get_task(task_id)
+    assert task is not None
+    assert task["source"] == "webui"
+    assert task["payload"]["instructions"] == "冷色调"
+    assert task["payload"]["rewrite"] is False
+
+
 async def test_text_mcp_rejects_lost_worker_lease_without_persisting_queue_state(
     tmp_path: Path,
     file_db_factory,

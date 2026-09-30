@@ -32,6 +32,8 @@ import { GridImageToVideoCanvas } from "./grid/GridImageToVideoCanvas";
 import { EpisodeSourceReview } from "./EpisodeSourceReview";
 import { WorkflowPanel } from "@/components/workflow/WorkflowPanel";
 import { API } from "@/api";
+import { PromptAuthoringHost } from "@/components/canvas/shared/PromptAuthoringDialog";
+import { usePromptAuthoringStore } from "@/stores/prompt-authoring-store";
 import {
   enqueueCharacter,
   enqueueEpisodeNarration,
@@ -739,6 +741,20 @@ export function StudioCanvasRouter() {
                       : (stepId, unitIds) =>
                           void handleWorkflowRegenerate(stepId, unitIds, scriptFile)
                   }
+                  onAuthorPrompts={
+                    script
+                      ? () => usePromptAuthoringStore.getState().open({ projectName: currentProjectName, episode: epNum, scope: "pending" })
+                      : undefined
+                  }
+                />
+              )}
+              {!demoMode && currentProjectName && (
+                <PromptAuthoringHost
+                  projectName={currentProjectName}
+                  episode={epNum}
+                  episodeTitle={episode?.title}
+                  script={script}
+                  savedInstructions={episode?.prompt_authoring_instructions}
                 />
               )}
               <div className="min-h-0 flex-1">

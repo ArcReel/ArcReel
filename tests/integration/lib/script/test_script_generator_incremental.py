@@ -1,7 +1,7 @@
-"""正式脚本的条目级维护：内容确认整份转出待编写条目，提示词编写只填待编写条目。
+"""正式脚本的条目级维护：内容确认整份转出待编写条目，提示词编写默认补缺、显式重写。
 
 三种变体（drama / narration / reference_video）各自走一遍同一组判据：提示词编写默认只编写待编写
-条目、``entry_ids`` 显式重写、其余条目逐字节不变、不读脚本规划；转换整份投影内容层并拒绝确认之外的
+条目、``entry_ids`` 划定范围、``rewrite`` 显式重写、其余条目逐字节不变、不读脚本规划；转换整份投影内容层并拒绝确认之外的
 规划或剧本。
 """
 
@@ -22,6 +22,7 @@ from lib.project.project_manager import ProjectManager, ScriptWriteConflict
 from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from lib.script import script_generator as script_generator_module
 from lib.script import script_review
+from lib.script.prompt_authoring_scope import PromptOverwriteRequired
 from lib.script.script_batch_edit import ScriptBatchEditCommand, ScriptBatchEditor, blank_item_after, script_revision
 from lib.script.script_document import SCRIPT_PLAN_CONVERSION_GENERATOR
 from lib.script.script_generator import PromptAuthoringTargetError, ScriptGenerator
@@ -329,6 +330,10 @@ def _rewrite_script(project_dir: Path, mutate: Callable[[dict[str, Any]], None])
     path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
 
 
+def _revision(project_dir: Path) -> str | None:
+    return script_review.content_fingerprint(project_dir / "scripts" / "episode_1.json")
+
+
 def _entry_json(project_dir: Path, variant: _Variant, entry_id: str) -> str:
     return json.dumps(_entries(_script(project_dir), variant)[entry_id], ensure_ascii=False, sort_keys=True)
 
@@ -400,7 +405,7 @@ def prompt_variant(request) -> _Variant:
 
 
 class TestPromptAuthoring:
-    """提示词编写只读正式脚本：默认编写全部待编写条目，``entry_ids`` 显式重写，其余条目逐字节不变。"""
+    """提示词编写只读正式脚本：默认编写全部待编写条目，``entry_ids`` 划定范围、``rewrite`` 显式重写，其余条目逐字节不变。"""
 
     async def test_manually_added_entry_is_the_only_one_authored(self, tmp_path: Path, variant: _Variant) -> None:
         first, second = variant.entry_ids
@@ -493,7 +498,9 @@ class TestPromptAuthoring:
 
         rewritten: list[str] = []
         rerun = variant.generator(project_dir, [variant.visual_factory(first, mark="点名")])
-        await rerun.generate(1, entry_ids=[first], rewritten_entry_ids=rewritten)
+        await rerun.generate(
+            1, entry_ids=[first], rewrite=True, overwrite_revision=_revision(project_dir), rewritten_entry_ids=rewritten
+        )
 
         assert rewritten == [first]
         after_first = _entries(_script(project_dir), variant)[first]
@@ -549,6 +556,123 @@ class TestPromptAuthoring:
         assert not (project_dir / "scripts" / "episode_1.json").exists()
 
 
+class TestFillAndRewrite:
+    """补缺以整份图片 / 视频提示词为单位保留已有内容；覆盖已有内容只经显式重写与覆盖令牌。"""
+
+    @staticmethod
+    async def _materialized(tmp_path: Path, variant: _Variant) -> Path:
+        project_dir, plan_path = variant.build(tmp_path)
+        await _materialize(project_dir, plan_path)
+        return project_dir
+
+    @staticmethod
+    def _set_entry(project_dir: Path, variant: _Variant, entry_id: str, **fields: Any) -> None:
+        def mutate(script: dict[str, Any]) -> None:
+            for entry in script[variant.items_key]:
+                if entry[variant.id_field] == entry_id:
+                    entry.update(fields)
+
+        _rewrite_script(project_dir, mutate)
+
+    async def test_fill_keeps_the_existing_image_prompt_and_adds_the_video_prompt(
+        self, tmp_path: Path, prompt_variant: _Variant
+    ) -> None:
+        variant = prompt_variant
+        first, second = variant.entry_ids
+        project_dir = await self._materialized(tmp_path, variant)
+        self._set_entry(project_dir, variant, first, image_prompt="手写的分镜图提示词")
+
+        rewritten: list[str] = []
+        await variant.generator(project_dir, [variant.visual_factory(first, second, mark="补缺")]).generate(
+            1, rewritten_entry_ids=rewritten
+        )
+
+        assert rewritten == [first, second]
+        after = _entries(_script(project_dir), variant)
+        assert after[first]["image_prompt"] == "手写的分镜图提示词"
+        assert isinstance(after[first]["video_prompt"], dict)
+        assert PENDING_AUTHORING_FIELD not in after[first]
+        assert _authored_with(after[second], variant, "补缺")
+
+    async def test_selected_entry_with_a_complete_visual_layer_is_skipped_when_filling(
+        self, tmp_path: Path, variant: _Variant
+    ) -> None:
+        """点名只划定范围：补缺时视觉层已齐的条目不写、不调用模型。"""
+        first, _second = variant.entry_ids
+        project_dir, _plan_path = await _converted_and_authored(tmp_path, variant)
+        before = (project_dir / "scripts" / "episode_1.json").read_bytes()
+
+        rewritten: list[str] = []
+        skipped: list[str] = []
+        await variant.generator(project_dir, []).generate(
+            1, entry_ids=[first], rewritten_entry_ids=rewritten, skipped_entry_ids=skipped
+        )
+
+        assert (rewritten, skipped) == ([], [first])
+        assert (project_dir / "scripts" / "episode_1.json").read_bytes() == before
+
+    async def test_rewrite_over_existing_content_requires_the_overwrite_token(
+        self, tmp_path: Path, variant: _Variant
+    ) -> None:
+        first, _second = variant.entry_ids
+        project_dir, _plan_path = await _converted_and_authored(tmp_path, variant)
+        before = (project_dir / "scripts" / "episode_1.json").read_bytes()
+
+        with pytest.raises(PromptOverwriteRequired) as caught:
+            await variant.generator(project_dir, []).generate(1, entry_ids=[first], rewrite=True)
+
+        expected_fields = list(_VISUAL_FIELDS[variant.name])
+        assert caught.value.overwrite.to_dict() == {
+            "revision": _revision(project_dir),
+            "entries": [{"id": first, "fields": expected_fields}],
+        }
+        assert (project_dir / "scripts" / "episode_1.json").read_bytes() == before
+
+    async def test_a_token_for_an_older_script_is_refused(self, tmp_path: Path, variant: _Variant) -> None:
+        """认可之后正式脚本又被编辑：旧令牌不再授权覆盖，按新清单重新拒绝。"""
+        first, _second = variant.entry_ids
+        project_dir, _plan_path = await _converted_and_authored(tmp_path, variant)
+        stale = _revision(project_dir)
+        _rewrite_script(project_dir, lambda script: script.__setitem__("title", "认可之后又改了"))
+
+        with pytest.raises(PromptOverwriteRequired) as caught:
+            await variant.generator(project_dir, []).generate(
+                1, entry_ids=[first], rewrite=True, overwrite_revision=stale
+            )
+
+        assert caught.value.overwrite.fingerprint == _revision(project_dir) != stale
+
+    async def test_rewrite_of_entries_without_content_needs_no_token(
+        self, tmp_path: Path, prompt_variant: _Variant
+    ) -> None:
+        variant = prompt_variant
+        first, _second = variant.entry_ids
+        project_dir = await self._materialized(tmp_path, variant)
+
+        rewritten: list[str] = []
+        await variant.generator(project_dir, [variant.visual_factory(first, mark="重写")]).generate(
+            1, entry_ids=[first], rewrite=True, rewritten_entry_ids=rewritten
+        )
+
+        assert rewritten == [first]
+        assert _authored_with(_entries(_script(project_dir), variant)[first], variant, "重写")
+
+    async def test_reference_units_marked_pending_are_expanded_despite_their_text(self, tmp_path: Path) -> None:
+        """参考生视频单元正文由规划转来、非空，但带待编写标记：补缺照常展开，不要求覆盖令牌。"""
+        first, second = REFERENCE.entry_ids
+        project_dir = await self._materialized(tmp_path, REFERENCE)
+        assert _entries(_script(project_dir), REFERENCE)[first]["text"]
+
+        rewritten: list[str] = []
+        await REFERENCE.generator(project_dir, [REFERENCE.visual_factory(first, second, mark="展开")]).generate(
+            1, entry_ids=[first, second], rewritten_entry_ids=rewritten
+        )
+
+        assert rewritten == [first, second]
+        after = _entries(_script(project_dir), REFERENCE)
+        assert all(_authored_with(after[entry_id], REFERENCE, "展开") for entry_id in (first, second))
+
+
 class TestTextShapedPrompts:
     """文本形态提示词（``lib.script.script_models.PromptText``）在编写两条路径下的行为。"""
 
@@ -585,7 +709,7 @@ class TestTextShapedPrompts:
         self._write_text_prompts(project_dir, prompt_variant, first)
 
         rerun = prompt_variant.generator(project_dir, [prompt_variant.visual_factory(first, mark="点名")])
-        await rerun.generate(1, entry_ids=[first])
+        await rerun.generate(1, entry_ids=[first], rewrite=True, overwrite_revision=_revision(project_dir))
 
         entry = _entries(_script(project_dir), prompt_variant)[first]
         assert entry["image_prompt"]["scene"] == f"点名-{first}"
@@ -624,13 +748,13 @@ class TestDryRunPrompt:
 
         prompt = await variant.generator(project_dir, []).build_prompt(1)
 
-        assert "没有待编写的条目" in prompt
+        assert "没有要编写的条目" in prompt
 
     async def test_entry_ids_cover_those_entries(self, tmp_path: Path, variant: _Variant) -> None:
         first, second = variant.entry_ids
         project_dir = await self._converted_with_pending(tmp_path, variant)
 
-        prompt = await variant.generator(project_dir, []).build_prompt(1, entry_ids=[first, second])
+        prompt = await variant.generator(project_dir, []).build_prompt(1, entry_ids=[first, second], rewrite=True)
 
         assert all(needle in prompt for needle in variant.prompt_needles)
 

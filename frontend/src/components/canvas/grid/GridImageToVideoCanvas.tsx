@@ -3,6 +3,7 @@ import { Sparkles, Loader2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { EpisodeHeader } from "../timeline/EpisodeHeader";
 import { ScriptReviewGate } from "../timeline/ScriptReviewGate";
+import { PromptAuthoringButton } from "../shared/PromptAuthoringButton";
 import { ShotSplitView } from "../timeline/ShotSplitView";
 import { GridPreviewView } from "./GridPreviewView";
 import { useAppStore } from "@/stores/app-store";
@@ -283,6 +284,12 @@ export function GridImageToVideoCanvas({
 
         {activeTab === "units" && hasScript && (
           <div className="mr-1 inline-flex items-center gap-1.5">
+            <PromptAuthoringButton
+              projectName={projectName}
+              episode={episode}
+              scope="pending"
+              className="sv-navbtn gap-1.5"
+            />
             <button
               type="button"
               className="sv-navbtn inline-flex items-center gap-1.5"
@@ -336,6 +343,7 @@ export function GridImageToVideoCanvas({
             contentMode={editorContentMode}
             aspectRatio={aspectRatio}
             projectName={projectName}
+            episode={episode}
             scriptFile={scriptFile}
             isGridMode
             onUpdatePrompt={handleUpdatePrompt}

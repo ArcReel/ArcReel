@@ -132,6 +132,8 @@ export interface EpisodeMeta {
   source_range?: { source_file?: string; start?: number; end?: number };
   /** Written by episode_planner at split time (drama only) */
   outline?: { story_beats?: string[]; next_episode_teaser?: string };
+  /** 上一次提示词编写的附加指令，打开「编写提示词」时预填 */
+  prompt_authoring_instructions?: string;
   /**
    * Per-episode fields below come from the project summary at read time, on the artifact
    * manifest's terms — the same numbers the studio reads, never persisted to project.json.
