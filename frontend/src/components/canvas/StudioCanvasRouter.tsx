@@ -31,6 +31,7 @@ import { ReferenceVideoCanvas } from "./reference/ReferenceVideoCanvas";
 import { GridImageToVideoCanvas } from "./grid/GridImageToVideoCanvas";
 import { EpisodeSourceReview } from "./EpisodeSourceReview";
 import { WorkflowPanel } from "@/components/workflow/WorkflowPanel";
+import { WorkflowPanelPrototype } from "@/components/workflow/panel-prototype/WorkflowPanelPrototype";
 import { API, NarratedVideoDurationError } from "@/api";
 import {
   enqueueCharacter,
@@ -739,8 +740,10 @@ export function StudioCanvasRouter() {
 
           return (
             <div className="flex h-full flex-col">
+              {/* PROTOTYPE #2828：带 ?variant= 时换成原型面板 */}
+              {new URLSearchParams(window.location.search).has("variant") && <WorkflowPanelPrototype />}
               {/* 演示态没有真实项目事实可投影，面板不挂载。 */}
-              {!demoMode && currentProjectName && (
+              {!new URLSearchParams(window.location.search).has("variant") && !demoMode && currentProjectName && (
                 <WorkflowPanel
                   projectName={currentProjectName}
                   episode={epNum}
