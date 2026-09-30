@@ -294,6 +294,57 @@ describe("useProjectEventsSSE", () => {
     expect(useAppStore.getState().scrollTarget).toBeNull();
   });
 
+  it("invalidates episode draft views when a reconnect snapshot shows missed changes", () => {
+    // 草稿面板各自取数、只随 draft 事件重拉；断线期间错过的草稿变化要在重连快照时作废。
+    useProjectsStore.setState({
+      currentProjectData: { ...makeGetProjectResult("Demo").project, episodes: [{ episode: 4, title: "雨夜" }] },
+    } as never);
+    const stream = mockProjectEventStream();
+    renderHarness("/");
+    const revision = () => useAppStore.getState().getEntityRevision("draft:episode_4_script_plan");
+
+    act(() => stream.options?.onSnapshot?.({ project_name: "demo", fingerprint: "fp-a" } as never));
+    const before = revision();
+    act(() => stream.options?.onSnapshot?.({ project_name: "demo", fingerprint: "fp-b" } as never));
+
+    expect(revision()).toBeGreaterThan(before);
+    expect(useAppStore.getState().getEntityRevision("draft:episode_4_prompt_authoring")).toBeGreaterThan(0);
+  });
+
+  it("names an episode the Agent just created from the refreshed ledger", async () => {
+    // 事件到达时本地账本还没有这一集；通知应等刷新后按标题成文，而不是显示未命名集。
+    const stream = mockProjectEventStream();
+
+    renderHarness("/");
+    act(() => {
+      stream.options?.onChanges?.({
+        project_name: "demo",
+        batch_id: "batch-episode",
+        fingerprint: "fp-episode",
+        generated_at: "2026-03-01T00:00:00Z",
+        source: "filesystem",
+        changes: [
+          {
+            entity_type: "episode",
+            action: "created",
+            entity_id: "1",
+            label: "集（id=1）",
+            label_key: "episode",
+            label_params: { episode: 1 },
+            episode: 1,
+            focus: null,
+            important: true,
+          },
+        ],
+      });
+    });
+
+    await waitFor(() => {
+      expect(useAppStore.getState().workspaceNotifications.map((n) => n.text).join("\n")).toContain("第一集");
+    });
+    expect(useAppStore.getState().workspaceNotifications.map((n) => n.text).join("\n")).not.toContain("未命名集");
+  });
+
   it("shows a toast without navigation for generation completion batches", async () => {
     const stream = mockProjectEventStream();
 

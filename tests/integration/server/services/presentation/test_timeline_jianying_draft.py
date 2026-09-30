@@ -302,7 +302,7 @@ async def test_download_substitutes_local_draft_directory_and_jianying_version(t
             "demo", timeline_id, narration="with_narration", draft_root=draft_root, jianying_version=jianying_version
         )
         try:
-            assert name == "Demo_第1集_完整版_带旁白"
+            assert name == "01_One_完整版_带旁白"
             assets_dir = f"{assets_prefix}/{name}/assets/"
             with zipfile.ZipFile(package) as archive:
                 names = set(archive.namelist())

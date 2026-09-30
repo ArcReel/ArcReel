@@ -7,12 +7,13 @@ MESSAGES = {
     "operation_episode_source_missing": "{where} has no episode source text; write a blank script manually or provide source text before AI script planning",
     "operation_formal_script_missing": "{where} has no formal script; confirm a script plan or write a blank script before authoring prompts",
     "operation_formal_script_exists": "{where} already has a formal script; prompt authoring fills pending entries instead of regenerating the whole script",
-    "operation_no_pending_authoring": "{where} has no pending entries; pass entry_ids and rewrite=true to rewrite existing prompts",
-    "operation_prompt_authoring_draft_pending": "{where} has a prompt-authoring draft to resolve; authoring has stopped",
+    "operation_no_pending_authoring": "{where} has no pending entries",
+    "operation_prompt_authoring_draft_pending": "{where} has a prompt-authoring draft to resolve, so prompts can't be written yet",
     "operation_ad_brief_and_products_missing": "Add a creative brief or at least one product before AI ad/short-film script generation",
-    "operation_refused": "The operation is not admitted",
+    "operation_refused": "This operation can't run right now",
     "operation_episode": "Episode (id={episode})",
     "operation_project": "Project",
+    "operation_rewrite_hint": "To rewrite existing prompts, pass entry_ids and rewrite=true. ",
     "operation_redo_ad": "Remove the formal script before regenerating it.",
     "operation_redo_episode": "Rerun script planning and confirm it again before rebuilding the episode.",
     "operation_admission_unavailable": "Operation admission for episode (id={episode}) cannot be read",
@@ -257,7 +258,7 @@ MESSAGES = {
     "prompt_overwrite_field_text": "unit text",
     "prompt_overwrite_required": "AI rewrite replaces existing prompts. Review the entries to be overwritten, acknowledge the overwrite and retry",
     "prompt_authoring_task_active": "A prompt-writing task for this episode is already running. Wait for it to finish before submitting again",
-    "prompt_authoring_refused": "Prompt writing could not be submitted. Resolve the reason below and retry",
+    "prompt_authoring_refused": "Prompt writing could not be submitted: {reason}",
     "script_review_conversion_refused": "The script plan cannot be converted to a formal script yet, so it was not confirmed; check shot durations, dialogue and the script plan status, then retry",
     "script_review_foreign_formal_script": (
         "The script file bound to episode (id={episode}) is gone and the canonical path scripts/{filename} holds another "
@@ -645,9 +646,9 @@ MESSAGES = {
     # Edit timeline
     "edit_timeline_not_found": "Edit timeline '{timeline_id}' not found",
     "edit_timeline_revision_not_found": "Edit timeline '{timeline_id}' has no revision {revision} (latest revision is {latest_revision})",
-    "edit_timeline_name_conflict": "Episode {episode} already has an edit timeline named '{name}'",
+    "edit_timeline_name_conflict": "Episode (id={episode}) already has an edit timeline named '{name}'",
     "edit_timeline_name_invalid": "Edit timeline display names must be 1–40 characters long",
-    "edit_timeline_script_invalid": "The script of episode {episode} cannot be parsed, so no edit timeline can be created from it",
+    "edit_timeline_script_invalid": "The script of episode (id={episode}) cannot be parsed, so no edit timeline can be created from it",
     "edit_timeline_invalid": "The edit timeline file is corrupted and cannot be read: {file}",
     # Final cut
     "final_cut_variant_unsupported": "Final cuts can currently only be rendered without narration and without burned-in subtitles",

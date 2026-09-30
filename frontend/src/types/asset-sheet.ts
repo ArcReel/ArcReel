@@ -46,6 +46,8 @@ export interface AssetSheetBatchSubmitted {
 }
 
 export interface AssetRegenerationImpact {
+  /** 服务端此刻对这张资产图的判定是否为过期。 */
+  stale: boolean;
   storyboards: number;
   videos: number;
   derivatives: number;

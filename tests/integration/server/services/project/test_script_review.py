@@ -628,6 +628,26 @@ class TestConfirmMaterializesScript:
             assert versions.get_current_version(resource_type, "E1S09") == 1
             assert (project_path / resource_relative_path(resource_type, "E1S09")).exists()
 
+    async def test_overwrite_still_succeeds_when_history_cleanup_fails_after_commit(
+        self, tmp_path, video_request_facts
+    ):
+        """清理是提交后的收尾：版本记录读不出时覆盖照常完成，当前文件仍被清掉，不把已提交的覆盖报成失败。"""
+        pm = _make_project(tmp_path, "narration")
+        _write_script_plan(pm, "narration", _narration_script_plan())
+        _write_script(pm, _narration_script(_narration_script_segment("E1S01")))
+        project_path = pm.get_project_path("demo")
+        current = project_path / resource_relative_path("storyboards", "E1S01")
+        current.parent.mkdir(parents=True, exist_ok=True)
+        current.write_bytes(b"old")
+        (project_path / "versions").mkdir(exist_ok=True)
+        (project_path / "versions" / "versions.json").write_text("{broken", encoding="utf-8")
+
+        await _confirm_over_existing_script(pm)
+
+        segment = json.loads((project_path / "scripts" / "episode_1.json").read_text(encoding="utf-8"))["segments"][0]
+        assert segment["pending_authoring"] is True
+        assert not current.exists()
+
     async def test_acknowledgement_of_an_outdated_script_is_refused_with_the_current_listing(self, tmp_path):
         """认可只对应被列出的那份正式脚本：列出之后正式脚本又有变化，带旧版本的确认按新清单再次拒绝。"""
         pm = _make_project(tmp_path, "narration")

@@ -44,7 +44,7 @@ class PromptAuthoringInstructions(BaseModel):
 
 class AuthorPromptsRequest(PromptAuthoringInstructions):
     entry_ids: list[Annotated[str, Field(min_length=1)]] | None = Field(
-        default=None, description="编写范围（分镜 / 单元 id）；省略时为全部待编写条目"
+        default=None, min_length=1, description="编写范围（分镜 / 单元 id）；省略时为全部待编写条目，给出时至少一条"
     )
     rewrite: bool = Field(default=False, description="显式重写范围内条目的全部视觉层；省略时补缺")
     overwrite_revision: str | None = Field(
@@ -70,7 +70,7 @@ def _save_instructions(pm: ProjectManager, project_name: str, episode: int, inst
         raise NotFoundError("project_not_found", name=project_name) from exc
 
 
-def _raise_problem(problem: ToolProblem, _t: Translator) -> None:
+def _raise_problem(problem: ToolProblem, episode: int, _t: Translator) -> None:
     params = problem.params or {}
     if problem.code == "prompt_overwrite_required":
         overwrite = {key: value for key, value in params["prompt_overwrite"].items() if key != "text"}
@@ -79,7 +79,12 @@ def _raise_problem(problem: ToolProblem, _t: Translator) -> None:
         )
     if problem.code == "generation_active_task_conflict":
         raise ConflictError("prompt_authoring_task_active").with_diagnostic(params)
-    raise UnprocessableError("prompt_authoring_refused").with_diagnostic(problem.detail)
+    reason = params.get("reason")
+    if problem.code == "operation_not_admitted" and isinstance(reason, str):
+        text = _t(f"operation_{reason}", where=_t("operation_episode", episode=episode))
+    else:
+        text = problem.detail
+    raise UnprocessableError("prompt_authoring_refused", reason=text).with_diagnostic(problem.detail)
 
 
 @router.put("/projects/{project_name}/episodes/{episode}/prompt-authoring/instructions")
@@ -119,5 +124,5 @@ async def author_prompts(
         Services.defaults(pm),
     )
     if outcome.problem is not None:
-        _raise_problem(outcome.problem, _t)
+        _raise_problem(outcome.problem, episode, _t)
     return {"batch": json_value(outcome.value)}

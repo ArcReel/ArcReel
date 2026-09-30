@@ -12,6 +12,7 @@ import httpx
 import pytest
 from fastapi import FastAPI
 
+from lib.artifacts.artifact_manifest import MANIFEST_FILENAME
 from lib.custom_provider import make_provider_id
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 from lib.generation.generation_queue import GenerationQueue
@@ -197,3 +198,20 @@ async def test_regeneration_impact_of_an_unknown_asset_is_not_found(sheet_client
     response = await sheet_client.get(f"/api/v1/projects/{PROJECT}/asset-sheets/scene/不存在/regeneration-impact")
 
     assert response.status_code == 404
+
+
+async def test_status_reports_every_sheet_blocked_when_the_manifest_is_unreadable(
+    sheet_client: httpx.AsyncClient, sheet_projects
+) -> None:
+    _seed_pending_cast(sheet_projects)
+    (sheet_projects.get_project_path(PROJECT) / MANIFEST_FILENAME).write_text("{", encoding="utf-8")
+
+    response = await sheet_client.get(f"/api/v1/projects/{PROJECT}/asset-sheets/status")
+
+    assert response.status_code == 200
+    rows = {row["unit_id"]: (row["status"], row["description_missing"]) for row in response.json()["assets"]}
+    assert rows == {
+        "character/Alice": ("blocked", False),
+        "character/Alice/战损": ("blocked", False),
+        "character/Alice/雨夜": ("blocked", True),
+    }

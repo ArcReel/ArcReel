@@ -539,7 +539,7 @@ describe("WorkflowPanel 集层资产图入口", () => {
       .mockResolvedValue({ targets: [], skipped: [], estimated_cost: null });
     const nextAction = {
       type: "generate_asset_sheets" as const,
-      args: { episode: 3 },
+      args: { episode_id: 3 },
       requested_ids: ["庭院"],
       requires_confirmation: false,
       reason: "assets referenced by this episode need sheets",

@@ -99,8 +99,8 @@ export function WorkflowPanel({ projectName, episode, onViewUnit, onRegenerate, 
 
   // 下一步是补本集资产图时，就地给出集层批量入口；范围取计划给出的集 ID。
   const assetSheetEpisode =
-    shown?.next_action.type === "generate_asset_sheets" && typeof shown.next_action.args.episode === "number"
-      ? shown.next_action.args.episode
+    shown?.next_action.type === "generate_asset_sheets" && typeof shown.next_action.args.episode_id === "number"
+      ? shown.next_action.args.episode_id
       : null;
 
   // 摘要行只复述后端给的下一步动作，不做任何本地推断。

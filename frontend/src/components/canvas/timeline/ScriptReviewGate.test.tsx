@@ -578,6 +578,37 @@ describe("ScriptReviewGate", () => {
     await waitFor(() => expect(discard).toHaveBeenCalledWith("p", 1, "narration_script_plan", "rev-1"));
   });
 
+  it("discards only the draft version on screen and loads the newer one when it changed elsewhere", async () => {
+    const newer = draftView({
+      revision: "rev-2",
+      content: { segments: [{ ...NARRATION_SEGMENT, novel_text: "别处更新的原文。" }] },
+    });
+    const get = vi
+      .spyOn(API, "getScriptReview")
+      .mockResolvedValueOnce(narrationState({ quarantine: draftView({ content: { segments: [NARRATION_SEGMENT] } }) }))
+      .mockResolvedValue(narrationState({ quarantine: newer }));
+    const discard = vi
+      .spyOn(API, "discardEpisodeDraft")
+      .mockRejectedValue(new ApiRequestError("草稿已变化", { code: "revision_conflict" }, 409));
+    render(<ScriptReviewGate projectName="p" episode={1} contentMode="narration" />);
+
+    await waitFor(() => expect(screen.getByDisplayValue("裴与出征后的第二年。")).toBeInTheDocument());
+    fireEvent.change(screen.getByRole("textbox", { name: "小说原文" }), { target: { value: "我的本地编辑" } });
+    act(() => {
+      useAppStore.getState().invalidateEntities(["draft:episode_1_script_plan"]);
+    });
+    await waitFor(() => expect(get).toHaveBeenCalledTimes(2));
+    expect(screen.getByDisplayValue("我的本地编辑")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "丢弃草稿" }));
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: "丢弃草稿" }));
+
+    await waitFor(() => expect(discard).toHaveBeenCalledWith("p", 1, "narration_script_plan", "rev-1"));
+    await waitFor(() => expect(screen.getByDisplayValue("别处更新的原文。")).toBeInTheDocument());
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
   it("adopts externally edited (agent) content on refetch when the user has no edits", async () => {
     const edited = dramaState();
     (edited.content as { scenes: { utterances: { text: string }[] }[] }).scenes[0].utterances[1].text =

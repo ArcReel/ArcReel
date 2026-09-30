@@ -1494,7 +1494,7 @@ class API {
 
   /**
    * 取本次请求的权威工作流计划。无副作用：不入队、不写项目，
-   * `narration_delivery` 与 `confirmed_request_durations` 只作用于这一次求解。
+   * `confirmed_request_durations` 只作用于这一次求解。
    */
   static async getWorkflowPlan(
     projectName: string,

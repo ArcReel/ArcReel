@@ -480,19 +480,23 @@ async def load_asset_sheet_batch_plan(
     return project, replace(draft, generating=active)
 
 
-def asset_sheet_statuses(project: Mapping[str, Any], resolver: ArtifactCurrencyResolver) -> list[dict[str, Any]]:
+def asset_sheet_statuses(project: Mapping[str, Any], resolver: ArtifactCurrencyResolver | None) -> list[dict[str, Any]]:
     """项目里每张资产图（含衍生）的产物清单状态与是否缺描述，供卡片状态与画廊筛选。
 
     状态只取产物清单的判定：登记了文件却读不到的判 missing（待生成），``blocked`` 是清单本身
-    读不出，原样报告。
+    读不出，原样报告。``resolver`` 为 ``None`` 表示整份清单读不出，每张图都报告 ``blocked``。
     """
 
     rows: list[dict[str, Any]] = []
     for unit in project_asset_sheet_units(project):
-        status, _blocker = observe_artifact_status(
-            resolver=resolver,
-            key=unit.candidate.artifact_key,
-            artifact_path=unit.candidate.artifact_path,
+        status, _blocker = (
+            (ArtifactStatus.BLOCKED, None)
+            if resolver is None
+            else observe_artifact_status(
+                resolver=resolver,
+                key=unit.candidate.artifact_key,
+                artifact_path=unit.candidate.artifact_path,
+            )
         )
         owner, derivative = split_derivative_artifact_id(unit.name) if unit.is_derivative else (unit.name, None)
         rows.append(

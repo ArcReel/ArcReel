@@ -7,12 +7,13 @@ MESSAGES = {
     "operation_episode_source_missing": "{where} chưa có văn bản nguồn; hãy tự viết kịch bản trống hoặc bổ sung nguồn trước khi AI lập kế hoạch kịch bản",
     "operation_formal_script_missing": "{where} chưa có kịch bản chính thức; hãy xác nhận kế hoạch hoặc tự viết kịch bản trước khi soạn prompt",
     "operation_formal_script_exists": "{where} đã có kịch bản chính thức; thao tác soạn prompt chỉ bổ sung các mục đang chờ",
-    "operation_no_pending_authoring": "{where} không có mục chờ soạn; truyền entry_ids và rewrite=true để viết lại prompt hiện có",
-    "operation_prompt_authoring_draft_pending": "{where} có bản nháp soạn prompt cần xử lý; đã dừng soạn",
+    "operation_no_pending_authoring": "{where} không có mục chờ soạn",
+    "operation_prompt_authoring_draft_pending": "{where} có bản nháp soạn prompt cần xử lý nên chưa thể soạn prompt",
     "operation_ad_brief_and_products_missing": "Hãy thêm ý tưởng sáng tạo hoặc ít nhất một sản phẩm trước khi AI tạo kịch bản quảng cáo/phim ngắn",
-    "operation_refused": "Thao tác không được phép thực hiện",
+    "operation_refused": "Hiện chưa thể thực hiện thao tác này",
     "operation_episode": "Tập (id={episode})",
     "operation_project": "Dự án",
+    "operation_rewrite_hint": "Để viết lại prompt hiện có, hãy truyền entry_ids và rewrite=true. ",
     "operation_redo_ad": "Xóa kịch bản chính thức trước khi tạo lại toàn bộ.",
     "operation_redo_episode": "Lập lại kế hoạch kịch bản và xác nhận lại trước khi tạo lại tập.",
     "operation_admission_unavailable": "Không thể đọc điều kiện thực hiện thao tác cho tập (id={episode})",
@@ -257,7 +258,7 @@ MESSAGES = {
     "prompt_overwrite_field_text": "nội dung đơn vị",
     "prompt_overwrite_required": "Viết lại bằng AI sẽ ghi đè prompt hiện có. Hãy xem các mục sẽ bị ghi đè, đồng ý ghi đè rồi thử lại",
     "prompt_authoring_task_active": "Tập này đang có tác vụ viết prompt chưa hoàn tất. Hãy đợi tác vụ xong rồi gửi lại",
-    "prompt_authoring_refused": "Không thể gửi yêu cầu viết prompt. Hãy xử lý theo lý do bên dưới rồi thử lại",
+    "prompt_authoring_refused": "Không thể gửi yêu cầu viết prompt: {reason}",
     "script_review_conversion_refused": "Kế hoạch kịch bản chưa thể chuyển thành kịch bản chính thức nên chưa được xác nhận; hãy kiểm tra thời lượng phân cảnh, lời thoại và trạng thái kế hoạch kịch bản rồi thử lại",
     "script_review_foreign_formal_script": (
         "Tệp kịch bản được gán cho tập (id={episode}) không còn, còn đường dẫn chuẩn scripts/{filename} lại chứa kịch bản "
@@ -647,9 +648,9 @@ MESSAGES = {
     # Edit timeline
     "edit_timeline_not_found": "Không tìm thấy dòng thời gian dựng '{timeline_id}'",
     "edit_timeline_revision_not_found": "Dòng thời gian dựng '{timeline_id}' không có phiên bản sửa {revision} (phiên bản mới nhất là {latest_revision})",
-    "edit_timeline_name_conflict": "Tập {episode} đã có dòng thời gian dựng tên '{name}'",
+    "edit_timeline_name_conflict": "Tập (id={episode}) đã có dòng thời gian dựng tên '{name}'",
     "edit_timeline_name_invalid": "Tên dòng thời gian dựng phải dài từ 1 đến 40 ký tự",
-    "edit_timeline_script_invalid": "Không phân tích được kịch bản của tập {episode}, nên không thể tạo dòng thời gian dựng từ kịch bản",
+    "edit_timeline_script_invalid": "Không phân tích được kịch bản của tập (id={episode}), nên không thể tạo dòng thời gian dựng từ kịch bản",
     "edit_timeline_invalid": "Tệp dòng thời gian dựng bị hỏng, không đọc được: {file}",
     # Final cut
     "final_cut_variant_unsupported": "Hiện chỉ có thể kết xuất video thành phẩm không có lời dẫn và không ghi phụ đề vào hình",

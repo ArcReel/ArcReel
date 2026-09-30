@@ -35,7 +35,7 @@ describe("AssetSheetBatchControls", () => {
     );
 
     expect(screen.getByRole("button", { name: /生成待生成的场景（2）/ })).toBeInTheDocument();
-    expect(screen.getByText("另有 1 个缺描述")).toBeInTheDocument();
+    expect(screen.getByText("另有 1 个资产缺少描述")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "过期" }));
     expect(onFilterChange).toHaveBeenCalledWith("stale");
   });

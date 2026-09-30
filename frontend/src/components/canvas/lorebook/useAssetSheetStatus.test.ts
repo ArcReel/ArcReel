@@ -1,6 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { renderHook, waitFor } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
+import { API } from "@/api";
 import type { AssetSheetStatusRow } from "@/types";
-import { pendingSheetCounts } from "./useAssetSheetStatus";
+import { pendingSheetCounts, useAssetSheetStatus } from "./useAssetSheetStatus";
 
 function row(overrides: Partial<AssetSheetStatusRow>): AssetSheetStatusRow {
   return {
@@ -30,3 +32,34 @@ describe("pendingSheetCounts", () => {
   });
 });
 
+
+describe("pendingSheetCounts while generating", () => {
+  it("leaves sheets that are already generating out of the batch count", () => {
+    const rows = [
+      row({ unit_id: "scene/庭院", name: "庭院" }),
+      row({ unit_id: "scene/长街", name: "长街" }),
+    ];
+
+    expect(pendingSheetCounts(rows, "scene", (candidate) => candidate.name === "长街")).toEqual({
+      generatable: 1,
+      missingDescription: 0,
+    });
+  });
+});
+
+describe("useAssetSheetStatus", () => {
+  it("does not carry one project's rows over to another while the new request is pending", async () => {
+    const alpha = [row({ status: "current" })];
+    vi.spyOn(API, "getAssetSheetStatus")
+      .mockResolvedValueOnce({ assets: alpha })
+      .mockReturnValueOnce(new Promise(() => {}));
+    const { result, rerender } = renderHook(({ project }) => useAssetSheetStatus(project), {
+      initialProps: { project: "alpha" },
+    });
+    await waitFor(() => expect(result.current).toEqual(alpha));
+
+    rerender({ project: "beta" });
+
+    expect(result.current).toEqual([]);
+  });
+});

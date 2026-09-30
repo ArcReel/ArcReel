@@ -246,6 +246,8 @@ class WorkflowStatus(BaseModel):
     """上一次跑完的项目迁移登记与跳过了什么；只作说明，不影响状态与阻断。"""
 
 
+#: 剪辑时间线目录读不出、或有时间线文件无法解析时记下的 issue 码。
+INVALID_EDIT_TIMELINES_CODE = "invalid_edit_timelines"
 #: 一集完成（视频齐全且至少有一条剪辑时间线）时 ``next_action`` 的理由；此时下一步为 ``none``。
 EPISODE_COMPLETE_REASON = "episode has an edit timeline"
 #: 查询范围内每一集都完成、源文也已排布完时 ``next_action`` 的理由。
@@ -1338,16 +1340,19 @@ class WorkflowStateService:
     ) -> WorkflowStatus:
         """没有指定集时：取账本顺序中第一个未完成、且集规划状态不是 stale 的集。
 
-        各集都完成时回到项目层：整本源文还有未切分的原文就继续分集规划，否则全部完成。
+        其余集都完成时回到项目层：整本源文还有未切分的原文就继续分集规划；有 stale 集时停在
+        第一个 stale 集上陈述现状，不给动作；否则全部完成。
         """
         if not shared.episodes:
             return self._project_status(project, shared)
         first: WorkflowStatus | None = None
+        first_stale: WorkflowStatus | None = None
         any_complete = False
         for pair in shared.episodes:
             status = self._episode_status(project_name, project, project_path, shared, pair)
             first = first or status
             if status.content is not None and status.content.episode_plan_stale:
+                first_stale = first_stale or status
                 continue
             if not episode_complete(status):
                 return status
@@ -1355,10 +1360,13 @@ class WorkflowStateService:
         assert first is not None
         if shared.whole_source and not shared.planning_complete:
             next_action = self._planning_action(project, shared, "source text remains unplanned")
-        elif any_complete:
-            next_action = _action(WorkflowActionType.NONE, ALL_EPISODES_COMPLETE_REASON)
+        elif first_stale is not None:
+            reason = "remaining episodes await replanning" if any_complete else "every episode awaits replanning"
+            return first_stale.model_copy(
+                update={"next_action": _action(WorkflowActionType.NONE, reason), "next_alternatives": []}
+            )
         else:
-            next_action = _action(WorkflowActionType.NONE, "every episode awaits replanning")
+            next_action = _action(WorkflowActionType.NONE, ALL_EPISODES_COMPLETE_REASON)
         return first.model_copy(update={"next_action": next_action, "next_alternatives": []})
 
     def _planning_action(
@@ -1454,7 +1462,7 @@ class WorkflowStateService:
         except (OSError, EditTimelineError) as exc:
             issues.append(
                 WorkflowBlocker(
-                    code="invalid_edit_timelines", path=f"edit_timelines/episode_{episode}", reason=str(exc)
+                    code=INVALID_EDIT_TIMELINES_CODE, path=f"edit_timelines/episode_{episode}", reason=str(exc)
                 )
             )
             artifacts["edit_timelines"] = {"timeline_ids": []}
@@ -2030,6 +2038,7 @@ def migration_next_action(failure: MigrationFailureRecord) -> WorkflowNextAction
 __all__ = [
     "ALL_EPISODES_COMPLETE_REASON",
     "EPISODE_COMPLETE_REASON",
+    "INVALID_EDIT_TIMELINES_CODE",
     "ArtifactCount",
     "EpisodeSummary",
     "EpisodesSummary",

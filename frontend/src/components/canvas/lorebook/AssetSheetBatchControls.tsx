@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { Sparkles } from "lucide-react";
 import { AssetSheetBatchDialog } from "./AssetSheetBatchDialog";
 import { pendingSheetCounts, type SheetStatusFilter } from "./useAssetSheetStatus";
+import { useActiveResourceIds } from "@/stores/tasks-store";
 import type { AssetSheetStatusRow, AssetSheetType } from "@/types";
 
 const FILTERS: SheetStatusFilter[] = ["all", "pending", "stale"];
@@ -28,7 +29,11 @@ export function AssetSheetBatchControls({
 }) {
   const { t } = useTranslation("assets");
   const [open, setOpen] = useState(false);
-  const { generatable, missingDescription } = pendingSheetCounts(rows, assetType);
+  const activeOwners = useActiveResourceIds(assetType, projectName);
+  const activeDerivatives = useActiveResourceIds("character_derivative", projectName);
+  const { generatable, missingDescription } = pendingSheetCounts(rows, assetType, (row) =>
+    row.derivative === null ? activeOwners.has(row.name) : activeDerivatives.has(`${row.name}/${row.derivative}`),
+  );
 
   return (
     <div className="flex items-center gap-2">

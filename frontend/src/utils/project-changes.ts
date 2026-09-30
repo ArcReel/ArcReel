@@ -61,6 +61,9 @@ export function groupChangesByType(
   return [...groups.values()];
 }
 
+// 条目 ID 带集前缀（E1S01）的实体；资产名是自由文本，形似条目 ID 也按原名显示。
+const EPISODE_ITEM_ENTITY_TYPES = new Set(["segment", "drama_scene", "shot", "reference_unit", "grid"]);
+
 // 事件携带的稳定 label_key + label_params 是文案真相源；label 是后端按默认语言渲染的兜底，
 // 只在事件来自不认识该 key 的旧发布方时兜住，不参与常规渲染。
 // 集 ID 与带集前缀的条目 ID 不直接露给创作者：集换成标题（或播出位置），条目换成「标题 · S01」。
@@ -69,7 +72,7 @@ function resolveChangeLabel(change: ProjectChange, t: EventsT, episodes: Episode
     return change.label;
   }
   const params: Record<string, unknown> = { ...change.label_params };
-  if (typeof params.id === "string") {
+  if (typeof params.id === "string" && EPISODE_ITEM_ENTITY_TYPES.has(change.entity_type)) {
     params.id = episodeItemLabel(params.id, episodes, t);
   }
   if (typeof params.episode === "number") {
@@ -107,7 +110,11 @@ function getChangeListLabel(change: ProjectChange, t: EventsT, episodes: Episode
     change.entity_type === "character" ||
     change.entity_type === "scene" ||
     change.entity_type === "prop" ||
-    change.entity_type === "product" ||
+    change.entity_type === "product"
+  ) {
+    return change.entity_id;
+  }
+  if (
     change.entity_type === "segment" ||
     change.entity_type === "drama_scene" ||
     change.entity_type === "shot" ||

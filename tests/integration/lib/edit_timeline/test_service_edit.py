@@ -115,7 +115,7 @@ async def _edit(service: EditTimelineService, timeline_id: str, base_revision: i
             "0.1–2.0",
         ),
         ({"op": "move", "clip": "c9", "after": None}, "c9", "clip", "当前修订里的片段 ID"),
-        ({"op": "insert", "unit_id": "E9U9", "after": "c1"}, None, "unit_id", "第 1 集脚本中的视频单元 ID"),
+        ({"op": "insert", "unit_id": "E9U9", "after": "c1"}, None, "unit_id", "集（id=1）脚本中的视频单元 ID"),
     ],
 )
 async def test_one_invalid_operation_rejects_the_whole_batch_and_locates_it(

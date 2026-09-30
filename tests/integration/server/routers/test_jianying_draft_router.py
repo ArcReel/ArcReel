@@ -96,7 +96,7 @@ async def test_submit_queues_an_export_and_the_registered_draft_downloads_for_th
     assert downloaded.status_code == 200
     assert "attachment" in downloaded.headers["content-disposition"]
     with zipfile.ZipFile(BytesIO(downloaded.content)) as archive:
-        assert "Demo_第1集_完整版/draft_info.json" in archive.namelist()
+        assert "01_第一集_完整版/draft_info.json" in archive.namelist()
     assert other_project.status_code == 403
 
 
@@ -111,7 +111,7 @@ async def test_submit_refusals_answer_before_anything_is_queued(
     narration = await draft_client.post(url, json={"narration": "with_narration"})
 
     assert blocked.status_code == 409
-    assert "E1U2" in blocked.json()["detail"]
+    assert "未命名集 · U2" in blocked.json()["detail"]
     assert [issue["unit_id"] for issue in blocked.json()["diagnostic"]["issues"]] == ["E1U2"]
     assert narration.status_code == 422
     assert narration.json()["detail"]

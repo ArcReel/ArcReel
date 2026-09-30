@@ -32,6 +32,7 @@ from lib.edit_timeline import (
 from lib.edit_timeline.model import EditTimelineContent, microseconds_to_seconds
 from lib.edit_timeline.readout import unrendered_effects
 from lib.edit_timeline.store import EditTimelineStore
+from lib.episode.episode_ids import episode_file_label
 from lib.infra.async_thread import run_sync_transaction
 from lib.infra.path_safety import safe_join
 from lib.infra.thumbnail import extract_video_frame_before
@@ -84,10 +85,12 @@ def _applicable_issues(issues: tuple[TimelineIssue, ...], narration: DraftNarrat
 def draft_folder_name(
     project_name: str, project: Mapping[str, Any], *, episode: int, timeline_name: str, narration: DraftNarration
 ) -> str:
-    """剪映草稿文件夹名：项目标题、集与剪辑时间线显示名；带旁白版本另加后缀，两个版本可以并存。"""
-    raw_title = project.get("title")
-    title = raw_title if isinstance(raw_title, str) and raw_title.strip() else project_name
-    base = title if project.get("content_mode") == "ad" else f"{title}_第{episode}集"
+    """剪映草稿文件夹名：``{两位播出位置}_{集标题}`` 与剪辑时间线显示名，集不在账本里时以项目标题代替集；
+    带旁白版本另加后缀，两个版本可以并存。"""
+    base = episode_file_label(project, episode)
+    if base is None:
+        raw_title = project.get("title")
+        base = raw_title if isinstance(raw_title, str) and raw_title.strip() else project_name
     name = f"{base}_{timeline_name}" + ("_带旁白" if narration == WITH_NARRATION else "")
     safe = name.translate(_WINDOWS_UNSAFE_NAME_CHARACTERS).replace("..", "_").strip().rstrip(".")
     return safe or project_name
@@ -312,7 +315,7 @@ class TimelineJianyingDraftService:
             None,
         )
         if not isinstance(script_file, str) or not script_file:
-            raise EditTimelineError("episode_not_found", f"第 {episode} 集不存在或尚无脚本", episode=episode)
+            raise EditTimelineError("episode_not_found", f"集（id={episode}）不存在或尚无脚本", episode=episode)
         script = self._projects.load_script_readonly(project_name, script_file)
         raw_items, id_field, kind = resolve_items(script)
         items = {

@@ -130,6 +130,7 @@ export function PropCard({
     assetType: "prop",
     name,
     status: sheetStatus,
+    hasSheet: Boolean(prop.prop_sheet),
     onGenerate: () => onGenerate(name),
   });
 

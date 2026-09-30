@@ -108,6 +108,15 @@ describe("project-changes utils", () => {
     expect(formatGroupedNotificationText(group, t)).toBe("多宫格分镜「未命名集 · G01」已生成");
   });
 
+  it("keeps asset names that look like episode item ids", () => {
+    const ledger = [{ episode: 3, title: "山门" }];
+    const [group] = groupChangesByType([
+      makeChange({ entity_id: "E3S01", label: "角色「E3S01」", label_params: { id: "E3S01" } }),
+    ]);
+
+    expect(formatGroupedNotificationText(group, t, ledger)).toContain("角色「E3S01」");
+  });
+
   it("names episodes and episode items by title and inner id instead of episode ids", () => {
     const ledger = [
       { episode: 7, title: "山门" },

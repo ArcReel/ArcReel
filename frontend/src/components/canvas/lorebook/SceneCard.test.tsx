@@ -242,6 +242,7 @@ describe("SceneCard 资产图状态", () => {
 
   it("confirms the knock-on impact before regenerating a stale sheet", async () => {
     const impact = vi.spyOn(API, "getAssetRegenerationImpact").mockResolvedValue({
+      stale: true,
       storyboards: 3,
       videos: 1,
       derivatives: 0,
@@ -253,7 +254,7 @@ describe("SceneCard 资产图状态", () => {
         sheetStatus={{ ...status, status: "stale" }} />,
     );
 
-    expect(screen.getByText("已过期")).toHaveAttribute("title", expect.stringContaining("对不上"));
+    expect(screen.getByText("已过期")).toHaveAttribute("title", expect.stringContaining("已经改变"));
     fireEvent.click(screen.getByRole("button", { name: "重新生成资产图" }));
 
     expect(await screen.findByText("重新生成后，用到它的 3 张分镜图、1 段视频会转为过期。")).toBeInTheDocument();
@@ -261,5 +262,44 @@ describe("SceneCard 资产图状态", () => {
     expect(impact).toHaveBeenCalledWith("demo", "scene", "庭院");
     fireEvent.click(screen.getByRole("button", { name: "重新生成" }));
     expect(onGenerate).toHaveBeenCalledWith("庭院");
+  });
+  it("asks the server before regenerating when the local status has not caught up", async () => {
+    // 描述刚改、状态行还没刷新时本地仍是 current；以服务端此刻的判定为准。
+    vi.spyOn(API, "getAssetRegenerationImpact").mockResolvedValue({
+      stale: true,
+      storyboards: 2,
+      videos: 0,
+      derivatives: 0,
+    });
+    const onGenerate = vi.fn();
+    render(
+      <SceneCard name="庭院" scene={{ description: "新描述", scene_sheet: "scenes/庭院.png" }}
+        projectName="demo" onUpdate={vi.fn()} onGenerate={onGenerate}
+        sheetStatus={{ ...status, status: "current" }} />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "重新生成资产图" }));
+
+    expect(await screen.findByText("重新生成后，用到它的 2 张分镜图、0 段视频会转为过期。")).toBeInTheDocument();
+    expect(onGenerate).not.toHaveBeenCalled();
+  });
+
+  it("regenerates without confirmation when the server says the sheet is current", async () => {
+    vi.spyOn(API, "getAssetRegenerationImpact").mockResolvedValue({
+      stale: false,
+      storyboards: 2,
+      videos: 0,
+      derivatives: 0,
+    });
+    const onGenerate = vi.fn();
+    render(
+      <SceneCard name="庭院" scene={{ description: "古朴", scene_sheet: "scenes/庭院.png" }}
+        projectName="demo" onUpdate={vi.fn()} onGenerate={onGenerate} />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "重新生成资产图" }));
+
+    await waitFor(() => expect(onGenerate).toHaveBeenCalledWith("庭院"));
+    expect(screen.queryByText(/会转为过期/)).not.toBeInTheDocument();
   });
 });

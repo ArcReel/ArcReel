@@ -130,22 +130,29 @@ export function useDraftEditor<T>({ projectName, episode, view, narrow, onSettle
     }
   }, [view, current, projectName, episode, adoptView, onSettled, pushToast, t]);
 
+  /** 丢弃界面上呈现的那一版草稿；返回 `true` 表示确认框可关闭。草稿已在别处更新时不丢弃，载入最新版本供用户重新判断。 */
   const discard = useCallback(async (): Promise<boolean> => {
     if (view == null) return false;
     setDiscarding(true);
     try {
-      await API.discardEpisodeDraft(projectName, episode, view.doc_type, view.revision);
+      await API.discardEpisodeDraft(projectName, episode, view.doc_type, current?.revision ?? view.revision);
       pushToast(t("draft_discarded_toast"), "success");
       onSettled();
       return true;
     } catch (err) {
+      if (diagnosticCode(err) === "revision_conflict") {
+        adoptView(view);
+        pushToast(t("draft_conflict_toast"), "warning");
+        onSettled();
+        return true;
+      }
       pushToast(err instanceof Error && err.message ? err.message : t("draft_discard_failed_toast"), "error");
       onSettled();
       return false;
     } finally {
       setDiscarding(false);
     }
-  }, [view, projectName, episode, onSettled, pushToast, t]);
+  }, [view, current, projectName, episode, adoptView, onSettled, pushToast, t]);
 
   return {
     content: current?.edited ?? null,

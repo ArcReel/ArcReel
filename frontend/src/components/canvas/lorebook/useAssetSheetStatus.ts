@@ -9,10 +9,10 @@ import type { AssetSheetStatusRow, AssetSheetType } from "@/types";
  *
  * 状态是清单与规范状态的比对（读文件、算指纹），不随项目数据下发，故单独取：项目快照
  * 修订号变化（资产图写入、描述修改）或资产图任务的占用集变化（有任务开始或结束）时重取。
- * 取不到时保留上一次的值。
+ * 同一项目内取不到时保留上一次的值；切换项目后只返回新项目的状态。
  */
 export function useAssetSheetStatus(projectName: string, enabled = true): AssetSheetStatusRow[] {
-  const [rows, setRows] = useState<AssetSheetStatusRow[]>([]);
+  const [loaded, setLoaded] = useState<{ projectName: string; rows: AssetSheetStatusRow[] } | null>(null);
   const snapshotRevision = useProjectsStore((s) => s.projectSnapshotRevisions[projectName] ?? 0);
   const activeCount =
     useActiveResourceIds("character", projectName).size +
@@ -26,7 +26,7 @@ export function useAssetSheetStatus(projectName: string, enabled = true): AssetS
     const controller = new AbortController();
     void API.getAssetSheetStatus(projectName, { signal: controller.signal })
       .then((res) => {
-        if (!controller.signal.aborted) setRows(res.assets ?? []);
+        if (!controller.signal.aborted) setLoaded({ projectName, rows: res.assets ?? [] });
       })
       .catch(() => {
         /* 读取失败（含被作废）保留上一次的状态 */
@@ -34,8 +34,10 @@ export function useAssetSheetStatus(projectName: string, enabled = true): AssetS
     return () => controller.abort();
   }, [enabled, projectName, snapshotRevision, activeCount]);
 
-  return rows;
+  return loaded?.projectName === projectName ? loaded.rows : NO_ROWS;
 }
+
+const NO_ROWS: AssetSheetStatusRow[] = [];
 
 /** 某一类资产本体的状态行，按资产名索引。 */
 export function useSheetStatusByName(
@@ -66,11 +68,12 @@ export function matchesSheetFilter(row: AssetSheetStatusRow | undefined, filter:
  * 一类资产里一次批量生成会提交几张、另有几张缺描述。
  *
  * 与服务端规划同一口径：待生成且有描述的本体；衍生还要求本体资产图可用，或本体本身也在
- * 这一批里。精确名单以预览为准，这里只给按钮上的计数。
+ * 这一批里；正在生成的不计（预览把它们列为跳过项）。精确名单以预览为准，这里只给按钮上的计数。
  */
 export function pendingSheetCounts(
   rows: AssetSheetStatusRow[],
   assetType: AssetSheetType,
+  isGenerating: (row: AssetSheetStatusRow) => boolean = () => false,
 ): { generatable: number; missingDescription: number } {
   const ofType = rows.filter((row) => row.asset_type === assetType);
   const owners = new Map(ofType.filter((row) => row.derivative === null).map((row) => [row.name, row]));
@@ -83,7 +86,7 @@ export function pendingSheetCounts(
   let generatable = 0;
   let missingDescription = 0;
   for (const row of ofType) {
-    if (row.status !== "missing") continue;
+    if (row.status !== "missing" || isGenerating(row)) continue;
     if (row.description_missing) {
       missingDescription += 1;
     } else if (row.derivative === null || ownerUsable(row.name)) {

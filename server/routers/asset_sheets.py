@@ -1,6 +1,7 @@
 """项目资产图的读取视图与批量生成入口。
 
-- 状态：每张资产图（含衍生）按产物清单判定的现状与是否缺描述，供卡片状态、画廊筛选与批量按钮计数。
+- 状态：每张资产图（含衍生）按产物清单判定的现状与是否缺描述，供卡片状态、画廊筛选与批量按钮计数；
+  清单读不出时各图报告 blocked。
 - 批量生成：画廊各类型页（类型范围）与集层下一步（集范围）共用一个服务命令
   （:mod:`server.services.admission.asset_sheet_batch`），与 Agent 的 ``generate_assets`` 同一份规划。
   预览只规划不建任务，供确认框列名单、跳过项与预估费用；提交不等待结果，返回成员任务供界面跟踪整批终态。
@@ -10,12 +11,14 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from typing import Any, Literal, Self
 
 from fastapi import APIRouter
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from lib.artifacts.artifact_activation import active_artifact_currency_resolver
+from lib.artifacts.artifact_manifest import ArtifactManifestError
 from lib.config.resolver import ConfigResolver
 from lib.db import async_session_factory
 from lib.generation.generation_queue import get_generation_queue
@@ -35,6 +38,8 @@ from server.services.admission.asset_sheet_batch import (
 )
 from server.services.admission.cost_estimation import estimate_image_batch_cost
 from server.services.currency.asset_regeneration_impact import asset_regeneration_impact
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -107,7 +112,11 @@ async def get_asset_sheet_status(project_name: str):
             project = manager.load_project(project_name)
         except FileNotFoundError as exc:
             raise NotFoundError("project_not_found", name=project_name) from exc
-        resolver = active_artifact_currency_resolver(manager.get_project_path(project_name), project)
+        try:
+            resolver = active_artifact_currency_resolver(manager.get_project_path(project_name), project)
+        except ArtifactManifestError:
+            logger.exception("asset sheet status: artifact manifest unreadable for project %s", project_name)
+            resolver = None
         return asset_sheet_statuses(project, resolver)
 
     return {"assets": await asyncio.to_thread(_sync)}
@@ -173,9 +182,9 @@ async def submit_asset_sheet_batch_route(project_name: str, request: AssetSheetB
 async def get_asset_regeneration_impact(
     project_name: str, asset_type: AssetType, name: str, derivative_name: str | None = None
 ):
-    """重生这张资产图会让多少件现行产物转为过期。"""
+    """这张资产图此刻是否过期，以及重生它会让多少件现行产物转为过期。"""
 
-    def _sync() -> dict[str, int]:
+    def _sync() -> dict[str, bool | int]:
         try:
             impact = asset_regeneration_impact(
                 get_project_manager(), project_name, asset_type, name, derivative_name=derivative_name
@@ -186,7 +195,12 @@ async def get_asset_regeneration_impact(
             ) from exc
         except FileNotFoundError as exc:
             raise NotFoundError("project_not_found", name=project_name) from exc
-        return {"storyboards": impact.storyboards, "videos": impact.videos, "derivatives": impact.derivatives}
+        return {
+            "stale": impact.stale,
+            "storyboards": impact.storyboards,
+            "videos": impact.videos,
+            "derivatives": impact.derivatives,
+        }
 
     return await asyncio.to_thread(_sync)
 

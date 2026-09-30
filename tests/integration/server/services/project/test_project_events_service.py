@@ -7,7 +7,7 @@ import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
-from lib.artifacts.artifact_activation import register_current_artifact
+from lib.artifacts.artifact_activation import register_current_artifact, register_current_resource_artifact
 from lib.artifacts.artifact_manifest import ArtifactKey
 from lib.artifacts.version_manager import MANUAL_UPLOAD_VERSION_SOURCE, VersionManager
 from lib.edit_timeline import EditTimelineService
@@ -118,6 +118,9 @@ async def test_timeline_creation_refreshes_project_events_and_completes_workflow
         staged_file=staged,
         current_file=project_path / "reference_videos/E1U01.mp4",
         source=MANUAL_UPLOAD_VERSION_SOURCE,
+    )
+    register_current_resource_artifact(
+        project_path, resource_type="reference_videos", resource_id="E1U01", script_file="scripts/episode_1.json"
     )
     queue = GenerationQueue(session_factory=db_factory, project_manager=pm)
     planner = WorkflowPlanner(pm)
