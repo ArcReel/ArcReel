@@ -4,6 +4,7 @@ import { API } from "@/api";
 import { useProjectsStore } from "@/stores/projects-store";
 import { formatCost } from "@/utils/cost-format";
 import type { CostBreakdown } from "@/types";
+import { itemIdWithinEpisode } from "@/utils/episode-display";
 import { VersionTimeMachine } from "./VersionTimeMachine";
 
 interface NarrationAudioCardProps {
@@ -94,7 +95,7 @@ export function NarrationAudioCard({
             controls
             src={audioUrl}
             preload="metadata"
-            aria-label={t("narration_audio_player_label", { id: segmentId })}
+            aria-label={t("narration_audio_player_label", { id: itemIdWithinEpisode(segmentId) })}
             className="mt-2.5 h-9 w-full"
           />
         ) : (

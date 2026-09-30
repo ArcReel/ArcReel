@@ -41,6 +41,7 @@ from lib.agent.profile_manifest import (
 )
 from lib.artifacts.artifact_manifest import ArtifactBasisDescriptor
 from lib.artifacts.formal_write import formal_write_transaction, project_metadata_lock
+from lib.episode.episode_ids import raise_episode_id_high_water
 from lib.episode.episode_ledger import SOURCE_TEXT_SUFFIXES
 from lib.episode.episode_paths import (
     REFERENCE_VIDEO_SCRIPT_PLAN_FILENAME,
@@ -1253,7 +1254,6 @@ class ProjectManager:
         # 同步核心元数据（不包含统计字段，统计字段由项目摘要读时计算）
         episode_entry["title"] = episode_title
         episode_entry["script_file"] = script_file
-        episodes.sort(key=lambda x: x["episode"])
 
         logger.info("已同步剧集信息: Episode %d - %s", episode_num, episode_title)
 
@@ -2142,6 +2142,8 @@ class ProjectManager:
 
         if self._requires_unique_asset_namespace(project):
             ensure_project_asset_namespace(project)
+        # 变更可能把条目移出账本：先让历史最高号记下变更前的集 ID
+        raise_episode_id_high_water(project)
         mutate_fn(project)
         if self._requires_unique_asset_namespace(project):
             ensure_project_asset_namespace(project)
@@ -2266,6 +2268,8 @@ class ProjectManager:
 
     @staticmethod
     def _touch_metadata(project: dict) -> None:
+        """每次写 project.json 前的收尾：刷新更新时间，并让历史最高号覆盖账本里的集 ID。"""
+        raise_episode_id_high_water(project)
         now = datetime.now(UTC).isoformat()
         if "metadata" not in project:
             project["metadata"] = {"created_at": now, "updated_at": now}
@@ -2473,9 +2477,8 @@ class ProjectManager:
                     ep["title"] = title
                     ep["script_file"] = script_file
                     return
-            # 添加新剧集（不包含统计字段，由项目摘要读时计算）
+            # 新剧集接在播出顺序末尾（不包含统计字段，由项目摘要读时计算）
             project["episodes"].append({"episode": episode, "title": title, "script_file": script_file})
-            project["episodes"].sort(key=lambda x: x["episode"])
 
         return self.update_project(project_name, _mutate)
 

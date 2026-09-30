@@ -24,7 +24,8 @@ GET_PROJECT_CONTENT = ToolDeclaration(
     name="get_project_content",
     description=(
         "读取项目 project.json 的完整内容（标题、内容模式、生成模式、风格、分集与资产设定等）"
-        "及其 canonical revision。只读，无副作用。"
+        "及其 canonical revision。episodes[] 的排列即播出顺序，每项的 episode 是集 ID（内部标识，不是第几集）。"
+        "只读，无副作用。"
     ),
     request_model=NoArguments,
     migration=_READ_ONLY_FILE,
@@ -73,7 +74,7 @@ GET_EPISODE_SCRIPT = ToolDeclaration(
 GET_SCRIPT_PLAN_CONTENT = ToolDeclaration(
     name="get_script_plan_content",
     description=(
-        "读取指定集当前正式的 script_plan（剧本规划中间态，位于 drafts/episode_N/）正文及其 canonical "
+        "读取指定集当前正式的 script_plan（剧本规划中间态，位于 drafts/episode_{集 ID}/）正文及其 canonical "
         "revision。只读，无副作用。项目不使用 script_plan 时返回 script_plan_not_applicable；"
         "该集尚无 script_plan 时返回 file_not_found。"
     ),

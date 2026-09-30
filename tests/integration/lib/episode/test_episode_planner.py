@@ -405,14 +405,14 @@ class TestPlan:
         with pytest.raises(EpisodePlanningError, match="没有原文范围记录"):
             await planner.plan()
 
-        reset = reset_episode_planning(project_dir, from_episode=1, confirm_consumed=True)
+        reset = reset_episode_planning(project_dir, confirm_consumed=True)
         assert isinstance(reset, EpisodeResetResult)
 
         result = await planner.plan()
 
         assert [s.title for s in result.episodes] == ["古玉藏诀"]
         eps = _load_project(project_dir)["episodes"]
-        assert [e["episode"] for e in eps] == [1]
+        assert [e["episode"] for e in eps] == [2]
         assert eps[0]["source_range"] == {"source_file": "source/novel.txt", "start": 0, "end": _end_of(ANCHOR_EP1)}
 
     async def test_plan_retries_with_failure_reason_when_anchor_invalid(self, tmp_path: Path):
@@ -1500,7 +1500,7 @@ class TestSourceFingerprintGate:
         with pytest.raises(EpisodePlanningError, match=re.escape("source/novel.txt")):
             await blocked.plan()
 
-        result = reset_episode_planning(project_dir, from_episode=1)
+        result = reset_episode_planning(project_dir)
         assert isinstance(result, EpisodeResetResult)
         assert SOURCE_FINGERPRINTS_KEY not in _load_project(project_dir)
 
@@ -1508,8 +1508,8 @@ class TestSourceFingerprintGate:
         result2 = await EpisodePlanner(project_dir, generator=fake2).plan()
         assert result2.episodes[0].title == "t2"
 
-    async def test_partial_reset_retains_prefix_and_plan_continues_numbering(self, tmp_path: Path):
-        """规划 2 集后部分重置到第 2 集：账本保留第 1 集、游标退到其末尾，再次 plan 从第 2 集续接编号。"""
+    async def test_partial_reset_retains_prefix_and_plan_allocates_fresh_ids(self, tmp_path: Path):
+        """规划 2 集后从第 2 集部分重置：账本保留第 1 集、游标退到其末尾，再次 plan 的新集不复用集 ID 2。"""
         project_dir = _write_project(tmp_path)
         fake = _FakeTextGenerator(
             [
@@ -1524,7 +1524,7 @@ class TestSourceFingerprintGate:
         await EpisodePlanner(project_dir, generator=fake).plan()
         assert [e["episode"] for e in _load_project(project_dir)["episodes"]] == [1, 2]
 
-        result = reset_episode_planning(project_dir, from_episode=2)
+        result = reset_episode_planning(project_dir, episode_id=2)
         assert isinstance(result, EpisodeResetResult)
 
         project = _load_project(project_dir)
@@ -1539,8 +1539,8 @@ class TestSourceFingerprintGate:
         fake2 = _FakeTextGenerator([_plan_response([{"title": "t2b", "hook": "h2b", "end_anchor": ANCHOR_EP2}])])
         result2 = await EpisodePlanner(project_dir, generator=fake2).plan()
 
-        assert [ep.episode for ep in result2.episodes] == [2]
-        assert [e["episode"] for e in _load_project(project_dir)["episodes"]] == [1, 2]
+        assert [ep.episode for ep in result2.episodes] == [3]
+        assert [e["episode"] for e in _load_project(project_dir)["episodes"]] == [1, 3]
 
     async def test_plan_rejects_when_source_changes_during_model_call_without_record(self, tmp_path: Path):
         """存量项目补记路径：模型调用期间源文被改动，提交时按文本复核拒绝，不落任何写入。"""

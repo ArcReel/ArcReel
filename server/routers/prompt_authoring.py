@@ -107,7 +107,7 @@ async def author_prompts(
     outcome = await generate_episode_script(
         ToolRequest(
             GenerateEpisodeScriptRequest(
-                episode=episode,
+                episode_id=episode,
                 instructions=req.instructions,
                 entry_ids=req.entry_ids,
                 rewrite=req.rewrite,

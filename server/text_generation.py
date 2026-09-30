@@ -26,6 +26,7 @@ from lib.backends.text_backends.base import DEFAULT_MAX_OUTPUT_TOKENS, TextTaskT
 from lib.backends.text_backends.base import TextGenerationRequest as BackendTextGenerationRequest
 from lib.backends.text_generator import TextGenerator
 from lib.config.resolver import ConfigResolver
+from lib.episode.episode_ids import describe_episode_for_agent
 from lib.episode.episode_paths import (
     SCRIPT_PLAN_FILENAMES,
     episode_drafts_dir,
@@ -166,10 +167,10 @@ class PromptOverwriteRequiredError(TextGenerationError):
         self.overwrite = overwrite
 
 
-def _prompt_overwrite_error(episode: int, exc: PromptOverwriteRequired) -> PromptOverwriteRequiredError:
+def _prompt_overwrite_error(episode_label: str, exc: PromptOverwriteRequired) -> PromptOverwriteRequiredError:
     overwrite = prompt_overwrite_with_text(exc.overwrite.to_dict(), translate)
     return PromptOverwriteRequiredError(
-        f"⚠️ 第 {episode} 集的显式重写需要用户确认覆盖，本次未调用文本模型、未写入。\n{overwrite['text']}\n"
+        f"⚠️ {episode_label} 的显式重写需要用户确认覆盖，本次未调用文本模型、未写入。\n{overwrite['text']}\n"
         "须先把上面的丢失清单原文转述给用户，得到明确同意后，再以 "
         "overwrite_revision=params.prompt_overwrite.revision 重新调用；"
         "正式脚本在此期间又有变化时会按新清单再次拒绝。",
@@ -537,7 +538,9 @@ def prompt_authoring_preflight(
         except PromptAuthoringTargetError as exc:
             raise TextGenerationError(f"❌ 编写范围无效: {exc}") from exc
         except PromptOverwriteRequired as exc:
-            raise _prompt_overwrite_error(episode, exc) from exc
+            raise _prompt_overwrite_error(
+                describe_episode_for_agent(projects.load_project(project_path.name), episode), exc
+            ) from exc
 
 
 def script_plan_preflight(project_path: Path, episode: int, source: str | None, content_mode: object) -> None:
@@ -606,7 +609,7 @@ async def generate_episode_script(
             skipped_entry_ids=skipped,
         )
     except PromptOverwriteRequired as exc:
-        raise _prompt_overwrite_error(episode, exc) from exc
+        raise _prompt_overwrite_error(_describe(projects, project_name, episode), exc) from exc
     except PromptAuthoringTargetError as exc:
         # 点名的条目不在正式剧本内是调用方的错：报「拒绝生成」而不是让它冒成 internal_error，
         # 后者会引导 Agent 原样重试同一份必然失败的参数。
@@ -621,7 +624,8 @@ async def generate_episode_script(
     if not rewritten and formal_existed:
         redo = "要整份重做请先移除正式脚本" if generator.content_mode == "ad" else "要整集重做请重跑脚本规划并重新确认"
         return TextGenerationResult(
-            f"✅ 第 {episode} 集没有待编写的条目，未调用文本模型，正式脚本未改动: {result_path}{skipped_note}\n"
+            f"✅ {describe_episode_for_agent(generator.project_json, episode)} 没有待编写的条目，"
+            f"未调用文本模型，正式脚本未改动: {result_path}{skipped_note}\n"
             f"   要覆盖已有视觉层请用 entry_ids 点名并传 rewrite=true；{redo}。"
         )
     rewritten_note = "、".join(rewritten) if rewritten else "整份生成"
@@ -658,6 +662,10 @@ def _unbound_mentions_note(warnings: Sequence[Mapping[str, Any]]) -> str:
 # ---------------------------------------------------------------------------
 
 
+def _describe(projects: ProjectManager, project_name: str, episode: int) -> str:
+    return describe_episode_for_agent(projects.load_project(project_name), episode)
+
+
 async def confirm_script_review(
     episode: int,
     *,
@@ -677,7 +685,7 @@ async def confirm_script_review(
             overwrite = script_review.overwrite_with_text(exc.overwrite, translate)
             loss_text = overwrite["text"] if overwrite is not None else ""
             raise ScriptOverwriteRequiredError(
-                f"⚠️ 第 {episode} 集需要用户确认覆盖，本次未写入。\n{loss_text}\n"
+                f"⚠️ {_describe(projects, project_name, episode)} 需要用户确认覆盖，本次未写入。\n{loss_text}\n"
                 "须先把上面的丢失清单原文转述给用户，得到明确同意后，再以 "
                 "overwrite_revision=params.script_overwrite.revision 重新确认；"
                 "正式脚本在此期间又有变化时会按新清单再次拒绝。",
@@ -687,7 +695,7 @@ async def confirm_script_review(
             raise TextGenerationError(_video_facts_failure_text(exc.problem)) from exc
         raise TextGenerationError(f"❌ 无法完成 script_plan 内容确认（{exc.code}）：{exc.message or exc.code}") from exc
     return TextGenerationResult(
-        f"✅ 第 {episode} 集 script_plan 已确认并整份转为正式脚本，全部分镜待编写，"
+        f"✅ {_describe(projects, project_name, episode)} 的 script_plan 已确认并整份转为正式脚本，全部分镜待编写，"
         f"prompt_authoring 视觉生成已放行（status={state['status']}）"
     )
 

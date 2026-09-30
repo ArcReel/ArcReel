@@ -105,7 +105,50 @@ describe("project-changes utils", () => {
       }),
     ]);
 
-    expect(formatGroupedNotificationText(group, t)).toBe("多宫格分镜「E1G01」已生成");
+    expect(formatGroupedNotificationText(group, t)).toBe("多宫格分镜「未命名集 · G01」已生成");
+  });
+
+  it("names episodes and episode items by title and inner id instead of episode ids", () => {
+    const ledger = [
+      { episode: 7, title: "山门" },
+      { episode: 3, title: "" },
+    ];
+    const [single] = groupChangesByType([
+      makeChange({
+        entity_type: "segment",
+        action: "storyboard_ready",
+        entity_id: "E7S02",
+        label: "分镜「E7S02」",
+        label_key: "skeleton_segments",
+        label_params: { id: "E7S02" },
+      }),
+    ]);
+    const [draft] = groupChangesByType([
+      makeChange({
+        entity_type: "draft",
+        action: "updated",
+        entity_id: "episode_3_script_plan",
+        label: "集（id=3）的脚本规划草稿",
+        label_key: "draft_script_plan",
+        label_params: { episode: 3 },
+      }),
+    ]);
+    const [grouped] = groupChangesByType(
+      ["E7S01", "E3S04"].map((id) =>
+        makeChange({
+          entity_type: "segment",
+          action: "video_ready",
+          entity_id: id,
+          label: `分镜「${id}」`,
+          label_key: "skeleton_segments",
+          label_params: { id },
+        }),
+      ),
+    );
+
+    expect(formatGroupedNotificationText(single, t, ledger)).toBe("分镜「山门 · S02」的分镜图已生成");
+    expect(formatGroupedNotificationText(draft, t, ledger)).toBe("第 2 集的脚本规划草稿已更新");
+    expect(formatGroupedNotificationText(grouped, t, ledger)).toContain("山门 · S01、第 2 集 · S04");
   });
 
   it("falls back to the payload label when the event carries no label_key", () => {
@@ -153,9 +196,9 @@ describe("project-changes utils", () => {
           }),
         ),
       );
-      // 分组标题用 entity_type 名词，条目名单用裸 id（与既有 segment 行为一致）。
+      // 分组标题用 entity_type 名词，条目名单在缺账本时用未命名集与集内 ID。
       expect(formatGroupedNotificationText(group, t)).toBe(
-        `新增了 2 个${noun}：E1X01、E1X02`,
+        `新增了 2 个${noun}：未命名集 · X01、未命名集 · X02`,
       );
     }
   });
@@ -211,15 +254,15 @@ describe("project-changes utils", () => {
       });
 
     const [singleTts] = groupChangesByType([ttsChange("E1S01")]);
-    expect(formatGroupedNotificationText(singleTts, t)).toBe("旁白配音「E1S01」已生成");
-    expect(formatGroupedDeferredText(singleTts, t)).toBe("旁白配音「E1S01」 已生成");
+    expect(formatGroupedNotificationText(singleTts, t)).toBe("旁白配音「未命名集 · S01」已生成");
+    expect(formatGroupedDeferredText(singleTts, t)).toBe("旁白配音「未命名集 · S01」 已生成");
 
     const [groupedTts] = groupChangesByType([
       ttsChange("E1S01"),
       ttsChange("E1S02"),
     ]);
     expect(formatGroupedNotificationText(groupedTts, t)).toBe(
-      "已生成 2 个旁白配音：E1S01、E1S02",
+      "已生成 2 个旁白配音：未命名集 · S01、未命名集 · S02",
     );
     expect(formatGroupedNotificationText(groupedTts, t)).not.toContain("更新了");
   });
@@ -227,8 +270,8 @@ describe("project-changes utils", () => {
   // 缺 key 时 i18next 回落到裸 key，同样不含中文，所以「无中文残留」之外还断言两条代表性
   // 全等文案（单条句式 + 分组句式），缺 key 才会被这条护栏抓住。
   it.each([
-    ["en", 'Character "hero" created', "Generated 2 storyboard images: E1S01, E1S02"],
-    ["vi", 'Đã tạo Nhân vật "hero"', "Đã tạo 2 ảnh phân cảnh: E1S01, E1S02"],
+    ["en", 'Character "hero" created', "Generated 2 storyboard images: Untitled episode · S01, Untitled episode · S02"],
+    ["vi", 'Đã tạo Nhân vật "hero"', "Đã tạo 2 ảnh phân cảnh: Tập chưa đặt tên · S01, Tập chưa đặt tên · S02"],
   ])(
     "renders every notification sentence in %s without Chinese leftovers",
     async (language, expectedSingle, expectedGroup) => {

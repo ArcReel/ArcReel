@@ -56,4 +56,7 @@ export default {
   'elapsed_running': 'Đã chạy {{duration}}',
   'elapsed_queued': 'Đã chờ {{duration}}',
   'elapsed_total': 'Mất {{duration}}',
+  'episode_position_name': 'Tập {{position}}',
+  'episode_unlisted_name': 'Tập chưa đặt tên',
+  'episode_agent_ref': '"{{name}}" (ID tập {{id}})',
 } satisfies Record<keyof typeof enCommon, string>;

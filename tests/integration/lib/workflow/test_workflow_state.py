@@ -373,7 +373,7 @@ def test_manual_presplit_project_routes_to_script_plan_without_writing_the_ledge
     assert status.target.episode == 1
     assert status.target.source == "source/episode_1.txt"
     assert status.next_action.type == "prepare_script_plan"
-    assert status.next_action.args["episode"] == 1
+    assert status.next_action.args["episode_id"] == 1
     assert status.operations["plan_episodes"].reason == "whole_source_missing"
     assert status.operations["prepare_script_plan"].state == "admitted"
     assert project_file.read_bytes() == before
@@ -608,7 +608,7 @@ def test_narration_progresses_through_storyboard_video_to_edit(tmp_path: Path) -
     # 后期配音项目不报旁白配音缺口。
     editing = service.get_status("demo")
     assert editing.next_action.type == "create_edit_timeline"
-    assert editing.next_action.args == {"episode": 1}
+    assert editing.next_action.args == {"episode_id": 1}
     assert editing.artifacts["edit_timelines"] == {"timeline_ids": []}
     assert editing.artifacts["audio"]["state"] == "not_applicable"
     assert editing.artifacts["audio"]["missing_ids"] == []
@@ -675,7 +675,7 @@ def test_narration_progresses_through_storyboard_video_to_edit(tmp_path: Path) -
 
     replanning = service.get_status("demo")
     assert replanning.next_action.type == "reset_episode_planning"
-    assert replanning.next_action.args == {"from_episode": 1}
+    assert replanning.next_action.args == {}
 
 
 def test_narration_audio_manifest_state_unreadable_does_not_block_edit(tmp_path: Path, monkeypatch) -> None:
@@ -787,7 +787,7 @@ def test_unplanned_source_with_legacy_episode_without_source_range_requires_full
 
     status = WorkflowStateService(pm).get_status("demo")
     assert status.next_action.type == "reset_episode_planning"
-    assert status.next_action.args == {"from_episode": 1}
+    assert status.next_action.args == {}
 
 
 def _create_edit_timeline(pm: ProjectManager, episode: int = 1) -> str:
@@ -973,7 +973,7 @@ def test_legacy_stale_episode_without_baseline_requires_planning_reset(tmp_path:
 
     status = WorkflowStateService(pm).get_status("demo")
     assert status.next_action.type == "reset_episode_planning"
-    assert status.next_action.args == {"from_episode": 1}
+    assert status.next_action.args == {}
 
 
 def test_requested_missing_episode_is_an_issue_not_a_blocker(tmp_path: Path) -> None:
@@ -1019,7 +1019,7 @@ def test_source_inserted_before_cursor_requires_planning_reset(tmp_path: Path) -
 
     status = WorkflowStateService(pm).get_status("demo")
     assert status.next_action.type == "reset_episode_planning"
-    assert status.next_action.args == {"from_episode": 1}
+    assert status.next_action.args == {}
 
 
 def test_decomposed_recorded_source_does_not_trigger_repeated_planning_reset(tmp_path: Path) -> None:
@@ -1213,7 +1213,7 @@ def test_episode_sheet_suggestion_matches_batch_targets(tmp_path: Path, kind: st
 
     if plan.target_ids:
         assert status.next_action.type == "generate_asset_sheets"
-        assert status.next_action.args == {"episode": 1}
+        assert status.next_action.args == {"episode_id": 1}
         assert set(status.next_action.requested_ids) == {unit_id.split("/", 1)[1] for unit_id in plan.target_ids}
     else:
         assert status.next_action.type != "generate_asset_sheets"
@@ -1951,7 +1951,7 @@ def test_confirmed_script_plan_without_formal_script_asks_to_confirm_again(tmp_p
         assert status.artifacts["script"]["state"] == "missing"
         assert status.next_action.type == "confirm_script_plan"
         assert status.next_action.requires_confirmation is True
-        assert status.next_action.args == {"episode": 1}
+        assert status.next_action.args == {"episode_id": 1}
 
 
 def test_ad_without_script_still_asks_to_generate_the_script(tmp_path: Path) -> None:
@@ -1963,7 +1963,7 @@ def test_ad_without_script_still_asks_to_generate_the_script(tmp_path: Path) -> 
 
     assert status.artifacts["script"]["state"] == "missing"
     assert status.next_action.type == "generate_script"
-    assert status.next_action.args == {"episode": 1}
+    assert status.next_action.args == {"episode_id": 1}
 
 
 def test_blocked_final_script_is_not_reclassified_as_stale_by_provenance(tmp_path: Path) -> None:
@@ -2431,7 +2431,7 @@ def test_pending_authoring_entries_ask_to_author_prompts_before_visual_generatio
     assert status.artifacts["script"]["state"] == "current"
     assert status.next_action.type == "author_prompts"
     assert status.next_action.requested_ids == ["E1S02"]
-    assert status.next_action.args["episode"] == 1
+    assert status.next_action.args["episode_id"] == 1
 
 
 def test_pending_reference_units_ask_to_author_prompts(tmp_path: Path) -> None:

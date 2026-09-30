@@ -410,7 +410,7 @@ async def test_reset_episode_planning_settles_write_before_propagating_cancellat
     release = threading.Event()
     finished = threading.Event()
 
-    def resetter(_project_path: Path, *, from_episode: int, confirm_consumed: bool) -> EpisodeResetResult:
+    def resetter(_project_path: Path, *, episode_id: int | None, confirm_consumed: bool) -> EpisodeResetResult:
         started.set()
         release.wait()
         finished.set()
@@ -418,7 +418,7 @@ async def test_reset_episode_planning_settles_write_before_propagating_cancellat
 
     task = asyncio.create_task(
         reset_episode_planning(
-            ToolRequest(ResetEpisodePlanningRequest(from_episode=1)),
+            ToolRequest(ResetEpisodePlanningRequest()),
             scope,
             caller,
             services,
@@ -484,7 +484,7 @@ async def test_retry_migration_settles_write_before_propagating_cancellation(tmp
     release = threading.Event()
     finished = threading.Event()
 
-    def blocking_migration(_project_dir: Path):
+    def blocking_migration(_project_dir: Path, **_options: object):
         started.set()
         release.wait()
         finished.set()

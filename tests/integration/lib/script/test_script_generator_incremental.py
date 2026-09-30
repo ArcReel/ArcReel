@@ -512,7 +512,7 @@ class TestPromptAuthoring:
         project_dir, _plan_path = await _converted_and_authored(tmp_path, variant)
         before = (project_dir / "scripts" / "episode_1.json").read_bytes()
 
-        with pytest.raises(PromptAuthoringTargetError, match="不在第 1 集正式脚本内"):
+        with pytest.raises(PromptAuthoringTargetError, match="不在集（id=1）正式脚本内"):
             await variant.generator(project_dir, []).generate(1, entry_ids=["E9U99"])
 
         assert (project_dir / "scripts" / "episode_1.json").read_bytes() == before

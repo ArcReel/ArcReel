@@ -45,7 +45,7 @@ export default {
   'demo_banner_title': '演示项目 · 只读',
   'demo_banner_body': '你正在查看一个示例项目。编辑、生成、上传和导出功能在演示中不可用。',
   'demo_action_unavailable': '演示中不可用',
-  'demo_episode_placeholder': '演示内容只到第 {{episode}} 集：这一集只有标题，没有脚本和分镜。',
+  'demo_episode_placeholder': '演示内容只到第 {{position}} 集：这一集只有标题，没有脚本和分镜。',
 
   // 演示工作台 Agent 面板的静态对话：Agent 汇报分析结果 → 用户发起制作 → Agent 汇报推进，
   // 演的是首次制作的完整时序（Agent 的每条消息都是对上一步动作的回应，不主动发起对话）

@@ -1,3 +1,5 @@
+import type { EpisodeItemRef } from "./project";
+
 /**
  * Task queue type definitions.
  *
@@ -21,6 +23,8 @@ export interface TaskItem {
   task_type: string;
   media_type: TaskMediaType;
   resource_id: string;
+  /** resource_id 所属集的标题与播出位置；ID 不带集前缀或集已不在账本里时为 null。 */
+  resource_ref?: EpisodeItemRef | null;
   /**
    * 资源种类。仅 image_edit 任务写入（character/scene/prop/product/storyboard）——
    * 其余任务类型 task_type 本身已按资源种类区分，故为 null。占用匹配据此把编辑任务

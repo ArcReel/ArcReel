@@ -78,7 +78,7 @@ describe("UsagePopover cancellation", () => {
 
     const dialog = await screen.findByRole("alertdialog", { name: "取消确认" });
     expect(dialog).toHaveTextContent("取消此任务将同时取消 1 个依赖任务");
-    expect(dialog).toHaveTextContent("E1S11");
+    expect(dialog).toHaveTextContent("未命名集 · S11");
 
     fireEvent.click(screen.getByRole("button", { name: "确认取消" }));
 
@@ -112,7 +112,7 @@ describe("UsagePopover cancellation", () => {
     fireEvent.click(cancelButtons[0]);
     fireEvent.click(cancelButtons[1]);
     const dialog = await screen.findByRole("alertdialog", { name: "取消确认" });
-    expect(dialog).toHaveTextContent("E1S12");
+    expect(dialog).toHaveTextContent("未命名集 · S12");
 
     await act(async () => {
       first.resolve({
@@ -127,8 +127,8 @@ describe("UsagePopover cancellation", () => {
       await first.promise;
     });
     expect(dialog).toBeInTheDocument();
-    expect(dialog).toHaveTextContent("E1S12");
-    expect(dialog).not.toHaveTextContent("E1S99");
+    expect(dialog).toHaveTextContent("未命名集 · S12");
+    expect(dialog).not.toHaveTextContent("未命名集 · S99");
   });
 
   it("keeps the confirmation open with a failure notice until a retry succeeds", async () => {

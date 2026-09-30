@@ -28,6 +28,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from lib.episode.episode_paths import episode_drafts_dir, episode_script_relpath
 from lib.infra.path_safety import safe_exists
 from lib.infra.text_utils import normalize_newlines
+from lib.project.project_schema import parse_project_schema_version
 
 logger = logging.getLogger(__name__)
 
@@ -120,13 +121,20 @@ class PlanningCursor(BaseModel):
         return _validate_rel_posix_path(value)
 
 
+#: 从这一 schema 起，下集大纲取播出顺序中紧接的那一集，且没有规划数据时退为只给标题。
+#: 更早的项目只在迁移链中出现：v15→v16 之前的激活沿用「集号 + 1、没有规划数据就不给」的
+#: 口径，由 v15→v16 按新旧口径各规划一次，改写只因下集大纲变了的脚本规划登记。
+NEXT_EPISODE_OUTLINE_BY_ORDER_SCHEMA_VERSION = 16
+
+
 def episode_outline_context(
     project: Mapping[str, Any], episode: int
 ) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
     """从分集账本提取 ``(本集大纲, 下集大纲)`` 作为剧本内容生成（script_plan）的规划输入。
 
-    大纲 dict 含 ``title`` / ``hook`` / ``story_beats`` / ``next_episode_teaser``。条目无任何
-    规划数据（旧式条目，规划工具尚未写入）时对应项为 None；末集无下集，第二项为 None。
+    大纲 dict 含 ``title`` / ``hook`` / ``story_beats`` / ``next_episode_teaser``。本集条目无任何
+    规划数据（旧式条目，规划工具尚未写入）时第一项为 None。下集取播出顺序中紧接的那一集：
+    有规划数据给大纲，没有给标题，都没有、或本集是末集时第二项为 None。
     内容抽取前移后由 script_plan（normalize）消费——剧本内容（分镜边界 / 口播）须覆盖故事节点、
     末场落地集尾钩子；prompt_authoring 仅出视觉、不再需要大纲。
     """
@@ -154,7 +162,20 @@ def episode_outline_context(
             return None
         return ctx
 
-    return _context(_entry(episode)), _context(_entry(episode + 1))
+    if parse_project_schema_version(project) < NEXT_EPISODE_OUTLINE_BY_ORDER_SCHEMA_VERSION:
+        return _context(_entry(episode)), _context(_entry(episode + 1))
+
+    following: Mapping[str, Any] = {}
+    entries = [e for e in (project.get("episodes") or []) if isinstance(e, Mapping)]
+    for index, entry in enumerate(entries[:-1]):
+        if entry.get("episode") == episode:
+            following = entries[index + 1]
+            break
+    next_context = _context(following)
+    title = following.get("title")
+    if next_context is None and isinstance(title, str) and title.strip():
+        next_context = {"title": title, "hook": None, "story_beats": [], "next_episode_teaser": None}
+    return _context(_entry(episode)), next_context
 
 
 def normalize_source_text(text: str) -> str:
@@ -416,8 +437,6 @@ def register_orphan_episode_entries(project_dir: Path, project: Mapping[str, Any
             episodes.append(entry)
             known.add(num)
 
-    if all(isinstance(e, Mapping) and parse_episode_num(e.get("episode")) is not None for e in episodes):
-        episodes.sort(key=lambda e: parse_episode_num(e["episode"]) or 0)
     data["episodes"] = episodes
     return data
 

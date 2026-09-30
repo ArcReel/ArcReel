@@ -3,6 +3,8 @@ import { EditableEpisodeTitle } from "@/components/canvas/EditableEpisodeTitle";
 import type { EpisodeMeta } from "@/types";
 import type { EpisodeCost } from "@/types";
 import { totalBreakdown, currentScriptBreakdown, formatCost } from "@/utils/cost-format";
+import { useEpisodeLedger } from "@/hooks/useEpisodeLedger";
+import { episodePosition } from "@/utils/episode-display";
 
 interface EpisodeHeaderProps {
   ep: EpisodeMeta;
@@ -25,6 +27,7 @@ export function EpisodeHeader({
   canEditTitle,
 }: EpisodeHeaderProps) {
   const { t } = useTranslation("dashboard");
+  const position = episodePosition(useEpisodeLedger(), ep.episode);
   const isActive = ep.status === "in_production";
   // 进度与剧集卡同口径：视频产物的可用数 / 总数（可用 = current ∪ stale）。
   const progress =
@@ -61,7 +64,7 @@ export function EpisodeHeader({
             }}
           >
             {t("episode_header_episode_chip", {
-              number: String(ep.episode).padStart(2, "0"),
+              number: position === null ? "—" : String(position).padStart(2, "0"),
             })}
           </span>
           <span className="num text-[11px]" style={{ color: "var(--color-text-4)" }}>

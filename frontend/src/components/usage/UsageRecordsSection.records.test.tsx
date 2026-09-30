@@ -74,7 +74,7 @@ describe("UsageRecordsSection records", () => {
     };
     renderUsageRecordsSection();
 
-    const row = (await screen.findByText("分镜 E2S07")).closest("tr");
+    const row = (await screen.findByText("分镜 未命名集 · S07")).closest("tr");
     expect(row).not.toBeNull();
     const cells = within(row as HTMLTableRowElement);
     expect(cells.getByText("雨夜侦探")).toBeInTheDocument();
@@ -181,17 +181,17 @@ describe("UsageRecordsSection records", () => {
     };
     renderUsageRecordsSection();
 
-    await screen.findByText("分镜 E1S13");
+    await screen.findByText("分镜 未命名集 · S13");
     const targets = screen
       .getAllByRole("row")
       .slice(1)
       .map((row) => row.textContent ?? "");
     // 进行中的两行排在最前，任务行按开始时刻在无任务的 pending 调用之前。
-    expect(targets.findIndex((text) => text.includes("分镜 E1S13"))).toBeLessThan(
+    expect(targets.findIndex((text) => text.includes("分镜 未命名集 · S13"))).toBeLessThan(
       targets.findIndex((text) => text.includes("剧本生成")),
     );
     expect(targets.findIndex((text) => text.includes("剧本生成"))).toBeLessThan(
-      targets.findIndex((text) => text.includes("分镜 E1S01")),
+      targets.findIndex((text) => text.includes("分镜 未命名集 · S01")),
     );
     // 排队中的任务还没有解析出模型。
     expect(screen.getByText("待解析")).toBeInTheDocument();
@@ -212,7 +212,7 @@ describe("UsageRecordsSection records", () => {
     renderUsageRecordsSection("section=usage&u_range=7d");
 
     // 任务排队于七天窗口之外，但进行中区照样列出它。
-    expect(await screen.findByText("分镜 E9S99")).toBeInTheDocument();
+    expect(await screen.findByText("分镜 未命名集 · S99")).toBeInTheDocument();
   });
 
   it("leaves local render tasks out of the in-progress block", async () => {

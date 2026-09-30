@@ -41,6 +41,8 @@ import {
   GHOST_BTN_LG_CLS,
 } from "@/components/ui/darkroom-tokens";
 import { sumItemDuration } from "@/utils/script-shape";
+import { useEpisodeLedger } from "@/hooks/useEpisodeLedger";
+import { episodeAgentRef, itemIdWithinEpisode } from "@/utils/episode-display";
 import { UtteranceListEditor } from "./UtteranceListEditor";
 
 interface ScriptReviewGateProps {
@@ -95,7 +97,7 @@ function SceneHeader({
   const { t } = useTranslation("dashboard");
   return (
     <div className="flex items-center gap-2">
-      <span className="rounded bg-bg-grad-a/70 px-1.5 py-0.5 font-mono text-[11px] text-text-2">{id}</span>
+      <span className="rounded bg-bg-grad-a/70 px-1.5 py-0.5 font-mono text-[11px] text-text-2">{itemIdWithinEpisode(id)}</span>
       <span className="text-[11px] text-text-4">{durationSeconds}s</span>
       {segmentBreak && (
         <span className="rounded border border-hairline px-1.5 py-0.5 text-[10px] text-text-4">
@@ -321,6 +323,8 @@ function reviewItems(content: ReviewDraft | null): { id: string }[] {
  */
 export function ScriptReviewGate({ projectName, episode, contentMode, videoModelUnresolved, onOpenTimeline }: ScriptReviewGateProps) {
   const { t } = useTranslation("dashboard");
+  const episodeLedger = useEpisodeLedger();
+  const episodeRef = episodeAgentRef(episodeLedger, episode, t);
   const standaloneCapabilities = useModelCapabilities({ projectName, enabled: videoModelUnresolved === undefined });
   const modelUnresolved = videoModelUnresolved ?? standaloneCapabilities.videoModelUnresolved;
   const pushToast = useAppStore((s) => s.pushToast);
@@ -449,7 +453,7 @@ export function ScriptReviewGate({ projectName, episode, contentMode, videoModel
           violationCount={quarantine.violations.length}
           itemJumps={[...groups.byItem.entries()].map(([index, list]) => ({
             index,
-            label: items[index]?.id || `#${index + 1}`,
+            label: items[index]?.id ? itemIdWithinEpisode(items[index].id) : `#${index + 1}`,
             count: list.length,
           }))}
           episodeLevelCount={groups.episodeLevel.length}
@@ -462,7 +466,7 @@ export function ScriptReviewGate({ projectName, episode, contentMode, videoModel
           outdated={draftEditor.outdated}
           onSave={voidPromise(draftEditor.save)}
           onReloadLatest={draftEditor.reloadLatest}
-          onHandToAgent={() => prefillAssistant(draftFixRequestText(t, episode, docType, quarantine.violations))}
+          onHandToAgent={() => prefillAssistant(draftFixRequestText(t, episodeRef, docType, quarantine.violations))}
           onDiscard={() => setDiscardOpen(true)}
         />
         {discardDialog}
@@ -519,7 +523,7 @@ export function ScriptReviewGate({ projectName, episode, contentMode, videoModel
       {agentEditing ? (
         <AgentDraftBar
           busy={draftBusy}
-          onFinish={() => prefillAssistant(t("dashboard:draft_agent_finish_prefill", { episode, docType }))}
+          onFinish={() => prefillAssistant(t("dashboard:draft_agent_finish_prefill", { episodeRef, docType }))}
           onDiscard={() => setDiscardOpen(true)}
         />
       ) : (

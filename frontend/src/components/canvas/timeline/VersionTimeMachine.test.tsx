@@ -344,7 +344,7 @@ describe("VersionTimeMachine", () => {
     fireEvent.click(screen.getByRole("button", { name: /版本/ }));
     fireEvent.click(await screen.findByRole("button", { name: "v1" }));
 
-    const previewSource = (await screen.findByLabelText("E1S01 成片预览")).getAttribute("src");
+    const previewSource = (await screen.findByLabelText("S01 成片预览")).getAttribute("src");
     expect(previewSource?.startsWith("/api/v1/files/demo/versions/videos/E1S01_v1.mp4")).toBe(true);
     expect(presentation).toHaveBeenCalledWith(
       "demo",

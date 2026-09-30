@@ -687,7 +687,6 @@ class WorkflowStateService:
                 )
                 continue
             parsed.append((number, entry))
-        parsed.sort(key=lambda pair: pair[0])
         return parsed
 
     @staticmethod
@@ -1370,19 +1369,16 @@ class WorkflowStateService:
             return _action(
                 WorkflowActionType.RESET_EPISODE_PLANNING,
                 "episode ledger lacks source range records",
-                args={"from_episode": 1},
             )
         if _planning_fingerprints_diverged(project, shared.planning_sources):
             return _action(
                 WorkflowActionType.RESET_EPISODE_PLANNING,
                 "source files changed after episode planning",
-                args={"from_episode": 1},
             )
         if _new_source_precedes_cursor(project, shared.planning_sources):
             return _action(
                 WorkflowActionType.RESET_EPISODE_PLANNING,
                 "new source text precedes the current planning cursor",
-                args={"from_episode": 1},
             )
         return _action(WorkflowActionType.PLAN_EPISODES, reason)
 
@@ -1751,7 +1747,7 @@ class WorkflowStateService:
             draft_pending=any(draft.kind == QUARANTINE_KIND_PROMPT_AUTHORING for draft in content.drafts),
         )
 
-        episode_args = {"episode": number}
+        episode_args = {"episode_id": number}
         blank = _action(WorkflowActionType.START_BLANK_SCRIPT, "write the formal script by hand", args=episode_args)
         if stale:
             return respond(

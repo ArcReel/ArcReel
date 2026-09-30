@@ -11,6 +11,7 @@ import {
   type EditorContentMode,
   type ScriptItem,
 } from "@/utils/script-shape";
+import { itemIdWithinEpisode } from "@/utils/episode-display";
 
 type Segment = ScriptItem;
 type ListContentMode = EditorContentMode;
@@ -141,7 +142,7 @@ export function ShotList({
                 key={id}
                 type="button"
                 onClick={() => onSelect(i)}
-                title={id}
+                title={itemIdWithinEpisode(id)}
                 className="num grid h-7 w-7 place-items-center rounded-[5px] text-[9.5px] font-bold focus-ring"
                 style={{
                   color: i === selectedIndex ? "oklch(0.14 0 0)" : "var(--color-text-3)",
@@ -152,7 +153,7 @@ export function ShotList({
                   border: "1px solid var(--color-hairline-soft)",
                 }}
               >
-                {id.length > 4 ? id.slice(-3) : id}
+                {itemIdWithinEpisode(id)}
               </button>
             );
           })}
@@ -286,7 +287,7 @@ export function ShotList({
                   {sbUrl ? (
                     <img
                       src={sbUrl}
-                      alt={id}
+                      alt={itemIdWithinEpisode(id)}
                       className="h-full w-full object-cover"
                       loading="lazy"
                     />
@@ -306,7 +307,7 @@ export function ShotList({
                       textShadow: "0 1px 2px oklch(0 0 0 / 0.8)",
                     }}
                   >
-                    {id.length > 4 ? id.slice(-3) : id}
+                    {itemIdWithinEpisode(id)}
                   </span>
                 </div>
                 <div className="flex min-w-0 flex-col gap-1">
@@ -325,7 +326,7 @@ export function ShotList({
                       overflow: "hidden",
                     }}
                   >
-                    {text || id}
+                    {text || itemIdWithinEpisode(id)}
                   </div>
                   <div className="flex items-center gap-1.5">
                     <span className="num text-[10px]" style={{ color: "var(--color-text-4)" }}>

@@ -37,7 +37,7 @@ _ALWAYS_AUDIBLE = "dashscope/wan2.7-i2v"
 _CONTROLLABLE = "ark/doubao-seedance-2-0-260128"
 
 
-_EPISODE_1 = {"scope": "episode", "episode": 1}
+_EPISODE_1 = {"scope": "episode", "episode_id": 1}
 
 
 def _admission_codes(out: ToolOutcome[Any]) -> dict[str, list[str]]:

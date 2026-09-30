@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { API, ConflictError } from "@/api";
 import { OverviewCanvas } from "./OverviewCanvas";
@@ -558,8 +558,8 @@ describe("OverviewCanvas ad mode", () => {
         })}
       />,
     );
-    // 不出现「集」概念：无 E1 徽标、无「剧集」标题
-    expect(screen.queryByText("E1")).not.toBeInTheDocument();
+    // 不出现「集」概念：无位置徽标、无「剧集」标题
+    expect(screen.queryByText("1")).not.toBeInTheDocument();
     expect(screen.queryByText("剧集")).not.toBeInTheDocument();
     // 改为「视频」区块标题
     expect(screen.getByText("视频")).toBeInTheDocument();
@@ -567,7 +567,8 @@ describe("OverviewCanvas ad mode", () => {
 
   it("keeps episode semantics for narration projects", () => {
     render(<OverviewCanvas projectName="demo" projectData={makeProjectData()} />);
-    expect(screen.getByText("E1")).toBeInTheDocument();
+    const episodeRow = screen.getByText("EP1").parentElement as HTMLElement;
+    expect(within(episodeRow).getByText("1")).toBeInTheDocument();
   });
 
   it("shows ad init canvas when ad project has no products and no brief", () => {

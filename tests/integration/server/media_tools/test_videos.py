@@ -40,7 +40,7 @@ def storyboard_request_facts(set_admission_video_request_facts) -> None:
     set_admission_video_request_facts(facts)
 
 
-_EPISODE_1: dict[str, Any] = {"scope": "episode", "episode": 1}
+_EPISODE_1: dict[str, Any] = {"scope": "episode", "episode_id": 1}
 _ALL: dict[str, Any] = {"scope": "all"}
 # 越出项目根的成片路径：清单无从检查这份产物，它的状态既不是「缺失」也不是「可用」。
 _UNREADABLE_CLIP = "../outside/E1S01.mp4"
@@ -159,8 +159,8 @@ _USE_TTS_PROJECT: dict[str, Any] = {
     "overrides",
     [
         pytest.param({"target": {"scope": "episode"}}, id="episode-without-number"),
-        pytest.param({"target": {"scope": "episode", "episode": 1, "ids": ["E1S01"]}}, id="episode-with-ids"),
-        pytest.param({"target": {"scope": "episode", "episode": 1, "extra": True}}, id="episode-unknown-field"),
+        pytest.param({"target": {"scope": "episode", "episode_id": 1, "ids": ["E1S01"]}}, id="episode-with-ids"),
+        pytest.param({"target": {"scope": "episode", "episode_id": 1, "extra": True}}, id="episode-unknown-field"),
         pytest.param({"target": {"scope": "all", "episode": 1}}, id="all-with-episode"),
         pytest.param({"target": {"scope": "all", "ids": ["E1S01"]}}, id="all-with-ids"),
         pytest.param({"target": {"scope": "scene", "ids": []}}, id="scene-without-id"),
@@ -229,7 +229,7 @@ async def test_generate_videos_refuses_an_episode_target_that_is_not_the_scripts
 ) -> None:
     enqueue = AsyncMock(return_value=([], []))
 
-    out = await run_generate_videos(fake_ctx, {"scope": "episode", "episode": 2}, batch_waiter=enqueue)
+    out = await run_generate_videos(fake_ctx, {"scope": "episode", "episode_id": 2}, batch_waiter=enqueue)
 
     assert out.problem is not None
     assert "不一致" in out.problem.detail

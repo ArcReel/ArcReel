@@ -225,7 +225,7 @@ describe("UsageRecordsSection attention", () => {
     const { location } = renderUsageRecordsSection("section=usage&u_status=success");
 
     await userEvent.click(
-      await screen.findByRole("button", { name: /星海列车 · 分镜 E1S10 连续失败/ }),
+      await screen.findByRole("button", { name: /星海列车 · 分镜 未命名集 · S10 连续失败/ }),
     );
 
     await waitFor(() => {
@@ -248,7 +248,7 @@ describe("UsageRecordsSection attention", () => {
       }),
     );
 
-    await userEvent.click(screen.getByRole("button", { name: "清除筛选：分镜 E1S10" }));
+    await userEvent.click(screen.getByRole("button", { name: "清除筛选：分镜 未命名集 · S10" }));
 
     await waitFor(() => expect(lastQuery(location.history).has("u_segment")).toBe(false));
   });

@@ -18,6 +18,7 @@ from lib.artifacts.artifact_activation import (
     resolve_artifact_episode,
 )
 from lib.artifacts.artifact_manifest import ArtifactKey, ArtifactManifestError, ArtifactStatus
+from lib.episode.episode_ids import describe_episode_for_agent
 from lib.generation.batch_admission import (
     BatchAdmission,
     BatchAdmissionDecision,
@@ -120,7 +121,7 @@ class EpisodeTarget(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     scope: Literal["episode"] = Field(description="整集：只补缺视频的单元，已有可用成片一律复用")
-    episode: _PositiveInt = Field(description="集号，须与 script 的集号一致")
+    episode_id: _PositiveInt = Field(description="集 ID，须与 script 所属那一集的集 ID 一致")
 
 
 class AllTarget(BaseModel):
@@ -819,9 +820,9 @@ async def _run_reference_episode(
         # 生成模式闸门只问键在不在、不问值的类型，容器校验落在这里：不拦的话脏值（导入 / 外部编辑
         # 产生的 dict、字符串）会一路下传到 unit 迭代，报出无从定位的 TypeError。
         logger.debug("第 %d 集 video_units 类型非法: %s (%s)", episode, type(units).__name__, script_filename)
-        raise ValueError(f"第 {episode} 集 video_units 必须是数组：{script_filename}")
+        raise ValueError(f"{describe_episode_for_agent(project, episode)} 的 video_units 必须是数组：{script_filename}")
     if not units:
-        raise ValueError(f"第 {episode} 集 video_units 为空：{script_filename}")
+        raise ValueError(f"{describe_episode_for_agent(project, episode)} 的 video_units 为空：{script_filename}")
     units, malformed = screen_script_entries(units, requested_ids=None)
     return await _run_reference_batch(
         call=call,
@@ -1128,7 +1129,7 @@ class _StoryboardBatch:
 
 
 def _check_target_episode(call: _VideoCall, request: _VideoRequestContext, episode: int) -> None:
-    """整集选择器点名的集号必须就是剧本的集号：点错集不能按剧本那一集花钱。"""
+    """整集选择器点名的集 ID 必须就是剧本所属的那一集：点错集不能按剧本那一集花钱。"""
 
     project = call.projects.load_project(call.project_name)
     actual_episode = resolve_artifact_episode(
@@ -1137,7 +1138,7 @@ def _check_target_episode(call: _VideoCall, request: _VideoRequestContext, episo
         script_filename=request.script_filename,
     ) or ProjectManager.resolve_episode_from_script(request.script, request.script_filename)
     if episode != actual_episode:
-        raise ValueError(f"target.episode={episode} 与剧本集号 {actual_episode} 不一致")
+        raise ValueError(f"target.episode_id={episode} 与剧本所属的集 ID {actual_episode} 不一致")
 
 
 async def _generate_episode(call: _VideoCall, request: _VideoRequestContext, log: list[str]) -> ToolOutcome[Any]:
@@ -1159,7 +1160,7 @@ async def _generate_episode(call: _VideoCall, request: _VideoRequestContext, log
     sb = _storyboard_context(call, request)
     episode = sb.episode
     if not items and not screen_refused:
-        raise ValueError(f"第 {episode} 集剧本为空：{script_filename}")
+        raise ValueError(f"{describe_episode_for_agent(sb.project, episode)} 的剧本为空：{script_filename}")
 
     currency = active_artifact_currency_resolver(project_dir, sb.project)
     states = video_target_states(items, id_field, episode=episode, resolver=currency)
@@ -1402,7 +1403,7 @@ async def generate_videos(
     try:
         context = _video_request_context(call, args)
         if isinstance(target, EpisodeTarget):
-            _check_target_episode(call, context, target.episode)
+            _check_target_episode(call, context, target.episode_id)
             return await _generate_episode(call, context, log)
         if isinstance(target, AllTarget):
             return await _generate_all(call, context, log)

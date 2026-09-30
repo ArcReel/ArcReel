@@ -17,6 +17,8 @@ import {
 import { isResourceBusy } from "@/stores/tasks-store";
 import type { PromptOverwrite } from "@/types";
 import { errMsg } from "@/utils/async";
+import { useEpisodeLedger } from "@/hooks/useEpisodeLedger";
+import { episodeAgentRef, itemIdsInEpisodeText } from "@/utils/episode-display";
 import { promptAuthoringEntries, type PromptAuthoringEntry } from "./prompt-authoring-entries";
 
 function readPromptOverwrite(err: unknown): PromptOverwrite | null {
@@ -35,7 +37,6 @@ const FIELD_STYLE: CSSProperties = {
 interface HostProps {
   projectName: string;
   episode: number;
-  episodeTitle?: string;
   /** 本集正式脚本；尚无时不渲染。 */
   script: unknown;
   /** 本集上次保存的附加指令。 */
@@ -43,7 +44,7 @@ interface HostProps {
 }
 
 /** 集页上唯一的「编写提示词」弹窗宿主：按 {@link usePromptAuthoringStore} 的请求打开。 */
-export function PromptAuthoringHost({ projectName, episode, episodeTitle, script, savedInstructions }: HostProps) {
+export function PromptAuthoringHost({ projectName, episode, script, savedInstructions }: HostProps) {
   const request = usePromptAuthoringStore((s) => s.request);
   const close = usePromptAuthoringStore((s) => s.close);
   useEffect(() => close, [close, projectName, episode]);
@@ -58,7 +59,6 @@ export function PromptAuthoringHost({ projectName, episode, episodeTitle, script
       key={`${projectName}:${episode}:${request.scope}:${request.currentEntryId ?? ""}`}
       projectName={projectName}
       episode={episode}
-      episodeTitle={episodeTitle}
       entries={entries}
       unitMode={unitMode}
       request={request}
@@ -71,7 +71,6 @@ export function PromptAuthoringHost({ projectName, episode, episodeTitle, script
 interface DialogProps {
   projectName: string;
   episode: number;
-  episodeTitle?: string;
   entries: PromptAuthoringEntry[];
   /** 参考生视频单元：视觉层是单元正文，提示文案按单元说。 */
   unitMode: boolean;
@@ -83,7 +82,6 @@ interface DialogProps {
 export function PromptAuthoringDialog({
   projectName,
   episode,
-  episodeTitle,
   entries,
   unitMode,
   request,
@@ -91,6 +89,7 @@ export function PromptAuthoringDialog({
   onClose,
 }: DialogProps) {
   const { t } = useTranslation("dashboard");
+  const episodeLedger = useEpisodeLedger();
   const titleId = useId();
   const descId = useId();
   const fieldId = useId();
@@ -169,9 +168,10 @@ export function PromptAuthoringDialog({
       return;
     }
     const lines = [
-      episodeTitle
-        ? t("prompt_authoring_agent_prefill", { episode, title: episodeTitle, scope: scopeLabel })
-        : t("prompt_authoring_agent_prefill_untitled", { episode, scope: scopeLabel }),
+      t("prompt_authoring_agent_prefill", {
+        episodeRef: episodeAgentRef(episodeLedger, episode, t),
+        scope: scopeLabel,
+      }),
       rewrite ? t("prompt_authoring_agent_prefill_rewrite") : t("prompt_authoring_agent_prefill_fill"),
     ];
     if (instructions.trim()) {
@@ -349,7 +349,7 @@ export function PromptAuthoringDialog({
         open={overwrite !== null}
         tone="danger"
         title={t("prompt_authoring_overwrite_title")}
-        description={<p className="whitespace-pre-line">{overwrite?.text}</p>}
+        description={<p className="whitespace-pre-line">{overwrite ? itemIdsInEpisodeText(overwrite.text) : null}</p>}
         confirmLabel={t("prompt_authoring_ai_rewrite")}
         loading={submitting}
         onConfirm={() => void submit(overwrite?.revision ?? null)}

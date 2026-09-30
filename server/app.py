@@ -92,6 +92,7 @@ from server.routers import (
     versions,
 )
 from server.routers import auth as auth_router
+from server.services.project.episode_id_records import recorded_episode_ids_on
 from server.services.project.project_events import ProjectEventService
 from server.services.tasks.generation_tasks import execute_generation_task
 from server.services.tasks.resume_executor import execute_resume_video_task
@@ -408,7 +409,11 @@ async def lifespan(app: FastAPI):
     # Run any pending project.json schema migrations (file-based).
     # Both calls are synchronous filesystem walks — offload to a worker thread
     # so they don't block the event loop during uvicorn startup.
-    migration_summary = await asyncio.to_thread(run_project_migrations, layout.projects_dir)
+    migration_summary = await asyncio.to_thread(
+        run_project_migrations,
+        layout.projects_dir,
+        recorded_episode_ids=recorded_episode_ids_on(asyncio.get_running_loop()),
+    )
     if migration_summary.migrated or migration_summary.failed:
         logger.info(
             "Project migrations: migrated=%s skipped=%d failed=%s",

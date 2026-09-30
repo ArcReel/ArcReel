@@ -417,7 +417,7 @@ def test_generate_grid_rejects_an_unbound_script_before_enqueue(monkeypatch, tmp
         )
 
     assert response.status_code == 400, response.text
-    assert response.json()["detail"] == i18n_message("invalid_script_file", name="episode_1.json")
+    assert response.json()["detail"] == i18n_message("invalid_script_file", name="「未命名集」的剧本")
     assert fake_queue.calls == []
 
 
@@ -436,7 +436,7 @@ def test_generate_grid_rejects_an_episode_path_that_mismatches_the_bound_script(
         )
 
     assert response.status_code == 400, response.text
-    assert response.json()["detail"] == i18n_message("invalid_script_file", name="episode_1.json")
+    assert response.json()["detail"] == i18n_message("invalid_script_file", name="「未命名集」的剧本")
     assert fake_queue.calls == []
 
 
@@ -509,7 +509,7 @@ def test_generate_grid_blocks_the_whole_batch_on_a_pending_prompt(monkeypatch, t
         resp = client.post("/api/v1/projects/demo/generate/grid/1", json={"script_file": "episode_1.json"})
 
     assert resp.status_code == 409, resp.text
-    assert resp.json()["detail"] == i18n_message("script_prompt_pending", segment_id="E1S03")
+    assert resp.json()["detail"] == i18n_message("script_prompt_pending", segment_id="未命名集 · S03")
     assert fake_queue.calls == []
     assert not (tmp_path / "grids").exists()
 
@@ -680,7 +680,7 @@ def test_generate_grid_rejects_an_unknown_scene_without_enqueueing(monkeypatch, 
         )
 
     assert resp.status_code == 400, resp.text
-    assert resp.json()["detail"] == i18n_message("segment_not_found", id="E9S99")
+    assert resp.json()["detail"] == i18n_message("segment_not_found", id="未命名集 · S99")
     assert fake_queue.calls == []
 
 
@@ -939,7 +939,7 @@ def test_regenerate_grid_rejects_an_unbound_script_without_mutating_the_record(m
         response = client.post(f"/api/v1/projects/demo/grids/{grid.id}/regenerate")
 
     assert response.status_code == 400, response.text
-    assert response.json()["detail"] == i18n_message("invalid_script_file", name="episode_1.json")
+    assert response.json()["detail"] == i18n_message("invalid_script_file", name="「未命名集」的剧本")
     assert fake_queue.calls == []
     assert GridManager(tmp_path).get(grid.id) == grid
 
@@ -1012,7 +1012,7 @@ def test_regenerate_grid_blocks_on_a_pending_prompt_without_mutating_the_record(
         resp = client.post(f"/api/v1/projects/demo/grids/{grid.id}/regenerate")
 
     assert resp.status_code == 409, resp.text
-    assert resp.json()["detail"] == i18n_message("script_prompt_pending", segment_id="E1S01")
+    assert resp.json()["detail"] == i18n_message("script_prompt_pending", segment_id="未命名集 · S01")
     assert fake_queue.calls == []
     assert GridManager(tmp_path).get(grid.id) == grid
 

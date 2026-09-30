@@ -766,6 +766,7 @@ class TaskRepository(BaseRepository):
 
         task_summary = {
             "task_id": task.task_id,
+            "project_name": task.project_name,
             "task_type": task.task_type,
             "resource_id": task.resource_id,
             "status": task.status,
@@ -777,7 +778,7 @@ class TaskRepository(BaseRepository):
     async def _collect_queued_dependents(self, task_id: str) -> list[dict[str, Any]]:
         """递归收集依赖于 task_id 的所有 queued 任务摘要。"""
         result = await self.session.execute(
-            select(Task.task_id, Task.task_type, Task.resource_id)
+            select(Task.task_id, Task.task_type, Task.resource_id, Task.project_name)
             .where(
                 Task.dependency_task_id == task_id,
                 Task.status == "queued",
@@ -786,7 +787,7 @@ class TaskRepository(BaseRepository):
         )
         dependents = []
         for row in result.all():
-            summary = {"task_id": row[0], "task_type": row[1], "resource_id": row[2]}
+            summary = {"task_id": row[0], "task_type": row[1], "resource_id": row[2], "project_name": row[3]}
             dependents.append(summary)
             dependents.extend(await self._collect_queued_dependents(row[0]))
         return dependents

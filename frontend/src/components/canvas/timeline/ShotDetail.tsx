@@ -52,6 +52,7 @@ import {
 } from "@/utils/prompt-shape";
 import { isContinuousIntegerRange } from "@/utils/duration_format";
 import { PromptAuthoringButton } from "@/components/canvas/shared/PromptAuthoringButton";
+import { itemIdWithinEpisode } from "@/utils/episode-display";
 
 type Segment = NarrationSegment | DramaScene | AdShot;
 type DetailContentMode = "narration" | "drama" | "ad";
@@ -1250,7 +1251,7 @@ export function ShotDetail({
               "inset 0 1px 0 oklch(1 0 0 / 0.3), 0 2px 6px -2px var(--color-accent-glow)",
           }}
         >
-          {segmentId}
+          {itemIdWithinEpisode(segmentId)}
         </span>
         <DurationPill
           seconds={segment.duration_seconds ?? 0}

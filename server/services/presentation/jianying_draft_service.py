@@ -29,6 +29,7 @@ from pyJianYingDraft import (
     trange,
 )
 
+from lib.episode.episode_ids import default_episode_title, episode_position
 from lib.infra.path_safety import PathTraversalError, safe_join
 from lib.project.project_manager import ProjectManager
 from lib.speech.narration_delivery import POST_PRODUCTION
@@ -345,11 +346,16 @@ class JianyingDraftService:
 
     @staticmethod
     def _draft_name(project_name: str, project: Mapping[str, Any], episode: int) -> str:
-        raw_title = project.get("title")
-        title = raw_title if isinstance(raw_title, str) and raw_title.strip() else project_name
-        safe_title = title.replace("/", "_").replace("\\", "_").replace("..", "_")
-        name = safe_title if project.get("content_mode") == "ad" else f"{safe_title}_第{episode}集"
-        return name if name.replace(".", "").strip() else project_name
+        """草稿文件夹与压缩包名：``{两位播出位置}_{集标题}``；集不在账本里时退回项目标题。"""
+
+        position = episode_position(project, episode)
+        if position is None:
+            raw_title = project.get("title")
+            name = raw_title if isinstance(raw_title, str) and raw_title.strip() else project_name
+        else:
+            name = f"{position:02d}_{default_episode_title(project, episode)}"
+        safe_name = name.replace("/", "_").replace("\\", "_").replace("..", "_")
+        return safe_name if safe_name.replace(".", "").strip() else project_name
 
 
 __all__ = [

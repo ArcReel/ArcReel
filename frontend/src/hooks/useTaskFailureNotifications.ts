@@ -73,7 +73,7 @@ export function useTaskFailureNotifications(projectName?: string | null): void {
       const isFreshFailure = seeded && before === undefined;
       // 资产图批次的成员由 useAssetSheetBatchNotifications 整批汇总成一条通知。
       if (tk.status === "failed" && (isTransition || isFreshFailure) && !isAssetSheetBatchTask(tk.task_id)) {
-        const text = describeTaskFailure(tRef.current, tk);
+        const text = describeTaskFailure(tRef.current, tk, projectDataRef.current);
         if (text) {
           useAppStore.getState().pushNotification(text, "error", {
             target: buildTaskFailureTarget(tk, projectDataRef.current),

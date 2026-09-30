@@ -220,6 +220,11 @@ export function UsageRecordsSection() {
       <UsageFilterBar
         filters={filters}
         summary={summary}
+        segmentRef={
+          filters.segment
+            ? (records.find((record) => record.segment_id === filters.segment)?.segment_ref ?? null)
+            : null
+        }
         onChange={onFiltersChange}
         onRefresh={() => void refresh()}
         refreshing={summaryLoading || recordsLoading}

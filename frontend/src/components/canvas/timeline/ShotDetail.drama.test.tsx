@@ -190,7 +190,7 @@ describe("ShotDetail 剧情演绎", () => {
 
       fireEvent.click(screen.getByRole("button", { name: "移除分镜" }));
       const dialog = screen.getByRole("dialog");
-      expect(within(dialog).getByText("移除分镜 E1S01？")).toBeInTheDocument();
+      expect(within(dialog).getByText("移除分镜 S01？")).toBeInTheDocument();
       expect(within(dialog).getByText(/产物随分镜一并移除/)).toBeInTheDocument();
       expect(onRemoveShot).not.toHaveBeenCalled();
 

@@ -2,6 +2,7 @@ import { useTranslation } from "react-i18next";
 import { LayoutGrid } from "lucide-react";
 import { STATUS_CONF, resolveUnitStatus } from "./unit-status";
 import type { ReferenceVideoUnit, UnitStatus } from "@/types";
+import { itemIdWithinEpisode } from "@/utils/episode-display";
 
 export interface UnitRailProps {
   units: ReferenceVideoUnit[];
@@ -37,14 +38,13 @@ export function UnitRail({ units, selectedId, onSelect, onExpand, dirtyMap, stat
           const dirty = !!dirtyMap?.[u.unit_id];
           const status = resolveUnitStatus(u, statusMap);
           const conf = STATUS_CONF[status];
-          // Strip the leading E{episode} from the unit id so the rail shows just `U{n}`.
-          const shortId = u.unit_id.replace(/^E\d+/, "");
+          const shortId = itemIdWithinEpisode(u.unit_id);
           return (
             <button
               key={u.unit_id}
               type="button"
               onClick={() => onSelect(u.unit_id)}
-              title={`${u.unit_id} · ${t(conf.i18nKey)}`}
+              title={`${shortId} · ${t(conf.i18nKey)}`}
               className={`focus-ring relative flex w-full flex-col items-center gap-1 rounded-md py-2 ${
                 sel
                   ? "border border-[var(--color-accent-soft)] bg-[linear-gradient(180deg,oklch(0.26_0.018_290_/_0.5),oklch(0.22_0.015_280_/_0.35))]"

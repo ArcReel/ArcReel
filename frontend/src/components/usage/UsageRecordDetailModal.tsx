@@ -9,6 +9,7 @@ import { ModalCloseButton } from "@/components/ui/ModalCloseButton";
 import type { UsageRecordDetail } from "@/types";
 import { formatCurrencyAmount } from "@/utils/cost-format";
 import { formatShortDateTime } from "@/utils/date-format";
+import { episodeItemRefLabel, itemIdsInEpisodeText } from "@/utils/episode-display";
 import {
   MEDIA_META,
   STATUS_COLORS,
@@ -72,13 +73,13 @@ function Thumbnail({
       ) : (
         <img
           src={API.getFileUrl(projectName, path)}
-          alt={caption ?? path}
+          alt={itemIdsInEpisodeText(caption ?? path)}
           onError={() => setBroken(true)}
           className="h-[92px] w-[92px] rounded-[8px] border border-hairline-soft object-cover"
         />
       )}
       {caption && (
-        <figcaption className="mt-1 truncate text-[10px] text-text-4">{caption}</figcaption>
+        <figcaption className="mt-1 truncate text-[10px] text-text-4">{itemIdsInEpisodeText(caption)}</figcaption>
       )}
     </figure>
   );
@@ -144,7 +145,7 @@ function InputsGroup({ detail }: { detail: UsageRecordDetail }) {
         {referenceAudio.length > 0 && (
           <Field
             label={t("usage_field_reference_audio")}
-            value={referenceAudio.join("\n")}
+            value={referenceAudio.map(itemIdsInEpisodeText).join("\n")}
           />
         )}
         {detail.resolution && (
@@ -207,7 +208,7 @@ export function UsageRecordDetailModal({
   const failureStatus = detail?.error_params?.status;
   const purpose = purposeKey(detail?.purpose ?? null);
   const target = detail?.segment_id
-    ? t("dashboard:usage_target_segment", { id: detail.segment_id })
+    ? t("dashboard:usage_target_segment", { id: episodeItemRefLabel(detail.segment_id, detail.segment_ref, t) })
     : purpose
       ? t(`dashboard:${purpose}`)
       : "—";
@@ -336,7 +337,7 @@ export function UsageRecordDetailModal({
                 )}
                 <Field
                   label={t("dashboard:usage_field_file")}
-                  value={detail.output_path}
+                  value={itemIdsInEpisodeText(detail.output_path)}
                 />
               </div>
             ) : (

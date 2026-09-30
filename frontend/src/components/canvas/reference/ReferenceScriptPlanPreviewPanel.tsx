@@ -36,6 +36,8 @@ import { ACCENT_BTN_CLS, ACCENT_BUTTON_STYLE, CARD_STYLE, GHOST_BTN_CLS, GHOST_B
 import { ScriptHighlight } from "@/components/shared/ScriptHighlight";
 import { toScriptLines, type MentionLookup } from "@/hooks/useUnitPromptHighlight";
 import { extractMentions } from "@/utils/reference-mentions";
+import { useEpisodeLedger } from "@/hooks/useEpisodeLedger";
+import { episodeAgentRef, itemIdsInEpisodeText, itemIdWithinEpisode } from "@/utils/episode-display";
 import { tierProblemText } from "./unit-tier-problem";
 import { ReferenceSplitAlert } from "./ReferenceSplitAlert";
 
@@ -202,8 +204,8 @@ function InlineViolations({ violations, unitKey }: { violations: ScriptReviewVio
           ?.map(({ path, line }) => `${path.join(".")}${line === null ? "" : `:${line + 1}`}`)
           .join(", ");
         const message = speechKey && location
-          ? t(speechKey, { unitId: unitKey, location })
-          : v.message;
+          ? t(speechKey, { unitId: itemIdWithinEpisode(unitKey), location })
+          : itemIdsInEpisodeText(v.message);
         return (
           <p key={`${v.code}-${i}`} className="mt-1 flex items-start gap-1.5 pl-1 text-[11px] leading-snug text-red-300">
             <OctagonAlert className="mt-px h-3 w-3 shrink-0" aria-hidden="true" />
@@ -275,7 +277,7 @@ function UnitCard({
       style={CARD_STYLE}
     >
       <div className="flex items-center gap-2">
-        <span className="rounded bg-bg-grad-a/70 px-1.5 py-0.5 font-mono text-[11px] text-text-2">{unit.key}</span>
+        <span className="rounded bg-bg-grad-a/70 px-1.5 py-0.5 font-mono text-[11px] text-text-2">{itemIdWithinEpisode(unit.key)}</span>
         {durationProblem ? (
           <span className="text-[11px] text-amber-300" title={durationProblem.hint}>
             {durationProblem.label}
@@ -285,7 +287,7 @@ function UnitCard({
             value={unit.duration_seconds}
             onChange={(e) => onDurationChange(Number(e.target.value))}
             disabled={busy}
-            aria-label={t("reference_script_plan_duration_label", { unit: unit.key })}
+            aria-label={t("reference_script_plan_duration_label", { unit: itemIdWithinEpisode(unit.key) })}
             className="rounded-[6px] border border-hairline bg-bg-grad-a/40 px-1 py-0.5 text-[11px] text-text-3 hover:text-text disabled:cursor-not-allowed disabled:opacity-60"
           >
             {/* 存量草稿的秒数可能已不在当前档位表内：补一个当前值选项，否则 select 会静默
@@ -359,7 +361,7 @@ function UnitCard({
             value={unit.scriptText}
             onChange={onTextChange}
             disabled={busy}
-            aria-label={t("reference_script_plan_unit_text_label", { unit: unit.key })}
+            aria-label={t("reference_script_plan_unit_text_label", { unit: itemIdWithinEpisode(unit.key) })}
             className="text-text-3"
           />
         ) : (
@@ -412,6 +414,8 @@ export function ReferenceScriptPlanPreviewPanel({
   onOpenTimeline,
 }: ReferenceScriptPlanPreviewPanelProps) {
   const { t } = useTranslation("dashboard");
+  const episodeLedger = useEpisodeLedger();
+  const episodeRef = episodeAgentRef(episodeLedger, episode, t);
   const standaloneCapabilities = useModelCapabilities({ projectName, enabled: videoModelUnresolved === undefined });
   const modelUnresolved = videoModelUnresolved ?? standaloneCapabilities.videoModelUnresolved;
   const pushToast = useAppStore((s) => s.pushToast);
@@ -424,12 +428,12 @@ export function ReferenceScriptPlanPreviewPanel({
     // 保存 / 确认两次 await 期间用户可能已切走项目（本组件所在的 tab 可能因此被卸载）：只在项目
     // 本身变了才抑制全局副作用，否则会把续写消息写进用户切换到的别的项目/会话。同项目内切
     // tab（如切到「视频单元」，本面板同样会被卸载）不属于这种情况——预填文案本身带着具体
-    // 集号，写进全局 assistant 输入框依然准确，不该被同一份卸载信号误伤。
+    // 集 ID，写进全局 assistant 输入框依然准确，不该被同一份卸载信号误伤。
     if (useProjectsStore.getState().currentProjectName !== projectName) return;
     pushToast(t("dashboard:review_confirmed"), "success");
     // 确认放行 + 预填继续消息到会话输入框——只填不发送，用户自行核对后发送。
-    prefillAssistant(t("reference_script_plan_confirm_continue_prefill", { episode }));
-  }, [projectName, episode, pushToast, t]);
+    prefillAssistant(t("reference_script_plan_confirm_continue_prefill", { episodeRef }));
+  }, [projectName, episodeRef, pushToast, t]);
 
   const {
     state,
@@ -551,7 +555,7 @@ export function ReferenceScriptPlanPreviewPanel({
           violationCount={quarantine.violations.length}
           itemJumps={[...groups.byItem.entries()].map(([index, list]) => ({
             index,
-            label: displayUnits[index].key,
+            label: itemIdWithinEpisode(displayUnits[index].key),
             count: list.length,
           }))}
           episodeLevelCount={groups.episodeLevel.length}
@@ -565,7 +569,7 @@ export function ReferenceScriptPlanPreviewPanel({
           onSave={voidPromise(draftEditor.save)}
           onReloadLatest={draftEditor.reloadLatest}
           onHandToAgent={() =>
-            prefillAssistant(draftFixRequestText(t, episode, "reference_script_plan", quarantine.violations))
+            prefillAssistant(draftFixRequestText(t, episodeRef, "reference_script_plan", quarantine.violations))
           }
           onDiscard={() => setDiscardOpen(true)}
         />
@@ -657,7 +661,7 @@ export function ReferenceScriptPlanPreviewPanel({
         <AgentDraftBar
           busy={draftBusy}
           onFinish={() =>
-            prefillAssistant(t("dashboard:draft_agent_finish_prefill", { episode, docType: "reference_script_plan" }))
+            prefillAssistant(t("dashboard:draft_agent_finish_prefill", { episodeRef, docType: "reference_script_plan" }))
           }
           onDiscard={() => setDiscardOpen(true)}
         />

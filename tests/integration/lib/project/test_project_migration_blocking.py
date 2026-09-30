@@ -379,7 +379,7 @@ async def test_prompt_preview_reports_the_full_migration_problem(tmp_path: Path)
 
 
 _ABSENT_REVISION = "sha256-v1:" + "0" * 64
-_DRAFT = {"episode": 1, "doc_type": "drama_script_plan"}
+_DRAFT = {"episode_id": 1, "doc_type": "drama_script_plan"}
 
 
 async def test_mcp_guard_reads_the_session_projects_root_not_the_global_one(tmp_path: Path, monkeypatch) -> None:

@@ -570,7 +570,7 @@ class TestScriptGenerator:
         generator = ScriptGenerator(project_path)
         parsed = generator._parse_response('{"foo": "bar"}', 1)
         # 校验失败降级返回原始数据；title 兜底在校验前注入，故降级结果也携带
-        assert parsed == {"foo": "bar", "title": "第1集"}
+        assert parsed == {"foo": "bar", "title": "未命名集"}
 
     async def test_generate_writes_script_and_metadata(self, tmp_path):
         """待编写分镜补上视觉层并清除标记：内容字段逐字保留，metadata 刷新 generator、保留 created_at。"""
@@ -1053,14 +1053,14 @@ class TestAddMetadataInjectsHiddenFields:
         data = {"title": "第一集", "scenes": [{"scene_id": "E1S01"}]}
         out = sg._add_metadata(data, episode=1)
         assert out["content_mode"] == "drama"
-        assert out["novel"] == {"title": "项目标题", "chapter": "第1集"}
+        assert out["novel"] == {"title": "项目标题", "chapter": "第一集"}
 
     def test_narration_injects_content_mode_and_novel_when_llm_omits(self, tmp_path: Path) -> None:
         sg = self._make_generator(tmp_path, content_mode="narration")
         data = {"title": "第一集", "segments": [{"segment_id": "E1S01"}]}
         out = sg._add_metadata(data, episode=1)
         assert out["content_mode"] == "narration"
-        assert out["novel"]["chapter"] == "第1集"
+        assert out["novel"]["chapter"] == "第一集"
 
     def test_strips_legacy_generation_mode_stamp(self, tmp_path: Path) -> None:
         """生成模式的真相源是 project.json，剧本不留标记：存量剧本重生成、或校验失败降级保存的
@@ -1110,7 +1110,7 @@ class TestAddMetadataInjectsHiddenFields:
         assert dumped["novel"] == {"title": "", "chapter": ""}
 
         out = sg._add_metadata(dumped, episode=1)
-        assert out["novel"] == {"title": "项目标题", "chapter": "第1集"}
+        assert out["novel"] == {"title": "项目标题", "chapter": "第一集"}
 
     def test_narration_overrides_empty_novel_after_model_dump(self, tmp_path: Path) -> None:
         from lib.script.script_models import NarrationEpisodeScript
@@ -1136,7 +1136,7 @@ class TestAddMetadataInjectsHiddenFields:
         assert dumped["novel"] == {"title": "", "chapter": ""}
 
         out = sg._add_metadata(dumped, episode=2)
-        assert out["novel"] == {"title": "项目标题", "chapter": "第2集"}
+        assert out["novel"] == {"title": "项目标题", "chapter": "未命名集"}
 
     def test_partial_novel_only_title_is_also_reinjected(self, tmp_path: Path) -> None:
         """半填 novel(只有 title 或只有 chapter)也应触发重注入,避免 novel 残缺。"""
@@ -1147,7 +1147,7 @@ class TestAddMetadataInjectsHiddenFields:
             "scenes": [{"scene_id": "E1S01"}],
         }
         out = sg._add_metadata(data, episode=1)
-        assert out["novel"]["chapter"] == "第1集"
+        assert out["novel"]["chapter"] == "第一集"
         assert out["novel"]["title"] == "项目标题"
 
 
@@ -2062,7 +2062,7 @@ class TestAdParseResponseDriftRecovery:
         )
         parsed = generator._parse_response(llm_response, 1)
 
-        assert parsed["title"] == "第1集"
+        assert parsed["title"] == "第 1 集"
         first, second = parsed["shots"]
         assert first["image_prompt"]["composition"]["shot_type"] == "Medium Shot"
         assert first["video_prompt"]["camera_motion"] == "Zoom Out"

@@ -7,9 +7,11 @@ import { totalBreakdown } from "@/utils/cost-format";
 
 interface EpisodeCardProps {
   ep: EpisodeMeta;
+  /** 在播出顺序（episodes[] 排列）中的位置，从 1 起；徽标显示它而不是集 ID。 */
+  position: number;
   active: boolean;
   onClick: () => void;
-  /** ad 项目隐藏集语义：徽标不显示 E{n}，改用场记板图标。 */
+  /** ad 项目隐藏集语义：徽标不显示播出位置，改用场记板图标。 */
   showEpisodeBadge?: boolean;
   /** ep.title 为空时的兜底显示文本（ad 项目用项目标题）。 */
   fallbackTitle?: string;
@@ -39,13 +41,14 @@ const STATUS_LABEL_KEY: Record<string, string> = {
  */
 export function EpisodeCard({
   ep,
+  position,
   active,
   onClick,
   showEpisodeBadge = true,
   fallbackTitle,
   route,
 }: EpisodeCardProps) {
-  const { t } = useTranslation(["dashboard"]);
+  const { t } = useTranslation(["dashboard", "common"]);
   const status = ep.status ?? "draft";
   const statusColor = STATUS_COLOR[status] ?? STATUS_COLOR.draft;
   const statusLabel = t(STATUS_LABEL_KEY[status] ?? STATUS_LABEL_KEY.draft);
@@ -115,7 +118,7 @@ export function EpisodeCard({
             : "inset 0 1px 0 oklch(1 0 0 / 0.04), inset 0 0 0 1px var(--color-hairline-soft)",
         }}
       >
-        {showEpisodeBadge ? `E${ep.episode}` : <Clapperboard className="h-4 w-4" aria-hidden />}
+        {showEpisodeBadge ? position : <Clapperboard className="h-4 w-4" aria-hidden />}
       </div>
 
       <div className="min-w-0">
@@ -126,7 +129,7 @@ export function EpisodeCard({
             fontWeight: active ? 600 : 500,
           }}
         >
-          {ep.title || fallbackTitle || ""}
+          {ep.title || fallbackTitle || t("common:episode_position_name", { position })}
         </div>
         <div className="mt-[3px] flex items-center gap-1.5">
           <span

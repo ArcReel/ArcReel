@@ -11,6 +11,7 @@ import type {
 } from "@/types/presentation";
 import { errMsg } from "@/utils/async";
 import { downloadBlob } from "@/utils/download";
+import { itemIdWithinEpisode } from "@/utils/episode-display";
 
 interface PresentationPlayerProps {
   projectName: string;
@@ -338,7 +339,7 @@ export function PresentationPlayer({
         ref={bindVideo}
         src={videoUrl}
         poster={posterUrl}
-        aria-label={t("presentation_video_aria", { id: presentation.unit_id })}
+        aria-label={t("presentation_video_aria", { id: itemIdWithinEpisode(presentation.unit_id) })}
         controls
         playsInline
         preload="metadata"
@@ -377,7 +378,7 @@ export function PresentationPlayer({
         <audio
           ref={bindNarration}
           src={narrationUrl}
-          aria-label={t("presentation_tts_track_aria", { id: presentation.unit_id })}
+          aria-label={t("presentation_tts_track_aria", { id: itemIdWithinEpisode(presentation.unit_id) })}
           preload="metadata"
           className="hidden"
         >

@@ -18,6 +18,7 @@ from lib.artifacts.artifact_version_provenance import VIDEO_CURRENCY_DURATION_FI
 from lib.artifacts.media_artifact_currency import build_current_video_artifact_basis
 from lib.config.resolver import ConfigResolver
 from lib.config.service import ConfigService
+from lib.episode.episode_ids import EPISODE_ID_HIGH_WATER_KEY, allocate_episode_ids
 from lib.project.project_manager import ProjectManager
 from lib.project.project_migration_failure import ProjectMigrationError
 from lib.project.project_migration_report import load_migration_report
@@ -34,8 +35,10 @@ from tests.legacy_project_shapes import (
     advance_project_schema,
     legacy_transition_presentation_basis,
     write_legacy_ad_reference_video_project,
+    write_legacy_episode_id_remnants_project,
     write_legacy_presentation_project,
     write_legacy_reference_video_project,
+    write_legacy_script_plan_project,
     write_legacy_storyboard_project,
     write_legacy_tts_narration_project,
 )
@@ -359,7 +362,12 @@ def test_project_without_registered_narration_audio_becomes_post_production(tmp_
     migrate_v15_to_v16(project_dir)
 
     project = _read_json(project_dir / "project.json")
-    assert project == {**legacy, "narration_delivery": "post_production", "schema_version": 16}
+    assert project == {
+        **legacy,
+        "narration_delivery": "post_production",
+        EPISODE_ID_HIGH_WATER_KEY: 1,
+        "schema_version": 16,
+    }
 
 
 @pytest.mark.parametrize("invalid_audio", ["missing-claim", "wrong-script"])
@@ -587,3 +595,57 @@ def test_the_whole_chain_registers_uploads_made_before_the_manifest(tmp_path: Pa
         _status(project_dir, ArtifactKey.episode_storyboard(1, "E1S2"), "storyboards/scene_E1S2.png")
         is ArtifactStatus.CURRENT
     )
+
+
+# ---------------------------------------------------------------------------
+# 集 ID 与播出顺序分离
+# ---------------------------------------------------------------------------
+
+
+def test_high_water_covers_ledger_disk_remnants_and_recorded_ids(tmp_path: Path) -> None:
+    project_dir = write_legacy_episode_id_remnants_project(tmp_path / "projects")
+    looked_up: list[str] = []
+
+    def recorded_episode_ids(project_name: str) -> int:
+        looked_up.append(project_name)
+        return 9
+
+    migrate_project_dir(project_dir, recorded_episode_ids=recorded_episode_ids)
+
+    project = _read_json(project_dir / "project.json")
+    assert looked_up == [project_dir.name]
+    assert project[EPISODE_ID_HIGH_WATER_KEY] == 9
+    assert allocate_episode_ids(project, 1) == [10]
+
+
+def test_high_water_without_recorded_ids_covers_disk_remnants(tmp_path: Path) -> None:
+    project_dir = write_legacy_episode_id_remnants_project(tmp_path / "projects")
+
+    migrate_project_dir(project_dir)
+
+    assert _read_json(project_dir / "project.json")[EPISODE_ID_HIGH_WATER_KEY] == 8
+
+
+@pytest.mark.parametrize("record_remnant", ["version_history", "grid"])
+def test_high_water_covers_records_left_after_the_media_was_deleted(tmp_path: Path, record_remnant) -> None:
+    project_dir = write_legacy_episode_id_remnants_project(tmp_path / "projects", record_remnant=record_remnant)
+    migrate_project_dir(project_dir)
+    project = ProjectManager.for_project_dir(project_dir).load_project(project_dir.name)
+    assert allocate_episode_ids(project, 1) == [42]
+
+
+def test_script_plans_stale_only_by_the_next_episode_outline_stay_current(tmp_path: Path) -> None:
+    """下集大纲改为「没有规划数据时给标题」：只因此变了依据的脚本规划登记随升级改写，仍是时新。"""
+
+    project_dir = write_legacy_script_plan_project(tmp_path / "projects", variant="drama", schema_version=10)
+    advance_project_schema(project_dir, to_version=15)
+    plan_path = "drafts/episode_1/script_plan_normalized_script.json"
+    key = ArtifactKey.episode_script_plan(1)
+    registered = ProjectArtifactManifestAdapter(project_dir).snapshot_entries()[key]
+    assert TargetStatePlanner(project_dir, allow_stale_formal_targets=True).plan().entries[key] == registered
+
+    migrate_project_dir(project_dir)
+
+    assert _status(project_dir, key, plan_path) is ArtifactStatus.CURRENT
+    status = WorkflowStateService(ProjectManager(tmp_path)).get_status(project_dir.name, 1)
+    assert status.artifacts["script_plan"]["state"] == "current"

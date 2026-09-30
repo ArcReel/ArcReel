@@ -151,9 +151,9 @@ describe("ReferenceVideoCanvas", () => {
       .mockResolvedValue({ episode: 1, doc_type: "reference_prompt_authoring", adopted: true, draft: null });
     render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
 
-    expect(await screen.findByText("unit E1U2 使用了全角花括号")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "E1U2 · 1" })).toBeInTheDocument();
-    fireEvent.change(screen.getByRole("textbox", { name: "E1U2 正文" }), { target: { value: "镜头二" } });
+    expect(await screen.findByText("unit U2 使用了全角花括号")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "U2 · 1" })).toBeInTheDocument();
+    fireEvent.change(screen.getByRole("textbox", { name: "U2 正文" }), { target: { value: "镜头二" } });
     fireEvent.click(screen.getByRole("button", { name: /保存并校验/ }));
 
     await waitFor(() =>
@@ -192,7 +192,7 @@ describe("ReferenceVideoCanvas", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: /^(Remove unit|移除单元)$/ }));
     const dialog = screen.getByRole("dialog");
-    expect(within(dialog).getByText(/E1U1/)).toBeInTheDocument();
+    expect(within(dialog).getByText(/U1/)).toBeInTheDocument();
     expect(deleteSpy).not.toHaveBeenCalled();
 
     fireEvent.click(within(dialog).getByRole("button", { name: /^(Remove unit|移除单元)$/ }));
@@ -1302,7 +1302,7 @@ describe("ReferenceVideoCanvas", () => {
       expect(dialog.getByText(/2 个单元|2 units/)).toBeInTheDocument();
       expect(dialog.getByText(/约 \$1\.60|about \$1\.60/)).toBeInTheDocument();
       expect(dialog.getByText(/报价不可用|price unavailable/)).toBeInTheDocument();
-      for (const unitId of ["E1U1", "E1U2", "E1U3"]) {
+      for (const unitId of ["U1", "U2", "U3"]) {
         expect(dialog.getByText(unitId)).toBeInTheDocument();
       }
 
@@ -1437,7 +1437,7 @@ describe("ReferenceVideoCanvas", () => {
       expect(dialog.getByText(/^(?:申请 12 秒|requesting 12s)$/)).toBeInTheDocument();
       // 被连带扣下的单元单列，说明它自身没问题
       expect(dialog.getByText(/本身没问题|w(as|ere) fine but w(as|ere) held back/)).toBeInTheDocument();
-      for (const unitId of ["E1U1", "E1U2", "E1U3"]) {
+      for (const unitId of ["U1", "U2", "U3"]) {
         expect(dialog.getByText(unitId)).toBeInTheDocument();
       }
 
@@ -1475,12 +1475,12 @@ describe("ReferenceVideoCanvas", () => {
 
       const dialog = within(await screen.findByRole("dialog"));
       // 逐个 unit 与各自原因都在，不塌成一句计数
-      expect(dialog.getByText("E1U2")).toBeInTheDocument();
-      expect(dialog.getByText("E1U3")).toBeInTheDocument();
+      expect(dialog.getByText("U2")).toBeInTheDocument();
+      expect(dialog.getByText("U3")).toBeInTheDocument();
       expect(dialog.getByText("队列暂时不可用")).toBeInTheDocument();
       expect(dialog.getByText("任务创建失败")).toBeInTheDocument();
       // 已排上的单元不混进未排上的清单
-      expect(dialog.queryByText("E1U1")).not.toBeInTheDocument();
+      expect(dialog.queryByText("U1")).not.toBeInTheDocument();
       // 已建任务照常执行这一点要说明，否则用户读不出这批是「部分成功」
       expect(
         dialog.getByText(/再次批量生成就会补上|generate the batch again/),
@@ -1531,8 +1531,8 @@ describe("ReferenceVideoCanvas", () => {
 
       const dialog = within(await screen.findByRole("dialog"));
       // 缺口明细照旧逐个列出
-      expect(dialog.getByText("E1U1")).toBeInTheDocument();
-      expect(dialog.getByText("E1U2")).toBeInTheDocument();
+      expect(dialog.getByText("U1")).toBeInTheDocument();
+      expect(dialog.getByText("U2")).toBeInTheDocument();
       // 一个任务都没建时不能说「部分」，也不能说已提交的任务照常执行
       expect(
         dialog.getByText(/没有任务排上队列|No task from this batch was queued/),
@@ -1745,7 +1745,7 @@ describe("ReferenceVideoCanvas", () => {
       vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [staleUnit()], unit_capabilities: {} });
       render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
 
-      await screen.findAllByText("E1U1");
+      await screen.findAllByText("U1");
       expect(screen.queryByRole("button", { name: /Got it|知道了/ })).not.toBeInTheDocument();
     });
   });

@@ -1,6 +1,7 @@
 import { useTranslation } from "react-i18next";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import type { ReferenceDurationPrecheck } from "@/types";
+import { itemIdWithinEpisode } from "@/utils/episode-display";
 import { advisoryProblems } from "./advisory-problems";
 
 /** 需确认的单元及其取档结果。 */
@@ -104,7 +105,7 @@ export function ReferenceDurationConfirmDialog({ open, items, onConfirm, onCance
         {durationItems.map((item) => (
           <DurationRow
             key={item.unitId}
-            label={item.unitId}
+            label={itemIdWithinEpisode(item.unitId)}
             item={item}
             diffText={diffText(item)}
           />
@@ -130,7 +131,7 @@ export function ReferenceDurationConfirmDialog({ open, items, onConfirm, onCance
                     className="font-mono text-[11.5px]"
                     style={{ color: "var(--color-text-3)" }}
                   >
-                    {unitId}
+                    {itemIdWithinEpisode(unitId)}
                   </span>
                 )}
                 <span style={{ color: "var(--color-text-2)" }}>{problem.message}</span>

@@ -1,4 +1,7 @@
 MESSAGES = {
+    "episode_position_name": "Episode {position}",
+    "episode_unlisted_name": "Untitled episode",
+    "episode_script_name": "Script for “{name}”",
     "operation_operation_not_applicable": "This operation does not apply to this project type",
     "operation_whole_source_missing": "The project has no whole source text; upload it or create an episode manually before AI episode planning",
     "operation_episode_source_missing": "{where} has no episode source text; write a blank script manually or provide source text before AI script planning",
@@ -8,11 +11,11 @@ MESSAGES = {
     "operation_prompt_authoring_draft_pending": "{where} has a prompt-authoring draft to resolve; authoring has stopped",
     "operation_ad_brief_and_products_missing": "Add a creative brief or at least one product before AI ad/short-film script generation",
     "operation_refused": "The operation is not admitted",
-    "operation_episode": "Episode {episode}",
+    "operation_episode": "Episode (id={episode})",
     "operation_project": "Project",
     "operation_redo_ad": "Remove the formal script before regenerating it.",
     "operation_redo_episode": "Rerun script planning and confirm it again before rebuilding the episode.",
-    "operation_admission_unavailable": "Operation admission for episode {episode} cannot be read",
+    "operation_admission_unavailable": "Operation admission for episode (id={episode}) cannot be read",
     "operation_draft_repair_envelope": "Repair the draft envelope, then call {tool} to validate and promote it.",
     "operation_draft_repair_violations": "Edit content at the draft violations locations, then call {tool} to promote it.",
     "operation_draft_finish": "This draft is editable; preserve existing edits, then call {tool} to validate and promote it.",
@@ -211,7 +214,7 @@ MESSAGES = {
     "invalid_draft_stage": "Invalid draft stage: {stage}",
     "draft_file_not_found": "Draft file does not exist",
     "draft_invalid_json": "The script plan draft has an invalid structure; please check and retry",
-    "draft_not_found": "Episode {episode} has no such draft; it may already have been adopted or discarded",
+    "draft_not_found": "Episode (id={episode}) has no such draft; it may already have been adopted or discarded",
     "draft_revision_conflict": "The draft changed while you were editing, so this action was not applied; review the latest content and retry",
     "draft_formal_revision_conflict": (
         "The formal content changed after this draft was produced, so the save was not adopted; "
@@ -257,7 +260,7 @@ MESSAGES = {
     "prompt_authoring_refused": "Prompt writing could not be submitted. Resolve the reason below and retry",
     "script_review_conversion_refused": "The script plan cannot be converted to a formal script yet, so it was not confirmed; check shot durations, dialogue and the script plan status, then retry",
     "script_review_foreign_formal_script": (
-        "The script file bound to episode {episode} is gone and the canonical path scripts/{filename} holds another "
+        "The script file bound to episode (id={episode}) is gone and the canonical path scripts/{filename} holds another "
         "episode's script, so the confirmation was not completed — writing there would rebuild that other episode; "
         "point this episode's script_file back at its own script, then retry"
     ),
@@ -459,7 +462,7 @@ MESSAGES = {
     "ref_payload_too_large": "Reference image payload exceeded provider limits, retried with extra compression",
     "ref_payload_floor_exceeded": "Reference images are too large or too many; even compressed to the lowest quality they still exceed the provider's request size limit. Please reduce the number of reference images or their resolution and try again",
     "ref_sora_single_ref": "Sora reference mode does not currently support multiple images, downgraded to single image",
-    "ref_episode_not_found": "Episode {episode} not found",
+    "ref_episode_not_found": "Episode (id={episode}) not found",
     "ref_not_reference_video_mode": "Episode script is not in reference-video mode",
     "ref_unit_not_found": "Video unit '{unit_id}' not found",
     "ref_unit_needs_replan": "This video unit has a speech-ownership or migration problem; replan it before generating",
@@ -515,7 +518,7 @@ MESSAGES = {
         "that entry's reference fields: it is not numbered as a reference image and is sent as a plain name"
     ),
     # Episode meta
-    "episode_not_found": "Episode {episode} not found or has no script file yet",
+    "episode_not_found": "Episode (id={episode}) not found or has no script file yet",
     "episode_title_empty": "Episode title cannot be empty",
     "about_update_check_failed": "Failed to check for updates, please try again later",
     "about_version_read_failed": "Failed to read app version",
@@ -591,7 +594,7 @@ MESSAGES = {
     "rewrite_failed": "Editing the message failed, please try again",
     "overview_source_empty": "Source directory is empty; cannot generate overview",
     "text_provider_not_configured": "Please configure a text provider first: add at least one provider in Settings → Providers",
-    "jianying_no_completed_segments": "Episode {episode} has no completed video clips; generate videos first",
+    "jianying_no_completed_segments": "Episode (id={episode}) has no completed video clips; generate videos first",
     "presentation_unavailable": "The selected video presentation is unavailable or no longer fits its media boundary",
     "project_config_invalid": "Invalid project configuration; check the parameters and retry",
     "invalid_discovery_format": "Unsupported model discovery format: {discovery_format}",

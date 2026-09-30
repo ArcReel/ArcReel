@@ -1,6 +1,7 @@
 import { useTranslation } from "react-i18next";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import type { ScriptOverwrite } from "@/types";
+import { itemIdsInEpisodeText } from "@/utils/episode-display";
 
 interface ScriptOverwriteConfirmDialogProps {
   open: boolean;
@@ -13,8 +14,8 @@ interface ScriptOverwriteConfirmDialogProps {
 }
 
 /**
- * 内容确认覆盖已有正式脚本前的 danger 确认：原样呈现服务端生成的丢失清单文本，
- * Agent 收到的是同一份，措辞与统计口径不在前端另拼。
+ * 内容确认覆盖已有正式脚本前的 danger 确认：呈现服务端生成的丢失清单文本，
+ * 只把条目 ID 改为集内部分，统计口径与 Agent 回执一致。
  */
 export function ScriptOverwriteConfirmDialog({
   open,
@@ -37,7 +38,7 @@ export function ScriptOverwriteConfirmDialog({
       confirmDisabled={confirmDisabled}
       onConfirm={onConfirm}
       onCancel={onCancel}
-      description={<p className="whitespace-pre-line break-words">{overwrite.text}</p>}
+      description={<p className="whitespace-pre-line break-words">{itemIdsInEpisodeText(overwrite.text)}</p>}
     />
   );
 }

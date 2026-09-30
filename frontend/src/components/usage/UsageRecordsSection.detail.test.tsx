@@ -64,7 +64,7 @@ describe("UsageRecordsSection detail", () => {
     expect(dialog.getByRole("heading", { name: "调用" })).toBeInTheDocument();
     expect(dialog.getByText("MiniMax")).toBeInTheDocument();
     expect(dialog.getByRole("heading", { name: "产出" })).toBeInTheDocument();
-    expect(dialog.getByText("星海列车/E1S10.txt")).toBeInTheDocument();
+    expect(dialog.getByText("星海列车/S10.txt")).toBeInTheDocument();
     expect(dialog.getByRole("heading", { name: "用量" })).toBeInTheDocument();
     expect(dialog.getByText("150")).toBeInTheDocument();
     expect(dialog.getByText("按你配置的单价估算，只作参考")).toBeInTheDocument();
@@ -86,7 +86,7 @@ describe("UsageRecordsSection detail", () => {
     renderUsageRecordsSection("section=usage&record=42");
     const dialog = within(await screen.findByRole("dialog"));
 
-    expect(dialog.getByRole("img", { name: "storyboards/scene_E1S10.png" })).toHaveAttribute(
+    expect(dialog.getByRole("img", { name: "storyboards/scene_S10.png" })).toHaveAttribute(
       "src",
       "/api/v1/files/demo/storyboards/scene_E1S10.png",
     );

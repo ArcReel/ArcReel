@@ -58,6 +58,7 @@ import type {
   ReferenceVideoUnit,
   UnitStatus,
 } from "@/types";
+import { itemIdWithinEpisode } from "@/utils/episode-display";
 
 export interface ReferenceVideoCanvasProps {
   projectName: string;
@@ -895,7 +896,7 @@ export function ReferenceVideoCanvas({
     <div className="flex h-full min-h-0 flex-col">
       <EpisodeHeader
         episode={episode}
-        title={episodeTitle ?? `E${episode}`}
+        title={episodeTitle ?? ""}
         units={units}
         onSaveTitle={onSaveTitle}
         canEditTitle={canEditTitle}
@@ -1062,7 +1063,7 @@ export function ReferenceVideoCanvas({
                       translate="no"
                       className="rounded px-2.5 py-1 font-mono text-xs font-bold tracking-wider text-[oklch(0.14_0_0)] [background:linear-gradient(180deg,var(--color-accent-2),var(--color-accent))] shadow-[inset_0_1px_0_oklch(1_0_0_/_0.3),0_2px_6px_-2px_var(--color-accent-glow)]"
                     >
-                      {selected.unit_id}
+                      {itemIdWithinEpisode(selected.unit_id)}
                     </span>
                     <span className="inline-flex items-center gap-1 rounded border border-[var(--color-hairline-soft)] bg-[oklch(0.22_0.011_265_/_0.6)] px-2 py-0.5 text-[11.5px] text-[var(--color-text-2)]">
                       <Clock className="h-3 w-3" aria-hidden="true" />
@@ -1455,7 +1456,7 @@ export function ReferenceVideoCanvas({
 
       <ConfirmDialog
         open={removeUnitId !== null}
-        title={t("reference_unit_remove_title", { id: removeUnitId ?? "" })}
+        title={t("reference_unit_remove_title", { id: itemIdWithinEpisode(removeUnitId ?? "") })}
         description={t("reference_unit_remove_desc")}
         confirmLabel={t("reference_unit_remove_confirm")}
         tone="danger"

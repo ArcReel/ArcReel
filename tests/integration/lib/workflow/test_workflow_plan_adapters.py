@@ -96,7 +96,7 @@ async def test_rest_and_mcp_serialize_the_same_workflow_plan(tmp_path: Path, mon
     monkeypatch.setattr(workflow_planner, "get_workflow_planner", lambda _pm=None: planner)
     monkeypatch.setattr(projects, "get_project_manager", lambda: pm)
     payload = {
-        "episode": 1,
+        "episode_id": 1,
         "confirmed_request_durations": {"E1S01": 5},
     }
 
@@ -171,13 +171,13 @@ async def test_workflow_plan_adapters_blame_the_request_only_for_request_errors(
     planner = _FailingPlanner(WorkflowRequestError("ad workflow only has episode 1"))
     monkeypatch.setattr(workflow_planner, "get_workflow_planner", lambda _pm=None: planner)
 
-    outcome = await _agent_plan(pm, tmp_path, {"episode": 2})
+    outcome = await _agent_plan(pm, tmp_path, {"episode_id": 2})
 
     assert outcome.problem is not None
     assert outcome.problem.code == "invalid_request"
 
     with TestClient(_adapter_app(pm, monkeypatch), raise_server_exceptions=False) as client:
-        response = client.post("/api/v1/projects/demo/workflow-plan", json={"episode": 2})
+        response = client.post("/api/v1/projects/demo/workflow-plan", json={"episode_id": 2})
 
     assert response.status_code == 400
 
@@ -189,7 +189,7 @@ async def test_workflow_plan_adapters_report_corrupt_script_as_server_failure(
     planner = _FailingPlanner(ValueError("segments must be an array of objects"))
     monkeypatch.setattr(workflow_planner, "get_workflow_planner", lambda _pm=None: planner)
 
-    outcome = await _agent_plan(pm, tmp_path, {"episode": 1})
+    outcome = await _agent_plan(pm, tmp_path, {"episode_id": 1})
 
     assert outcome.problem is not None
     assert outcome.problem.model_dump() == {
@@ -198,6 +198,6 @@ async def test_workflow_plan_adapters_report_corrupt_script_as_server_failure(
     }
 
     with TestClient(_adapter_app(pm, monkeypatch), raise_server_exceptions=False) as client:
-        response = client.post("/api/v1/projects/demo/workflow-plan", json={"episode": 1})
+        response = client.post("/api/v1/projects/demo/workflow-plan", json={"episode_id": 1})
 
     assert response.status_code == 500

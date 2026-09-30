@@ -85,6 +85,12 @@ def _write_whole_source(project_path: Path) -> None:
     (source / "novel.txt").write_text("第一章\n原文", encoding="utf-8")
 
 
+def _seed_ledger(ctx: ToolHarness, *episodes: tuple[int, str]) -> None:
+    """按播出顺序写入账本条目（集 ID, 标题）。"""
+
+    ctx.pm.project_payload["episodes"] = [{"episode": num, "title": title} for num, title in episodes]
+
+
 def _plan_value(outcome: ToolOutcome[Any]) -> PlanEpisodesResult:
     assert outcome.problem is None
     assert isinstance(outcome.value, PlanEpisodesResult)
@@ -119,16 +125,17 @@ async def test_plan_episodes_reports_each_planned_episode_for_boundary_review(fa
         ],
         cursor={"source_file": "source/novel.txt", "offset": 1715},
     )
+    _seed_ledger(fake_ctx, (1, "古玉藏诀"), (2, "城门遇袭"))
 
     value = _plan_value(
         await run_declared_tool(PLAN_EPISODES, fake_ctx, {}, planner_cls=_fake_planner_cls(result, captured))
     )
 
     for fragment in (
-        "古玉藏诀",
+        "《古玉藏诀》（第 1 个，id=1）",
         "剑诀来历成谜",
         "812",
-        "城门遇袭",
+        "《城门遇袭》（第 2 个，id=2）",
         "首句：第一章 山村少年。",
         "尾句：城门口他撞见了被追杀的少女。",
     ):
@@ -207,13 +214,14 @@ async def test_plan_episodes_attaches_global_volume_review_when_the_source_is_ex
     volume = EpisodeTargetVolume(units=800, unit_noun="字", source="units")
     stats = LedgerStats(total_episodes=30, smallest=[(30, 57), (12, 640)], median_units=812, target_volume=volume)
     result = PlanResult(episodes=[], cursor=None, source_exhausted=True, ledger_stats=stats)
+    _seed_ledger(fake_ctx, *((num, f"第{num}回") for num in range(1, 31)))
 
     value = _plan_value(await run_declared_tool(PLAN_EPISODES, fake_ctx, {}, planner_cls=_fake_planner_cls(result)))
 
     for fragment in (
         "累计总集数：30",
-        "第 30 集（约 57）",
-        "第 12 集（约 640）",
+        "《第30回》（第 30 个，id=30）（约 57）",
+        "《第12回》（第 12 个，id=12）（约 640）",
         "中位数：约 812",
         "目标体量设置：约 800",
         "有偏差须向用户明确说明",
@@ -291,9 +299,9 @@ async def test_remote_plan_episodes_returns_the_generation_batch_handle(tmp_path
 
 
 def _fake_reset(result: object, captured: dict[str, Any] | None = None) -> Any:
-    def _reset(project_path: Path, *, from_episode: int, confirm_consumed: bool) -> object:
+    def _reset(project_path: Path, *, episode_id: int | None, confirm_consumed: bool) -> object:
         if captured is not None:
-            captured["args"] = (project_path, from_episode, confirm_consumed)
+            captured["args"] = (project_path, episode_id, confirm_consumed)
         if isinstance(result, BaseException):
             raise result
         return result
@@ -317,12 +325,10 @@ async def test_reset_episode_planning_full_reset_points_back_to_planning(fake_ct
     )
 
     value = _reset_value(
-        await run_declared_tool(
-            RESET_EPISODE_PLANNING, fake_ctx, {"from_episode": 1}, resetter=_fake_reset(result, captured)
-        )
+        await run_declared_tool(RESET_EPISODE_PLANNING, fake_ctx, {}, resetter=_fake_reset(result, captured))
     )
 
-    assert captured["args"][1:] == (1, False)
+    assert captured["args"][1:] == (None, False)
     assert value.confirmation_required is False
     assert value.removed_episodes == [1, 2]
     assert "清空 2 集" in value.message
@@ -335,9 +341,7 @@ async def test_reset_episode_planning_asks_for_confirmation_before_touching_cons
 ) -> None:
     resetter = _fake_reset(ResetConfirmationRequired(consumed_episodes=[1, 3], archived_files=[]))
 
-    value = _reset_value(
-        await run_declared_tool(RESET_EPISODE_PLANNING, fake_ctx, {"from_episode": 1}, resetter=resetter)
-    )
+    value = _reset_value(await run_declared_tool(RESET_EPISODE_PLANNING, fake_ctx, {}, resetter=resetter))
 
     assert value.confirmation_required is True
     assert value.consumed_episodes == [1, 3]
@@ -352,12 +356,12 @@ async def test_reset_episode_planning_forwards_the_confirmation(fake_ctx: ToolHa
         await run_declared_tool(
             RESET_EPISODE_PLANNING,
             fake_ctx,
-            {"from_episode": 1, "confirm_consumed": True},
+            {"confirm_consumed": True},
             resetter=_fake_reset(result, captured),
         )
     )
 
-    assert captured["args"][1:] == (1, True)
+    assert captured["args"][1:] == (None, True)
     assert "未删除" in value.message
 
 
@@ -365,12 +369,13 @@ async def test_reset_episode_planning_partial_reset_reports_the_new_starting_poi
     result = EpisodeResetResult(
         removed_episodes=[2, 3], deleted_files=["source/episode_2.txt"], archived_files=[], consumed_episodes=[]
     )
+    _seed_ledger(fake_ctx, (5, "山门"), (2, "下山"), (3, "城门"))
 
     value = _reset_value(
-        await run_declared_tool(RESET_EPISODE_PLANNING, fake_ctx, {"from_episode": 2}, resetter=_fake_reset(result))
+        await run_declared_tool(RESET_EPISODE_PLANNING, fake_ctx, {"episode_id": 2}, resetter=_fake_reset(result))
     )
 
-    for fragment in ("部分重置", "第 2 集起共 2 集", "第 1 集原文范围末尾", "新集号从第 2 集起"):
+    for fragment in ("部分重置", "从 《下山》（第 2 个，id=2） 起清空 2 集", "不复用被清除的集 ID"):
         assert fragment in value.message
     assert "账本已空" not in value.message
 
@@ -378,7 +383,7 @@ async def test_reset_episode_planning_partial_reset_reports_the_new_starting_poi
 async def test_reset_episode_planning_reports_a_failed_partial_precheck(fake_ctx: ToolHarness) -> None:
     resetter = _fake_reset(EpisodeResetError("源文件已被修改或移除：source/novel.txt"))
 
-    outcome = await run_declared_tool(RESET_EPISODE_PLANNING, fake_ctx, {"from_episode": 3}, resetter=resetter)
+    outcome = await run_declared_tool(RESET_EPISODE_PLANNING, fake_ctx, {"episode_id": 3}, resetter=resetter)
 
     assert outcome.problem is not None
     assert outcome.problem.code == "episode_reset_failed"
@@ -389,13 +394,12 @@ async def test_reset_episode_planning_reports_a_failed_partial_precheck(fake_ctx
     ("arguments", "field"),
     [
         # confirm_consumed 是确认安全边界：非布尔值必须拒绝而非真值化。
-        pytest.param({"from_episode": 1, "confirm_consumed": "true"}, "confirm_consumed", id="string-confirm"),
-        pytest.param({"from_episode": 0}, "from_episode", id="zero"),
-        pytest.param({"from_episode": -1}, "from_episode", id="negative"),
-        pytest.param({"from_episode": "1"}, "from_episode", id="string"),
-        pytest.param({"from_episode": True}, "from_episode", id="bool"),
-        pytest.param({"from_episode": None}, "from_episode", id="null"),
-        pytest.param({}, "from_episode", id="missing"),
+        pytest.param({"confirm_consumed": "true"}, "confirm_consumed", id="string-confirm"),
+        pytest.param({"episode_id": 0}, "episode_id", id="zero"),
+        pytest.param({"episode_id": -1}, "episode_id", id="negative"),
+        pytest.param({"episode_id": "1"}, "episode_id", id="string"),
+        pytest.param({"episode_id": True}, "episode_id", id="bool"),
+        pytest.param({"from_episode": 2}, "from_episode", id="legacy-name"),
     ],
 )
 async def test_reset_episode_planning_rejects_bad_arguments_before_resetting(

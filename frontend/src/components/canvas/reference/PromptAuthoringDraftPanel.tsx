@@ -19,6 +19,8 @@ import {
   draftFixRequestText,
   prefillAssistant,
 } from "@/components/shared/DraftStatus";
+import { useEpisodeLedger } from "@/hooks/useEpisodeLedger";
+import { episodeAgentRef, itemIdWithinEpisode } from "@/utils/episode-display";
 
 const DOC_TYPE = "reference_prompt_authoring";
 
@@ -78,6 +80,8 @@ interface PromptAuthoringDraftPanelProps {
  */
 export function PromptAuthoringDraftPanel({ projectName, episode, view, onSettled }: PromptAuthoringDraftPanelProps) {
   const { t } = useTranslation("dashboard");
+  const episodeLedger = useEpisodeLedger();
+  const episodeRef = episodeAgentRef(episodeLedger, episode, t);
   const [discardOpen, setDiscardOpen] = useState(false);
   const editor = useDraftEditor<PromptAuthoringDraft>({
     projectName,
@@ -110,7 +114,7 @@ export function PromptAuthoringDraftPanel({ projectName, episode, view, onSettle
       <>
         <AgentDraftBar
           busy={busy}
-          onFinish={() => prefillAssistant(t("draft_agent_finish_prefill", { episode, docType: DOC_TYPE }))}
+          onFinish={() => prefillAssistant(t("draft_agent_finish_prefill", { episodeRef, docType: DOC_TYPE }))}
           onDiscard={() => setDiscardOpen(true)}
         />
         {discardDialog}
@@ -132,7 +136,7 @@ export function PromptAuthoringDraftPanel({ projectName, episode, view, onSettle
         violationCount={view.violations.length}
         itemJumps={[...groups.byItem.entries()].map(([index, list]) => ({
           index,
-          label: unitIds[index],
+          label: itemIdWithinEpisode(unitIds[index]),
           count: list.length,
         }))}
         episodeLevelCount={groups.episodeLevel.length}
@@ -145,7 +149,7 @@ export function PromptAuthoringDraftPanel({ projectName, episode, view, onSettle
         outdated={editor.outdated}
         onSave={voidPromise(editor.save)}
         onReloadLatest={editor.reloadLatest}
-        onHandToAgent={() => prefillAssistant(draftFixRequestText(t, episode, DOC_TYPE, view.violations))}
+        onHandToAgent={() => prefillAssistant(draftFixRequestText(t, episodeRef, DOC_TYPE, view.violations))}
         onDiscard={() => setDiscardOpen(true)}
       />
       {discardDialog}
@@ -168,13 +172,13 @@ export function PromptAuthoringDraftPanel({ projectName, episode, view, onSettle
             style={CARD_STYLE}
           >
             <span className="mb-2 inline-block rounded bg-bg-grad-a/70 px-1.5 py-0.5 font-mono text-[11px] text-text-2">
-              {unitIds[i]}
+              {itemIdWithinEpisode(unitIds[i])}
             </span>
             <AutoTextarea
               value={unit.text}
               onChange={(text) => updateText(i, text)}
               disabled={busy}
-              aria-label={t("reference_script_plan_unit_text_label", { unit: unitIds[i] })}
+              aria-label={t("reference_script_plan_unit_text_label", { unit: itemIdWithinEpisode(unitIds[i]) })}
               className="text-text-3"
             />
             <DraftViolationList violations={violations} />

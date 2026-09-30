@@ -113,12 +113,12 @@ async def test_script_plan_rebuild_forwards_the_explicit_baseline(tmp_path: Path
     outcome = await run_declared_tool(
         COMPLETE_SCRIPT_PLAN_REBUILD,
         _harness(projects),
-        {"episode": 2, "expected_stale_script_plan_revision": "baseline"},
+        {"episode_id": 2, "expected_stale_script_plan_revision": "baseline"},
         complete=complete,
     )
 
     assert outcome.problem is None
-    assert outcome.value == CompleteScriptPlanRebuildResult(episode=2, script_plan_revision="rebuilt-revision")
+    assert outcome.value == CompleteScriptPlanRebuildResult(episode_id=2, script_plan_revision="rebuilt-revision")
     assert calls == [(projects, "demo", 2, "baseline")]
 
 
@@ -131,7 +131,7 @@ async def test_script_plan_rebuild_requires_the_baseline_to_be_passed_explicitly
         return "rebuilt-revision"
 
     outcome = await run_declared_tool(
-        COMPLETE_SCRIPT_PLAN_REBUILD, _harness(projects), {"episode": 1}, complete=complete
+        COMPLETE_SCRIPT_PLAN_REBUILD, _harness(projects), {"episode_id": 1}, complete=complete
     )
 
     assert outcome.problem is not None

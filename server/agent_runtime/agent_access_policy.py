@@ -843,7 +843,7 @@ AgentAccessPolicy.PROTECTED_WRITE_RULES = (
             + "）不可用 Write/Edit 直改。"
             "这些文件与 Web 端保存、迁移读改写、重生成共享一把文件锁，而 Write/Edit 取不到这把锁，"
             "直改会与并发的保存互相丢失更新。"
-            f'请改用 MCP 工具——mcp__arcreel__{OPEN_DRAFT_TOOL_NAME}({{"episode": N, "doc_type": "..."}}) '
+            f'请改用 MCP 工具——mcp__arcreel__{OPEN_DRAFT_TOOL_NAME}({{"episode_id": N, "doc_type": "..."}}) '
             "读取可编辑草稿，用 mcp__arcreel__patch_draft 提交修改，再用 "
             f"mcp__arcreel__{PROMOTE_TOOL_NAME} 校验并晋升回正式文件。"
         ),

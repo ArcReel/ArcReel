@@ -245,7 +245,8 @@ describe("API", () => {
 
       expect(error).toBeInstanceOf(SpeechAdmissionError);
       expect(error.admission).toEqual(admission);
-      expect(error.message).toContain("E1S01");
+      expect(error.message).toContain("S01");
+      expect(error.message).not.toContain("E1S01");
       expect(error.message).toContain("utterances.0.text");
     });
 

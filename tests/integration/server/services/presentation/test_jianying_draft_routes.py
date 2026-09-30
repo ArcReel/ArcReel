@@ -88,9 +88,9 @@ class TestJianyingDraftExport:
         """正常导出返回 ZIP"""
         pm = ProjectManager(tmp_path / "projects")
         _setup_project(pm)
-        zip_path = tmp_path / "draft.zip"
+        zip_path = tmp_path / "01_第一集.zip"
         with zipfile.ZipFile(zip_path, "w") as archive:
-            archive.writestr("demo/draft_info.json", "{}")
+            archive.writestr("01_第一集/draft_info.json", "{}")
         service = _DraftService(zip_path)
         client = _client(monkeypatch, pm, service)
 
@@ -110,7 +110,7 @@ class TestJianyingDraftExport:
         from urllib.parse import unquote
 
         disposition = unquote(response.headers.get("content-disposition", ""))
-        assert "jianying_draft" in disposition
+        assert "01_第一集.zip" in disposition
 
         zf = zipfile.ZipFile(BytesIO(response.content))
         names = zf.namelist()

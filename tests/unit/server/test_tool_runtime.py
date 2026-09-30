@@ -140,7 +140,7 @@ def _status() -> WorkflowStatus:
 async def test_workflow_plan_returns_typed_domain_outcome() -> None:
     project = {"generation_mode": "storyboard"}
     outcome = await get_workflow_plan(
-        ToolRequest(WorkflowPlanRequest(episode=1)),
+        ToolRequest(WorkflowPlanRequest(episode_id=1)),
         ProjectScope("demo", Path("/projects")),
         CallerContext(user_id="u1", source="embedded"),
         Services(projects=_Projects(project), workflow_planner=_Planner(_status()), capabilities=_Capabilities()),
@@ -495,7 +495,7 @@ async def test_content_readers_return_body_and_revision_from_the_same_snapshot(t
         ToolRequest(EpisodeScriptRequest(script="episode_1.json")), scope, caller, services
     )
     script_plan = await get_script_plan_content(
-        ToolRequest(ScriptPlanContentRequest(episode=1)), scope, caller, services
+        ToolRequest(ScriptPlanContentRequest(episode_id=1)), scope, caller, services
     )
 
     assert project.problem is None
@@ -534,7 +534,7 @@ async def test_file_readers_share_a_business_file_allowlist_and_reject_symlinks(
     sources = await list_source_files(ToolRequest(NoArguments()), scope, caller, services)
     source = await get_source_text(ToolRequest(SourceTextRequest(path="source/episode_1.txt")), scope, caller, services)
     script_plan = await get_script_plan_content(
-        ToolRequest(ScriptPlanContentRequest(episode=1)), scope, caller, services
+        ToolRequest(ScriptPlanContentRequest(episode_id=1)), scope, caller, services
     )
     files = await list_project_files(ToolRequest(NoArguments()), scope, caller, services)
     script = await read_project_file(
@@ -638,12 +638,12 @@ async def test_project_file_read_rejects_oversized_regular_file(tmp_path: Path) 
 @pytest.mark.parametrize("episode", [0, -1, True, 1.5, "1"])
 def test_draft_locator_requires_a_strict_positive_episode(episode: object) -> None:
     with pytest.raises(ValidationError, match=r"DraftLocator\nepisode"):
-        DraftLocator(episode=episode, doc_type="reference_script_plan")
+        DraftLocator(episode_id=episode, doc_type="reference_script_plan")
 
 
 def test_draft_locator_rejects_unknown_document_types() -> None:
     with pytest.raises(ValidationError, match=r"DraftLocator\ndoc_type"):
-        DraftLocator(episode=1, doc_type="unsupported")
+        DraftLocator(episode_id=1, doc_type="unsupported")
 
 
 @pytest.mark.parametrize("entry_ids", [(1,), (["E1U01"],), ({"id": "E1U01"},)])

@@ -346,10 +346,10 @@ def render_report(draft: Path, kind: str, violations: list[DraftViolation], *, e
     return (
         f"❌ {stage}产出有 {len(violations)} 处违约，已保存为待修复草稿（正式文件未被改动）：{draft}\n\n"
         f"{render_violation_report(violations)}\n\n"
-        f'处置：调用 open_draft({{"episode": {episode}, "doc_type": "{doc_type}"}}) 读取正文与 revision；'
+        f'处置：调用 open_draft({{"episode_id": {episode}, "doc_type": "{doc_type}"}}) 读取正文与 revision；'
         f"修正 {field} 后用 patch_draft 携带 base_revision 提交；"
         "若违约是「资产名未登记」，也可改为在 project.json 登记该资产、或改用已登记的名称。\n"
-        f'改完调用 {PROMOTE_TOOL_NAME}({{"episode": {episode}, "doc_type": "{doc_type}", '
+        f'改完调用 {PROMOTE_TOOL_NAME}({{"episode_id": {episode}, "doc_type": "{doc_type}", '
         '"base_revision": "<patch_draft 返回的 revision>"}) '
         "重新全量校验并晋升为正式文件；"
         "仍有违约时会返回刷新后的报告，可继续修改再晋升，无轮次上限。"

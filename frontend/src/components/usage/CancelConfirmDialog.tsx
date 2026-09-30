@@ -1,6 +1,7 @@
 import { useTranslation } from "react-i18next";
 
 import { voidPromise } from "@/utils/async";
+import { episodeItemRefLabel } from "@/utils/episode-display";
 import type { CancelRequest } from "./use-task-cancellation";
 
 interface CancelConfirmDialogProps {
@@ -47,7 +48,7 @@ export function CancelConfirmDialog({
           {cascaded.map((task) => (
             <li key={task.task_id}>
               {t(`task_type_${task.task_type}`, { defaultValue: task.task_type })} /{" "}
-              {task.resource_id}
+              {episodeItemRefLabel(task.resource_id, task.resource_ref, t)}
             </li>
           ))}
         </ul>

@@ -14,6 +14,7 @@ import {
 import { useDemoWorkbench } from "@/onboarding/use-demo-workbench";
 import { formatCost } from "@/utils/cost-format";
 import type { CostBreakdown } from "@/types";
+import { itemIdWithinEpisode } from "@/utils/episode-display";
 import { ImageEditButton } from "./ImageEditButton";
 import { VersionTimeMachine } from "./VersionTimeMachine";
 
@@ -153,11 +154,11 @@ export function MediaCard({
       {/* Media */}
       {assetUrl ? (
         kind === "storyboard" ? (
-          <PreviewableImageFrame src={assetUrl} alt={`${segmentId} ${title}`}>
+          <PreviewableImageFrame src={assetUrl} alt={`${itemIdWithinEpisode(segmentId)} ${title}`}>
             <AspectFrame ratio={aspectRatio}>
               <ImageFlipReveal
                 src={assetUrl}
-                alt={`${segmentId} ${title}`}
+                alt={`${itemIdWithinEpisode(segmentId)} ${title}`}
                 loading="lazy"
                 className="h-full w-full object-cover"
                 fallback={null}

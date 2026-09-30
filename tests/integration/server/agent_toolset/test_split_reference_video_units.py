@@ -269,7 +269,7 @@ async def test_reference_split_planning_borrows_planning_tiers_for_endpoint_fixe
 async def test_split_reference_video_units_dry_run(fake_ctx: ToolHarness, video_request_facts) -> None:
     rv_source(fake_ctx)
 
-    out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode": 1, "dry_run": True})
+    out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode_id": 1, "dry_run": True})
     assert out.problem is None, out
     prompt_text = said(out)
     assert "DRY RUN" in prompt_text
@@ -293,7 +293,7 @@ async def test_split_reference_video_units_happy_derives_structure(
     units = [rv_unit(text)]
     monkeypatch.setattr(mod.TextGenerator, "create", rv_generator_returning(units, captured))
 
-    out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode": 1})
+    out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode_id": 1})
     assert out.problem is None, out
 
     saved = json.loads(rv_script_plan_path(fake_ctx).read_text(encoding="utf-8"))
@@ -505,7 +505,7 @@ async def test_split_reference_video_units_rejects_braces_in_description(
 
 
 async def test_split_reference_video_units_no_source(fake_ctx: ToolHarness) -> None:
-    out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode": 1})
+    out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode_id": 1})
     assert out.problem is not None
 
 
@@ -515,7 +515,7 @@ async def test_split_reference_video_units_injects_instructions(fake_ctx: ToolHa
     out = await run_declared_tool(
         "generate_script_plan",
         fake_ctx,
-        {"episode": 1, "dry_run": True, "instructions": "单 unit 出场人物尽量不超过两人"},
+        {"episode_id": 1, "dry_run": True, "instructions": "单 unit 出场人物尽量不超过两人"},
     )
     assert out.problem is None, out
     prompt_text = said(out)

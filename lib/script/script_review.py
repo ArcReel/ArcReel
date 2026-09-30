@@ -570,12 +570,14 @@ def _bound_script_filename(project: Mapping[str, Any], episode: int) -> str | No
 class ForeignFormalScriptError(ValueError):
     """该集没有可读写的正式脚本位置：绑定不在盘上，而规范路径上那份文件不是本集剧本。
 
-    携带集号与占位的文件名，供调用方给出可定位的提示。继承 ``ValueError`` 让尚未单独处置这一形态
+    携带集 ID 与占位的文件名，供调用方给出可定位的提示。继承 ``ValueError`` 让尚未单独处置这一形态
     的调用点也按「拒绝」而不是按「成功」收场。
     """
 
     def __init__(self, episode: int, filename: str) -> None:
-        super().__init__(f"第 {episode} 集的规范剧本路径 scripts/{filename} 上是另一集的剧本，不能当作本集正式脚本读写")
+        super().__init__(
+            f"集（id={episode}）的规范剧本路径 scripts/{filename} 上是另一集的剧本，不能当作本集正式脚本读写"
+        )
         self.episode = episode
         self.filename = filename
 

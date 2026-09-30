@@ -561,7 +561,7 @@ async def run_rv_split(fake_ctx: ToolHarness, monkeypatch, units: list[dict], **
 
     use_fake_caps(fake_ctx, **caps_kwargs)
     monkeypatch.setattr(mod.TextGenerator, "create", rv_generator_returning(units))
-    return await run_declared_tool("generate_script_plan", fake_ctx, {"episode": 1})
+    return await run_declared_tool("generate_script_plan", fake_ctx, {"episode_id": 1})
 
 
 def rv_quarantine_path(fake_ctx: ToolHarness):
@@ -582,7 +582,7 @@ async def promote_reference_draft(fake_ctx: ToolHarness, **caps_kwargs) -> ToolO
         doc_type = "reference_prompt_authoring"
     else:
         doc_type = "reference_script_plan"
-    args = {"episode": 1, "doc_type": doc_type}
+    args = {"episode_id": 1, "doc_type": doc_type}
     opened = await run_declared_tool("open_draft", fake_ctx, args)
     revision = draft_of(opened)["revision"] if opened.problem is None else ""
     return await run_declared_tool("promote_draft", fake_ctx, {**args, "base_revision": revision})
@@ -608,7 +608,9 @@ def rv_saved_unit(text: str, *, unit_id: str = "E1U01", duration: int = 8) -> di
 async def open_for_edit(fake_ctx: ToolHarness, **args) -> ToolOutcome[Any]:
     if not (fake_ctx.project_path / "project.json").exists():
         rv_project(fake_ctx)
-    return await run_declared_tool("open_draft", fake_ctx, {"episode": 1, "doc_type": "reference_script_plan", **args})
+    return await run_declared_tool(
+        "open_draft", fake_ctx, {"episode_id": 1, "doc_type": "reference_script_plan", **args}
+    )
 
 
 def nr_project(fake_ctx: ToolHarness) -> None:
@@ -717,12 +719,12 @@ def read_drama_quarantine(fake_ctx: ToolHarness) -> dict:
 
 
 async def open_drama_for_edit(fake_ctx: ToolHarness, **args) -> ToolOutcome[Any]:
-    return await run_declared_tool("open_draft", fake_ctx, {"episode": 1, "doc_type": "drama_script_plan", **args})
+    return await run_declared_tool("open_draft", fake_ctx, {"episode_id": 1, "doc_type": "drama_script_plan", **args})
 
 
 async def promote_drama(fake_ctx: ToolHarness, durations=(4, 6, 8)) -> ToolOutcome[Any]:
     use_fake_caps(fake_ctx, supported_durations=durations, default_duration=durations[0])
-    args = {"episode": 1, "doc_type": "drama_script_plan"}
+    args = {"episode_id": 1, "doc_type": "drama_script_plan"}
     opened = await run_declared_tool("open_draft", fake_ctx, args)
     revision = draft_of(opened)["revision"]
     return await run_declared_tool("promote_draft", fake_ctx, {**args, "base_revision": revision})
@@ -747,12 +749,14 @@ def write_nr_script_plan(fake_ctx: ToolHarness, segments: list[dict]) -> None:
 
 
 async def open_nr_for_edit(fake_ctx: ToolHarness, **args) -> ToolOutcome[Any]:
-    return await run_declared_tool("open_draft", fake_ctx, {"episode": 1, "doc_type": "narration_script_plan", **args})
+    return await run_declared_tool(
+        "open_draft", fake_ctx, {"episode_id": 1, "doc_type": "narration_script_plan", **args}
+    )
 
 
 async def promote_nr(fake_ctx: ToolHarness, durations=(4, 6, 8)) -> ToolOutcome[Any]:
     use_fake_caps(fake_ctx, supported_durations=durations, default_duration=durations[0])
-    args = {"episode": 1, "doc_type": "narration_script_plan"}
+    args = {"episode_id": 1, "doc_type": "narration_script_plan"}
     opened = await run_declared_tool("open_draft", fake_ctx, args)
     revision = draft_of(opened)["revision"]
     return await run_declared_tool("promote_draft", fake_ctx, {**args, "base_revision": revision})

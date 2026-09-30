@@ -4,6 +4,8 @@ import { EditableEpisodeTitle } from "@/components/canvas/EditableEpisodeTitle";
 import { useCostStore } from "@/stores/cost-store";
 import { formatCost, totalBreakdown } from "@/utils/cost-format";
 import { sumItemDuration } from "@/utils/script-shape";
+import { useEpisodeLedger } from "@/hooks/useEpisodeLedger";
+import { episodePosition } from "@/utils/episode-display";
 
 /**
  * 头部统计只需要时长与成片两项，故按结构约束而非绑定具体单元类型：
@@ -25,6 +27,7 @@ export interface EpisodeHeaderProps {
 
 export function EpisodeHeader({ episode, title, units, onSaveTitle, canEditTitle }: EpisodeHeaderProps) {
   const { t } = useTranslation("dashboard");
+  const position = episodePosition(useEpisodeLedger(), episode);
   const epCost = useCostStore((s) => s._episodeIndex.get(episode));
 
   const stats = useMemo(() => {
@@ -45,7 +48,7 @@ export function EpisodeHeader({ episode, title, units, onSaveTitle, canEditTitle
   }, [units, epCost]);
 
   const epLabel = t("episode_header_episode_chip", {
-    number: String(episode).padStart(2, "0"),
+    number: position === null ? "—" : String(position).padStart(2, "0"),
   });
 
   return (

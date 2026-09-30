@@ -9,8 +9,9 @@ description: "参考生视频单集视频单元拆分子智能体（generation_m
 
 **输入**：主 Agent 会在 prompt 中提供：
 - 项目名称（如 `my_project`）
-- 集数（如 `1`）
-- 本集小说文件（如 `source/episode_1.txt`）
+- 目标集的集 ID（下文记作 N，如 `7`；取自计划 `target.episode`，是内部标识，不是第几集）
+- 目标集的标题与播出位置（仅用于回报摘要）
+- 本集小说文件（如 `source/episode_7.txt`，文件名里的数字是集 ID）
 - 操作类型：首次生成、修改已有拆分 或 整集重做
 
 **输出**：保存 `drafts/episode_{N}/script_plan_reference_units.json` 后，返回视频单元统计摘要。
@@ -81,7 +82,7 @@ mcp__arcreel__get_video_capabilities({})
 **Step 1**: 调用工具生成结构化拆分（项目名由 session 绑定，不需要传）：
 
 ```text
-mcp__arcreel__generate_script_plan({"episode": N, "source": "source/episode_N.txt", "instructions": "<附加指令原文，可选，无则省略>"})
+mcp__arcreel__generate_script_plan({"episode_id": N, "source": "source/episode_N.txt", "instructions": "<附加指令原文，可选，无则省略>"})
 ```
 
 `source` 可继续显式传本集源文路径；省略时工具默认读取本集派生源文 `source/episode_N.txt`。
@@ -107,9 +108,9 @@ mcp__arcreel__generate_script_plan({"episode": N, "source": "source/episode_N.tx
 
 正常草稿装的是**扁平草稿结构**（`content.units[]` 只有 `duration_seconds` / `source_text` / `text`），`unit_id` 由工具派生，不要在草稿里手写。若违约报告指出 `content` 损坏或 `content.units` 不是数组，按报告中的字段路径修复整个 `content`；只有视频单元级违约才定位到 `content.units[i]`。
 
-1. 调用 `mcp__arcreel__open_draft({"episode": N, "doc_type": "reference_script_plan"})` 取得完整 `content`、`violations` 与 `revision`。保留草稿中已有修改；如主 Agent 本轮传入用户修改意见，先应用该意见；`violations[]` 非空时，在上述修改基础上按报告定位
-2. 修复返回的 `content`，再调用 `mcp__arcreel__patch_draft({"episode": N, "doc_type": "reference_script_plan", "content": <完整修改后正文>, "base_revision": "<open_draft 返回的 revision>"})`，记下它返回的新 `revision`；严禁用 Edit / Write 直改正式文件或 `project.json`
-3. 调用 `mcp__arcreel__promote_draft({"episode": N, "doc_type": "reference_script_plan", "base_revision": "<patch_draft 返回的新 revision>"})` 重新全量校验并晋升
+1. 调用 `mcp__arcreel__open_draft({"episode_id": N, "doc_type": "reference_script_plan"})` 取得完整 `content`、`violations` 与 `revision`。保留草稿中已有修改；如主 Agent 本轮传入用户修改意见，先应用该意见；`violations[]` 非空时，在上述修改基础上按报告定位
+2. 修复返回的 `content`，再调用 `mcp__arcreel__patch_draft({"episode_id": N, "doc_type": "reference_script_plan", "content": <完整修改后正文>, "base_revision": "<open_draft 返回的 revision>"})`，记下它返回的新 `revision`；严禁用 Edit / Write 直改正式文件或 `project.json`
+3. 调用 `mcp__arcreel__promote_draft({"episode_id": N, "doc_type": "reference_script_plan", "base_revision": "<patch_draft 返回的新 revision>"})` 重新全量校验并晋升
 4. 仍返回违约报告则回到第 1 步继续改——可反复晋升，无轮次上限；不要退回重跑拆分工具
 
 晋升成功后正式 `script_plan_reference_units.json` 落盘、草稿自动清除。草稿在场期间内容确认被阻塞，处置完才能继续。
@@ -120,9 +121,9 @@ mcp__arcreel__generate_script_plan({"episode": N, "source": "source/episode_N.tx
 
 正式文件不可直改，改动经可编辑草稿这条持锁通道落回：
 
-1. 调用 `mcp__arcreel__open_draft({"episode": N, "doc_type": "reference_script_plan", "source": "source/episode_N.txt"})`，取得完整 `content` 与 `revision`（正式文件保持原样）
-2. 修改返回的 `content.units[i]`，再调用 `mcp__arcreel__patch_draft({"episode": N, "doc_type": "reference_script_plan", "content": <完整修改后正文>, "base_revision": "<open_draft 返回的 revision>"})`，记下它返回的新 `revision`。`unit_id` 是派生物，不要手写
-3. 调用 `mcp__arcreel__promote_draft({"episode": N, "doc_type": "reference_script_plan", "base_revision": "<patch_draft 返回的新 revision>"})` 全量校验并晋升回正式文件
+1. 调用 `mcp__arcreel__open_draft({"episode_id": N, "doc_type": "reference_script_plan", "source": "source/episode_N.txt"})`，取得完整 `content` 与 `revision`（正式文件保持原样）
+2. 修改返回的 `content.units[i]`，再调用 `mcp__arcreel__patch_draft({"episode_id": N, "doc_type": "reference_script_plan", "content": <完整修改后正文>, "base_revision": "<open_draft 返回的 revision>"})`，记下它返回的新 `revision`。`unit_id` 是派生物，不要手写
+3. 调用 `mcp__arcreel__promote_draft({"episode_id": N, "doc_type": "reference_script_plan", "base_revision": "<patch_draft 返回的新 revision>"})` 全量校验并晋升回正式文件
 4. 返回违约报告则按报告继续改草稿再晋升，无轮次上限（同情况 C）。中途决定不改了就原样晋升：内容未变即等于把原稿回写，草稿随之清除
 
 > 草稿在场期间内容确认被阻塞，改完必须晋升，不要留着草稿收工。
@@ -133,7 +134,7 @@ mcp__arcreel__generate_script_plan({"episode": N, "source": "source/episode_N.tx
 - 视频单元的 `text` 是一段自由文本，按引用语法写：台词记号紧跟它所对应的那句动作，写在同一行末尾或紧接的下一行。用 `@[名称]` 引用资产，名称必须逐字取自 `project.json` 三张表、或角色条目 `derivatives` 表下的 `本体/衍生`（不确定就 Read `project.json` 确认）；带衍生的角色按该视频单元的剧情状态选写——此刻处于该形态写 `@[本体/衍生]`，回到本体描述的常态写 `@[本体]`，说话人位同理（声音仍绑本体）；每个视频单元逐条 `@` 引用其发生地的场景，候选表里没有匹配该地点的场景时才改用文字描述地点并各单元保持同一句；不写外貌 / 服装 / 场景细节
 - `source_text` 必须是本集源文的逐字片段（可截断首尾，中间不得删改）；改动视频单元边界时同步改锚
 - 参考图不落盘：执行期按正文里 `@[名称]` 的首现顺序解析（顺序即参考图编号），去重后超过 `max_reference_images` 会判违约——要改参考图就改正文的引用，台词记号的说话人位不计入
-- `unit_id` 不手写：晋升时按数组顺序重编为 `E{集数}U{两位序号}`。调整视频单元顺序或增删视频单元即调整数组元素，编号自动跟随
+- `unit_id` 不手写：晋升时按数组顺序重编为 `E{集 ID}U{两位序号}`。调整视频单元顺序或增删视频单元即调整数组元素，编号自动跟随
 
 **内容确认后本文件只读**：确认后脚本规划已整集转为正式脚本 `scripts/episode_{N}.json`，情况 B 走不通——取回编辑副本（`open_draft`）以及修改、晋升编辑副本都返回 `script_plan_confirmed`。遇到它不要重试，停下来在返回摘要里告知主 Agent：
 
@@ -148,7 +149,7 @@ mcp__arcreel__generate_script_plan({"episode": N, "source": "source/episode_N.tx
 {
   "units": [
     {
-      "unit_id": "E<集号>U01",
+      "unit_id": "E<集 ID>U01",
       "duration_seconds": <duration>,
       "source_text": "<本视频单元所依据的源文逐字片段>",
       "text": "@[李明] 推开 @[酒馆] 的门，环视四周。\n@[李明]：{这地方比我想的还热闹。}\n@[李明] 走向柜台，把 @[长剑] 放在桌上。"
@@ -159,7 +160,7 @@ mcp__arcreel__generate_script_plan({"episode": N, "source": "source/episode_N.tx
 
 > 填值规则：`<duration>` 必须取自 Step 0 查得的 `reference_unit_durations` 中该视频单元引用状态对应的那套，宜贴近内容实际需要的长度；
 > `episode_target_duration` 非 null 时按该目标打包本集（本集各单元时长合计向 `episode_target_duration` 靠拢（非 null 时；软目标，内容不足宁少拆、内容需要可超出）），不无条件贴近 `max_duration`。
-> `<集号>` 由 `mcp__arcreel__generate_script_plan` 工具在调用时按当前 episode 注入；本示例用占位符避免误把 `E1` 当硬编码值。
+> `<集 ID>` 由 `mcp__arcreel__generate_script_plan` 工具在调用时按 `episode_id` 参数注入；本示例用占位符避免误把 `E1` 当硬编码值。
 
 ### 返回摘要
 
@@ -167,7 +168,7 @@ mcp__arcreel__generate_script_plan({"episode": N, "source": "source/episode_N.tx
 ## 视频单元拆分完成（参考生视频）
 
 **状态**: DONE
-**项目**: {项目名}  **第 N 集**
+**项目**: {项目名}  **集**: 《{标题}》（第 {播出位置} 集，集 ID N）
 
 | 统计项 | 数值 |
 |--------|------|

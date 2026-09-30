@@ -119,10 +119,10 @@ describe("WorkflowPanel 已过时产物", () => {
 
     expect(screen.getByText(/仍然保留，可以在画布上查看/)).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "在画布上查看 E1U2" }));
+    fireEvent.click(screen.getByRole("button", { name: "在画布上查看 U2" }));
     expect(onViewUnit).toHaveBeenCalledWith("E1U2");
 
-    fireEvent.click(screen.getByRole("button", { name: "重新生成 E1U2" }));
+    fireEvent.click(screen.getByRole("button", { name: "重新生成 U2" }));
     expect(onRegenerate).toHaveBeenCalledWith("video", ["E1U2"]);
   });
 
@@ -215,7 +215,7 @@ describe("WorkflowPanel 结构化问题与阻断", () => {
       }),
     );
     const row = screen.getByTestId("workflow-step-script_structure");
-    expect(within(row).getByText("E1U2")).toBeInTheDocument();
+    expect(within(row).getByText("U2")).toBeInTheDocument();
     expect(within(row).getByText(/改写这个单元/)).toBeInTheDocument();
     expect(within(row).queryByRole("button", { name: /拆分|重新规划/ })).not.toBeInTheDocument();
   });
@@ -295,7 +295,7 @@ describe("WorkflowPanel 整批准入判定", () => {
     expect(within(row).getByText("引用的角色图缺失")).toBeInTheDocument();
     expect(within(row).getByText("该单元需要重新规划")).toBeInTheDocument();
     expect(within(row).getByText(/1 个单元本身没问题/)).toBeInTheDocument();
-    for (const unitId of ["E1U1", "E1U2", "E1U3"]) {
+    for (const unitId of ["U1", "U2", "U3"]) {
       expect(within(row).getByText(unitId)).toBeInTheDocument();
     }
   });

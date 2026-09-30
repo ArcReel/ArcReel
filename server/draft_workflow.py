@@ -15,6 +15,7 @@ from pydantic.json_schema import SkipJsonSchema
 
 from lib.artifacts.artifact_manifest import ArtifactBasis
 from lib.config.resolver import ConfigResolver
+from lib.episode.episode_ids import default_episode_title
 from lib.episode.episode_paths import SCRIPT_PLAN_FILENAMES, episode_drafts_dir, episode_script_filename
 from lib.generation.video_request_facts import VideoRequestFactsError
 from lib.infra.async_thread import run_sync_transaction
@@ -95,6 +96,10 @@ DraftDocType = Literal[
     "drama_script_plan", "narration_script_plan", "reference_script_plan", "reference_prompt_authoring"
 ]
 PositiveEpisode = Annotated[int, Field(strict=True, ge=1)]
+#: 工具参数 ``episode_id`` 的统一说明。集 ID 只是内部标识，对用户说标题与播出位置。
+EPISODE_ID_DESCRIPTION = (
+    "集 ID：一集的内部标识，取自项目详情 episodes[].episode 或制作计划的 episode_id，不是播出顺序中的第几集"
+)
 
 
 _DRAFT_REVISION_DESCRIPTION = "open_draft / 上次 patch_draft 返回的 revision"
@@ -103,7 +108,7 @@ _DRAFT_REVISION_DESCRIPTION = "open_draft / 上次 patch_draft 返回的 revisio
 class _DraftRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    episode: PositiveEpisode = Field(description="剧集编号")
+    episode_id: PositiveEpisode = Field(description=EPISODE_ID_DESCRIPTION)
     doc_type: DraftDocType = Field(
         description=(
             "草稿对应的文档：drama_script_plan / narration_script_plan / reference_script_plan 为各创作类型的"
@@ -299,7 +304,7 @@ def _commit_reference_script_plan(
 
 def _script_plan_confirmed_detail(episode: int) -> str:
     return (
-        f"❌ 第 {episode} 集的脚本规划已确认，确认后只读，不能再改。"
+        f"❌ 集（id={episode}）的脚本规划已确认，确认后只读，不能再改。"
         "内容修改请在正式脚本上进行（patch_episode_script，或请用户在时间线上修改）；"
         "要整集重做，请重跑 generate_script_plan，新的脚本规划会让该集回到待确认。"
     )
@@ -490,7 +495,7 @@ def _render_script_plan_conflict_report(
         f"处置：调用 open_draft 读取当前草稿与 formal_revision，对照上方最新内容合并 {field_hint}；"
         "再调用 patch_draft 提交完整 content，并把 formal_revision 作为 accept_formal_revision；"
         "该值为 null 时同样显式传入 null；"
-        f'最后调用 {PROMOTE_TOOL_NAME}({{"episode": {episode}, "doc_type": "{doc_type}", '
+        f'最后调用 {PROMOTE_TOOL_NAME}({{"episode_id": {episode}, "doc_type": "{doc_type}", '
         '"base_revision": "<patch_draft 返回的新 revision>"}) 重新晋升。'
     )
 
@@ -512,7 +517,7 @@ def _render_prompt_authoring_conflict_report(
         "处置：调用 open_draft 读取当前草稿与 formal_revision，合并最新正式内容；"
         "再调用 patch_draft 提交完整 content，并把 formal_revision 作为 accept_formal_revision；"
         "该值为 null 时同样显式传入 null；"
-        f'最后调用 {PROMOTE_TOOL_NAME}({{"episode": {episode}, "doc_type": "reference_prompt_authoring", '
+        f'最后调用 {PROMOTE_TOOL_NAME}({{"episode_id": {episode}, "doc_type": "reference_prompt_authoring", '
         '"base_revision": "<patch_draft 返回的新 revision>"}) 重新晋升。'
     )
 
@@ -750,7 +755,7 @@ async def _open_drama_script_plan_for_edit(
         QUARANTINE_KIND_DRAMA_SCRIPT_PLAN,
         source,
         _drama_script_plan_draft_shape,
-        f"❌ 第 {episode} 集没有可编辑的正式 script_plan（{script_plan_path} 不存在、不是合法 JSON，"
+        f"❌ 集（id={episode}）没有可编辑的正式 script_plan（{script_plan_path} 不存在、不是合法 JSON，"
         "或 scenes 不是非空数组）；首次生成请调用 generate_script_plan",
     )
 
@@ -948,7 +953,7 @@ async def _open_narration_script_plan_for_edit(
         QUARANTINE_KIND_NARRATION_SCRIPT_PLAN,
         source,
         _narration_script_plan_draft_shape,
-        f"❌ 第 {episode} 集没有可编辑的正式 script_plan（{script_plan_path} 不存在、不是合法 JSON，"
+        f"❌ 集（id={episode}）没有可编辑的正式 script_plan（{script_plan_path} 不存在、不是合法 JSON，"
         "或 segments 不是非空数组）；首次生成请调用 generate_script_plan",
     )
 
@@ -1054,7 +1059,7 @@ async def _open_reference_script_plan_for_edit(
         QUARANTINE_KIND_SCRIPT_PLAN,
         source,
         _reference_script_plan_draft_shape,
-        f"❌ 第 {episode} 集没有可编辑的正式 script_plan（{script_plan_path} 不存在、不是合法 JSON，"
+        f"❌ 集（id={episode}）没有可编辑的正式 script_plan（{script_plan_path} 不存在、不是合法 JSON，"
         "或 units 不是非空数组）；首次生成请调用 generate_script_plan",
     )
 
@@ -1126,7 +1131,7 @@ class DraftWorkflow:
             payload["formal_revision"] = script_review.content_fingerprint(self._formal_path(episode, kind))
             return payload
         if quarantine_exists(self.ctx.project_path, episode, kind):
-            detail = f"episode {episode} {doc_type_for_kind(kind)} draft is not a valid JSON envelope"
+            detail = f"集（id={episode}）{doc_type_for_kind(kind)} draft is not a valid JSON envelope"
             raise DraftWorkflowError("draft_not_found", detail)
         return None
 
@@ -1138,7 +1143,7 @@ class DraftWorkflow:
         payload = self._read_if_present(episode, kind)
         if payload is not None:
             return payload
-        detail = f"episode {episode} has no {doc_type_for_kind(kind)} draft"
+        detail = f"集（id={episode}）has no {doc_type_for_kind(kind)} draft"
         raise DraftWorkflowError("draft_not_found", detail)
 
     def _draft_snapshot(
@@ -1175,7 +1180,8 @@ class DraftWorkflow:
             episode,
             resolved,
             content={
-                "title": script.get("title") or f"第{episode}集",
+                "title": script.get("title")
+                or default_episode_title(self.ctx.pm.load_project(self.ctx.project_name), episode),
                 "units": [{"text": unit.get("text", "")} for unit in units if isinstance(unit, dict)],
             },
             violations=[],
@@ -1389,7 +1395,7 @@ class DraftWorkflow:
         current = await asyncio.to_thread(read_quarantine, self.ctx.project_path, episode, resolved)
         if current is not None and draft_owner(current) == DRAFT_OWNER_AGENT:
             raise DraftWorkflowError(
-                "draft_agent_owned", f"episode {episode} {doc_type} draft is being edited by the agent"
+                "draft_agent_owned", f"集（id={episode}）{doc_type} draft is being edited by the agent"
             )
         patched = await self.patch(episode, doc_type, content, base_revision)
         try:
