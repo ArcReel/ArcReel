@@ -18,10 +18,9 @@ from lib.artifacts.artifact_activation import resolve_artifact_episode
 from lib.artifacts.version_manager import VersionManager
 from lib.config.resolver import ConfigResolver
 from lib.db import async_session_factory
-from lib.generation.batch_admission import BatchAdmission, BatchAdmissionDecision, refused_ticket
+from lib.generation.batch_admission import BatchAdmissionDecision, refused_ticket
 from lib.generation.generation_queue import get_generation_queue
 from lib.generation.generation_queue_client import (
-    BatchTaskResult,
     TaskSpec,
     TaskSpecValidationError,
     batch_enqueue_only,
@@ -30,7 +29,6 @@ from lib.generation.generation_result import (
     GenerationAction,
     GenerationProblemCode,
     GenerationSelectionMode,
-    enqueue_problem,
     normalize_requested_ids,
 )
 from lib.infra.api_errors import ApiError, BadRequestError, NotFoundError
@@ -53,6 +51,7 @@ from lib.speech.speech_composition import admit_script_unit, refresh_video_unit_
 from server.auth import CurrentUser
 from server.error_handlers import script_edit_detail
 from server.i18n import Translator
+from server.routers._batch_admission import enqueue_failure_payload, localized_admission_payload
 from server.routers._reorder import full_permutation_error
 from server.routers._script_edits import execute_current_episode_edit, require_script_edit_result
 from server.routers._validators import reject_retired_query_params
@@ -587,44 +586,6 @@ async def generate_unit(
     }
 
 
-def _admission_payload(admission: BatchAdmission, _t: Translator) -> dict[str, Any]:
-    """Localize the shared admission envelope for the browser.
-
-    Only the message strings are added: codes, actions, tiers and costs stay
-    exactly as the shared seam produced them, so Web and Agent never disagree
-    about what happened — only about what language it is read in.
-    """
-
-    payload = admission.to_payload()
-    units = payload.get("units")
-    if isinstance(units, list):
-        for unit in units:
-            problems = unit.get("problems") if isinstance(unit, dict) else None
-            if not isinstance(problems, list):
-                continue
-            for problem in problems:
-                if isinstance(problem, dict):
-                    params = problem.get("params")
-                    problem["message"] = _t(str(problem.get("code")), **(params if isinstance(params, dict) else {}))
-    return payload
-
-
-def _enqueue_failure_payload(failure: BatchTaskResult, _t: Translator) -> dict[str, Any]:
-    """一个没能入队的目标，按共享契约的问题形状转述给浏览器。
-
-    问题码与下一步动作与 Agent 侧同源，只多一句本地化说明。原始异常文本（`detail`）来自数据库与
-    队列层，可能带出连接串或内部拓扑，因此只落服务端日志，不进浏览器响应体——与 `_admission_payload`
-    只转述受控问题码的姿态一致。
-    """
-
-    problem = enqueue_problem(failure.error, interrupted=failure.enqueue_interrupted)
-    logger.warning("reference batch enqueue failed for unit %s: %s", failure.resource_id, problem.detail)
-    return {
-        "unit_id": failure.resource_id,
-        "problem": {**problem.model_dump(mode="json", exclude={"detail"}), "message": _t(problem.code)},
-    }
-
-
 @router.post("/episodes/{episode}/units/generate-batch")
 async def generate_units_batch(
     project_name: str,
@@ -695,7 +656,7 @@ async def generate_units_batch(
         user_id=user.id,
         queue=queue,
     )
-    payload = _admission_payload(admission, _t)
+    payload = localized_admission_payload(admission, _t)
     payload["skipped_unit_ids"] = sorted(state.unit_id for state in selection.skipped)
     if admission.decision is not BatchAdmissionDecision.ADMITTED:
         payload["task_ids"] = []
@@ -726,7 +687,7 @@ async def generate_units_batch(
     )
     # 入队中断不撤销已创建的任务：它们是准入通过的完整付费单元，照常执行。没轮到的目标
     # 逐 ID 报出来，界面据此释放乐观占用标记，下次「缺失即生成」只补这些。
-    payload["enqueue_failures"] = [_enqueue_failure_payload(failure, _t) for failure in enqueue_failures]
+    payload["enqueue_failures"] = [enqueue_failure_payload(failure, _t) for failure in enqueue_failures]
     payload["task_ids"] = [item.task_id for item in enqueued]
     # 逐 unit 给出它自己的任务行：调用方的乐观占用标记要各等各的，拿整批清单会让每个 unit
     # 都等到全批落库为止。

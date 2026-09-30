@@ -87,6 +87,7 @@ from server.routers import (
     script_plan,
     script_review,
     shot_uploads,
+    storyboard_batches,
     system,
     system_config,
     tasks,
@@ -617,6 +618,12 @@ app.include_router(
 app.include_router(files.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["文件管理"])
 app.include_router(
     generate.router,
+    prefix="/api/v1",
+    dependencies=[Depends(get_current_user), Depends(require_project_migration_ok)],
+    tags=["生成"],
+)
+app.include_router(
+    storyboard_batches.router,
     prefix="/api/v1",
     dependencies=[Depends(get_current_user), Depends(require_project_migration_ok)],
     tags=["生成"],

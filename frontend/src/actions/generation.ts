@@ -25,6 +25,8 @@ import type {
   ReferenceBatchAdmission,
   ReferenceBatchGenerateRequest,
   ReferenceGenerationRequestOptions,
+  StoryboardBatchKind,
+  StoryboardBatchSubmitted,
 } from "@/types";
 import {
   useTasksStore,
@@ -398,6 +400,37 @@ export async function enqueueReferenceVideoBatch(
           "error",
         );
     }
+  }
+  return res;
+}
+
+/**
+ * 一集分镜图 / 分镜视频的批量生成：目标集合由服务端决定（本集没有可用产物的分镜），
+ * 占用标记在响应后按「分镜 → task_id」逐项补打。
+ *
+ * 分镜视频整批准入未通过时一个任务也没建，不提示成功，由调用方陈述结论。
+ */
+export async function enqueueStoryboardBatch(
+  projectName: string,
+  episode: number,
+  kind: StoryboardBatchKind,
+): Promise<StoryboardBatchSubmitted> {
+  const res = await API.submitStoryboardBatch(projectName, episode, kind);
+  if (res.admission && res.admission.decision !== "admitted") return res;
+  const taskType = kind === "storyboards" ? "storyboard" : "video";
+  markResourcesByTaskId(projectName, taskType, taskType, res.task_ids_by_unit);
+  const queued = Object.keys(res.task_ids_by_unit).length;
+  notifyEnqueued(
+    false,
+    queued > 0 ? i18n.t(`dashboard:storyboard_batch_submitted.${kind}`, { count: queued }) : null,
+  );
+  if (res.enqueue_failures.length > 0) {
+    useAppStore
+      .getState()
+      .pushToast(
+        i18n.t("dashboard:storyboard_batch_enqueue_failed", { count: res.enqueue_failures.length }),
+        "warning",
+      );
   }
   return res;
 }

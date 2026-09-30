@@ -461,6 +461,7 @@ MESSAGES = {
     "storyboard_warn_mention_unbound": "分镜 {unit_id} 的画面描述引用了 @[{name}]，但它未登记为资产或不在该分镜的引用字段里：不会编号为图N，将按名字原样发送",
     # Episode meta
     "episode_not_found": "集（id={episode}）不存在或尚无脚本文件",
+    "storyboard_batch_script_invalid": "第 {episode} 集的正式脚本不能用于分镜批量生成：脚本结构与项目的生成模式不符，或脚本未绑定到这一集",
     "episode_title_empty": "分集标题不能为空",
     "about_update_check_failed": "检查更新失败，请稍后重试",
     "about_version_read_failed": "读取应用版本失败",

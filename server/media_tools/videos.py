@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable, Collection, Mapping, Sequence
+from collections.abc import Callable, Collection, Mapping
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Annotated, Any, Literal, Self
@@ -65,12 +65,13 @@ from server.services.admission.video_batch_admission import (
     admit_storyboard_video_request,
     artifact_state_tickets,
     build_storyboard_video_specs,
-    diagnostic_unit_id,
     reference_unit_task_spec,
     request_options_for_unit,
     resolve_voice_context,
     screen_script_entries,
+    screen_storyboard_items,
     speech_admission_ticket,
+    storyboard_item_aliases,
     storyboard_item_id,
     video_target_states,
 )
@@ -415,142 +416,6 @@ def _resolve_reference_route(call: _VideoCall, script: dict[str, Any]) -> str | 
     if not is_reference_video_project(project):
         return None
     return "reference"
-
-
-def _storyboard_item_aliases(item: dict[str, Any], id_field: str) -> set[str]:
-    """点名时能寻址到这个条目的全部写法。
-
-    各入口既认规范 ``id_field`` 也认 ``scene_id`` 别名，两者在剧本里可以不同；按哪一个
-    点名都要指到同一个条目，否则同一个名字在不同入口指向不同条目。
-    """
-
-    # 先按类型过滤再进集合：脏剧本里的 list / dict 别名不可哈希，直接建集合会抛 TypeError，
-    # 逐目标的拒绝契约就塌成一句通用报错。
-    aliases = (item.get(id_field), item.get("scene_id"))
-    return {alias.strip() for alias in aliases if isinstance(alias, str) and alias.strip()}
-
-
-def screen_storyboard_items(
-    items: Sequence[Any],
-    id_field: str,
-    *,
-    requested_ids: Collection[str] | None,
-) -> tuple[list[dict[str, Any]], list[UnitAdmissionTicket]]:
-    """把剧本条目分成「能当目标的」与「成不了目标的」两份，后者按位置记名。
-
-    非对象条目、id 不是字符串、id 为空、以及同一个 id 出现多次，都会让后面按 id 索引的每一步
-    失手：条目被静默滤掉时同批健康的目标独自入队计费，撞上集合查询时又把逐目标的拒绝契约打成
-    一句通用报错。数字与布尔 id 混过 ``str()`` 进队列后，执行期按原值比对同样找不到目标。
-    各入口在读 id 之前先经这一道筛，这些失手都变成一张记名的准入票。
-
-    缺失即生成把整个剧本当作目标集合，剧本里任何一处脏条目都参与判定；点名生成的目标集合由
-    调用方给定，只有点到的 id 上的脏（同一个 id 的副本）才参与，否则别处的脏数据会否决一次
-    精确点名的重做。
-
-    记名用带方括号的位置写法，与合法 id 不共用命名空间：同名会让结果契约把两条不同的条目
-    当作同一个，写第二遍时 fail loud，用户拿到的又是一句通用报错。
-    """
-
-    clean: list[dict[str, Any]] = []
-    tickets: list[UnitAdmissionTicket] = []
-    seen: set[str] = set()
-    addressable: list[tuple[dict[str, Any], str]] = []
-    taken = {
-        str(storyboard_item_id(item, id_field)).strip()
-        for item in items
-        if isinstance(item, dict) and isinstance(storyboard_item_id(item, id_field), str)
-    }
-    named = set(requested_ids) if requested_ids is not None else None
-    if named is not None:
-        # 点名的 ID 也占着记名空间：点到剧本里没有的名字时上游还会记一条「不存在」，
-        # 诊断名与它同名会把两条并成一条。
-        taken |= named
-    refused_names: set[str] = set()
-    for index, item in enumerate(items):
-        detail: str | None = None
-        item_id = ""
-        if not isinstance(item, dict):
-            logger.debug("剧本条目 items[%d] 类型非法: %s", index, type(item).__name__)
-            detail = "该条目不是对象"
-        else:
-            raw_id = storyboard_item_id(item, id_field)
-            if raw_id is not None and not isinstance(raw_id, str):
-                logger.debug("剧本条目 items[%d] 的 ID 类型非法: %s", index, type(raw_id).__name__)
-                detail = "该条目的 ID 不是字符串"
-            else:
-                item_id = (raw_id or "").strip()
-                if not item_id:
-                    detail = "该条目没有可用的 ID"
-        if detail is not None:
-            if named is None:
-                tickets.append(
-                    refused_ticket(
-                        diagnostic_unit_id(f"items[{index}]", taken),
-                        code=GenerationProblemCode.UNIT_REQUEST_INVALID,
-                        detail=detail,
-                        action=GenerationAction.FIX_INPUT,
-                    )
-                )
-            elif isinstance(item, dict):
-                # 点名点中的正好是这个脏条目：按点名的写法给结论，否则调用方只收到一句
-                # 「不存在」，而这个名字在剧本里明明有条目。
-                for name in sorted(_storyboard_item_aliases(item, id_field) & named):
-                    if name in refused_names:
-                        continue
-                    refused_names.add(name)
-                    tickets.append(
-                        refused_ticket(
-                            name,
-                            code=GenerationProblemCode.UNIT_REQUEST_INVALID,
-                            detail=detail,
-                            action=GenerationAction.FIX_INPUT,
-                        )
-                    )
-            continue
-        if named is not None:
-            addressable.append((item, item_id))
-            continue
-        if item_id in seen:
-            tickets.append(
-                refused_ticket(
-                    diagnostic_unit_id(f"{item_id}#{index}", taken),
-                    code=GenerationProblemCode.UNIT_REQUEST_INVALID,
-                    detail=f"ID {item_id} 在剧本中重复出现",
-                    action=GenerationAction.FIX_INPUT,
-                )
-            )
-            continue
-        seen.add(item_id)
-        clean.append(item)
-    if named is None:
-        return clean, tickets
-
-    # 点名可以用规范 ID，也可以用 ``scene_id`` 别名，两者在剧本里可以不同；执行期按规范 ID
-    # 定位目标。因此一个名字指到几个条目，要把「直接被它寻址的条目」连同「与之共用规范 ID
-    # 的兄弟」一起数：只按名字数会漏掉别名不同、规范 ID 相同的那种，各入口按各自的查法分别
-    # 选中头一个或末一个，同一次点名在不同入口做的是不同条目。
-    by_canonical: dict[str, list[dict[str, Any]]] = {}
-    for item, item_id in addressable:
-        by_canonical.setdefault(item_id, []).append(item)
-    ambiguous: set[int] = set()
-    for name in sorted(named - refused_names):
-        owners = {id(item) for item, _ in addressable if name in _storyboard_item_aliases(item, id_field)}
-        targets = {
-            id(sibling) for item, item_id in addressable if id(item) in owners for sibling in by_canonical[item_id]
-        }
-        if len(targets) <= 1:
-            continue
-        ambiguous |= targets
-        tickets.append(
-            refused_ticket(
-                name,
-                code=GenerationProblemCode.UNIT_REQUEST_INVALID,
-                detail=f"ID {name} 在剧本中指向多个条目",
-                action=GenerationAction.FIX_INPUT,
-            )
-        )
-    clean.extend(item for item, _ in addressable if id(item) not in ambiguous)
-    return clean, tickets
 
 
 def _build_reference_specs(
@@ -1325,7 +1190,7 @@ async def _generate_selected(
     for item in items:
         # 按同一份「能寻址到它的写法」建索引：直接拿原值当键，脏剧本里的 list / dict
         # 别名会抛 TypeError，逐目标的结论就塌成一句通用报错。
-        for alias in _storyboard_item_aliases(item, id_field):
+        for alias in storyboard_item_aliases(item, id_field):
             items_by_id[alias] = item
 
     builder = GenerationResultBuilder(_OPERATION, GenerationSelectionMode.EXPLICIT)
@@ -1423,5 +1288,4 @@ __all__ = [
     "SceneTarget",
     "SelectedTarget",
     "generate_videos",
-    "screen_storyboard_items",
 ]

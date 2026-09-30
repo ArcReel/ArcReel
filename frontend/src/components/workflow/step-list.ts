@@ -1,5 +1,6 @@
 import type { TFunction } from "i18next";
 import type { DraftDocType } from "@/types/reference-video";
+import type { StoryboardBatchKind } from "@/types/storyboard-batch";
 import type {
   WorkflowArtifactCollection,
   WorkflowContent,
@@ -48,6 +49,7 @@ export type StepIntent =
   | { type: "start_blank_script" }
   | { type: "open_script_plan_over_draft" }
   | { type: "asset_batch"; episodeId: number }
+  | { type: "storyboard_batch"; episodeId: number; kind: StoryboardBatchKind }
   | { type: "discard_draft"; docType: DraftDocType }
   | { type: "show_surface"; surface: EpisodeSurface }
   | { type: "view_unit"; unitId: string }
@@ -766,13 +768,32 @@ function buildNext(facts: Facts, rows: StepRowView[], ctx: StepListContext): Nex
       };
     case "generate_storyboards":
     case "generate_grid":
-    case "generate_videos":
+    case "generate_videos": {
+      const primary = [agentAct(t, t(`workflow:agent_prefill_${action.type}`, { episodeRef }))];
+      // 分镜图生视频的批量入口与时间线工具栏同一个确认框；宫格图与参考生视频各有自己的入口。
+      const batchKind: StoryboardBatchKind | null =
+        facts.plan.status.project.generation_mode === "reference_video"
+          ? null
+          : action.type === "generate_storyboards"
+            ? "storyboards"
+            : action.type === "generate_videos"
+              ? "videos"
+              : null;
+      if (batchKind) {
+        primary.push({
+          key: "batch",
+          label: t(batchKind === "storyboards" ? "dashboard:batch_generate_storyboards" : "dashboard:batch_generate_videos"),
+          kind: "ai",
+          intent: { type: "storyboard_batch", episodeId: ctx.episodeId, kind: batchKind },
+        });
+      }
       return {
         ...base,
         detail: t(`workflow:next_detail_${action.type}`, { count }),
-        primary: [agentAct(t, t(`workflow:agent_prefill_${action.type}`, { episodeRef }))],
+        primary,
         hint: unsheetedAssetsHint(facts, ctx, action.type),
       };
+    }
     case "create_edit_timeline":
       return {
         ...base,
