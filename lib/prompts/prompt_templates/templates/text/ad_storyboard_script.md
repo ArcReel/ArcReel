@@ -26,6 +26,7 @@ slots:
   aspect_ratio: 画面比例
   aspect_ratio_label: 比例的文字标签
   brief: 创作 brief；未填写时传 null
+  assets: 已登记资产，对象 {characters, scenes, props}，每项是 [{name, aliases, appearance}] 列表（尖括号已中和；衍生写作「本体/衍生」）
   character_names: 候选角色名列表（本体在前、衍生紧随其后），尖括号已中和
   scene_names: 候选场景名列表
   prop_names: 候选道具名列表
@@ -64,7 +65,7 @@ protected: false
 {{ brief or "（未提供，按商品信息与常识自行设计）" }}
 </brief>
 
-{{ partial("shared/lists/asset_name_blocks") }}
+{{ partial("shared/lists/asset_registry_blocks") }}
 
 {% if products %}
 <products>
@@ -100,12 +101,12 @@ protected: false
 - **duration_seconds**：单个分镜{{ duration_constraint }}；各段合计遵循配比表，全片总和贴近 {{ target_duration }} 秒。
 - **products_in_shot**：该分镜画面中实际出现的商品名称列表（商品入画即列出，含局部/手持/包装）；氛围分镜填空数组。
   - 候选 products：[{{ product_names | join(", ") }}]
-  - 不要发明候选之外的名称。
+  - 商品名只取自候选。
 - **characters_in_shot** / **scenes** / **props**：仅列出此分镜画面中实际出现的资产。
   - 候选 characters：[{{ character_names | join(", ") or "（无）" }}]
   - 候选 scenes：[{{ scene_names | join(", ") or "（无）" }}]
   - 候选 props：[{{ prop_names | join(", ") or "（无）" }}]
-  - 不要发明候选之外的名称。
+  - 候选里没有的资产写自拟称呼，并列进 `new_assets`（见下文）。
 {% else %}
 ## 基础字段
 
@@ -115,7 +116,7 @@ protected: false
   - 候选 characters：[{{ character_names | join(", ") or "（无）" }}]
   - 候选 scenes：[{{ scene_names | join(", ") or "（无）" }}]
   - 候选 props：[{{ prop_names | join(", ") or "（无）" }}]
-  - 不要发明候选之外的名称。
+  - 候选里没有的资产写自拟称呼，并列进 `new_assets`（见下文）。
 - **products_in_shot**：本项目无商品，所有分镜一律填空数组。
 {% endif %}
 
@@ -127,6 +128,8 @@ protected: false
 - **video_prompt.camera_motion**：按画面内容自行选择。
 - **video_prompt.ambiance_audio**：{{ partial("shared/ambiance_audio_writing_guide") }}
 - **video_prompt.dialogue**：仅当分镜内有出镜人物开口说话时填写（口播旁白写在 voiceover_text，不要重复进 dialogue）；speaker 必须出现在 characters_in_shot。
+
+{{ partial("shared/ad_new_assets_rule") }}
 
 # 创作目标
 

@@ -166,13 +166,20 @@ def admit_author_prompts(
     return _refused(AdmissionReason.NO_PENDING_AUTHORING)
 
 
-def admit_ad_script(content_mode: object, *, formal_script: bool, ad_inputs: bool) -> OperationAdmission:
-    """广告/短片 AI 生成脚本：创作灵感与商品至少一项；已有正式脚本时不整份生成。"""
+def admit_ad_script(
+    content_mode: object, *, formal_script: bool, ad_inputs: bool, regenerate: bool = False
+) -> OperationAdmission:
+    """广告/短片 AI 生成脚本：创作灵感与商品至少一项；已有正式脚本时只接受显式整份重做。
+
+    输入缺失先于「已有正式脚本」报出：理由为 ``formal_script_exists`` 时，整份重做的输入一定齐备。
+    """
     if content_mode != "ad":
         return NOT_APPLICABLE
-    if formal_script:
+    if not ad_inputs:
+        return _refused(AdmissionReason.AD_INPUTS_MISSING)
+    if formal_script and not regenerate:
         return _refused(AdmissionReason.FORMAL_SCRIPT_EXISTS)
-    return ADMITTED if ad_inputs else _refused(AdmissionReason.AD_INPUTS_MISSING)
+    return ADMITTED
 
 
 def admit_edit_timeline(*, available_videos: int) -> OperationAdmission:

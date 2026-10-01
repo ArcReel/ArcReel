@@ -102,6 +102,7 @@ import type {
   AuthorPromptsResponse,
   PlanScriptRequest,
   PlanScriptResponse,
+  GenerateAdScriptRequest,
   DraftRepairResponse,
   DramaNormalizedScript,
   NarrationScriptPlanDraft,
@@ -1385,6 +1386,21 @@ class API {
   ): Promise<PlanScriptResponse> {
     return this.request(
       `/projects/${encodeURIComponent(projectName)}/episodes/${episode}/script-plan`,
+      { method: "POST", body: JSON.stringify(body) }
+    );
+  }
+
+  /**
+   * 广告/短片「AI 生成脚本」，与 Agent 的 generate_episode_script 同一服务命令；提交即返生成批次，结果直接写成正式脚本。
+   * 整份重做（`regenerate`）会替换已有正式脚本而未带有效 `overwrite_revision` 时 409，`diagnostic.script_overwrite` 带丢失清单。
+   */
+  static async generateAdScript(
+    projectName: string,
+    episode: number,
+    body: GenerateAdScriptRequest
+  ): Promise<PlanScriptResponse> {
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/episodes/${episode}/ad-script`,
       { method: "POST", body: JSON.stringify(body) }
     );
   }

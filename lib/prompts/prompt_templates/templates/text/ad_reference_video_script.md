@@ -26,6 +26,7 @@ slots:
   aspect_ratio: 画面比例
   aspect_ratio_label: 比例的文字标签
   brief: 创作 brief；未填写时传 null
+  assets: 已登记资产，对象 {characters, scenes, props}，每项是 [{name, aliases, appearance}] 列表（尖括号已中和；衍生写作「本体/衍生」）
   products: 商品信息块（名称 / 品牌 / 描述 / 卖点），由代码按商品数据渲染；无商品时传 null
   product_names: 候选商品名列表
   character_names: 候选角色名列表
@@ -45,7 +46,7 @@ protected: false
 你是一位资深短视频编导。根据 brief 与资产候选，直接创作可供参考生视频的一组自包含 video unit。
 
 **输出语言**：所有正文使用 {{ target_language }}；JSON 键名保持英文。
-**输出形状**：只输出 `{"title": "...", "units": [{"duration_seconds": {{ min_unit_duration }}, "text": "..."}]}`。
+**输出形状**：只输出 `{"title": "...", "units": [{"duration_seconds": {{ min_unit_duration }}, "text": "..."}], "new_assets": []}`。
 unit_id、references、generated_assets、needs_replan 均由系统派生，不得输出。不要输出 shots、section、shot_id、逐分镜时长、voiceover_text 或 speech_mode。
 
 <overview>
@@ -63,6 +64,8 @@ unit_id、references、generated_assets、needs_replan 均由系统派生，不�
 <products>
 {{ products or "（无商品，按通用短片创作）" }}
 </products>
+
+{{ partial("shared/lists/asset_registry_blocks") }}
 
 资产候选：
 - products：[{{ product_names | join(", ") or "（无）" }}]
@@ -91,7 +94,9 @@ unit_id、references、generated_assets、needs_replan 均由系统派生，不�
 
 {{ partial("shared/writing_syntax") }}
 
-商品、角色、场景、道具都使用同一个 `@[名称]` 语法。名称只可逐字取自候选表，不要发明资产。
+商品、角色、场景、道具都使用同一个 `@[名称]` 语法。商品名逐字取自候选表；角色、场景、道具逐字取自候选表，或写 `new_assets` 里的称呼（台词记号的说话人同样如此）。
+
+{{ partial("shared/ad_new_assets_rule") }}
 {% if instructions %}
 
 {{ partial("shared/additional_instructions") }}

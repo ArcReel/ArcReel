@@ -20,9 +20,8 @@ from lib.generation.video_request_facts import (
 )
 from lib.project.project_migrations import CURRENT_SCHEMA_VERSION
 from lib.script.prompt_authoring_scope import select_prompt_authoring
-from lib.script.script_generator import PlanningVideoFacts, PromptAuthoringTargets, ScriptGenerator
+from lib.script.script_generator import AdScriptRejected, PlanningVideoFacts, PromptAuthoringTargets, ScriptGenerator
 from lib.script.script_review import content_fingerprint, script_plan_path
-from lib.script.script_structure_validator import ScriptStructureValidationError
 from lib.speech.speech_composition import SpeechAdmissionError
 from tests.factories import make_video_request_facts
 from tests.fakes import FakeConfigResolver
@@ -1970,7 +1969,7 @@ class TestAdScriptGeneration:
         fake = _FakeTextGenerator(json.dumps({"foo": "bar"}))
         generator = ScriptGenerator(project_path, generator=fake)
 
-        with pytest.raises(ScriptStructureValidationError):
+        with pytest.raises(AdScriptRejected):
             await generator.generate(1)
 
         schema = fake.backend.last_request.response_schema

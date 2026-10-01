@@ -13,6 +13,7 @@ import { itemCountKey, normalizeRoute } from "@/utils/generation-mode";
 
 import { WelcomeCanvas } from "./WelcomeCanvas";
 import { AdInitCanvas } from "./AdInitCanvas";
+import { AdBriefCard } from "./AdBriefCard";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { AgentHandoffHint } from "@/components/copilot/AgentHandoffHint";
 import { ONBOARDING_ANCHORS } from "@/onboarding/anchors";
@@ -261,6 +262,15 @@ export function OverviewCanvas({
           />
         ) : (
           <>
+            {isAd && (
+              <AdBriefCard
+                projectName={projectName}
+                brief={projectData.brief ?? ""}
+                targetDuration={projectData.target_duration}
+                readOnly={readOnly}
+                onSaved={refreshProject}
+              />
+            )}
             {/* Synopsis / overview card */}
             <section
               data-onboarding={ONBOARDING_ANCHORS.workbenchOverview}

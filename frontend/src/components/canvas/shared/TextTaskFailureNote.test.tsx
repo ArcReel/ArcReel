@@ -24,11 +24,11 @@ function truncated(overrides: Partial<TaskItem>, custom: boolean): TaskItem {
   });
 }
 
-function renderNote(episode = 1) {
+function renderNote(episode = 1, ad?: { hasScript: boolean }) {
   const location = memoryLocation({ path: "/episodes/1", record: true });
   render(
     <Router hook={location.hook} searchHook={location.searchHook}>
-      <TextTaskFailureNote projectName="demo" episode={episode} />
+      <TextTaskFailureNote projectName="demo" episode={episode} isAd={ad !== undefined} hasScript={ad?.hasScript ?? true} />
     </Router>,
   );
   return location;
@@ -103,5 +103,34 @@ describe("TextTaskFailureNote", () => {
     renderNote();
 
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ["没有正式脚本时脚本文本任务一律是整份生成", { hasScript: false }, {}],
+    ["有正式脚本时按违约失败的标记认出整份生成", { hasScript: true }, { error_code: "ad_script_rejected" }],
+    ["有正式脚本时按整份重做的标记认出整份生成", { hasScript: true }, { payload: { regenerate: true } }],
+  ])("labels an ad whole-script generation failure: %s", (_name, ad, overrides) => {
+    useTasksStore.setState({
+      tasks: [
+        failed({
+          task_type: "text_episode_script",
+          resource_id: "episode-1",
+          error_message: "AI 生成的脚本不合规",
+          ...overrides,
+        }),
+      ],
+    });
+    renderNote(1, ad);
+
+    expect(screen.getByRole("alert")).toHaveTextContent("上一次 AI 生成脚本失败：AI 生成的脚本不合规");
+  });
+
+  it("keeps prompt authoring failures of an ad episode with a script as prompt authoring", () => {
+    useTasksStore.setState({
+      tasks: [failed({ task_type: "text_episode_script", resource_id: "episode-1", error_message: "模型超时" })],
+    });
+    renderNote(1, { hasScript: true });
+
+    expect(screen.getByRole("alert")).toHaveTextContent("上一次编写提示词失败：模型超时");
   });
 });

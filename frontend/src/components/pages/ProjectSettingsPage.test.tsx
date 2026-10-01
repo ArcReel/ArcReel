@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Router, Route } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
@@ -551,6 +551,36 @@ describe("ProjectSettingsPage – style picker", () => {
 
     expect(await screen.findByText(/先为每个分镜生成分镜图/)).toBeInTheDocument();
     expect(screen.queryByLabelText(/单集目标时长/)).not.toBeInTheDocument();
+  });
+
+  it("loads and saves the target duration of ad projects", async () => {
+    vi.spyOn(API, "getProject").mockResolvedValue({
+      project: {
+        title: "Demo",
+        content_mode: "ad",
+        generation_mode: "storyboard",
+        target_duration: 30,
+        episodes: [],
+        characters: {},
+        clues: {},
+      },
+      scripts: {},
+    } as unknown as Awaited<ReturnType<typeof API.getProject>>);
+    const updateSpy = vi.spyOn(API, "updateProject").mockResolvedValue({
+      success: true,
+      project: { title: "Demo" } as unknown as Awaited<ReturnType<typeof API.updateProject>>["project"],
+    });
+
+    renderAt("/app/projects/demo/settings");
+
+    const group = await screen.findByRole("radiogroup", { name: "目标总时长" });
+    await waitFor(() => expect(within(group).getByRole("radio", { name: "30 秒" })).toBeChecked());
+    fireEvent.click(within(group).getByRole("radio", { name: "60 秒" }));
+    fireEvent.click(screen.getByRole("button", { name: /^(保存|Save)$/i }));
+    await waitFor(() => {
+      expect(updateSpy).toHaveBeenCalledWith("demo", expect.objectContaining({ target_duration: 60 }));
+    });
+    expect(updateSpy.mock.calls[0][1]).not.toHaveProperty("episode_target_duration");
   });
 
   it("hides the grid toggle for ad projects", async () => {

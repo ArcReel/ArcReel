@@ -15,7 +15,7 @@ ArcReel 整条 pipeline 中最值得重点优化的一环。
 
 1. 项目目录下存在 `project.json`（含 style / overview / characters / scenes / props）
 2. **正式脚本 `scripts/episode_N.json` 已存在**（N 是目标集的集 ID，取自计划 `target.episode`，不是第几集）（drama / narration / reference_video）：内容确认即把脚本规划整集转为正式脚本，全部条目带待编写标记。确认有两条等价路径：用户在 Web 端点击确认，或在对话中明确同意后由主 Agent 调用 `mcp__arcreel__confirm_script_review({"episode_id": N})`。本工具只读正式脚本、不读脚本规划：脚本规划缺失或重跑后尚未确认都不影响编写。
-   - **ad（广告/短片）**：尚无正式脚本时本工具按 `project.json` 的 `brief` + `products`（含 selling_points）+ `target_duration` 整份生成（后端按审定的带货八段框架配比表构建 prompt，`products` 为空自动分流通用短片）；已有正式脚本时与其他路线一样只编写待编写条目。
+   - **ad（广告/短片）**：尚无正式脚本时本工具按 `project.json` 的 `brief` + `products`（含 selling_points）+ `target_duration` 整份生成（后端按审定的带货八段框架配比表构建 prompt，`products` 为空自动分流通用短片），`brief` 与 `products` 至少一项。结果直接成为正式脚本，不经内容确认；引用里的新角色 / 场景 / 道具由模型列进 `new_assets` 并给出处理决定，随正式脚本登记为待生成资产，与已登记同类资产同名的自动归并，回执列出本次新登记的资产。已有正式脚本时与其他路线一样只编写待编写条目，整份重做见下文。
 3. **约束失败产出保留为待修复草稿，不丢弃重抽**：参考生视频提示词编写的产出违反内容约束时，正式文件不写，产出连同逐条违约报告落到 `*.invalid.json`。用 `open_draft` 读取草稿及 revision，按 `violations[]` 修复完整 `content`，再用 `patch_draft` 提交；随后以相同 `episode_id` 与 `doc_type: reference_prompt_authoring` 调 `promote_draft`，仍违约则继续 open → patch → promote，无轮次上限。
 
 ## 用法
@@ -48,8 +48,22 @@ mcp__arcreel__generate_episode_script({"episode_id": N})
   （台词、旁白正文、对应原文）与备注、已生成产物照常保留。会覆盖已有内容时工具先返回
   `prompt_overwrite_required`，回执正文是服务端生成的丢失清单，`params.prompt_overwrite.revision` 是认可令牌：
   把清单原文转述给用户，得到同意后才以该 revision 作为 `overwrite_revision` 重新调用。
-- 没有要编写的条目时工具不调用模型、不改剧本，回执会说明。整集重做走重跑脚本规划并重新确认；
-  ad 要整份重做须先移除正式脚本。
+- 没有要编写的条目时工具不调用模型、不改剧本，回执会说明。整集重做走重跑脚本规划并重新确认。
+
+### 广告/短片整份重做（`regenerate`）
+
+用户要求重新生成整份广告脚本时传 `regenerate: true`，不需要先删正式脚本：
+
+```text
+mcp__arcreel__generate_episode_script({"episode_id": N, "regenerate": true, "instructions": "<可选>"})
+```
+
+- 已有正式脚本时工具先返回 `script_overwrite_required`，回执正文是丢失清单（将移除的条目与名下的分镜图、视频等），
+  `params.script_overwrite.revision` 是认可令牌：把清单原文转述给用户，得到同意后以
+  `regenerate: true` + `overwrite_revision` 重新调用。
+- 上一次登记的资产在重做后保留，即使新脚本不再引用。
+- 整份生成的产出违约（引用了未登记也未列进 `new_assets` 的名字、处理决定解析不出、结构不合）时任务失败，
+  问题码 `ad_script_rejected`，正式脚本、资产与草稿都不变。把失败原因转述给用户，按原因补一句附加指令再生成。
 
 **重要：生成剧本必须调用上述 MCP 工具。此 skill 不提供任何 Python/Shell 脚本，不得用 BASH 调 `python .../scripts/*.py`。**
 
@@ -58,13 +72,13 @@ mcp__arcreel__generate_episode_script({"episode_id": N})
 MCP 工具内部通过 `ScriptGenerator` 完成以下步骤：
 
 1. **加载 project.json** — 读取 content_mode、characters、scenes、props、overview、style
-2. **加载正式脚本** — 在范围内（全部待编写条目，或 `entry_ids` 点名的条目）按补缺或显式重写选出本次编写的条目与字段；ad 尚无正式脚本时整份生成
+2. **加载正式脚本** — 在范围内（全部待编写条目，或 `entry_ids` 点名的条目）按补缺或显式重写选出本次编写的条目与字段；ad 尚无正式脚本或 `regenerate` 时整份生成
 3. **构建 Prompt** — 由 `lib.prompts.prompt_builders_script`、`lib.prompts.prompt_builders_reference` 或 `lib.prompts.prompt_builders_ad` 生成，输入是这些条目的内容字段
 4. **调用 TextBackend** — 由 `TextGenerator` 按项目配置选择文本模型，传入 Pydantic schema 作为 `response_schema` 强约束 JSON 结构
 5. **Pydantic 验证与写回** — LLM 只产出视觉层，后端按条目 id 写回正式脚本，内容字段不进 LLM 输出，从工程上杜绝其经 Structured Outputs 漂移：
    - narration → `NarrationVisualEpisodeScript`（`segment_id` + image_prompt + video_prompt）
    - drama（storyboard，含 grid_storyboard）→ `DramaVisualScript`（`scene_id` + image_prompt + video_prompt）
-   - ad 分镜 → `AdVisualScript`（`shot_id` + image_prompt + video_prompt）；ad 整份生成 → `AdEpisodeScript`（storyboard）或 `AdReferenceFlatScript`（reference_video）
+   - ad 分镜 → `AdVisualScript`（`shot_id` + image_prompt + video_prompt）；ad 整份生成 → `AdEpisodeScript` 加 `new_assets`（storyboard）或 `AdReferenceFlatScript`（reference_video），新增资产按处理决定改写引用后与正式脚本同一次写入登记
    - reference_video → `ReferencePromptAuthoringFlatScript`：待编写单元按顺序各一段改写后的正文，台词逐字保留
 6. **补充元数据** — `episode`（集 ID）、`content_mode`、`novel`（项目 title + 本集标题，无标题时为「第 {播出位置} 集」）、时间戳。这些字段对 LLM 隐藏（SkipJsonSchema），由后端从 `project.json` 注入，避免 LLM 幻觉污染下游消费方（如剪映草稿）。
    - 注：**任何骨架的剧本都不写入顶层 `generation_mode`**。生成模式是项目级事实（`project.json` 的 `generation_mode`，创建时锁定），剧本骨架种类本身即生成模式的体现；消费方一律读 `project.json` 分派，不得从剧本上找该字段。

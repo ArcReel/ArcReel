@@ -41,8 +41,8 @@ description: 广告/短片项目的工作流入口。当用户提到做视频、
 1. **确认项目状态**：按计划确认 `content_mode=ad` 与项目级 `generation_mode`；Read `project.json` 补充 `title`、`target_duration`、`brief` 与 `products`。生成模式创建后不可更改。
 2. **创作输入**：带货项目未登记商品或缺原图时，引导用户在 WebUI 上传；原图是保真锚点。用 `mcp__arcreel__patch_project` 写商品描述、品牌与 `brief`。通用短片不索要商品。
 3. **起草卖点**：卖点不挡脚本生成。`status.content.products_without_selling_points` 非空时可向用户提议起草；用户同意或主动要求时，根据 brief、描述与原图起草，与用户确认后用 `patch_project` 写回。
-4. **资产定义与资产图**：定义角色、场景、道具后，调用 `mcp__arcreel__generate_assets({"episode_id": <next_action.args.episode_id>})`：服务端生成本集引用、仍缺资产图的全部资产（含商品与衍生），与 Web 集层同一份名单。
-5. **一键生成剧本**：调用 `mcp__arcreel__generate_episode_script({"episode_id": target.episode})`。广告不走 script_plan；分镜图生视频直接产出 `shots[]`，参考生视频直接产出自包含 `video_units[]`。总时长偏离 `target_duration` 时提醒用户，不阻塞保存。
+4. **一键生成剧本**：`brief` 与商品至少一项后，调用 `mcp__arcreel__generate_episode_script({"episode_id": target.episode})`。广告不走 script_plan，结果直接成为正式脚本；分镜图生视频直接产出 `shots[]`，参考生视频直接产出自包含 `video_units[]`。剧本引用的新角色、场景、道具随之登记为待生成资产，回执列出它们。总时长偏离 `target_duration` 时提醒用户，不阻塞保存。用户要整份重做时传 `regenerate: true`，丢失清单的确认与违约失败的处理见 generate-script skill。
+5. **资产图**：调用 `mcp__arcreel__generate_assets({"episode_id": <next_action.args.episode_id>})`：服务端生成本集引用、仍缺资产图的全部资产（含商品、衍生与剧本生成时新登记的资产），与 Web 集层同一份名单。
 6. **sheet 过目（软门禁）**：商品有 `product_sheet` 时，请用户在首次分镜或参考生视频生成前确认它与真品一致；只有原图时直接继续。
 7. **编排与生成**：
 

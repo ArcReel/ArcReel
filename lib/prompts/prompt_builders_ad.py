@@ -20,6 +20,7 @@ from lib.prompts.prompt_builders_script import (
     _format_aspect_ratio_desc,
     _neutralize_tags,
     _overview_slot,
+    _project_asset_appearances,
     format_duration_constraint,
 )
 from lib.prompts.prompt_rules.asset_appearance import asset_reference_names
@@ -80,6 +81,17 @@ def _shot_duration_constraint(generation_mode: str | None, supported_durations: 
     return format_duration_constraint(supported_durations, None)
 
 
+def _asset_registry_slot(
+    registry: Mapping[str, Mapping[str, object]] | None, characters: dict, scenes: dict, props: dict
+) -> dict:
+    """资产表槽位：有项目资产表时带描述与别名，否则只有候选名。"""
+    if registry is None:
+        return _project_asset_appearances(characters, scenes, props)
+    return _project_asset_appearances(
+        dict(registry.get("characters") or {}), dict(registry.get("scenes") or {}), dict(registry.get("props") or {})
+    )
+
+
 # ---------------------------------------------------------------------------
 # Builder
 # ---------------------------------------------------------------------------
@@ -114,12 +126,15 @@ def build_ad_prompt(
     target_language: str = "中文",
     speech_rate_override: float | None = None,
     instructions: str | None = None,
+    asset_registry: Mapping[str, Mapping[str, object]] | None = None,
 ) -> str:
     """构建广告/短片剧本生成 prompt。
 
     ``products`` 非空走带货八段框架 + 审定配比表；为空自动分流通用短片 prompt
     （无带货框架，不设显式子模式开关）。``speech_rate_override`` 是项目级语速覆盖
     （由调用方经 ``project_speech_rate_override`` 解析），None 即回退语言默认。
+    ``asset_registry`` 是项目里带描述与别名的角色 / 场景 / 道具表（键 ``characters`` / ``scenes`` /
+    ``props``），供模型认人与列出本次新增资产；缺省时只渲染候选名。
     """
     pacing = _pacing_slots(target_duration)
     duration_constraint = _shot_duration_constraint(generation_mode, supported_durations)
@@ -137,6 +152,7 @@ def build_ad_prompt(
         aspect_ratio=aspect_ratio,
         aspect_ratio_label=_format_aspect_ratio_desc(aspect_ratio),
         brief=brief or None,
+        assets=_asset_registry_slot(asset_registry, characters, scenes, props),
         character_names=asset_reference_names("character", characters),
         scene_names=asset_reference_names("scene", scenes),
         prop_names=asset_reference_names("prop", props),
@@ -166,8 +182,12 @@ def build_ad_reference_prompt(
     aspect_ratio: str = "9:16",
     target_language: str = "中文",
     instructions: str | None = None,
+    asset_registry: Mapping[str, Mapping[str, object]] | None = None,
 ) -> str:
-    """广告/短片的参考生视频单阶段生成 prompt；直接输出含引用语法正文的扁平 unit。"""
+    """广告/短片的参考生视频单阶段生成 prompt；直接输出含引用语法正文的扁平 unit。
+
+    ``asset_registry`` 同 :func:`build_ad_prompt`。
+    """
     pacing = _pacing_slots(target_duration)
     min_unit_duration, max_unit_duration = REFERENCE_UNIT_DURATION_RANGE
     return builtin_templates.render(
@@ -179,6 +199,7 @@ def build_ad_reference_prompt(
         aspect_ratio=aspect_ratio,
         aspect_ratio_label=_format_aspect_ratio_desc(aspect_ratio),
         brief=brief or None,
+        assets=_asset_registry_slot(asset_registry, characters, scenes, props),
         products=_format_products(products) if products else None,
         product_names=list(products),
         character_names=asset_reference_names("character", characters),

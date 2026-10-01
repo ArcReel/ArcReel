@@ -32,6 +32,7 @@ import {
   EpisodeTargetDurationField,
   isValidEpisodeTargetDuration,
 } from "@/components/shared/EpisodeTargetDurationField";
+import { AdTargetDurationField } from "@/components/shared/AdTargetDurationField";
 import { SpeechRateField, isValidSpeechRate } from "@/components/shared/SpeechRateField";
 import { ACCENT_BTN_CLS, ACCENT_BUTTON_STYLE, GHOST_BTN_LG_CLS, radioCardClass } from "@/components/ui/darkroom-tokens";
 import { AgentMemoryCabinet } from "@/components/agent/AgentMemoryCabinet";
@@ -180,6 +181,10 @@ export function ProjectSettingsPage() {
   // 口播语速估算（阅读单位 / 秒）：null = 未填，按项目语言的默认速度估算
   const [speechRate, setSpeechRate] = useState<number | null>(null);
   const [episodeTargetDuration, setEpisodeTargetDuration] = useState<number | null>(null);
+  // ad 项目的目标总时长（秒）；自定义输入不是正整数时为 null，拦住保存。
+  const [adTargetDuration, setAdTargetDuration] = useState<number | null>(null);
+  // 每次从项目载入目标总时长时换一次 key，让档位控件按载入值重新初始化。
+  const [adTargetLoadCount, setAdTargetLoadCount] = useState(0);
   // 源文语言由内容分析写入，此页只读——只用来决定语速的单位名词（字 / 词）
   const [sourceLanguage, setSourceLanguage] = useState<string | null>(null);
   const [videoResolutions, setVideoResolutions] = useState<Record<string, string | null>>({});
@@ -221,6 +226,7 @@ export function ProjectSettingsPage() {
     defaultDuration: null as number | null,
     speechRate: null as number | null,
     episodeTargetDuration: null as number | null,
+    adTargetDuration: null as number | null,
     videoResolutions: {},
     imageResolution: null as string | null,
   });
@@ -315,6 +321,8 @@ export function ProjectSettingsPage() {
       const dd = project.default_duration != null ? (project.default_duration as number) : null;
       const rawEtd = project.episode_target_duration;
       const etd = typeof rawEtd === "number" && Number.isFinite(rawEtd) ? rawEtd : null;
+      const rawAtd = project.target_duration;
+      const atd = typeof rawAtd === "number" && Number.isInteger(rawAtd) && rawAtd > 0 ? rawAtd : null;
       const rawRate = project.speech_rate_units_per_second;
       const sr = typeof rawRate === "number" && Number.isFinite(rawRate) ? rawRate : null;
       const sl = typeof project.source_language === "string" ? project.source_language : null;
@@ -341,6 +349,8 @@ export function ProjectSettingsPage() {
       setDefaultDuration(dd);
       setSpeechRate(sr);
       setEpisodeTargetDuration(etd);
+      setAdTargetDuration(atd);
+      setAdTargetLoadCount((count) => count + 1);
       setSourceLanguage(sl);
       setVoiceBinding(vbind);
       setProjectTitle(typeof project.title === "string" ? project.title : "");
@@ -386,6 +396,7 @@ export function ProjectSettingsPage() {
         textDefault: td, textSimple: tsi, textComplex: tcx,
         aspectRatio: ar, gridStoryboard: grid, defaultDuration: dd, speechRate: sr,
         episodeTargetDuration: etd,
+        adTargetDuration: atd,
         videoResolutions: resolutions, imageResolution: iRes,
       };
     }));
@@ -445,6 +456,7 @@ export function ProjectSettingsPage() {
     defaultDuration !== initialRef.current.defaultDuration ||
     speechRate !== initialRef.current.speechRate ||
     episodeTargetDuration !== initialRef.current.episodeTargetDuration ||
+    adTargetDuration !== initialRef.current.adTargetDuration ||
     JSON.stringify(videoResolutions) !== JSON.stringify(initialRef.current.videoResolutions) ||
     imageResolution !== initialRef.current.imageResolution ||
     styleIsDirty;
@@ -609,8 +621,11 @@ export function ProjectSettingsPage() {
         // ad 项目禁写 default_duration（后端对字段出现本身返回 400），省略该键
         // ad 项目禁写 episode_target_duration（同 default_duration，字段出现即 400），省略该键；
         // 非 ad 恒写：null 即清除该偏好
+        // ad 项目改写目标总时长（正整数秒，不可清空），非 ad 项目对该字段出现本身返回 400
         ...(contentMode === "ad"
-          ? {}
+          ? adTargetDuration !== null
+            ? { target_duration: adTargetDuration }
+            : {}
           : { default_duration: defaultDuration, episode_target_duration: episodeTargetDuration }),
         model_settings: newModelSettings,
       });
@@ -624,6 +639,7 @@ export function ProjectSettingsPage() {
         textDefault, textSimple, textComplex,
         aspectRatio, gridStoryboard, defaultDuration, speechRate,
         episodeTargetDuration,
+        adTargetDuration,
         videoResolutions, imageResolution,
       };
       // grid_storyboard / video_backend 落盘后，/video-capabilities 按已存值解析——查询 key 未变
@@ -635,7 +651,7 @@ export function ProjectSettingsPage() {
     } finally {
       setSaving(false);
     }
-  }, [modelSettings, videoBackend, videoProviderI2V, videoProviderR2V, imageBackendDefault, imageBackendT2I, imageBackendI2I, audioOverride, narrationDelivery, audioBackend, narrationVoice, narrationSpeed, voiceBinding, textDefault, textSimple, textComplex, aspectRatio, generationRoute, gridStoryboard, gridToggleVisible, defaultDuration, speechRate, episodeTargetDuration, contentMode, videoResolutions, imageResolution, projectName, t, globalDefaults]);
+  }, [modelSettings, videoBackend, videoProviderI2V, videoProviderR2V, imageBackendDefault, imageBackendT2I, imageBackendI2I, audioOverride, narrationDelivery, audioBackend, narrationVoice, narrationSpeed, voiceBinding, textDefault, textSimple, textComplex, aspectRatio, generationRoute, gridStoryboard, gridToggleVisible, defaultDuration, speechRate, episodeTargetDuration, adTargetDuration, contentMode, videoResolutions, imageResolution, projectName, t, globalDefaults]);
 
   const handleResetAgentProfile = useCallback(async () => {
     if (profileResetProject !== projectName) {
@@ -975,7 +991,16 @@ export function ProjectSettingsPage() {
                   onChange={setSpeechRate}
                   sourceLanguage={sourceLanguage}
                 />
-                {/* ad 项目的整集体量由目标总时长表达，不呈现该输入（服务端亦拒写） */}
+                {/* ad 项目的整集体量由目标总时长表达，不呈现单集目标时长（服务端亦拒写） */}
+                {contentMode === "ad" && (
+                  <div className="mt-4">
+                    <AdTargetDurationField
+                      key={adTargetLoadCount}
+                      value={adTargetDuration}
+                      onChange={setAdTargetDuration}
+                    />
+                  </div>
+                )}
                 {contentMode !== "ad" && (
                   <div className="mt-4">
                     <EpisodeTargetDurationField
@@ -1087,7 +1112,8 @@ export function ProjectSettingsPage() {
               disabled={
                 saving ||
                 !isValidSpeechRate(speechRate) ||
-                !isValidEpisodeTargetDuration(episodeTargetDuration)
+                !isValidEpisodeTargetDuration(episodeTargetDuration) ||
+                (contentMode === "ad" && adTargetDuration === null)
               }
               className={`${ACCENT_BTN_CLS} px-5`}
               style={ACCENT_BUTTON_STYLE}

@@ -47,6 +47,7 @@ import { usePromptAuthoringStore } from "@/stores/prompt-authoring-store";
 import { ScriptPlanHost } from "@/components/canvas/shared/ScriptPlanDialog";
 import { previewAspect } from "@/utils/preview-aspect";
 import { TextTaskFailureNote } from "@/components/canvas/shared/TextTaskFailureNote";
+import { AdScriptHost } from "@/components/canvas/shared/AdScriptDialog";
 import {
   enqueueCharacter,
   enqueueEpisodeNarration,
@@ -760,7 +761,12 @@ export function StudioCanvasRouter() {
                 />
               )}
               {!demoMode && currentProjectName && (
-                <TextTaskFailureNote projectName={currentProjectName} episode={epNum} />
+                <TextTaskFailureNote
+                  projectName={currentProjectName}
+                  episode={epNum}
+                  isAd={isAd}
+                  hasScript={Boolean(script)}
+                />
               )}
               {!demoMode && currentProjectName && (
                 <ScriptPlanHost
@@ -768,6 +774,9 @@ export function StudioCanvasRouter() {
                   episode={epNum}
                   savedInstructions={episode?.script_plan_instructions}
                 />
+              )}
+              {!demoMode && currentProjectName && isAd && (
+                <AdScriptHost projectName={currentProjectName} episode={epNum} />
               )}
               {!demoMode && currentProjectName && (
                 <PromptAuthoringHost

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { act, render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { API } from "@/api";
+import { useAdScriptStore } from "@/stores/ad-script-store";
 import { useAssistantStore } from "@/stores/assistant-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useScriptPlanStore } from "@/stores/script-plan-store";
@@ -590,6 +591,83 @@ describe("WorkflowPanel 补充集原文", () => {
     const draft = { kind: "drama_script_plan", path: "drafts/episode_1.json", needs_repair: true };
     await renderExpanded(sourceless({ drafts: [draft] }, "missing"));
     expect(within(screen.getByTestId("workflow-row-source")).queryByRole("button", { name: "补充集原文" })).not.toBeInTheDocument();
+  });
+});
+
+describe("WorkflowPanel 广告/短片 AI 生成脚本", () => {
+  const adStatus = (operations: WorkflowStatus["operations"]) => ({
+    project: { content_mode: "ad", generation_mode: "storyboard", grid_storyboard: false },
+    operations,
+  });
+
+  it("下一步的 AI 生成脚本直接提交整份生成，附加指令只随本次提交", async () => {
+    useTasksStore.getState().setTasks([]);
+    const submit = vi
+      .spyOn(API, "generateAdScript")
+      .mockResolvedValue({ batch: { members: [] } } as unknown as Awaited<ReturnType<typeof API.generateAdScript>>);
+    await renderExpanded(
+      scenario({
+        next: nextAction("generate_script"),
+        content: { ad_inputs: "present", episode_source: "not_applicable", formal_script: "absent", script_item_count: null },
+        status: adStatus({ generate_script: { state: "admitted", reason: null } }),
+      }),
+    );
+    const next = screen.getByTestId("workflow-next-step");
+    fireEvent.change(within(next).getByRole("textbox"), { target: { value: "结尾加一句行动号召" } });
+    fireEvent.click(within(next).getByRole("button", { name: "AI 生成脚本" }));
+    await waitFor(() =>
+      expect(submit).toHaveBeenCalledWith("proj", 1, {
+        instructions: "结尾加一句行动号召",
+        regenerate: false,
+        overwrite_revision: null,
+      }),
+    );
+  });
+
+  it("没有灵感和商品时 AI 生成脚本与交给 Agent 一并置灰", async () => {
+    const submit = vi.spyOn(API, "generateAdScript");
+    await renderExpanded(
+      scenario({
+        next: nextAction("collect_project_input", { args: {} }),
+        content: { ad_inputs: "absent", episode_source: "not_applicable", formal_script: "absent", script_item_count: null },
+        status: adStatus({ generate_script: { state: "refused", reason: "ad_brief_and_products_missing" } }),
+      }),
+    );
+    const ai = within(screen.getByTestId("workflow-next-step")).getByRole("button", { name: "AI 生成脚本" });
+    expect(ai).toHaveAttribute("aria-disabled", "true");
+    expect(ai).toHaveAttribute("title", "需要先填写创作灵感或添加商品");
+    fireEvent.click(ai);
+    expect(submit).not.toHaveBeenCalled();
+  });
+
+  it("已有正式脚本时脚本行给出重新生成脚本，打开整份重做的弹窗", async () => {
+    useAdScriptStore.getState().close();
+    await renderExpanded(
+      scenario({
+        next: nextAction("author_prompts"),
+        content: { ad_inputs: "present", episode_source: "not_applicable", pending_authoring_ids: ["E1S02"] },
+        status: adStatus({ generate_script: { state: "refused", reason: "formal_script_exists" } }),
+      }),
+      { onAuthorPrompts: vi.fn() },
+    );
+    const entry = within(screen.getByTestId("workflow-row-script")).getByRole("button", { name: "重新生成脚本" });
+    expect(entry).not.toHaveAttribute("aria-disabled", "true");
+    fireEvent.click(entry);
+    expect(useAdScriptStore.getState().request).toEqual({ projectName: "proj", episode: 1, regenerate: true });
+  });
+
+  it("重新生成脚本在缺灵感和商品时置灰并说明原因", async () => {
+    await renderExpanded(
+      scenario({
+        next: nextAction("author_prompts"),
+        content: { ad_inputs: "absent", episode_source: "not_applicable", pending_authoring_ids: ["E1S02"] },
+        status: adStatus({ generate_script: { state: "refused", reason: "ad_brief_and_products_missing" } }),
+      }),
+      { onAuthorPrompts: vi.fn() },
+    );
+    const entry = within(screen.getByTestId("workflow-row-script")).getByRole("button", { name: "重新生成脚本" });
+    expect(entry).toHaveAttribute("aria-disabled", "true");
+    expect(entry).toHaveAttribute("title", "需要先填写创作灵感或添加商品");
   });
 });
 
