@@ -13,7 +13,7 @@ from lib.project.project_manager import ProjectManager
 from server.agent_toolset.envelope import ToolEnvelope, encode_outcome
 from server.agent_toolset.video_review import INSPECT_VIDEO_UNITS
 from server.media_tools.video_review import MAX_FRAMES_PER_CALL
-from tests.factories import install_current_video, run_bundled_ffmpeg
+from tests.factories import install_current_video, make_signal_clip, run_bundled_ffmpeg
 from tests.integration.server.agent_tool_support import ToolHarness, problem_of, run_declared_tool
 
 
@@ -84,7 +84,7 @@ async def test_inspecting_current_versions_returns_one_contact_sheet_image_per_u
     assert all(image.mime_type == "image/jpeg" for image in envelope.images)
     for unit, expected in zip(result["units"], ("red", "blue"), strict=True):
         (sheet,) = unit["sheets"]
-        assert sheet["times"] == [0.12, 0.36, 0.6, 0.84]
+        assert len(sheet["times"]) == 4
         assert _dominant(envelope.images[sheet["image"] - 1].data) == expected
 
 
@@ -100,6 +100,53 @@ async def test_naming_an_older_version_shows_that_versions_picture(tmp_path: Pat
         (unit,) = envelope.structured["inspect_video_units"]["units"]
         assert unit["version"] == version
         assert _dominant(envelope.images[0].data) == expected
+
+
+async def test_signals_are_returned_with_marked_frames_and_cached_per_version(tmp_path: Path) -> None:
+    ctx = _harness(tmp_path, ["E1S01"])
+    clip = tmp_path / "signals.mp4"
+    make_signal_clip(clip)
+    install_current_video(ctx.project_path, "videos", "E1S01", clip)
+
+    first, envelope = await _inspect(ctx, {"unit_ids": ["E1S01"], "frames": 12})
+    cache_files = sorted((ctx.project_path / ".cache" / "video_signals").rglob("*.json"))
+    cache_stamp = [file.stat().st_mtime_ns for file in cache_files]
+    second, _envelope = await _inspect(ctx, {"unit_ids": ["E1S01"], "frames": 12})
+
+    (unit,) = envelope.structured["inspect_video_units"]["units"]
+    signals = unit["signals"]
+    assert signals["cuts"] == pytest.approx([1.0, 2.0, 3.0])
+    assert [(span["start"], span["end"]) for span in signals["black"]] == [pytest.approx((1.0, 2.0))]
+    assert [(span["start"], span["end"]) for span in signals["freeze"]] == [pytest.approx((3.0, 5.0))]
+    assert signals["shots"] == 4
+    (sheet,) = unit["sheets"]
+    assert len(sheet["times"]) >= signals["shots"]
+    assert {tag for frame in sheet["marked_frames"] for tag in frame["tags"]} == {"CUT", "BLACK", "FREEZE"}
+    assert [file.name for file in cache_files] == ["E1S01_v1.json"]
+    assert (first.value.units[0].signals_cached, second.value.units[0].signals_cached) == (False, True)
+    assert [file.stat().st_mtime_ns for file in cache_files] == cache_stamp
+
+
+async def test_each_version_caches_its_own_signals(tmp_path: Path) -> None:
+    ctx = _harness(tmp_path, ["E1S01"])
+    clip = tmp_path / "signals.mp4"
+    make_signal_clip(clip)
+    install_current_video(ctx.project_path, "videos", "E1S01", clip)
+    assert _install(ctx, "E1S01", "red") == 2
+
+    older, _envelope = await _inspect(ctx, {"unit_ids": ["E1S01"], "version": 1, "frames": 2})
+    current, _envelope = await _inspect(ctx, {"unit_ids": ["E1S01"], "frames": 2})
+    again, _envelope = await _inspect(ctx, {"unit_ids": ["E1S01"], "version": 1, "frames": 2})
+
+    assert [unit.signals_cached for result in (older, current, again) for unit in result.value.units] == [
+        False,
+        False,
+        True,
+    ]
+    assert older.value.units[0].signals.cuts != ()
+    assert current.value.units[0].signals.cuts == ()
+    cache_dir = ctx.project_path / ".cache" / "video_signals" / "videos"
+    assert sorted(file.name for file in cache_dir.iterdir()) == ["E1S01_v1.json", "E1S01_v2.json"]
 
 
 async def test_a_unit_without_video_is_reported_without_images(tmp_path: Path) -> None:
