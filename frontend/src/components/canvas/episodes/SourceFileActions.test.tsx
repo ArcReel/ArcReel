@@ -23,6 +23,7 @@ function file(withEpisode: boolean): EpisodesViewFile {
     name: "中卷.txt",
     original_filename: null,
     missing: false,
+    changed_outside: false,
     length: 10,
     units: 10,
     cut_units: withEpisode ? 10 : 0,
@@ -139,5 +140,18 @@ describe("SourceFileActions", () => {
 
     await waitFor(() => expect(edit).toHaveBeenCalledWith("demo", "中卷.txt", "第二章。夜雨潇潇。", null));
     await waitFor(() => expect(screen.queryByRole("textbox")).not.toBeInTheDocument());
+  });
+
+  it("keeps only deletion available while the file was changed outside ArcReel", () => {
+    render(
+      <SourceFileActions projectName="demo" file={{ ...file(true), changed_outside: true }} index={1} total={3} />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "中卷.txt 的操作" }));
+
+    for (const name of ["上移", "下移", "编辑原文", "替换为新文件"]) {
+      expect(screen.getByRole("menuitem", { name })).toBeDisabled();
+    }
+    expect(screen.getByRole("menuitem", { name: "删除文件" })).toBeEnabled();
   });
 });

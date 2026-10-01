@@ -55,7 +55,7 @@ from server.agent_toolset.envelope import json_value
 from server.agent_toolset.generation_batches import CANCEL_GENERATION_BATCH, GET_GENERATION_BATCH
 from server.agent_toolset.grid_storyboards import GENERATE_GRID, SPLIT_GRIDS
 from server.agent_toolset.orientation import GET_PROMPT_PREVIEW, GET_VIDEO_CAPABILITIES
-from server.agent_toolset.project_entry import CREATE_PROJECT
+from server.agent_toolset.project_entry import CREATE_PROJECT, EDIT_SOURCE_TEXT
 from server.agent_toolset.remote import LONG_TASK_NOTE, remote_tool
 from server.agent_toolset.repair_channel import MERGE_ASSET
 from server.agent_toolset.script_authoring import (
@@ -89,6 +89,7 @@ SAMPLE_ARGUMENTS: dict[str, dict[str, Any]] = {
     "list_projects": {},
     "create_project": {"name": "fresh", "title": "Fresh"},
     "upload_source": {"filename": "novel.txt", "content": "第一章\n你好", "on_conflict": "replace"},
+    "edit_source_text": {"filename": "novel.txt", "text": "第一章\n改写"},
     "get_workflow_plan": {"episode_id": 1},
     "get_video_capabilities": {},
     "get_prompt_preview": {"script": "episode_1.json", "item_id": "E1S01"},
@@ -544,6 +545,8 @@ _PROBLEM_ON_SAMPLE = frozenset(
         COMPLETE_SCRIPT_PLAN_REBUILD.name,
         # 测试项目只登记了一个角色，没有可并入的保留方。
         MERGE_ASSET.name,
+        # 测试项目没有登记整本源文的文件。
+        EDIT_SOURCE_TEXT.name,
     }
 )
 

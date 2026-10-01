@@ -10,6 +10,7 @@ import type { EpisodesView as EpisodesViewData } from "@/types";
 import { errMsg } from "@/utils/async";
 
 import { EpisodesRail } from "./EpisodesRail";
+import { ExternalChangeNotice } from "./ExternalChangeNotice";
 import { SourceManuscript } from "./SourceManuscript";
 import { SourceUploadDialog } from "./SourceUploadDialog";
 import { ManualSplitToolbar, caretColor } from "./ManualSplitToolbar";
@@ -188,6 +189,11 @@ export function EpisodesView({ projectName }: { projectName: string }) {
     <div className="flex h-full flex-col lg:flex-row">
       <main className="min-h-0 flex-1 overflow-y-auto px-6 lg:px-10" aria-label={t("episodes_view_source_label")}>
         <div className="mx-auto max-w-[44em]">
+          <ExternalChangeNotice
+            projectName={projectName}
+            changes={view.external_changes}
+            onLocate={scrollToFile}
+          />
           {view.files.length === 0 ? (
             <EmptySource hasEpisodes={episodes.length > 0} onUpload={openUpload} />
           ) : (

@@ -23,9 +23,11 @@ from pathlib import Path, PurePosixPath
 from typing import Any, TypeGuard
 
 from lib.episode.episode_ledger import (
+    SOURCE_FINGERPRINTS_KEY,
     SOURCE_TEXT_SUFFIXES,
     SourceDoc,
     SourceSpan,
+    compute_source_fingerprints,
     is_derived_episode_name,
     normalize_source_text,
     parse_positive_episode_num,
@@ -494,6 +496,27 @@ def sync_source_snapshots(project_dir: Path, project: Mapping[str, Any], texts: 
             path.unlink(missing_ok=True)
 
 
+def read_source_snapshot(project_dir: Path, rel: str) -> str | None:
+    """整本源文文件 ``rel`` 的快照文本；没有快照、快照是符号链接或读不到时为 None。"""
+    path = source_snapshot_path(project_dir, rel)
+    if path.is_symlink() or not path.is_file():
+        return None
+    return _read_text_or_none(path)
+
+
+def changed_outside_service(project_dir: Path, project: Mapping[str, Any], doc: SourceDoc) -> bool:
+    """可读的整本源文文件在服务之外被改动过：已记录的源文指纹或快照与当前的规范化文本不符。
+
+    没有记录指纹、也没有快照的文件无从比对，不算改动过。
+    """
+    raw = project.get(SOURCE_FINGERPRINTS_KEY)
+    recorded = raw.get(doc.rel_path) if isinstance(raw, Mapping) else None
+    if isinstance(recorded, str) and recorded != compute_source_fingerprints([doc])[doc.rel_path]:
+        return True
+    snapshot = read_source_snapshot(project_dir, doc.rel_path)
+    return snapshot is not None and snapshot != doc.text
+
+
 __all__ = [
     "SOURCE_ORIGINS",
     "SOURCE_ORIGIN_FIELD",
@@ -502,6 +525,7 @@ __all__ = [
     "CutPlacement",
     "SourceOrigin",
     "append_whole_source_file",
+    "changed_outside_service",
     "cut_episode_placements",
     "cut_episode_source_files",
     "cut_insert_index",
@@ -515,6 +539,7 @@ __all__ = [
     "legacy_cut_episode_ids",
     "placement_text",
     "planning_start",
+    "read_source_snapshot",
     "remove_whole_source_file",
     "source_snapshot_path",
     "span_text",

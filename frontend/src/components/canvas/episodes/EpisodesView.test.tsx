@@ -37,6 +37,7 @@ const VIEW: EpisodesViewData = {
       name: "上卷.txt",
       original_filename: "上卷.docx",
       missing: false,
+      changed_outside: false,
       length: 30,
       units: 30,
       cut_units: 20,
@@ -55,6 +56,7 @@ const VIEW: EpisodesViewData = {
   ],
   unregistered: [],
   replan: null,
+  external_changes: [],
 };
 
 function renderView(path = "/episodes") {

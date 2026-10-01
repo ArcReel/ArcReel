@@ -124,7 +124,7 @@ mcp__arcreel__open_draft({"episode_id": N, "doc_type": "narration_script_plan", 
 
 修改返回的 `content.segments[i]`（保持合法 JSON 结构），遵循**修改口径**；随后用返回的 `revision` 调用 `patch_draft` 提交完整 `content`：
 
-- `novel_text` 必须逐字保留原文（含标点），对话分镜含完整说话内容与引导语。全部分镜按序拼接后须与源文逐字相同——晋升时按此机械重判，删减 / 改写 / 重排一律拒。用户的修改要求若针对原文文字本身，本子智能体改不动：晋升会一律判它覆盖不全，改草稿只是白跑一轮。停下来把这一点报告给主 Agent，由其决定是否先改 `source/episode_N.txt` 再重跑拆分
+- `novel_text` 必须逐字保留原文（含标点），对话分镜含完整说话内容与引导语。全部分镜按序拼接后须与源文逐字相同——晋升时按此机械重判，删减 / 改写 / 重排一律拒。用户的修改要求若针对原文文字本身，本子智能体改不动：晋升会一律判它覆盖不全，改草稿只是白跑一轮。停下来把这一点报告给主 Agent，由其决定是否先经 `mcp__arcreel__edit_source_text` 改本集原文（切出集改它所在的整本源文文件）再重跑拆分
 - `duration_seconds` 必须取 Step 0 查得的 `supported_durations` 中的值
 - `segment_id` 保持 `E{集 ID}S{两位序号}` 格式（如 `E1S01`）、全集唯一，前缀须为本集集 ID N
 - `characters_in_segment` / `scenes` / `props` 引用 `project.json` 已登记名称（不确定就 Read `project.json` 确认）或 `content.new_assets` 里的称呼，无对应资产时显式写空数组 `[]`；改动引用的称呼时同步改 `new_assets` 里对应的项

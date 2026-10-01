@@ -259,12 +259,12 @@ class AgentAccessPolicy:
           Bash 工具改走 ``is_bash_command_whitelisted`` 代码白名单。
         - ``filesystem.denyRead``：内核级文件读拒绝（macOS Seatbelt / Linux
           bwrap profile），对 sandbox 内所有子进程生效。
-        - ``filesystem.denyWrite``：内核级文件写拒绝，覆盖 ``scripts/`` 目录、
-          ``project.json`` 与 ``drafts/`` 目录——这几类文件的写入只能走 in-process MCP 工具
-          （``patch_episode_script`` / ``patch_project`` / 参考拆分的取回与晋升等，跑在主进程
-          不受 sandbox 约束），堵死 Bash（``echo>`` / ``sed`` / ``python -c``）旁路。OS 级对
-          sandbox 内所有子进程生效。sandbox 内已无合法 Bash 写这三类路径（compose 写视频输出、
-          split 写 ``source/``，均不碰），故不误伤。
+        - ``filesystem.denyWrite``：内核级文件写拒绝，覆盖 ``PROTECTED_WRITE_RULES`` 各规则的
+          ``sandbox_subpaths``（``scripts/``、``project.json``、``edit_timelines/``、``source/``、
+          ``drafts/``）——这几类文件的写入只能走 in-process MCP 工具（``patch_episode_script`` /
+          ``patch_project`` / ``upload_source`` / 参考拆分的取回与晋升等，跑在主进程不受 sandbox 约束），
+          堵死 Bash（``echo>`` / ``sed`` / ``python -c``）旁路。OS 级对 sandbox 内所有子进程生效。
+          sandbox 内已无合法 Bash 写这几类路径，故不误伤。
         - ``filesystem.allowWrite``：用户记忆目录（``<数据根>/users/<user_id>/memory/``）
           在 cwd 外，默认不可写；Agent 要用 Write/Edit 记跨项目笔记，须在内核层单独放行。
           项目记忆在 cwd 内本已可写，不重复登记。``user_id`` 非法（不是单个路径段）时不
@@ -768,6 +768,20 @@ class AgentAccessPolicy:
         return False
 
     @classmethod
+    def _is_protected_source(cls, target: Path, bases: list[Path]) -> bool:
+        """命中源文目录（``source/`` 整子树，含目录本身）。
+
+        整本源文、集原文与快照只经服务命令写入：改动要按改动前后的对齐重映射分集账本，直改会让账本与源文对不上。
+        ``bases`` 与 target 的 raw/resolved 双形式口径同 ``_is_protected_project_json``。
+        """
+        target_s = cls._normalize_path_for_protected_compare(target)
+        for base in bases:
+            source_dir = cls._normalize_path_for_protected_compare(base / "source")
+            if target_s == source_dir or target_s.startswith(source_dir + os.sep):
+                return True
+        return False
+
+    @classmethod
     def _is_protected_formal_script_plan(cls, target: Path, bases: list[Path]) -> bool:
         """命中受写禁的正式 script_plan（``drafts/episode_N/`` 下 ``AGENT_PROTECTED_SCRIPT_PLAN_FILENAMES``）。
 
@@ -809,6 +823,7 @@ class AgentAccessPolicy:
 #: - ``project_json``：「写入口收归」——``scripts/*.json`` 与 ``project.json`` 只能走 MCP
 #:   工具；两层投影同覆盖面（``scripts/`` 整子树 + ``project.json``）。
 #: - ``edit_timeline``：「写入口收归」——剪辑时间线只能经剪辑时间线工具追加修订；两层同覆盖面。
+#: - ``source``：「写入口收归」——源文只能经上传与编辑源文的工具写入，改动按对齐重映射分集账本；两层同覆盖面。
 #: - ``formal_script_plan``：「写入口持锁」——正式 script_plan 另有多条持同一把 per-path 锁的写入
 #:   路径，Write/Edit 取不到锁，直改即丢失更新窗口。两层刻意不对称：sandbox 按 ``drafts/``
 #:   整目录 deny（清单在会话装配期一次性构造，集是运行时增删的，逐文件枚举必然落空；Bash
@@ -834,6 +849,16 @@ AgentAccessPolicy.PROTECTED_WRITE_RULES = (
             "回滚走 mcp__arcreel__restore_revision。"
         ),
         sandbox_subpaths=("edit_timelines",),
+    ),
+    ProtectedWriteRule(
+        name="source",
+        matches=AgentAccessPolicy._is_protected_source,
+        deny_message=(
+            "访问被拒绝：source/ 下的源文不可直接写入，改动要按对齐重映射分集账本；"
+            "新增或整份替换源文走 mcp__arcreel__upload_source，修改整本源文的文件或自带原文的集的原文走 "
+            "mcp__arcreel__edit_source_text。删除、调序整本源文的文件请用户在「分集」视图里操作。"
+        ),
+        sandbox_subpaths=("source",),
     ),
     ProtectedWriteRule(
         name="formal_script_plan",

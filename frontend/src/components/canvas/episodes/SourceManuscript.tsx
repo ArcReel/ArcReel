@@ -369,6 +369,12 @@ function FileBar({
       <span className="min-w-0 truncate text-[12.5px] font-medium text-text">{file.name}</span>
       <span className="flex-1" />
       <SourceFileKindControl projectName={projectName} file={file} episodes={episodes} />
+      {file.changed_outside ? (
+        <span className="inline-flex items-center gap-1 text-[11.5px] text-[var(--color-warm)]">
+          <TriangleAlert className="h-3.5 w-3.5" aria-hidden />
+          {t("episodes_view_file_changed_outside")}
+        </span>
+      ) : null}
       {file.missing ? (
         <span className="inline-flex items-center gap-1 text-[11.5px] text-[var(--color-warm)]">
           <TriangleAlert className="h-3.5 w-3.5" aria-hidden />

@@ -9,6 +9,9 @@
 - **直接移除**：整段被删、没有产物；
 - **因改类型而 stale 的脚本规划**：替换时改了源文件类型，起点在这个文件、已有脚本规划的切出集。
 
+文件在服务之外被改动过（已记录的源文指纹或快照与当前文本不符）时，:func:`accept_external_source_change` 以快照为旧文本、
+当前文本为新文本走同一套重映射，确认后更新账本、指纹与快照，文件本身不动。
+
 有受影响的集时，命令不写入，返回受影响集清单与它的 ``revision``；创作者确认后带上 ``revision`` 重新调用，
 锁内重算的清单与确认过的一致才执行。没有受影响的集时直接执行。``dry_run`` 只算清单、不写入，供调用方在执行前
 检查要退下或移除的集有没有在途任务。
@@ -16,7 +19,7 @@
 调序时切出集按新的源文位置排列，其他来源的集跟着播出顺序中前面最近的那个切出集走（ADR 0032 的锚点规则），
 前面没有切出集的留在最前。
 
-替换、编辑与调序先核对文件的源文指纹：文件在服务之外被改动过时拒绝，删除不受限。
+替换、编辑与调序先核对文件有没有在服务之外被改动过，改动过时拒绝，删除不受限。
 写源文、账本、派生集文件与快照在同一把项目锁内完成，失败时整体撤销。
 """
 
@@ -49,8 +52,11 @@ from lib.episode.episode_sources import (
     SOURCE_SNAPSHOTS_DIR,
     WHOLE_SOURCE_FILES_KEY,
     SourceOrigin,
+    changed_outside_service,
     cut_episode_placements,
+    cut_episode_source_files,
     discover_sources,
+    read_source_snapshot,
     remove_whole_source_file,
     span_text,
     sync_source_snapshots,
@@ -179,11 +185,9 @@ def _require_doc(docs: list[SourceDoc], rel: str) -> SourceDoc:
     return doc
 
 
-def _check_fingerprint(project: Mapping[str, Any], doc: SourceDoc) -> None:
-    """文件在服务之外被改动过（已记录的指纹与当前文本不符）时拒绝。"""
-    raw = project.get(SOURCE_FINGERPRINTS_KEY)
-    recorded = raw.get(doc.rel_path) if isinstance(raw, Mapping) else None
-    if isinstance(recorded, str) and recorded != compute_source_fingerprints([doc])[doc.rel_path]:
+def _check_fingerprint(project_dir: Path, project: Mapping[str, Any], doc: SourceDoc) -> None:
+    """文件在服务之外被改动过、还没有更新分集账本时拒绝。"""
+    if changed_outside_service(project_dir, project, doc):
         raise SourceFileChangeError("source_changed", f"源文件在服务之外被改动过：{doc.rel_path}")
 
 
@@ -424,7 +428,7 @@ def _plan_rewrite(
     def plan(project_dir: Path, project: dict[str, Any]) -> _Change:
         rel = _filename_rel(project, filename)
         docs = discover_sources(project_dir, project)
-        _check_fingerprint(project, _require_doc(docs, rel))
+        _check_fingerprint(project_dir, project, _require_doc(docs, rel))
         remaps = remap_for_edit(docs, _spans(project, docs), rel=rel, new_text=text)
         kind_change = None
         if (
@@ -540,7 +544,7 @@ def move_whole_source_file(
         docs = discover_sources(project_dir, project)
         for doc in docs:
             if doc.rel_path in (rel, files[other]):
-                _check_fingerprint(project, doc)
+                _check_fingerprint(project_dir, project, doc)
         new_files = list(files)
         new_files[index], new_files[other] = new_files[other], new_files[index]
         by_rel = {doc.rel_path: doc for doc in docs}
@@ -562,6 +566,51 @@ def move_whole_source_file(
         return _Change(docs=new_docs, remaps=remaps, commit=commit, reorder=True)
 
     operation = {"action": "move", "file": filename, "direction": direction}
+    return _run(pm, project_name, operation, plan, revision=revision, dry_run=dry_run)
+
+
+def accept_external_source_change(
+    pm: ProjectManager,
+    project_name: str,
+    filename: str,
+    *,
+    revision: str | None = None,
+    dry_run: bool = False,
+) -> SourceFileChangeOutcome:
+    """更新在服务之外被改动过的整本源文文件 ``source/<filename>`` 的分集账本。
+
+    以快照为旧文本、当前文本为新文本对齐，重映射触及它的切出集，确认协议与编辑相同；执行后指纹与快照换成当前文本。
+    文件没有改动过时拒绝（``source_not_changed``）。文件里有切出集却没有快照时无从对齐（``source_snapshot_missing``），
+    只能删除这个文件或重置分集规划。
+    """
+
+    def plan(project_dir: Path, project: dict[str, Any]) -> _Change:
+        rel = _filename_rel(project, filename)
+        docs = discover_sources(project_dir, project)
+        doc = _require_doc(docs, rel)
+        if not changed_outside_service(project_dir, project, doc):
+            raise SourceFileChangeError("source_not_changed", f"源文件没有在服务之外被改动过：{rel}")
+        snapshot = read_source_snapshot(project_dir, rel)
+        if snapshot is None:
+            if rel in cut_episode_source_files(project):
+                raise SourceFileChangeError("source_snapshot_missing", f"源文件没有快照，无法对齐：{rel}")
+            snapshot = doc.text
+        old_docs = [SourceDoc(rel_path=rel, text=snapshot) if d.rel_path == rel else d for d in docs]
+        remaps = remap_for_edit(old_docs, _spans(project, old_docs), rel=rel, new_text=doc.text)
+
+        def commit(_p: dict[str, Any], _undo: ExitStack) -> None:
+            pass
+
+        return _Change(docs=docs, remaps=remaps, commit=commit, touched=[rel])
+
+    def current_digest() -> str:
+        path = pm.get_project_path(project_name) / "source" / filename
+        try:
+            return _text_digest(normalize_source_text(path.read_text(encoding="utf-8")))
+        except (OSError, UnicodeDecodeError):
+            return ""
+
+    operation = {"action": "accept_external", "file": filename, "text": current_digest()}
     return _run(pm, project_name, operation, plan, revision=revision, dry_run=dry_run)
 
 
@@ -636,6 +685,7 @@ __all__ = [
     "SourceFileChangeError",
     "SourceFileChangeOutcome",
     "SourceFileImpact",
+    "accept_external_source_change",
     "delete_whole_source_file",
     "edit_whole_source_file",
     "insert_whole_source_file",

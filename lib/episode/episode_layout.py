@@ -28,6 +28,7 @@ from lib.episode.episode_paths import episode_source_path
 from lib.episode.episode_sources import (
     CutPlacement,
     SourceOrigin,
+    changed_outside_service,
     cut_episode_placements,
     discover_sources,
     episode_source_origin,
@@ -80,6 +81,8 @@ class LayoutFile:
     segments: list[LayoutSegment] = field(default_factory=list)
     #: 源文件类型；只有剧情演绎项目有。
     source_kind: SourceKind | None = None
+    #: 文件在服务之外被改动过、还没有更新分集账本（已记录的源文指纹或快照与当前文本不符）。
+    changed_outside: bool = False
 
 
 @dataclass(frozen=True)
@@ -282,6 +285,7 @@ def build_episode_layout(project_dir: Path, project: Mapping[str, Any]) -> Episo
                 cut_units=sum(s.units for s in segments if s.kind == "episode"),
                 segments=segments,
                 source_kind=whole_source_file_kind(project, rel),
+                changed_outside=changed_outside_service(project_dir, project, doc),
             )
         )
 

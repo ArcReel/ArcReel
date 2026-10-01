@@ -37,7 +37,7 @@ function meta(episode: number): EpisodeMeta {
 }
 
 function view(overrides: Partial<EpisodesView>): EpisodesView {
-  return { unit: "chars", units: 0, cut_units: 0, files: [], episodes: [], unregistered: [], replan: null, ...overrides };
+  return { unit: "chars", units: 0, cut_units: 0, files: [], episodes: [], unregistered: [], replan: null, external_changes: [], ...overrides };
 }
 
 describe("episodes-view-model", () => {
@@ -63,6 +63,7 @@ describe("episodes-view-model", () => {
           name: "a.txt",
           original_filename: null,
           missing: false,
+          changed_outside: false,
           length: 100,
           units: 100,
           cut_units: 60,
@@ -79,6 +80,7 @@ describe("episodes-view-model", () => {
           name: "b.txt",
           original_filename: null,
           missing: false,
+          changed_outside: false,
           length: 100,
           units: 50,
           cut_units: 0,
@@ -108,6 +110,7 @@ describe("episodes-view-model", () => {
       name,
       original_filename: null,
       missing: false,
+      changed_outside: false,
       length: 10,
       units: 10,
       cut_units: 10,

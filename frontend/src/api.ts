@@ -2113,6 +2113,18 @@ class API {
     );
   }
 
+  /** 按文件在 ArcReel 之外的改动更新分集账本：以快照为旧文本重映射触及它的切出集。确认协议同 `editSourceFile`。 */
+  static async acceptExternalSourceChange(
+    projectName: string,
+    filename: string,
+    revision: string | null = null
+  ): Promise<SourceFileChangeResponse> {
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/source-files/${encodeURIComponent(filename)}/accept-external`,
+      { method: "POST", body: JSON.stringify({ revision }) }
+    );
+  }
+
   /** 删除整本源文文件：等同于删掉它的全部文字，再移出整本源文。确认协议同 `editSourceFile`。 */
   static async deleteWholeSourceFile(
     projectName: string,

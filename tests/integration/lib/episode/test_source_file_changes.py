@@ -12,6 +12,7 @@ from lib.episode.episode_ledger import SOURCE_FINGERPRINTS_KEY, SourceDoc, compu
 from lib.episode.episode_paths import SCRIPT_PLAN_FILENAMES
 from lib.episode.source_file_changes import (
     SourceFileChangeError,
+    accept_external_source_change,
     delete_whole_source_file,
     edit_whole_source_file,
     insert_whole_source_file,
@@ -350,6 +351,102 @@ class TestInsert:
 
         assert _entry(project_dir, 1)["ledger_status"] == "stale"
         assert _episode_text(project_dir, 1) == A[CH2:] + "插叙。\n" + B[:CH4]
+
+
+def _snapshot(project_dir: Path, name: str, text: str) -> None:
+    (project_dir / "source" / "snapshots").mkdir(parents=True, exist_ok=True)
+    (project_dir / "source" / "snapshots" / name).write_text(text, encoding="utf-8")
+
+
+class TestExternalChange:
+    def test_a_typo_fixed_outside_only_restales_the_episode_that_contains_it(self, tmp_path: Path):
+        project_dir = _project_dir(
+            tmp_path, [_cut(1, "a.txt", 0, CH2), _cut(2, "a.txt", CH2, len(A)), _cut(3, "b.txt", 0, CH4)]
+        )
+        _snapshot(project_dir, "a.txt", A)
+        new_text = A.replace("少年下山", "少年走下山")
+        (project_dir / "source" / "a.txt").write_text(new_text, encoding="utf-8")
+
+        preview = accept_external_source_change(_pm(project_dir), "demo", "a.txt")
+
+        assert preview.applied is False
+        assert (preview.impact.changed_without_products, preview.impact.shifted) == ([1], [2])
+        assert _entry(project_dir, 1)["source_range"]["end"] == CH2
+
+        result = accept_external_source_change(_pm(project_dir), "demo", "a.txt", revision=preview.revision)
+
+        assert result.applied is True
+        assert _entry(project_dir, 1)["ledger_status"] == "stale"
+        assert _entry(project_dir, 1)["source_range"] == {"source_file": "source/a.txt", "start": 0, "end": CH2 + 1}
+        assert _entry(project_dir, 2)["source_range"] == {
+            "source_file": "source/a.txt",
+            "start": CH2 + 1,
+            "end": len(new_text),
+        }
+        assert _entry(project_dir, 2)["ledger_status"] == "planned"
+        assert _episode_text(project_dir, 1) == new_text[: CH2 + 1]
+        assert (
+            _load(project_dir)[SOURCE_FINGERPRINTS_KEY]["source/a.txt"]
+            == (compute_source_fingerprints([SourceDoc("source/a.txt", new_text)])["source/a.txt"])
+        )
+        assert (project_dir / "source" / "snapshots" / "a.txt").read_text(encoding="utf-8") == new_text
+        assert (project_dir / "source" / "a.txt").read_text(encoding="utf-8") == new_text
+
+    def test_after_accepting_the_file_can_be_edited_again(self, tmp_path: Path):
+        project_dir = _project_dir(tmp_path, [_cut(1, "a.txt", 0, CH2)])
+        _snapshot(project_dir, "a.txt", A)
+        (project_dir / "source" / "a.txt").write_text(A + "外部追加。\n", encoding="utf-8")
+
+        accepted = accept_external_source_change(_pm(project_dir), "demo", "a.txt")
+        edited = edit_whole_source_file(_pm(project_dir), "demo", "a.txt", A + "外部追加。\n再追加。\n")
+
+        assert (accepted.applied, accepted.impact.is_empty) == (True, True)
+        assert edited.applied is True
+
+    def test_a_snapshot_that_differs_counts_as_changed_without_a_recorded_fingerprint(self, tmp_path: Path):
+        project_dir = _project_dir(tmp_path, [_cut(1, "a.txt", 0, CH2)])
+        project = _load(project_dir)
+        del project[SOURCE_FINGERPRINTS_KEY]
+        (project_dir / "project.json").write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
+        _snapshot(project_dir, "a.txt", A)
+        (project_dir / "source" / "a.txt").write_text(A.replace("少年", "青年"), encoding="utf-8")
+
+        with pytest.raises(SourceFileChangeError) as exc:
+            edit_whole_source_file(_pm(project_dir), "demo", "a.txt", A)
+        preview = accept_external_source_change(_pm(project_dir), "demo", "a.txt")
+
+        assert exc.value.code == "source_changed"
+        assert preview.impact.changed_without_products == [1]
+
+    def test_an_unchanged_file_has_nothing_to_accept(self, tmp_path: Path):
+        project_dir = _project_dir(tmp_path, [_cut(1, "a.txt", 0, CH2)])
+        _snapshot(project_dir, "a.txt", A)
+
+        with pytest.raises(SourceFileChangeError) as exc:
+            accept_external_source_change(_pm(project_dir), "demo", "a.txt")
+
+        assert exc.value.code == "source_not_changed"
+
+    def test_without_a_snapshot_a_file_holding_cut_episodes_cannot_be_aligned(self, tmp_path: Path):
+        project_dir = _project_dir(tmp_path, [_cut(1, "a.txt", 0, CH2)])
+        (project_dir / "source" / "a.txt").write_text(A + "外部追加。\n", encoding="utf-8")
+
+        with pytest.raises(SourceFileChangeError) as exc:
+            accept_external_source_change(_pm(project_dir), "demo", "a.txt")
+
+        assert exc.value.code == "source_snapshot_missing"
+
+    def test_a_file_without_cut_episodes_is_accepted_directly(self, tmp_path: Path):
+        project_dir = _project_dir(tmp_path, [_cut(1, "a.txt", 0, CH2)])
+        (project_dir / "source" / "c.txt").write_text("外部重写。\n", encoding="utf-8")
+
+        result = accept_external_source_change(_pm(project_dir), "demo", "c.txt")
+
+        assert (result.applied, result.impact.is_empty) == (True, True)
+        assert (
+            _load(project_dir)[SOURCE_FINGERPRINTS_KEY]["source/c.txt"]
+            == (compute_source_fingerprints([SourceDoc("source/c.txt", "外部重写。\n")])["source/c.txt"])
+        )
 
 
 class TestImpactText:

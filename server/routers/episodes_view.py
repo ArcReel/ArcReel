@@ -1,5 +1,5 @@
-"""「分集」视图：整本源文按集分段的只读投影、``source/`` 里没有登记的文件的处置，以及整本源文文件的类型、
-替换、编辑、删除与调序。"""
+"""「分集」视图：整本源文按集分段的只读投影、``source/`` 里没有登记的文件的处置，整本源文文件的类型、
+替换、编辑、删除与调序，以及按文件在服务之外的改动更新分集账本。"""
 
 from __future__ import annotations
 
@@ -36,6 +36,7 @@ from lib.episode.source_file_changes import (
     MoveDirection,
     SourceFileChangeError,
     SourceFileChangeOutcome,
+    accept_external_source_change,
     delete_whole_source_file,
     edit_whole_source_file,
     move_whole_source_file,
@@ -63,11 +64,32 @@ router = APIRouter()
 
 @router.get("/projects/{name}/episodes-view")
 async def get_episodes_view(name: str, _t: Translator) -> dict[str, Any]:
-    """整本源文按集分段、每集的体量与首尾句、``source/`` 里没有登记的文本文件，以及新的分集方案 ``replan``。
+    """整本源文按集分段、每集的体量与首尾句、``source/`` 里没有登记的文本文件、新的分集方案 ``replan``，
+    以及在服务之外被改动过的文件 ``external_changes``。
 
     ``replan`` 是悬而未决的重新规划候选的摘要与逐集变化（见 :func:`lib.episode.episode_replan.replan_candidate_summary`），
-    没有候选时为 null。
+    没有候选时为 null。``external_changes`` 按文件顺序列出 ``changed_outside`` 的文件：``impact`` 是按快照对齐算出的
+    受影响集清单（含服务端成文的 ``text``），``revision`` 原样带给 ``accept-external`` 即确认；算不出清单时两者为
+    null，``problem`` 是原因。
     """
+
+    def _external_change(manager: ProjectManager, project: dict[str, Any], filename: str) -> dict[str, Any]:
+        try:
+            outcome = accept_external_source_change(manager, name, filename, dry_run=True)
+        except SourceFileChangeError as exc:
+            return {
+                "source_file": f"source/{filename}",
+                "impact": None,
+                "revision": None,
+                "problem": _t(f"source_file_change_{exc.code}"),
+            }
+        payload = source_file_change_payload(outcome, project, _t)
+        return {
+            "source_file": f"source/{filename}",
+            "impact": payload["impact"],
+            "revision": payload["revision"],
+            "problem": None,
+        }
 
     def _sync() -> dict[str, Any]:
         manager = get_project_manager()
@@ -75,9 +97,13 @@ async def get_episodes_view(name: str, _t: Translator) -> dict[str, Any]:
             raise NotFoundError("project_not_found", name=name)
         project = manager.load_project(name)
         project_dir = manager.get_project_path(name)
+        layout = build_episode_layout(project_dir, project)
         return {
-            **asdict(build_episode_layout(project_dir, project)),
+            **asdict(layout),
             "replan": replan_candidate_summary(project_dir, project),
+            "external_changes": [
+                _external_change(manager, project, file.name) for file in layout.files if file.changed_outside
+            ],
         }
 
     try:
@@ -408,6 +434,31 @@ async def move_source_file(name: str, filename: str, req: MoveSourceFileRequest,
         lambda pm, dry_run: move_whole_source_file(
             pm, name, filename, direction=req.direction, revision=req.revision, dry_run=dry_run
         ),
+    )
+
+
+class AcceptExternalChangeRequest(_SourceFileChangeBase):
+    pass
+
+
+@router.post(
+    "/projects/{name}/source-files/{filename}/accept-external",
+    dependencies=[Depends(require_project_migration_ok)],
+)
+async def accept_external_change(
+    name: str, filename: str, req: AcceptExternalChangeRequest, _t: Translator
+) -> dict[str, Any]:
+    """按文件在服务之外的改动更新分集账本：以快照为旧文本、当前文本为新文本对齐，重映射触及它的切出集。
+
+    没有受影响的集时直接执行，返回 ``status=applied``；有受影响的集而 ``revision`` 缺省或已过时时不写入，
+    返回 ``status=confirmation_required``、按类分组的受影响集清单（含服务端成文的 ``impact.text``）与 ``revision``。
+    文件没有改动过、或里面有切出集却没有快照时返回 409。要移除或转为无原文的集有排队或执行中的任务时返回 409，不写入。
+    """
+    return await _run_source_file_change(
+        name,
+        _t,
+        req.revision,
+        lambda pm, dry_run: accept_external_source_change(pm, name, filename, revision=req.revision, dry_run=dry_run),
     )
 
 

@@ -13,7 +13,7 @@ import os
 import re
 import stat
 import tempfile
-from collections.abc import Awaitable, Callable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Generator, Mapping, Sequence
 from dataclasses import asdict, dataclass, field, is_dataclass, replace
 from pathlib import Path, PurePosixPath
 from typing import Annotated, Any, Literal, Self
@@ -29,7 +29,7 @@ from lib.db import async_session_factory
 from lib.db.base import DEFAULT_USER_ID
 from lib.db.repositories.task_repo import TaskNotCancellableError
 from lib.episode.episode_ids import describe_episode_for_agent, episode_position
-from lib.episode.episode_ledger import is_derived_episode_name
+from lib.episode.episode_ledger import is_derived_episode_name, normalize_source_text
 from lib.episode.episode_paths import (
     DRAMA_SCRIPT_PLAN_QUARANTINE_FILENAME,
     NARRATION_SCRIPT_PLAN_QUARANTINE_FILENAME,
@@ -39,6 +39,7 @@ from lib.episode.episode_paths import (
     REFERENCE_VIDEO_SCRIPT_PLAN_QUARANTINE_FILENAME,
     SCRIPT_PLAN_FILENAMES,
     SCRIPT_PLAN_LEGACY_FILENAMES,
+    episode_source_path,
     episode_source_relpath,
 )
 from lib.episode.episode_planner import (
@@ -66,10 +67,11 @@ from lib.episode.episode_reset import (
     reset_episode_planning as reset_episode_planning_service,
 )
 from lib.episode.episode_source_commands import (
+    EpisodeSourceError,
     add_own_source_episode,
-    register_whole_source_file,
+    set_episode_source_text,
 )
-from lib.episode.episode_sources import first_cut_episode_id
+from lib.episode.episode_sources import first_cut_episode_id, whole_source_files
 from lib.episode.episode_target_duration import (
     EPISODE_TARGET_DURATION_FIELD,
     MAX_EPISODE_TARGET_DURATION,
@@ -77,6 +79,14 @@ from lib.episode.episode_target_duration import (
     is_valid_episode_target_duration,
 )
 from lib.episode.episode_target_volume import EPISODE_TARGET_UNITS_FIELD
+from lib.episode.source_file_changes import (
+    SourceFileChangeError,
+    SourceFileChangeOutcome,
+    edit_whole_source_file,
+    insert_whole_source_file,
+    render_source_file_impact_text,
+    replace_whole_source_file,
+)
 from lib.episode.source_kinds import SourceKind
 from lib.generation.generation_batch import (
     GenerationBatchReadModel,
@@ -112,6 +122,7 @@ from lib.generation.generation_result import (
     problem_from_task_failure,
 )
 from lib.generation.video_request_facts import VideoRequestFactsError
+from lib.i18n import _ as i18n_message
 from lib.infra.async_thread import run_sync_transaction as _run_sync_transaction
 from lib.infra.content_digest import prefixed, prefixed_canonical_json_digest
 from lib.infra.data_root_layout import DataRootLayout
@@ -201,6 +212,7 @@ from server.services.admission.prompt_preview import ItemPromptPreview, ScriptIt
 from server.services.project.episode_id_records import recorded_episode_ids_on
 from server.services.project.narration_settings import NarrationSettingsInput, new_project_narration_fields
 from server.services.project.workflow_planner import WorkflowPlanner
+from server.services.tasks.episode_activity import episode_has_active_tasks
 from server.services.tasks.video_caps import (
     annotate_reference_unit_tiers,
     capability_request_facts,
@@ -1676,6 +1688,13 @@ class UploadSourceRequest(BaseModel):
             "screenplay 用户写好的成品剧本，分集、台词与画外音照用作者原文。替换已登记的同名整本源文文件时保留它原有的类型"
         ),
     )
+    revision: str | SkipJsonSchema[None] = Field(
+        default=None,
+        description=(
+            "on_conflict=replace 覆盖已登记的整本源文文件、波及切出集时，上一次调用返回的受影响集清单的 revision；"
+            "用户确认清单后原样带回才写入"
+        ),
+    )
 
 
 async def list_projects(
@@ -1767,6 +1786,96 @@ async def create_project(
         return ToolOutcome(problem=ToolProblem("internal_error", f"create_project 失败: {exc}"))
 
 
+class SourceReplacement(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    old_text: str = Field(min_length=1, description="要替换的原文片段，须在当前原文里恰好出现一次，逐字匹配")
+    new_text: str = Field(description="替换成的文字；空串表示删掉这个片段")
+
+
+class EditSourceTextRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    filename: str | SkipJsonSchema[None] = Field(
+        default=None,
+        description="要修改的整本源文文件名（source/ 下已登记的纯文件名，如 novel.txt）；与 episode_id 二选一",
+    )
+    episode_id: int | SkipJsonSchema[None] = Field(
+        default=None,
+        gt=0,
+        description="要修改原文的集 ID，只接受自带原文或无原文的集；切出集的原文要改整本源文的文件。与 filename 二选一",
+    )
+    replacements: list[SourceReplacement] | SkipJsonSchema[None] = Field(
+        default=None,
+        min_length=1,
+        description="按片段修改：依次在当前原文里替换；与 text 二选一",
+    )
+    text: str | SkipJsonSchema[None] = Field(default=None, description="整段改写后的完整原文；与 replacements 二选一")
+    revision: str | SkipJsonSchema[None] = Field(
+        default=None,
+        description="修改整本源文的文件、波及切出集时，上一次调用返回的受影响集清单的 revision；用户确认清单后原样带回才写入",
+    )
+
+    @model_validator(mode="after")
+    def _one_target_one_change(self) -> EditSourceTextRequest:
+        if (self.filename is None) == (self.episode_id is None):
+            raise ValueError("filename 与 episode_id 须且只能给一个")
+        if (self.replacements is None) == (self.text is None):
+            raise ValueError("replacements 与 text 须且只能给一个")
+        return self
+
+
+class SourceChangeResult(BaseModel):
+    message: str
+    #: 为 True 时没有写入，等待用户确认受影响集清单后带 ``revision`` 重新调用。
+    confirmation_required: bool
+    #: 受影响集清单（集 ID，按类分组）；改自带原文的集时为 None。
+    impact: dict[str, list[int]] | None = None
+    revision: str | None = None
+
+
+def _zh(key: str, **kwargs: Any) -> str:
+    return i18n_message(key, "zh", **kwargs)
+
+
+def _source_change_problem(exc: SourceFileChangeError) -> ToolProblem:
+    return ToolProblem(exc.code, f"❌ {_zh(f'source_file_change_{exc.code}')}")
+
+
+async def _run_source_file_change(
+    scope: ProjectScope,
+    services: Services,
+    revision: str | None,
+    command: Callable[[bool], SourceFileChangeOutcome],
+) -> SourceFileChangeOutcome | ToolProblem:
+    """跑一个整本源文文件改动命令（``command(dry_run)``）。带着确认过的 ``revision`` 执行前，要移除或退下的集
+    还有排队或执行中的任务时不写入。"""
+    if revision is not None:
+        preview = await asyncio.to_thread(command, True)
+        if preview.revision == revision:
+            for episode in (*preview.impact.retired, *preview.impact.removed):
+                if await episode_has_active_tasks(services.queue, scope.project_name, episode):
+                    return ToolProblem(
+                        "source_file_change_tasks_active", f"❌ {_zh('source_file_change_tasks_active')}"
+                    )
+    return await _run_sync_transaction(command, False)
+
+
+def _source_change_result(
+    outcome: SourceFileChangeOutcome, project_before: Mapping[str, Any], rel: str
+) -> SourceChangeResult:
+    impact = outcome.impact.to_dict()
+    text = render_source_file_impact_text(impact, project_before, _zh)
+    if not outcome.applied:
+        message = (
+            f"⚠️ 改动 {rel} 会波及以下集，尚未写入：\n{text}\n"
+            f'请把清单如实告知用户；用户确认后带 revision="{outcome.revision}" 原样重新调用。'
+        )
+        return SourceChangeResult(message=message, confirmation_required=True, impact=impact, revision=outcome.revision)
+    message = f"✅ 已写入 {rel}。" + (f"\n分集账本已随之更新：\n{text}" if text else "")
+    return SourceChangeResult(message=message, confirmation_required=False, impact=impact, revision=outcome.revision)
+
+
 async def upload_source(
     request: ToolRequest[UploadSourceRequest],
     scope: ProjectScope,
@@ -1775,9 +1884,9 @@ async def upload_source(
 ) -> ToolOutcome[dict[str, Any]]:
     if problem := await migration_gate(scope, services):
         return ToolOutcome(problem=problem)
+    value = request.value
 
-    def _upload() -> dict[str, Any]:
-        value = request.value
+    def _validate() -> None:
         if Path(value.filename).name != value.filename or "\\" in value.filename or value.filename.startswith("."):
             raise ValueError("filename 必须是不含路径的非隐藏文件名")
         suffix = Path(value.filename).suffix.lower()
@@ -1785,59 +1894,111 @@ async def upload_source(
             raise UnsupportedFormatError(ext=suffix)
         if not services.projects.project_exists(scope.project_name):
             raise FileNotFoundError(f"项目 '{scope.project_name}' 缺少 project.json")
+        if value.role == "whole_source" and is_derived_episode_name(f"{Path(value.filename).stem}.txt"):
+            raise ValueError(
+                f"文件名 {value.filename} 与集文件 episode_N.txt 同名，整本源文的文件须改名后上传；"
+                "逐集原文用 role=episode 上传"
+            )
+
+    @contextlib.contextmanager
+    def _temporary_source() -> Generator[Path]:
         source_path: Path | None = None
         try:
             with tempfile.NamedTemporaryFile(suffix=Path(value.filename).suffix, delete=False) as source:
                 source_path = Path(source.name)
                 source.write(value.content.encode("utf-8"))
                 source.flush()
-            if value.role == "episode":
-                extracted = SourceLoader.extract(source_path, original_filename=value.filename)
-                project_dir = services.projects.get_project_path(scope.project_name)
-                with services.projects.locked_source_registration(scope.project_name) as (_dir, project, undo):
-                    episode = add_own_source_episode(
-                        project_dir, project, extracted.text, undo=undo, source_kind=value.source_kind
-                    )
-                    described = describe_episode_for_agent(project, episode)
-                return {
-                    "episode_id": episode,
-                    "episode": described,
-                    "path": episode_source_relpath(episode),
-                    "original_filename": value.filename,
-                    "used_encoding": extracted.used_encoding,
-                    "chapter_count": extracted.chapter_count,
-                }
-            if is_derived_episode_name(f"{Path(value.filename).stem}.txt"):
-                raise ValueError(
-                    f"文件名 {value.filename} 与集文件 episode_N.txt 同名，整本源文的文件须改名后上传；"
-                    "逐集原文用 role=episode 上传"
-                )
-            with services.projects.locked_source_registration(scope.project_name) as (source_dir, project, _undo):
-                result = SourceLoader.load(
-                    source_path,
-                    source_dir,
-                    original_filename=value.filename,
-                    on_conflict=value.on_conflict,
-                )
-                register_whole_source_file(
-                    project, f"source/{result.normalized_path.name}", source_kind=value.source_kind
-                )
+            yield source_path
         finally:
             if source_path is not None:
                 source_path.unlink(missing_ok=True)
+
+    def _upload_episode() -> dict[str, Any]:
+        _validate()
+        with _temporary_source() as source_path:
+            extracted = SourceLoader.extract(source_path, original_filename=value.filename)
+            project_dir = services.projects.get_project_path(scope.project_name)
+            with services.projects.locked_source_registration(scope.project_name) as (_dir, project, undo):
+                episode = add_own_source_episode(
+                    project_dir, project, extracted.text, undo=undo, source_kind=value.source_kind
+                )
+                described = describe_episode_for_agent(project, episode)
         return {
-            "filename": result.normalized_path.name,
-            "path": f"source/{result.normalized_path.name}",
-            "original_filename": result.original_filename,
-            "original_kept": result.raw_path is not None,
-            "used_encoding": result.used_encoding,
-            "chapter_count": result.chapter_count,
+            "episode_id": episode,
+            "episode": described,
+            "path": episode_source_relpath(episode),
+            "original_filename": value.filename,
+            "used_encoding": extracted.used_encoding,
+            "chapter_count": extracted.chapter_count,
         }
 
+    def _insert_whole_source(_dry_run: bool) -> tuple[SourceFileChangeOutcome, Any]:
+        _validate()
+        loaded: dict[str, Any] = {}
+        with _temporary_source() as source_path:
+
+            def _write(source_dir: Path, undo: contextlib.ExitStack) -> str:
+                result = SourceLoader.load(
+                    source_path, source_dir, original_filename=value.filename, on_conflict=value.on_conflict
+                )
+                undo.callback(result.normalized_path.unlink, missing_ok=True)
+                if result.raw_path is not None:
+                    undo.callback(result.raw_path.unlink, missing_ok=True)
+                loaded["result"] = result
+                return f"source/{result.normalized_path.name}"
+
+            outcome, _rel = insert_whole_source_file(
+                services.projects, scope.project_name, _write, index=None, source_kind=value.source_kind
+            )
+        return outcome, loaded.get("result")
+
+    def _replacement_text() -> str:
+        _validate()
+        with _temporary_source() as source_path:
+            return SourceLoader.extract(source_path, original_filename=value.filename).text
+
     try:
-        return ToolOutcome(value=await _run_sync_transaction(_upload))
+        if value.role == "episode":
+            return ToolOutcome(value={**await _run_sync_transaction(_upload_episode), "confirmation_required": False})
+        normalized_name = f"{Path(value.filename).stem}.txt"
+        rel = f"source/{normalized_name}"
+        project_before = await asyncio.to_thread(services.projects.load_project, scope.project_name)
+        if value.on_conflict == "replace" and rel in whole_source_files(project_before):
+            text = await asyncio.to_thread(_replacement_text)
+            changed = await _run_source_file_change(
+                scope,
+                services,
+                value.revision,
+                lambda dry_run: replace_whole_source_file(
+                    services.projects,
+                    scope.project_name,
+                    normalized_name,
+                    text,
+                    source_kind=value.source_kind,
+                    revision=value.revision,
+                    dry_run=dry_run,
+                ),
+            )
+            if isinstance(changed, ToolProblem):
+                return ToolOutcome(problem=changed)
+            result = _source_change_result(changed, project_before, rel)
+            return ToolOutcome(value={**result.model_dump(), "filename": normalized_name, "path": rel})
+        _outcome, loaded = await _run_sync_transaction(_insert_whole_source, False)
+        return ToolOutcome(
+            value={
+                "confirmation_required": False,
+                "filename": loaded.normalized_path.name,
+                "path": f"source/{loaded.normalized_path.name}",
+                "original_filename": loaded.original_filename,
+                "original_kept": loaded.raw_path is not None,
+                "used_encoding": loaded.used_encoding,
+                "chapter_count": loaded.chapter_count,
+            }
+        )
     except FileNotFoundError as exc:
         return ToolOutcome(problem=ToolProblem("project_not_found", str(exc)))
+    except SourceFileChangeError as exc:
+        return ToolOutcome(problem=_source_change_problem(exc))
     except ValueError as exc:
         return ToolOutcome(problem=ToolProblem("invalid_request", str(exc)))
     except UnsupportedFormatError as exc:
@@ -1850,6 +2011,80 @@ async def upload_source(
         return ToolOutcome(problem=ToolProblem("source_conflict", str(exc)))
     except Exception as exc:
         return ToolOutcome(problem=ToolProblem("internal_error", f"upload_source 失败: {exc}"))
+
+
+def _apply_replacements(current: str, replacements: Sequence[SourceReplacement]) -> str:
+    text = current
+    for item in replacements:
+        count = text.count(item.old_text)
+        if count != 1:
+            where = "没有找到" if count == 0 else f"出现了 {count} 次"
+            raise ValueError(f"片段「{item.old_text}」在当前原文里{where}，须恰好出现一次；请带上更多上下文")
+        text = text.replace(item.old_text, item.new_text, 1)
+    return text
+
+
+async def edit_source_text(
+    request: ToolRequest[EditSourceTextRequest],
+    scope: ProjectScope,
+    _caller: CallerContext,
+    services: Services,
+) -> ToolOutcome[SourceChangeResult]:
+    if problem := await migration_gate(scope, services):
+        return ToolOutcome(problem=problem)
+    value = request.value
+    project_dir = services.projects.get_project_path(scope.project_name)
+
+    def _new_text(path: Path) -> str:
+        if value.text is not None:
+            return value.text
+        try:
+            current = normalize_source_text(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError) as exc:
+            raise ValueError(f"读不到当前原文：{exc}") from exc
+        return _apply_replacements(current, value.replacements or ())
+
+    try:
+        project_before = await asyncio.to_thread(services.projects.load_project, scope.project_name)
+        if value.episode_id is not None:
+            episode = value.episode_id
+            path = episode_source_path(project_dir, episode)
+            text = await asyncio.to_thread(_new_text, path)
+            await _run_sync_transaction(set_episode_source_text, services.projects, scope.project_name, episode, text)
+            name = describe_episode_for_agent(project_before, episode)
+            return ToolOutcome(
+                value=SourceChangeResult(
+                    message=f"✅ 已写入 {name} 的原文 {episode_source_relpath(episode)}。", confirmation_required=False
+                )
+            )
+        filename = value.filename or ""
+        if Path(filename).name != filename or "\\" in filename:
+            raise ValueError("filename 必须是 source/ 下的纯文件名")
+        rel = f"source/{filename}"
+        if rel not in whole_source_files(project_before):
+            raise SourceFileChangeError("source_file_not_found", f"整本源文里没有这个文件：{filename}")
+        text = await asyncio.to_thread(_new_text, project_dir / rel)
+        changed = await _run_source_file_change(
+            scope,
+            services,
+            value.revision,
+            lambda dry_run: edit_whole_source_file(
+                services.projects, scope.project_name, filename, text, revision=value.revision, dry_run=dry_run
+            ),
+        )
+        if isinstance(changed, ToolProblem):
+            return ToolOutcome(problem=changed)
+        return ToolOutcome(value=_source_change_result(changed, project_before, rel))
+    except FileNotFoundError as exc:
+        return ToolOutcome(problem=ToolProblem("project_not_found", str(exc)))
+    except SourceFileChangeError as exc:
+        return ToolOutcome(problem=_source_change_problem(exc))
+    except EpisodeSourceError as exc:
+        return ToolOutcome(problem=ToolProblem(exc.code, f"❌ 修改集原文失败：{exc}"))
+    except ValueError as exc:
+        return ToolOutcome(problem=ToolProblem("invalid_request", str(exc)))
+    except Exception as exc:
+        return ToolOutcome(problem=_unexpected("edit_source_text", exc))
 
 
 async def get_workflow_plan(
@@ -3542,6 +3777,7 @@ __all__ = [
     "CreateProjectToolRequest",
     "DiscardDraftRequest",
     "DraftLocator",
+    "EditSourceTextRequest",
     "EpisodeScriptContent",
     "EpisodeScriptRequest",
     "GenerateEpisodeScriptRequest",
@@ -3570,7 +3806,9 @@ __all__ = [
     "ScriptSpeechAdmission",
     "ScriptSpeechProblem",
     "Services",
+    "SourceChangeResult",
     "SourceFilesContent",
+    "SourceReplacement",
     "SourceTextContent",
     "SourceTextRequest",
     "TextGenerationError",
@@ -3585,6 +3823,7 @@ __all__ = [
     "confirm_script_review",
     "create_project",
     "discard_draft",
+    "edit_source_text",
     "generate_episode_script",
     "generate_script_plan",
     "get_episode_script",

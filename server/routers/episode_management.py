@@ -11,7 +11,6 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
 from lib.episode.episode_deletion import EpisodeDeletionResult, delete_episode, render_episode_deletion_text
-from lib.episode.episode_ids import episode_ids_in_record
 from lib.episode.episode_management import EpisodeManagementError, create_episode, move_episode
 from lib.episode.episode_source_commands import EpisodeSourceError
 from lib.episode.source_kinds import SourceKind
@@ -22,6 +21,7 @@ from lib.project.project_manager import ProjectManager, get_project_manager
 from server.dependencies import require_project_migration_ok
 from server.i18n import Translator
 from server.routers._episode_source_errors import episode_source_http_error
+from server.services.tasks.episode_activity import episode_has_active_tasks as episode_tasks_active
 
 logger = logging.getLogger(__name__)
 
@@ -106,20 +106,7 @@ async def move_episode_endpoint(name: str, episode: int, req: MoveEpisodeRequest
 
 async def episode_has_active_tasks(project_name: str, episode: int) -> bool:
     """这一集是否有排队或执行中的任务：任务的资源、剧本文件或载荷带这一集的集 ID。"""
-    queue = get_generation_queue()
-    for status in ("queued", "running"):
-        page = 1
-        while True:
-            listing = await queue.list_tasks(project_name=project_name, status=status, page=page, page_size=200)
-            items = listing.get("items") or []
-            for task in items:
-                record = {key: task.get(key) for key in ("resource_id", "script_file", "payload")}
-                if episode in episode_ids_in_record(record):
-                    return True
-            if len(items) < 200:
-                break
-            page += 1
-    return False
+    return await episode_tasks_active(get_generation_queue(), project_name, episode)
 
 
 @router.post("/projects/{name}/episodes/{episode}/delete", dependencies=[Depends(require_project_migration_ok)])

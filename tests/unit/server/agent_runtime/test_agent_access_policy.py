@@ -155,6 +155,19 @@ def test_write_edit_timeline_denied(policy: AgentAccessPolicy, tool: str, relati
 
 @pytest.mark.parametrize("tool", ["Write", "Edit"])
 @pytest.mark.parametrize(
+    "relative", ["source/novel.txt", "source/episode_1.txt", "source/snapshots/novel.txt", "source/new.md"]
+)
+def test_write_source_denied(policy: AgentAccessPolicy, tool: str, relative: str) -> None:
+    """source/ 只能经服务命令写入，报错指向上传与编辑源文的工具。"""
+    cwd = _cwd(policy)
+    allowed, reason = policy.check_path_access(str(cwd / relative), tool, cwd, user_id=_USER_ID)
+    assert not allowed, f"{tool} {relative} 应被拒"
+    assert "upload_source" in (reason or "")
+    assert "edit_source_text" in (reason or "")
+
+
+@pytest.mark.parametrize("tool", ["Write", "Edit"])
+@pytest.mark.parametrize(
     "relative",
     [
         "drafts/episode_1/script_plan_reference_units.json",
@@ -362,10 +375,10 @@ def test_normalize_path_for_protected_compare_strips_windows_extended_prefix() -
     assert norm("/data/projects/demo") == norm("/data/projects/demo")
 
 
-def test_write_drafts_and_source_still_allowed(policy: AgentAccessPolicy) -> None:
-    """合法的草稿/源文件写入不受影响（drafts/*.md、source/*.txt、scripts 外的 .json）。"""
+def test_write_drafts_still_allowed(policy: AgentAccessPolicy) -> None:
+    """合法的草稿写入不受影响（drafts/*.md、scripts 外的 .json）。"""
     cwd = _cwd(policy)
-    for relative in ("drafts/episode_1/script_plan_segments.md", "source/episode_1.txt", "config_data.json"):
+    for relative in ("drafts/episode_1/script_plan_segments.md", "config_data.json"):
         allowed, _ = policy.check_path_access(str(cwd / relative), "Write", cwd, user_id=_USER_ID)
         assert allowed, f"{relative} 应允许"
 
@@ -490,7 +503,7 @@ def test_build_sandbox_settings_in_docker_enables_weaker_nested(tmp_path: Path) 
 
 
 def test_build_sandbox_settings_denies_write_to_project_json(policy: AgentAccessPolicy) -> None:
-    """sandbox 启用时 denyWrite 覆盖 scripts/、project.json、edit_timelines/ 与 drafts/（Bash 子进程内核级封堵）。"""
+    """sandbox 启用时 denyWrite 覆盖 scripts/、project.json、edit_timelines/、drafts/ 与 source/（Bash 子进程内核级封堵）。"""
     cwd = _cwd(policy)
     settings = policy.build_sandbox_settings(cwd, user_id=_USER_ID)
     deny_write = settings["filesystem"]["denyWrite"]
@@ -498,6 +511,7 @@ def test_build_sandbox_settings_denies_write_to_project_json(policy: AgentAccess
     assert str(cwd / "project.json") in deny_write
     assert str(cwd / "drafts") in deny_write
     assert str(cwd / "edit_timelines") in deny_write
+    assert str(cwd / "source") in deny_write
 
 
 def test_build_sandbox_settings_denies_drafts_dir_not_per_episode_files(policy: AgentAccessPolicy) -> None:

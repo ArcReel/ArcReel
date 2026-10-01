@@ -27,12 +27,14 @@ const view: EpisodesView = {
   episodes: [],
   unregistered: [],
   replan: null,
+  external_changes: [],
   files: [
     {
       source_file: "source/a.txt",
       name: "a.txt",
       original_filename: null,
       missing: false,
+      changed_outside: false,
       length: 40,
       units: 40,
       cut_units: 40,
