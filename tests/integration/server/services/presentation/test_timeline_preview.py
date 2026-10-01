@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from lib.artifacts.version_manager import VersionManager
 from lib.bgm.service import BgmLibraryService
 from lib.edit_timeline import EditTimelineService
 from lib.edit_timeline.operations import InsertBgm
@@ -43,6 +44,40 @@ async def test_tts_project_previews_narration_audio_and_subtitles_that_follow_it
         ("E1S01", {"path": "audio/segment_E1S01.wav", "version": 1}, True, [("旁白一句", 0.0, 1.2)]),
         ("E1S02", {"path": "audio/segment_E1S02.wav", "version": 1}, True, [("第二段", 0.0, 2.0)]),
     ]
+
+
+async def test_provider_audio_switch_follows_the_current_video_version_record(tmp_path: Path) -> None:
+    pm, project_path = setup_project(tmp_path)
+    timeline_id = await edited_timeline(pm)
+    service = TimelinePreviewService(pm)
+
+    assert [(unit.unit_id, unit.provider_audio) for unit in (await service.media("demo", timeline_id)).units] == [
+        ("E1S01", True),
+        ("E1S02", True),
+    ]
+
+    # 生成时关闭了供应商原声：文件里即使带音轨，成片与预览都不用
+    VersionManager(project_path).update_version_metadata("videos", "E1S02", 1, execution_generate_audio=False)
+
+    assert [(unit.unit_id, unit.provider_audio) for unit in (await service.media("demo", timeline_id)).units] == [
+        ("E1S01", True),
+        ("E1S02", False),
+    ]
+
+
+async def test_unit_without_video_version_counts_as_provider_audio_on(tmp_path: Path) -> None:
+    pm, project_path = setup_project(tmp_path)
+    script_path = project_path / "scripts" / "episode_1.json"
+    script = json.loads(script_path.read_text(encoding="utf-8"))
+    script["segments"].append(narration_segment("E1S03", "还没有视频"))
+    write_json(script_path, script)
+    timeline_id = (
+        await EditTimelineService(pm).create_from_script("demo", episode=1, name="新版", author=CREATOR)
+    ).timeline.id
+
+    media = await TimelinePreviewService(pm).media("demo", timeline_id)
+
+    assert media.units[2].provider_audio is True
 
 
 async def test_post_production_project_previews_without_narration(tmp_path: Path) -> None:

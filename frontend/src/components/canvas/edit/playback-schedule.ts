@@ -4,7 +4,7 @@
  * 全部是纯函数；`<video>` 的装载、播放与切换由 useTimelinePlayback 按这里的结论执行。
  */
 
-import type { EditClip, EditTimelineReadout } from "@/types/edit-timeline";
+import type { EditClip, EditTimelinePreviewMedia, EditTimelineReadout } from "@/types/edit-timeline";
 
 /** 一个参与播放的剪辑片段。全局区间为 `[start, end)`；源素材从 `sourceIn` 放到 `sourceOut`，其后是定格延长。 */
 export interface PlaybackSegment {
@@ -14,6 +14,7 @@ export interface PlaybackSegment {
   end: number;
   sourceIn: number;
   sourceOut: number;
+  /** 播放音量：片段原声音量乘以生成时的供应商原声开关（关闭为 0）。 */
   sourceVolume: number;
   /** 视频单元的 current 视频版本；换版本后源素材随之变化。 */
   videoVersion: number | null;
@@ -61,7 +62,7 @@ export function trimApplies(clip: EditClip): boolean {
   return clip.trim !== null && clip.video_version !== null && clip.trim.basis_version === clip.video_version;
 }
 
-function segmentOf(clip: EditClip): PlaybackSegment {
+function segmentOf(clip: EditClip, providerAudio: boolean): PlaybackSegment {
   const hasVideo = clip.status === "ready";
   const sourceIn = hasVideo && trimApplies(clip) && clip.trim ? clip.trim.source_in : 0;
   const pictureLength = hasVideo ? Math.max(0, clip.duration - clip.hold) : 0;
@@ -72,7 +73,7 @@ function segmentOf(clip: EditClip): PlaybackSegment {
     end: round(clip.start + clip.duration),
     sourceIn,
     sourceOut: round(sourceIn + pictureLength),
-    sourceVolume: clip.source_volume,
+    sourceVolume: providerAudio ? clip.source_volume : 0,
     videoVersion: clip.video_version,
     hasVideo,
     fadeIn: 0,
@@ -83,10 +84,12 @@ function segmentOf(clip: EditClip): PlaybackSegment {
 /**
  * 已从脚本删除的视频单元的片段不参与播放；其余片段沿用服务端算好的起点与时长。
  * 转场作用在到下一个参与播放的片段之间的切点上，最后一个片段上的转场没有效果。
+ * 原声音量与成片同口径：片段音量乘以生成时的供应商原声开关；预览素材层还没到、或没有这个单元时按开启处理。
  */
-export function buildPlaybackPlan(readout: EditTimelineReadout): PlaybackPlan {
+export function buildPlaybackPlan(readout: EditTimelineReadout, media: EditTimelinePreviewMedia | null): PlaybackPlan {
+  const providerAudio = new Map((media?.units ?? []).map((unit) => [unit.unit_id, unit.provider_audio]));
   const clips = readout.clips.filter((clip) => clip.status !== "unit_deleted" && clip.duration > 0);
-  const segments = clips.map(segmentOf);
+  const segments = clips.map((clip) => segmentOf(clip, providerAudio.get(clip.unit_id) !== false));
   clips.forEach((clip, index) => {
     const next = segments[index + 1];
     if (!clip.transition_to_next || !next) return;

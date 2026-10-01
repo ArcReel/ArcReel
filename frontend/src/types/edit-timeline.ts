@@ -140,6 +140,8 @@ export interface EditPreviewNarrationAudio {
 
 export interface EditPreviewUnitMedia {
   unit_id: string;
+  /** 该单元 current 视频生成时的供应商原声开关；为 false 时文件里即使带音轨，预览也静音，与成片同口径。 */
+  provider_audio: boolean;
   /** 只在该单元按带旁白版本呈现时给出。 */
   narration_audio: EditPreviewNarrationAudio | null;
   subtitles_follow_narration: boolean;

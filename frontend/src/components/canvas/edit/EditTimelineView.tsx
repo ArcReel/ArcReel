@@ -351,7 +351,7 @@ function TimelinePreview({
   const [showSubtitles, setShowSubtitles] = useState(true);
 
   // 内容相同的重新读取不换计划引用，播放不因项目的无关变更而重新定位。
-  const planJson = useMemo(() => JSON.stringify(buildPlaybackPlan(readout)), [readout]);
+  const planJson = useMemo(() => JSON.stringify(buildPlaybackPlan(readout, media)), [readout, media]);
   const plan = useMemo(() => JSON.parse(planJson) as PlaybackPlan, [planJson]);
   // 源视频地址只随视频单元的 current 版本变化；脚本对象每次刷新都换引用，这里只取它的形状。
   const referenceVideo = isReferenceVideoScript(script);

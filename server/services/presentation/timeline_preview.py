@@ -18,6 +18,7 @@ from lib.bgm.library import read_bgm_library
 from lib.edit_timeline.bgm import bgm_ids
 from lib.edit_timeline.model import microseconds_to_seconds
 from lib.edit_timeline.store import EditTimelineStore
+from lib.final_cut.basis import current_provider_audio
 from lib.jianying_draft.basis import DraftNarration, default_draft_narration, draft_unit_ids
 from lib.project.project_manager import ProjectManager
 from lib.project.resource_paths import resource_relative_path
@@ -47,9 +48,14 @@ class PreviewNarrationAudio(_View):
 
 
 class PreviewUnitMedia(_View):
-    """``narration_audio`` 只在该单元按带旁白版本呈现时给出；呈现模型物化不出时 ``subtitles`` 为空。"""
+    """``narration_audio`` 只在该单元按带旁白版本呈现时给出；呈现模型物化不出时 ``subtitles`` 为空。
+
+    ``provider_audio`` 是 current 视频生成时的供应商原声开关，与成片同口径：为 False 时视频文件里即使带音轨，
+    预览也按静音播放；预览音量是片段原声音量乘以这个开关。
+    """
 
     unit_id: str
+    provider_audio: bool
     narration_audio: PreviewNarrationAudio | None
     subtitles_follow_narration: bool
     subtitles: tuple[PreviewCue, ...]
@@ -136,9 +142,11 @@ class TimelinePreviewService:
                     )
                     for cue in presented.presentation.subtitles
                 )
+            provider_audio = await asyncio.to_thread(current_provider_audio, versions, resource_type, unit_id)
             units.append(
                 PreviewUnitMedia(
                     unit_id=unit_id,
+                    provider_audio=provider_audio,
                     narration_audio=audio,
                     subtitles_follow_narration=audio is not None,
                     subtitles=cues,

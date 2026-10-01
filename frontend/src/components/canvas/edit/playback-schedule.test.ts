@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { EditClip, EditTimelineReadout } from "@/types/edit-timeline";
+import type { EditClip, EditTimelinePreviewMedia, EditTimelineReadout } from "@/types/edit-timeline";
 
 import { advancePlayhead, buildPlaybackPlan, locate, preloadTarget, transitionOpacity } from "./playback-schedule";
 
@@ -54,7 +54,7 @@ const SAMPLE = readout(
 
 describe("buildPlaybackPlan", () => {
   it("skips clips whose unit was deleted and keeps the rest in play order", () => {
-    const plan = buildPlaybackPlan(SAMPLE);
+    const plan = buildPlaybackPlan(SAMPLE, null);
 
     expect(plan.segments.map((s) => s.clipId)).toEqual(["c1", "c3", "c4", "c5"]);
     expect(plan.duration).toBe(13.8);
@@ -69,13 +69,14 @@ describe("buildPlaybackPlan", () => {
         ],
         5,
       ),
+      null,
     );
 
     expect(plan.segments.map((s) => s.clipId)).toEqual(["c2"]);
   });
 
   it("maps each clip to the source window actually played", () => {
-    const plan = buildPlaybackPlan(SAMPLE);
+    const plan = buildPlaybackPlan(SAMPLE, null);
 
     expect(plan.segments.map((s) => [s.clipId, s.start, s.end, s.sourceIn, s.sourceOut, s.hasVideo])).toEqual([
       ["c1", 0, 2.8, 1.2, 4, true],
@@ -88,8 +89,58 @@ describe("buildPlaybackPlan", () => {
   });
 });
 
+describe("buildPlaybackPlan source volume", () => {
+  const volumes = (media: EditTimelinePreviewMedia | null) =>
+    buildPlaybackPlan(
+      readout(
+        [
+          clip({ id: "c1", unit_id: "E1U1", start: 0, duration: 2, source_volume: 0.6 }),
+          clip({ id: "c2", unit_id: "E1U2", start: 2, duration: 2, source_volume: 1 }),
+          clip({ id: "c3", unit_id: "E1U1", start: 4, duration: 2, source_volume: 0.3 }),
+        ],
+        6,
+      ),
+      media,
+    ).segments.map((segment) => [segment.clipId, segment.sourceVolume]);
+  const unit = (unit_id: string, provider_audio: boolean) => ({
+    unit_id,
+    provider_audio,
+    narration_audio: null,
+    subtitles_follow_narration: false,
+    subtitles: [],
+  });
+  const mediaOf = (...units: ReturnType<typeof unit>[]): EditTimelinePreviewMedia => ({
+    timeline_id: "tl-00000001",
+    revision: 1,
+    narration: "without_narration",
+    units,
+    bgm: [],
+  });
+
+  it("mutes a unit whose provider audio was switched off at generation, whatever the clip volume", () => {
+    expect(volumes(mediaOf(unit("E1U1", false), unit("E1U2", true)))).toEqual([
+      ["c1", 0],
+      ["c2", 1],
+      ["c3", 0],
+    ]);
+  });
+
+  it("keeps the clip volume for units with provider audio on, and before the preview media arrives", () => {
+    expect(volumes(mediaOf(unit("E1U1", true), unit("E1U2", true)))).toEqual([
+      ["c1", 0.6],
+      ["c2", 1],
+      ["c3", 0.3],
+    ]);
+    expect(volumes(null)).toEqual([
+      ["c1", 0.6],
+      ["c2", 1],
+      ["c3", 0.3],
+    ]);
+  });
+});
+
 describe("locate", () => {
-  const plan = buildPlaybackPlan(SAMPLE);
+  const plan = buildPlaybackPlan(SAMPLE, null);
 
   it("turns a global time into the clip and its source offset", () => {
     expect(locate(plan, 1)).toEqual({ index: 0, sourceTime: 2.2, holding: false });
@@ -113,6 +164,7 @@ describe("locate", () => {
   it("returns null when nothing is playable", () => {
     const empty = buildPlaybackPlan(
       readout([clip({ id: "c1", unit_id: "E1U1", start: 0, duration: 0, status: "unit_deleted" })], 0),
+      null,
     );
 
     expect(locate(empty, 0)).toBeNull();
@@ -120,7 +172,7 @@ describe("locate", () => {
 });
 
 describe("preloadTarget", () => {
-  const plan = buildPlaybackPlan(SAMPLE);
+  const plan = buildPlaybackPlan(SAMPLE, null);
 
   it("preloads the in point of the next clip", () => {
     expect(preloadTarget(plan, 0)).toEqual({ index: 1, sourceTime: 0 });
@@ -136,7 +188,7 @@ describe("preloadTarget", () => {
 });
 
 describe("advancePlayhead", () => {
-  const plan = buildPlaybackPlan(SAMPLE);
+  const plan = buildPlaybackPlan(SAMPLE, null);
 
   it("follows the playing video inside its source window", () => {
     expect(advancePlayhead(plan, { index: 0, t: 1 }, { videoTime: 2.5, elapsed: 0.016 })).toEqual({
@@ -188,6 +240,7 @@ describe("advancePlayhead", () => {
       ],
       12.6,
     ),
+    null,
   );
 
   it("freezes on the out point and moves on the wall clock even if the video keeps playing", () => {
@@ -241,7 +294,7 @@ describe("transitions", () => {
   );
 
   it("splits each transition across the two sides of its cut", () => {
-    const plan = buildPlaybackPlan(withTransitions);
+    const plan = buildPlaybackPlan(withTransitions, null);
 
     expect(plan.segments.map((s) => [s.clipId, s.fadeIn, s.fadeOut])).toEqual([
       ["c1", 0, 0.5],
@@ -251,7 +304,7 @@ describe("transitions", () => {
   });
 
   it("fades out before the cut and back in after it", () => {
-    const [c1, c2] = buildPlaybackPlan(withTransitions).segments;
+    const [c1, c2] = buildPlaybackPlan(withTransitions, null).segments;
 
     expect(transitionOpacity(c1, 2)).toBe(1);
     expect(transitionOpacity(c1, 2.75)).toBeCloseTo(0.5);
@@ -261,7 +314,7 @@ describe("transitions", () => {
   });
 
   it("keeps hard cuts fully opaque", () => {
-    const [segment] = buildPlaybackPlan(SAMPLE).segments;
+    const [segment] = buildPlaybackPlan(SAMPLE, null).segments;
 
     expect(transitionOpacity(segment, segment.start)).toBe(1);
     expect(transitionOpacity(segment, segment.end - 0.001)).toBe(1);
