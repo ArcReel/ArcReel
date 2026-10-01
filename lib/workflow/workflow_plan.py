@@ -17,7 +17,7 @@ from lib.workflow.workflow_state import (
     WorkflowBlocker,
     WorkflowNextAction,
     WorkflowStatus,
-    episode_complete,
+    workflow_finished,
 )
 
 PositiveStrictInt = Annotated[int, Field(strict=True, gt=0)]
@@ -195,7 +195,7 @@ def _owner_step(status: WorkflowStatus) -> str:
         )
     if action.type is not WorkflowActionType.NONE:
         return _ACTION_STEP.get(action.type, "project_input")
-    if episode_complete(status):
+    if workflow_finished(status):
         return "edit"
     if status.blockers or status.target is None or status.content is None:
         return "project_input"
@@ -251,7 +251,7 @@ def _baseline_step_state(rule: WorkflowStepRule, *, owner: str, status: Workflow
     if not rule.applicable:
         return WorkflowStepState.SKIPPED
     if rule.id == owner:
-        if episode_complete(status):
+        if workflow_finished(status):
             return WorkflowStepState.COMPLETED
         if status.blockers or status.next_action.type is WorkflowActionType.NONE:
             return WorkflowStepState.BLOCKED
@@ -346,7 +346,7 @@ def build_workflow_plan(
             next_action=status.next_action,
         )
     owner = _owner_step(status)
-    complete = episode_complete(status)
+    complete = workflow_finished(status)
     structure_problems = list(structure_problems or [])
     task_observations = list(task_observations or [])
     admission_problems = _admission_problems(admission)

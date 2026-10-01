@@ -15,7 +15,7 @@ from lib.generation.generation_queue import GenerationQueue
 from lib.project.project_change_hints import emit_project_change_batch, project_change_source
 from lib.project.project_manager import ProjectManager
 from lib.workflow.workflow_plan import WorkflowPlanRequest
-from lib.workflow.workflow_state import WorkflowStateService, episode_complete
+from lib.workflow.workflow_state import WorkflowStateService, workflow_finished
 from server.agent_toolset.edit_timelines import CREATE_TIMELINE
 from server.dependencies import require_project_migration_ok
 from server.routers import edit_timelines
@@ -163,7 +163,7 @@ async def test_timeline_creation_refreshes_project_events_and_completes_workflow
             assert payload["changes"][0]["episode"] == 1
             after = await planner.get_plan("demo", request, queue=queue)
             assert after.next_action.type == "none"
-            assert episode_complete(after.status)
+            assert workflow_finished(after.status)
             assert after.steps[-1].state == "completed"
     finally:
         await service.shutdown()

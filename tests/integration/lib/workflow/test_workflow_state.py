@@ -38,7 +38,7 @@ from lib.speech.narration_delivery import (
     canonical_narration_text,
 )
 from lib.speech.speech_composition import admit_script_unit
-from lib.workflow.workflow_state import WorkflowStateService, episode_complete, planning_docs
+from lib.workflow.workflow_state import WorkflowStateService, planning_docs, workflow_finished
 from server.services.admission.asset_sheet_batch import AssetSheetScope, plan_asset_sheet_batch
 from tests.factories import register_project_sources
 
@@ -558,7 +558,7 @@ def test_narration_progresses_through_storyboard_video_to_edit(tmp_path: Path) -
     timeline_id = _create_edit_timeline(pm)
     ready = service.get_status("demo")
     assert ready.next_action.type == "none"
-    assert episode_complete(ready)
+    assert workflow_finished(ready)
     assert ready.blockers == []
     assert ready.issues == []
     assert ready.artifacts["edit_timelines"] == {"timeline_ids": [timeline_id]}
@@ -574,7 +574,9 @@ def test_narration_progresses_through_storyboard_video_to_edit(tmp_path: Path) -
         finally:
             edit_root.chmod(0o755)
         assert unreadable.next_action.type == "none"
-        assert not episode_complete(unreadable)
+        assert not workflow_finished(unreadable)
+        assert unreadable.content is not None
+        assert not unreadable.content.episode_complete
         assert unreadable.blockers == []
         assert [issue.code for issue in unreadable.issues] == ["invalid_edit_timelines"]
 
@@ -586,7 +588,9 @@ def test_narration_progresses_through_storyboard_video_to_edit(tmp_path: Path) -
     finally:
         corrupt.unlink()
     assert malformed.next_action.type == "none"
-    assert not episode_complete(malformed)
+    assert not workflow_finished(malformed)
+    assert malformed.content is not None
+    assert not malformed.content.episode_complete
     assert [issue.code for issue in malformed.issues] == ["invalid_edit_timelines"]
 
     pm.update_project(
@@ -604,7 +608,7 @@ def test_narration_progresses_through_storyboard_video_to_edit(tmp_path: Path) -
     _register_produced_artifacts(project_path)
     # 缺旁白配音只在 TTS 配音项目的 artifacts["audio"] 里如实报告，不推进状态机。
     still_ready = service.get_status("demo")
-    assert episode_complete(still_ready)
+    assert workflow_finished(still_ready)
     assert still_ready.artifacts["audio"]["current_ids"] == ["E1S01"]
     assert still_ready.artifacts["audio"]["missing_ids"] == []
 
@@ -727,8 +731,13 @@ def test_unplanned_source_with_legacy_episode_without_source_range_requires_full
     assert status.next_action.args == {}
 
 
-def _one_complete_episode(pm: ProjectManager, project_path: Path, *, source_end: int | None = None) -> None:
-    """单集项目：整本源文切出第一集（``source_end`` 为切到的位置，缺省切完），脚本、分镜图与视频齐全。"""
+def _one_complete_episode(
+    pm: ProjectManager, project_path: Path, *, source_end: int | None = None, **segment_overrides: object
+) -> None:
+    """单集项目：整本源文切出第一集（``source_end`` 为切到的位置，缺省切完），脚本、分镜图与视频齐全。
+
+    ``segment_overrides`` 改写那一个分镜的字段。
+    """
 
     source_text = "完整原文"
     _write_source(pm, project_path, source_text)
@@ -758,7 +767,7 @@ def _one_complete_episode(pm: ProjectManager, project_path: Path, *, source_end:
             "episode": 1,
             "title": "第一集",
             "content_mode": "narration",
-            "segments": [_valid_narration_segment(generated_assets=generated_assets)],
+            "segments": [_valid_narration_segment(generated_assets=generated_assets, **segment_overrides)],
         },
     )
     _register_produced_artifacts(project_path)
@@ -785,6 +794,34 @@ def test_project_is_complete_once_every_episode_has_an_edit_timeline_and_no_sour
     assert episode.content is not None
     assert episode.content.episode_complete
     assert not episode.content.project_complete
+
+
+def test_episode_with_videos_and_an_edit_timeline_is_complete_despite_in_episode_suggestions(tmp_path: Path) -> None:
+    """一集完成只看视频齐全与剪辑时间线：待编写条目与缺资产图仍作为集内建议的下一步，但不拦完成。"""
+
+    pm, project_path = _make_project(tmp_path, "narration")
+    pm.add_character("demo", "小明", "红衣")
+    _one_complete_episode(pm, project_path, pending_authoring=True, characters_in_segment=["小明"])
+    _create_edit_timeline(pm)
+    service = WorkflowStateService(pm)
+
+    episode = service.get_status("demo", episode=1)
+    assert episode.content is not None
+    assert episode.content.episode_complete
+    assert episode.content.pending_authoring_ids == ["E1S01"]
+    assert episode.content.referenced_assets_without_sheet == ["小明"]
+    assert episode.next_action.type == "author_prompts"
+    assert not workflow_finished(episode)
+
+    project = service.get_status("demo")
+    assert project.next_action.type == "none"
+    assert project.content is not None
+    assert project.content.project_complete
+    assert workflow_finished(project)
+
+    summary = service.get_project_summary("demo")
+    assert summary.episodes[0].status == "completed"
+    assert summary.episodes_summary.completed == 1
 
 
 def test_completed_episodes_with_source_remaining_are_not_a_complete_project(tmp_path: Path) -> None:
@@ -867,9 +904,11 @@ def test_status_reads_each_source_file_exactly_once(tmp_path: Path, monkeypatch:
     assert source_reads == {"novel.txt": 1, "extra.md": 1}
 
 
+@pytest.mark.parametrize("segment_overrides", [{}, {"pending_authoring": True}], ids=["clean", "pending_authoring"])
 def test_completed_first_episode_does_not_hide_later_incomplete_episode(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, segment_overrides: dict
 ) -> None:
+    """跨集选择跳过已完成的集；集内还有待编写条目不影响它已完成。"""
     pm, project_path = _make_project(tmp_path, "narration")
     source_text = "完整原文"
     _write_source(pm, project_path, source_text)
@@ -897,7 +936,7 @@ def test_completed_first_episode_does_not_hide_later_incomplete_episode(
             "episode": 1,
             "title": "第一集",
             "content_mode": "narration",
-            "segments": [_valid_narration_segment(generated_assets=generated_assets)],
+            "segments": [_valid_narration_segment(generated_assets=generated_assets, **segment_overrides)],
         },
     )
     _register_produced_artifacts(project_path)
@@ -966,7 +1005,9 @@ def test_stale_episode_stays_out_of_the_next_step(tmp_path: Path) -> None:
     _create_edit_timeline(pm)
 
     service = WorkflowStateService(pm)
-    assert episode_complete(service.get_status("demo", 1))
+    first = service.get_status("demo", 1)
+    assert first.content is not None
+    assert first.content.episode_complete
 
     # 其余集都完成时，默认视图停在待重建的 stale 集上陈述现状，不报全部完成。
     status = service.get_status("demo")
@@ -975,7 +1016,8 @@ def test_stale_episode_stays_out_of_the_next_step(tmp_path: Path) -> None:
     assert status.content is not None
     assert status.content.episode_plan_stale is True
     assert status.next_action.type == "none"
-    assert not episode_complete(status)
+    assert not workflow_finished(status)
+    assert not status.content.project_complete
 
     stale = service.get_status("demo", 2)
     assert stale.content is not None
