@@ -1,10 +1,12 @@
 """集原文来源与整本源文清单：来源判定、文件顺序、规划起点推导与快照。"""
 
+import unicodedata
 from pathlib import Path
 
 from lib.episode.episode_sources import (
     SourceOrigin,
     append_whole_source_file,
+    cut_episode_placements,
     discover_sources,
     episode_source_origin,
     legacy_cut_episode_ids,
@@ -150,6 +152,17 @@ class TestPlanningStart:
             "episodes": [_cut(1, "b.txt", 0, 4), _cut(2, "a.txt", 0, 2)],
         }
         assert planning_start(project, self._docs(tmp_path, project)) == ("source/a.txt", 2)
+
+    def test_cut_placements_match_planning_start_across_unicode_normalization(self, tmp_path: Path):
+        nfc = unicodedata.normalize("NFC", "café.txt")
+        nfd = unicodedata.normalize("NFD", "café.txt")
+        project_dir = _project_dir(tmp_path, **{nfc: CHAPTER_A})
+        project = {"whole_source_files": _files(nfc), "episodes": [_cut(1, nfd, 0, 4)]}
+        docs = discover_sources(project_dir, project)
+
+        assert planning_start(project, docs) == (f"source/{nfc}", 4)
+        placement = cut_episode_placements(project, docs)[1]
+        assert (placement.file_index, placement.start, placement.end) == (0, 0, 4)
 
     def test_unplanned_text_remains_across_files(self, tmp_path: Path):
         project = {"whole_source_files": _files("a.txt", "b.txt"), "episodes": [_cut(1, "a.txt", 0, len(CHAPTER_A))]}

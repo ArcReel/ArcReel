@@ -53,6 +53,7 @@ from lib.artifacts.visual_artifact_provenance import (
     visual_file_digest,
 )
 from lib.episode.episode_paths import episode_source_relpath
+from lib.episode.episode_sources import SOURCE_ORIGIN_FIELD, SourceOrigin, episode_entry, episode_source_origin
 from lib.jianying_draft.basis import (
     DraftNarration,
     DraftUnitBasis,
@@ -657,6 +658,10 @@ class TargetStatePlanner:
         script_plan_raw = self._read_dependency(script_plan_rel, "formal script_plan")
         self._parse_json(script_plan_raw, f"formal script_plan {script_plan_rel}")
         script_plan_key = ArtifactKey.episode_script_plan(binding.episode)
+        entry = episode_entry(self.project, binding.episode)
+        # 账本记录了集原文来源（v16 起）且为无原文时，盘上同名的集文件不是这一集的规划依据。
+        if entry is not None and SOURCE_ORIGIN_FIELD in entry and episode_source_origin(entry) is SourceOrigin.NONE:
+            return
         source_rel = episode_source_relpath(binding.episode)
         source_observation = self.adapter.inspect_artifact(source_rel)
         if source_observation.blocker is None and source_observation.present:

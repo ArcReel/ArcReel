@@ -550,6 +550,7 @@ MESSAGES = {
     "manual_split_ledger_invalid": "Sổ phân tập có định dạng bất thường nên không thể phân tập thủ công",
     "manual_split_conflict": "Các tập vừa thay đổi nên lần điều chỉnh này chưa được thực hiện. Hãy làm mới rồi thử lại",
     "manual_split_episode_source_symlink": "Tệp nguyên văn của tập này là liên kết tượng trưng, không thể ghi",
+    "manual_split_tasks_active": "Một tập mà lần điều chỉnh này sẽ xóa hoặc chuyển thành tập không có nguyên văn vẫn còn tác vụ tạo đang chờ hoặc đang chạy. Hãy đợi chúng kết thúc hoặc hủy chúng rồi mới điều chỉnh",
     "manual_split_impact_separator": ", ",
     "manual_split_impact_summary": "Lần điều chỉnh này ảnh hưởng {count} tập đã bắt đầu sản xuất; các sản phẩm hiện có của chúng đều được giữ lại.",
     "manual_split_impact_restaled": "Phạm vi nguyên văn thay đổi, đánh dấu «Nguyên văn đã lập kế hoạch lại»: {episodes}",

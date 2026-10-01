@@ -485,6 +485,7 @@ MESSAGES = {
     "manual_split_ledger_invalid": "分集账本的格式异常，无法手工切分",
     "manual_split_conflict": "分集刚被改动，这次调整没有执行，刷新后再试",
     "manual_split_episode_source_symlink": "这一集的集原文文件是符号链接，无法写入",
+    "manual_split_tasks_active": "这次调整要移除或转为无原文的集还有排队或进行中的生成任务，等它们结束或取消后再调整",
     "manual_split_impact_separator": "、",
     "manual_split_impact_summary": "这次调整波及 {count} 个已开始制作的集，它们已有的产物都会保留。",
     "manual_split_impact_restaled": "原文范围会改变，标为「原文已重新规划」：{episodes}",

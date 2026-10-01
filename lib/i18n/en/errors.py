@@ -548,6 +548,7 @@ MESSAGES = {
     "manual_split_ledger_invalid": "The episode ledger is malformed, so manual splitting is unavailable",
     "manual_split_conflict": "The episodes just changed, so this adjustment was not applied. Refresh and try again",
     "manual_split_episode_source_symlink": "This episode's source file is a symbolic link and cannot be written",
+    "manual_split_tasks_active": "An episode this change would remove or turn into an episode without source still has queued or running generation tasks. Wait for them to finish or cancel them, then try again",
     "manual_split_impact_separator": ", ",
     "manual_split_impact_summary": "This adjustment affects {count} episode(s) already in production. Their existing outputs are kept.",
     "manual_split_impact_restaled": 'Source range changes; marked "Source re-planned": {episodes}',

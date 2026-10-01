@@ -265,10 +265,10 @@ class CutPlacement:
 def cut_episode_placements(project: Mapping[str, Any], docs: list[SourceDoc]) -> dict[int, CutPlacement]:
     """能落进整本源文的切出集，按集 ID 索引。
 
-    原文范围所在文件不在 ``docs`` 里、起点越界的不落位；同一文件里按起点排序，与前一集重叠的不落位。
-    终点超出文件长度时截到文件末尾。「分集」视图与手工切分按同一份落位认集。
+    原文范围所在文件不在 ``docs`` 里、起点越界的不落位；文件按 NFC 归一后的路径对应。同一文件里按起点排序，
+    与前一集重叠的不落位。终点超出文件长度时截到文件末尾。「分集」视图与手工切分按同一份落位认集。
     """
-    order = {doc.rel_path: index for index, doc in enumerate(docs)}
+    order = {unicodedata.normalize("NFC", doc.rel_path): index for index, doc in enumerate(docs)}
     per_file: dict[int, list[CutPlacement]] = {}
     for entry in _entries(project):
         episode = parse_positive_episode_num(entry.get("episode"))
@@ -276,7 +276,7 @@ def cut_episode_placements(project: Mapping[str, Any], docs: list[SourceDoc]) ->
         if episode is None or coords is None or not is_cut_episode(entry):
             continue
         rel, start, end = coords
-        index = order.get(rel)
+        index = order.get(unicodedata.normalize("NFC", rel))
         if index is None or start < 0 or end < start or start > len(docs[index].text):
             continue
         per_file.setdefault(index, []).append(
