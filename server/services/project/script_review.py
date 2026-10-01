@@ -41,7 +41,7 @@ from lib.script.draft_quarantine import (
     read_quarantine,
     violation_entries,
 )
-from lib.script.plan_new_assets import NEW_ASSETS_FIELD, NewAssetsError, resolve_new_assets
+from lib.script.plan_new_assets import NEW_ASSETS_FIELD, NewAssetsError, UnregisteredReferencesError, resolve_new_assets
 from lib.script.script_generator import ScriptGenerator
 from lib.script.script_models import DramaNormalizedScript, NarrationScriptPlanDraft, ReferenceScriptPlanDraft
 from lib.speech.speech_composition import SpeechAdmission, SpeechAdmissionError, admit_script_unit
@@ -533,6 +533,8 @@ class ScriptReviewService:
             raise ScriptReviewError("foreign_formal_script", str(exc), script_filename=exc.filename) from exc
         except NewAssetsError as exc:
             raise ScriptReviewError("invalid_new_assets", str(exc)) from exc
+        except UnregisteredReferencesError as exc:
+            raise ScriptReviewError("unregistered_references", str(exc)) from exc
         except (ValueError, FileNotFoundError) as exc:
             raise ScriptReviewError("conversion_refused", str(exc)) from exc
 

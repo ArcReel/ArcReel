@@ -12,6 +12,9 @@
   ``@[名]`` 退为纯文本，说话人位保持原样。
 
 规划从不改已登记资产的描述：登记只新增条目、衍生与别名。程序只按名字归并，别名不参与匹配。
+
+改写之后，引用数组与参考生视频正文画面位里留下的名字必须是已登记资产、本集登记的新增资产或其衍生
+（:func:`unregistered_references`）；说话人不在此列，可以写未登记的群演。
 """
 
 from __future__ import annotations
@@ -34,9 +37,9 @@ from lib.project.asset_types import (
     resolve_asset_key,
     validate_asset_name,
 )
-from lib.references.reference_catalog import derivative_reference
+from lib.references.reference_catalog import build_reference_catalog, derivative_reference
 from lib.script.draft_violation import DraftViolation
-from lib.script.reference_video.text_parser import remap_mentions
+from lib.script.reference_video.text_parser import extract_mentions, remap_mentions
 from lib.script.script_models import NewAssetType, PlanNewAsset
 
 NEW_ASSETS_FIELD = "new_assets"
@@ -59,6 +62,22 @@ class NewAssetsError(ValueError):
     def __init__(self, problems: Sequence[NewAssetProblem]):
         super().__init__("；".join(problem.message for problem in problems))
         self.problems = list(problems)
+
+
+@dataclass(frozen=True)
+class UnregisteredReference:
+    """一个规划条目引用了、却既未登记也不是本集登记的新增资产的名字。"""
+
+    item_id: str
+    names: tuple[str, ...]
+
+
+class UnregisteredReferencesError(ValueError):
+    """改写后仍有引用落不到资产上：确认整笔拒绝，项目与正式脚本都不改。"""
+
+    def __init__(self, references: Sequence[UnregisteredReference]):
+        self.references = list(references)
+        super().__init__("; ".join(f"{ref.item_id}: {', '.join(ref.names)}" for ref in self.references))
 
 
 @dataclass(frozen=True)
@@ -400,6 +419,42 @@ def new_asset_violations(project: Mapping[str, Any], raw_items: object) -> list[
             for problem in exc.problems
         ]
     return []
+
+
+def unregistered_references(
+    project: Mapping[str, Any], entries: Sequence[Mapping[str, Any]], *, id_field: str
+) -> list[UnregisteredReference]:
+    """按 ``project``（已登记本集新增资产）列出各条目里落不到资产上的引用，名字按条目内出现顺序。
+
+    查引用数组与参考生视频正文的画面位 ``@[名]``；台词说话人不查。
+    """
+    catalog = build_reference_catalog(dict(project))
+    visual = set().union(*(catalog.reference_names(asset_type) for asset_type in ASSET_SPECS))
+    result: list[UnregisteredReference] = []
+    for index, entry in enumerate(entries):
+        bad: list[str] = []
+        for asset_type in _TYPES:
+            known = catalog.reference_names(asset_type)
+            for list_field in ASSET_SPECS[asset_type].reference_list_fields:
+                values = entry.get(list_field)
+                if isinstance(values, list):
+                    bad.extend(
+                        value
+                        for value in values
+                        if isinstance(value, str) and asset_name_comparison_key(value) not in known
+                    )
+        text = entry.get("text")
+        if isinstance(text, str):
+            bad.extend(name for name in extract_mentions(text) if asset_name_comparison_key(name) not in visual)
+        if bad:
+            item_id = entry.get(id_field)
+            result.append(
+                UnregisteredReference(
+                    item_id=item_id if isinstance(item_id, str) and item_id else f"#{index + 1}",
+                    names=tuple(dict.fromkeys(bad)),
+                )
+            )
+    return result
 
 
 def dedupe_new_assets(raw_items: Iterable[Mapping[str, Any]]) -> list[dict[str, Any]]:

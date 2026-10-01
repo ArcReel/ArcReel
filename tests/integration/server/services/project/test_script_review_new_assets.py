@@ -360,3 +360,133 @@ async def test_an_unresolvable_decision_refuses_the_confirmation_untouched(
     assert exc_info.value.code == "invalid_new_assets"
     assert pm.load_project("demo")["characters"] == before["characters"]
     assert not (pm.get_project_path("demo") / "scripts" / "episode_1.json").exists()
+
+
+def _drama_plan(scene: dict[str, Any], new_assets: list[dict[str, Any]]) -> dict[str, Any]:
+    base = {
+        "scene_id": "E1S01",
+        "duration_seconds": 8,
+        "segment_break": False,
+        "characters_in_scene": [],
+        "scenes": [],
+        "props": [],
+        "scene_description": "画面",
+        "utterances": [],
+        "source_text": "原文。",
+    }
+    return {"title": "第一集", "scenes": [{**base, **scene}], "new_assets": new_assets}
+
+
+def _assert_untouched(pm: ProjectManager, before: dict[str, Any]) -> None:
+    after = pm.load_project("demo")
+    assert after["characters"] == before["characters"]
+    assert after.get("scenes", {}) == before.get("scenes", {})
+    assert not (pm.get_project_path("demo") / "scripts" / "episode_1.json").exists()
+
+
+async def test_a_reference_to_a_name_neither_registered_nor_registered_this_episode_refuses_the_confirmation(
+    tmp_path: Path, video_request_facts
+) -> None:
+    pm = _project(tmp_path, "narration")
+    _write_plan(pm, "narration", _narration_plan(["裴与", "王五"], [_new("小桃", "register", description="女童")]))
+    before = pm.load_project("demo")
+
+    with pytest.raises(ScriptReviewError) as exc_info:
+        await _confirm(pm)
+
+    assert exc_info.value.code == "unregistered_references"
+    assert "E1S01" in exc_info.value.message
+    assert "王五" in exc_info.value.message
+    assert "裴与" not in exc_info.value.message
+    _assert_untouched(pm, before)
+
+
+async def test_unknown_scene_and_prop_references_are_listed_per_item(tmp_path: Path, video_request_facts) -> None:
+    pm = _project(tmp_path, "drama")
+    _write_plan(pm, "drama", _drama_plan({"scenes": ["旧宅"], "props": ["铜镜"]}, []))
+    before = pm.load_project("demo")
+
+    with pytest.raises(ScriptReviewError) as exc_info:
+        await _confirm(pm)
+
+    assert exc_info.value.code == "unregistered_references"
+    assert "旧宅" in exc_info.value.message
+    assert "铜镜" in exc_info.value.message
+    _assert_untouched(pm, before)
+
+
+async def test_references_to_this_episodes_registered_new_assets_and_known_derivatives_confirm(
+    tmp_path: Path, video_request_facts
+) -> None:
+    pm = _project(tmp_path, "drama")
+    pm.update_project(
+        "demo",
+        lambda project: project["characters"]["阿离"].update(
+            derivatives={"幼年": {"description": "六岁", "character_sheet": ""}}
+        ),
+    )
+    _write_plan(
+        pm,
+        "drama",
+        _drama_plan(
+            {
+                "characters_in_scene": ["阿离/幼年", "小桃", "将军"],
+                "scenes": ["旧宅"],
+                "utterances": [{"kind": "dialogue", "speaker": "店小二", "text": "客官里边请。"}],
+            },
+            [
+                _new("小桃", "register", description="女童"),
+                _new("将军", "merge", target="裴与"),
+                {"type": "scene", "name": "旧宅", "decision": "register", "reason": "依据", "description": "破败院落"},
+            ],
+        ),
+    )
+
+    await _confirm(pm)
+
+    [scene] = _formal(pm)["scenes"]
+    assert scene["characters_in_scene"] == ["阿离/幼年", "小桃", "裴与"]
+    assert scene["scenes"] == ["旧宅"]
+    assert scene["utterances"][0]["speaker"] == "店小二"
+
+
+async def test_a_derivative_the_character_does_not_have_refuses_the_confirmation(
+    tmp_path: Path, video_request_facts
+) -> None:
+    pm = _project(tmp_path, "narration")
+    _write_plan(pm, "narration", _narration_plan(["阿离/不存在"], []))
+
+    with pytest.raises(ScriptReviewError) as exc_info:
+        await _confirm(pm)
+
+    assert exc_info.value.code == "unregistered_references"
+    assert "阿离/不存在" in exc_info.value.message
+
+
+async def test_a_reference_video_mention_of_an_unknown_name_refuses_the_confirmation(
+    tmp_path: Path, video_request_facts
+) -> None:
+    pm = _project(tmp_path, "drama", generation_mode="reference_video")
+    _write_plan(
+        pm,
+        "reference_video",
+        {
+            "units": [
+                {
+                    "unit_id": "E1U01",
+                    "text": "@[王五] 拦住 @[阿离]。\n@[阿离]{借过。}",
+                    "duration_seconds": 8,
+                    "source_text": "王五拦住阿离。",
+                }
+            ],
+        },
+    )
+    before = pm.load_project("demo")
+
+    with pytest.raises(ScriptReviewError) as exc_info:
+        await _confirm(pm)
+
+    assert exc_info.value.code == "unregistered_references"
+    assert "E1U01" in exc_info.value.message
+    assert "王五" in exc_info.value.message
+    _assert_untouched(pm, before)

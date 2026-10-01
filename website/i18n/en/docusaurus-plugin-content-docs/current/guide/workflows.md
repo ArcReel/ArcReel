@@ -318,6 +318,14 @@ Confirm:
 
 When the AI plans the script for each episode, it compares the characters, scenes, and props in the episode with the names, aliases, and descriptions of registered assets. Unregistered assets are listed in the **New assets in this episode** section of the content review page, each with the AI's proposed handling and reason: register as new asset, merge into existing asset, register as derivative, or do not register. You can change any item before confirming. When you confirm, these assets are registered together with the final script. Aliases on asset cards help the AI recognize other names for the same asset.
 
+Before confirming, you can edit every field of each shot on the content review page, including duration, character / scene / prop references, the chapter break point, source text, lines, and speakers. Reference-to-video shots have no reference lists or chapter break points; asset references are written as `@[name]` in the shot text.
+
+- Pick the duration from the tiers of the current video model. A duration outside the tiers is marked in red with the reason, and you must pick another one before confirming.
+- References can use registered assets, and new assets in this episode whose handling is not **do not register**.
+- Pick a speaker from registered characters and new characters in this episode, or type another name, such as an extra who has no bound voice.
+
+If the references still contain a name that is neither registered nor a new asset registered in this episode, the confirmation is rejected and the affected shots and names are listed. Add, remove, and reorder shots on the timeline after confirming.
+
 ### Stage 3: Reference Assets {#stage-reference-assets}
 
 Confirm:

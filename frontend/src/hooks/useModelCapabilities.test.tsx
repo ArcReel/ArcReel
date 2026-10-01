@@ -72,6 +72,23 @@ describe("useModelCapabilities 时长维度", () => {
     expect(result.current.resolvedVideoBackend).toBe("gemini/veo-3");
   });
 
+  it("剧本规划档位取服务端的 planning：端点固定时收窄结果为空、规划仍有借用档位", async () => {
+    vi.spyOn(API, "getVideoCapabilities").mockResolvedValue(
+      caps({ duration_endpoint_fixed: true, duration_constraints: constraints({ allowed: [], planning: [4, 8] }) }),
+    );
+    const { result } = renderHook(() => useModelCapabilities({ projectName: PROJECT }));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.supportedDurations).toEqual([]);
+    expect(result.current.planningDurations).toEqual([4, 8]);
+  });
+
+  it("载荷不带 planning（无项目端点）时剧本规划档位同收窄结果", async () => {
+    vi.spyOn(API, "getVideoCapabilities").mockResolvedValue(caps());
+    const { result } = renderHook(() => useModelCapabilities({ projectName: PROJECT }));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.planningDurations).toEqual([4, 6, 8]);
+  });
+
   it("查询未落地 / 失败时时长为未知（null），不谎报成空集合", async () => {
     vi.spyOn(API, "getVideoCapabilities").mockRejectedValue(new Error("boom"));
     const { result } = renderHook(() =>

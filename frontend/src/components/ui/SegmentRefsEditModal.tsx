@@ -35,7 +35,14 @@ interface RefRow {
   thumbPath?: string;
   description?: string;
   isStale: boolean;
+  /** 本集新增资产（内容确认时可选），确认时才登记。 */
+  isNew?: boolean;
+  /** 已选的「不登记」新增项：确认时从引用中移出，不是失效引用。 */
+  isSkipped?: boolean;
 }
+
+/** 内容确认页额外的候选：本集新增项按类型给出名字。 */
+export type SegmentRefsNameSets = Partial<Record<SegmentAssetKind, ReadonlySet<string>>>;
 
 export interface SegmentRefsChanges {
   characters?: string[];
@@ -57,6 +64,10 @@ interface SegmentRefsEditModalProps {
   props: Record<string, Prop>;
   projectName: string;
   onManageClick?: (kind: SegmentAssetKind) => void;
+  /** 本集新增、确认时登记的名字；须同时出现在对应的资产字典里。 */
+  newNames?: SegmentRefsNameSets;
+  /** 本集新增里选了「不登记」的名字：不作候选，已选时按「确认时移出」呈现。 */
+  skippedNames?: SegmentRefsNameSets;
 }
 
 function arraysEqualUnordered(a: string[], b: string[]): boolean {
@@ -71,10 +82,28 @@ function getSheetPath(kind: SegmentAssetKind, asset: Asset): string | undefined 
   return typeof value === "string" ? value : undefined;
 }
 
+const NO_NAMES: ReadonlySet<string> = new Set();
+
+/** 已选但不在候选里的名字：「不登记」的新增项按确认时移出呈现，其余是失效引用。 */
+function appendUnlisted(
+  rows: RefRow[],
+  kind: SegmentAssetKind,
+  selected: string[],
+  known: (name: string) => boolean,
+  skipped: ReadonlySet<string>,
+): RefRow[] {
+  for (const name of selected.filter((n) => !known(n)).sort()) {
+    rows.push(skipped.has(name) ? { kind, name, isStale: false, isSkipped: true } : { kind, name, isStale: true });
+  }
+  return rows;
+}
+
 function buildRows<A extends Asset>(
   kind: SegmentAssetKind,
   dict: Record<string, A>,
   selected: string[],
+  newNames: ReadonlySet<string> = NO_NAMES,
+  skipped: ReadonlySet<string> = NO_NAMES,
 ): RefRow[] {
   const rows: RefRow[] = Object.entries(dict)
     .map(([name, asset]) => ({
@@ -83,18 +112,22 @@ function buildRows<A extends Asset>(
       thumbPath: getSheetPath(kind, asset),
       description: asset.description,
       isStale: false,
+      isNew: newNames.has(name),
     }))
     .sort((a, b) => a.name.localeCompare(b.name));
-  const stale = selected.filter((n) => !(n in dict)).sort();
-  for (const name of stale) rows.push({ kind, name, isStale: true });
-  return rows;
+  return appendUnlisted(rows, kind, selected, (n) => n in dict, skipped);
 }
 
 /**
  * 角色行按「形态」而非「资产条目」列：`characters_in_*` 收的是引用名，衍生
  * （`本体名/衍生名`）与本体一样可选（见 `docs/adr/0072`），各带自己的资产图与变化描述。
  */
-function buildCharacterRows(characters: Record<string, Character>, selected: string[]): RefRow[] {
+function buildCharacterRows(
+  characters: Record<string, Character>,
+  selected: string[],
+  newNames: ReadonlySet<string> = NO_NAMES,
+  skipped: ReadonlySet<string> = NO_NAMES,
+): RefRow[] {
   const forms = characterReferenceForms(characters);
   const rows: RefRow[] = forms
     .map((form) => ({
@@ -103,13 +136,11 @@ function buildCharacterRows(characters: Record<string, Character>, selected: str
       thumbPath: getSheetPath("character", form.asset),
       description: form.asset.description,
       isStale: false,
+      isNew: newNames.has(form.name),
     }))
     .sort((a, b) => a.name.localeCompare(b.name));
   const known = new Set(forms.map((form) => form.name));
-  for (const name of selected.filter((n) => !known.has(n)).sort()) {
-    rows.push({ kind: "character", name, isStale: true });
-  }
-  return rows;
+  return appendUnlisted(rows, "character", selected, (n) => known.has(n), skipped);
 }
 
 export function SegmentRefsEditModal({
@@ -125,6 +156,8 @@ export function SegmentRefsEditModal({
   props,
   projectName,
   onManageClick,
+  newNames,
+  skippedNames,
 }: SegmentRefsEditModalProps) {
   const { t } = useTranslation("dashboard");
   const titleId = useId();
@@ -138,16 +171,16 @@ export function SegmentRefsEditModal({
   const tempPropsSet = new Set(tempProps);
 
   const charRows = useMemo(
-    () => buildCharacterRows(characters, tempChars),
-    [characters, tempChars],
+    () => buildCharacterRows(characters, tempChars, newNames?.character, skippedNames?.character),
+    [characters, tempChars, newNames, skippedNames],
   );
   const sceneRows = useMemo(
-    () => buildRows("scene", scenes, tempScenes),
-    [scenes, tempScenes],
+    () => buildRows("scene", scenes, tempScenes, newNames?.scene, skippedNames?.scene),
+    [scenes, tempScenes, newNames, skippedNames],
   );
   const propRows = useMemo(
-    () => buildRows("prop", props, tempProps),
-    [props, tempProps],
+    () => buildRows("prop", props, tempProps, newNames?.prop, skippedNames?.prop),
+    [props, tempProps, newNames, skippedNames],
   );
 
   const q = query.trim().toLowerCase();
@@ -496,6 +529,7 @@ interface RowProps {
 }
 
 function Row({ row, selected, onToggle, projectName, staleHint }: RowProps) {
+  const { t } = useTranslation("dashboard");
   const sheetFp = useProjectsStore((s) =>
     row.thumbPath ? s.getAssetFingerprint(row.thumbPath) : null,
   );
@@ -503,7 +537,12 @@ function Row({ row, selected, onToggle, projectName, staleHint }: RowProps) {
   const thumbShape = isCharacter ? "rounded-full" : "rounded-md";
   const showImage = !!row.thumbPath && !row.isStale;
 
-  const baseStyle = row.isStale
+  const baseStyle = row.isSkipped
+    ? {
+        background: "transparent",
+        border: "1px dashed var(--color-hairline)",
+      }
+    : row.isStale
     ? {
         background: WARM_TONE.soft,
         border: `1px solid ${WARM_TONE.ring}`,
@@ -526,11 +565,17 @@ function Row({ row, selected, onToggle, projectName, staleHint }: RowProps) {
       type="button"
       onClick={onToggle}
       aria-pressed={selected}
-      title={row.isStale ? staleHint : formatReferenceName(row.name)}
+      title={
+        row.isSkipped
+          ? t("segment_refs_skipped_hint")
+          : row.isStale
+            ? staleHint
+            : formatReferenceName(row.name)
+      }
       className="focus-ring group flex items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors"
       style={baseStyle}
       onMouseEnter={(e) => {
-        if (row.isStale) return;
+        if (row.isStale || row.isSkipped) return;
         if (selected) {
           e.currentTarget.style.borderColor = "var(--color-accent)";
         } else {
@@ -539,6 +584,7 @@ function Row({ row, selected, onToggle, projectName, staleHint }: RowProps) {
         }
       }}
       onMouseLeave={(e) => {
+        if (row.isSkipped) return;
         if (row.isStale) {
           e.currentTarget.style.borderColor = WARM_TONE.ring;
           return;
@@ -581,8 +627,23 @@ function Row({ row, selected, onToggle, projectName, staleHint }: RowProps) {
           }}
         >
           {formatReferenceName(row.name)}
+          {row.isNew && (
+            <span
+              className="ml-1.5 rounded px-1 py-px align-middle text-[10px] font-normal"
+              style={{ border: "1px solid var(--color-hairline)", color: "var(--color-text-3)" }}
+            >
+              {t("segment_refs_new_tag")}
+            </span>
+          )}
         </p>
-        {row.isStale ? (
+        {row.isSkipped ? (
+          <p
+            className="truncate text-[11px]"
+            style={{ color: "var(--color-text-4)" }}
+          >
+            {t("segment_refs_skipped_hint")}
+          </p>
+        ) : row.isStale ? (
           <p
             className="truncate text-[11px]"
             style={{ color: WARM_TONE.color }}

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   ChevronDown,
@@ -15,6 +15,8 @@ interface UtteranceListEditorProps {
   utterances: Utterance[];
   onChange: (next: Utterance[]) => void;
   disabled?: boolean;
+  /** 说话人输入框的候选名字；输入框仍可以写候选之外的名字（群演，不绑定声音）。 */
+  speakerCandidates?: readonly string[];
 }
 
 function makeUtterance(kind: UtteranceKind): Utterance {
@@ -44,6 +46,8 @@ interface UtteranceRowProps {
   index: number;
   total: number;
   disabled: boolean;
+  /** 说话人候选的 datalist id；没有候选时为 undefined。 */
+  speakerListId?: string;
   onUpdate: (next: Utterance) => void;
   onMove: (delta: -1 | 1) => void;
   onRemove: () => void;
@@ -59,6 +63,7 @@ function UtteranceRow({
   index,
   total,
   disabled,
+  speakerListId,
   onUpdate,
   onMove,
   onRemove,
@@ -109,6 +114,7 @@ function UtteranceRow({
             <input
               type="text"
               value={speaker}
+              list={speakerListId}
               disabled={disabled}
               onChange={(e) => onUpdate({ kind: "dialogue", speaker: e.target.value, text: value.text })}
               placeholder={t("speaker_placeholder")}
@@ -174,8 +180,15 @@ function UtteranceRow({
  * 台词（带说话人）与画外音（无说话人）按时序排在同一序列，插入顺序即幕内先后；
  * 支持增 / 删 / 改文本与说话人 / 切换类型 / 上下移调整顺序。
  */
-export function UtteranceListEditor({ utterances, onChange, disabled = false }: UtteranceListEditorProps) {
+export function UtteranceListEditor({
+  utterances,
+  onChange,
+  disabled = false,
+  speakerCandidates,
+}: UtteranceListEditorProps) {
   const { t } = useTranslation("dashboard");
+  const listId = useId();
+  const speakerListId = speakerCandidates?.length ? listId : undefined;
 
   // 数据模型无 id：在编辑态派生与条目一一绑定的稳定 key，增删移动时同步搬运，
   // 使受控输入节点按条目（而非按位置）复用，避免删除中间项 / 移动后焦点跳行、编辑内容串到相邻行。
@@ -230,12 +243,21 @@ export function UtteranceListEditor({ utterances, onChange, disabled = false }: 
               index={i}
               total={utterances.length}
               disabled={disabled}
+              speakerListId={speakerListId}
               onUpdate={(next) => updateAt(i, next)}
               onMove={(delta) => moveAt(i, delta)}
               onRemove={() => removeAt(i)}
             />
           ))}
         </div>
+      )}
+
+      {speakerListId && (
+        <datalist id={speakerListId}>
+          {speakerCandidates?.map((name) => (
+            <option key={name} value={name} />
+          ))}
+        </datalist>
       )}
 
       <div className="flex items-center gap-1.5">

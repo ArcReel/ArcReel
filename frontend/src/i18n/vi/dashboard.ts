@@ -1048,6 +1048,8 @@ export default {
   'segment_refs_changes_pending': 'Có thay đổi chưa lưu',
   'segment_refs_no_changes': 'Không có thay đổi',
   'segment_refs_stale_hint': 'Tham chiếu không còn tồn tại — nhấn để xóa',
+  'segment_refs_new_tag': 'Mới trong tập',
+  'segment_refs_skipped_hint': 'Đã chọn “Không đăng ký”; sẽ bị gỡ khỏi tham chiếu khi xác nhận',
   'segment_refs_search_empty': 'Không có kết quả',
   'segment_refs_badge_character': 'Nhân vật',
   'segment_refs_badge_character_derivative': 'Phái sinh nhân vật',
@@ -1627,6 +1629,9 @@ export default {
   'draft_fix_request_promote_prefill': '{{draftName}} của {{episodeRef}} khi xác thực lại không còn vi phạm nhưng vẫn chưa được thăng cấp — hãy gọi open_draft với doc_type={{docType}}, sau đó gọi promote_draft với cùng doc_type và truyền revision trả về làm base_revision.',
   'draft_agent_finish_prefill': 'Bạn có một chỉnh sửa chưa hoàn tất cho {{episodeRef}} (doc_type={{docType}}) — hãy đọc bằng open_draft, hoàn tất thay đổi rồi áp dụng bằng promote_draft và truyền revision trả về làm base_revision.',
   'review_video_model_unresolved_hint': 'Chưa cấu hình mô hình video khả dụng nên không xác định được thời lượng phân cảnh, tạm thời chưa thể xác nhận; hãy chọn mô hình video trong cài đặt dự án, hoặc cấu hình nhà cung cấp video trong Cài đặt → Nhà cung cấp',
+  'review_item_duration_label': 'Thời lượng {{item}}',
+  'review_duration_out_of_tier_hint': 'Có phân cảnh có thời lượng nằm ngoài các mức hiện tại — hãy chọn lại trước khi xác nhận',
+  'review_structure_hint': 'Sau khi xác nhận, bạn có thể thêm, xóa và đổi thứ tự trên dòng thời gian',
   'review_video_model_unresolved_action': 'Mở cài đặt dự án',
 
   // ReferenceScriptPlanPreviewPanel (xem trước theo tập, biến thể script_plan của reference_video)

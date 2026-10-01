@@ -1056,6 +1056,8 @@ export default {
   'segment_refs_changes_pending': '有未保存的更改',
   'segment_refs_no_changes': '未修改',
   'segment_refs_stale_hint': '此引用已失效，点击可移除',
+  'segment_refs_new_tag': '本集新增',
+  'segment_refs_skipped_hint': '已选「不登记」，确认时从引用中移除',
   'segment_refs_search_empty': '无匹配项',
   'segment_refs_badge_character': '角色',
   'segment_refs_badge_character_derivative': '角色衍生',
@@ -1636,6 +1638,9 @@ export default {
   'draft_fix_request_promote_prefill': '{{episodeRef}}的{{draftName}}重新校验已无违约，但尚未采用为正式内容，请先用 doc_type={{docType}} 调用 open_draft，再用同一 doc_type 调用 promote_draft，并把返回的 revision 作为 base_revision 传入。',
   'draft_agent_finish_prefill': '{{episodeRef}}有一份你尚未完成的修改（doc_type={{docType}}），请先用 open_draft 读取，继续完成后用 promote_draft 采用，并把返回的 revision 作为 base_revision 传入。',
   'review_video_model_unresolved_hint': '尚未配置可用的视频模型，无法确定分镜时长，暂时不能确认；请在项目设置中选择视频模型，或在「设置 → 供应商」页面配置视频供应商',
+  'review_item_duration_label': '{{item}} 时长',
+  'review_duration_out_of_tier_hint': '有分镜的时长不在当前档位内，请改选后再确认',
+  'review_structure_hint': '确认后可在时间线增删、调整顺序',
   'review_video_model_unresolved_action': '前往项目设置',
 
   // ReferenceScriptPlanPreviewPanel（reference_video 变体 script_plan 按集预览）

@@ -8,7 +8,8 @@ import {
   type SegmentRefsChanges,
 } from "@/components/ui/SegmentRefsEditModal";
 import { useProjectsStore } from "@/stores/projects-store";
-import type { Character } from "@/types";
+import type { Character, PlanNewAsset } from "@/types";
+import { planReferenceCandidates } from "@/utils/plan-new-assets";
 import { resolveCharacterForm } from "@/utils/reference-mentions";
 import { charactersFieldFor, type EditorContentMode } from "@/utils/script-shape";
 import { WARM_TONE } from "@/utils/severity-tone";
@@ -22,6 +23,8 @@ interface ReferencesSectionProps {
   onSave: (patch: Record<string, string[]>) => void | Promise<void>;
   disabled?: boolean;
   disabledHint?: string;
+  /** 内容确认页：本集新增项，非「不登记」的项与已登记资产一起作候选。 */
+  newAssets?: readonly PlanNewAsset[];
 }
 
 const EMPTY_DICT = Object.freeze({});
@@ -48,13 +51,24 @@ export function ReferencesSection({
   onSave,
   disabled,
   disabledHint,
+  newAssets,
 }: ReferencesSectionProps) {
   const { t } = useTranslation("dashboard");
   const project = useProjectsStore((s) => s.currentProjectData);
   // 用 useMemo 把 `?? {}` fallback 物化成稳定引用，避免 hook deps 每次重算
-  const characters = useMemo(() => project?.characters ?? EMPTY_DICT, [project]);
-  const scenes = useMemo(() => project?.scenes ?? EMPTY_DICT, [project]);
-  const props = useMemo(() => project?.props ?? EMPTY_DICT, [project]);
+  const candidates = useMemo(
+    () =>
+      planReferenceCandidates(
+        {
+          characters: project?.characters ?? EMPTY_DICT,
+          scenes: project?.scenes ?? EMPTY_DICT,
+          props: project?.props ?? EMPTY_DICT,
+        },
+        newAssets ?? [],
+      ),
+    [project, newAssets],
+  );
+  const { characters, scenes, props, newNames, skippedNames } = candidates;
   const [open, setOpen] = useState(false);
 
   const charField = charactersFieldFor(contentMode);
@@ -65,12 +79,14 @@ export function ReferencesSection({
   const totalStale = useMemo(() => {
     // project 未加载完时字典为空，会把所有已引用名都误判为 stale；此时跳过计算
     if (!project) return 0;
+    // 「不登记」的新增项确认时从引用中移出，不算失效引用。
+    const listed = (names: string[], skipped: ReadonlySet<string>) => names.filter((name) => !skipped.has(name));
     return (
-      countMissingCharacters(characterNames, characters) +
-      countMissing(sceneNames, scenes) +
-      countMissing(propNames, props)
+      countMissingCharacters(listed(characterNames, skippedNames.character), characters) +
+      countMissing(listed(sceneNames, skippedNames.scene), scenes) +
+      countMissing(listed(propNames, skippedNames.prop), props)
     );
-  }, [project, characterNames, sceneNames, propNames, characters, scenes, props]);
+  }, [project, characterNames, sceneNames, propNames, characters, scenes, props, skippedNames]);
 
   const [saving, setSaving] = useState(false);
 
@@ -123,6 +139,8 @@ export function ReferencesSection({
       scenes={scenes}
       props={props}
       projectName={projectName}
+      newNames={newNames}
+      skippedNames={skippedNames}
     />
   ) : null;
 

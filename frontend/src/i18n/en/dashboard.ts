@@ -1057,6 +1057,8 @@ export default {
   'segment_refs_changes_pending': 'Unsaved changes',
   'segment_refs_no_changes': 'No changes',
   'segment_refs_stale_hint': 'Reference no longer exists — click to remove',
+  'segment_refs_new_tag': 'New',
+  'segment_refs_skipped_hint': 'Set to “Do not register”; removed from references on confirm',
   'segment_refs_search_empty': 'No matches',
   'segment_refs_badge_character': 'Character',
   'segment_refs_badge_character_derivative': 'Character derivative',
@@ -1637,6 +1639,9 @@ export default {
   'draft_fix_request_promote_prefill': 'The {{draftName}} of {{episodeRef}} now revalidates with no violations but has not been promoted yet — call open_draft with doc_type={{docType}}, then call promote_draft with the same doc_type and pass the returned revision as base_revision.',
   'draft_agent_finish_prefill': 'You have an unfinished edit for {{episodeRef}} (doc_type={{docType}}) — read it with open_draft, finish the changes, then apply them with promote_draft and pass the returned revision as base_revision.',
   'review_video_model_unresolved_hint': 'No usable video model is configured, so shot durations can\'t be determined and confirming is unavailable for now; pick a video model in the project settings, or configure a video provider in Settings → Providers',
+  'review_item_duration_label': '{{item}} duration',
+  'review_duration_out_of_tier_hint': 'One or more shots have a duration outside the current tiers — pick a new value before confirming',
+  'review_structure_hint': 'After confirming, you can add, remove, and reorder shots on the timeline',
   'review_video_model_unresolved_action': 'Open project settings',
 
   // ReferenceScriptPlanPreviewPanel (reference_video variant script_plan per-episode preview)

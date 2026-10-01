@@ -1,7 +1,8 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { ShotDetail } from "./ShotDetail";
-import type { DramaScene, Utterance } from "@/types";
+import { useProjectsStore } from "@/stores/projects-store";
+import type { DramaScene, ProjectData, Utterance } from "@/types";
 
 const sampleUtterances: Utterance[] = [
   { kind: "voiceover", speaker: null, text: "三年后。" },
@@ -58,6 +59,20 @@ describe("ShotDetail 剧情演绎", () => {
     expect(screen.getByDisplayValue("你终于回来了。")).toBeInTheDocument();
     // drama 不再渲染扁平对白编辑器的空态占位
     expect(screen.queryByText("（暂无对话）")).not.toBeInTheDocument();
+  });
+
+  it("说话人输入框以已登记角色作候选，仍可写其他名字", () => {
+    useProjectsStore.setState({
+      currentProjectData: { characters: { 阿离: { description: "少女" }, 裴与: { description: "将军" } } } as unknown as ProjectData,
+    });
+    try {
+      renderDetail();
+      const listId = screen.getByDisplayValue("阿离").getAttribute("list");
+      const options = [...document.getElementById(listId!)!.querySelectorAll("option")].map((o) => o.value);
+      expect(options).toEqual(["阿离", "裴与"]);
+    } finally {
+      useProjectsStore.setState(useProjectsStore.getInitialState(), true);
+    }
   });
 
   it("编辑发声文本后保存，提交 { utterances } patch", () => {

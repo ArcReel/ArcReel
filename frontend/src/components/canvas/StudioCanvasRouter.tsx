@@ -693,6 +693,8 @@ export function StudioCanvasRouter() {
           // reference_video 的参考图约束按 unit 而非按集生效：每个 unit 落哪个桶、可选哪些档位
           // 由服务端按可用参考图逐单元判定，随单元列表到达（reference-video-store），不从这里下发。
           const durationOptions = capabilities.supportedDurations ?? undefined;
+          // 内容确认页按剧本规划档位选时长：端点固定时 supportedDurations 为空，规划仍有借用档位。
+          const planDurationOptions = capabilities.planningDurations ?? undefined;
           const durationWarningReason = (seconds: number) =>
             durationOutOfRangeReason(seconds, capabilities);
           // 档位空集的两种成因说给用户听的不是同一句：型号没登记时长 vs 这份 workflow 自己定片长。
@@ -786,6 +788,7 @@ export function StudioCanvasRouter() {
                     scriptFile={scriptFile ?? undefined}
                     projectData={currentProjectData}
                     durationOptions={durationOptions}
+                    planDurationOptions={planDurationOptions}
                     durationWarningReason={durationWarningReason}
                     durationEndpointFixed={durationEndpointFixed}
                     videoModelUnresolved={capabilities.videoModelUnresolved}
@@ -820,6 +823,7 @@ export function StudioCanvasRouter() {
                     scriptFile={scriptFile ?? undefined}
                     projectData={currentProjectData}
                     durationOptions={durationOptions}
+                    planDurationOptions={planDurationOptions}
                     durationWarningReason={durationWarningReason}
                     durationEndpointFixed={durationEndpointFixed}
                     videoModelUnresolved={capabilities.videoModelUnresolved}

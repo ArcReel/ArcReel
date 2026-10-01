@@ -971,20 +971,19 @@ class TestReferenceVideoGateFlow:
             await svc.confirm("demo", 1)
         assert exc.value.code == "invalid_content"
 
-    async def test_confirm_allows_text_with_unregistered_mention(self, tmp_path, video_request_facts):
-        """正文引用的资产未登记不阻断确认：参考图执行期才从正文解析，缺登记只意味着这一处
-        不出参考图，不是内容层的规划问题。"""
+    async def test_confirm_rejects_text_with_unregistered_mention(self, tmp_path, video_request_facts):
+        """正文画面位引用的资产既未登记、也不是本集登记的新增资产时，确认拒绝并指出单元与名字。"""
         pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
         svc = _service(pm)
         candidate = _rv_script_plan()
         candidate["units"][0]["text"] = "@[酒馆] 的木门被风吹开。"
-        path = _write_rv_script_plan(pm, candidate)
+        _write_rv_script_plan(pm, candidate)
 
-        confirmed = await svc.confirm("demo", 1)
+        with pytest.raises(ScriptReviewError) as exc:
+            await svc.confirm("demo", 1)
 
-        assert confirmed["status"] == "confirmed"
-        assert confirmed["content"]["units"][0]["text"] == "@[酒馆] 的木门被风吹开。"
-        assert json.loads(path.read_text(encoding="utf-8"))["units"][0]["text"] == "@[酒馆] 的木门被风吹开。"
+        assert exc.value.code == "unregistered_references"
+        assert exc.value.message == "E1U01: 酒馆"
 
     async def test_confirm_rejects_speech_problem_in_an_unmarked_unit(self, tmp_path, video_request_facts):
         """发声准入对全部 unit 生效，不只对标了 needs_replan 的那些：一个 unit 里既有人物
@@ -2074,6 +2073,7 @@ class TestOwnSourceEpisodes:
     async def test_confirm_unblocks_prompt_authoring_for_an_own_source_episode(self, tmp_path, video_request_facts):
         """逐集登记的自带原文的集走同一条内容确认出口。"""
         pm = _make_manual_split_project(tmp_path, "drama")
+        pm.add_character("demo", "阿离", "少女")
         assert register_project_sources(pm, "demo", own_episodes=("任意原文内容",)) == [1]
         _write_script_plan(pm, "drama", _admitted_drama_script_plan())
 

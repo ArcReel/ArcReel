@@ -5,6 +5,7 @@ script_generator.py - 剧本生成器
 """
 
 import asyncio
+import copy
 import functools
 import hashlib
 import json
@@ -83,7 +84,12 @@ from lib.script.draft_quarantine import (
     read_quarantine,
 )
 from lib.script.draft_violation import locate_violations, locate_violations_by_id, schema_violations
-from lib.script.plan_new_assets import NEW_ASSETS_FIELD, resolve_new_assets
+from lib.script.plan_new_assets import (
+    NEW_ASSETS_FIELD,
+    UnregisteredReferencesError,
+    resolve_new_assets,
+    unregistered_references,
+)
 from lib.script.prompt_authoring_scope import (
     PromptAuthoringSelection,
     PromptOverwrite,
@@ -684,6 +690,11 @@ class ScriptGenerator:
         # 本集新增资产按处理决定改写条目引用，与正式剧本、确认记录同一次写入登记进项目。
         new_assets = resolve_new_assets(self.project_json, self._script_plan_new_assets)
         plan_entries = new_assets.rewrite_entries(plan_entries)
+        registered_project = copy.deepcopy(self.project_json)
+        new_assets.apply_to_project(registered_project)
+        unregistered = unregistered_references(registered_project, plan_entries, id_field=entry_id_field(plan_kind))
+        if unregistered:
+            raise UnregisteredReferencesError(unregistered)
 
         def update_project(project: dict[str, Any]) -> None:
             new_assets.apply_to_project(project)

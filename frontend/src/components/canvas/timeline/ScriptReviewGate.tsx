@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { AlertTriangle, ArrowRight, CheckCircle2, Clock, Lock, RotateCcw, Save } from "lucide-react";
 import type {
@@ -13,6 +13,7 @@ import type {
   Utterance,
 } from "@/types";
 import { useAppStore } from "@/stores/app-store";
+import { useProjectsStore } from "@/stores/projects-store";
 import { useDraftEditor } from "@/hooks/useDraftEditor";
 import { useScriptReviewDraft } from "@/hooks/useScriptReviewDraft";
 import { voidPromise } from "@/utils/async";
@@ -34,7 +35,10 @@ import { StartBlankScriptButton } from "@/components/canvas/shared/StartBlankScr
 import { NewAssetsSection, hasValidNewAssets, type NewAssetEntryRefs } from "@/components/canvas/shared/NewAssetsSection";
 import { ScriptOverwriteConfirmDialog } from "@/components/shared/ScriptOverwriteConfirmDialog";
 import { VideoModelUnresolvedNotice } from "@/components/shared/VideoModelUnresolvedNotice";
-import { useModelCapabilities } from "@/hooks/useModelCapabilities";
+import { useModelCapabilities, type DurationOutOfRangeReason } from "@/hooks/useModelCapabilities";
+import { PlanDurationSelect, durationIncompatibleLabel } from "@/components/canvas/shared/PlanDurationSelect";
+import { PlanStructureHint } from "@/components/canvas/shared/PlanStructureHint";
+import { speakerCandidates } from "@/utils/plan-new-assets";
 import { PrimaryButton } from "@/components/ui/PrimaryButton";
 import { AutoTextarea } from "@/components/ui/AutoTextarea";
 import {
@@ -48,6 +52,8 @@ import { sumItemDuration } from "@/utils/script-shape";
 import { useEpisodeLedger } from "@/hooks/useEpisodeLedger";
 import { episodeAgentRef, itemIdWithinEpisode } from "@/utils/episode-display";
 import { UtteranceListEditor } from "./UtteranceListEditor";
+import { ReferencesSection } from "./ReferencesSection";
+import { SegmentBreakToggle } from "./SegmentBreakToggle";
 
 interface ScriptReviewGateProps {
   projectName: string;
@@ -56,6 +62,26 @@ interface ScriptReviewGateProps {
   videoModelUnresolved?: boolean;
   /** 切到本集时间线；确认后的只读态据此给出去时间线修改的入口，未提供时不渲染入口。 */
   onOpenTimeline?: () => void;
+  /** 当前视频模型与分辨率下的剧本规划时长档位（与确认转换同一口径）；未知时时长只读。 */
+  durationOptions?: number[];
+  durationEndpointFixed?: boolean;
+  /** 时长不在档位内的成因，决定说明文案；缺省时按「模型不支持」说明。 */
+  durationWarningReason?: (seconds: number) => DurationOutOfRangeReason | null;
+}
+
+/** 条目卡编辑字段所需的上下文：时长档位、本集新增资产与说话人候选。 */
+interface PlanItemContext {
+  projectName: string;
+  durationOptions: number[] | null;
+  durationEndpointFixed: boolean;
+  durationWarningReason?: (seconds: number) => DurationOutOfRangeReason | null;
+  newAssets: PlanNewAsset[];
+  speakerNames: string[];
+}
+
+/** 时长不在当前档位内：确认会被拒绝，卡片就地标红说明。档位未知时不判。 */
+function durationOutOfTier(seconds: number, options: number[] | null): boolean {
+  return options != null && options.length > 0 && !options.includes(seconds);
 }
 
 const SECTION_LABEL_STYLE: React.CSSProperties = {
@@ -72,7 +98,7 @@ function selectReviewContent(state: ScriptReviewState): ReviewDraft | null {
   return (state.content ?? null) as ReviewDraft | null;
 }
 
-/** Read-only 资产引用 pills（出场角色 / 场景 / 道具），由 script_plan 登记、gate 不改。 */
+/** 只读的资产引用 pills（出场角色 / 场景 / 道具）。 */
 function MetaChips({ items }: { items: string[] }) {
   if (!items.length) return null;
   return (
@@ -89,25 +115,105 @@ function MetaChips({ items }: { items: string[] }) {
   );
 }
 
-function SceneHeader({
+/** 条目头部：ID、时长与章节切分点；可编辑时时长用档位下拉、切分点用开关，越档就地标红说明。 */
+function ItemHeader({
   id,
   durationSeconds,
   segmentBreak,
+  readOnly,
+  disabled,
+  context,
+  onChange,
 }: {
   id: string;
   durationSeconds: number;
   segmentBreak: boolean;
+  readOnly: boolean;
+  disabled: boolean;
+  context: PlanItemContext;
+  onChange: (patch: { duration_seconds?: number; segment_break?: boolean }) => void;
 }) {
   const { t } = useTranslation("dashboard");
+  const shortId = itemIdWithinEpisode(id);
+  const outOfTier = !readOnly && durationOutOfTier(durationSeconds, context.durationOptions);
   return (
-    <div className="flex items-center gap-2">
-      <span className="rounded bg-bg-grad-a/70 px-1.5 py-0.5 font-mono text-[11px] text-text-2">{itemIdWithinEpisode(id)}</span>
-      <span className="text-[11px] text-text-4">{durationSeconds}s</span>
-      {segmentBreak && (
-        <span className="rounded border border-hairline px-1.5 py-0.5 text-[10px] text-text-4">
-          {t("review_segment_break")}
-        </span>
+    <div className="flex min-w-0 flex-col gap-1">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="rounded bg-bg-grad-a/70 px-1.5 py-0.5 font-mono text-[11px] text-text-2">{shortId}</span>
+        {readOnly ? (
+          <>
+            <span className="text-[11px] text-text-4">{durationSeconds}s</span>
+            {segmentBreak && (
+              <span className="rounded border border-hairline px-1.5 py-0.5 text-[10px] text-text-4">
+                {t("review_segment_break")}
+              </span>
+            )}
+          </>
+        ) : (
+          <>
+            <PlanDurationSelect
+              seconds={durationSeconds}
+              options={context.durationOptions}
+              onChange={(duration_seconds) => onChange({ duration_seconds })}
+              disabled={disabled}
+              label={t("review_item_duration_label", { item: shortId })}
+              endpointFixed={context.durationEndpointFixed}
+            />
+            <SegmentBreakToggle
+              checked={segmentBreak}
+              onChange={(segment_break) => onChange({ segment_break })}
+              disabled={disabled}
+            />
+          </>
+        )}
+      </div>
+      {outOfTier && context.durationOptions && (
+        <p className="flex items-start gap-1.5 text-[11px] leading-snug text-red-300">
+          <AlertTriangle className="mt-px h-3 w-3 shrink-0" aria-hidden="true" />
+          <span>
+            {durationIncompatibleLabel(
+              t,
+              durationSeconds,
+              context.durationOptions,
+              context.durationWarningReason?.(durationSeconds),
+            )}
+          </span>
+        </p>
       )}
+    </div>
+  );
+}
+
+/** 条目的角色 / 场景 / 道具引用：可编辑时复用时间线的引用编辑，候选含本集新增资产。 */
+function ItemReferences({
+  contentMode,
+  characters,
+  scenes,
+  props,
+  disabled,
+  context,
+  onChange,
+}: {
+  contentMode: "narration" | "drama";
+  characters: string[];
+  scenes: string[];
+  props: string[];
+  disabled: boolean;
+  context: PlanItemContext;
+  onChange: (patch: Record<string, string[]>) => void;
+}) {
+  return (
+    <div className="mb-3">
+      <ReferencesSection
+        projectName={context.projectName}
+        contentMode={contentMode}
+        characterNames={characters}
+        sceneNames={scenes}
+        propNames={props}
+        onSave={onChange}
+        disabled={disabled}
+        newAssets={context.newAssets}
+      />
     </div>
   );
 }
@@ -165,21 +271,42 @@ function DramaSceneCard({
   disabled,
   readOnly,
   notes,
+  context,
   onChange,
 }: {
   scene: DramaSceneContent;
   disabled: boolean;
   readOnly: boolean;
   notes?: ItemDraftNotes;
+  context: PlanItemContext;
   onChange: (patch: Partial<DramaSceneContent>) => void;
 }) {
   const { t } = useTranslation("dashboard");
   return (
     <ItemCardShell notes={notes}>
-      <div className="mb-3 flex items-start justify-between gap-2">
-        <SceneHeader id={scene.scene_id} durationSeconds={scene.duration_seconds} segmentBreak={scene.segment_break} />
-        <MetaChips items={scene.characters_in_scene} />
+      <div className={`flex items-start justify-between gap-2 ${readOnly ? "mb-3" : "mb-2"}`}>
+        <ItemHeader
+          id={scene.scene_id}
+          durationSeconds={scene.duration_seconds}
+          segmentBreak={scene.segment_break}
+          readOnly={readOnly}
+          disabled={disabled}
+          context={context}
+          onChange={onChange}
+        />
+        {readOnly && <MetaChips items={[...scene.characters_in_scene, ...scene.scenes, ...scene.props]} />}
       </div>
+      {!readOnly && (
+        <ItemReferences
+          contentMode="drama"
+          characters={scene.characters_in_scene}
+          scenes={scene.scenes}
+          props={scene.props}
+          disabled={disabled}
+          context={context}
+          onChange={onChange}
+        />
+      )}
 
       <label className="mb-1 block text-[10.5px]" style={SECTION_LABEL_STYLE}>
         {t("review_utterances_label")}
@@ -190,6 +317,7 @@ function DramaSceneCard({
         <UtteranceListEditor
           utterances={scene.utterances}
           disabled={disabled}
+          speakerCandidates={context.speakerNames}
           onChange={(utterances: Utterance[]) => onChange({ utterances })}
         />
       )}
@@ -218,25 +346,42 @@ function NarrationSegmentCard({
   disabled,
   readOnly,
   notes,
+  context,
   onChange,
 }: {
   segment: NarrationScriptPlanSegment;
   disabled: boolean;
   readOnly: boolean;
   notes?: ItemDraftNotes;
+  context: PlanItemContext;
   onChange: (patch: Partial<NarrationScriptPlanSegment>) => void;
 }) {
   const { t } = useTranslation("dashboard");
   return (
     <ItemCardShell notes={notes}>
-      <div className="mb-3 flex items-start justify-between gap-2">
-        <SceneHeader
+      <div className={`flex items-start justify-between gap-2 ${readOnly ? "mb-3" : "mb-2"}`}>
+        <ItemHeader
           id={segment.segment_id}
           durationSeconds={segment.duration_seconds}
           segmentBreak={segment.segment_break}
+          readOnly={readOnly}
+          disabled={disabled}
+          context={context}
+          onChange={onChange}
         />
-        <MetaChips items={segment.characters_in_segment} />
+        {readOnly && <MetaChips items={[...segment.characters_in_segment, ...segment.scenes, ...segment.props]} />}
       </div>
+      {!readOnly && (
+        <ItemReferences
+          contentMode="narration"
+          characters={segment.characters_in_segment}
+          scenes={segment.scenes}
+          props={segment.props}
+          disabled={disabled}
+          context={context}
+          onChange={onChange}
+        />
+      )}
 
       <label className="mb-1 block text-[10.5px]" style={SECTION_LABEL_STYLE}>
         {t("review_novel_text_label")}
@@ -346,11 +491,24 @@ function newAssetEntries(content: ReviewDraft | null): NewAssetEntryRefs[] {
  * 校验，违约清零即采用。Agent 的可编辑草稿在场时只提示有一份未完成的修改，正式内容只读。确认之后
  * 脚本规划只读，卡片不渲染编辑控件，指引到时间线修改。
  */
-export function ScriptReviewGate({ projectName, episode, contentMode, videoModelUnresolved, onOpenTimeline }: ScriptReviewGateProps) {
+export function ScriptReviewGate({
+  projectName,
+  episode,
+  contentMode,
+  videoModelUnresolved,
+  onOpenTimeline,
+  durationOptions,
+  durationEndpointFixed = false,
+  durationWarningReason,
+}: ScriptReviewGateProps) {
   const { t } = useTranslation("dashboard");
   const episodeLedger = useEpisodeLedger();
   const episodeRef = episodeAgentRef(episodeLedger, episode, t);
-  const standaloneCapabilities = useModelCapabilities({ projectName, enabled: videoModelUnresolved === undefined });
+  // 父组件已给出模型能力（是否可解析、时长档位）时不再自查。
+  const standaloneCapabilities = useModelCapabilities({
+    projectName,
+    enabled: videoModelUnresolved === undefined || durationOptions === undefined,
+  });
   const modelUnresolved = videoModelUnresolved ?? standaloneCapabilities.videoModelUnresolved;
   const pushToast = useAppStore((s) => s.pushToast);
   const [overwriteOpen, setOverwriteOpen] = useState(false);
@@ -389,6 +547,30 @@ export function ScriptReviewGate({ projectName, episode, contentMode, videoModel
     narrow: contentMode === "drama" ? narrowDramaDraft : narrowNarrationDraft,
     onSettled: refresh,
   });
+
+  const projectCharacters = useProjectsStore((s) => s.currentProjectData?.characters);
+  const shownContent = quarantine != null && quarantine.editable_by === "user" ? draftEditor.content : draft;
+  const shownNewAssets = shownContent?.new_assets;
+  const itemContext = useMemo<PlanItemContext>(() => {
+    const newAssets = shownNewAssets ?? [];
+    return {
+      projectName,
+      durationOptions: durationOptions ?? standaloneCapabilities.planningDurations,
+      durationEndpointFixed: durationEndpointFixed || (durationOptions === undefined && standaloneCapabilities.durationEndpointFixed),
+      durationWarningReason,
+      newAssets,
+      speakerNames: speakerCandidates(projectCharacters ?? {}, newAssets),
+    };
+  }, [
+    projectName,
+    durationOptions,
+    durationEndpointFixed,
+    durationWarningReason,
+    standaloneCapabilities.planningDurations,
+    standaloneCapabilities.durationEndpointFixed,
+    shownNewAssets,
+    projectCharacters,
+  ]);
 
   const itemRefs = useRef(new Map<number, HTMLElement>());
   const episodeLevelRef = useRef<HTMLElement | null>(null);
@@ -530,6 +712,7 @@ export function ScriptReviewGate({ projectName, episode, contentMode, videoModel
             onChange={updateNewAssets}
           />
         )}
+        {content != null && <PlanStructureHint />}
         {content != null && (
           <div className="flex flex-col gap-2.5">
             {"scenes" in content
@@ -540,6 +723,7 @@ export function ScriptReviewGate({ projectName, episode, contentMode, videoModel
                     disabled={draftBusy}
                     readOnly={false}
                     notes={notesFor(i)}
+                    context={itemContext}
                     onChange={(patch) => updateDramaScene(i, patch)}
                   />
                 ))
@@ -550,6 +734,7 @@ export function ScriptReviewGate({ projectName, episode, contentMode, videoModel
                     disabled={draftBusy}
                     readOnly={false}
                     notes={notesFor(i)}
+                    context={itemContext}
                     onChange={(patch) => updateNarrationSegment(i, patch)}
                   />
                 ))}
@@ -570,7 +755,19 @@ export function ScriptReviewGate({ projectName, episode, contentMode, videoModel
   const scriptMissing = confirmed && state?.script_overwrite == null;
   const confirmLocked = confirmed && !scriptMissing;
   const videoModelBlocked = modelUnresolved && !confirmLocked;
-  const confirmBlockedHint = videoModelBlocked ? t("dashboard:review_video_model_unresolved_hint") : undefined;
+  // 有条目的时长不在当前档位内：确认会被拒绝，先就地改选。
+  const durationBlocked =
+    !confirmLocked &&
+    draft != null &&
+    ("scenes" in draft ? draft.scenes : draft.segments).some((item) =>
+      durationOutOfTier(item.duration_seconds, itemContext.durationOptions),
+    );
+  const confirmBlocked = videoModelBlocked || durationBlocked;
+  const confirmBlockedHint = videoModelBlocked
+    ? t("dashboard:review_video_model_unresolved_hint")
+    : durationBlocked
+      ? t("dashboard:review_duration_out_of_tier_hint")
+      : undefined;
 
   return (
     <div className="flex flex-col gap-3">
@@ -611,7 +808,7 @@ export function ScriptReviewGate({ projectName, episode, contentMode, videoModel
               <PrimaryButton
                 tone="danger"
                 onClick={() => setOverwriteOpen(true)}
-                disabled={busy || videoModelBlocked}
+                disabled={busy || confirmBlocked}
                 title={confirmBlockedHint}
                 leadingIcon={<AlertTriangle className="h-3.5 w-3.5" />}
               >
@@ -621,7 +818,7 @@ export function ScriptReviewGate({ projectName, episode, contentMode, videoModel
               <button
                 type="button"
                 onClick={voidPromise(() => handleConfirm())}
-                disabled={busy || confirmLocked || videoModelBlocked}
+                disabled={busy || confirmLocked || confirmBlocked}
                 title={confirmBlockedHint}
                 className={ACCENT_BTN_CLS}
                 style={ACCENT_BUTTON_STYLE}
@@ -650,7 +847,7 @@ export function ScriptReviewGate({ projectName, episode, contentMode, videoModel
           loading={confirming}
           // 框在能力请求返回之前就可能被打开，之后答复模型无法解析：框内的确认按钮与触发它的
           // 那颗按钮同一判据，否则这里还能提交一次注定被服务端拒绝的确认。
-          confirmDisabled={videoModelBlocked}
+          confirmDisabled={confirmBlocked}
           onConfirm={async () => {
             // 失败（如确认期间该集被并发写入）时框保持打开，呈现刷新后的覆盖清单。
             if (await handleConfirm({ overwriteRevision: overwrite.revision })) setOverwriteOpen(false);
@@ -675,6 +872,8 @@ export function ScriptReviewGate({ projectName, episode, contentMode, videoModel
         />
       )}
 
+      {!readOnly && <PlanStructureHint />}
+
       <div className="flex flex-col gap-2.5">
         {contentMode === "drama" && draft != null && "scenes" in draft
           ? draft.scenes.map((scene, i) => (
@@ -683,6 +882,7 @@ export function ScriptReviewGate({ projectName, episode, contentMode, videoModel
                 scene={scene}
                 disabled={busy}
                 readOnly={readOnly}
+                context={itemContext}
                 onChange={(patch) => updateDramaScene(i, patch)}
               />
             ))
@@ -694,6 +894,7 @@ export function ScriptReviewGate({ projectName, episode, contentMode, videoModel
                 segment={segment}
                 disabled={busy}
                 readOnly={readOnly}
+                context={itemContext}
                 onChange={(patch) => updateNarrationSegment(i, patch)}
               />
             ))

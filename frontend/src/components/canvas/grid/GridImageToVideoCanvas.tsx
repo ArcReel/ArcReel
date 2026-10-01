@@ -37,6 +37,8 @@ interface GridImageToVideoCanvasProps {
   scriptFile?: string;
   projectData: ProjectData | null;
   durationOptions?: number[];
+  /** 内容确认页的剧本规划档位；时长由端点固定时与 `durationOptions` 不同。 */
+  planDurationOptions?: number[];
   durationEndpointFixed?: boolean;
   videoModelUnresolved?: boolean;
   lastFrame?: boolean | null;
@@ -79,6 +81,7 @@ export function GridImageToVideoCanvas({
   scriptFile,
   projectData,
   durationOptions,
+  planDurationOptions,
   durationEndpointFixed,
   videoModelUnresolved,
   lastFrame,
@@ -366,6 +369,9 @@ export function GridImageToVideoCanvas({
               episode={episode}
               contentMode={editorContentMode}
               videoModelUnresolved={videoModelUnresolved}
+              durationOptions={planDurationOptions}
+              durationEndpointFixed={durationEndpointFixed}
+              durationWarningReason={durationWarningReason}
               onOpenTimeline={hasScript ? () => setActiveTab("units") : undefined}
             />
           </div>
