@@ -75,7 +75,9 @@ async def test_inspecting_current_versions_returns_one_contact_sheet_image_per_u
     assert outcome.problem is None, outcome.problem
     result = envelope.structured["inspect_video_units"]
     assert result["model_review"] is None
-    assert result["frames_per_unit"] == 4
+    assert result["frame_budget_per_unit"] == 4
+    assert [unit["frame_count"] for unit in result["units"]] == [4, 4]
+    assert result["total_frames"] == 8
     assert [(unit["unit_id"], unit["version"], unit["status"]) for unit in result["units"]] == [
         ("E1S01", 1, "ok"),
         ("E1S02", 1, "ok"),
@@ -192,9 +194,30 @@ async def test_the_per_call_frame_budget_is_shared_across_units(tmp_path: Path) 
 
     assert outcome.problem is None, outcome.problem
     result = envelope.structured["inspect_video_units"]
-    assert result["frames_per_unit"] == MAX_FRAMES_PER_CALL // 13
+    assert result["frame_budget_per_unit"] == MAX_FRAMES_PER_CALL // 13
     total = sum(len(sheet["times"]) for unit in result["units"] for sheet in unit["sheets"])
     assert total <= MAX_FRAMES_PER_CALL
+    assert result["total_frames"] == total
+
+
+async def test_frame_counts_report_the_frames_actually_drawn_when_shots_exceed_the_budget(tmp_path: Path) -> None:
+    unit_ids = ["E1S01", "E1S02"]
+    ctx = _harness(tmp_path, unit_ids)
+    clip = tmp_path / "signals.mp4"
+    make_signal_clip(clip)
+    for unit_id in unit_ids:
+        install_current_video(ctx.project_path, "videos", unit_id, clip)
+
+    outcome, envelope = await _inspect(ctx, {"unit_ids": unit_ids, "frames": 1})
+
+    assert outcome.problem is None, outcome.problem
+    result = envelope.structured["inspect_video_units"]
+    assert result["frame_budget_per_unit"] == 1
+    for unit in result["units"]:
+        drawn = sum(len(sheet["times"]) for sheet in unit["sheets"])
+        assert unit["signals"]["shots"] == 4
+        assert unit["frame_count"] == drawn >= unit["signals"]["shots"]
+    assert result["total_frames"] == sum(unit["frame_count"] for unit in result["units"])
 
 
 async def test_more_units_than_the_frame_budget_is_refused(tmp_path: Path) -> None:
