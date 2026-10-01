@@ -217,33 +217,6 @@ describe("ShotDetail 广告/短片", () => {
     expect(screen.getByRole("button", { name: "前移分镜" })).toHaveAttribute("title", "重排进行中…");
   });
 
-  it("非 广告/短片不渲染移动按钮", () => {
-    const seg = {
-      segment_id: "E1S01",
-      episode: 1,
-      duration_seconds: 4,
-      segment_break: false,
-      novel_text: "原文",
-      characters_in_segment: [],
-      image_prompt: "img",
-      video_prompt: "vid",
-    };
-    render(
-      <ShotDetail
-        segment={seg}
-        segmentId="E1S01"
-        contentMode="narration"
-        aspectRatio="9:16"
-        projectName="demo"
-        selectedIndex={0}
-        totalCount={1}
-        onPrev={() => {}}
-        onNext={() => {}}
-        onMoveShot={vi.fn()}
-      />,
-    );
-    expect(screen.queryByRole("button", { name: "前移分镜" })).not.toBeInTheDocument();
-  });
   it("新增 / 移除分镜：移除取消不调用，分镜生成在跑时禁止移除", async () => {
     const onInsertShot = vi.fn().mockResolvedValue(true);
     const onRemoveShot = vi.fn().mockResolvedValue(true);

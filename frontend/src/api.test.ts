@@ -414,7 +414,7 @@ describe("API", () => {
       await API.updateScene("demo", "scene-1", "episode_1.json", { x: 1 });
       await API.updateSegment("demo", "segment-1", { y: 2 });
       await API.updateShot("demo", "E1S01", "episode_1.json", { voiceover_text: "新口播" });
-      await API.reorderShots("demo", "episode_1.json", ["E1S02", "E1S01"]);
+      await API.moveScriptItem("demo", "episode_1.json", "E1S02", null);
       await API.updateEpisode("demo", 3, { title: "新标题" });
 
       await API.getSystemConfig();
@@ -522,9 +522,9 @@ describe("API", () => {
         method: "PATCH",
         body: JSON.stringify({ script_file: "episode_1.json", updates: { voiceover_text: "新口播" } }),
       });
-      expect(requestSpy).toHaveBeenCalledWith("/projects/demo/script-shots/reorder", {
+      expect(requestSpy).toHaveBeenCalledWith("/projects/demo/script-items/E1S02/move", {
         method: "POST",
-        body: JSON.stringify({ script_file: "episode_1.json", shot_ids: ["E1S02", "E1S01"] }),
+        body: JSON.stringify({ script_file: "episode_1.json", after_id: null }),
       });
       expect(requestSpy).toHaveBeenCalledWith("/projects/demo/episodes/3", {
         method: "PATCH",
@@ -1459,11 +1459,12 @@ describe("API.referenceVideos", () => {
     expect(body).toEqual({ prompt: "@[张三] 推门" });
   });
 
-  it("reorderReferenceVideoUnits sends ordered ids", async () => {
+  it("moveReferenceVideoUnit sends the anchor", async () => {
     fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ units: [] }), { status: 200 }));
-    await API.reorderReferenceVideoUnits("proj", 1, ["E1U2", "E1U1"]);
-    const body = JSON.parse(fetchMock.mock.calls[0]![1]!.body as string) as { unit_ids: string[] };
-    expect(body.unit_ids).toEqual(["E1U2", "E1U1"]);
+    await API.moveReferenceVideoUnit("proj", 1, "E1U2", null);
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(String(url)).toContain("/reference-videos/episodes/1/units/E1U2/move");
+    expect(JSON.parse(init!.body as string)).toEqual({ after_unit_id: null });
   });
 
   it("generateReferenceVideoUnit returns task id", async () => {

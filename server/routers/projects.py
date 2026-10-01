@@ -93,7 +93,6 @@ from server.auth import CurrentUser, create_download_token, verify_download_toke
 from server.dependencies import require_project_migration_ok
 from server.i18n import Translator
 from server.routers._episode_source_errors import episode_source_http_error
-from server.routers._reorder import full_permutation_error
 from server.routers._script_edits import (
     execute_current_script_edit,
     require_script_edit_result,
@@ -1486,6 +1485,57 @@ async def remove_script_item(
         raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
 
 
+class MoveScriptItemRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    script_file: str
+    #: 移到这条分镜之后；为 null 时移到最前。
+    after_id: str | None = Field(min_length=1)
+
+
+@router.post(
+    "/projects/{name}/script-items/{item_id}/move",
+    dependencies=[Depends(require_project_migration_ok)],
+)
+async def move_script_item(
+    name: str,
+    item_id: str,
+    req: MoveScriptItemRequest,
+    _t: Translator,
+    make_script_batch_editor: ScriptBatchEditorFactoryDep,
+):
+    """把分镜 ``item_id`` 移到 ``after_id`` 之后，按当前剧本 revision 执行 ``move_after``；分镜连同产物一起移动。"""
+    try:
+
+        def _sync():
+            manager = get_project_manager()
+            current = manager.load_script(name, req.script_file)
+            _require_storyboard_items(current, item_id)
+            _require_storyboard_items(current, req.after_id)
+            with project_change_source("webui"):
+                result = execute_current_script_edit(
+                    manager,
+                    name,
+                    req.script_file,
+                    [{"op": "move_after", "id": item_id, "after_id": req.after_id}],
+                    editor=make_script_batch_editor(manager),
+                    current_script=current,
+                )
+            require_script_edit_result(result)
+            return {"success": True, "edit_result": result.model_dump(mode="json")}
+
+        return await asyncio.to_thread(_sync)
+    except FileNotFoundError as exc:
+        raise NotFoundError("script_not_found", name=req.script_file) from exc
+    except ValueError as exc:
+        raise UnprocessableError("script_validation_failed").with_diagnostic(str(exc)) from exc
+    except (HTTPException, ApiError):
+        raise
+    except Exception as exc:
+        logger.exception("请求处理失败")
+        raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
+
+
 class UpdateSceneRequest(BaseModel):
     script_file: str
     updates: dict
@@ -1596,17 +1646,15 @@ def _require_ad_script(script: dict, _t: Translator) -> list[dict]:
     if script.get("content_mode") != "ad" or "shots" not in script:
         raise HTTPException(status_code=400, detail=_t("ad_mode_required"))
     shots = script.get("shots")
-    # 非法形状 fail loud：静默降级为空列表会让 reorder 在客户端传空 shot_ids 时
-    # 把损坏的 shots 覆盖成 []，直接丢数据。ValueError 由路由统一转 422。
+    # 非法形状 fail loud，ValueError 由路由统一转 422。
     if not isinstance(shots, list):
         raise ValueError("ad script field 'shots' must be a list")
     if not all(isinstance(s, dict) for s in shots):
         raise ValueError("ad script field 'shots' contains non-object elements")
-    # shot_id 缺失/脏类型同样拦下：否则 PATCH 按 id 定位会误报 404，
-    # reorder 的 s["shot_id"] 索引会 KeyError 变 500。
+    # shot_id 缺失/脏类型同样拦下：否则 PATCH 按 id 定位会误报 404。
     if not all(isinstance(s.get("shot_id"), str) and s["shot_id"] for s in shots):
         raise ValueError("ad script field 'shots' contains elements missing valid 'shot_id'")
-    # shot_id 是单个分镜的身份键：重复值会让 PATCH 静默更新首个命中项、reorder 失去 1:1 映射
+    # shot_id 是单个分镜的身份键：重复值会让 PATCH 静默更新首个命中项
     shot_ids = [s["shot_id"] for s in shots]
     if len(set(shot_ids)) != len(shot_ids):
         raise ValueError("ad script field 'shots' contains duplicate 'shot_id' values")
@@ -1664,64 +1712,6 @@ async def update_shot(
     except ValueError as exc:
         # 结构校验失败、集号错配、非法文件名都抛 ValueError（ScriptStructureValidationError
         # 即其子类）：统一转 422 客户端错误，避免落到下面的 500 兜底。
-        raise UnprocessableError("script_validation_failed").with_diagnostic(str(exc)) from exc
-    except (HTTPException, ApiError):
-        raise
-    except Exception as exc:
-        logger.exception("请求处理失败")
-        raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
-
-
-class ReorderShotsRequest(BaseModel):
-    script_file: str
-    shot_ids: list[str]
-
-
-@router.post("/projects/{name}/script-shots/reorder", dependencies=[Depends(require_project_migration_ok)])
-async def reorder_shots(
-    name: str,
-    req: ReorderShotsRequest,
-    _t: Translator,
-    make_script_batch_editor: ScriptBatchEditorFactoryDep,
-):
-    """按给定全排列重排 ad 剧本的 shots 顺序（与视频单元重排端点同语义）。"""
-    try:
-
-        def _sync():
-            manager = get_project_manager()
-            current = manager.load_script(name, req.script_file)
-            shots = _require_ad_script(current, _t)
-            existing_ids = [shot.get("shot_id") for shot in shots]
-            error_kind = full_permutation_error(existing_ids, req.shot_ids)
-            if error_kind is not None:
-                detail_key = {
-                    "length": "shot_ids_length_mismatch",
-                    "duplicate": "duplicate_shot_ids",
-                    "mismatch": "shot_ids_mismatch",
-                }[error_kind]
-                raise HTTPException(status_code=400, detail=_t(detail_key))
-            if existing_ids == req.shot_ids:
-                return {"success": True, "shots": shots}
-            operations = [
-                {"op": "move_after", "id": shot_id, "after_id": req.shot_ids[index - 1] if index else None}
-                for index, shot_id in enumerate(req.shot_ids)
-            ]
-            with project_change_source("webui"):
-                result = execute_current_script_edit(
-                    manager,
-                    name,
-                    req.script_file,
-                    operations,
-                    editor=make_script_batch_editor(manager),
-                )
-            require_script_edit_result(result)
-            reordered = manager.load_script(name, req.script_file)["shots"]
-            return {"success": True, "shots": reordered, "edit_result": result.model_dump(mode="json")}
-
-        return await asyncio.to_thread(_sync)
-    except FileNotFoundError as exc:
-        raise NotFoundError("script_not_found", name=req.script_file) from exc
-    except ValueError as exc:
         raise UnprocessableError("script_validation_failed").with_diagnostic(str(exc)) from exc
     except (HTTPException, ApiError):
         raise

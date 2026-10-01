@@ -44,8 +44,8 @@ interface TimelineCanvasProps {
     value?: unknown,
     scriptFile?: string,
   ) => void | Promise<void>;
-  /** 广告/短片分镜顺序调整（向前/向后移动一位），resolve 为是否移动成功 */
-  onMoveShot?: (shotId: string, direction: "earlier" | "later", scriptFile?: string) => Promise<boolean>;
+  /** 分镜改序：移到 afterId 之后，null 移到最前；resolve 为是否移动成功 */
+  onMoveShot?: (shotId: string, afterId: string | null, scriptFile?: string) => Promise<boolean>;
   /** 新增分镜（旁白带正文）：afterId 为 null 时追加到末尾；resolve 为是否成功 */
   onInsertShot?: (afterId: string | null, novelText: string | undefined, scriptFile?: string) => Promise<boolean>;
   /** 移除分镜，resolve 为是否成功 */
@@ -237,7 +237,7 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
         onUpdatePrompt(segId, fieldOrPatch, value, scriptFile)
     : undefined;
   const handleMoveShot = onMoveShot
-    ? (shotId: string, direction: "earlier" | "later") => onMoveShot(shotId, direction, scriptFile)
+    ? (shotId: string, afterId: string | null) => onMoveShot(shotId, afterId, scriptFile)
     : undefined;
   const handleInsertShot: InsertShotHandler | undefined = onInsertShot
     ? (afterId, novelText) => onInsertShot(afterId, novelText, scriptFile)
@@ -403,7 +403,6 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
                 projectName={projectName}
                 episode={episode}
                 scriptFile={scriptFile}
-                isGridMode={false}
                 onUpdatePrompt={handleUpdatePrompt}
                 onMoveShot={handleMoveShot}
                 onInsertShot={handleInsertShot}

@@ -36,6 +36,7 @@ import { PromptPreviewButton } from "@/components/shared/PromptPreviewButton";
 import { ReferencesSection } from "./ReferencesSection";
 import { StatusBadge, statusFromAssets } from "./StatusBadge";
 import { ShotStructureActions, type InsertShotHandler } from "./ShotStructureActions";
+import { SegmentBreakToggle } from "./SegmentBreakToggle";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { Popover } from "@/components/ui/Popover";
 import { API } from "@/api";
@@ -73,7 +74,6 @@ interface ShotDetailProps {
   episode?: number;
   /** 当前剧集剧本文件名，分镜图/视频自主上传需要它定位剧本条目 */
   scriptFile?: string;
-  isGridMode?: boolean;
   /** Total shot count for "1/N" indicator */
   selectedIndex: number;
   totalCount: number;
@@ -84,7 +84,7 @@ interface ShotDetailProps {
     fieldOrPatch: string | Record<string, unknown>,
     value?: unknown,
   ) => void | Promise<void>;
-  /** 广告/短片分镜顺序调整（向前/向后移动一位） */
+  /** 分镜改序：向前或向后移动一位 */
   onMoveShot?: (shotId: string, direction: "earlier" | "later") => void | Promise<void>;
   /** 分镜重排请求在途，移动按钮禁用 */
   movePending?: boolean;
@@ -459,7 +459,6 @@ export function ShotDetail({
   projectName,
   episode,
   scriptFile,
-  isGridMode,
   selectedIndex,
   totalCount,
   onPrev,
@@ -1141,7 +1140,6 @@ export function ShotDetail({
         segmentId={segmentId}
         assetPath={assets?.storyboard_image ?? null}
         aspectRatio={aspectRatio}
-        hideGenerateButton={isGridMode}
         generating={generatingStoryboard}
         estimatedCost={sbEstimate ?? undefined}
         onGenerate={onGenerateStoryboard ? () => onGenerateStoryboard(segmentId) : undefined}
@@ -1265,6 +1263,13 @@ export function ShotDetail({
           busy={!!generatingStoryboard || !!generatingVideo}
         />
         <StatusBadge status={status} />
+        {(isNarration || isDrama) && onUpdatePrompt && (
+          <SegmentBreakToggle
+            checked={(segment as NarrationSegment | DramaScene).segment_break === true}
+            onChange={(next) => onUpdatePrompt(segmentId, "segment_break", next)}
+            disabled={!!generatingStoryboard || !!generatingVideo}
+          />
+        )}
         <span className="flex-1" />
 
         <div className="flex items-center gap-1.5">
@@ -1277,7 +1282,7 @@ export function ShotDetail({
               total: totalCount,
             })}
           </span>
-          {isAd && onMoveShot && (
+          {onMoveShot && (
             <>
               <button
                 type="button"

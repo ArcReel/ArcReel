@@ -7,6 +7,7 @@ import { PromptAuthoringButton } from "../shared/PromptAuthoringButton";
 import { ShotSplitView } from "../timeline/ShotSplitView";
 import { EmptyScriptState } from "../timeline/EmptyScriptState";
 import { StoryboardBatchDialog } from "../timeline/StoryboardBatchDialog";
+import type { InsertShotHandler } from "../timeline/ShotStructureActions";
 import { GridPreviewView } from "./GridPreviewView";
 import { useDemoWorkbench } from "@/onboarding/use-demo-workbench";
 import { useAppStore } from "@/stores/app-store";
@@ -59,8 +60,12 @@ interface GridImageToVideoCanvasProps {
   ) => Promise<void> | void;
   onRestoreStoryboard?: () => Promise<void> | void;
   onRestoreVideo?: () => Promise<void> | void;
-  /** 空脚本里新增第一个分镜（旁白带正文）；resolve 为是否成功 */
-  onInsertFirstShot?: (novelText: string | undefined, scriptFile?: string) => Promise<boolean>;
+  /** 分镜改序：移到 afterId 之后，null 移到最前；resolve 为是否成功 */
+  onMoveShot?: (shotId: string, afterId: string | null, scriptFile?: string) => Promise<boolean>;
+  /** 新增分镜（旁白带正文）：afterId 为 null 时追加到末尾；resolve 为是否成功 */
+  onInsertShot?: (afterId: string | null, novelText: string | undefined, scriptFile?: string) => Promise<boolean>;
+  /** 移除分镜，resolve 为是否成功 */
+  onRemoveShot?: (itemId: string, scriptFile?: string) => Promise<boolean>;
   onSaveTitle?: (next: string) => Promise<void>;
   canEditTitle?: boolean;
 }
@@ -87,7 +92,9 @@ export function GridImageToVideoCanvas({
   onGenerateGrid,
   onRestoreStoryboard,
   onRestoreVideo,
-  onInsertFirstShot,
+  onMoveShot,
+  onInsertShot,
+  onRemoveShot,
   onSaveTitle,
   canEditTitle,
 }: GridImageToVideoCanvasProps) {
@@ -223,6 +230,17 @@ export function GridImageToVideoCanvas({
   const handleGenNarration = onGenerateNarration
     ? (segId: string) => onGenerateNarration(segId, scriptFile)
     : undefined;
+  // 结构操作与时间线一致；演示态只读，不给入口。
+  const handleMoveShot =
+    onMoveShot && !demoReadOnly
+      ? (shotId: string, afterId: string | null) => onMoveShot(shotId, afterId, scriptFile)
+      : undefined;
+  const handleInsertShot: InsertShotHandler | undefined =
+    onInsertShot && !demoReadOnly
+      ? (afterId, novelText) => onInsertShot(afterId, novelText, scriptFile)
+      : undefined;
+  const handleRemoveShot =
+    onRemoveShot && !demoReadOnly ? (itemId: string) => onRemoveShot(itemId, scriptFile) : undefined;
 
   const renderTabButton = (key: GridTab, label: string, disabled = false) => (
     <button
@@ -368,8 +386,10 @@ export function GridImageToVideoCanvas({
             projectName={projectName}
             episode={episode}
             scriptFile={scriptFile}
-            isGridMode
             onUpdatePrompt={handleUpdatePrompt}
+            onMoveShot={handleMoveShot}
+            onInsertShot={handleInsertShot}
+            onRemoveShot={handleRemoveShot}
             onGenerateStoryboard={handleGenSb}
             onGenerateVideo={handleGenVid}
             onGenerateNarration={handleGenNarration}
@@ -387,9 +407,7 @@ export function GridImageToVideoCanvas({
         ) : episodeScript && editorContentMode ? (
           <EmptyScriptState
             contentMode={editorContentMode}
-            onInsert={
-              onInsertFirstShot ? (_afterId, novelText) => onInsertFirstShot(novelText, scriptFile) : undefined
-            }
+            onInsert={handleInsertShot}
           />
         ) : null}
       </div>

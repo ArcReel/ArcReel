@@ -1369,17 +1369,21 @@ class API {
     );
   }
 
-  /** 按给定全排列重排 ad 剧本的分镜顺序。 */
-  static async reorderShots(
+  /**
+   * 把分镜 `itemId` 移到 `afterId` 之后（`null` 移到最前），各形态通用；分镜连同产物一起移动。
+   * 服务端按当前剧本 revision 执行。
+   */
+  static async moveScriptItem(
     projectName: string,
     scriptFile: string,
-    shotIds: string[]
-  ): Promise<SuccessResponse & { shots?: AdShot[] }> {
+    itemId: string,
+    afterId: string | null
+  ): Promise<SuccessResponse> {
     return this.request(
-      `/projects/${encodeURIComponent(projectName)}/script-shots/reorder`,
+      `/projects/${encodeURIComponent(projectName)}/script-items/${encodeURIComponent(itemId)}/move`,
       {
         method: "POST",
-        body: JSON.stringify({ script_file: scriptFile, shot_ids: shotIds }),
+        body: JSON.stringify({ script_file: scriptFile, after_id: afterId }),
       }
     );
   }
@@ -3312,15 +3316,16 @@ class API {
     );
   }
 
-  /** Reorder units by providing the full ordered unit_id list. */
-  static async reorderReferenceVideoUnits(
+  /** 把单元 `unitId` 移到 `afterUnitId` 之后（`null` 移到最前），返回移动后的单元列表。 */
+  static async moveReferenceVideoUnit(
     projectName: string,
     episode: number,
-    unitIds: string[],
+    unitId: string,
+    afterUnitId: string | null,
   ): Promise<{ units: ReferenceVideoUnit[] }> {
     return this.request(
-      `/projects/${encodeURIComponent(projectName)}/reference-videos/episodes/${episode}/units/reorder`,
-      { method: "POST", body: JSON.stringify({ unit_ids: unitIds }) },
+      `/projects/${encodeURIComponent(projectName)}/reference-videos/episodes/${episode}/units/${encodeURIComponent(unitId)}/move`,
+      { method: "POST", body: JSON.stringify({ after_unit_id: afterUnitId }) },
     );
   }
 

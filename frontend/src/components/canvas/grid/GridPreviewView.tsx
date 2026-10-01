@@ -80,8 +80,9 @@ export function GridPreviewView({
         grids,
         groupSegs.map((s) => getSegmentId(s, contentMode)),
         episode,
+        maxCellCount,
       ).map((g) => g.id),
-    [grids, episode, contentMode],
+    [grids, episode, contentMode, maxCellCount],
   );
 
   const handleGenerateGroup = useCallback(
@@ -113,15 +114,12 @@ export function GridPreviewView({
     const cells = segments.length;
     const readyBatches = groups.filter((group) => {
       const sceneIds = group.map((s) => getSegmentId(s, contentMode));
-      // chunk 拆分后,group 内可能有多条 grid;全部 completed 且并集覆盖整组才算就绪。
-      const groupGrids = matchGridsForGroup(grids, sceneIds, episode);
-      if (groupGrids.length === 0) return false;
-      const covered = new Set<string>();
-      for (const g of groupGrids) {
-        if (g.status !== "completed") return false;
-        for (const id of g.scene_ids) covered.add(id);
-      }
-      return sceneIds.every((id) => covered.has(id));
+      // 一组切成多块时，每一块都有对上的宫格且全部完成才算就绪。
+      const groupGrids = matchGridsForGroup(grids, sceneIds, episode, maxCellCount);
+      return (
+        groupGrids.length === computeGridSize(group.length, maxCellCount).batchCount &&
+        groupGrids.every((g) => g.status === "completed")
+      );
     }).length;
     // 就绪率按分组算(一组内多张宫格全部完成才算就绪),分母用分组数而非宫格张数
     const percent = groups.length > 0 ? Math.round((readyBatches / groups.length) * 100) : 0;

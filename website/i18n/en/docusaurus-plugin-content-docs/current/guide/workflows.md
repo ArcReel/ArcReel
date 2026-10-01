@@ -226,6 +226,12 @@ Image generation takes two steps:
 
 Multi-grid storyboards automatically use square 2×2 / 3×3 grids based on the number of shots. Each cell uses the same aspect ratio as the project video; when there are more shots, they are divided across multiple multi-grid storyboards according to the grid capacity. Denser 4×4 / 5×5 grids are available only when the image model's resolution tier is configured as 4K—the more cells a multi-grid storyboard contains, the lower the resolution of each cell, and dense grids at lower resolution tiers will degrade downstream video quality.
 
+Groups are set by chapter breaks: turn on **Set as chapter break** in the shot details, and a new group starts at that shot. Adding, removing, and reordering shots on the timeline, as well as chapter breaks, work the same way in grid projects.
+
+After the grouping or the order within a group changes, the old multi-grid storyboard no longer matches the new group, so the group shows as not generated and needs to be regenerated. Storyboard images already split from a multi-grid storyboard are not affected and remain usable.
+
+When a few shots in a group are missing storyboard images, you can generate them one by one from the shot details instead of regenerating the whole group.
+
 #### Advantages {#grid-storyboard-pros}
 
 - Characters, scenes, and visual style are easier to keep consistent within the same multi-grid storyboard;

@@ -20,18 +20,32 @@ vi.mock("./GridPreviewView", () => ({
 vi.mock("../timeline/ShotSplitView", () => ({
   ShotSplitView: ({
     onGenerateVideo,
+    onGenerateStoryboard,
+    onMoveShot,
+    onInsertShot,
+    onRemoveShot,
     durationEndpointFixed,
   }: {
     onGenerateVideo?: (segmentId: string) => void;
+    onGenerateStoryboard?: (segmentId: string) => void;
+    onMoveShot?: (shotId: string, afterId: string | null) => Promise<boolean>;
+    onInsertShot?: (afterId: string | null) => Promise<boolean>;
+    onRemoveShot?: (itemId: string) => Promise<boolean>;
     durationEndpointFixed?: boolean;
   }) => (
-    <button
-      type="button"
-      data-duration-endpoint-fixed={durationEndpointFixed ? "yes" : "no"}
-      onClick={() => onGenerateVideo?.("SEG-1")}
-    >
-      generate-video
-    </button>
+    <>
+      <button
+        type="button"
+        data-duration-endpoint-fixed={durationEndpointFixed ? "yes" : "no"}
+        onClick={() => onGenerateVideo?.("SEG-1")}
+      >
+        generate-video
+      </button>
+      <button type="button" onClick={() => onGenerateStoryboard?.("SEG-2")}>generate-storyboard</button>
+      <button type="button" onClick={() => void onInsertShot?.("SEG-1")}>insert</button>
+      <button type="button" onClick={() => void onMoveShot?.("SEG-2", null)}>move</button>
+      <button type="button" onClick={() => void onRemoveShot?.("SEG-1")}>remove</button>
+    </>
   ),
 }));
 
@@ -111,5 +125,30 @@ describe("GridImageToVideoCanvas", () => {
     expect(screen.getByRole("button", { name: "generate-video" })).toHaveAttribute(
       "data-duration-endpoint-fixed", "yes",
     );
+  });
+
+  it("wires timeline structure edits and single storyboard generation with the canvas script file", () => {
+    const onMoveShot = vi.fn().mockResolvedValue(true);
+    const onInsertShot = vi.fn().mockResolvedValue(true);
+    const onRemoveShot = vi.fn().mockResolvedValue(true);
+    const onGenerateStoryboard = vi.fn();
+    render(
+      <GridImageToVideoCanvas
+        projectName="demo" episode={1} episodeScript={makeScript()}
+        scriptFile="scripts/episode_1.json" projectData={makeProjectData()}
+        onMoveShot={onMoveShot} onInsertShot={onInsertShot} onRemoveShot={onRemoveShot}
+        onGenerateStoryboard={onGenerateStoryboard}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "insert" }));
+    fireEvent.click(screen.getByRole("button", { name: "move" }));
+    fireEvent.click(screen.getByRole("button", { name: "remove" }));
+    fireEvent.click(screen.getByRole("button", { name: "generate-storyboard" }));
+
+    expect(onInsertShot).toHaveBeenCalledWith("SEG-1", undefined, "scripts/episode_1.json");
+    expect(onMoveShot).toHaveBeenCalledWith("SEG-2", null, "scripts/episode_1.json");
+    expect(onRemoveShot).toHaveBeenCalledWith("SEG-1", "scripts/episode_1.json");
+    expect(onGenerateStoryboard).toHaveBeenCalledWith("SEG-2", "scripts/episode_1.json");
   });
 });

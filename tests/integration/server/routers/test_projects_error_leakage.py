@@ -123,14 +123,14 @@ class TestUnexpectedErrorsDoNotLeak:
             assert resp.status_code == 500
             assert sentinel not in self._body(resp)
 
-    def test_reorder_shots_unexpected_error_maps_to_500(self, tmp_path, monkeypatch):
-        sentinel = "LEAKED_SECRET_reorder_shots"
+    def test_move_script_item_unexpected_error_maps_to_500(self, tmp_path, monkeypatch):
+        sentinel = "LEAKED_SECRET_move_script_item"
         client = build_projects_client(monkeypatch, _FakePM(tmp_path))
         monkeypatch.setattr(projects, "get_project_manager", _raise(sentinel))
         with client:
             resp = client.post(
-                "/api/v1/projects/ready/script-shots/reorder",
-                json={"script_file": "scripts/episode_1.json", "shot_ids": ["a", "b"]},
+                "/api/v1/projects/ready/script-items/a/move",
+                json={"script_file": "scripts/episode_1.json", "after_id": "b"},
             )
             assert resp.status_code == 500
             assert sentinel not in self._body(resp)
