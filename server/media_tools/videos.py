@@ -43,6 +43,7 @@ from lib.generation.generation_result import (
     record_batch_outcomes,
     select_generation_targets,
 )
+from lib.generation.video_request_facts import VideoRequestFacts, VideoRequestFactsFailure
 from lib.project.project_manager import ProjectManager, is_reference_video_project
 from lib.script.reference_video.request_projection import ReferenceRequestOptions
 from lib.script.script_models import get_generated_assets, resolve_content_mode
@@ -73,8 +74,10 @@ from server.services.admission.video_batch_admission import (
     speech_admission_ticket,
     storyboard_item_aliases,
     storyboard_item_id,
+    storyboard_video_request_facts,
     video_target_states,
 )
+from server.services.admission.video_quote import quote_sheet, quote_storyboard_video_units
 from server.tool_runtime import (
     CallerContext,
     ProjectScope,
@@ -177,6 +180,14 @@ class GenerateVideosRequest(BaseModel):
             '按 unit_id 记的档位确认（{"E1U1": 8}）；一次请求里多个 unit 档位不同时用它，'
             "让原目标集合仍作为一批重发——拆成几次调用会让先入队的那一档先花掉钱。"
             "与 confirmed_request_duration_seconds 同时给出时，本字段按 unit 覆盖。"
+            "预检结果里的同名字段可以原样传入；其中没有点名的 unit 不受影响。"
+        ),
+    )
+    preview: StrictBool = Field(
+        default=False,
+        description=(
+            "true 时只预检、不入队：按正式提交同一份准入，返回 video_quote 报价单"
+            "（逐 unit 的去向、编排时长、申请档位、是否变档、预计费用与缺口）。"
         ),
     )
 
@@ -201,6 +212,8 @@ class _VideoCall:
     scope: ProjectScope
     caller: CallerContext
     services: Services
+    #: 只预检、不入队：走到整批准入为止，把结论折成报价单返回。
+    preview: bool = False
 
     @property
     def project_name(self) -> str:
@@ -294,6 +307,32 @@ class BatchAdmissionRefused:
     admission: BatchAdmission
 
 
+@dataclass(frozen=True)
+class ReferenceGenerationPreview:
+    """预检：参考单元的整批准入结论，未入队。"""
+
+    admission: BatchAdmission
+
+
+def _preview_outcome(
+    admission: BatchAdmission | None,
+    builder: GenerationResultBuilder,
+    log: list[str],
+    *,
+    storyboard_durations: Mapping[str, object] | None = None,
+    storyboard_costs: Mapping[str, Mapping[str, object] | None] | None = None,
+) -> ToolOutcome[Any]:
+    """把预检的准入结论与复用记名折成报价单响应。"""
+
+    sheet = quote_sheet(
+        admission,
+        reused_ids=[item.unit_id for item in builder.build().skipped],
+        storyboard_durations=storyboard_durations,
+        storyboard_costs=storyboard_costs,
+    )
+    return ToolOutcome(value={"video_quote": sheet.to_payload(), "summary": sheet.summary(log)})
+
+
 def _confirmation_lines(admission: BatchAdmission) -> list[str]:
     lines = ["以下 unit 将改用不同的视频时长档位，需先向用户确认，本次未入队任何任务："]
     for tier in admission.confirmation_tiers():
@@ -377,6 +416,7 @@ async def _admit_storyboard_specs(
     operation: str,
     selection: GenerationSelectionMode,
     extra_tickets: list[UnitAdmissionTicket],
+    video_request_facts: VideoRequestFacts | VideoRequestFactsFailure | None = None,
 ) -> BatchAdmission:
     """Admit the Storyboard-mode specs.
 
@@ -397,6 +437,7 @@ async def _admit_storyboard_specs(
         user_id=call.caller.user_id,
         queue=call.services.queue,
         config_resolver=call.services.capabilities,
+        video_request_facts=video_request_facts,
     )
 
 
@@ -481,7 +522,7 @@ async def _generate_reference_units(
     operation: str,
     selection: GenerationSelectionMode,
     extra_tickets: list[UnitAdmissionTicket] | None = None,
-) -> ReferenceGenerationComplete | BatchAdmissionRefused:
+) -> ReferenceGenerationComplete | ReferenceGenerationPreview | BatchAdmissionRefused:
     """unit 批量生成的共享骨架：时长确认 + 已产出扫描 + durable 批次提交。
 
     所有创作类型的 ``video_units`` 共用同一构造路径。``build_specs`` 是本批唯一的
@@ -562,6 +603,8 @@ async def _generate_reference_units(
         queue=call.services.queue,
         config_resolver=call.services.capabilities,
     )
+    if call.preview:
+        return ReferenceGenerationPreview(admission)
     if not admission.admitted:
         return BatchAdmissionRefused(admission)
     projections = admission.projections()
@@ -648,6 +691,8 @@ async def _run_reference_batch(
         extra_tickets=extra_tickets,
         reuse_existing=lambda unit: reuse_existing(currency, unit),
     )
+    if isinstance(result, ReferenceGenerationPreview):
+        return _preview_outcome(result.admission, builder, log)
     if isinstance(result, BatchAdmissionRefused):
         return _batch_admission_response(result, log, builder, states)
     if call.caller.source == "mcp" and result.batch is not None:
@@ -911,8 +956,10 @@ class _StoryboardBatch:
     log: list[str]
 
     def result(self) -> ToolOutcome[Any]:
-        """把已记录的逐目标结论折成响应。"""
+        """把已记录的逐目标结论折成响应；预检时折成报价单。"""
 
+        if self.call.preview:
+            return _preview_outcome(None, self.builder, self.log)
         return generation_result_outcome(self.builder.build(), self.log)
 
     async def build_specs(
@@ -955,8 +1002,12 @@ class _StoryboardBatch:
         specs: list[TaskSpec],
         extra_tickets: list[UnitAdmissionTicket],
     ) -> ToolOutcome[Any]:
-        """整批准入后提交；准入未通过则零任务入队地转述拒绝。"""
+        """整批准入后提交；准入未通过则零任务入队地转述拒绝，预检则只报价。"""
 
+        # 准入与预检报价读同一份视频请求事实，两次求值之间配置一变，报价就不再是准入认的那一个。
+        facts = (
+            await storyboard_video_request_facts(self.sb.project, self.call.services.capabilities) if specs else None
+        )
         admission = await _admit_storyboard_specs(
             call=self.call,
             project=self.sb.project,
@@ -968,7 +1019,18 @@ class _StoryboardBatch:
             operation=self.operation,
             selection=self.selection,
             extra_tickets=extra_tickets,
+            video_request_facts=facts,
         )
+        if self.call.preview:
+            items_by_id = {str(storyboard_item_id(item, self.screening.id_field) or ""): item for item in items}
+            durations = {spec.resource_id: items_by_id[spec.resource_id].get("duration_seconds") for spec in specs}
+            return _preview_outcome(
+                admission,
+                self.builder,
+                self.log,
+                storyboard_durations=durations,
+                storyboard_costs=await quote_storyboard_video_units(facts, durations),
+            )
         if not admission.admitted:
             return _batch_admission_response(BatchAdmissionRefused(admission), self.log, self.builder, self.states)
 
@@ -1120,6 +1182,8 @@ async def _generate_all(call: _VideoCall, request: _VideoRequestContext, log: li
         log=log,
     )
     if not selection.targets and not unavailable_tickets and not screen_refused:
+        if call.preview:
+            return batch.result()
         submitted = await submit_media_generation(
             scope=call.scope,
             caller=call.caller,
@@ -1222,6 +1286,8 @@ async def _generate_selected(
         seen_canonical.add(canonical)
         selected.append(item)
     if not selected and not refused and not screen_refused:
+        if call.preview:
+            return _preview_outcome(None, builder, log)
         return generation_result_outcome(builder.build(), log)
 
     currency = active_artifact_currency_resolver(project_dir, sb.project)
@@ -1261,8 +1327,8 @@ async def generate_videos(
     caller: CallerContext,
     services: Services,
 ) -> ToolOutcome[GenerationToolValue]:
-    call = _VideoCall(scope=scope, caller=caller, services=services)
     args = request.value
+    call = _VideoCall(scope=scope, caller=caller, services=services, preview=args.preview)
     target = args.target
     log: list[str] = []
     try:

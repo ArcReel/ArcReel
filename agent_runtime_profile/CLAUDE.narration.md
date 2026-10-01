@@ -109,7 +109,8 @@ Agent session 的当前工作目录（cwd）已绑定到当前项目根，**所�
   ├─ dispatch → normalize-drama-script       剧情演绎规范化剧本（同时识别本集新增资产）
   ├─ dispatch → split-reference-video-units  参考生视频的视频单元拆分（同时识别本集新增资产）
   ├─ dispatch → create-episode-script        JSON 剧本生成（预加载 generate-script skill）
-  └─ dispatch → generate-assets              资产生成（角色/场景/道具/分镜/视频/旁白配音）
+  ├─ dispatch → generate-assets              资产生成（角色/场景/道具/分镜/视频/旁白配音）
+  └─ dispatch → review-footage               只读审片：看一组视频单元的联系表，回文字报告（edit-video 首轮审阅与重新生成后验收）
 ```
 
 ### Skill/Agent 边界原则

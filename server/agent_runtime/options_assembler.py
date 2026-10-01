@@ -278,6 +278,7 @@ class OptionsAssembler:
         # (step 1) fire for ALL tool calls and can override allow rules.
         hooks = None
         hook_callbacks: list[Any] = [
+            self._subagent_tool_hook,
             self._build_file_access_hook(project_cwd),
         ]
         if can_use_tool is not None:
@@ -381,6 +382,29 @@ class OptionsAssembler:
     ) -> dict[str, bool]:
         """Required keep-alive hook for Python can_use_tool callback."""
         return {"continue_": True}
+
+    async def _subagent_tool_hook(
+        self,
+        input_data: dict[str, Any],
+        _tool_use_id: str | None,
+        _context: Any,
+    ) -> dict[str, Any]:
+        """只读子智能体的工具名单（``AgentAccessPolicy.check_subagent_tool``）的 SDK 封皮。
+
+        子智能体内的工具调用在 hook 输入里带 ``agent_type``；主对话不带，不受这道名单约束。
+        """
+        deny_reason = self._access_policy_provider().check_subagent_tool(
+            input_data.get("agent_type"), str(input_data.get("tool_name") or "")
+        )
+        if deny_reason is None:
+            return {"continue_": True}
+        return {
+            "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "permissionDecision": "deny",
+                "permissionDecisionReason": deny_reason,
+            },
+        }
 
     async def _bash_env_scrub_hook(
         self,

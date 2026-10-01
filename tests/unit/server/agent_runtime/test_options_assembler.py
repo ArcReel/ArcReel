@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from pathlib import Path
 from unittest.mock import patch
 
@@ -23,6 +24,7 @@ from server.agent_runtime.options_assembler import (
     OptionsAssembler,
     load_provider_env_overrides,
 )
+from server.agent_toolset.toolset import ARCREEL_MCP_TOOL_IDS
 from server.auth import verify_token
 from tests.fakes import blocking_file_read_gate
 
@@ -165,8 +167,8 @@ async def test_build_adds_keep_alive_hook_with_can_use_tool(tmp_path: Path) -> N
 
     pre_without = without.hooks["PreToolUse"][0].hooks
     pre_with = with_cut.hooks["PreToolUse"][0].hooks
-    assert len(pre_without) == 1
-    assert len(pre_with) == 2
+    assert len(pre_without) == 2
+    assert len(pre_with) == 3
     assert pre_with[0] is assembler._keep_stream_open_hook
 
 
@@ -381,3 +383,62 @@ async def test_append_prompt_omits_user_memory_for_invalid_user_id(tmp_path: Pat
 
     assert "## 用户记忆" not in prompt
     assert "## 语言规范" in prompt
+
+
+#: 内置工具：只读三件之外，涵盖写文件、跑命令、派生子会话、联网与提问。
+_BUILTIN_TOOLS = (
+    "Read",
+    "Glob",
+    "Grep",
+    "Write",
+    "Edit",
+    "NotebookEdit",
+    "Bash",
+    "BashOutput",
+    "KillBash",
+    "Task",
+    "Agent",
+    "Skill",
+    "WebFetch",
+    "WebSearch",
+    "TodoWrite",
+    "AskUserQuestion",
+)
+
+#: 审片子智能体能调用的全部工具：只看素材、读项目文件。
+_REVIEW_FOOTAGE_TOOLS = {"Read", "Glob", "Grep", "mcp__arcreel__inspect_video_units"}
+
+
+async def _denied_by_pre_tool_use(options, tool_name: str, **context: str) -> bool:
+    """按 SDK 的做法把一次调用依次交给匹配的 PreToolUse hook，任一 hook 拒绝即拒绝。"""
+
+    payload = {"hook_event_name": "PreToolUse", "tool_name": tool_name, "tool_input": {}, **context}
+    for matcher in options.hooks["PreToolUse"]:
+        if matcher.matcher is not None and not re.fullmatch(matcher.matcher, tool_name):
+            continue
+        for hook in matcher.hooks:
+            output = await hook(payload, "toolu_1", None)
+            if (output.get("hookSpecificOutput") or {}).get("permissionDecision") == "deny":
+                return True
+    return False
+
+
+@pytest.mark.asyncio
+async def test_review_footage_subagent_cannot_call_any_tool_beyond_reading(tmp_path: Path) -> None:
+    """审片子智能体只能看素材与读文件：任何写入、命令、派生与其余 ArcReel 工具都在 PreToolUse 被拒。"""
+
+    async def fake_loader():
+        return {}
+
+    options = await _make_assembler(tmp_path, provider_env_loader=fake_loader).build("demo")
+    every_tool = [*_BUILTIN_TOOLS, *(f"mcp__arcreel__{tool_id}" for tool_id in ARCREEL_MCP_TOOL_IDS)]
+    reviewer = {"agent_type": "review-footage", "agent_id": "agent-1"}
+
+    allowed = {tool for tool in every_tool if not await _denied_by_pre_tool_use(options, tool, **reviewer)}
+
+    assert allowed == _REVIEW_FOOTAGE_TOOLS
+    for writer in ("Write", "Edit", "Bash", "mcp__arcreel__edit_timeline", "mcp__arcreel__select_video_version"):
+        assert not await _denied_by_pre_tool_use(options, writer), f"主对话的 {writer} 不受审片名单约束"
+        assert not await _denied_by_pre_tool_use(options, writer, agent_type="generate-assets", agent_id="agent-2"), (
+            f"其他子智能体的 {writer} 不受审片名单约束"
+        )
