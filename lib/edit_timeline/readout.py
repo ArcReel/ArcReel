@@ -5,12 +5,14 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict
 
 from lib.edit_timeline.model import (
+    VOICEOVER_SOURCE_VOLUME,
     EditClip,
     EditTimelineDocument,
     TimelineRevision,
@@ -39,6 +41,9 @@ class IssueCode(StrEnum):
     UNIT_UNUSED = "unit_unused"
     VIDEO_MISSING = "video_missing"
     HOLD_TOO_LONG = "hold_too_long"
+    NARRATION_MISSING = "narration_missing"
+    NARRATION_OVERRUN = "narration_overrun"
+    NARRATION_SOURCE_COLLISION = "narration_source_collision"
 
 
 ISSUE_LEVELS: dict[IssueCode, tuple[IssueSeverity, IssueScope]] = {
@@ -47,6 +52,9 @@ ISSUE_LEVELS: dict[IssueCode, tuple[IssueSeverity, IssueScope]] = {
     IssueCode.UNIT_UNUSED: (IssueSeverity.INFO, IssueScope.ALL),
     IssueCode.VIDEO_MISSING: (IssueSeverity.BLOCKING, IssueScope.ALL),
     IssueCode.HOLD_TOO_LONG: (IssueSeverity.WARNING, IssueScope.ALL),
+    IssueCode.NARRATION_MISSING: (IssueSeverity.BLOCKING, IssueScope.WITH_NARRATION),
+    IssueCode.NARRATION_OVERRUN: (IssueSeverity.WARNING, IssueScope.WITH_NARRATION),
+    IssueCode.NARRATION_SOURCE_COLLISION: (IssueSeverity.WARNING, IssueScope.ALL),
 }
 """每种 issue 的固定级别与影响范围；读取结果与出片前的阻断检查共用这张表。"""
 
@@ -270,14 +278,105 @@ def _structural_issues(revision: TimelineRevision, sources: EpisodeSources) -> l
     return issues
 
 
+@dataclass(frozen=True, slots=True)
+class _Placed:
+    clip: EditClip
+    start_us: int
+    duration_us: int
+
+
+@dataclass(frozen=True, slots=True)
+class _Narration:
+    carrier: _Placed
+    position: int
+    end_us: int
+
+
+def _narration_issues(placed: list[_Placed], sources: EpisodeSources, total_us: int) -> list[TimelineIssue]:
+    """旁白配音缺失、越界与可能与原声相撞；只在 TTS 配音项目里检查。
+
+    旁白从承载片段的起点开始，按配音实测时长延伸，可以覆盖后续片段。越界指与下一段旁白重叠或超出时间线末尾；
+    相撞指旁白延伸到台词单位的片段，或原声音量高于画外音默认值的片段上。
+    """
+    if not sources.tts_narration:
+        return []
+    issues: list[TimelineIssue] = []
+    narrations: list[_Narration] = []
+    for position, item in enumerate(placed):
+        clip = item.clip
+        unit = sources.unit(clip.unit_id)
+        media = sources.media.get(clip.unit_id)
+        if not clip.carries_narration or unit is None or media is None:
+            continue
+        if unit.speech_mode is not SpeechMode.NARRATOR_VOICEOVER:
+            continue
+        if media.narration_duration_us is None:
+            issues.append(timeline_issue(IssueCode.NARRATION_MISSING, clip_ids=(clip.id,), unit_id=clip.unit_id))
+            continue
+        narrations.append(_Narration(item, position, item.start_us + media.narration_duration_us))
+    for index, narration in enumerate(narrations):
+        carrier = narration.carrier.clip
+        following = narrations[index + 1] if index + 1 < len(narrations) else None
+        if following is not None and narration.end_us > following.carrier.start_us:
+            overlap_us = min(narration.end_us, following.end_us) - following.carrier.start_us
+            issues.append(
+                timeline_issue(
+                    IssueCode.NARRATION_OVERRUN,
+                    clip_ids=(carrier.id, following.carrier.clip.id),
+                    unit_id=carrier.unit_id,
+                    cause="next_narration",
+                    next_unit_id=following.carrier.clip.unit_id,
+                    overlap=microseconds_to_seconds(overlap_us),
+                )
+            )
+        if narration.end_us > total_us:
+            issues.append(
+                timeline_issue(
+                    IssueCode.NARRATION_OVERRUN,
+                    clip_ids=(carrier.id,),
+                    unit_id=carrier.unit_id,
+                    cause="timeline_end",
+                    overflow=microseconds_to_seconds(narration.end_us - total_us),
+                )
+            )
+        for item in placed[narration.position + 1 :]:
+            if item.start_us >= narration.end_us:
+                break
+            unit = sources.unit(item.clip.unit_id)
+            if item.duration_us == 0 or unit is None:
+                continue
+            if unit.speech_mode is SpeechMode.CHARACTER_SPEECH:
+                cause = "dialogue"
+            elif item.clip.source_volume > VOICEOVER_SOURCE_VOLUME:
+                cause = "source_volume"
+            else:
+                continue
+            issues.append(
+                timeline_issue(
+                    IssueCode.NARRATION_SOURCE_COLLISION,
+                    clip_ids=(carrier.id, item.clip.id),
+                    unit_id=carrier.unit_id,
+                    cause=cause,
+                    other_unit_id=item.clip.unit_id,
+                    source_volume=item.clip.source_volume,
+                    overlap=microseconds_to_seconds(
+                        min(narration.end_us, item.start_us + item.duration_us) - item.start_us
+                    ),
+                )
+            )
+    return issues
+
+
 def project_readout(
     document: EditTimelineDocument, revision: TimelineRevision, sources: EpisodeSources
 ) -> EditTimelineReadout:
     clips: list[ClipView] = []
+    placed: list[_Placed] = []
     cursor_us = 0
     for clip in revision.content.clips:
         view, duration_us = _clip_view(clip, sources, cursor_us)
         clips.append(view)
+        placed.append(_Placed(clip, cursor_us, duration_us))
         cursor_us += duration_us
     bgm = tuple(
         BgmView(
@@ -299,7 +398,7 @@ def project_readout(
         duration=microseconds_to_seconds(cursor_us),
         clips=tuple(clips),
         bgm=bgm,
-        issues=tuple(_structural_issues(revision, sources)),
+        issues=(*_structural_issues(revision, sources), *_narration_issues(placed, sources, cursor_us)),
     )
 
 

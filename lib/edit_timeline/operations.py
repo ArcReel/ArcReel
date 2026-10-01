@@ -5,7 +5,7 @@
 
 插入、删除、移动会改变相邻关系：前后相邻片段变了的切点一律恢复硬切（清掉前一片段上的
 ``transition_to_next``），需要时在同一批里随后重新设置。旁白承载片段被删除时，旁白改挂到该
-视频单元剩下的第一个片段上。
+视频单元剩下的第一个片段上；旁白落点把旁白改挂到同一视频单元的指定片段上。
 """
 
 from __future__ import annotations
@@ -119,8 +119,15 @@ class SetTransition(_Operation):
     transition: TransitionSpec | None = Field(description="到下一片段的转场；null 表示恢复硬切")
 
 
+class PlaceNarration(_Operation):
+    op: Literal["place_narration"]
+    clip: str = Field(
+        min_length=1, description="承载旁白的剪辑片段 ID；须是画外音单位的片段，同一视频单元原先承载旁白的片段随之卸下"
+    )
+
+
 type TimelineOperation = Annotated[
-    InsertClip | DeleteClip | MoveClip | SetTrim | SetVolume | SetHold | SetReason | SetTransition,
+    InsertClip | DeleteClip | MoveClip | SetTrim | SetVolume | SetHold | SetReason | SetTransition | PlaceNarration,
     Field(discriminator="op"),
 ]
 
@@ -340,6 +347,8 @@ class _Batch:
                 transition = self._transition(index, clip_id, spec)
                 self._require_next(index, position, transition)
                 self._replace(index, position, transition_to_next=transition)
+            case PlaceNarration():
+                self._place_narration(index, operation)
 
     def _insert(self, index: int, operation: InsertClip) -> None:
         unit = self.sources.unit(operation.unit_id)
@@ -371,6 +380,23 @@ class _Batch:
         self.next_clip_number += 1
         self._require_next(index, position, clip.transition_to_next)
         self._reset_broken_cuts(index, before)
+
+    def _place_narration(self, index: int, operation: PlaceNarration) -> None:
+        position = self._position(index, operation.clip)
+        unit_id = self.clips[position].unit_id
+        unit = self.sources.unit(unit_id)
+        if unit is None or unit.speech_mode is not SpeechMode.NARRATOR_VOICEOVER:
+            raise _invalid(
+                index,
+                f"视频单元 {unit_id} 不是脚本里的画外音单位，没有旁白可挂",
+                clip_id=operation.clip,
+                field="clip",
+                allowed="画外音单位的剪辑片段",
+            )
+        for other, clip in enumerate(self.clips):
+            if clip.unit_id == unit_id and other != position:
+                self._replace(index, other, carries_narration=False)
+        self._replace(index, position, carries_narration=True)
 
     def _delete(self, index: int, operation: DeleteClip) -> None:
         position = self._position(index, operation.clip)
@@ -528,6 +554,7 @@ __all__ = [
     "DeleteClip",
     "InsertClip",
     "MoveClip",
+    "PlaceNarration",
     "SetHold",
     "SetReason",
     "SetTransition",

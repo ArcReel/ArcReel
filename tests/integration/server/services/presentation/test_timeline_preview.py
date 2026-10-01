@@ -35,10 +35,10 @@ async def test_tts_project_previews_narration_audio_and_subtitles_that_follow_it
     media = await TimelinePreviewService(pm).media("demo", timeline_id)
 
     assert (media.timeline_id, media.revision, media.narration) == (timeline_id, 2, "with_narration")
-    # S01 带旁白：字幕从旁白起点算起、按旁白时长分布；S02 没有旁白配音，字幕按视频源素材时间
+    # 字幕从旁白起点算起、按旁白时长分布；S02 的旁白比视频长，字幕照样覆盖整段旁白
     assert _rows(media) == [
         ("E1S01", {"path": "audio/segment_E1S01.wav", "version": 1}, True, [("旁白一句", 0.0, 1.2)]),
-        ("E1S02", None, False, [("第二段", 0.0, 1.5)]),
+        ("E1S02", {"path": "audio/segment_E1S02.wav", "version": 1}, True, [("第二段", 0.0, 2.0)]),
     ]
 
 

@@ -154,6 +154,57 @@ describe("EditTimelineView", () => {
     expect(inspector).toHaveTextContent("保留推门动作");
   });
 
+  it("words each narration issue by its cause", async () => {
+    vi.spyOn(API, "listEditTimelines").mockResolvedValue({
+      timelines: [summary("tl-00000002", "初剪", "2026-09-30T10:00:00Z", 3)],
+    });
+    vi.spyOn(API, "getEditTimeline").mockResolvedValue({
+      ...INITIAL_CUT,
+      issues: [
+        {
+          code: "narration_overrun",
+          severity: "warning",
+          applies_to: "with_narration",
+          clip_ids: ["c1", "c3"],
+          unit_id: "E1U1",
+          params: { cause: "next_narration", next_unit_id: "E1U3", overlap: 0.5 },
+        },
+        {
+          code: "narration_overrun",
+          severity: "warning",
+          applies_to: "with_narration",
+          clip_ids: ["c3"],
+          unit_id: "E1U3",
+          params: { cause: "timeline_end", overflow: 1.2 },
+        },
+        {
+          code: "narration_source_collision",
+          severity: "warning",
+          applies_to: "all",
+          clip_ids: ["c1", "c3"],
+          unit_id: "E1U1",
+          params: { cause: "dialogue", other_unit_id: "E1U3", source_volume: 1, overlap: 0.8 },
+        },
+        {
+          code: "narration_missing",
+          severity: "blocking",
+          applies_to: "with_narration",
+          clip_ids: ["c3"],
+          unit_id: "E1U3",
+          params: {},
+        },
+      ],
+    });
+
+    renderView();
+
+    const issues = (await screen.findByRole("heading", { name: "问题（4）" })).parentElement as HTMLElement;
+    expect(within(issues).getByText("c1、c3：旁白与下一段旁白重叠 0.5s")).toBeInTheDocument();
+    expect(within(issues).getByText("c3：旁白超出时间线末尾 1.2s")).toBeInTheDocument();
+    expect(within(issues).getByText("c1、c3：旁白延伸到台词片段上 0.8s，可能与原声相撞")).toBeInTheDocument();
+    expect(within(issues).getByText("c3：视频单元 U3 还没有旁白配音，带旁白版本无法出片")).toBeInTheDocument();
+  });
+
   it("shows the new revision after the project reports a change", async () => {
     const list = vi
       .spyOn(API, "listEditTimelines")

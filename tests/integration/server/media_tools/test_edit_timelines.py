@@ -11,6 +11,7 @@ from lib.db.base import DEFAULT_USER_ID
 from lib.project.project_manager import ProjectManager
 from server.agent_toolset.edit_timelines import (
     CREATE_TIMELINE,
+    EDIT_TIMELINE,
     LIST_REVISIONS,
     LIST_TIMELINES,
     RENAME_TIMELINE,
@@ -121,3 +122,43 @@ async def test_rename_list_revisions_and_restore_through_the_tools(harness: Tool
     ]
     assert unchanged.problem is not None
     assert unchanged.problem.code == "revision_unchanged"
+
+
+async def test_place_narration_moves_the_carrier_through_the_edit_tool(tmp_path: Path) -> None:
+    pm = ProjectManager(tmp_path)
+    pm.create_project("demo")
+    pm.create_project_metadata("demo", "Demo", "Anime", "narration")
+    segments = [
+        {
+            "segment_id": segment_id,
+            "novel_text": text,
+            "duration_seconds": 4,
+            "characters_in_segment": [],
+            "video_prompt": "Clouds move",
+        }
+        for segment_id, text in (("E1S01", "风起了"), ("E1S02", "雨停了"))
+    ]
+    pm.save_script(
+        "demo", {"episode": 1, "title": "E1", "content_mode": "narration", "segments": segments}, "episode_1.json"
+    )
+    harness = ToolHarness("demo", tmp_path, pm, caller=CallerContext(user_id=DEFAULT_USER_ID, source="mcp"))
+    created = await run_declared_tool(CREATE_TIMELINE, harness, {"from": "script", "episode": 1, "name": "完整版"})
+    assert created.value is not None
+
+    edited = await run_declared_tool(
+        EDIT_TIMELINE,
+        harness,
+        {
+            "timeline": created.value.timeline.id,
+            "base_revision": 1,
+            "summary": "旁白改挂到补插的镜头上",
+            "operations": [
+                {"op": "insert", "unit_id": "E1S01", "after": "c2"},
+                {"op": "place_narration", "clip": "c3"},
+            ],
+        },
+    )
+
+    assert edited.problem is None
+    assert edited.value is not None
+    assert [(clip.id, clip.carries_narration) for clip in edited.value.clips] == [("c1", False), ("c3", True)]

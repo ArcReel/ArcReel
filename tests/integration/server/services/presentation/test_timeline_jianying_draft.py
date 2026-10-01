@@ -95,9 +95,13 @@ async def test_with_narration_draft_maps_trim_volume_hold_narration_and_subtitle
 
     narration = _track(content, "audio", "旁白")["segments"]
     audios = _materials(content, "audios")
-    assert [_timing(segment) for segment in narration] == [(0, 1_200_000)]
+    # S02 的 2 秒旁白比 1.5 秒的视频长，照常导出，超出时间线末尾的部分截掉，并以警告报出
+    assert [_timing(segment) for segment in narration] == [(0, 1_200_000), (1_500_000, 1_500_000)]
     assert audios[narration[0]["material_id"]]["path"].startswith(PLACEHOLDER)
-    # S01 的字幕跟随旁白；S02 没有旁白配音，按源素材时间保留
+    assert [(issue.code, issue.clip_ids, issue.params) for issue in result.warnings] == [
+        ("narration_overrun", ("c2",), {"cause": "timeline_end", "overflow": 0.5})
+    ]
+    # 字幕跟随旁白，同样截到时间线末尾
     assert _subtitles(content) == [
         ("旁白一句", 0, 1_200_000, "7265596643066516029"),
         ("第二段", 1_500_000, 1_500_000, "7265596643066516029"),
@@ -142,7 +146,7 @@ async def test_download_substitutes_local_draft_directory_and_jianying_version(t
                 names = set(archive.namelist())
                 content = json.loads(archive.read(f"{name}/{content_name}"))
             paths = [material["path"] for group in ("videos", "audios") for material in content["materials"][group]]
-            assert len(paths) == 4
+            assert len(paths) == 5
             assert all(path.startswith(assets_dir) for path in paths)
             assert {f"{name}/assets/{path.removeprefix(assets_dir)}" for path in paths} <= names
             assert f"{name}/draft_meta_info.json" in names
@@ -238,6 +242,30 @@ async def test_export_is_refused_on_blocking_issues_and_unavailable_narration_va
         ("video_missing", "E1S03")
     ]
     assert not (project_path / "renders" / "episode_1" / blocked_id).exists()
+
+
+async def test_missing_narration_audio_blocks_only_the_narrated_draft(tmp_path: Path) -> None:
+    pm, project_path = setup_project(tmp_path)
+    script_path = project_path / "scripts" / "episode_1.json"
+    script = json.loads(script_path.read_text(encoding="utf-8"))
+    third = narration_segment("E1S03", "还没有配音")
+    script["segments"].append(third)
+    write_json(script_path, script)
+    install_video(project_path, third, 1.0)
+    timeline_id = (
+        await EditTimelineService(pm).create_from_script("demo", episode=1, name="新版", author=CREATOR)
+    ).timeline.id
+    service = TimelineJianyingDraftService(pm)
+
+    with pytest.raises(JianyingDraftError) as blocked:
+        await service.check("demo", timeline_id, narration="with_narration")
+    assert blocked.value.code == "jianying_draft_blocked"
+    assert [(issue["code"], issue["unit_id"]) for issue in blocked.value.params["issues"]] == [
+        ("narration_missing", "E1S03")
+    ]
+
+    result = await service.render("demo", timeline_id, narration="without_narration")
+    assert result.artifact_path.endswith("jianying_draft.without_narration.zip")
 
 
 def _transitions(content: dict[str, Any]) -> list[tuple[int, int, str, int, bool, str]]:

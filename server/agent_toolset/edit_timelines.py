@@ -74,6 +74,10 @@ READ_TIMELINE = ToolDeclaration(
         "video_missing 视频单元还没有可用视频；unit_deleted 片段引用的视频单元已从脚本删除；"
         "unit_unused 脚本里的视频单元没进这条时间线；trim_ignored 截取所依据的视频版本已不是 current，"
         "渲染时暂用完整视频；hold_too_long 单个片段的定格延长超过 2 秒。"
+        "旁白相关的三种只在 TTS 配音项目里报告：narration_missing 画外音单位还没有旁白配音（blocking，只阻断带旁白版本）；"
+        "narration_overrun 旁白压到下一段旁白上（params.cause=next_narration，clip_ids 为两个承载片段）"
+        "或超出时间线末尾（cause=timeline_end）；narration_source_collision 旁白延伸到台词片段（cause=dialogue）"
+        "或原声音量高于 0.3 的片段（cause=source_volume）上，clip_ids 为承载片段与被覆盖的片段。"
     ),
     request_model=ReadTimelineRequest,
     migration=BLOCKED,
@@ -94,12 +98,13 @@ EDIT_TIMELINE = ToolDeclaration(
         "操作：insert 新建片段，ID 由服务端分配并在结果里返回，同一视频单元可以插入多次，"
         "未给 source_volume 时画外音单位 0.3、台词与无人声单位 1.0；delete；move；"
         "set_trim 按 current 视频版本设置入出点，换版本后截取作废、暂用完整视频；set_volume；set_hold；"
-        "set_reason；set_transition。时间一律以秒为单位，最多三位小数，结果里是服务端规整后的值。"
+        "set_reason；set_transition；place_narration。时间一律以秒为单位，最多三位小数，结果里是服务端规整后的值。"
         "转场挂在前一片段上，表示到下一片段的转场，不改变总时长：窗口以切点为中心、前后各占一半，"
         "一个片段两侧转场的时长之和不能超过它时长的两倍。insert、delete、move 让相邻关系变了的切点一律恢复硬切，"
         "包括被移动片段自己的转场；需要时在同一批里随后重新 set_transition。"
-        "一个视频单元的旁白只挂在它的一个片段上：插入的片段在该单元还没有承载旁白的片段时承载旁白；"
-        "删除承载片段时，旁白改挂到该单元剩下的第一个片段上。"
+        "一个视频单元的旁白只挂在它的一个片段上，从该片段起点开始，按配音实测时长播放，可以延伸到后续片段上："
+        "插入的片段在该单元还没有承载旁白的片段时承载旁白；删除承载片段时，旁白改挂到该单元剩下的第一个片段上；"
+        "place_narration 把旁白改挂到画外音单位的指定片段上，同一单元原先的承载片段随之卸下。"
         "结果只含新 revision、一行确认 message、受影响片段的新状态 clips（字段同 read_timeline）、"
         "deleted_clip_ids、总时长 duration 与更新后的 issues，不返回整份时间线。"
     ),

@@ -129,7 +129,7 @@ def install_narration(project_path: Path, item: dict[str, Any], seconds: float) 
 
 
 def setup_project(tmp_path: Path, *, narration_delivery: str = "use_tts") -> tuple[ProjectManager, Path]:
-    """两个画外音分镜：S01 视频 2 秒、带 1.2 秒旁白配音，S02 视频 1.5 秒、没有旁白配音。"""
+    """两个画外音分镜：S01 视频 2 秒、带 1.2 秒旁白配音，S02 视频 1.5 秒、带比视频长的 2 秒旁白配音。"""
     project_path = tmp_path / "projects" / "demo"
     first, second = narration_segment("E1S01", "旁白一句"), narration_segment("E1S02", "第二段")
     write_json(
@@ -157,6 +157,7 @@ def setup_project(tmp_path: Path, *, narration_delivery: str = "use_tts") -> tup
     install_video(project_path, first, 2.0)
     install_video(project_path, second, 1.5)
     install_narration(project_path, first, 1.2)
+    install_narration(project_path, second, 2.0)
     return ProjectManager(tmp_path), project_path
 
 

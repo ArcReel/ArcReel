@@ -85,7 +85,10 @@ export type EditTimelineIssueCode =
   | "unit_deleted"
   | "unit_unused"
   | "video_missing"
-  | "hold_too_long";
+  | "hold_too_long"
+  | "narration_missing"
+  | "narration_overrun"
+  | "narration_source_collision";
 
 export interface EditTimelineIssue {
   code: EditTimelineIssueCode;
