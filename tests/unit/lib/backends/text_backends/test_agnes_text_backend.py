@@ -8,14 +8,14 @@ AgnesTextBackend 复用 OpenAITextBackend 的原生 + Instructor 降级流水线
 from __future__ import annotations
 
 import json
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from pydantic import BaseModel
 
 from lib.backends.providers import PROVIDER_AGNES
 from lib.backends.text_backends.base import TextCapability, TextGenerationRequest
-from tests.fakes import captured_openai_clients
+from tests.fakes import captured_openai_clients, patched_instructor_from_openai
 
 
 def _make_mock_response(content="Hello", input_tokens=10, output_tokens=5):
@@ -130,7 +130,7 @@ class TestGenerate:
 
         with (
             captured_openai_clients(mock_client),
-            patch("instructor.from_openai") as from_openai,
+            patched_instructor_from_openai() as from_openai,
         ):
             from lib.backends.text_backends.agnes import AgnesTextBackend
 
@@ -163,7 +163,7 @@ class TestGenerate:
 
         with (
             captured_openai_clients(mock_client),
-            patch("instructor.from_openai", return_value=mock_patched),
+            patched_instructor_from_openai(return_value=mock_patched),
         ):
             from lib.backends.text_backends.agnes import AgnesTextBackend
 

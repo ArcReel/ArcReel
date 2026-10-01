@@ -18,7 +18,12 @@ from lib.backends.text_backends.base import (
     TextCapability,
     TextGenerationRequest,
 )
-from tests.fakes import bounded_poll_clock, captured_openai_clients, instructor_api_call_exhausted
+from tests.fakes import (
+    bounded_poll_clock,
+    captured_openai_clients,
+    instructor_api_call_exhausted,
+    patched_instructor_from_openai,
+)
 
 
 def _make_mock_response(content="Hello", input_tokens=10, output_tokens=5):
@@ -213,7 +218,7 @@ class TestInstructorFallback:
 
         with (
             captured_openai_clients(mock_client),
-            patch("instructor.from_openai") as from_openai,
+            patched_instructor_from_openai() as from_openai,
         ):
             from lib.backends.text_backends.openai import OpenAITextBackend
 
@@ -237,7 +242,7 @@ class TestInstructorFallback:
 
         with (
             captured_openai_clients(mock_client),
-            patch("instructor.from_openai") as from_openai,
+            patched_instructor_from_openai() as from_openai,
         ):
             from lib.backends.text_backends.openai import OpenAITextBackend
 
@@ -286,7 +291,7 @@ class TestInstructorFallback:
 
         with (
             captured_openai_clients(mock_client),
-            patch("instructor.from_openai", return_value=mock_patched),
+            patched_instructor_from_openai(return_value=mock_patched),
             caplog.at_level(logging.WARNING, logger="lib.backends.text_backends.openai"),
         ):
             from lib.backends.text_backends.openai import OpenAITextBackend
@@ -322,7 +327,7 @@ class TestInstructorFallback:
 
         with (
             captured_openai_clients(mock_client),
-            patch("instructor.from_openai", return_value=mock_patched) as from_openai,
+            patched_instructor_from_openai(return_value=mock_patched) as from_openai,
         ):
             from lib.backends.text_backends.openai import OpenAITextBackend
 
@@ -366,7 +371,7 @@ class TestInstructorFallback:
 
         with (
             captured_openai_clients(mock_client),
-            patch("instructor.from_openai", return_value=mock_patched),
+            patched_instructor_from_openai(return_value=mock_patched),
         ):
             from lib.backends.text_backends.openai import OpenAITextBackend
 
@@ -405,7 +410,7 @@ class TestInstructorFallback:
 
         with (
             captured_openai_clients(mock_client),
-            patch("instructor.from_openai", return_value=mock_patched),
+            patched_instructor_from_openai(return_value=mock_patched),
         ):
             from lib.backends.text_backends.openai import OpenAITextBackend
 
@@ -441,7 +446,7 @@ class TestInstructorFallback:
 
         with (
             captured_openai_clients(mock_client),
-            patch("instructor.from_openai", return_value=mock_patched),
+            patched_instructor_from_openai(return_value=mock_patched),
         ):
             from lib.backends.text_backends.openai import OpenAITextBackend
 
@@ -468,7 +473,7 @@ class TestInstructorFallback:
 
         with (
             captured_openai_clients(mock_client),
-            patch("instructor.from_openai") as from_openai,
+            patched_instructor_from_openai() as from_openai,
         ):
             from lib.backends.text_backends.openai import OpenAITextBackend
 
@@ -503,7 +508,7 @@ class TestInstructorFallback:
 
         with (
             captured_openai_clients(mock_client),
-            patch("instructor.from_openai", return_value=mock_patched) as from_openai,
+            patched_instructor_from_openai(return_value=mock_patched) as from_openai,
         ):
             from lib.backends.text_backends.openai import OpenAITextBackend
 
@@ -540,7 +545,7 @@ class TestInstructorFallback:
 
         with (
             captured_openai_clients(mock_client),
-            patch("instructor.from_openai", return_value=mock_patched) as mock_from_openai,
+            patched_instructor_from_openai(return_value=mock_patched) as mock_from_openai,
         ):
             from lib.backends.text_backends.openai import OpenAITextBackend
 
@@ -571,7 +576,7 @@ class TestInstructorFallback:
 
         with (
             captured_openai_clients(mock_client),
-            patch("instructor.from_openai", side_effect=[tools_patched, md_json_patched]) as mock_from_openai,
+            patched_instructor_from_openai(side_effect=[tools_patched, md_json_patched]) as mock_from_openai,
         ):
             from lib.backends.text_backends.openai import OpenAITextBackend
 
@@ -789,7 +794,7 @@ class TestMaxOutputTokens:
 
         with (
             captured_openai_clients(mock_client),
-            patch("instructor.from_openai", return_value=mock_patched),
+            patched_instructor_from_openai(return_value=mock_patched),
         ):
             from lib.backends.text_backends.openai import OpenAITextBackend
 

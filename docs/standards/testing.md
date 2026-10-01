@@ -9,7 +9,7 @@ paths:
 
 # 测试
 
-结构类规则（零断言、只断言替身、patch 私有符号、conftest 结构、文件命名与体量、同文件重复用例）由 `scripts/audit_tests.py --check` 强制，命中时它给出修复指引；这里只收它判不了的部分。
+结构类规则（零断言、只断言替身、patch 私有符号、conftest 结构、同一 patch 目标散落多文件、`fakes` / `factories` 的符号使用面、文件命名与体量、同文件重复用例）由 `scripts/audit_tests.py --check` 强制，命中时它给出修复指引；这里只收它判不了的部分。
 
 ## 分档与位置
 
@@ -49,9 +49,9 @@ seam 是构造参数或关键字参数，带生产默认值，不改变生产行
 
 respx 保留真实 httpx 客户端、在 transport 层拦截（`AsyncOpenAI` 的流量同样被捕获），断言的是真实序列化后的请求。路由依赖用 `app.dependency_overrides` 替换，不 patch。
 
-### 同一 patch 目标出现在 3 个以上测试文件时，收编为共享 fixture 或 helper
+### 同一个替身目标在多个文件各自 monkeypatch，收编为共享 fixture
 
-各文件各自 patch 同一个目标，说明这里缺一个共享替身或一个 seam。`tests/fakes.py`、`tests/factories.py` 与专题共享模块的公开符号要被至少 2 个测试文件使用，只有一个文件用的移回该文件。
+`patch` / `patch.object` 的散落由闸门判定；`monkeypatch.setattr` 同一目标出现在 3 个以上测试文件时同样说明缺一个共享 fixture 或 seam，review 时按同一标准要求收编。专题共享模块（如 `tests/auth_deps.py`、各目录的 `*_support.py`）的公开符号应被多个测试文件使用，只服务一个文件的 helper 放回该文件。
 
 ### 前端 API 打桩边界是 `vi.spyOn(API, method)`
 
