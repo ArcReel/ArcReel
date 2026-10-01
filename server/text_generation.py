@@ -33,6 +33,7 @@ from lib.episode.episode_paths import (
     episode_source_relpath,
 )
 from lib.episode.episode_sources import episode_entry
+from lib.episode.source_kinds import DEFAULT_SOURCE_KIND
 from lib.generation.video_request_facts import (
     VideoRequestFacts,
     VideoRequestFactsError,
@@ -1520,7 +1521,7 @@ async def generate_reference_script_plan(
             max_reference_images=split_caps.max_refs,
             default_duration=split_caps.default_duration,
             episode=episode,
-            source_kind=cast(str | None, prompt_inputs["source_kind"]) or "novel",
+            source_kind=cast(str | None, prompt_inputs["source_kind"]) or DEFAULT_SOURCE_KIND,
             target_language=cast(str, prompt_inputs["target_language"]),
             source_language=cast(str | None, prompt_inputs["source_language"]),
             speech_rate_override=cast(float | None, prompt_inputs["speech_rate_override"]),

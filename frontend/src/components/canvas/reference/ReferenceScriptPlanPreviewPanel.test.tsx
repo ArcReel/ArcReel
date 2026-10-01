@@ -255,6 +255,25 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
     );
   });
 
+  it.each([
+    ["register", false],
+    ["skip", true],
+  ] as const)("judges the scene reference with a new scene decided as %s", async (decision, warns) => {
+    const state = pendingState();
+    state.content = {
+      units: [{ unit_id: "E1U01", text: "@[阿离] 推门走进 @[酒馆]。", duration_seconds: 8, source_text: "阿离推门。" }],
+      new_assets: [
+        { type: "scene", name: "酒馆", decision, reason: "", description: "", aliases: [], target: "", asset_name: "" },
+      ],
+    };
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(state);
+
+    render(<ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
+
+    await waitFor(() => expect(screen.getByText("本集新增资产")).toBeInTheDocument());
+    expect(screen.queryByText("本单元未引用场景，画面地点将由模型自由决定") !== null).toBe(warns);
+  });
+
   it("stays silent about scenes when the project registers none", async () => {
     const state = pendingState();
     state.content = { units: [{ unit_id: "E1U01", text: "@[阿离] 推门。", duration_seconds: 8, source_text: "阿离推门。" }] };

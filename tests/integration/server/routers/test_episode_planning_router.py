@@ -39,4 +39,8 @@ def test_instructions_are_the_only_accepted_field(planning_client: TestClient) -
     with planning_client:
         resp = planning_client.post("/api/v1/projects/demo/episode-planning", json={"continue_to_end": False})
 
+    # 请求体校验在准入之前：detail 是逐字段的校验错误列表，不是准入拒绝的文案
     assert resp.status_code == 422
+    detail = resp.json()["detail"]
+    assert isinstance(detail, list)
+    assert any("continue_to_end" in item["loc"] for item in detail)

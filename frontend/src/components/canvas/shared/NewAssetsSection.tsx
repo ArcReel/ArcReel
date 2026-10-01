@@ -26,7 +26,7 @@ interface NewAssetsSectionProps {
 }
 
 /**
- * 草稿里的 `new_assets` 可能被 Agent 改坏：缺键时视为没有新增项，形状不对时返回 false，由调用方
+ * 草稿里的 `new_assets` 可能被 Agent 改坏：缺键时视为没有新增项，形状或取值不对时返回 false，由调用方
  * 退回只读呈现。
  */
 export function hasValidNewAssets(content: Record<string, unknown> | null): boolean {
@@ -40,7 +40,9 @@ export function hasValidNewAssets(content: Record<string, unknown> | null): bool
       return (
         typeof v.name === "string" &&
         typeof v.type === "string" &&
+        Object.hasOwn(BUCKET, v.type) &&
         typeof v.decision === "string" &&
+        (DECISIONS as readonly string[]).includes(v.decision) &&
         typeof v.reason === "string" &&
         typeof v.description === "string" &&
         typeof v.target === "string" &&

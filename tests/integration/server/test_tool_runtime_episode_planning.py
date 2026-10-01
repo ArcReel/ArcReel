@@ -209,6 +209,28 @@ async def test_stop_keeps_finished_windows_and_the_next_run_resumes_from_the_cur
     assert _titles(projects) == ["第1集", "第2集", "第3集"]
 
 
+async def test_stop_during_a_capped_final_window_does_not_queue_another(
+    planning, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    projects, services, session_factory = planning
+    # 整本源文落在一个窗口里、每批只够一集：下一窗要等模型返回后才知道要不要排，停止时还没有可取消的窗口
+    generator = _Generator(hold=True, max_output_tokens=400)
+    _use_generator(monkeypatch, generator, window_chars=len("".join(_CHAPTERS)))
+    await start_episode_planning(ToolRequest(PlanEpisodesRequest()), _scope(projects), _WEB, services)
+    await asyncio.wait_for(generator.started.wait(), timeout=5)
+
+    stopped = await stop_episode_planning(_scope(projects), _WEB, services)
+    generator.release.set()
+
+    assert stopped.cancelled == []
+    assert len(stopped.running) == 1
+    tasks = await _wait_until_idle(session_factory)
+    await asyncio.sleep(0.1)
+    assert [task.status for task in await _planning_tasks(session_factory)] == ["succeeded"]
+    assert [task.task_id for task in tasks] == stopped.running
+    assert _titles(projects) == ["第1集"]
+
+
 async def test_a_running_web_planning_refuses_another_planning_request(
     planning, monkeypatch: pytest.MonkeyPatch
 ) -> None:
