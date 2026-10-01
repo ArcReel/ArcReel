@@ -3112,6 +3112,7 @@ export default {
   'edit_view_track_bgm': 'BGM',
   'edit_view_narration_title': 'Thuyết minh của {{unit}}, gắn vào {{clip}}: {{start}}–{{end}}s',
   'edit_view_narration_missing': '{{unit}} chưa có âm thanh thuyết minh, gắn vào {{clip}}',
+  'edit_view_narration_post_production': 'Thuyết minh của {{unit}} được lồng tiếng ở khâu hậu kỳ nên bản xem trước không phát tiếng, gắn vào {{clip}}',
   'edit_view_bgm_title': '{{bgm}}: {{start}}–{{end}}s, âm lượng {{volume}}, tăng dần {{fadeIn}}s, giảm dần {{fadeOut}}s',
   'edit_view_bgm_upload': 'Tải lên BGM',
   'edit_view_bgm_uploading': 'Đang tải lên BGM…',

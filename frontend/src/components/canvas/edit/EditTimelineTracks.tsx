@@ -357,7 +357,10 @@ function ClipBlock({ clip, left, width, selected, active, trimIgnored, onSelect 
   );
 }
 
-/** 旁白按实际起止画在轨上，可以越过承载片段；重叠的旁白分两行。没有旁白配音的按承载片段占位，画成虚线。 */
+/**
+ * 旁白按实际起止画在轨上，可以越过承载片段；重叠的旁白分两行。TTS 项目没有旁白配音的按承载片段占位，画成虚线；
+ * 后期配音项目的旁白画成中性占位，提示由后期配音、预览不出声。
+ */
 const NarrationBlocks = memo(function NarrationBlocks({
   spans,
   duration,
@@ -370,7 +373,9 @@ const NarrationBlocks = memo(function NarrationBlocks({
   return (
     <>
       {spans.map((span) => {
-        const title = span.missingAudio
+        const title = span.postProduction
+          ? t("edit_view_narration_post_production", { unit: itemIdWithinEpisode(span.unitId), clip: span.clipId })
+          : span.missingAudio
           ? t("edit_view_narration_missing", { unit: itemIdWithinEpisode(span.unitId), clip: span.clipId })
           : t("edit_view_narration_title", {
               unit: itemIdWithinEpisode(span.unitId),
@@ -384,15 +389,24 @@ const NarrationBlocks = memo(function NarrationBlocks({
             title={title}
             data-testid={`edit-narration-${span.clipId}`}
             data-missing-audio={span.missingAudio || undefined}
-            className={`absolute flex items-center overflow-hidden whitespace-nowrap rounded-[4px] px-1 text-[10px] leading-none text-white ${
-              span.missingAudio ? "border border-dashed border-hairline-strong text-text-3" : "border border-black/30"
+            data-post-production={span.postProduction || undefined}
+            className={`absolute flex items-center overflow-hidden whitespace-nowrap rounded-[4px] px-1 text-[10px] leading-none ${
+              span.postProduction
+                ? "border border-hairline bg-surface-2 text-text-3"
+                : span.missingAudio
+                  ? "border border-dashed border-hairline-strong text-text-3"
+                  : "border border-black/30 text-white"
             }`}
             style={{
               left: percentOf(span.start, duration),
               width: `calc(${percentOf(span.end - span.start, duration)} - 2px)`,
               top: `calc(${(span.lane / lanes) * 100}% + 4px)`,
               height: `calc(${100 / lanes}% - 8px)`,
-              background: span.missingAudio ? "transparent" : `oklch(0.5 0.08 ${unitHue(span.unitId)} / 0.75)`,
+              background: span.postProduction
+                ? undefined
+                : span.missingAudio
+                  ? "transparent"
+                  : `oklch(0.5 0.08 ${unitHue(span.unitId)} / 0.75)`,
             }}
           >
             {itemIdWithinEpisode(span.unitId)}

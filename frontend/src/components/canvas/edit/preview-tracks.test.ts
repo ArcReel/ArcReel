@@ -100,10 +100,10 @@ const MEDIA: EditTimelinePreviewMedia = {
 
 describe("narrationSpans", () => {
   it("shows narration at its actual span, including the part that runs over later clips", () => {
-    expect(narrationSpans(READOUT)).toEqual([
-      { clipId: "c1", unitId: "E1U1", start: 0, end: 5, missingAudio: false, lane: 0 },
-      { clipId: "c3", unitId: "E1U2", start: 7, end: 9, missingAudio: false, lane: 0 },
-      { clipId: "c5", unitId: "E1U5", start: 10, end: 13, missingAudio: true, lane: 0 },
+    expect(narrationSpans(READOUT, true)).toEqual([
+      { clipId: "c1", unitId: "E1U1", start: 0, end: 5, missingAudio: false, postProduction: false, lane: 0 },
+      { clipId: "c3", unitId: "E1U2", start: 7, end: 9, missingAudio: false, postProduction: false, lane: 0 },
+      { clipId: "c5", unitId: "E1U5", start: 10, end: 13, missingAudio: true, postProduction: false, lane: 0 },
     ]);
   });
 
@@ -117,9 +117,21 @@ describe("narrationSpans", () => {
       duration: 7,
     };
 
-    expect(narrationSpans(overlapping).map((span) => [span.clipId, span.end, span.lane])).toEqual([
+    expect(narrationSpans(overlapping, true).map((span) => [span.clipId, span.end, span.lane])).toEqual([
       ["c1", 5, 0],
       ["c2", 7, 1],
+    ]);
+  });
+});
+
+describe("narrationSpans in a post-production project", () => {
+  it("never reports missing narration audio and marks every span as post-production", () => {
+    const spans = narrationSpans(READOUT, false);
+
+    expect(spans.map((span) => [span.clipId, span.end, span.missingAudio, span.postProduction])).toEqual([
+      ["c1", 5, false, true],
+      ["c3", 9, false, true],
+      ["c5", 13, false, true],
     ]);
   });
 });

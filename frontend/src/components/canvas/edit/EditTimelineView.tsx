@@ -60,6 +60,8 @@ interface EditTimelineViewProps {
   /** 本集脚本：用于视频单元的源视频路径与缩略图。 */
   script: unknown;
   aspect: PreviewAspect;
+  /** 项目的旁白交付方式是否为 TTS 配音；否则为后期配音，旁白轨不按缺配音处理。 */
+  ttsNarration: boolean;
   /** 标签行右侧的操作区；不传时不渲染。 */
   renderActions?: (context: EditTimelineActionsContext) => ReactNode;
   /** 本集没有剪辑时间线时的空状态。 */
@@ -83,6 +85,7 @@ export function EditTimelineView({
   episode,
   script,
   aspect,
+  ttsNarration,
   renderActions,
   renderEmptyState,
 }: EditTimelineViewProps) {
@@ -308,6 +311,7 @@ export function EditTimelineView({
             media={previewMedia?.timelineId === selected.id ? previewMedia.value : null}
             script={script}
             aspect={aspect}
+            ttsNarration={ttsNarration}
             seekRequest={jump && (jump.timelineId === null || jump.timelineId === selected.id) ? jump : null}
             onSeekHandled={handleJumpApplied}
           />
@@ -323,6 +327,7 @@ export function EditTimelineView({
 
 interface TimelinePreviewProps {
   projectName: string;
+  ttsNarration: boolean;
   readout: EditTimelineReadout;
   media: EditTimelinePreviewMedia | null;
   script: unknown;
@@ -334,6 +339,7 @@ interface TimelinePreviewProps {
 
 function TimelinePreview({
   projectName,
+  ttsNarration,
   readout,
   media,
   script,
@@ -388,7 +394,7 @@ function TimelinePreview({
     };
   }, [audioSourcesJson, projectName]);
   const playback = useTimelinePlayback(plan, sourceUrl, audio, audioUrl);
-  const narration = useMemo(() => narrationSpans(readout), [readout]);
+  const narration = useMemo(() => narrationSpans(readout, ttsNarration), [readout, ttsNarration]);
   const subtitles = useMemo(() => placeSubtitles(readout, plan, media), [readout, plan, media]);
   const bgm = useMemo(() => audio.filter((placement) => placement.kind === "bgm"), [audio]);
 

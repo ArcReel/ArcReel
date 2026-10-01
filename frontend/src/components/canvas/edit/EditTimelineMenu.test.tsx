@@ -45,6 +45,7 @@ function renderView() {
       episode={1}
       script={{ episode: 1, video_units: [] }}
       aspect="16:9"
+      ttsNarration
       renderEmptyState={() => <p>no timeline</p>}
     />,
   );
