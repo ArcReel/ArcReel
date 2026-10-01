@@ -1765,3 +1765,155 @@ async def test_generate_videos_episode_scope_rejects_mismatched_storyboard_scrip
 
     assert out.problem is not None
     assert "generate_script_plan" in out.problem.detail
+
+
+# ---------------------------------------------------------------------------
+# generate_videos：预检（只报价、不入队）
+# ---------------------------------------------------------------------------
+
+
+def _video_quote(out: ToolOutcome[Any]) -> dict[str, Any]:
+    assert out.problem is None, out
+    assert isinstance(out.value, dict)
+    return out.value["video_quote"]
+
+
+async def test_generate_videos_preview_quotes_the_reference_tier_without_enqueuing_and_the_quote_carries_through(
+    fake_ctx: ToolHarness,
+    set_video_request_facts,
+) -> None:
+    """参考生视频预检：不入队；报价、档位与正式提交时的准入一致；带报价单的确认档位提交时不再要求确认。"""
+
+    use_reference_route(fake_ctx)
+    fake_ctx.pm.script_payload = reference_video_script()
+    fake_ctx.pm.script_payload["video_units"][0]["text"] = "推门"
+    set_video_request_facts(
+        make_video_request_facts(
+            route="reference_video",
+            provider_id="openai",
+            model_id="sora-2",
+            resolution="720p",
+            supported_durations=(4, 8, 12),
+            allowed_durations=(4, 8, 12),
+        )
+    )
+    enqueued: list[Any] = []
+
+    preview = await run_generate_videos(fake_ctx, _EPISODE_1, preview=True, batch_waiter=_recording_batch(enqueued))
+
+    assert enqueued == []
+    assert (await fake_ctx.queue.list_tasks(project_name=fake_ctx.project_name))["total"] == 0
+    assert not _is_error(preview)
+    quote = _video_quote(preview)
+    [unit] = quote["units"]
+    assert unit["outcome"] == "generate"
+    assert (unit["script_duration_seconds"], unit["request_duration_seconds"], unit["tier_changed"]) == (5, 8, True)
+    assert quote["submittable"] is True
+    assert quote["confirmed_request_durations"] == {"E1U1": 8}
+    assert quote["estimated_total"] == {"USD": pytest.approx(0.8)}
+
+    unconfirmed = await run_generate_videos(fake_ctx, _EPISODE_1, batch_waiter=_recording_batch(enqueued))
+    [admission_unit] = unconfirmed.value["batch_admission"]["units"]
+    assert unit["estimated_cost"] == admission_unit["request_cost"]
+    assert unit["request_duration_seconds"] == admission_unit["request_duration_seconds"]
+
+    submitted = await run_generate_videos(
+        fake_ctx,
+        _EPISODE_1,
+        confirmed_request_durations=quote["confirmed_request_durations"],
+        batch_waiter=_recording_batch(enqueued),
+    )
+
+    assert submitted.problem is None, submitted
+    assert "batch_admission" not in submitted.value
+    assert [spec.resource_id for spec in enqueued] == ["E1U1"]
+    [projection] = submitted.value["request_projections"]
+    assert projection["request_cost"] == unit["estimated_cost"]
+
+
+async def test_generate_videos_preview_reports_blockers_per_unit(
+    fake_ctx: ToolHarness,
+    set_video_request_facts,
+) -> None:
+    """整集预检：缺口照实记 blocked，整批标为不可提交；其余单元仍给出报价。"""
+
+    use_reference_route(fake_ctx)
+    fake_ctx.pm.script_payload = reference_video_script(
+        video_units=[
+            {"unit_id": "E1U1", "text": "推门", "duration_seconds": 8},
+            {"unit_id": "E1U2", "text": "   ", "duration_seconds": 8},
+        ]
+    )
+    set_video_request_facts(
+        make_video_request_facts(
+            route="reference_video", provider_id="openai", model_id="sora-2", allowed_durations=(4, 8, 12)
+        )
+    )
+    enqueued: list[Any] = []
+
+    out = await run_generate_videos(fake_ctx, _EPISODE_1, preview=True, batch_waiter=_recording_batch(enqueued))
+
+    assert enqueued == []
+    quote = _video_quote(out)
+    outcomes = {unit["unit_id"]: unit["outcome"] for unit in quote["units"]}
+    assert outcomes == {"E1U1": "generate", "E1U2": "blocked"}
+    assert quote["submittable"] is False
+    assert quote["confirmed_request_durations"] == {}
+    blocked = next(unit for unit in quote["units"] if unit["unit_id"] == "E1U2")
+    assert [problem["code"] for problem in blocked["problems"]] == ["generation_unit_request_invalid"]
+    generate = next(unit for unit in quote["units"] if unit["unit_id"] == "E1U1")
+    assert generate["estimated_cost"] is not None
+
+
+async def test_generate_videos_preview_reports_a_reused_clip_as_free(fake_ctx: ToolHarness) -> None:
+    """整集预检：已有可用视频的单元记 reuse，不进合计。"""
+
+    fake_ctx.pm.script_payload["segments"][0]["generated_assets"] = {
+        "storyboard_image": "storyboards/scene_E1S01.png",
+        "video_clip": "videos/scene_E1S01.mp4",
+    }
+    clip = fake_ctx.project_path / "videos" / "scene_E1S01.mp4"
+    clip.parent.mkdir(parents=True, exist_ok=True)
+    clip.write_bytes(b"rendered-video")
+    enqueued: list[Any] = []
+
+    out = await run_generate_videos(fake_ctx, _EPISODE_1, preview=True, batch_waiter=_recording_batch(enqueued))
+
+    assert enqueued == []
+    quote = _video_quote(out)
+    assert [(unit["unit_id"], unit["outcome"]) for unit in quote["units"]] == [("E1S01", "reuse")]
+    assert quote["estimated_total"] == {}
+    assert quote["submittable"] is True
+
+
+async def test_generate_videos_preview_quotes_storyboard_units_at_their_planned_duration(
+    fake_ctx: ToolHarness,
+    set_admission_video_request_facts,
+) -> None:
+    """分镜图生视频预检：不入队，按编排时长报价，档位不变；报价与 Web 批量确认的计价同一口径。"""
+
+    from lib.db import async_session_factory
+    from lib.db.repositories.custom_provider_repo import CustomProviderRepository
+    from lib.generation.video_request_facts import VideoRequestCostFacts
+    from server.services.admission.cost_estimation import quote_video_request_from_price
+
+    facts = make_video_request_facts(
+        provider_id="openai", model_id="sora-2", resolution="720p", audio_switch_controllable=True
+    )
+    set_admission_video_request_facts(facts)
+    enqueued: list[Any] = []
+
+    out = await run_generate_videos(
+        fake_ctx, _selected("E1S01"), force=True, preview=True, batch_waiter=_recording_batch(enqueued)
+    )
+
+    assert enqueued == []
+    quote = _video_quote(out)
+    [unit] = quote["units"]
+    assert unit["outcome"] == "generate"
+    assert (unit["script_duration_seconds"], unit["request_duration_seconds"], unit["tier_changed"]) == (4, 4, False)
+    async with async_session_factory() as session:
+        price = await CustomProviderRepository(session).resolve_price(facts.provider_id, facts.model_id)
+    expected = quote_video_request_from_price(VideoRequestCostFacts(facts, 4), price)
+    assert unit["estimated_cost"] == expected.to_payload()
+    assert quote["estimated_total"] == {expected.currency: pytest.approx(expected.amount)}

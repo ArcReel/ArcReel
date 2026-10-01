@@ -99,6 +99,7 @@ async def test_naming_an_older_version_shows_that_versions_picture(tmp_path: Pat
     for envelope, version, expected in ((older, 1, "red"), (current, 2, "blue")):
         (unit,) = envelope.structured["inspect_video_units"]["units"]
         assert unit["version"] == version
+        assert unit["available_versions"] == [1, 2]
         assert _dominant(envelope.images[0].data) == expected
 
 

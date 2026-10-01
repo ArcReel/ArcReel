@@ -128,7 +128,8 @@ flowchart TD
 - 剧情演绎剧本规范化；
 - 参考生视频单元拆分；
 - 单集结构化剧本；
-- 资产生成。
+- 资产生成；
+- 审片。
 
 其中前三项是脚本规划，规划时同时识别本集新增资产。
 
@@ -429,7 +430,11 @@ Agent 工具 `inspect_video_units` 让 Agent 看图审阅视频单元。服务�
 
 联系表附带三类机器检查信号：黑屏段、卡帧段和镜头切换点，同样由随包 ffmpeg 在本地算出（`blackdetect`、`freezedetect` 与 `scene` 打分，一次解码完成）。黑屏段与卡帧段是疑似缺陷，黑屏不重复计入卡帧；镜头切换点是结构信息，不是缺陷。信号只作提示，不自动裁切或废弃素材。信号按视频版本惰性计算：版本第一次被看时才算，结果以 JSON 缓存在项目目录的 `.cache/video_signals/` 下，以视频文件的大小与修改时间作指纹，不接入生成链路。抽帧计划保证每个镜头至少一帧，并在信号两侧加密，预算有余时补均匀取样点；镜头数超过帧数预算时，每单元实际帧数提到镜头数，上限 24 帧。命中信号的帧在联系表上标 `CUT`、`BLACK` 或 `FREEZE`，信号区间也随结果返回。
 
-联系表以 MCP 图片内容块随结果返回，排在文本块之后。结果信封的图片块由声明的 `images` 钩子给出，两个 adapter 按同一份信封编码，ArcReel Agent 与外部 Agent 拿到相同的图片，不交文件路径。结果里的 `model_review` 预留给以后接入的服务端原生视频审阅，目前恒为 null。
+联系表以 MCP 图片内容块随结果返回，排在文本块之后。结果信封的图片块由声明的 `images` 钩子给出，两个 adapter 按同一份信封编码，ArcReel Agent 与外部 Agent 拿到相同的图片，不交文件路径。结果里的 `model_review` 预留给以后接入的服务端原生视频审阅，目前恒为 null。每个单元另带 `available_versions`，列出该单元现有的全部视频版本号，用来发现候选版本。
+
+首轮剪辑的全量审阅交给审片子智能体 `review-footage`：主 Agent 按场景或相邻单元分组并行派发，联系表只进子智能体的上下文，主 Agent 只收文字报告。审片子智能体是只读的，有两层约束：定义 frontmatter 的 `tools` 只开放 Read、Glob、Grep 与 `inspect_video_units`；`AgentAccessPolicy.READ_ONLY_SUBAGENT_TOOLS` 在 PreToolUse hook 上按 `agent_type` 再拒一次名单外的调用，两份名单须一致。
+
+重新生成要先由创作者确认费用。`generate_videos` 的 `preview: true` 走与正式提交同一份整批准入，但不入队、不产生批次，返回报价单 `video_quote`：逐单元的去向（生成、复用或受阻）、编排时长、申请档位、是否变档与预计费用。参考生视频的报价取自准入票，分镜图生视频按准入所用的同一份视频请求事实、以编排时长报价。正式提交时原样带上报价单的 `confirmed_request_durations`，准入不再要求确认同一档位；两次调用之间档位变了，仍会重新要求确认。REST 入口不受影响。
 
 ### 成片读取模型 {#presentation-read-model}
 

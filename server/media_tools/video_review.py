@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Literal
 
@@ -71,6 +71,8 @@ class InspectedUnit:
     signals: VideoSignals | None = None
     signals_cached: bool = False
     detail: str | None = None
+    #: 该单元现有的全部视频版本号，用来发现还没看过的候选版本。
+    available_versions: tuple[int, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -158,12 +160,14 @@ async def inspect_video_units(
         project_path = services.projects.get_project_path(scope.project_name)
         versions = VersionManager(project_path)
         targets: list[tuple[str, int | None, Path | None]] = []
+        available_by_unit: dict[str, list[int]] = {}
         for unit_id in unit_ids:
             version = request.value.version
+            available = available_by_unit[unit_id] = _available_versions(versions, resource_type, unit_id)
             if version is None:
                 current = versions.get_current_version(resource_type, unit_id)
                 version = current if current > 0 else None
-            elif version not in (available := _available_versions(versions, resource_type, unit_id)):
+            elif version not in available:
                 return tool_problem(
                     f"视频单元「{unit_id}」没有版本 v{version}；现有版本：{', '.join(map(str, available)) or '无'}",
                     code="version_not_found",
@@ -192,6 +196,7 @@ async def inspect_video_units(
                 for unit_id, version, video in targets
             )
         )
+        units = [replace(unit, available_versions=tuple(available_by_unit[unit.unit_id])) for unit in units]
         return ToolOutcome(value=InspectVideoUnitsResult(frames_per_unit=frames, units=tuple(units)))
     except FfmpegUnavailableError as exc:
         return tool_problem(f"随包 ffmpeg 不可用，无法出联系表：{exc}", code="ffmpeg_unavailable")
@@ -234,6 +239,7 @@ def inspect_video_units_projection(value: InspectVideoUnitsResult) -> dict[str, 
         entry: dict[str, Any] = {
             "unit_id": unit.unit_id,
             "version": unit.version,
+            "available_versions": list(unit.available_versions),
             "status": unit.status,
             "sheets": sheets,
         }

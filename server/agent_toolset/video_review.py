@@ -32,7 +32,7 @@ INSPECT_VIDEO_UNITS = ToolDeclaration(
         "截去坏段时，区间的 start 是候选出点（去掉片尾坏段），end 是候选入点（去掉片头坏段）。"
         "CUT 是结构信息，不是缺陷：镜头内部的切换点是新镜头首帧的起点，切点前一帧是上一镜头的末帧，"
         "据此把入出点定到帧级，避免把入出点定在切换中间。信号只作提示，不会自动裁切或废弃素材，最终取舍由你对照画面判断。"
-        "结果 units 按请求顺序排列，每项带 version、status、sheets，以及 ok 时的 signals。"
+        "结果 units 按请求顺序排列，每项带 version、available_versions（该单元现有的全部视频版本号，多于一个时其余是候选版本）、status、sheets，以及 ok 时的 signals。"
         "status 为 ok；video_missing 表示该单元没有可用视频或该版本缺文件；"
         "video_unreadable 表示视频无法解码，detail 说明原因。"
         "sheets 每项的 image 是附图序号（从 1 起），times 是各帧时刻，marked_frames 列出命中信号的帧的时刻与标记。"

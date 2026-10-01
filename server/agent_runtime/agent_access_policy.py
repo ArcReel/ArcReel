@@ -525,6 +525,25 @@ class AgentAccessPolicy:
             "其他 Bash 命令在 Windows 回退模式下不可用。"
         )
 
+    # 只读子智能体（agent 定义的 ``name``）→ 它能调用的全部工具。agent 定义 frontmatter 的
+    # ``tools`` 由 CLI 收窄子智能体看得到的工具；这张表在 PreToolUse hook 上再拒一次名单外的调用，
+    # 定义被改宽或 CLI 未按 frontmatter 收窄时，子智能体照样碰不到写入工具。两处名单须一致。
+    READ_ONLY_SUBAGENT_TOOLS: ClassVar[dict[str, frozenset[str]]] = {
+        "review-footage": frozenset({"Read", "Glob", "Grep", "mcp__arcreel__inspect_video_units"}),
+    }
+
+    def check_subagent_tool(self, agent_type: object, tool_name: str) -> str | None:
+        """只读子智能体调用名单外的工具时返回拒绝说明；其余调用（含主对话）返回 None。"""
+        if not isinstance(agent_type, str):
+            return None
+        allowed = self.READ_ONLY_SUBAGENT_TOOLS.get(agent_type)
+        if allowed is None or tool_name in allowed:
+            return None
+        return (
+            f"子智能体 {agent_type} 是只读的，不能调用 {tool_name}；"
+            f"只能使用 {'、'.join(sorted(allowed))}。需要改动时把建议写进报告，交给主对话执行。"
+        )
+
     def filter_allowed_tools(self, tools: list[str]) -> list[str]:
         """按沙箱可用性过滤 allowed_tools：sandbox 关闭（Windows 回退）时剥离
         Bash 系列，让命令落到 can_use_tool 走 ``is_bash_command_whitelisted``
