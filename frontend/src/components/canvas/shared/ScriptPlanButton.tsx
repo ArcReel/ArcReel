@@ -21,7 +21,8 @@ export function ScriptPlanButton({ projectName, episode, replaces, className = "
   const open = useScriptPlanStore((s) => s.open);
   const { busy, refusedReason } = useScriptPlanEntry(projectName, episode);
   const reason = busy ? t("script_plan_busy") : (refusedReason ?? disabledReason ?? null);
-  const Icon = busy ? Loader2 : replaces === "none" ? Sparkles : RotateCcw;
+  const firstPlan = replaces === "none" || replaces === "formal_script";
+  const Icon = busy ? Loader2 : firstPlan ? Sparkles : RotateCcw;
   return (
     <button
       type="button"
@@ -31,7 +32,7 @@ export function ScriptPlanButton({ projectName, episode, replaces, className = "
       onClick={() => open({ projectName, episode, replaces })}
     >
       <Icon className={`h-3.5 w-3.5${busy ? " motion-safe:animate-spin" : ""}`} aria-hidden="true" />
-      <span>{replaces === "none" ? t("script_plan_open") : t("script_plan_regenerate_open")}</span>
+      <span>{firstPlan ? t("script_plan_open") : t("script_plan_regenerate_open")}</span>
     </button>
   );
 }

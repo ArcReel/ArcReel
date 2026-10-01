@@ -7,6 +7,7 @@ import { useAppStore } from "@/stores/app-store";
 import { useAssistantStore } from "@/stores/assistant-store";
 import { useTasksStore } from "@/stores/tasks-store";
 import { useProjectsStore } from "@/stores/projects-store";
+import { useScriptPlanStore } from "@/stores/script-plan-store";
 import { makeScriptOverwrite, makeScriptOverwriteEntry, makeTask } from "@/test/factories";
 import type {
   NarrationScriptPlanDraft,
@@ -781,6 +782,16 @@ describe("ScriptReviewGate", () => {
     );
     render(<ScriptReviewGate projectName="p" episode={1} contentMode="drama" />);
     await waitFor(() => expect(screen.getByText("暂无脚本规划结果")).toBeInTheDocument());
+  });
+
+  it("offers AI script planning from the empty state, replacing an existing formal script only after confirmation", async () => {
+    useScriptPlanStore.getState().close();
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(
+      dramaState({ status: "no_script_plan", content: null, fingerprint: null, script_overwrite: makeScriptOverwrite() }),
+    );
+    render(<ScriptReviewGate projectName="p" episode={1} contentMode="drama" />);
+    fireEvent.click(await screen.findByRole("button", { name: "AI 规划脚本" }));
+    expect(useScriptPlanStore.getState().request).toEqual({ projectName: "p", episode: 1, replaces: "formal_script" });
   });
 
   it("renders a load-error state distinct from the empty state", async () => {

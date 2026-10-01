@@ -1,8 +1,7 @@
 """「从空白开始」：在本集没有正式脚本时建出一份空的正式脚本，由创作者在时间线上逐条手写。
 
-四种骨架是同一个动作，按项目两轴定条目数组。未确认的脚本规划与其待修复草稿随之弃置；建出的正式脚本
-在 episode 条目上带「从空白开始」的来历标记（``script_review.FORMAL_SCRIPT_ORIGIN_FIELD``），
-此后生成的规划一律待确认，经覆盖确认才整集替换。
+四种骨架是同一个动作，按项目两轴定条目数组。未确认的脚本规划与其待修复草稿随之弃置，确认记录一并
+删去：此后生成的规划没有确认指纹，一律待确认，经覆盖确认才整集替换。
 """
 
 from __future__ import annotations
@@ -79,15 +78,14 @@ def start_blank_script(pm: ProjectManager, project_name: str, episode: int) -> s
             if draft is not None and draft_owner(draft) == DRAFT_OWNER_AGENT:
                 raise BlankScriptError("draft_agent_owned", f"集（id={episode}）的草稿正由 Agent 编辑")
 
-        def _mark_blank(p: dict[str, Any]) -> None:
+        def _drop_review(p: dict[str, Any]) -> None:
             entry = find_episode(p, episode)
             if entry is None:
                 raise BlankScriptError("episode_not_found", f"集（id={episode}）不在分集账本里")
             # 旧的确认记录属于已弃置的规划，留着会让之后同内容的规划被当成已确认。
             entry.pop(script_review.REVIEW_FIELD, None)
-            entry[script_review.FORMAL_SCRIPT_ORIGIN_FIELD] = script_review.BLANK_FORMAL_SCRIPT_ORIGIN
 
-        pm.save_script(project_name, build_blank_script(project, episode), filename, project_update=_mark_blank)
+        pm.save_script(project_name, build_blank_script(project, episode), filename, project_update=_drop_review)
 
         if plan_path is not None and plan_path.exists():
             with script_review.formal_script_plan_write_transaction(project_path, episode, plan_path):

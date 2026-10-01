@@ -533,6 +533,64 @@ describe("WorkflowPanel AI 规划脚本", () => {
     await waitFor(() => expect(useAssistantStore.getState().input).toContain("节奏紧凑"));
     expect(save).toHaveBeenCalledWith("proj", 1, "节奏紧凑");
   });
+
+  it("从空白开始的集没有规划时，脚本规划行给出 AI 规划脚本，弹窗说明确认后才替换正式脚本", async () => {
+    useScriptPlanStore.getState().close();
+    await renderExpanded(
+      scenario({
+        next: nextAction("add_script_items"),
+        content: { formal_script: "present", script_item_count: 0 },
+        status: {
+          artifacts: { script_plan: { state: "missing" } },
+          operations: { prepare_script_plan: { state: "admitted" } },
+        },
+      }),
+    );
+    const row = screen.getByTestId("workflow-row-plan");
+    fireEvent.click(within(row).getByRole("button", { name: "AI 规划脚本" }));
+    expect(useScriptPlanStore.getState().request).toEqual({ projectName: "proj", episode: 1, replaces: "formal_script" });
+  });
+
+  it("从空白开始的集没有集原文时，AI 规划脚本置灰并说明原因", async () => {
+    await renderExpanded(
+      scenario({
+        next: nextAction("add_script_items"),
+        content: { episode_source: "absent", formal_script: "present", script_item_count: 0 },
+        status: {
+          artifacts: { script_plan: { state: "missing" } },
+          operations: { prepare_script_plan: { state: "refused", reason: "episode_source_missing" } },
+        },
+      }),
+    );
+    const entry = within(screen.getByTestId("workflow-row-plan")).getByRole("button", { name: "AI 规划脚本" });
+    expect(entry).toHaveAttribute("aria-disabled", "true");
+    expect(entry).toHaveAttribute("title", "需要先补充集原文");
+  });
+});
+
+describe("WorkflowPanel 补充集原文", () => {
+  const sourceless = (content: Partial<WorkflowContent>, planState: "missing" | "current") =>
+    scenario({
+      next: nextAction("none", { args: {} }),
+      content: { episode_source: "absent", formal_script: "absent", script_item_count: null, ...content },
+      status: { artifacts: { script_plan: { state: planState } } },
+    });
+
+  it("一集既没有原文也没有规划和草稿时，原文行给出补充集原文", async () => {
+    await renderExpanded(sourceless({}, "missing"));
+    expect(within(screen.getByTestId("workflow-row-source")).getByRole("button", { name: "补充集原文" })).toBeInTheDocument();
+  });
+
+  it("没有原文但已有规划时，原文行不给补充集原文", async () => {
+    await renderExpanded(sourceless({}, "current"));
+    expect(within(screen.getByTestId("workflow-row-source")).queryByRole("button", { name: "补充集原文" })).not.toBeInTheDocument();
+  });
+
+  it("没有原文但有草稿时，原文行不给补充集原文", async () => {
+    const draft = { kind: "drama_script_plan", path: "drafts/episode_1.json", needs_repair: true };
+    await renderExpanded(sourceless({ drafts: [draft] }, "missing"));
+    expect(within(screen.getByTestId("workflow-row-source")).queryByRole("button", { name: "补充集原文" })).not.toBeInTheDocument();
+  });
 });
 
 describe("WorkflowPanel 集层资产图入口", () => {

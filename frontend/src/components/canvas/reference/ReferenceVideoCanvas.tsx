@@ -83,6 +83,8 @@ export interface ReferenceVideoCanvasProps {
    * 标志不从这里来：它们随单元列表由服务端按可用参考图逐单元给出（`unitCapabilitiesByEpisode`）。
    */
   videoModelUnresolved?: boolean;
+  /** 剧本规划档位（能力端点的 `duration_constraints.planning`）：内容确认页上端点固定的单元按它选时长、判越档。 */
+  planDurationOptions?: number[];
 }
 
 const EMPTY_UNITS: readonly ReferenceVideoUnit[] = Object.freeze([]);
@@ -169,6 +171,7 @@ export function ReferenceVideoCanvas({
   showPreprocess = true,
   freeDuration = false,
   videoModelUnresolved,
+  planDurationOptions,
 }: ReferenceVideoCanvasProps) {
   const { t } = useTranslation("dashboard");
 
@@ -1057,6 +1060,7 @@ export function ReferenceVideoCanvas({
               episode={episode}
               lookup={mentionLookup}
               videoModelUnresolved={videoModelUnresolved}
+              planningDurations={planDurationOptions}
               onOpenTimeline={() => setTab("units")}
             />
           </div>

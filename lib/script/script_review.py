@@ -73,10 +73,6 @@ ReviewStatus = Literal["not_applicable", "no_script_plan", "pending_review", "co
 #: 确认记录在 episode 条目上的字段名：``{"fingerprint": str, "confirmed_at": ISO8601}``。
 REVIEW_FIELD = "script_plan_review"
 
-#: 正式脚本的来历，记在 episode 条目上。取 ``BLANK_FORMAL_SCRIPT_ORIGIN`` 表示这份正式脚本是「从空白开始」
-#: 建出的，不来自任何脚本规划：此后生成的规划一律待确认，不适用存量兼容。确认后随确认记录一起移除。
-FORMAL_SCRIPT_ORIGIN_FIELD = "formal_script_origin"
-BLANK_FORMAL_SCRIPT_ORIGIN = "blank"
 
 #: stale 账本条目记录重规划提交时旧 script_plan 的内容指纹；live 指纹变化即证明 script_plan 已按新账本重建。
 STALE_SCRIPT_PLAN_REVISION_FIELD = "stale_script_plan_revision"
@@ -677,11 +673,11 @@ def formal_script_overwrite(
 
 
 def prompt_authoring_generated(project_path: Path, project: dict[str, Any], episode: int) -> bool:
-    """该集 prompt_authoring 产物（生成的剧本 JSON）是否已存在——存量 grandfather 判据。
+    """该集 prompt_authoring 产物（生成的剧本 JSON）是否已存在。
 
     绑定在场时只认绑定的那份文件，不走 ``formal_script_filename`` 的规范路径回落：绑定文件缺席而
-    规范路径上是别集文件，正是迁移记进报告的跳过形态，据那份别集文件判成「已有产出」会把这一集
-    grandfather 成 confirmed——脚本规划随即转只读、确认动作被锁。未绑定时按规范路径判。
+    规范路径上是别集文件，正是迁移记进报告的跳过形态，不能据那份别集文件判成「已有产出」。未绑定时
+    按规范路径判。
     """
     filename = _bound_script_filename(project, episode) or episode_script_filename(episode)
     path = try_safe_join(project_path / "scripts", filename)
@@ -691,12 +687,9 @@ def prompt_authoring_generated(project_path: Path, project: dict[str, Any], epis
 def review_status(project_path: Path, project: dict[str, Any], episode: int) -> ReviewStatus:
     """派生该集内容确认状态。
 
-    穷举 {script_plan 有无 × prompt_authoring 有无 × script_plan_review 有无}：
     - 无 script_plan（或 gate 不适用）：not_applicable / no_script_plan；
     - 有确认指纹：与 live script_plan 内容指纹一致 → confirmed，不一致（script_plan 改过）→ pending_review；
-    - 无确认指纹（存量 / 首次）：已产 prompt_authoring（存量项目升级前已通过该集）→ grandfather 放行 confirmed，
-      避免新 gate 无谓阻塞存量 prompt_authoring 重跑；未产 prompt_authoring（feature 后首次产 script_plan）→ pending_review 待确认。
-      正式脚本是从空白开始建出的（``blank_formal_script``）不适用 grandfather，一律 pending_review。
+    - 无确认指纹：pending_review。正式脚本在场也一样——没有指纹就无从判断它出自眼前这份规划。
     """
     path = script_plan_path(project_path, project, episode)
     if path is None:
@@ -716,20 +709,9 @@ def _formal_script_plan_confirmed(project_path: Path, project: dict[str, Any], e
     stored_fingerprint = stored_review(project, episode).get("fingerprint")
     if stored_fingerprint is not None:
         return stored_fingerprint == live
-    if blank_formal_script(project, episode):
-        # 从空白开始的正式脚本不来自任何规划，之后生成的规划没有被认可过。
-        return False
-    # 无确认指纹（存量 / 首次）：用 prompt_authoring 产物是否已存在做 grandfather 判据。
-    # 过渡态局限：存量集没有指纹基线，无法区分「script_plan 未动」与「script_plan 已重拆但未确认」——
-    # 只要旧 prompt_authoring 文件仍在，重拆后的 script_plan 也会被放行、不重新阻塞。这是「不无谓阻塞存量重跑」的
-    # 取舍代价，且自愈：用户或 Agent 首次确认后即写入指纹，此后走上面的指纹分支、gate 全程生效。
-    return prompt_authoring_generated(project_path, project, episode)
-
-
-def blank_formal_script(project: Mapping[str, Any], episode: int) -> bool:
-    """该集正式脚本是否「从空白开始」建出、尚未被任何确认过的规划替换。"""
-    entry = find_episode(project, episode)
-    return isinstance(entry, dict) and entry.get(FORMAL_SCRIPT_ORIGIN_FIELD) == BLANK_FORMAL_SCRIPT_ORIGIN
+    # 没有确认指纹：不知道正式脚本出自哪一份规划，眼前这份就没有被确认过。存量集的确认基线由
+    # v14→v15 迁移补记；从空白开始时确认记录被删去，同样落在这里。
+    return False
 
 
 def formal_script_plan_confirmed(project_path: Path, project: dict[str, Any], episode: int) -> bool:
@@ -762,8 +744,6 @@ def apply_confirmation(project: dict[str, Any], episode: int, fingerprint: str, 
     if ep is None:
         return False
     ep[REVIEW_FIELD] = {"fingerprint": fingerprint, "confirmed_at": confirmed_at}
-    # 确认后的正式脚本来自这份规划，不再是从空白开始的那一份。
-    ep.pop(FORMAL_SCRIPT_ORIGIN_FIELD, None)
     return True
 
 
@@ -807,14 +787,13 @@ def migrate_script_plan_draft_in_place(
     迁移多数情况下是机械格式收编，回写会让内容指纹漂移：经 ``update_project`` 在锁内把该集
     确认指纹平移到迁移后的值（``carry_confirmation_through_migration``），避免已确认分集仅因
     被加载就重新等待确认。``warnings`` 非空说明迁移按档位 / 结构区间 clamp 改写了实际时长取值——
-    那是内容变更，不平移确认，已确认分集经指纹比对照常重新等待确认；从未存过指纹、靠 grandfather
-    判据（prompt_authoring 产物已存在）放行的存量集则显式记下迁移前内容的指纹，使其同样失配、等待确认。
+    那是内容变更，不平移确认，已确认分集经指纹比对照常重新等待确认；从未存过指纹的集则显式记下
+    迁移前内容的指纹，使其同样失配、等待确认。
     该标记的持久化不区分 dry-run 与真实生成：迁移幂等落盘后重试不再产生 warnings，只有落盘
     的标记能保证后续生成仍被内容确认阻塞。
 
     project 侧的确认标记先落盘、草稿后落盘：两次写之间中断时草稿仍是迁移前内容，下次加载
-    重跑迁移即自愈。反序则草稿已丢失旧字段、重跑判 ``changed=False``，标记永久缺失——靠
-    grandfather 判据放行的存量集会带着被 clamp 的时长停在 confirmed，绕过内容确认。
+    重跑迁移即自愈。反序则草稿已丢失旧字段、重跑判 ``changed=False``，标记永久缺失。
 
     ``supported_durations`` 给定时（prompt_authoring 加载侧持有模型档位）收编结果直接取档；缺省
     （web gate 侧，能力解析是 async + DB、同步拿不到档位）只做结构区间 clamp。
@@ -837,14 +816,14 @@ def migrate_script_plan_draft_in_place(
 
     if warnings:
 
-        def _invalidate_grandfathered(p: dict[str, Any]) -> None:
+        def _invalidate_unconfirmed(p: dict[str, Any]) -> None:
             # 已存过指纹的分集不插手：确认的是迁移前内容时指纹已自然失配，确认的是别的
             # 内容时 review_status 本就判 pending_review。
             stored = stored_review(p, episode)
             if not stored.get("fingerprint"):
                 apply_confirmation(p, episode, before, str(stored.get("confirmed_at") or ""))
 
-        updated = update_project(_invalidate_grandfathered)
+        updated = update_project(_invalidate_unconfirmed)
     else:
         after = content_fingerprint_of_data(content)
 

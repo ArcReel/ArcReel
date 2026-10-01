@@ -1047,6 +1047,7 @@ export default {
   'product_task_failed': '商品 "{{id}}" 生成失败：{{reason}}',
   'grid_task_failed': '多宫格分镜生成失败：{{reason}}',
   'image_edit_task_failed': '"{{id}}" 编辑失败：{{reason}}',
+  'script_plan_task_failed': '「{{episode}}」AI 规划脚本失败：{{reason}}',
   'task_failed_provider_reason_suffix': '（供应商拒因：{{reason}}）',
   // ========== 参考生视频编辑器 ==========
   'reference_editor_view_aria': '编辑器视图',

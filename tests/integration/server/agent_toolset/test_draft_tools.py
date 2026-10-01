@@ -10,6 +10,7 @@ import os
 import subprocess
 import sys
 import threading
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -365,10 +366,18 @@ async def test_open_draft_returns_existing_drama_draft(fake_ctx: ToolHarness) ->
 
 
 def _mark_script_plan_confirmed(fake_ctx: ToolHarness) -> None:
-    """该集已产出正式剧本、没有确认记录：按存量口径视为脚本规划已确认。"""
+    """该集已产出正式剧本，确认指纹记的是当前正式脚本规划。"""
     scripts = fake_ctx.project_path / "scripts"
     scripts.mkdir(exist_ok=True)
     (scripts / "episode_1.json").write_text(json.dumps({"title": "第一集", "scenes": []}), encoding="utf-8")
+    _confirm_script_plan(fake_ctx, drama_script_plan_path(fake_ctx))
+
+
+def _confirm_script_plan(fake_ctx: ToolHarness, plan_path: Path) -> None:
+    """把当前正式脚本规划的指纹记为确认记录。"""
+    fingerprint = script_review.content_fingerprint(plan_path)
+    assert fingerprint is not None
+    script_review.apply_confirmation(fake_ctx.pm.project_payload, 1, fingerprint, "2026-01-01T00:00:00+00:00")
 
 
 def _problem(out: ToolOutcome[Any]) -> dict[str, Any]:
@@ -459,6 +468,7 @@ async def test_prompt_authoring_draft_is_not_affected_by_a_confirmed_script_plan
             "video_units": [{"unit_id": "E1U01", "text": "@[张三] 起身", "duration_seconds": 4}],
         },
     )
+    _confirm_script_plan(fake_ctx, rv_script_plan_path(fake_ctx))
     project = fake_ctx.pm.load_project(fake_ctx.project_name)
     assert script_review.formal_script_plan_confirmed(fake_ctx.project_path, project, 1)
     args = {"episode_id": 1, "doc_type": "reference_prompt_authoring"}

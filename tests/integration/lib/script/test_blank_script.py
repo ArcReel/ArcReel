@@ -108,14 +108,21 @@ def test_plan_generated_after_a_blank_start_waits_for_confirmation(tmp_path: Pat
     assert script_review.formal_script_overwrite(project_path, project, 1) is not None
 
 
-def test_legacy_formal_script_without_confirmation_still_counts_as_confirmed(tmp_path: Path) -> None:
+def test_plan_without_a_confirmation_fingerprint_waits_for_confirmation_over_a_formal_script(tmp_path: Path) -> None:
     pm, project_path = _project(tmp_path, "drama")
     pm.save_script("demo", {"episode": 1, "title": "番外", "content_mode": "drama", "scenes": []}, "episode_1.json")
-
-    _write_plan(project_path)
+    plan = _write_plan(project_path)
 
     project = pm.load_project("demo")
-    assert script_review.review_status(project_path, project, 1) == "confirmed"
+    assert script_review.review_status(project_path, project, 1) == "pending_review"
+
+    rewritten = _drama_plan()
+    rewritten["scenes"][0]["scene_description"] = "山门"
+    atomic_write_json(plan, rewritten)
+
+    assert script_review.review_status(project_path, project, 1) == "pending_review"
+    assert script_review.formal_script_plan_confirmed(project_path, project, 1) is False
+    assert script_review.formal_script_overwrite(project_path, project, 1) is not None
 
 
 def test_blank_start_refuses_when_a_formal_script_exists(tmp_path: Path) -> None:
