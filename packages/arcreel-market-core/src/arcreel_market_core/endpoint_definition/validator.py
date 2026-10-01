@@ -91,7 +91,6 @@ DEFAULT_VALUE_TYPES: dict[str, type] = {
     "generate_audio": bool,
     "seed": int,
 }
-DEFAULTABLE_VARIABLES = frozenset(DEFAULT_VALUE_TYPES)
 
 #: 视频定义的能力字段，与 ``VideoCapabilities`` 同名同义。
 VIDEO_CAPABILITY_FIELDS = frozenset(field.name for field in fields(VideoCapabilities))

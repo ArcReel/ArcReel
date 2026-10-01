@@ -1,8 +1,10 @@
 """声明式图片定义的调用通道：在 :class:`DeclarativeJobEngine` 上组装图片的请求与产物语义。
 
 与视频通道共用提交、轮询、状态映射、二次取件与产物下载；图片一侧只多出自己的模板变量、
-能力声明与产物字段：产物可以是地址，也可以是响应体里内联的 base64。图片没有续跑协议：服务重启时在途的图片任务由重启恢复记为重启丢失，
-所以这里不落供应商任务 id。
+能力声明与产物字段：产物可以是地址，也可以是响应体里内联的 base64。
+
+图片没有续跑协议：服务重启时在途的图片任务由重启恢复记为重启丢失，所以这里不落供应商任务 id；
+产物没能取回时也接不回原任务，只能重新生成。
 """
 
 from __future__ import annotations
@@ -15,6 +17,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+import httpx
 
 from arcreel_market_core.video_backend_contract import ProviderJobStatus
 from lib.backends.artifact_download_guard import IMAGE_ARTIFACT_MAX_BYTES, artifact_http_client
@@ -37,6 +41,9 @@ _HTTP_TIMEOUT_SECONDS = 60
 #: 不读全局的 ``video_poll_timeout_seconds``：那个设置项说的是视频，把它的含义扩到图片上，用户调它
 #: 的时候就不知道自己在调几件事。图片这一维没有可配项，取与 ComfyUI 图片端点相同的定值。
 IMAGE_POLL_TIMEOUT_SECONDS = 1800
+
+#: 供应商已出图、产物却没能取回或落盘时的失败码，恢复方式是重新生成。
+IMAGE_SAVE_FAILED_CODE = "declarative_image_save_failed"
 
 #: 图片定义 ``capabilities`` 节的字段 → 端点的图片能力。
 _IMAGE_CAPABILITY_BY_FIELD: Mapping[str, ImageCapability] = {
@@ -149,6 +156,11 @@ class DeclarativeImageBackend:
         return value if isinstance(value, int) and not isinstance(value, bool) and value > 0 else 0
 
     async def generate(self, request: ImageGenerationRequest) -> ImageGenerationResult:
+        # 编排层已按 max_reference_images 裁剪并提示；这里的截断只是兜底，超出的图没有落点。上限为 0
+        # 时按协议不裁剪。
+        references = request.reference_images
+        if self.max_reference_images:
+            references = references[: self.max_reference_images]
         context = self._engine.request_context(
             {
                 "prompt": request.prompt,
@@ -156,8 +168,7 @@ class DeclarativeImageBackend:
                 "resolution": request.image_size,
                 "seed": request.seed,
             },
-            # 编排层已按 max_reference_images 裁剪并提示；这里的截断只是兜底，超出的图没有落点。
-            {"reference_images": [Path(ref.path) for ref in request.reference_images[: self.max_reference_images]]},
+            {"reference_images": [Path(ref.path) for ref in references]},
             require_declared_inputs=True,
         )
         call = JobCall(
@@ -167,20 +178,37 @@ class DeclarativeImageBackend:
         )
         async with artifact_http_client(timeout=_HTTP_TIMEOUT_SECONDS, follow_redirects=True) as client:
             job_id = await self._engine.submit(client, context, call)
-            outcome = await self._engine.poll(client, job_id, call, context=context, is_resume=False)
-            final = outcome.result_state or outcome.poll_state
-            if not final.image_url:
-                await _write_inline_image(final, request.output_path)
-                return self._result(request, image_uri=None)
-            await self._engine.download(
-                client,
-                final.image_url,
-                request.output_path,
-                context,
-                max_bytes=IMAGE_ARTIFACT_MAX_BYTES,
-                max_wait=ARTIFACT_DOWNLOAD_MAX_WAIT_SECONDS,
-                trusted_origins=outcome.trusted_origins,
-            )
+            try:
+                return await self._collect(client, job_id, call, context, request)
+            except DeclarativeRuntimeError as exc:
+                # 引擎把二次取件与下载耗尽记为可「重试下载」的码，那条恢复路径要靠续跑接回原任务；
+                # 图片不落任务 id、没有续跑，只能重新生成。
+                if exc.code != "artifact_download_failed":
+                    raise
+                raise DeclarativeRuntimeError(IMAGE_SAVE_FAILED_CODE, detail=str(exc)) from exc
+
+    async def _collect(
+        self,
+        client: httpx.AsyncClient,
+        job_id: str,
+        call: JobCall,
+        context: Mapping[str, object],
+        request: ImageGenerationRequest,
+    ) -> ImageGenerationResult:
+        outcome = await self._engine.poll(client, job_id, call, context=context, is_resume=False)
+        final = outcome.result_state or outcome.poll_state
+        if not final.image_url:
+            await _write_inline_image(final, request.output_path)
+            return self._result(request, image_uri=None)
+        await self._engine.download(
+            client,
+            final.image_url,
+            request.output_path,
+            context,
+            max_bytes=IMAGE_ARTIFACT_MAX_BYTES,
+            max_wait=ARTIFACT_DOWNLOAD_MAX_WAIT_SECONDS,
+            trusted_origins=outcome.trusted_origins,
+        )
         return self._result(request, image_uri=final.image_url)
 
     def _result(self, request: ImageGenerationRequest, *, image_uri: str | None) -> ImageGenerationResult:
@@ -212,3 +240,5 @@ async def _write_inline_image(state: ImageJobState, output_path: Path) -> None:
         await asyncio.to_thread(decode_and_save)
     except ValueError as exc:
         raise DeclarativeRuntimeError("declarative_response_extract_failed", detail=str(exc)) from exc
+    except OSError as exc:
+        raise DeclarativeRuntimeError(IMAGE_SAVE_FAILED_CODE, detail=str(exc)) from exc

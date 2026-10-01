@@ -18,9 +18,9 @@ PROJECTED_META_FIELDS = ("name", "author", "version", "description", "homepage",
 def project_meta(definition: Mapping[str, Any]) -> dict[str, Any]:
     """一份定义在索引条目里的投影：``meta`` 里出现的那些字段，加上定义声明的媒体类型。
 
-    媒体类型不是固定值：定义自己声明产图还是产视频，声明式定义不写时为视频。读法与端点投影、镜像列共用 ``definition_media_type`` 一份实现——市场索引上的
-    ``media_type`` 就是这份定义装进库以后镜像列会写下的那个值，两处对不上会让一个图像端点在市场
-    里显示成视频。
+    媒体类型不是固定值：定义自己声明产图还是产视频，声明式定义不写时为视频。读法与端点投影、
+    镜像列共用 ``definition_media_type`` 一份实现——市场索引上的 ``media_type`` 就是这份定义装进库
+    以后镜像列会写下的那个值，两处对不上会让一个图像端点在市场里显示成视频。
 
     ``kind`` 缺失或本版本不认得时投影里没有 ``media_type``：那份定义本身不合法，
     :func:`validate_definition` 已在同一次检查里说了这件事，这里再猜一个值只会掩盖它。
