@@ -239,7 +239,6 @@ MESSAGES = {
     "val_ce_removed_reason_mime_types": (
         "định dạng tư liệu không có danh sách cho phép; nhà cung cấp sẽ từ chối định dạng không nhận"
     ),
-    "val_ce_removed_reason_media_type": "điểm cuối khai báo luôn là video nên không thể khai báo loại phương tiện",
     "val_ce_removed_reason_comfyui_capabilities": (
         "điểm cuối ComfyUI suy ra năng lực từ các liên kết node nên định nghĩa không lưu khai báo năng lực"
     ),
@@ -307,6 +306,9 @@ MESSAGES = {
         "tư liệu vẫn được gửi đi trong khi giao diện không mở năng lực đó"
     ),
     "val_ce_capability_incoherent": "Năng lực {capability} mâu thuẫn với nhóm khai báo; yêu cầu: {requirement}",
+    "val_ce_capability_not_declared": "Phải khai báo ít nhất một năng lực là true trong capabilities: {allowed}",
+    "val_ce_media_type_field_not_allowed": "{name} không dùng được cho định nghĩa có loại phương tiện {media_type}",
+    "val_ce_artifact_extract_missing": "Thiếu đường dẫn trích xuất sản phẩm; cần viết ít nhất một trong: {keys}",
     "val_ce_jsonpath_not_a_string": "Đường dẫn trích xuất phải là chuỗi: {path_expression}",
     "val_ce_jsonpath_surrounding_whitespace": (
         "Đường dẫn trích xuất không được có khoảng trắng ở hai đầu: {path_expression}"

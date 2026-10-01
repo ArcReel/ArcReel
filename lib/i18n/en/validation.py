@@ -235,7 +235,6 @@ MESSAGES = {
     "val_ce_removed_reason_extract_source": "extraction always starts at the response body; HTTP status is not a path",
     "val_ce_removed_reason_extract_usage_keys": "usage now lives under poll.extract.usage",
     "val_ce_removed_reason_mime_types": "asset formats are not allow-listed; the provider rejects what it cannot take",
-    "val_ce_removed_reason_media_type": "a declarative endpoint is always video, so the media type cannot be declared",
     "val_ce_removed_reason_comfyui_capabilities": (
         "a ComfyUI endpoint derives its capabilities from the node bindings, so the definition holds no declaration"
     ),
@@ -301,6 +300,9 @@ MESSAGES = {
         "so the asset is sent while the UI hides the capability"
     ),
     "val_ce_capability_incoherent": "Capability {capability} conflicts with its group; required: {requirement}",
+    "val_ce_capability_not_declared": "Declare at least one capability as true in capabilities: {allowed}",
+    "val_ce_media_type_field_not_allowed": "{name} is not available to a definition whose media type is {media_type}",
+    "val_ce_artifact_extract_missing": "No artifact extraction path; write at least one of: {keys}",
     "val_ce_jsonpath_not_a_string": "An extraction path must be a string: {path_expression}",
     "val_ce_jsonpath_surrounding_whitespace": "An extraction path may not be padded with whitespace: {path_expression}",
     "val_ce_jsonpath_missing_root": "An extraction path must start with $: {path_expression}",

@@ -94,6 +94,7 @@ MESSAGES = {
     ),
     "task_fail_declarative_template_render_failed": "Endpoint request rendering failed: {detail}",
     "task_fail_declarative_response_extract_failed": "Endpoint response extraction failed: {detail}",
+    "task_fail_declarative_image_save_failed": "The provider generated the image, but it couldn't be saved locally; regenerating will be billed again: {detail}",
     "task_fail_comfyui_image_drop_unsupported": "This workflow's output depends on the image read by node {node}, so it cannot be rewired for fewer images; supply the missing images or use another workflow",
     "task_fail_comfyui_upload_failed": "Uploading the asset to ComfyUI failed: {detail}",
     "task_fail_comfyui_node_errors": "ComfyUI refused this workflow; {nodes} node(s) reported errors, first: {summary}",

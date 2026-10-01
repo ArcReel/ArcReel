@@ -109,7 +109,7 @@ class TestCreate:
         assert body["key"] == f"ce-{body['id']}"
         assert body["display_name"] == "示例端点"
         assert body["kind"] == "declarative"
-        assert body["schema_version"] == "1.1.0"
+        assert body["schema_version"] == "1.2.0"
         assert body["media_type"] == "video"
 
     def test_stores_definition_verbatim(self, endpoints_client: TestClient):

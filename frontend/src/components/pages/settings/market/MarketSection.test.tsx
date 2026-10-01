@@ -215,6 +215,29 @@ describe("MarketSection", () => {
     expect(cardNames()).toHaveLength(3);
   });
 
+  it("narrows entries to one media type and restores the full list with all", async () => {
+    vi.mocked(API.listMarketEntries).mockResolvedValue({
+      entries: [...ENTRIES, makeEntry({ slug: "pixel", name: "Pixel Image", media_type: "image" })],
+      app_version: "0.30.0",
+    });
+    render(<MarketSection />);
+    await screen.findAllByRole("article");
+    const group = screen.getByRole("group", { name: "按媒体类型筛选" });
+    const [all, image, video] = within(group).getAllByRole("button");
+    expect(all).toHaveAttribute("aria-pressed", "true");
+
+    await userEvent.click(image);
+    expect(image).toHaveAttribute("aria-pressed", "true");
+    expect(all).toHaveAttribute("aria-pressed", "false");
+    expect(cardNames()).toEqual(["Pixel Image"]);
+
+    await userEvent.click(video);
+    expect(cardNames()).toEqual(["Alpha Video", "Zeta Gateway", "Alpha 团队版"]);
+
+    await userEvent.click(all);
+    expect(cardNames()).toHaveLength(4);
+  });
+
   it("shows endpoint as the only available entry type and enables the installed-only switch", async () => {
     render(<MarketSection />);
     const types = within(await screen.findByRole("group", { name: "条目类型" })).getAllByRole("button");

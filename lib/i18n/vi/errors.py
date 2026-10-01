@@ -94,6 +94,7 @@ MESSAGES = {
     ),
     "task_fail_declarative_template_render_failed": "Không thể kết xuất yêu cầu endpoint: {detail}",
     "task_fail_declarative_response_extract_failed": "Không thể trích xuất phản hồi endpoint: {detail}",
+    "task_fail_declarative_image_save_failed": "Nhà cung cấp đã tạo ảnh nhưng không thể lưu về máy; tạo lại sẽ bị tính phí thêm lần nữa: {detail}",
     "task_fail_comfyui_image_drop_unsupported": "Chuỗi tạo thành phẩm của workflow này phụ thuộc vào ảnh do node {node} đọc vào, nên không thể chỉnh lại đồ thị khi thiếu ảnh; hãy bổ sung ảnh hoặc dùng workflow khác",
     "task_fail_comfyui_upload_failed": "Tải tư liệu lên ComfyUI thất bại: {detail}",
     "task_fail_comfyui_node_errors": "ComfyUI từ chối workflow này; có {nodes} node báo lỗi, đầu tiên: {summary}",

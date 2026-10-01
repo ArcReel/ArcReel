@@ -144,8 +144,18 @@ class ProviderRuntimeState:
 
     body: object
     status: ProviderJobStatus
+    provider_status: str | None
     error: str | None
     result_id: str | None
+
+
+def _failure_reason(state: ProviderRuntimeState) -> str:
+    """供应商判负时给用户看的理由，优先使用供应商原样状态。"""
+    if state.error:
+        return state.error
+    if state.provider_status:
+        return f"provider reported failure (status: {state.provider_status})"
+    return "provider reported failure"
 
 
 @dataclass(frozen=True)
@@ -182,16 +192,22 @@ def extract_runtime_state(
     """按一节 extract 读取媒体无关状态、错误与二次取件 id。"""
     try:
         failure = extract_value(extract["failure"], body) if "failure" in extract else None
-        if status is None:
-            raw_status = extract_value(extract["status"], body)
-            mapped = map_status(raw_status, status_map)
-        else:
-            mapped = status
+        if status is not None:
+            return ProviderRuntimeState(
+                body=body,
+                status=ProviderJobStatus.FAILED if failure is not None else status,
+                provider_status=None,
+                error=extract_text(extract.get("error"), body),
+                result_id=extract_text(extract.get("result_id"), body),
+            )
+        raw_status = extract_value(extract["status"], body)
+        mapped = map_status(raw_status, status_map)
         if failure is not None:
             mapped = ProviderJobStatus.FAILED
         return ProviderRuntimeState(
             body=body,
             status=mapped,
+            provider_status=None if failure is not None else text_or_none(raw_status),
             error=extract_text(extract.get("error"), body),
             result_id=extract_text(extract.get("result_id"), body),
         )
@@ -320,9 +336,7 @@ class DeclarativeRuntime:
         poll_state = await poll_with_retry(
             poll_fn=poll_once,
             is_done=lambda state: state.status is ProviderJobStatus.SUCCEEDED,
-            is_failed=lambda state: (
-                (state.error or "provider reported failure") if state.status is ProviderJobStatus.FAILED else None
-            ),
+            is_failed=lambda state: _failure_reason(state) if state.status is ProviderJobStatus.FAILED else None,
             max_wait=poll_timeout_seconds,
             retry_if=should_retry_poll,
             label=self._provider,

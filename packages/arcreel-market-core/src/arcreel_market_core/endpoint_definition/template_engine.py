@@ -10,13 +10,26 @@ from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import parse_qsl, quote, urlsplit, urlunsplit
 
-from arcreel_market_core.aspect_size import VIDEO_TIER_SHORT_EDGE, aspect_size, resolution_to_short_edge
+from arcreel_market_core.aspect_size import (
+    IMAGE_TIER_SHORT_EDGE,
+    VIDEO_TIER_SHORT_EDGE,
+    aspect_size,
+    resolution_to_short_edge,
+)
 from arcreel_market_core.definition_diagnostics import DefinitionErrorCode, message_key
 from arcreel_market_core.validation_messages import ValidationMessage
+
+from .media_type import DEFAULT_DECLARATIVE_MEDIA_TYPE
 
 _PLACEHOLDER = re.compile(r"{{\s*([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)\s*}}")
 _WHOLE_PLACEHOLDER = re.compile(r"^\s*{{\s*([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)\s*}}\s*$")
 _DROP = object()
+
+#: 媒体类型 → 分辨率档位的短边像素表：图片与视频的档位名与像素各成一套。
+_TIER_SHORT_EDGE_BY_MEDIA_TYPE: Mapping[str, dict[str, int]] = {
+    "image": IMAGE_TIER_SHORT_EDGE,
+    "video": VIDEO_TIER_SHORT_EDGE,
+}
 
 
 class TemplateRenderError(ValueError):
@@ -68,8 +81,10 @@ def build_context(
     parameters: Mapping[str, object],
     inputs: Mapping[str, object] | None = None,
     defaults: Mapping[str, object] | None = None,
+    *,
+    media_type: str = DEFAULT_DECLARATIVE_MEDIA_TYPE,
 ) -> dict[str, object]:
-    """补齐模板保留变量；宽高只由比例与分辨率派生。
+    """补齐模板保留变量；宽高只由比例与分辨率派生，分辨率档位按 ``media_type`` 换算。
 
     ``defaults`` 在这里生效，早于整值占位符的删字段判断与宽高派生：调用方没给的参数取定义
     声明的缺省值，请求里该字段照常出现，派生出的宽高也跟着这个值走。
@@ -86,7 +101,7 @@ def build_context(
             aspect_ratio,
             resolution_to_short_edge(
                 resolution if isinstance(resolution, str) else None,
-                tier_map=VIDEO_TIER_SHORT_EDGE,
+                tier_map=_TIER_SHORT_EDGE_BY_MEDIA_TYPE[media_type],
             ),
             round_to=8,
         )

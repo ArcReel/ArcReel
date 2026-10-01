@@ -31,8 +31,9 @@ import { EndpointReferenceList, endpointReferences } from "./EndpointReferenceLi
 import { EndpointForm } from "./EndpointForm";
 import { EndpointTestSection } from "./EndpointTestSection";
 import { exportEndpointDefinition } from "./export-endpoint-definition";
+import { EXAMPLE_TEMPLATES } from "./example-templates";
 import type { AnyEndpointDefinition, ComfyuiEndpointDefinition } from "@/types";
-import { VariableInsertionProvider } from "./endpoint-form-primitives";
+import { HINT_CLS, LABEL_CLS, VariableInsertionProvider } from "./endpoint-form-primitives";
 import { ComfyuiEndpointDetail } from "./ComfyuiEndpointDetail";
 import { ShareToMarketDialog } from "./ShareToMarketDialog";
 import type { ComfyuiImportDraft } from "./comfyui-import";
@@ -156,6 +157,8 @@ export function EndpointDetail({
   const [deleteReferences, setDeleteReferences] = useState<EndpointReference[] | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
+  // 新建草稿当前取自哪份示例模板；空串为空白定义。
+  const [templateId, setTemplateId] = useState("");
 
   const builtinKey = selection.mode === "builtin" ? selection.descriptor.key : null;
 
@@ -215,6 +218,18 @@ export function EndpointDetail({
   const leaveJsonMode = () => {
     setFormEpoch((n) => n + 1);
     setEditorMode("form");
+  };
+
+  /** 用示例模板整份替换新建草稿；两种视图都按新定义重挂载。 */
+  const applyTemplate = (id: string) => {
+    if (selection.mode !== "new") return;
+    const template = EXAMPLE_TEMPLATES.find((item) => item.id === id);
+    const next = structuredClone(template ? template.definition : selection.definition);
+    setTemplateId(id);
+    setDraft(next);
+    setJsonText(JSON.stringify(next, null, 2));
+    setJsonIssue(null);
+    setFormEpoch((n) => n + 1);
   };
 
   const handleSave = useCallback(async () => {
@@ -535,6 +550,28 @@ export function EndpointDetail({
               warnings={validation.warnings}
               onLocate={locateSection}
             />
+          )}
+
+          {selection.mode === "new" && (
+            <div className="mb-4 max-w-sm">
+              <label htmlFor="ce-example-template" className={LABEL_CLS}>
+                {t("ce_template")}
+              </label>
+              <select
+                id="ce-example-template"
+                value={templateId}
+                onChange={(e) => applyTemplate(e.target.value)}
+                className={INPUT_CLS}
+              >
+                <option value="">{t("ce_template_blank")}</option>
+                {EXAMPLE_TEMPLATES.map((template) => (
+                  <option key={template.id} value={template.id}>
+                    {t(template.labelKey)}
+                  </option>
+                ))}
+              </select>
+              <span className={HINT_CLS}>{t("ce_template_hint")}</span>
+            </div>
           )}
 
           <div className="mb-4 inline-flex rounded-[8px] border border-hairline bg-bg-grad-a/40 p-0.5">

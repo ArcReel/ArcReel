@@ -229,7 +229,7 @@ def custom_endpoint_definition(**overrides: Any) -> dict[str, Any]:
     """
     definition: dict[str, Any] = {
         "kind": "declarative",
-        "schema_version": "1.1.0",
+        "schema_version": "1.2.0",
         "meta": {"name": "示例端点", "author": "ArcReel", "version": "0.1.0"},
         "auth": {"headers": {"Authorization": "Bearer {{ api_key }}"}},
         "inputs": {"first_frame": {"source": "start_image", "encoding": "data_uri"}},
@@ -252,6 +252,51 @@ def custom_endpoint_definition(**overrides: Any) -> dict[str, Any]:
         },
         "status_map": {"pending": "queued", "processing": "running", "completed": "succeeded", "failed": "failed"},
         "capabilities": {"first_frame": True},
+    }
+    definition.update(overrides)
+    return definition
+
+
+def image_endpoint_definition(**overrides: Any) -> dict[str, Any]:
+    """最小可用的声明式图片定义：文生图、提交 + 轮询、取图片 URL，校验零错误零警告。
+
+    协议形状取「OpenAI 风格路径 + 异步任务」一类供应商：提交返回 ``data[0].task_id``，轮询读
+    ``data.status``，取图 ``data.result.images[0].url[0]``。用例就地改出反例。
+    """
+    definition: dict[str, Any] = {
+        "kind": "declarative",
+        "schema_version": "1.2.0",
+        "media_type": "image",
+        "meta": {"name": "示例图片端点", "author": "ArcReel", "version": "0.1.0"},
+        "auth": {"headers": {"Authorization": "Bearer {{ api_key }}"}},
+        "submit": {
+            "method": "POST",
+            "url": "{{ base_url }}/v1/images/generations",
+            "body": {
+                "model": "{{ model }}",
+                "prompt": "{{ prompt }}",
+                "size": "{{ width }}x{{ height }}",
+                "seed": "{{ seed }}",
+            },
+            "extract": {"task_id": ["$.data[0].task_id"], "error": ["$.error.message"]},
+        },
+        "poll": {
+            "method": "GET",
+            "url": "{{ base_url }}/v1/tasks/{{ task_id }}",
+            "extract": {
+                "status": ["$.data.status"],
+                "image_url": ["$.data.result.images[0].url[0]"],
+                "error": ["$.data.error.message"],
+            },
+        },
+        "status_map": {
+            "pending": "queued",
+            "processing": "running",
+            "completed": "succeeded",
+            "failed": "failed",
+            "cancelled": "failed",
+        },
+        "capabilities": {"text_to_image": True},
     }
     definition.update(overrides)
     return definition
