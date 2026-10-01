@@ -2,25 +2,26 @@
 id: workflows
 title: Workflows and Modes
 sidebar_position: 2
+update_docs: full
 ---
 
 # Workflows and Modes {#workflows}
 
-ArcReel supports multiple content sources and video generation modes. This page helps you choose the right mode before starting a project and define the review criteria for each stage.
+ArcReel supports multiple content sources and video generation methods. This page helps you choose the right path before starting a project and define the review criteria for each stage.
 
 ## 1. Two Dimensions to Choose Separately {#two-dimensions}
 
 When creating a project, distinguish between:
 
 1. **Content Mode**: determines how the script is organized;
-2. **Video generation mode**: determines whether video production is organized around storyboard images or asset reference images. Multi-grid storyboards are an optional image-generation method within Storyboard mode.
+2. **Generation mode**: determines whether video production is organized around storyboard images or reference images such as asset images. Storyboard to video can optionally generate images as multi-grid storyboards.
 
 They can be combined. For example:
 
-- Drama + Storyboard mode;
-- Drama + Reference-to-video;
-- Narration/Commentary + Storyboard mode;
-- Ad / Short Video + Reference-to-video.
+- Drama + Storyboard to video;
+- Drama + Reference to video;
+- Narration/Commentary + Storyboard to video;
+- Ad / Short Video + Reference to video.
 
 ## 2. Content Sources {#content-sources}
 
@@ -80,7 +81,7 @@ Prepare:
 - Brand visual requirements;
 - Target duration and publishing platform.
 
-Ad / Short Video projects should establish stable merchandise reference assets before generating shots in context.
+Ad / Short Video projects should establish stable merchandise asset images before generating shots in context.
 
 ## 3. Content Modes {#content-modes}
 
@@ -189,9 +190,9 @@ flowchart LR
 - Whether the ending has a clear call to action;
 - Whether voice-over copy and subtitles comply with platform rules.
 
-## 4. Video Generation Modes {#video-production-routes}
+## 4. Generation Modes {#video-production-routes}
 
-### 4.1 Storyboard Image-to-Video {#storyboard-image-route}
+### 4.1 Storyboard to Video {#storyboard-image-route}
 
 Uses a single storyboard image as the video input.
 
@@ -215,14 +216,14 @@ Uses a single storyboard image as the video input.
 - Projects where each shot is relatively independent;
 - Projects that need to switch providers quickly.
 
-### 4.2 Multi-grid Storyboards Within Storyboard Mode {#grid-storyboard-route}
+### 4.2 Multi-grid Storyboard Images in Storyboard to Video {#grid-storyboard-route}
 
-Multi-grid storyboards are not a separate generation mode but an image-generation method within Storyboard mode. It generates multiple shots from the same passage together on one or more multi-grid storyboards; after review, each grid is split into an individual storyboard image for each shot, and each video is then generated separately. The video model still receives the individual storyboard image after splitting.
+Multi-grid storyboards are not a separate generation mode but an image-generation method within storyboard to video. It generates multiple shots from the same passage together on one or more multi-grid storyboards; after review, each grid is split into an individual storyboard image for each shot, and each video is then generated separately. The video model still receives the individual storyboard image after splitting.
 
 Image generation takes two steps:
 
-1. **Generate**: produces only the multi-grid storyboard itself and leaves each shot's existing storyboard image unchanged. Review it in "Multi-grid Storyboard Preview"; if you are not satisfied, regenerate it or upload your own composite image to replace it.
-2. **Split into cells**: once you are satisfied, click "Split into cells" in "Multi-grid Storyboard Preview", or agree in the conversation to let the Agent split it. Splitting overwrites every storyboard image the multi-grid storyboard covers for shots still in the script (shots since removed from the script are skipped); the previous storyboard images stay in the version history and can be rolled back.
+1. **Generate**: produces only the multi-grid storyboard itself and leaves each shot's existing storyboard image unchanged. Review it in **Multi-grid Storyboard Preview**; if you are not satisfied, regenerate it or upload your own composite image to replace it.
+2. **Split into cells**: once you are satisfied, click **Split into cells** in **Multi-grid Storyboard Preview**, or agree in the conversation to let the Agent split it. Splitting overwrites every storyboard image the multi-grid storyboard covers for shots still in the script (shots since removed from the script are skipped); the previous storyboard images stay in the version history and can be rolled back.
 
 Multi-grid storyboards automatically use square 2×2 / 3×3 grids based on the number of shots. Each cell uses the same aspect ratio as the project video; when there are more shots, they are divided across multiple multi-grid storyboards according to the grid capacity. Denser 4×4 / 5×5 grids are available only when the image model's resolution tier is configured as 4K—the more cells a multi-grid storyboard contains, the lower the resolution of each cell, and dense grids at lower resolution tiers will degrade downstream video quality.
 
@@ -242,7 +243,7 @@ When a few shots in a group are missing storyboard images, you can generate them
 
 - Multi-grid storyboard layouts and splitting rules add complexity;
 - Each cell may be less sharp;
-- Not available for the Reference-to-video workflow or Ad / Short Video projects.
+- Not available for reference to video or Ad / Short Video projects.
 
 #### Recommended For {#grid-storyboard-fit}
 
@@ -251,9 +252,9 @@ When a few shots in a group are missing storyboard images, you can generate them
 - Reviewing composition, costumes, and overall visual style in groups;
 - Long-form projects that need to reduce visual drift between batches.
 
-### 4.3 Reference-to-Video {#reference-video-route}
+### 4.3 Reference to Video {#reference-video-route}
 
-Instead of using an ordinary storyboard as the sole input, the workflow directly provides character, scene, prop, or merchandise reference assets.
+Instead of using an ordinary storyboard as the sole input, the workflow directly provides reference images such as asset images of characters, scenes, props, or merchandise.
 
 #### Advantages {#reference-video-pros}
 
@@ -271,23 +272,23 @@ Instead of using an ordinary storyboard as the sole input, the workflow directly
 
 #### Recommended For {#reference-video-fit}
 
-- Models with mature Reference-to-video capabilities;
+- Models with mature reference-to-video capabilities;
 - High-quality character and merchandise assets;
 - Projects where identity consistency is the priority;
 - Projects that want fewer intermediate storyboard steps.
 
 ## 5. Mode Selection Table {#mode-selection-table}
 
-| Requirement | Recommended Content Mode | Recommended video generation mode |
+| Requirement | Recommended Content Mode | Recommended Generation Mode |
 |---|---|---|
-| Novel recaps and narration-led content | Narration/Commentary | Storyboard mode |
-| Continuous narratives and character dialogue | Drama | Storyboard mode (with multi-grid storyboards) or Reference-to-video mode |
-| A complete existing screenplay | Drama | Storyboard mode |
-| Merchandise structure must remain stable | Ad / Short Video | Prefer Reference-to-video |
-| Strong cross-shot consistency requirements | Narration/Commentary or Drama | Storyboard mode (with multi-grid storyboards) |
-| First ArcReel trial | Any | Storyboard mode |
-| Limited provider support | Any | Storyboard mode |
-| An established library of high-quality character assets | Drama | Reference-to-video |
+| Novel recaps and narration-led content | Narration/Commentary | Storyboard to video |
+| Continuous narratives and character dialogue | Drama | Storyboard to video (with multi-grid storyboards) or Reference to video |
+| A complete existing screenplay | Drama | Storyboard to video |
+| Merchandise structure must remain stable | Ad / Short Video | Prefer Reference to video |
+| Strong cross-shot consistency requirements | Narration/Commentary or Drama | Storyboard to video (with multi-grid storyboards) |
+| First ArcReel trial | Any | Storyboard to video |
+| Limited provider support | Any | Storyboard to video |
+| An established library of high-quality character assets | Drama | Reference to video |
 
 ## 6. Standard Production Stages {#production-stages}
 
@@ -326,7 +327,7 @@ Before confirming, you can edit every field of each shot on the content review p
 
 If the references still contain a name that is neither registered nor a new asset registered in this episode, the confirmation is rejected and the affected shots and names are listed. Add, remove, and reorder shots on the timeline after confirming.
 
-### Stage 3: Reference Assets {#stage-reference-assets}
+### Stage 3: Asset Images {#stage-reference-assets}
 
 Confirm:
 
@@ -368,7 +369,7 @@ Before starting, confirm:
 - Failure retry strategy;
 - Disk space.
 
-#### Current, Stale, Missing, and Blocked Artifacts {#artifact-currency}
+#### Current, Stale, and Missing Artifacts {#artifact-currency}
 
 ArcReel determines an artifact's state from the direct inputs used to generate it:
 
@@ -417,7 +418,7 @@ ArcReel's advantage is not “skipping review,” but placing review where the c
 
 ### Scenes {#consistency-scenes}
 
-- Establish reference assets for important scenes;
+- Establish asset images for important scenes;
 - Fix the spatial orientation and main decor;
 - Avoid unnecessary changes in lighting and time of day within the same passage;
 - Track where characters are positioned in the space.

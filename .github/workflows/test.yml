@@ -384,8 +384,8 @@ jobs:
           cache: "pnpm"
           cache-dependency-path: website/pnpm-lock.yaml
 
-      - name: Translation lock unit tests
-        run: node --test .claude/skills/translate-docs/scripts/translation-lock.test.mjs
+      - name: translate-docs script unit tests
+        run: node --test .claude/skills/translate-docs/scripts/translation-lock.test.mjs .claude/skills/translate-docs/scripts/ui-messages.test.mjs
 
       - name: Website script unit tests
         run: node --test website/scripts/*.test.mjs
@@ -393,6 +393,11 @@ jobs:
       - name: Install dependencies
         working-directory: website
         run: pnpm install --frozen-lockfile
+
+      # 紧接依赖安装：后续闸门失败时，always() 的翻译滞后报告仍要读到这份同步副本
+      - name: Sync CONTRIBUTING copy
+        working-directory: website
+        run: pnpm run sync-contributing
 
       - name: Typecheck
         working-directory: website
@@ -405,10 +410,6 @@ jobs:
       - name: Format check
         working-directory: website
         run: pnpm run format:check
-
-      - name: Sync CONTRIBUTING copy
-        working-directory: website
-        run: pnpm run sync-contributing
 
       - name: Consistency check (doc inventory / orphan translations / anchors / UI JSON keys)
         working-directory: website

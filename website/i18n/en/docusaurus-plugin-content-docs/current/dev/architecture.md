@@ -2,6 +2,7 @@
 id: architecture
 title: Architecture
 sidebar_position: 1
+update_docs: fact-check
 ---
 
 # Architecture {#architecture}
@@ -132,6 +133,8 @@ The first three are script planning tasks, and they also identify the new assets
 
 Large amounts of source novel text and intermediate reasoning should remain within the Subagent whenever possible. The main Agent receives summaries and references to results.
 
+Quick-reference or condensed checklists in a Subagent's `.md` must not omit a rule's exception branches. When a rule cannot be kept complete, reference its source of truth instead of restating it.
+
 ### 5.3 Deterministic Tools {#deterministic-tools}
 
 Deterministic operations are better handled by tools or Skills, for example:
@@ -227,7 +230,6 @@ Image, video, and audio tasks have different cost and latency characteristics, s
 Key capabilities include:
 
 - asynchronous execution;
-- RPM limits;
 - independent Image / Video / Audio concurrency;
 - persistent state;
 - recovery after interruption;
@@ -372,7 +374,7 @@ Batch editing goes through the Agent tool `edit_timeline`, which calls the servi
 
 Management operations are provided by the same service and shared by the Agent tools and the HTTP endpoints:
 
-- **Copy**: the Agent tool `create_timeline` (`from: "timeline"`) and `POST …/edit-timelines/{timeline_id}/copy`. Copies the content of a given revision (the latest by default) as-is into a new timeline of the same episode, carrying over clip IDs and the number allocators. The new timeline starts at revision 1.
+- **Copy**: the Agent tool `create_timeline` (`from: "timeline"`) and `POST …/edit-timelines/{timeline_id}/copy`. Copies the content of a given revision (the latest by default) as-is into a new timeline of the same episode, carrying over clip numbers and the number allocators. The new timeline starts at revision 1.
 - **Rename**: `rename_timeline` and `PATCH …/edit-timelines/{timeline_id}`. Changes only the display name in the document header. It creates no revision, and final cuts and Jianying drafts do not become stale.
 - **Revision history**: `list_revisions` and `GET …/edit-timelines/{timeline_id}/revisions`.
 - **Restore**: `restore_revision` and `POST …/edit-timelines/{timeline_id}/restore`. Appends a new revision with the content of an older one and records the source in `restored_from`; history is never rewritten. A restore always applies to the latest revision without optimistic concurrency checks. Its change record is the difference from the latest revision, and when the relative order changes, every clip present in both contents is counted, so edits based on older revisions report more conflicts rather than fewer. A target whose content equals the latest revision returns `revision_unchanged`.

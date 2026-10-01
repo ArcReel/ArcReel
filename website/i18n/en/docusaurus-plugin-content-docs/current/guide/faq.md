@@ -2,6 +2,7 @@
 id: faq
 title: Frequently Asked Questions
 sidebar_position: 7
+update_docs: fact-check
 ---
 
 # Frequently Asked Questions {#faq}
@@ -89,24 +90,24 @@ A production PostgreSQL deployment also requires a PostgreSQL database backup. A
 
 A project ZIP from the Web UI is suitable for migrating an individual project, but it does not include global provider configuration, account configuration, task records, cost records, or Agent sessions. It is not a substitute for a full-instance backup.
 
-## Initial configuration and the AI assistant {#setup-and-assistant}
+## Initial configuration and the Agent {#setup-and-assistant}
 
-### Which credentials must I configure before production? {#required-credentials}
+### Which credentials do I need to configure before starting production? {#required-credentials}
 
-ArcReel uses two independent sets of configuration for the AI assistant and content generation:
+The ArcReel Agent and content generation use two independent sets of configuration:
 
 - The **Agent provider** handles conversations, source-text analysis, and production orchestration. It requires a working, active Agent credential.
 - **Generation providers** handle text, image, video, and speech generation. You must configure providers and models for the modalities your project actually uses.
 
-Configuring only an Agent credential does not automatically provide image- or video-generation capabilities. Configuring only generation providers does not let the in-project AI assistant start. Project-level generation model settings override global defaults, so troubleshooting should confirm which provider and model the project actually selected.
+Configuring only an Agent credential does not automatically provide image- or video-generation capabilities. Configuring only generation providers does not let the in-project Agent start. Project-level generation model settings override global defaults, so troubleshooting should confirm which provider and model the project actually selected.
 
 Preset generation providers and Agent providers can each store multiple credentials, but ArcReel uses only the one currently marked active at runtime and does not rotate them automatically. Testing a credential does not activate it. Each custom provider currently stores one API Key.
 
-### How do I make the AI assistant start or resume production? {#start-or-resume-assistant}
+### How do I make the Agent start or resume production? {#start-or-resume-assistant}
 
-Open the AI assistant on the right side of the project and simply ask it to “start production” or “continue production.” The assistant checks the project's current state, resumes from the first incomplete stage, and waits for confirmation when the screenplay, assets, or storyboards need review.
+Open the Agent on the right side of the project and simply ask it to “start production” or “continue production.” The Agent checks the project's current state, resumes from the first incomplete stage, and waits for confirmation when the screenplay, assets, or storyboards need review.
 
-If the assistant reports that you are not logged in, cannot start, or have no available model, first open Settings and confirm that an Agent credential is saved, its message-call probe succeeds, and it is active. A model-discovery warning does not necessarily block message calls, but you should verify the actual model ID. You do not need to sign in to a Claude web account separately in the assistant panel.
+If the Agent reports that you are not logged in, cannot start, or have no available model, first open Settings and confirm that an Agent credential is saved, its message-call probe succeeds, and it is active. A model-discovery warning does not necessarily block message calls, but you should verify the actual model ID. You do not need to sign in to a Claude web account separately in the Agent panel.
 
 ### What should I do about `Failed to start Claude Code`, a startup timeout, or `Control request timeout`? {#assistant-startup-failure}
 
@@ -176,25 +177,25 @@ A read timeout after a generation request is submitted can leave an uncertain st
 
 ## Project workflows and tasks {#project-workflow-and-tasks}
 
-### How should I choose a content mode and a video generation mode? Can I change them later? {#choose-mode-and-route}
+### How should I choose the project mode, and between storyboard and reference-to-video? Can I change them after creation? {#choose-mode-and-route}
 
 You must choose two separate dimensions when creating a project:
 
 - **Content Mode**: Narration/Commentary, Drama, or Ad / Short Video. This determines the screenplay structure and production workflow.
-- **Video generation mode**: Storyboard or Reference-to-video. This determines whether videos use storyboard images or asset reference images.
+- **Generation mode**: Storyboard or Reference-to-video. This determines whether videos use storyboard images or reference images such as asset images.
 
-Content mode and video generation mode cannot be changed after creation. Multi-grid storyboards are not a third generation mode; they are an image-generation method within Storyboard mode. Ad / Short Video projects do not support multi-grid storyboards. Before creating the full project, use a short sample to confirm that the generation mode fits your needs.
+Content mode and generation mode cannot be changed after creation. Multi-grid storyboards are not a third generation mode; they are an image-generation method within Storyboard mode. Ad / Short Video projects do not support multi-grid storyboards. Before creating the full project, use a short sample to confirm that the generation mode fits your needs.
 
-- **Storyboard mode**: screenplay → character/scene/prop designs → storyboard images → video. Each shot must have a corresponding storyboard image before video generation.
+- **Storyboard mode**: screenplay → character/scene/prop asset images → storyboard images → video. Each shot must have a corresponding storyboard image before video generation.
 - **Multi-grid storyboards**: still part of Storyboard mode, as an image-generation method within it. ArcReel first generates one or more grid images, splits them into starting storyboard images for each shot, and then generates video from those storyboard images.
-- **Reference-to-video mode**: skips storyboard images and directly uses the character, scene, and prop designs referenced by the screenplay as video references.
+- **Reference-to-video mode**: skips storyboard images and directly uses the character, scene, and prop asset images referenced by the screenplay as video references.
 
-Reference-to-video does not mean that asset images are unnecessary. If a referenced asset in a Narration/Commentary or Drama project has no design image, its video will fail. In an Ad / Short Video project, a task may continue without merchandise reference images, but merchandise fidelity cannot be guaranteed.
+Reference-to-video does not mean that asset images are unnecessary. If a referenced asset in a Narration/Commentary or Drama project has no asset image, the related videos will fail. In an Ad / Short Video project, a task may continue without product reference images, but product fidelity cannot be guaranteed.
 
 If the video provider receives only text and no storyboard or reference image, verify the project's generation mode, actual model, and custom model's call endpoint:
 
 1. Storyboard mode sends the shot's storyboard image as the video's starting image.
-2. Reference-to-video mode collects the asset designs referenced by the screenplay.
+2. Reference-to-video mode collects the asset images referenced by the screenplay.
 3. The selected video model and call endpoint must explicitly support the corresponding image-to-video or reference-to-video capability.
 
 If a custom model is registered only with a text-to-video endpoint, or if its declared capabilities do not match the upstream API, ArcReel cannot send reference images to the service using the correct protocol.
@@ -205,14 +206,14 @@ ArcReel currently supports `.txt`, `.md`, `.docx`, `.epub`, and `.pdf`. Uploaded
 
 A scanned PDF with no extractable text cannot be used directly and must go through OCR first. Convert legacy `.doc` files to `.docx` before uploading. If a TXT or Markdown file displays garbled characters, convert it to a common text encoding and upload it again.
 
-### Why is the next stage unavailable, or why did the assistant stop? {#stage-blocked}
+### Why can't I move to the next stage, or why did the Agent stop? {#stage-blocked}
 
 Usually a prerequisite review or asset is incomplete:
 
 1. For Narration/Commentary and Drama projects, confirm that the script plan result has been reviewed. Editing it after confirmation requires another confirmation. Ad / Short Video projects do not have this step.
-2. Check whether characters, scenes, and props have definitions but no generated design images.
+2. Check whether characters, scenes, and props have definitions but no generated asset images.
 3. In Storyboard mode, check whether the target shot has a storyboard image.
-4. In Reference-to-video mode, verify that referenced assets in Narration/Commentary and Drama projects have complete design images. For Ad / Short Video projects, at least confirm that original merchandise images were uploaded. Missing reference images may not block the task, but they reduce merchandise fidelity.
+4. In Reference-to-video mode, verify that referenced assets in Narration/Commentary and Drama projects have complete asset images. For Ad / Short Video projects, at least confirm that the original product images were uploaded. Missing reference images may not block the task, but they reduce product fidelity.
 5. Expand the task panel and check for tasks that are still queued, running, or failed.
 
 The status bar in the header shows only how many episodes are completed and the project's next step; open the episode count to see the next step for each episode. For what exactly is missing, check the assets in the sidebar, "Production status" on the episode page, and task errors.
@@ -223,6 +224,8 @@ Image, video, and audio jobs use independent task channels. Only queued tasks ca
 
 The task panel does not have one retry button that works for every task type. After a failure, expand the error details, correct the configuration or input, then regenerate from the corresponding asset, storyboard, or video action. Do not click Generate repeatedly before understanding the cause.
 
+There is one exception: when a video was generated successfully on the provider side but could not be downloaded, the task panel offers **Retry download**. This action resumes the original provider task and only re-fetches the output. It **does not resubmit the request and is not billed again**, so use it to recover this kind of failure instead of regenerating from the generation entry point. Regenerating creates a new paid task.
+
 If part of a batch fails, you do not need to redo all successful content. Asset, storyboard, and full-episode video generation fill in missing items; successful results are not deleted because one item failed. After a service restart, safely recoverable video tasks with recorded upstream task IDs resume polling. Unrecoverable tasks are marked failed and wait for the user to decide whether to resubmit them.
 
 To avoid duplicate charges, ArcReel does not unconditionally requeue every running task. Check existing results and tasks in the provider console before regenerating.
@@ -231,12 +234,12 @@ To avoid duplicate charges, ArcReel does not unconditionally requeue every runni
 
 ### How can I improve character consistency? {#character-consistency}
 
-1. Generate and review character designs before generating storyboards and videos in batches.
+1. Generate and review character asset images before generating storyboards and videos in batches.
 2. Confirm that the target shot in the screenplay actually references the character.
-3. After changing a character design, regenerate the affected storyboards and videos. Existing results are not updated automatically.
+3. After changing a character asset image, regenerate the affected storyboards and videos. Existing results are not updated automatically.
 4. Validate the selected model's reference-image capabilities with a few shots before scaling up the batch.
 
-When generating a storyboard, ArcReel uses the character, scene, and prop designs referenced by that shot as reference images. Videos in Storyboard mode then use the storyboard image as their first frame, while Reference-to-video mode directly uses asset images. Generation models still cannot guarantee absolute frame-by-frame consistency.
+When generating a storyboard, ArcReel uses the character, scene, and prop asset images referenced by that shot as reference images. Videos in Storyboard mode then use the storyboard image as their first frame, while Reference-to-video mode directly uses asset images. Generation models still cannot guarantee absolute frame-by-frame consistency.
 
 ### How can I make adjacent shots more continuous? {#shot-continuity}
 
@@ -246,15 +249,15 @@ Lock down assets and storyboards before generating video, and keep location, tim
 
 ### How do start and end frames work? {#first-and-last-frame}
 
-In Storyboard mode, the storyboard image is the video's first frame. You can also select or upload an end frame for each shot, but generation is available only when the current video model explicitly supports end frames. For unsupported models, ArcReel rejects the request instead of silently ignoring the end frame.
+In Storyboard mode, the storyboard image is the video's first frame. You can also select or upload an end frame for each shot, but generation is available only when the current video model explicitly supports end frames. For unsupported models, ArcReel rejects the request instead of silently ignoring the end frame. Changing a storyboard or end frame does not automatically update an existing video; regenerate the corresponding video to apply the change.
 
-Reference-to-video mode has no separate end-frame setting. Changing a storyboard or end frame does not automatically update an existing video; regenerate the corresponding video to apply the change.
+Reference-to-video mode has no separate end-frame setting.
 
-### Why are people appearing in a scene design? {#people-in-scene-images}
+### Why do people appear in a scene asset image? {#people-in-scene-images}
 
-The prompt for a scene design asks the image model not to include people, but the model may not follow the constraint perfectly. Regenerate the scene image or use instruction-based image editing to remove the people.
+The prompt for a scene asset image asks the image model not to include people, but the model may not follow the constraint perfectly. Regenerate the scene image or use instruction-based image editing to remove the people.
 
-A scene design is different from a story-specific storyboard image: the scene design should focus on the environment, while the storyboard image includes people according to the story.
+A scene asset image is different from a story storyboard image: the scene asset image should focus on the environment, while the storyboard image includes people according to the story.
 
 ### Does ArcReel support voice-over? {#voice-over-support}
 
@@ -330,7 +333,7 @@ Do not disclose API keys, Tokens, passwords, the complete `.env`, or an unreview
 Questions such as “Which model is best?”, “How can I achieve 100% character consistency?”, and “How can I make videos perfectly seamless?” have no fixed answer that applies to every project. Use a small, verifiable workflow:
 
 1. Test the target model's visual style, reference-image behavior, duration, and moderation limits with a few shots.
-2. Finalize character, scene, and prop designs before generating storyboards in batches.
+2. Finalize character, scene, and prop asset images before generating storyboards in batches.
 3. Keep location, time, clothing, and character descriptions consistent across adjacent shots.
 4. Reference only the assets that the current shot actually needs so that too many reference images do not dilute the constraints.
 5. Use a model that supports end frames for important transitions, or handle them in post-production.

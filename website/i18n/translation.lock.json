@@ -1,13 +1,15 @@
 {
-  "CONTRIBUTING.md": "026dec6a937e2fab8a8054910cb81f0d5715b441b1bfad1c53845aa40c1af47e",
-  "README.md": "173515c7bf70e0f2eca6b0f619f737d25e833d8576eb866e170063503347dee6",
-  "website/docs/dev/architecture.md": "e9bb58f810f755047b736691c03e70bfcae86e6c3ff2272060cff9cf6e1243d0",
-  "website/docs/guide/faq.md": "44c1a08afacf85f29b37898e6cad9899af3bb58df27723e035afc62b5492f0bf",
-  "website/docs/guide/getting-started.md": "250a0103f34c4171c3a41d0ede69825fd39b94b7e313cb869c4391b1eb4eae2b",
-  "website/docs/guide/jianying-export.md": "65ef8c99427648186337d921be509258e7e08012da79f9450503d3c352b41b0a",
-  "website/docs/guide/providers.md": "01e7936f629aecb9926d8a055255ce5b0b6b81327d9149dda380ecf9f3759fa8",
-  "website/docs/guide/workflows.md": "bfc03870189893f0793fd3823f7160f212fb1d969f9160d8a342df152549edd3",
-  "website/docs/index.mdx": "b7837792193fed1c4492a9be5c72723b3250fea0d6f83632813d9af188d9cc81",
-  "website/docs/ops/deployment.md": "da1f96a383cd53314b014c534cee2104867a60404dacadb310beac8536809287",
-  "website/docs/ops/migrate-to-postgres.md": "3e1ebb83bc9e33bd4afab8b236b6dd48bea92552c143e6a30c5562dd83cd52f3"
+  "CONTRIBUTING.md": "8a49501e3b7e5635ba1b7e009a644d8bc166b52f72fd430a516210528b47bc92",
+  "README.md": "e1e682e1c1bb6b9f86dd4cc2c194d32b2e43034f829413d3171f8a258fa2bee3",
+  "website/docs/dev/architecture.md": "121b845eb9248aaee52768748bf51600c0c8c09dabab34129b195e8e54b06654",
+  "website/docs/guide/comfyui.md": "8cccdb455604825c61c1893e42d8cfedb5401e72501fb7e063cec501e02300bf",
+  "website/docs/guide/faq.md": "966fc301eed68e07896c435951b88f9d4a899fd3b13a3b015efe2953e71fb325",
+  "website/docs/guide/getting-started.md": "3afb2eb85e42d9473d9795afb8b97e3f2d882cf24c80b2cdf54b87b19d1e3f56",
+  "website/docs/guide/jianying-export.md": "dad5c97a9f1078a242fb5c2faa608324aff59d5b21c668c6ac422101cb57d55b",
+  "website/docs/guide/market.md": "a2754fe0314b9ead4912cfc21140c67a16ea65608001797aa96c4341dd01ea5a",
+  "website/docs/guide/providers.md": "390382b12eecde19ec4549483ffb3b3e0a1e451f09cd9552971fb1db998d2a17",
+  "website/docs/guide/workflows.md": "555af8cff9c9304935a8165f077a10b5faaf36993eaedf4f5f535925f7e7610b",
+  "website/docs/index.mdx": "4103261643bcbe9fcee0c760f0a104861acc954d13bae7cfa2009951b9465968",
+  "website/docs/ops/deployment.md": "97bb25349cb04ce4b98dac75d03e56efa45334d6d36f2e31c6de0cd7853b31c3",
+  "website/docs/ops/migrate-to-postgres.md": "f30031153c333f42ed677c5d53aff3cd5ddad6b796b303734ac3e9b8bbb5d132"
 }

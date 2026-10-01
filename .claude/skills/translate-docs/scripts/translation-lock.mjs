@@ -77,6 +77,38 @@ function unregisteredTranslationOrphans(root, lock, currentTargets) {
     .map((target) => ({ source: sourceForTranslationTarget(target), target, state: "orphan" }));
 }
 
+// Only these frontmatter values carry prose; every other key (id, slug, sidebar_position,
+// update_docs, ...) drives tooling and must match the source byte for byte.
+const TRANSLATED_FRONT_MATTER_KEYS = new Set(["title", "description", "sidebar_label"]);
+
+// Returns the untranslated frontmatter entries as "key: value" lines, with indented continuation
+// lines folded into their key, or [] when the document has no frontmatter. Every unindented line
+// opens an entry, so a key this parser cannot name still takes part in the comparison.
+function untranslatedFrontMatter(path) {
+  const lines = readFileSync(path, "utf8").replace(/^\uFEFF/, "").replace(/\r\n?/g, "\n").split("\n");
+  if (lines[0]?.trim() !== "---") return [];
+  const entries = [];
+  for (const line of lines.slice(1)) {
+    if (line.trim() === "---") break;
+    if (/^\S/.test(line) || entries.length === 0) {
+      const key = /^(["']?)([^"':\s]+)\1\s*:/.exec(line)?.[2] ?? null;
+      entries.push({ key, text: line });
+    } else {
+      entries.at(-1).text += `\n${line}`;
+    }
+  }
+  return entries.filter(({ key }) => !TRANSLATED_FRONT_MATTER_KEYS.has(key)).map(({ text }) => text);
+}
+
+function frontMatterDrift(root, mappings) {
+  return mappings.filter(([source, target]) => {
+    const targetPath = resolve(root, target);
+    if (!existsSync(targetPath)) return false;
+    const expected = untranslatedFrontMatter(resolve(root, fingerprintSource(source)));
+    return JSON.stringify(expected) !== JSON.stringify(untranslatedFrontMatter(targetPath));
+  });
+}
+
 function digest(path) {
   const normalized = readFileSync(path, "utf8").replace(/\r\n?/g, "\n");
   return createHash("sha256").update(normalized, "utf8").digest("hex");
@@ -101,8 +133,12 @@ function translationStatus(root) {
   const orphans = Object.keys(lock)
     .filter((source) => !currentSources.has(source))
     .map((source) => ({ source, target: targetForSource(source), state: "orphan" }));
-  return [...dirty, ...orphans, ...unregisteredTranslationOrphans(root, lock, currentTargets)].sort(
-    (left, right) => left.source.localeCompare(right.source) || left.target.localeCompare(right.target),
+  const drifted = frontMatterDrift(root, mappings).map(([source, target]) => ({ source, target, state: "frontmatter" }));
+  return [...dirty, ...drifted, ...orphans, ...unregisteredTranslationOrphans(root, lock, currentTargets)].sort(
+    (left, right) =>
+      left.source.localeCompare(right.source) ||
+      left.target.localeCompare(right.target) ||
+      left.state.localeCompare(right.state),
   );
 }
 
@@ -111,6 +147,12 @@ function recordTranslations(root) {
   const missing = mappings.filter(([, target]) => !existsSync(resolve(root, target)));
   if (missing.length > 0) {
     throw new Error(`Refusing to record missing translations:\n${missing.map(([source]) => source).join("\n")}`);
+  }
+  const drifted = frontMatterDrift(root, mappings);
+  if (drifted.length > 0) {
+    throw new Error(
+      `Refusing to record translations whose untranslated frontmatter differs from the source:\n${drifted.map(([, target]) => target).join("\n")}`,
+    );
   }
   const currentSources = new Set(mappings.map(([source]) => source));
   const currentTargets = new Set(mappings.map(([, target]) => target));
