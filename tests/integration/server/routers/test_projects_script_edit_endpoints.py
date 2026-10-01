@@ -557,100 +557,25 @@ class TestProjectsRouter:
             )
             assert missing.status_code == 404
 
-    def test_reorder_shots_full_permutation(self, tmp_path, monkeypatch):
-        fake_pm = _FakePM(tmp_path)
-        fake_pm.scripts[("ad-ready", "episode_1.json")] = self._ad_script(["E1S01", "E1S02", "E1S03"])
-        client = build_projects_client(monkeypatch, fake_pm)
-
-        with client:
-            reordered = client.post(
-                "/api/v1/projects/ad-ready/script-shots/reorder",
-                json={"script_file": "episode_1.json", "shot_ids": ["E1S03", "E1S01", "E1S02"]},
-            )
-            assert reordered.status_code == 200
-            assert [s["shot_id"] for s in reordered.json()["shots"]] == ["E1S03", "E1S01", "E1S02"]
-            saved = fake_pm.scripts[("ad-ready", "episode_1.json")]["shots"]
-            assert [s["shot_id"] for s in saved] == ["E1S03", "E1S01", "E1S02"]
-
-    def test_reorder_shots_rejects_mismatched_ids(self, tmp_path, monkeypatch):
-        fake_pm = _FakePM(tmp_path)
-        fake_pm.scripts[("ad-ready", "episode_1.json")] = self._ad_script(["E1S01", "E1S02"])
-        client = build_projects_client(monkeypatch, fake_pm)
-
-        with client:
-            # 数量不一致
-            short = client.post(
-                "/api/v1/projects/ad-ready/script-shots/reorder",
-                json={"script_file": "episode_1.json", "shot_ids": ["E1S01"]},
-            )
-            assert short.status_code == 400
-            # 重复 ID
-            dup = client.post(
-                "/api/v1/projects/ad-ready/script-shots/reorder",
-                json={"script_file": "episode_1.json", "shot_ids": ["E1S01", "E1S01"]},
-            )
-            assert dup.status_code == 400
-            # 集合不匹配
-            mismatch = client.post(
-                "/api/v1/projects/ad-ready/script-shots/reorder",
-                json={"script_file": "episode_1.json", "shot_ids": ["E1S01", "E1S99"]},
-            )
-            assert mismatch.status_code == 400
-            # 原顺序未被破坏
-            saved = fake_pm.scripts[("ad-ready", "episode_1.json")]["shots"]
-            assert [s["shot_id"] for s in saved] == ["E1S01", "E1S02"]
-
-    def test_reorder_shots_rejects_non_ad_script(self, tmp_path, monkeypatch):
-        fake_pm = _FakePM(tmp_path)
-        client = build_projects_client(monkeypatch, fake_pm)
-
-        with client:
-            rejected = client.post(
-                "/api/v1/projects/ready/script-shots/reorder",
-                json={"script_file": "episode_1.json", "shot_ids": ["001"]},
-            )
-            assert rejected.status_code == 400
-
     def test_corrupted_shots_shape_fails_loud_not_silently_wiped(self, tmp_path, monkeypatch):
-        """shots 非列表 / 含非对象元素时返回 422，且不被 reorder 空排列覆盖成 []。"""
+        """shots 非列表 / 含非对象元素 / 身份键缺失或重复时 PATCH 返回 422，而非误导性的 404。"""
         fake_pm = _FakePM(tmp_path)
         fake_pm.scripts[("ad-ready", "episode_1.json")] = {"content_mode": "ad", "shots": "oops"}
         client = build_projects_client(monkeypatch, fake_pm)
 
         with client:
-            # 非列表 shots：reorder 传空排列也必须 422，不得把损坏数据覆盖成空列表
-            wiped = client.post(
-                "/api/v1/projects/ad-ready/script-shots/reorder",
-                json={"script_file": "episode_1.json", "shot_ids": []},
-            )
-            assert wiped.status_code == 422
-            assert fake_pm.scripts[("ad-ready", "episode_1.json")]["shots"] == "oops"
-
-            # PATCH 路径同样 422，而非误导性的 404
             patched = client.patch(
                 "/api/v1/projects/ad-ready/script-shots/E1S01",
                 json={"script_file": "episode_1.json", "updates": {"voiceover_text": "x"}},
             )
             assert patched.status_code == 422
 
-            # 列表含非对象元素：同样 fail loud
             fake_pm.scripts[("ad-ready", "episode_1.json")] = {"content_mode": "ad", "shots": [{"shot_id": "a"}, 42]}
-            mixed = client.post(
-                "/api/v1/projects/ad-ready/script-shots/reorder",
-                json={"script_file": "episode_1.json", "shot_ids": ["a"]},
+            mixed = client.patch(
+                "/api/v1/projects/ad-ready/script-shots/a",
+                json={"script_file": "episode_1.json", "updates": {"voiceover_text": "x"}},
             )
             assert mixed.status_code == 422
-
-            # shot_id 缺失或非字符串：拦下避免 PATCH 误报 404 / reorder KeyError 变 500
-            fake_pm.scripts[("ad-ready", "episode_1.json")] = {
-                "content_mode": "ad",
-                "shots": [{"shot_id": "a"}, {"section": "hook"}],
-            }
-            missing_id = client.post(
-                "/api/v1/projects/ad-ready/script-shots/reorder",
-                json={"script_file": "episode_1.json", "shot_ids": ["a"]},
-            )
-            assert missing_id.status_code == 422
 
             fake_pm.scripts[("ad-ready", "episode_1.json")] = {
                 "content_mode": "ad",
@@ -691,8 +616,8 @@ class TestProjectsRouter:
             (
                 "post",
                 "ad-ready",
-                "/api/v1/projects/ad-ready/script-shots/reorder",
-                {"script_file": "episode_1.json", "shot_ids": ["E1S01"]},
+                "/api/v1/projects/ad-ready/script-items/E1S01/move",
+                {"script_file": "episode_1.json", "after_id": None},
             ),
             (
                 "patch",
@@ -946,6 +871,46 @@ class TestScriptItemInsertAndRemove:
         assert response.json()["edit_result"]["affected_ids"] == ["E1S01"]
         assert [entry[id_field] for entry in pm.load_script("demo", "episode_1.json")[items_key]] == ["E1S02"]
         assert missing.status_code == 404
+
+    @pytest.mark.parametrize(
+        ("content_mode", "item_id", "after_id"),
+        [("narration", "E1S02", None), ("drama", "E1S01", "E1S02"), ("ad", "E1S02", None)],
+    )
+    def test_move_reorders_the_formal_script(
+        self, tmp_path, monkeypatch, content_mode: str, item_id: str, after_id: str | None
+    ):
+        pm, client = self._client(tmp_path, monkeypatch, content_mode)
+        items_key, id_field, _content = _ITEM_SHAPES[content_mode]
+
+        with client:
+            response = client.post(
+                f"/api/v1/projects/demo/script-items/{item_id}/move",
+                json={"script_file": "episode_1.json", "after_id": after_id},
+            )
+
+        assert response.status_code == 200, response.json()
+        assert [entry[id_field] for entry in pm.load_script("demo", "episode_1.json")[items_key]] == [
+            "E1S02",
+            "E1S01",
+        ]
+
+    @pytest.mark.parametrize(
+        ("item_id", "after_id", "status"), [("E1S09", None, 404), ("E1S01", "E1S09", 404), ("E1S01", "E1S01", 422)]
+    )
+    def test_move_with_an_unknown_or_self_anchor_writes_nothing(
+        self, tmp_path, monkeypatch, item_id: str, after_id: str, status: int
+    ):
+        pm, client = self._client(tmp_path, monkeypatch, "drama")
+        before = pm.load_script("demo", "episode_1.json")
+
+        with client:
+            response = client.post(
+                f"/api/v1/projects/demo/script-items/{item_id}/move",
+                json={"script_file": "episode_1.json", "after_id": after_id},
+            )
+
+        assert response.status_code == status
+        assert pm.load_script("demo", "episode_1.json") == before
 
     @pytest.mark.parametrize("content_mode", ["narration", "drama", "ad"])
     def test_removing_the_only_item_leaves_a_legal_empty_script(self, tmp_path, monkeypatch, content_mode: str):

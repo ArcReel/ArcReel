@@ -123,8 +123,8 @@ def test_ad_units_support_crud_and_product_mentions(ad_client: TestClient) -> No
     ]
 
     reordered = ad_client.post(
-        "/api/v1/projects/ad-demo/reference-videos/episodes/1/units/reorder",
-        json={"unit_ids": ["E1U2", "E1U1"]},
+        "/api/v1/projects/ad-demo/reference-videos/episodes/1/units/E1U2/move",
+        json={"after_unit_id": None},
     )
     assert reordered.status_code == 200
     assert [unit["unit_id"] for unit in _script(ad_client)["video_units"]] == ["E1U2", "E1U1"]

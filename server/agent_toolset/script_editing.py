@@ -33,11 +33,13 @@ def _script_patch_summary(result: ScriptPatchResult) -> str:
 PATCH_EPISODE_SCRIPT = ToolDeclaration(
     name="patch_episode_script",
     description=(
-        "按 canonical revision 原子执行有序剧本 operations（update / insert / remove / split）。"
+        "按 canonical revision 原子执行有序剧本 operations（update / insert / move / remove / split）。"
         "先在内存形成完整 candidate，再统一校验 schema、项目引用、Artifact Manifest 与 SpeechComposition；"
         "任一问题整批零写入，结果 success=false，problems 给出稳定 code、operation_index、unit/field location 与 "
         "next_action，发声组合问题另附 speech_admission。insert 的新条目 id 由服务端分配（本集最大序号的下一个），"
         "after_id 省略时插到最前，空脚本的第一条即如此；新条目是全新身份，同号旧条目留下的媒体与版本历史一并清除。"
+        "move 调整顺序：把 id 移到 after_id 之后，after_id 省略时移到最前；条目连同已生成的媒体一起移动。"
+        "移动后，前一条分镜变了的分镜图（章节切分点上的除外）转为过期，不列入 regeneration_required_ids，是否重新生成由用户决定。"
         "脚本里现有条目的付费媒体不会被删除或清空；改了 image_prompt / "
         "video_prompt 的条目列在 regeneration_required_ids，须紧接着显式重新生成；画面描述里未绑定的 @[名称] "
         "列在 warnings。写入对应原文 source_text 时，项目有源文则须是本集源文的逐字片段，否则以 "

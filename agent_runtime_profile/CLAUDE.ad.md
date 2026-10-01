@@ -40,7 +40,7 @@
 ### 工具调用
 
 - **业务入队 / 文本生成 / 能力查询**：统一走 `mcp__arcreel__*` 系列 SDK in-process MCP tool（角色/场景/道具/分镜/视频/宫格/集脚本/规范化剧本/视频能力查询）。它们跑在 server 主进程，不受 sandbox 网络白名单约束，Agent 直接以 tool 形式调用。
-- **编辑项目 JSON**：修改剧本（`scripts/*.json`）或角色/场景/道具（`project.json`）**一律走 `mcp__arcreel__*` 编辑工具**——批量改剧本时先调用 `get_episode_script` 读取正文与 revision，再把其 revision 原样作为 `patch_episode_script` 的 `base_revision`，并传有序 `operations[]`（`update` / `insert` / `remove` / `split`）；整批先预检后原子提交，失败结果用 `operation_index` 与 field location 定位，revision 冲突时重新读取再重做。改分集标题用 `patch_episode_meta`，角色/场景/道具用 `patch_project`。**严禁**用 Write / Edit / Bash 直改这两类文件（已被 sandbox `denyWrite` 与 PreToolUse hook 双层拒绝）。**改 prompt 必重生**：用 `patch_episode_script` 改了某些分镜的 `image_prompt` / `video_prompt` 后，工具不会自动作废旧图/视频，必须紧接着调对应生成工具重新生成这些分镜，否则会留下「新 prompt + 旧画面」的陈旧。
+- **编辑项目 JSON**：修改剧本（`scripts/*.json`）或角色/场景/道具（`project.json`）**一律走 `mcp__arcreel__*` 编辑工具**——批量改剧本时先调用 `get_episode_script` 读取正文与 revision，再把其 revision 原样作为 `patch_episode_script` 的 `base_revision`，并传有序 `operations[]`（`update` / `insert` / `move` / `remove` / `split`）；整批先预检后原子提交，失败结果用 `operation_index` 与 field location 定位，revision 冲突时重新读取再重做。改分集标题用 `patch_episode_meta`，角色/场景/道具用 `patch_project`。**严禁**用 Write / Edit / Bash 直改这两类文件（已被 sandbox `denyWrite` 与 PreToolUse hook 双层拒绝）。**改 prompt 必重生**：用 `patch_episode_script` 改了某些分镜的 `image_prompt` / `video_prompt` 后，工具不会自动作废旧图/视频，必须紧接着调对应生成工具重新生成这些分镜，否则会留下「新 prompt + 旧画面」的陈旧。
 - **Bash 用途**：仅供通用排查与文件浏览（`ls / cat / jq / python / curl` 等）。
 - **敏感文件保护**：`.env` / `.claude/settings.json`，以及数据根里项目以外的全部数据（数据库、凭证、日志、其他用户的记忆等）由 sandbox profile（`filesystem.denyRead`）内核级拒绝读取，并由 PreToolUse 文件访问 hook 双重防御；代码文件（.py/.js/.ts/.tsx/.sh/.yaml/.yml/.toml）受运行时 hook 阻止写入。
 
@@ -105,7 +105,7 @@ Agent session 的当前工作目录（cwd）已绑定到当前项目根，**所�
 - **生成模式**：用户中途要求更改生成模式（storyboard ↔ reference_video）时明确告知生成模式创建后不可更改，无绕过方式；宫格装配对 ad 不开放
 - **卖点**：商品已登记但 `selling_points` 为空时，从 brief、商品描述与原图起草卖点列表，与用户确认后经 `patch_project` 写入 products 表——剧本生成会把卖点注入带货框架的 selling_point/demo 段
 - **资产设计（可选）**：剧本会用到的角色/场景/道具先定义进 `project.json` 再 dispatch `generate-assets` 子智能体出资产图；轻量短片可跳过，仅靠商品参考与项目 style
-- **剧本**：`mcp__arcreel__generate_episode_script({"episode_id": target.episode})` 单阶段产出，八段带货框架按 `target_duration` 选档配比；分镜图生视频路径向用户呈现分镜列表与口播文案，参考生视频路径呈现视频单元列表与引用语法正文，按需经 `patch_episode_script` 调整（顺序调整引导用户到 WebUI 剧本页）
+- **剧本**：`mcp__arcreel__generate_episode_script({"episode_id": target.episode})` 单阶段产出，八段带货框架按 `target_duration` 选档配比；分镜图生视频路径向用户呈现分镜列表与口播文案，参考生视频路径呈现视频单元列表与引用语法正文，按需经 `patch_episode_script` 调整（含 `move` 改序）
 - **product sheet 过目（软门禁）**：商品生成了 `product_sheet` 时，分镜开工前（参考生视频路径为首次视频生成前）安排用户到商品资产页确认 sheet 与真品一致（见下文「商品保真」）；无 sheet（仅原图）直接进入下一步
 - **保真拦截**：分镜图生成后引导用户审核商品形象保真度，不合格的重新生成——在产生视频费用前拦截
 - **剪辑与出片**：视频齐全后进入「剪辑」一步，计划给出 `create_edit_timeline` 时为本集新建剪辑时间线，至少有一条即算完成。在剪辑时间线上剪辑、按用户要求出成片或导出剪映草稿，都按 `edit-video` skill 进行。声音归属与字幕时序由服务端 presentation 结果决定；Agent 不自行估算字幕时序，也不替用户判断 TTS 是否必需。stale 产物照常可用，出片不清空也不覆盖旧付费媒体

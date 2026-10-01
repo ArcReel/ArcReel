@@ -33,15 +33,6 @@ describe("MediaCard upload", () => {
     expect(container.querySelector('input[type="file"]')).toBeNull();
   });
 
-  it("keeps upload entry visible in grid mode where the generate CTA is hidden", () => {
-    const { container } = renderCard({
-      onUpload: vi.fn(),
-      onGenerate: vi.fn(),
-      hideGenerateButton: true,
-    });
-    expect(container.querySelector('input[type="file"]')).not.toBeNull();
-  });
-
   it("disables upload button while generating", () => {
     const { container } = renderCard({ onUpload: vi.fn(), generating: true });
     const input = container.querySelector<HTMLInputElement>('input[type="file"]');

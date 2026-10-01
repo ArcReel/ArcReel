@@ -585,6 +585,58 @@ class TestPatchEpisodeScriptStructuralOperations:
         _committed(out)
         assert _derived_references(ref_ctx, 1) == [("scene", "酒馆")]
 
+    @pytest.mark.parametrize(
+        ("fixture", "items_key", "id_key", "move", "expected"),
+        [
+            ("ctx", "segments", "segment_id", {"id": "E1S02"}, ["E1S02", "E1S01"]),
+            ("drama_ctx", "scenes", "scene_id", {"id": "E1S01", "after_id": "E1S02"}, ["E1S02", "E1S01"]),
+            ("ad_ctx", "shots", "shot_id", {"id": "E1S02", "after_id": None}, ["E1S02", "E1S01"]),
+            ("ref_ctx", "video_units", "unit_id", {"id": "E1U1", "after_id": "E1U2"}, ["E1U2", "E1U1"]),
+        ],
+    )
+    async def test_move_reorders_items_and_keeps_their_media(
+        self,
+        request: pytest.FixtureRequest,
+        fixture: str,
+        items_key: str,
+        id_key: str,
+        move: dict[str, Any],
+        expected: list[str],
+    ) -> None:
+        tool_ctx: ToolHarness = request.getfixturevalue(fixture)
+        with tool_ctx.pm.locked_script("demo", "episode_1.json", validate=False) as script:
+            script[items_key][0]["generated_assets"] = {"storyboard_image": "storyboards/first.png"}
+
+        out = await _patch(tool_ctx, [{"op": "move", **move}])
+
+        result = _committed(out)
+        saved = _load(tool_ctx)[items_key]
+        assert [item[id_key] for item in saved] == expected
+        moved_first = next(item for item in saved if item[id_key] == expected[1])
+        assert moved_first["generated_assets"] == {"storyboard_image": "storyboards/first.png"}
+        assert result.regeneration_required_ids == ()
+
+    async def test_move_after_itself_is_rejected_without_writing(self, ctx: ToolHarness) -> None:
+        before = _load(ctx)
+
+        out = await _patch(ctx, [{"op": "move", "id": "E1S01", "after_id": "E1S01"}])
+
+        problem = _rejected(out).problems[0]
+        assert problem.operation_index == 0
+        assert _load(ctx) == before
+
+    async def test_move_combines_with_insert_in_one_batch(self, ctx: ToolHarness) -> None:
+        out = await _patch(
+            ctx,
+            [
+                {"op": "insert", "after_id": "E1S02", "item": _segment("IGN")},
+                {"op": "move", "id": "E1S03", "after_id": None},
+            ],
+        )
+
+        _committed(out)
+        assert [s["segment_id"] for s in _load(ctx)["segments"]] == ["E1S03", "E1S01", "E1S02"]
+
     async def test_remove_by_id(self, ctx: ToolHarness) -> None:
         out = await _patch(ctx, [{"op": "remove", "id": "E1S01"}])
         _committed(out)

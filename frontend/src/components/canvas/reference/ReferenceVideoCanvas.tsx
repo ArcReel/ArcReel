@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
+  ChevronUp,
   Clock,
   Loader2,
   Plus,
@@ -62,6 +64,7 @@ import type {
   UnitStatus,
 } from "@/types";
 import { itemIdWithinEpisode } from "@/utils/episode-display";
+import { stepAnchor } from "@/utils/move-anchor";
 
 export interface ReferenceVideoCanvasProps {
   projectName: string;
@@ -173,6 +176,7 @@ export function ReferenceVideoCanvas({
   const addUnit = useReferenceVideoStore((s) => s.addUnit);
   const patchUnit = useReferenceVideoStore((s) => s.patchUnit);
   const deleteUnit = useReferenceVideoStore((s) => s.deleteUnit);
+  const moveUnit = useReferenceVideoStore((s) => s.moveUnit);
   const select = useReferenceVideoStore((s) => s.select);
 
   const units =
@@ -344,6 +348,24 @@ export function ReferenceVideoCanvas({
       toastError(e);
     }
   }, [addUnit, projectName, episode]);
+
+  // 改序不弹确认；请求在途时丢弃后续操作，避免基于过期顺序计算锚点。
+  const [movingUnit, setMovingUnit] = useState(false);
+  const handleMove = useCallback(async (unitId: string, afterUnitId: string | null) => {
+    if (movingUnit) return;
+    setMovingUnit(true);
+    try {
+      await moveUnit(projectName, episode, unitId, afterUnitId);
+    } catch (e) {
+      toastError(e);
+    } finally {
+      setMovingUnit(false);
+    }
+  }, [moveUnit, projectName, episode, movingUnit]);
+  const onMove = useCallback(
+    (unitId: string, afterUnitId: string | null) => void handleMove(unitId, afterUnitId),
+    [handleMove],
+  );
 
   // 移除比其他写入多挡一类占用：在跑的配音任务同样指向该单元（与时间线分镜的移除守卫一致）。
   const isUnitRemovalBlocked = useCallback(
@@ -903,6 +925,13 @@ export function ReferenceVideoCanvas({
     if (selectedIndex < 0 || selectedIndex >= units.length - 1) return;
     select(units[selectedIndex + 1].unit_id);
   }, [select, units, selectedIndex]);
+  const moveStep = useCallback(
+    (direction: "earlier" | "later") => {
+      const afterId = stepAnchor(units.map((u) => u.unit_id), selectedIndex, direction);
+      if (afterId !== undefined) void handleMove(units[selectedIndex].unit_id, afterId);
+    },
+    [handleMove, units, selectedIndex],
+  );
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -1052,6 +1081,7 @@ export function ReferenceVideoCanvas({
                 selectedId={selectedUnitId}
                 onSelect={select}
                 onAdd={onAdd}
+                onMove={movingUnit ? undefined : onMove}
                 dirtyMap={dirtyMap}
                 statusMap={statusMap}
               />
@@ -1148,6 +1178,26 @@ export function ReferenceVideoCanvas({
                         {selectedIndex + 1} / {units.length}
                       </span>
                     )}
+                    <button
+                      type="button"
+                      onClick={() => moveStep("earlier")}
+                      disabled={movingUnit || selectedIndex <= 0}
+                      aria-label={t("reference_unit_move_earlier")}
+                      title={movingUnit ? t("shot_move_pending") : t("reference_unit_move_earlier")}
+                      className="focus-ring inline-grid h-6 w-6 place-items-center rounded border border-[var(--color-hairline)] bg-[oklch(0.22_0.011_265_/_0.5)] text-[var(--color-text-2)] hover:bg-[oklch(0.26_0.013_265_/_0.7)] disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <ChevronUp className="h-3.5 w-3.5" aria-hidden="true" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => moveStep("later")}
+                      disabled={movingUnit || selectedIndex < 0 || selectedIndex >= units.length - 1}
+                      aria-label={t("reference_unit_move_later")}
+                      title={movingUnit ? t("shot_move_pending") : t("reference_unit_move_later")}
+                      className="focus-ring inline-grid h-6 w-6 place-items-center rounded border border-[var(--color-hairline)] bg-[oklch(0.22_0.011_265_/_0.5)] text-[var(--color-text-2)] hover:bg-[oklch(0.26_0.013_265_/_0.7)] disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />
+                    </button>
                     <button
                       type="button"
                       onClick={goPrev}
@@ -1481,6 +1531,7 @@ export function ReferenceVideoCanvas({
                     setListFlyoutOpen(false);
                   }}
                   onAdd={onAdd}
+                  onMove={movingUnit ? undefined : onMove}
                   dirtyMap={dirtyMap}
                   statusMap={statusMap}
                 />

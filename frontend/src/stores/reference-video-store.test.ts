@@ -203,12 +203,12 @@ describe("reference-video-store", () => {
     expect(state.selectedUnitId).toBeNull();
   });
 
-  it("reorderUnits replaces episode array with server response", async () => {
+  it("moveUnit replaces episode array with server response", async () => {
     const reordered = [mkUnit("E1U2"), mkUnit("E1U1")];
-    vi.spyOn(API, "reorderReferenceVideoUnits").mockResolvedValueOnce({ units: reordered });
+    vi.spyOn(API, "moveReferenceVideoUnit").mockResolvedValueOnce({ units: reordered });
 
     await act(async () => {
-      await useReferenceVideoStore.getState().reorderUnits("proj", 1, ["E1U2", "E1U1"]);
+      await useReferenceVideoStore.getState().moveUnit("proj", 1, "E1U2", null);
     });
 
     expect(useReferenceVideoStore.getState().unitsByEpisode["proj::1"].map((u) => u.unit_id))

@@ -398,6 +398,7 @@ async def test_remote_mcp_returns_typed_workflow_plan_and_rejects_bad_project(
     assert {branch["properties"]["op"]["const"] for branch in operation_branches} == {
         "update",
         "insert",
+        "move",
         "remove",
         "split",
     }

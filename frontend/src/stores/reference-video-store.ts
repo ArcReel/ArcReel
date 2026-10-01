@@ -40,7 +40,7 @@ interface ReferenceVideoStore {
   addUnit: (projectName: string, episode: number, payload: AddUnitPayload) => Promise<ReferenceVideoUnit>;
   patchUnit: (projectName: string, episode: number, unitId: string, patch: PatchUnitPayload) => Promise<ReferenceVideoUnit>;
   deleteUnit: (projectName: string, episode: number, unitId: string) => Promise<void>;
-  reorderUnits: (projectName: string, episode: number, unitIds: string[]) => Promise<void>;
+  moveUnit: (projectName: string, episode: number, unitId: string, afterUnitId: string | null) => Promise<void>;
   select: (unitId: string | null) => void;
 }
 
@@ -146,8 +146,8 @@ export const useReferenceVideoStore = create<ReferenceVideoStore>((set) => ({
     });
   },
 
-  reorderUnits: async (projectName, episode, unitIds) => {
-    const { units } = await API.reorderReferenceVideoUnits(projectName, episode, unitIds);
+  moveUnit: async (projectName, episode, unitId, afterUnitId) => {
+    const { units } = await API.moveReferenceVideoUnit(projectName, episode, unitId, afterUnitId);
     invalidateInFlightLoads(referenceVideoCacheKey(projectName, episode), set);
     set((s) => ({
       unitsByEpisode: { ...s.unitsByEpisode, [referenceVideoCacheKey(projectName, episode)]: units },

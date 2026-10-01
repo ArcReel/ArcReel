@@ -186,27 +186,20 @@ export function StudioCanvasRouter() {
     [handleUpdatePrompt],
   );
 
-  // ad 分镜重排：把目标分镜向前/向后移动一位，提交整列全排列。
+  // 分镜改序（各形态通用）：把分镜移到 afterId 之后，null 移到最前。
   // 返回是否移动成功，供编辑器把选中态跟随到分镜的新位置。
   const handleMoveShot = useCallback(async (
     shotId: string,
-    direction: "earlier" | "later",
+    afterId: string | null,
     scriptFile?: string,
   ): Promise<boolean> => {
     if (!currentProjectName || !currentScripts) return false;
     const resolvedFile = scriptFile ?? Object.keys(currentScripts)[0];
     if (!resolvedFile) return false;
-    const script = currentScripts[resolvedFile];
-    if (!script || script.content_mode !== "ad") return false;
-    const ids = script.shots.map((s) => s.shot_id);
-    const index = ids.indexOf(shotId);
-    const target = direction === "earlier" ? index - 1 : index + 1;
-    if (index === -1 || target < 0 || target >= ids.length) return false;
-    [ids[index], ids[target]] = [ids[target], ids[index]];
     try {
-      await API.reorderShots(currentProjectName, resolvedFile, ids);
+      await API.moveScriptItem(currentProjectName, resolvedFile, shotId, afterId);
       // 仅在本地 store 已写回新顺序时报告成功：刷新失败时 segments 仍是旧序，
-      // 此时推进 selectedIndex 会让详情面板静默切到相邻分镜。
+      // 此时让选中态跟随新位置会静默切到别的分镜。
       return await refreshProject();
     } catch (err) {
       useAppStore.getState().pushToast(tRef.current("reorder_shot_failed", { message: errMsg(err) }), "error");
@@ -806,9 +799,9 @@ export function StudioCanvasRouter() {
                     onGenerateGrid={handleGenerateGrid}
                     onRestoreStoryboard={handleRestoreAsset}
                     onRestoreVideo={handleRestoreAsset}
-                    onInsertFirstShot={
-                      demoMode ? undefined : (novelText, file) => handleInsertShot(null, novelText, file)
-                    }
+                    onMoveShot={handleMoveShot}
+                    onInsertShot={handleInsertShot}
+                    onRemoveShot={handleRemoveShot}
                   />
                 ) : (
                   <TimelineCanvas
@@ -833,7 +826,7 @@ export function StudioCanvasRouter() {
                     lastFrame={capabilities.lastFrame}
                     capabilitiesLoading={capabilities.loading}
                     onUpdatePrompt={awaitedUpdatePrompt}
-                    onMoveShot={isAd ? handleMoveShot : undefined}
+                    onMoveShot={handleMoveShot}
                     onInsertShot={handleInsertShot}
                     onRemoveShot={handleRemoveShot}
                     onGenerateStoryboard={voidPromise(handleGenerateStoryboard)}

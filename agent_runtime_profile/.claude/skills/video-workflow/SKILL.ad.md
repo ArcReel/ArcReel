@@ -87,4 +87,4 @@ description: 广告/短片项目的工作流入口。当用户提到做视频、
 
 - storyboard 广告以 `shots[]` 为唯一真相源；reference 广告以自包含 `video_units[]` 为唯一真相源。
 - 参考生视频的视频单元自持引用语法正文、编排时长、生成资产与规划状态；编辑这些字段后刷新计划。
-- 视频单元顺序调整使用 WebUI，字段修复使用 `patch_episode_script`，视频生成使用 `generate-video` skill。
+- 视频单元改序与字段修复使用 `patch_episode_script`，视频生成使用 `generate-video` skill。

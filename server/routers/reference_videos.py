@@ -52,7 +52,6 @@ from server.auth import CurrentUser
 from server.error_handlers import script_edit_detail
 from server.i18n import Translator
 from server.routers._batch_admission import enqueue_failure_payload, localized_admission_payload
-from server.routers._reorder import full_permutation_error
 from server.routers._script_edits import execute_current_episode_edit, require_script_edit_result
 from server.routers._validators import reject_retired_query_params
 from server.services.admission.reference_prompt_preview import render_reference_prompt_preview
@@ -382,40 +381,37 @@ async def delete_unit(
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-class ReorderRequest(BaseModel):
-    unit_ids: list[str]
+class MoveUnitRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    #: 移到这个单元之后；为 null 时移到最前。
+    after_unit_id: str | None = Field(min_length=1)
 
 
-@router.post("/episodes/{episode}/units/reorder")
-async def reorder_units(
+@router.post("/episodes/{episode}/units/{unit_id}/move")
+async def move_unit(
     project_name: str,
     episode: int,
-    req: ReorderRequest,
+    unit_id: str,
+    req: MoveUnitRequest,
     _t: Translator,
 ) -> dict[str, Any]:
+    """把单元移到 ``after_unit_id`` 之后，按当前剧本 revision 执行 ``move_after``；单元连同产物一起移动。"""
     _project, current, script_file = _load_episode_script(project_name, episode, _t)
-    units = current.get("video_units") or []
-    existing_ids = [unit.get("unit_id") for unit in units]
-    error_kind = full_permutation_error(existing_ids, req.unit_ids)
-    if error_kind is not None:
-        detail_key = {
-            "length": "ref_unit_ids_length_mismatch",
-            "duplicate": "ref_duplicate_unit_ids",
-            "mismatch": "ref_unit_ids_mismatch",
-        }[error_kind]
-        raise HTTPException(status_code=400, detail=_t(detail_key))
-    if existing_ids == req.unit_ids:
-        return {"units": units}
-    operations = [
-        {"op": "move_after", "id": unit_id, "after_id": req.unit_ids[index - 1] if index else None}
-        for index, unit_id in enumerate(req.unit_ids)
-    ]
+    _find_unit(current, unit_id, _t)
+    if req.after_unit_id is not None:
+        _find_unit(current, req.after_unit_id, _t)
     result = execute_current_episode_edit(
-        get_project_manager(), project_name, episode, script_file, current, operations
+        get_project_manager(),
+        project_name,
+        episode,
+        script_file,
+        current,
+        [{"op": "move_after", "id": unit_id, "after_id": req.after_unit_id}],
     )
     require_script_edit_result(result)
-    reordered = get_project_manager().load_script(project_name, result.script)["video_units"]
-    return {"units": reordered, "edit_result": result.model_dump(mode="json")}
+    moved = get_project_manager().load_script(project_name, result.script)["video_units"]
+    return {"units": moved, "edit_result": result.model_dump(mode="json")}
 
 
 @router.get("/episodes/{episode}/units/{unit_id}/duration-precheck")

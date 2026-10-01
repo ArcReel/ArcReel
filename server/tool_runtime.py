@@ -126,6 +126,7 @@ from lib.script.script_batch_edit import (
 from lib.script.script_editor import (
     ScriptEditError,
     insert_segment,
+    move_segment,
     patch_field,
     remove_segment,
     resolve_items,
@@ -451,6 +452,18 @@ class PatchRemoveOperation(BaseModel):
     id: str = Field(min_length=1, description="要删除的条目 id")
 
 
+class PatchMoveOperation(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    op: Literal["move"]
+    id: str = Field(min_length=1, description="要移动的条目 id；条目内容与已生成的媒体随条目一起移动")
+    after_id: str | None = Field(
+        default=None,
+        min_length=1,
+        description="移到这个 id 之后；省略或为 null 时移到最前",
+    )
+
+
 class PatchSplitOperation(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -460,7 +473,7 @@ class PatchSplitOperation(BaseModel):
 
 
 PatchEpisodeScriptOperation = Annotated[
-    PatchUpdateOperation | PatchInsertOperation | PatchRemoveOperation | PatchSplitOperation,
+    PatchUpdateOperation | PatchInsertOperation | PatchMoveOperation | PatchRemoveOperation | PatchSplitOperation,
     Field(discriminator="op"),
 ]
 
@@ -475,7 +488,7 @@ class PatchEpisodeScriptRequest(BaseModel):
         pattern=r"^sha256-v1:[0-9a-f]{64}$", description="get_episode_script 返回的当前 revision"
     )
     operations: list[PatchEpisodeScriptOperation] = Field(
-        min_length=1, description="按顺序执行的编辑操作，整批原子提交：update / insert / remove / split"
+        min_length=1, description="按顺序执行的编辑操作，整批原子提交：update / insert / move / remove / split"
     )
 
     @field_validator("script")
@@ -1903,6 +1916,22 @@ def _project_patch_operations(
                 index,
                 fresh_insert=True,
             )
+            continue
+
+        if isinstance(operation, PatchMoveOperation):
+            item_id = operation.id
+            move_after_id = operation.after_id
+            items, id_field, _kind = resolve_items(preview)
+            if not any(str(item.get(id_field)) == item_id for item in items):
+                raise ScriptEditError(
+                    f"未找到 id={item_id!r} 的分镜", operation_index=index, location=("id",), unit_id=item_id
+                )
+            apply(
+                lambda item_id=item_id, move_after_id=move_after_id: move_segment(preview, item_id, move_after_id),
+                location=("after_id",),
+                unit_id=item_id,
+            )
+            append({"op": "move_after", "id": item_id, "after_id": move_after_id}, index)
             continue
 
         if isinstance(operation, PatchRemoveOperation):

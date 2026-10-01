@@ -55,11 +55,7 @@ vi.mock("./timeline/TimelineCanvas", () => ({
     scriptFile?: string;
     durationOptions?: number[];
     onUpdatePrompt?: (segmentId: string, field: string, value: unknown, scriptFile?: string) => void;
-    onMoveShot?: (
-      shotId: string,
-      direction: "earlier" | "later",
-      scriptFile?: string,
-    ) => Promise<boolean> | void;
+    onMoveShot?: (shotId: string, afterId: string | null, scriptFile?: string) => Promise<boolean> | void;
     onInsertShot?: (afterId: string, novelText: string | undefined, scriptFile?: string) => Promise<boolean>;
     onRemoveShot?: (itemId: string, scriptFile?: string) => Promise<boolean>;
     onGenerateStoryboard?: (segmentId: string) => void;
@@ -92,7 +88,7 @@ vi.mock("./timeline/TimelineCanvas", () => ({
       <button
         onClick={(e) => {
           const el = e.currentTarget;
-          void Promise.resolve(onMoveShot?.("SEG-1", "later", scriptFile)).then((moved) => {
+          void Promise.resolve(onMoveShot?.("SEG-1", "SEG-2", scriptFile)).then((moved) => {
             el.setAttribute("data-move-result", String(moved));
           });
         }}
@@ -1089,7 +1085,7 @@ describe("StudioCanvasRouter", () => {
     expect(updateSegmentSpy).not.toHaveBeenCalled();
   });
 
-  it("moves an ad shot by submitting the full reordered id list", async () => {
+  it("moves a shot after its anchor", async () => {
     const script = makeAdScript() as AdEpisodeScript;
     script.shots.push({
       shot_id: "SEG-2",
@@ -1109,13 +1105,13 @@ describe("StudioCanvasRouter", () => {
       project: makeProjectData({ content_mode: "ad" }),
       scripts: { "episode_1.json": script },
     });
-    const reorderSpy = vi.spyOn(API, "reorderShots").mockResolvedValue({ success: true });
+    const moveSpy = vi.spyOn(API, "moveScriptItem").mockResolvedValue({ success: true });
 
     renderAt("/episodes/1");
 
     fireEvent.click(screen.getByText("move-shot-later"));
     await waitFor(() => {
-      expect(reorderSpy).toHaveBeenCalledWith("demo", "episode_1.json", ["SEG-2", "SEG-1"]);
+      expect(moveSpy).toHaveBeenCalledWith("demo", "episode_1.json", "SEG-1", "SEG-2");
     });
     // 重排 + 本地刷新都成功 → 报告移动成功
     await waitFor(() => {
@@ -1123,7 +1119,7 @@ describe("StudioCanvasRouter", () => {
     });
   });
 
-  it("reports move failure and toasts when the reorder request fails", async () => {
+  it("reports move failure and toasts when the move request fails", async () => {
     const script = makeAdScript() as AdEpisodeScript;
     script.shots.push({
       shot_id: "SEG-2",
@@ -1143,7 +1139,7 @@ describe("StudioCanvasRouter", () => {
       project: makeProjectData({ content_mode: "ad" }),
       scripts: { "episode_1.json": script },
     });
-    vi.spyOn(API, "reorderShots").mockRejectedValue(new Error("server boom"));
+    vi.spyOn(API, "moveScriptItem").mockRejectedValue(new Error("server boom"));
 
     renderAt("/episodes/1");
 
@@ -1155,7 +1151,7 @@ describe("StudioCanvasRouter", () => {
     expect(useAppStore.getState().toast?.tone).toBe("error");
   });
 
-  it("reports move failure when local refresh fails after a successful reorder", async () => {
+  it("reports move failure when local refresh fails after a successful move", async () => {
     const script = makeAdScript() as AdEpisodeScript;
     script.shots.push({
       shot_id: "SEG-2",
@@ -1171,10 +1167,10 @@ describe("StudioCanvasRouter", () => {
       currentScripts: { "episode_1.json": script },
     });
 
-    // 重排接口成功，但项目刷新失败：本地 segments 仍是旧顺序，
+    // 移动接口成功，但项目刷新失败：本地 segments 仍是旧顺序，
     // 必须报告失败，否则调用方会推进 selectedIndex 切到错误分镜
     vi.spyOn(API, "getProject").mockRejectedValue(new Error("network down"));
-    vi.spyOn(API, "reorderShots").mockResolvedValue({ success: true });
+    vi.spyOn(API, "moveScriptItem").mockResolvedValue({ success: true });
 
     renderAt("/episodes/1");
 

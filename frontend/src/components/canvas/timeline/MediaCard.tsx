@@ -30,8 +30,6 @@ interface MediaCardProps {
   posterPath?: string | null;
   /** 渲染比例 */
   aspectRatio: "9:16" | "16:9";
-  /** 是否因启用宫格装配而隐藏单独生成按钮 */
-  hideGenerateButton?: boolean;
   /** 生成按钮是否禁用（视频生成需要先有分镜图） */
   generateDisabled?: boolean;
   /** 自定义禁用 tooltip，未提供时使用默认（"分镜图未生成"）的视频禁用提示 */
@@ -66,7 +64,6 @@ export function MediaCard({
   assetPath,
   posterPath,
   aspectRatio,
-  hideGenerateButton,
   generateDisabled,
   generateDisabledHint,
   generating,
@@ -201,7 +198,7 @@ export function MediaCard({
       )}
 
       {/* Generate CTA */}
-      {!hideGenerateButton && onGenerate && !demoReadOnly && (
+      {onGenerate && !demoReadOnly && (
         <button
           type="button"
           onClick={onGenerate}

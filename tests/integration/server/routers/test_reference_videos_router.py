@@ -462,34 +462,28 @@ def test_delete_unknown_unit_404(reference_videos_client: TestClient):
     assert resp.status_code == 404
 
 
-def test_reorder_units_applies_new_order(reference_videos_client: TestClient):
+def test_move_unit_applies_new_order(reference_videos_client: TestClient):
     uid1 = _seed_unit(reference_videos_client)
     uid2 = _seed_unit(reference_videos_client)
     resp = reference_videos_client.post(
-        "/api/v1/projects/demo/reference-videos/episodes/1/units/reorder",
-        json={"unit_ids": [uid2, uid1]},
+        f"/api/v1/projects/demo/reference-videos/episodes/1/units/{uid2}/move",
+        json={"after_unit_id": None},
     )
     assert resp.status_code == 200, resp.text
+    assert [u["unit_id"] for u in resp.json()["units"]] == [uid2, uid1]
     units = reference_videos_client.get("/api/v1/projects/demo/reference-videos/episodes/1/units").json()["units"]
     assert [u["unit_id"] for u in units] == [uid2, uid1]
 
 
-def test_reorder_units_rejects_length_mismatch(reference_videos_client: TestClient):
+@pytest.mark.parametrize("target", ["unit", "anchor"])
+def test_move_unit_with_unknown_id_404(reference_videos_client: TestClient, target: str):
     uid = _seed_unit(reference_videos_client)
+    unit_id, anchor = (uid, "E1U999") if target == "anchor" else ("E1U999", uid)
     resp = reference_videos_client.post(
-        "/api/v1/projects/demo/reference-videos/episodes/1/units/reorder",
-        json={"unit_ids": [uid, "E1U999"]},
+        f"/api/v1/projects/demo/reference-videos/episodes/1/units/{unit_id}/move",
+        json={"after_unit_id": anchor},
     )
-    assert resp.status_code == 400
-
-
-def test_reorder_units_rejects_duplicates(reference_videos_client: TestClient):
-    uid = _seed_unit(reference_videos_client)
-    resp = reference_videos_client.post(
-        "/api/v1/projects/demo/reference-videos/episodes/1/units/reorder",
-        json={"unit_ids": [uid, uid]},
-    )
-    assert resp.status_code == 400
+    assert resp.status_code == 404
 
 
 def test_generate_unit_enqueues_task(reference_videos_client: TestClient, monkeypatch: pytest.MonkeyPatch):
@@ -1008,30 +1002,6 @@ def test_patch_unit_duration_override_without_header(reference_videos_client: Te
     )
     assert resp.status_code == 200, resp.text
     assert resp.json()["unit"]["duration_seconds"] == 7
-
-
-def test_reorder_units_rejects_true_duplicate(reference_videos_client: TestClient):
-    """长度匹配但含重复 ID → 命中 duplicate 校验分支。"""
-    uid1 = _seed_unit(reference_videos_client)
-    _seed_unit(reference_videos_client)
-    resp = reference_videos_client.post(
-        "/api/v1/projects/demo/reference-videos/episodes/1/units/reorder",
-        json={"unit_ids": [uid1, uid1]},
-    )
-    assert resp.status_code == 400
-    assert "重复" in resp.json()["detail"]
-
-
-def test_reorder_units_rejects_unknown_id_set_mismatch(reference_videos_client: TestClient):
-    """长度匹配、无重复，但 ID 集合与现有不一致 → set mismatch 分支。"""
-    uid1 = _seed_unit(reference_videos_client)
-    _seed_unit(reference_videos_client)
-    resp = reference_videos_client.post(
-        "/api/v1/projects/demo/reference-videos/episodes/1/units/reorder",
-        json={"unit_ids": [uid1, "E1U999"]},
-    )
-    assert resp.status_code == 400
-    assert "不匹配" in resp.json()["detail"]
 
 
 def test_add_unit_concurrent_rebind_returns_409(reference_videos_client: TestClient, monkeypatch: pytest.MonkeyPatch):

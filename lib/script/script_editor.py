@@ -218,6 +218,17 @@ def remove_segment(script: dict[str, Any], item_id: str) -> dict[str, Any]:
     return script
 
 
+def move_segment(script: dict[str, Any], item_id: str, after_id: str | None) -> dict[str, Any]:
+    """把 ``item_id`` 移到 ``after_id`` 之后；``after_id`` 为 ``None`` 时移到最前。条目内容与产物不变。"""
+    if after_id == item_id:
+        raise ScriptEditError(f"id={item_id!r} 不能移到自己之后")
+    items, id_field, _ = resolve_items(script)
+    item = items.pop(_find_index(items, id_field, item_id))
+    idx = -1 if after_id is None else _find_index(items, id_field, after_id)
+    items.insert(idx + 1, item)
+    return script
+
+
 def split_segment(script: dict[str, Any], item_id: str, parts: list[dict[str, Any]]) -> dict[str, Any]:
     """把 ``item_id`` 分镜按 Agent 提供的各部分内容拆成多个。
 

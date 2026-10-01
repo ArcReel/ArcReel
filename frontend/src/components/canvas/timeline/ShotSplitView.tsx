@@ -7,6 +7,7 @@ import type {
 } from "@/types";
 import { useAppStore } from "@/stores/app-store";
 import { getScriptItemId, type EditorContentMode } from "@/utils/script-shape";
+import { stepAnchor } from "@/utils/move-anchor";
 import { ShotList } from "./ShotList";
 import { ShotDetail } from "./ShotDetail";
 import type { InsertShotHandler } from "./ShotStructureActions";
@@ -22,14 +23,13 @@ interface ShotSplitViewProps {
   episode?: number;
   /** 当前剧集剧本文件名，分镜图/视频自主上传需要它定位剧本条目 */
   scriptFile?: string;
-  isGridMode?: boolean;
   onUpdatePrompt?: (
     segmentId: string,
     fieldOrPatch: string | Record<string, unknown>,
     value?: unknown,
   ) => void | Promise<void>;
-  /** 广告/短片分镜顺序调整，resolve 为是否移动成功 */
-  onMoveShot?: (shotId: string, direction: "earlier" | "later") => Promise<boolean>;
+  /** 分镜改序：移到 afterId 之后，null 移到最前；resolve 为是否移动成功 */
+  onMoveShot?: (shotId: string, afterId: string | null) => Promise<boolean>;
   /** 新增分镜（旁白带正文）：afterId 为 null 时追加到末尾；resolve 为是否成功 */
   onInsertShot?: InsertShotHandler;
   /** 移除分镜，resolve 为是否成功 */
@@ -62,7 +62,6 @@ export function ShotSplitView({
   projectName,
   episode,
   scriptFile,
-  isGridMode,
   onUpdatePrompt,
   onMoveShot,
   onInsertShot,
@@ -89,22 +88,32 @@ export function ShotSplitView({
   const [structurePending, setStructurePending] = useState(false);
   const listScrollRef = useRef<HTMLDivElement>(null);
 
-  // 分镜重排：请求在途时丢弃后续点击（快速连点会基于过期顺序计算出相同排列），
-  // 移动成功后把选中态跟随到分镜的新位置——选中按索引存储，不跟随会静默切到被换位的邻居。
+  // 分镜改序：请求在途时丢弃后续操作（快速连点会基于过期顺序计算锚点）。
+  // 选中按索引存储，移动成功后按新顺序把选中态跟随到原来选中的分镜。
   const handleMoveShot = onMoveShot
-    ? async (shotId: string, direction: "earlier" | "later") => {
+    ? async (shotId: string, afterId: string | null) => {
         if (movePending) return;
+        const ids = segments.map((s) => getScriptItemId(s, contentMode));
+        const selectedId = ids[Math.min(selectedIndex, ids.length - 1)];
         setMovePending(true);
         try {
-          const moved = await onMoveShot(shotId, direction);
+          const moved = await onMoveShot(shotId, afterId);
           if (moved) {
-            setSelectedIndex((i) =>
-              direction === "earlier" ? Math.max(0, i - 1) : Math.min(segments.length - 1, i + 1),
-            );
+            const reordered = ids.filter((id) => id !== shotId);
+            reordered.splice(afterId === null ? 0 : reordered.indexOf(afterId) + 1, 0, shotId);
+            setSelectedIndex(Math.max(0, reordered.indexOf(selectedId)));
           }
         } finally {
           setMovePending(false);
         }
+      }
+    : undefined;
+  // 详情里的前移、后移一位换算成锚点。
+  const handleMoveStep = handleMoveShot
+    ? (shotId: string, direction: "earlier" | "later") => {
+        const ids = segments.map((s) => getScriptItemId(s, contentMode));
+        const afterId = stepAnchor(ids, ids.indexOf(shotId), direction);
+        if (afterId !== undefined) return handleMoveShot(shotId, afterId);
       }
     : undefined;
 
@@ -184,6 +193,8 @@ export function ShotSplitView({
         scrollContainerRef={listScrollRef}
         onAppend={handleInsertShot}
         appendDisabled={structurePending || movePending}
+        onMove={handleMoveShot}
+        moveDisabled={structurePending || movePending}
       />
       <ShotDetail
         key={segmentId}
@@ -194,13 +205,12 @@ export function ShotSplitView({
         projectName={projectName}
         episode={episode}
         scriptFile={scriptFile}
-        isGridMode={isGridMode}
         selectedIndex={safeIndex}
         totalCount={segments.length}
         onPrev={() => setSelectedIndex((i) => Math.max(0, i - 1))}
         onNext={() => setSelectedIndex((i) => Math.min(segments.length - 1, i + 1))}
         onUpdatePrompt={onUpdatePrompt}
-        onMoveShot={handleMoveShot}
+        onMoveShot={handleMoveStep}
         movePending={movePending}
         onInsertShot={handleInsertShot}
         onRemoveShot={handleRemoveShot}
