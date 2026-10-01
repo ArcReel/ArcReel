@@ -42,3 +42,4 @@ repos:
     hooks:
       - id: zizmor
         args: [--no-progress, --offline, --min-severity, medium]
+        exclude: ^\.agents/  # vendored skill 自带的上游 CI 不在本仓库运行

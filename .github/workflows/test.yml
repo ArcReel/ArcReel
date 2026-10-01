@@ -49,6 +49,7 @@ jobs:
     # pyflakes，能检查 run: 脚本）；zizmor 用默认 persona，medium 及以上阻断，--offline
     # 使判定不受环境里是否存在 GitHub token 影响，与 pre-commit 本地一致。
     # 两个工具版本须与 .pre-commit-config.yaml 中对应 hook 的版本同步升级。
+    # zizmor 只审 GitHub 实际执行的输入；.agents/skills/ 下 vendored skill 自带的上游 CI 不在本仓库运行。
     needs: changes
     if: needs.changes.outputs.workflow == 'true'
     runs-on: ubuntu-latest
@@ -66,7 +67,7 @@ jobs:
           enable-cache: true
 
       - name: Workflow security audit (zizmor)
-        run: uvx zizmor@1.29.0 --offline --min-severity medium .
+        run: uvx zizmor@1.29.0 --offline --min-severity medium .github .pre-commit-config.yaml
 
   backend-static:
     needs: changes
