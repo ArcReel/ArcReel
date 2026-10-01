@@ -379,6 +379,8 @@ The dialog also selects the final cut version; each combination is a separate fi
 - **Narration version**: available only to TTS voiceover projects, defaulting to **With narration**. A narration longer than its clip is mixed in at its full length; it is not shortened, later narrations are not shifted, and the issue list reports the overlap. Whatever runs past the end of the final cut is cut off.
 - **Burn in subtitles**: checked by default. Subtitles are drawn into the video frames and cannot be turned off during playback; the font is the bundled Source Han Sans. When subtitles contain characters this font lacks, the issue list names those characters.
 
+For background music, click the upload button next to the BGM track name in the edit view and upload MP3, WAV, or M4A audio (up to 100 MB). ArcReel measures the loudness once during upload and brings every BGM to the same loudness level; near-silent audio cannot be uploaded. BGM belongs to the whole project, so edit timelines in every episode can use it. After uploading, ask the Agent in the chat to place the BGM on the edit timeline; when the BGM is shorter than the timeline, the Agent places another section after it. Only one BGM plays at a time; any part past the end of the edit timeline is cut off with a 1-second fade-out at the cut. Both the final cut and the Jianying draft mix in the BGM. Uploaded BGM cannot be deleted from the page yet.
+
 Before rendering, check:
 
 - clip order;

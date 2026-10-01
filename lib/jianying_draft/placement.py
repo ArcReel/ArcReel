@@ -3,6 +3,7 @@
 剪辑片段首尾相接排在主视频轨上，截取只对其依据的视频版本有效；定格延长以出点帧静帧接在片段之后。
 转场挂在前一片段上，只保留到下一个参与导出的片段之间的切点：最后一个参与导出的片段上的转场没有效果。
 旁白从承载片段的起点开始；字幕在带旁白的单元上跟随旁白，否则按源素材时间保留、只显示落在入出点之内的部分。
+BGM 按 :func:`lib.edit_timeline.bgm.place_bgm` 摆放，音量是登记时缓存的响度增益乘以片段音量。
 旁白与字幕如实保留彼此的重叠，只把超出时间线末尾的部分截断；剪映草稿用 :func:`stack_tracks` 把重叠的
 分到不同的轨上，成片里重叠的旁白同时响起、字幕交给 libass 推开。
 剪辑视图预览的字幕摆放（frontend/src/components/canvas/edit/preview-tracks.ts ``placeSubtitles``）取同一组字幕，
@@ -15,6 +16,8 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from typing import Protocol
 
+from lib.bgm.library import BgmSource
+from lib.edit_timeline.bgm import place_bgm
 from lib.edit_timeline.model import EditClip, EditTimelineContent, Transition
 from lib.edit_timeline.readout import effective_source_range_us
 from lib.jianying_draft.basis import DraftNarration, DraftUnitBasis
@@ -128,11 +131,26 @@ class PlacedSubtitle:
 
 
 @dataclass(frozen=True, slots=True)
+class PlacedBgmAudio:
+    """BGM 轨上实际出声的一段：``volume`` 已是响度增益乘以片段音量，淡入淡出以微秒计。"""
+
+    clip_id: str
+    audio_path: str
+    start_us: int
+    source_in_us: int
+    duration_us: int
+    volume: float
+    fade_in_us: int
+    fade_out_us: int
+
+
+@dataclass(frozen=True, slots=True)
 class DraftPlacement:
     duration_us: int
     clips: tuple[PlacedClip, ...]
     narrations: tuple[PlacedNarration, ...]
     subtitles: tuple[PlacedSubtitle, ...]
+    bgm: tuple[PlacedBgmAudio, ...] = ()
 
 
 def _source_window(clip: EditClip, unit: UnitMaterial) -> tuple[int, int]:
@@ -176,8 +194,15 @@ def stack_tracks[T: (PlacedNarration, PlacedSubtitle)](items: Sequence[T]) -> tu
     return tuple(tuple(track) for track in tracks)
 
 
-def place_timeline(content: EditTimelineContent, units: Mapping[str, UnitMaterial]) -> DraftPlacement:
-    """按修订内容摆放片段；``units`` 里没有的视频单元（已从脚本删除）渲染时跳过。"""
+def place_timeline(
+    content: EditTimelineContent,
+    units: Mapping[str, UnitMaterial],
+    bgm_sources: Mapping[str, BgmSource] | None = None,
+) -> DraftPlacement:
+    """按修订内容摆放片段；``units`` 里没有的视频单元（已从脚本删除）渲染时跳过。
+
+    ``bgm_sources`` 是 BGM 轨所引用的 BGM；不在其中的 BGM 片段不摆放（出片前的检查已拒绝这种时间线）。
+    """
     clips: list[PlacedClip] = []
     narrations: list[PlacedNarration] = []
     subtitles: list[PlacedSubtitle] = []
@@ -205,16 +230,32 @@ def place_timeline(content: EditTimelineContent, units: Mapping[str, UnitMateria
         cursor += placed.source_duration_us + placed.hold_us
     if clips and clips[-1].transition_to_next is not None:
         clips[-1] = replace(clips[-1], transition_to_next=None)
+    sources = bgm_sources or {}
     return DraftPlacement(
         duration_us=cursor,
         clips=tuple(clips),
         narrations=_within_timeline(narrations, cursor),
         subtitles=_within_timeline(subtitles, cursor),
+        bgm=tuple(
+            PlacedBgmAudio(
+                clip_id=placed.clip_id,
+                audio_path=source.path,
+                start_us=placed.start_us,
+                source_in_us=placed.source_in_us,
+                duration_us=placed.duration_us,
+                volume=placed.volume * source.gain,
+                fade_in_us=placed.fade_in_us,
+                fade_out_us=placed.fade_out_us,
+            )
+            for placed in place_bgm(content.bgm, cursor)
+            if (source := sources.get(placed.bgm_id)) is not None
+        ),
     )
 
 
 __all__ = [
     "DraftPlacement",
+    "PlacedBgmAudio",
     "PlacedClip",
     "PlacedNarration",
     "PlacedSubtitle",

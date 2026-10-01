@@ -35,6 +35,7 @@ from lib.edit_timeline.operations import (
     sorted_clip_ids,
 )
 from lib.edit_timeline.readout import (
+    BgmView,
     ClipView,
     EditTimelineReadout,
     TimelineIdentity,
@@ -115,7 +116,8 @@ class EditTimelineWriteResult(BaseModel):
     """一批编辑的写入结果：只含受影响片段的新状态与更新后的 issues，不含整份时间线。
 
     ``clips`` 按播放顺序列出本批点名或改动过的片段（含新插入的片段、跟随相邻关系恢复硬切的
-    片段与旁白改挂到的片段）；``deleted_clip_ids`` 是本批删除的片段。
+    片段与旁白改挂到的片段）；``bgm`` 按起点列出本批点名或改动过的 BGM 片段；``deleted_clip_ids``
+    是本批删除的剪辑片段与 BGM 片段。
     """
 
     model_config = ConfigDict(frozen=True)
@@ -127,6 +129,7 @@ class EditTimelineWriteResult(BaseModel):
     concurrent_revisions: tuple[ConcurrentRevision, ...]
     duration: float
     clips: tuple[ClipView, ...]
+    bgm: tuple[BgmView, ...]
     deleted_clip_ids: tuple[str, ...]
     issues: tuple[TimelineIssue, ...]
 
@@ -536,6 +539,7 @@ class EditTimelineService:
             concurrent_revisions=concurrent,
             duration=readout.duration,
             clips=tuple(clip for clip in readout.clips if clip.id in written.affected),
+            bgm=tuple(item for item in readout.bgm if item.id in written.affected),
             deleted_clip_ids=sorted_clip_ids(written.deleted),
             issues=readout.issues,
         )
@@ -573,7 +577,13 @@ class EditTimelineService:
             if base.number != latest.number:
                 applied = self._check_conflicts(document, base, operations, sources)
             else:
-                applied = apply_operations(latest.content, document.next_clip_number, operations, sources)
+                applied = apply_operations(
+                    latest.content,
+                    document.next_clip_number,
+                    operations,
+                    sources,
+                    next_bgm_number=document.next_bgm_number,
+                )
             changes = diff_content(latest.content, applied.content)
             revision = TimelineRevision(
                 number=latest.number + 1,
@@ -589,6 +599,7 @@ class EditTimelineService:
                 {
                     **document.model_dump(),
                     "next_clip_number": applied.next_clip_number,
+                    "next_bgm_number": applied.next_bgm_number,
                     "revisions": (*document.revisions, revision),
                 }
             )
@@ -623,7 +634,14 @@ class EditTimelineService:
                 if revision.changed_clip_ids is not None
                 else diff_content(previous.content, revision.content).changed
             )
-        on_base = apply_operations(base.content, document.next_clip_number, operations, sources, check_windows=False)
+        on_base = apply_operations(
+            base.content,
+            document.next_clip_number,
+            operations,
+            sources,
+            next_bgm_number=document.next_bgm_number,
+            check_windows=False,
+        )
         touched = on_base.referenced | frozenset(on_base.last_operation)
 
         def reject(conflicting: set[str] | frozenset[str]) -> None:
@@ -641,7 +659,12 @@ class EditTimelineService:
         if conflicting := touched & since_base:
             reject(conflicting)
         on_latest = apply_operations(
-            document.latest.content, document.next_clip_number, operations, sources, check_windows=False
+            document.latest.content,
+            document.next_clip_number,
+            operations,
+            sources,
+            next_bgm_number=document.next_bgm_number,
+            check_windows=False,
         )
         if conflicting := frozenset(on_latest.last_operation) & since_base:
             reject(conflicting)
@@ -652,7 +675,13 @@ class EditTimelineService:
             if isinstance(operation, SetTransition) and base_next.get(operation.clip) != latest_next.get(operation.clip)
         }:
             reject(moved_cuts)
-        return apply_operations(document.latest.content, document.next_clip_number, operations, sources)
+        return apply_operations(
+            document.latest.content,
+            document.next_clip_number,
+            operations,
+            sources,
+            next_bgm_number=document.next_bgm_number,
+        )
 
     async def list_timelines(self, project_name: str, *, episode: int | None = None) -> tuple[TimelineSummary, ...]:
         def load() -> list[EditTimelineDocument]:

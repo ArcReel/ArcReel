@@ -22,6 +22,8 @@ export interface AudioPlacement {
   volume: number;
   fadeIn: number;
   fadeOut: number;
+  /** BGM 的名称，BGM 已不在项目里时为 null；旁白不带。 */
+  name?: string | null;
 }
 
 /** 旁白轨上的一段旁白。没有旁白配音时按承载片段的长度占位，`missingAudio` 为 true。 */
@@ -101,26 +103,29 @@ export function narrationPlacements(
   });
 }
 
-/** 超出时间线末尾被截断的 BGM 片段，在截断处固定淡出这么久（秒），不取片段自身的淡出时长。 */
-export const BGM_CUTOFF_FADE = 1;
-
-/** BGM 片段放完截取区间即止；超出时间线末尾的部分截断，截断处淡出 {@link BGM_CUTOFF_FADE} 秒。 */
-export function bgmPlacements(readout: EditTimelineReadout): AudioPlacement[] {
+/**
+ * BGM 片段按读取结果的实际起止与淡入淡出摆放（截断与淡入淡出的收缩由服务端算好，与成片、剪映草稿同一份摆放）。
+ * 音量是片段音量乘以 BGM 的响度增益；预览素材层还没有这首 BGM 时按片段音量摆放，只显示在轨上、不出声。
+ */
+export function bgmPlacements(
+  readout: EditTimelineReadout,
+  media: EditTimelinePreviewMedia | null,
+): AudioPlacement[] {
+  const gains = new Map((media?.bgm ?? []).map((item) => [item.bgm_id, item.gain]));
   return readout.bgm.flatMap((item) => {
-    const naturalEnd = round(item.start + item.source_out - item.source_in);
-    const end = Math.min(naturalEnd, readout.duration);
-    if (end <= item.start) return [];
+    if (item.end <= item.start) return [];
     return [
       {
         id: `bgm-${item.id}`,
         kind: "bgm" as const,
         sourceId: item.bgm_id,
+        name: item.name,
         start: item.start,
-        end,
+        end: item.end,
         sourceIn: item.source_in,
-        volume: item.volume,
+        volume: round(item.volume * (gains.get(item.bgm_id) ?? 1)),
         fadeIn: item.fade_in,
-        fadeOut: end < naturalEnd ? BGM_CUTOFF_FADE : item.fade_out,
+        fadeOut: item.fade_out,
       },
     ];
   });

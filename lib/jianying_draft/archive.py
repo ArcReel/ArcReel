@@ -54,6 +54,7 @@ INDEX_FORMAT = 1
 
 SUBTITLE_TRACK = "字幕"
 NARRATION_TRACK = "旁白"
+BGM_TRACK = "BGM"
 SUBTITLE_FONT = FontType.SourceHanSansCN_Bold
 EXTRA_SUBTITLE_TRACK_RAISE = 0.2
 """每多一条字幕轨，整轨字幕比上一条再上移的距离，以剪映纵向位置计（半个画布高为 1）。"""
@@ -175,6 +176,7 @@ def write_jianying_draft(
     """把摆好的片段写成剪映草稿产物；``hold_frames`` 按剪辑片段 ID 给出定格用的出点帧静帧。
 
     始终至少有一条字幕轨，带旁白版本至少有一条旁白轨；旁白或字幕互相重叠时按需增轨，每条轨内不重叠。
+    有 BGM 时另有一条 BGM 轨，音量与淡入淡出写进片段的音量与淡入淡出字段。
     新增的字幕轨整轨上移，第 n 条比第一条高 ``(n - 1) × EXTRA_SUBTITLE_TRACK_RAISE``。
     草稿目录与素材暂存都放在 ``workspace`` 下，由调用方负责清理。
     """
@@ -189,6 +191,7 @@ def write_jianying_draft(
         TrackSpec(TrackType.video),
         *(TrackSpec(TrackType.text, _track_name(SUBTITLE_TRACK, index)) for index in range(len(subtitle_tracks))),
         *(TrackSpec(TrackType.audio, _track_name(NARRATION_TRACK, index)) for index in range(len(narration_tracks))),
+        *((TrackSpec(TrackType.audio, BGM_TRACK),) if placement.bgm else ()),
     ]
     script.append_tracks(tracks)
 
@@ -226,6 +229,23 @@ def write_jianying_draft(
                 ),
                 _track_name(NARRATION_TRACK, index),
             )
+
+    for bgm in placement.bgm:
+        material = AudioMaterial(staging.project_file(bgm.audio_path))
+        # 素材时长以 pyJianYingDraft 的探测为准；与登记时 ffmpeg 测得的时长有出入时，截到素材末尾。
+        duration = min(bgm.duration_us, material.duration - bgm.source_in_us)
+        if duration <= 0:
+            continue
+        fade_out = min(bgm.fade_out_us, duration)
+        segment = AudioSegment(
+            material,
+            trange(bgm.start_us, duration),
+            source_timerange=trange(bgm.source_in_us, duration),
+            volume=bgm.volume,
+        )
+        if bgm.fade_in_us > 0 or fade_out > 0:
+            segment.add_fade(min(bgm.fade_in_us, duration - fade_out), fade_out)
+        script.add_segment(segment, BGM_TRACK)
 
     style, border, shadow, transform_y = _subtitle_style(width, height)
     for index, track in enumerate(subtitle_tracks):
@@ -373,6 +393,7 @@ def package_jianying_draft(
 
 __all__ = [
     "ASSETS_PLACEHOLDER",
+    "BGM_TRACK",
     "NARRATION_TRACK",
     "SUBTITLE_FONT",
     "SUBTITLE_TRACK",

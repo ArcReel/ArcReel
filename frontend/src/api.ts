@@ -126,6 +126,7 @@ import type {
   EditTimelineReadout,
   EditTimelineSummary,
   EpisodeEditOverview,
+  ProjectBgm,
   TimelineNarration,
 } from "@/types/edit-timeline";
 import type {
@@ -782,6 +783,11 @@ class API {
       `${this.editTimelinePath(projectName, timelineId)}/preview-media`,
       { signal: options.signal },
     );
+  }
+
+  /** 上传一首 BGM：服务端实测响度并登记为项目级素材，各集的剪辑时间线都能用。 */
+  static async uploadBgm(projectName: string, file: File): Promise<{ success: boolean; bgm: ProjectBgm }> {
+    return API.postFileUpload(`/projects/${encodeURIComponent(projectName)}/upload/bgm`, file);
   }
 
   static async importProject(

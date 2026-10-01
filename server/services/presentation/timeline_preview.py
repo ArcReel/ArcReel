@@ -1,4 +1,4 @@
-"""剪辑视图预览用的素材层：剪辑时间线最新修订引用的每个视频单元的旁白配音与字幕条目。
+"""剪辑视图预览用的素材层：剪辑时间线最新修订引用的每个视频单元的旁白配音与字幕条目，以及 BGM 轨引用的 BGM 文件。
 
 旁白版本取项目默认值（TTS 配音项目带旁白），字幕取自各单元当前的呈现模型，与剪映草稿同一份切分结果。
 条目时间相对单元：跟随旁白的字幕从旁白起点算起，其余按视频源素材时间。按剪辑片段摆到全局时间由前端完成。
@@ -7,11 +7,15 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Mapping
 from pathlib import Path
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
 from lib.artifacts.version_manager import VersionManager
+from lib.bgm.library import read_bgm_library
+from lib.edit_timeline.bgm import bgm_ids
 from lib.edit_timeline.model import microseconds_to_seconds
 from lib.edit_timeline.store import EditTimelineStore
 from lib.jianying_draft.basis import DraftNarration, default_draft_narration, draft_unit_ids
@@ -51,11 +55,31 @@ class PreviewUnitMedia(_View):
     subtitles: tuple[PreviewCue, ...]
 
 
+class PreviewBgm(_View):
+    """BGM 文件的项目内路径与响度静态增益（线性倍数）；预览音量是片段音量乘以这个增益。"""
+
+    bgm_id: str
+    path: str
+    gain: float
+
+
 class TimelinePreviewMedia(_View):
+    """``bgm`` 只含 BGM 轨引用且文件在项目里的 BGM。"""
+
     timeline_id: str
     revision: int
     narration: DraftNarration
     units: tuple[PreviewUnitMedia, ...]
+    bgm: tuple[PreviewBgm, ...] = ()
+
+
+def _preview_bgm(project_dir: Path, project: Mapping[str, Any], referenced: tuple[str, ...]) -> tuple[PreviewBgm, ...]:
+    library = read_bgm_library(project)
+    return tuple(
+        PreviewBgm(bgm_id=bgm_id, path=track.file, gain=track.gain)
+        for bgm_id in referenced
+        if (track := library.get(bgm_id)) is not None and (project_dir / track.file).is_file()
+    )
 
 
 def _narration_audio(project_dir: Path, versions: VersionManager, unit_id: str) -> PreviewNarrationAudio | None:
@@ -120,12 +144,18 @@ class TimelinePreviewService:
                     subtitles=cues,
                 )
             )
+        bgm = await asyncio.to_thread(_preview_bgm, project_dir, project, bgm_ids(document.latest.content.bgm))
         return TimelinePreviewMedia(
-            timeline_id=document.id, revision=document.latest.number, narration=narration, units=tuple(units)
+            timeline_id=document.id,
+            revision=document.latest.number,
+            narration=narration,
+            units=tuple(units),
+            bgm=bgm,
         )
 
 
 __all__ = [
+    "PreviewBgm",
     "PreviewCue",
     "PreviewNarrationAudio",
     "PreviewUnitMedia",

@@ -1,8 +1,9 @@
-"""剪辑时间线工具的声明：新建（按脚本或复制）、列出、读取、批量编辑、改名、修订历史与回滚。"""
+"""剪辑时间线工具的声明：新建（按脚本或复制）、列出、读取、批量编辑、改名、修订历史与回滚，以及列出可摆进时间线的 BGM。"""
 
 from __future__ import annotations
 
 from server.agent_toolset.declaration import BLOCKED, ToolDeclaration
+from server.media_tools.bgm import ListBgmRequest, bgm_list_summary, list_bgm
 from server.media_tools.edit_timelines import (
     CreateTimelineRequest,
     EditTimelineRequest,
@@ -78,6 +79,9 @@ READ_TIMELINE = ToolDeclaration(
         "narration_overrun 旁白压到下一段旁白上（params.cause=next_narration，clip_ids 为两个承载片段）"
         "或超出时间线末尾（cause=timeline_end）；narration_source_collision 旁白延伸到台词片段（cause=dialogue）"
         "或原声音量高于 0.3 的片段（cause=source_volume）上，clip_ids 为承载片段与被覆盖的片段。"
+        "bgm 按起点排列，每个 BGM 片段带 id（如 b2）、bgm_id 与 name（所引用的 BGM）、start、end（截到时间线末尾后的"
+        "实际结束时间）、source_in / source_out（取用 BGM 的哪一段）、volume、fade_in 与 fade_out（实际生效的淡入淡出）；"
+        "bgm_missing（blocking）表示 BGM 片段引用的 BGM 已不在项目里，clip_ids 为该 BGM 片段。"
     ),
     request_model=ReadTimelineRequest,
     migration=BLOCKED,
@@ -105,8 +109,14 @@ EDIT_TIMELINE = ToolDeclaration(
         "一个视频单元的旁白只挂在它的一个片段上，从该片段起点开始，按配音实测时长播放，可以延伸到后续片段上："
         "插入的片段在该单元还没有承载旁白的片段时承载旁白；删除承载片段时，旁白改挂到该单元剩下的第一个片段上；"
         "place_narration 把旁白改挂到画外音单位的指定片段上，同一单元原先的承载片段随之卸下。"
-        "结果只含新 revision、一行确认 message、受影响片段的新状态 clips（字段同 read_timeline）、"
-        "deleted_clip_ids、总时长 duration 与更新后的 issues，不返回整份时间线。"
+        "BGM 轨：insert_bgm 摆放 list_bgm 列出的 BGM，ID（如 b2）由服务端分配；start 是时间线上的绝对起点，"
+        "source_in / source_out 截取 BGM 的一段（省略时整首），volume 省略时 0.25，fade_in / fade_out 省略时各 1 秒；"
+        "set_bgm 只改给出的字段；delete_bgm。BGM 片段按绝对时间摆放，主轨的增删移动不会挪动它。"
+        "同一时刻只能有一首：本批改动的 BGM 片段与其他 BGM 片段重叠或起点不在时间线内时返回 operation_invalid。"
+        "超出时间线末尾的部分渲染时截断并在截断处淡出 1 秒；淡入淡出之和超过片段时长时按比例缩短。"
+        "BGM 的响度已在上传时统一，volume 是在此之上的倍数，两端渲染一致。"
+        "结果只含新 revision、一行确认 message、受影响片段的新状态 clips（字段同 read_timeline）与 bgm、"
+        "deleted_clip_ids（含 BGM 片段）、总时长 duration 与更新后的 issues，不返回整份时间线。"
     ),
     request_model=EditTimelineRequest,
     migration=BLOCKED,
@@ -143,6 +153,20 @@ LIST_REVISIONS = ToolDeclaration(
     summary=revision_history_summary,
 )
 
+LIST_BGM = ToolDeclaration(
+    name="list_bgm",
+    description=(
+        "列出项目里已上传的 BGM：id（如 bgm-3f9a0c21，edit_timeline 的 insert_bgm 用它引用）、name 与 duration（秒），"
+        "按上传先后排列。BGM 属于整个项目，各集的剪辑时间线都能用；上传由创作者在剪辑视图的 BGM 轨完成，"
+        "列表为空时请创作者先上传。只读，无副作用。"
+    ),
+    request_model=ListBgmRequest,
+    migration=BLOCKED,
+    domain_key="bgm",
+    handler=list_bgm,
+    summary=bgm_list_summary,
+)
+
 RESTORE_REVISION = ToolDeclaration(
     name="restore_revision",
     description=(
@@ -169,12 +193,14 @@ EDIT_TIMELINE_TOOLS = (
     RENAME_TIMELINE,
     LIST_REVISIONS,
     RESTORE_REVISION,
+    LIST_BGM,
 )
 
 __all__ = [
     "CREATE_TIMELINE",
     "EDIT_TIMELINE",
     "EDIT_TIMELINE_TOOLS",
+    "LIST_BGM",
     "LIST_REVISIONS",
     "LIST_TIMELINES",
     "READ_TIMELINE",

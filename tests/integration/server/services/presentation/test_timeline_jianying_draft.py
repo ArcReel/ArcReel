@@ -17,12 +17,14 @@ from lib.artifacts.artifact_manifest import (
     ArtifactStatus,
     ProjectArtifactManifestAdapter,
 )
+from lib.bgm.service import BgmLibraryService
 from lib.edit_timeline import EditTimelineService
 from lib.edit_timeline.model import BgmClip, EditTimelineContent
-from lib.edit_timeline.operations import SetHold, SetReason, SetTransition, SetVolume, TransitionSpec
+from lib.edit_timeline.operations import InsertBgm, SetHold, SetReason, SetTransition, SetVolume, TransitionSpec
 from lib.edit_timeline.store import EditTimelineStore
 from lib.jianying_draft.errors import JianyingDraftError
 from server.services.presentation.timeline_jianying_draft import TimelineJianyingDraftService
+from tests.factories import wav_bytes
 from tests.integration.server.services.presentation.timeline_render_support import (
     CREATOR,
     append_revision,
@@ -387,22 +389,90 @@ async def test_transitions_hang_on_the_last_segment_of_the_previous_clip(tmp_pat
     ]
 
 
-async def test_bgm_is_refused_like_the_final_cut(tmp_path: Path) -> None:
+async def test_bgm_track_maps_placement_trim_gain_volume_and_fades_and_cuts_at_the_timeline_end(
+    tmp_path: Path,
+) -> None:
+    pm, project_path = setup_project(tmp_path)
+    track = await BgmLibraryService(pm).upload("demo", filename="主题曲.wav", content=wav_bytes(2.0, tone_hz=330))
+    timeline_id = await edited_timeline(pm)
+    revision = EditTimelineStore(pm, "demo").find(timeline_id).latest.number
+    # 时间线 3 秒：b1 截取 BGM 的 0.2–1.2 秒放在开头；b2 从 1.5 秒起放整首 2 秒，越过末尾，截到 1.5 秒。
+    await EditTimelineService(pm).edit(
+        "demo",
+        timeline_id,
+        base_revision=revision,
+        summary="加 BGM",
+        operations=[
+            InsertBgm(
+                op="insert_bgm",
+                bgm_id=track.id,
+                start=0,
+                source_in=0.2,
+                source_out=1.2,
+                volume=0.5,
+                fade_in=0.3,
+                fade_out=0.2,
+            ),
+            InsertBgm(op="insert_bgm", bgm_id=track.id, start=1.5, fade_in=0.5),
+        ],
+        author=CREATOR,
+    )
+
+    result = await TimelineJianyingDraftService(pm).render("demo", timeline_id, narration="without_narration")
+
+    assert result.duration == 3.0
+    content = _draft_content(project_path / result.artifact_path)
+    segments = _track(content, "audio", "BGM")["segments"]
+    audios = _materials(content, "audios")
+    fades = _materials(content, "audio_fades")
+    assert [
+        (
+            _timing(segment),
+            (segment["source_timerange"]["start"], segment["source_timerange"]["duration"]),
+            segment["volume"],
+            audios[segment["material_id"]]["path"],
+        )
+        for segment in segments
+    ] == [
+        (
+            (0, 1_000_000),
+            (200_000, 1_000_000),
+            pytest.approx(0.5 * track.gain),
+            f"{PLACEHOLDER}{Path(track.file).name}",
+        ),
+        (
+            (1_500_000, 1_500_000),
+            (0, 1_500_000),
+            pytest.approx(0.25 * track.gain),
+            f"{PLACEHOLDER}{Path(track.file).name}",
+        ),
+    ]
+    # 截断处固定淡出 1 秒，盖过片段自带的淡出
+    assert [
+        next(
+            (fades[ref]["fade_in_duration"], fades[ref]["fade_out_duration"])
+            for ref in segment["extra_material_refs"]
+            if ref in fades
+        )
+        for segment in segments
+    ] == [(300_000, 200_000), (500_000, 1_000_000)]
+
+
+async def test_a_bgm_missing_from_the_project_blocks_the_draft(tmp_path: Path) -> None:
     pm, project_path = setup_project(tmp_path)
     timeline_id = await edited_timeline(pm)
     store = EditTimelineStore(pm, "demo")
     document = store.find(timeline_id)
     content = document.latest.content.model_copy(
-        update={"bgm": (BgmClip(id="b1", bgm_id="theme", start_us=0, in_us=0, out_us=1_000_000),)}
+        update={"bgm": (BgmClip(id="b1", bgm_id="bgm-0000abcd", start_us=0, in_us=0, out_us=1_000_000),)}
     )
     with store.locked_episode(document.episode):
         store.write(document.model_copy(update={"next_bgm_number": 2}))
     append_revision(pm, timeline_id, content)
 
-    with pytest.raises(JianyingDraftError) as bgm_refused:
+    with pytest.raises(JianyingDraftError) as refused:
         await TimelineJianyingDraftService(pm).check("demo", timeline_id, narration="without_narration")
-    assert bgm_refused.value.code == "jianying_draft_content_unsupported"
-    assert bgm_refused.value.params == {"bgm_ids": ["b1"]}
+    assert refused.value.code == "jianying_draft_blocked"
     assert not (project_path / "renders" / "episode_1" / timeline_id).exists()
 
 

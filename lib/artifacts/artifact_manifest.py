@@ -75,7 +75,11 @@ class ArtifactKind(StrEnum):
     EPISODE_PRESENTATION = "episode-presentation"
     EPISODE_FINAL_CUT = "episode-final-cut"
     EPISODE_JIANYING_DRAFT = "episode-jianying-draft"
+    PROJECT_BGM = "project-bgm"
 
+
+PROJECT_LEVEL_ARTIFACT_KINDS = frozenset({ArtifactKind.ASSET_SHEET, ArtifactKind.PROJECT_BGM})
+"""不属于任何一集的产物种类。"""
 
 NARRATION_VERSIONS = frozenset({"without_narration", "with_narration"})
 """成片与剪映草稿的旁白版本：带旁白只对 TTS 项目开放。"""
@@ -84,6 +88,7 @@ FINAL_CUT_SUBTITLE_MODES = frozenset({"no_subtitles", "burned_subtitles"})
 """成片是否烧入字幕。"""
 
 _EDIT_TIMELINE_ID_RE = re.compile(r"^tl-[0-9a-f]{8}$")
+_BGM_ID_RE = re.compile(r"^bgm-[0-9a-f]{8}$")
 
 
 class ArtifactStatus(StrEnum):
@@ -1717,6 +1722,9 @@ class ArtifactKey:
                 and _EDIT_TIMELINE_ID_RE.fullmatch(timeline_id) is not None
                 and narration in NARRATION_VERSIONS
             )
+        elif self.kind is ArtifactKind.PROJECT_BGM and len(self.components) == 1:
+            bgm_id = self.components[0]
+            valid = isinstance(bgm_id, str) and _BGM_ID_RE.fullmatch(bgm_id) is not None
         if not valid:
             raise ValueError(f"artifact key components do not match {self.kind!r}: {self.components!r}")
 
@@ -1800,6 +1808,12 @@ class ArtifactKey:
         return cls(ArtifactKind.EPISODE_JIANYING_DRAFT, (_episode_number(episode), timeline_id, narration))
 
     @classmethod
+    def project_bgm(cls, bgm_id: str) -> Self:
+        """Identify one uploaded project-level BGM; its basis is the uploaded bytes."""
+
+        return cls(ArtifactKind.PROJECT_BGM, (bgm_id,))
+
+    @classmethod
     def episode_resource_artifacts(cls, episode: int, resource_id: str) -> tuple[Self, ...]:
         """Enumerate every formal artifact identity owned by one script item."""
 
@@ -1817,7 +1831,7 @@ class ArtifactKey:
     def episode_number(self) -> int | None:
         """Return the owning episode for any episode-scoped artifact key."""
 
-        if self.kind is ArtifactKind.ASSET_SHEET:
+        if self.kind in PROJECT_LEVEL_ARTIFACT_KINDS:
             return None
         episode = self.components[0]
         return episode if type(episode) is int else None

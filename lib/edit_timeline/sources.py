@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 from lib.artifacts.version_manager import VersionManager
+from lib.bgm.library import read_bgm_library
 from lib.edit_timeline.errors import EditTimelineError
 from lib.edit_timeline.model import MICROSECONDS_PER_SECOND, seconds_to_microseconds
 from lib.project.project_manager import ProjectManager
@@ -54,12 +55,24 @@ class UnitMedia:
 
 
 @dataclass(frozen=True, slots=True)
+class BgmMedia:
+    """项目里一首已上传、文件在场的 BGM。"""
+
+    name: str
+    duration_us: int
+
+
+@dataclass(frozen=True, slots=True)
 class EpisodeSources:
-    """``tts_narration`` 为项目的旁白交付方式是否为 TTS 配音；后期配音项目不检查旁白。"""
+    """``tts_narration`` 为项目的旁白交付方式是否为 TTS 配音；后期配音项目不检查旁白。
+
+    ``bgm`` 是项目里已上传、文件在场的 BGM，按 BGM ID 索引。
+    """
 
     script: EpisodeScriptUnits
     media: Mapping[str, UnitMedia]
     tts_narration: bool
+    bgm: Mapping[str, BgmMedia] = field(default_factory=dict)
 
     def unit(self, unit_id: str) -> ScriptUnit | None:
         return next((unit for unit in self.script.units if unit.unit_id == unit_id), None)
@@ -144,7 +157,7 @@ _PROBE_CONCURRENCY = 4
 async def load_episode_sources(
     projects: ProjectManager, project_name: str, script: EpisodeScriptUnits, unit_ids: set[str]
 ) -> EpisodeSources:
-    """读取 ``unit_ids`` 中仍在脚本里的视频单元的 current 视频与旁白配音，以及项目的旁白交付方式。"""
+    """读取 ``unit_ids`` 中仍在脚本里的视频单元的 current 视频与旁白配音，项目的旁白交付方式，以及项目里的 BGM。"""
     project_path = projects.get_project_path(project_name)
     project = await asyncio.to_thread(projects.load_project, project_name)
     versions = VersionManager(project_path)
@@ -160,10 +173,20 @@ async def load_episode_sources(
         script=script,
         media=dict(zip(wanted, media, strict=True)),
         tts_narration=project_narration_delivery(project) == USE_TTS,
+        bgm=await asyncio.to_thread(_present_bgm, project_path, project),
     )
 
 
+def _present_bgm(project_path: Path, project: Mapping[str, Any]) -> dict[str, BgmMedia]:
+    return {
+        track.id: BgmMedia(name=track.name, duration_us=track.duration_us)
+        for track in read_bgm_library(project).values()
+        if (project_path / track.file).is_file()
+    }
+
+
 __all__ = [
+    "BgmMedia",
     "EpisodeScriptUnits",
     "EpisodeSources",
     "ScriptUnit",

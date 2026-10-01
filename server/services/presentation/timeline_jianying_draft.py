@@ -3,7 +3,7 @@
 导出在 ``render`` 车道上执行：:meth:`TimelineJianyingDraftService.check` 在入队前按所选旁白版本检查阻断级 issue；
 任务开始时 :meth:`TimelineJianyingDraftService.prepare` 取好生成依据快照与片段摆放，得到一个 :class:`JianyingDraftJob`，
 再经 :func:`~lib.artifacts.rendered_artifact.commit_rendered_artifact` 渲染到临时文件、验收、原子替换正式文件并用快照依据登记。
-视频单元的画面、旁白配音与字幕草稿都取自它当前的呈现模型。
+视频单元的画面、旁白配音与字幕草稿都取自它当前的呈现模型；BGM 取自项目里登记的 BGM，音量是响度增益乘以片段音量。
 """
 
 from __future__ import annotations
@@ -16,10 +16,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from lib.artifacts.artifact_currency import active_artifact_currency_resolver
-from lib.artifacts.artifact_manifest import ArtifactBasis, ArtifactKey, ArtifactStatus
+from lib.artifacts.artifact_currency import active_artifact_currency_resolver, read_artifact_content_digest
+from lib.artifacts.artifact_manifest import ArtifactBasis, ArtifactKey, ArtifactStatus, ProjectArtifactManifestAdapter
 from lib.artifacts.rendered_artifact import commit_rendered_artifact, read_render_record
 from lib.artifacts.video_visual_provenance import resolve_video_aspect_ratio
+from lib.bgm.library import resolve_bgm_sources
 from lib.edit_timeline import (
     EditTimelineError,
     EditTimelineReadout,
@@ -28,8 +29,8 @@ from lib.edit_timeline import (
     IssueSeverity,
     TimelineIssue,
 )
+from lib.edit_timeline.bgm import bgm_ids
 from lib.edit_timeline.model import microseconds_to_seconds
-from lib.edit_timeline.readout import unrendered_effects
 from lib.edit_timeline.store import EditTimelineStore
 from lib.episode.episode_ids import episode_file_label
 from lib.i18n import _ as translate_default
@@ -190,11 +191,6 @@ class TimelineJianyingDraftService:
                 "剪辑时间线有阻断导出的问题：" + "、".join(f"{issue.code}({issue.unit_id})" for issue in blocking),
                 issues=[issue.model_dump(mode="json") for issue in blocking],
             )
-        bgm_ids = unrendered_effects(readout)
-        if bgm_ids:
-            raise JianyingDraftError(
-                "jianying_draft_content_unsupported", "剪映草稿目前只能导出不带 BGM 的剪辑时间线", bgm_ids=bgm_ids
-            )
         if not any(clip.status != "unit_deleted" for clip in readout.clips):
             raise JianyingDraftError(
                 "jianying_draft_empty", "剪辑时间线没有可导出的剪辑片段", timeline_id=readout.timeline.id
@@ -249,6 +245,21 @@ class TimelineJianyingDraftService:
                 unit_id=exc.unit_id,
             ) from exc
         aspect_ratio = resolve_video_aspect_ratio(checked.project, resource_type)
+        adapter = ProjectArtifactManifestAdapter(project_dir)
+        referenced_bgm = bgm_ids(target.content.bgm)
+        bgm_sources = await asyncio.to_thread(
+            resolve_bgm_sources,
+            project_dir,
+            checked.project,
+            referenced_bgm,
+            lambda path: read_artifact_content_digest(adapter, path),
+        )
+        if missing_bgm := [bgm_id for bgm_id in referenced_bgm if bgm_id not in bgm_sources]:
+            raise JianyingDraftError(
+                "jianying_draft_blocked",
+                "BGM 不在项目里或文件已不在：" + "、".join(missing_bgm),
+                issues=[{"code": "bgm_missing", "bgm_id": bgm_id} for bgm_id in missing_bgm],
+            )
         return JianyingDraftJob(
             project_dir=project_dir,
             episode=episode,
@@ -260,11 +271,12 @@ class TimelineJianyingDraftService:
                 narration=narration,
                 aspect_ratio=aspect_ratio,
                 units=unit_materials.bases,
+                bgm_sources=bgm_sources,
             ),
             timeline_id=timeline_id,
             revision=number,
             narration=narration,
-            placement=place_timeline(target.content, unit_materials.materials),
+            placement=place_timeline(target.content, unit_materials.materials, bgm_sources),
             canvas=canvas_size(aspect_ratio),
             warnings=checked.check.warnings,
         )

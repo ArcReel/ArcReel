@@ -73,6 +73,14 @@ def install_video(pm: ProjectManager, tmp_path: Path) -> Callable[[str, float], 
 
 
 @pytest.fixture
+def three_clips(install_video: Callable[[str, float], None]) -> None:
+    """E1U1、E1U2、E1U3 各登记一个视频，时长依次 1、1.5、0.5 秒，按脚本新建的时间线共 3 秒。"""
+    install_video("E1U1", 1.0)
+    install_video("E1U2", 1.5)
+    install_video("E1U3", 0.5)
+
+
+@pytest.fixture
 def install_narration(pm: ProjectManager, tmp_path: Path) -> Callable[[str, float], None]:
     """为视频单元登记一个指定时长的 current 旁白配音。"""
 

@@ -4,7 +4,6 @@ import type { EditClip, EditTimelinePreviewMedia, EditTimelineReadout } from "@/
 
 import { buildPlaybackPlan } from "./playback-schedule";
 import {
-  BGM_CUTOFF_FADE,
   bgmPlacements,
   narrationPlacements,
   narrationSpans,
@@ -60,8 +59,8 @@ const READOUT: EditTimelineReadout = {
     clip({ id: "c5", unit_id: "E1U5", start: 10, duration: 3, carries_narration: true, narration: { start: 10, end: null } }),
   ],
   bgm: [
-    { id: "b1", bgm_id: "bgm-0001", start: 0, source_in: 5, source_out: 15, volume: 0.25, fade_in: 1, fade_out: 1 },
-    { id: "b2", bgm_id: "bgm-0001", start: 10, source_in: 0, source_out: 8, volume: 0.25, fade_in: 1, fade_out: 1 },
+    { id: "b1", bgm_id: "bgm-0001", name: "雨夜", start: 0, end: 10, source_in: 5, source_out: 15, volume: 0.25, fade_in: 1, fade_out: 1 },
+    { id: "b2", bgm_id: "bgm-0001", name: "雨夜", start: 10, end: 13, source_in: 0, source_out: 8, volume: 0.25, fade_in: 1, fade_out: 1 },
   ],
   issues: [],
 };
@@ -96,6 +95,7 @@ const MEDIA: EditTimelinePreviewMedia = {
       ],
     },
   ],
+  bgm: [{ bgm_id: "bgm-0001", path: "bgm/bgm-0001.mp3", gain: 1.6 }],
 };
 
 describe("narrationSpans", () => {
@@ -139,25 +139,24 @@ describe("narrationPlacements", () => {
 });
 
 describe("bgmPlacements", () => {
-  it("plays each BGM clip over its trimmed length and cuts it at the timeline end", () => {
-    expect(bgmPlacements(READOUT).map((item) => [item.id, item.start, item.end, item.sourceIn, item.fadeOut])).toEqual([
-      ["bgm-b1", 0, 10, 5, 1],
-      ["bgm-b2", 10, 13, 0, 1],
+  it("follows the readout's placed range and fades and scales the clip volume by the loudness gain", () => {
+    expect(
+      bgmPlacements(READOUT, MEDIA).map((item) => [item.id, item.name, item.start, item.end, item.sourceIn, item.volume, item.fadeOut]),
+    ).toEqual([
+      ["bgm-b1", "雨夜", 0, 10, 5, 0.4, 1],
+      ["bgm-b2", "雨夜", 10, 13, 0, 0.4, 1],
     ]);
   });
 
-  it("fades out over a fixed second where the timeline end cuts a clip, and keeps the clip's own fade otherwise", () => {
+  it("keeps the clip volume until the preview media lists the BGM, and drops clips that start past the end", () => {
     const readout: EditTimelineReadout = {
       ...READOUT,
       bgm: [
-        { id: "b1", bgm_id: "bgm-0001", start: 0, source_in: 0, source_out: 4, volume: 0.25, fade_in: 1, fade_out: 0 },
-        { id: "b2", bgm_id: "bgm-0001", start: 4, source_in: 0, source_out: 20, volume: 0.25, fade_in: 1, fade_out: 3 },
+        { ...READOUT.bgm[0], name: null },
+        { ...READOUT.bgm[1], start: 13, end: 13 },
       ],
     };
-    expect(bgmPlacements(readout).map((item) => [item.id, item.end, item.fadeOut])).toEqual([
-      ["bgm-b1", 4, 0],
-      ["bgm-b2", 13, BGM_CUTOFF_FADE],
-    ]);
+    expect(bgmPlacements(readout, null).map((item) => [item.id, item.name, item.volume])).toEqual([["bgm-b1", null, 0.25]]);
   });
 });
 

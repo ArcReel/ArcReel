@@ -4,8 +4,9 @@
 边缘帧的静帧补足定格延长与转场借帧的余量缺口，非重叠型转场在片段两端淡入淡出，重叠型转场用
 ``xfade`` 在切点窗口内交叉过渡；烧入字幕时各段把画面时间平移回成片时间，交给 libass 按整集的 ASS 文档
 渲染。各段用同一组编码参数输出，最后以 ``-c copy`` 无损拼接。音频不分段：整集原声按片段音量与帧边界、
-旁白配音（仅带旁白版本）按承载片段的起点一次混音、一次编码，再与拼好的画面封装，避免各段 AAC 编码的
-前置填充在段边界产生缝隙与累积偏差。旁白越界如实渲染：重叠处同时响起，超出末尾的部分随成片截止。
+旁白配音（仅带旁白版本）按承载片段的起点、BGM 按片段起点以响度增益乘片段音量并做淡入淡出，一次混音、
+一次编码，再与拼好的画面封装，避免各段 AAC 编码的前置填充在段边界产生缝隙与累积偏差。旁白越界如实渲染：
+重叠处同时响起，超出末尾的部分随成片截止。
 """
 
 from __future__ import annotations
@@ -101,6 +102,38 @@ class NarrationInput:
     start_us: int
 
 
+@dataclass(frozen=True, slots=True)
+class BgmInput:
+    """混进整集音频的一段 BGM：从 BGM 的 ``source_in_us`` 起取 ``duration_us``，放在成片时间 ``start_us``。
+
+    ``volume`` 已是响度增益乘以片段音量；淡入淡出以微秒计，0 表示不做。
+    """
+
+    path: Path
+    start_us: int
+    source_in_us: int
+    duration_us: int
+    volume: float
+    fade_in_us: int
+    fade_out_us: int
+
+
+def _bgm_chain(index: int, bgm: BgmInput, start_sample: int) -> str:
+    filters = [
+        f"aresample={AUDIO_SAMPLE_RATE}",
+        "aformat=sample_fmts=fltp:channel_layouts=stereo",
+        f"atrim=end_sample={bgm.duration_us * AUDIO_SAMPLE_RATE // 1_000_000}",
+        "asetpts=PTS-STARTPTS",
+        f"volume={bgm.volume:.6f}",
+    ]
+    if bgm.fade_in_us > 0:
+        filters.append(f"afade=t=in:st=0:d={_seconds(bgm.fade_in_us)}")
+    if bgm.fade_out_us > 0:
+        filters.append(f"afade=t=out:st={_seconds(bgm.duration_us - bgm.fade_out_us)}:d={_seconds(bgm.fade_out_us)}")
+    filters.append(f"adelay=delays={start_sample}S:all=1")
+    return f"[{index}:a:0]{','.join(filters)}[a{index}]"
+
+
 def segment_args(
     ffmpeg: str, segment: RenderSegment, plan: RenderPlan, output: Path, *, burn_subtitles: bool = False
 ) -> list[str]:
@@ -172,10 +205,15 @@ def _audible(planned: PlannedClip) -> bool:
 
 
 def audio_mix_args(
-    ffmpeg: str, plan: RenderPlan, output: Path, *, narrations: Sequence[NarrationInput] = ()
+    ffmpeg: str,
+    plan: RenderPlan,
+    output: Path,
+    *,
+    narrations: Sequence[NarrationInput] = (),
+    bgm: Sequence[BgmInput] = (),
 ) -> list[str]:
     """整集混音参数：以静音垫底，每个有声片段按帧边界落位、按原声音量缩放；旁白配音从起点所在的帧边界起
-    原音量叠加，整体截到成片时长。"""
+    原音量叠加；BGM 从起点所在的帧边界起按增益与音量叠加并淡入淡出，整体截到成片时长。"""
     fps = plan.profile.fps
     total_samples = _samples(plan.total_frames, fps)
     inputs: list[str] = ["-f", "lavfi", "-i", f"anullsrc=r={AUDIO_SAMPLE_RATE}:cl=stereo"]
@@ -199,6 +237,11 @@ def audio_mix_args(
             f"[{index}:a:0]aresample={AUDIO_SAMPLE_RATE},aformat=sample_fmts=fltp:channel_layouts=stereo,"
             f"asetpts=PTS-STARTPTS,adelay=delays={start}S:all=1[a{index}]"
         )
+        labels.append(f"[a{index}]")
+    for item in bgm:
+        index = len(labels)
+        inputs += ["-ss", _seconds(item.source_in_us), *local_file_input(item.path)]
+        chains.append(_bgm_chain(index, item, _samples(plan.profile.frame_at(item.start_us), fps)))
         labels.append(f"[a{index}]")
     if len(labels) == 1:
         chains = [f"[0:a]atrim=end_sample={total_samples}[mix]"]
@@ -281,13 +324,14 @@ async def render_plan_to_file(
     workspace: Path,
     *,
     narrations: Sequence[NarrationInput] = (),
+    bgm: Sequence[BgmInput] = (),
     subtitles: Sequence[BurnedSubtitle] | None = None,
     deadlines: RenderDeadlines = DEFAULT_RENDER_DEADLINES,
     spawn: Spawner | None = None,
 ) -> None:
     """执行渲染规划：逐段渲染画面、整集混音，再拼接封装到 ``output``；中间文件只写在 ``workspace``。
 
-    ``subtitles`` 不为 None 时烧入字幕（可以为空），``narrations`` 是要混进整集音频的旁白配音。
+    ``subtitles`` 不为 None 时烧入字幕（可以为空），``narrations`` 与 ``bgm`` 是要混进整集音频的旁白配音与 BGM。
     """
     fps = plan.profile.fps
     burn = subtitles is not None
@@ -307,7 +351,7 @@ async def render_plan_to_file(
         segment_files.append(segment_file)
     audio_file = workspace / "audio.m4a"
     await _run(
-        audio_mix_args(ffmpeg, plan, audio_file, narrations=narrations),
+        audio_mix_args(ffmpeg, plan, audio_file, narrations=narrations, bgm=bgm),
         deadline=deadlines.for_seconds(plan.duration_seconds),
         grace=deadlines.grace,
         spawn=spawn,
@@ -387,6 +431,7 @@ __all__ = [
     "ACCEPTANCE_TOLERANCE_SECONDS",
     "AUDIO_SAMPLE_RATE",
     "DEFAULT_RENDER_DEADLINES",
+    "BgmInput",
     "FinalCutAcceptance",
     "NarrationInput",
     "RenderDeadlines",

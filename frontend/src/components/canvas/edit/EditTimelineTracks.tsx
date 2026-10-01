@@ -1,8 +1,10 @@
-import { AlertTriangle } from "lucide-react";
-import { memo, useRef, type PointerEvent, type ReactNode } from "react";
+import { AlertTriangle, Loader2, Upload } from "lucide-react";
+import { memo, useRef, useState, type ChangeEvent, type PointerEvent, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
 import { API } from "@/api";
+import { useAppStore } from "@/stores/app-store";
+import { errMsg } from "@/utils/async";
 import type { EditClip, EditTimelineReadout } from "@/types/edit-timeline";
 
 import type { AudioPlacement, NarrationSpan, PlacedSubtitle } from "./preview-tracks";
@@ -33,7 +35,7 @@ interface EditTimelineTracksProps {
   onSeek: (t: number) => void;
 }
 
-/** 横向时间线：标尺，视频、旁白、字幕与 BGM 四条轨道，以及未使用的视频单元。每条轨道是一个 TrackRow；BGM 轨有 BGM 片段才显示。 */
+/** 横向时间线：标尺，视频、旁白、字幕与 BGM 四条轨道，以及未使用的视频单元。每条轨道是一个 TrackRow；BGM 轨带上传入口。 */
 export function EditTimelineTracks({
   projectName,
   readout,
@@ -92,11 +94,19 @@ export function EditTimelineTracks({
             <TrackRow label={translate("edit_view_track_subtitles")} height="h-[30px]">
               <SubtitleBlocks subtitles={subtitles} duration={duration} />
             </TrackRow>
-            {bgm.length > 0 && (
-              <TrackRow label={translate("edit_view_track_bgm")} height="h-[30px]">
+            <TrackRow
+              label={translate("edit_view_track_bgm")}
+              height="h-[30px]"
+              action={<BgmUploadButton projectName={projectName} />}
+            >
+              {bgm.length > 0 ? (
                 <BgmBlocks items={bgm} duration={duration} />
-              </TrackRow>
-            )}
+              ) : (
+                <span className="absolute inset-y-0 left-1 flex items-center text-[10.5px] text-text-4">
+                  {translate("edit_view_bgm_track_empty")}
+                </span>
+              )}
+            </TrackRow>
             <div
               aria-hidden
               data-testid="edit-playhead"
@@ -150,17 +160,75 @@ function Ruler({ duration, percent }: { duration: number; percent: (seconds: num
   );
 }
 
-function TrackRow({ label, height = "h-[58px]", children }: { label: string; height?: string; children: ReactNode }) {
+interface TrackRowProps {
+  label: string;
+  height?: string;
+  /** 轨道名旁的操作按钮。 */
+  action?: ReactNode;
+  children: ReactNode;
+}
+
+function TrackRow({ label, height = "h-[58px]", action, children }: TrackRowProps) {
   return (
     <div className={`relative ${height} border-b border-hairline-soft last:border-b-0`}>
       <span
-        className="absolute top-1/2 -translate-y-1/2 text-[11px] text-text-3"
+        className="absolute top-1/2 flex -translate-y-1/2 items-center gap-1 text-[11px] text-text-3"
         style={{ left: -LABEL_WIDTH, width: LABEL_WIDTH - 8 }}
       >
         {label}
+        {action}
       </span>
       {children}
     </div>
+  );
+}
+
+const BGM_ACCEPT = ".mp3,.wav,.m4a,audio/mpeg,audio/wav,audio/mp4";
+
+/** 上传一首 BGM 到项目。按下按钮不触发轨道的跳转；上传后由 Agent 把 BGM 摆进剪辑时间线。 */
+function BgmUploadButton({ projectName }: { projectName: string }) {
+  const { t } = useTranslation("dashboard");
+  const input = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+  const upload = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    setUploading(true);
+    const { pushToast } = useAppStore.getState();
+    try {
+      const { bgm } = await API.uploadBgm(projectName, file);
+      pushToast(t("edit_view_bgm_uploaded", { name: bgm.name }), "success");
+    } catch (cause) {
+      pushToast(t("edit_view_bgm_upload_failed", { message: errMsg(cause) }), "error");
+    } finally {
+      setUploading(false);
+    }
+  };
+  const label = uploading ? t("edit_view_bgm_uploading") : t("edit_view_bgm_upload");
+  return (
+    <>
+      <button
+        type="button"
+        title={label}
+        aria-label={label}
+        disabled={uploading}
+        data-testid="edit-bgm-upload"
+        onPointerDown={(event) => event.stopPropagation()}
+        onClick={() => input.current?.click()}
+        className="focus-ring inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-[3px] text-text-3 hover:bg-bg-grad-b hover:text-text disabled:opacity-60"
+      >
+        {uploading ? <Loader2 aria-hidden className="h-3 w-3 animate-spin" /> : <Upload aria-hidden className="h-3 w-3" />}
+      </button>
+      <input
+        ref={input}
+        type="file"
+        accept={BGM_ACCEPT}
+        hidden
+        data-testid="edit-bgm-upload-input"
+        onChange={(event) => void upload(event)}
+      />
+    </>
   );
 }
 
@@ -375,7 +443,7 @@ const BgmBlocks = memo(function BgmBlocks({ items, duration }: { items: readonly
           <span
             key={item.id}
             title={t("edit_view_bgm_title", {
-              bgm: item.sourceId,
+              bgm: item.name ?? item.sourceId,
               start: formatSeconds(item.start),
               end: formatSeconds(item.end),
               volume: formatSeconds(item.volume),
@@ -390,7 +458,7 @@ const BgmBlocks = memo(function BgmBlocks({ items, duration }: { items: readonly
               background: `linear-gradient(90deg, ${tone(0.25)}, ${tone(0.85)} ${fadeIn}%, ${tone(0.85)} ${fadeOut}%, ${tone(0.25)})`,
             }}
           >
-            {item.sourceId}
+            {item.name ?? item.sourceId}
           </span>
         );
       })}

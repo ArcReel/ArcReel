@@ -30,6 +30,8 @@ TIMELINE_NAME_MAX_LENGTH = 40
 TIMELINE_ID_PATTERN = r"^tl-[0-9a-f]{8}$"
 CLIP_ID_PATTERN = r"^c[1-9][0-9]*$"
 BGM_CLIP_ID_PATTERN = r"^b[1-9][0-9]*$"
+ANY_CLIP_ID_PATTERN = r"^[cb][1-9][0-9]*$"
+"""剪辑片段（``c``）或 BGM 片段（``b``）的 ID。"""
 
 _TIMELINE_ID_RE = re.compile(TIMELINE_ID_PATTERN)
 
@@ -190,8 +192,8 @@ class TimelineRevision(_Frozen):
     agent_turn: str | None = None
     created_at: str
     content: EditTimelineContent
-    changed_clip_ids: tuple[Annotated[str, Field(pattern=CLIP_ID_PATTERN)], ...] | None = None
-    """本修订实际改动的片段（含批内改后恢复）；旧修订缺省时由内容差异推断。"""
+    changed_clip_ids: tuple[Annotated[str, Field(pattern=ANY_CLIP_ID_PATTERN)], ...] | None = None
+    """本修订实际改动的剪辑片段与 BGM 片段（含批内改后恢复）；旧修订缺省时由内容差异推断。"""
     restored_from: int | None = Field(default=None, ge=1, strict=True)
     """回滚产生的修订记录它还原到的修订号；内容取自那一修订，历史不改写。"""
 
@@ -234,6 +236,7 @@ class EditTimelineDocument(_Frozen):
 
 
 __all__ = [
+    "ANY_CLIP_ID_PATTERN",
     "BGM_CLIP_ID_PATTERN",
     "CLIP_ID_PATTERN",
     "DEFAULT_BGM_FADE_MICROSECONDS",

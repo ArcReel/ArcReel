@@ -5,6 +5,8 @@
 各片段所用视频单元 current 视频的版本、内容指纹与供应商原声开关，以及输出画布。修订号标识本次剪辑决策快照；剪辑理由不单独进入依据；
 截取所依据的版本已不是 current 时截取被忽略，依据里也记为整段使用。
 
+剪辑时间线有 BGM 时，依据另收 BGM 片段与所引用每首 BGM 的内容指纹和静态增益；没有 BGM 的依据形态不变。
+
 带旁白或烧入字幕的版本还消费各视频单元的素材层（与剪映草稿同源，见 :mod:`lib.jianying_draft.placement`），
 依据另收各单元的素材层指纹：其中含字幕草稿，带旁白版本还含旁白配音。不带旁白、不烧入字幕的版本不收，
 旁白配音与字幕草稿的变化不让它过期。
@@ -16,7 +18,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Collection, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 
@@ -24,7 +26,9 @@ from lib.artifacts.artifact_manifest import ArtifactBasis, ArtifactKey
 from lib.artifacts.rendered_artifact import timeline_renders_dir
 from lib.artifacts.version_manager import UnmanagedSnapshotPathError, VersionManager
 from lib.artifacts.video_visual_provenance import resolve_video_aspect_ratio
-from lib.edit_timeline.model import EditClip, EditTimelineDocument, TimelineRevision
+from lib.bgm.library import BgmSource
+from lib.edit_timeline.bgm import bgm_sources_input
+from lib.edit_timeline.model import BgmClip, EditClip, EditTimelineDocument, TimelineRevision
 from lib.final_cut.render_plan import OutputProfile, output_profile_for_aspect_ratio
 from lib.jianying_draft.basis import DraftNarration, DraftUnitBasis, default_draft_narration
 from lib.project.resource_paths import resource_relative_path
@@ -178,6 +182,9 @@ class FinalCutInputs:
     missing_video_units: tuple[str, ...]
     units: tuple[DraftUnitBasis, ...] = ()
     """各视频单元的素材层指纹；只在 :attr:`FinalCutVariant.consumes_unit_materials` 时收录。"""
+    bgm: tuple[BgmClip, ...] = ()
+    bgm_sources: Mapping[str, BgmSource] = field(default_factory=dict)
+    """BGM 轨所引用的 BGM；不在项目里或文件已不在的不在其中。"""
 
 
 def resolve_final_cut_inputs(
@@ -188,8 +195,12 @@ def resolve_final_cut_inputs(
     profile: OutputProfile,
     script_unit_ids: Collection[str],
     video_of: Callable[[str], CurrentVideo | None],
+    bgm_sources: Mapping[str, BgmSource] | None = None,
 ) -> FinalCutInputs:
-    """按修订的片段顺序解析每个剪辑片段用到的视频；视频单元已从脚本删除的片段跳过。"""
+    """按修订的片段顺序解析每个剪辑片段用到的视频；视频单元已从脚本删除的片段跳过。
+
+    ``bgm_sources`` 是 BGM 轨所引用的 BGM（:func:`~lib.bgm.library.resolve_bgm_sources`）。
+    """
     consumed: list[ConsumedClip] = []
     missing: list[str] = []
     resolved: dict[str, CurrentVideo | None] = {}
@@ -212,6 +223,8 @@ def resolve_final_cut_inputs(
         profile=profile,
         clips=tuple(consumed),
         missing_video_units=tuple(missing),
+        bgm=revision.content.bgm,
+        bgm_sources=dict(bgm_sources or {}),
     )
 
 
@@ -250,6 +263,11 @@ def final_cut_basis(inputs: FinalCutInputs) -> ArtifactBasis:
     }
     if inputs.variant.consumes_unit_materials:
         basis_inputs["units"] = {unit.unit_id: unit.to_input() for unit in inputs.units}
+    if inputs.bgm:
+        basis_inputs["bgm"] = {
+            "clips": [clip.model_dump(mode="json") for clip in sorted(inputs.bgm, key=lambda item: item.id)],
+            "sources": bgm_sources_input(inputs.bgm, inputs.bgm_sources),
+        }
     return ArtifactBasis.build(FINAL_CUT_BASIS_KIND, kind_version=FINAL_CUT_BASIS_VERSION, inputs=basis_inputs)
 
 

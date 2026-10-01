@@ -69,10 +69,14 @@ export interface EditClip {
   transition_to_next: EditClipTransition | null;
 }
 
+/** BGM 片段。`end` 是截到时间线末尾后的实际结束时间；`fade_in` / `fade_out` 是摆放后实际生效的淡入淡出。 */
 export interface EditBgmClip {
   id: string;
   bgm_id: string;
+  /** 所引用 BGM 的名称；BGM 已不在项目里时为 null。 */
+  name: string | null;
   start: number;
+  end: number;
   source_in: number;
   source_out: number;
   volume: number;
@@ -89,7 +93,8 @@ export type EditTimelineIssueCode =
   | "narration_missing"
   | "narration_overrun"
   | "narration_source_collision"
-  | "subtitle_missing_glyphs";
+  | "subtitle_missing_glyphs"
+  | "bgm_missing";
 
 export interface EditTimelineIssue {
   code: EditTimelineIssueCode;
@@ -141,10 +146,29 @@ export interface EditPreviewUnitMedia {
   subtitles: EditPreviewCue[];
 }
 
+/** BGM 文件的项目内路径与响度静态增益（线性倍数）；预览音量是片段音量乘以这个增益。 */
+export interface EditPreviewBgm {
+  bgm_id: string;
+  path: string;
+  gain: number;
+}
+
 /** 剪辑视图预览的素材层，与 server/services/presentation/timeline_preview.py 同形。 */
 export interface EditTimelinePreviewMedia {
   timeline_id: string;
   revision: number;
   narration: TimelineNarration;
   units: EditPreviewUnitMedia[];
+  /** 只含 BGM 轨引用且文件在项目里的 BGM。 */
+  bgm: EditPreviewBgm[];
+}
+
+/** 项目里的一首 BGM（`GET /projects/{name}/bgm` 与上传结果）；`gain` 是把响度统一到 −16 LUFS 的线性增益。 */
+export interface ProjectBgm {
+  id: string;
+  name: string;
+  duration: number;
+  gain: number;
+  path: string;
+  url: string;
 }

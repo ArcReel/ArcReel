@@ -670,6 +670,51 @@ class TestFilesRouter:
             is ArtifactStatus.CURRENT
         )
 
+    def test_bgm_upload_registers_the_track_and_lists_it_for_playback(self, tmp_path, monkeypatch):
+        client, pm = _client(monkeypatch, tmp_path)
+        with client:
+            upload = client.post(
+                "/api/v1/projects/demo/upload/bgm",
+                files={"file": ("雨夜.wav", wav_bytes(1.0, tone_hz=330), "audio/wav")},
+            )
+            assert upload.status_code == 200
+            bgm = upload.json()["bgm"]
+            assert (bgm["name"], bgm["duration"]) == ("雨夜", 1.0)
+            assert bgm["path"] == f"bgm/{bgm['id']}.wav"
+            assert 0 < bgm["gain"] < 1
+
+            listed = client.get("/api/v1/projects/demo/bgm")
+            assert listed.status_code == 200
+            assert listed.json() == {"bgm": [bgm]}
+
+            played = client.get(bgm["url"])
+            assert played.status_code == 200
+            assert played.content == wav_bytes(1.0, tone_hz=330)
+        assert set(pm.load_project("demo")["bgm"]) == {bgm["id"]}
+
+    @pytest.mark.parametrize(
+        ("filename", "content", "message_key", "params"),
+        [
+            ("silence.wav", wav_bytes(1.0), "bgm_silent", {}),
+            ("broken.mp3", b"not audio", "invalid_audio_file", {}),
+            ("cover.jpg", b"jpeg", "unsupported_audio_type", {"ext": ".jpg", "allowed": ".mp3, .wav, .m4a"}),
+        ],
+    )
+    def test_bgm_upload_refuses_unusable_audio_with_a_localized_reason(
+        self, tmp_path, monkeypatch, filename, content, message_key, params
+    ):
+        client, pm = _client(monkeypatch, tmp_path)
+        with client:
+            resp = client.post("/api/v1/projects/demo/upload/bgm", files={"file": (filename, content, "audio/wav")})
+            assert resp.status_code == 400
+            assert resp.json()["detail"] == zh_errors.MESSAGES[message_key].format(**params)
+        assert "bgm" not in pm.load_project("demo")
+
+    def test_bgm_list_of_unknown_project_is_404(self, tmp_path, monkeypatch):
+        client, _ = _client(monkeypatch, tmp_path)
+        with client:
+            assert client.get("/api/v1/projects/absent/bgm").status_code == 404
+
     def test_character_audio_ref_upload_success(self, tmp_path, monkeypatch):
         client, pm = _client(monkeypatch, tmp_path)
         with client:
@@ -1194,6 +1239,7 @@ class TestFilesRouter:
         ]
         payloads = {
             "character_audio_ref": ("v.wav", wav_bytes(3), "audio/wav"),
+            "bgm": ("m.wav", wav_bytes(3), "audio/wav"),
             # source 不使用 name，但校验在其早返分支之前，同样应拒
             "source": ("novel.txt", b"chapter one", "text/plain"),
         }
