@@ -49,6 +49,7 @@ jobs:
     # pyflakes，能检查 run: 脚本）；zizmor 用默认 persona，medium 及以上阻断，--offline
     # 使判定不受环境里是否存在 GitHub token 影响，与 pre-commit 本地一致。
     # 两个工具版本须与 .pre-commit-config.yaml 中对应 hook 的版本同步升级。
+    # zizmor 只审 GitHub 实际执行的输入；.agents/skills/ 下 vendored skill 自带的上游 CI 不在本仓库运行。
     needs: changes
     if: needs.changes.outputs.workflow == 'true'
     runs-on: ubuntu-latest
@@ -66,7 +67,7 @@ jobs:
           enable-cache: true
 
       - name: Workflow security audit (zizmor)
-        run: uvx zizmor@1.29.0 --offline --min-severity medium .
+        run: uvx zizmor@1.29.0 --offline --min-severity medium .github .pre-commit-config.yaml
 
   backend-static:
     needs: changes
@@ -115,6 +116,31 @@ jobs:
 
       - name: Agent Runtime Profile integrity
         run: uv run python scripts/lint_agent_runtime_profile.py
+
+  conventions:
+    # 仓库约定闸门：scripts/audit_conventions.py --check（规范索引与 CodeRabbit 映射、
+    # Dependabot 分组、工具版本同步）。涉及的文件横跨各域，其中 docs/standards/ 等
+    # 不属于任何域，所以不按域裁剪。
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          enable-cache: true
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Repository conventions (audit_conventions --check)
+        run: uv run python scripts/audit_conventions.py --check
 
   test-lint:
     # 测试卫生闸门：scripts/audit_tests.py --check（零第三方依赖，纯 stdlib ast）。
@@ -528,6 +554,7 @@ jobs:
         changes,
         workflow-static,
         backend-static,
+        conventions,
         test-lint,
         backend-tests,
         postgres-compat,

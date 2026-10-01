@@ -22,7 +22,7 @@ disable-model-invocation: true
 
 问题成立不等于方案值得实施。需求、方案或关键成本尚不明确时，只有进一步验证本身值得投入，才把它作为建议，并说明要验证什么；推测不作为已确认的用户需求。
 
-知识与执行改进同样需要收益依据：减少误判、返工或无效开销，而不是把每次失误变成新文档、新规则。涉及 Agent 指令时参考 [writing-for-agents](../writing-for-agents/SKILL.md)；涉及术语或架构决策记录时参考 [domain-modeling](../domain-modeling/SKILL.md) 的判据并核对现有载体，本次只形成建议。
+知识与执行改进同样需要收益依据：减少误判、返工或无效开销，而不是把每次失误变成新文档、新规则。改进措施放在哪里，按 [retro](../retro/SKILL.md) 的分类判断，ArcReel 的具体载体见 `CODING_STANDARDS.md`「维护」。涉及 Agent 指令时参考 [writing-for-agents](../writing-for-agents/SKILL.md)；涉及术语或架构决策记录时参考 [domain-modeling](../domain-modeling/SKILL.md) 的判据并核对现有载体，本次只形成建议。
 
 调查深度与问题的重要性和不确定性相称。对影响推荐结论的争议事实，或影响面大、难逆转的工程与产品取舍，委派未参与该项实现与原判断的 Agent 独立核验关键前提，主动寻找反证和更小替代方案。无法完成独立核验时明确披露，将未决前提带入用户裁决；自审不视为独立核验。
 

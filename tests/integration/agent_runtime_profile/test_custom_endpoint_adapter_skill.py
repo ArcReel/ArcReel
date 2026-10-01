@@ -25,6 +25,7 @@ SCRIPT = (
 )
 
 
+@pytest.mark.local_port
 def test_cli_completes_the_definition_test_and_save_flow(tmp_path: Path) -> None:
     requests: list[tuple[str, str, str | None, object]] = []
 
@@ -261,6 +262,7 @@ def test_cli_requires_explicit_confirmation_for_cost_and_overwrite(tmp_path: Pat
     assert "--confirm-overwrite" in overwrite.stderr
 
 
+@pytest.mark.local_port
 def test_cli_sends_endpoint_assets_with_the_shared_multipart_field_names(tmp_path: Path) -> None:
     received: list[tuple[str, bytes]] = []
 
@@ -339,6 +341,7 @@ def test_cli_sends_endpoint_assets_with_the_shared_multipart_field_names(tmp_pat
     assert body.count(b'name="reference_audio_files"') == 1
 
 
+@pytest.mark.local_port
 @pytest.mark.parametrize(
     ("body", "fragment"),
     [(b"<html>Bad Gateway</html>", "Bad Gateway"), (b"not utf-8 \xff\xff", "not utf-8")],

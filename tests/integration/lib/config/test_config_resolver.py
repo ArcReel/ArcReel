@@ -655,7 +655,7 @@ class TestVideoCapabilities:
 
 class TestVoiceConsistency:
     """voice_consistency 三维派生（模型能力 × generation_mode × 角色声音绑定方式）。全员经
-    `db_factory` 落真实 in-memory DB，按 CONTRIBUTING.md 的 pytest markers 纪律归 integration。"""
+    `db_factory` 落真实 in-memory DB，按 docs/standards/testing.md 的分档规则归 integration。"""
 
     async def test_seedance_2_reference_video_is_native(self, db_factory):
         """reference_audio_mode=direct、generation_mode=reference_video 且项目选了参考音频绑定 → native。"""

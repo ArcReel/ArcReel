@@ -1,4 +1,21 @@
-"""Shared pytest fixtures for the ArcReel test suite."""
+"""Shared pytest fixtures for the ArcReel test suite.
+
+本文件只放 fixture、收集期钩子与会话启动期的定向选择校验，不被任何模块 import；
+替身实现放在 `tests/fakes.py`，测试输入构造器放在 `tests/factories.py`。
+
+DB fixture 一律派生自唯一的 engine 构造点 `make_test_engine`：
+
+- `session_factory` / `async_session` 方言感知，`DATABASE_URL` 指向 PostgreSQL 时走真实 PostgreSQL；
+  `concurrent_session_factory` 同样方言感知，并为 SQLite 提供允许独立连接的 WAL 文件库；
+  `file_session_factory` 恒为文件 SQLite，消费方是标了 `sqlite_only` 的边界用例。
+  四者由 `pytest_collection_modifyitems` 注入 `uses_db`，构成需要数据库的选择集；
+  PostgreSQL 兼容 job 取其中 `uses_db and not sqlite_only` 的部分。
+- `db_engine` / `db_session` / `db_factory`（内存）与 `file_db_factory`（文件）固定走 SQLite、
+  不带 `uses_db`，供不进该选择集的 models 与 repositories 单测使用。
+- 唯一的例外是 `async_session` 的 PostgreSQL 分支：它绑定 CI job 已 `alembic upgrade head` 建好的
+  public schema，隔离原语是外层事务 + SAVEPOINT，与 `make_test_engine` 的 per-test schema +
+  `create_all` 不同，故自建 engine。
+"""
 
 from __future__ import annotations
 
@@ -338,7 +355,7 @@ def _register_models() -> None:
 
 @asynccontextmanager
 async def make_test_engine(*, dialect_aware: bool = True, file_path: Path | None = None) -> AsyncGenerator[AsyncEngine]:
-    """DB fixture 的 engine 构造点，唯一例外是 `async_session` 的 PG 分支。
+    """DB fixture 的 engine 构造点，唯一例外是 `async_session` 的 PostgreSQL 分支。
 
     那条分支绑定 CI job 已 `alembic upgrade head` 建好的 public schema，隔离原语是外层
     事务 + SAVEPOINT，与这里的 per-test schema + `create_all` 不同，故自建 engine。
@@ -594,6 +611,25 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
                 break
 
     _enforce_classification_markers(items)
+    _skip_local_port_tests_without_bind_permission(items)
+
+
+def _skip_local_port_tests_without_bind_permission(items: list[pytest.Item]) -> None:
+    """环境禁止绑定 127.0.0.1 时，把 `local_port` 用例标成带原因的 skip。
+
+    Agent 沙箱可能拒绝绑定本地端口；这类用例在那里只会以 `PermissionError` 失败，
+    跳过并注明原因，提示到允许绑定端口的环境里再跑一次。
+    """
+    port_items = [item for item in items if item.get_closest_marker("local_port") is not None]
+    if not port_items:
+        return
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+            probe.bind(("127.0.0.1", 0))
+    except PermissionError:
+        skip = pytest.mark.skip(reason="当前环境禁止绑定 127.0.0.1 上的端口；在允许绑定本地端口的环境中运行此用例")
+        for item in port_items:
+            item.add_marker(skip)
 
 
 def _enforce_classification_markers(items: list[pytest.Item]) -> None:

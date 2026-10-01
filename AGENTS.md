@@ -4,23 +4,23 @@ AI 视频创作平台，将小说、剧本或创作构想转化为短视频。�
 
 ## 工具链与校验
 
-后端使用 `uv`，前端与文档站使用 `pnpm`。修改代码或测试时，先按 `CONTRIBUTING.md`「测试选择」运行相关测试；任务完成和 push 前执行受影响域的全量闸门：
+后端使用 `uv`，前端与文档站使用 `pnpm`。修改代码或测试时，先按 `docs/agents/testing.md` 选择并运行相关测试；任务完成和 push 前执行受影响域的完整闸门：
 
 ```bash
 uv run ruff check . && uv run ruff format . && uv run basedpyright --warnings && uv run lint-imports && uv run deptry lib server alembic scripts tests && uv run python -m pytest -n 4 --dist loadfile
 (cd packages/arcreel-market-core && uv run deptry src tests && uv run python -m pytest)   # 改动 packages/arcreel-market-core/ 时
-uv run python scripts/audit_tests.py --check   # 改动测试文件时；同时扫后端 tests/、子包 tests/ 与前端 *.test.*
+uv run python scripts/audit_tests.py --check   # 改动测试文件时
+uv run python scripts/audit_conventions.py --check   # 改动 docs/standards/、依赖清单、.pre-commit-config.yaml 或 .github/ 时
 uv run pre-commit run --all-files actionlint && uv run pre-commit run --all-files zizmor   # 改动 .github/ 时
 (cd frontend && pnpm check)
 (cd website && pnpm check)
 ```
 
-相关测试必须实际运行且通过；若选择结果为 0 个测试，须扩大范围。启动开发服务器、数据库迁移、测试选择与规范（分层/替身/判据/闸门）、分支与提交规范、依赖管理、注释规范、静态工具的豁免规范见 `CONTRIBUTING.md`。
+相关测试必须实际运行且通过。新增或升级依赖：`docs/agents/dependencies.md`。启动开发服务器、数据库迁移、分支与提交规范：`CONTRIBUTING.md`。
 
-## 通用规范
+## Code Review Rules
 
-- 面向用户的文本须同步添加全部已支持语言的翻译 key（语言清单以 `frontend/src/i18n/` 为准，由 `tests/unit/lib/i18n/test_i18n_consistency.py` 校验）。例外：卡片与区块顶部的 mono kicker（`SectionCard` / `ChannelCard` / `SectionShell` / `PlaceholderTile` 的 `kicker` 及同款 eyebrow 标签）是 Darkroom 设计语言的一部分，固定英文直接写在组件里，不进 i18n。
-- 代码与测试注释仅描述当前行为与约束；变更原因与议题编号写在 commit message / PR 描述中。
+写代码或审查 diff 时，按 `CODING_STANDARDS.md` 的索引读取改动路径命中的规范；审查时引用「文件 + 规则标题」报告违规。
 
 ## 架构
 

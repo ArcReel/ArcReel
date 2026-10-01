@@ -855,3 +855,84 @@ def test_workspace_package_tests_are_scanned_against_its_src_layout(tmp_path: Pa
 
     assert main(["--root", str(tmp_path), "--check"]) == 1
     assert "PRIVATE-PATCH packages/arcreel-market-core/tests/test_codes.py:5" in capsys.readouterr().out
+
+
+def _patching_test(call: str) -> str:
+    return f"from unittest.mock import patch\n\n\ndef test_a(monkeypatch):\n    with {call}:\n        value = 1\n    assert value == 1\n"
+
+
+def test_same_patch_target_in_three_files_is_reported_once_per_file(tmp_path: Path) -> None:
+    tests, _ = _repo(tmp_path)
+    for name in ("test_a.py", "test_b.py", "test_c.py"):
+        (tests / name).write_text(_patching_test('patch("sdk.client.Client")'), encoding="utf-8")
+    for name in ("test_d.py", "test_e.py"):
+        (tests / name).write_text(_patching_test('patch("sdk.other.Thing")'), encoding="utf-8")
+
+    assert [(rule, path) for rule, path in _rules(_audit(tmp_path)) if rule == "PATCH-SPREAD"] == [
+        ("PATCH-SPREAD", "tests/test_a.py"),
+        ("PATCH-SPREAD", "tests/test_b.py"),
+        ("PATCH-SPREAD", "tests/test_c.py"),
+    ]
+
+
+def test_patch_object_on_same_named_local_objects_is_not_aggregated_across_files(tmp_path: Path) -> None:
+    tests, _ = _repo(tmp_path)
+    for name in ("test_a.py", "test_b.py", "test_c.py"):
+        (tests / name).write_text(
+            "from unittest.mock import patch\n\n\n"
+            "def test_a():\n"
+            "    client = object()\n"
+            '    with patch.object(client, "send"):\n'
+            "        value = 1\n"
+            "    assert value == 1\n",
+            encoding="utf-8",
+        )
+
+    assert _rules(_audit(tmp_path)) == []
+
+
+def test_patch_object_on_imported_module_counts_toward_patch_spread(tmp_path: Path) -> None:
+    tests, _ = _repo(tmp_path)
+    for name in ("test_a.py", "test_b.py", "test_c.py"):
+        (tests / name).write_text("import sdk\n" + _patching_test('patch.object(sdk, "connect")'), encoding="utf-8")
+
+    assert [rule for rule, _path in _rules(_audit(tmp_path))] == ["PATCH-SPREAD"] * 3
+
+
+def test_monkeypatch_setattr_does_not_count_toward_patch_spread(tmp_path: Path) -> None:
+    tests, _ = _repo(tmp_path)
+    for name in ("test_a.py", "test_b.py", "test_c.py"):
+        (tests / name).write_text(
+            "def test_a(monkeypatch):\n"
+            '    monkeypatch.setattr("sdk.client.Client", object)\n'
+            "    value = 1\n"
+            "    assert value == 1\n",
+            encoding="utf-8",
+        )
+
+    assert _rules(_audit(tmp_path)) == []
+
+
+def test_shared_symbol_used_by_fewer_than_two_files_is_reported(tmp_path: Path) -> None:
+    tests, _ = _repo(tmp_path)
+    (tests / "fakes.py").write_text(
+        "def used_twice():\n    return _private()\n\n\n"
+        "def used_once():\n    return 1\n\n\n"
+        "class Unused:\n    pass\n\n\n"
+        "def _private():\n    return 1\n",
+        encoding="utf-8",
+    )
+    (tests / "test_a.py").write_text(
+        "from tests.fakes import used_once, used_twice\n\n\ndef test_a():\n    assert used_twice() == used_once()\n",
+        encoding="utf-8",
+    )
+    (tests / "test_b.py").write_text(
+        "from tests import fakes\n\n\ndef test_b():\n    assert fakes.used_twice() == 1\n",
+        encoding="utf-8",
+    )
+
+    violations = [v for v in gate_violations(_audit(tmp_path)) if v.rule == "SHARED-SYMBOL-USAGE"]
+
+    assert [(v.path, v.line) for v in violations] == [("tests/fakes.py", 5), ("tests/fakes.py", 9)]
+    assert "`used_once` 只被 1 个测试文件使用" in violations[0].guidance
+    assert "`Unused` 只被 0 个测试文件使用" in violations[1].guidance

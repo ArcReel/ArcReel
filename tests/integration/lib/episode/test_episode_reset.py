@@ -33,7 +33,7 @@ from lib.episode.episode_reset import (
 from lib.episode.episode_sources import discover_sources, planning_start
 
 # 全部用例跨 EpisodeReset / ProjectManager / EpisodePlanner 协作，用真实 tmp_path 文件系统，
-# 不 mock 被测模块的公共入口——按 CONTRIBUTING.md 的 marker 纪律归类为 integration。
+# 不 mock 被测模块的公共入口——按 docs/standards/testing.md 的分档规则归 integration。
 
 SOURCE = "第一章 山村少年。李恒在山村长大。第二章 下山。李恒辞别师父。第三章 风波。少女身份成谜。"
 

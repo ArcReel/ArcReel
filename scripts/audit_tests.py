@@ -13,6 +13,8 @@
 类 3「共享设施结构」：conftest 被 import；测试文件定义与生效 conftest 同名的 fixture；
 同名 fixture 在 ≥3 个测试文件重复定义；局部 conftest 与祖先 conftest 同名 fixture。
 只统计模块顶层 fixture——类内 fixture 的作用域限于该类，不构成跨文件的共享设施重复。
+同一 `patch` / `patch.object` 目标出现在 ≥3 个测试文件；`tests/fakes.py` 与
+`tests/factories.py` 的公开符号被少于 2 个其他测试文件使用。
 
 类 4「文件形态」：`_more` / `_full` / `_coverage` / `_extra` / `_additional` 分裂后缀；
 单文件 3000 行熔断；前端测试文件位于 `__tests__/` 目录。后端 `tests/**/*.py` 与前端
@@ -255,6 +257,8 @@ class PatchSite:
     module_under_test: str | None
     hits_module_under_test: bool
     motive: str
+    # 目标根部还原到了 import（字符串字面量目标恒为真）；为假时根部是局部对象，同名不代表同一对象
+    import_rooted: bool
 
 
 @dataclass
@@ -1169,6 +1173,9 @@ class FileScanner:
                 continue
             func, marks, local_aliases = enclosing.get(node.lineno, ("<module>", self.module_marks, {}))
             resolved = self.aliases.resolve(target, local_aliases)
+            head = target.partition(".")[0]
+            literal = bool(node.args) and const_str(node.args[0]) is not None
+            import_rooted = literal or head in local_aliases or head in self.aliases.alias_to_module
             private = is_private_target(resolved)
             module, _symbol = self.prod.split(resolved)
             if module is None:
@@ -1187,6 +1194,7 @@ class FileScanner:
                 module_under_test=self.mut,
                 hits_module_under_test=hits_mut,
                 motive=classify_motive(resolved),
+                import_rooted=import_rooted,
             )
             self.patches.append(site)
             if private:
@@ -1370,6 +1378,97 @@ def scan_shared_facilities(root: Path, parsed: list[tuple[Path, ast.Module]]) ->
             )
 
     return sorted(findings, key=lambda f: (f.rule, f.path, f.line))
+
+
+PATCH_SPREAD_THRESHOLD = 3
+PATCH_SPREAD_KINDS = {"patch", "patch.object"}
+
+
+def scan_patch_spread(patches: Sequence[PatchSite]) -> list[StructureFinding]:
+    """同一 `patch` / `patch.object` 目标出现在 ≥3 个测试文件：缺一个共享替身或 seam。
+
+    每个文件只报该目标的第一处。`monkeypatch.setattr` 不在本规则内，归 review；根部是局部
+    对象的 `patch.object` 目标只在文件内有意义，不跨文件聚合。
+    """
+    first_site: dict[str, dict[str, int]] = defaultdict(dict)
+    for site in patches:
+        if site.kind not in PATCH_SPREAD_KINDS or not site.import_rooted:
+            continue
+        lines = first_site[site.target]
+        lines[site.path] = min(lines.get(site.path, site.line), site.line)
+    findings: list[StructureFinding] = []
+    for target, lines in sorted(first_site.items()):
+        if len(lines) < PATCH_SPREAD_THRESHOLD:
+            continue
+        findings.extend(
+            StructureFinding(
+                "PATCH-SPREAD",
+                rel,
+                line,
+                f"patch 目标 `{target}` 出现在 {len(lines)} 个测试文件",
+                "收编为 tests/fakes.py 或专题共享模块中的共享 helper / fixture，各文件改用它",
+            )
+            for rel, line in sorted(lines.items())
+        )
+    return findings
+
+
+SHARED_SYMBOL_MODULES = ("tests/fakes.py", "tests/factories.py")
+SHARED_SYMBOL_MIN_USERS = 2
+
+
+def shared_symbol_users(tree: ast.Module, module: str) -> set[str]:
+    """本文件从 *module* 用到的符号名：`from m import x` 与 `import m` / `from pkg import m` 后的 `m.x`。"""
+    package, _, leaf = module.rpartition(".")
+    used: set[str] = set()
+    aliases: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            if node.module == module:
+                used.update(alias.name for alias in node.names)
+            elif node.module == package:
+                aliases.update(alias.asname or alias.name for alias in node.names if alias.name == leaf)
+        elif isinstance(node, ast.Import):
+            aliases.update(alias.asname or alias.name for alias in node.names if alias.name == module)
+    if aliases:
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Attribute) and dotted(node.value) in aliases:
+                used.add(node.attr)
+    return used
+
+
+def scan_shared_symbol_usage(root: Path, parsed: Sequence[tuple[Path, ast.Module]]) -> list[StructureFinding]:
+    """`tests/fakes.py` 与 `tests/factories.py` 的公开顶层符号须被 ≥2 个其他测试文件使用。
+
+    只被一个文件用的移回该文件，模块内部自用的改下划线名，无人使用的删除。
+    """
+    trees = {path.relative_to(root).as_posix(): tree for path, tree in parsed}
+    findings: list[StructureFinding] = []
+    for rel in SHARED_SYMBOL_MODULES:
+        tree = trees.get(rel)
+        if tree is None:
+            continue
+        module = rel.removesuffix(".py").replace("/", ".")
+        users: dict[str, int] = Counter()
+        for other, other_tree in trees.items():
+            if other != rel:
+                users.update(shared_symbol_users(other_tree, module))
+        for node in tree.body:
+            if not isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef) or node.name.startswith("_"):
+                continue
+            count = users[node.name]
+            if count >= SHARED_SYMBOL_MIN_USERS:
+                continue
+            findings.append(
+                StructureFinding(
+                    "SHARED-SYMBOL-USAGE",
+                    rel,
+                    node.lineno,
+                    f"公开符号 `{node.name}` 只被 {count} 个测试文件使用",
+                    "只有一个文件用的移回该文件；模块内部自用的改下划线名；无人使用的删除",
+                )
+            )
+    return findings
 
 
 # ---------------------------------------------------------------- 类 4：文件形态
@@ -1828,7 +1927,9 @@ def run(root: Path, tests_dir: Path | Sequence[Path], top: int, frontend_src: Pa
             samples_by_motive[p.motive].append(asdict(p))
 
     double_by_file = Counter(d.path for d in double_only)
-    structure = scan_shared_facilities(root, parsed)
+    structure = (
+        scan_shared_facilities(root, parsed) + scan_patch_spread(patches) + scan_shared_symbol_usage(root, parsed)
+    )
     structure_counter = Counter(f.rule for f in structure)
 
     frontend_files = frontend_test_files(frontend_src) if frontend_src and frontend_src.is_dir() else []
@@ -1854,6 +1955,8 @@ def run(root: Path, tests_dir: Path | Sequence[Path], top: int, frontend_src: Pa
             "conftest_fixture_override_sites": structure_counter["FIXTURE-OVERRIDE"],
             "conftest_shadow_sites": structure_counter["CONFTEST-SHADOW"],
             "duplicate_fixture_sites": structure_counter["FIXTURE-DUP"],
+            "patch_spread_sites": structure_counter["PATCH-SPREAD"],
+            "underused_shared_symbols": structure_counter["SHARED-SYMBOL-USAGE"],
             "frontend_test_files": len(frontend_files),
             "split_suffix_files": shape_counter["NAME-SPLIT"],
             "oversized_files": shape_counter["SIZE-LIMIT"],

@@ -10,7 +10,7 @@ import pytest
 
 from lib.backends.text_backends.ark import ArkTextBackend
 from lib.backends.text_backends.base import TextCapability, TextGenerationRequest, TextGenerationResult
-from tests.fakes import bounded_poll_clock, captured_ark_clients
+from tests.fakes import bounded_poll_clock, captured_ark_clients, patched_instructor_from_openai
 
 
 @contextmanager
@@ -50,7 +50,7 @@ def _recorded_instructor_wire(result: tuple[Any, Any]) -> Generator[list[dict[st
             return result
 
     client = SimpleNamespace(chat=SimpleNamespace(completions=_Completions()), on=lambda hook_name, handler: None)
-    with patch("instructor.from_openai", return_value=client):
+    with patched_instructor_from_openai(client):
         yield calls
 
 
@@ -420,7 +420,7 @@ class TestSuccessPathReverify:
         mock_patched = MagicMock()
         mock_patched.chat.completions.create_with_completion = MagicMock(return_value=(instructor_result, completion))
 
-        with patch("instructor.from_openai", return_value=mock_patched):
+        with patched_instructor_from_openai(mock_patched):
             result = await backend.generate(TextGenerationRequest(prompt="x", response_schema=Person))
 
         assert result.text == instructor_result.model_dump_json()
@@ -448,7 +448,7 @@ class TestSuccessPathReverify:
         mock_patched = MagicMock()
         mock_patched.chat.completions.create_with_completion = MagicMock(return_value=(instructor_result, completion))
 
-        with patch("instructor.from_openai", return_value=mock_patched):
+        with patched_instructor_from_openai(mock_patched):
             result = await backend.generate(TextGenerationRequest(prompt="x", response_schema=Person))
 
         assert result.text == instructor_result.model_dump_json()
@@ -476,7 +476,7 @@ class TestSuccessPathReverify:
         mock_patched = MagicMock()
         mock_patched.chat.completions.create_with_completion = MagicMock(return_value=(instructor_result, completion))
 
-        with patch("instructor.from_openai", return_value=mock_patched):
+        with patched_instructor_from_openai(mock_patched):
             result = await backend.generate(TextGenerationRequest(prompt="x", response_schema=Person))
 
         assert result.text == instructor_result.model_dump_json()
@@ -500,7 +500,7 @@ class TestSuccessPathReverify:
         )
         backend._test_client.chat.completions.create = MagicMock(return_value=mock_resp)
 
-        with patch("instructor.from_openai") as mock_from_openai:
+        with patched_instructor_from_openai() as mock_from_openai:
             result = await backend.generate(TextGenerationRequest(prompt="x", response_schema=Person))
 
         assert result.text == valid
@@ -574,7 +574,7 @@ class TestSuccessPathReverify:
         )
         backend._test_client.chat.completions.create = MagicMock(return_value=mock_resp)
 
-        with patch("instructor.from_openai") as mock_from_openai:
+        with patched_instructor_from_openai() as mock_from_openai:
             result = await backend.generate(TextGenerationRequest(prompt="x", response_schema=Person))
 
         assert result.text == coercible
@@ -598,7 +598,7 @@ class TestSuccessPathReverify:
         mock_patched = MagicMock()
         mock_patched.chat.completions.create_with_completion = MagicMock(return_value=(instructor_result, completion))
 
-        with patch("instructor.from_openai", return_value=mock_patched):
+        with patched_instructor_from_openai(mock_patched):
             result = await backend.generate(TextGenerationRequest(prompt="x", response_schema=Person))
 
         # 解析异常落入 except → 降级路径，返回带校验结果（不并入原生 token：原生未成功解析）
