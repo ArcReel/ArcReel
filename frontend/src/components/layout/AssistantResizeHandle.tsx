@@ -25,10 +25,7 @@ export function AssistantResizeHandle({
   const label = t("resize_assistant_panel");
 
   return (
-    // role="separator" + aria-valuenow/min/max 是 WAI-ARIA Authoring Practices
-    // 中的 window splitter 模式（交互式控件），但 jsx-a11y 默认未把 separator
-    // 列入 interactive 角色，故就地抑制 noninteractive-element 规则。
-    // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions
+    // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- role="separator" 加 aria-value* 是 WAI-ARIA 的 window splitter 交互模式，jsx-a11y 未把 separator 列入交互角色
     <div
       role="separator"
       aria-orientation="vertical"

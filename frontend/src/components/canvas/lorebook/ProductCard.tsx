@@ -123,25 +123,23 @@ export function ProductCard({
     parsedSellingPoints.join("\n") !== (product.selling_points ?? []).join("\n");
 
   useEffect(() => {
-    // 上游商品数据变化时同步本地草稿
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 上游商品描述变化时同步本地草稿
     setDescription(product.description);
   }, [product.description]);
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 上游品牌变化时同步本地草稿
     setBrand(product.brand ?? "");
   }, [product.brand]);
 
   const sellingPointsKey = (product.selling_points ?? []).join("\n");
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 上游卖点变化时同步本地草稿文本
     setSellingPointsText(sellingPointsKey);
   }, [sellingPointsKey]);
 
   useEffect(() => {
-    // 参考图变化时重置图片加载错误标记
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 参考图变化时重置图片加载错误标记
     setImgError(false);
   }, [product.product_sheet, sheetFp]);
 

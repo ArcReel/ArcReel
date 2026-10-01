@@ -212,9 +212,10 @@ class FakeWorkerQueue:
     async def list_orphan_tasks_on_start(self):
         return self._orphans
 
-    async def claim_next_task(self, media_type, **_kwargs):
+    async def claim_next_task(self, media_type, **_kwargs) -> dict[str, Any] | None:
         if self.interrupted:
             self.claim_after_interruption.set()
+        return None
 
     async def mark_task_succeeded(self, task_id, result):
         self.succeeded.append((task_id, result))

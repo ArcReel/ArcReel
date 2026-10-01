@@ -195,7 +195,7 @@ export function GridPreviewPanel({
       // 切换批次时清空旧数据并展示加载状态，再触发异步 fetch。清空同时会卸载下方的
       // 版本时光机——它按 resourceId 拉版本列表且无取消，若改成加载期间留着旧数据渲染，
       // 上一张在途的版本列表会落进新宫格的面板，选中即按新宫格 ID + 旧版本号发起还原。
-      // eslint-disable-next-line react-hooks/set-state-in-effect
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- 切换批次是动作驱动重置，须先清空旧数据再发起拉取
       setLoading(true);
       setGrid(null);
     }

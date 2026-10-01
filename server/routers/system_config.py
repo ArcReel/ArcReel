@@ -268,7 +268,14 @@ async def _build_options(svc: ConfigService, session: AsyncSession, locale: str 
         if key:
             by_media[key].append(candidate.option)
 
-    return {**by_media, "provider_names": provider_names, "model_names": _model_names(candidates)}  # type: ignore[return-value]
+    return _OptionsDict(
+        video_backends=by_media["video_backends"],
+        image_backends=by_media["image_backends"],
+        text_backends=by_media["text_backends"],
+        audio_backends=by_media["audio_backends"],
+        provider_names=provider_names,
+        model_names=_model_names(candidates),
+    )
 
 
 # ---------------------------------------------------------------------------

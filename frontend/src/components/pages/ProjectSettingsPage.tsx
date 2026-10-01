@@ -413,10 +413,7 @@ export function ProjectSettingsPage() {
   }, [styleValue?.uploadedPreview]);
 
   // initialRef / initialStyleRef 是加载时快照，用于 dirty-check。
-  // react-hooks v7 的 react-hooks/refs 规则禁止 render 阶段读 ref，
-  // 但本场景 ref 内容只在 fetch 完成时写一次，render 阶段读是稳定的。
-  // 改 state 会导致 fetch effect 内 setState 触发 set-state-in-effect。
-  /* eslint-disable react-hooks/refs */
+  /* eslint-disable react-hooks/refs -- ref 只在 fetch 完成时写一次，render 期读取稳定；改用 state 会在 fetch effect 内 setState */
   const styleIsDirty = (() => {
     const init = initialStyleRef.current;
     if (!styleValue || !init) return false;
@@ -808,8 +805,7 @@ export function ProjectSettingsPage() {
                 <div className="flex items-center gap-3">
                   <button
                     type="button"
-                    // handleSaveStyle 在 onClick 时才执行，ref 写入是合法的；规则误报。
-                    // eslint-disable-next-line react-hooks/refs
+                    // eslint-disable-next-line react-hooks/refs -- handleSaveStyle 在 onClick 时才执行，其中的 ref 写入合法，规则误报
                     onClick={voidPromise(handleSaveStyle)}
                     disabled={isStyleSaveDisabled}
                     className={ACCENT_BTN_CLS}
@@ -1105,8 +1101,7 @@ export function ProjectSettingsPage() {
               {t("common:cancel")}
             </button>
             <button
-              // handleSave 在 onClick 时才执行；规则误报。
-              // eslint-disable-next-line react-hooks/refs
+              // eslint-disable-next-line react-hooks/refs -- handleSave 在 onClick 时才执行，规则误报
               onClick={voidPromise(handleSave)}
               // 口播语速越界时不放行保存（区间与后端同一把尺），行内提示已说明原因
               disabled={

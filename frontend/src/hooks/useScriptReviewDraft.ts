@@ -159,7 +159,7 @@ export function useScriptReviewDraft<TDraft extends ScriptReviewContent>({
     const hadResponse = state != null;
     // 屏上有真实内容可保留时，刷新失败静默保留、不破坏用户视图；无内容（首屏，或空态）时失败才进错误态。
     const hasContent = draft != null;
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 首屏拉取前须同步点亮加载态，已有响应时静默刷新
     if (!hadResponse) setLoading(true);
     API.getScriptReview(projectName, episode, { signal })
       .then((next) => {

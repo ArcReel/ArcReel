@@ -185,6 +185,7 @@ def _make_cors_client(allow_origins, allow_credentials) -> TestClient:
     app = FastAPI()
     register_error_handlers(app, cors_allow_origins=allow_origins, cors_allow_credentials=allow_credentials)
 
+    # 路由桩由 @app.get 就地注册，函数体内无其它引用；reportUnusedFunction 是工具误报。
     @app.get("/unexpected")
     async def _unexpected():  # pyright: ignore[reportUnusedFunction]
         raise RuntimeError("boom")
@@ -228,6 +229,7 @@ class TestUnexpectedErrorCorsHeaders:
         app = FastAPI()
         register_error_handlers(app)
 
+        # 路由桩由 @app.get 就地注册，函数体内无其它引用；reportUnusedFunction 是工具误报。
         @app.get("/unexpected")
         async def _unexpected():  # pyright: ignore[reportUnusedFunction]
             raise RuntimeError("boom")

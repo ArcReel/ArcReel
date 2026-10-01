@@ -117,8 +117,7 @@ export function GridImageToVideoCanvas({
   const demoReadOnly = useDemoWorkbench();
 
   useEffect(() => {
-    // 剧本加载完成后切到 units 标签页，由 hasScript 状态变化驱动
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 剧本加载完成后切到 units 标签页，由 hasScript 变化驱动
     if (hasScript) setActiveTab("units");
   }, [hasScript]);
 

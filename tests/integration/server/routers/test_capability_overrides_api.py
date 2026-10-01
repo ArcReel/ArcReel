@@ -671,7 +671,7 @@ class TestResolverReturnsEffectiveCapabilities:
         from lib.config.resolver import ConfigResolver
         from lib.config.service import ConfigService
 
-        factory = async_sessionmaker(bind=db_session.get_bind(), class_=AsyncSession, expire_on_commit=False)  # type: ignore[call-overload]
+        factory = async_sessionmaker(bind=db_session.bind, class_=AsyncSession, expire_on_commit=False)
         resolver = ConfigResolver(factory, _bound_session=db_session)
         return await resolver._resolve_video_caps_for_model(
             ConfigService(db_session), db_session, provider_id, model_id, None
@@ -810,7 +810,7 @@ class TestResolverReturnsEffectiveCapabilities:
         from lib.config.resolver import ConfigResolver
         from lib.config.service import ConfigService
 
-        factory = async_sessionmaker(bind=db_session.get_bind(), class_=AsyncSession, expire_on_commit=False)  # type: ignore[call-overload]
+        factory = async_sessionmaker(bind=db_session.bind, class_=AsyncSession, expire_on_commit=False)
         resolver = ConfigResolver(factory, _bound_session=db_session)
         caps = await resolver._resolve_video_caps_for_model(
             ConfigService(db_session), db_session, "openai", "sora-2", None

@@ -78,8 +78,7 @@ export function CustomProviderDetail({ providerId, initialModelId, onDeleted, on
   }, [providerId]);
 
   useEffect(() => {
-    // providerId 切换时重置编辑/删除/测试态并重新拉取（动作驱动重置）
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- providerId 切换时重置编辑/删除/测试态并重新拉取，是动作驱动重置
     setEditing(Boolean(initialModelId));
     setConfirmDelete(false);
     setTestResult(null);

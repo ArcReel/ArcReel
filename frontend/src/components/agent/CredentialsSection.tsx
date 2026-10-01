@@ -47,8 +47,7 @@ export function CredentialsSection() {
   }, []);
 
   useEffect(() => {
-    // mount 时异步拉取凭证后再 setState，属于受控的初始化加载。
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- mount 时异步拉取凭证后回写，属于受控的初始化加载
     void loadCreds();
   }, [loadCreds]);
 

@@ -88,7 +88,7 @@ export interface SpeechMark {
  * mention 与 `{` 之间允许的行内空白。JS 的 `\s` 不含 U+001F 而 Python 的 `str.isspace()` 含，
  * 少这一个字符会让 `@[张三]<U+001F>{我来了}` 在后端绑说话人、在前端派生成参考图。
  */
-// eslint-disable-next-line no-control-regex
+// eslint-disable-next-line no-control-regex -- 须显式匹配 U+001F，对齐 Python str.isspace()
 const INLINE_SPACE_RE = /[\s\x1f]/u;
 
 /** 说话人 mention 与 `{` 之间允许出现的分隔冒号（中英各一），只允许一个。 */
@@ -203,7 +203,7 @@ export function stripSpeechMarks(line: string): string {
  * group separators as line breaks too, and dropping one reintroduces exactly the
  * front/back divergence this constant exists to remove.
  */
-// eslint-disable-next-line no-control-regex
+// eslint-disable-next-line no-control-regex -- 须显式匹配 U+001C–U+001E，对齐 Python str.splitlines()
 export const LINE_BREAK_RE = /(\r\n|[\n\r\v\f\x1c\x1d\x1e\x85\u2028\u2029])/;
 
 /**
@@ -271,7 +271,7 @@ export type MentionLookup = Record<string, ProjectAssetKind>;
 
 // Python str.strip() whitespace set. JavaScript trim() additionally removes U+FEFF,
 // but backend asset-name comparison deliberately treats U+FEFF as a name character.
-// eslint-disable-next-line no-control-regex
+// eslint-disable-next-line no-control-regex -- 须显式匹配 Python str.strip() 空白集中的控制字符
 const PYTHON_STRIP_RE = /^[\u0009-\u000d\u001c-\u0020\u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]+|[\u0009-\u000d\u001c-\u0020\u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]+$/gu;
 
 /**

@@ -154,7 +154,7 @@ export function EndpointsSection() {
 
   useEffect(() => {
     let disposed = false;
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- reloadKey 变化时点亮加载态并重新拉取，是动作驱动重置
     setLoading(true);
     setLoadError(null);
     voidCall(

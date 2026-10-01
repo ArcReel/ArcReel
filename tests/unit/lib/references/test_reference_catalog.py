@@ -207,7 +207,8 @@ class TestDerivativeReferences:
         assert derivative is not None
         assert base is not None
         assert derivative.asset == {"character_sheet": "characters/derivatives/张三/劲装.png"}
-        assert base.asset["character_sheet"] == "characters/张三.png"  # type: ignore[index]
+        assert isinstance(base.asset, dict)
+        assert base.asset["character_sheet"] == "characters/张三.png"
 
     def test_unregistered_derivative_of_a_registered_character_is_not_a_reference(self):
         catalog = build_reference_catalog(_project(character={"张三": {DERIVATIVES_FIELD: {"劲装": {}}}}))

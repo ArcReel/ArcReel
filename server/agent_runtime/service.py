@@ -172,7 +172,7 @@ class AssistantService:
 
         if self._session_store is not None and list_sessions_from_store is not None:
             try:
-                sdk_sessions = await list_sessions_from_store(self._session_store, directory=project_cwd)  # type: ignore[arg-type]
+                sdk_sessions = await list_sessions_from_store(self._session_store, directory=project_cwd)
             except Exception:
                 logger.warning(
                     "SDK list_sessions_from_store failed, titles will be empty",
@@ -217,7 +217,7 @@ class AssistantService:
             meta = await self.meta_store.get(session_id)
             project_cwd = str(self.layout.projects_dir / meta.project_name) if meta else None
             try:
-                await delete_session_via_store(self._session_store, session_id, directory=project_cwd)  # type: ignore[arg-type]
+                await delete_session_via_store(self._session_store, session_id, directory=project_cwd)
             except Exception:
                 logger.warning(
                     "delete_session_via_store failed for %s",
@@ -866,7 +866,9 @@ class AssistantService:
         """entry 事件：SSE ``id`` 字段即 seq，前端流式客户端重连时以 Last-Event-ID 续传。"""
         return ServerSentEvent(event="entry", data=entry, id=str(entry.get("seq")))
 
-    _TERMINAL_STATUSES: ClassVar[set[str]] = {"idle", "running", "completed", "error", "interrupted"}
+    _TERMINAL_STATUSES: ClassVar[frozenset[SessionStatus]] = frozenset(
+        {"idle", "running", "completed", "error", "interrupted"}
+    )
 
     def _check_runtime_status_terminal(self, message: dict[str, Any], session_id: str) -> ServerSentEvent | None:
         """Return a status SSE event if *message* carries a terminal runtime status."""
@@ -875,7 +877,7 @@ class AssistantService:
             return self._sse_event(
                 "status",
                 self._build_status_event_payload(
-                    status=runtime_status,  # type: ignore[arg-type]
+                    status=runtime_status,
                     session_id=session_id,
                     result_message=message,
                 ),

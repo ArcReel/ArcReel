@@ -119,8 +119,8 @@ jobs:
 
   conventions:
     # 仓库约定闸门：scripts/audit_conventions.py --check（规范索引与 CodeRabbit 映射、
-    # Dependabot 分组、工具版本同步）。涉及的文件横跨各域，其中 docs/standards/ 等
-    # 不属于任何域，所以不按域裁剪。
+    # Dependabot 分组、工具版本同步、豁免注释的行内理由）。涉及的文件横跨各域，其中
+    # docs/standards/ 等不属于任何域，所以不按域裁剪。
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:

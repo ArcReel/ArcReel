@@ -98,7 +98,7 @@ export function AddCredentialModal({
     let cancelled = false;
     // 拉取前先清旧列表：失败时不会残留上一轮 providers（同一 React 组件实例
     // 跨 modal 会话保留 state），避免用户点到已删除/失效的 provider 触发 404。
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 打开 modal 是外部事件，拉取前须同步清空上一轮列表
     setProviders([]);
     void (async () => {
       try {
@@ -122,8 +122,7 @@ export function AddCredentialModal({
   useEffect(() => {
     sessionRef.current += 1;
     if (!open) return;
-    // 重开 modal 时的批量重置，是动作驱动的状态归零。
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 重开 modal 时的批量重置，是动作驱动的状态归零
     setModelOptions([]);
     setDiscoverError(null);
     setSubmitError(null);
