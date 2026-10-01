@@ -254,6 +254,13 @@ describe("EndpointsSection", () => {
     expect(screen.getByText("提交生成任务")).toBeInTheDocument();
   });
 
+  it("offers the accepted duration variable without the rejected duration_seconds alias", async () => {
+    renderSection("section=endpoints&endpoint=ce-7");
+    expect(await screen.findByDisplayValue("Example Video API")).toBeEnabled();
+    expect(screen.getByText("{{ duration }}")).toBeInTheDocument();
+    expect(screen.queryByText("{{ duration_seconds }}")).not.toBeInTheDocument();
+  });
+
   it("prefills a new endpoint from the image example template and saves it as an image definition", async () => {
     const create = vi.spyOn(API, "createCustomEndpoint").mockResolvedValue(MINE);
     renderSection();
