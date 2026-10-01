@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+from contextlib import ExitStack
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any
 
@@ -27,6 +28,7 @@ from lib.episode.episode_sources import (
     remove_whole_source_file,
     whole_source_files,
 )
+from lib.infra.path_safety import PathTraversalError, safe_join
 
 if TYPE_CHECKING:
     from lib.project.project_manager import ProjectManager
@@ -52,24 +54,47 @@ def register_whole_source_file(project: dict[str, Any], rel: str, *, index: int 
 
 
 def unregister_source_file(project: dict[str, Any], rel: str) -> None:
-    """源文件被删除后的登记处置：移出整本源文清单；是自带原文的集的集文件时，该集转为无原文。"""
-    remove_whole_source_file(project, rel)
+    """删除源文件前的登记处置：移出整本源文清单；是自带原文的集的集文件时，该集转为无原文。
+
+    切出集的集文件由分集规划派生，拒绝删除。
+    """
     raw_episodes = project.get("episodes")
-    for entry in raw_episodes if isinstance(raw_episodes, list) else []:
-        if not isinstance(entry, dict) or episode_source_origin(entry) is not SourceOrigin.OWN:
-            continue
-        episode = parse_positive_episode_num(entry.get("episode"))
-        if episode is not None and episode_source_relpath(episode) == rel:
+    owners = [
+        entry
+        for entry in (raw_episodes if isinstance(raw_episodes, list) else [])
+        if isinstance(entry, dict)
+        and (episode := parse_positive_episode_num(entry.get("episode"))) is not None
+        and episode_source_relpath(episode) == rel
+    ]
+    if any(episode_source_origin(entry) is SourceOrigin.WHOLE_SOURCE for entry in owners):
+        raise EpisodeSourceError("episode_source_derived", f"{rel} 是切出集的集文件，由分集规划派生，不能直接删除")
+    remove_whole_source_file(project, rel)
+    for entry in owners:
+        if episode_source_origin(entry) is SourceOrigin.OWN:
             entry[SOURCE_ORIGIN_FIELD] = SourceOrigin.NONE.value
 
 
-def _write_episode_file(project_dir: Path, episode: int, text: str, *, archive_existing: bool) -> None:
-    """写集文件。``archive_existing`` 时盘上已有的同名文件不是这一集的原文，先改名留底再写。"""
+def _restore_file(path: Path, content: bytes | None) -> None:
+    """把 ``path`` 恢复成 ``content``；``content`` 为 None 表示原先没有这个文件。"""
+    if content is None:
+        path.unlink(missing_ok=True)
+    else:
+        path.write_bytes(content)
+
+
+def _write_episode_file(project_dir: Path, episode: int, text: str, *, archive_existing: bool, undo: ExitStack) -> None:
+    """写集文件，并把撤销登记进 ``undo``。``archive_existing`` 时盘上已有的同名文件不是这一集的原文，先改名留底再写。"""
     path = episode_source_path(project_dir, episode)
     if path.is_symlink():
         raise EpisodeSourceError("episode_source_symlink", f"集（id={episode}）的集文件是符号链接，拒绝写入")
+    previous: bytes | None = None
     if archive_existing and path.exists():
-        path.rename(archive_episode_file_path(path))
+        archived = archive_episode_file_path(path)
+        path.rename(archived)
+        undo.callback(archived.rename, path)
+    elif path.exists():
+        previous = path.read_bytes()
+    undo.callback(_restore_file, path, previous)
     path.write_text(text, encoding="utf-8", newline="\n")
 
 
@@ -80,14 +105,16 @@ def _require_text(text: str) -> str:
     return normalized
 
 
-def add_own_source_episode(project_dir: Path, project: dict[str, Any], text: str, *, title: str = "") -> int:
-    """在已持项目锁的临界区内登记一集自带原文的集：分配新集 ID、写集文件、接在播出顺序末尾。
+def add_own_source_episode(
+    project_dir: Path, project: dict[str, Any], text: str, *, undo: ExitStack, title: str = ""
+) -> int:
+    """在 ``locked_source_registration`` 块内登记一集自带原文的集：分配新集 ID、写集文件、接在播出顺序末尾。
 
     盘上与新集 ID 同名、没有登记的 ``episode_N.txt`` 先改名留底，不被覆盖。返回新集 ID。
     """
     normalized = _require_text(text)
     (episode,) = allocate_episode_ids(project, 1)
-    _write_episode_file(project_dir, episode, normalized, archive_existing=True)
+    _write_episode_file(project_dir, episode, normalized, archive_existing=True, undo=undo)
     raw_episodes = project.get("episodes")
     episodes = list(raw_episodes) if isinstance(raw_episodes, list) else []
     episodes.append(
@@ -110,7 +137,7 @@ def set_episode_source_text(pm: ProjectManager, project_name: str, episode: int,
     """
     normalized = _require_text(text)
     project_dir = pm.get_project_path(project_name)
-    with pm.locked_source_registration(project_name) as (_source_dir, project):
+    with pm.locked_source_registration(project_name) as (_source_dir, project, undo):
         raw_episodes = project.get("episodes")
         entry = next(
             (
@@ -128,7 +155,7 @@ def set_episode_source_text(pm: ProjectManager, project_name: str, episode: int,
                 "episode_source_derived",
                 f"集（id={episode}）切自整本源文，集原文由分集规划派生，不能直接改写",
             )
-        _write_episode_file(project_dir, episode, normalized, archive_existing=origin is SourceOrigin.NONE)
+        _write_episode_file(project_dir, episode, normalized, archive_existing=origin is SourceOrigin.NONE, undo=undo)
         entry[SOURCE_ORIGIN_FIELD] = SourceOrigin.OWN.value
     return SourceOrigin.OWN
 
@@ -145,6 +172,11 @@ def _unregistered_source_path(project_dir: Path, project: dict[str, Any], filena
         or path.suffix.lower() not in SOURCE_TEXT_SUFFIXES
     ):
         raise EpisodeSourceError("source_file_not_found", f"没有这个源文件：{filename}")
+    try:
+        # Windows 上 "C:x.txt" 这类带盘符的单段名会拼到项目外，交给 safe_join 判越界
+        safe_join(project_dir / "source", filename)
+    except PathTraversalError as exc:
+        raise EpisodeSourceError("source_file_not_found", f"没有这个源文件：{filename}") from exc
     source_path = project_dir / "source" / filename
     if source_path.is_symlink() or not source_path.is_file():
         raise EpisodeSourceError("source_file_not_found", f"没有这个源文件：{filename}")
@@ -153,9 +185,11 @@ def _unregistered_source_path(project_dir: Path, project: dict[str, Any], filena
     return source_path
 
 
-def _read_source_text(path: Path) -> str:
+def _read_source_bytes(path: Path) -> tuple[bytes, str]:
+    """读源文件的原始字节与 UTF-8 文本；读不出或不是 UTF-8 时拒绝。"""
     try:
-        return path.read_text(encoding="utf-8")
+        raw = path.read_bytes()
+        return raw, raw.decode("utf-8")
     except (OSError, UnicodeDecodeError) as exc:
         raise EpisodeSourceError("source_file_unreadable", f"源文件不是可读的 UTF-8 文本：{path.name}") from exc
 
@@ -163,12 +197,12 @@ def _read_source_text(path: Path) -> str:
 def adopt_source_file_as_whole_source(pm: ProjectManager, project_name: str, filename: str) -> None:
     """把 ``source/`` 下没有登记的文件加入整本源文，接在清单末尾。"""
     project_dir = pm.get_project_path(project_name)
-    with pm.locked_source_registration(project_name) as (_source_dir, project):
+    with pm.locked_source_registration(project_name) as (_source_dir, project, _undo):
         path = _unregistered_source_path(project_dir, project, filename)
         rel = f"source/{filename}"
         if not is_whole_source_file_path(rel):
             raise EpisodeSourceError("source_name_not_whole_source", f"这个文件名不能用作整本源文：{filename}")
-        _read_source_text(path)
+        _read_source_bytes(path)
         append_whole_source_file(project, rel)
 
 
@@ -176,13 +210,13 @@ def adopt_source_file_as_episode(pm: ProjectManager, project_name: str, filename
     """把 ``source/`` 下没有登记的文件用作一集的原文，返回这一集的集 ID。
 
     ``episode`` 为 None 时登记为播出顺序末尾的一集新的自带原文的集；否则填给这一集，这一集须是无原文的集。
-    文件内容写进集文件后，原文件删除。
+    文件内容写进集文件后，原文件删除；登记没有写回时，集文件撤销、原文件按原字节放回。
     """
     project_dir = pm.get_project_path(project_name)
-    with pm.locked_source_registration(project_name) as (_source_dir, project):
+    with pm.locked_source_registration(project_name) as (_source_dir, project, undo):
         path = _unregistered_source_path(project_dir, project, filename)
-        original = _read_source_text(path)
-        text = _require_text(original)
+        original, decoded = _read_source_bytes(path)
+        text = _require_text(decoded)
         entry: dict[str, Any] | None = None
         if episode is not None:
             raw_episodes = project.get("episodes")
@@ -200,15 +234,10 @@ def adopt_source_file_as_episode(pm: ProjectManager, project_name: str, filename
                 raise EpisodeSourceError("episode_source_present", f"集（id={episode}）已经有原文")
         # 先删原文件再写集文件：原文件恰好就是目标集文件的同名文件时，写入不会被当成占位文件改名留底
         path.unlink()
-        try:
-            if entry is None or episode is None:
-                return add_own_source_episode(project_dir, project, text)
-            _write_episode_file(project_dir, episode, text, archive_existing=True)
-        except Exception:
-            # 登记失败时锁块不写回 project.json，原文件也放回原处
-            if not path.exists():
-                path.write_text(original, encoding="utf-8", newline="")
-            raise
+        undo.callback(_restore_file, path, original)
+        if entry is None or episode is None:
+            return add_own_source_episode(project_dir, project, text, undo=undo)
+        _write_episode_file(project_dir, episode, text, archive_existing=True, undo=undo)
         entry[SOURCE_ORIGIN_FIELD] = SourceOrigin.OWN.value
         return episode
 

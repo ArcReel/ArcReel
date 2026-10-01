@@ -321,8 +321,12 @@ export function EpisodeSourceReview({
 
   const meta = episodes.find((e) => e.episode === episode);
 
+  const origin = sourceOriginOf(meta);
+  // 无原文的集没有集原文文件：盘上同名的 episode_N.txt 是未登记文件，不当作本集原文读取
+  const withoutSource = meta !== undefined && origin === "none";
   const fetchKey = `${projectName}::${episode}`;
   useEffect(() => {
+    if (withoutSource) return;
     let disposed = false;
     void API.getSourceContent(projectName, `episode_${episode}.txt`)
       .catch(() => null)
@@ -333,11 +337,11 @@ export function EpisodeSourceReview({
     return () => {
       disposed = true;
     };
-  }, [projectName, episode]);
+  }, [projectName, episode, withoutSource]);
 
-  const loading = fetched?.key !== fetchKey;
-  const text = loading ? null : fetched.text;
-  const origin = sourceOriginOf(meta);
+  const loading = !withoutSource && fetched?.key !== fetchKey;
+  // 无原文的集只显示本页刚保存的内容（保存后账本刷新前，来源仍是 none）
+  const text = !loading && fetched?.key === fetchKey ? fetched.text : null;
   // 编辑态同样带归属 key，切集后自动退出
   const [editingKey, setEditingKey] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);

@@ -95,6 +95,42 @@ describe("ProjectStatusBar", () => {
     expect(location.history?.at(-1)).toBe("/episodes/7");
   });
 
+  it("leaves an episode's own alternatives to its panel instead of handing them to the agent", async () => {
+    setProject();
+    vi.spyOn(API, "getWorkflowStatus").mockResolvedValue(
+      workflowStatus(action("prepare_script_plan", { episode_id: 7 }), {
+        next_alternatives: [action("start_blank_script", { episode_id: 7 })],
+      }),
+    );
+    renderBar();
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole("button", { name: /继续第 2 集/ }));
+
+    expect(screen.getByRole("button", { name: "去第 2 集" })).toBeInTheDocument();
+    expect(screen.queryByText(/或者/)).not.toBeInTheDocument();
+  });
+
+  it("sends an ad project without a brief or products to fill them in", async () => {
+    setProject(
+      { ...SUMMARY, episodes_summary: { total: 1, scripted: 0, in_production: 0, completed: 0 } },
+      [{ episode: 1, title: "", status: "draft" }],
+      "ad",
+    );
+    vi.spyOn(API, "getWorkflowStatus").mockResolvedValue(
+      workflowStatus(action("collect_project_input"), {
+        project: { content_mode: "ad", generation_mode: "storyboard", grid_storyboard: false },
+      }),
+    );
+    const location = renderBar("/characters");
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole("button", { name: /AI 生成脚本/ }));
+    expect(screen.getByText("先填写创作灵感或添加商品。")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "去填写" }));
+    expect(location.history?.at(-1)).toBe("/");
+  });
+
   it("yields to the episode panel when the next step is the current episode", async () => {
     setProject();
     vi.spyOn(API, "getWorkflowStatus").mockResolvedValue(

@@ -107,6 +107,32 @@ class TestAdoptSourceFile:
         assert (source_dir / "episode_4.txt").read_text(encoding="utf-8") == "番外原文\n第二行"
         assert not (source_dir / "番外.txt").exists()
 
+    def test_using_a_file_as_an_episode_rolls_back_when_the_ledger_cannot_be_written(self, tmp_path, monkeypatch):
+        import lib.project.project_manager as project_manager_module
+
+        client, pm, source_dir = _client(monkeypatch, tmp_path, episodes=[_entry(3, "none")], episode_id_high_water=3)
+        (source_dir / "番外.txt").write_bytes("番外原文\r\n第二行".encode())
+        (source_dir / "episode_4.txt").write_text("账本外的同号旧文件", encoding="utf-8")
+        before = pm.load_project("demo")
+        project_file = pm.get_project_path("demo") / "project.json"
+        real_atomic_write = project_manager_module.atomic_write_json
+
+        def _fail_project_write(path, data):
+            if path == project_file:
+                raise OSError("injected project write failure")
+            return real_atomic_write(path, data)
+
+        monkeypatch.setattr(project_manager_module, "atomic_write_json", _fail_project_write)
+
+        with client:
+            resp = client.post("/api/v1/projects/demo/source-files/番外.txt/adopt", json={"target": "episode"})
+
+        assert resp.status_code == 500
+        assert pm.load_project("demo") == before
+        assert (source_dir / "番外.txt").read_bytes() == "番外原文\r\n第二行".encode()
+        assert (source_dir / "episode_4.txt").read_text(encoding="utf-8") == "账本外的同号旧文件"
+        assert not list(source_dir.glob("_episode_4*"))
+
     def test_an_orphan_episode_file_can_fill_the_no_source_episode_with_the_same_id(self, tmp_path, monkeypatch):
         client, pm, source_dir = _client(monkeypatch, tmp_path, episodes=[_entry(5, "none")], episode_id_high_water=5)
         (source_dir / "episode_5.txt").write_text("账本外的旧集文件", encoding="utf-8")

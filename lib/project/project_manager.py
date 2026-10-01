@@ -1893,22 +1893,32 @@ class ProjectManager:
             yield source_dir
 
     @contextmanager
-    def locked_source_registration(self, project_name: str) -> Generator[tuple[Path, dict]]:
+    def locked_source_registration(self, project_name: str) -> Generator[tuple[Path, dict, ExitStack]]:
         """:meth:`locked_source_mutation` 的登记变体：源文文件与 project.json 的登记在同一把项目锁内改。
 
-        产出 ``(source_dir, project)``；块内就地修改 ``project``（整本源文清单、分集账本），块正常
-        退出且 ``project`` 有变化时写回 ``project.json``。块内抛错时不写回，已写的源文文件由调用方清理。
+        产出 ``(source_dir, project, undo)``；块内就地修改 ``project``（整本源文清单、分集账本），块正常
+        退出且 ``project`` 有变化时写回 ``project.json``。调用方每改一处盘上文件，就把它的撤销回调登记进
+        ``undo``；块内抛错或写回 ``project.json`` 失败时不写回，并在锁内按登记的逆序执行这些回调。
         """
         project_file = self._get_project_file_path(project_name)
         changed = False
         with self.locked_source_mutation(project_name) as source_dir:
             project = self._read_project_raw_unlocked(project_name)
             before = json.dumps(project, sort_keys=True, ensure_ascii=False)
-            yield source_dir, project
-            if json.dumps(project, sort_keys=True, ensure_ascii=False) != before:
-                self._apply_project_mutation_unlocked(project, lambda _project: None)
-                atomic_write_json(project_file, project)
-                changed = True
+            undo = ExitStack()
+            try:
+                yield source_dir, project, undo
+                if json.dumps(project, sort_keys=True, ensure_ascii=False) != before:
+                    self._apply_project_mutation_unlocked(project, lambda _project: None)
+                    atomic_write_json(project_file, project)
+                    changed = True
+            except BaseException:
+                try:
+                    undo.close()
+                except Exception:
+                    logger.exception("撤销源文改动失败: %s", project_name)
+                raise
+            undo.pop_all()
         if changed:
             emit_project_change_hint(project_name, changed_paths=[self.PROJECT_FILE])
 

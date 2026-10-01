@@ -54,6 +54,7 @@ from lib.episode.episode_sources import (
     SOURCE_SNAPSHOTS_DIR,
     archive_episode_file_path,
     discover_sources,
+    episode_entry,
     first_cut_episode_id,
     is_cut_episode,
     source_snapshot_path,
@@ -392,6 +393,12 @@ def reset_episode_planning(
     # 锁外预扫描/前置校验只为二段确认与快速失败服务：校验不通过或需要确认时零写入返回，
     # 不进锁、不碰文件
     project = pm.load_project(project_name)
+    if (
+        episode_id is not None
+        and (target := episode_entry(project, episode_id)) is not None
+        and not is_cut_episode(target)
+    ):
+        raise EpisodeResetError(f"集（id={episode_id}）不是切自整本源文的集；分集规划重置只能从切出集起算")
     partial_from = None if episode_id is None or episode_id == first_cut_episode_id(project) else episode_id
 
     def _boundary(p: Mapping[str, Any]) -> _PartialReset | None:

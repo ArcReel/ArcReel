@@ -93,6 +93,18 @@ describe("EpisodeSourceReview", () => {
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
   });
 
+  it("does not read an unregistered same-name file as a no-source episode's source", async () => {
+    const read = vi.spyOn(API, "getSourceContent").mockResolvedValue("手放进 source/ 的同名文件");
+    const noSource = makeEpisode({ episode: 7, source_origin: "none", source_range: undefined });
+
+    render(<EpisodeSourceReview projectName="demo" episode={7} episodes={[noSource]} />);
+
+    const box = await screen.findByRole("textbox", { name: "填写或粘贴本集的集原文" });
+    expect(box).toHaveValue("");
+    expect(read).not.toHaveBeenCalled();
+    expect(screen.queryByText("手放进 source/ 的同名文件")).not.toBeInTheDocument();
+  });
+
   it("keeps the draft and reports the error when saving fails", async () => {
     vi.spyOn(API, "getSourceContent").mockRejectedValue(new Error("404"));
     vi.spyOn(API, "updateEpisodeSource").mockRejectedValue(new Error("磁盘已满"));

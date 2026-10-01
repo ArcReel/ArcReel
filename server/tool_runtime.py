@@ -1670,6 +1670,9 @@ async def upload_source(
     _caller: CallerContext,
     services: Services,
 ) -> ToolOutcome[dict[str, Any]]:
+    if problem := await migration_gate(scope, services):
+        return ToolOutcome(problem=problem)
+
     def _upload() -> dict[str, Any]:
         value = request.value
         if Path(value.filename).name != value.filename or "\\" in value.filename or value.filename.startswith("."):
@@ -1688,8 +1691,8 @@ async def upload_source(
             if value.role == "episode":
                 extracted = SourceLoader.extract(source_path, original_filename=value.filename)
                 project_dir = services.projects.get_project_path(scope.project_name)
-                with services.projects.locked_source_registration(scope.project_name) as (_dir, project):
-                    episode = add_own_source_episode(project_dir, project, extracted.text)
+                with services.projects.locked_source_registration(scope.project_name) as (_dir, project, undo):
+                    episode = add_own_source_episode(project_dir, project, extracted.text, undo=undo)
                     described = describe_episode_for_agent(project, episode)
                 return {
                     "episode_id": episode,
@@ -1704,7 +1707,7 @@ async def upload_source(
                     f"文件名 {value.filename} 与集文件 episode_N.txt 同名，整本源文的文件须改名后上传；"
                     "逐集原文用 role=episode 上传"
                 )
-            with services.projects.locked_source_registration(scope.project_name) as (source_dir, project):
+            with services.projects.locked_source_registration(scope.project_name) as (source_dir, project, _undo):
                 result = SourceLoader.load(
                     source_path,
                     source_dir,

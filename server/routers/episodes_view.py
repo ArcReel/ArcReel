@@ -21,6 +21,7 @@ from lib.project.project_change_hints import project_change_source
 from lib.project.project_manager import get_project_manager
 from server.dependencies import require_project_migration_ok
 from server.i18n import Translator
+from server.routers._episode_source_errors import episode_source_http_error
 
 logger = logging.getLogger(__name__)
 
@@ -54,15 +55,6 @@ class AdoptSourceFileRequest(BaseModel):
     episode: int | None = None
 
 
-_ADOPT_STATUS = {
-    "source_file_not_found": 404,
-    "episode_not_found": 404,
-    "source_file_registered": 409,
-    "episode_source_present": 409,
-    "episode_source_symlink": 409,
-}
-
-
 @router.post(
     "/projects/{name}/source-files/{filename}/adopt",
     dependencies=[Depends(require_project_migration_ok)],
@@ -84,9 +76,7 @@ async def adopt_source_file(name: str, filename: str, req: AdoptSourceFileReques
     try:
         return await asyncio.to_thread(_sync)
     except EpisodeSourceError as exc:
-        status = _ADOPT_STATUS.get(exc.code, 422)
-        key = "episode_source_episode_not_found" if exc.code == "episode_not_found" else exc.code
-        raise HTTPException(status_code=status, detail=_t(key, filename=filename, episode=req.episode)) from exc
+        raise episode_source_http_error(exc, _t, episode=req.episode, filename=filename) from exc
     except (HTTPException, ApiError):
         raise
     except Exception as exc:

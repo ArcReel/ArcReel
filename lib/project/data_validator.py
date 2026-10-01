@@ -324,7 +324,7 @@ class DataValidator:
             )
 
         source_range = episode.get("source_range")
-        if source_range is not None and source_origin in {SourceOrigin.OWN.value, SourceOrigin.NONE.value}:
+        if source_range is not None and source_origin in (SourceOrigin.OWN.value, SourceOrigin.NONE.value):
             errors.append(_m("val_source_range_requires_whole_source", prefix=prefix))
         if source_range is not None:
             try:

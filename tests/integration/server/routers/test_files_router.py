@@ -170,6 +170,116 @@ class TestFilesRouter:
         assert (source_dir / "episode_5.txt").read_text(encoding="utf-8") == "第五集的原文"
         assert (source_dir / "_episode_5.txt.bak").read_text(encoding="utf-8") == "没有登记的旧文件"
 
+    def test_source_writes_refuse_while_the_project_migration_is_blocked(self, tmp_path, monkeypatch):
+        import lib.project.project_migration_guard as guard
+        from lib.project.project_migration_failure import MIGRATION_FAILURE_CODE, record_migration_failure
+
+        client, pm = _client(monkeypatch, tmp_path)
+        monkeypatch.setattr(guard, "get_project_manager", lambda: pm)
+        source_dir = pm.get_project_path("demo") / "source"
+        (source_dir / "novel.txt").write_text("旧整本源文", encoding="utf-8")
+        record_migration_failure(
+            pm.get_project_path("demo"), RuntimeError("step failed"), schema_version=CURRENT_PROJECT_SCHEMA_VERSION
+        )
+        before = pm.load_project("demo")
+        refusal = zh_errors.MESSAGES[MIGRATION_FAILURE_CODE].split("{")[0]
+
+        with client:
+            responses = [
+                client.post("/api/v1/projects/demo/upload/source", files={"file": ("new.txt", "新文件", "text/plain")}),
+                client.post(
+                    "/api/v1/projects/demo/upload/source?role=episode",
+                    files={"file": ("ep.txt", "一集原文", "text/plain")},
+                ),
+                client.put(
+                    "/api/v1/projects/demo/source/new.txt", content="新文件", headers={"content-type": "text/plain"}
+                ),
+                client.delete("/api/v1/projects/demo/source/novel.txt"),
+            ]
+
+        for resp in responses:
+            assert resp.status_code == 409
+            assert resp.json()["detail"].startswith(refusal)
+        assert pm.load_project("demo") == before
+        assert sorted(path.name for path in source_dir.iterdir() if path.is_file()) == ["novel.txt"]
+
+    def test_put_source_refuses_episode_file_names(self, tmp_path, monkeypatch):
+        client, pm = _client(monkeypatch, tmp_path)
+        pm.update_project(
+            "demo",
+            lambda project: project.update(
+                episodes=[
+                    {"episode": 3, "title": "", "script_file": "scripts/episode_3.json", "source_origin": "none"}
+                ],
+                episode_id_high_water=3,
+            ),
+        )
+
+        with client:
+            resp = client.put(
+                "/api/v1/projects/demo/source/episode_3.txt", content="绕过集页", headers={"content-type": "text/plain"}
+            )
+
+        assert resp.status_code == 400
+        assert resp.json()["detail"] == zh_errors.MESSAGES["source_name_reserved"]
+        assert not (pm.get_project_path("demo") / "source" / "episode_3.txt").exists()
+        assert pm.load_project("demo")["episodes"][0]["source_origin"] == "none"
+
+    def test_delete_source_refuses_a_cut_episode_file(self, tmp_path, monkeypatch):
+        client, pm = _client(monkeypatch, tmp_path)
+        source_dir = pm.get_project_path("demo") / "source"
+        (source_dir / "novel.txt").write_text("甲乙丙丁", encoding="utf-8")
+        (source_dir / "episode_1.txt").write_text("甲乙", encoding="utf-8")
+        pm.update_project(
+            "demo",
+            lambda project: project.update(
+                whole_source_files=[{"source_file": "source/novel.txt"}],
+                episodes=[
+                    {
+                        "episode": 1,
+                        "title": "",
+                        "script_file": "scripts/episode_1.json",
+                        "source_origin": "whole_source",
+                        "source_range": {"source_file": "source/novel.txt", "start": 0, "end": 2},
+                    }
+                ],
+                episode_id_high_water=1,
+            ),
+        )
+        before = pm.load_project("demo")
+
+        with client:
+            resp = client.delete("/api/v1/projects/demo/source/episode_1.txt")
+
+        assert resp.status_code == 409
+        assert resp.json()["detail"] == zh_errors.MESSAGES["episode_source_derived"]
+        assert (source_dir / "episode_1.txt").read_text(encoding="utf-8") == "甲乙"
+        assert pm.load_project("demo") == before
+
+    def test_delete_source_keeps_the_file_when_the_ledger_cannot_be_written(self, tmp_path, monkeypatch):
+        client, pm = _client(monkeypatch, tmp_path)
+        source_dir = pm.get_project_path("demo") / "source"
+        (source_dir / "novel.txt").write_bytes("整本源文\r\n第二行".encode())
+        pm.update_project(
+            "demo", lambda project: project.update(whole_source_files=[{"source_file": "source/novel.txt"}])
+        )
+        project_file = pm.get_project_path("demo") / "project.json"
+        real_atomic_write = project_manager_module.atomic_write_json
+
+        def _fail_project_write(path, data):
+            if path == project_file:
+                raise OSError("injected project write failure")
+            return real_atomic_write(path, data)
+
+        monkeypatch.setattr(project_manager_module, "atomic_write_json", _fail_project_write)
+
+        with client:
+            resp = client.delete("/api/v1/projects/demo/source/novel.txt")
+
+        assert resp.status_code == 500
+        assert (source_dir / "novel.txt").read_bytes() == "整本源文\r\n第二行".encode()
+        assert pm.load_project("demo")["whole_source_files"] == [{"source_file": "source/novel.txt"}]
+
     def test_episode_role_upload_rejects_blank_text(self, tmp_path, monkeypatch):
         client, pm = _client(monkeypatch, tmp_path)
 

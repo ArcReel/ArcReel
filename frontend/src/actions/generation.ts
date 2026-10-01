@@ -436,6 +436,11 @@ export async function enqueueStoryboardBatch(
   return res;
 }
 
+/** 文本任务批次里已建出任务的成员的任务 ID。 */
+function memberTaskIds(batch: { members: ReadonlyArray<{ task_id?: string | null }> }): string[] {
+  return batch.members.flatMap((member) => (member.task_id ? [member.task_id] : []));
+}
+
 /** 提示词编写任务的占用槽：一集一个文本任务，resource_id 与服务端 `episode-{N}` 一致。 */
 export function promptAuthoringResourceId(episode: number): string {
   return `episode-${episode}`;
@@ -453,9 +458,9 @@ export async function enqueuePromptAuthoring(
   const res = await submit(
     [markResource(projectName, "text_episode_script", promptAuthoringResourceId(episode), "text_episode_script")],
     () => API.authorPrompts(projectName, episode, request),
-    (response) => response.batch.members.flatMap((member) => (member.task_id ? [member.task_id] : [])),
+    (response) => memberTaskIds(response.batch),
   );
-  const taskIds = res.batch.members.flatMap((member) => (member.task_id ? [member.task_id] : []));
+  const taskIds = memberTaskIds(res.batch);
   const deduped = res.batch.members.some((member) => member.deduped === true);
   notifyEnqueued(
     deduped,
@@ -482,9 +487,9 @@ export async function enqueueScriptPlan(
   const res = await submit(
     [markResource(projectName, "text_script_plan", scriptPlanResourceId(episode), "text_script_plan")],
     () => API.planScript(projectName, episode, request),
-    (response) => response.batch.members.flatMap((member) => (member.task_id ? [member.task_id] : [])),
+    (response) => memberTaskIds(response.batch),
   );
-  const taskIds = res.batch.members.flatMap((member) => (member.task_id ? [member.task_id] : []));
+  const taskIds = memberTaskIds(res.batch);
   const deduped = res.batch.members.some((member) => member.deduped === true);
   notifyEnqueued(deduped, i18n.t("dashboard:script_plan_queued"), "info");
   return { taskIds, deduped };
@@ -509,9 +514,9 @@ export async function enqueueDraftRepair(
   const res = await submit(
     [markResource(projectName, "text_draft_repair", draftRepairResourceId(episode, docType), "text_draft_repair")],
     () => API.repairEpisodeDraft(projectName, episode, docType, baseRevision, instructions),
-    (response) => response.batch.members.flatMap((member) => (member.task_id ? [member.task_id] : [])),
+    (response) => memberTaskIds(response.batch),
   );
-  const taskIds = res.batch.members.flatMap((member) => (member.task_id ? [member.task_id] : []));
+  const taskIds = memberTaskIds(res.batch);
   const deduped = res.batch.members.some((member) => member.deduped === true);
   notifyEnqueued(deduped, i18n.t("dashboard:draft_repair_queued"), "info");
   return { taskIds, deduped };
