@@ -1948,6 +1948,7 @@ export default {
   'tool_name_patch_episode_meta': 'Edit episode title',
   'tool_name_patch_project': 'Edit project assets',
   'tool_name_rename_asset': 'Rename asset',
+  'tool_name_merge_asset': 'Merge assets',
   'tool_name_retry_project_migration': 'Retry data upgrade',
 
   // Header status bar (ProjectStatusBar): episode progress, project-level next step, failed data upgrade

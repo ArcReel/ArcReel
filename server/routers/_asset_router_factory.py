@@ -25,6 +25,12 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict
 
 from lib.infra.api_errors import NotFoundError, UnprocessableError
+from lib.project.asset_merge import (
+    MERGEABLE_ASSET_TYPES,
+    AssetMergeNotFoundError,
+    AssetMergeRejectedError,
+    AssetMergeReport,
+)
 from lib.project.asset_rename import (
     AssetRenameConflictError,
     AssetRenameFileCollisionError,
@@ -105,6 +111,51 @@ class _RenameRequest(BaseModel):
 
     new_name: str
     dry_run: bool = False
+
+
+class _MergeRequest(BaseModel):
+    """资产合并请求体：把路径里的资产并入 ``target``。``dry_run=True`` 只返回按集列出的影响预览。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    target: str
+    as_derivative: bool = False
+    dry_run: bool = False
+
+
+#: 合并被拒绝的原因 → i18n key。类型不可合并的类型不注册合并路由，走不到这里。
+_MERGE_REJECTION_KEYS: dict[str, str] = {
+    "same_asset": "asset_merge_same_asset",
+    "derivative_needs_character": "asset_merge_derivative_needs_character",
+}
+
+
+def merge_report_payload(report: AssetMergeReport) -> dict[str, Any]:
+    """合并报告的响应体，Web 与 Agent 共用同一份字段。"""
+    return {
+        "dry_run": report.dry_run,
+        "source": report.source,
+        "target": report.target,
+        "as_derivative": report.as_derivative,
+        "aliases_added": list(report.aliases_added),
+        "derivative_created": report.derivative_created,
+        "derivatives_moved": list(report.derivatives_moved),
+        "derivatives_folded": list(report.derivatives_folded),
+        "references": report.references,
+        "episodes": [
+            {
+                "episode": item.episode,
+                "script_plan": item.script_plan,
+                "script": item.script,
+                "draft": item.draft,
+                "prompt_text": item.prompt_text,
+                "speaker": item.speaker,
+                "storyboards": item.storyboards,
+                "videos": item.videos,
+            }
+            for item in report.episodes
+        ],
+    }
 
 
 class _CreateRequest(BaseModel):
@@ -343,6 +394,64 @@ def build_asset_router(
         except Exception as exc:
             logger.exception("请求处理失败")
             raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
+
+    if asset_type in MERGEABLE_ASSET_TYPES:
+
+        @router.post(f"/projects/{{project_name}}/{spec.subdir}/{{entry_name}}/merge")
+        async def merge_entry(  # pyright: ignore[reportUnusedFunction]
+            project_name: str,
+            entry_name: str,
+            req: _MergeRequest,
+            _t: Translator,
+        ):
+            """把该资产并入同类型的 ``target``（dry_run 形态即影响预览，与执行共用同一次扫描）。"""
+            try:
+
+                def _sync():
+                    manager = pm_getter()
+                    with project_change_source("webui"):
+                        report = manager.merge_asset(
+                            project_name,
+                            spec.bucket_key,
+                            entry_name,
+                            req.target,
+                            as_derivative=req.as_derivative,
+                            dry_run=req.dry_run,
+                        )
+                    return {"success": True, **merge_report_payload(report)}
+
+                return await asyncio.to_thread(_sync)
+            except AssetMergeNotFoundError as exc:
+                raise HTTPException(status_code=404, detail=_t(keys["not_found"], name=exc.name)) from exc
+            except AssetMergeRejectedError as exc:
+                raise HTTPException(
+                    status_code=422, detail=_t(_MERGE_REJECTION_KEYS[exc.reason], name=entry_name)
+                ) from exc
+            except AssetRenameFileCollisionError as exc:
+                raise HTTPException(
+                    status_code=409,
+                    detail=_t("asset_merge_derivative_conflict", target=req.target, name=exc.destination.stem),
+                ) from exc
+            except AssetRenameHistoryCollisionError as exc:
+                raise HTTPException(
+                    status_code=409,
+                    detail=_t(
+                        "asset_merge_derivative_conflict",
+                        target=req.target,
+                        name=exc.resource_id.rpartition("/")[2],
+                    ),
+                ) from exc
+            except FileNotFoundError as exc:
+                raise NotFoundError("project_not_found", name=project_name) from exc
+            except ValueError as exc:
+                # 结构「不更坏」校验拒绝等罕见情形：整体未落盘，提示用户重试或检查项目数据。
+                logger.exception("资产合并被校验拒绝")
+                raise HTTPException(status_code=422, detail=_t("asset_merge_rejected", name=entry_name)) from exc
+            except HTTPException:
+                raise
+            except Exception as exc:
+                logger.exception("请求处理失败")
+                raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
 
     @router.delete(f"/projects/{{project_name}}/{spec.subdir}/{{entry_name}}")
     async def delete_entry(project_name: str, entry_name: str, _t: Translator):  # pyright: ignore[reportUnusedFunction]

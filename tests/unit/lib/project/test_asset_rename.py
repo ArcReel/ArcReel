@@ -231,6 +231,18 @@ class TestRewritePayloadReferences:
         assert payload["video_units"][0]["text"] == "@[新角色] 走进 @[场景A]"
         assert count == 1
 
+    def test_storyboard_scene_mentions(self) -> None:
+        """分镜画面描述里的 ``@[名称]`` 指认引用字段里的资产，改名后须仍指向同一资产。"""
+        payload = _drama_script()
+        payload["scenes"][0]["image_prompt"]["scene"] = "@[角色A] 站在 @[场景A] 门口"
+        text_form = _narration_script()
+        text_form["segments"][0]["image_prompt"] = "@[角色A] 回头"
+
+        assert rewrite_payload_references(payload, "character", "角色A", "新角色") == 3
+        assert rewrite_payload_references(text_form, "character", "角色A", "新角色") == 2
+        assert payload["scenes"][0]["image_prompt"]["scene"] == "@[新角色] 站在 @[场景A] 门口"
+        assert text_form["segments"][0]["image_prompt"] == "@[新角色] 回头"
+
     def test_nfd_text_forms_matched(self) -> None:
         nfd = unicodedata.normalize("NFD", "café")
         payload = _narration_script()

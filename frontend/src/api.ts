@@ -180,10 +180,12 @@ import {
 } from "./api/errors";
 import type {
   AgentProfileStatus,
+  AssetMergeResult,
   AssetRenameResult,
   AssistantEntriesStreamOptions,
   CreateProjectPayload,
   EpisodeScriptSnapshot,
+  MergeableAssetType,
   ProjectAssetType,
   ProjectEventStreamOptions,
   ScriptEditCommand,
@@ -208,8 +210,11 @@ export {
 } from "./api/errors";
 export type {
   AgentProfileStatus,
+  AssetMergeEpisodeImpact,
+  AssetMergeResult,
   AssetRenameResult,
   LoginResponse,
+  MergeableAssetType,
   ProjectAssetType,
   ProjectEventStreamOptions,
   UsageRecordsQuery,
@@ -1166,6 +1171,31 @@ class API {
       {
         method: "POST",
         body: JSON.stringify({ new_name: newName, dry_run: options.dryRun ?? false }),
+        signal: options.signal,
+      }
+    );
+  }
+
+  /**
+   * 把项目内资产并入同类型的 `target`（只开放角色、场景、道具）。`dryRun: true` 只返回按集列出的
+   * 影响预览，预览与执行共用后端同一次扫描，确认框数字与实际执行一致。
+   */
+  static async mergeProjectAsset(
+    projectName: string,
+    assetType: MergeableAssetType,
+    name: string,
+    target: string,
+    options: { asDerivative?: boolean; dryRun?: boolean; signal?: AbortSignal } = {}
+  ): Promise<AssetMergeResult> {
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/${ASSET_TYPE_PATH[assetType]}/${encodeURIComponent(name)}/merge`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          target,
+          as_derivative: options.asDerivative ?? false,
+          dry_run: options.dryRun ?? false,
+        }),
         signal: options.signal,
       }
     );

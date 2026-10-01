@@ -115,6 +115,13 @@ from lib.infra.content_digest import prefixed, prefixed_canonical_json_digest
 from lib.infra.data_root_layout import DataRootLayout
 from lib.infra.path_safety import safe_join
 from lib.infra.schema_guards import is_str
+from lib.project.asset_merge import (
+    MERGEABLE_ASSET_TYPES,
+    AssetMergeEpisodeImpact,
+    AssetMergeNotFoundError,
+    AssetMergeRejectedError,
+    AssetMergeReport,
+)
 from lib.project.asset_types import ASSET_SPECS
 from lib.project.project_manager import ProjectManager, is_reference_video_project
 from lib.project.project_migration_failure import (
@@ -2134,6 +2141,7 @@ async def patch_episode_script(
 
 
 ASSET_TABLES = tuple(spec.bucket_key for spec in ASSET_SPECS.values())
+MERGEABLE_ASSET_TABLES = tuple(ASSET_SPECS[asset_type].bucket_key for asset_type in MERGEABLE_ASSET_TYPES)
 PROJECT_SETTINGS = (
     EPISODE_TARGET_UNITS_FIELD,
     EPISODE_TARGET_DURATION_FIELD,
@@ -2316,6 +2324,55 @@ class RenameAssetResult(ToolMessage):
     episodes: int
     references: int
     files: int
+
+
+class MergeAssetRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    table: str = Field(
+        description=f"资产表，取值 {list(MERGEABLE_ASSET_TABLES)} 之一",
+        json_schema_extra={"enum": list(MERGEABLE_ASSET_TABLES)},
+    )
+    source: str = Field(description="被并方：合并后从资产表删除")
+    target: str = Field(description="保留方：同表的另一个资产，原样保留")
+    as_derivative: bool = Field(
+        default=False,
+        description="仅 characters：true 时把 source 并为 target 的衍生，衍生名取 source 的名字，"
+        "描述取 source 的描述，衍生资产图待生成",
+    )
+    dry_run: bool = Field(default=False, description="true 时只返回按集列出的影响，不做任何更改")
+
+    @field_validator("table")
+    @classmethod
+    def _validate_table(cls, value: str) -> str:
+        if value not in MERGEABLE_ASSET_TABLES:
+            raise ValueError(f"table 必须是 {list(MERGEABLE_ASSET_TABLES)} 之一")
+        return value
+
+
+class MergeAssetEpisodeImpact(BaseModel):
+    episode_id: int
+    script_plan: int
+    script: int
+    draft: int
+    prompt_text: int
+    speaker: int
+    storyboards: int
+    videos: int
+
+
+class MergeAssetResult(ToolMessage):
+    table: str
+    source: str
+    target: str
+    as_derivative: bool
+    dry_run: bool
+    references: int
+    aliases_added: list[str]
+    derivative_created: str | None
+    derivatives_moved: list[str]
+    derivatives_folded: list[str]
+    episodes: list[MergeAssetEpisodeImpact]
 
 
 class RetryProjectMigrationResult(ToolMessage):
@@ -3185,6 +3242,102 @@ async def patch_episode_meta(
     return await _run_sync_transaction(_patch_episode_meta_sync, request, scope, services)
 
 
+def _merge_episode_line(project: Mapping[str, Any], impact: AssetMergeEpisodeImpact) -> str:
+    counts = (
+        ("脚本规划", impact.script_plan),
+        ("正式脚本", impact.script),
+        ("草稿", impact.draft),
+        ("提示词正文", impact.prompt_text),
+        ("说话人", impact.speaker),
+    )
+    references = "、".join(f"{label} {count} 处" for label, count in counts if count) or "无引用改写"
+    return (
+        f"- {describe_episode_for_agent(project, impact.episode)}：{references}；"
+        f"过期分镜图 {impact.storyboards} 张、视频 {impact.videos} 段"
+    )
+
+
+def _merge_asset_message(project: Mapping[str, Any], report: AssetMergeReport) -> str:
+    how = f"并为 {report.target!r} 的衍生" if report.as_derivative else f"并入 {report.target!r}"
+    head = (
+        f"预览：把 {report.table} 资产 {report.source!r} {how}，将改写 {report.references} 处引用。"
+        if report.dry_run
+        else f"已把 {report.table} 资产 {report.source!r} {how}，改写 {report.references} 处引用。"
+    )
+    lines = [head, *(_merge_episode_line(project, impact) for impact in report.episodes)]
+    if report.aliases_added:
+        lines.append("追加为保留方别名：" + "、".join(report.aliases_added))
+    if report.derivative_created is not None:
+        lines.append(f"新建衍生 {report.derivative_created!r}，资产图待生成")
+    if report.derivatives_moved:
+        lines.append("迁到保留方名下的衍生：" + "、".join(report.derivatives_moved))
+    if report.derivatives_folded:
+        lines.append("与保留方已有衍生同名、并入已有衍生：" + "、".join(report.derivatives_folded))
+    lines.append(
+        "被并方的描述、资产图及版本历史、声音设置、原图与参考音频不保留。"
+        if report.dry_run
+        else "被并方的描述、资产图及版本历史、声音设置、原图与参考音频已删除。"
+    )
+    return "\n".join(lines)
+
+
+async def merge_asset(
+    request: ToolRequest[MergeAssetRequest],
+    scope: ProjectScope,
+    _caller: CallerContext,
+    services: Services,
+) -> ToolOutcome[MergeAssetResult]:
+    value = request.value
+
+    def _merge() -> tuple[AssetMergeReport, dict[str, Any]]:
+        report = services.projects.merge_asset(
+            scope.project_name,
+            value.table,
+            value.source,
+            value.target,
+            as_derivative=value.as_derivative,
+            dry_run=value.dry_run,
+        )
+        return report, services.projects.load_project(scope.project_name)
+
+    try:
+        report, project = await _run_sync_transaction(_merge)
+    except AssetMergeNotFoundError as exc:
+        return ToolOutcome(problem=ToolProblem("invalid_request", f"{value.table} 中不存在名为 {exc.name!r} 的资产"))
+    except AssetMergeRejectedError as exc:
+        return ToolOutcome(problem=ToolProblem("invalid_request", str(exc)))
+    except Exception as exc:
+        return ToolOutcome(problem=_unexpected("merge_asset", exc))
+    return ToolOutcome(
+        value=MergeAssetResult(
+            message=_merge_asset_message(project, report),
+            table=value.table,
+            source=report.source,
+            target=report.target,
+            as_derivative=report.as_derivative,
+            dry_run=report.dry_run,
+            references=report.references,
+            aliases_added=list(report.aliases_added),
+            derivative_created=report.derivative_created,
+            derivatives_moved=list(report.derivatives_moved),
+            derivatives_folded=list(report.derivatives_folded),
+            episodes=[
+                MergeAssetEpisodeImpact(
+                    episode_id=impact.episode,
+                    script_plan=impact.script_plan,
+                    script=impact.script,
+                    draft=impact.draft,
+                    prompt_text=impact.prompt_text,
+                    speaker=impact.speaker,
+                    storyboards=impact.storyboards,
+                    videos=impact.videos,
+                )
+                for impact in report.episodes
+            ],
+        )
+    )
+
+
 async def rename_asset(
     request: ToolRequest[RenameAssetRequest],
     scope: ProjectScope,
@@ -3289,6 +3442,7 @@ async def complete_script_plan_rebuild(
 __all__ = [
     "ASSET_TABLES",
     "EPISODE_META_FIELDS",
+    "MERGEABLE_ASSET_TABLES",
     "PROJECT_OVERVIEW_FIELDS",
     "PROJECT_SETTINGS",
     "CallerContext",
@@ -3302,6 +3456,7 @@ __all__ = [
     "GenerateEpisodeScriptRequest",
     "GenerateScriptPlanRequest",
     "GenerationBatchToolRequest",
+    "MergeAssetRequest",
     "NoArguments",
     "PatchDraftRequest",
     "PatchEpisodeMetaRequest",
@@ -3352,6 +3507,7 @@ __all__ = [
     "list_project_files",
     "list_projects",
     "list_source_files",
+    "merge_asset",
     "open_draft",
     "patch_draft",
     "patch_episode_meta",

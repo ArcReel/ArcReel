@@ -1,10 +1,14 @@
 """剧本 / 草稿载荷里名称引用的落点遍历：改写与扫描共用同一份「引用写在哪些位置」。
 
-引用名（资产名，或角色的 ``本体名/衍生名``）在剧本载荷里有三种落点：各骨架的引用数组
-（``characters_in_*`` / ``scenes`` / ``props`` / ``products_in_shot``）、``speaker`` 字段，
-以及单元正文里的 ``@[名称]`` 记号。级联改名要把它们一次改齐，「这条资产被脚本引用了吗」
-要把它们一次数清——两者只在「读到的名字怎么处理」上不同，落点集合必须是同一份：分成两套
-遍历时，新增一种落点只被其中一侧认识，改名会漏改或引用状态会漏报。
+引用名（资产名，或角色的 ``本体名/衍生名``）在剧本载荷里有四种落点：各骨架的引用数组
+（``characters_in_*`` / ``scenes`` / ``props`` / ``products_in_shot``）、``speaker`` 字段、
+单元正文里的 ``@[名称]`` 记号，以及分镜画面描述里的 ``@[名称]`` 记号。级联改名与合并要把它们
+一次改齐，「这条资产被脚本引用了吗」要把它们一次数清——两者只在「读到的名字怎么处理」上
+不同，落点集合必须是同一份：分成两套遍历时，新增一种落点只被其中一侧认识，改名会漏改或
+引用状态会漏报。
+
+分镜画面描述里的记号只指认该分镜引用字段里已声明的资产、不派生参考图（见
+:mod:`lib.script.storyboard_mentions`），所以改名要改它，「引用了吗」不数它。
 """
 
 from __future__ import annotations
@@ -26,8 +30,10 @@ _ALL_REFERENCE_LIST_FIELDS: frozenset[str] = frozenset(
     field for spec in ASSET_SPECS.values() for field in spec.reference_list_fields
 )
 
-#: 引用落点的两种形态：``name`` 是一个完整的引用名，``text`` 是含 ``@[名称]`` 记号的正文。
-SiteKind = Literal["name", "text"]
+#: 引用落点的四种形态：``name`` 是引用数组里的一个完整引用名，``speaker`` 是承载角色本体名的
+#: 说话人字段，``text`` 是含 ``@[名称]`` 记号的单元正文，``scene`` 是含 ``@[名称]`` 记号的分镜画面
+#: 描述（``image_prompt.scene``，或字符串形态的 ``image_prompt``）。
+SiteKind = Literal["name", "speaker", "text", "scene"]
 
 
 def _dict_writer(node: dict[str, Any], key: str) -> Callable[[str], None]:
@@ -68,7 +74,13 @@ def iter_reference_sites(
                         yield from iter_reference_sites(item, list_fields, with_speaker=with_speaker)
                 continue
             if key == "speaker" and with_speaker and isinstance(value, str):
-                yield "name", value, _dict_writer(payload, key)
+                yield "speaker", value, _dict_writer(payload, key)
+                continue
+            if key == "image_prompt":
+                if isinstance(value, str):
+                    yield "scene", value, _dict_writer(payload, key)
+                elif isinstance(value, dict) and isinstance(value.get("scene"), str):
+                    yield "scene", value["scene"], _dict_writer(value, "scene")
                 continue
             if key in _TEXT_ITEM_FIELDS and isinstance(value, list):
                 for item in value:
@@ -92,9 +104,29 @@ def payload_reference_names(payload: object) -> set[str]:
     for kind, value, _write in iter_reference_sites(payload, _ALL_REFERENCE_LIST_FIELDS, with_speaker=True):
         if kind == "text":
             names.update(mention_names(value))
-        else:
+        elif kind != "scene":
             names.add(asset_name_comparison_key(value))
     return names
+
+
+def iter_reference_lists(payload: object, list_fields: frozenset[str]) -> Iterator[list[Any]]:
+    """遍历载荷里的引用数组本身，供需要增删元素的调用方（如合并后去重）使用。
+
+    与 :func:`iter_reference_sites` 认同一组数组：键在 ``list_fields`` 中、值是列表即是。
+    产出的列表可就地增删元素，遍历不会再进入已产出的列表。
+    """
+    if isinstance(payload, dict):
+        for key, value in payload.items():
+            if key in list_fields and isinstance(value, list):
+                yield value
+                for item in value:
+                    if not isinstance(item, str):
+                        yield from iter_reference_lists(item, list_fields)
+                continue
+            yield from iter_reference_lists(value, list_fields)
+    elif isinstance(payload, list):
+        for item in payload:
+            yield from iter_reference_lists(item, list_fields)
 
 
 def annotate_derivative_references(project: object, payloads: Iterable[object]) -> dict[str, Any]:
@@ -151,6 +183,7 @@ def _annotated_entry(asset: object, base_name: str, referenced: set[str]) -> obj
 __all__ = [
     "SiteKind",
     "annotate_derivative_references",
+    "iter_reference_lists",
     "iter_reference_sites",
     "payload_reference_names",
 ]

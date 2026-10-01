@@ -19,7 +19,7 @@ from lib.project.project_manager import ProjectManager
 from lib.script.reference_video.request_projection import unit_reference_declarations
 from lib.script.script_batch_edit import script_revision
 from server.agent_runtime.arcreel_mcp import build_arcreel_mcp_server
-from server.agent_toolset.repair_channel import PATCH_EPISODE_META, PATCH_PROJECT, RENAME_ASSET
+from server.agent_toolset.repair_channel import MERGE_ASSET, PATCH_EPISODE_META, PATCH_PROJECT, RENAME_ASSET
 from server.agent_toolset.script_editing import PATCH_EPISODE_SCRIPT
 from server.tool_runtime import ScriptPatchResult, ToolMessage, ToolOutcome
 from tests.integration.server.agent_tool_support import ToolHarness, run_declared_tool
@@ -1729,3 +1729,43 @@ class TestRenameAssetTool:
         assert out.problem is not None
         assert "冲突" in _said(out)
         assert "角色A" in rename_ctx.pm.load_project("demo")["characters"]
+
+
+class TestMergeAssetTool:
+    """merge_asset 经 ProjectManager.merge_asset 走真实级联：dry_run 按集列出影响、不落盘，执行后引用改指保留方。"""
+
+    @pytest.fixture
+    def merge_ctx(self, ctx: ToolHarness) -> ToolHarness:
+        ctx.pm.upsert_assets(
+            "demo",
+            "characters",
+            {"角色A": {"description": "主角"}, "主角甲": {"description": "同一个人"}},
+        )
+        return ctx
+
+    async def test_dry_run_reports_per_episode_without_writing(self, merge_ctx: ToolHarness) -> None:
+        out = await run_declared_tool(
+            MERGE_ASSET, merge_ctx, {"table": "characters", "source": "角色A", "target": "主角甲", "dry_run": True}
+        )
+
+        assert out.problem is None
+        assert "预览" in _said(out)
+        assert "《标题》（第 1 个，id=1）：正式脚本" in _said(out)
+        assert "角色A" in merge_ctx.pm.load_project("demo")["characters"]
+        assert _load(merge_ctx)["segments"][0]["characters_in_segment"] == ["角色A"]
+
+    async def test_merge_points_references_at_the_kept_asset(self, merge_ctx: ToolHarness) -> None:
+        out = await run_declared_tool(
+            MERGE_ASSET, merge_ctx, {"table": "characters", "source": "角色A", "target": "主角甲"}
+        )
+
+        assert out.problem is None
+        characters = merge_ctx.pm.load_project("demo")["characters"]
+        assert "角色A" not in characters
+        assert characters["主角甲"]["aliases"] == ["角色A"]
+        assert _load(merge_ctx)["segments"][0]["characters_in_segment"] == ["主角甲"]
+
+    async def test_products_are_not_offered(self, merge_ctx: ToolHarness) -> None:
+        out = await run_declared_tool(MERGE_ASSET, merge_ctx, {"table": "products", "source": "甲", "target": "乙"})
+
+        assert out.problem is not None

@@ -16,6 +16,7 @@ import { errMsg } from "@/utils/async";
 import { rejectIfAssetBusy } from "./assetBusyGuard";
 import { CharacterDerivativesButton } from "./CharacterDerivativesButton";
 import { EditableAssetName } from "./EditableAssetName";
+import { MergeAssetMenu } from "./MergeAssetMenu";
 import { AssetAliasesField } from "./AssetAliasesField";
 import { AssetSheetStaleBadge, MissingDescriptionChip, hasUsableDescription, sheetIsPending } from "./AssetSheetStatusBadge";
 import { useStaleRegenerateConfirm } from "./useStaleRegenerateConfirm";
@@ -446,6 +447,13 @@ export function CharacterCard({
             onRestore={onRestoreVersion}
             iconOnly
             busy={generating || uploadingSheet}
+          />
+          <MergeAssetMenu
+            projectName={projectName}
+            assetType="character"
+            name={name}
+            description={character.description}
+            busy={generating || uploadingSheet || saving || deletingAudio}
           />
         </div>
         )}

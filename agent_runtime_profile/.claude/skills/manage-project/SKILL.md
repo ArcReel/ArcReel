@@ -1,6 +1,6 @@
 ---
 name: manage-project
-description: 项目管理工具集。使用场景：新增/修改角色/场景/道具到 project.json（经 patch_project 工具，按 table+name upsert）、级联重命名资产（rename_asset 工具）、写顶层 settings 字段、编辑项目概述 overview，以及查询视频模型能力（get_video_capabilities）。分集规划不在本 skill：走 mcp__arcreel__plan_episodes / reset_episode_planning 服务端工具。
+description: 项目管理工具集。使用场景：新增/修改角色/场景/道具到 project.json（经 patch_project 工具，按 table+name upsert）、级联重命名资产（rename_asset 工具）、合并同一身份被重复登记的资产（merge_asset 工具）、写顶层 settings 字段、编辑项目概述 overview，以及查询视频模型能力（get_video_capabilities）。分集规划不在本 skill：走 mcp__arcreel__plan_episodes / reset_episode_planning 服务端工具。
 user-invocable: false
 ---
 
@@ -14,6 +14,7 @@ user-invocable: false
 |------|------|--------|
 | `mcp__arcreel__patch_project`（SDK tool） | 新增/修改 project.json 的角色/场景/道具（按 table+name upsert）、顶层 settings 字段或项目概述（overview 分支） | 子智能体 / 主 Agent |
 | `mcp__arcreel__rename_asset`（SDK tool） | 级联重命名资产：一次改齐资产表 key、全部剧集剧本与 script_plan 草稿的名称引用（引用数组 / speaker / `@[名称]` mention）及关联文件与版本历史 | 子智能体 / 主 Agent |
+| `mcp__arcreel__merge_asset`（SDK tool） | 把同一身份被登记成的两个同表资产并成一个：引用一次改指保留方，被并方的名字记为别名，或并为保留角色的衍生 | 主 Agent |
 | `mcp__arcreel__get_video_capabilities`（SDK tool） | 查视频模型能力（model 粒度，按项目唯一 generation_mode 解析，全项目同一口径，无需指定剧集） | **子智能体**（执行任务时自行查询） |
 
 > 分集规划（拆集/调整）由服务端工具 `mcp__arcreel__plan_episodes` / `mcp__arcreel__reset_episode_planning` 完成，调整已规划内容走「重置 + 重新规划」，流程见 video-workflow 阶段 2。
@@ -61,8 +62,20 @@ mcp__arcreel__patch_project({"overview": {"genre": "悬疑", "theme": "复仇与
 工具返回会区分**新增 N 个 / 合并改字段 N 个**,并显式列出被忽略的字段（``reference_image`` /
 ``character_sheet`` 等系统管理字段、``type`` / ``importance`` 等已废弃字段）。结构非法（如缺
 description）时不落盘并返回 `is_error: true`。
-**严禁**用 Write/Edit/Bash 直接改 `project.json`——改字段走 patch_project 工具，改资产名走 rename_asset 工具。
-`patch_project` 按 name upsert，用它改名只会「新名新建 + 旧名残留」且不更新任何引用。
+**严禁**用 Write/Edit/Bash 直接改 `project.json`——改字段走 patch_project 工具，改资产名走 rename_asset 工具，
+两个资产合一走 merge_asset 工具。`patch_project` 按 name upsert，用它改名只会「新名新建 + 旧名残留」且不更新任何引用。
+
+## 合并重复登记的资产
+
+同一个人、地点或物件被登记成两个同表资产时（如「老王」与「王建国」），用 `mcp__arcreel__merge_asset` 把
+`source` 并入 `target`。合并不可撤销，按以下顺序进行：
+
+1. 与用户确认保留哪一个作 `target`，以及并法：同一外观并为本体（默认）；`source` 是 `target` 的另一套外观
+   （如「黑衣人」是主角易容后的样子）时传 `as_derivative: true`，只适用于角色。
+2. 传 `dry_run: true` 调用，把回执里按集列出的引用改写数、将过期的分镜图与视频数，以及 `source` 不保留的内容
+   （描述、资产图及版本历史、声音设置、原图、参考音频）转述给用户。`source` 的描述里有 `target` 需要的信息时，
+   一并问用户是否先经 `patch_project` 补进 `target`。
+3. 得到用户同意后，去掉 `dry_run` 再调用一次执行。
 
 ## 查视频模型能力
 

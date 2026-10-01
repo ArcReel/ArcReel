@@ -21,7 +21,7 @@ from collections.abc import AsyncGenerator, Callable, Generator, Mapping, Sequen
 from contextlib import ExitStack, asynccontextmanager, contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, ClassVar, Literal, TypeGuard, cast
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, TypeGuard, cast
 
 import portalocker
 from pydantic import BaseModel, Field
@@ -68,6 +68,7 @@ from lib.project.asset_rename import (
     AssetRenameConflictError,
     AssetRenameNotFoundError,
     AssetRenameReport,
+    asset_files_named,
     plan_asset_file_renames,
     rewrite_entry_paths,
     rewrite_payload_references,
@@ -77,6 +78,7 @@ from lib.project.asset_types import (
     ASSET_SPECS,
     DERIVATIVES_FIELD,
     ProjectAssetNameConflictError,
+    asset_name_comparison_key,
     build_asset_entry,
     ensure_project_asset_name_available,
     ensure_project_asset_namespace,
@@ -103,6 +105,9 @@ from lib.speech.narration_config import (
     POST_PRODUCTION,
     validate_project_narration_config,
 )
+
+if TYPE_CHECKING:
+    from lib.project.asset_merge import AssetMergeReport
 
 logger = logging.getLogger(__name__)
 
@@ -2824,6 +2829,28 @@ class ProjectManager:
         }
     )
 
+    @contextmanager
+    def _asset_cascade_locks(self, project_name: str) -> Generator[tuple[list[str], list[Path]]]:
+        """持有级联改写全部剧本与草稿所需的锁，产出 ``(剧本文件名, 草稿路径)``。
+
+        锁序为「全部剧本锁（按文件名排序）→ 草稿文件锁 → 项目锁」，与 ``locked_episode_script`` 的
+        脚本锁 → 项目锁 一致，避免 ABBA 死锁。重命名、衍生改名与合并共用。
+        """
+        script_files = self._canonical_episode_scripts(project_name)
+        drafts_root = self.get_project_path(project_name) / "drafts"
+        draft_files = (
+            sorted(p for p in drafts_root.glob("episode_*/*.json") if p.name in self._RENAME_DRAFT_FILENAMES)
+            if drafts_root.is_dir()
+            else []
+        )
+        with ExitStack() as stack:
+            for filename in script_files:
+                stack.enter_context(self._script_lock(project_name, filename))
+            for path in draft_files:
+                stack.enter_context(self.file_lock(path))
+            stack.enter_context(self._project_lock(project_name))
+            yield script_files, draft_files
+
     @staticmethod
     def _artifact_manifest_adapter(project_dir: Path):
         """项目已有产物清单时给出它的适配器，没有则 ``None``（改名不凭空建清单）。"""
@@ -2871,21 +2898,7 @@ class ProjectManager:
             raise FileNotFoundError(f"项目不存在: {project_name}")
         project_dir = self.get_project_path(project_name)
 
-        script_files = self._canonical_episode_scripts(project_name)
-        drafts_root = project_dir / "drafts"
-        draft_files = (
-            sorted(p for p in drafts_root.glob("episode_*/*.json") if p.name in self._RENAME_DRAFT_FILENAMES)
-            if drafts_root.is_dir()
-            else []
-        )
-
-        with ExitStack() as stack:
-            for filename in script_files:
-                stack.enter_context(self._script_lock(project_name, filename))
-            for path in draft_files:
-                stack.enter_context(self.file_lock(path))
-            stack.enter_context(self._project_lock(project_name))
-
+        with self._asset_cascade_locks(project_name) as (script_files, draft_files):
             project = self._read_project_raw_unlocked(project_name)
             bucket = project.get(spec.bucket_key)
             from lib.artifacts.artifact_manifest import ArtifactKey, ArtifactManifest
@@ -3095,21 +3108,7 @@ class ProjectManager:
             raise FileNotFoundError(f"项目不存在: {project_name}")
         project_dir = self.get_project_path(project_name)
 
-        script_files = self._canonical_episode_scripts(project_name)
-        drafts_root = project_dir / "drafts"
-        draft_files = (
-            sorted(p for p in drafts_root.glob("episode_*/*.json") if p.name in self._RENAME_DRAFT_FILENAMES)
-            if drafts_root.is_dir()
-            else []
-        )
-
-        with ExitStack() as stack:
-            for filename in script_files:
-                stack.enter_context(self._script_lock(project_name, filename))
-            for path in draft_files:
-                stack.enter_context(self.file_lock(path))
-            stack.enter_context(self._project_lock(project_name))
-
+        with self._asset_cascade_locks(project_name) as (script_files, draft_files):
             project = self._read_project_raw_unlocked(project_name)
             bucket = project.get(spec.bucket_key)
             base_key = resolve_asset_key(bucket, entry_name)
@@ -3181,6 +3180,225 @@ class ProjectManager:
 
         emit_project_change_hint(project_name, changed_paths=[self.PROJECT_FILE])
         return result
+
+    def merge_asset(
+        self,
+        project_name: str,
+        table: str,
+        source_name: str,
+        target_name: str,
+        *,
+        as_derivative: bool = False,
+        dry_run: bool = False,
+    ) -> "AssetMergeReport":
+        """资产合并的单一事务入口（UI 与 Agent 共用）：把被并方并入同类型的保留方。
+
+        与 :meth:`rename_asset` 同一组锁、同一套「先扫描、再落盘」：全部剧集剧本与 script_plan 草稿里
+        指向被并方的引用改指保留方（规则见 :mod:`lib.project.asset_merge`），保留方原样不动，只追加
+        别名（并为本体）或衍生（并为衍生）。被并方的描述、资产图及版本历史、声音设置、原图与参考音频
+        都不保留，资产图撤销登记；它名下的衍生迁到保留方，与保留方已有衍生同名的并入那个。
+        ``dry_run=True`` 时只返回影响报告，预览与执行共用同一次扫描，数字必然一致。
+
+        落盘顺序：剧本 → 草稿 → 衍生资产图搬迁 → project.json 与清单 → 被并方的版本历史与文件。
+        project.json 提交前中途失败时，重跑同一次合并即可收敛（已改写的引用不再计数）。
+
+        Raises:
+            ValueError: table 未知 / 结构校验失败。
+            AssetMergeRejectedError: 类型不可合并、并入自己，或非角色并为衍生。
+            AssetMergeNotFoundError: 被并方或保留方不存在。
+            AssetRenameFileCollisionError: 迁移衍生资产图的目标已被孤儿文件占用。
+            AssetRenameHistoryCollisionError: 迁移衍生的目标 id 下已有别的版本历史。
+        """
+        # 衍生与产物模块经产物规划反向依赖本模块，惰性 import 破环（与 rename_asset 同理）。
+        from lib.artifacts.artifact_activation import forget_current_resource_artifact
+        from lib.artifacts.version_manager import VersionManager
+        from lib.project.asset_derivative_cleanup import purge_derivative_sheets
+        from lib.project.asset_derivative_rename import (
+            plan_derivative_sheet_relocation,
+            rewrite_derivative_sheet_paths,
+        )
+        from lib.project.asset_derivatives import derivative_table, ensure_derivative_table
+        from lib.project.asset_merge import (
+            MERGEABLE_ASSET_TYPES,
+            AssetMergeEpisodeImpact,
+            AssetMergeNotFoundError,
+            AssetMergeRejectedError,
+            AssetMergeReport,
+            DerivativeMergePlan,
+            count_outdated_artifacts,
+            current_artifact_probe,
+            merge_payload_references,
+            plan_derivative_merge,
+        )
+        from lib.project.data_validator import DataValidator
+
+        asset_type = self._resolve_asset_type(table)
+        if asset_type not in MERGEABLE_ASSET_TYPES:
+            raise AssetMergeRejectedError("type_not_mergeable", f"{table} 不支持合并")
+        spec = ASSET_SPECS[asset_type]
+        if as_derivative and not spec.supports_derivatives:
+            raise AssetMergeRejectedError("derivative_needs_character", f"{table} 没有衍生，不能并为衍生")
+        if not self.project_exists(project_name):
+            raise FileNotFoundError(f"项目不存在: {project_name}")
+        project_dir = self.get_project_path(project_name)
+
+        with self._asset_cascade_locks(project_name) as (script_files, draft_files):
+            project = self._read_project_raw_unlocked(project_name)
+            bucket = project.get(spec.bucket_key)
+            source = resolve_asset_key(bucket, asset_name_comparison_key(source_name))
+            if not isinstance(bucket, dict) or source is None:
+                raise AssetMergeNotFoundError(source_name)
+            target = resolve_asset_key(bucket, asset_name_comparison_key(target_name))
+            if target is None:
+                raise AssetMergeNotFoundError(target_name)
+            if source == target:
+                raise AssetMergeRejectedError("same_asset", f"不能把 {source!r} 并入它自己")
+            source_entry, target_entry = bucket[source], bucket[target]
+            if not isinstance(source_entry, dict) or not isinstance(target_entry, dict):
+                raise ValueError(f"project asset {spec.bucket_key} entries must be objects")
+
+            # —— 扫描（dry-run 预览与执行共用同一套逻辑）——
+            impacts: dict[int, dict[str, int]] = {}
+
+            def tally(episode: int | None, **counts: int) -> None:
+                if episode is None:
+                    return
+                totals = impacts.setdefault(episode, {})
+                for key, value in counts.items():
+                    totals[key] = totals.get(key, 0) + value
+
+            is_current = current_artifact_probe(project_dir)
+            changed_scripts: list[tuple[str, dict, dict]] = []
+            for filename in script_files:
+                script, _migrated = self._read_script_unlocked(project_name, filename)
+                before = copy.deepcopy(script)
+                changes = merge_payload_references(script, asset_type, source, target, as_derivative=as_derivative)
+                if not changes.total:
+                    continue
+                changed_scripts.append((filename, script, before))
+                episode = self.canonical_script_episode(filename)
+                storyboards, videos = (
+                    count_outdated_artifacts(before, script, asset_type, episode, is_current)
+                    if episode is not None
+                    else (0, 0)
+                )
+                tally(
+                    episode,
+                    script=changes.names,
+                    speaker=changes.speakers,
+                    prompt_text=changes.mentions,
+                    storyboards=storyboards,
+                    videos=videos,
+                )
+            changed_drafts: list[tuple[Path, dict]] = []
+            for path in draft_files:
+                payload = load_json_or_none(path)
+                if not isinstance(payload, dict):
+                    continue
+                changes = merge_payload_references(payload, asset_type, source, target, as_derivative=as_derivative)
+                if not changes.total:
+                    continue
+                changed_drafts.append((path, payload))
+                category = "draft" if path.name in QUARANTINE_FILENAMES else "script_plan"
+                tally(
+                    self.filename_episode(path.parent.name),
+                    **{category: changes.names},
+                    speaker=changes.speakers,
+                    prompt_text=changes.mentions,
+                )
+
+            # 被并角色的衍生：迁到保留方名下的随图、版本与清单键一起搬，并入已有同名衍生的整套清掉。
+            derivative_plan = (
+                plan_derivative_merge(source_entry, target_entry, source, as_derivative=as_derivative)
+                if spec.supports_derivatives
+                else DerivativeMergePlan()
+            )
+            moved_pairs = tuple((name, name) for name in derivative_plan.moved)
+            relocation = plan_derivative_sheet_relocation(
+                project_dir,
+                manifest_adapter=self._artifact_manifest_adapter(project_dir),
+                old_owner=source,
+                new_owner=target,
+                renames=moved_pairs,
+                carry_unlisted=False,
+            )
+
+            # project.json 变更先在副本上应用并做「不更坏」校验：校验失败整体拒绝、任何一处不落盘。
+            mutated = copy.deepcopy(project)
+            validator = DataValidator(str(self.projects_dir))
+            # 合并不改任何留存资产的名字，错误指纹按原文比对（折叠是恒等的）。
+            before_errors = _rename_agnostic_errors(validator.validate_project_payload(mutated), target, target)
+            merged_bucket = mutated[spec.bucket_key]
+            discarded = merged_bucket.pop(source)
+            kept = merged_bucket[target]
+
+            def string_aliases(entry: Mapping[str, Any]) -> list[str]:
+                aliases = entry.get(ALIASES_FIELD)
+                return [alias for alias in aliases if isinstance(alias, str)] if isinstance(aliases, list) else []
+
+            aliases_before = set(string_aliases(kept))
+            if not as_derivative:
+                record_asset_aliases(kept, (source, *string_aliases(discarded)), asset_name=target)
+            if derivative_plan.created is not None or derivative_plan.moved:
+                derivatives = ensure_derivative_table(kept)
+                if derivative_plan.created is not None:
+                    description = discarded.get("description")
+                    derivatives[derivative_plan.created] = {
+                        "description": description if isinstance(description, str) else "",
+                        spec.sheet_field: "",
+                    }
+                source_derivatives = derivative_table(discarded)
+                for name in derivative_plan.moved:
+                    derivatives[name] = copy.deepcopy(source_derivatives[name])
+                rewrite_derivative_sheet_paths(kept, old_owner=source, new_owner=target, renames=moved_pairs)
+            if self._requires_unique_asset_namespace(mutated):
+                ensure_project_asset_namespace(mutated)
+            after_errors = _rename_agnostic_errors(validator.validate_project_payload(mutated), target, target)
+            new_errors = {after_errors[fingerprint] for fingerprint in after_errors.keys() - before_errors.keys()}
+            if new_errors:
+                raise ValueError("project.json 结构校验失败: " + "; ".join(sorted(new_errors)))
+
+            report = AssetMergeReport(
+                table=table,
+                source=source,
+                target=target,
+                as_derivative=as_derivative,
+                aliases_added=tuple(alias for alias in string_aliases(kept) if alias not in aliases_before),
+                derivative_created=derivative_plan.created,
+                derivatives_moved=derivative_plan.moved,
+                derivatives_folded=derivative_plan.folded,
+                episodes=tuple(
+                    AssetMergeEpisodeImpact(episode=episode, **counts) for episode, counts in sorted(impacts.items())
+                ),
+                dry_run=dry_run,
+            )
+            if dry_run:
+                return report
+
+            # —— 落盘 ——
+            for filename, script, before in changed_scripts:
+                self._write_script_unlocked(project_name, script, filename, sync_project=False, before=before)
+            for path, payload in changed_drafts:
+                atomic_write_json(path, payload)
+            relocation.relocate()
+            self._touch_metadata(mutated)
+            project_file = self._get_project_file_path(project_name)
+            with formal_write_transaction(project_file):
+                atomic_write_json(project_file, mutated)
+                relocation.commit_manifest()
+                forget_current_resource_artifact(project_dir, resource_type=spec.bucket_key, resource_id=source)
+                if spec.supports_derivatives:
+                    purge_derivative_sheets(project_dir, source, derivative_plan.folded)
+            # 被并方的版本历史与按名命名的文件不保留：留着会让以后同名的资产接上不属于它的历史。
+            VersionManager(project_dir).purge_resource(spec.bucket_key, source)
+            for path in asset_files_named(project_dir, spec, source):
+                try:
+                    path.unlink(missing_ok=True)
+                except OSError:
+                    logger.warning("被并资产的文件删除失败，已解除登记: %s", path, exc_info=True)
+
+        emit_project_change_hint(project_name, changed_paths=[self.PROJECT_FILE])
+        return report
 
     def _update_asset_sheet(
         self,

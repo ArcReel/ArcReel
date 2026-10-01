@@ -1947,6 +1947,7 @@ export default {
   'tool_name_patch_episode_meta': '编辑分集标题',
   'tool_name_patch_project': '编辑项目资产',
   'tool_name_rename_asset': '重命名资产',
+  'tool_name_merge_asset': '合并资产',
   'tool_name_retry_project_migration': '重试数据升级',
 
   // 顶栏状态条（ProjectStatusBar）：集进度、项目层的下一步与数据升级失败形态

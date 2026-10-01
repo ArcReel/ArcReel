@@ -57,6 +57,7 @@ from server.agent_toolset.grid_storyboards import GENERATE_GRID, SPLIT_GRIDS
 from server.agent_toolset.orientation import GET_PROMPT_PREVIEW, GET_VIDEO_CAPABILITIES
 from server.agent_toolset.project_entry import CREATE_PROJECT
 from server.agent_toolset.remote import LONG_TASK_NOTE, remote_tool
+from server.agent_toolset.repair_channel import MERGE_ASSET
 from server.agent_toolset.script_authoring import (
     CONFIRM_SCRIPT_REVIEW,
     GENERATE_EPISODE_SCRIPT,
@@ -96,6 +97,7 @@ SAMPLE_ARGUMENTS: dict[str, dict[str, Any]] = {
     "patch_project": {"overview": {"synopsis": "梗概"}},
     "patch_episode_meta": {"script": "episode_1.json", "field": "title", "value": "第一集"},
     "rename_asset": {"table": "characters", "old_name": "甲", "new_name": "乙"},
+    "merge_asset": {"table": "characters", "source": "甲", "target": "乙", "dry_run": True},
     "retry_project_migration": {},
     "get_project_content": {},
     "list_source_files": {},
@@ -540,6 +542,8 @@ _PROBLEM_ON_SAMPLE = frozenset(
         LIST_REVISIONS.name,
         RESTORE_REVISION.name,
         COMPLETE_SCRIPT_PLAN_REBUILD.name,
+        # 测试项目只登记了一个角色，没有可并入的保留方。
+        MERGE_ASSET.name,
     }
 )
 
