@@ -23,11 +23,12 @@ from lib.episode.episode_ledger import (
     SourceDoc,
     normalize_source_text,
     parse_positive_episode_num,
-    parse_source_range,
 )
 from lib.episode.episode_paths import episode_source_path
 from lib.episode.episode_sources import (
+    CutPlacement,
     SourceOrigin,
+    cut_episode_placements,
     discover_sources,
     episode_source_origin,
     is_episode_source_file,
@@ -66,6 +67,8 @@ class LayoutFile:
     original_filename: str | None
     #: 文件读不到（不存在、符号链接、非 UTF-8）时为 True，此时没有分段。
     missing: bool
+    #: 规范化全文的字符数，是文件内偏移的上界；读不到时为 0。
+    length: int
     units: int
     cut_units: int
     segments: list[LayoutSegment] = field(default_factory=list)
@@ -108,14 +111,6 @@ class EpisodeLayout:
     unregistered: list[UnregisteredFile]
 
 
-@dataclass(frozen=True)
-class _Placement:
-    episode: int
-    file_index: int
-    start: int
-    end: int
-
-
 def _language(project: Mapping[str, Any]) -> str | None:
     raw = project.get("source_language")
     return raw if isinstance(raw, str) else None
@@ -134,36 +129,9 @@ def _raw_backup_names(project_dir: Path) -> dict[str, str]:
     return {path.stem: path.name for path in sorted(raw_dir.iterdir()) if path.is_file()}
 
 
-def _placements(project: Mapping[str, Any], docs: list[SourceDoc]) -> dict[int, _Placement]:
-    """能落进整本源文的切出集。同一文件里按起点排序，起点越界或与前一集重叠的不落位。"""
-    order = {doc.rel_path: index for index, doc in enumerate(docs)}
-    per_file: dict[int, list[_Placement]] = {}
-    for entry in _entries(project):
-        episode = parse_positive_episode_num(entry.get("episode"))
-        coords = parse_source_range(entry)
-        if episode is None or coords is None or episode_source_origin(entry) is not SourceOrigin.WHOLE_SOURCE:
-            continue
-        rel, start, end = coords
-        index = order.get(rel)
-        if index is None or start < 0 or end < start or start > len(docs[index].text):
-            continue
-        per_file.setdefault(index, []).append(
-            _Placement(episode=episode, file_index=index, start=start, end=min(end, len(docs[index].text)))
-        )
-    placed: dict[int, _Placement] = {}
-    for items in per_file.values():
-        cursor = 0
-        for item in sorted(items, key=lambda p: (p.start, p.end)):
-            if item.start < cursor or item.episode in placed:
-                continue
-            placed[item.episode] = item
-            cursor = item.end
-    return placed
-
-
 def _file_segments(
     doc: SourceDoc,
-    placements: list[_Placement],
+    placements: list[CutPlacement],
     *,
     gap_until: int,
     language: str | None,
@@ -247,7 +215,7 @@ def build_episode_layout(project_dir: Path, project: Mapping[str, Any]) -> Episo
     rate_override = project_speech_rate_override(project)
     docs = discover_sources(project_dir, project)
     readable = {doc.rel_path for doc in docs}
-    placements = _placements(project, docs)
+    placements = cut_episode_placements(project, docs)
     last = max(((p.file_index, p.end) for p in placements.values()), default=None)
     raw_names = _raw_backup_names(project_dir)
 
@@ -259,7 +227,9 @@ def build_episode_layout(project_dir: Path, project: Mapping[str, Any]) -> Episo
         index = doc_index.get(rel)
         if rel not in readable or index is None:
             files.append(
-                LayoutFile(source_file=rel, name=name, original_filename=original, missing=True, units=0, cut_units=0)
+                LayoutFile(
+                    source_file=rel, name=name, original_filename=original, missing=True, length=0, units=0, cut_units=0
+                )
             )
             continue
         doc = docs[index]
@@ -281,6 +251,7 @@ def build_episode_layout(project_dir: Path, project: Mapping[str, Any]) -> Episo
                 name=name,
                 original_filename=original,
                 missing=False,
+                length=len(doc.text),
                 units=count_reading_units(doc.text, language),
                 cut_units=sum(s.units for s in segments if s.kind == "episode"),
                 segments=segments,

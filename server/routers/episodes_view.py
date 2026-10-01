@@ -5,12 +5,24 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import asdict
-from typing import Any, Literal
+from pathlib import Path
+from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from lib.episode.episode_layout import build_episode_layout
+from lib.episode.episode_manual_split import (
+    ManualSplitError,
+    ManualSplitOutcome,
+    ManualSplitResult,
+    clear_cuts_after,
+    cut_unsplit_source,
+    merge_with_next_episode,
+    move_episode_boundary,
+    render_manual_split_impact_text,
+    split_episode,
+)
 from lib.episode.episode_source_commands import (
     EpisodeSourceError,
     adopt_source_file_as_episode,
@@ -77,6 +89,103 @@ async def adopt_source_file(name: str, filename: str, req: AdoptSourceFileReques
         return await asyncio.to_thread(_sync)
     except EpisodeSourceError as exc:
         raise episode_source_http_error(exc, _t, episode=req.episode, filename=filename) from exc
+    except (HTTPException, ApiError):
+        raise
+    except Exception as exc:
+        logger.exception("请求处理失败")
+        raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
+
+
+class _ManualSplitBase(BaseModel):
+    #: 创作者在确认清单里看过的有产物的集；锁内复核出清单之外的有产物集时退回确认。
+    confirm_episodes: list[int] = Field(default_factory=list)
+    #: 只返回波及清单，不写入。
+    dry_run: bool = False
+
+
+class CutRequest(_ManualSplitBase):
+    action: Literal["cut"]
+    source_file: str
+    end: int
+    title: str = ""
+
+
+class SplitRequest(_ManualSplitBase):
+    action: Literal["split"]
+    episode: int
+    at: int
+
+
+class MoveBoundaryRequest(_ManualSplitBase):
+    action: Literal["move_boundary"]
+    episode: int
+    at: int
+
+
+class MergeNextRequest(_ManualSplitBase):
+    action: Literal["merge_next"]
+    episode: int
+
+
+class ClearAfterRequest(_ManualSplitBase):
+    action: Literal["clear_after"]
+    episode: int
+
+
+_ManualSplitBody = CutRequest | SplitRequest | MoveBoundaryRequest | MergeNextRequest | ClearAfterRequest
+ManualSplitRequest = Annotated[_ManualSplitBody, Field(discriminator="action")]
+
+_MANUAL_SPLIT_STATUS: dict[str, int] = {
+    "episode_not_found": 404,
+    "source_file_not_found": 404,
+    "position_invalid": 422,
+    "empty_range": 422,
+}
+
+
+def _run_manual_split(project_dir: Path, req: _ManualSplitBody) -> ManualSplitOutcome:
+    options = {"confirm_episodes": req.confirm_episodes, "dry_run": req.dry_run}
+    if isinstance(req, CutRequest):
+        return cut_unsplit_source(project_dir, source_file=req.source_file, end=req.end, title=req.title, **options)
+    if isinstance(req, SplitRequest):
+        return split_episode(project_dir, req.episode, at=req.at, **options)
+    if isinstance(req, MoveBoundaryRequest):
+        return move_episode_boundary(project_dir, req.episode, at=req.at, **options)
+    if isinstance(req, MergeNextRequest):
+        return merge_with_next_episode(project_dir, req.episode, **options)
+    return clear_cuts_after(project_dir, req.episode, **options)
+
+
+@router.post(
+    "/projects/{name}/episodes-view/manual-split",
+    dependencies=[Depends(require_project_migration_ok)],
+)
+async def manual_split(name: str, req: ManualSplitRequest, _t: Translator) -> dict[str, Any]:
+    """手工切分：切分、拆分、移动分界、与下一集合并、清除之后的切分，直接写入分集账本。
+
+    波及有产物的集（或 ``dry_run``）时返回 ``status=confirmation_required`` 与服务端成文的确认清单 ``impact.text``，
+    不写入；创作者确认后带上 ``confirm_episodes`` 重新提交。
+    """
+
+    def _sync() -> dict[str, Any]:
+        manager = get_project_manager()
+        if not manager.project_exists(name):
+            raise NotFoundError("project_not_found", name=name)
+        with project_change_source("webui"):
+            outcome = _run_manual_split(manager.get_project_path(name), req)
+        impact = outcome.impact.to_dict()
+        if isinstance(outcome, ManualSplitResult):
+            return {"status": "applied", "episode": outcome.episode, "impact": impact}
+        project = manager.load_project(name)
+        text = render_manual_split_impact_text(impact, project, _t)
+        return {"status": "confirmation_required", "impact": {**impact, "text": text}}
+
+    try:
+        return await asyncio.to_thread(_sync)
+    except ManualSplitError as exc:
+        raise HTTPException(
+            status_code=_MANUAL_SPLIT_STATUS.get(exc.code, 409), detail=_t(f"manual_split_{exc.code}")
+        ) from exc
     except (HTTPException, ApiError):
         raise
     except Exception as exc:

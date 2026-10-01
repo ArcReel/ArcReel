@@ -9,7 +9,6 @@ import {
   formatVolume,
   isReservedEpisodeFileName,
   otherEpisodes,
-  paragraphs,
   railFileGroups,
 } from "./episodes-view-model";
 
@@ -54,10 +53,6 @@ describe("episodes-view-model", () => {
     expect(formatSpoken(t, 150)).toBe("约 3 分钟");
   });
 
-  it("splits source text into non-empty paragraphs", () => {
-    expect(paragraphs("第一段\n\n  \n第二段\n")).toEqual(["第一段", "第二段"]);
-  });
-
   it("groups cut episodes by file with the gaps between them and the unsplit tail", () => {
     const layout = view({
       files: [
@@ -66,6 +61,7 @@ describe("episodes-view-model", () => {
           name: "a.txt",
           original_filename: null,
           missing: false,
+          length: 100,
           units: 100,
           cut_units: 60,
           segments: [
@@ -80,6 +76,7 @@ describe("episodes-view-model", () => {
           name: "b.txt",
           original_filename: null,
           missing: false,
+          length: 100,
           units: 50,
           cut_units: 0,
           segments: [segment({ units: 50 })],

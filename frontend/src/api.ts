@@ -114,7 +114,12 @@ import type {
 import type { Asset, AssetType, AssetCreatePayload, AssetUpdatePayload } from "@/types/asset";
 import type { AgentMemoryOverview, AgentMemoryScope } from "@/types/agent-memory";
 import type { EpisodeNextStep, WorkflowPlan, WorkflowPlanRequest, WorkflowStatus } from "@/types/workflow";
-import type { AdoptSourceFileTarget, EpisodesView } from "@/types/episodes-view";
+import type {
+  AdoptSourceFileTarget,
+  EpisodesView,
+  ManualSplitAction,
+  ManualSplitResponse,
+} from "@/types/episodes-view";
 import type {
   AssetRegenerationImpact,
   AssetSheetBatchPreview,
@@ -1685,6 +1690,25 @@ class API {
   ): Promise<EpisodesView> {
     return this.request(`/projects/${encodeURIComponent(projectName)}/episodes-view`, {
       signal: options.signal,
+    });
+  }
+
+  /**
+   * 手工切分，直接写入分集账本。波及有产物的集（或 `dryRun`）时返回确认清单、不写入；
+   * 确认后把清单里的集 ID 放进 `confirmEpisodes` 重新提交。
+   */
+  static async manualSplit(
+    projectName: string,
+    action: ManualSplitAction,
+    options: { confirmEpisodes?: number[]; dryRun?: boolean } = {}
+  ): Promise<ManualSplitResponse> {
+    return this.request(`/projects/${encodeURIComponent(projectName)}/episodes-view/manual-split`, {
+      method: "POST",
+      body: JSON.stringify({
+        ...action,
+        confirm_episodes: options.confirmEpisodes ?? [],
+        dry_run: options.dryRun ?? false,
+      }),
     });
   }
 

@@ -24,6 +24,8 @@ export interface EpisodesViewFile {
   original_filename: string | null;
   /** 文件读不到（不存在、符号链接、非 UTF-8）。 */
   missing: boolean;
+  /** 规范化全文的码位数，是文件内偏移的上界；读不到时为 0。 */
+  length: number;
   units: number;
   cut_units: number;
   segments: EpisodesViewSegment[];
@@ -62,3 +64,26 @@ export interface EpisodesView {
 export type AdoptSourceFileTarget =
   | { target: "whole_source" }
   | { target: "episode"; episode?: number | null };
+
+/** 手工切分的动作：切分、拆分、移动分界、与下一集合并、清除之后的切分。偏移是文件内的码位偏移。 */
+export type ManualSplitAction =
+  | { action: "cut"; source_file: string; end: number; title?: string }
+  | { action: "split"; episode: number; at: number }
+  | { action: "move_boundary"; episode: number; at: number }
+  | { action: "merge_next"; episode: number }
+  | { action: "clear_after"; episode: number };
+
+/** 一次手工切分波及的集（集 ID）。 */
+export interface ManualSplitImpact {
+  /** 原文范围变了且有产物，标 stale。 */
+  restaled: number[];
+  /** 有产物，转为无原文的集并移到播出顺序末尾。 */
+  retired: number[];
+  /** 没有产物，直接移除。 */
+  removed: number[];
+}
+
+export type ManualSplitResponse =
+  | { status: "applied"; episode: number | null; impact: ManualSplitImpact }
+  /** `impact.text` 是服务端成文的确认清单。 */
+  | { status: "confirmation_required"; impact: ManualSplitImpact & { text: string } };

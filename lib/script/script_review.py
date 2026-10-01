@@ -213,6 +213,17 @@ class ScriptPlanWriteConflict(Exception):
         self.current_content = current_content
 
 
+def mark_ledger_stale(project_path: Path, project: dict[str, Any], entry: dict[str, Any], episode: int) -> None:
+    """把一集的集规划状态标为 stale，以当前 script_plan 的内容指纹为重建基线。
+
+    已是 stale 的集再次被改动时重设基线，并清掉上一轮的重建完成记录。
+    """
+    entry["ledger_status"] = "stale"
+    path = script_plan_path(project_path, project, episode)
+    entry[STALE_SCRIPT_PLAN_REVISION_FIELD] = content_fingerprint(path) if path is not None else None
+    entry.pop(STALE_SCRIPT_PLAN_REBUILT_REVISION_FIELD, None)
+
+
 class ScriptPlanRebuildCompletionError(ValueError):
     """A stale script_plan rebuild cannot be recorded against the current ledger state."""
 
