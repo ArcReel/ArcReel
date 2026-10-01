@@ -152,3 +152,15 @@ def test_discarding_a_stale_id_is_refused_and_the_current_one_is_removed(replan_
     assert stale.status_code == 404
     assert discarded.json() == {"status": "discarded"}
     assert "episode_replan" not in pm.load_project("demo")
+
+
+def test_continuing_a_finished_or_missing_plan_is_refused(replan_client) -> None:
+    client, _pm, candidate_id = replan_client
+
+    with client:
+        finished = client.post("/api/v1/projects/demo/episode-replan/continue", json={"candidate_id": candidate_id})
+        missing = client.post("/api/v1/projects/demo/episode-replan/continue", json={"candidate_id": "other"})
+
+    assert finished.status_code == 409
+    assert finished.json()["detail"] == zh_errors.MESSAGES["episode_replan_candidate_complete"]
+    assert missing.status_code == 404

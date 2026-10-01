@@ -108,6 +108,8 @@ export interface ReplanSummary {
   instructions: string | null;
   /** 已生成到整本源文结尾。 */
   complete: boolean;
+  /** 生成中途停止的原因：AI 找不到切分点、出错；创作者主动停止或还在生成时为 null。 */
+  interrupted: "no_cut_point" | "failed" | null;
   stale: "ledger_changed" | "source_changed" | null;
   start: SourcePoint;
   /** 已生成到的位置。 */
@@ -123,6 +125,8 @@ export interface ReplanSummary {
   removed: number[];
   /** 保留为无原文、且新方案里找不到原文范围一模一样的集。 */
   needs_review: number[];
+  /** 原文超出新方案覆盖范围、采纳时同样按被替换处理的集（方案没有生成到整本源文结尾时）。 */
+  uncovered: number[];
   /** 播出位置会变的其他集。 */
   moved: { episode: number; from: number; to: number }[];
   episodes: ReplanCandidateEpisode[];
@@ -150,6 +154,7 @@ export interface ReplanAdoptionImpact {
   retired: number[];
   removed: number[];
   needs_review: number[];
+  uncovered: number[];
   moved: { episode: number; from: number; to: number }[];
   revision: string;
 }

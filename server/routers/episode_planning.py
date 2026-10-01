@@ -5,7 +5,8 @@
 一个排队的文本任务。提交后立即返回首窗的生成批次，进度经任务事件与项目快照呈现。附加指令随任务传递，不写进项目。
 
 「从这一集开始重新规划」调用 :func:`server.tool_runtime.start_episode_replan`：逐窗生成一份候选，分集账本不动；
-候选的采纳与放弃见 :mod:`lib.episode.episode_replan`。
+生成中途停止后可以接着生成（:func:`server.tool_runtime.continue_episode_replan`）。候选的采纳与放弃见
+:mod:`lib.episode.episode_replan`。
 """
 
 import asyncio
@@ -42,6 +43,7 @@ from server.tool_runtime import (
     Services,
     ToolProblem,
     ToolRequest,
+    continue_episode_replan,
     episode_planning_active,
     start_episode_planning,
     start_episode_replan,
@@ -168,6 +170,25 @@ async def start_replan(project_name: str, req: EpisodeReplanRequest, user: Curre
         _raise_problem(outcome.problem, _t)
     if isinstance(outcome.value, ReplanScope):
         return {"status": "preview", **asdict(outcome.value)}
+    return {"batch": json_value(outcome.value)}
+
+
+class ReplanContinueRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    candidate_id: str
+
+
+@router.post("/projects/{project_name}/episode-replan/continue", dependencies=[Depends(require_project_migration_ok)])
+async def continue_replan(project_name: str, req: ReplanContinueRequest, user: CurrentUser, _t: Translator):
+    """接着生成中途停止的新的分集方案：从方案的结尾逐窗生成到整本源文结尾，沿用发起时的附加指令。
+
+    返回首窗的生成批次。方案已覆盖到结尾、已过时或已不在时按原因码拒绝；分集规划在进行时 409。
+    """
+    scope, caller, services = _context(project_name, user.id)
+    outcome = await continue_episode_replan(req.candidate_id, scope, caller, services)
+    if outcome.problem is not None:
+        _raise_problem(outcome.problem, _t)
     return {"batch": json_value(outcome.value)}
 
 

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useLocation, useSearch } from "wouter";
 import { BookOpen, Upload } from "lucide-react";
@@ -17,6 +17,7 @@ import { useManualSplit } from "./useManualSplit";
 import { CreateEpisodeDialog } from "./CreateEpisodeDialog";
 import { useDeleteEpisode } from "./useDeleteEpisode";
 import { useReplanEpisode } from "./useReplanEpisode";
+import { replanCompare } from "./replan-compare-model";
 import {
   EPISODES_VIEW_CREATE_PARAM,
   EPISODES_VIEW_EPISODE_PARAM,
@@ -97,9 +98,12 @@ export function EpisodesView({ projectName }: { projectName: string }) {
   const deletion = useDeleteEpisode(projectName, (episode) => {
     if (selected === episode) setSelected(null);
   });
-  const replan = useReplanEpisode(projectName);
   const episodeHeaders = useRef(new Map<number, HTMLElement>());
   const fileBars = useRef(new Map<string, HTMLElement>());
+  // 开始重新规划时左栏滚到重新规划的起点：发起的那一集
+  const onReplanStarted = useCallback((episode: number) => scrollIntoViewTop(episodeHeaders.current.get(episode)), []);
+  const replan = useReplanEpisode(projectName, onReplanStarted);
+  const compare = useMemo(() => (view === null ? null : replanCompare(view, view.replan)), [view]);
 
   const registerEpisodeHeader = useCallback((episode: number, el: HTMLElement | null) => {
     if (el) episodeHeaders.current.set(episode, el);
@@ -199,6 +203,7 @@ export function EpisodesView({ projectName }: { projectName: string }) {
               moving={split.moving}
               onPlace={split.place}
               onToggleMoving={split.toggleMoving}
+              compare={compare}
             />
           )}
         </div>

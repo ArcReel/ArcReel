@@ -18,9 +18,11 @@ from lib.episode.episode_replan import (
     adopt_replan_candidate,
     create_replan_candidate,
     discard_replan_candidate,
+    record_replan_interruption,
     render_replan_adoption_text,
     replan_candidate_summary,
     replan_scope,
+    resume_replan_candidate,
 )
 from lib.episode.episode_reset import reset_episode_planning
 from lib.i18n import _ as i18n_message
@@ -224,6 +226,128 @@ class TestCandidate:
 
         assert exc.value.code == "from_first_only"
         assert (scope.offset, scope.from_beginning, scope.replaced) == (0, True, [1, 2])
+
+
+async def _generate_partial(
+    project_dir: Path, episode: int, anchors: list[str], *, instructions: str | None = None
+) -> str:
+    """只生成一批就停下：候选没有覆盖到整本源文结尾。"""
+    candidate_id = create_replan_candidate(project_dir, episode=episode, instructions=instructions)
+    planner = EpisodePlanner(project_dir, generator=_Generator(anchors))
+    result = await planner.plan_candidate(candidate_id, instructions)
+    assert result.source_exhausted is False
+    return candidate_id
+
+
+class TestInterruptedCandidate:
+    async def test_adopting_a_partial_candidate_replaces_the_episodes_beyond_it_too(self, tmp_path: Path):
+        project_dir = _project_dir(tmp_path, [_cut(1, 0), _cut(2, 1), _cut(3, 2), _cut(4, 3), _own(9)])
+        _give_products(project_dir, 4)
+        candidate_id = await _generate_partial(project_dir, 2, ["城里起火。"])
+
+        summary = replan_candidate_summary(project_dir, _load(project_dir))
+        result = _adopt(project_dir, candidate_id)
+
+        assert summary is not None
+        assert (summary["complete"], summary["uncovered"]) == (False, [3, 4])
+        assert result.impact.uncovered == [3, 4]
+        assert (result.impact.retired, result.impact.removed) == ([4], [2, 3])
+        assert result.episodes == [10]
+        assert _order(project_dir) == [1, 10, 9, 4]
+        assert _entry(project_dir, 4)["source_origin"] == "none"
+        assert not (project_dir / "source" / "episode_3.txt").exists()
+
+    async def test_the_confirmation_names_the_episodes_beyond_the_candidate(self, tmp_path: Path):
+        project_dir = _project_dir(tmp_path, [_cut(1, 0), _cut(2, 1), _cut(3, 2)])
+        candidate_id = await _generate_partial(project_dir, 1, ["少年下山。"])
+        preview = adopt_replan_candidate(project_dir, candidate_id)
+        assert isinstance(preview, ReplanConfirmationRequired)
+
+        texts = render_replan_adoption_text(
+            preview.impact, _load(project_dir), lambda key, **params: i18n_message(key, locale="zh", **params)
+        )
+
+        assert "超出新方案的范围" in texts["text"]
+        assert "旧2、旧3" in texts["text"]
+
+    async def test_a_complete_candidate_has_nothing_beyond_it(self, tmp_path: Path):
+        project_dir = _project_dir(tmp_path, [_cut(1, 0), _cut(2, 1)])
+        await _generate(project_dir, 1, ["重逢离别。"])
+
+        summary = replan_candidate_summary(project_dir, _load(project_dir))
+
+        assert summary is not None
+        assert summary["uncovered"] == []
+
+    async def test_resuming_clears_the_interruption_and_keeps_the_instructions(self, tmp_path: Path):
+        project_dir = _project_dir(tmp_path, [_cut(1, 0), _cut(2, 1), _cut(3, 2)])
+        candidate_id = await _generate_partial(project_dir, 1, ["少年下山。"], instructions="节奏放慢")
+        record_replan_interruption(project_dir, candidate_id, "no_cut_point")
+        assert replan_candidate_summary(project_dir, _load(project_dir))["interrupted"] == "no_cut_point"
+
+        instructions = resume_replan_candidate(project_dir, candidate_id)
+        await EpisodePlanner(project_dir, generator=_Generator(["重逢离别。"])).plan_candidate(
+            candidate_id, instructions
+        )
+
+        summary = replan_candidate_summary(project_dir, _load(project_dir))
+        assert instructions == "节奏放慢"
+        assert summary["interrupted"] is None
+        assert summary["complete"] is True
+        assert summary["new_count"] == 2
+
+    async def test_a_complete_or_stale_candidate_cannot_be_resumed(self, tmp_path: Path):
+        project_dir = _project_dir(tmp_path, [_cut(1, 0), _cut(2, 1)])
+        complete = await _generate(project_dir, 1, ["重逢离别。"])
+        with pytest.raises(ReplanError) as done:
+            resume_replan_candidate(project_dir, complete)
+        discard_replan_candidate(project_dir, complete)
+        partial = await _generate_partial(project_dir, 1, ["少年下山。"])
+        (project_dir / "source" / "novel.txt").write_text(SOURCE + "尾声。", encoding="utf-8")
+
+        with pytest.raises(ReplanError) as stale:
+            resume_replan_candidate(project_dir, partial)
+
+        assert done.value.code == "candidate_complete"
+        assert stale.value.code == "source_changed"
+
+    async def test_a_cross_file_episode_ending_beyond_the_candidate_is_named(self, tmp_path: Path):
+        # a.txt 是第一、二章，b.txt 是第三、四章；第 2 集从第二章跨到第三章结尾。方案只生成了 a.txt 里的第二章
+        project_dir = _project_dir(tmp_path, [])
+        source_dir = project_dir / "source"
+        (source_dir / "novel.txt").unlink()
+        (source_dir / "a.txt").write_text(CH[0] + CH[1], encoding="utf-8")
+        (source_dir / "b.txt").write_text(CH[2] + CH[3], encoding="utf-8")
+        ch = len(CH[0])
+        project = _load(project_dir)
+        project["whole_source_files"] = [{"source_file": "source/a.txt"}, {"source_file": "source/b.txt"}]
+        project["episodes"] = [
+            {**_cut(1, 0), "source_range": {"source_file": "source/a.txt", "start": 0, "end": ch}},
+            {
+                **_cut(2, 1),
+                "source_range": {"source_file": "source/a.txt", "start": ch, "end_file": "source/b.txt", "end": ch},
+            },
+            {**_cut(3, 3), "source_range": {"source_file": "source/b.txt", "start": ch, "end": 2 * ch}},
+        ]
+        project["episode_id_high_water"] = 3
+        (project_dir / "project.json").write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
+        candidate_id = await _generate_partial(project_dir, 2, ["城里起火。"])
+
+        summary = replan_candidate_summary(project_dir, _load(project_dir))
+        result = _adopt(project_dir, candidate_id)
+
+        assert summary is not None
+        assert summary["uncovered"] == [2, 3]
+        assert result.impact.uncovered == [2, 3]
+        assert _order(project_dir) == [1, 4]
+
+    def test_an_interruption_for_a_candidate_that_is_gone_changes_nothing(self, tmp_path: Path):
+        project_dir = _project_dir(tmp_path, [_cut(1, 0)])
+        before = _load(project_dir)
+
+        record_replan_interruption(project_dir, "gone", "failed")
+
+        assert _load(project_dir) == before
 
 
 class TestAdoption:
