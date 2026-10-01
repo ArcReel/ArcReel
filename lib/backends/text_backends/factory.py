@@ -8,6 +8,7 @@ assemble_backend（media_type=text）：内置文本 provider 全部经 Provider
 from __future__ import annotations
 
 from lib.backends.backend_assembly import assemble_backend
+from lib.backends.backend_assembly.assembler import OutputLimitFacts, output_limit_facts
 from lib.backends.text_backends.base import TextBackend, TextTaskType
 from lib.config.resolver import ConfigResolver
 from lib.db import async_session_factory
@@ -33,3 +34,10 @@ async def create_text_backend_for_task(
             resolver=r,
         )
     return backend, provider_id
+
+
+async def text_model_output_limit(provider_id: str, model_id: str) -> OutputLimitFacts:
+    """读取文本模型登记的最大输出长度，并标明它是否由自定义供应商提供。"""
+    return await output_limit_facts(
+        provider_id=provider_id, model_id=model_id, resolver=ConfigResolver(async_session_factory)
+    )

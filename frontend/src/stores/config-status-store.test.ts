@@ -182,6 +182,7 @@ describe("config-status-store", () => {
               currency: null,
               supported_durations: null,
               resolution: null,
+              max_output_tokens: null,
               system_capabilities: null,
               capability_overrides: null,
               global_bucket_refs: null,

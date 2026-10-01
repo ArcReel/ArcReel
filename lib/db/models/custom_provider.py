@@ -91,3 +91,5 @@ class CustomProviderModel(TimestampMixin, Base):
     # 跟随系统判定；写死的能力维度列表不进 schema，向新维度开放无需迁移。合成语义由
     # lib.custom_provider.capabilities 唯一承载。
     capability_overrides: Mapped[dict[str, object] | None] = mapped_column(JSON, nullable=True)
+    # 最大输出长度（单位 token），只对文本模型有意义；NULL = 未登记，文本请求按 64000 封顶。
+    max_output_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)

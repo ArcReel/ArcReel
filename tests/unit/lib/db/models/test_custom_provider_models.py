@@ -99,6 +99,7 @@ class TestCustomProviderModelTable:
             "supported_durations",
             "resolution",
             "capability_overrides",
+            "max_output_tokens",
             "created_at",
             "updated_at",
         }

@@ -62,6 +62,9 @@ class ModelInfo:
     # 图像 / 视频两个 registry 条目）用此字段让两条目共用一个 API 模型名，而 registry 键名各自
     # 唯一——键名兼作 UI 标识与计费查表键，不能重复，故 API 模型名需与键名解耦。
     api_model_name: str | None = None
+    # 最大输出长度（单位 token），对照供应商文档手工填写；带 text_generation 能力的模型必须登记。
+    # 文本请求的实际上限取 min(本值, 64000)，见 lib.backends.text_generator.effective_max_output_tokens。
+    max_output_tokens: int | None = None
 
 
 # 合法并发 lane 名，与 CapacityTable 的 image/video/audio 三条容量通道对齐。
@@ -387,6 +390,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 media_type="text",
                 capabilities=["text_generation", "structured_output", "vision"],
                 pricing=_gemini_text_pricing("gemini-3.1-pro-preview", 2.00, 12.00),
+                max_output_tokens=65536,
             ),
             "gemini-3-flash-preview": ModelInfo(
                 display_name="Gemini 3 Flash",
@@ -394,12 +398,14 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 capabilities=["text_generation", "structured_output", "vision"],
                 default=True,
                 pricing=_gemini_text_pricing("gemini-3-flash-preview", 0.50, 3.00),
+                max_output_tokens=65536,
             ),
             "gemini-3.1-flash-lite-preview": ModelInfo(
                 display_name="Gemini 3.1 Flash Lite",
                 media_type="text",
                 capabilities=["text_generation", "structured_output", "vision"],
                 pricing=_gemini_text_pricing("gemini-3.1-flash-lite-preview", 0.25, 1.50),
+                max_output_tokens=65536,
             ),
             # --- image ---
             "gemini-3-pro-image-preview": ModelInfo(
@@ -471,6 +477,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 media_type="text",
                 capabilities=["text_generation", "structured_output", "vision"],
                 pricing=_gemini_text_pricing("gemini-3.1-pro-preview", 2.00, 12.00),
+                max_output_tokens=65536,
             ),
             "gemini-3-flash-preview": ModelInfo(
                 display_name="Gemini 3 Flash",
@@ -478,12 +485,14 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 capabilities=["text_generation", "structured_output", "vision"],
                 default=True,
                 pricing=_gemini_text_pricing("gemini-3-flash-preview", 0.50, 3.00),
+                max_output_tokens=65536,
             ),
             "gemini-3.1-flash-lite-preview": ModelInfo(
                 display_name="Gemini 3.1 Flash Lite",
                 media_type="text",
                 capabilities=["text_generation", "structured_output", "vision"],
                 pricing=_gemini_text_pricing("gemini-3.1-flash-lite-preview", 0.25, 1.50),
+                max_output_tokens=65536,
             ),
             # --- image ---
             "gemini-3-pro-image-preview": ModelInfo(
@@ -547,6 +556,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 media_type="text",
                 capabilities=["text_generation", "vision"],
                 pricing=_ark_text_pricing("doubao-seed-2-0-pro-260215", 3.20, 16.00),
+                max_output_tokens=131072,
             ),
             "doubao-seed-2-0-lite-260215": ModelInfo(
                 display_name="豆包 Seed 2.0 Lite",
@@ -554,18 +564,21 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 capabilities=["text_generation", "vision"],
                 default=True,
                 pricing=_ark_text_pricing("doubao-seed-2-0-lite-260215", 0.60, 3.60),
+                max_output_tokens=131072,
             ),
             "doubao-seed-2-0-mini-260215": ModelInfo(
                 display_name="豆包 Seed 2.0 Mini",
                 media_type="text",
                 capabilities=["text_generation", "vision"],
                 pricing=_ark_text_pricing("doubao-seed-2-0-mini-260215", 0.20, 2.00),
+                max_output_tokens=131072,
             ),
             "doubao-seed-1-8-251228": ModelInfo(
                 display_name="豆包 Seed 1.8",
                 media_type="text",
                 capabilities=["text_generation", "structured_output", "vision"],
                 pricing=_ark_text_pricing("doubao-seed-1-8-251228", 0.80, 2.00),
+                max_output_tokens=32768,
             ),
             # --- image ---
             "doubao-seedream-5-0-lite-260128": ModelInfo(
@@ -675,47 +688,56 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 display_name="豆包 Seed 2.0 Mini",
                 media_type="text",
                 capabilities=["text_generation", "vision"],
+                max_output_tokens=131072,
             ),
             "doubao-seed-2.0-lite": ModelInfo(
                 display_name="豆包 Seed 2.0 Lite",
                 media_type="text",
                 capabilities=["text_generation", "vision"],
                 default=True,
+                max_output_tokens=131072,
             ),
             "doubao-seed-2.0-pro": ModelInfo(
                 display_name="豆包 Seed 2.0 Pro",
                 media_type="text",
                 capabilities=["text_generation", "vision"],
+                max_output_tokens=131072,
             ),
             "doubao-seed-2.0-code": ModelInfo(
                 display_name="豆包 Seed 2.0 Code",
                 media_type="text",
                 capabilities=["text_generation"],
+                max_output_tokens=131072,
             ),
             "deepseek-v4-flash": ModelInfo(
                 display_name="DeepSeek V4 Flash",
                 media_type="text",
                 capabilities=["text_generation"],
+                max_output_tokens=393216,
             ),
             "deepseek-v4-pro": ModelInfo(
                 display_name="DeepSeek V4 Pro",
                 media_type="text",
                 capabilities=["text_generation"],
+                max_output_tokens=393216,
             ),
             "glm-5.1": ModelInfo(
                 display_name="GLM 5.1",
                 media_type="text",
                 capabilities=["text_generation"],
+                max_output_tokens=131072,
             ),
             "kimi-k2.6": ModelInfo(
                 display_name="Kimi K2.6",
                 media_type="text",
                 capabilities=["text_generation"],
+                max_output_tokens=32768,
             ),
             "minimax-m2.7": ModelInfo(
                 display_name="MiniMax M2.7",
                 media_type="text",
                 capabilities=["text_generation"],
+                max_output_tokens=131072,
             ),
             # --- image ---
             "doubao-seedream-5.0-lite": ModelInfo(
@@ -770,12 +792,14 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 media_type="text",
                 capabilities=["text_generation", "structured_output", "vision"],
                 pricing=_grok_text_pricing("grok-4.20-0309-reasoning", 2.00, 6.00),
+                max_output_tokens=131072,
             ),
             "grok-4.20-0309-non-reasoning": ModelInfo(
                 display_name="Grok 4.20 Non-Reasoning",
                 media_type="text",
                 capabilities=["text_generation", "structured_output", "vision"],
                 pricing=_grok_text_pricing("grok-4.20-0309-non-reasoning", 2.00, 6.00),
+                max_output_tokens=131072,
             ),
             "grok-4-1-fast-reasoning": ModelInfo(
                 display_name="Grok 4.1 Fast Reasoning",
@@ -783,12 +807,14 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 capabilities=["text_generation", "structured_output", "vision"],
                 default=True,
                 pricing=_grok_text_pricing("grok-4-1-fast-reasoning", 0.20, 0.50),
+                max_output_tokens=131072,
             ),
             "grok-4-1-fast-non-reasoning": ModelInfo(
                 display_name="Grok 4.1 Fast (Non-Reasoning)",
                 media_type="text",
                 capabilities=["text_generation", "structured_output", "vision"],
                 pricing=_grok_text_pricing("grok-4-1-fast-non-reasoning", 0.20, 0.50),
+                max_output_tokens=131072,
             ),
             # --- image ---
             "grok-imagine-image-pro": ModelInfo(
@@ -837,12 +863,14 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 media_type="text",
                 capabilities=["text_generation", "structured_output", "vision"],
                 pricing=_openai_text_pricing("gpt-5.5", 5.00, 30.00),
+                max_output_tokens=128000,
             ),
             "gpt-5.4": ModelInfo(
                 display_name="GPT-5.4",
                 media_type="text",
                 capabilities=["text_generation", "structured_output", "vision"],
                 pricing=_openai_text_pricing("gpt-5.4", 2.50, 15.00),
+                max_output_tokens=128000,
             ),
             "gpt-5.4-mini": ModelInfo(
                 display_name="GPT-5.4 Mini",
@@ -850,12 +878,14 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 capabilities=["text_generation", "structured_output", "vision"],
                 default=True,
                 pricing=_openai_text_pricing("gpt-5.4-mini", 0.75, 4.50),
+                max_output_tokens=128000,
             ),
             "gpt-5.4-nano": ModelInfo(
                 display_name="GPT-5.4 Nano",
                 media_type="text",
                 capabilities=["text_generation", "structured_output", "vision"],
                 pricing=_openai_text_pricing("gpt-5.4-nano", 0.20, 1.25),
+                max_output_tokens=128000,
             ),
             # --- image ---
             "gpt-image-2": ModelInfo(
@@ -993,36 +1023,42 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 capabilities=["text_generation", "structured_output"],
                 default=True,
                 pricing=_dashscope_text_pricing("qwen-plus", 0.8, 2.0),
+                max_output_tokens=32768,
             ),
             "qwen3.6-plus": ModelInfo(
                 display_name="Qwen3.6 Plus",
                 media_type="text",
                 capabilities=["text_generation", "structured_output", "vision"],
                 pricing=_dashscope_text_pricing("qwen3.6-plus", 2.0, 12.0),
+                max_output_tokens=65536,
             ),
             "qwen3-max": ModelInfo(
                 display_name="Qwen3 Max",
                 media_type="text",
                 capabilities=["text_generation", "structured_output"],
                 pricing=_dashscope_text_pricing("qwen3-max", 2.5, 10.0),
+                max_output_tokens=32768,
             ),
             "qwen3.7-max": ModelInfo(
                 display_name="Qwen3.7 Max",
                 media_type="text",
                 capabilities=["text_generation", "structured_output"],
                 pricing=_dashscope_text_pricing("qwen3.7-max", 12.0, 36.0),
+                max_output_tokens=131072,
             ),
             "qwen3.6-flash": ModelInfo(
                 display_name="Qwen3.6 Flash",
                 media_type="text",
                 capabilities=["text_generation", "structured_output", "vision"],
                 pricing=_dashscope_text_pricing("qwen3.6-flash", 1.2, 7.2),
+                max_output_tokens=65536,
             ),
             "qwen-long": ModelInfo(
                 display_name="Qwen Long",
                 media_type="text",
                 capabilities=["text_generation", "structured_output"],
                 pricing=_dashscope_text_pricing("qwen-long", 0.5, 2.0),
+                max_output_tokens=8192,
             ),
             # --- image ---
             # qwen-image-2.0 融合系列：T2I + I2I 同模型，size 用像素值 宽*高。
@@ -1186,12 +1222,14 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 capabilities=["text_generation", "structured_output", "vision"],
                 default=True,
                 pricing=_minimax_text_pricing("MiniMax-M3", 2.1, 8.4),
+                max_output_tokens=524288,
             ),
             "MiniMax-M2.7": ModelInfo(
                 display_name="MiniMax M2.7",
                 media_type="text",
                 capabilities=["text_generation", "structured_output"],
                 pricing=_minimax_text_pricing("MiniMax-M2.7", 2.1, 8.4),
+                max_output_tokens=204800,
             ),
             # --- image ---
             # image-01：单步同步取 URL，T2I + I2I（subject_reference 单脸参考）；
@@ -1363,6 +1401,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 capabilities=["text_generation", "structured_output"],
                 default=True,
                 pricing=_agnes_text_pricing("agnes-2.0-flash", 0.03, 0.15),
+                max_output_tokens=65536,
             ),
             # --- image ---
             # agnes-image-2.1-flash：OpenAI 兼容 /images/generations 单步同步，T2I + I2I。

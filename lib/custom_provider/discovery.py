@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Mapping
 
 from google import genai
 from openai import OpenAI
@@ -70,6 +71,7 @@ async def _discover_google(base_url: str | None, api_key: str) -> list[dict]:
         raw_models = client.models.list()
 
         entries: list[tuple[str, str]] = []
+        output_limits: dict[str, int] = {}
         for m in raw_models:
             if not m.name:
                 continue
@@ -77,9 +79,12 @@ async def _discover_google(base_url: str | None, api_key: str) -> list[dict]:
             if model_id.startswith("models/"):
                 model_id = model_id[len("models/") :]
             entries.append((model_id, infer_endpoint(model_id, "google")))
+            limit = getattr(m, "output_token_limit", None)
+            if isinstance(limit, int) and not isinstance(limit, bool) and limit > 0:
+                output_limits[model_id] = limit
 
         entries.sort(key=lambda e: e[0])
-        return _build_result_list(entries)
+        return _build_result_list(entries, output_limits=output_limits)
 
     return await asyncio.to_thread(_sync)
 
@@ -126,8 +131,11 @@ async def _discover_anthropic(base_url: str | None, api_key: str) -> list[dict]:
     ]
 
 
-def _build_result_list(entries: list[tuple[str, str]]) -> list[dict]:
-    """每个推算 media_type 取首项为 default。"""
+def _build_result_list(entries: list[tuple[str, str]], *, output_limits: Mapping[str, int] | None = None) -> list[dict]:
+    """每个推算 media_type 取首项为 default。
+
+    ``output_limits`` 是协议给出的模型最大输出长度，只预填到文本模型上；没有给出时为 None。
+    """
     seen_media: set[str] = set()
     result: list[dict] = []
     for model_id, endpoint in entries:
@@ -141,6 +149,7 @@ def _build_result_list(entries: list[tuple[str, str]]) -> list[dict]:
                 "endpoint": endpoint,
                 "is_default": is_default,
                 "is_enabled": True,
+                "max_output_tokens": (output_limits or {}).get(model_id) if media == "text" else None,
             }
         )
     return result

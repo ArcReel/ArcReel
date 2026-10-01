@@ -4,7 +4,9 @@ import { useLocation } from "wouter";
 import { AlertTriangle, Bot, ChevronDown, Loader2 } from "lucide-react";
 
 import { API } from "@/api";
+import { EPISODE_PLANNING_SLOTS, enqueueEpisodePlanning } from "@/actions/generation";
 import { ApiRequestError } from "@/api/errors";
+import { episodesViewPath } from "@/components/canvas/episodes/episodes-view-model";
 import { prefillAssistant } from "@/components/shared/DraftStatus";
 import { Popover } from "@/components/ui/Popover";
 import { GHOST_BTN_CLS } from "@/components/ui/darkroom-tokens";
@@ -14,10 +16,12 @@ import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { useDemoWorkbench } from "@/onboarding/use-demo-workbench";
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
-import { useTasksStore } from "@/stores/tasks-store";
+import { isResourceBusy, useActiveResourceIds, useTasksStore } from "@/stores/tasks-store";
 import type { EpisodeMeta } from "@/types";
 import type { EpisodeNextStep, WorkflowStatus } from "@/types/workflow";
+import { errMsg } from "@/utils/async";
 import { episodeDisplayName } from "@/utils/episode-display";
+import { lastInstruction, rememberInstruction } from "@/utils/last-instruction";
 import {
   actionPhrase,
   episodeNeedsUpdate,
@@ -42,9 +46,6 @@ const FLAT_WARM = {
   boxShadow: "inset 0 1px 0 oklch(1 0 0 / 0.04)",
 };
 const SHELL = "inline-flex h-[28px] items-center overflow-hidden rounded-full";
-
-/** 附加指令在会话内按项目保留上一次的输入，不写进项目。 */
-const lastInstructions = new Map<string, string>();
 
 type Open = "episodes" | "next" | "migration" | null;
 
@@ -154,23 +155,44 @@ function GuideButtonView({
   button,
   primary,
   instruction,
+  projectName,
   onNavigate,
 }: {
   button: GuideButton;
   primary: boolean;
   instruction: string;
+  projectName: string;
   onNavigate: (to: string) => void;
 }) {
   const { t } = useTranslation();
+  const [submitting, setSubmitting] = useState(false);
   const act: StepAct =
     button.kind === "nav"
       ? { key: button.label, label: button.label, kind: "nav", intent: { type: "route", path: button.to } }
-      : { key: button.label, label: button.label, kind: "agent", intent: { type: "agent", text: button.prefill } };
+      : button.kind === "agent"
+        ? { key: button.label, label: button.label, kind: "agent", intent: { type: "agent", text: button.prefill } }
+        : { key: button.label, label: button.label, kind: "ai", intent: { type: "route", path: episodesViewPath() } };
+  const planEpisodes = async () => {
+    if (EPISODE_PLANNING_SLOTS.some((slot) => isResourceBusy("text_episode_plan", projectName, slot))) {
+      useAppStore.getState().pushToast(t("dashboard:episode_planning_busy"), "error");
+      return;
+    }
+    setSubmitting(true);
+    try {
+      await enqueueEpisodePlanning(projectName, instruction.trim() || null);
+      onNavigate(episodesViewPath());
+    } catch (err) {
+      useAppStore.getState().pushToast(errMsg(err), "error");
+    } finally {
+      setSubmitting(false);
+    }
+  };
   const onRun = () => {
     if (button.kind === "nav") onNavigate(button.to);
-    else prefillAssistant(withInstruction(t, button.prefill, instruction));
+    else if (button.kind === "agent") prefillAssistant(withInstruction(t, button.prefill, instruction));
+    else void planEpisodes();
   };
-  return <StepActButton act={act} onRun={onRun} size={primary ? "md" : "sm"} asLink={!primary} />;
+  return <StepActButton act={act} onRun={onRun} size={primary ? "md" : "sm"} asLink={!primary} busy={submitting} />;
 }
 
 function NextPanel({
@@ -183,10 +205,10 @@ function NextPanel({
   onNavigate: (to: string) => void;
 }) {
   const { t } = useTranslation("dashboard");
-  const [instruction, setInstruction] = useState(() => lastInstructions.get(projectName) ?? "");
+  const [instruction, setInstruction] = useState(() => lastInstruction(projectName));
   const updateInstruction = (value: string) => {
     setInstruction(value);
-    lastInstructions.set(projectName, value);
+    rememberInstruction(projectName, value);
   };
   return (
     <div className="space-y-2">
@@ -218,6 +240,7 @@ function NextPanel({
             button={button}
             primary
             instruction={guide.instruction ? instruction : ""}
+            projectName={projectName}
             onNavigate={onNavigate}
           />
         ))}
@@ -230,6 +253,7 @@ function NextPanel({
                 button={button}
                 primary={false}
                 instruction=""
+                projectName={projectName}
                 onNavigate={onNavigate}
               />
             ))}
@@ -408,9 +432,11 @@ export function ProjectStatusBar({ projectName }: { projectName: string }) {
   const needsRepair = summary?.needs_repair === true;
   const workflowStatus = useProjectWorkflowStatus(projectName, !demoMode && !needsRepair && Boolean(summary));
   const episodes = useMemo(() => project?.episodes ?? [], [project?.episodes]);
+  const activePlanning = useActiveResourceIds("text_episode_plan", projectName);
+  const planningActive = EPISODE_PLANNING_SLOTS.some((slot) => activePlanning.has(slot));
   const guide = useMemo(
-    () => (workflowStatus ? projectNextGuide(t, workflowStatus, episodes) : null),
-    [t, workflowStatus, episodes],
+    () => (workflowStatus ? projectNextGuide(t, workflowStatus, episodes, { planningActive }) : null),
+    [t, workflowStatus, episodes, planningActive],
   );
 
   if (!project || !summary) return null;

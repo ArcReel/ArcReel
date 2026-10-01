@@ -9,12 +9,13 @@ import { episodeDisplayName, episodePosition, type EpisodeLedger } from "@/utils
  * 顶栏状态条「下一步」的呈现形状：由项目层制作状态的 `next_action` 与 `next_alternatives` 投影而来，
  * 界面不自行推断下一步。
  *
- * 按钮分两种：`nav` 跳到工作台里能完成这一步的位置；`agent` 把请求预填进 Agent 输入框，由用户确认发送。
- * 还没有 Web 直接调用入口的动作只给 `agent`。
+ * 按钮分三种：`nav` 跳到工作台里能完成这一步的位置；`agent` 把请求预填进 Agent 输入框，由用户确认发送；
+ * `ai` 直接提交这一步（目前只有 AI 规划分集）。还没有 Web 直接调用入口的动作只给 `agent`。
  */
 export type GuideButton =
   | { kind: "nav"; label: string; to: string }
-  | { kind: "agent"; label: string; prefill: string };
+  | { kind: "agent"; label: string; prefill: string }
+  | { kind: "ai"; label: string; action: "plan_episodes" };
 
 export interface ProjectNextGuide {
   /** 状态条右段「下一步」后面的短语。 */
@@ -57,14 +58,27 @@ function alternativeButton(t: TFunction, action: WorkflowNextAction): GuideButto
 
 /**
  * 项目层的下一步。没有下一步（`none`）或项目数据升级失败（由状态条的迁移形态接管）时返回 null。
+ * 有分集规划在排队或执行时（`planningActive`），下一步让位给「分集规划进行中」。
  */
 export function projectNextGuide(
   t: TFunction,
   status: WorkflowStatus,
   episodes: EpisodeLedger,
+  { planningActive = false }: { planningActive?: boolean } = {},
 ): ProjectNextGuide | null {
   const action = status.next_action;
-  if (action.type === "none" || action.type === "retry_project_migration") return null;
+  if (action.type === "retry_project_migration") return null;
+  if (planningActive && status.project.content_mode !== "ad") {
+    return {
+      title: t("dashboard:guide_planning_running_title"),
+      detail: t("dashboard:guide_planning_running_detail"),
+      instruction: false,
+      primary: [{ kind: "nav", label: t("dashboard:guide_view_planning_progress"), to: episodesViewPath() }],
+      alternatives: [],
+      episodeId: null,
+    };
+  }
+  if (action.type === "none") return null;
   // 落在某一集的备选（从空白开始、补充集原文等）在集页面板就地给出入口，顶栏不改写成「交给 Agent」
   const alternatives = status.next_alternatives
     .filter((alternative) => episodeIdArg(alternative) === null)
@@ -138,6 +152,11 @@ export function projectNextGuide(
         instruction: true,
         primary: [
           agent(planned ? t("dashboard:guide_prefill_plan_continue") : t("dashboard:guide_prefill_plan")),
+          {
+            kind: "ai",
+            label: planned ? t("dashboard:episode_planning_continue") : t("dashboard:episode_planning_start"),
+            action: "plan_episodes",
+          },
         ],
         alternatives,
         episodeId: null,

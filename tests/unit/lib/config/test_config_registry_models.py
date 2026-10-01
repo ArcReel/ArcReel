@@ -144,6 +144,15 @@ class TestProviderRegistry:
     def test_multimodal_text_models_declare_vision(self, provider_id, model_id):
         assert "vision" in PROVIDER_REGISTRY[provider_id].models[model_id].capabilities
 
+    def test_text_generation_models_register_max_output_tokens(self):
+        unregistered = [
+            f"{provider_id}/{model_id}"
+            for provider_id, meta in PROVIDER_REGISTRY.items()
+            for model_id, info in meta.models.items()
+            if "text_generation" in info.capabilities and not (info.max_output_tokens and info.max_output_tokens > 0)
+        ]
+        assert unregistered == [], f"带 text_generation 能力的内置模型须登记最大输出长度：{unregistered}"
+
     def test_each_media_type_has_default(self):
         for provider_id, meta in PROVIDER_REGISTRY.items():
             by_type: dict[str, list[ModelInfo]] = {}

@@ -11,7 +11,7 @@ from unittest.mock import patch
 import pytest
 
 from lib.backends.backend_assembly import assemble_backend
-from lib.backends.backend_assembly.assembler import _load_builtin_config
+from lib.backends.backend_assembly.assembler import OutputLimitFacts, _load_builtin_config, output_limit_facts
 from lib.config.resolver import ConfigResolver
 from lib.config.service import ConfigService
 from tests.fakes import captured_backend_construction
@@ -215,3 +215,48 @@ class TestAssembleCustomEndToEnd:
         resolver = ConfigResolver(db_factory)
         result = await assemble_backend(provider_id=pid, media_type="text", model_id="gpt-5", resolver=resolver)
         assert isinstance(result, CustomTextBackend)
+
+
+class TestOutputLimitFacts:
+    async def test_builtin_text_model_reads_registry(self, db_factory):
+        facts = await output_limit_facts(
+            provider_id="dashscope", model_id="qwen-long", resolver=ConfigResolver(db_factory)
+        )
+
+        assert facts == OutputLimitFacts(registered_max_output_tokens=8192, custom_model=False)
+
+    async def test_unknown_builtin_model_is_unregistered(self, db_factory):
+        facts = await output_limit_facts(
+            provider_id="gemini-aistudio", model_id="retired-model", resolver=ConfigResolver(db_factory)
+        )
+
+        assert facts == OutputLimitFacts(registered_max_output_tokens=None, custom_model=False)
+
+    @pytest.mark.parametrize(("registered", "expected"), [(8192, 8192), (None, None)])
+    async def test_custom_model_reads_its_entry(self, db_factory, registered, expected):
+        from lib.custom_provider import make_provider_id
+        from lib.db.repositories.custom_provider_repo import CustomProviderRepository
+
+        async with db_factory() as s:
+            provider = await CustomProviderRepository(s).create_provider(
+                display_name="Relay",
+                discovery_format="openai",
+                base_url="https://relay.test/v1",
+                api_key="sk-relay",
+                models=[
+                    {
+                        "model_id": "my-llm",
+                        "display_name": "my-llm",
+                        "endpoint": "openai-chat",
+                        "is_enabled": True,
+                        "max_output_tokens": registered,
+                    }
+                ],
+            )
+            await s.commit()
+
+        facts = await output_limit_facts(
+            provider_id=make_provider_id(provider.id), model_id="my-llm", resolver=ConfigResolver(db_factory)
+        )
+
+        assert facts == OutputLimitFacts(registered_max_output_tokens=expected, custom_model=True)

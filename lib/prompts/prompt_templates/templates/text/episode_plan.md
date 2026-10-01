@@ -18,7 +18,7 @@ slots:
   genre: 题材；无时传 null
   unit_noun: 阅读单位量词（字 / 词），随源文语言
   target_volume: 每集目标体量，键齐全的对象 {units, seconds, units_per_second}；seconds 与 units_per_second 仅按单集目标时长折算时有值，语速已格式化为文本；未设置时传 null
-  max_episodes: 本批最多规划的集数；无上限时传 null
+  max_episodes: 本批最多规划的集数，由文本模型的输出上限推导
   context_entries: 已规划末尾若干集，键齐全的对象列表 {episode, title, hook}，标题缺失时 title 为 null；无时传空列表
   instructions: 附加指令正文；无时传 null
   progress: 全局进度，键齐全的对象 {planned_count, remaining_units, window_units}；仅在有附加指令时传入，否则传 null
@@ -75,6 +75,7 @@ protected: false
 {% else %}
 - 这段原文只是全文的一个窗口：窗口尾部剧情弧不完整的内容不要硬凑成集，留给下一批规划即可。
 {% endif %}
+- 如果这段原文里找不到任何一个剧情弧完整的切分点，返回空的 episodes 列表，不要硬切。
 - 只输出符合 schema 的 JSON，不要输出其他内容。
 {% if failure %}
 

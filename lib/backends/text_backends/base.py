@@ -60,12 +60,26 @@ class TextOutputTruncatedError(NonRetryableError):
     整数，其十进制文本可能偶然包含 with_retry_async 瞬态错误模式的子串（如 429/500/
     502/503/504），若不显式标记为不可重试，会被误判为瞬态错误进而在各后端的
     @with_retry_async() 包裹下重发同一份必然再截断的请求。
+
+    ``provider_id`` 是解析层的 registry provider_id（自定义供应商为 ``custom-<id>``），``custom_model``
+    标明该模型由自定义供应商提供；二者由 :class:`lib.backends.text_generator.TextGenerator` 补齐，
+    界面据此给出「去登记最大输出长度」或「换一个文本模型」的出路。backend 层抛出时二者缺省。
     """
 
-    def __init__(self, *, provider: str, model: str, output_tokens: int | None = None):
+    def __init__(
+        self,
+        *,
+        provider: str,
+        model: str,
+        output_tokens: int | None = None,
+        provider_id: str | None = None,
+        custom_model: bool = False,
+    ):
         self.provider = provider
         self.model = model
         self.output_tokens = output_tokens
+        self.provider_id = provider_id
+        self.custom_model = custom_model
         detail = f"在 output_tokens={output_tokens} 处" if output_tokens is not None else ""
         super().__init__(
             f"{provider}/{model} 的结构化输出{detail}被模型输出上限截断，内容不完整。请改用输出能力更高的文本模型。"

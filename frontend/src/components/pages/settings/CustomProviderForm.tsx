@@ -83,6 +83,7 @@ interface ModelRow {
   currency: string;
   resolution: string; // 空串 = null
   supported_durations_text: string; // 用户原始文本，提交前 parse；空串 = 让后端按 preset 兜底
+  max_output_tokens_text: string; // 仅文本模型；空串 = 未登记
   capability_overrides: CapabilityOverrides | null;
   // 系统按 (endpoint, model_id) 判定的能力，只读展示用；null = 非视频模型，或该行尚未落库
   // （新增/改过 model_id 的行判定要后端算，前端不猜），此时控件只显示「待判定」。
@@ -120,6 +121,7 @@ function newModelRow(partial?: Partial<ModelRow>): ModelRow {
     currency: "USD",
     resolution: "",
     supported_durations_text: "",
+    max_output_tokens_text: "",
     capability_overrides: null,
     system_capabilities: null,
     global_bucket_refs: [],
@@ -142,6 +144,7 @@ function discoveredToRow(m: DiscoveredModel): ModelRow {
     endpoint: m.endpoint,
     is_default: m.is_default,
     is_enabled: m.is_enabled,
+    max_output_tokens_text: m.max_output_tokens != null ? String(m.max_output_tokens) : "",
   });
 }
 
@@ -158,6 +161,7 @@ function existingToRow(m: CustomProviderInfo["models"][number]): ModelRow {
     currency: m.currency ?? "",
     resolution: m.resolution ?? "",
     supported_durations_text: m.supported_durations ? compactRangeFormat(m.supported_durations) : "",
+    max_output_tokens_text: m.max_output_tokens != null ? String(m.max_output_tokens) : "",
     capability_overrides: m.capability_overrides,
     system_capabilities: m.system_capabilities,
     global_bucket_refs: m.global_bucket_refs ?? [],
@@ -182,6 +186,7 @@ function rowToInput(r: ModelRow): CustomProviderModelInput {
     ...(r.currency ? { currency: r.currency } : {}),
     ...(r.resolution ? { resolution: r.resolution } : { resolution: null }),
     ...(supported_durations ? { supported_durations } : { supported_durations: null }),
+    max_output_tokens: parsePositiveInt(r.max_output_tokens_text) ?? null,
     capability_overrides: r.capability_overrides,
   };
 }
@@ -191,10 +196,10 @@ function workersToStr(n?: number | null): string {
   return n != null ? String(n) : "";
 }
 
-// 空串 = 未设置（null，走全局默认）；否则必须是正整数（≥1）。返回 undefined 表示非法
+// 空串 = 未设置（null）；否则必须是正整数（≥1）。返回 undefined 表示非法
 // 输入（0、小数、科学计数、负号、含非数字字符），由 handleSave 拦截并提示——不再用 parseInt
 // 静默截断（"1.5"→1、"1e3"→1）把非法值写成错误配置。0 不是合法用户输入。
-function parseWorkers(s: string): number | null | undefined {
+function parsePositiveInt(s: string): number | null | undefined {
   const trimmed = s.trim();
   if (!trimmed) return null;
   if (!/^\d+$/.test(trimmed)) return undefined;
@@ -636,6 +641,14 @@ export function CustomProviderForm({
       showError(t("cp_endpoint_catalog_pending"));
       return;
     }
+    if (
+      effectiveModels.some(
+        (m) => endpointToMediaType[m.endpoint] === "text" && parsePositiveInt(m.max_output_tokens_text) === undefined,
+      )
+    ) {
+      showError(t("max_output_tokens_invalid"));
+      return;
+    }
     // 在拼装 payload 前显式校验所有行的 supported_durations 格式：失败则阻断保存，
     // 让用户回去修正标红字段；不再让 rowToInput 静默把非法降级为 null
     let payloadModels: CustomProviderModelInput[];
@@ -651,9 +664,9 @@ export function CustomProviderForm({
       return;
     }
     // 并发上限严格解析：非法（小数/科学计数/负号/非数字）→ undefined，阻断保存并提示
-    const imageMax = parseWorkers(imageMaxWorkers);
-    const videoMax = parseWorkers(videoMaxWorkers);
-    const audioMax = parseWorkers(audioMaxWorkers);
+    const imageMax = parsePositiveInt(imageMaxWorkers);
+    const videoMax = parsePositiveInt(videoMaxWorkers);
+    const audioMax = parsePositiveInt(audioMaxWorkers);
     if (imageMax === undefined || videoMax === undefined || audioMax === undefined) {
       showError(t("max_workers_invalid"));
       return;
@@ -701,6 +714,7 @@ export function CustomProviderForm({
     baseUrl,
     apiKey,
     effectiveModels,
+    endpointToMediaType,
     catalogPending,
     imageMaxWorkers,
     videoMaxWorkers,
@@ -1074,6 +1088,28 @@ export function CustomProviderForm({
                         </>
                       )}
                     </div>
+
+                    {/* 最大输出长度（仅 text endpoint）：分集规划按它决定每批规划几集 */}
+                    {media === "text" && (
+                      <div className="mt-2 flex flex-col gap-1 pl-6">
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-3 whitespace-nowrap">
+                            {t("max_output_tokens_label")}
+                          </span>
+                          <input
+                            type="text"
+                            inputMode="numeric"
+                            value={m.max_output_tokens_text}
+                            onChange={(e) => updateModel(m.key, { max_output_tokens_text: e.target.value })}
+                            placeholder={t("max_output_tokens_placeholder")}
+                            aria-label={t("max_output_tokens_label")}
+                            aria-invalid={parsePositiveInt(m.max_output_tokens_text) === undefined}
+                            className={`${COMPACT_INPUT_CLS} w-40`}
+                          />
+                        </div>
+                        <p className="text-[11px] text-text-4">{t("max_output_tokens_help")}</p>
+                      </div>
+                    )}
 
                     {/* Resolution row（仅 image/video，audio 无分辨率维度） */}
                     {(media === "image" || media === "video") && (

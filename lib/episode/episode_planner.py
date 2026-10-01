@@ -5,11 +5,13 @@ plan() 从账本推导的规划起点（按源文位置排在最后的切出集�
 剧情弧完整的集（标题/钩子/切分锚点；drama 另含分集大纲），schema 强约束 + 锚点存在性/唯一性/连续性
 机械校验，失败自动重试并附上一轮失败原因。整本源文的文件先后取项目登记的清单顺序。自带原文与无原文的
 集不占用整本源文，也不挡规划；新切出的集紧接在最后一个切出集之后，账本里还没有切出集时排在末尾。
+窗口内找不到剧情弧完整的切分点时，模型返回空列表，这一批以 :class:`NoCutPointError` 报错。
 
 写入阶段在同一把项目锁内完成：写账本 + 按账本重写切出集的派生集文件 + 清理账本之外的残留派生文件
-（含余文文件）+ 同步源文快照，下游读到的 ``source/episode_N.txt`` 永远与账本一致。窗口字数与每批集数
-上限为内部默认，project.json 顶层 ``planning_window_chars`` / ``planning_max_episodes`` 可覆盖。新提交
-的集 ID 若在磁盘上已有下游产物（历史残留），标 stale 而非直接覆盖状态，产物不删除。
+（含余文文件）+ 同步源文快照，下游读到的 ``source/episode_N.txt`` 永远与账本一致。窗口固定取
+:data:`PLANNING_WINDOW_CHARS`，每批集数由文本模型实际生效的输出上限推导（见 :func:`episodes_per_batch`），
+二者都不是创作者参数，项目设置不能覆盖（见 docs/adr/0032、0044）。新提交的集 ID 若在磁盘上已有下游产物
+（历史残留），标 stale 而非直接覆盖状态，产物不删除。
 """
 
 from __future__ import annotations
@@ -17,7 +19,7 @@ from __future__ import annotations
 import json
 import logging
 import statistics
-from collections.abc import Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
@@ -71,9 +73,15 @@ from lib.script import script_review
 
 logger = logging.getLogger(__name__)
 
-# 窗口/批量内部默认值；project.json 顶层同名字段可覆盖
-DEFAULT_PLANNING_WINDOW_CHARS = 30000
-DEFAULT_PLANNING_MAX_EPISODES = 20
+# 单批源文窗口字数，不是创作者参数，Web、Agent 与项目设置都不能覆盖
+PLANNING_WINDOW_CHARS = 50000
+
+# 每集在结构化输出里占用的 token 估算（标题、钩子、锚点；剧情演绎另含故事节点与下集预告语），
+# 按偏大口径取值；剧情演绎实际约 250–450 token
+_EPISODE_OUTPUT_TOKENS = {"drama": 500, "narration": 200}
+
+# 输出上限里留给分集条目的比例：推理型模型的思考 token 与 JSON 包装也计入同一上限
+_OUTPUT_SAFETY_FACTOR = 0.5
 
 # LLM 输出未通过 schema / 机械校验时的总尝试次数（含首次）
 _MAX_PLAN_ATTEMPTS = 3
@@ -92,6 +100,34 @@ class EpisodePlanningError(RuntimeError):
 
 class PlanningConflictError(EpisodePlanningError):
     """规划期间账本被并发修改，提交被拒绝；重新调用即可基于新状态规划。"""
+
+
+class NoCutPointError(EpisodePlanningError):
+    """窗口内找不到剧情弧完整的切分点。``source_file`` / ``offset`` 是这一批未切分原文的起点。"""
+
+    def __init__(self, *, source_file: str, offset: int):
+        self.source_file = source_file
+        self.offset = offset
+        super().__init__(
+            f"{source_file} 从偏移 {offset} 起的这一段原文里找不到剧情弧完整的切分点；"
+            "可以先手工切出这一段，再从切分处继续规划。"
+        )
+
+
+class PlanningOutputTruncatedError(EpisodePlanningError):
+    """文本模型的结构化输出被输出上限截断，带出解析层 provider_id、模型 ID 与是否为自定义供应商的模型。"""
+
+    def __init__(self, cause: TextOutputTruncatedError):
+        self.provider_id = cause.provider_id or cause.provider
+        self.model = cause.model
+        self.custom_model = cause.custom_model
+        super().__init__(str(cause))
+
+
+def episodes_per_batch(max_output_tokens: int, content_mode: str) -> int:
+    """每批最多规划的集数 = 实际生效的输出上限 × 安全系数 ÷ 每集输出估算，至少 1 集。"""
+    estimate = _EPISODE_OUTPUT_TOKENS["drama" if content_mode == "drama" else "narration"]
+    return max(1, int(max_output_tokens * _OUTPUT_SAFETY_FACTOR) // estimate)
 
 
 @dataclass
@@ -161,15 +197,19 @@ class DramaEpisodeDraft(NarrationEpisodeDraft):
 
 
 class NarrationPlanDraft(BaseModel):
+    """空列表表示窗口内找不到剧情弧完整的切分点。"""
+
     model_config = _DRAFT_CONFIG
 
-    episodes: list[NarrationEpisodeDraft] = Field(min_length=1)
+    episodes: list[NarrationEpisodeDraft]
 
 
 class DramaPlanDraft(BaseModel):
+    """空列表表示窗口内找不到剧情弧完整的切分点。"""
+
     model_config = _DRAFT_CONFIG
 
-    episodes: list[DramaEpisodeDraft] = Field(min_length=1)
+    episodes: list[DramaEpisodeDraft]
 
 
 class _DraftRejected(Exception):
@@ -374,7 +414,10 @@ def _missing_source_range_error(nums: list[int]) -> EpisodePlanningError:
 
 
 class EpisodePlanner:
-    """分集规划器。``generator`` 为 None 时仅可构造，调用 plan() 会报错。"""
+    """分集规划器。``generator`` 为 None 时仅可构造，调用 plan() 会报错。
+
+    ``window_chars`` 只供测试缩小窗口，生产调用一律取 :data:`PLANNING_WINDOW_CHARS`。
+    """
 
     def __init__(
         self,
@@ -382,11 +425,13 @@ class EpisodePlanner:
         generator: TextGenerator | None = None,
         *,
         max_attempts: int = _MAX_PLAN_ATTEMPTS,
+        window_chars: int = PLANNING_WINDOW_CHARS,
     ):
         self.project_path = Path(project_path)
         self.project_name = self.project_path.name
         self.generator = generator
         self.max_attempts = max_attempts
+        self.window_chars = window_chars
         self.pm = ProjectManager.for_project_dir(self.project_path)
 
     @classmethod
@@ -398,11 +443,20 @@ class EpisodePlanner:
 
     # ---------------------------------------------------------------- plan
 
-    async def plan(self, instructions: str | None = None) -> PlanResult:
+    async def plan(
+        self,
+        instructions: str | None = None,
+        *,
+        on_more_to_plan: Callable[[], Awaitable[None]] | None = None,
+    ) -> PlanResult:
         """规划下一批集：从账本推导的规划起点取窗口，产出剧情弧完整的集并提交账本。
 
         当前源文件已无剩余有效内容时按整本源文清单的顺序推进到下一个文件；
         ``source_exhausted=True`` 表示全部源文件都已规划完毕。
+
+        ``on_more_to_plan`` 在本批之后整本源文还有待规划的原文时调用一次：窗口不含整本源文的结尾时，
+        在请求模型之前调用；含结尾时，在模型给出的本批没有规划到结尾（如被每批集数上限截断）时调用。
+        源文已全部规划完毕、或本批报错时不调用。
 
         ``instructions`` 是可选的用户分集附加指令（如按章节对齐切分），strip 后为空视同未传；
         非空则原样注入规划 prompt 的中性「附加指令」分节，遵循强度由附加指令正文自行表达。规划按窗口
@@ -458,8 +512,11 @@ class EpisodePlanner:
         )
         pre_call_sources = []  # 之后只需 used_fingerprints（摘要）与本批实际使用的 text，显式释放原文引用
 
-        window_chars = self._setting_int(project, "planning_window_chars", DEFAULT_PLANNING_WINDOW_CHARS)
-        max_episodes = self._setting_int(project, "planning_max_episodes", DEFAULT_PLANNING_MAX_EPISODES)
+        if self.generator is None:
+            raise RuntimeError("TextGenerator 未初始化，请使用 EpisodePlanner.create() 工厂方法")
+        window_chars = self.window_chars
+        content_mode = "drama" if project.get("content_mode") == "drama" else "narration"
+        max_episodes = episodes_per_batch(self.generator.max_output_tokens, content_mode)
         remaining_chars = len(text) - start
         # 窗口弹性：剩余全文不足 1.2 倍窗口时直接吃到底，避免下一批只剩孤儿残余
         # 被迫单独成集（畸小集的机械成因）。系数 1.2 换来的浮动幅度足够小，
@@ -467,7 +524,9 @@ class EpisodePlanner:
         window_end = len(text) if remaining_chars <= window_chars * 1.2 else start + window_chars
         window = text[start:window_end]
         window_is_final = window_end >= len(text)
-        content_mode = "drama" if project.get("content_mode") == "drama" else "narration"
+        window_reaches_end = window_is_final and _next_source_rel(source_order, source_rel) is None
+        if on_more_to_plan is not None and not window_reaches_end:
+            await on_more_to_plan()
         draft_model: type[NarrationPlanDraft | DramaPlanDraft] = (
             DramaPlanDraft if content_mode == "drama" else NarrationPlanDraft
         )
@@ -503,6 +562,10 @@ class EpisodePlanner:
             snap_whitespace_tail=window_is_final,
             max_episodes=max_episodes,
         )
+        if not drafts:
+            raise NoCutPointError(source_file=source_rel, offset=start)
+        if on_more_to_plan is not None and window_reaches_end and window[ends[-1] :].strip():
+            await on_more_to_plan()
 
         summaries: list[EpisodePlanSummary] = []
         committed: dict[str, Any] = {"stale": []}
@@ -613,11 +676,11 @@ class EpisodePlanner:
         snap_whitespace_tail: bool,
         max_episodes: int | None,
     ) -> tuple[list[NarrationEpisodeDraft], list[int]]:
-        """LLM 调用 + schema/机械校验循环；重试 prompt 附上一轮失败原因。
+        """LLM 调用 + schema/机械校验循环；重试 prompt 附上一轮失败原因。模型返回空列表时原样返回。
 
         结构化输出被输出上限截断时 :class:`TextOutputTruncatedError` 直接短路本循环——
-        重发同一份必然再截断的请求没有意义；追加本规划器特有的杠杆提示（调小窗口字数 /
-        每批集数）后转为 :class:`EpisodePlanningError` 冒泡（见 docs/adr/0044）。
+        重发同一份必然再截断的请求没有意义；转为 :class:`PlanningOutputTruncatedError` 冒泡，
+        带出出路所需的模型信息（见 docs/adr/0044）。
 
         后端结构化输出降级链耗尽的 :class:`StructuredOutputExhaustedError` 同样短路本循环，
         转为 :class:`EpisodePlanningError`，让 Agent 拿到「供应商结构化输出能力不足」的可读
@@ -637,16 +700,15 @@ class EpisodePlanner:
                     project_name=self.project_name,
                 )
             except TextOutputTruncatedError as exc:
-                raise EpisodePlanningError(
-                    f"{exc}也可调小项目设置 planning_window_chars（单批窗口字数）或 "
-                    "planning_max_episodes（单批集数上限）以缩小本批输出体量后重试。"
-                ) from exc
+                raise PlanningOutputTruncatedError(exc) from exc
             except StructuredOutputExhaustedError as exc:
                 # 后端的降级链已把各档与档内重试都走完，本层再重试只是重复同一条必败路径。
                 raise EpisodePlanningError(str(exc)) from exc
             try:
                 draft = self._parse_draft(result.text, draft_model)
                 drafts: list[NarrationEpisodeDraft] = list(draft.episodes)
+                if not drafts:
+                    return [], []
                 if max_episodes is not None and len(drafts) > max_episodes:
                     logger.warning(
                         "规划输出 %d 集超过每批上限 %d，截断保留前 %d 集（其余留给下一批）",
@@ -765,15 +827,6 @@ class EpisodePlanner:
             mutate,
             formal_paths=formal_paths,
         )
-
-    @staticmethod
-    def _setting_int(project: Mapping[str, Any], key: str, default: int) -> int:
-        value = project.get(key)
-        if isinstance(value, int) and not isinstance(value, bool) and value >= 1:
-            return value
-        if value is not None:
-            logger.warning("项目设置 %s=%r 非法，回退内部默认 %d", key, value, default)
-        return default
 
     def _reconcile_derived_files(
         self, project: Mapping[str, Any], text_cache: dict[str, str], *, new_ids: frozenset[int] = frozenset()

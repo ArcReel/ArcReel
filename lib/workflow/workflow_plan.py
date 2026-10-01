@@ -127,6 +127,11 @@ _ARTIFACT_BY_STEP: dict[str, str] = {
 #: 草稿 AI 修复的任务类型；资源 ID 见 :func:`draft_repair_resource_id`。
 TEXT_DRAFT_REPAIR_TASK_TYPE = "text_draft_repair"
 _PROMPT_AUTHORING_DRAFT_DOC_TYPE = "reference_prompt_authoring"
+#: 分集规划的两个占用槽。Agent 的单批规划与 Web 逐窗串联的首窗占前一个；串联时，执行中的窗口
+#: 在请求模型前把下一窗排进另一个槽，两槽交替，停止规划即取消排队中的那一窗。
+EPISODE_PLANNING_SLOT = "episode-planning"
+EPISODE_PLANNING_NEXT_SLOT = "episode-planning-next"
+EPISODE_PLANNING_SLOTS = (EPISODE_PLANNING_SLOT, EPISODE_PLANNING_NEXT_SLOT)
 
 
 def draft_repair_resource_id(episode: int, doc_type: str) -> str:

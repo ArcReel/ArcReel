@@ -22,7 +22,9 @@ from lib.episode.episode_planner import (
     EpisodePlanner,
     EpisodePlanningError,
     NarrationPlanDraft,
+    NoCutPointError,
     PlanningConflictError,
+    PlanningOutputTruncatedError,
     _DraftRejected,
     _find_all_overlapping,
 )
@@ -72,7 +74,8 @@ def _expected_planning_prompt(
         "# 项目信息",
         f"- 创作类型：{'剧情演绎（drama）' if content_mode == 'drama' else '旁白/解说（narration）'}",
         target_volume_line,
-        "- 本批最多规划 20 集",
+        # 64000 token 上限：剧情演绎每批 64 集，旁白/解说每批 160 集
+        f"- 本批最多规划 {64 if content_mode == 'drama' else 160} 集",
         "",
         "# 切分规则",
         "- 每一集给出 title（吸引人的短标题）、hook（集尾钩子说明：这一刀为什么切在这、给观众留了什么悬念）、",
@@ -95,6 +98,7 @@ def _expected_planning_prompt(
     lines += [
         "- 各集按顺序排列，end_anchor 位置必须严格递增（范围连续、不重叠、不留空洞）。",
         "- 这段原文已包含全文结尾：请规划到结尾，最后一集的 end_anchor 取全文结尾处的片段，不要留尾巴。",
+        "- 如果这段原文里找不到任何一个剧情弧完整的切分点，返回空的 episodes 列表，不要硬切。",
         "- 只输出符合 schema 的 JSON，不要输出其他内容。",
         "",
         "# 剧本原文片段" if screenplay else "# 小说原文片段",
@@ -112,10 +116,11 @@ def _end_of(anchor: str, text: str = SOURCE) -> int:
 class _FakeTextGenerator:
     """按顺序回放预置响应的 TextGenerator 替身，并记录每次请求。"""
 
-    def __init__(self, responses: list[str]):
+    def __init__(self, responses: list[str], *, max_output_tokens: int = 64000):
         self._responses = list(responses)
         self.requests = []
         self.model = "fake-model"
+        self.max_output_tokens = max_output_tokens
 
     async def generate(self, request, project_name=None):
         self.requests.append(request)
@@ -906,31 +911,50 @@ class TestPlan:
         assert (project_dir / "project.json").read_text(encoding="utf-8") == after_concurrent_write[0]
         assert not list((project_dir / "source").glob("episode_*.txt"))
 
-    async def test_plan_truncation_short_circuits_retry_and_hints_leverage(self, tmp_path: Path):
-        """结构化输出被截断时不重试，直接冒泡 EpisodePlanningError 并附带调小窗口/集数的提示（见 docs/adr/0044）。"""
+    async def test_plan_truncation_short_circuits_retry_and_reports_the_model(self, tmp_path: Path):
+        """结构化输出被截断时不重试，带出供应商、模型与是否自定义模型（见 docs/adr/0044）。"""
         from lib.backends.text_backends.base import TextOutputTruncatedError
 
         class _TruncatingGenerator:
-            model = "fake-model"
+            model = "my-llm"
+            max_output_tokens = 8192
 
             def __init__(self):
                 self.call_count = 0
 
             async def generate(self, request, project_name=None):
                 self.call_count += 1
-                raise TextOutputTruncatedError(provider="fake", model="fake-model", output_tokens=64000)
+                raise TextOutputTruncatedError(
+                    provider="openai", model="my-llm", output_tokens=8192, provider_id="custom-3", custom_model=True
+                )
 
         project_dir = _write_project(tmp_path)
         before = (project_dir / "project.json").read_text(encoding="utf-8")
         fake = _TruncatingGenerator()
 
-        with pytest.raises(EpisodePlanningError) as exc_info:
+        with pytest.raises(PlanningOutputTruncatedError) as exc_info:
             await EpisodePlanner(project_dir, generator=fake).plan()
 
         # 截断不重试：只发生一次调用，不像 schema/机械校验失败那样耗尽 max_attempts
         assert fake.call_count == 1
-        assert "planning_window_chars" in str(exc_info.value)
-        assert "planning_max_episodes" in str(exc_info.value)
+        assert (exc_info.value.provider_id, exc_info.value.model, exc_info.value.custom_model) == (
+            "custom-3",
+            "my-llm",
+            True,
+        )
+        assert (project_dir / "project.json").read_text(encoding="utf-8") == before
+
+    async def test_plan_without_a_complete_arc_reports_the_window_start(self, tmp_path: Path):
+        """窗口里找不到剧情弧完整的切分点：这一批报错并给出未切分原文的起点，不重试、账本不动。"""
+        project_dir = _write_project(tmp_path, episodes=[_entry(1, 0, _end_of(ANCHOR_EP1))])
+        before = (project_dir / "project.json").read_text(encoding="utf-8")
+        fake = _FakeTextGenerator([json.dumps({"episodes": []})])
+
+        with pytest.raises(NoCutPointError) as exc_info:
+            await EpisodePlanner(project_dir, generator=fake).plan()
+
+        assert len(fake.requests) == 1
+        assert (exc_info.value.source_file, exc_info.value.offset) == ("source/novel.txt", _end_of(ANCHOR_EP1))
         assert (project_dir / "project.json").read_text(encoding="utf-8") == before
 
     async def test_plan_accepts_uppercase_json_fence(self, tmp_path: Path):
@@ -1079,22 +1103,37 @@ class TestPlan:
         assert "下一集开头" not in nov_prompt
         assert "小说原文片段" in nov_prompt
 
-    async def test_plan_window_setting_limits_prompt_window(self, tmp_path: Path):
-        """planning_window_chars 项目设置覆盖内部默认：窗口外内容不进 prompt。"""
+    async def test_plan_window_limits_prompt_window(self, tmp_path: Path):
+        """窗口外内容不进 prompt。"""
         window_chars = _end_of(ANCHOR_EP1) + 4
-        project_dir = _write_project(tmp_path, extra={"planning_window_chars": window_chars})
+        project_dir = _write_project(tmp_path)
         fake = _FakeTextGenerator([_plan_response([{"title": "古玉藏诀", "hook": "钩子", "end_anchor": ANCHOR_EP1}])])
 
-        result = await EpisodePlanner(project_dir, generator=fake).plan()
+        result = await EpisodePlanner(project_dir, generator=fake, window_chars=window_chars).plan()
 
         assert ANCHOR_EP2 not in fake.requests[0].prompt  # 窗口被截断
         assert result.source_exhausted is False
         assert result.cursor == {"source_file": "source/novel.txt", "offset": _end_of(ANCHOR_EP1)}
 
+    async def test_plan_window_is_fifty_thousand_chars_regardless_of_project_settings(self, tmp_path: Path):
+        """窗口取 5 万字，project.json 里的 planning_window_chars 不参与规划。"""
+        source = "甲" * 49_990 + "窗口内最后一句。" + "乙" * 20_000 + "窗口外的一句。"
+        project_dir = _write_project(
+            tmp_path, source_text=source, extra={"planning_window_chars": 100, "planning_max_episodes": 1}
+        )
+        fake = _FakeTextGenerator([_plan_response([{"title": "甲", "hook": "甲", "end_anchor": "窗口内最后一句。"}])])
+
+        result = await EpisodePlanner(project_dir, generator=fake).plan()
+
+        prompt = fake.requests[0].prompt
+        assert "窗口内最后一句" in prompt
+        assert "窗口外的一句" not in prompt
+        assert result.cursor == {"source_file": "source/novel.txt", "offset": 49_998}
+
     async def test_plan_window_elasticity_extends_to_full_text_when_remainder_small(self, tmp_path: Path):
         """剩余全文不足窗口 1.2 倍时窗口直接延伸到全文末尾，避免残余被迫单独成集。"""
         window_chars = len(SOURCE) - 8  # 小于全文长度，但剩余量仍在 1.2 倍窗口以内
-        project_dir = _write_project(tmp_path, extra={"planning_window_chars": window_chars})
+        project_dir = _write_project(tmp_path)
         last_anchor = "卷入漩涡之中。"
         fake = _FakeTextGenerator(
             [
@@ -1108,15 +1147,15 @@ class TestPlan:
             ]
         )
 
-        result = await EpisodePlanner(project_dir, generator=fake).plan()
+        result = await EpisodePlanner(project_dir, generator=fake, window_chars=window_chars).plan()
 
         assert last_anchor in fake.requests[0].prompt  # 窗口已延伸到全文末尾，未被 window_chars 截断
         assert result.source_exhausted is True
         assert result.cursor == {"source_file": "source/novel.txt", "offset": len(SOURCE)}
 
-    async def test_plan_max_episodes_setting_truncates_batch(self, tmp_path: Path):
-        """planning_max_episodes 覆盖每批集数上限：超出的集截断留给下一批。"""
-        project_dir = _write_project(tmp_path, extra={"planning_max_episodes": 1})
+    async def test_plan_batch_size_follows_the_model_output_limit(self, tmp_path: Path):
+        """每批集数由模型的输出上限推导：上限只够一集时，超出的集截断留给下一批。"""
+        project_dir = _write_project(tmp_path)
         fake = _FakeTextGenerator(
             [
                 _plan_response(
@@ -1125,7 +1164,8 @@ class TestPlan:
                         {"title": "乙", "hook": "乙", "end_anchor": ANCHOR_EP2},
                     ]
                 )
-            ]
+            ],
+            max_output_tokens=400,
         )
 
         result = await EpisodePlanner(project_dir, generator=fake).plan()
@@ -1297,11 +1337,12 @@ class TestPlan:
         project_dir = _write_project(
             tmp_path,
             episodes=[_entry(1, 0, ep1_end)],
-            extra={"planning_window_chars": window_chars},
         )
         fake = _FakeTextGenerator([_plan_response([{"title": "乙", "hook": "乙", "end_anchor": ANCHOR_EP2}])])
 
-        await EpisodePlanner(project_dir, generator=fake).plan(instructions="严格按章节切分，一章一集")
+        await EpisodePlanner(project_dir, generator=fake, window_chars=window_chars).plan(
+            instructions="严格按章节切分，一章一集"
+        )
 
         prompt = fake.requests[0].prompt
         remaining_units = count_reading_units(SOURCE[ep1_end:], None)
@@ -1387,10 +1428,10 @@ class TestPlan:
     async def test_plan_normal_batch_omits_ledger_stats(self, tmp_path: Path):
         """常规（非耗尽）批次不附全局核对材料，只报累计已规划集数。"""
         window_chars = _end_of(ANCHOR_EP1) + 4
-        project_dir = _write_project(tmp_path, extra={"planning_window_chars": window_chars})
+        project_dir = _write_project(tmp_path)
         fake = _FakeTextGenerator([_plan_response([{"title": "古玉藏诀", "hook": "钩子", "end_anchor": ANCHOR_EP1}])])
 
-        result = await EpisodePlanner(project_dir, generator=fake).plan()
+        result = await EpisodePlanner(project_dir, generator=fake, window_chars=window_chars).plan()
 
         assert result.source_exhausted is False
         assert result.ledger_stats is None

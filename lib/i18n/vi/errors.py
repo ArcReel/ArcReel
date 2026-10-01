@@ -262,6 +262,10 @@ MESSAGES = {
     "prompt_authoring_refused": "Không thể gửi yêu cầu viết prompt: {reason}",
     "script_plan_task_active": "Tập này đang có tác vụ lập kế hoạch kịch bản chưa hoàn tất. Hãy đợi tác vụ xong rồi gửi lại",
     "script_plan_refused": "Không thể gửi yêu cầu lập kế hoạch kịch bản: {reason}",
+    "episode_planning_task_active": "Đang lập kế hoạch phân tập. Hãy đợi hoàn tất hoặc dừng lại rồi gửi lại",
+    "episode_planning_refused": "Không thể gửi yêu cầu lập kế hoạch phân tập: {reason}",
+    "episode_planning_no_cut_point": "Không tìm thấy điểm cắt có mạch truyện trọn vẹn trong đoạn văn bản nguồn này. Hãy cắt đoạn này thủ công rồi tiếp tục lập kế hoạch bằng AI",
+    "text_output_truncated": "Đầu ra của mô hình văn bản {model} vượt quá độ dài đầu ra tối đa nên không đầy đủ",
     "script_review_conversion_refused": "Kế hoạch kịch bản chưa thể chuyển thành kịch bản chính thức nên chưa được xác nhận; hãy kiểm tra thời lượng phân cảnh, lời thoại và trạng thái kế hoạch kịch bản rồi thử lại",
     "script_review_foreign_formal_script": (
         "Tệp kịch bản được gán cho tập (id={episode}) không còn, còn đường dẫn chuẩn scripts/{filename} lại chứa kịch bản "
