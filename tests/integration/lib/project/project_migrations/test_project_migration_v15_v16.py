@@ -45,6 +45,7 @@ from tests.legacy_project_shapes import (
     write_legacy_episode_sources_project,
     write_legacy_presentation_project,
     write_legacy_reference_video_project,
+    write_legacy_retired_flash_lite_project,
     write_legacy_script_plan_project,
     write_legacy_storyboard_project,
     write_legacy_tts_narration_project,
@@ -61,6 +62,19 @@ def _read_json(path: Path) -> Any:
 
 def _write_json(path: Path, payload: object) -> None:
     path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+
+
+@pytest.mark.parametrize("provider_id", ["gemini-aistudio", "gemini-vertex"])
+def test_upgrade_migrates_retired_flash_lite_model_references(tmp_path: Path, provider_id: str) -> None:
+    project_dir = write_legacy_retired_flash_lite_project(tmp_path / "projects", provider_id=provider_id)
+    project_path = project_dir / "project.json"
+
+    assert migrate_project_dir(project_dir) is True
+
+    migrated = _read_json(project_path)
+    assert migrated["default_text_backend"] == f"{provider_id}/gemini-3.1-flash-lite"
+    assert migrated["text_backend_simple"] == f"{provider_id}/gemini-3.1-flash-lite"
+    assert migrated["text_backend_complex"] == "gemini-aistudio/gemini-3-flash-preview"
 
 
 def _without_transitions(script: dict[str, Any]) -> dict[str, Any]:

@@ -2221,7 +2221,7 @@ class TestFilesUnexpectedErrorsMapTo500:
             raise VisionCapabilityError(
                 task_type=TextTaskType.STYLE_ANALYSIS,
                 provider_id="gemini-aistudio",
-                model_id="gemini-3.1-flash-lite-preview",
+                model_id="gemini-3.1-flash-lite",
             )
 
         client, _ = _client(monkeypatch, tmp_path)
@@ -2233,7 +2233,7 @@ class TestFilesUnexpectedErrorsMapTo500:
             )
         assert resp.status_code == 400
         detail = resp.json()["detail"]
-        assert "gemini-aistudio/gemini-3.1-flash-lite-preview" in detail
+        assert "gemini-aistudio/gemini-3.1-flash-lite" in detail
         assert "vision" in detail
         # 英文 zh 环境默认无 Accept-Language，走中文翻译文案，而非 __str__ 的英文技术消息
         assert "不支持图像输入" in detail

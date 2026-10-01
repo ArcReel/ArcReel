@@ -73,6 +73,11 @@
 - ``project.json`` 写入 ``source_remaining``：按补记后的整本源文清单与账本，整本源文是否还有未规划的原文。
   此后由写账本与源文登记的命令维护（``ProjectManager``），项目列表据此判定项目是否已完成，不读源文。
 
+**文本 backend 退役模型 ID 迁移**
+
+- ``project.json`` 的默认文本 backend 与两个档位字段若精确引用已退役的 Gemini 3.1 Flash-Lite
+  preview ID，改写为正式 ID；其他 preview 模型与不匹配的值原样保留，随本步最后一次写入落盘。
+
 除上传产物的补登外，本步只改写既有登记、不增删；迁移结果按改写后完整目标态的跳过项与实际清单计数生成。
 它不解决此前的跳过原因，runner 合并链上更早一步或已有迁移报告的跳过项。
 """
@@ -109,6 +114,10 @@ from lib.artifacts.visual_artifact_provenance import (
     build_uploaded_storyboard_basis,
     build_uploaded_video_basis,
     visual_file_digest,
+)
+from lib.config.retired_model_ids import (
+    TEXT_BACKEND_SETTING_KEYS,
+    migrate_retired_text_model_reference,
 )
 from lib.episode.episode_ids import episode_ids_on_disk, raise_episode_id_high_water
 from lib.episode.episode_ledger import (
@@ -693,6 +702,22 @@ def _without_asset_inventory_marker(project: Mapping[str, Any]) -> dict[str, Any
 
 
 # ---------------------------------------------------------------------------
+# 子步：文本 backend 退役模型 ID 迁移
+# ---------------------------------------------------------------------------
+
+
+def _with_formal_text_model_ids(project: Mapping[str, Any]) -> dict[str, Any]:
+    """把项目文本 backend 中精确的退役模型引用迁到现行 registry 键。"""
+
+    migrated = dict(project)
+    for key in TEXT_BACKEND_SETTING_KEYS:
+        value = migrated.get(key)
+        if isinstance(value, str):
+            migrated[key] = migrate_retired_text_model_reference(value)
+    return migrated
+
+
+# ---------------------------------------------------------------------------
 # 子步：项目列表的「已完成」与制作状态同一口径
 # ---------------------------------------------------------------------------
 
@@ -732,7 +757,9 @@ def migrate_v15_to_v16(
             **_with_source_remaining(
                 project_dir,
                 _without_asset_inventory_marker(
-                    _with_episode_id_high_water(project_dir, _with_source_kinds(with_sources), recorded_episode_ids)
+                    _with_formal_text_model_ids(
+                        _with_episode_id_high_water(project_dir, _with_source_kinds(with_sources), recorded_episode_ids)
+                    )
                 ),
             ),
             "schema_version": TARGET_SCHEMA_VERSION,

@@ -135,14 +135,20 @@ class TestProviderRegistry:
     @pytest.mark.parametrize(
         ("provider_id", "model_id"),
         [
-            ("gemini-aistudio", "gemini-3.1-flash-lite-preview"),
-            ("gemini-vertex", "gemini-3.1-flash-lite-preview"),
+            ("gemini-aistudio", "gemini-3.1-flash-lite"),
+            ("gemini-vertex", "gemini-3.1-flash-lite"),
             ("dashscope", "qwen3.6-plus"),
             ("dashscope", "qwen3.6-flash"),
         ],
     )
     def test_multimodal_text_models_declare_vision(self, provider_id, model_id):
         assert "vision" in PROVIDER_REGISTRY[provider_id].models[model_id].capabilities
+
+    @pytest.mark.parametrize("provider_id", ["gemini-aistudio", "gemini-vertex"])
+    def test_retired_flash_lite_preview_is_absent(self, provider_id):
+        models = PROVIDER_REGISTRY[provider_id].models
+        assert "gemini-3.1-flash-lite" in models
+        assert "gemini-3.1-flash-lite-preview" not in models
 
     def test_text_generation_models_register_max_output_tokens(self):
         unregistered = [

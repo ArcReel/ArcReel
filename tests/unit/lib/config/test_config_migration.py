@@ -166,3 +166,32 @@ async def test_tier_migration_idempotent_on_rerun(db_session: AsyncSession):
     await repo.set("text_backend_complex", "gemini-aistudio/user-changed")
     await migrate_text_tier_settings(db_session)
     assert await repo.get("text_backend_complex") == "gemini-aistudio/user-changed"
+
+
+@pytest.mark.parametrize("provider_id", ["gemini-aistudio", "gemini-vertex"])
+@pytest.mark.parametrize(
+    "setting_key",
+    ["default_text_backend", "text_backend_simple", "text_backend_complex"],
+)
+async def test_retired_flash_lite_model_setting_migrates_to_formal_id(
+    db_session: AsyncSession, provider_id: str, setting_key: str
+):
+    repo = SystemSettingRepository(db_session)
+    await repo.set(setting_key, f"{provider_id}/gemini-3.1-flash-lite-preview")
+
+    await migrate_text_tier_settings(db_session)
+
+    assert await repo.get(setting_key) == f"{provider_id}/gemini-3.1-flash-lite"
+
+
+async def test_retired_flash_lite_migration_leaves_other_preview_models_unchanged(db_session: AsyncSession):
+    repo = SystemSettingRepository(db_session)
+    await repo.set("default_text_backend", "gemini-aistudio/gemini-3-flash-preview")
+    await repo.set("text_backend_simple", "gemini-vertex/gemini-3.1-pro-preview")
+    await repo.set("text_backend_complex", "gemini-aistudio/gemini-3.1-flash-lite-preview-extra")
+
+    await migrate_text_tier_settings(db_session)
+
+    assert await repo.get("default_text_backend") == "gemini-aistudio/gemini-3-flash-preview"
+    assert await repo.get("text_backend_simple") == "gemini-vertex/gemini-3.1-pro-preview"
+    assert await repo.get("text_backend_complex") == "gemini-aistudio/gemini-3.1-flash-lite-preview-extra"
