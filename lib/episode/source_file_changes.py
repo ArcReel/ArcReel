@@ -31,7 +31,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
-from lib.episode.episode_ids import episode_position, episode_title
+from lib.episode.episode_ids import episode_display_name
 from lib.episode.episode_ledger import (
     SOURCE_FINGERPRINTS_KEY,
     SourceDoc,
@@ -621,11 +621,7 @@ def render_source_file_impact_text(
     """把受影响集清单按类渲染成确认文本：集以标题或播出位置指称。Web 确认框只呈现这份文本。"""
 
     def name(episode: int) -> str:
-        title = episode_title(project, episode)
-        if title:
-            return title
-        position = episode_position(project, episode)
-        return translate("episode_position_name", position=position) if position else translate("episode_unlisted_name")
+        return episode_display_name(project, episode, translate)
 
     separator = translate("manual_split_impact_separator")
     return "\n".join(

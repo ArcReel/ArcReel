@@ -15,7 +15,7 @@ from pydantic.json_schema import SkipJsonSchema
 
 from lib.artifacts.artifact_manifest import ArtifactBasis
 from lib.config.resolver import ConfigResolver
-from lib.episode.episode_ids import default_episode_title
+from lib.episode.episode_ids import episode_title
 from lib.episode.episode_paths import SCRIPT_PLAN_FILENAMES, episode_drafts_dir, episode_script_filename
 from lib.generation.video_request_facts import VideoRequestFactsError
 from lib.infra.async_thread import run_sync_transaction
@@ -1214,8 +1214,7 @@ class DraftWorkflow:
             episode,
             resolved,
             content={
-                "title": script.get("title")
-                or default_episode_title(self.ctx.pm.load_project(self.ctx.project_name), episode),
+                "title": script.get("title") or episode_title(self.ctx.pm.load_project(self.ctx.project_name), episode),
                 "units": [{"text": unit.get("text", "")} for unit in units if isinstance(unit, dict)],
             },
             violations=[],

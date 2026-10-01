@@ -36,7 +36,7 @@ from lib.backends.text_backends.base import DEFAULT_MAX_OUTPUT_TOKENS, TextGener
 from lib.backends.text_generator import TextGenerator
 from lib.config.resolver import ConfigResolver, VideoGenerationType, video_bucket_for_generation_mode
 from lib.db import async_session_factory
-from lib.episode.episode_ids import default_episode_title
+from lib.episode.episode_ids import episode_title
 from lib.episode.episode_paths import (
     REFERENCE_VIDEO_SCRIPT_PLAN_FILENAME,
     REFERENCE_VIDEO_SCRIPT_PLAN_LEGACY_FILENAME,
@@ -1515,7 +1515,7 @@ class ScriptGenerator:
         if isinstance(data, dict):
             raw_title = data.get("title")
             if not (isinstance(raw_title, str) and raw_title.strip()):
-                data["title"] = default_episode_title(self.project_json, episode)
+                data["title"] = episode_title(self.project_json, episode)
         try:
             return ReferencePromptAuthoringFlatScript.model_validate(data)
         except ValidationError as e:
@@ -1949,7 +1949,7 @@ class ScriptGenerator:
         if isinstance(data, dict):
             title = data.get("title")
             if not (isinstance(title, str) and title.strip()):
-                data["title"] = default_episode_title(self.project_json, episode)
+                data["title"] = episode_title(self.project_json, episode)
 
         # 校验模型经规范解析定骨架种类（分镜图生视频按创作类型，参考生视频统一 video_units），
         # kind→模型映射留本地（模型属上层依赖，不进 SKELETONS 窄表）。
@@ -2000,7 +2000,7 @@ class ScriptGenerator:
 
         return ReferenceVideoScript.model_validate(
             {
-                "title": flat.title or default_episode_title(self.project_json, episode),
+                "title": flat.title or episode_title(self.project_json, episode),
                 "content_mode": "ad",
                 "video_units": units,
             }

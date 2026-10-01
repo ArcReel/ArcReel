@@ -209,13 +209,19 @@ class TestProjectsRouter:
             ep = next(e for e in fake_pm.project_data["ready"]["episodes"] if e["episode"] == 1)
             assert ep["title"] == "新集名"
 
-    def test_update_episode_title_empty_rejected(self, tmp_path, monkeypatch):
-        """空/纯空白标题被拒（422），不进锁。"""
-        client = build_projects_client(monkeypatch, _FakePM(tmp_path))
+    def test_update_episode_title_cleared_to_empty(self, tmp_path, monkeypatch):
+        """空/纯空白标题清空剧本与账本标题，集名回到按播出位置派生。"""
+        fake_pm = _FakePM(tmp_path)
+        fake_pm.scripts[("ready", "episode_1.json")]["episode"] = 1
+        client = build_projects_client(monkeypatch, fake_pm)
         with client:
             for blank in ("", "   "):
                 resp = client.patch("/api/v1/projects/ready/episodes/1", json={"title": blank})
-                assert resp.status_code == 422
+                assert resp.status_code == 200
+                assert resp.json()["episode"]["title"] == ""
+                assert fake_pm.scripts[("ready", "episode_1.json")]["title"] == ""
+                ep = next(e for e in fake_pm.project_data["ready"]["episodes"] if e["episode"] == 1)
+                assert ep["title"] == ""
 
     def test_update_episode_missing_episode_404(self, tmp_path, monkeypatch):
         """不存在的 episode → 404。"""

@@ -28,7 +28,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from lib.episode.episode_ids import allocate_episode_ids, episode_id_high_water, episode_position, episode_title
+from lib.episode.episode_ids import (
+    allocate_episode_ids,
+    episode_display_name,
+    episode_id_high_water,
+)
 from lib.episode.episode_ledger import (
     SOURCE_FINGERPRINTS_KEY,
     SourceDoc,
@@ -652,11 +656,7 @@ def render_manual_split_impact_text(
     """把波及清单渲染成确认文本：集以标题或播出位置指称。Web 确认框只呈现这份文本。"""
 
     def name(episode: int) -> str:
-        title = episode_title(project, episode)
-        if title:
-            return title
-        position = episode_position(project, episode)
-        return translate("episode_position_name", position=position) if position else translate("episode_unlisted_name")
+        return episode_display_name(project, episode, translate)
 
     separator = translate("manual_split_impact_separator")
     groups = {key: [name(episode) for episode in impact.get(key) or ()] for key, _ in _IMPACT_LINES}

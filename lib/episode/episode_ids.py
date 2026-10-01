@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Iterable, Iterator, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from pathlib import Path, PurePosixPath
 from typing import Any
 
@@ -114,26 +114,28 @@ def episode_title(project: Mapping[str, Any], episode_id: int) -> str:
     return title.strip() if isinstance(title, str) else ""
 
 
-def default_episode_title(project: Mapping[str, Any], episode_id: int) -> str:
-    """需要落一个非空标题、而模型或草稿没给时的兜底：账本标题，其次是当下的播出位置。
+def episode_display_name(project: Mapping[str, Any], episode_id: int, translate: Callable[..., str]) -> str:
+    """创作者看到的集名：账本标题；标题为空时按当下播出位置派生「第 N 集」，不在账本里时是未命名集。
 
-    标题会显示给创作者并回写账本，所以兜底里不出现集 ID。
+    派生值只在呈现时成文、不落盘，插集或调序后跟随播出位置。
     """
 
     title = episode_title(project, episode_id)
     if title:
         return title
     position = episode_position(project, episode_id)
-    return f"第 {position} 集" if position is not None else "未命名集"
+    if position is None:
+        return translate("episode_unlisted_name")
+    return translate("episode_position_name", position=position)
 
 
-def episode_file_label(project: Mapping[str, Any], episode_id: int) -> str | None:
-    """文件与文件夹名里的集指称：``{两位播出位置}_{集标题}``；集不在账本里时返回 None。"""
+def episode_file_label(project: Mapping[str, Any], episode_id: int, translate: Callable[..., str]) -> str | None:
+    """文件与文件夹名里的集指称：``{两位播出位置}_{集名}``；集不在账本里时返回 None。"""
 
     position = episode_position(project, episode_id)
     if position is None:
         return None
-    return f"{position:02d}_{default_episode_title(project, episode_id)}"
+    return f"{position:02d}_{episode_display_name(project, episode_id, translate)}"
 
 
 def describe_episode_for_agent(project: Mapping[str, Any], episode_id: int) -> str:
@@ -248,8 +250,8 @@ def _is_asset_resource_type(resource_type: object) -> bool:
 __all__ = [
     "EPISODE_ID_HIGH_WATER_KEY",
     "allocate_episode_ids",
-    "default_episode_title",
     "describe_episode_for_agent",
+    "episode_display_name",
     "episode_file_label",
     "episode_id_high_water",
     "episode_ids_in_names",

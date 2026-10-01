@@ -32,7 +32,11 @@ from lib.artifacts.artifact_manifest import (
     ProjectArtifactManifestAdapter,
 )
 from lib.artifacts.version_manager import VersionManager
-from lib.episode.episode_ids import episode_ids_in_names, episode_position, episode_title, item_id_episode
+from lib.episode.episode_ids import (
+    episode_display_name,
+    episode_ids_in_names,
+    item_id_episode,
+)
 from lib.episode.episode_ledger import discover_episode_file_aliases, parse_positive_episode_num
 from lib.episode.episode_management import EpisodeManagementError
 from lib.episode.episode_paths import episode_drafts_dir, episode_source_path
@@ -402,11 +406,7 @@ def render_episode_deletion_text(
     data = impact.to_dict() if isinstance(impact, EpisodeDeletionImpact) else dict(impact)
 
     def name(episode: int) -> str:
-        title = episode_title(project, episode)
-        if title:
-            return title
-        position = episode_position(project, episode)
-        return translate("episode_position_name", position=position) if position else translate("episode_unlisted_name")
+        return episode_display_name(project, episode, translate)
 
     episode = int(data["episode"])
     lines: list[str] = []

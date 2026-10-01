@@ -468,7 +468,6 @@ MESSAGES = {
     # Episode meta
     "episode_not_found": "集（id={episode}）不存在或尚无脚本文件",
     "storyboard_batch_script_invalid": "第 {episode} 集的正式脚本不能用于分镜批量生成：脚本结构与项目的生成模式不符，或脚本未绑定到这一集",
-    "episode_title_empty": "分集标题不能为空",
     "episode_source_empty": "集原文不能为空",
     "episode_source_derived": "这一集切自整本源文，集原文由分集规划得出，不能在这里改写",
     "episode_source_symlink": "这一集的集原文文件是符号链接，无法写入",

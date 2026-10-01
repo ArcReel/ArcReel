@@ -1385,8 +1385,11 @@ class DataValidator:
         if not isinstance(episode.get("episode"), int):
             errors.append(_m("val_episode_missing_num"))
 
-        if not episode.get("title"):
+        # 标题允许空串：空标题的集名由呈现层按播出位置派生。
+        if "title" not in episode:
             errors.append(_m("val_missing_field", field="title"))
+        elif not isinstance(episode["title"], str):
+            errors.append(_m("val_field_type_string", field="title"))
 
         content_mode = resolve_content_mode(episode, project)
 

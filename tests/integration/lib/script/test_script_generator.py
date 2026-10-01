@@ -569,8 +569,8 @@ class TestScriptGenerator:
 
         generator = ScriptGenerator(project_path)
         parsed = generator._parse_response('{"foo": "bar"}', 1)
-        # 校验失败降级返回原始数据；title 兜底在校验前注入，故降级结果也携带
-        assert parsed == {"foo": "bar", "title": "未命名集"}
+        # 校验失败降级返回原始数据；title 兜底（账本标题，空标题留空）在校验前注入，故降级结果也携带
+        assert parsed == {"foo": "bar", "title": ""}
 
     async def test_generate_writes_script_and_metadata(self, tmp_path):
         """待编写分镜补上视觉层并清除标记：内容字段逐字保留，metadata 刷新 generator、保留 created_at。"""
@@ -1137,7 +1137,7 @@ class TestAddMetadataInjectsHiddenFields:
         assert dumped["novel"] == {"title": "", "chapter": ""}
 
         out = sg._add_metadata(dumped, episode=2)
-        assert out["novel"] == {"title": "项目标题", "chapter": "未命名集"}
+        assert out["novel"] == {"title": "项目标题", "chapter": ""}
 
     def test_partial_novel_only_title_is_also_reinjected(self, tmp_path: Path) -> None:
         """半填 novel(只有 title 或只有 chapter)也应触发重注入,避免 novel 残缺。"""
@@ -2063,7 +2063,8 @@ class TestAdParseResponseDriftRecovery:
         )
         parsed = generator._parse_response(llm_response, 1)
 
-        assert parsed["title"] == "第 1 集"
+        # 账本标题为空：标题留空，不落派生的「第 N 集」
+        assert parsed["title"] == ""
         first, second = parsed["shots"]
         assert first["image_prompt"]["composition"]["shot_type"] == "Medium Shot"
         assert first["video_prompt"]["camera_motion"] == "Zoom Out"

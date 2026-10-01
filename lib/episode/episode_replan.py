@@ -43,7 +43,11 @@ from lib.episode.episode_deletion import (
     render_episode_loss_items,
 )
 from lib.episode.episode_excerpts import edge_sentences
-from lib.episode.episode_ids import allocate_episode_ids, episode_id_high_water, episode_position, episode_title
+from lib.episode.episode_ids import (
+    allocate_episode_ids,
+    episode_display_name,
+    episode_id_high_water,
+)
 from lib.episode.episode_ledger import (
     SOURCE_FINGERPRINTS_KEY,
     SourceDoc,
@@ -786,11 +790,7 @@ def render_replan_adoption_text(
     data = impact.to_dict() if isinstance(impact, ReplanAdoptionImpact) else dict(impact)
 
     def name(episode: int) -> str:
-        title = episode_title(project, episode)
-        if title:
-            return title
-        position = episode_position(project, episode)
-        return translate("episode_position_name", position=position) if position else translate("episode_unlisted_name")
+        return episode_display_name(project, episode, translate)
 
     separator = translate("episode_replan_adopt_separator")
     lines = [

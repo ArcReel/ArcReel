@@ -84,6 +84,15 @@ def test_blank_start_writes_an_empty_formal_script_that_asks_for_items(
     assert status.next_action.type == "add_script_items"
 
 
+def test_blank_start_keeps_an_empty_episode_title_empty(tmp_path: Path) -> None:
+    pm, _project_path = _project(tmp_path, "narration", title="")
+
+    start_blank_script(pm, "demo", 1)
+
+    assert pm.load_script("demo", "episode_1.json")["title"] == ""
+    assert pm.load_project("demo")["episodes"][0]["title"] == ""
+
+
 def test_blank_start_discards_the_unconfirmed_plan_and_its_draft(tmp_path: Path) -> None:
     pm, project_path = _project(tmp_path, "drama")
     plan = _write_plan(project_path)
