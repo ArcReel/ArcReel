@@ -58,7 +58,7 @@ export function ScriptPlanDialog({ request, savedInstructions, onClose }: Dialog
   const descId = useId();
   const fieldId = useId();
   const { projectName, episode, replaces } = request;
-  const regenerate = replaces !== "none";
+  const regenerate = replaces !== "none" && replaces !== "formal_script";
   // 未确认的规划与待修复草稿没有版本历史，整份替换即丢失，弹窗本身就是替换前的确认。
   const lossText =
     replaces === "pending_plan"
@@ -133,7 +133,7 @@ export function ScriptPlanDialog({ request, savedInstructions, onClose }: Dialog
         </h2>
         <p id={descId} className="mt-1.5 text-[12.5px] leading-[1.55]" style={{ color: "var(--color-text-3)" }}>
           {t("script_plan_desc")}
-          {replaces === "confirmed_plan" && ` ${t("script_plan_replace_confirmed_hint")}`}
+          {(replaces === "confirmed_plan" || replaces === "formal_script") && ` ${t("script_plan_replace_confirmed_hint")}`}
         </p>
 
         {lossText && (

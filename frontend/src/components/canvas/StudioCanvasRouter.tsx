@@ -831,6 +831,7 @@ export function StudioCanvasRouter() {
                     showPreprocess={!isAd}
                     freeDuration={isAd}
                     videoModelUnresolved={capabilities.videoModelUnresolved}
+                    planDurationOptions={planDurationOptions}
                   />
                 ) : gridStoryboardEnabled(currentProjectData) ? (
                   <GridImageToVideoCanvas

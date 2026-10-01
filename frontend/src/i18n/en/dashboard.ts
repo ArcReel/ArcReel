@@ -1048,6 +1048,7 @@ export default {
   'product_task_failed': 'Product "{{id}}" generation failed: {{reason}}',
   'grid_task_failed': 'Multi-grid storyboard generation failed: {{reason}}',
   'image_edit_task_failed': 'Edit for "{{id}}" failed: {{reason}}',
+  'script_plan_task_failed': 'AI script planning for "{{episode}}" failed: {{reason}}',
   'task_failed_provider_reason_suffix': ' (Provider reason: {{reason}})',
   // ========== reference-to-video editor ==========
   'reference_editor_view_aria': 'Editor view',

@@ -51,6 +51,8 @@ interface ReferenceScriptPlanPreviewPanelProps {
   projectName: string;
   episode: number;
   videoModelUnresolved?: boolean;
+  /** 剧本规划档位；端点固定的单元按它选时长、判越档，与提示词编写的拒绝判据同源。未给时自查。 */
+  planningDurations?: number[];
   /** Asset name → kind, for mention coloring — same lookup the editor/parse preview share. */
   lookup: MentionLookup;
   /** 切到本集视频单元时间线；确认后的只读态据此给出去时间线修改的入口，未提供时不渲染入口。 */
@@ -297,9 +299,9 @@ function UnitCard({
     () => unitLacksSceneReference(unit.scriptText, lookup, projectHasScene),
     [unit.scriptText, lookup, projectHasScene],
   );
-  // 档位表解析不到、或内容不可编辑（草稿）时退回只读秒数：能选的档位必须是保存后
+  // 档位表解析不到、或内容不可编辑时退回只读秒数：能选的档位必须是保存后
   // 后端收编不会再改的那一档，拿不到权威档位表就不提供会被静默改掉的选择。
-  const durationOptions = !durationEndpointFixed && onDurationChange && supportedDurations?.length ? supportedDurations : null;
+  const durationOptions = onDurationChange && supportedDurations?.length ? supportedDurations : null;
 
   return (
     <article
@@ -426,14 +428,22 @@ export function ReferenceScriptPlanPreviewPanel({
   projectName,
   episode,
   videoModelUnresolved,
+  planningDurations,
   lookup,
   onOpenTimeline,
 }: ReferenceScriptPlanPreviewPanelProps) {
   const { t } = useTranslation("dashboard");
   const episodeLedger = useEpisodeLedger();
   const episodeRef = episodeAgentRef(episodeLedger, episode, t);
-  const standaloneCapabilities = useModelCapabilities({ projectName, enabled: videoModelUnresolved === undefined });
+  const standaloneCapabilities = useModelCapabilities({
+    projectName,
+    enabled: videoModelUnresolved === undefined || planningDurations === undefined,
+  });
   const modelUnresolved = videoModelUnresolved ?? standaloneCapabilities.videoModelUnresolved;
+  const fixedPlanningDurations = planningDurations ?? standaloneCapabilities.planningDurations;
+  // 单元可选的时长档位：所落桶收窄后的档位；端点固定时桶档位是空集，改取剧本规划档位。
+  const unitTiers = (capability: ReferenceUnitCapability | null | undefined): number[] | null =>
+    capability?.duration_endpoint_fixed ? fixedPlanningDurations : (capability?.allowed_durations ?? null);
   const pushToast = useAppStore((s) => s.pushToast);
 
   const [editingUnitKey, setEditingUnitKey] = useState<string | null>(null);
@@ -543,8 +553,19 @@ export function ReferenceScriptPlanPreviewPanel({
 
   const status = state?.status ?? "no_script_plan";
   if (status === "no_script_plan" || (draft == null && quarantine == null)) {
+    // 没有规划时也能在这里发起 AI 规划；已有正式脚本（如从空白开始）时，新规划经覆盖确认才替换它。
     return (
-      <div className="flex h-64 items-center justify-center text-text-4">{t("dashboard:no_script_plan_content")}</div>
+      <div className="flex h-64 flex-col items-center justify-center gap-3 text-text-4">
+        <p>{t("dashboard:no_script_plan_content")}</p>
+        {status === "no_script_plan" && (
+          <ScriptPlanButton
+            projectName={projectName}
+            episode={episode}
+            replaces={state?.script_overwrite != null ? "formal_script" : "none"}
+            className={GHOST_BTN_LG_CLS}
+          />
+        )}
+      </div>
     );
   }
 
@@ -682,8 +703,8 @@ export function ReferenceScriptPlanPreviewPanel({
     displayUnits
       .filter((u) => {
         const capability = unitCapability(u, durationTiers);
-        const tiers = capability?.allowed_durations ?? null;
-        return capability != null && !capability.duration_endpoint_fixed && tiers != null && !tiers.includes(u.duration_seconds);
+        const tiers = unitTiers(capability);
+        return capability != null && tiers != null && tiers.length > 0 && !tiers.includes(u.duration_seconds);
       })
       .map((u) => u.key),
   );
@@ -854,7 +875,7 @@ export function ReferenceScriptPlanPreviewPanel({
               editing={!readOnly && editingUnitKey === unit.key}
               onToggleEdit={() => setEditingUnitKey((prev) => (prev === unit.key ? null : unit.key))}
               onTextChange={readOnly ? null : (text) => updateUnit(i, { text })}
-              supportedDurations={capability?.allowed_durations ?? null}
+              supportedDurations={unitTiers(capability)}
               durationEndpointFixed={capability?.duration_endpoint_fixed ?? false}
               durationProblem={
                 unknownUnitKeys.has(unit.key) && capability?.problem

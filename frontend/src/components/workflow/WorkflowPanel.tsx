@@ -232,6 +232,9 @@ export function WorkflowPanel({ projectName, episode, onViewUnit, onRegenerate, 
         case "open_author_prompts":
           onAuthorPrompts?.();
           return;
+        case "open_script_plan":
+          useScriptPlanStore.getState().open({ projectName, episode: episodeId, replaces: "formal_script" });
+          return;
         case "open_script_plan_over_draft":
           useScriptPlanStore.getState().open({ projectName, episode: episodeId, replaces: "draft" });
           return;

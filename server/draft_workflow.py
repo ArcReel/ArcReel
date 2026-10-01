@@ -783,7 +783,7 @@ async def _open_drama_script_plan_for_edit(
         QUARANTINE_KIND_DRAMA_SCRIPT_PLAN,
         source,
         _drama_script_plan_draft_shape,
-        f"❌ 集（id={episode}）没有可编辑的正式 script_plan（{script_plan_path} 不存在、不是合法 JSON，"
+        f"❌ 集（id={episode}）没有可编辑的正式 script_plan（{script_plan_path.relative_to(project_path).as_posix()} 不存在、不是合法 JSON，"
         "或 scenes 不是非空数组）；首次生成请调用 generate_script_plan",
     )
 
@@ -983,7 +983,7 @@ async def _open_narration_script_plan_for_edit(
         QUARANTINE_KIND_NARRATION_SCRIPT_PLAN,
         source,
         _narration_script_plan_draft_shape,
-        f"❌ 集（id={episode}）没有可编辑的正式 script_plan（{script_plan_path} 不存在、不是合法 JSON，"
+        f"❌ 集（id={episode}）没有可编辑的正式 script_plan（{script_plan_path.relative_to(project_path).as_posix()} 不存在、不是合法 JSON，"
         "或 segments 不是非空数组）；首次生成请调用 generate_script_plan",
     )
 
@@ -1089,7 +1089,7 @@ async def _open_reference_script_plan_for_edit(
         QUARANTINE_KIND_SCRIPT_PLAN,
         source,
         _reference_script_plan_draft_shape,
-        f"❌ 集（id={episode}）没有可编辑的正式 script_plan（{script_plan_path} 不存在、不是合法 JSON，"
+        f"❌ 集（id={episode}）没有可编辑的正式 script_plan（{script_plan_path.relative_to(project_path).as_posix()} 不存在、不是合法 JSON，"
         "或 units 不是非空数组）；首次生成请调用 generate_script_plan",
     )
 

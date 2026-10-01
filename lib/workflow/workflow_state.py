@@ -1613,11 +1613,6 @@ class WorkflowStateService:
                 artifacts["script_plan"]["state"] = "stale"
             script_plan_state = artifacts["script_plan"]["state"]
             review = script_review.review_status(project_path, project, number)
-            if (
-                entry.get("ledger_status") == "stale"
-                and script_review.stored_review(project, number).get("fingerprint") is None
-            ):
-                review = "pending_review"
             gates["script_plan_review"] = {
                 "state": "confirmed" if review == "confirmed" else "pending",
                 "revision": artifacts["script_plan"].get("revision"),

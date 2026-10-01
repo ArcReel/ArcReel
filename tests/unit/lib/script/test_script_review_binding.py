@@ -56,7 +56,6 @@ def test_present_binding_counts_as_this_episodes_output(tmp_path: Path) -> None:
 
     assert formal_script_filename(project_dir, project, 1) == "custom.json"
     assert prompt_authoring_generated(project_dir, project, 1) is True
-    assert review_status(project_dir, project, 1) == "confirmed"
 
 
 def test_unbound_episode_still_falls_back_to_the_canonical_path(tmp_path: Path) -> None:

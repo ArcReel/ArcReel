@@ -50,6 +50,7 @@ export type StepIntent =
   | { type: "plan_script" }
   | { type: "plan_script_to_agent" }
   | { type: "start_blank_script" }
+  | { type: "open_script_plan" }
   | { type: "open_script_plan_over_draft" }
   | { type: "asset_batch"; episodeId: number }
   | { type: "storyboard_batch"; episodeId: number; kind: StoryboardBatchKind }
@@ -294,8 +295,16 @@ function buildRows(facts: Facts, ctx: StepListContext): StepRowView[] {
         },
       });
     }
+    const planDraft = draftOf(content, false);
+    const planState = status.artifacts.script_plan?.state;
+    // 填写集原文的界面只在本集既没有规划也没有草稿时显示，其余时候这个入口点了没有去处。
+    const sourceSurfaceShown = (planState === undefined || planState === "missing") && content.drafts.length === 0;
     const acts: StepAct[] =
-      !present && formal !== "present" && nextType !== "start_blank_script" && nextType !== "provide_episode_source"
+      !present &&
+      formal !== "present" &&
+      sourceSurfaceShown &&
+      nextType !== "start_blank_script" &&
+      nextType !== "provide_episode_source"
         ? [provideSourceAct(t)]
         : [];
     const planningSteps = stepsFor(facts, ["episode_plan"]);
@@ -310,8 +319,6 @@ function buildRows(facts: Facts, ctx: StepListContext): StepRowView[] {
       steps: planningSteps,
     });
 
-    const planDraft = draftOf(content, false);
-    const planState = status.artifacts.script_plan?.state;
     const review = status.gates.script_plan_review?.state;
     let planStatus: string;
     let planTone: StepRowTone;
@@ -330,18 +337,30 @@ function buildRows(facts: Facts, ctx: StepListContext): StepRowView[] {
       planTone = "todo";
     }
     const planOp = status.operations.prepare_script_plan;
-    const planActs: StepAct[] =
-      formal !== "present" && !planDraft && planState === "missing" && nextType !== "prepare_script_plan" && operationApplies(planOp)
-        ? [
-            {
-              key: "agent-plan",
-              label: t("workflow:act_agent_plan_script"),
-              kind: "agent",
-              intent: { type: "agent", text: t("dashboard:episode_workspace_prefill_script", { episodeRef: ctx.episodeRef }) },
-              disabledReason: refusalReason(t, planOp),
-            },
-          ]
-        : [];
+    const planOffered = !planDraft && planState === "missing" && nextType !== "prepare_script_plan" && operationApplies(planOp);
+    let planActs: StepAct[] = [];
+    if (planOffered && formal !== "present") {
+      planActs = [
+        {
+          key: "agent-plan",
+          label: t("workflow:act_agent_plan_script"),
+          kind: "agent",
+          intent: { type: "agent", text: t("dashboard:episode_workspace_prefill_script", { episodeRef: ctx.episodeRef }) },
+          disabledReason: refusalReason(t, planOp),
+        },
+      ];
+    } else if (planOffered && formal === "present") {
+      // 已有正式脚本（如从空白开始）时也能整集交给 AI 规划；新规划待确认，经覆盖确认才替换正式脚本。
+      planActs = [
+        {
+          key: "plan",
+          label: t("dashboard:script_plan_open"),
+          kind: "ai",
+          intent: { type: "open_script_plan" },
+          disabledReason: refusalReason(t, planOp),
+        },
+      ];
+    }
     rows.push({
       key: "plan",
       title: t("workflow:row_plan"),

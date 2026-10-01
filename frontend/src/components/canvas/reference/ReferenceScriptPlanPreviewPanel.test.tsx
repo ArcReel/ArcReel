@@ -173,25 +173,47 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
     expect(screen.queryByRole("combobox", { name: "U01 时长" })).not.toBeInTheDocument();
   });
 
-  it("keeps the duration fixed in content confirmation when the unit's bucket is endpoint-fixed", async () => {
+  function endpointFixedState(durationSeconds: number): ScriptReviewState {
     const state = pendingState({
       duration_tiers: {
-        with_references: [4, 8],
+        with_references: [],
         units: {
           E1U01: mkCapability("E1U01", {
-            allowed_durations: null,
+            allowed_durations: [],
             duration_endpoint_fixed: true,
             duration_endpoint_fixed_reason: "endpoint",
           }),
         },
       },
     });
-    vi.spyOn(API, "getScriptReview").mockResolvedValue(state);
-    render(<ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
-    expect(await screen.findByText("U01")).toBeInTheDocument();
-    expect(screen.queryByRole("combobox", { name: "U01 时长" })).not.toBeInTheDocument();
+    state.content = {
+      units: [{ unit_id: "E1U01", text: "@[阿离] 撑伞走过 @[长街]", duration_seconds: durationSeconds, source_text: "阿离撑伞走过长街。" }],
+    };
+    return state;
+  }
+
+  it("offers the planning tiers for a unit whose bucket is endpoint-fixed", async () => {
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(endpointFixedState(8));
+    render(
+      <ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={LOOKUP} videoModelUnresolved={false} planningDurations={[4, 8]} />,
+    );
+    const select = await screen.findByRole("combobox", { name: "U01 时长" });
+    expect([...select.querySelectorAll("option")].map((o) => o.value)).toEqual(["4", "8"]);
     expect(screen.getByText(/时长由端点固定/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /确认拆分，继续生成/ })).toBeEnabled();
+  });
+
+  it("flags an endpoint-fixed unit outside the planning tiers and lets the duration be corrected", async () => {
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(endpointFixedState(6));
+    render(
+      <ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={LOOKUP} videoModelUnresolved={false} planningDurations={[4, 8]} />,
+    );
+    const select = await screen.findByRole("combobox", { name: "U01 时长" });
+    expect(screen.getByText("档位已失效")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /确认拆分，继续生成/ })).toBeDisabled();
+
+    fireEvent.change(select, { target: { value: "8" } });
+    expect(screen.queryByText("档位已失效")).not.toBeInTheDocument();
   });
 
   it("keeps duration read-only for a unit the server has not judged yet", async () => {
@@ -597,6 +619,7 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
     });
     render(<ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
     await waitFor(() => expect(screen.getByText("暂无脚本规划结果")).toBeInTheDocument());
+    expect(screen.getByRole("button", { name: "AI 规划脚本" })).toBeInTheDocument();
   });
 
   it("edits the unit body in the non-quarantined state and persists the units draft", async () => {

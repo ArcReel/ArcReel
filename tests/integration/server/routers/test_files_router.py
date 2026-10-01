@@ -27,6 +27,7 @@ from lib.i18n.zh import assets as zh_assets
 from lib.i18n.zh import errors as zh_errors
 from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from lib.prompts.prompt_templates.builtin import builtin_templates
+from lib.script import script_review
 from lib.workflow.workflow_state import WorkflowStateService
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
@@ -1328,9 +1329,17 @@ class TestFilesRouter:
         plan_path = project_dir / "drafts" / "episode_1" / "script_plan_segments.json"
         plan_path.parent.mkdir(parents=True)
         plan_path.write_text('{"episode": 1, "segments": []}', encoding="utf-8")
-        # 该集已产出正式剧本、无确认记录：按存量口径视为脚本规划已确认。
+        # 该集已产出正式剧本，确认记录记的是当前规划。
         (project_dir / "scripts").mkdir(exist_ok=True)
         (project_dir / "scripts" / "episode_1.json").write_text('{"episode": 1, "segments": []}', encoding="utf-8")
+        fingerprint = script_review.content_fingerprint(plan_path)
+        assert fingerprint is not None
+
+        def _confirm(project: dict) -> None:
+            project["episodes"] = [{"episode": 1, "script_file": "scripts/episode_1.json"}]
+            script_review.apply_confirmation(project, 1, fingerprint, "2026-01-01T00:00:00+00:00")
+
+        pm.update_project("demo", _confirm)
         before = plan_path.read_bytes()
 
         with client:
