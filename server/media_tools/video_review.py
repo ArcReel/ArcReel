@@ -16,7 +16,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StrictInt
 
-from lib.artifacts.version_manager import UnmanagedSnapshotPathError, VersionManager
+from lib.artifacts.version_manager import VersionManager
+from lib.final_cut.basis import version_snapshot
 from lib.infra.ffmpeg import FfmpegUnavailableError
 from lib.infra.media_probe import MediaProbeError, probe_video_frame_times
 from lib.project.project_manager import is_reference_video_project
@@ -84,7 +85,7 @@ class InspectVideoUnitsResult:
     frame_budget_per_unit: int
     units: tuple[InspectedUnit, ...]
     model_review: None = field(default=None)
-    """预留给服务端原生视频 MLLM 审阅；目前恒为 None。"""
+    """预留给服务端原生视频 MLLM 审阅，恒为 None。"""
 
     @property
     def total_frames(self) -> int:
@@ -94,14 +95,8 @@ class InspectVideoUnitsResult:
 def _snapshot_of(
     project_path: Path, versions: VersionManager, resource_type: str, unit_id: str, version: int
 ) -> Path | None:
-    for record in versions.get_versions(resource_type, unit_id).get("versions", []):
-        if isinstance(record, Mapping) and record.get("version") == version:
-            try:
-                path = VersionManager.resolve_snapshot_path(project_path, resource_type, record.get("file"))
-            except UnmanagedSnapshotPathError:
-                return None
-            return path if path.is_file() else None
-    return None
+    found = version_snapshot(project_path, versions, resource_type, unit_id, version)
+    return found[0] if found is not None else None
 
 
 def _available_versions(versions: VersionManager, resource_type: str, unit_id: str) -> list[int]:

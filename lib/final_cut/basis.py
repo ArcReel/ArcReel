@@ -134,7 +134,7 @@ def current_video(
     artifact_path = resource_relative_path(resource_type, unit_id)
     if version <= 0 or not (project_dir / artifact_path).is_file():
         return None
-    found = _version_snapshot(project_dir, versions, resource_type, unit_id, version)
+    found = version_snapshot(project_dir, versions, resource_type, unit_id, version)
     if found is None:
         return None
     snapshot, record = found
@@ -164,9 +164,10 @@ def current_provider_audio(versions: VersionManager, resource_type: str, unit_id
     return True
 
 
-def _version_snapshot(
+def version_snapshot(
     project_dir: Path, versions: VersionManager, resource_type: str, unit_id: str, version: int
 ) -> tuple[Path, Mapping[str, Any]] | None:
+    """指定视频版本的快照文件与版本记录；没有该版本、快照路径不受管或文件不在时为 None。"""
     records = versions.get_versions(resource_type, unit_id).get("versions")
     for record in records if isinstance(records, list) else []:
         if isinstance(record, Mapping) and record.get("version") == version:
@@ -306,5 +307,6 @@ __all__ = [
     "output_profile_for_project",
     "resolve_final_cut_inputs",
     "resolve_final_cut_variant",
+    "version_snapshot",
     "video_resource_type_for",
 ]

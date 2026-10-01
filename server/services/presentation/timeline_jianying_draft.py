@@ -31,6 +31,7 @@ from lib.edit_timeline import (
 )
 from lib.edit_timeline.bgm import bgm_ids
 from lib.edit_timeline.model import microseconds_to_seconds
+from lib.edit_timeline.readout import bgm_missing_issues
 from lib.edit_timeline.store import EditTimelineStore
 from lib.episode.episode_ids import episode_file_label
 from lib.i18n import _ as translate_default
@@ -254,11 +255,12 @@ class TimelineJianyingDraftService:
             referenced_bgm,
             lambda path: read_artifact_content_digest(adapter, path),
         )
-        if missing_bgm := [bgm_id for bgm_id in referenced_bgm if bgm_id not in bgm_sources]:
+        if missing_bgm := bgm_missing_issues(target.content, bgm_sources):
             raise JianyingDraftError(
                 "jianying_draft_blocked",
-                "BGM 不在项目里或文件已不在：" + "、".join(missing_bgm),
-                issues=[{"code": "bgm_missing", "bgm_id": bgm_id} for bgm_id in missing_bgm],
+                "BGM 不在项目里或文件已不在："
+                + "、".join(dict.fromkeys(issue.params["bgm_id"] for issue in missing_bgm)),
+                issues=[issue.model_dump(mode="json") for issue in missing_bgm],
             )
         return JianyingDraftJob(
             project_dir=project_dir,

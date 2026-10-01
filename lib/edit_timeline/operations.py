@@ -675,7 +675,7 @@ def apply_operations(
     operations: Sequence[TimelineOperation],
     sources: EpisodeSources,
     *,
-    next_bgm_number: int = 1,
+    next_bgm_number: int,
     check_windows: bool = True,
 ) -> AppliedBatch:
     """依次应用一批操作；任一条非法即抛出 ``operation_invalid``。
