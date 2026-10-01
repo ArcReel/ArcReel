@@ -7,7 +7,7 @@
 1. 为批次创建一个 label 为 `afk:<batch-id>` 的 workspace，从 JSON 响应记住 workspace、tab 与 pane ID。根 pane 留作锚点不关闭，否则最后一个 tab 关闭时 workspace 被回收。本批的全部 Herdr teammates 都放在该 workspace，按 issue / stage 按需建 tab。
 2. pane cwd 指向实际 worktree；native agent args 沿用 harness 的 permission / sandbox，额外可写目录包含 `<repo-root>/.afk/<batch-id>/`；codex teammate 使用 linked worktree 时另包含主仓 `<repo-root>/.git`。
 3. 启动 prompt 只注入 batch-id、当前 agent name / pane ID 与 team-lead pane ID，不注入其他 session 或 teammates 的寻址。
-4. 启动 prompt 写入文件，用 `bash scripts/herdr-deliver.sh <agent-name> <prompt-file>` 投递：刚启动的 agent 偶尔吞掉首个 prompt，脚本以观察到 working 或 blocked 为送达，否则先补回车，仍无活动且 agent 为 idle 时重发。输出 `DELIVERED` 才算委派完成；其余结果（`PROMPT_NOT_DELIVERED` 或 exit 2 的 Herdr 错误）读 stderr 与 pane 判断原因，作为运行故障处理。
+4. 启动 prompt 用 `agent prompt --wait` 投递，teammate 进入 working 或 blocked 才算送达。刚启动的 agent 偶尔吞掉首个 prompt，返回 `agent_prompt_stalled` 时先补回车：prompt 可能停在输入框，而长粘贴折叠成 `[Pasted text #N +M lines]`，pane 文本看不出来。补回车后仍无活动再重发。
 
 workspace 是拓扑与生命周期边界，不是消息权限边界。收尾时只关闭本批创建的 workspace。
 
